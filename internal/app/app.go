@@ -298,6 +298,7 @@ type App struct {
 
 	mu       sync.Mutex
 	wg       sync.WaitGroup                               // tracks run + dispatch goroutines for graceful Close
+	closed   bool                                         // set by Close: no new run/dispatch goroutines (no Add after Wait)
 	cancels  map[session.SessionID]context.CancelFunc     // in-flight runs (Interrupt)
 	perms    map[session.SessionID]map[string]chan string // pending permission decisions
 	grants   map[session.SessionID]map[string]bool        // "always" grants per tool
@@ -811,9 +812,9 @@ func (a *App) appendPrompt(ctx context.Context, c command.SubmitPrompt) error {
 // runs again so nothing is stranded.
 func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 	a.mu.Lock()
-	if a.cancels[sid] != nil {
+	if a.closed || a.cancels[sid] != nil {
 		a.mu.Unlock()
-		return // already running; the loop will pick up steered input on re-read
+		return // shutting down, or already running (the loop picks up steered input on re-read)
 	}
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	a.cancels[sid] = cancel
@@ -872,6 +873,7 @@ func (a *App) hasUnansweredUserPrompt(ctx context.Context, sid session.SessionID
 // test returns. Idempotent: safe to call more than once.
 func (a *App) Close(ctx context.Context) error {
 	a.mu.Lock()
+	a.closed = true // stop new run/dispatch goroutines so wg.Add can't follow wg.Wait
 	for _, cancel := range a.cancels {
 		cancel()
 	}

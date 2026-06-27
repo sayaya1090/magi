@@ -97,6 +97,10 @@ func (a *App) bgConsume(sid session.SessionID) {
 func (a *App) dispatch(ctx context.Context, parent session.Session, depth int, req port.SpawnRequest) string {
 	key := req.Agent + "\x00" + req.Prompt
 	a.mu.Lock()
+	if a.closed {
+		a.mu.Unlock()
+		return "" // shutting down: don't spawn a new background subagent
+	}
 	g := a.bgFor(parent.ID)
 	if g.inflight == nil {
 		g.inflight = map[string]bool{}
