@@ -202,8 +202,9 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 		// (e.g. the planner's reason) reflows instead of overflowing.
 		return indent(styleToolResult.Width(m.transcriptWidth() - 2).Render(strings.TrimRight(blk.text, "\n")))
 	case blockCouncilVerdict:
-		// Compact: a member-colored dot + name + decision icon/word. Rationale,
-		// lens, and feedback are hidden here — a click opens the detail modal.
+		// One-line summary in a 기승전결 order: WHO (member) → through which LENS →
+		// the VERDICT → with what CONFIDENCE. The rationale/feedback stay hidden —
+		// a click opens the full detail. (Decision word kept for NO_COLOR/mono.)
 		v := blk.councilVerdict
 		if v == nil {
 			return indent(styleToolResult.Render(strings.TrimRight(blk.text, "\n")))
@@ -215,7 +216,15 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 		if icon == "" {
 			icon = "·"
 		}
-		return indent(dot + " " + name + "  " + icon + " " + styleToolResult.Render(v.Decision))
+		line := dot + " " + name
+		if v.Lens != "" {
+			line += "  " + styleToolResult.Render("["+v.Lens+"]")
+		}
+		line += "  " + icon + " " + v.Decision
+		if v.Confidence > 0 {
+			line += styleToolResult.Render(fmt.Sprintf(" · %.0f%%", v.Confidence*100))
+		}
+		return indent(line)
 	case blockDiff:
 		return label(styleAsstLabel, "diff") + "\n" + indent(colorizeDiff(blk.text))
 	case blockReasoning:
