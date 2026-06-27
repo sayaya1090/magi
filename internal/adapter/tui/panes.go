@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image/color"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -24,6 +25,11 @@ type agentPane struct {
 	live      string // streaming text for the current step
 	liveThink string
 	done      bool
+
+	// per-subagent meter (§8.1): elapsed + tokens, shown as the pane's total
+	started time.Time
+	dur     time.Duration
+	in, out int
 
 	// subscription
 	ch     <-chan event.Event
@@ -237,7 +243,15 @@ func (m *Model) closePanes() {
 
 // applyPaneEvent folds a child-session event into its pane's transcript.
 func (m *Model) applyPaneEvent(p *agentPane, e event.Event) {
+	if p.started.IsZero() {
+		p.started = time.Now() // first event marks the subagent's start (§8.1)
+	}
 	switch e.Type {
+	case event.TypeContextUsage:
+		var d event.ContextUsageData
+		if json.Unmarshal(e.Data, &d) == nil {
+			p.in, p.out = d.Tokens, d.OutTokens
+		}
 	case event.TypePromptSubmitted:
 		// The subagent's first prompt IS its task — capture a summary for the label.
 		if p.task == "" {
@@ -286,6 +300,20 @@ func (m *Model) applyPaneEvent(p *agentPane, e event.Event) {
 		p.done = true
 		p.live = ""
 		p.liveThink = ""
+		if !p.started.IsZero() {
+			p.dur = time.Since(p.started)
+		}
+		if e.Type == event.TypeTurnFinished {
+			var fd event.TurnFinishedData
+			if json.Unmarshal(e.Data, &fd) == nil {
+				if fd.Usage.In > 0 {
+					p.in = fd.Usage.In
+				}
+				if fd.Usage.Out > 0 {
+					p.out = fd.Usage.Out
+				}
+			}
+		}
 	}
 }
 
@@ -413,12 +441,21 @@ func wrapLines(s string, width int) []string {
 	return strings.Split(wrapped, "\n")
 }
 
-// paneStatus is the trailing status glyph for a pane title.
+// paneStatus is the trailing status glyph + the subagent's meter (§8.1).
 func (m *Model) paneStatus(p *agentPane) string {
+	glyph := styleToolName.Render(m.sp.View())
 	if p.done {
-		return styleToolOK.Render("✓")
+		glyph = styleToolOK.Render("✓")
 	}
-	return styleToolName.Render(m.sp.View())
+	elapsed := p.dur
+	if elapsed == 0 && !p.started.IsZero() {
+		elapsed = time.Since(p.started)
+	}
+	meter := turnMeter(elapsed, p.in, p.out)
+	if meter == "" {
+		return glyph
+	}
+	return glyph + " " + styleFooter.Render(meter)
 }
 
 // paneTitle renders a pane's colored title bar: ● role  <id>  status.

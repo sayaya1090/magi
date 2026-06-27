@@ -122,8 +122,13 @@ type Model struct {
 	perm            *permReq
 	ctxPct          float64 // context window usage %
 	plannerMode     string  // last planner decision (solo | parallel N) shown in the header
-	councilRound    int     // current council round (0 = no council active); header chip
-	councilMember   string  // member currently being polled (live); cleared when the turn ends
+
+	turnStart     time.Time     // wall-clock start of the current turn (§8.1 elapsed)
+	turnDur       time.Duration // frozen elapsed of the last finished turn
+	turnIn        int           // current input/context tokens (↑)
+	turnOut       int           // cumulative output tokens this turn (↓)
+	councilRound  int           // current council round (0 = no council active); header chip
+	councilMember string        // member currently being polled (live); cleared when the turn ends
 
 	cache  []string // rendered finalized blocks (keyed by cacheW)
 	cacheW int      // width the cache was rendered at
@@ -1587,6 +1592,8 @@ func (m *Model) sendPrompt(display, send string) tea.Cmd {
 	m.closePanes() // a new turn retires the previous turn's subagent panes
 	m.blocks = append(m.blocks, block{kind: blockUser, text: display})
 	m.running = true
+	m.turnStart = time.Now() // §8.1: start the elapsed/token meter
+	m.turnIn, m.turnOut, m.turnDur = 0, 0, 0
 	m.refresh()
 	sid := m.sid
 	return tea.Batch(m.sp.Tick, func() tea.Msg {
@@ -1769,6 +1776,8 @@ func (m *Model) applyEvent(e event.Event) {
 		var d event.ContextUsageData
 		if json.Unmarshal(e.Data, &d) == nil {
 			m.ctxPct = d.Percent
+			m.turnIn = d.Tokens     // ↑ current context (§8.1)
+			m.turnOut = d.OutTokens // ↓ cumulative output so far
 		}
 
 	case event.TypeWorkflowPhase:
@@ -1832,6 +1841,19 @@ func (m *Model) applyEvent(e event.Event) {
 		m.activeAgents = nil
 		m.councilRound = 0
 		m.councilMember = ""
+		// Freeze the turn meter from the cumulative usage (§8.1).
+		if !m.turnStart.IsZero() {
+			m.turnDur = time.Since(m.turnStart)
+		}
+		var fd event.TurnFinishedData
+		if json.Unmarshal(e.Data, &fd) == nil {
+			if fd.Usage.In > 0 {
+				m.turnIn = fd.Usage.In
+			}
+			if fd.Usage.Out > 0 {
+				m.turnOut = fd.Usage.Out
+			}
+		}
 
 	case event.TypeError:
 		var d event.ErrorData
@@ -1842,6 +1864,9 @@ func (m *Model) applyEvent(e event.Event) {
 		m.activeAgents = nil
 		m.councilRound = 0
 		m.councilMember = ""
+		if !m.turnStart.IsZero() { // freeze the meter too (mirror panes) (§8.1)
+			m.turnDur = time.Since(m.turnStart)
+		}
 		m.blocks = append(m.blocks, block{kind: blockError, text: d.Message})
 	}
 }
@@ -2148,9 +2173,12 @@ func (m Model) View() tea.View {
 		"\n" + styleDivider.Render(strings.Repeat("─", max(1, m.width)))
 
 	var status string
-	if m.running {
-		status = "  " + m.sp.View() + styleFooter.Render(" working…  ") + footerKeys("esc", "interrupt")
-	} else {
+	switch {
+	case m.running:
+		status = "  " + m.sp.View() + styleFooter.Render(" working… "+turnMeter(time.Since(m.turnStart), m.turnIn, m.turnOut)+"  ") + footerKeys("esc", "interrupt")
+	case m.turnDur > 0:
+		status = styleFooter.Render("  "+turnMeter(m.turnDur, m.turnIn, m.turnOut)) + "   " + footer()
+	default:
 		status = footer()
 	}
 
@@ -2259,6 +2287,43 @@ func (m *Model) ctxMeter() string {
 		return ""
 	}
 	return fmt.Sprintf("   ctx %.0f%%", m.ctxPct)
+}
+
+// turnMeter renders elapsed + token usage, e.g. "3m49s · ↑28.1k ↓10.4k". Token
+// parts are omitted when unknown (a backend that reports no usage). (§8.1)
+func turnMeter(d time.Duration, in, out int) string {
+	s := fmtDur(d)
+	if in > 0 {
+		s += " · ↑" + humanTokens(in)
+	}
+	if out > 0 {
+		s += " ↓" + humanTokens(out)
+	}
+	return s
+}
+
+// fmtDur formats a duration compactly: "47s", "3m49s", "1h02m".
+func fmtDur(d time.Duration) string {
+	d = d.Round(time.Second)
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
+	}
+	return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
+}
+
+// humanTokens abbreviates token counts: 847, 10.4k, 1.2M.
+func humanTokens(n int) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	case n >= 1_000:
+		return fmt.Sprintf("%.1fk", float64(n)/1_000)
+	default:
+		return strconv.Itoa(n)
+	}
 }
 
 func footer() string {
