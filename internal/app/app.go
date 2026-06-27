@@ -16,6 +16,7 @@ import (
 
 	"github.com/sayaya1090/magi/internal/core/bus"
 	"github.com/sayaya1090/magi/internal/core/command"
+	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/model"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -166,6 +167,18 @@ type Config struct {
 	// whether the task splits into independent areas and, if so, fans out parallel
 	// read-only explorers and injects their findings before the main agent runs.
 	Planner bool
+
+	// Council, when non-nil, gates loop termination at depth 0 (D14): when the
+	// model would finish, a consensus council votes done/continue instead, and a
+	// "continue" injects the members' aggregated feedback back into the loop. nil
+	// disables the gate (the model's stop is final, the historical behavior).
+	Council port.Council
+	// CouncilRule is the consensus rule (default majority); CouncilMaxRounds caps
+	// council rounds per turn (default 3); CouncilMembers overrides the default
+	// MAGI trio.
+	CouncilRule      council.Rule
+	CouncilMaxRounds int
+	CouncilMembers   []council.Member
 }
 
 // withDefaults fills unset fields with sensible values.

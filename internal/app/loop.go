@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/sayaya1090/magi/internal/core/artifact"
+	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
@@ -99,6 +101,8 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	stopChecked := false // Stop hooks enforced at most once per run
 	nudgedEmpty := false // subagent empty-result nudge fired at most once
 	guard := newRunGuard()
+	councilRounds := 0       // consensus termination gate rounds this turn (D14)
+	lastCouncilFeedback := "" // last round's feedback (no-progress detection)
 
 	for step := 0; step < maxSteps; step++ {
 		if ctx.Err() != nil {
@@ -315,6 +319,16 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					continue
 				}
 			}
+			// Consensus council termination gate (D14): top level only, and not in
+			// workflow mode (the deterministic pipeline has its own per-phase verify
+			// gate, and each phase would otherwise be judged against the whole task).
+			// When the model would finish, the council votes; a "continue" injects
+			// feedback and the loop keeps going instead of finishing here.
+			if depth == 0 && a.cfg.Council != nil && !a.cfg.Workflow {
+				if a.runCouncilGate(ctx, s, lastText, &councilRounds, &lastCouncilFeedback) {
+					continue
+				}
+			}
 			u := event.Usage{}
 			if usage != nil {
 				u = *usage
@@ -388,6 +402,143 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	d, _ := json.Marshal(event.ErrorData{Message: "max steps reached", Code: "max_steps"})
 	a.appendFact(ctx, sid, event.TypeError, event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)
 	return lastText, nil
+}
+
+// councilDiffCap bounds the diff embedded in each member's prompt so a large
+// working diff doesn't multiply token cost by the member count each round.
+const councilDiffCap = 6000
+
+// truncateForCouncil clips s to at most n bytes (on a rune boundary), appending a
+// marker when truncated.
+func truncateForCouncil(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "\n…[diff truncated]"
+}
+
+// runCouncilGate runs the consensus termination gate (D14) at top level. It
+// returns true when the council voted to CONTINUE — it has injected the
+// aggregated feedback as a system prompt, so the caller should loop again. It
+// returns false when the turn may finish: the council voted done, rounds were
+// exhausted, the round made no progress, or the gate errored.
+//
+// Safety (so the council can never trap the loop): rounds are capped, repeated or
+// empty feedback stops the gate, and any deliberation error finishes the turn.
+func (a *App) runCouncilGate(ctx context.Context, s session.Session, lastText string, rounds *int, lastFeedback *string) bool {
+	// An interrupt mid-finish must not trigger a deliberation or inject a spurious
+	// feedback prompt — let the loop unwind the cancellation.
+	if ctx.Err() != nil {
+		return false
+	}
+	sid := s.ID
+	councilActor := event.Actor{Kind: event.ActorSystem, ID: "council"}
+
+	maxRounds := a.cfg.CouncilMaxRounds
+	if maxRounds <= 0 {
+		maxRounds = 3
+	}
+	if *rounds >= maxRounds {
+		// Round cap hit — finish (a normal outcome, not an error). Record why, on a
+		// fresh round number so it doesn't collide with the last deliberated round.
+		dd, _ := json.Marshal(event.CouncilDecidedData{
+			Round: *rounds + 1, Decision: string(council.Done),
+			Note: fmt.Sprintf("unresolved after %d rounds — finishing", maxRounds),
+		})
+		a.appendFact(ctx, sid, event.TypeCouncilDecided, councilActor, dd)
+		return false
+	}
+	*rounds++
+
+	members := a.cfg.CouncilMembers
+	if len(members) == 0 {
+		members = council.DefaultMembers()
+	}
+	rule := a.cfg.CouncilRule
+	if rule == "" {
+		rule = council.DefaultRule
+	}
+
+	// Evidence: the user's goal (Task), the agent's final message (Report/claim),
+	// and the working diff. Plan (acceptance criteria) and Signals are D15/D16.
+	evs, _ := a.store.Read(ctx, sid, 0)
+	task := firstUserText(reconstruct(evs))
+	diff, _ := a.GitDiff(ctx, s.Workdir)
+	diff = truncateForCouncil(diff, councilDiffCap) // bound per-member token cost
+
+	labels := make([]string, len(members))
+	for i, m := range members {
+		labels[i] = m.Name
+	}
+	cd, _ := json.Marshal(event.CouncilConvenedData{Round: *rounds, Members: labels, Rule: string(rule)})
+	a.appendFact(ctx, sid, event.TypeCouncilConvened, councilActor, cd)
+	// Live panel: announce which members are deliberating this round.
+	for _, m := range members {
+		ld, _ := json.Marshal(event.CouncilDeliberatingData{Round: *rounds, Member: m.Name, State: "asking"})
+		a.publishTransient(sid, event.TypeCouncilDeliberating, councilActor, ld)
+	}
+
+	delib, err := a.cfg.Council.Deliberate(ctx, port.DeliberationRequest{
+		Round:   *rounds,
+		Task:    task,
+		Report:  lastText,
+		Diff:    diff,
+		Members: members,
+		Rule:    rule,
+	})
+	if err != nil {
+		// A gate failure must not trap the turn — record it as a forced finish
+		// (a note, not an error event, since the turn completes normally).
+		dd, _ := json.Marshal(event.CouncilDecidedData{
+			Round: *rounds, Decision: string(council.Done), Note: "council unavailable: " + err.Error(),
+		})
+		a.appendFact(ctx, sid, event.TypeCouncilDecided, councilActor, dd)
+		return false
+	}
+	// An interrupt during deliberation: unwind rather than inject feedback.
+	if ctx.Err() != nil {
+		return false
+	}
+
+	for _, v := range delib.Verdicts {
+		vd, _ := json.Marshal(event.CouncilVerdictData{
+			Round: *rounds, Member: v.Member, Lens: v.Lens, Decision: string(v.Decision),
+			Confidence: v.Confidence, Rationale: v.Rationale, Feedback: v.Feedback,
+		})
+		a.appendFact(ctx, sid, event.TypeCouncilVerdict, councilActor, vd)
+	}
+	emitDecided := func(decision council.Decision, feedback, note string) {
+		dd, _ := json.Marshal(event.CouncilDecidedData{
+			Round: *rounds, Decision: string(decision), Tally: delib.Breakdown, Feedback: feedback, Note: note,
+		})
+		a.appendFact(ctx, sid, event.TypeCouncilDecided, councilActor, dd)
+	}
+
+	if delib.Decision != council.Continue {
+		emitDecided(council.Done, "", "")
+		return false // the council agrees the turn may finish
+	}
+
+	// No-progress guard: empty or repeated feedback means another round would just
+	// spin, so finish instead — recorded as a forced "done", not an error.
+	fb := strings.TrimSpace(delib.Feedback)
+	if fb == "" || fb == *lastFeedback {
+		emitDecided(council.Done, "", "members voted continue but gave no new feedback — finishing")
+		return false
+	}
+	*lastFeedback = fb
+
+	emitDecided(council.Continue, fb, "")
+	pd, _ := json.Marshal(event.PromptSubmittedData{
+		MessageID: "m_" + newID(),
+		Parts:     []session.Part{{Kind: session.PartText, Text: "Council review (not user input) — the task is not yet done:\n" + fb}},
+	})
+	a.appendFact(ctx, sid, event.TypePromptSubmitted, councilActor, pd)
+	return true
 }
 
 // executeTool runs one tool call (with permission gating) and persists the result.
@@ -819,6 +970,24 @@ func (a *App) allParallelSafe(calls []*session.ToolCall) bool {
 		}
 	}
 	return true
+}
+
+// firstUserText returns the text of the first user message — the original task
+// goal. The council uses this (not the latest user message) so that on later
+// rounds it judges against the real goal rather than its own injected feedback.
+func firstUserText(msgs []session.Message) string {
+	for _, m := range msgs {
+		if m.Role == session.RoleUser {
+			var b strings.Builder
+			for _, p := range m.Parts {
+				if p.Kind == session.PartText {
+					b.WriteString(p.Text)
+				}
+			}
+			return b.String()
+		}
+	}
+	return ""
 }
 
 // lastUserText returns the text of the most recent user message.
