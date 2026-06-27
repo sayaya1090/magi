@@ -1722,8 +1722,11 @@ func (m *Model) applyEvent(e event.Event) {
 		var d event.CouncilConvenedData
 		if json.Unmarshal(e.Data, &d) == nil {
 			m.councilRound = d.Round
-			m.blocks = append(m.blocks, block{kind: blockInfo,
-				text: fmt.Sprintf("⚖ council round %d — %s deliberate (%s)", d.Round, strings.Join(d.Members, ", "), d.Rule)})
+			line := fmt.Sprintf("⚖ council round %d — %s deliberate (%s)", d.Round, strings.Join(d.Members, ", "), d.Rule)
+			if len(d.Signals) > 0 {
+				line += " · " + strings.Join(d.Signals, ", ")
+			}
+			m.blocks = append(m.blocks, block{kind: blockInfo, text: line})
 		}
 
 	case event.TypeCouncilDeliberating:

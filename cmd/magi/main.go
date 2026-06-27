@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"charm.land/lipgloss/v2"
@@ -210,6 +211,9 @@ func run() int {
 		if len(proj.Council.Members) > 0 {
 			cfg.Council.Members = proj.Council.Members
 		}
+		if proj.Council.Verify != "" {
+			cfg.Council.Verify = proj.Council.Verify
+		}
 	}
 
 	// Resolve model/base_url/permission with precedence: explicit flag > env >
@@ -337,6 +341,7 @@ func run() int {
 		CouncilRule:      corecouncil.Rule(cfg.Council.Rule),
 		CouncilMaxRounds: cfg.Council.MaxRounds,
 		CouncilMembers:   toCouncilMembers(cfg.Council.Members),
+		CouncilVerifyCmd: cfg.Council.Verify,
 	})
 
 	// MCP: create manager for both config-based and plugin-based MCP servers
@@ -475,7 +480,11 @@ func renderText(e event.Event) {
 	case event.TypeCouncilConvened:
 		var d event.CouncilConvenedData
 		if json.Unmarshal(e.Data, &d) == nil {
-			fmt.Printf("⚖ council round %d — %v (%s)\n", d.Round, d.Members, d.Rule)
+			line := fmt.Sprintf("⚖ council round %d — %v (%s)", d.Round, d.Members, d.Rule)
+			if len(d.Signals) > 0 {
+				line += " · " + strings.Join(d.Signals, ", ")
+			}
+			fmt.Println(line)
 		}
 	case event.TypeCouncilDecided:
 		var d event.CouncilDecidedData
