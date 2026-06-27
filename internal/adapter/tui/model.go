@@ -1893,7 +1893,11 @@ func (m *Model) applyEvent(e event.Event) {
 					verdict = "proceed (no consensus)"
 				}
 			}
-			line := fmt.Sprintf("⚖ %s round %d: %s — %d done / %d continue", label, d.Round, verdict, d.Tally.Done, d.Tally.Continue)
+			doneLabel, contLabel := "done", "continue"
+			if d.Phase == "plan" {
+				doneLabel, contLabel = "approve", "revise" // plan audit votes are approve/revise, not done/continue
+			}
+			line := fmt.Sprintf("⚖ %s round %d: %s — %d %s / %d %s", label, d.Round, verdict, d.Tally.Done, doneLabel, d.Tally.Continue, contLabel)
 			if d.Tally.Abstain > 0 {
 				line += fmt.Sprintf(" / %d abstain", d.Tally.Abstain)
 			}

@@ -121,6 +121,10 @@ func TestCouncilPlanForcedProceedLabel(t *testing.T) {
 	if strings.Contains(last.text, ": approve ") {
 		t.Fatalf("forced finish must not read 'approve': %q", last.text)
 	}
+	// Plan tally uses approve/revise wording, not done/continue.
+	if !strings.Contains(last.text, "3 revise") || strings.Contains(last.text, "continue") {
+		t.Fatalf("plan tally should read 'N revise', not 'continue': %q", last.text)
+	}
 
 	// Termination no-progress forced finish (note ends in "finishing", 0 done) must
 	// read "finished (no consensus)", not "done".

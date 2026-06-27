@@ -171,8 +171,10 @@ func planMemberSystem(m council.Member, lens string) string {
 			"- \"done\" (approve): through your lens, the procedure is a sound plan for the task.\n"+
 			"- \"continue\" (revise): you can name a SPECIFIC, addressable flaw in the plan through your lens — a wrong, "+
 			"missing, or redundant step, or an approach that won't satisfy the task. Put the concrete fix in `feedback`.\n"+
-			"- \"abstain\": your lens cannot judge a plan from what is given (e.g. verification — there is nothing to "+
-			"verify until the work is done). Abstaining is excluded from the tally.\n\n"+
+			"- \"abstain\": your lens cannot judge a plan from what is given. In particular the VERIFICATION lens has "+
+			"nothing to verify at plan time (the work isn't done yet) — it must ABSTAIN, not revise. Missing tests or "+
+			"acceptance criteria are EXPECTED in a plan and are NOT a flaw to revise for. Abstaining is excluded from "+
+			"the tally.\n\n"+
 			"Do NOT revise for vague preferences, out of mere uncertainty, or because you would plan it slightly "+
 			"differently — only a concrete flaw. Never invent one. A SIMPLE task needs only a SIMPLE plan: do not "+
 			"demand extra steps or more detail when the plan would already accomplish it. A plan with no concrete flaw "+
