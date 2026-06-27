@@ -87,6 +87,10 @@ type CouncilConfig struct {
 	// evidence, not just the agent's claim.
 	Verify  string                `toml:"verify"`
 	Signals []CouncilSignalConfig `toml:"signal"`
+	// Criteria, when true, elicits explicit acceptance criteria from the task once
+	// per turn (one extra LLM call) and gives them to the council as the contract,
+	// so it judges "done" against concrete conditions. Opt-in (default off).
+	Criteria bool `toml:"criteria"`
 }
 
 // CouncilSignalConfig is a named deterministic check the council runs for evidence.
@@ -206,6 +210,7 @@ const defaultConfigTemplate = `# magi configuration. Everything here is optional
 # enabled    = true
 # rule       = "majority"   # unanimous | majority | quorum:2 | weighted:0.6 | veto:Balthasar
 # max_rounds = 3
+# criteria   = true         # elicit explicit acceptance criteria (1 extra LLM call/turn) as the council's contract
 # verify     = "go test ./..."   # opt-in: run each round, fed to the council as evidence
 # [[council.signal]]             # more named checks (test/lint/typecheck), all fed as evidence
 # name = "lint"

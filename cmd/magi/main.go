@@ -215,6 +215,9 @@ func run() int {
 			cfg.Council.Verify = proj.Council.Verify
 		}
 		cfg.Council.Signals = append(cfg.Council.Signals, proj.Council.Signals...)
+		if proj.Council.Criteria {
+			cfg.Council.Criteria = true
+		}
 	}
 
 	// Resolve model/base_url/permission with precedence: explicit flag > env >
@@ -355,6 +358,7 @@ func run() int {
 		CouncilMaxRounds: cfg.Council.MaxRounds,
 		CouncilMembers:   toCouncilMembers(cfg.Council.Members, cfg.LLM.Profiles),
 		CouncilSignals:   councilSignals(cfg.Council),
+		CouncilCriteria:  cfg.Council.Criteria,
 	})
 
 	// MCP: create manager for both config-based and plugin-based MCP servers
