@@ -51,11 +51,15 @@ func TestCouncilIndicator(t *testing.T) {
 	if v.councilVerdict.Member != "Melchior" || v.councilVerdict.Rationale == "" {
 		t.Fatalf("verdict block should carry the full vote data: %+v", v.councilVerdict)
 	}
-	// The compact render shows member + decision but NOT the rationale.
+	// The compact render shows member + decision but NOT the rationale. A termination
+	// "continue" is shown as "reject" (it's a rejection, not progress).
 	m.width = 80
 	compact := m.renderBlock(v)
-	if !strings.Contains(compact, "Melchior") || !strings.Contains(compact, "continue") {
-		t.Fatalf("compact line should show member + decision: %q", compact)
+	if !strings.Contains(compact, "Melchior") || !strings.Contains(compact, "reject") {
+		t.Fatalf("compact line should show member + reject (termination continue): %q", compact)
+	}
+	if strings.Contains(compact, "continue") {
+		t.Fatalf("termination verdict should read 'reject', not 'continue': %q", compact)
 	}
 	if strings.Contains(compact, "trailing newline") {
 		t.Fatalf("compact line must NOT include the rationale: %q", compact)
@@ -88,8 +92,9 @@ func TestCouncilIndicator(t *testing.T) {
 		t.Fatalf("councilMember should clear after a decision, got %q", m.councilMember)
 	}
 	last := m.blocks[len(m.blocks)-1]
-	if !strings.Contains(last.text, "continue") || !strings.Contains(last.text, "1 done / 2 continue") || !strings.Contains(last.text, "feedback injected") {
-		t.Fatalf("decided line missing tally/feedback: %q", last.text)
+	// Outcome word is "reject" (termination), tally counts and feedback still shown.
+	if !strings.Contains(last.text, "reject") || !strings.Contains(last.text, "1 done / 2 continue") || !strings.Contains(last.text, "feedback injected") {
+		t.Fatalf("decided line missing reject/tally/feedback: %q", last.text)
 	}
 
 	// Turn end clears the council indicator (chip disappears).

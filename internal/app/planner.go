@@ -274,7 +274,7 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		}
 		for _, v := range delib.Verdicts {
 			vd, _ := json.Marshal(event.CouncilVerdictData{
-				Round: round, Member: v.Member, Lens: v.Lens, Decision: string(v.Decision),
+				Round: round, Phase: "plan", Member: v.Member, Lens: v.Lens, Decision: string(v.Decision),
 				Confidence: v.Confidence, Rationale: v.Rationale, Feedback: v.Feedback,
 			})
 			a.appendFact(ctx, sid, event.TypeCouncilVerdict, actor, vd)

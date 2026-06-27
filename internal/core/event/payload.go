@@ -94,6 +94,7 @@ type CouncilConvenedData struct {
 // CouncilVerdictData — TypeCouncilVerdict (one member's vote).
 type CouncilVerdictData struct {
 	Round      int     `json:"round"`
+	Phase      string  `json:"phase,omitempty"` // "" (termination) or "plan" (plan audit) — selects the UI wording
 	Member     string  `json:"member"`
 	Lens       string  `json:"lens,omitempty"`
 	Decision   string  `json:"decision"` // done | continue | abstain

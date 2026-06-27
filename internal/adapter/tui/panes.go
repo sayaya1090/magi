@@ -494,38 +494,47 @@ func (m *Model) paneTitle(p *agentPane, width int, focused bool) string {
 // width and height. Panes stack vertically, sharing the height evenly; the
 // focused pane gets an M3 focus ring (its agent color). It records each pane's
 // screen rectangle (relative to the panes block) for hit-testing.
-func (m *Model) renderPanes(width, height, originY int) string {
-	n := len(m.panes)
-	if n == 0 {
+func (m *Model) renderPanes(width, originY int) string {
+	nShown, perPane, more, _ := m.paneLayout()
+	// Reset every pane's hit-test rect; only the shown panes get a fresh rect below.
+	// Otherwise a pane pushed behind "+N more" keeps a stale rect and a click could
+	// route to it (handlePaneClick scans all panes by p.h>0).
+	for _, p := range m.panes {
+		p.x, p.y, p.w, p.h = 0, 0, 0, 0
+	}
+	if nShown == 0 && more == 0 {
 		return ""
 	}
-	// Turn finished → collapse to a compact one-line-per-pane strip (still
-	// focusable/zoomable) so finished subagents don't keep eating half the screen.
+	moreLine := func() string {
+		return "  " + styleKeyLabel.Render(fmt.Sprintf("+%d more agent(s) — ctrl+o to open", more))
+	}
+	// Turn finished → compact one-line-per-pane strip (still focusable/zoomable) so
+	// finished subagents don't keep eating the screen. Capped to nShown.
 	if !m.running {
 		var rows []string
-		for i, p := range m.panes {
+		y := originY
+		for i := 0; i < nShown; i++ {
+			p := m.panes[i]
 			c := m.paneColorOf(p)
 			line := lipgloss.NewStyle().Foreground(c).Render("● ") +
 				lipgloss.NewStyle().Foreground(c).Bold(true).Render(p.desc(width-8)) + " " + m.paneStatus(p)
 			if i == m.focusPane {
 				line += " " + styleKeyLabel.Render("[focus: ctrl+o to open]")
 			}
-			p.x, p.y, p.w, p.h = 0, originY+i, width, 1
+			p.x, p.y, p.w, p.h = 0, y, width, 1
 			rows = append(rows, "  "+line)
+			y++
+		}
+		if more > 0 {
+			rows = append(rows, moreLine())
 		}
 		return strings.Join(rows, "\n")
 	}
-	if height < 3 {
-		return ""
-	}
-	// Each pane: 1 title + content, plus a 2-row border. Share height evenly.
-	per := height / n
-	if per < 3 {
-		per = 3
-	}
+	// Each pane: 1 title + content, plus a 2-row border. perPane comes from paneLayout.
 	var rendered []string
 	y := originY
-	for i, p := range m.panes {
+	for i := 0; i < nShown; i++ {
+		p := m.panes[i]
 		focused := i == m.focusPane
 		c := m.paneColorOf(p)
 		border := colOutlVar
@@ -535,15 +544,19 @@ func (m *Model) renderPanes(width, height, originY int) string {
 		box := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(border).
-			Width(max(8, width-2))
+			Width(max(8, width-2)).
+			MaxHeight(perPane) // hard cap: a wrapping title can't push the box past its reserve
 		inner := max(4, width-4)
-		contentRows := max(1, per-3) // minus border(2) + title(1)
+		contentRows := max(1, perPane-3) // minus border(2) + title(1)
 		body := m.paneTitle(p, inner, focused) + "\n" + m.paneTail(p, inner, contentRows)
-		r := box.Height(max(1, per-2)).Render(body)
+		r := box.Height(max(1, perPane-2)).Render(body)
 		// Record screen rect for click hit-testing.
 		p.x, p.y, p.w, p.h = 0, y, width, lipgloss.Height(r)
 		y += p.h
 		rendered = append(rendered, r)
+	}
+	if more > 0 {
+		rendered = append(rendered, moreLine())
 	}
 	return strings.Join(rendered, "\n")
 }

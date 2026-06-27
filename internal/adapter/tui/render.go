@@ -49,6 +49,27 @@ type block struct {
 	evidence       string
 }
 
+// councilVerdictLabel maps a member's raw decision to UI wording by phase. The
+// termination gate's "continue" is really a rejection (the result can't end the
+// turn); a plan audit's "continue" is a revise request. (done/abstain unchanged.)
+func councilVerdictLabel(phase, decision string) (icon, word string) {
+	switch decision {
+	case "done":
+		if phase == "plan" {
+			return "✓", "approve"
+		}
+		return "✓", "done"
+	case "continue":
+		if phase == "plan" {
+			return "↻", "revise"
+		}
+		return "✗", "reject"
+	case "abstain":
+		return "∅", "abstain"
+	}
+	return "·", decision
+}
+
 // transcript renders the full transcript plus any in-progress streaming text.
 // Finalized blocks are rendered once and cached (keyed by width), so streaming a
 // token does NOT re-run markdown rendering over the whole history — that
@@ -212,15 +233,12 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 		hue := m.councilColor(v.Member)
 		dot := lipgloss.NewStyle().Foreground(hue).Render("●")
 		name := lipgloss.NewStyle().Foreground(hue).Bold(true).Render(v.Member)
-		icon := map[string]string{"done": "✓", "continue": "↻", "abstain": "∅"}[v.Decision]
-		if icon == "" {
-			icon = "·"
-		}
+		icon, word := councilVerdictLabel(v.Phase, v.Decision)
 		line := dot + " " + name
 		if v.Lens != "" {
 			line += "  " + styleToolResult.Render("["+v.Lens+"]")
 		}
-		line += "  " + icon + " " + v.Decision
+		line += "  " + icon + " " + word
 		if v.Confidence > 0 {
 			line += styleToolResult.Render(fmt.Sprintf(" · %.0f%%", v.Confidence*100))
 		}

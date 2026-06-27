@@ -1881,14 +1881,10 @@ func (m *Model) applyEvent(e event.Event) {
 		var d event.CouncilDecidedData
 		if json.Unmarshal(e.Data, &d) == nil {
 			label := "council"
-			verdict := d.Decision
 			if d.Phase == "plan" {
 				label = "plan audit"
-				verdict = map[string]string{"done": "approve", "continue": "revise"}[d.Decision]
-				if verdict == "" {
-					verdict = d.Decision
-				}
 			}
+			_, verdict := councilVerdictLabel(d.Phase, d.Decision) // termination continue → reject; plan → approve/revise
 			line := fmt.Sprintf("⚖ %s round %d: %s — %d done / %d continue", label, d.Round, verdict, d.Tally.Done, d.Tally.Continue)
 			if d.Tally.Abstain > 0 {
 				line += fmt.Sprintf(" / %d abstain", d.Tally.Abstain)
@@ -1975,7 +1971,14 @@ const maxInputRows = 6
 
 // chromeHeight is the number of rows used by header + input + footer (+ modal /
 // command palette).
-func (m *Model) chromeHeight() int {
+// minViewport is the smallest transcript viewport we keep visible; the pane block
+// is capped so chrome + viewport never exceeds the screen (input stays on screen).
+const minViewport = 3
+
+// baseChromeHeight is the fixed chrome (everything except the agent-pane block):
+// header, bordered input, footer, and any active modal. It must NOT call
+// panesBlockHeight (panesBlockHeight derives its cap from this — no recursion).
+func (m *Model) baseChromeHeight() int {
 	inputRows := m.ta.Height()
 	if inputRows < 1 {
 		inputRows = 1
@@ -2001,10 +2004,11 @@ func (m *Model) chromeHeight() int {
 	if n := len(m.paletteMatches()); !m.running && n > 0 {
 		h += n + 2 // palette rows + box border
 	}
-	h += m.panesBlockHeight()
 	// The snackbar is a floating toast overlay (overlayLine), so it reserves no row.
 	return h
 }
+
+func (m *Model) chromeHeight() int { return m.baseChromeHeight() + m.panesBlockHeight() }
 
 // overlayLine composites overlay onto a screen row of content at display column
 // col (ANSI-aware), without changing the content's dimensions — used for toasts.
@@ -2033,21 +2037,71 @@ func overlayLine(content string, row, col int, overlay string) string {
 
 // panesBlockHeight is the rows reserved for the tiled subagent overview. Zero
 // when there are no panes or when zoomed (zoom takes over the whole viewport).
-func (m *Model) panesBlockHeight() int {
-	if len(m.panes) == 0 || m.zoom {
-		return 0
+// paneLayout is the SINGLE source of truth for how the agent panes fit on screen,
+// consumed by both panesBlockHeight (reserve) and renderPanes (render) so they can
+// never drift. It caps the pane block to the space left after base chrome and a
+// minimum viewport, and folds any overflow into a "+N more" summary row.
+//   nShown  = panes actually rendered
+//   perPane = rows each running pane gets (collapsed panes are 1 row)
+//   more    = panes hidden behind the "+N more" line (0 = none)
+//   total   = exact rendered height (== panesBlockHeight)
+func (m *Model) paneLayout() (nShown, perPane, more, total int) {
+	n := len(m.panes)
+	if n == 0 || m.zoom {
+		return 0, 0, 0, 0
+	}
+	capH := m.height - m.baseChromeHeight() - minViewport
+	if capH < 0 {
+		capH = 0
 	}
 	if !m.running {
-		return len(m.panes) // collapsed: one compact line per finished pane
+		// Collapsed: one row per finished pane.
+		if n <= capH {
+			return n, 1, 0, n
+		}
+		show := capH - 1 // reserve one row for "+N more"
+		if show <= 0 {
+			if capH >= 1 {
+				return 0, 0, n, 1 // only the summary fits
+			}
+			return 0, 0, 0, 0
+		}
+		return show, 1, n - show, show + 1
 	}
-	want := len(m.panes) * 6 // ~6 rows per pane (title + a few content lines + border)
-	if capH := m.height / 2; want > capH {
-		want = capH
+	// Running: a pane box is title + >=1 content + 2 border = >=4 rows (and renders
+	// exactly perPane rows when perPane>=4). Size the COUNT so show*4 fits the budget
+	// (capH minus a "+N more" row on overflow), so per-pane never floors past the cap.
+	const minPane = 4
+	maxShow := capH / minPane
+	if n > maxShow {
+		maxShow = (capH - 1) / minPane // overflow → one row goes to "+N more"
 	}
-	if want < 5 {
-		want = 5
+	show := n
+	if show > maxShow {
+		show = maxShow
 	}
-	return want
+	if show <= 0 {
+		if capH >= 1 {
+			return 0, 0, n, 1 // only the summary fits
+		}
+		return 0, 0, 0, 0
+	}
+	more = n - show
+	budget := capH
+	if more > 0 {
+		budget-- // reserve the "+N more" row
+	}
+	perPane = budget / show // >= minPane by construction (show*minPane <= budget)
+	total = show * perPane
+	if more > 0 {
+		total++
+	}
+	return show, perPane, more, total
+}
+
+func (m *Model) panesBlockHeight() int {
+	_, _, _, total := m.paneLayout()
+	return total
 }
 
 // refresh recomputes the viewport content and pins it to the bottom.
@@ -2065,8 +2119,8 @@ func (m *Model) refresh() {
 	// new content must not flip whether we were pinned to the bottom.
 	follow := m.vp.AtBottom()
 	vpHeight := m.height - m.chromeHeight()
-	if vpHeight < 3 {
-		vpHeight = 3
+	if vpHeight < minViewport {
+		vpHeight = minViewport
 	}
 	// Reserve the right status panel's width; the transcript wraps to the rest.
 	tw := m.width - m.panelCols()
@@ -2271,8 +2325,7 @@ func (m Model) View() tea.View {
 	tw := m.width - m.panelCols()
 	leftRows := []string{m.vp.View()}
 	aboveInput := 2 + m.vp.Height() // header(2: title+divider) + viewport rows above input
-	if ph := m.panesBlockHeight(); ph > 0 {
-		pv := m.renderPanes(tw, ph, aboveInput)
+	if pv := m.renderPanes(tw, aboveInput); pv != "" {
 		leftRows = append(leftRows, pv)
 		aboveInput += lipgloss.Height(pv)
 	}
@@ -2363,7 +2416,8 @@ func (m *Model) renderCouncilDetail(width int) string {
 	wrap := lipgloss.NewStyle().Width(max(8, width-2))
 	var b strings.Builder
 	// (The "‹ back" breadcrumb is the fixed header — see View.)
-	b.WriteString(lipgloss.NewStyle().Foreground(hue).Bold(true).Render("⚖ "+v.Member) + "  " + v.Decision)
+	icon, word := councilVerdictLabel(v.Phase, v.Decision)
+	b.WriteString(lipgloss.NewStyle().Foreground(hue).Bold(true).Render("⚖ "+v.Member) + "  " + icon + " " + word)
 	if v.Lens != "" {
 		b.WriteString(styleFooter.Render("  [" + v.Lens + "]"))
 	}
