@@ -102,8 +102,12 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	stopChecked := false // Stop hooks enforced at most once per run
 	nudgedEmpty := false // subagent empty-result nudge fired at most once
 	guard := newRunGuard()
-	councilRounds := 0       // consensus termination gate rounds this turn (D14)
+	councilRounds := 0        // consensus termination gate rounds this turn (D14)
 	lastCouncilFeedback := "" // last round's feedback (no-progress detection)
+	// Turn usage accumulation (§8.1): output tokens and cost sum across steps; input
+	// is the last step's (the current context size, not a sum).
+	var cumOut, lastIn int
+	var cumCost float64
 
 	for step := 0; step < maxSteps; step++ {
 		if ctx.Err() != nil {
@@ -170,7 +174,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		}
 
 		msgs := reconstruct(evs)
-		a.publishContextUsage(sid, agentActor, s.Model.Model, sys, msgs)
+		a.publishContextUsage(sid, agentActor, s.Model.Model, sys, msgs, cumOut)
 		// If auto-orchestration fires, it injects a directive as a new event; re-read
 		// and rebuild msgs so the directive reaches the model in THIS turn, not the next.
 		if a.checkAutoOrchestration(ctx, sid, depth, s.Model.Model, sys, msgs) {
@@ -230,6 +234,14 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		}
 		if streamErr {
 			return lastText, fmt.Errorf("provider error")
+		}
+		// Accumulate this step's usage into the turn totals (§8.1).
+		if usage != nil {
+			cumOut += usage.Out
+			if usage.In > 0 {
+				lastIn = usage.In
+			}
+			cumCost += a.cfg.Models.Get(s.Model.Model).Cost(usage.In, usage.Out)
 		}
 		// A cancelled context can end the stream early (empty); report it as an
 		// error rather than silently finishing the turn (so interrupts unwind and
@@ -332,12 +344,8 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 				}
 			}
 			a.setStage(sid, stageFinalize) // turn is ending (D15)
-			u := event.Usage{}
-			if usage != nil {
-				u = *usage
-				// Compute cost from the model registry (0 for local models).
-				u.Cost = a.cfg.Models.Get(s.Model.Model).Cost(u.In, u.Out)
-			}
+			// Turn-cumulative usage (§8.1): out/cost summed across steps, in = last.
+			u := event.Usage{In: lastIn, Out: cumOut, Cost: cumCost}
 			d, _ := json.Marshal(event.TurnFinishedData{Usage: u})
 			a.appendFact(ctx, sid, event.TypeTurnFinished, agentActor, d)
 			return lastText, nil
@@ -383,10 +391,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					ID: "p_" + newID(), Kind: session.PartText, Text: paneText,
 				})
 			}
-			u := event.Usage{}
-			if usage != nil {
-				u = *usage
-			}
+			u := event.Usage{In: lastIn, Out: cumOut, Cost: cumCost}
 			d, _ := json.Marshal(event.TurnFinishedData{Usage: u})
 			a.appendFact(ctx, sid, event.TypeTurnFinished, agentActor, d)
 			return rep.result(answer), nil
@@ -1002,14 +1007,15 @@ func oneLineHint(s string) string {
 }
 
 // publishContextUsage emits a live context meter for the UI (M6/context mgmt).
-func (a *App) publishContextUsage(sid session.SessionID, actor event.Actor, modelID, sys string, msgs []session.Message) {
+// outTokens is the turn's cumulative output so far, for the live ↓ readout (§8.1).
+func (a *App) publishContextUsage(sid session.SessionID, actor event.Actor, modelID, sys string, msgs []session.Message, outTokens int) {
 	window := a.cfg.Models.Get(modelID).ContextWindow
 	tokens := a.contextTokens(sid, sys, msgs)
 	pct := 0.0
 	if window > 0 {
 		pct = float64(tokens) / float64(window) * 100
 	}
-	d, _ := json.Marshal(event.ContextUsageData{Tokens: tokens, Window: window, Percent: pct})
+	d, _ := json.Marshal(event.ContextUsageData{Tokens: tokens, Window: window, Percent: pct, OutTokens: outTokens})
 	a.publishTransient(sid, event.TypeContextUsage, actor, d)
 }
 
