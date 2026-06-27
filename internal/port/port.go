@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 
 	"github.com/sayaya1090/magi/internal/core/artifact"
+	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -59,6 +60,29 @@ type ProviderEvent struct {
 	// text output (prompt-based fallback) rather than native tool_calls. The
 	// loop uses this to avoid also persisting the text as a separate part.
 	FromText bool
+}
+
+// ---- Council (D14: consensus termination gate) ----
+
+// Council deliberates at the loop's termination gate: it polls the members
+// (e.g. each over an LLMProvider) and returns the tallied decision. The
+// consensus logic itself is the pure core/council package; an implementation of
+// this port supplies the I/O (asking each member, parsing their verdict).
+type Council interface {
+	Deliberate(ctx context.Context, req DeliberationRequest) (council.Deliberation, error)
+}
+
+// DeliberationRequest is the evidence the council judges: the agent's CLAIM
+// (Report) against the CONTRACT (Plan/Task) using EVIDENCE (Signals/Diff).
+type DeliberationRequest struct {
+	Round   int              // 1-based council round within the turn
+	Task    string           // the user's original goal/request
+	Plan    string           // acceptance criteria / contract (optional)
+	Report  string           // the agent's self-reported result / claim (optional)
+	Signals []string         // deterministic evidence lines (build/test/lint), optional
+	Diff    string           // working diff (optional)
+	Members []council.Member // who votes (defaults to the MAGI when empty)
+	Rule    council.Rule     // how votes are tallied (defaults to majority)
 }
 
 // ---- Store (D6: event-sourced persistence; jsonl is the first impl) ----
