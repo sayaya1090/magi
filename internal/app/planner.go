@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
@@ -19,33 +20,50 @@ import (
 // routable like any other agent, e.g. [routing] planner = "fast").
 const plannerAgent = "planner"
 
-// maxPlanGroups caps the planner's fan-out so a runaway decomposition can't
-// spawn an unbounded number of explorers.
-const maxPlanGroups = 5
+const (
+	maxPlanGroups     = 5 // explorers per single parallel/scout fan-out
+	maxPlanSteps      = 6 // ordered steps the planner may propose
+	maxPlanExplorers  = 8 // per-turn TOTAL explorer spawns (a per-turn budget, not the lifetime MaxAgents)
+	maxPlanAuditRound = 2 // plan-audit revise rounds before a forced approve
+)
 
-// planGroup is one independent investigation the planner wants to parallelize.
+// planGroup is one independent investigation to parallelize.
 type planGroup struct {
 	Agent    string `json:"agent"`    // read-only explorer: explore|locator|analyst
 	Focus    string `json:"focus"`    // short label of the area
 	Question string `json:"question"` // what this explorer should find out
 }
 
-// planResult is the planner's verdict: investigate solo, or fan out to groups.
+// planStep is one ordered step of the procedure plus HOW to execute it (D17).
+type planStep struct {
+	Title    string      `json:"title"`            // human-facing step (becomes a todo)
+	Strategy string      `json:"strategy"`         // solo | parallel | scout
+	Groups   []planGroup `json:"groups,omitempty"` // parallel: explorers to fan out
+	// scout (adaptive): discover a work-list at runtime, then fan out one explorer
+	// per item — this is what lets "list the docs, then read each in parallel" be
+	// expressed without the planner knowing the list in advance.
+	Agent    string `json:"agent,omitempty"`    // scout + per-item explorer (read-only)
+	Discover string `json:"discover,omitempty"` // what list to produce, e.g. "the markdown files under docs/"
+	Each     string `json:"each,omitempty"`     // what to find out about each discovered item
+}
+
+// planResult is the planner's procedure: an ordered list of steps.
 type planResult struct {
-	Parallel bool        `json:"parallel"`
-	Reason   string      `json:"reason"`
-	Groups   []planGroup `json:"groups"`
+	Steps  []planStep `json:"steps"`
+	Reason string     `json:"reason"`
 }
 
 // readOnlyExplorers are the only agents the planner may dispatch — investigation
 // is read-only, so there are no file conflicts and nothing to fabricate-then-write.
 var readOnlyExplorers = map[string]bool{"explore": true, "locator": true, "analyst": true}
 
-// maybePlanPreflight runs the planner before a top-level turn (free-form or
-// workflow). If the planner judges the task parallelizable, it dispatches the
-// read-only explorers concurrently and injects their combined findings into the
-// session so the main agent starts with that context. Best-effort: any failure
-// degrades to solo (the normal path), never blocking the turn.
+// maybePlanPreflight runs the procedure planner before a top-level turn. It (1)
+// decomposes the request into ordered steps, (2) — for a multi-step plan — has
+// the council audit the procedure before any work, (3) registers the steps as the
+// session's todos (the council contract), (4) executes each step with its own
+// strategy (solo|parallel|scout, scout being adaptive), and (5) injects the
+// gathered findings so the main agent starts with them. Best-effort throughout:
+// any failure degrades to solo (the normal path) and never blocks the turn.
 func (a *App) maybePlanPreflight(ctx context.Context, s session.Session) {
 	if !a.cfg.Planner {
 		return
@@ -60,31 +78,48 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session) {
 	}
 	a.setStage(s.ID, stagePlan) // tag pre-flight planning events as the plan stage (D15)
 
-	plan := a.runPlanner(ctx, spec, s, prompt)
-	reason := strings.TrimSpace(plan.Reason)
-	groups := sanitizePlan(plan)
-	if len(groups) < 2 {
-		a.emitPhase(s.ID, "plan", "solo", reason) // ran, judged single-area
-		return                                    // solo — the default, cheap path
+	plan := a.runPlanner(ctx, spec, s, prompt, "")
+	steps := sanitizeSteps(plan)
+	if len(steps) == 0 {
+		a.emitPhase(s.ID, "plan", "solo", strings.TrimSpace(plan.Reason)) // ran, judged single-area
+		return                                                            // solo — the default, cheap path
 	}
 
-	a.emitPhase(s.ID, "plan", "parallel", fmt.Sprintf("%d explorers · %s", len(groups), reason))
-	findings := a.runExplorers(ctx, s, groups)
+	// Plan audit (D17): a multi-step procedure is reviewed by the council BEFORE it
+	// runs. Suppressed in workflow mode (the deterministic engine owns staging) and
+	// when no council is configured.
+	if len(steps) >= 2 && a.cfg.Council != nil && !a.cfg.Workflow {
+		steps = a.runPlanAuditGate(ctx, s, spec, prompt, steps)
+		if len(steps) < 2 {
+			if len(steps) == 0 {
+				return
+			}
+			// audit collapsed it to a single step → nothing to fan out
+		}
+	}
+
+	a.registerPlanTodos(s.ID, steps)
+	a.emitPhase(s.ID, "plan", planSummary(steps), strings.TrimSpace(plan.Reason))
+
+	findings := a.executeSteps(ctx, s, steps)
 	if strings.TrimSpace(findings) == "" {
 		return
 	}
 	a.injectPlannerFindings(ctx, s.ID, findings)
 }
 
-// runPlanner does a single, tool-free LLM call on the planner's own provider and
-// parses the first JSON object from the reply. Returns a zero planResult on any
-// error (→ solo).
-func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session, prompt string) planResult {
-	sys := spec.System + "\n\n# Repository (top level)\n" + repoMap(s.Workdir) +
-		"\n\nReply with ONLY a JSON object, no prose."
-	// Write the human-facing 'reason' in the user's language (the JSON keys stay ASCII).
+// runPlanner does a single tool-free LLM call on the planner's own provider and
+// parses the procedure from the reply. revise is non-empty on a re-plan after a
+// council plan-audit asked for changes. Returns a zero planResult on any error.
+func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session, prompt, revise string) planResult {
+	sys := spec.System + "\n\n# Repository (top level)\n" + repoMap(s.Workdir) + "\n\n" + plannerContract
 	if dir := langDirective(prompt); dir != "" {
 		sys = dir + " Write the JSON \"reason\" value in that language.\n\n" + sys
+	}
+	user := prompt
+	if strings.TrimSpace(revise) != "" {
+		// Re-plan: fold the council's revise feedback into the request.
+		user = prompt + "\n\n# Council review of your previous plan (address this and re-plan):\n" + revise
 	}
 	model := s.Model.Model
 	if spec.Model != (session.ModelRef{}) {
@@ -93,7 +128,7 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 	req := port.ChatRequest{
 		Model:    model,
 		System:   sys,
-		Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: prompt}}}},
+		Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: user}}}},
 	}
 	stream, err := a.providerFor(spec).StreamChat(ctx, req)
 	if err != nil {
@@ -107,6 +142,19 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 	}
 	return parsePlan(b.String())
 }
+
+// plannerContract instructs the planner to emit an ordered procedure with a
+// per-step execution strategy, not a solo/parallel boolean.
+const plannerContract = "Plan the PROCEDURE to handle the request: an ordered list of steps, each with how to execute it. " +
+	"Keep it minimal — only steps that genuinely help; a simple request is a single step.\n\n" +
+	"Each step has a \"strategy\":\n" +
+	"- \"solo\": the main agent will do it directly (no explorer). Use for anything that writes/edits, or that needs full context.\n" +
+	"- \"parallel\": independent read-only investigations you already know — give \"groups\" (each {agent, focus, question}).\n" +
+	"- \"scout\": you DON'T yet know the work-list — give \"discover\" (what list to produce, e.g. \"the markdown files under docs/\") " +
+	"and \"each\" (what to find out about every item); a read-only explorer lists them, then one explorer runs per item in parallel.\n\n" +
+	"Explorers are READ-ONLY (agent ∈ explore|locator|analyst); never use them to write. " +
+	"Reply with ONLY a JSON object, no prose:\n" +
+	`{"reason":"one sentence","steps":[{"title":"...","strategy":"solo|parallel|scout","groups":[{"agent":"explore","focus":"...","question":"..."}],"agent":"explore","discover":"...","each":"..."}]}`
 
 // parsePlan extracts the first {...} JSON object from text (models often wrap it
 // in prose or fences) and unmarshals it. Invalid → zero planResult.
@@ -123,21 +171,257 @@ func parsePlan(text string) planResult {
 	return p
 }
 
-// sanitizePlan enforces the guardrails: only when parallel, only read-only
-// explorers (others coerced to explore), non-empty questions, capped fan-out.
-func sanitizePlan(p planResult) []planGroup {
-	if !p.Parallel {
-		return nil
+// sanitizeSteps enforces guardrails: valid strategies, read-only explorers, a
+// usable shape per strategy, and a capped step count. A "solo" step is kept (it
+// structures the procedure / todos) even though it dispatches nothing.
+func sanitizeSteps(p planResult) []planStep {
+	var out []planStep
+	for _, st := range p.Steps {
+		st.Title = strings.TrimSpace(st.Title)
+		st.Strategy = strings.ToLower(strings.TrimSpace(st.Strategy))
+		switch st.Strategy {
+		case "parallel":
+			var g []planGroup
+			for _, x := range st.Groups {
+				if strings.TrimSpace(x.Question) == "" {
+					continue
+				}
+				if !readOnlyExplorers[x.Agent] {
+					x.Agent = "explore"
+				}
+				g = append(g, x)
+				if len(g) == maxPlanGroups {
+					break
+				}
+			}
+			if len(g) == 0 {
+				continue // parallel with no usable groups is meaningless
+			}
+			st.Groups = g
+		case "scout":
+			if strings.TrimSpace(st.Discover) == "" {
+				continue
+			}
+			if !readOnlyExplorers[st.Agent] {
+				st.Agent = "explore"
+			}
+		case "solo":
+			// keep as-is
+		default:
+			continue // unknown strategy → drop
+		}
+		if st.Title == "" {
+			st.Title = st.Strategy + " step"
+		}
+		out = append(out, st)
+		if len(out) == maxPlanSteps {
+			break
+		}
 	}
-	var out []planGroup
-	for _, g := range p.Groups {
-		if strings.TrimSpace(g.Question) == "" {
+	return out
+}
+
+// runPlanAuditGate has the council review the PROCEDURE before it runs (D17). It
+// returns the procedure to execute — the original (approved or force-approved) or
+// a revised one. The pure tally is reused via the council adapter with Phase=plan;
+// there is no diff/report/signals, and revise feedback drives a re-plan (it is NOT
+// injected into the main session). It has its own bounded rounds.
+func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec AgentSpec, prompt string, steps []planStep) []planStep {
+	sid := s.ID
+	actor := event.Actor{Kind: event.ActorSystem, ID: "council"}
+	a.setStage(sid, stageCouncil)
+	members := a.cfg.CouncilMembers
+	if len(members) == 0 {
+		members = council.DefaultMembers()
+	}
+	labels := make([]string, len(members))
+	for i, m := range members {
+		labels[i] = m.Name
+	}
+	const rule = council.Rule("quorum:1") // a plan one member approves proceeds; revise only if none do
+
+	for round := 1; round <= maxPlanAuditRound; round++ {
+		if ctx.Err() != nil {
+			return steps
+		}
+		cd, _ := json.Marshal(event.CouncilConvenedData{Round: round, Phase: "plan", Members: labels, Rule: string(rule)})
+		a.appendFact(ctx, sid, event.TypeCouncilConvened, actor, cd)
+		for _, m := range members {
+			ld, _ := json.Marshal(event.CouncilDeliberatingData{Round: round, Member: m.Name, State: "asking"})
+			a.publishTransient(sid, event.TypeCouncilDeliberating, actor, ld)
+		}
+
+		delib, err := a.cfg.Council.Deliberate(ctx, port.DeliberationRequest{
+			Round: round, Phase: "plan", Task: prompt, Plan: renderSteps(steps),
+			Members: members, Rule: rule, DefaultModel: s.Model.Model,
+		})
+		if err != nil { // a gate failure must not block the turn → proceed with the plan
+			dd, _ := json.Marshal(event.CouncilDecidedData{Round: round, Phase: "plan", Decision: string(council.Done), Note: "plan council unavailable: " + err.Error()})
+			a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd)
+			return steps
+		}
+		for _, v := range delib.Verdicts {
+			vd, _ := json.Marshal(event.CouncilVerdictData{
+				Round: round, Member: v.Member, Lens: v.Lens, Decision: string(v.Decision),
+				Confidence: v.Confidence, Rationale: v.Rationale, Feedback: v.Feedback,
+			})
+			a.appendFact(ctx, sid, event.TypeCouncilVerdict, actor, vd)
+		}
+
+		if delib.Decision == council.Done { // approve
+			dd, _ := json.Marshal(event.CouncilDecidedData{Round: round, Phase: "plan", Decision: string(council.Done), Tally: delib.Breakdown})
+			a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd)
+			return steps
+		}
+
+		// revise — but stop if the cap is hit or there is no actionable feedback.
+		fb := strings.TrimSpace(delib.Feedback)
+		if round >= maxPlanAuditRound || fb == "" {
+			dd, _ := json.Marshal(event.CouncilDecidedData{
+				Round: round, Phase: "plan", Decision: string(council.Done), Tally: delib.Breakdown,
+				Note: fmt.Sprintf("plan unresolved after %d round(s) — proceeding", round),
+			})
+			a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd)
+			return steps
+		}
+		dd, _ := json.Marshal(event.CouncilDecidedData{Round: round, Phase: "plan", Decision: string(council.Continue), Tally: delib.Breakdown, Feedback: fb})
+		a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd)
+
+		// Re-plan with the feedback folded in.
+		a.setStage(sid, stagePlan)
+		next := sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, fb))
+		a.setStage(sid, stageCouncil)
+		if len(next) == 0 {
+			return steps // re-plan failed → keep the prior plan
+		}
+		steps = next
+	}
+	return steps
+}
+
+// renderSteps formats the procedure for the council to audit and for the todos.
+func renderSteps(steps []planStep) string {
+	var b strings.Builder
+	for i, st := range steps {
+		fmt.Fprintf(&b, "%d. [%s] %s", i+1, st.Strategy, st.Title)
+		switch st.Strategy {
+		case "scout":
+			fmt.Fprintf(&b, " (discover: %s; each: %s)", st.Discover, st.Each)
+		case "parallel":
+			fmt.Fprintf(&b, " (%d investigations)", len(st.Groups))
+		}
+		b.WriteString("\n")
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// planSummary is a short status detail for the plan phase event.
+func planSummary(steps []planStep) string {
+	parts := make([]string, len(steps))
+	for i, st := range steps {
+		parts[i] = st.Strategy
+	}
+	return fmt.Sprintf("%d steps: %s", len(steps), strings.Join(parts, "→"))
+}
+
+// registerPlanTodos seeds the session plan with the procedure's steps so the TUI
+// shows one plan and the council reads it as the contract. The main agent takes
+// these over and updates them (see injectPlannerFindings).
+func (a *App) registerPlanTodos(sid session.SessionID, steps []planStep) {
+	td := make([]session.Todo, 0, len(steps))
+	for _, st := range steps {
+		td = append(td, session.Todo{Content: st.Title, Status: "pending"})
+	}
+	a.SetTodos(sid, td)
+}
+
+// executeSteps runs each step by its strategy, accumulating explorer findings.
+// A per-turn explorer budget caps total dispatch; a step that can't dispatch
+// (solo, or a scout/parallel that yields nothing) degrades to "the main agent
+// handles it" without aborting the procedure.
+func (a *App) executeSteps(ctx context.Context, s session.Session, steps []planStep) string {
+	budget := maxPlanExplorers
+	var out []string
+	for _, st := range steps {
+		if budget <= 0 || ctx.Err() != nil {
+			break
+		}
+		var groups []planGroup
+		switch st.Strategy {
+		case "parallel":
+			groups = capGroups(st.Groups, &budget)
+		case "scout":
+			groups = a.scoutGroups(ctx, s, st, &budget)
+		default: // solo → main agent does it; nothing to dispatch
 			continue
 		}
-		if !readOnlyExplorers[g.Agent] {
-			g.Agent = "explore"
+		if len(groups) == 0 {
+			continue // per-step degrade
 		}
-		out = append(out, g)
+		if f := strings.TrimSpace(a.runExplorers(ctx, s, groups)); f != "" {
+			out = append(out, "### "+st.Title+"\n"+f)
+		}
+	}
+	return strings.Join(out, "\n\n")
+}
+
+// capGroups trims a parallel step's groups to the remaining per-turn budget.
+func capGroups(groups []planGroup, budget *int) []planGroup {
+	if len(groups) > *budget {
+		groups = groups[:*budget]
+	}
+	*budget -= len(groups)
+	return groups
+}
+
+// scoutGroups runs the scout: one read-only explorer produces a work-list, then
+// each item becomes a parallel investigation. This is the adaptive scout→fanout —
+// the fan-out targets are discovered at runtime, not pre-planned.
+func (a *App) scoutGroups(ctx context.Context, s session.Session, st planStep, budget *int) []planGroup {
+	agent := st.Agent
+	if !readOnlyExplorers[agent] {
+		agent = "explore"
+	}
+	if *budget <= 0 {
+		return nil
+	}
+	listPrompt := fmt.Sprintf("List %s. Output ONLY the items, one per line — no prose, no numbering, no bullets, no markdown.", st.Discover)
+	r := a.spawn(ctx, s, 0, port.SpawnRequest{Agent: agent, Prompt: listPrompt})
+	*budget-- // the scout itself counts
+	if r.Err != "" {
+		return nil
+	}
+	items := parseList(r.Text)
+	each := strings.TrimSpace(st.Each)
+	if each == "" {
+		each = "Investigate this item (read-only)"
+	}
+	var groups []planGroup
+	for _, it := range items {
+		if *budget <= 0 || len(groups) == maxPlanGroups {
+			break
+		}
+		groups = append(groups, planGroup{Agent: agent, Focus: it, Question: each + "\n\nItem: " + it})
+		*budget--
+	}
+	return groups
+}
+
+// parseList turns a scout's free-text reply into a clean work-list: one item per
+// line, stripping numbering/bullets/fences and blank or prose-like lines.
+func parseList(text string) []string {
+	var out []string
+	for _, ln := range strings.Split(text, "\n") {
+		ln = strings.TrimSpace(ln)
+		if ln == "" || strings.HasPrefix(ln, "```") {
+			continue
+		}
+		ln = strings.TrimLeft(ln, "-*•0123456789.) \t")
+		ln = strings.TrimSpace(ln)
+		if ln == "" || len(ln) > 200 || strings.Contains(ln, " ") && len(strings.Fields(ln)) > 12 {
+			continue // skip prose-y lines; work-list items are short tokens/paths/names
+		}
+		out = append(out, ln)
 		if len(out) == maxPlanGroups {
 			break
 		}
@@ -180,12 +464,14 @@ func (a *App) runExplorers(ctx context.Context, s session.Session, groups []plan
 }
 
 // injectPlannerFindings appends the explorers' combined findings as a system
-// message so the main agent begins with them.
+// message so the main agent begins with them, and hands over the plan todos.
 func (a *App) injectPlannerFindings(ctx context.Context, sid session.SessionID, findings string) {
 	text := "# Investigation findings (from the explorer subagents you just dispatched)\n\n" + findings +
 		"\n\n---\nThese are the results of YOUR OWN read-only explorers — trust them as your primary " +
 		"source and SYNTHESIZE from them directly. Do NOT re-read or re-investigate what is already " +
-		"covered above; open a file again only if you must quote or modify an exact line. Proceed with the task."
+		"covered above; open a file again only if you must quote or modify an exact line. " +
+		"A plan (todos) has been set for this task — CONTINUE and update those todos as you go; do not replace them wholesale. " +
+		"Proceed with the task."
 	pd, _ := json.Marshal(event.PromptSubmittedData{
 		MessageID: "m_" + newID(),
 		Parts:     []session.Part{{Kind: session.PartText, Text: text}},

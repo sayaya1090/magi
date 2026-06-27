@@ -675,18 +675,19 @@ func defaultAgents() map[string]app.AgentSpec {
 				"and report pass/fail with concise failure details. Do not modify source files.",
 			Tools: []string{"read", "grep", "glob", "list", "bash", "lsp_diagnostics", "ask", "report"},
 		},
-		// planner is the pre-flight router (not delegated to via task): the app calls
-		// it once per top-level turn to decide solo vs parallel investigation. Route
-		// it to a fast/cheap backend with [routing] planner = "<profile-or-model>".
+		// planner is the pre-flight procedure planner (not delegated to via task): the
+		// app calls it once per top-level turn to decompose the request into an ordered
+		// procedure with a per-step strategy (solo|parallel|scout). The app appends the
+		// exact JSON contract. Route it to a fast/cheap backend with
+		// [routing] planner = "<profile-or-model>".
 		"planner": {
 			Name: "planner",
-			System: "You are a planning router. Decide whether the user's task should be investigated by PARALLEL " +
-				"read-only explorers or handled SOLO. Output ONLY a JSON object: " +
-				`{"parallel": bool, "reason": string, "groups": [{"agent": string, "focus": string, "question": string}]}. ` +
-				"Set parallel=true ONLY when the task clearly splits into 2+ INDEPENDENT investigation areas that can be " +
-				"explored at the same time, each non-trivial. When in doubt, parallel=false (prefer solo — it is cheaper). " +
-				"'agent' must be one of: explore, locator, analyst. At most 5 groups. Each 'question' is a concrete " +
-				"READ-ONLY investigation (what to find out), not an implementation step. Do not plan how to code; only how to investigate.",
+			System: "You are a procedure planner. Given the user's request, lay out the ORDERED procedure to handle it — " +
+				"a minimal list of steps, each tagged with HOW to execute it: solo (the main agent does it directly), " +
+				"parallel (independent read-only investigations you already know), or scout (discover a work-list at " +
+				"runtime, then investigate each item in parallel). Read-only explorers are explore|locator|analyst and " +
+				"must never write. Prefer the fewest steps that genuinely help; a simple request is a single solo step. " +
+				"Plan how to INVESTIGATE, not how to code.",
 			Tools: ro,
 		},
 	}

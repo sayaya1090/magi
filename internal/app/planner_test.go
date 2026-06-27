@@ -3,55 +3,77 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
 	"github.com/sayaya1090/magi/internal/core/bus"
 	"github.com/sayaya1090/magi/internal/core/command"
+	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
 func TestParsePlan(t *testing.T) {
-	// Clean object.
-	if p := parsePlan(`{"parallel":true,"groups":[{"agent":"explore","focus":"a","question":"q"}]}`); !p.Parallel || len(p.Groups) != 1 {
+	// Clean object with an ordered procedure.
+	p := parsePlan(`{"reason":"r","steps":[{"title":"t","strategy":"parallel","groups":[{"agent":"explore","focus":"a","question":"q"}]}]}`)
+	if len(p.Steps) != 1 || p.Steps[0].Strategy != "parallel" || len(p.Steps[0].Groups) != 1 {
 		t.Errorf("clean parse failed: %+v", p)
 	}
 	// Wrapped in prose / fences.
-	if p := parsePlan("Sure!\n```json\n{\"parallel\": false}\n```\n"); p.Parallel {
+	if p := parsePlan("Sure!\n```json\n{\"steps\":[{\"title\":\"x\",\"strategy\":\"solo\"}]}\n```\n"); len(p.Steps) != 1 {
 		t.Errorf("prose-wrapped parse: %+v", p)
 	}
 	// Garbage → zero value (solo).
-	if p := parsePlan("no json here"); p.Parallel || p.Groups != nil {
-		t.Errorf("garbage should yield zero: %+v", p)
+	if p := parsePlan("no json here"); len(p.Steps) != 0 {
+		t.Errorf("garbage should yield no steps: %+v", p)
 	}
 }
 
-func TestSanitizePlan(t *testing.T) {
-	// parallel=false → nil regardless of groups.
-	if g := sanitizePlan(planResult{Parallel: false, Groups: []planGroup{{Agent: "explore", Question: "q"}}}); g != nil {
-		t.Errorf("non-parallel should sanitize to nil, got %v", g)
-	}
-	// non-explorer coerced to explore; empty question dropped.
-	got := sanitizePlan(planResult{Parallel: true, Groups: []planGroup{
-		{Agent: "coder", Focus: "x", Question: "find X"}, // coder → explore
-		{Agent: "locator", Focus: "y", Question: ""},      // dropped (no question)
-		{Agent: "analyst", Focus: "z", Question: "why Z"},
+func TestSanitizeSteps(t *testing.T) {
+	got := sanitizeSteps(planResult{Steps: []planStep{
+		{Title: "a", Strategy: "solo"}, // kept (structures the procedure)
+		{Title: "b", Strategy: "parallel", Groups: []planGroup{
+			{Agent: "coder", Focus: "x", Question: "find X"}, // coder → explore
+			{Agent: "locator", Question: ""},                 // dropped (no question)
+		}},
+		{Title: "c", Strategy: "scout", Agent: "writer", Discover: "docs/*.md", Each: "summarize"}, // writer → explore
+		{Title: "d", Strategy: "bogus"},                       // unknown → dropped
+		{Title: "e", Strategy: "parallel", Groups: nil},        // no usable groups → dropped
+		{Title: "f", Strategy: "scout", Discover: ""},          // no discover → dropped
 	}})
-	if len(got) != 2 {
-		t.Fatalf("want 2 groups after sanitize, got %d: %+v", len(got), got)
+	if len(got) != 3 {
+		t.Fatalf("want 3 steps (solo, parallel, scout), got %d: %+v", len(got), got)
 	}
-	if got[0].Agent != "explore" {
-		t.Errorf("coder should be coerced to explore, got %q", got[0].Agent)
+	if got[1].Strategy != "parallel" || len(got[1].Groups) != 1 || got[1].Groups[0].Agent != "explore" {
+		t.Errorf("parallel: non-explorer should be coerced, empty-question dropped: %+v", got[1])
 	}
-	// Cap at maxPlanGroups.
-	many := planResult{Parallel: true}
-	for i := 0; i < maxPlanGroups+3; i++ {
-		many.Groups = append(many.Groups, planGroup{Agent: "explore", Question: "q"})
+	if got[2].Strategy != "scout" || got[2].Agent != "explore" {
+		t.Errorf("scout: non-explorer agent should be coerced to explore: %+v", got[2])
 	}
-	if g := sanitizePlan(many); len(g) != maxPlanGroups {
-		t.Errorf("fan-out should cap at %d, got %d", maxPlanGroups, len(g))
+
+	// Step count caps at maxPlanSteps.
+	many := planResult{}
+	for i := 0; i < maxPlanSteps+3; i++ {
+		many.Steps = append(many.Steps, planStep{Title: "s", Strategy: "solo"})
+	}
+	if g := sanitizeSteps(many); len(g) != maxPlanSteps {
+		t.Errorf("steps should cap at %d, got %d", maxPlanSteps, len(g))
+	}
+}
+
+// parseList turns a scout explorer's free-text reply into a clean work-list.
+func TestParseList(t *testing.T) {
+	got := parseList("```\n1. ARCHITECTURE.md\n- DESIGN.md\n* PLAN.md\n\nHere is a sentence that is clearly prose and not a list item at all really\nSPEC.md\n```")
+	want := []string{"ARCHITECTURE.md", "DESIGN.md", "PLAN.md", "SPEC.md"}
+	if len(got) != len(want) {
+		t.Fatalf("parseList = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("item %d = %q, want %q", i, got[i], want[i])
+		}
 	}
 }
 
@@ -93,6 +115,94 @@ func TestPlannerNoAgentNoOp(t *testing.T) {
 	a.maybePlanPreflight(context.Background(), a.sessionInfo(context.Background(), sid))
 	if got := countEvents(t, a, sid); got != before {
 		t.Errorf("missing planner agent should append nothing, events %d→%d", before, got)
+	}
+}
+
+// planAuditFixture makes a session and a two-step procedure to audit.
+func planAuditFixture(t *testing.T, a *App, wd string) (session.Session, []planStep) {
+	t.Helper()
+	sid, err := a.CreateSession(context.Background(), command.CreateSession{
+		Workdir: wd, Model: session.ModelRef{Provider: "openai", Model: "m"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	steps := []planStep{
+		{Title: "A", Strategy: "solo"},
+		{Title: "B", Strategy: "parallel", Groups: []planGroup{{Agent: "explore", Focus: "f", Question: "q"}}},
+	}
+	return a.sessionInfo(context.Background(), sid), steps
+}
+
+func planDecisions(t *testing.T, a *App, sid session.SessionID) []event.CouncilDecidedData {
+	t.Helper()
+	evs, err := a.store.Read(context.Background(), sid, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []event.CouncilDecidedData
+	for _, e := range evs {
+		if e.Type == event.TypeCouncilDecided {
+			var d event.CouncilDecidedData
+			if json.Unmarshal(e.Data, &d) == nil && d.Phase == "plan" {
+				out = append(out, d)
+			}
+		}
+	}
+	return out
+}
+
+// An approved plan is returned unchanged, with a phase=plan decided event.
+func TestPlanAuditApproves(t *testing.T) {
+	fc := &fakeCouncil{delibs: []council.Deliberation{{Round: 1, Decision: council.Done}}}
+	a, wd := newApp(t, &fakeLLM{}, Config{Council: fc, Agents: map[string]AgentSpec{plannerAgent: {Name: "planner"}}})
+	s, steps := planAuditFixture(t, a, wd)
+	got := a.runPlanAuditGate(context.Background(), s, a.cfg.Agents[plannerAgent], "do A and B", steps)
+	if len(got) != 2 {
+		t.Fatalf("approve should keep the plan, got %d steps", len(got))
+	}
+	dec := planDecisions(t, a, s.ID)
+	if len(dec) != 1 || dec[0].Decision != string(council.Done) || dec[0].Note != "" {
+		t.Fatalf("want one clean plan-approve decision, got %+v", dec)
+	}
+}
+
+// A revise verdict re-plans via the planner LLM; the next round approves the
+// revised procedure, which is what gets returned.
+func TestPlanAuditRevisesThenReplans(t *testing.T) {
+	fc := &fakeCouncil{delibs: []council.Deliberation{
+		{Round: 1, Decision: council.Continue, Feedback: "add a verify step"},
+		{Round: 2, Decision: council.Done},
+	}}
+	replanned := `{"reason":"r","steps":[{"title":"X","strategy":"solo"},{"title":"Y","strategy":"solo"},{"title":"Z verify","strategy":"solo"}]}`
+	a, wd := newApp(t, &fakeLLM{steps: [][]port.ProviderEvent{textStep(replanned)}},
+		Config{Council: fc, Agents: map[string]AgentSpec{plannerAgent: {Name: "planner"}}})
+	s, steps := planAuditFixture(t, a, wd)
+	got := a.runPlanAuditGate(context.Background(), s, a.cfg.Agents[plannerAgent], "do A and B", steps)
+	if len(got) != 3 || got[2].Title != "Z verify" {
+		t.Fatalf("revise should re-plan to the new procedure, got %+v", got)
+	}
+}
+
+// Persistent revise hits the round cap and force-approves (a noted finish), never
+// looping forever.
+func TestPlanAuditCapForcesApprove(t *testing.T) {
+	fc := &fakeCouncil{delibs: []council.Deliberation{
+		{Round: 1, Decision: council.Continue, Feedback: "more"},
+		{Round: 2, Decision: council.Continue, Feedback: "more"},
+	}}
+	replan := textStep(`{"steps":[{"title":"A","strategy":"solo"},{"title":"B","strategy":"solo"}]}`)
+	a, wd := newApp(t, &fakeLLM{steps: [][]port.ProviderEvent{replan, replan}},
+		Config{Council: fc, Agents: map[string]AgentSpec{plannerAgent: {Name: "planner"}}})
+	s, steps := planAuditFixture(t, a, wd)
+	got := a.runPlanAuditGate(context.Background(), s, a.cfg.Agents[plannerAgent], "p", steps)
+	if len(got) == 0 {
+		t.Fatal("cap should still yield a plan to execute")
+	}
+	dec := planDecisions(t, a, s.ID)
+	last := dec[len(dec)-1]
+	if last.Decision != string(council.Done) || !strings.Contains(last.Note, "unresolved") {
+		t.Fatalf("cap should force a noted approve, got %+v", last)
 	}
 }
 
