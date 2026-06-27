@@ -133,6 +133,8 @@ primary = "#B45309"
 | `/image <path>` | 이미지 인라인 표시 |
 | `/diff` | 워킹트리 git diff |
 | `/loop` | **Loop map** — 턴·스텝·툴 활동·council 라운드를 구조로 투영(루프의 *모양* 가시화) |
+| `/fork` | 현재 세션을 **분기**해 다른 시도 탐색(원본 보존). 분기로 전환됨 |
+| `/loopdiff` | 현재 분기를 **fork 원본과 구조 비교**(턴·스텝·툴·council·토큰) |
 | `/init` | 프로젝트 분석 후 AGENTS.md 작성 |
 | `/permission` | 권한 모드 순환(ask→auto→allow→deny) |
 | `/compact` | 컨텍스트 요약·축소 |
