@@ -33,9 +33,9 @@ type loopTurn struct {
 	usage   *event.Usage
 }
 
-// buildLoopMap is the pure projection (events → map text), so it is unit-testable
-// without the store.
-func buildLoopMap(evs []event.Event) string {
+// scanTurns walks the event log into per-turn shape summaries. Shared by the Loop
+// map and the session diff so both see the same structure.
+func scanTurns(evs []event.Event) []*loopTurn {
 	var turns []*loopTurn
 	seenMsg := map[string]bool{}
 	cur := func() *loopTurn {
@@ -104,7 +104,13 @@ func buildLoopMap(evs []event.Event) string {
 			}
 		}
 	}
+	return turns
+}
 
+// buildLoopMap is the pure projection (events → map text), unit-testable without
+// the store.
+func buildLoopMap(evs []event.Event) string {
+	turns := scanTurns(evs)
 	if len(turns) == 0 {
 		return "Loop map — no turns yet."
 	}
