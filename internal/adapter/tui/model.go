@@ -1819,6 +1819,25 @@ func (m *Model) applyEvent(e event.Event) {
 			m.councilMember = d.Member
 		}
 
+	case event.TypeCouncilVerdict:
+		// Each member's vote WITH its reasoning, so the user can see why the council
+		// decided as it did — not just the tally. (continue carries its feedback.)
+		var d event.CouncilVerdictData
+		if json.Unmarshal(e.Data, &d) == nil {
+			mark := map[string]string{"done": "✓", "continue": "↻", "abstain": "∅"}[d.Decision]
+			line := fmt.Sprintf("   ↳ %s %s %s", mark, d.Member, d.Decision)
+			if d.Lens != "" {
+				line += " [" + d.Lens + "]"
+			}
+			if d.Rationale != "" {
+				line += " — " + d.Rationale
+			}
+			if d.Decision == "continue" && d.Feedback != "" {
+				line += " · next: " + d.Feedback
+			}
+			m.blocks = append(m.blocks, block{kind: blockInfo, text: line})
+		}
+
 	case event.TypeCouncilDecided:
 		// The round's outcome + tally. A "continue" injects feedback and the loop
 		// runs again; "done" (or a noted forced finish) lets the turn end. Clear the

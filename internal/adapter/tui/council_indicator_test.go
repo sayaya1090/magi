@@ -37,6 +37,21 @@ func TestCouncilIndicator(t *testing.T) {
 		t.Fatalf("councilMember = %q, want Balthasar", m.councilMember)
 	}
 
+	// Each member's verdict surfaces with its reasoning (decision + lens + rationale),
+	// and a continue verdict carries its next-step feedback, so the user can see WHY.
+	m.applyEvent(ev(t, event.TypeCouncilVerdict, event.CouncilVerdictData{
+		Round: 1, Member: "Melchior", Lens: "correctness", Decision: "continue",
+		Rationale: "the parser drops the trailing newline", Feedback: "handle EOF without a newline",
+	}))
+	v := m.blocks[len(m.blocks)-1]
+	if v.kind != blockInfo ||
+		!strings.Contains(v.text, "Melchior") ||
+		!strings.Contains(v.text, "correctness") ||
+		!strings.Contains(v.text, "the parser drops the trailing newline") ||
+		!strings.Contains(v.text, "handle EOF without a newline") {
+		t.Fatalf("verdict line missing member/lens/rationale/feedback: %q", v.text)
+	}
+
 	// The decision line shows the tally and that feedback was injected; polling clears.
 	m.applyEvent(ev(t, event.TypeCouncilDecided, event.CouncilDecidedData{
 		Round: 1, Decision: string(council.Continue),
