@@ -259,6 +259,22 @@ func (m *Model) closePanes() {
 	m.panes = nil
 	m.focusPane = -1
 	m.zoom = false
+	m.paneScroll = 0
+}
+
+// ensureFocusVisible scrolls the pane window so the focused pane is on screen.
+// Called after keyboard focus moves so the selection never slides out of view.
+func (m *Model) ensureFocusVisible() {
+	nShown, _, _, _ := m.paneLayout()
+	if nShown <= 0 || m.focusPane < 0 {
+		return
+	}
+	switch {
+	case m.focusPane < m.paneScroll:
+		m.paneScroll = m.focusPane
+	case m.focusPane >= m.paneScroll+nShown:
+		m.paneScroll = m.focusPane - nShown + 1
+	}
 }
 
 // applyPaneEvent folds a child-session event into its pane's transcript.
@@ -505,8 +521,17 @@ func (m *Model) renderPanes(width, originY int) string {
 	if nShown == 0 && more == 0 {
 		return ""
 	}
+	// Scroll window: clamp the offset and show panes[off:off+nShown]. paneLayout stays
+	// offset-free (so the reserve == render invariant holds); only the slice moves.
+	off := clampInt(m.paneScroll, 0, max(0, len(m.panes)-nShown))
+	m.paneScroll = off
+	// The single reserved overflow row shows how many are hidden above/below; when the
+	// screen is too short to show any box at all, it just reports the count.
 	moreLine := func() string {
-		return "  " + styleKeyLabel.Render(fmt.Sprintf("+%d more agent(s) — ctrl+o to open", more))
+		if nShown == 0 {
+			return "  " + styleKeyLabel.Render(fmt.Sprintf("%d agent(s) — screen too short · ctrl+o to open", more))
+		}
+		return "  " + styleKeyLabel.Render(fmt.Sprintf("↑%d  ↓%d  (scroll · ctrl+o to open)", off, more-off))
 	}
 	// Turn finished → compact one-line-per-pane strip (still focusable/zoomable) so
 	// finished subagents don't keep eating the screen. Capped to nShown.
@@ -514,11 +539,11 @@ func (m *Model) renderPanes(width, originY int) string {
 		var rows []string
 		y := originY
 		for i := 0; i < nShown; i++ {
-			p := m.panes[i]
+			p := m.panes[off+i]
 			c := m.paneColorOf(p)
 			line := lipgloss.NewStyle().Foreground(c).Render("● ") +
 				lipgloss.NewStyle().Foreground(c).Bold(true).Render(p.desc(width-8)) + " " + m.paneStatus(p)
-			if i == m.focusPane {
+			if off+i == m.focusPane {
 				line += " " + styleKeyLabel.Render("[focus: ctrl+o to open]")
 			}
 			p.x, p.y, p.w, p.h = 0, y, width, 1
@@ -534,8 +559,8 @@ func (m *Model) renderPanes(width, originY int) string {
 	var rendered []string
 	y := originY
 	for i := 0; i < nShown; i++ {
-		p := m.panes[i]
-		focused := i == m.focusPane
+		p := m.panes[off+i]
+		focused := off+i == m.focusPane
 		c := m.paneColorOf(p)
 		border := colOutlVar
 		if focused {

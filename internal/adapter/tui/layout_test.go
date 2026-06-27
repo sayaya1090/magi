@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -27,9 +28,70 @@ func TestPaneLayoutKeepsInputOnScreen(t *testing.T) {
 		if h := lipgloss.Height(pv); h != m.panesBlockHeight() {
 			t.Fatalf("running=%v: rendered panes %d != reserved panesBlockHeight %d (drift)", running, h, m.panesBlockHeight())
 		}
-		if !strings.Contains(pv, "more agent") {
+		if !strings.Contains(pv, "↓") {
 			t.Errorf("running=%v: 30 agents on a 24-row screen should fold into a '+N more' line:\n%s", running, pv)
 		}
+	}
+}
+
+// paneScroll windows which panes are on screen and is clamped to the valid range
+// so it can never scroll past the last pane or above the first.
+func TestPaneScrollWindowsAndClamps(t *testing.T) {
+	mm := newTestModel(t)
+	m := &mm
+	m.width, m.height = 80, 24
+	m.running = true
+	for i := 0; i < 30; i++ {
+		m.panes = append(m.panes, &agentPane{role: "explore", task: fmt.Sprintf("agent-%d", i)})
+	}
+	nShown, _, _, _ := m.paneLayout()
+	maxOff := len(m.panes) - nShown
+
+	// Scrolling down past the end clamps to maxOff; the last pane becomes visible.
+	m.paneScroll = 999
+	pv := m.renderPanes(m.width, 5)
+	if m.paneScroll != maxOff {
+		t.Fatalf("over-scroll should clamp to %d, got %d", maxOff, m.paneScroll)
+	}
+	if !strings.Contains(pv, fmt.Sprintf("agent-%d", len(m.panes)-1)) {
+		t.Errorf("max scroll should reveal the last pane:\n%s", pv)
+	}
+	// The no-drift invariant holds at a non-zero offset too: render height == reserve.
+	if h := lipgloss.Height(pv); h != m.panesBlockHeight() {
+		t.Fatalf("scrolled render height %d != reserved %d (drift at offset)", h, m.panesBlockHeight())
+	}
+	// Scrolling up past the top clamps to 0; the first pane is visible again.
+	m.paneScroll = -5
+	pv = m.renderPanes(m.width, 5)
+	if m.paneScroll != 0 {
+		t.Fatalf("under-scroll should clamp to 0, got %d", m.paneScroll)
+	}
+	if !strings.Contains(pv, "agent-0") {
+		t.Errorf("zero scroll should show the first pane:\n%s", pv)
+	}
+}
+
+// In a focused pane list, ↓ moves the selection and the window follows it so the
+// focused pane can never scroll out of view.
+func TestPaneKeyFocusFollowsWindow(t *testing.T) {
+	mm := newTestModel(t)
+	m := &mm
+	m.width, m.height = 80, 24
+	m.running = true
+	for i := 0; i < 30; i++ {
+		m.panes = append(m.panes, &agentPane{role: "explore", task: fmt.Sprintf("agent-%d", i)})
+	}
+	m.focusPane = 0
+	nShown, _, _, _ := m.paneLayout()
+	// Press ↓ past the bottom of the first window; focus and window advance together.
+	for i := 0; i < nShown+2; i++ {
+		m.handleKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	}
+	if m.focusPane != nShown+2 {
+		t.Fatalf("↓ should advance focus to %d, got %d", nShown+2, m.focusPane)
+	}
+	if m.focusPane < m.paneScroll || m.focusPane >= m.paneScroll+nShown {
+		t.Fatalf("focused pane %d scrolled out of window [%d,%d)", m.focusPane, m.paneScroll, m.paneScroll+nShown)
 	}
 }
 

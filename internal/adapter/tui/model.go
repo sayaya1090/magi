@@ -165,6 +165,7 @@ type Model struct {
 
 	councilDetail          *event.CouncilVerdictData // open council-verdict detail (full-screen; nil = closed)
 	councilDetailEvidence  string                    // the evidence shown alongside the open verdict
+	paneScroll             int                       // scroll offset into the subagent pane list (clamped in renderPanes)
 	pendingCouncilEvidence string                    // evidence from the latest convened round, attached to its verdicts
 	roleColor              map[string]int            // role name -> agentPalette index (stable per session)
 
@@ -530,6 +531,19 @@ func (m *Model) handleMouse(msg tea.Msg) tea.Cmd {
 			m.refresh()
 		}
 	case tea.MouseWheelMsg:
+		// Wheel over the subagent-pane block scrolls that list; elsewhere it scrolls
+		// the transcript. paneTop is the row right below the viewport.
+		paneTop := 2 + m.vp.Height()
+		if !m.zoom && m.panesBlockHeight() > 0 && e.Y >= paneTop && e.Y < paneTop+m.panesBlockHeight() {
+			switch e.Button {
+			case tea.MouseWheelUp:
+				m.paneScroll--
+			case tea.MouseWheelDown:
+				m.paneScroll++
+			}
+			m.refresh() // renderPanes clamps paneScroll
+			return nil
+		}
 		// Scroll explicitly by direction; works mid-drag since selection is
 		// anchored to content lines, not screen rows.
 		switch e.Button {
@@ -706,10 +720,28 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			return nil, true
 		}
 	case "up":
+		// In a focused (but un-zoomed) subagent list, ↑/↓ move the selection and the
+		// window follows it; otherwise recall input history.
+		if m.focusPane >= 0 && !m.zoom && len(m.panes) > 0 {
+			if m.focusPane > 0 {
+				m.focusPane--
+			}
+			m.ensureFocusVisible()
+			m.refresh()
+			return nil, true
+		}
 		if m.recallHistory(-1) {
 			return nil, true
 		}
 	case "down":
+		if m.focusPane >= 0 && !m.zoom && len(m.panes) > 0 {
+			if m.focusPane < len(m.panes)-1 {
+				m.focusPane++
+			}
+			m.ensureFocusVisible()
+			m.refresh()
+			return nil, true
+		}
 		if m.recallHistory(1) {
 			return nil, true
 		}
