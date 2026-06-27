@@ -527,14 +527,25 @@ func (m *Model) handleMouse(msg tea.Msg) tea.Cmd {
 				m.refresh()
 				return nil
 			}
-			m.handlePaneClick(e.Y) // plain click → focus a pane
+			// Plain click → focus a pane; a click outside any pane releases focus so the
+			// wheel/↑↓ drive the transcript again (the inverse of clicking to engage it).
+			if !m.handlePaneClick(e.Y) {
+				m.focusPane = -1
+			}
 			m.refresh()
 		}
 	case tea.MouseWheelMsg:
-		// Wheel over the subagent-pane block scrolls that list; elsewhere it scrolls
-		// the transcript. paneTop is the row right below the viewport.
+		// The wheel scrolls the subagent list when it's the active region; otherwise
+		// the transcript. "Active" = a pane is focused (click engages it, like the
+		// keyboard) OR the cursor is over the pane block. Focus-based routing keeps the
+		// (small, capped) block scrollable without precise hovering, so the wheel stops
+		// "competing" with the transcript under the cursor. paneTop is the row below it.
 		paneTop := 2 + m.vp.Height()
-		if !m.zoom && m.panesBlockHeight() > 0 && e.Y >= paneTop && e.Y < paneTop+m.panesBlockHeight() {
+		blockH := m.panesBlockHeight()
+		overPanes := blockH > 0 && e.Y >= paneTop && e.Y < paneTop+blockH
+		// Focus-based routing requires a visible block, so a stale focus on a screen
+		// too short to render any pane can't capture the wheel from the transcript.
+		if !m.zoom && len(m.panes) > 0 && (overPanes || (m.focusPane >= 0 && blockH > 0)) {
 			switch e.Button {
 			case tea.MouseWheelUp:
 				m.paneScroll--
@@ -2019,6 +2030,12 @@ const maxInputRows = 6
 // is capped so chrome + viewport never exceeds the screen (input stays on screen).
 const minViewport = 3
 
+// panesMaxNumer/panesMaxDenom bound the subagent pane block to a fraction of the
+// screen (≈ 1/2) so a burst of agents can't swallow the transcript. Panes past the
+// cap scroll (renderPanes window) instead of growing the block. This is a stricter
+// limit than minViewport alone, which would let panes shrink the transcript to 3 rows.
+const panesMaxNumer, panesMaxDenom = 1, 3
+
 // baseChromeHeight is the fixed chrome (everything except the agent-pane block):
 // header, bordered input, footer, and any active modal. It must NOT call
 // panesBlockHeight (panesBlockHeight derives its cap from this — no recursion).
@@ -2098,6 +2115,12 @@ func (m *Model) paneLayout() (nShown, perPane, more, total int) {
 	capH := m.height - m.baseChromeHeight() - minViewport
 	if capH < 0 {
 		capH = 0
+	}
+	// Cap the block to ~half the screen so panes never crowd out the transcript;
+	// the overflow scrolls instead of growing. (minViewport alone would allow the
+	// block to fill everything down to a 3-row viewport.)
+	if frac := m.height * panesMaxNumer / panesMaxDenom; capH > frac {
+		capH = frac
 	}
 	if !m.running {
 		// Collapsed: one row per finished pane.
@@ -2476,7 +2499,7 @@ func (m *Model) renderCouncilDetail(width int) string {
 	var b strings.Builder
 	// (The "‹ back" breadcrumb is the fixed header — see View.)
 	icon, word := councilVerdictLabel(v.Phase, v.Decision)
-	b.WriteString(lipgloss.NewStyle().Foreground(hue).Bold(true).Render("⚖ "+v.Member) + "  " + icon + " " + word)
+	b.WriteString(lipgloss.NewStyle().Foreground(hue).Bold(true).Render("⚖ "+v.Member) + "  " + councilVerdictStyle(v.Phase, v.Decision).Render(icon+" "+word))
 	if v.Lens != "" {
 		b.WriteString(styleFooter.Render("  [" + v.Lens + "]"))
 	}

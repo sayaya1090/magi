@@ -71,6 +71,29 @@ func TestPaneScrollWindowsAndClamps(t *testing.T) {
 	}
 }
 
+// The pane block is bounded to ~half the screen so a burst of agents can't crowd
+// out the transcript; the rest overflow into the scroll window.
+func TestPaneBlockCappedToHalfScreen(t *testing.T) {
+	mm := newTestModel(t)
+	m := &mm
+	m.width, m.height = 80, 40
+	m.running = true
+	for i := 0; i < 12; i++ {
+		m.panes = append(m.panes, &agentPane{role: "explore"})
+	}
+	_, _, more, total := m.paneLayout()
+	if total > m.height/2 {
+		t.Fatalf("pane block %d rows exceeds half the %d-row screen (crowds transcript)", total, m.height)
+	}
+	if more == 0 {
+		t.Fatalf("with 12 agents on a capped block, the excess should overflow to the scroll window (more>0)")
+	}
+	// The transcript keeps well more than the bare minimum once the block is capped.
+	if vp := m.height - m.baseChromeHeight() - total; vp < minViewport {
+		t.Fatalf("viewport %d below minimum %d", vp, minViewport)
+	}
+}
+
 // In a focused pane list, ↓ moves the selection and the window follows it so the
 // focused pane can never scroll out of view.
 func TestPaneKeyFocusFollowsWindow(t *testing.T) {
@@ -92,6 +115,39 @@ func TestPaneKeyFocusFollowsWindow(t *testing.T) {
 	}
 	if m.focusPane < m.paneScroll || m.focusPane >= m.paneScroll+nShown {
 		t.Fatalf("focused pane %d scrolled out of window [%d,%d)", m.focusPane, m.paneScroll, m.paneScroll+nShown)
+	}
+}
+
+// The wheel routes to the pane list when a pane is focused, regardless of where the
+// cursor sits — so scrolling stops "competing" with the transcript under the cursor.
+func TestWheelRoutesToFocusedPaneList(t *testing.T) {
+	base := newTestModel(t)
+	mm, _ := base.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
+	model := mm.(Model)
+	m := &model
+	m.running = true
+	for i := 0; i < 20; i++ {
+		m.panes = append(m.panes, &agentPane{role: "explore"})
+	}
+	m.refresh()
+	if m.panesBlockHeight() == 0 {
+		t.Fatal("expected a non-empty pane block")
+	}
+	transcriptY := 3 // inside the transcript region, above the pane block
+
+	// Unfocused + cursor over the transcript → the wheel scrolls the transcript, not panes.
+	m.focusPane = -1
+	m.paneScroll = 0
+	m.handleMouse(tea.MouseWheelMsg{Y: transcriptY, Button: tea.MouseWheelDown})
+	if m.paneScroll != 0 {
+		t.Fatalf("unfocused wheel over the transcript must not scroll panes, paneScroll=%d", m.paneScroll)
+	}
+
+	// Focused → the same wheel scrolls the pane list (focus, not cursor Y, decides).
+	m.focusPane = 0
+	m.handleMouse(tea.MouseWheelMsg{Y: transcriptY, Button: tea.MouseWheelDown})
+	if m.paneScroll == 0 {
+		t.Fatal("focused wheel should scroll the pane list regardless of cursor position")
 	}
 }
 
