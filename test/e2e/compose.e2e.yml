@@ -1,0 +1,36 @@
+# E2E backend stack for magi.
+#
+# Run with podman's docker-compat socket:
+#   ./test/e2e/up.sh        # starts litellm (proxies to host Ollama)
+#   ./test/e2e/down.sh
+#
+# Then run the contract suite:
+#   MAGI_E2E_LITELLM_BASE=http://localhost:4000/v1 \
+#   MAGI_E2E_LITELLM_MODEL=llama31 \
+#   go test -run E2E ./internal/adapter/llm/openai/...
+services:
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    command: ["--config", "/app/config.yaml", "--port", "4000", "--detailed_debug"]
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./litellm.config.yaml:/app/config.yaml:ro
+    # Podman provides host.containers.internal automatically (used in
+    # litellm.config.yaml to reach the host Ollama daemon).
+
+  # vLLM is NOT runnable on Apple Silicon / no-CUDA hosts. This profile is for
+  # x86_64 + NVIDIA GPU CI runners only. Enable with: --profile gpu
+  vllm:
+    image: vllm/vllm-openai:latest
+    profiles: ["gpu"]
+    command: ["--model", "Qwen/Qwen2.5-Coder-7B-Instruct", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: ["gpu"]

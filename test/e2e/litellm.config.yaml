@@ -1,0 +1,15 @@
+# LiteLLM proxy config for magi E2E.
+# Proxies OpenAI-compatible requests to the host's Ollama daemon.
+# host.containers.internal resolves to the host from inside the podman VM.
+model_list:
+  - model_name: qwen-coder
+    litellm_params:
+      model: ollama_chat/qwen2.5-coder:32b
+      api_base: http://host.containers.internal:11434
+  - model_name: llama31
+    litellm_params:
+      model: ollama_chat/llama3.1:8b
+      api_base: http://host.containers.internal:11434
+
+litellm_settings:
+  drop_params: true
