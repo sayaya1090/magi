@@ -485,6 +485,13 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, lastText st
 	task := firstUserText(reconstruct(evs))
 	diff, _ := a.GitDiff(ctx, s.Workdir)
 	diff = truncateForCouncil(diff, councilDiffCap) // bound per-member token cost
+	// The agent's plan (todos, with status) is the council's CONTRACT (D15): the
+	// completeness lens judges the report/diff against it, and any still-pending
+	// item is strong grounds to continue. Empty when the agent kept no plan.
+	plan := ""
+	if td := a.Todos(sid); len(td) > 0 {
+		plan = formatTodos(td)
+	}
 
 	// Opt-in deterministic evidence (D16): run the configured verify command and
 	// feed its outcome to the council, so members judge on proof, not just claims.
@@ -520,6 +527,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, lastText st
 	delib, err := a.cfg.Council.Deliberate(ctx, port.DeliberationRequest{
 		Round:   *rounds,
 		Task:    task,
+		Plan:    plan,
 		Report:  lastText,
 		Signals: signals,
 		Diff:    diff,

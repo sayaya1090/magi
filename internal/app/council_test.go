@@ -144,6 +144,28 @@ func TestCouncilNoProgressStops(t *testing.T) {
 	}
 }
 
+// The agent's plan (the todos it sets THIS turn, with status) is handed to the
+// council as the contract (D15), so an unfinished item is visible grounds to judge
+// "not done". (A new prompt clears prior todos, so the plan is built in-turn.)
+func TestCouncilReceivesPlan(t *testing.T) {
+	fc := &fakeCouncil{delibs: []council.Deliberation{{Round: 1, Decision: council.Done}}}
+	llm := &fakeLLM{steps: [][]port.ProviderEvent{
+		toolStep("todowrite", `{"todos":[{"content":"write the parser","status":"completed"},{"content":"add tests","status":"pending"}]}`),
+		textStep("done"),
+	}}
+	a, wd := newApp(t, llm, Config{Council: fc, Permission: "allow"})
+	submitAndDrain(t, a, wd)
+
+	fc.mu.Lock()
+	plan := fc.lastReq.Plan
+	fc.mu.Unlock()
+	// The plan must convey both items AND their status (a pending item is the
+	// council's grounds to judge "not done").
+	if !strings.Contains(plan, "[x] write the parser") || !strings.Contains(plan, "[ ] add tests") {
+		t.Fatalf("council should receive the plan with statuses as the contract, got %q", plan)
+	}
+}
+
 // verifyFailPlatform fails the verify command (non-git Exec) and reports a clean
 // git tree, so the test is robust to however many Exec calls GitDiff makes.
 type verifyFailPlatform struct{}
