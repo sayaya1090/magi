@@ -91,6 +91,8 @@ type Model struct {
 	model   string
 	workdir string
 
+	forkOrigin session.SessionID // the session this one was forked from (for /loopdiff)
+
 	history []string // submitted prompts (↑/↓ recall)
 	histIdx int      // current position when browsing history
 	palSel  int      // selected index in the command palette
@@ -220,6 +222,8 @@ var slashCommands = []cmdInfo{
 	{"/image", "render an image file inline (/image <path>)"},
 	{"/diff", "show the working-tree git diff"},
 	{"/loop", "show the loop map (turns · steps · council)"},
+	{"/fork", "branch this session to explore an alternative (origin kept)"},
+	{"/loopdiff", "compare this branch with its fork origin"},
 	{"/init", "analyze the project and write AGENTS.md"},
 	{"/ultra", "ultra work mode: orchestrate specialists (/ultra <task>)"},
 	{"/permission", "cycle permission mode"},
@@ -789,6 +793,30 @@ func (m *Model) handleSlash(text string) (tea.Cmd, bool) {
 		} else {
 			m.info(mp)
 		}
+	case "/fork":
+		if m.running {
+			out = m.snack("cannot fork while running")
+			break
+		}
+		origin := m.sid
+		fork, err := m.app.Fork(m.ctx, origin, 0)
+		if err != nil {
+			out = m.snack("fork: " + err.Error())
+			break
+		}
+		out = m.switchSession(fork) // explore the branch; the origin is untouched
+		m.forkOrigin = origin
+		out = tea.Batch(out, m.snack("forked — exploring branch; /loopdiff to compare with origin"))
+	case "/loopdiff":
+		if m.forkOrigin == "" {
+			out = m.snack("no fork origin — run /fork first")
+			break
+		}
+		if d, err := m.app.SessionDiff(m.ctx, m.forkOrigin, m.sid); err != nil {
+			out = m.snack("loopdiff: " + err.Error())
+		} else {
+			m.info(d)
+		}
 	case "/init":
 		return m.submitAs("/init — analyzing project to write AGENTS.md…", initPrompt), true
 	case "/ultra":
@@ -1277,6 +1305,12 @@ func (m *Model) switchSession(sid session.SessionID) tea.Cmd {
 	if err != nil {
 		return m.snack("resume failed: " + err.Error())
 	}
+	// Switching to a different session drops any fork-origin link (a stale origin
+	// would make /loopdiff compare unrelated sessions). /fork re-sets it after its
+	// own switchSession call, so the fork flow is unaffected.
+	if sid != m.sid {
+		m.forkOrigin = ""
+	}
 	m.sid = sid
 	m.blocks = rebuildBlocks(msgs)
 	m.history = userPrompts(msgs) // seed ↑/↓ recall + tab completion from prior turns
@@ -1515,7 +1549,7 @@ func (m *Model) steer(text string) tea.Cmd {
 // in-flight turn (read-only / UI-only — does not mutate the running session).
 func safeWhileRunning(cmd string) bool {
 	switch cmd {
-	case "/help", "/model", "/agents", "/route", "/tools", "/sessions", "/diff", "/loop", "/permission":
+	case "/help", "/model", "/agents", "/route", "/tools", "/sessions", "/diff", "/loop", "/loopdiff", "/permission":
 		return true
 	}
 	return false
