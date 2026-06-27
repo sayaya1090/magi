@@ -131,6 +131,20 @@ func TestFirstJSONObject(t *testing.T) {
 	}
 }
 
+func TestEvidenceRendersSignals(t *testing.T) {
+	got := evidence(port.DeliberationRequest{
+		Task:    "fix the bug",
+		Report:  "fixed it",
+		Signals: []port.Signal{{Source: "verify", Kind: "test", Status: "fail", Detail: "--- FAIL: TestX"}},
+	})
+	if !strings.Contains(got, "[verify/test] fail") {
+		t.Fatalf("evidence missing signal header:\n%s", got)
+	}
+	if !strings.Contains(got, "--- FAIL: TestX") {
+		t.Fatalf("evidence missing signal detail:\n%s", got)
+	}
+}
+
 func TestParseReplyRequiresDecision(t *testing.T) {
 	if _, ok := parseReply(`{"rationale":"no decision field"}`); ok {
 		t.Fatal("reply without a decision should not parse")
