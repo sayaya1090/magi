@@ -136,7 +136,7 @@ type Event struct {
     Type      EventType       `json:"type"`
     Actor     Actor           `json:"actor"`     // 누가 유발(D5)
     TS        time.Time       `json:"ts"`
-    Stage     string          `json:"stage,omitempty"` // 🚧 D15(planned): plan|execute|verify|report|council|finalize — Loop map·rewind·diff가 단계 단위로 그룹/타깃
+    Stage     string          `json:"stage,omitempty"` // D15(출하): plan|execute|council|finalize — 단계 전환마다 스탬프, Loop map(/loop)·rewind·diff가 단계 단위로 그룹/타깃
     Data      json.RawMessage `json:"data"`      // 타입별 페이로드
 }
 type Actor struct {

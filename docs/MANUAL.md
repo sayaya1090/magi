@@ -132,6 +132,7 @@ primary = "#B45309"
 | `/rewind [n]` | 최근 n개 user 턴 롤백(기본 1) |
 | `/image <path>` | 이미지 인라인 표시 |
 | `/diff` | 워킹트리 git diff |
+| `/loop` | **Loop map** — 턴·스텝·툴 활동·council 라운드를 구조로 투영(루프의 *모양* 가시화) |
 | `/init` | 프로젝트 분석 후 AGENTS.md 작성 |
 | `/permission` | 권한 모드 순환(ask→auto→allow→deny) |
 | `/compact` | 컨텍스트 요약·축소 |
