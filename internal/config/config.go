@@ -34,6 +34,7 @@ type Config struct {
 	LLM           LLMConfig           `toml:"llm"`           // LLM backend tuning (custom headers, …)
 	Orchestration OrchestrationConfig `toml:"orchestration"` // multi-agent behavior toggles
 	Theme         ThemeConfig         `toml:"theme"`         // TUI color overrides (dark/light)
+	Council       CouncilConfig       `toml:"council"`       // consensus termination gate (D14)
 
 	// Plugins holds free-form per-plugin settings: [plugins.<name>] tables a
 	// plugin reads via magi.config_get. The host passes each plugin only its
@@ -68,6 +69,28 @@ type OrchestrationConfig struct {
 type ThemeConfig struct {
 	Dark  map[string]string `toml:"dark"`
 	Light map[string]string `toml:"light"`
+}
+
+// CouncilConfig configures the consensus termination gate (D14). When Enabled,
+// the agent loop, instead of finishing when the model stops, convenes a council
+// that votes done/continue; a "continue" injects the members' feedback and the
+// loop keeps going. Disabled by default (it adds an LLM round at each would-be
+// finish). Members default to the MAGI (Melchior/Balthasar/Casper) when empty.
+type CouncilConfig struct {
+	Enabled   bool            `toml:"enabled"`
+	Rule      string          `toml:"rule"`       // unanimous|majority|quorum:k|weighted:θ|veto:Name (default majority)
+	MaxRounds int             `toml:"max_rounds"` // cap rounds per turn (default 3)
+	Members   []CouncilMember `toml:"member"`     // [[council.member]] tables; empty = the MAGI
+}
+
+// CouncilMember is one configured council seat: a theme-name label, a judging
+// lens (correctness|verification|completeness), an optional model override, and
+// an optional weight (default 1).
+type CouncilMember struct {
+	Name   string  `toml:"name"`
+	Lens   string  `toml:"lens"`
+	Model  string  `toml:"model"`
+	Weight float64 `toml:"weight"`
 }
 
 // LLMProfile is a named LLM backend: a distinct endpoint/key/model/headers an
@@ -161,6 +184,20 @@ const defaultConfigTemplate = `# magi configuration. Everything here is optional
 # magi.config_get("key"). Plugins persist their own values with config_set. ---
 # [plugins.my-plugin]
 # endpoint = "https://config.corp.example/v1"
+
+# --- Consensus council (D14): the loop's termination gate. When enabled, instead
+# of finishing when the model stops, a council (the MAGI by default) votes
+# done/continue; a "continue" injects feedback and the loop keeps going. Adds an
+# LLM round at each would-be finish, so it's off by default. ---
+# [council]
+# enabled    = true
+# rule       = "majority"   # unanimous | majority | quorum:2 | weighted:0.6 | veto:Balthasar
+# max_rounds = 3
+# [[council.member]]        # omit members to use the MAGI defaults
+# name = "Melchior"
+# lens = "correctness"      # correctness | verification | completeness
+# # model  = "qwen3-coder:30b"   # optional; defaults to the session model
+# # weight = 1
 
 # --- Color theme (TUI). Override any Material Design 3 role per mode; an
 # unspecified role keeps the built-in NERV/MAGI default. Roles: primary, accent,

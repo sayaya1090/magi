@@ -15,6 +15,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	councilllm "github.com/sayaya1090/magi/internal/adapter/council/llm"
 	expgit "github.com/sayaya1090/magi/internal/adapter/experience/git"
 	"github.com/sayaya1090/magi/internal/adapter/llm/openai"
 	"github.com/sayaya1090/magi/internal/adapter/mcp"
@@ -27,6 +28,7 @@ import (
 	"github.com/sayaya1090/magi/internal/config"
 	"github.com/sayaya1090/magi/internal/core/bus"
 	"github.com/sayaya1090/magi/internal/core/command"
+	corecouncil "github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
@@ -195,6 +197,19 @@ func run() int {
 		}
 		cfg.Theme.Dark = mergeStrMap(cfg.Theme.Dark, proj.Theme.Dark)
 		cfg.Theme.Light = mergeStrMap(cfg.Theme.Light, proj.Theme.Light)
+		// Council: project config may enable/override the consensus gate.
+		if proj.Council.Enabled {
+			cfg.Council.Enabled = true
+		}
+		if proj.Council.Rule != "" {
+			cfg.Council.Rule = proj.Council.Rule
+		}
+		if proj.Council.MaxRounds != 0 {
+			cfg.Council.MaxRounds = proj.Council.MaxRounds
+		}
+		if len(proj.Council.Members) > 0 {
+			cfg.Council.Members = proj.Council.Members
+		}
 	}
 
 	// Resolve model/base_url/permission with precedence: explicit flag > env >
@@ -289,6 +304,14 @@ func run() int {
 		}
 	}
 
+	// Consensus council (D14): the loop's termination gate. Built only when
+	// enabled in config; members fan out over the default backend (a member's
+	// optional model override picks the model). nil leaves the gate off.
+	var councilPort port.Council
+	if cfg.Council.Enabled {
+		councilPort = councilllm.New(llm, modelID)
+	}
+
 	a := app.New(store, llm, reg, bus.New(), plat, app.Config{
 		Model:          session.ModelRef{Provider: "openai", Model: modelID},
 		System:         systemPrompt,
@@ -310,6 +333,10 @@ func run() int {
 		NewProvider:    newProvider,
 		RoutePersister: routePersister{path: filepath.Join(plat.ConfigDir(), "config.toml")},
 		Planner:        cfg.Orchestration.Planner == nil || *cfg.Orchestration.Planner, // default on; kill switch
+		Council:          councilPort,
+		CouncilRule:      corecouncil.Rule(cfg.Council.Rule),
+		CouncilMaxRounds: cfg.Council.MaxRounds,
+		CouncilMembers:   toCouncilMembers(cfg.Council.Members),
 	})
 
 	// MCP: create manager for both config-based and plugin-based MCP servers
@@ -471,6 +498,19 @@ func pluginDirs(plat *platform.OS, workdir, extra string) []string {
 		dirs = append(dirs, extra)
 	}
 	return dirs
+}
+
+// toCouncilMembers converts config council members to core council members. nil
+// (no members configured) lets the app fall back to the MAGI defaults.
+func toCouncilMembers(ms []config.CouncilMember) []corecouncil.Member {
+	if len(ms) == 0 {
+		return nil
+	}
+	out := make([]corecouncil.Member, 0, len(ms))
+	for _, m := range ms {
+		out = append(out, corecouncil.Member{Name: m.Name, Lens: m.Lens, Model: m.Model, Weight: m.Weight})
+	}
+	return out
 }
 
 // toAppHooks converts config hooks to app hooks.
