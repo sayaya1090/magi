@@ -214,6 +214,7 @@ func run() int {
 		if proj.Council.Verify != "" {
 			cfg.Council.Verify = proj.Council.Verify
 		}
+		cfg.Council.Signals = append(cfg.Council.Signals, proj.Council.Signals...)
 	}
 
 	// Resolve model/base_url/permission with precedence: explicit flag > env >
@@ -341,7 +342,7 @@ func run() int {
 		CouncilRule:      corecouncil.Rule(cfg.Council.Rule),
 		CouncilMaxRounds: cfg.Council.MaxRounds,
 		CouncilMembers:   toCouncilMembers(cfg.Council.Members),
-		CouncilVerifyCmd: cfg.Council.Verify,
+		CouncilSignals:   councilSignals(cfg.Council),
 	})
 
 	// MCP: create manager for both config-based and plugin-based MCP servers
@@ -523,6 +524,22 @@ func pluginDirs(plat *platform.OS, workdir, extra string) []string {
 		dirs = append(dirs, extra)
 	}
 	return dirs
+}
+
+// councilSignals builds the council's deterministic signal list: the `verify`
+// shorthand (named "verify") first, then any [[council.signal]] entries.
+func councilSignals(cc config.CouncilConfig) []app.CouncilSignalSpec {
+	var out []app.CouncilSignalSpec
+	if cc.Verify != "" {
+		out = append(out, app.CouncilSignalSpec{Name: "verify", Command: cc.Verify})
+	}
+	for _, s := range cc.Signals {
+		if s.Command == "" {
+			continue
+		}
+		out = append(out, app.CouncilSignalSpec{Name: s.Name, Command: s.Command})
+	}
+	return out
 }
 
 // toCouncilMembers converts config council members to core council members. nil

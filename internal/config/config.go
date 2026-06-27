@@ -81,10 +81,18 @@ type CouncilConfig struct {
 	Rule      string          `toml:"rule"`       // unanimous|majority|quorum:k|weighted:θ|veto:Name (default majority)
 	MaxRounds int             `toml:"max_rounds"` // cap rounds per turn (default 3)
 	Members   []CouncilMember `toml:"member"`     // [[council.member]] tables; empty = the MAGI
-	// Verify, when non-empty, is a shell command the council runs each round and
-	// feeds to the members as a deterministic signal (D16) — so the council judges
-	// on real test/build evidence, not just the agent's claim. Opt-in (empty = off).
-	Verify string `toml:"verify"`
+	// Verify is a shorthand for a single deterministic signal named "verify" the
+	// council runs each round as evidence (D16). Signals adds more named checks
+	// ([[council.signal]]). Both opt-in; the council judges on real test/build/lint
+	// evidence, not just the agent's claim.
+	Verify  string                `toml:"verify"`
+	Signals []CouncilSignalConfig `toml:"signal"`
+}
+
+// CouncilSignalConfig is a named deterministic check the council runs for evidence.
+type CouncilSignalConfig struct {
+	Name    string `toml:"name"`
+	Command string `toml:"command"`
 }
 
 // CouncilMember is one configured council seat: a theme-name label, a judging
@@ -198,6 +206,9 @@ const defaultConfigTemplate = `# magi configuration. Everything here is optional
 # rule       = "majority"   # unanimous | majority | quorum:2 | weighted:0.6 | veto:Balthasar
 # max_rounds = 3
 # verify     = "go test ./..."   # opt-in: run each round, fed to the council as evidence
+# [[council.signal]]             # more named checks (test/lint/typecheck), all fed as evidence
+# name = "lint"
+# command = "golangci-lint run"
 # [[council.member]]        # omit members to use the MAGI defaults
 # name = "Melchior"
 # lens = "correctness"      # correctness | verification | completeness
