@@ -70,6 +70,25 @@ func councilVerdictLabel(phase, decision string) (icon, word string) {
 	return "·", decision
 }
 
+// councilVerdictStyle gives a verdict its signal color: approve/done → success
+// (green), revise → caution (amber), reject → error (red), abstain/other → muted.
+// Phase distinguishes a plan "revise" (amber) from a termination "reject" (red),
+// matching councilVerdictLabel. Under NO_COLOR the word still carries the meaning.
+func councilVerdictStyle(phase, decision string) lipgloss.Style {
+	switch decision {
+	case "done":
+		return styleToolOK
+	case "continue":
+		if phase == "plan" {
+			return styleWarn
+		}
+		return styleToolErr
+	case "abstain":
+		return styleToolResult
+	}
+	return styleToolResult
+}
+
 // transcript renders the full transcript plus any in-progress streaming text.
 // Finalized blocks are rendered once and cached (keyed by width), so streaming a
 // token does NOT re-run markdown rendering over the whole history — that
@@ -238,7 +257,7 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 		if v.Lens != "" {
 			line += "  " + styleToolResult.Render("["+v.Lens+"]")
 		}
-		line += "  " + icon + " " + word
+		line += "  " + councilVerdictStyle(v.Phase, v.Decision).Render(icon+" "+word)
 		if v.Confidence > 0 {
 			line += styleToolResult.Render(fmt.Sprintf(" · %.0f%%", v.Confidence*100))
 		}
