@@ -179,9 +179,17 @@ type Config struct {
 	CouncilRule      council.Rule
 	CouncilMaxRounds int
 	CouncilMembers   []council.Member
-	// CouncilVerifyCmd, when non-empty, is run each council round and fed to the
-	// members as a deterministic signal (D16). Opt-in (empty = no signal).
-	CouncilVerifyCmd string
+	// CouncilSignals are named deterministic checks run each council round and fed
+	// to the members as evidence (D16) — so the council judges on proof (tests,
+	// lint, typecheck) rather than the agent's claim. Opt-in (empty = no signals).
+	CouncilSignals []CouncilSignalSpec
+}
+
+// CouncilSignalSpec is a named deterministic check the council runs for evidence
+// (e.g. {Name:"test", Command:"go test ./..."}).
+type CouncilSignalSpec struct {
+	Name    string
+	Command string
 }
 
 // withDefaults fills unset fields with sensible values.

@@ -180,12 +180,12 @@ func (verifyFailPlatform) ConfigDir() string           { return "" }
 func (verifyFailPlatform) DataDir() string             { return "" }
 func (verifyFailPlatform) TerminalCaps() port.TermCaps { return port.TermCaps{} }
 
-// With CouncilVerifyCmd set, the gate runs verify and feeds the outcome to the
-// council as a signal; the convened event surfaces a summary (D16, opt-in).
+// With a "verify" signal configured, the gate runs it and feeds the outcome to
+// the council; the convened event surfaces a summary (D16, opt-in).
 func TestCouncilVerifySignal(t *testing.T) {
 	fc := &fakeCouncil{delibs: []council.Deliberation{{Round: 1, Decision: council.Done}}}
 	a, _, wd := newWorkflowApp(t, &fakeLLM{}, verifyFailPlatform{}, Config{
-		Council: fc, CouncilVerifyCmd: "go test ./...",
+		Council: fc, CouncilSignals: []CouncilSignalSpec{{Name: "verify", Command: "go test ./..."}},
 	})
 	evs := submitAndDrain(t, a, wd)
 
@@ -254,6 +254,36 @@ func TestEventStageTags(t *testing.T) {
 	}
 	if !gotExecute {
 		t.Fatal("expected an assistant part.appended to assert execute stage")
+	}
+}
+
+// The council runs every configured signal and feeds them all as evidence (D16).
+func TestCouncilMultipleSignals(t *testing.T) {
+	fc := &fakeCouncil{delibs: []council.Deliberation{{Round: 1, Decision: council.Done}}}
+	a, _, wd := newWorkflowApp(t, &fakeLLM{}, verifyFailPlatform{}, Config{
+		Council: fc,
+		CouncilSignals: []CouncilSignalSpec{
+			{Name: "test", Command: "go test ./..."},
+			{Name: "lint", Command: "golangci-lint run"},
+		},
+	})
+	submitAndDrain(t, a, wd)
+
+	fc.mu.Lock()
+	sigs := fc.lastReq.Signals
+	fc.mu.Unlock()
+	if len(sigs) != 2 {
+		t.Fatalf("council should receive 2 signals, got %d: %+v", len(sigs), sigs)
+	}
+	names := map[string]bool{}
+	for _, s := range sigs {
+		names[s.Source] = true
+		if s.Status != "fail" { // verifyFailPlatform fails non-git commands
+			t.Errorf("signal %q status = %q, want fail", s.Source, s.Status)
+		}
+	}
+	if !names["test"] || !names["lint"] {
+		t.Fatalf("expected test+lint signals, got %v", names)
 	}
 }
 

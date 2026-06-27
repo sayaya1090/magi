@@ -496,18 +496,30 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, lastText st
 		plan = formatTodos(td)
 	}
 
-	// Opt-in deterministic evidence (D16): run the configured verify command and
+	// Opt-in deterministic evidence (D16): run each configured signal command and
 	// feed its outcome to the council, so members judge on proof, not just claims.
 	var signals []port.Signal
 	var signalSummaries []string
-	if cmd := a.cfg.CouncilVerifyCmd; cmd != "" && a.plat != nil {
-		out, code := a.runVerifyCmd(ctx, s.Workdir, cmd)
-		status := "pass"
-		if code != 0 {
-			status = "fail"
+	if a.plat != nil {
+		for _, sp := range a.cfg.CouncilSignals {
+			if ctx.Err() != nil {
+				break // interrupted — stop spawning further checks
+			}
+			if strings.TrimSpace(sp.Command) == "" {
+				continue
+			}
+			name := sp.Name
+			if name == "" {
+				name = "check"
+			}
+			out, code := a.runVerifyCmd(ctx, s.Workdir, sp.Command)
+			status := "pass"
+			if code != 0 {
+				status = "fail"
+			}
+			signals = append(signals, port.Signal{Source: name, Kind: "check", Status: status, Detail: tailForCouncil(out, councilSignalCap)})
+			signalSummaries = append(signalSummaries, name+": "+status)
 		}
-		signals = append(signals, port.Signal{Source: "verify", Kind: "check", Status: status, Detail: tailForCouncil(out, councilSignalCap)})
-		signalSummaries = append(signalSummaries, "verify: "+status)
 	}
 	// Cancellation during GitDiff/verify: unwind rather than persist a misleading
 	// convened fact or deliberate on partial evidence.
