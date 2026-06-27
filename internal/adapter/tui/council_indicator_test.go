@@ -37,20 +37,37 @@ func TestCouncilIndicator(t *testing.T) {
 		t.Fatalf("councilMember = %q, want Balthasar", m.councilMember)
 	}
 
-	// Each member's verdict surfaces with its reasoning (decision + lens + rationale),
-	// and a continue verdict carries its next-step feedback, so the user can see WHY.
+	// A verdict becomes a COMPACT block that carries the full vote data; the detail
+	// (lens/rationale/feedback) shows only in the modal opened by clicking it.
 	m.applyEvent(ev(t, event.TypeCouncilVerdict, event.CouncilVerdictData{
 		Round: 1, Member: "Melchior", Lens: "correctness", Decision: "continue",
 		Rationale: "the parser drops the trailing newline", Feedback: "handle EOF without a newline",
 	}))
 	v := m.blocks[len(m.blocks)-1]
-	if v.kind != blockInfo ||
-		!strings.Contains(v.text, "Melchior") ||
-		!strings.Contains(v.text, "correctness") ||
-		!strings.Contains(v.text, "the parser drops the trailing newline") ||
-		!strings.Contains(v.text, "handle EOF without a newline") {
-		t.Fatalf("verdict line missing member/lens/rationale/feedback: %q", v.text)
+	if v.kind != blockCouncilVerdict || v.councilVerdict == nil {
+		t.Fatalf("verdict should be a compact council block carrying its data, got kind=%d", v.kind)
 	}
+	if v.councilVerdict.Member != "Melchior" || v.councilVerdict.Rationale == "" {
+		t.Fatalf("verdict block should carry the full vote data: %+v", v.councilVerdict)
+	}
+	// The compact render shows member + decision but NOT the rationale.
+	m.width = 80
+	compact := m.renderBlock(v)
+	if !strings.Contains(compact, "Melchior") || !strings.Contains(compact, "continue") {
+		t.Fatalf("compact line should show member + decision: %q", compact)
+	}
+	if strings.Contains(compact, "trailing newline") {
+		t.Fatalf("compact line must NOT include the rationale: %q", compact)
+	}
+	// Clicking opens the detail modal with the full reasoning.
+	m.councilDetail = v.councilVerdict
+	detail := m.councilDetailView()
+	if !strings.Contains(detail, "correctness") ||
+		!strings.Contains(detail, "the parser drops the trailing newline") ||
+		!strings.Contains(detail, "handle EOF without a newline") {
+		t.Fatalf("detail modal missing lens/rationale/feedback: %q", detail)
+	}
+	m.councilDetail = nil
 
 	// The decision line shows the tally and that feedback was injected; polling clears.
 	m.applyEvent(ev(t, event.TypeCouncilDecided, event.CouncilDecidedData{
