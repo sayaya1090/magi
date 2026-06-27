@@ -344,9 +344,10 @@ council-gate-depth-1:      depth>0           ⇒ 게이트 스킵(바로 종료)
 - Plan/Report는 **soft 유도**(planner/todos/artifact·report 툴 재사용), Council만 **하드 게이트**.
 - 이벤트 봉투 `stage` 태그로 Loop map·rewind·diff가 단계 단위 그룹/타깃. 사소한 턴은 비례적 스킵.
 
-## F-SIGNAL (루프 트랙) — 피드백 시그널 1급화(D16)
-- `Signal{source, kind(test|lint|type|review|human|council), verdict, payload, atSeq}`.
-- 결정적 체크·훅·진단·report·council 산출물을 한 모델로 통일 → council이 증거로 소비, 루프에 정해진 지점으로 되먹임.
+## F-SIGNAL (루프 트랙) — 피드백 시그널 1급화(D16, 부분 출하)
+- `port.Signal{source, kind, status(pass|fail), detail}` (현재 형태). 설계 목표는 `{source, kind, verdict, payload, atSeq}`로 확장.
+- **출하**: opt-in `[council] verify` 명령을 게이트마다 실행 → `Signal{source:"verify"}`로 council 증거에 주입, convened 이벤트에 요약 노출(`TestCouncilVerifySignal`).
+- 남음: 결정적 체크·훅·진단·report를 같은 Signal 모델로 통일해 루프 여러 지점에 되먹임.
 
 ## F-PLUGIN (M3) — Lua 플러그인
 - 매니페스트(TOML) 파싱: name/version/capabilities/permissions.
