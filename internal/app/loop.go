@@ -505,15 +505,19 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	if td := a.Todos(sid); len(td) > 0 {
 		plan = formatTodos(td)
 	}
-	// Explicit acceptance criteria (D15, opt-in): a stronger contract elicited from
-	// the task once per turn. Prepended so the council judges "done" against it.
-	if a.cfg.CouncilCriteria {
-		if crit := a.acceptanceCriteria(ctx, agent, s, task); crit != "" {
-			if plan != "" {
-				plan = "Acceptance criteria:\n" + crit + "\n\nPlan (todos):\n" + plan
-			} else {
-				plan = "Acceptance criteria:\n" + crit
-			}
+	// Acceptance criteria as the contract (D15/D17). The plan-audit council may have
+	// already derived them this turn — those are ALWAYS used (plan turns). Otherwise,
+	// only when opted in (`[council] criteria`), elicit them from the task. Prepended
+	// so the council judges "done" against the contract.
+	crit := a.cachedCriteria(s.ID)
+	if crit == "" && a.cfg.CouncilCriteria {
+		crit = a.acceptanceCriteria(ctx, agent, s, task)
+	}
+	if crit != "" {
+		if plan != "" {
+			plan = "Acceptance criteria:\n" + crit + "\n\nPlan (todos):\n" + plan
+		} else {
+			plan = "Acceptance criteria:\n" + crit
 		}
 	}
 
@@ -637,6 +641,38 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 // noCriteria is the cached sentinel meaning "elicitation ran this turn and
 // produced nothing" — distinct from "" (not yet elicited).
 const noCriteria = "\x00"
+
+// storePlanCriteria records the completion criteria the plan-audit council derived
+// as this turn's contract, so the termination gate reads them (without re-eliciting)
+// and judges "done" against them. It NEVER writes the noCriteria sentinel — an
+// empty set leaves the opt-in elicitation path intact — and emits the same
+// reviewable artifact as elicitation (D15 parity). Called only for the plan that
+// is actually proceeding (approved or force-approved), so a re-plan overwrites.
+func (a *App) storePlanCriteria(ctx context.Context, s session.Session, crit []string) {
+	if len(crit) == 0 {
+		return
+	}
+	text := "- " + strings.Join(crit, "\n- ")
+	a.mu.Lock()
+	a.criteria[s.ID] = text
+	a.mu.Unlock()
+	content, _ := json.Marshal(text)
+	a.emitArtifact(ctx, s.ID, event.Actor{Kind: event.ActorSystem, ID: "council"}, artifact.Artifact{
+		ID: "art_" + newID(), Kind: "acceptance-criteria", Title: "Acceptance criteria (plan audit)",
+		Content: content, SourceAgent: "council", Status: "proposed", Created: time.Now(),
+	})
+}
+
+// cachedCriteria returns this turn's already-known acceptance criteria (e.g. set by
+// the plan-audit council) WITHOUT eliciting — the noCriteria sentinel reads empty.
+func (a *App) cachedCriteria(sid session.SessionID) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if c := a.criteria[sid]; c != noCriteria {
+		return c
+	}
+	return ""
+}
 
 // acceptanceCriteria returns the turn's acceptance criteria (D15), eliciting them
 // once (cached per session, cleared on a new turn) and emitting them as a

@@ -238,7 +238,13 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 	for i, m := range members {
 		labels[i] = m.Name
 	}
-	const rule = council.Rule("quorum:1") // a plan one member approves proceeds; revise only if none do
+	// Consensus rule — the same one the termination gate uses (no special quorum:1
+	// relaxation): the plan audit is a real consensus. planMemberSystem already
+	// revises only for a concrete flaw, so majority converges.
+	rule := a.cfg.CouncilRule
+	if rule == "" {
+		rule = council.DefaultRule
+	}
 
 	for round := 1; round <= maxPlanAuditRound; round++ {
 		if ctx.Err() != nil {
@@ -272,7 +278,8 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		}
 
 		if delib.Decision == council.Done { // approve
-			dd, _ := json.Marshal(event.CouncilDecidedData{Round: round, Phase: "plan", Decision: string(council.Done), Tally: delib.Breakdown})
+			a.storePlanCriteria(ctx, s, delib.Criteria) // the contract for the termination gate
+			dd, _ := json.Marshal(event.CouncilDecidedData{Round: round, Phase: "plan", Decision: string(council.Done), Tally: delib.Breakdown, Criteria: delib.Criteria})
 			a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd)
 			return steps
 		}
@@ -280,9 +287,10 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		// revise — but stop if the cap is hit or there is no actionable feedback.
 		fb := strings.TrimSpace(delib.Feedback)
 		if round >= maxPlanAuditRound || fb == "" {
+			a.storePlanCriteria(ctx, s, delib.Criteria) // proceeding with this plan → keep its criteria
 			dd, _ := json.Marshal(event.CouncilDecidedData{
 				Round: round, Phase: "plan", Decision: string(council.Done), Tally: delib.Breakdown,
-				Note: fmt.Sprintf("plan unresolved after %d round(s) — proceeding", round),
+				Note: fmt.Sprintf("plan unresolved after %d round(s) — proceeding", round), Criteria: delib.Criteria,
 			})
 			a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd)
 			return steps
@@ -295,7 +303,10 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		next := sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, fb))
 		a.setStage(sid, stageCouncil)
 		if len(next) == 0 {
-			return steps // re-plan failed → keep the prior plan
+			// Re-plan failed → keep the prior plan; its criteria (this round's) are the
+			// contract we proceed with.
+			a.storePlanCriteria(ctx, s, delib.Criteria)
+			return steps
 		}
 		steps = next
 	}

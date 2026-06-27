@@ -152,9 +152,12 @@ func planDecisions(t *testing.T, a *App, sid session.SessionID) []event.CouncilD
 	return out
 }
 
-// An approved plan is returned unchanged, with a phase=plan decided event.
+// An approved plan is returned unchanged, with a phase=plan decided event, and the
+// council's derived completion criteria become the turn's termination contract.
 func TestPlanAuditApproves(t *testing.T) {
-	fc := &fakeCouncil{delibs: []council.Deliberation{{Round: 1, Decision: council.Done}}}
+	fc := &fakeCouncil{delibs: []council.Deliberation{
+		{Round: 1, Decision: council.Done, Criteria: []string{"hello.txt exists", "tests pass"}},
+	}}
 	a, wd := newApp(t, &fakeLLM{}, Config{Council: fc, Agents: map[string]AgentSpec{plannerAgent: {Name: "planner"}}})
 	s, steps := planAuditFixture(t, a, wd)
 	got := a.runPlanAuditGate(context.Background(), s, a.cfg.Agents[plannerAgent], "do A and B", steps)
@@ -164,6 +167,13 @@ func TestPlanAuditApproves(t *testing.T) {
 	dec := planDecisions(t, a, s.ID)
 	if len(dec) != 1 || dec[0].Decision != string(council.Done) || dec[0].Note != "" {
 		t.Fatalf("want one clean plan-approve decision, got %+v", dec)
+	}
+	if len(dec[0].Criteria) != 2 {
+		t.Fatalf("decided should carry the derived criteria, got %v", dec[0].Criteria)
+	}
+	// The criteria are stored as the contract the termination gate will read.
+	if c := a.cachedCriteria(s.ID); !strings.Contains(c, "hello.txt exists") || !strings.Contains(c, "tests pass") {
+		t.Fatalf("plan-derived criteria should be cached as the contract, got %q", c)
 	}
 }
 
@@ -189,7 +199,7 @@ func TestPlanAuditRevisesThenReplans(t *testing.T) {
 func TestPlanAuditCapForcesApprove(t *testing.T) {
 	fc := &fakeCouncil{delibs: []council.Deliberation{
 		{Round: 1, Decision: council.Continue, Feedback: "more"},
-		{Round: 2, Decision: council.Continue, Feedback: "more"},
+		{Round: 2, Decision: council.Continue, Feedback: "more", Criteria: []string{"build passes"}},
 	}}
 	replan := textStep(`{"steps":[{"title":"A","strategy":"solo"},{"title":"B","strategy":"solo"}]}`)
 	a, wd := newApp(t, &fakeLLM{steps: [][]port.ProviderEvent{replan, replan}},
@@ -203,6 +213,10 @@ func TestPlanAuditCapForcesApprove(t *testing.T) {
 	last := dec[len(dec)-1]
 	if last.Decision != string(council.Done) || !strings.Contains(last.Note, "unresolved") {
 		t.Fatalf("cap should force a noted approve, got %+v", last)
+	}
+	// Force-approve still keeps the proceeding plan's criteria as the contract.
+	if c := a.cachedCriteria(s.ID); !strings.Contains(c, "build passes") {
+		t.Fatalf("force-approve should store the plan's criteria, got %q", c)
 	}
 }
 
