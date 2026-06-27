@@ -223,6 +223,7 @@ var slashCommands = []cmdInfo{
 	{"/diff", "show the working-tree git diff"},
 	{"/loop", "show the loop map (turns · steps · council)"},
 	{"/fork", "branch this session to explore an alternative (origin kept)"},
+	{"/replay", "re-run the last turn on a branch (compare with /loopdiff)"},
 	{"/loopdiff", "compare this branch with its fork origin"},
 	{"/init", "analyze the project and write AGENTS.md"},
 	{"/ultra", "ultra work mode: orchestrate specialists (/ultra <task>)"},
@@ -809,7 +810,7 @@ func (m *Model) handleSlash(text string) (tea.Cmd, bool) {
 		out = tea.Batch(out, m.snack("forked — exploring branch; /loopdiff to compare with origin"))
 	case "/loopdiff":
 		if m.forkOrigin == "" {
-			out = m.snack("no fork origin — run /fork first")
+			out = m.snack("no fork origin — run /fork or /replay first")
 			break
 		}
 		if d, err := m.app.SessionDiff(m.ctx, m.forkOrigin, m.sid); err != nil {
@@ -817,6 +818,24 @@ func (m *Model) handleSlash(text string) (tea.Cmd, bool) {
 		} else {
 			m.info(d)
 		}
+	case "/replay":
+		if m.running {
+			out = m.snack("cannot replay while running")
+			break
+		}
+		origin := m.sid
+		fork, replayPrompt, err := m.app.Replay(m.ctx, origin)
+		if err != nil {
+			out = m.snack("replay: " + err.Error())
+			break
+		}
+		if replayPrompt == "" {
+			out = m.snack("replay: nothing to replay")
+			break
+		}
+		sw := m.switchSession(fork) // explore the re-run on a branch; origin kept
+		m.forkOrigin = origin
+		out = tea.Batch(sw, m.submitAs("↻ replay: "+replayPrompt, replayPrompt))
 	case "/init":
 		return m.submitAs("/init — analyzing project to write AGENTS.md…", initPrompt), true
 	case "/ultra":
