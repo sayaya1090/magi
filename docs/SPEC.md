@@ -317,7 +317,7 @@ headless-4: LLM error                      ⇒ message to stderr, exit != 0
 > 지금 과도 명세 금지(설계 변동 위험). 진입 시 규칙+예시 추가.
 
 ## F-COUNCIL (루프 트랙) — 합의 종료 게이트(D14, 출하 M9)
-시그니처 기능. 루프 종료 판정을 단일 모델에서 **3인 council**로 옮긴다(상세 PLAN §4.2). 기본 off — `[council] enabled=true`로 켠다.
+시그니처 기능. 루프 종료 판정을 단일 모델에서 **3인 council**로 옮긴다(상세 PLAN §4.2). **기본 on** — `[council] enabled=false`로 끈다.
 
 규칙:
 - R1 `core/council.Tally(verdicts, rule)`는 **순수 함수** — 동일 입력 동일 출력, I/O 없음.

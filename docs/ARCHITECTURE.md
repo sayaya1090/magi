@@ -133,7 +133,7 @@ Guards that make weak models safe (all in `loop.go`/`orchestrate.go`):
   and a "reply in X" directive is prepended to the system prompt (top-level only).
 
 **Consensus council gate (D14, the signature — `runCouncilGate`).** When `Config.Council`
-is set (off by default), the finish branch (no tool calls, `depth==0`, not workflow
+is set (ON by default; disable with `[council] enabled=false`), the finish branch (no tool calls, `depth==0`, not workflow
 mode) does NOT finish immediately: it convenes a **council** that votes done-vs-continue.
 - 3 default members (the MAGI): Melchior/correctness, Balthasar/verification,
   Casper/completeness — theme-name labels, lens attributes, configurable via `[council]`.
