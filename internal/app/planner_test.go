@@ -195,14 +195,16 @@ func TestPlanAuditRevisesThenReplans(t *testing.T) {
 }
 
 // Persistent revise hits the round cap and force-approves (a noted finish), never
-// looping forever.
+// looping forever. The cap is the shared CouncilMaxRounds (default 3), not a
+// separate plan-only limit.
 func TestPlanAuditCapForcesApprove(t *testing.T) {
 	fc := &fakeCouncil{delibs: []council.Deliberation{
 		{Round: 1, Decision: council.Continue, Feedback: "more"},
-		{Round: 2, Decision: council.Continue, Feedback: "more", Criteria: []string{"build passes"}},
+		{Round: 2, Decision: council.Continue, Feedback: "more"},
+		{Round: 3, Decision: council.Continue, Feedback: "more", Criteria: []string{"build passes"}},
 	}}
 	replan := textStep(`{"steps":[{"title":"A","strategy":"solo"},{"title":"B","strategy":"solo"}]}`)
-	a, wd := newApp(t, &fakeLLM{steps: [][]port.ProviderEvent{replan, replan}},
+	a, wd := newApp(t, &fakeLLM{steps: [][]port.ProviderEvent{replan, replan, replan}},
 		Config{Council: fc, Agents: map[string]AgentSpec{plannerAgent: {Name: "planner"}}})
 	s, steps := planAuditFixture(t, a, wd)
 	got := a.runPlanAuditGate(context.Background(), s, a.cfg.Agents[plannerAgent], "p", steps)
@@ -210,13 +212,39 @@ func TestPlanAuditCapForcesApprove(t *testing.T) {
 		t.Fatal("cap should still yield a plan to execute")
 	}
 	dec := planDecisions(t, a, s.ID)
+	// Default cap is 3 rounds (shared with the termination gate), so it runs three
+	// revise rounds before force-approving — not the old hardcoded 2.
+	if len(dec) != 3 {
+		t.Fatalf("want 3 plan-audit rounds at the default cap, got %d: %+v", len(dec), dec)
+	}
 	last := dec[len(dec)-1]
-	if last.Decision != string(council.Done) || !strings.Contains(last.Note, "unresolved") {
-		t.Fatalf("cap should force a noted approve, got %+v", last)
+	if last.Decision != string(council.Done) || !strings.Contains(last.Note, "unresolved after 3") {
+		t.Fatalf("cap should force a noted approve after 3 rounds, got %+v", last)
 	}
 	// Force-approve still keeps the proceeding plan's criteria as the contract.
 	if c := a.cachedCriteria(s.ID); !strings.Contains(c, "build passes") {
 		t.Fatalf("force-approve should store the plan's criteria, got %q", c)
+	}
+}
+
+// The plan-audit cap follows the configured CouncilMaxRounds (here 1), proving it's
+// the shared knob and not a hardcoded constant.
+func TestPlanAuditCapRespectsCouncilMaxRounds(t *testing.T) {
+	fc := &fakeCouncil{delibs: []council.Deliberation{
+		{Round: 1, Decision: council.Continue, Feedback: "more"},
+	}}
+	a, wd := newApp(t, &fakeLLM{}, Config{
+		Council: fc, CouncilMaxRounds: 1,
+		Agents: map[string]AgentSpec{plannerAgent: {Name: "planner"}},
+	})
+	s, steps := planAuditFixture(t, a, wd)
+	a.runPlanAuditGate(context.Background(), s, a.cfg.Agents[plannerAgent], "p", steps)
+	dec := planDecisions(t, a, s.ID)
+	if len(dec) != 1 {
+		t.Fatalf("CouncilMaxRounds=1 should cap at a single round, got %d", len(dec))
+	}
+	if !strings.Contains(dec[0].Note, "unresolved after 1") {
+		t.Fatalf("single-round cap should force-approve with a 1-round note, got %+v", dec[0])
 	}
 }
 

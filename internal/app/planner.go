@@ -21,10 +21,9 @@ import (
 const plannerAgent = "planner"
 
 const (
-	maxPlanGroups     = 5 // explorers per single parallel/scout fan-out
-	maxPlanSteps      = 6 // ordered steps the planner may propose
-	maxPlanExplorers  = 8 // per-turn TOTAL explorer spawns (a per-turn budget, not the lifetime MaxAgents)
-	maxPlanAuditRound = 2 // plan-audit revise rounds before a forced approve
+	maxPlanGroups    = 5 // explorers per single parallel/scout fan-out
+	maxPlanSteps     = 6 // ordered steps the planner may propose
+	maxPlanExplorers = 8 // per-turn TOTAL explorer spawns (a per-turn budget, not the lifetime MaxAgents)
 )
 
 // planGroup is one independent investigation to parallelize.
@@ -251,8 +250,16 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 	if rule == "" {
 		rule = council.DefaultRule
 	}
+	// The plan audit shares the termination gate's round cap (CouncilMaxRounds,
+	// default 3) rather than a shorter hardcoded limit: round 1 often surfaces a
+	// concrete fix that round 2 still hasn't fully absorbed, so a too-small cap
+	// force-proceeds on a plan that one more round would have converged.
+	maxRounds := a.cfg.CouncilMaxRounds
+	if maxRounds <= 0 {
+		maxRounds = 3
+	}
 
-	for round := 1; round <= maxPlanAuditRound; round++ {
+	for round := 1; round <= maxRounds; round++ {
 		if ctx.Err() != nil {
 			return steps
 		}
@@ -292,7 +299,7 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 
 		// revise — but stop if the cap is hit or there is no actionable feedback.
 		fb := strings.TrimSpace(delib.Feedback)
-		if round >= maxPlanAuditRound || fb == "" {
+		if round >= maxRounds || fb == "" {
 			a.storePlanCriteria(ctx, s, delib.Criteria) // proceeding with this plan → keep its criteria
 			dd, _ := json.Marshal(event.CouncilDecidedData{
 				Round: round, Phase: "plan", Decision: string(council.Done), Tally: delib.Breakdown,
