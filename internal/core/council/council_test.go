@@ -208,3 +208,33 @@ func TestDefaultMembersAreTheMAGI(t *testing.T) {
 		}
 	}
 }
+
+func TestMergeCriteria(t *testing.T) {
+	vs := []Verdict{
+		{Member: "Melchior", Criteria: []string{"hello.txt exists", " builds clean "}},
+		{Member: "Balthasar", Criteria: []string{"Builds clean", "tests pass"}}, // case-dup of "builds clean"
+		{Member: "Casper", Criteria: []string{"", "hello.txt exists"}},          // empty + exact dup dropped
+	}
+	got := MergeCriteria(vs)
+	want := []string{"hello.txt exists", "builds clean", "tests pass"}
+	if len(got) != len(want) {
+		t.Fatalf("MergeCriteria = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("item %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+	// Cap at 8 items.
+	var many []Verdict
+	for i := 0; i < 20; i++ {
+		many = append(many, Verdict{Criteria: []string{string(rune('a' + i))}})
+	}
+	if g := MergeCriteria(many); len(g) != 8 {
+		t.Errorf("criteria should cap at 8, got %d", len(g))
+	}
+	// No criteria → nil.
+	if g := MergeCriteria([]Verdict{{Member: "x", Decision: Done}}); g != nil {
+		t.Errorf("no criteria should yield nil, got %v", g)
+	}
+}

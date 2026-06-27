@@ -113,6 +113,9 @@ type CouncilDecidedData struct {
 	// Note explains a gate-forced finish (e.g. round cap reached or no progress),
 	// when the members did not themselves vote done. Empty for a normal decision.
 	Note string `json:"note,omitempty"`
+	// Criteria is the synthesized completion criteria from a plan-audit approval
+	// (plan phase only) — the contract the turn is later judged against.
+	Criteria []string `json:"criteria,omitempty"`
 }
 
 // CouncilDeliberatingData — TypeCouncilDeliberating (transient, live panel).

@@ -48,6 +48,10 @@ type Verdict struct {
 	Rationale  string   `json:"rationale,omitempty"`  // why
 	Feedback   string   `json:"feedback,omitempty"`   // actionable, used when Continue
 	Weight     float64  `json:"weight,omitempty"`     // 0 = 1
+	// Criteria is a member's proposed completion criteria (expected deliverables /
+	// verification guidance), set only in the plan-audit phase where the council
+	// derives the contract the turn is later judged against. Empty otherwise.
+	Criteria []string `json:"criteria,omitempty"`
 }
 
 // Breakdown is the counted result of a tally — kept on the Deliberation so the
@@ -70,6 +74,9 @@ type Deliberation struct {
 	Decision  Decision  `json:"decision"`
 	Breakdown Breakdown `json:"breakdown"`
 	Feedback  string    `json:"feedback,omitempty"`
+	// Criteria is the synthesized completion criteria from a plan-audit round
+	// (merged from the members' proposals). Empty in the termination phase.
+	Criteria []string `json:"criteria,omitempty"`
 }
 
 // DefaultMembers returns the three default council members — the MAGI. The theme
@@ -100,6 +107,37 @@ func Deliberate(round int, vs []Verdict, rule Rule) Deliberation {
 		d.Feedback = AggregateFeedback(vs)
 	}
 	return d
+}
+
+// MergeCriteria synthesizes the members' proposed completion criteria into one
+// deduped, bounded list (used in the plan-audit phase to derive the contract the
+// turn is later judged against). Pure and order-stable: items are trimmed,
+// case-insensitive duplicates are dropped, and the list is capped. No I/O.
+func MergeCriteria(vs []Verdict) []string {
+	const maxItems, maxRunes = 8, 160
+	seen := make(map[string]bool)
+	var out []string
+	for _, v := range vs {
+		for _, c := range v.Criteria {
+			c = strings.TrimSpace(c)
+			if c == "" {
+				continue
+			}
+			if r := []rune(c); len(r) > maxRunes { // truncate (rune-safe), don't drop
+				c = strings.TrimSpace(string(r[:maxRunes]))
+			}
+			key := strings.ToLower(c)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, c)
+			if len(out) == maxItems {
+				return out
+			}
+		}
+	}
+	return out
 }
 
 // Tally applies a consensus rule to the verdicts and returns the council decision
