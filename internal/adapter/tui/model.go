@@ -1804,7 +1804,11 @@ func (m *Model) applyEvent(e event.Event) {
 		var d event.CouncilConvenedData
 		if json.Unmarshal(e.Data, &d) == nil {
 			m.councilRound = d.Round
-			line := fmt.Sprintf("⚖ council round %d — %s deliberate (%s)", d.Round, strings.Join(d.Members, ", "), d.Rule)
+			label, verb := "council", "deliberate"
+			if d.Phase == "plan" {
+				label, verb = "plan audit", "review the plan"
+			}
+			line := fmt.Sprintf("⚖ %s round %d — %s %s (%s)", label, d.Round, strings.Join(d.Members, ", "), verb, d.Rule)
 			if len(d.Signals) > 0 {
 				line += " · " + strings.Join(d.Signals, ", ")
 			}
@@ -1847,7 +1851,16 @@ func (m *Model) applyEvent(e event.Event) {
 		m.councilMember = ""
 		var d event.CouncilDecidedData
 		if json.Unmarshal(e.Data, &d) == nil {
-			line := fmt.Sprintf("⚖ council round %d: %s — %d done / %d continue", d.Round, d.Decision, d.Tally.Done, d.Tally.Continue)
+			label := "council"
+			verdict := d.Decision
+			if d.Phase == "plan" {
+				label = "plan audit"
+				verdict = map[string]string{"done": "approve", "continue": "revise"}[d.Decision]
+				if verdict == "" {
+					verdict = d.Decision
+				}
+			}
+			line := fmt.Sprintf("⚖ %s round %d: %s — %d done / %d continue", label, d.Round, verdict, d.Tally.Done, d.Tally.Continue)
 			if d.Tally.Abstain > 0 {
 				line += fmt.Sprintf(" / %d abstain", d.Tally.Abstain)
 			}
