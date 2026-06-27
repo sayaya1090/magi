@@ -31,6 +31,10 @@ type agentPane struct {
 	dur     time.Duration
 	in, out int
 
+	// absolute screen Y of this subagent's row in the right status panel, recorded
+	// during render for click hit-testing (panel click → zoom). 0 = not shown.
+	panelY int
+
 	// subscription
 	ch     <-chan event.Event
 	cancel func()

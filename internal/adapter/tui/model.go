@@ -476,6 +476,12 @@ func (m *Model) handleMouse(msg tea.Msg) tea.Cmd {
 				}
 				return nil
 			}
+			// Plain click in the right panel's subagent list → open that subagent's
+			// detail view directly (same destination as clicking its pane).
+			if m.handlePanelClick(e.X, e.Y) {
+				m.refresh()
+				return nil
+			}
 			// Plain click: expand/collapse a clicked reasoning ("thought") block,
 			// else focus a subagent pane. In the zoom view the click targets the
 			// focused subagent's blocks, not the main transcript's.
@@ -2203,7 +2209,7 @@ func (m Model) View() tea.View {
 	left := lipgloss.JoinVertical(lipgloss.Left, leftRows...)
 	mid := left
 	if m.panelCols() > 0 {
-		mid = lipgloss.JoinHorizontal(lipgloss.Top, left, " ", m.statusPanel(lipgloss.Height(left)))
+		mid = lipgloss.JoinHorizontal(lipgloss.Top, left, " ", m.statusPanel(lipgloss.Height(header), lipgloss.Height(left)))
 	}
 	parts := []string{header, mid}
 	if m.resuming {

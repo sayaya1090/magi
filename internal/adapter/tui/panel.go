@@ -67,7 +67,7 @@ func (m *Model) setPanelWidthForSplit(x int) {
 
 // statusPanel renders the right-hand panel (plan/todos, active subagents,
 // context) at the given height. Returns "" when hidden.
-func (m *Model) statusPanel(height int) string {
+func (m *Model) statusPanel(panelTop, height int) string {
 	if !m.hasPanel() {
 		return ""
 	}
@@ -75,7 +75,14 @@ func (m *Model) statusPanel(height int) string {
 	// line up: content = panelW - border(1) - padding(2).
 	content := m.panelW - 3
 	inner := content
-	var sections []string
+	// Build the body as flat lines so each subagent row's panel-relative Y can be
+	// recorded for click hit-testing (right-panel click → zoom that subagent).
+	var lines []string
+	sep := func() {
+		if len(lines) > 0 {
+			lines = append(lines, "")
+		}
+	}
 
 	if todos := m.app.Todos(m.panelSID()); len(todos) > 0 {
 		done := 0
@@ -84,30 +91,38 @@ func (m *Model) statusPanel(height int) string {
 				done++
 			}
 		}
-		var b strings.Builder
-		b.WriteString(panelHead(fmt.Sprintf("Plan  %d/%d", done, len(todos))))
+		sep()
+		lines = append(lines, panelHead(fmt.Sprintf("Plan  %d/%d", done, len(todos))))
 		for _, t := range todos {
-			b.WriteString("\n" + todoLine(t, inner))
+			lines = append(lines, todoLine(t, inner))
 		}
-		sections = append(sections, b.String())
 	}
 
 	if len(m.panes) > 0 {
-		var b strings.Builder
-		b.WriteString(panelHead("Subagents"))
+		sep()
+		lines = append(lines, panelHead("Subagents"))
 		for _, p := range m.panes {
+			p.panelY = panelTop + len(lines) // absolute screen Y of this row (persisted on the pointer)
 			c := m.paneColorOf(p)
-			b.WriteString("\n" + lipgloss.NewStyle().Foreground(c).Render("● ") +
-				oneLine(p.label(), inner-4) + " " + m.paneStatus(p))
+			status := m.paneStatus(p)
+			// Budget the label so "● <label> <status>" never exceeds the panel width
+			// (a wrap would push later rows off their recorded Y). The extra -1 covers
+			// oneLine's "…" ellipsis, which renders one cell past its max on truncation.
+			labelW := inner - 4 - lipgloss.Width(status)
+			if labelW < 4 {
+				labelW = 4
+			}
+			lines = append(lines, lipgloss.NewStyle().Foreground(c).Render("● ")+
+				oneLine(p.label(), labelW)+" "+status)
 		}
-		sections = append(sections, b.String())
 	}
 
 	if m.ctxPct > 0 {
-		sections = append(sections, panelHead("Context")+"\n"+ctxBar(m.ctxPct, inner))
+		sep()
+		lines = append(lines, panelHead("Context"), ctxBar(m.ctxPct, inner))
 	}
 
-	body := strings.Join(sections, "\n\n")
+	body := strings.Join(lines, "\n")
 	return lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder(), false, false, false, true).
 		BorderForeground(colOutlVar).
@@ -115,6 +130,27 @@ func (m *Model) statusPanel(height int) string {
 		Height(max(1, height)).
 		Padding(0, 1).
 		Render(body)
+}
+
+// handlePanelClick maps a click in the right panel's subagent list to that
+// subagent's detail view (focus + zoom), so a panel entry behaves like clicking
+// its pane. Returns true when consumed.
+func (m *Model) handlePanelClick(x, y int) bool {
+	if m.zoom || !m.hasPanel() || len(m.panes) == 0 {
+		return false
+	}
+	if split := m.width - m.panelCols(); x <= split { // click is left of the panel
+		return false
+	}
+	for i, p := range m.panes {
+		if p.panelY > 0 && y == p.panelY {
+			m.focusPane = i
+			m.zoom = true // enter the subagent detail directly
+			m.vp.GotoBottom()
+			return true
+		}
+	}
+	return false
 }
 
 // panelHead renders a section header in the panel.
