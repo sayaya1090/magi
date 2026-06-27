@@ -472,6 +472,22 @@ func renderText(e event.Event) {
 				fmt.Printf("  %s %s\n", status, truncate(string(d.Part.ToolResult.Content), 200))
 			}
 		}
+	case event.TypeCouncilConvened:
+		var d event.CouncilConvenedData
+		if json.Unmarshal(e.Data, &d) == nil {
+			fmt.Printf("⚖ council round %d — %v (%s)\n", d.Round, d.Members, d.Rule)
+		}
+	case event.TypeCouncilDecided:
+		var d event.CouncilDecidedData
+		if json.Unmarshal(e.Data, &d) == nil {
+			line := fmt.Sprintf("⚖ council round %d: %s — %d done / %d continue", d.Round, d.Decision, d.Tally.Done, d.Tally.Continue)
+			if d.Note != "" {
+				line += " (" + d.Note + ")"
+			} else if d.Feedback != "" {
+				line += " → continue"
+			}
+			fmt.Println(line)
+		}
 	case event.TypeError:
 		var d event.ErrorData
 		_ = json.Unmarshal(e.Data, &d)
