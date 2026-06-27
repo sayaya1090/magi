@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -65,7 +66,25 @@ func TestE2ECouncilGate(t *testing.T) {
 		}
 	}
 
-	newSession := func(t *testing.T) (*App, session.SessionID, <-chan event.Event, func()) {
+	// seed writes files into a fresh git repo and commits them, so a turn that
+	// MODIFIES or READS them has tracked history (and the council a real base).
+	seed := func(t *testing.T, dir string, files map[string]string) {
+		t.Helper()
+		for name, body := range files {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, args := range [][]string{{"add", "-A"}, {"commit", "-q", "-m", "seed"}} {
+			cmd := exec.Command("git", args...)
+			cmd.Dir = dir
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("git %v: %v\n%s", args, err, out)
+			}
+		}
+	}
+
+	newSession := func(t *testing.T, seedFiles map[string]string) (*App, session.SessionID, string, <-chan event.Event, func()) {
 		t.Helper()
 		store, err := jsonl.New(t.TempDir())
 		if err != nil {
@@ -81,6 +100,9 @@ func TestE2ECouncilGate(t *testing.T) {
 		})
 		wd := t.TempDir()
 		gitInit(t, wd) // a real repo, so GitDiff gives the council real evidence of the work
+		if len(seedFiles) > 0 {
+			seed(t, wd, seedFiles)
+		}
 		sid, err := a.CreateSession(context.Background(), command.CreateSession{
 			Workdir: wd, Model: session.ModelRef{Provider: "openai", Model: model},
 		})
@@ -91,7 +113,7 @@ func TestE2ECouncilGate(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return a, sid, sub, cancelSub
+		return a, sid, wd, sub, cancelSub
 	}
 
 	// drain consumes events until turn.finished, returning the council tally.
@@ -131,40 +153,29 @@ func TestE2ECouncilGate(t *testing.T) {
 		}
 	}
 
-	// Correction 1: a no-tool conversational turn must skip the council.
-	t.Run("conversational turn skips council", func(t *testing.T) {
-		a, sid, sub, cancelSub := newSession(t)
+	// run submits a prompt and drains the turn.
+	run := func(t *testing.T, seedFiles map[string]string, prompt string) tally {
+		t.Helper()
+		a, sid, _, sub, cancelSub := newSession(t, seedFiles)
 		defer cancelSub()
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		if err := a.Submit(ctx, command.SubmitPrompt{
-			SessionID: sid,
-			Parts:     []session.Part{{Kind: session.PartText, Text: "Reply with a one-sentence greeting. Do not use any tools."}},
-		}); err != nil {
-			t.Fatal(err)
-		}
-		tl := drain(t, ctx, sub)
-		if tl.convened != 0 {
-			t.Errorf("council convened %d times on a conversational turn, want 0", tl.convened)
-		}
-		t.Logf("conversational turn finished with council convened=%d (want 0)", tl.convened)
-	})
-
-	// Correction 2: a real coding turn convenes the council and terminates.
-	t.Run("coding turn convenes and terminates", func(t *testing.T) {
-		a, sid, sub, cancelSub := newSession(t)
-		defer cancelSub()
-		// Fetch the workdir from the session to verify the file later.
 		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 		defer cancel()
 		if err := a.Submit(ctx, command.SubmitPrompt{
 			SessionID: sid,
-			Parts:     []session.Part{{Kind: session.PartText, Text: "Create a file named hello.txt containing exactly: magi works"}},
+			Parts:     []session.Part{{Kind: session.PartText, Text: prompt}},
 		}); err != nil {
 			t.Fatal(err)
 		}
-		tl := drain(t, ctx, sub)
+		return drain(t, ctx, sub)
+	}
 
+	// assertConverges asserts a working turn convened the council and reached a
+	// GENUINE "done" — not a cap-forced finish. A "unresolved after N rounds" note
+	// means members still reflexively voted continue (the bug is not fixed). This
+	// is the over-fitting guard: it must hold for EVERY working-turn shape below,
+	// not just "create a new file".
+	assertConverges := func(t *testing.T, tl tally) {
+		t.Helper()
 		if tl.convened == 0 {
 			t.Error("council should convene on a turn that used tools, but it did not")
 		}
@@ -173,13 +184,43 @@ func TestE2ECouncilGate(t *testing.T) {
 		}
 		last := tl.decided[len(tl.decided)-1]
 		t.Logf("council convened=%d, final decision=%q note=%q", tl.convened, last.Decision, last.Note)
-		// The fix must produce GENUINE convergence, not a cap-forced finish: on a
-		// clearly-complete task with no signals, the verification lens abstains
-		// (nothing to verify) instead of reflexively voting continue, so the
-		// remaining members reach "done". A "unresolved after N rounds" note means
-		// the council still looped to the cap — the bug is not fixed.
 		if strings.Contains(last.Note, "unresolved after") {
-			t.Errorf("council hit the round cap instead of converging: note=%q (members still reflexively voting continue)", last.Note)
+			t.Errorf("council hit the round cap instead of converging: note=%q", last.Note)
 		}
+	}
+
+	// Correction 1: a no-tool conversational turn must skip the council.
+	t.Run("conversational turn skips council", func(t *testing.T) {
+		tl := run(t, nil, "Reply with a one-sentence greeting. Do not use any tools.")
+		if tl.convened != 0 {
+			t.Errorf("council convened %d times on a conversational turn, want 0", tl.convened)
+		}
+		t.Logf("conversational turn finished with council convened=%d (want 0)", tl.convened)
+	})
+
+	// Correction 2 — new file: the diff carries the new file's content (the fix).
+	t.Run("new file converges", func(t *testing.T) {
+		assertConverges(t, run(t, nil, "Create a file named hello.txt containing exactly: magi works"))
+	})
+
+	// Over-fitting guard 1 — modifying a TRACKED file: `git diff` shows the edit
+	// directly (this path always worked); the council must still converge on it.
+	t.Run("tracked modification converges", func(t *testing.T) {
+		tl := run(t,
+			map[string]string{"greeting.txt": "hello there\n"},
+			"Edit greeting.txt so its entire contents are exactly: magi rules")
+		assertConverges(t, tl)
+	})
+
+	// Over-fitting guard 2 — a READ-ONLY turn: it uses a tool (so the gate fires)
+	// but produces NO diff. There is no diff evidence to lean on, so this is the
+	// true test that members ABSTAIN on their evidence-less lens (verification)
+	// and judge the rest against the report — instead of churning "continue" for
+	// lack of a diff. If the diff fix were over-fitted, this would loop to the cap.
+	t.Run("read-only turn converges", func(t *testing.T) {
+		tl := run(t,
+			map[string]string{"config.txt": "host=localhost\nport=8080\ndebug=false\n"},
+			"Read config.txt and tell me which port is configured. Do not modify any files.")
+		assertConverges(t, tl)
 	})
 }
