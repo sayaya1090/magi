@@ -83,6 +83,9 @@ type DeliberationRequest struct {
 	Diff    string           // working diff (optional)
 	Members []council.Member // who votes (defaults to the MAGI when empty)
 	Rule    council.Rule     // how votes are tallied (defaults to majority)
+	// DefaultModel is used for members that don't pin their own Model (typically
+	// the session's current model, so the council follows model switches).
+	DefaultModel string
 }
 
 // Signal is a piece of deterministic evidence the council weighs (D16): the

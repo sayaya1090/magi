@@ -30,10 +30,15 @@ func (f fakeLLM) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan por
 
 func memberIn(r port.ChatRequest, name string) bool { return strings.Contains(r.System, "You are "+name) }
 
+// only returns a resolver that always yields p (when per-member routing is irrelevant).
+func only(p port.LLMProvider) func(string) port.LLMProvider {
+	return func(string) port.LLMProvider { return p }
+}
+
 func TestDeliberateAllDone(t *testing.T) {
-	c := New(fakeLLM{reply: func(port.ChatRequest) string {
+	c := New(only(fakeLLM{reply: func(port.ChatRequest) string {
 		return `{"decision":"done","confidence":0.9,"rationale":"looks complete"}`
-	}}, "m")
+	}}), "m")
 	d, err := c.Deliberate(context.Background(), port.DeliberationRequest{Round: 1, Task: "do x"})
 	if err != nil {
 		t.Fatal(err)
@@ -49,12 +54,12 @@ func TestDeliberateAllDone(t *testing.T) {
 func TestDeliberateMajorityContinueWithFeedback(t *testing.T) {
 	// Melchior + Casper say continue (with feedback), Balthasar says done →
 	// majority continue.
-	c := New(fakeLLM{reply: func(r port.ChatRequest) string {
+	c := New(only(fakeLLM{reply: func(r port.ChatRequest) string {
 		if memberIn(r, "Balthasar") {
 			return `{"decision":"done","rationale":"tests pass"}`
 		}
 		return `{"decision":"continue","rationale":"incomplete","feedback":"add the missing flag"}`
-	}}, "m")
+	}}), "m")
 	d, _ := c.Deliberate(context.Background(), port.DeliberationRequest{Round: 2, Task: "do x", Rule: council.RuleMajority})
 	if d.Decision != council.Continue {
 		t.Fatalf("decision = %q, want continue", d.Decision)
@@ -66,9 +71,9 @@ func TestDeliberateMajorityContinueWithFeedback(t *testing.T) {
 
 func TestDeliberateUnparseableAbstains(t *testing.T) {
 	// No JSON anywhere → every member abstains → tally resolves to Continue.
-	c := New(fakeLLM{reply: func(port.ChatRequest) string {
+	c := New(only(fakeLLM{reply: func(port.ChatRequest) string {
 		return "I think it is probably fine, hard to say really."
-	}}, "m")
+	}}), "m")
 	d, _ := c.Deliberate(context.Background(), port.DeliberationRequest{Round: 1, Task: "do x"})
 	if d.Decision != council.Continue {
 		t.Fatalf("decision = %q, want continue (all abstained)", d.Decision)
@@ -81,7 +86,7 @@ func TestDeliberateUnparseableAbstains(t *testing.T) {
 }
 
 func TestDeliberateProviderErrorAbstains(t *testing.T) {
-	c := New(fakeLLM{err: errors.New("backend down")}, "m")
+	c := New(only(fakeLLM{err: errors.New("backend down")}), "m")
 	d, _ := c.Deliberate(context.Background(), port.DeliberationRequest{Round: 1, Task: "do x"})
 	if d.Decision != council.Continue {
 		t.Fatalf("decision = %q, want continue (errors abstain)", d.Decision)
@@ -95,10 +100,10 @@ func TestDeliberateProviderErrorAbstains(t *testing.T) {
 
 func TestDeliberateCustomMembersAndModel(t *testing.T) {
 	var sawModel string
-	c := New(fakeLLM{reply: func(r port.ChatRequest) string {
+	c := New(only(fakeLLM{reply: func(r port.ChatRequest) string {
 		sawModel = r.Model
 		return `{"decision":"done"}`
-	}}, "default-model")
+	}}), "default-model")
 	d, _ := c.Deliberate(context.Background(), port.DeliberationRequest{
 		Round:   1,
 		Task:    "x",
@@ -113,6 +118,58 @@ func TestDeliberateCustomMembersAndModel(t *testing.T) {
 	}
 	if d.Decision != council.Done {
 		t.Fatalf("decision = %q, want done", d.Decision)
+	}
+}
+
+// Each member is polled over the backend its provider name resolves to, so cheap
+// and strong models can be mixed.
+func TestDeliberatePerMemberProvider(t *testing.T) {
+	// The resolver returns a backend whose verdict depends on the provider name,
+	// so a member's decision reveals which backend it was routed to.
+	resolve := func(name string) port.LLMProvider {
+		dec := "done"
+		if name == "weak" {
+			dec = "continue"
+		}
+		return fakeLLM{reply: func(port.ChatRequest) string {
+			return `{"decision":"` + dec + `","feedback":"x"}`
+		}}
+	}
+	c := New(resolve, "m")
+	d, _ := c.Deliberate(context.Background(), port.DeliberationRequest{
+		Round: 1, Task: "x", Rule: council.RuleUnanimous,
+		Members: []council.Member{
+			{Name: "A", Provider: "weak"}, // routed to the "weak" backend
+			{Name: "B"},                   // default backend
+		},
+	})
+	got := map[string]council.Decision{}
+	for _, v := range d.Verdicts {
+		got[v.Member] = v.Decision
+	}
+	if got["A"] != council.Continue {
+		t.Fatalf("member A (provider=weak) = %q, want continue", got["A"])
+	}
+	if got["B"] != council.Done {
+		t.Fatalf("member B (default backend) = %q, want done", got["B"])
+	}
+}
+
+// A member with no model uses the request's DefaultModel (the session model).
+func TestDeliberateDefaultModel(t *testing.T) {
+	var sawModel string
+	c := New(func(string) port.LLMProvider {
+		return fakeLLM{reply: func(r port.ChatRequest) string {
+			sawModel = r.Model
+			return `{"decision":"done"}`
+		}}
+	}, "fallback")
+	c.Deliberate(context.Background(), port.DeliberationRequest{
+		Round: 1, Task: "x", DefaultModel: "session-model",
+		Members: []council.Member{{Name: "A", Lens: "correctness"}},
+	})
+	if sawModel != "session-model" {
+		t.Fatalf("model = %q, want session-model (req.DefaultModel)", sawModel)
 	}
 }
 

@@ -16,16 +16,19 @@ import (
 	"github.com/sayaya1090/magi/internal/port"
 )
 
-// Council polls members over an LLM backend. A member with no Model uses the
-// default model the adapter was constructed with.
+// Council polls members over an LLM backend. Each member can run on its own
+// backend (resolved by name) and model, so cheap and strong models can be mixed;
+// a member with no provider/model falls back to the default backend and model.
 type Council struct {
-	provider port.LLMProvider
-	model    string
+	resolve func(provider string) port.LLMProvider // name → backend ("" or unknown → default)
+	model   string
 }
 
-// New builds an LLM-backed council over the given provider and default model.
-func New(provider port.LLMProvider, defaultModel string) *Council {
-	return &Council{provider: provider, model: defaultModel}
+// New builds an LLM-backed council. resolve maps a member's provider name to a
+// backend (returning the default backend for "" or an unknown name); model is the
+// fallback model when neither the member nor the request pins one.
+func New(resolve func(provider string) port.LLMProvider, defaultModel string) *Council {
+	return &Council{resolve: resolve, model: defaultModel}
 }
 
 // Deliberate polls every member concurrently and tallies the verdicts. A member
@@ -60,11 +63,22 @@ func (c *Council) Deliberate(ctx context.Context, req port.DeliberationRequest) 
 func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m council.Member) council.Verdict {
 	v := council.Verdict{Member: m.Name, Lens: m.Lens, Weight: m.Weight}
 
+	// Model: the member's pin, else the request's default (session model), else the
+	// adapter's fallback. Provider: the member's named backend, else default.
 	model := m.Model
+	if model == "" {
+		model = req.DefaultModel
+	}
 	if model == "" {
 		model = c.model
 	}
-	stream, err := c.provider.StreamChat(ctx, port.ChatRequest{
+	provider := c.resolve(m.Provider)
+	if provider == nil { // defensive: a resolver must yield a backend
+		v.Decision = council.Abstain
+		v.Rationale = "no council backend resolved for provider " + m.Provider
+		return v
+	}
+	stream, err := provider.StreamChat(ctx, port.ChatRequest{
 		Model:    model,
 		System:   memberSystem(m),
 		Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: evidence(req)}}}},

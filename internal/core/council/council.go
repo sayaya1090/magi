@@ -32,10 +32,11 @@ const (
 // Casper) with a judging lens as its attribute. Model/Weight are optional; an
 // empty Model means "use the session model" and a zero Weight counts as 1.
 type Member struct {
-	Name   string  `json:"name"`             // label, e.g. "Melchior"
-	Lens   string  `json:"lens"`             // attribute, e.g. "correctness"
-	Model  string  `json:"model,omitempty"`  // empty = session model
-	Weight float64 `json:"weight,omitempty"` // 0 = 1
+	Name     string  `json:"name"`               // label, e.g. "Melchior"
+	Lens     string  `json:"lens"`               // attribute, e.g. "correctness"
+	Model    string  `json:"model,omitempty"`    // empty = the request's default model
+	Provider string  `json:"provider,omitempty"` // named LLM backend/profile; empty = default backend
+	Weight   float64 `json:"weight,omitempty"`   // 0 = 1
 }
 
 // Verdict is one member's evaluation at the termination gate.
