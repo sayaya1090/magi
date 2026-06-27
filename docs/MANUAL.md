@@ -72,8 +72,9 @@ model    = "gpt-oss:20b"
 [llm.profiles.fast.headers]
 X-CLIENT-API-KEY = "${FAST_CLIENT_KEY}"
 
-[orchestration]            # 선제 플래너(기본 on): 독립 작업이면 읽기전용 병렬 조사
-planner = true
+[orchestration]            # 선제 절차 플래너(기본 on): 요청을 순서 절차로 분해 →
+planner = true             # step별 전략(solo|parallel|scout), scout는 목록 확보 후 각 항목 병렬,
+                           # 멀티스텝이면 실행 전 council이 계획 감사(approve/revise)
 
 [mcp.filesystem]           # MCP 서버 (stdio 또는 url=로 HTTP)
 command = "npx"

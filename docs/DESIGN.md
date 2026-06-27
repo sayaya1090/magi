@@ -307,8 +307,9 @@ type Council interface {
 }
 type DeliberationRequest struct {
     Round    int
+    Phase    string         // ""|"terminate"=종료 게이트 / "plan"=계획 감사(D17, report/diff/signal 없음)
     Task     string         // 원 과제(목표)
-    Plan     string         // 계약: acceptance criteria (있으면)
+    Plan     string         // 계약: acceptance criteria, 또는 Phase=plan일 때 제안된 절차
     Report   string         // 주장: 에이전트 자기보고 (있으면)
     Signals  []Signal       // 증거: test/lint/type 결과
     Diff     string         // 선택: 작업 diff
