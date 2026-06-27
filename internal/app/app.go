@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -491,13 +492,42 @@ func (a *App) ToolNames() []string {
 	return names
 }
 
-// GitDiff returns the working-tree diff for workdir (empty if no changes). It
-// falls back to `git status --short` when the diff is empty but untracked files
-// exist.
+// GitDiff returns the complete working-tree diff for workdir (empty if no
+// changes), INCLUDING the content of new untracked files. A plain `git diff`
+// omits untracked files, which hides exactly the new files an agent most often
+// creates — and starves the council (the termination gate) of the evidence it
+// needs to confirm the work, so it keeps voting "continue". To include them
+// without disturbing the user's index, everything is staged into a throwaway
+// index (GIT_INDEX_FILE) and diffed against HEAD; the real index is untouched.
 func (a *App) GitDiff(ctx context.Context, workdir string) (string, error) {
 	if a.plat == nil {
 		return "", fmt.Errorf("platform unavailable")
 	}
+
+	// Complete diff via a throwaway index, so new files show up with content.
+	if idx, err := os.CreateTemp("", "magi-diff-index-*"); err == nil {
+		idxPath := idx.Name()
+		idx.Close()
+		os.Remove(idxPath) // git recreates it; we only needed a unique, unused path
+		defer os.Remove(idxPath)
+		env := []string{"GIT_INDEX_FILE=" + idxPath}
+		add, aerr := a.plat.Exec(ctx, port.Cmd{Path: "git", Args: []string{"add", "-A"}, Dir: workdir, Env: env})
+		if aerr == nil && add.ExitCode == 0 {
+			// HEAD when there is history, the empty-tree object otherwise (fresh repo
+			// with no commits), so every staged file shows as an addition.
+			against := "HEAD"
+			if rev, rerr := a.plat.Exec(ctx, port.Cmd{Path: "git", Args: []string{"rev-parse", "--verify", "-q", "HEAD"}, Dir: workdir}); rerr != nil || rev.ExitCode != 0 {
+				against = emptyTreeRef
+			}
+			diff, derr := a.plat.Exec(ctx, port.Cmd{Path: "git", Args: []string{"diff", "--cached", against}, Dir: workdir, Env: env})
+			if derr == nil && diff.ExitCode == 0 {
+				return string(diff.Stdout), nil
+			}
+		}
+	}
+
+	// Fallback (temp index unavailable, or not a git repo): plain working-tree
+	// diff, then a status summary if the diff is empty but untracked files exist.
 	res, err := a.plat.Exec(ctx, port.Cmd{Path: "git", Args: []string{"diff"}, Dir: workdir})
 	if err != nil {
 		return "", err
@@ -518,6 +548,10 @@ func (a *App) GitDiff(ctx context.Context, workdir string) (string, error) {
 	}
 	return "", nil
 }
+
+// emptyTreeRef is git's well-known empty-tree object hash — a stable base to diff
+// against in a repository that has no commits yet.
+const emptyTreeRef = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 // Permission returns the current tool-permission policy.
 func (a *App) Permission() string {
