@@ -1,0 +1,6 @@
+/magi
+/dist/
+*.test
+.DS_Store
+.idea/
+.claude/
