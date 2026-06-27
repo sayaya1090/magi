@@ -133,6 +133,7 @@ primary = "#B45309"
 | `/image <path>` | 이미지 인라인 표시 |
 | `/diff` | 워킹트리 git diff |
 | `/loop` | **Loop map** — 턴·스텝·툴 활동·council 라운드를 구조로 투영(루프의 *모양* 가시화) |
+| `/context` | **컨텍스트 창** 가시화 — 사용량/창크기·메시지 수·compaction 이력(토큰 before→after) |
 | `/fork` | 현재 세션을 **분기**해 다른 시도 탐색(원본 보존). 분기로 전환됨 |
 | `/replay` | 직전 턴을 **분기에서 다시 실행**(같은 입력 재현). `/loopdiff`로 비교 |
 | `/loopdiff` | 현재 분기를 **fork 원본과 구조 비교**(턴·스텝·툴·council·토큰) |
