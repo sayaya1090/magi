@@ -25,7 +25,7 @@ func (f *fakeMCPMgr) AddHTTPDynamic(_ context.Context, name, url string, fn func
 	return nil
 }
 func (f *fakeMCPMgr) AddStdio(_ context.Context, _, _ string, _, _ []string) error { return nil }
-func (f *fakeMCPMgr) Remove(string)                                                 {}
+func (f *fakeMCPMgr) Remove(string)                                                {}
 
 // fakeContextReg captures plugin context-provider registrations.
 type fakeContextReg struct{ providers []port.ContextProvider }

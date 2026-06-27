@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"github.com/sayaya1090/magi/internal/core/event"
-	"github.com/sayaya1090/magi/internal/httpx"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/httpx"
 	"github.com/sayaya1090/magi/internal/port"
 )
 

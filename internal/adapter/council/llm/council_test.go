@@ -28,7 +28,9 @@ func (f fakeLLM) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan por
 	return ch, nil
 }
 
-func memberIn(r port.ChatRequest, name string) bool { return strings.Contains(r.System, "You are "+name) }
+func memberIn(r port.ChatRequest, name string) bool {
+	return strings.Contains(r.System, "You are "+name)
+}
 
 // only returns a resolver that always yields p (when per-member routing is irrelevant).
 func only(p port.LLMProvider) func(string) port.LLMProvider {

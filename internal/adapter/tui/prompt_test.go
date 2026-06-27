@@ -36,7 +36,7 @@ func TestPromptFormAnswers(t *testing.T) {
 		t.Fatalf("first focusable = %d, want 1 (text)", m.sel)
 	}
 	m = ptype(m, "alice")
-	m = pkey(m, "down") // → select
+	m = pkey(m, "down")  // → select
 	m = pkey(m, "right") // a→b
 	m = pkey(m, "down")  // → confirm
 	m = pkey(m, "right") // toggle to yes
@@ -67,7 +67,7 @@ func TestPromptFormTabAndNumber(t *testing.T) {
 	m := newPromptModel(prompt.Spec{Fields: []prompt.Field{
 		{Name: "port", Type: prompt.TypeNumber},
 	}})
-	m = ptype(m, "80a8")    // 'a' rejected
+	m = ptype(m, "80a8") // 'a' rejected
 	if m.state[0].buf != "808" {
 		t.Errorf("number buf = %q, want 808", m.state[0].buf)
 	}

@@ -39,9 +39,9 @@ func TestSanitizeSteps(t *testing.T) {
 			{Agent: "locator", Question: ""},                 // dropped (no question)
 		}},
 		{Title: "c", Strategy: "scout", Agent: "writer", Discover: "docs/*.md", Each: "summarize"}, // writer → explore
-		{Title: "d", Strategy: "bogus"},                       // unknown → dropped
-		{Title: "e", Strategy: "parallel", Groups: nil},        // no usable groups → dropped
-		{Title: "f", Strategy: "scout", Discover: ""},          // no discover → dropped
+		{Title: "d", Strategy: "bogus"},                 // unknown → dropped
+		{Title: "e", Strategy: "parallel", Groups: nil}, // no usable groups → dropped
+		{Title: "f", Strategy: "scout", Discover: ""},   // no discover → dropped
 	}})
 	if len(got) != 3 {
 		t.Fatalf("want 3 steps (solo, parallel, scout), got %d: %+v", len(got), got)

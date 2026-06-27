@@ -159,14 +159,14 @@ type Model struct {
 	profileForm  *profileForm // non-nil while adding/editing an LLM profile
 
 	// Multi-agent live view (B): one pane per spawned subagent child session.
-	panes     []*agentPane   // active/finished subagent panes, in spawn order
-	focusPane int            // index into panes of the focused pane (-1 = main transcript)
-	zoom      bool           // focused pane expanded full-screen
+	panes     []*agentPane // active/finished subagent panes, in spawn order
+	focusPane int          // index into panes of the focused pane (-1 = main transcript)
+	zoom      bool         // focused pane expanded full-screen
 
 	councilDetail          *event.CouncilVerdictData // open council-verdict detail (full-screen; nil = closed)
 	councilDetailEvidence  string                    // the evidence shown alongside the open verdict
 	pendingCouncilEvidence string                    // evidence from the latest convened round, attached to its verdicts
-	roleColor map[string]int // role name -> agentPalette index (stable per session)
+	roleColor              map[string]int            // role name -> agentPalette index (stable per session)
 
 	panelW        int  // right status-panel width (drag its left edge to resize)
 	resizingPanel bool // a panel-splitter drag is in progress
@@ -2049,10 +2049,11 @@ func overlayLine(content string, row, col int, overlay string) string {
 // consumed by both panesBlockHeight (reserve) and renderPanes (render) so they can
 // never drift. It caps the pane block to the space left after base chrome and a
 // minimum viewport, and folds any overflow into a "+N more" summary row.
-//   nShown  = panes actually rendered
-//   perPane = rows each running pane gets (collapsed panes are 1 row)
-//   more    = panes hidden behind the "+N more" line (0 = none)
-//   total   = exact rendered height (== panesBlockHeight)
+//
+//	nShown  = panes actually rendered
+//	perPane = rows each running pane gets (collapsed panes are 1 row)
+//	more    = panes hidden behind the "+N more" line (0 = none)
+//	total   = exact rendered height (== panesBlockHeight)
 func (m *Model) paneLayout() (nShown, perPane, more, total int) {
 	n := len(m.panes)
 	if n == 0 || m.zoom {

@@ -22,8 +22,8 @@ const (
 	blockToolCall
 	blockToolResult
 	blockError
-	blockInfo      // slash-command output / system notices
-	blockDiff      // git diff output (colorized)
+	blockInfo           // slash-command output / system notices
+	blockDiff           // git diff output (colorized)
 	blockReasoning      // model "thinking" output (de-emphasized)
 	blockImage          // pre-rendered image (half-block)
 	blockCouncilVerdict // one council member's vote (compact; click → detail modal)

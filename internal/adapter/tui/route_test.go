@@ -172,8 +172,8 @@ func TestProfileFormTabSaves(t *testing.T) {
 	m.handleRouteKey(keyPress("enter")) // open new profile form (sel 0 = name)
 	m.handleRouteKey(keyPress("enter")) // edit name
 	typeStr(&m, "quick")
-	m.handleRouteKey(keyPress("enter"))                                // commit name
-	m.handleRouteKey(tea.KeyPressMsg{Code: tea.KeyTab})               // Tab → save
+	m.handleRouteKey(keyPress("enter"))                 // commit name
+	m.handleRouteKey(tea.KeyPressMsg{Code: tea.KeyTab}) // Tab → save
 	if m.profileForm != nil {
 		t.Fatal("Tab should save and close the form")
 	}

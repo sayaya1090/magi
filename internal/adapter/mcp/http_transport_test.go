@@ -159,9 +159,9 @@ func TestHTTPTransportCustomHeaders(t *testing.T) {
 	defer srv.Close()
 
 	headers := map[string]string{
-		"X-Custom-Auth":  "Bearer secret123",
-		"X-Request-ID":   "test-request-id",
-		"X-API-Version":  "v2",
+		"X-Custom-Auth": "Bearer secret123",
+		"X-Request-ID":  "test-request-id",
+		"X-API-Version": "v2",
 	}
 	client := newHTTPClient(srv.URL, headers, nil)
 	defer client.Close()

@@ -26,7 +26,7 @@ func TestTallyMajority(t *testing.T) {
 		{"majority-2of3", []Verdict{v("a", Done), v("b", Done), v("c", Continue)}, RuleMajority, Done},
 		{"majority-tie", []Verdict{v("a", Done), v("b", Continue)}, RuleMajority, Continue},
 		{"abstain-excluded", []Verdict{v("a", Done), v("b", Abstain), v("c", Continue)}, RuleMajority, Continue}, // 1 of 2 voters → tie
-		{"abstain-majority", []Verdict{v("a", Done), v("b", Done), v("c", Abstain)}, RuleMajority, Done},          // 2 of 2 voters
+		{"abstain-majority", []Verdict{v("a", Done), v("b", Done), v("c", Abstain)}, RuleMajority, Done},         // 2 of 2 voters
 		{"empty-rule-defaults-majority", []Verdict{v("a", Done), v("b", Done), v("c", Continue)}, "", Done},
 	}
 	for _, tc := range cases {

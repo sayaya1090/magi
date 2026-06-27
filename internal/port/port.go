@@ -80,7 +80,7 @@ type DeliberationRequest struct {
 	// "" / "terminate" is the turn-termination gate (default); "plan" is the
 	// pre-flight plan audit, where members judge the PROPOSED PROCEDURE against the
 	// task — there is no Report, Diff, or Signals yet.
-	Phase   string
+	Phase string
 	// NoChanges marks a pure read-only / investigation / answer turn: the working
 	// tree was successfully diffed and nothing changed, and no signals ran. Such a
 	// turn has no artifact to verify and no false success to guard against, so
@@ -90,11 +90,11 @@ type DeliberationRequest struct {
 	NoChanges bool
 	Task      string           // the user's original goal/request
 	Plan      string           // acceptance criteria / contract, or the proposed procedure when Phase=="plan"
-	Report  string           // the agent's self-reported result / claim (optional)
-	Signals []Signal         // deterministic evidence (build/test/lint outcomes), optional
-	Diff    string           // working diff (optional)
-	Members []council.Member // who votes (defaults to the MAGI when empty)
-	Rule    council.Rule     // how votes are tallied (defaults to majority)
+	Report    string           // the agent's self-reported result / claim (optional)
+	Signals   []Signal         // deterministic evidence (build/test/lint outcomes), optional
+	Diff      string           // working diff (optional)
+	Members   []council.Member // who votes (defaults to the MAGI when empty)
+	Rule      council.Rule     // how votes are tallied (defaults to majority)
 	// DefaultModel is used for members that don't pin their own Model (typically
 	// the session's current model, so the council follows model switches).
 	DefaultModel string
