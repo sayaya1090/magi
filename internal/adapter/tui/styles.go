@@ -23,6 +23,13 @@ var (
 	colOutlVar  color.Color // outline-variant — dividers
 	colWarn     color.Color // caution (e.g. "allow" / YOLO permission)
 
+	// Council member hues (the MAGI): distinct, theme-overridable colors for
+	// Melchior/Balthasar/Casper. Custom or extra members fall back to agentPalette
+	// (see councilColor).
+	colMelchior  color.Color
+	colBalthasar color.Color
+	colCasper    color.Color
+
 	// agentPalette gives each subagent a distinct, stable color (M3 tonal set).
 	// Resolved per theme in applyTheme. Used for pane borders, the breadcrumb,
 	// the header badge, and transcript name highlights.
@@ -72,11 +79,14 @@ var nervDark = palette{
 	"primary": "#FF7A1A", "accent": "#5CD8E6", "muted": "#C9C2B8", "outline": "#5A5048",
 	"error": "#F2B8B5", "success": "#86EFAC", "surface": "#211B14",
 	"primaryContainer": "#4A2E0B", "outlineVariant": "#463E34", "warn": "#FFD479",
+	// The MAGI — amber / cyan / coral, the NERV-console hues.
+	"melchior": "#FFB454", "balthasar": "#5CD8E6", "casper": "#FF8A8A",
 }
 var nervLight = palette{
 	"primary": "#B45309", "accent": "#0E7490", "muted": "#4A453C", "outline": "#8A7E6E",
 	"error": "#B3261E", "success": "#15803D", "surface": "#F5EEE3",
 	"primaryContainer": "#F8D9A8", "outlineVariant": "#D8CFC0", "warn": "#92600A",
+	"melchior": "#B45309", "balthasar": "#0E7490", "casper": "#B3261E",
 }
 
 // themeDarkOverride/themeLightOverride hold config-supplied color overrides
@@ -126,6 +136,9 @@ func applyTheme(isDark bool) {
 	colPrimCont = col("primaryContainer")
 	colOutlVar = col("outlineVariant")
 	colWarn = col("warn")
+	colMelchior = col("melchior")
+	colBalthasar = col("balthasar")
+	colCasper = col("casper")
 
 	// Distinct per-subagent hues (left=light theme tone, right=dark theme tone).
 	// Chosen to stay legible on both surfaces and apart from amber/cyan chrome.

@@ -68,6 +68,22 @@ func (m *Model) paneColor(role string) color.Color {
 	return agentPalette[m.roleColorIndex(role)]
 }
 
+// councilColor returns a council member's hue: the MAGI's named theme colors for
+// Melchior/Balthasar/Casper (theme-overridable), else a stable agentPalette
+// fallback for custom or extra members.
+func (m *Model) councilColor(member string) color.Color {
+	switch strings.ToLower(strings.TrimSpace(member)) {
+	case "melchior":
+		return colMelchior
+	case "balthasar":
+		return colBalthasar
+	case "casper":
+		return colCasper
+	default:
+		return m.paneColor(member)
+	}
+}
+
 // paneColorOf returns a pane's color: the role's base hue, with brightness
 // shifted for the 2nd/3rd/… concurrent pane of the same role. Combined with the
 // task summary (see desc), same-role panes are easy to tell apart.

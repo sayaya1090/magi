@@ -233,11 +233,15 @@ const defaultConfigTemplate = `# magi configuration. Everything here is optional
 
 # --- Color theme (TUI). Override any Material Design 3 role per mode; an
 # unspecified role keeps the built-in NERV/MAGI default. Roles: primary, accent,
-# muted, outline, error, success, surface, primaryContainer, outlineVariant, warn. ---
+# muted, outline, error, success, surface, primaryContainer, outlineVariant, warn,
+# and the council members melchior, balthasar, casper (their verdict colors). ---
 # [theme.dark]
-# primary = "#FF7A1A"
-# accent  = "#5CD8E6"
-# surface = "#211B14"
+# primary   = "#FF7A1A"
+# accent    = "#5CD8E6"
+# surface   = "#211B14"
+# melchior  = "#FFB454"
+# balthasar = "#5CD8E6"
+# casper    = "#FF8A8A"
 # [theme.light]
 # primary = "#B45309"
 # accent  = "#0E7490"
