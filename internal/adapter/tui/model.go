@@ -163,7 +163,9 @@ type Model struct {
 	focusPane int            // index into panes of the focused pane (-1 = main transcript)
 	zoom      bool           // focused pane expanded full-screen
 
-	councilDetail *event.CouncilVerdictData // open council-verdict detail modal (nil = closed)
+	councilDetail          *event.CouncilVerdictData // open council-verdict detail (full-screen; nil = closed)
+	councilDetailEvidence  string                    // the evidence shown alongside the open verdict
+	pendingCouncilEvidence string                    // evidence from the latest convened round, attached to its verdicts
 	roleColor map[string]int // role name -> agentPalette index (stable per session)
 
 	panelW        int  // right status-panel width (drag its left edge to resize)
@@ -387,6 +389,7 @@ func (m *Model) openCouncilDetailAt(line int) bool {
 		return false
 	}
 	m.councilDetail = m.blocks[i].councilVerdict
+	m.councilDetailEvidence = m.blocks[i].evidence
 	return true
 }
 
@@ -450,9 +453,10 @@ func (m *Model) toggleThoughtAtZoom(line int) bool {
 func (m *Model) handleMouse(msg tea.Msg) tea.Cmd {
 	switch e := msg.(type) {
 	case tea.MouseClickMsg:
-		// Clicking the breadcrumb header while zoomed goes back to the overview.
-		if e.Button == tea.MouseLeft && m.zoom && e.Y <= 1 {
+		// Clicking the breadcrumb header while zoomed (or in council detail) goes back.
+		if e.Button == tea.MouseLeft && (m.zoom || m.councilDetail != nil) && e.Y <= 1 {
 			m.zoom = false
+			m.councilDetail = nil
 			m.refresh()
 			return nil
 		}
@@ -558,13 +562,6 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			return m.respond("deny"), true
 		}
 		return nil, true // swallow other keys while modal is open
-	}
-
-	// Council detail modal: any key dismisses it and is swallowed (so e.g. Enter
-	// doesn't leak to the textarea and submit a prompt behind the modal).
-	if m.councilDetail != nil {
-		m.councilDetail = nil
-		return nil, true
 	}
 
 	// Interactive resume picker takes priority while open.
@@ -717,8 +714,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			return nil, true
 		}
 	case "esc":
-		// (The council detail modal, if open, is already handled at the top of
-		// handleKey — any key closes it.)
+		// Leave the council verdict detail first if it's open (like exiting zoom).
+		if m.councilDetail != nil {
+			m.councilDetail = nil
+			return nil, true
+		}
 		// Focused on a still-running subagent → interrupt just that one (stays
 		// focused so you see it stop). Press esc again to leave the view.
 		if m.focusPane >= 0 && m.focusPane < len(m.panes) && !m.panes[m.focusPane].done {
@@ -1841,6 +1841,7 @@ func (m *Model) applyEvent(e event.Event) {
 		var d event.CouncilConvenedData
 		if json.Unmarshal(e.Data, &d) == nil {
 			m.councilRound = d.Round
+			m.pendingCouncilEvidence = formatCouncilEvidence(d) // shown in each verdict's detail view
 			label, verb := "council", "deliberate"
 			if d.Phase == "plan" {
 				label, verb = "plan audit", "review the plan"
@@ -1867,7 +1868,7 @@ func (m *Model) applyEvent(e event.Event) {
 		var d event.CouncilVerdictData
 		if json.Unmarshal(e.Data, &d) == nil {
 			vd := d
-			m.blocks = append(m.blocks, block{kind: blockCouncilVerdict, councilVerdict: &vd})
+			m.blocks = append(m.blocks, block{kind: blockCouncilVerdict, councilVerdict: &vd, evidence: m.pendingCouncilEvidence})
 		}
 
 	case event.TypeCouncilDecided:
@@ -2073,7 +2074,10 @@ func (m *Model) refresh() {
 	m.vp.SetWidth(tw)
 	m.vp.SetHeight(vpHeight)
 	content := m.transcript()
-	if m.zoom {
+	if m.councilDetail != nil {
+		// Council verdict detail takes over the viewport (like a zoomed pane).
+		content = m.renderCouncilDetail(tw)
+	} else if m.zoom {
 		// Zoomed: the viewport shows the focused subagent's full transcript.
 		content = m.renderZoom(tw)
 	}
@@ -2210,7 +2214,13 @@ func (m Model) View() tea.View {
 	}
 
 	var headLine string
-	if m.zoom && m.focusPane >= 0 && m.focusPane < len(m.panes) {
+	if m.councilDetail != nil {
+		// Council detail view: a clickable breadcrumb back to the transcript.
+		c := m.councilColor(m.councilDetail.Member)
+		headLine = styleKeyLabel.Render("‹ back") + styleHeader.Render("   ") +
+			styleBrand.Render("✦ magi") + styleHeader.Render(" › ") +
+			lipgloss.NewStyle().Foreground(c).Bold(true).Render("⚖ "+m.councilDetail.Member+" verdict")
+	} else if m.zoom && m.focusPane >= 0 && m.focusPane < len(m.panes) {
 		// Zoom view: the header is a clickable breadcrumb back to the overview.
 		p := m.panes[m.focusPane]
 		c := m.paneColorOf(p)
@@ -2288,10 +2298,6 @@ func (m Model) View() tea.View {
 		pv := m.permView()
 		parts = append(parts, pv)
 		aboveInput += lipgloss.Height(pv)
-	} else if m.councilDetail != nil {
-		pv := m.councilDetailView()
-		parts = append(parts, pv)
-		aboveInput += lipgloss.Height(pv)
 	}
 	parts = append(parts, input)
 	parts = append(parts, status)
@@ -2343,33 +2349,65 @@ func (m *Model) paletteView(matches []cmdInfo) string {
 	return stylePalBox.Width(m.width - 2).Render(b.String())
 }
 
-// councilDetailView renders the full detail for one clicked council verdict —
-// member (colored), decision, lens, confidence, rationale, and (continue)
-// feedback — as a modal in the permView style. Closed with esc or a click.
-func (m *Model) councilDetailView() string {
+// renderCouncilDetail is the FULL-SCREEN detail for one clicked council verdict —
+// the same destination style as a zoomed subagent pane. It shows the member's vote
+// (decision/lens/confidence/rationale/feedback) AND the evidence the members were
+// given that round (task/plan/report/diff), so the user sees both what was judged
+// and how. Returned as viewport content (scrolls); closed with esc or a click.
+func (m *Model) renderCouncilDetail(width int) string {
 	v := m.councilDetail
 	if v == nil {
 		return ""
 	}
 	hue := m.councilColor(v.Member)
+	wrap := lipgloss.NewStyle().Width(max(8, width-2))
 	var b strings.Builder
-	b.WriteString(lipgloss.NewStyle().Foreground(hue).Bold(true).Render(v.Member) +
-		"  " + stylePermTitle.Render(v.Decision) + "\n")
+	// (The "‹ back" breadcrumb is the fixed header — see View.)
+	b.WriteString(lipgloss.NewStyle().Foreground(hue).Bold(true).Render("⚖ "+v.Member) + "  " + v.Decision)
 	if v.Lens != "" {
-		b.WriteString(styleFooter.Render("lens: ") + v.Lens + "\n")
+		b.WriteString(styleFooter.Render("  [" + v.Lens + "]"))
 	}
 	if v.Confidence > 0 {
-		b.WriteString(styleFooter.Render(fmt.Sprintf("confidence: %.0f%%", v.Confidence*100)) + "\n")
+		b.WriteString(styleFooter.Render(fmt.Sprintf("  · confidence %.0f%%", v.Confidence*100)))
 	}
-	wrap := lipgloss.NewStyle().Width(m.width - 6)
+	b.WriteString("\n")
 	if v.Rationale != "" {
-		b.WriteString("\n" + wrap.Render(v.Rationale) + "\n")
+		b.WriteString("\n" + styleFooter.Render("rationale") + "\n" + wrap.Render(v.Rationale) + "\n")
 	}
 	if v.Feedback != "" {
-		b.WriteString("\n" + styleFooter.Render("next: ") + "\n" + wrap.Render(v.Feedback) + "\n")
+		b.WriteString("\n" + styleFooter.Render("next step") + "\n" + wrap.Render(v.Feedback) + "\n")
 	}
-	b.WriteString(footerKeys("esc", "close"))
-	return stylePermBox.Width(m.width - 4).Render(b.String())
+	if ev := strings.TrimSpace(m.councilDetailEvidence); ev != "" {
+		b.WriteString("\n" + styleFooter.Render("— evidence the council saw —") + "\n\n" + wrap.Render(ev) + "\n")
+	}
+	return b.String()
+}
+
+// formatCouncilEvidence renders the round's evidence (what every member saw) for
+// the detail view.
+func formatCouncilEvidence(d event.CouncilConvenedData) string {
+	var b strings.Builder
+	add := func(title, body string) {
+		if strings.TrimSpace(body) == "" {
+			return
+		}
+		b.WriteString("# " + title + "\n" + strings.TrimSpace(body) + "\n\n")
+	}
+	add("Task", d.Task)
+	if d.Phase == "plan" {
+		add("Proposed plan", d.Plan)
+	} else {
+		add("Plan / acceptance criteria", d.Plan)
+		add("Agent report (the claim)", d.Report)
+	}
+	if len(d.Signals) > 0 {
+		add("Signals", strings.Join(d.Signals, "\n"))
+	}
+	add("Diff", d.Diff)
+	if d.NoChanges {
+		b.WriteString("(no files changed — a read-only / answer turn)\n")
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func (m *Model) permView() string {

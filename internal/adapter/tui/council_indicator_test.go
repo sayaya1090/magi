@@ -23,6 +23,7 @@ func TestCouncilIndicator(t *testing.T) {
 
 	m.applyEvent(ev(t, event.TypeCouncilConvened, event.CouncilConvenedData{
 		Round: 1, Members: []string{"Melchior", "Balthasar", "Casper"}, Rule: "majority",
+		Task: "fix the parser bug", Report: "fixed the EOF handling",
 	}))
 	if m.councilRound != 1 {
 		t.Fatalf("councilRound = %d, want 1", m.councilRound)
@@ -59,13 +60,21 @@ func TestCouncilIndicator(t *testing.T) {
 	if strings.Contains(compact, "trailing newline") {
 		t.Fatalf("compact line must NOT include the rationale: %q", compact)
 	}
-	// Clicking opens the detail modal with the full reasoning.
+	// Clicking opens the full-screen detail with the full reasoning AND the round's
+	// evidence (what the members saw): task + report flow through convened→verdict.
+	if v.evidence == "" || !strings.Contains(v.evidence, "fix the parser bug") {
+		t.Fatalf("verdict block should carry the round's evidence, got %q", v.evidence)
+	}
 	m.councilDetail = v.councilVerdict
-	detail := m.councilDetailView()
+	m.councilDetailEvidence = v.evidence
+	detail := m.renderCouncilDetail(80)
 	if !strings.Contains(detail, "correctness") ||
 		!strings.Contains(detail, "the parser drops the trailing newline") ||
 		!strings.Contains(detail, "handle EOF without a newline") {
-		t.Fatalf("detail modal missing lens/rationale/feedback: %q", detail)
+		t.Fatalf("detail missing lens/rationale/feedback: %q", detail)
+	}
+	if !strings.Contains(detail, "fix the parser bug") || !strings.Contains(detail, "fixed the EOF handling") {
+		t.Fatalf("detail should show the evidence the council saw (task/report): %q", detail)
 	}
 	m.councilDetail = nil
 

@@ -42,8 +42,11 @@ type block struct {
 	result   string // the toolCall's result summary text
 	expanded bool   // a reasoning block individually expanded by a click
 	// councilVerdict carries one member's full vote for a blockCouncilVerdict block:
-	// the line renders compact, and a click opens the detail modal from this data.
+	// the line renders compact, and a click opens the full-screen detail from this
+	// data. evidence is the pre-formatted "what the members saw this round"
+	// (task/plan/report/diff), shown alongside the vote in the detail view.
 	councilVerdict *event.CouncilVerdictData
+	evidence       string
 }
 
 // transcript renders the full transcript plus any in-progress streaming text.
