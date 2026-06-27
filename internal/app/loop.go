@@ -79,11 +79,14 @@ func (a *App) run(ctx context.Context, sid session.SessionID) error {
 	// Pre-flight planner: when the task splits into independent areas, fan out
 	// read-only explorers in parallel and inject their findings before the main
 	// agent runs. Degrades to solo (no-op) when disabled or not parallelizable.
-	a.maybePlanPreflight(ctx, s)
+	planned := a.maybePlanPreflight(ctx, s)
 	if a.cfg.Workflow {
 		return a.runWorkflow(ctx, s)
 	}
-	_, err := a.runLoop(ctx, s, a.agentFor(s), 0, 0)
+	// If the planner did investigation and injected findings, the turn already did
+	// real work — seed it so the termination council convenes even when the main
+	// agent only synthesizes the findings (no tools of its own).
+	_, err := a.runLoop(ctx, s, a.agentFor(s), 0, 0, planned)
 	return err
 }
 
@@ -92,7 +95,7 @@ func (a *App) run(ctx context.Context, sid session.SessionID) error {
 // subagent's result). depth is the orchestration nesting level (D7); maxSteps<=0
 // uses the configured default (the workflow engine passes per-phase budgets).
 // (F-LOOP)
-func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, depth, maxSteps int) (string, error) {
+func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, depth, maxSteps int, seedWork bool) (string, error) {
 	if maxSteps <= 0 {
 		maxSteps = a.cfg.MaxSteps
 	}
@@ -104,7 +107,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	guard := newRunGuard()
 	councilRounds := 0        // consensus termination gate rounds this turn (D14)
 	lastCouncilFeedback := "" // last round's feedback (no-progress detection)
-	usedTools := false        // did this turn do real work? (council skips pure conversational turns)
+	usedTools := seedWork     // did this turn do real work? (planner investigation seeds it; council skips pure conversational turns)
 	// Turn usage accumulation (§8.1): output tokens and cost sum across steps; input
 	// is the last step's (the current context size, not a sum).
 	var cumOut, lastIn int

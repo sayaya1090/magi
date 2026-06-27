@@ -142,7 +142,7 @@ func (a *App) runPhase(ctx context.Context, s session.Session, ph wfPhase, feedb
 		Tools:  ph.tools,
 		Model:  base.Model,
 	}
-	_, err := a.runLoop(ctx, s, pa, 0, ph.maxSteps)
+	_, err := a.runLoop(ctx, s, pa, 0, ph.maxSteps, false)
 	a.emitPhase(s.ID, ph.name, "done", "")
 	return err
 }
@@ -157,7 +157,7 @@ func (a *App) runPhaseExpectingEdits(ctx context.Context, s session.Session, ph 
 	a.emitPhase(s.ID, ph.name, "start", fmt.Sprintf("attempt %d/%d", attempt, loops))
 	base := a.agentFor(s)
 	pa := AgentSpec{Name: base.Name, System: base.System + "\n\n# CURRENT PHASE\n" + ph.goal, Tools: ph.tools, Model: base.Model}
-	_, err := a.runLoop(ctx, s, pa, 0, ph.maxSteps)
+	_, err := a.runLoop(ctx, s, pa, 0, ph.maxSteps, false)
 	a.emitPhase(s.ID, ph.name, "done", "")
 	return a.fileEditsSince(ctx, s.ID, before), err
 }

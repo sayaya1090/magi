@@ -64,17 +64,21 @@ var readOnlyExplorers = map[string]bool{"explore": true, "locator": true, "analy
 // strategy (solo|parallel|scout, scout being adaptive), and (5) injects the
 // gathered findings so the main agent starts with them. Best-effort throughout:
 // any failure degrades to solo (the normal path) and never blocks the turn.
-func (a *App) maybePlanPreflight(ctx context.Context, s session.Session) {
+// It returns true if it injected explorer findings — i.e. the planner did real
+// investigation this turn — so the caller seeds the loop's "used tools" flag and
+// the termination council still convenes even if the main agent only synthesizes
+// the findings (no tools of its own).
+func (a *App) maybePlanPreflight(ctx context.Context, s session.Session) bool {
 	if !a.cfg.Planner {
-		return
+		return false
 	}
 	spec, ok := a.cfg.Agents[plannerAgent]
 	if !ok {
-		return // planner not configured
+		return false // planner not configured
 	}
 	prompt := a.lastUserPrompt(ctx, s.ID)
 	if strings.TrimSpace(prompt) == "" {
-		return
+		return false
 	}
 	a.setStage(s.ID, stagePlan) // tag pre-flight planning events as the plan stage (D15)
 
@@ -82,7 +86,7 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session) {
 	steps := sanitizeSteps(plan)
 	if len(steps) == 0 {
 		a.emitPhase(s.ID, "plan", "solo", strings.TrimSpace(plan.Reason)) // ran, judged single-area
-		return                                                            // solo — the default, cheap path
+		return false                                                      // solo — the default, cheap path
 	}
 
 	// Plan audit (D17): a multi-step procedure is reviewed by the council BEFORE it
@@ -90,12 +94,10 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session) {
 	// when no council is configured.
 	if len(steps) >= 2 && a.cfg.Council != nil && !a.cfg.Workflow {
 		steps = a.runPlanAuditGate(ctx, s, spec, prompt, steps)
-		if len(steps) < 2 {
-			if len(steps) == 0 {
-				return
-			}
-			// audit collapsed it to a single step → nothing to fan out
+		if len(steps) == 0 {
+			return false
 		}
+		// (a single remaining step is fine — nothing to fan out, but solo work follows)
 	}
 
 	a.registerPlanTodos(s.ID, steps)
@@ -103,9 +105,10 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session) {
 
 	findings := a.executeSteps(ctx, s, steps)
 	if strings.TrimSpace(findings) == "" {
-		return
+		return false
 	}
 	a.injectPlannerFindings(ctx, s.ID, findings)
+	return true
 }
 
 // runPlanner does a single tool-free LLM call on the planner's own provider and
