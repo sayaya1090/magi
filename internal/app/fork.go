@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -54,6 +55,49 @@ func (a *App) Fork(ctx context.Context, sid session.SessionID, upToSeq int64) (s
 	a.sessions[newSid] = s
 	a.mu.Unlock()
 	return newSid, nil
+}
+
+// Replay branches the session just before its last user turn and returns the new
+// fork plus that turn's prompt text, so the caller can re-run the SAME input on
+// the branch — re-running a trajectory to compare against the original (pain #5),
+// e.g. after switching model/config or to probe non-determinism. The original is
+// untouched. Returns an empty prompt when there is no user turn to replay.
+func (a *App) Replay(ctx context.Context, sid session.SessionID) (session.SessionID, string, error) {
+	evs, err := a.store.Read(ctx, sid, 0)
+	if err != nil {
+		return "", "", err
+	}
+	// Find the last turn-STARTING user prompt. A mid-run steer is also an
+	// ActorUser prompt.submitted, so we only take the first user prompt after a
+	// boundary (session start, turn.finished, or a turn-ending error) and skip the
+	// rest of that turn's steers — otherwise we'd fork inside an unfinished turn.
+	var lastSeq int64
+	var prompt string
+	expectStart := true // the first user prompt (after session.created) starts a turn
+	for _, e := range evs {
+		switch {
+		case e.Type == event.TypeTurnFinished || e.Type == event.TypeError:
+			expectStart = true
+		case e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser:
+			if expectStart {
+				var d event.PromptSubmittedData
+				if json.Unmarshal(e.Data, &d) == nil {
+					lastSeq = e.Seq
+					prompt = partsText(d.Parts)
+				}
+				expectStart = false // later user prompts this turn are steers — skip
+			}
+		}
+	}
+	if lastSeq == 0 || strings.TrimSpace(prompt) == "" {
+		return "", "", nil // nothing to replay
+	}
+	// Fork at the point just before the last user turn so re-submitting reruns it.
+	fork, err := a.Fork(ctx, sid, lastSeq-1)
+	if err != nil {
+		return "", "", err
+	}
+	return fork, prompt, nil
 }
 
 // sessionStats are the aggregate shape of a session's trajectory, for diffing.

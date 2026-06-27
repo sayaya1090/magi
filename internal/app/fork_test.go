@@ -89,6 +89,78 @@ func TestForkCopiesHistoryIndependently(t *testing.T) {
 	}
 }
 
+func TestReplayForksBeforeLastTurn(t *testing.T) {
+	a, wd := newApp(t, &fakeLLM{}, Config{})
+	ctx := context.Background()
+	sid := startSession(t, a, wd)
+	runOn(t, a, sid, "do the thing")
+
+	origEvs, _ := a.store.Read(ctx, sid, 0)
+	fork, prompt, err := a.Replay(ctx, sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prompt != "do the thing" {
+		t.Fatalf("replay prompt = %q, want the last user turn", prompt)
+	}
+	// The fork is branched BEFORE the last turn, so it has fewer events than the
+	// origin (no prompt/answer/finish of that turn) but keeps session.created.
+	forkEvs, _ := a.store.Read(ctx, fork, 0)
+	if len(forkEvs) >= len(origEvs) {
+		t.Fatalf("replay fork should be pre-turn: fork=%d origin=%d", len(forkEvs), len(origEvs))
+	}
+	if forkEvs[0].Type != event.TypeSessionCreated {
+		t.Fatal("fork must keep session.created")
+	}
+	// Re-running the prompt on the fork reproduces a turn; origin is untouched.
+	runOn(t, a, fork, prompt)
+	o2, _ := a.store.Read(ctx, sid, 0)
+	if len(o2) != len(origEvs) {
+		t.Fatal("origin changed during replay")
+	}
+}
+
+// Replay must pick the turn-STARTING prompt, not a mid-run steer (which is also a
+// user prompt.submitted) — otherwise it would fork inside an unfinished turn.
+func TestReplayPicksTurnStarterNotSteer(t *testing.T) {
+	a, wd := newApp(t, &fakeLLM{}, Config{})
+	ctx := context.Background()
+	sid := startSession(t, a, wd)
+	runOn(t, a, sid, "turn one")
+	// Second turn, steered mid-run. Both "turn two" and the steer are ActorUser
+	// prompts; replay must choose "turn two" (the turn-starter).
+	if err := a.Submit(ctx, command.SubmitPrompt{SessionID: sid,
+		Parts: []session.Part{{Kind: session.PartText, Text: "turn two"}},
+		Actor: event.Actor{Kind: event.ActorUser, ID: "u"}}); err != nil {
+		t.Fatal(err)
+	}
+	_ = a.Steer(ctx, command.SubmitPrompt{SessionID: sid,
+		Parts: []session.Part{{Kind: session.PartText, Text: "also do this"}},
+		Actor: event.Actor{Kind: event.ActorUser, ID: "u"}})
+	waitForTerminal(t, a, sid)
+	waitIdle(t, a, sid)
+
+	_, prompt, err := a.Replay(ctx, sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prompt != "turn two" {
+		t.Fatalf("replay prompt = %q, want the turn-starter %q (not the steer)", prompt, "turn two")
+	}
+}
+
+func TestReplayNothingToReplay(t *testing.T) {
+	a, wd := newApp(t, &fakeLLM{}, Config{})
+	sid := startSession(t, a, wd) // session.created only, no user turn
+	fork, prompt, err := a.Replay(context.Background(), sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fork != "" || prompt != "" {
+		t.Fatalf("replay with no user turn should be a no-op, got fork=%q prompt=%q", fork, prompt)
+	}
+}
+
 func TestSessionDiffShowsDivergence(t *testing.T) {
 	a, wd := newApp(t, &fakeLLM{}, Config{})
 	ctx := context.Background()
