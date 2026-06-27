@@ -219,6 +219,7 @@ var slashCommands = []cmdInfo{
 	{"/rewind", "roll back the last user turn(s) (/rewind [n])"},
 	{"/image", "render an image file inline (/image <path>)"},
 	{"/diff", "show the working-tree git diff"},
+	{"/loop", "show the loop map (turns · steps · council)"},
 	{"/init", "analyze the project and write AGENTS.md"},
 	{"/ultra", "ultra work mode: orchestrate specialists (/ultra <task>)"},
 	{"/permission", "cycle permission mode"},
@@ -781,6 +782,12 @@ func (m *Model) handleSlash(text string) (tea.Cmd, bool) {
 			out = m.snack("diff: no changes")
 		default:
 			m.blocks = append(m.blocks, block{kind: blockDiff, text: res})
+		}
+	case "/loop":
+		if mp, err := m.app.LoopMap(m.ctx, m.sid); err != nil {
+			out = m.snack("loop: " + err.Error())
+		} else {
+			m.info(mp)
 		}
 	case "/init":
 		return m.submitAs("/init — analyzing project to write AGENTS.md…", initPrompt), true
@@ -1508,7 +1515,7 @@ func (m *Model) steer(text string) tea.Cmd {
 // in-flight turn (read-only / UI-only — does not mutate the running session).
 func safeWhileRunning(cmd string) bool {
 	switch cmd {
-	case "/help", "/model", "/agents", "/route", "/tools", "/sessions", "/diff", "/permission":
+	case "/help", "/model", "/agents", "/route", "/tools", "/sessions", "/diff", "/loop", "/permission":
 		return true
 	}
 	return false
