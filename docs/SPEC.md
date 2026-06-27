@@ -327,6 +327,8 @@ headless-4: LLM error                      ⇒ message to stderr, exit != 0
 - R5 `decision==continue` → `AggregateFeedback(verdicts)`를 `prompt.submitted`(actor=council)로 주입 후 루프 속행(Stop훅과 동일 경로).
 - R6 안전: `max_rounds` 초과 시 노트 + 강제 `turn.finished` / 연속 라운드 무진전 감지 시 정지 / depth>0은 기본 비활성.
 - R7 이벤트: `council.convened`·`council.verdict`(위원별)·`council.decided` 영속, `council.deliberating` 전이.
+- R8 **게이트 범위 = 작업 턴만**: 툴을 하나도 쓰지 않은 대화 턴(인사·질문)은 게이트 스킵 — 작은 대화가 심의 루프에 갇히지 않는다. 언어 잠금은 council/훅이 주입한 user-role 프롬프트가 아니라 **실제 사용자의 마지막 프롬프트** 기준(언어 표류 방지).
+- R9 **위원 투표 정책**: 위원은 자기 렌즈로 **구체적·증거 있는 결함**(실패 시그널·미충족 계약·명백한 defect)을 짚을 때만 `continue`(피드백에 다음 스텝 명시), 과제를 합당히 만족하면 `done`, 렌즈에 필요한 증거가 **없으면** `abstain`. 불확실/추가 증거 부재만으로 반사적 `continue` 금지(만성 무수렴의 주원인). council 증거의 diff는 **untracked 신규 파일 내용까지 포함**(임시 `GIT_INDEX_FILE` 인덱스로 staging, 실제 인덱스 불변) → 갓 만든 파일도 증거로 보여 "증거 결핍 → continue" 루프를 차단.
 
 ```
 council-tally-unanimous-1: rule=unanimous, [done,done,continue]      ⇒ continue
@@ -337,6 +339,9 @@ council-tally-abstain-1:   rule=majority,  [done, abstain, continue] ⇒ continu
 council-gate-continue-1:   decision=continue ⇒ prompt.submitted(actor=council) 1건 + 루프 속행
 council-gate-maxrounds-1:  rounds>max_rounds ⇒ 강제 turn.finished + 노트
 council-gate-depth-1:      depth>0           ⇒ 게이트 스킵(바로 종료)
+council-gate-skip-1:       툴 미사용 대화 턴 ⇒ 게이트 스킵(council.convened 0)         (R8)
+council-abstain-noevid-1:  verification 렌즈 + 시그널·diff 없음 ⇒ abstain(반사적 continue 금지)(R9)
+council-evidence-newfile-1: 신규 untracked 파일 생성 ⇒ diff에 파일 내용 포함 ⇒ done 수렴(R9)
 ```
 
 ## F-LOOP-STAGES (루프 트랙) — macro 단계 + stage 태그(D15)
