@@ -74,7 +74,9 @@ type ErrorData struct {
 
 // CouncilConvenedData — TypeCouncilConvened (the gate opens for a round).
 type CouncilConvenedData struct {
-	Round   int      `json:"round"`
+	Round int `json:"round"`
+	// Phase is "" (turn-termination gate) or "plan" (pre-flight plan audit).
+	Phase   string   `json:"phase,omitempty"`
 	Members []string `json:"members"` // member labels (e.g. Melchior/Balthasar/Casper)
 	Rule    string   `json:"rule"`
 	Signals []string `json:"signals,omitempty"` // human summaries of evidence fed in, e.g. "verify/test: fail"
@@ -95,7 +97,8 @@ type CouncilVerdictData struct {
 // only when the decision is "continue" (it is injected back into the loop).
 type CouncilDecidedData struct {
 	Round    int               `json:"round"`
-	Decision string            `json:"decision"` // done | continue
+	Phase    string            `json:"phase,omitempty"` // "" (termination) or "plan" (plan audit)
+	Decision string            `json:"decision"`        // done | continue
 	Tally    council.Breakdown `json:"tally"`
 	Feedback string            `json:"feedback,omitempty"`
 	// Note explains a gate-forced finish (e.g. round cap reached or no progress),

@@ -80,7 +80,7 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 	}
 	stream, err := provider.StreamChat(ctx, port.ChatRequest{
 		Model:    model,
-		System:   memberSystem(m),
+		System:   memberSystem(m, req.Phase),
 		Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: evidence(req)}}}},
 		Params:   map[string]any{"temperature": 0.0},
 	})
@@ -120,10 +120,15 @@ type memberReply struct {
 
 // memberSystem builds the system prompt for one member: its identity (the theme
 // label) and its judging lens (the attribute), plus the strict output contract.
-func memberSystem(m council.Member) string {
+// The phase selects whether the member judges a finished turn ("terminate") or a
+// proposed procedure ("plan").
+func memberSystem(m council.Member, phase string) string {
 	lens := council.Lenses[m.Lens]
 	if lens == "" {
 		lens = "Judge whether the task is genuinely complete."
+	}
+	if phase == "plan" {
+		return planMemberSystem(m, lens)
 	}
 	return fmt.Sprintf(
 		"You are %s, a member of the council that decides whether an AI coding agent's turn is truly finished. "+
@@ -144,6 +149,27 @@ func memberSystem(m council.Member) string {
 		m.Name, m.Lens, lens)
 }
 
+// planMemberSystem builds the prompt for the pre-flight plan audit: the member
+// judges whether the PROPOSED PROCEDURE is a sound way to accomplish the task,
+// through its lens — there is no report/diff/signals yet.
+func planMemberSystem(m council.Member, lens string) string {
+	return fmt.Sprintf(
+		"You are %s, a member of a council that audits an AI coding agent's PROPOSED PROCEDURE before it runs. "+
+			"Your lens is %q: %s\n\n"+
+			"Judge whether the PROCEDURE (the ordered steps the agent plans to take) is a sound, sufficient way to "+
+			"accomplish the TASK — through your lens. Choose exactly one vote:\n"+
+			"- \"done\" (approve): through your lens, the procedure is a sound plan for the task.\n"+
+			"- \"continue\" (revise): you can name a SPECIFIC, addressable flaw in the plan through your lens — a wrong, "+
+			"missing, or redundant step, or an approach that won't satisfy the task. Put the concrete fix in `feedback`.\n"+
+			"- \"abstain\": your lens cannot judge a plan from what is given (e.g. verification — there is nothing to "+
+			"verify until the work is done). Abstaining is excluded from the tally.\n\n"+
+			"Do NOT revise for vague preferences or because you would plan it slightly differently — only a concrete "+
+			"flaw. Never invent one. A plan with no concrete flaw through your lens is approve (done) or abstain.\n\n"+
+			"Respond with ONLY a JSON object, no prose, no code fence:\n"+
+			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific fix (only if continue)"}`,
+		m.Name, m.Lens, lens)
+}
+
 // evidence renders the deliberation request into the user message the members see.
 func evidence(req port.DeliberationRequest) string {
 	var b strings.Builder
@@ -154,6 +180,15 @@ func evidence(req port.DeliberationRequest) string {
 		b.WriteString("# " + title + "\n")
 		b.WriteString(strings.TrimSpace(body))
 		b.WriteString("\n\n")
+	}
+	if req.Phase == "plan" {
+		// Plan audit: only the task and the proposed procedure exist yet.
+		section("Task (the goal)", req.Task)
+		section("Proposed procedure (the plan to audit)", req.Plan)
+		if b.Len() == 0 {
+			return "No task or procedure was provided; with nothing to judge, abstain."
+		}
+		return strings.TrimSpace(b.String())
 	}
 	section("Task (the goal)", req.Task)
 	section("Plan / acceptance criteria (the contract)", req.Plan)

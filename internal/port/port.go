@@ -75,9 +75,14 @@ type Council interface {
 // DeliberationRequest is the evidence the council judges: the agent's CLAIM
 // (Report) against the CONTRACT (Plan/Task) using EVIDENCE (Signals/Diff).
 type DeliberationRequest struct {
-	Round   int              // 1-based council round within the turn
+	Round int // 1-based council round within the turn
+	// Phase selects what the council judges and which member prompt is used:
+	// "" / "terminate" is the turn-termination gate (default); "plan" is the
+	// pre-flight plan audit, where members judge the PROPOSED PROCEDURE against the
+	// task — there is no Report, Diff, or Signals yet.
+	Phase   string
 	Task    string           // the user's original goal/request
-	Plan    string           // acceptance criteria / contract (optional)
+	Plan    string           // acceptance criteria / contract, or the proposed procedure when Phase=="plan"
 	Report  string           // the agent's self-reported result / claim (optional)
 	Signals []Signal         // deterministic evidence (build/test/lint outcomes), optional
 	Diff    string           // working diff (optional)
