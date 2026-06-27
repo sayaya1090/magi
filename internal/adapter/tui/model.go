@@ -2071,7 +2071,7 @@ func (m *Model) paneLayout() (nShown, perPane, more, total int) {
 	// Running: a pane box is title + >=1 content + 2 border = >=4 rows (and renders
 	// exactly perPane rows when perPane>=4). Size the COUNT so show*4 fits the budget
 	// (capH minus a "+N more" row on overflow), so per-pane never floors past the cap.
-	const minPane = 4
+	const minPane, maxPane = 4, 6
 	maxShow := capH / minPane
 	if n > maxShow {
 		maxShow = (capH - 1) / minPane // overflow → one row goes to "+N more"
@@ -2092,6 +2092,9 @@ func (m *Model) paneLayout() (nShown, perPane, more, total int) {
 		budget-- // reserve the "+N more" row
 	}
 	perPane = budget / show // >= minPane by construction (show*minPane <= budget)
+	if perPane > maxPane {
+		perPane = maxPane // compact panes; a couple of agents shouldn't fill the screen
+	}
 	total = show * perPane
 	if more > 0 {
 		total++
