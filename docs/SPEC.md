@@ -365,13 +365,15 @@ council-nochanges-noterror-1: GitDiff 실패(비-git) ⇒ NoChanges=false(쓰기
 - P1 planner는 top-level 턴마다 **1회** tool-free 호출 → 요청을 **순서 있는 절차(steps)**로 분해, 각 step에 전략 `{solo|parallel|scout}`. 파싱 실패/0 step → solo.
 - P2 steps를 **기존 todos로 등록**(계약 통합) → TUI 단일 계획·council 계약 연결. 메인 에이전트는 이를 **이어서 갱신**(통째 replace 금지, findings 주입 메시지로 지시).
 - P3 `parallel` = 미리 아는 read-only 조사 그룹 병렬. `scout` = **솔로** explorer로 work-list 확보 → 각 항목을 **병렬**(적응형: fan-out 대상이 런타임 발견). dispatch는 read-only explorer(`explore|locator|analyst`)만.
-- P4 **계획 감사 게이트**: 절차가 **멀티스텝(2+)**이면 실행 전 council이 *절차*를 감사 — `Phase=plan`, 규칙 **`quorum:1`**(한 명이라도 approve면 진행, 아무도 안 하면 revise). `approve`(=done) → 실행 / `revise`(=continue) → 피드백을 **planner 재계획**으로 라우팅(메인 세션 주입 아님), 자체 `maxPlanAuditRound` cap. **단일 step·workflow 모드는 감사 스킵**. diff/report/signal 없음(plan 전용 멤버 프롬프트).
+- P4 **계획 감사 게이트**: 절차가 **멀티스텝(2+)**이면 실행 전 council이 *절차*를 감사 — `Phase=plan`, **종료 게이트와 동일한 합의규칙**(설정 `CouncilRule`, 기본 majority; quorum:1 미사용 — plan 감사도 진짜 합의). `approve`(=done) → 실행 / `revise`(=continue) → 피드백을 **planner 재계획**으로 라우팅(메인 세션 주입 아님), 자체 `maxPlanAuditRound` cap → 강제 승인. **단일 step·workflow 모드는 감사 스킵**. diff/report/signal 없음(plan 전용 멤버 프롬프트; 증거 부재로 반사적 revise 금지).
+- P6 **완료기준 도출(계약)**: 계획 감사에서 각 위원이 approve/revise와 함께 자기 렌즈의 **완료기준**(기대 산출물·검증/테스트 지침)을 제안 → 순수 `council.MergeCriteria`(trim·dedup·cap)로 합성 → **승인/강제승인된 plan**의 기준을 그 턴의 `a.criteria`에 저장(재계획 시 최종 plan 것으로 덮어씀, 빈 결과는 미저장). 종료 게이트는 이 캐시를 **계약으로 항상 사용**(plan턴); plan 없는/단일 step 턴은 기존 `[council] criteria` opt-in elicit. D15 acceptance-criteria 아티팩트로 관찰. 결과는 `council.decided`(plan)에 `criteria`로 노출.
 - P5 안전: per-fanout cap(`maxPlanGroups`) + **per-turn 총 explorer cap**(`maxPlanExplorers`) + step cap(`maxPlanSteps`) + **per-step degrade**(한 step 실패 → 그 step만 메인 위임).
 
 ```
 planner-solo-1:      단순 요청 ⇒ 단일 solo step ⇒ explorer 0 (감사 스킵)
 planner-scout-1:     "docs 요약" ⇒ scout(목록)→각 문서 parallel (적응형 fan-out)
-plan-audit-approve-1: 멀티스텝 + quorum:1 done≥1 ⇒ approve → 실행
+plan-audit-approve-1: 멀티스텝 + 합의규칙(majority) 충족 ⇒ approve → 실행          (P4)
+plan-audit-criteria-1: 승인 plan의 위원 제안 기준 합성 ⇒ a.criteria 저장 → 종료 계약(P6)
 plan-audit-revise-1:  done 0(전원 revise) ⇒ 피드백 ⇒ planner 재계획
 plan-audit-cap-1:     연속 revise ⇒ maxPlanAuditRound 도달 ⇒ 강제 approve(note)
 ```
