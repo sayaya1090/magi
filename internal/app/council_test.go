@@ -7,6 +7,10 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/sayaya1090/magi/internal/adapter/platform"
+	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
+	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
+	"github.com/sayaya1090/magi/internal/core/bus"
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -114,6 +118,48 @@ func TestCouncilSkipsConversationalTurn(t *testing.T) {
 	}
 	if countType(evs, event.TypeTurnFinished) != 1 {
 		t.Fatal("conversational turn should finish immediately")
+	}
+}
+
+// A pure read-only turn (successful empty diff, no signals) is flagged NoChanges
+// to the council so members judge the report on its merits instead of demanding a
+// diff — and the configured CONSENSUS rule is preserved (NOT relaxed): the gate
+// stays a real consensus, the churn fix lives in how members weigh evidence.
+func TestCouncilNoChangesTurn(t *testing.T) {
+	fc := &fakeCouncil{delibs: []council.Deliberation{{Round: 1, Decision: council.Done}}}
+	store, err := jsonl.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := New(store, workingLLM(), builtin.Default(), bus.New(), platform.New(), Config{
+		Council: fc, CouncilRule: "unanimous", Permission: "allow",
+	})
+	t.Cleanup(func() { _ = a.Close(context.Background()) })
+
+	wd := gitRepo(t, []string{"commit", "--allow-empty", "-q", "-m", "init"}) // clean tree → empty diff
+	sid, err := a.CreateSession(context.Background(), command.CreateSession{
+		Workdir: wd, Model: session.ModelRef{Provider: "openai", Model: "m"},
+		Actor: event.Actor{Kind: event.ActorUser, ID: "u"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Submit(context.Background(), command.SubmitPrompt{
+		SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "do the task"}},
+		Actor: event.Actor{Kind: event.ActorUser, ID: "u"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	waitForTerminal(t, a, sid)
+
+	fc.mu.Lock()
+	req := fc.lastReq
+	fc.mu.Unlock()
+	if !req.NoChanges {
+		t.Fatal("a read-only turn (clean tree, no signals) should be flagged NoChanges to the council")
+	}
+	if string(req.Rule) != "unanimous" {
+		t.Fatalf("the consensus rule must be preserved, not relaxed; got %q", req.Rule)
 	}
 }
 

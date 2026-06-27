@@ -223,4 +223,19 @@ func TestE2ECouncilGate(t *testing.T) {
 			"Read config.txt and tell me which port is configured. Do not modify any files.")
 		assertConverges(t, tl)
 	})
+
+	// Regression for the heavy read-only churn: a turn that reads several files and
+	// makes broad claims (no diff, no signals) must still converge, not loop to the
+	// cap. This is the case that previously hung — the NoChanges signal + the
+	// "absence of a diff is not a defect" prompt must carry it to a genuine finish.
+	t.Run("heavy read-only converges", func(t *testing.T) {
+		tl := run(t,
+			map[string]string{
+				"a.md": "# Module A\nHandles authentication and sessions.\n",
+				"b.md": "# Module B\nHandles storage and persistence.\n",
+				"c.md": "# Module C\nHandles the HTTP API surface.\n",
+			},
+			"Read every .md file in this directory and give a one-line summary of each. Do not modify anything.")
+		assertConverges(t, tl)
+	})
 }
