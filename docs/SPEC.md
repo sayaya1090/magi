@@ -328,7 +328,8 @@ headless-4: LLM error                      ⇒ message to stderr, exit != 0
 - R6 안전: `max_rounds` 초과 시 노트 + 강제 `turn.finished` / 연속 라운드 무진전 감지 시 정지 / depth>0은 기본 비활성.
 - R7 이벤트: `council.convened`·`council.verdict`(위원별)·`council.decided` 영속, `council.deliberating` 전이.
 - R8 **게이트 범위 = 작업 턴만**: 툴을 하나도 쓰지 않은 대화 턴(인사·질문)은 게이트 스킵 — 작은 대화가 심의 루프에 갇히지 않는다. 언어 잠금은 council/훅이 주입한 user-role 프롬프트가 아니라 **실제 사용자의 마지막 프롬프트** 기준(언어 표류 방지).
-- R9 **위원 투표 정책**: 위원은 자기 렌즈로 **구체적·증거 있는 결함**(실패 시그널·미충족 계약·명백한 defect)을 짚을 때만 `continue`(피드백에 다음 스텝 명시), 과제를 합당히 만족하면 `done`, 렌즈에 필요한 증거가 **없으면** `abstain`. 불확실/추가 증거 부재만으로 반사적 `continue` 금지(만성 무수렴의 주원인). council 증거의 diff는 **untracked 신규 파일 내용까지 포함**(임시 `GIT_INDEX_FILE` 인덱스로 staging, 실제 인덱스 불변) → 갓 만든 파일도 증거로 보여 "증거 결핍 → continue" 루프를 차단.
+- R9 **위원 투표 정책**: 위원은 자기 렌즈로 **구체적·실재하는 결함**(실패 시그널·report가 드러내는 미충족 계약·명백한 오류)을 짚을 때만 `continue`(피드백에 다음 스텝 명시), 과제를 합당히 만족하면 `done`, 렌즈로 판단 불가면 `abstain`. **증거(diff/signal)의 부재 자체는 결코 `continue` 사유가 아니다** — 조사·읽기·분석·응답 턴은 원래 diff가 없으며, 없는 산출물을 요구하는 게 만성 churn의 주원인. 증거는 *있으면* 활용하고, 없으면 report/과제로 판단하거나 abstain. council 증거의 diff는 **untracked 신규 파일 내용까지 포함**(임시 `GIT_INDEX_FILE` 인덱스, 실제 인덱스 불변) → 갓 만든 파일도 증거로 보임.
+- R10 **무변경 턴 신호(NoChanges)**: diff가 (성공적으로) 비고 signal도 0이면 그 턴은 **변경 없는 read-only/조사/응답 턴**으로 판정해 `DeliberationRequest.NoChanges`로 council에 알린다 → 위원은 "검증할 산출물이 없는 작업"임을 알고 합당한 report를 승인(R9). **합의규칙은 그대로 보존**(완화/quorum:1 미사용) — 게이트가 돌 땐 언제나 진짜 합의. 단 **GitDiff 실패**(비-git 등)는 "변경 없음"으로 보지 않음(실제 쓰기 턴 오판 방지). 전원 abstain이면 무진전 가드가 종료.
 
 ```
 council-tally-unanimous-1: rule=unanimous, [done,done,continue]      ⇒ continue
@@ -342,6 +343,9 @@ council-gate-depth-1:      depth>0           ⇒ 게이트 스킵(바로 종료)
 council-gate-skip-1:       툴 미사용 대화 턴 ⇒ 게이트 스킵(council.convened 0)         (R8)
 council-abstain-noevid-1:  verification 렌즈 + 시그널·diff 없음 ⇒ abstain(반사적 continue 금지)(R9)
 council-evidence-newfile-1: 신규 untracked 파일 생성 ⇒ diff에 파일 내용 포함 ⇒ done 수렴(R9)
+council-noevid-noContinue-1: 증거 부재만으로는 continue 금지 ⇒ report/과제로 판단 or abstain (R9)
+council-nochanges-1:       diff 성공·공백 + signal 0 ⇒ NoChanges=true, 합의규칙 보존(완화 X)   (R10)
+council-nochanges-noterror-1: GitDiff 실패(비-git) ⇒ NoChanges=false(쓰기 턴 오판 방지)         (R10)
 ```
 
 ## F-LOOP-STAGES (루프 트랙) — macro 단계 + stage 태그(D15)
