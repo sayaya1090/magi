@@ -110,9 +110,11 @@ func (a *App) dispatch(ctx context.Context, parent session.Session, depth int, r
 	}
 	g.inflight[key] = true
 	g.outstanding++
+	a.wg.Add(1)
 	a.mu.Unlock()
 
 	go func() {
+		defer a.wg.Done()
 		res := a.spawn(ctx, parent, depth, req)
 		// Inject the result as a message on the parent so the orchestrator picks it
 		// up incrementally (partial results, not all-or-nothing).

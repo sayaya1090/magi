@@ -73,6 +73,11 @@ func TestCancelSubagentThenIdleThenNewRequest(t *testing.T) {
 		SubagentTimeout:     30 * time.Second,
 		SubagentMaxRestarts: 0,
 	})
+	t.Cleanup(func() {
+		cctx, cc := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cc()
+		_ = a.Close(cctx) // drain cancelled-subagent goroutines before TempDir cleanup
+	})
 	ctx := context.Background()
 	sid, _ := a.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir()})
 

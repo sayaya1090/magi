@@ -68,7 +68,13 @@ func newApp(t *testing.T, llm port.LLMProvider, cfg Config) (*App, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return New(store, llm, builtin.Default(), bus.New(), nil, cfg), t.TempDir()
+	a := New(store, llm, builtin.Default(), bus.New(), nil, cfg)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = a.Close(ctx) // drain run/dispatch goroutines before TempDir cleanup
+	})
+	return a, t.TempDir()
 }
 
 // waitForTerminal subscribes and drains events until turn.finished or error.

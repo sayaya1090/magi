@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
@@ -37,7 +38,12 @@ func TestDispatchDedupsInflight(t *testing.T) {
 		Agents:     map[string]AgentSpec{"worker": {Name: "worker"}},
 	})
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel() // unblock the in-flight subagents at the end
+	defer func() {
+		cancel() // unblock the in-flight subagents first…
+		closeCtx, cc := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cc()
+		_ = a.Close(closeCtx) // …then wait for their goroutines to drain before TempDir cleanup
+	}()
 
 	parent := session.Session{ID: "s_parent", Workdir: t.TempDir(), Agent: "default"}
 

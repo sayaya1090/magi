@@ -297,6 +297,7 @@ type App struct {
 	contextProviders []port.ContextProvider // RAG-like context injectors
 
 	mu       sync.Mutex
+	wg       sync.WaitGroup                               // tracks run + dispatch goroutines for graceful Close
 	cancels  map[session.SessionID]context.CancelFunc     // in-flight runs (Interrupt)
 	perms    map[session.SessionID]map[string]chan string // pending permission decisions
 	grants   map[session.SessionID]map[string]bool        // "always" grants per tool
@@ -816,9 +817,11 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 	}
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	a.cancels[sid] = cancel
+	a.wg.Add(1)
 	a.mu.Unlock()
 
 	go func() {
+		defer a.wg.Done()
 		defer cancel()
 		for {
 			err := a.run(runCtx, sid)
@@ -860,6 +863,30 @@ func (a *App) hasUnansweredUserPrompt(ctx context.Context, sid session.SessionID
 		return false
 	}
 	return msgs[len(msgs)-1].Role == session.RoleUser
+}
+
+// Close cancels every in-flight run and background subagent, then waits for their
+// goroutines to finish (bounded by ctx). This drains pending store writes before
+// shutdown so they cannot race teardown — e.g. a test's temp-dir cleanup, which
+// otherwise fails with "directory not empty" when a subagent appends after the
+// test returns. Idempotent: safe to call more than once.
+func (a *App) Close(ctx context.Context) error {
+	a.mu.Lock()
+	for _, cancel := range a.cancels {
+		cancel()
+	}
+	a.mu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		a.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // Interrupt cancels the in-flight turn for a session.
