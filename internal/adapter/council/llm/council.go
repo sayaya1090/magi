@@ -56,7 +56,13 @@ func (c *Council) Deliberate(ctx context.Context, req port.DeliberationRequest) 
 	}
 	wg.Wait()
 
-	return council.Deliberate(req.Round, verdicts, rule), nil
+	d := council.Deliberate(req.Round, verdicts, rule)
+	if req.Phase == "plan" {
+		// Plan audit: synthesize the members' proposed completion criteria into the
+		// contract the turn will later be judged against.
+		d.Criteria = council.MergeCriteria(verdicts)
+	}
+	return d, nil
 }
 
 // poll asks one member and returns its verdict.
@@ -107,15 +113,17 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 	v.Confidence = r.Confidence
 	v.Rationale = r.Rationale
 	v.Feedback = r.Feedback
+	v.Criteria = r.Criteria // plan-audit phase only; empty otherwise
 	return v
 }
 
 // memberReply is the JSON shape each member is asked to return.
 type memberReply struct {
-	Decision   string  `json:"decision"`
-	Confidence float64 `json:"confidence"`
-	Rationale  string  `json:"rationale"`
-	Feedback   string  `json:"feedback"`
+	Decision   string   `json:"decision"`
+	Confidence float64  `json:"confidence"`
+	Rationale  string   `json:"rationale"`
+	Feedback   string   `json:"feedback"`
+	Criteria   []string `json:"criteria"` // plan-audit phase: proposed completion criteria
 }
 
 // memberSystem builds the system prompt for one member: its identity (the theme
@@ -165,10 +173,15 @@ func planMemberSystem(m council.Member, lens string) string {
 			"missing, or redundant step, or an approach that won't satisfy the task. Put the concrete fix in `feedback`.\n"+
 			"- \"abstain\": your lens cannot judge a plan from what is given (e.g. verification — there is nothing to "+
 			"verify until the work is done). Abstaining is excluded from the tally.\n\n"+
-			"Do NOT revise for vague preferences or because you would plan it slightly differently — only a concrete "+
-			"flaw. Never invent one. A plan with no concrete flaw through your lens is approve (done) or abstain.\n\n"+
+			"Do NOT revise for vague preferences, out of mere uncertainty, or because you would plan it slightly "+
+			"differently — only a concrete flaw. Never invent one. A plan with no concrete flaw through your lens is "+
+			"approve (done) or abstain.\n\n"+
+			"ALSO, through your lens, propose this task's COMPLETION CRITERIA in `criteria`: a short list (1-3) of "+
+			"concrete done-conditions — expected deliverables and how to verify them (e.g. a file/output that must "+
+			"exist, a test or check that must pass). These become the contract the finished work is judged against. "+
+			"Keep each item one short line; omit if your lens adds nothing.\n\n"+
 			"Respond with ONLY a JSON object, no prose, no code fence:\n"+
-			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific fix (only if continue)"}`,
+			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific fix (only if continue)","criteria":["..."]}`,
 		m.Name, m.Lens, lens)
 }
 
