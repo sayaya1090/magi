@@ -91,6 +91,21 @@ func TestTallyVeto(t *testing.T) {
 	}
 }
 
+func TestTallyDegenerateParamsStaySafe(t *testing.T) {
+	// quorum:0 and weighted:0 must NOT let an all-continue vote finish (they would
+	// if Done>=0 / DoneWeight>=0 were taken literally).
+	allContinue := []Verdict{v("a", Continue), v("b", Continue)}
+	for _, rule := range []Rule{"quorum:0", "quorum:-1", "weighted:0", "weighted:-0.5"} {
+		if got, _ := Tally(allContinue, rule); got != Continue {
+			t.Fatalf("Tally(all-continue, %q) = %q, want continue", rule, got)
+		}
+	}
+	// A legitimate quorum:1 with one done still finishes.
+	if got, _ := Tally([]Verdict{v("a", Done), v("b", Continue)}, "quorum:1"); got != Done {
+		t.Fatalf("quorum:1 with 1 done = %q, want done", got)
+	}
+}
+
 func TestTallyNeverFinishesWithoutAffirmation(t *testing.T) {
 	// No voters, all abstain, and unknown rules must all resolve to Continue —
 	// the council never stops the loop unless its rule is affirmatively met.

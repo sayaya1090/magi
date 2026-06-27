@@ -97,13 +97,18 @@ type CouncilDecidedData struct {
 	Decision string            `json:"decision"` // done | continue
 	Tally    council.Breakdown `json:"tally"`
 	Feedback string            `json:"feedback,omitempty"`
+	// Note explains a gate-forced finish (e.g. round cap reached or no progress),
+	// when the members did not themselves vote done. Empty for a normal decision.
+	Note string `json:"note,omitempty"`
 }
 
 // CouncilDeliberatingData — TypeCouncilDeliberating (transient, live panel).
+// Only "asking" is currently produced (one per member when a round opens); a
+// panel infers the "voted" state from the persisted council.verdict facts.
 type CouncilDeliberatingData struct {
 	Round  int    `json:"round"`
 	Member string `json:"member"`
-	State  string `json:"state"` // "asking" | "voted"
+	State  string `json:"state"` // "asking" (emitted) — "voted" inferred from council.verdict
 }
 
 // --- Transient payloads (bus only) ---

@@ -119,14 +119,25 @@ func Tally(vs []Verdict, rule Rule) (Decision, Breakdown) {
 			return Done, b
 		}
 	case "quorum":
-		// At least k members voted done.
-		if k := atoi(param, 1); b.Done >= k {
+		// At least k members voted done. A non-positive/garbage k would let an
+		// all-continue vote finish (Done >= 0 is always true), breaking the
+		// never-finish-unless-affirmed invariant, so clamp k to >= 1.
+		k := atoi(param, 1)
+		if k < 1 {
+			k = 1
+		}
+		if b.Done >= k {
 			return Done, b
 		}
 	case "weighted":
-		// Weighted share of "done" meets the threshold θ (default 0.5).
+		// Weighted share of "done" meets the threshold θ. A non-positive θ would
+		// always pass (DoneWeight >= 0), so treat it as the default.
+		theta := atof(param, 0.5)
+		if theta <= 0 {
+			theta = 0.5
+		}
 		total := b.DoneWeight + b.ContWeight
-		if theta := atof(param, 0.5); total > 0 && b.DoneWeight >= theta*total {
+		if total > 0 && b.DoneWeight >= theta*total {
 			return Done, b
 		}
 	case "veto":
