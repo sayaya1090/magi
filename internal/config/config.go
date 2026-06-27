@@ -99,10 +99,11 @@ type CouncilSignalConfig struct {
 // lens (correctness|verification|completeness), an optional model override, and
 // an optional weight (default 1).
 type CouncilMember struct {
-	Name   string  `toml:"name"`
-	Lens   string  `toml:"lens"`
-	Model  string  `toml:"model"`
-	Weight float64 `toml:"weight"`
+	Name     string  `toml:"name"`
+	Lens     string  `toml:"lens"`
+	Model    string  `toml:"model"`
+	Provider string  `toml:"provider"` // names an [llm.profiles.*] backend; empty = default
+	Weight   float64 `toml:"weight"`
 }
 
 // LLMProfile is a named LLM backend: a distinct endpoint/key/model/headers an
@@ -212,8 +213,9 @@ const defaultConfigTemplate = `# magi configuration. Everything here is optional
 # [[council.member]]        # omit members to use the MAGI defaults
 # name = "Melchior"
 # lens = "correctness"      # correctness | verification | completeness
-# # model  = "qwen3-coder:30b"   # optional; defaults to the session model
-# # weight = 1
+# # model    = "qwen3-coder:30b"   # optional; defaults to the session model
+# # provider = "fast"              # optional [llm.profiles.*] backend (mix cheap+strong)
+# # weight   = 1
 
 # --- Color theme (TUI). Override any Material Design 3 role per mode; an
 # unspecified role keeps the built-in NERV/MAGI default. Roles: primary, accent,

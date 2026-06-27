@@ -310,11 +310,23 @@ func run() int {
 	}
 
 	// Consensus council (D14): the loop's termination gate. Built only when
-	// enabled in config; members fan out over the default backend (a member's
-	// optional model override picks the model). nil leaves the gate off.
+	// enabled in config. Each member can run on its own backend — resolve maps a
+	// member's provider name to a named profile (or the default backend) — so
+	// cheap and strong models can be mixed across the MAGI.
 	var councilPort port.Council
 	if cfg.Council.Enabled {
-		councilPort = councilllm.New(llm, modelID)
+		// Resolver over the startup profiles snapshot; an unknown/empty name (incl. a
+		// profile added later via /route) falls back to the default backend, so
+		// council member providers should be defined in config at startup.
+		resolve := func(name string) port.LLMProvider {
+			if name != "" {
+				if p := providers[name]; p != nil {
+					return p
+				}
+			}
+			return llm
+		}
+		councilPort = councilllm.New(resolve, modelID)
 	}
 
 	a := app.New(store, llm, reg, bus.New(), plat, app.Config{
@@ -341,7 +353,7 @@ func run() int {
 		Council:          councilPort,
 		CouncilRule:      corecouncil.Rule(cfg.Council.Rule),
 		CouncilMaxRounds: cfg.Council.MaxRounds,
-		CouncilMembers:   toCouncilMembers(cfg.Council.Members),
+		CouncilMembers:   toCouncilMembers(cfg.Council.Members, cfg.LLM.Profiles),
 		CouncilSignals:   councilSignals(cfg.Council),
 	})
 
@@ -544,13 +556,21 @@ func councilSignals(cc config.CouncilConfig) []app.CouncilSignalSpec {
 
 // toCouncilMembers converts config council members to core council members. nil
 // (no members configured) lets the app fall back to the MAGI defaults.
-func toCouncilMembers(ms []config.CouncilMember) []corecouncil.Member {
+func toCouncilMembers(ms []config.CouncilMember, profiles map[string]config.LLMProfile) []corecouncil.Member {
 	if len(ms) == 0 {
 		return nil
 	}
 	out := make([]corecouncil.Member, 0, len(ms))
 	for _, m := range ms {
-		out = append(out, corecouncil.Member{Name: m.Name, Lens: m.Lens, Model: m.Model, Weight: m.Weight})
+		mem := corecouncil.Member{Name: m.Name, Lens: m.Lens, Model: m.Model, Provider: m.Provider, Weight: m.Weight}
+		// A member routed to a profile inherits that profile's model unless it pins
+		// its own (mirrors per-agent routing).
+		if mem.Model == "" && mem.Provider != "" {
+			if p, ok := profiles[mem.Provider]; ok && p.Model != "" {
+				mem.Model = p.Model
+			}
+		}
+		out = append(out, mem)
 	}
 	return out
 }
