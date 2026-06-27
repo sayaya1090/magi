@@ -9,6 +9,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -23,8 +24,9 @@ const (
 	blockError
 	blockInfo      // slash-command output / system notices
 	blockDiff      // git diff output (colorized)
-	blockReasoning // model "thinking" output (de-emphasized)
-	blockImage     // pre-rendered image (half-block)
+	blockReasoning      // model "thinking" output (de-emphasized)
+	blockImage          // pre-rendered image (half-block)
+	blockCouncilVerdict // one council member's vote (compact; click → detail modal)
 )
 
 // block is one rendered unit in the transcript.
@@ -39,6 +41,9 @@ type block struct {
 	done     bool   // the toolCall's result has arrived
 	result   string // the toolCall's result summary text
 	expanded bool   // a reasoning block individually expanded by a click
+	// councilVerdict carries one member's full vote for a blockCouncilVerdict block:
+	// the line renders compact, and a click opens the detail modal from this data.
+	councilVerdict *event.CouncilVerdictData
 }
 
 // transcript renders the full transcript plus any in-progress streaming text.
@@ -193,6 +198,21 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 		// Wrap to the transcript width (minus the 2-col indent) so a long line
 		// (e.g. the planner's reason) reflows instead of overflowing.
 		return indent(styleToolResult.Width(m.transcriptWidth() - 2).Render(strings.TrimRight(blk.text, "\n")))
+	case blockCouncilVerdict:
+		// Compact: a member-colored dot + name + decision icon/word. Rationale,
+		// lens, and feedback are hidden here — a click opens the detail modal.
+		v := blk.councilVerdict
+		if v == nil {
+			return indent(styleToolResult.Render(strings.TrimRight(blk.text, "\n")))
+		}
+		hue := m.councilColor(v.Member)
+		dot := lipgloss.NewStyle().Foreground(hue).Render("●")
+		name := lipgloss.NewStyle().Foreground(hue).Bold(true).Render(v.Member)
+		icon := map[string]string{"done": "✓", "continue": "↻", "abstain": "∅"}[v.Decision]
+		if icon == "" {
+			icon = "·"
+		}
+		return indent(dot + " " + name + "  " + icon + " " + styleToolResult.Render(v.Decision))
 	case blockDiff:
 		return label(styleAsstLabel, "diff") + "\n" + indent(colorizeDiff(blk.text))
 	case blockReasoning:

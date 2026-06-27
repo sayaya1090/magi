@@ -162,6 +162,8 @@ type Model struct {
 	panes     []*agentPane   // active/finished subagent panes, in spawn order
 	focusPane int            // index into panes of the focused pane (-1 = main transcript)
 	zoom      bool           // focused pane expanded full-screen
+
+	councilDetail *event.CouncilVerdictData // open council-verdict detail modal (nil = closed)
 	roleColor map[string]int // role name -> agentPalette index (stable per session)
 
 	panelW        int  // right status-panel width (drag its left edge to resize)
@@ -371,6 +373,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // toggle — wheel and drag-select coexist because the app owns the selection.
 // toggleThoughtAt flips the expand state of the reasoning block at content line
 // `line` (a click target). Returns true if a reasoning block was toggled.
+// openCouncilDetailAt opens the council detail modal if the clicked content line
+// falls in a council-verdict block. Same block-lookup as toggleThoughtAt.
+func (m *Model) openCouncilDetailAt(line int) bool {
+	i := -1
+	for j := len(m.blockLineStart) - 1; j >= 0; j-- {
+		if line >= m.blockLineStart[j] {
+			i = j
+			break
+		}
+	}
+	if i < 0 || i >= len(m.blocks) || m.blocks[i].kind != blockCouncilVerdict || m.blocks[i].councilVerdict == nil {
+		return false
+	}
+	m.councilDetail = m.blocks[i].councilVerdict
+	return true
+}
+
 func (m *Model) toggleThoughtAt(line int) bool {
 	i := -1
 	for j := len(m.blockLineStart) - 1; j >= 0; j-- {
@@ -476,6 +495,12 @@ func (m *Model) handleMouse(msg tea.Msg) tea.Cmd {
 				}
 				return nil
 			}
+			// A plain click while the council detail modal is open dismisses it.
+			if m.councilDetail != nil {
+				m.councilDetail = nil
+				m.refresh()
+				return nil
+			}
 			// Plain click in the right panel's subagent list → open that subagent's
 			// detail view directly (same destination as clicking its pane).
 			if m.handlePanelClick(e.X, e.Y) {
@@ -490,6 +515,9 @@ func (m *Model) handleMouse(msg tea.Msg) tea.Cmd {
 					m.refresh()
 					return nil
 				}
+			} else if m.openCouncilDetailAt(m.selAL) {
+				m.refresh()
+				return nil
 			} else if m.toggleThoughtAt(m.selAL) {
 				m.refresh()
 				return nil
@@ -530,6 +558,13 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			return m.respond("deny"), true
 		}
 		return nil, true // swallow other keys while modal is open
+	}
+
+	// Council detail modal: any key dismisses it and is swallowed (so e.g. Enter
+	// doesn't leak to the textarea and submit a prompt behind the modal).
+	if m.councilDetail != nil {
+		m.councilDetail = nil
+		return nil, true
 	}
 
 	// Interactive resume picker takes priority while open.
@@ -682,6 +717,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			return nil, true
 		}
 	case "esc":
+		// (The council detail modal, if open, is already handled at the top of
+		// handleKey — any key closes it.)
 		// Focused on a still-running subagent → interrupt just that one (stays
 		// focused so you see it stop). Press esc again to leave the view.
 		if m.focusPane >= 0 && m.focusPane < len(m.panes) && !m.panes[m.focusPane].done {
@@ -1824,22 +1861,13 @@ func (m *Model) applyEvent(e event.Event) {
 		}
 
 	case event.TypeCouncilVerdict:
-		// Each member's vote WITH its reasoning, so the user can see why the council
-		// decided as it did — not just the tally. (continue carries its feedback.)
+		// One compact, member-colored line per vote (icon + name + decision); the
+		// full reasoning (lens/rationale/feedback) is attached to the block and
+		// shown in a detail modal when the line is clicked.
 		var d event.CouncilVerdictData
 		if json.Unmarshal(e.Data, &d) == nil {
-			mark := map[string]string{"done": "✓", "continue": "↻", "abstain": "∅"}[d.Decision]
-			line := fmt.Sprintf("   ↳ %s %s %s", mark, d.Member, d.Decision)
-			if d.Lens != "" {
-				line += " [" + d.Lens + "]"
-			}
-			if d.Rationale != "" {
-				line += " — " + d.Rationale
-			}
-			if d.Decision == "continue" && d.Feedback != "" {
-				line += " · next: " + d.Feedback
-			}
-			m.blocks = append(m.blocks, block{kind: blockInfo, text: line})
+			vd := d
+			m.blocks = append(m.blocks, block{kind: blockCouncilVerdict, councilVerdict: &vd})
 		}
 
 	case event.TypeCouncilDecided:
@@ -2260,6 +2288,10 @@ func (m Model) View() tea.View {
 		pv := m.permView()
 		parts = append(parts, pv)
 		aboveInput += lipgloss.Height(pv)
+	} else if m.councilDetail != nil {
+		pv := m.councilDetailView()
+		parts = append(parts, pv)
+		aboveInput += lipgloss.Height(pv)
 	}
 	parts = append(parts, input)
 	parts = append(parts, status)
@@ -2309,6 +2341,35 @@ func (m *Model) paletteView(matches []cmdInfo) string {
 		}
 	}
 	return stylePalBox.Width(m.width - 2).Render(b.String())
+}
+
+// councilDetailView renders the full detail for one clicked council verdict —
+// member (colored), decision, lens, confidence, rationale, and (continue)
+// feedback — as a modal in the permView style. Closed with esc or a click.
+func (m *Model) councilDetailView() string {
+	v := m.councilDetail
+	if v == nil {
+		return ""
+	}
+	hue := m.councilColor(v.Member)
+	var b strings.Builder
+	b.WriteString(lipgloss.NewStyle().Foreground(hue).Bold(true).Render(v.Member) +
+		"  " + stylePermTitle.Render(v.Decision) + "\n")
+	if v.Lens != "" {
+		b.WriteString(styleFooter.Render("lens: ") + v.Lens + "\n")
+	}
+	if v.Confidence > 0 {
+		b.WriteString(styleFooter.Render(fmt.Sprintf("confidence: %.0f%%", v.Confidence*100)) + "\n")
+	}
+	wrap := lipgloss.NewStyle().Width(m.width - 6)
+	if v.Rationale != "" {
+		b.WriteString("\n" + wrap.Render(v.Rationale) + "\n")
+	}
+	if v.Feedback != "" {
+		b.WriteString("\n" + styleFooter.Render("next: ") + "\n" + wrap.Render(v.Feedback) + "\n")
+	}
+	b.WriteString(footerKeys("esc", "close"))
+	return stylePermBox.Width(m.width - 4).Render(b.String())
 }
 
 func (m *Model) permView() string {
