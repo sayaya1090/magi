@@ -857,7 +857,13 @@ func (a *App) Compact(ctx context.Context, c command.Compact) error {
 	}
 	msgs := reconstruct(evs)
 	summary := summarize(msgs)
-	data, _ := json.Marshal(event.CompactionData{Summary: summary, ReplacesUpToSeq: upTo})
+	// Manual compaction replaces everything up to upTo, so the post-state is just
+	// the summary.
+	data, _ := json.Marshal(event.CompactionData{
+		Summary: summary, ReplacesUpToSeq: upTo,
+		TokensBefore: estimateTokens("", msgs),
+		TokensAfter:  estimateTokens(summary, nil),
+	})
 	return a.appendFact(ctx, c.SessionID, event.TypeCompaction, c.Actor, data)
 }
 

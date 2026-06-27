@@ -47,10 +47,18 @@ func (a *App) maybeCompact(ctx context.Context, s session.Session, agent AgentSp
 		return false
 	}
 
+	// Post-compaction context = the summary + the kept recent events.
+	var keptEvs []event.Event
+	for _, e := range evs {
+		if e.Seq > boundary {
+			keptEvs = append(keptEvs, e)
+		}
+	}
 	d, _ := json.Marshal(event.CompactionData{
 		Summary:         summary,
 		ReplacesUpToSeq: boundary,
 		TokensBefore:    estimateTokens(sys, msgs),
+		TokensAfter:     estimateTokens(summary, reconstruct(keptEvs)),
 	})
 	a.appendFact(ctx, s.ID, event.TypeCompaction, actor, d)
 	return true
