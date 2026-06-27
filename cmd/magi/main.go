@@ -198,9 +198,9 @@ func run() int {
 		}
 		cfg.Theme.Dark = mergeStrMap(cfg.Theme.Dark, proj.Theme.Dark)
 		cfg.Theme.Light = mergeStrMap(cfg.Theme.Light, proj.Theme.Light)
-		// Council: project config may enable/override the consensus gate.
-		if proj.Council.Enabled {
-			cfg.Council.Enabled = true
+		// Council: project config may enable/disable/override the consensus gate.
+		if proj.Council.Enabled != nil {
+			cfg.Council.Enabled = proj.Council.Enabled
 		}
 		if proj.Council.Rule != "" {
 			cfg.Council.Rule = proj.Council.Rule
@@ -312,12 +312,12 @@ func run() int {
 		}
 	}
 
-	// Consensus council (D14): the loop's termination gate. Built only when
-	// enabled in config. Each member can run on its own backend — resolve maps a
+	// Consensus council (D14): the loop's termination gate, ON BY DEFAULT (disable
+	// with [council] enabled=false). Each member can run on its own backend — resolve maps a
 	// member's provider name to a named profile (or the default backend) — so
 	// cheap and strong models can be mixed across the MAGI.
 	var councilPort port.Council
-	if cfg.Council.Enabled {
+	if cfg.Council.IsEnabled() {
 		// Resolver over the startup profiles snapshot; an unknown/empty name (incl. a
 		// profile added later via /route) falls back to the default backend, so
 		// council member providers should be defined in config at startup.
@@ -333,26 +333,26 @@ func run() int {
 	}
 
 	a := app.New(store, llm, reg, bus.New(), plat, app.Config{
-		Model:          session.ModelRef{Provider: "openai", Model: modelID},
-		System:         systemPrompt,
-		Permission:     perm,
-		Profile:        orStr(*profile, cfg.Profile),
-		Sandbox:        cfg.Sandbox,
-		Allow:          cfg.Allow,
-		Deny:           cfg.Deny,
-		AllowDomains:   cfg.AllowDomains,
-		Agents:         agents,
-		Experience:     expgit.New(expDir),
-		Hooks:          toAppHooks(cfg.Hooks),
-		Harness:        !*noHarness,
-		Workflow:       *workflow,
-		VerifyCmd:      *verifyCmd,
-		Providers:      providers,
-		ProfileModels:  profileModels(cfg.LLM.Profiles),
-		ProfileDefs:    profileDefs(cfg.LLM.Profiles),
-		NewProvider:    newProvider,
-		RoutePersister: routePersister{path: filepath.Join(plat.ConfigDir(), "config.toml")},
-		Planner:        cfg.Orchestration.Planner == nil || *cfg.Orchestration.Planner, // default on; kill switch
+		Model:            session.ModelRef{Provider: "openai", Model: modelID},
+		System:           systemPrompt,
+		Permission:       perm,
+		Profile:          orStr(*profile, cfg.Profile),
+		Sandbox:          cfg.Sandbox,
+		Allow:            cfg.Allow,
+		Deny:             cfg.Deny,
+		AllowDomains:     cfg.AllowDomains,
+		Agents:           agents,
+		Experience:       expgit.New(expDir),
+		Hooks:            toAppHooks(cfg.Hooks),
+		Harness:          !*noHarness,
+		Workflow:         *workflow,
+		VerifyCmd:        *verifyCmd,
+		Providers:        providers,
+		ProfileModels:    profileModels(cfg.LLM.Profiles),
+		ProfileDefs:      profileDefs(cfg.LLM.Profiles),
+		NewProvider:      newProvider,
+		RoutePersister:   routePersister{path: filepath.Join(plat.ConfigDir(), "config.toml")},
+		Planner:          cfg.Orchestration.Planner == nil || *cfg.Orchestration.Planner, // default on; kill switch
 		Council:          councilPort,
 		CouncilRule:      corecouncil.Rule(cfg.Council.Rule),
 		CouncilMaxRounds: cfg.Council.MaxRounds,

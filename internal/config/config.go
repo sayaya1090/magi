@@ -77,7 +77,10 @@ type ThemeConfig struct {
 // loop keeps going. Disabled by default (it adds an LLM round at each would-be
 // finish). Members default to the MAGI (Melchior/Balthasar/Casper) when empty.
 type CouncilConfig struct {
-	Enabled   bool            `toml:"enabled"`
+	// Enabled toggles the consensus termination gate. nil = on by default; set
+	// false to disable. (Pointer so "unset" is distinguishable from explicit false,
+	// like orchestration.planner.)
+	Enabled   *bool           `toml:"enabled"`
 	Rule      string          `toml:"rule"`       // unanimous|majority|quorum:k|weighted:θ|veto:Name (default majority)
 	MaxRounds int             `toml:"max_rounds"` // cap rounds per turn (default 3)
 	Members   []CouncilMember `toml:"member"`     // [[council.member]] tables; empty = the MAGI
@@ -97,6 +100,12 @@ type CouncilConfig struct {
 type CouncilSignalConfig struct {
 	Name    string `toml:"name"`
 	Command string `toml:"command"`
+}
+
+// IsEnabled reports whether the council gate is on: by default yes, unless
+// explicitly disabled with `[council] enabled = false`.
+func (c CouncilConfig) IsEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
 }
 
 // CouncilMember is one configured council seat: a theme-name label, a judging
@@ -202,12 +211,12 @@ const defaultConfigTemplate = `# magi configuration. Everything here is optional
 # [plugins.my-plugin]
 # endpoint = "https://config.corp.example/v1"
 
-# --- Consensus council (D14): the loop's termination gate. When enabled, instead
-# of finishing when the model stops, a council (the MAGI by default) votes
-# done/continue; a "continue" injects feedback and the loop keeps going. Adds an
-# LLM round at each would-be finish, so it's off by default. ---
+# --- Consensus council (D14): the loop's termination gate. ON BY DEFAULT — instead
+# of finishing when the model stops, a council (the MAGI: Melchior/Balthasar/Casper)
+# votes done/continue; a "continue" injects feedback and the loop keeps going. It
+# adds an LLM round at each would-be finish; set enabled = false to turn it off. ---
 # [council]
-# enabled    = true
+# enabled    = false        # the gate is on by default; uncomment to disable
 # rule       = "majority"   # unanimous | majority | quorum:2 | weighted:0.6 | veto:Balthasar
 # max_rounds = 3
 # criteria   = true         # elicit explicit acceptance criteria (1 extra LLM call/turn) as the council's contract

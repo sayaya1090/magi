@@ -65,6 +65,48 @@ retries = 3
 	}
 }
 
+func TestCouncilEnabledDefaultsOn(t *testing.T) {
+	// Unset → on by default.
+	if !(CouncilConfig{}).IsEnabled() {
+		t.Error("council should be on by default when unset")
+	}
+	// Explicit false → off.
+	off := false
+	if (CouncilConfig{Enabled: &off}).IsEnabled() {
+		t.Error("enabled=false should disable the council")
+	}
+	// Explicit true → on.
+	on := true
+	if !(CouncilConfig{Enabled: &on}).IsEnabled() {
+		t.Error("enabled=true should enable the council")
+	}
+	// Parsed from TOML: enabled = false disables.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("[council]\nenabled = false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Council.IsEnabled() {
+		t.Error("parsed enabled=false should disable the council")
+	}
+	// No [council] section at all → on.
+	if (mustLoadEmpty(t)).Council.IsEnabled() == false {
+		t.Error("absent [council] should leave the council on")
+	}
+}
+
+func mustLoadEmpty(t *testing.T) Config {
+	t.Helper()
+	c, err := Load(t.TempDir()) // no config.toml
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
 func TestThemeConfigParses(t *testing.T) {
 	dir := t.TempDir()
 	toml := `
