@@ -222,6 +222,7 @@ var slashCommands = []cmdInfo{
 	{"/image", "render an image file inline (/image <path>)"},
 	{"/diff", "show the working-tree git diff"},
 	{"/loop", "show the loop map (turns · steps · council)"},
+	{"/context", "show what fills the context window (usage · compactions)"},
 	{"/fork", "branch this session to explore an alternative (origin kept)"},
 	{"/replay", "re-run the last turn on a branch (compare with /loopdiff)"},
 	{"/loopdiff", "compare this branch with its fork origin"},
@@ -793,6 +794,12 @@ func (m *Model) handleSlash(text string) (tea.Cmd, bool) {
 			out = m.snack("loop: " + err.Error())
 		} else {
 			m.info(mp)
+		}
+	case "/context":
+		if cv, err := m.app.ContextView(m.ctx, m.sid); err != nil {
+			out = m.snack("context: " + err.Error())
+		} else {
+			m.info(cv)
 		}
 	case "/fork":
 		if m.running {
@@ -1568,7 +1575,7 @@ func (m *Model) steer(text string) tea.Cmd {
 // in-flight turn (read-only / UI-only — does not mutate the running session).
 func safeWhileRunning(cmd string) bool {
 	switch cmd {
-	case "/help", "/model", "/agents", "/route", "/tools", "/sessions", "/diff", "/loop", "/loopdiff", "/permission":
+	case "/help", "/model", "/agents", "/route", "/tools", "/sessions", "/diff", "/loop", "/loopdiff", "/context", "/permission":
 		return true
 	}
 	return false
