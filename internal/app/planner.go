@@ -148,13 +148,16 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 
 // plannerContract instructs the planner to emit an ordered procedure with a
 // per-step execution strategy, not a solo/parallel boolean.
-const plannerContract = "Plan the PROCEDURE to handle the request: an ordered list of steps, each with how to execute it. " +
-	"Keep it minimal — only steps that genuinely help; a simple request is a single step.\n\n" +
+const plannerContract = "Plan the PROCEDURE to handle the request: an ordered, minimal list of steps, each with how to execute it.\n" +
+	"ORDER matters — lay the steps out logically: first locate/scout what is actually relevant, then investigate it, " +
+	"then any step that builds on earlier findings. A simple request is a single step. Do NOT pad the plan with broad, " +
+	"unrelated area-splits — every step must serve THIS request.\n\n" +
 	"Each step has a \"strategy\":\n" +
-	"- \"solo\": the main agent will do it directly (no explorer). Use for anything that writes/edits, or that needs full context.\n" +
-	"- \"parallel\": independent read-only investigations you already know — give \"groups\" (each {agent, focus, question}).\n" +
-	"- \"scout\": you DON'T yet know the work-list — give \"discover\" (what list to produce, e.g. \"the markdown files under docs/\") " +
-	"and \"each\" (what to find out about every item); a read-only explorer lists them, then one explorer runs per item in parallel.\n\n" +
+	"- \"solo\": the main agent does it directly (no explorer). Use for anything that writes/edits, or that needs full context.\n" +
+	"- \"parallel\": independent read-only investigations you ALREADY know are relevant — give \"groups\" (each {agent, focus, question}).\n" +
+	"- \"scout\": you DON'T yet know the work-list — give \"discover\" (the list to produce, SCOPED TO WHAT THE TASK NEEDS — " +
+	"e.g. for a bug hunt, the source files/packages in scope, NOT tangential files like docs) and \"each\" (what to find " +
+	"out about every item); a read-only explorer lists them, then one explorer runs per item in parallel.\n\n" +
 	"Explorers are READ-ONLY (agent ∈ explore|locator|analyst); never use them to write. " +
 	"Reply with ONLY a JSON object, no prose:\n" +
 	`{"reason":"one sentence","steps":[{"title":"...","strategy":"solo|parallel|scout","groups":[{"agent":"explore","focus":"...","question":"..."}],"agent":"explore","discover":"...","each":"..."}]}`
