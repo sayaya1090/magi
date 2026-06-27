@@ -62,7 +62,7 @@ func TestCouncilGateContinuesThenFinishes(t *testing.T) {
 		{Round: 1, Decision: council.Continue, Feedback: "the tests are missing — add them"},
 		{Round: 2, Decision: council.Done},
 	}}
-	a, wd := newApp(t, &fakeLLM{}, Config{Council: fc}) // fakeLLM with no steps → always "done" text
+	a, wd := newApp(t, workingLLM(), Config{Council: fc}) // working turn (read tool) → council gate applies
 	evs := submitAndDrain(t, a, wd)
 
 	if got := countType(evs, event.TypeCouncilConvened); got != 2 {
@@ -102,6 +102,21 @@ func TestNoCouncilNoGate(t *testing.T) {
 	}
 }
 
+// The council gate only judges turns that did real work. A purely conversational
+// turn (a greeting, a question — no tool calls) must finish without convening the
+// council, so the user isn't held in a deliberation loop over small talk.
+func TestCouncilSkipsConversationalTurn(t *testing.T) {
+	fc := &fakeCouncil{delibs: []council.Deliberation{{Round: 1, Decision: council.Continue, Feedback: "more"}}}
+	a, wd := newApp(t, &fakeLLM{}, Config{Council: fc}) // no steps → plain text reply, no tools
+	evs := submitAndDrain(t, a, wd)
+	if got := countType(evs, event.TypeCouncilConvened); got != 0 {
+		t.Fatalf("council should not convene on a no-tool conversational turn, got %d", got)
+	}
+	if countType(evs, event.TypeTurnFinished) != 1 {
+		t.Fatal("conversational turn should finish immediately")
+	}
+}
+
 // A council that always says continue is bounded by max_rounds, then finishes.
 func TestCouncilMaxRoundsStops(t *testing.T) {
 	fc := &fakeCouncil{delibs: []council.Deliberation{
@@ -112,7 +127,7 @@ func TestCouncilMaxRoundsStops(t *testing.T) {
 		{Round: 3, Decision: council.Continue, Feedback: "step three"},
 		{Round: 4, Decision: council.Continue, Feedback: "step four"},
 	}}
-	a, wd := newApp(t, &fakeLLM{}, Config{Council: fc, CouncilMaxRounds: 2})
+	a, wd := newApp(t, workingLLM(), Config{Council: fc, CouncilMaxRounds: 2})
 	evs := submitAndDrain(t, a, wd)
 	if got := countType(evs, event.TypeCouncilConvened); got != 2 {
 		t.Fatalf("council.convened = %d, want 2 (max rounds)", got)
@@ -131,7 +146,7 @@ func TestCouncilNoProgressStops(t *testing.T) {
 		{Round: 1, Decision: council.Continue, Feedback: "same thing"},
 		{Round: 2, Decision: council.Continue, Feedback: "same thing"},
 	}}
-	a, wd := newApp(t, &fakeLLM{}, Config{Council: fc, CouncilMaxRounds: 5})
+	a, wd := newApp(t, workingLLM(), Config{Council: fc, CouncilMaxRounds: 5})
 	evs := submitAndDrain(t, a, wd)
 	if got := countType(evs, event.TypeCouncilConvened); got != 2 {
 		t.Fatalf("council.convened = %d, want 2 (stopped on no progress)", got)
@@ -184,7 +199,7 @@ func (verifyFailPlatform) TerminalCaps() port.TermCaps { return port.TermCaps{} 
 // the council; the convened event surfaces a summary (D16, opt-in).
 func TestCouncilVerifySignal(t *testing.T) {
 	fc := &fakeCouncil{delibs: []council.Deliberation{{Round: 1, Decision: council.Done}}}
-	a, _, wd := newWorkflowApp(t, &fakeLLM{}, verifyFailPlatform{}, Config{
+	a, _, wd := newWorkflowApp(t, workingLLM(), verifyFailPlatform{}, Config{
 		Council: fc, CouncilSignals: []CouncilSignalSpec{{Name: "verify", Command: "go test ./..."}},
 	})
 	evs := submitAndDrain(t, a, wd)
@@ -218,7 +233,7 @@ func TestCouncilVerifySignal(t *testing.T) {
 // work, council for the deliberation, finalize for the turn end.
 func TestEventStageTags(t *testing.T) {
 	fc := &fakeCouncil{delibs: []council.Deliberation{{Round: 1, Decision: council.Done}}}
-	a, wd := newApp(t, &fakeLLM{}, Config{Council: fc})
+	a, wd := newApp(t, workingLLM(), Config{Council: fc})
 	evs := submitAndDrain(t, a, wd)
 
 	stageOf := func(ty event.Type) string {
@@ -260,7 +275,7 @@ func TestEventStageTags(t *testing.T) {
 // The council runs every configured signal and feeds them all as evidence (D16).
 func TestCouncilMultipleSignals(t *testing.T) {
 	fc := &fakeCouncil{delibs: []council.Deliberation{{Round: 1, Decision: council.Done}}}
-	a, _, wd := newWorkflowApp(t, &fakeLLM{}, verifyFailPlatform{}, Config{
+	a, _, wd := newWorkflowApp(t, workingLLM(), verifyFailPlatform{}, Config{
 		Council: fc,
 		CouncilSignals: []CouncilSignalSpec{
 			{Name: "test", Command: "go test ./..."},
@@ -288,19 +303,31 @@ func TestCouncilMultipleSignals(t *testing.T) {
 }
 
 // countLLM replies "- done" to everything and counts acceptance-criteria calls.
+// Its first real agent turn does a read-only tool call so the council gate applies
+// (the gate skips turns that used no tools).
 type countLLM struct {
 	mu            sync.Mutex
 	criteriaCalls int
+	turnCalls     int
 }
 
 func (c *countLLM) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan port.ProviderEvent, error) {
-	if strings.Contains(r.System, "acceptance criteria") {
-		c.mu.Lock()
+	c.mu.Lock()
+	criteria := strings.Contains(r.System, "acceptance criteria")
+	first := false
+	if criteria {
 		c.criteriaCalls++
-		c.mu.Unlock()
+	} else {
+		c.turnCalls++
+		first = c.turnCalls == 1
 	}
+	c.mu.Unlock()
 	ch := make(chan port.ProviderEvent, 2)
-	ch <- port.ProviderEvent{Type: port.ProviderText, Text: "- done"}
+	if first {
+		ch <- port.ProviderEvent{Type: port.ProviderToolCall, ToolCall: &session.ToolCall{CallID: "c_read", Name: "read", Args: json.RawMessage(`{"path":"x"}`)}}
+	} else {
+		ch <- port.ProviderEvent{Type: port.ProviderText, Text: "- done"}
+	}
 	ch <- port.ProviderEvent{Type: port.ProviderFinish}
 	close(ch)
 	return ch, nil
@@ -334,7 +361,7 @@ func TestCouncilCriteriaElicitedOncePerTurn(t *testing.T) {
 // Criteria is off by default — no extra elicitation, no criteria in the contract.
 func TestCouncilNoCriteriaWhenOff(t *testing.T) {
 	fc := &fakeCouncil{delibs: []council.Deliberation{{Round: 1, Decision: council.Done}}}
-	a, wd := newApp(t, &fakeLLM{}, Config{Council: fc})
+	a, wd := newApp(t, workingLLM(), Config{Council: fc})
 	submitAndDrain(t, a, wd)
 	fc.mu.Lock()
 	plan := fc.lastReq.Plan

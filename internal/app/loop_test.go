@@ -54,6 +54,14 @@ func toolStep(name, args string) []port.ProviderEvent {
 	}
 }
 
+// workingLLM simulates a turn that does real work — a read-only tool call —
+// before its final reply. The council gate only fires on turns that used tools
+// (pure conversational turns are skipped), so council tests must do real work.
+func workingLLM(after ...[]port.ProviderEvent) *fakeLLM {
+	steps := append([][]port.ProviderEvent{toolStep("read", `{"path":"x"}`)}, after...)
+	return &fakeLLM{steps: steps}
+}
+
 func newApp(t *testing.T, llm port.LLMProvider, cfg Config) (*App, string) {
 	t.Helper()
 	store, err := jsonl.New(t.TempDir())

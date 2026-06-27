@@ -104,6 +104,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	guard := newRunGuard()
 	councilRounds := 0        // consensus termination gate rounds this turn (D14)
 	lastCouncilFeedback := "" // last round's feedback (no-progress detection)
+	usedTools := false        // did this turn do real work? (council skips pure conversational turns)
 	// Turn usage accumulation (§8.1): output tokens and cost sum across steps; input
 	// is the last step's (the current context size, not a sum).
 	var cumOut, lastIn int
@@ -130,7 +131,10 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// forceful directive FIRST (primacy). Top-level only — subagents report to
 		// the orchestrator, not the user.
 		if !isSub {
-			if dir := langDirective(lastUserText(reconstruct(evs))); dir != "" {
+			// Lock to the genuine user's language, NOT the latest user-role message —
+			// council/hook/auto feedback is injected as a user-role prompt (often
+			// English), and keying the lock off it lets a weak model drift languages.
+			if dir := langDirective(lastUserPromptText(evs)); dir != "" {
 				sys = dir + "\n\n" + sys
 			}
 		}
@@ -333,12 +337,11 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					continue
 				}
 			}
-			// Consensus council termination gate (D14): top level only, and not in
-			// workflow mode (the deterministic pipeline has its own per-phase verify
-			// gate, and each phase would otherwise be judged against the whole task).
-			// When the model would finish, the council votes; a "continue" injects
-			// feedback and the loop keeps going instead of finishing here.
-			if depth == 0 && a.cfg.Council != nil && !a.cfg.Workflow {
+			// Consensus council termination gate (D14): top level only, not in
+			// workflow mode, and only for turns that did real work — a purely
+			// conversational reply (no tool use, e.g. a greeting) has nothing to
+			// verify, so gating it just churns and can derail a weak model.
+			if depth == 0 && a.cfg.Council != nil && !a.cfg.Workflow && usedTools {
 				if a.runCouncilGate(ctx, s, agent, lastText, &councilRounds, &lastCouncilFeedback) {
 					continue
 				}
@@ -354,6 +357,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// Execute tool calls. When a turn requests several read-only tools, run
 		// them concurrently; otherwise (writes, permissioned, or task) keep the
 		// deterministic sequential order.
+		usedTools = true // this turn did real work → the council gate applies
 		if len(toolCalls) > 1 && a.allParallelSafe(toolCalls) {
 			var wg sync.WaitGroup
 			for _, tc := range toolCalls {
@@ -1126,6 +1130,22 @@ func firstUserText(msgs []session.Message) string {
 				}
 			}
 			return b.String()
+		}
+	}
+	return ""
+}
+
+// lastUserPromptText returns the text of the most recent GENUINE user prompt
+// (Actor.Kind == user), skipping council/hook/auto injections (which are recorded
+// as user-role prompts but authored by the system). Used for the language lock so
+// injected English feedback can't unlock the user's language.
+func lastUserPromptText(evs []event.Event) string {
+	for i := len(evs) - 1; i >= 0; i-- {
+		if evs[i].Type == event.TypePromptSubmitted && evs[i].Actor.Kind == event.ActorUser {
+			var d event.PromptSubmittedData
+			if json.Unmarshal(evs[i].Data, &d) == nil {
+				return partsText(d.Parts)
+			}
 		}
 	}
 	return ""
