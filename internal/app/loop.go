@@ -540,14 +540,15 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, lastText st
 	}
 
 	delib, err := a.cfg.Council.Deliberate(ctx, port.DeliberationRequest{
-		Round:   *rounds,
-		Task:    task,
-		Plan:    plan,
-		Report:  lastText,
-		Signals: signals,
-		Diff:    diff,
-		Members: members,
-		Rule:    rule,
+		Round:        *rounds,
+		Task:         task,
+		Plan:         plan,
+		Report:       lastText,
+		Signals:      signals,
+		Diff:         diff,
+		Members:      members,
+		Rule:         rule,
+		DefaultModel: s.Model.Model,
 	})
 	if err != nil {
 		// A gate failure must not trap the turn — record it as a forced finish
