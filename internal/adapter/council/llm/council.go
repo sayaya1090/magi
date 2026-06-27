@@ -128,12 +128,19 @@ func memberSystem(m council.Member) string {
 	return fmt.Sprintf(
 		"You are %s, a member of the council that decides whether an AI coding agent's turn is truly finished. "+
 			"Your lens is %q: %s\n\n"+
-			"Judge the agent's REPORT (its claim) against the TASK and PLAN (the contract), using the SIGNALS and DIFF "+
-			"(the evidence). Do not take the agent's word for it — if a claim is not backed by evidence, that counts "+
-			"against finishing. Vote \"continue\" whenever you are uncertain or evidence is missing; vote \"done\" only "+
-			"when the lens is clearly satisfied.\n\n"+
+			"Judge the agent's REPORT (its claim) against the TASK and PLAN, using the SIGNALS and DIFF as evidence. "+
+			"Choose exactly one vote:\n"+
+			"- \"done\": through your lens, the response reasonably satisfies the task.\n"+
+			"- \"continue\": you can name a SPECIFIC, addressable problem through your lens — a failing signal, an unmet "+
+			"part of the task/plan, or a concrete defect. Put that exact next step in `feedback`.\n"+
+			"- \"abstain\": your lens needs evidence that was NOT provided (e.g. your lens is verification but there are "+
+			"no test/build SIGNALS and no DIFF to inspect). Abstaining means \"not my call on this evidence\" and is "+
+			"excluded from the tally.\n\n"+
+			"Do NOT vote continue merely because you are uncertain, want more detail, could imagine more polish, or "+
+			"because the evidence for your lens is missing — that is what abstain is for. Never invent a defect. A turn "+
+			"with no concrete, evidenced defect is done or abstain, not continue.\n\n"+
 			"Respond with ONLY a JSON object, no prose, no code fence:\n"+
-			`{"decision":"done|continue","confidence":0.0-1.0,"rationale":"one sentence","feedback":"what remains (only if continue)"}`,
+			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific gap (only if continue)"}`,
 		m.Name, m.Lens, lens)
 }
 
@@ -173,7 +180,7 @@ func evidence(req port.DeliberationRequest) string {
 	}
 	section("Diff", req.Diff)
 	if b.Len() == 0 {
-		return "No evidence was provided. Vote based on whether a task could plausibly be complete with no information (it cannot)."
+		return "No task, report, or evidence was provided. With nothing to judge through your lens, abstain."
 	}
 	return strings.TrimSpace(b.String())
 }
