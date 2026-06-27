@@ -2,6 +2,7 @@ package event
 
 import (
 	"github.com/sayaya1090/magi/internal/core/artifact"
+	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -67,6 +68,42 @@ type Usage struct {
 type ErrorData struct {
 	Message string `json:"message"`
 	Code    string `json:"code,omitempty"`
+}
+
+// --- Council termination gate (D14) ---
+
+// CouncilConvenedData — TypeCouncilConvened (the gate opens for a round).
+type CouncilConvenedData struct {
+	Round   int      `json:"round"`
+	Members []string `json:"members"` // member labels (e.g. Melchior/Balthasar/Casper)
+	Rule    string   `json:"rule"`
+}
+
+// CouncilVerdictData — TypeCouncilVerdict (one member's vote).
+type CouncilVerdictData struct {
+	Round      int     `json:"round"`
+	Member     string  `json:"member"`
+	Lens       string  `json:"lens,omitempty"`
+	Decision   string  `json:"decision"` // done | continue | abstain
+	Confidence float64 `json:"confidence,omitempty"`
+	Rationale  string  `json:"rationale,omitempty"`
+	Feedback   string  `json:"feedback,omitempty"`
+}
+
+// CouncilDecidedData — TypeCouncilDecided (the tallied outcome). Feedback is set
+// only when the decision is "continue" (it is injected back into the loop).
+type CouncilDecidedData struct {
+	Round    int               `json:"round"`
+	Decision string            `json:"decision"` // done | continue
+	Tally    council.Breakdown `json:"tally"`
+	Feedback string            `json:"feedback,omitempty"`
+}
+
+// CouncilDeliberatingData — TypeCouncilDeliberating (transient, live panel).
+type CouncilDeliberatingData struct {
+	Round  int    `json:"round"`
+	Member string `json:"member"`
+	State  string `json:"state"` // "asking" | "voted"
 }
 
 // --- Transient payloads (bus only) ---

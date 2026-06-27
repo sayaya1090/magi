@@ -28,6 +28,12 @@ const (
 	TypeCompaction        Type = "compaction"
 	TypeTurnFinished      Type = "turn.finished"
 	TypeError             Type = "error"
+
+	// Council termination gate (D14): the consensus that decides whether the loop
+	// finishes or continues. Persisted so the deliberation is replayable/auditable.
+	TypeCouncilConvened Type = "council.convened"
+	TypeCouncilVerdict  Type = "council.verdict"
+	TypeCouncilDecided  Type = "council.decided"
 )
 
 // Transient events — bus only, not persisted.
@@ -40,6 +46,7 @@ const (
 	TypeAgentStatus         Type = "agent.status"
 	TypeContextUsage        Type = "context.usage"
 	TypeWorkflowPhase       Type = "workflow.phase"
+	TypeCouncilDeliberating Type = "council.deliberating" // a member is being polled (live panel)
 )
 
 // transientTypes is the set of bus-only event types.
@@ -52,6 +59,7 @@ var transientTypes = map[Type]bool{
 	TypeAgentStatus:         true,
 	TypeContextUsage:        true,
 	TypeWorkflowPhase:       true,
+	TypeCouncilDeliberating: true,
 }
 
 // IsTransient reports whether t is a bus-only event type (never persisted).
