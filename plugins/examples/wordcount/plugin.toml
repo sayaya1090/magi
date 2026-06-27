@@ -1,0 +1,6 @@
+name = "wordcount"
+version = "0.1.0"
+description = "Counts words in a file (example Lua plugin)."
+entry = "init.lua"
+capabilities = ["tool"]
+permissions = ["fs:read:."]
