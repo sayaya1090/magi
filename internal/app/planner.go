@@ -58,6 +58,7 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session) {
 	if strings.TrimSpace(prompt) == "" {
 		return
 	}
+	a.setStage(s.ID, stagePlan) // tag pre-flight planning events as the plan stage (D15)
 
 	plan := a.runPlanner(ctx, spec, s, prompt)
 	reason := strings.TrimSpace(plan.Reason)

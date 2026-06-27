@@ -108,6 +108,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		if ctx.Err() != nil {
 			return lastText, ctx.Err()
 		}
+		a.setStage(sid, stageExecute) // tag this iteration's events as execute (D15)
 
 		evs, err := a.store.Read(ctx, sid, 0)
 		if err != nil {
@@ -329,6 +330,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					continue
 				}
 			}
+			a.setStage(sid, stageFinalize) // turn is ending (D15)
 			u := event.Usage{}
 			if usage != nil {
 				u = *usage
@@ -453,6 +455,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, lastText st
 	}
 	sid := s.ID
 	councilActor := event.Actor{Kind: event.ActorSystem, ID: "council"}
+	a.setStage(sid, stageCouncil) // tag deliberation events as the council stage (D15)
 
 	maxRounds := a.cfg.CouncilMaxRounds
 	if maxRounds <= 0 {

@@ -306,6 +306,7 @@ type App struct {
 
 	lastPromptTokens      map[session.SessionID]int            // real prompt_tokens from last turn (guarded by mu)
 	todos                 map[session.SessionID][]session.Todo // per-session plan (guarded by mu)
+	stage                 map[session.SessionID]string         // current loop stage for event tagging (guarded by mu)
 	autoOrchestrateActive map[session.SessionID]bool           // whether auto-orchestration has been triggered for this session (guarded by mu)
 }
 
@@ -332,6 +333,7 @@ func New(store port.Store, llm port.LLMProvider, tools port.ToolRegistry, b *bus
 		policy:                newPolicy(c.Allow, c.Deny, c.AllowDomains),
 		lastPromptTokens:      map[session.SessionID]int{},
 		todos:                 map[session.SessionID][]session.Todo{},
+		stage:                 map[session.SessionID]string{},
 		bg:                    map[session.SessionID]*bgGroup{},
 		pendingAsks:           map[session.SessionID]chan string{},
 		reports:               map[session.SessionID]*subReport{},
@@ -411,6 +413,7 @@ func (a *App) Rewind(ctx context.Context, sid session.SessionID, n int) (int64, 
 	a.mu.Lock()
 	delete(a.lastPromptTokens, sid)
 	delete(a.todos, sid)
+	delete(a.stage, sid)
 	a.mu.Unlock()
 	return boundary, nil
 }
@@ -738,6 +741,12 @@ func (a *App) Steer(ctx context.Context, c command.SubmitPrompt) error {
 // appendPrompt records a user prompt as a fact (shows in the transcript and is
 // visible to the running loop's per-step re-read).
 func (a *App) appendPrompt(ctx context.Context, c command.SubmitPrompt) error {
+	// A user prompt/steer begins (or resumes) execution — reset the stage so it
+	// isn't tagged with the prior turn's leftover stage (D15). System injections
+	// (council/hooks/auto) append via appendFact directly and keep their stage.
+	if c.Actor.Kind == event.ActorUser {
+		a.setStage(c.SessionID, stageExecute)
+	}
 	msgID := "m_" + newID()
 	data, _ := json.Marshal(event.PromptSubmittedData{MessageID: msgID, Parts: c.Parts})
 	return a.appendFact(ctx, c.SessionID, event.TypePromptSubmitted, c.Actor, data)
@@ -919,7 +928,7 @@ func (a *App) ChildSessions(ctx context.Context, workdir string, parent session.
 
 // appendFact persists a fact event (assigning seq) and publishes it on the bus.
 func (a *App) appendFact(ctx context.Context, sid session.SessionID, typ event.Type, actor event.Actor, data json.RawMessage) error {
-	ev := event.Event{SessionID: sid, Type: typ, Actor: actor, TS: time.Now(), Data: data}
+	ev := event.Event{SessionID: sid, Type: typ, Actor: actor, TS: time.Now(), Stage: a.currentStage(sid), Data: data}
 	seqs, err := a.store.Append(ctx, sid, ev)
 	if err != nil {
 		return err
@@ -933,7 +942,33 @@ func (a *App) appendFact(ctx context.Context, sid session.SessionID, typ event.T
 // publishTransient publishes a bus-only event (not persisted).
 func (a *App) publishTransient(sid session.SessionID, typ event.Type, actor event.Actor, data json.RawMessage) {
 	a.touch(sid)
-	a.bus.Publish(event.Event{SessionID: sid, Type: typ, Actor: actor, TS: time.Now(), Data: data})
+	a.bus.Publish(event.Event{SessionID: sid, Type: typ, Actor: actor, TS: time.Now(), Stage: a.currentStage(sid), Data: data})
+}
+
+// Loop stages tag events with the macro phase they belong to (D15).
+const (
+	stagePlan     = "plan"
+	stageExecute  = "execute"
+	stageCouncil  = "council"
+	stageFinalize = "finalize"
+)
+
+// setStage records the current loop stage for a session; subsequent events are
+// tagged with it (Loop map / rewind grouping).
+func (a *App) setStage(sid session.SessionID, stage string) {
+	a.mu.Lock()
+	a.stage[sid] = stage
+	a.mu.Unlock()
+}
+
+// currentStage returns the session's current stage, defaulting to execute.
+func (a *App) currentStage(sid session.SessionID) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if s := a.stage[sid]; s != "" {
+		return s
+	}
+	return stageExecute
 }
 
 // touch records activity for a session (used by the sidecar liveness check).

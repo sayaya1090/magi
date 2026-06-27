@@ -214,6 +214,49 @@ func TestCouncilVerifySignal(t *testing.T) {
 	}
 }
 
+// Events are tagged with their macro loop stage (D15): execute for the agent's
+// work, council for the deliberation, finalize for the turn end.
+func TestEventStageTags(t *testing.T) {
+	fc := &fakeCouncil{delibs: []council.Deliberation{{Round: 1, Decision: council.Done}}}
+	a, wd := newApp(t, &fakeLLM{}, Config{Council: fc})
+	evs := submitAndDrain(t, a, wd)
+
+	stageOf := func(ty event.Type) string {
+		for _, e := range evs {
+			if e.Type == ty {
+				return e.Stage
+			}
+		}
+		return "<absent>"
+	}
+	if s := stageOf(event.TypeCouncilConvened); s != stageCouncil {
+		t.Errorf("council.convened stage = %q, want %q", s, stageCouncil)
+	}
+	if s := stageOf(event.TypeCouncilDecided); s != stageCouncil {
+		t.Errorf("council.decided stage = %q, want %q", s, stageCouncil)
+	}
+	if s := stageOf(event.TypeTurnFinished); s != stageFinalize {
+		t.Errorf("turn.finished stage = %q, want %q", s, stageFinalize)
+	}
+	// The agent's assistant message is tagged execute.
+	gotExecute := false
+	for _, e := range evs {
+		if e.Type != event.TypePartAppended {
+			continue
+		}
+		var d event.PartAppendedData
+		if json.Unmarshal(e.Data, &d) == nil && d.Role == session.RoleAssistant {
+			if e.Stage != stageExecute {
+				t.Errorf("assistant part stage = %q, want %q", e.Stage, stageExecute)
+			}
+			gotExecute = true
+		}
+	}
+	if !gotExecute {
+		t.Fatal("expected an assistant part.appended to assert execute stage")
+	}
+}
+
 func hasDecidedNote(evs []event.Event, sub string) bool {
 	for _, e := range evs {
 		if e.Type == event.TypeCouncilDecided {
