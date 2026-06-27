@@ -1,190 +1,321 @@
+<div align="center">
+
 # magi
 
-확장형 터미널 AI 코딩 에이전트 클라이언트. 여러 **에이전트 · 컨텍스트 프로바이더 · MCP · 스킬**을
-플러그인으로 묶어 한데 엮어(magi) 굴린다.
+**A terminal AI coding agent that doesn't decide it's done on its own.**
 
-📖 **사용법 전체는 [docs/MANUAL.md](docs/MANUAL.md)**.
+Most agents let a single model call its own work finished — so they stop early, or churn forever.
+**magi puts termination to a vote.** Three specialists, each with a different lens, deliberate on
+every turn and only let the loop end when they agree.
 
-## 빠른 시작
+[English](README.md) · [한국어](README.ko.md) · [Manual](docs/MANUAL.md)
 
-### 요구사항
-- **Go 1.26+** (빌드 시)
-- **LLM 백엔드** — OpenAI 호환 엔드포인트면 무엇이든. 로컬은 [Ollama](https://ollama.com) 권장.
+![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)
+![License](https://img.shields.io/badge/License-Apache--2.0-blue)
+[![CI](https://github.com/sayaya1090/magi/actions/workflows/ci.yml/badge.svg)](https://github.com/sayaya1090/magi/actions/workflows/ci.yml)
+![Single binary](https://img.shields.io/badge/build-CGO__free%20single%20binary-success)
+
+</div>
+
+---
+
+## Why magi?
+
+An agent loop has one hard question: **when is the turn actually finished?**
+
+Leave that to the same model that did the work and you get the two failure modes everyone has seen —
+it declares victory with a bug still in the diff, or it loops "just to be safe" long after the task
+was done. magi treats *the loop itself* as the thing to engineer, not just the prompt.
+
+```text
+you ▸ add a --dry-run flag to the deploy command
+
+  ◈ planner   3 steps — locate the flag parser · add the flag · wire the guard
+  ✓ explore   deploy command & flag parsing → cmd/deploy.go uses pflag
+  … agent edits cmd/deploy.go, runs go build …
+
+  ⚖ council · round 1
+     ● Melchior   [correctness]   done    · 88%
+     ● Balthasar  [verification]  reject  · 91%   → no test covers --dry-run
+     ● Casper     [completeness]  done    · 80%
+     → reject  (1 done / 2 continue)   feedback injected, loop continues
+
+  … agent adds a test, reruns go test …
+
+  ⚖ council · round 2  →  done  (3 / 0)   ✓ turn complete
+```
+
+The decision to stop is taken away from any single model and given to a **consensus council**. That
+one change is the project's whole reason to exist; everything else is built to make that loop
+observable, steerable, and reproducible.
+
+---
+
+## The Council
+
+At the moment the loop would naturally end, a council of members votes **done**, **reject**, or
+**abstain**. A pure, unit-tested consensus rule tallies the votes into one decision. A `reject`
+doesn't just stop the agent — it feeds the members' aggregated feedback back into the loop as the
+next instruction.
+
+The three default members — the **MAGI** — each judge through a different lens:
+
+| Member | Lens | Asks |
+|---|---|---|
+| **Melchior** | `correctness` | Is the work correct? Edge cases, regressions? |
+| **Balthasar** | `verification` | Is there *evidence* it works — do build/tests pass? No claims on faith. |
+| **Casper** | `completeness` | Did it do everything the task asked? Nothing left unfinished? |
+
+**Consensus, not a single judge.** The tally rule is configurable:
+
+| Rule | Finishes when… |
+|---|---|
+| `majority` *(default)* | a strict majority of voting members say done (a tie continues) |
+| `unanimous` | every member says done |
+| `quorum:k` | at least *k* members say done |
+| `weighted:θ` | the done-weight share meets threshold θ |
+| `veto:Name` | a named member can veto any finish |
+
+**Built to never trap or rubber-stamp the loop:**
+
+- A **tie, an unmet quorum, no voters, or an error** all resolve to *continue* — the council never
+  finishes on ambiguity, only on affirmative agreement.
+- **No-progress detection** stops the gate when feedback goes empty or repeats, so it can't churn.
+- Rounds are **capped** (`max_rounds`, default 3); hitting the cap finishes with a noted "unresolved".
+- A member that errors or returns garbage **abstains** (dropped from the denominator) rather than
+  blocking the gate.
+
+**Evidence, not vibes.** Members judge the agent's *report* against the *task* and *plan*, and can
+weigh **deterministic signals** — real `build` / `test` / `lint` outcomes you opt into. A read-only
+or investigation turn that changed nothing is recognized as such (`NoChanges`), so the council judges
+the *answer* on its merits instead of demanding a diff that was never going to exist.
+
+```toml
+[council]
+# enabled  = true         # on by default; set false for a plain single-model loop
+rule       = "majority"   # unanimous | majority | quorum:k | weighted:θ | veto:Name
+max_rounds = 3
+verify     = "go test ./..."   # a deterministic signal the council weighs each round
+# criteria = true              # elicit explicit acceptance criteria as the contract
+
+# Customize the bench — or keep the MAGI default
+[[council.member]]
+name = "Melchior"
+lens = "correctness"
+# model / provider can route a member to a cheaper or stronger backend
+```
+
+> The consensus logic lives in `internal/core/council` as **pure domain code** — no I/O, no LLM. That
+> separation is what lets *"the council decides, not one model"* be a tested invariant instead of a
+> hopeful prompt.
+
+---
+
+## The Procedure Planner
+
+Before the main agent runs, a tool-free planner decomposes your request into an **ordered procedure**
+and picks a **strategy per step** — then, for multi-step plans, the *council audits the plan itself*
+before a single file is touched.
+
+| Strategy | What it does |
+|---|---|
+| `solo` | the main agent handles it directly (writes, edits, anything needing full context) |
+| `parallel` | independent read-only investigations you already know are relevant, run concurrently |
+| `scout` | **adaptive** discover → fan-out: one explorer lists what exists, then each item becomes its own parallel investigation |
+
+`scout` is the interesting one: *"read every design doc"* becomes one explorer that lists the docs,
+then one parallel reader per doc — fan-out targets discovered at runtime, not guessed up front.
+
+Steps register as **todos** you can watch tick off. The plan-audit council approves (`approve`) or
+sends it back for revision (`revise`), and the criteria the members derive become the **completion
+contract** the termination gate later judges the finished work against. Findings are synthesized into
+the main agent's context — it continues the plan rather than re-reading everything.
+
+```toml
+[orchestration]
+planner = true            # default on; set false for a plain single-agent loop
+
+[routing]
+planner = "fast"          # run the planner on a cheaper/faster backend
+```
+
+---
+
+## Loop Engineering Toolkit
+
+The loop is a first-class, inspectable object — not a black box between you and the model.
+
+| Command | What it gives you |
+|---|---|
+| `/loop` | the loop map — turns · steps · council rounds at a glance |
+| `/context` | exactly what's filling the context window (usage · compactions) |
+| `/rewind` | roll back the last user turn(s) |
+| `/fork` | branch the session to try an alternative, original kept |
+| `/replay` | re-run the last turn on a branch |
+| `/loopdiff` | compare a branch against its fork origin |
+
+Every turn is **event-sourced** to an append-only JSONL log, which is what makes rewind, fork, and
+replay possible — the loop is observable and reproducible, not ephemeral.
+
+---
+
+## Quick Start
+
+### Requirements
+
+- **Go 1.26+** (to build)
+- **An OpenAI-compatible LLM backend.** Local is great — [Ollama](https://ollama.com) recommended:
   ```sh
-  ollama pull qwen3-coder:30b     # 기본값 — 멀티스텝 코딩/툴콜 안정성 최고
-  ollama pull gpt-oss:20b         # 더 가벼운 대안(균형 good)
+  ollama pull qwen3-coder:30b     # default — strongest at multi-step tool-calling
+  ollama pull gpt-oss:20b         # lighter, well-balanced alternative
   ```
-  > 작은 모델(예: llama3.1:8b)은 툴이 활성화되면 인사에도 함수콜 JSON을 읊는 경향이 있어 기본값에서 제외.
+  > Small models (e.g. `llama3.1:8b`) tend to emit tool-call JSON even when greeting you once tools
+  > are enabled, so they're off the default list.
 
-### 설치
+### Install
+
 ```sh
-# 프리빌트 바이너리 (릴리스 후)
+# Pre-built binary
 curl -fsSL https://raw.githubusercontent.com/sayaya1090/magi/main/scripts/install.sh | bash
-# 또는 homebrew
+
+# Homebrew
 brew install sayaya1090/tap/magi
 ```
 
-### 빌드 (소스에서)
+### Build from source
+
 ```sh
-make build        # CGO_ENABLED=0, 버전 주입 → ./magi
-# 또는
+make build        # CGO_ENABLED=0, version injected → ./magi
+# or
 CGO_ENABLED=0 go build -o magi ./cmd/magi
 ```
-순수 Go(단일 바이너리, CGo 없음) — 그대로 복사해서 어디서든 실행.
 
-### 버전 / 자동 업데이트
+Pure Go — a single static binary, no CGo. Copy it anywhere and run.
+
+### Run
+
 ```sh
-./magi --version   # 버전 출력
-./magi --update    # 최신 릴리스로 자가 업데이트(체크섬 검증)
+./magi                         # interactive TUI
+./magi --version               # print version
+./magi --update                # self-update to the latest release (checksum-verified)
 ```
 
-### 대화형 TUI
-```sh
-./magi
-```
-- 입력 후 **Enter** 전송 · **Esc** 진행 중 작업 중단 · **Ctrl+C** 종료 · `/quit` 종료
-- 위험 툴(write/edit/bash)은 실행 전 **권한 확인**(`y` 허용 / `a` 항상 / `n` 거부)
-- 다크/라이트 터미널 자동 대응, 마크다운·코드 신택스 하이라이트
+**In the TUI:** **Enter** sends · **Esc** interrupts the running turn · **Ctrl+C** / `/quit` exits.
+Dangerous tools (`write`/`edit`/`bash`) ask before they run (`y` allow · `a` always · `n` deny).
+Markdown and syntax highlighting adapt to dark/light terminals automatically.
 
-### 헤드리스 (스크립트/CI)
+### Headless (scripts & CI)
+
 ```sh
 ./magi -p "list the Go files and summarize the architecture"
-./magi -p "create hello.txt containing: hi" --output json   # JSONL 이벤트 스트림
-echo "explain main.go" | ./magi -p -                         # stdin
+./magi -p "create hello.txt containing: hi" --output json   # JSONL event stream
+echo "explain main.go" | ./magi -p -                        # stdin
 ```
 
-### 설정 (플래그 / 환경변수)
-| 플래그 | 환경변수 | 기본값 | 설명 |
+---
+
+## Configuration
+
+A commented `config.toml` is generated on first run (and never clobbered after). Precedence is
+**flags > env > config > defaults**.
+
+| Flag | Env | Default | Purpose |
 |---|---|---|---|
-| `--model` | `MAGI_MODEL` | `qwen3-coder:30b` | 모델 id |
-| `--base-url` | `MAGI_BASE_URL` | `http://localhost:11434/v1` | OpenAI 호환 base URL |
-| `--permission` | `MAGI_PERMISSION` | TUI=`ask` / 헤드리스=`allow` | `allow`\|`deny`\|`ask` |
-| `--output` | — | `text` | `text`\|`json` (헤드리스) |
-| — | `MAGI_API_KEY` | (없음) | 원격 백엔드용 키 (Ollama는 불필요) |
+| `--model` | `MAGI_MODEL` | `qwen3-coder:30b` | model id |
+| `--base-url` | `MAGI_BASE_URL` | `http://localhost:11434/v1` | OpenAI-compatible base URL |
+| `--permission` | `MAGI_PERMISSION` | TUI `ask` / headless `allow` | `ask` \| `auto` \| `allow` \| `deny` |
+| `--output` | — | `text` | `text` \| `json` (headless) |
+| — | `MAGI_API_KEY` | *(none)* | key for remote backends (Ollama needs none) |
 
-> 첫 실행 시 주석 달린 **기본 `config.toml`이 `<config>`에 자동 생성**된다(있으면 안 건드림) — 사람이 보고 편집할 수
-> 있는 설정 파일. 우선순위는 **플래그 > 환경변수 > config > 기본값**. `model`/`base_url`/`permission`도 config로 동작.
+**Per-agent model & backend routing** — run cheap models for grunt work, strong ones where it counts:
 
-```sh
-# 예: 로컬 qwen 사용
-MAGI_MODEL=qwen2.5-coder:32b ./magi
+```toml
+[routing]
+explore = "fast"             # → [llm.profiles.fast] (its own endpoint/key)
+coder   = "qwen3-coder:30b"  # just a different model on the default backend
 
-# 예: vLLM / LiteLLM 등 다른 OpenAI 호환 백엔드
-./magi --base-url http://localhost:4000/v1 --model my-model
+[llm.profiles.fast]          # named backends; ${ENV} is expanded
+base_url = "https://fast.gateway/v1"
+api_key  = "${FAST_KEY}"
+model    = "gpt-oss:20b"
 ```
 
-### 도구 (빌트인)
-`read`(줄번호) · `write` · `edit` · `multiedit`(원자적 멀티헝크) · `grep` · `glob` · `list` ·
-`bash`(타임아웃·exit코드) · `webfetch` · `todowrite`(계획) · `remember`(공유 메모리) · `task`(서브에이전트).
-편집 후 **진단 피드백**(gofmt/go vet/py_compile)으로 에이전트가 자가수정. 읽기전용 툴은 턴 내 병렬 실행.
+---
 
-### 슬래시 커맨드
-`/help` `/route`(=`/model`=`/agents`) `/tools` `/sessions` `/resume` `/image` `/diff` `/init` `/permission` `/compact` `/clear` `/quit`(=`/exit`)
-(`/` 입력 시 자동완성 팔레트 — 별칭도 접두사로 검색됨: `/m`→`/model`)
-- **`/route`**(별칭 `/model`·`/agents`): **모델 & 라우팅 에디터** — 세션 기본 모델, 에이전트별 모델/백엔드
-  (편집 중 ←/→로 프로파일 선택), 그리고 **LLM 프로파일 추가·편집**(엔드포인트/키/모델/헤더, `+ add profile`)을
-  GUI식으로. 편집값은 `config.toml`에 **영구 저장**(주석 보존).
+## Agents & Tools
 
-### 컨텍스트 & 메모리
-- **프로젝트 메모리**: 작업 디렉터리의 `AGENTS.md`(+ `.magi/AGENTS.md`, 전역 `<config>/AGENTS.md`)가
-  시스템 프롬프트에 주입되어 **압축돼도 사라지지 않는** 영속 컨텍스트가 된다(a reference agent의 CLAUDE.md 등가).
-- **컨텍스트 인식 자동 압축**: 실제 토큰 수가 모델 윈도우의 80% 초과 시 오래된 턴을 요약, 최근 대화는 보존.
-- **컨텍스트 미터**: TUI 헤더에 사용량(`ctx 42%`) 표시.
-- **공유 두뇌(D13)**: `<config>/experience`(git repo면 팀 공유)의 메모리/스킬을 세션 시작 시 회수·주입,
-  `remember` 툴로 학습을 리뷰 큐(pending)에 기여. `config.toml`의 `experience_dir`로 경로 지정.
+**Bundled subagents** — seven specialists delegated via the `task` tool, with bounded recursion
+(depth/concurrency/total caps) so fan-out can't run away:
 
-### 플러그인 & MCP
-- **Lua 플러그인**: `~/Library/Application Support/magi/plugins/` (또는 `.magi/plugins/`, `--plugins`)에
-  `plugin.toml` + `init.lua`를 두면 자동 로드 + 핫리로드. 예제는 [plugins/examples/wordcount](plugins/examples/wordcount).
-- **MCP 서버**: 설정 파일 `<config>/config.toml`에 선언하면 기동 시 spawn되어 툴이 등록됨.
+`explore` · `locator` · `analyst` · `architect` · `coder` · `reviewer` · `tester`
+
+(plus `planner` — the pre-flight procedure planner above, run automatically each turn rather than
+delegated via `task`.)
+
+**Built-in tools:**
+
+`read` · `write` · `edit` · `multiedit` (atomic multi-hunk) · `grep` · `glob` · `list` ·
+`bash` (timeout · exit code) · `astgrep` · `findcontext` · `lsp_diagnostics` · `webfetch` ·
+`todowrite` · `remember` (shared memory) · `skill`
+
+After an edit, **diagnostic feedback** (gofmt / go vet / py_compile / LSP) flows back so the agent
+self-corrects. Read-only tools run in parallel within a turn.
+
+**Slash commands** — type `/` for an autocompleting palette (aliases search by prefix):
+
+`/help` `/route` (`/model`, `/agents`) `/tools` `/sessions` `/resume` `/rewind` `/image` `/diff`
+`/loop` `/context` `/fork` `/replay` `/loopdiff` `/init` `/ultra` `/permission` `/compact` `/clear`
+`/quit`
+
+---
+
+## Context, Memory & Extensions
+
+- **Project memory** — `AGENTS.md` (plus `.magi/AGENTS.md` and a global one) is injected into the
+  system prompt as durable context that *survives compaction* (the CLAUDE.md equivalent).
+- **Context-aware auto-compaction** — when real token usage passes ~80% of the model window, older
+  turns are summarized while recent ones are preserved. A `ctx 42%` meter sits in the header.
+- **Shared experience** — a git-backed memory/skill store (`<config>/experience`) the team can share;
+  the `remember` tool contributes to a review queue.
+- **Lua plugins** — drop a `plugin.toml` + `init.lua` into `.magi/plugins/`; auto-loaded, hot-reloaded,
+  sandboxed. See [plugins/examples/wordcount](plugins/examples/wordcount).
+- **MCP servers** — declare them in `config.toml` and their tools register at startup:
   ```toml
   [mcp.filesystem]
   command = "npx"
   args = ["-y", "@modelcontextprotocol/server-filesystem", "."]
-
-  [mcp.git]
-  command = "uvx"
-  args = ["mcp-server-git"]
   ```
-  (`<config>`: macOS `~/Library/Application Support/magi`, Linux `~/.config/magi`)
-- **모델/백엔드 라우팅**: 에이전트별로 **모델만**(같은 백엔드) 또는 **프로파일**(다른 엔드포인트/키)을 지정.
-  `[routing]` 값이 프로파일 이름이면 그 백엔드로, 모델명이면 기본 백엔드에서 모델만 바뀐다. (`/route` 에디터로도 편집)
-  ```toml
-  [routing]
-  explore = "fast"             # → [llm.profiles.fast] (다른 엔드포인트/키)
-  planner = "fast"
-  coder   = "qwen3-coder:30b"  # 기본 백엔드에서 모델만
 
-  # 이름붙인 백엔드 (엔드포인트/키/모델/헤더; ${ENV} 확장)
-  [llm.profiles.fast]
-  base_url = "https://fast.gateway/v1"
-  api_key  = "${FAST_KEY}"
-  model    = "gpt-oss:20b"
-  [llm.profiles.fast.headers]
-  X-CLIENT-API-KEY = "${FAST_CLIENT_KEY}"
-  ```
-- **LLM 커스텀 헤더**: 사내 게이트웨이(LiteLLM 등)용 — `[llm.headers]`(정적, `${ENV}`) 또는 플러그인
-  `magi.set_llm_headers`(요청마다 동적, SSO 토큰 등). [docs/EXTENDING.md](docs/EXTENDING.md) §3.3 참고.
-- **선제 플래너**(`[orchestration] planner`, 기본 on): 턴 시작 전 작업이 독립 영역으로 쪼개지는지 판정해,
-  그렇다면 읽기전용 explorer를 병렬로 띄워 조사 결과를 주입한 뒤 본 작업 진행 (`planner = false`로 끔).
-  판정은 화면에 보인다 — 헤더 칩 `◈ plan: solo|parallel` + 대화에 `◈ planner: <mode> — <이유>` 줄.
-  싼/좋은 모델로 태우려면 `[routing] planner = "fast"`.
+---
 
-### 테스트
-```sh
-go test ./...                                   # 단위 (모델 불필요)
-MAGI_E2E_OLLAMA_MODEL=qwen2.5-coder:32b \
-  go test -run E2E ./...                        # 실모델 E2E (Ollama)
-./test/e2e/up.sh                                # LiteLLM(podman) 띄우고 E2E
-```
+## Architecture
 
-## 핵심 설계 결정
+magi is **ports & adapters (hexagonal)**: the core domain knows nothing about the UI, the LLM, or
+plugins — adapters plug into it. Dependency direction is always inward.
 
-| 영역 | 선택 | 이유 |
-|---|---|---|
-| 코어 언어 | **Go** | 단일 바이너리 크로스컴파일, 자동 업데이트 용이, goroutine 동시성 |
-| TUI | **Bubble Tea (Charm)** | 미려한 TUI 표준, `glamour`로 마크다운/코드 렌더 턴키 |
-| 플러그인 런타임 | **Lua (gopher-lua)** | 순수 Go 임베드(CGo 없음 → 크로스컴파일 유지), 핫리로드·샌드박스 자연스러움 |
-| 아키텍처 | **포트 & 어댑터(헥사고날)** | 코어는 UI/LLM/플러그인을 모름 → UI 추가·교체가 쌈 |
-| LLM | **공급자 무관** | Claude/GPT/Gemini/로컬을 어댑터로 |
-| 확장 | 플러그인 = capability 번들 | `agent` / `context-provider` / `mcp-server` / `skill` / `ui-panel` |
-
-자세한 설계와 로드맵은 [docs/PLAN.md](docs/PLAN.md).
-
-## 디렉터리
+| Choice | Why |
+|---|---|
+| **Go** | one static binary, trivial cross-compile, easy self-update, goroutine concurrency |
+| **Bubble Tea (Charm)** | the standard for polished TUIs; markdown/code rendering turnkey |
+| **Lua (gopher-lua)** | pure-Go embed (keeps the CGo-free build), natural hot-reload + sandbox |
+| **Event-sourced JSONL** | an observable, replayable, fork-able loop |
+| **OpenAI-compatible LLM** | one protocol adapter → local (Ollama/vLLM) or any hosted endpoint, incl. Claude/Gemini compatibility APIs |
 
 ```
-cmd/magi            엔트리포인트(와이어링)
-internal/core         도메인 — 어댑터에 의존하지 않음
-  ├─ agent            에이전트 루프
-  ├─ session          세션/대화 상태
-  ├─ tool             툴 레지스트리
-  └─ plugin           capability 레지스트리 / 플러그인 모델
-internal/port         포트(인터페이스) — LLM, UI, PluginHost ...
-internal/adapter      어댑터(구현)
-  ├─ llm              anthropic / openai / gemini ...
-  ├─ tui              bubbletea
-  ├─ plugin/lua       gopher-lua 호스트
-  └─ mcp              MCP 클라이언트
-plugins/examples      예제 Lua 플러그인
+cmd/magi            entrypoint (wiring)
+internal/core       domain — depends on no adapter (incl. the pure council)
+internal/port       ports (interfaces) — LLM, Store, Council, PluginHost …
+internal/adapter    adapters — llm/openai · tui/bubbletea · plugin/lua · mcp · council/llm
+plugins/examples    example Lua plugins
+docs                ARCHITECTURE · DESIGN · SPEC · MANUAL · PLAN · FEATURES
 ```
 
-## 라이선스
+Deeper reading: [ARCHITECTURE](docs/ARCHITECTURE.md) · [DESIGN](docs/DESIGN.md) ·
+[SPEC](docs/SPEC.md) · [PLAN](docs/PLAN.md).
 
-**Apache-2.0** ([LICENSE](LICENSE)). 서드파티 코드 재사용 시 고지 의무 준수 — `NOTICE` / `THIRD_PARTY_LICENSES` 유지.
+---
 
-## 상태
+## License
 
-- ✅ **M1 — headless 코어**: 에이전트 루프, OpenAI 호환 LLM 어댑터(+프롬프트 폴백),
-  빌트인 툴(read/write/edit/grep/glob/list), 이벤트소싱 영속, 권한, `magi -p`. 실모델 E2E 통과.
-- ✅ **M2 — TUI**: Bubble Tea 대화 UI, 스트리밍, 권한 다이얼로그, 다크/라이트 대응.
-- ✅ **M3 — Lua 플러그인**: 샌드박스, 권한, 핫리로드, 자동 로드.
-- ✅ **M4 — MCP**: stdio JSON-RPC 클라이언트, config.toml로 서버 선언 → 툴 자동 등록.
-- ✅ **M5 — 멀티에이전트**: 서브에이전트(explore/reviewer/coder), task 툴로 위임·병렬,
-  bounded recursion(depth 3 / 동시 8 / 누적 50), artifact 보고.
-- ✅ **M6 — 모델 레지스트리 + 라우팅**: 모델 메타(컨텍스트/툴/비전/가격),
-  컨텍스트 인식 자동 압축, 비용 집계, 에이전트별 모델 라우팅.
-- ✅ **M7 — 배포/자동업데이트**: goreleaser 멀티OS(darwin/linux/windows × amd64/arm64,
-  CGO_ENABLED=0), `--version`, `--update`(체크섬 검증·크로스플랫폼 교체), install 스크립트, CI.
-
-자세한 진행은 [docs/PLAN.md](docs/PLAN.md) · 기능 명세는 [docs/SPEC.md](docs/SPEC.md).
+**Apache-2.0** — see [LICENSE](LICENSE). When reusing third-party code, keep the `NOTICE` and
+`THIRD_PARTY_LICENSES` files intact.
