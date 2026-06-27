@@ -560,7 +560,10 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	for i, m := range members {
 		labels[i] = m.Name
 	}
-	cd, _ := json.Marshal(event.CouncilConvenedData{Round: *rounds, Members: labels, Rule: string(rule), Signals: signalSummaries})
+	cd, _ := json.Marshal(event.CouncilConvenedData{
+		Round: *rounds, Members: labels, Rule: string(rule), Signals: signalSummaries,
+		Task: task, Plan: plan, Report: lastText, Diff: diff, NoChanges: noChanges,
+	})
 	a.appendFact(ctx, sid, event.TypeCouncilConvened, councilActor, cd)
 	// Live panel: announce which members are deliberating this round.
 	for _, m := range members {

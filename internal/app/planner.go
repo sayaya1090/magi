@@ -244,7 +244,10 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		if ctx.Err() != nil {
 			return steps
 		}
-		cd, _ := json.Marshal(event.CouncilConvenedData{Round: round, Phase: "plan", Members: labels, Rule: string(rule)})
+		cd, _ := json.Marshal(event.CouncilConvenedData{
+			Round: round, Phase: "plan", Members: labels, Rule: string(rule),
+			Task: prompt, Plan: renderSteps(steps),
+		})
 		a.appendFact(ctx, sid, event.TypeCouncilConvened, actor, cd)
 		for _, m := range members {
 			ld, _ := json.Marshal(event.CouncilDeliberatingData{Round: round, Member: m.Name, State: "asking"})

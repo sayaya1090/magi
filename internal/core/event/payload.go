@@ -72,7 +72,10 @@ type ErrorData struct {
 
 // --- Council termination gate (D14) ---
 
-// CouncilConvenedData — TypeCouncilConvened (the gate opens for a round).
+// CouncilConvenedData — TypeCouncilConvened (the gate opens for a round). It also
+// carries the EVIDENCE the members were given this round (task/plan/report/diff +
+// the no-change flag), so a UI can show what each member judged, not just how they
+// voted. Diff is capped to the same budget the council sees.
 type CouncilConvenedData struct {
 	Round int `json:"round"`
 	// Phase is "" (turn-termination gate) or "plan" (pre-flight plan audit).
@@ -80,6 +83,12 @@ type CouncilConvenedData struct {
 	Members []string `json:"members"` // member labels (e.g. Melchior/Balthasar/Casper)
 	Rule    string   `json:"rule"`
 	Signals []string `json:"signals,omitempty"` // human summaries of evidence fed in, e.g. "verify/test: fail"
+	// Evidence shown to the members this round (optional, for UI detail views).
+	Task      string `json:"task,omitempty"`
+	Plan      string `json:"plan,omitempty"`      // acceptance criteria / contract, or the proposed procedure (plan phase)
+	Report    string `json:"report,omitempty"`    // the agent's claim (termination phase)
+	Diff      string `json:"diff,omitempty"`      // working diff (capped)
+	NoChanges bool   `json:"noChanges,omitempty"` // pure read-only turn (no diff/signals)
 }
 
 // CouncilVerdictData — TypeCouncilVerdict (one member's vote).
