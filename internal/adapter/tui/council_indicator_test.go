@@ -103,3 +103,34 @@ func TestCouncilIndicator(t *testing.T) {
 		t.Fatalf("council indicator should clear on turn finish: round=%d member=%q", m.councilRound, m.councilMember)
 	}
 }
+
+// A plan audit forced to finish at the round cap (all-revise, no consensus) must
+// NOT read "approve" — it reads "proceed (no consensus)".
+func TestCouncilPlanForcedProceedLabel(t *testing.T) {
+	mm := newTestModel(t)
+	m := &mm
+	m.applyEvent(ev(t, event.TypeCouncilDecided, event.CouncilDecidedData{
+		Round: 2, Phase: "plan", Decision: "done",
+		Tally: council.Breakdown{Continue: 3},
+		Note:  "plan unresolved after 2 round(s) — proceeding",
+	}))
+	last := m.blocks[len(m.blocks)-1]
+	if !strings.Contains(last.text, "proceed (no consensus)") {
+		t.Fatalf("forced plan finish should read 'proceed (no consensus)', got %q", last.text)
+	}
+	if strings.Contains(last.text, ": approve ") {
+		t.Fatalf("forced finish must not read 'approve': %q", last.text)
+	}
+
+	// Termination no-progress forced finish (note ends in "finishing", 0 done) must
+	// read "finished (no consensus)", not "done".
+	m2 := newTestModel(t)
+	m2.applyEvent(ev(t, event.TypeCouncilDecided, event.CouncilDecidedData{
+		Round: 2, Decision: "done", Tally: council.Breakdown{Continue: 3},
+		Note: "members voted continue but gave no new feedback — finishing",
+	}))
+	l2 := m2.blocks[len(m2.blocks)-1]
+	if !strings.Contains(l2.text, "finished (no consensus)") || strings.Contains(l2.text, ": done ") {
+		t.Fatalf("no-progress forced finish should read 'finished (no consensus)', got %q", l2.text)
+	}
+}

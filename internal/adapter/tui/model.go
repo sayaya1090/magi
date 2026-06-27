@@ -1885,6 +1885,14 @@ func (m *Model) applyEvent(e event.Event) {
 				label = "plan audit"
 			}
 			_, verdict := councilVerdictLabel(d.Phase, d.Decision) // termination continue → reject; plan → approve/revise
+			if strings.Contains(d.Note, "finishing") || strings.Contains(d.Note, "proceeding") {
+				// Any forced finish (round cap OR no-progress) — not a real approval/done.
+				// Normal consensus decisions carry no note; error fallbacks read as-is.
+				verdict = "finished (no consensus)"
+				if d.Phase == "plan" {
+					verdict = "proceed (no consensus)"
+				}
+			}
 			line := fmt.Sprintf("⚖ %s round %d: %s — %d done / %d continue", label, d.Round, verdict, d.Tally.Done, d.Tally.Continue)
 			if d.Tally.Abstain > 0 {
 				line += fmt.Sprintf(" / %d abstain", d.Tally.Abstain)

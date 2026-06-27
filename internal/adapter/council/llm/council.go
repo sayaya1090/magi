@@ -174,8 +174,9 @@ func planMemberSystem(m council.Member, lens string) string {
 			"- \"abstain\": your lens cannot judge a plan from what is given (e.g. verification — there is nothing to "+
 			"verify until the work is done). Abstaining is excluded from the tally.\n\n"+
 			"Do NOT revise for vague preferences, out of mere uncertainty, or because you would plan it slightly "+
-			"differently — only a concrete flaw. Never invent one. A plan with no concrete flaw through your lens is "+
-			"approve (done) or abstain.\n\n"+
+			"differently — only a concrete flaw. Never invent one. A SIMPLE task needs only a SIMPLE plan: do not "+
+			"demand extra steps or more detail when the plan would already accomplish it. A plan with no concrete flaw "+
+			"through your lens is approve (done) or abstain.\n\n"+
 			"ALSO, through your lens, propose this task's COMPLETION CRITERIA in `criteria`: a short list (1-3) of "+
 			"concrete done-conditions — expected deliverables and how to verify them (e.g. a file/output that must "+
 			"exist, a test or check that must pass). These become the contract the finished work is judged against. "+
