@@ -75,8 +75,9 @@ type ErrorData struct {
 // CouncilConvenedData — TypeCouncilConvened (the gate opens for a round).
 type CouncilConvenedData struct {
 	Round   int      `json:"round"`
-	Members []string `json:"members"` // member labels (e.g. Melchior/Balthasar/Casper)
+	Members []string `json:"members"`           // member labels (e.g. Melchior/Balthasar/Casper)
 	Rule    string   `json:"rule"`
+	Signals []string `json:"signals,omitempty"` // human summaries of evidence fed in, e.g. "verify/test: fail"
 }
 
 // CouncilVerdictData — TypeCouncilVerdict (one member's vote).

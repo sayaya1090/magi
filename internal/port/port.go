@@ -79,10 +79,21 @@ type DeliberationRequest struct {
 	Task    string           // the user's original goal/request
 	Plan    string           // acceptance criteria / contract (optional)
 	Report  string           // the agent's self-reported result / claim (optional)
-	Signals []string         // deterministic evidence lines (build/test/lint), optional
+	Signals []Signal         // deterministic evidence (build/test/lint outcomes), optional
 	Diff    string           // working diff (optional)
 	Members []council.Member // who votes (defaults to the MAGI when empty)
 	Rule    council.Rule     // how votes are tallied (defaults to majority)
+}
+
+// Signal is a piece of deterministic evidence the council weighs (D16): the
+// outcome of a verifiable check, so a member doesn't take the agent's claim on
+// faith. The verification lens in particular treats a failing signal as strong
+// grounds to continue.
+type Signal struct {
+	Source string // who produced it, e.g. "verify"
+	Kind   string // "test" | "build" | "lint" | ...
+	Status string // "pass" | "fail"
+	Detail string // short output excerpt (tail)
 }
 
 // ---- Store (D6: event-sourced persistence; jsonl is the first impl) ----
