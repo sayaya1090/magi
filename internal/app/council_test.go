@@ -287,6 +287,63 @@ func TestCouncilMultipleSignals(t *testing.T) {
 	}
 }
 
+// countLLM replies "- done" to everything and counts acceptance-criteria calls.
+type countLLM struct {
+	mu            sync.Mutex
+	criteriaCalls int
+}
+
+func (c *countLLM) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan port.ProviderEvent, error) {
+	if strings.Contains(r.System, "acceptance criteria") {
+		c.mu.Lock()
+		c.criteriaCalls++
+		c.mu.Unlock()
+	}
+	ch := make(chan port.ProviderEvent, 2)
+	ch <- port.ProviderEvent{Type: port.ProviderText, Text: "- done"}
+	ch <- port.ProviderEvent{Type: port.ProviderFinish}
+	close(ch)
+	return ch, nil
+}
+
+// With criteria on, the council's contract includes elicited acceptance criteria,
+// elicited once per turn (cached across rounds).
+func TestCouncilCriteriaElicitedOncePerTurn(t *testing.T) {
+	fc := &fakeCouncil{delibs: []council.Deliberation{
+		{Round: 1, Decision: council.Continue, Feedback: "do more"},
+		{Round: 2, Decision: council.Done},
+	}}
+	llm := &countLLM{}
+	a, wd := newApp(t, llm, Config{Council: fc, CouncilCriteria: true})
+	submitAndDrain(t, a, wd)
+
+	llm.mu.Lock()
+	n := llm.criteriaCalls
+	llm.mu.Unlock()
+	if n != 1 {
+		t.Fatalf("acceptance criteria should be elicited once per turn, got %d calls", n)
+	}
+	fc.mu.Lock()
+	plan := fc.lastReq.Plan
+	fc.mu.Unlock()
+	if !strings.Contains(plan, "Acceptance criteria:") {
+		t.Fatalf("council contract should include acceptance criteria, got %q", plan)
+	}
+}
+
+// Criteria is off by default — no extra elicitation, no criteria in the contract.
+func TestCouncilNoCriteriaWhenOff(t *testing.T) {
+	fc := &fakeCouncil{delibs: []council.Deliberation{{Round: 1, Decision: council.Done}}}
+	a, wd := newApp(t, &fakeLLM{}, Config{Council: fc})
+	submitAndDrain(t, a, wd)
+	fc.mu.Lock()
+	plan := fc.lastReq.Plan
+	fc.mu.Unlock()
+	if strings.Contains(plan, "Acceptance criteria:") {
+		t.Fatalf("criteria should be off by default, got %q", plan)
+	}
+}
+
 func hasDecidedNote(evs []event.Event, sub string) bool {
 	for _, e := range evs {
 		if e.Type == event.TypeCouncilDecided {

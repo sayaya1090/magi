@@ -183,6 +183,10 @@ type Config struct {
 	// to the members as evidence (D16) — so the council judges on proof (tests,
 	// lint, typecheck) rather than the agent's claim. Opt-in (empty = no signals).
 	CouncilSignals []CouncilSignalSpec
+	// CouncilCriteria, when true, elicits explicit acceptance criteria once per
+	// turn (one extra LLM call) and gives them to the council as its contract
+	// (D15). Opt-in.
+	CouncilCriteria bool
 }
 
 // CouncilSignalSpec is a named deterministic check the council runs for evidence
@@ -315,6 +319,7 @@ type App struct {
 	lastPromptTokens      map[session.SessionID]int            // real prompt_tokens from last turn (guarded by mu)
 	todos                 map[session.SessionID][]session.Todo // per-session plan (guarded by mu)
 	stage                 map[session.SessionID]string         // current loop stage for event tagging (guarded by mu)
+	criteria              map[session.SessionID]string         // elicited acceptance criteria per turn (guarded by mu)
 	autoOrchestrateActive map[session.SessionID]bool           // whether auto-orchestration has been triggered for this session (guarded by mu)
 }
 
@@ -342,6 +347,7 @@ func New(store port.Store, llm port.LLMProvider, tools port.ToolRegistry, b *bus
 		lastPromptTokens:      map[session.SessionID]int{},
 		todos:                 map[session.SessionID][]session.Todo{},
 		stage:                 map[session.SessionID]string{},
+		criteria:              map[session.SessionID]string{},
 		bg:                    map[session.SessionID]*bgGroup{},
 		pendingAsks:           map[session.SessionID]chan string{},
 		reports:               map[session.SessionID]*subReport{},
@@ -422,6 +428,7 @@ func (a *App) Rewind(ctx context.Context, sid session.SessionID, n int) (int64, 
 	delete(a.lastPromptTokens, sid)
 	delete(a.todos, sid)
 	delete(a.stage, sid)
+	delete(a.criteria, sid)
 	a.mu.Unlock()
 	return boundary, nil
 }
@@ -719,6 +726,9 @@ func (a *App) Submit(ctx context.Context, c command.SubmitPrompt) error {
 	// turn's todos so a stale (completed) plan doesn't linger in the UI; the
 	// agent repopulates it via todowrite if the new task warrants one.
 	a.SetTodos(c.SessionID, nil)
+	a.mu.Lock()
+	delete(a.criteria, c.SessionID) // new top-level prompt → drop cached criteria; re-elicited at the next gate (D15)
+	a.mu.Unlock()
 	if err := a.appendPrompt(ctx, c); err != nil {
 		return err
 	}

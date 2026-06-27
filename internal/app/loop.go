@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/sayaya1090/magi/internal/core/artifact"
@@ -326,7 +327,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			// When the model would finish, the council votes; a "continue" injects
 			// feedback and the loop keeps going instead of finishing here.
 			if depth == 0 && a.cfg.Council != nil && !a.cfg.Workflow {
-				if a.runCouncilGate(ctx, s, lastText, &councilRounds, &lastCouncilFeedback) {
+				if a.runCouncilGate(ctx, s, agent, lastText, &councilRounds, &lastCouncilFeedback) {
 					continue
 				}
 			}
@@ -447,7 +448,7 @@ func tailForCouncil(s string, n int) string {
 //
 // Safety (so the council can never trap the loop): rounds are capped, repeated or
 // empty feedback stops the gate, and any deliberation error finishes the turn.
-func (a *App) runCouncilGate(ctx context.Context, s session.Session, lastText string, rounds *int, lastFeedback *string) bool {
+func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent AgentSpec, lastText string, rounds *int, lastFeedback *string) bool {
 	// An interrupt mid-finish must not trigger a deliberation or inject a spurious
 	// feedback prompt — let the loop unwind the cancellation.
 	if ctx.Err() != nil {
@@ -494,6 +495,17 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, lastText st
 	plan := ""
 	if td := a.Todos(sid); len(td) > 0 {
 		plan = formatTodos(td)
+	}
+	// Explicit acceptance criteria (D15, opt-in): a stronger contract elicited from
+	// the task once per turn. Prepended so the council judges "done" against it.
+	if a.cfg.CouncilCriteria {
+		if crit := a.acceptanceCriteria(ctx, agent, s, task); crit != "" {
+			if plan != "" {
+				plan = "Acceptance criteria:\n" + crit + "\n\nPlan (todos):\n" + plan
+			} else {
+				plan = "Acceptance criteria:\n" + crit
+			}
+		}
 	}
 
 	// Opt-in deterministic evidence (D16): run each configured signal command and
@@ -599,6 +611,69 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, lastText st
 	})
 	a.appendFact(ctx, sid, event.TypePromptSubmitted, councilActor, pd)
 	return true
+}
+
+// noCriteria is the cached sentinel meaning "elicitation ran this turn and
+// produced nothing" — distinct from "" (not yet elicited).
+const noCriteria = "\x00"
+
+// acceptanceCriteria returns the turn's acceptance criteria (D15), eliciting them
+// once (cached per session, cleared on a new turn) and emitting them as a
+// reviewable artifact so the contract the council judges against is observable.
+func (a *App) acceptanceCriteria(ctx context.Context, agent AgentSpec, s session.Session, task string) string {
+	a.mu.Lock()
+	c := a.criteria[s.ID]
+	a.mu.Unlock()
+	if c == noCriteria { // elicitation already ran this turn and produced nothing
+		return ""
+	}
+	if c != "" {
+		return c
+	}
+	if strings.TrimSpace(task) == "" {
+		return ""
+	}
+	c = a.elicitCriteria(ctx, agent, s, task)
+	if c == "" {
+		// Cache the miss so a persistently failing elicitation isn't retried every
+		// round (strictly once per turn).
+		a.mu.Lock()
+		a.criteria[s.ID] = noCriteria
+		a.mu.Unlock()
+		return ""
+	}
+	a.mu.Lock()
+	a.criteria[s.ID] = c
+	a.mu.Unlock()
+	content, _ := json.Marshal(c)
+	a.emitArtifact(ctx, s.ID, event.Actor{Kind: event.ActorSystem, ID: "council"}, artifact.Artifact{
+		ID: "art_" + newID(), Kind: "acceptance-criteria", Title: "Acceptance criteria",
+		Content: content, SourceAgent: "council", Status: "proposed", Created: time.Now(),
+	})
+	return c
+}
+
+// elicitCriteria asks the model (tool-free) for the concrete done-conditions of a
+// task. Uses the agent's provider so it follows per-agent backend routing.
+func (a *App) elicitCriteria(ctx context.Context, agent AgentSpec, s session.Session, task string) string {
+	req := port.ChatRequest{
+		Model: s.Model.Model,
+		System: "You define acceptance criteria for a coding task. List the concrete, checkable conditions that must ALL " +
+			"hold for it to be DONE — correctness, tests/build passing, edge cases, and staying in scope. Output a short " +
+			"bullet checklist only, no preamble.",
+		Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: task}}}},
+	}
+	stream, err := a.providerFor(agent).StreamChat(ctx, req)
+	if err != nil {
+		return ""
+	}
+	var b strings.Builder
+	for ev := range stream {
+		if ev.Type == port.ProviderText {
+			b.WriteString(ev.Text)
+		}
+	}
+	return strings.TrimSpace(b.String())
 }
 
 // executeTool runs one tool call (with permission gating) and persists the result.
