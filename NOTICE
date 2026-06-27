@@ -8,4 +8,4 @@ Licensed under the Apache License, Version 2.0. See the LICENSE file.
 ---
 
 Third-party components and their licenses are listed in THIRD_PARTY_LICENSES
-(added as dependencies are introduced).
+(regenerate with `make licenses`).

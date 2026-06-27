@@ -4,7 +4,7 @@ DATE    := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 PKG     := github.com/sayaya1090/magi/internal/version
 LDFLAGS := -s -w -X $(PKG).Version=$(VERSION) -X $(PKG).Commit=$(COMMIT) -X $(PKG).Date=$(DATE)
 
-.PHONY: build test test-race vet fmt e2e snapshot clean
+.PHONY: build test test-race vet fmt e2e snapshot licenses clean
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o magi ./cmd/magi
@@ -24,6 +24,10 @@ fmt:
 # Real-model E2E against local Ollama (set MAGI_E2E_OLLAMA_MODEL to override).
 e2e:
 	go test -run E2E ./... -v
+
+# Regenerate THIRD_PARTY_LICENSES from the modules in the binary.
+licenses:
+	./scripts/gen_licenses.sh
 
 # Local multi-platform build via goreleaser (requires goreleaser installed).
 snapshot:

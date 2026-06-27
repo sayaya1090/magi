@@ -26,6 +26,13 @@ archives:
   - id: default
     # Asset base name must match update.AssetName(): magi_<OS>_<arch>
     name_template: "magi_{{ .Os }}_{{ .Arch }}"
+    # Bundle attribution with the binary (LICENSE/README are default-included;
+    # NOTICE and THIRD_PARTY_LICENSES are not, but the embedded deps require them).
+    files:
+      - LICENSE
+      - NOTICE
+      - THIRD_PARTY_LICENSES
+      - README.md
     format_overrides:
       - goos: windows
         format: zip
