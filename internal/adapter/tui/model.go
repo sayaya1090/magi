@@ -120,6 +120,8 @@ type Model struct {
 	perm            *permReq
 	ctxPct          float64 // context window usage %
 	plannerMode     string  // last planner decision (solo | parallel N) shown in the header
+	councilRound    int     // current council round (0 = no council active); header chip
+	councilMember   string  // member currently being polled (live); cleared when the turn ends
 
 	cache  []string // rendered finalized blocks (keyed by cacheW)
 	cacheW int      // width the cache was rendered at
@@ -1714,11 +1716,52 @@ func (m *Model) applyEvent(e event.Event) {
 			m.blocks = append(m.blocks, block{kind: blockInfo, text: info})
 		}
 
+	case event.TypeCouncilConvened:
+		// A council round opened: record it as a transcript milestone and arm the
+		// header chip. (D14 — the consensus termination gate.)
+		var d event.CouncilConvenedData
+		if json.Unmarshal(e.Data, &d) == nil {
+			m.councilRound = d.Round
+			m.blocks = append(m.blocks, block{kind: blockInfo,
+				text: fmt.Sprintf("⚖ council round %d — %s deliberate (%s)", d.Round, strings.Join(d.Members, ", "), d.Rule)})
+		}
+
+	case event.TypeCouncilDeliberating:
+		// Live: which member is being polled right now (header chip).
+		var d event.CouncilDeliberatingData
+		if json.Unmarshal(e.Data, &d) == nil {
+			m.councilRound = d.Round
+			m.councilMember = d.Member
+		}
+
+	case event.TypeCouncilDecided:
+		// The round's outcome + tally. A "continue" injects feedback and the loop
+		// runs again; "done" (or a noted forced finish) lets the turn end. Clear the
+		// chip: between rounds the agent is working, not deliberating, so the council
+		// indicator should show only during an open round (convened→decided).
+		m.councilRound = 0
+		m.councilMember = ""
+		var d event.CouncilDecidedData
+		if json.Unmarshal(e.Data, &d) == nil {
+			line := fmt.Sprintf("⚖ council round %d: %s — %d done / %d continue", d.Round, d.Decision, d.Tally.Done, d.Tally.Continue)
+			if d.Tally.Abstain > 0 {
+				line += fmt.Sprintf(" / %d abstain", d.Tally.Abstain)
+			}
+			if d.Note != "" {
+				line += " (" + d.Note + ")"
+			} else if d.Feedback != "" {
+				line += " → feedback injected"
+			}
+			m.blocks = append(m.blocks, block{kind: blockInfo, text: line})
+		}
+
 	case event.TypeTurnFinished:
 		m.running = false
 		m.liveText = ""
 		m.liveThink = ""
 		m.activeAgents = nil
+		m.councilRound = 0
+		m.councilMember = ""
 
 	case event.TypeError:
 		var d event.ErrorData
@@ -1727,6 +1770,8 @@ func (m *Model) applyEvent(e event.Event) {
 		m.liveText = ""
 		m.liveThink = ""
 		m.activeAgents = nil
+		m.councilRound = 0
+		m.councilMember = ""
 		m.blocks = append(m.blocks, block{kind: blockError, text: d.Message})
 	}
 }
@@ -2017,6 +2062,13 @@ func (m Model) View() tea.View {
 			permChip(m.app.Permission())
 		if m.plannerMode != "" {
 			headLine += "  " + styleKeyLabel.Render("◈ plan: "+m.plannerMode)
+		}
+		if m.councilRound > 0 {
+			chip := fmt.Sprintf("⚖ council r%d", m.councilRound)
+			if m.councilMember != "" {
+				chip += ": " + m.councilMember
+			}
+			headLine += "  " + styleKeyLabel.Render(chip)
 		}
 		if len(m.activeAgents) > 0 {
 			headLine += "  " + styleBadge.Render(fmt.Sprintf("⛐ %d: %s", len(m.activeAgents), agentSummary(m.activeAgents)))
