@@ -240,7 +240,7 @@ llm-err-3: invalid base URL            ⇒ StreamChat returns error immediately
 - R1 tool-call 없으면 종료 + `turn.finished`.
 - R2 tool-call 있으면 실행 후 다음 스텝.
 - R3 `maxSteps` 도달 시 graceful 종료.
-- R4 🚧 (D14, 계획) 카운슬 활성 + depth==0이면 R1의 종료 *직전*에 **council 게이트**가 가로채 done/continue 판정 → continue면 피드백 주입 후 속행. 상세 Part B의 F-COUNCIL.
+- R4 (D14, 출하 M9) 카운슬 활성(`[council] enabled`) + depth==0 + 비워크플로면 R1의 종료 *직전*에 **council 게이트**가 가로채 done/continue 판정 → continue면 피드백 주입 후 속행. 상세 Part B의 F-COUNCIL.
 
 ```
 loop-stop-1: fake replies ["안녕"]                       ⇒ 1 step, turn.finished, 1 text part
@@ -316,8 +316,8 @@ headless-4: LLM error                      ⇒ message to stderr, exit != 0
 
 > 지금 과도 명세 금지(설계 변동 위험). 진입 시 규칙+예시 추가.
 
-## F-COUNCIL (루프 트랙) — 합의 종료 게이트(D14)
-시그니처 기능. 루프 종료 판정을 단일 모델에서 **3인 council**로 옮긴다(상세 PLAN §4.2).
+## F-COUNCIL (루프 트랙) — 합의 종료 게이트(D14, 출하 M9)
+시그니처 기능. 루프 종료 판정을 단일 모델에서 **3인 council**로 옮긴다(상세 PLAN §4.2). 기본 off — `[council] enabled=true`로 켠다.
 
 규칙:
 - R1 `core/council.Tally(verdicts, rule)`는 **순수 함수** — 동일 입력 동일 출력, I/O 없음.

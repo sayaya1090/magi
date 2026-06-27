@@ -132,16 +132,25 @@ Guards that make weak models safe (all in `loop.go`/`orchestrate.go`):
 - **language lock** (`langDirective`): the user's script (Hangul/Kana/…) is detected
   and a "reply in X" directive is prepended to the system prompt (top-level only).
 
-> **Planned (not yet built) — consensus council (D14, the signature track).** The
-> finish branch (no tool calls, `depth==0`) is the intended interception point for a
-> **council gate**: 3 members (Melchior/correctness, Balthasar/verification,
-> Casper/completeness) deliberate done-vs-continue; on continue, aggregated feedback
-> is injected as a `prompt.submitted` (reusing the Stop-hook injection path) and the
-> loop continues. Consensus rules live in a pure `core/council`; member fan-out is an
-> adapter over `providerFor`. See PLAN §4.2 and DESIGN §5/§6. The macro stages
-> (Plan→Execute→Verify→Report→Council→Finalize) and an event `stage` tag (D15) layer
-> on top for loop observability, rewind/fork, and session diff. None of this is in the
-> current tree yet — this section will move from *planned* to *as-built* when M9 lands.
+**Consensus council gate (D14, the signature — `runCouncilGate`).** When `Config.Council`
+is set (off by default), the finish branch (no tool calls, `depth==0`, not workflow
+mode) does NOT finish immediately: it convenes a **council** that votes done-vs-continue.
+- 3 default members (the MAGI): Melchior/correctness, Balthasar/verification,
+  Casper/completeness — theme-name labels, lens attributes, configurable via `[council]`.
+- Consensus is pure `core/council.Tally` (unanimous|majority|quorum:k|weighted:θ|veto);
+  a tie/unmet-quorum/abstain-all/degenerate-param all resolve to **continue** (never
+  finish unless affirmatively satisfied). Member fan-out is `adapter/council/llm` over an
+  `LLMProvider`; a member that errors or returns unparseable output abstains.
+- On **continue**, the aggregated feedback is injected as a `prompt.submitted`
+  (reusing the Stop-hook injection path) and the loop runs again. On **done** (or the
+  safety stops below) the turn finishes.
+- Safety so the gate can't trap the loop: `CouncilMaxRounds` cap (default 3), a
+  no-progress guard (empty/repeated feedback finishes), and a ctx-cancel early-out.
+  Forced finishes are recorded as a `council.decided` with a `note` (not an error).
+- Evidence judged = Task (the original goal, `firstUserText`) + Report (the agent's
+  final message) + working diff (size-capped). Plan/Signals (D15/D16) are not yet wired.
+- Events: `council.convened`/`council.verdict`/`council.decided` (fact) +
+  `council.deliberating` (transient). See PLAN §4.2, DESIGN §5/§6, SPEC F-COUNCIL.
 
 ---
 
