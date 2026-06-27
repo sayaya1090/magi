@@ -179,6 +179,9 @@ type Config struct {
 	CouncilRule      council.Rule
 	CouncilMaxRounds int
 	CouncilMembers   []council.Member
+	// CouncilVerifyCmd, when non-empty, is run each council round and fed to the
+	// members as a deterministic signal (D16). Opt-in (empty = no signal).
+	CouncilVerifyCmd string
 }
 
 // withDefaults fills unset fields with sensible values.

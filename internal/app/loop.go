@@ -404,9 +404,12 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	return lastText, nil
 }
 
-// councilDiffCap bounds the diff embedded in each member's prompt so a large
-// working diff doesn't multiply token cost by the member count each round.
-const councilDiffCap = 6000
+// councilDiffCap / councilSignalCap bound the diff and verify output embedded in
+// each member's prompt so they don't multiply token cost by the member count.
+const (
+	councilDiffCap   = 6000
+	councilSignalCap = 2000
+)
 
 // truncateForCouncil clips s to at most n bytes (on a rune boundary), appending a
 // marker when truncated.
@@ -419,6 +422,19 @@ func truncateForCouncil(s string, n int) string {
 		cut--
 	}
 	return s[:cut] + "\n…[diff truncated]"
+}
+
+// tailForCouncil keeps at most the last n bytes of s (on a rune boundary), since a
+// failing build/test puts the useful output last.
+func tailForCouncil(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	cut := len(s) - n
+	for cut < len(s) && !utf8.RuneStart(s[cut]) {
+		cut++
+	}
+	return "…[earlier output truncated]\n" + s[cut:]
 }
 
 // runCouncilGate runs the consensus termination gate (D14) at top level. It
@@ -470,11 +486,30 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, lastText st
 	diff, _ := a.GitDiff(ctx, s.Workdir)
 	diff = truncateForCouncil(diff, councilDiffCap) // bound per-member token cost
 
+	// Opt-in deterministic evidence (D16): run the configured verify command and
+	// feed its outcome to the council, so members judge on proof, not just claims.
+	var signals []port.Signal
+	var signalSummaries []string
+	if cmd := a.cfg.CouncilVerifyCmd; cmd != "" && a.plat != nil {
+		out, code := a.runVerifyCmd(ctx, s.Workdir, cmd)
+		status := "pass"
+		if code != 0 {
+			status = "fail"
+		}
+		signals = append(signals, port.Signal{Source: "verify", Kind: "check", Status: status, Detail: tailForCouncil(out, councilSignalCap)})
+		signalSummaries = append(signalSummaries, "verify: "+status)
+	}
+	// Cancellation during GitDiff/verify: unwind rather than persist a misleading
+	// convened fact or deliberate on partial evidence.
+	if ctx.Err() != nil {
+		return false
+	}
+
 	labels := make([]string, len(members))
 	for i, m := range members {
 		labels[i] = m.Name
 	}
-	cd, _ := json.Marshal(event.CouncilConvenedData{Round: *rounds, Members: labels, Rule: string(rule)})
+	cd, _ := json.Marshal(event.CouncilConvenedData{Round: *rounds, Members: labels, Rule: string(rule), Signals: signalSummaries})
 	a.appendFact(ctx, sid, event.TypeCouncilConvened, councilActor, cd)
 	// Live panel: announce which members are deliberating this round.
 	for _, m := range members {
@@ -486,6 +521,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, lastText st
 		Round:   *rounds,
 		Task:    task,
 		Report:  lastText,
+		Signals: signals,
 		Diff:    diff,
 		Members: members,
 		Rule:    rule,

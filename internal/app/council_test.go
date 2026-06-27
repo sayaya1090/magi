@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/core/command"
@@ -13,13 +14,19 @@ import (
 	"github.com/sayaya1090/magi/internal/port"
 )
 
-// fakeCouncil returns a scripted deliberation per round (the last repeats).
+// fakeCouncil returns a scripted deliberation per round (the last repeats) and
+// records the last request it received.
 type fakeCouncil struct {
-	delibs []council.Deliberation
-	calls  int
+	mu      sync.Mutex
+	delibs  []council.Deliberation
+	calls   int
+	lastReq port.DeliberationRequest
 }
 
 func (f *fakeCouncil) Deliberate(ctx context.Context, req port.DeliberationRequest) (council.Deliberation, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lastReq = req
 	i := f.calls
 	f.calls++
 	if i < len(f.delibs) {
@@ -134,6 +141,54 @@ func TestCouncilNoProgressStops(t *testing.T) {
 	}
 	if countType(evs, event.TypeTurnFinished) != 1 {
 		t.Fatal("turn should finish after no-progress is detected")
+	}
+}
+
+// verifyFailPlatform fails the verify command (non-git Exec) and reports a clean
+// git tree, so the test is robust to however many Exec calls GitDiff makes.
+type verifyFailPlatform struct{}
+
+func (verifyFailPlatform) Exec(ctx context.Context, c port.Cmd) (port.ExecResult, error) {
+	if c.Path == "git" {
+		return port.ExecResult{ExitCode: 0}, nil
+	}
+	return port.ExecResult{Stdout: []byte("--- FAIL: TestX"), ExitCode: 1}, nil
+}
+func (verifyFailPlatform) ConfigDir() string           { return "" }
+func (verifyFailPlatform) DataDir() string             { return "" }
+func (verifyFailPlatform) TerminalCaps() port.TermCaps { return port.TermCaps{} }
+
+// With CouncilVerifyCmd set, the gate runs verify and feeds the outcome to the
+// council as a signal; the convened event surfaces a summary (D16, opt-in).
+func TestCouncilVerifySignal(t *testing.T) {
+	fc := &fakeCouncil{delibs: []council.Deliberation{{Round: 1, Decision: council.Done}}}
+	a, _, wd := newWorkflowApp(t, &fakeLLM{}, verifyFailPlatform{}, Config{
+		Council: fc, CouncilVerifyCmd: "go test ./...",
+	})
+	evs := submitAndDrain(t, a, wd)
+
+	fc.mu.Lock()
+	sigs := fc.lastReq.Signals
+	fc.mu.Unlock()
+	if len(sigs) != 1 || sigs[0].Source != "verify" || sigs[0].Status != "fail" {
+		t.Fatalf("council should receive a failing verify signal, got %+v", sigs)
+	}
+	// The convened event surfaces the signal summary for observability.
+	found := false
+	for _, e := range evs {
+		if e.Type == event.TypeCouncilConvened {
+			var d event.CouncilConvenedData
+			if json.Unmarshal(e.Data, &d) == nil {
+				for _, s := range d.Signals {
+					if strings.Contains(s, "verify: fail") {
+						found = true
+					}
+				}
+			}
+		}
+	}
+	if !found {
+		t.Fatal("convened event should carry the verify signal summary")
 	}
 }
 
