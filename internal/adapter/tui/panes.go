@@ -547,9 +547,11 @@ func (m *Model) renderPanes(width, originY int) string {
 			Width(max(8, width-2)).
 			MaxHeight(perPane) // hard cap: a wrapping title can't push the box past its reserve
 		inner := max(4, width-4)
-		contentRows := max(1, perPane-3) // minus border(2) + title(1)
+		contentRows := max(1, perPane-3) // body lines: total perPane minus border(2) minus title(1)
 		body := m.paneTitle(p, inner, focused) + "\n" + m.paneTail(p, inner, contentRows)
-		r := box.Height(max(1, perPane-2)).Render(body)
+		// lipgloss Height/MaxHeight are TOTAL height (border included), so set perPane
+		// directly to match paneLayout's reserve (avoids a render-vs-reserve drift).
+		r := box.Height(perPane).Render(body)
 		// Record screen rect for click hit-testing.
 		p.x, p.y, p.w, p.h = 0, y, width, lipgloss.Height(r)
 		y += p.h

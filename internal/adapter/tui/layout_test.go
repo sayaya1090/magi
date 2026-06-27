@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
 
@@ -64,5 +65,20 @@ func TestPaneLayoutShowsAllWhenRoomy(t *testing.T) {
 	}
 	if m.chromeHeight()+minViewport > m.height {
 		t.Fatalf("invariant broken even when roomy")
+	}
+}
+
+// The input box must sit at the bottom: the rendered view fills the screen height
+// even with a short transcript and several running panes (no floating gap).
+func TestViewFillsHeightWithPanes(t *testing.T) {
+	m := newTestModel(t)
+	mm, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
+	m = mm.(Model)
+	m.running = true
+	m.panes = []*agentPane{{role: "a"}, {role: "b"}, {role: "c"}}
+	m.refresh()
+	v := m.View()
+	if h := lipgloss.Height(v.Content); h != 30 {
+		t.Fatalf("view content height %d, want 30 — input box floats with empty space below when shorter", h)
 	}
 }

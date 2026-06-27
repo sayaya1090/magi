@@ -2335,7 +2335,18 @@ func (m Model) View() tea.View {
 	// Transcript area (viewport + tiled subagent panes) = left column; the status
 	// panel, if any, sits to its right at a fixed width.
 	tw := m.width - m.panelCols()
-	leftRows := []string{m.vp.View()}
+	// The viewport may render fewer rows than its height when the transcript is
+	// short; place it in a full-height box (blank rows become spaces, which
+	// JoinVertical keeps) so the panes/input below sit at the bottom of the screen
+	// instead of floating with empty space beneath the input.
+	vpContent := m.vp.View()
+	if strings.TrimSpace(vpContent) == "" {
+		vpContent = " " // empty/blank content isn't padded by lipgloss; give it a space
+	}
+	// Width+Height fills every row to tw columns (blank rows become spaces), so
+	// JoinVertical keeps them and the panes/input below sit at the screen bottom.
+	vpv := lipgloss.NewStyle().Width(tw).Height(m.vp.Height()).Render(vpContent)
+	leftRows := []string{vpv}
 	aboveInput := 2 + m.vp.Height() // header(2: title+divider) + viewport rows above input
 	if pv := m.renderPanes(tw, aboveInput); pv != "" {
 		leftRows = append(leftRows, pv)
@@ -2437,14 +2448,15 @@ func (m *Model) renderCouncilDetail(width int) string {
 		b.WriteString(styleFooter.Render(fmt.Sprintf("  · confidence %.0f%%", v.Confidence*100)))
 	}
 	b.WriteString("\n")
+	// 기승전결: what the member SAW (evidence) first, then the verdict's reasoning.
+	if ev := strings.TrimSpace(m.councilDetailEvidence); ev != "" {
+		b.WriteString("\n" + styleFooter.Render("— evidence the council saw —") + "\n\n" + wrap.Render(ev) + "\n")
+	}
 	if v.Rationale != "" {
 		b.WriteString("\n" + styleFooter.Render("rationale") + "\n" + wrap.Render(v.Rationale) + "\n")
 	}
 	if v.Feedback != "" {
 		b.WriteString("\n" + styleFooter.Render("next step") + "\n" + wrap.Render(v.Feedback) + "\n")
-	}
-	if ev := strings.TrimSpace(m.councilDetailEvidence); ev != "" {
-		b.WriteString("\n" + styleFooter.Render("— evidence the council saw —") + "\n\n" + wrap.Render(ev) + "\n")
 	}
 	return b.String()
 }
