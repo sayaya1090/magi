@@ -496,7 +496,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	// and the working diff. Plan (acceptance criteria) and Signals are D15/D16.
 	evs, _ := a.store.Read(ctx, sid, 0)
 	task := firstUserText(reconstruct(evs))
-	diff, _ := a.GitDiff(ctx, s.Workdir)
+	diff, diffErr := a.GitDiff(ctx, s.Workdir)
 	diff = truncateForCouncil(diff, councilDiffCap) // bound per-member token cost
 	// The agent's plan (todos, with status) is the council's CONTRACT (D15): the
 	// completeness lens judges the report/diff against it, and any still-pending
@@ -548,6 +548,14 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		return false
 	}
 
+	// Tell the council when the turn changed nothing (a successful empty diff, no
+	// signals): a pure read-only / investigation / answer turn has no artifact to
+	// verify, so members judge the report on its merits instead of demanding a diff
+	// that was never going to exist — the consensus rule is unchanged. A GitDiff
+	// error (e.g. a non-git workdir) is NOT "no changes": a turn that actually wrote
+	// files there must not be misjudged as read-only.
+	noChanges := diffErr == nil && strings.TrimSpace(diff) == "" && len(signals) == 0
+
 	labels := make([]string, len(members))
 	for i, m := range members {
 		labels[i] = m.Name
@@ -567,6 +575,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		Report:       lastText,
 		Signals:      signals,
 		Diff:         diff,
+		NoChanges:    noChanges,
 		Members:      members,
 		Rule:         rule,
 		DefaultModel: s.Model.Model,

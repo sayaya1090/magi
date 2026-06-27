@@ -133,17 +133,19 @@ func memberSystem(m council.Member, phase string) string {
 	return fmt.Sprintf(
 		"You are %s, a member of the council that decides whether an AI coding agent's turn is truly finished. "+
 			"Your lens is %q: %s\n\n"+
-			"Judge the agent's REPORT (its claim) against the TASK and PLAN, using the SIGNALS and DIFF as evidence. "+
+			"Judge the agent's REPORT against the TASK and PLAN. Use the SIGNALS and DIFF as evidence WHEN PRESENT — "+
+			"but the ABSENCE of a diff or signal is NEVER a reason to continue. Many turns (investigation, reading, "+
+			"answering, analysis) legitimately produce no diff; demanding one is exactly the reflexive churn to avoid.\n"+
 			"Choose exactly one vote:\n"+
-			"- \"done\": through your lens, the response reasonably satisfies the task.\n"+
-			"- \"continue\": you can name a SPECIFIC, addressable problem through your lens — a failing signal, an unmet "+
-			"part of the task/plan, or a concrete defect. Put that exact next step in `feedback`.\n"+
-			"- \"abstain\": your lens needs evidence that was NOT provided (e.g. your lens is verification but there are "+
-			"no test/build SIGNALS and no DIFF to inspect). Abstaining means \"not my call on this evidence\" and is "+
-			"excluded from the tally.\n\n"+
-			"Do NOT vote continue merely because you are uncertain, want more detail, could imagine more polish, or "+
-			"because the evidence for your lens is missing — that is what abstain is for. Never invent a defect. A turn "+
-			"with no concrete, evidenced defect is done or abstain, not continue.\n\n"+
+			"- \"done\": through your lens, the report reasonably satisfies the task. Judge it on its merits — if there is "+
+			"evidence it should back the claim; if there is none, the task simply didn't call for any.\n"+
+			"- \"continue\": ONLY when you can name a SPECIFIC, REAL defect through your lens — a FAILING signal, a part of "+
+			"the task/plan the report itself shows is unmet, or a concrete error in the work. Put the next step in "+
+			"`feedback`. A missing diff or signal is NOT a defect.\n"+
+			"- \"abstain\": your lens genuinely cannot judge from what is given. Excluded from the tally.\n\n"+
+			"Never invent a defect, never demand evidence the task never required, and never continue out of mere "+
+			"uncertainty or a wish for more proof. When the turn changed no files, judge the report's SUBSTANCE against "+
+			"the task — the absence of a diff is not itself a defect, but a wrong or incomplete answer still is.\n\n"+
 			"Respond with ONLY a JSON object, no prose, no code fence:\n"+
 			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific gap (only if continue)"}`,
 		m.Name, m.Lens, lens)
@@ -214,6 +216,10 @@ func evidence(req port.DeliberationRequest) string {
 		b.WriteString("\n")
 	}
 	section("Diff", req.Diff)
+	if req.NoChanges {
+		b.WriteString("# Changes\n(none recorded — a read-only / investigation / answer turn: no diff or signals to inspect. " +
+			"Judge the report's substance against the task; do not treat the absence of a diff as a defect.)\n\n")
+	}
 	if b.Len() == 0 {
 		return "No task, report, or evidence was provided. With nothing to judge through your lens, abstain."
 	}
