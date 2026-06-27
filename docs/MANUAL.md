@@ -83,6 +83,13 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "."]
 event = "Stop"             # 턴 종료 직전
 command = "go test ./... >/dev/null || echo 'tests failing' >&2"
 
+[council]                  # 합의 종료 게이트(D14): 끄면 모델이 멈출 때 그냥 종료(기본). 켜면 council이 done/continue 투표
+enabled    = true
+rule       = "majority"    # unanimous | majority | quorum:2 | weighted:0.6 | veto:Balthasar
+max_rounds = 3             # 라운드 상한(무진전·취소 안전장치와 함께 무한루프 방지)
+# [[council.member]]       # 생략 시 MAGI 기본 3인 사용
+# name = "Melchior"; lens = "correctness"   # lens: correctness|verification|completeness
+
 [theme.dark]               # 컬러 테마 오버라이드 (모드별). 미지정 role은 NERV/MAGI 기본값 유지
 primary = "#FF7A1A"        # role: primary·accent·muted·outline·error·success·
 accent  = "#5CD8E6"        #       surface·primaryContainer·outlineVariant·warn
@@ -90,6 +97,7 @@ accent  = "#5CD8E6"        #       surface·primaryContainer·outlineVariant·wa
 primary = "#B45309"
 ```
 > 위 `[routing]`/`[llm.profiles.*]`/`model`은 **`/route` 에디터로도 편집**되며 이 파일에 저장된다.
+> **합의 council(D14, 시그니처)**: `[council] enabled=true`면 모델이 턴을 끝내려 할 때 바로 종료하지 않고, **3인 council(Melchior·Balthasar·Casper)**이 과제(목표)·에이전트 보고·diff를 보고 done/continue를 투표한다. continue면 합쳐진 피드백을 주입하고 루프를 이어간다 = "종료 판정을 단일 모델에서 빼앗는다". `rule`로 합의 방식, `max_rounds`로 라운드 상한(무진전/취소 안전장치 포함). 매 종료 시점에 LLM 라운드가 추가되므로 **기본 off**. 워크플로 모드에선 비활성(파이프라인 자체 verify 게이트 사용).
 > 컬러 테마는 `[theme.dark]`/`[theme.light]`에서 role별로 외부 정의 가능(기본=NERV/MAGI). `--theme`로 모드(auto/dark/light) 선택.
 > 첫 실행 시 주석 달린 기본 `config.toml`이 자동 생성된다(있으면 안 건드림).
 
