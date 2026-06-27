@@ -140,7 +140,20 @@ func evidence(req port.DeliberationRequest) string {
 	if len(req.Signals) > 0 {
 		b.WriteString("# Signals (the evidence)\n")
 		for _, s := range req.Signals {
-			b.WriteString("- " + strings.TrimSpace(s) + "\n")
+			line := "- "
+			switch {
+			case s.Source != "" && s.Kind != "":
+				line += "[" + s.Source + "/" + s.Kind + "] "
+			case s.Source != "":
+				line += "[" + s.Source + "] "
+			case s.Kind != "":
+				line += "[" + s.Kind + "] "
+			}
+			line += s.Status
+			if d := strings.TrimSpace(s.Detail); d != "" {
+				line += ":\n" + d
+			}
+			b.WriteString(line + "\n")
 		}
 		b.WriteString("\n")
 	}
