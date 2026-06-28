@@ -1,0 +1,23 @@
+#!/bin/bash
+# Installs magi into a Terminal-Bench task container by building the single Go
+# binary from source. Rendered by MagiAgent with {{ go_version }} and {{ ref }}.
+set -euo pipefail
+
+apt-get update
+apt-get install -y --no-install-recommends curl git ca-certificates
+
+# Go toolchain (CGO-free build → portable static binary).
+arch="$(dpkg --print-architecture)" # amd64 | arm64
+curl -fsSL "https://go.dev/dl/go{{ go_version }}.linux-${arch}.tar.gz" -o /tmp/go.tgz
+rm -rf /usr/local/go
+tar -C /usr/local -xzf /tmp/go.tgz
+export PATH="/usr/local/go/bin:${PATH}"
+
+# Build magi at the requested ref → /usr/local/bin/magi.
+rm -rf /tmp/magi
+git clone --depth 1 --branch "{{ ref }}" https://github.com/sayaya1090/magi.git /tmp/magi \
+  || git clone --depth 1 https://github.com/sayaya1090/magi.git /tmp/magi
+cd /tmp/magi
+CGO_ENABLED=0 /usr/local/go/bin/go build -trimpath -o /usr/local/bin/magi ./cmd/magi
+
+magi --version
