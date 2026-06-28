@@ -73,7 +73,7 @@ func run() int {
 	var (
 		prompt      = flag.String("p", "", "headless prompt (use '-' to read from stdin)")
 		output      = flag.String("output", "text", "output format: text|json")
-		model       = flag.String("model", env("MAGI_MODEL", "qwen3-coder:30b"), "model id")
+		model       = flag.String("model", env("MAGI_MODEL", "gpt-oss:120b-cloud"), "model id")
 		baseURL     = flag.String("base-url", env("MAGI_BASE_URL", "http://localhost:11434/v1"), "OpenAI-compatible base URL")
 		permission  = flag.String("permission", env("MAGI_PERMISSION", ""), "tool permission policy: ask|auto|allow|deny (auto = accept edits, confirm commands)")
 		profile     = flag.String("profile", env("MAGI_PROFILE", ""), "guardrail posture: safe|standard|yolo")

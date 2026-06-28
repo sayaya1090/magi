@@ -157,12 +157,18 @@ planner = "fast"          # 플래너를 더 싸고 빠른 백엔드로
 ### 요구사항
 
 - **Go 1.26+** (빌드 시)
-- **OpenAI 호환 LLM 백엔드.** 로컬도 훌륭하다 — [Ollama](https://ollama.com) 권장:
+- **OpenAI 호환 LLM 백엔드.** [Ollama](https://ollama.com) 권장. 기본 모델은 **`gpt-oss:120b-cloud`**로,
+  Ollama **무료 클라우드 티어**에서 도는 강력한 모델이다 — GPU 불필요, 한 번만 로그인:
   ```sh
-  ollama pull qwen3-coder:30b     # 기본값 — 멀티스텝 툴콜에 가장 강함
-  ollama pull gpt-oss:20b         # 더 가볍고 균형 좋은 대안
+  ollama signin                   # 무료 티어; 기본 gpt-oss:120b-cloud는 Ollama 클라우드에서 실행
   ```
-  > 작은 모델(예: `llama3.1:8b`)은 툴이 켜지면 인사에도 툴콜 JSON을 읊는 경향이 있어 기본 목록에서 제외.
+  **완전 로컬**로 돌리고 싶다면 모델을 받고 지정:
+  ```sh
+  ollama pull qwen3-coder:30b
+  ./magi --model qwen3-coder:30b  # 가장 강한 로컬 코더(24GB GPU); 또는 MAGI_MODEL=…
+  ```
+  > 어떤 OpenAI 호환 엔드포인트든 가능(vLLM, LiteLLM, 호스팅 API) — 설정 참고. 아주 작은 모델
+  > (예: `llama3.1:8b`)은 툴이 켜지면 인사에도 툴콜 JSON을 읊어 적합하지 않다.
 
 ### 설치
 
@@ -213,7 +219,7 @@ config > 기본값**.
 
 | 플래그 | 환경변수 | 기본값 | 용도 |
 |---|---|---|---|
-| `--model` | `MAGI_MODEL` | `qwen3-coder:30b` | 모델 id |
+| `--model` | `MAGI_MODEL` | `gpt-oss:120b-cloud` | 모델 id (Ollama 무료 클라우드 티어; `ollama signin`) |
 | `--base-url` | `MAGI_BASE_URL` | `http://localhost:11434/v1` | OpenAI 호환 base URL |
 | `--permission` | `MAGI_PERMISSION` | TUI `ask` / 헤드리스 `allow` | `ask` \| `auto` \| `allow` \| `deny` |
 | `--output` | — | `text` | `text` \| `json` (헤드리스) |

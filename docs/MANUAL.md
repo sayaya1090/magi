@@ -7,10 +7,12 @@ Lua 플러그인, MCP, 공유 메모리를 지원한다.
 
 ## 1. 설치 & 요구사항
 
-- **LLM 백엔드**: OpenAI 호환 엔드포인트(로컬은 [Ollama] 권장).
+- **LLM 백엔드**: OpenAI 호환 엔드포인트([Ollama] 권장). 기본 모델은 **`gpt-oss:120b-cloud`** —
+  Ollama **무료 클라우드 티어**라 GPU 없이 한 번만 로그인하면 된다.
   ```sh
-  ollama pull qwen3-coder:30b   # 기본값(툴 호출 강함)
-  ollama pull gpt-oss:20b       # 가벼운 대안
+  ollama signin                 # 무료 티어; 기본 gpt-oss:120b-cloud는 클라우드에서 실행
+  # 완전 로컬로 돌리려면:
+  ollama pull qwen3-coder:30b   # 가장 강한 로컬 코더 → ./magi --model qwen3-coder:30b
   ```
 - **빌드**: `make build` 또는 `CGO_ENABLED=0 go build -o magi ./cmd/magi` (순수 Go 단일 바이너리)
 - **프리빌트**: `curl -fsSL .../scripts/install.sh | bash` 또는 `brew install sayaya1090/tap/magi`
@@ -42,7 +44,7 @@ echo "explain main.go" | ./magi -p -                   # stdin
 
 | 플래그 | 환경변수 | 기본값 | 설명 |
 |---|---|---|---|
-| `--model` | `MAGI_MODEL` | `qwen3-coder:30b` | 모델 id |
+| `--model` | `MAGI_MODEL` | `gpt-oss:120b-cloud` | 모델 id (Ollama 무료 클라우드; `ollama signin`) |
 | `--base-url` | `MAGI_BASE_URL` | `http://localhost:11434/v1` | OpenAI 호환 base URL |
 | `--permission` | `MAGI_PERMISSION` | TUI=`ask`/헤드리스=`allow` | `ask`\|`auto`\|`allow`\|`deny` |
 | `--theme` | `MAGI_THEME` | `auto` | `auto`\|`dark`\|`light` |
@@ -55,7 +57,7 @@ echo "explain main.go" | ./magi -p -                   # stdin
 
 설정 파일 `<config>/config.toml` (macOS `~/Library/Application Support/magi`, Linux `~/.config/magi`):
 ```toml
-model = "qwen3-coder:30b"
+model = "gpt-oss:120b-cloud"   # 기본: Ollama 무료 클라우드(ollama signin). 로컬은 "qwen3-coder:30b"
 base_url = "http://localhost:11434/v1"
 permission = "ask"
 experience_dir = "/path/to/team/experience"   # 공유 두뇌(git repo면 팀 공유)
@@ -301,10 +303,12 @@ permissions = ["fs:read:."]
 
 ## 11. 모델 권장
 
-- **qwen3-coder:30b** — 멀티스텝/툴 호출 안정(기본).
-- **gpt-oss:20b** — 가볍고 추론(thinking) 표시.
+- **gpt-oss:120b-cloud** — **기본**. Ollama 무료 클라우드 티어(`ollama signin`), GPU 불필요. 강력한 범용+코딩.
+  무료는 "light usage"(동시 1개·GPU시간 쿼터)라 더 무거운 `qwen3-coder:480b-cloud`는 쿼터를 빨리 먹는다.
+- **qwen3-coder:30b** — 가장 강한 **로컬** 코더(24GB GPU). `--model qwen3-coder:30b`로 완전 로컬 실행.
+- **gpt-oss:20b** — 가벼운 로컬 대안(추론 표시).
 - 작은 모델(llama3.1:8b 등)은 툴 활성 시 함수콜 누설 경향 → 비권장.
-- 로컬 모델의 tool-call 변종(JSON/XML/네이티브) 모두 파싱한다.
+- 로컬/클라우드 모델의 tool-call 변종(JSON/XML/네이티브) 모두 파싱한다.
 
 ## 12. 미지원 / 향후
 

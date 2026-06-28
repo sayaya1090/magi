@@ -164,13 +164,19 @@ replay possible — the loop is observable and reproducible, not ephemeral.
 ### Requirements
 
 - **Go 1.26+** (to build)
-- **An OpenAI-compatible LLM backend.** Local is great — [Ollama](https://ollama.com) recommended:
+- **An OpenAI-compatible LLM backend.** [Ollama](https://ollama.com) is recommended. The default model
+  is **`gpt-oss:120b-cloud`**, a strong model on Ollama's **free cloud tier** — no GPU needed, just sign
+  in once:
   ```sh
-  ollama pull qwen3-coder:30b     # default — strongest at multi-step tool-calling
-  ollama pull gpt-oss:20b         # lighter, well-balanced alternative
+  ollama signin                   # free tier; the default gpt-oss:120b-cloud runs in Ollama's cloud
   ```
-  > Small models (e.g. `llama3.1:8b`) tend to emit tool-call JSON even when greeting you once tools
-  > are enabled, so they're off the default list.
+  Prefer to run **fully local**? Pull a model and point magi at it:
+  ```sh
+  ollama pull qwen3-coder:30b
+  ./magi --model qwen3-coder:30b  # strongest local coder (24 GB GPU); or MAGI_MODEL=…
+  ```
+  > Any OpenAI-compatible endpoint works (vLLM, LiteLLM, hosted APIs) — see Configuration. Very small
+  > models (e.g. `llama3.1:8b`) tend to emit tool-call JSON even when greeting you, so they're a poor fit.
 
 ### Install
 
@@ -221,7 +227,7 @@ A commented `config.toml` is generated on first run (and never clobbered after).
 
 | Flag | Env | Default | Purpose |
 |---|---|---|---|
-| `--model` | `MAGI_MODEL` | `qwen3-coder:30b` | model id |
+| `--model` | `MAGI_MODEL` | `gpt-oss:120b-cloud` | model id (Ollama free cloud tier; `ollama signin`) |
 | `--base-url` | `MAGI_BASE_URL` | `http://localhost:11434/v1` | OpenAI-compatible base URL |
 | `--permission` | `MAGI_PERMISSION` | TUI `ask` / headless `allow` | `ask` \| `auto` \| `allow` \| `deny` |
 | `--output` | — | `text` | `text` \| `json` (headless) |

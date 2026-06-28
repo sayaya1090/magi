@@ -158,8 +158,10 @@ const defaultConfigTemplate = `# magi configuration. Everything here is optional
 # Docs: docs/EXTENDING.md and docs/MANUAL.md.
 
 # --- LLM backend (also settable via --model/--base-url or MAGI_MODEL/MAGI_BASE_URL) ---
-# model    = "qwen3-coder:30b"
+# Default is Ollama's free cloud tier — run 'ollama signin' once (no GPU needed).
+# model    = "gpt-oss:120b-cloud"
 # base_url = "http://localhost:11434/v1"   # any OpenAI-compatible endpoint
+# For a fully local run instead: model = "qwen3-coder:30b" (after 'ollama pull').
 
 # Custom headers sent on every LLM request, e.g. an in-house gateway key.
 # ${ENV_VAR} is expanded at runtime so secrets stay out of this file.
