@@ -161,19 +161,52 @@ const plannerContract = "Plan the PROCEDURE to handle the request: an ordered, m
 	"Reply with ONLY a JSON object, no prose:\n" +
 	`{"reason":"one sentence","steps":[{"title":"...","strategy":"solo|parallel|scout","groups":[{"agent":"explore","focus":"...","question":"..."}],"agent":"explore","discover":"...","each":"..."}]}`
 
-// parsePlan extracts the first {...} JSON object from text (models often wrap it
-// in prose or fences) and unmarshals it. Invalid → zero planResult.
+// parsePlan extracts the first BALANCED {...} JSON object from text and unmarshals
+// it. Models wrap the object in prose/fences, and weak local models often append
+// trailing prose containing a stray '}' — the old first-'{'/last-'}' span then
+// over-captured and failed to parse, silently degrading a valid multi-step plan to
+// the solo path. The balanced scan (string/escape-aware) takes just the object.
 func parsePlan(text string) planResult {
-	i := strings.IndexByte(text, '{')
-	j := strings.LastIndexByte(text, '}')
-	if i < 0 || j <= i {
+	js := firstBalancedObject(text)
+	if js == "" {
 		return planResult{}
 	}
 	var p planResult
-	if json.Unmarshal([]byte(text[i:j+1]), &p) != nil {
+	if json.Unmarshal([]byte(js), &p) != nil {
 		return planResult{}
 	}
 	return p
+}
+
+// firstBalancedObject returns the first balanced {...} object in s, respecting
+// strings and escapes (braces inside string values don't confuse it), or "".
+func firstBalancedObject(s string) string {
+	start := strings.IndexByte(s, '{')
+	if start < 0 {
+		return ""
+	}
+	depth, inStr, esc := 0, false, false
+	for i := start; i < len(s); i++ {
+		ch := s[i]
+		switch {
+		case esc:
+			esc = false
+		case ch == '\\' && inStr:
+			esc = true
+		case ch == '"':
+			inStr = !inStr
+		case inStr:
+			// inside a string literal — ignore structural chars
+		case ch == '{':
+			depth++
+		case ch == '}':
+			depth--
+			if depth == 0 {
+				return s[start : i+1]
+			}
+		}
+	}
+	return ""
 }
 
 // sanitizeSteps enforces guardrails: valid strategies, read-only explorers, a

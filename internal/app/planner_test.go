@@ -29,6 +29,15 @@ func TestParsePlan(t *testing.T) {
 	if p := parsePlan("no json here"); len(p.Steps) != 0 {
 		t.Errorf("garbage should yield no steps: %+v", p)
 	}
+	// Trailing prose with a stray '}' must NOT break extraction (the old first-{/last-}
+	// span over-captured and lost the plan). Balanced scan takes only the object.
+	if p := parsePlan(`{"steps":[{"title":"x","strategy":"solo"}]}` + "\n\nLet me know if this works :}"); len(p.Steps) != 1 {
+		t.Errorf("trailing-prose-with-brace parse should still yield the plan: %+v", p)
+	}
+	// A brace inside a string value must not confuse the scan.
+	if p := parsePlan(`{"reason":"use {braces} carefully","steps":[{"title":"y","strategy":"solo"}]}`); len(p.Steps) != 1 {
+		t.Errorf("brace-in-string parse: %+v", p)
+	}
 }
 
 func TestSanitizeSteps(t *testing.T) {
