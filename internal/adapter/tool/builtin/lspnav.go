@@ -55,36 +55,67 @@ type lspPosArgs struct {
 	Symbol string `json:"symbol"` // a name on `line` to locate the column from
 }
 
-// resolvePos turns the args into a "file:line:col" gopls position. If col is unset,
-// it locates symbol on the given line.
+// resolveByteCol resolves the 1-based byte column for the args: an explicit col, or
+// the byte offset of symbol on the given line. Also returns the absolute path.
+func resolveByteCol(workdir string, a lspPosArgs) (abs string, col int, err error) {
+	abs, err = resolvePath(workdir, a.Path)
+	if err != nil {
+		return "", 0, err
+	}
+	if a.Line < 1 {
+		return "", 0, fmt.Errorf("line is required (1-based)")
+	}
+	if a.Col > 0 {
+		return abs, a.Col, nil
+	}
+	if a.Symbol == "" {
+		return "", 0, fmt.Errorf("provide either col or symbol")
+	}
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		return "", 0, err
+	}
+	lines := strings.Split(string(data), "\n")
+	if a.Line > len(lines) {
+		return "", 0, fmt.Errorf("line %d is past end of file (%d lines)", a.Line, len(lines))
+	}
+	idx := strings.Index(lines[a.Line-1], a.Symbol)
+	if idx < 0 {
+		return "", 0, fmt.Errorf("symbol %q not found on line %d", a.Symbol, a.Line)
+	}
+	return abs, idx + 1, nil
+}
+
+// resolvePos turns the args into a "file:line:col" gopls position (Go only).
 func resolvePos(workdir string, a lspPosArgs) (string, error) {
-	abs, err := resolvePath(workdir, a.Path)
+	abs, col, err := resolveByteCol(workdir, a)
 	if err != nil {
 		return "", err
 	}
-	if a.Line < 1 {
-		return "", fmt.Errorf("line is required (1-based)")
-	}
-	col := a.Col
-	if col <= 0 {
-		if a.Symbol == "" {
-			return "", fmt.Errorf("provide either col or symbol")
-		}
-		data, err := os.ReadFile(abs)
-		if err != nil {
-			return "", err
-		}
-		lines := strings.Split(string(data), "\n")
-		if a.Line > len(lines) {
-			return "", fmt.Errorf("line %d is past end of file (%d lines)", a.Line, len(lines))
-		}
-		idx := strings.Index(lines[a.Line-1], a.Symbol)
-		if idx < 0 {
-			return "", fmt.Errorf("symbol %q not found on line %d", a.Symbol, a.Line)
-		}
-		col = idx + 1
-	}
 	return fmt.Sprintf("%s:%d:%d", abs, a.Line, col), nil
+}
+
+// isGo reports whether path is a Go source file (routed through the gopls CLI; other
+// languages go through the LSP JSON-RPC client).
+func isGo(path string) bool { return strings.HasSuffix(path, ".go") }
+
+// lspNavigate runs a position-based LSP request for a non-Go file via the JSON-RPC
+// client, converting the byte column to the LSP UTF-16 position.
+func lspNavigate(ctx context.Context, workdir string, a lspPosArgs, method string) (json.RawMessage, error) {
+	abs, byteCol, err := resolveByteCol(workdir, a)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(string(data), "\n")
+	char := 0
+	if a.Line-1 < len(lines) {
+		char = utf16Col(lines[a.Line-1], byteCol-1)
+	}
+	return lspQuery(ctx, workdir, abs, method, a.Line-1, char)
 }
 
 // relativize rewrites absolute workdir paths in gopls output to workspace-relative.
@@ -109,6 +140,17 @@ func (LspDefinition) Execute(ctx context.Context, raw json.RawMessage, env port.
 	var a lspPosArgs
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return errResult("", "invalid arguments: "+err.Error()), nil
+	}
+	if !isGo(a.Path) {
+		res, err := lspNavigate(ctx, env.Workdir, a, "textDocument/definition")
+		if err != nil {
+			return errResult("", err.Error()), nil
+		}
+		body := formatLocations(res, env.Workdir)
+		if body == "" {
+			body = "no definition found"
+		}
+		return okText("", body), nil
 	}
 	pos, err := resolvePos(env.Workdir, a)
 	if err != nil {
@@ -135,6 +177,17 @@ func (LspReferences) Execute(ctx context.Context, raw json.RawMessage, env port.
 	var a lspPosArgs
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return errResult("", "invalid arguments: "+err.Error()), nil
+	}
+	if !isGo(a.Path) {
+		res, err := lspNavigate(ctx, env.Workdir, a, "textDocument/references")
+		if err != nil {
+			return errResult("", err.Error()), nil
+		}
+		body := formatLocations(res, env.Workdir)
+		if body == "" {
+			body = "no references found"
+		}
+		return okText("", truncateOut(body)), nil
 	}
 	pos, err := resolvePos(env.Workdir, a)
 	if err != nil {
@@ -171,6 +224,17 @@ func (LspSymbols) Execute(ctx context.Context, raw json.RawMessage, env port.Too
 	abs, err := resolvePath(env.Workdir, a.Path)
 	if err != nil {
 		return errResult("", err.Error()), nil
+	}
+	if !isGo(a.Path) {
+		res, err := lspQuery(ctx, env.Workdir, abs, "textDocument/documentSymbol", 0, 0)
+		if err != nil {
+			return errResult("", err.Error()), nil
+		}
+		body := formatSymbols(res)
+		if body == "" {
+			body = "no symbols found"
+		}
+		return okText("", truncateOut(body)), nil
 	}
 	out, errRes := runGopls(ctx, env.Workdir, "symbols", abs)
 	if errRes != nil {
