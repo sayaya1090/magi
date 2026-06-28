@@ -259,7 +259,7 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 			}
 		}
 		if diff != "" {
-			return indent(head) + "\n" + indent(m.renderCodeDiff(diff, rawPath(blk.args), m.transcriptWidth()-2))
+			return indent(head) + "\n" + indent(m.renderCodeDiff(diff, rawPath(blk.args), m.transcriptWidth()-2, diffBaseLine(blk)))
 		}
 		// Other tools (e.g. bash) show their output as a folded body beneath the line.
 		if body := m.renderToolBody(blk); body != "" {
@@ -398,6 +398,37 @@ func argPath(args string) string {
 		return "path=" + oneLine(p, 80)
 	}
 	return ""
+}
+
+// diffBaseLine is the 1-based file line the diff's first line maps to, for the
+// new-side gutter: 1 for a write (whole file), the edit tool's reported " @N" start
+// line for an edit, or 0 (no gutter) when the position is unknown.
+func diffBaseLine(blk block) int {
+	switch blk.name {
+	case "write":
+		return 1
+	case "edit":
+		return parseTrailingAt(blk.result)
+	}
+	return 0
+}
+
+// parseTrailingAt reads a trailing " @<digits>" marker (the edit tool's start line),
+// returning the number or 0 if absent.
+func parseTrailingAt(s string) int {
+	s = strings.TrimRight(s, " \n")
+	j := len(s)
+	for j > 0 && s[j-1] >= '0' && s[j-1] <= '9' {
+		j--
+	}
+	if j == len(s) || j < 2 || s[j-2:j] != " @" {
+		return 0
+	}
+	n := 0
+	for _, r := range s[j:] {
+		n = n*10 + int(r-'0')
+	}
+	return n
 }
 
 // rawPath returns a tool call's raw "path" arg (for language detection), or "".

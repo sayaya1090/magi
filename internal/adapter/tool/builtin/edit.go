@@ -61,7 +61,13 @@ func (Edit) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	if err := os.WriteFile(abs, []byte(updated), 0o644); err != nil {
 		return errResult("", err.Error()), nil
 	}
-	return okText("", "edited "+a.Path+note), nil
+	// Report the 1-based start line of the edit so the UI can number the diff (only
+	// for an exact match — tolerant matches omit it). Appended last as " @N".
+	msg := "edited " + a.Path + note
+	if idx := strings.Index(string(data), a.Old); idx >= 0 {
+		msg += fmt.Sprintf(" @%d", 1+strings.Count(string(data)[:idx], "\n"))
+	}
+	return okText("", msg), nil
 }
 
 // applyEdit returns the updated content, a note about how the match was made, or

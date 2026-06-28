@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -8,6 +9,41 @@ import (
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
 )
+
+var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func stripANSI(s string) string { return ansiRE.ReplaceAllString(s, "") }
+
+func TestParseTrailingAt(t *testing.T) {
+	cases := map[string]int{
+		"edited main.c @3":                 3,
+		"edited a.go (EOL-normalized) @12": 12,
+		"edited main.c":                    0,
+		"wrote 79 bytes to main.c":         0,
+	}
+	for in, want := range cases {
+		if got := parseTrailingAt(in); got != want {
+			t.Errorf("parseTrailingAt(%q) = %d, want %d", in, got, want)
+		}
+	}
+}
+
+func TestRenderCodeDiffGutter(t *testing.T) {
+	applyTheme(true)
+	m := &Model{width: 100, isDark: true}
+	// A write (base line 1): additions numbered 1,2,3 in the gutter.
+	out := stripANSI(m.renderCodeDiff("+a\n+b\n+c", "x.go", 80, 1))
+	for _, n := range []string{"1 ", "2 ", "3 "} {
+		if !strings.Contains(out, n) {
+			t.Errorf("gutter missing %q\n%s", n, out)
+		}
+	}
+	// base 0 → no gutter (no leading line numbers).
+	bare := stripANSI(m.renderCodeDiff("+a", "x.go", 80, 0))
+	if strings.ContainsAny(strings.TrimSpace(bare), "0123456789") {
+		t.Errorf("base 0 should produce no gutter numbers: %q", bare)
+	}
+}
 
 func TestHighlightDiffLine(t *testing.T) {
 	applyTheme(true)
