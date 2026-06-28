@@ -125,6 +125,38 @@ func shiftLightness(c color.Color, step int) color.Color {
 	return lipgloss.Color(fmt.Sprintf("#%02X%02X%02X", int(rf), int(gf), int(bf)))
 }
 
+// blendColor returns the color t of the way (0..1) from a toward b. Used to fade a
+// finished pane's row toward the surface as it dims out before being removed.
+func blendColor(a, b color.Color, t float64) color.Color {
+	if t <= 0 {
+		return a
+	}
+	if t > 1 {
+		t = 1
+	}
+	ar, ag, ab, _ := a.RGBA()
+	br, bg, bb, _ := b.RGBA()
+	lerp := func(x, y uint32) int { return int(float64(x>>8) + (float64(y>>8)-float64(x>>8))*t) }
+	return lipgloss.Color(fmt.Sprintf("#%02X%02X%02X", lerp(ar, br), lerp(ag, bg), lerp(ab, bb)))
+}
+
+// paneStatusPlain is paneStatus without styling, for the fade-out path where the
+// whole row is re-rendered in one blended (dimming) color.
+func (m *Model) paneStatusPlain(p *agentPane) string {
+	g := "•"
+	if p.done {
+		g = "✓"
+	}
+	elapsed := p.dur
+	if elapsed == 0 && !p.started.IsZero() {
+		elapsed = time.Since(p.started)
+	}
+	if meter := turnMeter(elapsed, p.in, p.out); meter != "" {
+		return g + " " + meter
+	}
+	return g
+}
+
 // openPane starts a live pane for a spawned subagent — one pane PER child
 // session (so a re-dispatch or follow-up gets its own window). Each is labelled
 // role + a short id (paneLabel) to tell concurrent same-role agents apart.
@@ -260,6 +292,9 @@ func (m *Model) closePanes() {
 	m.focusPane = -1
 	m.zoom = false
 	m.paneScroll = 0
+	m.paneFade = 0
+	m.panesFadedOut = false
+	m.turnEndAt = time.Time{}
 }
 
 // ensureFocusVisible scrolls the pane window so the focused pane is on screen.
@@ -541,10 +576,18 @@ func (m *Model) renderPanes(width, originY int) string {
 		for i := 0; i < nShown; i++ {
 			p := m.panes[off+i]
 			c := m.paneColorOf(p)
-			line := lipgloss.NewStyle().Foreground(c).Render("● ") +
-				lipgloss.NewStyle().Foreground(c).Bold(true).Render(p.desc(width-8)) + " " + m.paneStatus(p)
-			if off+i == m.focusPane {
-				line += " " + styleKeyLabel.Render("[focus: ctrl+o to open]")
+			var line string
+			if m.paneFade > 0 {
+				// Fading out: re-render the whole row in one color blended toward the
+				// surface, so the finished strip dims away before it's removed.
+				dc := blendColor(c, colSurface, m.paneFade)
+				line = lipgloss.NewStyle().Foreground(dc).Render("● " + p.desc(width-8) + " " + m.paneStatusPlain(p))
+			} else {
+				line = lipgloss.NewStyle().Foreground(c).Render("● ") +
+					lipgloss.NewStyle().Foreground(c).Bold(true).Render(p.desc(width-8)) + " " + m.paneStatus(p)
+				if off+i == m.focusPane {
+					line += " " + styleKeyLabel.Render("[focus: ctrl+o to open]")
+				}
 			}
 			p.x, p.y, p.w, p.h = 0, y, width, 1
 			rows = append(rows, "  "+line)

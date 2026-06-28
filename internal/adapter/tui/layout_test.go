@@ -4,10 +4,67 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
+
+// A finished pane strip stays visible through the linger window, dims over the fade
+// window, then is fully removed (the block reserves and renders nothing).
+func TestPaneFadeOutLifecycle(t *testing.T) {
+	mm := newTestModel(t)
+	m := &mm
+	m.width, m.height = 80, 40
+	m.running = false
+	m.focusPane = -1
+	m.panes = []*agentPane{{role: "explore", done: true}}
+
+	m.turnEndAt = time.Time{} // no turn recorded → no fade
+	m.advancePaneFade()
+	if m.paneFade != 0 || m.panesFadedOut {
+		t.Fatalf("no turnEndAt → no fade, got fade=%v out=%v", m.paneFade, m.panesFadedOut)
+	}
+
+	m.turnEndAt = time.Now().Add(-paneFadeAfter / 2) // within linger → fully visible
+	m.advancePaneFade()
+	if m.paneFade != 0 || m.panesFadedOut {
+		t.Fatalf("during linger → fade 0, got fade=%v out=%v", m.paneFade, m.panesFadedOut)
+	}
+
+	m.turnEndAt = time.Now().Add(-(paneFadeAfter + paneFadeDur/2)) // mid-fade → partial
+	m.advancePaneFade()
+	if !(m.paneFade > 0 && m.paneFade < 1) || m.panesFadedOut {
+		t.Fatalf("mid-fade → 0<fade<1, got fade=%v out=%v", m.paneFade, m.panesFadedOut)
+	}
+
+	m.turnEndAt = time.Now().Add(-(paneFadeAfter + 2*paneFadeDur)) // past the fade → gone
+	m.advancePaneFade()
+	if !m.panesFadedOut {
+		t.Fatalf("after fade window → panesFadedOut, got %v", m.panesFadedOut)
+	}
+	if _, _, _, total := m.paneLayout(); total != 0 {
+		t.Fatalf("faded-out block should reserve 0 rows, got %d", total)
+	}
+	if pv := m.renderPanes(m.width, 5); pv != "" {
+		t.Fatalf("faded-out block should render nothing, got %q", pv)
+	}
+}
+
+// The fade pauses while a pane is focused, so a strip never vanishes mid-read.
+func TestPaneFadePausesWhileFocused(t *testing.T) {
+	mm := newTestModel(t)
+	m := &mm
+	m.width, m.height = 80, 40
+	m.running = false
+	m.panes = []*agentPane{{role: "explore", done: true}}
+	m.turnEndAt = time.Now().Add(-(paneFadeAfter + 2*paneFadeDur)) // well past the window
+	m.focusPane = 0                                                // but a pane is focused
+	m.advancePaneFade()
+	if m.paneFade != 0 || m.panesFadedOut {
+		t.Fatalf("focused pane should pause the fade, got fade=%v out=%v", m.paneFade, m.panesFadedOut)
+	}
+}
 
 // The pane block must never push the input off-screen: chrome + a minimum
 // viewport always fits the height, and the rendered pane height matches the

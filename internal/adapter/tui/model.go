@@ -166,6 +166,9 @@ type Model struct {
 	councilDetail          *event.CouncilVerdictData // open council-verdict detail (full-screen; nil = closed)
 	councilDetailEvidence  string                    // the evidence shown alongside the open verdict
 	paneScroll             int                       // scroll offset into the subagent pane list (clamped in renderPanes)
+	turnEndAt              time.Time                 // when the last turn finished; arms the finished-pane fade-out (zero = no turn yet)
+	paneFade               float64                   // 0 = opaque .. 1 = gone: dim level of the finished inline pane strip
+	panesFadedOut          bool                      // the inline strip has fully faded → suppressed (panes still live for panel/zoom)
 	pendingCouncilEvidence string                    // evidence from the latest convened round, attached to its verdicts
 	roleColor              map[string]int            // role name -> agentPalette index (stable per session)
 
@@ -322,6 +325,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case renderTickMsg:
+		if m.advancePaneFade() { // drives the finished-pane fade-out off the heartbeat
+			m.dirty = true
+		}
 		if m.dirty {
 			m.refresh()
 			m.dirty = false
@@ -1969,6 +1975,12 @@ func (m *Model) applyEvent(e event.Event) {
 		m.activeAgents = nil
 		m.councilRound = 0
 		m.councilMember = ""
+		// Arm the finished-pane fade-out clock (only if any subagent ran this turn).
+		if len(m.panes) > 0 {
+			m.turnEndAt = time.Now()
+			m.paneFade = 0
+			m.panesFadedOut = false
+		}
 		// Freeze the turn meter from the cumulative usage (§8.1).
 		if !m.turnStart.IsZero() {
 			m.turnDur = time.Since(m.turnStart)
@@ -2046,6 +2058,59 @@ const minViewport = 3
 // limit than minViewport alone, which would let panes shrink the transcript to 3 rows.
 const panesMaxNumer, panesMaxDenom = 1, 3
 
+// After a turn ends, the finished inline pane strip stays fully visible for
+// paneFadeAfter, then dims to gone over paneFadeDur and is removed from the
+// transcript column (the status panel keeps the roster for later tracking). The
+// fade pauses while a pane is focused or zoomed so it never vanishes mid-read.
+const (
+	paneFadeAfter = 8 * time.Second
+	paneFadeDur   = 1500 * time.Millisecond
+)
+
+// advancePaneFade recomputes the finished-strip fade for the current frame and
+// returns whether anything changed (so the caller can request a repaint). It's a
+// no-op while a turn runs, nothing is finished, or the user is engaging a pane.
+func (m *Model) advancePaneFade() bool {
+	// Conditions under which the strip should be fully visible (fade reset/paused).
+	if m.running || len(m.panes) == 0 || m.turnEndAt.IsZero() || m.zoom || m.focusPane >= 0 {
+		if m.paneFade != 0 || m.panesFadedOut {
+			// Only un-fade if not already fully removed; a completed fade-out stays out.
+			// (panesFadedOut is intentionally NOT cleared here — it's safe only because
+			// every new-turn/session path calls closePanes first, which resets it. If a
+			// path ever set m.running without closePanes, a stale flag would suppress the
+			// new turn's strip.)
+			if !m.panesFadedOut {
+				m.paneFade = 0
+				return true
+			}
+		}
+		return false
+	}
+	if m.panesFadedOut {
+		return false
+	}
+	elapsed := time.Since(m.turnEndAt)
+	var f float64
+	switch {
+	case elapsed < paneFadeAfter:
+		f = 0
+	case elapsed < paneFadeAfter+paneFadeDur:
+		f = float64(elapsed-paneFadeAfter) / float64(paneFadeDur)
+	default:
+		f = 1
+	}
+	changed := false
+	if f >= 1 && !m.panesFadedOut {
+		m.panesFadedOut = true
+		m.paneFade = 1
+		changed = true
+	} else if f != m.paneFade {
+		m.paneFade = f
+		changed = true
+	}
+	return changed
+}
+
 // baseChromeHeight is the fixed chrome (everything except the agent-pane block):
 // header, bordered input, footer, and any active modal. It must NOT call
 // panesBlockHeight (panesBlockHeight derives its cap from this — no recursion).
@@ -2120,6 +2185,11 @@ func overlayLine(content string, row, col int, overlay string) string {
 func (m *Model) paneLayout() (nShown, perPane, more, total int) {
 	n := len(m.panes)
 	if n == 0 || m.zoom {
+		return 0, 0, 0, 0
+	}
+	// Fully faded out: the inline strip is gone (the panes still exist for the status
+	// panel + zoom), so reserve nothing and let the transcript reclaim the rows.
+	if m.panesFadedOut {
 		return 0, 0, 0, 0
 	}
 	capH := m.height - m.baseChromeHeight() - minViewport
