@@ -319,7 +319,7 @@ fake-LLM tests for regression coverage; use real-model E2E for gated confirmatio
 - **Hooks** (`config.toml [[hooks]]`): PreToolUse/PostToolUse/Stop shell commands
   (POSIX shell; not available on Windows).
 - **Orchestration policy**: the primitives (task/ask/report/supervisor) are in core;
-  an orchestrator-style role choreography is intended to be a swappable policy (the bundled
-  default agents are the current policy).
+  a multi-role orchestration choreography is intended to be a swappable policy (the
+  bundled default agents are the current policy).
 - **Auth** (planned): custom auth (OIDC/mTLS/rotating tokens) belongs at the Go
   `http.RoundTripper` seam (`openai.WithHTTPClient`), not in Lua.
