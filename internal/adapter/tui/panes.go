@@ -303,6 +303,7 @@ func (m *Model) closePanes() {
 	m.doneRoster = nil
 	m.focusPane = -1
 	m.zoom = false
+	m.zoomPane = nil
 	m.paneScroll = 0
 }
 
@@ -658,10 +659,10 @@ func (m *Model) renderPanes(width, originY int) string {
 // renderZoom renders the focused pane full-screen for detailed inspection, using
 // the shared viewport for scrolling. Returns the content string.
 func (m *Model) renderZoom(width int) string {
-	if m.focusPane < 0 || m.focusPane >= len(m.panes) {
+	p := m.viewedPane()
+	if p == nil {
 		return ""
 	}
-	p := m.panes[m.focusPane]
 	c := m.paneColorOf(p)
 	cstyle := lipgloss.NewStyle().Foreground(c)
 	// The breadcrumb is rendered as the fixed header (see View); here just the body.

@@ -163,6 +163,10 @@ type Model struct {
 	panes     []*agentPane // active/finished subagent panes, in spawn order
 	focusPane int          // index into panes of the focused pane (-1 = main transcript)
 	zoom      bool         // focused pane expanded full-screen
+	// zoomPane pins a FINISHED subagent's pane (one from doneRoster, no longer in
+	// panes) for the zoom view, so clicking a completed entry in the status panel
+	// still opens its detail. nil → the zoom view follows focusPane (a live pane).
+	zoomPane *agentPane
 	// doneRoster holds panes that finished and faded out of the inline transcript:
 	// the right status panel keeps listing them (a persistent record of what ran) even
 	// though their inline box is gone. Cleared on a new turn (closePanes).
@@ -543,15 +547,35 @@ func (m *Model) thoughtClickSkip(line int) bool {
 	return skip
 }
 
+// viewedPane returns the subagent pane shown in the zoom view: a finished pane
+// pinned via zoomPane (clicked from the status panel's done roster), otherwise the
+// focused live pane. nil when nothing is zoomable.
+func (m *Model) viewedPane() *agentPane {
+	if m.zoomPane != nil {
+		return m.zoomPane
+	}
+	if m.focusPane >= 0 && m.focusPane < len(m.panes) {
+		return m.panes[m.focusPane]
+	}
+	return nil
+}
+
+// exitZoom leaves the zoom view, dropping any pinned finished pane so the next
+// zoom follows the live focus again.
+func (m *Model) exitZoom() {
+	m.zoom = false
+	m.zoomPane = nil
+}
+
 // toggleThoughtAtZoom flips the expand state of the reasoning block at content
 // line `line` in the focused subagent's zoom view. Returns true if a reasoning
 // block was toggled. The zoom view rebuilds from p.blocks each frame (no cache),
 // so toggling expanded and refreshing is enough to re-render at the new height.
 func (m *Model) toggleThoughtAtZoom(line int) bool {
-	if m.focusPane < 0 || m.focusPane >= len(m.panes) {
+	p := m.viewedPane()
+	if p == nil {
 		return false
 	}
-	p := m.panes[m.focusPane]
 	i := -1
 	for j := len(m.paneLineStart) - 1; j >= 0; j-- {
 		if line >= m.paneLineStart[j] {
@@ -573,7 +597,7 @@ func (m *Model) handleMouse(msg tea.Msg) tea.Cmd {
 	case tea.MouseClickMsg:
 		// Clicking the breadcrumb header while zoomed (or in council detail) goes back.
 		if e.Button == tea.MouseLeft && (m.zoom || m.councilDetail != nil) && e.Y <= 1 {
-			m.zoom = false
+			m.exitZoom()
 			m.councilDetail = nil
 			m.refresh()
 			return nil
@@ -824,7 +848,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		if len(m.panes) > 0 {
 			m.cyclePaneFocus(1)
 			if m.zoom {
-				m.zoom = false // moving focus exits zoom; press ctrl+o to re-zoom
+				m.exitZoom() // moving focus exits zoom; press ctrl+o to re-zoom
 			}
 			m.refresh()
 			return nil, true
@@ -832,6 +856,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	case "ctrl+o":
 		// Zoom the focused subagent pane full-screen (and back). Entering zoom jumps
 		// to the bottom so the latest output (e.g. the conclusion) is in view.
+		if m.zoom && m.zoomPane != nil {
+			m.exitZoom() // collapse a pinned finished-pane zoom
+			m.refresh()
+			return nil, true
+		}
 		if m.focusPane >= 0 && m.focusPane < len(m.panes) {
 			m.zoom = !m.zoom
 			m.refresh()
@@ -842,6 +871,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		}
 		if len(m.panes) > 0 {
 			m.focusPane = 0
+			m.zoomPane = nil
 			m.zoom = true
 			m.refresh()
 			m.vp.GotoBottom()
@@ -887,7 +917,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			return m.snack("interrupting " + p.role), true
 		}
 		if m.zoom {
-			m.zoom = false
+			m.exitZoom()
 			m.refresh()
 			return nil, true
 		}
@@ -2258,7 +2288,9 @@ func (m *Model) advancePaneFade() bool {
 			}
 		}
 		m.focusPane = newFocus
-		if newFocus < 0 {
+		// Only leave zoom if the LIVE focused pane vanished. A pinned finished pane
+		// (zoomPane, focusPane already -1) must stay open while siblings fade out.
+		if newFocus < 0 && m.zoomPane == nil {
 			m.zoom = false
 		}
 	}
@@ -2583,9 +2615,9 @@ func (m Model) View() tea.View {
 		headLine = styleKeyLabel.Render("‹ back") + styleHeader.Render("   ") +
 			styleBrand.Render("✦ magi") + styleHeader.Render(" › ") +
 			lipgloss.NewStyle().Foreground(c).Bold(true).Render("⚖ "+m.councilDetail.Member+" verdict")
-	} else if m.zoom && m.focusPane >= 0 && m.focusPane < len(m.panes) {
+	} else if vp := m.viewedPane(); m.zoom && vp != nil {
 		// Zoom view: the header is a clickable breadcrumb back to the overview.
-		p := m.panes[m.focusPane]
+		p := vp
 		c := m.paneColorOf(p)
 		headLine = styleKeyLabel.Render("‹ back") + styleHeader.Render("   ") +
 			styleBrand.Render("✦ magi") + styleHeader.Render(" › ") +

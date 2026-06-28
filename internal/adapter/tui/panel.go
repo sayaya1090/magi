@@ -130,10 +130,8 @@ func (m *Model) statusPanel(panelTop int) string {
 	if len(m.panes) > 0 || len(m.doneRoster) > 0 {
 		sep()
 		lines = append(lines, panelHead("Subagents"))
-		paneRow := func(p *agentPane, interactive bool) {
-			if interactive {
-				p.panelY = panelTop + len(lines) // screen Y for click→zoom (active panes only)
-			}
+		paneRow := func(p *agentPane) {
+			p.panelY = panelTop + len(lines) // screen Y for click→zoom (active and finished)
 			c := m.paneColorOf(p)
 			status := m.paneStatus(p)
 			// Budget the label so "● <label> <status>" never exceeds the text width
@@ -147,22 +145,14 @@ func (m *Model) statusPanel(panelTop int) string {
 		}
 		// List active panes AND faded-out ones (doneRoster) together in their original
 		// SPAWN order (by sub), so a subagent keeps its position after it finishes
-		// instead of jumping to the bottom. Active ones stay click-to-zoomable.
-		type row struct {
-			p           *agentPane
-			interactive bool
-		}
-		rows := make([]row, 0, len(m.panes)+len(m.doneRoster))
-		for _, p := range m.panes {
-			rows = append(rows, row{p, true})
-		}
-		for _, p := range m.doneRoster {
-			p.panelY = 0 // not inline-zoomable (no live pane)
-			rows = append(rows, row{p, false})
-		}
-		sort.SliceStable(rows, func(i, j int) bool { return rows[i].p.sub < rows[j].p.sub })
-		for _, r := range rows {
-			paneRow(r.p, r.interactive)
+		// instead of jumping to the bottom. Both stay click-to-zoomable — a finished
+		// pane opens via zoomPane since it's no longer in m.panes.
+		rows := make([]*agentPane, 0, len(m.panes)+len(m.doneRoster))
+		rows = append(rows, m.panes...)
+		rows = append(rows, m.doneRoster...)
+		sort.SliceStable(rows, func(i, j int) bool { return rows[i].sub < rows[j].sub })
+		for _, p := range rows {
+			paneRow(p)
 		}
 	}
 
@@ -199,7 +189,17 @@ func (m *Model) handlePanelClick(x, y int) bool {
 	for i, p := range m.panes {
 		if p.panelY > 0 && y == p.panelY {
 			m.focusPane = i
-			m.zoom = true // enter the subagent detail directly
+			m.zoomPane = nil // a live pane: follow focus
+			m.zoom = true    // enter the subagent detail directly
+			m.vp.GotoBottom()
+			return true
+		}
+	}
+	for _, p := range m.doneRoster {
+		if p.panelY > 0 && y == p.panelY {
+			m.focusPane = -1 // finished pane isn't in m.panes…
+			m.zoomPane = p   // …so pin it directly for the zoom view
+			m.zoom = true
 			m.vp.GotoBottom()
 			return true
 		}
