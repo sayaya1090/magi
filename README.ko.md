@@ -11,7 +11,7 @@
 [![CI](https://github.com/sayaya1090/magi/actions/workflows/ci.yml/badge.svg)](https://github.com/sayaya1090/magi/actions/workflows/ci.yml)
 [![coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/sayaya1090/magi/badges/coverage.json)](https://github.com/sayaya1090/magi/actions/workflows/ci.yml)
 
-[English](README.md) · [한국어](README.ko.md) · [매뉴얼](docs/MANUAL.md)
+[English](README.md) · [한국어](README.ko.md) · [매뉴얼](docs/MANUAL.ko.md)
 
 ![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)
 ![License](https://img.shields.io/badge/License-Apache--2.0-blue)
