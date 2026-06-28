@@ -107,7 +107,10 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	guard := newRunGuard()
 	councilRounds := 0        // consensus termination gate rounds this turn (D14)
 	lastCouncilFeedback := "" // last round's feedback (no-progress detection)
-	usedTools := seedWork     // did this turn do real work? (planner investigation seeds it; council skips pure conversational turns)
+	turnTask := ""            // the user instruction THIS turn answers, snapshotted at
+	// step 0 — so a steer that lands during the council gate can't hijack what the
+	// council judges against (that interjection gets its own follow-up turn instead).
+	usedTools := seedWork // did this turn do real work? (planner investigation seeds it; council skips pure conversational turns)
 	// Turn usage accumulation (§8.1): output tokens and cost sum across steps; input
 	// is the last step's (the current context size, not a sum).
 	var cumOut, lastIn int
@@ -123,6 +126,9 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		if err != nil {
 			a.emitError(ctx, sid, agentActor, err.Error())
 			return lastText, err
+		}
+		if step == 0 {
+			turnTask = lastUserPromptText(evs) // the prompt that drove this turn
 		}
 
 		// Durable project memory (AGENTS.md) is part of the system prompt and is
@@ -352,7 +358,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			// conversational reply (no tool use, e.g. a greeting) has nothing to
 			// verify, so gating it just churns and can derail a weak model.
 			if depth == 0 && a.cfg.Council != nil && !a.cfg.Workflow && usedTools {
-				if a.runCouncilGate(ctx, s, agent, lastText, &councilRounds, &lastCouncilFeedback) {
+				if a.runCouncilGate(ctx, s, agent, turnTask, lastText, &councilRounds, &lastCouncilFeedback) {
 					continue
 				}
 			}
@@ -467,7 +473,7 @@ func tailForCouncil(s string, n int) string {
 //
 // Safety (so the council can never trap the loop): rounds are capped, repeated or
 // empty feedback stops the gate, and any deliberation error finishes the turn.
-func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent AgentSpec, lastText string, rounds *int, lastFeedback *string) bool {
+func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent AgentSpec, turnTask, lastText string, rounds *int, lastFeedback *string) bool {
 	// An interrupt mid-finish must not trigger a deliberation or inject a spurious
 	// feedback prompt — let the loop unwind the cancellation.
 	if ctx.Err() != nil {
@@ -508,9 +514,13 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	// session a refinement ("now add X") must be judged against itself, else the
 	// council holds every turn to the opening prompt and rejects correct follow-up
 	// work (and the agent then "fixes" it by undoing what the user just asked for).
-	// lastUserPromptText skips injected council/hook prompts (user-role, system-authored).
+	// turnTask was snapshotted at the turn's first step (not re-read here), so a steer
+	// that arrives during deliberation can't swap what the council judges against.
 	evs, _ := a.store.Read(ctx, sid, 0)
-	task := lastUserPromptText(evs)
+	task := turnTask
+	if task == "" { // defensive: fall back to the latest genuine prompt
+		task = lastUserPromptText(evs)
+	}
 	diff, diffErr := a.GitDiff(ctx, s.Workdir)
 	diff = truncateForCouncil(diff, councilDiffCap) // bound per-member token cost
 	// The agent's plan (todos, with status) is the council's CONTRACT (D15): the
