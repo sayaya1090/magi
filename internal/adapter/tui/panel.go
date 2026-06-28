@@ -104,7 +104,6 @@ func (m *Model) statusPanel(panelTop int) string {
 	// they never wrap — a wrapped row would shift every later panelY and break clicks.
 	content := m.panelW - 4
 	inner := content - 4
-	surf := lipgloss.NewStyle().Background(colSurface) // cream fill behind every inner segment
 	// Build the body as flat lines so each subagent row's panel-relative Y can be
 	// recorded for click hit-testing (right-panel click → zoom that subagent).
 	var lines []string
@@ -136,16 +135,15 @@ func (m *Model) statusPanel(panelTop int) string {
 				p.panelY = panelTop + len(lines) // screen Y for click→zoom (active panes only)
 			}
 			c := m.paneColorOf(p)
-			status := m.paneStatus(p, colSurface)
-			// Budget the label so "● <label> <status>" never exceeds the panel width
-			// (a wrap would push later rows off their recorded Y). The extra -1 covers
-			// oneLine's "…" ellipsis, which renders one cell past its max on truncation.
+			status := m.paneStatus(p, nil)
+			// Budget the label so "● <label> <status>" never exceeds the text width
+			// (a wrap would push later rows off their recorded Y).
 			labelW := inner - 3 - lipgloss.Width(status)
 			if labelW < 4 {
 				labelW = 4
 			}
-			lines = append(lines, surf.Foreground(c).Render("● ")+
-				surf.Render(oneLine(p.label(), labelW)+" ")+status)
+			lines = append(lines, lipgloss.NewStyle().Foreground(c).Render("● ")+
+				oneLine(p.label(), labelW)+" "+status)
 		}
 		// List active panes AND faded-out ones (doneRoster) together in their original
 		// SPAWN order (by sub), so a subagent keeps its position after it finishes
@@ -174,12 +172,14 @@ func (m *Model) statusPanel(panelTop int) string {
 	}
 
 	body := strings.Join(lines, "\n")
+	// Outline only, no fill: a border glyph isn't drawn at the cell's outer edge, so
+	// any background color spills past the line (cream protrudes) or leaves a ring.
+	// Keeping the interior transparent (terminal background) sidesteps that entirely —
+	// just a clean rounded outline.
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(colOutlVar).
-		BorderBackground(colSurface). // border cell is cream too — the whole card is one
-		Background(colSurface).       // surface color, so cream meets white at the card's
-		Width(content).               // outer edge (a clean cell boundary), not mid-glyph.
+		Width(content).
 		Padding(0, 1).
 		Render(body)
 }
@@ -209,33 +209,31 @@ func (m *Model) handlePanelClick(x, y int) bool {
 	return true
 }
 
-// panelHead renders a post-it section header (on the cream surface).
+// panelHead renders a post-it section header.
 func panelHead(s string) string {
-	return lipgloss.NewStyle().Foreground(colPrimary).Bold(true).Background(colSurface).Render(s)
+	return lipgloss.NewStyle().Foreground(colPrimary).Bold(true).Render(s)
 }
 
-// todoLine renders one plan item with a status glyph (on the cream surface).
+// todoLine renders one plan item with a status glyph.
 func todoLine(t session.Todo, width int) string {
-	surf := lipgloss.NewStyle().Background(colSurface)
 	text := oneLine(t.Content, width-2)
 	switch t.Status {
 	case "completed":
-		return surf.Foreground(colSuccess).Render("✓ ") + surf.Foreground(colMuted).Strikethrough(true).Render(text)
+		return lipgloss.NewStyle().Foreground(colSuccess).Render("✓ ") + lipgloss.NewStyle().Foreground(colMuted).Strikethrough(true).Render(text)
 	case "in_progress":
-		return surf.Foreground(colAccent).Render("◐ ") + surf.Bold(true).Render(text)
+		return lipgloss.NewStyle().Foreground(colAccent).Render("◐ ") + lipgloss.NewStyle().Bold(true).Render(text)
 	default:
-		return surf.Foreground(colMuted).Render("☐ " + text)
+		return lipgloss.NewStyle().Foreground(colMuted).Render("☐ " + text)
 	}
 }
 
-// ctxBar renders a compact context-usage meter (on the cream surface).
+// ctxBar renders a compact context-usage meter.
 func ctxBar(pct float64, width int) string {
-	surf := lipgloss.NewStyle().Background(colSurface)
 	barW := max(4, width-6)
 	filled := int(pct / 100 * float64(barW))
 	if filled > barW {
 		filled = barW
 	}
 	bar := strings.Repeat("▓", filled) + strings.Repeat("░", barW-filled)
-	return surf.Foreground(colPrimary).Render(bar) + surf.Render(fmt.Sprintf(" %2.0f%%", pct))
+	return lipgloss.NewStyle().Foreground(colPrimary).Render(bar) + fmt.Sprintf(" %2.0f%%", pct)
 }
