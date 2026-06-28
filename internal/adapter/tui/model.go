@@ -2589,7 +2589,7 @@ func (m Model) View() tea.View {
 		c := m.paneColorOf(p)
 		headLine = styleKeyLabel.Render("‹ back") + styleHeader.Render("   ") +
 			styleBrand.Render("✦ magi") + styleHeader.Render(" › ") +
-			lipgloss.NewStyle().Foreground(c).Bold(true).Render(p.desc(max(20, m.width-24))) + "  " + m.paneStatus(p)
+			lipgloss.NewStyle().Foreground(c).Bold(true).Render(p.desc(max(20, m.width-24))) + "  " + m.paneStatus(p, nil)
 	} else {
 		headLine = styleBrand.Render("✦ magi") +
 			styleHeader.Render("   model "+m.model+m.ctxMeter()+"   ") +

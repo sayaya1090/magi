@@ -52,7 +52,9 @@ func (m *Model) onPanelSplitter(x, y int) bool {
 // setPanelWidthForSplit resizes the post-it so its left edge follows column x
 // (the box's right edge stays at width-floatMarginRight), clamped to a usable range.
 func (m *Model) setPanelWidthForSplit(x int) {
-	w := m.width - floatMarginRight - x
+	// The box's outer width is panelW-4 (border+padding inset), so its left edge sits
+	// at width-(panelW-4)-floatMarginRight. Solve for panelW that lands the edge at x.
+	w := m.width - floatMarginRight - x + 4
 	if w < 24 {
 		w = 24
 	}
@@ -97,9 +99,12 @@ func (m *Model) statusPanel(panelTop int) string {
 	if !m.hasPanel() {
 		return ""
 	}
-	// content = panelW - border(2) - padding(2).
+	// content is the box's OUTER width (lipgloss insets border+padding); the usable
+	// text area inside is content - border(2) - padding(2). Budget rows to `inner` so
+	// they never wrap — a wrapped row would shift every later panelY and break clicks.
 	content := m.panelW - 4
-	inner := content
+	inner := content - 4
+	surf := lipgloss.NewStyle().Background(colSurface) // cream fill behind every inner segment
 	// Build the body as flat lines so each subagent row's panel-relative Y can be
 	// recorded for click hit-testing (right-panel click → zoom that subagent).
 	var lines []string
@@ -131,16 +136,16 @@ func (m *Model) statusPanel(panelTop int) string {
 				p.panelY = panelTop + len(lines) // screen Y for click→zoom (active panes only)
 			}
 			c := m.paneColorOf(p)
-			status := m.paneStatus(p)
+			status := m.paneStatus(p, colSurface)
 			// Budget the label so "● <label> <status>" never exceeds the panel width
 			// (a wrap would push later rows off their recorded Y). The extra -1 covers
 			// oneLine's "…" ellipsis, which renders one cell past its max on truncation.
-			labelW := inner - 4 - lipgloss.Width(status)
+			labelW := inner - 3 - lipgloss.Width(status)
 			if labelW < 4 {
 				labelW = 4
 			}
-			lines = append(lines, lipgloss.NewStyle().Foreground(c).Render("● ")+
-				oneLine(p.label(), labelW)+" "+status)
+			lines = append(lines, surf.Foreground(c).Render("● ")+
+				surf.Render(oneLine(p.label(), labelW)+" ")+status)
 		}
 		// List active panes AND faded-out ones (doneRoster) together in their original
 		// SPAWN order (by sub), so a subagent keeps its position after it finishes
@@ -203,30 +208,33 @@ func (m *Model) handlePanelClick(x, y int) bool {
 	return true
 }
 
-// panelHead renders a section header in the panel.
+// panelHead renders a post-it section header (on the cream surface).
 func panelHead(s string) string {
-	return lipgloss.NewStyle().Foreground(colPrimary).Bold(true).Render(s)
+	return lipgloss.NewStyle().Foreground(colPrimary).Bold(true).Background(colSurface).Render(s)
 }
 
-// todoLine renders one plan item with a status glyph.
+// todoLine renders one plan item with a status glyph (on the cream surface).
 func todoLine(t session.Todo, width int) string {
+	surf := lipgloss.NewStyle().Background(colSurface)
+	text := oneLine(t.Content, width-2)
 	switch t.Status {
 	case "completed":
-		return styleToolOK.Render("✓ ") + lipgloss.NewStyle().Foreground(colMuted).Strikethrough(true).Render(oneLine(t.Content, width-2))
+		return surf.Foreground(colSuccess).Render("✓ ") + surf.Foreground(colMuted).Strikethrough(true).Render(text)
 	case "in_progress":
-		return lipgloss.NewStyle().Foreground(colAccent).Render("◐ ") + lipgloss.NewStyle().Bold(true).Render(oneLine(t.Content, width-2))
+		return surf.Foreground(colAccent).Render("◐ ") + surf.Bold(true).Render(text)
 	default:
-		return lipgloss.NewStyle().Foreground(colMuted).Render("☐ " + oneLine(t.Content, width-2))
+		return surf.Foreground(colMuted).Render("☐ " + text)
 	}
 }
 
-// ctxBar renders a compact context-usage meter.
+// ctxBar renders a compact context-usage meter (on the cream surface).
 func ctxBar(pct float64, width int) string {
+	surf := lipgloss.NewStyle().Background(colSurface)
 	barW := max(4, width-6)
 	filled := int(pct / 100 * float64(barW))
 	if filled > barW {
 		filled = barW
 	}
 	bar := strings.Repeat("▓", filled) + strings.Repeat("░", barW-filled)
-	return lipgloss.NewStyle().Foreground(colPrimary).Render(bar) + fmt.Sprintf(" %2.0f%%", pct)
+	return surf.Foreground(colPrimary).Render(bar) + surf.Render(fmt.Sprintf(" %2.0f%%", pct))
 }

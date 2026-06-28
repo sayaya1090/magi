@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -495,13 +496,10 @@ func oneLine(s string, max int) string {
 	if max <= 0 {
 		return ""
 	}
-	// Rune-aware, and the result (incl. the ellipsis) stays WITHIN max so callers'
-	// width budgets aren't overrun by one cell — that one extra cell wrapped panel
-	// rows and broke click hit-testing. (Byte slicing could also split a rune.)
-	if r := []rune(s); len(r) > max {
-		return string(r[:max-1]) + "…"
-	}
-	return s
+	// Truncate by DISPLAY WIDTH (handles wide CJK/emoji and ANSI), keeping the result
+	// — ellipsis included — within max cells, so callers' width budgets aren't overrun
+	// (an overrun wrapped panel rows and broke click hit-testing).
+	return ansi.Truncate(s, max, "…")
 }
 
 // userPrompts extracts user-authored prompt texts from a reconstructed
