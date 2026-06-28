@@ -191,6 +191,11 @@ func planMemberSystem(m council.Member, lens string) string {
 			"- you would simply have planned it differently, or you are merely uncertain.\n"+
 			"A SIMPLE task needs only a SIMPLE plan. Never invent a flaw. If you cannot name a concrete defect in the "+
 			"steps, you APPROVE (or abstain).\n\n"+
+			"CALIBRATION — match this bar. Task: \"review the project's dev docs\"; Plan: \"1.[scout] find the docs  "+
+			"2.[parallel] read each  3.[solo] summarize\". The CORRECT verdicts are: correctness → done (discover→read→"+
+			"synthesize is a sound approach with no necessary action missing); completeness → done (the steps cover the "+
+			"whole request); verification → abstain (nothing to verify yet). Revising this plan — to add acceptance "+
+			"criteria, a verify step, or more detail — would be WRONG. Hold real plans to exactly this bar.\n\n"+
 			"SEPARATELY, through your lens, propose this task's COMPLETION CRITERIA in `criteria`: a short list (1-3) of "+
 			"concrete done-conditions used to judge the FINISHED work later (e.g. a file/output that must exist, a check "+
 			"that must pass). These are NOT steps the plan must contain, and their absence from the plan is NEVER a "+
