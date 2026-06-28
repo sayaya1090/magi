@@ -161,7 +161,12 @@ func (a *App) escalate(ctx context.Context, parent session.SessionID, fromRole, 
 	a.mu.Unlock()
 	defer func() {
 		a.mu.Lock()
-		delete(a.pendingAsks, parent)
+		// Only clear OUR entry: if answerPendingAsk already consumed it and another
+		// subagent has since registered its own ch, deleting unconditionally would
+		// orphan that second subagent (it'd block until its 2-minute timeout).
+		if a.pendingAsks[parent] == ch {
+			delete(a.pendingAsks, parent)
+		}
 		a.mu.Unlock()
 	}()
 

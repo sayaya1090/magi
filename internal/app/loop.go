@@ -339,6 +339,13 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					step--
 					continue
 				}
+				// Cancelled while parked in the bg-wait: return the cancellation like
+				// every other interrupt site, rather than falling through to the council/
+				// finalize path (which would emit a second turn.finished and report the
+				// cancelled turn as a success).
+				if ctx.Err() != nil {
+					return lastText, ctx.Err()
+				}
 			}
 			// Consensus council termination gate (D14): top level only, not in
 			// workflow mode, and only for turns that did real work — a purely
