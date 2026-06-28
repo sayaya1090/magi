@@ -52,8 +52,14 @@ func (multiWaveLLM) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan 
 		emit(port.ProviderEvent{Type: port.ProviderText, Text: "wave1 done"}, port.ProviderEvent{Type: port.ProviderFinish})
 	case strings.Contains(last, "WAVE2"):
 		emit(port.ProviderEvent{Type: port.ProviderText, Text: "wave2 done"}, port.ProviderEvent{Type: port.ProviderFinish})
-	default:
+	case strings.Contains(last, "staged review"):
+		// The ORIGINAL user prompt → dispatch the first wave (coder).
 		emit(task("coder", "WAVE1"), port.ProviderEvent{Type: port.ProviderFinish})
+	default:
+		// Any other context (e.g. a dispatch note arriving in a different order under
+		// load) must NOT re-dispatch — re-running a completed task would spawn again
+		// and make the spawn count flaky. Just wait.
+		emit(port.ProviderEvent{Type: port.ProviderText, Text: "waiting"}, port.ProviderEvent{Type: port.ProviderFinish})
 	}
 	return ch, nil
 }
