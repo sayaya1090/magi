@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -62,5 +63,30 @@ func TestExpandEnv(t *testing.T) {
 				t.Errorf("ExpandEnv(%q) = %q, want %q", tt.input, result, tt.expected)
 			}
 		})
+	}
+}
+
+// Top-level keys (model/base_url/permission/experience_dir) parse from config.toml.
+func TestLoadTopLevelKeys(t *testing.T) {
+	dir := t.TempDir()
+	toml := `model = "qwen3-coder:30b"
+base_url = "http://localhost:11434/v1"
+permission = "auto"
+experience_dir = "/team/brain"
+`
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(toml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Model != "qwen3-coder:30b" || c.BaseURL != "http://localhost:11434/v1" ||
+		c.Permission != "auto" || c.ExperienceDir != "/team/brain" {
+		t.Errorf("parsed config = %+v", c)
+	}
+	// A missing config dir is not an error (zero Config).
+	if _, err := Load(t.TempDir()); err != nil {
+		t.Errorf("missing config.toml should not error: %v", err)
 	}
 }
