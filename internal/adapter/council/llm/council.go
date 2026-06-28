@@ -148,6 +148,13 @@ func memberSystem(m council.Member, phase, task string) string {
 			"Choose exactly one vote:\n"+
 			"- \"done\": through your lens, the report reasonably satisfies the task. Judge it on its merits — if there is "+
 			"evidence it should back the claim; if there is none, the task simply didn't call for any.\n"+
+			"Distinguish the deliverable from talk about it: a plan, README, description, or summary of what was done is "+
+			"NOT itself the artifact. When the TASK (or the acceptance criteria) calls for a concrete artifact — a named "+
+			"file, a building/running program, a service, a specific output — \"done\" requires evidence in the REPORT, "+
+			"DIFF, or SIGNALS that the artifact actually exists; a confident claim alone is not evidence. If that evidence "+
+			"is absent, vote continue and name the missing artifact in feedback. This does NOT loosen the rule above: "+
+			"investigation, reading, answering, and analysis turns produce no artifact, and for them the absence of a diff "+
+			"is not a defect — judge the report's substance. Demand an artifact ONLY when the task itself asked for one.\n"+
 			"- \"continue\": ONLY when you can name a SPECIFIC, REAL defect through your lens — a FAILING signal, a part of "+
 			"the task/plan the report itself shows is unmet, or a concrete error in the work. Put the next step in "+
 			"`feedback`. A missing diff or signal is NOT a defect.\n"+

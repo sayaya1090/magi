@@ -37,6 +37,29 @@ func only(p port.LLMProvider) func(string) port.LLMProvider {
 	return func(string) port.LLMProvider { return p }
 }
 
+// The terminate-phase member prompt must carry the artifact-grounding clause (a
+// description is not the deliverable) WITHOUT displacing the no-churn balance, and
+// the clause must NOT leak into the pre-flight plan-audit prompt.
+func TestMemberPromptArtifactGrounding(t *testing.T) {
+	m := council.Member{Name: "x", Lens: "completeness"}
+	s := memberSystem(m, "terminate", "build a CLI tool")
+	if !strings.Contains(s, "is NOT itself the artifact") {
+		t.Error("terminate prompt missing artifact-grounding clause")
+	}
+	// no-churn balance retained (existing wording):
+	if !strings.Contains(s, "ABSENCE of a diff or signal is NEVER a reason to continue") {
+		t.Error("artifact clause must not displace the no-churn balance")
+	}
+	// read-only carve-out retained:
+	if !strings.Contains(s, "investigation") {
+		t.Error("read-only carve-out lost")
+	}
+	// terminate-only: the plan-audit prompt must NOT demand artifacts pre-flight:
+	if p := memberSystem(m, "plan", "build a CLI tool"); strings.Contains(p, "is NOT itself the artifact") {
+		t.Error("artifact clause leaked into the plan-audit prompt")
+	}
+}
+
 func TestDeliberateAllDone(t *testing.T) {
 	c := New(only(fakeLLM{reply: func(port.ChatRequest) string {
 		return `{"decision":"done","confidence":0.9,"rationale":"looks complete"}`
