@@ -2653,7 +2653,10 @@ func (m *Model) paletteView(matches []cmdInfo) string {
 		if i == sel {
 			b.WriteString(stylePalSelRow.Render("› " + name + "   " + c.desc))
 		} else {
-			b.WriteString("  " + stylePalName.Render(name) + "   " + styleFooter.Render(c.desc))
+			// styleToolResult (muted, NO padding) — styleFooter's Padding(0,1) reset the
+			// description's background to the terminal default (a white block in light
+			// themes) and added stray spaces. This keeps the box's surface behind it.
+			b.WriteString("  " + stylePalName.Render(name) + "   " + styleToolResult.Render(c.desc))
 		}
 	}
 	return stylePalBox.Width(m.width - 2).Render(b.String())

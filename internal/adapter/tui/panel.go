@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -117,14 +118,24 @@ func (m *Model) statusPanel(panelTop, height int) string {
 			lines = append(lines, lipgloss.NewStyle().Foreground(c).Render("● ")+
 				oneLine(p.label(), labelW)+" "+status)
 		}
-		for _, p := range m.panes {
-			paneRow(p, true)
+		// List active panes AND faded-out ones (doneRoster) together in their original
+		// SPAWN order (by sub), so a subagent keeps its position after it finishes
+		// instead of jumping to the bottom. Active ones stay click-to-zoomable.
+		type row struct {
+			p           *agentPane
+			interactive bool
 		}
-		// Finished subagents whose inline box faded out are kept here as a record (the
-		// right panel intentionally does NOT fade out). Listed after the active ones.
+		rows := make([]row, 0, len(m.panes)+len(m.doneRoster))
+		for _, p := range m.panes {
+			rows = append(rows, row{p, true})
+		}
 		for _, p := range m.doneRoster {
 			p.panelY = 0 // not inline-zoomable (no live pane)
-			paneRow(p, false)
+			rows = append(rows, row{p, false})
+		}
+		sort.SliceStable(rows, func(i, j int) bool { return rows[i].p.sub < rows[j].p.sub })
+		for _, r := range rows {
+			paneRow(r.p, r.interactive)
 		}
 	}
 

@@ -73,6 +73,24 @@ func TestFadedPaneStaysInPanelRoster(t *testing.T) {
 	}
 }
 
+// The right panel lists subagents in spawn order even after one fades into the
+// roster — a finished subagent keeps its position instead of jumping to the bottom.
+func TestPanelKeepsSubagentOrderAfterFade(t *testing.T) {
+	mm := newTestModel(t)
+	m := &mm
+	m.width, m.height = 80, 40
+	pa := &agentPane{role: "aaa", sub: 1, done: true}
+	pb := &agentPane{role: "bbb", sub: 2, done: true} // the middle one faded out
+	pc := &agentPane{role: "ccc", sub: 3}
+	m.panes = []*agentPane{pa, pc}  // active (out of spawn order in the slice)
+	m.doneRoster = []*agentPane{pb} // faded
+	panel := m.statusPanel(2, 30)
+	ia, ib, ic := strings.Index(panel, "aaa"), strings.Index(panel, "bbb"), strings.Index(panel, "ccc")
+	if !(ia >= 0 && ib >= 0 && ic >= 0 && ia < ib && ib < ic) {
+		t.Fatalf("panel should keep spawn order aaa<bbb<ccc, got %d,%d,%d:\n%s", ia, ib, ic, panel)
+	}
+}
+
 // Each finished pane fades on its OWN clock: an early-finished pane is removed while
 // a sibling is still running (it doesn't wait for the others or the turn).
 func TestPaneFadeIsPerPane(t *testing.T) {
