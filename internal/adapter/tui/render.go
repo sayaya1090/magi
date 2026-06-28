@@ -492,8 +492,14 @@ func toStr(v any) string {
 func oneLine(s string, max int) string {
 	s = strings.ReplaceAll(s, "\n", " ")
 	s = strings.Join(strings.Fields(s), " ")
-	if len(s) > max {
-		return s[:max] + "…"
+	if max <= 0 {
+		return ""
+	}
+	// Rune-aware, and the result (incl. the ellipsis) stays WITHIN max so callers'
+	// width budgets aren't overrun by one cell — that one extra cell wrapped panel
+	// rows and broke click hit-testing. (Byte slicing could also split a rune.)
+	if r := []rune(s); len(r) > max {
+		return string(r[:max-1]) + "…"
 	}
 	return s
 }

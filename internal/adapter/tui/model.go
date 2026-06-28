@@ -327,11 +327,20 @@ func renderTick() tea.Cmd {
 	return tea.Tick(60*time.Millisecond, func(time.Time) tea.Msg { return renderTickMsg{} })
 }
 
+// bgPollMsg drives periodic re-querying of the terminal background color. Terminals
+// rarely PUSH a theme-change notification, but they reliably answer the OSC 11 query,
+// so polling lets magi follow a live OS light↔dark switch within a couple seconds.
+type bgPollMsg struct{}
+
+func bgPoll() tea.Cmd {
+	return tea.Tick(2*time.Second, func(time.Time) tea.Msg { return bgPollMsg{} })
+}
+
 func (m Model) Init() tea.Cmd {
 	// Clear the screen on startup so magi opens on a clean canvas rather than
 	// visually continuing the terminal's prior scrollback.
 	// Subscribe via a message so the mutation lands on the running model.
-	return tea.Batch(tea.ClearScreen, textarea.Blink, renderTick(), tea.RequestBackgroundColor, func() tea.Msg {
+	return tea.Batch(tea.ClearScreen, textarea.Blink, renderTick(), tea.RequestBackgroundColor, bgPoll(), func() tea.Msg {
 		return subscribeMsg{sid: m.sid, fromSeq: 0}
 	})
 }
@@ -344,6 +353,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resize(msg.Width, msg.Height)
 		m.refresh()
 		return m, nil
+
+	case bgPollMsg:
+		// Re-query the terminal's background color, then reschedule — a BackgroundColorMsg
+		// will follow and flip the theme below if it changed.
+		return m, tea.Batch(tea.RequestBackgroundColor, bgPoll())
 
 	case tea.BackgroundColorMsg:
 		// The terminal reported its background color — at startup and again whenever
@@ -565,7 +579,7 @@ func (m *Model) handleMouse(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 		// Grabbing the panel's left edge starts a resize drag (not a selection).
-		if e.Button == tea.MouseLeft && m.onPanelSplitter(e.X) {
+		if e.Button == tea.MouseLeft && m.onPanelSplitter(e.X, e.Y) {
 			m.resizingPanel = true
 			return nil
 		}
@@ -2594,7 +2608,10 @@ func (m Model) View() tea.View {
 			headLine += "  " + styleBadge.Render(fmt.Sprintf("⛐ %d: %s", len(m.activeAgents), agentSummary(m.activeAgents)))
 		}
 	}
-	header := styleHeader.Render(headLine) +
+	// Cap the header to the screen width so a long chip/badge can't SOFT-WRAP to a
+	// second physical row — that would desync physical rows from the logical layout
+	// (headerRows=2) and throw off the post-it/toast overlay click hit-testing.
+	header := styleHeader.MaxWidth(m.width).Render(headLine) +
 		"\n" + styleDivider.Render(strings.Repeat("─", max(1, m.width)))
 
 	var status string

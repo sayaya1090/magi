@@ -39,13 +39,20 @@ func (m *Model) hasPanel() bool {
 // transcript uses the full width and the box is composited over it (see floatPanel).
 func (m *Model) panelCols() int { return 0 }
 
-// onPanelSplitter is retained for the mouse handler but always false: the floating
-// post-it has a fixed width, so there is no draggable splitter.
-func (m *Model) onPanelSplitter(int) bool { return false }
+// onPanelSplitter reports whether (x,y) is on the post-it's draggable LEFT edge —
+// drag it to resize the box's width (the height stays content-driven).
+func (m *Model) onPanelSplitter(x, y int) bool {
+	box, top, left, ok := m.floatPanel()
+	if !ok {
+		return false
+	}
+	return y >= top && y < top+lipgloss.Height(box) && x >= left-1 && x <= left+1
+}
 
-// setPanelWidthForSplit is retained for the (now-inert) resize handler.
+// setPanelWidthForSplit resizes the post-it so its left edge follows column x
+// (the box's right edge stays at width-floatMarginRight), clamped to a usable range.
 func (m *Model) setPanelWidthForSplit(x int) {
-	w := m.width - x - 1
+	w := m.width - floatMarginRight - x
 	if w < 24 {
 		w = 24
 	}
@@ -74,6 +81,11 @@ func (m *Model) floatPanel() (box string, top, left int, ok bool) {
 	left = m.width - lipgloss.Width(box) - floatMarginRight
 	if left < 24 {
 		return "", 0, 0, false // keep a usable transcript width
+	}
+	// Don't paint over the input/footer (or a modal above them) on a short terminal:
+	// reserve a few bottom rows. If the box can't fit above them, hide it.
+	if m.height > 0 && top+lipgloss.Height(box) > m.height-4 {
+		return "", 0, 0, false
 	}
 	return box, top, left, true
 }

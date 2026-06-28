@@ -2,13 +2,31 @@ package tui
 
 import "testing"
 
-// The floating post-it has a fixed width — there is no draggable splitter.
-func TestNoPanelSplitter(t *testing.T) {
+// The post-it's left edge is draggable to resize its width.
+func TestPanelResizeEdge(t *testing.T) {
 	m := newTestModel(t)
-	m.width = 100
+	m.width, m.height = 100, 40
 	m.panes = []*agentPane{{role: "coder"}} // makes hasPanel true
-	if m.onPanelSplitter(55) || m.onPanelSplitter(10) {
-		t.Fatal("the floating panel has no splitter; onPanelSplitter must always be false")
+	_, top, left, ok := m.floatPanel()
+	if !ok {
+		t.Fatal("post-it should be shown")
+	}
+	if !m.onPanelSplitter(left, top) {
+		t.Fatalf("the box's left edge (col %d) should be the resize handle", left)
+	}
+	if m.onPanelSplitter(left-20, top) {
+		t.Fatal("a column well left of the box is not the handle")
+	}
+	// Drag the edge left → wider box (right edge fixed at width-floatMarginRight).
+	before := m.panelW
+	m.setPanelWidthForSplit(left - 10)
+	if m.panelW <= before {
+		t.Fatalf("dragging the edge left should widen the panel: %d -> %d", before, m.panelW)
+	}
+	// Clamp to the minimum width.
+	m.setPanelWidthForSplit(m.width - 1)
+	if m.panelW != 24 {
+		t.Fatalf("min width clamp = %d, want 24", m.panelW)
 	}
 }
 
