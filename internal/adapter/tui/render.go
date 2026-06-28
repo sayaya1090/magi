@@ -301,7 +301,31 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 			}
 			segs[i] = seg
 		}
-		return indent(strings.Join(segs, councilRowSep))
+		row := indent(strings.Join(segs, councilRowSep))
+		// Below the one-line row, summarize WHY each member that voted to CONTINUE
+		// (reject/revise) did so — feedback, else rationale — the reason that was
+		// otherwise only visible by clicking the member. done/abstain add no line, so
+		// the row stays compact when the council agrees (or merely abstains).
+		var reasons []string
+		for _, v := range blk.councilVerdicts {
+			if v.Decision != "continue" {
+				continue
+			}
+			reason := strings.TrimSpace(v.Feedback)
+			if reason == "" {
+				reason = strings.TrimSpace(v.Rationale)
+			}
+			if reason == "" {
+				continue
+			}
+			hue := m.councilColor(v.Member)
+			label := lipgloss.NewStyle().Foreground(hue).Render("  → " + v.Member + ": ")
+			reasons = append(reasons, indent(label+styleToolResult.Render(oneLine(reason, max(20, m.transcriptWidth()-len(v.Member)-8)))))
+		}
+		if len(reasons) > 0 {
+			return row + "\n" + strings.Join(reasons, "\n")
+		}
+		return row
 	case blockDiff:
 		return label(styleAsstLabel, "diff") + "\n" + indent(colorizeDiff(blk.text))
 	case blockReasoning:

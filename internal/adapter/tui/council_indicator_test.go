@@ -138,6 +138,29 @@ func TestCouncilVerdictsOnOneLine(t *testing.T) {
 		}
 	}
 
+	// A continue (reject/revise) vote prints its reason on a line below the row; the
+	// member row itself stays a single line.
+	mm2 := newTestModel(t)
+	m2 := &mm2
+	m2.width = 120
+	for _, v := range []event.CouncilVerdictData{
+		{Round: 1, Member: "Melchior", Lens: "correctness", Decision: "done", Confidence: 0.9},
+		{Round: 1, Member: "Balthasar", Lens: "verification", Decision: "continue", Confidence: 0.91, Feedback: "no test covers --dry-run"},
+	} {
+		m2.applyEvent(ev(t, event.TypeCouncilVerdict, v))
+	}
+	out := m2.renderBlock(m2.blocks[len(m2.blocks)-1])
+	rows := strings.Split(out, "\n")
+	if len(rows) < 2 {
+		t.Fatalf("a reject reason should render below the row:\n%q", out)
+	}
+	if strings.Contains(rows[0], "\n") || !strings.Contains(rows[0], "Balthasar") {
+		t.Fatalf("first line should be the one-line member row: %q", rows[0])
+	}
+	if !strings.Contains(out, "no test covers --dry-run") {
+		t.Fatalf("reject reason missing from render:\n%q", out)
+	}
+
 	// Clicking in the third member's column range opens Casper's detail.
 	i := len(m.blocks) - 1
 	m.blockLineStart = make([]int, len(m.blocks))
