@@ -24,6 +24,19 @@ that builds magi from source inside each task container and runs it headless.
   > container — use a host-routable URL (e.g. `http://host.docker.internal:11434/v1`)
   > or a hosted endpoint.
 
+  **Free hosted models (recommended for benchmarking)** — OpenAI-compatible, reachable
+  straight from the container (no host routing), no credit card. Pass the model id
+  exactly as the backend expects (it's sent verbatim to `--model`):
+  ```sh
+  # OpenRouter — has a free qwen3-coder (480B) and ~28 other free models, one key:
+  export MAGI_BASE_URL=https://openrouter.ai/api/v1
+  export MAGI_API_KEY=sk-or-...
+  #   --model qwen/qwen3-coder         (or any "<vendor>/<model>" free id)
+  # Google Gemini (OpenAI-compatible): MAGI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
+  # Groq:                              MAGI_BASE_URL=https://api.groq.com/openai/v1
+  ```
+  > Note: an OpenAI API key gives no *free* model — OpenAI's API is paid per token.
+
 ## Run
 
 From the **repo root** (so the dotted import path resolves):

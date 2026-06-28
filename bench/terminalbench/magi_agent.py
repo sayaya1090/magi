@@ -40,9 +40,11 @@ class MagiAgent(AbstractInstalledAgent):
 
     def __init__(self, model_name: str = "qwen3-coder:30b", *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Terminal-Bench passes the bare/prefixed model via --model; magi wants the
-        # tail (e.g. "openai/qwen3-coder:30b" -> "qwen3-coder:30b").
-        self._model_name = model_name.split("/", 1)[-1]
+        # Pass the model id to magi verbatim — it goes straight to the OpenAI-compatible
+        # endpoint's `model` field, so it must keep any provider prefix the backend wants
+        # (e.g. Ollama "qwen3-coder:30b", OpenRouter "qwen/qwen3-coder"). Set --model to
+        # exactly what MAGI_BASE_URL expects.
+        self._model_name = model_name
         # git ref of magi to build (branch, tag, or sha); override with --version.
         self._ref = kwargs.get("version") or "main"
         # Fast path: if binary_url is given (-k binary_url=http://host.docker.internal:PORT),
