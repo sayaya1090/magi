@@ -177,8 +177,9 @@ func (m *Model) statusPanel(panelTop int) string {
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(colOutlVar).
-		Background(colSurface).
-		Width(content).
+		BorderBackground(colSurface). // border cell is cream too — the whole card is one
+		Background(colSurface).       // surface color, so cream meets white at the card's
+		Width(content).               // outer edge (a clean cell boundary), not mid-glyph.
 		Padding(0, 1).
 		Render(body)
 }
