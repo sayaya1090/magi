@@ -261,6 +261,10 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 		if diff != "" {
 			return indent(head) + "\n" + indent(m.renderCodeDiff(diff, rawPath(blk.args), m.transcriptWidth()-2))
 		}
+		// Other tools (e.g. bash) show their output as a folded body beneath the line.
+		if body := m.renderToolBody(blk); body != "" {
+			return indent(head) + "\n" + indent(body)
+		}
 		return indent(head)
 	case blockToolResult:
 		// Fallback: a result with no matching call (foldToolResult appends this).

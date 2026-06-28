@@ -477,7 +477,14 @@ func (m *Model) toggleThoughtAt(line int) bool {
 			break
 		}
 	}
-	if i < 0 || i >= len(m.blocks) || m.blocks[i].kind != blockReasoning {
+	if i < 0 || i >= len(m.blocks) {
+		return false
+	}
+	// Foldable blocks: a reasoning ("thought") block, or a tool block whose output
+	// overflows the collapsed cap (e.g. a long bash result). Other lines fall through
+	// so the click can focus a pane instead.
+	b := m.blocks[i]
+	if b.kind != blockReasoning && !(b.kind == blockToolCall && toolBodyOverflows(b)) {
 		return false
 	}
 	if !m.thoughtClickSkip(line) {
