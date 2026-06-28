@@ -1509,10 +1509,13 @@ func (m *Model) switchSession(sid session.SessionID) tea.Cmd {
 	m.histIdx = len(m.history)
 	m.cache = m.cache[:0]
 	m.liveText, m.liveThink, m.running, m.activeAgents = "", "", false, nil
+	// Subscribe from lastSeq so we stream only new events (transcript already shown).
+	// startSub calls closePanes (retiring the old session's panes), so restore the
+	// resumed session's subagent panes AFTER it — otherwise they're wiped immediately.
+	cmd := m.startSub(sid, lastSeq)
 	m.restoreChildPanes(sid) // bring this session's subagents back as inspectable panes
 	m.refresh()
-	// Subscribe from lastSeq so we stream only new events (transcript already shown).
-	return tea.Batch(m.startSub(sid, lastSeq), m.snack("resumed "+string(sid)))
+	return tea.Batch(cmd, m.snack("resumed "+string(sid)))
 }
 
 // info appends an info block to the transcript.
