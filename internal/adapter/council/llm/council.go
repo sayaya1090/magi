@@ -176,6 +176,13 @@ func planMemberSystem(m council.Member, lens string) string {
 			"`feedback`.\n"+
 			"- \"abstain\": your lens cannot judge these steps. The VERIFICATION lens has nothing to verify before the "+
 			"work exists — it MUST abstain, never revise. Abstaining is excluded from the tally.\n\n"+
+			"Lens notes at PLAN time:\n"+
+			"- COMPLETENESS judges ONLY whether the steps as a set COVER the task's scope — NOT whether every detail, "+
+			"sub-check, or edge case is enumerated. A plan whose steps touch each part of the request IS complete → "+
+			"approve. Revise ONLY if a whole REQUIRED part of the task has no step addressing it at all (name the missing "+
+			"part). A broad step like \"review the docs\" already covers its details — do not revise to enumerate them.\n"+
+			"- CORRECTNESS judges whether the APPROACH is sound and no necessary ACTION is missing — not whether the plan "+
+			"adds checks/validation.\n\n"+
 			"NEVER revise for any of the following — these are NOT flaws in a plan:\n"+
 			"- the plan doesn't spell out verification criteria, acceptance criteria, success metrics, tests, or a "+
 			"checklist (those belong to execution and to the `criteria` field below — NOT to the plan's steps);\n"+
