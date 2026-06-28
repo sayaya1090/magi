@@ -1,12 +1,14 @@
 package builtin
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -31,7 +33,7 @@ type webSearchArgs struct {
 
 func (WebSearch) Name() string { return "websearch" }
 func (WebSearch) Description() string {
-	return "Search the web and return the top results (title, url, snippet). Use to find documentation, library APIs, or fixes for errors. Use webfetch afterward to read a result in full."
+	return "Search the web and return the top results (title, url, snippet). Use to find documentation, library APIs, or fixes for errors. Use webfetch afterward to read a result in full. Uses Brave or Tavily when BRAVE_API_KEY / TAVILY_API_KEY is set, else keyless DuckDuckGo."
 }
 func (WebSearch) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"},"count":{"type":"integer","description":"max results (default 5, max 10)"}},"required":["query"]}`)
@@ -57,27 +59,28 @@ func (w WebSearch) Execute(ctx context.Context, raw json.RawMessage, env port.To
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
-	endpoint := "https://html.duckduckgo.com/html/?q=" + url.QueryEscape(a.Query)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return errResult("", err.Error()), nil
-	}
-	// A browser-like UA — the endpoint returns a blocked page to unknown agents.
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; magi/agent)")
-	resp, err := client.Do(req)
-	if err != nil {
-		return errResult("", "search failed: "+err.Error()), nil
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return errResult("", "search http status "+resp.Status), nil
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
-	if err != nil {
-		return errResult("", err.Error()), nil
-	}
 
-	results := parseDDGResults(string(body))
+	// Provider: a paid API when its key is configured (better quality / no scraping),
+	// else keyless DuckDuckGo.
+	var (
+		results  []searchResult
+		provider string
+		err2     error
+	)
+	switch {
+	case os.Getenv("BRAVE_API_KEY") != "":
+		provider = "brave"
+		results, err2 = braveSearch(ctx, client, os.Getenv("BRAVE_API_KEY"), a.Query, count)
+	case os.Getenv("TAVILY_API_KEY") != "":
+		provider = "tavily"
+		results, err2 = tavilySearch(ctx, client, os.Getenv("TAVILY_API_KEY"), a.Query, count)
+	default:
+		provider = "duckduckgo"
+		results, err2 = ddgSearch(ctx, client, a.Query)
+	}
+	if err2 != nil {
+		return errResult("", "search ("+provider+") failed: "+err2.Error()), nil
+	}
 	if len(results) == 0 {
 		return okText("", "no results"), nil
 	}
@@ -96,6 +99,99 @@ func (w WebSearch) Execute(ctx context.Context, raw json.RawMessage, env port.To
 
 type searchResult struct {
 	Title, URL, Snippet string
+}
+
+// ddgSearch is the keyless provider: it scrapes DuckDuckGo's HTML endpoint.
+func ddgSearch(ctx context.Context, client *http.Client, query string) ([]searchResult, error) {
+	endpoint := "https://html.duckduckgo.com/html/?q=" + url.QueryEscape(query)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	// A browser-like UA — the endpoint returns a blocked page to unknown agents.
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; magi/agent)")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("http status %s", resp.Status)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
+	if err != nil {
+		return nil, err
+	}
+	return parseDDGResults(string(body)), nil
+}
+
+// braveSearch uses the Brave Search API (X-Subscription-Token auth).
+func braveSearch(ctx context.Context, client *http.Client, key, query string, count int) ([]searchResult, error) {
+	endpoint := fmt.Sprintf("https://api.search.brave.com/res/v1/web/search?count=%d&q=%s", count, url.QueryEscape(query))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Subscription-Token", key)
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("http status %s", resp.Status)
+	}
+	var data struct {
+		Web struct {
+			Results []struct {
+				Title       string `json:"title"`
+				URL         string `json:"url"`
+				Description string `json:"description"`
+			} `json:"results"`
+		} `json:"web"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, err
+	}
+	out := make([]searchResult, 0, len(data.Web.Results))
+	for _, r := range data.Web.Results {
+		out = append(out, searchResult{Title: cleanHTML(r.Title), URL: r.URL, Snippet: cleanHTML(r.Description)})
+	}
+	return out, nil
+}
+
+// tavilySearch uses the Tavily Search API (JSON body with the key).
+func tavilySearch(ctx context.Context, client *http.Client, key, query string, count int) ([]searchResult, error) {
+	reqBody, _ := json.Marshal(map[string]any{"api_key": key, "query": query, "max_results": count})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.tavily.com/search", bytes.NewReader(reqBody))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("http status %s", resp.Status)
+	}
+	var data struct {
+		Results []struct {
+			Title   string `json:"title"`
+			URL     string `json:"url"`
+			Content string `json:"content"`
+		} `json:"results"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, err
+	}
+	out := make([]searchResult, 0, len(data.Results))
+	for _, r := range data.Results {
+		out = append(out, searchResult{Title: cleanHTML(r.Title), URL: r.URL, Snippet: cleanHTML(r.Content)})
+	}
+	return out, nil
 }
 
 var (
