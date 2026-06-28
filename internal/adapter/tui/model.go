@@ -209,6 +209,10 @@ func New(ctx context.Context, a *app.App, sid session.SessionID, model, workdir 
 	st.Blurred.Prompt = lipgloss.NewStyle().Foreground(colOutline)
 	st.Focused.Placeholder = lipgloss.NewStyle().Foreground(colMuted)
 	st.Blurred.Placeholder = lipgloss.NewStyle().Foreground(colMuted)
+	// DefaultStyles paints the focused cursor line a near-white bg (ANSI 255 in light
+	// themes), which clashes with the input box's own (unset) background — only the
+	// text line filled, the box not. Drop it so the input box is uniform (flat).
+	st.Focused.CursorLine = st.Focused.CursorLine.UnsetBackground()
 	ta.SetStyles(st)
 	ta.Focus()
 
