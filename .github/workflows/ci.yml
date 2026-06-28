@@ -50,9 +50,12 @@ jobs:
               echo ""
               echo "| Package | Coverage | |"
               echo "|---|---:|:--|"
-              # One row per tested package, lowest coverage first (what needs work), with
-              # a 🟥/🟨/🟩 status (<50 / <80 / ≥80). Untested packages are omitted.
-              grep 'coverage:' test-output.txt \
+              # One row per package that HAS tests (lines starting with "ok"), lowest
+              # coverage first, with a 🟥/🟨/🟩 status (<50 / <80 / ≥80). Packages with no
+              # test files of their own (cmd/magi, interface-only pkgs) report a bare
+              # "coverage: 0.0%" without the "ok" prefix and are omitted — there's nothing
+              # to test there. A tested package that is genuinely 0% (a real gap) is kept.
+              grep -E '^ok\b.*coverage:' test-output.txt \
                 | sed -E 's#github.com/sayaya1090/magi/##' \
                 | awk '{
                     for (i=1;i<=NF;i++) if ($i=="coverage:") { p=$(i+1); sub(/%/,"",p) }
