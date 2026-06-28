@@ -5,11 +5,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/sayaya1090/magi/internal/adapter/platform"
+	"github.com/sayaya1090/magi/internal/app"
+	"github.com/sayaya1090/magi/internal/config"
 	"github.com/sayaya1090/magi/internal/core/command"
+	corecouncil "github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -174,6 +179,123 @@ func TestMergeStrMap(t *testing.T) {
 	// nil base + override allocates a new map.
 	if got := mergeStrMap(nil, map[string]string{"k": "v"}); got["k"] != "v" {
 		t.Errorf("nil base + over = %v", got)
+	}
+}
+
+// env returns the env var when set non-empty, else the default.
+func TestEnv(t *testing.T) {
+	t.Setenv("MAGI_TEST_ENV", "set-value")
+	if got := env("MAGI_TEST_ENV", "def"); got != "set-value" {
+		t.Errorf("env(set) = %q, want set-value", got)
+	}
+	if got := env("MAGI_TEST_UNSET_ENV", "def"); got != "def" {
+		t.Errorf("env(unset) = %q, want def", got)
+	}
+	// An explicitly empty value is treated as unset (falls back to default).
+	t.Setenv("MAGI_TEST_EMPTY_ENV", "")
+	if got := env("MAGI_TEST_EMPTY_ENV", "def"); got != "def" {
+		t.Errorf("env(empty) = %q, want def", got)
+	}
+}
+
+// orStr returns the first arg when non-empty, else the second.
+func TestOrStr(t *testing.T) {
+	if got := orStr("a", "b"); got != "a" {
+		t.Errorf("orStr(a,b) = %q, want a", got)
+	}
+	if got := orStr("", "b"); got != "b" {
+		t.Errorf("orStr(empty,b) = %q, want b", got)
+	}
+	if got := orStr("", ""); got != "" {
+		t.Errorf("orStr(empty,empty) = %q, want empty", got)
+	}
+}
+
+// councilSignals puts the `verify` shorthand first (named "verify"), then any
+// configured [[council.signal]] entries, skipping ones with an empty command.
+func TestCouncilSignals(t *testing.T) {
+	// No verify, no signals → empty.
+	if got := councilSignals(config.CouncilConfig{}); len(got) != 0 {
+		t.Errorf("empty config → %v, want none", got)
+	}
+	cc := config.CouncilConfig{
+		Verify: "go test ./...",
+		Signals: []config.CouncilSignalConfig{
+			{Name: "lint", Command: "golangci-lint run"},
+			{Name: "skipme", Command: ""}, // dropped: no command
+		},
+	}
+	got := councilSignals(cc)
+	if len(got) != 2 {
+		t.Fatalf("got %d signals, want 2: %+v", len(got), got)
+	}
+	if got[0] != (app.CouncilSignalSpec{Name: "verify", Command: "go test ./..."}) {
+		t.Errorf("verify shorthand not first: %+v", got[0])
+	}
+	if got[1] != (app.CouncilSignalSpec{Name: "lint", Command: "golangci-lint run"}) {
+		t.Errorf("signal[1] = %+v, want lint", got[1])
+	}
+}
+
+// toCouncilMembers returns nil for no members (app falls back to defaults), and
+// otherwise inherits a profile's model only when the member pins no model.
+func TestToCouncilMembers(t *testing.T) {
+	if got := toCouncilMembers(nil, nil); got != nil {
+		t.Errorf("no members → %v, want nil", got)
+	}
+	profiles := map[string]config.LLMProfile{"fast": {Model: "profile-model"}}
+	ms := []config.CouncilMember{
+		{Name: "Melchior", Lens: "correctness", Provider: "fast"},                 // inherits profile model
+		{Name: "Balthasar", Lens: "verification", Model: "pinned", Provider: "fast"}, // keeps its own model
+		{Name: "Casper", Lens: "completeness", Provider: "unknown"},                // unknown profile → no model
+		{Name: "Solo", Lens: "x", Weight: 2},                                       // no provider → unchanged
+	}
+	got := toCouncilMembers(ms, profiles)
+	want := []corecouncil.Member{
+		{Name: "Melchior", Lens: "correctness", Model: "profile-model", Provider: "fast"},
+		{Name: "Balthasar", Lens: "verification", Model: "pinned", Provider: "fast"},
+		{Name: "Casper", Lens: "completeness", Model: "", Provider: "unknown"},
+		{Name: "Solo", Lens: "x", Weight: 2},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d members, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("member[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+// toAppHooks copies each config hook's event/match/command into an app HookSpec.
+func TestToAppHooks(t *testing.T) {
+	if got := toAppHooks(nil); len(got) != 0 {
+		t.Errorf("nil hooks → %v, want empty", got)
+	}
+	hs := []config.Hook{{Event: "PreToolUse", Match: "bash", Command: "echo hi"}}
+	got := toAppHooks(hs)
+	if len(got) != 1 || got[0] != (app.HookSpec{Event: "PreToolUse", Match: "bash", Command: "echo hi"}) {
+		t.Errorf("toAppHooks = %+v", got)
+	}
+}
+
+// pluginDirs lists the global config dir and the project-local .magi/plugins, and
+// appends an explicit extra directory only when one is given.
+func TestPluginDirs(t *testing.T) {
+	plat := platform.New()
+	got := pluginDirs(plat, "/work", "")
+	if len(got) != 2 {
+		t.Fatalf("no extra → %d dirs, want 2: %v", len(got), got)
+	}
+	if got[1] != filepath.Join("/work", ".magi", "plugins") {
+		t.Errorf("project dir = %q", got[1])
+	}
+	if got[0] != filepath.Join(plat.ConfigDir(), "plugins") {
+		t.Errorf("global dir = %q", got[0])
+	}
+	withExtra := pluginDirs(plat, "/work", "/extra/plugins")
+	if len(withExtra) != 3 || withExtra[2] != "/extra/plugins" {
+		t.Errorf("extra dir not appended: %v", withExtra)
 	}
 }
 
