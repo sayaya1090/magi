@@ -181,6 +181,7 @@ func (m *Model) openPane(ev event.Event) tea.Cmd {
 	m.subID++
 	p := &agentPane{sid: cid, role: orDefaultStr(d.Role, d.AgentID), ch: ch, cancel: cancel, sub: m.subID}
 	m.panes = append(m.panes, p)
+	fadeDbg("openPane sid=%s role=%s sub=%d (panes=%d)", shortSID(cid), p.role, p.sub, len(m.panes))
 	// A newly active agent cancels any pending finished-pane fade (not idle anymore).
 	m.turnEndAt = time.Time{}
 	m.paneFade = 0
@@ -378,6 +379,7 @@ func (m *Model) applyPaneEvent(p *agentPane, e event.Event) {
 		}
 	case event.TypeTurnFinished, event.TypeError:
 		p.done = true
+		fadeDbg("pane %s DONE via child %s", shortSID(p.sid), e.Type)
 		p.live = ""
 		p.liveThink = ""
 		if !p.started.IsZero() {
@@ -415,7 +417,15 @@ func (m *Model) panesAllDone() bool {
 // so panes fade out when the agents finish their work — without waiting for the whole
 // turn to end. A later-dispatched agent (openPane) resets it.
 func (m *Model) armPaneFadeIfIdle() {
-	if m.turnEndAt.IsZero() && m.panesAllDone() {
+	done := 0
+	for _, p := range m.panes {
+		if p.done {
+			done++
+		}
+	}
+	armed := m.turnEndAt.IsZero() && m.panesAllDone()
+	fadeDbg("armPaneFadeIfIdle: done=%d/%d allDone=%v -> arm=%v", done, len(m.panes), m.panesAllDone(), armed)
+	if armed {
 		m.turnEndAt = time.Now()
 	}
 }

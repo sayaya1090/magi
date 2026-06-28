@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -251,6 +252,33 @@ var slashCommands = []cmdInfo{
 // MAGI_DEBUG_FADE is set, so a stuck fade can be diagnosed from the screen.
 var debugFade = os.Getenv("MAGI_DEBUG_FADE") != ""
 
+// fadeLogFile is a written trace of pane lifecycle + fade events (MAGI_DEBUG_FADE)
+// at /tmp/magi-fade.log, so a stuck fade can be diagnosed without copy-pasting.
+var fadeLogFile = func() *os.File {
+	if !debugFade {
+		return nil
+	}
+	f, _ := os.Create("/tmp/magi-fade.log")
+	return f
+}()
+
+// fadeDbg appends a timestamped line to the fade trace file (no-op unless enabled).
+func fadeDbg(format string, a ...any) {
+	if fadeLogFile == nil {
+		return
+	}
+	fmt.Fprintf(fadeLogFile, time.Now().Format("15:04:05.000")+" "+format+"\n", a...)
+	_ = fadeLogFile.Sync()
+}
+
+// shortSID is the tail of a session id, for compact log lines.
+func shortSID(s session.SessionID) string {
+	if t := string(s); len(t) > 6 {
+		return t[len(t)-6:]
+	}
+	return string(s)
+}
+
 // fadeDebug renders the fade machinery's live state for the footer (MAGI_DEBUG_FADE).
 func (m *Model) fadeDebug() string {
 	done := 0
@@ -263,20 +291,29 @@ func (m *Model) fadeDebug() string {
 	if !m.turnEndAt.IsZero() {
 		armed = fmt.Sprintf("%.1fs", time.Since(m.turnEndAt).Seconds())
 	}
-	per := make([]string, len(m.panes))
-	for i, p := range m.panes {
-		d := "✗"
+	// Aggregate the STUCK (not-done) panes by their last event type — this fits the
+	// footer (a per-pane list overflows + gets clipped) and pinpoints the failure:
+	// last=turn.finished but stuck → done-handling bug; last=other → finish not delivered.
+	stuckLast := map[string]int{}
+	stuckEv := ""
+	for _, p := range m.panes {
 		if p.done {
-			d = "✓"
+			continue
 		}
-		last := p.lastEv
-		if last == "" {
-			last = "none"
+		l := p.lastEv
+		if l == "" {
+			l = "none"
 		}
-		per[i] = fmt.Sprintf("%s%s/ev%d/%s", p.role, d, p.evCount, last)
+		stuckLast[l]++
+		stuckEv += fmt.Sprintf(",%d", p.evCount)
 	}
-	return fmt.Sprintf("  [%s · panes=%d done=%d all=%v armed=%s fade=%.2f run=%v | %s]",
-		version.Commit, len(m.panes), done, m.panesAllDone(), armed, m.paneFade, m.running, strings.Join(per, " "))
+	hist := make([]string, 0, len(stuckLast))
+	for k, v := range stuckLast {
+		hist = append(hist, fmt.Sprintf("%s×%d", k, v))
+	}
+	sort.Strings(hist)
+	return fmt.Sprintf("  [%s · panes=%d done=%d armed=%s fade=%.2f run=%v | stuck-last:%s evs%s]",
+		version.Commit, len(m.panes), done, armed, m.paneFade, m.running, strings.Join(hist, " "), stuckEv)
 }
 
 // renderTickMsg drives throttled, coalesced repaints during streaming.
@@ -330,7 +367,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case eventMsg:
 		// Route to a subagent pane when the event belongs to a child session.
 		if msg.sid != m.sid {
-			if p := m.paneBySub(msg.sub); p != nil {
+			p := m.paneBySub(msg.sub)
+			fadeDbg("child ev sid=%s sub=%d type=%s paneFound=%v", shortSID(msg.sid), msg.sub, msg.ev.Type, p != nil)
+			if p != nil {
 				m.applyPaneEvent(p, msg.ev)
 				m.dirty = true
 				cmds = append(cmds, waitEvent(p.ch, p.sid, p.sub))
@@ -1899,7 +1938,9 @@ func (m *Model) applyEvent(e event.Event) {
 		var d event.AgentStatusData
 		if json.Unmarshal(e.Data, &d) == nil && d.State == "done" {
 			m.activeAgents = removeFirst(m.activeAgents, orDefaultStr(d.Role, d.AgentID))
-			if p := m.paneBySID(session.SessionID(d.AgentID)); p != nil {
+			p := m.paneBySID(session.SessionID(d.AgentID))
+			fadeDbg("main: AgentStatus done agentID=%s paneFound=%v", shortSID(session.SessionID(d.AgentID)), p != nil)
+			if p != nil {
 				p.done = true
 				m.armPaneFadeIfIdle() // fade finished panes once they're all done
 			}
@@ -2168,6 +2209,7 @@ func (m *Model) clearFadedPanes() {
 		}
 		kept = append(kept, p)
 	}
+	fadeDbg("clearFadedPanes: removed done panes, kept=%d", len(kept))
 	m.panes = kept
 	m.focusPane = -1
 	m.zoom = false
