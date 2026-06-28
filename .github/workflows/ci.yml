@@ -43,15 +43,23 @@ jobs:
         run: |
           {
             echo "## 🧪 Test coverage"
+            echo ""
             if [ -f coverage.out ]; then
               total=$(go tool cover -func=coverage.out | tail -1 | awk '{print $NF}')
-              echo "**Total: ${total}**"
+              echo "### Total: \`${total}\`"
               echo ""
-              echo "| package | coverage |"
-              echo "|---|---|"
+              echo "| Package | Coverage | |"
+              echo "|---|---:|:--|"
+              # One row per tested package, lowest coverage first (what needs work), with
+              # a 🟥/🟨/🟩 status (<50 / <80 / ≥80). Untested packages are omitted.
               grep 'coverage:' test-output.txt \
                 | sed -E 's#github.com/sayaya1090/magi/##' \
-                | awk '{for (i=1;i<=NF;i++) if ($i=="coverage:") c=$(i+1); print "| " $2 " | " c " |"}'
+                | awk '{
+                    for (i=1;i<=NF;i++) if ($i=="coverage:") { p=$(i+1); sub(/%/,"",p) }
+                    e="🟥"; if (p+0>=80) e="🟩"; else if (p+0>=50) e="🟨"
+                    printf "%06.2f\t| `%s` | %s%% | %s |\n", p+0, $2, p, e
+                  }' \
+                | sort -n | cut -f2-
             else
               echo "_no coverage profile was produced_"
             fi
