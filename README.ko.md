@@ -252,7 +252,10 @@ recursion(깊이/동시성/누적 상한):
 **빌트인 도구:**
 
 `read` · `write` · `edit` · `multiedit`(원자적 멀티헝크) · `grep` · `glob` · `list` ·
-`bash`(타임아웃 · exit코드) · `astgrep` · `findcontext` · `lsp_diagnostics` · `webfetch` ·
+`bash`(타임아웃 · exit코드 · 장시간 명령용 `background`) · `bash_output` · `bash_kill` ·
+`astgrep` · `findcontext` · `lsp_diagnostics` · `lsp_definition` · `lsp_references` · `lsp_symbols`
+(Go는 gopls, TS/JS·Python·Rust·C/C++는 각 언어서버) ·
+`webfetch` · `websearch`(DuckDuckGo, 또는 Brave/Tavily 키 사용) ·
 `todowrite` · `remember`(공유 메모리) · `skill`
 
 편집 후 **진단 피드백**(gofmt / go vet / py_compile / LSP)이 되돌아와 에이전트가 자가수정한다.

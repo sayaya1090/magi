@@ -225,9 +225,17 @@ implement↔verify up to `WorkflowMaxLoops`. Emits `workflow.phase` events.
 ## 7. Tools (`adapter/tool/builtin`)
 
 Built-ins (registered in `builtin.Default()`): `read`, `write`, `edit`, `multiedit`,
-`grep`, `glob`, `list`, `bash`, `todowrite`, `webfetch`, `remember`, `skill`,
-`findcontext`, `astgrep`, `lsp_diagnostics`. Orchestration tools (registered in
+`grep`, `glob`, `list`, `bash`, `bash_output`, `bash_kill`, `todowrite`, `webfetch`,
+`websearch`, `remember`, `skill`, `findcontext`, `astgrep`, `lsp_diagnostics`,
+`lsp_definition`, `lsp_references`, `lsp_symbols`. Orchestration tools (registered in
 `main.go`): `task`, `ask`, `report`.
+
+Background commands: `bash` with `background=true` starts a detached process
+(registry in `bgproc.go`) and returns an id; `bash_output` polls new output, `bash_kill`
+stops it. LSP navigation uses the gopls CLI for Go and a minimal stdio JSON-RPC client
+(`lspclient.go`) for other languages (typescript-language-server, pyright,
+rust-analyzer, clangd), degrading gracefully when a server is absent. `websearch`
+uses DuckDuckGo by default, or Brave/Tavily when `BRAVE_API_KEY`/`TAVILY_API_KEY` is set.
 
 Notes: file tools are jailed to the workdir (`pathutil.go:resolvePath`); `read`
 recovers imprecise paths by basename; `edit` matches exact → line-ending-normalized

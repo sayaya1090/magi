@@ -232,8 +232,17 @@ primary = "#B45309"
 | `grep` | 정규식 내용 검색 | — |
 | `glob` | 글롭(** 지원) | — |
 | `list` | 디렉터리 목록 | — |
-| `bash` | 셸 실행(타임아웃·exit코드) | ask |
+| `findcontext` | 관련 코드 위치 탐색(컨텍스트 수집) | — |
+| `astgrep` | 구조적(AST) 코드 검색 | — |
+| `bash` | 셸 실행(타임아웃·exit코드, `background`로 장시간 명령) | ask |
+| `bash_output` | 백그라운드 명령의 새 출력 조회 | — |
+| `bash_kill` | 백그라운드 명령 종료 | — |
+| `lsp_diagnostics` | gopls 진단(타입/미사용 등) | — |
+| `lsp_definition` | 심볼 정의 위치(Go=gopls, 그 외 LSP) | — |
+| `lsp_references` | 심볼 참조 전체(시맨틱) | — |
+| `lsp_symbols` | 파일 심볼 아웃라인 | — |
 | `webfetch` | URL→텍스트 | ask |
+| `websearch` | 웹 검색(DuckDuckGo, 또는 Brave/Tavily 키) | ask |
 | `todowrite` | 계획(체크리스트) 기록 | — |
 | `skill` | 명명 스킬 본문 로드 | — |
 | `remember` | 공유 메모리에 학습 기여 | — |

@@ -261,7 +261,10 @@ delegated via `task`.)
 **Built-in tools:**
 
 `read` · `write` · `edit` · `multiedit` (atomic multi-hunk) · `grep` · `glob` · `list` ·
-`bash` (timeout · exit code) · `astgrep` · `findcontext` · `lsp_diagnostics` · `webfetch` ·
+`bash` (timeout · exit code · `background` for long-running commands) · `bash_output` · `bash_kill` ·
+`astgrep` · `findcontext` · `lsp_diagnostics` · `lsp_definition` · `lsp_references` · `lsp_symbols`
+(gopls for Go; TS/JS, Python, Rust, C/C++ via their language servers) ·
+`webfetch` · `websearch` (DuckDuckGo, or Brave/Tavily with an API key) ·
 `todowrite` · `remember` (shared memory) · `skill`
 
 After an edit, **diagnostic feedback** (gofmt / go vet / py_compile / LSP) flows back so the agent
