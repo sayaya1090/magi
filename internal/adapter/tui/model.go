@@ -484,7 +484,7 @@ func (m *Model) toggleThoughtAt(line int) bool {
 	// overflows the collapsed cap (e.g. a long bash result). Other lines fall through
 	// so the click can focus a pane instead.
 	b := m.blocks[i]
-	if b.kind != blockReasoning && !(b.kind == blockToolCall && toolBodyOverflows(b)) {
+	if b.kind != blockReasoning && !(b.kind == blockToolCall && m.toolBodyOverflows(b)) {
 		return false
 	}
 	if !m.thoughtClickSkip(line) {

@@ -11,6 +11,44 @@ import (
 	"github.com/alecthomas/chroma/v2/styles"
 )
 
+// lexerFor returns a chroma lexer for the file at path (Fallback if unknown).
+func lexerFor(path string) chroma.Lexer {
+	if l := lexers.Match(path); l != nil {
+		return l
+	}
+	return lexers.Fallback
+}
+
+// codeStyle returns the chroma color style matching the active theme.
+func (m *Model) codeStyle() *chroma.Style {
+	if m.isDark {
+		return styles.Get("github-dark") // never nil — Get falls back to a default
+	}
+	return styles.Get("github")
+}
+
+// highlightTokens tokenizes code and renders it with each token's syntax color over
+// the given base style (which may carry a background). Falls back to base on error.
+func highlightTokens(code string, lexer chroma.Lexer, st *chroma.Style, base lipgloss.Style) string {
+	it, err := lexer.Tokenise(nil, code)
+	if err != nil {
+		return base.Render(code)
+	}
+	var b strings.Builder
+	for _, tok := range it.Tokens() {
+		val := strings.TrimRight(tok.Value, "\n")
+		if val == "" {
+			continue
+		}
+		seg := base
+		if e := st.Get(tok.Type); e.Colour.IsSet() {
+			seg = seg.Foreground(lipgloss.Color(e.Colour.String()))
+		}
+		b.WriteString(seg.Render(val))
+	}
+	return b.String()
+}
+
 // renderCodeDiff renders unified-diff text (from editDiff) as a syntax-highlighted
 // view: code keeps its keyword colors (chroma, language inferred from path) while a
 // full-width background wash — green for additions, red for removals — marks the
@@ -18,15 +56,8 @@ import (
 // fills. A line that isn't a +/-/space diff line (e.g. the "… (N more)" note) is
 // rendered muted.
 func (m *Model) renderCodeDiff(diffText, path string, width int) string {
-	lexer := lexers.Match(path)
-	if lexer == nil {
-		lexer = lexers.Fallback
-	}
-	styleName := "github"
-	if m.isDark {
-		styleName = "github-dark"
-	}
-	st := styles.Get(styleName) // never nil — Get falls back to a default style
+	lexer := lexerFor(path)
+	st := m.codeStyle()
 
 	var out []string
 	for _, line := range strings.Split(diffText, "\n") {
@@ -61,27 +92,7 @@ func highlightDiffLine(marker, code string, lexer chroma.Lexer, st *chroma.Style
 	if bg != nil {
 		base = base.Background(bg)
 	}
-	var b strings.Builder
-	b.WriteString(base.Foreground(markerFg).Render(marker))
-
-	it, err := lexer.Tokenise(nil, code)
-	if err != nil {
-		b.WriteString(base.Foreground(colMuted).Render(code))
-	} else {
-		for _, tok := range it.Tokens() {
-			val := strings.TrimRight(tok.Value, "\n")
-			if val == "" {
-				continue
-			}
-			seg := base
-			if e := st.Get(tok.Type); e.Colour.IsSet() {
-				seg = seg.Foreground(lipgloss.Color(e.Colour.String()))
-			}
-			b.WriteString(seg.Render(val))
-		}
-	}
-
-	line := b.String()
+	line := base.Foreground(markerFg).Render(marker) + highlightTokens(code, lexer, st, base)
 	if bg != nil {
 		if vis := lipgloss.Width(line); vis < width {
 			line += base.Render(strings.Repeat(" ", width-vis))
