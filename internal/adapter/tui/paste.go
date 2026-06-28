@@ -15,7 +15,7 @@ var pasteRE = regexp.MustCompile(`\[#(\d+) pasted \d+ lines?\]`)
 const pasteThreshold = 200
 
 // handlePaste inserts pasted content into the input, collapsing large/multiline
-// pastes into a [#N pasted L lines] placeholder (reference-agent style) while keeping
+// pastes into a [#N pasted L lines] placeholder while keeping
 // the full text for expansion on send.
 func (m *Model) handlePaste(content string) {
 	content = strings.ReplaceAll(content, "\r\n", "\n")

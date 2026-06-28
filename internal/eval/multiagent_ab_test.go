@@ -90,7 +90,7 @@ func Handle(w http.ResponseWriter, r *http.Request, cfg *Config) {
 // Average returns the mean of xs.
 func Average(xs []int) int {
 	sum := 0
-	for i := 0; i <= len(xs); i++ {
+	for i := 0; i < len(xs); i++ {
 		sum += xs[i]
 	}
 	return sum / len(xs)
@@ -166,8 +166,8 @@ type arm struct {
 
 const soloSystem = "You are magi, a terminal coding agent. Use your tools (read/grep/glob/list) to inspect the working directory and do the user's task YOURSELF in a single pass. Never ask the user to paste files. Be thorough and concise."
 
-// conductorSystem is the dedicated-orchestrator prompt (magi's answer to an orchestrator's
-// Sisyphus): delegate-first identity + a HARD parallel-batch mandate, so the
+// conductorSystem is the dedicated-orchestrator prompt (a delegate-first lead;
+// delegate-first): delegate-first identity + a HARD parallel-batch mandate, so the
 // model fans out all independent work in ONE task call instead of dribbling
 // sequential dispatches (which serialize even over a non-blocking dispatch).
 const conductorSystem = "You are the orchestration LEAD. You do NOT read or fix code yourself — you DELEGATE every piece of substantive work to subagents via the task tool, then synthesize their results. Your value is coordination, not doing.\n\n" +

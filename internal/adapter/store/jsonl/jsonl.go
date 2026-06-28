@@ -1,5 +1,5 @@
 // Package jsonl implements port.Store as an append-only JSONL log per session,
-// grouped by working directory (D6, a reference agent style):
+// grouped by working directory (D6):
 //
 //	<root>/projects/<encoded-workdir>/<sessionID>.jsonl
 //

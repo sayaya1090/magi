@@ -8,8 +8,8 @@ import (
 )
 
 // Policy is the guardrail decision engine that sits above interactive permission
-// prompting. It composes three concerns drawn from the sandbox design (sandbox × approval
-// axes) and a reference agent (pattern rules + bash command analysis):
+// prompting. It composes three concerns: a sandbox × approval axis, pattern
+// rules, and bash command analysis:
 //
 //   - deny rules  — a hard floor: matching calls are blocked even under "allow".
 //     Secret-looking paths ship denied by default so a prompt-injected agent
@@ -107,7 +107,7 @@ func parseRule(s string) (policyRule, bool) {
 		pr.hostPat = strings.ToLower(strings.TrimSpace(rest))
 		return pr, true
 	}
-	// placeholder-style "cmd:*" suffix → ':' is a soft separator and the trailing
+	// A "cmd:*" suffix → ':' is a soft separator and the trailing
 	// "*" means "any args", i.e. a prefix match on the (literal) command.
 	if prefix, ok := strings.CutSuffix(spec, ":*"); ok {
 		pr.re = regexp.MustCompile("^" + regexp.QuoteMeta(prefix))

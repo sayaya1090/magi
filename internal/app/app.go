@@ -89,7 +89,7 @@ type Config struct {
 	// DangerTools require permission before execution (when Permission == "ask").
 	DangerTools map[string]bool
 
-	// Guardrail policy (sandbox × approval, two-axis inspired). Profile
+	// Guardrail policy (sandbox × approval, two-axis posture). Profile
 	// is a posture preset (safe|standard|yolo) that fills the axes and rules
 	// below when they're unset; explicit fields override the preset.
 	Profile string // "safe" | "standard" | "yolo"
@@ -248,7 +248,7 @@ func (c Config) withDefaults() Config {
 
 // applyProfile fills the sandbox/approval axes from the posture preset when they
 // are unset. Explicit fields always win, so a profile is just a convenient
-// default bundle (OS-level sandbox × approval, surfaced as safe/standard/yolo).
+// default bundle (sandbox × approval, surfaced as safe/standard/yolo).
 func (c Config) applyProfile() Config {
 	switch c.Profile {
 	case "safe":

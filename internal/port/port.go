@@ -179,7 +179,7 @@ type ToolEnv struct {
 	Sandbox SandboxSpec
 }
 
-// SandboxSpec describes OS-level confinement for command execution (OS-level
+// SandboxSpec describes OS-level confinement for command execution (an OS
 // sandbox axis). Mode is "read-only" (no writes), "workspace-write" (writes
 // limited to Workdir + temp), or "full"/"" (unconfined). AllowNet permits
 // outbound network; it is off by default outside "full".

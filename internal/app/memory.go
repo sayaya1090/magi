@@ -7,8 +7,8 @@ import (
 )
 
 // projectMemory loads durable memory (AGENTS.md) that is injected into every
-// system prompt and never compacted away — the equivalent of a project's
-// CLAUDE.md. It reads, in order: global config AGENTS.md, project AGENTS.md, and
+// system prompt and never compacted away — a durable, project-scoped memory
+// file. It reads, in order: global config AGENTS.md, project AGENTS.md, and
 // project .magi/AGENTS.md. Results are cached per workdir.
 func (a *App) projectMemory(workdir string) string {
 	a.memMu.Lock()

@@ -7,7 +7,7 @@ import (
 )
 
 // TestDumpCorpus writes the shared reviewCorpus to MAGI_DUMP_DIR so an external
-// tool (an orchestrator, a reference agent) audits byte-identical files. Gated.
+// tool audits byte-identical files. Gated.
 func TestDumpCorpus(t *testing.T) {
 	dir := os.Getenv("MAGI_DUMP_DIR")
 	if dir == "" {

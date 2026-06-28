@@ -20,7 +20,7 @@ type Config struct {
 	ExperienceDir string               `toml:"experience_dir"` // shared experience store path (D13)
 	Hooks         []Hook               `toml:"hooks"`          // lifecycle hooks (committable in .magi/config.toml)
 
-	// Guardrail policy (two-axis inspired). Profile is a posture preset
+	// Guardrail policy (two-axis posture). Profile is a posture preset
 	// (safe|standard|yolo); Sandbox is the OS-confinement axis
 	// (read-only|workspace-write|full). Allow/Deny are "Tool(spec)" pattern rules
 	// (e.g. Bash(git push:*), Read(**/.env)); AllowDomains restricts network

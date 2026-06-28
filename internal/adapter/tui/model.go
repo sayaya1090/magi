@@ -1781,7 +1781,7 @@ func (m *Model) sendPrompt(display, send string) tea.Cmd {
 var mentionRE = regexp.MustCompile(`@([^\s]+)`)
 
 // expandMentions appends the contents of any @-mentioned files that exist in the
-// workdir, so the agent has them in context (like a project's @ mentions).
+// workdir, so the agent has them in context (@ file mentions).
 func (m *Model) expandMentions(text string) string {
 	matches := mentionRE.FindAllStringSubmatch(text, -1)
 	if len(matches) == 0 {
@@ -1847,7 +1847,7 @@ const initPrompt = "Analyze this project and create an AGENTS.md file at the rep
 	"Include: a one-paragraph overview, the directory structure, key conventions, and the build/test/run commands. " +
 	"Inspect the project first (list, read, glob, grep) before writing. Keep it concise and accurate."
 
-// ultraPreamble turns the agent into an orchestrator (orchestrator-style Ultra Work Mode):
+// ultraPreamble turns the agent into an orchestrator (Ultra Work Mode):
 // plan → delegate to specialists (in parallel) → implement → verify → self-correct.
 const ultraPreamble = "You are operating in ULTRA WORK MODE as an orchestrator. Work autonomously and thoroughly:\n" +
 	"1. Make a plan with the todowrite tool.\n" +

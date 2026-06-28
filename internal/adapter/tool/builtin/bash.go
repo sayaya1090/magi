@@ -59,7 +59,7 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	defer cancel()
 
 	name, args := shell(a.Command)
-	// OS-level confinement (OS-level sandbox axis): wrap the command so writes
+	// OS-level confinement (sandbox axis): wrap the command so writes
 	// stay in the workspace and the network is off, when the platform supports it.
 	// Falls back to unconfined transparently — the policy layer's command scan and
 	// permission prompt still apply either way.
