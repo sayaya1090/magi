@@ -4,3 +4,8 @@
 .DS_Store
 .idea/
 .claude/
+token
+# internal planning docs — kept local, not published
+docs/FEATURES.md
+docs/FEATURE_CHECKLIST.md
+docs/PLAN.md
