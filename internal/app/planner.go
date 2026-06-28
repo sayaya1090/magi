@@ -118,10 +118,20 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 	if dir := langDirective(prompt); dir != "" {
 		sys = dir + " Write the JSON \"reason\" value in that language.\n\n" + sys
 	}
-	user := prompt
+	// Ground the plan in the conversation, not just the latest sentence: a follow-up
+	// like "now change it to two newlines" is meaningless without the prior turns
+	// (which file, what change). The main loop sends full history to the agent; the
+	// planner must see a recent window too, or it plans for a bare sentence out of
+	// context (e.g. "scout the whole project for files with single newlines").
+	evs, _ := a.store.Read(ctx, s.ID, 0)
+	msgs := plannerWindow(reconstruct(evs))
 	if strings.TrimSpace(revise) != "" {
-		// Re-plan: fold the council's revise feedback into the request.
-		user = prompt + "\n\n# Council review of your previous plan (address this and re-plan):\n" + revise
+		// Re-plan: append the council's revise feedback as a final instruction.
+		msgs = append(msgs, session.Message{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText,
+			Text: "# Council review of your previous plan (address this and re-plan):\n" + revise}}})
+	}
+	if len(msgs) == 0 { // defensive: never call with an empty conversation
+		msgs = []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: prompt}}}}
 	}
 	model := s.Model.Model
 	if spec.Model != (session.ModelRef{}) {
@@ -130,7 +140,7 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 	req := port.ChatRequest{
 		Model:    model,
 		System:   sys,
-		Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: user}}}},
+		Messages: msgs,
 	}
 	stream, err := a.providerFor(spec).StreamChat(ctx, req)
 	if err != nil {
@@ -143,6 +153,33 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 		}
 	}
 	return parsePlan(b.String())
+}
+
+// plannerWindow returns a bounded tail of the conversation for the planner: enough
+// recent turns to ground a follow-up request, without resending a whole long session
+// on a cheap pre-flight call. Whole messages are kept from the end within a byte
+// budget, always including at least the final (current) message.
+func plannerWindow(msgs []session.Message) []session.Message {
+	const budget = 8000 // ~a few turns; the planner is a single tool-free call
+	if len(msgs) == 0 {
+		return msgs
+	}
+	total, start := 0, len(msgs)-1
+	for i := len(msgs) - 1; i >= 0; i-- {
+		total += msgLen(msgs[i])
+		start = i
+		if total >= budget {
+			break
+		}
+	}
+	return msgs[start:]
+}
+
+// msgLen approximates a message's size (for windowing) via its JSON encoding, which
+// captures text, tool-call args, and results alike.
+func msgLen(m session.Message) int {
+	b, _ := json.Marshal(m)
+	return len(b)
 }
 
 // plannerContract instructs the planner to emit an ordered procedure with a

@@ -15,6 +15,39 @@ import (
 	"github.com/sayaya1090/magi/internal/port"
 )
 
+func TestPlannerWindow(t *testing.T) {
+	msg := func(role session.Role, text string) session.Message {
+		return session.Message{Role: role, Parts: []session.Part{{Kind: session.PartText, Text: text}}}
+	}
+	// Short conversation: keep everything, in order, so a follow-up has its context.
+	conv := []session.Message{
+		msg(session.RoleUser, "C로 헬로월드 작성해서 hell.c로 저장해줘"),
+		msg(session.RoleAssistant, "wrote hell.c"),
+		msg(session.RoleUser, "개행 두개로 바꿔줘"),
+	}
+	got := plannerWindow(conv)
+	if len(got) != 3 || got[2].Parts[0].Text != "개행 두개로 바꿔줘" {
+		t.Fatalf("short conversation should be kept whole, ending at the latest prompt: %d msgs", len(got))
+	}
+	// Long conversation: bounded to a recent tail, but always includes the last message.
+	var long []session.Message
+	for i := 0; i < 200; i++ {
+		long = append(long, msg(session.RoleUser, strings.Repeat("x", 200)))
+	}
+	long = append(long, msg(session.RoleUser, "FINAL"))
+	w := plannerWindow(long)
+	if len(w) >= len(long) {
+		t.Errorf("long conversation should be trimmed, got %d of %d", len(w), len(long))
+	}
+	if w[len(w)-1].Parts[0].Text != "FINAL" {
+		t.Errorf("window must end at the latest prompt, got %q", w[len(w)-1].Parts[0].Text)
+	}
+	// Empty in → empty out (caller falls back to the bare prompt).
+	if len(plannerWindow(nil)) != 0 {
+		t.Error("nil conversation should yield nil window")
+	}
+}
+
 func TestParsePlan(t *testing.T) {
 	// Clean object with an ordered procedure.
 	p := parsePlan(`{"reason":"r","steps":[{"title":"t","strategy":"parallel","groups":[{"agent":"explore","focus":"a","question":"q"}]}]}`)
