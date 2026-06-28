@@ -19,16 +19,17 @@ import (
 type Bash struct{}
 
 type bashArgs struct {
-	Command string `json:"command"`
-	Timeout int    `json:"timeout"` // seconds (default 120, max 600)
+	Command    string `json:"command"`
+	Timeout    int    `json:"timeout"`    // seconds (default 120, max 600)
+	Background bool   `json:"background"` // run detached; returns an id to poll/kill
 }
 
 func (Bash) Name() string { return "bash" }
 func (Bash) Description() string {
-	return "Run a shell command in the working directory. Returns combined stdout/stderr and the exit code. Use for builds, tests, git, and file operations not covered by other tools."
+	return "Run a shell command in the working directory. Returns combined stdout/stderr and the exit code. Use for builds, tests, git, and file operations not covered by other tools. Set background=true for a long-running command (dev server, watcher, slow build): it returns an id immediately; read its output with bash_output and stop it with bash_kill."
 }
 func (Bash) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"timeout":{"type":"integer","description":"seconds (default 120, max 600)"}},"required":["command"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"timeout":{"type":"integer","description":"seconds (default 120, max 600)"},"background":{"type":"boolean","description":"run detached; returns an id for bash_output/bash_kill"}},"required":["command"]}`)
 }
 
 func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
@@ -38,6 +39,13 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	}
 	if strings.TrimSpace(a.Command) == "" {
 		return errResult("", "command is required"), nil
+	}
+	if a.Background {
+		p, err := bg.start(env.Workdir, env.Sandbox, a.Command)
+		if err != nil {
+			return errResult("", "failed to start background command: "+err.Error()), nil
+		}
+		return okText("", fmt.Sprintf("started background command %s — poll with bash_output{id:%q}, stop with bash_kill{id:%q}", p.id, p.id, p.id)), nil
 	}
 	timeout := a.Timeout
 	if timeout <= 0 {
