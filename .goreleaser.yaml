@@ -26,6 +26,7 @@ archives:
   - id: default
     # Asset base name must match update.AssetName(): magi_<OS>_<arch>
     name_template: "magi_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
     # Bundle attribution with the binary (LICENSE/README are default-included;
     # NOTICE and THIRD_PARTY_LICENSES are not, but the embedded deps require them).
     files:
@@ -35,7 +36,7 @@ archives:
       - README.md
     format_overrides:
       - goos: windows
-        format: zip
+        formats: [zip]
 
 checksum:
   name_template: "checksums.txt"
