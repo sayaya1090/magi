@@ -1,4 +1,4 @@
-"""Terminal-Bench installed-agent adapter for magi.
+r"""Terminal-Bench installed-agent adapter for magi.
 
 Runs magi's headless mode (`magi -p`) inside each Terminal-Bench task container.
 The harness installs magi via magi-setup.sh.j2 (builds the single Go binary from
@@ -45,6 +45,12 @@ class MagiAgent(AbstractInstalledAgent):
         self._model_name = model_name.split("/", 1)[-1]
         # git ref of magi to build (branch, tag, or sha); override with --version.
         self._ref = kwargs.get("version") or "main"
+        # Fast path: if binary_url is given (-k binary_url=http://host.docker.internal:PORT),
+        # download a prebuilt magi-<arch> from there instead of building from source —
+        # turns ~minutes of per-container setup into seconds. See README "Speeding up".
+        self._binary_url = kwargs.get("binary_url") or os.environ.get(
+            "MAGI_BENCH_BINARY_URL"
+        )
 
     @property
     def _env(self) -> dict[str, str]:
@@ -58,9 +64,13 @@ class MagiAgent(AbstractInstalledAgent):
 
     @property
     def _install_agent_script_path(self) -> Path:
+        if self._binary_url:
+            return self._get_templated_script_path("magi-local-setup.sh.j2")
         return self._get_templated_script_path("magi-setup.sh.j2")
 
     def _get_template_variables(self) -> dict[str, str]:
+        if self._binary_url:
+            return {"binary_url": self._binary_url.rstrip("/")}
         return {"go_version": GO_VERSION, "ref": self._ref}
 
     def _run_agent_commands(self, instruction: str) -> list[TerminalCommand]:

@@ -56,8 +56,36 @@ tb run --agent-import-path bench.terminalbench.magi_agent:MagiAgent \
 - `--version <ref>` selects the magi git ref to build (branch / tag / sha).
 - Bump `GO_VERSION` in `magi_agent.py` if `go.mod` raises its `go` directive.
 
-## Speeding up
+## Speeding up (prebuilt binary)
 
-Each task rebuilds magi from source (~30–60s of container setup). To avoid that,
-publish a prebuilt `linux/amd64` + `linux/arm64` magi binary in a GitHub release and
-change `magi-setup.sh.j2` to `curl` it instead of building.
+By default each task builds magi from source in-container (Go download + build,
+~minutes). For a multi-task run, serve a prebuilt binary from the host and pass
+`-k binary_url=…` so containers just download it (seconds):
+
+```sh
+# 1. Cross-compile both arches the task containers might use:
+mkdir -p /tmp/magi-serve
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o /tmp/magi-serve/magi-arm64 ./cmd/magi
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /tmp/magi-serve/magi-amd64 ./cmd/magi
+
+# 2. Serve them (reachable from containers as host.docker.internal):
+( cd /tmp/magi-serve && python3 -m http.server 8077 )
+
+# 3. Run with the fast path:
+tb run --agent-import-path bench.terminalbench.magi_agent:MagiAgent \
+  -m qwen3-coder:30b -k binary_url=http://host.docker.internal:8077 \
+  --dataset terminal-bench-core==0.1.1 --task-id hello-world
+```
+
+`MagiAgent` picks `magi-local-setup.sh.j2` (download) over `magi-setup.sh.j2` (build)
+whenever `binary_url` (or the `MAGI_BENCH_BINARY_URL` env var) is set; otherwise it
+builds from source, which needs no host-side server.
+
+## Notes
+
+- Pin the dataset version (`terminal-bench-core==0.1.1`); the floating `head` build
+  has a broken `tasks/` layout in the current registry.
+- `--n-tasks N` selects the N **longest** tasks first — use `--task-id` to target
+  specific (e.g. quick) tasks while validating.
+- Local Ollama: set `MAGI_BASE_URL=http://host.docker.internal:11434/v1` and a dummy
+  `MAGI_API_KEY` (Ollama ignores it); `--n-concurrent 1` avoids overloading one model.

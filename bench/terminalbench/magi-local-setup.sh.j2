@@ -1,0 +1,28 @@
+#!/bin/bash
+# Fast install path: download a prebuilt magi binary instead of building from source
+# (used when MagiAgent gets a binary_url kwarg). Rendered with {{ binary_url }}.
+# Serve the binaries on the host, e.g.:
+#   CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o /tmp/serve/magi-arm64 ./cmd/magi
+#   CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /tmp/serve/magi-amd64 ./cmd/magi
+#   (cd /tmp/serve && python3 -m http.server 8077)
+# then run: tb run ... -k binary_url=http://host.docker.internal:8077
+set -euo pipefail
+
+case "$(uname -m)" in
+  aarch64 | arm64) suffix=arm64 ;;
+  x86_64 | amd64) suffix=amd64 ;;
+  *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
+esac
+url="{{ binary_url }}/magi-${suffix}"
+
+if command -v curl >/dev/null 2>&1; then
+  curl -fsSL "$url" -o /usr/local/bin/magi
+elif command -v wget >/dev/null 2>&1; then
+  wget -q -O /usr/local/bin/magi "$url"
+else
+  apt-get update && apt-get install -y --no-install-recommends curl ca-certificates
+  curl -fsSL "$url" -o /usr/local/bin/magi
+fi
+
+chmod +x /usr/local/bin/magi
+magi --version
