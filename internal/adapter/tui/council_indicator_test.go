@@ -104,6 +104,24 @@ func TestCouncilIndicator(t *testing.T) {
 	}
 }
 
+// A plan-audit round shows the procedure it's judging, so a plan that gets revised
+// and replanned stays visible across rounds (not just the final one that ran).
+func TestCouncilPlanAuditShowsAuditedPlan(t *testing.T) {
+	mm := newTestModel(t)
+	m := &mm
+	m.applyEvent(ev(t, event.TypeCouncilConvened, event.CouncilConvenedData{
+		Round: 1, Phase: "plan", Members: []string{"Melchior", "Balthasar", "Casper"}, Rule: "majority",
+		Task: "review the docs", Plan: "1. [scout] find docs\n2. [parallel] read each",
+	}))
+	last := m.blocks[len(m.blocks)-1]
+	if !strings.Contains(last.text, "plan audit round 1") {
+		t.Fatalf("expected the plan-audit header, got %q", last.text)
+	}
+	if !strings.Contains(last.text, "[scout] find docs") || !strings.Contains(last.text, "[parallel] read each") {
+		t.Fatalf("plan-audit round should show the audited procedure, got %q", last.text)
+	}
+}
+
 // A plan audit forced to finish at the round cap (all-revise, no consensus) must
 // NOT read "approve" — it reads "proceed (no consensus)".
 func TestCouncilPlanForcedProceedLabel(t *testing.T) {

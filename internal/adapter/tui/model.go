@@ -1893,6 +1893,16 @@ func (m *Model) applyEvent(e event.Event) {
 			if len(d.Signals) > 0 {
 				line += " · " + strings.Join(d.Signals, ", ")
 			}
+			// Plan audit: show the procedure being judged THIS round, so a revised plan
+			// that gets rejected and replanned stays visible (you can see what changed
+			// across rounds, not just the final one that ran).
+			if d.Phase == "plan" {
+				if plan := strings.TrimSpace(d.Plan); plan != "" {
+					for _, pl := range strings.Split(plan, "\n") {
+						line += "\n    " + pl
+					}
+				}
+			}
 			m.blocks = append(m.blocks, block{kind: blockInfo, text: line})
 		}
 
