@@ -41,16 +41,33 @@ func (AstGrep) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"pattern":{"type":"string"},"lang":{"type":"string"},"path":{"type":"string"}},"required":["pattern"]}`)
 }
 
-// astGrepBin locates the ast-grep CLI (the binary is "ast-grep"; "sg" is an
-// alias that collides with ScreenGrab on some systems, so prefer the full name).
+// astGrepBin locates the ast-grep CLI. The canonical binary is "ast-grep"; "sg"
+// is a convenience alias, but it collides with unrelated tools — the setgid
+// group-switch utility on Linux, ScreenGrab elsewhere — so the alias is only
+// trusted after verifying the binary actually reports itself as ast-grep.
 func astGrepBin() (string, bool) {
 	if p, err := exec.LookPath("ast-grep"); err == nil {
 		return p, true
 	}
-	if p, err := exec.LookPath("sg"); err == nil {
+	if p, err := exec.LookPath("sg"); err == nil && isAstGrep(p) {
 		return p, true
 	}
 	return "", false
+}
+
+// isAstGrep reports whether the binary at path is really ast-grep (and not, say,
+// the Linux `sg` setgid tool that happens to share the name). It checks the
+// `--version` banner with stdin detached and a short timeout so a prompt-driven
+// impostor can't hang the lookup.
+func isAstGrep(bin string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, "--version")
+	out, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(string(out)), "ast-grep")
 }
 
 func (AstGrep) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
