@@ -166,9 +166,8 @@ type Model struct {
 	councilDetail          *event.CouncilVerdictData // open council-verdict detail (full-screen; nil = closed)
 	councilDetailEvidence  string                    // the evidence shown alongside the open verdict
 	paneScroll             int                       // scroll offset into the subagent pane list (clamped in renderPanes)
-	turnEndAt              time.Time                 // when the last turn finished; arms the finished-pane fade-out (zero = no turn yet)
-	paneFade               float64                   // 0 = opaque .. 1 = gone: dim level of the finished inline pane strip
-	panesFadedOut          bool                      // the inline strip has fully faded → suppressed (panes still live for panel/zoom)
+	turnEndAt              time.Time                 // when the agents finished / turn ended; arms the finished-pane fade (zero = not idle)
+	paneFade               float64                   // 0 = opaque .. 1 = gone: dim level of the finished pane strip during the fade
 	pendingCouncilEvidence string                    // evidence from the latest convened round, attached to its verdicts
 	roleColor              map[string]int            // role name -> agentPalette index (stable per session)
 
@@ -2085,50 +2084,63 @@ const (
 	paneFadeDur   = 1500 * time.Millisecond
 )
 
-// advancePaneFade recomputes the finished-strip fade for the current frame and
+// advancePaneFade recomputes the finished-pane fade for the current frame and
 // returns whether anything changed (so the caller can request a repaint). It's a
-// no-op while a turn runs, nothing is finished, or the user is engaging a pane.
+// no-op while nothing is finished or the user is engaging a pane. When the fade
+// completes it REMOVES the finished panes (clearFadedPanes) so they clear from both
+// the inline strip AND the right-panel roster — the plan/todos panel persists.
 func (m *Model) advancePaneFade() bool {
-	// Conditions under which the strip should be fully visible (fade reset/paused).
-	// turnEndAt is armed when all subagents finish (armPaneFadeIfIdle) or the turn
-	// ends, so the fade runs even mid-turn once the agents' work is done.
+	// Paused/visible: turnEndAt is armed when all subagents finish (armPaneFadeIfIdle)
+	// or the turn ends, so the fade runs even mid-turn once the agents' work is done.
 	if len(m.panes) == 0 || m.turnEndAt.IsZero() || m.zoom || m.focusPane >= 0 {
-		if m.paneFade != 0 || m.panesFadedOut {
-			// Only un-fade if not already fully removed; a completed fade-out stays out.
-			// (panesFadedOut is intentionally NOT cleared here — it's safe only because
-			// every new-turn/session path calls closePanes first, which resets it. If a
-			// path ever set m.running without closePanes, a stale flag would suppress the
-			// new turn's strip.)
-			if !m.panesFadedOut {
-				m.paneFade = 0
-				return true
-			}
+		if m.paneFade != 0 {
+			m.paneFade = 0
+			return true
 		}
 		return false
 	}
-	if m.panesFadedOut {
-		return false
-	}
 	elapsed := time.Since(m.turnEndAt)
-	var f float64
 	switch {
 	case elapsed < paneFadeAfter:
-		f = 0
+		if m.paneFade != 0 {
+			m.paneFade = 0
+			return true
+		}
+		return false
 	case elapsed < paneFadeAfter+paneFadeDur:
-		f = float64(elapsed-paneFadeAfter) / float64(paneFadeDur)
+		f := float64(elapsed-paneFadeAfter) / float64(paneFadeDur)
+		if f != m.paneFade {
+			m.paneFade = f
+			return true
+		}
+		return false
 	default:
-		f = 1
+		m.clearFadedPanes() // fade done → drop the finished panes entirely
+		return true
 	}
-	changed := false
-	if f >= 1 && !m.panesFadedOut {
-		m.panesFadedOut = true
-		m.paneFade = 1
-		changed = true
-	} else if f != m.paneFade {
-		m.paneFade = f
-		changed = true
+}
+
+// clearFadedPanes removes finished subagent panes once their fade completes: it
+// cancels their subscriptions and drops them from m.panes, so they disappear from
+// the inline strip and the panel's Subagents roster alike. Still-running panes (rare
+// at fade time) are kept and the clock is rearmed when they later finish.
+func (m *Model) clearFadedPanes() {
+	kept := m.panes[:0:0]
+	for _, p := range m.panes {
+		if p.done {
+			if p.cancel != nil {
+				p.cancel()
+			}
+			continue
+		}
+		kept = append(kept, p)
 	}
-	return changed
+	m.panes = kept
+	m.focusPane = -1
+	m.zoom = false
+	m.paneScroll = 0
+	m.paneFade = 0
+	m.turnEndAt = time.Time{} // remaining (running) panes rearm when they finish
 }
 
 // baseChromeHeight is the fixed chrome (everything except the agent-pane block):
@@ -2205,11 +2217,6 @@ func overlayLine(content string, row, col int, overlay string) string {
 func (m *Model) paneLayout() (nShown, perPane, more, total int) {
 	n := len(m.panes)
 	if n == 0 || m.zoom {
-		return 0, 0, 0, 0
-	}
-	// Fully faded out: the inline strip is gone (the panes still exist for the status
-	// panel + zoom), so reserve nothing and let the transcript reclaim the rows.
-	if m.panesFadedOut {
 		return 0, 0, 0, 0
 	}
 	capH := m.height - m.baseChromeHeight() - minViewport

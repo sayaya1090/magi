@@ -179,7 +179,6 @@ func (m *Model) openPane(ev event.Event) tea.Cmd {
 	// A newly active agent cancels any pending finished-pane fade (not idle anymore).
 	m.turnEndAt = time.Time{}
 	m.paneFade = 0
-	m.panesFadedOut = false
 	return waitEvent(ch, cid, p.sub)
 }
 
@@ -297,7 +296,6 @@ func (m *Model) closePanes() {
 	m.zoom = false
 	m.paneScroll = 0
 	m.paneFade = 0
-	m.panesFadedOut = false
 	m.turnEndAt = time.Time{}
 }
 

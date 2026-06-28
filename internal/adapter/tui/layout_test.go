@@ -22,32 +22,32 @@ func TestPaneFadeOutLifecycle(t *testing.T) {
 
 	m.turnEndAt = time.Time{} // no turn recorded → no fade
 	m.advancePaneFade()
-	if m.paneFade != 0 || m.panesFadedOut {
-		t.Fatalf("no turnEndAt → no fade, got fade=%v out=%v", m.paneFade, m.panesFadedOut)
+	if m.paneFade != 0 || len(m.panes) != 1 {
+		t.Fatalf("no turnEndAt → no fade, got fade=%v panes=%d", m.paneFade, len(m.panes))
 	}
 
 	m.turnEndAt = time.Now().Add(-paneFadeAfter / 2) // within linger → fully visible
 	m.advancePaneFade()
-	if m.paneFade != 0 || m.panesFadedOut {
-		t.Fatalf("during linger → fade 0, got fade=%v out=%v", m.paneFade, m.panesFadedOut)
+	if m.paneFade != 0 || len(m.panes) != 1 {
+		t.Fatalf("during linger → fade 0, still shown, got fade=%v panes=%d", m.paneFade, len(m.panes))
 	}
 
 	m.turnEndAt = time.Now().Add(-(paneFadeAfter + paneFadeDur/2)) // mid-fade → partial
 	m.advancePaneFade()
-	if !(m.paneFade > 0 && m.paneFade < 1) || m.panesFadedOut {
-		t.Fatalf("mid-fade → 0<fade<1, got fade=%v out=%v", m.paneFade, m.panesFadedOut)
+	if !(m.paneFade > 0 && m.paneFade < 1) || len(m.panes) != 1 {
+		t.Fatalf("mid-fade → 0<fade<1, still shown, got fade=%v panes=%d", m.paneFade, len(m.panes))
 	}
 
-	m.turnEndAt = time.Now().Add(-(paneFadeAfter + 2*paneFadeDur)) // past the fade → gone
+	m.turnEndAt = time.Now().Add(-(paneFadeAfter + 2*paneFadeDur)) // past the fade → removed
 	m.advancePaneFade()
-	if !m.panesFadedOut {
-		t.Fatalf("after fade window → panesFadedOut, got %v", m.panesFadedOut)
+	if len(m.panes) != 0 {
+		t.Fatalf("after fade window the finished pane should be removed, got %d", len(m.panes))
 	}
 	if _, _, _, total := m.paneLayout(); total != 0 {
-		t.Fatalf("faded-out block should reserve 0 rows, got %d", total)
+		t.Fatalf("cleared block should reserve 0 rows, got %d", total)
 	}
 	if pv := m.renderPanes(m.width, 5); pv != "" {
-		t.Fatalf("faded-out block should render nothing, got %q", pv)
+		t.Fatalf("cleared block should render nothing, got %q", pv)
 	}
 }
 
@@ -70,11 +70,11 @@ func TestPaneFadeStartsWhenAgentsDoneMidTurn(t *testing.T) {
 	if nShown != 2 || perPane != 1 {
 		t.Fatalf("all-done panes should be 1-row lines mid-turn, got nShown=%d perPane=%d", nShown, perPane)
 	}
-	// The fade then completes mid-turn after the window.
+	// The fade then completes mid-turn after the window — finished panes are removed.
 	m.turnEndAt = time.Now().Add(-(paneFadeAfter + 2*paneFadeDur))
 	m.advancePaneFade()
-	if !m.panesFadedOut {
-		t.Fatal("fade should complete mid-turn after its window")
+	if len(m.panes) != 0 {
+		t.Fatalf("fade should remove finished panes mid-turn, got %d", len(m.panes))
 	}
 }
 
@@ -95,14 +95,14 @@ func TestRenderTickDrivesFadeToRemoval(t *testing.T) {
 	}
 	updated, _ := m.Update(renderTickMsg{}) // one heartbeat
 	m2 := updated.(Model)
-	if !m2.panesFadedOut {
-		t.Fatal("a render tick past the fade window should mark panes faded out")
+	if len(m2.panes) != 0 {
+		t.Fatal("a render tick past the fade window should remove the finished pane")
 	}
 	if _, _, _, total := m2.paneLayout(); total != 0 {
-		t.Fatalf("faded-out block should reserve 0 rows, got %d", total)
+		t.Fatalf("cleared block should reserve 0 rows, got %d", total)
 	}
 	if strings.Contains(m2.View().Content, "find docs") {
-		t.Fatal("faded-out pane should no longer appear in the view")
+		t.Fatal("cleared pane should no longer appear in the view")
 	}
 }
 
@@ -116,8 +116,8 @@ func TestPaneFadePausesWhileFocused(t *testing.T) {
 	m.turnEndAt = time.Now().Add(-(paneFadeAfter + 2*paneFadeDur)) // well past the window
 	m.focusPane = 0                                                // but a pane is focused
 	m.advancePaneFade()
-	if m.paneFade != 0 || m.panesFadedOut {
-		t.Fatalf("focused pane should pause the fade, got fade=%v out=%v", m.paneFade, m.panesFadedOut)
+	if m.paneFade != 0 || len(m.panes) != 1 {
+		t.Fatalf("focused pane should pause the fade (kept, undimmed), got fade=%v panes=%d", m.paneFade, len(m.panes))
 	}
 }
 
