@@ -504,8 +504,13 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 
 	// Evidence: the user's goal (Task), the agent's final message (Report/claim),
 	// and the working diff. Plan (acceptance criteria) and Signals are D15/D16.
+	// Task is the LATEST genuine user instruction, not the first — in a multi-turn
+	// session a refinement ("now add X") must be judged against itself, else the
+	// council holds every turn to the opening prompt and rejects correct follow-up
+	// work (and the agent then "fixes" it by undoing what the user just asked for).
+	// lastUserPromptText skips injected council/hook prompts (user-role, system-authored).
 	evs, _ := a.store.Read(ctx, sid, 0)
-	task := firstUserText(reconstruct(evs))
+	task := lastUserPromptText(evs)
 	diff, diffErr := a.GitDiff(ctx, s.Workdir)
 	diff = truncateForCouncil(diff, councilDiffCap) // bound per-member token cost
 	// The agent's plan (todos, with status) is the council's CONTRACT (D15): the
@@ -1173,24 +1178,6 @@ func (a *App) allParallelSafe(calls []*session.ToolCall) bool {
 		}
 	}
 	return true
-}
-
-// firstUserText returns the text of the first user message — the original task
-// goal. The council uses this (not the latest user message) so that on later
-// rounds it judges against the real goal rather than its own injected feedback.
-func firstUserText(msgs []session.Message) string {
-	for _, m := range msgs {
-		if m.Role == session.RoleUser {
-			var b strings.Builder
-			for _, p := range m.Parts {
-				if p.Kind == session.PartText {
-					b.WriteString(p.Text)
-				}
-			}
-			return b.String()
-		}
-	}
-	return ""
 }
 
 // lastUserPromptText returns the text of the most recent GENUINE user prompt
