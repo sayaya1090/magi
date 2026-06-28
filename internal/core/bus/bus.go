@@ -11,10 +11,10 @@ import (
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
-// defaultBuffer is the per-subscriber channel buffer. A slow subscriber that
-// fills its buffer drops events rather than blocking publishers (live UX is
-// best-effort; durable history lives in the Store).
-const defaultBuffer = 256
+// defaultBuffer is the per-subscriber channel buffer. A slow subscriber that fills
+// its buffer drops only HIGH-VOLUME (droppable) events rather than blocking
+// publishers; low-volume state transitions are preserved (see Publish).
+const defaultBuffer = 1024
 
 // Bus is a per-session fan-out event bus. The zero value is not usable; use New.
 type Bus struct {
@@ -32,17 +32,34 @@ func New() *Bus {
 	}
 }
 
-// Publish delivers ev to all current subscribers of ev.SessionID. Delivery is
-// non-blocking: if a subscriber's buffer is full, the event is dropped for that
-// subscriber. Publish never blocks.
+// Publish delivers ev to all current subscribers of ev.SessionID. It never blocks
+// (all sends are non-blocking, so a stuck consumer can't stall publishers). On a
+// full buffer: a droppable (high-volume) event is dropped; a must-deliver event
+// (state transition / fact) instead EVICTS one buffered event to make room, so a
+// critical transition like agent.status:"done" is never silently lost — losing it
+// would desync the UI permanently (e.g. a subagent pane stuck "running").
 func (b *Bus) Publish(ev event.Event) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	for _, ch := range b.subs[ev.SessionID] {
 		select {
 		case ch <- ev:
+			continue
 		default:
-			// subscriber too slow; drop (Store remains source of truth)
+		}
+		if ev.Type.Droppable() {
+			continue // best-effort for streaming deltas / progress ticks
+		}
+		// Must-deliver but full: drop the oldest buffered event (overwhelmingly a
+		// droppable delta during a stream) and enqueue this one. Keeps the newest
+		// state transition. Still non-blocking — no deadlock with cancel's write lock.
+		select {
+		case <-ch:
+		default:
+		}
+		select {
+		case ch <- ev:
+		default:
 		}
 	}
 }

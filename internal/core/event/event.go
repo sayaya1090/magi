@@ -65,6 +65,23 @@ var transientTypes = map[Type]bool{
 // IsTransient reports whether t is a bus-only event type (never persisted).
 func (t Type) IsTransient() bool { return transientTypes[t] }
 
+// droppableTypes are HIGH-VOLUME, best-effort live events the bus may drop under
+// backpressure (streaming deltas, progress/usage ticks, live council polling).
+// Low-volume state transitions (agent.spawned/status, tool.started, …) and all
+// facts are NOT droppable — silently losing one desyncs the UI permanently (e.g. a
+// subagent pane stuck "running" because its agent.status:"done" was dropped).
+var droppableTypes = map[Type]bool{
+	TypePartDelta:           true,
+	TypeToolProgress:        true,
+	TypeContextUsage:        true,
+	TypeCouncilDeliberating: true,
+}
+
+// Droppable reports whether the bus may discard t under backpressure. Only the
+// high-volume streaming/indicator events are droppable; everything else must be
+// delivered (see droppableTypes).
+func (t Type) Droppable() bool { return droppableTypes[t] }
+
 // IsFact reports whether t is a persisted event type.
 func (t Type) IsFact() bool { return !t.IsTransient() }
 
