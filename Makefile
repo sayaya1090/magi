@@ -4,7 +4,7 @@ DATE    := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 PKG     := github.com/sayaya1090/magi/internal/version
 LDFLAGS := -s -w -X $(PKG).Version=$(VERSION) -X $(PKG).Commit=$(COMMIT) -X $(PKG).Date=$(DATE)
 
-.PHONY: build test test-race vet fmt e2e snapshot licenses clean
+.PHONY: build test test-race cover vet fmt e2e snapshot licenses clean
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o magi ./cmd/magi
@@ -14,6 +14,12 @@ test:
 
 test-race:
 	go test ./... -skip E2E -race
+
+# Test coverage: writes coverage.out, prints the total, and points at the HTML view.
+cover:
+	go test ./... -skip E2E -covermode=atomic -coverprofile=coverage.out
+	@go tool cover -func=coverage.out | tail -1
+	@echo "HTML report: go tool cover -html=coverage.out"
 
 vet:
 	go vet ./...

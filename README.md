@@ -8,6 +8,9 @@ Most agents let a single model call its own work finished — so they stop early
 **magi puts termination to a vote.** Three specialists, each with a different lens, deliberate on
 every turn and only let the loop end when they agree.
 
+[![CI](https://github.com/sayaya1090/magi/actions/workflows/ci.yml/badge.svg)](https://github.com/sayaya1090/magi/actions/workflows/ci.yml)
+[![coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/sayaya1090/magi/badges/coverage.json)](https://github.com/sayaya1090/magi/actions/workflows/ci.yml)
+
 [English](README.md) · [한국어](README.ko.md) · [Manual](docs/MANUAL.md)
 
 ![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)

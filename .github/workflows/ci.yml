@@ -6,7 +6,7 @@ on:
   pull_request:
 
 permissions:
-  contents: read
+  contents: write # the coverage-badge step pushes a JSON to the 'badges' branch
 
 jobs:
   build-test:
@@ -32,7 +32,57 @@ jobs:
       - name: build
         run: go build ./...
 
-      - name: test (race)
-        run: go test -race ./...
-        # Live Ollama Cloud E2E tests self-skip without OLLAMA_API_KEY, so CI
-        # stays hermetic.
+      - name: test (race + coverage)
+        # Live Ollama Cloud E2E tests are skipped (-skip E2E), so CI stays hermetic.
+        run: |
+          set -o pipefail
+          go test -race -covermode=atomic -coverprofile=coverage.out -skip E2E ./... | tee test-output.txt
+
+      - name: coverage summary
+        if: always()
+        run: |
+          {
+            echo "## 🧪 Test coverage"
+            if [ -f coverage.out ]; then
+              total=$(go tool cover -func=coverage.out | tail -1 | awk '{print $NF}')
+              echo "**Total: ${total}**"
+              echo ""
+              echo "| package | coverage |"
+              echo "|---|---|"
+              grep 'coverage:' test-output.txt \
+                | sed -E 's#github.com/sayaya1090/magi/##' \
+                | awk '{for (i=1;i<=NF;i++) if ($i=="coverage:") c=$(i+1); print "| " $2 " | " c " |"}'
+            else
+              echo "_no coverage profile was produced_"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: upload coverage profile
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+          if-no-files-found: ignore
+
+      # Publish a shields.io endpoint badge (coverage %) to an orphan 'badges'
+      # branch using the default token — no third-party service or extra secret.
+      # Runs only on main; the README badge reads badges/coverage.json.
+      - name: publish coverage badge
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          pct=$(go tool cover -func=coverage.out | tail -1 | awk '{print $NF}' | tr -d '%')
+          color=e05d44
+          awk "BEGIN{exit !($pct>=80)}" && color=4c1 || awk "BEGIN{exit !($pct>=60)}" && color=dfb317
+          tmp=$(mktemp -d)
+          printf '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}\n' "$pct" "$color" > "$tmp/coverage.json"
+          cd "$tmp"
+          git init -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add coverage.json
+          git commit -q -m "coverage: ${pct}%"
+          git branch -M badges
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" badges

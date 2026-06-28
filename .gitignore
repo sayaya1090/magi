@@ -10,3 +10,7 @@ docs/FEATURES.md
 docs/FEATURE_CHECKLIST.md
 docs/PLAN.md
 internal/eval/a-reference-agent_compare_test.go
+
+# coverage output
+coverage.out
+test-output.txt

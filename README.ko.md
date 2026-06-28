@@ -8,6 +8,9 @@
 **magi는 종료를 투표에 부친다.** 서로 다른 렌즈를 가진 세 전문가가 매 턴을 심의하고, 합의했을 때에만
 루프를 끝낸다.
 
+[![CI](https://github.com/sayaya1090/magi/actions/workflows/ci.yml/badge.svg)](https://github.com/sayaya1090/magi/actions/workflows/ci.yml)
+[![coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/sayaya1090/magi/badges/coverage.json)](https://github.com/sayaya1090/magi/actions/workflows/ci.yml)
+
 [English](README.md) · [한국어](README.ko.md) · [매뉴얼](docs/MANUAL.md)
 
 ![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)
