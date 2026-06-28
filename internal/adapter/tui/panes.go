@@ -25,6 +25,11 @@ type agentPane struct {
 	live      string // streaming text for the current step
 	liveThink string
 	done      bool
+	// Per-pane fade-out: doneAt is when this subagent finished; fade is its current
+	// dim level (0=opaque..1=gone). Each pane fades and is removed INDEPENDENTLY a few
+	// seconds after IT finishes — it doesn't wait for sibling panes or the turn.
+	doneAt time.Time
+	fade   float64
 
 	// per-subagent meter (§8.1): elapsed + tokens, shown as the pane's total
 	started time.Time
@@ -182,9 +187,6 @@ func (m *Model) openPane(ev event.Event) tea.Cmd {
 	p := &agentPane{sid: cid, role: orDefaultStr(d.Role, d.AgentID), ch: ch, cancel: cancel, sub: m.subID}
 	m.panes = append(m.panes, p)
 	fadeDbg("openPane sid=%s role=%s sub=%d (panes=%d)", shortSID(cid), p.role, p.sub, len(m.panes))
-	// A newly active agent cancels any pending finished-pane fade (not idle anymore).
-	m.turnEndAt = time.Time{}
-	m.paneFade = 0
 	return waitEvent(ch, cid, p.sub)
 }
 
@@ -301,8 +303,6 @@ func (m *Model) closePanes() {
 	m.focusPane = -1
 	m.zoom = false
 	m.paneScroll = 0
-	m.paneFade = 0
-	m.turnEndAt = time.Time{}
 }
 
 // ensureFocusVisible scrolls the pane window so the focused pane is on screen.
@@ -378,7 +378,10 @@ func (m *Model) applyPaneEvent(p *agentPane, e event.Event) {
 			}
 		}
 	case event.TypeTurnFinished, event.TypeError:
-		p.done = true
+		if !p.done {
+			p.done = true
+			p.doneAt = time.Now() // start THIS pane's own fade clock
+		}
 		fadeDbg("pane %s DONE via child %s", shortSID(p.sid), e.Type)
 		p.live = ""
 		p.liveThink = ""
@@ -396,37 +399,6 @@ func (m *Model) applyPaneEvent(p *agentPane, e event.Event) {
 				}
 			}
 		}
-		m.armPaneFadeIfIdle() // a subagent finished — fade once they're all done
-	}
-}
-
-// panesAllDone reports whether there are panes and every one has finished.
-func (m *Model) panesAllDone() bool {
-	if len(m.panes) == 0 {
-		return false
-	}
-	for _, p := range m.panes {
-		if !p.done {
-			return false
-		}
-	}
-	return true
-}
-
-// armPaneFadeIfIdle starts the finished-pane fade clock once every subagent is done,
-// so panes fade out when the agents finish their work — without waiting for the whole
-// turn to end. A later-dispatched agent (openPane) resets it.
-func (m *Model) armPaneFadeIfIdle() {
-	done := 0
-	for _, p := range m.panes {
-		if p.done {
-			done++
-		}
-	}
-	armed := m.turnEndAt.IsZero() && m.panesAllDone()
-	fadeDbg("armPaneFadeIfIdle: done=%d/%d allDone=%v -> arm=%v", done, len(m.panes), m.panesAllDone(), armed)
-	if armed {
-		m.turnEndAt = time.Now()
 	}
 }
 
@@ -610,20 +582,20 @@ func (m *Model) renderPanes(width, originY int) string {
 		}
 		return "  " + styleKeyLabel.Render(fmt.Sprintf("↑%d  ↓%d  (scroll · ctrl+o to open)", off, more-off))
 	}
-	// Turn finished (or all subagents done mid-turn) → compact one-line-per-pane strip
-	// (still focusable/zoomable) so finished subagents don't keep eating the screen,
-	// and each fades out shortly after the work is done. Capped to nShown.
-	if !m.running || m.panesAllDone() {
+	// Turn finished → compact one-line-per-pane strip (still focusable/zoomable) so
+	// finished subagents don't keep eating the screen; each fades out (per pane) a few
+	// seconds after IT finished and is then removed. Capped to nShown.
+	if !m.running {
 		var rows []string
 		y := originY
 		for i := 0; i < nShown; i++ {
 			p := m.panes[off+i]
 			c := m.paneColorOf(p)
 			var line string
-			if m.paneFade > 0 {
+			if p.fade > 0 {
 				// Fading out: re-render the whole row in one color blended toward the
-				// surface, so the finished strip dims away before it's removed.
-				dc := blendColor(c, colSurface, m.paneFade)
+				// surface, so this finished pane dims away before it's removed.
+				dc := blendColor(c, colSurface, p.fade)
 				line = lipgloss.NewStyle().Foreground(dc).Render("● " + p.desc(width-8) + " " + m.paneStatusPlain(p))
 			} else {
 				line = lipgloss.NewStyle().Foreground(c).Render("● ") +
@@ -651,6 +623,9 @@ func (m *Model) renderPanes(width, originY int) string {
 		border := colOutlVar
 		if focused {
 			border = c
+		}
+		if p.fade > 0 { // this finished pane is fading out — dim its border toward the surface
+			border = blendColor(border, colSurface, p.fade)
 		}
 		box := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).

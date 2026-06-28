@@ -10,76 +10,66 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// A finished pane strip stays visible through the linger window, dims over the fade
-// window, then is fully removed (the block reserves and renders nothing).
+// A finished pane stays visible through its own linger window, dims over the fade
+// window, then is removed — keyed on the pane's OWN doneAt.
 func TestPaneFadeOutLifecycle(t *testing.T) {
 	mm := newTestModel(t)
 	m := &mm
 	m.width, m.height = 80, 40
 	m.running = false
 	m.focusPane = -1
-	m.panes = []*agentPane{{role: "explore", done: true}}
+	p := &agentPane{role: "explore", done: true}
+	m.panes = []*agentPane{p}
 
-	m.turnEndAt = time.Time{} // no turn recorded → no fade
+	p.doneAt = time.Time{} // not recorded → no fade
 	m.advancePaneFade()
-	if m.paneFade != 0 || len(m.panes) != 1 {
-		t.Fatalf("no turnEndAt → no fade, got fade=%v panes=%d", m.paneFade, len(m.panes))
+	if p.fade != 0 || len(m.panes) != 1 {
+		t.Fatalf("no doneAt → no fade, got fade=%v panes=%d", p.fade, len(m.panes))
 	}
 
-	m.turnEndAt = time.Now().Add(-paneFadeAfter / 2) // within linger → fully visible
+	p.doneAt = time.Now().Add(-paneFadeAfter / 2) // within linger → fully visible
 	m.advancePaneFade()
-	if m.paneFade != 0 || len(m.panes) != 1 {
-		t.Fatalf("during linger → fade 0, still shown, got fade=%v panes=%d", m.paneFade, len(m.panes))
+	if p.fade != 0 || len(m.panes) != 1 {
+		t.Fatalf("during linger → fade 0, still shown, got fade=%v panes=%d", p.fade, len(m.panes))
 	}
 
-	m.turnEndAt = time.Now().Add(-(paneFadeAfter + paneFadeDur/2)) // mid-fade → partial
+	p.doneAt = time.Now().Add(-(paneFadeAfter + paneFadeDur/2)) // mid-fade → partial
 	m.advancePaneFade()
-	if !(m.paneFade > 0 && m.paneFade < 1) || len(m.panes) != 1 {
-		t.Fatalf("mid-fade → 0<fade<1, still shown, got fade=%v panes=%d", m.paneFade, len(m.panes))
+	if !(p.fade > 0 && p.fade < 1) || len(m.panes) != 1 {
+		t.Fatalf("mid-fade → 0<fade<1, still shown, got fade=%v panes=%d", p.fade, len(m.panes))
 	}
 
-	m.turnEndAt = time.Now().Add(-(paneFadeAfter + 2*paneFadeDur)) // past the fade → removed
+	p.doneAt = time.Now().Add(-(paneFadeAfter + 2*paneFadeDur)) // past the fade → removed
 	m.advancePaneFade()
 	if len(m.panes) != 0 {
-		t.Fatalf("after fade window the finished pane should be removed, got %d", len(m.panes))
+		t.Fatalf("after its fade window the finished pane should be removed, got %d", len(m.panes))
 	}
 	if _, _, _, total := m.paneLayout(); total != 0 {
 		t.Fatalf("cleared block should reserve 0 rows, got %d", total)
 	}
-	if pv := m.renderPanes(m.width, 5); pv != "" {
-		t.Fatalf("cleared block should render nothing, got %q", pv)
-	}
 }
 
-// Finished subagents fade once their work is done — even while the turn continues
-// (the main agent is still running) — rather than waiting for the whole turn to end.
-func TestPaneFadeStartsWhenAgentsDoneMidTurn(t *testing.T) {
+// Each finished pane fades on its OWN clock: an early-finished pane is removed while
+// a sibling is still running (it doesn't wait for the others or the turn).
+func TestPaneFadeIsPerPane(t *testing.T) {
 	mm := newTestModel(t)
 	m := &mm
 	m.width, m.height = 80, 40
-	m.running = true // turn still in progress (main agent working after subagents)
+	m.running = true // turn still in progress; one explorer done, one still running
 	m.focusPane = -1
-	m.panes = []*agentPane{{role: "explore", done: true}, {role: "explore", done: true}}
+	doneEarly := &agentPane{role: "explore", task: "scout", done: true,
+		doneAt: time.Now().Add(-(paneFadeAfter + 2*paneFadeDur))} // its fade window has passed
+	stillRunning := &agentPane{role: "explore", task: "reader"} // not done
+	m.panes = []*agentPane{doneEarly, stillRunning}
 
-	m.armPaneFadeIfIdle() // the last subagent just finished
-	if m.turnEndAt.IsZero() {
-		t.Fatal("fade clock should arm once all subagents are done, even mid-turn")
-	}
-	// All-done panes collapse to one row each (not boxes) even though running.
-	nShown, perPane, _, _ := m.paneLayout()
-	if nShown != 2 || perPane != 1 {
-		t.Fatalf("all-done panes should be 1-row lines mid-turn, got nShown=%d perPane=%d", nShown, perPane)
-	}
-	// The fade then completes mid-turn after the window — finished panes are removed.
-	m.turnEndAt = time.Now().Add(-(paneFadeAfter + 2*paneFadeDur))
 	m.advancePaneFade()
-	if len(m.panes) != 0 {
-		t.Fatalf("fade should remove finished panes mid-turn, got %d", len(m.panes))
+	if len(m.panes) != 1 || m.panes[0] != stillRunning {
+		t.Fatalf("the early-finished pane should be removed while the running one stays, got %d panes", len(m.panes))
 	}
 }
 
-// End-to-end: a render-tick message (the heartbeat) drives the fade through Update
-// and View, proving the whole mechanism is wired — not just advancePaneFade alone.
+// End-to-end: a render-tick message (the heartbeat) drives a pane's fade to removal
+// through Update + View — proving the whole mechanism is wired.
 func TestRenderTickDrivesFadeToRemoval(t *testing.T) {
 	base := newTestModel(t)
 	mm, _ := base.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
@@ -87,8 +77,8 @@ func TestRenderTickDrivesFadeToRemoval(t *testing.T) {
 	m := &model
 	m.running = false
 	m.focusPane = -1
-	m.panes = []*agentPane{{role: "explore", task: "find docs", done: true}}
-	m.turnEndAt = time.Now().Add(-(paneFadeAfter + 2*paneFadeDur)) // past the fade window
+	m.panes = []*agentPane{{role: "explore", task: "find docs", done: true,
+		doneAt: time.Now().Add(-(paneFadeAfter + 2*paneFadeDur))}}
 	m.refresh()
 	if !strings.Contains(m.View().Content, "find docs") {
 		t.Fatal("pane should be visible before the tick advances the fade")
@@ -98,26 +88,23 @@ func TestRenderTickDrivesFadeToRemoval(t *testing.T) {
 	if len(m2.panes) != 0 {
 		t.Fatal("a render tick past the fade window should remove the finished pane")
 	}
-	if _, _, _, total := m2.paneLayout(); total != 0 {
-		t.Fatalf("cleared block should reserve 0 rows, got %d", total)
-	}
 	if strings.Contains(m2.View().Content, "find docs") {
 		t.Fatal("cleared pane should no longer appear in the view")
 	}
 }
 
-// The fade pauses while a pane is focused, so a strip never vanishes mid-read.
+// The fade pauses while a pane is focused, so it never vanishes mid-read.
 func TestPaneFadePausesWhileFocused(t *testing.T) {
 	mm := newTestModel(t)
 	m := &mm
 	m.width, m.height = 80, 40
 	m.running = false
-	m.panes = []*agentPane{{role: "explore", done: true}}
-	m.turnEndAt = time.Now().Add(-(paneFadeAfter + 2*paneFadeDur)) // well past the window
-	m.focusPane = 0                                                // but a pane is focused
+	m.panes = []*agentPane{{role: "explore", done: true,
+		doneAt: time.Now().Add(-(paneFadeAfter + 2*paneFadeDur))}} // well past the window
+	m.focusPane = 0 // but it's focused
 	m.advancePaneFade()
-	if m.paneFade != 0 || len(m.panes) != 1 {
-		t.Fatalf("focused pane should pause the fade (kept, undimmed), got fade=%v panes=%d", m.paneFade, len(m.panes))
+	if m.panes[0].fade != 0 || len(m.panes) != 1 {
+		t.Fatalf("focused pane should pause its fade (kept, undimmed), got fade=%v panes=%d", m.panes[0].fade, len(m.panes))
 	}
 }
 

@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -168,8 +167,6 @@ type Model struct {
 	councilDetail          *event.CouncilVerdictData // open council-verdict detail (full-screen; nil = closed)
 	councilDetailEvidence  string                    // the evidence shown alongside the open verdict
 	paneScroll             int                       // scroll offset into the subagent pane list (clamped in renderPanes)
-	turnEndAt              time.Time                 // when the agents finished / turn ended; arms the finished-pane fade (zero = not idle)
-	paneFade               float64                   // 0 = opaque .. 1 = gone: dim level of the finished pane strip during the fade
 	pendingCouncilEvidence string                    // evidence from the latest convened round, attached to its verdicts
 	roleColor              map[string]int            // role name -> agentPalette index (stable per session)
 
@@ -282,38 +279,17 @@ func shortSID(s session.SessionID) string {
 // fadeDebug renders the fade machinery's live state for the footer (MAGI_DEBUG_FADE).
 func (m *Model) fadeDebug() string {
 	done := 0
+	maxFade := 0.0
 	for _, p := range m.panes {
 		if p.done {
 			done++
 		}
-	}
-	armed := "no"
-	if !m.turnEndAt.IsZero() {
-		armed = fmt.Sprintf("%.1fs", time.Since(m.turnEndAt).Seconds())
-	}
-	// Aggregate the STUCK (not-done) panes by their last event type — this fits the
-	// footer (a per-pane list overflows + gets clipped) and pinpoints the failure:
-	// last=turn.finished but stuck → done-handling bug; last=other → finish not delivered.
-	stuckLast := map[string]int{}
-	stuckEv := ""
-	for _, p := range m.panes {
-		if p.done {
-			continue
+		if p.fade > maxFade {
+			maxFade = p.fade
 		}
-		l := p.lastEv
-		if l == "" {
-			l = "none"
-		}
-		stuckLast[l]++
-		stuckEv += fmt.Sprintf(",%d", p.evCount)
 	}
-	hist := make([]string, 0, len(stuckLast))
-	for k, v := range stuckLast {
-		hist = append(hist, fmt.Sprintf("%s×%d", k, v))
-	}
-	sort.Strings(hist)
-	return fmt.Sprintf("  [%s · panes=%d done=%d armed=%s fade=%.2f run=%v | stuck-last:%s evs%s]",
-		version.Commit, len(m.panes), done, armed, m.paneFade, m.running, strings.Join(hist, " "), stuckEv)
+	return fmt.Sprintf("  [%s · panes=%d done=%d maxfade=%.2f run=%v]",
+		version.Commit, len(m.panes), done, maxFade, m.running)
 }
 
 // renderTickMsg drives throttled, coalesced repaints during streaming.
@@ -1940,9 +1916,9 @@ func (m *Model) applyEvent(e event.Event) {
 			m.activeAgents = removeFirst(m.activeAgents, orDefaultStr(d.Role, d.AgentID))
 			p := m.paneBySID(session.SessionID(d.AgentID))
 			fadeDbg("main: AgentStatus done agentID=%s paneFound=%v", shortSID(session.SessionID(d.AgentID)), p != nil)
-			if p != nil {
+			if p != nil && !p.done {
 				p.done = true
-				m.armPaneFadeIfIdle() // fade finished panes once they're all done
+				p.doneAt = time.Now() // start this pane's own fade clock
 			}
 		}
 
@@ -2067,10 +2043,13 @@ func (m *Model) applyEvent(e event.Event) {
 		m.activeAgents = nil
 		m.councilRound = 0
 		m.councilMember = ""
-		// Arm the finished-pane fade-out clock if it wasn't already armed when the
-		// subagents finished (armPaneFadeIfIdle) — an earlier all-done time wins.
-		if len(m.panes) > 0 && m.turnEndAt.IsZero() {
-			m.turnEndAt = time.Now()
+		// The turn ended: any pane still marked unfinished (e.g. a completion event
+		// that never arrived) should now fade too, so nothing lingers after the turn.
+		for _, p := range m.panes {
+			if !p.done {
+				p.done = true
+				p.doneAt = time.Now()
+			}
 		}
 		// Freeze the turn meter from the cumulative usage (§8.1).
 		if !m.turnStart.IsZero() {
@@ -2158,64 +2137,68 @@ const (
 	paneFadeDur   = 1500 * time.Millisecond
 )
 
-// advancePaneFade recomputes the finished-pane fade for the current frame and
-// returns whether anything changed (so the caller can request a repaint). It's a
-// no-op while nothing is finished or the user is engaging a pane. When the fade
-// completes it REMOVES the finished panes (clearFadedPanes) so they clear from both
-// the inline strip AND the right-panel roster — the plan/todos panel persists.
+// advancePaneFade recomputes each finished pane's INDEPENDENT fade for this frame and
+// returns whether anything changed (so the caller can request a repaint). Every pane
+// fades on its OWN clock (doneAt) — a finished subagent fades and is removed without
+// waiting for its siblings or the turn. The focused/zoomed pane's fade pauses so it
+// never vanishes mid-read. Removed panes disappear from the inline strip AND the
+// right-panel roster (the plan/todos panel persists — it's app state, not m.panes).
 func (m *Model) advancePaneFade() bool {
-	// Paused/visible: turnEndAt is armed when all subagents finish (armPaneFadeIfIdle)
-	// or the turn ends, so the fade runs even mid-turn once the agents' work is done.
-	if len(m.panes) == 0 || m.turnEndAt.IsZero() || m.zoom || m.focusPane >= 0 {
-		if m.paneFade != 0 {
-			m.paneFade = 0
-			return true
-		}
+	if len(m.panes) == 0 {
 		return false
 	}
-	elapsed := time.Since(m.turnEndAt)
-	switch {
-	case elapsed < paneFadeAfter:
-		if m.paneFade != 0 {
-			m.paneFade = 0
-			return true
-		}
-		return false
-	case elapsed < paneFadeAfter+paneFadeDur:
-		f := float64(elapsed-paneFadeAfter) / float64(paneFadeDur)
-		if f != m.paneFade {
-			m.paneFade = f
-			return true
-		}
-		return false
-	default:
-		m.clearFadedPanes() // fade done → drop the finished panes entirely
-		return true
+	var focused *agentPane
+	if m.focusPane >= 0 && m.focusPane < len(m.panes) {
+		focused = m.panes[m.focusPane]
 	}
-}
-
-// clearFadedPanes removes finished subagent panes once their fade completes: it
-// cancels their subscriptions and drops them from m.panes, so they disappear from
-// the inline strip and the panel's Subagents roster alike. Still-running panes (rare
-// at fade time) are kept and the clock is rearmed when they later finish.
-func (m *Model) clearFadedPanes() {
+	changed := false
 	kept := m.panes[:0:0]
 	for _, p := range m.panes {
-		if p.done {
+		lvl := 0.0
+		if p.done && !p.doneAt.IsZero() && p != focused { // focused pane's fade is paused
+			switch elapsed := time.Since(p.doneAt); {
+			case elapsed < paneFadeAfter:
+				lvl = 0
+			case elapsed < paneFadeAfter+paneFadeDur:
+				lvl = float64(elapsed-paneFadeAfter) / float64(paneFadeDur)
+			default:
+				lvl = 1
+			}
+		}
+		if lvl >= 1 { // fade complete → drop this pane (inline + panel roster)
 			if p.cancel != nil {
 				p.cancel()
 			}
+			fadeDbg("pane %s faded out — removed", shortSID(p.sid))
+			changed = true
 			continue
+		}
+		if lvl != p.fade {
+			p.fade = lvl
+			changed = true
 		}
 		kept = append(kept, p)
 	}
-	fadeDbg("clearFadedPanes: removed done panes, kept=%d", len(kept))
-	m.panes = kept
-	m.focusPane = -1
-	m.zoom = false
-	m.paneScroll = 0
-	m.paneFade = 0
-	m.turnEndAt = time.Time{} // remaining (running) panes rearm when they finish
+	if len(kept) != len(m.panes) {
+		// Removal shifted indices — re-point focus to the SAME pane by identity. Only
+		// drop zoom if the zoomed/focused pane itself was removed (a focused pane's fade
+		// is paused, so it survives — don't eject the user when a sibling fades out).
+		m.panes = kept
+		newFocus := -1
+		if focused != nil {
+			for i, p := range kept {
+				if p == focused {
+					newFocus = i
+					break
+				}
+			}
+		}
+		m.focusPane = newFocus
+		if newFocus < 0 {
+			m.zoom = false
+		}
+	}
+	return changed
 }
 
 // baseChromeHeight is the fixed chrome (everything except the agent-pane block):
@@ -2304,9 +2287,9 @@ func (m *Model) paneLayout() (nShown, perPane, more, total int) {
 	if frac := m.height * panesMaxNumer / panesMaxDenom; capH > frac {
 		capH = frac
 	}
-	if !m.running || m.panesAllDone() {
-		// Collapsed: one row per finished pane (also mid-turn once every agent is done,
-		// so finished subagents shrink to a fading line instead of lingering as boxes).
+	if !m.running {
+		// Collapsed: one row per finished pane (the post-turn strip). Mid-turn, finished
+		// panes stay as boxes and fade out individually (renderPanes dims by p.fade).
 		if n <= capH {
 			return n, 1, 0, n
 		}
