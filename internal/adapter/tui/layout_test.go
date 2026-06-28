@@ -78,6 +78,34 @@ func TestPaneFadeStartsWhenAgentsDoneMidTurn(t *testing.T) {
 	}
 }
 
+// End-to-end: a render-tick message (the heartbeat) drives the fade through Update
+// and View, proving the whole mechanism is wired — not just advancePaneFade alone.
+func TestRenderTickDrivesFadeToRemoval(t *testing.T) {
+	base := newTestModel(t)
+	mm, _ := base.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
+	model := mm.(Model)
+	m := &model
+	m.running = false
+	m.focusPane = -1
+	m.panes = []*agentPane{{role: "explore", task: "find docs", done: true}}
+	m.turnEndAt = time.Now().Add(-(paneFadeAfter + 2*paneFadeDur)) // past the fade window
+	m.refresh()
+	if !strings.Contains(m.View().Content, "find docs") {
+		t.Fatal("pane should be visible before the tick advances the fade")
+	}
+	updated, _ := m.Update(renderTickMsg{}) // one heartbeat
+	m2 := updated.(Model)
+	if !m2.panesFadedOut {
+		t.Fatal("a render tick past the fade window should mark panes faded out")
+	}
+	if _, _, _, total := m2.paneLayout(); total != 0 {
+		t.Fatalf("faded-out block should reserve 0 rows, got %d", total)
+	}
+	if strings.Contains(m2.View().Content, "find docs") {
+		t.Fatal("faded-out pane should no longer appear in the view")
+	}
+}
+
 // The fade pauses while a pane is focused, so a strip never vanishes mid-read.
 func TestPaneFadePausesWhileFocused(t *testing.T) {
 	mm := newTestModel(t)
