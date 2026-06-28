@@ -2004,6 +2004,15 @@ func (m *Model) applyEvent(e event.Event) {
 			if n := len(m.blocks); n > 0 && m.blocks[n-1].kind == blockCouncilVerdict &&
 				len(m.blocks[n-1].councilVerdicts) > 0 && m.blocks[n-1].councilVerdicts[0].Round == d.Round {
 				m.blocks[n-1].councilVerdicts = append(m.blocks[n-1].councilVerdicts, d)
+				// The render cache is append-only: a block already cached is never
+				// re-rendered. Members vote concurrently and their verdicts stream in
+				// back-to-back, so if a frame is painted after the first verdict but
+				// before the rest, the block gets cached as a single-member line and the
+				// later members never appear. Drop this block's cache entry so it
+				// re-renders with the full row.
+				if len(m.cache) > n-1 {
+					m.cache = m.cache[:n-1]
+				}
 			} else {
 				m.blocks = append(m.blocks, block{kind: blockCouncilVerdict, councilVerdicts: []event.CouncilVerdictData{d}, evidence: m.pendingCouncilEvidence})
 			}
