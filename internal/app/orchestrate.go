@@ -312,13 +312,19 @@ func (a *App) spawn(ctx context.Context, parent session.Session, depth int, req 
 // runAttempt runs a single supervised subagent attempt. retry is true when the
 // attempt stalled or hit its hard timeout (the supervisor should restart it).
 func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int, spec AgentSpec, req port.SpawnRequest) (res port.SpawnResult, retry bool) {
-	// Acquire a concurrency slot; blocks (queues) when the cap is reached.
-	select {
-	case a.sem <- struct{}{}:
-	case <-ctx.Done():
-		return port.SpawnResult{Err: ctx.Err().Error()}, false
+	// Throttle only TOP-LEVEL fan-out (depth 0). A parent holds its slot for the whole
+	// lifetime of its synchronous child, so if nested subagents also took slots, a
+	// full top-level fan-out where each child delegates would deadlock — every slot
+	// held by a parent waiting for a child that can't get a slot. Nested concurrency
+	// is still bounded by MaxDepth and the cumulative MaxAgents cap.
+	if depth == 0 {
+		select {
+		case a.sem <- struct{}{}:
+		case <-ctx.Done():
+			return port.SpawnResult{Err: ctx.Err().Error()}, false
+		}
+		defer func() { <-a.sem }()
 	}
-	defer func() { <-a.sem }()
 
 	model := parent.Model
 	if spec.Model != (session.ModelRef{}) {
