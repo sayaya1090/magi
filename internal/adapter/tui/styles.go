@@ -52,11 +52,9 @@ var (
 	styleInput      lipgloss.Style
 	styleInputFocus lipgloss.Style
 	styleFooter     lipgloss.Style
-	styleKey        lipgloss.Style
 	stylePermBox    lipgloss.Style
 	stylePermTitle  lipgloss.Style
 	stylePalBox     lipgloss.Style
-	stylePalSel     lipgloss.Style
 	stylePalSelRow  lipgloss.Style
 	stylePalName    lipgloss.Style
 	styleThink      lipgloss.Style
@@ -170,11 +168,9 @@ func applyTheme(isDark bool) {
 	styleInput = n().Border(lipgloss.RoundedBorder()).BorderForeground(colOutline).Padding(0, 1)
 	styleInputFocus = n().Border(lipgloss.RoundedBorder()).BorderForeground(colPrimary).Padding(0, 1)
 	styleFooter = n().Foreground(colMuted).Padding(0, 1)
-	styleKey = n().Foreground(colAccent)
 	stylePermBox = n().Border(lipgloss.RoundedBorder()).BorderForeground(colPrimary).Background(colSurface).Padding(0, 2)
 	stylePermTitle = n().Foreground(colPrimary).Bold(true)
 	stylePalBox = n().Border(lipgloss.RoundedBorder()).BorderForeground(colOutline).Background(colSurface).Padding(0, 1)
-	stylePalSel = n().Foreground(colPrimary).Bold(true)
 	// Selected row: clear amber fill with contrasting text (reads as a selection,
 	// not a near-white block, in both light and dark).
 	stylePalSelRow = n().Foreground(colSurface).Background(colPrimary).Bold(true)
