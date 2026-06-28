@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -103,5 +104,16 @@ func TestRunRejectsBadChecksum(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(target); string(got) != "OLD" {
 		t.Errorf("binary must not change on checksum failure, got %q", got)
+	}
+}
+
+// AssetName must match the lowercase goreleaser archive name for this platform.
+func TestAssetName(t *testing.T) {
+	want := "magi_" + runtime.GOOS + "_" + runtime.GOARCH
+	if got := AssetName(); got != want {
+		t.Errorf("AssetName() = %q, want %q", got, want)
+	}
+	if AssetName() != strings.ToLower(AssetName()) {
+		t.Errorf("AssetName() must be lowercase: %q", AssetName())
 	}
 }

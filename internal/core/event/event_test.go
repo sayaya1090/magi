@@ -86,3 +86,18 @@ func TestEventRoundTrip(t *testing.T) {
 		t.Errorf("payload mismatch:\n got=%+v\nwant=%+v", gotData, wantData)
 	}
 }
+
+// Droppable marks high-volume streaming events that may be dropped under backpressure;
+// low-volume state transitions must not be.
+func TestDroppable(t *testing.T) {
+	for _, ty := range []Type{TypePartDelta, TypeToolProgress, TypeContextUsage, TypeCouncilDeliberating} {
+		if !ty.Droppable() {
+			t.Errorf("%s should be droppable", ty)
+		}
+	}
+	for _, ty := range []Type{TypeAgentStatus, TypeCouncilDecided, TypeTurnFinished, TypePromptSubmitted} {
+		if ty.Droppable() {
+			t.Errorf("%s must NOT be droppable", ty)
+		}
+	}
+}
