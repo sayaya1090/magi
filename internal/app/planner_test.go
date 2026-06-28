@@ -227,6 +227,28 @@ func TestPlanAuditCapForcesApprove(t *testing.T) {
 	}
 }
 
+// A revise whose re-plan keeps failing (empty/unparseable, incl. the retry) must
+// proceed with the prior plan but say WHY (a noted finish) — not silently run the
+// rejected plan with no explanation.
+func TestPlanAuditReplanFailProceedsWithNote(t *testing.T) {
+	fc := &fakeCouncil{delibs: []council.Deliberation{
+		{Round: 1, Decision: council.Continue, Feedback: "fix it"},
+	}}
+	bad := textStep("sorry, I can't produce json") // no parseable steps → empty re-plan
+	a, wd := newApp(t, &fakeLLM{steps: [][]port.ProviderEvent{bad, bad}},
+		Config{Council: fc, Agents: map[string]AgentSpec{plannerAgent: {Name: "planner"}}})
+	s, steps := planAuditFixture(t, a, wd)
+	got := a.runPlanAuditGate(context.Background(), s, a.cfg.Agents[plannerAgent], "p", steps)
+	if len(got) != len(steps) {
+		t.Fatalf("re-plan failure should keep the prior plan, got %d want %d", len(got), len(steps))
+	}
+	dec := planDecisions(t, a, s.ID)
+	last := dec[len(dec)-1]
+	if last.Decision != string(council.Done) || !strings.Contains(last.Note, "re-plan failed") {
+		t.Fatalf("re-plan failure should emit a 'proceeding' note, got %+v", last)
+	}
+}
+
 // The plan-audit cap follows the configured CouncilMaxRounds (here 1), proving it's
 // the shared knob and not a hardcoded constant.
 func TestPlanAuditCapRespectsCouncilMaxRounds(t *testing.T) {

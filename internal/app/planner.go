@@ -311,14 +311,23 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		dd, _ := json.Marshal(event.CouncilDecidedData{Round: round, Phase: "plan", Decision: string(council.Continue), Tally: delib.Breakdown, Feedback: fb})
 		a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd)
 
-		// Re-plan with the feedback folded in.
+		// Re-plan with the feedback folded in (one retry — local models are flaky and
+		// an empty/unparseable reply shouldn't silently drop the revision).
 		a.setStage(sid, stagePlan)
 		next := sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, fb))
+		if len(next) == 0 {
+			next = sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, fb))
+		}
 		a.setStage(sid, stageCouncil)
 		if len(next) == 0 {
-			// Re-plan failed → keep the prior plan; its criteria (this round's) are the
-			// contract we proceed with.
+			// Re-plan failed → proceed with the prior plan, but say so (don't silently
+			// run a plan the council just rejected). Keep this round's criteria.
 			a.storePlanCriteria(ctx, s, delib.Criteria)
+			dd2, _ := json.Marshal(event.CouncilDecidedData{
+				Round: round, Phase: "plan", Decision: string(council.Done), Tally: delib.Breakdown,
+				Note: "re-plan failed — proceeding with the prior plan", Criteria: delib.Criteria,
+			})
+			a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd2)
 			return steps
 		}
 		steps = next
