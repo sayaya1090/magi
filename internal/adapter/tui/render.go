@@ -319,8 +319,20 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 				continue
 			}
 			hue := m.councilColor(v.Member)
-			label := lipgloss.NewStyle().Foreground(hue).Render("  → " + v.Member + ": ")
-			reasons = append(reasons, indent(label+styleToolResult.Render(oneLine(reason, max(20, m.transcriptWidth()-len(v.Member)-8)))))
+			prefix := "  → " + v.Member + ": "
+			pad := strings.Repeat(" ", len([]rune(prefix)))
+			// Wrap the reason to the transcript width with a hanging indent aligned under
+			// the text (continuation lines line up past "→ Member: "), instead of cutting
+			// it off with an ellipsis.
+			wrapped := wrapLines(oneLine(reason, 100000), max(20, m.transcriptWidth()-2-len([]rune(prefix))))
+			label := lipgloss.NewStyle().Foreground(hue).Render(prefix)
+			for k, ln := range wrapped {
+				if k == 0 {
+					reasons = append(reasons, indent(label+styleToolResult.Render(ln)))
+				} else {
+					reasons = append(reasons, indent(pad+styleToolResult.Render(ln)))
+				}
+			}
 		}
 		if len(reasons) > 0 {
 			return row + "\n" + strings.Join(reasons, "\n")

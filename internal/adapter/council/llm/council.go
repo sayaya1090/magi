@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/sayaya1090/magi/internal/core/council"
+	"github.com/sayaya1090/magi/internal/core/lang"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
@@ -86,7 +87,7 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 	}
 	stream, err := provider.StreamChat(ctx, port.ChatRequest{
 		Model:    model,
-		System:   memberSystem(m, req.Phase),
+		System:   memberSystem(m, req.Phase, req.Task),
 		Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: evidence(req)}}}},
 		Params:   map[string]any{"temperature": 0.0},
 	})
@@ -130,15 +131,15 @@ type memberReply struct {
 // label) and its judging lens (the attribute), plus the strict output contract.
 // The phase selects whether the member judges a finished turn ("terminate") or a
 // proposed procedure ("plan").
-func memberSystem(m council.Member, phase string) string {
+func memberSystem(m council.Member, phase, task string) string {
 	lens := council.Lenses[m.Lens]
 	if lens == "" {
 		lens = "Judge whether the task is genuinely complete."
 	}
 	if phase == "plan" {
-		return planMemberSystem(m, lens)
+		return withLangNote(planMemberSystem(m, lens), task)
 	}
-	return fmt.Sprintf(
+	return withLangNote(fmt.Sprintf(
 		"You are %s, a member of the council that decides whether an AI coding agent's turn is truly finished. "+
 			"Your lens is %q: %s\n\n"+
 			"Judge the agent's REPORT against the TASK and PLAN. Use the SIGNALS and DIFF as evidence WHEN PRESENT — "+
@@ -156,7 +157,19 @@ func memberSystem(m council.Member, phase string) string {
 			"the task — the absence of a diff is not itself a defect, but a wrong or incomplete answer still is.\n\n"+
 			"Respond with ONLY a JSON object, no prose, no code fence:\n"+
 			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific gap (only if continue)"}`,
-		m.Name, m.Lens, lens)
+		m.Name, m.Lens, lens), task)
+}
+
+// withLangNote appends, when the task is in a non-English language, an instruction to
+// write the human-facing rationale/feedback in that language (keys/decision stay
+// English) — so the user reads the council's reasons in their own language.
+func withLangNote(prompt, task string) string {
+	l := lang.Detect(task)
+	if l == "" {
+		return prompt
+	}
+	return prompt + "\n\nWrite the \"rationale\" and \"feedback\" values in " + l +
+		" (the user's language), not English. Keep the JSON keys and the \"decision\" value in English."
 }
 
 // planMemberSystem builds the prompt for the pre-flight plan audit: the member

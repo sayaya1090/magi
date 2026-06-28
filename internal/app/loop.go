@@ -12,6 +12,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/artifact"
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
+	"github.com/sayaya1090/magi/internal/core/lang"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
@@ -1045,38 +1046,7 @@ const securityGuide = "\n\n# Security\n" +
 // non-Latin script, returns a short forceful instruction (placed first in the
 // system prompt) to answer in that language. Weak local models otherwise drift
 // back to English regardless of a buried "match the user's language" rule.
-func langDirective(text string) string {
-	var hangul, kana, han, cyrillic, latin int
-	for _, r := range text {
-		switch {
-		case r >= 0xAC00 && r <= 0xD7A3, r >= 0x1100 && r <= 0x11FF:
-			hangul++
-		case r >= 0x3040 && r <= 0x30FF:
-			kana++
-		case r >= 0x4E00 && r <= 0x9FFF:
-			han++
-		case r >= 0x0400 && r <= 0x04FF:
-			cyrillic++
-		case r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z':
-			latin++
-		}
-	}
-	lock := func(lang string) string {
-		return "# Language\nThe user is writing in " + lang + ". You MUST write your entire reply to the user in " +
-			lang + " — not English. Keep only code, identifiers, and file paths as-is."
-	}
-	switch {
-	case hangul >= 2:
-		return lock("Korean (한국어)")
-	case kana >= 2:
-		return lock("Japanese (日本語)")
-	case han >= 2 && latin == 0:
-		return lock("Chinese (中文)")
-	case cyrillic >= 2:
-		return lock("Russian (русский)")
-	}
-	return ""
-}
+func langDirective(text string) string { return lang.Directive(text) }
 
 func oneLineHint(s string) string {
 	s = strings.ReplaceAll(s, "\n", " ")
