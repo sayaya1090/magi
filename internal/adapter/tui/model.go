@@ -323,7 +323,7 @@ func (m Model) Init() tea.Cmd {
 	// Clear the screen on startup so magi opens on a clean canvas rather than
 	// visually continuing the terminal's prior scrollback.
 	// Subscribe via a message so the mutation lands on the running model.
-	return tea.Batch(tea.ClearScreen, textarea.Blink, renderTick(), func() tea.Msg {
+	return tea.Batch(tea.ClearScreen, textarea.Blink, renderTick(), tea.RequestBackgroundColor, func() tea.Msg {
 		return subscribeMsg{sid: m.sid, fromSeq: 0}
 	})
 }
@@ -335,6 +335,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.resize(msg.Width, msg.Height)
 		m.refresh()
+		return m, nil
+
+	case tea.BackgroundColorMsg:
+		// The terminal reported its background color — at startup and again whenever
+		// the OS/terminal theme changes. Re-theme live if dark/light flipped.
+		if dark := msg.IsDark(); dark != m.isDark {
+			m.isDark = dark
+			applyTheme(dark)
+			m.glam, m.glamWidth = nil, 0 // force the markdown renderer to rebuild for the new theme
+			m.cache = m.cache[:0]        // re-render cached blocks with the new colors
+			m.refresh()
+		}
 		return m, nil
 
 	case tea.KeyPressMsg:

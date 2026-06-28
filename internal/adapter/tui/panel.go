@@ -172,7 +172,10 @@ func (m *Model) handlePanelClick(x, y int) bool {
 			return true
 		}
 	}
-	return false
+	// The click is inside the panel but not on a roster row (empty area). Consume it
+	// anyway so it doesn't fall through to the transcript and toggle a thought block
+	// that merely shares the clicked screen line.
+	return true
 }
 
 // panelHead renders a section header in the panel.

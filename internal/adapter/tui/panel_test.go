@@ -68,8 +68,14 @@ func TestHandlePanelClick(t *testing.T) {
 	if m.handlePanelClick(2, m.panes[0].panelY) {
 		t.Fatal("click outside the panel should not be consumed")
 	}
-	// A click on a non-subagent row (the header just above the first entry) is ignored.
-	if m.handlePanelClick(inPanelX, m.panes[0].panelY-1) {
-		t.Fatal("click on a non-subagent panel row should not be consumed")
+	// A click on a non-subagent row inside the panel (empty area) is CONSUMED — it must
+	// not fall through to the transcript and toggle a thought block on that screen line —
+	// but it changes no focus.
+	m.focusPane, m.zoom = -1, false
+	if !m.handlePanelClick(inPanelX, m.panes[0].panelY-1) {
+		t.Fatal("click on empty panel area should be consumed (not fall through to transcript)")
+	}
+	if m.focusPane != -1 || m.zoom {
+		t.Fatalf("empty-area panel click should not change focus/zoom, got focus=%d zoom=%v", m.focusPane, m.zoom)
 	}
 }
