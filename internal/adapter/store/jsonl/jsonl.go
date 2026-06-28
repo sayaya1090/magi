@@ -196,7 +196,11 @@ func readFile(path string, fromSeq int64) ([]event.Event, error) {
 		}
 		var e event.Event
 		if err := json.Unmarshal(line, &e); err != nil {
-			return nil, fmt.Errorf("jsonl: corrupt line in %s: %w", path, err)
+			// Tolerate a corrupt or torn line — e.g. a partially-flushed final line read
+			// concurrently with an in-flight Append, or on-disk corruption. Skipping it
+			// keeps the store openable and resume/ListSessions working; failing the whole
+			// read here would brick every session that shares the (one bad line) log.
+			continue
 		}
 		if e.Seq > fromSeq {
 			evs = append(evs, e)
