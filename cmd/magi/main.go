@@ -114,14 +114,10 @@ func run() int {
 
 	// Permission defaults differ by mode: headless acts autonomously, the
 	// interactive TUI asks before dangerous tools.
-	promptText := *prompt
-	if promptText == "-" {
-		b, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "magi: read stdin:", err)
-			return 1
-		}
-		promptText = string(b)
+	promptText, err := resolvePrompt(*prompt, os.Stdin)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "magi: read stdin:", err)
+		return 1
 	}
 
 	wd, err := os.Getwd()
@@ -433,10 +429,41 @@ func run() int {
 		return 0
 	}
 
-	// Subscribe before submitting so no events are missed.
+	// One-shot headless run: stream fact events to stdout, errors to stderr.
+	return runHeadless(ctx, a, sid, promptText, *output == "json", os.Stdout, os.Stderr)
+}
+
+// resolvePrompt returns the headless prompt text. The literal "-" means "read the
+// whole prompt from stdin" (so `echo ... | magi -p -` works); any other value is
+// used verbatim.
+func resolvePrompt(flagVal string, stdin io.Reader) (string, error) {
+	if flagVal != "-" {
+		return flagVal, nil
+	}
+	b, err := io.ReadAll(stdin)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+// headlessApp is the slice of the app the headless runner needs: subscribe to a
+// session's fact stream and submit the one-shot prompt. Narrowing to an interface
+// keeps runHeadless unit-testable with a canned event source.
+type headlessApp interface {
+	Subscribe(ctx context.Context, sid session.SessionID, fromSeq int64) (<-chan event.Event, func(), error)
+	Submit(ctx context.Context, c command.SubmitPrompt) error
+}
+
+// runHeadless executes a one-shot prompt and streams the resulting fact events to
+// out — JSON lines when jsonOut, otherwise a human-readable transcript — with
+// operational errors going to errw. It subscribes before submitting so no events
+// are missed, stops at the first TurnFinished, and returns the process exit code
+// (1 on a subscribe/submit failure or a turn Error event).
+func runHeadless(ctx context.Context, a headlessApp, sid session.SessionID, promptText string, jsonOut bool, out, errw io.Writer) int {
 	sub, cancel, err := a.Subscribe(ctx, sid, 0)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "magi: subscribe:", err)
+		fmt.Fprintln(errw, "magi: subscribe:", err)
 		return 1
 	}
 	defer cancel()
@@ -446,18 +473,17 @@ func run() int {
 		Parts:     []session.Part{{Kind: session.PartText, Text: promptText}},
 		Actor:     event.Actor{Kind: event.ActorUser, ID: "cli"},
 	}); err != nil {
-		fmt.Fprintln(os.Stderr, "magi: submit:", err)
+		fmt.Fprintln(errw, "magi: submit:", err)
 		return 1
 	}
 
-	jsonOut := *output == "json"
 	exit := 0
 	for e := range sub {
 		if jsonOut {
 			b, _ := json.Marshal(e)
-			fmt.Println(string(b))
+			fmt.Fprintln(out, string(b))
 		} else {
-			renderText(e)
+			renderText(out, errw, e)
 		}
 		if e.Type == event.TypeTurnFinished {
 			break
@@ -471,7 +497,7 @@ func run() int {
 }
 
 // renderText prints a human-readable view of fact events for headless text mode.
-func renderText(e event.Event) {
+func renderText(out, errw io.Writer, e event.Event) {
 	switch e.Type {
 	case event.TypePartAppended:
 		var d event.PartAppendedData
@@ -480,10 +506,10 @@ func renderText(e event.Event) {
 		}
 		switch d.Part.Kind {
 		case session.PartText:
-			fmt.Println(d.Part.Text)
+			fmt.Fprintln(out, d.Part.Text)
 		case session.PartToolCall:
 			if d.Part.ToolCall != nil {
-				fmt.Printf("⚙ %s %s\n", d.Part.ToolCall.Name, string(d.Part.ToolCall.Args))
+				fmt.Fprintf(out, "⚙ %s %s\n", d.Part.ToolCall.Name, string(d.Part.ToolCall.Args))
 			}
 		case session.PartToolResult:
 			if d.Part.ToolResult != nil {
@@ -491,7 +517,7 @@ func renderText(e event.Event) {
 				if d.Part.ToolResult.IsError {
 					status = "✗"
 				}
-				fmt.Printf("  %s %s\n", status, truncate(string(d.Part.ToolResult.Content), 200))
+				fmt.Fprintf(out, "  %s %s\n", status, truncate(string(d.Part.ToolResult.Content), 200))
 			}
 		}
 	case event.TypeCouncilConvened:
@@ -501,7 +527,7 @@ func renderText(e event.Event) {
 			if len(d.Signals) > 0 {
 				line += " · " + strings.Join(d.Signals, ", ")
 			}
-			fmt.Println(line)
+			fmt.Fprintln(out, line)
 		}
 	case event.TypeCouncilDecided:
 		var d event.CouncilDecidedData
@@ -512,12 +538,12 @@ func renderText(e event.Event) {
 			} else if d.Feedback != "" {
 				line += " → continue"
 			}
-			fmt.Println(line)
+			fmt.Fprintln(out, line)
 		}
 	case event.TypeError:
 		var d event.ErrorData
 		_ = json.Unmarshal(e.Data, &d)
-		fmt.Fprintln(os.Stderr, "error:", d.Message)
+		fmt.Fprintln(errw, "error:", d.Message)
 	}
 }
 
