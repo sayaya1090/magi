@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"sync"
-	"time"
 )
 
 // transport abstracts the underlying protocol transport (stdio or HTTP).
@@ -228,10 +227,3 @@ func (c *Client) Close() error {
 
 // Done is closed when the read loop exits (server gone / transport closed).
 func (c *Client) Done() <-chan struct{} { return c.done }
-
-// waitInit is a small helper so callers can bound the handshake.
-func (c *Client) initWithin(d time.Duration) error {
-	ctx, cancel := context.WithTimeout(context.Background(), d)
-	defer cancel()
-	return c.Initialize(ctx)
-}

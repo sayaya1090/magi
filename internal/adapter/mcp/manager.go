@@ -6,6 +6,7 @@ import (
 	"io"
 	"os/exec"
 	"sync"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/port"
 )
@@ -76,8 +77,14 @@ func (m *Manager) AddHTTPDynamic(ctx context.Context, name, url string, headersF
 	return m.registerClient(ctx, name, client, nil)
 }
 
+// mcpRegisterTimeout bounds the handshake + tool discovery so a hung/misbehaving
+// MCP server can't block startup forever (callers pass context.Background()).
+const mcpRegisterTimeout = 30 * time.Second
+
 // registerClient is the common logic for registering a client (stdio or HTTP).
 func (m *Manager) registerClient(ctx context.Context, name string, client *Client, cmd *exec.Cmd) error {
+	ctx, cancel := context.WithTimeout(ctx, mcpRegisterTimeout)
+	defer cancel()
 	if err := client.Initialize(ctx); err != nil {
 		client.Close()
 		return fmt.Errorf("mcp: initialize %q: %w", name, err)
