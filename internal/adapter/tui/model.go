@@ -246,6 +246,26 @@ var slashCommands = []cmdInfo{
 	{"/quit", "exit magi (alias: /exit)"},
 }
 
+// debugFade shows the finished-pane fade state machine in the footer when
+// MAGI_DEBUG_FADE is set, so a stuck fade can be diagnosed from the screen.
+var debugFade = os.Getenv("MAGI_DEBUG_FADE") != ""
+
+// fadeDebug renders the fade machinery's live state for the footer (MAGI_DEBUG_FADE).
+func (m *Model) fadeDebug() string {
+	done := 0
+	for _, p := range m.panes {
+		if p.done {
+			done++
+		}
+	}
+	armed := "no"
+	if !m.turnEndAt.IsZero() {
+		armed = fmt.Sprintf("%.1fs", time.Since(m.turnEndAt).Seconds())
+	}
+	return fmt.Sprintf("  [fade panes=%d done=%d all=%v armed=%s fade=%.2f foc=%d zoom=%v run=%v]",
+		len(m.panes), done, m.panesAllDone(), armed, m.paneFade, m.focusPane, m.zoom, m.running)
+}
+
 // renderTickMsg drives throttled, coalesced repaints during streaming.
 type renderTickMsg struct{}
 
@@ -2489,6 +2509,9 @@ func (m Model) View() tea.View {
 		status = styleFooter.Render("  "+turnMeter(m.turnDur, m.turnIn, m.turnOut)) + "   " + footer()
 	default:
 		status = footer()
+	}
+	if debugFade {
+		status += styleFooter.Render(m.fadeDebug())
 	}
 
 	// The input stays live even while a turn runs — you can keep typing, and
