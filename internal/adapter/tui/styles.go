@@ -23,6 +23,11 @@ var (
 	colOutlVar  color.Color // outline-variant — dividers
 	colWarn     color.Color // caution (e.g. "allow" / YOLO permission)
 
+	// Diff line backgrounds: a subtle green/red wash behind added/removed code, so
+	// the +/- is shown by background while the code keeps its syntax-highlight colors.
+	colDiffAddBg color.Color
+	colDiffDelBg color.Color
+
 	// Council member hues (the MAGI): distinct, theme-overridable colors for
 	// Melchior/Balthasar/Casper. Custom or extra members fall back to agentPalette
 	// (see councilColor).
@@ -151,6 +156,11 @@ func applyTheme(isDark bool) {
 		ld(lipgloss.Color("#0F6E73"), lipgloss.Color("#6FE0E6")), // cyan
 		ld(lipgloss.Color("#A33A3A"), lipgloss.Color("#FF9E9E")), // coral
 	}
+
+	// Diff washes: light tints on light theme, deep low-chroma tints on dark — both
+	// quiet enough that syntax-highlighted code stays legible on top.
+	colDiffAddBg = ld(lipgloss.Color("#DCF0E0"), lipgloss.Color("#173A23"))
+	colDiffDelBg = ld(lipgloss.Color("#FBE3E1"), lipgloss.Color("#3C1D1D"))
 
 	n := lipgloss.NewStyle
 	styleHeader = n().Foreground(colMuted).Padding(0, 1)

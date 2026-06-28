@@ -259,7 +259,7 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 			}
 		}
 		if diff != "" {
-			return indent(head) + "\n" + indent(colorizeDiff(diff))
+			return indent(head) + "\n" + indent(m.renderCodeDiff(diff, rawPath(blk.args), m.transcriptWidth()-2))
 		}
 		return indent(head)
 	case blockToolResult:
@@ -390,11 +390,19 @@ func compactArgs(args string) string {
 
 // argPath returns the "path=…" preview for a tool call, or "" if it has none.
 func argPath(args string) string {
+	if p := rawPath(args); p != "" {
+		return "path=" + oneLine(p, 80)
+	}
+	return ""
+}
+
+// rawPath returns a tool call's raw "path" arg (for language detection), or "".
+func rawPath(args string) string {
 	var a struct {
 		Path string `json:"path"`
 	}
-	if json.Unmarshal([]byte(args), &a) == nil && a.Path != "" {
-		return "path=" + oneLine(a.Path, 80)
+	if json.Unmarshal([]byte(args), &a) == nil {
+		return a.Path
 	}
 	return ""
 }

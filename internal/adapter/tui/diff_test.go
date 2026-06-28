@@ -1,6 +1,35 @@
 package tui
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"charm.land/lipgloss/v2"
+	"github.com/alecthomas/chroma/v2/lexers"
+	"github.com/alecthomas/chroma/v2/styles"
+)
+
+func TestHighlightDiffLine(t *testing.T) {
+	applyTheme(true)
+	lexer := lexers.Get("c")
+	if lexer == nil {
+		lexer = lexers.Fallback
+	}
+	st := styles.Get("github-dark")
+	// An added line carries a background wash across the full content width.
+	add := highlightDiffLine("+", "    return 0;", lexer, st, colDiffAddBg, colSuccess, 40)
+	if w := lipgloss.Width(add); w != 40 {
+		t.Errorf("added line should be padded to width 40 for the wash, got %d", w)
+	}
+	if !strings.Contains(add, "\x1b[") {
+		t.Error("expected ANSI styling (syntax + background) in the added line")
+	}
+	// A context line has no wash, so it is not padded to full width.
+	ctx := highlightDiffLine(" ", "int main() {", lexer, st, nil, colMuted, 40)
+	if w := lipgloss.Width(ctx); w >= 40 {
+		t.Errorf("context line should not be padded to full width, got %d", w)
+	}
+}
 
 func TestLineDiff(t *testing.T) {
 	// A one-line change keeps surrounding lines as context and marks the swap.
@@ -8,10 +37,10 @@ func TestLineDiff(t *testing.T) {
 	neu := "#include <stdio.h>\n\nint main() {\n    printf(\"Hello, World!!\\n\");\n    return 0;\n}"
 	got := lineDiff(old, neu)
 	wantHas := []string{
-		" #include <stdio.h>",          // context, space-prefixed
+		" #include <stdio.h>",                 // context, space-prefixed
 		"-    printf(\"Hello, World!\\n\");",  // removal
 		"+    printf(\"Hello, World!!\\n\");", // addition
-		" }",                            // trailing context
+		" }",                                  // trailing context
 	}
 	for _, w := range wantHas {
 		if !contains(got, w) {
