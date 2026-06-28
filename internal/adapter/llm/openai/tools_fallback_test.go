@@ -90,3 +90,47 @@ func TestParseXMLToolCall(t *testing.T) {
 		t.Errorf("command=%v want 'wc -w f.txt'", args["command"])
 	}
 }
+
+// A parameter value containing '<' or '[' (C includes, generics, array indexing)
+// must NOT be truncated at the first such char — the bug that made "write main.c"
+// save only "#include" (8 bytes), cut at "<stdio.h>".
+func TestParseXMLToolCallValueWithAngleBrackets(t *testing.T) {
+	known := map[string]bool{"write": true}
+	content := "#include <stdio.h>\n\nint main() {\n    printf(\"Hello, World!\\n\");\n    return 0;\n}"
+	text := "<function=write><parameter=path>main.c</parameter>" +
+		"<parameter=content>" + content + "</parameter></function>"
+	tc, ok := parseXMLToolCall(text, known)
+	if !ok {
+		t.Fatal("expected a tool call")
+	}
+	var args map[string]any
+	if err := json.Unmarshal(tc.Args, &args); err != nil {
+		t.Fatal(err)
+	}
+	if args["path"] != "main.c" {
+		t.Errorf("path=%v want main.c", args["path"])
+	}
+	if args["content"] != content {
+		t.Errorf("content was truncated:\n got=%q\nwant=%q", args["content"], content)
+	}
+}
+
+// The qwen3-coder [bracket] variant with a value that itself contains '[' must also
+// survive, and a missing closing tag must still capture to the next opener / end.
+func TestParseXMLToolCallBracketVariantAndArrays(t *testing.T) {
+	known := map[string]bool{"write": true}
+	content := "xs := []int{1, 2, 3}\nv := xs[0]"
+	text := "[function=write][parameter=path]a.go[parameter=content]" + content
+	tc, ok := parseXMLToolCall(text, known)
+	if !ok {
+		t.Fatal("expected a tool call")
+	}
+	var args map[string]any
+	_ = json.Unmarshal(tc.Args, &args)
+	if args["path"] != "a.go" {
+		t.Errorf("path=%v want a.go", args["path"])
+	}
+	if args["content"] != content {
+		t.Errorf("content truncated:\n got=%q\nwant=%q", args["content"], content)
+	}
+}

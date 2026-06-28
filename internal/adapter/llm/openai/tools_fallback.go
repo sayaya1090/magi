@@ -53,9 +53,15 @@ var (
 	// Function opener, tolerating both <...> and [...] delimiters (qwen/Hermes
 	// variants) and a missing closing tag: <function=bash>… or [function=bash]…
 	xmlFuncRE = regexp.MustCompile(`(?s)[<\[]\s*function\s*=\s*([a-zA-Z0-9_.-]+)\s*[>\]]`)
-	// Parameter: <parameter=key>value… or [parameter=key]value…, value running up
-	// to the next tag delimiter (so it works whether or not </parameter> is present).
-	xmlParamRE = regexp.MustCompile(`[<\[]\s*parameter\s*=\s*([a-zA-Z0-9_.-]+)\s*[>\]]([^<\[]*)`)
+	// Parameter OPENER only: <parameter=key> or [parameter=key]. The value is taken
+	// separately (up to the closing tag), NOT by the regex — a value-capturing regex
+	// would have to stop at some delimiter, and any choice truncates real argument
+	// content (e.g. C's "#include <stdio.h>" cut at '<', or "arr[0]" cut at '[').
+	xmlParamOpenRE = regexp.MustCompile(`[<\[]\s*parameter\s*=\s*([a-zA-Z0-9_.-]+)\s*[>\]]`)
+	// A closing </parameter> or </function> tag (either delimiter style). Marks where
+	// a parameter value ends — but a value may also end at the next parameter opener
+	// or at end-of-text (missing close tag), handled in parseXMLToolCall.
+	xmlCloseRE = regexp.MustCompile(`[<\[]\s*/\s*(?:parameter|function)\s*[>\]]`)
 )
 
 // parseXMLToolCall recovers a tool call from the Hermes/Qwen XML-ish format some
@@ -64,6 +70,9 @@ var (
 //	<function=bash><parameter=command>ls</parameter></function>
 //	[function=read][parameter=path]/x/y.go    (qwen3-coder variant)
 //
+// A parameter's value runs from its opening tag to whichever comes first: the next
+// parameter opener, a closing </parameter>/</function> tag, or end-of-text. It is
+// NOT cut at bare '<'/'[' inside the value, so code arguments survive intact.
 // It searches anywhere in the text and validates the name against offered tools.
 func parseXMLToolCall(text string, known map[string]bool) (*session.ToolCall, bool) {
 	fm := xmlFuncRE.FindStringSubmatchIndex(text)
@@ -74,9 +83,21 @@ func parseXMLToolCall(text string, known map[string]bool) (*session.ToolCall, bo
 	if !known[name] {
 		return nil, false
 	}
+	body := text[fm[1]:]
+	opens := xmlParamOpenRE.FindAllStringSubmatchIndex(body, -1)
 	args := map[string]any{}
-	for _, pm := range xmlParamRE.FindAllStringSubmatch(text[fm[1]:], -1) {
-		args[pm[1]] = strings.TrimSpace(pm[2])
+	for i, pm := range opens {
+		key := body[pm[2]:pm[3]]
+		valStart := pm[1] // just after this opening tag
+		valEnd := len(body)
+		if i+1 < len(opens) {
+			valEnd = opens[i+1][0] // up to the next parameter opener
+		}
+		// …but stop earlier at a closing tag if one appears before that.
+		if loc := xmlCloseRE.FindStringIndex(body[valStart:valEnd]); loc != nil {
+			valEnd = valStart + loc[0]
+		}
+		args[key] = strings.TrimSpace(body[valStart:valEnd])
 	}
 	b, _ := json.Marshal(args)
 	return &session.ToolCall{Name: name, Args: b}, true
