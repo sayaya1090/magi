@@ -553,7 +553,11 @@ func (m *Model) paneTitle(p *agentPane, width int, focused bool) string {
 	if focused {
 		title += " " + styleKeyLabel.Render("[focused]")
 	}
-	return title
+	// Truncate the COMPOSED title to the inner width: only `name` was width-bounded
+	// above, but the appended status/[focused] can still push the line past the box,
+	// where it would WRAP to a second row and overflow the pane's fixed height —
+	// clipping the bottom border. MaxWidth is ANSI-aware and truncates (no wrap).
+	return lipgloss.NewStyle().MaxWidth(width).Render(title)
 }
 
 // renderPanes renders the tiled subagent overview into a block of the given
