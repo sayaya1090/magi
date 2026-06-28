@@ -245,10 +245,10 @@ func TestToCouncilMembers(t *testing.T) {
 	}
 	profiles := map[string]config.LLMProfile{"fast": {Model: "profile-model"}}
 	ms := []config.CouncilMember{
-		{Name: "Melchior", Lens: "correctness", Provider: "fast"},                 // inherits profile model
+		{Name: "Melchior", Lens: "correctness", Provider: "fast"},                    // inherits profile model
 		{Name: "Balthasar", Lens: "verification", Model: "pinned", Provider: "fast"}, // keeps its own model
-		{Name: "Casper", Lens: "completeness", Provider: "unknown"},                // unknown profile → no model
-		{Name: "Solo", Lens: "x", Weight: 2},                                       // no provider → unchanged
+		{Name: "Casper", Lens: "completeness", Provider: "unknown"},                  // unknown profile → no model
+		{Name: "Solo", Lens: "x", Weight: 2},                                         // no provider → unchanged
 	}
 	got := toCouncilMembers(ms, profiles)
 	want := []corecouncil.Member{
