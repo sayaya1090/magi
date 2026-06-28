@@ -392,10 +392,24 @@ func (m *Model) openCouncilDetailAt(line int) bool {
 			break
 		}
 	}
-	if i < 0 || i >= len(m.blocks) || m.blocks[i].kind != blockCouncilVerdict || m.blocks[i].councilVerdict == nil {
+	if i < 0 || i >= len(m.blocks) || m.blocks[i].kind != blockCouncilVerdict || len(m.blocks[i].councilVerdicts) == 0 {
 		return false
 	}
-	m.councilDetail = m.blocks[i].councilVerdict
+	// The row holds several members on one line; pick the one under the click column.
+	// Segment k spans [x, x+width(member k)); separators (councilRowSep) sit between.
+	vs := m.blocks[i].councilVerdicts
+	pick := len(vs) - 1 // default to the last member if the click is past the end
+	x := 2              // indent() prepends 2 spaces before the first member
+	for k, v := range vs {
+		w := ansi.StringWidth(councilMemberPlain(v))
+		if m.selAC < x+w {
+			pick = k
+			break
+		}
+		x += w + ansi.StringWidth(councilRowSep)
+	}
+	vd := vs[pick]
+	m.councilDetail = &vd
 	m.councilDetailEvidence = m.blocks[i].evidence
 	return true
 }
@@ -1921,13 +1935,17 @@ func (m *Model) applyEvent(e event.Event) {
 		}
 
 	case event.TypeCouncilVerdict:
-		// One compact, member-colored line per vote (icon + name + decision); the
-		// full reasoning (lens/rationale/feedback) is attached to the block and
-		// shown in a detail modal when the line is clicked.
+		// A round's votes share ONE compact line (member-colored icon + name + decision);
+		// each member's full reasoning is kept on the block and shown in a detail modal
+		// when that member is clicked. Append to the current round's row, or start one.
 		var d event.CouncilVerdictData
 		if json.Unmarshal(e.Data, &d) == nil {
-			vd := d
-			m.blocks = append(m.blocks, block{kind: blockCouncilVerdict, councilVerdict: &vd, evidence: m.pendingCouncilEvidence})
+			if n := len(m.blocks); n > 0 && m.blocks[n-1].kind == blockCouncilVerdict &&
+				len(m.blocks[n-1].councilVerdicts) > 0 && m.blocks[n-1].councilVerdicts[0].Round == d.Round {
+				m.blocks[n-1].councilVerdicts = append(m.blocks[n-1].councilVerdicts, d)
+			} else {
+				m.blocks = append(m.blocks, block{kind: blockCouncilVerdict, councilVerdicts: []event.CouncilVerdictData{d}, evidence: m.pendingCouncilEvidence})
+			}
 		}
 
 	case event.TypeCouncilDecided:

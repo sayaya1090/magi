@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 )
@@ -45,11 +46,11 @@ func TestCouncilIndicator(t *testing.T) {
 		Rationale: "the parser drops the trailing newline", Feedback: "handle EOF without a newline",
 	}))
 	v := m.blocks[len(m.blocks)-1]
-	if v.kind != blockCouncilVerdict || v.councilVerdict == nil {
-		t.Fatalf("verdict should be a compact council block carrying its data, got kind=%d", v.kind)
+	if v.kind != blockCouncilVerdict || len(v.councilVerdicts) != 1 {
+		t.Fatalf("verdict should be a compact council row carrying its data, got kind=%d", v.kind)
 	}
-	if v.councilVerdict.Member != "Melchior" || v.councilVerdict.Rationale == "" {
-		t.Fatalf("verdict block should carry the full vote data: %+v", v.councilVerdict)
+	if v.councilVerdicts[0].Member != "Melchior" || v.councilVerdicts[0].Rationale == "" {
+		t.Fatalf("verdict block should carry the full vote data: %+v", v.councilVerdicts)
 	}
 	// The compact render shows member + decision but NOT the rationale. A termination
 	// "continue" is shown as "reject" (it's a rejection, not progress).
@@ -69,7 +70,7 @@ func TestCouncilIndicator(t *testing.T) {
 	if v.evidence == "" || !strings.Contains(v.evidence, "fix the parser bug") {
 		t.Fatalf("verdict block should carry the round's evidence, got %q", v.evidence)
 	}
-	m.councilDetail = v.councilVerdict
+	m.councilDetail = &v.councilVerdicts[0]
 	m.councilDetailEvidence = v.evidence
 	detail := m.renderCouncilDetail(80)
 	if !strings.Contains(detail, "correctness") ||
@@ -101,6 +102,54 @@ func TestCouncilIndicator(t *testing.T) {
 	m.applyEvent(event.Event{Type: event.TypeTurnFinished})
 	if m.councilRound != 0 || m.councilMember != "" {
 		t.Fatalf("council indicator should clear on turn finish: round=%d member=%q", m.councilRound, m.councilMember)
+	}
+}
+
+// A round's three member verdicts collapse into ONE block rendered on a single line,
+// and clicking a member's column opens that member's detail.
+func TestCouncilVerdictsOnOneLine(t *testing.T) {
+	mm := newTestModel(t)
+	m := &mm
+	m.width = 120
+	m.applyEvent(ev(t, event.TypeCouncilConvened, event.CouncilConvenedData{
+		Round: 1, Phase: "plan", Members: []string{"Melchior", "Balthasar", "Casper"}, Rule: "majority",
+		Task: "review the docs", Plan: "1. [solo] x",
+	}))
+	for _, v := range []event.CouncilVerdictData{
+		{Round: 1, Phase: "plan", Member: "Melchior", Lens: "correctness", Decision: "done", Confidence: 0.97, Rationale: "sound approach"},
+		{Round: 1, Phase: "plan", Member: "Balthasar", Lens: "verification", Decision: "abstain", Confidence: 0.99, Rationale: "nothing to verify yet"},
+		{Round: 1, Phase: "plan", Member: "Casper", Lens: "completeness", Decision: "done", Confidence: 0.99, Rationale: "covers the task"},
+	} {
+		m.applyEvent(ev(t, event.TypeCouncilVerdict, v))
+	}
+
+	// All three share one block (one rendered line, no embedded newline).
+	blk := m.blocks[len(m.blocks)-1]
+	if blk.kind != blockCouncilVerdict || len(blk.councilVerdicts) != 3 {
+		t.Fatalf("a round's votes should collapse into one 3-member block, got %d blocks-worth", len(blk.councilVerdicts))
+	}
+	line := m.renderBlock(blk)
+	if strings.Contains(line, "\n") {
+		t.Fatalf("the verdict row must be a single line:\n%q", line)
+	}
+	for _, name := range []string{"Melchior", "Balthasar", "Casper"} {
+		if !strings.Contains(line, name) {
+			t.Fatalf("one-line row should include %s: %q", name, line)
+		}
+	}
+
+	// Clicking in the third member's column range opens Casper's detail.
+	i := len(m.blocks) - 1
+	m.blockLineStart = make([]int, len(m.blocks))
+	for j := range m.blockLineStart {
+		m.blockLineStart[j] = j
+	}
+	x := 2
+	x += ansi.StringWidth(councilMemberPlain(blk.councilVerdicts[0])) + ansi.StringWidth(councilRowSep)
+	x += ansi.StringWidth(councilMemberPlain(blk.councilVerdicts[1])) + ansi.StringWidth(councilRowSep)
+	m.selAL, m.selAC = i, x+1 // a column inside Casper's segment
+	if !m.openCouncilDetailAt(i) || m.councilDetail == nil || m.councilDetail.Member != "Casper" {
+		t.Fatalf("click in the third column should open Casper's detail, got %+v", m.councilDetail)
 	}
 }
 

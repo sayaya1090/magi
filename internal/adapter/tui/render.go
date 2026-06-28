@@ -41,12 +41,12 @@ type block struct {
 	done     bool   // the toolCall's result has arrived
 	result   string // the toolCall's result summary text
 	expanded bool   // a reasoning block individually expanded by a click
-	// councilVerdict carries one member's full vote for a blockCouncilVerdict block:
-	// the line renders compact, and a click opens the full-screen detail from this
-	// data. evidence is the pre-formatted "what the members saw this round"
-	// (task/plan/report/diff), shown alongside the vote in the detail view.
-	councilVerdict *event.CouncilVerdictData
-	evidence       string
+	// councilVerdicts carries a round's member votes for a blockCouncilVerdict block:
+	// they render compact on ONE line, and a click opens the full-screen detail for
+	// the member under the cursor. evidence is the pre-formatted "what the members saw
+	// this round" (task/plan/report/diff), shown alongside the vote in the detail view.
+	councilVerdicts []event.CouncilVerdictData
+	evidence        string
 }
 
 // councilVerdictLabel maps a member's raw decision to UI wording by phase. The
@@ -87,6 +87,25 @@ func councilVerdictStyle(phase, decision string) lipgloss.Style {
 		return styleToolResult
 	}
 	return styleToolResult
+}
+
+// councilRowSep separates members in the one-line verdict row; its width must match
+// what councilMemberPlain assumes when openCouncilDetailAt hit-tests a click column.
+const councilRowSep = "   "
+
+// councilMemberPlain is the visible (unstyled) text of one member's compact verdict —
+// the same glyphs renderBlock styles — so a click column maps to the right member.
+func councilMemberPlain(v event.CouncilVerdictData) string {
+	icon, word := councilVerdictLabel(v.Phase, v.Decision)
+	s := "● " + v.Member
+	if v.Lens != "" {
+		s += "  [" + v.Lens + "]"
+	}
+	s += "  " + icon + " " + word
+	if v.Confidence > 0 {
+		s += fmt.Sprintf(" · %.0f%%", v.Confidence*100)
+	}
+	return s
 }
 
 // transcript renders the full transcript plus any in-progress streaming text.
@@ -242,26 +261,28 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 		// (e.g. the planner's reason) reflows instead of overflowing.
 		return indent(styleToolResult.Width(m.transcriptWidth() - 2).Render(strings.TrimRight(blk.text, "\n")))
 	case blockCouncilVerdict:
-		// One-line summary in a 기승전결 order: WHO (member) → through which LENS →
-		// the VERDICT → with what CONFIDENCE. The rationale/feedback stay hidden —
-		// a click opens the full detail. (Decision word kept for NO_COLOR/mono.)
-		v := blk.councilVerdict
-		if v == nil {
+		// A round's members on ONE line, each in 기승전결 order: WHO (member) → LENS →
+		// VERDICT → CONFIDENCE. Rationale/feedback stay hidden — clicking a member opens
+		// its full detail (column hit-test in openCouncilDetailAt). Words kept for mono.
+		if len(blk.councilVerdicts) == 0 {
 			return indent(styleToolResult.Render(strings.TrimRight(blk.text, "\n")))
 		}
-		hue := m.councilColor(v.Member)
-		dot := lipgloss.NewStyle().Foreground(hue).Render("●")
-		name := lipgloss.NewStyle().Foreground(hue).Bold(true).Render(v.Member)
-		icon, word := councilVerdictLabel(v.Phase, v.Decision)
-		line := dot + " " + name
-		if v.Lens != "" {
-			line += "  " + styleToolResult.Render("["+v.Lens+"]")
+		segs := make([]string, len(blk.councilVerdicts))
+		for i, v := range blk.councilVerdicts {
+			hue := m.councilColor(v.Member)
+			icon, word := councilVerdictLabel(v.Phase, v.Decision)
+			seg := lipgloss.NewStyle().Foreground(hue).Render("●") + " " +
+				lipgloss.NewStyle().Foreground(hue).Bold(true).Render(v.Member)
+			if v.Lens != "" {
+				seg += "  " + styleToolResult.Render("["+v.Lens+"]")
+			}
+			seg += "  " + councilVerdictStyle(v.Phase, v.Decision).Render(icon+" "+word)
+			if v.Confidence > 0 {
+				seg += styleToolResult.Render(fmt.Sprintf(" · %.0f%%", v.Confidence*100))
+			}
+			segs[i] = seg
 		}
-		line += "  " + councilVerdictStyle(v.Phase, v.Decision).Render(icon+" "+word)
-		if v.Confidence > 0 {
-			line += styleToolResult.Render(fmt.Sprintf(" · %.0f%%", v.Confidence*100))
-		}
-		return indent(line)
+		return indent(strings.Join(segs, councilRowSep))
 	case blockDiff:
 		return label(styleAsstLabel, "diff") + "\n" + indent(colorizeDiff(blk.text))
 	case blockReasoning:
