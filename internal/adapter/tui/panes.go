@@ -300,6 +300,7 @@ func (m *Model) closePanes() {
 		}
 	}
 	m.panes = nil
+	m.doneRoster = nil
 	m.focusPane = -1
 	m.zoom = false
 	m.paneScroll = 0

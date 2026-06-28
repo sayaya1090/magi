@@ -30,7 +30,7 @@ func (m *Model) hasPanel() bool {
 	if m.app == nil {
 		return false
 	}
-	return len(m.app.Todos(m.panelSID())) > 0 || len(m.panes) > 0
+	return len(m.app.Todos(m.panelSID())) > 0 || len(m.panes) > 0 || len(m.doneRoster) > 0
 }
 
 // panelCols is the horizontal space the panel occupies (0 when hidden), incl. a
@@ -98,11 +98,13 @@ func (m *Model) statusPanel(panelTop, height int) string {
 		}
 	}
 
-	if len(m.panes) > 0 {
+	if len(m.panes) > 0 || len(m.doneRoster) > 0 {
 		sep()
 		lines = append(lines, panelHead("Subagents"))
-		for _, p := range m.panes {
-			p.panelY = panelTop + len(lines) // absolute screen Y of this row (persisted on the pointer)
+		paneRow := func(p *agentPane, interactive bool) {
+			if interactive {
+				p.panelY = panelTop + len(lines) // screen Y for click→zoom (active panes only)
+			}
 			c := m.paneColorOf(p)
 			status := m.paneStatus(p)
 			// Budget the label so "● <label> <status>" never exceeds the panel width
@@ -114,6 +116,15 @@ func (m *Model) statusPanel(panelTop, height int) string {
 			}
 			lines = append(lines, lipgloss.NewStyle().Foreground(c).Render("● ")+
 				oneLine(p.label(), labelW)+" "+status)
+		}
+		for _, p := range m.panes {
+			paneRow(p, true)
+		}
+		// Finished subagents whose inline box faded out are kept here as a record (the
+		// right panel intentionally does NOT fade out). Listed after the active ones.
+		for _, p := range m.doneRoster {
+			p.panelY = 0 // not inline-zoomable (no live pane)
+			paneRow(p, false)
 		}
 	}
 

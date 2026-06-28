@@ -49,6 +49,30 @@ func TestPaneFadeOutLifecycle(t *testing.T) {
 	}
 }
 
+// A pane that fades out leaves the inline strip but PERSISTS in the right panel's
+// roster (the panel intentionally does not fade out — it's a record of what ran).
+func TestFadedPaneStaysInPanelRoster(t *testing.T) {
+	mm := newTestModel(t)
+	m := &mm
+	m.width, m.height = 80, 40
+	m.running = false
+	m.focusPane = -1
+	p := &agentPane{role: "explore", task: "scout", done: true,
+		doneAt: time.Now().Add(-(paneFadeAfter + 2*paneFadeDur))}
+	m.panes = []*agentPane{p}
+
+	m.advancePaneFade()
+	if len(m.panes) != 0 {
+		t.Fatalf("faded pane should leave the inline list, got %d", len(m.panes))
+	}
+	if len(m.doneRoster) != 1 || m.doneRoster[0] != p {
+		t.Fatalf("faded pane should persist in the panel roster, got %d", len(m.doneRoster))
+	}
+	if panel := m.statusPanel(2, 20); !strings.Contains(panel, "explore") {
+		t.Fatalf("panel should keep listing the finished subagent:\n%s", panel)
+	}
+}
+
 // Each finished pane fades on its OWN clock: an early-finished pane is removed while
 // a sibling is still running (it doesn't wait for the others or the turn).
 func TestPaneFadeIsPerPane(t *testing.T) {

@@ -163,6 +163,10 @@ type Model struct {
 	panes     []*agentPane // active/finished subagent panes, in spawn order
 	focusPane int          // index into panes of the focused pane (-1 = main transcript)
 	zoom      bool         // focused pane expanded full-screen
+	// doneRoster holds panes that finished and faded out of the inline transcript:
+	// the right status panel keeps listing them (a persistent record of what ran) even
+	// though their inline box is gone. Cleared on a new turn (closePanes).
+	doneRoster []*agentPane
 
 	councilDetail          *event.CouncilVerdictData // open council-verdict detail (full-screen; nil = closed)
 	councilDetailEvidence  string                    // the evidence shown alongside the open verdict
@@ -2165,11 +2169,13 @@ func (m *Model) advancePaneFade() bool {
 				lvl = 1
 			}
 		}
-		if lvl >= 1 { // fade complete → drop this pane (inline + panel roster)
+		if lvl >= 1 { // fade complete → drop from the inline strip, keep in the panel roster
 			if p.cancel != nil {
 				p.cancel()
 			}
-			fadeDbg("pane %s faded out — removed", shortSID(p.sid))
+			p.fade = 0 // shown undimmed in the panel record
+			m.doneRoster = append(m.doneRoster, p)
+			fadeDbg("pane %s faded out of inline — moved to panel roster", shortSID(p.sid))
 			changed = true
 			continue
 		}
