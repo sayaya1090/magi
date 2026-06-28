@@ -158,8 +158,8 @@ func (m *Model) statusPanel(panelTop, height int) string {
 // subagent's detail view (focus + zoom), so a panel entry behaves like clicking
 // its pane. Returns true when consumed.
 func (m *Model) handlePanelClick(x, y int) bool {
-	if m.zoom || !m.hasPanel() || len(m.panes) == 0 {
-		return false
+	if m.zoom || !m.hasPanel() {
+		return false // no panel on screen — let the click reach the transcript
 	}
 	if split := m.width - m.panelCols(); x <= split { // click is left of the panel
 		return false

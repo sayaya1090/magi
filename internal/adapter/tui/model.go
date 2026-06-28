@@ -204,7 +204,25 @@ func New(ctx context.Context, a *app.App, sid session.SessionID, model, workdir 
 	// Report a real OS cursor (not a drawn one) so IME pre-edit (e.g. Korean)
 	// composes at the input position instead of the screen corner.
 	ta.SetVirtualCursor(false)
-	st := textarea.DefaultStyles(isDark)
+	ta.Focus()
+
+	sp := spinner.New()
+	sp.Spinner = spinner.Dot
+
+	m := Model{
+		ctx: ctx, app: a, sid: sid, model: model, workdir: workdir,
+		isDark: isDark, imageProto: imageProto, ta: ta, sp: sp,
+		focusPane: -1, roleColor: map[string]int{}, panelW: defaultPanelWidth,
+	}
+	m.applyWidgetStyles() // theme-dependent textarea/spinner styling (re-applied on theme flip)
+	return m
+}
+
+// applyWidgetStyles (re)applies the active theme's colors to the textarea and
+// spinner. Called at construction and again on a live theme flip, so these widgets
+// follow a light↔dark switch (their colors are otherwise captured by value once).
+func (m *Model) applyWidgetStyles() {
+	st := textarea.DefaultStyles(m.isDark)
 	st.Focused.Prompt = lipgloss.NewStyle().Foreground(colPrimary)
 	st.Blurred.Prompt = lipgloss.NewStyle().Foreground(colOutline)
 	st.Focused.Placeholder = lipgloss.NewStyle().Foreground(colMuted)
@@ -213,18 +231,8 @@ func New(ctx context.Context, a *app.App, sid session.SessionID, model, workdir 
 	// themes), which clashes with the input box's own (unset) background — only the
 	// text line filled, the box not. Drop it so the input box is uniform (flat).
 	st.Focused.CursorLine = st.Focused.CursorLine.UnsetBackground()
-	ta.SetStyles(st)
-	ta.Focus()
-
-	sp := spinner.New()
-	sp.Spinner = spinner.Dot
-	sp.Style = lipgloss.NewStyle().Foreground(colPrimary)
-
-	return Model{
-		ctx: ctx, app: a, sid: sid, model: model, workdir: workdir,
-		isDark: isDark, imageProto: imageProto, ta: ta, sp: sp,
-		focusPane: -1, roleColor: map[string]int{}, panelW: defaultPanelWidth,
-	}
+	m.ta.SetStyles(st)
+	m.sp.Style = lipgloss.NewStyle().Foreground(colPrimary)
 }
 
 // cmdInfo describes a slash command for the completion palette.
@@ -343,6 +351,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if dark := msg.IsDark(); dark != m.isDark {
 			m.isDark = dark
 			applyTheme(dark)
+			m.applyWidgetStyles()        // textarea/spinner colors follow the flip too
 			m.glam, m.glamWidth = nil, 0 // force the markdown renderer to rebuild for the new theme
 			m.cache = m.cache[:0]        // re-render cached blocks with the new colors
 			m.refresh()

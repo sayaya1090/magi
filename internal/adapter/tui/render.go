@@ -320,11 +320,12 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 			}
 			hue := m.councilColor(v.Member)
 			prefix := "  → " + v.Member + ": "
-			pad := strings.Repeat(" ", len([]rune(prefix)))
+			pw := lipgloss.Width(prefix) // display width (CJK/wide member names count as 2)
+			pad := strings.Repeat(" ", pw)
 			// Wrap the reason to the transcript width with a hanging indent aligned under
 			// the text (continuation lines line up past "→ Member: "), instead of cutting
 			// it off with an ellipsis.
-			wrapped := wrapLines(oneLine(reason, 100000), max(20, m.transcriptWidth()-2-len([]rune(prefix))))
+			wrapped := wrapLines(oneLine(reason, 100000), max(20, m.transcriptWidth()-2-pw))
 			label := lipgloss.NewStyle().Foreground(hue).Render(prefix)
 			for k, ln := range wrapped {
 				if k == 0 {
