@@ -2311,6 +2311,14 @@ func overlayLine(content string, row, col int, overlay string) string {
 	return strings.Join(lines, "\n")
 }
 
+// overlayBox composites a multi-line box onto content, its top-left at (top, left).
+func overlayBox(content string, top, left int, box string) string {
+	for i, bl := range strings.Split(box, "\n") {
+		content = overlayLine(content, top+i, left, bl)
+	}
+	return content
+}
+
 // panesBlockHeight is the rows reserved for the tiled subagent overview. Zero
 // when there are no panes or when zoomed (zoom takes over the whole viewport).
 // paneLayout is the SINGLE source of truth for how the agent panes fit on screen,
@@ -2631,11 +2639,7 @@ func (m Model) View() tea.View {
 		aboveInput += lipgloss.Height(pv)
 	}
 	left := lipgloss.JoinVertical(lipgloss.Left, leftRows...)
-	mid := left
-	if m.panelCols() > 0 {
-		mid = lipgloss.JoinHorizontal(lipgloss.Top, left, " ", m.statusPanel(lipgloss.Height(header), lipgloss.Height(left)))
-	}
-	parts := []string{header, mid}
+	parts := []string{header, left}
 	if m.resuming {
 		pv := m.resumeView()
 		parts = append(parts, pv)
@@ -2656,6 +2660,15 @@ func (m Model) View() tea.View {
 	parts = append(parts, input)
 	parts = append(parts, status)
 	v.Content = lipgloss.JoinVertical(lipgloss.Left, parts...)
+
+	// Floating post-it panel: when there's something to show, composite it as a
+	// content-height rounded box pinned to the top-right (with an M3 margin) over the
+	// full-width transcript. The transcript is bottom-anchored, so its top-right is
+	// usually blank — the box rarely overlaps text, and only the oldest top lines when
+	// the screen is completely full (scroll to reveal them).
+	if box, top, left, ok := m.floatPanel(); ok {
+		v.Content = overlayBox(v.Content, top, left, box)
+	}
 
 	// Toast: overlay a transient notice in the top-left (on the header divider)
 	// without reserving a layout row, so it floats and doesn't shift the UI.

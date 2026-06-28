@@ -68,7 +68,7 @@ func TestFadedPaneStaysInPanelRoster(t *testing.T) {
 	if len(m.doneRoster) != 1 || m.doneRoster[0] != p {
 		t.Fatalf("faded pane should persist in the panel roster, got %d", len(m.doneRoster))
 	}
-	if panel := m.statusPanel(2, 20); !strings.Contains(panel, "explore") {
+	if panel := m.statusPanel(2); !strings.Contains(panel, "explore") {
 		t.Fatalf("panel should keep listing the finished subagent:\n%s", panel)
 	}
 }
@@ -84,7 +84,7 @@ func TestPanelKeepsSubagentOrderAfterFade(t *testing.T) {
 	pc := &agentPane{role: "ccc", sub: 3}
 	m.panes = []*agentPane{pa, pc}  // active (out of spawn order in the slice)
 	m.doneRoster = []*agentPane{pb} // faded
-	panel := m.statusPanel(2, 30)
+	panel := m.statusPanel(2)
 	ia, ib, ic := strings.Index(panel, "aaa"), strings.Index(panel, "bbb"), strings.Index(panel, "ccc")
 	if !(ia >= 0 && ib >= 0 && ic >= 0 && ia < ib && ib < ic) {
 		t.Fatalf("panel should keep spawn order aaa<bbb<ccc, got %d,%d,%d:\n%s", ia, ib, ic, panel)

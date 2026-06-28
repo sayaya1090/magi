@@ -34,29 +34,18 @@ func (m *Model) hasPanel() bool {
 	return len(m.app.Todos(m.panelSID())) > 0 || len(m.panes) > 0 || len(m.doneRoster) > 0
 }
 
-// panelCols is the horizontal space the panel occupies (0 when hidden), incl. a
-// one-column gap from the transcript.
-func (m *Model) panelCols() int {
-	if m.hasPanel() {
-		return m.panelW + 1
-	}
-	return 0
-}
+// panelCols is the horizontal space the panel RESERVES in the layout. The panel is a
+// floating post-it overlaid on the top-right corner, so it reserves nothing — the
+// transcript uses the full width and the box is composited over it (see floatPanel).
+func (m *Model) panelCols() int { return 0 }
 
-// onPanelSplitter reports whether screen column x is on the panel's draggable
-// left edge (the gap/border between the transcript and the panel).
-func (m *Model) onPanelSplitter(x int) bool {
-	if !m.hasPanel() {
-		return false
-	}
-	split := m.width - m.panelCols()    // gap column; border is at split+1
-	return x >= split-2 && x <= split+3 // generous grab zone (easier to grab)
-}
+// onPanelSplitter is retained for the mouse handler but always false: the floating
+// post-it has a fixed width, so there is no draggable splitter.
+func (m *Model) onPanelSplitter(int) bool { return false }
 
-// setPanelWidthForSplit resizes the panel so its left edge sits at column x,
-// clamped to a sensible range.
+// setPanelWidthForSplit is retained for the (now-inert) resize handler.
 func (m *Model) setPanelWidthForSplit(x int) {
-	w := m.width - x - 1 // -1 for the gap column
+	w := m.width - x - 1
 	if w < 24 {
 		w = 24
 	}
@@ -66,15 +55,38 @@ func (m *Model) setPanelWidthForSplit(x int) {
 	m.panelW = w
 }
 
-// statusPanel renders the right-hand panel (plan/todos, active subagents,
-// context) at the given height. Returns "" when hidden.
-func (m *Model) statusPanel(panelTop, height int) string {
+// floatMarginTop/Right are the M3-style margins keeping the post-it off the very edge.
+const (
+	floatMarginTop   = 1
+	floatMarginRight = 2
+	headerRows       = 2 // title + divider (stable)
+)
+
+// floatPanel renders the post-it box and its top-left screen position, or ok=false
+// when there's nothing to show or the terminal is too narrow to float it without
+// crowding the transcript. statusPanel records each subagent row's panelY for clicks.
+func (m *Model) floatPanel() (box string, top, left int, ok bool) {
+	if m.zoom || !m.hasPanel() {
+		return "", 0, 0, false
+	}
+	top = headerRows + floatMarginTop
+	box = m.statusPanel(top + 1) // panelTop = first content row (just inside the top border)
+	left = m.width - lipgloss.Width(box) - floatMarginRight
+	if left < 24 {
+		return "", 0, 0, false // keep a usable transcript width
+	}
+	return box, top, left, true
+}
+
+// statusPanel renders the floating post-it: a content-height rounded box of width
+// panelW. panelTop is the SCREEN row of its first content line, so each subagent
+// row's panelY maps clicks correctly. Returns "" when hidden.
+func (m *Model) statusPanel(panelTop int) string {
 	if !m.hasPanel() {
 		return ""
 	}
-	// Total rendered width must equal m.panelW so the layout + splitter column
-	// line up: content = panelW - border(1) - padding(2).
-	content := m.panelW - 3
+	// content = panelW - border(2) - padding(2).
+	content := m.panelW - 4
 	inner := content
 	// Build the body as flat lines so each subagent row's panel-relative Y can be
 	// recorded for click hit-testing (right-panel click → zoom that subagent).
@@ -146,10 +158,10 @@ func (m *Model) statusPanel(panelTop, height int) string {
 
 	body := strings.Join(lines, "\n")
 	return lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder(), false, false, false, true).
+		Border(lipgloss.RoundedBorder()).
 		BorderForeground(colOutlVar).
+		Background(colSurface).
 		Width(content).
-		Height(max(1, height)).
 		Padding(0, 1).
 		Render(body)
 }
@@ -158,11 +170,13 @@ func (m *Model) statusPanel(panelTop, height int) string {
 // subagent's detail view (focus + zoom), so a panel entry behaves like clicking
 // its pane. Returns true when consumed.
 func (m *Model) handlePanelClick(x, y int) bool {
-	if m.zoom || !m.hasPanel() {
-		return false // no panel on screen — let the click reach the transcript
+	box, top, left, ok := m.floatPanel()
+	if !ok {
+		return false // no post-it on screen — let the click reach the transcript
 	}
-	if split := m.width - m.panelCols(); x <= split { // click is left of the panel
-		return false
+	w, h := lipgloss.Width(box), lipgloss.Height(box)
+	if x < left || x >= left+w || y < top || y >= top+h {
+		return false // outside the floating box
 	}
 	for i, p := range m.panes {
 		if p.panelY > 0 && y == p.panelY {
@@ -172,9 +186,8 @@ func (m *Model) handlePanelClick(x, y int) bool {
 			return true
 		}
 	}
-	// The click is inside the panel but not on a roster row (empty area). Consume it
-	// anyway so it doesn't fall through to the transcript and toggle a thought block
-	// that merely shares the clicked screen line.
+	// Inside the box but not on a subagent row — consume it so it doesn't fall through
+	// to the transcript and toggle a thought block that shares the clicked screen line.
 	return true
 }
 
