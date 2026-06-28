@@ -263,8 +263,20 @@ func (m *Model) fadeDebug() string {
 	if !m.turnEndAt.IsZero() {
 		armed = fmt.Sprintf("%.1fs", time.Since(m.turnEndAt).Seconds())
 	}
-	return fmt.Sprintf("  [%s · fade panes=%d done=%d all=%v armed=%s fade=%.2f foc=%d zoom=%v run=%v]",
-		version.Commit, len(m.panes), done, m.panesAllDone(), armed, m.paneFade, m.focusPane, m.zoom, m.running)
+	per := make([]string, len(m.panes))
+	for i, p := range m.panes {
+		d := "✗"
+		if p.done {
+			d = "✓"
+		}
+		last := p.lastEv
+		if last == "" {
+			last = "none"
+		}
+		per[i] = fmt.Sprintf("%s%s/ev%d/%s", p.role, d, p.evCount, last)
+	}
+	return fmt.Sprintf("  [%s · panes=%d done=%d all=%v armed=%s fade=%.2f run=%v | %s]",
+		version.Commit, len(m.panes), done, m.panesAllDone(), armed, m.paneFade, m.running, strings.Join(per, " "))
 }
 
 // renderTickMsg drives throttled, coalesced repaints during streaming.

@@ -40,6 +40,11 @@ type agentPane struct {
 	cancel func()
 	sub    int
 
+	// debug (MAGI_DEBUG_FADE): how many events this pane received and the last type,
+	// to diagnose panes whose completion signal never arrives.
+	evCount int
+	lastEv  string
+
 	// screen rectangle of the last render, for mouse hit-testing
 	x, y, w, h int
 
@@ -316,6 +321,8 @@ func (m *Model) ensureFocusVisible() {
 
 // applyPaneEvent folds a child-session event into its pane's transcript.
 func (m *Model) applyPaneEvent(p *agentPane, e event.Event) {
+	p.evCount++
+	p.lastEv = string(e.Type)
 	if p.started.IsZero() {
 		p.started = time.Now() // first event marks the subagent's start (§8.1)
 	}
