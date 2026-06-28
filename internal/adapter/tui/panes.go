@@ -528,19 +528,11 @@ func wrapLines(s string, width int) []string {
 }
 
 // paneStatus is the trailing status glyph + the subagent's meter (§8.1).
-// paneStatus renders the spinner/✓ + the time/token meter. bg (when non-nil) is
-// applied to every segment so it sits on a uniform background — e.g. the post-it's
-// surface, where a foreground-only style would otherwise leave white gaps.
-func (m *Model) paneStatus(p *agentPane, bg color.Color) string {
-	glyphStyle, okStyle, meterStyle := styleToolName, styleToolOK, styleFooter
-	if bg != nil {
-		glyphStyle = glyphStyle.Background(bg)
-		okStyle = okStyle.Background(bg)
-		meterStyle = meterStyle.Background(bg)
-	}
-	glyph := glyphStyle.Render(m.sp.View())
+// paneStatus renders the spinner/✓ + the time/token meter.
+func (m *Model) paneStatus(p *agentPane) string {
+	glyph := styleToolName.Render(m.sp.View())
 	if p.done {
-		glyph = okStyle.Render("✓")
+		glyph = styleToolOK.Render("✓")
 	}
 	elapsed := p.dur
 	if elapsed == 0 && !p.started.IsZero() {
@@ -550,7 +542,7 @@ func (m *Model) paneStatus(p *agentPane, bg color.Color) string {
 	if meter == "" {
 		return glyph
 	}
-	return glyph + meterStyle.Render(" "+meter)
+	return glyph + " " + styleFooter.Render(meter)
 }
 
 // paneTitle renders a pane's colored title bar: ● role  <id>  status.
@@ -558,7 +550,7 @@ func (m *Model) paneTitle(p *agentPane, width int, focused bool) string {
 	c := m.paneColorOf(p)
 	dot := lipgloss.NewStyle().Foreground(c).Render("●")
 	name := lipgloss.NewStyle().Foreground(c).Bold(true).Render(p.desc(width - 4))
-	title := dot + " " + name + " " + m.paneStatus(p, nil)
+	title := dot + " " + name + " " + m.paneStatus(p)
 	if focused {
 		title += " " + styleKeyLabel.Render("[focused]")
 	}
@@ -613,7 +605,7 @@ func (m *Model) renderPanes(width, originY int) string {
 				line = lipgloss.NewStyle().Foreground(dc).Render("● " + p.desc(width-8) + " " + m.paneStatusPlain(p))
 			} else {
 				line = lipgloss.NewStyle().Foreground(c).Render("● ") +
-					lipgloss.NewStyle().Foreground(c).Bold(true).Render(p.desc(width-8)) + " " + m.paneStatus(p, nil)
+					lipgloss.NewStyle().Foreground(c).Bold(true).Render(p.desc(width-8)) + " " + m.paneStatus(p)
 				if off+i == m.focusPane {
 					line += " " + styleKeyLabel.Render("[focus: ctrl+o to open]")
 				}

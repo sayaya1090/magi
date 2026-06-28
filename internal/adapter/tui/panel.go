@@ -135,7 +135,7 @@ func (m *Model) statusPanel(panelTop int) string {
 				p.panelY = panelTop + len(lines) // screen Y for click→zoom (active panes only)
 			}
 			c := m.paneColorOf(p)
-			status := m.paneStatus(p, nil)
+			status := m.paneStatus(p)
 			// Budget the label so "● <label> <status>" never exceeds the text width
 			// (a wrap would push later rows off their recorded Y).
 			labelW := inner - 3 - lipgloss.Width(status)

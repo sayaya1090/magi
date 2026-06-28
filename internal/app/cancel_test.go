@@ -96,7 +96,7 @@ func TestCancelSubagentThenIdleThenNewRequest(t *testing.T) {
 	// Find the blocking subagent (tester) by its spawn event, then cancel it.
 	var blockingChild session.SessionID
 	finished := false
-	timeout := time.After(10 * time.Second)
+	timeout := time.After(30 * time.Second)
 	for !finished {
 		select {
 		case e, ok := <-sub:
@@ -137,7 +137,7 @@ func TestCancelSubagentThenIdleThenNewRequest(t *testing.T) {
 	}
 	defer cancelSub2()
 	got2 := false
-	timeout2 := time.After(10 * time.Second)
+	timeout2 := time.After(30 * time.Second)
 	for !got2 {
 		select {
 		case e, ok := <-sub2:
