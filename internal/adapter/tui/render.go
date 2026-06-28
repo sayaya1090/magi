@@ -238,13 +238,28 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 			}
 		}
 		head := glyph + " " + styleToolName.Render(blk.name)
-		if a := compactArgs(blk.args); a != "" {
+		// For an edit/write, show the actual change as a colorized diff beneath the
+		// line (unless the call failed) — far clearer than a flattened arg preview.
+		diff := ""
+		if blk.ok || !blk.done {
+			diff = editDiff(blk.name, blk.args)
+		}
+		// Args preview: when the diff is shown the old/new/content is in it, so keep
+		// only the path on the head line; otherwise the full compact preview.
+		if diff != "" {
+			if p := argPath(blk.args); p != "" {
+				head += "  " + styleToolArgs.Render(p)
+			}
+		} else if a := compactArgs(blk.args); a != "" {
 			head += "  " + styleToolArgs.Render(a)
 		}
 		if blk.done {
 			if s := summarizeResult(blk.result); s != "" {
 				head += styleToolResult.Render("  ⟶ " + s)
 			}
+		}
+		if diff != "" {
+			return indent(head) + "\n" + indent(colorizeDiff(diff))
 		}
 		return indent(head)
 	case blockToolResult:
@@ -371,6 +386,17 @@ func compactArgs(args string) string {
 		parts = append(parts, k+"="+sv)
 	}
 	return oneLine(strings.Join(parts, " "), 100)
+}
+
+// argPath returns the "path=…" preview for a tool call, or "" if it has none.
+func argPath(args string) string {
+	var a struct {
+		Path string `json:"path"`
+	}
+	if json.Unmarshal([]byte(args), &a) == nil && a.Path != "" {
+		return "path=" + oneLine(a.Path, 80)
+	}
+	return ""
 }
 
 func toStr(v any) string {
@@ -555,6 +581,100 @@ func colorizeDiff(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// editDiff renders an edit/write tool call's change as unified-diff text (to be
+// passed through colorizeDiff), so the transcript shows the ACTUAL code change
+// rather than a flattened "old=… new=…" preview. Returns "" when there's nothing
+// to show or the args don't parse.
+func editDiff(name, args string) string {
+	switch name {
+	case "edit":
+		var a struct {
+			Old string `json:"old"`
+			New string `json:"new"`
+		}
+		if json.Unmarshal([]byte(args), &a) != nil || (a.Old == "" && a.New == "") {
+			return ""
+		}
+		return lineDiff(a.Old, a.New)
+	case "write":
+		var a struct {
+			Content string `json:"content"`
+		}
+		if json.Unmarshal([]byte(args), &a) != nil || a.Content == "" {
+			return ""
+		}
+		// A write (re)creates the file; show its contents as added lines.
+		lines := strings.Split(strings.TrimRight(a.Content, "\n"), "\n")
+		return clampDiff(prefixLines("+", lines))
+	}
+	return ""
+}
+
+// lineDiff produces compact unified-style diff lines between old and new via an LCS
+// of lines: unchanged lines are kept as context (space-prefixed), removals "-",
+// additions "+". Capped so a large edit can't flood the transcript.
+func lineDiff(oldStr, newStr string) string {
+	o := strings.Split(strings.TrimRight(oldStr, "\n"), "\n")
+	n := strings.Split(strings.TrimRight(newStr, "\n"), "\n")
+	la, lb := len(o), len(n)
+	// lcs[i][j] = length of the longest common subsequence of o[i:] and n[j:].
+	lcs := make([][]int, la+1)
+	for i := range lcs {
+		lcs[i] = make([]int, lb+1)
+	}
+	for i := la - 1; i >= 0; i-- {
+		for j := lb - 1; j >= 0; j-- {
+			if o[i] == n[j] {
+				lcs[i][j] = lcs[i+1][j+1] + 1
+			} else if lcs[i+1][j] >= lcs[i][j+1] {
+				lcs[i][j] = lcs[i+1][j]
+			} else {
+				lcs[i][j] = lcs[i][j+1]
+			}
+		}
+	}
+	var out []string
+	i, j := 0, 0
+	for i < la && j < lb {
+		switch {
+		case o[i] == n[j]:
+			out = append(out, " "+o[i])
+			i, j = i+1, j+1
+		case lcs[i+1][j] >= lcs[i][j+1]:
+			out = append(out, "-"+o[i])
+			i++
+		default:
+			out = append(out, "+"+n[j])
+			j++
+		}
+	}
+	for ; i < la; i++ {
+		out = append(out, "-"+o[i])
+	}
+	for ; j < lb; j++ {
+		out = append(out, "+"+n[j])
+	}
+	return clampDiff(out)
+}
+
+func prefixLines(p string, lines []string) []string {
+	out := make([]string, len(lines))
+	for i, ln := range lines {
+		out[i] = p + ln
+	}
+	return out
+}
+
+// clampDiff bounds a diff to maxDiffLines so a huge change can't dominate the view.
+func clampDiff(lines []string) string {
+	const maxDiffLines = 40
+	if len(lines) > maxDiffLines {
+		more := len(lines) - maxDiffLines
+		lines = append(lines[:maxDiffLines:maxDiffLines], fmt.Sprintf("… (%d more lines)", more))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // toolResultText extracts a displayable string from a tool result payload.
