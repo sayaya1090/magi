@@ -155,6 +155,42 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 	return parsePlan(b.String())
 }
 
+// recentTranscript renders a compact, bounded tail of the conversation as plain text
+// — for grounding the plan-audit council, which otherwise judges the plan against the
+// bare instruction. Text parts are included (truncated); tool calls are summarized to
+// their name; the whole is capped so it can't dominate a member's evidence prompt.
+func recentTranscript(msgs []session.Message, budget int) string {
+	trunc := func(s string, n int) string {
+		s = strings.Join(strings.Fields(s), " ")
+		if r := []rune(s); len(r) > n {
+			return string(r[:n]) + "…"
+		}
+		return s
+	}
+	var lines []string
+	for _, m := range msgs {
+		who := string(m.Role)
+		for _, p := range m.Parts {
+			switch p.Kind {
+			case session.PartText:
+				if t := strings.TrimSpace(p.Text); t != "" {
+					lines = append(lines, who+": "+trunc(t, 200))
+				}
+			case session.PartToolCall:
+				lines = append(lines, who+": [tool "+p.ToolCall.Name+"]")
+			}
+		}
+	}
+	out := ""
+	for i := len(lines) - 1; i >= 0; i-- {
+		if out != "" && len(out)+len(lines[i]) > budget {
+			break
+		}
+		out = lines[i] + "\n" + out
+	}
+	return strings.TrimRight(out, "\n")
+}
+
 // plannerWindow returns a bounded tail of the conversation for the planner: enough
 // recent turns to ground a follow-up request, without resending a whole long session
 // on a cheap pre-flight call. Whole messages are kept from the end within a byte
@@ -329,13 +365,23 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		maxRounds = 3
 	}
 
+	// Ground the audit in the conversation: a follow-up plan ("change it to two
+	// newlines") is unjudgeable against the bare instruction alone, so the members
+	// thrash (revise → no consensus). Prepend a compact recent transcript.
+	auditTask := prompt
+	if evs, err := a.store.Read(ctx, sid, 0); err == nil {
+		if cx := recentTranscript(reconstruct(evs), 1500); cx != "" {
+			auditTask = "# Recent conversation (for context)\n" + cx + "\n\n# Current request to plan for\n" + prompt
+		}
+	}
+
 	for round := 1; round <= maxRounds; round++ {
 		if ctx.Err() != nil {
 			return steps
 		}
 		cd, _ := json.Marshal(event.CouncilConvenedData{
 			Round: round, Phase: "plan", Members: labels, Rule: string(rule),
-			Task: prompt, Plan: renderSteps(steps),
+			Task: auditTask, Plan: renderSteps(steps),
 		})
 		a.appendFact(ctx, sid, event.TypeCouncilConvened, actor, cd)
 		for _, m := range members {
@@ -344,7 +390,7 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		}
 
 		delib, err := a.cfg.Council.Deliberate(ctx, port.DeliberationRequest{
-			Round: round, Phase: "plan", Task: prompt, Plan: renderSteps(steps),
+			Round: round, Phase: "plan", Task: auditTask, Plan: renderSteps(steps),
 			Members: members, Rule: rule, DefaultModel: s.Model.Model,
 		})
 		if err != nil { // a gate failure must not block the turn → proceed with the plan
