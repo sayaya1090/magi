@@ -40,8 +40,26 @@ func (m *Model) toolBody(blk block) []string {
 		return m.globBody(blk)
 	case "list":
 		return m.listBody(blk)
+	case "webfetch", "websearch":
+		return m.textBody(blk.result)
 	}
 	return nil
+}
+
+// textBody renders a plain-text tool result (webfetch page text, websearch results)
+// as dim, width-clipped lines.
+func (m *Model) textBody(result string) []string {
+	result = strings.TrimRight(result, "\n")
+	if strings.TrimSpace(result) == "" {
+		return nil
+	}
+	w := m.transcriptWidth() - 2
+	lines := strings.Split(result, "\n")
+	out := make([]string, len(lines))
+	for i, ln := range lines {
+		out[i] = styleToolResult.Render(clipLine(ln, w))
+	}
+	return out
 }
 
 // toolBodyOverflows reports whether a tool block has more body than fits collapsed —
