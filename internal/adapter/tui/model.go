@@ -2642,13 +2642,19 @@ func (m Model) View() tea.View {
 	// short; place it in a full-height box (blank rows become spaces, which
 	// JoinVertical keeps) so the panes/input below sit at the bottom of the screen
 	// instead of floating with empty space beneath the input.
-	vpContent := m.vp.View()
-	if strings.TrimSpace(vpContent) == "" {
-		vpContent = " " // empty/blank content isn't padded by lipgloss; give it a space
+	var vpv string
+	if len(m.blocks) == 0 && !m.running && !m.resuming {
+		// Fresh session: show the NERV/MAGI startup splash until the first message.
+		vpv = splashView(tw, m.vp.Height())
+	} else {
+		vpContent := m.vp.View()
+		if strings.TrimSpace(vpContent) == "" {
+			vpContent = " " // empty/blank content isn't padded by lipgloss; give it a space
+		}
+		// Width+Height fills every row to tw columns (blank rows become spaces), so
+		// JoinVertical keeps them and the panes/input below sit at the screen bottom.
+		vpv = lipgloss.NewStyle().Width(tw).Height(m.vp.Height()).Render(vpContent)
 	}
-	// Width+Height fills every row to tw columns (blank rows become spaces), so
-	// JoinVertical keeps them and the panes/input below sit at the screen bottom.
-	vpv := lipgloss.NewStyle().Width(tw).Height(m.vp.Height()).Render(vpContent)
 	leftRows := []string{vpv}
 	aboveInput := 2 + m.vp.Height() // header(2: title+divider) + viewport rows above input
 	if pv := m.renderPanes(tw, aboveInput); pv != "" {
