@@ -99,6 +99,7 @@ func (m *bgManager) start(workdir string, sb port.SandboxSpec, command string) (
 	m.seq++
 	p := &bgProc{id: fmt.Sprintf("bg_%d", m.seq), command: command, out: out, cancel: cancel, started: time.Now()}
 	m.procs[p.id] = p
+	m.pruneLocked()
 	m.mu.Unlock()
 
 	go func() {
@@ -112,8 +113,48 @@ func (m *bgManager) start(workdir string, sb port.SandboxSpec, command string) (
 		p.mu.Lock()
 		p.done, p.exit = true, exit
 		p.mu.Unlock()
+		cancel() // release the process context now that it has exited
 	}()
 	return p, nil
+}
+
+// maxBgProcs caps the registry; finished processes beyond it are pruned (oldest
+// first) so a long session can't leak unbounded *bgProc/buffer entries. Running
+// processes are never pruned.
+const maxBgProcs = 32
+
+// pruneLocked drops the oldest finished processes when the registry is over cap.
+// Caller holds m.mu.
+func (m *bgManager) pruneLocked() {
+	if len(m.procs) <= maxBgProcs {
+		return
+	}
+	type ent struct {
+		id  string
+		seq int
+	}
+	var done []ent
+	for id, p := range m.procs {
+		p.mu.Lock()
+		fin := p.done
+		p.mu.Unlock()
+		if fin {
+			n := 0
+			fmt.Sscanf(id, "bg_%d", &n)
+			done = append(done, ent{id, n})
+		}
+	}
+	// Oldest first.
+	for i := 0; i < len(done); i++ {
+		for j := i + 1; j < len(done); j++ {
+			if done[j].seq < done[i].seq {
+				done[i], done[j] = done[j], done[i]
+			}
+		}
+	}
+	for i := 0; i < len(done) && len(m.procs) > maxBgProcs; i++ {
+		delete(m.procs, done[i].id)
+	}
 }
 
 func (m *bgManager) get(id string) *bgProc {

@@ -151,7 +151,7 @@ func braveSearch(ctx context.Context, client *http.Client, key, query string, co
 			} `json:"results"`
 		} `json:"web"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 2*1024*1024)).Decode(&data); err != nil {
 		return nil, err
 	}
 	out := make([]searchResult, 0, len(data.Web.Results))
@@ -184,7 +184,7 @@ func tavilySearch(ctx context.Context, client *http.Client, key, query string, c
 			Content string `json:"content"`
 		} `json:"results"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 2*1024*1024)).Decode(&data); err != nil {
 		return nil, err
 	}
 	out := make([]searchResult, 0, len(data.Results))

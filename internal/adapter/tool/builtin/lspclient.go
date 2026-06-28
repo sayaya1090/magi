@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // A minimal LSP JSON-RPC (stdio) client for languages other than Go (Go keeps the
@@ -65,6 +66,8 @@ func startLSP(ctx context.Context, srv lspServer, workdir string) (*lspClient, e
 	}
 	cmd.Stderr = io.Discard
 	if err := cmd.Start(); err != nil {
+		_ = in.Close()
+		_ = out.Close()
 		return nil, err
 	}
 	return &lspClient{cmd: cmd, in: in, out: bufio.NewReader(out)}, nil
@@ -163,6 +166,11 @@ func lspQuery(ctx context.Context, workdir, absPath, method string, line, char i
 	if !ok {
 		return nil, fmt.Errorf("no LSP server configured for %s", filepath.Ext(absPath))
 	}
+	// Bound the whole exchange: a language server that hangs on initialize or never
+	// answers must not stall the turn (the loop passes the raw turn ctx). The blocking
+	// reads in call/readMsg unwind when this context's deadline kills the process.
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 	c, err := startLSP(ctx, srv, workdir)
 	if err != nil {
 		return nil, err
