@@ -94,6 +94,108 @@ func TestCouncilGateContinuesThenFinishes(t *testing.T) {
 	}
 }
 
+// cancelCouncil cancels the surrounding context the instant it is asked to
+// deliberate — simulating a user interrupt landing mid-deliberation — then returns
+// a CONTINUE verdict with feedback. The gate must notice the cancellation and
+// refuse to inject that feedback (otherwise an interrupted turn would be re-armed
+// with a spurious council prompt).
+type cancelCouncil struct {
+	cancel context.CancelFunc
+	calls  int
+}
+
+func (c *cancelCouncil) Deliberate(_ context.Context, _ port.DeliberationRequest) (council.Deliberation, error) {
+	c.calls++
+	c.cancel()
+	return council.Deliberation{Round: 1, Decision: council.Continue, Feedback: "keep going"}, nil
+}
+
+// newGateSession creates a session and returns the resolved Session + AgentSpec so
+// a test can drive runCouncilGate directly.
+func newGateSession(t *testing.T, a *App, wd string) (session.Session, AgentSpec) {
+	t.Helper()
+	sid, err := a.CreateSession(context.Background(), command.CreateSession{
+		Workdir: wd, Model: session.ModelRef{Provider: "openai", Model: "m"},
+		Actor: event.Actor{Kind: event.ActorUser, ID: "u"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := a.sessionInfo(context.Background(), sid)
+	return s, a.agentFor(s)
+}
+
+// councilInjected reports whether the council appended a feedback prompt.
+func councilInjected(t *testing.T, a *App, sid session.SessionID) bool {
+	t.Helper()
+	evs, _ := a.store.Read(context.Background(), sid, 0)
+	for _, e := range evs {
+		if e.Type == event.TypePromptSubmitted && e.Actor.ID == "council" {
+			return true
+		}
+	}
+	return false
+}
+
+// A cancel arriving while the council deliberates must abort the gate: it returns
+// "don't continue" and injects no feedback prompt, so the loop unwinds the
+// interrupt instead of looping again.
+func TestCouncilGateCancelDuringDeliberation(t *testing.T) {
+	cc := &cancelCouncil{}
+	a, wd := newApp(t, workingLLM(), Config{Council: cc})
+	s, agent := newGateSession(t, a, wd)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cc.cancel = cancel
+	defer cancel()
+
+	rounds, lastFB := 0, ""
+	if a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB) {
+		t.Error("gate must NOT continue after a mid-deliberation cancel")
+	}
+	if cc.calls != 1 {
+		t.Errorf("Deliberate calls = %d, want exactly 1", cc.calls)
+	}
+	if councilInjected(t, a, s.ID) {
+		t.Error("cancelled gate injected a council feedback prompt; it must unwind instead")
+	}
+}
+
+// Entering the gate with an already-cancelled context is a no-op: no deliberation,
+// no round consumed, no events — the loop just unwinds the cancellation.
+func TestCouncilGateSkipsWhenAlreadyCancelled(t *testing.T) {
+	fc := &fakeCouncil{delibs: []council.Deliberation{{Decision: council.Continue, Feedback: "x"}}}
+	a, wd := newApp(t, workingLLM(), Config{Council: fc})
+	s, agent := newGateSession(t, a, wd)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled before the gate runs
+
+	rounds, lastFB := 0, ""
+	if a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB) {
+		t.Error("gate must not continue when entered with a cancelled context")
+	}
+	if fc.calls != 0 {
+		t.Errorf("Deliberate must not run on a cancelled gate; calls=%d", fc.calls)
+	}
+	if rounds != 0 {
+		t.Errorf("a cancelled gate must not consume a round; rounds=%d", rounds)
+	}
+	if countType(mustRead(t, a, s.ID), event.TypeCouncilConvened) != 0 {
+		t.Error("a cancelled gate must not convene the council")
+	}
+}
+
+// mustRead returns the full fact log for a session.
+func mustRead(t *testing.T, a *App, sid session.SessionID) []event.Event {
+	t.Helper()
+	evs, err := a.store.Read(context.Background(), sid, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return evs
+}
+
 // With no council configured, the loop finishes as before — no council events.
 func TestNoCouncilNoGate(t *testing.T) {
 	a, wd := newApp(t, &fakeLLM{}, Config{})

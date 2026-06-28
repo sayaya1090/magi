@@ -3,6 +3,8 @@ package builtin
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -48,5 +50,44 @@ func TestAstGrepFallbackWhenMissing(t *testing.T) {
 	}
 	if s := string(res.Content); !strings.Contains(s, "grep") || !strings.Contains(s, "findcontext") {
 		t.Errorf("missing-binary message should suggest grep/findcontext, got: %s", s)
+	}
+}
+
+// End-to-end structural search via the real ast-grep CLI. Skips when ast-grep isn't
+// on PATH (e.g. CI/local without it), so it exercises the Execute → CLI → stream
+// parse path when the binary is present without flaking the hermetic build.
+func TestAstGrepRealMatch(t *testing.T) {
+	if _, ok := astGrepBin(); !ok {
+		t.Skip("ast-grep not installed")
+	}
+	dir := t.TempDir()
+	src := "package x\n\nfunc F(p *int) bool {\n\tif p == nil {\n\t\treturn true\n\t}\n\treturn false\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Decoy file with no nil comparison — must NOT match.
+	if err := os.WriteFile(filepath.Join(dir, "b.go"), []byte("package x\n\nfunc G() int { return 1 }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, _ := json.Marshal(astGrepArgs{Pattern: "$A == nil", Lang: "go"})
+	res, err := AstGrep{}.Execute(context.Background(), raw, port.ToolEnv{Workdir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError {
+		t.Fatalf("structural search errored: %s", res.Content)
+	}
+	// The result is a JSON array of matches; decode and assert the nil comparison
+	// in a.go was found (and only there).
+	var matches []astMatch
+	if err := json.Unmarshal(res.Content, &matches); err != nil {
+		t.Fatalf("decode matches: %v (content=%s)", err, res.Content)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("want exactly 1 match, got %d: %+v", len(matches), matches)
+	}
+	if matches[0].File != "a.go" || matches[0].Line != 4 {
+		t.Errorf("match = %+v, want a.go:4", matches[0])
 	}
 }
