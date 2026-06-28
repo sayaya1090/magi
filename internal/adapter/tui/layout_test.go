@@ -51,6 +51,33 @@ func TestPaneFadeOutLifecycle(t *testing.T) {
 	}
 }
 
+// Finished subagents fade once their work is done — even while the turn continues
+// (the main agent is still running) — rather than waiting for the whole turn to end.
+func TestPaneFadeStartsWhenAgentsDoneMidTurn(t *testing.T) {
+	mm := newTestModel(t)
+	m := &mm
+	m.width, m.height = 80, 40
+	m.running = true // turn still in progress (main agent working after subagents)
+	m.focusPane = -1
+	m.panes = []*agentPane{{role: "explore", done: true}, {role: "explore", done: true}}
+
+	m.armPaneFadeIfIdle() // the last subagent just finished
+	if m.turnEndAt.IsZero() {
+		t.Fatal("fade clock should arm once all subagents are done, even mid-turn")
+	}
+	// All-done panes collapse to one row each (not boxes) even though running.
+	nShown, perPane, _, _ := m.paneLayout()
+	if nShown != 2 || perPane != 1 {
+		t.Fatalf("all-done panes should be 1-row lines mid-turn, got nShown=%d perPane=%d", nShown, perPane)
+	}
+	// The fade then completes mid-turn after the window.
+	m.turnEndAt = time.Now().Add(-(paneFadeAfter + 2*paneFadeDur))
+	m.advancePaneFade()
+	if !m.panesFadedOut {
+		t.Fatal("fade should complete mid-turn after its window")
+	}
+}
+
 // The fade pauses while a pane is focused, so a strip never vanishes mid-read.
 func TestPaneFadePausesWhileFocused(t *testing.T) {
 	mm := newTestModel(t)

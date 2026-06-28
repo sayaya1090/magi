@@ -1869,6 +1869,7 @@ func (m *Model) applyEvent(e event.Event) {
 			m.activeAgents = removeFirst(m.activeAgents, orDefaultStr(d.Role, d.AgentID))
 			if p := m.paneBySID(session.SessionID(d.AgentID)); p != nil {
 				p.done = true
+				m.armPaneFadeIfIdle() // fade finished panes once they're all done
 			}
 		}
 
@@ -1993,11 +1994,10 @@ func (m *Model) applyEvent(e event.Event) {
 		m.activeAgents = nil
 		m.councilRound = 0
 		m.councilMember = ""
-		// Arm the finished-pane fade-out clock (only if any subagent ran this turn).
-		if len(m.panes) > 0 {
+		// Arm the finished-pane fade-out clock if it wasn't already armed when the
+		// subagents finished (armPaneFadeIfIdle) — an earlier all-done time wins.
+		if len(m.panes) > 0 && m.turnEndAt.IsZero() {
 			m.turnEndAt = time.Now()
-			m.paneFade = 0
-			m.panesFadedOut = false
 		}
 		// Freeze the turn meter from the cumulative usage (§8.1).
 		if !m.turnStart.IsZero() {
@@ -2081,7 +2081,7 @@ const panesMaxNumer, panesMaxDenom = 1, 3
 // transcript column (the status panel keeps the roster for later tracking). The
 // fade pauses while a pane is focused or zoomed so it never vanishes mid-read.
 const (
-	paneFadeAfter = 8 * time.Second
+	paneFadeAfter = 4 * time.Second
 	paneFadeDur   = 1500 * time.Millisecond
 )
 
@@ -2090,7 +2090,9 @@ const (
 // no-op while a turn runs, nothing is finished, or the user is engaging a pane.
 func (m *Model) advancePaneFade() bool {
 	// Conditions under which the strip should be fully visible (fade reset/paused).
-	if m.running || len(m.panes) == 0 || m.turnEndAt.IsZero() || m.zoom || m.focusPane >= 0 {
+	// turnEndAt is armed when all subagents finish (armPaneFadeIfIdle) or the turn
+	// ends, so the fade runs even mid-turn once the agents' work is done.
+	if len(m.panes) == 0 || m.turnEndAt.IsZero() || m.zoom || m.focusPane >= 0 {
 		if m.paneFade != 0 || m.panesFadedOut {
 			// Only un-fade if not already fully removed; a completed fade-out stays out.
 			// (panesFadedOut is intentionally NOT cleared here — it's safe only because
@@ -2220,8 +2222,9 @@ func (m *Model) paneLayout() (nShown, perPane, more, total int) {
 	if frac := m.height * panesMaxNumer / panesMaxDenom; capH > frac {
 		capH = frac
 	}
-	if !m.running {
-		// Collapsed: one row per finished pane.
+	if !m.running || m.panesAllDone() {
+		// Collapsed: one row per finished pane (also mid-turn once every agent is done,
+		// so finished subagents shrink to a fading line instead of lingering as boxes).
 		if n <= capH {
 			return n, 1, 0, n
 		}

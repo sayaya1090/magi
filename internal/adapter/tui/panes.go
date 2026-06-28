@@ -176,6 +176,10 @@ func (m *Model) openPane(ev event.Event) tea.Cmd {
 	m.subID++
 	p := &agentPane{sid: cid, role: orDefaultStr(d.Role, d.AgentID), ch: ch, cancel: cancel, sub: m.subID}
 	m.panes = append(m.panes, p)
+	// A newly active agent cancels any pending finished-pane fade (not idle anymore).
+	m.turnEndAt = time.Time{}
+	m.paneFade = 0
+	m.panesFadedOut = false
 	return waitEvent(ch, cid, p.sub)
 }
 
@@ -385,6 +389,29 @@ func (m *Model) applyPaneEvent(p *agentPane, e event.Event) {
 				}
 			}
 		}
+		m.armPaneFadeIfIdle() // a subagent finished — fade once they're all done
+	}
+}
+
+// panesAllDone reports whether there are panes and every one has finished.
+func (m *Model) panesAllDone() bool {
+	if len(m.panes) == 0 {
+		return false
+	}
+	for _, p := range m.panes {
+		if !p.done {
+			return false
+		}
+	}
+	return true
+}
+
+// armPaneFadeIfIdle starts the finished-pane fade clock once every subagent is done,
+// so panes fade out when the agents finish their work — without waiting for the whole
+// turn to end. A later-dispatched agent (openPane) resets it.
+func (m *Model) armPaneFadeIfIdle() {
+	if m.turnEndAt.IsZero() && m.panesAllDone() {
+		m.turnEndAt = time.Now()
 	}
 }
 
@@ -568,9 +595,10 @@ func (m *Model) renderPanes(width, originY int) string {
 		}
 		return "  " + styleKeyLabel.Render(fmt.Sprintf("↑%d  ↓%d  (scroll · ctrl+o to open)", off, more-off))
 	}
-	// Turn finished → compact one-line-per-pane strip (still focusable/zoomable) so
-	// finished subagents don't keep eating the screen. Capped to nShown.
-	if !m.running {
+	// Turn finished (or all subagents done mid-turn) → compact one-line-per-pane strip
+	// (still focusable/zoomable) so finished subagents don't keep eating the screen,
+	// and each fades out shortly after the work is done. Capped to nShown.
+	if !m.running || m.panesAllDone() {
 		var rows []string
 		y := originY
 		for i := 0; i < nShown; i++ {
