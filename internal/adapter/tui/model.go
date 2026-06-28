@@ -23,6 +23,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/version"
 )
 
 // eventMsg carries a domain event from the app's bus into the Bubble Tea loop.
@@ -262,8 +263,8 @@ func (m *Model) fadeDebug() string {
 	if !m.turnEndAt.IsZero() {
 		armed = fmt.Sprintf("%.1fs", time.Since(m.turnEndAt).Seconds())
 	}
-	return fmt.Sprintf("  [fade panes=%d done=%d all=%v armed=%s fade=%.2f foc=%d zoom=%v run=%v]",
-		len(m.panes), done, m.panesAllDone(), armed, m.paneFade, m.focusPane, m.zoom, m.running)
+	return fmt.Sprintf("  [%s · fade panes=%d done=%d all=%v armed=%s fade=%.2f foc=%d zoom=%v run=%v]",
+		version.Commit, len(m.panes), done, m.panesAllDone(), armed, m.paneFade, m.focusPane, m.zoom, m.running)
 }
 
 // renderTickMsg drives throttled, coalesced repaints during streaming.
