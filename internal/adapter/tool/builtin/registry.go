@@ -72,5 +72,8 @@ func Default() *Registry {
 	r.Register(FindContext{})
 	r.Register(AstGrep{})
 	r.Register(LspDiag{})
+	r.Register(LspDefinition{})
+	r.Register(LspReferences{})
+	r.Register(LspSymbols{})
 	return r
 }
