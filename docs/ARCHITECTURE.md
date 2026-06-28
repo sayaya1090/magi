@@ -98,7 +98,7 @@ replay, deduped by seq (race-safe late-joiner).
     EmitArtifact  func(Artifact)
     Spawn    func(ctx, SpawnRequest) SpawnResult     // task tool: run a subagent (blocking)
     Dispatch func(SpawnRequest) string               // task tool: background subagent; "" ok, else a note
-    Ask      func(question) (string, error)          // subagent → orchestrator escalation (blocks)
+    Ask      func(question) (string, error)          // subagent → orchestrator escalation (blocks; bg-dispatched only, else fast-fails)
     Report   func(summary, status, details) error    // subagent → final result; ends the turn
     SetTodos func([]Todo)                             // todowrite
     Propose  func(Contribution) error                // shared experience (D13)
@@ -168,6 +168,14 @@ The orchestrator (top-level session, `Parent==""`) delegates via the **`task`** 
   through the orchestrator (blocks the subagent); **`report(summary,status,details)`**
   = the subagent's final result + status (done|blocked|failed), which ends its turn.
   A subagent that trails off without reporting gets one nudge to report.
+- **`ask` requires an answerable parent**: escalation only works for **background-
+  dispatched** subagents — the orchestrator stays in its loop and answers via
+  `needsOrchestratorTurn`. A **synchronously-spawned** child (planner scout/parallel
+  explorers, or a nested subagent's own `task` delegation) has a parent *blocked
+  awaiting it*, so no one can answer. Such children are marked `Escalatable=false`
+  (`SpawnRequest.Background` flows to `Session.Escalatable`); their `ask` **fails
+  fast** with guidance ("proceed with your best assumption and note any ambiguity")
+  instead of blocking until the 2-minute escalation timeout.
 - **Supervisor**: per-attempt timeout, stall watchdog, bounded auto-restart.
 - **Auto-orchestration** (`Config.AutoOrchestrate`): when context usage exceeds the
   threshold (default 60%, -1 to disable), the system injects a directive forcing the

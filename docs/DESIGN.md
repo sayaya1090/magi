@@ -262,7 +262,7 @@ type ToolEnv struct {
     // 멀티에이전트(M5): task 툴에만 주입, 미지원 시 nil
     Spawn    func(ctx context.Context, req SpawnRequest) SpawnResult // 블로킹 서브에이전트
     Dispatch func(req SpawnRequest) string                          // 백그라운드 사이드카(""=성공/note=거부)
-    Ask      func(question string) (string, error)                  // 서브→오케스트레이터 에스컬레이션
+    Ask      func(question string) (string, error)                  // 서브→오케스트레이터 에스컬레이션(백그라운드 디스패치만; 동기 spawn은 즉시 안내로 실패)
     Report   func(summary, status, details string) error            // 서브에이전트 최종 보고(done|blocked|failed)
     // 계획/메모리/스킬
     SetTodos  func(todos []session.Todo)            // TodoWrite

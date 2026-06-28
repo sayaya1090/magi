@@ -198,6 +198,11 @@ func (s SandboxSpec) Confined() bool {
 type SpawnRequest struct {
 	Agent  string
 	Prompt string
+	// Background marks an asynchronously dispatched subagent (the task tool / sidecar):
+	// the orchestrator stays in its loop and can answer the subagent's `ask`
+	// escalations. Synchronous spawns (planner explorers, nested spawns) leave it
+	// false — the parent is blocked awaiting the child, so escalation can't be answered.
+	Background bool
 }
 
 // SpawnResult is a subagent's outcome.

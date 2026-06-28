@@ -788,8 +788,19 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	var askFn func(string) (string, error)
 	var reportFn func(summary, status, details string) error
 	if s.Parent != "" {
-		askFn = func(q string) (string, error) { return a.escalate(ctx, s.Parent, agent.Name, q) }
 		reportFn = func(summary, status, details string) error { return a.fileReport(sid, summary, status, details) }
+		if s.Escalatable {
+			// Background-dispatched: the orchestrator stays in its loop and answers asks.
+			askFn = func(q string) (string, error) { return a.escalate(ctx, s.Parent, agent.Name, q) }
+		} else {
+			// Synchronous spawn (planner explorer / nested subagent): the parent is
+			// blocked awaiting THIS child, so nothing can answer — fail fast with
+			// guidance instead of blocking until the 2-minute escalation timeout.
+			askFn = func(string) (string, error) {
+				return "", fmt.Errorf("no orchestrator is available to answer while you investigate — " +
+					"proceed with your best assumption and note any ambiguity in your final report")
+			}
+		}
 	}
 
 	// Enforce the agent's tool allowlist.

@@ -95,6 +95,7 @@ func (a *App) bgConsume(sid session.SessionID) {
 // parent session so the parent agent (kept free like a UI thread) processes it
 // at its next step. Used by the task tool for non-blocking delegation.
 func (a *App) dispatch(ctx context.Context, parent session.Session, depth int, req port.SpawnRequest) string {
+	req.Background = true // dispatched subagents can escalate: the orchestrator stays in its loop to answer
 	key := req.Agent + "\x00" + req.Prompt
 	a.mu.Lock()
 	if a.closed {
@@ -331,12 +332,13 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 		model = spec.Model
 	}
 	child := session.Session{
-		ID:      session.SessionID("s_" + newID()),
-		Workdir: parent.Workdir,
-		Agent:   spec.Name,
-		Parent:  parent.ID,
-		Model:   model,
-		Created: time.Now(),
+		ID:          session.SessionID("s_" + newID()),
+		Workdir:     parent.Workdir,
+		Agent:       spec.Name,
+		Parent:      parent.ID,
+		Model:       model,
+		Created:     time.Now(),
+		Escalatable: req.Background, // only background-dispatched children can be answered
 	}
 	a.mu.Lock()
 	a.sessions[child.ID] = child

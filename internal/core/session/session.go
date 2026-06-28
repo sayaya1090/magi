@@ -38,6 +38,11 @@ type Session struct {
 	Model   ModelRef          `json:"model"`
 	Created time.Time         `json:"created"`
 	Meta    map[string]string `json:"meta,omitempty"`
+	// Escalatable reports whether this subagent's `ask` can reach an orchestrator
+	// that will answer — true only for background-dispatched subagents. Runtime-only
+	// (not persisted): a synchronous spawn's parent is blocked awaiting it, so it
+	// has no answer loop and `ask` must fail fast instead of blocking on a timeout.
+	Escalatable bool `json:"-"`
 }
 
 // SessionMeta is a lightweight summary used for listing sessions without
