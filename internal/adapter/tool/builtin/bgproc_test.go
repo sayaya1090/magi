@@ -12,6 +12,84 @@ import (
 	"github.com/sayaya1090/magi/internal/port"
 )
 
+// bash_input drives an interactive process: send a line to `cat`'s stdin and see
+// it echoed back via bash_output. Then eof closes stdin so cat exits.
+func TestBackgroundInput(t *testing.T) {
+	env := port.ToolEnv{Workdir: t.TempDir()}
+	start, _ := Bash{}.Execute(context.Background(),
+		json.RawMessage(`{"command":"cat","background":true}`), env)
+	id := bgIDRE.FindString(resultText(t, start))
+	if id == "" {
+		t.Fatal("no background id")
+	}
+
+	in, _ := BashInput{}.Execute(context.Background(),
+		json.RawMessage(`{"id":"`+id+`","input":"hello","newline":true}`), env)
+	if in.IsError {
+		t.Fatalf("input errored: %s", resultText(t, in))
+	}
+
+	idArg := json.RawMessage(`{"id":"` + id + `"}`)
+	var acc string
+	for i := 0; i < 100; i++ { // cat echoes the line back
+		r, _ := BashOutput{}.Execute(context.Background(), idArg, env)
+		acc += resultText(t, r)
+		if strings.Contains(acc, "hello") {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !strings.Contains(acc, "hello") {
+		t.Errorf("no echo of stdin, got %q", acc)
+	}
+
+	// Unknown id is a clean error.
+	e, _ := BashInput{}.Execute(context.Background(),
+		json.RawMessage(`{"id":"bg_999999","input":"x"}`), env)
+	if !e.IsError {
+		t.Error("input to unknown id should error")
+	}
+
+	// eof closes stdin → cat exits.
+	if eof, _ := (BashInput{}).Execute(context.Background(),
+		json.RawMessage(`{"id":"`+id+`","eof":true}`), env); eof.IsError {
+		t.Fatalf("eof errored: %s", resultText(t, eof))
+	}
+	exited := false
+	for i := 0; i < 100; i++ {
+		r, _ := BashOutput{}.Execute(context.Background(), idArg, env)
+		if strings.Contains(resultText(t, r), "exited") {
+			exited = true
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !exited {
+		t.Error("cat should exit after stdin EOF")
+	}
+}
+
+// Sending input to a process that has already exited is a clean error, not a panic.
+func TestBackgroundInputAfterExit(t *testing.T) {
+	env := port.ToolEnv{Workdir: t.TempDir()}
+	start, _ := Bash{}.Execute(context.Background(),
+		json.RawMessage(`{"command":"true","background":true}`), env)
+	id := bgIDRE.FindString(resultText(t, start))
+	idArg := json.RawMessage(`{"id":"` + id + `"}`)
+	for i := 0; i < 100; i++ { // wait for exit
+		r, _ := BashOutput{}.Execute(context.Background(), idArg, env)
+		if strings.Contains(resultText(t, r), "exited") {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	e, _ := BashInput{}.Execute(context.Background(),
+		json.RawMessage(`{"id":"`+id+`","input":"x"}`), env)
+	if !e.IsError {
+		t.Error("input to an exited process should error")
+	}
+}
+
 func TestSyncBufferReadSince(t *testing.T) {
 	b := &syncBuffer{}
 	b.Write([]byte("hello "))

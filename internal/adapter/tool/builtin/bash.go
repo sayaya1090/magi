@@ -26,7 +26,7 @@ type bashArgs struct {
 
 func (Bash) Name() string { return "bash" }
 func (Bash) Description() string {
-	return "Run a shell command in the working directory. Returns combined stdout/stderr and the exit code. Use for builds, tests, git, and file operations not covered by other tools. Set background=true for a long-running command (dev server, watcher, slow build): it returns an id immediately; read its output with bash_output and stop it with bash_kill."
+	return "Run a shell command in the working directory. Returns combined stdout/stderr and the exit code. Use for builds, tests, git, and file operations not covered by other tools. Set background=true for a long-running command (dev server, watcher, slow build): it returns an id immediately; read its output with bash_output, send stdin with bash_input (to drive a REPL/interactive program), and stop it with bash_kill."
 }
 func (Bash) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"timeout":{"type":"integer","description":"seconds (default 120, max 600)"},"background":{"type":"boolean","description":"run detached; returns an id for bash_output/bash_kill"}},"required":["command"]}`)

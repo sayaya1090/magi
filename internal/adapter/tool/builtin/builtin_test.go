@@ -261,13 +261,13 @@ func runJSON(t *testing.T, tool port.Tool, args any, setup func(dir string)) ([]
 // ---- Registry ----
 func TestDefaultRegistry(t *testing.T) {
 	r := Default()
-	for _, name := range []string{"read", "write", "edit", "multiedit", "grep", "glob", "list", "bash", "bash_output", "bash_kill", "todowrite", "webfetch", "websearch", "remember", "skill", "findcontext", "astgrep", "lsp_diagnostics", "lsp_definition", "lsp_references", "lsp_symbols"} {
+	for _, name := range []string{"read", "write", "edit", "multiedit", "grep", "glob", "list", "bash", "bash_output", "bash_kill", "bash_input", "todowrite", "webfetch", "websearch", "remember", "skill", "findcontext", "astgrep", "lsp_diagnostics", "lsp_definition", "lsp_references", "lsp_symbols"} {
 		if _, ok := r.Get(name); !ok {
 			t.Errorf("default registry missing tool %q", name)
 		}
 	}
-	if len(r.List()) != 21 {
-		t.Errorf("registry size = %d, want 21 (added websearch)", len(r.List()))
+	if len(r.List()) != 22 {
+		t.Errorf("registry size = %d, want 22 (added bash_input)", len(r.List()))
 	}
 }
 

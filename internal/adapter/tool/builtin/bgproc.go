@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os/exec"
 	"sync"
 	"time"
@@ -63,10 +64,11 @@ type bgProc struct {
 	cancel  context.CancelFunc
 	started time.Time
 
-	mu   sync.Mutex
-	read int // absolute offset the agent has consumed up to
-	done bool
-	exit int
+	mu    sync.Mutex
+	stdin io.WriteCloser // open pipe to the process's stdin (for bash_input); closed on exit
+	read  int            // absolute offset the agent has consumed up to
+	done  bool
+	exit  int
 }
 
 // bgManager is the process-global registry of background commands. Tools are
@@ -90,14 +92,22 @@ func (m *bgManager) start(workdir string, sb port.SandboxSpec, command string) (
 	cmd.SysProcAttr = sandboxProcAttr(sb)
 	out := &syncBuffer{}
 	cmd.Stdout, cmd.Stderr = out, out
+	// Keep stdin open so bash_input can drive an interactive process (REPL, line
+	// debugger). Must be obtained BEFORE Start; closed when the process exits.
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		cancel()
+		return nil, err
+	}
 	if err := cmd.Start(); err != nil {
+		_ = stdin.Close()
 		cancel()
 		return nil, err
 	}
 
 	m.mu.Lock()
 	m.seq++
-	p := &bgProc{id: fmt.Sprintf("bg_%d", m.seq), command: command, out: out, cancel: cancel, started: time.Now()}
+	p := &bgProc{id: fmt.Sprintf("bg_%d", m.seq), command: command, out: out, stdin: stdin, cancel: cancel, started: time.Now()}
 	m.procs[p.id] = p
 	m.pruneLocked()
 	m.mu.Unlock()
@@ -112,8 +122,10 @@ func (m *bgManager) start(workdir string, sb port.SandboxSpec, command string) (
 		}
 		p.mu.Lock()
 		p.done, p.exit = true, exit
+		p.stdin = nil // no more input accepted once exited
 		p.mu.Unlock()
-		cancel() // release the process context now that it has exited
+		_ = stdin.Close() // release the pipe
+		cancel()          // release the process context now that it has exited
 	}()
 	return p, nil
 }
@@ -235,4 +247,54 @@ func (BashKill) Execute(ctx context.Context, raw json.RawMessage, env port.ToolE
 	}
 	p.cancel()
 	return okText("", "killed "+a.ID), nil
+}
+
+// BashInput sends input to a background command's stdin, so the agent can drive a
+// line-oriented interactive program (a REPL, a line debugger) together with
+// bash_output. It's a plain pipe, not a TTY — programs that require a terminal
+// (full-screen/curses UIs, password prompts) won't work.
+type BashInput struct{}
+
+func (BashInput) Name() string { return "bash_input" }
+func (BashInput) Description() string {
+	return "Send input to the stdin of a background command (started with bash background=true), then read its reply with bash_output. Drives line-oriented interactive programs — a REPL (python3, psql), a line debugger (gdb, pdb), etc. A trailing newline is appended by default (sends one line); set newline=false for raw/partial input, or eof=true to close stdin (signals end-of-input; some tools only flush/exit on EOF). This is a pipe, not a terminal: programs that require a TTY (full-screen/curses UIs, interactive password prompts) won't work."
+}
+func (BashInput) Schema() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","description":"the background process id, e.g. bg_1"},"input":{"type":"string","description":"text to write to stdin"},"newline":{"type":"boolean","description":"append a newline (default true)"},"eof":{"type":"boolean","description":"close stdin instead of writing (end-of-input)"}},"required":["id"]}`)
+}
+func (BashInput) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
+	var a struct {
+		ID      string `json:"id"`
+		Input   string `json:"input"`
+		Newline *bool  `json:"newline"`
+		EOF     bool   `json:"eof"`
+	}
+	if err := json.Unmarshal(raw, &a); err != nil {
+		return errResult("", "invalid arguments: "+err.Error()), nil
+	}
+	p := bg.get(a.ID)
+	if p == nil {
+		return errResult("", "no such background process: "+a.ID), nil
+	}
+	p.mu.Lock()
+	done := p.done
+	w := p.stdin
+	p.mu.Unlock()
+	if done || w == nil {
+		return errResult("", "background process "+a.ID+" has exited; cannot send input"), nil
+	}
+	if a.EOF {
+		if err := w.Close(); err != nil {
+			return errResult("", "close stdin of "+a.ID+": "+err.Error()), nil
+		}
+		return okText("", "closed stdin of "+a.ID), nil
+	}
+	data := a.Input
+	if a.Newline == nil || *a.Newline {
+		data += "\n"
+	}
+	if _, err := io.WriteString(w, data); err != nil {
+		return errResult("", "write to "+a.ID+": "+err.Error()), nil
+	}
+	return okText("", "sent input to "+a.ID), nil
 }
