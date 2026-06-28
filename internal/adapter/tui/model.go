@@ -2653,10 +2653,15 @@ func (m *Model) paletteView(matches []cmdInfo) string {
 		if i == sel {
 			b.WriteString(stylePalSelRow.Render("› " + name + "   " + c.desc))
 		} else {
-			// styleToolResult (muted, NO padding) — styleFooter's Padding(0,1) reset the
-			// description's background to the terminal default (a white block in light
-			// themes) and added stray spaces. This keeps the box's surface behind it.
-			b.WriteString("  " + stylePalName.Render(name) + "   " + styleToolResult.Render(c.desc))
+			// Every segment (incl. the literal gaps) carries the box's surface background
+			// so the row is uniformly cream — otherwise the foreground-only styled spans
+			// reset the bg and the terminal default (white in light themes) shows through
+			// behind the text, making a cream/white checkerboard.
+			onSurf := lipgloss.NewStyle().Background(colSurface)
+			b.WriteString(onSurf.Render("  ") +
+				stylePalName.Background(colSurface).Render(name) +
+				onSurf.Render("   ") +
+				styleToolResult.Background(colSurface).Render(c.desc))
 		}
 	}
 	return stylePalBox.Width(m.width - 2).Render(b.String())
