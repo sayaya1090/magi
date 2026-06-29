@@ -101,6 +101,20 @@ func (g *runGuard) lastResult(fp string) string {
 	return g.results[fp]
 }
 
+// touchedPaths returns the set of file paths this run mutated via write/edit tools — used
+// to scope the council diff to what the turn actually changed.
+func (g *runGuard) touchedPaths() map[string]bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	out := make(map[string]bool, len(g.lastMut))
+	for p := range g.lastMut {
+		if p != "" {
+			out[p] = true
+		}
+	}
+	return out
+}
+
 // stuck reports whether the run has blocked enough repeats to be force-stopped.
 func (g *runGuard) stuck() bool {
 	g.mu.Lock()
@@ -188,7 +202,8 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	turnTask := ""            // the user instruction THIS turn answers, snapshotted at
 	// step 0 — so a steer that lands during the council gate can't hijack what the
 	// council judges against (that interjection gets its own follow-up turn instead).
-	usedTools := seedWork // did this turn do real work? (planner investigation seeds it; council skips pure conversational turns)
+	var dirtyBefore map[string]bool // paths already uncommitted at turn start (C: scope council diff)
+	usedTools := seedWork           // did this turn do real work? (planner investigation seeds it; council skips pure conversational turns)
 	// Turn usage accumulation (§8.1): output tokens and cost sum across steps; input
 	// is the last step's (the current context size, not a sum).
 	var cumOut, lastIn int
@@ -217,6 +232,9 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		}
 		if step == 0 {
 			turnTask = lastUserPromptText(evs) // the prompt that drove this turn
+			if depth == 0 {
+				dirtyBefore = a.GitDirtyPaths(ctx, s.Workdir) // snapshot pre-turn dirtiness (C: scope the council diff)
+			}
 		}
 
 		// Durable project memory (AGENTS.md) is part of the system prompt and is
@@ -446,7 +464,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			// conversational reply (no tool use, e.g. a greeting) has nothing to
 			// verify, so gating it just churns and can derail a weak model.
 			if depth == 0 && a.cfg.Council != nil && !a.cfg.Workflow && usedTools {
-				if a.runCouncilGate(ctx, s, agent, turnTask, lastText, &councilRounds, &lastCouncilFeedback) {
+				if a.runCouncilGate(ctx, s, agent, turnTask, lastText, &councilRounds, &lastCouncilFeedback, dirtyBefore, guard.touchedPaths()) {
 					continue
 				}
 			}
@@ -641,7 +659,7 @@ func tailForCouncil(s string, n int) string {
 //
 // Safety (so the council can never trap the loop): rounds are capped, repeated or
 // empty feedback stops the gate, and any deliberation error finishes the turn.
-func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent AgentSpec, turnTask, lastText string, rounds *int, lastFeedback *string) bool {
+func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent AgentSpec, turnTask, lastText string, rounds *int, lastFeedback *string, dirtyBefore, touched map[string]bool) bool {
 	// An interrupt mid-finish must not trigger a deliberation or inject a spurious
 	// feedback prompt — let the loop unwind the cancellation.
 	if ctx.Err() != nil {
@@ -690,7 +708,9 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		task = lastUserPromptText(evs)
 	}
 	diff, diffErr := a.GitDiff(ctx, s.Workdir)
-	diff = truncateForCouncil(diff, councilDiffCap) // bound per-member token cost
+	diff = scopeDiffToTurn(diff, dirtyBefore, touched, s.Workdir) // drop pre-existing changes the agent didn't make (C)
+	diff = filterCouncilDiff(diff)                                // drop binary-file sections (noise, never code evidence)
+	diff = truncateForCouncil(diff, councilDiffCap)               // bound per-member token cost
 	// The agent's plan (todos, with status) is the council's CONTRACT (D15): the
 	// completeness lens judges the report/diff against it, and any still-pending
 	// item is strong grounds to continue. Empty when the agent kept no plan.

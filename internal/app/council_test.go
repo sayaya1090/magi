@@ -150,7 +150,7 @@ func TestCouncilGateCancelDuringDeliberation(t *testing.T) {
 	defer cancel()
 
 	rounds, lastFB := 0, ""
-	if a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB) {
+	if a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB, nil, nil) {
 		t.Error("gate must NOT continue after a mid-deliberation cancel")
 	}
 	if cc.calls != 1 {
@@ -172,7 +172,7 @@ func TestCouncilGateSkipsWhenAlreadyCancelled(t *testing.T) {
 	cancel() // already cancelled before the gate runs
 
 	rounds, lastFB := 0, ""
-	if a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB) {
+	if a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB, nil, nil) {
 		t.Error("gate must not continue when entered with a cancelled context")
 	}
 	if fc.calls != 0 {

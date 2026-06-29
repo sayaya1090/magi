@@ -690,6 +690,32 @@ func (a *App) ToolNames() []string {
 // needs to confirm the work, so it keeps voting "continue". To include them
 // without disturbing the user's index, everything is staged into a throwaway
 // index (GIT_INDEX_FILE) and diffed against HEAD; the real index is untouched.
+// GitDirtyPaths returns the set of paths that already have uncommitted changes in
+// workdir (git status --porcelain), used to snapshot pre-turn dirtiness so the council
+// diff can exclude changes the agent didn't make this turn. Empty (nil) on any error or
+// outside a git repo — callers then scope nothing, preserving prior behavior.
+func (a *App) GitDirtyPaths(ctx context.Context, workdir string) map[string]bool {
+	if a.plat == nil {
+		return nil
+	}
+	res, err := a.plat.Exec(ctx, port.Cmd{Path: "git", Args: []string{"status", "--porcelain", "-z"}, Dir: workdir})
+	if err != nil || res.ExitCode != 0 {
+		return nil
+	}
+	out := map[string]bool{}
+	for _, rec := range strings.Split(string(res.Stdout), "\x00") {
+		if len(rec) < 4 {
+			continue
+		}
+		// Porcelain -z record: "XY <path>"; rec[3:] is the path (the NEW path for a rename,
+		// whose old path follows as a separate NUL field). We only need set membership of
+		// pre-turn-dirty paths, so the leading path of each record suffices; a rename's old
+		// field decodes to a harmless junk key that matches no real diff path.
+		out[rec[3:]] = true
+	}
+	return out
+}
+
 func (a *App) GitDiff(ctx context.Context, workdir string) (string, error) {
 	if a.plat == nil {
 		return "", fmt.Errorf("platform unavailable")
