@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -223,6 +225,39 @@ func TestExecuteStepsMarksExecutedTodos(t *testing.T) {
 	}
 	if td[2].Status != "pending" {
 		t.Errorf("trailing solo step should stay pending (main agent handles it), got %q", td[2].Status)
+	}
+}
+
+// keepScoutItem keeps single-token targets and real in-tree paths, but drops multi-word
+// prose (a header/sentence the model emitted around its list) that doesn't exist as a
+// path — the leak that sent an explorer chasing a nonexistent target until it timed out.
+func TestKeepScoutItem(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "my notes.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		item string
+		want bool
+	}{
+		{"README.md", true},     // single token, exists
+		{"docs/x.md", true},     // single token (not validated)
+		{"src/foo.go:42", true}, // single token with colon — kept, not Stat'd
+		{"parseList", true},     // single-token symbol
+		{"List of files in project root and docs directory", false}, // the leaked header — multi-word, no such path
+		{"user authentication", false},                              // multi-word non-path (accepted topic tradeoff)
+		{"my notes.md", true},                                       // multi-word but a real path → rescued
+		{`"my notes.md"`, true},                                     // quote-wrapped real path
+		{"../../etc hosts", false},                                  // escapes workdir
+		{"", false},
+	}
+	for _, c := range cases {
+		if got := keepScoutItem(dir, c.item); got != c.want {
+			t.Errorf("keepScoutItem(%q) = %v, want %v", c.item, got, c.want)
+		}
 	}
 }
 

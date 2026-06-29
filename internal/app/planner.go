@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -24,6 +26,11 @@ const (
 	maxPlanGroups    = 5 // explorers per single parallel/scout fan-out
 	maxPlanSteps     = 6 // ordered steps the planner may propose
 	maxPlanExplorers = 8 // per-turn TOTAL explorer spawns (a per-turn budget, not the lifetime MaxAgents)
+
+	// explorerTimeout caps each read-only planner explorer well under the 5m subagent
+	// hard cap, so a single explorer chasing a bad target can't stall the step (which
+	// waits for all explorers) for the full SubagentTimeout.
+	explorerTimeout = 3 * time.Minute
 )
 
 // planGroup is one independent investigation to parallelize.
@@ -569,6 +576,13 @@ func (a *App) scoutGroups(ctx context.Context, s session.Session, st planStep, b
 		return nil
 	}
 	items := parseList(stripReportStatus(r.Text))
+	kept := items[:0]
+	for _, it := range items {
+		if keepScoutItem(s.Workdir, it) {
+			kept = append(kept, it)
+		}
+	}
+	items = kept
 	each := strings.TrimSpace(st.Each)
 	if each == "" {
 		each = "Investigate this item (read-only)"
@@ -611,6 +625,31 @@ func endsWithSentencePunct(s string) bool {
 		return true
 	}
 	return false
+}
+
+// keepScoutItem decides whether a parsed discovery line is a real work-item. A real
+// file/path/symbol target is a SINGLE TOKEN; a multi-word line is almost always prose —
+// a header or sentence the model emitted around its list ("List of files in project
+// root and docs directory") that punctuation/field heuristics miss. Keep a multi-word
+// line ONLY when it resolves to a real path inside the workdir (a genuine path that
+// happens to contain a space). Dropping a multi-word non-path just skips one explorer
+// (a benign per-step degrade); keeping one sends an explorer chasing a target that does
+// not exist, which flails until its timeout and stalls the whole scout step.
+func keepScoutItem(workdir, item string) bool {
+	item = strings.Trim(item, "\"'`")
+	if item == "" {
+		return false
+	}
+	if !strings.ContainsAny(item, " \t") {
+		return true // single token: a path/symbol we can't cheaply validate — keep
+	}
+	p := filepath.Join(workdir, item)
+	root := filepath.Clean(workdir)
+	if p != root && !strings.HasPrefix(p, root+string(os.PathSeparator)) {
+		return false // escapes the workdir → not a real in-tree item
+	}
+	_, err := os.Stat(p)
+	return err == nil
 }
 
 // parseList turns a scout's free-text reply into a clean work-list: one item per
@@ -659,7 +698,12 @@ func (a *App) runExplorers(ctx context.Context, s session.Session, groups []plan
 		go func(i int, g planGroup) {
 			defer wg.Done()
 			prompt := fmt.Sprintf("Investigate (read-only): %s\n\n%s", g.Focus, g.Question)
-			r := a.spawn(ctx, s, 0, port.SpawnRequest{Agent: g.Agent, Prompt: prompt})
+			// Bound each read-only explorer well under the 5m subagent cap: a focused
+			// investigation is quick, and one explorer chasing a bad target must not stall
+			// the whole step (runExplorers waits for all) for the full SubagentTimeout.
+			ectx, ecancel := context.WithTimeout(ctx, explorerTimeout)
+			defer ecancel()
+			r := a.spawn(ectx, s, 0, port.SpawnRequest{Agent: g.Agent, Prompt: prompt})
 			text := r.Text
 			if r.Err != "" {
 				text = "(failed: " + r.Err + ")"
