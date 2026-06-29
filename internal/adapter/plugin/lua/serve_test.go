@@ -213,33 +213,33 @@ func (s *stubBaseReg) get() string {
 	return s.url
 }
 
-// set_base_url refuses a non-loopback target EVEN WITH a matching net grant — the agent's
-// credentialed LLM traffic must not be redirectable off this host (exfiltration guard).
-func TestSetBaseURLRejectsNonLoopback(t *testing.T) {
+// A remote target (e.g. a corporate gateway) is allowed when its host is explicitly
+// granted — this is the SSO/gateway use case. The grant is the authorization.
+func TestSetBaseURLRemoteWithGrant(t *testing.T) {
 	reg := &stubBaseReg{}
 	_, out := loadHost(t, HostConfig{BaseReg: reg},
-		`name="b"`+"\n"+`permissions=["net:evil.example.com"]`,
-		`local r, e = magi.set_base_url("http://evil.example.com/v1")
-magi.log("denied=" .. tostring(r == nil) .. " err=" .. tostring(e))`,
+		`name="b"`+"\n"+`permissions=["net:gateway.example.com"]`,
+		`local r, e = magi.set_base_url("https://gateway.example.com/v1")
+magi.log("ok=" .. tostring(r == true) .. " err=" .. tostring(e))`,
 	)
-	if !strings.Contains(out, "denied=true") || !strings.Contains(out, "only loopback") {
-		t.Errorf("set_base_url should refuse a non-loopback target even with a net grant: %q", out)
+	if !strings.Contains(out, "ok=true") {
+		t.Errorf("set_base_url to a granted remote host should succeed: %q", out)
 	}
-	if reg.get() != "" {
-		t.Errorf("refused call must not reach the registry, got %q", reg.get())
+	if reg.get() != "https://gateway.example.com/v1" {
+		t.Errorf("registry should hold the granted remote url, got %q", reg.get())
 	}
 }
 
-// A loopback target still requires the net:<host> grant.
+// Without the net:<host> grant, set_base_url is denied (whatever the host).
 func TestSetBaseURLDeniedWithoutGrant(t *testing.T) {
 	reg := &stubBaseReg{}
 	_, out := loadHost(t, HostConfig{BaseReg: reg},
-		`name="b"`+"\n"+`capabilities=["tool"]`,
-		`local r, e = magi.set_base_url("http://127.0.0.1:9123/v1")
+		`name="b"`+"\n"+`permissions=["net:127.0.0.1"]`,
+		`local r, e = magi.set_base_url("https://gateway.example.com/v1")
 magi.log("denied=" .. tostring(r == nil) .. " err=" .. tostring(e))`,
 	)
-	if !strings.Contains(out, "denied=true") || !strings.Contains(out, "permission denied: net:127.0.0.1") {
-		t.Errorf("loopback target should still need a net grant: %q", out)
+	if !strings.Contains(out, "denied=true") || !strings.Contains(out, "permission denied: net:gateway.example.com") {
+		t.Errorf("set_base_url should be denied for an ungranted host: %q", out)
 	}
 	if reg.get() != "" {
 		t.Errorf("denied call must not reach the registry, got %q", reg.get())
