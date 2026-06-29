@@ -70,6 +70,8 @@ var defaults = []Info{
 	{ID: "qwen3-coder:30b", ContextWindow: 262144, MaxOutput: 65536, Tools: true},
 	{ID: "qwen2.5-coder:32b", ContextWindow: 32768, MaxOutput: 8192, Tools: true},
 	{ID: "gpt-oss:20b", ContextWindow: 131072, MaxOutput: 32768, Tools: true},
+	{ID: "gpt-oss:120b", ContextWindow: 131072, MaxOutput: 32768, Tools: true},
+	{ID: "gpt-oss:120b-cloud", ContextWindow: 131072, MaxOutput: 32768, Tools: true},
 	{ID: "llama3.1:8b", ContextWindow: 131072, MaxOutput: 8192, Tools: true},
 	{ID: "devstral:24b", ContextWindow: 131072, MaxOutput: 8192, Tools: true},
 	{ID: "gemma3:27b", ContextWindow: 131072, MaxOutput: 8192, Tools: true},
@@ -77,4 +79,12 @@ var defaults = []Info{
 	{ID: "gpt-4o", ContextWindow: 128000, MaxOutput: 16384, Tools: true, Vision: true, InputCost: 2.5, OutputCost: 10},
 	{ID: "claude-opus-4-8", ContextWindow: 200000, MaxOutput: 32000, Tools: true, Vision: true, InputCost: 5, OutputCost: 25},
 	{ID: "claude-sonnet-4-6", ContextWindow: 200000, MaxOutput: 64000, Tools: true, Vision: true, InputCost: 3, OutputCost: 15},
+	// Gemini (context length isn't in its OpenAI-compat /models, so it's seeded here).
+	{ID: "gemini-2.5-pro", ContextWindow: 1048576, MaxOutput: 65536, Tools: true, Vision: true},
+	{ID: "gemini-2.0-flash", ContextWindow: 1048576, MaxOutput: 8192, Tools: true, Vision: true},
+	{ID: "gemini-1.5-pro", ContextWindow: 2097152, MaxOutput: 8192, Tools: true, Vision: true},
+	// Grok (xAI); /v1/models doesn't expose context length.
+	{ID: "grok-2", ContextWindow: 131072, MaxOutput: 8192, Tools: true},
+	{ID: "grok-3", ContextWindow: 131072, MaxOutput: 8192, Tools: true},
+	{ID: "grok-4", ContextWindow: 256000, MaxOutput: 16384, Tools: true, Vision: true},
 }
