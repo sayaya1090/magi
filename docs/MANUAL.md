@@ -294,7 +294,8 @@ If a subagent gets stuck during execution, it **asks the orchestrator via the `a
 
 - **AGENTS.md**: the contents of the working directory's (+ `.magi/AGENTS.md`, global `<config>/AGENTS.md`)
   are injected into the system prompt and **preserved even through compaction**. Auto-generate with `/init`.
-- **Auto-compaction**: when real token count exceeds 80% of the model window, older turns are summarized (recent ones preserved).
+- **Auto-compaction**: when token count (the larger of the backend's real count and the live estimate) exceeds 80% of the model window, older turns are summarized (recent ones preserved). The window is taken from the model registry; for an unknown model magi **probes the backend** for its real context length at startup (vLLM `max_model_len`, LiteLLM `/model/info`, Ollama `/api/show`), so e.g. a cloud model isn't mis-sized to the conservative 8K fallback.
+- **Tool-result cap**: a single tool result is capped (~64KB) before it enters the context, so one huge output (e.g. reading a 500KB file) can't blow the window past what compaction can recover — the agent is told to narrow its read/command.
 - **Shared brain (D13)**: the `memories/` · `skills/` in `<config>/experience` (or `experience_dir`) are
   recalled and injected at session start. The `remember` tool contributes to `pending/` (moved to `memories/` after review).
   Make the directory a git repo and commit/pull to share with the team.
