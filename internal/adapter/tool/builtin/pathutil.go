@@ -32,7 +32,46 @@ func resolvePath(workdir, p string) (string, error) {
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("outside workdir: %s", p)
 	}
+	// Symlink jail: the lexical check above can't see a symlink that lives INSIDE the
+	// workdir but points OUTSIDE it (e.g. `ln -s /etc workdir/link`, then read
+	// link/passwd). Resolve symlinks on the deepest existing ancestor and verify the
+	// REAL path is still within the REAL workdir.
+	if err := withinSymlinkJail(base, abs); err != nil {
+		return "", fmt.Errorf("outside workdir: %s", p)
+	}
 	return abs, nil
+}
+
+// withinSymlinkJail resolves symlinks on abs's deepest existing ancestor and checks the
+// real location stays inside the real workdir. A non-existent tail (a file about to be
+// created) can't itself be a symlink, so resolving the existing ancestor is sufficient.
+// If the workdir or ancestor can't be resolved it falls back to the lexical check
+// (returns nil) rather than spuriously denying.
+func withinSymlinkJail(base, abs string) error {
+	realBase, err := filepath.EvalSymlinks(base)
+	if err != nil {
+		return nil
+	}
+	anc := abs
+	for {
+		if _, err := os.Lstat(anc); err == nil {
+			break
+		}
+		parent := filepath.Dir(anc)
+		if parent == anc {
+			return nil // reached the root without finding an existing ancestor
+		}
+		anc = parent
+	}
+	realAnc, err := filepath.EvalSymlinks(anc)
+	if err != nil {
+		return nil
+	}
+	rel, err := filepath.Rel(realBase, realAnc)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("symlink escapes workdir")
+	}
+	return nil
 }
 
 // findByBase searches the workdir tree for files whose base name matches the
