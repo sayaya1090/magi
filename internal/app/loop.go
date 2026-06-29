@@ -87,7 +87,11 @@ func (a *App) run(ctx context.Context, sid session.SessionID) error {
 	// If the planner did investigation and injected findings, the turn already did
 	// real work — seed it so the termination council convenes even when the main
 	// agent only synthesizes the findings (no tools of its own).
-	_, err := a.runLoop(ctx, s, a.agentFor(s), 0, 0, planned)
+	agent := a.agentFor(s)
+	// Show the main agent working the next step (◐) for the rest of the turn — a
+	// deterministic in_progress signal, since a weak model rarely calls todowrite.
+	a.markFirstPendingActive(ctx, s.ID, event.Actor{Kind: event.ActorAgent, ID: orDefault(agent.Name, "default")})
+	_, err := a.runLoop(ctx, s, agent, 0, 0, planned)
 	return err
 }
 

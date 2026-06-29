@@ -422,23 +422,86 @@ func (a *App) putTodos(ctx context.Context, sid session.SessionID, actor event.A
 	_ = a.appendFact(ctx, sid, event.TypeTodosChanged, actor, d)
 }
 
-// markTodoDone marks the i-th plan todo completed (the planner checks off a step it
-// ran during pre-flight, so the panel shows progress even when the model never calls
-// todowrite — a weak local model often doesn't). Copy-on-write under one lock —
-// Todos() hands the slice to the TUI lock-free — then the fact is emitted outside it.
-func (a *App) markTodoDone(ctx context.Context, sid session.SessionID, actor event.Actor, i int) {
+// completeThrough marks every plan step up to and including index i completed. A
+// procedure runs top-to-bottom, so finishing step i means the steps before it are done
+// too — this both checks off a step the planner ran in pre-flight AND back-fills any
+// earlier step the fan-out subsumed, so the panel reads as sequential progress instead
+// of a lone middle ✓ (which is what made an aborted run look like ✗✓✗). Copy-on-write
+// under one lock — Todos() hands the slice to the TUI lock-free — then one fact is
+// emitted outside the lock, only if something changed.
+func (a *App) completeThrough(ctx context.Context, sid session.SessionID, actor event.Actor, i int) {
 	a.mu.Lock()
 	td := a.todos[sid]
-	if i < 0 || i >= len(td) || td[i].Status == "completed" {
+	if i < 0 || i >= len(td) {
 		a.mu.Unlock()
 		return
 	}
 	cp := append([]session.Todo(nil), td...)
-	cp[i].Status = "completed"
+	changed := false
+	for j := 0; j <= i; j++ {
+		if cp[j].Status != "completed" {
+			cp[j].Status = "completed"
+			changed = true
+		}
+	}
+	if !changed {
+		a.mu.Unlock()
+		return
+	}
 	a.todos[sid] = cp
 	a.mu.Unlock()
 	d, _ := json.Marshal(event.TodosChangedData{Todos: cp})
 	_ = a.appendFact(ctx, sid, event.TypeTodosChanged, actor, d)
+}
+
+// setTodoStatusIf moves the i-th todo from one status to another, but only when it is
+// currently `from` — so a caller can't downgrade a completed/cancelled step. Used to
+// start a step (pending→in_progress) and to revert it (in_progress→pending) if its
+// pre-flight exploration produced nothing. Copy-on-write under one lock; fact emitted
+// outside it, only on a real change.
+func (a *App) setTodoStatusIf(ctx context.Context, sid session.SessionID, actor event.Actor, i int, from, to string) {
+	a.mu.Lock()
+	td := a.todos[sid]
+	if i < 0 || i >= len(td) || td[i].Status != from {
+		a.mu.Unlock()
+		return
+	}
+	cp := append([]session.Todo(nil), td...)
+	cp[i].Status = to
+	a.todos[sid] = cp
+	a.mu.Unlock()
+	d, _ := json.Marshal(event.TodosChangedData{Todos: cp})
+	_ = a.appendFact(ctx, sid, event.TypeTodosChanged, actor, d)
+}
+
+// markTodoActive moves the i-th todo pending→in_progress (◐) so the panel shows which
+// step is running; only a pending step is started, never a completed/cancelled one.
+func (a *App) markTodoActive(ctx context.Context, sid session.SessionID, actor event.Actor, i int) {
+	a.setTodoStatusIf(ctx, sid, actor, i, "pending", "in_progress")
+}
+
+// markFirstPendingActive marks the first still-pending todo in_progress, so once
+// pre-flight has checked off what it ran, the panel shows the main agent working the
+// next step (◐) for the rest of the turn (finalizeTodos resolves it on exit).
+//
+// Note: a PURE-SOLO plan (no scout/parallel step) gets no per-step pre-flight signal —
+// the main agent runs all of it inline with no step boundary — so only the first step
+// shows ◐ and a mid-run cancel marks the rest cancelled even if an early step was in
+// fact done. That's an accepted limitation: without the model calling todowrite there
+// is no deterministic signal for solo-step completion.
+func (a *App) markFirstPendingActive(ctx context.Context, sid session.SessionID, actor event.Actor) {
+	a.mu.Lock()
+	idx := -1
+	for i, t := range a.todos[sid] {
+		if t.Status == "pending" {
+			idx = i
+			break
+		}
+	}
+	a.mu.Unlock()
+	if idx >= 0 {
+		a.markTodoActive(ctx, sid, actor, idx)
+	}
 }
 
 // finalizeTodos resolves the plan when a top-level turn ends: on genuine completion

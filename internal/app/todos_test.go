@@ -43,24 +43,72 @@ func TestPutTodosEmitsFactAndDedup(t *testing.T) {
 	}
 }
 
-// markTodoDone checks off one step and records exactly one fact; a second call on the
-// already-completed step is a no-op (no event).
-func TestMarkTodoDoneEmitsFact(t *testing.T) {
+// completeThrough checks off a step AND every earlier step (the procedure is
+// sequential, so finishing step i implies the ones before it). It records exactly one
+// fact; a repeat call with nothing new to complete is a no-op.
+func TestCompleteThrough(t *testing.T) {
 	a, sid := newPlannerApp(t, Config{})
 	actor := event.Actor{Kind: event.ActorAgent, ID: "p"}
-	a.putTodos(context.Background(), sid, actor, []session.Todo{{Content: "a", Status: "pending"}, {Content: "b", Status: "pending"}})
+	a.putTodos(context.Background(), sid, actor,
+		[]session.Todo{{Content: "a", Status: "pending"}, {Content: "b", Status: "pending"}, {Content: "c", Status: "pending"}})
 	base := todosChangedCount(t, a, sid) // 1 (the seed)
 
-	a.markTodoDone(context.Background(), sid, actor, 0)
+	// Completing the middle step (index 1) back-fills index 0 — no lone middle ✓.
+	a.completeThrough(context.Background(), sid, actor, 1)
+	got := a.Todos(sid)
+	if got[0].Status != "completed" || got[1].Status != "completed" {
+		t.Errorf("steps through index 1 should be completed, got %q / %q", got[0].Status, got[1].Status)
+	}
+	if got[2].Status != "pending" {
+		t.Errorf("later step should stay pending, got %q", got[2].Status)
+	}
+	if n := todosChangedCount(t, a, sid); n != base+1 {
+		t.Errorf("completeThrough should emit one fact, got %d (base %d)", n, base)
+	}
+	a.completeThrough(context.Background(), sid, actor, 1) // nothing new → no-op
+	if n := todosChangedCount(t, a, sid); n != base+1 {
+		t.Errorf("re-completing should emit nothing, got %d", n)
+	}
+}
+
+// markTodoActive shows a running step as in_progress (◐), but only starts a pending
+// step — it never moves a completed/cancelled one back. markFirstPendingActive picks
+// the first still-pending step (so it skips ones pre-flight already checked off).
+func TestMarkTodoActive(t *testing.T) {
+	a, sid := newPlannerApp(t, Config{})
+	actor := event.Actor{Kind: event.ActorAgent, ID: "p"}
+	a.putTodos(context.Background(), sid, actor,
+		[]session.Todo{{Content: "a", Status: "completed"}, {Content: "b", Status: "pending"}, {Content: "c", Status: "pending"}})
+
+	// Won't restart a completed step.
+	a.markTodoActive(context.Background(), sid, actor, 0)
 	if a.Todos(sid)[0].Status != "completed" {
-		t.Fatal("todo 0 should be completed")
+		t.Errorf("completed step must not be reactivated, got %q", a.Todos(sid)[0].Status)
 	}
-	if n := todosChangedCount(t, a, sid); n != base+1 {
-		t.Errorf("markTodoDone should emit one fact, got %d (base %d)", n, base)
+	// First pending step (index 1) goes in_progress; later pending stays pending.
+	a.markFirstPendingActive(context.Background(), sid, actor)
+	got := a.Todos(sid)
+	if got[1].Status != "in_progress" {
+		t.Errorf("first pending should be in_progress, got %q", got[1].Status)
 	}
-	a.markTodoDone(context.Background(), sid, actor, 0) // already completed → no-op
-	if n := todosChangedCount(t, a, sid); n != base+1 {
-		t.Errorf("re-marking a completed todo should emit nothing, got %d", n)
+	if got[2].Status != "pending" {
+		t.Errorf("later pending should stay pending, got %q", got[2].Status)
+	}
+	// A degraded fan-out reverts ◐ back to pending (no stuck in_progress); it won't
+	// touch a step that isn't in_progress.
+	a.setTodoStatusIf(context.Background(), sid, actor, 1, "in_progress", "pending")
+	if a.Todos(sid)[1].Status != "pending" {
+		t.Errorf("revert should return step to pending, got %q", a.Todos(sid)[1].Status)
+	}
+	a.markFirstPendingActive(context.Background(), sid, actor) // re-activate for the finalize check
+	if a.Todos(sid)[1].Status != "in_progress" {
+		t.Fatal("re-activate failed")
+	}
+
+	// in_progress is resolved by finalize like any unfinished step.
+	a.finalizeTodos(context.Background(), sid, false)
+	if s := a.Todos(sid); s[1].Status != "cancelled" || s[2].Status != "cancelled" {
+		t.Errorf("unfinished (in_progress/pending) should cancel, got %q / %q", s[1].Status, s[2].Status)
 	}
 }
 

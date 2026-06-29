@@ -204,11 +204,13 @@ func TestExecuteStepsMarksExecutedTodos(t *testing.T) {
 	if len(td) != 3 {
 		t.Fatalf("want 3 todos, got %d", len(td))
 	}
-	if td[1].Status != "completed" {
-		t.Errorf("executed parallel step should be completed, got %q", td[1].Status)
+	// The parallel step (index 1) ran → it and the earlier solo step (index 0, which it
+	// subsumes) are completed; the trailing solo step stays pending for the main agent.
+	if td[0].Status != "completed" || td[1].Status != "completed" {
+		t.Errorf("ran step and earlier steps should be completed, got %q / %q", td[0].Status, td[1].Status)
 	}
-	if td[0].Status != "pending" || td[2].Status != "pending" {
-		t.Errorf("solo steps should stay pending (main agent handles them), got %q / %q", td[0].Status, td[2].Status)
+	if td[2].Status != "pending" {
+		t.Errorf("trailing solo step should stay pending (main agent handles it), got %q", td[2].Status)
 	}
 }
 
