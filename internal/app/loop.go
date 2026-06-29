@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,27 +29,76 @@ const (
 // runGuard detects no-progress loops within a single run by fingerprinting each
 // tool call (name + canonical args). It is shared across the concurrent and
 // sequential tool-execution paths, so it carries its own lock.
+//
+// The fingerprint includes a mutation epoch: a successful file write/edit bumps the
+// epoch, which resets all repeat counts. Repeating a command is only a no-progress
+// loop if nothing changed between calls — so re-running a test after editing the file
+// under test (the correct thing to do) is allowed, instead of being blocked blind.
 type runGuard struct {
 	mu      sync.Mutex
 	seen    map[string]int
+	results map[string]string // last result content per fingerprint, for echo on block
+	lastMut map[string]string // path → last mutation signature, to ignore idempotent rewrites
+	epoch   int               // bumped on each real file mutation; part of the fingerprint
 	blocked int
 }
 
-func newRunGuard() *runGuard { return &runGuard{seen: map[string]int{}} }
+func newRunGuard() *runGuard {
+	return &runGuard{seen: map[string]int{}, results: map[string]string{}, lastMut: map[string]string{}}
+}
 
-// check records a tool call and reports whether it should be blocked as a
-// repeat, along with how many times this exact call has been seen this run.
-func (g *runGuard) check(name string, args json.RawMessage) (block bool, n int) {
+// check records a tool call and reports whether it should be blocked as a repeat,
+// how many times this exact call has been seen at the current epoch, and the
+// fingerprint (so the caller can record/echo its result).
+func (g *runGuard) check(name string, args json.RawMessage) (block bool, n int, fp string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	fp := name + "\x00" + canonicalArgs(args)
+	fp = name + "\x00" + strconv.Itoa(g.epoch) + "\x00" + canonicalArgs(args)
 	g.seen[fp]++
 	n = g.seen[fp]
 	if n > repeatLimit {
 		g.blocked++
-		return true, n
+		return true, n, fp
 	}
-	return false, n
+	return false, n, fp
+}
+
+// mutated records a successful file mutation and bumps the epoch ONLY when the change to
+// `path` differs from the last mutation of that path (sig = the call's canonical args).
+// An idempotent rewrite (writing identical content) is not progress, so it must NOT reset
+// the repeat counts — otherwise a write-the-same-thing loop would never be caught.
+func (g *runGuard) mutated(path, sig string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.lastMut[path] == sig {
+		return // no real change → leave the loop-guard counters intact
+	}
+	g.lastMut[path] = sig
+	g.epoch++
+}
+
+const guardResultEcho = 4 << 10 // cap on the cached result echoed back on a block
+
+// record stores a call's result content (capped) so a later blocked repeat can be
+// handed the earlier output instead of a bare refusal.
+func (g *runGuard) record(fp, content string) {
+	if len(content) > guardResultEcho {
+		cut := guardResultEcho
+		for cut > 0 && !utf8.RuneStart(content[cut]) { // don't slice mid-rune
+			cut--
+		}
+		content = content[:cut] + "\n…(truncated)"
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.results[fp] = content
+}
+
+// lastResult returns the previously recorded result for fp, if any.
+func (g *runGuard) lastResult(fp string) string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.results[fp]
 }
 
 // stuck reports whether the run has blocked enough repeats to be force-stopped.
@@ -863,12 +913,20 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// Loop guard: refuse an identical tool call repeated past the limit, telling
 	// the model to stop repeating. This breaks re-read / re-dispatch / echo loops
 	// for every agent (orchestrator and subagents alike) without killing the turn.
+	var guardFP string
 	if guard != nil {
-		if block, n := guard.check(tc.Name, tc.Args); block {
-			a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID, fmt.Sprintf(
-				"Loop guard: you have already made this exact %q call %d times in this turn. "+
-					"Stop repeating it — reuse the earlier result, take a different step, or finish and summarize.",
-				tc.Name, n), true)
+		block, n, fp := guard.check(tc.Name, tc.Args)
+		guardFP = fp
+		if block {
+			msg := fmt.Sprintf(
+				"Loop guard: you have already made this exact %q call %d times with nothing changed since. "+
+					"Stop repeating it — take a different step, or finish and summarize. (Edit a file and the same "+
+					"command is allowed again, since that's real progress.)",
+				tc.Name, n)
+			if last := guard.lastResult(fp); last != "" {
+				msg += "\n\nThe earlier result (unchanged) was:\n" + last
+			}
+			a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID, msg, true)
 			return
 		}
 	}
@@ -986,6 +1044,16 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		if diag := a.diagnose(ctx, workdir, path); diag != "" {
 			res.Content = appendToContent(res.Content, "\n\n[diagnostics]\n"+diag)
 			res.IsError = true
+		}
+	}
+
+	// Loop guard bookkeeping: cache this call's result (so a later blocked repeat can be
+	// handed it) and, on a successful file mutation, bump the epoch so identical follow-up
+	// commands (e.g. re-running the test) are no longer treated as a no-progress repeat.
+	if guard != nil && guardFP != "" {
+		guard.record(guardFP, string(res.Content))
+		if !res.IsError && fileModifiers[tc.Name] {
+			guard.mutated(pathArg(tc.Args), canonicalArgs(tc.Args))
 		}
 	}
 

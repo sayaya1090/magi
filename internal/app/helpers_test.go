@@ -29,16 +29,31 @@ func TestRunGuard(t *testing.T) {
 	args := json.RawMessage(`{"x":1}`)
 	// First repeatLimit identical calls are allowed; the next is blocked.
 	for i := 1; i <= repeatLimit; i++ {
-		if block, n := g.check("bash", args); block || n != i {
+		if block, n, _ := g.check("bash", args); block || n != i {
 			t.Fatalf("call %d: block=%v n=%d, want allowed", i, block, n)
 		}
 	}
-	if block, n := g.check("bash", args); !block || n != repeatLimit+1 {
+	if block, n, _ := g.check("bash", args); !block || n != repeatLimit+1 {
 		t.Fatalf("over-limit call: block=%v n=%d, want blocked", block, n)
 	}
 	// A different fingerprint has its own independent counter.
-	if block, _ := g.check("bash", json.RawMessage(`{"x":2}`)); block {
+	if block, _, _ := g.check("bash", json.RawMessage(`{"x":2}`)); block {
 		t.Error("distinct args should not be blocked")
+	}
+	// A real file mutation bumps the epoch, resetting repeat counts: the same call that
+	// was just blocked is allowed again, since something changed (real progress).
+	g.mutated("main.go", "v1")
+	if block, n, _ := g.check("bash", args); block || n != 1 {
+		t.Errorf("after a mutation the repeated call should be allowed afresh: block=%v n=%d", block, n)
+	}
+	// The cached result of a call is echoed back when a later repeat is blocked.
+	g2 := newRunGuard()
+	a2 := json.RawMessage(`{"cmd":"go test"}`)
+	_, _, fp := g2.check("bash", a2)
+	g2.record(fp, "FAIL: 1 test failed")
+	g2.check("bash", a2) // 2nd (still allowed)
+	if block, _, fp3 := g2.check("bash", a2); !block || g2.lastResult(fp3) != "FAIL: 1 test failed" {
+		t.Errorf("blocked repeat should expose the cached earlier result, got block=%v last=%q", block, g2.lastResult(fp3))
 	}
 	// Not stuck yet; force enough blocked repeats to cross blockedBudget.
 	if g.stuck() {
@@ -49,6 +64,36 @@ func TestRunGuard(t *testing.T) {
 	}
 	if !g.stuck() {
 		t.Error("should be stuck once blockedBudget is reached")
+	}
+}
+
+// An IDEMPOTENT mutation (writing identical content to the same path) is not progress,
+// so it must NOT bump the epoch — otherwise a write-the-same-thing loop would reset its
+// own counts forever and never be blocked.
+func TestRunGuardIdempotentMutationStillBlocks(t *testing.T) {
+	g := newRunGuard()
+	w := json.RawMessage(`{"path":"a.txt","content":"same"}`)
+	sig := canonicalArgs(w)
+	// The first write to the path is a real change → bumps the epoch (file created/modified).
+	g.check("write", w)
+	g.mutated("a.txt", sig)
+	// Further identical writes do NOT bump the epoch, so they accumulate at one epoch.
+	for i := 1; i <= repeatLimit; i++ {
+		if block, _, _ := g.check("write", w); block {
+			t.Fatalf("identical write %d at the stable epoch should still be allowed", i)
+		}
+		g.mutated("a.txt", sig) // identical content → no real change → no bump
+	}
+	// The next identical write exceeds repeatLimit at that stable epoch → blocked, despite
+	// all the (no-op) mutations.
+	if block, _, _ := g.check("write", w); !block {
+		t.Error("idempotent rewrite loop should still be blocked by the guard")
+	}
+	// A write with DIFFERENT content is real progress → bumps the epoch → allowed afresh.
+	w2 := json.RawMessage(`{"path":"a.txt","content":"different"}`)
+	g.mutated("a.txt", canonicalArgs(w2))
+	if block, n, _ := g.check("write", w); block || n != 1 {
+		t.Errorf("after a real content change the write should be allowed afresh: block=%v n=%d", block, n)
 	}
 }
 

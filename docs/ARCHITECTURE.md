@@ -126,7 +126,9 @@ workflow engine (§6). `runLoop(ctx, session, agent, depth, maxSteps)`:
 
 Guards that make weak models safe (all in `loop.go`/`orchestrate.go`):
 - **runGuard**: identical `(tool,args)` call blocked past `repeatLimit`; `blockedBudget`
-  blocked repeats → `loop_guard` stop (long before MaxSteps).
+  blocked repeats → `loop_guard` stop (long before MaxSteps). A successful file write/edit
+  with *changed* content bumps a mutation epoch that resets the counts, so re-running a test
+  after an edit (real progress) isn't blocked; a blocked repeat echoes the earlier result.
 - **no retry storm**: a terminal provider error ends the turn; `startRun` does NOT
   re-run a failed turn (only re-runs to pick up a user *steer*).
 - **language lock** (`langDirective`): the user's script (Hangul/Kana/…) is detected
