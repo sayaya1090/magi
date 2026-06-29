@@ -452,9 +452,87 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 // councilDiffCap / councilSignalCap bound the diff and verify output embedded in
 // each member's prompt so they don't multiply token cost by the member count.
 const (
-	councilDiffCap   = 6000
-	councilSignalCap = 2000
+	councilDiffCap    = 6000
+	councilSignalCap  = 2000
+	councilActionsCap = 8   // most recent turn outputs (model text + tool results) shown to the council
+	councilActionCap  = 400 // per-item byte cap
 )
+
+// turnToolEvidence summarizes THIS turn's tool RESULTS as real, git-independent
+// evidence of what actually happened — a write that reported bytes, a `cat` that shows
+// the content. It deliberately EXCLUDES the model's own text: that is the agent's claim
+// (already passed as Report), and admitting narration as "evidence" is exactly how a
+// defeatist agent talks the council into "done" with no artifact (the download-youtube
+// lesson). Only events since the last user prompt are considered, so a prior turn's
+// successful tool result can't masquerade as this turn's. Most recent k results.
+func turnToolEvidence(evs []event.Event, k int) string {
+	names := map[string]string{} // callID -> tool name
+	var lines []string
+	for _, e := range evs {
+		if e.Type == event.TypePromptSubmitted { // new turn boundary → keep only the latest turn's evidence
+			names = map[string]string{}
+			lines = nil
+			continue
+		}
+		if e.Type != event.TypePartAppended {
+			continue
+		}
+		var d event.PartAppendedData
+		if json.Unmarshal(e.Data, &d) != nil {
+			continue
+		}
+		switch d.Part.Kind {
+		case session.PartToolCall:
+			if d.Part.ToolCall != nil {
+				names[d.Part.ToolCall.CallID] = d.Part.ToolCall.Name
+			}
+		case session.PartToolResult:
+			if d.Part.ToolResult == nil {
+				continue
+			}
+			name := names[d.Part.ToolResult.CallID]
+			if name == "" {
+				name = "tool"
+			}
+			status := "ok"
+			if d.Part.ToolResult.IsError {
+				status = "error"
+			}
+			lines = append(lines, "tool "+name+" ["+status+"]: "+clipLine(toolResultText(d.Part.ToolResult.Content), councilActionCap))
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	if len(lines) > k {
+		lines = lines[len(lines)-k:]
+	}
+	return "- " + strings.Join(lines, "\n- ")
+}
+
+// clipLine returns at most n bytes of s (rune-safe) with an ellipsis, keeping a single
+// evidence bullet on one line (no marker/newline reintroduced).
+func clipLine(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
+}
+
+// toolResultText renders a tool result's JSON content as readable one-ish-line text
+// (unwrapping a JSON string, collapsing newlines) for the council evidence summary.
+func toolResultText(raw json.RawMessage) string {
+	s := string(raw)
+	var str string
+	if json.Unmarshal(raw, &str) == nil {
+		s = str
+	}
+	return strings.TrimSpace(strings.ReplaceAll(s, "\n", " ⏎ "))
+}
 
 // truncateForCouncil clips s to at most n bytes (on a rune boundary), appending a
 // marker when truncated.
@@ -622,6 +700,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		Task:         task,
 		Plan:         plan,
 		Report:       lastText,
+		Actions:      turnToolEvidence(evs, councilActionsCap),
 		Signals:      signals,
 		Diff:         diff,
 		NoChanges:    noChanges,

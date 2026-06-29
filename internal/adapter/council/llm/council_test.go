@@ -40,6 +40,27 @@ func only(p port.LLMProvider) func(string) port.LLMProvider {
 // The terminate-phase member prompt must carry the artifact-grounding clause (a
 // description is not the deliverable) WITHOUT displacing the no-churn balance, and
 // the clause must NOT leak into the pre-flight plan-audit prompt.
+// The council must see what the turn actually produced (model text + tool results) as
+// real, git-independent evidence — so a create task in a non-git workdir is judged on
+// its actions, not on an absent diff.
+func TestEvidenceActions(t *testing.T) {
+	got := evidence(port.DeliberationRequest{
+		Task:    "create hello.txt",
+		Report:  "done",
+		Actions: "- tool write [ok]: wrote 13 bytes to hello.txt\n- tool bash [ok]: Hello, world!",
+	})
+	if !strings.Contains(got, "verified tool outputs") {
+		t.Errorf("actions section header missing:\n%s", got)
+	}
+	if !strings.Contains(got, "wrote 13 bytes to hello.txt") {
+		t.Errorf("actions content missing:\n%s", got)
+	}
+	// No actions → no section.
+	if e := evidence(port.DeliberationRequest{Task: "x", Report: "y"}); strings.Contains(e, "verified tool outputs") {
+		t.Errorf("empty actions should not render the section:\n%s", e)
+	}
+}
+
 func TestMemberPromptArtifactGrounding(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "completeness"}
 	s := memberSystem(m, "terminate", "build a CLI tool")

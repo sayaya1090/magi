@@ -88,13 +88,19 @@ type DeliberationRequest struct {
 	// diff that was never going to exist. The loop sets this only on a SUCCESSFUL
 	// empty diff (a GitDiff error is not "no changes").
 	NoChanges bool
-	Task      string           // the user's original goal/request
-	Plan      string           // acceptance criteria / contract, or the proposed procedure when Phase=="plan"
-	Report    string           // the agent's self-reported result / claim (optional)
-	Signals   []Signal         // deterministic evidence (build/test/lint outcomes), optional
-	Diff      string           // working diff (optional)
-	Members   []council.Member // who votes (defaults to the MAGI when empty)
-	Rule      council.Rule     // how votes are tallied (defaults to majority)
+	Task      string // the user's original goal/request
+	Plan      string // acceptance criteria / contract, or the proposed procedure when Phase=="plan"
+	Report    string // the agent's self-reported result / claim (optional)
+	// Actions is a summary of this turn's tool RESULTS (e.g. write "wrote 13 bytes to
+	// hello.txt", bash `cat` output) — real, git-independent evidence so the council can
+	// judge a create/write turn in a non-git workdir on what happened, not on an absent
+	// diff. It excludes the model's own narration (that is the Report/claim); admitting
+	// narration as evidence is how a defeatist agent talks its way to a false "done".
+	Actions string
+	Signals []Signal         // deterministic evidence (build/test/lint outcomes), optional
+	Diff    string           // working diff (optional)
+	Members []council.Member // who votes (defaults to the MAGI when empty)
+	Rule    council.Rule     // how votes are tallied (defaults to majority)
 	// DefaultModel is used for members that don't pin their own Model (typically
 	// the session's current model, so the council follows model switches).
 	DefaultModel string

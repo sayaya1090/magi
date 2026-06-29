@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -17,6 +18,59 @@ import (
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
+
+// turnToolEvidence feeds the council the current turn's TOOL results as evidence — not
+// the model's narration (a defeatist agent's claim must never count) — and only from the
+// latest turn (a prior turn's success can't masquerade as this one's).
+func TestTurnToolEvidence(t *testing.T) {
+	part := func(role session.Role, p session.Part) event.Event {
+		d, _ := json.Marshal(event.PartAppendedData{Role: role, Part: p})
+		return event.Event{Type: event.TypePartAppended, Data: d}
+	}
+	call := func(id, name string) event.Event {
+		return part(session.RoleAssistant, session.Part{Kind: session.PartToolCall, ToolCall: &session.ToolCall{CallID: id, Name: name}})
+	}
+	result := func(id string, content string, isErr bool) event.Event {
+		return part(session.RoleTool, session.Part{Kind: session.PartToolResult, ToolResult: &session.ToolResult{CallID: id, Content: json.RawMessage(content), IsError: isErr}})
+	}
+	prompt := event.Event{Type: event.TypePromptSubmitted}
+
+	// A defeatist turn: only model narration, no tool calls → NO evidence (so the
+	// council can't be talked into "done").
+	if got := turnToolEvidence([]event.Event{prompt,
+		part(session.RoleAssistant, session.Part{Kind: session.PartText, Text: "I created the file, all done."}),
+	}, 8); got != "" {
+		t.Errorf("narration-only turn must yield no evidence, got %q", got)
+	}
+
+	// A real turn: the write result surfaces as labeled tool evidence.
+	got := turnToolEvidence([]event.Event{prompt,
+		call("c1", "write"), result("c1", `"wrote 13 bytes to hello.txt"`, false),
+		part(session.RoleAssistant, session.Part{Kind: session.PartText, Text: "done"}),
+	}, 8)
+	if !strings.Contains(got, "tool write [ok]: wrote 13 bytes to hello.txt") {
+		t.Errorf("tool result not surfaced as evidence: %q", got)
+	}
+	if strings.Contains(got, "done") || strings.Contains(got, "model:") {
+		t.Errorf("model narration must not appear in evidence: %q", got)
+	}
+
+	// Turn boundary: a prior turn's successful write must NOT leak into this turn's
+	// (which only claimed success with no tool).
+	leak := turnToolEvidence([]event.Event{prompt,
+		call("c1", "write"), result("c1", `"wrote 99 bytes to old.txt"`, false),
+		prompt, // new turn starts here
+		part(session.RoleAssistant, session.Part{Kind: session.PartText, Text: "created new.txt"}),
+	}, 8)
+	if leak != "" {
+		t.Errorf("prior turn's tool result leaked into this turn: %q", leak)
+	}
+
+	// An errored tool is labeled [error].
+	if e := turnToolEvidence([]event.Event{prompt, call("c1", "bash"), result("c1", `"boom"`, true)}, 8); !strings.Contains(e, "[error]") {
+		t.Errorf("errored tool should be labeled: %q", e)
+	}
+}
 
 // fakeLLM returns a scripted sequence of responses, one per loop step.
 type fakeLLM struct {

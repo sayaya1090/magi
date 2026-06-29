@@ -150,9 +150,15 @@ func memberSystem(m council.Member, phase, task string) string {
 			"evidence it should back the claim; if there is none, the task simply didn't call for any.\n"+
 			"First decide what the deliverable IS, from the USER'S TASK — not from the plan's or criteria's wording. If the "+
 			"user asked to CREATE, SAVE, BUILD, RUN, IMPLEMENT, FIX, ADD, or otherwise modify something concrete (a named file, a building/running program, "+
-			"a service, a specific output), then \"done\" requires evidence in the REPORT, DIFF, or SIGNALS that it actually "+
-			"exists; a confident claim or a description of it is NOT itself the artifact — if that evidence is absent, vote "+
-			"continue and name the missing artifact in feedback. Otherwise — a read, review, analyze, explain, or answer "+
+			"a service, a specific output), then \"done\" requires evidence — in the REPORT, the DIFF, the SIGNALS, or WHAT THE "+
+			"TURN PRODUCED (its tool results, e.g. a write that reported bytes written or a command that shows the file's "+
+			"content) — that it actually exists; a confident claim or a description of it is NOT itself the artifact — if that "+
+			"evidence is absent, vote continue and name the missing artifact in feedback. (A missing git DIFF alone is not "+
+			"decisive: the workdir may not be a git repo — weigh the produced tool results instead.) A tool's [ok]/exit-0 "+
+			"status is NOT itself proof — the result must SHOW the artifact (its bytes or content); an echo, ls, or command "+
+			"that does not reveal the artifact proves nothing, and the agent's own narration is a claim, never evidence. "+
+			"Otherwise — a read, "+
+			"review, analyze, explain, or answer "+
 			"task — the deliverable IS the answer or review in the REPORT itself: judge its substance, and never demand a "+
 			"file, diff, or document. A plan step or criterion phrased as \"write/produce a summary\" for such a task is "+
 			"satisfied by that content in the report, not by a separate file. Files the agent merely READ or cited are "+
@@ -272,6 +278,7 @@ func evidence(req port.DeliberationRequest) string {
 		}
 		b.WriteString("\n")
 	}
+	section("What the turn's tools produced (verified tool outputs — real evidence, independent of git: e.g. a write's byte count, a cat showing the file's contents)", req.Actions)
 	section("Diff", req.Diff)
 	if req.NoChanges {
 		b.WriteString("# Changes\n(none recorded — a read-only / investigation / answer turn: no diff or signals to inspect. " +
