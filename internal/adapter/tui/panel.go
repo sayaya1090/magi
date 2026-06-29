@@ -222,6 +222,8 @@ func todoLine(t session.Todo, width int) string {
 		return lipgloss.NewStyle().Foreground(colSuccess).Render("✓ ") + lipgloss.NewStyle().Foreground(colMuted).Strikethrough(true).Render(text)
 	case "in_progress":
 		return lipgloss.NewStyle().Foreground(colAccent).Render("◐ ") + lipgloss.NewStyle().Bold(true).Render(text)
+	case "cancelled":
+		return lipgloss.NewStyle().Foreground(colError).Render("✗ ") + lipgloss.NewStyle().Foreground(colMuted).Strikethrough(true).Render(text)
 	default:
 		return lipgloss.NewStyle().Foreground(colMuted).Render("☐ " + text)
 	}

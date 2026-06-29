@@ -197,7 +197,7 @@ func TestExecuteStepsMarksExecutedTodos(t *testing.T) {
 		{Title: "survey files", Strategy: "parallel", Groups: []planGroup{{Agent: "explore", Focus: "f", Question: "q"}}},
 		{Title: "write summary", Strategy: "solo"},
 	}
-	a.registerPlanTodos(s.ID, steps)
+	a.registerPlanTodos(context.Background(), s.ID, steps)
 	a.executeSteps(context.Background(), s, steps)
 
 	td := a.Todos(s.ID)

@@ -399,27 +399,93 @@ func (r *subReport) result(answer string) string {
 	return out
 }
 
-// SetTodos replaces a session's plan (TodoWrite).
+// SetTodos replaces a session's plan in memory only (no event) — used to clear the
+// plan on a new prompt. Observable mutations go through putTodos.
 func (a *App) SetTodos(sid session.SessionID, td []session.Todo) {
 	a.mu.Lock()
 	a.todos[sid] = td
 	a.mu.Unlock()
 }
 
-// markTodoDone marks the i-th plan todo completed. The planner uses it to reflect
-// steps it actually executed during pre-flight (scout/parallel exploration), so the
-// panel shows real progress even when the model never calls todowrite — a weak local
-// model often doesn't. A later todowrite from the model still replaces the whole list.
-func (a *App) markTodoDone(sid session.SessionID, i int) {
+// putTodos replaces a session's plan and, when it actually changed, records a
+// TodosChanged fact — so the plan's progression is logged, replayable, and re-renders
+// the panel. appendFact MUST be called outside a.mu (it re-locks via currentStage).
+func (a *App) putTodos(ctx context.Context, sid session.SessionID, actor event.Actor, td []session.Todo) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	if td := a.todos[sid]; i >= 0 && i < len(td) {
-		// Copy-on-write: Todos() hands the backing slice to the TUI, which reads it
-		// lock-free on another goroutine — mutating in place would be a data race.
-		cp := append([]session.Todo(nil), td...)
-		cp[i].Status = "completed"
-		a.todos[sid] = cp
+	if todosEqual(a.todos[sid], td) {
+		a.mu.Unlock()
+		return
 	}
+	a.todos[sid] = td
+	a.mu.Unlock()
+	d, _ := json.Marshal(event.TodosChangedData{Todos: td})
+	_ = a.appendFact(ctx, sid, event.TypeTodosChanged, actor, d)
+}
+
+// markTodoDone marks the i-th plan todo completed (the planner checks off a step it
+// ran during pre-flight, so the panel shows progress even when the model never calls
+// todowrite — a weak local model often doesn't). Copy-on-write under one lock —
+// Todos() hands the slice to the TUI lock-free — then the fact is emitted outside it.
+func (a *App) markTodoDone(ctx context.Context, sid session.SessionID, actor event.Actor, i int) {
+	a.mu.Lock()
+	td := a.todos[sid]
+	if i < 0 || i >= len(td) || td[i].Status == "completed" {
+		a.mu.Unlock()
+		return
+	}
+	cp := append([]session.Todo(nil), td...)
+	cp[i].Status = "completed"
+	a.todos[sid] = cp
+	a.mu.Unlock()
+	d, _ := json.Marshal(event.TodosChangedData{Todos: cp})
+	_ = a.appendFact(ctx, sid, event.TypeTodosChanged, actor, d)
+}
+
+// finalizeTodos resolves the plan when a top-level turn ends: on genuine completion
+// every unfinished todo becomes completed (the council judged the task satisfied);
+// otherwise — abort, loop-guard, max-steps, error, panic — they become cancelled (the
+// panel shows what was left undone). Best-effort: a no-op when nothing changed, and
+// appendFact errors are ignored (the store may be closing on shutdown).
+func (a *App) finalizeTodos(ctx context.Context, sid session.SessionID, finished bool) {
+	target := "cancelled"
+	if finished {
+		target = "completed"
+	}
+	a.mu.Lock()
+	td := a.todos[sid]
+	if len(td) == 0 {
+		a.mu.Unlock()
+		return
+	}
+	cp := append([]session.Todo(nil), td...)
+	changed := false
+	for i := range cp {
+		if cp[i].Status != "completed" {
+			cp[i].Status = target
+			changed = true
+		}
+	}
+	if !changed {
+		a.mu.Unlock()
+		return
+	}
+	a.todos[sid] = cp
+	a.mu.Unlock()
+	d, _ := json.Marshal(event.TodosChangedData{Todos: cp})
+	_ = a.appendFact(ctx, sid, event.TypeTodosChanged, event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)
+}
+
+// todosEqual reports whether two plans are identical, so putTodos skips no-op writes.
+func todosEqual(a, b []session.Todo) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // Rewind removes the last n user turns from a session by truncating its event

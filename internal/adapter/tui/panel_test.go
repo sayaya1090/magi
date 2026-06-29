@@ -1,6 +1,22 @@
 package tui
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/sayaya1090/magi/internal/core/session"
+)
+
+// Each plan status renders its own glyph; a cancelled (aborted/incomplete) todo
+// shows ✗ so the post-it reflects what was left undone.
+func TestTodoLineGlyphs(t *testing.T) {
+	cases := map[string]string{"completed": "✓", "in_progress": "◐", "pending": "☐", "cancelled": "✗"}
+	for status, glyph := range cases {
+		if got := todoLine(session.Todo{Content: "task", Status: status}, 40); !strings.Contains(got, glyph) {
+			t.Errorf("status %q should render %q, got %q", status, glyph, got)
+		}
+	}
+}
 
 // The post-it's left edge is draggable to resize its width.
 func TestPanelResizeEdge(t *testing.T) {

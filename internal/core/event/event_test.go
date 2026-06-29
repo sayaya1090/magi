@@ -20,6 +20,7 @@ func TestTypeClassification(t *testing.T) {
 		{"fact-part-appended", TypePartAppended, false},
 		{"fact-compaction", TypeCompaction, false},
 		{"fact-turn-finished", TypeTurnFinished, false},
+		{"fact-todos-changed", TypeTodosChanged, false},
 		{"transient-part-delta", TypePartDelta, true},
 		{"transient-tool-started", TypeToolStarted, true},
 		{"transient-permission-requested", TypePermissionRequested, true},
@@ -95,7 +96,7 @@ func TestDroppable(t *testing.T) {
 			t.Errorf("%s should be droppable", ty)
 		}
 	}
-	for _, ty := range []Type{TypeAgentStatus, TypeCouncilDecided, TypeTurnFinished, TypePromptSubmitted} {
+	for _, ty := range []Type{TypeAgentStatus, TypeCouncilDecided, TypeTurnFinished, TypeTodosChanged, TypePromptSubmitted} {
 		if ty.Droppable() {
 			t.Errorf("%s must NOT be droppable", ty)
 		}

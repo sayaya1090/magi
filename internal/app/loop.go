@@ -117,6 +117,16 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	var cumOut, lastIn int
 	var cumCost float64
 
+	// Deterministic plan finalize (top level only): when the turn ends, resolve any
+	// unfinished todos — completed if the turn genuinely finished, else cancelled — so
+	// the panel reflects the outcome without relying on the model's todowrite. The defer
+	// covers every exit (abort, loop-guard, max-steps, panic); WithoutCancel so it still
+	// emits after a cancellation. `finished` is set true ONLY at the genuine-done returns.
+	finished := false
+	if depth == 0 {
+		defer func() { a.finalizeTodos(context.WithoutCancel(ctx), sid, finished) }()
+	}
+
 	for step := 0; step < maxSteps; step++ {
 		if ctx.Err() != nil {
 			return lastText, ctx.Err()
@@ -368,6 +378,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			u := event.Usage{In: lastIn, Out: cumOut, Cost: cumCost}
 			d, _ := json.Marshal(event.TurnFinishedData{Usage: u})
 			a.appendFact(ctx, sid, event.TypeTurnFinished, agentActor, d)
+			finished = true // genuine completion (council done / nothing more to do)
 			return lastText, nil
 		}
 
@@ -415,6 +426,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			u := event.Usage{In: lastIn, Out: cumOut, Cost: cumCost}
 			d, _ := json.Marshal(event.TurnFinishedData{Usage: u})
 			a.appendFact(ctx, sid, event.TypeTurnFinished, agentActor, d)
+			finished = true // report filed → turn delivered its result
 			return rep.result(answer), nil
 		}
 
@@ -864,7 +876,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		Dispatch: dispatchFn,
 		Ask:      askFn,
 		Report:   reportFn,
-		SetTodos: func(td []session.Todo) { a.SetTodos(sid, td) },
+		SetTodos: func(td []session.Todo) { a.putTodos(ctx, sid, actor, td) },
 		Propose: func(c port.Contribution) error {
 			if a.cfg.Experience == nil {
 				return fmt.Errorf("shared experience not configured")
@@ -1226,7 +1238,7 @@ func formatExperience(mems []port.Memory, skills []port.Skill) string {
 
 // formatTodos renders the plan as a checklist for the system prompt.
 func formatTodos(td []session.Todo) string {
-	mark := map[string]string{"completed": "[x]", "in_progress": "[~]", "pending": "[ ]"}
+	mark := map[string]string{"completed": "[x]", "in_progress": "[~]", "pending": "[ ]", "cancelled": "[✗]"}
 	var b strings.Builder
 	for i, t := range td {
 		if i > 0 {

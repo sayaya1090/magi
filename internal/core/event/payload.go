@@ -57,6 +57,14 @@ type TurnFinishedData struct {
 	Usage Usage `json:"usage"`
 }
 
+// TodosChangedData — TypeTodosChanged. The session plan after a change, so the
+// progression (seed → steps checked off → completed/cancelled at turn end) is
+// persisted and auditable and drives the panel re-render. The full plan is recorded
+// each time, so a reader could rebuild the latest state from the log if needed.
+type TodosChangedData struct {
+	Todos []session.Todo `json:"todos"`
+}
+
 // Usage captures token/cost accounting for a turn.
 type Usage struct {
 	In   int     `json:"in"`

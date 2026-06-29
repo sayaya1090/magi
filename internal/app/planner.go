@@ -99,7 +99,7 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session) bool {
 		// (a single remaining step is fine — nothing to fan out, but solo work follows)
 	}
 
-	a.registerPlanTodos(s.ID, steps)
+	a.registerPlanTodos(ctx, s.ID, steps)
 	a.emitPhase(s.ID, "plan", planSummary(steps), strings.TrimSpace(plan.Reason))
 
 	findings := a.executeSteps(ctx, s, steps)
@@ -497,13 +497,16 @@ func planSummary(steps []planStep) string {
 // registerPlanTodos seeds the session plan with the procedure's steps so the TUI
 // shows one plan and the council reads it as the contract. The main agent takes
 // these over and updates them (see injectPlannerFindings).
-func (a *App) registerPlanTodos(sid session.SessionID, steps []planStep) {
+func (a *App) registerPlanTodos(ctx context.Context, sid session.SessionID, steps []planStep) {
 	td := make([]session.Todo, 0, len(steps))
 	for _, st := range steps {
 		td = append(td, session.Todo{Content: st.Title, Status: "pending"})
 	}
-	a.SetTodos(sid, td)
+	a.putTodos(ctx, sid, plannerActor, td)
 }
+
+// plannerActor attributes the planner's todo writes (seed + per-step check-off).
+var plannerActor = event.Actor{Kind: event.ActorAgent, ID: plannerAgent}
 
 // executeSteps runs each step by its strategy, accumulating explorer findings.
 // A per-turn explorer budget caps total dispatch; a step that can't dispatch
@@ -530,7 +533,7 @@ func (a *App) executeSteps(ctx context.Context, s session.Session, steps []planS
 		}
 		if f := strings.TrimSpace(a.runExplorers(ctx, s, groups)); f != "" {
 			out = append(out, "### "+st.Title+"\n"+f)
-			a.markTodoDone(s.ID, i) // this step ran in pre-flight → check it off
+			a.markTodoDone(ctx, s.ID, plannerActor, i) // this step ran in pre-flight → check it off
 		}
 	}
 	return strings.Join(out, "\n\n")
