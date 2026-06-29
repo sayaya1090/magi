@@ -315,6 +315,7 @@ func TestSystemPromptPersistence(t *testing.T) {
 		"exit code",                         // evidence-based verification
 		"adapt to this environment",         // managed→direct fallback (no init assumed)
 		"a clean exit message is not proof", // verify by real end state, not exit
+		"required outputs still exist",      // cleanup must not delete the task's deliverables
 	} {
 		if !strings.Contains(p, want) {
 			t.Errorf("systemPrompt missing persistence directive %q", want)
