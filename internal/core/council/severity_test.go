@@ -19,8 +19,8 @@ func TestHasCriticalRevision(t *testing.T) {
 	}{
 		{"critical continue blocks", []Verdict{cont("M", SeverityCritical, "x")}, true},
 		{"warn+info do not block", []Verdict{cont("M", SeverityWarn, "x"), cont("C", SeverityInfo, "y")}, false},
-		{"missing severity defaults to warn", []Verdict{cont("M", "", "x")}, false},
-		{"unknown severity defaults to warn", []Verdict{cont("M", "huge", "x")}, false},
+		{"absent severity → warn (non-blocking)", []Verdict{cont("M", "", "x")}, false},
+		{"present-but-unrecognized token → critical (fail safe)", []Verdict{cont("M", "blocker", "x")}, true},
 		{"done is never a blocking revision", []Verdict{{Member: "M", Decision: Done, Severity: SeverityCritical}}, false},
 		{"a single critical vetoes among warns", []Verdict{cont("A", SeverityWarn, "a"), cont("B", SeverityCritical, "b")}, true},
 		{"empty → no block", nil, false},

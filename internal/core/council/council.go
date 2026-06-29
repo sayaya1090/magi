@@ -227,16 +227,20 @@ func AggregateFeedback(vs []Verdict) string {
 		"The council did not agree the task is done. Address this feedback, then continue:")
 }
 
-// severityOf normalizes a verdict's plan-audit severity; missing/unknown → warn, so
-// only an explicit "critical" is blocking.
+// severityOf normalizes a verdict's plan-audit severity. An ABSENT severity (empty —
+// the common weak-model omission) → warn, so a bare continue doesn't burn budget. But a
+// PRESENT-yet-unrecognized token (e.g. "blocker", "high") → critical: the member tried to
+// signal urgency in non-canonical words, so fail safe toward blocking rather than ignore it.
 func severityOf(v Verdict) string {
 	switch strings.ToLower(strings.TrimSpace(v.Severity)) {
 	case SeverityCritical:
 		return SeverityCritical
+	case SeverityWarn, "": // empty/absent → warn (permissive: don't block on an omitted field)
+		return SeverityWarn
 	case SeverityInfo:
 		return SeverityInfo
 	default:
-		return SeverityWarn
+		return SeverityCritical // present but unrecognized → block (fail safe)
 	}
 }
 
