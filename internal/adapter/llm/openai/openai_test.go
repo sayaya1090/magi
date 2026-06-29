@@ -233,6 +233,28 @@ func TestSetBaseURLTrimsSlash(t *testing.T) {
 	}
 }
 
+// ClearBaseURLIfEquals only clears when the override still matches (compare-and-swap),
+// so unloading one plugin can't wipe an override another has installed since.
+func TestClearBaseURLIfEquals(t *testing.T) {
+	c := New("http://configured.example/v1", "")
+	c.SetBaseURL("http://127.0.0.1:1/v1")
+
+	c.ClearBaseURLIfEquals("http://127.0.0.1:9/v1") // not current → no-op
+	if c.base() != "http://127.0.0.1:1/v1" {
+		t.Fatalf("non-matching clear changed base: %q", c.base())
+	}
+	c.ClearBaseURLIfEquals("http://127.0.0.1:1/v1") // matches → restore configured
+	if c.base() != "http://configured.example/v1" {
+		t.Errorf("matching clear should restore configured base, got %q", c.base())
+	}
+	// Trailing slash is trimmed before the compare.
+	c.SetBaseURL("http://127.0.0.1:2/v1")
+	c.ClearBaseURLIfEquals("http://127.0.0.1:2/v1/")
+	if c.base() != "http://configured.example/v1" {
+		t.Errorf("clear should trim trailing slash before compare, got %q", c.base())
+	}
+}
+
 // Transient 503s are retried, then the request succeeds.
 func TestRetryOnTransient(t *testing.T) {
 	var n int

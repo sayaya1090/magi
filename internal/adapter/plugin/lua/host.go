@@ -48,6 +48,9 @@ type LLMHeaderRegistry interface {
 // in-process via magi.serve. An empty string clears the override.
 type BaseURLRegistry interface {
 	SetBaseURL(url string)
+	// ClearBaseURLIfEquals clears the override only if it still equals url (compare-and-swap),
+	// so unloading one plugin can't wipe an override another plugin has since installed.
+	ClearBaseURLIfEquals(url string)
 }
 
 // Host loads, reloads, and unloads Lua plugins, registering their tools into a

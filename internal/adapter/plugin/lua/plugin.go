@@ -27,6 +27,8 @@ type plugin struct {
 	env     port.ToolEnv                // set per tool Execute so bridge calls see the workdir
 	hooks   map[string][]*lua.LFunction // lifecycle handlers registered via magi.on(event, fn)
 	servers []io.Closer                 // loopback HTTP servers opened via magi.serve; closed on unload
+	baseSet bool                        // this plugin overrode the LLM base URL (magi.set_base_url)
+	baseURL string                      // the exact override this plugin set; compare-and-cleared on unload
 	logf    func(string)
 }
 
@@ -53,8 +55,14 @@ func loadPlugin(dir string, logf func(string), host *Host) (*plugin, error) {
 	p.L = newSandbox()
 	installBridge(p)
 
-	if err := p.L.DoFile(filepath.Join(dir, m.Entry)); err != nil {
-		p.L.Close()
+	// Hold the plugin lock while the entry script runs: it may call magi.serve, which
+	// starts an HTTP handler goroutine that calls back into this (non-thread-safe) LState.
+	// Locking here makes any such request block until setup completes.
+	p.mu.Lock()
+	err = p.L.DoFile(filepath.Join(dir, m.Entry))
+	p.mu.Unlock()
+	if err != nil {
+		p.close()
 		return nil, fmt.Errorf("plugin %q: run %s: %w", m.Name, m.Entry, err)
 	}
 	return p, nil
@@ -69,6 +77,14 @@ func (p *plugin) close() {
 		_ = s.Close()
 	}
 	p.servers = nil
+	// Restore the configured LLM backend if this plugin had redirected it: otherwise
+	// dynBase keeps pointing at the now-dead loopback proxy and every LLM call fails.
+	// Compare-and-clear so a reload (whose new instance already installed its own override
+	// before this old instance is closed) or another redirecting plugin isn't clobbered.
+	if p.baseSet && p.host != nil && p.host.baseReg != nil {
+		p.host.baseReg.ClearBaseURLIfEquals(p.baseURL)
+		p.baseSet = false
+	}
 	if p.L != nil {
 		p.L.Close()
 		p.L = nil

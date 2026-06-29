@@ -2,6 +2,8 @@ package lua
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -35,6 +37,7 @@ func installBridge(p *plugin) {
 	L.SetField(t, "model", L.NewFunction(p.bridgeModel))
 	L.SetField(t, "platform", L.NewFunction(p.bridgePlatform))
 	L.SetField(t, "time", L.NewFunction(p.bridgeTime))
+	L.SetField(t, "nonce", L.NewFunction(p.bridgeNonce))
 	// Gated capabilities — enforced against the plugin's exec:/net: permissions.
 	L.SetField(t, "exec", L.NewFunction(p.bridgeExec))
 	L.SetField(t, "open_url", L.NewFunction(p.bridgeOpenURL))
@@ -349,6 +352,29 @@ func (p *plugin) bridgePlatform(L *lua.LState) int {
 // magi.time() -> string (ISO8601)
 func (p *plugin) bridgeTime(L *lua.LState) int {
 	L.Push(lua.LString(time.Now().UTC().Format(time.RFC3339)))
+	return 1
+}
+
+// magi.nonce(nbytes?) -> hex string of nbytes random bytes (default 16 → 32 hex chars).
+// Cryptographically random (crypto/rand). Lua's math.random is deterministically seeded
+// in the sandbox (os is removed, so it can't seed from the clock), so plugins MUST use
+// this — not math.random — for OAuth/PKCE state, CSRF tokens, request IDs, etc.
+func (p *plugin) bridgeNonce(L *lua.LState) int {
+	n := 16
+	if v := L.Get(1); v != lua.LNil {
+		n = int(lua.LVAsNumber(v))
+	}
+	if n < 1 {
+		n = 16
+	}
+	if n > 256 {
+		n = 256
+	}
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return fail(L, "nonce: "+err.Error())
+	}
+	L.Push(lua.LString(hex.EncodeToString(b)))
 	return 1
 }
 

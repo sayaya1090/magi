@@ -51,6 +51,22 @@ func (c *Client) SetBaseURL(url string) {
 	c.dynBase.Store(&u)
 }
 
+// ClearBaseURLIfEquals clears the override only if it still holds url — a compare-and-swap
+// so that unloading one plugin doesn't wipe an override a different (or freshly reloaded)
+// plugin has since installed. No-op if url isn't the current override.
+func (c *Client) ClearBaseURLIfEquals(url string) {
+	u := strings.TrimRight(url, "/")
+	for {
+		p := c.dynBase.Load()
+		if p == nil || *p != u {
+			return // someone else owns the override now
+		}
+		if c.dynBase.CompareAndSwap(p, nil) {
+			return
+		}
+	}
+}
+
 // describeStatus maps an HTTP status to a short, actionable cause for users
 // behind a gateway like LiteLLM (is it auth, a missing model, or a bad request?).
 func describeStatus(status int) string {

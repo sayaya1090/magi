@@ -262,11 +262,16 @@ func (p *plugin) bridgeServe(L *lua.LState) int {
 			http.Error(w, "plugin handler error", http.StatusInternalServerError)
 			return
 		}
+		switch {
+		case status == 0:
+			status = http.StatusOK
+		case status < 100 || status > 599:
+			// An out-of-range code would panic net/http's WriteHeader; reply a clean 500.
+			http.Error(w, "plugin handler returned invalid status", http.StatusInternalServerError)
+			return
+		}
 		for k, v := range respHeaders {
 			w.Header().Set(k, v)
-		}
-		if status == 0 {
-			status = http.StatusOK
 		}
 		w.WriteHeader(status)
 		_, _ = w.Write([]byte(respBody))
@@ -346,10 +351,15 @@ func (p *plugin) callServeHandler(fn *lua.LFunction, r *http.Request, body []byt
 }
 
 // magi.set_base_url(url) -> true | (nil, err)
-// Redirects the agent's LLM backend to url at runtime — typically a loopback server the
-// plugin runs via magi.serve (a proxy or mock). An empty string clears the override and
-// restores the configured backend. http/https only; requires "net:<host>" for the
-// target host (an outbound redirect of the agent's traffic, gated like magi.http).
+// Redirects the agent's LLM backend to url at runtime — the loopback server the plugin
+// runs via magi.serve (a proxy or mock). An empty string clears the override and restores
+// the configured backend.
+//
+// The target MUST be a loopback host (127.0.0.0/8, ::1, localhost): the agent attaches its
+// real API key and sends every prompt/response to base(), so redirecting to a remote host
+// would exfiltrate credentials and conversation. Loopback-only confines the redirect to a
+// server the plugin itself hosts on this machine. Still requires "net:<host>" for the
+// (loopback) host. The override is cleared automatically when the plugin is unloaded.
 func (p *plugin) bridgeSetBaseURL(L *lua.LState) int {
 	if p.host == nil || p.host.baseReg == nil {
 		return fail(L, "set_base_url: base URL registry not available")
@@ -360,14 +370,31 @@ func (p *plugin) bridgeSetBaseURL(L *lua.LState) int {
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
 			return fail(L, "set_base_url: only http/https URLs are allowed")
 		}
+		if !isLoopbackHost(u.Hostname()) {
+			return fail(L, "set_base_url: only loopback targets are allowed (127.0.0.1/::1/localhost), got "+u.Hostname())
+		}
 		if !p.perms.allowNet(u.Hostname()) {
 			return fail(L, "permission denied: net:"+u.Hostname())
 		}
 	}
 	p.host.baseReg.SetBaseURL(raw)
+	p.baseSet = raw != ""
+	p.baseURL = raw // remembered so close() only clears if the registry still holds our value
 	p.logf("[" + p.name + "] set LLM base URL: " + raw)
 	L.Push(lua.LTrue)
 	return 1
+}
+
+// isLoopbackHost reports whether host names the local machine (so redirecting the
+// agent's credentialed LLM traffic there cannot leave this host).
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
 }
 
 // cappedWriter discards bytes past max so a runaway command can't exhaust memory.
