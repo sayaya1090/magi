@@ -45,7 +45,11 @@ jobs:
             echo "## 🧪 Test coverage"
             echo ""
             if [ -f coverage.out ]; then
-              total=$(go tool cover -func=coverage.out | tail -1 | awk '{print $NF}')
+              # internal/eval is a manual, env-gated benchmark harness (its tests skip
+              # without MAGI_EVAL_*), not unit-tested production code — exclude it from
+              # the coverage tally so it doesn't drag the total/badge down.
+              grep -v '/internal/eval/' coverage.out > coverage.prod.out
+              total=$(go tool cover -func=coverage.prod.out | tail -1 | awk '{print $NF}')
               echo "### Total: \`${total}\`"
               echo ""
               echo "| Package | Coverage | |"
@@ -56,6 +60,7 @@ jobs:
               # "coverage: 0.0%" without the "ok" prefix and are omitted — there's nothing
               # to test there. A tested package that is genuinely 0% (a real gap) is kept.
               grep -E '^ok\b.*coverage:' test-output.txt \
+                | grep -v 'internal/eval' \
                 | sed -E 's#github.com/sayaya1090/magi/##' \
                 | awk '{
                     for (i=1;i<=NF;i++) if ($i=="coverage:") { p=$(i+1); sub(/%/,"",p) }
@@ -84,7 +89,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          pct=$(go tool cover -func=coverage.out | tail -1 | awk '{print $NF}' | tr -d '%')
+          # Exclude the env-gated internal/eval benchmark harness from the badge %.
+          grep -v '/internal/eval/' coverage.out > coverage.prod.out
+          pct=$(go tool cover -func=coverage.prod.out | tail -1 | awk '{print $NF}' | tr -d '%')
           color=e05d44
           awk "BEGIN{exit !($pct>=80)}" && color=4c1 || awk "BEGIN{exit !($pct>=60)}" && color=dfb317
           tmp=$(mktemp -d)

@@ -16,9 +16,12 @@ test-race:
 	go test ./... -skip E2E -race
 
 # Test coverage: writes coverage.out, prints the total, and points at the HTML view.
+# internal/eval is a manual env-gated benchmark harness (not unit-tested production
+# code), so it is excluded from the printed total to match CI.
 cover:
 	go test ./... -skip E2E -covermode=atomic -coverprofile=coverage.out
-	@go tool cover -func=coverage.out | tail -1
+	@grep -v '/internal/eval/' coverage.out > coverage.prod.out
+	@go tool cover -func=coverage.prod.out | tail -1
 	@echo "HTML report: go tool cover -html=coverage.out"
 
 vet:
