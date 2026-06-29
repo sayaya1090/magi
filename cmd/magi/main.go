@@ -368,6 +368,7 @@ func run() int {
 		MCPMgr:        mcpMgr,
 		ContextReg:    a,
 		LLMReg:        llm,
+		BaseReg:       llm,
 		PluginConfigs: cfg.Plugins,
 		DataDir:       plat.ConfigDir(),
 		Prompter:      promptFunc(tui.RunPrompt),

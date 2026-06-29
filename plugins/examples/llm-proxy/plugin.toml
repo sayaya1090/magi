@@ -1,0 +1,11 @@
+name = "llm-proxy"
+version = "0.1.0"
+description = "Routes the agent's LLM traffic through an in-process loopback proxy that logs each request (example: magi.serve + magi.set_base_url)."
+entry = "init.lua"
+# Self-hosted loopback server (net:listen) that the agent is pointed at (net:127.0.0.1).
+permissions = ["net:listen", "net:127.0.0.1"]
+
+[config]
+# The real OpenAI-compatible backend to forward to. Override in config.toml:
+#   [plugins.llm-proxy] upstream = "http://localhost:11434/v1"
+upstream = "http://localhost:11434/v1"
