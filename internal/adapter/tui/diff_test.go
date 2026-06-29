@@ -38,10 +38,16 @@ func TestRenderCodeDiffGutter(t *testing.T) {
 			t.Errorf("gutter missing %q\n%s", n, out)
 		}
 	}
-	// base 0 → no gutter (no leading line numbers).
-	bare := stripANSI(m.renderCodeDiff("+a", "x.go", 80, 0))
-	if strings.ContainsAny(strings.TrimSpace(bare), "0123456789") {
-		t.Errorf("base 0 should produce no gutter numbers: %q", bare)
+	// base 0 → no gutter. Use content that itself contains a digit ("9") so "no digit
+	// anywhere" can't be a false proxy; assert the line-number gutter cell ("1 ") that a
+	// gutter WOULD start with is absent, and that base 1 of the same content DOES have it.
+	bare := stripANSI(m.renderCodeDiff("+x9", "x.go", 80, 0))
+	if strings.Contains(bare, "1 ") {
+		t.Errorf("base 0 should have no line-number gutter, got: %q", bare)
+	}
+	withGutter := stripANSI(m.renderCodeDiff("+x9", "x.go", 80, 1))
+	if !strings.Contains(withGutter, "1 ") {
+		t.Errorf("base 1 should number line 1 (gutter cell \"1 \"), got: %q", withGutter)
 	}
 }
 

@@ -96,6 +96,32 @@ func TestNativeToolCall(t *testing.T) {
 	}
 }
 
+// Two PARALLEL tool calls (distinct indices) in one stream must both be assembled and
+// emitted in index order — exercises the multi-index accumulator, not just index 0.
+func TestNativeParallelToolCalls(t *testing.T) {
+	body := `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"read","arguments":"{\"path\":\"a\"}"}}]}}]}` + "\n\n" +
+		`data: {"choices":[{"delta":{"tool_calls":[{"index":1,"id":"c2","type":"function","function":{"name":"grep","arguments":"{\"q\":\"b\"}"}}]}}]}` + "\n\n" +
+		`data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}` + "\n\n" +
+		"data: [DONE]\n\n"
+	srv := sseServer(t, body)
+	defer srv.Close()
+
+	var names []string
+	argsByName := map[string]string{}
+	for _, e := range collect(t, New(srv.URL, "")) {
+		if e.Type == port.ProviderToolCall {
+			names = append(names, e.ToolCall.Name)
+			argsByName[e.ToolCall.Name] = string(e.ToolCall.Args)
+		}
+	}
+	if len(names) != 2 || names[0] != "read" || names[1] != "grep" {
+		t.Fatalf("parallel tool calls = %v, want [read grep] in order", names)
+	}
+	if !strings.Contains(argsByName["read"], `"path":"a"`) || !strings.Contains(argsByName["grep"], `"q":"b"`) {
+		t.Errorf("args not assembled per index: %v", argsByName)
+	}
+}
+
 // F-LLM-TOOLS-NATIVE native-2: arguments split across multiple chunks.
 func TestNativeToolCallSplitArgs(t *testing.T) {
 	body := "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"pa\"}}]}}]}\n\n" +
