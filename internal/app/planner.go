@@ -282,14 +282,32 @@ func firstBalancedObject(s string) string {
 	return ""
 }
 
+// stripStrategyTag removes a leading "[strategy]" tag the planner model sometimes
+// echoes into the title (e.g. "[scout] discover docs"). renderSteps already prefixes
+// the strategy, so without this the tag shows twice ("[scout] [scout] ..."). Only a
+// leading bracket whose contents are a known strategy is removed, so a title that
+// genuinely starts with brackets is left intact.
+func stripStrategyTag(title string) string {
+	if !strings.HasPrefix(title, "[") {
+		return title
+	}
+	if tag, rest, ok := strings.Cut(title[1:], "]"); ok {
+		switch strings.ToLower(strings.TrimSpace(tag)) {
+		case "solo", "parallel", "scout":
+			return strings.TrimSpace(rest)
+		}
+	}
+	return title
+}
+
 // sanitizeSteps enforces guardrails: valid strategies, read-only explorers, a
 // usable shape per strategy, and a capped step count. A "solo" step is kept (it
 // structures the procedure / todos) even though it dispatches nothing.
 func sanitizeSteps(p planResult) []planStep {
 	var out []planStep
 	for _, st := range p.Steps {
-		st.Title = strings.TrimSpace(st.Title)
 		st.Strategy = strings.ToLower(strings.TrimSpace(st.Strategy))
+		st.Title = stripStrategyTag(strings.TrimSpace(st.Title))
 		switch st.Strategy {
 		case "parallel":
 			var g []planGroup
@@ -543,7 +561,7 @@ func (a *App) scoutGroups(ctx context.Context, s session.Session, st planStep, b
 	if r.Err != "" {
 		return nil
 	}
-	items := parseList(r.Text)
+	items := parseList(stripReportStatus(r.Text))
 	each := strings.TrimSpace(st.Each)
 	if each == "" {
 		each = "Investigate this item (read-only)"
@@ -557,6 +575,22 @@ func (a *App) scoutGroups(ctx context.Context, s session.Session, st planStep, b
 		*budget--
 	}
 	return groups
+}
+
+// stripReportStatus drops the leading "STATUS: <WORD>" line that subReport.result
+// (app.go) prepends to a subagent's report. A scout's discovery agent files its
+// work-list via the report tool, so r.Text arrives report-framed; without this the
+// frame line itself ("STATUS: DONE") would be parsed as a bogus work-item. Only the
+// exact two-field frame is removed, so a legitimate first item that merely starts
+// with "STATUS:" (multi-word) or a path is never touched.
+func stripReportStatus(text string) string {
+	text = strings.TrimLeft(text, "\n")
+	if line, rest, ok := strings.Cut(text, "\n"); ok {
+		if t := strings.TrimSpace(line); strings.HasPrefix(t, "STATUS: ") && len(strings.Fields(t)) == 2 {
+			return rest
+		}
+	}
+	return text
 }
 
 // parseList turns a scout's free-text reply into a clean work-list: one item per

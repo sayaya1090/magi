@@ -119,6 +119,66 @@ func TestParseList(t *testing.T) {
 	}
 }
 
+// A scout's discovery agent files its work-list via the report tool, so the reply
+// is report-framed ("STATUS: DONE\n<list>"). The frame line must not leak into the
+// parsed work-list as a bogus item (it once spawned an "Investigate STATUS: DONE").
+func TestParseListStripsReportFrame(t *testing.T) {
+	got := parseList(stripReportStatus("STATUS: DONE\n- README.md\n- docs/x.md"))
+	want := []string{"README.md", "docs/x.md"}
+	if len(got) != len(want) {
+		t.Fatalf("parseList = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("item %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+	// BLOCKED frame stripped too.
+	if g := parseList(stripReportStatus("STATUS: BLOCKED\nfoo.go\nbar.go")); len(g) != 2 || g[0] != "foo.go" {
+		t.Errorf("BLOCKED frame not stripped: %v", g)
+	}
+	// path:line item is never touched (not a frame line, not first-line-stripped).
+	if g := parseList(stripReportStatus("src/foo.go:42\nbar.go")); len(g) != 2 || g[0] != "src/foo.go:42" {
+		t.Errorf("path:line item altered: %v", g)
+	}
+	// Over-strip guard: a multi-word first item starting with "STATUS:" is KEPT.
+	if g := parseList(stripReportStatus("STATUS: pending review\nfoo.go")); len(g) == 0 || g[0] != "STATUS: pending review" {
+		t.Errorf("multi-word STATUS item wrongly stripped: %v", g)
+	}
+}
+
+// The planner model sometimes echoes the strategy into the title; renderSteps adds
+// it again, so the tag must be stripped from the title to avoid "[scout] [scout]".
+func TestStripStrategyTag(t *testing.T) {
+	cases := map[string]string{
+		"[scout] discover docs":   "discover docs",
+		"[solo] define criteria":  "define criteria",
+		"[parallel] review (4)":   "review (4)",
+		"[SCOUT] caps tag":        "caps tag",
+		"no tag here":             "no tag here",
+		"[note] not a strategy":   "[note] not a strategy", // unknown bracket left intact
+		"[escaped] array literal": "[escaped] array literal",
+	}
+	for in, want := range cases {
+		if got := stripStrategyTag(in); got != want {
+			t.Errorf("stripStrategyTag(%q) = %q, want %q", in, got, want)
+		}
+	}
+	// End-to-end: a step whose title echoes its strategy renders without duplication.
+	steps := sanitizeSteps(planResult{Steps: []planStep{{Title: "[scout] find docs", Strategy: "scout", Discover: "doc files"}}})
+	if len(steps) != 1 {
+		t.Fatalf("want 1 step, got %d", len(steps))
+	}
+	if r := renderSteps(steps); strings.Contains(r, "[scout] [scout]") {
+		t.Errorf("strategy tag duplicated: %q", r)
+	}
+	// A title that is nothing but the tag → emptied, then backfilled to "<strategy> step".
+	bare := sanitizeSteps(planResult{Steps: []planStep{{Title: "[scout]", Strategy: "scout", Discover: "x"}}})
+	if len(bare) != 1 || bare[0].Title != "scout step" {
+		t.Errorf("bare tag title should backfill to %q, got %+v", "scout step", bare)
+	}
+}
+
 // newPlannerApp builds an App with a real store for gating tests.
 func newPlannerApp(t *testing.T, cfg Config) (*App, session.SessionID) {
 	t.Helper()
