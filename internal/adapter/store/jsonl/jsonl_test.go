@@ -201,6 +201,40 @@ func TestCompact(t *testing.T) {
 	if got[1].Seq != 8 || got[2].Seq != 9 || got[3].Seq != 10 {
 		t.Errorf("kept seqs = %v, want 8,9,10", seqsOf(got[1:]))
 	}
+
+	// Subsequent appends continue from the original seq (Compact leaves s.seqs intact).
+	if _, err := s.Append(ctx, "s1", fact(event.TypePromptSubmitted, ts)); err != nil {
+		t.Fatal(err)
+	}
+	if after, _ := s.Read(ctx, "s1", 0); after[len(after)-1].Seq != 11 {
+		t.Errorf("append after compact should be seq 11, got %d", after[len(after)-1].Seq)
+	}
+}
+
+// Compacting "up to 0" is a no-op: there is nothing to compact, and stamping a
+// snapshot with Seq 0 would make it invisible to Read(0) (seqs start at 1). The log
+// must be left untouched, not silently gain an unreadable snapshot.
+func TestCompactUpToZeroIsNoOp(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	ts := time.Now()
+	s.Append(ctx, "s1", created(wd, ts))
+	s.Append(ctx, "s1", fact(event.TypePartAppended, ts))
+	before, _ := s.Read(ctx, "s1", 0)
+
+	snap := event.Event{Type: event.TypeCompaction, TS: ts}
+	if err := s.Compact(ctx, "s1", 0, snap); err != nil {
+		t.Fatalf("compact up to 0 should not error: %v", err)
+	}
+	after, _ := s.Read(ctx, "s1", 0)
+	if len(after) != len(before) {
+		t.Fatalf("compact(0) changed the log: %d → %d events", len(before), len(after))
+	}
+	for _, e := range after {
+		if e.Type == event.TypeCompaction {
+			t.Error("compact(0) must not insert a snapshot")
+		}
+	}
 }
 
 // list-sessions-1: only the workdir's sessions, newest first.

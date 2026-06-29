@@ -232,6 +232,12 @@ func (s *Store) Compact(ctx context.Context, sid session.SessionID, upToSeq int6
 	if snapshot.Type.IsTransient() {
 		return fmt.Errorf("jsonl: snapshot cannot be a transient event")
 	}
+	// Compacting "up to 0" covers no events, and would stamp the snapshot with Seq 0 —
+	// which Read(fromSeq=0) filters out (seqs start at 1), making the snapshot invisible
+	// on replay. There is nothing to compact, so no-op.
+	if upToSeq < 1 {
+		return nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
