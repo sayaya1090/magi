@@ -304,6 +304,24 @@ func TestWebFetch(t *testing.T) {
 	}
 }
 
+// SSRF guard: the link-local / cloud-metadata range (169.254.0.0/16) is refused
+// outright — it is never a legitimate fetch target. (loopback is NOT blocked: the
+// TestWebFetch httptest server above is 127.0.0.1 and succeeds.)
+func TestWebFetchBlocksMetadata(t *testing.T) {
+	for _, u := range []string{
+		"http://169.254.169.254/latest/meta-data/",
+		"http://169.254.169.254/",
+	} {
+		raw, _ := json.Marshal(webFetchArgs{URL: u})
+		res, _ := WebFetch{}.Execute(context.Background(), raw, port.ToolEnv{})
+		var out string
+		_ = json.Unmarshal(res.Content, &out)
+		if !res.IsError || !strings.Contains(out, "blocked") {
+			t.Errorf("webfetch(%q) should be blocked as link-local, got isErr=%v out=%q", u, res.IsError, out)
+		}
+	}
+}
+
 // F-TOOL multiedit: all-or-nothing application.
 func TestMultiEdit(t *testing.T) {
 	// All hunks valid → applied.

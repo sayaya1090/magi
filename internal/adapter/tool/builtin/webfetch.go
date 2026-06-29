@@ -3,8 +3,11 @@ package builtin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -40,10 +43,28 @@ func (w WebFetch) Execute(ctx context.Context, raw json.RawMessage, env port.Too
 	if !strings.HasPrefix(a.URL, "http://") && !strings.HasPrefix(a.URL, "https://") {
 		return errResult("", "url must start with http:// or https://"), nil
 	}
+	// SSRF guard: refuse link-local addresses (169.254.0.0/16, fe80::/10), which include
+	// the cloud-metadata endpoint 169.254.169.254 — never a legitimate fetch target.
+	// loopback/private addresses are allowed (local dev servers are a real use).
+	if linkLocalURL(ctx, a.URL) {
+		return errResult("", "blocked: link-local/metadata address is not allowed"), nil
+	}
 
 	client := w.HTTP
 	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
+		client = &http.Client{
+			Timeout: 30 * time.Second,
+			// Re-check each redirect hop so a redirect can't bounce to a metadata address.
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 10 {
+					return fmt.Errorf("stopped after 10 redirects")
+				}
+				if linkLocalURL(req.Context(), req.URL.String()) {
+					return fmt.Errorf("blocked redirect to a link-local/metadata address")
+				}
+				return nil
+			},
+		}
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.URL, nil)
 	if err != nil {
@@ -63,6 +84,38 @@ func (w WebFetch) Execute(ctx context.Context, raw json.RawMessage, env port.Too
 		return errResult("", err.Error()), nil
 	}
 	return okText("", wrapUntrusted("WEB CONTENT from "+a.URL, htmlToText(string(body)))), nil
+}
+
+// linkLocalURL reports whether rawURL's host is (or resolves to) a link-local address
+// — 169.254.0.0/16 (incl. the 169.254.169.254 metadata IP) or fe80::/10. An IP literal
+// is checked directly; a hostname is resolved and blocked if ANY of its addresses is
+// link-local. Resolution failure is NOT treated as blocked (the request will just fail).
+func linkLocalURL(ctx context.Context, rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	if host == "" {
+		return false
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return isLinkLocal(ip)
+	}
+	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return false
+	}
+	for _, a := range addrs {
+		if isLinkLocal(a.IP) {
+			return true
+		}
+	}
+	return false
+}
+
+func isLinkLocal(ip net.IP) bool {
+	return ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()
 }
 
 // wrapUntrusted fences externally-sourced content so the model treats it as data,
