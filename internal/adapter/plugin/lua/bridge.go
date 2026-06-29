@@ -49,8 +49,18 @@ func installBridge(p *plugin) {
 	L.SetGlobal("print", L.NewFunction(p.bridgeLog))
 }
 
+// requireCap denies a bridge call whose capability the manifest did not declare
+// (SPEC F-PLUGIN: capabilities are gated at the bridge). Raises a Lua error (which
+// aborts the offending call) when the capability is absent.
+func (p *plugin) requireCap(L *lua.LState, cap string) {
+	if !p.caps[cap] {
+		L.RaiseError("capability %q not declared in plugin.toml (add it to capabilities=[...])", cap)
+	}
+}
+
 // magi.register_tool{name=, description=, schema=, execute=function(args) ... end}
 func (p *plugin) bridgeRegisterTool(L *lua.LState) int {
+	p.requireCap(L, "tool")
 	spec := L.CheckTable(1)
 
 	name := spec.RawGetString("name").String()
@@ -87,6 +97,7 @@ func (p *plugin) bridgeRegisterTool(L *lua.LState) int {
 
 // magi.register_mcp{name=, url=, headers={} | function}
 func (p *plugin) bridgeRegisterMCP(L *lua.LState) int {
+	p.requireCap(L, "mcp")
 	if p.host == nil || p.host.mcpMgr == nil {
 		L.RaiseError("register_mcp: MCP manager not available")
 		return 0
@@ -270,6 +281,7 @@ func (p *plugin) callHeaderFn(fn *lua.LFunction) map[string]string {
 
 // magi.register_context_provider{name=, provide=function(query)}
 func (p *plugin) bridgeRegisterContextProvider(L *lua.LState) int {
+	p.requireCap(L, "context-provider")
 	if p.host == nil || p.host.contextReg == nil {
 		L.RaiseError("register_context_provider: context provider registry not available")
 		return 0

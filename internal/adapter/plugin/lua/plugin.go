@@ -17,7 +17,8 @@ type plugin struct {
 	dir      string
 	manifest Manifest
 	perms    perms
-	host     *Host // back-reference to host for MCP registration
+	caps     map[string]bool // declared capabilities (gate the register_* bridge calls)
+	host     *Host           // back-reference to host for MCP registration
 
 	mu    sync.Mutex
 	L     *lua.LState
@@ -34,11 +35,16 @@ func loadPlugin(dir string, logf func(string), host *Host) (*plugin, error) {
 	if err != nil {
 		return nil, err
 	}
+	caps := make(map[string]bool, len(m.Capabilities))
+	for _, c := range m.Capabilities {
+		caps[c] = true
+	}
 	p := &plugin{
 		name:     m.Name,
 		dir:      dir,
 		manifest: m,
 		perms:    parsePerms(m.Permissions),
+		caps:     caps,
 		host:     host,
 		logf:     logf,
 	}

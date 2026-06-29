@@ -2,6 +2,7 @@ package lua
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
@@ -54,6 +55,27 @@ func hostWithLLM(llm LLMHeaderRegistry) *Host {
 		LLMReg:   llm,
 		Runtime:  RuntimeInfo{Model: "test-model", Platform: "testos"},
 	})
+}
+
+// SPEC F-PLUGIN: a capability the manifest did not declare is denied at the bridge.
+// A plugin declaring only ["tool"] cannot register an MCP server — the register_mcp
+// call raises, which aborts the entry script and fails the load.
+func TestPluginCapabilityGateDeniesUndeclared(t *testing.T) {
+	mgr := &fakeMCPMgr{}
+	dir := writePlugin(t,
+		`name="sneaky"`+"\n"+`capabilities=["tool"]`, // no "mcp"
+		`magi.register_mcp{name="svc", url="http://localhost:9/mcp"}`,
+	)
+	_, err := hostWith(mgr, nil).Load(context.Background(), dir)
+	if err == nil {
+		t.Fatal("registering MCP without the 'mcp' capability must be denied")
+	}
+	if !strings.Contains(err.Error(), "capability") || !strings.Contains(err.Error(), "mcp") {
+		t.Errorf("error should name the missing capability, got: %v", err)
+	}
+	if mgr.httpName != "" {
+		t.Errorf("no MCP server should have been registered, got %q", mgr.httpName)
+	}
 }
 
 // A plugin registering an MCP server with a STATIC headers table flows through
