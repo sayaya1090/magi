@@ -145,6 +145,18 @@ func TestParseListStripsReportFrame(t *testing.T) {
 	if g := parseList(stripReportStatus("STATUS: pending review\nfoo.go")); len(g) == 0 || g[0] != "STATUS: pending review" {
 		t.Errorf("multi-word STATUS item wrongly stripped: %v", g)
 	}
+	// Multi-word header/preamble/closing lines the model prints around its list are
+	// NOT items (one once made an explorer chase "List of documentation files:" until
+	// the subagent timeout). A real path/item is a single token, or short and not
+	// ending in sentence/heading punctuation.
+	got2 := parseList("List of documentation files:\n- README.md\nHere are the docs.\n- docs/x.md\nThat's all!")
+	if len(got2) != 2 || got2[0] != "README.md" || got2[1] != "docs/x.md" {
+		t.Errorf("header/preamble/closing lines should be dropped, got %v", got2)
+	}
+	// Single-token items are kept even with a trailing colon (a config key, a label).
+	if g := parseList("server:\nfoo.go"); len(g) != 2 || g[0] != "server:" {
+		t.Errorf("single-token 'server:' should be kept, got %v", g)
+	}
 }
 
 // The planner model sometimes echoes the strategy into the title; renderSteps adds

@@ -562,7 +562,7 @@ func (a *App) scoutGroups(ctx context.Context, s session.Session, st planStep, b
 	if *budget <= 0 {
 		return nil
 	}
-	listPrompt := fmt.Sprintf("List %s. Output ONLY the items, one per line — no prose, no numbering, no bullets, no markdown.", st.Discover)
+	listPrompt := fmt.Sprintf("List %s. Output ONLY the items, one per line — no prose, no numbering, no bullets, no markdown. The FIRST line must already be an item: no title, header, preamble (\"Here are…\", \"List of…:\"), or closing remark.", st.Discover)
 	r := a.spawn(ctx, s, 0, port.SpawnRequest{Agent: agent, Prompt: listPrompt})
 	*budget-- // the scout itself counts
 	if r.Err != "" {
@@ -600,6 +600,19 @@ func stripReportStatus(text string) string {
 	return text
 }
 
+// endsWithSentencePunct reports whether s ends in heading/sentence punctuation, which
+// marks a header or prose line rather than a work-item (paths/names never do).
+func endsWithSentencePunct(s string) bool {
+	if s == "" {
+		return false
+	}
+	switch s[len(s)-1] {
+	case ':', '.', '!', '?':
+		return true
+	}
+	return false
+}
+
 // parseList turns a scout's free-text reply into a clean work-list: one item per
 // line, stripping numbering/bullets/fences and blank or prose-like lines.
 func parseList(text string) []string {
@@ -611,8 +624,17 @@ func parseList(text string) []string {
 		}
 		ln = strings.TrimLeft(ln, "-*•0123456789.) \t")
 		ln = strings.TrimSpace(ln)
-		if ln == "" || len(ln) > 200 || strings.Contains(ln, " ") && len(strings.Fields(ln)) > 12 {
-			continue // skip prose-y lines; work-list items are short tokens/paths/names
+		if ln == "" || len(ln) > 200 {
+			continue
+		}
+		// A work-item is a short token/path/name. A MULTI-WORD line is prose, not an
+		// item, when it is long OR ends in sentence/heading punctuation — i.e. a header
+		// or preamble the model printed before its list ("List of documentation files:",
+		// "Here are the docs.") or a trailing remark. Dispatching one sends an explorer
+		// chasing a target that doesn't exist, flailing until the subagent timeout.
+		// Single-token items are always kept ("path:line", a "server:" config key).
+		if strings.Contains(ln, " ") && (len(strings.Fields(ln)) > 12 || endsWithSentencePunct(ln)) {
+			continue
 		}
 		out = append(out, ln)
 		if len(out) == maxPlanGroups {
