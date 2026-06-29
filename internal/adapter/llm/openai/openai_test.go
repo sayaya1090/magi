@@ -187,6 +187,52 @@ func TestErrorBadURL(t *testing.T) {
 	}
 }
 
+// SetBaseURL redirects requests at runtime (plugin magi.set_base_url); an empty
+// string clears the override and restores the configured backend. This is what makes
+// a loopback proxy a plugin serves with magi.serve actually receive the agent's traffic.
+func TestSetBaseURLOverride(t *testing.T) {
+	const sse = "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n"
+	mk := func(hit *bool) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			*hit = true
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte(sse))
+		}))
+	}
+	var hitA, hitB bool
+	a := mk(&hitA)
+	defer a.Close()
+	b := mk(&hitB)
+	defer b.Close()
+
+	c := New(a.URL, "")
+	c.SetBaseURL(b.URL)
+	collect(t, c)
+	if hitA || !hitB {
+		t.Fatalf("override should route to B only (a=%v b=%v)", hitA, hitB)
+	}
+
+	hitA, hitB = false, false
+	c.SetBaseURL("") // clear → back to the configured backend
+	collect(t, c)
+	if !hitA || hitB {
+		t.Fatalf("cleared override should route back to A (a=%v b=%v)", hitA, hitB)
+	}
+}
+
+// A trailing slash on the override is trimmed so base()+"/chat/completions" stays well-formed.
+func TestSetBaseURLTrimsSlash(t *testing.T) {
+	c := New("http://configured.example/v1", "")
+	c.SetBaseURL("http://override.example/v1/")
+	if got := c.base(); got != "http://override.example/v1" {
+		t.Errorf("base() = %q, want trailing slash trimmed", got)
+	}
+	c.SetBaseURL("")
+	if got := c.base(); got != "http://configured.example/v1" {
+		t.Errorf("empty override should restore configured base, got %q", got)
+	}
+}
+
 // Transient 503s are retried, then the request succeeds.
 func TestRetryOnTransient(t *testing.T) {
 	var n int

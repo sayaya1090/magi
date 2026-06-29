@@ -24,12 +24,31 @@ import (
 // Client is an OpenAI-compatible LLM provider.
 type Client struct {
 	baseURL  string
+	dynBase  atomic.Pointer[string] // runtime override (plugin magi.set_base_url); nil = use baseURL
 	apiKey   string
 	http     *http.Client
 	cache    bool        // attach cache_control breakpoints (Anthropic via LiteLLM)
 	cacheOff atomic.Bool // set after a backend rejects the cache shape (sticky fallback)
 
 	headers *httpx.Headers // static (config) + dynamic (plugin) custom headers
+}
+
+// base returns the effective base URL: a runtime override (set by a plugin via
+// magi.set_base_url) if present, else the configured one. Read on every request so a
+// plugin can redirect the LLM backend mid-session.
+func (c *Client) base() string {
+	if p := c.dynBase.Load(); p != nil && *p != "" {
+		return *p
+	}
+	return c.baseURL
+}
+
+// SetBaseURL overrides the LLM backend base URL at runtime (e.g. a plugin pointing the
+// agent at a local proxy/mock). An empty string clears the override. Safe to call while
+// the client is in use.
+func (c *Client) SetBaseURL(url string) {
+	u := strings.TrimRight(url, "/")
+	c.dynBase.Store(&u)
 }
 
 // describeStatus maps an HTTP status to a short, actionable cause for users
@@ -180,7 +199,7 @@ func (c *Client) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan por
 // gateway like LiteLLM where the available models change and users shouldn't have
 // to memorize IDs.
 func (c *Client) ListModels(ctx context.Context) ([]string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/models", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base()+"/models", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -233,7 +252,7 @@ func (c *Client) send(ctx context.Context, body []byte) (resp *http.Response, la
 				return nil, lastStatus, lastBody, ctx.Err()
 			}
 		}
-		req, rerr := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
+		req, rerr := http.NewRequestWithContext(ctx, http.MethodPost, c.base()+"/chat/completions", bytes.NewReader(body))
 		if rerr != nil {
 			return nil, 0, "", rerr
 		}

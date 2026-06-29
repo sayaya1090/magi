@@ -43,6 +43,13 @@ type LLMHeaderRegistry interface {
 	AddLLMHeaders(fn func() map[string]string)
 }
 
+// BaseURLRegistry lets a plugin redirect the LLM backend base URL at runtime
+// (magi.set_base_url) — e.g. to point the agent at a loopback server the plugin runs
+// in-process via magi.serve. An empty string clears the override.
+type BaseURLRegistry interface {
+	SetBaseURL(url string)
+}
+
 // Host loads, reloads, and unloads Lua plugins, registering their tools into a
 // shared ToolSink so changes take effect in the running agent (hot reload).
 type Host struct {
@@ -50,6 +57,7 @@ type Host struct {
 	mcpMgr        MCPManager
 	contextReg    ContextProviderRegistry
 	llmReg        LLMHeaderRegistry
+	baseReg       BaseURLRegistry
 	runtime       RuntimeInfo
 	pluginConfigs map[string]map[string]any // [plugins.<name>] sections from config.toml
 	dataDir       string                    // base dir for per-plugin persistent stores
@@ -66,6 +74,7 @@ type HostConfig struct {
 	MCPMgr        MCPManager                // optional: enables magi.register_mcp()
 	ContextReg    ContextProviderRegistry   // optional: enables magi.register_context_provider()
 	LLMReg        LLMHeaderRegistry         // optional: enables magi.set_llm_headers()
+	BaseReg       BaseURLRegistry           // optional: enables magi.set_base_url()
 	PluginConfigs map[string]map[string]any // optional: [plugins.<name>] settings, read via magi.config_get
 	DataDir       string                    // base dir for per-plugin persistent config stores (config_set)
 	Prompter      prompt.Prompter           // optional: enables magi.ask interactive prompts
@@ -91,6 +100,7 @@ func NewHostWithConfig(cfg HostConfig) *Host {
 		mcpMgr:        cfg.MCPMgr,
 		contextReg:    cfg.ContextReg,
 		llmReg:        cfg.LLMReg,
+		baseReg:       cfg.BaseReg,
 		runtime:       cfg.Runtime,
 		pluginConfigs: cfg.PluginConfigs,
 		dataDir:       cfg.DataDir,

@@ -27,6 +27,7 @@ const (
 	httpTimeout    = 30 * time.Second
 	httpBodyMaxLen = 5 << 20 // 5 MiB cap on a fetched body
 	execOutputMax  = 1 << 20 // 1 MiB cap on captured output
+	serveBodyMax   = 5 << 20 // 5 MiB cap on a request body handed to a serve handler
 )
 
 // magi.exec(cmd, args?) -> {stdout=, stderr=, code=} | (nil, err)
@@ -212,6 +213,161 @@ func (p *plugin) bridgeAwaitCallback(L *lua.LState) int {
 	case <-time.After(timeout):
 		return fail(L, "await_callback: timed out")
 	}
+}
+
+// magi.serve{port=, handler=function(req) return resp end} -> {port=, stop=function()} | (nil, err)
+//
+// Starts a persistent loopback HTTP server (binds 127.0.0.1 only) that routes every
+// request through the Lua handler IN-PROCESS — no external runtime, so it works inside
+// the single static binary on every platform. Requires permission "net:listen".
+// port omitted/0 picks a free port, readable from the returned table's `port`.
+//
+// The handler is called as handler(req) where
+//
+//	req  = { method=, path=, query={k=v}, headers={k=v}, body= }
+//
+// and returns either a response table (all fields optional)
+//
+//	resp = { status=200, headers={k=v}, body="" }
+//
+// or a bare string (taken as a 200 body). A handler that errors, or returns neither,
+// yields HTTP 500. The server is closed when the plugin is unloaded/reloaded or via the
+// returned stop(). The handler runs in the plugin's single Lua state (serialized with
+// tool calls), so a tool must not make a blocking request to its own server from within
+// its own call.
+func (p *plugin) bridgeServe(L *lua.LState) int {
+	if !p.perms.allowNet("listen") {
+		return fail(L, "permission denied: net:listen")
+	}
+	spec := L.CheckTable(1)
+	port := int(lua.LVAsNumber(spec.RawGetString("port")))
+	if port < 0 || port > 65535 {
+		return fail(L, "serve: 'port' must be 0..65535")
+	}
+	handler, ok := spec.RawGetString("handler").(*lua.LFunction)
+	if !ok {
+		return fail(L, "serve: 'handler' must be a function")
+	}
+
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		return fail(L, "serve: listen: "+err.Error())
+	}
+	actual := ln.Addr().(*net.TCPAddr).Port
+
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(io.LimitReader(r.Body, serveBodyMax))
+		status, respBody, respHeaders, ok := p.callServeHandler(handler, r, body)
+		if !ok {
+			http.Error(w, "plugin handler error", http.StatusInternalServerError)
+			return
+		}
+		for k, v := range respHeaders {
+			w.Header().Set(k, v)
+		}
+		if status == 0 {
+			status = http.StatusOK
+		}
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(respBody))
+	})}
+	go srv.Serve(ln)
+	// p.mu is held during a bridge call (tool Execute / fire), so appending here is safe.
+	p.servers = append(p.servers, srv)
+
+	res := L.NewTable()
+	L.SetField(res, "port", lua.LNumber(actual))
+	L.SetField(res, "stop", L.NewFunction(func(L *lua.LState) int {
+		_ = srv.Close() // idempotent; also closed on unload
+		return 0
+	}))
+	L.Push(res)
+	return 1
+}
+
+// callServeHandler invokes a magi.serve handler under the plugin lock (the Lua
+// state is not concurrency-safe) and maps its return to an HTTP response. ok=false
+// on any error so the HTTP layer can reply 500.
+func (p *plugin) callServeHandler(fn *lua.LFunction, r *http.Request, body []byte) (status int, respBody string, headers map[string]string, ok bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	L := p.L
+	if L == nil {
+		return 0, "", nil, false // plugin unloaded
+	}
+
+	req := L.NewTable()
+	L.SetField(req, "method", lua.LString(r.Method))
+	L.SetField(req, "path", lua.LString(r.URL.Path))
+	L.SetField(req, "body", lua.LString(string(body)))
+	q := L.NewTable()
+	for k, vs := range r.URL.Query() {
+		if len(vs) > 0 {
+			L.SetField(q, k, lua.LString(vs[0]))
+		}
+	}
+	L.SetField(req, "query", q)
+	h := L.NewTable()
+	for k := range r.Header {
+		L.SetField(h, k, lua.LString(r.Header.Get(k)))
+	}
+	L.SetField(req, "headers", h)
+
+	if err := L.CallByParam(lua.P{Fn: fn, NRet: 1, Protect: true}, req); err != nil {
+		p.logf(fmt.Sprintf("[%s] serve handler error: %v", p.name, err))
+		return 0, "", nil, false
+	}
+	result := L.Get(-1)
+	L.Pop(1)
+
+	switch v := result.(type) {
+	case *lua.LTable:
+		out := map[string]string{}
+		if ht, ok := v.RawGetString("headers").(*lua.LTable); ok {
+			ht.ForEach(func(k, val lua.LValue) {
+				if ks, ok := k.(lua.LString); ok {
+					if vs, ok := val.(lua.LString); ok {
+						out[string(ks)] = string(vs)
+					}
+				}
+			})
+		}
+		rb := ""
+		if b := v.RawGetString("body"); b != lua.LNil {
+			rb = b.String()
+		}
+		return int(lua.LVAsNumber(v.RawGetString("status"))), rb, out, true
+	case lua.LString:
+		return http.StatusOK, string(v), nil, true
+	default:
+		p.logf(fmt.Sprintf("[%s] serve handler returned non-table/string", p.name))
+		return 0, "", nil, false
+	}
+}
+
+// magi.set_base_url(url) -> true | (nil, err)
+// Redirects the agent's LLM backend to url at runtime — typically a loopback server the
+// plugin runs via magi.serve (a proxy or mock). An empty string clears the override and
+// restores the configured backend. http/https only; requires "net:<host>" for the
+// target host (an outbound redirect of the agent's traffic, gated like magi.http).
+func (p *plugin) bridgeSetBaseURL(L *lua.LState) int {
+	if p.host == nil || p.host.baseReg == nil {
+		return fail(L, "set_base_url: base URL registry not available")
+	}
+	raw := L.CheckString(1)
+	if raw != "" {
+		u, err := url.Parse(raw)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+			return fail(L, "set_base_url: only http/https URLs are allowed")
+		}
+		if !p.perms.allowNet(u.Hostname()) {
+			return fail(L, "permission denied: net:"+u.Hostname())
+		}
+	}
+	p.host.baseReg.SetBaseURL(raw)
+	p.logf("[" + p.name + "] set LLM base URL: " + raw)
+	L.Push(lua.LTrue)
+	return 1
 }
 
 // cappedWriter discards bytes past max so a runaway command can't exhaust memory.

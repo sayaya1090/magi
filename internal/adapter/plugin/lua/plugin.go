@@ -2,6 +2,7 @@ package lua
 
 import (
 	"fmt"
+	"io"
 	"path/filepath"
 	"sync"
 
@@ -20,12 +21,13 @@ type plugin struct {
 	caps     map[string]bool // declared capabilities (gate the register_* bridge calls)
 	host     *Host           // back-reference to host for MCP registration
 
-	mu    sync.Mutex
-	L     *lua.LState
-	tools []*luaTool
-	env   port.ToolEnv                // set per tool Execute so bridge calls see the workdir
-	hooks map[string][]*lua.LFunction // lifecycle handlers registered via magi.on(event, fn)
-	logf  func(string)
+	mu      sync.Mutex
+	L       *lua.LState
+	tools   []*luaTool
+	env     port.ToolEnv                // set per tool Execute so bridge calls see the workdir
+	hooks   map[string][]*lua.LFunction // lifecycle handlers registered via magi.on(event, fn)
+	servers []io.Closer                 // loopback HTTP servers opened via magi.serve; closed on unload
+	logf    func(string)
 }
 
 // loadPlugin reads the manifest, builds a sandboxed state, installs the bridge,
@@ -61,6 +63,12 @@ func loadPlugin(dir string, logf func(string), host *Host) (*plugin, error) {
 func (p *plugin) close() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	// Close loopback servers first so no handler goroutine calls back into the
+	// Lua state while/after we tear it down.
+	for _, s := range p.servers {
+		_ = s.Close()
+	}
+	p.servers = nil
 	if p.L != nil {
 		p.L.Close()
 		p.L = nil
