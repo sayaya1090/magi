@@ -299,6 +299,50 @@ func TestPluginDirs(t *testing.T) {
 	}
 }
 
+// The orchestrator system prompt must carry the anti-defeatism directives (install
+// missing tools / fall back to a present runtime / actually do+verify) and stay
+// cross-platform (no single package manager hardcoded). Read-only subagents must NOT
+// get install guidance. Keep the substrings in sync with the prompt wording.
+func TestSystemPromptPersistence(t *testing.T) {
+	p := strings.ToLower(systemPrompt)
+
+	// (a) key anti-defeatism directives present
+	for _, want := range []string{
+		"don't give up",                     // section intent
+		"command -v",                        // investigate/detect before concluding
+		"install",                           // install missing tools
+		"actually do it",                    // do the task, don't only describe
+		"exit code",                         // evidence-based verification
+		"adapt to this environment",         // managed→direct fallback (no init assumed)
+		"a clean exit message is not proof", // verify by real end state, not exit
+	} {
+		if !strings.Contains(p, want) {
+			t.Errorf("systemPrompt missing persistence directive %q", want)
+		}
+	}
+
+	// (b) cross-platform: offer >1 package manager (not single-PM-locked), incl. brew (macOS)
+	pms := 0
+	for _, pm := range []string{"apt", "dnf", "apk", "brew"} {
+		if strings.Contains(p, pm) {
+			pms++
+		}
+	}
+	if pms < 2 {
+		t.Errorf("systemPrompt names %d package managers; want >=2 to stay cross-platform", pms)
+	}
+	if !strings.Contains(p, "brew") {
+		t.Error("systemPrompt should mention brew so macOS is covered (not Linux-only)")
+	}
+
+	// (c) read-only subagents (no bash) must NOT carry install-tool guidance
+	for _, name := range []string{"explore", "locator", "analyst", "architect", "reviewer", "planner"} {
+		if strings.Contains(strings.ToLower(defaultAgents()[name].System), "install") {
+			t.Errorf("read-only agent %q should not have install-tool guidance", name)
+		}
+	}
+}
+
 func TestEnvDur(t *testing.T) {
 	t.Setenv("MAGI_TEST_DUR", "2s")
 	if d := envDur("MAGI_TEST_DUR", time.Second); d != 2*time.Second {
