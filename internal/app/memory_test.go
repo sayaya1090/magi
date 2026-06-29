@@ -26,11 +26,12 @@ func TestProjectMemoryInSystemPrompt(t *testing.T) {
 
 	runToTerminal(t, a, sid)
 
-	if !strings.Contains(llm.lastSystem, "Always use tabs") {
-		t.Errorf("AGENTS.md not injected into system prompt; got: %q", llm.lastSystem)
+	sys := llm.lastSys()
+	if !strings.Contains(sys, "Always use tabs") {
+		t.Errorf("AGENTS.md not injected into system prompt; got: %q", sys)
 	}
-	if !strings.Contains(llm.lastSystem, "Project memory") {
-		t.Errorf("memory header missing; got: %q", llm.lastSystem)
+	if !strings.Contains(sys, "Project memory") {
+		t.Errorf("memory header missing; got: %q", sys)
 	}
 }
 

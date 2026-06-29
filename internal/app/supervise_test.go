@@ -185,16 +185,27 @@ func TestAsyncDispatchInjectsResult(t *testing.T) {
 	if countType(got, event.TypeTurnFinished) < 1 {
 		t.Fatalf("expected the turn to finish, got %v", typesOf(got))
 	}
-	// The worker's result must have been injected into the parent session.
+	// The worker's ACTUAL result ("worker output") must have been injected into the
+	// parent session — not merely some agent-authored prompt (an empty/wrong injection
+	// would otherwise pass).
 	evs, _ := store.Read(ctx, sid, 0)
 	found := false
 	for _, e := range evs {
-		if e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorAgent {
-			found = true
+		if e.Type != event.TypePromptSubmitted || e.Actor.Kind != event.ActorAgent {
+			continue
+		}
+		var d event.PromptSubmittedData
+		if json.Unmarshal(e.Data, &d) != nil {
+			continue
+		}
+		for _, p := range d.Parts {
+			if strings.Contains(p.Text, "worker output") {
+				found = true
+			}
 		}
 	}
 	if !found {
-		t.Fatal("expected the subagent result to be injected into the parent session")
+		t.Fatal("expected the worker's result (\"worker output\") to be injected into the parent session")
 	}
 }
 

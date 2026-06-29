@@ -134,11 +134,20 @@ func TestOrchestratorInterleavesOwnWork(t *testing.T) {
 	evs, _ := store.Read(ctx, sid, 0)
 	injected := false
 	for _, e := range evs {
-		if e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorAgent {
-			injected = true
+		if e.Type != event.TypePromptSubmitted || e.Actor.Kind != event.ActorAgent {
+			continue
+		}
+		var d event.PromptSubmittedData
+		if json.Unmarshal(e.Data, &d) != nil {
+			continue
+		}
+		for _, p := range d.Parts {
+			if strings.Contains(p.Text, "worker output") {
+				injected = true
+			}
 		}
 	}
 	if !injected {
-		t.Fatal("expected the subagent result to be injected after release")
+		t.Fatal("expected the worker's result (\"worker output\") to be injected after release")
 	}
 }

@@ -48,8 +48,10 @@ func TestPublishDropsDroppableWhenFull(t *testing.T) {
 	for i := 0; i < defaultBuffer+100; i++ {
 		b.Publish(event.Event{SessionID: "s1", Type: event.TypePartDelta})
 	}
-	// Buffer holds at most defaultBuffer events (excess deltas dropped, not blocked).
-	if n := len(ch); n > defaultBuffer {
-		t.Fatalf("buffer should cap droppable events at %d, got %d", defaultBuffer, n)
+	// Buffer holds EXACTLY defaultBuffer events: the first fill it, the excess deltas
+	// are dropped (not blocked, not grown). `len > cap` is impossible in Go, so the only
+	// meaningful assertion is that it's full — proving drops happened, not expansion.
+	if n := len(ch); n != defaultBuffer {
+		t.Fatalf("buffer should be full at %d (excess dropped), got %d", defaultBuffer, n)
 	}
 }

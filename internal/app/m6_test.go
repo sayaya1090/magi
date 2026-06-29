@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -112,8 +113,8 @@ func TestModelRouting(t *testing.T) {
 	if res.Err != "" {
 		t.Fatalf("spawn: %s", res.Err)
 	}
-	// Find the child session's created event and check its model.
-	// The child session id is unknown, but its model must be the routed one.
+	// Only the child runs here (the parent session is registered but never run), so the
+	// last model the fake provider saw IS the child's — it must be the routed model.
 	if usedModel(llm) != "gpt-oss:20b" {
 		t.Errorf("child used model %q, want gpt-oss:20b (routing)", usedModel(llm))
 	}
@@ -122,8 +123,11 @@ func TestModelRouting(t *testing.T) {
 // ---- helpers ----
 
 // usageLLM returns a fixed text turn and records the last requested model and a
-// usage report.
+// usage report. The recorded fields are guarded by mu: a subagent turn runs the
+// provider on its own goroutine, so a reader (post-turn) and that write must be
+// synchronized for `go test -race` (mirrors fakeLLM's locking).
 type usageLLM struct {
+	mu         sync.Mutex
 	text       string
 	in, out    int
 	lastModel  string
@@ -131,8 +135,10 @@ type usageLLM struct {
 }
 
 func (f *usageLLM) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan port.ProviderEvent, error) {
+	f.mu.Lock()
 	f.lastModel = r.Model
 	f.lastSystem = r.System
+	f.mu.Unlock()
 	ch := make(chan port.ProviderEvent, 4)
 	txt := f.text
 	if txt == "" {
@@ -147,7 +153,8 @@ func (f *usageLLM) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan p
 	return ch, nil
 }
 
-func usedModel(f *usageLLM) string { return f.lastModel }
+func usedModel(f *usageLLM) string  { f.mu.Lock(); defer f.mu.Unlock(); return f.lastModel }
+func (f *usageLLM) lastSys() string { f.mu.Lock(); defer f.mu.Unlock(); return f.lastSystem }
 
 func runToTerminal(t *testing.T, a *App, sid session.SessionID) []event.Event {
 	t.Helper()

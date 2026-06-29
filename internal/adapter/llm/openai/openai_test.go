@@ -134,7 +134,12 @@ func TestErrorStatus(t *testing.T) {
 
 	ch, err := New(srv.URL, "").StreamChat(context.Background(), port.ChatRequest{Model: "m"})
 	if err != nil {
-		return // retries exhausted → returned error (acceptable)
+		// retries exhausted → returned error: it must carry the 500 status, not a bare
+		// "request failed" that hides what went wrong.
+		if !strings.Contains(err.Error(), "500") {
+			t.Fatalf("exhausted-retry error should carry the 500 status, got %v", err)
+		}
+		return
 	}
 	var sawErr bool
 	for e := range ch {
