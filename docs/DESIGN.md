@@ -158,6 +158,7 @@ type Actor struct {
 | `council.decided` 🚧 | `{round, decision, tally, injectedFeedback}` (continue면 feedback이 prompt.submitted로 주입됨) |
 | `compaction` | `{summary, replacesUpToSeq, tokens:{before,after}}` |
 | `turn.finished` | `{usage:{in,out,cost}}` |
+| `todos.changed` | `{todos[]}` (계획 변경 1회마다 — 시드→단계 체크→완료/취소; 로그·재생·패널 리렌더) |
 | `error` | `{message, code}` |
 
 **B. 전이(transient, 버스에만 — 저장 안 함)** — 라이브 UX용:
@@ -311,11 +312,16 @@ type DeliberationRequest struct {
     Task     string         // 원 과제(목표)
     Plan     string         // 계약: acceptance criteria, 또는 Phase=plan일 때 제안된 절차
     Report   string         // 주장: 에이전트 자기보고 (있으면)
+    Actions  string         // 증거: 이번 턴의 툴 결과 요약(write 바이트수, cat 출력 등) — git 비의존
     Signals  []Signal       // 증거: test/lint/type 결과
-    Diff     string         // 선택: 작업 diff
+    Diff     string         // 선택: 작업 diff (git diff; 비-git 작업폴더면 비어 있음)
     Members  []CouncilMember
     Rule     string         // unanimous|majority|quorum:k|weighted:θ|veto
 }
+// 증거 출처: Diff는 git diff라 비-git 작업폴더(샌드박스 태스크 디렉터리)에선 비어 →
+// 생성물 판단 불가로 종료 게이트가 무한 churn하던 문제를, 이번 턴의 "툴 결과"(Actions)를
+// git-독립 증거로 넘겨 해결. 단, 모델 자기서술은 증거에서 제외(Report=주장)하여 "산출물
+// 없이 말빨로 done" 회귀를 막음 — [ok]/exit-0 자체는 증거 아님, 산출물을 보여야 함.
 type CouncilMember struct { // 테마명 라벨 + 렌즈 속성
     Name   string  // "Melchior" | "Balthasar" | "Casper"
     Lens   string  // "correctness" | "verification" | "completeness"

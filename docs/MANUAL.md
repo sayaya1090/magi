@@ -200,7 +200,7 @@ While subagents are alive, **a live panel for each subagent** is tiled below the
 
 ### Right-side status panel
 When there are plans / progress, a **status panel** appears on the right (hidden if none). **Drag its left edge with the mouse** to adjust the width (default 44 columns). Sections:
-- **Plan** — the current todo checklist + progress (`done/total`), with the in-progress item highlighted (◐). Updates in real time.
+- **Plan** — the current todo checklist + progress (`done/total`): completed ✓, in-progress ◐, pending ☐, and **cancelled ✗** (a step left unfinished when the turn is aborted/stopped). Progress is driven by deterministic signals (the planner checks off steps it runs, and the turn resolves the rest on finish), so it updates even when the model doesn't call `todowrite`. Updates in real time.
 - **Subagents** — list of active subagents (color · status · totals `elapsed · ↑↓ tokens`). **Click an item → zoom into that subagent's detail** (same as clicking the pane).
 - **Context** — context token usage bar.
 It also appears with the same layout in the subagent zoom (detail) view, where Plan shows **that subagent's todos**.

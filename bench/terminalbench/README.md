@@ -84,7 +84,11 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /tmp/magi-serve/magi
 # 2. Serve them (reachable from containers as host.docker.internal):
 ( cd /tmp/magi-serve && python3 -m http.server 8077 )
 
-# 3. Run with the fast path:
+# 3. Run with the fast path.
+#    REQUIRED for local Ollama: the container's localhost is NOT the host, so point
+#    MAGI_BASE_URL at a host-routable URL or the in-container magi hangs on every call
+#    (looks like a 360s agent_timeout with no file produced).
+MAGI_BASE_URL=http://host.docker.internal:11434/v1 \
 tb run --agent-import-path bench.terminalbench.magi_agent:MagiAgent \
   -m qwen3-coder:30b -k binary_url=http://host.docker.internal:8077 \
   --dataset terminal-bench-core==0.1.1 --task-id hello-world
