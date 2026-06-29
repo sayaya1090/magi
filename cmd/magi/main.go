@@ -215,6 +215,9 @@ func run() int {
 		if proj.Council.Criteria {
 			cfg.Council.Criteria = true
 		}
+		if proj.Council.PlanAbsorb {
+			cfg.Council.PlanAbsorb = true
+		}
 	}
 
 	// Resolve model/base_url/permission with precedence: explicit flag > env >

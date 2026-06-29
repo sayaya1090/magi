@@ -426,25 +426,53 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		for _, v := range delib.Verdicts {
 			vd, _ := json.Marshal(event.CouncilVerdictData{
 				Round: round, Phase: "plan", Member: v.Member, Lens: v.Lens, Decision: string(v.Decision),
-				Confidence: v.Confidence, Rationale: v.Rationale, Feedback: v.Feedback,
+				Confidence: v.Confidence, Rationale: v.Rationale, Feedback: v.Feedback, Severity: v.Severity,
 			})
 			a.appendFact(ctx, sid, event.TypeCouncilVerdict, actor, vd)
 		}
 
-		if delib.Decision == council.Done { // approve
+		// Severity-gated decision (D17): only a CRITICAL revision blocks the agent from
+		// starting work. warn/info concerns are ACCEPTED as advice — injected so the
+		// executor heeds them during the turn, and the council's completion criteria (which
+		// the termination gate verifies) still apply — instead of looping the plan, which on
+		// a slow model burned the whole budget before any work. critical vetoes (one member
+		// suffices) so a genuine plan flaw still stops the agent.
+		critical := council.HasCriticalRevision(delib.Verdicts)
+		advice := strings.TrimSpace(council.AdvisoryFeedback(delib.Verdicts))
+
+		if !critical { // approve, possibly carrying non-blocking advice
 			a.storePlanCriteria(ctx, s, delib.Criteria) // the contract for the termination gate
-			dd, _ := json.Marshal(event.CouncilDecidedData{Round: round, Phase: "plan", Decision: string(council.Done), Tally: delib.Breakdown, Criteria: delib.Criteria})
+			note := ""
+			if advice != "" {
+				a.injectCouncilAdvice(ctx, s.ID, advice, true) // accepted: the executor heeds it
+				note = "plan approved with advisory notes (non-blocking)"
+				if a.cfg.CouncilPlanAbsorb { // option B: fold the advice into the plan now
+					if next := sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, advice)); len(next) > 0 {
+						steps = next
+					}
+				}
+			}
+			dd, _ := json.Marshal(event.CouncilDecidedData{
+				Round: round, Phase: "plan", Decision: string(council.Done),
+				Tally: delib.Breakdown, Note: note, Criteria: delib.Criteria,
+			})
 			a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd)
 			return steps
 		}
 
-		// revise — but stop if the cap is hit or there is no actionable feedback.
-		fb := strings.TrimSpace(delib.Feedback)
+		// critical → block. Stop if the cap is hit or there is no actionable feedback.
+		fb := strings.TrimSpace(council.CriticalFeedback(delib.Verdicts))
 		if round >= maxRounds || fb == "" {
 			a.storePlanCriteria(ctx, s, delib.Criteria) // proceeding with this plan → keep its criteria
+			// Proceeding PAST an unresolved critical: hand the executor that critical
+			// concern (plus any advice) so it can still try to address it — don't bury it
+			// in a note only.
+			if carry := strings.TrimSpace(fb + "\n\n" + advice); carry != "" {
+				a.injectCouncilAdvice(ctx, s.ID, carry, false)
+			}
 			dd, _ := json.Marshal(event.CouncilDecidedData{
 				Round: round, Phase: "plan", Decision: string(council.Done), Tally: delib.Breakdown,
-				Note: fmt.Sprintf("plan unresolved after %d round(s) — proceeding", round), Criteria: delib.Criteria,
+				Note: fmt.Sprintf("critical plan concern unresolved after %d round(s) — proceeding", round), Criteria: delib.Criteria,
 			})
 			a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd)
 			return steps
@@ -452,8 +480,8 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		dd, _ := json.Marshal(event.CouncilDecidedData{Round: round, Phase: "plan", Decision: string(council.Continue), Tally: delib.Breakdown, Feedback: fb})
 		a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd)
 
-		// Re-plan with the feedback folded in (one retry — local models are flaky and
-		// an empty/unparseable reply shouldn't silently drop the revision).
+		// Re-plan with the blocking feedback folded in (one retry — local models are flaky
+		// and an empty/unparseable reply shouldn't silently drop the revision).
 		a.setStage(sid, stagePlan)
 		next := sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, fb))
 		if len(next) == 0 {
@@ -724,6 +752,26 @@ func (a *App) runExplorers(ctx context.Context, s session.Session, groups []plan
 
 // injectPlannerFindings appends the explorers' combined findings as a system
 // message so the main agent begins with them, and hands over the plan todos.
+// injectCouncilAdvice surfaces the plan council's non-blocking (warn/info) advice to
+// the agent as a system message, so the executor heeds it during the turn. The advice
+// is non-blocking: the plan was approved and the turn proceeds; the completion criteria
+// the council derived (verified at the termination gate) remain the contract.
+func (a *App) injectCouncilAdvice(ctx context.Context, sid session.SessionID, advice string, approved bool) {
+	tail := "The plan council APPROVED your plan but raised the notes above. Incorporate them where they " +
+		"improve the result as you carry out the plan — they are not blocking, so proceed with the task."
+	if !approved {
+		tail = "The plan council could not fully resolve the concerns above within the round cap, but is " +
+			"proceeding. Address them as you carry out the plan."
+	}
+	text := "# Plan review — notes for execution\n\n" + advice + "\n\n---\n" + tail
+	pd, _ := json.Marshal(event.PromptSubmittedData{
+		MessageID: "m_" + newID(),
+		Parts:     []session.Part{{Kind: session.PartText, Text: text}},
+	})
+	_ = a.appendFact(ctx, sid, event.TypePromptSubmitted,
+		event.Actor{Kind: event.ActorSystem, ID: "council"}, pd)
+}
+
 func (a *App) injectPlannerFindings(ctx context.Context, sid session.SessionID, findings string) {
 	text := "# Investigation findings (from the explorer subagents you just dispatched)\n\n" + findings +
 		"\n\n---\nThese are the results of YOUR OWN read-only explorers — trust them as your primary " +

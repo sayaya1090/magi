@@ -94,6 +94,11 @@ type CouncilConfig struct {
 	// per turn (one extra LLM call) and gives them to the council as the contract,
 	// so it judges "done" against concrete conditions. Opt-in (default off).
 	Criteria bool `toml:"criteria"`
+	// PlanAbsorb, when true, makes the plan-audit gate run one extra planner pass to
+	// fold the council's non-blocking (warn/info) advice into the plan before execution.
+	// Off by default: the advice is otherwise injected for the executor to heed without
+	// the extra LLM call.
+	PlanAbsorb bool `toml:"plan_absorb"`
 }
 
 // CouncilSignalConfig is a named deterministic check the council runs for evidence.

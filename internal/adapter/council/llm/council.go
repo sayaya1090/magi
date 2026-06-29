@@ -114,6 +114,7 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 	v.Confidence = r.Confidence
 	v.Rationale = r.Rationale
 	v.Feedback = r.Feedback
+	v.Severity = r.Severity // plan-audit phase only; gates blocking vs advisory
 	v.Criteria = r.Criteria // plan-audit phase only; empty otherwise
 	return v
 }
@@ -124,6 +125,7 @@ type memberReply struct {
 	Confidence float64  `json:"confidence"`
 	Rationale  string   `json:"rationale"`
 	Feedback   string   `json:"feedback"`
+	Severity   string   `json:"severity"` // plan-audit phase: critical|warn|info for a revise vote
 	Criteria   []string `json:"criteria"` // plan-audit phase: proposed completion criteria
 }
 
@@ -201,7 +203,12 @@ func planMemberSystem(m council.Member, lens string) string {
 			"read / review / answer tasks.\n"+
 			"- \"continue\" (revise): ONLY if you can name a CONCRETE flaw in the STEPS THEMSELVES — a step that is "+
 			"wrong, a necessary ACTION that is missing, a redundant step, or a wrong order. Put the concrete fix in "+
-			"`feedback`.\n"+
+			"`feedback`, and set `severity`:\n"+
+			"    • \"critical\" — the plan as written will FAIL or produce a WRONG/unsafe result without this fix "+
+			"(a necessary action is missing, a step is incorrect, destructive, or in an order that breaks the task). "+
+			"ONLY critical blocks the agent from starting — reserve it for real defects.\n"+
+			"    • \"warn\" — the plan would still accomplish the task, but this would meaningfully improve it.\n"+
+			"    • \"info\" — a minor nit. When unsure, use \"warn\"; do NOT inflate to critical.\n"+
 			"- \"abstain\": your lens cannot judge these steps. The VERIFICATION lens has nothing to verify before the "+
 			"work exists — it MUST abstain, never revise. Abstaining is excluded from the tally.\n\n"+
 			"Lens notes at PLAN time:\n"+
@@ -231,7 +238,7 @@ func planMemberSystem(m council.Member, lens string) string {
 			"and their absence from the plan is NEVER a reason to revise. Keep each item one short line; omit if your lens "+
 			"adds nothing.\n\n"+
 			"Respond with ONLY a JSON object, no prose, no code fence:\n"+
-			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific fix (only if continue)","criteria":["..."]}`,
+			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific fix (only if continue)","severity":"critical|warn|info (only if continue)","criteria":["..."]}`,
 		m.Name, m.Lens, lens)
 }
 

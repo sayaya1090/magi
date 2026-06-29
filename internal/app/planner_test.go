@@ -361,11 +361,13 @@ func TestPlanAuditApproves(t *testing.T) {
 	}
 }
 
-// A revise verdict re-plans via the planner LLM; the next round approves the
-// revised procedure, which is what gets returned.
+// A CRITICAL revise verdict re-plans via the planner LLM; the next round approves
+// the revised procedure, which is what gets returned. (Only critical blocks.)
 func TestPlanAuditRevisesThenReplans(t *testing.T) {
 	fc := &fakeCouncil{delibs: []council.Deliberation{
-		{Round: 1, Decision: council.Continue, Feedback: "add a verify step"},
+		{Round: 1, Decision: council.Continue, Verdicts: []council.Verdict{
+			{Member: "Melchior", Lens: "correctness", Decision: council.Continue, Severity: council.SeverityCritical, Feedback: "add a verify step"},
+		}},
 		{Round: 2, Decision: council.Done},
 	}}
 	replanned := `{"reason":"r","steps":[{"title":"X","strategy":"solo"},{"title":"Y","strategy":"solo"},{"title":"Z verify","strategy":"solo"}]}`
@@ -382,10 +384,13 @@ func TestPlanAuditRevisesThenReplans(t *testing.T) {
 // looping forever. The cap is the shared CouncilMaxRounds (default 3), not a
 // separate plan-only limit.
 func TestPlanAuditCapForcesApprove(t *testing.T) {
+	crit := func(fb string) []council.Verdict {
+		return []council.Verdict{{Member: "Melchior", Lens: "correctness", Decision: council.Continue, Severity: council.SeverityCritical, Feedback: fb}}
+	}
 	fc := &fakeCouncil{delibs: []council.Deliberation{
-		{Round: 1, Decision: council.Continue, Feedback: "more"},
-		{Round: 2, Decision: council.Continue, Feedback: "more"},
-		{Round: 3, Decision: council.Continue, Feedback: "more", Criteria: []string{"build passes"}},
+		{Round: 1, Decision: council.Continue, Verdicts: crit("more")},
+		{Round: 2, Decision: council.Continue, Verdicts: crit("more")},
+		{Round: 3, Decision: council.Continue, Verdicts: crit("more"), Criteria: []string{"build passes"}},
 	}}
 	replan := textStep(`{"steps":[{"title":"A","strategy":"solo"},{"title":"B","strategy":"solo"}]}`)
 	a, wd := newApp(t, &fakeLLM{steps: [][]port.ProviderEvent{replan, replan, replan}},
@@ -416,7 +421,9 @@ func TestPlanAuditCapForcesApprove(t *testing.T) {
 // rejected plan with no explanation.
 func TestPlanAuditReplanFailProceedsWithNote(t *testing.T) {
 	fc := &fakeCouncil{delibs: []council.Deliberation{
-		{Round: 1, Decision: council.Continue, Feedback: "fix it"},
+		{Round: 1, Decision: council.Continue, Verdicts: []council.Verdict{
+			{Member: "Melchior", Lens: "correctness", Decision: council.Continue, Severity: council.SeverityCritical, Feedback: "fix it"},
+		}},
 	}}
 	bad := textStep("sorry, I can't produce json") // no parseable steps → empty re-plan
 	a, wd := newApp(t, &fakeLLM{steps: [][]port.ProviderEvent{bad, bad}},
@@ -433,11 +440,66 @@ func TestPlanAuditReplanFailProceedsWithNote(t *testing.T) {
 	}
 }
 
+// A non-blocking (warn/info) revision does NOT re-plan: the plan is approved in one
+// round, the advice is injected as a system prompt for the executor to heed, and the
+// council's criteria are kept as the termination contract. This is the budget-saving
+// path — sub-critical concerns no longer loop the planner.
+func TestPlanAuditWarnProceedsWithAdvice(t *testing.T) {
+	fc := &fakeCouncil{delibs: []council.Deliberation{
+		{Round: 1, Decision: council.Continue, Criteria: []string{"output.txt exists"},
+			Verdicts: []council.Verdict{
+				{Member: "Casper", Lens: "completeness", Decision: council.Continue, Severity: council.SeverityWarn, Feedback: "consider adding a test"},
+			}},
+	}}
+	a, wd := newApp(t, &fakeLLM{}, Config{Council: fc, Agents: map[string]AgentSpec{plannerAgent: {Name: "planner"}}})
+	s, steps := planAuditFixture(t, a, wd)
+	got := a.runPlanAuditGate(context.Background(), s, a.cfg.Agents[plannerAgent], "do A and B", steps)
+
+	if len(got) != 2 {
+		t.Fatalf("warn-only must not re-plan; want the original 2 steps, got %d", len(got))
+	}
+	if fc.calls != 1 {
+		t.Fatalf("warn-only must not loop the council; calls=%d", fc.calls)
+	}
+	dec := planDecisions(t, a, s.ID)
+	if len(dec) != 1 || dec[0].Decision != string(council.Done) || !strings.Contains(dec[0].Note, "advisory") {
+		t.Fatalf("want one approve-with-advisory decision, got %+v", dec)
+	}
+	if c := a.cachedCriteria(s.ID); !strings.Contains(c, "output.txt exists") {
+		t.Fatalf("criteria should be kept as the contract, got %q", c)
+	}
+	// The advice is injected as a system prompt the executor will see this turn.
+	evs, err := a.store.Read(context.Background(), s.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawAdvice bool
+	for _, e := range evs {
+		if e.Type != event.TypePromptSubmitted {
+			continue
+		}
+		var d event.PromptSubmittedData
+		if json.Unmarshal(e.Data, &d) != nil {
+			continue
+		}
+		for _, p := range d.Parts {
+			if strings.Contains(p.Text, "Plan review") && strings.Contains(p.Text, "consider adding a test") {
+				sawAdvice = true
+			}
+		}
+	}
+	if !sawAdvice {
+		t.Fatal("warn advice should be injected as a system prompt for the executor")
+	}
+}
+
 // The plan-audit cap follows the configured CouncilMaxRounds (here 1), proving it's
 // the shared knob and not a hardcoded constant.
 func TestPlanAuditCapRespectsCouncilMaxRounds(t *testing.T) {
 	fc := &fakeCouncil{delibs: []council.Deliberation{
-		{Round: 1, Decision: council.Continue, Feedback: "more"},
+		{Round: 1, Decision: council.Continue, Verdicts: []council.Verdict{
+			{Member: "Melchior", Lens: "correctness", Decision: council.Continue, Severity: council.SeverityCritical, Feedback: "more"},
+		}},
 	}}
 	a, wd := newApp(t, &fakeLLM{}, Config{
 		Council: fc, CouncilMaxRounds: 1,

@@ -193,6 +193,11 @@ type Config struct {
 	// turn (one extra LLM call) and gives them to the council as its contract
 	// (D15). Opt-in.
 	CouncilCriteria bool
+	// CouncilPlanAbsorb, when true, makes the plan-audit gate run one extra planner
+	// pass to fold the council's non-blocking (warn/info) advice into the plan before
+	// execution (Mechanism B). Off by default: the advice is otherwise injected for the
+	// executor to heed without the extra LLM call.
+	CouncilPlanAbsorb bool
 }
 
 // CouncilSignalSpec is a named deterministic check the council runs for evidence
