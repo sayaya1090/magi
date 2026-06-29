@@ -109,6 +109,7 @@ type CouncilVerdictData struct {
 	Confidence float64 `json:"confidence,omitempty"`
 	Rationale  string  `json:"rationale,omitempty"`
 	Feedback   string  `json:"feedback,omitempty"`
+	Severity   string  `json:"severity,omitempty"` // plan audit: critical|warn|info on a revise — what gated the decision
 }
 
 // CouncilDecidedData — TypeCouncilDecided (the tallied outcome). Feedback is set

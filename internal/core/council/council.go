@@ -48,11 +48,24 @@ type Verdict struct {
 	Rationale  string   `json:"rationale,omitempty"`  // why
 	Feedback   string   `json:"feedback,omitempty"`   // actionable, used when Continue
 	Weight     float64  `json:"weight,omitempty"`     // 0 = 1
+	// Severity tiers a plan-audit revise (continue) vote: only "critical" blocks the
+	// plan gate; "warn"/"info" are advisory (heeded but non-blocking). Empty/unknown is
+	// treated as "warn" — only an explicit "critical" stops the agent from starting work.
+	// Unused in the termination phase.
+	Severity string `json:"severity,omitempty"`
 	// Criteria is a member's proposed completion criteria (expected deliverables /
 	// verification guidance), set only in the plan-audit phase where the council
 	// derives the contract the turn is later judged against. Empty otherwise.
 	Criteria []string `json:"criteria,omitempty"`
 }
+
+// Plan-audit severity tiers. Only SeverityCritical blocks the plan gate; warn/info
+// are advisory. A missing/unknown severity normalizes to SeverityWarn.
+const (
+	SeverityCritical = "critical"
+	SeverityWarn     = "warn"
+	SeverityInfo     = "info"
+)
 
 // Breakdown is the counted result of a tally — kept on the Deliberation so the
 // outcome is observable and replayable (loop pains #2/#5).
@@ -209,9 +222,59 @@ func Tally(vs []Verdict, rule Rule) (Decision, Breakdown) {
 // into one actionable directive for the next loop iteration. Returns "" when no
 // continuing member supplied feedback.
 func AggregateFeedback(vs []Verdict) string {
+	return mergeFeedback(vs,
+		func(v Verdict) bool { return v.Decision == Continue },
+		"The council did not agree the task is done. Address this feedback, then continue:")
+}
+
+// severityOf normalizes a verdict's plan-audit severity; missing/unknown → warn, so
+// only an explicit "critical" is blocking.
+func severityOf(v Verdict) string {
+	switch strings.ToLower(strings.TrimSpace(v.Severity)) {
+	case SeverityCritical:
+		return SeverityCritical
+	case SeverityInfo:
+		return SeverityInfo
+	default:
+		return SeverityWarn
+	}
+}
+
+// HasCriticalRevision reports whether any member raised a BLOCKING concern at the
+// plan gate — a continue vote at critical severity. Only these block; warn/info
+// revisions are advisory. (A single critical vetoes, so a real plan flaw one member
+// catches still stops the agent.)
+func HasCriticalRevision(vs []Verdict) bool {
+	for _, v := range vs {
+		if v.Decision == Continue && severityOf(v) == SeverityCritical {
+			return true
+		}
+	}
+	return false
+}
+
+// CriticalFeedback merges the feedback of the members that raised a critical,
+// blocking concern (what a re-plan must fix). "" if none.
+func CriticalFeedback(vs []Verdict) string {
+	return mergeFeedback(vs,
+		func(v Verdict) bool { return v.Decision == Continue && severityOf(v) == SeverityCritical },
+		"The plan has a blocking flaw. Revise it to address:")
+}
+
+// AdvisoryFeedback merges the non-blocking (warn/info) revise feedback into one
+// advisory note the agent should heed during execution. "" if none.
+func AdvisoryFeedback(vs []Verdict) string {
+	return mergeFeedback(vs,
+		func(v Verdict) bool { return v.Decision == Continue && severityOf(v) != SeverityCritical },
+		"Non-blocking review advice — incorporate where it improves the work:")
+}
+
+// mergeFeedback joins the feedback of the verdicts matching keep into a bulleted,
+// labeled directive under header. Returns "" when none match or none have feedback.
+func mergeFeedback(vs []Verdict, keep func(Verdict) bool, header string) string {
 	var parts []string
 	for _, v := range vs {
-		if v.Decision != Continue {
+		if !keep(v) {
 			continue
 		}
 		fb := strings.TrimSpace(v.Feedback)
@@ -227,8 +290,7 @@ func AggregateFeedback(vs []Verdict) string {
 	if len(parts) == 0 {
 		return ""
 	}
-	return "The council did not agree the task is done. Address this feedback, then continue:\n" +
-		strings.Join(parts, "\n")
+	return header + "\n" + strings.Join(parts, "\n")
 }
 
 // --- internals ---
