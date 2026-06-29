@@ -480,6 +480,40 @@ func (a *App) markTodoActive(ctx context.Context, sid session.SessionID, actor e
 	a.setTodoStatusIf(ctx, sid, actor, i, "pending", "in_progress")
 }
 
+// advanceTo records that the procedure has MOVED ON to step i: every earlier step is
+// completed and step i goes in_progress (◐). Doing this when a step STARTS — rather
+// than back-filling earlier steps only when the next fan-out FINISHES — is what removes
+// the one-beat lag where step 1 stayed pending until step 2 completed (a solo step
+// before a fan-out has no signal of its own). One fact, only if something changed.
+func (a *App) advanceTo(ctx context.Context, sid session.SessionID, actor event.Actor, i int) {
+	a.mu.Lock()
+	td := a.todos[sid]
+	if i < 0 || i >= len(td) {
+		a.mu.Unlock()
+		return
+	}
+	cp := append([]session.Todo(nil), td...)
+	changed := false
+	for j := 0; j < i; j++ {
+		if cp[j].Status != "completed" {
+			cp[j].Status = "completed"
+			changed = true
+		}
+	}
+	if cp[i].Status == "pending" {
+		cp[i].Status = "in_progress"
+		changed = true
+	}
+	if !changed {
+		a.mu.Unlock()
+		return
+	}
+	a.todos[sid] = cp
+	a.mu.Unlock()
+	d, _ := json.Marshal(event.TodosChangedData{Todos: cp})
+	_ = a.appendFact(ctx, sid, event.TypeTodosChanged, actor, d)
+}
+
 // markFirstPendingActive marks the first still-pending todo in_progress, so once
 // pre-flight has checked off what it ran, the panel shows the main agent working the
 // next step (◐) for the rest of the turn (finalizeTodos resolves it on exit).

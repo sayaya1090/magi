@@ -531,10 +531,10 @@ func (a *App) executeSteps(ctx context.Context, s session.Session, steps []planS
 		if len(groups) == 0 {
 			continue // per-step degrade
 		}
-		a.markTodoActive(ctx, s.ID, plannerActor, i) // dispatching explorers → ◐
+		a.advanceTo(ctx, s.ID, plannerActor, i) // moved on to step i: earlier steps ✓, step i running ◐
 		if f := strings.TrimSpace(a.runExplorers(ctx, s, groups)); f != "" {
 			out = append(out, "### "+st.Title+"\n"+f)
-			a.completeThrough(ctx, s.ID, plannerActor, i) // ran in pre-flight → check off this step and any earlier ones it subsumed
+			a.completeThrough(ctx, s.ID, plannerActor, i) // step i done
 		} else {
 			a.setTodoStatusIf(ctx, s.ID, plannerActor, i, "in_progress", "pending") // degraded → don't leave a stuck ◐
 		}
