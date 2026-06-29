@@ -79,8 +79,10 @@ X-CLIENT-API-KEY = "${FAST_CLIENT_KEY}"
 [orchestration]            # pre-flight procedure planner (on by default): decomposes a request into an
 planner = true             # ordered procedure → a strategy per step (solo|parallel|scout); scout obtains
                            # a list then runs each item in parallel. For multi-step plans, before execution
-                           # the council audits the plan (approve/revise, consensus rule) and derives
-                           # completion criteria (deliverables · test guidance) as that turn's termination contract
+                           # the council audits the plan: only a CRITICAL flaw blocks (re-plan); warn/info notes are
+                           # accepted as non-blocking advice (injected for the executor). It also derives completion
+                           # criteria (deliverables · test guidance) as that turn's termination contract.
+                           # plan_absorb = true → fold the advice into the plan via one extra planner pass (default off)
 
 [mcp.filesystem]           # MCP server (stdio, or HTTP via url=)
 command = "npx"
