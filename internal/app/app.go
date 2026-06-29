@@ -406,6 +406,22 @@ func (a *App) SetTodos(sid session.SessionID, td []session.Todo) {
 	a.mu.Unlock()
 }
 
+// markTodoDone marks the i-th plan todo completed. The planner uses it to reflect
+// steps it actually executed during pre-flight (scout/parallel exploration), so the
+// panel shows real progress even when the model never calls todowrite — a weak local
+// model often doesn't. A later todowrite from the model still replaces the whole list.
+func (a *App) markTodoDone(sid session.SessionID, i int) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if td := a.todos[sid]; i >= 0 && i < len(td) {
+		// Copy-on-write: Todos() hands the backing slice to the TUI, which reads it
+		// lock-free on another goroutine — mutating in place would be a data race.
+		cp := append([]session.Todo(nil), td...)
+		cp[i].Status = "completed"
+		a.todos[sid] = cp
+	}
+}
+
 // Rewind removes the last n user turns from a session by truncating its event
 // log, and clears derived per-session state. Returns the new highest seq.
 func (a *App) Rewind(ctx context.Context, sid session.SessionID, n int) (int64, error) {

@@ -512,7 +512,7 @@ func (a *App) registerPlanTodos(sid session.SessionID, steps []planStep) {
 func (a *App) executeSteps(ctx context.Context, s session.Session, steps []planStep) string {
 	budget := maxPlanExplorers
 	var out []string
-	for _, st := range steps {
+	for i, st := range steps {
 		if budget <= 0 || ctx.Err() != nil {
 			break
 		}
@@ -530,6 +530,7 @@ func (a *App) executeSteps(ctx context.Context, s session.Session, steps []planS
 		}
 		if f := strings.TrimSpace(a.runExplorers(ctx, s, groups)); f != "" {
 			out = append(out, "### "+st.Title+"\n"+f)
+			a.markTodoDone(s.ID, i) // this step ran in pre-flight → check it off
 		}
 	}
 	return strings.Join(out, "\n\n")

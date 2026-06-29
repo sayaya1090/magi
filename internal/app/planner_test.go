@@ -179,6 +179,39 @@ func TestStripStrategyTag(t *testing.T) {
 	}
 }
 
+// The planner checks off the steps it actually executes during pre-flight (scout/
+// parallel exploration), so the panel reflects real progress even when the model
+// never calls todowrite. Solo steps are the main agent's work and stay pending.
+func TestExecuteStepsMarksExecutedTodos(t *testing.T) {
+	a := newOrchApp(t, &gateLLM{text: "finding text"}, Config{
+		Permission: "allow", MaxAgents: 100, MaxDepth: 4,
+		Agents: map[string]AgentSpec{"explore": {Name: "explore", System: "x"}},
+	})
+	s := parentSession(t.TempDir())
+	a.mu.Lock()
+	a.sessions[s.ID] = s
+	a.mu.Unlock()
+
+	steps := []planStep{
+		{Title: "define criteria", Strategy: "solo"},
+		{Title: "survey files", Strategy: "parallel", Groups: []planGroup{{Agent: "explore", Focus: "f", Question: "q"}}},
+		{Title: "write summary", Strategy: "solo"},
+	}
+	a.registerPlanTodos(s.ID, steps)
+	a.executeSteps(context.Background(), s, steps)
+
+	td := a.Todos(s.ID)
+	if len(td) != 3 {
+		t.Fatalf("want 3 todos, got %d", len(td))
+	}
+	if td[1].Status != "completed" {
+		t.Errorf("executed parallel step should be completed, got %q", td[1].Status)
+	}
+	if td[0].Status != "pending" || td[2].Status != "pending" {
+		t.Errorf("solo steps should stay pending (main agent handles them), got %q / %q", td[0].Status, td[2].Status)
+	}
+}
+
 // newPlannerApp builds an App with a real store for gating tests.
 func newPlannerApp(t *testing.T, cfg Config) (*App, session.SessionID) {
 	t.Helper()
