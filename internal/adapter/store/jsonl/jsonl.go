@@ -107,13 +107,26 @@ func (s *Store) Append(ctx context.Context, sid session.SessionID, evs ...event.
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
 
 	w := bufio.NewWriter(f)
+	// Repair a torn final line: if the existing file does NOT end in a newline (a prior
+	// write was interrupted/partial), a bare append would glue the new event onto the
+	// broken line — and json.Unmarshal would then skip BOTH as one unparseable line,
+	// silently losing this event. Write a separating newline first so the new event
+	// lands on its own line (the torn line stays corrupt but is tolerated on read).
+	if fi, statErr := f.Stat(); statErr == nil && fi.Size() > 0 {
+		last := make([]byte, 1)
+		if _, rErr := f.ReadAt(last, fi.Size()-1); rErr == nil && last[0] != '\n' {
+			if err := w.WriteByte('\n'); err != nil {
+				return nil, err
+			}
+		}
+	}
 	seq := s.seqs[sid]
 	out := make([]int64, len(evs))
 	for i := range evs {
