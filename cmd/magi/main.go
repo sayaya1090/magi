@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"charm.land/lipgloss/v2"
 
@@ -551,6 +552,11 @@ func renderText(out, errw io.Writer, e event.Event) {
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
+	}
+	// Back up to a rune boundary so a multibyte char (CJK/emoji in tool output) is
+	// never split into invalid UTF-8.
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
 	}
 	return s[:n] + "…"
 }

@@ -131,8 +131,15 @@ func TestProposeMemoriesAndSkills(t *testing.T) {
 		name := e.Name()
 		if strings.HasPrefix(name, "skill-") {
 			sawSkill = true
-			if strings.ContainsAny(name, "/.") && name != "skill-"+sanitize("../evil name")+".md" {
-				t.Errorf("skill filename not sanitized: %q", name)
+			// The stem (filename minus the "skill-" prefix and ".md" suffix) must contain
+			// no path separators or dots — i.e. the unsafe name was fully sanitized and
+			// can't escape pending/.
+			stem := strings.TrimSuffix(strings.TrimPrefix(name, "skill-"), ".md")
+			if strings.ContainsAny(stem, "/.") {
+				t.Errorf("skill filename not sanitized (escapable): %q", name)
+			}
+			if name != "skill-"+sanitize("../evil name")+".md" {
+				t.Errorf("skill filename = %q, want sanitized form", name)
 			}
 		}
 		b, _ := os.ReadFile(filepath.Join(dir, "pending", name))

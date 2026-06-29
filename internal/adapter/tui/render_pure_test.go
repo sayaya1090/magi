@@ -158,6 +158,12 @@ func TestOneLine(t *testing.T) {
 	if width(got) > 5 || !strings.HasSuffix(got, "…") {
 		t.Errorf("oneLine truncation = %q, want width<=5 ending in …", got)
 	}
+	// Wide CJK runes are 2 cells each — oneLine budgets by DISPLAY WIDTH (the reason it
+	// exists), so the result must stay within the cell budget, not the rune/byte count.
+	cjk := oneLine("你好世界你好", 4)
+	if width(cjk) > 4 || !strings.HasSuffix(cjk, "…") {
+		t.Errorf("CJK truncation = %q, want display width<=4 ending in …", cjk)
+	}
 	if got := oneLine("anything", 0); got != "" {
 		t.Errorf("max<=0 should yield empty, got %q", got)
 	}

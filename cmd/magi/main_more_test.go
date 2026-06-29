@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/config"
@@ -31,7 +32,10 @@ func TestApplyAgentModels(t *testing.T) {
 	}
 	applyAgentModels(agents, routes, profiles)
 
-	if a := agents["coder"]; a.Provider != "fast" || a.Model.Model != "qwen3-coder:30b" || a.Model.Provider != "openai" {
+	// The routing contract: a profile route sets the agent's Provider to the profile
+	// name and its model to the profile's model. (The ModelRef.Provider adapter tag is
+	// an incidental constant, not asserted here.)
+	if a := agents["coder"]; a.Provider != "fast" || a.Model.Model != "qwen3-coder:30b" {
 		t.Errorf("coder routed wrong: provider=%q model=%+v", a.Provider, a.Model)
 	}
 	if a := agents["explore"]; a.Provider != "" || a.Model.Model != "gpt-4o" {
@@ -83,6 +87,15 @@ func TestTruncate(t *testing.T) {
 	if got := truncate("exact", 5); got != "exact" {
 		t.Errorf("n==len should be unchanged, got %q", got)
 	}
+	// Multibyte content (each CJK rune is 3 bytes) must not be split into invalid
+	// UTF-8 — the byte budget backs up to a rune boundary.
+	got := truncate("안녕하세요", 7) // 7 lands mid-rune (3-byte runes)
+	if !utf8.ValidString(got) {
+		t.Errorf("truncate produced invalid UTF-8: %q", got)
+	}
+	if !strings.HasSuffix(got, "…") || len(got) > 7+len("…") {
+		t.Errorf("multibyte truncate = %q, want valid prefix within budget + …", got)
+	}
 }
 
 // renderText turns each fact event into a human-readable line; verify the formats
@@ -117,15 +130,25 @@ func TestRenderText(t *testing.T) {
 		Part: session.Part{Kind: session.PartToolResult, ToolResult: &session.ToolResult{Content: json.RawMessage(`"boom"`), IsError: true}}})); !strings.Contains(out, "✗") {
 		t.Errorf("error result should show ✗: %q", out)
 	}
-	// council convened
+	// council convened, with signals appended
 	if out, _ := render(mk(event.TypeCouncilConvened, event.CouncilConvenedData{
-		Round: 1, Members: []string{"Melchior", "Balthasar"}, Rule: "majority"})); !strings.Contains(out, "council round 1") || !strings.Contains(out, "majority") {
-		t.Errorf("convened not rendered: %q", out)
+		Round: 1, Members: []string{"Melchior", "Balthasar"}, Rule: "majority", Signals: []string{"verify: pass"}})); !strings.Contains(out, "council round 1") || !strings.Contains(out, "majority") || !strings.Contains(out, "verify: pass") {
+		t.Errorf("convened (with signals) not rendered: %q", out)
 	}
 	// council decided
 	if out, _ := render(mk(event.TypeCouncilDecided, event.CouncilDecidedData{
 		Round: 2, Decision: "done", Tally: corecouncil.Breakdown{Done: 3, Continue: 0}})); !strings.Contains(out, "round 2: done") || !strings.Contains(out, "3 done") {
 		t.Errorf("decided not rendered: %q", out)
+	}
+	// decided with a gate Note (forced finish) shows the note
+	if out, _ := render(mk(event.TypeCouncilDecided, event.CouncilDecidedData{
+		Round: 3, Decision: "done", Note: "round cap"})); !strings.Contains(out, "(round cap)") {
+		t.Errorf("decided note not rendered: %q", out)
+	}
+	// decided=continue with feedback shows the → continue marker
+	if out, _ := render(mk(event.TypeCouncilDecided, event.CouncilDecidedData{
+		Round: 4, Decision: "continue", Feedback: "do X"})); !strings.Contains(out, "→ continue") {
+		t.Errorf("decided continue marker not rendered: %q", out)
 	}
 	// error goes to errw, not out
 	out, errw := render(mk(event.TypeError, event.ErrorData{Message: "kaboom"}))
