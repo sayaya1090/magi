@@ -50,3 +50,42 @@ func TestDirs(t *testing.T) {
 func TestTerminalCapsNoPanic(t *testing.T) {
 	_ = OS{}.TerminalCaps() // detection must not panic regardless of env
 }
+
+// Env-based detection picks the right image protocol / truecolor flag. (t.Setenv
+// isolates and restores each var; clear the cross-cutting ones so the host env can't
+// leak into the case under test.)
+func TestTerminalCapsDetection(t *testing.T) {
+	clear := func() {
+		t.Setenv("KITTY_WINDOW_ID", "")
+		t.Setenv("TERM_PROGRAM", "")
+		t.Setenv("COLORTERM", "")
+		t.Setenv("TERM", "")
+	}
+
+	t.Run("kitty", func(t *testing.T) {
+		clear()
+		t.Setenv("TERM", "xterm-kitty")
+		c := OS{}.TerminalCaps()
+		if c.Image != "kitty" || !c.TrueColor {
+			t.Errorf("xterm-kitty → %+v, want Image=kitty TrueColor=true", c)
+		}
+	})
+	t.Run("iterm2", func(t *testing.T) {
+		clear()
+		t.Setenv("TERM", "xterm-256color")
+		t.Setenv("TERM_PROGRAM", "iTerm.app")
+		c := OS{}.TerminalCaps()
+		if c.Image != "iterm2" {
+			t.Errorf("TERM_PROGRAM=iTerm.app → Image=%q, want iterm2", c.Image)
+		}
+	})
+	t.Run("truecolor-no-image", func(t *testing.T) {
+		clear()
+		t.Setenv("TERM", "xterm-256color")
+		t.Setenv("COLORTERM", "truecolor")
+		c := OS{}.TerminalCaps()
+		if !c.TrueColor || c.Image != "" {
+			t.Errorf("256color+truecolor → %+v, want TrueColor=true Image=\"\"", c)
+		}
+	})
+}

@@ -102,3 +102,14 @@ func TestDroppable(t *testing.T) {
 		}
 	}
 }
+
+// Invariant: every droppable type MUST be transient. A fact that is droppable would be
+// silently lost under backpressure, desyncing the persisted log from the live UI. This
+// loop catches a future fact accidentally added to droppableTypes.
+func TestDroppableImpliesTransient(t *testing.T) {
+	for ty := range droppableTypes {
+		if !ty.IsTransient() {
+			t.Errorf("%s is droppable but NOT transient — a fact must never be droppable", ty)
+		}
+	}
+}
