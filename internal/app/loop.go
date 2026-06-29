@@ -928,6 +928,15 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 		a.mu.Unlock()
 		return true
 	}
+	// No human to ask (headless/automation): never block on an interactive prompt —
+	// resolve by policy. "allow" grants (allow = allow-all, the headless default);
+	// "ask"/"auto" deny (the safe default when there's no one to approve). This is what
+	// prevents the deadlock where a forced prompt waits forever on a decision that can't
+	// come (the run/bus goroutines then all sleep → the Go runtime kills the process).
+	if !a.cfg.Interactive {
+		a.mu.Unlock()
+		return a.Permission() == "allow"
+	}
 	ch := make(chan string, 1)
 	if a.perms[sid] == nil {
 		a.perms[sid] = map[string]chan string{}

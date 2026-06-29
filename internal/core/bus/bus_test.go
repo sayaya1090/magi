@@ -13,6 +13,26 @@ func ev(sid session.SessionID, t event.Type) event.Event {
 	return event.Event{SessionID: sid, Type: t}
 }
 
+// A context with no cancellation (Background) has a nil Done() channel. Subscribe
+// must NOT spawn a watcher that receives on it forever (which leaks a goroutine and
+// can trip the runtime deadlock detector); cancel() must still deliver+close.
+func TestSubscribeNilDoneContext(t *testing.T) {
+	b := New()
+	ch, cancel := b.Subscribe(context.Background(), "s1") // Background → Done()==nil
+	b.Publish(ev("s1", event.TypeTurnFinished))
+	select {
+	case <-ch:
+	case <-time.After(time.Second):
+		t.Fatal("event not delivered to subscriber")
+	}
+	cancel()
+	// cancel must close the channel even with a nil-Done ctx (no watcher goroutine):
+	// draining exits only if the channel was closed (else this hangs → test timeout).
+	for range ch {
+	}
+	cancel() // idempotent — a second cancel must not panic (sync.Once)
+}
+
 // Multi-subscriber fan-out: every subscriber of a session receives a published
 // event (D5 — supports multiple UIs / late joiners on the live channel).
 func TestFanOut(t *testing.T) {

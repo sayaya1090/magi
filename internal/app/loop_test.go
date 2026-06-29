@@ -247,7 +247,7 @@ func TestPermissionAskAlways(t *testing.T) {
 		toolStep("write", `{"path":"b.txt","content":"2"}`),
 		textStep("done"),
 	}}
-	a, wd := newApp(t, llm, Config{Permission: "ask"})
+	a, wd := newApp(t, llm, Config{Permission: "ask", Interactive: true})
 	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
 
 	// Subscribe first to observe permission.requested.
@@ -307,7 +307,7 @@ func TestPermissionAutoConfirmsCommands(t *testing.T) {
 		toolStep("bash", `{"command":"echo hi"}`),
 		textStep("done"),
 	}}
-	a, wd := newApp(t, llm, Config{Permission: "auto"})
+	a, wd := newApp(t, llm, Config{Permission: "auto", Interactive: true})
 	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

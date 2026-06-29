@@ -332,6 +332,7 @@ func run() int {
 		Model:            session.ModelRef{Provider: "openai", Model: modelID},
 		System:           systemPrompt,
 		Permission:       perm,
+		Interactive:      !headless, // TUI can answer permission prompts; headless can't (resolve by policy)
 		Profile:          orStr(*profile, cfg.Profile),
 		Sandbox:          cfg.Sandbox,
 		Allow:            cfg.Allow,

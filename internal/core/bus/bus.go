@@ -96,11 +96,17 @@ func (b *Bus) Subscribe(ctx context.Context, sid session.SessionID) (<-chan even
 		})
 	}
 
-	// Close the subscription when the context is cancelled.
-	go func() {
-		<-ctx.Done()
-		cancel()
-	}()
+	// Close the subscription when the context is cancelled. A context with no
+	// cancellation (e.g. context.Background) has a nil Done() channel — receiving on
+	// it blocks forever, leaking this goroutine and, if every other goroutine also
+	// parks, tripping the runtime's deadlock detector. Skip the watcher in that case;
+	// the subscription then closes only via the explicit cancel() the caller defers.
+	if done := ctx.Done(); done != nil {
+		go func() {
+			<-done
+			cancel()
+		}()
+	}
 
 	return ch, cancel
 }
