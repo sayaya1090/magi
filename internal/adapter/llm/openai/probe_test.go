@@ -1,0 +1,94 @@
+package openai
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
+
+// ProbeContextWindow discovers the context length from each backend convention:
+// vLLM (/v1/models max_model_len), LiteLLM (/model/info max_input_tokens), and Ollama
+// (/api/show context_length); plain OpenAI (no field anywhere) returns false.
+func TestProbeContextWindow(t *testing.T) {
+	cases := []struct {
+		name    string
+		handler http.HandlerFunc
+		want    int
+		ok      bool
+	}{
+		{
+			name: "vllm max_model_len",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/models" {
+					_, _ = w.Write([]byte(`{"data":[{"id":"m","max_model_len":131072}]}`))
+					return
+				}
+				http.NotFound(w, r)
+			},
+			want: 131072, ok: true,
+		},
+		{
+			name: "litellm model_info",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/models":
+					_, _ = w.Write([]byte(`{"data":[{"id":"m"}]}`)) // no context field → falls through
+				case "/model/info":
+					_, _ = w.Write([]byte(`{"data":[{"model_name":"m","model_info":{"max_input_tokens":200000}}]}`))
+				default:
+					http.NotFound(w, r)
+				}
+			},
+			want: 200000, ok: true,
+		},
+		{
+			name: "ollama api/show",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/api/show" && r.Method == http.MethodPost {
+					_, _ = w.Write([]byte(`{"model_info":{"llama.context_length":262144}}`))
+					return
+				}
+				http.NotFound(w, r)
+			},
+			want: 262144, ok: true,
+		},
+		{
+			name: "plain openai exposes nothing",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/models" {
+					_, _ = w.Write([]byte(`{"data":[{"id":"m","object":"model"}]}`))
+					return
+				}
+				http.NotFound(w, r)
+			},
+			want: 0, ok: false,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			srv := httptest.NewServer(c.handler)
+			defer srv.Close()
+			got, ok := New(srv.URL, "").ProbeContextWindow(context.Background(), "m")
+			if ok != c.ok || got != c.want {
+				t.Errorf("ProbeContextWindow = (%d,%v), want (%d,%v)", got, ok, c.want, c.ok)
+			}
+		})
+	}
+}
+
+// A zero/garbage context value is ignored (asInt rejects non-positive), so a backend
+// returning max_model_len: 0 falls through rather than seeding a useless 0 window.
+func TestProbeRejectsZero(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/models" {
+			_, _ = w.Write([]byte(`{"data":[{"id":"m","max_model_len":0}]}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+	if _, ok := New(srv.URL, "").ProbeContextWindow(context.Background(), "m"); ok {
+		t.Error("a zero context length should be rejected, not accepted")
+	}
+}

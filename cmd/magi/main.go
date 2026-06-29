@@ -32,6 +32,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/command"
 	corecouncil "github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
+	coremodel "github.com/sayaya1090/magi/internal/core/model"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 	"github.com/sayaya1090/magi/internal/prompt"
@@ -255,6 +256,20 @@ func run() int {
 		return 0
 	}
 
+	// Model metadata registry. When the configured model isn't seeded (e.g. a cloud
+	// model like gpt-oss:120b-cloud), probe the backend for its real context window so the
+	// context meter and auto-compaction use accurate numbers instead of the conservative
+	// 8K fallback (which let one big result overflow the real window). Best-effort, short
+	// timeout, non-fatal — falls back to the registry default.
+	modelReg := coremodel.NewRegistry()
+	if modelID != "" && !modelReg.Has(modelID) {
+		pctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		if w, ok := llm.ProbeContextWindow(pctx, modelID); ok {
+			modelReg.Register(coremodel.Info{ID: modelID, ContextWindow: w, MaxOutput: w / 4, Tools: true})
+		}
+		cancel()
+	}
+
 	// Tools: built-ins plus any Lua plugins. The plugin host shares the registry
 	// so hot-reloaded plugins take effect in the running agent.
 	reg := builtin.Default()
@@ -349,6 +364,7 @@ func run() int {
 		Workflow:         *workflow,
 		VerifyCmd:        *verifyCmd,
 		Providers:        providers,
+		Models:           modelReg,
 		ProfileModels:    profileModels(cfg.LLM.Profiles),
 		ProfileDefs:      profileDefs(cfg.LLM.Profiles),
 		NewProvider:      newProvider,

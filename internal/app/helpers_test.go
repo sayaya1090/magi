@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"encoding/json"
 	"runtime"
 	"strings"
@@ -64,6 +65,28 @@ func TestRunGuard(t *testing.T) {
 	}
 	if !g.stuck() {
 		t.Error("should be stuck once blockedBudget is reached")
+	}
+}
+
+// capToolResult bounds a single result so one giant output can't overflow the context,
+// truncating on a rune boundary with a note, and leaves under-cap content untouched.
+func TestCapToolResult(t *testing.T) {
+	small := []byte("hello")
+	if got := capToolResult(small); string(got) != "hello" {
+		t.Errorf("under-cap content must be unchanged, got %q", got)
+	}
+	big := bytes.Repeat([]byte("a"), toolResultCap+5000)
+	got := capToolResult(big)
+	if len(got) >= len(big) {
+		t.Errorf("over-cap content should shrink: got %d, orig %d", len(got), len(big))
+	}
+	if !strings.Contains(string(got), "output truncated") || !utf8.Valid(got) {
+		t.Errorf("truncated result should carry the marker and stay valid UTF-8")
+	}
+	// A multibyte rune straddling the cut must not be split (result stays valid UTF-8).
+	multi := bytes.Repeat([]byte("가"), toolResultCap) // 3 bytes each → crosses the cap mid-rune
+	if !utf8.Valid(capToolResult(multi)) {
+		t.Error("rune-boundary truncation produced invalid UTF-8")
 	}
 }
 

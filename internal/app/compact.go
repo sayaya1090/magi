@@ -21,7 +21,14 @@ func (a *App) maybeCompact(ctx context.Context, s session.Session, agent AgentSp
 	msgs := reconstruct(evs)
 	window := a.cfg.Models.Get(s.Model.Model).ContextWindow
 	budget := int(float64(window) * a.cfg.CompactRatio)
-	if a.contextTokens(s.ID, sys, msgs) <= budget {
+	// The provider's real prompt_tokens lags within a turn (it reflects the last completed
+	// call), so as a turn accumulates large tool results the trigger would under-count and
+	// miss the growth. Use whichever is larger — the real count or the current estimate.
+	tokens := a.contextTokens(s.ID, sys, msgs)
+	if est := estimateTokens(sys, msgs); est > tokens {
+		tokens = est
+	}
+	if tokens <= budget {
 		return false
 	}
 

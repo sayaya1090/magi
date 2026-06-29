@@ -108,6 +108,29 @@ func (g *runGuard) stuck() bool {
 	return g.blocked >= blockedBudget
 }
 
+// toolResultCap bounds a single tool result fed back to the model. ~64KB ≈ 16k tokens:
+// large enough for real output, small enough that one giant result (e.g. reading a 500KB
+// file) can't overflow the context window past what compaction can recover.
+const toolResultCap = 64 << 10
+
+// capToolResult truncates an oversized tool result on a rune boundary, appending a note
+// that tells the agent to narrow its read/command rather than silently losing data.
+func capToolResult(b []byte) []byte {
+	if len(b) <= toolResultCap {
+		return b
+	}
+	cut := toolResultCap
+	for cut > 0 && !utf8.RuneStart(b[cut]) { // don't split a multibyte rune
+		cut--
+	}
+	marker := fmt.Sprintf(
+		"\n\n…[output truncated: showing %d of %d bytes — re-run with a narrower range or filter "+
+			"(read offset/limit, grep, head/tail) to see the rest]", cut, len(b))
+	out := make([]byte, 0, cut+len(marker))
+	out = append(out, b[:cut]...)
+	return append(out, marker...)
+}
+
 // canonicalArgs returns a stable string for tool args so logically identical
 // calls fingerprint equally regardless of JSON key ordering or whitespace.
 func canonicalArgs(raw json.RawMessage) string {
@@ -1028,10 +1051,15 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		Sandbox:   port.SandboxSpec{Mode: a.cfg.Sandbox, Workdir: workdir},
 	})
 	if err != nil {
-		a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID, err.Error(), true)
+		a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID, string(capToolResult([]byte(err.Error()))), true)
 		return
 	}
 	res.CallID = tc.CallID
+	// Cap a single tool result so one giant output (e.g. reading a 500KB file) can't blow
+	// the model's context window past what compaction can recover (compaction can't summarize
+	// a result that's still in the recent, un-compacted window). Truncate the raw output here,
+	// before diagnostics are appended, so the agent is told to narrow its read/command.
+	res.Content = capToolResult(res.Content)
 
 	// Post-edit diagnostics + PostToolUse hooks: feed problems back so the agent
 	// self-corrects (built-in autoformat runs here too).
