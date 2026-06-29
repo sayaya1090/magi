@@ -121,6 +121,29 @@ func TestClampDiffBounds(t *testing.T) {
 	}
 }
 
+// prettyCouncilDiff strips git plumbing headers, shows a clean per-file header, and keeps
+// the +/- content (color is applied but assertions run on the ANSI-stripped text).
+func TestPrettyCouncilDiff(t *testing.T) {
+	applyTheme(true)
+	in := "diff --git a/main.go b/main.go\n" +
+		"index 111..222 100644\n--- a/main.go\n+++ b/main.go\n@@ -1 +1 @@\n-old\n+new\n" +
+		"diff --git a/logo.png b/logo.png\nBinary files /dev/null and b/logo.png differ"
+	out := stripANSI(prettyCouncilDiff(in))
+	for _, gone := range []string{"diff --git", "index 111", "--- a/main.go", "+++ b/main.go", "Binary files"} {
+		if strings.Contains(out, gone) {
+			t.Errorf("plumbing line %q should be stripped:\n%s", gone, out)
+		}
+	}
+	for _, want := range []string{"◆ main.go", "◆ logo.png", "@@ -1 +1 @@", "-old", "+new"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in cleaned diff:\n%s", want, out)
+		}
+	}
+	if prettyCouncilDiff("") != "" {
+		t.Error("empty diff should stay empty")
+	}
+}
+
 func contains(s, sub string) bool {
 	for i := 0; i+len(sub) <= len(s); i++ {
 		if s[i:i+len(sub)] == sub {

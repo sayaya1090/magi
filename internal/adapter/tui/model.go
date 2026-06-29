@@ -2835,11 +2835,58 @@ func formatCouncilEvidence(d event.CouncilConvenedData) string {
 	if len(d.Signals) > 0 {
 		add("Signals", strings.Join(d.Signals, "\n"))
 	}
-	add("Diff", d.Diff)
+	add("Diff", prettyCouncilDiff(d.Diff))
 	if d.NoChanges {
 		b.WriteString("(no files changed — a read-only / answer turn)\n")
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// prettyCouncilDiff cleans a git diff for the council detail view: it drops the plumbing
+// headers (diff --git / index / --- / +++ / mode / binary lines), shows each file as a
+// single "◆ path" header, dims the @@ hunk markers, and colors additions green / removals
+// red. Per-line foreground only — no width-fitting background wash — so it still flows
+// through the detail view's word-wrap.
+func prettyCouncilDiff(diff string) string {
+	if strings.TrimSpace(diff) == "" {
+		return diff
+	}
+	add := lipgloss.NewStyle().Foreground(colSuccess)
+	del := lipgloss.NewStyle().Foreground(colError)
+	mut := lipgloss.NewStyle().Foreground(colMuted)
+	hdr := lipgloss.NewStyle().Foreground(colSuccess).Bold(true)
+	var b strings.Builder
+	for _, ln := range strings.Split(diff, "\n") {
+		switch {
+		case strings.HasPrefix(ln, "diff --git "):
+			p := ln
+			if i := strings.LastIndex(ln, " b/"); i >= 0 {
+				p = ln[i+3:]
+			}
+			b.WriteString("\n" + hdr.Render("◆ "+p) + "\n")
+		case hasAnyPrefix(ln, "index ", "--- ", "+++ ", "new file mode", "deleted file mode",
+			"old mode ", "new mode ", "similarity ", "rename ", "Binary files "):
+			continue // plumbing noise
+		case strings.HasPrefix(ln, "@@"):
+			b.WriteString(mut.Render(ln) + "\n")
+		case strings.HasPrefix(ln, "+"):
+			b.WriteString(add.Render(ln) + "\n")
+		case strings.HasPrefix(ln, "-"):
+			b.WriteString(del.Render(ln) + "\n")
+		default:
+			b.WriteString(ln + "\n")
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func hasAnyPrefix(s string, prefixes ...string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Model) permView() string {
