@@ -54,9 +54,40 @@ func TestMemberPromptArtifactGrounding(t *testing.T) {
 	if !strings.Contains(s, "investigation") {
 		t.Error("read-only carve-out lost")
 	}
-	// terminate-only: the plan-audit prompt must NOT demand artifacts pre-flight:
-	if p := memberSystem(m, "plan", "build a CLI tool"); strings.Contains(p, "is NOT itself the artifact") {
+	// The deliverable is anchored to the user's TASK, not the plan/criteria wording —
+	// this is what stops a review task's "write a summary" step being read as a file.
+	if !strings.Contains(s, "USER'S TASK") {
+		t.Error("deliverable not anchored to the user's task")
+	}
+	// Files the agent only READ are inputs, never missing deliverables (the README-as-
+	// missing-deliverable misfire).
+	if !strings.Contains(s, "INPUTS") {
+		t.Error("inputs-are-not-deliverables clause missing")
+	}
+	// The file/diff/document prohibition (handles "you didn't create README.md").
+	if !strings.Contains(s, "never demand a") {
+		t.Error("review-task file prohibition missing")
+	}
+	// A "write a summary" step is satisfied by the report (handles "summary not written").
+	if !strings.Contains(s, "write/produce a summary") {
+		t.Error("summary-step-satisfied-by-report clause missing")
+	}
+	// terminate-only: the plan-audit prompt must NOT demand artifacts pre-flight, nor
+	// carry the terminate-phase artifact framing.
+	p := memberSystem(m, "plan", "build a CLI tool")
+	if strings.Contains(p, "is NOT itself the artifact") {
 		t.Error("artifact clause leaked into the plan-audit prompt")
+	}
+	if strings.Contains(p, "USER'S TASK") || strings.Contains(p, "INPUTS") {
+		t.Error("terminate-phase artifact framing leaked into the plan-audit prompt")
+	}
+	// The plan-audit criteria instruction must steer review tasks away from inventing a
+	// file deliverable (the second channel that injected the false artifact).
+	if !strings.Contains(p, "never a new file") {
+		t.Error("plan criteria instruction missing the review-task carve-out")
+	}
+	if strings.Contains(s, "never a new file") {
+		t.Error("plan-only criteria carve-out leaked into the terminate prompt")
 	}
 }
 

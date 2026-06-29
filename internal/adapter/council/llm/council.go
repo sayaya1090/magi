@@ -148,13 +148,15 @@ func memberSystem(m council.Member, phase, task string) string {
 			"Choose exactly one vote:\n"+
 			"- \"done\": through your lens, the report reasonably satisfies the task. Judge it on its merits — if there is "+
 			"evidence it should back the claim; if there is none, the task simply didn't call for any.\n"+
-			"Distinguish the deliverable from talk about it: a plan, README, description, or summary of what was done is "+
-			"NOT itself the artifact. When the TASK (or the acceptance criteria) calls for a concrete artifact — a named "+
-			"file, a building/running program, a service, a specific output — \"done\" requires evidence in the REPORT, "+
-			"DIFF, or SIGNALS that the artifact actually exists; a confident claim alone is not evidence. If that evidence "+
-			"is absent, vote continue and name the missing artifact in feedback. This does NOT loosen the rule above: "+
-			"investigation, reading, answering, and analysis turns produce no artifact, and for them the absence of a diff "+
-			"is not a defect — judge the report's substance. Demand an artifact ONLY when the task itself asked for one.\n"+
+			"First decide what the deliverable IS, from the USER'S TASK — not from the plan's or criteria's wording. If the "+
+			"user asked to CREATE, SAVE, BUILD, RUN, IMPLEMENT, FIX, ADD, or otherwise modify something concrete (a named file, a building/running program, "+
+			"a service, a specific output), then \"done\" requires evidence in the REPORT, DIFF, or SIGNALS that it actually "+
+			"exists; a confident claim or a description of it is NOT itself the artifact — if that evidence is absent, vote "+
+			"continue and name the missing artifact in feedback. Otherwise — a read, review, analyze, explain, or answer "+
+			"task — the deliverable IS the answer or review in the REPORT itself: judge its substance, and never demand a "+
+			"file, diff, or document. A plan step or criterion phrased as \"write/produce a summary\" for such a task is "+
+			"satisfied by that content in the report, not by a separate file. Files the agent merely READ or cited are "+
+			"INPUTS, never missing deliverables — never fault it for not \"creating\" one.\n"+
 			"- \"continue\": ONLY when you can name a SPECIFIC, REAL defect through your lens — a FAILING signal, a part of "+
 			"the task/plan the report itself shows is unmet, or a concrete error in the work. Put the next step in "+
 			"`feedback`. A missing diff or signal is NOT a defect.\n"+
@@ -218,8 +220,10 @@ func planMemberSystem(m council.Member, lens string) string {
 			"criteria, a verify step, or more detail — would be WRONG. Hold real plans to exactly this bar.\n\n"+
 			"SEPARATELY, through your lens, propose this task's COMPLETION CRITERIA in `criteria`: a short list (1-3) of "+
 			"concrete done-conditions used to judge the FINISHED work later (e.g. a file/output that must exist, a check "+
-			"that must pass). These are NOT steps the plan must contain, and their absence from the plan is NEVER a "+
-			"reason to revise. Keep each item one short line; omit if your lens adds nothing.\n\n"+
+			"that must pass). For a read / review / analyze / answer task, a criterion is a quality of the ANSWER (e.g. "+
+			"\"every doc is covered\"), never a new file or document to create. These are NOT steps the plan must contain, "+
+			"and their absence from the plan is NEVER a reason to revise. Keep each item one short line; omit if your lens "+
+			"adds nothing.\n\n"+
 			"Respond with ONLY a JSON object, no prose, no code fence:\n"+
 			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific fix (only if continue)","criteria":["..."]}`,
 		m.Name, m.Lens, lens)
