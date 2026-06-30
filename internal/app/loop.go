@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -457,10 +458,12 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 				sys = dir + "\n\n" + sys
 			}
 		}
-		if td := a.Todos(sid); len(td) > 0 {
-			sys += "\n\n# Current plan (TODOs)\n" + formatTodos(td)
-		}
-		// Available skills (model loads one via the skill tool when relevant).
+		// NOTE: the per-step-volatile context (current plan/TODOs, shared experience, retrieved
+		// RAG) used to be appended to `sys` here. It is now built by volatileContext() and
+		// injected as an ephemeral trailing message instead — keeping the system prompt
+		// byte-stable within a turn so the backend's prefix (KV) cache survives across steps.
+		// Available skills (model loads one via the skill tool when relevant). Static — stays
+		// in the cacheable system prompt.
 		if sk := a.loadSkills(s.Workdir); len(sk) > 0 {
 			var b strings.Builder
 			b.WriteString("\n\n# Available skills (use the skill tool to load one)\n")
@@ -469,43 +472,44 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			}
 			sys += strings.TrimRight(b.String(), "\n")
 		}
-		// Shared experience (D13): inject relevant team memories/skills.
-		if a.cfg.Experience != nil {
-			if q := lastUserText(reconstruct(evs)); q != "" {
-				if mems, skills, err := a.cfg.Experience.Retrieve(ctx, q); err == nil {
-					if e := formatExperience(mems, skills); e != "" {
-						sys += "\n\n# Shared experience\n" + e
-					}
-				}
-			}
-		}
-		// Plugin-registered context providers (RAG): inject retrieved context for
-		// the top-level agent's current request. Subagents run focused prompts and
-		// are skipped to avoid re-querying per delegation.
-		if !isSub {
-			if q := lastUserText(reconstruct(evs)); q != "" {
-				if c := a.gatherContext(ctx, port.ContextQuery{SessionID: sid, Workdir: s.Workdir, Prompt: q}); c != "" {
-					sys += "\n\n# Retrieved context\n" + c
-				}
-			}
-		}
 
-		// Context-aware auto-compaction (M6): if the assembled context exceeds
-		// the model's window budget, summarize older turns and re-read.
-		if a.maybeCompact(ctx, s, agent, agentActor, evs, sys) {
+		// Per-step-volatile context (current plan, shared experience, retrieved RAG): built
+		// here but injected as an ephemeral trailing message, NOT into `sys`. `sys` (above) is
+		// now byte-stable within a turn, so the backend's prefix cache is reused across steps;
+		// only this small block at the tail is re-processed each step.
+		vol := a.volatileContext(ctx, s, agent, isSub, evs)
+
+		// Context-aware auto-compaction (M6): if the assembled context exceeds the model's
+		// window budget, summarize older turns and re-read. Measure against sys+vol so the
+		// trigger still accounts for the volatile block (it's only used for sizing here).
+		if a.maybeCompact(ctx, s, agent, agentActor, evs, sys+"\n\n"+vol) {
 			evs, _ = a.store.Read(ctx, sid, 0)
+			vol = a.volatileContext(ctx, s, agent, isSub, evs) // refresh after compaction
 		}
 
 		msgs := reconstruct(evs)
-		a.publishContextUsage(sid, agentActor, s.Model.Model, sys, msgs, cumOut)
 		// If auto-orchestration fires, it injects a directive as a new event; re-read
 		// and rebuild msgs so the directive reaches the model in THIS turn, not the next.
 		if a.checkAutoOrchestration(ctx, sid, depth, s.Model.Model, sys, msgs) {
 			if evs2, err := a.store.Read(ctx, sid, 0); err == nil {
 				evs = evs2
 				msgs = reconstruct(evs)
+				vol = a.volatileContext(ctx, s, agent, isSub, evs)
 			}
 		}
+		// Append the volatile context as an ephemeral trailing user message (not persisted, so
+		// it never enters the event log, the language lock, or the council's task snapshot).
+		// Placed last for recency and so the entire real prefix stays cacheable. A trailing
+		// user message after tool results (and a 2nd user message at step 0) is accepted by
+		// OpenAI/Ollama directly; the Anthropic-via-LiteLLM path relies on LiteLLM coalescing
+		// consecutive same-role messages.
+		if vol != "" {
+			msgs = append(msgs, session.Message{Role: session.RoleUser, Parts: []session.Part{{
+				Kind: session.PartText,
+				Text: "# Runtime context (your live plan and any retrieved references — not a new user instruction)\n" + vol,
+			}}})
+		}
+		a.publishContextUsage(sid, agentActor, s.Model.Model, sys, msgs, cumOut)
 
 		req := port.ChatRequest{
 			Model:    s.Model.Model,
@@ -1510,14 +1514,56 @@ func (a *App) systemFor(agent AgentSpec, workdir string, isSub bool) string {
 	var b strings.Builder
 	b.WriteString(sys)
 	b.WriteString("\n\nYou can delegate to subagents with the task tool. Available agents:")
-	for name, spec := range a.cfg.Agents {
-		desc := spec.System
+	// Render in a STABLE (sorted) order: a.cfg.Agents is a map, and Go randomizes map
+	// iteration, so an unsorted range would reorder this block every step — mutating the
+	// system prompt byte-for-byte and defeating the backend's prefix (KV) cache for exactly
+	// the orchestrator configs that benefit most from it.
+	names := make([]string, 0, len(a.cfg.Agents))
+	for name := range a.cfg.Agents {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		desc := a.cfg.Agents[name].System
 		if len(desc) > 80 {
 			desc = desc[:80]
 		}
 		b.WriteString("\n- " + name + ": " + oneLineHint(desc))
 	}
 	return b.String()
+}
+
+// volatileContext builds the per-step changing context — the current plan (TODOs), shared
+// experience, and plugin-retrieved (RAG) context — that previously lived in the system
+// prompt. It is now injected as an ephemeral trailing message instead, so the system prompt
+// stays byte-stable within a turn and the backend's prefix (KV) cache survives across steps.
+// Returns "" when there is nothing to inject. Gating matches the old in-`sys` behavior:
+// experience applies to subagents too, RAG is top-level only.
+func (a *App) volatileContext(ctx context.Context, s session.Session, agent AgentSpec, isSub bool, evs []event.Event) string {
+	var b strings.Builder
+	if td := a.Todos(s.ID); len(td) > 0 {
+		b.WriteString("\n\n# Current plan (TODOs)\n" + formatTodos(td))
+	}
+	// Shared experience (D13): relevant team memories/skills for the current request.
+	if a.cfg.Experience != nil {
+		if q := lastUserText(reconstruct(evs)); q != "" {
+			if mems, skills, err := a.cfg.Experience.Retrieve(ctx, q); err == nil {
+				if e := formatExperience(mems, skills); e != "" {
+					b.WriteString("\n\n# Shared experience\n" + e)
+				}
+			}
+		}
+	}
+	// Plugin-registered context providers (RAG): top-level only — subagents run focused
+	// prompts and are skipped to avoid re-querying per delegation.
+	if !isSub {
+		if q := lastUserText(reconstruct(evs)); q != "" {
+			if c := a.gatherContext(ctx, port.ContextQuery{SessionID: s.ID, Workdir: s.Workdir, Prompt: q}); c != "" {
+				b.WriteString("\n\n# Retrieved context\n" + c)
+			}
+		}
+	}
+	return strings.TrimSpace(b.String())
 }
 
 // envInfo describes the runtime environment (OS, arch, shell, workdir, date) so the model

@@ -1,6 +1,55 @@
 package app
 
-import "testing"
+import (
+	"context"
+	"strings"
+	"testing"
+
+	"github.com/sayaya1090/magi/internal/core/session"
+)
+
+// TestVolatileContextHoldsPlan: the per-step plan goes into volatileContext (the ephemeral
+// trailing message), NOT the system prompt — so the system prompt stays cache-stable.
+func TestVolatileContextHoldsPlan(t *testing.T) {
+	a := &App{todos: map[session.SessionID][]session.Todo{
+		"s1": {{Content: "implement X", Status: "in_progress"}},
+	}}
+	s := session.Session{ID: "s1"}
+	out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil)
+	if !strings.Contains(out, "# Current plan (TODOs)") || !strings.Contains(out, "implement X") {
+		t.Fatalf("volatileContext should carry the plan, got %q", out)
+	}
+}
+
+// TestVolatileContextEmpty: no todos / experience / RAG → empty (nothing to inject, so no
+// trailing message is added and the prefix is maximally cacheable).
+func TestVolatileContextEmpty(t *testing.T) {
+	a := &App{todos: map[session.SessionID][]session.Todo{}}
+	s := session.Session{ID: "s1"}
+	if out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil); out != "" {
+		t.Fatalf("expected empty volatile context, got %q", out)
+	}
+}
+
+// TestSystemForStableAgentOrder: the "Available agents" block must render in a stable
+// (sorted) order so the system prompt is byte-identical across steps — otherwise Go's
+// randomized map iteration would mutate it every step and defeat the backend prefix cache.
+func TestSystemForStableAgentOrder(t *testing.T) {
+	a := &App{cfg: Config{Agents: map[string]AgentSpec{
+		"zeta": {System: "z"}, "alpha": {System: "a"}, "mid": {System: "m"},
+	}}}
+	dir := t.TempDir()
+	first := a.systemFor(AgentSpec{System: "base"}, dir, false)
+	for i := 0; i < 30; i++ { // many iterations to surface map-order randomization
+		if got := a.systemFor(AgentSpec{System: "base"}, dir, false); got != first {
+			t.Fatalf("systemFor not stable across calls:\n--- first ---\n%s\n--- got ---\n%s", first, got)
+		}
+	}
+	ai, mi, zi := strings.Index(first, "\n- alpha:"), strings.Index(first, "\n- mid:"), strings.Index(first, "\n- zeta:")
+	if !(ai >= 0 && ai < mi && mi < zi) {
+		t.Fatalf("agents not in sorted order (alpha<mid<zeta): %d %d %d", ai, mi, zi)
+	}
+}
 
 // TestNoteEditRevertToBaseline: editing a file and then restoring its pre-turn content
 // is a self-revert and must be flagged.
