@@ -49,9 +49,10 @@ type Verdict struct {
 	Feedback   string   `json:"feedback,omitempty"`   // actionable, used when Continue
 	Weight     float64  `json:"weight,omitempty"`     // 0 = 1
 	// Severity tiers a plan-audit revise (continue) vote: only "critical" blocks the
-	// plan gate; "warn"/"info" are advisory (heeded but non-blocking). Empty/unknown is
-	// treated as "warn" — only an explicit "critical" stops the agent from starting work.
-	// Unused in the termination phase.
+	// plan gate; "warn"/"info" are advisory (heeded but non-blocking). An ABSENT severity
+	// is treated as "warn" (permissive — don't block on an omitted field), but a
+	// present-but-UNRECOGNIZED value is treated as "critical" (fail-safe — block rather
+	// than wave through an unknown tier). Unused in the termination phase.
 	Severity string `json:"severity,omitempty"`
 	// Criteria is a member's proposed completion criteria (expected deliverables /
 	// verification guidance), set only in the plan-audit phase where the council
