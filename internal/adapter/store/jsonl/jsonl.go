@@ -27,8 +27,9 @@ type Store struct {
 	root string
 
 	mu    sync.Mutex
-	seqs  map[session.SessionID]int64  // last assigned seq per session
-	paths map[session.SessionID]string // sessionID -> file path
+	seqs  map[session.SessionID]int64         // last assigned seq per session
+	paths map[session.SessionID]string        // sessionID -> file path
+	cache map[session.SessionID][]event.Event // read-through cache: parsed log per session
 }
 
 // New opens (or initializes) a Store rooted at root, indexing any existing logs
@@ -38,6 +39,7 @@ func New(root string) (*Store, error) {
 		root:  root,
 		seqs:  make(map[session.SessionID]int64),
 		paths: make(map[session.SessionID]string),
+		cache: make(map[session.SessionID][]event.Event),
 	}
 	if err := s.index(); err != nil {
 		return nil, err
@@ -149,10 +151,20 @@ func (s *Store) Append(ctx context.Context, sid session.SessionID, evs ...event.
 		return nil, err
 	}
 	if err := f.Sync(); err != nil {
+		// Bytes may already be on disk but our in-memory state isn't updated — drop any
+		// warm cache so the next Read re-derives truth from the file instead of serving a
+		// stale view that silently omits the just-flushed events.
+		delete(s.cache, sid)
 		return nil, err
 	}
 	s.seqs[sid] = seq
 	s.paths[sid] = path
+	// Keep the read-through cache current so the next Read is a memory hit, not a re-parse.
+	// Only when already loaded — an unread session stays lazy and loads on first Read
+	// (the file, just written, is the source of truth either way).
+	if c, ok := s.cache[sid]; ok {
+		s.cache[sid] = append(c, evs...)
+	}
 	return out, nil
 }
 
@@ -178,15 +190,40 @@ func (s *Store) sessionPath(workdir string, sid session.SessionID) string {
 	return filepath.Join(s.projectsDir(), encodeWorkdir(workdir), string(sid)+".jsonl")
 }
 
-// Read returns events with Seq > fromSeq, in ascending seq order.
+// Read returns events with Seq > fromSeq, in ascending seq order. Served from an
+// in-memory cache (the parsed log) so the agent loop's per-step Read is a memory filter
+// instead of a full-file JSON re-parse; the file is loaded once, lazily, on first access.
 func (s *Store) Read(ctx context.Context, sid session.SessionID, fromSeq int64) ([]event.Event, error) {
 	s.mu.Lock()
-	path, ok := s.paths[sid]
-	s.mu.Unlock()
+	defer s.mu.Unlock()
+	evs, ok := s.cache[sid]
 	if !ok {
-		return nil, nil
+		path, known := s.paths[sid]
+		if !known {
+			return nil, nil
+		}
+		loaded, err := readFile(path, 0)
+		if err != nil {
+			return nil, err
+		}
+		s.cache[sid] = loaded
+		evs = loaded
 	}
-	return readFile(path, fromSeq)
+	return filterFrom(evs, fromSeq), nil
+}
+
+// filterFrom returns a fresh slice of the events with Seq > fromSeq (a copy, so a caller
+// can never mutate the cache's backing array). Events are seq-ascending, so a binary
+// search locates the cut. NOTE: the per-event Data (json.RawMessage) is shared with the
+// cache and every other reader — callers MUST treat it as immutable.
+func filterFrom(evs []event.Event, fromSeq int64) []event.Event {
+	i := 0
+	if fromSeq > 0 {
+		i = sort.Search(len(evs), func(i int) bool { return evs[i].Seq > fromSeq })
+	}
+	out := make([]event.Event, len(evs)-i)
+	copy(out, evs[i:])
+	return out
 }
 
 func readFile(path string, fromSeq int64) ([]event.Event, error) {
@@ -271,6 +308,7 @@ func (s *Store) Compact(ctx context.Context, sid session.SessionID, upToSeq int6
 	if err := os.Rename(tmp, path); err != nil {
 		return err
 	}
+	delete(s.cache, sid) // log rewritten — drop the stale cache; next Read reloads it
 	return nil
 }
 
@@ -335,6 +373,7 @@ func (s *Store) Truncate(ctx context.Context, sid session.SessionID, upToSeq int
 		return err
 	}
 	s.seqs[sid] = last
+	delete(s.cache, sid) // log rewritten — drop the stale cache; next Read reloads it
 	return nil
 }
 

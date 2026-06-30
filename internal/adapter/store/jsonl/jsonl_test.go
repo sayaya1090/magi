@@ -57,6 +57,43 @@ func TestAppendSeq(t *testing.T) {
 	}
 }
 
+// Read is served from the in-memory cache, and Append keeps a warm cache current —
+// a Read after a warming Read still reflects later appends (no stale cache).
+func TestReadCacheReflectsAppends(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	ts := time.Now()
+
+	if _, err := s.Append(ctx, "s1", created(wd, ts)); err != nil {
+		t.Fatalf("append-1: %v", err)
+	}
+	// First Read warms the cache.
+	if got, _ := s.Read(ctx, "s1", 0); len(got) != 1 {
+		t.Fatalf("warm read: got %d, want 1", len(got))
+	}
+	// A later append must be visible through the warm cache.
+	if _, err := s.Append(ctx, "s1", fact(event.TypePromptSubmitted, ts)); err != nil {
+		t.Fatalf("append-2: %v", err)
+	}
+	got, _ := s.Read(ctx, "s1", 0)
+	if len(got) != 2 || got[1].Seq != 2 {
+		t.Fatalf("read after append: got %d events (last seq %v), want 2 (seq 2)", len(got), lastSeq(got))
+	}
+	// The returned slice is a copy — mutating it must not corrupt the cache.
+	got[0].Seq = 999
+	again, _ := s.Read(ctx, "s1", 0)
+	if again[0].Seq != 1 {
+		t.Errorf("cache was mutated through a returned slice: seq=%d", again[0].Seq)
+	}
+}
+
+func lastSeq(evs []event.Event) int64 {
+	if len(evs) == 0 {
+		return 0
+	}
+	return evs[len(evs)-1].Seq
+}
+
 // append: transient events are rejected.
 func TestAppendRejectsTransient(t *testing.T) {
 	s := newStore(t)
