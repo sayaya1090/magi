@@ -5,7 +5,12 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 )
+
+// setKeyMu serializes the read-modify-write in SetKey so concurrent writers (plugins via
+// magi.set_config_key, the /route editor) can't race and lose updates or corrupt the file.
+var setKeyMu sync.Mutex
 
 // SetKey surgically sets `key = "value"` under the given TOML table in the file
 // at path, preserving the rest of the file (comments, template, other sections).
@@ -16,6 +21,8 @@ import (
 // `model` and the `[routing]` table), so it stays a safe line-level edit rather
 // than a full TOML round-trip that would discard comments.
 func SetKey(path, section, key, value string) error {
+	setKeyMu.Lock()
+	defer setKeyMu.Unlock()
 	b, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return err
