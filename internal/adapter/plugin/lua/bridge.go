@@ -48,6 +48,9 @@ func installBridge(p *plugin) {
 	// Plugin custom settings: read [plugins.<name>], persist own values.
 	L.SetField(t, "config_get", L.NewFunction(p.bridgeConfigGet))
 	L.SetField(t, "config_set", L.NewFunction(p.bridgeConfigSet))
+	// User config.toml access (dotted keys), gated by config:read/write permissions.
+	L.SetField(t, "get_config_key", L.NewFunction(p.bridgeGetConfigKey))
+	L.SetField(t, "set_config_key", L.NewFunction(p.bridgeSetConfigKey))
 
 	L.SetGlobal("magi", t)
 	// Redirect print to the host log so plugins can't corrupt the TUI stdout.

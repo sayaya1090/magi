@@ -63,6 +63,7 @@ type Host struct {
 	baseReg       BaseURLRegistry
 	runtime       RuntimeInfo
 	pluginConfigs map[string]map[string]any // [plugins.<name>] sections from config.toml
+	configPath    string                    // path to the user's config.toml (magi.get/set_config_key)
 	dataDir       string                    // base dir for per-plugin persistent stores
 	prompter      prompt.Prompter           // interactive prompts (magi.ask); nil = unavailable
 	logf          func(string)
@@ -79,6 +80,7 @@ type HostConfig struct {
 	LLMReg        LLMHeaderRegistry         // optional: enables magi.set_llm_headers()
 	BaseReg       BaseURLRegistry           // optional: enables magi.set_base_url()
 	PluginConfigs map[string]map[string]any // optional: [plugins.<name>] settings, read via magi.config_get
+	ConfigPath    string                    // optional: path to config.toml (enables magi.get/set_config_key)
 	DataDir       string                    // base dir for per-plugin persistent config stores (config_set)
 	Prompter      prompt.Prompter           // optional: enables magi.ask interactive prompts
 	Runtime       RuntimeInfo               // runtime context for plugins
@@ -106,6 +108,7 @@ func NewHostWithConfig(cfg HostConfig) *Host {
 		baseReg:       cfg.BaseReg,
 		runtime:       cfg.Runtime,
 		pluginConfigs: cfg.PluginConfigs,
+		configPath:    cfg.ConfigPath,
 		dataDir:       cfg.DataDir,
 		prompter:      cfg.Prompter,
 		logf:          cfg.Logf,

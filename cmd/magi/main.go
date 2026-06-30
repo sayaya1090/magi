@@ -389,6 +389,7 @@ func run() int {
 		LLMReg:        llm,
 		BaseReg:       llm,
 		PluginConfigs: cfg.Plugins,
+		ConfigPath:    filepath.Join(plat.ConfigDir(), "config.toml"),
 		DataDir:       plat.ConfigDir(),
 		Prompter:      promptFunc(tui.RunPrompt),
 		Runtime: pluginlua.RuntimeInfo{
