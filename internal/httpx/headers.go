@@ -11,8 +11,8 @@ import (
 // Headers merges a static header set with any number of per-request providers
 // onto an outgoing request. Providers are evaluated fresh on every Apply (so a
 // rotating value such as an SSO token reflects request time) and overlay the
-// static set; among providers, later ones win. Safe for concurrent Apply and
-// AddProvider (a plugin may register a provider during a live session).
+// static set; among providers, later ones win. Safe for concurrent Apply,
+// AddStatic, and AddProvider (a plugin may register headers during a live session).
 type Headers struct {
 	mu        sync.Mutex
 	static    map[string]string
@@ -69,7 +69,13 @@ func (h *Headers) Empty() bool {
 // overridden — the caller controls ordering by where it invokes Apply.
 func (h *Headers) Apply(req *http.Request) {
 	h.mu.Lock()
-	static := h.static
+	// Copy static UNDER the lock: AddStatic mutates h.static in place, so ranging the live
+	// map after unlocking would be a concurrent map read/write (fatal panic). providers is
+	// likewise snapshotted so each fn() runs outside the lock.
+	static := make(map[string]string, len(h.static))
+	for k, v := range h.static {
+		static[k] = v
+	}
 	providers := append([]func() map[string]string(nil), h.providers...)
 	h.mu.Unlock()
 	for k, v := range static {
