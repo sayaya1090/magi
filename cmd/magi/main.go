@@ -563,6 +563,32 @@ func renderText(out, errw io.Writer, e event.Event) {
 			}
 			fmt.Fprintln(out, line)
 		}
+	case event.TypeCompaction:
+		// Context compaction collapses older history into a summary; surface it so
+		// headless runs (scripts, CI, benchmarks) can see when — and how much —
+		// context was shed, instead of it happening invisibly.
+		var d event.CompactionData
+		if json.Unmarshal(e.Data, &d) == nil {
+			fmt.Fprintf(out, "↯ context compacted: ~%d→%d tok (history up to seq %d summarized)\n",
+				d.TokensBefore, d.TokensAfter, d.ReplacesUpToSeq)
+		}
+	case event.TypePromptSubmitted:
+		// The user's own prompt is already on screen; surface only system-injected
+		// prompts (council feedback, auto-orchestration, hooks) that otherwise
+		// accumulate in context with no visible trace in headless mode.
+		if e.Actor.Kind == event.ActorUser {
+			return
+		}
+		var d event.PromptSubmittedData
+		if json.Unmarshal(e.Data, &d) == nil {
+			var txt string
+			for _, p := range d.Parts {
+				if p.Kind == session.PartText {
+					txt += p.Text
+				}
+			}
+			fmt.Fprintf(out, "⟳ %s note: %s\n", e.Actor.ID, truncate(txt, 200))
+		}
 	case event.TypeError:
 		var d event.ErrorData
 		_ = json.Unmarshal(e.Data, &d)
