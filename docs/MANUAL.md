@@ -148,9 +148,11 @@ Hook commands run in a shell and receive the `MAGI_TOOL`/`MAGI_PATH` environment
 | `/loopdiff` | **structurally compare the current branch against the fork origin** (turns · steps · tools · council · tokens) |
 | `/init` | analyze the project then write AGENTS.md |
 | `/permission` | cycle permission mode (ask→auto→allow→deny) |
-| `/compact` | summarize/shrink the context |
+| `/compact` | summarize/shrink the context (re-hydratable — see below) |
 | `/clear` | clear the screen |
 | `/quit` (=`/exit`) | exit |
+
+> **Re-hydratable compaction**: when context is auto-compacted (or via `/compact`), the older turns are summarized for the live window as usual — but the originals are never lost. The compacted region is indexed **fully deterministically (no extra model call)** into topic shards **by the file each turn touched**, each carrying a one-line brief = its **tool-action trail** (e.g. `read · edit×2 · bash`); the summary then carries a notice listing the recoverable topics with those briefs. The agent calls **`recall_context("<topic>")`** (a file path works well) to pull a topic's original messages back **verbatim** on demand, instead of being stuck with the lossy summary. Recalls are bounded (each topic once, a per-turn budget, size-capped output) so re-hydration can't reopen the window; topics are aggregated across multiple compactions so nothing becomes undiscoverable. Unlike mainstream agents (opencode/Codex/Claude Code, which summarize-and-forget), the shed detail stays addressable.
 
 ### Keyboard shortcuts
 | Key | Action |
@@ -261,6 +263,7 @@ A collection of interaction behaviors under verification — organized so screen
 | `websearch` | web search (DuckDuckGo, or Brave/Tavily key) | ask |
 | `todowrite` | record a plan (checklist) | — |
 | `skill` | load a named skill's body | — |
+| `recall_context` | re-hydrate detail an earlier compaction shed (by topic; a file path works well) | — |
 | `remember` | contribute a lesson to shared memory | — |
 | `task` | delegate to subagents (single/parallel) | — |
 
