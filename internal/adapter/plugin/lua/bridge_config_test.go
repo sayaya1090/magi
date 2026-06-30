@@ -17,7 +17,7 @@ func hostWithConfig(t *testing.T, configs map[string]map[string]any) (*Host, str
 	}), dataDir
 }
 
-// config_get reads the [plugins.<name>] section from config.toml.
+// store_get reads the [plugins.<name>] section from config.toml.
 func TestPluginConfigGetFromConfig(t *testing.T) {
 	h, _ := hostWithConfig(t, map[string]map[string]any{
 		"p": {"endpoint": "https://corp/x", "retries": int64(3)},
@@ -25,33 +25,33 @@ func TestPluginConfigGetFromConfig(t *testing.T) {
 	var logged strings.Builder
 	h.logf = func(s string) { logged.WriteString(s + "\n") }
 	dir := writePlugin(t, `name="p"`+"\n"+`capabilities=["tool"]`,
-		`magi.log("ep=" .. magi.config_get("endpoint") .. " r=" .. tostring(magi.config_get("retries")))`,
+		`magi.log("ep=" .. magi.store_get("endpoint") .. " r=" .. tostring(magi.store_get("retries")))`,
 	)
 	if _, err := h.Load(context.Background(), dir); err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	if !strings.Contains(logged.String(), "ep=https://corp/x") || !strings.Contains(logged.String(), "r=3") {
-		t.Errorf("config_get did not read config.toml section: %q", logged.String())
+		t.Errorf("store_get did not read config.toml section: %q", logged.String())
 	}
 }
 
-// config_get returns the provided default when the key is absent.
+// store_get returns the provided default when the key is absent.
 func TestPluginConfigGetDefault(t *testing.T) {
 	h, _ := hostWithConfig(t, nil)
 	var logged strings.Builder
 	h.logf = func(s string) { logged.WriteString(s + "\n") }
 	dir := writePlugin(t, `name="p"`+"\n"+`capabilities=["tool"]`,
-		`magi.log("v=" .. magi.config_get("missing", "fallback"))`,
+		`magi.log("v=" .. magi.store_get("missing", "fallback"))`,
 	)
 	if _, err := h.Load(context.Background(), dir); err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	if !strings.Contains(logged.String(), "v=fallback") {
-		t.Errorf("config_get should return default: %q", logged.String())
+		t.Errorf("store_get should return default: %q", logged.String())
 	}
 }
 
-// config_set persists a value; config_get reads it back (across a fresh load,
+// store_set persists a value; store_get reads it back (across a fresh load,
 // mimicking a downloaded per-user config saved to disk), and the persisted
 // store overrides the config.toml section.
 func TestPluginConfigSetPersistsAndOverrides(t *testing.T) {
@@ -60,7 +60,7 @@ func TestPluginConfigSetPersistsAndOverrides(t *testing.T) {
 
 	// First load: save a downloaded token.
 	dir := writePlugin(t, `name="p"`+"\n"+`capabilities=["tool"]`,
-		`magi.config_set("token", "downloaded-123")`,
+		`magi.store_set("token", "downloaded-123")`,
 	)
 	if _, err := h.Load(context.Background(), dir); err != nil {
 		t.Fatalf("Load1: %v", err)
@@ -72,7 +72,7 @@ func TestPluginConfigSetPersistsAndOverrides(t *testing.T) {
 	var logged strings.Builder
 	h2.logf = func(s string) { logged.WriteString(s + "\n") }
 	dir2 := writePlugin(t, `name="p"`+"\n"+`capabilities=["tool"]`,
-		`magi.log("token=" .. magi.config_get("token"))`,
+		`magi.log("token=" .. magi.store_get("token"))`,
 	)
 	if _, err := h2.Load(context.Background(), dir2); err != nil {
 		t.Fatalf("Load2: %v", err)

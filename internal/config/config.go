@@ -37,7 +37,7 @@ type Config struct {
 	Council       CouncilConfig       `toml:"council"`       // consensus termination gate (D14)
 
 	// Plugins holds free-form per-plugin settings: [plugins.<name>] tables a
-	// plugin reads via magi.config_get. The host passes each plugin only its
+	// plugin reads via magi.store_get. The host passes each plugin only its
 	// own section.
 	Plugins map[string]map[string]any `toml:"plugins"`
 }
@@ -214,7 +214,7 @@ const defaultConfigTemplate = `# magi configuration. Everything here is optional
 #                  # Route it to a cheap backend with [routing] planner = "fast".
 
 # --- Plugin settings: a [plugins.<name>] table is readable by that plugin via
-# magi.config_get("key"). Plugins persist their own values with config_set. ---
+# magi.store_get("key"). Plugins persist their own values with store_set. ---
 # [plugins.my-plugin]
 # endpoint = "https://config.corp.example/v1"
 

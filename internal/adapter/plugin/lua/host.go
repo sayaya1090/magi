@@ -79,9 +79,9 @@ type HostConfig struct {
 	ContextReg    ContextProviderRegistry   // optional: enables magi.register_context_provider()
 	LLMReg        LLMHeaderRegistry         // optional: enables magi.set_llm_headers()
 	BaseReg       BaseURLRegistry           // optional: enables magi.set_base_url()
-	PluginConfigs map[string]map[string]any // optional: [plugins.<name>] settings, read via magi.config_get
+	PluginConfigs map[string]map[string]any // optional: [plugins.<name>] settings, read via magi.store_get
 	ConfigPath    string                    // optional: path to config.toml (enables magi.get/set_config_key)
-	DataDir       string                    // base dir for per-plugin persistent config stores (config_set)
+	DataDir       string                    // base dir for per-plugin persistent config stores (store_set)
 	Prompter      prompt.Prompter           // optional: enables magi.ask interactive prompts
 	Runtime       RuntimeInfo               // runtime context for plugins
 	Logf          func(string)              // optional: log output

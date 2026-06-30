@@ -46,8 +46,8 @@ func installBridge(p *plugin) {
 	L.SetField(t, "serve", L.NewFunction(p.bridgeServe))
 	L.SetField(t, "set_base_url", L.NewFunction(p.bridgeSetBaseURL))
 	// Plugin custom settings: read [plugins.<name>], persist own values.
-	L.SetField(t, "config_get", L.NewFunction(p.bridgeConfigGet))
-	L.SetField(t, "config_set", L.NewFunction(p.bridgeConfigSet))
+	L.SetField(t, "store_get", L.NewFunction(p.bridgeStoreGet))
+	L.SetField(t, "store_set", L.NewFunction(p.bridgeStoreSet))
 	// User config.toml access (dotted keys), gated by config:read/write permissions.
 	L.SetField(t, "get_config_key", L.NewFunction(p.bridgeGetConfigKey))
 	L.SetField(t, "set_config_key", L.NewFunction(p.bridgeSetConfigKey))

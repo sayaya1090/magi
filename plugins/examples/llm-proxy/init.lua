@@ -9,7 +9,7 @@
 -- Every request the agent makes to the model is logged here, then forwarded to the
 -- real backend unchanged. Swap the handler body to mock, rewrite, or rate-limit.
 
-local upstream = magi.config_get("upstream") or "http://localhost:11434/v1"
+local upstream = magi.store_get("upstream") or "http://localhost:11434/v1"
 
 -- port = 0 picks a free port; read the actual one back from the returned table.
 local server = magi.serve{

@@ -43,10 +43,10 @@ func (p *plugin) readStore() map[string]any {
 	return m
 }
 
-// magi.config_get(key, default?) -> value | default | nil
+// magi.store_get(key, default?) -> value | default | nil
 // Reads from the persisted store, then the config.toml [plugins.<name>] section,
 // then returns the caller's default (or nil).
-func (p *plugin) bridgeConfigGet(L *lua.LState) int {
+func (p *plugin) bridgeStoreGet(L *lua.LState) int {
 	key := L.CheckString(1)
 	def := L.Get(2) // may be LNil
 
@@ -66,16 +66,16 @@ func (p *plugin) bridgeConfigGet(L *lua.LState) int {
 	return 1
 }
 
-// magi.config_set(key, value) -> true | (nil, err)
+// magi.store_set(key, value) -> true | (nil, err)
 // Persists a value to the plugin's store so it survives restarts. Used to save a
 // per-user config downloaded from a backend service.
-func (p *plugin) bridgeConfigSet(L *lua.LState) int {
+func (p *plugin) bridgeStoreSet(L *lua.LState) int {
 	key := L.CheckString(1)
 	val := luaToGo(L.Get(2))
 
 	path := p.storePath()
 	if path == "" {
-		return fail(L, "config_set: no data dir configured")
+		return fail(L, "store_set: no data dir configured")
 	}
 
 	pluginStoreMu.Lock()
@@ -89,14 +89,14 @@ func (p *plugin) bridgeConfigSet(L *lua.LState) int {
 	}
 	m[key] = val
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fail(L, "config_set: "+err.Error())
+		return fail(L, "store_set: "+err.Error())
 	}
 	b, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
-		return fail(L, "config_set: "+err.Error())
+		return fail(L, "store_set: "+err.Error())
 	}
 	if err := os.WriteFile(path, b, 0o600); err != nil {
-		return fail(L, "config_set: "+err.Error())
+		return fail(L, "store_set: "+err.Error())
 	}
 	L.Push(lua.LTrue)
 	return 1

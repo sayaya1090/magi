@@ -10,7 +10,7 @@ import (
 )
 
 // magi.get_config_key / magi.set_config_key read and write the USER's config.toml by a
-// dotted key (e.g. "routing.model", "plugins.<name>.token"). Distinct from config_get/set,
+// dotted key (e.g. "routing.model", "plugins.<name>.token"). Distinct from store_get/set,
 // which use the plugin's own isolated JSON store. Writes go through config.SetKey, a
 // line-level edit that preserves comments and the rest of the file.
 //
