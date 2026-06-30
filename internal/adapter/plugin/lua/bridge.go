@@ -42,7 +42,6 @@ func installBridge(p *plugin) {
 	L.SetField(t, "exec", L.NewFunction(p.bridgeExec))
 	L.SetField(t, "open_url", L.NewFunction(p.bridgeOpenURL))
 	L.SetField(t, "http", L.NewFunction(p.bridgeHTTP))
-	L.SetField(t, "await_callback", L.NewFunction(p.bridgeAwaitCallback))
 	L.SetField(t, "serve", L.NewFunction(p.bridgeServe))
 	L.SetField(t, "set_base_url", L.NewFunction(p.bridgeSetBaseURL))
 	// Plugin custom settings: read [plugins.<name>], persist own values.

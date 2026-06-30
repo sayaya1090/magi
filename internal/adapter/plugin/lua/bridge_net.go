@@ -158,19 +158,10 @@ func (p *plugin) bridgeHTTP(L *lua.LState) int {
 	return 1
 }
 
-// magi.await_callback{port=, path=, timeout=} -> {query={k=v}, path=} | (nil, err)
-// Starts a one-shot loopback HTTP listener (the OAuth/SSO redirect target),
-// blocks until a matching request arrives (or timeout), then shuts down. Requires
-// permission "net:listen". Binds 127.0.0.1 only.
-func (p *plugin) bridgeAwaitCallback(L *lua.LState) int {
-	if !p.perms.allowNet("listen") {
-		return fail(L, "permission denied: net:listen")
-	}
-	spec := L.CheckTable(1)
-	port := int(lua.LVAsNumber(spec.RawGetString("port")))
-	if port <= 0 || port > 65535 {
-		return fail(L, "await_callback: 'port' must be 1..65535")
-	}
+// serveOnce is magi.serve's one-shot mode (no handler): a loopback HTTP listener that
+// blocks until the first matching request arrives (or timeout), returns its {query, path},
+// then shuts down — the OAuth/SSO redirect target. Binds 127.0.0.1 only.
+func (p *plugin) serveOnce(L *lua.LState, spec *lua.LTable, port int) int {
 	wantPath := spec.RawGetString("path").String()
 	timeout := 120 * time.Second
 	if t := int(lua.LVAsNumber(spec.RawGetString("timeout"))); t > 0 {
@@ -179,7 +170,7 @@ func (p *plugin) bridgeAwaitCallback(L *lua.LState) int {
 
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
-		return fail(L, "await_callback: listen: "+err.Error())
+		return fail(L, "serve: listen: "+err.Error())
 	}
 	hit := make(chan *http.Request, 1)
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -192,7 +183,7 @@ func (p *plugin) bridgeAwaitCallback(L *lua.LState) int {
 		default:
 		}
 		w.Header().Set("Content-Type", "text/html")
-		_, _ = w.Write([]byte("<html><body>Authentication received — you can close this tab.</body></html>"))
+		_, _ = w.Write([]byte("<html><body>Received — you can close this tab.</body></html>"))
 	})}
 	go srv.Serve(ln)
 	defer srv.Close()
@@ -211,13 +202,19 @@ func (p *plugin) bridgeAwaitCallback(L *lua.LState) int {
 		L.Push(res)
 		return 1
 	case <-time.After(timeout):
-		return fail(L, "await_callback: timed out")
+		return fail(L, "serve: timed out waiting for a request")
 	}
 }
 
-// magi.serve{port=, handler=function(req) return resp end} -> {port=, stop=function()} | (nil, err)
+// magi.serve has two modes, both binding 127.0.0.1 only and requiring "net:listen":
 //
-// Starts a persistent loopback HTTP server (binds 127.0.0.1 only) that routes every
+//   - WITH a handler — persistent async server:
+//     magi.serve{port=, handler=function(req) return resp end} -> {port=, stop=function()}
+//   - WITHOUT a handler — one-shot blocking wait (the OAuth/SSO redirect target):
+//     magi.serve{port=, path=, timeout=} -> {query={k=v}, path=}  (blocks until the first
+//     matching request, then shuts down)
+//
+// Persistent mode: routes every
 // request through the Lua handler IN-PROCESS — no external runtime, so it works inside
 // the single static binary on every platform. Requires permission "net:listen".
 // port omitted/0 picks a free port, readable from the returned table's `port`.
@@ -244,9 +241,14 @@ func (p *plugin) bridgeServe(L *lua.LState) int {
 	if port < 0 || port > 65535 {
 		return fail(L, "serve: 'port' must be 0..65535")
 	}
-	handler, ok := spec.RawGetString("handler").(*lua.LFunction)
+	hv := spec.RawGetString("handler")
+	if hv == lua.LNil {
+		// No handler → one-shot blocking mode (wait for the first request, return it).
+		return p.serveOnce(L, spec, port)
+	}
+	handler, ok := hv.(*lua.LFunction)
 	if !ok {
-		return fail(L, "serve: 'handler' must be a function")
+		return fail(L, "serve: 'handler' must be a function (omit it for one-shot mode)")
 	}
 
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))

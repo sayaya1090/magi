@@ -7,24 +7,24 @@ import (
 	"time"
 )
 
-// await_callback without net:listen is denied.
-func TestAwaitCallbackDenied(t *testing.T) {
+// serve's one-shot mode (no handler) without net:listen is denied.
+func TestServeOnceDenied(t *testing.T) {
 	out, err := loadOut(t,
 		`name="cb"`+"\n"+`capabilities=["tool"]`,
-		`local r, e = magi.await_callback{ port = 8799 }
+		`local r, e = magi.serve{ port = 8799 }
 magi.log("denied=" .. tostring(r == nil) .. " err=" .. tostring(e))`,
 	)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	if !strings.Contains(out, "denied=true") || !strings.Contains(out, "permission denied: net:listen") {
-		t.Errorf("await_callback should be denied without net:listen: %q", out)
+		t.Errorf("serve (one-shot) should be denied without net:listen: %q", out)
 	}
 }
 
-// With net:listen, await_callback receives a loopback request and returns its
-// query params. A goroutine simulates the browser redirect.
-func TestAwaitCallbackReceives(t *testing.T) {
+// With net:listen, serve's one-shot mode (no handler) blocks for the first matching
+// request and returns its query/path. A goroutine simulates the browser redirect.
+func TestServeOnceReceives(t *testing.T) {
 	go func() {
 		// Give the listener a moment to bind, then hit it.
 		for i := 0; i < 50; i++ {
@@ -38,13 +38,13 @@ func TestAwaitCallbackReceives(t *testing.T) {
 	}()
 	out, err := loadOut(t,
 		`name="cb"`+"\n"+`permissions=["net:listen"]`,
-		`local r = magi.await_callback{ port = 8798, path = "/callback", timeout = 5 }
+		`local r = magi.serve{ port = 8798, path = "/callback", timeout = 5 }
 magi.log("code=" .. tostring(r.query.code) .. " path=" .. r.path)`,
 	)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	if !strings.Contains(out, "code=abc123") || !strings.Contains(out, "path=/callback") {
-		t.Errorf("await_callback did not capture the redirect: %q", out)
+		t.Errorf("serve one-shot did not capture the redirect: %q", out)
 	}
 }
