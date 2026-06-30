@@ -2176,7 +2176,7 @@ func (m *Model) applyEvent(e event.Event) {
 func (m *Model) resize(w, h int) {
 	m.width, m.height = w, h
 	m.ta.SetWidth(w - 4)
-	m.buildGlam(m.width - m.panelCols()) // wrap to the transcript width (panel-aware)
+	m.buildGlam(m.width - m.panelCols() - scrollbarW) // wrap to the transcript width (panel + scrollbar-aware)
 
 	if !m.ready {
 		m.vp = viewport.New()
@@ -2463,18 +2463,20 @@ func (m *Model) refresh() {
 	if vpHeight < minViewport {
 		vpHeight = minViewport
 	}
-	// Reserve the right status panel's width; the transcript wraps to the rest.
+	// Reserve the right status panel's width and a 1-col scrollbar gutter; the transcript
+	// wraps to the rest.
 	tw := m.width - m.panelCols()
-	m.buildGlam(tw)
-	m.vp.SetWidth(tw)
+	vpw := tw - scrollbarW
+	m.buildGlam(vpw)
+	m.vp.SetWidth(vpw)
 	m.vp.SetHeight(vpHeight)
 	content := m.transcript()
 	if m.councilDetail != nil {
 		// Council verdict detail takes over the viewport (like a zoomed pane).
-		content = m.renderCouncilDetail(tw)
+		content = m.renderCouncilDetail(vpw)
 	} else if m.zoom {
 		// Zoomed: the viewport shows the focused subagent's full transcript.
-		content = m.renderZoom(tw)
+		content = m.renderZoom(vpw)
 	}
 	// Keep styled + ANSI-stripped copies for cell-precise selection + copy.
 	m.contentLines = strings.Split(content, "\n")
@@ -2489,6 +2491,49 @@ func (m *Model) refresh() {
 	if follow {
 		m.vp.GotoBottom()
 	}
+}
+
+// scrollbarW is the column reserved on the transcript's right edge for the scrollbar.
+const scrollbarW = 1
+
+// renderScrollbar draws the transcript viewport's vertical scrollbar: a muted track with a
+// proportional thumb at the current scroll position. Returns `height` rows of one cell each
+// — all blank when the content fits, so the reserved gutter stays invisible until there's
+// something to scroll. Sized off the live content (contentPlain) and the viewport offset, so
+// it works for the transcript, the council-detail takeover, and zoom alike.
+func (m *Model) renderScrollbar(height int) string {
+	if height <= 0 {
+		return ""
+	}
+	rows := make([]string, height)
+	total := len(m.contentPlain)
+	if total <= height { // fits — blank gutter
+		for i := range rows {
+			rows[i] = " "
+		}
+		return strings.Join(rows, "\n")
+	}
+	thumb := height * height / total
+	if thumb < 1 {
+		thumb = 1
+	}
+	pos := 0
+	if maxOff := total - height; maxOff > 0 {
+		pos = m.vp.YOffset() * (height - thumb) / maxOff
+	}
+	if pos+thumb > height {
+		pos = height - thumb
+	}
+	track := lipgloss.NewStyle().Foreground(colMuted)
+	thumbSt := lipgloss.NewStyle().Foreground(colAccent)
+	for i := range rows {
+		if i >= pos && i < pos+thumb {
+			rows[i] = thumbSt.Render("█")
+		} else {
+			rows[i] = track.Render("│")
+		}
+	}
+	return strings.Join(rows, "\n")
 }
 
 // selBounds returns the selection ordered so (sl,sc) <= (el,ec).
@@ -2674,19 +2719,22 @@ func (m Model) View() tea.View {
 	// short; place it in a full-height box (blank rows become spaces, which
 	// JoinVertical keeps) so the panes/input below sit at the bottom of the screen
 	// instead of floating with empty space beneath the input.
+	vpw := tw - scrollbarW // the transcript content; the scrollbar gutter takes the last col
 	var vpv string
 	if len(m.blocks) == 0 && !m.running && !m.resuming {
 		// Fresh session: show the NERV/MAGI startup splash until the first message.
-		vpv = splashView(tw, m.vp.Height())
+		vpv = splashView(vpw, m.vp.Height())
 	} else {
 		vpContent := m.vp.View()
 		if strings.TrimSpace(vpContent) == "" {
 			vpContent = " " // empty/blank content isn't padded by lipgloss; give it a space
 		}
-		// Width+Height fills every row to tw columns (blank rows become spaces), so
+		// Width+Height fills every row to vpw columns (blank rows become spaces), so
 		// JoinVertical keeps them and the panes/input below sit at the screen bottom.
-		vpv = lipgloss.NewStyle().Width(tw).Height(m.vp.Height()).Render(vpContent)
+		vpv = lipgloss.NewStyle().Width(vpw).Height(m.vp.Height()).Render(vpContent)
 	}
+	// Attach the scrollbar gutter on the right so the transcript area is exactly tw wide.
+	vpv = lipgloss.JoinHorizontal(lipgloss.Top, vpv, m.renderScrollbar(m.vp.Height()))
 	leftRows := []string{vpv}
 	aboveInput := 2 + m.vp.Height() // header(2: title+divider) + viewport rows above input
 	if pv := m.renderPanes(tw, aboveInput); pv != "" {
