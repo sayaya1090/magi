@@ -476,6 +476,62 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // toggle — wheel and drag-select coexist because the app owns the selection.
 // toggleThoughtAt flips the expand state of the reasoning block at content line
 // `line` (a click target). Returns true if a reasoning block was toggled.
+// roundVerdicts returns the per-member verdicts recorded for a council round,
+// scanning back to the most recent verdict block that matches (rounds are emitted
+// in order, so the last matching block is the one being decided).
+func (m *Model) roundVerdicts(round int) []event.CouncilVerdictData {
+	for i := len(m.blocks) - 1; i >= 0; i-- {
+		b := m.blocks[i]
+		if b.kind == blockCouncilVerdict && len(b.councilVerdicts) > 0 && b.councilVerdicts[0].Round == round {
+			return b.councilVerdicts
+		}
+	}
+	return nil
+}
+
+// planTierTally counts a plan-audit round by what each verdict means for proceeding,
+// not by the raw done/continue split: done→approve, abstain→abstain, and a continue
+// is bucketed by its severity tier (critical→revise, warn→advise, info→note) so the
+// summary mirrors the per-member labels and shows what was blocking vs advisory.
+// "N approve" is always shown; the other tiers appear only when non-zero.
+func planTierTally(vs []event.CouncilVerdictData) string {
+	if len(vs) == 0 {
+		return ""
+	}
+	var approve, revise, advise, note, abstain int
+	for _, v := range vs {
+		switch v.Decision {
+		case "done":
+			approve++
+		case "abstain":
+			abstain++
+		default: // continue, bucketed by severity
+			switch v.Severity {
+			case "warn":
+				advise++
+			case "info":
+				note++
+			default: // critical or unset → blocking
+				revise++
+			}
+		}
+	}
+	parts := []string{fmt.Sprintf("%d approve", approve)}
+	if revise > 0 {
+		parts = append(parts, fmt.Sprintf("%d revise", revise))
+	}
+	if advise > 0 {
+		parts = append(parts, fmt.Sprintf("%d advise", advise))
+	}
+	if note > 0 {
+		parts = append(parts, fmt.Sprintf("%d note", note))
+	}
+	if abstain > 0 {
+		parts = append(parts, fmt.Sprintf("%d abstain", abstain))
+	}
+	return strings.Join(parts, " / ")
+}
+
 // openCouncilDetailAt opens the council detail modal if the clicked content line
 // falls in a council-verdict block. Same block-lookup as toggleThoughtAt.
 func (m *Model) openCouncilDetailAt(line int) bool {
@@ -2103,7 +2159,9 @@ func (m *Model) applyEvent(e event.Event) {
 			if d.Phase == "plan" {
 				label = "plan audit"
 			}
-			_, verdict := councilVerdictLabel(d.Phase, d.Decision, "") // round outcome: plan continue happens only on critical → revise
+			// A plan re-plan (continue) is always critical-driven (the severity veto), so the
+			// round word is "revise"; termination continue → "reject".
+			_, verdict := councilVerdictLabel(d.Phase, d.Decision, "critical")
 			if strings.Contains(d.Note, "finishing") || strings.Contains(d.Note, "proceeding") {
 				// Any forced finish (round cap OR no-progress) — not a real approval/done.
 				// Normal consensus decisions carry no note; error fallbacks read as-is.
@@ -2112,14 +2170,24 @@ func (m *Model) applyEvent(e event.Event) {
 					verdict = "proceed (no consensus)"
 				}
 			}
-			doneLabel, contLabel := "done", "continue"
+			// Tally: for a plan audit, split the continue votes by severity tier (revise /
+			// advise / note) so the count matches the per-member labels and shows what was
+			// blocking vs advisory — not a flat "N revise".
+			counts := ""
 			if d.Phase == "plan" {
-				doneLabel, contLabel = "approve", "revise" // plan audit votes are approve/revise, not done/continue
+				counts = planTierTally(m.roundVerdicts(d.Round))
 			}
-			line := fmt.Sprintf("⚖ %s round %d: %s — %d %s / %d %s", label, d.Round, verdict, d.Tally.Done, doneLabel, d.Tally.Continue, contLabel)
-			if d.Tally.Abstain > 0 {
-				line += fmt.Sprintf(" / %d abstain", d.Tally.Abstain)
+			if counts == "" {
+				doneLabel, contLabel := "done", "continue"
+				if d.Phase == "plan" {
+					doneLabel, contLabel = "approve", "revise"
+				}
+				counts = fmt.Sprintf("%d %s / %d %s", d.Tally.Done, doneLabel, d.Tally.Continue, contLabel)
+				if d.Tally.Abstain > 0 {
+					counts += fmt.Sprintf(" / %d abstain", d.Tally.Abstain)
+				}
 			}
+			line := fmt.Sprintf("⚖ %s round %d: %s — %s", label, d.Round, verdict, counts)
 			if d.Note != "" {
 				line += " (" + d.Note + ")"
 			} else if d.Feedback != "" {
