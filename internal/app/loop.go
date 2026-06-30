@@ -1034,6 +1034,53 @@ func (a *App) elicitCriteria(ctx context.Context, agent AgentSpec, s session.Ses
 	return strings.TrimSpace(b.String())
 }
 
+// gateAllowlist blocks a tool the agent isn't permitted to call. Returns true to stop.
+func (a *App) gateAllowlist(ctx context.Context, sid session.SessionID, actor event.Actor, agent AgentSpec, tc *session.ToolCall, toolMsgID string) bool {
+	if agent.allows(tc.Name) {
+		return false
+	}
+	a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID, "tool not permitted for agent "+agent.Name, true)
+	return true
+}
+
+// gatePermission applies the guardrail policy (a hard deny blocks regardless of mode) and
+// prompts for dangerous or policy-forced tool calls, recording the PermissionDecided fact.
+// Returns true to stop (policy deny, or the user denied the prompt).
+func (a *App) gatePermission(ctx context.Context, sid session.SessionID, actor event.Actor, tc *session.ToolCall, toolMsgID string) bool {
+	verdict, reason := a.policy.Decide(tc.Name, tc.Args)
+	if verdict == "deny" {
+		dd, _ := json.Marshal(event.PermissionDecidedData{CallID: tc.CallID, Decision: "deny"})
+		a.appendFact(ctx, sid, event.TypePermissionDecided, actor, dd)
+		a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID, "blocked by policy: "+reason, true)
+		return true
+	}
+	forcePrompt := verdict == "ask"
+	if (a.cfg.DangerTools[tc.Name] || forcePrompt) && !a.policy.AllowedByRule(tc.Name, tc.Args) {
+		allowed := a.requestPermission(ctx, sid, actor, tc, forcePrompt)
+		decision := "allow"
+		if !allowed {
+			decision = "deny"
+		}
+		dd, _ := json.Marshal(event.PermissionDecidedData{CallID: tc.CallID, Decision: decision})
+		a.appendFact(ctx, sid, event.TypePermissionDecided, actor, dd)
+		if !allowed {
+			a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID, "denied by user", true)
+			return true
+		}
+	}
+	return false
+}
+
+// gatePreHooks runs PreToolUse hooks, which can block execution (e.g. protect paths).
+// Returns true to stop.
+func (a *App) gatePreHooks(ctx context.Context, s session.Session, actor event.Actor, tc *session.ToolCall, toolMsgID string) bool {
+	if block := a.runPreToolHooks(ctx, s.Workdir, tc.Name, pathArg(tc.Args)); block != "" {
+		a.appendToolResult(ctx, s.ID, actor, toolMsgID, tc.CallID, "blocked by hook: "+block, true)
+		return true
+	}
+	return false
+}
+
 // executeTool runs one tool call (with permission gating) and persists the result.
 func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpec, depth int, actor event.Actor, tc *session.ToolCall, guard *runGuard) {
 	sid := s.ID
@@ -1061,13 +1108,20 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		}
 	}
 
-	// Background dispatch is offered only to the top-level orchestrator.
+	// Pre-execution gates, run in order — the first that blocks emits its own tool result
+	// and stops the call (allowlist → guardrail policy/permission prompt → PreToolUse hooks).
+	if a.gateAllowlist(ctx, sid, actor, agent, tc, toolMsgID) ||
+		a.gatePermission(ctx, sid, actor, tc, toolMsgID) ||
+		a.gatePreHooks(ctx, s, actor, tc, toolMsgID) {
+		return
+	}
+
+	// Tool-env callbacks: background dispatch for the top-level orchestrator; escalation
+	// (ask) + report for subagents, routed THROUGH the parent so full context is kept.
 	var dispatchFn func(port.SpawnRequest) string
 	if depth == 0 {
 		dispatchFn = func(req port.SpawnRequest) string { return a.dispatch(ctx, s, depth, req) }
 	}
-	// Escalation (ask) is offered only to subagents (they have a parent to ask);
-	// it's routed THROUGH the orchestrator so it keeps full context.
 	var askFn func(string) (string, error)
 	var reportFn func(summary, status, details string) error
 	if s.Parent != "" {
@@ -1076,54 +1130,14 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 			// Background-dispatched: the orchestrator stays in its loop and answers asks.
 			askFn = func(q string) (string, error) { return a.escalate(ctx, s.Parent, agent.Name, q) }
 		} else {
-			// Synchronous spawn (planner explorer / nested subagent): the parent is
-			// blocked awaiting THIS child, so nothing can answer — fail fast with
-			// guidance instead of blocking until the 2-minute escalation timeout.
+			// Synchronous spawn (planner explorer / nested subagent): the parent is blocked
+			// awaiting THIS child, so nothing can answer — fail fast with guidance instead of
+			// blocking until the 2-minute escalation timeout.
 			askFn = func(string) (string, error) {
 				return "", fmt.Errorf("no orchestrator is available to answer while you investigate — " +
 					"proceed with your best assumption and note any ambiguity in your final report")
 			}
 		}
-	}
-
-	// Enforce the agent's tool allowlist.
-	if !agent.allows(tc.Name) {
-		a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID, "tool not permitted for agent "+agent.Name, true)
-		return
-	}
-
-	// Guardrail policy (deny floor / forced prompt / allow rules) sits above the
-	// base permission mode. A hard deny blocks regardless of mode; a forced
-	// prompt (e.g. a destructive or egress bash command) overrides allow/auto.
-	verdict, reason := a.policy.Decide(tc.Name, tc.Args)
-	if verdict == "deny" {
-		dd, _ := json.Marshal(event.PermissionDecidedData{CallID: tc.CallID, Decision: "deny"})
-		a.appendFact(ctx, sid, event.TypePermissionDecided, actor, dd)
-		a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID, "blocked by policy: "+reason, true)
-		return
-	}
-	forcePrompt := verdict == "ask"
-	allowedByRule := a.policy.AllowedByRule(tc.Name, tc.Args)
-
-	// Permission gating for dangerous tools (or any policy-forced prompt).
-	if (a.cfg.DangerTools[tc.Name] || forcePrompt) && !allowedByRule {
-		allowed := a.requestPermission(ctx, sid, actor, tc, forcePrompt)
-		decision := "allow"
-		if !allowed {
-			decision = "deny"
-		}
-		dd, _ := json.Marshal(event.PermissionDecidedData{CallID: tc.CallID, Decision: decision})
-		a.appendFact(ctx, sid, event.TypePermissionDecided, actor, dd)
-		if !allowed {
-			a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID, "denied by user", true)
-			return
-		}
-	}
-
-	// Pre-tool hooks can block execution (enforce guardrails, e.g. protect paths).
-	if block := a.runPreToolHooks(ctx, s.Workdir, tc.Name, pathArg(tc.Args)); block != "" {
-		a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID, "blocked by hook: "+block, true)
-		return
 	}
 
 	st, _ := json.Marshal(event.ToolStartedData{CallID: tc.CallID, Name: tc.Name})
