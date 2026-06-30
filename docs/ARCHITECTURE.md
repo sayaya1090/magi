@@ -149,12 +149,13 @@ mode) does NOT finish immediately: it convenes a **council** that votes done-vs-
 - Safety so the gate can't trap the loop: `CouncilMaxRounds` cap (default 3), a
   no-progress guard (empty/repeated feedback finishes), and a ctx-cancel early-out.
   Forced finishes are recorded as a `council.decided` with a `note` (not an error).
-- Evidence judged = Task (the original goal, `firstUserText`) + Report (the agent's
-  final message) + working diff (size-capped). The diff is **turn-scoped**: binary files
-  are dropped (`filterCouncilDiff`) and changes already uncommitted before the turn that
-  the agent didn't touch are excluded (`scopeDiffToTurn`, baseline from `GitDirtyPaths` at
-  step 0 + the run guard's touched paths), so members judge only this turn's work — and the
-  TUI detail modal renders it cleanly (`prettyCouncilDiff`). Plan/Signals (D15/D16) are not yet wired.
+- Evidence judged = Task (the original goal) + Report (the agent's final message) + tool
+  results + **the agent's own edits this turn** (size-capped). Those edits are reconstructed
+  from the agent's write/edit/multiedit tool calls — the run guard captures each touched
+  file's before→after content and `buildCouncilChanges`/`core/change.LineDiff` renders a
+  per-file diff (line-capped to a summary past 1000 lines so it can't OOM). This is
+  git-independent and correctly attributed — a human/external/bash change is never credited
+  to the agent. (`GitDiff` remains, but only for the `/diff` command, not the council.)
 - Events: `council.convened`/`council.verdict`/`council.decided` (fact) +
   `council.deliberating` (transient). See PLAN §4.2, DESIGN §5/§6, SPEC F-COUNCIL.
 

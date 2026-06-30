@@ -347,11 +347,9 @@ magi.set_llm_headers(function() return { Authorization = "Bearer " .. token } en
 - **`magi.ask{title, fields}`** — 인터랙티브 폼. 필드 `type`: `text`·`password`·`number`·`multiline`·
   `select`·`multiselect`·`confirm`·`note`. 답을 테이블로 반환. **TTY 없으면(헤드리스) 에러** → 폴백 처리.
   필드: `{ name=, type=, label=, options={}, default= }`. (Tab=제출, Esc=취소)
-- **`magi.await_callback{port, path, timeout}`** — `127.0.0.1:port`에 **일회성 HTTP 리스너**(OAuth/PKCE
-  리다이렉트 수신). 요청 오면 `{query={...}, path=}` 반환. 권한 `net:listen` 필요. (loopback 전용)
-- **`magi.serve{port, handler}`** — `127.0.0.1:port`에 **상주 HTTP 서버**(await_callback의 다회·상주판).
-  모든 요청이 `handler(req)`로 라우팅되고 반환 테이블이 응답이 된다. `port=0`이면 자유 포트 자동 배정.
-  `{port, stop()}` 반환. 권한 `net:listen` 필요. 플러그인 언로드/리로드 시 자동 종료.
+- **`magi.serve`** — `127.0.0.1`에 루프백 HTTP 서버. 두 모드, 둘 다 `net:listen` 필요:
+  - **handler 있음 (상주)**: `magi.serve{port, handler=function(req) … end}` → 모든 요청을 `handler(req)`로 라우팅, 반환 테이블이 응답. `port=0`이면 자유 포트 자동 배정. `{port, stop()}` 반환. 언로드/리로드 시 자동 종료.
+  - **handler 없음 (일회성 블로킹, OAuth/PKCE 리다이렉트 수신)**: `magi.serve{port, path, timeout}` → 첫 매칭 요청까지 블록 후 `{query={...}, path=}` 반환하고 종료.
   요청: `{ method, path, query={k=v}, headers={k=v}, body }`,
   응답: `{ status=200, headers={k=v}, body }`(또는 문자열만 반환 → 200 본문).
   **인프로세스**라 외부 런타임 없이 단일 정적 바이너리 안에서 동작 — 모든 OS에서 동일.
@@ -373,7 +371,7 @@ magi.on("startup", function()
   local token
   if a.how == "브라우저 로그인" then
     magi.open_url("https://sso.corp.example/authorize?redirect_uri=http://127.0.0.1:8765/cb&...")
-    local cb = magi.await_callback{ port = 8765, path = "/cb", timeout = 120 }
+    local cb = magi.serve{ port = 8765, path = "/cb", timeout = 120 } -- one-shot (no handler)
     local r = magi.http{ url = "https://sso.corp.example/token", method = "POST",
                            body = "grant_type=authorization_code&code=" .. cb.query.code }
     token = parse_token(r.body)
