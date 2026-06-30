@@ -45,11 +45,26 @@ type ArtifactEmittedData struct {
 }
 
 // CompactionData — TypeCompaction (summary snapshot replacing prior events).
+// Shards make the compaction RE-HYDRATABLE: the lossy summary stays in context,
+// but the original messages persist on disk and are indexed here by topic so the
+// agent can pull a topic's full detail back on demand (recall_context), instead
+// of the detail being lost the way a plain summary loses it.
 type CompactionData struct {
-	Summary         string `json:"summary"`
-	ReplacesUpToSeq int64  `json:"replacesUpToSeq"`
-	TokensBefore    int    `json:"tokensBefore"`
-	TokensAfter     int    `json:"tokensAfter"`
+	Summary         string         `json:"summary"`
+	ReplacesUpToSeq int64          `json:"replacesUpToSeq"`
+	TokensBefore    int            `json:"tokensBefore"`
+	TokensAfter     int            `json:"tokensAfter"`
+	Shards          []ContextShard `json:"shards,omitempty"`
+}
+
+// ContextShard indexes one topic within a compacted region: a label/brief the
+// agent matches against, plus the IDs of the original messages it covers. The
+// messages themselves are not copied — they remain in the event log and are
+// rebuilt by ID on recall, so a shard is lossless and cheap to store.
+type ContextShard struct {
+	Topic      string   `json:"topic"`
+	Brief      string   `json:"brief,omitempty"`
+	MessageIDs []string `json:"messageIds"`
 }
 
 // TurnFinishedData — TypeTurnFinished.
