@@ -73,13 +73,25 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	// WaitDelay bounds that post-kill wait so a timed-out command returns promptly.
 	cmd.WaitDelay = 2 * time.Second
 	// Windows confinement is applied as a process token (no CLI wrapper exists).
-	cmd.SysProcAttr = sandboxProcAttr(env.Sandbox)
+	sboxAttr := sandboxProcAttr(env.Sandbox)
+	// Run in a new session with no controlling terminal (Unix), so a command that tries to
+	// prompt by reading /dev/tty — git credentials, ssh host-key confirmation, sudo, a pager
+	// — gets no tty and fails fast instead of hanging until the timeout. stdin is already
+	// /dev/null (unset), so stdin reads also get EOF. This covers the common tty-based
+	// prompts; it does NOT defeat prompts routed through an askpass/credential helper (those
+	// don't need a tty), which remain bounded only by the command timeout. No-op on Windows,
+	// where there is no controlling-terminal concept to detach.
+	cmd.SysProcAttr = detachTTY(sboxAttr)
 	out, err := cmd.CombinedOutput()
-	// Safety net: if a sandboxed launch fails to START (process never ran), retry
-	// unconfined so confinement can never break the bash tool outright.
-	if err != nil && cmd.ProcessState == nil && cmd.SysProcAttr != nil {
+	// Safety net: if a token-confined launch (Windows) fails to START (process never
+	// ran), retry unconfined so confinement can never break the bash tool outright.
+	// Keyed on the sandbox token specifically — tty detachment is kept on the retry
+	// and never causes a start failure, so it must not trigger this fallback.
+	if err != nil && cmd.ProcessState == nil && sboxAttr != nil {
 		cmd = exec.CommandContext(cctx, name, args...)
 		cmd.Dir = env.Workdir
+		cmd.WaitDelay = 2 * time.Second
+		cmd.SysProcAttr = detachTTY(nil)
 		out, err = cmd.CombinedOutput()
 	}
 

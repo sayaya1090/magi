@@ -15,6 +15,10 @@ import (
 // so there is no argv to rewrite.
 func sandboxArgv(spec port.SandboxSpec, command string) ([]string, bool) { return nil, false }
 
+// detachTTY is a no-op on Windows: there is no controlling-terminal concept to detach
+// (interactive console handling differs), and any sandbox token is left intact.
+func detachTTY(attr *syscall.SysProcAttr) *syscall.SysProcAttr { return attr }
+
 var procCreateRestrictedToken = windows.NewLazySystemDLL("advapi32.dll").NewProc("CreateRestrictedToken")
 
 // DISABLE_MAX_PRIVILEGE: strip ALL privileges from the new token.
