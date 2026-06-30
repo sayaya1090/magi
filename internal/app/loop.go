@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"os"
 	"path/filepath"
@@ -29,6 +30,10 @@ import (
 const (
 	repeatLimit   = 2 // identical tool calls allowed before the next is blocked
 	blockedBudget = 6 // total blocked repeats in a run before forcing a stop
+	// nudgeThreshold sits below blockedBudget: when blocked repeats reach it, the agent
+	// is clearly thrashing, so before force-stopping we inject ONE corrective re-grounding
+	// (re-read the task, change approach) — a stuck weak model often just needs redirecting.
+	nudgeThreshold = 3
 )
 
 // runGuard detects no-progress loops within a single run by fingerprinting each
@@ -46,6 +51,7 @@ type runGuard struct {
 	lastMut map[string]string // path → last mutation signature, to ignore idempotent rewrites
 	epoch   int               // bumped on each real file mutation; part of the fingerprint
 	blocked int
+	nudged  bool // corrective re-grounding nudge fired (once per run)
 
 	// changed records this turn's file edits (before/after content) as the council's
 	// evidence of what the AGENT actually changed — reconstructed from its own write/edit
@@ -58,6 +64,17 @@ type runGuard struct {
 	// to recallBudget times total — otherwise a recall→compact→recall loop could spin.
 	recalled    map[string]bool
 	recallCount int
+
+	// contentHist records, per file, the sequence of content states (by hash) the file
+	// has passed through this turn — index 0 is the pre-turn baseline, then one entry per
+	// edit. It powers self-regression detection: an edit that returns a file to a state it
+	// already held this turn means the agent is undoing its own earlier change (the silent
+	// self-revert that no other guard catches).
+	contentHist map[string][]uint64
+	// regressWarned marks files already flagged for self-regression this turn, so an
+	// oscillating agent (A→B→A→B…) is warned once per file, not on every swing — a repeated
+	// nudge could itself push a weak model to keep thrashing.
+	regressWarned map[string]bool
 }
 
 // fileChange is one file's before/after content captured around an agent edit this turn.
@@ -71,8 +88,61 @@ func newRunGuard() *runGuard {
 	return &runGuard{
 		seen: map[string]int{}, results: map[string]string{},
 		lastMut: map[string]string{}, changed: map[string]*fileChange{},
-		recalled: map[string]bool{},
+		recalled: map[string]bool{}, contentHist: map[string][]uint64{},
+		regressWarned: map[string]bool{},
 	}
+}
+
+// hashContent returns a fast 64-bit fingerprint of file content for the regression
+// history. Collisions are astronomically unlikely and the check is only advisory, so a
+// hash (bounded memory) is preferred over retaining every full content snapshot.
+func hashContent(s string) uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(s))
+	return h.Sum64()
+}
+
+// noteEdit records a file's post-edit content in this turn's per-file history and reports
+// whether the edit RETURNED the file to a content state it already held earlier this turn —
+// i.e. the agent is undoing its own prior change. `before` is the file's content captured
+// just before the FIRST edit of the turn (used only to seed the pre-turn baseline); `after`
+// is the content right after this edit. Returns a non-empty advisory when a regression is
+// detected, else "". An idempotent rewrite (identical to the immediately-preceding state) is
+// the loop guard's domain and never warns here.
+//
+// Notes/limits (all acceptable since the result is a non-blocking advisory): the content is
+// a best-effort prefix — readForChange caps reads at changeReadCap, so a >cap file whose
+// first cap bytes are unchanged can false-match (or a true revert past the cap can be
+// missed). A create-then-empty (""→content→"") is reported as a real self-revert. The
+// wording is a neutral observation, not a "put it back" instruction, to avoid pushing a
+// weak model into an oscillation; and each file is flagged at most once per turn.
+func (g *runGuard) noteEdit(path, before, after string) string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	hist, ok := g.contentHist[path]
+	if !ok {
+		hist = []uint64{hashContent(before)} // index 0 = pre-turn baseline
+	}
+	h := hashContent(after)
+	if h == hist[len(hist)-1] {
+		return "" // no real change since the last state → idempotent, not a regression
+	}
+	// Scan states strictly before the latest: a match means the file returned to a state it
+	// already held this turn (original→fix→original, or fix1→fix2→fix1 oscillation).
+	regressed := false
+	for i := 0; i < len(hist)-1; i++ {
+		if hist[i] == h {
+			regressed = true
+			break
+		}
+	}
+	g.contentHist[path] = append(hist, h)
+	if !regressed || g.regressWarned[path] {
+		return "" // forward progress, or this file was already flagged this turn
+	}
+	g.regressWarned[path] = true
+	return "note: this edit restored a content state this file already had earlier this turn — " +
+		"if reverting your own earlier change was intentional, ignore this."
 }
 
 // recallBudget caps re-hydrations per turn (distinct topics bypass the identical-call
@@ -180,6 +250,20 @@ func (g *runGuard) stuck() bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.blocked >= blockedBudget
+}
+
+// shouldNudge reports whether the run has thrashed enough to warrant a one-time corrective
+// re-grounding (blocked repeats reached nudgeThreshold, below the force-stop budget). It
+// fires at most once per run — a repeated nudge would just add noise to an already-stuck
+// model.
+func (g *runGuard) shouldNudge() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.blocked >= nudgeThreshold && !g.nudged {
+		g.nudged = true
+		return true
+	}
+	return false
 }
 
 // toolResultCap bounds a single tool result fed back to the model. ~64KB ≈ 16k tokens:
@@ -643,6 +727,29 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			a.appendFact(ctx, sid, event.TypeTurnFinished, agentActor, d)
 			finished = true // report filed → turn delivered its result
 			return rep.result(answer), nil
+		}
+
+		// Corrective re-grounding: before the force-stop, give a thrashing agent ONE nudge
+		// to re-read the original task and change approach — a stuck weak model often just
+		// needs redirecting, and this is far cheaper than burning the rest of the budget.
+		if guard.shouldNudge() {
+			// turnTask is empty for a subagent run (its seed is authored by ActorAgent, not
+			// ActorUser), so fall back to the latest user-role message — the subagent's task —
+			// mirroring the council gate's defensive fallback. Otherwise the re-grounding
+			// would no-op exactly where weak models thrash most (narrow tool-driven subtasks).
+			task := strings.TrimSpace(turnTask)
+			if task == "" {
+				task = strings.TrimSpace(lastUserText(reconstruct(evs)))
+			}
+			msg := "You've repeated the same no-progress action several times and are getting blocked. " +
+				"Stop and change approach: try a different tool or a smaller step, or inspect WHY the last " +
+				"attempts failed (read the error, check paths/state) before retrying. Re-read the original task:\n" +
+				clipLine(task, 1500)
+			pd, _ := json.Marshal(event.PromptSubmittedData{
+				MessageID: "m_" + newID(),
+				Parts:     []session.Part{{Kind: session.PartText, Text: msg}},
+			})
+			a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
 		}
 
 		// Loop guard: an agent that keeps repeating the same blocked action is
@@ -1255,7 +1362,14 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// (toolOK), NOT res.IsError — a write that landed but failed gofmt/a hook is exactly the
 	// broken change the council should scrutinize, and must not read as a no-op turn.
 	if guard != nil && changePath != "" && toolOK && fileModifiers[tc.Name] {
-		guard.recordChange(relForChange(workdir, changePath), changeBefore, readForChange(workdir, changePath))
+		rel := relForChange(workdir, changePath)
+		after := readForChange(workdir, changePath)
+		guard.recordChange(rel, changeBefore, after)
+		// Self-regression check: warn (don't block) when this edit undoes the agent's own
+		// earlier change by returning the file to a state it already held this turn.
+		if warn := guard.noteEdit(rel, changeBefore, after); warn != "" {
+			res.Content = appendToContent(res.Content, "\n\n[self-edit check] "+warn)
+		}
 	}
 
 	a.appendPart(ctx, sid, actor, toolMsgID, session.RoleTool, session.Part{
@@ -1552,7 +1666,11 @@ func (a *App) emitError(ctx context.Context, sid session.SessionID, actor event.
 // gate, not a subagent spawn), so the batch can run concurrently.
 func (a *App) allParallelSafe(calls []*session.ToolCall) bool {
 	for _, tc := range calls {
-		if a.cfg.DangerTools[tc.Name] || tc.Name == "task" {
+		// File modifiers must run sequentially regardless of the (user-configurable)
+		// DangerTools set: the council change-capture and self-regression history read
+		// each file's before/after around the edit, which is only race-free when writes
+		// to the same file are serialized.
+		if fileModifiers[tc.Name] || a.cfg.DangerTools[tc.Name] || tc.Name == "task" {
 			return false
 		}
 	}
