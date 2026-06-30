@@ -95,8 +95,8 @@ type CouncilConvenedData struct {
 	Task      string `json:"task,omitempty"`
 	Plan      string `json:"plan,omitempty"`      // acceptance criteria / contract, or the proposed procedure (plan phase)
 	Report    string `json:"report,omitempty"`    // the agent's claim (termination phase)
-	Diff      string `json:"diff,omitempty"`      // working diff (capped)
-	NoChanges bool   `json:"noChanges,omitempty"` // pure read-only turn (no diff/signals)
+	Changes   string `json:"changes,omitempty"`   // this turn's edits, reconstructed from the agent's tools (capped)
+	NoChanges bool   `json:"noChanges,omitempty"` // pure read-only turn (no edits/signals)
 }
 
 // CouncilVerdictData — TypeCouncilVerdict (one member's vote).

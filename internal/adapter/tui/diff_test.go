@@ -73,26 +73,47 @@ func TestHighlightDiffLine(t *testing.T) {
 	}
 }
 
-// prettyCouncilDiff strips git plumbing headers, shows a clean per-file header, and keeps
-// the +/- content (color is applied but assertions run on the ANSI-stripped text).
-func TestPrettyCouncilDiff(t *testing.T) {
+// colorizeChanges turns the council's "### path" change evidence into a per-file "◆ path"
+// header plus colored +/- lines (assertions run on the ANSI-stripped text).
+func TestColorizeChanges(t *testing.T) {
 	applyTheme(true)
-	in := "diff --git a/main.go b/main.go\n" +
-		"index 111..222 100644\n--- a/main.go\n+++ b/main.go\n@@ -1 +1 @@\n-old\n+new\n" +
-		"diff --git a/logo.png b/logo.png\nBinary files /dev/null and b/logo.png differ"
-	out := stripANSI(prettyCouncilDiff(in))
-	for _, gone := range []string{"diff --git", "index 111", "--- a/main.go", "+++ b/main.go", "Binary files"} {
-		if strings.Contains(out, gone) {
-			t.Errorf("plumbing line %q should be stripped:\n%s", gone, out)
-		}
-	}
-	for _, want := range []string{"◆ main.go", "◆ logo.png", "@@ -1 +1 @@", "-old", "+new"} {
+	in := "### main.go\n-old\n+new\n### util.go\n+added"
+	out := stripANSI(colorizeChanges(in))
+	for _, want := range []string{"◆ main.go", "◆ util.go", "-old", "+new", "+added"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("expected %q in cleaned diff:\n%s", want, out)
+			t.Errorf("expected %q in colorized changes:\n%s", want, out)
 		}
 	}
-	if prettyCouncilDiff("") != "" {
-		t.Error("empty diff should stay empty")
+	if strings.Contains(out, "### ") {
+		t.Errorf("the raw ### marker should be replaced by the ◆ header:\n%s", out)
+	}
+	if colorizeChanges("") != "" {
+		t.Error("empty changes should stay empty")
+	}
+}
+
+// councilVerdictLabel tiers a plan-audit continue by severity, while termination stays
+// done/reject and abstain is unchanged.
+func TestCouncilVerdictLabelSeverity(t *testing.T) {
+	cases := []struct {
+		phase, decision, severity, wantIcon, wantWord string
+	}{
+		{"plan", "done", "", "✓", "approve"},
+		{"plan", "continue", "critical", "↻", "revise"},
+		{"plan", "continue", "warn", "✎", "advise"},
+		{"plan", "continue", "info", "·", "note"},
+		{"plan", "continue", "", "✎", "advise"},      // absent severity → warn (non-blocking)
+		{"plan", "continue", "bogus", "↻", "revise"}, // unrecognized → fail safe to blocking
+		{"", "done", "", "✓", "done"},
+		{"", "continue", "", "✗", "reject"},
+		{"", "abstain", "", "∅", "abstain"},
+	}
+	for _, c := range cases {
+		icon, word := councilVerdictLabel(c.phase, c.decision, c.severity)
+		if icon != c.wantIcon || word != c.wantWord {
+			t.Errorf("label(%q,%q,%q) = (%q,%q), want (%q,%q)",
+				c.phase, c.decision, c.severity, icon, word, c.wantIcon, c.wantWord)
+		}
 	}
 }
 

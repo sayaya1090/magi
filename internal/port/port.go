@@ -79,14 +79,12 @@ type DeliberationRequest struct {
 	// Phase selects what the council judges and which member prompt is used:
 	// "" / "terminate" is the turn-termination gate (default); "plan" is the
 	// pre-flight plan audit, where members judge the PROPOSED PROCEDURE against the
-	// task — there is no Report, Diff, or Signals yet.
+	// task — there is no Report, Changes, or Signals yet.
 	Phase string
-	// NoChanges marks a pure read-only / investigation / answer turn: the working
-	// tree was successfully diffed and nothing changed, and no signals ran. Such a
-	// turn has no artifact to verify and no false success to guard against, so
-	// members should approve (done) on a reasonable report rather than demand a
-	// diff that was never going to exist. The loop sets this only on a SUCCESSFUL
-	// empty diff (a GitDiff error is not "no changes").
+	// NoChanges marks a pure read-only / investigation / answer turn: the agent made no
+	// file edits (via its tools) and no signals ran. Such a turn has no artifact to verify
+	// and no false success to guard against, so members should approve (done) on a
+	// reasonable report rather than demand edits that were never going to exist.
 	NoChanges bool
 	Task      string // the user's original goal/request
 	Plan      string // acceptance criteria / contract, or the proposed procedure when Phase=="plan"
@@ -98,7 +96,7 @@ type DeliberationRequest struct {
 	// narration as evidence is how a defeatist agent talks its way to a false "done".
 	Actions string
 	Signals []Signal         // deterministic evidence (build/test/lint outcomes), optional
-	Diff    string           // working diff (optional)
+	Changes string           // this turn's file edits, reconstructed from the agent's write/edit tools (optional)
 	Members []council.Member // who votes (defaults to the MAGI when empty)
 	Rule    council.Rule     // how votes are tallied (defaults to majority)
 	// DefaultModel is used for members that don't pin their own Model (typically

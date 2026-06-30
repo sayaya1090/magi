@@ -54,7 +54,10 @@ type block struct {
 // councilVerdictLabel maps a member's raw decision to UI wording by phase. The
 // termination gate's "continue" is really a rejection (the result can't end the
 // turn); a plan audit's "continue" is a revise request. (done/abstain unchanged.)
-func councilVerdictLabel(phase, decision string) (icon, word string) {
+// councilVerdictLabel maps a vote to an icon + word. In the plan-audit phase a continue is
+// tiered by severity so the result shows whether it forced a re-plan or was just advice:
+// critical → revise (blocking), warn/absent → advise, info → note. Termination is done/reject.
+func councilVerdictLabel(phase, decision, severity string) (icon, word string) {
 	switch decision {
 	case "done":
 		if phase == "plan" {
@@ -63,7 +66,14 @@ func councilVerdictLabel(phase, decision string) (icon, word string) {
 		return "✓", "done"
 	case "continue":
 		if phase == "plan" {
-			return "↻", "revise"
+			switch severity {
+			case "", "warn": // absent severity normalizes to warn (non-blocking)
+				return "✎", "advise"
+			case "info":
+				return "·", "note"
+			default: // critical (or an unrecognized token → fail safe to blocking)
+				return "↻", "revise"
+			}
 		}
 		return "✗", "reject"
 	case "abstain":
@@ -72,19 +82,26 @@ func councilVerdictLabel(phase, decision string) (icon, word string) {
 	return "·", decision
 }
 
-// councilVerdictStyle gives a verdict its signal color: approve/done → success
-// (green), revise → caution (amber), reject → error (red), abstain/other → muted.
-// Phase distinguishes a plan "revise" (amber) from a termination "reject" (red),
-// matching councilVerdictLabel. Under NO_COLOR the word still carries the meaning.
-func councilVerdictStyle(phase, decision string) lipgloss.Style {
+// councilVerdictStyle gives a verdict its signal color, matching councilVerdictLabel's
+// severity tiers: approve/done → green; (plan) advise → amber, note → muted, revise →
+// red (blocking); (termination) reject → red; abstain/other → muted. Under NO_COLOR the
+// word still carries the meaning.
+func councilVerdictStyle(phase, decision, severity string) lipgloss.Style {
 	switch decision {
 	case "done":
 		return styleToolOK
 	case "continue":
 		if phase == "plan" {
-			return styleWarn
+			switch severity {
+			case "", "warn":
+				return styleWarn // advise — amber
+			case "info":
+				return styleToolResult // note — muted
+			default:
+				return styleToolErr // revise (critical) — red, blocking
+			}
 		}
-		return styleToolErr
+		return styleToolErr // reject — red
 	case "abstain":
 		return styleToolResult
 	}
@@ -98,7 +115,7 @@ const councilRowSep = "   "
 // councilMemberPlain is the visible (unstyled) text of one member's compact verdict —
 // the same glyphs renderBlock styles — so a click column maps to the right member.
 func councilMemberPlain(v event.CouncilVerdictData) string {
-	icon, word := councilVerdictLabel(v.Phase, v.Decision)
+	icon, word := councilVerdictLabel(v.Phase, v.Decision, v.Severity)
 	s := "● " + v.Member
 	if v.Lens != "" {
 		s += "  [" + v.Lens + "]"
@@ -291,13 +308,13 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 		segs := make([]string, len(blk.councilVerdicts))
 		for i, v := range blk.councilVerdicts {
 			hue := m.councilColor(v.Member)
-			icon, word := councilVerdictLabel(v.Phase, v.Decision)
+			icon, word := councilVerdictLabel(v.Phase, v.Decision, v.Severity)
 			seg := lipgloss.NewStyle().Foreground(hue).Render("●") + " " +
 				lipgloss.NewStyle().Foreground(hue).Bold(true).Render(v.Member)
 			if v.Lens != "" {
 				seg += "  " + styleToolResult.Render("["+v.Lens+"]")
 			}
-			seg += "  " + councilVerdictStyle(v.Phase, v.Decision).Render(icon+" "+word)
+			seg += "  " + councilVerdictStyle(v.Phase, v.Decision, v.Severity).Render(icon+" "+word)
 			if v.Confidence > 0 {
 				seg += styleToolResult.Render(fmt.Sprintf(" · %.0f%%", v.Confidence*100))
 			}

@@ -99,7 +99,7 @@ func TestE2ECouncilGate(t *testing.T) {
 			CouncilMaxRounds: 3, // bound the gate so a misbehaving model can't hang the test
 		})
 		wd := t.TempDir()
-		gitInit(t, wd) // a real repo, so GitDiff gives the council real evidence of the work
+		gitInit(t, wd) // a real repo (harmless; the council now judges tool-reconstructed changes, not git)
 		if len(seedFiles) > 0 {
 			seed(t, wd, seedFiles)
 		}

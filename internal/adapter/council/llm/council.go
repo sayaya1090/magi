@@ -286,10 +286,10 @@ func evidence(req port.DeliberationRequest) string {
 		b.WriteString("\n")
 	}
 	section("What the turn's tools produced (verified tool outputs — real evidence, independent of git: e.g. a write's byte count, a cat showing the file's contents)", req.Actions)
-	section("Diff", req.Diff)
+	section("Changes the agent made this turn (per-file before→after, reconstructed from its own edit tools)", req.Changes)
 	if req.NoChanges {
-		b.WriteString("# Changes\n(none recorded — a read-only / investigation / answer turn: no diff or signals to inspect. " +
-			"Judge the report's substance against the task; do not treat the absence of a diff as a defect.)\n\n")
+		b.WriteString("# Changes\n(none recorded — a read-only / investigation / answer turn: no file edits or signals to inspect. " +
+			"Judge the report's substance against the task; do not treat the absence of edits as a defect.)\n\n")
 	}
 	if b.Len() == 0 {
 		return "No task, report, or evidence was provided. With nothing to judge through your lens, abstain."

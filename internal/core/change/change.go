@@ -14,6 +14,11 @@ import (
 // maxDiffLines caps a single diff so one large edit can't dominate the view/evidence.
 const maxDiffLines = 40
 
+// maxDiffInputLines bounds the LCS inputs: the diff is O(n·m) in lines, so a many-line
+// file (e.g. a minified or generated file read up to the byte cap) would allocate a huge
+// matrix. Past this we summarize instead of diffing.
+const maxDiffInputLines = 1000
+
 // EditDiff renders a write/edit tool call (by its JSON args) as a unified diff: an edit
 // shows old→new; a write shows its content as added lines. "" for other tools or bad args.
 func EditDiff(name, args string) string {
@@ -43,9 +48,15 @@ func EditDiff(name, args string) string {
 // LineDiff returns a unified line diff (context " ", removals "-", additions "+") of two
 // texts, capped via clampDiff. It's an LCS diff (O(n·m)); callers feed bounded inputs.
 func LineDiff(oldStr, newStr string) string {
+	if oldStr == newStr {
+		return "" // no change — don't emit a (possibly "large change") summary for a no-op rewrite
+	}
 	o := strings.Split(strings.TrimRight(oldStr, "\n"), "\n")
 	n := strings.Split(strings.TrimRight(newStr, "\n"), "\n")
 	la, lb := len(o), len(n)
+	if la > maxDiffInputLines || lb > maxDiffInputLines {
+		return fmt.Sprintf("≈ large change: %d → %d lines (diff omitted)", la, lb)
+	}
 	// lcs[i][j] = length of the longest common subsequence of o[i:] and n[j:].
 	lcs := make([][]int, la+1)
 	for i := range lcs {

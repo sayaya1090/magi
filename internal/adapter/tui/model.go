@@ -2103,7 +2103,7 @@ func (m *Model) applyEvent(e event.Event) {
 			if d.Phase == "plan" {
 				label = "plan audit"
 			}
-			_, verdict := councilVerdictLabel(d.Phase, d.Decision) // termination continue → reject; plan → approve/revise
+			_, verdict := councilVerdictLabel(d.Phase, d.Decision, "") // round outcome: plan continue happens only on critical → revise
 			if strings.Contains(d.Note, "finishing") || strings.Contains(d.Note, "proceeding") {
 				// Any forced finish (round cap OR no-progress) — not a real approval/done.
 				// Normal consensus decisions carry no note; error fallbacks read as-is.
@@ -2841,8 +2841,8 @@ func (m *Model) renderCouncilDetail(width int) string {
 	wrap := lipgloss.NewStyle().Width(max(8, width-2))
 	var b strings.Builder
 	// (The "‹ back" breadcrumb is the fixed header — see View.)
-	icon, word := councilVerdictLabel(v.Phase, v.Decision)
-	b.WriteString(lipgloss.NewStyle().Foreground(hue).Bold(true).Render("⚖ "+v.Member) + "  " + councilVerdictStyle(v.Phase, v.Decision).Render(icon+" "+word))
+	icon, word := councilVerdictLabel(v.Phase, v.Decision, v.Severity)
+	b.WriteString(lipgloss.NewStyle().Foreground(hue).Bold(true).Render("⚖ "+v.Member) + "  " + councilVerdictStyle(v.Phase, v.Decision, v.Severity).Render(icon+" "+word))
 	if v.Lens != "" {
 		b.WriteString(styleFooter.Render("  [" + v.Lens + "]"))
 	}
@@ -2883,40 +2883,28 @@ func formatCouncilEvidence(d event.CouncilConvenedData) string {
 	if len(d.Signals) > 0 {
 		add("Signals", strings.Join(d.Signals, "\n"))
 	}
-	add("Diff", prettyCouncilDiff(d.Diff))
+	add("Changes", colorizeChanges(d.Changes))
 	if d.NoChanges {
 		b.WriteString("(no files changed — a read-only / answer turn)\n")
 	}
 	return strings.TrimSpace(b.String())
 }
 
-// prettyCouncilDiff cleans a git diff for the council detail view: it drops the plumbing
-// headers (diff --git / index / --- / +++ / mode / binary lines), shows each file as a
-// single "◆ path" header, dims the @@ hunk markers, and colors additions green / removals
-// red. Per-line foreground only — no width-fitting background wash — so it still flows
-// through the detail view's word-wrap.
-func prettyCouncilDiff(diff string) string {
-	if strings.TrimSpace(diff) == "" {
-		return diff
+// colorizeChanges colors the council's change evidence for the detail view: a bold "◆ path"
+// per-file header (from the "### path" markers), additions green, removals red. Per-line
+// foreground only, so it flows through the detail view's word-wrap.
+func colorizeChanges(changes string) string {
+	if strings.TrimSpace(changes) == "" {
+		return changes
 	}
 	add := lipgloss.NewStyle().Foreground(colSuccess)
 	del := lipgloss.NewStyle().Foreground(colError)
-	mut := lipgloss.NewStyle().Foreground(colMuted)
 	hdr := lipgloss.NewStyle().Foreground(colSuccess).Bold(true)
 	var b strings.Builder
-	for _, ln := range strings.Split(diff, "\n") {
+	for _, ln := range strings.Split(changes, "\n") {
 		switch {
-		case strings.HasPrefix(ln, "diff --git "):
-			p := ln
-			if i := strings.LastIndex(ln, " b/"); i >= 0 {
-				p = ln[i+3:]
-			}
-			b.WriteString("\n" + hdr.Render("◆ "+p) + "\n")
-		case hasAnyPrefix(ln, "index ", "--- ", "+++ ", "new file mode", "deleted file mode",
-			"old mode ", "new mode ", "similarity ", "rename ", "Binary files "):
-			continue // plumbing noise
-		case strings.HasPrefix(ln, "@@"):
-			b.WriteString(mut.Render(ln) + "\n")
+		case strings.HasPrefix(ln, "### "):
+			b.WriteString("\n" + hdr.Render("◆ "+strings.TrimPrefix(ln, "### ")) + "\n")
 		case strings.HasPrefix(ln, "+"):
 			b.WriteString(add.Render(ln) + "\n")
 		case strings.HasPrefix(ln, "-"):
@@ -2926,15 +2914,6 @@ func prettyCouncilDiff(diff string) string {
 		}
 	}
 	return strings.TrimSpace(b.String())
-}
-
-func hasAnyPrefix(s string, prefixes ...string) bool {
-	for _, p := range prefixes {
-		if strings.HasPrefix(s, p) {
-			return true
-		}
-	}
-	return false
 }
 
 func (m *Model) permView() string {

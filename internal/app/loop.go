@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -11,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/sayaya1090/magi/internal/core/artifact"
+	"github.com/sayaya1090/magi/internal/core/change"
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/lang"
@@ -41,10 +45,26 @@ type runGuard struct {
 	lastMut map[string]string // path → last mutation signature, to ignore idempotent rewrites
 	epoch   int               // bumped on each real file mutation; part of the fingerprint
 	blocked int
+
+	// changed records this turn's file edits (before/after content) as the council's
+	// evidence of what the AGENT actually changed — reconstructed from its own write/edit
+	// tools, not git, so a human/external/bash change is never mis-attributed to the agent.
+	changed     map[string]*fileChange
+	changeOrder []string // first-seen order, for stable rendering
+}
+
+// fileChange is one file's before/after content captured around an agent edit this turn.
+type fileChange struct {
+	path   string
+	before string // content just before the FIRST edit this turn ("" if newly created)
+	after  string // content just after the LATEST edit
 }
 
 func newRunGuard() *runGuard {
-	return &runGuard{seen: map[string]int{}, results: map[string]string{}, lastMut: map[string]string{}}
+	return &runGuard{
+		seen: map[string]int{}, results: map[string]string{},
+		lastMut: map[string]string{}, changed: map[string]*fileChange{},
+	}
 }
 
 // check records a tool call and reports whether it should be blocked as a repeat,
@@ -101,16 +121,28 @@ func (g *runGuard) lastResult(fp string) string {
 	return g.results[fp]
 }
 
-// touchedPaths returns the set of file paths this run mutated via write/edit tools — used
-// to scope the council diff to what the turn actually changed.
-func (g *runGuard) touchedPaths() map[string]bool {
+// recordChange captures a file's before/after content around an agent edit. The FIRST
+// before for a path is kept (its pre-turn state); after is updated to the latest, so
+// multiple edits to one file collapse to a single net before→after.
+func (g *runGuard) recordChange(path, before, after string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	out := make(map[string]bool, len(g.lastMut))
-	for p := range g.lastMut {
-		if p != "" {
-			out[p] = true
-		}
+	c, ok := g.changed[path]
+	if !ok {
+		c = &fileChange{path: path, before: before}
+		g.changed[path] = c
+		g.changeOrder = append(g.changeOrder, path)
+	}
+	c.after = after
+}
+
+// changeSet returns this turn's file changes in first-seen order.
+func (g *runGuard) changeSet() []fileChange {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	out := make([]fileChange, 0, len(g.changeOrder))
+	for _, p := range g.changeOrder {
+		out = append(out, *g.changed[p])
 	}
 	return out
 }
@@ -143,6 +175,70 @@ func capToolResult(b []byte) []byte {
 	out := make([]byte, 0, cut+len(marker))
 	out = append(out, b[:cut]...)
 	return append(out, marker...)
+}
+
+// changeReadCap bounds how much of a file we read to reconstruct a before/after change.
+// (The LCS memory is bounded separately by change.maxDiffInputLines, so this only limits
+// I/O; it's large enough to capture edits that aren't right at the top of a big file.)
+const changeReadCap = 256 << 10
+
+// readForChange reads (a capped prefix of) the file at a tool-supplied path, relative to
+// workdir, for before/after change capture. "" on any error (e.g. a new or deleted file).
+func readForChange(workdir, path string) string {
+	abs := path
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(workdir, path)
+	}
+	f, err := os.Open(abs)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	b := make([]byte, changeReadCap)
+	n, _ := io.ReadFull(f, b)
+	return string(b[:n])
+}
+
+// relForChange maps a tool path to a workdir-relative display path for change headers.
+func relForChange(workdir, path string) string {
+	abs := path
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(workdir, path)
+	}
+	if rel, err := filepath.Rel(workdir, abs); err == nil && !strings.HasPrefix(rel, "..") {
+		return filepath.ToSlash(rel)
+	}
+	return path
+}
+
+// buildCouncilChanges renders the turn's file changes as the council's evidence: a per-file
+// "### path" header followed by the before→after line diff. Files whose diff is empty are
+// skipped. The caller caps the total.
+func buildCouncilChanges(cs []fileChange) string {
+	var b strings.Builder
+	for _, c := range cs {
+		d := change.LineDiff(c.before, c.after)
+		if diffOnlyContext(d) {
+			continue // no additions/removals (e.g. an identical rewrite) → nothing to show
+		}
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString("### " + c.path + "\n" + d + "\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// diffOnlyContext reports whether a LineDiff has no real change — empty, or every non-empty
+// line is context (" "-prefixed). A "+"/"-" line, the "… (N more)" clamp note, or the
+// "≈ large change" summary all start non-space, so a real change is never dropped.
+func diffOnlyContext(d string) bool {
+	for _, ln := range strings.Split(d, "\n") {
+		if ln != "" && !strings.HasPrefix(ln, " ") {
+			return false
+		}
+	}
+	return true
 }
 
 // canonicalArgs returns a stable string for tool args so logically identical
@@ -202,8 +298,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	turnTask := ""            // the user instruction THIS turn answers, snapshotted at
 	// step 0 — so a steer that lands during the council gate can't hijack what the
 	// council judges against (that interjection gets its own follow-up turn instead).
-	var dirtyBefore map[string]bool // paths already uncommitted at turn start (C: scope council diff)
-	usedTools := seedWork           // did this turn do real work? (planner investigation seeds it; council skips pure conversational turns)
+	usedTools := seedWork // did this turn do real work? (planner investigation seeds it; council skips pure conversational turns)
 	// Turn usage accumulation (§8.1): output tokens and cost sum across steps; input
 	// is the last step's (the current context size, not a sum).
 	var cumOut, lastIn int
@@ -232,12 +327,6 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		}
 		if step == 0 {
 			turnTask = lastUserPromptText(evs) // the prompt that drove this turn
-			// Snapshot pre-turn dirtiness only when the council gate (its sole consumer) can
-			// run — not in workflow mode or with no council — so we don't spend a git status
-			// call (or perturb workflow's verify accounting) where it's never used.
-			if depth == 0 && !a.cfg.Workflow && a.cfg.Council != nil {
-				dirtyBefore = a.GitDirtyPaths(ctx, s.Workdir) // C: scope the council diff to the turn
-			}
 		}
 
 		// Durable project memory (AGENTS.md) is part of the system prompt and is
@@ -467,7 +556,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			// conversational reply (no tool use, e.g. a greeting) has nothing to
 			// verify, so gating it just churns and can derail a weak model.
 			if depth == 0 && a.cfg.Council != nil && !a.cfg.Workflow && usedTools {
-				if a.runCouncilGate(ctx, s, agent, turnTask, lastText, &councilRounds, &lastCouncilFeedback, dirtyBefore, guard.touchedPaths()) {
+				if a.runCouncilGate(ctx, s, agent, turnTask, lastText, &councilRounds, &lastCouncilFeedback, buildCouncilChanges(guard.changeSet())) {
 					continue
 				}
 			}
@@ -662,7 +751,7 @@ func tailForCouncil(s string, n int) string {
 //
 // Safety (so the council can never trap the loop): rounds are capped, repeated or
 // empty feedback stops the gate, and any deliberation error finishes the turn.
-func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent AgentSpec, turnTask, lastText string, rounds *int, lastFeedback *string, dirtyBefore, touched map[string]bool) bool {
+func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent AgentSpec, turnTask, lastText string, rounds *int, lastFeedback *string, changes string) bool {
 	// An interrupt mid-finish must not trigger a deliberation or inject a spurious
 	// feedback prompt — let the loop unwind the cancellation.
 	if ctx.Err() != nil {
@@ -710,10 +799,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	if task == "" { // defensive: fall back to the latest genuine prompt
 		task = lastUserPromptText(evs)
 	}
-	diff, diffErr := a.GitDiff(ctx, s.Workdir)
-	diff = scopeDiffToTurn(diff, dirtyBefore, touched, s.Workdir) // drop pre-existing changes the agent didn't make (C)
-	diff = filterCouncilDiff(diff)                                // drop binary-file sections (noise, never code evidence)
-	diff = truncateForCouncil(diff, councilDiffCap)               // bound per-member token cost
+	changes = truncateForCouncil(changes, councilDiffCap) // the agent's before→after edits, bounded
 	// The agent's plan (todos, with status) is the council's CONTRACT (D15): the
 	// completeness lens judges the report/diff against it, and any still-pending
 	// item is strong grounds to continue. Empty when the agent kept no plan.
@@ -768,13 +854,11 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		return false
 	}
 
-	// Tell the council when the turn changed nothing (a successful empty diff, no
-	// signals): a pure read-only / investigation / answer turn has no artifact to
-	// verify, so members judge the report on its merits instead of demanding a diff
-	// that was never going to exist — the consensus rule is unchanged. A GitDiff
-	// error (e.g. a non-git workdir) is NOT "no changes": a turn that actually wrote
-	// files there must not be misjudged as read-only.
-	noChanges := diffErr == nil && strings.TrimSpace(diff) == "" && len(signals) == 0
+	// Tell the council when the turn changed nothing (no agent file edits, no signals): a
+	// pure read-only / investigation / answer turn has no artifact to verify, so members
+	// judge the report on its merits instead of demanding edits that were never going to
+	// exist — the consensus rule is unchanged.
+	noChanges := strings.TrimSpace(changes) == "" && len(signals) == 0
 
 	labels := make([]string, len(members))
 	for i, m := range members {
@@ -782,7 +866,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	}
 	cd, _ := json.Marshal(event.CouncilConvenedData{
 		Round: *rounds, Members: labels, Rule: string(rule), Signals: signalSummaries,
-		Task: task, Plan: plan, Report: lastText, Diff: diff, NoChanges: noChanges,
+		Task: task, Plan: plan, Report: lastText, Changes: changes, NoChanges: noChanges,
 	})
 	a.appendFact(ctx, sid, event.TypeCouncilConvened, councilActor, cd)
 	// Live panel: announce which members are deliberating this round.
@@ -798,7 +882,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		Report:       lastText,
 		Actions:      turnToolEvidence(evs, councilActionsCap),
 		Signals:      signals,
-		Diff:         diff,
+		Changes:      changes,
 		NoChanges:    noChanges,
 		Members:      members,
 		Rule:         rule,
@@ -1050,6 +1134,15 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID, "unknown tool: "+tc.Name, true)
 		return
 	}
+	// For a file edit, snapshot the file's content BEFORE the tool runs so the council can
+	// be shown the agent's actual before→after change (reconstructed from its own tools).
+	var changeBefore, changePath string
+	if guard != nil && fileModifiers[tc.Name] {
+		changePath = pathArg(tc.Args)
+		if changePath != "" {
+			changeBefore = readForChange(workdir, changePath)
+		}
+	}
 	res, err := tool.Execute(ctx, tc.Args, port.ToolEnv{
 		SessionID:    sid,
 		Workdir:      workdir,
@@ -1083,6 +1176,10 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// a result that's still in the recent, un-compacted window). Truncate the raw output here,
 	// before diagnostics are appended, so the agent is told to narrow its read/command.
 	res.Content = capToolResult(res.Content)
+	// The tool's OWN success, before post-edit diagnostics/hooks below flip IsError: a write
+	// that landed but fails gofmt/a hook still changed the file, and the council must see
+	// that (broken) change — so change capture keys off this, not the post-diagnostics flag.
+	toolOK := !res.IsError
 
 	// Post-edit diagnostics + PostToolUse hooks: feed problems back so the agent
 	// self-corrects (built-in autoformat runs here too).
@@ -1106,6 +1203,12 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		if !res.IsError && fileModifiers[tc.Name] {
 			guard.mutated(pathArg(tc.Args), canonicalArgs(tc.Args))
 		}
+	}
+	// Record the agent's before→after change for the council. Gate on the tool's own success
+	// (toolOK), NOT res.IsError — a write that landed but failed gofmt/a hook is exactly the
+	// broken change the council should scrutinize, and must not read as a no-op turn.
+	if guard != nil && changePath != "" && toolOK && fileModifiers[tc.Name] {
+		guard.recordChange(relForChange(workdir, changePath), changeBefore, readForChange(workdir, changePath))
 	}
 
 	a.appendPart(ctx, sid, actor, toolMsgID, session.RoleTool, session.Part{
