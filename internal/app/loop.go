@@ -232,8 +232,11 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		}
 		if step == 0 {
 			turnTask = lastUserPromptText(evs) // the prompt that drove this turn
-			if depth == 0 {
-				dirtyBefore = a.GitDirtyPaths(ctx, s.Workdir) // snapshot pre-turn dirtiness (C: scope the council diff)
+			// Snapshot pre-turn dirtiness only when the council gate (its sole consumer) can
+			// run — not in workflow mode or with no council — so we don't spend a git status
+			// call (or perturb workflow's verify accounting) where it's never used.
+			if depth == 0 && !a.cfg.Workflow && a.cfg.Council != nil {
+				dirtyBefore = a.GitDirtyPaths(ctx, s.Workdir) // C: scope the council diff to the turn
 			}
 		}
 
