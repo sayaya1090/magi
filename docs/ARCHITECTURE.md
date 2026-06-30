@@ -150,7 +150,11 @@ mode) does NOT finish immediately: it convenes a **council** that votes done-vs-
   no-progress guard (empty/repeated feedback finishes), and a ctx-cancel early-out.
   Forced finishes are recorded as a `council.decided` with a `note` (not an error).
 - Evidence judged = Task (the original goal, `firstUserText`) + Report (the agent's
-  final message) + working diff (size-capped). Plan/Signals (D15/D16) are not yet wired.
+  final message) + working diff (size-capped). The diff is **turn-scoped**: binary files
+  are dropped (`filterCouncilDiff`) and changes already uncommitted before the turn that
+  the agent didn't touch are excluded (`scopeDiffToTurn`, baseline from `GitDirtyPaths` at
+  step 0 + the run guard's touched paths), so members judge only this turn's work — and the
+  TUI detail modal renders it cleanly (`prettyCouncilDiff`). Plan/Signals (D15/D16) are not yet wired.
 - Events: `council.convened`/`council.verdict`/`council.decided` (fact) +
   `council.deliberating` (transient). See PLAN §4.2, DESIGN §5/§6, SPEC F-COUNCIL.
 
