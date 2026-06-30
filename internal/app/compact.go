@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -49,6 +51,9 @@ func (a *App) maybeCompact(ctx context.Context, s session.Session, agent AgentSp
 	if len(older) == 0 {
 		return false
 	}
+	// Index the compacted region into recallable topics (deterministic — by file path,
+	// each carrying its tool-action trail as a brief), then write the overall summary.
+	shards := shardByPath(older, s.Workdir)
 	summary := a.summarizeViaLLM(ctx, agent, s, older)
 	if summary == "" {
 		return false
@@ -66,9 +71,136 @@ func (a *App) maybeCompact(ctx context.Context, s session.Session, agent AgentSp
 		ReplacesUpToSeq: boundary,
 		TokensBefore:    estimateTokens(sys, msgs),
 		TokensAfter:     estimateTokens(summary, reconstruct(keptEvs)),
+		Shards:          shards,
 	})
 	a.appendFact(ctx, s.ID, event.TypeCompaction, actor, d)
 	return true
+}
+
+// shardByPath groups the compacted messages into recallable topics by the file each
+// one touched (read/edited/grepped/etc.), plus a single "discussion" shard for messages
+// that reference no file. It is deterministic — no model call and no parse-failure path —
+// so the index is always faithful and complete: every recoverable message lands in at
+// least one shard, and a topic is a path the agent naturally recalls. Prior summaries
+// (id "compaction-*") are skipped — they are not original detail to recover.
+func shardByPath(older []session.Message, workdir string) []event.ContextShard {
+	callPath := map[string]string{}  // tool callID → relative path, to attribute a result to its call's file
+	actions := map[string][]string{} // path → ordered tool names, for a deterministic brief
+	for _, m := range older {
+		for _, p := range m.Parts {
+			if p.Kind == session.PartToolCall && p.ToolCall != nil {
+				if rel := shardPath(workdir, p.ToolCall.Args); rel != "" {
+					callPath[p.ToolCall.CallID] = rel
+					actions[rel] = append(actions[rel], p.ToolCall.Name)
+				}
+			}
+		}
+	}
+
+	byPath := map[string][]string{}      // path → ordered message IDs
+	seen := map[string]map[string]bool{} // path → set(msgID), dedupe
+	var order []string                   // first-seen path order, for stable output
+	var discussion []string
+	add := func(path, id string) {
+		if seen[path] == nil {
+			seen[path] = map[string]bool{}
+		}
+		if seen[path][id] {
+			return
+		}
+		if _, ok := byPath[path]; !ok {
+			order = append(order, path)
+		}
+		byPath[path] = append(byPath[path], id)
+		seen[path][id] = true
+	}
+
+	for _, m := range older {
+		if strings.HasPrefix(m.ID, "compaction-") {
+			continue
+		}
+		paths := map[string]bool{}
+		for _, p := range m.Parts {
+			switch {
+			case p.Kind == session.PartToolCall && p.ToolCall != nil:
+				if rel := shardPath(workdir, p.ToolCall.Args); rel != "" {
+					paths[rel] = true
+				}
+			case p.Kind == session.PartToolResult && p.ToolResult != nil:
+				if rel := callPath[p.ToolResult.CallID]; rel != "" {
+					paths[rel] = true
+				}
+			}
+		}
+		if len(paths) == 0 {
+			discussion = append(discussion, m.ID)
+			continue
+		}
+		keys := make([]string, 0, len(paths)) // sort so multi-path messages add deterministically
+		for k := range paths {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, path := range keys {
+			add(path, m.ID)
+		}
+	}
+
+	shards := make([]event.ContextShard, 0, len(order)+1)
+	for _, path := range order {
+		shards = append(shards, event.ContextShard{Topic: path, Brief: actionTrail(actions[path]), MessageIDs: byPath[path]})
+	}
+	if len(discussion) > 0 {
+		shards = append(shards, event.ContextShard{
+			Topic: "discussion", Brief: "messages not tied to a specific file", MessageIDs: discussion,
+		})
+	}
+	return shards
+}
+
+// actionTrail renders a path's tool activity as a deterministic one-line brief, e.g.
+// "read · edit×2 · bash" — distinct tools in first-seen order, with a ×N count when
+// repeated. Empty when no tools were recorded.
+func actionTrail(names []string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	var order []string
+	count := map[string]int{}
+	for _, n := range names {
+		if count[n] == 0 {
+			order = append(order, n)
+		}
+		count[n]++
+	}
+	parts := make([]string, 0, len(order))
+	for _, n := range order {
+		if count[n] > 1 {
+			parts = append(parts, fmt.Sprintf("%s×%d", n, count[n]))
+		} else {
+			parts = append(parts, n)
+		}
+	}
+	return strings.Join(parts, " · ")
+}
+
+// shardPath extracts the file a tool call targeted and returns it relative to workdir;
+// "" when the call references no file (e.g. bash, web tools). It reads "path" (most file
+// tools) or "file" (astgrep / LSP nav), so those land on the right topic, not "discussion".
+func shardPath(workdir string, args json.RawMessage) string {
+	var a struct {
+		Path string `json:"path"`
+		File string `json:"file"`
+	}
+	_ = json.Unmarshal(args, &a)
+	p := a.Path
+	if p == "" {
+		p = a.File
+	}
+	if p == "" {
+		return ""
+	}
+	return relForChange(workdir, p)
 }
 
 // truncateAt returns events with seq <= boundary.

@@ -177,7 +177,11 @@ type ToolEnv struct {
 	Propose func(c Contribution) error
 	// LoadSkill returns a named skill's instructions; nil when unavailable.
 	LoadSkill func(name string) (string, bool)
-	Platform  Platform
+	// Recall re-hydrates a topic's full detail that an earlier compaction shed from
+	// context, looked up by topic/keywords against the compaction shards; nil when
+	// unavailable. (recall_context)
+	Recall   func(query string) (string, error)
+	Platform Platform
 	// Sandbox requests OS-level confinement for commands (bash). Zero value
 	// (empty Mode) means unconfined.
 	Sandbox SandboxSpec

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -51,6 +52,12 @@ type runGuard struct {
 	// tools, not git, so a human/external/bash change is never mis-attributed to the agent.
 	changed     map[string]*fileChange
 	changeOrder []string // first-seen order, for stable rendering
+
+	// recalled bounds recall_context: re-hydrating compacted detail re-inflates context
+	// (which can re-trigger compaction), so a turn may recall each topic once and only up
+	// to recallBudget times total — otherwise a recall→compact→recall loop could spin.
+	recalled    map[string]bool
+	recallCount int
 }
 
 // fileChange is one file's before/after content captured around an agent edit this turn.
@@ -64,7 +71,28 @@ func newRunGuard() *runGuard {
 	return &runGuard{
 		seen: map[string]int{}, results: map[string]string{},
 		lastMut: map[string]string{}, changed: map[string]*fileChange{},
+		recalled: map[string]bool{},
 	}
+}
+
+// recallBudget caps re-hydrations per turn (distinct topics bypass the identical-call
+// loop guard, so they need their own ceiling).
+const recallBudget = 8
+
+// allowRecall reports whether a recall_context for `topic` is permitted this turn,
+// with a reason when not: each topic once, and at most recallBudget total.
+func (g *runGuard) allowRecall(topic string) (bool, string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.recalled[topic] {
+		return false, "already recalled this topic this turn — use what was returned earlier"
+	}
+	if g.recallCount >= recallBudget {
+		return false, "recall budget for this turn is exhausted — work with the context you have or narrow the task"
+	}
+	g.recalled[topic] = true
+	g.recallCount++
+	return true, ""
 }
 
 // check records a tool call and reports whether it should be blocked as a repeat,
@@ -1178,7 +1206,12 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 			return a.cfg.Experience.Propose(ctx, c)
 		},
 		LoadSkill: func(name string) (string, bool) { return a.skillBody(s.Workdir, name) },
-		Sandbox:   port.SandboxSpec{Mode: a.cfg.Sandbox, Workdir: workdir},
+		Recall: func(query string) (string, error) {
+			// Budget/dedupe is applied inside recallContext, keyed on the RESOLVED topic
+			// (so two phrasings of one topic don't both spend it, and a miss is free).
+			return a.recallContext(ctx, sid, query, guard)
+		},
+		Sandbox: port.SandboxSpec{Mode: a.cfg.Sandbox, Workdir: workdir},
 	})
 	if err != nil {
 		a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID, string(capToolResult([]byte(err.Error()))), true)
@@ -1337,6 +1370,10 @@ func (a *App) systemFor(agent AgentSpec, workdir string, isSub bool) string {
 	if mem := a.projectMemory(workdir); mem != "" {
 		sys = "# Project memory\n" + mem + "\n\n" + sys
 	}
+	// Tell the agent its runtime environment so it picks correct shell commands (GNU vs
+	// BSD flags, package manager, path style) instead of guessing — both the orchestrator
+	// and subagents run bash, so both need it.
+	sys += "\n\n" + envInfo(workdir)
 	// Subagents don't see the conversation and report back by RETURNING their
 	// final message. Weak models otherwise "present" conclusions via bash/echo and
 	// never terminate — so spell out how to finish. The role is decided by whether
@@ -1367,6 +1404,17 @@ func (a *App) systemFor(agent AgentSpec, workdir string, isSub bool) string {
 		b.WriteString("\n- " + name + ": " + oneLineHint(desc))
 	}
 	return b.String()
+}
+
+// envInfo describes the runtime environment (OS, arch, shell, workdir, date) so the model
+// chooses commands that actually work on this host rather than assuming Linux/GNU.
+func envInfo(workdir string) string {
+	shell := "sh"
+	if s := os.Getenv("SHELL"); s != "" {
+		shell = filepath.Base(s)
+	}
+	return fmt.Sprintf("# Environment\n- OS: %s (%s)\n- Shell: %s\n- Working directory: %s\n- Date: %s",
+		runtime.GOOS, runtime.GOARCH, shell, workdir, time.Now().Format("2006-01-02"))
 }
 
 // subagentGuide is appended to every subagent's system prompt. It defines how a
