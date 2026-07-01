@@ -292,11 +292,21 @@ type PluginInfo struct {
 	Capabilities []string
 }
 
+// PluginCommand is a slash command contributed by a plugin (e.g. /login). It is
+// modeled as an interface — like Tool and ContextProvider — so the owning plugin
+// can serialize Execute on its (non-concurrency-safe) Lua state.
+type PluginCommand interface {
+	Name() string                // command name without the leading slash (e.g. "login")
+	Description() string         // shown in /help and the slash palette
+	Execute(args []string) error // args = whitespace-split tokens after the command
+}
+
 // CapabilitySet is the aggregate of capabilities contributed by all plugins.
 type CapabilitySet struct {
 	Tools            []Tool
 	ContextProviders []ContextProvider
-	// Commands, Skills, Hooks, MCPServers, Agents, UIPanels added in M3+.
+	Commands         []PluginCommand
+	// Skills, Hooks, MCPServers, Agents, UIPanels added in M3+.
 }
 
 // ---- Scheduler (D12: Tier1 in-process ticker; Tier2 OS adapter later) ----
