@@ -53,7 +53,7 @@ func (m *Model) textBody(result string) []string {
 	if strings.TrimSpace(result) == "" {
 		return nil
 	}
-	w := m.transcriptWidth() - 2
+	w := m.bodyWidth() - 2
 	lines := strings.Split(result, "\n")
 	out := make([]string, len(lines))
 	for i, ln := range lines {
@@ -90,7 +90,7 @@ func foldRendered(lines []string, expanded bool) string {
 // the head summary) as a dim block.
 func (m *Model) bashBody(blk block) []string {
 	raw := bashOutputLines(blk.result)
-	w := m.transcriptWidth() - 2
+	w := m.bodyWidth() - 2
 	out := make([]string, len(raw))
 	for i, ln := range raw {
 		out[i] = styleToolResult.Render(clipLine(ln, w))
@@ -103,7 +103,7 @@ func (m *Model) bashBody(blk block) []string {
 func (m *Model) readBody(blk block) []string {
 	lexer := lexerFor(rawPath(blk.args))
 	st := m.codeStyle()
-	w := m.transcriptWidth() - 2
+	w := m.bodyWidth() - 2
 	var out []string
 	for _, ln := range strings.Split(strings.TrimRight(blk.result, "\n"), "\n") {
 		gutter, code, ok := splitNumberedLine(ln)
@@ -125,7 +125,7 @@ func (m *Model) grepBody(blk block) []string {
 		return nil
 	}
 	loc := lipgloss.NewStyle().Foreground(colAccent)
-	w := m.transcriptWidth() - 2
+	w := m.bodyWidth() - 2
 	out := make([]string, 0, len(matches))
 	for _, mtch := range matches {
 		parts := strings.SplitN(mtch, ":", 3)
@@ -146,7 +146,7 @@ func (m *Model) globBody(blk block) []string {
 	if !ok {
 		return nil
 	}
-	w := m.transcriptWidth() - 2
+	w := m.bodyWidth() - 2
 	out := make([]string, len(paths))
 	for i, p := range paths {
 		out[i] = styleToolResult.Render("• " + clipLine(p, w-2))
@@ -165,7 +165,7 @@ func (m *Model) listBody(blk block) []string {
 		return nil
 	}
 	dirStyle := lipgloss.NewStyle().Foreground(colAccent)
-	w := m.transcriptWidth() - 2
+	w := m.bodyWidth() - 2
 	out := make([]string, len(entries))
 	for i, e := range entries {
 		if e.IsDir {

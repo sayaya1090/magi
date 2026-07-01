@@ -278,7 +278,7 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 			}
 		}
 		if diff != "" {
-			return indent(head) + "\n" + indent(m.renderCodeDiff(diff, rawPath(blk.args), m.transcriptWidth()-2, diffBaseLine(blk)))
+			return indent(head) + "\n" + indent(m.renderCodeDiff(diff, rawPath(blk.args), m.bodyWidth()-2, diffBaseLine(blk)))
 		}
 		// Other tools (e.g. bash) show their output as a folded body beneath the line.
 		if body := m.renderToolBody(blk); body != "" {
@@ -297,7 +297,7 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 	case blockInfo:
 		// Wrap to the transcript width (minus the 2-col indent) so a long line
 		// (e.g. the planner's reason) reflows instead of overflowing.
-		return indent(styleToolResult.Width(m.transcriptWidth() - 2).Render(strings.TrimRight(blk.text, "\n")))
+		return indent(styleToolResult.Width(m.bodyWidth() - 2).Render(strings.TrimRight(blk.text, "\n")))
 	case blockCouncilVerdict:
 		// A round's members on ONE line, each in 기승전결 order: WHO (member) → LENS →
 		// VERDICT → CONFIDENCE. Rationale/feedback stay hidden — clicking a member opens
@@ -344,7 +344,7 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 			// Wrap the reason to the transcript width with a hanging indent aligned under
 			// the text (continuation lines line up past "→ Member: "), instead of cutting
 			// it off with an ellipsis.
-			wrapped := wrapLines(oneLine(reason, 100000), max(20, m.transcriptWidth()-2-pw))
+			wrapped := wrapLines(oneLine(reason, 100000), max(20, m.bodyWidth()-2-pw))
 			label := lipgloss.NewStyle().Foreground(hue).Render(prefix)
 			for k, ln := range wrapped {
 				if k == 0 {
@@ -405,11 +405,21 @@ func (m *Model) transcriptWidth() int {
 	return w
 }
 
-// wrapThink word-wraps "thinking" text to the transcript width (accounting for
-// the 2-col indent applied by indent()) so long reasoning lines reflow instead
-// of overflowing the panel/viewport. styleThink is applied per wrapped line.
+// bodyWidth is the width actually available to transcript CONTENT lines: the
+// transcript minus the 1-col scrollbar gutter that composeWithScrollbar welds
+// onto every row. Block renderers that pad/clip a line to a fixed width must use
+// this (not transcriptWidth) — otherwise a full-width line runs 1 col past the
+// viewport and gets soft-wrapped onto a sliver row, notching that block wherever
+// the scrollbar appears. Mirrors buildGlam, which also subtracts scrollbarW.
+func (m *Model) bodyWidth() int { return m.transcriptWidth() - scrollbarW }
+
+// wrapThink word-wraps "thinking" text to the transcript CONTENT width — the
+// transcript minus the 1-col scrollbar gutter (scrollbarW) and the 2-col indent
+// applied by indent(). It must match the markdown body's wrap width (buildGlam
+// also subtracts scrollbarW); otherwise the padded think lines run 1 col wider
+// than the content area and collide with the scrollbar column, notching that row.
 func (m *Model) wrapThink(s string) string {
-	return styleThink.Width(m.transcriptWidth() - 2).Render(s)
+	return styleThink.Width(m.bodyWidth() - 2).Render(s)
 }
 
 func indent(s string) string {
