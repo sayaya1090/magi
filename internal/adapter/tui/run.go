@@ -16,6 +16,10 @@ import (
 // isDark selects the color theme. The model subscribes to the session itself
 // (see Init/startSub) so it can switch sessions on /resume.
 func Run(ctx context.Context, a *app.App, sid session.SessionID, model, workdir string, isDark bool, imageProto string) error {
+	// Match our display-width measure to the host terminal (mainly for Windows,
+	// where ambiguous-width glyphs are often drawn wide) so the scrollbar gutter
+	// stays aligned on lines with special characters. Best-effort; see width.go.
+	detectAmbiguousWidth()
 	m := New(ctx, a, sid, model, workdir, isDark, imageProto)
 	p := tea.NewProgram(m)
 	_, err := p.Run()

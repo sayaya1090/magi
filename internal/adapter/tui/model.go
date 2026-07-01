@@ -2594,11 +2594,20 @@ func (m *Model) renderScrollbar(height int) string {
 	}
 	track := lipgloss.NewStyle().Foreground(colMuted)
 	thumbSt := lipgloss.NewStyle().Foreground(colAccent)
+	// The pretty glyphs │ (U+2502) and █ (U+2588) are East-Asian *ambiguous* width:
+	// on a terminal that draws ambiguous runes as two cells they'd overflow the
+	// 1-column gutter and re-ragged the very bar we're trying to keep straight. On
+	// such terminals fall back to ASCII (always one cell); color still separates
+	// thumb from track.
+	trackGlyph, thumbGlyph := "│", "█"
+	if ambiguousWide {
+		trackGlyph, thumbGlyph = "|", "|"
+	}
 	for i := range rows {
 		if i >= pos && i < pos+thumb {
-			rows[i] = thumbSt.Render("█")
+			rows[i] = thumbSt.Render(thumbGlyph)
 		} else {
-			rows[i] = track.Render("│")
+			rows[i] = track.Render(trackGlyph)
 		}
 	}
 	return strings.Join(rows, "\n")
@@ -2788,21 +2797,22 @@ func (m Model) View() tea.View {
 	// JoinVertical keeps) so the panes/input below sit at the bottom of the screen
 	// instead of floating with empty space beneath the input.
 	vpw := tw - scrollbarW // the transcript content; the scrollbar gutter takes the last col
-	var vpv string
+	var vpContent string
 	if len(m.blocks) == 0 && !m.running && !m.resuming {
 		// Fresh session: show the NERV/MAGI startup splash until the first message.
-		vpv = splashView(vpw, m.vp.Height())
+		vpContent = splashView(vpw, m.vp.Height())
 	} else {
-		vpContent := m.vp.View()
+		vpContent = m.vp.View()
 		if strings.TrimSpace(vpContent) == "" {
-			vpContent = " " // empty/blank content isn't padded by lipgloss; give it a space
+			vpContent = " " // empty/blank content isn't padded; give it a space
 		}
-		// Width+Height fills every row to vpw columns (blank rows become spaces), so
-		// JoinVertical keeps them and the panes/input below sit at the screen bottom.
-		vpv = lipgloss.NewStyle().Width(vpw).Height(m.vp.Height()).Render(vpContent)
 	}
-	// Attach the scrollbar gutter on the right so the transcript area is exactly tw wide.
-	vpv = lipgloss.JoinHorizontal(lipgloss.Top, vpv, m.renderScrollbar(m.vp.Height()))
+	// Force every row to exactly vpw cells with our terminal-aware measure, then
+	// weld the scrollbar gutter on so the transcript area is exactly tw wide and
+	// the gutter stays aligned on lines with ambiguous-width characters. (Doing
+	// the padding ourselves — not via lipgloss.Width — is what fixes the ragged
+	// scrollbar; blank rows become spaces so panes/input still sit at the bottom.)
+	vpv := composeWithScrollbar(vpContent, vpw, m.vp.Height(), m.renderScrollbar(m.vp.Height()))
 	leftRows := []string{vpv}
 	aboveInput := 2 + m.vp.Height() // header(2: title+divider) + viewport rows above input
 	if pv := m.renderPanes(tw, aboveInput); pv != "" {
