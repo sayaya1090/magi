@@ -129,6 +129,17 @@ Guards that make weak models safe (all in `loop.go`/`orchestrate.go`):
   blocked repeats → `loop_guard` stop (long before MaxSteps). A successful file write/edit
   with *changed* content bumps a mutation epoch that resets the counts, so re-running a test
   after an edit (real progress) isn't blocked; a blocked repeat echoes the earlier result.
+- **corrective re-grounding nudge**: before a force-stop, ONE re-grounding message (re-read
+  the task, change approach) is injected. It fires on either stall the guard can see —
+  `blocked` past `nudgeThreshold` (the *same* action repeated), OR `sinceProgress` past
+  `noProgressNudge` (many *varied* tool calls with no real mutation: the "productive-looking
+  non-progress" loop that never trips the repeat counter). `sinceProgress` counts tool calls
+  since the last mutation epoch; a real change resets it. At most once per run.
+- **pre-finish self-verification**: when a turn that changed files tries to finish
+  (`depth==0`, files in `changeSet`), one system nudge (once per turn) tells the agent to
+  re-read the task and confirm its ACTUAL output matches — read the file back / run it —
+  before the council (which reviews text but cannot execute) sees it. Targets the
+  "claimed done, output actually wrong" failure (placeholder, filename-vs-content, won't run).
 - **no retry storm**: a terminal provider error ends the turn; `startRun` does NOT
   re-run a failed turn (only re-runs to pick up a user *steer*).
 - **language lock** (`langDirective`): the user's script (Hangul/Kana/…) is detected
@@ -149,6 +160,11 @@ mode) does NOT finish immediately: it convenes a **council** that votes done-vs-
 - Safety so the gate can't trap the loop: `CouncilMaxRounds` cap (default 3), a
   no-progress guard (empty/repeated feedback finishes), and a ctx-cancel early-out.
   Forced finishes are recorded as a `council.decided` with a `note` (not an error).
+- Members also check the deliverable against the **letter of the task**: when the task
+  dictates exact content/value/format/name/location, a deliverable that exists but whose
+  content doesn't match (a placeholder, a filename where the content was asked for, the
+  right shape with the wrong value) is a concrete defect → continue. The agent's own
+  paraphrase of what it did is a claim, never proof the content is right.
 - Evidence judged = Task (the original goal) + Report (the agent's final message) + tool
   results + **the agent's own edits this turn** (size-capped). Those edits are reconstructed
   from the agent's write/edit/multiedit tool calls — the run guard captures each touched
