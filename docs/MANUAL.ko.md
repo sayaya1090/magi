@@ -139,7 +139,7 @@ primary = "#B45309"
 | `/image <path>` | 이미지 인라인 표시 |
 | `/diff` | 워킹트리 git diff |
 | `/loop` | **Loop map** — 턴·스텝·툴 활동·council 라운드를 구조로 투영(루프의 *모양* 가시화) |
-| `/context` | **컨텍스트 창** 가시화 — 사용량/창크기·메시지 수·compaction 이력(토큰 before→after) |
+| `/context` | **컨텍스트 창** 가시화 — 사용량/창크기·메시지 수·compaction 이력(토큰 before→after)·**사용 중인 모델별 윈도우**. 편집: `/context <tokens>`(세션 모델) 또는 `/context <model> <tokens>`(예: `/context qwen3-coder:30b 128k`; `unlimited`/`0`은 해제) |
 | `/fork` | 현재 세션을 **분기**해 다른 시도 탐색(원본 보존). 분기로 전환됨 |
 | `/replay` | 직전 턴을 **분기에서 다시 실행**(같은 입력 재현). `/loopdiff`로 비교 |
 | `/loopdiff` | 현재 분기를 **fork 원본과 구조 비교**(턴·스텝·툴·council·토큰) |
@@ -291,7 +291,7 @@ primary = "#B45309"
 
 - **AGENTS.md**: 작업 디렉터리(+`.magi/AGENTS.md`, 전역 `<config>/AGENTS.md`)의 내용이
   시스템 프롬프트에 주입되어 **압축돼도 보존**된다. `/init`로 자동 생성.
-- **자동 압축**: 실제 토큰 수가 모델 윈도우 80% 초과 시 오래된 턴 요약(최근 보존).
+- **자동 압축**: 실제 토큰 수가 모델 윈도우 80% 초과 시 오래된 턴 요약(최근 보존). 윈도우는 **모델별**(에이전트마다 다른 모델→다른 윈도우)로, 시드에 없으면 백엔드에 **질의**(vLLM `max_model_len`·LiteLLM `/model/info`·Ollama `/api/show`) — 초기 모델은 시작 시, 그 외 모델은 **처음 쓰일 때 지연 조회**(`/route` 런타임 전환 등). Claude/Gemini는 해당 엔드포인트가 없어 시드 테이블에 의존. 윈도우를 못 구하면 **무제한**(게이지·비율압축 비활성)으로 간주하고, `/context <model> <tokens>`로 수동 지정 가능.
 - **공유 두뇌(D13)**: `<config>/experience`(또는 `experience_dir`)의 `memories/`·`skills/`를
   세션 시작 시 회수·주입. `remember` 툴은 `pending/`에 기여(리뷰 후 `memories/`로 이동).
   디렉터리를 git repo로 두고 commit/pull하면 팀 공유.
@@ -305,7 +305,7 @@ primary = "#B45309"
 ## 9. 플러그인 (Lua)
 
 `<config>/plugins/<name>/` 또는 `<workdir>/.magi/plugins/<name>/`에
-`plugin.toml` + `init.lua`. capability: tool 등. 파일 변경 시 **핫리로드**.
+`plugin.toml` + `init.lua`. capability: `tool`·`command`(`/login` 같은 슬래시 커맨드)·`context-provider`·`mcp`·`llm-headers`. 파일 변경 시 **핫리로드**.
 샌드박스(위험 stdlib 차단) + 매니페스트 권한(`fs:read`, `net`, `exec`) 집행.
 예제: `plugins/examples/wordcount`.
 

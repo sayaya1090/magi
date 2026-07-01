@@ -317,7 +317,7 @@ end)
 > ```
 > 두 경로(config 정적 + 플러그인 동적)는 함께 적용되며, 동적 헤더가 나중에 덮어쓴다.
 
-### 3.4 게이트된 기능: `exec` · `open_url` · `http`
+### 3.5 게이트된 기능: `exec` · `open_url` · `http`
 
 플러그인이 **외부 프로세스 실행 / 브라우저 열기 / HTTP 호출**을 하려면 `plugin.toml`의
 `permissions`에 명시해야 한다. 선언하지 않으면 브리지에서 거부된다(`permission denied: …`).
@@ -356,9 +356,9 @@ magi.set_llm_headers(function() return { Authorization = "Bearer " .. token } en
 ```
 
 > ⚠️ `exec`/`http`는 샌드박스를 넓히는 강력한 권한이다. 신뢰하는 플러그인에만, 최소 host/cmd로
-> 좁혀 부여하라. (정적 키만 필요하면 §3.3의 `config.toml [llm].headers`로 충분하다.)
+> 좁혀 부여하라. (정적 키만 필요하면 §3.4의 `config.toml [llm].headers`로 충분하다.)
 
-### 3.5 라이프사이클 훅 · 사용자 프롬프트 · 콜백 (SSO 등)
+### 3.6 라이프사이클 훅 · 사용자 프롬프트 · 콜백 (SSO 등)
 
 플러그인이 **시작 시점에 사용자와 상호작용**(인증 등)할 수 있는 범용 통로.
 
@@ -410,7 +410,7 @@ end)
 → 코어엔 ADSSO 흔적이 전혀 없다. "플러그인이 라이프사이클 시점에 사용자에게 묻고 환경과
 상호작용한다"는 범용 기능만 제공한다.
 
-### 3.6 `serve` + `set_base_url` — loopback LLM 프록시 (코어 무수정)
+### 3.7 `serve` + `set_base_url` — loopback LLM 프록시 (코어 무수정)
 
 `magi.serve`로 플러그인이 **인프로세스 HTTP 서버**를 띄우고, `magi.set_base_url`로 에이전트의
 LLM 트래픽을 그 서버로 돌릴 수 있다. 프롬프트/응답 로깅·요청 변형·모킹·요율 게이트 같은 것을
