@@ -145,8 +145,10 @@ func TestShouldNudge(t *testing.T) {
 }
 
 // TestShouldNudgeStalled: the no-progress nudge fires when varied calls make no real
-// progress (sinceProgress past noProgressNudge) even though nothing is a blocked repeat,
-// a real mutation resets the count, and it still fires at most once per run.
+// progress (sinceProgress past noProgressNudge) even though nothing is a blocked repeat.
+// Unlike the blocked nudge it RE-ARMS — it fires again after each further noProgressNudge
+// window with no mutation — but only every window (not every step) and only up to
+// maxStallNudges, then goes quiet.
 func TestShouldNudgeStalled(t *testing.T) {
 	g := newRunGuard()
 	g.sinceProgress = noProgressNudge - 1
@@ -157,9 +159,46 @@ func TestShouldNudgeStalled(t *testing.T) {
 	if g.shouldNudge() != "stalled" {
 		t.Fatal("should nudge (stalled) at the no-progress threshold")
 	}
-	g.sinceProgress = noProgressNudge * 2 // still past threshold
+	// One more call past the last nudge, but not yet a full window later → quiet.
+	g.sinceProgress = noProgressNudge + 1
 	if g.shouldNudge() != "" {
-		t.Fatal("nudge must fire at most once per run")
+		t.Fatal("should not re-nudge until a full noProgressNudge window later")
+	}
+	// A full further window with still no mutation → re-arm and fire again.
+	fires := 1
+	for i := 2; i <= maxStallNudges; i++ {
+		g.sinceProgress = noProgressNudge * i
+		if g.shouldNudge() != "stalled" {
+			t.Fatalf("should re-nudge (stalled) at window %d", i)
+		}
+		fires++
+	}
+	if fires != maxStallNudges {
+		t.Fatalf("expected %d stalled nudges, got %d", maxStallNudges, fires)
+	}
+	// Past the cap: no more, however long the stall runs.
+	g.sinceProgress = noProgressNudge * (maxStallNudges + 5)
+	if g.shouldNudge() != "" {
+		t.Fatal("stalled nudge must stop after maxStallNudges")
+	}
+}
+
+// TestShouldNudgeStalledReArmsAfterMutation: a real mutation resets both the count and the
+// stall window, so a later stall gets a fresh nudge (and the per-run cap is not consumed by
+// windows that were separated by genuine progress within the same firing).
+func TestShouldNudgeStalledReArmsAfterMutation(t *testing.T) {
+	g := newRunGuard()
+	g.sinceProgress = noProgressNudge
+	if g.shouldNudge() != "stalled" {
+		t.Fatal("should nudge (stalled) at the threshold")
+	}
+	g.mutated("out.txt", "sig1") // real progress → sinceProgress and lastStallAt reset
+	if g.lastStallAt != 0 {
+		t.Fatalf("mutation should reset the stall window, got lastStallAt=%d", g.lastStallAt)
+	}
+	g.sinceProgress = noProgressNudge // a fresh stall after progress
+	if g.shouldNudge() != "stalled" {
+		t.Fatal("a stall after a real mutation should nudge again")
 	}
 }
 

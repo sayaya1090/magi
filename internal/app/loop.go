@@ -39,10 +39,16 @@ const (
 	// many DIFFERENT commands (so no fingerprint repeats and `blocked` stays 0) yet changes
 	// nothing — the "productive-looking non-progress" loop (echo/cat/ls restating the same
 	// conclusion) that otherwise burns to MaxSteps. It counts tool calls since the last real
-	// file mutation; set high so genuine multi-step investigation isn't nudged, and it only
-	// injects ONE re-grounding (never a force-stop, since a read-only turn may legitimately
-	// never mutate a file).
+	// file mutation; set high so genuine multi-step investigation isn't nudged. It never
+	// force-stops (a read-only turn may legitimately never mutate a file), so unlike the
+	// blocked path it has no backstop — a single ignored nudge would let the agent thrash to
+	// MaxSteps. So the stalled nudge RE-ARMS: it fires again after each further noProgressNudge
+	// window with still no mutation, up to maxStallNudges, then goes quiet.
 	noProgressNudge = 12
+	// maxStallNudges caps the re-armed no-progress nudges per run: enough to redirect an agent
+	// that ignored the first one or two, few enough that a genuinely read-heavy turn is not
+	// spammed. A real file mutation re-arms the window (see mutated).
+	maxStallNudges = 3
 )
 
 // runGuard detects no-progress loops within a single run by fingerprinting each
@@ -64,7 +70,9 @@ type runGuard struct {
 	// powers the no-progress nudge: unlike `blocked` (which needs an EXACT repeat), it rises
 	// even when the agent varies its commands, catching a stall that changes nothing.
 	sinceProgress int
-	nudged        bool // corrective re-grounding nudge fired (once per run)
+	nudgedBlocked bool // "blocked"-kind re-grounding fired (once; stuck() force-stops if it persists)
+	stallNudges   int  // count of "stalled"-kind re-groundings fired this run (capped at maxStallNudges)
+	lastStallAt   int  // sinceProgress value at the last stalled nudge, for spacing the re-arm
 
 	// changed records this turn's file edits (before/after content) as the council's
 	// evidence of what the AGENT actually changed — reconstructed from its own write/edit
@@ -208,6 +216,7 @@ func (g *runGuard) mutated(path, sig string) {
 	g.lastMut[path] = sig
 	g.epoch++
 	g.sinceProgress = 0 // a real change is progress → restart the no-progress count
+	g.lastStallAt = 0   // …and the stall-nudge window, so a fresh stall re-arms cleanly
 }
 
 const guardResultEcho = 4 << 10 // cap on the cached result echoed back on a block
@@ -267,23 +276,24 @@ func (g *runGuard) stuck() bool {
 	return g.blocked >= blockedBudget
 }
 
-// shouldNudge reports whether the run has stalled enough to warrant a one-time corrective
+// shouldNudge reports whether the run has stalled enough to warrant a corrective
 // re-grounding, and which KIND of stall it is: "blocked" (the same action repeated past
 // nudgeThreshold) or "stalled" (many varied calls with no real progress, sinceProgress past
-// noProgressNudge). It fires at most once per run — a repeated nudge would just add noise to
-// an already-stuck model. Returns "" when no nudge is due.
+// noProgressNudge). The two kinds are independent. The blocked nudge fires once — stuck()
+// force-stops the run if it keeps blocking. The stalled nudge has no force-stop backstop, so
+// it RE-ARMS: it fires again after each further noProgressNudge window with still no mutation,
+// capped at maxStallNudges, so a single ignored nudge does not let the agent burn to MaxSteps.
+// Returns "" when no nudge is due.
 func (g *runGuard) shouldNudge() string {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if g.nudged {
-		return ""
-	}
-	switch {
-	case g.blocked >= nudgeThreshold:
-		g.nudged = true
+	if g.blocked >= nudgeThreshold && !g.nudgedBlocked {
+		g.nudgedBlocked = true
 		return "blocked"
-	case g.sinceProgress >= noProgressNudge:
-		g.nudged = true
+	}
+	if g.stallNudges < maxStallNudges && g.sinceProgress-g.lastStallAt >= noProgressNudge {
+		g.stallNudges++
+		g.lastStallAt = g.sinceProgress
 		return "stalled"
 	}
 	return ""
