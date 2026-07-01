@@ -23,7 +23,7 @@ func (a *App) ContextView(ctx context.Context, sid session.SessionID) (string, e
 	}
 	msgs := reconstruct(evs)
 	s := a.sessionInfo(ctx, sid)
-	window := a.cfg.Models.Get(s.Model.Model).ContextWindow
+	window := a.contextWindow(s.Model.Model)
 	used := a.contextTokens(sid, "", msgs)
 
 	var compactions int
@@ -56,6 +56,25 @@ func (a *App) ContextView(ctx context.Context, sid session.SessionID) (string, e
 	}
 	if td := a.Todos(sid); len(td) > 0 {
 		fmt.Fprintf(&b, "  plan: %d todo(s)\n", len(td))
+	}
+
+	// Models in use (session + per-agent routes + profiles) with each window —
+	// different agents can run different models, so their windows differ. Edit any
+	// one with `/context <model> <tokens>`.
+	if mws := a.ContextWindows(ctx, sid); len(mws) > 0 {
+		b.WriteString("\nmodels in use (edit: /context <model> <tokens>):\n")
+		for _, mw := range mws {
+			win := "unlimited"
+			if mw.Window > 0 {
+				win = commas(mw.Window) + " tok"
+			}
+			marker := " "
+			if mw.Session {
+				marker = "*"
+			}
+			fmt.Fprintf(&b, "  %s %-28s %s\n", marker, mw.Model, win)
+		}
+		b.WriteString("  (* = session model)\n")
 	}
 	b.WriteString("  (used = last real prompt tokens if known, else estimate)")
 	return b.String(), nil

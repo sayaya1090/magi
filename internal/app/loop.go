@@ -1667,7 +1667,7 @@ func oneLineHint(s string) string {
 // publishContextUsage emits a live context meter for the UI (M6/context mgmt).
 // outTokens is the turn's cumulative output so far, for the live ↓ readout (§8.1).
 func (a *App) publishContextUsage(sid session.SessionID, actor event.Actor, modelID, sys string, msgs []session.Message, outTokens int) {
-	window := a.cfg.Models.Get(modelID).ContextWindow
+	window := a.contextWindow(modelID)
 	tokens := a.contextTokens(sid, sys, msgs)
 	pct := 0.0
 	if window > 0 {
@@ -1701,7 +1701,7 @@ func (a *App) checkAutoOrchestration(ctx context.Context, sid session.SessionID,
 	}
 	a.mu.Unlock()
 
-	window := a.cfg.Models.Get(modelID).ContextWindow
+	window := a.contextWindow(modelID)
 	if window == 0 {
 		return false
 	}

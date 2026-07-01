@@ -21,7 +21,7 @@ const keepRecentEvents = 6
 // (M6 context-aware compaction, building on F-COMPACT.)
 func (a *App) maybeCompact(ctx context.Context, s session.Session, agent AgentSpec, actor event.Actor, evs []event.Event, sys string) bool {
 	msgs := reconstruct(evs)
-	window := a.cfg.Models.Get(s.Model.Model).ContextWindow
+	window := a.contextWindow(s.Model.Model)
 	if window <= 0 {
 		return false // unknown/unlimited window → no ratio-based auto-compaction
 	}

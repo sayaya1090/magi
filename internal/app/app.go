@@ -198,6 +198,11 @@ type Config struct {
 	// execution (Mechanism B). Off by default: the advice is otherwise injected for the
 	// executor to heed without the extra LLM call.
 	CouncilPlanAbsorb bool
+	// ContextWindowProber, when set, asks the LLM backend for a model's real context
+	// window the first time an unseeded model is used (e.g. after a runtime /route
+	// switch). Injected by the wiring layer (openai.Client.ProbeContextWindow) so the
+	// app never imports an LLM adapter. nil = no probing; the registry default is used.
+	ContextWindowProber func(context.Context, string) (int, bool)
 }
 
 // CouncilSignalSpec is a named deterministic check the council runs for evidence
@@ -334,6 +339,7 @@ type App struct {
 	stage                 map[session.SessionID]string         // current loop stage for event tagging (guarded by mu)
 	criteria              map[session.SessionID]string         // elicited acceptance criteria per turn (guarded by mu)
 	autoOrchestrateActive map[session.SessionID]bool           // whether auto-orchestration has been triggered for this session (guarded by mu)
+	probingWindows        map[string]struct{}                  // models whose context window is being (or was) lazily probed (guarded by mu)
 }
 
 // New constructs an App.
@@ -365,6 +371,7 @@ func New(store port.Store, llm port.LLMProvider, tools port.ToolRegistry, b *bus
 		pendingAsks:           map[session.SessionID]chan string{},
 		reports:               map[session.SessionID]*subReport{},
 		autoOrchestrateActive: map[session.SessionID]bool{},
+		probingWindows:        map[string]struct{}{},
 	}
 }
 
