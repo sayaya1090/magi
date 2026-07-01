@@ -260,10 +260,10 @@ A collection of interaction behaviors under verification — organized so screen
 | `bash` | shell execution (timeout · exit code, `background` for long-running commands) | ask |
 | `bash_output` | fetch new output from a background command | — |
 | `bash_kill` | terminate a background command | — |
-| `lsp_diagnostics` | gopls diagnostics (types/unused etc.) | — |
-| `lsp_definition` | symbol definition location (Go = gopls, else LSP) | — |
-| `lsp_references` | all references to a symbol (semantic) | — |
-| `lsp_symbols` | file symbol outline | — |
+| `lsp_diagnostics` | gopls diagnostics (types/unused etc.) — Go only | — |
+| `lsp_definition` | symbol definition location (Go via gopls; ~30 langs via LSP) | — |
+| `lsp_references` | all references to a symbol (semantic, multi-language) | — |
+| `lsp_symbols` | file symbol outline (multi-language) | — |
 | `webfetch` | URL → text | ask |
 | `websearch` | web search (DuckDuckGo, or Brave/Tavily key) | ask |
 | `todowrite` | record a plan (checklist) | — |
