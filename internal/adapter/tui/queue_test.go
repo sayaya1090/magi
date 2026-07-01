@@ -36,7 +36,7 @@ func newTestModel(t *testing.T) Model {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return New(context.Background(), a, sid, "m", t.TempDir(), true, "")
+	return New(context.Background(), a, nil, sid, "m", t.TempDir(), true, "")
 }
 
 // Enter while running steers the message into the running turn: it appears in the

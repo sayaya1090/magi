@@ -35,7 +35,7 @@ func routedTestModel(t *testing.T) Model {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return New(context.Background(), a, sid, "base", t.TempDir(), true, "")
+	return New(context.Background(), a, nil, sid, "base", t.TempDir(), true, "")
 }
 
 func keyPress(s string) tea.KeyPressMsg {

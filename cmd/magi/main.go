@@ -445,7 +445,7 @@ func run() int {
 		tui.SetThemePalettes(cfg.Theme.Dark, cfg.Theme.Light)
 		// Hot-reload plugins while the session is live.
 		_ = host.Watch(ctx)
-		if err := tui.Run(ctx, a, sid, modelID, wd, isDark, plat.TerminalCaps().Image); err != nil {
+		if err := tui.Run(ctx, a, host, sid, modelID, wd, isDark, plat.TerminalCaps().Image); err != nil {
 			fmt.Fprintln(os.Stderr, "magi: tui:", err)
 			return 1
 		}

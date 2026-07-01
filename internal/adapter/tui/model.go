@@ -23,6 +23,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
 	"github.com/sayaya1090/magi/internal/version"
 )
 
@@ -85,9 +86,18 @@ type permReq struct {
 }
 
 // Model is the Bubble Tea model for the interactive TUI.
+// CommandSource supplies plugin-contributed slash commands (e.g. /login) to the
+// TUI palette and dispatch. Satisfied by *pluginlua.Host; nil when no plugin
+// host is wired, in which case the TUI has no plugin commands.
+type CommandSource interface {
+	PluginCommands() []port.PluginCommand
+	DispatchCommand(name string, args []string) (bool, error)
+}
+
 type Model struct {
 	ctx     context.Context
 	app     *app.App
+	cmds    CommandSource // plugin slash commands (may be nil)
 	sid     session.SessionID
 	model   string
 	workdir string
@@ -196,7 +206,7 @@ type Model struct {
 
 // New builds the TUI model for a session. isDark selects the color theme;
 // imageProto is the detected inline-image protocol ("kitty"/"iterm2"/"").
-func New(ctx context.Context, a *app.App, sid session.SessionID, model, workdir string, isDark bool, imageProto string) Model {
+func New(ctx context.Context, a *app.App, cmds CommandSource, sid session.SessionID, model, workdir string, isDark bool, imageProto string) Model {
 	applyTheme(isDark)
 
 	ta := textarea.New()
@@ -214,7 +224,7 @@ func New(ctx context.Context, a *app.App, sid session.SessionID, model, workdir 
 	sp.Spinner = spinner.Dot
 
 	m := Model{
-		ctx: ctx, app: a, sid: sid, model: model, workdir: workdir,
+		ctx: ctx, app: a, cmds: cmds, sid: sid, model: model, workdir: workdir,
 		isDark: isDark, imageProto: imageProto, ta: ta, sp: sp,
 		focusPane: -1, roleColor: map[string]int{}, panelW: defaultPanelWidth,
 	}
@@ -1155,10 +1165,37 @@ func (m *Model) handleSlash(text string) (tea.Cmd, bool) {
 		out = m.snack("compacting context…")
 		go func() { _ = m.app.Compact(m.ctx, command.Compact{SessionID: sid}) }()
 	default:
+		// Delegate to a plugin-registered command (e.g. /login) before giving up.
+		if m.cmds != nil {
+			if handled, err := m.cmds.DispatchCommand(cmd, fields[1:]); handled {
+				if err != nil {
+					out = m.snack(cmd + ": " + err.Error())
+				} else {
+					out = m.snack(cmd + " ✓")
+				}
+				break
+			}
+		}
 		out = m.snack("unknown command: " + cmd + " — try /help")
 	}
 	m.refresh()
 	return out, true
+}
+
+// pluginCmdMatches returns plugin commands whose "/name" matches the in-progress
+// slash input, so they appear in the palette alongside built-ins.
+func (m *Model) pluginCmdMatches(v string) []cmdInfo {
+	if m.cmds == nil {
+		return nil
+	}
+	var out []cmdInfo
+	for _, c := range m.cmds.PluginCommands() {
+		name := "/" + c.Name()
+		if strings.HasPrefix(name, v) {
+			out = append(out, cmdInfo{name: name, desc: c.Description()})
+		}
+	}
+	return out
 }
 
 // paletteMatches returns the commands matching the in-progress slash input
@@ -1198,6 +1235,7 @@ func (m *Model) paletteMatches() []cmdInfo {
 			}
 		}
 	}
+	out = append(out, m.pluginCmdMatches(v)...)
 	return out
 }
 
