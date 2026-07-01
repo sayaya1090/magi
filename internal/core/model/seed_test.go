@@ -9,8 +9,9 @@ func TestCloudModelsSeeded(t *testing.T) {
 			t.Errorf("%s window = %d, want %d", id, got, want)
 		}
 	}
-	// Unknown still falls back to the conservative default.
-	if r.Get("totally-unknown-xyz").ContextWindow != 8192 {
-		t.Error("unknown model should fall back to 8192")
+	// A truly unknown model reports window 0 = unlimited/unknown (consumers then
+	// skip the % gauge and ratio compaction) rather than a tiny guessed number.
+	if r.Get("totally-unknown-xyz").ContextWindow != 0 {
+		t.Error("unknown model should report window 0 (unlimited)")
 	}
 }

@@ -22,6 +22,9 @@ const keepRecentEvents = 6
 func (a *App) maybeCompact(ctx context.Context, s session.Session, agent AgentSpec, actor event.Actor, evs []event.Event, sys string) bool {
 	msgs := reconstruct(evs)
 	window := a.cfg.Models.Get(s.Model.Model).ContextWindow
+	if window <= 0 {
+		return false // unknown/unlimited window → no ratio-based auto-compaction
+	}
 	budget := int(float64(window) * a.cfg.CompactRatio)
 	// The provider's real prompt_tokens lags within a turn (it reflects the last completed
 	// call), so as a turn accumulates large tool results the trigger would under-count and

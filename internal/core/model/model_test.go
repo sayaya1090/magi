@@ -10,12 +10,36 @@ func TestGetKnownAndUnknown(t *testing.T) {
 		t.Errorf("known model meta wrong: %+v", known)
 	}
 
+	// A truly unknown model (no exact seed, no family) reports window 0 =
+	// unlimited/unknown, so consumers skip the % gauge and ratio compaction rather
+	// than measuring against a tiny guessed 8K (which read as "context 500%").
 	unknown := r.Get("some-random-model")
-	if unknown.ContextWindow == 0 || !unknown.Tools {
-		t.Errorf("unknown model should get usable defaults: %+v", unknown)
+	if unknown.ContextWindow != 0 {
+		t.Errorf("unknown model window=%d, want 0 (unlimited)", unknown.ContextWindow)
+	}
+	if !unknown.Tools {
+		t.Errorf("unknown model should still default Tools=true: %+v", unknown)
 	}
 	if unknown.ID != "some-random-model" {
 		t.Errorf("unknown.ID=%q", unknown.ID)
+	}
+}
+
+// A cloud/size variant that isn't seeded inherits its family's window instead of
+// falling to the generic default — the fix for the "context 500%" report where
+// e.g. an unseeded qwen3-coder tag got an 8K window against a huge real context.
+func TestGetFamilyFallback(t *testing.T) {
+	r := NewRegistry()
+	v := r.Get("qwen3-coder:480b-cloud") // not seeded; family "qwen3-coder" is
+	if v.ContextWindow != 262144 {
+		t.Errorf("variant should inherit qwen3-coder window 262144, got %d", v.ContextWindow)
+	}
+	if v.ID != "qwen3-coder:480b-cloud" {
+		t.Errorf("family match should keep the requested id, got %q", v.ID)
+	}
+	// An exact seed still wins over the family heuristic.
+	if got := r.Get("gpt-oss:120b-cloud").ContextWindow; got != 131072 {
+		t.Errorf("exact seed window=%d want 131072", got)
 	}
 }
 

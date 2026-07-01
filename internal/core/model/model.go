@@ -3,7 +3,10 @@
 // model routing (M6). Pricing is USD per 1M tokens; local models are free.
 package model
 
-import "sync"
+import (
+	"strings"
+	"sync"
+)
 
 // Info describes a model's capabilities and cost.
 type Info struct {
@@ -52,16 +55,53 @@ func (r *Registry) Has(id string) bool {
 	return ok
 }
 
-// Get returns metadata for id, falling back to a conservative default for
-// unknown models so callers always get usable numbers.
+// Get returns metadata for id. An exact seed/registration wins; otherwise it
+// falls back to the same-family seed (ignoring the ":tag" — so a cloud/size
+// variant like "qwen3-coder:480b-cloud" inherits the "qwen3-coder" window). A
+// truly unknown model gets ContextWindow 0, which every consumer treats as
+// "unlimited / unknown": no percentage gauge and no ratio-based auto-compaction.
+// This is deliberately not a small guessed number — an under-sized window made
+// the /context gauge read hundreds of percent and forced constant over-eager
+// compaction (budget = window × ratio) for models that are actually large.
 func (r *Registry) Get(id string) Info {
 	r.mu.RLock()
-	m, ok := r.models[id]
-	r.mu.RUnlock()
-	if ok {
+	defer r.mu.RUnlock()
+	if m, ok := r.models[id]; ok {
 		return m
 	}
-	return Info{ID: id, ContextWindow: 8192, MaxOutput: 4096, Tools: true}
+	if m, ok := r.familyLocked(id); ok {
+		return m
+	}
+	return Info{ID: id, ContextWindow: 0, MaxOutput: 8192, Tools: true}
+}
+
+// familyLocked matches id to a seeded model of the same family — same name
+// before the ":tag" — returning the largest-window match so a variant inherits
+// sane metadata. Caller holds r.mu.
+func (r *Registry) familyLocked(id string) (Info, bool) {
+	fam := family(id)
+	var best Info
+	found := false
+	for _, m := range r.models {
+		if family(m.ID) != fam {
+			continue
+		}
+		if !found || m.ContextWindow > best.ContextWindow {
+			best, found = m, true
+		}
+	}
+	if found {
+		best.ID = id // report the requested id, not the matched seed's
+	}
+	return best, found
+}
+
+// family is a model id with its ":tag" (size/quant/-cloud suffix) stripped.
+func family(id string) string {
+	if i := strings.IndexByte(id, ':'); i >= 0 {
+		return id[:i]
+	}
+	return id
 }
 
 // defaults are the seeded models. Local (Ollama) models are free.
