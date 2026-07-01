@@ -21,15 +21,16 @@ type plugin struct {
 	caps     map[string]bool // declared capabilities (gate the register_* bridge calls)
 	host     *Host           // back-reference to host for MCP registration
 
-	mu      sync.Mutex
-	L       *lua.LState
-	tools   []*luaTool
-	env     port.ToolEnv                // set per tool Execute so bridge calls see the workdir
-	hooks   map[string][]*lua.LFunction // lifecycle handlers registered via magi.on(event, fn)
-	servers []io.Closer                 // loopback HTTP servers opened via magi.serve; closed on unload
-	baseSet bool                        // this plugin overrode the LLM base URL (magi.set_base_url)
-	baseURL string                      // the exact override this plugin set; compare-and-cleared on unload
-	logf    func(string)
+	mu       sync.Mutex
+	L        *lua.LState
+	tools    []*luaTool
+	commands []*luaCommand               // slash commands registered via magi.register_command
+	env      port.ToolEnv                // set per tool Execute so bridge calls see the workdir
+	hooks    map[string][]*lua.LFunction // lifecycle handlers registered via magi.on(event, fn)
+	servers  []io.Closer                 // loopback HTTP servers opened via magi.serve; closed on unload
+	baseSet  bool                        // this plugin overrode the LLM base URL (magi.set_base_url)
+	baseURL  string                      // the exact override this plugin set; compare-and-cleared on unload
+	logf     func(string)
 }
 
 // loadPlugin reads the manifest, builds a sandboxed state, installs the bridge,

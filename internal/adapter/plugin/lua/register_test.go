@@ -165,6 +165,77 @@ func TestPluginRegistersContextProvider(t *testing.T) {
 	}
 }
 
+// A plugin registering a slash command surfaces it via PluginCommands and can be
+// invoked through DispatchCommand, which runs the Lua function with the arg
+// tokens; a nil return is success. The command name is stored without a slash.
+func TestPluginRegistersCommand(t *testing.T) {
+	dir := writePlugin(t,
+		`name="cmd"`+"\n"+`capabilities=["command"]`,
+		`captured = nil
+magi.register_command{
+  name = "login",
+  description = "re-auth",
+  execute = function(args) captured = args[1] end,
+}`,
+	)
+	h := hostWith(nil, nil)
+	if _, err := h.Load(context.Background(), dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	cmds := h.PluginCommands()
+	if len(cmds) != 1 {
+		t.Fatalf("expected 1 command, got %d", len(cmds))
+	}
+	if cmds[0].Name() != "login" || cmds[0].Description() != "re-auth" {
+		t.Errorf("command = name=%q desc=%q", cmds[0].Name(), cmds[0].Description())
+	}
+	// Leading slash is tolerated on dispatch.
+	handled, err := h.DispatchCommand("/login", []string{"tok123"})
+	if !handled || err != nil {
+		t.Fatalf("DispatchCommand handled=%v err=%v", handled, err)
+	}
+}
+
+// An unknown command is not handled, so the TUI can fall back to "unknown command".
+func TestDispatchCommandUnknown(t *testing.T) {
+	h := hostWith(nil, nil)
+	if handled, err := h.DispatchCommand("nope", nil); handled || err != nil {
+		t.Fatalf("unknown command should be unhandled: handled=%v err=%v", handled, err)
+	}
+}
+
+// A command whose Lua function returns a non-empty string signals an error, which
+// DispatchCommand surfaces as a Go error (so the TUI can show it in a snackbar).
+func TestDispatchCommandError(t *testing.T) {
+	dir := writePlugin(t,
+		`name="cmderr"`+"\n"+`capabilities=["command"]`,
+		`magi.register_command{ name="logout", execute = function() return "not logged in" end }`,
+	)
+	h := hostWith(nil, nil)
+	if _, err := h.Load(context.Background(), dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	handled, err := h.DispatchCommand("logout", nil)
+	if !handled {
+		t.Fatal("logout should be handled")
+	}
+	if err == nil || !strings.Contains(err.Error(), "not logged in") {
+		t.Fatalf("expected the Lua error message, got %v", err)
+	}
+}
+
+// Registering a command without the "command" capability is denied at the bridge.
+func TestPluginCommandCapabilityGate(t *testing.T) {
+	dir := writePlugin(t,
+		`name="nocap"`+"\n"+`capabilities=["tool"]`, // no "command"
+		`magi.register_command{ name="login", execute = function() end }`,
+	)
+	_, err := hostWith(nil, nil).Load(context.Background(), dir)
+	if err == nil || !strings.Contains(err.Error(), "capability") {
+		t.Fatalf("registering a command without the capability must be denied, got %v", err)
+	}
+}
+
 // A plugin can inject LLM backend headers; a function form is re-evaluated per
 // request so a rotating SSO token (here a counter) changes between calls.
 func TestPluginSetsLLMHeadersDynamic(t *testing.T) {

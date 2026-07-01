@@ -3,6 +3,7 @@ package lua
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/sayaya1090/magi/internal/port"
@@ -190,8 +191,47 @@ func (h *Host) Capabilities() port.CapabilitySet {
 		for _, t := range p.tools {
 			cs.Tools = append(cs.Tools, t)
 		}
+		for _, c := range p.commands {
+			cs.Commands = append(cs.Commands, c)
+		}
 	}
 	return cs
+}
+
+// PluginCommands returns every slash command contributed by loaded plugins, so
+// the TUI can surface them in /help and the palette.
+func (h *Host) PluginCommands() []port.PluginCommand {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var cmds []port.PluginCommand
+	for _, p := range h.plugins {
+		for _, c := range p.commands {
+			cmds = append(cmds, c)
+		}
+	}
+	return cmds
+}
+
+// DispatchCommand runs the plugin command whose name matches (leading slash
+// tolerated), returning (true, err) if one handled it and (false, nil) if no
+// plugin owns the name so the caller can report "unknown command".
+func (h *Host) DispatchCommand(name string, args []string) (bool, error) {
+	name = strings.TrimPrefix(name, "/")
+	h.mu.Lock()
+	var cmd *luaCommand
+	for _, p := range h.plugins {
+		for _, c := range p.commands {
+			if c.name == name {
+				cmd = c
+				break
+			}
+		}
+	}
+	h.mu.Unlock() // release before Execute: it locks the plugin, not the host
+	if cmd == nil {
+		return false, nil
+	}
+	return true, cmd.Execute(args)
 }
 
 // unregister removes a plugin's tools from the sink (caller holds h.mu).

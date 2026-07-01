@@ -27,6 +27,7 @@ func installBridge(p *plugin) {
 	L.SetField(t, "register_tool", L.NewFunction(p.bridgeRegisterTool))
 	L.SetField(t, "register_mcp", L.NewFunction(p.bridgeRegisterMCP))
 	L.SetField(t, "register_context_provider", L.NewFunction(p.bridgeRegisterContextProvider))
+	L.SetField(t, "register_command", L.NewFunction(p.bridgeRegisterCommand))
 	L.SetField(t, "set_llm_headers", L.NewFunction(p.bridgeSetLLMHeaders))
 	L.SetField(t, "on", L.NewFunction(p.bridgeOn))
 	L.SetField(t, "ask", L.NewFunction(p.bridgeAsk))
@@ -316,6 +317,36 @@ func (p *plugin) bridgeRegisterContextProvider(L *lua.LState) int {
 
 	p.host.contextReg.RegisterContextProvider(provider)
 	p.logf(fmt.Sprintf("Registered context provider: %s", name))
+	return 0
+}
+
+// magi.register_command{name=, description=, execute=function(args) ... end}
+// Registers a TUI slash command (name "login" → /login). execute receives the
+// whitespace-split tokens after the command as an array; return a non-empty
+// string to signal an error, or nil for success.
+func (p *plugin) bridgeRegisterCommand(L *lua.LState) int {
+	p.requireCap(L, "command")
+	spec := L.CheckTable(1)
+
+	name := spec.RawGetString("name").String()
+	if name == "" || spec.RawGetString("name") == lua.LNil {
+		L.RaiseError("register_command: 'name' is required")
+		return 0
+	}
+	desc := ""
+	if d := spec.RawGetString("description"); d != lua.LNil {
+		desc = d.String()
+	}
+	fn, ok := spec.RawGetString("execute").(*lua.LFunction)
+	if !ok {
+		L.RaiseError("register_command: 'execute' must be a function")
+		return 0
+	}
+
+	p.commands = append(p.commands, &luaCommand{
+		plugin: p, name: strings.TrimPrefix(name, "/"), description: desc, fn: fn,
+	})
+	p.logf(fmt.Sprintf("Registered command: /%s", strings.TrimPrefix(name, "/")))
 	return 0
 }
 
