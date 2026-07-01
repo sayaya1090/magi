@@ -131,7 +131,7 @@ type LspDefinition struct{}
 
 func (LspDefinition) Name() string { return "lsp_definition" }
 func (LspDefinition) Description() string {
-	return "Find where a Go symbol is defined (gopls). Give path + line and either col or a symbol name on that line. Resolves across packages. Degrades gracefully without gopls."
+	return "Find where a symbol is defined, via LSP. Picks the server by file extension across ~30 languages: Go, TypeScript/JavaScript, Python, Rust, C/C++/Objective-C, Java, Kotlin, Scala, C#, Ruby, PHP, Swift, Lua, shell, Zig, Haskell, OCaml, Dart, and web/config formats (HTML/CSS/JSON/YAML/TOML/Terraform/Markdown). Give path + line and either col or a symbol name on that line. Resolves across files/packages. Degrades gracefully when that language's server isn't installed."
 }
 func (LspDefinition) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"line":{"type":"integer","description":"1-based line"},"col":{"type":"integer","description":"1-based column (optional if symbol given)"},"symbol":{"type":"string","description":"a name on that line to locate the column from"}},"required":["path","line"]}`)
@@ -168,7 +168,7 @@ type LspReferences struct{}
 
 func (LspReferences) Name() string { return "lsp_references" }
 func (LspReferences) Description() string {
-	return "Find all references to a Go symbol across the project (gopls) — precise, unlike grep. Give path + line and either col or a symbol name on that line. Degrades gracefully without gopls."
+	return "Find all references to a symbol across the project, via LSP — precise, unlike grep. Picks the server by file extension across ~30 languages: Go, TypeScript/JavaScript, Python, Rust, C/C++/Objective-C, Java, Kotlin, Scala, C#, Ruby, PHP, Swift, Lua, shell, Zig, Haskell, OCaml, Dart, and web/config formats (HTML/CSS/JSON/YAML/TOML/Terraform/Markdown). Give path + line and either col or a symbol name on that line. Degrades gracefully when that language's server isn't installed."
 }
 func (LspReferences) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"line":{"type":"integer","description":"1-based line"},"col":{"type":"integer","description":"1-based column (optional if symbol given)"},"symbol":{"type":"string","description":"a name on that line to locate the column from"}},"required":["path","line"]}`)
@@ -209,7 +209,7 @@ type LspSymbols struct{}
 
 func (LspSymbols) Name() string { return "lsp_symbols" }
 func (LspSymbols) Description() string {
-	return "List the symbols (functions, types, methods, vars) declared in a Go file with their kinds and ranges (gopls). A quick file outline. Degrades gracefully without gopls."
+	return "List the symbols (functions, types, methods, vars) declared in a file with their kinds and ranges, via LSP. A quick file outline. Picks the server by file extension across ~30 languages: Go, TypeScript/JavaScript, Python, Rust, C/C++/Objective-C, Java, Kotlin, Scala, C#, Ruby, PHP, Swift, Lua, shell, Zig, Haskell, OCaml, Dart, and web/config formats (HTML/CSS/JSON/YAML/TOML/Terraform/Markdown). Degrades gracefully when that language's server isn't installed."
 }
 func (LspSymbols) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}`)
