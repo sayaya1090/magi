@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -125,20 +127,55 @@ func TestNoteEditWarnsOncePerFile(t *testing.T) {
 // the force-stop budget, and never again.
 func TestShouldNudge(t *testing.T) {
 	g := newRunGuard()
-	if g.shouldNudge() {
+	if g.shouldNudge() != "" {
 		t.Fatal("should not nudge with zero blocked repeats")
 	}
 	g.blocked = nudgeThreshold - 1
-	if g.shouldNudge() {
+	if g.shouldNudge() != "" {
 		t.Fatal("should not nudge below threshold")
 	}
 	g.blocked = nudgeThreshold
-	if !g.shouldNudge() {
-		t.Fatal("should nudge at threshold")
+	if g.shouldNudge() != "blocked" {
+		t.Fatal("should nudge (blocked) at threshold")
 	}
 	g.blocked = blockedBudget // still past threshold
-	if g.shouldNudge() {
+	if g.shouldNudge() != "" {
 		t.Fatal("nudge must fire at most once per run")
+	}
+}
+
+// TestShouldNudgeStalled: the no-progress nudge fires when varied calls make no real
+// progress (sinceProgress past noProgressNudge) even though nothing is a blocked repeat,
+// a real mutation resets the count, and it still fires at most once per run.
+func TestShouldNudgeStalled(t *testing.T) {
+	g := newRunGuard()
+	g.sinceProgress = noProgressNudge - 1
+	if g.shouldNudge() != "" {
+		t.Fatal("should not nudge below the no-progress threshold")
+	}
+	g.sinceProgress = noProgressNudge
+	if g.shouldNudge() != "stalled" {
+		t.Fatal("should nudge (stalled) at the no-progress threshold")
+	}
+	g.sinceProgress = noProgressNudge * 2 // still past threshold
+	if g.shouldNudge() != "" {
+		t.Fatal("nudge must fire at most once per run")
+	}
+}
+
+// TestSinceProgressResetOnMutation: a real file mutation restarts the no-progress count,
+// so re-running a command after a genuine edit is not counted as a stall.
+func TestSinceProgressResetOnMutation(t *testing.T) {
+	g := newRunGuard()
+	for i := 0; i < noProgressNudge; i++ {
+		g.check("bash", json.RawMessage(`{"command":"echo `+strconv.Itoa(i)+`"}`))
+	}
+	g.mutated("out.txt", "sig1")
+	if g.sinceProgress != 0 {
+		t.Fatalf("mutation should reset sinceProgress, got %d", g.sinceProgress)
+	}
+	if g.shouldNudge() != "" {
+		t.Fatal("should not nudge right after a real mutation reset the count")
 	}
 }
 

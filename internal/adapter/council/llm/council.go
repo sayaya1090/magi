@@ -165,6 +165,13 @@ func memberSystem(m council.Member, phase, task string) string {
 			"file, diff, or document. A plan step or criterion phrased as \"write/produce a summary\" for such a task is "+
 			"satisfied by that content in the report, not by a separate file. Files the agent merely READ or cited are "+
 			"INPUTS, never missing deliverables — never fault it for not \"creating\" one.\n"+
+			"Beyond existence, check CORRECTNESS against the LETTER of the task: when the task dictates the deliverable's "+
+			"exact content, value, format, name, or location, compare what the turn ACTUALLY produced (its shown "+
+			"content/bytes/tool results) against that literal requirement. A deliverable that exists but whose content "+
+			"does not match what was asked — e.g. writing a file's NAME where the task asked for the word/content INSIDE "+
+			"it, a placeholder, a wrong field, or the right shape with the wrong value — is a concrete defect: vote "+
+			"continue and name the mismatch in feedback. Re-read the task wording literally; the agent's own paraphrase "+
+			"of what it did is a claim, never proof the content is right.\n"+
 			"- \"continue\": ONLY when you can name a SPECIFIC, REAL defect through your lens — a FAILING signal, a part of "+
 			"the task/plan the report itself shows is unmet, or a concrete error in the work. Put the next step in "+
 			"`feedback`. A missing diff or signal is NOT a defect.\n"+

@@ -35,6 +35,14 @@ const (
 	// is clearly thrashing, so before force-stopping we inject ONE corrective re-grounding
 	// (re-read the task, change approach) — a stuck weak model often just needs redirecting.
 	nudgeThreshold = 3
+	// noProgressNudge catches the OTHER stall the repeat guard misses: an agent that runs
+	// many DIFFERENT commands (so no fingerprint repeats and `blocked` stays 0) yet changes
+	// nothing — the "productive-looking non-progress" loop (echo/cat/ls restating the same
+	// conclusion) that otherwise burns to MaxSteps. It counts tool calls since the last real
+	// file mutation; set high so genuine multi-step investigation isn't nudged, and it only
+	// injects ONE re-grounding (never a force-stop, since a read-only turn may legitimately
+	// never mutate a file).
+	noProgressNudge = 12
 )
 
 // runGuard detects no-progress loops within a single run by fingerprinting each
@@ -52,7 +60,11 @@ type runGuard struct {
 	lastMut map[string]string // path → last mutation signature, to ignore idempotent rewrites
 	epoch   int               // bumped on each real file mutation; part of the fingerprint
 	blocked int
-	nudged  bool // corrective re-grounding nudge fired (once per run)
+	// sinceProgress counts tool calls since the last real file mutation (epoch bump). It
+	// powers the no-progress nudge: unlike `blocked` (which needs an EXACT repeat), it rises
+	// even when the agent varies its commands, catching a stall that changes nothing.
+	sinceProgress int
+	nudged        bool // corrective re-grounding nudge fired (once per run)
 
 	// changed records this turn's file edits (before/after content) as the council's
 	// evidence of what the AGENT actually changed — reconstructed from its own write/edit
@@ -173,6 +185,7 @@ func (g *runGuard) check(name string, args json.RawMessage) (block bool, n int, 
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	fp = name + "\x00" + strconv.Itoa(g.epoch) + "\x00" + canonicalArgs(args)
+	g.sinceProgress++ // reset only by a real mutation (mutated); rises across varied calls
 	g.seen[fp]++
 	n = g.seen[fp]
 	if n > repeatLimit {
@@ -194,6 +207,7 @@ func (g *runGuard) mutated(path, sig string) {
 	}
 	g.lastMut[path] = sig
 	g.epoch++
+	g.sinceProgress = 0 // a real change is progress → restart the no-progress count
 }
 
 const guardResultEcho = 4 << 10 // cap on the cached result echoed back on a block
@@ -253,18 +267,26 @@ func (g *runGuard) stuck() bool {
 	return g.blocked >= blockedBudget
 }
 
-// shouldNudge reports whether the run has thrashed enough to warrant a one-time corrective
-// re-grounding (blocked repeats reached nudgeThreshold, below the force-stop budget). It
-// fires at most once per run — a repeated nudge would just add noise to an already-stuck
-// model.
-func (g *runGuard) shouldNudge() bool {
+// shouldNudge reports whether the run has stalled enough to warrant a one-time corrective
+// re-grounding, and which KIND of stall it is: "blocked" (the same action repeated past
+// nudgeThreshold) or "stalled" (many varied calls with no real progress, sinceProgress past
+// noProgressNudge). It fires at most once per run — a repeated nudge would just add noise to
+// an already-stuck model. Returns "" when no nudge is due.
+func (g *runGuard) shouldNudge() string {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if g.blocked >= nudgeThreshold && !g.nudged {
-		g.nudged = true
-		return true
+	if g.nudged {
+		return ""
 	}
-	return false
+	switch {
+	case g.blocked >= nudgeThreshold:
+		g.nudged = true
+		return "blocked"
+	case g.sinceProgress >= noProgressNudge:
+		g.nudged = true
+		return "stalled"
+	}
+	return ""
 }
 
 // toolResultCap bounds a single tool result fed back to the model. ~64KB ≈ 16k tokens:
@@ -403,8 +425,9 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	sid := s.ID
 	agentActor := event.Actor{Kind: event.ActorAgent, ID: orDefault(agent.Name, "default")}
 	lastText := ""
-	stopChecked := false // Stop hooks enforced at most once per run
-	nudgedEmpty := false // subagent empty-result nudge fired at most once
+	stopChecked := false  // Stop hooks enforced at most once per run
+	nudgedEmpty := false  // subagent empty-result nudge fired at most once
+	selfVerified := false // pre-finish self-verification nudge fired at most once per run
 	guard := newRunGuard()
 	councilRounds := 0        // consensus termination gate rounds this turn (D14)
 	lastCouncilFeedback := "" // last round's feedback (no-progress detection)
@@ -667,6 +690,28 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					return lastText, ctx.Err()
 				}
 			}
+			// Pre-finish self-verification: a turn that produced a concrete artifact
+			// (files changed) must confirm its ACTUAL output matches the task before the
+			// council — which reviews text but cannot execute — ever sees it. This targets
+			// the common "claimed done, output actually wrong" failure (a placeholder, a
+			// filename where the content was asked for, or a program that doesn't run):
+			// the agent reads its output back / runs it and fixes a mismatch itself. Fires
+			// once per turn, top level only, and only when files changed — a read/answer
+			// turn has no separate artifact to re-check, so gating it would only churn.
+			if depth == 0 && !selfVerified && usedTools && len(guard.changeSet()) > 0 {
+				selfVerified = true
+				msg := "Before finishing, VERIFY your work satisfies the task literally. Re-read the original task, " +
+					"then confirm the ACTUAL output matches it: read the created/edited file(s) back and check their " +
+					"real content, or run the program/command and check its behavior. If the output does not match what " +
+					"was asked — wrong content, value, format, name, or location; a placeholder; or it doesn't run — fix " +
+					"it and continue. Finish only once you have confirmed it matches."
+				pd, _ := json.Marshal(event.PromptSubmittedData{
+					MessageID: "m_" + newID(),
+					Parts:     []session.Part{{Kind: session.PartText, Text: msg}},
+				})
+				a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
+				continue
+			}
 			// Consensus council termination gate (D14): top level only, not in
 			// workflow mode, and only for turns that did real work — a purely
 			// conversational reply (no tool use, e.g. a greeting) has nothing to
@@ -736,7 +781,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// Corrective re-grounding: before the force-stop, give a thrashing agent ONE nudge
 		// to re-read the original task and change approach — a stuck weak model often just
 		// needs redirecting, and this is far cheaper than burning the rest of the budget.
-		if guard.shouldNudge() {
+		if kind := guard.shouldNudge(); kind != "" {
 			// turnTask is empty for a subagent run (its seed is authored by ActorAgent, not
 			// ActorUser), so fall back to the latest user-role message — the subagent's task —
 			// mirroring the council gate's defensive fallback. Otherwise the re-grounding
@@ -749,6 +794,13 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 				"Stop and change approach: try a different tool or a smaller step, or inspect WHY the last " +
 				"attempts failed (read the error, check paths/state) before retrying. Re-read the original task:\n" +
 				clipLine(task, 1500)
+			if kind == "stalled" {
+				msg = "You've run many steps without changing anything or making concrete progress — you may be " +
+					"re-running checks or restating the same conclusion instead of advancing the task. Stop and take a " +
+					"DIFFERENT concrete action toward the deliverable; if something is blocking you, state exactly what " +
+					"it is and why before continuing. Re-read the original task:\n" +
+					clipLine(task, 1500)
+			}
 			pd, _ := json.Marshal(event.PromptSubmittedData{
 				MessageID: "m_" + newID(),
 				Parts:     []session.Part{{Kind: session.PartText, Text: msg}},
