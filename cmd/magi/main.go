@@ -348,34 +348,35 @@ func run() int {
 	}
 
 	a := app.New(store, llm, reg, bus.New(), plat, app.Config{
-		Model:            session.ModelRef{Provider: "openai", Model: modelID},
-		System:           systemPrompt,
-		Permission:       perm,
-		Interactive:      !headless, // TUI can answer permission prompts; headless can't (resolve by policy)
-		Profile:          orStr(*profile, cfg.Profile),
-		Sandbox:          cfg.Sandbox,
-		Allow:            cfg.Allow,
-		Deny:             cfg.Deny,
-		AllowDomains:     cfg.AllowDomains,
-		Agents:           agents,
-		Experience:       expgit.New(expDir),
-		Hooks:            toAppHooks(cfg.Hooks),
-		Harness:          !*noHarness,
-		Workflow:         *workflow,
-		VerifyCmd:        *verifyCmd,
-		Providers:        providers,
-		Models:           modelReg,
-		ProfileModels:    profileModels(cfg.LLM.Profiles),
-		ProfileDefs:      profileDefs(cfg.LLM.Profiles),
-		NewProvider:      newProvider,
-		RoutePersister:   routePersister{path: filepath.Join(plat.ConfigDir(), "config.toml")},
-		Planner:          cfg.Orchestration.Planner == nil || *cfg.Orchestration.Planner, // default on; kill switch
-		Council:          councilPort,
-		CouncilRule:      corecouncil.Rule(cfg.Council.Rule),
-		CouncilMaxRounds: cfg.Council.MaxRounds,
-		CouncilMembers:   toCouncilMembers(cfg.Council.Members, cfg.LLM.Profiles),
-		CouncilSignals:   councilSignals(cfg.Council),
-		CouncilCriteria:  cfg.Council.Criteria,
+		Model:               session.ModelRef{Provider: "openai", Model: modelID},
+		System:              systemPrompt,
+		Permission:          perm,
+		Interactive:         !headless, // TUI can answer permission prompts; headless can't (resolve by policy)
+		Profile:             orStr(*profile, cfg.Profile),
+		Sandbox:             cfg.Sandbox,
+		Allow:               cfg.Allow,
+		Deny:                cfg.Deny,
+		AllowDomains:        cfg.AllowDomains,
+		Agents:              agents,
+		Experience:          expgit.New(expDir),
+		Hooks:               toAppHooks(cfg.Hooks),
+		Harness:             !*noHarness,
+		Workflow:            *workflow,
+		VerifyCmd:           *verifyCmd,
+		Providers:           providers,
+		Models:              modelReg,
+		ContextWindowProber: llm.ProbeContextWindow, // lazy-probe unseeded models used after a runtime /route switch
+		ProfileModels:       profileModels(cfg.LLM.Profiles),
+		ProfileDefs:         profileDefs(cfg.LLM.Profiles),
+		NewProvider:         newProvider,
+		RoutePersister:      routePersister{path: filepath.Join(plat.ConfigDir(), "config.toml")},
+		Planner:             cfg.Orchestration.Planner == nil || *cfg.Orchestration.Planner, // default on; kill switch
+		Council:             councilPort,
+		CouncilRule:         corecouncil.Rule(cfg.Council.Rule),
+		CouncilMaxRounds:    cfg.Council.MaxRounds,
+		CouncilMembers:      toCouncilMembers(cfg.Council.Members, cfg.LLM.Profiles),
+		CouncilSignals:      councilSignals(cfg.Council),
+		CouncilCriteria:     cfg.Council.Criteria,
 	})
 
 	// MCP: create manager for both config-based and plugin-based MCP servers

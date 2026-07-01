@@ -263,7 +263,7 @@ var slashCommands = []cmdInfo{
 	{"/image", "render an image file inline (/image <path>)"},
 	{"/diff", "show the working-tree git diff"},
 	{"/loop", "show the loop map (turns · steps · council)"},
-	{"/context", "show what fills the context window (usage · compactions)"},
+	{"/context", "context window usage; /context <tokens> sets the model's window (e.g. 128k, unlimited)"},
 	{"/fork", "branch this session to explore an alternative (origin kept)"},
 	{"/replay", "re-run the last turn on a branch (compare with /loopdiff)"},
 	{"/loopdiff", "compare this branch with its fork origin"},
@@ -1100,10 +1100,39 @@ func (m *Model) handleSlash(text string) (tea.Cmd, bool) {
 			m.info(mp)
 		}
 	case "/context":
-		if cv, err := m.app.ContextView(m.ctx, m.sid); err != nil {
-			out = m.snack("context: " + err.Error())
-		} else {
-			m.info(cv)
+		// Bare "/context" lists usage + every model in use and its window.
+		// "/context <tokens>" sets the session model's window; "/context <model>
+		// <tokens>" sets a specific model's. tokens may be "128k"/"1m"/"unlimited".
+		switch {
+		case len(fields) >= 3: // /context <model> <tokens>
+			n, ok := parseTokenCount(fields[len(fields)-1])
+			if !ok {
+				out = m.snack("usage: /context <model> <tokens|unlimited>")
+				break
+			}
+			model := strings.Join(fields[1:len(fields)-1], " ")
+			if note, err := m.app.SetContextWindow(m.ctx, m.sid, model, n); err != nil {
+				out = m.snack("context: " + err.Error())
+			} else {
+				out = m.snack(note)
+			}
+		case len(fields) == 2: // /context <tokens> → session model
+			n, ok := parseTokenCount(fields[1])
+			if !ok {
+				out = m.snack("usage: /context [<model>] <tokens|unlimited>")
+				break
+			}
+			if note, err := m.app.SetContextWindow(m.ctx, m.sid, "", n); err != nil {
+				out = m.snack("context: " + err.Error())
+			} else {
+				out = m.snack(note)
+			}
+		default:
+			if cv, err := m.app.ContextView(m.ctx, m.sid); err != nil {
+				out = m.snack("context: " + err.Error())
+			} else {
+				m.info(cv)
+			}
 		}
 	case "/fork":
 		if m.running {
@@ -1180,6 +1209,28 @@ func (m *Model) handleSlash(text string) (tea.Cmd, bool) {
 	}
 	m.refresh()
 	return out, true
+}
+
+// parseTokenCount parses a context-window size like "128000", "128k", "1m", or
+// "unlimited"/"none"/"0" (→ 0). Returns (tokens, true) on success.
+func parseTokenCount(s string) (int, bool) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	switch s {
+	case "unlimited", "none", "off", "0", "auto":
+		return 0, true
+	}
+	mult := 1
+	switch {
+	case strings.HasSuffix(s, "k"):
+		mult, s = 1000, strings.TrimSuffix(s, "k")
+	case strings.HasSuffix(s, "m"):
+		mult, s = 1_000_000, strings.TrimSuffix(s, "m")
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil || n < 0 {
+		return 0, false
+	}
+	return n * mult, true
 }
 
 // pluginCmdMatches returns plugin commands whose "/name" matches the in-progress
