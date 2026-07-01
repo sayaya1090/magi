@@ -692,19 +692,30 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			}
 			// Pre-finish self-verification: a turn that produced a concrete artifact
 			// (files changed) must confirm its ACTUAL output matches the task before the
-			// council — which reviews text but cannot execute — ever sees it. This targets
-			// the common "claimed done, output actually wrong" failure (a placeholder, a
-			// filename where the content was asked for, or a program that doesn't run):
-			// the agent reads its output back / runs it and fixes a mismatch itself. Fires
+			// council — which reviews text but cannot execute — ever sees it. Two passes:
+			// coverage first, then correctness. Coverage targets the "did the first/easy
+			// case, declared victory" failure — an agent that maps 1 of 10 mazes or edits
+			// 1 of N files and then re-checks only what it made; correctness targets the
+			// "claimed done, output actually wrong" failure (a placeholder, a filename
+			// where the content was asked for, or a program that doesn't run). The prompt
+			// makes the agent enumerate the task's own requirements/scope rather than
+			// encoding any specific count — general to any multi-deliverable task. Fires
 			// once per turn, top level only, and only when files changed — a read/answer
 			// turn has no separate artifact to re-check, so gating it would only churn.
 			if depth == 0 && !selfVerified && usedTools && len(guard.changeSet()) > 0 {
 				selfVerified = true
-				msg := "Before finishing, VERIFY your work satisfies the task literally. Re-read the original task, " +
-					"then confirm the ACTUAL output matches it: read the created/edited file(s) back and check their " +
-					"real content, or run the program/command and check its behavior. If the output does not match what " +
-					"was asked — wrong content, value, format, name, or location; a placeholder; or it doesn't run — fix " +
-					"it and continue. Finish only once you have confirmed it matches."
+				msg := "Before finishing, VERIFY you satisfied the task literally — in two passes. " +
+					"PASS 1 (coverage): re-read the original task and list every distinct thing it requires — each " +
+					"deliverable, and any quantifier or scope it states (e.g. 'all', 'each', 'every', a range or list " +
+					"of IDs/inputs, multiple files). Then confirm you actually did EACH one, not just the first or the " +
+					"easy case. If the task asks for N things and you did fewer, it is INCOMPLETE — do the rest before " +
+					"finishing. PASS 2 (correctness): for what you produced, confirm the ACTUAL result matches what the " +
+					"task SPECIFIES — read the created/edited file(s) back and check their real content, or run the " +
+					"program/command and check its behavior against the intended outcome. Match the task, not a generic " +
+					"'it works': the intended state may be that something succeeds, but it may just as well be that it is " +
+					"removed, disabled, rejects bad input, or fails on purpose. Fix any real mismatch — wrong content, " +
+					"value, format, name, or location, or a leftover placeholder. Finish only once every requirement is " +
+					"done and its result matches what the task asked for."
 				pd, _ := json.Marshal(event.PromptSubmittedData{
 					MessageID: "m_" + newID(),
 					Parts:     []session.Part{{Kind: session.PartText, Text: msg}},
