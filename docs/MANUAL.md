@@ -317,7 +317,7 @@ The list is exposed in the system prompt, and the model loads a body with the `s
 ## 9. Plugins (Lua)
 
 `plugin.toml` + `init.lua` in `<config>/plugins/<name>/` or `<workdir>/.magi/plugins/<name>/`.
-Capabilities: tool, etc. **Hot-reload** on file change.
+Capabilities: `tool`, `command` (slash commands like `/login`), `context-provider`, `mcp`, `llm-headers`. **Hot-reload** on file change.
 Sandboxed (dangerous stdlib blocked) + manifest permissions (`fs:read`, `net`, `exec`) enforced.
 Example: `plugins/examples/wordcount`.
 

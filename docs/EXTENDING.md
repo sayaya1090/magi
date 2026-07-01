@@ -273,7 +273,28 @@ magi.register_context_provider{
 }
 ```
 
-### 3.3 `magi.set_llm_headers` — LLM 백엔드 커스텀 헤더
+### 3.3 `magi.register_command` — TUI 슬래시 커맨드 등록
+
+플러그인이 `/login`, `/logout` 같은 슬래시 커맨드를 직접 등록한다(capability `"command"`).
+TUI가 내장 커맨드에 없는 슬래시를 받으면 플러그인 커맨드로 위임하고, 팔레트·자동완성에도
+동적으로 노출된다. `name`은 슬래시 없이 지정하고(`"login"` → `/login`), `execute`는 커맨드
+이후 토큰 배열을 받는다. **비어 있지 않은 문자열을 반환하면 에러 메시지**로 처리되고, `nil`이면
+성공이다(스낵바에 `✓`).
+
+```lua
+magi.register_command{
+  name        = "login",
+  description = "Re-authenticate with DS AD SSO",  -- /help·팔레트에 표시
+  execute     = function(args)
+    -- args = "/login" 이후 공백 분리 토큰
+    local ok = do_sso_login(args[1])
+    if not ok then return "SSO 로그인 실패" end     -- 에러: 스낵바에 표시
+    -- 성공: nil 반환
+  end,
+}
+```
+
+### 3.4 `magi.set_llm_headers` — LLM 백엔드 커스텀 헤더
 
 사내 게이트웨이(LiteLLM 등)가 `X-CLIENT-API-KEY` 같은 헤더를 요구하거나, 브라우저 SSO로 발급한
 토큰을 인증키로 써야 할 때 사용한다. 테이블이면 정적, 함수면 **요청마다 재평가**된다.
