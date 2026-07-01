@@ -724,8 +724,10 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					"program/command and check its behavior against the intended outcome. Match the task, not a generic " +
 					"'it works': the intended state may be that something succeeds, but it may just as well be that it is " +
 					"removed, disabled, rejects bad input, or fails on purpose. Fix any real mismatch — wrong content, " +
-					"value, format, name, or location, or a leftover placeholder. Finish only once every requirement is " +
-					"done and its result matches what the task asked for."
+					"value, format, name, or location, or a leftover placeholder. If this check reveals your earlier " +
+					"work was wrong, incomplete, or that you called it done too soon, say so plainly and fix it — do not " +
+					"restate that it works or paper over the gap. Finish only once every requirement is done and its " +
+					"result matches what the task asked for."
 				pd, _ := json.Marshal(event.PromptSubmittedData{
 					MessageID: "m_" + newID(),
 					Parts:     []session.Part{{Kind: session.PartText, Text: msg}},
