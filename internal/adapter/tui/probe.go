@@ -6,6 +6,18 @@ import (
 	"strings"
 )
 
+// probeGlyph is the test character the startup probe measures. It must be a rune
+// that (a) go-runewidth classifies as East-Asian *ambiguous* (so its measured
+// width actually predicts the ambiguousExtra correction) and (b) is one of the
+// structural, alignment-critical runes the TUI itself draws — the panel border.
+// We deliberately use │ (U+2502) rather than a decorative ambiguous glyph like ★
+// (U+2605): Windows Terminal draws ★ two cells wide but draws │, █, ·, →, — one
+// cell each, so probing ★ set ambiguousWide=true and then over-measured every
+// structural line by one cell per such rune, collapsing the layout (content
+// crammed left, panel/scrollbar stranded far right). Probing the border we
+// actually rely on makes the flag match how our real output is rendered.
+const probeGlyph = "│"
+
 // detectAmbiguousWidth decides, once at startup, whether the terminal draws
 // East-Asian ambiguous-width runes as two cells and records it via
 // setAmbiguousWide. Resolution order:

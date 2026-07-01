@@ -12,7 +12,8 @@ import (
 	"github.com/charmbracelet/x/term"
 )
 
-// probeAmbiguousWidth prints one ambiguous test glyph (★, U+2605) at column 1 and
+// probeAmbiguousWidth prints one ambiguous test glyph (probeGlyph, the panel
+// border │) at column 1 and
 // asks the terminal for the cursor position (CPR); the reported column minus one
 // is the glyph's real cell width. Returns (width, true) only on a clean
 // round-trip. It requires a bounded read (SetReadDeadline) so a terminal that
@@ -39,7 +40,7 @@ func probeAmbiguousWidth(out, in *os.File) (int, bool) {
 	defer term.Restore(in.Fd(), state)
 
 	// Save cursor, go to column 1, emit the test glyph, request cursor position.
-	if _, err := io.WriteString(out, "\x1b7\r★\x1b[6n"); err != nil {
+	if _, err := io.WriteString(out, "\x1b7\r"+probeGlyph+"\x1b[6n"); err != nil {
 		return 0, false
 	}
 	col, ok := readCPRColumn(in)

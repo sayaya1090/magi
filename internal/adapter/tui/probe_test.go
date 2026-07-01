@@ -14,8 +14,8 @@ func TestReadCPRColumn(t *testing.T) {
 		col  int
 		ok   bool
 	}{
-		{"narrow star", "\x1b[1;2R", 2, true}, // ★ at col1 → cursor col2 → width 1
-		{"wide star", "\x1b[1;3R", 3, true},   // ★ drawn wide → cursor col3 → width 2
+		{"narrow bar", "\x1b[1;2R", 2, true}, // │ at col1 → cursor col2 → width 1
+		{"wide bar", "\x1b[1;3R", 3, true},   // │ drawn wide → cursor col3 → width 2
 		{"leading noise then report", "junk\x1b[12;3R", 3, true},
 		{"no report", "no cpr here", 0, false},
 		{"truncated", "\x1b[1;", 0, false},

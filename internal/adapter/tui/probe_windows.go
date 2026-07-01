@@ -8,9 +8,10 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// probeAmbiguousWidth measures the real cell width of an ambiguous glyph (★,
-// U+2605) on a Windows console by reading the cursor column before and after
-// printing it via the Console API — no stdin, no raw mode, no CPR round-trip
+// probeAmbiguousWidth measures the real cell width of an ambiguous glyph
+// (probeGlyph, the panel border │) on a Windows console by reading the cursor
+// column before and after printing it via the Console API — no stdin, no raw
+// mode, no CPR round-trip
 // (Windows console input handles aren't pollable, so the CPR path can't run
 // there). Returns (width, true) only for a plausible 1- or 2-cell result on a
 // real console; a redirected handle or wrapped line falls back to narrow. The
@@ -24,7 +25,7 @@ func probeAmbiguousWidth(out, in *os.File) (int, bool) {
 	if err := windows.GetConsoleScreenBufferInfo(h, &before); err != nil {
 		return 0, false // not a real console (redirected/piped)
 	}
-	if _, err := out.WriteString("★"); err != nil {
+	if _, err := out.WriteString(probeGlyph); err != nil {
 		return 0, false
 	}
 	var after windows.ConsoleScreenBufferInfo
