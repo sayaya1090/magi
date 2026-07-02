@@ -199,6 +199,56 @@ func TestLoopToolThenFinish(t *testing.T) {
 	}
 }
 
+// selfVerifyFired reports whether the pre-finish 2-pass self-verification prompt
+// was injected (a system prompt.submitted carrying its signature text).
+func selfVerifyFired(evs []event.Event) bool {
+	for _, e := range evs {
+		if e.Type == event.TypePromptSubmitted && strings.Contains(string(e.Data), "VERIFY you satisfied") {
+			return true
+		}
+	}
+	return false
+}
+
+// A bash-driven turn (which writes files but never populates guard.changeSet())
+// must still trigger the pre-finish self-verify. This is the ② fix: keying the
+// gate off "ran a write-capable tool" instead of "changeSet>0" — otherwise a
+// bash-only agent that did 1 of N deliverables never gets the coverage check.
+func TestSelfVerifyFiresAfterBash(t *testing.T) {
+	llm := &fakeLLM{steps: [][]port.ProviderEvent{
+		toolStep("bash", `{"command":"echo hi > out.txt"}`),
+		textStep("완료"), // wants to finish → self-verify should fire here
+	}}
+	a, wd := newApp(t, llm, Config{Permission: "allow"})
+	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
+	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "make a file with bash"}}})
+
+	got := waitForTerminal(t, a, sid)
+	if !selfVerifyFired(got) {
+		t.Errorf("self-verify: expected the pre-finish verify prompt after a bash turn, got %v", typesOf(got))
+	}
+	if countType(got, event.TypeTurnFinished) != 1 {
+		t.Errorf("self-verify: expected the turn to finish, got %v", typesOf(got))
+	}
+}
+
+// A pure read-only turn (no write-capable tool) has no artifact to re-check, so
+// the self-verify must NOT fire — gating it would only churn.
+func TestSelfVerifySkippedForReadOnly(t *testing.T) {
+	llm := &fakeLLM{steps: [][]port.ProviderEvent{
+		toolStep("read", `{"path":"nope.txt"}`),
+		textStep("done"),
+	}}
+	a, wd := newApp(t, llm, Config{Permission: "allow"})
+	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
+	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "just look"}}})
+
+	got := waitForTerminal(t, a, sid)
+	if selfVerifyFired(got) {
+		t.Errorf("self-verify: must NOT fire on a read-only turn, got %v", typesOf(got))
+	}
+}
+
 // F-LOOP-STOP loop-stop-3: infinite tool calls stop at MaxSteps.
 func TestLoopMaxSteps(t *testing.T) {
 	// Every step asks to read a (missing) file → never finishes on its own.

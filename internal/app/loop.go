@@ -445,6 +445,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	// step 0 — so a steer that lands during the council gate can't hijack what the
 	// council judges against (that interjection gets its own follow-up turn instead).
 	usedTools := seedWork // did this turn do real work? (planner investigation seeds it; council skips pure conversational turns)
+	usedMutator := false  // did this turn run a state-changing tool (bash or edit/write)? gates the pre-finish self-verify — bash writes files too, but don't reach guard.changeSet()
 	// Turn usage accumulation (§8.1): output tokens and cost sum across steps; input
 	// is the last step's (the current context size, not a sum).
 	var cumOut, lastIn int
@@ -626,6 +627,9 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			a.answerPendingAsk(sid, text.String())
 		}
 		for _, tc := range toolCalls {
+			if tc.Name == "bash" || fileModifiers[tc.Name] {
+				usedMutator = true // a write-capable tool ran; a bash write never reaches guard.changeSet()
+			}
 			a.appendPart(ctx, sid, agentActor, msgID, session.RoleAssistant, session.Part{
 				ID: "p_" + newID(), Kind: session.PartToolCall, ToolCall: tc,
 			})
@@ -710,9 +714,13 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			// where the content was asked for, or a program that doesn't run). The prompt
 			// makes the agent enumerate the task's own requirements/scope rather than
 			// encoding any specific count — general to any multi-deliverable task. Fires
-			// once per turn, top level only, and only when files changed — a read/answer
-			// turn has no separate artifact to re-check, so gating it would only churn.
-			if depth == 0 && !selfVerified && usedTools && len(guard.changeSet()) > 0 {
+			// once per turn, top level only, and only when the turn ran a write-capable
+			// tool (bash or edit/write) — a pure read/answer turn has no separate artifact
+			// to re-check, so gating it would only churn. We key off usedMutator rather
+			// than guard.changeSet() because bash writes files too but never populate the
+			// changeSet (only edit/write/multiedit do), so a bash-driven agent that did
+			// 1 of N deliverables would otherwise never get the coverage check.
+			if depth == 0 && !selfVerified && usedTools && usedMutator {
 				selfVerified = true
 				msg := "Before finishing, VERIFY you satisfied the task literally — in two passes. " +
 					"PASS 1 (coverage): re-read the original task and list every distinct thing it requires — each " +
