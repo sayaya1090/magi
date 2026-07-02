@@ -279,6 +279,67 @@ func TestSelfVerifyForbidsFabrication(t *testing.T) {
 	}
 }
 
+// scanFabricationClaim flags a self-admitted-fabrication marker in the agent's own
+// written content, and only there — a clean deliverable, or a marker phrase that never
+// appears, must not match.
+func TestScanFabricationClaim(t *testing.T) {
+	hit := []fileChange{{path: "sol.py", after: "def run():\n    # in a real implementation this would call the game\n    pass\n"}}
+	if p, snip := scanFabricationClaim(hit); p != "sol.py" || !strings.Contains(snip, "in a real implementation") {
+		t.Errorf("expected a fabrication hit on sol.py, got path=%q snip=%q", p, snip)
+	}
+	clean := []fileChange{{path: "sol.py", after: "def run():\n    return solve(read_maze())\n"}}
+	if p, _ := scanFabricationClaim(clean); p != "" {
+		t.Errorf("clean deliverable must not match, got path=%q", p)
+	}
+}
+
+// fabricationBlocked reports whether the pre-finish fabrication gate injected its
+// corrective prompt (a system "loop" prompt.submitted with the gate's signature text).
+func fabricationBlocked(evs []event.Event) bool {
+	for _, e := range evs {
+		if e.Type == event.TypePromptSubmitted && strings.Contains(string(e.Data), "not a real solution but a") {
+			return true
+		}
+	}
+	return false
+}
+
+// A turn that writes a file whose own body admits it is a stand-in must be blocked from
+// finishing on it — the gate injects a corrective prompt, then the turn still finishes.
+func TestFabricationGateBlocksFinish(t *testing.T) {
+	llm := &fakeLLM{steps: [][]port.ProviderEvent{
+		toolStep("write", `{"path":"sol.py","content":"# since we can't actually run the game, we simulate\nprint('done')\n"}`),
+		textStep("완료"),
+	}}
+	a, wd := newApp(t, llm, Config{Permission: "allow"})
+	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
+	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "solve it"}}})
+
+	got := waitForTerminal(t, a, sid)
+	if !fabricationBlocked(got) {
+		t.Errorf("fabrication gate: expected the corrective prompt after a fabricated deliverable, got %v", typesOf(got))
+	}
+	if countType(got, event.TypeTurnFinished) != 1 {
+		t.Errorf("fabrication gate: turn should still finish, got %v", typesOf(got))
+	}
+}
+
+// A clean deliverable must NOT trip the fabrication gate.
+func TestFabricationGateAllowsCleanFinish(t *testing.T) {
+	llm := &fakeLLM{steps: [][]port.ProviderEvent{
+		toolStep("write", `{"path":"sol.py","content":"print(solve())\n"}`),
+		textStep("done"),
+	}}
+	a, wd := newApp(t, llm, Config{Permission: "allow"})
+	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
+	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "solve it"}}})
+
+	got := waitForTerminal(t, a, sid)
+	if fabricationBlocked(got) {
+		t.Errorf("fabrication gate: must not fire on a clean deliverable, got %v", typesOf(got))
+	}
+}
+
 // F-LOOP-STOP loop-stop-3: infinite tool calls stop at MaxSteps.
 func TestLoopMaxSteps(t *testing.T) {
 	// Every step asks to read a (missing) file → never finishes on its own.

@@ -269,6 +269,60 @@ func (g *runGuard) changeSet() []fileChange {
 	return out
 }
 
+// fabricationMarkers are phrases a model writes when it is admitting — inside the very
+// artifact it is presenting as the solution — that the content is not the real result but
+// a stand-in: a simulation, a placeholder, or "what a real run would have produced". They
+// are multi-word and intent-revealing on purpose: bare "mock"/"stub"/"placeholder" appear
+// legitimately in real code (a mocking library, an input placeholder), but "in a real
+// implementation this would…" is a model narrating a fake. Matched case-insensitively.
+// This is the deterministic core of the pre-finish fabrication gate and the council's
+// self-check signal — it keys off the MODEL'S OWN confession, not our guess at the task.
+var fabricationMarkers = []string{
+	"we can't actually",
+	"we cannot actually",
+	"can't actually run",
+	"cannot actually run",
+	"since we can't",
+	"since we cannot",
+	"for demonstration purposes",
+	"in a real implementation",
+	"in a real scenario",
+	"in a real environment",
+	"would be replaced with actual",
+	"this would be replaced",
+	"placeholder for actual",
+	"this is a placeholder",
+	"for the purpose of this task simulation",
+}
+
+// scanFabricationClaim inspects the AFTER content of files the agent WROTE this turn for a
+// self-admitted-fabrication marker (see fabricationMarkers). It returns the file path and
+// the matched line (trimmed, bounded) of the first hit, or ("","") when clean. Only the
+// agent's own writes are scanned — files it merely read are irrelevant, and a marker there
+// would not be its confession. Detection and the returned excerpt both run on a lowercased
+// copy: marker matching must be case-insensitive, and folding the excerpt too avoids any
+// byte-offset skew from non-ASCII case changes (the excerpt is a diagnostic, not a diff).
+func scanFabricationClaim(changes []fileChange) (path, snippet string) {
+	for _, c := range changes {
+		lc := strings.ToLower(c.after)
+		for _, m := range fabricationMarkers {
+			if i := strings.Index(lc, m); i >= 0 {
+				start := strings.LastIndexByte(lc[:i], '\n') + 1
+				end := len(lc)
+				if nl := strings.IndexByte(lc[i:], '\n'); nl >= 0 {
+					end = i + nl
+				}
+				line := strings.TrimSpace(lc[start:end])
+				if len(line) > 160 {
+					line = line[:160] + "…"
+				}
+				return c.path, line
+			}
+		}
+	}
+	return "", ""
+}
+
 // stuck reports whether the run has blocked enough repeats to be force-stopped.
 func (g *runGuard) stuck() bool {
 	g.mu.Lock()
@@ -435,9 +489,10 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	sid := s.ID
 	agentActor := event.Actor{Kind: event.ActorAgent, ID: orDefault(agent.Name, "default")}
 	lastText := ""
-	stopChecked := false  // Stop hooks enforced at most once per run
-	nudgedEmpty := false  // subagent empty-result nudge fired at most once
-	selfVerified := false // pre-finish self-verification nudge fired at most once per run
+	stopChecked := false        // Stop hooks enforced at most once per run
+	nudgedEmpty := false        // subagent empty-result nudge fired at most once
+	selfVerified := false       // pre-finish self-verification nudge fired at most once per run
+	fabricationFlagged := false // pre-finish fabrication gate fired at most once per run
 	guard := newRunGuard()
 	councilRounds := 0        // consensus termination gate rounds this turn (D14)
 	lastCouncilFeedback := "" // last round's feedback (no-progress detection)
@@ -704,6 +759,33 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					return lastText, ctx.Err()
 				}
 			}
+			// Pre-finish fabrication gate (deterministic, before the softer self-verify
+			// nudge and the text-only council). If a file the agent WROTE this turn admits,
+			// in its own body, that it is a stand-in rather than the real result — "in a
+			// real implementation this would…", "since we can't actually run…" — do not let
+			// the turn finish on it. This is the failure the council waved through on
+			// blind-maze 5x5: the agent, unable to drive the interactive game, hand-wrote a
+			// "sample maze" whose own comments confess it is simulated, then declared done.
+			// Unlike the self-verify prompt (which the model can answer with more narration),
+			// this keys off the model's OWN confession in the artifact, so it can't be talked
+			// past. Fires once per turn; the injected prompt tells the agent to do the real
+			// work or honestly report it could not — never to present the fake as done.
+			if depth == 0 && !fabricationFlagged {
+				if p, snip := scanFabricationClaim(guard.changeSet()); p != "" {
+					fabricationFlagged = true
+					msg := fmt.Sprintf("Before finishing: %s contains text admitting it is not a real solution but a "+
+						"stand-in — matched: %q. A placeholder or simulated output is NOT a completed task. Either do "+
+						"the real work now — run the actual program/command and build the deliverable from its real "+
+						"output — or, if you genuinely cannot, say so plainly and report the task as UNFINISHED. Do not "+
+						"present fabricated or 'what a real run would produce' output as done.", p, snip)
+					pd, _ := json.Marshal(event.PromptSubmittedData{
+						MessageID: "m_" + newID(),
+						Parts:     []session.Part{{Kind: session.PartText, Text: msg}},
+					})
+					a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
+					continue
+				}
+			}
 			// Pre-finish self-verification: a turn that produced a concrete artifact
 			// (files changed) must confirm its ACTUAL output matches the task before the
 			// council — which reviews text but cannot execute — ever sees it. Two passes:
@@ -761,7 +843,14 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			// conversational reply (no tool use, e.g. a greeting) has nothing to
 			// verify, so gating it just churns and can derail a weak model.
 			if depth == 0 && a.cfg.Council != nil && !a.cfg.Workflow && usedTools {
-				if a.runCouncilGate(ctx, s, agent, turnTask, lastText, &councilRounds, &lastCouncilFeedback, buildCouncilChanges(guard.changeSet()), maxSteps-step) {
+				// Re-scan for a self-admitted fabrication (the gate above may have nudged the
+				// agent, which then fixed it — or didn't): feed a still-present confession to the
+				// council as hard, deterministic evidence so a text-only vote can't wave it through.
+				fab := ""
+				if p, snip := scanFabricationClaim(guard.changeSet()); p != "" {
+					fab = p + ": " + snip
+				}
+				if a.runCouncilGate(ctx, s, agent, turnTask, lastText, &councilRounds, &lastCouncilFeedback, buildCouncilChanges(guard.changeSet()), maxSteps-step, fab) {
 					continue
 				}
 			}
@@ -988,7 +1077,7 @@ func tailForCouncil(s string, n int) string {
 //
 // Safety (so the council can never trap the loop): rounds are capped, repeated or
 // empty feedback stops the gate, and any deliberation error finishes the turn.
-func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent AgentSpec, turnTask, lastText string, rounds *int, lastFeedback *string, changes string, stepsLeft int) bool {
+func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent AgentSpec, turnTask, lastText string, rounds *int, lastFeedback *string, changes string, stepsLeft int, fabrication string) bool {
 	// An interrupt mid-finish must not trigger a deliberation or inject a spurious
 	// feedback prompt — let the loop unwind the cancellation.
 	if ctx.Err() != nil {
@@ -1064,6 +1153,14 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	// feed its outcome to the council, so members judge on proof, not just claims.
 	var signals []port.Signal
 	var signalSummaries []string
+	// Always-on deterministic signal: a self-admitted fabrication in the agent's own
+	// deliverable (see scanFabricationClaim). Unlike the opt-in command signals below, this
+	// needs no config — it is derived from the diff the council is already judging, and it is
+	// exactly the evidence a text-only vote missed on blind-maze 5x5.
+	if strings.TrimSpace(fabrication) != "" {
+		signals = append(signals, port.Signal{Source: "self-check", Kind: "fabrication", Status: "fail", Detail: tailForCouncil(fabrication, councilSignalCap)})
+		signalSummaries = append(signalSummaries, "self-check: fabrication")
+	}
 	if a.plat != nil {
 		for _, sp := range a.cfg.CouncilSignals {
 			if ctx.Err() != nil {

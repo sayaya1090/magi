@@ -150,7 +150,7 @@ func TestCouncilGateCancelDuringDeliberation(t *testing.T) {
 	defer cancel()
 
 	rounds, lastFB := 0, ""
-	if a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB, "") {
+	if a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB, "", 40, "") {
 		t.Error("gate must NOT continue after a mid-deliberation cancel")
 	}
 	if cc.calls != 1 {
@@ -172,7 +172,7 @@ func TestCouncilGateSkipsWhenAlreadyCancelled(t *testing.T) {
 	cancel() // already cancelled before the gate runs
 
 	rounds, lastFB := 0, ""
-	if a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB, "") {
+	if a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB, "", 40, "") {
 		t.Error("gate must not continue when entered with a cancelled context")
 	}
 	if fc.calls != 0 {
@@ -374,6 +374,32 @@ func TestCouncilVerifySignal(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("convened event should carry the verify signal summary")
+	}
+}
+
+// A self-admitted fabrication in the agent's deliverable is fed to the council as an
+// always-on deterministic signal (no config), so a text-only vote can't wave it through.
+func TestCouncilFabricationSignal(t *testing.T) {
+	fc := &fakeCouncil{delibs: []council.Deliberation{{Round: 1, Decision: council.Done}}}
+	// The agent writes a file whose own body confesses it is simulated, then finishes.
+	llm := &fakeLLM{steps: [][]port.ProviderEvent{
+		toolStep("write", `{"path":"sol.py","content":"# in a real implementation this would run the program\nprint('ok')\n"}`),
+		textStep("done"),
+	}}
+	a, wd := newApp(t, llm, Config{Council: fc, Permission: "allow"})
+	submitAndDrain(t, a, wd)
+
+	fc.mu.Lock()
+	sigs := fc.lastReq.Signals
+	fc.mu.Unlock()
+	found := false
+	for _, s := range sigs {
+		if s.Source == "self-check" && s.Kind == "fabrication" && s.Status == "fail" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("council should receive a failing self-check/fabrication signal, got %+v", sigs)
 	}
 }
 
