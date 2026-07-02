@@ -21,6 +21,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/lang"
+	"github.com/sayaya1090/magi/internal/core/selfcheck"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
@@ -269,55 +270,16 @@ func (g *runGuard) changeSet() []fileChange {
 	return out
 }
 
-// fabricationMarkers are phrases a model writes when it is admitting — inside the very
-// artifact it is presenting as the solution — that the content is not the real result but
-// a stand-in: a simulation, a placeholder, or "what a real run would have produced". They
-// are multi-word and intent-revealing on purpose: bare "mock"/"stub"/"placeholder" appear
-// legitimately in real code (a mocking library, an input placeholder), but "in a real
-// implementation this would…" is a model narrating a fake. Matched case-insensitively.
-// This is the deterministic core of the pre-finish fabrication gate and the council's
-// self-check signal — it keys off the MODEL'S OWN confession, not our guess at the task.
-var fabricationMarkers = []string{
-	"we can't actually",
-	"we cannot actually",
-	"can't actually run",
-	"cannot actually run",
-	"since we can't",
-	"since we cannot",
-	"for demonstration purposes",
-	"in a real implementation",
-	"in a real scenario",
-	"in a real environment",
-	"would be replaced with actual",
-	"this would be replaced",
-	"placeholder for actual",
-	"this is a placeholder",
-	"for the purpose of this task simulation",
-}
-
 // scanFabricationClaim inspects the AFTER content of files the agent WROTE this turn for a
-// self-admitted-fabrication marker (see fabricationMarkers). It returns the file path and
-// the matched line (trimmed, bounded) of the first hit, or ("","") when clean. Only the
-// agent's own writes are scanned — files it merely read are irrelevant, and a marker there
-// would not be its confession. Detection and the returned excerpt both run on a lowercased
-// copy: marker matching must be case-insensitive, and folding the excerpt too avoids any
-// byte-offset skew from non-ASCII case changes (the excerpt is a diagnostic, not a diff).
+// self-admitted-fabrication marker (see selfcheck.FabricationMarkers). It returns the file
+// path and the matched line (trimmed, bounded) of the first hit, or ("","") when clean.
+// Only the agent's own writes are scanned — files it merely read are irrelevant, and a
+// marker there would not be its confession. The marker set is shared with the report tool
+// via internal/core/selfcheck so the two enforcement points never drift apart.
 func scanFabricationClaim(changes []fileChange) (path, snippet string) {
 	for _, c := range changes {
-		lc := strings.ToLower(c.after)
-		for _, m := range fabricationMarkers {
-			if i := strings.Index(lc, m); i >= 0 {
-				start := strings.LastIndexByte(lc[:i], '\n') + 1
-				end := len(lc)
-				if nl := strings.IndexByte(lc[i:], '\n'); nl >= 0 {
-					end = i + nl
-				}
-				line := strings.TrimSpace(lc[start:end])
-				if len(line) > 160 {
-					line = line[:160] + "…"
-				}
-				return c.path, line
-			}
+		if _, line := selfcheck.FabricationMarker(c.after); line != "" {
+			return c.path, line
 		}
 	}
 	return "", ""
@@ -889,6 +851,28 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// Explicit output contract: a subagent that filed a report has delivered its
 		// final result and its turn ends now — no more steps, no bash-echo looping.
 		if rep := a.takeReport(sid); rep != nil {
+			// A subagent finishing via report short-circuits the pre-finish gates above:
+			// self-verify, the fabrication gate, and the council are all top-level only, and
+			// this return fires before the len(toolCalls)==0 finish branch ever runs. So the
+			// delegated path had NO fabrication check at all. Apply it here too — a "done"
+			// report backed by a deliverable that confesses it is a stand-in is not done.
+			// Refuse the report ONCE; push the subagent to do the real work or report failed.
+			if rep.status == "done" && !fabricationFlagged {
+				if p, snip := scanFabricationClaim(guard.changeSet()); p != "" {
+					fabricationFlagged = true
+					msg := fmt.Sprintf("You reported done, but %s contains text admitting it is not a real "+
+						"solution but a stand-in — matched: %q. A placeholder or simulated deliverable is NOT a "+
+						"completed task. Either do the real work now — actually run the required program/command and "+
+						"produce the genuine result — or, if you truly cannot, report status \"failed\" and say plainly "+
+						"what stopped you. Do not report fabricated work as done.", p, snip)
+					pd, _ := json.Marshal(event.PromptSubmittedData{
+						MessageID: "m_" + newID(),
+						Parts:     []session.Part{{Kind: session.PartText, Text: msg}},
+					})
+					a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
+					continue
+				}
+			}
 			// Prefer the answer the model already wrote as its message (it streamed
 			// live to the pane). Only when the model put the answer in report.summary
 			// do we append it as the final assistant message so the pane shows it.

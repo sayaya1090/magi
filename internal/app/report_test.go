@@ -175,3 +175,51 @@ func TestSubagentReportBlockedStatus(t *testing.T) {
 		t.Errorf("expected BLOCKED status surfaced, got %q", res.Text)
 	}
 }
+
+func newFabApp(t *testing.T, llm port.LLMProvider) (*App, session.Session) {
+	t.Helper()
+	store, err := jsonl.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := builtin.Default()
+	reg.Register(builtin.Report{})
+	a := New(store, llm, reg, bus.New(), nil, Config{
+		Permission: "allow",
+		Agents:     map[string]AgentSpec{"worker": {Name: "worker", Tools: []string{"read", "write", "report"}}},
+	})
+	return a, session.Session{ID: "s_parent", Workdir: t.TempDir(), Agent: "default"}
+}
+
+// A subagent that writes a fabricated deliverable then reports "done" is refused ONCE at
+// the take-report gate (the delegated path bypasses the top-level pre-finish gates), and
+// re-reports honestly — the orchestrator sees FAILED, never the fabricated DONE.
+func TestSubagentFabricatedDoneRefused(t *testing.T) {
+	llm := &fakeLLM{steps: [][]port.ProviderEvent{
+		toolStep("write", `{"path":"sol.py","content":"# since we can't actually run the game, we simulate\nprint('x')\n"}`),
+		toolStep("report", `{"status":"done","summary":"solved"}`),
+		toolStep("report", `{"status":"failed","summary":"could not run the game"}`),
+	}}
+	a, parent := newFabApp(t, llm)
+	res := a.spawn(context.Background(), parent, 0, port.SpawnRequest{Agent: "worker", Prompt: "do it"})
+	if strings.Contains(res.Text, "STATUS: DONE") {
+		t.Errorf("fabricated done should be refused, not surfaced as DONE: %q", res.Text)
+	}
+	if !strings.Contains(res.Text, "STATUS: FAILED") {
+		t.Errorf("subagent should re-report FAILED after refusal, got %q", res.Text)
+	}
+}
+
+// A subagent with a clean deliverable reports "done" and terminates normally — the
+// take-report fabrication gate must not fire.
+func TestSubagentCleanDoneAllowed(t *testing.T) {
+	llm := &fakeLLM{steps: [][]port.ProviderEvent{
+		toolStep("write", `{"path":"sol.py","content":"print(solve(read_input()))\n"}`),
+		toolStep("report", `{"status":"done","summary":"solved"}`),
+	}}
+	a, parent := newFabApp(t, llm)
+	res := a.spawn(context.Background(), parent, 0, port.SpawnRequest{Agent: "worker", Prompt: "do it"})
+	if !strings.Contains(res.Text, "STATUS: DONE") {
+		t.Errorf("clean done should be honored, got %q", res.Text)
+	}
+}
