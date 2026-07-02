@@ -249,6 +249,36 @@ func TestSelfVerifySkippedForReadOnly(t *testing.T) {
 	}
 }
 
+// The self-verify prompt must carry the anti-fabrication clause: a weak model
+// told to "verify" will otherwise hand-write what a run WOULD have produced to
+// make the check pass. The prompt must forbid manufacturing output and require
+// treating unrun/unobserved work as UNFINISHED.
+func TestSelfVerifyForbidsFabrication(t *testing.T) {
+	llm := &fakeLLM{steps: [][]port.ProviderEvent{
+		toolStep("bash", `{"command":"echo hi > out.txt"}`),
+		textStep("완료"),
+	}}
+	a, wd := newApp(t, llm, Config{Permission: "allow"})
+	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
+	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "make a file with bash"}}})
+
+	got := waitForTerminal(t, a, sid)
+	var verify string
+	for _, e := range got {
+		if e.Type == event.TypePromptSubmitted && strings.Contains(string(e.Data), "VERIFY you satisfied") {
+			verify = string(e.Data)
+		}
+	}
+	if verify == "" {
+		t.Fatalf("self-verify: prompt never fired, got %v", typesOf(got))
+	}
+	for _, want := range []string{"Do NOT invent", "fabricate", "UNFINISHED", "actually observed"} {
+		if !strings.Contains(verify, want) {
+			t.Errorf("self-verify: anti-fabrication prompt missing %q", want)
+		}
+	}
+}
+
 // F-LOOP-STOP loop-stop-3: infinite tool calls stop at MaxSteps.
 func TestLoopMaxSteps(t *testing.T) {
 	// Every step asks to read a (missing) file → never finishes on its own.

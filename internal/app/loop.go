@@ -711,7 +711,13 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			// case, declared victory" failure — an agent that maps 1 of 10 mazes or edits
 			// 1 of N files and then re-checks only what it made; correctness targets the
 			// "claimed done, output actually wrong" failure (a placeholder, a filename
-			// where the content was asked for, or a program that doesn't run). The prompt
+			// where the content was asked for, or a program that doesn't run). PASS 2 also
+			// carries an anti-fabrication clause: a weak model, told to "verify", will
+			// sometimes hand-write what a run WOULD have produced (e.g. inventing a maze it
+			// never actually explored) to make the check appear to pass. The prompt forbids
+			// that — verify only against output actually observed, and if it could not
+			// run/observe something, mark it UNFINISHED rather than manufacture a
+			// plausible-looking result. The prompt
 			// makes the agent enumerate the task's own requirements/scope rather than
 			// encoding any specific count — general to any multi-deliverable task. Fires
 			// once per turn, top level only, and only when the turn ran a write-capable
@@ -729,7 +735,14 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					"easy case. If the task asks for N things and you did fewer, it is INCOMPLETE — do the rest before " +
 					"finishing. PASS 2 (correctness): for what you produced, confirm the ACTUAL result matches what the " +
 					"task SPECIFIES — read the created/edited file(s) back and check their real content, or run the " +
-					"program/command and check its behavior against the intended outcome. Match the task, not a generic " +
+					"program/command and check its behavior against the intended outcome. Verify ONLY against output you " +
+					"actually observed this turn — file contents you really read back, or the real output of a command " +
+					"you really ran. Do NOT invent, guess, or hand-write what a run WOULD have produced: if you could not " +
+					"actually execute or observe something — an interactive program you never drove, a test you never " +
+					"ran, a result you only assumed — then you have NOT verified it. Never fabricate its output or write " +
+					"a stand-in/placeholder file to make this check appear to pass; that is worse than leaving it " +
+					"undone, because it hides the gap. In that case say plainly that you could not run or confirm it, and " +
+					"treat that requirement as UNFINISHED, not done. Match the task, not a generic " +
 					"'it works': the intended state may be that something succeeds, but it may just as well be that it is " +
 					"removed, disabled, rejects bad input, or fails on purpose. Fix any real mismatch — wrong content, " +
 					"value, format, name, or location, or a leftover placeholder. If this check reveals your earlier " +
