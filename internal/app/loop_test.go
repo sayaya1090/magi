@@ -293,6 +293,23 @@ func TestScanFabricationClaim(t *testing.T) {
 	}
 }
 
+// scanFabrication must catch a confession authored via a bash write (heredoc/redirect),
+// which never reaches changeSet, while ignoring read-only bash commands.
+func TestGuardScanFabricationBash(t *testing.T) {
+	g := newRunGuard()
+	// A read-only grep for the phrase must NOT be recorded, so it can't false-trip the scan.
+	g.noteBashWrite("grep 'in a real implementation' src/")
+	if label, _ := g.scanFabrication(); label != "" {
+		t.Errorf("read-only bash command should not be scanned, got label=%q", label)
+	}
+	// A redirect that writes the confession into a file IS the fabrication vector.
+	g.noteBashWrite("echo '# in a real implementation this would run it' > sol.sh")
+	label, snip := g.scanFabrication()
+	if label != "a bash command" || !strings.Contains(snip, "in a real implementation") {
+		t.Errorf("bash write fabrication not caught: label=%q snip=%q", label, snip)
+	}
+}
+
 // fabricationBlocked reports whether the pre-finish fabrication gate injected its
 // corrective prompt (a system "loop" prompt.submitted with the gate's signature text).
 func fabricationBlocked(evs []event.Event) bool {
@@ -321,6 +338,23 @@ func TestFabricationGateBlocksFinish(t *testing.T) {
 	}
 	if countType(got, event.TypeTurnFinished) != 1 {
 		t.Errorf("fabrication gate: turn should still finish, got %v", typesOf(got))
+	}
+}
+
+// A deliverable authored via a bash heredoc/redirect (which bypasses changeSet) must still
+// trip the fabrication gate — the scan reads the write command's inline content.
+func TestFabricationGateBlocksBashWrite(t *testing.T) {
+	llm := &fakeLLM{steps: [][]port.ProviderEvent{
+		toolStep("bash", `{"command":"echo '# in a real implementation this would run the maze' > sol.sh"}`),
+		textStep("완료"),
+	}}
+	a, wd := newApp(t, llm, Config{Permission: "allow"})
+	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
+	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "solve it"}}})
+
+	got := waitForTerminal(t, a, sid)
+	if !fabricationBlocked(got) {
+		t.Errorf("fabrication gate: expected the corrective prompt after a bash-written fabrication, got %v", typesOf(got))
 	}
 }
 

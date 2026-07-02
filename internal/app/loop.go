@@ -81,6 +81,12 @@ type runGuard struct {
 	changed     map[string]*fileChange
 	changeOrder []string // first-seen order, for stable rendering
 
+	// bashWrites holds this turn's bash commands that WRITE a file (a redirect, heredoc, or
+	// tee). Files created via bash never populate `changed` (no path arg, not a fileModifier),
+	// so a bash-authored deliverable would bypass the fabrication scan entirely. Recording the
+	// write commands lets the scan see the content the model fabricated inline in the heredoc.
+	bashWrites []string
+
 	// recalled bounds recall_context: re-hydrating compacted detail re-inflates context
 	// (which can re-trigger compaction), so a turn may recall each topic once and only up
 	// to recallBudget times total — otherwise a recall→compact→recall loop could spin.
@@ -268,6 +274,46 @@ func (g *runGuard) changeSet() []fileChange {
 		out = append(out, *g.changed[p])
 	}
 	return out
+}
+
+// bashWriteCap bounds how many bash write-commands are retained for the fabrication scan.
+// A turn that writes many files via bash still only needs a handful sampled to catch a
+// confession; the cap keeps memory bounded on a pathological command-spamming run.
+const bashWriteCap = 64
+
+// noteBashWrite records a bash command that WRITES to a file — one containing a redirect
+// (`>`), a heredoc (`<<`), or `tee`. Read-only commands (a bare `grep`/`cat`) are skipped
+// so a benign search for a marker phrase can't trip the fabrication scan; only commands
+// that emit content into a file, the actual fabrication vector, are kept.
+func (g *runGuard) noteBashWrite(cmd string) {
+	if !strings.Contains(cmd, ">") && !strings.Contains(cmd, "<<") && !strings.Contains(cmd, "tee ") {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if len(g.bashWrites) >= bashWriteCap {
+		return
+	}
+	g.bashWrites = append(g.bashWrites, cmd)
+}
+
+// scanFabrication runs the self-admitted-fabrication scan over BOTH the files the agent
+// wrote this turn (via write/edit) and its file-writing bash commands (via noteBashWrite),
+// so a deliverable is caught whether it was authored with an edit tool or a bash heredoc.
+// It returns a label for the offending source and the matched line, or ("","") when clean.
+func (g *runGuard) scanFabrication() (label, snippet string) {
+	if p, snip := scanFabricationClaim(g.changeSet()); p != "" {
+		return p, snip
+	}
+	g.mu.Lock()
+	writes := append([]string(nil), g.bashWrites...)
+	g.mu.Unlock()
+	for _, cmd := range writes {
+		if _, line := selfcheck.FabricationMarker(cmd); line != "" {
+			return "a bash command", line
+		}
+	}
+	return "", ""
 }
 
 // scanFabricationClaim inspects the AFTER content of files the agent WROTE this turn for a
@@ -733,7 +779,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			// past. Fires once per turn; the injected prompt tells the agent to do the real
 			// work or honestly report it could not — never to present the fake as done.
 			if depth == 0 && !fabricationFlagged {
-				if p, snip := scanFabricationClaim(guard.changeSet()); p != "" {
+				if p, snip := guard.scanFabrication(); p != "" {
 					fabricationFlagged = true
 					msg := fmt.Sprintf("Before finishing: %s contains text admitting it is not a real solution but a "+
 						"stand-in — matched: %q. A placeholder or simulated output is NOT a completed task. Either do "+
@@ -809,7 +855,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 				// agent, which then fixed it — or didn't): feed a still-present confession to the
 				// council as hard, deterministic evidence so a text-only vote can't wave it through.
 				fab := ""
-				if p, snip := scanFabricationClaim(guard.changeSet()); p != "" {
+				if p, snip := guard.scanFabrication(); p != "" {
 					fab = p + ": " + snip
 				}
 				if a.runCouncilGate(ctx, s, agent, turnTask, lastText, &councilRounds, &lastCouncilFeedback, buildCouncilChanges(guard.changeSet()), maxSteps-step, fab) {
@@ -858,7 +904,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			// report backed by a deliverable that confesses it is a stand-in is not done.
 			// Refuse the report ONCE; push the subagent to do the real work or report failed.
 			if rep.status == "done" && !fabricationFlagged {
-				if p, snip := scanFabricationClaim(guard.changeSet()); p != "" {
+				if p, snip := guard.scanFabrication(); p != "" {
 					fabricationFlagged = true
 					msg := fmt.Sprintf("You reported done, but %s contains text admitting it is not a real "+
 						"solution but a stand-in — matched: %q. A placeholder or simulated deliverable is NOT a "+
@@ -1540,6 +1586,16 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		guard.record(guardFP, string(res.Content))
 		if !res.IsError && fileModifiers[tc.Name] {
 			guard.mutated(pathArg(tc.Args), canonicalArgs(tc.Args))
+		}
+		// A successful bash write is the fabrication vector that bypasses changeSet — record
+		// its command so the pre-finish scan can see content the model fabricated in a heredoc.
+		if !res.IsError && tc.Name == "bash" {
+			var ba struct {
+				Command string `json:"command"`
+			}
+			if json.Unmarshal(tc.Args, &ba) == nil {
+				guard.noteBashWrite(ba.Command)
+			}
 		}
 	}
 	// Record the agent's before→after change for the council. Gate on the tool's own success
