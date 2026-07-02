@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/sayaya1090/magi/internal/core/selfcheck"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
@@ -48,6 +49,19 @@ func (Report) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv
 		status = "done"
 	default:
 		status = "done" // normalize anything unexpected to done
+	}
+	// A "done" report whose own text admits the work is a stand-in is not done. Refuse it
+	// inline so the subagent gets immediate feedback and its turn continues, rather than
+	// filing a fabricated result the orchestrator would take at face value. This scans the
+	// report narrative; the loop separately scans the files the subagent wrote (both share
+	// internal/core/selfcheck). "blocked"/"failed" are honest outcomes and pass through.
+	if status == "done" {
+		if _, line := selfcheck.FabricationMarker(a.Summary + "\n" + a.Details); line != "" {
+			return errResult("", "This report says done, but your summary/details admit the work is a stand-in — "+
+				"matched: \""+line+"\". A simulated or placeholder result is not a completed task. Do the real work "+
+				"and report the genuine result, or use status \"failed\" and say what stopped you — do not report "+
+				"fabricated work as done."), nil
+		}
 	}
 	if err := env.Report(a.Summary, status, a.Details); err != nil {
 		return errResult("", err.Error()), nil
