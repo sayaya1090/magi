@@ -510,14 +510,14 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// here but injected as an ephemeral trailing message, NOT into `sys`. `sys` (above) is
 		// now byte-stable within a turn, so the backend's prefix cache is reused across steps;
 		// only this small block at the tail is re-processed each step.
-		vol := a.volatileContext(ctx, s, agent, isSub, evs)
+		vol := a.volatileContext(ctx, s, agent, isSub, evs, step, maxSteps)
 
 		// Context-aware auto-compaction (M6): if the assembled context exceeds the model's
 		// window budget, summarize older turns and re-read. Measure against sys+vol so the
 		// trigger still accounts for the volatile block (it's only used for sizing here).
 		if a.maybeCompact(ctx, s, agent, agentActor, evs, sys+"\n\n"+vol) {
 			evs, _ = a.store.Read(ctx, sid, 0)
-			vol = a.volatileContext(ctx, s, agent, isSub, evs) // refresh after compaction
+			vol = a.volatileContext(ctx, s, agent, isSub, evs, step, maxSteps) // refresh after compaction
 		}
 
 		msgs := reconstruct(evs)
@@ -527,7 +527,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			if evs2, err := a.store.Read(ctx, sid, 0); err == nil {
 				evs = evs2
 				msgs = reconstruct(evs)
-				vol = a.volatileContext(ctx, s, agent, isSub, evs)
+				vol = a.volatileContext(ctx, s, agent, isSub, evs, step, maxSteps)
 			}
 		}
 		// Append the volatile context as an ephemeral trailing user message (not persisted, so
@@ -740,7 +740,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			// conversational reply (no tool use, e.g. a greeting) has nothing to
 			// verify, so gating it just churns and can derail a weak model.
 			if depth == 0 && a.cfg.Council != nil && !a.cfg.Workflow && usedTools {
-				if a.runCouncilGate(ctx, s, agent, turnTask, lastText, &councilRounds, &lastCouncilFeedback, buildCouncilChanges(guard.changeSet())) {
+				if a.runCouncilGate(ctx, s, agent, turnTask, lastText, &councilRounds, &lastCouncilFeedback, buildCouncilChanges(guard.changeSet()), maxSteps-step) {
 					continue
 				}
 			}
@@ -967,7 +967,7 @@ func tailForCouncil(s string, n int) string {
 //
 // Safety (so the council can never trap the loop): rounds are capped, repeated or
 // empty feedback stops the gate, and any deliberation error finishes the turn.
-func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent AgentSpec, turnTask, lastText string, rounds *int, lastFeedback *string, changes string) bool {
+func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent AgentSpec, turnTask, lastText string, rounds *int, lastFeedback *string, changes string, stepsLeft int) bool {
 	// An interrupt mid-finish must not trigger a deliberation or inject a spurious
 	// feedback prompt — let the loop unwind the cancellation.
 	if ctx.Err() != nil {
@@ -1103,6 +1103,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		Members:      members,
 		Rule:         rule,
 		DefaultModel: s.Model.Model,
+		StepsLeft:    stepsLeft,
 	})
 	if err != nil {
 		// A gate failure must not trap the turn — record it as a forced finish
@@ -1616,8 +1617,23 @@ func (a *App) systemFor(agent AgentSpec, workdir string, isSub bool) string {
 // stays byte-stable within a turn and the backend's prefix (KV) cache survives across steps.
 // Returns "" when there is nothing to inject. Gating matches the old in-`sys` behavior:
 // experience applies to subagents too, RAG is top-level only.
-func (a *App) volatileContext(ctx context.Context, s session.Session, agent AgentSpec, isSub bool, evs []event.Event) string {
+func (a *App) volatileContext(ctx context.Context, s session.Session, agent AgentSpec, isSub bool, evs []event.Event, step, maxSteps int) string {
 	var b strings.Builder
+	// Step budget: give the agent continuous budget awareness every step so it paces itself.
+	// Two failure modes to prevent: (1) running to the ceiling mid-exploration and being cut
+	// off with nothing landed; (2) treating the ceiling as a quota to fill — padding with
+	// re-checks and busywork instead of stopping when done. So the wording stresses that the
+	// max is a HARD CEILING, not a target, and finishing early is better. Ephemeral (re-sent
+	// each step, never persisted) so the number is always current; skipped for tiny phase
+	// budgets (e.g. summarize=3) where pacing is meaningless.
+	if maxSteps >= 8 {
+		b.WriteString(fmt.Sprintf("\n\n# Step budget\nYou are on step %d of at most %d. The %d is a hard ceiling, "+
+			"not a target or quota — using fewer steps is better, not worse. As soon as the task's primary "+
+			"deliverable is done and verified, STOP; do not keep re-checking, polishing, or exploring to 'use up' "+
+			"the budget. The count is shown only so you don't get cut off mid-task: if you near %d, stop exploring "+
+			"and land the smallest change that satisfies the core requirement rather than being stopped with nothing.",
+			step+1, maxSteps, maxSteps, maxSteps))
+	}
 	if td := a.Todos(s.ID); len(td) > 0 {
 		b.WriteString("\n\n# Current plan (TODOs)\n" + formatTodos(td))
 	}

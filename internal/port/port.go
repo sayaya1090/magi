@@ -102,6 +102,12 @@ type DeliberationRequest struct {
 	// DefaultModel is used for members that don't pin their own Model (typically
 	// the session's current model, so the council follows model switches).
 	DefaultModel string
+	// StepsLeft is how many steps the agent has before it is force-stopped at its
+	// budget ceiling (0 = unknown/not applicable). When it is low, members should
+	// prefer accepting a reasonable working result over demanding another round of
+	// work that cannot fit — a continue verdict the agent has no budget to act on
+	// just wastes the remaining steps and ends the turn with nothing landed.
+	StepsLeft int
 }
 
 // Signal is a piece of deterministic evidence the council weighs (D16): the

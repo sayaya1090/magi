@@ -17,9 +17,28 @@ func TestVolatileContextHoldsPlan(t *testing.T) {
 		"s1": {{Content: "implement X", Status: "in_progress"}},
 	}}
 	s := session.Session{ID: "s1"}
-	out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil)
+	out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 0, 0)
 	if !strings.Contains(out, "# Current plan (TODOs)") || !strings.Contains(out, "implement X") {
 		t.Fatalf("volatileContext should carry the plan, got %q", out)
+	}
+}
+
+// TestVolatileContextStepBudget: with a real budget (maxSteps>=8) the ephemeral context
+// carries the current step / ceiling and frames the ceiling as a limit, not a quota — so
+// the model paces itself without padding to the max.
+func TestVolatileContextStepBudget(t *testing.T) {
+	a := &App{todos: map[session.SessionID][]session.Todo{}}
+	s := session.Session{ID: "s1"}
+	out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 6, 40)
+	if !strings.Contains(out, "# Step budget") || !strings.Contains(out, "step 7 of at most 40") {
+		t.Fatalf("budget block should show the current step and ceiling, got %q", out)
+	}
+	if !strings.Contains(out, "hard ceiling") || !strings.Contains(out, "not a target") {
+		t.Fatalf("budget block should frame the ceiling as a limit, not a quota, got %q", out)
+	}
+	// Tiny phase budgets (e.g. summarize=3) skip the block entirely.
+	if out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 0, 3); strings.Contains(out, "# Step budget") {
+		t.Fatalf("tiny budgets should not emit a step-budget block, got %q", out)
 	}
 }
 
@@ -28,7 +47,7 @@ func TestVolatileContextHoldsPlan(t *testing.T) {
 func TestVolatileContextEmpty(t *testing.T) {
 	a := &App{todos: map[session.SessionID][]session.Todo{}}
 	s := session.Session{ID: "s1"}
-	if out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil); out != "" {
+	if out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 0, 0); out != "" {
 		t.Fatalf("expected empty volatile context, got %q", out)
 	}
 }

@@ -298,6 +298,16 @@ func evidence(req port.DeliberationRequest) string {
 		b.WriteString("# Changes\n(none recorded — a read-only / investigation / answer turn: no file edits or signals to inspect. " +
 			"Judge the report's substance against the task; do not treat the absence of edits as a defect.)\n\n")
 	}
+	// Budget awareness (terminate gate only): when the agent is almost out of its step budget,
+	// a "continue" verdict it cannot act on just burns the remaining steps and ends the turn
+	// with nothing landed. Tell members to prefer accepting a reasonable result over demanding
+	// work that won't fit — without lowering the bar for a genuine, fixable defect.
+	if req.Phase != "plan" && req.StepsLeft > 0 && req.StepsLeft <= 5 {
+		b.WriteString(fmt.Sprintf("# Budget\nThe agent has only about %d step(s) left before it is force-stopped. "+
+			"If the report is a reasonable, working result, prefer DONE — a continue verdict it has no budget to act "+
+			"on wastes the remaining steps and ends the turn with nothing landed. Ask for another round only for a "+
+			"real, fixable defect that fits in the remaining budget.\n\n", req.StepsLeft))
+	}
 	if b.Len() == 0 {
 		return "No task, report, or evidence was provided. With nothing to judge through your lens, abstain."
 	}

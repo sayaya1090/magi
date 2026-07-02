@@ -61,6 +61,22 @@ func TestEvidenceActions(t *testing.T) {
 	}
 }
 
+func TestEvidenceBudgetNote(t *testing.T) {
+	// Low remaining budget → a note telling members to prefer DONE over unactionable rounds.
+	low := evidence(port.DeliberationRequest{Task: "x", Report: "y", StepsLeft: 3})
+	if !strings.Contains(low, "# Budget") || !strings.Contains(low, "3 step") || !strings.Contains(low, "prefer DONE") {
+		t.Errorf("low budget should render the budget note:\n%s", low)
+	}
+	// Ample budget → no note (don't rush the council when there's room).
+	if e := evidence(port.DeliberationRequest{Task: "x", Report: "y", StepsLeft: 40}); strings.Contains(e, "# Budget") {
+		t.Errorf("ample budget should not render a budget note:\n%s", e)
+	}
+	// Plan-audit phase never carries a budget note (there's no execution budget to spend yet).
+	if e := evidence(port.DeliberationRequest{Phase: "plan", Task: "x", Plan: "p", StepsLeft: 1}); strings.Contains(e, "# Budget") {
+		t.Errorf("plan phase should not render a budget note:\n%s", e)
+	}
+}
+
 func TestMemberPromptArtifactGrounding(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "completeness"}
 	s := memberSystem(m, "terminate", "build a CLI tool")
