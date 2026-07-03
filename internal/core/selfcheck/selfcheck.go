@@ -36,6 +36,34 @@ var FabricationMarkers = []string{
 	"for the purpose of this task simulation",
 }
 
+// TestArtifactPath reports whether path is a test double's natural home — a test,
+// mock, stub, or fixture file. Inside those, the marker phrases are legitimate
+// engineering vocabulary ("this simulates the server", "in a real implementation
+// this would hit the network"): a developer writing a test double is not an agent
+// confessing a fake deliverable. The fabrication scan skips these paths so everyday
+// coding never trips the gate; a bench task's deliverable never lives there.
+func TestArtifactPath(path string) bool {
+	p := strings.ToLower(strings.ReplaceAll(path, "\\", "/"))
+	for _, seg := range strings.Split(p, "/") {
+		switch seg {
+		case "test", "tests", "testdata", "testing", "fixtures", "mocks", "stubs",
+			"__tests__", "__mocks__", "spec", "specs":
+			return true
+		}
+	}
+	base := p[strings.LastIndexByte(p, '/')+1:]
+	if strings.HasPrefix(base, "test_") || strings.HasPrefix(base, "mock_") ||
+		strings.HasPrefix(base, "stub_") || strings.HasPrefix(base, "fake_") {
+		return true
+	}
+	for _, infix := range []string{"_test.", ".test.", ".spec.", "_spec."} {
+		if strings.Contains(base, infix) {
+			return true
+		}
+	}
+	return false
+}
+
 // FabricationMarker returns the first fabrication marker present in text and the
 // trimmed, bounded line that contains it, or ("","") when text is clean. Both the
 // match and the returned excerpt run on a lowercased copy: matching must be

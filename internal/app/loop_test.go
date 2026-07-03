@@ -610,3 +610,20 @@ func readFile(dir, name string) (string, error) {
 	b, err := os.ReadFile(filepath.Join(dir, name))
 	return string(b), err
 }
+
+// A test double is not a confession: marker phrases inside test/mock paths are
+// legitimate engineering vocabulary and must not trip the fabrication gate.
+func TestFabricationGateSkipsTestDoubles(t *testing.T) {
+	llm := &fakeLLM{steps: [][]port.ProviderEvent{
+		toolStep("write", `{"path":"mocks/server.go","content":"// in a real implementation this would hit the network\npackage mocks\n"}`),
+		textStep("added the mock"),
+	}}
+	a, wd := newApp(t, llm, Config{Permission: "allow"})
+	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
+	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "write a mock server"}}})
+
+	got := waitForTerminal(t, a, sid)
+	if fabricationBlocked(got) {
+		t.Errorf("fabrication gate must not fire on a mock/test path, got %v", typesOf(got))
+	}
+}

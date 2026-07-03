@@ -330,6 +330,10 @@ func (g *runGuard) scanFabrication() (label, snippet string) {
 // via internal/core/selfcheck so the two enforcement points never drift apart.
 func scanFabricationClaim(changes []fileChange) (path, snippet string) {
 	for _, c := range changes {
+		// Test doubles legitimately say "this simulates…" — a mock is not a confession.
+		if selfcheck.TestArtifactPath(c.path) {
+			continue
+		}
 		if _, line := selfcheck.FabricationMarker(c.after); line != "" {
 			return c.path, line
 		}
