@@ -2242,6 +2242,13 @@ func (m *Model) applyEvent(e event.Event) {
 			m.blocks = append(m.blocks, block{kind: blockReasoning, text: d.Part.Text})
 		case session.PartText:
 			m.liveText = ""
+			// A long answer the council rejected and the model re-sent nearly
+			// verbatim is brutal to re-read. Collapse an assistant block that
+			// duplicates the previous assistant block in this turn to a stub.
+			if prev := m.lastAssistantText(); prev != "" && len(d.Part.Text) > 400 && sameAnswer(prev, d.Part.Text) {
+				m.blocks = append(m.blocks, block{kind: blockInfo, text: "≡ (이전 답변과 사실상 동일한 재응답 — 생략)"})
+				break
+			}
 			m.blocks = append(m.blocks, block{kind: blockAssistant, text: d.Part.Text})
 		case session.PartToolCall:
 			if d.Part.ToolCall != nil {
@@ -3398,6 +3405,25 @@ func (m *Model) turnSummary() string {
 		parts = append(parts, fmtDur(m.turnDur))
 	}
 	return "▣ turn: " + strings.Join(parts, " · ")
+}
+
+// lastAssistantText returns the most recent assistant block's text this turn
+// (stopping at the last user block), or "" when there is none.
+func (m *Model) lastAssistantText() string {
+	for i := len(m.blocks) - 1; i >= 0; i-- {
+		switch m.blocks[i].kind {
+		case blockAssistant:
+			return m.blocks[i].text
+		case blockUser:
+			return ""
+		}
+	}
+	return ""
+}
+
+// sameAnswer reports whether two answers are the same modulo whitespace.
+func sameAnswer(a, b string) bool {
+	return strings.Join(strings.Fields(a), " ") == strings.Join(strings.Fields(b), " ")
 }
 
 // turnMeter renders elapsed + token usage, e.g. "3m49s · ↑28.1k ↓10.4k". Token

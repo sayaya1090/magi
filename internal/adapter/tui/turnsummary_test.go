@@ -41,3 +41,32 @@ func TestTurnSummaryLine(t *testing.T) {
 		t.Fatalf("a no-tool turn must not add a receipt, got %+v", m.blocks[len(m.blocks)-1])
 	}
 }
+
+// A near-verbatim long re-answer within the same turn collapses to a stub —
+// the council-reject-then-resubmit case that made users re-read a wall of text.
+func TestDuplicateAssistantBlockCollapses(t *testing.T) {
+	mm := newTestModel(t)
+	m := &mm
+	long := strings.Repeat("이 프로젝트의 구조 분석 결과입니다. ", 30)
+	part := func(txt string) event.Event {
+		return ev(t, event.TypePartAppended, event.PartAppendedData{Role: session.RoleAssistant,
+			Part: session.Part{Kind: session.PartText, Text: txt}})
+	}
+	m.applyEvent(part(long))
+	m.applyEvent(part(long + "  \n")) // whitespace-only difference
+	last := m.blocks[len(m.blocks)-1]
+	if last.kind != blockInfo || !strings.Contains(last.text, "동일") {
+		t.Fatalf("duplicate long answer should collapse, got kind=%d %q", last.kind, last.text[:min(60, len(last.text))])
+	}
+	// A genuinely different answer stays.
+	m.applyEvent(part(long + " 그리고 추가 분석."))
+	if m.blocks[len(m.blocks)-1].kind != blockAssistant {
+		t.Fatal("a changed answer must not collapse")
+	}
+	// Short duplicates (greetings) are left alone.
+	m.applyEvent(part("네."))
+	m.applyEvent(part("네."))
+	if m.blocks[len(m.blocks)-1].kind != blockAssistant {
+		t.Fatal("short duplicates are not worth collapsing")
+	}
+}
