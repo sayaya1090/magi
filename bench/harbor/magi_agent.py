@@ -18,12 +18,18 @@ Usage (from the repo root, with harbor installed and Docker/Podman running):
     CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o /tmp/magi-serve/magi-arm64 ./cmd/magi
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /tmp/magi-serve/magi-amd64 ./cmd/magi
 
-    # 2. Run (MAGI_BASE_URL must be host-routable from containers):
+    # 2. Run (MAGI_BASE_URL must be host-routable from containers).
+    #    PYTHONPATH pins the repo root so harbor's own venv (installed via
+    #    `uv tool`/pipx, which does NOT put cwd on sys.path) can import this
+    #    module; without it harbor dies with "No module named 'bench'".
+    PYTHONPATH=$PWD \
     MAGI_BASE_URL=http://host.docker.internal:11434/v1 \
     MAGI_BENCH_BINARY_PATH=/tmp/magi-serve \
-    harbor run --agent-import-path bench.harbor.magi_agent:MagiAgent \
+    harbor run --agent bench.harbor.magi_agent:MagiAgent \
       --model qwen3-coder:30b \
       --dataset terminal-bench/terminal-bench-2-1 --n-concurrent 1
+
+    # magi's step ceiling defaults to 240 (sized for TB 2.x); no flag needed.
 
 The model id is passed to magi verbatim after stripping an optional leading
 "openai/" — harbor conventionally namespaces models as provider/name, while
