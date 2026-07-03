@@ -31,7 +31,14 @@ internal/
                             Tool/ToolEnv, ExperienceStore, PluginHost, Platform, Scheduler…
   app/                      application service + agent loop + orchestration + guardrails + workflow
     app.go                  App (the Application): commands in → events out; session state
-    loop.go                 runLoop: the agent loop; runGuard; systemFor; toolSpecs
+    config.go               Config/AgentSpec/route+profile types, withDefaults, applyProfile
+    todos.go                plan/TODO state machine (SetTodos, advanceTo, finalizeTodos)
+    loop.go                 runLoop: the agent loop; buildStepSystem (cacheable prompt); the
+                            per-step stream/persist/finish flow
+    guard.go council_gate.go criteria.go execute.go permission.go prompt.go
+                            loop.go's split siblings: runGuard (stall/loop/regression),
+                            the consensus gate, acceptance criteria, tool execution,
+                            permission prompting, and prompt/system assembly
     orchestrate.go          subagent dispatch/spawn/supervisor; escalate (ask); bgGroup
     planner.go              pre-flight planner: judge solo-vs-parallel, fan out explorers
     workflow.go             deterministic phase pipeline (localize→implement→verify→review)
@@ -47,7 +54,10 @@ internal/
     experience/git/         shared memory/skills store (git repo, D13)
     plugin/lua/             gopher-lua plugin host (capability bundles)
     mcp/                    MCP client: stdio + Streamable HTTP transports
-    tui/                    Bubble Tea UI (transcript, subagent panes, /route editor)
+    tui/                    Bubble Tea UI, split by concern: model.go (Model + Update),
+                            model_input.go (mouse/key/slash), model_event.go (event folding),
+                            model_route.go (route/profile forms), model_layout.go (resize/panes),
+                            model_view.go (render). Transcript, subagent panes, /route editor.
   httpx/                    shared static+dynamic HTTP header set (MCP + LLM client)
   config/                   TOML config loader + comment-preserving editor (SetKey)
   eval/                     quantitative task-suite harness (success/steps/tokens)
@@ -119,12 +129,23 @@ workflow engine (§6). `runLoop(ctx, session, agent, depth, maxSteps)`:
 
 1. Assemble context (history since last compaction + project memory/AGENTS.md +
    skills + shared experience), publish `context.usage`, maybe auto-compact.
+   A per-step **volatileContext** (ephemeral trailing message, never in the cached
+   system prompt) carries the step budget, a self-measured **elapsed** line once a
+   turn passes 1m (`time.Since(runStart)` — magi's own stopwatch, not scorer info),
+   an optional `--time-budget` remaining/EXCEEDED block (`Config.TimeBudget`, default
+   off, kept off for leaderboard runs), the live todo list, and **push-side shard
+   hints** (`shardHints` in `recall.go`) — the compacted-away topics that lexically
+   match the current task, **BM25-lite IDF-ranked** so a rare token pinning one region
+   ("heap.go") outweighs a generic one across all shards, requiring ≥2 distinct token
+   matches; a weak model that never calls `recall_context` is still pointed at what it
+   lost, and still pulls the verbatim originals through that tool.
 2. `StreamChat`; stream text (`part.delta`) / reasoning / tool calls; on finish
    persist the assistant `part.appended`.
 3. No tool calls → finish branch (see §5/§6 gates), else execute tools (read-only
    tools run concurrently; writes/permissioned/task run sequentially) and loop.
 
-Guards that make weak models safe (all in `loop.go`/`orchestrate.go`):
+Guards that make weak models safe (in `guard.go`/`orchestrate.go`; the loop body
+in `loop.go` calls into them each step):
 - **runGuard**: identical `(tool,args)` call blocked past `repeatLimit`; `blockedBudget`
   blocked repeats → `loop_guard` stop (long before MaxSteps). A successful file write/edit
   with *changed* content bumps a mutation epoch that resets the counts, so re-running a test
@@ -135,6 +156,12 @@ Guards that make weak models safe (all in `loop.go`/`orchestrate.go`):
   `sinceProgress` past `noProgressNudge` (many *varied* tool calls with no real mutation),
   which re-arms per window up to `maxStallNudges`. A successful **bash write** counts as a
   mutation too (`noteBashWrite` → epoch bump), so bash-heavy work isn't misread as a stall.
+  **Regressive edits don't count as progress**: `noteEdit` hashes each touched file's
+  content across the turn, and an edit that returns a file to a state already seen this
+  turn is churn, not progress — `retractProgress` restores the pre-write stall epoch so an
+  implement↔revert oscillation keeps climbing toward a stall stop instead of resetting it
+  every swing (without this, a model that writes a stub, reverts it, and re-tries forever
+  never trips any guard and burns the whole budget).
   After the stall nudges are exhausted, one further ignored window force-stops the run as
   `stall_guard` — the backstop that keeps an unresponsive agent from wandering to the
   (240-step default) ceiling. The planner also emits an advisory `estimated_steps` that the
@@ -170,9 +197,13 @@ mode) does NOT finish immediately: it convenes a **council** that votes done-vs-
   (reusing the Stop-hook injection path) and the loop runs again. On **done** (or the
   safety stops below) the turn finishes.
 - Safety so the gate can't trap the loop: `CouncilMaxRounds` cap (default 3), a
-  no-progress guard (empty/repeated feedback finishes), and a ctx-cancel early-out.
-  Forced finishes are recorded as a `council.decided` whose `note` states the council
-  never approved (treat as UNVERIFIED) and carries the last outstanding feedback.
+  no-progress guard (empty/repeated feedback finishes), a **cost-efficiency cap**
+  (deliberation self-times via `councilSpent`; once it has run ≥1 round AND consumed
+  ≥60s AND ≥¼ of the turn's wall-clock, further rounds cost more than they're worth,
+  so it finishes UNVERIFIED rather than convening another 3-member round), and a
+  ctx-cancel early-out. Forced finishes are recorded as a `council.decided` whose
+  `note` states the council never approved (treat as UNVERIFIED) and carries the last
+  outstanding feedback.
 - Member prompts additionally refuse a "done" that RATIONALIZES incompletion ("impossible,
   so this is full completion") and require, for checkable deliverables, that the turn
   actually RAN the check with real output visible — existence is not correctness.
@@ -260,6 +291,12 @@ via `config.SetKey` (comment-preserving) through a `RoutePersister`.
   fallback when the backend is unavailable. Opt-in via profile.
 - **Prompt-injection rule**: tool output is treated as untrusted data; webfetch
   output is fenced.
+- **Persist-rule narrowing** (`persistRule`): choosing "always (project)" writes an
+  allow rule scoped as tightly as the tool permits. Non-bash tools persist as
+  `tool(**)`; `bash` persists only the approved **program name** — `curl https://x`
+  yields `bash(curl:*)`, not `bash(**)` — via `safeCommandPrefix` (first argv word;
+  empty, so no persist, when the command opens with a shell metachar and has no fixed
+  program to pin). One approval can't silently pre-authorize every later command.
 
 **Workflow engine (`app/workflow.go`, opt-in via `-workflow`)** drives a task through
 a deterministic, code-enforced pipeline so the *flow* doesn't depend on the model:

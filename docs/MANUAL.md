@@ -47,9 +47,23 @@ Headless output contract (stable — scripts, CI, and the bench adapters key off
 
 ### Environment check
 ```sh
-./magi --doctor   # LLM endpoint reachability, model presence, optional tools (gopls/ast-grep/rg), sandbox backend, config profile references
+./magi --doctor
 ```
-Exit 0 unless a hard failure (unreachable endpoint); warnings are advisory.
+`--doctor` runs a one-shot diagnostic of everything magi needs and exits — use it
+first when a fresh machine misbehaves. It checks, and prints an `ok` / `warn` /
+`fail` line for each:
+
+- **LLM endpoint** — reachability of `--base-url` and whether the configured
+  `--model` is present on it (for Ollama, whether you are signed in for cloud models).
+- **Optional external tools** — `gopls`, `ast-grep`, `rg` (ripgrep): present ones
+  sharpen search/refactor; missing ones only degrade gracefully (warn, never fail).
+- **Sandbox backend** — which command isolation is available (e.g. `sandbox-exec`
+  on macOS, `bwrap` on Linux) and whether bash will run confined.
+- **Config** — that any **council member `provider`** names a defined
+  `[llm.profiles.*]`; an undefined one is a warn (it falls back to the default backend).
+
+Exit code is `0` unless a **hard failure** (e.g. the LLM endpoint is unreachable),
+which exits non-zero; warnings are advisory and do not change the exit code.
 
 ### Version / self-update
 ```sh
@@ -70,6 +84,14 @@ Flags / environment variables (precedence: flag > env > default):
 | `--plugins` | `MAGI_PLUGINS` | (none) | additional plugin directory |
 | `--no-harness` | — | (off = harness on) | disable the built-in harness (format/diagnostics/Stop hooks) |
 | `--output` | — | `text` | `text`\|`json` (headless) |
+| `--time-budget` | `MAGI_TIME_BUDGET` | `0` (off) | soft wall-clock budget shown to the agent as guidance (e.g. `20m`); **advisory, never a hard stop**. See §Time & step budget. Kept **off** for leaderboard/comparison runs |
+| `--workflow` | `MAGI_WORKFLOW` | (off) | drive the task through the deterministic localize→implement→verify→review pipeline |
+| `--verify-cmd` | `MAGI_VERIFY_CMD` | (auto) | workflow verification command; auto-detected (go/cargo/npm/pytest markers) when empty |
+| `--http-timeout` | `MAGI_HTTP_TIMEOUT` | `0` (unbounded) | max wait for LLM response headers (e.g. `120s`) |
+| `--no-cache` | `MAGI_NO_CACHE` | (off) | disable prompt `cache_control` (on by default; auto-falls back if the backend rejects it) |
+| `--list-models` | — | — | list the backend's available models and exit |
+| `--doctor` | — | — | environment diagnostics and exit (see §Environment check) |
+| `--version` / `--update` | — | — | print version / checksum-verified self-update |
 | — | `MAGI_API_KEY` | (none) | key for remote backends (not needed for Ollama) |
 | — | `MAGI_AMBIGUOUS_WIDTH` | `auto` | `wide`\|`narrow`\|`auto` — force East-Asian ambiguous-char cell width (see below) |
 
@@ -129,7 +151,18 @@ primary = "#B45309"
 > Color themes can be defined externally per role in `[theme.dark]` / `[theme.light]` (default = NERV/MAGI). Pick the mode (auto/dark/light) with `--theme`.
 > On first run a commented default `config.toml` is generated automatically (left untouched if it already exists).
 
-> **Loop & execution safety guards (deterministic, always on)**: beyond the council, a few cheap deterministic guards catch failure modes a weak model walks into on its own. **Self-regression check** — magi tracks each file's content states within a turn; if an edit returns a file to a state it already had this turn (the silent "fix it, then quietly undo the fix" trap), a neutral note is appended to that tool result so the agent re-checks (advisory, never blocks; once per file). **Non-interactive command execution** — every `bash` command runs with no controlling terminal and stdin closed, so a command that tries to prompt (git credentials, `ssh` host-key confirmation, `apt`, a pager) **fails fast instead of hanging** until the timeout. **Loop guard** — an identical no-progress tool call repeated past a small limit is refused (the earlier result is echoed back); when the agent keeps thrashing it first gets **one corrective re-grounding** (re-read the original task, change approach), and only if it persists is the run stopped gracefully rather than burning the whole step budget.
+> **Loop & execution safety guards (deterministic, always on)**: beyond the council, a few cheap deterministic guards catch failure modes a weak model walks into on its own. **Self-regression check** — magi tracks each file's content states within a turn; if an edit returns a file to a state it already had this turn (the silent "fix it, then quietly undo the fix" trap), a neutral note is appended to that tool result so the agent re-checks (advisory, never blocks; once per file). **Non-interactive command execution** — every `bash` command runs with no controlling terminal and stdin closed, so a command that tries to prompt (git credentials, `ssh` host-key confirmation, `apt`, a pager) **fails fast instead of hanging** until the timeout. **Loop guard** — an identical no-progress tool call repeated past a small limit is refused (the earlier result is echoed back); when the agent keeps thrashing it first gets **one corrective re-grounding** (re-read the original task, change approach), and only if it persists is the run stopped gracefully rather than burning the whole step budget. **Stall force-stop** — when the agent makes no progress across several steps even after the corrective nudge, the run is stopped gracefully (`stall_guard`) instead of grinding to the ceiling; a `bash` write counts as progress so a legitimately slow build isn't misread as a stall.
+
+### Time & step budget
+
+Every step, magi appends an ephemeral **budget line** to the agent's context (never to the cached system prompt, so the prefix stays cache-stable) so the model paces itself:
+
+- **Step budget** — `You are on step N of at most M`. The ceiling `M` (default **240**, `MaxSteps`) is framed as a **hard ceiling, not a quota**: finishing early is better, and spending a step on a command that only *narrates* (an echo of "done", a status summary) is explicitly forbidden — say it in reply text instead. Tiny phase budgets (e.g. an internal summarize=3) skip the line entirely.
+- **Soft planner estimate** — when the planner ran, it emits an `estimated_steps` count shown as *"estimated at roughly K steps — a pacing reference, not a limit"*. It is deliberately **advisory only**: a weak model's estimate is routinely wrong, and a wrong hard cap would cut off real work, so the 240 ceiling stays the only stop. If the agent runs far past the estimate, the line tells it to stop and reassess.
+- **Self-measured elapsed** — once a turn crosses a minute, the line adds *"You have been working for 11m of wall-clock time so far"*. This is magi's **own stopwatch** (measured from the turn start), not external scorer information, so it is fair to use everywhere and lets the model notice a slow grind (ten compile retries) and change approach.
+- **`--time-budget` (off by default)** — a user-stated soft deadline (e.g. `--time-budget 20m`). When set, the line states the budget and the remaining time, flipping to *"budget EXCEEDED — land the smallest honest result immediately"* once elapsed passes it. It is **guidance, never a hard stop**, and is kept **off for leaderboard/comparison runs** so results stay apples-to-apples.
+
+**Council cost cap** — the council also watches its own wall clock. Once deliberation has consumed a disproportionate share of the turn (at least 60s **and** at least a quarter of the turn's elapsed time), further rounds cost more than they return, so round 2+ is skipped and the turn finishes marked **UNVERIFIED** rather than paying for another 3-member round. The first round always runs.
 
 ### Harness (on by default)
 
@@ -173,7 +206,7 @@ Hook commands run in a shell and receive the `MAGI_TOOL`/`MAGI_PATH` environment
 | `/clear` | clear the screen |
 | `/quit` (=`/exit`) | exit |
 
-> **Re-hydratable compaction**: when context is auto-compacted (or via `/compact`), the older turns are summarized for the live window as usual — but the originals are never lost. The compacted region is indexed **fully deterministically (no extra model call)** into topic shards **by the file each turn touched**, each carrying a one-line brief = its **tool-action trail** (e.g. `read · edit×2 · bash`); the summary then carries a notice listing the recoverable topics with those briefs. The agent calls **`recall_context("<topic>")`** (a file path works well) to pull a topic's original messages back **verbatim** on demand, instead of being stuck with the lossy summary. Recalls are bounded (each topic once, a per-turn budget, size-capped output) so re-hydration can't reopen the window; topics are aggregated across multiple compactions so nothing becomes undiscoverable. Unlike mainstream agents (opencode/Codex/Claude Code, which summarize-and-forget), the shed detail stays addressable. The pull is also **pushed**: each step, up to 3 compacted-away topics that lexically match the current task are surfaced as one-line hints ("possibly relevant earlier context — call recall_context"), so a model that never thinks to recall still gets pointed at what it lost.
+> **Re-hydratable compaction**: when context is auto-compacted (or via `/compact`), the older turns are summarized for the live window as usual — but the originals are never lost. The compacted region is indexed **fully deterministically (no extra model call)** into topic shards **by the file each turn touched**, each carrying a one-line brief = its **tool-action trail** (e.g. `read · edit×2 · bash`); the summary then carries a notice listing the recoverable topics with those briefs. The agent calls **`recall_context("<topic>")`** (a file path works well) to pull a topic's original messages back **verbatim** on demand, instead of being stuck with the lossy summary. Recalls are bounded (each topic once, a per-turn budget, size-capped output) so re-hydration can't reopen the window; topics are aggregated across multiple compactions so nothing becomes undiscoverable. Unlike mainstream agents (opencode/Codex/Claude Code, which summarize-and-forget), the shed detail stays addressable. The pull is also **pushed**: each step, up to 3 compacted-away topics that lexically match the current task — the recent user prompt joined with the latest assistant message — are surfaced as one-line hints ("possibly relevant earlier context — call recall_context"), so a model that never thinks to recall still gets pointed at what it lost. Matching is ranked by **BM25-lite inverse-document-frequency**: a rare token that pins one region (`dehydration`, `heap.go`) outranks a generic one shared by many shards (`handler`, `the`), so the hints point at the region the current step actually needs rather than the most common word. It stays purely lexical/deterministic — no embedding dependency, and the hint only *points*; the model still pulls the verbatim originals via `recall_context`.
 
 ### Keyboard shortcuts
 | Key | Action |
@@ -193,11 +226,13 @@ Hook commands run in a shell and receive the `MAGI_TOOL`/`MAGI_PATH` environment
 | Shift+Tab | switch permission mode |
 | Ctrl+C | exit |
 | mouse wheel | scroll · click a panel → focus (click again → zoom) |
-| permission modal: y/a/p/n | allow / always (session) / project (persists an allow rule to `.magi/config.toml`) / deny |
+| permission modal: y/a/p/n | allow (once) / always (this session) / project (persist to `.magi/config.toml`) / deny |
 
 Typing keys go only to the input box and scrolling happens only via the dedicated keys above — so typing body text (including spaces) doesn't scroll the screen. While you're scrolled up reading, streaming doesn't yank the view down (auto-follow only when at the bottom). When the transcript overflows, a **header chip** shows the scroll position (`⇅ 42% (120/300)`), plus `↓ new` when fresh output is streaming in below while you're scrolled up (End jumps back). There is no drawn scrollbar — the chip replaced it, which also removed the Windows ambiguous-width misalignment class entirely.
 
 Each working turn ends with a one-line receipt — `▣ turn: 14 steps · 3 file(s) · council r2 · 3m49s` — so a turn's cost is visible without scrolling back. When the agent needs YOU to decide between real alternatives, it can open a **selection modal** (the `ask_user` tool): ↑/↓ or 1-9 pick, enter answers, esc dismisses (the model is told you declined and proceeds on its own judgment). Multiple questions appear one modal at a time.
+
+**Persisting a permission (`p` = project):** choosing `p` writes an allow rule to `.magi/config.toml` so the choice survives restarts. The rule is **scoped as narrowly as the tool allows**: most tools persist as `tool(**)`, but `bash` persists only the **program name** you approved — approving `curl https://x` records `bash(curl:*)`, not a blanket `bash(**)` — so one approval never silently pre-authorizes every future command. A command that opens with a shell metacharacter (a pipe/redirect) has no stable program to pin to, so it stays session-only rather than over-granting. The destructive/egress scanners still re-prompt on dangerous invocations even of an allowed program.
 
 **Ambiguous-width characters (mostly a Windows note):** at startup magi probes the terminal once and matches its cell-width measure automatically (Console-API cursor delta on Windows, a cursor-position query elsewhere). If the probe can't run (e.g. redirected stdio) or guesses wrong, force it with `MAGI_AMBIGUOUS_WIDTH=wide` (or `narrow`); `MAGI_WIDTH_PROBE=0` disables the probe, and the standard `RUNEWIDTH_EASTASIAN=1` is also honored.
 
