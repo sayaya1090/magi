@@ -66,7 +66,9 @@ func TestCouncilGateContinuesThenFinishes(t *testing.T) {
 		{Round: 1, Decision: council.Continue, Feedback: "the tests are missing — add them"},
 		{Round: 2, Decision: council.Done},
 	}}
-	a, wd := newApp(t, workingLLM(), Config{Council: fc}) // working turn (read tool) → council gate applies
+	// The agent revises its answer after the feedback (a varied reply) — an
+	// unchanged resubmission would now legitimately skip re-deliberation.
+	a, wd := newApp(t, workingLLM(textStep("first answer"), textStep("revised with tests")), Config{Council: fc})
 	evs := submitAndDrain(t, a, wd)
 
 	if got := countType(evs, event.TypeCouncilConvened); got != 2 {
@@ -275,7 +277,7 @@ func TestCouncilMaxRoundsStops(t *testing.T) {
 		{Round: 3, Decision: council.Continue, Feedback: "step three"},
 		{Round: 4, Decision: council.Continue, Feedback: "step four"},
 	}}
-	a, wd := newApp(t, workingLLM(), Config{Council: fc, CouncilMaxRounds: 2})
+	a, wd := newApp(t, workingLLM(textStep("try one"), textStep("try two"), textStep("try three")), Config{Council: fc, CouncilMaxRounds: 2})
 	evs := submitAndDrain(t, a, wd)
 	if got := countType(evs, event.TypeCouncilConvened); got != 2 {
 		t.Fatalf("council.convened = %d, want 2 (max rounds)", got)
@@ -296,13 +298,38 @@ func TestCouncilMaxRoundsStops(t *testing.T) {
 	}
 }
 
+// An agent that resubmits its rejected answer verbatim without running a single
+// tool gets NO second deliberation: the round would re-judge identical evidence
+// and print the same (often long) answer twice. One convene, then a skip note.
+func TestCouncilSkipsRedeliberationOnUnchangedResubmission(t *testing.T) {
+	fc := &fakeCouncil{delibs: []council.Deliberation{
+		{Round: 1, Decision: council.Continue, Feedback: "do more"},
+		{Round: 2, Decision: council.Continue, Feedback: "even more"},
+	}}
+	// workingLLM's fallback reply is the identical "done" text every round.
+	a, wd := newApp(t, workingLLM(), Config{Council: fc, CouncilMaxRounds: 5})
+	evs := submitAndDrain(t, a, wd)
+	if got := countType(evs, event.TypeCouncilConvened); got != 1 {
+		t.Fatalf("unchanged resubmission should not re-convene: convened=%d, want 1", got)
+	}
+	if !hasDecidedNote(evs, "resubmitted unchanged") {
+		t.Fatal("the skip should be recorded as a decided note")
+	}
+	if !hasDecidedNote(evs, "UNVERIFIED") {
+		t.Fatal("an unreviewed finish must read as UNVERIFIED")
+	}
+	if countType(evs, event.TypeTurnFinished) != 1 {
+		t.Fatal("turn should finish after the skip")
+	}
+}
+
 // Repeated feedback (no progress) stops the gate before max_rounds.
 func TestCouncilNoProgressStops(t *testing.T) {
 	fc := &fakeCouncil{delibs: []council.Deliberation{
 		{Round: 1, Decision: council.Continue, Feedback: "same thing"},
 		{Round: 2, Decision: council.Continue, Feedback: "same thing"},
 	}}
-	a, wd := newApp(t, workingLLM(), Config{Council: fc, CouncilMaxRounds: 5})
+	a, wd := newApp(t, workingLLM(textStep("attempt a"), textStep("attempt b"), textStep("attempt c")), Config{Council: fc, CouncilMaxRounds: 5})
 	evs := submitAndDrain(t, a, wd)
 	if got := countType(evs, event.TypeCouncilConvened); got != 2 {
 		t.Fatalf("council.convened = %d, want 2 (stopped on no progress)", got)

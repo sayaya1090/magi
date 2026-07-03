@@ -71,6 +71,7 @@ type runGuard struct {
 	// powers the no-progress nudge: unlike `blocked` (which needs an EXACT repeat), it rises
 	// even when the agent varies its commands, catching a stall that changes nothing.
 	sinceProgress int
+	calls         int  // total tool calls this run (idle-resubmission detection)
 	nudgedBlocked bool // "blocked"-kind re-grounding fired (once; stuck() force-stops if it persists)
 	stallNudges   int  // count of "stalled"-kind re-groundings fired this run (capped at maxStallNudges)
 	lastStallAt   int  // sinceProgress value at the last stalled nudge, for spacing the re-arm
@@ -200,6 +201,7 @@ func (g *runGuard) check(name string, args json.RawMessage) (block bool, n int, 
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	fp = name + "\x00" + strconv.Itoa(g.epoch) + "\x00" + canonicalArgs(args)
+	g.calls++
 	g.sinceProgress++ // reset only by a real mutation (mutated); rises across varied calls
 	g.seen[fp]++
 	n = g.seen[fp]
@@ -357,6 +359,13 @@ func (g *runGuard) stuck() string {
 		return "stall"
 	}
 	return ""
+}
+
+// callCount returns the total tool calls recorded this run.
+func (g *runGuard) callCount() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.calls
 }
 
 // shouldNudge reports whether the run has stalled enough to warrant a corrective
@@ -525,6 +534,8 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	guard := newRunGuard()
 	councilRounds := 0        // consensus termination gate rounds this turn (D14)
 	lastCouncilFeedback := "" // last round's feedback (no-progress detection)
+	prevFinishText := ""      // the answer the council rejected last round
+	prevFinishCalls := -1     // guard.callCount() at that rejection (-1 = none yet)
 	turnTask := ""            // the user instruction THIS turn answers, snapshotted at
 	// step 0 — so a steer that lands during the council gate can't hijack what the
 	// council judges against (that interjection gets its own follow-up turn instead).
@@ -895,7 +906,18 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 				if p, snip := guard.scanFabrication(); p != "" {
 					fab = p + ": " + snip
 				}
-				if a.runCouncilGate(ctx, s, agent, turnTask, lastText, &councilRounds, &lastCouncilFeedback, buildCouncilChanges(guard.changeSet()), maxSteps-step, fab) {
+				// Idle resubmission short-circuit: the council rejected this answer,
+				// and the agent came back having run NO tool and changed (almost)
+				// nothing — re-deliberating the same evidence can only burn a round
+				// and print the same answer twice. Finish instead, marked plainly.
+				if prevFinishCalls >= 0 && guard.callCount() == prevFinishCalls && normEq(lastText, prevFinishText) {
+					dd, _ := json.Marshal(event.CouncilDecidedData{
+						Round: councilRounds + 1, Decision: string(council.Done),
+						Note: "answer resubmitted unchanged after council feedback — finishing without re-deliberation; treat as UNVERIFIED",
+					})
+					a.appendFact(ctx, sid, event.TypeCouncilDecided, event.Actor{Kind: event.ActorSystem, ID: "council"}, dd)
+				} else if a.runCouncilGate(ctx, s, agent, turnTask, lastText, &councilRounds, &lastCouncilFeedback, buildCouncilChanges(guard.changeSet()), maxSteps-step, fab) {
+					prevFinishText, prevFinishCalls = lastText, guard.callCount()
 					continue
 				}
 			}
@@ -1090,6 +1112,12 @@ func turnToolEvidence(evs []event.Event, k int) string {
 		lines = lines[len(lines)-k:]
 	}
 	return "- " + strings.Join(lines, "\n- ")
+}
+
+// normEq reports whether two answers are the same modulo whitespace — the
+// cheap, deterministic notion of "the agent resubmitted its rejected answer".
+func normEq(a, b string) bool {
+	return strings.Join(strings.Fields(a), " ") == strings.Join(strings.Fields(b), " ")
 }
 
 // clipLine returns at most n bytes of s (rune-safe) with an ellipsis, keeping a single
