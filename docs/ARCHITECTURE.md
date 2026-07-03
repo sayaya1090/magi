@@ -169,17 +169,24 @@ in `loop.go` calls into them each step):
 - **pre-finish verification**: when a turn that changed files (write/edit OR a bash
   write) tries to finish (`depth==0`), it verifies once — before the council runs. By
   default (`Config.ReviewGate`, on; `[orchestration] review_gate=false` to disable) this is
-  **delegated** to two independent read-only subagents (`app/review_gate.go`): `tester`
-  (actually runs the build/tests and reports the real PASS/FAIL) and `reviewer` (reads the
-  changed files for spec violations), dispatched in parallel, whose combined findings are
+  **delegated** to independent read-only subagents (`app/review_gate.go`) dispatched in
+  parallel: one holistic `tester` (actually runs the build/tests and reports the real
+  PASS/FAIL — one run covers the whole change, so splitting it would only lose integration
+  signal) plus one `reviewer` per changed *area* (the turn's changed files grouped by
+  directory into slices of ≤5, so a large change fans out over several reviewers instead of
+  one shallow pass, mirroring the planner's explorer fan-out). Their combined findings are
   injected as a system prompt so the agent fixes any real problem before finishing — a
   failed or unrun check reads as UNFINISHED, never a pass. Fresh-context reviewers catch
-  what the implementer's own confirmation bias waves through (both are inspection-only, so
-  auto-dispatch is safe). With the gate off (or the `tester`/`reviewer` agents absent) it
-  falls back to a two-pass self-verification nudge (coverage, then correctness) telling the
-  agent to re-read the task and confirm its ACTUAL output matches. Fires once per run either
-  way. Explicitly-requested synthetic content is allowed but must be LABELED fictional in
-  the final report.
+  what the implementer's own confirmation bias waves through (all are inspection-only, so
+  auto-dispatch is safe). The gate **re-arms**: after a council rejection whose FIX lands new
+  mutations, it fires again to independently re-verify the fix — but only on genuinely new
+  work (a pure re-confirm with no edits won't re-spawn), and only while a per-run budget of
+  `reviewSpawnBudget` (8) review subagents lasts, so a repeatedly-rejecting council can't
+  spawn reviewers without end. With the gate off (or the `tester`/`reviewer` agents absent)
+  it falls back to a two-pass self-verification nudge (coverage, then correctness) telling
+  the agent to re-read the task and confirm its ACTUAL output matches — that fallback fires
+  once per run. Explicitly-requested synthetic content is allowed but must be LABELED
+  fictional in the final report.
 - **fabrication defense (4 layers, shared `core/selfcheck` markers)**: the pre-finish gate
   scans the agent's own writes AND bash-written content for self-admitted stand-ins
   ("in a real implementation…") and refuses to finish — once as a redirect, a second time
