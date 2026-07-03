@@ -178,23 +178,41 @@ in `loop.go` calls into them each step):
   injected as a system prompt so the agent fixes any real problem before finishing — a
   failed or unrun check reads as UNFINISHED, never a pass. Fresh-context reviewers catch
   what the implementer's own confirmation bias waves through (all are inspection-only, so
-  auto-dispatch is safe). The gate **re-arms**: after a council rejection whose FIX lands new
-  mutations, it fires again to independently re-verify the fix — but only on genuinely new
-  work (a pure re-confirm with no edits won't re-spawn), and only while a per-run budget of
-  `reviewSpawnBudget` (8) review subagents lasts, so a repeatedly-rejecting council can't
-  spawn reviewers without end. With the gate off (or the `tester`/`reviewer` agents absent)
-  it falls back to a two-pass self-verification nudge (coverage, then correctness) telling
-  the agent to re-read the task and confirm its ACTUAL output matches — that fallback fires
-  once per run. Explicitly-requested synthetic content is allowed but must be LABELED
-  fictional in the final report.
-- **fabrication defense (4 layers, shared `core/selfcheck` markers)**: the pre-finish gate
-  scans the agent's own writes AND bash-written content for self-admitted stand-ins
-  ("in a real implementation…") and refuses to finish — once as a redirect, a second time
-  as an ultimatum (delete the fake or report UNFINISHED), then stands aside; the subagent
-  take-report gate refuses a fabricated "done" report once; the report tool refuses a
-  "done" whose own text confesses; and a still-present confession is fed to the council as
-  a deterministic `self-check: fabrication` signal. Test doubles are exempt
-  (`selfcheck.TestArtifactPath`): a mock saying "this simulates…" is not a confession.
+  auto-dispatch is safe).
+- **fresh-evidence completion gate (the behavioral, language-agnostic authority)**: the
+  `tester` ends its report with a mandated `VERDICT: PASS|FAIL|BLOCKED` line
+  (`parseTesterVerdict`) — its reasoning may be in any language, but the machine-checked
+  outcome is one of three protocol tokens, and a missing/unrecognized verdict is treated as
+  BLOCKED (an unverified result never reads as a pass). A deliverable-producing turn may
+  only finish once the tester returned PASS for the **current deliverable version**, where
+  "version" is `guard.mutationEpoch()` (bumped by edit/write AND bash file-writes). Any
+  later change bumps the epoch, making a prior PASS stale and forcing re-verification — so
+  "verified" means "verified THIS code, actually run", not the agent asserting success in
+  prose. A FAIL/BLOCKED (or an epoch never PASSed) blocks the verified-finish path; the gate
+  **re-arms** on each genuinely new mutation (a pure re-confirm with no edits won't re-spawn)
+  while a per-run budget of `reviewSpawnBudget` (8) review subagents lasts, after which the
+  council alone is the bounded backstop (no unbounded re-verify loop). With the gate off (or
+  the `tester`/`reviewer` agents absent — e.g. a bare bench profile) it degrades gracefully
+  to a two-pass self-verification nudge (coverage, then correctness) that fires once per run,
+  rather than hard-blocking a weak model into a deadlock. Explicitly-requested synthetic
+  content is allowed but must be LABELED fictional in the final report.
+- **churn graceful-finish**: when the loop guard force-stops a spinning turn (`guard.stuck()`
+  repeat/stall), the outcome depends on whether the run produced a deliverable. Epoch > 0
+  (real output already written, now only re-confirming) → finish cleanly (`turn.finished`,
+  exit 0) with the work as-is, so a completed task is not misreported as an agent-level
+  failure. Epoch 0 (pure thrash, nothing produced) → keep the `loop_guard`/`stall_guard`
+  error abort so the failure stays visible.
+- **fabrication defense — behavioral first, phrase scan as a cheap pre-flag**: the
+  language-agnostic authority is the fresh-evidence gate above (the tester actually runs the
+  build/tests, in any language). Layered on top, a best-effort **English-only** phrase scan
+  over the agent's own writes AND bash-written content flags self-admitted stand-ins
+  ("in a real implementation…", `core/selfcheck.FabricationMarkers`) — it feeds the council
+  as a deterministic `self-check: fabrication` signal and drives an early redirect nudge, and
+  the report tool refuses a "done" report whose own text confesses. This scan is NOT the
+  authority and is deliberately not grown: a confession in another language or a confident
+  false "verified" claim slips past it, and is caught instead when the top-level tester runs
+  the merged deliverable and it fails. Test doubles are exempt (`selfcheck.TestArtifactPath`):
+  a mock saying "this simulates…" is not a confession.
 - **no retry storm**: a terminal provider error ends the turn; `startRun` does NOT
   re-run a failed turn (only re-runs to pick up a user *steer*).
 - **language lock** (`langDirective`): the user's script (Hangul/Kana/…) is detected
