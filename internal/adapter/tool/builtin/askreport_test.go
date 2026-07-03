@@ -49,28 +49,8 @@ func TestReportExecute(t *testing.T) {
 		t.Errorf("empty status should default to done, got %q", gotStatus)
 	}
 }
-
-// A "done" report whose text confesses the work is a stand-in is refused inline and never
-// filed; the same admission under "failed" is honest and passes through.
-func TestReportRefusesFabricatedDone(t *testing.T) {
-	ctx := context.Background()
-	filed := false
-	env := port.ToolEnv{Report: func(summary, status, details string) error { filed = true; return nil }}
-
-	r, _ := (Report{}).Execute(ctx, json.RawMessage(`{"status":"done","details":"In a real implementation this would run the program."}`), env)
-	if !r.IsError {
-		t.Error("fabricated done report should be refused")
-	}
-	if filed {
-		t.Error("fabricated done report must not be filed via env.Report")
-	}
-	if !strings.Contains(resultText(t, r), "stand-in") {
-		t.Errorf("refusal should explain the problem, got %q", resultText(t, r))
-	}
-
-	// Honest failure carrying the same phrase is allowed through.
-	filed = false
-	if r, _ := (Report{}).Execute(ctx, json.RawMessage(`{"status":"failed","summary":"in a real implementation this would run"}`), env); r.IsError || !filed {
-		t.Errorf("failed report should pass through (err=%v filed=%v)", r.IsError, filed)
-	}
-}
+// A fabricated "done" is no longer caught by scanning the report's prose for English
+// confession phrases (that missed other languages and non-confessing fakes). The report tool
+// files any well-formed status; the behavioral catch lives in the loop's take-report branch
+// (runGuard.unverifiedDeliverable) and the parent's review-gate tester — see report.go and
+// internal/app.TestSubagentFabricatedDoneRefused.

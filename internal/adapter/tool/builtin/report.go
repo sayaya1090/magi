@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/sayaya1090/magi/internal/core/selfcheck"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
@@ -50,26 +49,13 @@ func (Report) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv
 	default:
 		status = "done" // normalize anything unexpected to done
 	}
-	// A "done" report whose own text admits the work is a stand-in is not done. Refuse it
-	// inline so the subagent gets immediate feedback and its turn continues, rather than
-	// filing a fabricated result the orchestrator would take at face value. This scans the
-	// report narrative; the loop separately scans the files the subagent wrote (both share
-	// internal/core/selfcheck). "blocked"/"failed" are honest outcomes and pass through.
-	//
-	// This phrase scan is a best-effort, English-only pre-flag, NOT the authority (see the
-	// SCOPE note on selfcheck.FabricationMarkers): a confession in another language or a
-	// paraphrase passes through here. The behavioral backstop is at the top level — when the
-	// PARENT turn finishes, the review gate's tester actually runs the merged deliverable and
-	// the fresh-evidence gate (internal/app/loop.go) blocks completion on a real FAIL — so a
-	// subagent's fabricated "done" that slips past this scan is still caught by real execution.
-	if status == "done" {
-		if _, line := selfcheck.FabricationMarker(a.Summary + "\n" + a.Details); line != "" {
-			return errResult("", "This report says done, but your summary/details admit the work is a stand-in — "+
-				"matched: \""+line+"\". A simulated or placeholder result is not a completed task. Do the real work "+
-				"and report the genuine result, or use status \"failed\" and say what stopped you — do not report "+
-				"fabricated work as done."), nil
-		}
-	}
+	// A subagent's fabricated "done" is caught behaviorally, not by scanning this narrative for
+	// English confession phrases (which missed other languages and non-confessing fakes). The
+	// report tool has no execution context, so the check lives where the tool log does: the
+	// loop's take-report branch refuses a "done" report whose deliverable was changed but never
+	// exercised (internal/app.runGuard.unverifiedDeliverable), and when the PARENT turn finishes
+	// the review-gate tester runs the merged deliverable for real. Both are language-agnostic;
+	// "blocked"/"failed" remain honest outcomes that always pass through.
 	if err := env.Report(a.Summary, status, a.Details); err != nil {
 		return errResult("", err.Error()), nil
 	}
