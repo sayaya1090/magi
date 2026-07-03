@@ -318,8 +318,9 @@ func run() int {
 	// Multi-agent: register the task tool and a default set of subagents (D9 —
 	// the bundled orchestration policy; replaceable later by a plugin).
 	reg.Register(builtin.Task{})
-	reg.Register(builtin.Ask{})    // subagent → orchestrator escalation (input)
-	reg.Register(builtin.Report{}) // subagent → orchestrator final result (output)
+	reg.Register(builtin.Ask{})     // subagent → orchestrator escalation (input)
+	reg.Register(builtin.Report{})  // subagent → orchestrator final result (output)
+	reg.Register(builtin.AskUser{}) // top-level: multiple-choice question to the human user
 	agents := defaultAgents()
 	applyAgentModels(agents, cfg.Routing, cfg.LLM.Profiles) // per-agent model + endpoint routing (M6)
 

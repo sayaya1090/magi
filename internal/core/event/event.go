@@ -43,6 +43,7 @@ const (
 	TypeToolStarted         Type = "tool.started"
 	TypeToolProgress        Type = "tool.progress"
 	TypePermissionRequested Type = "permission.requested"
+	TypeQuestionRequested   Type = "question.requested" // agent asks the USER a multiple-choice question
 	TypeAgentSpawned        Type = "agent.spawned"
 	TypeAgentStatus         Type = "agent.status"
 	TypeContextUsage        Type = "context.usage"
@@ -56,6 +57,7 @@ var transientTypes = map[Type]bool{
 	TypeToolStarted:         true,
 	TypeToolProgress:        true,
 	TypePermissionRequested: true,
+	TypeQuestionRequested:   true,
 	TypeAgentSpawned:        true,
 	TypeAgentStatus:         true,
 	TypeContextUsage:        true,

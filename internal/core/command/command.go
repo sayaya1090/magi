@@ -38,6 +38,15 @@ type RespondPermission struct {
 	Actor     event.Actor       `json:"actor"`
 }
 
+// RespondQuestion answers a pending ask_user question (one option's text, or
+// "" when the user dismissed the modal).
+type RespondQuestion struct {
+	SessionID session.SessionID `json:"sessionId"`
+	CallID    string            `json:"callId"`
+	Answer    string            `json:"answer"`
+	Actor     event.Actor       `json:"actor"`
+}
+
 // Compact triggers context compaction for a session.
 type Compact struct {
 	SessionID session.SessionID `json:"sessionId"`

@@ -79,6 +79,14 @@ func waitEvent(ch <-chan event.Event, sid session.SessionID, id int) tea.Cmd {
 }
 
 // permReq is a pending permission request shown as a modal.
+// questReq is a pending ask_user question shown as a selection modal.
+type questReq struct {
+	callID   string
+	question string
+	options  []string
+	sel      int
+}
+
 type permReq struct {
 	callID string
 	name   string
@@ -132,12 +140,13 @@ type Model struct {
 	lastThoughtAt   time.Time // last thought-toggle click time (to swallow a double-click's 2nd toggle)
 	lastThoughtLine int       // content line of that last thought click
 	perm            *permReq
-	searching       bool    // transcript search bar open (keys captured)
-	searchQuery     string  // live query; matches highlighted while the bar is open
-	searchHits      []int   // content-line indexes containing the query
-	searchCur       int     // index into searchHits of the current match
-	ctxPct          float64 // context window usage %
-	plannerMode     string  // last planner decision (solo | parallel N) shown in the header
+	quest           *questReq // pending ask_user question modal (nil = none)
+	searching       bool      // transcript search bar open (keys captured)
+	searchQuery     string    // live query; matches highlighted while the bar is open
+	searchHits      []int     // content-line indexes containing the query
+	searchCur       int       // index into searchHits of the current match
+	ctxPct          float64   // context window usage %
+	plannerMode     string    // last planner decision (solo | parallel N) shown in the header
 
 	turnStart     time.Time       // wall-clock start of the current turn (§8.1 elapsed)
 	turnSteps     int             // tool calls this turn (the step budget actually spent)
@@ -791,6 +800,34 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		m.selActive = false
 		m.refresh()
 	}
+	// Question modal (ask_user): ↑/↓ or 1-9 select, enter answers, esc dismisses.
+	if m.quest != nil {
+		q := m.quest
+		switch key := msg.String(); key {
+		case "up", "k":
+			if q.sel > 0 {
+				q.sel--
+			}
+		case "down", "j":
+			if q.sel < len(q.options)-1 {
+				q.sel++
+			}
+		case "enter":
+			return m.answerQuestion(q.options[q.sel]), true
+		case "esc":
+			return m.answerQuestion(""), true
+		default:
+			if len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
+				if i := int(key[0] - '1'); i < len(q.options) {
+					q.sel = i
+					return m.answerQuestion(q.options[i]), true
+				}
+			}
+		}
+		m.refresh()
+		return nil, true
+	}
+
 	// Permission modal takes priority.
 	if m.perm != nil {
 		switch msg.String() {
@@ -2141,6 +2178,22 @@ const ultraPreamble = "You are operating in ULTRA WORK MODE as an orchestrator. 
 	"5. Have the reviewer subagent check the result.\n" +
 	"6. Keep todo statuses updated and finish with a concise summary of what changed and how it was verified."
 
+// answerQuestion resolves the open ask_user modal with the picked option ("" =
+// dismissed) and hands it to the blocked tool execution.
+func (m *Model) answerQuestion(answer string) tea.Cmd {
+	q := m.quest
+	m.quest = nil
+	sid := m.sid
+	m.refresh()
+	return func() tea.Msg {
+		_ = m.app.RespondQuestion(m.ctx, command.RespondQuestion{
+			SessionID: sid, CallID: q.callID, Answer: answer,
+			Actor: event.Actor{Kind: event.ActorUser, ID: "tui"},
+		})
+		return nil
+	}
+}
+
 func (m *Model) respond(decision string) tea.Cmd {
 	p := m.perm
 	m.perm = nil
@@ -2240,6 +2293,12 @@ func (m *Model) applyEvent(e event.Event) {
 		var d event.PermissionRequestedData
 		if json.Unmarshal(e.Data, &d) == nil {
 			m.perm = &permReq{callID: d.CallID, name: d.Name, args: string(d.Args), reason: d.Reason}
+		}
+
+	case event.TypeQuestionRequested:
+		var d event.QuestionRequestedData
+		if json.Unmarshal(e.Data, &d) == nil {
+			m.quest = &questReq{callID: d.CallID, question: d.Question, options: d.Options}
 		}
 
 	case event.TypeContextUsage:
@@ -2982,6 +3041,10 @@ func (m Model) View() tea.View {
 		pv := m.permView()
 		parts = append(parts, pv)
 		aboveInput += lipgloss.Height(pv)
+	} else if m.quest != nil {
+		pv := m.questView()
+		parts = append(parts, pv)
+		aboveInput += lipgloss.Height(pv)
 	}
 	parts = append(parts, input)
 	parts = append(parts, status)
@@ -3137,6 +3200,25 @@ func colorizeChanges(changes string) string {
 		}
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// questView renders the ask_user selection modal: the question plus numbered
+// options, the current pick highlighted.
+func (m *Model) questView() string {
+	q := m.quest
+	var b strings.Builder
+	b.WriteString(stylePermTitle.Render("question") + "  " +
+		styleFooter.Render("↑/↓ or 1-9 select · enter answer · esc dismiss") + "\n")
+	b.WriteString(q.question + "\n")
+	for i, opt := range q.options {
+		line := fmt.Sprintf("%d. %s", i+1, opt)
+		if i == q.sel {
+			b.WriteString(stylePalSelRow.Render("› "+line) + "\n")
+		} else {
+			b.WriteString("  " + styleToolResult.Render(line) + "\n")
+		}
+	}
+	return stylePermBox.Width(m.width - 4).Render(strings.TrimRight(b.String(), "\n"))
 }
 
 func (m *Model) permView() string {

@@ -1584,6 +1584,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		// subagents delegate synchronously (they have no UI thread to keep free).
 		Dispatch: dispatchFn,
 		Ask:      askFn,
+		AskUser:  a.askUserFn(ctx, s, depth, tc),
 		Report:   reportFn,
 		SetTodos: func(td []session.Todo) { a.putTodos(ctx, sid, actor, td) },
 		Propose: func(c port.Contribution) error {
@@ -1665,6 +1666,43 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	a.appendPart(ctx, sid, actor, toolMsgID, session.RoleTool, session.Part{
 		ID: "p_" + newID(), Kind: session.PartToolResult, ToolResult: &res,
 	})
+}
+
+// askUserFn builds the ToolEnv.AskUser closure for one tool call: it publishes
+// a question.requested transient and blocks for the user's pick, one question
+// at a time (the seq counter keys each question's channel under the call id).
+// Only a top-level interactive session has a human to ask — everywhere else it
+// returns nil so the ask_user tool degrades to "decide for yourself".
+func (a *App) askUserFn(ctx context.Context, s session.Session, depth int, tc *session.ToolCall) func(string, []string) (string, error) {
+	if depth != 0 || !a.cfg.Interactive {
+		return nil
+	}
+	sid := s.ID
+	seq := 0
+	return func(question string, options []string) (string, error) {
+		seq++
+		qid := fmt.Sprintf("%s#%d", tc.CallID, seq)
+		ch := make(chan string, 1)
+		a.mu.Lock()
+		if a.questions[sid] == nil {
+			a.questions[sid] = map[string]chan string{}
+		}
+		a.questions[sid][qid] = ch
+		a.mu.Unlock()
+		defer func() {
+			a.mu.Lock()
+			delete(a.questions[sid], qid)
+			a.mu.Unlock()
+		}()
+		qd, _ := json.Marshal(event.QuestionRequestedData{CallID: qid, Question: question, Options: options, Index: seq})
+		a.publishTransient(sid, event.TypeQuestionRequested, event.Actor{Kind: event.ActorSystem, ID: "loop"}, qd)
+		select {
+		case ans := <-ch:
+			return ans, nil
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
 }
 
 // requestPermission applies the permission policy, blocking for an interactive
@@ -1774,6 +1812,12 @@ func (a *App) toolSpecs(agent AgentSpec, isSub bool) []port.ToolSpec {
 			}
 		case "task":
 			if isSub {
+				continue
+			}
+		case "ask_user":
+			// Only the top-level interactive session has a human to ask; a
+			// subagent escalates via ask, headless has no one to block on.
+			if isSub || !a.cfg.Interactive {
 				continue
 			}
 		}

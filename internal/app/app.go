@@ -327,13 +327,14 @@ type App struct {
 	cfg              Config
 	contextProviders []port.ContextProvider // RAG-like context injectors
 
-	mu       sync.Mutex
-	wg       sync.WaitGroup                               // tracks run + dispatch goroutines for graceful Close
-	closed   bool                                         // set by Close: no new run/dispatch goroutines (no Add after Wait)
-	cancels  map[session.SessionID]context.CancelFunc     // in-flight runs (Interrupt)
-	perms    map[session.SessionID]map[string]chan string // pending permission decisions
-	grants   map[session.SessionID]map[string]bool        // "always" grants per tool
-	sessions map[session.SessionID]session.Session        // session metadata cache
+	mu        sync.Mutex
+	wg        sync.WaitGroup                               // tracks run + dispatch goroutines for graceful Close
+	closed    bool                                         // set by Close: no new run/dispatch goroutines (no Add after Wait)
+	cancels   map[session.SessionID]context.CancelFunc     // in-flight runs (Interrupt)
+	perms     map[session.SessionID]map[string]chan string // pending permission decisions
+	questions map[session.SessionID]map[string]chan string // pending ask_user picks by call id
+	grants    map[session.SessionID]map[string]bool        // "always" grants per tool
+	sessions  map[session.SessionID]session.Session        // session metadata cache
 
 	sem        chan struct{} // concurrency limiter for subagents (D7)
 	spawnCount atomic.Int64  // cumulative subagents spawned (runaway backstop)
@@ -374,6 +375,7 @@ func New(store port.Store, llm port.LLMProvider, tools port.ToolRegistry, b *bus
 		cfg:                   c,
 		cancels:               map[session.SessionID]context.CancelFunc{},
 		perms:                 map[session.SessionID]map[string]chan string{},
+		questions:             map[session.SessionID]map[string]chan string{},
 		grants:                map[session.SessionID]map[string]bool{},
 		sessions:              map[session.SessionID]session.Session{},
 		sem:                   make(chan struct{}, c.Concurrency),
@@ -1110,6 +1112,21 @@ func (a *App) Interrupt(ctx context.Context, c command.Interrupt) error {
 	a.mu.Unlock()
 	if cancel != nil {
 		cancel()
+	}
+	return nil
+}
+
+// RespondQuestion delivers the user's pick to a waiting ask_user execution.
+func (a *App) RespondQuestion(ctx context.Context, c command.RespondQuestion) error {
+	a.mu.Lock()
+	ch := a.questions[c.SessionID][c.CallID]
+	a.mu.Unlock()
+	if ch == nil {
+		return fmt.Errorf("no pending question for call %s", c.CallID)
+	}
+	select {
+	case ch <- c.Answer:
+	default:
 	}
 	return nil
 }

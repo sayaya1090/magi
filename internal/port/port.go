@@ -172,6 +172,10 @@ type ToolEnv struct {
 	// mid-task (escalation); it blocks until the orchestrator replies. Set only
 	// for subagents; nil for the top-level agent.
 	Ask func(question string) (string, error)
+	// AskUser presents a multiple-choice question to the HUMAN user and blocks
+	// for the pick (top-level interactive sessions only; nil otherwise — the
+	// tool then tells the model to proceed on its own judgment).
+	AskUser func(question string, options []string) (string, error)
 	// Report is how a subagent delivers its FINAL result and ends its turn:
 	// status is "done" | "blocked" | "failed". Set only for subagents. Returns an
 	// error if called by a non-subagent or after a report was already filed.

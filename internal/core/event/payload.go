@@ -180,6 +180,17 @@ type PermissionRequestedData struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+// QuestionRequestedData — TypeQuestionRequested: the agent asks the USER to pick
+// among options (the ask_user tool). Index/Total sequence a multi-question call
+// (questions are presented one modal at a time, in order).
+type QuestionRequestedData struct {
+	CallID   string   `json:"callId"`
+	Question string   `json:"question"`
+	Options  []string `json:"options,omitempty"`
+	Index    int      `json:"index"` // 1-based position within the call
+	Total    int      `json:"total"`
+}
+
 // AgentStatusData — TypeAgentSpawned / TypeAgentStatus (multi-agent live view).
 type AgentStatusData struct {
 	AgentID string `json:"agentId"`
