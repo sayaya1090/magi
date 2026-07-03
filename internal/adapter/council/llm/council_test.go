@@ -93,6 +93,12 @@ func TestMemberPromptRationalizedDone(t *testing.T) {
 	if !strings.Contains(s, "failed/blocked") {
 		t.Error("rationalized-done clause missing the honest failed/blocked exit")
 	}
+	// Checkable behavior demands a real run: existence of the artifact is not enough
+	// (reval3: password-recovery/create-bucket/new-encrypt-command all passed council
+	// 3:0 on unexercised artifacts, then failed the task tests).
+	if !strings.Contains(s, "Existence is not correctness") {
+		t.Error("terminate prompt missing the verification-run clause")
+	}
 	// Plan phase judges a procedure before any report exists — the clause must not leak.
 	if p := memberSystem(m, "plan", "beat the game"); strings.Contains(p, "RATIONALIZES incompletion") {
 		t.Error("rationalized-done clause leaked into the plan-audit prompt")

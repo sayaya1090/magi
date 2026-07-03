@@ -172,6 +172,11 @@ func memberSystem(m council.Member, phase, task string) string {
 			"it, a placeholder, a wrong field, or the right shape with the wrong value — is a concrete defect: vote "+
 			"continue and name the mismatch in feedback. Re-read the task wording literally; the agent's own paraphrase "+
 			"of what it did is a claim, never proof the content is right.\n"+
+			"Existence is not correctness: when the task implies a CHECKABLE behavior — a password that must unlock "+
+			"something, a service that must respond, a command that must produce a required output, a build that must "+
+			"compile — \"done\" requires that the turn actually RAN that check and its REAL output is visible in the "+
+			"SIGNALS, tool results, or report. An artifact that was produced but never exercised is unverified: vote "+
+			"continue and name the exact check to run. Unanimous confidence is not a substitute for one real run.\n"+
 			"A report that RATIONALIZES incompletion is NOT done. If the report's own words say a required part was "+
 			"impossible, skipped, never actually run, only inferred from documentation or reasoning, or \"needed no "+
 			"work\" without shown verification, that is an ADMISSION the deliverable was not produced or confirmed — "+
