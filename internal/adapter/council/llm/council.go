@@ -172,6 +172,13 @@ func memberSystem(m council.Member, phase, task string) string {
 			"it, a placeholder, a wrong field, or the right shape with the wrong value — is a concrete defect: vote "+
 			"continue and name the mismatch in feedback. Re-read the task wording literally; the agent's own paraphrase "+
 			"of what it did is a claim, never proof the content is right.\n"+
+			"A report that RATIONALIZES incompletion is NOT done. If the report's own words say a required part was "+
+			"impossible, skipped, never actually run, only inferred from documentation or reasoning, or \"needed no "+
+			"work\" without shown verification, that is an ADMISSION the deliverable was not produced or confirmed — "+
+			"no matter how reasonable the excuse or how confident the framing (\"this constitutes full completion\", "+
+			"\"honest acknowledgment of limitations\", \"nothing to fix\"). An eloquent justification never converts "+
+			"unfinished work into done: vote continue, and in feedback tell the agent to either actually perform and "+
+			"verify that part, or finish honestly by reporting the task as failed/blocked instead of done.\n"+
 			"- \"continue\": ONLY when you can name a SPECIFIC, REAL defect through your lens — a FAILING signal, a part of "+
 			"the task/plan the report itself shows is unmet, or a concrete error in the work. Put the next step in "+
 			"`feedback`. A missing diff or signal is NOT a defect.\n"+

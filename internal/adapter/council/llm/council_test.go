@@ -77,6 +77,28 @@ func TestEvidenceBudgetNote(t *testing.T) {
 	}
 }
 
+// A report that rationalizes incompletion ("impossible, so this is full completion",
+// "nothing needed fixing") must be treated as an admission, not a done — the clause
+// that closes the reval3 play-zork / run-pdp11 / fasttext class of false approvals.
+func TestMemberPromptRationalizedDone(t *testing.T) {
+	m := council.Member{Name: "x", Lens: "verification"}
+	s := memberSystem(m, "terminate", "beat the game")
+	if !strings.Contains(s, "RATIONALIZES incompletion") {
+		t.Error("terminate prompt missing the rationalized-done clause")
+	}
+	if !strings.Contains(s, "ADMISSION") {
+		t.Error("rationalized-done clause must frame the excuse as an admission")
+	}
+	// The escape hatch must point at an honest failed/blocked report, not a lowered bar.
+	if !strings.Contains(s, "failed/blocked") {
+		t.Error("rationalized-done clause missing the honest failed/blocked exit")
+	}
+	// Plan phase judges a procedure before any report exists — the clause must not leak.
+	if p := memberSystem(m, "plan", "beat the game"); strings.Contains(p, "RATIONALIZES incompletion") {
+		t.Error("rationalized-done clause leaked into the plan-audit prompt")
+	}
+}
+
 func TestMemberPromptArtifactGrounding(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "completeness"}
 	s := memberSystem(m, "terminate", "build a CLI tool")
