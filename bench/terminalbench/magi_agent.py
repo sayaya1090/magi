@@ -53,6 +53,18 @@ class MagiAgent(AbstractInstalledAgent):
         self._binary_url = kwargs.get("binary_url") or os.environ.get(
             "MAGI_BENCH_BINARY_URL"
         )
+        # Network-free path: if binary_path names a host directory holding prebuilt
+        # magi-arm64/magi-amd64 (-k binary_path=/tmp/magi-serve), the binaries are
+        # docker-cp'd into the container and installed without any in-container
+        # network use. Some tasks sabotage network tooling from inside the container
+        # (cron-broken-network overwrites /usr/bin/curl on a 1s loop), which fails
+        # the binary_url download and scores agent_installation_failed before the
+        # agent runs a single step — the copy path is immune. Takes precedence over
+        # binary_url. Works identically under Podman: the copy rides the same
+        # docker-compatible put_archive API the install script already uses.
+        self._binary_path = kwargs.get("binary_path") or os.environ.get(
+            "MAGI_BENCH_BINARY_PATH"
+        )
 
     @property
     def _env(self) -> dict[str, str]:
@@ -66,14 +78,37 @@ class MagiAgent(AbstractInstalledAgent):
 
     @property
     def _install_agent_script_path(self) -> Path:
+        if self._binary_path:
+            return self._get_templated_script_path("magi-copy-setup.sh.j2")
         if self._binary_url:
             return self._get_templated_script_path("magi-local-setup.sh.j2")
         return self._get_templated_script_path("magi-setup.sh.j2")
 
     def _get_template_variables(self) -> dict[str, str]:
+        if self._binary_path:
+            return {}
         if self._binary_url:
             return {"binary_url": self._binary_url.rstrip("/")}
         return {"go_version": GO_VERSION, "ref": self._ref}
+
+    def perform_task(self, instruction, session, logging_dir=None):
+        # Pre-seed the prebuilt binaries next to the install script via docker cp
+        # (mkdir -p + put_archive — no in-container network, no curl/wget), so the
+        # copy-setup script only has to pick the arch and `install` it. Both arches
+        # are shipped when present; the script selects by `uname -m`.
+        if self._binary_path:
+            base = Path(self._binary_path)
+            binaries = [
+                base / f"magi-{suffix}"
+                for suffix in ("arm64", "amd64")
+                if (base / f"magi-{suffix}").is_file()
+            ]
+            if not binaries:
+                raise FileNotFoundError(
+                    f"binary_path {base} holds no magi-arm64/magi-amd64 binaries"
+                )
+            session.copy_to_container(binaries, container_dir="/installed-agent")
+        return super().perform_task(instruction, session, logging_dir)
 
     def _run_agent_commands(self, instruction: str) -> list[TerminalCommand]:
         return [

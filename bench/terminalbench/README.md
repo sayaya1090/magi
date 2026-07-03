@@ -98,6 +98,18 @@ tb run --agent-import-path bench.terminalbench.magi_agent:MagiAgent \
 whenever `binary_url` (or the `MAGI_BENCH_BINARY_URL` env var) is set; otherwise it
 builds from source, which needs no host-side server.
 
+### Network-free install (`binary_path`) — preferred
+
+The download path still runs `curl` *inside* the task container, and some tasks
+sabotage that from within (cron-broken-network rewrites `/usr/bin/curl` on a 1s
+loop), failing the install as `agent_installation_failed` before the agent runs a
+single step. Pass `-k binary_path=/tmp/magi-serve` (or `MAGI_BENCH_BINARY_PATH`)
+instead: the adapter docker-cp's the prebuilt `magi-arm64`/`magi-amd64` into the
+container and `magi-copy-setup.sh.j2` just `install`s the right arch — no
+in-container network use at all, and no `:8077` server to run. Works the same
+under Podman (the copy rides the docker-compatible `put_archive` API the install
+script already uses). Takes precedence over `binary_url`.
+
 ## Notes
 
 - Pin the dataset version (`terminal-bench-core==0.1.1`); the floating `head` build

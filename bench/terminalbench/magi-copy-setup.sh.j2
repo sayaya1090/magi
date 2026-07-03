@@ -1,0 +1,16 @@
+#!/bin/bash
+# Network-free install: the adapter has already docker-cp'd prebuilt magi-<arch>
+# binaries into /installed-agent (see MagiAgent.perform_task with binary_path).
+# Nothing here may touch the network or its tooling — some tasks sabotage them
+# from inside the container (cron-broken-network rewrites /usr/bin/curl every
+# second), and the agent must still install so it can be judged on the task.
+set -euo pipefail
+
+case "$(uname -m)" in
+  aarch64 | arm64) suffix=arm64 ;;
+  x86_64 | amd64) suffix=amd64 ;;
+  *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
+esac
+
+install -m 0755 "/installed-agent/magi-${suffix}" /usr/local/bin/magi
+magi --version
