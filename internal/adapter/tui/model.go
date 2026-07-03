@@ -138,12 +138,15 @@ type Model struct {
 	ctxPct          float64 // context window usage %
 	plannerMode     string  // last planner decision (solo | parallel N) shown in the header
 
-	turnStart     time.Time     // wall-clock start of the current turn (§8.1 elapsed)
-	turnDur       time.Duration // frozen elapsed of the last finished turn
-	turnIn        int           // current input/context tokens (↑)
-	turnOut       int           // cumulative output tokens this turn (↓)
-	councilRound  int           // current council round (0 = no council active); header chip
-	councilMember string        // member currently being polled (live); cleared when the turn ends
+	turnStart     time.Time       // wall-clock start of the current turn (§8.1 elapsed)
+	turnSteps     int             // tool calls this turn (the step budget actually spent)
+	turnFiles     map[string]bool // unique files touched by write/edit/multiedit this turn
+	turnCouncil   int             // highest council round decided this turn
+	turnDur       time.Duration   // frozen elapsed of the last finished turn
+	turnIn        int             // current input/context tokens (↑)
+	turnOut       int             // cumulative output tokens this turn (↓)
+	councilRound  int             // current council round (0 = no council active); header chip
+	councilMember string          // member currently being polled (live); cleared when the turn ends
 
 	cache  []string // rendered finalized blocks (keyed by cacheW)
 	cacheW int      // width the cache was rendered at
@@ -2015,6 +2018,7 @@ func (m *Model) sendPrompt(display, send string) tea.Cmd {
 	m.running = true
 	m.turnStart = time.Now() // §8.1: start the elapsed/token meter
 	m.turnIn, m.turnOut, m.turnDur = 0, 0, 0
+	m.turnSteps, m.turnCouncil, m.turnFiles = 0, 0, map[string]bool{}
 	m.refresh()
 	sid := m.sid
 	return tea.Batch(m.sp.Tick, func() tea.Msg {
@@ -2160,6 +2164,19 @@ func (m *Model) applyEvent(e event.Event) {
 		case session.PartToolCall:
 			if d.Part.ToolCall != nil {
 				m.liveText = ""
+				m.turnSteps++
+				switch d.Part.ToolCall.Name {
+				case "write", "edit", "multiedit":
+					var fa struct {
+						Path string `json:"path"`
+					}
+					if json.Unmarshal(d.Part.ToolCall.Args, &fa) == nil && fa.Path != "" {
+						if m.turnFiles == nil {
+							m.turnFiles = map[string]bool{}
+						}
+						m.turnFiles[fa.Path] = true
+					}
+				}
 				m.blocks = append(m.blocks, block{
 					kind: blockToolCall,
 					name: d.Part.ToolCall.Name,
@@ -2280,6 +2297,9 @@ func (m *Model) applyEvent(e event.Event) {
 		// runs again; "done" (or a noted forced finish) lets the turn end. Clear the
 		// chip: between rounds the agent is working, not deliberating, so the council
 		// indicator should show only during an open round (convened→decided).
+		if m.councilRound > m.turnCouncil {
+			m.turnCouncil = m.councilRound // remember the deepest round for the turn summary
+		}
 		m.councilRound = 0
 		m.councilMember = ""
 		var d event.CouncilDecidedData
@@ -2352,6 +2372,11 @@ func (m *Model) applyEvent(e event.Event) {
 			if fd.Usage.Out > 0 {
 				m.turnOut = fd.Usage.Out
 			}
+		}
+		// One-line turn receipt: what the turn actually cost, without scrolling
+		// back through the transcript (steps matter more now that the ceiling is 240).
+		if sum := m.turnSummary(); sum != "" {
+			m.blocks = append(m.blocks, block{kind: blockInfo, text: sum})
 		}
 
 	case event.TypeError:
@@ -3221,6 +3246,26 @@ func (m *Model) ctxMeter() string {
 		return ""
 	}
 	return fmt.Sprintf("   ctx %.0f%%", m.ctxPct)
+}
+
+// turnSummary renders the end-of-turn receipt line, e.g.
+// "▣ turn: 14 steps · 3 files · council r2 · 3m49s". Parts with nothing to say
+// are omitted; a pure conversational turn (no tools) renders nothing at all.
+func (m *Model) turnSummary() string {
+	if m.turnSteps == 0 {
+		return ""
+	}
+	parts := []string{fmt.Sprintf("%d steps", m.turnSteps)}
+	if n := len(m.turnFiles); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d file(s)", n))
+	}
+	if m.turnCouncil > 0 {
+		parts = append(parts, fmt.Sprintf("council r%d", m.turnCouncil))
+	}
+	if m.turnDur > 0 {
+		parts = append(parts, fmtDur(m.turnDur))
+	}
+	return "▣ turn: " + strings.Join(parts, " · ")
 }
 
 // turnMeter renders elapsed + token usage, e.g. "3m49s · ↑28.1k ↓10.4k". Token
