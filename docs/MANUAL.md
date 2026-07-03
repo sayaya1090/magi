@@ -173,7 +173,7 @@ Hook commands run in a shell and receive the `MAGI_TOOL`/`MAGI_PATH` environment
 | `/clear` | clear the screen |
 | `/quit` (=`/exit`) | exit |
 
-> **Re-hydratable compaction**: when context is auto-compacted (or via `/compact`), the older turns are summarized for the live window as usual — but the originals are never lost. The compacted region is indexed **fully deterministically (no extra model call)** into topic shards **by the file each turn touched**, each carrying a one-line brief = its **tool-action trail** (e.g. `read · edit×2 · bash`); the summary then carries a notice listing the recoverable topics with those briefs. The agent calls **`recall_context("<topic>")`** (a file path works well) to pull a topic's original messages back **verbatim** on demand, instead of being stuck with the lossy summary. Recalls are bounded (each topic once, a per-turn budget, size-capped output) so re-hydration can't reopen the window; topics are aggregated across multiple compactions so nothing becomes undiscoverable. Unlike mainstream agents (opencode/Codex/Claude Code, which summarize-and-forget), the shed detail stays addressable.
+> **Re-hydratable compaction**: when context is auto-compacted (or via `/compact`), the older turns are summarized for the live window as usual — but the originals are never lost. The compacted region is indexed **fully deterministically (no extra model call)** into topic shards **by the file each turn touched**, each carrying a one-line brief = its **tool-action trail** (e.g. `read · edit×2 · bash`); the summary then carries a notice listing the recoverable topics with those briefs. The agent calls **`recall_context("<topic>")`** (a file path works well) to pull a topic's original messages back **verbatim** on demand, instead of being stuck with the lossy summary. Recalls are bounded (each topic once, a per-turn budget, size-capped output) so re-hydration can't reopen the window; topics are aggregated across multiple compactions so nothing becomes undiscoverable. Unlike mainstream agents (opencode/Codex/Claude Code, which summarize-and-forget), the shed detail stays addressable. The pull is also **pushed**: each step, up to 3 compacted-away topics that lexically match the current task are surfaced as one-line hints ("possibly relevant earlier context — call recall_context"), so a model that never thinks to recall still gets pointed at what it lost.
 
 ### Keyboard shortcuts
 | Key | Action |
@@ -188,15 +188,18 @@ Hook commands run in a shell and receive the `MAGI_TOOL`/`MAGI_PATH` environment
 | mouse wheel | scroll the transcript (even while dragging) |
 | mouse drag | select text → copy to clipboard on release |
 | mouse click | focus a subagent panel |
+| Ctrl+F | search the transcript (type to narrow · enter/↓ next · ↑ prev · esc close) |
 | Ctrl+L | clear the screen |
 | Shift+Tab | switch permission mode |
 | Ctrl+C | exit |
 | mouse wheel | scroll · click a panel → focus (click again → zoom) |
 | permission modal: y/a/p/n | allow / always (session) / project (persists an allow rule to `.magi/config.toml`) / deny |
 
-Typing keys go only to the input box and scrolling happens only via the dedicated keys above — so typing body text (including spaces) doesn't scroll the screen. While you're scrolled up reading, streaming doesn't yank the view down (auto-follow only when at the bottom). A **scrollbar** on the transcript's right edge shows position and proportion when the content overflows (and in the council-detail / zoom takeovers too).
+Typing keys go only to the input box and scrolling happens only via the dedicated keys above — so typing body text (including spaces) doesn't scroll the screen. While you're scrolled up reading, streaming doesn't yank the view down (auto-follow only when at the bottom). When the transcript overflows, a **header chip** shows the scroll position (`⇅ 42% (120/300)`), plus `↓ new` when fresh output is streaming in below while you're scrolled up (End jumps back). There is no drawn scrollbar — the chip replaced it, which also removed the Windows ambiguous-width misalignment class entirely.
 
-**Ambiguous-width characters (mostly a Windows note):** the scrollbar can look ragged if the terminal draws East-Asian *ambiguous* glyphs (`· — → ★`, box-drawing, …) as two cells while the width table assumes one. At startup magi probes the terminal once and matches its measure automatically (Console-API cursor delta on Windows, a cursor-position query elsewhere), also switching the scrollbar to ASCII glyphs when it detects a wide terminal. If the probe can't run (e.g. redirected stdio) or guesses wrong, force it with `MAGI_AMBIGUOUS_WIDTH=wide` (or `narrow`); `MAGI_WIDTH_PROBE=0` disables the probe, and the standard `RUNEWIDTH_EASTASIAN=1` is also honored.
+Each working turn ends with a one-line receipt — `▣ turn: 14 steps · 3 file(s) · council r2 · 3m49s` — so a turn's cost is visible without scrolling back. When the agent needs YOU to decide between real alternatives, it can open a **selection modal** (the `ask_user` tool): ↑/↓ or 1-9 pick, enter answers, esc dismisses (the model is told you declined and proceeds on its own judgment). Multiple questions appear one modal at a time.
+
+**Ambiguous-width characters (mostly a Windows note):** at startup magi probes the terminal once and matches its cell-width measure automatically (Console-API cursor delta on Windows, a cursor-position query elsewhere). If the probe can't run (e.g. redirected stdio) or guesses wrong, force it with `MAGI_AMBIGUOUS_WIDTH=wide` (or `narrow`); `MAGI_WIDTH_PROBE=0` disables the probe, and the standard `RUNEWIDTH_EASTASIAN=1` is also honored.
 
 ### Mouse / text copy (no modes)
 Wheel scroll · drag select · click focus all work **without any mode switch** — because the app handles selection/copy itself. **Dragging highlights that range (character/cell granularity, partial-line selection allowed), and releasing copies it to the clipboard** (tries both the OS clipboard `pbcopy`/`wl-copy`/`xclip` and OSC52). Wheel scrolling during a drag works too (the selection is pinned to content position, so it persists across scrolling).
@@ -285,6 +288,7 @@ A collection of interaction behaviors under verification — organized so screen
 | `webfetch` | URL → text | ask |
 | `websearch` | web search (DuckDuckGo, or Brave/Tavily key) | ask |
 | `todowrite` | record a plan (checklist) | — |
+| `ask_user` | multiple-choice question to the USER (selection modal; top-level interactive only) | — |
 | `skill` | load a named skill's body | — |
 | `recall_context` | re-hydrate detail an earlier compaction shed (by topic; a file path works well) | — |
 | `remember` | contribute a lesson to shared memory | — |

@@ -129,17 +129,29 @@ Guards that make weak models safe (all in `loop.go`/`orchestrate.go`):
   blocked repeats → `loop_guard` stop (long before MaxSteps). A successful file write/edit
   with *changed* content bumps a mutation epoch that resets the counts, so re-running a test
   after an edit (real progress) isn't blocked; a blocked repeat echoes the earlier result.
-- **corrective re-grounding nudge**: before a force-stop, ONE re-grounding message (re-read
+- **corrective re-grounding nudge**: before a force-stop, a re-grounding message (re-read
   the task, change approach) is injected. It fires on either stall the guard can see —
-  `blocked` past `nudgeThreshold` (the *same* action repeated), OR `sinceProgress` past
-  `noProgressNudge` (many *varied* tool calls with no real mutation: the "productive-looking
-  non-progress" loop that never trips the repeat counter). `sinceProgress` counts tool calls
-  since the last mutation epoch; a real change resets it. At most once per run.
-- **pre-finish self-verification**: when a turn that changed files tries to finish
-  (`depth==0`, files in `changeSet`), one system nudge (once per turn) tells the agent to
-  re-read the task and confirm its ACTUAL output matches — read the file back / run it —
-  before the council (which reviews text but cannot execute) sees it. Targets the
-  "claimed done, output actually wrong" failure (placeholder, filename-vs-content, won't run).
+  `blocked` past `nudgeThreshold` (the *same* action repeated, once per run), OR
+  `sinceProgress` past `noProgressNudge` (many *varied* tool calls with no real mutation),
+  which re-arms per window up to `maxStallNudges`. A successful **bash write** counts as a
+  mutation too (`noteBashWrite` → epoch bump), so bash-heavy work isn't misread as a stall.
+  After the stall nudges are exhausted, one further ignored window force-stops the run as
+  `stall_guard` — the backstop that keeps an unresponsive agent from wandering to the
+  (240-step default) ceiling. The planner also emits an advisory `estimated_steps` that the
+  per-step budget line cites as a pacing reference (never a limit).
+- **pre-finish self-verification**: when a turn that changed files (write/edit OR a bash
+  write) tries to finish (`depth==0`), a two-pass system nudge (coverage, then correctness;
+  once per turn) tells the agent to re-read the task and confirm its ACTUAL output matches.
+  Explicitly-requested synthetic content is allowed but must be LABELED fictional in the
+  final report.
+- **fabrication defense (4 layers, shared `core/selfcheck` markers)**: the pre-finish gate
+  scans the agent's own writes AND bash-written content for self-admitted stand-ins
+  ("in a real implementation…") and refuses to finish — once as a redirect, a second time
+  as an ultimatum (delete the fake or report UNFINISHED), then stands aside; the subagent
+  take-report gate refuses a fabricated "done" report once; the report tool refuses a
+  "done" whose own text confesses; and a still-present confession is fed to the council as
+  a deterministic `self-check: fabrication` signal. Test doubles are exempt
+  (`selfcheck.TestArtifactPath`): a mock saying "this simulates…" is not a confession.
 - **no retry storm**: a terminal provider error ends the turn; `startRun` does NOT
   re-run a failed turn (only re-runs to pick up a user *steer*).
 - **language lock** (`langDirective`): the user's script (Hangul/Kana/…) is detected
@@ -159,7 +171,13 @@ mode) does NOT finish immediately: it convenes a **council** that votes done-vs-
   safety stops below) the turn finishes.
 - Safety so the gate can't trap the loop: `CouncilMaxRounds` cap (default 3), a
   no-progress guard (empty/repeated feedback finishes), and a ctx-cancel early-out.
-  Forced finishes are recorded as a `council.decided` with a `note` (not an error).
+  Forced finishes are recorded as a `council.decided` whose `note` states the council
+  never approved (treat as UNVERIFIED) and carries the last outstanding feedback.
+- Member prompts additionally refuse a "done" that RATIONALIZES incompletion ("impossible,
+  so this is full completion") and require, for checkable deliverables, that the turn
+  actually RAN the check with real output visible — existence is not correctness.
+  `[council] preset="light"` trades the 3-member gate for one verification member and a
+  1-round cap (interactive latency).
 - Members also check the deliverable against the **letter of the task**: when the task
   dictates exact content/value/format/name/location, a deliverable that exists but whose
   content doesn't match (a placeholder, a filename where the content was asked for, the
