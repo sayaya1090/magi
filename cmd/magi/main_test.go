@@ -127,18 +127,19 @@ func TestRunHeadlessError(t *testing.T) {
 	}
 }
 
-// Subscribe/Submit failures abort with exit 1 before streaming.
+// Subscribe/Submit failures abort with exit 2 (infra, distinct from the agent-level 1)
+// before streaming — the documented headless contract.
 func TestRunHeadlessSetupErrors(t *testing.T) {
 	var out, errw bytes.Buffer
-	if exit := runHeadless(context.Background(), &fakeHeadless{subErr: errors.New("nosub")}, "s", "p", false, &out, &errw); exit != 1 {
-		t.Errorf("subscribe error exit = %d, want 1", exit)
+	if exit := runHeadless(context.Background(), &fakeHeadless{subErr: errors.New("nosub")}, "s", "p", false, &out, &errw); exit != 2 {
+		t.Errorf("subscribe error exit = %d, want 2", exit)
 	}
 	if !strings.Contains(errw.String(), "subscribe") {
 		t.Errorf("stderr missing subscribe error: %q", errw.String())
 	}
 	errw.Reset()
-	if exit := runHeadless(context.Background(), &fakeHeadless{submitErr: errors.New("nosubmit")}, "s", "p", false, &out, &errw); exit != 1 {
-		t.Errorf("submit error exit = %d, want 1", exit)
+	if exit := runHeadless(context.Background(), &fakeHeadless{submitErr: errors.New("nosubmit")}, "s", "p", false, &out, &errw); exit != 2 {
+		t.Errorf("submit error exit = %d, want 2", exit)
 	}
 	if !strings.Contains(errw.String(), "submit") {
 		t.Errorf("stderr missing submit error: %q", errw.String())
@@ -355,5 +356,19 @@ func TestEnvDur(t *testing.T) {
 	t.Setenv("MAGI_TEST_BAD_DUR", "notaduration")
 	if d := envDur("MAGI_TEST_BAD_DUR", 7*time.Second); d != 7*time.Second {
 		t.Errorf("invalid → default, got %v", d)
+	}
+}
+
+// An agent-level error event carries its machine-readable code on stderr in the
+// stable "error[<code>]: <message>" form — scripts and bench adapters grep this.
+func TestRunHeadlessErrorCodeOnStderr(t *testing.T) {
+	b, _ := json.Marshal(event.ErrorData{Message: "stopped: no real progress", Code: "stall_guard"})
+	f := &fakeHeadless{events: []event.Event{{Type: event.TypeError, Data: b}}}
+	var out, errw bytes.Buffer
+	if exit := runHeadless(context.Background(), f, "s", "p", false, &out, &errw); exit != 1 {
+		t.Fatalf("agent-level error exit = %d, want 1", exit)
+	}
+	if !strings.Contains(errw.String(), "error[stall_guard]: stopped: no real progress") {
+		t.Errorf("stderr missing coded error line: %q", errw.String())
 	}
 }

@@ -34,6 +34,17 @@ multi-agent, with Lua plugins, MCP, and shared memory.
 echo "explain main.go" | ./magi -p -                   # stdin
 ```
 
+Headless output contract (stable — scripts, CI, and the bench adapters key off it):
+
+- **Exit codes**: `0` = the turn finished · `1` = the turn ended on an agent-level
+  error (`loop_guard`, `stall_guard`, `max_steps`, provider failure) · `2` = magi
+  itself could not run the prompt (setup/submit failure).
+- **stdout** = the transcript: the model's text (the final answer), tool call/result
+  lines, council/compaction notes. With `--output json`, one fact event per line
+  (JSONL), decodable as `event.Event`.
+- **stderr** = errors only. Agent-level errors use the greppable form
+  `error[<code>]: <message>`.
+
 ### Version / self-update
 ```sh
 ./magi --version

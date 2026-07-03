@@ -482,13 +482,21 @@ type headlessApp interface {
 // runHeadless executes a one-shot prompt and streams the resulting fact events to
 // out — JSON lines when jsonOut, otherwise a human-readable transcript — with
 // operational errors going to errw. It subscribes before submitting so no events
-// are missed, stops at the first TurnFinished, and returns the process exit code
-// (1 on a subscribe/submit failure or a turn Error event).
+// are missed and stops at the first TurnFinished.
+//
+// Exit-code CONTRACT (documented in MANUAL.md — scripts, CI, and the bench
+// adapters key off this, keep it stable):
+//
+//	0 — the turn finished (turn.finished reached).
+//	1 — the turn ended on an agent-level error event (loop_guard, stall_guard,
+//	    max_steps, provider failure); the code and message are printed to stderr
+//	    as "error[<code>]: <message>".
+//	2 — magi itself could not run the prompt (subscribe/submit failure).
 func runHeadless(ctx context.Context, a headlessApp, sid session.SessionID, promptText string, jsonOut bool, out, errw io.Writer) int {
 	sub, cancel, err := a.Subscribe(ctx, sid, 0)
 	if err != nil {
 		fmt.Fprintln(errw, "magi: subscribe:", err)
-		return 1
+		return 2
 	}
 	defer cancel()
 
@@ -498,7 +506,7 @@ func runHeadless(ctx context.Context, a headlessApp, sid session.SessionID, prom
 		Actor:     event.Actor{Kind: event.ActorUser, ID: "cli"},
 	}); err != nil {
 		fmt.Fprintln(errw, "magi: submit:", err)
-		return 1
+		return 2
 	}
 
 	exit := 0
@@ -593,7 +601,11 @@ func renderText(out, errw io.Writer, e event.Event) {
 	case event.TypeError:
 		var d event.ErrorData
 		_ = json.Unmarshal(e.Data, &d)
-		fmt.Fprintln(errw, "error:", d.Message)
+		if d.Code != "" {
+			fmt.Fprintf(errw, "error[%s]: %s\n", d.Code, d.Message)
+		} else {
+			fmt.Fprintln(errw, "error:", d.Message)
+		}
 	}
 }
 

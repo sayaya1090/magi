@@ -34,6 +34,15 @@ Lua 플러그인, MCP, 공유 메모리를 지원한다.
 echo "explain main.go" | ./magi -p -                   # stdin
 ```
 
+헤드리스 출력 계약 (안정 — 스크립트·CI·벤치 어댑터가 의존):
+
+- **종료코드**: `0` = 턴 정상 종료 · `1` = 에이전트 수준 에러로 종료(`loop_guard`,
+  `stall_guard`, `max_steps`, 프로바이더 실패) · `2` = magi 자체가 프롬프트를 실행하지
+  못함(셋업/제출 실패).
+- **stdout** = 트랜스크립트: 모델 텍스트(최종 답), 툴 호출/결과, council·컴팩션 노트.
+  `--output json`이면 fact 이벤트를 줄 단위 JSONL로 출력.
+- **stderr** = 에러 전용. 에이전트 수준 에러는 grep 가능한 `error[<code>]: <message>` 형식.
+
 ### 버전 / 자동 업데이트
 ```sh
 ./magi --version
