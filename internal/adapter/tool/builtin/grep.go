@@ -31,6 +31,34 @@ func (Grep) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"pattern":{"type":"string"},"glob":{"type":"string"},"path":{"type":"string"}},"required":["pattern"]}`)
 }
 
+// grepGlobMatch applies the grep tool's filename filter. Models trained on
+// Claude-style tools routinely pass comma-separated multi-globs with "**"
+// ("**/*.go,**/*.py"); bare filepath.Match supports neither and silently
+// filtered EVERYTHING out (an empty result that reads like "no matches").
+// Accept a comma list; a pattern with "/" matches the workdir-relative path
+// with ** crossing directories (shared matchGlob), a bare pattern matches the
+// basename.
+func grepGlobMatch(globs, workdir, path, base string) bool {
+	rel, _ := filepath.Rel(workdir, path)
+	rel = filepath.ToSlash(rel)
+	for _, g := range strings.Split(globs, ",") {
+		g = strings.TrimSpace(g)
+		if g == "" {
+			continue
+		}
+		if strings.ContainsRune(g, '/') {
+			if matchGlob(g, rel) {
+				return true
+			}
+			continue
+		}
+		if ok, _ := filepath.Match(g, base); ok {
+			return true
+		}
+	}
+	return false
+}
+
 func (Grep) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
 	var a grepArgs
 	if err := json.Unmarshal(raw, &a); err != nil {
@@ -59,11 +87,8 @@ func (Grep) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 			}
 			return nil
 		}
-		if a.Glob != "" {
-			ok, _ := filepath.Match(a.Glob, d.Name())
-			if !ok {
-				return nil
-			}
+		if a.Glob != "" && !grepGlobMatch(a.Glob, env.Workdir, p, d.Name()) {
+			return nil
 		}
 		data, err := os.ReadFile(p)
 		if err != nil || isBinary(data) {
