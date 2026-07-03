@@ -110,6 +110,11 @@ X-CLIENT-API-KEY = "${FAST_CLIENT_KEY}"
 planner = true             # step별 전략(solo|parallel|scout), scout는 목록 확보 후 각 항목 병렬,
                            # 멀티스텝이면 실행 전 council이 계획 감사(approve/revise, 합의규칙)하고
                            # 완료기준(산출물·테스트 지침)을 도출해 그 턴의 종료 계약으로 삼는다
+review_gate = true         # 완료 직전 리뷰 게이트(기본 on): 변경이 있던 top-level 턴이 끝나려 할 때,
+                           # 에이전트가 스스로 검증하는 대신 리드온리 서브에이전트에 위임 —
+                           # tester가 빌드/테스트를 실제로 돌려 진짜 PASS/FAIL을, reviewer가 변경 파일을 읽어
+                           # 스펙 위반을 보고하고, 그 결과를 주입해 실제 문제부터 고치게 한다.
+                           # 런당 1회 발동, off면 self-verify 넛지로 폴백
 
 [mcp.filesystem]           # MCP 서버 (stdio 또는 url=로 HTTP)
 command = "npx"

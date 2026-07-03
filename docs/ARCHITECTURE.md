@@ -166,11 +166,20 @@ in `loop.go` calls into them each step):
   `stall_guard` — the backstop that keeps an unresponsive agent from wandering to the
   (240-step default) ceiling. The planner also emits an advisory `estimated_steps` that the
   per-step budget line cites as a pacing reference (never a limit).
-- **pre-finish self-verification**: when a turn that changed files (write/edit OR a bash
-  write) tries to finish (`depth==0`), a two-pass system nudge (coverage, then correctness;
-  once per turn) tells the agent to re-read the task and confirm its ACTUAL output matches.
-  Explicitly-requested synthetic content is allowed but must be LABELED fictional in the
-  final report.
+- **pre-finish verification**: when a turn that changed files (write/edit OR a bash
+  write) tries to finish (`depth==0`), it verifies once — before the council runs. By
+  default (`Config.ReviewGate`, on; `[orchestration] review_gate=false` to disable) this is
+  **delegated** to two independent read-only subagents (`app/review_gate.go`): `tester`
+  (actually runs the build/tests and reports the real PASS/FAIL) and `reviewer` (reads the
+  changed files for spec violations), dispatched in parallel, whose combined findings are
+  injected as a system prompt so the agent fixes any real problem before finishing — a
+  failed or unrun check reads as UNFINISHED, never a pass. Fresh-context reviewers catch
+  what the implementer's own confirmation bias waves through (both are inspection-only, so
+  auto-dispatch is safe). With the gate off (or the `tester`/`reviewer` agents absent) it
+  falls back to a two-pass self-verification nudge (coverage, then correctness) telling the
+  agent to re-read the task and confirm its ACTUAL output matches. Fires once per run either
+  way. Explicitly-requested synthetic content is allowed but must be LABELED fictional in
+  the final report.
 - **fabrication defense (4 layers, shared `core/selfcheck` markers)**: the pre-finish gate
   scans the agent's own writes AND bash-written content for self-admitted stand-ins
   ("in a real implementation…") and refuses to finish — once as a redirect, a second time
