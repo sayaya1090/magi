@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -225,5 +226,48 @@ func TestRecallContextIntegration(t *testing.T) {
 	none, _ := a.recallContext(ctx, sid2, "anything", nil)
 	if !strings.Contains(none, "Nothing has been compacted") {
 		t.Errorf("empty session recall message wrong: %q", none)
+	}
+}
+
+// shardHints: relevant compacted topics surface as pointers; unrelated queries
+// stay silent; the hint count is capped.
+func TestShardHints(t *testing.T) {
+	comp := func(shs ...event.ContextShard) event.Event {
+		d, _ := json.Marshal(event.CompactionData{Shards: shs})
+		return event.Event{Type: event.TypeCompaction, Data: d}
+	}
+	evs := []event.Event{comp(
+		event.ContextShard{Topic: "internal/parser/lexer.go", Brief: "edited twice; EOF handling fixed"},
+		event.ContextShard{Topic: "discussion", Brief: "user chose the redis cache approach"},
+		event.ContextShard{Topic: "docs/README.md", Brief: "read only"},
+	)}
+
+	// Two query tokens hit the lexer shard → hint with the recall pointer.
+	out := shardHints(evs, "fix the parser lexer EOF bug")
+	if !strings.Contains(out, "internal/parser/lexer.go") || !strings.Contains(out, "recall_context") {
+		t.Fatalf("relevant shard should surface: %q", out)
+	}
+	if strings.Contains(out, "README") {
+		t.Fatalf("unrelated shard leaked: %q", out)
+	}
+
+	// Nothing relates → no section at all (volatile context stays lean).
+	if out := shardHints(evs, "rotate the kubernetes certificates"); out != "" {
+		t.Fatalf("unrelated query should add nothing, got %q", out)
+	}
+
+	// No compactions → nothing, regardless of query.
+	if out := shardHints(nil, "fix the lexer"); out != "" {
+		t.Fatalf("no compaction should mean no hints, got %q", out)
+	}
+
+	// Cap: more matches than shardHintMax → top-scored three only.
+	var many []event.ContextShard
+	for i := 0; i < 6; i++ {
+		many = append(many, event.ContextShard{Topic: fmt.Sprintf("pkg/lexer/file%d.go", i), Brief: "lexer parser work"})
+	}
+	out = shardHints([]event.Event{comp(many...)}, "lexer parser")
+	if n := strings.Count(out, "\n- "); n > shardHintMax {
+		t.Fatalf("hints should cap at %d, got %d:\n%s", shardHintMax, n, out)
 	}
 }

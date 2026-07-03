@@ -1907,6 +1907,9 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 	if td := a.Todos(s.ID); len(td) > 0 {
 		b.WriteString("\n\n# Current plan (TODOs)\n" + formatTodos(td))
 	}
+	// Compacted-context RAG (push half): topics an earlier compaction shed that look
+	// lexically relevant to the current task, as one-line pointers into recall_context.
+	b.WriteString(shardHints(evs, lastUserPromptText(evs)))
 	// Shared experience (D13): relevant team memories/skills for the current request.
 	if a.cfg.Experience != nil {
 		if q := lastUserText(reconstruct(evs)); q != "" {

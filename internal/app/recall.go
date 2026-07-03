@@ -230,3 +230,100 @@ func tokenOverlap(a, b string) int {
 	}
 	return n
 }
+
+// shardHintMax caps how many shard hints ride the volatile context per step.
+const shardHintMax = 3
+
+// shardHints surfaces, as one-line hints, the compacted-away topics that look
+// relevant to the CURRENT task — the push half of re-hydration. recall_context
+// alone is pull-only: a weak model that never thinks to call it works from the
+// lossy summary forever. Matching is deliberately lexical and deterministic
+// (distinct query tokens, len ≥ 3, found in the shard's topic+brief; path
+// segments of the topic count too): no embedding dependency, no false authority
+// — the hint only points, the model still pulls the verbatim originals via
+// recall_context. Empty when nothing was compacted or nothing plausibly relates.
+func shardHints(evs []event.Event, query string) string {
+	var shards []event.ContextShard
+	for _, e := range evs {
+		if e.Type != event.TypeCompaction {
+			continue
+		}
+		var d event.CompactionData
+		if json.Unmarshal(e.Data, &d) == nil {
+			shards = append(shards, d.Shards...)
+		}
+	}
+	if len(shards) == 0 || strings.TrimSpace(query) == "" {
+		return ""
+	}
+	shards = mergeShardsByTopic(shards)
+
+	qtoks := map[string]bool{}
+	for _, t := range tokenize(query) {
+		qtoks[t] = true
+	}
+	if len(qtoks) == 0 {
+		return ""
+	}
+	type scored struct {
+		i, score int
+	}
+	var hits []scored
+	for i, sh := range shards {
+		text := strings.ToLower(sh.Topic + " " + sh.Brief)
+		score := 0
+		for t := range qtoks {
+			if strings.Contains(text, t) {
+				score++
+			}
+		}
+		// One rare-ish token can be a real signal ("heap.go"), one generic token is
+		// noise — require 2 matches unless the query itself is that short.
+		min := 2
+		if len(qtoks) < 2 {
+			min = 1
+		}
+		if score >= min {
+			hits = append(hits, scored{i, score})
+		}
+	}
+	if len(hits) == 0 {
+		return ""
+	}
+	sort.SliceStable(hits, func(a, b int) bool { return hits[a].score > hits[b].score })
+	if len(hits) > shardHintMax {
+		hits = hits[:shardHintMax]
+	}
+	var b strings.Builder
+	b.WriteString("\n\n# Possibly relevant earlier context (compacted away)\n")
+	for _, h := range hits {
+		sh := shards[h.i]
+		brief := sh.Brief
+		if len(brief) > 140 {
+			brief = brief[:140] + "…"
+		}
+		line := "- " + sh.Topic
+		if brief != "" {
+			line += ": " + brief
+		}
+		b.WriteString(line + "\n")
+	}
+	b.WriteString("(these were summarized out of your context — call recall_context with a topic to re-read the originals verbatim)")
+	return b.String()
+}
+
+// tokenize lowercases and splits s into alphanumeric-ish tokens of length ≥ 3,
+// treating path separators and punctuation as boundaries.
+func tokenize(s string) []string {
+	fields := strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
+		return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r != '_' && r != '.'
+	})
+	var out []string
+	for _, f := range fields {
+		f = strings.Trim(f, "._")
+		if len(f) >= 3 {
+			out = append(out, f)
+		}
+	}
+	return out
+}
