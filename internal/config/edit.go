@@ -105,3 +105,58 @@ func SetKey(path, section, key, value string) error {
 func writeLines(path string, lines []string) error {
 	return os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
 }
+
+// AppendListItem appends value to the single-line string array `key = [...]` in
+// the top-level preamble of the TOML file at path, preserving everything else.
+// The key is created (`key = ["value"]`) when absent, and the append is a no-op
+// when the value is already present. Written for the permission persister
+// ("always allow for this project" → the project config's allow rules); like
+// SetKey it is a deliberate line-level edit, limited to single-line arrays —
+// a hand-formatted multi-line array is left alone with an error rather than
+// risk mangling it.
+func AppendListItem(path, key, value string) error {
+	setKeyMu.Lock()
+	defer setKeyMu.Unlock()
+	b, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	lines := []string{}
+	if len(b) > 0 {
+		lines = strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+	}
+	isTable := func(s string) bool { return strings.HasPrefix(strings.TrimSpace(s), "[") }
+	end := len(lines)
+	for i, ln := range lines {
+		if isTable(ln) {
+			end = i
+			break
+		}
+	}
+	keyRe := regexp.MustCompile(`^\s*` + regexp.QuoteMeta(key) + `\s*=\s*\[(.*)$`)
+	for i := 0; i < end; i++ {
+		m := keyRe.FindStringSubmatch(lines[i])
+		if m == nil {
+			continue
+		}
+		rest := strings.TrimSpace(m[1])
+		if !strings.HasSuffix(rest, "]") {
+			return fmt.Errorf("config %s: %s is a multi-line array; add %q by hand", path, key, value)
+		}
+		if strings.Contains(lines[i], fmt.Sprintf("%q", value)) {
+			return nil // already present
+		}
+		inner := strings.TrimSuffix(rest, "]")
+		inner = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(inner), ","))
+		item := fmt.Sprintf("%q", value)
+		if inner != "" {
+			item = inner + ", " + item
+		}
+		lines[i] = lines[i][:strings.IndexByte(lines[i], '[')+1] + item + "]"
+		return writeLines(path, lines)
+	}
+	// Absent: create in the preamble.
+	target := fmt.Sprintf("%s = [%q]", key, value)
+	lines = append(lines[:end], append([]string{target}, lines[end:]...)...)
+	return writeLines(path, lines)
+}

@@ -106,3 +106,48 @@ func TestSetKeyOnDefaultTemplate(t *testing.T) {
 		t.Errorf("template edits not applied: model=%q routing=%v", c.Model, c.Routing)
 	}
 }
+
+func TestAppendListItem(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	// Absent file/key: created in the preamble.
+	if err := AppendListItem(path, "allow", "webfetch(**)"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(path)
+	if !strings.Contains(string(b), `allow = ["webfetch(**)"]`) {
+		t.Fatalf("created list wrong: %s", b)
+	}
+
+	// Existing single-line list: appended, comments elsewhere preserved.
+	os.WriteFile(path, []byte("# keep me\nallow = [\"read\"]\n\n[routing]\ncoder = \"m\"\n"), 0o644)
+	if err := AppendListItem(path, "allow", "bash(**)"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = os.ReadFile(path)
+	s := string(b)
+	if !strings.Contains(s, `allow = ["read", "bash(**)"]`) || !strings.Contains(s, "# keep me") || !strings.Contains(s, "[routing]") {
+		t.Fatalf("append mangled the file: %s", s)
+	}
+
+	// Duplicate: no-op.
+	if err := AppendListItem(path, "allow", "bash(**)"); err != nil {
+		t.Fatal(err)
+	}
+	b2, _ := os.ReadFile(path)
+	if string(b2) != s {
+		t.Fatalf("duplicate append changed the file:\n%s", b2)
+	}
+
+	// Multi-line array: refused, untouched.
+	ml := "allow = [\n  \"read\",\n]\n"
+	os.WriteFile(path, []byte(ml), 0o644)
+	if err := AppendListItem(path, "allow", "x"); err == nil {
+		t.Fatal("expected an error on a multi-line array")
+	}
+	b3, _ := os.ReadFile(path)
+	if string(b3) != ml {
+		t.Fatalf("multi-line array was modified: %s", b3)
+	}
+}

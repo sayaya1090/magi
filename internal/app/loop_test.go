@@ -627,3 +627,55 @@ func TestFabricationGateSkipsTestDoubles(t *testing.T) {
 		t.Errorf("fabrication gate must not fire on a mock/test path, got %v", typesOf(got))
 	}
 }
+
+// fakePermPersister records persisted allow rules.
+type fakePermPersister struct {
+	mu    sync.Mutex
+	rules []string
+}
+
+func (f *fakePermPersister) PersistAllow(rule string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rules = append(f.rules, rule)
+	return nil
+}
+
+// "persist" behaves like "always" for the session AND records a project allow rule.
+func TestPermissionPersistDecision(t *testing.T) {
+	llm := &fakeLLM{steps: [][]port.ProviderEvent{
+		toolStep("write", `{"path":"a.txt","content":"1"}`),
+		toolStep("write", `{"path":"b.txt","content":"2"}`),
+		textStep("done"),
+	}}
+	pp := &fakePermPersister{}
+	a, wd := newApp(t, llm, Config{Permission: "ask", Interactive: true, PermissionPersister: pp})
+	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ch, cancelSub, _ := a.Subscribe(ctx, sid, 0)
+	defer cancelSub()
+	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "write two"}}})
+
+	requested := 0
+	for e := range ch {
+		if e.Type == event.TypePermissionRequested {
+			requested++
+			var d event.PermissionRequestedData
+			_ = json.Unmarshal(e.Data, &d)
+			a.RespondPermission(context.Background(), command.RespondPermission{SessionID: sid, CallID: d.CallID, Decision: "persist"})
+		}
+		if e.Type == event.TypeTurnFinished {
+			break
+		}
+	}
+	if requested != 1 {
+		t.Errorf("persist should grant for the rest of the session, requested=%d want 1", requested)
+	}
+	pp.mu.Lock()
+	defer pp.mu.Unlock()
+	if len(pp.rules) != 1 || pp.rules[0] != "write(**)" {
+		t.Errorf("persisted rules = %v, want [write(**)]", pp.rules)
+	}
+}

@@ -59,6 +59,14 @@ type ProfileDef struct {
 // app stays decoupled from the concrete LLM adapter).
 type ProviderFactory func(ProfileDef) port.LLMProvider
 
+// PermissionPersister records a user's "always allow for this project" choice
+// as a durable allow rule (the project config's allow list), so the same tool
+// doesn't re-prompt on every session. Wired from cmd (which knows the config
+// paths); nil = the choice lasts for the session only.
+type PermissionPersister interface {
+	PersistAllow(rule string) error
+}
+
 // RoutePersister writes /route editor edits back to the config file so they
 // persist across restarts. agent="" with a model persists the session default
 // model; otherwise it persists [routing] agent = value (empty value clears).
@@ -165,6 +173,8 @@ type Config struct {
 	ProfileDefs map[string]ProfileDef
 	NewProvider ProviderFactory
 
+	// PermissionPersister, if set, persists "always allow (project)" decisions.
+	PermissionPersister PermissionPersister
 	// RoutePersister, if set, persists /route editor edits to config so they
 	// survive restarts (best-effort; a write failure never blocks the edit).
 	RoutePersister RoutePersister

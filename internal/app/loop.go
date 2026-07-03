@@ -1720,13 +1720,28 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 
 	select {
 	case dec := <-ch:
-		if dec == "always" {
+		if dec == "always" || dec == "persist" {
 			a.mu.Lock()
 			if a.grants[sid] == nil {
 				a.grants[sid] = map[string]bool{}
 			}
 			a.grants[sid][tc.Name] = true
 			a.mu.Unlock()
+			// "persist" additionally records the grant as a project allow rule
+			// (`tool(**)` in .magi/config.toml), so the choice survives restarts —
+			// the answer to permission-prompt fatigue for tools a project always
+			// trusts (webfetch on a docs-heavy repo, bash in a scratch sandbox).
+			// The session grant above already covers this run; a persist failure
+			// is reported as a note, never a blocked tool.
+			if dec == "persist" && a.cfg.PermissionPersister != nil {
+				if err := a.cfg.PermissionPersister.PersistAllow(tc.Name + "(**)"); err != nil {
+					nd, _ := json.Marshal(event.PromptSubmittedData{
+						MessageID: "m_" + newID(),
+						Parts:     []session.Part{{Kind: session.PartText, Text: "note: could not persist the allow rule: " + err.Error()}},
+					})
+					a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, nd)
+				}
+			}
 			return true
 		}
 		return dec == "allow"

@@ -790,6 +790,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			return m.respond("allow"), true
 		case "a", "A":
 			return m.respond("always"), true
+		case "p", "P":
+			// Persist: allow for this project across sessions (writes an allow rule).
+			return m.respond("persist"), true
 		case "n", "N", "esc":
 			return m.respond("deny"), true
 		}
@@ -3087,7 +3090,7 @@ func (m *Model) permView() string {
 	body := stylePermTitle.Render("permission required") + "\n" +
 		fmt.Sprintf("run tool %s %s\n", styleToolName.Render(m.perm.name), styleToolArgs.Render(compactArgs(m.perm.args))) +
 		styleFooter.Render("") +
-		footerKeys("y", "allow") + footerKeys("a", "always") + footerKeys("n", "deny")
+		footerKeys("y", "allow") + footerKeys("a", "always") + footerKeys("p", "project") + footerKeys("n", "deny")
 	return stylePermBox.Width(m.width - 4).Render(body)
 }
 

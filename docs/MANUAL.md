@@ -185,7 +185,7 @@ Hook commands run in a shell and receive the `MAGI_TOOL`/`MAGI_PATH` environment
 | Shift+Tab | switch permission mode |
 | Ctrl+C | exit |
 | mouse wheel | scroll · click a panel → focus (click again → zoom) |
-| permission modal: y/a/n | allow/always/deny |
+| permission modal: y/a/p/n | allow / always (session) / project (persists an allow rule to `.magi/config.toml`) / deny |
 
 Typing keys go only to the input box and scrolling happens only via the dedicated keys above — so typing body text (including spaces) doesn't scroll the screen. While you're scrolled up reading, streaming doesn't yank the view down (auto-follow only when at the bottom). A **scrollbar** on the transcript's right edge shows position and proportion when the content overflows (and in the council-detail / zoom takeovers too).
 

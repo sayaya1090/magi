@@ -370,6 +370,7 @@ func run() int {
 		ProfileDefs:         profileDefs(cfg.LLM.Profiles),
 		NewProvider:         newProvider,
 		RoutePersister:      routePersister{path: filepath.Join(plat.ConfigDir(), "config.toml")},
+		PermissionPersister: permPersister{path: filepath.Join(wd, ".magi", "config.toml")},
 		Planner:             cfg.Orchestration.Planner == nil || *cfg.Orchestration.Planner, // default on; kill switch
 		Council:             councilPort,
 		CouncilRule:         corecouncil.Rule(cfg.Council.Rule),
@@ -795,6 +796,18 @@ func (f promptFunc) Ask(s prompt.Spec) (map[string]any, error) { return f(s) }
 // routePersister writes /route editor edits back to the global config.toml,
 // preserving its comments, so per-agent routing and the session model survive
 // restarts.
+// permPersister appends "always allow (project)" rules to the project config
+// (.magi/config.toml), which teams commit — so a trusted tool stays trusted for
+// everyone across sessions. The directory is created on first use.
+type permPersister struct{ path string }
+
+func (p permPersister) PersistAllow(rule string) error {
+	if err := os.MkdirAll(filepath.Dir(p.path), 0o755); err != nil {
+		return err
+	}
+	return config.AppendListItem(p.path, "allow", rule)
+}
+
 type routePersister struct{ path string }
 
 func (r routePersister) PersistRoute(agent, value string) error {
