@@ -497,10 +497,10 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	sid := s.ID
 	agentActor := event.Actor{Kind: event.ActorAgent, ID: orDefault(agent.Name, "default")}
 	lastText := ""
-	stopChecked := false        // Stop hooks enforced at most once per run
-	nudgedEmpty := false        // subagent empty-result nudge fired at most once
-	selfVerified := false       // pre-finish self-verification nudge fired at most once per run
-	fabricationFlagged := false // pre-finish fabrication gate fired at most once per run
+	stopChecked := false  // Stop hooks enforced at most once per run
+	nudgedEmpty := false  // subagent empty-result nudge fired at most once
+	selfVerified := false // pre-finish self-verification nudge fired at most once per run
+	fabNudges := 0        // pre-finish fabrication refusals this run (max 2: redirect, then ultimatum)
 	guard := newRunGuard()
 	councilRounds := 0        // consensus termination gate rounds this turn (D14)
 	lastCouncilFeedback := "" // last round's feedback (no-progress detection)
@@ -778,14 +778,27 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			// this keys off the model's OWN confession in the artifact, so it can't be talked
 			// past. Fires once per turn; the injected prompt tells the agent to do the real
 			// work or honestly report it could not — never to present the fake as done.
-			if depth == 0 && !fabricationFlagged {
+			if depth == 0 && fabNudges < 2 {
 				if p, snip := guard.scanFabrication(); p != "" {
-					fabricationFlagged = true
-					msg := fmt.Sprintf("Before finishing: %s contains text admitting it is not a real solution but a "+
-						"stand-in — matched: %q. A placeholder or simulated output is NOT a completed task. Either do "+
-						"the real work now — run the actual program/command and build the deliverable from its real "+
-						"output — or, if you genuinely cannot, say so plainly and report the task as UNFINISHED. Do not "+
-						"present fabricated or 'what a real run would produce' output as done.", p, snip)
+					fabNudges++
+					var msg string
+					if fabNudges == 1 {
+						msg = fmt.Sprintf("Before finishing: %s contains text admitting it is not a real solution but a "+
+							"stand-in — matched: %q. A placeholder or simulated output is NOT a completed task. Either do "+
+							"the real work now — run the actual program/command and build the deliverable from its real "+
+							"output — or, if you genuinely cannot, say so plainly and report the task as UNFINISHED. Do not "+
+							"present fabricated or 'what a real run would produce' output as done.", p, snip)
+					} else {
+						// Second offense: the agent reworked the placeholder instead of replacing it.
+						// Reworking a fake burns the whole budget (measured: blind-maze 5x5, gpt2-codegolf,
+						// write-compressor all timed out polishing stand-ins) — so the second refusal is an
+						// ultimatum: drop the placeholder entirely or fail honestly NOW, no third rewrite.
+						msg = fmt.Sprintf("Still fabricated: %s again admits it is a stand-in — matched: %q. Do NOT "+
+							"rewrite or polish the placeholder a third time; that only burns your remaining steps. "+
+							"Choose now: (a) DELETE the stand-in and produce the deliverable from a REAL run of the "+
+							"actual program/command, or (b) if that is truly impossible here, state plainly that the "+
+							"task is UNFINISHED and why. There is no third option.", p, snip)
+					}
 					pd, _ := json.Marshal(event.PromptSubmittedData{
 						MessageID: "m_" + newID(),
 						Parts:     []session.Part{{Kind: session.PartText, Text: msg}},
@@ -903,9 +916,9 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			// delegated path had NO fabrication check at all. Apply it here too — a "done"
 			// report backed by a deliverable that confesses it is a stand-in is not done.
 			// Refuse the report ONCE; push the subagent to do the real work or report failed.
-			if rep.status == "done" && !fabricationFlagged {
+			if rep.status == "done" && fabNudges == 0 {
 				if p, snip := guard.scanFabrication(); p != "" {
-					fabricationFlagged = true
+					fabNudges = 2 // the report path refuses once; no pre-finish escalation after
 					msg := fmt.Sprintf("You reported done, but %s contains text admitting it is not a real "+
 						"solution but a stand-in — matched: %q. A placeholder or simulated deliverable is NOT a "+
 						"completed task. Either do the real work now — actually run the required program/command and "+
@@ -1796,7 +1809,10 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 			"not a target or quota — using fewer steps is better, not worse. As soon as the task's primary "+
 			"deliverable is done and verified, STOP; do not keep re-checking, polishing, or exploring to 'use up' "+
 			"the budget. The count is shown only so you don't get cut off mid-task: if you near %d, stop exploring "+
-			"and land the smallest change that satisfies the core requirement rather than being stopped with nothing.",
+			"and land the smallest change that satisfies the core requirement rather than being stopped with nothing. "+
+			"Every tool call costs a step: never spend one on a command that only narrates — an echo of a status, "+
+			"summary, or \"task completed\" message proves nothing and buys nothing. Say it in your reply text "+
+			"instead; spend steps only on actions that change or genuinely verify something.",
 			step+1, maxSteps, maxSteps, maxSteps))
 	}
 	if td := a.Todos(s.ID); len(td) > 0 {

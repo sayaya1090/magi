@@ -36,6 +36,11 @@ func TestVolatileContextStepBudget(t *testing.T) {
 	if !strings.Contains(out, "hard ceiling") || !strings.Contains(out, "not a target") {
 		t.Fatalf("budget block should frame the ceiling as a limit, not a quota, got %q", out)
 	}
+	// Narration is free, steps are not: the block must forbid spending a step on a
+	// status-echo (measured waste: prove-plus-comm burned its last steps on them).
+	if !strings.Contains(out, "only narrates") {
+		t.Fatalf("budget block should forbid narration-only tool calls, got %q", out)
+	}
 	// Tiny phase budgets (e.g. summarize=3) skip the block entirely.
 	if out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 0, 3); strings.Contains(out, "# Step budget") {
 		t.Fatalf("tiny budgets should not emit a step-budget block, got %q", out)

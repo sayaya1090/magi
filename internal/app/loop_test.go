@@ -358,6 +358,41 @@ func TestFabricationGateBlocksBashWrite(t *testing.T) {
 	}
 }
 
+// A second finish attempt with the fabrication still present gets ONE escalated
+// ultimatum (drop the stand-in or fail honestly), then the gate stops refusing —
+// reworking a fake must not be allowed to burn the whole budget.
+func TestFabricationGateEscalatesThenStops(t *testing.T) {
+	llm := &fakeLLM{steps: [][]port.ProviderEvent{
+		toolStep("write", `{"path":"sol.py","content":"# since we can't actually run the game, we simulate\nprint('x')\n"}`),
+		textStep("done"),        // attempt 1 → first refusal
+		textStep("really done"), // attempt 2, fabrication untouched → ultimatum
+		textStep("giving up"),   // attempt 3 → gate exhausted, turn may end
+	}}
+	a, wd := newApp(t, llm, Config{Permission: "allow"})
+	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
+	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "solve it"}}})
+
+	got := waitForTerminal(t, a, sid)
+	first, ultimatum := 0, 0
+	for _, e := range got {
+		if e.Type != event.TypePromptSubmitted {
+			continue
+		}
+		if strings.Contains(string(e.Data), "not a real solution but a") {
+			first++
+		}
+		if strings.Contains(string(e.Data), "no third option") {
+			ultimatum++
+		}
+	}
+	if first != 1 || ultimatum != 1 {
+		t.Errorf("expected exactly one refusal then one ultimatum, got first=%d ultimatum=%d (%v)", first, ultimatum, typesOf(got))
+	}
+	if countType(got, event.TypeTurnFinished) != 1 {
+		t.Errorf("turn should still finish after the gate is exhausted, got %v", typesOf(got))
+	}
+}
+
 // A clean deliverable must NOT trip the fabrication gate.
 func TestFabricationGateAllowsCleanFinish(t *testing.T) {
 	llm := &fakeLLM{steps: [][]port.ProviderEvent{
