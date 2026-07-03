@@ -22,6 +22,10 @@ func TestCouncilIndicator(t *testing.T) {
 	mm := newTestModel(t)
 	m := &mm
 
+	// A routine convened (no signals) arms the chip but adds NO transcript line —
+	// it would repeat the same members/rule every round (noise); the verdict and
+	// decided lines carry the round's actual information.
+	before := len(m.blocks)
 	m.applyEvent(ev(t, event.TypeCouncilConvened, event.CouncilConvenedData{
 		Round: 1, Members: []string{"Melchior", "Balthasar", "Casper"}, Rule: "majority",
 		Task: "fix the parser bug", Report: "fixed the EOF handling",
@@ -29,8 +33,16 @@ func TestCouncilIndicator(t *testing.T) {
 	if m.councilRound != 1 {
 		t.Fatalf("councilRound = %d, want 1", m.councilRound)
 	}
-	if last := m.blocks[len(m.blocks)-1]; last.kind != blockInfo || !strings.Contains(last.text, "round 1") || !strings.Contains(last.text, "Melchior") {
-		t.Fatalf("convened not shown as a transcript line: %+v", last)
+	if len(m.blocks) != before {
+		t.Fatalf("routine convened should not add a transcript line: %+v", m.blocks[len(m.blocks)-1])
+	}
+	// With deterministic signals the convened line IS the evidence display — shown.
+	m.applyEvent(ev(t, event.TypeCouncilConvened, event.CouncilConvenedData{
+		Round: 1, Members: []string{"Melchior"}, Rule: "majority", Signals: []string{"self-check: fabrication"},
+		Task: "fix the parser bug", Report: "fixed the EOF handling",
+	}))
+	if last := m.blocks[len(m.blocks)-1]; last.kind != blockInfo || !strings.Contains(last.text, "self-check: fabrication") {
+		t.Fatalf("convened with signals should be a transcript line: %+v", last)
 	}
 
 	// Live polling updates the chip member.

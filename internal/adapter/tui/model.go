@@ -2244,6 +2244,12 @@ func (m *Model) applyEvent(e event.Event) {
 			if d.Phase == "plan" {
 				label, verb = "plan audit", "review the plan"
 			}
+			// Noise control: the routine convened line (members + rule) repeats the
+			// same information every round and the header chip already shows the
+			// live deliberation — so it is only worth a transcript line when it
+			// carries something round-specific: deterministic SIGNALS (fabrication
+			// self-check, verify commands) or a plan-audit's procedure.
+			showLine := len(d.Signals) > 0 || d.Phase == "plan"
 			line := fmt.Sprintf("⚖ %s round %d — %s %s (%s)", label, d.Round, strings.Join(d.Members, ", "), verb, d.Rule)
 			if len(d.Signals) > 0 {
 				line += " · " + strings.Join(d.Signals, ", ")
@@ -2258,7 +2264,9 @@ func (m *Model) applyEvent(e event.Event) {
 					}
 				}
 			}
-			m.blocks = append(m.blocks, block{kind: blockInfo, text: line})
+			if showLine {
+				m.blocks = append(m.blocks, block{kind: blockInfo, text: line})
+			}
 		}
 
 	case event.TypeCouncilDeliberating:
