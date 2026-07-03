@@ -1738,8 +1738,13 @@ func (m *Model) resumeView() string {
 		if title == "" {
 			title = styleFooter.Render("(no messages)")
 		}
-		when := s.Created.Format("01-02 15:04")
-		line := fmt.Sprintf("%s  %s", when, oneLine(title, max(20, m.width-24)))
+		// Lead with how fresh the session is — "which one was I just in" is the
+		// question the picker answers; older sessions keep the absolute stamp.
+		when := relAge(s.LastActivity)
+		if when == "" {
+			when = s.Created.Format("01-02 15:04")
+		}
+		line := fmt.Sprintf("%-11s %s", when, oneLine(title, max(20, m.width-24)))
 		if i == m.resumeSel {
 			b.WriteString(stylePalSelRow.Render("› "+line) + "\n")
 		} else {
@@ -1750,6 +1755,29 @@ func (m *Model) resumeView() string {
 		b.WriteString(styleFooter.Render(fmt.Sprintf("  %d/%d", m.resumeSel+1, len(m.resumeList))))
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// relAge renders a compact relative age ("42s ago", "5m ago", "3h ago",
+// "6d ago") for timestamps within the last week; "" otherwise (caller falls
+// back to an absolute stamp) — including zero times from legacy metadata.
+func relAge(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	d := time.Since(t)
+	switch {
+	case d < 0:
+		return ""
+	case d < time.Minute:
+		return fmt.Sprintf("%ds ago", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	case d < 7*24*time.Hour:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	}
+	return ""
 }
 
 // switchSession loads another session's transcript and re-subscribes to it.

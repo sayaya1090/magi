@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"charm.land/bubbles/v2/viewport"
 )
@@ -70,5 +71,21 @@ func TestSearchHighlightAndView(t *testing.T) {
 	m.updateSearch()
 	if len(m.searchHits) != 0 {
 		t.Fatalf("empty query should clear hits, got %v", m.searchHits)
+	}
+}
+
+// relAge: compact within a week, empty (→ absolute fallback) beyond or for zero.
+func TestRelAge(t *testing.T) {
+	if got := relAge(time.Now().Add(-30 * time.Second)); got != "30s ago" {
+		t.Errorf("30s: %q", got)
+	}
+	if got := relAge(time.Now().Add(-3 * time.Hour)); got != "3h ago" {
+		t.Errorf("3h: %q", got)
+	}
+	if got := relAge(time.Now().Add(-9 * 24 * time.Hour)); got != "" {
+		t.Errorf("old sessions should fall back to absolute, got %q", got)
+	}
+	if got := relAge(time.Time{}); got != "" {
+		t.Errorf("zero time should yield empty, got %q", got)
 	}
 }
