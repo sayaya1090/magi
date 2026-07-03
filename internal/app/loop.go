@@ -71,6 +71,12 @@ type runGuard struct {
 	// powers the no-progress nudge: unlike `blocked` (which needs an EXACT repeat), it rises
 	// even when the agent varies its commands, catching a stall that changes nothing.
 	sinceProgress int
+	// prevSince/prevStallAt snapshot sinceProgress/lastStallAt just before mutated() zeroes them,
+	// so retractProgress can restore the climb when a later content check reveals that "mutation"
+	// was a self-revert (churn, not forward progress) — otherwise an implement↔revert oscillation
+	// resets the counter each swing and never trips the stall force-stop.
+	prevSince     int
+	prevStallAt   int
 	calls         int  // total tool calls this run (idle-resubmission detection)
 	nudgedBlocked bool // "blocked"-kind re-grounding fired (once; stuck() force-stops if it persists)
 	stallNudges   int  // count of "stalled"-kind re-groundings fired this run (capped at maxStallNudges)
@@ -145,7 +151,7 @@ func hashContent(s string) uint64 {
 // missed). A create-then-empty (""→content→"") is reported as a real self-revert. The
 // wording is a neutral observation, not a "put it back" instruction, to avoid pushing a
 // weak model into an oscillation; and each file is flagged at most once per turn.
-func (g *runGuard) noteEdit(path, before, after string) string {
+func (g *runGuard) noteEdit(path, before, after string) (warn string, regressed bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	hist, ok := g.contentHist[path]
@@ -154,11 +160,10 @@ func (g *runGuard) noteEdit(path, before, after string) string {
 	}
 	h := hashContent(after)
 	if h == hist[len(hist)-1] {
-		return "" // no real change since the last state → idempotent, not a regression
+		return "", false // no real change since the last state → idempotent, not a regression
 	}
 	// Scan states strictly before the latest: a match means the file returned to a state it
 	// already held this turn (original→fix→original, or fix1→fix2→fix1 oscillation).
-	regressed := false
 	for i := 0; i < len(hist)-1; i++ {
 		if hist[i] == h {
 			regressed = true
@@ -166,12 +171,18 @@ func (g *runGuard) noteEdit(path, before, after string) string {
 		}
 	}
 	g.contentHist[path] = append(hist, h)
-	if !regressed || g.regressWarned[path] {
-		return "" // forward progress, or this file was already flagged this turn
+	if !regressed {
+		return "", false // forward progress
+	}
+	// A revert is churn, so report regressed=true on EVERY swing (the caller withholds progress
+	// credit each time). The human-facing warning, though, fires at most once per file: a repeated
+	// nudge can itself push a weak model to keep thrashing.
+	if g.regressWarned[path] {
+		return "", true
 	}
 	g.regressWarned[path] = true
 	return "note: this edit restored a content state this file already had earlier this turn — " +
-		"if reverting your own earlier change was intentional, ignore this."
+		"if reverting your own earlier change was intentional, ignore this.", true
 }
 
 // recallBudget caps re-hydrations per turn (distinct topics bypass the identical-call
@@ -216,16 +227,35 @@ func (g *runGuard) check(name string, args json.RawMessage) (block bool, n int, 
 // `path` differs from the last mutation of that path (sig = the call's canonical args).
 // An idempotent rewrite (writing identical content) is not progress, so it must NOT reset
 // the repeat counts — otherwise a write-the-same-thing loop would never be caught.
-func (g *runGuard) mutated(path, sig string) {
+// mutated returns whether it actually reset the progress counters (true) or short-circuited as
+// an idempotent rewrite (false). The caller uses that so retractProgress only ever undoes a reset
+// this same call produced.
+func (g *runGuard) mutated(path, sig string) (reset bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.lastMut[path] == sig {
-		return // no real change → leave the loop-guard counters intact
+		return false // no real change → leave the loop-guard counters intact
 	}
 	g.lastMut[path] = sig
 	g.epoch++
+	g.prevSince = g.sinceProgress // snapshot for a possible retraction (see prevSince)
+	g.prevStallAt = g.lastStallAt
 	g.sinceProgress = 0 // a real change is progress → restart the no-progress count
 	g.lastStallAt = 0   // …and the stall-nudge window, so a fresh stall re-arms cleanly
+	return true
+}
+
+// retractProgress reverses the sinceProgress/lastStallAt reset from the most recent mutated()
+// call, for when a later content check reveals that edit returned the file to a state it already
+// held this turn — a self-revert is churn, not progress. The epoch bump and lastMut record stay
+// (the loop guard still sees fresh context); only the stall accounting resumes climbing, so an
+// implement↔revert oscillation can no longer dodge the stall force-stop by zeroing the counter on
+// every swing. Only call this when the mutated() for the same edit returned reset==true.
+func (g *runGuard) retractProgress() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.sinceProgress = g.prevSince
+	g.lastStallAt = g.prevStallAt
 }
 
 const guardResultEcho = 4 << 10 // cap on the cached result echoed back on a block
@@ -533,12 +563,12 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	selfVerified := false // pre-finish self-verification nudge fired at most once per run
 	fabNudges := 0        // pre-finish fabrication refusals this run (max 2: redirect, then ultimatum)
 	guard := newRunGuard()
-	councilRounds := 0        // consensus termination gate rounds this turn (D14)
-	lastCouncilFeedback := "" // last round's feedback (no-progress detection)
-	prevFinishText := ""      // the answer the council rejected last round
-	prevFinishCalls := -1     // guard.callCount() at that rejection (-1 = none yet)
+	councilRounds := 0               // consensus termination gate rounds this turn (D14)
+	lastCouncilFeedback := ""        // last round's feedback (no-progress detection)
+	prevFinishText := ""             // the answer the council rejected last round
+	prevFinishCalls := -1            // guard.callCount() at that rejection (-1 = none yet)
 	councilSpent := time.Duration(0) // self-measured wall-clock consumed by deliberations
-	turnTask := ""            // the user instruction THIS turn answers, snapshotted at
+	turnTask := ""                   // the user instruction THIS turn answers, snapshotted at
 	// step 0 — so a steer that lands during the council gate can't hijack what the
 	// council judges against (that interjection gets its own follow-up turn instead).
 	usedTools := seedWork // did this turn do real work? (planner investigation seeds it; council skips pure conversational turns)
@@ -1712,10 +1742,11 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// Loop guard bookkeeping: cache this call's result (so a later blocked repeat can be
 	// handed it) and, on a successful file mutation, bump the epoch so identical follow-up
 	// commands (e.g. re-running the test) are no longer treated as a no-progress repeat.
+	mutatedReset := false // did mutated() reset the progress counters THIS call?
 	if guard != nil && guardFP != "" {
 		guard.record(guardFP, string(res.Content))
 		if !res.IsError && fileModifiers[tc.Name] {
-			guard.mutated(pathArg(tc.Args), canonicalArgs(tc.Args))
+			mutatedReset = guard.mutated(pathArg(tc.Args), canonicalArgs(tc.Args))
 		}
 		// A successful bash write is the fabrication vector that bypasses changeSet — record
 		// its command so the pre-finish scan can see content the model fabricated in a heredoc.
@@ -1736,9 +1767,18 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		after := readForChange(workdir, changePath)
 		guard.recordChange(rel, changeBefore, after)
 		// Self-regression check: warn (don't block) when this edit undoes the agent's own
-		// earlier change by returning the file to a state it already held this turn.
-		if warn := guard.noteEdit(rel, changeBefore, after); warn != "" {
-			res.Content = appendToContent(res.Content, "\n\n[self-edit check] "+warn)
+		// earlier change by returning the file to a state it already held this turn. A revert is
+		// not progress, so retract the counter reset mutated() just applied — otherwise an
+		// implement↔revert oscillation dodges the stall force-stop by zeroing sinceProgress on
+		// every swing. Retract only when THIS call's mutated() actually reset (block above gates
+		// on res.IsError, this one on toolOK — they can diverge).
+		if warn, regressed := guard.noteEdit(rel, changeBefore, after); warn != "" || regressed {
+			if warn != "" {
+				res.Content = appendToContent(res.Content, "\n\n[self-edit check] "+warn)
+			}
+			if regressed && mutatedReset {
+				guard.retractProgress()
+			}
 		}
 	}
 

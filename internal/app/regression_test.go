@@ -117,11 +117,11 @@ func TestNoteEditRevertToBaseline(t *testing.T) {
 	g := newRunGuard()
 	const path = "a.go"
 	// First edit: baseline "orig" → "fixed". The `before` seeds the baseline.
-	if w := g.noteEdit(path, "orig", "fixed"); w != "" {
+	if w, _ := g.noteEdit(path, "orig", "fixed"); w != "" {
 		t.Fatalf("first edit should not warn, got %q", w)
 	}
 	// Second edit: back to "orig" — undoing the fix.
-	w := g.noteEdit(path, "fixed", "orig")
+	w, _ := g.noteEdit(path, "fixed", "orig")
 	if w == "" {
 		t.Fatal("reverting to the pre-turn baseline should warn")
 	}
@@ -133,7 +133,7 @@ func TestNoteEditOscillation(t *testing.T) {
 	const path = "a.go"
 	g.noteEdit(path, "orig", "v1") // baseline orig, now v1
 	g.noteEdit(path, "v1", "v2")   // now v2
-	if w := g.noteEdit(path, "v2", "v1"); w == "" {
+	if w, _ := g.noteEdit(path, "v2", "v1"); w == "" {
 		t.Fatal("returning to an earlier edit state should warn")
 	}
 }
@@ -147,7 +147,7 @@ func TestNoteEditForwardProgress(t *testing.T) {
 		if i > 0 {
 			before = "vX" // ignored after first call (path already tracked)
 		}
-		if w := g.noteEdit(path, before, after); w != "" {
+		if w, _ := g.noteEdit(path, before, after); w != "" {
 			t.Fatalf("forward edit %q should not warn, got %q", after, w)
 		}
 	}
@@ -159,7 +159,7 @@ func TestNoteEditIdempotent(t *testing.T) {
 	g := newRunGuard()
 	const path = "a.go"
 	g.noteEdit(path, "orig", "fixed")
-	if w := g.noteEdit(path, "fixed", "fixed"); w != "" {
+	if w, _ := g.noteEdit(path, "fixed", "fixed"); w != "" {
 		t.Fatalf("idempotent rewrite should not warn, got %q", w)
 	}
 }
@@ -170,13 +170,13 @@ func TestNoteEditWarnsOncePerFile(t *testing.T) {
 	g := newRunGuard()
 	const path = "a.go"
 	g.noteEdit(path, "orig", "fixed")
-	if w := g.noteEdit(path, "fixed", "orig"); w == "" {
+	if w, _ := g.noteEdit(path, "fixed", "orig"); w == "" {
 		t.Fatal("first revert should warn")
 	}
-	if w := g.noteEdit(path, "orig", "fixed"); w != "" {
+	if w, _ := g.noteEdit(path, "orig", "fixed"); w != "" {
 		t.Fatalf("second oscillation should NOT warn again, got %q", w)
 	}
-	if w := g.noteEdit(path, "fixed", "orig"); w != "" {
+	if w, _ := g.noteEdit(path, "fixed", "orig"); w != "" {
 		t.Fatalf("third oscillation should NOT warn again, got %q", w)
 	}
 }
@@ -272,6 +272,54 @@ func TestStallForceStop(t *testing.T) {
 	}
 }
 
+// TestRegressiveEditWithholdsProgress: an implement↔revert oscillation must not keep resetting
+// the no-progress counter. A forward edit is progress (resets sinceProgress); a revert to a state
+// the file already held this turn is churn — mutated() resets, then noteEdit's regressed flag
+// drives retractProgress() to restore the climb. Without this, the oscillation zeroes the counter
+// on every swing and the stall force-stop never accumulates (the implement→revert timeout seen in
+// self-verification #01, where council never even convened before the wall-clock killed the run).
+func TestRegressiveEditWithholdsProgress(t *testing.T) {
+	g := newRunGuard()
+	const path = "calc.go"
+	// edit replays one oscillation swing exactly as the loop body does: count the tool call, record
+	// the mutation (which resets progress), then run the content check and retract on a self-revert.
+	edit := func(before, after, sig string) {
+		g.check("edit", json.RawMessage(`{}`)) // one tool call → sinceProgress++
+		reset := g.mutated(path, sig)
+		if _, regressed := g.noteEdit(path, before, after); regressed && reset {
+			g.retractProgress()
+		}
+	}
+	// A forward edit is genuine progress → the no-progress counter resets.
+	g.sinceProgress = 9
+	edit("orig", "stub", "sig-stub")
+	if g.sinceProgress != 0 {
+		t.Fatalf("a forward edit is progress and should reset the counter, got %d", g.sinceProgress)
+	}
+	// Reverting to the original is churn, not progress: the counter must climb, not reset to 0.
+	before := g.sinceProgress
+	edit("stub", "orig", "sig-orig")
+	if g.sinceProgress <= before {
+		t.Fatalf("a self-revert must not reset progress: sinceProgress %d ≤ %d", g.sinceProgress, before)
+	}
+	// And it keeps climbing monotonically across a long oscillation, well past a stall window, so
+	// the force-stop (see TestStallForceStop) can finally accumulate instead of being reset forever.
+	for i := 0; i < noProgressNudge*2; i++ {
+		b, a, s := "stub", "orig", "sig-orig"
+		if i%2 == 0 {
+			b, a, s = "orig", "stub", "sig-stub"
+		}
+		prev := g.sinceProgress
+		edit(b, a, s)
+		if g.sinceProgress <= prev {
+			t.Fatalf("swing %d: oscillation must keep climbing, got %d ≤ %d", i, g.sinceProgress, prev)
+		}
+	}
+	if g.sinceProgress < noProgressNudge {
+		t.Fatalf("after a long oscillation the counter should be past a stall window, got %d", g.sinceProgress)
+	}
+}
+
 // TestBashWriteCountsAsProgress: a bash command that writes a file bumps the mutation
 // epoch (progress), while re-running the identical write does not — the tool-agnostic
 // twin of write/edit's epoch rule, so bash-heavy tasks don't misfire stall nudges.
@@ -336,10 +384,10 @@ func TestNoteEditPerFile(t *testing.T) {
 	g := newRunGuard()
 	g.noteEdit("a.go", "origA", "fixA")
 	g.noteEdit("b.go", "origB", "fixB")
-	if w := g.noteEdit("b.go", "fixB", "origB"); w == "" {
+	if w, _ := g.noteEdit("b.go", "fixB", "origB"); w == "" {
 		t.Fatal("b.go revert should warn independently of a.go")
 	}
-	if w := g.noteEdit("a.go", "fixA", "fixA2"); w != "" {
+	if w, _ := g.noteEdit("a.go", "fixA", "fixA2"); w != "" {
 		t.Fatalf("a.go forward edit should not warn, got %q", w)
 	}
 }
