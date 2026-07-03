@@ -202,17 +202,26 @@ in `loop.go` calls into them each step):
   exit 0) with the work as-is, so a completed task is not misreported as an agent-level
   failure. Epoch 0 (pure thrash, nothing produced) → keep the `loop_guard`/`stall_guard`
   error abort so the failure stays visible.
-- **fabrication defense — behavioral first, phrase scan as a cheap pre-flag**: the
-  language-agnostic authority is the fresh-evidence gate above (the tester actually runs the
-  build/tests, in any language). Layered on top, a best-effort **English-only** phrase scan
-  over the agent's own writes AND bash-written content flags self-admitted stand-ins
-  ("in a real implementation…", `core/selfcheck.FabricationMarkers`) — it feeds the council
-  as a deterministic `self-check: fabrication` signal and drives an early redirect nudge, and
-  the report tool refuses a "done" report whose own text confesses. This scan is NOT the
-  authority and is deliberately not grown: a confession in another language or a confident
-  false "verified" claim slips past it, and is caught instead when the top-level tester runs
-  the merged deliverable and it fails. Test doubles are exempt (`selfcheck.TestArtifactPath`):
-  a mock saying "this simulates…" is not a confession.
+- **fabrication defense — behavioral, structural, no phrase matching**: the authority is the
+  fresh-evidence gate above (the tester actually runs the build/tests, in any language). Its
+  cheap advisory pre-flag is now **structural, not lexical**: `guard.unverifiedDeliverable()`
+  is true when the turn produced/changed a deliverable this epoch (`mutationEpoch() > 0`) but
+  ran **no command that exercises the current version** (`execSinceMut == 0`). Execution is
+  counted by leading verb: a small closed set of POSIX inspection verbs (`ls`/`cat`/`echo`/
+  `exit`/`true`/… — see `inspectOnlyCmds`) does NOT count; anything else (a program, its
+  tests, `./run`, `make`) does. A bash file-write is deliverable *production*, not exercise,
+  so it bumps the epoch and resets the counter — writing then declaring done without running
+  trips the flag. This replaced the former English-only confession-phrase scan
+  (`core/selfcheck`, now deleted): it is language-agnostic (it reads behavior, not wording),
+  catches confident-but-false "verified" claims (there is no execution to point to), and needs
+  no ever-growing phrase list. It is deliberately biased toward NOT flagging (unknown verbs
+  read as execution) to keep false positives low. The flag feeds three advisory paths, none a
+  hard block: the council as a deterministic `self-check: unverified` signal; a sharpened
+  self-verify nudge ("you ran nothing that exercises this — run it now, or say plainly there
+  is nothing to run"); and the subagent take-report branch, which refuses a "done" report once
+  when the subagent *could* have run its work (`agent.allows("bash")`) but didn't — a
+  read/write-only agent that cannot execute is never refused, deferring instead to the parent
+  tester that runs the merged deliverable for real.
 - **no retry storm**: a terminal provider error ends the turn; `startRun` does NOT
   re-run a failed turn (only re-runs to pick up a user *steer*).
 - **language lock** (`langDirective`): the user's script (Hangul/Kana/…) is detected
