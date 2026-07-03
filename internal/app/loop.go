@@ -132,10 +132,13 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	runStart := time.Now() // self-measured wall clock (budget line + council cost control)
 	agentActor := event.Actor{Kind: event.ActorAgent, ID: orDefault(agent.Name, "default")}
 	lastText := ""
-	stopChecked := false  // Stop hooks enforced at most once per run
-	nudgedEmpty := false  // subagent empty-result nudge fired at most once
-	selfVerified := false // pre-finish self-verification nudge fired at most once per run
-	fabNudges := 0        // pre-finish fabrication refusals this run (max 2: redirect, then ultimatum)
+	stopChecked := false              // Stop hooks enforced at most once per run
+	nudgedEmpty := false              // subagent empty-result nudge fired at most once
+	selfVerified := false             // pre-finish self-verify self-prompt (fallback path) fired at most once per run
+	reviewGateFired := false          // has the delegated review gate fired yet this run? (first fire counts bash; re-arm counts only new file mutations)
+	reviewBudget := reviewSpawnBudget // remaining delegated-review subagents this run (spent across re-arm firings)
+	reviewedAtMutators := 0           // mutatorCalls at the last review-gate firing (re-arm only on NEW file mutations since)
+	fabNudges := 0                    // pre-finish fabrication refusals this run (max 2: redirect, then ultimatum)
 	guard := newRunGuard()
 	councilRounds := 0               // consensus termination gate rounds this turn (D14)
 	lastCouncilFeedback := ""        // last round's feedback (no-progress detection)
@@ -147,6 +150,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	// council judges against (that interjection gets its own follow-up turn instead).
 	usedTools := seedWork // did this turn do real work? (planner investigation seeds it; council skips pure conversational turns)
 	usedMutator := false  // did this turn run a state-changing tool (bash or edit/write)? gates the pre-finish self-verify — bash writes files too, but don't reach guard.changeSet()
+	mutatorCalls := 0     // count of genuine file-mutating tool calls (edit/write, NOT read-only bash) — the re-arm marker: the review gate re-fires only when this grows past reviewedAtMutators (a real post-council fix), not on a re-inspection via `git status`/`cat`
 	// Turn usage accumulation (§8.1): output tokens and cost sum across steps; input
 	// is the last step's (the current context size, not a sum).
 	var cumOut, lastIn int
@@ -278,6 +282,9 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		for _, tc := range toolCalls {
 			if tc.Name == "bash" || fileModifiers[tc.Name] {
 				usedMutator = true // a write-capable tool ran; a bash write never reaches guard.changeSet()
+			}
+			if fileModifiers[tc.Name] {
+				mutatorCalls++ // re-arm marker: a genuine file mutation (edit/write) — read-only bash is excluded so re-inspecting findings can't re-fire the gate
 			}
 			a.appendPart(ctx, sid, agentActor, msgID, session.RoleAssistant, session.Part{
 				ID: "p_" + newID(), Kind: session.PartToolCall, ToolCall: tc,
@@ -415,47 +422,62 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			// than guard.changeSet() because bash writes files too but never populate the
 			// changeSet (only edit/write/multiedit do), so a bash-driven agent that did
 			// 1 of N deliverables would otherwise never get the coverage check.
-			if depth == 0 && !selfVerified && usedTools && usedMutator {
-				selfVerified = true
+			if depth == 0 && usedTools && usedMutator {
 				// Delegated review gate: instead of asking the agent to self-verify (which
 				// its own confirmation bias can wave through), dispatch independent read-only
 				// tester+reviewer subagents to check the work with fresh eyes and inject their
 				// findings. Falls back to the self-verify prompt when disabled or the reviewer
 				// agents aren't configured.
 				if a.cfg.ReviewGate && a.hasReviewGateAgents() {
-					a.runReviewGate(ctx, s, turnTask, guard.changeSet())
+					// First fire: any state-changing tool qualifies (incl. a bash write, which
+					// never reaches the changeSet — hence usedMutator, not mutatorCalls, here).
+					// Re-arm: only a NEW file mutation since the last firing (mutatorCalls counts
+					// edit/write, not read-only bash), so re-inspecting the findings with
+					// `git status`/`cat` can't burn budget on a pointless re-check. This lets a
+					// council rejection's FIX get independently re-verified, while the per-run
+					// budget bounds the fan-out so a repeatedly-rejecting council can't spawn
+					// reviewers without end. Once the budget is spent, the council alone gates.
+					firstFire := !reviewGateFired && usedMutator
+					reFire := reviewGateFired && mutatorCalls > reviewedAtMutators
+					if reviewBudget > 0 && (firstFire || reFire) {
+						reviewGateFired = true
+						reviewedAtMutators = mutatorCalls
+						reviewBudget -= a.runReviewGate(ctx, s, turnTask, guard.changeSet(), reviewBudget)
+						continue
+					}
+				} else if !selfVerified {
+					selfVerified = true
+					msg := "Before finishing, VERIFY you satisfied the task literally — in two passes. " +
+						"PASS 1 (coverage): re-read the original task and list every distinct thing it requires — each " +
+						"deliverable, and any quantifier or scope it states (e.g. 'all', 'each', 'every', a range or list " +
+						"of IDs/inputs, multiple files). Then confirm you actually did EACH one, not just the first or the " +
+						"easy case. If the task asks for N things and you did fewer, it is INCOMPLETE — do the rest before " +
+						"finishing. PASS 2 (correctness): for what you produced, confirm the ACTUAL result matches what the " +
+						"task SPECIFIES — read the created/edited file(s) back and check their real content, or run the " +
+						"program/command and check its behavior against the intended outcome. Verify ONLY against output you " +
+						"actually observed this turn — file contents you really read back, or the real output of a command " +
+						"you really ran. Do NOT invent, guess, or hand-write what a run WOULD have produced: if you could not " +
+						"actually execute or observe something — an interactive program you never drove, a test you never " +
+						"ran, a result you only assumed — then you have NOT verified it. Never fabricate its output or write " +
+						"a stand-in/placeholder file to make this check appear to pass; that is worse than leaving it " +
+						"undone, because it hides the gap. If the user explicitly asked for synthetic, fictional, or example " +
+						"content, producing it is fine — but your final report must LABEL it as synthetic (\"this log is " +
+						"fictional; the game was not actually run\"), never describe invented content as verified or real. " +
+						"In that case say plainly that you could not run or confirm it, and " +
+						"treat that requirement as UNFINISHED, not done. Match the task, not a generic " +
+						"'it works': the intended state may be that something succeeds, but it may just as well be that it is " +
+						"removed, disabled, rejects bad input, or fails on purpose. Fix any real mismatch — wrong content, " +
+						"value, format, name, or location, or a leftover placeholder. If this check reveals your earlier " +
+						"work was wrong, incomplete, or that you called it done too soon, say so plainly and fix it — do not " +
+						"restate that it works or paper over the gap. Finish only once every requirement is done and its " +
+						"result matches what the task asked for."
+					pd, _ := json.Marshal(event.PromptSubmittedData{
+						MessageID: "m_" + newID(),
+						Parts:     []session.Part{{Kind: session.PartText, Text: msg}},
+					})
+					a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
 					continue
 				}
-				msg := "Before finishing, VERIFY you satisfied the task literally — in two passes. " +
-					"PASS 1 (coverage): re-read the original task and list every distinct thing it requires — each " +
-					"deliverable, and any quantifier or scope it states (e.g. 'all', 'each', 'every', a range or list " +
-					"of IDs/inputs, multiple files). Then confirm you actually did EACH one, not just the first or the " +
-					"easy case. If the task asks for N things and you did fewer, it is INCOMPLETE — do the rest before " +
-					"finishing. PASS 2 (correctness): for what you produced, confirm the ACTUAL result matches what the " +
-					"task SPECIFIES — read the created/edited file(s) back and check their real content, or run the " +
-					"program/command and check its behavior against the intended outcome. Verify ONLY against output you " +
-					"actually observed this turn — file contents you really read back, or the real output of a command " +
-					"you really ran. Do NOT invent, guess, or hand-write what a run WOULD have produced: if you could not " +
-					"actually execute or observe something — an interactive program you never drove, a test you never " +
-					"ran, a result you only assumed — then you have NOT verified it. Never fabricate its output or write " +
-					"a stand-in/placeholder file to make this check appear to pass; that is worse than leaving it " +
-					"undone, because it hides the gap. If the user explicitly asked for synthetic, fictional, or example " +
-					"content, producing it is fine — but your final report must LABEL it as synthetic (\"this log is " +
-					"fictional; the game was not actually run\"), never describe invented content as verified or real. " +
-					"In that case say plainly that you could not run or confirm it, and " +
-					"treat that requirement as UNFINISHED, not done. Match the task, not a generic " +
-					"'it works': the intended state may be that something succeeds, but it may just as well be that it is " +
-					"removed, disabled, rejects bad input, or fails on purpose. Fix any real mismatch — wrong content, " +
-					"value, format, name, or location, or a leftover placeholder. If this check reveals your earlier " +
-					"work was wrong, incomplete, or that you called it done too soon, say so plainly and fix it — do not " +
-					"restate that it works or paper over the gap. Finish only once every requirement is done and its " +
-					"result matches what the task asked for."
-				pd, _ := json.Marshal(event.PromptSubmittedData{
-					MessageID: "m_" + newID(),
-					Parts:     []session.Part{{Kind: session.PartText, Text: msg}},
-				})
-				a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
-				continue
 			}
 			// Consensus council termination gate (D14): top level only, not in
 			// workflow mode, and only for turns that did real work — a purely
