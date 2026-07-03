@@ -65,11 +65,15 @@ func (f *interleaveLLM) StreamChat(ctx context.Context, r port.ChatRequest) (<-c
 	return ch, nil
 }
 
+// lastMsgText returns the last state-bearing text in the request. The loop appends
+// an ephemeral volatile block (step budget, todos) as a trailing user message on
+// every step — that block is pacing metadata, not conversation state, so it is
+// skipped: the marker a routing fake dispatches on lives in the message before it.
 func lastMsgText(r port.ChatRequest) string {
 	last := ""
 	for _, m := range r.Messages {
 		for _, p := range m.Parts {
-			if p.Kind == session.PartText && p.Text != "" {
+			if p.Kind == session.PartText && p.Text != "" && !strings.Contains(p.Text, "# Step budget") {
 				last = p.Text
 			}
 			if p.Kind == session.PartToolResult && p.ToolResult != nil {

@@ -217,7 +217,8 @@ func (routingLLM) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan po
 	last := ""
 	for _, m := range r.Messages {
 		for _, p := range m.Parts {
-			if p.Kind == session.PartText && p.Text != "" {
+			// Skip the ephemeral volatile block (step budget) — see lastMsgText.
+			if p.Kind == session.PartText && p.Text != "" && !strings.Contains(p.Text, "# Step budget") {
 				last = p.Text
 			}
 			if p.Kind == session.PartToolResult && p.ToolResult != nil {
