@@ -1122,11 +1122,18 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		maxRounds = 3
 	}
 	if *rounds >= maxRounds {
-		// Round cap hit — finish (a normal outcome, not an error). Record why, on a
-		// fresh round number so it doesn't collide with the last deliberated round.
+		// Round cap hit — finish (a normal outcome, not an error), but say plainly
+		// that the council never approved: a deadlocked result must read as
+		// UNVERIFIED, not as a done the members agreed to. Carry the last feedback
+		// so the record shows WHAT was still unmet. Recorded on a fresh round number
+		// so it doesn't collide with the last deliberated round.
+		note := fmt.Sprintf("unresolved after %d rounds — finishing; the council never approved this result, treat it as UNVERIFIED", maxRounds)
+		if fb := strings.TrimSpace(*lastFeedback); fb != "" {
+			note += "; still unmet: " + clipLine(fb, 200)
+		}
 		dd, _ := json.Marshal(event.CouncilDecidedData{
 			Round: *rounds + 1, Decision: string(council.Done),
-			Note: fmt.Sprintf("unresolved after %d rounds — finishing", maxRounds),
+			Note: note,
 		})
 		a.appendFact(ctx, sid, event.TypeCouncilDecided, councilActor, dd)
 		return false
@@ -1290,7 +1297,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	// spin, so finish instead — recorded as a forced "done", not an error.
 	fb := strings.TrimSpace(delib.Feedback)
 	if fb == "" || fb == *lastFeedback {
-		emitDecided(council.Done, "", "members voted continue but gave no new feedback — finishing")
+		emitDecided(council.Done, "", "members voted continue but gave no new feedback — finishing; the council never approved this result, treat it as UNVERIFIED")
 		return false
 	}
 	*lastFeedback = fb

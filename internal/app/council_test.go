@@ -283,6 +283,14 @@ func TestCouncilMaxRoundsStops(t *testing.T) {
 	if !hasDecidedNote(evs, "unresolved after") {
 		t.Fatal("hitting the cap should record a forced-finish council.decided note")
 	}
+	// A deadlocked finish is not an approval: the note must say so and carry the
+	// last outstanding feedback so the record shows WHAT was still unmet.
+	if !hasDecidedNote(evs, "UNVERIFIED") {
+		t.Fatal("cap-forced finish should mark the result UNVERIFIED, not read as an approval")
+	}
+	if !hasDecidedNote(evs, "step two") {
+		t.Fatal("cap-forced finish should carry the last outstanding feedback")
+	}
 	if countType(evs, event.TypeTurnFinished) != 1 {
 		t.Fatal("turn should finish after rounds are exhausted")
 	}
@@ -301,6 +309,9 @@ func TestCouncilNoProgressStops(t *testing.T) {
 	}
 	if !hasDecidedNote(evs, "no new feedback") {
 		t.Fatal("repeated feedback should record a no-progress council.decided note")
+	}
+	if !hasDecidedNote(evs, "UNVERIFIED") {
+		t.Fatal("no-progress finish should mark the result UNVERIFIED, not read as an approval")
 	}
 	if countType(evs, event.TypeTurnFinished) != 1 {
 		t.Fatal("turn should finish after no-progress is detected")
