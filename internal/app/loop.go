@@ -38,6 +38,87 @@ func (a *App) run(ctx context.Context, sid session.SessionID) error {
 	return err
 }
 
+// buildStepSystem assembles the cacheable system prompt for one loop step: the
+// base agent/project prompt, an optional primacy language-lock directive (top
+// level only), and the static list of available skills. Kept byte-stable within
+// a turn so the backend's prefix (KV) cache survives across steps — per-step
+// volatile context (plan/experience/RAG) is injected separately, never here.
+func (a *App) buildStepSystem(agent AgentSpec, workdir string, isSub bool, evs []event.Event) string {
+	sys := a.systemFor(agent, workdir, isSub)
+	// Language lock: weak models ignore a "reply in the user's language" rule
+	// buried in a long prompt, so detect the user's script and put a short,
+	// forceful directive FIRST (primacy). Top-level only — subagents report to
+	// the orchestrator, not the user. Lock to the genuine user's language, NOT the
+	// latest user-role message — council/hook/auto feedback is injected as a
+	// user-role prompt (often English), which would let a weak model drift.
+	if !isSub {
+		if dir := langDirective(lastUserPromptText(evs)); dir != "" {
+			sys = dir + "\n\n" + sys
+		}
+	}
+	// Available skills (model loads one via the skill tool when relevant).
+	if sk := a.loadSkills(workdir); len(sk) > 0 {
+		var b strings.Builder
+		b.WriteString("\n\n# Available skills (use the skill tool to load one)\n")
+		for _, x := range sk {
+			b.WriteString("- " + x.Name + ": " + oneLineHint(x.Description) + "\n")
+		}
+		sys += strings.TrimRight(b.String(), "\n")
+	}
+	return sys
+}
+
+// streamStep is the outcome of consuming one model-response stream: the finalized
+// assistant text/reasoning, the tool calls it requested, and the usage report.
+type streamStep struct {
+	text         string
+	reasoning    string
+	toolCalls    []*session.ToolCall
+	usage        *event.Usage
+	textConsumed bool // the text was a prompt-fallback tool call, not a real answer
+}
+
+// consumeStream drains one provider stream, publishing text/reasoning deltas as
+// transient events and recording the real prompt-token count for the meter. A
+// non-nil error means the provider reported one (already emitted to the bus) and
+// the turn must unwind.
+func (a *App) consumeStream(ctx context.Context, sid session.SessionID, agentActor event.Actor, stream <-chan port.ProviderEvent, msgID, textPartID, reasonPartID string) (streamStep, error) {
+	var text, reasoning strings.Builder
+	var res streamStep
+	streamErr := false
+	for ev := range stream {
+		switch ev.Type {
+		case port.ProviderReasoning:
+			reasoning.WriteString(ev.Text)
+			d, _ := json.Marshal(event.PartDeltaData{MessageID: msgID, PartID: reasonPartID, Kind: session.PartReasoning, Text: ev.Text})
+			a.publishTransient(sid, event.TypePartDelta, agentActor, d)
+		case port.ProviderText:
+			text.WriteString(ev.Text)
+			d, _ := json.Marshal(event.PartDeltaData{MessageID: msgID, PartID: textPartID, Kind: session.PartText, Text: ev.Text})
+			a.publishTransient(sid, event.TypePartDelta, agentActor, d)
+		case port.ProviderToolCall:
+			res.toolCalls = append(res.toolCalls, ev.ToolCall)
+			if ev.FromText {
+				res.textConsumed = true // text was actually a tool call (fallback)
+			}
+		case port.ProviderUsage:
+			res.usage = ev.Usage
+			if ev.Usage != nil && ev.Usage.In > 0 {
+				a.setPromptTokens(sid, ev.Usage.In) // real context size for meter/compaction
+			}
+		case port.ProviderError:
+			a.emitError(ctx, sid, agentActor, ev.Err.Error())
+			streamErr = true
+		}
+	}
+	res.text = text.String()
+	res.reasoning = reasoning.String()
+	if streamErr {
+		return res, fmt.Errorf("provider error")
+	}
+	return res, nil
+}
+
 // runLoop drives the agent loop until the model stops, max steps are reached, or
 // the run is interrupted. It returns the final assistant text (used as a
 // subagent's result). depth is the orchestration nesting level (D7); maxSteps<=0
@@ -96,36 +177,13 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			turnTask = lastUserPromptText(evs) // the prompt that drove this turn
 		}
 
-		// Durable project memory (AGENTS.md) is part of the system prompt and is
-		// never compacted away.
+		// Durable project memory (AGENTS.md) is part of the system prompt and is never
+		// compacted away. The system prompt is assembled byte-stable within a turn (so
+		// the backend's prefix/KV cache survives across steps); per-step-volatile
+		// context (current plan/TODOs, shared experience, retrieved RAG) is injected
+		// separately as an ephemeral trailing message below, NOT into sys.
 		isSub := s.Parent != ""
-		sys := a.systemFor(agent, s.Workdir, isSub)
-		// Language lock: weak models ignore a "reply in the user's language" rule
-		// buried in a long prompt, so detect the user's script and put a short,
-		// forceful directive FIRST (primacy). Top-level only — subagents report to
-		// the orchestrator, not the user.
-		if !isSub {
-			// Lock to the genuine user's language, NOT the latest user-role message —
-			// council/hook/auto feedback is injected as a user-role prompt (often
-			// English), and keying the lock off it lets a weak model drift languages.
-			if dir := langDirective(lastUserPromptText(evs)); dir != "" {
-				sys = dir + "\n\n" + sys
-			}
-		}
-		// NOTE: the per-step-volatile context (current plan/TODOs, shared experience, retrieved
-		// RAG) used to be appended to `sys` here. It is now built by volatileContext() and
-		// injected as an ephemeral trailing message instead — keeping the system prompt
-		// byte-stable within a turn so the backend's prefix (KV) cache survives across steps.
-		// Available skills (model loads one via the skill tool when relevant). Static — stays
-		// in the cacheable system prompt.
-		if sk := a.loadSkills(s.Workdir); len(sk) > 0 {
-			var b strings.Builder
-			b.WriteString("\n\n# Available skills (use the skill tool to load one)\n")
-			for _, x := range sk {
-				b.WriteString("- " + x.Name + ": " + oneLineHint(x.Description) + "\n")
-			}
-			sys += strings.TrimRight(b.String(), "\n")
-		}
+		sys := a.buildStepSystem(agent, s.Workdir, isSub, evs)
 
 		// Per-step-volatile context (current plan, shared experience, retrieved RAG): built
 		// here but injected as an ephemeral trailing message, NOT into `sys`. `sys` (above) is
@@ -179,43 +237,14 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		}
 
 		msgID := "m_" + newID()
-		var text strings.Builder
-		var reasoning strings.Builder
 		textPartID := "p_" + newID()
 		reasonPartID := "p_" + newID()
-		var toolCalls []*session.ToolCall
-		var usage *event.Usage
-		streamErr := false
-		textConsumed := false // text was actually a tool call (fallback)
-
-		for ev := range stream {
-			switch ev.Type {
-			case port.ProviderReasoning:
-				reasoning.WriteString(ev.Text)
-				d, _ := json.Marshal(event.PartDeltaData{MessageID: msgID, PartID: reasonPartID, Kind: session.PartReasoning, Text: ev.Text})
-				a.publishTransient(sid, event.TypePartDelta, agentActor, d)
-			case port.ProviderText:
-				text.WriteString(ev.Text)
-				d, _ := json.Marshal(event.PartDeltaData{MessageID: msgID, PartID: textPartID, Kind: session.PartText, Text: ev.Text})
-				a.publishTransient(sid, event.TypePartDelta, agentActor, d)
-			case port.ProviderToolCall:
-				toolCalls = append(toolCalls, ev.ToolCall)
-				if ev.FromText {
-					textConsumed = true
-				}
-			case port.ProviderUsage:
-				usage = ev.Usage
-				if ev.Usage != nil && ev.Usage.In > 0 {
-					a.setPromptTokens(sid, ev.Usage.In) // real context size for meter/compaction
-				}
-			case port.ProviderError:
-				a.emitError(ctx, sid, agentActor, ev.Err.Error())
-				streamErr = true
-			}
+		res, serr := a.consumeStream(ctx, sid, agentActor, stream, msgID, textPartID, reasonPartID)
+		if serr != nil {
+			return lastText, serr
 		}
-		if streamErr {
-			return lastText, fmt.Errorf("provider error")
-		}
+		text, reasoning := res.text, res.reasoning
+		toolCalls, usage, textConsumed := res.toolCalls, res.usage, res.textConsumed
 		// Accumulate this step's usage into the turn totals (§8.1).
 		if usage != nil {
 			cumOut += usage.Out
@@ -232,19 +261,19 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		}
 
 		// Persist the assistant message: reasoning (if any), then text, then tool calls.
-		if reasoning.Len() > 0 {
+		if reasoning != "" {
 			a.appendPart(ctx, sid, agentActor, msgID, session.RoleAssistant, session.Part{
-				ID: reasonPartID, Kind: session.PartReasoning, Text: reasoning.String(),
+				ID: reasonPartID, Kind: session.PartReasoning, Text: reasoning,
 			})
 		}
-		if text.Len() > 0 && !textConsumed {
-			lastText = text.String()
+		if text != "" && !textConsumed {
+			lastText = text
 			a.appendPart(ctx, sid, agentActor, msgID, session.RoleAssistant, session.Part{
-				ID: textPartID, Kind: session.PartText, Text: text.String(),
+				ID: textPartID, Kind: session.PartText, Text: text,
 			})
 			// If a subagent is blocked waiting on this orchestrator, its reply IS
 			// the answer — route it back so the subagent resumes.
-			a.answerPendingAsk(sid, text.String())
+			a.answerPendingAsk(sid, text)
 		}
 		for _, tc := range toolCalls {
 			if tc.Name == "bash" || fileModifiers[tc.Name] {
