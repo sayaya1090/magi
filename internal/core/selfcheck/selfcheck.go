@@ -18,6 +18,20 @@ import "strings"
 // model narrating a fake. This keys off the MODEL'S OWN confession, not our guess
 // at the task, which is what makes it a safe deterministic signal. Matched
 // case-insensitively.
+//
+// SCOPE / LIMITS — this is a best-effort, ENGLISH-ONLY, non-authoritative pre-flag,
+// NOT the primary fabrication defense. By construction it misses a confession in
+// another language ("// 실제 구현은 나중에") and any paraphrase not in the list, and it
+// cannot catch a confident FALSE claim that never confesses ("thoroughly verified"
+// with nothing actually run). Do NOT try to close those gaps by growing this list —
+// that is an endless whack-a-mole. The language-agnostic authority is BEHAVIORAL:
+// the review gate's tester actually runs the build/tests and returns a PASS/FAIL
+// verdict (internal/app.parseTesterVerdict), and the fresh-evidence completion gate
+// (internal/app/loop.go) only lets a turn finish once the CURRENT deliverable version
+// passed. A phrase this list misses is still caught when the tester runs the real
+// thing and it fails. Both call sites of this list — the loop's guard.scanFabrication
+// and the report tool (internal/adapter/tool/builtin/report.go) — share these limits;
+// treat their result as an early hint, never as proof of completion.
 var FabricationMarkers = []string{
 	"we can't actually",
 	"we cannot actually",
