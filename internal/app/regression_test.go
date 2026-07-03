@@ -309,3 +309,30 @@ func TestNoteEditPerFile(t *testing.T) {
 		t.Fatalf("a.go forward edit should not warn, got %q", w)
 	}
 }
+
+// The planner's step estimate rides the budget block as pacing advice — and only
+// as advice: no estimate, no extra sentence; the hard ceiling wording is unchanged.
+func TestVolatileContextStepEstimate(t *testing.T) {
+	a := &App{todos: map[session.SessionID][]session.Todo{}, estSteps: map[session.SessionID]int{}}
+	s := session.Session{ID: "s1"}
+	if out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 0, 240); strings.Contains(out, "estimated at roughly") {
+		t.Fatalf("no estimate should add no advisory line, got %q", out)
+	}
+	a.storeStepEstimate("s1", 12)
+	out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 0, 240)
+	if !strings.Contains(out, "estimated at roughly 12 step(s)") || !strings.Contains(out, "not a") {
+		t.Fatalf("advisory estimate missing: %q", out)
+	}
+	if !strings.Contains(out, "hard ceiling") {
+		t.Fatalf("the hard ceiling wording must survive: %q", out)
+	}
+	// Garbage estimates are refused at the store.
+	a.storeStepEstimate("s1", -3)
+	if a.stepEstimate("s1") != 12 {
+		t.Fatal("negative estimate should not overwrite")
+	}
+	a.storeStepEstimate("s1", 999999)
+	if a.stepEstimate("s1") != 12 {
+		t.Fatal("absurd estimate should not overwrite")
+	}
+}

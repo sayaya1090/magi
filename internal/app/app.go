@@ -355,6 +355,7 @@ type App struct {
 	todos                 map[session.SessionID][]session.Todo // per-session plan (guarded by mu)
 	stage                 map[session.SessionID]string         // current loop stage for event tagging (guarded by mu)
 	criteria              map[session.SessionID]string         // elicited acceptance criteria per turn (guarded by mu)
+	estSteps              map[session.SessionID]int            // planner's advisory step estimate per turn (guarded by mu)
 	autoOrchestrateActive map[session.SessionID]bool           // whether auto-orchestration has been triggered for this session (guarded by mu)
 	probingWindows        map[string]struct{}                  // models whose context window is being (or was) lazily probed (guarded by mu)
 }
@@ -385,6 +386,7 @@ func New(store port.Store, llm port.LLMProvider, tools port.ToolRegistry, b *bus
 		todos:                 map[session.SessionID][]session.Todo{},
 		stage:                 map[session.SessionID]string{},
 		criteria:              map[session.SessionID]string{},
+		estSteps:              map[session.SessionID]int{},
 		bg:                    map[session.SessionID]*bgGroup{},
 		pendingAsks:           map[session.SessionID]chan string{},
 		reports:               map[session.SessionID]*subReport{},
@@ -646,6 +648,7 @@ func (a *App) Rewind(ctx context.Context, sid session.SessionID, n int) (int64, 
 	delete(a.todos, sid)
 	delete(a.stage, sid)
 	delete(a.criteria, sid)
+	delete(a.estSteps, sid)
 	a.mu.Unlock()
 	return boundary, nil
 }
@@ -978,6 +981,7 @@ func (a *App) Submit(ctx context.Context, c command.SubmitPrompt) error {
 	a.SetTodos(c.SessionID, nil)
 	a.mu.Lock()
 	delete(a.criteria, c.SessionID) // new top-level prompt → drop cached criteria; re-elicited at the next gate (D15)
+	delete(a.estSteps, c.SessionID) // …and the previous task's advisory step estimate
 	a.mu.Unlock()
 	if err := a.appendPrompt(ctx, c); err != nil {
 		return err

@@ -57,6 +57,12 @@ type planStep struct {
 type planResult struct {
 	Steps  []planStep `json:"steps"`
 	Reason string     `json:"reason"`
+	// EstimatedSteps is the planner's guess at how many LOOP STEPS (tool calls)
+	// the whole task will take. Advisory only: it feeds the volatile budget line
+	// as a pacing reference ("~N expected") and NEVER lowers the hard ceiling —
+	// weak models misestimate effort routinely, and a wrong hard cap would cut
+	// off genuinely progressing work (the top measured bench failure).
+	EstimatedSteps int `json:"estimated_steps"`
 }
 
 // readOnlyExplorers are the only agents the planner may dispatch — investigation
@@ -89,6 +95,7 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session) bool {
 	a.setStage(s.ID, stagePlan) // tag pre-flight planning events as the plan stage (D15)
 
 	plan := a.runPlanner(ctx, spec, s, prompt, "")
+	a.storeStepEstimate(s.ID, plan.EstimatedSteps) // advisory pacing reference, solo or not
 	steps := sanitizeSteps(plan)
 	if len(steps) == 0 {
 		a.emitPhase(s.ID, "plan", "solo", strings.TrimSpace(plan.Reason)) // ran, judged single-area
@@ -238,8 +245,10 @@ const plannerContract = "Plan the PROCEDURE to handle the request: an ordered, m
 	"e.g. for a bug hunt, the source files/packages in scope, NOT tangential files like docs) and \"each\" (what to find " +
 	"out about every item); a read-only explorer lists them, then one explorer runs per item in parallel.\n\n" +
 	"Explorers are READ-ONLY (agent ∈ explore|locator|analyst); never use them to write. " +
+	"Also give \"estimated_steps\": your honest guess at the TOTAL number of tool calls the whole task needs " +
+	"(a one-file tweak ~5, a feature with tests ~30, a big build/debug ~100). It is pacing guidance only — never a limit.\n" +
 	"Reply with ONLY a JSON object, no prose:\n" +
-	`{"reason":"one sentence","steps":[{"title":"...","strategy":"solo|parallel|scout","groups":[{"agent":"explore","focus":"...","question":"..."}],"agent":"explore","discover":"...","each":"..."}]}`
+	`{"reason":"one sentence","estimated_steps":12,"steps":[{"title":"...","strategy":"solo|parallel|scout","groups":[{"agent":"explore","focus":"...","question":"..."}],"agent":"explore","discover":"...","each":"..."}]}`
 
 // parsePlan extracts the first BALANCED {...} JSON object from text and unmarshals
 // it. Models wrap the object in prose/fences, and weak local models often append

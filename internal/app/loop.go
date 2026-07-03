@@ -1376,6 +1376,25 @@ func (a *App) storePlanCriteria(ctx context.Context, s session.Session, crit []s
 	})
 }
 
+// storeStepEstimate records the planner's advisory step estimate for the turn
+// (clamped to sane bounds); 0/garbage stores nothing. Never a limit — see the
+// budget line in volatileContext for how it is worded.
+func (a *App) storeStepEstimate(sid session.SessionID, est int) {
+	if est <= 0 || est > 10000 {
+		return
+	}
+	a.mu.Lock()
+	a.estSteps[sid] = est
+	a.mu.Unlock()
+}
+
+// stepEstimate returns the turn's advisory estimate, or 0 when none was made.
+func (a *App) stepEstimate(sid session.SessionID) int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.estSteps[sid]
+}
+
 // cachedCriteria returns this turn's already-known acceptance criteria (e.g. set by
 // the plan-audit council) WITHOUT eliciting — the noCriteria sentinel reads empty.
 func (a *App) cachedCriteria(sid session.SessionID) string {
@@ -1903,6 +1922,14 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 			"summary, or \"task completed\" message proves nothing and buys nothing. Say it in your reply text "+
 			"instead; spend steps only on actions that change or genuinely verify something.",
 			step+1, maxSteps, maxSteps, maxSteps))
+		// Advisory pacing reference from the planner (soft budget). Deliberately NOT
+		// a limit: estimates from weak models are routinely wrong, and a wrong hard
+		// cap cuts off real work — the ceiling above stays the only stop.
+		if est := a.stepEstimate(s.ID); est > 0 {
+			b.WriteString(fmt.Sprintf(" This task was estimated at roughly %d step(s) — a pacing reference, not a "+
+				"limit. If you are far beyond it, something about the approach is probably wrong: stop and reassess "+
+				"before continuing.", est))
+		}
 	}
 	if td := a.Todos(s.ID); len(td) > 0 {
 		b.WriteString("\n\n# Current plan (TODOs)\n" + formatTodos(td))
