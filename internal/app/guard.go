@@ -329,6 +329,13 @@ func (g *runGuard) noteBashWrite(cmd string) bool {
 // wrote this turn (via write/edit) and its file-writing bash commands (via noteBashWrite),
 // so a deliverable is caught whether it was authored with an edit tool or a bash heredoc.
 // It returns a label for the offending source and the matched line, or ("","") when clean.
+//
+// This is a best-effort, English-only PRE-FLAG, not the authority on completion (see the
+// SCOPE note on selfcheck.FabricationMarkers): it feeds the council as evidence and can
+// trigger an early nudge, but a confession in another language or a confident false claim
+// slips past it. The language-agnostic completion authority is the review gate's tester,
+// which actually runs the verification and returns PASS/FAIL, gating finish via the
+// fresh-evidence check in the loop.
 func (g *runGuard) scanFabrication() (label, snippet string) {
 	if p, snip := scanFabricationClaim(g.changeSet()); p != "" {
 		return p, snip
@@ -386,6 +393,17 @@ func (g *runGuard) callCount() int {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.calls
+}
+
+// mutationEpoch returns the current mutation epoch — the number of real file mutations
+// (edit/write AND bash file-writes via noteBashWrite) this run. It rises only on genuine
+// deliverable changes (a read-only bash or an idempotent rewrite does not bump it), so it
+// is the version stamp the fresh-evidence gate compares against: a tester PASS recorded at
+// epoch N is stale the moment a later mutation bumps the epoch past N, forcing re-check.
+func (g *runGuard) mutationEpoch() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.epoch
 }
 
 // shouldNudge reports whether the run has stalled enough to warrant a corrective

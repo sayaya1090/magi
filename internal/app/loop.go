@@ -135,9 +135,10 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	stopChecked := false              // Stop hooks enforced at most once per run
 	nudgedEmpty := false              // subagent empty-result nudge fired at most once
 	selfVerified := false             // pre-finish self-verify self-prompt (fallback path) fired at most once per run
-	reviewGateFired := false          // has the delegated review gate fired yet this run? (first fire counts bash; re-arm counts only new file mutations)
+	reviewGateFired := false          // has the delegated review gate fired yet this run?
 	reviewBudget := reviewSpawnBudget // remaining delegated-review subagents this run (spent across re-arm firings)
-	reviewedAtMutators := 0           // mutatorCalls at the last review-gate firing (re-arm only on NEW file mutations since)
+	reviewedAtEpoch := 0              // guard.mutationEpoch() at the last review-gate firing (re-arm only on a NEW mutation since — incl. bash writes)
+	reviewPassedEpoch := -1           // mutationEpoch at which the tester last returned VERDICT: PASS; -1 = never. Fresh-evidence: finish needs reviewPassedEpoch == current epoch
 	fabNudges := 0                    // pre-finish fabrication refusals this run (max 2: redirect, then ultimatum)
 	guard := newRunGuard()
 	councilRounds := 0               // consensus termination gate rounds this turn (D14)
@@ -149,8 +150,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	// step 0 — so a steer that lands during the council gate can't hijack what the
 	// council judges against (that interjection gets its own follow-up turn instead).
 	usedTools := seedWork // did this turn do real work? (planner investigation seeds it; council skips pure conversational turns)
-	usedMutator := false  // did this turn run a state-changing tool (bash or edit/write)? gates the pre-finish self-verify — bash writes files too, but don't reach guard.changeSet()
-	mutatorCalls := 0     // count of genuine file-mutating tool calls (edit/write, NOT read-only bash) — the re-arm marker: the review gate re-fires only when this grows past reviewedAtMutators (a real post-council fix), not on a re-inspection via `git status`/`cat`
+	usedMutator := false // did this turn run a state-changing tool (bash or edit/write)? gates the pre-finish review/self-verify — bash writes files too, but don't reach guard.changeSet(). The review gate's re-arm keys off guard.mutationEpoch() (which counts edit/write AND bash writes), so a bash-authored fix re-triggers verification too.
 	// Turn usage accumulation (§8.1): output tokens and cost sum across steps; input
 	// is the last step's (the current context size, not a sum).
 	var cumOut, lastIn int
@@ -282,9 +282,6 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		for _, tc := range toolCalls {
 			if tc.Name == "bash" || fileModifiers[tc.Name] {
 				usedMutator = true // a write-capable tool ran; a bash write never reaches guard.changeSet()
-			}
-			if fileModifiers[tc.Name] {
-				mutatorCalls++ // re-arm marker: a genuine file mutation (edit/write) — read-only bash is excluded so re-inspecting findings can't re-fire the gate
 			}
 			a.appendPart(ctx, sid, agentActor, msgID, session.RoleAssistant, session.Part{
 				ID: "p_" + newID(), Kind: session.PartToolCall, ToolCall: tc,
@@ -429,22 +426,36 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 				// findings. Falls back to the self-verify prompt when disabled or the reviewer
 				// agents aren't configured.
 				if a.cfg.ReviewGate && a.hasReviewGateAgents() {
-					// First fire: any state-changing tool qualifies (incl. a bash write, which
-					// never reaches the changeSet — hence usedMutator, not mutatorCalls, here).
-					// Re-arm: only a NEW file mutation since the last firing (mutatorCalls counts
-					// edit/write, not read-only bash), so re-inspecting the findings with
-					// `git status`/`cat` can't burn budget on a pointless re-check. This lets a
-					// council rejection's FIX get independently re-verified, while the per-run
-					// budget bounds the fan-out so a repeatedly-rejecting council can't spawn
-					// reviewers without end. Once the budget is spent, the council alone gates.
-					firstFire := !reviewGateFired && usedMutator
-					reFire := reviewGateFired && mutatorCalls > reviewedAtMutators
-					if reviewBudget > 0 && (firstFire || reFire) {
+					// Fresh-evidence completion gate: a turn that produced a deliverable may only
+					// finish once the tester has independently RUN the verification and returned
+					// PASS for the CURRENT deliverable version. "Version" is guard.mutationEpoch()
+					// — it counts edit/write AND bash file-writes, so any later change (in any
+					// tool) bumps it and makes a prior PASS stale, forcing re-verification. This is
+					// what makes "verified" mean "verified THIS code", in ANY language: the gate
+					// keys off the tester's real run, not off scanning the agent's prose for
+					// English confession phrases.
+					//
+					// First fire on any state change; re-arm only on a NEW mutation since the last
+					// firing (so re-inspecting findings with `git status`/`cat` can't burn budget).
+					// A repeatedly-rejecting council can't spawn reviewers without end because the
+					// per-run budget bounds the fan-out; once it is spent the council alone gates.
+					epoch := guard.mutationEpoch()
+					firstFire := !reviewGateFired
+					reFire := reviewGateFired && epoch > reviewedAtEpoch
+					if reviewPassedEpoch != epoch && reviewBudget > 0 && (firstFire || reFire) {
 						reviewGateFired = true
-						reviewedAtMutators = mutatorCalls
-						reviewBudget -= a.runReviewGate(ctx, s, turnTask, guard.changeSet(), reviewBudget)
-						continue
+						reviewedAtEpoch = epoch
+						spawned, verdict := a.runReviewGate(ctx, s, turnTask, guard.changeSet(), reviewBudget)
+						reviewBudget -= spawned
+						if verdict == verdictPass {
+							reviewPassedEpoch = epoch // behavioral evidence: THIS version was independently run and passed
+						}
+						continue // let the agent address the findings (or, on PASS, confirm and finish next round)
 					}
+					// Already freshly verified this epoch, or the budget is spent: fall through to
+					// the council. A FAIL/BLOCKED the agent ignored without editing (no new epoch)
+					// also lands here — the council, holding the injected findings + fabrication
+					// evidence, is the bounded backstop rather than an unbounded re-verify loop.
 				} else if !selfVerified {
 					selfVerified = true
 					msg := "Before finishing, VERIFY you satisfied the task literally — in two passes. " +
@@ -617,16 +628,32 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
 		}
 
-		// Loop guard: stop gracefully rather than burning the full step budget,
-		// either on hard repeats or on a stall the agent kept ignoring after every
-		// nudge was spent (varied-but-unproductive calls never trip the repeat count).
-		switch guard.stuck() {
-		case "repeat":
-			d, _ := json.Marshal(event.ErrorData{Message: "stopped: the agent repeated the same action without progress (loop guard)", Code: "loop_guard"})
-			a.appendFact(ctx, sid, event.TypeError, event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)
-			return lastText, nil
-		case "stall":
-			d, _ := json.Marshal(event.ErrorData{Message: "stopped: no real progress after repeated redirection (stall guard)", Code: "stall_guard"})
+		// Loop guard: stop rather than burning the full step budget, on hard repeats or
+		// on a stall the agent kept ignoring after every nudge (varied-but-unproductive
+		// calls never trip the repeat count). HOW it stops depends on whether the run
+		// produced a deliverable: a run that already wrote real output (epoch > 0) and is
+		// only spinning on confirmation is effectively DONE — finish it cleanly (exit 0)
+		// with its last text, rather than flagging an agent-level error that misreports a
+		// completed task as a failure (the false NonZeroAgentExitCodeError seen on tasks
+		// that actually passed). A run that produced NOTHING is genuine thrash — keep the
+		// error abort so the failure is visible.
+		if kind := guard.stuck(); kind != "" {
+			if guard.mutationEpoch() > 0 {
+				// Delivered-but-spinning: finish cleanly (TurnFinished → exit 0) with the
+				// work as-is. The repeated no-progress steps already stand in the transcript,
+				// so no error event is needed to explain the stop.
+				a.setStage(sid, stageFinalize)
+				u := event.Usage{In: lastIn, Out: cumOut, Cost: cumCost}
+				fd, _ := json.Marshal(event.TurnFinishedData{Usage: u})
+				a.appendFact(ctx, sid, event.TypeTurnFinished, agentActor, fd)
+				finished = true
+				return lastText, nil
+			}
+			msg, code := "stopped: the agent repeated the same action without progress (loop guard)", "loop_guard"
+			if kind == "stall" {
+				msg, code = "stopped: no real progress after repeated redirection (stall guard)", "stall_guard"
+			}
+			d, _ := json.Marshal(event.ErrorData{Message: msg, Code: code})
 			a.appendFact(ctx, sid, event.TypeError, event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)
 			return lastText, nil
 		}

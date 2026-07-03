@@ -24,9 +24,12 @@ import (
 const (
 	testerFocus = "Independently VERIFY that the work satisfies the task. Actually run the build and the tests " +
 		"(or the program/command the task is about) and check the real behavior against what the task " +
-		"specifies — do not trust the transcript's claims. Report PASS or FAIL with concrete evidence " +
-		"(the command you ran and its real output). If you could not run something, say so; never invent " +
-		"or hand-write output to make it look verified."
+		"specifies — do not trust the transcript's claims. Report concrete evidence (the command you ran " +
+		"and its real output); never invent or hand-write output to make it look verified. Your reasoning " +
+		"may be in any language, but you MUST end your report with a single line containing exactly one of: " +
+		"`VERDICT: PASS` (you ran the verification and it really works), `VERDICT: FAIL` (you ran it and " +
+		"found a real problem), or `VERDICT: BLOCKED` (you could NOT actually run the verification). If you " +
+		"did not or could not run the real thing, the verdict is BLOCKED — never PASS on an assumption."
 	reviewerFocus = "Independently REVIEW the changes for correctness against the task. Read the changed files " +
 		"assigned to you and report concrete problems: missing requirements, wrong content/format/location, " +
 		"off-by-one or edge cases, or a placeholder left where real work was asked for. Be specific (file and " +
@@ -45,7 +48,44 @@ const (
 	// the area is split into a further group, keeping each reviewer's slice shallow
 	// enough to review deeply.
 	reviewGroupMaxFiles = 5
+
+	// The tester ends its report with one of these verdict tokens on a `VERDICT: <token>`
+	// line. This is a small fixed PROTOCOL, deliberately NOT natural-language phrase
+	// matching: the tester may reason in any language, but the machine-checked outcome is
+	// one of these three tokens — so completion is gated on real behavior, not on scanning
+	// the model's prose for English confession phrases (which miss other languages and
+	// paraphrases). See parseTesterVerdict.
+	verdictPass    = "PASS"    // the tester ran the real verification and it works
+	verdictFail    = "FAIL"    // the tester ran it and found a real problem
+	verdictBlocked = "BLOCKED" // the tester could NOT actually run it → treat as unverified
 )
+
+// parseTesterVerdict extracts the tester's PASS/FAIL/BLOCKED verdict from its report by
+// scanning for the mandated `VERDICT: <token>` line, case-insensitively, and returns the
+// LAST recognized token (the tester's final conclusion, after any intermediate mention).
+// A missing or unrecognized verdict is treated as BLOCKED — an unverified result must
+// never read as a pass, so the fresh-evidence gate keeps completion closed. This parses a
+// protocol token we mandated, not a free-form confession, so it is language-agnostic: the
+// tester's evidence and reasoning can be in any language.
+func parseTesterVerdict(text string) string {
+	verdict := verdictBlocked
+	for _, ln := range strings.Split(text, "\n") {
+		// Tolerate markdown/emphasis/quote decoration around the token line.
+		t := strings.ToUpper(strings.Trim(strings.TrimSpace(ln), "*_`>#- \t"))
+		if !strings.HasPrefix(t, "VERDICT:") {
+			continue
+		}
+		switch strings.TrimSpace(strings.TrimPrefix(t, "VERDICT:")) {
+		case verdictPass:
+			verdict = verdictPass
+		case verdictFail:
+			verdict = verdictFail
+		case verdictBlocked:
+			verdict = verdictBlocked
+		}
+	}
+	return verdict
+}
 
 // hasReviewGateAgents reports whether both delegated roles are configured, so the
 // gate can degrade to the self-verify prompt when they are not.
@@ -111,11 +151,13 @@ func reviewGroups(changes []fileChange, maxPerGroup int) []reviewGroup {
 // the implementer's own confirmation bias misses. A reviewer that errors or returns
 // nothing still contributes a note (e.g. "could not complete: ..."), which the
 // injected prompt's tail treats as UNFINISHED so a failed check can't read as a
-// pass. Returns the number of subagents actually spawned so the caller can debit
-// the per-run budget. budget is assumed > 0 by the caller.
-func (a *App) runReviewGate(ctx context.Context, s session.Session, task string, changes []fileChange, budget int) int {
+// pass. Returns the number of subagents actually spawned (so the caller can debit
+// the per-run budget) and the tester's PASS/FAIL/BLOCKED verdict (the behavioral,
+// language-agnostic completion signal — see parseTesterVerdict). A spawn count of 0
+// yields a BLOCKED verdict (nothing was verified). budget is assumed > 0 by the caller.
+func (a *App) runReviewGate(ctx context.Context, s session.Session, task string, changes []fileChange, budget int) (spawned int, verdict string) {
 	if budget <= 0 { // enforce the budget contract even if a caller forgets to
-		return 0
+		return 0, verdictBlocked
 	}
 	// The tester always runs first (holistic build/test is the anti-fabrication
 	// core); remaining budget fans out reviewers over the changed-area groups.
@@ -134,8 +176,11 @@ func (a *App) runReviewGate(ctx context.Context, s session.Session, task string,
 	}
 
 	// Each goroutine writes its own index, so texts stays ordered without a sort
-	// and the writes are race-free (no append, no reallocation).
+	// and the writes are race-free (no append, no reallocation). raw[i] keeps the
+	// unwrapped agent text so the tester's verdict line can be parsed (raw[0] — the
+	// tester always runs first).
 	texts := make([]string, len(jobs))
+	raw := make([]string, len(jobs))
 	var wg sync.WaitGroup
 	for i, j := range jobs {
 		wg.Add(1)
@@ -147,6 +192,7 @@ func (a *App) runReviewGate(ctx context.Context, s session.Session, task string,
 			defer cancel()
 			out := a.spawn(rctx, s, 0, port.SpawnRequest{Agent: j.agent, Prompt: prompt})
 			text := strings.TrimSpace(out.Text)
+			raw[i] = text
 			if out.Err != "" {
 				text = "(could not complete: " + out.Err + ")"
 			}
@@ -157,6 +203,9 @@ func (a *App) runReviewGate(ctx context.Context, s session.Session, task string,
 		}(i, j)
 	}
 	wg.Wait()
+	// The tester (jobs[0]) carries the behavioral verdict; a spawn that errored/returned
+	// nothing parses as BLOCKED (unverified), never PASS.
+	verdict = parseTesterVerdict(raw[0])
 
 	parts := make([]string, 0, len(texts))
 	for _, t := range texts {
@@ -165,7 +214,7 @@ func (a *App) runReviewGate(ctx context.Context, s session.Session, task string,
 		}
 	}
 	if len(parts) == 0 {
-		return len(jobs)
+		return len(jobs), verdict
 	}
 
 	msg := "# Independent verification & review\n\n" +
@@ -183,7 +232,7 @@ func (a *App) runReviewGate(ctx context.Context, s session.Session, task string,
 	})
 	_ = a.appendFact(ctx, s.ID, event.TypePromptSubmitted,
 		event.Actor{Kind: event.ActorSystem, ID: "review"}, pd)
-	return len(jobs)
+	return len(jobs), verdict
 }
 
 // changedFilesList renders the turn's touched files as a short bullet list for the

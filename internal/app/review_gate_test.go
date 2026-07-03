@@ -66,3 +66,34 @@ func TestReviewGroupsPartitioning(t *testing.T) {
 		}
 	})
 }
+
+// parseTesterVerdict is the behavioral, language-agnostic completion signal: it parses a
+// mandated `VERDICT: <token>` line, not a free-form confession. These cases pin the safety
+// properties the fresh-evidence gate relies on — most importantly that a missing or
+// unrecognized verdict is BLOCKED (never a false PASS) and that the model's reasoning
+// language is irrelevant.
+func TestParseTesterVerdict(t *testing.T) {
+	cases := []struct {
+		name, in, want string
+	}{
+		{"plain pass", "ran go test, all green\nVERDICT: PASS", verdictPass},
+		{"plain fail", "the build breaks\nVERDICT: FAIL", verdictFail},
+		{"explicit blocked", "no toolchain here\nVERDICT: BLOCKED", verdictBlocked},
+		{"missing verdict is blocked", "looks fine to me", verdictBlocked},
+		{"empty is blocked", "", verdictBlocked},
+		{"case-insensitive token", "verdict: pass", verdictPass},
+		{"markdown decoration tolerated", "**VERDICT: FAIL**", verdictFail},
+		{"quote/bullet decoration tolerated", "> - VERDICT: PASS", verdictPass},
+		{"last recognized verdict wins", "VERDICT: FAIL\n...on reflection it works\nVERDICT: PASS", verdictPass},
+		{"unrecognized token does not overwrite a prior valid one", "VERDICT: PASS\nVERDICT: MAYBE", verdictPass},
+		{"reasoning in another language still parses the token", "빌드와 테스트를 실제로 돌렸고 통과했습니다.\nVERDICT: PASS", verdictPass},
+		{"a confession phrase without a real run is NOT a pass", "I thoroughly verified this multiple times", verdictBlocked},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := parseTesterVerdict(c.in); got != c.want {
+				t.Fatalf("parseTesterVerdict(%q) = %q, want %q", c.in, got, c.want)
+			}
+		})
+	}
+}

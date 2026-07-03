@@ -462,6 +462,37 @@ func TestLoopGuardStopsRepetition(t *testing.T) {
 	}
 }
 
+// Churn graceful-finish: when the loop guard trips but the run ALREADY produced a
+// deliverable (mutation epoch > 0), the turn finishes cleanly (turn.finished, exit 0)
+// instead of an error — a completed task that is only spinning on confirmation must not
+// be misreported as an agent-level failure. Contrast TestLoopGuardStopsRepetition, where
+// the repeated call is a read (epoch stays 0) and the error abort stands.
+func TestLoopGuardGracefulFinishAfterDeliverable(t *testing.T) {
+	steps := make([][]port.ProviderEvent, 40)
+	for i := range steps {
+		// Identical write every step: the first creates the file (epoch → 1); the rest are
+		// idempotent rewrites (no further bump) that the guard counts as blocked repeats.
+		steps[i] = toolStep("write", `{"path":"out.txt","content":"same"}`)
+	}
+	llm := &fakeLLM{steps: steps}
+	a, wd := newApp(t, llm, Config{Permission: "allow", MaxSteps: 40})
+	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
+	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "churn"}}})
+
+	got := waitForTerminal(t, a, sid)
+	last := got[len(got)-1]
+	if last.Type != event.TypeTurnFinished {
+		t.Fatalf("churn-graceful: expected turn.finished (a deliverable existed), got %q (events=%v)", last.Type, typesOf(got))
+	}
+	if countType(got, event.TypeError) != 0 {
+		t.Errorf("churn-graceful: no error event expected once a deliverable was produced (events=%v)", typesOf(got))
+	}
+	// It must still stop EARLY on the guard, not grind to MaxSteps.
+	if a.llm.(*fakeLLM).call >= 40 {
+		t.Errorf("churn-graceful: ran %d steps, expected an early guard stop", a.llm.(*fakeLLM).call)
+	}
+}
+
 // Loop guard does NOT fire for distinct calls: varied tool args run to normal
 // completion (no false positives on legitimate repeated tool use).
 func TestLoopGuardAllowsDistinctCalls(t *testing.T) {
