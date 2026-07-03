@@ -865,7 +865,10 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					"actually execute or observe something — an interactive program you never drove, a test you never " +
 					"ran, a result you only assumed — then you have NOT verified it. Never fabricate its output or write " +
 					"a stand-in/placeholder file to make this check appear to pass; that is worse than leaving it " +
-					"undone, because it hides the gap. In that case say plainly that you could not run or confirm it, and " +
+					"undone, because it hides the gap. If the user explicitly asked for synthetic, fictional, or example " +
+					"content, producing it is fine — but your final report must LABEL it as synthetic (\"this log is " +
+					"fictional; the game was not actually run\"), never describe invented content as verified or real. " +
+					"In that case say plainly that you could not run or confirm it, and " +
 					"treat that requirement as UNFINISHED, not done. Match the task, not a generic " +
 					"'it works': the intended state may be that something succeeds, but it may just as well be that it is " +
 					"removed, disabled, rejects bad input, or fails on purpose. Fix any real mismatch — wrong content, " +
@@ -2097,7 +2100,9 @@ func (a *App) appendToolResult(ctx context.Context, sid session.SessionID, actor
 }
 
 func (a *App) emitError(ctx context.Context, sid session.SessionID, actor event.Actor, msg string) {
-	d, _ := json.Marshal(event.ErrorData{Message: msg})
+	// Every emitError site is a provider/stream failure; carry the machine code so
+	// the headless contract ("error[<code>]: …" on stderr) holds for them too.
+	d, _ := json.Marshal(event.ErrorData{Message: msg, Code: "provider"})
 	a.appendFact(ctx, sid, event.TypeError, actor, d)
 }
 
