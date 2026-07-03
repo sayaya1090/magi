@@ -33,7 +33,8 @@ func (AskUser) Description() string {
 		"and the options are real alternatives you can enumerate (2-4 each, short labels). Do NOT use it for " +
 		"decisions with an obvious default, or to ask permission the tool system already handles. Each answer is " +
 		"the chosen option's text; an empty answer means the user dismissed the question — proceed on your best " +
-		"judgment and say so."
+		"judgment and say so. When the answers arrive, ACT on them directly; if asking was the whole request, just " +
+		"restate the user's pick and finish — do not start exploring the codebase on your own."
 }
 func (AskUser) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"questions":{"type":"array","items":{"type":"object",` +

@@ -31,3 +31,24 @@ func TestQuestionModal(t *testing.T) {
 		t.Fatalf("selection should move: %q", v)
 	}
 }
+
+// The quest modal must be accounted for in the chrome height, or it pushes the
+// input/footer below the screen (the viewport doesn't shrink to make room).
+func TestQuestModalReservesHeight(t *testing.T) {
+	mm := newTestModel(t)
+	m := &mm
+	base := m.baseChromeHeight()
+	m.quest = &questReq{question: "q", options: []string{"a", "b"}}
+	if got := m.baseChromeHeight(); got != base+6 {
+		t.Fatalf("quest modal should reserve options+4 rows: base=%d got=%d", base, got)
+	}
+	m.quest = nil
+	m.perm = &permReq{name: "bash", args: "{}", reason: "network egress command"}
+	if got := m.baseChromeHeight(); got != base+6 {
+		t.Fatalf("perm modal with a reason line should reserve 6 rows: base=%d got=%d", base, got)
+	}
+	m.perm.reason = ""
+	if got := m.baseChromeHeight(); got != base+5 {
+		t.Fatalf("plain perm modal reserves 5 rows: base=%d got=%d", base, got)
+	}
+}

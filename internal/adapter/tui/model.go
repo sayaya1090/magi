@@ -2626,6 +2626,13 @@ func (m *Model) baseChromeHeight() int {
 	h := 2 + (inputRows + 2) + 1 // header(2) + bordered input(rows+border) + footer
 	if m.perm != nil {
 		h += 5
+		if m.perm.reason != "" {
+			h++ // the policy-reason warning line
+		}
+	}
+	if m.quest != nil {
+		// ask_user modal: title + question + one row per option, inside a border.
+		h += len(m.quest.options) + 4
 	}
 	if m.resuming {
 		rows := len(m.resumeList)
