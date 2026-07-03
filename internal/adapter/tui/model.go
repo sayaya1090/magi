@@ -131,6 +131,10 @@ type Model struct {
 	lastThoughtAt   time.Time // last thought-toggle click time (to swallow a double-click's 2nd toggle)
 	lastThoughtLine int       // content line of that last thought click
 	perm            *permReq
+	searching       bool    // transcript search bar open (keys captured)
+	searchQuery     string  // live query; matches highlighted while the bar is open
+	searchHits      []int   // content-line indexes containing the query
+	searchCur       int     // index into searchHits of the current match
 	ctxPct          float64 // context window usage %
 	plannerMode     string  // last planner decision (solo | parallel N) shown in the header
 
@@ -799,6 +803,32 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		return nil, true // swallow other keys while modal is open
 	}
 
+	// Transcript search bar: capture keys while open (the textarea otherwise
+	// swallows every printable key, so search runs as a modal like perm).
+	if m.searching {
+		switch msg.String() {
+		case "esc", "ctrl+f":
+			m.searching = false
+			m.searchQuery, m.searchHits = "", nil
+			m.refresh()
+		case "enter", "down", "ctrl+n":
+			m.searchStep(1)
+		case "up", "ctrl+p":
+			m.searchStep(-1)
+		case "backspace":
+			if q := []rune(m.searchQuery); len(q) > 0 {
+				m.searchQuery = string(q[:len(q)-1])
+			}
+			m.updateSearch()
+		default:
+			if r := []rune(msg.String()); len(r) == 1 && r[0] >= ' ' {
+				m.searchQuery += msg.String()
+				m.updateSearch()
+			}
+		}
+		return nil, true
+	}
+
 	// Interactive resume picker takes priority while open.
 	if m.resuming {
 		switch msg.String() {
@@ -875,6 +905,13 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		m.blocks = nil
 		m.cache = m.cache[:0]
 		m.liveText = ""
+		m.refresh()
+		return nil, true
+	case "ctrl+f":
+		// Open transcript search: alt-screen means the terminal's own find can't
+		// see the viewport, so this is the only way to search a long session.
+		m.searching = true
+		m.searchQuery, m.searchHits = "", nil
 		m.refresh()
 		return nil, true
 	case "ctrl+t":
@@ -2646,6 +2683,9 @@ func (m *Model) refresh() {
 	if m.selecting || m.selActive {
 		content = m.highlightSelection()
 	}
+	if m.searching {
+		content = m.highlightSearch(content)
+	}
 	m.vp.SetContent(content)
 	if follow {
 		m.vp.GotoBottom()
@@ -2868,6 +2908,10 @@ func (m Model) View() tea.View {
 		pv := m.routeView()
 		parts = append(parts, pv)
 		aboveInput += lipgloss.Height(pv)
+	} else if m.searching {
+		pv := m.searchView()
+		parts = append(parts, pv)
+		aboveInput += lipgloss.Height(pv)
 	} else if matches := m.paletteMatches(); !m.running && len(matches) > 0 {
 		pv := m.paletteView(matches)
 		parts = append(parts, pv)
@@ -3039,6 +3083,114 @@ func (m *Model) permView() string {
 		styleFooter.Render("") +
 		footerKeys("y", "allow") + footerKeys("a", "always") + footerKeys("p", "project") + footerKeys("n", "deny")
 	return stylePermBox.Width(m.width - 4).Render(body)
+}
+
+// updateSearch recomputes the hit list for the current query (case-insensitive
+// substring over the plain transcript) and jumps to the first hit at or below
+// the current scroll position, so typing narrows in place instead of yanking
+// the view back to the top.
+func (m *Model) updateSearch() {
+	m.searchHits = m.searchHits[:0]
+	q := strings.ToLower(m.searchQuery)
+	if q == "" {
+		m.refresh()
+		return
+	}
+	for i, l := range m.contentPlain {
+		if strings.Contains(strings.ToLower(l), q) {
+			m.searchHits = append(m.searchHits, i)
+		}
+	}
+	m.searchCur = 0
+	for i, h := range m.searchHits {
+		if h >= m.vp.YOffset() {
+			m.searchCur = i
+			break
+		}
+	}
+	m.searchJump()
+}
+
+// searchStep moves to the next/previous hit, wrapping at either end.
+func (m *Model) searchStep(d int) {
+	if len(m.searchHits) == 0 {
+		return
+	}
+	m.searchCur = (m.searchCur + d + len(m.searchHits)) % len(m.searchHits)
+	m.searchJump()
+}
+
+// searchJump scrolls the current hit into view (roughly centered) and repaints.
+func (m *Model) searchJump() {
+	if len(m.searchHits) > 0 {
+		off := m.searchHits[m.searchCur] - m.vp.Height()/2
+		if off < 0 {
+			off = 0
+		}
+		m.vp.SetYOffset(off)
+	}
+	m.refresh()
+}
+
+// highlightSearch overlays the query matches on the rendered content: every
+// occurrence is tinted, the current hit's line uses the selection style. Cells
+// are cut ANSI-aware (like highlightSelection) so markdown styling survives.
+func (m *Model) highlightSearch(content string) string {
+	q := strings.ToLower(m.searchQuery)
+	if q == "" || len(m.searchHits) == 0 {
+		return content
+	}
+	cur := -1
+	if m.searchCur < len(m.searchHits) {
+		cur = m.searchHits[m.searchCur]
+	}
+	lines := strings.Split(content, "\n")
+	for _, ln := range m.searchHits {
+		if ln < 0 || ln >= len(lines) || ln >= len(m.contentPlain) {
+			continue
+		}
+		plain := m.contentPlain[ln]
+		lower := strings.ToLower(plain)
+		styled := lines[ln]
+		w := ansi.StringWidth(styled)
+		st := styleKeyLabel
+		if ln == cur {
+			st = styleSelection
+		}
+		// Rebuild the line left→right, wrapping each match in the highlight style.
+		var b strings.Builder
+		done := 0 // display cells consumed
+		for from := 0; ; {
+			idx := strings.Index(lower[from:], q)
+			if idx < 0 {
+				break
+			}
+			start := from + idx
+			c0 := cellWidth(plain[:start])
+			c1 := cellWidth(plain[:start+len(q)])
+			if c0 < done { // overlapping match — skip
+				from = start + len(q)
+				continue
+			}
+			b.WriteString(ansi.Cut(styled, done, c0))
+			b.WriteString(st.Render(ansi.Strip(ansi.Cut(styled, c0, c1))))
+			done = c1
+			from = start + len(q)
+		}
+		b.WriteString(ansi.Cut(styled, done, w))
+		lines[ln] = b.String()
+	}
+	return strings.Join(lines, "\n")
+}
+
+// searchView renders the search bar shown in place of the palette while open.
+func (m *Model) searchView() string {
+	pos := "0/0"
+	if n := len(m.searchHits); n > 0 {
+		pos = fmt.Sprintf("%d/%d", m.searchCur+1, n)
+	}
+	return styleFooter.Render("  find: ") + m.searchQuery + styleFooter.Render("▏ "+pos+"  ") +
+		footerKeys("enter/↓", "next") + footerKeys("↑", "prev") + footerKeys("esc", "close")
 }
 
 // scrollMeter renders the transcript scroll-position chip — the drawn
