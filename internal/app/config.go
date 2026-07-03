@@ -175,6 +175,13 @@ type Config struct {
 	// read-only explorers and injects their findings before the main agent runs.
 	Planner bool
 
+	// ReviewGate delegates the pre-finish verification of a mutating top-level
+	// turn to independent tester+reviewer subagents (read-only) rather than the
+	// self-verify self-prompt: fresh-context reviewers catch what the implementer's
+	// own confirmation bias misses. Fires at most once per run, only when the turn
+	// ran a mutator and both agents are configured. Off falls back to self-verify.
+	ReviewGate bool
+
 	// Council, when non-nil, gates loop termination at depth 0 (D14): when the
 	// model would finish, a consensus council votes done/continue instead, and a
 	// "continue" injects the members' aggregated feedback back into the loop. nil

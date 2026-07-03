@@ -417,6 +417,15 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			// 1 of N deliverables would otherwise never get the coverage check.
 			if depth == 0 && !selfVerified && usedTools && usedMutator {
 				selfVerified = true
+				// Delegated review gate: instead of asking the agent to self-verify (which
+				// its own confirmation bias can wave through), dispatch independent read-only
+				// tester+reviewer subagents to check the work with fresh eyes and inject their
+				// findings. Falls back to the self-verify prompt when disabled or the reviewer
+				// agents aren't configured.
+				if a.cfg.ReviewGate && a.hasReviewGateAgents() {
+					a.runReviewGate(ctx, s, turnTask, guard.changeSet())
+					continue
+				}
 				msg := "Before finishing, VERIFY you satisfied the task literally — in two passes. " +
 					"PASS 1 (coverage): re-read the original task and list every distinct thing it requires — each " +
 					"deliverable, and any quantifier or scope it states (e.g. 'all', 'each', 'every', a range or list " +
