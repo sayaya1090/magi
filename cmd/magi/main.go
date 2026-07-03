@@ -318,7 +318,8 @@ func run() int {
 		NewProvider:         newProvider,
 		RoutePersister:      routePersister{path: filepath.Join(plat.ConfigDir(), "config.toml")},
 		PermissionPersister: permPersister{path: filepath.Join(wd, ".magi", "config.toml")},
-		Planner:             cfg.Orchestration.Planner == nil || *cfg.Orchestration.Planner, // default on; kill switch
+		Planner:             cfg.Orchestration.Planner == nil || *cfg.Orchestration.Planner,       // default on; kill switch
+		ReviewGate:          cfg.Orchestration.ReviewGate == nil || *cfg.Orchestration.ReviewGate, // default on; kill switch
 		Council:             councilPort,
 		CouncilRule:         corecouncil.Rule(cfg.Council.Rule),
 		CouncilMaxRounds:    councilMaxRounds(cfg.Council),
