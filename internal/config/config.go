@@ -84,6 +84,11 @@ type CouncilConfig struct {
 	Rule      string          `toml:"rule"`       // unanimous|majority|quorum:k|weighted:θ|veto:Name (default majority)
 	MaxRounds int             `toml:"max_rounds"` // cap rounds per turn (default 3)
 	Members   []CouncilMember `toml:"member"`     // [[council.member]] tables; empty = the MAGI
+	// Preset trades gate strength for interactive latency: "full" (default) is the
+	// 3-member MAGI; "light" is a single verification member with a 1-round cap —
+	// one cheap LLM call per finish instead of 3×rounds, for everyday chat-speed
+	// use. Explicit member/max_rounds settings override the preset's defaults.
+	Preset string `toml:"preset"` // "" | "full" | "light"
 	// Verify is a shorthand for a single deterministic signal named "verify" the
 	// council runs each round as evidence (D16). Signals adds more named checks
 	// ([[council.signal]]). Both opt-in; the council judges on real test/build/lint

@@ -108,6 +108,7 @@ command = "go test ./... >/dev/null || echo 'tests failing' >&2"
 enabled    = true
 rule       = "majority"    # unanimous | majority | quorum:2 | weighted:0.6 | veto:Balthasar
 max_rounds = 3             # round cap (with no-progress/cancel safeguards, prevents infinite loops)
+preset     = "full"        # "light" = 1 verification member · 1 round (interactive latency; explicit member/max_rounds override)
 # [[council.member]]       # if omitted, the default 3 MAGI members are used
 # name = "Melchior"; lens = "correctness"   # lens: correctness|verification|completeness
 

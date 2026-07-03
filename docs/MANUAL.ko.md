@@ -102,6 +102,7 @@ command = "go test ./... >/dev/null || echo 'tests failing' >&2"
 enabled    = true
 rule       = "majority"    # unanimous | majority | quorum:2 | weighted:0.6 | veto:Balthasar
 max_rounds = 3             # 라운드 상한(무진전·취소 안전장치와 함께 무한루프 방지)
+preset     = "full"        # "light" = 검증 위원 1인·1라운드 (인터랙티브 지연 절감; member/max_rounds 명시가 우선)
 # [[council.member]]       # 생략 시 MAGI 기본 3인 사용
 # name = "Melchior"; lens = "correctness"   # lens: correctness|verification|completeness
 

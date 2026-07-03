@@ -209,6 +209,9 @@ func run() int {
 		if len(proj.Council.Members) > 0 {
 			cfg.Council.Members = proj.Council.Members
 		}
+		if proj.Council.Preset != "" {
+			cfg.Council.Preset = proj.Council.Preset
+		}
 		if proj.Council.Verify != "" {
 			cfg.Council.Verify = proj.Council.Verify
 		}
@@ -374,8 +377,8 @@ func run() int {
 		Planner:             cfg.Orchestration.Planner == nil || *cfg.Orchestration.Planner, // default on; kill switch
 		Council:             councilPort,
 		CouncilRule:         corecouncil.Rule(cfg.Council.Rule),
-		CouncilMaxRounds:    cfg.Council.MaxRounds,
-		CouncilMembers:      toCouncilMembers(cfg.Council.Members, cfg.LLM.Profiles),
+		CouncilMaxRounds:    councilMaxRounds(cfg.Council),
+		CouncilMembers:      councilMembers(cfg.Council, cfg.LLM.Profiles),
 		CouncilSignals:      councilSignals(cfg.Council),
 		CouncilCriteria:     cfg.Council.Criteria,
 	})
@@ -650,6 +653,28 @@ func councilSignals(cc config.CouncilConfig) []app.CouncilSignalSpec {
 		out = append(out, app.CouncilSignalSpec{Name: s.Name, Command: s.Command})
 	}
 	return out
+}
+
+// councilMembers resolves the effective member set: explicit [[council.member]]
+// tables always win; otherwise the "light" preset yields a single verification
+// member (the lens reval3 showed catches unexercised artifacts), and anything
+// else falls through to the default 3-member MAGI (nil). Light exists for
+// interactive latency: one cheap call per finish instead of 3 × rounds.
+func councilMembers(c config.CouncilConfig, profiles map[string]config.LLMProfile) []corecouncil.Member {
+	if len(c.Members) == 0 && c.Preset == "light" {
+		return []corecouncil.Member{{Name: "Balthasar", Lens: "verification"}}
+	}
+	return toCouncilMembers(c.Members, profiles)
+}
+
+// councilMaxRounds resolves the round cap: an explicit max_rounds wins; the
+// "light" preset defaults to 1 (a second round of a 1-member gate rarely pays
+// its latency); otherwise 0 lets the app default (3) apply.
+func councilMaxRounds(c config.CouncilConfig) int {
+	if c.MaxRounds == 0 && c.Preset == "light" {
+		return 1
+	}
+	return c.MaxRounds
 }
 
 // toCouncilMembers converts config council members to core council members. nil
