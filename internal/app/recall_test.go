@@ -271,3 +271,31 @@ func TestShardHints(t *testing.T) {
 		t.Fatalf("hints should cap at %d, got %d:\n%s", shardHintMax, n, out)
 	}
 }
+
+// BM25-lite ranking: a rare token that pins one shard must outrank a generic token
+// shared by many shards, even when the generic token also matches the query.
+func TestShardHintsIDFRanking(t *testing.T) {
+	comp := func(shs ...event.ContextShard) event.Event {
+		d, _ := json.Marshal(event.CompactionData{Shards: shs})
+		return event.Event{Type: event.TypeCompaction, Data: d}
+	}
+	// "handler" is generic (in every shard); "dehydration" is rare (one shard).
+	// A query mentioning both must rank the dehydration shard first.
+	shards := []event.ContextShard{
+		{Topic: "a.go", Brief: "handler wiring code"},
+		{Topic: "b.go", Brief: "handler routing code"},
+		{Topic: "c.go", Brief: "handler and context dehydration logic"},
+		{Topic: "d.go", Brief: "handler middleware"},
+	}
+	out := shardHints([]event.Event{comp(shards...)}, "the handler dehydration path")
+	// c.go (rare-token match) must appear, and appear before any generic-only shard.
+	ci := strings.Index(out, "c.go")
+	if ci < 0 {
+		t.Fatalf("rare-token shard c.go should surface: %q", out)
+	}
+	for _, generic := range []string{"a.go", "b.go", "d.go"} {
+		if gi := strings.Index(out, generic); gi >= 0 && gi < ci {
+			t.Fatalf("generic-only shard %s ranked above rare-token c.go:\n%s", generic, out)
+		}
+	}
+}

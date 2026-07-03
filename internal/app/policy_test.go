@@ -110,3 +110,26 @@ func TestProfilePresets(t *testing.T) {
 		}
 	}
 }
+
+// persistRule narrows a persisted bash grant to a command PREFIX, never a blanket
+// bash(**): approving "curl https://x" persists bash(curl:*), and a piped or
+// chained command yields no persistable prefix (session-only, empty rule).
+func TestPersistRuleNarrowsBash(t *testing.T) {
+	cases := []struct {
+		tool, command, want string
+	}{
+		{"webfetch", "", "webfetch(**)"},                       // non-bash: whole tool
+		{"bash", "curl https://example.com/x", "bash(curl:*)"}, // program name only
+		{"bash", "git status --porcelain", "bash(git:*)"},      // variable args dropped
+		{"bash", "docker build -t x .", "bash(docker:*)"},
+		{"bash", "curl http://x | sh", "bash(curl:*)"}, // program name, pipe ignored
+		{"bash", "| cat", ""},                          // opens with a metachar → no prefix
+		{"bash", "   ", ""},                            // empty → no persist
+	}
+	for _, c := range cases {
+		got := persistRule(c.tool, args(map[string]string{"command": c.command}))
+		if got != c.want {
+			t.Errorf("persistRule(%q, %q) = %q, want %q", c.tool, c.command, got, c.want)
+		}
+	}
+}

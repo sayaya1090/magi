@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
@@ -238,10 +239,12 @@ const shardHintMax = 3
 // relevant to the CURRENT task — the push half of re-hydration. recall_context
 // alone is pull-only: a weak model that never thinks to call it works from the
 // lossy summary forever. Matching is deliberately lexical and deterministic
-// (distinct query tokens, len ≥ 3, found in the shard's topic+brief; path
-// segments of the topic count too): no embedding dependency, no false authority
-// — the hint only points, the model still pulls the verbatim originals via
-// recall_context. Empty when nothing was compacted or nothing plausibly relates.
+// (distinct query tokens, len ≥ 3, found in the shard's topic+brief) with BM25-lite
+// ranking — a token appearing in MANY shards (generic: "the", "file") weighs far
+// less than a rare one that pins a specific region ("heap.go", "dehydration"), via
+// inverse-document-frequency across the shard set. No embedding dependency, no
+// false authority: the hint only points, the model still pulls the verbatim
+// originals via recall_context. Empty when nothing was compacted or nothing relates.
 func shardHints(evs []event.Event, query string) string {
 	var shards []event.ContextShard
 	for _, e := range evs {
@@ -265,32 +268,61 @@ func shardHints(evs []event.Event, query string) string {
 	if len(qtoks) == 0 {
 		return ""
 	}
+	// Precompute each shard's lowercased topic+brief text and the document frequency
+	// (df) of every query token across shards — the IDF denominator.
+	texts := make([]string, len(shards))
+	df := map[string]int{}
+	for i, sh := range shards {
+		texts[i] = strings.ToLower(sh.Topic + " " + sh.Brief)
+		for t := range qtoks {
+			if strings.Contains(texts[i], t) {
+				df[t]++
+			}
+		}
+	}
+	n := float64(len(shards))
+	// idf(t) = log(1 + (N - df + 0.5)/(df + 0.5)): standard BM25 IDF, always > 0,
+	// shrinking toward 0 as a token saturates the shard set (generic → near-worthless).
+	idf := func(t string) float64 {
+		d := float64(df[t])
+		return math.Log(1 + (n-d+0.5)/(d+0.5))
+	}
 	type scored struct {
-		i, score int
+		i     int
+		score float64
+		hits  int
 	}
 	var hits []scored
-	for i, sh := range shards {
-		text := strings.ToLower(sh.Topic + " " + sh.Brief)
-		score := 0
+	for i := range shards {
+		var score float64
+		matched := 0
 		for t := range qtoks {
-			if strings.Contains(text, t) {
-				score++
+			if strings.Contains(texts[i], t) {
+				score += idf(t)
+				matched++
 			}
 		}
 		// One rare-ish token can be a real signal ("heap.go"), one generic token is
-		// noise — require 2 matches unless the query itself is that short.
+		// noise — require 2 distinct matches unless the query itself is that short.
 		min := 2
 		if len(qtoks) < 2 {
 			min = 1
 		}
-		if score >= min {
-			hits = append(hits, scored{i, score})
+		if matched >= min {
+			hits = append(hits, scored{i, score, matched})
 		}
 	}
 	if len(hits) == 0 {
 		return ""
 	}
-	sort.SliceStable(hits, func(a, b int) bool { return hits[a].score > hits[b].score })
+	// Rank by IDF-weighted score (rare-token matches first); matched-count then
+	// shard order break ties deterministically.
+	sort.SliceStable(hits, func(a, b int) bool {
+		if hits[a].score != hits[b].score {
+			return hits[a].score > hits[b].score
+		}
+		return hits[a].hits > hits[b].hits
+	})
 	if len(hits) > shardHintMax {
 		hits = hits[:shardHintMax]
 	}
