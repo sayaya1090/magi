@@ -2336,7 +2336,7 @@ func (m *Model) applyEvent(e event.Event) {
 func (m *Model) resize(w, h int) {
 	m.width, m.height = w, h
 	m.ta.SetWidth(w - 4)
-	m.buildGlam(m.width - m.panelCols() - scrollbarW) // wrap to the transcript width (panel + scrollbar-aware)
+	m.buildGlam(m.width - m.panelCols()) // wrap to the transcript width (panel-aware)
 
 	if !m.ready {
 		m.vp = viewport.New()
@@ -2623,10 +2623,9 @@ func (m *Model) refresh() {
 	if vpHeight < minViewport {
 		vpHeight = minViewport
 	}
-	// Reserve the right status panel's width and a 1-col scrollbar gutter; the transcript
-	// wraps to the rest.
+	// Reserve the right status panel's width; the transcript wraps to the rest.
 	tw := m.width - m.panelCols()
-	vpw := tw - scrollbarW
+	vpw := tw
 	m.buildGlam(vpw)
 	m.vp.SetWidth(vpw)
 	m.vp.SetHeight(vpHeight)
@@ -2651,58 +2650,6 @@ func (m *Model) refresh() {
 	if follow {
 		m.vp.GotoBottom()
 	}
-}
-
-// scrollbarW is the column reserved on the transcript's right edge for the scrollbar.
-const scrollbarW = 1
-
-// renderScrollbar draws the transcript viewport's vertical scrollbar: a muted track with a
-// proportional thumb at the current scroll position. Returns `height` rows of one cell each
-// — all blank when the content fits, so the reserved gutter stays invisible until there's
-// something to scroll. Sized off the live content (contentPlain) and the viewport offset, so
-// it works for the transcript, the council-detail takeover, and zoom alike.
-func (m *Model) renderScrollbar(height int) string {
-	if height <= 0 {
-		return ""
-	}
-	rows := make([]string, height)
-	total := len(m.contentPlain)
-	if total <= height { // fits — blank gutter
-		for i := range rows {
-			rows[i] = " "
-		}
-		return strings.Join(rows, "\n")
-	}
-	thumb := height * height / total
-	if thumb < 1 {
-		thumb = 1
-	}
-	pos := 0
-	if maxOff := total - height; maxOff > 0 {
-		pos = m.vp.YOffset() * (height - thumb) / maxOff
-	}
-	if pos+thumb > height {
-		pos = height - thumb
-	}
-	track := lipgloss.NewStyle().Foreground(colMuted)
-	thumbSt := lipgloss.NewStyle().Foreground(colAccent)
-	// The pretty glyphs │ (U+2502) and █ (U+2588) are East-Asian *ambiguous* width:
-	// on a terminal that draws ambiguous runes as two cells they'd overflow the
-	// 1-column gutter and re-ragged the very bar we're trying to keep straight. On
-	// such terminals fall back to ASCII (always one cell); color still separates
-	// thumb from track.
-	trackGlyph, thumbGlyph := "│", "█"
-	if ambiguousWide {
-		trackGlyph, thumbGlyph = "|", "|"
-	}
-	for i := range rows {
-		if i >= pos && i < pos+thumb {
-			rows[i] = thumbSt.Render(thumbGlyph)
-		} else {
-			rows[i] = track.Render(trackGlyph)
-		}
-	}
-	return strings.Join(rows, "\n")
 }
 
 // selBounds returns the selection ordered so (sl,sc) <= (el,ec).
@@ -2850,6 +2797,9 @@ func (m Model) View() tea.View {
 			}
 			headLine += "  " + styleKeyLabel.Render(chip)
 		}
+		if sm := m.scrollMeter(); sm != "" {
+			headLine += "  " + sm
+		}
 		if len(m.activeAgents) > 0 {
 			headLine += "  " + styleBadge.Render(fmt.Sprintf("⛐ %d: %s", len(m.activeAgents), agentSummary(m.activeAgents)))
 		}
@@ -2888,7 +2838,7 @@ func (m Model) View() tea.View {
 	// short; place it in a full-height box (blank rows become spaces, which
 	// JoinVertical keeps) so the panes/input below sit at the bottom of the screen
 	// instead of floating with empty space beneath the input.
-	vpw := tw - scrollbarW // the transcript content; the scrollbar gutter takes the last col
+	vpw := tw // the transcript content spans the full width (no drawn scrollbar)
 	var vpContent string
 	if len(m.blocks) == 0 && !m.running && !m.resuming {
 		// Fresh session: show the NERV/MAGI startup splash until the first message.
@@ -2899,12 +2849,9 @@ func (m Model) View() tea.View {
 			vpContent = " " // empty/blank content isn't padded; give it a space
 		}
 	}
-	// Force every row to exactly vpw cells with our terminal-aware measure, then
-	// weld the scrollbar gutter on so the transcript area is exactly tw wide and
-	// the gutter stays aligned on lines with ambiguous-width characters. (Doing
-	// the padding ourselves — not via lipgloss.Width — is what fixes the ragged
-	// scrollbar; blank rows become spaces so panes/input still sit at the bottom.)
-	vpv := composeWithScrollbar(vpContent, vpw, m.vp.Height(), m.renderScrollbar(m.vp.Height()))
+	// Force every row to exactly vpw cells with our terminal-aware measure
+	// (blank rows become spaces so panes/input still sit at the bottom).
+	vpv := composeBox(vpContent, vpw, m.vp.Height())
 	leftRows := []string{vpv}
 	aboveInput := 2 + m.vp.Height() // header(2: title+divider) + viewport rows above input
 	if pv := m.renderPanes(tw, aboveInput); pv != "" {
@@ -3092,6 +3039,28 @@ func (m *Model) permView() string {
 		styleFooter.Render("") +
 		footerKeys("y", "allow") + footerKeys("a", "always") + footerKeys("p", "project") + footerKeys("n", "deny")
 	return stylePermBox.Width(m.width - 4).Render(body)
+}
+
+// scrollMeter renders the transcript scroll-position chip — the drawn
+// scrollbar's replacement (see composeBox). Empty when everything fits.
+// "⇅ 42% (120/300)" = the bottom visible line over the total; when the user
+// has scrolled away from a still-streaming bottom, an "↓ new" marker warns
+// that fresh output is arriving below (End jumps back).
+func (m *Model) scrollMeter() string {
+	total := len(m.contentPlain)
+	h := m.vp.Height()
+	if total <= h || h <= 0 {
+		return ""
+	}
+	bottom := m.vp.YOffset() + h
+	if bottom > total {
+		bottom = total
+	}
+	chip := fmt.Sprintf("⇅ %d%% (%d/%d)", bottom*100/total, bottom, total)
+	if !m.vp.AtBottom() && m.running {
+		chip += " · ↓ new"
+	}
+	return styleKeyLabel.Render(chip)
 }
 
 // ctxMeter renders the context-window usage indicator (e.g. "   ctx 42%").

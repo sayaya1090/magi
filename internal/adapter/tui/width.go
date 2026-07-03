@@ -93,19 +93,18 @@ func padOrTruncate(s string, w int) string {
 	return t
 }
 
-// composeWithScrollbar renders `content` into a height×width block with the
-// single-column scrollbar `bar` welded to the right of every row. Each content
-// line is forced to exactly `width` cells via padOrTruncate — using our
-// terminal-aware measure rather than lipgloss's — so the gutter lands in the
-// same column on every row regardless of special characters. Missing content or
-// bar rows become blanks, so a short transcript still fills the viewport and the
-// gutter stays invisible until there is something to scroll.
-func composeWithScrollbar(content string, width, height int, bar string) string {
+// composeBox renders `content` into a full height×width block. Each line is
+// forced to exactly `width` cells via padOrTruncate — our terminal-aware
+// measure, not lipgloss's — and missing rows become blanks, so a short
+// transcript still fills the viewport and the panes/input below sit at the
+// bottom of the screen. (This used to also weld a 1-col scrollbar gutter; the
+// drawn scrollbar is gone — scroll position lives in the header chip — which
+// retires the ambiguous-width misalignment class it kept regressing on.)
+func composeBox(content string, width, height int) string {
 	if height <= 0 {
 		return ""
 	}
 	contentLines := strings.Split(content, "\n")
-	barLines := strings.Split(bar, "\n")
 	var b strings.Builder
 	for i := 0; i < height; i++ {
 		if i > 0 {
@@ -116,11 +115,6 @@ func composeWithScrollbar(content string, width, height int, bar string) string 
 			line = contentLines[i]
 		}
 		b.WriteString(padOrTruncate(line, width))
-		cell := " "
-		if i < len(barLines) {
-			cell = barLines[i]
-		}
-		b.WriteString(cell)
 	}
 	return b.String()
 }

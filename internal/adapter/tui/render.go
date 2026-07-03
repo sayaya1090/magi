@@ -405,19 +405,15 @@ func (m *Model) transcriptWidth() int {
 	return w
 }
 
-// bodyWidth is the width actually available to transcript CONTENT lines: the
-// transcript minus the 1-col scrollbar gutter that composeWithScrollbar welds
-// onto every row. Block renderers that pad/clip a line to a fixed width must use
-// this (not transcriptWidth) — otherwise a full-width line runs 1 col past the
-// viewport and gets soft-wrapped onto a sliver row, notching that block wherever
-// the scrollbar appears. Mirrors buildGlam, which also subtracts scrollbarW.
-func (m *Model) bodyWidth() int { return m.transcriptWidth() - scrollbarW }
+// bodyWidth is the width actually available to transcript CONTENT lines. With
+// the drawn scrollbar retired (scroll position lives in the header chip) it
+// equals transcriptWidth; it stays a named seam so block renderers keep one
+// authoritative content width should a gutter ever return.
+func (m *Model) bodyWidth() int { return m.transcriptWidth() }
 
-// wrapThink word-wraps "thinking" text to the transcript CONTENT width — the
-// transcript minus the 1-col scrollbar gutter (scrollbarW) and the 2-col indent
-// applied by indent(). It must match the markdown body's wrap width (buildGlam
-// also subtracts scrollbarW); otherwise the padded think lines run 1 col wider
-// than the content area and collide with the scrollbar column, notching that row.
+// wrapThink word-wraps "thinking" text to the transcript CONTENT width minus
+// the 2-col indent applied by indent(). It must match the markdown body's wrap
+// width (buildGlam), or the padded think lines run wider than the content area.
 func (m *Model) wrapThink(s string) string {
 	return styleThink.Width(m.bodyWidth() - 2).Render(s)
 }

@@ -76,11 +76,10 @@ func TestPadOrTruncateExactWidth(t *testing.T) {
 	}
 }
 
-// TestComposeWithScrollbarAlignment is the regression test for the ragged
-// gutter: every rendered row must be exactly width+1 cells (content padded to
-// width + one scrollbar cell), even for rows dense with ambiguous characters and
-// even when the terminal treats them as wide.
-func TestComposeWithScrollbarAlignment(t *testing.T) {
+// TestComposeBoxAlignment: every rendered row must be exactly width cells,
+// even for rows dense with ambiguous characters and even when the terminal
+// treats them as wide — the invariant that keeps the panel column straight.
+func TestComposeBoxAlignment(t *testing.T) {
 	content := strings.Join([]string{
 		"short",
 		"a line with · — → ★ special chars",
@@ -88,28 +87,25 @@ func TestComposeWithScrollbarAlignment(t *testing.T) {
 		"emoji ✅ ⏳ ⚠️ and ambiguous · · ·",
 	}, "\n")
 	const width, height = 30, 6
-	// composeWithScrollbar's contract is that it's handed one-cell bar rows (which
-	// renderScrollbar guarantees: ASCII "|" on wide terminals, narrow "│" else).
-	bar := strings.Join([]string{"|", "|", "|", "|", "|", "|"}, "\n")
 	for _, wide := range []bool{false, true} {
 		withAmbiguousWide(t, wide, func() {
-			out := composeWithScrollbar(content, width, height, bar)
+			out := composeBox(content, width, height)
 			rows := strings.Split(out, "\n")
 			if len(rows) != height {
 				t.Fatalf("wide=%v got %d rows, want %d", wide, len(rows), height)
 			}
 			for i, r := range rows {
-				if cw := cellWidth(r); cw != width+1 {
-					t.Errorf("wide=%v row %d width=%d, want %d (%q)", wide, i, cw, width+1, r)
+				if cw := cellWidth(r); cw != width {
+					t.Errorf("wide=%v row %d width=%d, want %d (%q)", wide, i, cw, width, r)
 				}
 			}
 		})
 	}
 }
 
-// TestComposeWithScrollbarZeroHeight: defensive — no rows, no panic.
-func TestComposeWithScrollbarZeroHeight(t *testing.T) {
-	if got := composeWithScrollbar("anything", 10, 0, ""); got != "" {
+// TestComposeBoxZeroHeight: defensive — no rows, no panic.
+func TestComposeBoxZeroHeight(t *testing.T) {
+	if got := composeBox("anything", 10, 0); got != "" {
 		t.Errorf("height 0 should render empty, got %q", got)
 	}
 }
