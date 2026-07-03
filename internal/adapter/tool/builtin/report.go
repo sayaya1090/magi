@@ -55,6 +55,13 @@ func (Report) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv
 	// filing a fabricated result the orchestrator would take at face value. This scans the
 	// report narrative; the loop separately scans the files the subagent wrote (both share
 	// internal/core/selfcheck). "blocked"/"failed" are honest outcomes and pass through.
+	//
+	// This phrase scan is a best-effort, English-only pre-flag, NOT the authority (see the
+	// SCOPE note on selfcheck.FabricationMarkers): a confession in another language or a
+	// paraphrase passes through here. The behavioral backstop is at the top level — when the
+	// PARENT turn finishes, the review gate's tester actually runs the merged deliverable and
+	// the fresh-evidence gate (internal/app/loop.go) blocks completion on a real FAIL — so a
+	// subagent's fabricated "done" that slips past this scan is still caught by real execution.
 	if status == "done" {
 		if _, line := selfcheck.FabricationMarker(a.Summary + "\n" + a.Details); line != "" {
 			return errResult("", "This report says done, but your summary/details admit the work is a stand-in — "+
