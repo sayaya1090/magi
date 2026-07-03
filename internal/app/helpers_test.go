@@ -57,14 +57,14 @@ func TestRunGuard(t *testing.T) {
 		t.Errorf("blocked repeat should expose the cached earlier result, got block=%v last=%q", block, g2.lastResult(fp3))
 	}
 	// Not stuck yet; force enough blocked repeats to cross blockedBudget.
-	if g.stuck() {
+	if g.stuck() != "" {
 		t.Error("should not be stuck after a single block")
 	}
 	for g.blocked < blockedBudget {
 		g.check("bash", args)
 	}
-	if !g.stuck() {
-		t.Error("should be stuck once blockedBudget is reached")
+	if g.stuck() != "repeat" {
+		t.Error("should be stuck (repeat) once blockedBudget is reached")
 	}
 }
 

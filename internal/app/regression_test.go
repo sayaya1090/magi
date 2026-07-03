@@ -207,6 +207,61 @@ func TestShouldNudgeStalled(t *testing.T) {
 	}
 }
 
+// TestStallForceStop: once every stall nudge is spent AND another full no-progress
+// window passes with still no mutation, stuck() reports "stall" — the backstop that
+// keeps an agent ignoring all redirection from wandering to the (now 240) ceiling.
+// A real mutation at any point resets the window and disarms it.
+func TestStallForceStop(t *testing.T) {
+	g := newRunGuard()
+	for i := 1; i <= maxStallNudges; i++ {
+		g.sinceProgress = noProgressNudge * i
+		if g.shouldNudge() != "stalled" {
+			t.Fatalf("stall nudge %d should fire", i)
+		}
+		if g.stuck() != "" {
+			t.Fatalf("must not force-stop while nudges are still being tried (after nudge %d)", i)
+		}
+	}
+	// Nudges exhausted, but not yet a further full window → still not stopped.
+	g.sinceProgress = noProgressNudge*maxStallNudges + 1
+	if g.stuck() != "" {
+		t.Fatal("force-stop needs a full ignored window after the last nudge")
+	}
+	g.sinceProgress = noProgressNudge * (maxStallNudges + 1)
+	if g.stuck() != "stall" {
+		t.Fatal("expected the stall force-stop after the post-nudge window elapsed")
+	}
+	// Real progress disarms it.
+	g.mutated("out.txt", "sig")
+	if g.stuck() != "" {
+		t.Fatal("a real mutation must disarm the stall stop")
+	}
+}
+
+// TestBashWriteCountsAsProgress: a bash command that writes a file bumps the mutation
+// epoch (progress), while re-running the identical write does not — the tool-agnostic
+// twin of write/edit's epoch rule, so bash-heavy tasks don't misfire stall nudges.
+func TestBashWriteCountsAsProgress(t *testing.T) {
+	g := newRunGuard()
+	g.sinceProgress = noProgressNudge - 1
+	if !g.noteBashWrite("echo hi > out.txt") {
+		t.Fatal("a redirect write should be recorded")
+	}
+	if g.sinceProgress != 0 {
+		t.Fatalf("a bash write is progress: sinceProgress should reset, got %d", g.sinceProgress)
+	}
+	// The identical command again is NOT progress (idempotent rewrite loop).
+	g.sinceProgress = 5
+	g.noteBashWrite("echo hi > out.txt")
+	if g.sinceProgress != 5 {
+		t.Fatalf("an identical rewrite must not count as progress, got sinceProgress=%d", g.sinceProgress)
+	}
+	// A read-only command is neither recorded nor progress.
+	if g.noteBashWrite("grep foo src/") {
+		t.Fatal("read-only commands must not be recorded as writes")
+	}
+}
+
 // TestShouldNudgeStalledReArmsAfterMutation: a real mutation resets both the count and the
 // stall window, so a later stall gets a fresh nudge (and the per-run cap is not consumed by
 // windows that were separated by genuine progress within the same firing).

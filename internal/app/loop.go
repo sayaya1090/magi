@@ -285,16 +285,22 @@ const bashWriteCap = 64
 // (`>`), a heredoc (`<<`), or `tee`. Read-only commands (a bare `grep`/`cat`) are skipped
 // so a benign search for a marker phrase can't trip the fabrication scan; only commands
 // that emit content into a file, the actual fabrication vector, are kept.
-func (g *runGuard) noteBashWrite(cmd string) {
+func (g *runGuard) noteBashWrite(cmd string) bool {
 	if !strings.Contains(cmd, ">") && !strings.Contains(cmd, "<<") && !strings.Contains(cmd, "tee ") {
-		return
+		return false
 	}
 	g.mu.Lock()
-	defer g.mu.Unlock()
-	if len(g.bashWrites) >= bashWriteCap {
-		return
+	if len(g.bashWrites) < bashWriteCap {
+		g.bashWrites = append(g.bashWrites, cmd)
 	}
-	g.bashWrites = append(g.bashWrites, cmd)
+	g.mu.Unlock()
+	// A bash command that writes a file IS real progress — the tool-agnostic twin of
+	// write/edit's epoch bump. Without this, bash-heavy tasks (most Terminal-Bench
+	// work) climb sinceProgress while genuinely producing files, misfiring stall
+	// nudges and, post-nudge-exhaustion, the stall force-stop. mutated() keys on the
+	// command text itself, so re-running the IDENTICAL write is still not progress.
+	g.mutated("\x00bash", cmd)
+	return true
 }
 
 // scanFabrication runs the self-admitted-fabrication scan over BOTH the files the agent
@@ -331,11 +337,22 @@ func scanFabricationClaim(changes []fileChange) (path, snippet string) {
 	return "", ""
 }
 
-// stuck reports whether the run has blocked enough repeats to be force-stopped.
-func (g *runGuard) stuck() bool {
+// stuck reports why the run should be force-stopped: "repeat" (the same action
+// blocked past blockedBudget), "stall" (all stall nudges spent AND another full
+// no-progress window elapsed with still no mutation — the agent is ignoring
+// redirection and would otherwise wander to MaxSteps, which at the 240 default
+// means ~200 unguarded steps), or "" to keep going. A real mutation resets
+// sinceProgress and lastStallAt (see mutated), so productive work never trips it.
+func (g *runGuard) stuck() string {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return g.blocked >= blockedBudget
+	if g.blocked >= blockedBudget {
+		return "repeat"
+	}
+	if g.stallNudges >= maxStallNudges && g.sinceProgress-g.lastStallAt >= noProgressNudge {
+		return "stall"
+	}
+	return ""
 }
 
 // shouldNudge reports whether the run has stalled enough to warrant a corrective
@@ -986,10 +1003,16 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
 		}
 
-		// Loop guard: an agent that keeps repeating the same blocked action is
-		// stuck. Stop the run gracefully rather than burning the full step budget.
-		if guard.stuck() {
+		// Loop guard: stop gracefully rather than burning the full step budget,
+		// either on hard repeats or on a stall the agent kept ignoring after every
+		// nudge was spent (varied-but-unproductive calls never trip the repeat count).
+		switch guard.stuck() {
+		case "repeat":
 			d, _ := json.Marshal(event.ErrorData{Message: "stopped: the agent repeated the same action without progress (loop guard)", Code: "loop_guard"})
+			a.appendFact(ctx, sid, event.TypeError, event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)
+			return lastText, nil
+		case "stall":
+			d, _ := json.Marshal(event.ErrorData{Message: "stopped: no real progress after repeated redirection (stall guard)", Code: "stall_guard"})
 			a.appendFact(ctx, sid, event.TypeError, event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)
 			return lastText, nil
 		}
