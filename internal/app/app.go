@@ -215,7 +215,13 @@ type CouncilSignalSpec struct {
 // withDefaults fills unset fields with sensible values.
 func (c Config) withDefaults() Config {
 	if c.MaxSteps == 0 {
-		c.MaxSteps = 40 // headroom for orchestration (delegate → incorporate → follow-up)
+		// 240: sized for Terminal-Bench 2.x-scale tasks (multi-deliverable builds,
+		// proof/compile iteration), where 40 was the top cause of agent_timeout —
+		// reval2 measured 15/19 timeouts as ceiling exhaustion mid-work. The ceiling
+		// is a runaway backstop, not the pacing mechanism: the loop guard, stall
+		// nudges, and the council gate stop unproductive turns long before it, and
+		// the per-step budget line keeps the agent from treating it as a quota.
+		c.MaxSteps = 240
 	}
 	c = c.applyProfile()
 	if c.Permission == "" {
