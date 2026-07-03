@@ -173,6 +173,11 @@ type PermissionRequestedData struct {
 	CallID string `json:"callId"`
 	Name   string `json:"name"`
 	Args   []byte `json:"args"`
+	// Reason says WHY the prompt fired when the policy forced it (e.g. a bash
+	// scan hit: "destructive command detected", "network egress command") —
+	// empty for a routine danger-tool confirmation. Shown in the modal so the
+	// user decides on the policy's grounds, not just the raw command.
+	Reason string `json:"reason,omitempty"`
 }
 
 // AgentStatusData — TypeAgentSpawned / TypeAgentStatus (multi-agent live view).

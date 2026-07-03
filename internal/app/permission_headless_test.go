@@ -35,7 +35,7 @@ func TestRequestPermissionNonInteractiveNeverBlocks(t *testing.T) {
 		a, wd := newApp(t, &fakeLLM{}, Config{Permission: c.perm, Interactive: false})
 		sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
 		got := make(chan bool, 1)
-		go func() { got <- a.requestPermission(context.Background(), sid, actor, tc, c.force) }()
+		go func() { got <- a.requestPermission(context.Background(), sid, actor, tc, c.force, "") }()
 		select {
 		case g := <-got:
 			if g != c.want {
@@ -57,7 +57,9 @@ func TestRequestPermissionInteractiveStillPrompts(t *testing.T) {
 	defer cancel()
 
 	got := make(chan bool, 1)
-	go func() { got <- a.requestPermission(ctx, sid, event.Actor{Kind: event.ActorUser, ID: "u"}, tc, false) }()
+	go func() {
+		got <- a.requestPermission(ctx, sid, event.Actor{Kind: event.ActorUser, ID: "u"}, tc, false, "")
+	}()
 
 	// It must BLOCK waiting for a human, not resolve immediately.
 	select {

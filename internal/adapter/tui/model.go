@@ -83,6 +83,7 @@ type permReq struct {
 	callID string
 	name   string
 	args   string
+	reason string // policy reason the prompt fired (empty = routine confirmation)
 }
 
 // Model is the Bubble Tea model for the interactive TUI.
@@ -2210,7 +2211,7 @@ func (m *Model) applyEvent(e event.Event) {
 	case event.TypePermissionRequested:
 		var d event.PermissionRequestedData
 		if json.Unmarshal(e.Data, &d) == nil {
-			m.perm = &permReq{callID: d.CallID, name: d.Name, args: string(d.Args)}
+			m.perm = &permReq{callID: d.CallID, name: d.Name, args: string(d.Args), reason: d.Reason}
 		}
 
 	case event.TypeContextUsage:
@@ -3112,9 +3113,15 @@ func colorizeChanges(changes string) string {
 
 func (m *Model) permView() string {
 	body := stylePermTitle.Render("permission required") + "\n" +
-		fmt.Sprintf("run tool %s %s\n", styleToolName.Render(m.perm.name), styleToolArgs.Render(compactArgs(m.perm.args))) +
-		styleFooter.Render("") +
-		footerKeys("y", "allow") + footerKeys("a", "always") + footerKeys("p", "project") + footerKeys("n", "deny")
+		fmt.Sprintf("run tool %s %s\n", styleToolName.Render(m.perm.name), styleToolArgs.Render(compactArgs(m.perm.args)))
+	// Say WHY when the policy forced this prompt (bash scan verdicts) — the user
+	// should decide on the policy's grounds, not just the raw command text.
+	if m.perm.reason != "" {
+		body += styleError.Render("⚠ "+m.perm.reason) + "\n"
+	}
+	body += styleFooter.Render("") +
+		footerKeys("y", "allow") + footerKeys("a", "always") +
+		footerKeys("p", "project (saves to .magi/config.toml)") + footerKeys("n", "deny")
 	return stylePermBox.Width(m.width - 4).Render(body)
 }
 

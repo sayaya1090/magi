@@ -1467,8 +1467,11 @@ func (a *App) gatePermission(ctx context.Context, sid session.SessionID, actor e
 		return true
 	}
 	forcePrompt := verdict == "ask"
+	if !forcePrompt {
+		reason = "" // routine danger-tool confirmation, not a policy hit
+	}
 	if (a.cfg.DangerTools[tc.Name] || forcePrompt) && !a.policy.AllowedByRule(tc.Name, tc.Args) {
-		allowed := a.requestPermission(ctx, sid, actor, tc, forcePrompt)
+		allowed := a.requestPermission(ctx, sid, actor, tc, forcePrompt, reason)
 		decision := "allow"
 		if !allowed {
 			decision = "deny"
@@ -1666,7 +1669,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 
 // requestPermission applies the permission policy, blocking for an interactive
 // decision when policy is "ask" (F-LOOP-PERMISSION).
-func (a *App) requestPermission(ctx context.Context, sid session.SessionID, actor event.Actor, tc *session.ToolCall, forcePrompt bool) bool {
+func (a *App) requestPermission(ctx context.Context, sid session.SessionID, actor event.Actor, tc *session.ToolCall, forcePrompt bool, reason string) bool {
 	// A policy-forced prompt (risky bash, egress) overrides allow/auto so the
 	// user always gets a say — but an explicit "deny" mode still denies.
 	if !forcePrompt {
@@ -1715,7 +1718,7 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 		a.mu.Unlock()
 	}()
 
-	rd, _ := json.Marshal(event.PermissionRequestedData{CallID: tc.CallID, Name: tc.Name, Args: tc.Args})
+	rd, _ := json.Marshal(event.PermissionRequestedData{CallID: tc.CallID, Name: tc.Name, Args: tc.Args, Reason: reason})
 	a.publishTransient(sid, event.TypePermissionRequested, actor, rd)
 
 	select {
