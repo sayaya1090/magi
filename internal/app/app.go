@@ -123,6 +123,11 @@ type Config struct {
 	MaxAgents   int // cumulative spawn cap (runaway backstop)
 	Concurrency int // max concurrently running subagents
 
+	// TimeBudget, when > 0, is a USER-declared wall-clock target for a turn,
+	// surfaced in the budget line as guidance (never a hard stop). Off by
+	// default; keep it off for leaderboard/official comparison runs.
+	TimeBudget time.Duration
+
 	// Models supplies model metadata for cost, routing, and context-aware
 	// compaction (M6). Defaulted if nil.
 	Models *model.Registry

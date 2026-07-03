@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -17,7 +18,7 @@ func TestVolatileContextHoldsPlan(t *testing.T) {
 		"s1": {{Content: "implement X", Status: "in_progress"}},
 	}}
 	s := session.Session{ID: "s1"}
-	out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 0, 0)
+	out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 0, 0, 0)
 	if !strings.Contains(out, "# Current plan (TODOs)") || !strings.Contains(out, "implement X") {
 		t.Fatalf("volatileContext should carry the plan, got %q", out)
 	}
@@ -29,7 +30,7 @@ func TestVolatileContextHoldsPlan(t *testing.T) {
 func TestVolatileContextStepBudget(t *testing.T) {
 	a := &App{todos: map[session.SessionID][]session.Todo{}}
 	s := session.Session{ID: "s1"}
-	out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 6, 40)
+	out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 6, 40, 0)
 	if !strings.Contains(out, "# Step budget") || !strings.Contains(out, "step 7 of at most 40") {
 		t.Fatalf("budget block should show the current step and ceiling, got %q", out)
 	}
@@ -42,8 +43,41 @@ func TestVolatileContextStepBudget(t *testing.T) {
 		t.Fatalf("budget block should forbid narration-only tool calls, got %q", out)
 	}
 	// Tiny phase budgets (e.g. summarize=3) skip the block entirely.
-	if out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 0, 3); strings.Contains(out, "# Step budget") {
+	if out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 0, 3, 0); strings.Contains(out, "# Step budget") {
 		t.Fatalf("tiny budgets should not emit a step-budget block, got %q", out)
+	}
+}
+
+// TestVolatileContextElapsed: the self-measured wall clock appears only once it crosses a
+// minute (sub-minute is noise), and it is stated as our own stopwatch — no external info.
+func TestVolatileContextElapsed(t *testing.T) {
+	a := &App{todos: map[session.SessionID][]session.Todo{}}
+	s := session.Session{ID: "s1"}
+	// Under a minute: nothing.
+	if out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 6, 40, 30*time.Second); strings.Contains(out, "wall-clock") {
+		t.Fatalf("sub-minute elapsed should not be shown, got %q", out)
+	}
+	// Over a minute: shown.
+	out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 6, 40, 11*time.Minute)
+	if !strings.Contains(out, "working for 11m") || !strings.Contains(out, "wall-clock") {
+		t.Fatalf("elapsed line should report self-measured wall clock, got %q", out)
+	}
+}
+
+// TestVolatileContextTimeBudget: --time-budget is off by default (no line); when set it is
+// stated as user guidance, and once elapsed passes it the line flips to EXCEEDED.
+func TestVolatileContextTimeBudget(t *testing.T) {
+	s := session.Session{ID: "s1"}
+	off := &App{todos: map[session.SessionID][]session.Todo{}}
+	if out := off.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 6, 40, 5*time.Minute); strings.Contains(out, "asked for this to finish") {
+		t.Fatalf("time budget off by default should emit no budget line, got %q", out)
+	}
+	on := &App{todos: map[session.SessionID][]session.Todo{}, cfg: Config{TimeBudget: 30 * time.Minute}}
+	if out := on.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 6, 40, 10*time.Minute); !strings.Contains(out, "within 30m") || !strings.Contains(out, "remaining") {
+		t.Fatalf("time budget should state remaining, got %q", out)
+	}
+	if out := on.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 6, 40, 40*time.Minute); !strings.Contains(out, "EXCEEDED") {
+		t.Fatalf("elapsed past the budget should read EXCEEDED, got %q", out)
 	}
 }
 
@@ -52,7 +86,7 @@ func TestVolatileContextStepBudget(t *testing.T) {
 func TestVolatileContextEmpty(t *testing.T) {
 	a := &App{todos: map[session.SessionID][]session.Todo{}}
 	s := session.Session{ID: "s1"}
-	if out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 0, 0); out != "" {
+	if out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 0, 0, 0); out != "" {
 		t.Fatalf("expected empty volatile context, got %q", out)
 	}
 }
@@ -315,11 +349,11 @@ func TestNoteEditPerFile(t *testing.T) {
 func TestVolatileContextStepEstimate(t *testing.T) {
 	a := &App{todos: map[session.SessionID][]session.Todo{}, estSteps: map[session.SessionID]int{}}
 	s := session.Session{ID: "s1"}
-	if out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 0, 240); strings.Contains(out, "estimated at roughly") {
+	if out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 0, 240, 0); strings.Contains(out, "estimated at roughly") {
 		t.Fatalf("no estimate should add no advisory line, got %q", out)
 	}
 	a.storeStepEstimate("s1", 12)
-	out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 0, 240)
+	out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 0, 240, 0)
 	if !strings.Contains(out, "estimated at roughly 12 step(s)") || !strings.Contains(out, "not a") {
 		t.Fatalf("advisory estimate missing: %q", out)
 	}

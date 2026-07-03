@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/platform"
 	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
@@ -152,7 +153,7 @@ func TestCouncilGateCancelDuringDeliberation(t *testing.T) {
 	defer cancel()
 
 	rounds, lastFB := 0, ""
-	if a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB, "", 40, "") {
+	if a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB, "", 40, "", 0, new(time.Duration)) {
 		t.Error("gate must NOT continue after a mid-deliberation cancel")
 	}
 	if cc.calls != 1 {
@@ -174,7 +175,7 @@ func TestCouncilGateSkipsWhenAlreadyCancelled(t *testing.T) {
 	cancel() // already cancelled before the gate runs
 
 	rounds, lastFB := 0, ""
-	if a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB, "", 40, "") {
+	if a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB, "", 40, "", 0, new(time.Duration)) {
 		t.Error("gate must not continue when entered with a cancelled context")
 	}
 	if fc.calls != 0 {
@@ -185,6 +186,51 @@ func TestCouncilGateSkipsWhenAlreadyCancelled(t *testing.T) {
 	}
 	if countType(mustRead(t, a, s.ID), event.TypeCouncilConvened) != 0 {
 		t.Error("a cancelled gate must not convene the council")
+	}
+}
+
+// The self-measured cost cap stops round 2+ when deliberation has already eaten a
+// disproportionate share of the turn's own wall clock: it finishes UNVERIFIED
+// without deliberating again, and never on the first round.
+func TestCouncilGateCostCapStopsLateRounds(t *testing.T) {
+	fc := &fakeCouncil{delibs: []council.Deliberation{{Round: 1, Decision: council.Continue, Feedback: "x"}}}
+	a, wd := newApp(t, workingLLM(), Config{Council: fc})
+	s, agent := newGateSession(t, a, wd)
+	ctx := context.Background()
+
+	// rounds=1 (a round already ran), spent 5m of a 6m turn (>=60s and spent*4 >= turn).
+	rounds, lastFB := 1, "still unmet: foo"
+	spent := 5 * time.Minute
+	if a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB, "", 40, "", 6*time.Minute, &spent) {
+		t.Error("cost cap should finish (not continue) once deliberation dominates the turn")
+	}
+	if fc.calls != 0 {
+		t.Errorf("cost cap must not deliberate again; calls=%d", fc.calls)
+	}
+	decided := mustRead(t, a, s.ID)
+	found := false
+	for _, e := range decided {
+		if e.Type == event.TypeCouncilDecided && strings.Contains(string(e.Data), "UNVERIFIED") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("cost-capped finish must be recorded as UNVERIFIED")
+	}
+}
+
+// The cost cap never fires on the first round: even an expensive round-1 must run,
+// so a single deliberation is always allowed.
+func TestCouncilGateCostCapAllowsFirstRound(t *testing.T) {
+	fc := &fakeCouncil{delibs: []council.Deliberation{{Round: 1, Decision: council.Done}}}
+	a, wd := newApp(t, workingLLM(), Config{Council: fc})
+	s, agent := newGateSession(t, a, wd)
+
+	rounds, lastFB := 0, ""
+	spent := 10 * time.Minute // huge, but rounds==0 so the cap is not consulted
+	a.runCouncilGate(context.Background(), s, agent, "task", "report", &rounds, &lastFB, "", 40, "", 6*time.Minute, &spent)
+	if fc.calls != 1 {
+		t.Errorf("first round must always deliberate regardless of prior cost; calls=%d", fc.calls)
 	}
 }
 

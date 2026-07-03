@@ -525,6 +525,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		maxSteps = a.cfg.MaxSteps
 	}
 	sid := s.ID
+	runStart := time.Now() // self-measured wall clock (budget line + council cost control)
 	agentActor := event.Actor{Kind: event.ActorAgent, ID: orDefault(agent.Name, "default")}
 	lastText := ""
 	stopChecked := false  // Stop hooks enforced at most once per run
@@ -536,6 +537,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	lastCouncilFeedback := "" // last round's feedback (no-progress detection)
 	prevFinishText := ""      // the answer the council rejected last round
 	prevFinishCalls := -1     // guard.callCount() at that rejection (-1 = none yet)
+	councilSpent := time.Duration(0) // self-measured wall-clock consumed by deliberations
 	turnTask := ""            // the user instruction THIS turn answers, snapshotted at
 	// step 0 — so a steer that lands during the council gate can't hijack what the
 	// council judges against (that interjection gets its own follow-up turn instead).
@@ -606,14 +608,14 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// here but injected as an ephemeral trailing message, NOT into `sys`. `sys` (above) is
 		// now byte-stable within a turn, so the backend's prefix cache is reused across steps;
 		// only this small block at the tail is re-processed each step.
-		vol := a.volatileContext(ctx, s, agent, isSub, evs, step, maxSteps)
+		vol := a.volatileContext(ctx, s, agent, isSub, evs, step, maxSteps, time.Since(runStart))
 
 		// Context-aware auto-compaction (M6): if the assembled context exceeds the model's
 		// window budget, summarize older turns and re-read. Measure against sys+vol so the
 		// trigger still accounts for the volatile block (it's only used for sizing here).
 		if a.maybeCompact(ctx, s, agent, agentActor, evs, sys+"\n\n"+vol) {
 			evs, _ = a.store.Read(ctx, sid, 0)
-			vol = a.volatileContext(ctx, s, agent, isSub, evs, step, maxSteps) // refresh after compaction
+			vol = a.volatileContext(ctx, s, agent, isSub, evs, step, maxSteps, time.Since(runStart)) // refresh after compaction
 		}
 
 		msgs := reconstruct(evs)
@@ -623,7 +625,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			if evs2, err := a.store.Read(ctx, sid, 0); err == nil {
 				evs = evs2
 				msgs = reconstruct(evs)
-				vol = a.volatileContext(ctx, s, agent, isSub, evs, step, maxSteps)
+				vol = a.volatileContext(ctx, s, agent, isSub, evs, step, maxSteps, time.Since(runStart))
 			}
 		}
 		// Append the volatile context as an ephemeral trailing user message (not persisted, so
@@ -916,7 +918,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 						Note: "answer resubmitted unchanged after council feedback — finishing without re-deliberation; treat as UNVERIFIED",
 					})
 					a.appendFact(ctx, sid, event.TypeCouncilDecided, event.Actor{Kind: event.ActorSystem, ID: "council"}, dd)
-				} else if a.runCouncilGate(ctx, s, agent, turnTask, lastText, &councilRounds, &lastCouncilFeedback, buildCouncilChanges(guard.changeSet()), maxSteps-step, fab) {
+				} else if a.runCouncilGate(ctx, s, agent, turnTask, lastText, &councilRounds, &lastCouncilFeedback, buildCouncilChanges(guard.changeSet()), maxSteps-step, fab, time.Since(runStart), &councilSpent) {
 					prevFinishText, prevFinishCalls = lastText, guard.callCount()
 					continue
 				}
@@ -1114,6 +1116,18 @@ func turnToolEvidence(evs []event.Event, k int) string {
 	return "- " + strings.Join(lines, "\n- ")
 }
 
+// fmtElapsed renders a duration coarsely (seconds under a minute, else Xm or XhYm)
+// — a pacing signal, not a stopwatch display.
+func fmtElapsed(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
+}
+
 // normEq reports whether two answers are the same modulo whitespace — the
 // cheap, deterministic notion of "the agent resubmitted its rejected answer".
 func normEq(a, b string) bool {
@@ -1178,7 +1192,7 @@ func tailForCouncil(s string, n int) string {
 //
 // Safety (so the council can never trap the loop): rounds are capped, repeated or
 // empty feedback stops the gate, and any deliberation error finishes the turn.
-func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent AgentSpec, turnTask, lastText string, rounds *int, lastFeedback *string, changes string, stepsLeft int, fabrication string) bool {
+func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent AgentSpec, turnTask, lastText string, rounds *int, lastFeedback *string, changes string, stepsLeft int, fabrication string, turnElapsed time.Duration, spent *time.Duration) bool {
 	// An interrupt mid-finish must not trigger a deliberation or inject a spurious
 	// feedback prompt — let the loop unwind the cancellation.
 	if ctx.Err() != nil {
@@ -1205,6 +1219,19 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		dd, _ := json.Marshal(event.CouncilDecidedData{
 			Round: *rounds + 1, Decision: string(council.Done),
 			Note: note,
+		})
+		a.appendFact(ctx, sid, event.TypeCouncilDecided, councilActor, dd)
+		return false
+	}
+	// Cost-efficiency cap (self-measured, no external info): when deliberation has
+	// already eaten a disproportionate share of the turn's own wall clock — a slow
+	// backend polling 3 members per round — further rounds cost more than they
+	// return. At least one round always runs; the cap only stops round 2+.
+	if *rounds >= 1 && *spent >= 60*time.Second && *spent*4 >= turnElapsed {
+		dd, _ := json.Marshal(event.CouncilDecidedData{
+			Round: *rounds + 1, Decision: string(council.Done),
+			Note: fmt.Sprintf("deliberation has cost %s of a %s turn — finishing instead of another round; treat as UNVERIFIED",
+				fmtElapsed(*spent), fmtElapsed(turnElapsed)),
 		})
 		a.appendFact(ctx, sid, event.TypeCouncilDecided, councilActor, dd)
 		return false
@@ -1317,6 +1344,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		a.publishTransient(sid, event.TypeCouncilDeliberating, councilActor, ld)
 	}
 
+	delibStart := time.Now()
 	delib, err := a.cfg.Council.Deliberate(ctx, port.DeliberationRequest{
 		Round:        *rounds,
 		Task:         task,
@@ -1331,6 +1359,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		DefaultModel: s.Model.Model,
 		StepsLeft:    stepsLeft,
 	})
+	*spent += time.Since(delibStart)
 	if err != nil {
 		// A gate failure must not trap the turn — record it as a forced finish
 		// (a note, not an error event, since the turn completes normally).
@@ -1824,8 +1853,8 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 			// trusts (webfetch on a docs-heavy repo, bash in a scratch sandbox).
 			// The session grant above already covers this run; a persist failure
 			// is reported as a note, never a blocked tool.
-			if dec == "persist" && a.cfg.PermissionPersister != nil {
-				if err := a.cfg.PermissionPersister.PersistAllow(tc.Name + "(**)"); err != nil {
+			if rule := persistRule(tc.Name, tc.Args); dec == "persist" && rule != "" && a.cfg.PermissionPersister != nil {
+				if err := a.cfg.PermissionPersister.PersistAllow(rule); err != nil {
 					nd, _ := json.Marshal(event.PromptSubmittedData{
 						MessageID: "m_" + newID(),
 						Parts:     []session.Part{{Kind: session.PartText, Text: "note: could not persist the allow rule: " + err.Error()}},
@@ -1839,6 +1868,50 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 	case <-ctx.Done():
 		return false
 	}
+}
+
+// persistRule builds the project allow rule recorded for a "persist" decision.
+// For most tools it grants the whole tool (`tool(**)`). For bash — where a
+// blanket `bash(**)` would silently pre-approve every future command, including
+// destructive ones — it narrows to a command-PREFIX rule (`bash(<cmd>:*)`): the
+// user approved `curl ...`, so persist `bash(curl:*)`, not carte blanche. The
+// prefix is the leading run of safe command tokens (argv words up to the first
+// shell metacharacter), so `bash(git status:*)` persists but a piped or chained
+// command falls back to the first token only. If no usable prefix is found the
+// grant stays session-only (empty rule → caller no-ops) rather than over-granting.
+func persistRule(tool string, args json.RawMessage) string {
+	if strings.ToLower(tool) != "bash" {
+		return tool + "(**)"
+	}
+	var m struct {
+		Command string `json:"command"`
+	}
+	_ = json.Unmarshal(args, &m)
+	prefix := safeCommandPrefix(m.Command)
+	if prefix == "" {
+		return "" // no safe prefix → do not persist a blanket bash grant
+	}
+	return "bash(" + prefix + ":*)"
+}
+
+// safeCommandPrefix returns the program name of a shell command — the first
+// argv word — provided the command opens with a plain literal and not a shell
+// metacharacter (a leading pipe/redirect/subshell has no stable "program" to
+// pin to). Persisting the executable name (`curl`, `git`) is deliberately
+// coarse-but-safe: it survives variable arguments (URLs, paths) that a longer
+// prefix would bake in, while the destructive/egress scanners still re-prompt on
+// dangerous invocations of that same program. Returns "" for an empty command
+// or one that starts with a metacharacter.
+func safeCommandPrefix(cmd string) string {
+	cmd = strings.TrimSpace(cmd)
+	if cmd == "" {
+		return ""
+	}
+	first := strings.Fields(cmd)[0]
+	if strings.ContainsAny(first, "|&;><`$(){}*?!\\\"'") {
+		return ""
+	}
+	return first
 }
 
 // ---- helpers ----
@@ -1934,7 +2007,7 @@ func (a *App) systemFor(agent AgentSpec, workdir string, isSub bool) string {
 // stays byte-stable within a turn and the backend's prefix (KV) cache survives across steps.
 // Returns "" when there is nothing to inject. Gating matches the old in-`sys` behavior:
 // experience applies to subagents too, RAG is top-level only.
-func (a *App) volatileContext(ctx context.Context, s session.Session, agent AgentSpec, isSub bool, evs []event.Event, step, maxSteps int) string {
+func (a *App) volatileContext(ctx context.Context, s session.Session, agent AgentSpec, isSub bool, evs []event.Event, step, maxSteps int, elapsed time.Duration) string {
 	var b strings.Builder
 	// Step budget: give the agent continuous budget awareness every step so it paces itself.
 	// Two failure modes to prevent: (1) running to the ceiling mid-exploration and being cut
@@ -1953,6 +2026,21 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 			"summary, or \"task completed\" message proves nothing and buys nothing. Say it in your reply text "+
 			"instead; spend steps only on actions that change or genuinely verify something.",
 			step+1, maxSteps, maxSteps, maxSteps))
+		// Self-measured wall clock: our own stopwatch, no external information. Lets
+		// the model notice a slow grind (ten compile retries) and change approach.
+		if elapsed >= time.Minute {
+			b.WriteString(fmt.Sprintf(" You have been working for %s of wall-clock time so far.", fmtElapsed(elapsed)))
+		}
+		// User-set time budget (--time-budget, default off): a legitimate user input,
+		// stated as guidance. Kept OFF for leaderboard/official comparison runs.
+		if tb := a.cfg.TimeBudget; tb > 0 {
+			rem := tb - elapsed
+			if rem < 0 {
+				b.WriteString(fmt.Sprintf(" The user asked for this to finish within %s — that budget is now EXCEEDED: land the smallest honest result immediately.", fmtElapsed(tb)))
+			} else {
+				b.WriteString(fmt.Sprintf(" The user asked for this to finish within %s (about %s remaining).", fmtElapsed(tb), fmtElapsed(rem)))
+			}
+		}
 		// Advisory pacing reference from the planner (soft budget). Deliberately NOT
 		// a limit: estimates from weak models are routinely wrong, and a wrong hard
 		// cap cuts off real work — the ceiling above stays the only stop.
@@ -1967,7 +2055,7 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 	}
 	// Compacted-context RAG (push half): topics an earlier compaction shed that look
 	// lexically relevant to the current task, as one-line pointers into recall_context.
-	b.WriteString(shardHints(evs, lastUserPromptText(evs)))
+	b.WriteString(shardHints(evs, currentTaskText(evs)))
 	// Shared experience (D13): relevant team memories/skills for the current request.
 	if a.cfg.Experience != nil {
 		if q := lastUserText(reconstruct(evs)); q != "" {
@@ -2163,6 +2251,32 @@ func lastUserPromptText(evs []event.Event) string {
 		}
 	}
 	return ""
+}
+
+// currentTaskText is the query for push-side shard hints: the most recent genuine
+// user prompt (what the user asked) joined with the latest assistant message (what
+// the agent is doing right now). Using both means a hint can fire on the file the
+// agent just started editing, not only on words from the opening prompt — the case
+// where a weak model has drifted onto a sub-task and most needs the recalled detail.
+func currentTaskText(evs []event.Event) string {
+	prompt := lastUserPromptText(evs)
+	var last string
+	msgs := reconstruct(evs)
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == session.RoleAssistant {
+			var b strings.Builder
+			for _, p := range msgs[i].Parts {
+				if p.Kind == session.PartText {
+					b.WriteString(p.Text + " ")
+				}
+			}
+			if s := strings.TrimSpace(b.String()); s != "" {
+				last = s
+				break
+			}
+		}
+	}
+	return strings.TrimSpace(prompt + " " + last)
 }
 
 // lastUserText returns the text of the most recent user message.
