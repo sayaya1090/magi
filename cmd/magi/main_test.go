@@ -401,3 +401,53 @@ func TestCouncilLightPreset(t *testing.T) {
 		t.Fatalf("unset rounds should defer to the app default, got %d", got)
 	}
 }
+
+// doctorChecks: endpoint reachability drives ok/fail; model presence warns (not
+// fails — cloud models may serve unlisted); undefined council providers warn;
+// missing optional binaries are info; exit code is 1 only on a hard failure.
+func TestDoctorChecks(t *testing.T) {
+	deps := doctorDeps{
+		ListModels: func(context.Context) ([]string, error) { return []string{"m1"}, nil },
+		LookPath:   func(string) (string, error) { return "", errors.New("absent") },
+		Model:      "m1", BaseURL: "http://x/v1",
+		Council: config.CouncilConfig{Members: []config.CouncilMember{{Name: "B", Provider: "ghost"}}},
+		GOOS:    "linux",
+	}
+	checks := doctorChecks(context.Background(), deps)
+	status := map[string]string{}
+	for _, c := range checks {
+		status[c.Name] = c.Status
+	}
+	if status["llm endpoint"] != "ok" || status["model"] != "ok" {
+		t.Fatalf("healthy backend should be ok: %+v", checks)
+	}
+	if status["council member B"] != "warn" {
+		t.Fatalf("undefined provider should warn: %+v", checks)
+	}
+	if status["gopls"] != "info" || status["sandbox"] != "warn" {
+		t.Fatalf("absent binaries: gopls should be info, sandbox warn: %+v", checks)
+	}
+	var out strings.Builder
+	if exit := printDoctor(&out, checks); exit != 0 {
+		t.Fatalf("warn/info must not fail the doctor, got exit %d\n%s", exit, out.String())
+	}
+
+	// Unreachable backend → fail → exit 1; unlisted model on a live backend → warn.
+	deps.ListModels = func(context.Context) ([]string, error) { return nil, errors.New("refused") }
+	checks = doctorChecks(context.Background(), deps)
+	if checks[0].Status != "fail" {
+		t.Fatalf("unreachable endpoint should fail: %+v", checks[0])
+	}
+	if exit := printDoctor(&out, checks); exit != 1 {
+		t.Fatalf("a hard failure should exit 1, got %d", exit)
+	}
+	deps.ListModels = func(context.Context) ([]string, error) { return []string{"other"}, nil }
+	checks = doctorChecks(context.Background(), deps)
+	status = map[string]string{}
+	for _, c := range checks {
+		status[c.Name] = c.Status
+	}
+	if status["model"] != "warn" {
+		t.Fatalf("unlisted model should warn: %+v", checks)
+	}
+}

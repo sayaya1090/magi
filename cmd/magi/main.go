@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -85,6 +86,7 @@ func run() int {
 		httpTimeout = flag.Duration("http-timeout", envDur("MAGI_HTTP_TIMEOUT", 0), "max wait for LLM response headers (e.g. 120s); 0 = unbounded")
 		pluginsDir  = flag.String("plugins", env("MAGI_PLUGINS", ""), "extra plugins directory to load")
 		listModels  = flag.Bool("list-models", false, "list the backend's available models and exit")
+		doctor      = flag.Bool("doctor", false, "check the environment (LLM endpoint, optional tools, sandbox, config) and exit")
 		showVersion = flag.Bool("version", false, "print version and exit")
 		doUpdate    = flag.Bool("update", false, "update magi to the latest release and exit")
 		theme       = flag.String("theme", env("MAGI_THEME", "auto"), "color theme: auto|dark|light")
@@ -246,6 +248,19 @@ func run() int {
 		llmOpts = append(llmOpts, openai.WithResponseHeaderTimeout(*httpTimeout))
 	}
 	llm := openai.New(baseURLVal, env("MAGI_API_KEY", os.Getenv("OPENAI_API_KEY")), llmOpts...)
+
+	if *doctor {
+		checks := doctorChecks(context.Background(), doctorDeps{
+			ListModels: llm.ListModels,
+			LookPath:   exec.LookPath,
+			Model:      modelID,
+			BaseURL:    baseURLVal,
+			Council:    cfg.Council,
+			Profiles:   cfg.LLM.Profiles,
+			GOOS:       defaultDoctorGOOS(),
+		})
+		return printDoctor(os.Stdout, checks)
+	}
 
 	if *listModels {
 		ids, err := llm.ListModels(context.Background())

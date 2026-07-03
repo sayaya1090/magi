@@ -43,6 +43,12 @@ echo "explain main.go" | ./magi -p -                   # stdin
   `--output json`이면 fact 이벤트를 줄 단위 JSONL로 출력.
 - **stderr** = 에러 전용. 에이전트 수준 에러는 grep 가능한 `error[<code>]: <message>` 형식.
 
+### 환경 점검
+```sh
+./magi --doctor   # LLM 엔드포인트 도달성, 모델 존재, 선택 도구(gopls/ast-grep/rg), 샌드박스 백엔드, config 프로파일 참조 점검
+```
+하드 실패(엔드포인트 도달 불가)일 때만 종료코드 1, 경고는 advisory.
+
 ### 버전 / 자동 업데이트
 ```sh
 ./magi --version

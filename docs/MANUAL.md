@@ -45,6 +45,12 @@ Headless output contract (stable — scripts, CI, and the bench adapters key off
 - **stderr** = errors only. Agent-level errors use the greppable form
   `error[<code>]: <message>`.
 
+### Environment check
+```sh
+./magi --doctor   # LLM endpoint reachability, model presence, optional tools (gopls/ast-grep/rg), sandbox backend, config profile references
+```
+Exit 0 unless a hard failure (unreachable endpoint); warnings are advisory.
+
 ### Version / self-update
 ```sh
 ./magi --version
