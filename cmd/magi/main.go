@@ -151,80 +151,7 @@ func run() int {
 	// override global.
 	cfg, _ := config.Load(plat.ConfigDir())
 	if proj, err := config.Load(filepath.Join(wd, ".magi")); err == nil {
-		cfg.Hooks = append(cfg.Hooks, proj.Hooks...)
-		if proj.ExperienceDir != "" {
-			cfg.ExperienceDir = proj.ExperienceDir
-		}
-		if proj.Profile != "" {
-			cfg.Profile = proj.Profile
-		}
-		if proj.Sandbox != "" {
-			cfg.Sandbox = proj.Sandbox
-		}
-		if proj.Model != "" {
-			cfg.Model = proj.Model
-		}
-		if proj.BaseURL != "" {
-			cfg.BaseURL = proj.BaseURL
-		}
-		if proj.Permission != "" {
-			cfg.Permission = proj.Permission
-		}
-		cfg.Allow = append(cfg.Allow, proj.Allow...)
-		cfg.Deny = append(cfg.Deny, proj.Deny...)
-		cfg.AllowDomains = append(cfg.AllowDomains, proj.AllowDomains...)
-		for k, v := range proj.Routing {
-			if cfg.Routing == nil {
-				cfg.Routing = map[string]string{}
-			}
-			cfg.Routing[k] = v
-		}
-		for k, v := range proj.MCP {
-			if cfg.MCP == nil {
-				cfg.MCP = map[string]config.MCPServer{}
-			}
-			cfg.MCP[k] = v
-		}
-		for k, v := range proj.LLM.Headers {
-			if cfg.LLM.Headers == nil {
-				cfg.LLM.Headers = map[string]string{}
-			}
-			cfg.LLM.Headers[k] = v
-		}
-		for k, v := range proj.Plugins {
-			if cfg.Plugins == nil {
-				cfg.Plugins = map[string]map[string]any{}
-			}
-			cfg.Plugins[k] = v
-		}
-		cfg.Theme.Dark = mergeStrMap(cfg.Theme.Dark, proj.Theme.Dark)
-		cfg.Theme.Light = mergeStrMap(cfg.Theme.Light, proj.Theme.Light)
-		// Council: project config may enable/disable/override the consensus gate.
-		if proj.Council.Enabled != nil {
-			cfg.Council.Enabled = proj.Council.Enabled
-		}
-		if proj.Council.Rule != "" {
-			cfg.Council.Rule = proj.Council.Rule
-		}
-		if proj.Council.MaxRounds != 0 {
-			cfg.Council.MaxRounds = proj.Council.MaxRounds
-		}
-		if len(proj.Council.Members) > 0 {
-			cfg.Council.Members = proj.Council.Members
-		}
-		if proj.Council.Preset != "" {
-			cfg.Council.Preset = proj.Council.Preset
-		}
-		if proj.Council.Verify != "" {
-			cfg.Council.Verify = proj.Council.Verify
-		}
-		cfg.Council.Signals = append(cfg.Council.Signals, proj.Council.Signals...)
-		if proj.Council.Criteria {
-			cfg.Council.Criteria = true
-		}
-		if proj.Council.PlanAbsorb {
-			cfg.Council.PlanAbsorb = true
-		}
+		cfg = mergeProjectConfig(cfg, proj)
 	}
 
 	// Resolve model/base_url/permission with precedence: explicit flag > env >
@@ -477,6 +404,88 @@ func run() int {
 
 	// One-shot headless run: stream fact events to stdout, errors to stderr.
 	return runHeadless(ctx, a, sid, promptText, *output == "json", os.Stdout, os.Stderr)
+}
+
+// mergeProjectConfig overlays a project's .magi/config.toml (proj) onto the global
+// config (cfg): hooks, allow/deny lists, domain lists, council signals, and the
+// string maps (routing/MCP/headers/plugins/theme) accumulate; scalar fields
+// override only when the project explicitly sets them. Returns the merged config.
+func mergeProjectConfig(cfg, proj config.Config) config.Config {
+	cfg.Hooks = append(cfg.Hooks, proj.Hooks...)
+	if proj.ExperienceDir != "" {
+		cfg.ExperienceDir = proj.ExperienceDir
+	}
+	if proj.Profile != "" {
+		cfg.Profile = proj.Profile
+	}
+	if proj.Sandbox != "" {
+		cfg.Sandbox = proj.Sandbox
+	}
+	if proj.Model != "" {
+		cfg.Model = proj.Model
+	}
+	if proj.BaseURL != "" {
+		cfg.BaseURL = proj.BaseURL
+	}
+	if proj.Permission != "" {
+		cfg.Permission = proj.Permission
+	}
+	cfg.Allow = append(cfg.Allow, proj.Allow...)
+	cfg.Deny = append(cfg.Deny, proj.Deny...)
+	cfg.AllowDomains = append(cfg.AllowDomains, proj.AllowDomains...)
+	for k, v := range proj.Routing {
+		if cfg.Routing == nil {
+			cfg.Routing = map[string]string{}
+		}
+		cfg.Routing[k] = v
+	}
+	for k, v := range proj.MCP {
+		if cfg.MCP == nil {
+			cfg.MCP = map[string]config.MCPServer{}
+		}
+		cfg.MCP[k] = v
+	}
+	for k, v := range proj.LLM.Headers {
+		if cfg.LLM.Headers == nil {
+			cfg.LLM.Headers = map[string]string{}
+		}
+		cfg.LLM.Headers[k] = v
+	}
+	for k, v := range proj.Plugins {
+		if cfg.Plugins == nil {
+			cfg.Plugins = map[string]map[string]any{}
+		}
+		cfg.Plugins[k] = v
+	}
+	cfg.Theme.Dark = mergeStrMap(cfg.Theme.Dark, proj.Theme.Dark)
+	cfg.Theme.Light = mergeStrMap(cfg.Theme.Light, proj.Theme.Light)
+	// Council: project config may enable/disable/override the consensus gate.
+	if proj.Council.Enabled != nil {
+		cfg.Council.Enabled = proj.Council.Enabled
+	}
+	if proj.Council.Rule != "" {
+		cfg.Council.Rule = proj.Council.Rule
+	}
+	if proj.Council.MaxRounds != 0 {
+		cfg.Council.MaxRounds = proj.Council.MaxRounds
+	}
+	if len(proj.Council.Members) > 0 {
+		cfg.Council.Members = proj.Council.Members
+	}
+	if proj.Council.Preset != "" {
+		cfg.Council.Preset = proj.Council.Preset
+	}
+	if proj.Council.Verify != "" {
+		cfg.Council.Verify = proj.Council.Verify
+	}
+	cfg.Council.Signals = append(cfg.Council.Signals, proj.Council.Signals...)
+	if proj.Council.Criteria {
+		cfg.Council.Criteria = true
+	}
+	if proj.Council.PlanAbsorb {
+		cfg.Council.PlanAbsorb = true
+	}
+	return cfg
 }
 
 // resolvePrompt returns the headless prompt text. The literal "-" means "read the
