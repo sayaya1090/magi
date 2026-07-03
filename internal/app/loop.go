@@ -139,7 +139,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	reviewBudget := reviewSpawnBudget // remaining delegated-review subagents this run (spent across re-arm firings)
 	reviewedAtEpoch := 0              // guard.mutationEpoch() at the last review-gate firing (re-arm only on a NEW mutation since — incl. bash writes)
 	reviewPassedEpoch := -1           // mutationEpoch at which the tester last returned VERDICT: PASS; -1 = never. Fresh-evidence: finish needs reviewPassedEpoch == current epoch
-	fabNudges := 0                    // pre-finish fabrication refusals this run (max 2: redirect, then ultimatum)
+	reportRefused := false            // a subagent's unverified "done" report was refused once this run
 	guard := newRunGuard()
 	councilRounds := 0               // consensus termination gate rounds this turn (D14)
 	lastCouncilFeedback := ""        // last round's feedback (no-progress detection)
@@ -357,46 +357,6 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					return lastText, ctx.Err()
 				}
 			}
-			// Pre-finish fabrication gate (deterministic, before the softer self-verify
-			// nudge and the text-only council). If a file the agent WROTE this turn admits,
-			// in its own body, that it is a stand-in rather than the real result — "in a
-			// real implementation this would…", "since we can't actually run…" — do not let
-			// the turn finish on it. This is the failure the council waved through on
-			// blind-maze 5x5: the agent, unable to drive the interactive game, hand-wrote a
-			// "sample maze" whose own comments confess it is simulated, then declared done.
-			// Unlike the self-verify prompt (which the model can answer with more narration),
-			// this keys off the model's OWN confession in the artifact, so it can't be talked
-			// past. Fires once per turn; the injected prompt tells the agent to do the real
-			// work or honestly report it could not — never to present the fake as done.
-			if depth == 0 && fabNudges < 2 {
-				if p, snip := guard.scanFabrication(); p != "" {
-					fabNudges++
-					var msg string
-					if fabNudges == 1 {
-						msg = fmt.Sprintf("Before finishing: %s contains text admitting it is not a real solution but a "+
-							"stand-in — matched: %q. A placeholder or simulated output is NOT a completed task. Either do "+
-							"the real work now — run the actual program/command and build the deliverable from its real "+
-							"output — or, if you genuinely cannot, say so plainly and report the task as UNFINISHED. Do not "+
-							"present fabricated or 'what a real run would produce' output as done.", p, snip)
-					} else {
-						// Second offense: the agent reworked the placeholder instead of replacing it.
-						// Reworking a fake burns the whole budget (measured: blind-maze 5x5, gpt2-codegolf,
-						// write-compressor all timed out polishing stand-ins) — so the second refusal is an
-						// ultimatum: drop the placeholder entirely or fail honestly NOW, no third rewrite.
-						msg = fmt.Sprintf("Still fabricated: %s again admits it is a stand-in — matched: %q. Do NOT "+
-							"rewrite or polish the placeholder a third time; that only burns your remaining steps. "+
-							"Choose now: (a) DELETE the stand-in and produce the deliverable from a REAL run of the "+
-							"actual program/command, or (b) if that is truly impossible here, state plainly that the "+
-							"task is UNFINISHED and why. There is no third option.", p, snip)
-					}
-					pd, _ := json.Marshal(event.PromptSubmittedData{
-						MessageID: "m_" + newID(),
-						Parts:     []session.Part{{Kind: session.PartText, Text: msg}},
-					})
-					a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
-					continue
-				}
-			}
 			// Pre-finish self-verification: a turn that produced a concrete artifact
 			// (files changed) must confirm its ACTUAL output matches the task before the
 			// council — which reviews text but cannot execute — ever sees it. Two passes:
@@ -482,6 +442,16 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 						"work was wrong, incomplete, or that you called it done too soon, say so plainly and fix it — do not " +
 						"restate that it works or paper over the gap. Finish only once every requirement is done and its " +
 						"result matches what the task asked for."
+					// Structural, language-agnostic sharpening (replaces the old English phrase scan):
+					// when the agent changed a deliverable but ran nothing exercising the current
+					// version, lead with that concrete fact rather than a generic "verify" — this is
+					// the fallback path (no tester agents), so this prompt is the only execution push.
+					if guard.unverifiedDeliverable() {
+						msg = "You changed a deliverable this turn but have run NO command that exercises the current " +
+							"version, so nothing here is verified by execution yet. Actually run it now — execute the " +
+							"program or its tests and read the REAL output — then confirm it against the task. If there is " +
+							"genuinely nothing to run, say so plainly and do not describe it as verified or done.\n\n" + msg
+					}
 					pd, _ := json.Marshal(event.PromptSubmittedData{
 						MessageID: "m_" + newID(),
 						Parts:     []session.Part{{Kind: session.PartText, Text: msg}},
@@ -495,12 +465,13 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			// conversational reply (no tool use, e.g. a greeting) has nothing to
 			// verify, so gating it just churns and can derail a weak model.
 			if depth == 0 && a.cfg.Council != nil && !a.cfg.Workflow && usedTools {
-				// Re-scan for a self-admitted fabrication (the gate above may have nudged the
-				// agent, which then fixed it — or didn't): feed a still-present confession to the
-				// council as hard, deterministic evidence so a text-only vote can't wave it through.
+				// Structural fabrication evidence for the council: if the agent changed a
+				// deliverable this turn but ran no command exercising the current version, that is a
+				// hard, language-agnostic fact a text-only vote can't wave through. Replaces the old
+				// English-only confession-phrase scan; the review-gate tester remains the authority.
 				fab := ""
-				if p, snip := guard.scanFabrication(); p != "" {
-					fab = p + ": " + snip
+				if guard.unverifiedDeliverable() {
+					fab = "the agent changed a deliverable this turn but ran no command exercising the current version — it is unverified by execution"
 				}
 				// Idle resubmission short-circuit: the council rejected this answer,
 				// and the agent came back having run NO tool and changed (almost)
@@ -553,26 +524,28 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// final result and its turn ends now — no more steps, no bash-echo looping.
 		if rep := a.takeReport(sid); rep != nil {
 			// A subagent finishing via report short-circuits the pre-finish gates above:
-			// self-verify, the fabrication gate, and the council are all top-level only, and
-			// this return fires before the len(toolCalls)==0 finish branch ever runs. So the
-			// delegated path had NO fabrication check at all. Apply it here too — a "done"
-			// report backed by a deliverable that confesses it is a stand-in is not done.
-			// Refuse the report ONCE; push the subagent to do the real work or report failed.
-			if rep.status == "done" && fabNudges == 0 {
-				if p, snip := guard.scanFabrication(); p != "" {
-					fabNudges = 2 // the report path refuses once; no pre-finish escalation after
-					msg := fmt.Sprintf("You reported done, but %s contains text admitting it is not a real "+
-						"solution but a stand-in — matched: %q. A placeholder or simulated deliverable is NOT a "+
-						"completed task. Either do the real work now — actually run the required program/command and "+
-						"produce the genuine result — or, if you truly cannot, report status \"failed\" and say plainly "+
-						"what stopped you. Do not report fabricated work as done.", p, snip)
-					pd, _ := json.Marshal(event.PromptSubmittedData{
-						MessageID: "m_" + newID(),
-						Parts:     []session.Part{{Kind: session.PartText, Text: msg}},
-					})
-					a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
-					continue
-				}
+			// self-verify, the structural fabrication check, and the council are all top-level
+			// only, and this return fires before the len(toolCalls)==0 finish branch ever runs.
+			// So the delegated path needs its own check. A "done" report whose deliverable was
+			// changed but never exercised (unverifiedDeliverable, keyed off this subagent's own
+			// tool log) is not done — the language-agnostic replacement for the report tool's
+			// former English confession-phrase scan. Gated on the subagent actually HAVING a way
+			// to run its work (bash): a read/write-only agent cannot execute anything, so blocking
+			// it for "not running it" would be a false positive — that case defers to the parent's
+			// review-gate tester, which runs the merged deliverable for real. Refuse ONCE.
+			if rep.status == "done" && !reportRefused && agent.allows("bash") && guard.unverifiedDeliverable() {
+				reportRefused = true
+				msg := "You reported done, but you changed a deliverable this turn and ran no command that " +
+					"exercises the current version, so its behavior is unverified. Actually run the required " +
+					"program/command against your result and confirm the REAL output, then report. If you truly " +
+					"cannot run it here, report status \"failed\" and say plainly what stopped you — do not report " +
+					"unverified work as done."
+				pd, _ := json.Marshal(event.PromptSubmittedData{
+					MessageID: "m_" + newID(),
+					Parts:     []session.Part{{Kind: session.PartText, Text: msg}},
+				})
+				a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
+				continue
 			}
 			// Prefer the answer the model already wrote as its message (it streamed
 			// live to the pane). Only when the model put the answer in report.summary

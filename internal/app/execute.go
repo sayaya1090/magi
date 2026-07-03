@@ -204,14 +204,17 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		if !res.IsError && fileModifiers[tc.Name] {
 			mutatedReset = guard.mutated(pathArg(tc.Args), canonicalArgs(tc.Args))
 		}
-		// A successful bash write is the fabrication vector that bypasses changeSet — record
-		// its command so the pre-finish scan can see content the model fabricated in a heredoc.
+		// A successful bash write bumps the epoch (the tool-agnostic twin of an edit); a
+		// successful non-write, non-inspect command (python/pytest/./run …) is execution
+		// evidence for the current deliverable version. Together they drive the structural
+		// unverifiedDeliverable signal that replaced the fabrication phrase scan.
 		if !res.IsError && tc.Name == "bash" {
 			var ba struct {
 				Command string `json:"command"`
 			}
 			if json.Unmarshal(tc.Args, &ba) == nil {
-				guard.noteBashWrite(ba.Command)
+				guard.noteBashWrite(ba.Command) // authored a file → epoch bump
+				guard.noteBashExec(ba.Command)  // ran a program → execution evidence (independent of any redirect)
 			}
 		}
 	}

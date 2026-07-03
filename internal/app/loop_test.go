@@ -279,53 +279,121 @@ func TestSelfVerifyForbidsFabrication(t *testing.T) {
 	}
 }
 
-// scanFabricationClaim flags a self-admitted-fabrication marker in the agent's own
-// written content, and only there — a clean deliverable, or a marker phrase that never
-// appears, must not match.
-func TestScanFabricationClaim(t *testing.T) {
-	hit := []fileChange{{path: "sol.py", after: "def run():\n    # in a real implementation this would call the game\n    pass\n"}}
-	if p, snip := scanFabricationClaim(hit); p != "sol.py" || !strings.Contains(snip, "in a real implementation") {
-		t.Errorf("expected a fabrication hit on sol.py, got path=%q snip=%q", p, snip)
+// unverifiedDeliverable is the structural, language-agnostic replacement for the fabrication
+// phrase scan: producing/changing a deliverable (epoch>0) with no command exercising the
+// CURRENT version (execSinceMut==0) is "declared done without running it", regardless of the
+// prose (or its language). These cases pin the epoch/exec interplay the signal relies on.
+func TestUnverifiedDeliverable(t *testing.T) {
+	t.Run("no deliverable is not flagged", func(t *testing.T) {
+		g := newRunGuard()
+		if g.unverifiedDeliverable() {
+			t.Fatal("a turn that changed nothing has no unverified deliverable")
+		}
+	})
+	t.Run("wrote then only inspected is flagged", func(t *testing.T) {
+		g := newRunGuard()
+		g.noteBashWrite("cat > sol.py <<'EOF'\nprint(1)\nEOF") // deliverable via bash → epoch>0
+		g.noteBashExec("ls -la sol.py && echo done")           // inspect-only → not execution
+		g.noteBashExec("exit 0")
+		if !g.unverifiedDeliverable() {
+			t.Fatal("wrote a deliverable then only ran inspect/echo churn — must be flagged")
+		}
+	})
+	t.Run("running the deliverable clears the flag", func(t *testing.T) {
+		g := newRunGuard()
+		g.mutated("sol.py", "v1") // an edit produced the deliverable
+		g.noteBashExec("python sol.py")
+		if g.unverifiedDeliverable() {
+			t.Fatal("a real execution of the current version is verification — must not be flagged")
+		}
+	})
+	t.Run("running with a redirect still counts as execution", func(t *testing.T) {
+		g := newRunGuard()
+		g.mutated("sol.py", "v1")
+		// `pytest 2>&1` is a run that redirects stderr — NOT a deliverable write, so it must
+		// count as execution and clear the flag, not re-mark the deliverable as unverified.
+		if g.noteBashWrite("pytest 2>&1") {
+			t.Fatal("2>&1 is fd-duplication, not a file write")
+		}
+		g.noteBashExec("pytest 2>&1")
+		if g.unverifiedDeliverable() {
+			t.Fatal("running the tests (even with 2>&1) is verification — must not be flagged")
+		}
+	})
+	t.Run("a later edit makes prior execution stale", func(t *testing.T) {
+		g := newRunGuard()
+		g.mutated("sol.py", "v1")
+		g.noteBashExec("pytest")  // verified v1
+		g.mutated("sol.py", "v2") // …then changed it: v2 is unverified
+		if !g.unverifiedDeliverable() {
+			t.Fatal("execution evidence is version-stamped; a new mutation must re-flag")
+		}
+	})
+	t.Run("a bash write is production, not verification", func(t *testing.T) {
+		g := newRunGuard()
+		g.mutated("sol.py", "v1")
+		if !g.noteBashWrite("echo data > out.txt") { // authors a file → epoch bump
+			t.Fatal("echo … > out.txt authors a file")
+		}
+		g.noteBashExec("echo data > out.txt") // echo is inspect-only → must NOT count as execution
+		if !g.unverifiedDeliverable() {
+			t.Fatal("writing another file is not exercising the deliverable — still unverified")
+		}
+	})
+}
+
+// isInspectOnly classifies a bash command as pure inspection (no program-under-test run) so
+// the exec counter ignores the ls/echo/exit churn a fabricating agent emits, while counting
+// any real runner. The bias is toward execution: an unlisted verb is NOT inspect-only, and a
+// path-qualified command (./x, /usr/bin/x) always runs a program.
+func TestIsInspectOnly(t *testing.T) {
+	inspect := []string{
+		"ls -la /app", "echo 'Task complete'", "exit 0", "true", "cat sol.py | wc -l",
+		"ls && echo done && exit 0", "wc -l sol.py", "  ", "stat sol.py",
+		"echo 'print(1)' > sol.py", "cat > sol.py <<'EOF'\nx\nEOF", // authoring content, not running it
+		"echo x | tee sol.sh", "test -f sol.py", // tee authors; test is the conditional builtin
+		"echo done 2>&1", "ls foo 2>&1", "echo x >&2", // fd-dups must not read as a `1`/`2` command
 	}
-	clean := []fileChange{{path: "sol.py", after: "def run():\n    return solve(read_maze())\n"}}
-	if p, _ := scanFabricationClaim(clean); p != "" {
-		t.Errorf("clean deliverable must not match, got path=%q", p)
+	for _, c := range inspect {
+		if !isInspectOnly(c) {
+			t.Errorf("expected inspect-only: %q", c)
+		}
+	}
+	exec := []string{
+		"python sol.py", "pytest -q", "go test ./...", "./run.sh", "make test",
+		"python -c \"import torch\"", "ls && python sol.py", "/usr/bin/python3 x.py",
+		"npm test", "grep -n foo src.py", // grep processes content → treated as execution
+		"pytest 2>&1", "python sol.py > out.log", // a run that redirects is still execution
+		"./test", "bin/run", // path-qualified: a binary named `test` is not the builtin
+	}
+	for _, c := range exec {
+		if isInspectOnly(c) {
+			t.Errorf("expected execution (not inspect-only): %q", c)
+		}
 	}
 }
 
-// scanFabrication must catch a confession authored via a bash write (heredoc/redirect),
-// which never reaches changeSet, while ignoring read-only bash commands.
-func TestGuardScanFabricationBash(t *testing.T) {
-	g := newRunGuard()
-	// A read-only grep for the phrase must NOT be recorded, so it can't false-trip the scan.
-	g.noteBashWrite("grep 'in a real implementation' src/")
-	if label, _ := g.scanFabrication(); label != "" {
-		t.Errorf("read-only bash command should not be scanned, got label=%q", label)
-	}
-	// A redirect that writes the confession into a file IS the fabrication vector.
-	g.noteBashWrite("echo '# in a real implementation this would run it' > sol.sh")
-	label, snip := g.scanFabrication()
-	if label != "a bash command" || !strings.Contains(snip, "in a real implementation") {
-		t.Errorf("bash write fabrication not caught: label=%q snip=%q", label, snip)
-	}
-}
-
-// fabricationBlocked reports whether the pre-finish fabrication gate injected its
-// corrective prompt (a system "loop" prompt.submitted with the gate's signature text).
-func fabricationBlocked(evs []event.Event) bool {
+// unverifiedNudged reports whether the pre-finish self-verify injected its STRUCTURAL
+// sharpening — the language-agnostic "you produced a deliverable but ran nothing that
+// exercises the current version" push. Its signature text appears only in that prefix,
+// never in the generic self-verify body, so this distinguishes an unverified finish from
+// an ordinary one.
+func unverifiedNudged(evs []event.Event) bool {
 	for _, e := range evs {
-		if e.Type == event.TypePromptSubmitted && strings.Contains(string(e.Data), "not a real solution but a") {
+		if e.Type == event.TypePromptSubmitted && strings.Contains(string(e.Data), "verified by execution yet") {
 			return true
 		}
 	}
 	return false
 }
 
-// A turn that writes a file whose own body admits it is a stand-in must be blocked from
-// finishing on it — the gate injects a corrective prompt, then the turn still finishes.
-func TestFabricationGateBlocksFinish(t *testing.T) {
+// A turn that writes a deliverable and declares itself done WITHOUT running anything to
+// exercise it must be nudged: the self-verify prompt leads with the structural fact that
+// nothing was executed, then the turn still finishes. The Korean completion text shows the
+// signal is structural, not a scan of any English phrase.
+func TestUnverifiedGateNudgesOnFinish(t *testing.T) {
 	llm := &fakeLLM{steps: [][]port.ProviderEvent{
-		toolStep("write", `{"path":"sol.py","content":"# since we can't actually run the game, we simulate\nprint('done')\n"}`),
+		toolStep("write", `{"path":"sol.py","content":"print('done')\n"}`),
 		textStep("완료"),
 	}}
 	a, wd := newApp(t, llm, Config{Permission: "allow"})
@@ -333,19 +401,20 @@ func TestFabricationGateBlocksFinish(t *testing.T) {
 	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "solve it"}}})
 
 	got := waitForTerminal(t, a, sid)
-	if !fabricationBlocked(got) {
-		t.Errorf("fabrication gate: expected the corrective prompt after a fabricated deliverable, got %v", typesOf(got))
+	if !unverifiedNudged(got) {
+		t.Errorf("unverified gate: expected the structural execution nudge, got %v", typesOf(got))
 	}
 	if countType(got, event.TypeTurnFinished) != 1 {
-		t.Errorf("fabrication gate: turn should still finish, got %v", typesOf(got))
+		t.Errorf("unverified gate: turn should still finish, got %v", typesOf(got))
 	}
 }
 
-// A deliverable authored via a bash heredoc/redirect (which bypasses changeSet) must still
-// trip the fabrication gate — the scan reads the write command's inline content.
-func TestFabricationGateBlocksBashWrite(t *testing.T) {
+// A deliverable authored via a bash redirect (which bypasses guard.changeSet()) is still a
+// produced-but-unexercised deliverable: the write bumps the epoch, and no command exercised
+// it, so the structural nudge must fire just as it does for an edit/write.
+func TestUnverifiedGateBashWrite(t *testing.T) {
 	llm := &fakeLLM{steps: [][]port.ProviderEvent{
-		toolStep("bash", `{"command":"echo '# in a real implementation this would run the maze' > sol.sh"}`),
+		toolStep("bash", `{"command":"echo 'print(1)' > sol.sh"}`),
 		textStep("완료"),
 	}}
 	a, wd := newApp(t, llm, Config{Permission: "allow"})
@@ -353,50 +422,18 @@ func TestFabricationGateBlocksBashWrite(t *testing.T) {
 	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "solve it"}}})
 
 	got := waitForTerminal(t, a, sid)
-	if !fabricationBlocked(got) {
-		t.Errorf("fabrication gate: expected the corrective prompt after a bash-written fabrication, got %v", typesOf(got))
+	if !unverifiedNudged(got) {
+		t.Errorf("unverified gate: expected the structural execution nudge after a bash-written deliverable, got %v", typesOf(got))
 	}
 }
 
-// A second finish attempt with the fabrication still present gets ONE escalated
-// ultimatum (drop the stand-in or fail honestly), then the gate stops refusing —
-// reworking a fake must not be allowed to burn the whole budget.
-func TestFabricationGateEscalatesThenStops(t *testing.T) {
-	llm := &fakeLLM{steps: [][]port.ProviderEvent{
-		toolStep("write", `{"path":"sol.py","content":"# since we can't actually run the game, we simulate\nprint('x')\n"}`),
-		textStep("done"),        // attempt 1 → first refusal
-		textStep("really done"), // attempt 2, fabrication untouched → ultimatum
-		textStep("giving up"),   // attempt 3 → gate exhausted, turn may end
-	}}
-	a, wd := newApp(t, llm, Config{Permission: "allow"})
-	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
-	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "solve it"}}})
-
-	got := waitForTerminal(t, a, sid)
-	first, ultimatum := 0, 0
-	for _, e := range got {
-		if e.Type != event.TypePromptSubmitted {
-			continue
-		}
-		if strings.Contains(string(e.Data), "not a real solution but a") {
-			first++
-		}
-		if strings.Contains(string(e.Data), "no third option") {
-			ultimatum++
-		}
-	}
-	if first != 1 || ultimatum != 1 {
-		t.Errorf("expected exactly one refusal then one ultimatum, got first=%d ultimatum=%d (%v)", first, ultimatum, typesOf(got))
-	}
-	if countType(got, event.TypeTurnFinished) != 1 {
-		t.Errorf("turn should still finish after the gate is exhausted, got %v", typesOf(got))
-	}
-}
-
-// A clean deliverable must NOT trip the fabrication gate.
-func TestFabricationGateAllowsCleanFinish(t *testing.T) {
+// A deliverable that WAS exercised — the agent ran a real (non-inspect) command against the
+// current version before finishing — must NOT get the structural nudge. The generic
+// self-verify may still fire; only the execution-specific sharpening is suppressed.
+func TestVerifiedFinishNotNudged(t *testing.T) {
 	llm := &fakeLLM{steps: [][]port.ProviderEvent{
 		toolStep("write", `{"path":"sol.py","content":"print(solve())\n"}`),
+		toolStep("bash", `{"command":"env true"}`), // real execution, non-inspect verb → clears the unverified flag
 		textStep("done"),
 	}}
 	a, wd := newApp(t, llm, Config{Permission: "allow"})
@@ -404,8 +441,8 @@ func TestFabricationGateAllowsCleanFinish(t *testing.T) {
 	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "solve it"}}})
 
 	got := waitForTerminal(t, a, sid)
-	if fabricationBlocked(got) {
-		t.Errorf("fabrication gate: must not fire on a clean deliverable, got %v", typesOf(got))
+	if unverifiedNudged(got) {
+		t.Errorf("unverified gate: must not fire when the deliverable was exercised, got %v", typesOf(got))
 	}
 }
 
@@ -640,23 +677,6 @@ func typesOf(evs []event.Event) []event.Type {
 func readFile(dir, name string) (string, error) {
 	b, err := os.ReadFile(filepath.Join(dir, name))
 	return string(b), err
-}
-
-// A test double is not a confession: marker phrases inside test/mock paths are
-// legitimate engineering vocabulary and must not trip the fabrication gate.
-func TestFabricationGateSkipsTestDoubles(t *testing.T) {
-	llm := &fakeLLM{steps: [][]port.ProviderEvent{
-		toolStep("write", `{"path":"mocks/server.go","content":"// in a real implementation this would hit the network\npackage mocks\n"}`),
-		textStep("added the mock"),
-	}}
-	a, wd := newApp(t, llm, Config{Permission: "allow"})
-	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
-	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "write a mock server"}}})
-
-	got := waitForTerminal(t, a, sid)
-	if fabricationBlocked(got) {
-		t.Errorf("fabrication gate must not fire on a mock/test path, got %v", typesOf(got))
-	}
 }
 
 // fakePermPersister records persisted allow rules.

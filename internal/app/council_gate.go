@@ -247,13 +247,14 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	// feed its outcome to the council, so members judge on proof, not just claims.
 	var signals []port.Signal
 	var signalSummaries []string
-	// Always-on deterministic signal: a self-admitted fabrication in the agent's own
-	// deliverable (see scanFabricationClaim). Unlike the opt-in command signals below, this
-	// needs no config — it is derived from the diff the council is already judging, and it is
-	// exactly the evidence a text-only vote missed on blind-maze 5x5.
+	// Always-on deterministic signal: the agent changed a deliverable this turn but ran no
+	// command exercising the current version (see runGuard.unverifiedDeliverable). Unlike the
+	// opt-in command signals below, this needs no config — it is derived structurally from the
+	// tool log the council is already judging against, and it is language-agnostic (it replaced
+	// the old English confession-phrase scan that missed non-English or non-confessing fakes).
 	if strings.TrimSpace(fabrication) != "" {
-		signals = append(signals, port.Signal{Source: "self-check", Kind: "fabrication", Status: "fail", Detail: tailForCouncil(fabrication, councilSignalCap)})
-		signalSummaries = append(signalSummaries, "self-check: fabrication")
+		signals = append(signals, port.Signal{Source: "self-check", Kind: "unverified", Status: "fail", Detail: tailForCouncil(fabrication, councilSignalCap)})
+		signalSummaries = append(signalSummaries, "self-check: unverified")
 	}
 	if a.plat != nil {
 		for _, sp := range a.cfg.CouncilSignals {

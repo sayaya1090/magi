@@ -176,8 +176,11 @@ func TestSubagentReportBlockedStatus(t *testing.T) {
 	}
 }
 
-func newFabApp(t *testing.T, llm port.LLMProvider) (*App, session.Session) {
+func newFabApp(t *testing.T, llm port.LLMProvider, workerTools ...string) (*App, session.Session) {
 	t.Helper()
+	if len(workerTools) == 0 {
+		workerTools = []string{"read", "write", "report"}
+	}
 	store, err := jsonl.New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -186,38 +189,42 @@ func newFabApp(t *testing.T, llm port.LLMProvider) (*App, session.Session) {
 	reg.Register(builtin.Report{})
 	a := New(store, llm, reg, bus.New(), nil, Config{
 		Permission: "allow",
-		Agents:     map[string]AgentSpec{"worker": {Name: "worker", Tools: []string{"read", "write", "report"}}},
+		Agents:     map[string]AgentSpec{"worker": {Name: "worker", Tools: workerTools}},
 	})
 	return a, session.Session{ID: "s_parent", Workdir: t.TempDir(), Agent: "default"}
 }
 
-// A subagent that writes a fabricated deliverable then reports "done" is refused ONCE at
-// the take-report gate (the delegated path bypasses the top-level pre-finish gates), and
-// re-reports honestly — the orchestrator sees FAILED, never the fabricated DONE.
+// A bash-capable subagent that changes a deliverable but runs nothing to exercise the current
+// version, then reports "done", is refused ONCE at the take-report gate (the delegated path
+// bypasses the top-level pre-finish gates) and re-reports honestly — the orchestrator sees
+// FAILED, never the unverified DONE. The signal is structural (produced-but-not-exercised),
+// so it is language-agnostic: no confession phrase is needed to trip it.
 func TestSubagentFabricatedDoneRefused(t *testing.T) {
 	llm := &fakeLLM{steps: [][]port.ProviderEvent{
-		toolStep("write", `{"path":"sol.py","content":"# since we can't actually run the game, we simulate\nprint('x')\n"}`),
+		toolStep("write", `{"path":"sol.py","content":"print('x')\n"}`),
 		toolStep("report", `{"status":"done","summary":"solved"}`),
 		toolStep("report", `{"status":"failed","summary":"could not run the game"}`),
 	}}
-	a, parent := newFabApp(t, llm)
+	a, parent := newFabApp(t, llm, "read", "write", "bash", "report")
 	res := a.spawn(context.Background(), parent, 0, port.SpawnRequest{Agent: "worker", Prompt: "do it"})
 	if strings.Contains(res.Text, "STATUS: DONE") {
-		t.Errorf("fabricated done should be refused, not surfaced as DONE: %q", res.Text)
+		t.Errorf("unverified done should be refused, not surfaced as DONE: %q", res.Text)
 	}
 	if !strings.Contains(res.Text, "STATUS: FAILED") {
 		t.Errorf("subagent should re-report FAILED after refusal, got %q", res.Text)
 	}
 }
 
-// A subagent with a clean deliverable reports "done" and terminates normally — the
-// take-report fabrication gate must not fire.
+// A subagent with no way to run anything (read/write/report only) writes a deliverable and
+// reports "done": the take-report gate must NOT fire, because "you never ran it" is not a
+// meaningful signal for an agent that cannot execute — that case defers to the parent's
+// review-gate tester. Blocking it here would be a false positive.
 func TestSubagentCleanDoneAllowed(t *testing.T) {
 	llm := &fakeLLM{steps: [][]port.ProviderEvent{
 		toolStep("write", `{"path":"sol.py","content":"print(solve(read_input()))\n"}`),
 		toolStep("report", `{"status":"done","summary":"solved"}`),
 	}}
-	a, parent := newFabApp(t, llm)
+	a, parent := newFabApp(t, llm) // read/write/report — no bash
 	res := a.spawn(context.Background(), parent, 0, port.SpawnRequest{Agent: "worker", Prompt: "do it"})
 	if !strings.Contains(res.Text, "STATUS: DONE") {
 		t.Errorf("clean done should be honored, got %q", res.Text)

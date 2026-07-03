@@ -461,13 +461,15 @@ func TestCouncilVerifySignal(t *testing.T) {
 	}
 }
 
-// A self-admitted fabrication in the agent's deliverable is fed to the council as an
-// always-on deterministic signal (no config), so a text-only vote can't wave it through.
+// An unverified deliverable — one the agent produced this turn but never ran anything to
+// exercise — is fed to the council as an always-on deterministic signal (no config), so a
+// text-only vote can't wave it through. The signal is structural (produced-but-not-exercised),
+// not a scan of the file's wording, so it is language-agnostic.
 func TestCouncilFabricationSignal(t *testing.T) {
 	fc := &fakeCouncil{delibs: []council.Deliberation{{Round: 1, Decision: council.Done}}}
-	// The agent writes a file whose own body confesses it is simulated, then finishes.
+	// The agent writes a deliverable and finishes without running any command against it.
 	llm := &fakeLLM{steps: [][]port.ProviderEvent{
-		toolStep("write", `{"path":"sol.py","content":"# in a real implementation this would run the program\nprint('ok')\n"}`),
+		toolStep("write", `{"path":"sol.py","content":"print('ok')\n"}`),
 		textStep("done"),
 	}}
 	a, wd := newApp(t, llm, Config{Council: fc, Permission: "allow"})
@@ -478,12 +480,12 @@ func TestCouncilFabricationSignal(t *testing.T) {
 	fc.mu.Unlock()
 	found := false
 	for _, s := range sigs {
-		if s.Source == "self-check" && s.Kind == "fabrication" && s.Status == "fail" {
+		if s.Source == "self-check" && s.Kind == "unverified" && s.Status == "fail" {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("council should receive a failing self-check/fabrication signal, got %+v", sigs)
+		t.Fatalf("council should receive a failing self-check/unverified signal, got %+v", sigs)
 	}
 }
 

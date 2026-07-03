@@ -13,7 +13,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/sayaya1090/magi/internal/core/change"
-	"github.com/sayaya1090/magi/internal/core/selfcheck"
 )
 
 // Loop-guard thresholds. They catch an agent (orchestrator or subagent) that
@@ -61,6 +60,14 @@ type runGuard struct {
 	// powers the no-progress nudge: unlike `blocked` (which needs an EXACT repeat), it rises
 	// even when the agent varies its commands, catching a stall that changes nothing.
 	sinceProgress int
+	// execSinceMut counts bash commands that actually EXERCISE the deliverable (run a program
+	// or test — anything whose leading verb is not an inspect-only builtin; see isInspectOnly)
+	// SINCE the last real file mutation. Like a tester PASS, execution evidence is version-
+	// stamped: a mutation resets it to 0, so "did you run anything against the CURRENT
+	// deliverable" is answerable structurally. epoch>0 with execSinceMut==0 is the language-
+	// agnostic "produced/changed a deliverable then declared done without running it" signal
+	// (see unverifiedDeliverable) that replaced the English-only fabrication phrase scan.
+	execSinceMut int
 	// prevSince/prevStallAt snapshot sinceProgress/lastStallAt just before mutated() zeroes them,
 	// so retractProgress can restore the climb when a later content check reveals that "mutation"
 	// was a self-revert (churn, not forward progress) — otherwise an implement↔revert oscillation
@@ -77,12 +84,6 @@ type runGuard struct {
 	// tools, not git, so a human/external/bash change is never mis-attributed to the agent.
 	changed     map[string]*fileChange
 	changeOrder []string // first-seen order, for stable rendering
-
-	// bashWrites holds this turn's bash commands that WRITE a file (a redirect, heredoc, or
-	// tee). Files created via bash never populate `changed` (no path arg, not a fileModifier),
-	// so a bash-authored deliverable would bypass the fabrication scan entirely. Recording the
-	// write commands lets the scan see the content the model fabricated inline in the heredoc.
-	bashWrites []string
 
 	// recalled bounds recall_context: re-hydrating compacted detail re-inflates context
 	// (which can re-trigger compaction), so a turn may recall each topic once and only up
@@ -232,6 +233,7 @@ func (g *runGuard) mutated(path, sig string) (reset bool) {
 	g.prevStallAt = g.lastStallAt
 	g.sinceProgress = 0 // a real change is progress → restart the no-progress count
 	g.lastStallAt = 0   // …and the stall-nudge window, so a fresh stall re-arms cleanly
+	g.execSinceMut = 0  // a new deliverable version is unverified until something exercises IT
 	return true
 }
 
@@ -298,24 +300,16 @@ func (g *runGuard) changeSet() []fileChange {
 	return out
 }
 
-// bashWriteCap bounds how many bash write-commands are retained for the fabrication scan.
-// A turn that writes many files via bash still only needs a handful sampled to catch a
-// confession; the cap keeps memory bounded on a pathological command-spamming run.
-const bashWriteCap = 64
-
-// noteBashWrite records a bash command that WRITES to a file — one containing a redirect
-// (`>`), a heredoc (`<<`), or `tee`. Read-only commands (a bare `grep`/`cat`) are skipped
-// so a benign search for a marker phrase can't trip the fabrication scan; only commands
-// that emit content into a file, the actual fabrication vector, are kept.
+// noteBashWrite records a bash command that AUTHORS a file — a heredoc (`<<`), a `tee`, or
+// a `>`/`>>` redirect to a real path — and bumps the mutation epoch for it. It excludes
+// file-descriptor duplications (`2>&1`, `>&2`) and `/dev/*` sinks (`>/dev/null`), which
+// capture or discard a command's output rather than produce a deliverable (see
+// redirectsToFile); read-only commands (a bare `grep`/`cat`) also return false and do not
+// bump. It returns whether the command authored a file.
 func (g *runGuard) noteBashWrite(cmd string) bool {
-	if !strings.Contains(cmd, ">") && !strings.Contains(cmd, "<<") && !strings.Contains(cmd, "tee ") {
+	if !redirectsToFile(cmd) {
 		return false
 	}
-	g.mu.Lock()
-	if len(g.bashWrites) < bashWriteCap {
-		g.bashWrites = append(g.bashWrites, cmd)
-	}
-	g.mu.Unlock()
 	// A bash command that writes a file IS real progress — the tool-agnostic twin of
 	// write/edit's epoch bump. Without this, bash-heavy tasks (most Terminal-Bench
 	// work) climb sinceProgress while genuinely producing files, misfiring stall
@@ -325,49 +319,256 @@ func (g *runGuard) noteBashWrite(cmd string) bool {
 	return true
 }
 
-// scanFabrication runs the self-admitted-fabrication scan over BOTH the files the agent
-// wrote this turn (via write/edit) and its file-writing bash commands (via noteBashWrite),
-// so a deliverable is caught whether it was authored with an edit tool or a bash heredoc.
-// It returns a label for the offending source and the matched line, or ("","") when clean.
-//
-// This is a best-effort, English-only PRE-FLAG, not the authority on completion (see the
-// SCOPE note on selfcheck.FabricationMarkers): it feeds the council as evidence and can
-// trigger an early nudge, but a confession in another language or a confident false claim
-// slips past it. The language-agnostic completion authority is the review gate's tester,
-// which actually runs the verification and returns PASS/FAIL, gating finish via the
-// fresh-evidence check in the loop.
-func (g *runGuard) scanFabrication() (label, snippet string) {
-	if p, snip := scanFabricationClaim(g.changeSet()); p != "" {
-		return p, snip
+// noteBashExec records that a bash command actually EXERCISED the deliverable — it ran a
+// program or test, as opposed to inspecting state. Classification is by leading verb alone
+// (see isInspectOnly), INDEPENDENT of any redirect: `pytest 2>&1`, `python x.py > log`, and
+// `./run > out` all count as execution even though they redirect, whereas `echo … > f` or a
+// heredoc does not (its verb is inspect-only, i.e. it authors content rather than runs it).
+// Everything not inspect-only — `python`, `pytest`, `go test`, `./run`, `make`, a script —
+// is real execution evidence for the CURRENT deliverable version.
+func (g *runGuard) noteBashExec(cmd string) {
+	if isInspectOnly(cmd) {
+		return
 	}
 	g.mu.Lock()
-	writes := append([]string(nil), g.bashWrites...)
+	g.execSinceMut++
 	g.mu.Unlock()
-	for _, cmd := range writes {
-		if _, line := selfcheck.FabricationMarker(cmd); line != "" {
-			return "a bash command", line
-		}
-	}
-	return "", ""
 }
 
-// scanFabricationClaim inspects the AFTER content of files the agent WROTE this turn for a
-// self-admitted-fabrication marker (see selfcheck.FabricationMarkers). It returns the file
-// path and the matched line (trimmed, bounded) of the first hit, or ("","") when clean.
-// Only the agent's own writes are scanned — files it merely read are irrelevant, and a
-// marker there would not be its confession. The marker set is shared with the report tool
-// via internal/core/selfcheck so the two enforcement points never drift apart.
-func scanFabricationClaim(changes []fileChange) (path, snippet string) {
-	for _, c := range changes {
-		// Test doubles legitimately say "this simulates…" — a mock is not a confession.
-		if selfcheck.TestArtifactPath(c.path) {
-			continue
+// unverifiedDeliverable reports the structural, language-agnostic fabrication signal that
+// replaced the English-only phrase scan: the agent produced or changed a deliverable this
+// turn (epoch>0) yet has run NO command exercising the CURRENT version (execSinceMut==0).
+// That is exactly "wrote/edited a result, then declared done without ever running it" —
+// whether the artifact confesses in prose (any language) or not. It is ADVISORY: a task
+// with genuinely nothing to run (write one config file) also matches, so callers feed it to
+// the council and a one-shot nudge, never a hard block. The hard, language-agnostic
+// completion authority remains the review-gate tester, which actually runs the verification
+// (see parseTesterVerdict + the fresh-evidence gate in loop.go).
+func (g *runGuard) unverifiedDeliverable() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.epoch > 0 && g.execSinceMut == 0
+}
+
+// inspectOnlyCmds are shell builtins/coreutils whose job is to PRINT or INSPECT state,
+// never to run a program-under-test. A bash command built only from these cannot verify a
+// deliverable — it can restate that a file exists or echo a success banner, the exact
+// "looks-verified" churn a fabricating agent emits (measured on Terminal-Bench: an agent
+// ran `ls`/`echo`/`exit 0`/`true` dozens of times without once executing its own module).
+// The set is deliberately small and CLOSED — POSIX inspection verbs — the opposite of an
+// open-ended confession-phrase list. Anything not here (python, pytest, go, ./run, make, a
+// script) counts as execution, so the bias is toward NOT flagging; this is only an advisory.
+var inspectOnlyCmds = map[string]bool{
+	"true": true, "false": true, ":": true, "exit": true, "echo": true, "printf": true,
+	"ls": true, "pwd": true, "cd": true, "cat": true, "head": true, "tail": true,
+	"wc": true, "stat": true, "file": true, "which": true, "type": true, "test": true,
+	"[": true, "[[": true, "sleep": true, "clear": true, "dirname": true, "basename": true,
+	"realpath": true, "readlink": true, "tee": true, // tee authors content, it does not run a program
+}
+
+// isInspectOnly reports whether EVERY segment of cmd (split on the shell operators &&, ||,
+// ;, |, &, and newlines) is inspect-only — i.e. the whole command runs nothing that could
+// exercise a deliverable. A segment is execution if its first token is PATH-QUALIFIED
+// (contains `/`, e.g. `./test`, `/usr/bin/foo`, `bin/run`) — a path always runs a program,
+// never a shell inspection builtin, so this is checked before the builtin-name lookup and
+// keeps a binary that happens to be named `test`/`sleep` from reading as the builtin.
+// Otherwise the bare name is looked up in inspectOnlyCmds. This is a heuristic tokenizer that
+// does not honor quoting, which is fine: it only feeds the advisory unverifiedDeliverable
+// signal. An empty command counts as inspect-only (it ran nothing).
+func isInspectOnly(cmd string) bool {
+	segs := splitShellSegments(stripHeredocs(cmd))
+	if len(segs) == 0 {
+		return true
+	}
+	for _, s := range segs {
+		fields := strings.Fields(s)
+		if len(fields) == 0 {
+			continue // empty segment (e.g. a trailing operator) — nothing ran here
 		}
-		if _, line := selfcheck.FabricationMarker(c.after); line != "" {
-			return c.path, line
+		tok := fields[0]
+		if isRedirectFragment(tok) {
+			continue // a split fd-dup/redirect artifact ("1" from `2>&1`, ">f" from `&>f`), not a command
+		}
+		if strings.ContainsRune(tok, '/') {
+			return false // a path-qualified command runs a program
+		}
+		if !inspectOnlyCmds[tok] {
+			return false
 		}
 	}
-	return "", ""
+	return true
+}
+
+// isRedirectFragment reports whether tok is a leftover piece of a redirect, not a command
+// name — because splitShellSegments cuts on `&`, an fd-duplication like `2>&1` or `>&2` is
+// torn into a segment whose first token is the redirect tail (`1`, `2`) or a redirect operator
+// (`>file` from `&>file`). Such a segment ran no program, so it must not read as execution.
+// A real command never begins with a digit or a redirect operator.
+func isRedirectFragment(tok string) bool {
+	if tok == "" {
+		return true
+	}
+	switch tok[0] {
+	case '>', '<', '&':
+		return true
+	}
+	for i := 0; i < len(tok); i++ {
+		if tok[i] < '0' || tok[i] > '9' {
+			return false
+		}
+	}
+	return true // all digits (e.g. the `1` in `2>&1`)
+}
+
+// splitShellSegments breaks a command line into its pipeline/list segments on the shell
+// control operators, so each can be classified independently ("ls && python x" is NOT
+// inspect-only). Two-char operators are replaced before their one-char prefixes.
+func splitShellSegments(cmd string) []string {
+	repl := cmd
+	for _, op := range []string{"&&", "||", ";", "|", "\n", "&"} {
+		repl = strings.ReplaceAll(repl, op, "\x00")
+	}
+	var out []string
+	for _, p := range strings.Split(repl, "\x00") {
+		if strings.TrimSpace(p) != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// leadingVerb returns the basename of a segment's first token, or "" if the segment is
+// blank. Env-assignment or wrapper prefixes (FOO=bar, sudo, env) are left as-is, which
+// classifies them as execution — the FP-safe direction, since such prefixes front real
+// commands far more often than inspect-only ones.
+func leadingVerb(seg string) string {
+	fields := strings.Fields(seg)
+	if len(fields) == 0 {
+		return ""
+	}
+	v := fields[0]
+	if i := strings.LastIndexByte(v, '/'); i >= 0 {
+		v = v[i+1:]
+	}
+	return v
+}
+
+// redirectsToFile reports whether cmd sends output into a real file — a heredoc (`<<`), a
+// pipe into `tee`, or a `>`/`>>` whose target is an actual path. It deliberately EXCLUDES
+// file-descriptor duplications (`2>&1`, `>&2`, `>&-`) and `/dev/*` sinks (`>/dev/null`),
+// which capture or discard a running command's output rather than author a deliverable — so
+// that running tests with `pytest 2>&1` or `./run >/dev/null` is not mistaken for producing
+// a new deliverable version. Heuristic; does not honor quoting, which is fine for the
+// advisory epoch bump it feeds.
+func redirectsToFile(cmd string) bool {
+	if hasHeredoc(cmd) { // heredoc authors content
+		return true
+	}
+	for _, seg := range splitShellSegments(cmd) {
+		if leadingVerb(seg) == "tee" {
+			return true
+		}
+	}
+	for i := 0; i < len(cmd); i++ {
+		if cmd[i] != '>' {
+			continue
+		}
+		j := i
+		for j < len(cmd) && cmd[j] == '>' { // consume a `>>` run as one redirect
+			j++
+		}
+		i = j - 1 // resume scanning after this redirect operator
+		k := j
+		for k < len(cmd) && (cmd[k] == ' ' || cmd[k] == '\t') {
+			k++
+		}
+		if k < len(cmd) && cmd[k] == '&' {
+			continue // fd duplication (`>&1`, `>&-`) — not a file
+		}
+		end := k
+		for end < len(cmd) && !isRedirectStop(cmd[end]) {
+			end++
+		}
+		target := cmd[k:end]
+		if target == "" || strings.HasPrefix(target, "/dev/") {
+			continue // bare `>` with no visible target, or a /dev sink
+		}
+		return true
+	}
+	return false
+}
+
+// stripHeredocs removes heredoc bodies (and their terminator lines) so that content fed via
+// `cmd <<TAG … TAG` is not mistaken for commands when we split on newlines to classify a bash
+// call. It keeps the introducing line (which carries the real leading verb, e.g. `cat > f`).
+func stripHeredocs(cmd string) string {
+	if !strings.Contains(cmd, "<<") {
+		return cmd
+	}
+	lines := strings.Split(cmd, "\n")
+	out := lines[:0:0]
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		out = append(out, line)
+		idx := strings.Index(line, "<<")
+		if idx < 0 {
+			continue
+		}
+		delim := heredocDelim(line[idx+2:])
+		if delim == "" {
+			continue // a `<<` that is not a heredoc intro (e.g. arithmetic left-shift)
+		}
+		for i+1 < len(lines) && strings.TrimSpace(lines[i+1]) != delim {
+			i++ // drop body line
+		}
+		if i+1 < len(lines) {
+			i++ // drop the terminator line
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+// hasHeredoc reports whether cmd contains a real heredoc (`cmd <<TAG`), as opposed to an
+// arithmetic left-shift (`$((1<<2))`) — distinguished by whether the token after `<<` is a
+// valid delimiter word (see heredocDelim).
+func hasHeredoc(cmd string) bool {
+	for i := 0; i+1 < len(cmd); i++ {
+		if cmd[i] == '<' && cmd[i+1] == '<' && heredocDelim(cmd[i+2:]) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// heredocDelim returns the delimiter word a `<<` introduces (given the text right after the
+// `<<`), or "" if this is not a heredoc. Handles `<<-` and quoted `<<'EOF'`/`<<"EOF"`. A
+// heredoc delimiter is an identifier — it must begin with a letter or underscore — so an
+// arithmetic shift like `1<<2` (whose "delimiter" would start with a digit) returns "".
+func heredocDelim(afterLtLt string) string {
+	s := strings.TrimLeft(afterLtLt, "-<") // <<- and any run of extra <
+	s = strings.TrimLeft(s, " \t")         // optional space before the word
+	f := strings.Fields(s)
+	if len(f) == 0 {
+		return ""
+	}
+	word := strings.Trim(f[0], "'\"")
+	if word == "" {
+		return ""
+	}
+	c := word[0]
+	if c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
+		return word
+	}
+	return ""
+}
+
+// isRedirectStop reports whether b ends a redirect target token.
+func isRedirectStop(b byte) bool {
+	switch b {
+	case ' ', '\t', '\n', '|', ';', '&', '<', '>':
+		return true
+	}
+	return false
 }
 
 // stuck reports why the run should be force-stopped: "repeat" (the same action
