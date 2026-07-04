@@ -165,6 +165,17 @@ func memberSystem(m council.Member, phase, task string) string {
 			"file, diff, or document. A plan step or criterion phrased as \"write/produce a summary\" for such a task is "+
 			"satisfied by that content in the report, not by a separate file. Files the agent merely READ or cited are "+
 			"INPUTS, never missing deliverables — never fault it for not \"creating\" one.\n"+
+			"For such an analyze / review / survey task over a LARGE set (many files or items), \"done\" means the report "+
+			"covers the task's scope REASONABLY and representatively — a well-organized answer hitting the important, "+
+			"priority-ranked findings is COMPLETE. Do NOT demand EXHAUSTIVE enumeration of every item, or atom-level "+
+			"precision (every file, every exact line number), unless the TASK EXPLICITLY asked for it: \"cover more items\" "+
+			"or \"be more precise\" is a wish for more proof, not a concrete defect, and voting continue for it is exactly "+
+			"the churn to avoid. Vote continue on such a report ONLY for a REAL defect — a whole REQUESTED part is missing, "+
+			"or the report's own content is wrong or self-contradictory. This proportionality relaxes ONLY the BREADTH "+
+			"expected of a genuine analysis/survey answer. It does NOT apply to any CREATE/BUILD/RUN/FIX PART of the task: "+
+			"even when the task is MOSTLY analysis, if part of it is to write/build/run/fix something concrete, that part "+
+			"still owes the existence, correctness, and run-the-check evidence below — never treat a never-written file, a "+
+			"never-run check, or a wrong value as \"covered\" just because the analysis around it reads as representative.\n"+
 			"Beyond existence, check CORRECTNESS against the LETTER of the task: when the task dictates the deliverable's "+
 			"exact content, value, format, name, or location, compare what the turn ACTUALLY produced (its shown "+
 			"content/bytes/tool results) against that literal requirement. A deliverable that exists but whose content "+
@@ -252,10 +263,17 @@ func planMemberSystem(m council.Member, lens string) string {
 			"criteria, a verify step, or more detail — would be WRONG. Hold real plans to exactly this bar.\n\n"+
 			"SEPARATELY, through your lens, propose this task's COMPLETION CRITERIA in `criteria`: a short list (1-3) of "+
 			"concrete done-conditions used to judge the FINISHED work later (e.g. a file/output that must exist, a check "+
-			"that must pass). For a read / review / analyze / answer task, a criterion is a quality of the ANSWER (e.g. "+
-			"\"every doc is covered\"), never a new file or document to create. These are NOT steps the plan must contain, "+
-			"and their absence from the plan is NEVER a reason to revise. Keep each item one short line; omit if your lens "+
-			"adds nothing.\n\n"+
+			"that must pass). Each criterion MUST be ACHIEVABLE and PROPORTIONATE to the task's size: for an analysis, "+
+			"survey, or investigation over a LARGE set (many files/items), do NOT write a done-condition that demands "+
+			"EXHAUSTIVE enumeration of every item or atom-level precision (\"list ALL N files with EXACT line numbers\") "+
+			"— that is impractical and will be enforced as an impossible contract. Phrase such a criterion as the QUALITY "+
+			"of a representative, priority-ranked coverage instead (e.g. \"the main refactoring candidates are identified "+
+			"with their file and rough location\"), never \"every X\" or \"all N with exact lines\". For a "+
+			"read / review / analyze / answer task, a criterion is a quality of the ANSWER, never a new file or document "+
+			"to create. (This proportionality applies to analysis/survey scope ONLY — for a CREATE/BUILD/RUN/FIX task the "+
+			"criterion still requires the concrete artifact to exist and its check to pass; do not soften that.) These are "+
+			"NOT steps the plan must contain, and their absence from the plan is NEVER a reason to revise. Keep each item "+
+			"one short line; omit if your lens adds nothing.\n\n"+
 			"Respond with ONLY a JSON object, no prose, no code fence:\n"+
 			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific fix (only if continue)","severity":"critical|warn|info (only if continue)","criteria":["..."]}`,
 		m.Name, m.Lens, lens)
