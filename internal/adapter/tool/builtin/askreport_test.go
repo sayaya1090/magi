@@ -49,6 +49,7 @@ func TestReportExecute(t *testing.T) {
 		t.Errorf("empty status should default to done, got %q", gotStatus)
 	}
 }
+
 // A fabricated "done" is no longer caught by scanning the report's prose for English
 // confession phrases (that missed other languages and non-confessing fakes). The report tool
 // files any well-formed status; the behavioral catch lives in the loop's take-report branch
