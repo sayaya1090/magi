@@ -234,6 +234,12 @@ type SpawnRequest struct {
 	// session, so each phase sees its predecessors' actual work (not just a spawn-time clone).
 	// Empty = current behavior (new session). Takes precedence over CloneContext when set.
 	ReuseSession session.SessionID
+	// PlanStepIndex is the parent plan-step index this child carries out (delegate/refine
+	// write-step). Recorded on the child session (and its SessionCreated fact) so the plan
+	// tree can be reconstructed and the child's todos render indented under the step. nil
+	// for spawns not tied to a plan step (council, scout list, stuck re-decompose). Ignored
+	// on the ReuseSession path — a shared child keeps its first phase's step.
+	PlanStepIndex *int
 }
 
 // SpawnResult is a subagent's outcome.

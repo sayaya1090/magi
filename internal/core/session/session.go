@@ -31,13 +31,18 @@ type ModelRef struct {
 
 // Session is the top-level unit of organization for a conversation.
 type Session struct {
-	ID      SessionID         `json:"id"`
-	Workdir string            `json:"workdir"`
-	Agent   string            `json:"agent"`            // name of the agent driving this session
-	Parent  SessionID         `json:"parent,omitempty"` // spawning session (subagents); empty for top-level
-	Model   ModelRef          `json:"model"`
-	Created time.Time         `json:"created"`
-	Meta    map[string]string `json:"meta,omitempty"`
+	ID      SessionID `json:"id"`
+	Workdir string    `json:"workdir"`
+	Agent   string    `json:"agent"`            // name of the agent driving this session
+	Parent  SessionID `json:"parent,omitempty"` // spawning session (subagents); empty for top-level
+	// ParentStep is the index of the parent's plan step this child serves (delegate/
+	// refine write-step); nil for children not tied to a plan step. Joined with Parent
+	// (PlanChildren) it drives the live plan tree so a child's todos render indented
+	// under its step. Runtime-only join key — set on spawn, not rehydrated on resume.
+	ParentStep *int              `json:"parentStep,omitempty"`
+	Model      ModelRef          `json:"model"`
+	Created    time.Time         `json:"created"`
+	Meta       map[string]string `json:"meta,omitempty"`
 	// Escalatable reports whether this subagent's `ask` can reach an orchestrator
 	// that will answer — true only for background-dispatched subagents. Runtime-only
 	// (not persisted): a synchronous spawn's parent is blocked awaiting it, so it
