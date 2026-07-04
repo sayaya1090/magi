@@ -396,6 +396,8 @@ plan-audit-cap-1:     연속 critical ⇒ CouncilMaxRounds 도달 ⇒ 강제 진
 - R6 **계획 감사 렌즈**: `[refine]` 스텝은 **의도적 추상**(실행 시 현재 맥락으로 구체화) → 추상성만으론 critical-revise **금지**(최대 warn 권고). 단 refine 포함 계획이 genuinely **unsound**(접근 오류·필수 액션 스텝 부재·달성 불가)면 추상 여부 무관 **여전히 critical**. "부조리는 거부, 단지 추상적인 것은 승인."
 - R7 **전개 가드**(`guardExpansion`, 결정적 백스톱, 항상-on — refine→solo 강등만): ①**깊이 캡** `depth+1 ≥ MaxPlanDepth`면 refine 전부 강등 — 캡의 refine는 자식이 재계획 안 하므로(`planEligible`=`depth < MaxPlanDepth`) 영영 전개 불가한 dead-end. ②**순수 재분해 금지** `depth ≥ 1`(이 계획 자체가 refine 전개)인데 구체 **work**(solo/delegate) 없이 refine만이면 강등 — 진전 없는 재이연 방지. depth 0 top-plan은 all-refine 허용(면제). planner 프롬프트가 이 규칙을 먼저 안내(R8)하고, 이 가드가 무시 시 강제.
 - R8 **예산·깊이 힌트**(`planEnvelope`): planner 시스템 프롬프트에 **step 예산(`maxSteps`)**·**깊이 `depth`/`MaxPlanDepth`**·**캡 여부**를 주입 → 계획을 예산·깊이에 맞춰 사이징(캡이면 refine 금지 안내). preflight는 각 노드 step 0에서 돌고 자식마다 예산이 리셋되므로 힌트의 요체는 `maxSteps`+깊이.
+- R9 **스펙 충실도**(`specFidelityEnabled`, 기본 on; `MAGI_SPEC_FIDELITY=0`=패러프레이즈-only 베이스라인): 깊은-계획 경로가 지시문을 요약하며 **채점기가 verbatim으로 검사하는 리터럴 식별자**(필드/메시지/함수명·출력 포맷·임계값·리터럴)를 잃는 실패 모드(kv-store-grpc: 요청 필드 `value`가 `val`로 정규화 → fail; 얕음/solo는 원문 직독으로 통과)를 3중 방어로 차단. ①**planner 리터럴-보존 규칙**(`literalRule`): planner 시스템 프롬프트에 "정확한 식별자는 step title/task에 verbatim 복제, 리터럴 계약 패러프레이즈 금지" 주입. ②**plan-time note**(`specFidelityNote`): 계획이 실행을 지배하는 순간(`registerPlanTodos` 직후·`executeSteps` 이전) 메인 세션에 "todos는 요약본 — 정확한 식별자는 원문 표현 verbatim" 지시문 주입 → solo·refine clone·parallel/scout findings-합성 경로가 부모 맥락으로 커버(all-solo 포함). ③**delegate SPEC 앵커**(Part C): 컨텍스트-free delegate 자식은 원문을 못 보므로 `delegateBrief`가 goal을 **authoritative SPEC**로 verbatim(넉넉히 clip) 실어 자식이 리터럴을 원문에서 복사. refine엔 미주입(clone+②로 커버).
+- R10 **실행-증거 착지 게이트**(`evidenceGateEnabled`, 기본 on; `MAGI_EVIDENCE_GATE=0`=off): 완료 게이트의 쌍대(dual). 딜리버러블을 바꾼 top-level(depth 0) 턴은 **현재 버전이 이번 턴에 독립적으로 실행되어 tester PASS**(`guard.mutationEpoch()==reviewPassedEpoch`)하지 않는 한 **확정 결과**("done"도 "불가능"도)로 착지 금지 — 거짓 승리(A)와 거짓 불가능(D)은 같은 버그(현재 버전의 실행 관찰 없는 종결 주장)라 대칭 처리. 미검증이면 루프가 **1회** push("지금 실제로 돌려라; 정말 못 하면 무엇을 검증 못 했는지 솔직히 — 절대 출력 날조/stand-in 금지") 후, 차단·에러가 아니라 **`TurnFinished{Unverified:true}`**(TUI `⚠ UNVERIFIED`)로 정직 착지. council(텍스트+diff로 *좋은가* 판단, 그럴듯한 성공 서사에 속을 수 있음)과 **직교** — 게이트는 기계검증된 *돌렸는가*를 강제. 대응해 tester 계약은 러너블 테스트가 없으면 **task 스펙에서 의미 있는 체크를 구성**(추측한 hidden grader·자명 always-true 금지)하도록 강화, BLOCKED는 "아무것도 못 돌림/체크 도출 불가"로 축소(테스트 부재≠BLOCKED). 자식 인계 계약(delegate/refine/stuck)엔 단일소스 `noFabricate` 절로 정직한 부정을 허용(날조 압력 제거).
 
 ```
 delegate-partition-1: 독립 3파일 생성 ⇒ 순차 delegate 자식 3 ⇒ depth+1 각자 재계획   (R1)
@@ -408,6 +410,11 @@ adapt-off-1:          MAGI_ADAPT=0 ⇒ refine 실패 1회 후 백트랙(informed
 stuck-redecompose-1:  solo stall ⇒ redecomposeStuck 자식 인계 + resetStall               (R4)
 plan-refine-abstract-1: 추상 refine 계획 ⇒ council critical 금지(warn까지만)             (R6)
 guard-depthcap-1:     캡(depth+1≥MaxPlanDepth)의 refine ⇒ solo 강등                       (R7)
+spec-fidelity-1:      계획 지배 턴 ⇒ 메인 세션에 스펙-충실도 note + planner에 리터럴 규칙 + delegate SPEC 앵커  (R9)
+spec-fidelity-off-1:  MAGI_SPEC_FIDELITY=0 ⇒ note·규칙·앵커 없음(패러프레이즈-only 베이스라인)              (R9)
+evidence-gate-1:      딜리버러블 변경+미검증 ⇒ 1회 push 후 TurnFinished{Unverified} 착지               (R10)
+evidence-gate-off-1:  MAGI_EVIDENCE_GATE=0 ⇒ 라벨·push 없이 레거시 착지                                (R10)
+evidence-gate-verified-1: tester가 현재 버전 PASS ⇒ UNVERIFIED 아님·push 없음                          (R10)
 guard-redefer-1:      depth≥1 all-refine(work 없음) ⇒ solo 강등                          (R7)
 plan-envelope-1:      planner 프롬프트에 예산+깊이+캡 힌트 주입                            (R8)
 ```

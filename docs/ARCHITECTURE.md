@@ -40,7 +40,7 @@ internal/
                             the consensus gate, acceptance criteria, tool execution,
                             permission prompting, and prompt/system assembly
     orchestrate.go          subagent dispatch/spawn/supervisor; escalate (ask); bgGroup
-    planner.go              recursive pre-flight planner: solo/parallel/scout/delegate/refine; planEnvelope budget/depth hint, guardExpansion depth-cap guard, MAGI_ADAPT-gated reactive retry + escalate, MAGI_REFINE_SHARED shared-session refine phases
+    planner.go              recursive pre-flight planner: solo/parallel/scout/delegate/refine; planEnvelope budget/depth hint, guardExpansion depth-cap guard, MAGI_ADAPT-gated reactive retry + escalate, MAGI_REFINE_SHARED shared-session refine phases, MAGI_SPEC_FIDELITY literal-preservation (planner rule + plan-time note + verbatim delegate SPEC anchor)
     workflow.go             deterministic phase pipeline (localize→implement→verify→review)
     policy.go               guardrail policy engine (rules, secret-deny, bash scan, egress)
     hooks.go                lifecycle hooks (PreToolUse/PostToolUse/Stop) + built-in harness
@@ -196,6 +196,23 @@ in `loop.go` calls into them each step):
   to a two-pass self-verification nudge (coverage, then correctness) that fires once per run,
   rather than hard-blocking a weak model into a deadlock. Explicitly-requested synthetic
   content is allowed but must be LABELED fictional in the final report.
+- **execution-evidence landing gate — false-victory = false-impossibility (`evidenceGateEnabled`,
+  `MAGI_EVIDENCE_GATE`, default on)**: the completion gate's dual. A top-level turn that changed a
+  deliverable may not land a *confident* outcome — neither "done" NOR "cannot be done" — unless the
+  current version was independently run to a tester PASS this turn (`guard.mutationEpoch() ==
+  reviewPassedEpoch`). Both errors are the same bug: a terminal claim without executed observation of
+  the current version. Not verified → the loop pushes ONCE ("actually run it now; if you genuinely
+  cannot, say plainly what you could not verify — never invent output or a stand-in to look done"),
+  then lands the turn labeled **`TurnFinished{Unverified:true}`** (TUI shows `⚠ UNVERIFIED`) rather
+  than blocking or erroring — an honest non-committal landing. This is orthogonal to the council
+  (which judges *is the work good* on text+diff and can be fooled by a plausible success narrative);
+  the gate enforces the machine-checked *was it run*. The `tester` contract is correspondingly told
+  to **construct** a meaningful check from the task's own spec when the repo ships none (not a guessed
+  hidden grader, not a trivial always-true assertion), and BLOCKED is narrowed to genuine
+  can't-run-anything / too-underspecified-to-derive-a-check — a missing test is not by itself BLOCKED.
+  Symmetrically, every child hand-off contract (delegate/refine/stuck) carries the single-sourced
+  `noFabricate` clause so a subagent asked "report how you verified it" is also licensed to admit an
+  honest negative instead of manufacturing one.
 - **churn graceful-finish**: when the loop guard force-stops a spinning turn (`guard.stuck()`
   repeat/stall), the outcome depends on whether the run produced a deliverable. Epoch > 0
   (real output already written, now only re-confirming) → finish cleanly (`turn.finished`,
@@ -368,6 +385,30 @@ The orchestrator (top-level session, `Parent==""`) delegates via the **`task`** 
   visibility fallback when `MAGI_REFINE_SHARED=0`). The plan council must not reject a `refine` plan merely for being abstract
   (that is the point of hierarchical decomposition), but still rejects genuinely unsound plans by
   member-lens judgment.
+
+- **Spec fidelity** (`specFidelityEnabled`, `MAGI_SPEC_FIDELITY`, default on): deep planning
+  paraphrases the instruction, and the executor then normalizes a *literal* the grader checks
+  verbatim — the request's `value` field became `val`, failing kv-store-grpc, where a shallow/solo
+  run that reads the raw instruction directly keeps `value`. Three defenses fire together: a planner
+  **literal-preservation rule** (`literalRule`, appended to the planner system prompt — copy exact
+  identifiers/formats/thresholds into the step title/task verbatim); a **plan-time note**
+  (`specFidelityNote`, injected into the main session right after `registerPlanTodos` and *before*
+  `executeSteps`, so refine clones and the findings-synthesis path inherit it via the parent context,
+  and an all-solo plan is covered too); and a **verbatim SPEC anchor** for the context-free delegate
+  child (`delegateBrief` carries the goal as an authoritative SPEC, generously clipped, since the
+  child never sees the raw request). `MAGI_SPEC_FIDELITY=0` restores the paraphrase-only baseline.
+
+- **Plan-tree hierarchy (normalized B-variant)**: when a delegate/refine step's child forms its own
+  sub-plan at depth+1, the TUI plan panel renders the child's sub-todos **indented under the parent
+  step**. Structure is a one-time immutable fact — the child's `SessionCreated` event carries
+  `ParentStep *int` (the parent plan-step index it was spawned from; nil = not a plan-step child, e.g.
+  council/scout-list/stuck-redecompose), threaded `PlanStepIndex` through `SpawnRequest` →
+  `runAttempt` → `Session.ParentStep`. State stays **single-source**: each session owns its own todos
+  (no mirroring into the parent), so failure backtracking needs no cross-tree resync. `App.PlanChildren(parent, step)`
+  joins children by `Parent==parent && *ParentStep==step` in creation order; `renderPlan(sid, depth)`
+  recurses, depth naturally bounded by `MaxPlanDepth`. Purely additive: with no child sub-todos the
+  panel renders exactly as before, so no A/B flag. (Shared-session refine keeps the first phase's
+  step — a reused child is not re-attributed.)
 
 Default subagents (`cmd/magi/main.go:defaultAgents`): explore, locator, analyst,
 architect, coder, tester, reviewer, planner — each with a restricted toolset (+ ask/report).
