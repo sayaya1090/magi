@@ -20,21 +20,14 @@ import (
 // the caller can avoid re-running a failed turn into a retry storm.
 func (a *App) run(ctx context.Context, sid session.SessionID) error {
 	s := a.sessionInfo(ctx, sid)
-	// Pre-flight planner: when the task splits into independent areas, fan out
-	// read-only explorers in parallel and inject their findings before the main
-	// agent runs. Degrades to solo (no-op) when disabled or not parallelizable.
-	planned := a.maybePlanPreflight(ctx, s)
 	if a.cfg.Workflow {
 		return a.runWorkflow(ctx, s)
 	}
-	// If the planner did investigation and injected findings, the turn already did
-	// real work — seed it so the termination council convenes even when the main
-	// agent only synthesizes the findings (no tools of its own).
+	// The pre-flight planner now runs INSIDE runLoop (loop.go), so a delegated
+	// sub-task re-plans at its own level (recursive planning). runLoop is the single
+	// entry point — planning here would double-plan the top level.
 	agent := a.agentFor(s)
-	// Show the main agent working the next step (◐) for the rest of the turn — a
-	// deterministic in_progress signal, since a weak model rarely calls todowrite.
-	a.markFirstPendingActive(ctx, s.ID, event.Actor{Kind: event.ActorAgent, ID: orDefault(agent.Name, "default")})
-	_, err := a.runLoop(ctx, s, agent, 0, 0, planned)
+	_, err := a.runLoop(ctx, s, agent, 0, 0, false)
 	return err
 }
 
@@ -150,11 +143,40 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	// step 0 — so a steer that lands during the council gate can't hijack what the
 	// council judges against (that interjection gets its own follow-up turn instead).
 	usedTools := seedWork // did this turn do real work? (planner investigation seeds it; council skips pure conversational turns)
-	usedMutator := false // did this turn run a state-changing tool (bash or edit/write)? gates the pre-finish review/self-verify — bash writes files too, but don't reach guard.changeSet(). The review gate's re-arm keys off guard.mutationEpoch() (which counts edit/write AND bash writes), so a bash-authored fix re-triggers verification too.
+	usedMutator := false  // did this turn run a state-changing tool (bash or edit/write)? gates the pre-finish review/self-verify — bash writes files too, but don't reach guard.changeSet(). The review gate's re-arm keys off guard.mutationEpoch() (which counts edit/write AND bash writes), so a bash-authored fix re-triggers verification too.
 	// Turn usage accumulation (§8.1): output tokens and cost sum across steps; input
 	// is the last step's (the current context size, not a sum).
 	var cumOut, lastIn int
 	var cumCost float64
+
+	// Pre-flight planner (D17), recursive: for a producing agent below the plan-depth
+	// cap, decompose the request into ordered steps, fan out read-only explorers, and/or
+	// DELEGATE large independent sub-tasks to sub-agents that re-plan at depth+1. This is
+	// the single planning entry point — top level and every delegated sub-task take the
+	// same path, so a big task splits recursively (heterogeneous: each node picks solo/
+	// parallel/scout/delegate). Read-only explorers/verifiers and workflow mode are gated
+	// out. Injects findings before the agent runs; degrades to solo on any failure.
+	if a.planEligible(agent, depth) {
+		planned, delegated := a.maybePlanPreflight(ctx, s, depth)
+		if planned {
+			usedTools = true // planner did real work — seed the termination council
+		}
+		// A delegate wrote to the shared tree via a CHILD runLoop, so those changes are in
+		// the child's guard, not this one's — this turn's changeSet/epoch stay empty. Seed
+		// usedMutator so THIS (depth-0) turn's review-gate tester + council still fire and
+		// verify the MERGED result (the tester inspects the working tree when the changeSet
+		// is empty). Without this, a parent that only delegated would finish with no
+		// independent execution check on the delegated work.
+		if delegated {
+			usedMutator = true
+		}
+	}
+	// Show the agent working the next step (◐) for the rest of the turn — a deterministic
+	// in_progress signal, since a weak model rarely calls todowrite (no-op if no todos).
+	// Skipped in workflow mode, where the deterministic engine owns the plan panel.
+	if !a.cfg.Workflow {
+		a.markFirstPendingActive(ctx, sid, agentActor)
+	}
 
 	// Deterministic plan finalize (top level only): when the turn ends, resolve any
 	// unfinished todos — completed if the turn genuinely finished, else cancelled — so

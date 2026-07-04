@@ -108,6 +108,12 @@ type Config struct {
 	MaxDepth    int // max subagent nesting depth
 	MaxAgents   int // cumulative spawn cap (runaway backstop)
 	Concurrency int // max concurrently running subagents
+	// MaxPlanDepth caps how deep the pre-flight planner may recurse: a delegated
+	// sub-task re-plans at its own level (heterogeneous recursion — each fanned-out
+	// node independently picks solo/parallel/scout/delegate), but only while its
+	// orchestration depth is below this. Kept TIGHTER than MaxDepth so a weak model's
+	// plan can't explode into a deep decomposition tree; most work stays 1 level.
+	MaxPlanDepth int
 
 	// TimeBudget, when > 0, is a USER-declared wall-clock target for a turn,
 	// surfaced in the budget line as guidance (never a hard stop). Off by
@@ -243,6 +249,9 @@ func (c Config) withDefaults() Config {
 	}
 	if c.MaxAgents == 0 {
 		c.MaxAgents = 50
+	}
+	if c.MaxPlanDepth == 0 {
+		c.MaxPlanDepth = 2
 	}
 	if c.Concurrency == 0 {
 		c.Concurrency = 8

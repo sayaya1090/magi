@@ -43,14 +43,20 @@ type planGroup struct {
 // planStep is one ordered step of the procedure plus HOW to execute it (D17).
 type planStep struct {
 	Title    string      `json:"title"`            // human-facing step (becomes a todo)
-	Strategy string      `json:"strategy"`         // solo | parallel | scout
+	Strategy string      `json:"strategy"`         // solo | parallel | scout | delegate
 	Groups   []planGroup `json:"groups,omitempty"` // parallel: explorers to fan out
 	// scout (adaptive): discover a work-list at runtime, then fan out one explorer
 	// per item — this is what lets "list the docs, then read each in parallel" be
 	// expressed without the planner knowing the list in advance.
-	Agent    string `json:"agent,omitempty"`    // scout + per-item explorer (read-only)
+	Agent    string `json:"agent,omitempty"`    // scout+per-item explorer (read-only); OR the delegate's executor
 	Discover string `json:"discover,omitempty"` // what list to produce, e.g. "the markdown files under docs/"
 	Each     string `json:"each,omitempty"`     // what to find out about each discovered item
+	// delegate (recursive execution): hand a large, INDEPENDENT sub-task to a capable
+	// sub-agent that plans and carries it out at its own level (unlike the read-only
+	// explorers, this one WRITES). Task is the full instruction; Agent names the
+	// executor (a configured write-capable agent). Serialized — never parallel — so
+	// concurrent writes can't race the council's change capture.
+	Task string `json:"task,omitempty"`
 }
 
 // planResult is the planner's procedure: an ordered list of steps.
@@ -69,6 +75,59 @@ type planResult struct {
 // is read-only, so there are no file conflicts and nothing to fabricate-then-write.
 var readOnlyExplorers = map[string]bool{"explore": true, "locator": true, "analyst": true}
 
+// producesFiles reports whether an agent authors file deliverables (has edit/write),
+// as opposed to a read-only explorer or a run-only verifier. It gates both preflight
+// eligibility (only a producing agent benefits from decompose-then-investigate/delegate)
+// and which agents may be a delegate step's executor. Deliberately keyed off write/edit,
+// NOT bash: a tester/verifier holds bash to RUN checks but must never re-plan (it would
+// mutate state during the independent verification pass) nor be handed a build task —
+// keying off bash would wrongly sweep it in.
+func producesFiles(spec AgentSpec) bool {
+	return spec.allows("edit") || spec.allows("write")
+}
+
+// delegatableAgents lists the configured agents (except the planner itself) that can
+// execute a delegated sub-task, sorted for a stable prompt. Empty means delegate is
+// unavailable — the planner is told to use solo/parallel/scout only.
+func (a *App) delegatableAgents() []string {
+	var out []string
+	for name := range a.cfg.Agents {
+		if name == plannerAgent {
+			continue
+		}
+		if spec, ok := a.resolveAgentSpec(name); ok && producesFiles(spec) {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// delegateAgentName validates a delegate step's requested executor: it must be a
+// configured, execute-capable agent. Returns ("", false) when it isn't, so the step
+// degrades to solo (the main agent handles that work) rather than dispatching to a
+// bogus or read-only agent.
+func (a *App) delegateAgentName(name string) (string, bool) {
+	name = strings.TrimSpace(name)
+	if name == "" || name == plannerAgent {
+		return "", false
+	}
+	spec, ok := a.resolveAgentSpec(name)
+	if !ok || !producesFiles(spec) {
+		return "", false
+	}
+	return name, true
+}
+
+// planEligible gates the recursive pre-flight planner (D17): plan only for an agent
+// that PRODUCES a deliverable (a read-only explorer/reviewer is a leaf — it never
+// re-plans), only while below the recursion cap, and never in workflow mode (the
+// deterministic engine owns staging there). This is the single guard that lets a
+// delegated sub-task re-plan at its own level while a weak model's tree stays bounded.
+func (a *App) planEligible(agent AgentSpec, depth int) bool {
+	return a.cfg.Planner && !a.cfg.Workflow && depth < a.cfg.MaxPlanDepth && producesFiles(agent)
+}
+
 // maybePlanPreflight runs the procedure planner before a top-level turn. It (1)
 // decomposes the request into ordered steps, (2) — for a multi-step plan — has
 // the council audit the procedure before any work, (3) registers the steps as the
@@ -76,21 +135,23 @@ var readOnlyExplorers = map[string]bool{"explore": true, "locator": true, "analy
 // strategy (solo|parallel|scout, scout being adaptive), and (5) injects the
 // gathered findings so the main agent starts with them. Best-effort throughout:
 // any failure degrades to solo (the normal path) and never blocks the turn.
-// It returns true if it injected explorer findings — i.e. the planner did real
-// investigation this turn — so the caller seeds the loop's "used tools" flag and
-// the termination council still convenes even if the main agent only synthesizes
-// the findings (no tools of its own).
-func (a *App) maybePlanPreflight(ctx context.Context, s session.Session) bool {
+// It returns planned=true when it injected findings (the planner did real work this
+// turn) so the caller seeds the loop's "used tools" flag and the termination council
+// still convenes. delegated=true when a delegate step actually carried out WRITE work
+// via a sub-agent: those writes land in the child's guard, not the parent's, so the
+// caller must seed usedMutator to force the parent's depth-0 verification (review-gate
+// tester / council) to inspect and verify the MERGED working tree.
+func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth int) (planned, delegated bool) {
 	if !a.cfg.Planner {
-		return false
+		return false, false
 	}
 	spec, ok := a.cfg.Agents[plannerAgent]
 	if !ok {
-		return false // planner not configured
+		return false, false // planner not configured
 	}
 	prompt := a.lastUserPrompt(ctx, s.ID)
 	if strings.TrimSpace(prompt) == "" {
-		return false
+		return false, false
 	}
 	a.setStage(s.ID, stagePlan) // tag pre-flight planning events as the plan stage (D15)
 
@@ -99,7 +160,7 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session) bool {
 	steps := sanitizeSteps(plan)
 	if len(steps) == 0 {
 		a.emitPhase(s.ID, "plan", "solo", strings.TrimSpace(plan.Reason)) // ran, judged single-area
-		return false                                                      // solo — the default, cheap path
+		return false, false                                               // solo — the default, cheap path
 	}
 
 	// Plan audit (D17): a multi-step procedure is reviewed by the council BEFORE it
@@ -108,7 +169,7 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session) bool {
 	if len(steps) >= 2 && a.cfg.Council != nil && !a.cfg.Workflow {
 		steps = a.runPlanAuditGate(ctx, s, spec, prompt, steps)
 		if len(steps) == 0 {
-			return false
+			return false, false
 		}
 		// (a single remaining step is fine — nothing to fan out, but solo work follows)
 	}
@@ -116,12 +177,12 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session) bool {
 	a.registerPlanTodos(ctx, s.ID, steps)
 	a.emitPhase(s.ID, "plan", planSummary(steps), strings.TrimSpace(plan.Reason))
 
-	findings := a.executeSteps(ctx, s, steps)
+	findings, delegated := a.executeSteps(ctx, s, steps, depth)
 	if strings.TrimSpace(findings) == "" {
-		return false
+		return false, false
 	}
-	a.injectPlannerFindings(ctx, s.ID, findings)
-	return true
+	a.injectPlannerFindings(ctx, s.ID, findings, delegated)
+	return true, delegated
 }
 
 // runPlanner does a single tool-free LLM call on the planner's own provider and
@@ -129,6 +190,11 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session) bool {
 // council plan-audit asked for changes. Returns a zero planResult on any error.
 func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session, prompt, revise string) planResult {
 	sys := spec.System + "\n\n# Repository (top level)\n" + repoMap(s.Workdir) + "\n\n" + plannerContract
+	if names := a.delegatableAgents(); len(names) > 0 {
+		sys += "\n\nDelegate executors available (use one as a delegate step's \"agent\"): " + strings.Join(names, ", ") + "."
+	} else {
+		sys += "\n\nNo delegate executors are configured — do NOT use the \"delegate\" strategy; use solo/parallel/scout only."
+	}
 	if dir := langDirective(prompt); dir != "" {
 		sys = dir + " Write the JSON \"reason\" value in that language.\n\n" + sys
 	}
@@ -243,12 +309,18 @@ const plannerContract = "Plan the PROCEDURE to handle the request: an ordered, m
 	"- \"parallel\": independent read-only investigations you ALREADY know are relevant — give \"groups\" (each {agent, focus, question}).\n" +
 	"- \"scout\": you DON'T yet know the work-list — give \"discover\" (the list to produce, SCOPED TO WHAT THE TASK NEEDS — " +
 	"e.g. for a bug hunt, the source files/packages in scope, NOT tangential files like docs) and \"each\" (what to find " +
-	"out about every item); a read-only explorer lists them, then one explorer runs per item in parallel.\n\n" +
+	"out about every item); a read-only explorer lists them, then one explorer runs per item in parallel.\n" +
+	"- \"delegate\": hand a LARGE, INDEPENDENT chunk of the WORK (that WRITES/BUILDS/RUNS/FIXES something) to a sub-agent " +
+	"that plans and carries it out on its own — give \"task\" (the full self-contained instruction) and \"agent\" (the executor). " +
+	"Use this ONLY when the task genuinely splits into big, mostly-independent build/fix units (e.g. two separate subcommands, " +
+	"a component plus its tests). Decompose CONSERVATIVELY: a small, quick, or tightly-coupled piece of work is a \"solo\" step, " +
+	"NOT a delegate — do NOT shatter one coherent change into many tiny delegates. Prefer the fewest units that are each " +
+	"worth handing off whole. If no executor agent is available (see below), don't use delegate.\n\n" +
 	"Explorers are READ-ONLY (agent ∈ explore|locator|analyst); never use them to write. " +
 	"Also give \"estimated_steps\": your honest guess at the TOTAL number of tool calls the whole task needs " +
 	"(a one-file tweak ~5, a feature with tests ~30, a big build/debug ~100). It is pacing guidance only — never a limit.\n" +
 	"Reply with ONLY a JSON object, no prose:\n" +
-	`{"reason":"one sentence","estimated_steps":12,"steps":[{"title":"...","strategy":"solo|parallel|scout","groups":[{"agent":"explore","focus":"...","question":"..."}],"agent":"explore","discover":"...","each":"..."}]}`
+	`{"reason":"one sentence","estimated_steps":12,"steps":[{"title":"...","strategy":"solo|parallel|scout|delegate","groups":[{"agent":"explore","focus":"...","question":"..."}],"agent":"explore","discover":"...","each":"...","task":"..."}]}`
 
 // parsePlan extracts the first BALANCED {...} JSON object from text and unmarshals
 // it. Models wrap the object in prose/fences, and weak local models often append
@@ -350,6 +422,11 @@ func sanitizeSteps(p planResult) []planStep {
 			if !readOnlyExplorers[st.Agent] {
 				st.Agent = "explore"
 			}
+		case "delegate":
+			if strings.TrimSpace(st.Task) == "" {
+				continue // a delegate with no work instruction is meaningless
+			}
+			st.Agent = strings.TrimSpace(st.Agent) // executor validated at dispatch (executeSteps)
 		case "solo":
 			// keep as-is
 		default:
@@ -556,19 +633,48 @@ var plannerActor = event.Actor{Kind: event.ActorAgent, ID: plannerAgent}
 // A per-turn explorer budget caps total dispatch; a step that can't dispatch
 // (solo, or a scout/parallel that yields nothing) degrades to "the main agent
 // handles it" without aborting the procedure.
-func (a *App) executeSteps(ctx context.Context, s session.Session, steps []planStep) string {
+func (a *App) executeSteps(ctx context.Context, s session.Session, steps []planStep, depth int) (findings string, delegated bool) {
 	budget := maxPlanExplorers
 	var out []string
 	for i, st := range steps {
 		if budget <= 0 || ctx.Err() != nil {
 			break
 		}
+		// delegate: a heavier, write-capable sub-task. Handled inline in this sequential
+		// loop (never fanned out concurrently) so its writes can't race the council's
+		// change capture — see allParallelSafe. The sub-agent re-plans at depth+1.
+		if st.Strategy == "delegate" {
+			agentName, ok := a.delegateAgentName(st.Agent)
+			if !ok {
+				continue // no valid executor → degrade to solo (the main agent does it)
+			}
+			budget-- // count against the per-turn dispatch budget like an explorer
+			a.advanceTo(ctx, s.ID, plannerActor, i)
+			r := a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agentName, Prompt: delegatePrompt(st)})
+			text := strings.TrimSpace(r.Text)
+			if r.Err != "" || text == "" {
+				// Failed or empty → the sub-task is NOT done. Leave its todo pending so the main
+				// agent picks it up, and record it as FAILED (never "(delegated to …)", so the
+				// redo-prevention directive can't tell the agent to skip re-doing it).
+				note := "the delegated sub-agent returned no result"
+				if r.Err != "" {
+					note = "the delegated sub-agent errored: " + r.Err
+				}
+				out = append(out, "### "+st.Title+" (delegate FAILED — do this yourself)\n("+note+"; this sub-task is unfinished)")
+				a.setTodoStatusIf(ctx, s.ID, plannerActor, i, "in_progress", "pending")
+				continue
+			}
+			out = append(out, "### "+st.Title+" (delegated to "+agentName+")\n"+text)
+			delegated = true
+			a.completeThrough(ctx, s.ID, plannerActor, i)
+			continue
+		}
 		var groups []planGroup
 		switch st.Strategy {
 		case "parallel":
 			groups = capGroups(st.Groups, &budget)
 		case "scout":
-			groups = a.scoutGroups(ctx, s, st, &budget)
+			groups = a.scoutGroups(ctx, s, st, &budget, depth)
 		default: // solo → main agent does it; nothing to dispatch
 			continue
 		}
@@ -576,14 +682,20 @@ func (a *App) executeSteps(ctx context.Context, s session.Session, steps []planS
 			continue // per-step degrade
 		}
 		a.advanceTo(ctx, s.ID, plannerActor, i) // moved on to step i: earlier steps ✓, step i running ◐
-		if f := strings.TrimSpace(a.runExplorers(ctx, s, groups)); f != "" {
+		if f := strings.TrimSpace(a.runExplorers(ctx, s, groups, depth)); f != "" {
 			out = append(out, "### "+st.Title+"\n"+f)
 			a.completeThrough(ctx, s.ID, plannerActor, i) // step i done
 		} else {
 			a.setTodoStatusIf(ctx, s.ID, plannerActor, i, "in_progress", "pending") // degraded → don't leave a stuck ◐
 		}
 	}
-	return strings.Join(out, "\n\n")
+	return strings.Join(out, "\n\n"), delegated
+}
+
+// delegatePrompt frames a delegate step as a self-contained sub-task instruction.
+func delegatePrompt(st planStep) string {
+	return st.Task + "\n\n(You are handling ONE independent part of a larger plan. Complete this part fully, " +
+		"verify it yourself, and report what you did and how you verified it.)"
 }
 
 // capGroups trims a parallel step's groups to the remaining per-turn budget.
@@ -598,7 +710,7 @@ func capGroups(groups []planGroup, budget *int) []planGroup {
 // scoutGroups runs the scout: one read-only explorer produces a work-list, then
 // each item becomes a parallel investigation. This is the adaptive scout→fanout —
 // the fan-out targets are discovered at runtime, not pre-planned.
-func (a *App) scoutGroups(ctx context.Context, s session.Session, st planStep, budget *int) []planGroup {
+func (a *App) scoutGroups(ctx context.Context, s session.Session, st planStep, budget *int, depth int) []planGroup {
 	agent := st.Agent
 	if !readOnlyExplorers[agent] {
 		agent = "explore"
@@ -607,7 +719,7 @@ func (a *App) scoutGroups(ctx context.Context, s session.Session, st planStep, b
 		return nil
 	}
 	listPrompt := fmt.Sprintf("List %s. Output ONLY the items, one per line — no prose, no numbering, no bullets, no markdown. The FIRST line must already be an item: no title, header, preamble (\"Here are…\", \"List of…:\"), or closing remark.", st.Discover)
-	r := a.spawn(ctx, s, 0, port.SpawnRequest{Agent: agent, Prompt: listPrompt})
+	r := a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agent, Prompt: listPrompt})
 	*budget-- // the scout itself counts
 	if r.Err != "" {
 		return nil
@@ -722,7 +834,7 @@ func parseList(text string) []string {
 
 // runExplorers dispatches the groups as read-only subagents concurrently and
 // returns their findings concatenated in a stable order.
-func (a *App) runExplorers(ctx context.Context, s session.Session, groups []planGroup) string {
+func (a *App) runExplorers(ctx context.Context, s session.Session, groups []planGroup, depth int) string {
 	type res struct {
 		i    int
 		text string
@@ -740,7 +852,7 @@ func (a *App) runExplorers(ctx context.Context, s session.Session, groups []plan
 			// the whole step (runExplorers waits for all) for the full SubagentTimeout.
 			ectx, ecancel := context.WithTimeout(ctx, explorerTimeout)
 			defer ecancel()
-			r := a.spawn(ectx, s, 0, port.SpawnRequest{Agent: g.Agent, Prompt: prompt})
+			r := a.spawn(ectx, s, depth, port.SpawnRequest{Agent: g.Agent, Prompt: prompt})
 			text := r.Text
 			if r.Err != "" {
 				text = "(failed: " + r.Err + ")"
@@ -781,13 +893,23 @@ func (a *App) injectCouncilAdvice(ctx context.Context, sid session.SessionID, ad
 		event.Actor{Kind: event.ActorSystem, ID: "council"}, pd)
 }
 
-func (a *App) injectPlannerFindings(ctx context.Context, sid session.SessionID, findings string) {
+func (a *App) injectPlannerFindings(ctx context.Context, sid session.SessionID, findings string, delegated bool) {
 	text := "# Investigation findings (from the explorer subagents you just dispatched)\n\n" + findings +
 		"\n\n---\nThese are the results of YOUR OWN read-only explorers — trust them as your primary " +
 		"source and SYNTHESIZE from them directly. Do NOT re-read or re-investigate what is already " +
 		"covered above; open a file again only if you must quote or modify an exact line. " +
 		"A plan (todos) has been set for this task — CONTINUE and update those todos as you go; do not replace them wholesale. " +
 		"Proceed with the task."
+	if delegated {
+		// Some steps above were CARRIED OUT by delegated sub-agents (marked "(delegated…)"),
+		// not just investigated. The parent must integrate/verify — not redo — that work.
+		text = "# Investigation findings and completed sub-tasks (from the subagents you just dispatched)\n\n" + findings +
+			"\n\n---\nSteps marked \"(delegated to …)\" above were COMPLETED by a sub-agent — the described work is " +
+			"already done on disk. Do NOT re-implement them: VERIFY they are correct and INTEGRATE them (run the " +
+			"build/tests, reconcile the pieces, fix any gaps between them). Read-only findings above are your " +
+			"primary source — synthesize from them; open a file again only to quote or modify an exact line. " +
+			"A plan (todos) has been set — CONTINUE and update those todos; do not replace them wholesale. Proceed."
+	}
 	pd, _ := json.Marshal(event.PromptSubmittedData{
 		MessageID: "m_" + newID(),
 		Parts:     []session.Part{{Kind: session.PartText, Text: text}},
