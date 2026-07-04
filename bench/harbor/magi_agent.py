@@ -108,8 +108,10 @@ class MagiAgent(BaseInstalledAgent):
         env: dict[str, str] = {}
         # MAGI_MAX_PLAN_DEPTH is the recursion A/B knob: 2 = full recursive planning,
         # 1 = top-level plan + single-level delegate but no child re-planning / failure
-        # recursion. Forwarded so both arms share one prebuilt binary (see planDepthFromEnv).
-        for key in ("MAGI_BASE_URL", "MAGI_API_KEY", "MAGI_MAX_PLAN_DEPTH"):
+        # recursion. MAGI_REFINE=0 is the orthogonal refine A/B knob: it downgrades the
+        # hierarchical refine strategy to solo (the pre-refine baseline) while leaving
+        # delegate untouched. Both are forwarded so the two arms share one prebuilt binary.
+        for key in ("MAGI_BASE_URL", "MAGI_API_KEY", "MAGI_MAX_PLAN_DEPTH", "MAGI_REFINE"):
             val = os.environ.get(key)
             if val:
                 env[key] = val
