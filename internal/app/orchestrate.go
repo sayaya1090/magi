@@ -347,31 +347,52 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 	if spec.Model != (session.ModelRef{}) {
 		model = spec.Model
 	}
-	child := session.Session{
-		ID:          session.SessionID("s_" + newID()),
-		Workdir:     parent.Workdir,
-		Agent:       spec.Name,
-		Parent:      parent.ID,
-		Model:       model,
-		Created:     time.Now(),
-		Escalatable: req.Background, // only background-dispatched children can be answered
-	}
-	a.mu.Lock()
-	a.sessions[child.ID] = child
-	a.mu.Unlock()
-
 	actor := event.Actor{Kind: event.ActorAgent, ID: orDefault(parent.Agent, "default")}
-	cd, _ := json.Marshal(event.SessionCreatedData{
-		Workdir: child.Workdir, Agent: spec.Name, Model: model, Parent: string(parent.ID),
-	})
-	a.appendFact(ctx, child.ID, event.TypeSessionCreated, actor, cd)
 
-	// refine (in-context recursion): seed the child with the parent's conversation so its
-	// pre-flight planner works out the sub-goal WITH the full context carried forward,
-	// instead of the context-free hand-off delegate uses. Done after SessionCreated and
-	// before the sub-goal prompt so the prompt is the most-recent message.
-	if req.CloneContext {
-		a.cloneConversation(ctx, parent.ID, child.ID)
+	// ReuseSession (refine shared-session): continue a prior attempt's session instead of
+	// creating a fresh one — skip creation, the SessionCreated event, and CloneContext, since
+	// the accumulated conversation already IS the context. This runs sequentially-dependent
+	// refine phases in ONE child so each sees its predecessors' actual work. Falls back to a
+	// fresh session if the reuse target has vanished (defensive; the caller passes back a
+	// SessionID it just received).
+	var child session.Session
+	if req.ReuseSession != "" {
+		a.mu.Lock()
+		c, ok := a.sessions[req.ReuseSession]
+		a.mu.Unlock()
+		if ok {
+			child = c
+		}
+	}
+	if child.ID == "" {
+		child = session.Session{
+			ID:          session.SessionID("s_" + newID()),
+			Workdir:     parent.Workdir,
+			Agent:       spec.Name,
+			Parent:      parent.ID,
+			Model:       model,
+			Created:     time.Now(),
+			Escalatable: req.Background, // only background-dispatched children can be answered
+		}
+		a.mu.Lock()
+		a.sessions[child.ID] = child
+		a.mu.Unlock()
+
+		cd, _ := json.Marshal(event.SessionCreatedData{
+			Workdir: child.Workdir, Agent: spec.Name, Model: model, Parent: string(parent.ID),
+		})
+		a.appendFact(ctx, child.ID, event.TypeSessionCreated, actor, cd)
+
+		// refine (in-context recursion): seed the child with the parent's conversation so its
+		// pre-flight planner works out the sub-goal WITH the full context carried forward,
+		// instead of the context-free hand-off delegate uses. Done after SessionCreated and
+		// before the sub-goal prompt so the prompt is the most-recent message.
+		// A ReuseSession that missed (target gone from a.sessions — only possible if session
+		// eviction is ever added) lands here too: clone as well, so the fallback child degrades
+		// to the legacy spawn-time clone rather than getting neither reuse nor context.
+		if req.CloneContext || req.ReuseSession != "" {
+			a.cloneConversation(ctx, parent.ID, child.ID)
+		}
 	}
 
 	msgID := "m_" + newID()
@@ -428,23 +449,23 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 				// Retry only when our own per-attempt timeout fired (not a parent
 				// cancellation, which should propagate as a terminal failure).
 				timedOut := attemptCtx.Err() == context.DeadlineExceeded && ctx.Err() == nil
-				return port.SpawnResult{Err: o.err.Error()}, timedOut
+				return port.SpawnResult{Err: o.err.Error(), SessionID: child.ID}, timedOut
 			}
-			return port.SpawnResult{Text: o.text}, false
+			return port.SpawnResult{Text: o.text, SessionID: child.ID}, false
 
 		case <-ticker.C:
 			if a.idleFor(child.ID) > a.cfg.SubagentStall {
 				cancel() // abort the stalled attempt
 				<-done   // let runLoop unwind
 				announceDone()
-				return port.SpawnResult{Err: "subagent stalled (no activity)"}, true
+				return port.SpawnResult{Err: "subagent stalled (no activity)", SessionID: child.ID}, true
 			}
 
 		case <-ctx.Done():
 			cancel()
 			<-done
 			announceDone()
-			return port.SpawnResult{Err: ctx.Err().Error()}, false
+			return port.SpawnResult{Err: ctx.Err().Error(), SessionID: child.ID}, false
 		}
 	}
 }

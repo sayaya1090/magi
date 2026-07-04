@@ -40,7 +40,7 @@ internal/
                             the consensus gate, acceptance criteria, tool execution,
                             permission prompting, and prompt/system assembly
     orchestrate.go          subagent dispatch/spawn/supervisor; escalate (ask); bgGroup
-    planner.go              recursive pre-flight planner: solo/parallel/scout/delegate/refine; planEnvelope budget/depth hint, guardExpansion depth-cap guard, MAGI_ADAPT-gated reactive retry + escalate
+    planner.go              recursive pre-flight planner: solo/parallel/scout/delegate/refine; planEnvelope budget/depth hint, guardExpansion depth-cap guard, MAGI_ADAPT-gated reactive retry + escalate, MAGI_REFINE_SHARED shared-session refine phases
     workflow.go             deterministic phase pipeline (localize→implement→verify→review)
     policy.go               guardrail policy engine (rules, secret-deny, bash scan, egress)
     hooks.go                lifecycle hooks (PreToolUse/PostToolUse/Stop) + built-in harness
@@ -343,22 +343,29 @@ The orchestrator (top-level session, `Parent==""`) delegates via the **`task`** 
   directive can't suppress it.
 - **Hierarchical refine** (`runRefineStep`, ADaPT/HTN backtracking): where `delegate` partitions
   *independent* chunks to context-free children, `refine` recurses on a large sub-goal whose
-  pieces **depend on each other**. The child spawns with the parent's conversation **cloned in**
-  (`SpawnRequest.CloneContext` → `cloneConversation`), so it re-plans at depth+1 with the full
-  context carried forward rather than from a cold prompt. It drives a local re-plan → escalate
+  pieces **depend on each other**. By default (`sharedRefineEnabled`) a plan's sequential refine
+  phases run in **one shared child session**: the first phase seeds it by **cloning** the parent
+  (`SpawnRequest.CloneContext` → `cloneConversation`); later phases and local retries **reuse** it
+  (`SpawnRequest.ReuseSession`, threaded via `SpawnResult.SessionID` and the `refineShare` state),
+  so each re-plans at depth+1 on top of its predecessors' **actual conversation** (tool calls,
+  outputs, code) rather than a spawn-time snapshot. `MAGI_REFINE_SHARED=0` restores the legacy
+  per-phase clone-at-spawn. Session sharing is accounting-neutral (each phase is still one
+  `spawn`/`runAttempt`: depth+1, budget, supervisor) and council-safe (change capture is per
+  `runLoop` invocation via `newRunGuard`, not per session). It drives a local re-plan → escalate
   loop: **success** completes the todo and flags `delegated` (the depth-0 review gate verifies
   the merged tree); **failure** records the reason into the *parent* context (`recordRefineFailure`)
-  and retries locally up to `refineLocalRetries` — because each retry re-clones the parent, the
-  attempt is *informed* ("a previous attempt failed because X"); **exhaustion** (or an explicit
-  child `STATUS: FAILED`, which backtracks early) leaves the todo `pending` and returns a FAILED
-  finding, so the parent — itself possibly a refine node — re-approaches with the accumulated
+  and retries locally up to `refineLocalRetries` — the failure reason is prefixed onto the retry
+  prompt so the attempt is *informed* ("a previous attempt failed because X"), and under the shared
+  session the retry also runs on top of the failed attempt's conversation; **exhaustion** (or an
+  explicit child `STATUS: FAILED`, which backtracks early) leaves the todo `pending` and returns a
+  FAILED finding, so the parent — itself possibly a refine node — re-approaches with the accumulated
   failures in view ("no more to try → backtrack up"). A refine step's `agent` is *optional* (it
-  states a goal, not who runs it): `resolveWriteExecutor` falls back to any delegatable agent, and
-  refine degrades to solo only when none exists. **Sibling visibility**: because sequential refine
-  phases are dependent, each success also seeds a compact result note into the parent
-  (`recordRefineSuccess`, the mirror of the failure record) — so the *next* phase's clone, taken
-  at its spawn time, carries what the prior phase produced (packages, signatures) instead of
-  spawning blind to it. The plan council must not reject a `refine` plan merely for being abstract
+  states a goal, not who runs it): `resolveWriteExecutor` falls back to any delegatable agent
+  (pinned on the first phase for a consistent shared session), and refine degrades to solo only when
+  none exists. **Sibling visibility**: sequential phases see each other's real work *structurally*
+  through the shared session; each success additionally seeds a compact result note into the parent
+  (`recordRefineSuccess`, the mirror of the failure record) as the summary the parent reads (and the
+  visibility fallback when `MAGI_REFINE_SHARED=0`). The plan council must not reject a `refine` plan merely for being abstract
   (that is the point of hierarchical decomposition), but still rejects genuinely unsound plans by
   member-lens judgment.
 

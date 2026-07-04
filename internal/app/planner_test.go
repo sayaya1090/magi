@@ -646,6 +646,93 @@ func TestExecuteStepsRefineSuccessSeedsSiblingContext(t *testing.T) {
 	}
 }
 
+// Under the default shared session, a plan's sequentially-dependent refine phases run in ONE
+// child session so each sees its predecessor's ACTUAL work: two refine steps must produce
+// exactly ONE child (Parent==s.ID), and both sub-goal prompts must land in that one session.
+func TestExecuteStepsRefineSharedSession(t *testing.T) {
+	a := newOrchApp(t, &gateLLM{text: "done, verified"}, Config{
+		Permission: "allow", MaxAgents: 100, MaxDepth: 5, MaxPlanDepth: 2,
+		Agents: map[string]AgentSpec{"coder": {Name: "coder", System: "x", Tools: []string{"read", "write", "edit", "bash"}}},
+	})
+	s := parentSession(t.TempDir())
+	a.mu.Lock()
+	a.sessions[s.ID] = s
+	a.mu.Unlock()
+
+	steps := []planStep{
+		{Title: "tokenizer", Strategy: "refine", Agent: "coder", Task: "build the TOKENIZER package"},
+		{Title: "parser", Strategy: "refine", Agent: "coder", Task: "build the PARSER on the tokenizer"},
+	}
+	a.registerPlanTodos(context.Background(), s.ID, steps)
+	if _, delegated := a.executeSteps(context.Background(), s, "", steps, 0); !delegated {
+		t.Fatal("successful refine steps must set delegated")
+	}
+
+	var kids []session.SessionID
+	a.mu.Lock()
+	for id, sess := range a.sessions {
+		if sess.Parent == s.ID {
+			kids = append(kids, id)
+		}
+	}
+	a.mu.Unlock()
+	if len(kids) != 1 {
+		t.Fatalf("shared refine must run both phases in ONE child session; got %d children", len(kids))
+	}
+	// Both sub-goal prompts must have accumulated in that single shared session.
+	evs, _ := a.store.Read(context.Background(), kids[0], 0)
+	var sawTok, sawParse bool
+	for _, e := range evs {
+		if e.Type != event.TypePromptSubmitted {
+			continue
+		}
+		if strings.Contains(string(e.Data), "TOKENIZER package") {
+			sawTok = true
+		}
+		if strings.Contains(string(e.Data), "PARSER on the tokenizer") {
+			sawParse = true
+		}
+	}
+	if !sawTok || !sawParse {
+		t.Errorf("both phases' prompts must accumulate in the shared session (tokenizer=%v parser=%v)", sawTok, sawParse)
+	}
+}
+
+// MAGI_REFINE_SHARED=0 restores the legacy per-phase clone-at-spawn: each refine phase gets its
+// OWN child session, so two refine steps produce TWO children under the parent.
+func TestExecuteStepsRefineSharedDisabled(t *testing.T) {
+	t.Setenv("MAGI_REFINE_SHARED", "0")
+	a := newOrchApp(t, &gateLLM{text: "done, verified"}, Config{
+		Permission: "allow", MaxAgents: 100, MaxDepth: 5, MaxPlanDepth: 2,
+		Agents: map[string]AgentSpec{"coder": {Name: "coder", System: "x", Tools: []string{"read", "write", "edit", "bash"}}},
+	})
+	s := parentSession(t.TempDir())
+	a.mu.Lock()
+	a.sessions[s.ID] = s
+	a.mu.Unlock()
+
+	steps := []planStep{
+		{Title: "tokenizer", Strategy: "refine", Agent: "coder", Task: "build the tokenizer"},
+		{Title: "parser", Strategy: "refine", Agent: "coder", Task: "build the parser"},
+	}
+	a.registerPlanTodos(context.Background(), s.ID, steps)
+	if _, delegated := a.executeSteps(context.Background(), s, "", steps, 0); !delegated {
+		t.Fatal("successful refine steps must set delegated")
+	}
+
+	kids := 0
+	a.mu.Lock()
+	for _, sess := range a.sessions {
+		if sess.Parent == s.ID {
+			kids++
+		}
+	}
+	a.mu.Unlock()
+	if kids != 2 {
+		t.Fatalf("legacy per-phase clone must create ONE child per refine phase; got %d children, want 2", kids)
+	}
+}
+
 // A refine child that keeps failing (empty result) is retried LOCALLY up to refineLocalRetries;
 // each failure is recorded into the PARENT context, so the retry is informed ("A previous
 // attempt…"). On exhaustion the node does NOT flag delegated and its todo stays pending — the

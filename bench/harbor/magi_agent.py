@@ -114,7 +114,10 @@ class MagiAgent(BaseInstalledAgent):
         # the compact context brief injected into delegate hand-offs and read-only fan-out,
         # restoring the context-free baseline. MAGI_ADAPT=0 is a fourth: it disables the
         # REACTIVE (as-needed) failure re-decomposition — delegate/refine failures backtrack
-        # after one shot, leaving only planned decomposition + the stall safety net. All are
+        # after one shot, leaving only planned decomposition + the stall safety net.
+        # MAGI_REFINE_SHARED=0 is a fifth: it makes a plan's dependent refine phases each get
+        # their OWN spawn-time clone (the legacy baseline) instead of sharing ONE child session
+        # in which later phases see their predecessors' actual work (the default). All are
         # forwarded so the arms share one prebuilt binary.
         for key in (
             "MAGI_BASE_URL",
@@ -123,6 +126,7 @@ class MagiAgent(BaseInstalledAgent):
             "MAGI_REFINE",
             "MAGI_STEP_CONTEXT",
             "MAGI_ADAPT",
+            "MAGI_REFINE_SHARED",
         ):
             val = os.environ.get(key)
             if val:

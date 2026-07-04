@@ -478,6 +478,27 @@ func adaptDisabled() bool {
 	return false
 }
 
+// sharedRefineEnabled runs a plan's sequentially-dependent refine phases in ONE shared child
+// session (the first phase creates it via clone; later phases REUSE it, so each sees its
+// predecessors' actual work) rather than giving each phase its own spawn-time clone of the
+// parent — the fix for tightly-coupled phases missing each other's outputs. Default ON;
+// MAGI_REFINE_SHARED=0 restores the legacy per-phase clone-at-spawn baseline (the A/B knob).
+func sharedRefineEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_REFINE_SHARED"))) {
+	case "0", "off", "false", "no":
+		return false
+	}
+	return true
+}
+
+// refineShare threads the shared-session state across a plan's refine phases: the first phase
+// pins the child session it created and that session's executor here; later phases reuse both
+// so they run in ONE session with a stable agent. Zero value = no shared session yet.
+type refineShare struct {
+	sid   session.SessionID
+	agent string
+}
+
 func sanitizeSteps(p planResult) []planStep {
 	var out []planStep
 	for _, st := range p.Steps {
@@ -781,6 +802,7 @@ var plannerActor = event.Actor{Kind: event.ActorAgent, ID: plannerAgent}
 func (a *App) executeSteps(ctx context.Context, s session.Session, goal string, steps []planStep, depth int) (findings string, delegated bool) {
 	budget := maxPlanExplorers
 	stepCtx := !stepContextDisabled() // A/B: off → delegate/fan-out run context-free (pre-brief baseline)
+	var rshare refineShare            // shared-session state carried across this plan's refine phases
 	var out []string
 	for i, st := range steps {
 		if budget <= 0 || ctx.Err() != nil {
@@ -797,7 +819,7 @@ func (a *App) executeSteps(ctx context.Context, s session.Session, goal string, 
 			if st.Strategy == "delegate" && stepCtx {
 				brief = delegateBrief(goal, steps, i, out) // refine ignores this (it clones context)
 			}
-			if f, done := run(ctx, s, st, brief, i, depth, &budget); f != "" {
+			if f, done := run(ctx, s, st, brief, i, depth, &budget, &rshare); f != "" {
 				out = append(out, f)
 				delegated = delegated || done
 			}
@@ -865,7 +887,8 @@ func (a *App) resolveWriteExecutor(stAgent string, fallbackAny bool) (string, bo
 // executeSteps dispatches them through one path (the record-finding / OR-delegated glue).
 // brief is the delegate context brief (see delegateBrief); refine ignores it (it clones the
 // parent context instead), so the caller passes "" for refine steps.
-type writeStepFn func(ctx context.Context, s session.Session, st planStep, brief string, i, depth int, budget *int) (finding string, done bool)
+// rs threads the refine shared-session state across a plan's phases; delegate ignores it.
+type writeStepFn func(ctx context.Context, s session.Session, st planStep, brief string, i, depth int, budget *int, rs *refineShare) (finding string, done bool)
 
 // writeStepRunner maps a write-capable strategy to its runner, or nil for a strategy this
 // method does not own (parallel/scout/solo fall through to explorer/degrade handling).
@@ -886,7 +909,7 @@ func (a *App) writeStepRunner(strategy string) writeStepFn {
 // degraded to solo (no valid executor); the caller records nothing and the main agent
 // handles that work. Sequential by construction (never fanned out), so the writes can't
 // race the council's change capture — see allParallelSafe.
-func (a *App) runDelegateStep(ctx context.Context, s session.Session, st planStep, brief string, i, depth int, budget *int) (finding string, done bool) {
+func (a *App) runDelegateStep(ctx context.Context, s session.Session, st planStep, brief string, i, depth int, budget *int, _ *refineShare) (finding string, done bool) {
 	agentName, ok := a.resolveWriteExecutor(st.Agent, false) // delegate requires a named executor
 	if !ok {
 		return "", false // no valid executor → degrade to solo (the main agent does it)
@@ -929,16 +952,19 @@ func (a *App) runDelegateStep(ctx context.Context, s session.Session, st planSte
 const refineLocalRetries = 2
 
 // runRefineStep executes one hierarchical refine step: a large, NON-independent sub-goal
-// worked out IN-CONTEXT. Unlike delegate's context-free hand-off, it spawns a child whose
-// conversation is CLONED from the parent (CloneContext), so the sub-goal is re-planned at
-// depth+1 with the full context carried forward. It drives the local re-plan / escalate
-// loop the hierarchical model needs:
+// worked out IN-CONTEXT. Unlike delegate's context-free hand-off, the sub-goal is re-planned at
+// depth+1 with the full context carried forward. By default (sharedRefineEnabled) a plan's
+// refine phases share ONE child session: the first phase seeds it by CLONING the parent, and
+// later phases REUSE it (ReuseSession) so each sees its predecessors' actual work; with
+// MAGI_REFINE_SHARED=0 every phase instead gets its own spawn-time clone. It drives the local
+// re-plan / escalate loop the hierarchical model needs:
 //   - success   → the child's writes are already in the shared tree; complete the todo and
 //     return done=true (the caller ORs it into `delegated`, so the depth-0 review gate
 //     verifies the merged result).
 //   - failure   → record the failure back into the PARENT context and retry the node
-//     locally. Because the next attempt RE-CLONES the parent, the failure note travels into
-//     the retry — the attempt is informed ("a previous attempt failed because X").
+//     locally. The failure reason is prefixed onto the retry prompt so the attempt is informed
+//     ("a previous attempt failed because X"); under the shared session the retry also runs on
+//     top of the failed attempt's actual conversation.
 //   - exhausted → leave the todo pending, return a FAILED finding and done=false. The
 //     failures now stand in the parent context, so the parent (itself possibly a refine
 //     node) re-approaches with them in view — the "no more to try → backtrack up" step.
@@ -947,7 +973,7 @@ const refineLocalRetries = 2
 // failures told it the node is hopeless), without spending the remaining local retries.
 // The executor is the step's own agent if it named one, else any delegatable agent; refine
 // degrades to solo (the main agent works it out in-context) only when NONE is available.
-func (a *App) runRefineStep(ctx context.Context, s session.Session, st planStep, _ string, i, depth int, budget *int) (finding string, done bool) {
+func (a *App) runRefineStep(ctx context.Context, s session.Session, st planStep, _ string, i, depth int, budget *int, rs *refineShare) (finding string, done bool) {
 	// The brief arg is ignored: refine spawns a CLONED-context child (CloneContext below), so
 	// the parent goal, prior refine seeds (recordRefineSuccess), and sibling notes already ride
 	// in the cloned conversation — no separate brief is needed or wanted.
@@ -957,6 +983,12 @@ func (a *App) runRefineStep(ctx context.Context, s session.Session, st planStep,
 	agentName, ok := a.resolveWriteExecutor(st.Agent, true)
 	if !ok {
 		return "", false
+	}
+	// Shared-session (default): once the first phase has created the shared child, later phases
+	// reuse it AND its executor, so the run stays in ONE session with a stable agent.
+	shared := sharedRefineEnabled()
+	if shared && rs.sid != "" && rs.agent != "" {
+		agentName = rs.agent
 	}
 	a.advanceTo(ctx, s.ID, plannerActor, i)
 	// Reactive (as-needed) informed retries are the ADaPT mechanism; MAGI_ADAPT=0 cuts them to a
@@ -968,14 +1000,26 @@ func (a *App) runRefineStep(ctx context.Context, s session.Session, st planStep,
 	fail := ""
 	for attempt := 0; attempt < retries && *budget > 0; attempt++ {
 		*budget-- // count each attempt against the per-turn dispatch budget, like an explorer
-		r := a.spawn(ctx, s, depth, port.SpawnRequest{
-			Agent: agentName, Prompt: refinePrompt(st, fail), CloneContext: true,
-		})
+		req := port.SpawnRequest{Agent: agentName, Prompt: refinePrompt(st, fail), CloneContext: true}
+		if shared && rs.sid != "" {
+			// Reuse the shared child instead of re-cloning the parent: this phase (or retry)
+			// runs on top of its predecessors' ACTUAL conversation, not a spawn-time snapshot.
+			req.ReuseSession = rs.sid
+			req.CloneContext = false
+		}
+		r := a.spawn(ctx, s, depth, req)
+		if shared && r.SessionID != "" {
+			// Pin the shared session + its executor for later phases. Assigned every attempt so a
+			// reuse miss (fresh id returned) self-heals onto the new session; on a normal reuse
+			// r.SessionID is the same id, so this is a no-op.
+			rs.sid, rs.agent = r.SessionID, agentName
+		}
 		text := strings.TrimSpace(r.Text)
 		if r.Err == "" && text != "" && !refineReportsFailure(text) {
 			a.completeThrough(ctx, s.ID, plannerActor, i)
-			// Seed the parent context so the NEXT refine step's clone carries this phase's
-			// output (see recordRefineSuccess) — the sibling-visibility fix.
+			// Seed the parent (main-agent) context with this phase's output. Under the shared
+			// session siblings already see each other's ACTUAL work; this note is the summary the
+			// PARENT reads (and the sibling-visibility fallback when MAGI_REFINE_SHARED=0).
 			a.recordRefineSuccess(ctx, s.ID, st, text)
 			return stepFinding(st.Title, "refined", text), true
 		}

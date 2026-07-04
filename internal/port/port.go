@@ -227,12 +227,23 @@ type SpawnRequest struct {
 	// delegate's context-free hand-off — needs the parent's history to work out a
 	// non-independent sub-goal.
 	CloneContext bool
+	// ReuseSession runs the prompt in an EXISTING session instead of creating a fresh one:
+	// the session-creation, SessionCreated event, and CloneContext seeding are all skipped,
+	// and the prompt is appended to the named session's accumulated conversation. Used by the
+	// hierarchical `refine` strategy to run sequentially-dependent phases in ONE shared child
+	// session, so each phase sees its predecessors' actual work (not just a spawn-time clone).
+	// Empty = current behavior (new session). Takes precedence over CloneContext when set.
+	ReuseSession session.SessionID
 }
 
 // SpawnResult is a subagent's outcome.
 type SpawnResult struct {
 	Text string
 	Err  string // non-empty on failure (e.g. recursion limit)
+	// SessionID is the child session this attempt ran in (created, or reused via
+	// ReuseSession). The caller can pass it back as a later spawn's ReuseSession to continue
+	// in the same session. Set on both success and failure.
+	SessionID session.SessionID
 }
 
 // ToolRegistry holds the set of available tools by name.

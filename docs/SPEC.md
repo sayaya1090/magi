@@ -389,8 +389,8 @@ plan-audit-cap-1:     연속 critical ⇒ CouncilMaxRounds 도달 ⇒ 강제 진
 
 규칙:
 - R1 **`delegate`(독립 chunk 분할)**: 서로 **독립적** write sub-task를 **컨텍스트-free** producing 자식에 순차 위임(fan-out 안 함 → writes가 council change 캡처와 비경합). 자식은 depth+1 재계획. **반응형 실패 재분해**(ADaPT, `MAGI_ADAPT`로 게이트): 자식 에러/빈결과면 depth·budget 내 **1회** "더 잘게 분해" 재시도, 그래도(또는 게이트 off면 즉시) 실패 시 todo pending + `(delegate FAILED — do this yourself)`(redo-prevention 미억제).
-- R2 **`refine`(비독립 sub-goal in-context 재귀)**: 의존적 조각의 대형 sub-goal은 부모 대화를 **복제**(`SpawnRequest.CloneContext`→`cloneConversation`)한 자식이 depth+1 재계획. 로컬 재계획→상위 escalate 루프: **success**=todo 완료+`delegated`; **failure**=사유를 부모에 기록(`recordRefineFailure`) 후 **informed 로컬 재시도**(`refineLocalRetries`, 재복제=informed — 반응형이므로 `MAGI_ADAPT` off면 1회로 축소); **exhaustion**(또는 자식 `STATUS: FAILED` 조기 백트래킹)=todo pending+FAILED 반환→부모가 누적 실패로 재접근.
-- R3 **형제 가시성**: 순차 refine phase는 의존적 → 각 success도 결과를 부모에 compact seed(`recordRefineSuccess`, `clipLine`)해 *다음* phase의 복제가 직전 산출(패키지·시그니처)을 담게 함(blind spawn 방지). 실행자(`agent`)는 optional → `resolveWriteExecutor`가 delegatable fallback, 없으면 solo.
+- R2 **`refine`(비독립 sub-goal in-context 재귀)**: 의존적 조각의 대형 sub-goal은 depth+1 재계획하되, 한 계획의 순차 refine phase들이 **하나의 공유 자식 세션**을 순차 재사용(`sharedRefineEnabled` 기본): 첫 phase만 부모 대화를 **복제**(`SpawnRequest.CloneContext`→`cloneConversation`)해 세션을 만들고, 이후 phase(및 로컬 재시도)는 그 세션을 **재사용**(`SpawnRequest.ReuseSession`←`SpawnResult.SessionID`)해 직전 phase의 **실제 대화**(도구 호출·출력·코드) 위에서 이어 작업(spawn-시점 스냅샷이 아님). `MAGI_REFINE_SHARED=0`이면 phase마다 자기 spawn-시점 복제를 받는 legacy로 복귀. 세션 공유와 무관하게 회계는 phase별 불변(depth+1·budget·supervisor)이고 council 캡처는 runLoop 인보케이션 단위(`newRunGuard`)라 phase별 정상. 로컬 재계획→상위 escalate 루프: **success**=todo 완료+`delegated`; **failure**=사유를 부모에 기록(`recordRefineFailure`) 후 **informed 로컬 재시도**(`refineLocalRetries`, 프롬프트에 사유 prefix + 공유 세션이면 실패 대화 위에서 재시도 — 반응형이므로 `MAGI_ADAPT` off면 1회로 축소); **exhaustion**(또는 자식 `STATUS: FAILED` 조기 백트래킹)=todo pending+FAILED 반환→부모가 누적 실패로 재접근.
+- R3 **형제 가시성**: 순차 refine phase는 의존적 → 공유 세션에서 뒤 phase가 앞 phase의 실제 작업을 **구조적으로** 이어받음(R2). 각 success는 추가로 결과를 부모(메인 세션) 맥락에 compact seed(`recordRefineSuccess`, `clipLine`)해 부모가 읽는 요약을 남기며, 이는 `MAGI_REFINE_SHARED=0`(phase별 복제) 시 형제 가시성 fallback이기도 하다. 실행자(`agent`)는 optional → 첫 phase에서 `resolveWriteExecutor`로 고정(공유 세션 일관), 없으면 solo.
 - R4 **stuck 복구**: solo가 stall(무진전 가드 소진)/council deadlock로 막히면 남은 일을 fresh 재계획 자식에 인계(`redecomposeStuck`)+부모 stall 회계 리셋(`resetStall`) → 복구가 부모 force-stop에 안 걸림.
 - R5 **경계**: `MaxPlanDepth`(기본 2, `MaxDepth`보다 타이트) 이중 상한 · producing 에이전트(write/edit)만·bash-only 검증자는 재계획 안 함 · 인터랙티브/workflow 억제. fabrication 게이트(review-gate tester+council)는 **depth 0만**(부모가 `usedMutator` seed→depth-0 tester가 병합 트리 검사, 리프마다 재실행 X).
 - R6 **계획 감사 렌즈**: `[refine]` 스텝은 **의도적 추상**(실행 시 현재 맥락으로 구체화) → 추상성만으론 critical-revise **금지**(최대 warn 권고). 단 refine 포함 계획이 genuinely **unsound**(접근 오류·필수 액션 스텝 부재·달성 불가)면 추상 여부 무관 **여전히 critical**. "부조리는 거부, 단지 추상적인 것은 승인."
@@ -400,8 +400,9 @@ plan-audit-cap-1:     연속 critical ⇒ CouncilMaxRounds 도달 ⇒ 강제 진
 ```
 delegate-partition-1: 독립 3파일 생성 ⇒ 순차 delegate 자식 3 ⇒ depth+1 각자 재계획   (R1)
 delegate-adapt-1:     자식 실패 ⇒ "더 잘게" 1회 재시도 ⇒ 실패면 FAILED finding        (R1, MAGI_ADAPT on)
-refine-clone-1:       의존 phase 2 ⇒ CloneContext 자식 ⇒ 부모 맥락 이어받아 재계획       (R2)
-refine-sibling-1:     phase1 success 노트 ⇒ phase2 복제가 그 산출 포함(형제 가시성)      (R3)
+refine-shared-1:      의존 phase 2 ⇒ 한 공유 자식 세션 순차 재사용 ⇒ phase2가 phase1 실제작업 위에서  (R2/R3)
+refine-shared-off-1:  MAGI_REFINE_SHARED=0 ⇒ phase마다 자기 spawn-시점 복제(legacy per-phase)        (R2)
+refine-sibling-1:     각 success ⇒ 부모 맥락 compact seed(요약 + flag-off fallback)               (R3)
 refine-escalate-1:    로컬 재시도 소진 ⇒ FAILED 반환 ⇒ 부모가 재접근(백트래킹)           (R2)
 adapt-off-1:          MAGI_ADAPT=0 ⇒ refine 실패 1회 후 백트랙(informed 재시도 없음)      (R1/R2)
 stuck-redecompose-1:  solo stall ⇒ redecomposeStuck 자식 인계 + resetStall               (R4)
