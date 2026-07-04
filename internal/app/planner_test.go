@@ -514,6 +514,340 @@ func TestExecuteStepsDelegateFailureRecursion(t *testing.T) {
 	})
 }
 
+// sanitizeSteps keeps a refine step iff it carries a sub-goal (Task); like delegate, a
+// refine with no work is dropped. Agent is optional (refine runs in-session via clone).
+func TestSanitizeStepsRefine(t *testing.T) {
+	got := sanitizeSteps(planResult{Steps: []planStep{
+		{Title: "build a small language", Strategy: "refine", Task: "lexer→parser→eval→REPL"}, // kept
+		{Title: "empty refine", Strategy: "refine", Task: "  "},                               // dropped (no sub-goal)
+	}})
+	if len(got) != 1 {
+		t.Fatalf("want 1 surviving refine step, got %d: %+v", len(got), got)
+	}
+	if r := got[0]; r.Strategy != "refine" || r.Task != "lexer→parser→eval→REPL" {
+		t.Errorf("refine step not preserved: %+v", r)
+	}
+}
+
+// refineReportsFailure detects the child's own STATUS: FAILED verdict (the "no viable
+// approach" signal used to backtrack early), and only that — a normal report is not failure.
+func TestRefineReportsFailure(t *testing.T) {
+	for _, c := range []struct {
+		text string
+		want bool
+	}{
+		{"STATUS: FAILED\nno compiler on PATH", true},
+		{"\n\nstatus: failed", true}, // leading blank lines + case-insensitive
+		{"STATUS: OK\ndone", false},
+		{"built and verified the parser", false},
+		{"the STATUS: FAILED appears mid-body, not as the frame", false},
+	} {
+		if got := refineReportsFailure(c.text); got != c.want {
+			t.Errorf("refineReportsFailure(%q) = %v, want %v", c.text, got, c.want)
+		}
+	}
+}
+
+// A refine step spawns a context-CLONED child that works the sub-goal out in-context; on
+// success its writes are already in the shared tree, so the todo completes and the step
+// flags delegated (forcing the parent's depth-0 review gate over the merged result).
+func TestExecuteStepsRefineSuccess(t *testing.T) {
+	a := newOrchApp(t, &gateLLM{text: "built the REPL and verified it"}, Config{
+		Permission: "allow", MaxAgents: 100, MaxDepth: 5, MaxPlanDepth: 2,
+		Agents: map[string]AgentSpec{"coder": {Name: "coder", System: "x", Tools: []string{"read", "write", "edit", "bash"}}},
+	})
+	s := parentSession(t.TempDir())
+	a.mu.Lock()
+	a.sessions[s.ID] = s
+	a.mu.Unlock()
+
+	steps := []planStep{
+		{Title: "prep", Strategy: "solo"},
+		{Title: "build a small language", Strategy: "refine", Agent: "coder", Task: "lexer→parser→eval→REPL"},
+	}
+	a.registerPlanTodos(context.Background(), s.ID, steps)
+	findings, delegated := a.executeSteps(context.Background(), s, steps, 0)
+
+	if !delegated {
+		t.Error("a successful refine step must set delegated=true (its writes need the parent's review gate)")
+	}
+	if !strings.Contains(findings, "built the REPL") || !strings.Contains(findings, "(refined)") {
+		t.Errorf("refine report not merged into findings: %q", findings)
+	}
+	if td := a.Todos(s.ID); td[0].Status != "completed" || td[1].Status != "completed" {
+		t.Errorf("refine step and subsumed earlier step should be completed, got %q / %q", td[0].Status, td[1].Status)
+	}
+}
+
+// A successful refine node must SEED the parent context with its result, so the next refine
+// step's clone (taken at spawn time) carries the prior phase's output. Without this seed, a
+// sequentially-dependent phase spawns blind to its predecessor. We assert the parent log gains
+// a "Sub-goal completed" note per successful refine step.
+func TestExecuteStepsRefineSuccessSeedsSiblingContext(t *testing.T) {
+	a := newOrchApp(t, &gateLLM{text: "built package calc with Token/Parse/Eval"}, Config{
+		Permission: "allow", MaxAgents: 100, MaxDepth: 5, MaxPlanDepth: 2,
+		Agents: map[string]AgentSpec{"coder": {Name: "coder", System: "x", Tools: []string{"read", "write", "edit", "bash"}}},
+	})
+	s := parentSession(t.TempDir())
+	a.mu.Lock()
+	a.sessions[s.ID] = s
+	a.mu.Unlock()
+	// Persist the parent so the seed note lands in its log (the store routes appends by the
+	// session.created event) — as in live runtime; mirrors the escalate test.
+	cd, _ := json.Marshal(event.SessionCreatedData{Workdir: s.Workdir, Agent: s.Agent, Model: s.Model})
+	if err := a.appendFact(context.Background(), s.ID, event.TypeSessionCreated, event.Actor{Kind: event.ActorUser}, cd); err != nil {
+		t.Fatal(err)
+	}
+
+	steps := []planStep{
+		{Title: "tokenizer", Strategy: "refine", Agent: "coder", Task: "build the tokenizer"},
+		{Title: "parser", Strategy: "refine", Agent: "coder", Task: "build the parser on top of the tokenizer"},
+	}
+	a.registerPlanTodos(context.Background(), s.ID, steps)
+	if _, delegated := a.executeSteps(context.Background(), s, steps, 0); !delegated {
+		t.Fatal("successful refine steps must set delegated")
+	}
+
+	// Each successful refine step seeds a completion note into the PARENT context (what the
+	// next step's clone picks up). Two successes → two seeds, both carrying the child's result.
+	evs, _ := a.store.Read(context.Background(), s.ID, 0)
+	seeds := 0
+	for _, e := range evs {
+		if e.Type == event.TypePromptSubmitted &&
+			strings.Contains(string(e.Data), "Sub-goal completed") &&
+			strings.Contains(string(e.Data), "built package calc") {
+			seeds++
+		}
+	}
+	if seeds != 2 {
+		t.Errorf("each successful refine step must seed the parent context with its result; got %d seeds, want 2", seeds)
+	}
+}
+
+// A refine child that keeps failing (empty result) is retried LOCALLY up to refineLocalRetries;
+// each failure is recorded into the PARENT context, so the retry is informed ("A previous
+// attempt…"). On exhaustion the node does NOT flag delegated and its todo stays pending — the
+// false result stands in the parent context for it to backtrack over (escalate up).
+func TestExecuteStepsRefineFailureEscalates(t *testing.T) {
+	llm := &recLLM{} // every attempt returns empty → the sub-goal never completes
+	a := newOrchApp(t, llm, Config{
+		Permission: "allow", MaxAgents: 100, MaxDepth: 5, MaxPlanDepth: 2,
+		Agents: map[string]AgentSpec{"coder": {Name: "coder", System: "x", Tools: []string{"read", "write", "edit", "bash"}}},
+	})
+	s := parentSession(t.TempDir())
+	a.mu.Lock()
+	a.sessions[s.ID] = s
+	a.mu.Unlock()
+	// Persist the parent session so recordRefineFailure's note actually lands in its log
+	// (the store routes appends by the session.created event) — as in live runtime.
+	cd, _ := json.Marshal(event.SessionCreatedData{Workdir: s.Workdir, Agent: s.Agent, Model: s.Model})
+	if err := a.appendFact(context.Background(), s.ID, event.TypeSessionCreated, event.Actor{Kind: event.ActorUser}, cd); err != nil {
+		t.Fatal(err)
+	}
+
+	steps := []planStep{{Title: "build a small language", Strategy: "refine", Agent: "coder", Task: "lexer→parser→eval→REPL"}}
+	a.registerPlanTodos(context.Background(), s.ID, steps)
+	findings, delegated := a.executeSteps(context.Background(), s, steps, 0)
+
+	if delegated {
+		t.Error("an exhausted refine node must not mark delegated")
+	}
+	if td := a.Todos(s.ID); td[0].Status != "pending" {
+		t.Errorf("an unfinished refine todo must stay pending for the parent to backtrack over, got %q", td[0].Status)
+	}
+	if !strings.Contains(findings, "FAILED") {
+		t.Errorf("findings should note the refine node as FAILED: %q", findings)
+	}
+	// The second local attempt must be INFORMED: its prompt carries the prior failure.
+	informed := false
+	llm.mu.Lock()
+	for _, p := range llm.prompts {
+		if strings.Contains(p, "A previous attempt at this sub-goal did NOT succeed") {
+			informed = true
+		}
+	}
+	llm.mu.Unlock()
+	if !informed {
+		t.Error("a local retry must be informed by the recorded failure (context-carried re-plan)")
+	}
+	// The failure must have been recorded into the PARENT session (the accumulating record).
+	evs, _ := a.store.Read(context.Background(), s.ID, 0)
+	recorded := false
+	for _, e := range evs {
+		if e.Type == event.TypePromptSubmitted && strings.Contains(string(e.Data), "Sub-goal not yet achieved") {
+			recorded = true
+		}
+	}
+	if !recorded {
+		t.Error("each refine failure must be recorded into the parent context")
+	}
+}
+
+// When the child itself reports STATUS: FAILED (its own accumulated failures say the node is
+// hopeless), refine backtracks EARLY — it does not spend the remaining local retries.
+func TestExecuteStepsRefineEarlyBacktrack(t *testing.T) {
+	llm := &recLLM{reply: func(string) string { return "STATUS: FAILED\nno viable approach: the grammar is ambiguous" }}
+	a := newOrchApp(t, llm, Config{
+		Permission: "allow", MaxAgents: 100, MaxDepth: 5, MaxPlanDepth: 2,
+		Agents: map[string]AgentSpec{"coder": {Name: "coder", System: "x", Tools: []string{"read", "write", "edit", "bash"}}},
+	})
+	s := parentSession(t.TempDir())
+	a.mu.Lock()
+	a.sessions[s.ID] = s
+	a.mu.Unlock()
+
+	steps := []planStep{{Title: "build a small language", Strategy: "refine", Agent: "coder", Task: "lexer→parser→eval→REPL"}}
+	a.registerPlanTodos(context.Background(), s.ID, steps)
+	_, delegated := a.executeSteps(context.Background(), s, steps, 0)
+
+	if delegated {
+		t.Error("a STATUS:FAILED refine node must not mark delegated")
+	}
+	if td := a.Todos(s.ID); td[0].Status != "pending" {
+		t.Errorf("a hopeless refine todo must stay pending, got %q", td[0].Status)
+	}
+	// A STATUS:FAILED verdict backtracks immediately: the second (informed) attempt must NOT fire.
+	llm.mu.Lock()
+	for _, p := range llm.prompts {
+		if strings.Contains(p, "A previous attempt at this sub-goal did NOT succeed") {
+			llm.mu.Unlock()
+			t.Fatal("STATUS:FAILED must backtrack early, not spend the remaining local retries")
+		}
+	}
+	llm.mu.Unlock()
+}
+
+// A refine naming a read-only or unknown executor dispatches nothing (degrades to solo): the
+// main agent works the sub-goal out in-context, so its todo stays pending.
+func TestExecuteStepsRefineInvalidAgentDegrades(t *testing.T) {
+	a := newOrchApp(t, &gateLLM{text: "should not run"}, Config{
+		Permission: "allow", MaxAgents: 100, MaxDepth: 5, MaxPlanDepth: 2,
+		Agents: map[string]AgentSpec{"explore": {Name: "explore", System: "x", Tools: []string{"read", "grep"}}},
+	})
+	s := parentSession(t.TempDir())
+	a.mu.Lock()
+	a.sessions[s.ID] = s
+	a.mu.Unlock()
+
+	steps := []planStep{{Title: "build a language", Strategy: "refine", Agent: "explore", Task: "lexer→parser→eval"}}
+	a.registerPlanTodos(context.Background(), s.ID, steps)
+	findings, delegated := a.executeSteps(context.Background(), s, steps, 0)
+
+	if delegated || strings.TrimSpace(findings) != "" {
+		t.Errorf("invalid refine executor should dispatch nothing, got delegated=%v findings=%q", delegated, findings)
+	}
+	if td := a.Todos(s.ID); td[0].Status != "pending" {
+		t.Errorf("degraded refine todo should stay pending for the main agent, got %q", td[0].Status)
+	}
+}
+
+// A refine step almost never names an executor (the contract makes "agent" optional — it
+// states a high-level GOAL, not who runs it). It must still dispatch, falling back to any
+// delegatable agent; the CLONED context, not the executor identity, carries the sub-goal.
+// (Without the fallback, every unnamed refine would silently degrade to solo — the bug that
+// made refine un-exercisable live even when the planner selected it.)
+func TestExecuteStepsRefineNoAgentUsesFallback(t *testing.T) {
+	a := newOrchApp(t, &gateLLM{text: "worked out the sub-goal and verified it"}, Config{
+		Permission: "allow", MaxAgents: 100, MaxDepth: 5, MaxPlanDepth: 2,
+		Agents: map[string]AgentSpec{"coder": {Name: "coder", System: "x", Tools: []string{"read", "write", "edit", "bash"}}},
+	})
+	s := parentSession(t.TempDir())
+	a.mu.Lock()
+	a.sessions[s.ID] = s
+	a.mu.Unlock()
+
+	// refine with NO agent named — the common case.
+	steps := []planStep{{Title: "build a small language", Strategy: "refine", Task: "lexer→parser→eval→REPL"}}
+	a.registerPlanTodos(context.Background(), s.ID, steps)
+	findings, delegated := a.executeSteps(context.Background(), s, steps, 0)
+
+	if !delegated {
+		t.Error("an unnamed refine step must fall back to a delegatable executor and dispatch, not degrade to solo")
+	}
+	if !strings.Contains(findings, "(refined)") {
+		t.Errorf("refine fallback should have run and merged its finding: %q", findings)
+	}
+	if td := a.Todos(s.ID); td[0].Status != "completed" {
+		t.Errorf("dispatched refine todo should be completed, got %q", td[0].Status)
+	}
+}
+
+// redecomposeStuck is the solo-agent extension of ADaPT failure-recursion: when a top-level
+// agent gets stuck (stall force-stop or council deadlock), the remaining work is handed to a
+// fresh depth+1 child that re-plans from scratch ("BREAK IT DOWN"), told what blocked the last
+// attempt, and its result is injected back into the parent. A recovered child returns true; a
+// failed/empty child (or no executor available) returns false so the caller keeps its old stop.
+func TestRedecomposeStuck(t *testing.T) {
+	newApp := func(llm port.LLMProvider, agents map[string]AgentSpec) (*App, session.Session, AgentSpec) {
+		a := newOrchApp(t, llm, Config{
+			Permission: "allow", MaxAgents: 100, MaxDepth: 5, MaxPlanDepth: 2, Agents: agents,
+		})
+		sid := startSession(t, a, t.TempDir()) // seeds session.created so injectSubagentResult can append
+		a.mu.Lock()
+		s := a.sessions[sid]
+		a.mu.Unlock()
+		return a, s, agents["coder"]
+	}
+	coder := map[string]AgentSpec{"coder": {Name: "coder", System: "x", Tools: []string{"read", "write", "edit", "bash"}}}
+
+	// Recovery: the child re-plans (decomposition-framed prompt) and returns work → true, and
+	// the blockReason + task are threaded into that prompt so the child knows the wall to break.
+	t.Run("child recovers", func(t *testing.T) {
+		llm := &recLLM{reply: func(req string) string {
+			if strings.Contains(req, "BREAK IT DOWN") {
+				return "re-planned and finished it"
+			}
+			return ""
+		}}
+		a, s, agent := newApp(llm, coder)
+		ok := a.redecomposeStuck(context.Background(), s, agent, "serve pkgs on :8080",
+			"port 8080 already bound by the agent's own server", 0)
+		if !ok {
+			t.Fatal("a recovering child must return true")
+		}
+		if !llm.sawDecomposeRetry() {
+			t.Error("redecomposeStuck must frame the child's prompt as a decomposition (BREAK IT DOWN)")
+		}
+		var saw string
+		for _, p := range llm.prompts {
+			if strings.Contains(p, "BREAK IT DOWN") {
+				saw = p
+			}
+		}
+		if !strings.Contains(saw, "serve pkgs on :8080") || !strings.Contains(saw, "port 8080 already bound") {
+			t.Errorf("the child's prompt must carry the task and the blockReason, got: %q", saw)
+		}
+		// The child's result must be injected into the parent session for its own verification.
+		evs, _ := a.store.Read(context.Background(), s.ID, 0)
+		injected := false
+		for _, e := range evs {
+			if e.Type == event.TypePromptSubmitted && strings.Contains(string(e.Data), "[subagent coder result]") {
+				injected = true
+			}
+		}
+		if !injected {
+			t.Error("a recovered child's result must be injected back into the parent session")
+		}
+	})
+
+	// The child fails (empty): no recovery, false, and nothing injected — caller keeps its stop.
+	t.Run("child still fails", func(t *testing.T) {
+		a, s, agent := newApp(&recLLM{}, coder)
+		if a.redecomposeStuck(context.Background(), s, agent, "task", "blocked", 0) {
+			t.Error("an empty/failed child must return false")
+		}
+	})
+
+	// No delegatable executor (only a read-only agent): recovery is impossible → false.
+	t.Run("no executor", func(t *testing.T) {
+		ro := map[string]AgentSpec{"looker": {Name: "looker", System: "x", Tools: []string{"read"}}}
+		a, s, _ := newApp(&recLLM{reply: func(string) string { return "x" }}, ro)
+		if a.redecomposeStuck(context.Background(), s, AgentSpec{Name: "looker"}, "task", "blocked", 0) {
+			t.Error("with no write-capable executor redecomposeStuck must return false")
+		}
+	})
+}
+
 // keepScoutItem keeps single-token targets and real in-tree paths, but drops multi-word
 // prose (a header/sentence the model emitted around its list) that doesn't exist as a
 // path — the leak that sent an explorer chasing a nonexistent target until it timed out.

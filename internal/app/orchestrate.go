@@ -172,12 +172,8 @@ func (a *App) escalate(ctx context.Context, parent session.SessionID, fromRole, 
 	}()
 
 	text := fmt.Sprintf("[subagent %s asks] %s\n\n(Answer this concisely — your reply is sent straight back to the subagent so it can continue. Don't re-dispatch.)", fromRole, question)
-	pd, _ := json.Marshal(event.PromptSubmittedData{
-		MessageID: "m_" + newID(),
-		Parts:     []session.Part{{Kind: session.PartText, Text: text}},
-	})
-	if err := a.appendFact(context.WithoutCancel(ctx), parent, event.TypePromptSubmitted,
-		event.Actor{Kind: event.ActorAgent, ID: "subagent:" + fromRole}, pd); err != nil {
+	if err := a.appendPromptText(context.WithoutCancel(ctx), parent,
+		event.Actor{Kind: event.ActorAgent, ID: "subagent:" + fromRole}, text); err != nil {
 		return "", err
 	}
 	a.bgWake(parent) // wake the orchestrator if it's parked in the bg-wait
@@ -268,13 +264,33 @@ func (a *App) injectSubagentResult(ctx context.Context, parent session.SessionID
 	if remaining := a.bgOutstanding(parent) - 1; remaining > 0 {
 		text += fmt.Sprintf("\n\n(%d other subagent(s) still running — wait for them before synthesizing; don't re-dispatch.)", remaining)
 	}
-	pd, _ := json.Marshal(event.PromptSubmittedData{
-		MessageID: "m_" + newID(),
-		Parts:     []session.Part{{Kind: session.PartText, Text: text}},
-	})
 	// Detached context: the parent turn's ctx may already be winding down.
-	_ = a.appendFact(context.WithoutCancel(ctx), parent, event.TypePromptSubmitted,
-		event.Actor{Kind: event.ActorAgent, ID: "subagent:" + agentName}, pd)
+	_ = a.appendPromptText(context.WithoutCancel(ctx), parent,
+		event.Actor{Kind: event.ActorAgent, ID: "subagent:" + agentName}, text)
+}
+
+// cloneConversation copies the parent's reconstructable conversation into the child
+// session, so a refine child re-plans its sub-goal WITH the full context carried forward
+// — the in-context property that distinguishes refine from a context-free delegate. Only
+// the event types reconstruct() turns into messages are copied (PromptSubmitted /
+// PartAppended / Compaction): exactly what the model sees, nothing else. Append re-stamps
+// Seq/SessionID (jsonl.Store), so the copies become the child's own history. Best-effort:
+// on a read error the child simply starts context-light rather than failing the spawn.
+func (a *App) cloneConversation(ctx context.Context, from, to session.SessionID) {
+	evs, err := a.store.Read(ctx, from, 0)
+	if err != nil {
+		return
+	}
+	clone := make([]event.Event, 0, len(evs))
+	for _, e := range evs {
+		switch e.Type {
+		case event.TypePromptSubmitted, event.TypePartAppended, event.TypeCompaction:
+			clone = append(clone, event.Event{Type: e.Type, Actor: e.Actor, Data: e.Data})
+		}
+	}
+	if len(clone) > 0 {
+		_, _ = a.store.Append(ctx, to, clone...)
+	}
 }
 
 // spawn runs a named subagent to completion and returns its output. It is the
@@ -349,6 +365,14 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 		Workdir: child.Workdir, Agent: spec.Name, Model: model, Parent: string(parent.ID),
 	})
 	a.appendFact(ctx, child.ID, event.TypeSessionCreated, actor, cd)
+
+	// refine (in-context recursion): seed the child with the parent's conversation so its
+	// pre-flight planner works out the sub-goal WITH the full context carried forward,
+	// instead of the context-free hand-off delegate uses. Done after SessionCreated and
+	// before the sub-goal prompt so the prompt is the most-recent message.
+	if req.CloneContext {
+		a.cloneConversation(ctx, parent.ID, child.ID)
+	}
 
 	msgID := "m_" + newID()
 	pd, _ := json.Marshal(event.PromptSubmittedData{

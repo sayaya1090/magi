@@ -253,7 +253,14 @@ func planMemberSystem(m council.Member, lens string) string {
 			"checklist (those belong to execution and to the `criteria` field below — NOT to the plan's steps);\n"+
 			"- the plan has no explicit 'verify' / 'validate' step, or could be 'more thorough', 'more detailed', or "+
 			"'more rigorous';\n"+
-			"- you would simply have planned it differently, or you are merely uncertain.\n"+
+			"- you would simply have planned it differently, or you are merely uncertain;\n"+
+			"- a step marked [refine] is INTENTIONALLY high-level: it is expanded into concrete sub-steps AT EXECUTION "+
+			"TIME with the current context, so 'it doesn't spell out its internal actions', 'it is too abstract', or 'it "+
+			"needs more concrete steps' is NOT a flaw in it. NEVER critical-revise a refine step for abstractness alone; if "+
+			"you genuinely see a better decomposition, that is a \"warn\" at most (advisory, non-blocking). This is NOT a pass "+
+			"for a bad plan, though: if a refine-bearing plan is genuinely UNSOUND — the approach is wrong, a REQUIRED part "+
+			"of the task has no step at all, or the plan simply would not achieve the task — that is STILL critical, abstract "+
+			"or not. Reject the absurd, approve the merely abstract.\n"+
 			"A SIMPLE task needs only a SIMPLE plan. Never invent a flaw. If you cannot name a concrete defect in the "+
 			"steps, you APPROVE (or abstain).\n\n"+
 			"CALIBRATION — match this bar. Task: \"review the project's dev docs\"; Plan: \"1.[scout] find the docs  "+

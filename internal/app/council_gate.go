@@ -151,7 +151,15 @@ func tailForCouncil(s string, n int) string {
 //
 // Safety (so the council can never trap the loop): rounds are capped, repeated or
 // empty feedback stops the gate, and any deliberation error finishes the turn.
-func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent AgentSpec, turnTask, lastText string, rounds *int, lastFeedback *string, changes string, stepsLeft int, fabrication string, turnElapsed time.Duration, spent *time.Duration) bool {
+func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent AgentSpec, turnTask, lastText string, rounds *int, lastFeedback *string, changes string, stepsLeft int, fabrication string, turnElapsed time.Duration, spent *time.Duration, deadlocked *bool) bool {
+	// deadlocked reports (to the caller) whether this finish is a genuine round-cap
+	// deadlock — the council used its whole budget and never approved — as opposed to
+	// an approval or a cost-capped finish. Only the round-cap branch sets it, so a
+	// stuck-recovery hook can distinguish "held unmet for every round" from a DONE vote
+	// that happened to land on the last allowed round (identical by rounds count alone).
+	if deadlocked != nil {
+		*deadlocked = false
+	}
 	// An interrupt mid-finish must not trigger a deliberation or inject a spurious
 	// feedback prompt — let the loop unwind the cancellation.
 	if ctx.Err() != nil {
@@ -180,6 +188,9 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 			Note: note,
 		})
 		a.appendFact(ctx, sid, event.TypeCouncilDecided, councilActor, dd)
+		if deadlocked != nil {
+			*deadlocked = true
+		}
 		return false
 	}
 	// Cost-efficiency cap (self-measured, no external info): when deliberation has

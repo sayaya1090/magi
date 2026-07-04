@@ -153,7 +153,7 @@ func TestCouncilGateCancelDuringDeliberation(t *testing.T) {
 	defer cancel()
 
 	rounds, lastFB := 0, ""
-	if a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB, "", 40, "", 0, new(time.Duration)) {
+	if a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB, "", 40, "", 0, new(time.Duration), nil) {
 		t.Error("gate must NOT continue after a mid-deliberation cancel")
 	}
 	if cc.calls != 1 {
@@ -175,7 +175,7 @@ func TestCouncilGateSkipsWhenAlreadyCancelled(t *testing.T) {
 	cancel() // already cancelled before the gate runs
 
 	rounds, lastFB := 0, ""
-	if a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB, "", 40, "", 0, new(time.Duration)) {
+	if a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB, "", 40, "", 0, new(time.Duration), nil) {
 		t.Error("gate must not continue when entered with a cancelled context")
 	}
 	if fc.calls != 0 {
@@ -201,7 +201,7 @@ func TestCouncilGateCostCapStopsLateRounds(t *testing.T) {
 	// rounds=1 (a round already ran), spent 5m of a 6m turn (>=60s and spent*4 >= turn).
 	rounds, lastFB := 1, "still unmet: foo"
 	spent := 5 * time.Minute
-	if a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB, "", 40, "", 6*time.Minute, &spent) {
+	if a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB, "", 40, "", 6*time.Minute, &spent, nil) {
 		t.Error("cost cap should finish (not continue) once deliberation dominates the turn")
 	}
 	if fc.calls != 0 {
@@ -228,10 +228,64 @@ func TestCouncilGateCostCapAllowsFirstRound(t *testing.T) {
 
 	rounds, lastFB := 0, ""
 	spent := 10 * time.Minute // huge, but rounds==0 so the cap is not consulted
-	a.runCouncilGate(context.Background(), s, agent, "task", "report", &rounds, &lastFB, "", 40, "", 6*time.Minute, &spent)
+	a.runCouncilGate(context.Background(), s, agent, "task", "report", &rounds, &lastFB, "", 40, "", 6*time.Minute, &spent, nil)
 	if fc.calls != 1 {
 		t.Errorf("first round must always deliberate regardless of prior cost; calls=%d", fc.calls)
 	}
+}
+
+// The council-deadlock signal (hook B's trigger for solo-stuck redecompose) must fire ONLY
+// when the council spends its whole round budget without ever approving — NOT when a DONE vote
+// merely lands on the last allowed round. Both outcomes leave rounds==cap with feedback still
+// set, so the round count alone cannot tell them apart; the gate must flag the genuine deadlock
+// explicitly. Driving the gate to completion exercises exactly the discrimination hook B relies on.
+func TestCouncilGateDeadlockSignal(t *testing.T) {
+	// run drives the gate repeatedly (as the loop does) until it finishes, returning the
+	// deadlock flag it reported on the finishing call and the final round count.
+	run := func(t *testing.T, delibs []council.Deliberation) (bool, int) {
+		t.Helper()
+		fc := &fakeCouncil{delibs: delibs}
+		a, wd := newApp(t, workingLLM(), Config{Council: fc, CouncilMaxRounds: 2})
+		s, agent := newGateSession(t, a, wd)
+		rounds, lastFB, deadlock := 0, "", false
+		for i := 0; i < 5; i++ { // bounded; the gate finishes well within the cap+1
+			if !a.runCouncilGate(context.Background(), s, agent, "task", "report",
+				&rounds, &lastFB, "", 40, "", 0, new(time.Duration), &deadlock) {
+				break
+			}
+		}
+		return deadlock, rounds
+	}
+
+	// Distinct feedback every round (so the no-progress short-circuit never fires) → the council
+	// votes Continue until the round cap forces the finish: a genuine deadlock.
+	t.Run("cap exhausted without approval → deadlock", func(t *testing.T) {
+		deadlock, rounds := run(t, []council.Deliberation{
+			{Round: 1, Decision: council.Continue, Feedback: "still unmet A"},
+			{Round: 2, Decision: council.Continue, Feedback: "still unmet B"},
+		})
+		if rounds != 2 {
+			t.Fatalf("the cap (2) should be reached, rounds=%d", rounds)
+		}
+		if !deadlock {
+			t.Error("a council that spent every round without approving must flag a deadlock (hook B should fire)")
+		}
+	})
+
+	// Continue on round 1, then DONE on round 2 — the last allowed round. An approval, not a
+	// deadlock, even though rounds==cap and the round-1 feedback is still on record.
+	t.Run("DONE on the last allowed round → not a deadlock", func(t *testing.T) {
+		deadlock, rounds := run(t, []council.Deliberation{
+			{Round: 1, Decision: council.Continue, Feedback: "still unmet A"},
+			{Round: 2, Decision: council.Done},
+		})
+		if rounds != 2 {
+			t.Fatalf("rounds should reach 2 (DONE landed on the cap round), got %d", rounds)
+		}
+		if deadlock {
+			t.Error("a DONE vote on the last allowed round is an approval, not a deadlock — hook B must NOT fire")
+		}
+	})
 }
 
 // mustRead returns the full fact log for a session.

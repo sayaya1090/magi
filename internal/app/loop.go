@@ -133,12 +133,14 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	reviewedAtEpoch := 0              // guard.mutationEpoch() at the last review-gate firing (re-arm only on a NEW mutation since — incl. bash writes)
 	reviewPassedEpoch := -1           // mutationEpoch at which the tester last returned VERDICT: PASS; -1 = never. Fresh-evidence: finish needs reviewPassedEpoch == current epoch
 	reportRefused := false            // a subagent's unverified "done" report was refused once this run
+	recovered := false                // stuck-recovery redecompose (stall/council deadlock → depth+1 child) fired at most once per run
 	guard := newRunGuard()
 	councilRounds := 0               // consensus termination gate rounds this turn (D14)
 	lastCouncilFeedback := ""        // last round's feedback (no-progress detection)
 	prevFinishText := ""             // the answer the council rejected last round
 	prevFinishCalls := -1            // guard.callCount() at that rejection (-1 = none yet)
 	councilSpent := time.Duration(0) // self-measured wall-clock consumed by deliberations
+	councilDeadlock := false         // set by the gate iff its finish was a genuine round-cap deadlock (never approved)
 	turnTask := ""                   // the user instruction THIS turn answers, snapshotted at
 	// step 0 — so a steer that lands during the council gate can't hijack what the
 	// council judges against (that interjection gets its own follow-up turn instead).
@@ -505,9 +507,28 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 						Note: "answer resubmitted unchanged after council feedback — finishing without re-deliberation; treat as UNVERIFIED",
 					})
 					a.appendFact(ctx, sid, event.TypeCouncilDecided, event.Actor{Kind: event.ActorSystem, ID: "council"}, dd)
-				} else if a.runCouncilGate(ctx, s, agent, turnTask, lastText, &councilRounds, &lastCouncilFeedback, buildCouncilChanges(guard.changeSet()), maxSteps-step, fab, time.Since(runStart), &councilSpent) {
+				} else if a.runCouncilGate(ctx, s, agent, turnTask, lastText, &councilRounds, &lastCouncilFeedback, buildCouncilChanges(guard.changeSet()), maxSteps-step, fab, time.Since(runStart), &councilSpent, &councilDeadlock) {
 					prevFinishText, prevFinishCalls = lastText, guard.callCount()
 					continue
+				} else if !recovered && councilDeadlock &&
+					strings.TrimSpace(lastCouncilFeedback) != "" && a.planEligible(agent, depth) {
+					// Council deadlock: the members used every round and never approved, still holding
+					// an unmet concern — the gate flags this explicitly (councilDeadlock), so a DONE
+					// vote that merely landed on the last allowed round does NOT reach here. The agent
+					// is stuck against a wall it could not clear on its own; before finishing UNVERIFIED,
+					// hand the task plus that exact concern to a fresh child that re-plans and breaks it
+					// down (ADaPT failure-recursion, solo-stuck branch). Fires once; on success, reset
+					// the stall window and loop so the parent integrates and verifies the child's work.
+					task := strings.TrimSpace(turnTask)
+					if task == "" {
+						task = strings.TrimSpace(lastUserText(reconstruct(evs)))
+					}
+					if a.redecomposeStuck(ctx, s, agent, task, lastCouncilFeedback, depth) {
+						recovered = true
+						usedMutator = true
+						guard.resetStall()
+						continue
+					}
 				}
 			}
 			a.setStage(sid, stageFinalize) // turn is ending (D15)
@@ -633,6 +654,29 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// that actually passed). A run that produced NOTHING is genuine thrash — keep the
 		// error abort so the failure is visible.
 		if kind := guard.stuck(); kind != "" {
+			// Last-resort structural recovery: a stall the agent kept ignoring after every
+			// nudge means it is genuinely stuck, not just slow. Before force-stopping, hand the
+			// remaining work to a fresh child that re-plans from scratch (redecomposeStuck),
+			// ONCE, for a plan-eligible (write-capable, below the depth cap) agent. planEligible
+			// (not a depth==0 guard) is intentional: a stuck solo SUBAGENT below the plan-depth
+			// cap can recover the same way; the child is depth+1 so its own planEligible bounds
+			// further recursion. On success, reset the stall window and loop so the parent
+			// integrates and verifies the child's result; on failure fall through to the stop.
+			// recovered is set only on a successful spawn, so a transient child failure does not
+			// permanently disable the (still fire-at-most-once) hook.
+			if kind == "stall" && !recovered && a.planEligible(agent, depth) {
+				task := strings.TrimSpace(turnTask)
+				if task == "" {
+					task = strings.TrimSpace(lastUserText(reconstruct(evs)))
+				}
+				if a.redecomposeStuck(ctx, s, agent, task,
+					"repeated no-progress: the previous attempt could not advance the task", depth) {
+					recovered = true
+					usedMutator = true
+					guard.resetStall()
+					continue
+				}
+			}
 			if guard.mutationEpoch() > 0 {
 				// Delivered-but-spinning: finish cleanly (TurnFinished → exit 0) with the
 				// work as-is. The repeated no-progress steps already stand in the transcript,

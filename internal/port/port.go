@@ -221,6 +221,12 @@ type SpawnRequest struct {
 	// escalations. Synchronous spawns (planner explorers, nested spawns) leave it
 	// false — the parent is blocked awaiting the child, so escalation can't be answered.
 	Background bool
+	// CloneContext seeds the child session with a copy of the parent's conversation
+	// before its prompt, so the child re-plans WITH the full context carried forward.
+	// Used by the hierarchical `refine` strategy (in-context recursion), which — unlike
+	// delegate's context-free hand-off — needs the parent's history to work out a
+	// non-independent sub-goal.
+	CloneContext bool
 }
 
 // SpawnResult is a subagent's outcome.

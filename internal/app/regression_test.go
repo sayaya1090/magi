@@ -241,6 +241,43 @@ func TestShouldNudgeStalled(t *testing.T) {
 	}
 }
 
+// TestResetStall: a structural recovery (redecomposeStuck handed the work to a fresh child)
+// clears the no-progress/stall accounting so the parent gets a clean window to integrate and
+// verify — otherwise the still-climbed sinceProgress would immediately re-trip the force-stop
+// and abort the recovery. The mutation epoch and captured changeSet (the parent's own edits)
+// must survive the reset.
+func TestResetStall(t *testing.T) {
+	g := newRunGuard()
+	// Drive the stall accounting to its exhausted state: every nudge spent, window climbed.
+	for i := 1; i <= maxStallNudges; i++ {
+		g.sinceProgress = noProgressNudge * i
+		g.shouldNudge()
+	}
+	if g.stallNudges != maxStallNudges || g.lastStallAt == 0 || g.sinceProgress == 0 {
+		t.Fatalf("precondition: expected an exhausted stall state, got nudges=%d lastAt=%d since=%d",
+			g.stallNudges, g.lastStallAt, g.sinceProgress)
+	}
+	// Independent state that must be preserved across the reset.
+	g.epoch = 5
+	g.recordChange("out.txt", "before", "after")
+
+	g.resetStall()
+
+	if g.sinceProgress != 0 || g.lastStallAt != 0 || g.stallNudges != 0 {
+		t.Errorf("resetStall must zero the stall accounting, got since=%d lastAt=%d nudges=%d",
+			g.sinceProgress, g.lastStallAt, g.stallNudges)
+	}
+	if g.stuck() != "" {
+		t.Error("after resetStall the parent must not be force-stopped for the prior stall")
+	}
+	if g.epoch != 5 {
+		t.Errorf("resetStall must not touch the mutation epoch, got %d", g.epoch)
+	}
+	if cs := g.changeSet(); len(cs) != 1 || cs[0].path != "out.txt" {
+		t.Errorf("resetStall must preserve the captured changeSet, got %+v", cs)
+	}
+}
+
 // TestStallForceStop: once every stall nudge is spent AND another full no-progress
 // window passes with still no mutation, stuck() reports "stall" — the backstop that
 // keeps an agent ignoring all redirection from wandering to the (now 240) ceiling.

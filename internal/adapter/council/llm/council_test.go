@@ -216,6 +216,28 @@ func TestMemberPromptProportionality(t *testing.T) {
 	}
 }
 
+// The plan-audit lens must guide, not reject, an intentionally abstract refine step
+// (abstractness is expanded at execution time) WITHOUT waving through an absurd plan —
+// a genuinely unsound abstract plan is still critical. This is the ①/② balance the whole
+// refine strategy leans on; it lives in the plan prompt only.
+func TestMemberPromptRefine(t *testing.T) {
+	m := council.Member{Name: "x", Lens: "completeness"}
+	p := memberSystem(m, "plan", "build a small interpreted language")
+
+	// Abstractness alone is never a critical revision.
+	if !strings.Contains(p, "NEVER critical-revise a refine step for abstractness") {
+		t.Error("plan prompt missing the refine 'abstractness is not a flaw' carve-out")
+	}
+	// …but the carve-out is not a pass for a bad plan: an unsound abstract plan stays critical.
+	if !strings.Contains(p, "STILL critical") || !strings.Contains(p, "Reject the absurd, approve the merely abstract") {
+		t.Error("plan prompt missing the 'absurd abstract plan is still critical' balance")
+	}
+	// The refine guidance is plan-audit only — it must not leak into the terminate prompt.
+	if s := memberSystem(m, "terminate", "build a small interpreted language"); strings.Contains(s, "critical-revise a refine step") {
+		t.Error("refine plan-audit guidance leaked into the terminate prompt")
+	}
+}
+
 func TestDeliberateAllDone(t *testing.T) {
 	c := New(only(fakeLLM{reply: func(port.ChatRequest) string {
 		return `{"decision":"done","confidence":0.9,"rationale":"looks complete"}`

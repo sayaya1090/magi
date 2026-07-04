@@ -250,6 +250,23 @@ func (g *runGuard) retractProgress() {
 	g.lastStallAt = g.prevStallAt
 }
 
+// resetStall clears the no-progress/stall accounting after a structural recovery — a stall
+// or council deadlock handed the remaining work to a fresh child that re-plans (see
+// redecomposeStuck). The child's writes land in ITS OWN guard, not this one, so without a
+// reset the parent would keep the same climbed sinceProgress and immediately re-trip the
+// stall force-stop, aborting the recovery before it can integrate/verify the child's result.
+// It restarts the stall window and returns the nudge budget, giving the parent a clean run to
+// finish. It deliberately does NOT touch the mutation epoch, changeSet, or blocked/repeat
+// counters — those record the parent's own edits and exact-repeat loops, which the recovery
+// does not undo.
+func (g *runGuard) resetStall() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.sinceProgress = 0
+	g.lastStallAt = 0
+	g.stallNudges = 0
+}
+
 const guardResultEcho = 4 << 10 // cap on the cached result echoed back on a block
 
 // record stores a call's result content (capped) so a later blocked repeat can be
