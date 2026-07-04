@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
@@ -16,6 +17,49 @@ import (
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
+
+// recLLM records the full text (system + messages) of every request and replies with
+// reply(req) — enabling assertions on which prompts were issued (e.g. did the failure
+// retry send a decomposition-framed prompt) and content-driven success/failure.
+type recLLM struct {
+	mu      sync.Mutex
+	prompts []string
+	reply   func(req string) string // nil → always empty (every attempt "fails")
+}
+
+func (r *recLLM) StreamChat(ctx context.Context, req port.ChatRequest) (<-chan port.ProviderEvent, error) {
+	var b strings.Builder
+	b.WriteString(req.System)
+	for _, m := range req.Messages {
+		for _, p := range m.Parts {
+			b.WriteString(p.Text)
+		}
+	}
+	s := b.String()
+	r.mu.Lock()
+	r.prompts = append(r.prompts, s)
+	r.mu.Unlock()
+	out := ""
+	if r.reply != nil {
+		out = r.reply(s)
+	}
+	ch := make(chan port.ProviderEvent, 4)
+	ch <- port.ProviderEvent{Type: port.ProviderText, Text: out}
+	ch <- port.ProviderEvent{Type: port.ProviderFinish}
+	close(ch)
+	return ch, nil
+}
+
+func (r *recLLM) sawDecomposeRetry() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, p := range r.prompts {
+		if strings.Contains(p, "BREAK IT DOWN") {
+			return true
+		}
+	}
+	return false
+}
 
 func TestPlannerWindow(t *testing.T) {
 	msg := func(role session.Role, text string) session.Message {
@@ -236,7 +280,7 @@ func TestSanitizeStepsDelegate(t *testing.T) {
 		{Title: "survey", Strategy: "parallel", Groups: []planGroup{{Agent: "explore", Focus: "f", Question: "q"}}},
 		{Title: "scout docs", Strategy: "scout", Discover: "docs/*.md", Each: "read"},
 		{Title: "build the CLI", Strategy: "delegate", Agent: " coder ", Task: "write cmd/foo"}, // kept; agent trimmed
-		{Title: "empty task", Strategy: "delegate", Agent: "coder", Task: "   "},               // dropped (no work)
+		{Title: "empty task", Strategy: "delegate", Agent: "coder", Task: "   "},                // dropped (no work)
 	}})
 	if len(got) != 4 {
 		t.Fatalf("want 4 steps (solo/parallel/scout/delegate), got %d: %+v", len(got), got)
@@ -395,6 +439,79 @@ func TestExecuteStepsDelegateFailureStaysPending(t *testing.T) {
 	if td := a.Todos(s.ID); td[0].Status != "pending" {
 		t.Errorf("failed delegate todo must stay pending, got %q", td[0].Status)
 	}
+}
+
+// ADaPT failure branch: a hard-failed delegate below the plan-depth cap is retried ONCE with
+// a decomposition-framed prompt (the executor re-plans smaller). If the retry recovers, the
+// step completes; if it still fails, the todo stays pending. At the cap, no retry fires.
+func TestExecuteStepsDelegateFailureRecursion(t *testing.T) {
+	newApp := func(llm port.LLMProvider) (*App, session.Session) {
+		a := newOrchApp(t, llm, Config{
+			Permission: "allow", MaxAgents: 100, MaxDepth: 5, MaxPlanDepth: 2,
+			Agents: map[string]AgentSpec{"coder": {Name: "coder", System: "x", Tools: []string{"read", "write", "edit", "bash"}}},
+		})
+		s := parentSession(t.TempDir())
+		a.mu.Lock()
+		a.sessions[s.ID] = s
+		a.mu.Unlock()
+		a.registerPlanTodos(context.Background(), s.ID, []planStep{{Title: "build X", Strategy: "delegate", Agent: "coder", Task: "write cmd/x"}})
+		return a, s
+	}
+	steps := []planStep{{Title: "build X", Strategy: "delegate", Agent: "coder", Task: "write cmd/x"}}
+
+	// Recovery: first attempt returns empty (fail); the decomposition retry returns work.
+	t.Run("retry recovers", func(t *testing.T) {
+		llm := &recLLM{reply: func(req string) string {
+			if strings.Contains(req, "BREAK IT DOWN") {
+				return "decomposed and built it"
+			}
+			return "" // the direct attempt fails
+		}}
+		a, s := newApp(llm)
+		findings, delegated := a.executeSteps(context.Background(), s, steps, 0)
+		if !llm.sawDecomposeRetry() {
+			t.Error("a hard failure below the cap must trigger the decomposition-framed retry")
+		}
+		if !delegated || !strings.Contains(findings, "decomposed and built it") {
+			t.Errorf("a recovered retry should complete the step: delegated=%v findings=%q", delegated, findings)
+		}
+		if td := a.Todos(s.ID); td[0].Status != "completed" {
+			t.Errorf("recovered delegate todo should be completed, got %q", td[0].Status)
+		}
+	})
+
+	// Both attempts fail: the retry still fires, but the todo stays pending for the parent.
+	t.Run("retry still fails", func(t *testing.T) {
+		llm := &recLLM{} // every attempt returns empty
+		a, s := newApp(llm)
+		_, delegated := a.executeSteps(context.Background(), s, steps, 0)
+		if !llm.sawDecomposeRetry() {
+			t.Error("the retry must fire even if it ultimately fails")
+		}
+		if delegated {
+			t.Error("two failed attempts must not mark the step delegated")
+		}
+		if td := a.Todos(s.ID); td[0].Status != "pending" {
+			t.Errorf("an unrecovered delegate todo must stay pending, got %q", td[0].Status)
+		}
+	})
+
+	// At the recursion cap (depth+1 == MaxPlanDepth), the first attempt still runs but no
+	// retry is attempted, and the unrecovered step stays pending for the parent.
+	t.Run("no retry at the cap", func(t *testing.T) {
+		llm := &recLLM{} // always fails
+		a, s := newApp(llm)
+		a.executeSteps(context.Background(), s, steps, 1) // depth 1, cap 2 → 2 < 2 is false
+		if len(llm.prompts) == 0 {
+			t.Fatal("the first delegate attempt must still run at the cap")
+		}
+		if llm.sawDecomposeRetry() {
+			t.Error("at the plan-depth cap the failure retry must be suppressed (bounded recursion)")
+		}
+		if td := a.Todos(s.ID); td[0].Status != "pending" {
+			t.Errorf("an unrecovered delegate at the cap must stay pending, got %q", td[0].Status)
+		}
+	})
 }
 
 // keepScoutItem keeps single-token targets and real in-tree paths, but drops multi-word
