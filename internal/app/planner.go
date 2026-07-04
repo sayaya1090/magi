@@ -381,7 +381,7 @@ func stripStrategyTag(title string) string {
 	}
 	if tag, rest, ok := strings.Cut(title[1:], "]"); ok {
 		switch strings.ToLower(strings.TrimSpace(tag)) {
-		case "solo", "parallel", "scout":
+		case "solo", "parallel", "scout", "delegate":
 			return strings.TrimSpace(rest)
 		}
 	}
@@ -644,29 +644,10 @@ func (a *App) executeSteps(ctx context.Context, s session.Session, steps []planS
 		// loop (never fanned out concurrently) so its writes can't race the council's
 		// change capture — see allParallelSafe. The sub-agent re-plans at depth+1.
 		if st.Strategy == "delegate" {
-			agentName, ok := a.delegateAgentName(st.Agent)
-			if !ok {
-				continue // no valid executor → degrade to solo (the main agent does it)
+			if f, done := a.runDelegateStep(ctx, s, st, i, depth, &budget); f != "" {
+				out = append(out, f)
+				delegated = delegated || done
 			}
-			budget-- // count against the per-turn dispatch budget like an explorer
-			a.advanceTo(ctx, s.ID, plannerActor, i)
-			r := a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agentName, Prompt: delegatePrompt(st)})
-			text := strings.TrimSpace(r.Text)
-			if r.Err != "" || text == "" {
-				// Failed or empty → the sub-task is NOT done. Leave its todo pending so the main
-				// agent picks it up, and record it as FAILED (never "(delegated to …)", so the
-				// redo-prevention directive can't tell the agent to skip re-doing it).
-				note := "the delegated sub-agent returned no result"
-				if r.Err != "" {
-					note = "the delegated sub-agent errored: " + r.Err
-				}
-				out = append(out, "### "+st.Title+" (delegate FAILED — do this yourself)\n("+note+"; this sub-task is unfinished)")
-				a.setTodoStatusIf(ctx, s.ID, plannerActor, i, "in_progress", "pending")
-				continue
-			}
-			out = append(out, "### "+st.Title+" (delegated to "+agentName+")\n"+text)
-			delegated = true
-			a.completeThrough(ctx, s.ID, plannerActor, i)
 			continue
 		}
 		var groups []planGroup
@@ -692,10 +673,66 @@ func (a *App) executeSteps(ctx context.Context, s session.Session, steps []planS
 	return strings.Join(out, "\n\n"), delegated
 }
 
+// runDelegateStep dispatches one delegate step: hand its self-contained sub-task to a
+// write-capable executor that re-plans at depth+1. It charges *budget per dispatch (like
+// an explorer) and returns the finding to record plus done=true when the write actually
+// landed — the caller ORs that into its delegated flag. An empty finding means the step
+// degraded to solo (no valid executor); the caller records nothing and the main agent
+// handles that work. Sequential by construction (never fanned out), so the writes can't
+// race the council's change capture — see allParallelSafe.
+func (a *App) runDelegateStep(ctx context.Context, s session.Session, st planStep, i, depth int, budget *int) (finding string, done bool) {
+	agentName, ok := a.delegateAgentName(st.Agent)
+	if !ok {
+		return "", false // no valid executor → degrade to solo (the main agent does it)
+	}
+	*budget-- // count against the per-turn dispatch budget like an explorer
+	a.advanceTo(ctx, s.ID, plannerActor, i)
+	r := a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agentName, Prompt: delegatePrompt(st)})
+	text := strings.TrimSpace(r.Text)
+	// ADaPT failure branch: a hard failure (spawn error or empty result), while we're
+	// still below the plan-depth cap and have budget, gets ONE retry that tells the
+	// SAME executor to DECOMPOSE the sub-task into smaller independent steps. The child
+	// re-plans at depth+1 (this is the natural decomposition point — it plans from the
+	// Task), so a monolithic attempt that failed can succeed piece by piece. Single
+	// attempt — bounded by the depth gate and the shared budget.
+	if (r.Err != "" || text == "") && depth+1 < a.cfg.MaxPlanDepth && *budget > 0 {
+		*budget--
+		r = a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agentName, Prompt: redecomposePrompt(st)})
+		text = strings.TrimSpace(r.Text)
+	}
+	if r.Err != "" || text == "" {
+		// Still failed → the sub-task is NOT done. Leave its todo pending so the main
+		// agent picks it up, and record it as FAILED (never "(delegated to …)", so the
+		// redo-prevention directive can't tell the agent to skip re-doing it).
+		note := "the delegated sub-agent returned no result"
+		if r.Err != "" {
+			note = "the delegated sub-agent errored: " + r.Err
+		}
+		a.setTodoStatusIf(ctx, s.ID, plannerActor, i, "in_progress", "pending")
+		return "### " + st.Title + " (delegate FAILED — do this yourself)\n(" + note + "; this sub-task is unfinished)", false
+	}
+	a.completeThrough(ctx, s.ID, plannerActor, i)
+	return "### " + st.Title + " (delegated to " + agentName + ")\n" + text, true
+}
+
 // delegatePrompt frames a delegate step as a self-contained sub-task instruction.
 func delegatePrompt(st planStep) string {
 	return st.Task + "\n\n(You are handling ONE independent part of a larger plan. Complete this part fully, " +
 		"verify it yourself, and report what you did and how you verified it.)"
+}
+
+// decomposePrefix leads the ADaPT failure-branch retry: the direct attempt did not
+// complete, so tell the executor to break the sub-task down and do the pieces one at a
+// time. The executor re-plans at depth+1, so this decomposition instruction lands in its
+// own pre-flight planner.
+const decomposePrefix = "A direct attempt at the task below did NOT complete. Approach it differently now: BREAK IT DOWN " +
+	"into smaller, independent steps and carry them out ONE AT A TIME, verifying each before moving on.\n\n"
+
+// redecomposePrompt frames the ADaPT failure-branch retry as the delegate instruction with
+// the decompose prefix — it reuses delegatePrompt's self-contained framing, so the two
+// share their trailing contract instead of duplicating it.
+func redecomposePrompt(st planStep) string {
+	return decomposePrefix + delegatePrompt(st)
 }
 
 // capGroups trims a parallel step's groups to the remaining per-turn budget.
