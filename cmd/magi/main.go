@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -319,6 +320,7 @@ func run() int {
 		RoutePersister:      routePersister{path: filepath.Join(plat.ConfigDir(), "config.toml")},
 		PermissionPersister: permPersister{path: filepath.Join(wd, ".magi", "config.toml")},
 		Planner:             cfg.Orchestration.Planner == nil || *cfg.Orchestration.Planner,       // default on; kill switch
+		MaxPlanDepth:        planDepthFromEnv(),                                                   // 0 → app defaults to 2; MAGI_MAX_PLAN_DEPTH overrides (bench A/B knob)
 		ReviewGate:          cfg.Orchestration.ReviewGate == nil || *cfg.Orchestration.ReviewGate, // default on; kill switch
 		Council:             councilPort,
 		CouncilRule:         corecouncil.Rule(cfg.Council.Rule),
@@ -932,6 +934,23 @@ func profileModels(profiles map[string]config.LLMProfile) map[string]string {
 		m[name] = p.Model
 	}
 	return m
+}
+
+// planDepthFromEnv reads MAGI_MAX_PLAN_DEPTH as the recursive-planner depth cap. It exists
+// so the benchmark harness (which runs `magi -p` with no config.toml) can toggle recursion
+// without a rebuild: depth 2 = full recursion, depth 1 = top-level plan + single-level
+// delegate but no child re-planning or failure-recursion. Unset/invalid → 0, which lets the
+// app apply its default of 2. Negative values are ignored.
+func planDepthFromEnv() int {
+	v := strings.TrimSpace(os.Getenv("MAGI_MAX_PLAN_DEPTH"))
+	if v == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
 }
 
 // applyAgentModels overlays per-agent routing from config onto the agents. A
