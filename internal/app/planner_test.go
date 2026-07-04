@@ -212,7 +212,7 @@ func TestExecuteStepsMarksExecutedTodos(t *testing.T) {
 		{Title: "write summary", Strategy: "solo"},
 	}
 	a.registerPlanTodos(context.Background(), s.ID, steps)
-	a.executeSteps(context.Background(), s, steps)
+	a.executeSteps(context.Background(), s, steps, 0)
 
 	td := a.Todos(s.ID)
 	if len(td) != 3 {
@@ -225,6 +225,175 @@ func TestExecuteStepsMarksExecutedTodos(t *testing.T) {
 	}
 	if td[2].Status != "pending" {
 		t.Errorf("trailing solo step should stay pending (main agent handles it), got %q", td[2].Status)
+	}
+}
+
+// A delegate step needs a work instruction; heterogeneous strategies coexist in one
+// plan (a single tree carries solo/parallel/scout/delegate branches side by side).
+func TestSanitizeStepsDelegate(t *testing.T) {
+	got := sanitizeSteps(planResult{Steps: []planStep{
+		{Title: "solo it", Strategy: "solo"},
+		{Title: "survey", Strategy: "parallel", Groups: []planGroup{{Agent: "explore", Focus: "f", Question: "q"}}},
+		{Title: "scout docs", Strategy: "scout", Discover: "docs/*.md", Each: "read"},
+		{Title: "build the CLI", Strategy: "delegate", Agent: " coder ", Task: "write cmd/foo"}, // kept; agent trimmed
+		{Title: "empty task", Strategy: "delegate", Agent: "coder", Task: "   "},               // dropped (no work)
+	}})
+	if len(got) != 4 {
+		t.Fatalf("want 4 steps (solo/parallel/scout/delegate), got %d: %+v", len(got), got)
+	}
+	d := got[3]
+	if d.Strategy != "delegate" || d.Agent != "coder" || d.Task != "write cmd/foo" {
+		t.Errorf("delegate step not preserved/trimmed: %+v", d)
+	}
+	// The four surviving strategies must all differ — heterogeneity within one plan.
+	seen := map[string]bool{}
+	for _, st := range got {
+		seen[st.Strategy] = true
+	}
+	for _, want := range []string{"solo", "parallel", "scout", "delegate"} {
+		if !seen[want] {
+			t.Errorf("strategy %q missing from a heterogeneous plan: %+v", want, got)
+		}
+	}
+}
+
+// planEligible is the single recursion gate: only a producing agent plans, only below
+// the depth cap, never in workflow mode.
+func TestPlanEligible(t *testing.T) {
+	a := &App{cfg: Config{Planner: true, MaxPlanDepth: 2}}
+	coder := AgentSpec{Name: "coder", Tools: []string{"read", "write", "edit", "bash"}}
+	readonly := AgentSpec{Name: "explore", Tools: []string{"read", "grep", "glob"}}
+	// A verifier holds bash to RUN checks but authors no files: it must NOT be plan-eligible,
+	// or it would re-plan (and possibly dispatch writers) during the independent review pass.
+	tester := AgentSpec{Name: "tester", Tools: []string{"read", "grep", "bash"}}
+
+	if !a.planEligible(coder, 0) || !a.planEligible(coder, 1) {
+		t.Error("a producing agent below the cap should be plan-eligible")
+	}
+	if a.planEligible(coder, 2) {
+		t.Error("depth == MaxPlanDepth must stop recursion (bounded tree)")
+	}
+	if a.planEligible(readonly, 0) {
+		t.Error("a read-only explorer is a leaf — it must not re-plan")
+	}
+	if a.planEligible(tester, 0) {
+		t.Error("a run-only verifier (bash, no write/edit) must not re-plan")
+	}
+	a.cfg.Workflow = true
+	if a.planEligible(coder, 0) {
+		t.Error("workflow mode owns staging — no pre-flight planning")
+	}
+	a.cfg.Workflow, a.cfg.Planner = false, false
+	if a.planEligible(coder, 0) {
+		t.Error("planner disabled → not eligible")
+	}
+}
+
+// Only configured, execute-capable agents may be a delegate's executor; the planner
+// itself and read-only agents are excluded, so a bogus target degrades to solo.
+func TestDelegateAgentResolution(t *testing.T) {
+	a := &App{cfg: Config{Agents: map[string]AgentSpec{
+		"coder":   {Name: "coder", Tools: []string{"read", "write", "edit", "bash"}},
+		"explore": {Name: "explore", Tools: []string{"read", "grep"}},
+		"tester":  {Name: "tester", Tools: []string{"read", "grep", "bash"}}, // runs checks, authors nothing
+		"planner": {Name: "planner", Tools: []string{"read", "write"}},       // execute-capable but reserved
+	}}}
+	if names := a.delegatableAgents(); len(names) != 1 || names[0] != "coder" {
+		t.Errorf("delegatableAgents = %v, want [coder] (explore/tester author nothing, planner is reserved)", names)
+	}
+	if n, ok := a.delegateAgentName("coder"); !ok || n != "coder" {
+		t.Errorf("coder should resolve as a delegate executor, got %q %v", n, ok)
+	}
+	for _, bad := range []string{"", "explore", "tester", "planner", "ghost"} {
+		if _, ok := a.delegateAgentName(bad); ok {
+			t.Errorf("%q must NOT resolve as a delegate executor", bad)
+		}
+	}
+}
+
+// A delegate step dispatches its executor (recursive execution), merges the report,
+// flags delegated=true, and checks the todo off.
+func TestExecuteStepsDelegate(t *testing.T) {
+	a := newOrchApp(t, &gateLLM{text: "built and verified"}, Config{
+		Permission: "allow", MaxAgents: 100, MaxDepth: 4,
+		Agents: map[string]AgentSpec{"coder": {Name: "coder", System: "x", Tools: []string{"read", "write", "edit", "bash"}}},
+	})
+	s := parentSession(t.TempDir())
+	a.mu.Lock()
+	a.sessions[s.ID] = s
+	a.mu.Unlock()
+
+	steps := []planStep{
+		{Title: "prep", Strategy: "solo"},
+		{Title: "build X", Strategy: "delegate", Agent: "coder", Task: "write cmd/x"},
+	}
+	a.registerPlanTodos(context.Background(), s.ID, steps)
+	findings, delegated := a.executeSteps(context.Background(), s, steps, 0)
+
+	if !delegated {
+		t.Error("a dispatched delegate step must set delegated=true")
+	}
+	if !strings.Contains(findings, "built and verified") || !strings.Contains(findings, "(delegated to coder)") {
+		t.Errorf("delegate report not merged into findings: %q", findings)
+	}
+	td := a.Todos(s.ID)
+	if td[0].Status != "completed" || td[1].Status != "completed" {
+		t.Errorf("delegate step and subsumed earlier step should be completed, got %q / %q", td[0].Status, td[1].Status)
+	}
+}
+
+// A delegate naming a read-only or unknown executor dispatches nothing (degrades to
+// solo): the main agent will do that work, so its todo stays pending.
+func TestExecuteStepsDelegateInvalidAgentDegrades(t *testing.T) {
+	a := newOrchApp(t, &gateLLM{text: "should not run"}, Config{
+		Permission: "allow", MaxAgents: 100, MaxDepth: 4,
+		Agents: map[string]AgentSpec{"explore": {Name: "explore", System: "x", Tools: []string{"read", "grep"}}},
+	})
+	s := parentSession(t.TempDir())
+	a.mu.Lock()
+	a.sessions[s.ID] = s
+	a.mu.Unlock()
+
+	steps := []planStep{{Title: "build X", Strategy: "delegate", Agent: "explore", Task: "write cmd/x"}}
+	a.registerPlanTodos(context.Background(), s.ID, steps)
+	findings, delegated := a.executeSteps(context.Background(), s, steps, 0)
+
+	if delegated || strings.TrimSpace(findings) != "" {
+		t.Errorf("invalid delegate executor should dispatch nothing, got delegated=%v findings=%q", delegated, findings)
+	}
+	if td := a.Todos(s.ID); td[0].Status != "pending" {
+		t.Errorf("degraded delegate todo should stay pending for the main agent, got %q", td[0].Status)
+	}
+}
+
+// A delegate whose sub-agent returns nothing (failed/empty) is UNFINISHED: its todo must
+// stay pending and it must NOT flag delegated (which would tell the parent, via the redo-
+// prevention directive, to skip re-doing the failed work). The findings note it as FAILED.
+func TestExecuteStepsDelegateFailureStaysPending(t *testing.T) {
+	a := newOrchApp(t, &gateLLM{text: ""}, Config{ // empty sub-agent result = no work done
+		Permission: "allow", MaxAgents: 100, MaxDepth: 4,
+		Agents: map[string]AgentSpec{"coder": {Name: "coder", System: "x", Tools: []string{"read", "write", "edit", "bash"}}},
+	})
+	s := parentSession(t.TempDir())
+	a.mu.Lock()
+	a.sessions[s.ID] = s
+	a.mu.Unlock()
+
+	steps := []planStep{{Title: "build X", Strategy: "delegate", Agent: "coder", Task: "write cmd/x"}}
+	a.registerPlanTodos(context.Background(), s.ID, steps)
+	findings, delegated := a.executeSteps(context.Background(), s, steps, 0)
+
+	if delegated {
+		t.Error("a failed/empty delegate must NOT set delegated=true (would suppress redo)")
+	}
+	if strings.Contains(findings, "(delegated to") {
+		t.Errorf("failed delegate must not be marked '(delegated to …)': %q", findings)
+	}
+	if !strings.Contains(findings, "FAILED") {
+		t.Errorf("failed delegate should be recorded as FAILED so the parent redoes it: %q", findings)
+	}
+	if td := a.Todos(s.ID); td[0].Status != "pending" {
+		t.Errorf("failed delegate todo must stay pending, got %q", td[0].Status)
 	}
 }
 
@@ -286,7 +455,7 @@ func newPlannerApp(t *testing.T, cfg Config) (*App, session.SessionID) {
 func TestPlannerDisabledNoOp(t *testing.T) {
 	a, sid := newPlannerApp(t, Config{Planner: false})
 	before := countEvents(t, a, sid)
-	a.maybePlanPreflight(context.Background(), a.sessionInfo(context.Background(), sid))
+	a.maybePlanPreflight(context.Background(), a.sessionInfo(context.Background(), sid), 0)
 	if got := countEvents(t, a, sid); got != before {
 		t.Errorf("disabled planner should append nothing, events %d→%d", before, got)
 	}
@@ -296,7 +465,7 @@ func TestPlannerDisabledNoOp(t *testing.T) {
 func TestPlannerNoAgentNoOp(t *testing.T) {
 	a, sid := newPlannerApp(t, Config{Planner: true}) // no Agents["planner"]
 	before := countEvents(t, a, sid)
-	a.maybePlanPreflight(context.Background(), a.sessionInfo(context.Background(), sid))
+	a.maybePlanPreflight(context.Background(), a.sessionInfo(context.Background(), sid), 0)
 	if got := countEvents(t, a, sid); got != before {
 		t.Errorf("missing planner agent should append nothing, events %d→%d", before, got)
 	}
