@@ -110,8 +110,20 @@ class MagiAgent(BaseInstalledAgent):
         # 1 = top-level plan + single-level delegate but no child re-planning / failure
         # recursion. MAGI_REFINE=0 is the orthogonal refine A/B knob: it downgrades the
         # hierarchical refine strategy to solo (the pre-refine baseline) while leaving
-        # delegate untouched. Both are forwarded so the two arms share one prebuilt binary.
-        for key in ("MAGI_BASE_URL", "MAGI_API_KEY", "MAGI_MAX_PLAN_DEPTH", "MAGI_REFINE"):
+        # delegate untouched. MAGI_STEP_CONTEXT=0 is a third orthogonal knob: it turns off
+        # the compact context brief injected into delegate hand-offs and read-only fan-out,
+        # restoring the context-free baseline. MAGI_ADAPT=0 is a fourth: it disables the
+        # REACTIVE (as-needed) failure re-decomposition — delegate/refine failures backtrack
+        # after one shot, leaving only planned decomposition + the stall safety net. All are
+        # forwarded so the arms share one prebuilt binary.
+        for key in (
+            "MAGI_BASE_URL",
+            "MAGI_API_KEY",
+            "MAGI_MAX_PLAN_DEPTH",
+            "MAGI_REFINE",
+            "MAGI_STEP_CONTEXT",
+            "MAGI_ADAPT",
+        ):
             val = os.environ.get(key)
             if val:
                 env[key] = val

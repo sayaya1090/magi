@@ -256,7 +256,7 @@ func TestExecuteStepsMarksExecutedTodos(t *testing.T) {
 		{Title: "write summary", Strategy: "solo"},
 	}
 	a.registerPlanTodos(context.Background(), s.ID, steps)
-	a.executeSteps(context.Background(), s, steps, 0)
+	a.executeSteps(context.Background(), s, "", steps, 0)
 
 	td := a.Todos(s.ID)
 	if len(td) != 3 {
@@ -372,7 +372,7 @@ func TestExecuteStepsDelegate(t *testing.T) {
 		{Title: "build X", Strategy: "delegate", Agent: "coder", Task: "write cmd/x"},
 	}
 	a.registerPlanTodos(context.Background(), s.ID, steps)
-	findings, delegated := a.executeSteps(context.Background(), s, steps, 0)
+	findings, delegated := a.executeSteps(context.Background(), s, "", steps, 0)
 
 	if !delegated {
 		t.Error("a dispatched delegate step must set delegated=true")
@@ -400,7 +400,7 @@ func TestExecuteStepsDelegateInvalidAgentDegrades(t *testing.T) {
 
 	steps := []planStep{{Title: "build X", Strategy: "delegate", Agent: "explore", Task: "write cmd/x"}}
 	a.registerPlanTodos(context.Background(), s.ID, steps)
-	findings, delegated := a.executeSteps(context.Background(), s, steps, 0)
+	findings, delegated := a.executeSteps(context.Background(), s, "", steps, 0)
 
 	if delegated || strings.TrimSpace(findings) != "" {
 		t.Errorf("invalid delegate executor should dispatch nothing, got delegated=%v findings=%q", delegated, findings)
@@ -425,7 +425,7 @@ func TestExecuteStepsDelegateFailureStaysPending(t *testing.T) {
 
 	steps := []planStep{{Title: "build X", Strategy: "delegate", Agent: "coder", Task: "write cmd/x"}}
 	a.registerPlanTodos(context.Background(), s.ID, steps)
-	findings, delegated := a.executeSteps(context.Background(), s, steps, 0)
+	findings, delegated := a.executeSteps(context.Background(), s, "", steps, 0)
 
 	if delegated {
 		t.Error("a failed/empty delegate must NOT set delegated=true (would suppress redo)")
@@ -468,7 +468,7 @@ func TestExecuteStepsDelegateFailureRecursion(t *testing.T) {
 			return "" // the direct attempt fails
 		}}
 		a, s := newApp(llm)
-		findings, delegated := a.executeSteps(context.Background(), s, steps, 0)
+		findings, delegated := a.executeSteps(context.Background(), s, "", steps, 0)
 		if !llm.sawDecomposeRetry() {
 			t.Error("a hard failure below the cap must trigger the decomposition-framed retry")
 		}
@@ -484,7 +484,7 @@ func TestExecuteStepsDelegateFailureRecursion(t *testing.T) {
 	t.Run("retry still fails", func(t *testing.T) {
 		llm := &recLLM{} // every attempt returns empty
 		a, s := newApp(llm)
-		_, delegated := a.executeSteps(context.Background(), s, steps, 0)
+		_, delegated := a.executeSteps(context.Background(), s, "", steps, 0)
 		if !llm.sawDecomposeRetry() {
 			t.Error("the retry must fire even if it ultimately fails")
 		}
@@ -501,7 +501,7 @@ func TestExecuteStepsDelegateFailureRecursion(t *testing.T) {
 	t.Run("no retry at the cap", func(t *testing.T) {
 		llm := &recLLM{} // always fails
 		a, s := newApp(llm)
-		a.executeSteps(context.Background(), s, steps, 1) // depth 1, cap 2 → 2 < 2 is false
+		a.executeSteps(context.Background(), s, "", steps, 1) // depth 1, cap 2 → 2 < 2 is false
 		if len(llm.prompts) == 0 {
 			t.Fatal("the first delegate attempt must still run at the cap")
 		}
@@ -510,6 +510,28 @@ func TestExecuteStepsDelegateFailureRecursion(t *testing.T) {
 		}
 		if td := a.Todos(s.ID); td[0].Status != "pending" {
 			t.Errorf("an unrecovered delegate at the cap must stay pending, got %q", td[0].Status)
+		}
+	})
+
+	// MAGI_ADAPT=0 disables the REACTIVE decomposition retry: below the cap the first
+	// attempt still runs, but the failure does NOT trigger a "BREAK IT DOWN" retry — the
+	// step backtracks (todo pending) after a single shot.
+	t.Run("no retry when adapt disabled", func(t *testing.T) {
+		t.Setenv("MAGI_ADAPT", "0")
+		llm := &recLLM{} // always fails
+		a, s := newApp(llm)
+		_, delegated := a.executeSteps(context.Background(), s, "", steps, 0) // below the cap
+		if len(llm.prompts) == 0 {
+			t.Fatal("the first delegate attempt must still run")
+		}
+		if llm.sawDecomposeRetry() {
+			t.Error("MAGI_ADAPT=0 must suppress the reactive decomposition retry on the delegate path")
+		}
+		if delegated {
+			t.Error("a single failed attempt must not mark the step delegated")
+		}
+		if td := a.Todos(s.ID); td[0].Status != "pending" {
+			t.Errorf("an unrecovered delegate must stay pending, got %q", td[0].Status)
 		}
 	})
 }
@@ -566,7 +588,7 @@ func TestExecuteStepsRefineSuccess(t *testing.T) {
 		{Title: "build a small language", Strategy: "refine", Agent: "coder", Task: "lexer→parser→eval→REPL"},
 	}
 	a.registerPlanTodos(context.Background(), s.ID, steps)
-	findings, delegated := a.executeSteps(context.Background(), s, steps, 0)
+	findings, delegated := a.executeSteps(context.Background(), s, "", steps, 0)
 
 	if !delegated {
 		t.Error("a successful refine step must set delegated=true (its writes need the parent's review gate)")
@@ -604,7 +626,7 @@ func TestExecuteStepsRefineSuccessSeedsSiblingContext(t *testing.T) {
 		{Title: "parser", Strategy: "refine", Agent: "coder", Task: "build the parser on top of the tokenizer"},
 	}
 	a.registerPlanTodos(context.Background(), s.ID, steps)
-	if _, delegated := a.executeSteps(context.Background(), s, steps, 0); !delegated {
+	if _, delegated := a.executeSteps(context.Background(), s, "", steps, 0); !delegated {
 		t.Fatal("successful refine steps must set delegated")
 	}
 
@@ -647,7 +669,7 @@ func TestExecuteStepsRefineFailureEscalates(t *testing.T) {
 
 	steps := []planStep{{Title: "build a small language", Strategy: "refine", Agent: "coder", Task: "lexer→parser→eval→REPL"}}
 	a.registerPlanTodos(context.Background(), s.ID, steps)
-	findings, delegated := a.executeSteps(context.Background(), s, steps, 0)
+	findings, delegated := a.executeSteps(context.Background(), s, "", steps, 0)
 
 	if delegated {
 		t.Error("an exhausted refine node must not mark delegated")
@@ -683,6 +705,117 @@ func TestExecuteStepsRefineFailureEscalates(t *testing.T) {
 	}
 }
 
+// guardExpansion is the deterministic backstop for the recursion policy: no refine step that
+// could never be expanded (at the depth cap), and no depth>=1 expansion that only re-defers
+// (all refine, no concrete work). It only ever downgrades refine→solo.
+func TestGuardExpansion(t *testing.T) {
+	mk := func(strats ...string) []planStep {
+		var out []planStep
+		for _, s := range strats {
+			out = append(out, planStep{Title: s, Strategy: s, Task: "t"})
+		}
+		return out
+	}
+	got := func(steps []planStep) string {
+		var s []string
+		for _, st := range steps {
+			s = append(s, st.Strategy)
+		}
+		return strings.Join(s, ",")
+	}
+	cases := []struct {
+		name                string
+		in                  []planStep
+		depth, maxPlanDepth int
+		want                string
+	}{
+		{"top-level all-refine kept (below cap)", mk("refine", "refine"), 0, 2, "refine,refine"},
+		{"top-level all-refine kept (deep tree)", mk("refine", "refine"), 0, 3, "refine,refine"},
+		{"at cap: refine downgraded", mk("refine"), 1, 2, "solo"},
+		{"at cap: only refine downgraded, solo kept", mk("solo", "refine"), 1, 2, "solo,solo"},
+		{"below cap expansion, all refine → downgraded (re-defer)", mk("refine", "refine"), 1, 3, "solo,solo"},
+		{"below cap expansion, solo+refine kept (has work)", mk("solo", "refine"), 1, 3, "solo,refine"},
+		{"below cap expansion, delegate+refine kept (has work)", mk("delegate", "refine"), 1, 3, "delegate,refine"},
+		{"below cap expansion, scout+refine → downgraded (scout is not work)", mk("scout", "refine"), 1, 3, "scout,solo"},
+		{"no refine → untouched", mk("solo", "scout"), 1, 3, "solo,scout"},
+	}
+	for _, c := range cases {
+		if g := got(guardExpansion(c.in, c.depth, c.maxPlanDepth)); g != c.want {
+			t.Errorf("%s: got %q want %q", c.name, g, c.want)
+		}
+	}
+}
+
+func TestAdaptDisabled(t *testing.T) {
+	for _, v := range []string{"0", "off", "false", "no", "OFF", "False"} {
+		t.Setenv("MAGI_ADAPT", v)
+		if !adaptDisabled() {
+			t.Errorf("MAGI_ADAPT=%q should disable reactive re-decomposition", v)
+		}
+	}
+	for _, v := range []string{"", "1", "on", "true", "yes"} {
+		t.Setenv("MAGI_ADAPT", v)
+		if adaptDisabled() {
+			t.Errorf("MAGI_ADAPT=%q should NOT disable (default is on)", v)
+		}
+	}
+}
+
+func TestPlanEnvelope(t *testing.T) {
+	below := planEnvelope(0, 2, 240)
+	if !strings.Contains(below, "240") {
+		t.Errorf("envelope must state the step budget: %q", below)
+	}
+	if !strings.Contains(below, "depth 0 of max 2") {
+		t.Errorf("envelope must state the planning depth: %q", below)
+	}
+	if !strings.Contains(below, "Below the cap") {
+		t.Errorf("below-cap envelope must allow refine phases: %q", below)
+	}
+	atCap := planEnvelope(1, 2, 100)
+	if !strings.Contains(atCap, "AT the depth cap") || !strings.Contains(atCap, `Do NOT use "refine"`) {
+		t.Errorf("at-cap envelope must forbid refine: %q", atCap)
+	}
+}
+
+// With MAGI_ADAPT=0 a failed refine node takes exactly ONE shot and backtracks — no informed
+// retry (the reactive as-needed re-decomposition is off).
+func TestExecuteStepsRefineNoRetryWhenAdaptDisabled(t *testing.T) {
+	t.Setenv("MAGI_ADAPT", "0")
+	llm := &recLLM{} // empty → the sub-goal never completes
+	a := newOrchApp(t, llm, Config{
+		Permission: "allow", MaxAgents: 100, MaxDepth: 5, MaxPlanDepth: 2,
+		Agents: map[string]AgentSpec{"coder": {Name: "coder", System: "x", Tools: []string{"read", "write", "edit", "bash"}}},
+	})
+	s := parentSession(t.TempDir())
+	a.mu.Lock()
+	a.sessions[s.ID] = s
+	a.mu.Unlock()
+	cd, _ := json.Marshal(event.SessionCreatedData{Workdir: s.Workdir, Agent: s.Agent, Model: s.Model})
+	if err := a.appendFact(context.Background(), s.ID, event.TypeSessionCreated, event.Actor{Kind: event.ActorUser}, cd); err != nil {
+		t.Fatal(err)
+	}
+	steps := []planStep{{Title: "build a small language", Strategy: "refine", Agent: "coder", Task: "lexer→parser→eval→REPL"}}
+	a.registerPlanTodos(context.Background(), s.ID, steps)
+	findings, delegated := a.executeSteps(context.Background(), s, "", steps, 0)
+	if delegated {
+		t.Error("an exhausted refine node must not mark delegated")
+	}
+	if td := a.Todos(s.ID); td[0].Status != "pending" {
+		t.Errorf("an unfinished refine todo must stay pending, got %q", td[0].Status)
+	}
+	if !strings.Contains(findings, "FAILED") {
+		t.Errorf("findings should note the refine node as FAILED: %q", findings)
+	}
+	llm.mu.Lock()
+	defer llm.mu.Unlock()
+	for _, p := range llm.prompts {
+		if strings.Contains(p, "A previous attempt at this sub-goal did NOT succeed") {
+			t.Fatal("MAGI_ADAPT=0 must not spawn an informed retry (single shot then backtrack)")
+		}
+	}
+}
+
 // When the child itself reports STATUS: FAILED (its own accumulated failures say the node is
 // hopeless), refine backtracks EARLY — it does not spend the remaining local retries.
 func TestExecuteStepsRefineEarlyBacktrack(t *testing.T) {
@@ -698,7 +831,7 @@ func TestExecuteStepsRefineEarlyBacktrack(t *testing.T) {
 
 	steps := []planStep{{Title: "build a small language", Strategy: "refine", Agent: "coder", Task: "lexer→parser→eval→REPL"}}
 	a.registerPlanTodos(context.Background(), s.ID, steps)
-	_, delegated := a.executeSteps(context.Background(), s, steps, 0)
+	_, delegated := a.executeSteps(context.Background(), s, "", steps, 0)
 
 	if delegated {
 		t.Error("a STATUS:FAILED refine node must not mark delegated")
@@ -731,7 +864,7 @@ func TestExecuteStepsRefineInvalidAgentDegrades(t *testing.T) {
 
 	steps := []planStep{{Title: "build a language", Strategy: "refine", Agent: "explore", Task: "lexer→parser→eval"}}
 	a.registerPlanTodos(context.Background(), s.ID, steps)
-	findings, delegated := a.executeSteps(context.Background(), s, steps, 0)
+	findings, delegated := a.executeSteps(context.Background(), s, "", steps, 0)
 
 	if delegated || strings.TrimSpace(findings) != "" {
 		t.Errorf("invalid refine executor should dispatch nothing, got delegated=%v findings=%q", delegated, findings)
@@ -759,7 +892,7 @@ func TestExecuteStepsRefineNoAgentUsesFallback(t *testing.T) {
 	// refine with NO agent named — the common case.
 	steps := []planStep{{Title: "build a small language", Strategy: "refine", Task: "lexer→parser→eval→REPL"}}
 	a.registerPlanTodos(context.Background(), s.ID, steps)
-	findings, delegated := a.executeSteps(context.Background(), s, steps, 0)
+	findings, delegated := a.executeSteps(context.Background(), s, "", steps, 0)
 
 	if !delegated {
 		t.Error("an unnamed refine step must fall back to a delegatable executor and dispatch, not degrade to solo")
@@ -769,6 +902,86 @@ func TestExecuteStepsRefineNoAgentUsesFallback(t *testing.T) {
 	}
 	if td := a.Todos(s.ID); td[0].Status != "completed" {
 		t.Errorf("dispatched refine todo should be completed, got %q", td[0].Status)
+	}
+}
+
+// A delegate child is context-FREE, but it still gets a compact BRIEF (delegateBrief): the
+// overall goal, the OTHER step titles (boundaries), and what earlier steps already produced
+// (interfaces to build on). We run two delegate steps and assert the SECOND child's prompt
+// carries all three — the goal, the first step's title, and the first step's output — so a
+// "mostly-independent" chunk isn't starved of the integration facts it needs.
+func TestExecuteStepsDelegateBriefsSiblingContext(t *testing.T) {
+	llm := &recLLM{reply: func(string) string { return "done: created package store with Get/Put" }}
+	a := newOrchApp(t, llm, Config{
+		Permission: "allow", MaxAgents: 100, MaxDepth: 5, MaxPlanDepth: 2,
+		Agents: map[string]AgentSpec{"coder": {Name: "coder", System: "x", Tools: []string{"read", "write", "edit", "bash"}}},
+	})
+	s := parentSession(t.TempDir())
+	a.mu.Lock()
+	a.sessions[s.ID] = s
+	a.mu.Unlock()
+
+	goal := "Build a key-value web service with a storage layer and an HTTP API"
+	steps := []planStep{
+		{Title: "storage layer", Strategy: "delegate", Agent: "coder", Task: "implement the on-disk storage"},
+		{Title: "HTTP API", Strategy: "delegate", Agent: "coder", Task: "implement the HTTP handlers"},
+	}
+	a.registerPlanTodos(context.Background(), s.ID, steps)
+	if _, delegated := a.executeSteps(context.Background(), s, goal, steps, 0); !delegated {
+		t.Fatal("delegate steps should dispatch")
+	}
+
+	llm.mu.Lock()
+	var second string
+	for _, p := range llm.prompts {
+		if strings.Contains(p, "implement the HTTP handlers") {
+			second = p
+		}
+	}
+	llm.mu.Unlock()
+	if second == "" {
+		t.Fatal("second delegate child's prompt was not captured")
+	}
+	for _, want := range []string{
+		"Overall goal",                       // the whole-task goal line
+		"key-value web service",              // …carrying the actual goal text
+		"storage layer",                      // the sibling step title (a boundary)
+		"created package store with Get/Put", // what the FIRST step produced (interface to build on)
+	} {
+		if !strings.Contains(second, want) {
+			t.Errorf("delegate brief missing %q; prompt was:\n%s", want, second)
+		}
+	}
+}
+
+// The brief is A/B-gated: MAGI_STEP_CONTEXT=0 restores the pre-brief context-free hand-off, so
+// a paired ON/OFF bench can isolate its effect. With it off, a delegate child's prompt must
+// carry NONE of the brief — only its self-contained task.
+func TestExecuteStepsDelegateBriefDisabled(t *testing.T) {
+	t.Setenv("MAGI_STEP_CONTEXT", "0")
+	llm := &recLLM{reply: func(string) string { return "done" }}
+	a := newOrchApp(t, llm, Config{
+		Permission: "allow", MaxAgents: 100, MaxDepth: 5, MaxPlanDepth: 2,
+		Agents: map[string]AgentSpec{"coder": {Name: "coder", System: "x", Tools: []string{"read", "write", "edit", "bash"}}},
+	})
+	s := parentSession(t.TempDir())
+	a.mu.Lock()
+	a.sessions[s.ID] = s
+	a.mu.Unlock()
+
+	steps := []planStep{
+		{Title: "storage layer", Strategy: "delegate", Agent: "coder", Task: "implement the on-disk storage"},
+		{Title: "HTTP API", Strategy: "delegate", Agent: "coder", Task: "implement the HTTP handlers"},
+	}
+	a.registerPlanTodos(context.Background(), s.ID, steps)
+	a.executeSteps(context.Background(), s, "Build a key-value web service", steps, 0)
+
+	llm.mu.Lock()
+	defer llm.mu.Unlock()
+	for _, p := range llm.prompts {
+		if strings.Contains(p, "Overall goal") || strings.Contains(p, "Other steps handled separately") {
+			t.Errorf("MAGI_STEP_CONTEXT=0 must suppress the delegate brief; prompt was:\n%s", p)
+		}
 	}
 }
 
@@ -906,7 +1119,7 @@ func newPlannerApp(t *testing.T, cfg Config) (*App, session.SessionID) {
 func TestPlannerDisabledNoOp(t *testing.T) {
 	a, sid := newPlannerApp(t, Config{Planner: false})
 	before := countEvents(t, a, sid)
-	a.maybePlanPreflight(context.Background(), a.sessionInfo(context.Background(), sid), 0)
+	a.maybePlanPreflight(context.Background(), a.sessionInfo(context.Background(), sid), 0, 120)
 	if got := countEvents(t, a, sid); got != before {
 		t.Errorf("disabled planner should append nothing, events %d→%d", before, got)
 	}
@@ -916,7 +1129,7 @@ func TestPlannerDisabledNoOp(t *testing.T) {
 func TestPlannerNoAgentNoOp(t *testing.T) {
 	a, sid := newPlannerApp(t, Config{Planner: true}) // no Agents["planner"]
 	before := countEvents(t, a, sid)
-	a.maybePlanPreflight(context.Background(), a.sessionInfo(context.Background(), sid), 0)
+	a.maybePlanPreflight(context.Background(), a.sessionInfo(context.Background(), sid), 0, 120)
 	if got := countEvents(t, a, sid); got != before {
 		t.Errorf("missing planner agent should append nothing, events %d→%d", before, got)
 	}
@@ -964,7 +1177,7 @@ func TestPlanAuditApproves(t *testing.T) {
 	}}
 	a, wd := newApp(t, &fakeLLM{}, Config{Council: fc, Agents: map[string]AgentSpec{plannerAgent: {Name: "planner"}}})
 	s, steps := planAuditFixture(t, a, wd)
-	got := a.runPlanAuditGate(context.Background(), s, a.cfg.Agents[plannerAgent], "do A and B", steps)
+	got := a.runPlanAuditGate(context.Background(), s, a.cfg.Agents[plannerAgent], "do A and B", steps, 0, 120)
 	if len(got) != 2 {
 		t.Fatalf("approve should keep the plan, got %d steps", len(got))
 	}
@@ -994,7 +1207,7 @@ func TestPlanAuditRevisesThenReplans(t *testing.T) {
 	a, wd := newApp(t, &fakeLLM{steps: [][]port.ProviderEvent{textStep(replanned)}},
 		Config{Council: fc, Agents: map[string]AgentSpec{plannerAgent: {Name: "planner"}}})
 	s, steps := planAuditFixture(t, a, wd)
-	got := a.runPlanAuditGate(context.Background(), s, a.cfg.Agents[plannerAgent], "do A and B", steps)
+	got := a.runPlanAuditGate(context.Background(), s, a.cfg.Agents[plannerAgent], "do A and B", steps, 0, 120)
 	if len(got) != 3 || got[2].Title != "Z verify" {
 		t.Fatalf("revise should re-plan to the new procedure, got %+v", got)
 	}
@@ -1016,7 +1229,7 @@ func TestPlanAuditCapForcesApprove(t *testing.T) {
 	a, wd := newApp(t, &fakeLLM{steps: [][]port.ProviderEvent{replan, replan, replan}},
 		Config{Council: fc, Agents: map[string]AgentSpec{plannerAgent: {Name: "planner"}}})
 	s, steps := planAuditFixture(t, a, wd)
-	got := a.runPlanAuditGate(context.Background(), s, a.cfg.Agents[plannerAgent], "p", steps)
+	got := a.runPlanAuditGate(context.Background(), s, a.cfg.Agents[plannerAgent], "p", steps, 0, 120)
 	if len(got) == 0 {
 		t.Fatal("cap should still yield a plan to execute")
 	}
@@ -1049,7 +1262,7 @@ func TestPlanAuditReplanFailProceedsWithNote(t *testing.T) {
 	a, wd := newApp(t, &fakeLLM{steps: [][]port.ProviderEvent{bad, bad}},
 		Config{Council: fc, Agents: map[string]AgentSpec{plannerAgent: {Name: "planner"}}})
 	s, steps := planAuditFixture(t, a, wd)
-	got := a.runPlanAuditGate(context.Background(), s, a.cfg.Agents[plannerAgent], "p", steps)
+	got := a.runPlanAuditGate(context.Background(), s, a.cfg.Agents[plannerAgent], "p", steps, 0, 120)
 	if len(got) != len(steps) {
 		t.Fatalf("re-plan failure should keep the prior plan, got %d want %d", len(got), len(steps))
 	}
@@ -1073,7 +1286,7 @@ func TestPlanAuditWarnProceedsWithAdvice(t *testing.T) {
 	}}
 	a, wd := newApp(t, &fakeLLM{}, Config{Council: fc, Agents: map[string]AgentSpec{plannerAgent: {Name: "planner"}}})
 	s, steps := planAuditFixture(t, a, wd)
-	got := a.runPlanAuditGate(context.Background(), s, a.cfg.Agents[plannerAgent], "do A and B", steps)
+	got := a.runPlanAuditGate(context.Background(), s, a.cfg.Agents[plannerAgent], "do A and B", steps, 0, 120)
 
 	if len(got) != 2 {
 		t.Fatalf("warn-only must not re-plan; want the original 2 steps, got %d", len(got))
@@ -1126,7 +1339,7 @@ func TestPlanAuditCapRespectsCouncilMaxRounds(t *testing.T) {
 		Agents: map[string]AgentSpec{plannerAgent: {Name: "planner"}},
 	})
 	s, steps := planAuditFixture(t, a, wd)
-	a.runPlanAuditGate(context.Background(), s, a.cfg.Agents[plannerAgent], "p", steps)
+	a.runPlanAuditGate(context.Background(), s, a.cfg.Agents[plannerAgent], "p", steps, 0, 120)
 	dec := planDecisions(t, a, s.ID)
 	if len(dec) != 1 {
 		t.Fatalf("CouncilMaxRounds=1 should cap at a single round, got %d", len(dec))

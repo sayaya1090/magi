@@ -148,7 +148,7 @@ func (a *App) planEligible(agent AgentSpec, depth int) bool {
 // via a sub-agent: those writes land in the child's guard, not the parent's, so the
 // caller must seed usedMutator to force the parent's depth-0 verification (review-gate
 // tester / council) to inspect and verify the MERGED working tree.
-func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth int) (planned, delegated bool) {
+func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth, maxSteps int) (planned, delegated bool) {
 	if !a.cfg.Planner {
 		return false, false
 	}
@@ -162,9 +162,9 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth i
 	}
 	a.setStage(s.ID, stagePlan) // tag pre-flight planning events as the plan stage (D15)
 
-	plan := a.runPlanner(ctx, spec, s, prompt, "")
+	plan := a.runPlanner(ctx, spec, s, prompt, "", depth, maxSteps)
 	a.storeStepEstimate(s.ID, plan.EstimatedSteps) // advisory pacing reference, solo or not
-	steps := sanitizeSteps(plan)
+	steps := guardExpansion(sanitizeSteps(plan), depth, a.cfg.MaxPlanDepth)
 	if len(steps) == 0 {
 		a.emitPhase(s.ID, "plan", "solo", strings.TrimSpace(plan.Reason)) // ran, judged single-area
 		return false, false                                               // solo — the default, cheap path
@@ -174,7 +174,7 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth i
 	// runs. Suppressed in workflow mode (the deterministic engine owns staging) and
 	// when no council is configured.
 	if len(steps) >= 2 && a.cfg.Council != nil && !a.cfg.Workflow {
-		steps = a.runPlanAuditGate(ctx, s, spec, prompt, steps)
+		steps = guardExpansion(a.runPlanAuditGate(ctx, s, spec, prompt, steps, depth, maxSteps), depth, a.cfg.MaxPlanDepth)
 		if len(steps) == 0 {
 			return false, false
 		}
@@ -184,7 +184,7 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth i
 	a.registerPlanTodos(ctx, s.ID, steps)
 	a.emitPhase(s.ID, "plan", planSummary(steps), strings.TrimSpace(plan.Reason))
 
-	findings, delegated := a.executeSteps(ctx, s, steps, depth)
+	findings, delegated := a.executeSteps(ctx, s, prompt, steps, depth)
 	if strings.TrimSpace(findings) == "" {
 		return false, false
 	}
@@ -195,8 +195,8 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth i
 // runPlanner does a single tool-free LLM call on the planner's own provider and
 // parses the procedure from the reply. revise is non-empty on a re-plan after a
 // council plan-audit asked for changes. Returns a zero planResult on any error.
-func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session, prompt, revise string) planResult {
-	sys := spec.System + "\n\n# Repository (top level)\n" + repoMap(s.Workdir) + "\n\n" + plannerContract
+func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session, prompt, revise string, depth, maxSteps int) planResult {
+	sys := spec.System + "\n\n# Repository (top level)\n" + repoMap(s.Workdir) + "\n\n" + plannerContract + planEnvelope(depth, a.cfg.MaxPlanDepth, maxSteps)
 	if names := a.delegatableAgents(); len(names) > 0 {
 		sys += "\n\nDelegate executors available (use one as a delegate step's \"agent\"): " + strings.Join(names, ", ") + "."
 	} else {
@@ -343,6 +343,32 @@ const plannerContract = "Plan the PROCEDURE to handle the request: an ordered, m
 	"NOT flattened into a long list of \"solo\" steps:\n" +
 	`{"reason":"each layer builds on the one below, so open with phases and expand each in context","estimated_steps":40,"steps":[{"title":"On-disk write-ahead log","strategy":"refine","task":"design and implement the append-only log file format and an append operation"},{"title":"In-memory index from the log","strategy":"refine","task":"replay the log on startup to build a key to offset index"},{"title":"KV operations","strategy":"refine","task":"implement get/put/delete over the index and the log, keeping them consistent"},{"title":"Log compaction","strategy":"refine","task":"add a pass that rewrites the log to drop superseded records"}]}`
 
+// planEnvelope gives the planner the two facts it otherwise plans blind to: the step
+// BUDGET it is planning within, and its DEPTH relative to the recursion cap. Both let it
+// right-size the procedure — a plan produced at the cap, or with little budget, should be
+// small and concrete. The cap line is also a soft mirror of guardExpansion's hard rule:
+// at the cap a "refine" step could never be expanded (planEligible needs depth < MaxPlanDepth,
+// so a refine at depth d expands only while d+1 < MaxPlanDepth), so it must not be emitted.
+func planEnvelope(depth, maxPlanDepth, maxSteps int) string {
+	var b strings.Builder
+	b.WriteString("\n\nBudget & depth (right-size the plan to these):\n")
+	scope := "the whole task"
+	if depth > 0 {
+		scope = "this sub-task"
+	}
+	fmt.Fprintf(&b, "- About %d tool calls are available for %s — pacing guidance, not a hard limit.\n", maxSteps, scope)
+	fmt.Fprintf(&b, "- Planning depth %d of max %d.\n", depth, maxPlanDepth)
+	if depth+1 >= maxPlanDepth {
+		b.WriteString("- You are AT the depth cap: every step MUST be concrete (solo/parallel/scout/delegate). " +
+			"Do NOT use \"refine\" — an abstract step here can never be expanded, so it would dead-end; work it out inline instead.\n")
+	} else {
+		b.WriteString("- Below the cap: \"refine\" phases are allowed and are expanded in context when reached. " +
+			"If this plan is itself an expansion of a refine step and uses \"refine\", it MUST also contain at least one " +
+			"concrete work step — never a plan that only re-defers the work.\n")
+	}
+	return b.String()
+}
+
 // parsePlan extracts the first BALANCED {...} JSON object from text and unmarshals
 // it. Models wrap the object in prose/fences, and weak local models often append
 // trailing prose containing a stray '}' — the old first-'{'/last-'}' span then
@@ -423,6 +449,35 @@ func refineDisabled() bool {
 	return false
 }
 
+// stepContextDisabled is a bench A/B knob (mirrors MAGI_REFINE): MAGI_STEP_CONTEXT=0 turns
+// OFF the compact context brief injected into delegate hand-offs and read-only fan-out — the
+// children then run fully context-free (the pre-brief baseline), so a paired ON/OFF run can
+// measure whether the brief helps. Default on. It gates ONLY the brief; it never copies the
+// parent conversation (that stays refine's job) — so even ON, delegate/fan-out get an
+// overall-goal line plus sibling boundaries/outputs, not the parent's reasoning history.
+func stepContextDisabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_STEP_CONTEXT"))) {
+	case "0", "off", "false", "no":
+		return true
+	}
+	return false
+}
+
+// adaptDisabled turns OFF the REACTIVE (as-needed) failure re-decomposition — the ADaPT
+// mechanism where a step that fails is retried by decomposing it further. MAGI_ADAPT=0 leaves
+// only PLANNED decomposition (the up-front hierarchical plan) plus the stall safety net
+// (redecomposeStuck): a failed delegate/refine node backtracks after one shot instead of
+// spawning informed retries / re-decomposition. This is the recursion-policy A/B knob — with it
+// off, magi is closer to HTN-style hierarchical planning with just-in-time sub-planning than to
+// ADaPT proper. Default on (=current reactive behavior) so the flag flips the arm, not the base.
+func adaptDisabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_ADAPT"))) {
+	case "0", "off", "false", "no":
+		return true
+	}
+	return false
+}
+
 func sanitizeSteps(p planResult) []planStep {
 	var out []planStep
 	for _, st := range p.Steps {
@@ -484,12 +539,54 @@ func sanitizeSteps(p planResult) []planStep {
 	return out
 }
 
+// guardExpansion enforces the recursion policy on a freshly sanitized procedure, keyed on
+// the depth it will execute at. Two always-on guardrails (they only ever downgrade refine→solo,
+// never the reverse), a deterministic backstop to the same rules planEnvelope states to the
+// planner in prose:
+//
+//	Depth cap — a refine step at depth d is expanded by a child that re-plans at d+1, which
+//	only runs while d+1 < MaxPlanDepth (planEligible). AT the cap (d+1 >= MaxPlanDepth) a refine
+//	step could never be expanded, so it would dead-end; downgrade every refine to solo (the work
+//	is done inline here) rather than emit an abstract step that goes nowhere.
+//
+//	No pure re-deferral — below the cap, an EXPANSION (depth >= 1: this plan is itself the body
+//	of a refine step) may nest further refine phases, but only alongside real work — it must hold
+//	at least one concrete WORK step (solo or delegate). A depth>=1 plan that is ALL refine just
+//	re-defers without progress, so its refine steps are downgraded to solo.
+//
+// Depth 0 (the top-level plan) is exempt from the second rule: opening a hard task with a few
+// abstract phases and no flat step is the intended refine use (see plannerContract's example).
+func guardExpansion(steps []planStep, depth, maxPlanDepth int) []planStep {
+	hasRefine, hasWork := false, false
+	for _, st := range steps {
+		switch st.Strategy {
+		case "refine":
+			hasRefine = true
+		case "solo", "delegate":
+			hasWork = true
+		}
+	}
+	if !hasRefine {
+		return steps
+	}
+	atCap := depth+1 >= maxPlanDepth
+	if !atCap && !(depth >= 1 && !hasWork) {
+		return steps // below the cap and either top-level or has real work → refine is fine
+	}
+	for i := range steps {
+		if steps[i].Strategy == "refine" {
+			steps[i].Strategy = "solo"
+		}
+	}
+	return steps
+}
+
 // runPlanAuditGate has the council review the PROCEDURE before it runs (D17). It
 // returns the procedure to execute — the original (approved or force-approved) or
 // a revised one. The pure tally is reused via the council adapter with Phase=plan;
 // there is no diff/report/signals, and revise feedback drives a re-plan (it is NOT
 // injected into the main session). It has its own bounded rounds.
-func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec AgentSpec, prompt string, steps []planStep) []planStep {
+func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec AgentSpec, prompt string, steps []planStep, depth, maxSteps int) []planStep {
 	sid := s.ID
 	actor := event.Actor{Kind: event.ActorSystem, ID: "council"}
 	a.setStage(sid, stageCouncil)
@@ -581,7 +678,7 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 				a.injectCouncilAdvice(ctx, s.ID, advice, true) // accepted: the executor heeds it
 				note = "plan approved with advisory notes (non-blocking)"
 				if a.cfg.CouncilPlanAbsorb { // option B: fold the advice into the plan now
-					if next := sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, advice)); len(next) > 0 {
+					if next := sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, advice, depth, maxSteps)); len(next) > 0 {
 						steps = next
 					}
 				}
@@ -617,9 +714,9 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		// Re-plan with the blocking feedback folded in (one retry — local models are flaky
 		// and an empty/unparseable reply shouldn't silently drop the revision).
 		a.setStage(sid, stagePlan)
-		next := sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, fb))
+		next := sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, fb, depth, maxSteps))
 		if len(next) == 0 {
-			next = sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, fb))
+			next = sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, fb, depth, maxSteps))
 		}
 		a.setStage(sid, stageCouncil)
 		if len(next) == 0 {
@@ -681,8 +778,9 @@ var plannerActor = event.Actor{Kind: event.ActorAgent, ID: plannerAgent}
 // A per-turn explorer budget caps total dispatch; a step that can't dispatch
 // (solo, or a scout/parallel that yields nothing) degrades to "the main agent
 // handles it" without aborting the procedure.
-func (a *App) executeSteps(ctx context.Context, s session.Session, steps []planStep, depth int) (findings string, delegated bool) {
+func (a *App) executeSteps(ctx context.Context, s session.Session, goal string, steps []planStep, depth int) (findings string, delegated bool) {
 	budget := maxPlanExplorers
+	stepCtx := !stepContextDisabled() // A/B: off → delegate/fan-out run context-free (pre-brief baseline)
 	var out []string
 	for i, st := range steps {
 		if budget <= 0 || ctx.Err() != nil {
@@ -695,7 +793,11 @@ func (a *App) executeSteps(ctx context.Context, s session.Session, steps []planS
 		// sub-task context-free; refine works an in-context sub-goal with the parent CLONED in.
 		// The strategy selects the runner; the record-finding/OR-delegated glue is shared.
 		if run := a.writeStepRunner(st.Strategy); run != nil {
-			if f, done := run(ctx, s, st, i, depth, &budget); f != "" {
+			brief := ""
+			if st.Strategy == "delegate" && stepCtx {
+				brief = delegateBrief(goal, steps, i, out) // refine ignores this (it clones context)
+			}
+			if f, done := run(ctx, s, st, brief, i, depth, &budget); f != "" {
 				out = append(out, f)
 				delegated = delegated || done
 			}
@@ -714,7 +816,11 @@ func (a *App) executeSteps(ctx context.Context, s session.Session, steps []planS
 			continue // per-step degrade
 		}
 		a.advanceTo(ctx, s.ID, plannerActor, i) // moved on to step i: earlier steps ✓, step i running ◐
-		if f := strings.TrimSpace(a.runExplorers(ctx, s, groups, depth)); f != "" {
+		fanGoal := ""
+		if stepCtx {
+			fanGoal = goal // orient read-only explorers with the overall goal (no sibling outputs — they produce none)
+		}
+		if f := strings.TrimSpace(a.runExplorers(ctx, s, groups, fanGoal, depth)); f != "" {
 			out = append(out, stepFinding(st.Title, "", f))
 			a.completeThrough(ctx, s.ID, plannerActor, i) // step i done
 		} else {
@@ -757,7 +863,9 @@ func (a *App) resolveWriteExecutor(stAgent string, fallbackAny bool) (string, bo
 // writeStepFn runs one write-capable step (delegate or refine): it returns the finding to
 // record and done=true when the write actually landed. Both runners share this signature so
 // executeSteps dispatches them through one path (the record-finding / OR-delegated glue).
-type writeStepFn func(ctx context.Context, s session.Session, st planStep, i, depth int, budget *int) (finding string, done bool)
+// brief is the delegate context brief (see delegateBrief); refine ignores it (it clones the
+// parent context instead), so the caller passes "" for refine steps.
+type writeStepFn func(ctx context.Context, s session.Session, st planStep, brief string, i, depth int, budget *int) (finding string, done bool)
 
 // writeStepRunner maps a write-capable strategy to its runner, or nil for a strategy this
 // method does not own (parallel/scout/solo fall through to explorer/degrade handling).
@@ -778,24 +886,25 @@ func (a *App) writeStepRunner(strategy string) writeStepFn {
 // degraded to solo (no valid executor); the caller records nothing and the main agent
 // handles that work. Sequential by construction (never fanned out), so the writes can't
 // race the council's change capture — see allParallelSafe.
-func (a *App) runDelegateStep(ctx context.Context, s session.Session, st planStep, i, depth int, budget *int) (finding string, done bool) {
+func (a *App) runDelegateStep(ctx context.Context, s session.Session, st planStep, brief string, i, depth int, budget *int) (finding string, done bool) {
 	agentName, ok := a.resolveWriteExecutor(st.Agent, false) // delegate requires a named executor
 	if !ok {
 		return "", false // no valid executor → degrade to solo (the main agent does it)
 	}
 	*budget-- // count against the per-turn dispatch budget like an explorer
 	a.advanceTo(ctx, s.ID, plannerActor, i)
-	r := a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agentName, Prompt: delegatePrompt(st)})
+	r := a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agentName, Prompt: delegatePrompt(st, brief)})
 	text := strings.TrimSpace(r.Text)
-	// ADaPT failure branch: a hard failure (spawn error or empty result), while we're
-	// still below the plan-depth cap and have budget, gets ONE retry that tells the
-	// SAME executor to DECOMPOSE the sub-task into smaller independent steps. The child
-	// re-plans at depth+1 (this is the natural decomposition point — it plans from the
-	// Task), so a monolithic attempt that failed can succeed piece by piece. Single
-	// attempt — bounded by the depth gate and the shared budget.
-	if (r.Err != "" || text == "") && depth+1 < a.cfg.MaxPlanDepth && *budget > 0 {
+	// ADaPT failure branch (reactive, as-needed decomposition): a hard failure (spawn error
+	// or empty result), while we're still below the plan-depth cap and have budget, gets ONE
+	// retry that tells the SAME executor to DECOMPOSE the sub-task into smaller independent
+	// steps. The child re-plans at depth+1 (this is the natural decomposition point — it plans
+	// from the Task), so a monolithic attempt that failed can succeed piece by piece. Single
+	// attempt — bounded by the depth gate and the shared budget. Gated by MAGI_ADAPT: with it
+	// off, a failed delegate backtracks after one shot (planned decomposition only).
+	if !adaptDisabled() && (r.Err != "" || text == "") && depth+1 < a.cfg.MaxPlanDepth && *budget > 0 {
 		*budget--
-		r = a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agentName, Prompt: redecomposePrompt(st)})
+		r = a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agentName, Prompt: redecomposePrompt(st, brief)})
 		text = strings.TrimSpace(r.Text)
 	}
 	if r.Err != "" || text == "" {
@@ -838,7 +947,10 @@ const refineLocalRetries = 2
 // failures told it the node is hopeless), without spending the remaining local retries.
 // The executor is the step's own agent if it named one, else any delegatable agent; refine
 // degrades to solo (the main agent works it out in-context) only when NONE is available.
-func (a *App) runRefineStep(ctx context.Context, s session.Session, st planStep, i, depth int, budget *int) (finding string, done bool) {
+func (a *App) runRefineStep(ctx context.Context, s session.Session, st planStep, _ string, i, depth int, budget *int) (finding string, done bool) {
+	// The brief arg is ignored: refine spawns a CLONED-context child (CloneContext below), so
+	// the parent goal, prior refine seeds (recordRefineSuccess), and sibling notes already ride
+	// in the cloned conversation — no separate brief is needed or wanted.
 	// A refine step usually names NO executor (its "agent" is optional — see resolveWriteExecutor),
 	// so fall back to any delegatable agent; the CLONED context, not the executor identity, carries
 	// the sub-goal. Degrade to solo only when no delegatable agent exists at all.
@@ -847,8 +959,14 @@ func (a *App) runRefineStep(ctx context.Context, s session.Session, st planStep,
 		return "", false
 	}
 	a.advanceTo(ctx, s.ID, plannerActor, i)
+	// Reactive (as-needed) informed retries are the ADaPT mechanism; MAGI_ADAPT=0 cuts them to a
+	// single shot, so a failed refine node backtracks to the parent instead of re-attempting.
+	retries := refineLocalRetries
+	if adaptDisabled() {
+		retries = 1
+	}
 	fail := ""
-	for attempt := 0; attempt < refineLocalRetries && *budget > 0; attempt++ {
+	for attempt := 0; attempt < retries && *budget > 0; attempt++ {
 		*budget-- // count each attempt against the per-turn dispatch budget, like an explorer
 		r := a.spawn(ctx, s, depth, port.SpawnRequest{
 			Agent: agentName, Prompt: refinePrompt(st, fail), CloneContext: true,
@@ -981,10 +1099,46 @@ func stuckRedecomposePrompt(task, blockReason string) string {
 		"already be on disk. Complete it fully, verify it yourself, and report what you did and how you verified it.)"
 }
 
-// delegatePrompt frames a delegate step as a self-contained sub-task instruction.
-func delegatePrompt(st planStep) string {
-	return st.Task + "\n\n(You are handling ONE independent part of a larger plan. Complete this part fully, " +
+// delegatePrompt frames a delegate step as a self-contained sub-task instruction, optionally
+// prefixed with a compact brief (see delegateBrief). The brief is orientation only — the task
+// itself stays self-contained, so an empty brief leaves the original context-free hand-off.
+func delegatePrompt(st planStep, brief string) string {
+	p := ""
+	if b := strings.TrimSpace(brief); b != "" {
+		p = b + "\n\n"
+	}
+	return p + st.Task + "\n\n(You are handling ONE independent part of a larger plan. Complete this part fully, " +
 		"verify it yourself, and report what you did and how you verified it.)"
+}
+
+// delegateBrief builds the compact context a delegate child gets IN ADDITION to its
+// self-contained task: the overall goal (so its choices align with the whole task, not just
+// its slice), the OTHER step titles (boundaries — what it must NOT redo), and what earlier
+// steps ALREADY produced (interfaces/outputs to build on rather than reinvent). It carries
+// NO parent conversation or reasoning — that is refine's job (a full context clone); a
+// delegate child stays a clean-room worker that just knows where its slice fits. Every part
+// is clipped so the brief can't blow up as siblings accumulate. Returns "" when there is
+// nothing worth briefing (e.g. a lone first step with no goal text).
+func delegateBrief(goal string, steps []planStep, i int, prior []string) string {
+	var b strings.Builder
+	if g := strings.TrimSpace(goal); g != "" {
+		b.WriteString("Overall goal (the whole task your part serves): " + clipLine(g, 400) + "\n")
+	}
+	var others []string
+	for j, st := range steps {
+		if j != i {
+			if t := strings.TrimSpace(st.Title); t != "" {
+				others = append(others, t)
+			}
+		}
+	}
+	if len(others) > 0 {
+		b.WriteString("Other steps handled separately (do NOT redo these): " + clipLine(strings.Join(others, "; "), 400) + "\n")
+	}
+	if p := strings.TrimSpace(strings.Join(prior, "\n")); p != "" {
+		b.WriteString("Already produced by earlier steps — build on these, don't rebuild:\n" + clipLine(p, 800) + "\n")
+	}
+	return strings.TrimSpace(b.String())
 }
 
 // decomposePrefix leads the ADaPT failure-branch retry: the direct attempt did not
@@ -997,8 +1151,8 @@ const decomposePrefix = "A direct attempt at the task below did NOT complete. Ap
 // redecomposePrompt frames the ADaPT failure-branch retry as the delegate instruction with
 // the decompose prefix — it reuses delegatePrompt's self-contained framing, so the two
 // share their trailing contract instead of duplicating it.
-func redecomposePrompt(st planStep) string {
-	return decomposePrefix + delegatePrompt(st)
+func redecomposePrompt(st planStep, brief string) string {
+	return decomposePrefix + delegatePrompt(st, brief)
 }
 
 // capGroups trims a parallel step's groups to the remaining per-turn budget.
@@ -1136,7 +1290,7 @@ func parseList(text string) []string {
 
 // runExplorers dispatches the groups as read-only subagents concurrently and
 // returns their findings concatenated in a stable order.
-func (a *App) runExplorers(ctx context.Context, s session.Session, groups []planGroup, depth int) string {
+func (a *App) runExplorers(ctx context.Context, s session.Session, groups []planGroup, goal string, depth int) string {
 	type res struct {
 		i    int
 		text string
@@ -1149,6 +1303,9 @@ func (a *App) runExplorers(ctx context.Context, s session.Session, groups []plan
 		go func(i int, g planGroup) {
 			defer wg.Done()
 			prompt := fmt.Sprintf("Investigate (read-only): %s\n\n%s", g.Focus, g.Question)
+			if og := strings.TrimSpace(goal); og != "" {
+				prompt = "Overall goal (context for your investigation): " + clipLine(og, 400) + "\n\n" + prompt
+			}
 			// Bound each read-only explorer well under the 5m subagent cap: a focused
 			// investigation is quick, and one explorer chasing a bad target must not stall
 			// the whole step (runExplorers waits for all) for the full SubagentTimeout.

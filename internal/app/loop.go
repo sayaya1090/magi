@@ -159,7 +159,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	// parallel/scout/delegate). Read-only explorers/verifiers and workflow mode are gated
 	// out. Injects findings before the agent runs; degrades to solo on any failure.
 	if a.planEligible(agent, depth) {
-		planned, delegated := a.maybePlanPreflight(ctx, s, depth)
+		planned, delegated := a.maybePlanPreflight(ctx, s, depth, maxSteps)
 		if planned {
 			usedTools = true // planner did real work — seed the termination council
 		}

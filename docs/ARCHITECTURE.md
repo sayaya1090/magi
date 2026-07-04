@@ -40,7 +40,7 @@ internal/
                             the consensus gate, acceptance criteria, tool execution,
                             permission prompting, and prompt/system assembly
     orchestrate.go          subagent dispatch/spawn/supervisor; escalate (ask); bgGroup
-    planner.go              recursive pre-flight planner: solo/parallel/scout/delegate/refine, ADaPT failure retry + escalate
+    planner.go              recursive pre-flight planner: solo/parallel/scout/delegate/refine; planEnvelope budget/depth hint, guardExpansion depth-cap guard, MAGI_ADAPT-gated reactive retry + escalate
     workflow.go             deterministic phase pipeline (localize→implement→verify→review)
     policy.go               guardrail policy engine (rules, secret-deny, bash scan, egress)
     hooks.go                lifecycle hooks (PreToolUse/PostToolUse/Stop) + built-in harness
@@ -320,12 +320,27 @@ The orchestrator (top-level session, `Parent==""`) delegates via the **`task`** 
   council) run at **depth 0 only**: a parent that merely delegated seeds `usedMutator` so its
   depth-0 tester inspects the *merged* working tree — leaves don't each re-run the full
   council; the parent verifies the aggregate.
-- **ADaPT failure branch** (`executeSteps`): when a delegate returns an error or empty result
-  and we're still below the plan-depth cap (with budget left), it is retried **once** with a
+- **Recursion policy** (planned decomposition first; `guardExpansion` + `planEnvelope` in
+  `app/planner.go`): the default is *up-front* hierarchical decomposition with just-in-time
+  sub-planning, not ADaPT's *as-needed* (reactive) re-decomposition. Two deterministic guardrails
+  (always on, they only downgrade `refine`→`solo`) run in `maybePlanPreflight` after sanitize and
+  after the audit gate: **(1) depth cap** — at `depth+1 >= MaxPlanDepth` a `refine` step could never
+  be expanded (a child re-plans only while `depth < MaxPlanDepth`), so it is downgraded to inline
+  work; **(2) no pure re-deferral** — a `depth >= 1` plan (itself a refine expansion) that is all
+  `refine` with no concrete work step (`solo`/`delegate`) is downgraded, so every expansion makes
+  real progress. The planner is *told* these constraints up front via `planEnvelope`, which injects
+  its step budget (`maxSteps`) and depth/cap into the planner system prompt so it right-sizes the
+  plan (and omits `refine` at the cap).
+- **Reactive failure re-decomposition** (ADaPT, `executeSteps`/`runRefineStep`, gated by the
+  `MAGI_ADAPT` env knob — default *on*): when a delegate returns an error or empty result and we're
+  still below the plan-depth cap (with budget left), it is retried **once** with a
   decomposition-framed prompt telling the same executor to break the sub-task into smaller
-  independent steps (the child re-plans smaller — the natural decomposition point). A single
-  bounded extra attempt: if it still fails, the step's todo stays `pending` and is recorded as
-  `(delegate FAILED — do this yourself)` so the redo-prevention directive can't suppress it.
+  independent steps (the child re-plans smaller — the natural decomposition point); refine gets
+  `refineLocalRetries` informed retries the same way. With `MAGI_ADAPT=0` both collapse to a single
+  shot — a failed node backtracks instead of re-decomposing, leaving only planned decomposition and
+  the stall net (`redecomposeStuck`). Either way, if a delegate ultimately fails the step's todo
+  stays `pending` and is recorded as `(delegate FAILED — do this yourself)` so the redo-prevention
+  directive can't suppress it.
 - **Hierarchical refine** (`runRefineStep`, ADaPT/HTN backtracking): where `delegate` partitions
   *independent* chunks to context-free children, `refine` recurses on a large sub-goal whose
   pieces **depend on each other**. The child spawns with the parent's conversation **cloned in**
