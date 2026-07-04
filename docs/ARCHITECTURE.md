@@ -40,7 +40,7 @@ internal/
                             the consensus gate, acceptance criteria, tool execution,
                             permission prompting, and prompt/system assembly
     orchestrate.go          subagent dispatch/spawn/supervisor; escalate (ask); bgGroup
-    planner.go              pre-flight planner: judge solo-vs-parallel, fan out explorers
+    planner.go              recursive pre-flight planner: solo/parallel/scout/delegate, ADaPT failure retry
     workflow.go             deterministic phase pipeline (localize→implement→verify→review)
     policy.go               guardrail policy engine (rules, secret-deny, bash scan, egress)
     hooks.go                lifecycle hooks (PreToolUse/PostToolUse/Stop) + built-in harness
@@ -297,15 +297,33 @@ The orchestrator (top-level session, `Parent==""`) delegates via the **`task`** 
   top-level agent into orchestration mode — decompose work and delegate to subagents.
   Fires once per session to prevent context overflow on complex tasks (SWE-bench style).
 - **Pre-flight planner** (`Config.Planner`, `app/planner.go`, default on,
-  `[orchestration] planner=false` to disable): before a top-level turn, a tool-free
-  call to the `planner` agent judges whether the task splits into independent areas.
-  If so the app fans out read-only explorers in parallel (`spawn`), then injects their
-  combined findings before the main loop runs — proactive parallel *investigation*
-  (the complement to reactive auto-orchestration). Defers implementation planning until
-  after exploration; degrades to solo on any failure. Route it to a cheap backend with
-  `[routing] planner = "fast"`. The decision is observable: it emits a `plan` phase
-  (`workflow.phase` event) carrying the mode + reason, which the TUI shows as a header
-  chip and a transcript line.
+  `[orchestration] planner=false` to disable): before a turn, a tool-free call to the
+  `planner` agent judges whether the task splits into independent steps and assigns each a
+  strategy — `solo` (the main agent does it), `parallel`/`scout` (read-only explorers fanned
+  out via `spawn`), or **`delegate`** (a write-capable sub-task handed to a producing agent).
+  Explorers are proactive parallel *investigation* (the complement to reactive
+  auto-orchestration); delegate steps are dispatched **inline/sequentially** so their writes
+  can't race the council's change capture. Combined findings are injected before the main loop
+  runs; the main agent is told to **verify and integrate** delegated work (marked
+  `(delegated to …)`), not redo it. Degrades to solo on any failure. The decision is
+  observable: it emits a `plan` phase (`workflow.phase` event) carrying the mode + reason,
+  which the TUI shows as a header chip and a transcript line.
+- **Recursive planning** (`planEligible` in `app/planner.go`): the preflight lives inside
+  `runLoop`, so a `delegate`d child re-plans at its own level — one tree can mix solo,
+  parallel, scout, and further delegate branches (*heterogeneous* decomposition). It is
+  double-bounded: a dedicated `Config.MaxPlanDepth` (default 2, tighter than `MaxDepth`) caps
+  planner recursion, and it fires only for producing agents (`producesFiles` = allows
+  `write`/`edit`, **not** bash — a run-only tester/verifier never re-plans), off the
+  interactive path, and not in workflow mode. The fabrication gates (review-gate tester +
+  council) run at **depth 0 only**: a parent that merely delegated seeds `usedMutator` so its
+  depth-0 tester inspects the *merged* working tree — leaves don't each re-run the full
+  council; the parent verifies the aggregate.
+- **ADaPT failure branch** (`executeSteps`): when a delegate returns an error or empty result
+  and we're still below the plan-depth cap (with budget left), it is retried **once** with a
+  decomposition-framed prompt telling the same executor to break the sub-task into smaller
+  independent steps (the child re-plans smaller — the natural decomposition point). A single
+  bounded extra attempt: if it still fails, the step's todo stays `pending` and is recorded as
+  `(delegate FAILED — do this yourself)` so the redo-prevention directive can't suppress it.
 
 Default subagents (`cmd/magi/main.go:defaultAgents`): explore, locator, analyst,
 architect, coder, tester, reviewer, planner — each with a restricted toolset (+ ask/report).
