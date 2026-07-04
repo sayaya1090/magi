@@ -106,7 +106,10 @@ class MagiAgent(BaseInstalledAgent):
             model = model[len("openai/") :]
 
         env: dict[str, str] = {}
-        for key in ("MAGI_BASE_URL", "MAGI_API_KEY"):
+        # MAGI_MAX_PLAN_DEPTH is the recursion A/B knob: 2 = full recursive planning,
+        # 1 = top-level plan + single-level delegate but no child re-planning / failure
+        # recursion. Forwarded so both arms share one prebuilt binary (see planDepthFromEnv).
+        for key in ("MAGI_BASE_URL", "MAGI_API_KEY", "MAGI_MAX_PLAN_DEPTH"):
             val = os.environ.get(key)
             if val:
                 env[key] = val
