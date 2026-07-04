@@ -40,7 +40,7 @@ internal/
                             the consensus gate, acceptance criteria, tool execution,
                             permission prompting, and prompt/system assembly
     orchestrate.go          subagent dispatch/spawn/supervisor; escalate (ask); bgGroup
-    planner.go              recursive pre-flight planner: solo/parallel/scout/delegate, ADaPT failure retry
+    planner.go              recursive pre-flight planner: solo/parallel/scout/delegate/refine, ADaPT failure retry + escalate
     workflow.go             deterministic phase pipeline (localize→implement→verify→review)
     policy.go               guardrail policy engine (rules, secret-deny, bash scan, egress)
     hooks.go                lifecycle hooks (PreToolUse/PostToolUse/Stop) + built-in harness
@@ -300,7 +300,9 @@ The orchestrator (top-level session, `Parent==""`) delegates via the **`task`** 
   `[orchestration] planner=false` to disable): before a turn, a tool-free call to the
   `planner` agent judges whether the task splits into independent steps and assigns each a
   strategy — `solo` (the main agent does it), `parallel`/`scout` (read-only explorers fanned
-  out via `spawn`), or **`delegate`** (a write-capable sub-task handed to a producing agent).
+  out via `spawn`), **`delegate`** (a self-contained, *independent* write sub-task handed
+  context-free to a producing agent), or **`refine`** (a large *non-independent* sub-goal worked
+  out in-context — see the hierarchical-refine bullet below).
   Explorers are proactive parallel *investigation* (the complement to reactive
   auto-orchestration); delegate steps are dispatched **inline/sequentially** so their writes
   can't race the council's change capture. Combined findings are injected before the main loop
@@ -324,6 +326,26 @@ The orchestrator (top-level session, `Parent==""`) delegates via the **`task`** 
   independent steps (the child re-plans smaller — the natural decomposition point). A single
   bounded extra attempt: if it still fails, the step's todo stays `pending` and is recorded as
   `(delegate FAILED — do this yourself)` so the redo-prevention directive can't suppress it.
+- **Hierarchical refine** (`runRefineStep`, ADaPT/HTN backtracking): where `delegate` partitions
+  *independent* chunks to context-free children, `refine` recurses on a large sub-goal whose
+  pieces **depend on each other**. The child spawns with the parent's conversation **cloned in**
+  (`SpawnRequest.CloneContext` → `cloneConversation`), so it re-plans at depth+1 with the full
+  context carried forward rather than from a cold prompt. It drives a local re-plan → escalate
+  loop: **success** completes the todo and flags `delegated` (the depth-0 review gate verifies
+  the merged tree); **failure** records the reason into the *parent* context (`recordRefineFailure`)
+  and retries locally up to `refineLocalRetries` — because each retry re-clones the parent, the
+  attempt is *informed* ("a previous attempt failed because X"); **exhaustion** (or an explicit
+  child `STATUS: FAILED`, which backtracks early) leaves the todo `pending` and returns a FAILED
+  finding, so the parent — itself possibly a refine node — re-approaches with the accumulated
+  failures in view ("no more to try → backtrack up"). A refine step's `agent` is *optional* (it
+  states a goal, not who runs it): `resolveWriteExecutor` falls back to any delegatable agent, and
+  refine degrades to solo only when none exists. **Sibling visibility**: because sequential refine
+  phases are dependent, each success also seeds a compact result note into the parent
+  (`recordRefineSuccess`, the mirror of the failure record) — so the *next* phase's clone, taken
+  at its spawn time, carries what the prior phase produced (packages, signatures) instead of
+  spawning blind to it. The plan council must not reject a `refine` plan merely for being abstract
+  (that is the point of hierarchical decomposition), but still rejects genuinely unsound plans by
+  member-lens judgment.
 
 Default subagents (`cmd/magi/main.go:defaultAgents`): explore, locator, analyst,
 architect, coder, tester, reviewer, planner — each with a restricted toolset (+ ask/report).

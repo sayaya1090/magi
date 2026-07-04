@@ -107,7 +107,8 @@ model    = "gpt-oss:20b"
 X-CLIENT-API-KEY = "${FAST_CLIENT_KEY}"
 
 [orchestration]            # 선제 절차 플래너(기본 on): 요청을 순서 절차로 분해 →
-planner = true             # step별 전략(solo|parallel|scout), scout는 목록 확보 후 각 항목 병렬,
+planner = true             # step별 전략(solo|parallel|scout|delegate|refine); scout는 목록 확보 후 각 항목 병렬,
+                           # delegate는 독립 write sub-task를 자식에 위임, refine은 의존 sub-goal을 in-context 재귀,
                            # 멀티스텝이면 실행 전 council이 계획 감사(approve/revise, 합의규칙)하고
                            # 완료기준(산출물·테스트 지침)을 도출해 그 턴의 종료 계약으로 삼는다
 review_gate = true         # 완료 직전 리뷰 게이트(기본 on): 변경이 있던 top-level 턴이 끝나려 할 때,

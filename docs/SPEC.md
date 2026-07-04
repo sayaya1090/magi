@@ -359,10 +359,10 @@ council-nochanges-noterror-1: GitDiff 실패(비-git) ⇒ NoChanges=false(쓰기
 - 남음: 훅·진단·report 등 *다른 생애주기*의 결정적 출력도 같은 Signal 모델로 통일.
 
 ## F-PLAN (루프 트랙) — 절차 planner + 계획 감사(D17)
-시그니처 확장. pre-flight planner를 "solo/parallel 단일판단"에서 **절차 설계기**로. **기본 `[planner] enabled`** 시 동작, 실패는 언제나 solo로 degrade(턴 차단 금지).
+시그니처 확장. pre-flight planner를 "solo/parallel 단일판단"에서 **절차 설계기**로. **기본 `[planner] enabled`** 시 동작, 실패는 언제나 solo로 degrade(턴 차단 금지). (write 자식이 자기 레벨에서 재계획하는 재귀·계층 분해는 아래 **F-PLAN-REC / D18**.)
 
 규칙:
-- P1 planner는 top-level 턴마다 **1회** tool-free 호출 → 요청을 **순서 있는 절차(steps)**로 분해, 각 step에 전략 `{solo|parallel|scout}`. 파싱 실패/0 step → solo.
+- P1 planner는 top-level 턴마다 **1회** tool-free 호출 → 요청을 **순서 있는 절차(steps)**로 분해, 각 step에 전략 `{solo|parallel|scout|delegate|refine}`(delegate/refine은 write-capable 재귀 전략, F-PLAN-REC). 파싱 실패/0 step → solo.
 - P2 steps를 **기존 todos로 등록**(계약 통합) → TUI 단일 계획·council 계약 연결. 메인 에이전트는 이를 **이어서 갱신**(통째 replace 금지, findings 주입 메시지로 지시).
 - P3 `parallel` = 미리 아는 read-only 조사 그룹 병렬. `scout` = **솔로** explorer로 work-list 확보 → 각 항목을 **병렬**(적응형: fan-out 대상이 런타임 발견). dispatch는 read-only explorer(`explore|locator|analyst`)만.
 - P4 **계획 감사 게이트(심각도 게이팅)**: 절차가 **멀티스텝(2+)**이면 실행 전 council이 *절차*를 감사 — `Phase=plan`. 각 위원은 revise(continue) 시 결함의 **심각도**를 표기: `critical`(이대로면 실패/오답/위험) · `warn`(개선 권고) · `info`(사소). **블로킹은 critical만**(veto — **한 명이라도 critical이면 차단**; 합의규칙 Tally가 아니라 critical 유무로 판정). 누락/불명 심각도 → `warn`(비블로킹)으로 정규화.
@@ -380,6 +380,27 @@ plan-audit-criteria-1: 승인 plan의 위원 제안 기준 합성 ⇒ a.criteria
 plan-audit-warn-1:    revise가 warn/info뿐 ⇒ 재플랜 없이 진행 + 조언 시스템 주입   (P4)
 plan-audit-critical-1: critical revise ⇒ critical 피드백 ⇒ planner 재계획          (P4)
 plan-audit-cap-1:     연속 critical ⇒ CouncilMaxRounds 도달 ⇒ 강제 진행(note)
+```
+
+## F-PLAN-REC (루프 트랙) — 재귀·계층 분해 delegate/refine + ADaPT(D18)
+절차 planner를 `runLoop` 안에 두어 dispatch된 write 자식이 **자기 레벨에서 다시 planner를 돌린다**(재귀). F-PLAN의 read-only scout/parallel 위에 write-capable 재귀 전략 둘을 얹어 "어려운 문제를 나눠 푼다"를 실제 수행(ADaPT/HTN 백트래킹). 경계는 항상 solo로 안전 하강.
+
+규칙:
+- R1 **`delegate`(독립 chunk 분할)**: 서로 **독립적** write sub-task를 **컨텍스트-free** producing 자식에 순차 위임(fan-out 안 함 → writes가 council change 캡처와 비경합). 자식은 depth+1 재계획. **ADaPT 실패**: 자식 에러/빈결과면 depth·budget 내 **1회** "더 잘게 분해" 재시도, 그래도 실패 시 todo pending + `(delegate FAILED — do this yourself)`(redo-prevention 미억제).
+- R2 **`refine`(비독립 sub-goal in-context 재귀)**: 의존적 조각의 대형 sub-goal은 부모 대화를 **복제**(`SpawnRequest.CloneContext`→`cloneConversation`)한 자식이 depth+1 재계획. 로컬 재계획→상위 escalate 루프: **success**=todo 완료+`delegated`; **failure**=사유를 부모에 기록(`recordRefineFailure`) 후 로컬 재시도(`refineLocalRetries`, 재복제=informed); **exhaustion**(또는 자식 `STATUS: FAILED` 조기 백트래킹)=todo pending+FAILED 반환→부모가 누적 실패로 재접근.
+- R3 **형제 가시성**: 순차 refine phase는 의존적 → 각 success도 결과를 부모에 compact seed(`recordRefineSuccess`, `clipLine`)해 *다음* phase의 복제가 직전 산출(패키지·시그니처)을 담게 함(blind spawn 방지). 실행자(`agent`)는 optional → `resolveWriteExecutor`가 delegatable fallback, 없으면 solo.
+- R4 **stuck 복구**: solo가 stall(무진전 가드 소진)/council deadlock로 막히면 남은 일을 fresh 재계획 자식에 인계(`redecomposeStuck`)+부모 stall 회계 리셋(`resetStall`) → 복구가 부모 force-stop에 안 걸림.
+- R5 **경계**: `MaxPlanDepth`(기본 2, `MaxDepth`보다 타이트) 이중 상한 · producing 에이전트(write/edit)만·bash-only 검증자는 재계획 안 함 · 인터랙티브/workflow 억제. fabrication 게이트(review-gate tester+council)는 **depth 0만**(부모가 `usedMutator` seed→depth-0 tester가 병합 트리 검사, 리프마다 재실행 X).
+- R6 **계획 감사 렌즈**: `[refine]` 스텝은 **의도적 추상**(실행 시 현재 맥락으로 구체화) → 추상성만으론 critical-revise **금지**(최대 warn 권고). 단 refine 포함 계획이 genuinely **unsound**(접근 오류·필수 액션 스텝 부재·달성 불가)면 추상 여부 무관 **여전히 critical**. "부조리는 거부, 단지 추상적인 것은 승인."
+
+```
+delegate-partition-1: 독립 3파일 생성 ⇒ 순차 delegate 자식 3 ⇒ depth+1 각자 재계획   (R1)
+delegate-adapt-1:     자식 실패 ⇒ "더 잘게" 1회 재시도 ⇒ 실패면 FAILED finding        (R1)
+refine-clone-1:       의존 phase 2 ⇒ CloneContext 자식 ⇒ 부모 맥락 이어받아 재계획       (R2)
+refine-sibling-1:     phase1 success 노트 ⇒ phase2 복제가 그 산출 포함(형제 가시성)      (R3)
+refine-escalate-1:    로컬 재시도 소진 ⇒ FAILED 반환 ⇒ 부모가 재접근(백트래킹)           (R2)
+stuck-redecompose-1:  solo stall ⇒ redecomposeStuck 자식 인계 + resetStall               (R4)
+plan-refine-abstract-1: 추상 refine 계획 ⇒ council critical 금지(warn까지만)             (R6)
 ```
 
 ## F-PLUGIN (M3) — Lua 플러그인

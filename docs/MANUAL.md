@@ -117,8 +117,9 @@ model    = "gpt-oss:20b"
 X-CLIENT-API-KEY = "${FAST_CLIENT_KEY}"
 
 [orchestration]            # pre-flight procedure planner (on by default): decomposes a request into an
-planner = true             # ordered procedure → a strategy per step (solo|parallel|scout); scout obtains
-                           # a list then runs each item in parallel. For multi-step plans, before execution
+planner = true             # ordered procedure → a strategy per step (solo|parallel|scout|delegate|refine); scout
+                           # obtains a list then runs each item in parallel; delegate hands off an independent write
+                           # sub-task; refine recurses on a dependent sub-goal in-context. For multi-step plans, before execution
                            # the council audits the plan: only a CRITICAL flaw blocks (re-plan); warn/info notes are
                            # accepted as non-blocking advice (injected for the executor). It also derives completion
                            # criteria (deliverables · test guidance) as that turn's termination contract.
