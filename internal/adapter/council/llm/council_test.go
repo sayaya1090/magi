@@ -156,6 +156,66 @@ func TestMemberPromptArtifactGrounding(t *testing.T) {
 	}
 }
 
+// TestMemberPromptProportionality guards the analysis/survey calibration: neither
+// phase may derive or enforce an exhaustive "list ALL N with EXACT lines" contract
+// for a large-set analysis task (the '리팩토링 요소 찾아줘' loop, where plan-audit
+// approved an impossible contract the completion council then enforced).
+func TestMemberPromptProportionality(t *testing.T) {
+	m := council.Member{Name: "x", Lens: "completeness"}
+
+	// terminate phase: representative coverage of a large set is done; demanding
+	// exhaustive enumeration / atom-level precision is churn, not a defect.
+	s := memberSystem(m, "terminate", "find refactoring candidates")
+	if !strings.Contains(s, "EXHAUSTIVE enumeration") {
+		t.Error("terminate prompt missing the proportional-completeness clause")
+	}
+	if !strings.Contains(s, "reasonably and representatively") &&
+		!strings.Contains(s, "REASONABLY and representatively") {
+		t.Error("terminate prompt missing the representative-coverage bar")
+	}
+	// The carve-out must NOT relax the concrete-deliverable gate — anchored to any
+	// CREATE/BUILD/RUN/FIX PART, so a compound "analyze + fix" task can't route the
+	// fix half into the relaxed analyze branch (reviewer Finding 1).
+	if !strings.Contains(s, "CREATE/BUILD/RUN/FIX PART") {
+		t.Error("terminate proportionality carve-out not anchored to the concrete-deliverable PART")
+	}
+	// Guard the guardrail: proportionality must sit ALONGSIDE, not replace, the
+	// existence/correctness/run-the-check anchors it defers to. A regression that
+	// deletes those paragraphs must fail here, not pass green (reviewer Finding 2).
+	if !strings.Contains(s, "Existence is not correctness") {
+		t.Error("run-the-check anchor gone — proportionality must not displace it")
+	}
+	if !strings.Contains(s, "actually RAN that check") {
+		t.Error("the 'must actually run the check' requirement is gone")
+	}
+	if !strings.Contains(s, "RATIONALIZES incompletion") {
+		t.Error("the rationalized-incompletion anchor is gone")
+	}
+
+	// plan phase: criteria must be achievable/proportionate — no "all N with exact
+	// lines" done-condition; the old exhaustive "every doc is covered" example is gone.
+	p := memberSystem(m, "plan", "find refactoring candidates")
+	if !strings.Contains(p, "ACHIEVABLE and PROPORTIONATE") {
+		t.Error("plan criteria instruction missing the proportionality guidance")
+	}
+	if !strings.Contains(p, "EXHAUSTIVE enumeration") {
+		t.Error("plan criteria instruction missing the no-exhaustive-enumeration steer")
+	}
+	if strings.Contains(p, "every doc is covered") {
+		t.Error("stale exhaustive 'every doc is covered' example still present")
+	}
+	// Guard the plan-side carve-out too: the criteria relaxation must keep requiring
+	// a concrete artifact + check for a CREATE/BUILD/RUN/FIX task (reviewer Finding 2).
+	if !strings.Contains(p, "CREATE/BUILD/RUN/FIX") {
+		t.Error("plan criteria carve-out for concrete-deliverable tasks is gone")
+	}
+	// terminate-only proportionality framing must not leak into the plan prompt, and
+	// vice-versa — each phase keeps its own wording.
+	if strings.Contains(p, "reasonably and representatively") {
+		t.Error("terminate-phase proportionality framing leaked into the plan prompt")
+	}
+}
+
 func TestDeliberateAllDone(t *testing.T) {
 	c := New(only(fakeLLM{reply: func(port.ChatRequest) string {
 		return `{"decision":"done","confidence":0.9,"rationale":"looks complete"}`
