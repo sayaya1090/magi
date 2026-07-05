@@ -35,6 +35,12 @@ const (
 	TypeCouncilConvened Type = "council.convened"
 	TypeCouncilVerdict  Type = "council.verdict"
 	TypeCouncilDecided  Type = "council.decided"
+
+	// Plan-audit convergence (D17): when the council rejects a plan and the planner
+	// re-plans, this fact records the round's plan revision (before→after) plus the
+	// judged verdict of whether the revision actually addressed the council's concern.
+	// Persisted so "was the revision productive" is auditable from the log/trace.
+	TypePlanRevised Type = "plan.revised"
 )
 
 // Transient events — bus only, not persisted.

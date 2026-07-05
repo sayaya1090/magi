@@ -153,6 +153,52 @@ func TestTurnFinishedUnverifiedRoundTrip(t *testing.T) {
 	}
 }
 
+// PlanRevisedData records a plan-audit re-plan round. The Addressed pointer distinguishes
+// "the convergence judge ran and returned a verdict" (true/false) from "the judge did not
+// run" (nil, omitted) — so observability of the diff/critique stands even when gating is off.
+func TestPlanRevisedRoundTrip(t *testing.T) {
+	yes := true
+	for _, tc := range []struct {
+		name      string
+		addressed *bool
+		want      string // presence of the addressed key in the JSON
+	}{
+		{"judge-off-nil", nil, ""},
+		{"addressed", &yes, `"addressed":true`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := PlanRevisedData{
+				Round: 2, Critique: "add a step to size A1",
+				Before: []string{"[solo] compute"}, After: []string{"[solo] size A1", "[solo] compute"},
+				Addressed: tc.addressed, Reason: "revised plan now sizes A1",
+			}
+			b, err := json.Marshal(in)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			if tc.want == "" {
+				if strings.Contains(string(b), "addressed") {
+					t.Errorf("nil Addressed should be omitted, got %s", b)
+				}
+			} else if !strings.Contains(string(b), tc.want) {
+				t.Errorf("want %s in %s", tc.want, b)
+			}
+			var got PlanRevisedData
+			if err := json.Unmarshal(b, &got); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if (got.Addressed == nil) != (tc.addressed == nil) ||
+				(tc.addressed != nil && *got.Addressed != *tc.addressed) {
+				t.Errorf("Addressed round-trip: got %v want %v", got.Addressed, tc.addressed)
+			}
+			if got.Round != in.Round || got.Critique != in.Critique ||
+				len(got.Before) != 1 || len(got.After) != 2 || got.Reason != in.Reason {
+				t.Errorf("payload round-trip mismatch: got %+v", got)
+			}
+		})
+	}
+}
+
 // Droppable marks high-volume streaming events that may be dropped under backpressure;
 // low-volume state transitions must not be.
 func TestDroppable(t *testing.T) {

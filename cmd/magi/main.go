@@ -606,6 +606,29 @@ func renderText(out, errw io.Writer, e event.Event) {
 			}
 			fmt.Fprintln(out, line)
 		}
+	case event.TypePlanRevised:
+		// A plan-audit re-plan round: show the critique, the before→after step diff, and
+		// (when the convergence judge ran) whether the revision addressed the concern. Its
+		// own case avoids the 200-char note truncation and renders the diff line-by-line.
+		var d event.PlanRevisedData
+		if json.Unmarshal(e.Data, &d) == nil {
+			crit := strings.ReplaceAll(truncate(strings.TrimSpace(d.Critique), 200), "\n", " ")
+			fmt.Fprintf(out, "⟳ council plan-revised (round %d): %s\n", d.Round, crit)
+			added, removed := diffSteps(d.Before, d.After)
+			for _, s := range removed {
+				fmt.Fprintf(out, "    − %s\n", truncate(s, 120))
+			}
+			for _, s := range added {
+				fmt.Fprintf(out, "    + %s\n", truncate(s, 120))
+			}
+			if d.Addressed != nil {
+				mark := "no"
+				if *d.Addressed {
+					mark = "yes"
+				}
+				fmt.Fprintf(out, "    → addressed=%s: %s\n", mark, truncate(strings.TrimSpace(d.Reason), 200))
+			}
+		}
 	case event.TypeCompaction:
 		// Context compaction collapses older history into a summary; surface it so
 		// headless runs (scripts, CI, benchmarks) can see when — and how much —
@@ -641,6 +664,31 @@ func renderText(out, errw io.Writer, e event.Event) {
 			fmt.Fprintln(errw, "error:", d.Message)
 		}
 	}
+}
+
+// diffSteps computes the step-summary set difference between two plan revisions:
+// added = in after but not before, removed = in before but not after. Order follows the
+// respective slice; duplicate summaries collapse (a plan rarely has identical step lines).
+func diffSteps(before, after []string) (added, removed []string) {
+	inBefore := make(map[string]bool, len(before))
+	for _, s := range before {
+		inBefore[s] = true
+	}
+	inAfter := make(map[string]bool, len(after))
+	for _, s := range after {
+		inAfter[s] = true
+	}
+	for _, s := range after {
+		if !inBefore[s] {
+			added = append(added, s)
+		}
+	}
+	for _, s := range before {
+		if !inAfter[s] {
+			removed = append(removed, s)
+		}
+	}
+	return added, removed
 }
 
 func truncate(s string, n int) string {

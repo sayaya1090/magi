@@ -168,6 +168,22 @@ type CouncilDeliberatingData struct {
 	State  string `json:"state"` // "asking" (emitted) — "voted" inferred from council.verdict
 }
 
+// PlanRevisedData — TypePlanRevised (plan-audit convergence). Emitted once per re-plan
+// round, right after the planner produces a revised procedure in response to a critical
+// council concern. Before/After are the step summaries ("[strategy] title") of the plan
+// heading into and coming out of this revision, so a reader can see WHAT changed. Critique
+// is the concern the revision was meant to address. Addressed is the judged verdict of
+// whether the revision actually engaged that concern — nil when the convergence judge did
+// not run (MAGI_PLAN_CONVERGE off), so observability stands alone from the gating.
+type PlanRevisedData struct {
+	Round     int      `json:"round"`
+	Critique  string   `json:"critique,omitempty"`
+	Before    []string `json:"before,omitempty"`
+	After     []string `json:"after,omitempty"`
+	Addressed *bool    `json:"addressed,omitempty"`
+	Reason    string   `json:"reason,omitempty"`
+}
+
 // --- Transient payloads (bus only) ---
 
 // PartDeltaData — TypePartDelta (streaming text chunk).
