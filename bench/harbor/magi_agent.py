@@ -121,7 +121,14 @@ class MagiAgent(BaseInstalledAgent):
         # MAGI_SPEC_FIDELITY=0 is a sixth: it turns off the spec-fidelity defenses (planner
         # literal-preservation rule + plan-time note + verbatim delegate SPEC anchor), so a deep
         # plan may paraphrase away exact identifiers a grader checks — the paraphrase-only
-        # baseline. All are forwarded so the arms share one prebuilt binary.
+        # baseline. MAGI_PLAN_CONVERGE=0 is a seventh: it turns off the plan-audit convergence
+        # judgment (does a re-plan actually address the council's concern), restoring the
+        # round-count-only bound — the A/B knob for whether an unproductive re-plan stops early
+        # instead of burning the round cap before execution starts. MAGI_STALL_CONVERGE=0 is an
+        # eighth: it turns off the stalled-nudge convergence (collapse the no-progress re-arm when
+        # a redirect produced no forward motion), restoring the fixed maxStallNudges re-arm — the
+        # A/B knob for whether an ignored stall lands the honest force-stop sooner. All are
+        # forwarded so the arms share one prebuilt binary.
         for key in (
             "MAGI_BASE_URL",
             "MAGI_API_KEY",
@@ -132,21 +139,47 @@ class MagiAgent(BaseInstalledAgent):
             "MAGI_REFINE_SHARED",
             "MAGI_SPEC_FIDELITY",
             "MAGI_EVIDENCE_GATE",
+            "MAGI_PLAN_CONVERGE",
+            "MAGI_STALL_CONVERGE",
         ):
             val = os.environ.get(key)
             if val:
                 env[key] = val
 
-        result = await environment.exec(
-            command=(
-                "magi -p "
-                f"{shlex.quote(instruction)} "
-                "--permission allow "
-                f"--model {shlex.quote(model)}"
-            ),
-            env=env or None,
+        # Stream magi's stdout to disk line-by-line instead of writing it once at exec
+        # completion. Harbor caps the agent phase with a trial-level asyncio.wait_for;
+        # on the hard-kill (default 900s) the exec coroutine is cancelled and the
+        # buffered exec path DISCARDS everything collected so far — so a task that runs
+        # to the wall loses its whole trace (magi-stdout.txt never written). Registering
+        # an output callback makes the docker env take its STREAMED exec path (stderr is
+        # merged into stdout there), flushing each line to the file as it arrives, so
+        # whatever ran before the kill is preserved for post-hoc analysis.
+        command = (
+            "magi -p "
+            f"{shlex.quote(instruction)} "
+            "--permission allow "
+            f"--model {shlex.quote(model)}"
         )
-        (self.logs_dir / "magi-stdout.txt").write_text(result.stdout or "")
+        stdout_path = self.logs_dir / "magi-stdout.txt"
+        result = None
+        with stdout_path.open("w") as f:
+
+            async def _on_output(text: str, _stream: object) -> None:
+                f.write(text)
+                f.flush()
+
+            try:
+                with environment.scoped_output_callback(_on_output):
+                    result = await environment.exec(command=command, env=env or None)
+            finally:
+                f.flush()
+
+        # Fallback for environments that don't stream (buffered exec leaves the file
+        # empty): persist the buffered stdout once on a clean return.
+        if result is None:
+            return
+        if result.stdout and stdout_path.stat().st_size == 0:
+            stdout_path.write_text(result.stdout)
         if result.stderr:
             (self.logs_dir / "magi-stderr.txt").write_text(result.stderr)
         if result.return_code != 0:
