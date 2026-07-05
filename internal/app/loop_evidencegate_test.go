@@ -16,7 +16,10 @@ import (
 // while the review-gate tester always returns BLOCKED — it can never PASS the current
 // version. So reviewPassedEpoch never catches up to the mutation epoch: the exact
 // false-victory shape the execution-evidence gate exists to catch, where the agent
-// insists it is finished but no independent run ever confirmed the deliverable.
+// insists it is finished but no independent run ever confirmed the deliverable. The
+// deliverable is a RUNNABLE file (.py): the gate should push "actually run it" once
+// before landing unverified. A non-runnable deliverable takes the separate no-push
+// UNRUNNABLE path (D4), covered by TestUnrunnable* — the two must not be conflated.
 type evidenceGateLLM struct {
 	mu          sync.Mutex
 	testerCalls int
@@ -38,7 +41,7 @@ func (f *evidenceGateLLM) StreamChat(ctx context.Context, r port.ChatRequest) (<
 	default: // main agent: one write, then always insist "done" (never fixes, never re-runs)
 		if countWriteCalls(r) == 0 {
 			evs = []port.ProviderEvent{
-				{Type: port.ProviderToolCall, ToolCall: &session.ToolCall{CallID: "c_w", Name: "write", Args: []byte(`{"path":"out.txt","content":"v1"}`)}},
+				{Type: port.ProviderToolCall, ToolCall: &session.ToolCall{CallID: "c_w", Name: "write", Args: []byte(`{"path":"out.py","content":"print('v1')"}`)}},
 				{Type: port.ProviderFinish},
 			}
 		} else {

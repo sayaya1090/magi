@@ -549,6 +549,39 @@ func evidenceGateEnabled() bool {
 	return true
 }
 
+// directionGateEnabled gates the direction-terminal short-circuit (D1): when a top-level turn
+// comes back to finish with its deliverable CONTENT unchanged since the last finish attempt
+// (guard.progressFingerprint frozen) and still no independent PASS for that version
+// (mutationEpoch != reviewPassedEpoch), re-deliberating the council or re-spawning the tester
+// cannot help — the agent is not changing the artifact — so the turn lands UNVERIFIED instead
+// of burning rounds/tester runs to the wall. It NEVER forces a pass: the honest terminal state
+// is "unverified", the on-disk deliverable is left as-is for the grader. Default ON;
+// MAGI_DIRECTION_GATE=0 restores the pre-gate behavior (the council/evidence gates alone bound
+// a content-frozen spin) — the A/B knob.
+func directionGateEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_DIRECTION_GATE"))) {
+	case "0", "off", "false", "no":
+		return false
+	}
+	return true
+}
+
+// verdictTierEnabled gates the tester verdict tiering (D2): a tester that reports PASS but whose
+// own command trace ran NOTHING that could exercise the deliverable — only inspect-only commands
+// (cat/ls/test -f/echo …) or no command at all — has produced a VACUOUS pass ("the file exists
+// and is non-empty"), not a verification. Tiering downgrades that to INCONCLUSIVE so the
+// fresh-evidence gate stays closed, exactly as if unverified. It keys off the SAME closed-set
+// inspectOnly primitive that classifies the main agent's own runs, applied to the tester's
+// actions — structural, no prose scanning. Default ON; MAGI_VERDICT_TIER=0 keeps the binary
+// PASS/FAIL/BLOCKED verdict (the A/B knob).
+func verdictTierEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_VERDICT_TIER"))) {
+	case "0", "off", "false", "no":
+		return false
+	}
+	return true
+}
+
 // refineShare threads the shared-session state across a plan's refine phases: the first phase
 // pins the child session it created and that session's executor here; later phases reuse both
 // so they run in ONE session with a stable agent. Zero value = no shared session yet.

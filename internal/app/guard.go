@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -315,6 +316,76 @@ func (g *runGuard) changeSet() []fileChange {
 		out = append(out, *g.changed[p])
 	}
 	return out
+}
+
+// progressFingerprint returns a CONTENT-addressed hash of this turn's deliverable state — the
+// set of {path → hash(current content)} over every file the agent changed via write/edit
+// (guard.changed). Unlike mutationEpoch, which counts write EVENTS, this keys on the bytes on
+// disk: rewriting a file with identical content, or editing then reverting, leaves the
+// fingerprint unchanged. That is exactly the spin mutationEpoch/text-equality miss — an agent
+// that keeps "producing" the same deliverable (varied narration, re-writes of the same bytes)
+// while a tester never passes. Order-independent (paths sorted). Empty ("") when the agent has
+// changed no file this turn, so a text-only turn never matches a prior fingerprint. It covers
+// only write/edit deliverables (bash-authored files don't flow through recordChange), which is
+// safe: an absent fingerprint just declines the direction-terminal short-circuit. One edge:
+// after an edit records a path, a later bash overwrite of that SAME path leaves .after stale, so
+// the fingerprint can read "frozen" while on-disk bytes actually changed — bounded and harmless
+// here, since that bash write bumps the epoch (re-arming the review gate first) and D1's
+// epoch!=reviewPassedEpoch guard means the outcome label is UNVERIFIED either way; only a little
+// deliberation is cut early, never a verified result mislabeled.
+func (g *runGuard) progressFingerprint() string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if len(g.changeOrder) == 0 {
+		return ""
+	}
+	paths := make([]string, len(g.changeOrder))
+	copy(paths, g.changeOrder)
+	sort.Strings(paths)
+	h := fnv.New64a()
+	for _, p := range paths {
+		fmt.Fprintf(h, "%s\x00%016x\x00", p, hashContent(g.changed[p].after))
+	}
+	return strconv.FormatUint(h.Sum64(), 16)
+}
+
+// nonRunnableExts are file types that carry DATA, CONFIG, or DOCUMENTATION rather than an
+// executable program — there is structurally nothing to "run" against them, so an independent
+// tester genuinely cannot exercise a deliverable made only of these (it can restate the file
+// exists, never run it to a passing result). The set is CLOSED and deliberately conservative:
+// anything NOT listed — a code/script extension (.py/.go/.sh/.js/…), no extension at all
+// (Makefile/Dockerfile/a bare script or binary), or an unknown extension — is treated as
+// RUNNABLE. That bias is the safety property: deliverableRunnable never labels a real program
+// UNRUNNABLE, so the honest "nothing to run" outcome (D4) can only ever REPLACE a spurious
+// "not run" label on genuinely inert output, never mask a program the agent failed to execute.
+var nonRunnableExts = map[string]bool{
+	".md": true, ".markdown": true, ".rst": true, ".adoc": true, ".txt": true, ".text": true,
+	".json": true, ".yaml": true, ".yml": true, ".toml": true, ".ini": true, ".cfg": true,
+	".conf": true, ".config": true, ".properties": true, ".env": true, ".csv": true, ".tsv": true,
+	".xml": true, ".html": true, ".htm": true, ".css": true, ".scss": true, ".less": true,
+	".svg": true, ".lock": true, ".log": true, ".pdf": true, ".rtf": true,
+}
+
+// deliverableRunnable reports whether this turn's write/edit deliverable set contains anything
+// that could be RUN to verify it — i.e. at least one changed path that is not a pure
+// data/config/doc file (see nonRunnableExts). It returns true (the safe default) when no file
+// was changed via write/edit (an empty set, or a bash-authored deliverable that never flowed
+// through recordChange), so a turn with an unknown deliverable is always treated as runnable and
+// the honest-UNRUNNABLE path (D4) declines to fire. It is false ONLY when the agent changed at
+// least one file AND every changed file is a non-runnable type — the genuinely-nothing-to-run
+// case where "unverified by execution" would be a mislabel rather than a real gap.
+func (g *runGuard) deliverableRunnable() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if len(g.changeOrder) == 0 {
+		return true
+	}
+	for _, p := range g.changeOrder {
+		if !nonRunnableExts[strings.ToLower(filepath.Ext(p))] {
+			return true // a code/script/unknown/no-extension file — something is runnable
+		}
+	}
+	return false
 }
 
 // noteBashWrite records a bash command that AUTHORS a file — a heredoc (`<<`), a `tee`, or

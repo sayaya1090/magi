@@ -51,12 +51,40 @@ func countWriteCalls(r port.ChatRequest) int {
 	return n
 }
 
+// countToolCalls counts tool CALLS of the given name already in this request's history —
+// used so a scripted tester can tell its first round (run the check) from its second (report
+// the verdict) within one spawn.
+func countToolCalls(r port.ChatRequest, name string) int {
+	n := 0
+	for _, m := range r.Messages {
+		for _, p := range m.Parts {
+			if p.Kind == session.PartToolCall && p.ToolCall != nil && p.ToolCall.Name == name {
+				n++
+			}
+		}
+	}
+	return n
+}
+
 func (f *freshEvidenceLLM) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan port.ProviderEvent, error) {
 	f.mu.Lock()
 	prompt := promptText(r)
 	var evs []port.ProviderEvent
 	switch {
 	case strings.Contains(prompt, "Independently VERIFY"): // the tester
+		// First round of a tester spawn: actually RUN a real (non-inspect) check so the
+		// verdict is not vacuous under the verdict tier (D2). `bash out.txt` runs the
+		// deliverable rather than merely inspecting it; the recorded tool-call is what the
+		// exercise check keys off, independent of the command's own exit. The verdict is
+		// emitted only on the SECOND round (once the run is in history), so testerCalls
+		// still counts one verdict per spawn.
+		if countToolCalls(r, "bash") == 0 {
+			evs = []port.ProviderEvent{
+				{Type: port.ProviderToolCall, ToolCall: &session.ToolCall{CallID: "c_verify_" + string(rune('0'+f.testerCalls)), Name: "bash", Args: []byte(`{"command":"bash out.txt"}`)}},
+				{Type: port.ProviderFinish},
+			}
+			break
+		}
 		v := f.verdicts[len(f.verdicts)-1]
 		if f.testerCalls < len(f.verdicts) {
 			v = f.verdicts[f.testerCalls]

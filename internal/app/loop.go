@@ -140,6 +140,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	lastCouncilFeedback := ""        // last round's feedback (no-progress detection)
 	prevFinishText := ""             // the answer the council rejected last round
 	prevFinishCalls := -1            // guard.callCount() at that rejection (-1 = none yet)
+	prevFinishFp := ""               // guard.progressFingerprint() at that rejection ("" = none yet); D1 direction-terminal
 	councilSpent := time.Duration(0) // self-measured wall-clock consumed by deliberations
 	councilDeadlock := false         // set by the gate iff its finish was a genuine round-cap deadlock (never approved)
 	turnTask := ""                   // the user instruction THIS turn answers, snapshotted at
@@ -485,11 +486,39 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					continue
 				}
 			}
+			// Direction-terminal short-circuit (D1): the agent came back to finish with its
+			// deliverable CONTENT unchanged since its last finish attempt (progressFingerprint
+			// frozen) and still no independent PASS for that version (mutationEpoch !=
+			// reviewPassedEpoch). Re-deliberating the council or re-spawning the tester cannot
+			// help — it is not changing the artifact — so this is a terminal "not verified"
+			// state, not a spin to keep pushing. Content-addressed (not epoch/text): it catches
+			// the varied-echo / rewrite-same-bytes spin that the idle short-circuit below (which
+			// needs byte-identical narration AND zero tool calls) and mutationEpoch both miss.
+			// Only for file-deliverable turns (usedMutator); a text-only turn has no fingerprint
+			// and keeps the byte-equality path. Fires from the SECOND frozen finish (prevFinishFp
+			// is only recorded once the council let a finish through), so the council still gets
+			// one full round before the turn lands honestly UNVERIFIED (see the evidence gate).
+			// Scoped like the evidence gate to ReviewGate + tester agents: only an INDEPENDENT
+			// verifier that has NOT passed the current version makes "unverified" a fact. Without
+			// a tester (reviewPassedEpoch stays -1 forever) a genuinely-complete single-file task
+			// that the council merely re-questions would be mislabeled, so there we defer to the
+			// council/self-verify path unchanged.
+			frozenUnverified := directionGateEnabled() && usedMutator &&
+				a.cfg.ReviewGate && a.hasReviewGateAgents() && prevFinishFp != "" &&
+				guard.progressFingerprint() == prevFinishFp && guard.mutationEpoch() != reviewPassedEpoch
+			if frozenUnverified {
+				dd, _ := json.Marshal(event.CouncilDecidedData{
+					Round: councilRounds + 1, Decision: string(council.Done),
+					Note: "deliverable content unchanged and still unverified by execution since the last finish attempt — finishing UNVERIFIED without further deliberation",
+				})
+				a.appendFact(ctx, sid, event.TypeCouncilDecided, event.Actor{Kind: event.ActorSystem, ID: "council"}, dd)
+			}
 			// Consensus council termination gate (D14): top level only, not in
 			// workflow mode, and only for turns that did real work — a purely
 			// conversational reply (no tool use, e.g. a greeting) has nothing to
-			// verify, so gating it just churns and can derail a weak model.
-			if depth == 0 && a.cfg.Council != nil && !a.cfg.Workflow && usedTools {
+			// verify, so gating it just churns and can derail a weak model. Skipped
+			// when D1 already resolved this finish as terminal-unverified above.
+			if !frozenUnverified && depth == 0 && a.cfg.Council != nil && !a.cfg.Workflow && usedTools {
 				// Structural fabrication evidence for the council: if the agent changed a
 				// deliverable this turn but ran no command exercising the current version, that is a
 				// hard, language-agnostic fact a text-only vote can't wave through. Replaces the old
@@ -510,6 +539,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					a.appendFact(ctx, sid, event.TypeCouncilDecided, event.Actor{Kind: event.ActorSystem, ID: "council"}, dd)
 				} else if a.runCouncilGate(ctx, s, agent, turnTask, lastText, &councilRounds, &lastCouncilFeedback, buildCouncilChanges(guard.changeSet()), maxSteps-step, fab, time.Since(runStart), &councilSpent, &councilDeadlock) {
 					prevFinishText, prevFinishCalls = lastText, guard.callCount()
+					prevFinishFp = guard.progressFingerprint() // D1: snapshot deliverable content so a next unchanged finish lands
 					continue
 				} else if !recovered && councilDeadlock &&
 					strings.TrimSpace(lastCouncilFeedback) != "" && a.planEligible(agent, depth) {
@@ -542,9 +572,27 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			// AFTER the last change. Only meaningful when the tester actually ran (ReviewGate +
 			// agents present); the self-verify fallback has no independent verdict to stand on.
 			unverified, unverifiedReason := false, ""
-			if depth == 0 && usedTools && usedMutator && evidenceGateEnabled() &&
+			if frozenUnverified {
+				// D1 already ruled this finish terminal-unverified: the deliverable content did
+				// not change since the last finish, so re-running the evidence push (which only
+				// asks the agent to run the SAME unchanged artifact again) would just spin. Land
+				// honestly now — the current best deliverable stays on disk for the grader.
+				unverified = true
+				unverifiedReason = "the deliverable content did not change across finish attempts and was not independently run to a passing result — outcome is unverified by execution"
+			} else if depth == 0 && usedTools && usedMutator && evidenceGateEnabled() &&
 				a.cfg.ReviewGate && a.hasReviewGateAgents() && guard.mutationEpoch() != reviewPassedEpoch {
-				if !evidencePushed {
+				// Structural UNRUNNABLE (D4): the change set is entirely non-executable
+				// (config/doc/data), so there is genuinely nothing to independently run — the
+				// tester could never pass it, and pushing "actually run it now" only churns at a
+				// deliverable that cannot be run. Land honestly now with a reason that says
+				// "nothing to run" rather than "you failed to run it". Still UNVERIFIED: the pass
+				// is never forced, the file just stays on disk for the grader. Conservative — any
+				// code/script/unknown file in the set makes this false, so a real program is never
+				// mislabeled. Under the same verdict-tier flag as the vacuous-pass demotion (D2).
+				if verdictTierEnabled() && !guard.deliverableRunnable() {
+					unverified = true
+					unverifiedReason = "the change set is non-executable (config/doc/data), so there is nothing to independently run — delivered but unverified by execution"
+				} else if !evidencePushed {
 					// One bounded chance to make it real before we accept the finish: run the
 					// current version and fix what breaks, or say plainly you could not. Never
 					// loop on this — if it comes back still unverified, land honestly below.
@@ -562,11 +610,12 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					})
 					a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
 					continue
+				} else {
+					// Push already spent and still no passing run for the current version: finish,
+					// but labeled honestly rather than laundered as a confident success.
+					unverified = true
+					unverifiedReason = "the deliverable was not independently run to a passing result this turn — outcome is unverified by execution"
 				}
-				// Push already spent and still no passing run for the current version: finish, but
-				// labeled honestly rather than laundered as a confident success.
-				unverified = true
-				unverifiedReason = "the deliverable was not independently run to a passing result this turn — outcome is unverified by execution"
 			}
 			a.setStage(sid, stageFinalize) // turn is ending (D15)
 			// Turn-cumulative usage (§8.1): out/cost summed across steps, in = last.

@@ -66,7 +66,94 @@ const (
 	verdictPass    = "PASS"    // the tester ran the real verification and it works
 	verdictFail    = "FAIL"    // the tester ran it and found a real problem
 	verdictBlocked = "BLOCKED" // the tester could NOT actually run it → treat as unverified
+	// verdictInconclusive is NOT a token the tester emits — it is derived structurally by the
+	// verdict tier (D2): the tester SAID PASS, but its own command trace shows it ran nothing
+	// that could exercise the deliverable (only inspect-only commands, or none). A pass with no
+	// real run is vacuous, so it is demoted to this and treated as unverified — the fresh-evidence
+	// gate never opens on it. See sessionExercisedCheck / runReviewGate.
+	verdictInconclusive = "INCONCLUSIVE"
+
+	// anchorMaxBytes bounds the runnable example (D3) lifted from the task text so a large task
+	// body can't blow up the tester prompt; the anchor is a nudge to run the task's OWN example,
+	// not a full spec dump.
+	anchorMaxBytes = 800
 )
+
+// extractRunnableAnchor lifts the FIRST fenced code block from the task text — a purely
+// STRUCTURAL parse on the ``` delimiter, never a semantic keyword scan. The idea (D3): a weak
+// tester left to invent its own check tends to write a vacuous one ("the file exists"); giving it
+// the task's own concrete example to run anchors verification on what the task actually
+// demonstrates (e.g. the regex task's Python `re.findall` usage). Returns "" when the task ships
+// no fenced example, in which case the tester self-constructs as before.
+func extractRunnableAnchor(task string) string {
+	var block []string
+	in := false
+	for _, ln := range strings.Split(task, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(ln), "```") {
+			if in {
+				if s := strings.TrimSpace(strings.Join(block, "\n")); s != "" {
+					if len(s) > anchorMaxBytes {
+						s = strings.ToValidUTF8(s[:anchorMaxBytes], "") // rune-safe cut: drop a split trailing rune
+					}
+					return s
+				}
+				block, in = nil, false
+				continue
+			}
+			in = true
+			continue
+		}
+		if in {
+			block = append(block, ln)
+		}
+	}
+	return ""
+}
+
+// sessionExercisedCheck reports whether the tester's OWN run actually exercised the deliverable:
+// did it run at least one bash command that is not inspect-only? It reuses the exact closed-set
+// isInspectOnly classifier the main-agent execution-evidence signal uses (cat/ls/test -f/echo …
+// do NOT count), so "exercised" means the tester ran a program/test that could actually fail on
+// wrong work — not that it printed a file or echoed a banner. A tester whose whole trace is
+// inspect-only (or empty) verified nothing, so a PASS it reports is vacuous. Structural: it walks
+// tool-call parts, never the tester's prose.
+func sessionExercisedCheck(evs []event.Event) bool {
+	for _, e := range evs {
+		if e.Type != event.TypePartAppended {
+			continue
+		}
+		var d event.PartAppendedData
+		if json.Unmarshal(e.Data, &d) != nil {
+			continue
+		}
+		if d.Part.Kind != session.PartToolCall || d.Part.ToolCall == nil || d.Part.ToolCall.Name != "bash" {
+			continue
+		}
+		var ba struct {
+			Command string `json:"command"`
+		}
+		if json.Unmarshal(d.Part.ToolCall.Args, &ba) == nil && !isInspectOnly(ba.Command) {
+			return true
+		}
+	}
+	return false
+}
+
+// testerExercisedCheck reads the tester subagent's session and reports whether it ran a real
+// (non-inspect) check. A missing session id or a read error fails OPEN (returns true): the tier
+// only ever DEMOTES a pass, so when we cannot see the trace we must not manufacture an
+// INCONCLUSIVE out of thin air — better to leave the tester's own PASS standing than to block a
+// finish on missing evidence.
+func (a *App) testerExercisedCheck(ctx context.Context, sid session.SessionID) bool {
+	if sid == "" {
+		return true
+	}
+	evs, err := a.store.Read(ctx, sid, 0)
+	if err != nil {
+		return true
+	}
+	return sessionExercisedCheck(evs)
+}
 
 // parseTesterVerdict extracts the tester's PASS/FAIL/BLOCKED verdict from its report by
 // scanning for the mandated `VERDICT: <token>` line, case-insensitively, and returns the
@@ -162,15 +249,24 @@ func reviewGroups(changes []fileChange, maxPerGroup int) []reviewGroup {
 // pass. Returns the number of subagents actually spawned (so the caller can debit
 // the per-run budget) and the tester's PASS/FAIL/BLOCKED verdict (the behavioral,
 // language-agnostic completion signal — see parseTesterVerdict). A spawn count of 0
-// yields a BLOCKED verdict (nothing was verified). budget is assumed > 0 by the caller.
+// yields a BLOCKED verdict (nothing was verified). A reported PASS whose own trace ran no real
+// check is demoted to INCONCLUSIVE (D2), which the caller treats as unverified exactly like a
+// non-PASS. budget is assumed > 0 by the caller.
 func (a *App) runReviewGate(ctx context.Context, s session.Session, task string, changes []fileChange, budget int) (spawned int, verdict string) {
 	if budget <= 0 { // enforce the budget contract even if a caller forgets to
 		return 0, verdictBlocked
 	}
 	// The tester always runs first (holistic build/test is the anti-fabrication
 	// core); remaining budget fans out reviewers over the changed-area groups.
+	// D3: anchor the tester on the task's own runnable example (if it ships one) so a
+	// weak tester runs THAT rather than inventing a vacuous check.
+	testerJobFocus := testerFocus
+	if anchor := extractRunnableAnchor(task); anchor != "" {
+		testerJobFocus += "\n\nThe task text includes this concrete example — RUN it against your deliverable and " +
+			"judge by its REAL output, instead of inventing your own (possibly weaker) check:\n```\n" + anchor + "\n```"
+	}
 	type job struct{ role, agent, focus, files string }
-	jobs := []job{{role: "VERIFY", agent: "tester", focus: testerFocus, files: changedFilesList(changes)}}
+	jobs := []job{{role: "VERIFY", agent: "tester", focus: testerJobFocus, files: changedFilesList(changes)}}
 	for _, g := range reviewGroups(changes, reviewGroupMaxFiles) {
 		if len(jobs) >= budget {
 			break
@@ -189,6 +285,7 @@ func (a *App) runReviewGate(ctx context.Context, s session.Session, task string,
 	// tester always runs first).
 	texts := make([]string, len(jobs))
 	raw := make([]string, len(jobs))
+	sessIDs := make([]session.SessionID, len(jobs)) // child session per job — sessIDs[0] is the tester's, for the exercise check
 	var wg sync.WaitGroup
 	for i, j := range jobs {
 		wg.Add(1)
@@ -201,6 +298,7 @@ func (a *App) runReviewGate(ctx context.Context, s session.Session, task string,
 			out := a.spawn(rctx, s, 0, port.SpawnRequest{Agent: j.agent, Prompt: prompt})
 			text := strings.TrimSpace(out.Text)
 			raw[i] = text
+			sessIDs[i] = out.SessionID
 			if out.Err != "" {
 				text = "(could not complete: " + out.Err + ")"
 			}
@@ -214,6 +312,14 @@ func (a *App) runReviewGate(ctx context.Context, s session.Session, task string,
 	// The tester (jobs[0]) carries the behavioral verdict; a spawn that errored/returned
 	// nothing parses as BLOCKED (unverified), never PASS.
 	verdict = parseTesterVerdict(raw[0])
+	// Verdict tier (D2): a reported PASS whose own run exercised nothing (only inspect-only
+	// commands, or none) is vacuous — demote it to INCONCLUSIVE so the fresh-evidence gate stays
+	// closed. Only ever demotes; fails open on a missing/unreadable trace.
+	inconclusive := false
+	if verdict == verdictPass && verdictTierEnabled() && !a.testerExercisedCheck(ctx, sessIDs[0]) {
+		verdict = verdictInconclusive
+		inconclusive = true
+	}
 
 	parts := make([]string, 0, len(texts))
 	for _, t := range texts {
@@ -234,6 +340,14 @@ func (a *App) runReviewGate(ctx context.Context, s session.Session, task string,
 		"re-check, then finish. If they confirm the work is correct and complete, finish. Do not paper over a " +
 		"gap they surfaced or restate that it works without addressing it; if verification could not actually " +
 		"run, treat that as UNFINISHED rather than assuming success."
+	// D2: if the tester claimed PASS but its own run exercised nothing, that "pass" is vacuous.
+	// Say so concretely so the agent actually RUNS the deliverable rather than trusting the label.
+	if inconclusive {
+		msg += "\n\nNOTE: the verifier reported PASS but its run exercised nothing — it inspected files " +
+			"(e.g. cat/ls/test) without actually running the program or its tests. That is NOT verification. " +
+			"Actually execute the deliverable against the task's real inputs/examples and confirm the real " +
+			"output before finishing; do not rely on that vacuous PASS."
+	}
 	pd, _ := json.Marshal(event.PromptSubmittedData{
 		MessageID: "m_" + newID(),
 		Parts:     []session.Part{{Kind: session.PartText, Text: msg}},
