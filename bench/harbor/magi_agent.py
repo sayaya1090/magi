@@ -117,8 +117,11 @@ class MagiAgent(BaseInstalledAgent):
         # after one shot, leaving only planned decomposition + the stall safety net.
         # MAGI_REFINE_SHARED=0 is a fifth: it makes a plan's dependent refine phases each get
         # their OWN spawn-time clone (the legacy baseline) instead of sharing ONE child session
-        # in which later phases see their predecessors' actual work (the default). All are
-        # forwarded so the arms share one prebuilt binary.
+        # in which later phases see their predecessors' actual work (the default).
+        # MAGI_SPEC_FIDELITY=0 is a sixth: it turns off the spec-fidelity defenses (planner
+        # literal-preservation rule + plan-time note + verbatim delegate SPEC anchor), so a deep
+        # plan may paraphrase away exact identifiers a grader checks — the paraphrase-only
+        # baseline. All are forwarded so the arms share one prebuilt binary.
         for key in (
             "MAGI_BASE_URL",
             "MAGI_API_KEY",
@@ -127,6 +130,8 @@ class MagiAgent(BaseInstalledAgent):
             "MAGI_STEP_CONTEXT",
             "MAGI_ADAPT",
             "MAGI_REFINE_SHARED",
+            "MAGI_SPEC_FIDELITY",
+            "MAGI_EVIDENCE_GATE",
         ):
             val = os.environ.get(key)
             if val:
