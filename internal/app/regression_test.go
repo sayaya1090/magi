@@ -241,6 +241,133 @@ func TestShouldNudgeStalled(t *testing.T) {
 	}
 }
 
+// TestStallConvergeCollapsesIgnoredReArm (D18a): when the stalled nudge re-arms but the
+// window since the last nudge produced NO structural forward motion (no NOVEL exercising
+// command — no mutation is implied, since a mutation would have zeroed sinceProgress), the
+// redirect was ignored, so the remaining nudge budget collapses and stuck() lands the honest
+// stall NOW instead of firing up to maxStallNudges more nudges. The terminal outcome (stuck()
+// =="stall") is unchanged — only reached sooner.
+func TestStallConvergeCollapsesIgnoredReArm(t *testing.T) {
+	g := newRunGuard()
+	g.stallConverge = true
+	// First stalled nudge fires as usual (the agent always gets one redirect).
+	g.sinceProgress = noProgressNudge
+	if g.shouldNudge() != "stalled" {
+		t.Fatal("first stalled nudge should fire")
+	}
+	if g.stuck() != "" {
+		t.Fatal("must not force-stop after only the first nudge")
+	}
+	// A full further window with NO forward motion since that nudge (no mutation, no novel
+	// exercise) → the redirect was ignored. The re-arm collapses: shouldNudge stays quiet and
+	// the budget jumps to the cap.
+	g.sinceProgress = noProgressNudge * 2
+	if g.progressSinceNudge {
+		t.Fatal("precondition: no forward motion since the nudge")
+	}
+	if got := g.shouldNudge(); got != "" {
+		t.Fatalf("ignored re-arm must not fire another nudge, got %q", got)
+	}
+	if g.stallNudges != maxStallNudges {
+		t.Fatalf("collapse must exhaust the nudge budget, stallNudges=%d want %d", g.stallNudges, maxStallNudges)
+	}
+	// …and the force-stop lands THIS check (same loop iteration), not a window later.
+	if g.stuck() != "stall" {
+		t.Fatal("collapsed budget + climbed window must force-stop as stall now")
+	}
+}
+
+// TestStallConvergeKeepsReArmingOnProgress (D18a): a re-arm whose window DID produce a novel
+// exercising command is real forward motion (the agent tried something new), so the nudge
+// re-arms as before — convergence never cuts a productive redirect.
+func TestStallConvergeKeepsReArmingOnProgress(t *testing.T) {
+	g := newRunGuard()
+	g.stallConverge = true
+	g.sinceProgress = noProgressNudge
+	if g.shouldNudge() != "stalled" {
+		t.Fatal("first stalled nudge should fire")
+	}
+	// The agent ran a NEW exercising command since the nudge (structural forward motion).
+	g.noteBashExec("python solve.py", true)
+	g.sinceProgress = noProgressNudge * 2
+	if g.shouldNudge() != "stalled" {
+		t.Fatal("a novel exercise since the nudge must let the stalled nudge re-arm")
+	}
+	if g.stallNudges != 2 {
+		t.Fatalf("re-arm should advance the count normally, got %d", g.stallNudges)
+	}
+}
+
+// TestStallConvergeReArmsAfterMutation (D18a — must-fix regression): a real FILE MUTATION between
+// nudges is the strongest forward motion, so the re-arm must fire (not collapse) even under the
+// flag. mutated() restarts the stall window (lastStallAt=0), so the window can climb back to the
+// threshold AFTER an early mutation — the "window climbed ⇒ no mutation" premise is false. If a
+// mutation did not count as motion, an agent that edited a file in direct response to the nudge
+// and then paused would be force-stopped instead of redirected — the opposite of the intent.
+func TestStallConvergeReArmsAfterMutation(t *testing.T) {
+	g := newRunGuard()
+	g.stallConverge = true
+	g.sinceProgress = noProgressNudge
+	if g.shouldNudge() != "stalled" {
+		t.Fatal("first stalled nudge should fire")
+	}
+	// Agent responds to the nudge with a real edit → mutated() zeroes the window and marks motion.
+	g.mutated("sol.py", "v2")
+	if g.sinceProgress != 0 || g.lastStallAt != 0 {
+		t.Fatalf("a mutation must restart the stall window, sinceProgress=%d lastStallAt=%d", g.sinceProgress, g.lastStallAt)
+	}
+	// Then a full quiet window (no further mutation, no novel exercise) climbs back to threshold.
+	g.sinceProgress = noProgressNudge
+	if g.shouldNudge() != "stalled" {
+		t.Fatal("a mutation since the last nudge is forward motion — the re-arm must fire, not collapse")
+	}
+	if g.stallNudges != 2 {
+		t.Fatalf("re-arm should advance the count normally after a mutation, got %d", g.stallNudges)
+	}
+}
+
+// TestStallConvergeOffKeepsFixedReArm (D18a flag): with convergence off (the zero value), the
+// nudge re-arms the fixed maxStallNudges times regardless of forward motion — today's behavior.
+func TestStallConvergeOffKeepsFixedReArm(t *testing.T) {
+	g := newRunGuard() // stallConverge defaults false
+	fires := 0
+	for i := 1; i <= maxStallNudges; i++ {
+		g.sinceProgress = noProgressNudge * i
+		if g.shouldNudge() != "stalled" {
+			t.Fatalf("flag off: stalled nudge should fire at window %d", i)
+		}
+		fires++ // never a novel exercise → convergence WOULD collapse, but the flag is off
+	}
+	if fires != maxStallNudges {
+		t.Fatalf("flag off must fire the full %d nudges, got %d", maxStallNudges, fires)
+	}
+}
+
+// TestNoteBashExecNovelty (D18a): a NOVEL (first-seen) non-inspect exercising command sets the
+// progressSinceNudge motion flag; a repeat (novel=false) and any inspect-only command never set
+// it, while execSinceMut still counts every exercise (its unverifiedDeliverable semantics intact).
+func TestNoteBashExecNovelty(t *testing.T) {
+	g := newRunGuard()
+	g.noteBashExec("python x.py", true) // novel exercise → motion
+	if !g.progressSinceNudge || g.execSinceMut != 1 {
+		t.Fatalf("novel exercise: progress=%v exec=%d want true/1", g.progressSinceNudge, g.execSinceMut)
+	}
+	// A repeat exercise (not novel) after clearing the flag must NOT re-set motion, but must
+	// still count toward execSinceMut.
+	g.progressSinceNudge = false
+	g.noteBashExec("python x.py", false)
+	if g.progressSinceNudge {
+		t.Fatal("a repeat (non-novel) exercise must not set the motion flag")
+	}
+	if g.execSinceMut != 2 {
+		t.Fatalf("execSinceMut must still count every exercise, got %d", g.execSinceMut)
+	}
+	g.noteBashExec("ls -la", true) // inspect-only → neither motion nor exec
+	if g.progressSinceNudge || g.execSinceMut != 2 {
+		t.Fatalf("inspect-only must move neither, progress=%v exec=%d", g.progressSinceNudge, g.execSinceMut)
+	}
+}
+
 // TestResetStall: a structural recovery (redecomposeStuck handed the work to a fresh child)
 // clears the no-progress/stall accounting so the parent gets a clean window to integrate and
 // verify — otherwise the still-climbed sinceProgress would immediately re-trip the force-stop

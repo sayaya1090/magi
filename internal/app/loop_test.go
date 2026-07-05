@@ -293,8 +293,8 @@ func TestUnverifiedDeliverable(t *testing.T) {
 	t.Run("wrote then only inspected is flagged", func(t *testing.T) {
 		g := newRunGuard()
 		g.noteBashWrite("cat > sol.py <<'EOF'\nprint(1)\nEOF") // deliverable via bash → epoch>0
-		g.noteBashExec("ls -la sol.py && echo done")           // inspect-only → not execution
-		g.noteBashExec("exit 0")
+		g.noteBashExec("ls -la sol.py && echo done", true)     // inspect-only → not execution
+		g.noteBashExec("exit 0", true)
 		if !g.unverifiedDeliverable() {
 			t.Fatal("wrote a deliverable then only ran inspect/echo churn — must be flagged")
 		}
@@ -302,7 +302,7 @@ func TestUnverifiedDeliverable(t *testing.T) {
 	t.Run("running the deliverable clears the flag", func(t *testing.T) {
 		g := newRunGuard()
 		g.mutated("sol.py", "v1") // an edit produced the deliverable
-		g.noteBashExec("python sol.py")
+		g.noteBashExec("python sol.py", true)
 		if g.unverifiedDeliverable() {
 			t.Fatal("a real execution of the current version is verification — must not be flagged")
 		}
@@ -315,7 +315,7 @@ func TestUnverifiedDeliverable(t *testing.T) {
 		if g.noteBashWrite("pytest 2>&1") {
 			t.Fatal("2>&1 is fd-duplication, not a file write")
 		}
-		g.noteBashExec("pytest 2>&1")
+		g.noteBashExec("pytest 2>&1", true)
 		if g.unverifiedDeliverable() {
 			t.Fatal("running the tests (even with 2>&1) is verification — must not be flagged")
 		}
@@ -323,8 +323,8 @@ func TestUnverifiedDeliverable(t *testing.T) {
 	t.Run("a later edit makes prior execution stale", func(t *testing.T) {
 		g := newRunGuard()
 		g.mutated("sol.py", "v1")
-		g.noteBashExec("pytest")  // verified v1
-		g.mutated("sol.py", "v2") // …then changed it: v2 is unverified
+		g.noteBashExec("pytest", true) // verified v1
+		g.mutated("sol.py", "v2")      // …then changed it: v2 is unverified
 		if !g.unverifiedDeliverable() {
 			t.Fatal("execution evidence is version-stamped; a new mutation must re-flag")
 		}
@@ -335,7 +335,7 @@ func TestUnverifiedDeliverable(t *testing.T) {
 		if !g.noteBashWrite("echo data > out.txt") { // authors a file → epoch bump
 			t.Fatal("echo … > out.txt authors a file")
 		}
-		g.noteBashExec("echo data > out.txt") // echo is inspect-only → must NOT count as execution
+		g.noteBashExec("echo data > out.txt", true) // echo is inspect-only → must NOT count as execution
 		if !g.unverifiedDeliverable() {
 			t.Fatal("writing another file is not exercising the deliverable — still unverified")
 		}
