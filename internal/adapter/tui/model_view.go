@@ -493,6 +493,11 @@ func (m *Model) turnSummary() string {
 	if m.turnDur > 0 {
 		parts = append(parts, fmtDur(m.turnDur))
 	}
+	if m.turnUnverified {
+		// The execution-evidence gate could not confirm the current version was run to a
+		// passing result — surface it plainly instead of letting the turn read as a clean finish.
+		parts = append(parts, "⚠ UNVERIFIED")
+	}
 	return "▣ turn: " + strings.Join(parts, " · ")
 }
 

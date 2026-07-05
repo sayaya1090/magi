@@ -146,15 +146,16 @@ type Model struct {
 	ctxPct          float64   // context window usage %
 	plannerMode     string    // last planner decision (solo | parallel N) shown in the header
 
-	turnStart     time.Time       // wall-clock start of the current turn (§8.1 elapsed)
-	turnSteps     int             // tool calls this turn (the step budget actually spent)
-	turnFiles     map[string]bool // unique files touched by write/edit/multiedit this turn
-	turnCouncil   int             // highest council round decided this turn
-	turnDur       time.Duration   // frozen elapsed of the last finished turn
-	turnIn        int             // current input/context tokens (↑)
-	turnOut       int             // cumulative output tokens this turn (↓)
-	councilRound  int             // current council round (0 = no council active); header chip
-	councilMember string          // member currently being polled (live); cleared when the turn ends
+	turnStart      time.Time       // wall-clock start of the current turn (§8.1 elapsed)
+	turnSteps      int             // tool calls this turn (the step budget actually spent)
+	turnFiles      map[string]bool // unique files touched by write/edit/multiedit this turn
+	turnCouncil    int             // highest council round decided this turn
+	turnDur        time.Duration   // frozen elapsed of the last finished turn
+	turnUnverified bool            // the finished turn was labeled UNVERIFIED by the execution-evidence gate
+	turnIn         int             // current input/context tokens (↑)
+	turnOut        int             // cumulative output tokens this turn (↓)
+	councilRound   int             // current council round (0 = no council active); header chip
+	councilMember  string          // member currently being polled (live); cleared when the turn ends
 
 	cache  []string // rendered finalized blocks (keyed by cacheW)
 	cacheW int      // width the cache was rendered at
@@ -941,6 +942,7 @@ func (m *Model) sendPrompt(display, send string) tea.Cmd {
 	m.turnStart = time.Now() // §8.1: start the elapsed/token meter
 	m.turnIn, m.turnOut, m.turnDur = 0, 0, 0
 	m.turnSteps, m.turnCouncil, m.turnFiles = 0, 0, map[string]bool{}
+	m.turnUnverified = false
 	m.refresh()
 	sid := m.sid
 	return tea.Batch(m.sp.Tick, func() tea.Msg {

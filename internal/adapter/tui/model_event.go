@@ -351,6 +351,7 @@ func (m *Model) onTurnFinished(e event.Event) {
 		if fd.Usage.Out > 0 {
 			m.turnOut = fd.Usage.Out
 		}
+		m.turnUnverified = fd.Unverified
 	}
 	// One-line turn receipt: what the turn actually cost, without scrolling
 	// back through the transcript (steps matter more now that the ceiling is 240).

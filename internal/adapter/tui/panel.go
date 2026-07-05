@@ -122,9 +122,11 @@ func (m *Model) statusPanel(panelTop int) string {
 		}
 		sep()
 		lines = append(lines, panelHead(fmt.Sprintf("Plan  %d/%d", done, len(todos))))
-		for _, t := range todos {
-			lines = append(lines, todoLine(t, inner))
-		}
+		// Render the plan as a tree: after each step, the todos of any child session
+		// spawned for that step (delegate/refine re-plan) render one level deeper. Each
+		// node's status comes from its own session (single source of truth); the parent
+		// step ↔ child session edge (PlanChildren) supplies only the structure.
+		lines = m.appendPlanTree(lines, m.panelSID(), inner, 0)
 	}
 
 	if len(m.panes) > 0 || len(m.doneRoster) > 0 {
@@ -214,18 +216,44 @@ func panelHead(s string) string {
 	return lipgloss.NewStyle().Foreground(colPrimary).Bold(true).Render(s)
 }
 
-// todoLine renders one plan item with a status glyph.
-func todoLine(t session.Todo, width int) string {
-	text := oneLine(t.Content, width-2)
+// appendPlanTree renders sid's todos at the given depth and recurses into each
+// step's child sessions (PlanChildren), so a delegate/refine child's own sub-plan
+// appears indented beneath the parent step it serves. The session tree is acyclic
+// by construction (a child's Parent is an already-created session); planTreeMaxDepth
+// is a defensive bound so pathological nesting can't run indentation off the panel.
+func (m *Model) appendPlanTree(lines []string, sid session.SessionID, inner, depth int) []string {
+	if depth > planTreeMaxDepth {
+		return lines
+	}
+	todos := m.app.Todos(sid)
+	for i, t := range todos {
+		lines = append(lines, todoLine(t, inner, depth))
+		for _, kid := range m.app.PlanChildren(sid, i) {
+			lines = m.appendPlanTree(lines, kid, inner, depth+1)
+		}
+	}
+	return lines
+}
+
+// planTreeMaxDepth caps plan-tree nesting depth in the panel. Recursive planning is
+// itself bounded (MaxPlanDepth), so this only guards against unexpected deep chains.
+const planTreeMaxDepth = 6
+
+// todoLine renders one plan item with a status glyph. depth indents nested plan
+// nodes (a child session's todos rendered under the parent step they serve), two
+// spaces per level; the text width shrinks to match so the row still fits.
+func todoLine(t session.Todo, width, depth int) string {
+	indent := strings.Repeat("  ", depth)
+	text := oneLine(t.Content, width-2-len(indent))
 	switch t.Status {
 	case "completed":
-		return lipgloss.NewStyle().Foreground(colSuccess).Render("✓ ") + lipgloss.NewStyle().Foreground(colMuted).Strikethrough(true).Render(text)
+		return indent + lipgloss.NewStyle().Foreground(colSuccess).Render("✓ ") + lipgloss.NewStyle().Foreground(colMuted).Strikethrough(true).Render(text)
 	case "in_progress":
-		return lipgloss.NewStyle().Foreground(colAccent).Render("◐ ") + lipgloss.NewStyle().Bold(true).Render(text)
+		return indent + lipgloss.NewStyle().Foreground(colAccent).Render("◐ ") + lipgloss.NewStyle().Bold(true).Render(text)
 	case "cancelled":
-		return lipgloss.NewStyle().Foreground(colError).Render("✗ ") + lipgloss.NewStyle().Foreground(colMuted).Strikethrough(true).Render(text)
+		return indent + lipgloss.NewStyle().Foreground(colError).Render("✗ ") + lipgloss.NewStyle().Foreground(colMuted).Strikethrough(true).Render(text)
 	default:
-		return lipgloss.NewStyle().Foreground(colMuted).Render("☐ " + text)
+		return indent + lipgloss.NewStyle().Foreground(colMuted).Render("☐ "+text)
 	}
 }
 
