@@ -184,6 +184,14 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth, 
 	a.registerPlanTodos(ctx, s.ID, steps)
 	a.emitPhase(s.ID, "plan", planSummary(steps), strings.TrimSpace(plan.Reason))
 
+	// Spec fidelity (Part B): a plan now governs execution, so the todos are a SUMMARY of the
+	// request. Re-anchor the main agent on the original wording for literal identifiers before any
+	// step runs — this fires ahead of executeSteps, so refine clones and the findings-synthesis
+	// path inherit it via the parent context. All-solo plans (no findings) rely on this too.
+	if specFidelityEnabled() {
+		_ = a.appendPromptText(ctx, s.ID, event.Actor{Kind: event.ActorSystem, ID: "planner"}, specFidelityNote)
+	}
+
 	findings, delegated := a.executeSteps(ctx, s, prompt, steps, depth)
 	if strings.TrimSpace(findings) == "" {
 		return false, false
@@ -197,6 +205,9 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth, 
 // council plan-audit asked for changes. Returns a zero planResult on any error.
 func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session, prompt, revise string, depth, maxSteps int) planResult {
 	sys := spec.System + "\n\n# Repository (top level)\n" + repoMap(s.Workdir) + "\n\n" + plannerContract + planEnvelope(depth, a.cfg.MaxPlanDepth, maxSteps)
+	if specFidelityEnabled() {
+		sys += literalRule
+	}
 	if names := a.delegatableAgents(); len(names) > 0 {
 		sys += "\n\nDelegate executors available (use one as a delegate step's \"agent\"): " + strings.Join(names, ", ") + "."
 	} else {
@@ -343,6 +354,24 @@ const plannerContract = "Plan the PROCEDURE to handle the request: an ordered, m
 	"NOT flattened into a long list of \"solo\" steps:\n" +
 	`{"reason":"each layer builds on the one below, so open with phases and expand each in context","estimated_steps":40,"steps":[{"title":"On-disk write-ahead log","strategy":"refine","task":"design and implement the append-only log file format and an append operation"},{"title":"In-memory index from the log","strategy":"refine","task":"replay the log on startup to build a key to offset index"},{"title":"KV operations","strategy":"refine","task":"implement get/put/delete over the index and the log, keeping them consistent"},{"title":"Log compaction","strategy":"refine","task":"add a pass that rewrites the log to drop superseded records"}]}`
 
+// literalRule is appended to the planner contract when specFidelityEnabled(): it forbids
+// paraphrasing a literal contract, so the exact identifiers a grader checks survive into the
+// step title/task (and from there into every downstream executor). See specFidelityEnabled.
+const literalRule = "\n\nPRESERVE LITERALS: when the request specifies EXACT identifiers — a field/message/function " +
+	"name, an output format, a numeric threshold, a path, or a literal string — reproduce it VERBATIM in the step " +
+	"\"title\"/\"task\". Never paraphrase a literal contract (keep a field named `value` as `value`, not \"the value\"; " +
+	"keep `YYYY-MM-DD` verbatim). The plan is a summary of the request, but its literals are NOT summaries."
+
+// specFidelityNote is injected into the MAIN session once a plan governs execution (Part B): the
+// todos summarize the request, so the executor is told to defer to the ORIGINAL wording for any
+// exact identifier rather than normalizing it. Fires before executeSteps, so refine clones and the
+// findings-synthesis path inherit it via the parent context. See specFidelityEnabled.
+const specFidelityNote = "# Execution note — spec fidelity\n" +
+	"The plan (todos) is a SUMMARY of this request. For any exact identifier — a name, field, " +
+	"function/message, output format, threshold, or literal string — follow the ORIGINAL request's " +
+	"wording VERBATIM, not the summary. Do NOT normalize or rename it (if the request names a field " +
+	"`value`, keep it `value`, do not shorten it to `val`)."
+
 // planEnvelope gives the planner the two facts it otherwise plans blind to: the step
 // BUDGET it is planning within, and its DEPTH relative to the recursion cap. Both let it
 // right-size the procedure — a plan produced at the cap, or with little budget, should be
@@ -478,6 +507,22 @@ func adaptDisabled() bool {
 	return false
 }
 
+// specFidelityEnabled keeps a plan faithful to the request's LITERAL contract — exact field/
+// message/function names, output formats, thresholds, literal strings. Deep planning paraphrases
+// the instruction, and the executor then normalizes a literal (kv-store-grpc: the request's
+// `value` field became `val`, failing a grader that checks verbatim); a shallow/solo run reads the
+// raw instruction directly and keeps the literal. This flag turns on three defenses (a planner
+// "preserve literals" rule, a plan-time spec-fidelity note, and a verbatim SPEC anchor for the
+// context-free delegate child). Default ON; MAGI_SPEC_FIDELITY=0 restores the paraphrase-only
+// baseline (the A/B knob). Mirrors stepContextDisabled/adaptDisabled.
+func specFidelityEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_SPEC_FIDELITY"))) {
+	case "0", "off", "false", "no":
+		return false
+	}
+	return true
+}
+
 // sharedRefineEnabled runs a plan's sequentially-dependent refine phases in ONE shared child
 // session (the first phase creates it via clone; later phases REUSE it, so each sees its
 // predecessors' actual work) rather than giving each phase its own spawn-time clone of the
@@ -485,6 +530,19 @@ func adaptDisabled() bool {
 // MAGI_REFINE_SHARED=0 restores the legacy per-phase clone-at-spawn baseline (the A/B knob).
 func sharedRefineEnabled() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_REFINE_SHARED"))) {
+	case "0", "off", "false", "no":
+		return false
+	}
+	return true
+}
+
+// evidenceGateEnabled controls the execution-evidence completion gate (loop.go): a top-level
+// turn that changed a deliverable may not land a confident outcome — success OR "impossible" —
+// unless the current version was independently run to a passing result this turn; otherwise the
+// finish is labeled UNVERIFIED rather than laundered as done. Default ON; MAGI_EVIDENCE_GATE=0
+// restores the pre-gate behavior where the council's vote alone terminated the turn (the A/B knob).
+func evidenceGateEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_EVIDENCE_GATE"))) {
 	case "0", "off", "false", "no":
 		return false
 	}
@@ -916,7 +974,7 @@ func (a *App) runDelegateStep(ctx context.Context, s session.Session, st planSte
 	}
 	*budget-- // count against the per-turn dispatch budget like an explorer
 	a.advanceTo(ctx, s.ID, plannerActor, i)
-	r := a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agentName, Prompt: delegatePrompt(st, brief)})
+	r := a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agentName, Prompt: delegatePrompt(st, brief), PlanStepIndex: &i})
 	text := strings.TrimSpace(r.Text)
 	// ADaPT failure branch (reactive, as-needed decomposition): a hard failure (spawn error
 	// or empty result), while we're still below the plan-depth cap and have budget, gets ONE
@@ -927,7 +985,7 @@ func (a *App) runDelegateStep(ctx context.Context, s session.Session, st planSte
 	// off, a failed delegate backtracks after one shot (planned decomposition only).
 	if !adaptDisabled() && (r.Err != "" || text == "") && depth+1 < a.cfg.MaxPlanDepth && *budget > 0 {
 		*budget--
-		r = a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agentName, Prompt: redecomposePrompt(st, brief)})
+		r = a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agentName, Prompt: redecomposePrompt(st, brief), PlanStepIndex: &i})
 		text = strings.TrimSpace(r.Text)
 	}
 	if r.Err != "" || text == "" {
@@ -1000,7 +1058,7 @@ func (a *App) runRefineStep(ctx context.Context, s session.Session, st planStep,
 	fail := ""
 	for attempt := 0; attempt < retries && *budget > 0; attempt++ {
 		*budget-- // count each attempt against the per-turn dispatch budget, like an explorer
-		req := port.SpawnRequest{Agent: agentName, Prompt: refinePrompt(st, fail), CloneContext: true}
+		req := port.SpawnRequest{Agent: agentName, Prompt: refinePrompt(st, fail), CloneContext: true, PlanStepIndex: &i}
 		if shared && rs.sid != "" {
 			// Reuse the shared child instead of re-cloning the parent: this phase (or retry)
 			// runs on top of its predecessors' ACTUAL conversation, not a spawn-time snapshot.
@@ -1044,10 +1102,23 @@ func refinePrompt(st planStep, fail string) string {
 		p = "A previous attempt at this sub-goal did NOT succeed: " + f + "\nTake a DIFFERENT approach this time.\n\n"
 	}
 	return p + st.Task + "\n\n(You are working out ONE sub-goal of a larger plan, continuing from the conversation " +
-		"so far. Break it into concrete steps as needed, complete it fully, verify it yourself, and report what you did " +
-		"and how you verified it. If after real effort this sub-goal genuinely cannot be done, report status \"failed\" and " +
-		"say plainly what blocked you — do not report unfinished work as done.)"
+		"so far. Break it into concrete steps as needed, complete it fully, then " + noFabricate + " If after real " +
+		"effort this sub-goal genuinely cannot be done, report status \"failed\" and say plainly what blocked you — " +
+		"do not report unfinished work as done.)"
 }
+
+// noFabricate is the anti-fabrication half of every child hand-off's self-verify contract:
+// verify by real execution and cite it, and if you could NOT run/confirm something, admit it
+// rather than manufacture a verified-looking result. The delegate and stuck-recovery hand-offs
+// previously asked only to "report how you verified it" with no license for the honest negative
+// — an asymmetry that pressures a weak model to fabricate (write a stand-in results file it never
+// produced) just to answer the ask. Single-sourced so all hand-offs stay symmetric with the
+// pre-finish self-verify prompt (loop.go) and the review-gate tester (review_gate.go), which
+// already carry this clause.
+const noFabricate = "verify it yourself by actually running it, and report concretely how you verified it (the " +
+	"command you ran and its real output). If you could NOT actually run or confirm something, say so plainly and " +
+	"treat it as unverified — never invent or hand-write output, and never write a stand-in or placeholder file to " +
+	"make it look done; hiding the gap is worse than admitting it."
 
 // refineReportsFailure reports whether the child explicitly declared the sub-goal failed
 // (a "STATUS: FAILED" report frame — see subReport.result in app.go). This is the child's
@@ -1140,7 +1211,7 @@ func stuckRedecomposePrompt(task, blockReason string) string {
 		p += "\n\nWhat blocked the previous attempt (address this directly): " + r
 	}
 	return p + "\n\n(You are taking over a task a previous attempt got stuck on; partial work may " +
-		"already be on disk. Complete it fully, verify it yourself, and report what you did and how you verified it.)"
+		"already be on disk. Complete it fully, then " + noFabricate + ")"
 }
 
 // delegatePrompt frames a delegate step as a self-contained sub-task instruction, optionally
@@ -1152,7 +1223,7 @@ func delegatePrompt(st planStep, brief string) string {
 		p = b + "\n\n"
 	}
 	return p + st.Task + "\n\n(You are handling ONE independent part of a larger plan. Complete this part fully, " +
-		"verify it yourself, and report what you did and how you verified it.)"
+		"then " + noFabricate + ")"
 }
 
 // delegateBrief builds the compact context a delegate child gets IN ADDITION to its
@@ -1166,7 +1237,15 @@ func delegatePrompt(st planStep, brief string) string {
 func delegateBrief(goal string, steps []planStep, i int, prior []string) string {
 	var b strings.Builder
 	if g := strings.TrimSpace(goal); g != "" {
-		b.WriteString("Overall goal (the whole task your part serves): " + clipLine(g, 400) + "\n")
+		// Part C: the delegate child is context-free — it never sees the raw request, so a
+		// paraphrased goal is its ONLY spec. When spec fidelity is on, carry the goal verbatim
+		// (generously clipped) and label it authoritative, so the child copies exact identifiers
+		// from it rather than normalizing them. Off → the compact 400-char orientation line.
+		if specFidelityEnabled() {
+			b.WriteString("SPEC (authoritative — for any exact name, field, format, or value, follow this VERBATIM): " + clipLine(g, 2000) + "\n")
+		} else {
+			b.WriteString("Overall goal (the whole task your part serves): " + clipLine(g, 400) + "\n")
+		}
 	}
 	var others []string
 	for j, st := range steps {

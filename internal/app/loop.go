@@ -133,6 +133,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	reviewedAtEpoch := 0              // guard.mutationEpoch() at the last review-gate firing (re-arm only on a NEW mutation since — incl. bash writes)
 	reviewPassedEpoch := -1           // mutationEpoch at which the tester last returned VERDICT: PASS; -1 = never. Fresh-evidence: finish needs reviewPassedEpoch == current epoch
 	reportRefused := false            // a subagent's unverified "done" report was refused once this run
+	evidencePushed := false           // execution-evidence gate's one-shot "run it for real" push fired at most once per run
 	recovered := false                // stuck-recovery redecompose (stall/council deadlock → depth+1 child) fired at most once per run
 	guard := newRunGuard()
 	councilRounds := 0               // consensus termination gate rounds this turn (D14)
@@ -531,10 +532,46 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					}
 				}
 			}
+			// Execution-evidence gate (A)+(D): the council judges whether the work is GOOD
+			// (quality on text+diff); this gate enforces the orthogonal, machine-checked fact of
+			// whether the CURRENT version was actually RUN to a passing result this turn. A turn
+			// that changed a deliverable may NOT land as a confident outcome — a success OR an
+			// "impossible" give-up — on execution it never performed; the only honest terminal
+			// state then is UNVERIFIED. The signal is the review-gate tester's fresh-evidence
+			// verdict: reviewPassedEpoch == current mutationEpoch means an independent run passed
+			// AFTER the last change. Only meaningful when the tester actually ran (ReviewGate +
+			// agents present); the self-verify fallback has no independent verdict to stand on.
+			unverified, unverifiedReason := false, ""
+			if depth == 0 && usedTools && usedMutator && evidenceGateEnabled() &&
+				a.cfg.ReviewGate && a.hasReviewGateAgents() && guard.mutationEpoch() != reviewPassedEpoch {
+				if !evidencePushed {
+					// One bounded chance to make it real before we accept the finish: run the
+					// current version and fix what breaks, or say plainly you could not. Never
+					// loop on this — if it comes back still unverified, land honestly below.
+					evidencePushed = true
+					msg := "You are about to finish, but the current version of the deliverable has NOT been " +
+						"independently run to a passing result this turn — so neither \"done\" nor \"cannot be done\" " +
+						"is established yet. Actually run it now: execute the program or its tests against the REAL " +
+						"deliverable and read the actual output. If it fails, fix it and run it again. If you " +
+						"genuinely cannot run or confirm it here, do NOT claim success or declare it impossible — " +
+						"say plainly what you could not verify and why, and leave it as unverified. Never invent " +
+						"output or write a stand-in/placeholder to make it look done."
+					pd, _ := json.Marshal(event.PromptSubmittedData{
+						MessageID: "m_" + newID(),
+						Parts:     []session.Part{{Kind: session.PartText, Text: msg}},
+					})
+					a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
+					continue
+				}
+				// Push already spent and still no passing run for the current version: finish, but
+				// labeled honestly rather than laundered as a confident success.
+				unverified = true
+				unverifiedReason = "the deliverable was not independently run to a passing result this turn — outcome is unverified by execution"
+			}
 			a.setStage(sid, stageFinalize) // turn is ending (D15)
 			// Turn-cumulative usage (§8.1): out/cost summed across steps, in = last.
 			u := event.Usage{In: lastIn, Out: cumOut, Cost: cumCost}
-			d, _ := json.Marshal(event.TurnFinishedData{Usage: u})
+			d, _ := json.Marshal(event.TurnFinishedData{Usage: u, Unverified: unverified, Reason: unverifiedReason})
 			a.appendFact(ctx, sid, event.TypeTurnFinished, agentActor, d)
 			finished = true // genuine completion (council done / nothing more to do)
 			return lastText, nil

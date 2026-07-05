@@ -370,6 +370,7 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 			Workdir:     parent.Workdir,
 			Agent:       spec.Name,
 			Parent:      parent.ID,
+			ParentStep:  req.PlanStepIndex, // plan-step this child serves (delegate/refine); nil otherwise
 			Model:       model,
 			Created:     time.Now(),
 			Escalatable: req.Background, // only background-dispatched children can be answered
@@ -380,6 +381,7 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 
 		cd, _ := json.Marshal(event.SessionCreatedData{
 			Workdir: child.Workdir, Agent: spec.Name, Model: model, Parent: string(parent.ID),
+			ParentStep: req.PlanStepIndex,
 		})
 		a.appendFact(ctx, child.ID, event.TypeSessionCreated, actor, cd)
 

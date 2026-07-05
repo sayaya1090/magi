@@ -215,6 +215,33 @@ func (a *App) Todos(sid session.SessionID) []session.Todo {
 	return a.todos[sid]
 }
 
+// PlanChildren returns the child sessions spawned to carry out the given plan step
+// of parent, in creation order. It joins the parent link (session.Parent) with the
+// per-child ParentStep edge recorded at spawn — the pair reconstructs the plan tree
+// so a child's own todos can render indented under this step. Empty when the step was
+// solo or its delegate/refine child never registered a sub-plan.
+func (a *App) PlanChildren(parent session.SessionID, step int) []session.SessionID {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	var kids []session.Session
+	for _, s := range a.sessions {
+		if s.Parent == parent && s.ParentStep != nil && *s.ParentStep == step {
+			kids = append(kids, s)
+		}
+	}
+	sort.Slice(kids, func(i, j int) bool {
+		if !kids[i].Created.Equal(kids[j].Created) {
+			return kids[i].Created.Before(kids[j].Created)
+		}
+		return kids[i].ID < kids[j].ID // stable tie-break for same-instant spawns
+	})
+	out := make([]session.SessionID, len(kids))
+	for i, s := range kids {
+		out[i] = s.ID
+	}
+	return out
+}
+
 // realPromptTokens returns the actual prompt token count from the last turn (0
 // if not yet known).
 func (a *App) realPromptTokens(sid session.SessionID) int {

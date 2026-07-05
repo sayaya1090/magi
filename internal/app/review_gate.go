@@ -24,12 +24,20 @@ import (
 const (
 	testerFocus = "Independently VERIFY that the work satisfies the task. Actually run the build and the tests " +
 		"(or the program/command the task is about) and check the real behavior against what the task " +
-		"specifies — do not trust the transcript's claims. Report concrete evidence (the command you ran " +
-		"and its real output); never invent or hand-write output to make it look verified. Your reasoning " +
-		"may be in any language, but you MUST end your report with a single line containing exactly one of: " +
-		"`VERDICT: PASS` (you ran the verification and it really works), `VERDICT: FAIL` (you ran it and " +
-		"found a real problem), or `VERDICT: BLOCKED` (you could NOT actually run the verification). If you " +
-		"did not or could not run the real thing, the verdict is BLOCKED — never PASS on an assumption."
+		"specifies — do not trust the transcript's claims. If the workspace ships NO runnable test, do not " +
+		"stop there: CONSTRUCT a minimal check yourself from what the TASK specifies — write a small test, " +
+		"drive the program with representative inputs the task implies, or assert the outputs/invariants it " +
+		"requires — then actually run THAT and judge by its real output. Build the check from the task's own " +
+		"spec, never from a guess at a hidden grader, and make it MEANINGFUL — it must exercise what the task " +
+		"actually asks and be able to FAIL on wrong work; a trivial always-true assertion does not count as " +
+		"verification. Report concrete evidence (the command you ran and its " +
+		"real output); never invent or hand-write output to make it look verified. Your reasoning may be in " +
+		"any language, but you MUST end your report with a single line containing exactly one of: " +
+		"`VERDICT: PASS` (you ran a real check — one the repo shipped or one you built — and it works), " +
+		"`VERDICT: FAIL` (you ran it and found a real problem), or `VERDICT: BLOCKED` (you genuinely could NOT " +
+		"verify here — the runtime or toolchain is missing, or the task is too underspecified to derive any " +
+		"meaningful check). A missing test is NOT by itself BLOCKED — abstain only when you truly cannot build " +
+		"or run a real check, never merely because the repo shipped none. Never PASS on an assumption."
 	reviewerFocus = "Independently REVIEW the changes for correctness against the task. Read the changed files " +
 		"assigned to you and report concrete problems: missing requirements, wrong content/format/location, " +
 		"off-by-one or edge cases, or a placeholder left where real work was asked for. Be specific (file and " +
