@@ -164,7 +164,15 @@ in `loop.go` calls into them each step):
   never trips any guard and burns the whole budget).
   After the stall nudges are exhausted, one further ignored window force-stops the run as
   `stall_guard` — the backstop that keeps an unresponsive agent from wandering to the
-  (240-step default) ceiling. The planner also emits an advisory `estimated_steps` that the
+  (240-step default) ceiling. **Stalled-nudge convergence** (`stallConverge`,
+  `MAGI_STALL_CONVERGE`, default on): a re-arm whose window produced *no forward motion since
+  the last nudge* — neither a real mutation nor a first-seen non-inspect exercising command
+  (`progressSinceNudge` stays false) — means the redirect was ignored, so the remaining nudge
+  budget collapses and the `stall_guard` lands *this* window instead of firing up to
+  `maxStallNudges` more. It only accelerates the identical terminal landing (epoch>0 → clean
+  finish, else `stall_guard`); a mutation sets `progressSinceNudge` and restarts the window, so
+  an agent that edits in response to a nudge always re-arms normally — convergence never cuts a
+  productive redirect. The planner also emits an advisory `estimated_steps` that the
   per-step budget line cites as a pacing reference (never a limit).
 - **pre-finish verification**: when a turn that changed files (write/edit OR a bash
   write) tries to finish (`depth==0`), it verifies once — before the council runs. By
