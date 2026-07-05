@@ -64,9 +64,12 @@ func (a *App) contextWindow(id string) int {
 		a.probingWindows[id] = struct{}{} // mark before unlocking so we probe at most once
 		a.mu.Unlock()
 		go a.probeContextWindow(id)
-	} else {
-		a.mu.Unlock()
+		// This first read must report 0 (unlimited) while the probe runs — return it
+		// directly rather than re-reading the registry, which the just-launched goroutine
+		// could already have populated (a race that reads as a non-zero first window).
+		return 0
 	}
+	a.mu.Unlock()
 	return a.cfg.Models.Get(id).ContextWindow
 }
 
