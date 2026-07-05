@@ -384,6 +384,21 @@ func TestExecuteStepsDelegate(t *testing.T) {
 	if td[0].Status != "completed" || td[1].Status != "completed" {
 		t.Errorf("delegate step and subsumed earlier step should be completed, got %q / %q", td[0].Status, td[1].Status)
 	}
+	// The delegate child (step index 1) records ParentStep, so PlanChildren joins it back
+	// to that step for the plan tree; the solo step 0 spawned nothing.
+	kids := a.PlanChildren(s.ID, 1)
+	if len(kids) != 1 {
+		t.Fatalf("delegate step 1 should have exactly one child session, got %v", kids)
+	}
+	a.mu.Lock()
+	child := a.sessions[kids[0]]
+	a.mu.Unlock()
+	if child.ParentStep == nil || *child.ParentStep != 1 {
+		t.Errorf("child ParentStep should be 1, got %v", child.ParentStep)
+	}
+	if got := a.PlanChildren(s.ID, 0); len(got) != 0 {
+		t.Errorf("solo step 0 should have no child sessions, got %v", got)
+	}
 }
 
 // A delegate naming a read-only or unknown executor dispatches nothing (degrades to
@@ -1030,7 +1045,7 @@ func TestExecuteStepsDelegateBriefsSiblingContext(t *testing.T) {
 		t.Fatal("second delegate child's prompt was not captured")
 	}
 	for _, want := range []string{
-		"Overall goal",                       // the whole-task goal line
+		"SPEC (authoritative",                // spec-fidelity ON (default): the goal as an authoritative SPEC
 		"key-value web service",              // …carrying the actual goal text
 		"storage layer",                      // the sibling step title (a boundary)
 		"created package store with Get/Put", // what the FIRST step produced (interface to build on)
@@ -1451,4 +1466,165 @@ func (planNoLLM) StreamChat(context.Context, port.ChatRequest) (<-chan port.Prov
 	ch := make(chan port.ProviderEvent)
 	close(ch)
 	return ch, nil
+}
+
+// specFidelityApp seeds a session with a user prompt and a planner that returns the given plan
+// JSON, so maybePlanPreflight runs end-to-end (register todos → Part B note → executeSteps).
+func specFidelityApp(t *testing.T, llm *recLLM, prompt string) (*App, session.SessionID) {
+	t.Helper()
+	a := newOrchApp(t, llm, Config{
+		Planner: true, Permission: "allow", MaxAgents: 100, MaxDepth: 5, MaxPlanDepth: 2,
+		Agents: map[string]AgentSpec{plannerAgent: {Name: "planner"}},
+	})
+	sid := startSession(t, a, t.TempDir())
+	pd, _ := json.Marshal(event.PromptSubmittedData{
+		MessageID: "m1", Parts: []session.Part{{Kind: session.PartText, Text: prompt}},
+	})
+	if err := a.appendFact(context.Background(), sid, event.TypePromptSubmitted,
+		event.Actor{Kind: event.ActorUser, ID: "u"}, pd); err != nil {
+		t.Fatal(err)
+	}
+	return a, sid
+}
+
+// sessionText returns the concatenation of every PromptSubmitted text in a session's store —
+// so a test can assert an injected note landed there.
+func sessionText(t *testing.T, a *App, sid session.SessionID) string {
+	t.Helper()
+	evs, err := a.store.Read(context.Background(), sid, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	for _, e := range evs {
+		if e.Type != event.TypePromptSubmitted {
+			continue
+		}
+		var d event.PromptSubmittedData
+		if json.Unmarshal(e.Data, &d) == nil {
+			b.WriteString(joinPartText(d.Parts))
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
+// planReply returns a canned 2-solo-step plan when the planner asks, empty otherwise.
+func planReply(req string) string {
+	if strings.Contains(req, "Plan the PROCEDURE") {
+		return `{"reason":"r","estimated_steps":5,"steps":[{"title":"first","strategy":"solo"},{"title":"second","strategy":"solo"}]}`
+	}
+	return ""
+}
+
+// Spec fidelity ON (default): once a plan governs the turn, the main session carries the
+// spec-fidelity note (Part B), and the planner's own system prompt carries the literal-preservation
+// rule (Part A). Both re-anchor deep planning on the request's verbatim identifiers.
+func TestSpecFidelityNoteInjected(t *testing.T) {
+	llm := &recLLM{reply: planReply}
+	a, sid := specFidelityApp(t, llm, "add a field named value to the request message")
+	a.maybePlanPreflight(context.Background(), a.sessionInfo(context.Background(), sid), 0, 120)
+
+	if txt := sessionText(t, a, sid); !strings.Contains(txt, "spec fidelity") || !strings.Contains(txt, "VERBATIM") {
+		t.Errorf("Part B note not injected into the main session; session text was:\n%s", txt)
+	}
+	llm.mu.Lock()
+	defer llm.mu.Unlock()
+	var sawRule bool
+	for _, p := range llm.prompts {
+		if strings.Contains(p, "PRESERVE LITERALS") {
+			sawRule = true
+		}
+	}
+	if !sawRule {
+		t.Error("Part A literal-preservation rule missing from the planner system prompt")
+	}
+}
+
+// Spec fidelity ON: the context-free delegate child gets the goal VERBATIM as an authoritative
+// SPEC (Part C), not the compact 400-char "Overall goal" line — so it can copy exact identifiers
+// that sit past the old clip.
+func TestSpecFidelityDelegateAnchor(t *testing.T) {
+	llm := &recLLM{reply: func(string) string { return "done" }}
+	a := newOrchApp(t, llm, Config{
+		Permission: "allow", MaxAgents: 100, MaxDepth: 5, MaxPlanDepth: 2,
+		Agents: map[string]AgentSpec{"coder": {Name: "coder", System: "x", Tools: []string{"read", "write", "edit", "bash"}}},
+	})
+	s := parentSession(t.TempDir())
+	a.mu.Lock()
+	a.sessions[s.ID] = s
+	a.mu.Unlock()
+
+	// A goal long enough that its tail marker sits past the old 400-char clip but within 2000.
+	goal := strings.Repeat("background context sentence. ", 20) + "the request field MUST be named MARKER_value"
+	steps := []planStep{
+		{Title: "storage", Strategy: "delegate", Agent: "coder", Task: "implement storage"},
+		{Title: "api", Strategy: "delegate", Agent: "coder", Task: "implement the API"},
+	}
+	a.registerPlanTodos(context.Background(), s.ID, steps)
+	a.executeSteps(context.Background(), s, goal, steps, 0)
+
+	llm.mu.Lock()
+	defer llm.mu.Unlock()
+	var child string
+	for _, p := range llm.prompts {
+		if strings.Contains(p, "implement the API") {
+			child = p
+		}
+	}
+	if child == "" {
+		t.Fatal("delegate child prompt not captured")
+	}
+	for _, want := range []string{"SPEC (authoritative", "MARKER_value"} {
+		if !strings.Contains(child, want) {
+			t.Errorf("delegate anchor missing %q; prompt was:\n%s", want, child)
+		}
+	}
+	if strings.Contains(child, "Overall goal") {
+		t.Error("spec-fidelity ON should relabel the goal as SPEC, not keep the 'Overall goal' line")
+	}
+}
+
+// Spec fidelity OFF (MAGI_SPEC_FIDELITY=0): the paraphrase-only baseline — no Part B note, no
+// Part A rule in the planner prompt, and delegate falls back to the compact "Overall goal" line.
+func TestSpecFidelityDisabled(t *testing.T) {
+	t.Setenv("MAGI_SPEC_FIDELITY", "0")
+
+	llm := &recLLM{reply: planReply}
+	a, sid := specFidelityApp(t, llm, "add a field named value to the request message")
+	a.maybePlanPreflight(context.Background(), a.sessionInfo(context.Background(), sid), 0, 120)
+	if txt := sessionText(t, a, sid); strings.Contains(txt, "spec fidelity") {
+		t.Errorf("MAGI_SPEC_FIDELITY=0 must NOT inject the Part B note; session text was:\n%s", txt)
+	}
+	llm.mu.Lock()
+	for _, p := range llm.prompts {
+		if strings.Contains(p, "PRESERVE LITERALS") {
+			t.Error("MAGI_SPEC_FIDELITY=0 must NOT add the Part A rule to the planner prompt")
+		}
+	}
+	llm.mu.Unlock()
+
+	// Delegate path: back to the 400-char "Overall goal" line, no authoritative SPEC.
+	dllm := &recLLM{reply: func(string) string { return "done" }}
+	d := newOrchApp(t, dllm, Config{
+		Permission: "allow", MaxAgents: 100, MaxDepth: 5, MaxPlanDepth: 2,
+		Agents: map[string]AgentSpec{"coder": {Name: "coder", System: "x", Tools: []string{"read", "write", "edit", "bash"}}},
+	})
+	s := parentSession(t.TempDir())
+	d.mu.Lock()
+	d.sessions[s.ID] = s
+	d.mu.Unlock()
+	steps := []planStep{
+		{Title: "storage", Strategy: "delegate", Agent: "coder", Task: "implement storage"},
+		{Title: "api", Strategy: "delegate", Agent: "coder", Task: "implement the API"},
+	}
+	d.registerPlanTodos(context.Background(), s.ID, steps)
+	d.executeSteps(context.Background(), s, "Build a key-value web service", steps, 0)
+	dllm.mu.Lock()
+	defer dllm.mu.Unlock()
+	for _, p := range dllm.prompts {
+		if strings.Contains(p, "SPEC (authoritative") {
+			t.Errorf("MAGI_SPEC_FIDELITY=0 must NOT add the delegate SPEC anchor; prompt was:\n%s", p)
+		}
+	}
 }

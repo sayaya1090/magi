@@ -72,6 +72,33 @@ func TestReviewGroupsPartitioning(t *testing.T) {
 // properties the fresh-evidence gate relies on — most importantly that a missing or
 // unrecognized verdict is BLOCKED (never a false PASS) and that the model's reasoning
 // language is irrelevant.
+// The tester is the execution-evidence gate's authority: its PASS is what lets a
+// deliverable-changing turn finish clean. So its contract must (a) tell it to CONSTRUCT
+// a real check from the task's spec when the repo ships none — not just give up — while
+// (b) forbidding a trivial always-true check, and (c) keep BLOCKED as the honest escape
+// for "cannot run anything," NOT for "no test existed." These pins guard that shape so a
+// prompt edit can't silently turn the tester back into a give-up-on-missing-test verifier
+// (which starved the gate into false UNVERIFIED landings) or a rubber stamp.
+func TestTesterFocusRequiresConstructedCheck(t *testing.T) {
+	for _, want := range []string{
+		"CONSTRUCT a minimal check",             // build one when none ships
+		"from the task's own",                   // grounded in the spec, not a guessed grader
+		"never from a guess at a hidden grader", // no overfitting to the oracle
+		"a trivial always-true assertion does not count",
+		"missing test is NOT by itself", // BLOCKED narrowed to can't-run-anything
+	} {
+		if !strings.Contains(testerFocus, want) {
+			t.Errorf("testerFocus missing required clause: %q", want)
+		}
+	}
+	// The VERDICT protocol and anti-fabrication guarantees must survive the rewrite.
+	for _, want := range []string{"VERDICT: PASS", "VERDICT: FAIL", "VERDICT: BLOCKED", "never invent or hand-write output"} {
+		if !strings.Contains(testerFocus, want) {
+			t.Errorf("testerFocus dropped a load-bearing clause: %q", want)
+		}
+	}
+}
+
 func TestParseTesterVerdict(t *testing.T) {
 	cases := []struct {
 		name, in, want string

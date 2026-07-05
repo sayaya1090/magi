@@ -12,9 +12,26 @@ import (
 func TestTodoLineGlyphs(t *testing.T) {
 	cases := map[string]string{"completed": "✓", "in_progress": "◐", "pending": "☐", "cancelled": "✗"}
 	for status, glyph := range cases {
-		if got := todoLine(session.Todo{Content: "task", Status: status}, 40); !strings.Contains(got, glyph) {
+		if got := todoLine(session.Todo{Content: "task", Status: status}, 40, 0); !strings.Contains(got, glyph) {
 			t.Errorf("status %q should render %q, got %q", status, glyph, got)
 		}
+	}
+}
+
+// A nested plan node (a child session's todo under the parent step) is indented two
+// spaces per depth; depth 0 has no leading indent. This is how the tree structure
+// reads in the post-it.
+func TestTodoLineDepthIndent(t *testing.T) {
+	td := session.Todo{Content: "sub task", Status: "pending"}
+	if got := todoLine(td, 40, 0); strings.HasPrefix(got, " ") {
+		t.Errorf("depth 0 should not be indented, got %q", got)
+	}
+	got1 := todoLine(td, 40, 1)
+	if !strings.HasPrefix(got1, "  ") {
+		t.Errorf("depth 1 should start with 2-space indent, got %q", got1)
+	}
+	if got2 := todoLine(td, 40, 2); !strings.HasPrefix(got2, "    ") {
+		t.Errorf("depth 2 should start with 4-space indent, got %q", got2)
 	}
 }
 
