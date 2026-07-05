@@ -1271,6 +1271,49 @@ func planDecisions(t *testing.T, a *App, sid session.SessionID) []event.CouncilD
 	return out
 }
 
+func planRevisedFacts(t *testing.T, a *App, sid session.SessionID) []event.PlanRevisedData {
+	t.Helper()
+	evs, err := a.store.Read(context.Background(), sid, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []event.PlanRevisedData
+	for _, e := range evs {
+		if e.Type == event.TypePlanRevised {
+			var d event.PlanRevisedData
+			if json.Unmarshal(e.Data, &d) == nil {
+				out = append(out, d)
+			}
+		}
+	}
+	return out
+}
+
+// injectedAdvice reports whether the plan council injected an execution-notes system
+// prompt containing want (the "# Plan review — notes for execution" carrier).
+func injectedAdvice(t *testing.T, a *App, sid session.SessionID, want string) bool {
+	t.Helper()
+	evs, err := a.store.Read(context.Background(), sid, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range evs {
+		if e.Type != event.TypePromptSubmitted {
+			continue
+		}
+		var d event.PromptSubmittedData
+		if json.Unmarshal(e.Data, &d) != nil {
+			continue
+		}
+		for _, p := range d.Parts {
+			if strings.Contains(p.Text, "Plan review") && strings.Contains(p.Text, want) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // An approved plan is returned unchanged, with a phase=plan decided event, and the
 // council's derived completion criteria become the turn's termination contract.
 func TestPlanAuditApproves(t *testing.T) {
@@ -1372,6 +1415,125 @@ func TestPlanAuditReplanFailProceedsWithNote(t *testing.T) {
 	last := dec[len(dec)-1]
 	if last.Decision != string(council.Done) || !strings.Contains(last.Note, "re-plan failed") {
 		t.Fatalf("re-plan failure should emit a 'proceeding' note, got %+v", last)
+	}
+}
+
+// A revision the convergence judge finds does NOT address the concern stops the loop
+// early (before the round cap): the revised plan is returned, the concern is handed to the
+// executor, and a "did not address … proceeding" decision is emitted. This is the intrinsic
+// convergence bound — productivity, not round count.
+func TestPlanAuditConvergeNotAddressedStopsEarly(t *testing.T) {
+	fc := &fakeCouncil{
+		delibs: []council.Deliberation{
+			{Round: 1, Decision: council.Continue, Verdicts: []council.Verdict{
+				{Member: "Melchior", Lens: "correctness", Decision: council.Continue, Severity: council.SeverityCritical, Feedback: "add a verify step"},
+			}, Criteria: []string{"build passes"}},
+			{Round: 2, Decision: council.Done}, // must never be reached
+		},
+		judge: func(port.RevisionJudgeRequest) port.RevisionVerdict {
+			return port.RevisionVerdict{Addressed: false, Reason: "same steps, concern ignored"}
+		},
+	}
+	replanned := `{"steps":[{"title":"X","strategy":"solo"},{"title":"Y","strategy":"solo"}]}`
+	a, wd := newApp(t, &fakeLLM{steps: [][]port.ProviderEvent{textStep(replanned)}},
+		Config{Council: fc, Agents: map[string]AgentSpec{plannerAgent: {Name: "planner"}}})
+	s, steps := planAuditFixture(t, a, wd)
+	got := a.runPlanAuditGate(context.Background(), s, a.cfg.Agents[plannerAgent], "do A and B", steps, 0, 120)
+	// Returns the REVISED plan (handed to the executor to run), not the prior one.
+	if len(got) != 2 || got[0].Title != "X" {
+		t.Fatalf("early stop should return the revised plan, got %+v", got)
+	}
+	if fc.judgeCalls != 1 {
+		t.Fatalf("judge should run once (first unproductive revision stops), got %d", fc.judgeCalls)
+	}
+	if fc.calls != 1 {
+		t.Fatalf("early stop must not deliberate a second round, got %d Deliberate calls", fc.calls)
+	}
+	dec := planDecisions(t, a, s.ID)
+	last := dec[len(dec)-1]
+	if last.Decision != string(council.Done) || !strings.Contains(last.Note, "did not address") {
+		t.Fatalf("want an early 'did not address' proceeding decision, got %+v", last)
+	}
+	// The concern is handed to the executor as a (non-approved) advice injection.
+	if !injectedAdvice(t, a, s.ID, "add a verify step") {
+		t.Fatal("early stop should inject the unaddressed concern for the executor")
+	}
+	pr := planRevisedFacts(t, a, s.ID)
+	if len(pr) != 1 || pr[0].Addressed == nil || *pr[0].Addressed {
+		t.Fatalf("want one PlanRevised fact judged not-addressed, got %+v", pr)
+	}
+	if len(pr[0].Before) != 2 || len(pr[0].After) != 2 || pr[0].After[0] != "[solo] X" {
+		t.Fatalf("PlanRevised should carry before/after step summaries, got %+v", pr[0])
+	}
+}
+
+// A revision the judge finds DOES address the concern keeps looping as before (round 2
+// approves here); the PlanRevised fact records the productive verdict + the after-diff.
+func TestPlanAuditConvergeAddressedContinues(t *testing.T) {
+	fc := &fakeCouncil{delibs: []council.Deliberation{
+		{Round: 1, Decision: council.Continue, Verdicts: []council.Verdict{
+			{Member: "Melchior", Lens: "correctness", Decision: council.Continue, Severity: council.SeverityCritical, Feedback: "add a verify step"},
+		}},
+		{Round: 2, Decision: council.Done},
+	}} // default judge (nil) → addressed=true
+	replanned := `{"steps":[{"title":"X","strategy":"solo"},{"title":"Y","strategy":"solo"},{"title":"Z verify","strategy":"solo"}]}`
+	a, wd := newApp(t, &fakeLLM{steps: [][]port.ProviderEvent{textStep(replanned)}},
+		Config{Council: fc, Agents: map[string]AgentSpec{plannerAgent: {Name: "planner"}}})
+	s, steps := planAuditFixture(t, a, wd)
+	got := a.runPlanAuditGate(context.Background(), s, a.cfg.Agents[plannerAgent], "do A and B", steps, 0, 120)
+	if len(got) != 3 {
+		t.Fatalf("addressed revision should proceed to the approved revised plan, got %+v", got)
+	}
+	if fc.judgeCalls != 1 {
+		t.Fatalf("judge should have run once, got %d", fc.judgeCalls)
+	}
+	pr := planRevisedFacts(t, a, s.ID)
+	if len(pr) != 1 || pr[0].Addressed == nil || !*pr[0].Addressed {
+		t.Fatalf("want one PlanRevised fact judged addressed, got %+v", pr)
+	}
+	if len(pr[0].After) != 3 || pr[0].After[2] != "[solo] Z verify" {
+		t.Fatalf("PlanRevised after-diff should reflect the revised plan, got %+v", pr[0])
+	}
+}
+
+// MAGI_PLAN_CONVERGE=0 disables the judgment: JudgeRevision is never called, PlanRevised is
+// still emitted for observability but with a nil verdict, and the loop bounds on the round
+// cap alone (today's behavior) — even a would-be not-addressed verdict is ignored.
+func TestPlanAuditConvergeFlagOff(t *testing.T) {
+	t.Setenv("MAGI_PLAN_CONVERGE", "0")
+	crit := func(fb string) []council.Verdict {
+		return []council.Verdict{{Member: "Melchior", Lens: "correctness", Decision: council.Continue, Severity: council.SeverityCritical, Feedback: fb}}
+	}
+	fc := &fakeCouncil{
+		delibs: []council.Deliberation{
+			{Round: 1, Decision: council.Continue, Verdicts: crit("more")},
+			{Round: 2, Decision: council.Continue, Verdicts: crit("more")},
+			{Round: 3, Decision: council.Continue, Verdicts: crit("more"), Criteria: []string{"build passes"}},
+		},
+		judge: func(port.RevisionJudgeRequest) port.RevisionVerdict {
+			return port.RevisionVerdict{Addressed: false, Reason: "would stop if consulted"}
+		},
+	}
+	replan := textStep(`{"steps":[{"title":"A","strategy":"solo"},{"title":"B","strategy":"solo"}]}`)
+	a, wd := newApp(t, &fakeLLM{steps: [][]port.ProviderEvent{replan, replan, replan}},
+		Config{Council: fc, Agents: map[string]AgentSpec{plannerAgent: {Name: "planner"}}})
+	s, steps := planAuditFixture(t, a, wd)
+	a.runPlanAuditGate(context.Background(), s, a.cfg.Agents[plannerAgent], "p", steps, 0, 120)
+	if fc.judgeCalls != 0 {
+		t.Fatalf("flag off must not consult the revision judge, got %d calls", fc.judgeCalls)
+	}
+	dec := planDecisions(t, a, s.ID)
+	if len(dec) != 3 { // bounds on the round cap, not the (ignored) verdict
+		t.Fatalf("flag off should run to the round cap (3), got %d", len(dec))
+	}
+	pr := planRevisedFacts(t, a, s.ID)
+	if len(pr) != 2 { // re-plan happened after rounds 1 and 2 (round 3 hits the cap first)
+		t.Fatalf("want 2 PlanRevised facts (rounds 1,2), got %d", len(pr))
+	}
+	for _, p := range pr {
+		if p.Addressed != nil {
+			t.Fatalf("flag off should leave Addressed nil (no verdict), got %+v", p)
+		}
 	}
 }
 

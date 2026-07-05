@@ -582,6 +582,19 @@ func verdictTierEnabled() bool {
 	return true
 }
 
+// planConvergeEnabled gates the plan-audit convergence judgment (D17): when the council
+// rejects a plan and the planner re-plans, judge whether the revision actually addressed
+// the concern and stop the loop early on an unproductive (ignored-the-concern) revision,
+// rather than bounding purely on the round count. Default ON; MAGI_PLAN_CONVERGE=0 restores
+// the round-count-only behavior (the PlanRevised diff is still emitted, but with no verdict).
+func planConvergeEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_PLAN_CONVERGE"))) {
+	case "0", "off", "false", "no":
+		return false
+	}
+	return true
+}
+
 // refineShare threads the shared-session state across a plan's refine phases: the first phase
 // pins the child session it created and that session's executor here; later phases reuse both
 // so they run in ONE session with a stable agent. Zero value = no shared session yet.
@@ -842,6 +855,47 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 			a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd2)
 			return steps
 		}
+
+		// Plan-audit convergence (D17): judge whether the revision actually engaged the
+		// council's critical concern. A productive revision (addressed) keeps looping to the
+		// cap as before; an unproductive one (ignored the concern) stops early — re-planning
+		// again tends to repeat the same conclusion, so hand the concern to the executor and
+		// let the execution + landing gates arbitrate ("run it to know", the plan-side symmetry
+		// of the evidence gate) instead of burning rounds. The before/after diff + critique +
+		// verdict are always emitted as a PlanRevised fact, so the revision is observable even
+		// when gating is off (Addressed nil then).
+		var addressed *bool
+		reason := ""
+		if planConvergeEnabled() {
+			v, jerr := a.cfg.Council.JudgeRevision(ctx, port.RevisionJudgeRequest{
+				Critique: fb, PriorPlan: renderSteps(steps), RevisedPlan: renderSteps(next), DefaultModel: s.Model.Model,
+			})
+			if jerr != nil { // fail open — a flaky judge must never cut a productive loop
+				v = port.RevisionVerdict{Addressed: true, Reason: "revision judge error: " + jerr.Error()}
+			}
+			ok := v.Addressed
+			addressed = &ok
+			reason = v.Reason
+		}
+		pr, _ := json.Marshal(event.PlanRevisedData{
+			Round: round, Critique: fb, Before: stepSummaries(steps), After: stepSummaries(next),
+			Addressed: addressed, Reason: reason,
+		})
+		a.appendFact(ctx, sid, event.TypePlanRevised, actor, pr)
+
+		if addressed != nil && !*addressed {
+			// Unproductive re-plan → stop early. Proceed with the revised plan but hand the
+			// executor the unaddressed concern (execution + landing gates arbitrate).
+			a.storePlanCriteria(ctx, s, delib.Criteria)
+			a.injectCouncilAdvice(ctx, s.ID, fb, false)
+			dd3, _ := json.Marshal(event.CouncilDecidedData{
+				Round: round, Phase: "plan", Decision: string(council.Done), Tally: delib.Breakdown,
+				Note:     fmt.Sprintf("plan revision did not address the concern after %d round(s) — proceeding (execution + landing gates arbitrate)", round),
+				Criteria: delib.Criteria,
+			})
+			a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd3)
+			return next
+		}
 		steps = next
 	}
 	return steps
@@ -861,6 +915,16 @@ func renderSteps(steps []planStep) string {
 		b.WriteString("\n")
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// stepSummaries renders each step as a compact "[strategy] title" line — the structured
+// before/after material for a PlanRevised diff (a sibling of renderSteps' numbered prose).
+func stepSummaries(steps []planStep) []string {
+	out := make([]string, len(steps))
+	for i, st := range steps {
+		out[i] = fmt.Sprintf("[%s] %s", st.Strategy, st.Title)
+	}
+	return out
 }
 
 // planSummary is a short status detail for the plan phase event.

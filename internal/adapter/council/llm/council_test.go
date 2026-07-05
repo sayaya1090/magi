@@ -61,6 +61,41 @@ func TestEvidenceActions(t *testing.T) {
 	}
 }
 
+// JudgeRevision parses the model's {addressed,reason} verdict, and fails OPEN
+// (Addressed=true) on a backend error or an unparseable reply so a flaky judge never
+// falsely cuts a productive re-plan loop.
+func TestJudgeRevision(t *testing.T) {
+	ctx := context.Background()
+	req := port.RevisionJudgeRequest{Critique: "size A1", PriorPlan: "1. compute", RevisedPlan: "1. size A1\n2. compute"}
+
+	// Parsed true, with surrounding prose + a code fence (weak-model tolerance).
+	c := New(only(fakeLLM{reply: func(port.ChatRequest) string {
+		return "Sure:\n```json\n{\"addressed\": true, \"reason\": \"adds a sizing step\"}\n```"
+	}}), "m")
+	v, err := c.JudgeRevision(ctx, req)
+	if err != nil || !v.Addressed || v.Reason != "adds a sizing step" {
+		t.Fatalf("parsed-true: got %+v err=%v", v, err)
+	}
+
+	// Parsed false is honored (this is what triggers early convergence stop).
+	c = New(only(fakeLLM{reply: func(port.ChatRequest) string { return `{"addressed": false, "reason": "same steps"}` }}), "m")
+	if v, _ := c.JudgeRevision(ctx, req); v.Addressed || v.Reason != "same steps" {
+		t.Fatalf("parsed-false: got %+v", v)
+	}
+
+	// Unparseable reply → fail open.
+	c = New(only(fakeLLM{reply: func(port.ChatRequest) string { return "I think it's fine, no JSON here" }}), "m")
+	if v, _ := c.JudgeRevision(ctx, req); !v.Addressed || !strings.Contains(v.Reason, "unparseable") {
+		t.Fatalf("unparseable should fail open: got %+v", v)
+	}
+
+	// Backend error → fail open.
+	c = New(only(fakeLLM{err: errors.New("boom")}), "m")
+	if v, _ := c.JudgeRevision(ctx, req); !v.Addressed || !strings.Contains(v.Reason, "unavailable") {
+		t.Fatalf("backend error should fail open: got %+v", v)
+	}
+}
+
 func TestEvidenceBudgetNote(t *testing.T) {
 	// Low remaining budget → a note telling members to prefer DONE over unactionable rounds.
 	low := evidence(port.DeliberationRequest{Task: "x", Report: "y", StepsLeft: 3})

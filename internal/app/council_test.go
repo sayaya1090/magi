@@ -26,6 +26,12 @@ type fakeCouncil struct {
 	delibs  []council.Deliberation
 	calls   int
 	lastReq port.DeliberationRequest
+	// judge scripts the revision-addressed verdict; nil means "always addressed" (the
+	// default, so existing multi-round plan-audit fixtures still loop to the round cap).
+	// judgeCalls counts how many times JudgeRevision ran (0 proves the flag gated it off).
+	judge      func(port.RevisionJudgeRequest) port.RevisionVerdict
+	judgeCalls int
+	judgeReqs  []port.RevisionJudgeRequest
 }
 
 func (f *fakeCouncil) Deliberate(ctx context.Context, req port.DeliberationRequest) (council.Deliberation, error) {
@@ -38,6 +44,17 @@ func (f *fakeCouncil) Deliberate(ctx context.Context, req port.DeliberationReque
 		return f.delibs[i], nil
 	}
 	return f.delibs[len(f.delibs)-1], nil
+}
+
+func (f *fakeCouncil) JudgeRevision(ctx context.Context, req port.RevisionJudgeRequest) (port.RevisionVerdict, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.judgeCalls++
+	f.judgeReqs = append(f.judgeReqs, req)
+	if f.judge != nil {
+		return f.judge(req), nil
+	}
+	return port.RevisionVerdict{Addressed: true, Reason: "fake: addressed"}, nil
 }
 
 // submitAndDrain creates a session, submits a prompt, and returns the events.
@@ -111,6 +128,10 @@ func (c *cancelCouncil) Deliberate(_ context.Context, _ port.DeliberationRequest
 	c.calls++
 	c.cancel()
 	return council.Deliberation{Round: 1, Decision: council.Continue, Feedback: "keep going"}, nil
+}
+
+func (c *cancelCouncil) JudgeRevision(_ context.Context, _ port.RevisionJudgeRequest) (port.RevisionVerdict, error) {
+	return port.RevisionVerdict{Addressed: true}, nil
 }
 
 // newGateSession creates a session and returns the resolved Session + AgentSpec so

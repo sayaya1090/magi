@@ -70,6 +70,30 @@ type ProviderEvent struct {
 // this port supplies the I/O (asking each member, parsing their verdict).
 type Council interface {
 	Deliberate(ctx context.Context, req DeliberationRequest) (council.Deliberation, error)
+	// JudgeRevision judges whether a re-planned procedure actually addresses a specific
+	// council concern (plan-audit convergence): a quality signal distinct from the vote
+	// tally. Used to bound re-plan looping on productivity rather than round count alone —
+	// a revision that ignores the concern is unproductive and should stop the loop, while
+	// one that engages it earns another round. Implementations should fail open (Addressed
+	// true) on any I/O or parse error so a flaky judge never falsely cuts a productive loop.
+	JudgeRevision(ctx context.Context, req RevisionJudgeRequest) (RevisionVerdict, error)
+}
+
+// RevisionJudgeRequest asks whether RevisedPlan addresses Critique, given the PriorPlan it
+// was revised from. Plans are rendered procedures (step summaries), Critique is the council's
+// critical feedback that drove the re-plan.
+type RevisionJudgeRequest struct {
+	Critique     string
+	PriorPlan    string
+	RevisedPlan  string
+	DefaultModel string // model to judge with (typically the session's current model)
+}
+
+// RevisionVerdict is the judge's answer: whether the revision engaged the concern, plus a
+// one-line reason for the log/trace.
+type RevisionVerdict struct {
+	Addressed bool
+	Reason    string
 }
 
 // DeliberationRequest is the evidence the council judges: the agent's CLAIM

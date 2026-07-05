@@ -66,6 +66,64 @@ func (c *Council) Deliberate(ctx context.Context, req port.DeliberationRequest) 
 	return d, nil
 }
 
+// judgeReply is the JSON shape the revision judge is asked to return.
+type judgeReply struct {
+	Addressed bool   `json:"addressed"`
+	Reason    string `json:"reason"`
+}
+
+// JudgeRevision asks a single model whether the revised procedure engages the council's
+// concern. It fails OPEN (Addressed=true) on any backend or parse error so a flaky judge
+// never falsely cuts a productive re-plan loop; the reason records why.
+func (c *Council) JudgeRevision(ctx context.Context, req port.RevisionJudgeRequest) (port.RevisionVerdict, error) {
+	model := req.DefaultModel
+	if model == "" {
+		model = c.model
+	}
+	provider := c.resolve("")
+	if provider == nil { // defensive: no backend → don't block, assume engaged
+		return port.RevisionVerdict{Addressed: true, Reason: "no council backend resolved"}, nil
+	}
+	system := "You check whether a REVISED plan actually engages a specific CONCERN raised about the PRIOR plan. " +
+		"You are NOT judging whether the revised plan is perfect or complete — only whether it made a genuine, relevant " +
+		"change directed at the concern (added/changed/reordered a step that targets it). A revision that ignores the " +
+		"concern, or only rephrases the same steps, does NOT address it. " +
+		"Reply with ONLY a JSON object: {\"addressed\": <true|false>, \"reason\": \"<one short sentence>\"}."
+	user := "CONCERN raised about the prior plan:\n" + req.Critique +
+		"\n\nPRIOR plan:\n" + req.PriorPlan +
+		"\n\nREVISED plan:\n" + req.RevisedPlan +
+		"\n\nDid the REVISED plan make a genuine change directed at the CONCERN?"
+
+	stream, err := provider.StreamChat(ctx, port.ChatRequest{
+		Model:    model,
+		System:   system,
+		Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: user}}}},
+		Params:   map[string]any{"temperature": 0.0},
+	})
+	if err != nil {
+		return port.RevisionVerdict{Addressed: true, Reason: "revision judge unavailable: " + err.Error()}, nil
+	}
+	var b strings.Builder
+	for ev := range stream {
+		if ev.Type == port.ProviderText {
+			b.WriteString(ev.Text)
+		}
+	}
+	js := firstJSONObject(b.String())
+	if js == "" {
+		return port.RevisionVerdict{Addressed: true, Reason: "unparseable revision-judge reply"}, nil
+	}
+	var r judgeReply
+	if err := json.Unmarshal([]byte(js), &r); err != nil {
+		return port.RevisionVerdict{Addressed: true, Reason: "unparseable revision-judge reply"}, nil
+	}
+	reason := strings.TrimSpace(r.Reason)
+	if reason == "" {
+		reason = "no reason given"
+	}
+	return port.RevisionVerdict{Addressed: r.Addressed, Reason: reason}, nil
+}
+
 // poll asks one member and returns its verdict.
 func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m council.Member) council.Verdict {
 	v := council.Verdict{Member: m.Name, Lens: m.Lens, Weight: m.Weight}
