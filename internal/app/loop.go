@@ -136,14 +136,15 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	evidencePushed := false           // execution-evidence gate's one-shot "run it for real" push fired at most once per run
 	recovered := false                // stuck-recovery redecompose (stall/council deadlock → depth+1 child) fired at most once per run
 	guard := newRunGuard()
-	councilRounds := 0               // consensus termination gate rounds this turn (D14)
-	lastCouncilFeedback := ""        // last round's feedback (no-progress detection)
-	prevFinishText := ""             // the answer the council rejected last round
-	prevFinishCalls := -1            // guard.callCount() at that rejection (-1 = none yet)
-	prevFinishFp := ""               // guard.progressFingerprint() at that rejection ("" = none yet); D1 direction-terminal
-	councilSpent := time.Duration(0) // self-measured wall-clock consumed by deliberations
-	councilDeadlock := false         // set by the gate iff its finish was a genuine round-cap deadlock (never approved)
-	turnTask := ""                   // the user instruction THIS turn answers, snapshotted at
+	guard.stallConverge = stallConvergeEnabled() // D18a: collapse the stalled-nudge re-arm when a redirect produced no forward motion
+	councilRounds := 0                           // consensus termination gate rounds this turn (D14)
+	lastCouncilFeedback := ""                    // last round's feedback (no-progress detection)
+	prevFinishText := ""                         // the answer the council rejected last round
+	prevFinishCalls := -1                        // guard.callCount() at that rejection (-1 = none yet)
+	prevFinishFp := ""                           // guard.progressFingerprint() at that rejection ("" = none yet); D1 direction-terminal
+	councilSpent := time.Duration(0)             // self-measured wall-clock consumed by deliberations
+	councilDeadlock := false                     // set by the gate iff its finish was a genuine round-cap deadlock (never approved)
+	turnTask := ""                               // the user instruction THIS turn answers, snapshotted at
 	// step 0 — so a steer that lands during the council gate can't hijack what the
 	// council judges against (that interjection gets its own follow-up turn instead).
 	usedTools := seedWork // did this turn do real work? (planner investigation seeds it; council skips pure conversational turns)

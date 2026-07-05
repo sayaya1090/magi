@@ -595,6 +595,24 @@ func planConvergeEnabled() bool {
 	return true
 }
 
+// stallConvergeEnabled gates the stalled-nudge convergence (D18a): the no-progress "stalled"
+// nudge re-arms up to maxStallNudges times keyed purely on the sinceProgress count, without
+// checking whether the redirect actually changed anything. When a re-arm's window produced no
+// structural forward motion — neither a real mutation NOR a NOVEL exercising command
+// (progressSinceNudge stays false) — the nudge was ignored, so collapse the remaining nudge
+// budget and let the stall force-stop land the honest outcome now instead of burning more
+// no-progress windows. It only ACCELERATES the same terminal landing (stuck()=="stall"); it
+// never forces a pass and never fires while the agent is making progress (a mutation sets
+// progressSinceNudge=true and restarts the window, so a post-nudge edit re-arms normally). Default
+// ON; MAGI_STALL_CONVERGE=0 restores the fixed maxStallNudges re-arm.
+func stallConvergeEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_STALL_CONVERGE"))) {
+	case "0", "off", "false", "no":
+		return false
+	}
+	return true
+}
+
 // refineShare threads the shared-session state across a plan's refine phases: the first phase
 // pins the child session it created and that session's executor here; later phases reuse both
 // so they run in ONE session with a stable agent. Zero value = no shared session yet.

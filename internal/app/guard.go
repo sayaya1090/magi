@@ -79,6 +79,19 @@ type runGuard struct {
 	nudgedBlocked bool // "blocked"-kind re-grounding fired (once; stuck() force-stops if it persists)
 	stallNudges   int  // count of "stalled"-kind re-groundings fired this run (capped at maxStallNudges)
 	lastStallAt   int  // sinceProgress value at the last stalled nudge, for spacing the re-arm
+	// stallConverge enables the D18a re-arm collapse (set by the loop from MAGI_STALL_CONVERGE;
+	// zero value = off, so a test opts in explicitly). progressSinceNudge is the structural
+	// "the agent made forward motion since the last stalled nudge" signal: set true by EITHER a
+	// real mutation (mutated) OR a NOVEL (first-seen this epoch) non-inspect exercising command
+	// (noteBashExec) — both are genuine progress. It is set false when a stalled nudge fires and
+	// on a structural recovery (resetStall). false at a re-arm point means the prior nudge was
+	// ignored (no mutation AND no novel exercise since), so the remaining nudge budget collapses.
+	// A mutation MUST count as motion here: mutated() restarts the stall window (lastStallAt=0),
+	// so a window CAN climb back to threshold after an early mutation — the naive "window climbed
+	// ⇒ no mutation" premise is false, and treating a mutation as non-motion would collapse an
+	// agent that edited a file in direct response to the nudge (the opposite of the intent).
+	stallConverge      bool
+	progressSinceNudge bool
 
 	// changed records this turn's file edits (before/after content) as the council's
 	// evidence of what the AGENT actually changed — reconstructed from its own write/edit
@@ -232,9 +245,10 @@ func (g *runGuard) mutated(path, sig string) (reset bool) {
 	g.epoch++
 	g.prevSince = g.sinceProgress // snapshot for a possible retraction (see prevSince)
 	g.prevStallAt = g.lastStallAt
-	g.sinceProgress = 0 // a real change is progress → restart the no-progress count
-	g.lastStallAt = 0   // …and the stall-nudge window, so a fresh stall re-arms cleanly
-	g.execSinceMut = 0  // a new deliverable version is unverified until something exercises IT
+	g.sinceProgress = 0         // a real change is progress → restart the no-progress count
+	g.lastStallAt = 0           // …and the stall-nudge window, so a fresh stall re-arms cleanly
+	g.execSinceMut = 0          // a new deliverable version is unverified until something exercises IT
+	g.progressSinceNudge = true // a real mutation IS forward motion → protects the re-arm from collapse
 	return true
 }
 
@@ -266,6 +280,7 @@ func (g *runGuard) resetStall() {
 	g.sinceProgress = 0
 	g.lastStallAt = 0
 	g.stallNudges = 0
+	g.progressSinceNudge = false
 }
 
 const guardResultEcho = 4 << 10 // cap on the cached result echoed back on a block
@@ -413,13 +428,20 @@ func (g *runGuard) noteBashWrite(cmd string) bool {
 // `./run > out` all count as execution even though they redirect, whereas `echo … > f` or a
 // heredoc does not (its verb is inspect-only, i.e. it authors content rather than runs it).
 // Everything not inspect-only — `python`, `pytest`, `go test`, `./run`, `make`, a script —
-// is real execution evidence for the CURRENT deliverable version.
-func (g *runGuard) noteBashExec(cmd string) {
+// is real execution evidence for the CURRENT deliverable version. novel (the guard.check n==1
+// for this same call) marks a first-seen exercise this epoch: only a NEW exercising command is
+// forward motion for the stalled-nudge convergence (re-running an already-run test on an
+// unchanged deliverable is not), so it sets progressSinceNudge; execSinceMut counts every
+// exercise as before (its unverifiedDeliverable semantics are unchanged).
+func (g *runGuard) noteBashExec(cmd string, novel bool) {
 	if isInspectOnly(cmd) {
 		return
 	}
 	g.mu.Lock()
 	g.execSinceMut++
+	if novel {
+		g.progressSinceNudge = true // a first-seen exercising command is forward motion
+	}
 	g.mu.Unlock()
 }
 
@@ -711,8 +733,23 @@ func (g *runGuard) shouldNudge() string {
 		return "blocked"
 	}
 	if g.stallNudges < maxStallNudges && g.sinceProgress-g.lastStallAt >= noProgressNudge {
+		// D18a convergence: a re-arm (>=1 nudge already fired) whose window produced NO
+		// forward motion since the last nudge — neither a real mutation NOR a NOVEL exercising
+		// command (progressSinceNudge is false) — means the redirect was ignored. Collapse the
+		// remaining nudge budget so stuck() lands the honest stall THIS iteration (its
+		// stallNudges>=max and window>=threshold conditions are both met now — lastStallAt is
+		// left untouched on purpose so the window stays >= threshold), instead of firing up to
+		// maxStallNudges more nudges and burning that many further no-progress windows. Same
+		// terminal outcome, sooner. NOTE: a mutation sets progressSinceNudge=true (and restarts
+		// the window), so an agent that edited a file after the nudge re-arms normally — collapse
+		// only cuts a window with genuinely no progress, never a productive redirect.
+		if g.stallConverge && g.stallNudges >= 1 && !g.progressSinceNudge {
+			g.stallNudges = maxStallNudges
+			return ""
+		}
 		g.stallNudges++
 		g.lastStallAt = g.sinceProgress
+		g.progressSinceNudge = false // fresh window for judging the next re-arm
 		return "stalled"
 	}
 	return ""

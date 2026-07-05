@@ -71,9 +71,11 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// the model to stop repeating. This breaks re-read / re-dispatch / echo loops
 	// for every agent (orchestrator and subagents alike) without killing the turn.
 	var guardFP string
+	var guardNovel bool // this call's first occurrence this epoch (check n==1) — for D18a exercise novelty
 	if guard != nil {
 		block, n, fp := guard.check(tc.Name, tc.Args)
 		guardFP = fp
+		guardNovel = n == 1
 		if block {
 			msg := fmt.Sprintf(
 				"Loop guard: you have already made this exact %q call %d times with nothing changed since. "+
@@ -213,8 +215,8 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 				Command string `json:"command"`
 			}
 			if json.Unmarshal(tc.Args, &ba) == nil {
-				guard.noteBashWrite(ba.Command) // authored a file → epoch bump
-				guard.noteBashExec(ba.Command)  // ran a program → execution evidence (independent of any redirect)
+				guard.noteBashWrite(ba.Command)            // authored a file → epoch bump
+				guard.noteBashExec(ba.Command, guardNovel) // ran a program → execution evidence (independent of any redirect)
 			}
 		}
 	}
