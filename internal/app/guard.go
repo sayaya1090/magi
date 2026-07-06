@@ -262,6 +262,11 @@ func (g *runGuard) retractProgress() {
 	defer g.mu.Unlock()
 	g.sinceProgress = g.prevSince
 	g.lastStallAt = g.prevStallAt
+	// The mutation being retracted was a self-revert (churn), not forward motion, so it must
+	// NOT keep the D18a re-arm from collapsing. mutated() set progressSinceNudge=true; clear it
+	// here so an implement↔revert oscillation — whose every swing re-sets that flag — no longer
+	// dodges stall-converge and lands the honest stall on the same schedule as any other stall.
+	g.progressSinceNudge = false
 }
 
 // resetStall clears the no-progress/stall accounting after a structural recovery — a stall
