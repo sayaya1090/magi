@@ -24,3 +24,10 @@ func detachTTY(attr *syscall.SysProcAttr) *syscall.SysProcAttr {
 	attr.Setsid = true
 	return attr
 }
+
+// killGroup terminates the whole process group led by pid. Background commands run
+// under Setsid, so the leader's pid equals its process-group id; signalling -pid
+// reaches any children it forked (a server that spawns workers), not just the shell.
+func killGroup(pid int) error {
+	return syscall.Kill(-pid, syscall.SIGKILL)
+}

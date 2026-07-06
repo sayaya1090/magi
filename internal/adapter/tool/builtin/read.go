@@ -4,12 +4,24 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
+
+// maxReadBytes bounds how much of a file read pulls into memory in one call, so a
+// giant file (a multi-GB log, a generated blob) can't OOM the process or flood the
+// model context. Beyond it, only the first maxReadBytes are read, with a note.
+const maxReadBytes = 10 << 20 // 10 MiB
+
+// defaultReadLines caps a read that supplies no explicit limit, so a bare
+// read{path} of a large text file returns a navigable window instead of the whole
+// file. The agent pages further with offset/limit. Matches the convention of
+// mainstream agent read tools.
+const defaultReadLines = 2000
 
 // Read returns the contents of a file, optionally a line range. (F-TOOL-READ)
 type Read struct{}
@@ -60,7 +72,7 @@ func (Read) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	if info.IsDir() {
 		return errResult("", "is a directory: "+a.Path), nil
 	}
-	data, err := os.ReadFile(abs)
+	data, bytesTruncated, err := readCapped(abs, maxReadBytes)
 	if err != nil {
 		return errResult("", err.Error()), nil
 	}
@@ -72,13 +84,63 @@ func (Read) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	if start < 1 {
 		start = 1
 	}
-	content := string(data)
-	if a.Offset > 0 || a.Limit > 0 {
-		content = sliceLines(content, a.Offset, a.Limit)
+	// Apply a default line window when the caller gives no explicit limit, so a bare
+	// read of a large file returns a navigable page instead of dumping everything.
+	limit, defaulted := a.Limit, false
+	if limit <= 0 {
+		limit, defaulted = defaultReadLines, true
+	}
+	full := string(data)
+	content := sliceLines(full, a.Offset, limit)
+
+	body := locatedNote
+	if bytesTruncated {
+		body += fmt.Sprintf("(note: file larger than %d MiB; showing first %d MiB — use offset/limit to page)\n", maxReadBytes>>20, maxReadBytes>>20)
 	}
 	// Prefix each line with its 1-based number (cat -n style) so the model can
 	// navigate and reference lines accurately.
-	return okText("", locatedNote+numberLines(content, start)), nil
+	body += numberLines(content, start)
+	// If the default window (not an explicit limit) hid trailing lines, say so and
+	// where to resume — otherwise the model can't tell the file was clipped.
+	if defaulted && !bytesTruncated {
+		shown := (start - 1) + countLines(content)
+		if total := countLines(full); shown < total {
+			body += fmt.Sprintf("\n…(%d more lines — read with offset=%d to continue)", total-shown, shown+1)
+		}
+	}
+	return okText("", body), nil
+}
+
+// readCapped reads up to cap bytes of the file, reporting whether it was longer
+// (so the caller can note the truncation). Bounds memory for pathologically large
+// files instead of os.ReadFile's read-it-all.
+func readCapped(path string, cap int64) (data []byte, truncated bool, err error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, false, err
+	}
+	defer f.Close()
+	data, err = io.ReadAll(io.LimitReader(f, cap+1))
+	if err != nil {
+		return nil, false, err
+	}
+	if int64(len(data)) > cap {
+		return data[:cap], true, nil
+	}
+	return data, false, nil
+}
+
+// countLines counts the lines in s (a final line without a trailing newline still
+// counts). Empty string is zero lines.
+func countLines(s string) int {
+	if s == "" {
+		return 0
+	}
+	n := strings.Count(s, "\n")
+	if !strings.HasSuffix(s, "\n") {
+		n++
+	}
+	return n
 }
 
 // numberLines prefixes each line with a right-aligned line number + tab,

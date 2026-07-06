@@ -217,6 +217,11 @@ func run() int {
 		cancel()
 	}
 
+	// Reclaim any leftover magi temp logs from a prior run (a background server that
+	// outlived a headless run, or a runCapture temp an open child handle blocked from
+	// deletion on Windows). Age-gated, so live logs are never touched.
+	builtin.SweepStaleTempLogs()
+
 	// Tools: built-ins plus any Lua plugins. The plugin host shares the registry
 	// so hot-reloaded plugins take effect in the running agent.
 	reg := builtin.Default()
@@ -397,6 +402,10 @@ func run() int {
 		tui.SetThemePalettes(cfg.Theme.Dark, cfg.Theme.Light)
 		// Hot-reload plugins while the session is live.
 		_ = host.Watch(ctx)
+		// Interactive sessions clean up their background commands on exit so a dev
+		// server the agent started doesn't leak past the TUI. Headless (-p) runs
+		// deliberately skip this — a launched server must survive for post-run steps.
+		defer builtin.KillBackgroundProcesses()
 		if err := tui.Run(ctx, a, host, sid, modelID, wd, isDark, plat.TerminalCaps().Image); err != nil {
 			fmt.Fprintln(os.Stderr, "magi: tui:", err)
 			return 1

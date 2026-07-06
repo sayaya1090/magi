@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,52 +20,75 @@ import (
 // a dev server, a file watcher, a slow test/build — and keep working while it runs,
 // polling its output with bash_output and stopping it with bash_kill. The synchronous
 // bash tool blocks the whole turn until the command exits, so it can't host these.
+//
+// Two design points keep a background process alive independent of magi:
+//   - Its stdout/stderr go to a real file, NOT an in-memory io.Writer. An io.Writer
+//     stdout makes os/exec insert an os.Pipe whose read end closes when magi exits,
+//     which kills the child with SIGPIPE on its next write. A file has no such pipe,
+//     so the process survives magi's own exit — required for "start a server, then
+//     grade it" bench tasks where the grader runs after magi returns.
+//   - It runs under Setsid (its own session / process group, no controlling tty), so
+//     a signal directed at magi's group doesn't cascade into it.
 
-const maxBgBuf = 256 * 1024 // per-process captured-output cap (keeps the tail)
+// maxBgBuf bounds one bash_output read. It is kept at/under truncateOut's display
+// cap on purpose: the reader advances the consumed offset by exactly the bytes it
+// returns, so if this were larger than what truncateOut shows, the excess would be
+// skipped past and never surface to the agent. A large burst is paged out across
+// successive bash_output calls instead of being silently dropped.
+const maxBgBuf = 30 * 1024
 
-// syncBuffer is an io.Writer that accumulates output under a lock, capped to the
-// last maxBgBuf bytes, tracking total bytes ever written so reads can resume by
-// absolute offset even after the front is trimmed.
-type syncBuffer struct {
-	mu    sync.Mutex
-	buf   []byte
-	total int
+// hardLogCap bounds a background command's log file on disk. The child writes to
+// the file directly (that decoupling is what keeps it alive past magi's exit —
+// see the package doc), so magi can't intercept individual writes; instead, when
+// the file grows past this cap it is truncated (rotateIfHuge) and the reader is
+// reset to the fresh start. Older un-drained output is dropped — an acceptable
+// safety valve for a runaway logger (a dev server logging every request), which
+// is what would otherwise fill /tmp over a long session.
+const hardLogCap = 8 << 20 // 8 MiB
+
+// rotateIfHuge truncates p's log to zero when it exceeds hardLogCap and rewinds
+// the read offset to 0, returning the number of bytes dropped (0 if not rotated).
+// Safe because the log fd is O_APPEND: after truncation the child's next write
+// lands at offset 0, so no sparse hole forms and absolute offsets restart cleanly.
+func rotateIfHuge(p *bgProc) int64 {
+	fi, err := os.Stat(p.logPath)
+	if err != nil || fi.Size() < hardLogCap {
+		return 0
+	}
+	dropped := fi.Size()
+	if err := os.Truncate(p.logPath, 0); err != nil {
+		return 0
+	}
+	p.mu.Lock()
+	p.read = 0
+	p.mu.Unlock()
+	return dropped
 }
 
-func (b *syncBuffer) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.buf = append(b.buf, p...)
-	b.total += len(p)
-	if len(b.buf) > maxBgBuf {
-		b.buf = b.buf[len(b.buf)-maxBgBuf:]
+// readLogSince returns up to maxBgBuf bytes of a background command's log file
+// starting at absolute offset `since`, plus the new offset. The file is trimmed
+// only by rotateIfHuge (disk cap); within a rotation window nothing is dropped.
+func readLogSince(path string, since int) (out string, next int) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", since
 	}
-	return len(p), nil
-}
-
-// readSince returns output written after absolute offset `since`, the new offset,
-// and whether some output before `since` was already dropped by the cap.
-func (b *syncBuffer) readSince(since int) (out string, next int, dropped bool) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	start := b.total - len(b.buf) // absolute offset of buf[0]
-	if since < start {
-		since, dropped = start, true
+	defer f.Close()
+	if _, err := f.Seek(int64(since), io.SeekStart); err != nil {
+		return "", since
 	}
-	idx := since - start
-	if idx < 0 {
-		idx = 0
-	}
-	return string(b.buf[idx:]), b.total, dropped
+	b, _ := io.ReadAll(io.LimitReader(f, maxBgBuf))
+	return string(b), since + len(b)
 }
 
 // bgProc is one running (or finished) background command.
 type bgProc struct {
 	id      string
 	command string
-	out     *syncBuffer
+	logPath string // file receiving the process's combined stdout/stderr
 	cancel  context.CancelFunc
 	started time.Time
+	pid     int // process-group leader pid (Setsid => pgid == pid); used by killGroup
 
 	mu    sync.Mutex
 	stdin io.WriteCloser // open pipe to the process's stdin (for bash_input); closed on exit
@@ -86,28 +112,53 @@ func (m *bgManager) start(workdir string, sb port.SandboxSpec, command string) (
 	if argv, wrapped := sandboxArgv(sb, command); wrapped {
 		name, args = argv[0], argv[1:]
 	}
+	// Combined stdout+stderr go to a real file so the process is not tethered to an
+	// os.Pipe that would close (and SIGPIPE the child) when magi exits. The file is
+	// opened O_APPEND so that when rotateIfHuge truncates it to bound disk, the
+	// child's next write lands cleanly at offset 0 (append seeks to EOF) instead of
+	// leaving a sparse hole full of NUL bytes at its old, now-past-EOF fd offset.
+	tmp, err := os.CreateTemp("", "magi-bg-*.log")
+	if err != nil {
+		return nil, err
+	}
+	logName := tmp.Name()
+	_ = tmp.Close()
+	f, err := os.OpenFile(logName, os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		_ = os.Remove(logName)
+		return nil, err
+	}
 	pctx, cancel := context.WithCancel(context.Background()) // outlives the tool call
 	cmd := exec.CommandContext(pctx, name, args...)
 	cmd.Dir = workdir
-	cmd.SysProcAttr = sandboxProcAttr(sb)
-	out := &syncBuffer{}
-	cmd.Stdout, cmd.Stderr = out, out
+	// New session: own process group, no controlling terminal. Detaches the child
+	// from magi's group and makes killGroup(pid) reach any workers it forks.
+	cmd.SysProcAttr = detachTTY(sandboxProcAttr(sb))
+	cmd.Stdout, cmd.Stderr = f, f
 	// Keep stdin open so bash_input can drive an interactive process (REPL, line
 	// debugger). Must be obtained BEFORE Start; closed when the process exits.
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
+		_ = f.Close()
+		_ = os.Remove(f.Name())
 		cancel()
 		return nil, err
 	}
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
+		_ = f.Close()
+		_ = os.Remove(f.Name())
 		cancel()
 		return nil, err
 	}
+	// The child inherited its own fd for the log at fork; the parent's handle is no
+	// longer needed (reads reopen the path read-only).
+	logPath := f.Name()
+	_ = f.Close()
 
 	m.mu.Lock()
 	m.seq++
-	p := &bgProc{id: fmt.Sprintf("bg_%d", m.seq), command: command, out: out, stdin: stdin, cancel: cancel, started: time.Now()}
+	p := &bgProc{id: fmt.Sprintf("bg_%d", m.seq), command: command, logPath: logPath, stdin: stdin, cancel: cancel, started: time.Now(), pid: cmd.Process.Pid}
 	m.procs[p.id] = p
 	m.pruneLocked()
 	m.mu.Unlock()
@@ -131,12 +182,12 @@ func (m *bgManager) start(workdir string, sb port.SandboxSpec, command string) (
 }
 
 // maxBgProcs caps the registry; finished processes beyond it are pruned (oldest
-// first) so a long session can't leak unbounded *bgProc/buffer entries. Running
+// first) so a long session can't leak unbounded *bgProc/log-file entries. Running
 // processes are never pruned.
 const maxBgProcs = 32
 
-// pruneLocked drops the oldest finished processes when the registry is over cap.
-// Caller holds m.mu.
+// pruneLocked drops the oldest finished processes when the registry is over cap,
+// removing each dropped process's log file. Caller holds m.mu.
 func (m *bgManager) pruneLocked() {
 	if len(m.procs) <= maxBgProcs {
 		return
@@ -165,6 +216,9 @@ func (m *bgManager) pruneLocked() {
 		}
 	}
 	for i := 0; i < len(done) && len(m.procs) > maxBgProcs; i++ {
+		if p := m.procs[done[i].id]; p != nil {
+			_ = os.Remove(p.logPath)
+		}
 		delete(m.procs, done[i].id)
 	}
 }
@@ -173,6 +227,67 @@ func (m *bgManager) get(id string) *bgProc {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.procs[id]
+}
+
+// KillAll terminates every still-running background command and its process group.
+func (m *bgManager) KillAll() {
+	m.mu.Lock()
+	var running []*bgProc
+	for _, p := range m.procs {
+		p.mu.Lock()
+		fin := p.done
+		p.mu.Unlock()
+		if !fin {
+			running = append(running, p)
+		}
+	}
+	m.mu.Unlock()
+	for _, p := range running {
+		_ = killGroup(p.pid)
+		p.cancel()
+	}
+}
+
+// KillBackgroundProcesses terminates all still-running background commands and their
+// process groups. Call it on INTERACTIVE shutdown so dev servers don't leak; headless
+// (-p) runs deliberately skip it, so a launched server survives for post-run grading.
+func KillBackgroundProcesses() { bg.KillAll() }
+
+// staleTempLogAge is how old a leftover magi temp log must be before startup sweep
+// reclaims it — well past any plausible live use, so a background server still
+// writing to its log (a survived headless run) is never touched.
+const staleTempLogAge = 24 * time.Hour
+
+// SweepStaleTempLogs removes magi's own leftover temp log files (magi-bg-*.log,
+// magi-bash-*.log) older than staleTempLogAge from the temp dir. It reclaims files
+// that escaped cleanup: a runCapture temp that a surviving `&` child kept open past
+// process exit (notably on Windows, where an open handle can block os.Remove), and
+// background logs orphaned when a headless run left a server alive. Best-effort and
+// age-gated, so it never races a live process. Call once at startup.
+func SweepStaleTempLogs() {
+	dir := os.TempDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-staleTempLogAge)
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !strings.HasPrefix(name, "magi-bg-") && !strings.HasPrefix(name, "magi-bash-") {
+			continue
+		}
+		if !strings.HasSuffix(name, ".log") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || info.ModTime().After(cutoff) {
+			continue
+		}
+		_ = os.Remove(filepath.Join(dir, name))
+	}
 }
 
 // status returns a one-line status header for a process.
@@ -209,17 +324,22 @@ func (BashOutput) Execute(ctx context.Context, raw json.RawMessage, env port.Too
 	p.mu.Lock()
 	since := p.read
 	p.mu.Unlock()
-	text, next, dropped := p.out.readSince(since)
+	text, next := readLogSince(p.logPath, since)
 	p.mu.Lock()
 	p.read = next
 	p.mu.Unlock()
-	header := p.status()
-	if dropped {
-		header += " (earlier output dropped)"
-	}
-	body := header
+	body := p.status()
 	if text != "" {
 		body += "\n" + truncateOut(text)
+	}
+	// A full-cap read almost certainly left more buffered; tell the agent to page on.
+	if len(text) >= maxBgBuf {
+		body += "\n…(more output buffered — call bash_output again)"
+	}
+	// Bound the log on disk: if it has grown past the cap, drop it and restart so a
+	// chatty long-lived process can't fill /tmp over a long session.
+	if mb := rotateIfHuge(p) >> 20; mb > 0 {
+		body += fmt.Sprintf("\n…(log exceeded %d MiB — rotated, older output dropped)", hardLogCap>>20)
 	}
 	return okText("", body), nil
 }
@@ -245,6 +365,9 @@ func (BashKill) Execute(ctx context.Context, raw json.RawMessage, env port.ToolE
 	if p == nil {
 		return errResult("", "no such background process: "+a.ID), nil
 	}
+	// Kill the whole process group (workers the command forked), then cancel the
+	// context so exec releases the leader.
+	_ = killGroup(p.pid)
 	p.cancel()
 	return okText("", "killed "+a.ID), nil
 }

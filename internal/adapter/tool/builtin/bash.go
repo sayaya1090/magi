@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
@@ -82,7 +85,7 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	// don't need a tty), which remain bounded only by the command timeout. No-op on Windows,
 	// where there is no controlling-terminal concept to detach.
 	cmd.SysProcAttr = detachTTY(sboxAttr)
-	out, err := cmd.CombinedOutput()
+	out, err := runCapture(cmd)
 	// Safety net: if a token-confined launch (Windows) fails to START (process never
 	// ran), retry unconfined so confinement can never break the bash tool outright.
 	// Keyed on the sandbox token specifically — tty detachment is kept on the retry
@@ -92,7 +95,7 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		cmd.Dir = env.Workdir
 		cmd.WaitDelay = 2 * time.Second
 		cmd.SysProcAttr = detachTTY(nil)
-		out, err = cmd.CombinedOutput()
+		out, err = runCapture(cmd)
 	}
 
 	exit := 0
@@ -113,6 +116,76 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	return res, nil
 }
 
+// runCapture runs cmd with its combined stdout/stderr sent to a temp FILE, then
+// returns the captured bytes and the run error. Unlike cmd.CombinedOutput (which
+// wires stdout/stderr to an os.Pipe), a file lets a command that backgrounds a child
+// with `&` hand that child a plain file fd: the child is not tethered to a pipe whose
+// read end our Wait would close, so it survives this call — and magi's own exit —
+// instead of dying by SIGPIPE. sh exiting also returns Wait immediately (no pipe to
+// drain), so `server &` no longer blocks on WaitDelay. On temp-file failure it falls
+// back to the in-memory CombinedOutput path so the tool never breaks outright.
+func runCapture(cmd *exec.Cmd) ([]byte, error) {
+	f, err := os.CreateTemp("", "magi-bash-*.log")
+	if err != nil {
+		return cmd.CombinedOutput()
+	}
+	name := f.Name()
+	defer os.Remove(name)
+	defer f.Close()
+	cmd.Stdout, cmd.Stderr = f, f
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	werr := cmd.Wait()
+	// Read whatever was flushed by the time the shell exited, bounded to captureCap so a
+	// command that emits hundreds of MB (`cat huge`, a runaway build) can't buffer it all
+	// into memory — we keep the head and the tail (where errors and final status usually
+	// are) and elide the middle. A surviving `&` child keeps writing to its own fd on the
+	// (now unlinked) inode; that later output is intentionally not captured here. (I1)
+	data := readHeadTail(name, captureCap)
+	return data, werr
+}
+
+// captureCap bounds how much of a command's output runCapture retains in memory. It sits
+// above truncateOut's display cap so the head+tail context survives into the display
+// truncation, while keeping the buffer to a fixed few hundred KB regardless of output size.
+const captureCap = 256 << 10
+
+// readHeadTail returns the file's full content when it fits in cap, else the first and last
+// cap/2 bytes joined by an elision marker. Bounds memory for pathologically large output
+// while preserving the tail — a truncated build log's error is almost always at the end, so
+// head-only capture would drop exactly the useful part.
+func readHeadTail(path string, cap int64) []byte {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return nil
+	}
+	if fi.Size() <= cap {
+		b, _ := io.ReadAll(f)
+		return b
+	}
+	half := cap / 2
+	head := make([]byte, half)
+	n1, _ := io.ReadFull(f, head)
+	var tail []byte
+	if _, err := f.Seek(-half, io.SeekEnd); err == nil {
+		tail = make([]byte, half)
+		n2, _ := io.ReadFull(f, tail)
+		tail = tail[:n2]
+	}
+	omitted := fi.Size() - int64(n1) - int64(len(tail))
+	marker := fmt.Sprintf("\n…[%d bytes omitted]…\n", omitted)
+	out := make([]byte, 0, int64(n1)+int64(len(marker))+int64(len(tail)))
+	out = append(out, head[:n1]...)
+	out = append(out, marker...)
+	return append(out, tail...)
+}
+
 // shell returns the platform shell invocation for a command string.
 func shell(command string) (string, []string) {
 	if runtime.GOOS == "windows" {
@@ -121,11 +194,22 @@ func shell(command string) (string, []string) {
 	return "/bin/sh", []string{"-c", command}
 }
 
-// truncateOut caps very large command output.
+// truncateOut caps very large command output for display, keeping the head AND the tail
+// (¾ / ¼) with the middle elided — a build/test failure's actual error and final status
+// live at the end, so head-only truncation would hide exactly what the agent needs. Cuts
+// on rune boundaries so the result is always valid UTF-8.
 func truncateOut(s string) string {
 	const max = 30 * 1024
 	if len(s) <= max {
 		return s
 	}
-	return s[:max] + "\n…(output truncated)"
+	head := max * 3 / 4
+	for head > 0 && !utf8.RuneStart(s[head]) {
+		head--
+	}
+	tail := len(s) - (max - head)
+	for tail < len(s) && !utf8.RuneStart(s[tail]) {
+		tail++
+	}
+	return s[:head] + fmt.Sprintf("\n…(%d bytes omitted)…\n", tail-head) + s[tail:]
 }

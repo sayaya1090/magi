@@ -19,6 +19,11 @@ func sandboxArgv(spec port.SandboxSpec, command string) ([]string, bool) { retur
 // (interactive console handling differs), and any sandbox token is left intact.
 func detachTTY(attr *syscall.SysProcAttr) *syscall.SysProcAttr { return attr }
 
+// killGroup is a no-op on Windows: there is no POSIX process-group signalling, and
+// the background command's context-cancel already terminates its process. Callers
+// treat a nil return as "nothing more to do".
+func killGroup(pid int) error { return nil }
+
 var procCreateRestrictedToken = windows.NewLazySystemDLL("advapi32.dll").NewProc("CreateRestrictedToken")
 
 // DISABLE_MAX_PRIVILEGE: strip ALL privileges from the new token.

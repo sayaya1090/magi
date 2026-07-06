@@ -3,6 +3,8 @@ package builtin
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -90,17 +92,26 @@ func TestBackgroundInputAfterExit(t *testing.T) {
 	}
 }
 
-func TestSyncBufferReadSince(t *testing.T) {
-	b := &syncBuffer{}
-	b.Write([]byte("hello "))
-	out, next, dropped := b.readSince(0)
-	if out != "hello " || next != 6 || dropped {
-		t.Fatalf("first read = %q,%d,%v", out, next, dropped)
+func TestReadLogSince(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "log")
+	if err := os.WriteFile(path, []byte("hello "), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	b.Write([]byte("world"))
-	out, next, dropped = b.readSince(next) // only the new bytes
-	if out != "world" || next != 11 || dropped {
-		t.Fatalf("incremental read = %q,%d,%v", out, next, dropped)
+	out, next := readLogSince(path, 0)
+	if out != "hello " || next != 6 {
+		t.Fatalf("first read = %q,%d", out, next)
+	}
+	// Append and read only the new bytes from the prior offset.
+	if err := os.WriteFile(path, []byte("hello world"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, next = readLogSince(path, next)
+	if out != "world" || next != 11 {
+		t.Fatalf("incremental read = %q,%d", out, next)
+	}
+	// Reading a missing file is a clean empty read, not a panic.
+	if out, next := readLogSince(filepath.Join(t.TempDir(), "nope"), 5); out != "" || next != 5 {
+		t.Fatalf("missing-file read = %q,%d", out, next)
 	}
 }
 
