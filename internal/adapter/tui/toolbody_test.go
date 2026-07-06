@@ -123,3 +123,28 @@ func TestClipLine(t *testing.T) {
 		t.Errorf("clipLine short CJK = %q, want unchanged", got)
 	}
 }
+
+// TestClipLineAmbiguousWide guards the case the whole width.go machinery exists
+// for: a terminal that draws East-Asian *ambiguous* runes (·★→—●) — and the
+// ellipsis "…" itself — two cells wide. clipLine's guard measures with cellWidth
+// but its truncation counts by ansi.StringWidth (narrow), so without the cell-
+// aware back-off it over-fills and the clipped line overflows by up to 100%.
+func TestClipLineAmbiguousWide(t *testing.T) {
+	setAmbiguousWide(true)
+	defer setAmbiguousWide(false)
+
+	// Every one of these glyphs is ambiguous: StringWidth 1, cellWidth 2 here.
+	for _, s := range []string{
+		strings.Repeat("★", 40),
+		strings.Repeat("·", 40),
+		strings.Repeat("→", 40),
+		strings.Repeat("a★b·", 20),
+	} {
+		for _, w := range []int{2, 3, 4, 5, 8, 10, 20} {
+			got := clipLine(s, w)
+			if cw := cellWidth(got); cw > w {
+				t.Errorf("clipLine(%.6q…, %d) = %q measures %d cells, want <= %d", s, w, got, cw, w)
+			}
+		}
+	}
+}

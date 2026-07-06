@@ -245,6 +245,26 @@ func clipLine(s string, width int) string {
 	if cellWidth(s) <= width {
 		return s
 	}
-	// Truncate to width-1 cells (leaving one for the ellipsis), cell-accurately.
-	return ansi.Truncate(s, width-1, "") + "…"
+	// Truncate leaving room for the ellipsis, measured in *cells*. ansi.Truncate
+	// counts by ansi.StringWidth (narrow), but on terminals that draw ambiguous
+	// runes (·★→—) or decorative glyphs wide, cellWidth is what actually lands on
+	// screen — and "…" is itself an ambiguous-width rune. So target the ellipsis's
+	// real cell width, then back off StringWidth-by-one until the cell width fits.
+	// When no wide-correction is active cellWidth==StringWidth, the loop never
+	// runs, and this stays byte-identical to a plain width-1 truncation.
+	const ell = "…"
+	budget := width - cellWidth(ell)
+	if budget < 0 {
+		budget = 0
+	}
+	trunc := ansi.Truncate(s, budget, "")
+	for cellWidth(trunc) > budget {
+		nb := ansi.StringWidth(trunc) - 1
+		if nb < 0 {
+			trunc = ""
+			break
+		}
+		trunc = ansi.Truncate(s, nb, "")
+	}
+	return trunc + ell
 }
