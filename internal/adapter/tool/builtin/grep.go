@@ -90,6 +90,15 @@ func (Grep) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		if a.Glob != "" && !grepGlobMatch(a.Glob, env.Workdir, p, d.Name()) {
 			return nil
 		}
+		// WalkDir does not follow symlinked directories, but it still hands us
+		// symlinked FILES as entries, and os.ReadFile below would follow them. An
+		// in-workdir symlink pointing outside would leak that file's contents, so
+		// re-run the jail on any symlink and skip it if it escapes.
+		if d.Type()&fs.ModeSymlink != 0 {
+			if _, err := resolvePath(env.Workdir, p); err != nil {
+				return nil
+			}
+		}
 		data, err := os.ReadFile(p)
 		if err != nil || isBinary(data) {
 			return nil
