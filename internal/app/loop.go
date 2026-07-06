@@ -125,30 +125,22 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	runStart := time.Now() // self-measured wall clock (budget line + council cost control)
 	agentActor := event.Actor{Kind: event.ActorAgent, ID: orDefault(agent.Name, "default")}
 	lastText := ""
-	stopChecked := false              // Stop hooks enforced at most once per run
-	nudgedEmpty := false              // subagent empty-result nudge fired at most once
-	selfVerified := false             // pre-finish self-verify self-prompt (fallback path) fired at most once per run
-	reviewGateFired := false          // has the delegated review gate fired yet this run?
-	reviewBudget := reviewSpawnBudget // remaining delegated-review subagents this run (spent across re-arm firings)
-	reviewedAtEpoch := 0              // guard.mutationEpoch() at the last review-gate firing (re-arm only on a NEW mutation since — incl. bash writes)
-	reviewPassedEpoch := -1           // mutationEpoch at which the tester last returned VERDICT: PASS; -1 = never. Fresh-evidence: finish needs reviewPassedEpoch == current epoch
-	reportRefused := false            // a subagent's unverified "done" report was refused once this run
-	evidencePushed := false           // execution-evidence gate's one-shot "run it for real" push fired at most once per run
-	recovered := false                // stuck-recovery redecompose (stall/council deadlock → depth+1 child) fired at most once per run
+	stopChecked := false   // Stop hooks enforced at most once per run
+	nudgedEmpty := false   // subagent empty-result nudge fired at most once
+	reportRefused := false // a subagent's unverified "done" report was refused once this run
+	recovered := false     // stuck-recovery redecompose (stall/council deadlock → depth+1 child) fired at most once per run
 	guard := newRunGuard()
 	guard.stallConverge = stallConvergeEnabled() // D18a: collapse the stalled-nudge re-arm when a redirect produced no forward motion
 	councilRounds := 0                           // consensus termination gate rounds this turn (D14)
 	lastCouncilFeedback := ""                    // last round's feedback (no-progress detection)
 	prevFinishText := ""                         // the answer the council rejected last round
 	prevFinishCalls := -1                        // guard.callCount() at that rejection (-1 = none yet)
-	prevFinishFp := ""                           // guard.progressFingerprint() at that rejection ("" = none yet); D1 direction-terminal
 	councilSpent := time.Duration(0)             // self-measured wall-clock consumed by deliberations
 	councilDeadlock := false                     // set by the gate iff its finish was a genuine round-cap deadlock (never approved)
 	turnTask := ""                               // the user instruction THIS turn answers, snapshotted at
 	// step 0 — so a steer that lands during the council gate can't hijack what the
 	// council judges against (that interjection gets its own follow-up turn instead).
 	usedTools := seedWork // did this turn do real work? (planner investigation seeds it; council skips pure conversational turns)
-	usedMutator := false  // did this turn run a state-changing tool (bash or edit/write)? gates the pre-finish review/self-verify — bash writes files too, but don't reach guard.changeSet(). The review gate's re-arm keys off guard.mutationEpoch() (which counts edit/write AND bash writes), so a bash-authored fix re-triggers verification too.
 	// Turn usage accumulation (§8.1): output tokens and cost sum across steps; input
 	// is the last step's (the current context size, not a sum).
 	var cumOut, lastIn int
@@ -162,18 +154,9 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	// parallel/scout/delegate). Read-only explorers/verifiers and workflow mode are gated
 	// out. Injects findings before the agent runs; degrades to solo on any failure.
 	if a.planEligible(agent, depth) {
-		planned, delegated := a.maybePlanPreflight(ctx, s, depth, maxSteps)
+		planned, _ := a.maybePlanPreflight(ctx, s, depth, maxSteps)
 		if planned {
 			usedTools = true // planner did real work — seed the termination council
-		}
-		// A delegate wrote to the shared tree via a CHILD runLoop, so those changes are in
-		// the child's guard, not this one's — this turn's changeSet/epoch stay empty. Seed
-		// usedMutator so THIS (depth-0) turn's review-gate tester + council still fire and
-		// verify the MERGED result (the tester inspects the working tree when the changeSet
-		// is empty). Without this, a parent that only delegated would finish with no
-		// independent execution check on the delegated work.
-		if delegated {
-			usedMutator = true
 		}
 	}
 	// Show the agent working the next step (◐) for the rest of the turn — a deterministic
@@ -307,9 +290,6 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			a.answerPendingAsk(sid, text)
 		}
 		for _, tc := range toolCalls {
-			if tc.Name == "bash" || fileModifiers[tc.Name] {
-				usedMutator = true // a write-capable tool ran; a bash write never reaches guard.changeSet()
-			}
 			a.appendPart(ctx, sid, agentActor, msgID, session.RoleAssistant, session.Part{
 				ID: "p_" + newID(), Kind: session.PartToolCall, ToolCall: tc,
 			})
@@ -384,146 +364,15 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					return lastText, ctx.Err()
 				}
 			}
-			// Pre-finish self-verification: a turn that produced a concrete artifact
-			// (files changed) must confirm its ACTUAL output matches the task before the
-			// council — which reviews text but cannot execute — ever sees it. Two passes:
-			// coverage first, then correctness. Coverage targets the "did the first/easy
-			// case, declared victory" failure — an agent that maps 1 of 10 mazes or edits
-			// 1 of N files and then re-checks only what it made; correctness targets the
-			// "claimed done, output actually wrong" failure (a placeholder, a filename
-			// where the content was asked for, or a program that doesn't run). PASS 2 also
-			// carries an anti-fabrication clause: a weak model, told to "verify", will
-			// sometimes hand-write what a run WOULD have produced (e.g. inventing a maze it
-			// never actually explored) to make the check appear to pass. The prompt forbids
-			// that — verify only against output actually observed, and if it could not
-			// run/observe something, mark it UNFINISHED rather than manufacture a
-			// plausible-looking result. The prompt
-			// makes the agent enumerate the task's own requirements/scope rather than
-			// encoding any specific count — general to any multi-deliverable task. Fires
-			// once per turn, top level only, and only when the turn ran a write-capable
-			// tool (bash or edit/write) — a pure read/answer turn has no separate artifact
-			// to re-check, so gating it would only churn. We key off usedMutator rather
-			// than guard.changeSet() because bash writes files too but never populate the
-			// changeSet (only edit/write/multiedit do), so a bash-driven agent that did
-			// 1 of N deliverables would otherwise never get the coverage check.
-			if depth == 0 && usedTools && usedMutator {
-				// Delegated review gate: instead of asking the agent to self-verify (which
-				// its own confirmation bias can wave through), dispatch independent read-only
-				// tester+reviewer subagents to check the work with fresh eyes and inject their
-				// findings. Falls back to the self-verify prompt when disabled or the reviewer
-				// agents aren't configured.
-				if a.cfg.ReviewGate && a.hasReviewGateAgents() {
-					// Fresh-evidence completion gate: a turn that produced a deliverable may only
-					// finish once the tester has independently RUN the verification and returned
-					// PASS for the CURRENT deliverable version. "Version" is guard.mutationEpoch()
-					// — it counts edit/write AND bash file-writes, so any later change (in any
-					// tool) bumps it and makes a prior PASS stale, forcing re-verification. This is
-					// what makes "verified" mean "verified THIS code", in ANY language: the gate
-					// keys off the tester's real run, not off scanning the agent's prose for
-					// English confession phrases.
-					//
-					// First fire on any state change; re-arm only on a NEW mutation since the last
-					// firing (so re-inspecting findings with `git status`/`cat` can't burn budget).
-					// A repeatedly-rejecting council can't spawn reviewers without end because the
-					// per-run budget bounds the fan-out; once it is spent the council alone gates.
-					epoch := guard.mutationEpoch()
-					firstFire := !reviewGateFired
-					reFire := reviewGateFired && epoch > reviewedAtEpoch
-					if reviewPassedEpoch != epoch && reviewBudget > 0 && (firstFire || reFire) {
-						reviewGateFired = true
-						reviewedAtEpoch = epoch
-						spawned, verdict := a.runReviewGate(ctx, s, turnTask, guard.changeSet(), reviewBudget)
-						reviewBudget -= spawned
-						if verdict == verdictPass {
-							reviewPassedEpoch = epoch // behavioral evidence: THIS version was independently run and passed
-						}
-						continue // let the agent address the findings (or, on PASS, confirm and finish next round)
-					}
-					// Already freshly verified this epoch, or the budget is spent: fall through to
-					// the council. A FAIL/BLOCKED the agent ignored without editing (no new epoch)
-					// also lands here — the council, holding the injected findings + fabrication
-					// evidence, is the bounded backstop rather than an unbounded re-verify loop.
-				} else if !selfVerified {
-					selfVerified = true
-					msg := "Before finishing, VERIFY you satisfied the task literally — in two passes. " +
-						"PASS 1 (coverage): re-read the original task and list every distinct thing it requires — each " +
-						"deliverable, and any quantifier or scope it states (e.g. 'all', 'each', 'every', a range or list " +
-						"of IDs/inputs, multiple files). Then confirm you actually did EACH one, not just the first or the " +
-						"easy case. If the task asks for N things and you did fewer, it is INCOMPLETE — do the rest before " +
-						"finishing. PASS 2 (correctness): for what you produced, confirm the ACTUAL result matches what the " +
-						"task SPECIFIES — read the created/edited file(s) back and check their real content, or run the " +
-						"program/command and check its behavior against the intended outcome. Verify ONLY against output you " +
-						"actually observed this turn — file contents you really read back, or the real output of a command " +
-						"you really ran. Do NOT invent, guess, or hand-write what a run WOULD have produced: if you could not " +
-						"actually execute or observe something — an interactive program you never drove, a test you never " +
-						"ran, a result you only assumed — then you have NOT verified it. Never fabricate its output or write " +
-						"a stand-in/placeholder file to make this check appear to pass; that is worse than leaving it " +
-						"undone, because it hides the gap. If the user explicitly asked for synthetic, fictional, or example " +
-						"content, producing it is fine — but your final report must LABEL it as synthetic (\"this log is " +
-						"fictional; the game was not actually run\"), never describe invented content as verified or real. " +
-						"In that case say plainly that you could not run or confirm it, and " +
-						"treat that requirement as UNFINISHED, not done. Match the task, not a generic " +
-						"'it works': the intended state may be that something succeeds, but it may just as well be that it is " +
-						"removed, disabled, rejects bad input, or fails on purpose. Fix any real mismatch — wrong content, " +
-						"value, format, name, or location, or a leftover placeholder. If this check reveals your earlier " +
-						"work was wrong, incomplete, or that you called it done too soon, say so plainly and fix it — do not " +
-						"restate that it works or paper over the gap. Finish only once every requirement is done and its " +
-						"result matches what the task asked for."
-					// Structural, language-agnostic sharpening (replaces the old English phrase scan):
-					// when the agent changed a deliverable but ran nothing exercising the current
-					// version, lead with that concrete fact rather than a generic "verify" — this is
-					// the fallback path (no tester agents), so this prompt is the only execution push.
-					if guard.unverifiedDeliverable() {
-						msg = "You changed a deliverable this turn but have run NO command that exercises the current " +
-							"version, so nothing here is verified by execution yet. Actually run it now — execute the " +
-							"program or its tests and read the REAL output — then confirm it against the task. If there is " +
-							"genuinely nothing to run, say so plainly and do not describe it as verified or done.\n\n" + msg
-					}
-					pd, _ := json.Marshal(event.PromptSubmittedData{
-						MessageID: "m_" + newID(),
-						Parts:     []session.Part{{Kind: session.PartText, Text: msg}},
-					})
-					a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
-					continue
-				}
-			}
-			// Direction-terminal short-circuit (D1): the agent came back to finish with its
-			// deliverable CONTENT unchanged since its last finish attempt (progressFingerprint
-			// frozen) and still no independent PASS for that version (mutationEpoch !=
-			// reviewPassedEpoch). Re-deliberating the council or re-spawning the tester cannot
-			// help — it is not changing the artifact — so this is a terminal "not verified"
-			// state, not a spin to keep pushing. Content-addressed (not epoch/text): it catches
-			// the varied-echo / rewrite-same-bytes spin that the idle short-circuit below (which
-			// needs byte-identical narration AND zero tool calls) and mutationEpoch both miss.
-			// Only for file-deliverable turns (usedMutator); a text-only turn has no fingerprint
-			// and keeps the byte-equality path. Fires from the SECOND frozen finish (prevFinishFp
-			// is only recorded once the council let a finish through), so the council still gets
-			// one full round before the turn lands honestly UNVERIFIED (see the evidence gate).
-			// Scoped like the evidence gate to ReviewGate + tester agents: only an INDEPENDENT
-			// verifier that has NOT passed the current version makes "unverified" a fact. Without
-			// a tester (reviewPassedEpoch stays -1 forever) a genuinely-complete single-file task
-			// that the council merely re-questions would be mislabeled, so there we defer to the
-			// council/self-verify path unchanged.
-			frozenUnverified := directionGateEnabled() && usedMutator &&
-				a.cfg.ReviewGate && a.hasReviewGateAgents() && prevFinishFp != "" &&
-				guard.progressFingerprint() == prevFinishFp && guard.mutationEpoch() != reviewPassedEpoch
-			if frozenUnverified {
-				dd, _ := json.Marshal(event.CouncilDecidedData{
-					Round: councilRounds + 1, Decision: string(council.Done),
-					Note: "deliverable content unchanged and still unverified by execution since the last finish attempt — finishing UNVERIFIED without further deliberation",
-				})
-				a.appendFact(ctx, sid, event.TypeCouncilDecided, event.Actor{Kind: event.ActorSystem, ID: "council"}, dd)
-			}
 			// Consensus council termination gate (D14): top level only, not in
 			// workflow mode, and only for turns that did real work — a purely
 			// conversational reply (no tool use, e.g. a greeting) has nothing to
-			// verify, so gating it just churns and can derail a weak model. Skipped
-			// when D1 already resolved this finish as terminal-unverified above.
-			if !frozenUnverified && depth == 0 && a.cfg.Council != nil && !a.cfg.Workflow && usedTools {
+			// verify, so gating it just churns and can derail a weak model.
+			if depth == 0 && a.cfg.Council != nil && !a.cfg.Workflow && usedTools {
 				// Structural fabrication evidence for the council: if the agent changed a
 				// deliverable this turn but ran no command exercising the current version, that is a
 				// hard, language-agnostic fact a text-only vote can't wave through. Replaces the old
-				// English-only confession-phrase scan; the review-gate tester remains the authority.
+				// English-only confession-phrase scan.
 				fab := ""
 				if guard.unverifiedDeliverable() {
 					fab = "the agent changed a deliverable this turn but ran no command exercising the current version — it is unverified by execution"
@@ -540,7 +389,6 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					a.appendFact(ctx, sid, event.TypeCouncilDecided, event.Actor{Kind: event.ActorSystem, ID: "council"}, dd)
 				} else if a.runCouncilGate(ctx, s, agent, turnTask, lastText, &councilRounds, &lastCouncilFeedback, buildCouncilChanges(guard.changeSet()), maxSteps-step, fab, time.Since(runStart), &councilSpent, &councilDeadlock) {
 					prevFinishText, prevFinishCalls = lastText, guard.callCount()
-					prevFinishFp = guard.progressFingerprint() // D1: snapshot deliverable content so a next unchanged finish lands
 					continue
 				} else if !recovered && councilDeadlock &&
 					strings.TrimSpace(lastCouncilFeedback) != "" && a.planEligible(agent, depth) {
@@ -557,71 +405,15 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					}
 					if a.redecomposeStuck(ctx, s, agent, task, lastCouncilFeedback, depth) {
 						recovered = true
-						usedMutator = true
 						guard.resetStall()
 						continue
 					}
 				}
 			}
-			// Execution-evidence gate (A)+(D): the council judges whether the work is GOOD
-			// (quality on text+diff); this gate enforces the orthogonal, machine-checked fact of
-			// whether the CURRENT version was actually RUN to a passing result this turn. A turn
-			// that changed a deliverable may NOT land as a confident outcome — a success OR an
-			// "impossible" give-up — on execution it never performed; the only honest terminal
-			// state then is UNVERIFIED. The signal is the review-gate tester's fresh-evidence
-			// verdict: reviewPassedEpoch == current mutationEpoch means an independent run passed
-			// AFTER the last change. Only meaningful when the tester actually ran (ReviewGate +
-			// agents present); the self-verify fallback has no independent verdict to stand on.
-			unverified, unverifiedReason := false, ""
-			if frozenUnverified {
-				// D1 already ruled this finish terminal-unverified: the deliverable content did
-				// not change since the last finish, so re-running the evidence push (which only
-				// asks the agent to run the SAME unchanged artifact again) would just spin. Land
-				// honestly now — the current best deliverable stays on disk for the grader.
-				unverified = true
-				unverifiedReason = "the deliverable content did not change across finish attempts and was not independently run to a passing result — outcome is unverified by execution"
-			} else if depth == 0 && usedTools && usedMutator && evidenceGateEnabled() &&
-				a.cfg.ReviewGate && a.hasReviewGateAgents() && guard.mutationEpoch() != reviewPassedEpoch {
-				// Structural UNRUNNABLE (D4): the change set is entirely non-executable
-				// (config/doc/data), so there is genuinely nothing to independently run — the
-				// tester could never pass it, and pushing "actually run it now" only churns at a
-				// deliverable that cannot be run. Land honestly now with a reason that says
-				// "nothing to run" rather than "you failed to run it". Still UNVERIFIED: the pass
-				// is never forced, the file just stays on disk for the grader. Conservative — any
-				// code/script/unknown file in the set makes this false, so a real program is never
-				// mislabeled. Under the same verdict-tier flag as the vacuous-pass demotion (D2).
-				if verdictTierEnabled() && !guard.deliverableRunnable() {
-					unverified = true
-					unverifiedReason = "the change set is non-executable (config/doc/data), so there is nothing to independently run — delivered but unverified by execution"
-				} else if !evidencePushed {
-					// One bounded chance to make it real before we accept the finish: run the
-					// current version and fix what breaks, or say plainly you could not. Never
-					// loop on this — if it comes back still unverified, land honestly below.
-					evidencePushed = true
-					msg := "You are about to finish, but the current version of the deliverable has NOT been " +
-						"independently run to a passing result this turn — so neither \"done\" nor \"cannot be done\" " +
-						"is established yet. Actually run it now: execute the program or its tests against the REAL " +
-						"deliverable and read the actual output. If it fails, fix it and run it again. If you " +
-						"genuinely cannot run or confirm it here, do NOT claim success or declare it impossible — " +
-						"say plainly what you could not verify and why, and leave it as unverified. Never invent " +
-						"output or write a stand-in/placeholder to make it look done."
-					pd, _ := json.Marshal(event.PromptSubmittedData{
-						MessageID: "m_" + newID(),
-						Parts:     []session.Part{{Kind: session.PartText, Text: msg}},
-					})
-					a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
-					continue
-				} else {
-					// Push already spent and still no passing run for the current version: finish,
-					// but labeled honestly rather than laundered as a confident success.
-					unverified = true
-					unverifiedReason = "the deliverable was not independently run to a passing result this turn — outcome is unverified by execution"
-				}
-			}
 			a.setStage(sid, stageFinalize) // turn is ending (D15)
 			// Turn-cumulative usage (§8.1): out/cost summed across steps, in = last.
 			u := event.Usage{In: lastIn, Out: cumOut, Cost: cumCost}
-			d, _ := json.Marshal(event.TurnFinishedData{Usage: u, Unverified: unverified, Reason: unverifiedReason})
+			d, _ := json.Marshal(event.TurnFinishedData{Usage: u})
 			a.appendFact(ctx, sid, event.TypeTurnFinished, agentActor, d)
 			finished = true // genuine completion (council done / nothing more to do)
 			return lastText, nil
@@ -759,7 +551,6 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 				if a.redecomposeStuck(ctx, s, agent, task,
 					"repeated no-progress: the previous attempt could not advance the task", depth) {
 					recovered = true
-					usedMutator = true
 					guard.resetStall()
 					continue
 				}

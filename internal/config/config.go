@@ -60,10 +60,6 @@ type LLMConfig struct {
 // parallel read-only explorers; nil means default (on), set false to disable.
 type OrchestrationConfig struct {
 	Planner *bool `toml:"planner"`
-	// ReviewGate delegates the pre-finish verification of a mutating top-level
-	// turn to independent tester+reviewer subagents (read-only) instead of asking
-	// the main agent to self-verify. nil = on by default; set false to kill it.
-	ReviewGate *bool `toml:"review_gate"`
 }
 
 // ThemeConfig overrides TUI colors per mode. Keys are Material Design 3 color

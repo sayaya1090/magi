@@ -536,52 +536,6 @@ func sharedRefineEnabled() bool {
 	return true
 }
 
-// evidenceGateEnabled controls the execution-evidence completion gate (loop.go): a top-level
-// turn that changed a deliverable may not land a confident outcome — success OR "impossible" —
-// unless the current version was independently run to a passing result this turn; otherwise the
-// finish is labeled UNVERIFIED rather than laundered as done. Default ON; MAGI_EVIDENCE_GATE=0
-// restores the pre-gate behavior where the council's vote alone terminated the turn (the A/B knob).
-func evidenceGateEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_EVIDENCE_GATE"))) {
-	case "0", "off", "false", "no":
-		return false
-	}
-	return true
-}
-
-// directionGateEnabled gates the direction-terminal short-circuit (D1): when a top-level turn
-// comes back to finish with its deliverable CONTENT unchanged since the last finish attempt
-// (guard.progressFingerprint frozen) and still no independent PASS for that version
-// (mutationEpoch != reviewPassedEpoch), re-deliberating the council or re-spawning the tester
-// cannot help — the agent is not changing the artifact — so the turn lands UNVERIFIED instead
-// of burning rounds/tester runs to the wall. It NEVER forces a pass: the honest terminal state
-// is "unverified", the on-disk deliverable is left as-is for the grader. Default ON;
-// MAGI_DIRECTION_GATE=0 restores the pre-gate behavior (the council/evidence gates alone bound
-// a content-frozen spin) — the A/B knob.
-func directionGateEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_DIRECTION_GATE"))) {
-	case "0", "off", "false", "no":
-		return false
-	}
-	return true
-}
-
-// verdictTierEnabled gates the tester verdict tiering (D2): a tester that reports PASS but whose
-// own command trace ran NOTHING that could exercise the deliverable — only inspect-only commands
-// (cat/ls/test -f/echo …) or no command at all — has produced a VACUOUS pass ("the file exists
-// and is non-empty"), not a verification. Tiering downgrades that to INCONCLUSIVE so the
-// fresh-evidence gate stays closed, exactly as if unverified. It keys off the SAME closed-set
-// inspectOnly primitive that classifies the main agent's own runs, applied to the tester's
-// actions — structural, no prose scanning. Default ON; MAGI_VERDICT_TIER=0 keeps the binary
-// PASS/FAIL/BLOCKED verdict (the A/B knob).
-func verdictTierEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_VERDICT_TIER"))) {
-	case "0", "off", "false", "no":
-		return false
-	}
-	return true
-}
-
 // planConvergeEnabled gates the plan-audit convergence judgment (D17): when the council
 // rejects a plan and the planner re-plans, judge whether the revision actually addressed
 // the concern and stop the loop early on an unproductive (ignored-the-concern) revision,
@@ -1227,9 +1181,7 @@ func refinePrompt(st planStep, fail string) string {
 // rather than manufacture a verified-looking result. The delegate and stuck-recovery hand-offs
 // previously asked only to "report how you verified it" with no license for the honest negative
 // — an asymmetry that pressures a weak model to fabricate (write a stand-in results file it never
-// produced) just to answer the ask. Single-sourced so all hand-offs stay symmetric with the
-// pre-finish self-verify prompt (loop.go) and the review-gate tester (review_gate.go), which
-// already carry this clause.
+// produced) just to answer the ask. Single-sourced so all hand-offs stay symmetric.
 const noFabricate = "verify it yourself by actually running it, and report concretely how you verified it (the " +
 	"command you ran and its real output). If you could NOT actually run or confirm something, say so plainly and " +
 	"treat it as unverified — never invent or hand-write output, and never write a stand-in or placeholder file to " +
