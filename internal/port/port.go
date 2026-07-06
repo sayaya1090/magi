@@ -403,6 +403,10 @@ type Cmd struct {
 	Dir   string
 	Env   []string
 	Stdin []byte
+	// MaxOutput, when > 0, caps the bytes captured for stdout and for stderr each;
+	// output beyond it is discarded (the child keeps running, so it isn't blocked by
+	// a full pipe) so an unbounded producer can't grow capture to OOM. Zero = no cap.
+	MaxOutput int
 }
 
 // ExecResult is the outcome of running a Cmd.

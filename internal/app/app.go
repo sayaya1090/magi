@@ -334,6 +334,29 @@ func (a *App) GitDiff(ctx context.Context, workdir string) (string, error) {
 	return "", nil
 }
 
+// RunShell executes a one-shot shell command in workdir and returns its combined
+// stdout+stderr and exit code. It backs the TUI's `!`-prefixed inline shell: the
+// user typed the command explicitly, so it runs immediately, with no permission
+// gate (unlike the agent's bash tool). Synchronous and foreground — for long-lived
+// processes the agent's bash background mode is the right path, not this.
+func (a *App) RunShell(ctx context.Context, workdir, cmd string) (out string, exit int, err error) {
+	if a.plat == nil {
+		return "", -1, fmt.Errorf("platform unavailable")
+	}
+	// Cap capture at the source so an unbounded producer (`!yes`, `!cat /dev/zero`)
+	// can't grow the buffer to OOM before the caller trims it for display.
+	res, e := a.plat.Exec(ctx, port.Cmd{Path: "/bin/sh", Args: []string{"-c", cmd}, Dir: workdir, MaxOutput: shellCaptureCap})
+	if e != nil {
+		return "", -1, e
+	}
+	return string(res.Stdout) + string(res.Stderr), res.ExitCode, nil
+}
+
+// shellCaptureCap bounds each of stdout/stderr captured for a `!`-inline-shell run
+// (an OOM guard). It sits above the TUI's display/context trim so that trim, not
+// this cap, decides the user-visible truncation note.
+const shellCaptureCap = 256 << 10
+
 // emptyTreeRef is git's well-known empty-tree object hash — a stable base to diff
 // against in a repository that has no commits yet.
 const emptyTreeRef = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"

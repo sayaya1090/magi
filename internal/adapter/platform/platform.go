@@ -29,14 +29,15 @@ func (OS) Exec(ctx context.Context, c port.Cmd) (port.ExecResult, error) {
 	if len(c.Stdin) > 0 {
 		cmd.Stdin = strings.NewReader(string(c.Stdin))
 	}
-	var stdout, stderr strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout := &capWriter{limit: c.MaxOutput}
+	stderr := &capWriter{limit: c.MaxOutput}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
 	err := cmd.Run()
 	res := port.ExecResult{
-		Stdout: []byte(stdout.String()),
-		Stderr: []byte(stderr.String()),
+		Stdout: stdout.buf,
+		Stderr: stderr.buf,
 	}
 	if cmd.ProcessState != nil {
 		res.ExitCode = cmd.ProcessState.ExitCode()
@@ -49,6 +50,28 @@ func (OS) Exec(ctx context.Context, c port.Cmd) (port.ExecResult, error) {
 		return res, err
 	}
 	return res, nil
+}
+
+// capWriter accumulates written bytes up to limit (0 = unlimited), silently
+// discarding the overflow while still reporting a full write so the child process
+// is never blocked by a full pipe — bounds capture memory for chatty commands.
+type capWriter struct {
+	buf   []byte
+	limit int
+}
+
+func (w *capWriter) Write(p []byte) (int, error) {
+	if w.limit <= 0 {
+		w.buf = append(w.buf, p...)
+		return len(p), nil
+	}
+	if room := w.limit - len(w.buf); room > 0 {
+		if room > len(p) {
+			room = len(p)
+		}
+		w.buf = append(w.buf, p[:room]...)
+	}
+	return len(p), nil
 }
 
 // ConfigDir returns the magi config directory (e.g. ~/.config/magi).
