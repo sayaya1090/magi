@@ -73,6 +73,83 @@ func main() {
 	os.Exit(run())
 }
 
+// validateEnumFlags checks the enum-valued CLI flags and returns a non-empty
+// error message (sans "magi: " prefix) for the first invalid one, so a typo
+// fails loudly instead of silently falling back to a default. Empty permission
+// and profile mean "unset" (valid); output and theme always have a value.
+func validateEnumFlags(output, permission, profile, theme string) string {
+	switch output {
+	case "text", "json":
+	default:
+		return fmt.Sprintf("invalid -output %q (want text|json)", output)
+	}
+	if permission != "" {
+		switch permission {
+		case "ask", "auto", "allow", "deny":
+		default:
+			return fmt.Sprintf("invalid -permission %q (want ask|auto|allow|deny)", permission)
+		}
+	}
+	if profile != "" {
+		switch profile {
+		case "safe", "standard", "yolo":
+		default:
+			return fmt.Sprintf("invalid -profile %q (want safe|standard|yolo)", profile)
+		}
+	}
+	switch theme {
+	case "auto", "light", "dark":
+	default:
+		return fmt.Sprintf("invalid -theme %q (want auto|dark|light)", theme)
+	}
+	return ""
+}
+
+// warnUnknownConfigKeys prints a stderr warning for TOML keys that no Config
+// field matched — almost always a typo (e.g. "profil" instead of "profile",
+// which would otherwise silently leave the guardrail posture unchanged). It is
+// advisory only: unknown keys never block startup.
+func warnUnknownConfigKeys(w io.Writer, name string, keys []string) {
+	if len(keys) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "magi: %s has unknown key(s), ignored: %s\n", name, strings.Join(keys, ", "))
+}
+
+// validateGuardrailValues checks the *effective* (flag+env+config-merged) values
+// of the three guardrail axes and returns a non-empty error message for the first
+// unrecognized one. validateEnumFlags already rejects a bad -profile/-permission
+// FLAG early; this is the second half that catches a typo'd VALUE coming from
+// config.toml/.magi (e.g. profile = "saef", sandbox = "workspace-writ"), which
+// would otherwise fall through applyProfile's default no-op / an unknown sandbox
+// mode to the *unconfined* posture with no signal — the O5 footgun's value-side
+// twin. Guardrail axes are a small, safety-critical closed enum, so an unknown
+// value is a hard error (exit 2), not a warning. Empty means "unset" (valid).
+func validateGuardrailValues(profile, permission, sandbox string) string {
+	if profile != "" {
+		switch profile {
+		case "safe", "standard", "yolo":
+		default:
+			return fmt.Sprintf("invalid profile %q (want safe|standard|yolo) — check config.toml or .magi/config.toml", profile)
+		}
+	}
+	if permission != "" {
+		switch permission {
+		case "ask", "auto", "allow", "deny":
+		default:
+			return fmt.Sprintf("invalid permission %q (want ask|auto|allow|deny) — check config.toml or .magi/config.toml", permission)
+		}
+	}
+	if sandbox != "" {
+		switch sandbox {
+		case "read-only", "workspace-write", "full":
+		default:
+			return fmt.Sprintf("invalid sandbox %q (want read-only|workspace-write|full) — check config.toml or .magi/config.toml", sandbox)
+		}
+	}
+	return ""
+}
+
 func run() int {
 	var (
 		prompt      = flag.String("p", "", "headless prompt (use '-' to read from stdin)")
@@ -97,21 +174,13 @@ func run() int {
 	flag.Parse()
 
 	// Validate enum-valued flags up front so a typo (e.g. -output jsn, -permission
-	// auto0) fails loudly with exit 2 instead of silently falling back to a default
-	// and confusing the user about why behavior changed.
-	switch *output {
-	case "text", "json":
-	default:
-		fmt.Fprintf(os.Stderr, "magi: invalid -output %q (want text|json)\n", *output)
+	// auto0, -profile safmode) fails loudly with exit 2 instead of silently
+	// falling back to a default and confusing the user about why behavior changed.
+	// -profile is safety-relevant: an unrecognized value silently drops to the
+	// unconfined posture instead of the intended safe/standard/yolo bundle.
+	if msg := validateEnumFlags(*output, *permission, *profile, *theme); msg != "" {
+		fmt.Fprintln(os.Stderr, "magi: "+msg)
 		return 2
-	}
-	if *permission != "" {
-		switch *permission {
-		case "ask", "auto", "allow", "deny":
-		default:
-			fmt.Fprintf(os.Stderr, "magi: invalid -permission %q (want ask|auto|allow|deny)\n", *permission)
-			return 2
-		}
 	}
 
 	// Resolve the color theme. "auto" detects the terminal background; explicit
@@ -181,9 +250,11 @@ func run() int {
 	// teams commit so the workflow travels with the repo). Loaded BEFORE the LLM
 	// client so config can supply model/base_url. Hooks merge; project scalars
 	// override global.
-	cfg, _ := config.Load(plat.ConfigDir())
-	if proj, err := config.Load(filepath.Join(wd, ".magi")); err == nil {
+	cfg, unknown, _ := config.LoadWithUnknown(plat.ConfigDir())
+	warnUnknownConfigKeys(os.Stderr, "config.toml", unknown)
+	if proj, punk, err := config.LoadWithUnknown(filepath.Join(wd, ".magi")); err == nil {
 		cfg = mergeProjectConfig(cfg, proj)
+		warnUnknownConfigKeys(os.Stderr, ".magi/config.toml", punk)
 	}
 
 	// Resolve model/base_url/permission with precedence: explicit flag > env >
@@ -316,6 +387,14 @@ func run() int {
 	// refuses every command. Warn once and point at the fix.
 	if headless && (perm == "auto" || perm == "ask") {
 		fmt.Fprintf(os.Stderr, "magi: note: --permission %s denies bash/webfetch in headless mode; use --permission allow to enable them\n", perm)
+	}
+
+	// Reject a typo'd guardrail VALUE from config (the flag was already checked by
+	// validateEnumFlags). An unrecognized profile/permission/sandbox must fail
+	// loudly rather than silently degrade to the unconfined posture.
+	if msg := validateGuardrailValues(orStr(*profile, cfg.Profile), perm, cfg.Sandbox); msg != "" {
+		fmt.Fprintln(os.Stderr, "magi: "+msg)
+		return 2
 	}
 
 	// Consensus council (D14): the loop's termination gate, ON BY DEFAULT (disable
