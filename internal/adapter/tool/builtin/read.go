@@ -43,6 +43,9 @@ func (Read) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return errResult("", "invalid arguments: "+err.Error()), nil
 	}
+	if strings.TrimSpace(a.Path) == "" {
+		return errResult("", "path is required"), nil
+	}
 	abs, err := resolvePath(env.Workdir, a.Path)
 	if err != nil {
 		return errResult("", err.Error()), nil
@@ -92,10 +95,16 @@ func (Read) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	}
 	full := string(data)
 	content := sliceLines(full, a.Offset, limit)
+	total := countLines(full)
 
 	body := locatedNote
 	if bytesTruncated {
 		body += fmt.Sprintf("(note: file larger than %d MiB; showing first %d MiB — use offset/limit to page)\n", maxReadBytes>>20, maxReadBytes>>20)
+	}
+	// An offset past the end reads as empty; say so explicitly so the model can tell
+	// it over-paged rather than mistaking an out-of-range window for an empty file.
+	if content == "" && start > 1 && start > total {
+		body += fmt.Sprintf("(note: offset %d is past end of file; file has %d lines)\n", start, total)
 	}
 	// Prefix each line with its 1-based number (cat -n style) so the model can
 	// navigate and reference lines accurately.
@@ -104,7 +113,7 @@ func (Read) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	// where to resume — otherwise the model can't tell the file was clipped.
 	if defaulted && !bytesTruncated {
 		shown := (start - 1) + countLines(content)
-		if total := countLines(full); shown < total {
+		if shown < total {
 			body += fmt.Sprintf("\n…(%d more lines — read with offset=%d to continue)", total-shown, shown+1)
 		}
 	}

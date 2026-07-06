@@ -96,6 +96,24 @@ func run() int {
 	)
 	flag.Parse()
 
+	// Validate enum-valued flags up front so a typo (e.g. -output jsn, -permission
+	// auto0) fails loudly with exit 2 instead of silently falling back to a default
+	// and confusing the user about why behavior changed.
+	switch *output {
+	case "text", "json":
+	default:
+		fmt.Fprintf(os.Stderr, "magi: invalid -output %q (want text|json)\n", *output)
+		return 2
+	}
+	if *permission != "" {
+		switch *permission {
+		case "ask", "auto", "allow", "deny":
+		default:
+			fmt.Fprintf(os.Stderr, "magi: invalid -permission %q (want ask|auto|allow|deny)\n", *permission)
+			return 2
+		}
+	}
+
 	// Resolve the color theme. "auto" detects the terminal background; explicit
 	// dark/light override unreliable detection.
 	isDark := true
@@ -116,7 +134,16 @@ func run() int {
 		return runUpdate()
 	}
 
-	headless := *prompt != ""
+	// `-p` given at all (even empty) means headless: an explicit empty prompt should
+	// error clearly, not fall through to the TUI (which then crashes with no TTY when
+	// stdin/stdout is a pipe).
+	pSet := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "p" {
+			pSet = true
+		}
+	})
+	headless := pSet
 
 	// Permission defaults differ by mode: headless acts autonomously, the
 	// interactive TUI asks before dangerous tools.
@@ -124,6 +151,10 @@ func run() int {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "magi: read stdin:", err)
 		return 1
+	}
+	if headless && strings.TrimSpace(promptText) == "" {
+		fmt.Fprintln(os.Stderr, "magi: empty prompt (-p was given with no text)")
+		return 2
 	}
 
 	wd, err := os.Getwd()
@@ -278,6 +309,13 @@ func run() int {
 		} else {
 			perm = "ask"
 		}
+	}
+
+	// Headless has no one to answer a permission prompt, so "auto"/"ask" deny bash and
+	// webfetch outright — a footgun for benchmarks/scripts where the agent then quietly
+	// refuses every command. Warn once and point at the fix.
+	if headless && (perm == "auto" || perm == "ask") {
+		fmt.Fprintf(os.Stderr, "magi: note: --permission %s denies bash/webfetch in headless mode; use --permission allow to enable them\n", perm)
 	}
 
 	// Consensus council (D14): the loop's termination gate, ON BY DEFAULT (disable

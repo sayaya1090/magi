@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
@@ -30,15 +31,29 @@ func (Write) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv)
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return errResult("", "invalid arguments: "+err.Error()), nil
 	}
+	if strings.TrimSpace(a.Path) == "" {
+		return errResult("", "path is required"), nil
+	}
 	abs, err := resolvePath(env.Workdir, a.Path)
 	if err != nil {
 		return errResult("", err.Error()), nil
 	}
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-		return errResult("", err.Error()), nil
+		return errResult("", relPathErr(err, env.Workdir)), nil
 	}
 	if err := os.WriteFile(abs, []byte(a.Content), 0o644); err != nil {
-		return errResult("", err.Error()), nil
+		return errResult("", relPathErr(err, env.Workdir)), nil
 	}
 	return okText("", fmt.Sprintf("wrote %d bytes to %s", len(a.Content), a.Path)), nil
+}
+
+// relPathErr rewrites an OS error that embeds the absolute workdir path back to a
+// jail-relative form, so a failure (e.g. "is a directory") reads like the other
+// path errors and doesn't leak the workdir's real filesystem location.
+func relPathErr(err error, workdir string) string {
+	msg := err.Error()
+	root := filepath.Clean(workdir)
+	msg = strings.ReplaceAll(msg, root+string(filepath.Separator), "")
+	msg = strings.ReplaceAll(msg, root, ".")
+	return msg
 }

@@ -90,11 +90,12 @@ type bgProc struct {
 	started time.Time
 	pid     int // process-group leader pid (Setsid => pgid == pid); used by killGroup
 
-	mu    sync.Mutex
-	stdin io.WriteCloser // open pipe to the process's stdin (for bash_input); closed on exit
-	read  int            // absolute offset the agent has consumed up to
-	done  bool
-	exit  int
+	mu     sync.Mutex
+	stdin  io.WriteCloser // open pipe to the process's stdin (for bash_input); closed on exit
+	read   int            // absolute offset the agent has consumed up to
+	done   bool
+	killed bool // bash_kill was issued; status reads "killed" until the reaper sets done
+	exit   int
 }
 
 // bgManager is the process-global registry of background commands. Tools are
@@ -297,6 +298,10 @@ func (p *bgProc) status() string {
 	if p.done {
 		return fmt.Sprintf("[%s exited %d]", p.id, p.exit)
 	}
+	if p.killed {
+		// Reflect the kill immediately; the reaper goroutine flips done shortly after.
+		return fmt.Sprintf("[%s killed]", p.id)
+	}
 	return fmt.Sprintf("[%s running %s]", p.id, time.Since(p.started).Round(time.Second))
 }
 
@@ -316,6 +321,9 @@ func (BashOutput) Execute(ctx context.Context, raw json.RawMessage, env port.Too
 	}
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return errResult("", "invalid arguments: "+err.Error()), nil
+	}
+	if a.ID == "" {
+		return errResult("", "id is required"), nil
 	}
 	p := bg.get(a.ID)
 	if p == nil {
@@ -361,10 +369,18 @@ func (BashKill) Execute(ctx context.Context, raw json.RawMessage, env port.ToolE
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return errResult("", "invalid arguments: "+err.Error()), nil
 	}
+	if a.ID == "" {
+		return errResult("", "id is required"), nil
+	}
 	p := bg.get(a.ID)
 	if p == nil {
 		return errResult("", "no such background process: "+a.ID), nil
 	}
+	// Mark killed synchronously so an immediately following bash_output reports
+	// "[id killed]" instead of a stale "[id running]" until the reaper sets done.
+	p.mu.Lock()
+	p.killed = true
+	p.mu.Unlock()
 	// Kill the whole process group (workers the command forked), then cancel the
 	// context so exec releases the leader.
 	_ = killGroup(p.pid)
@@ -394,6 +410,9 @@ func (BashInput) Execute(ctx context.Context, raw json.RawMessage, env port.Tool
 	}
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return errResult("", "invalid arguments: "+err.Error()), nil
+	}
+	if a.ID == "" {
+		return errResult("", "id is required"), nil
 	}
 	p := bg.get(a.ID)
 	if p == nil {

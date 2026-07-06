@@ -76,7 +76,7 @@ func (Grep) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		}
 	}
 
-	var matches []string
+	matches := []string{}
 	walkErr := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil // skip unreadable entries

@@ -30,20 +30,37 @@ func (Glob) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return errResult("", "invalid arguments: "+err.Error()), nil
 	}
+	if strings.TrimSpace(a.Pattern) == "" {
+		return errResult("", "pattern is required"), nil
+	}
+	// Reject a malformed pattern up front (e.g. an unclosed "["), so a syntax error
+	// surfaces as an error instead of silently matching nothing — mirrors grep. Every
+	// non-"**" segment is probed, since ErrBadPattern can hide in any of them.
+	for _, seg := range strings.Split(a.Pattern, "/") {
+		if seg == "**" {
+			continue
+		}
+		if _, err := filepath.Match(filepath.FromSlash(seg), ""); err != nil {
+			return errResult("", "invalid glob pattern: "+err.Error()), nil
+		}
+	}
+	// A pattern that explicitly names a dotted segment (".github/…") opts into
+	// otherwise-hidden paths; a plain pattern keeps skipping dot dirs/files as noise.
+	wantHidden := patternWantsHidden(a.Pattern)
 
-	var out []string
+	out := []string{}
 	root := filepath.Clean(env.Workdir)
 	walkErr := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 		if d.IsDir() {
-			if strings.HasPrefix(d.Name(), ".") && p != root {
+			if strings.HasPrefix(d.Name(), ".") && p != root && !wantHidden {
 				return fs.SkipDir
 			}
 			return nil
 		}
-		if strings.HasPrefix(d.Name(), ".") {
+		if strings.HasPrefix(d.Name(), ".") && !wantHidden {
 			return nil
 		}
 		rel, _ := filepath.Rel(root, p)
@@ -58,6 +75,17 @@ func (Glob) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	}
 	sort.Strings(out)
 	return okJSON("", out), nil
+}
+
+// patternWantsHidden reports whether any pattern segment explicitly starts with a
+// dot (so the caller is deliberately targeting hidden paths like ".github/...").
+func patternWantsHidden(pattern string) bool {
+	for _, seg := range strings.Split(pattern, "/") {
+		if strings.HasPrefix(seg, ".") && seg != "." && seg != ".." {
+			return true
+		}
+	}
+	return false
 }
 
 // matchGlob matches a slash-separated name against a glob pattern. The "**"
