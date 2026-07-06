@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -29,6 +30,8 @@ type Client struct {
 	http     *http.Client
 	cache    bool        // attach cache_control breakpoints (Anthropic via LiteLLM)
 	cacheOff atomic.Bool // set after a backend rejects the cache shape (sticky fallback)
+
+	reasoningEffort string // OpenAI-compat reasoning_effort (e.g. "none" to disable thinking); "" = omit
 
 	headers *httpx.Headers // static (config) + dynamic (plugin) custom headers
 }
@@ -139,10 +142,11 @@ func WithResponseHeaderTimeout(d time.Duration) Option {
 // apiKey may be empty for local backends like Ollama.
 func New(baseURL, apiKey string, opts ...Option) *Client {
 	c := &Client{
-		baseURL: strings.TrimRight(baseURL, "/"),
-		apiKey:  apiKey,
-		http:    &http.Client{Timeout: 0}, // streaming: no overall timeout
-		headers: httpx.NewHeaders(nil),
+		baseURL:         strings.TrimRight(baseURL, "/"),
+		apiKey:          apiKey,
+		http:            &http.Client{Timeout: 0}, // streaming: no overall timeout
+		headers:         httpx.NewHeaders(nil),
+		reasoningEffort: strings.TrimSpace(os.Getenv("MAGI_REASONING_EFFORT")),
 	}
 	for _, o := range opts {
 		o(c)
@@ -161,7 +165,7 @@ func (c *Client) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan por
 	var lastBody string
 	var lastErr error
 	for {
-		body, merr := json.Marshal(buildRequest(r, true, useCache))
+		body, merr := json.Marshal(buildRequest(r, true, useCache, c.reasoningEffort))
 		if merr != nil {
 			return nil, merr
 		}

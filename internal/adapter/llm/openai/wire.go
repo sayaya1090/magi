@@ -15,6 +15,10 @@ type chatRequest struct {
 	Messages      []wireMessage  `json:"messages"`
 	Tools         []wireTool     `json:"tools,omitempty"`
 	StreamOptions *streamOptions `json:"stream_options,omitempty"`
+	// ReasoningEffort controls a "thinking" model's reasoning budget (OpenAI-compat
+	// field; Ollama honors "none" to disable thinking). Empty = omit → provider
+	// default, so non-thinking models are unaffected.
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 }
 
 // streamOptions asks the server to emit a final usage chunk while streaming.
@@ -110,8 +114,8 @@ type wireUsage struct {
 // cache is set, it attaches cache_control breakpoints to the (large, stable)
 // system prompt and tool list so an Anthropic model behind LiteLLM caches that
 // prefix instead of re-billing it every turn.
-func buildRequest(r port.ChatRequest, stream, cache bool) chatRequest {
-	out := chatRequest{Model: r.Model, Stream: stream}
+func buildRequest(r port.ChatRequest, stream, cache bool, reasoningEffort string) chatRequest {
+	out := chatRequest{Model: r.Model, Stream: stream, ReasoningEffort: reasoningEffort}
 	if stream {
 		out.StreamOptions = &streamOptions{IncludeUsage: true}
 	}
