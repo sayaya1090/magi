@@ -39,6 +39,12 @@ func (Edit) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return errResult("", "invalid arguments: "+err.Error()), nil
 	}
+	// An empty old string matches at every character boundary, so the uniqueness
+	// check would report a nonsensical "occurs N times". Reject it with a clear
+	// message (use write to create/replace whole files).
+	if a.Old == "" {
+		return errResult("", "old string must not be empty (use write to create or replace a whole file)"), nil
+	}
 	if a.Old == a.New {
 		return errResult("", "no change: old equals new"), nil
 	}

@@ -58,6 +58,9 @@ func (MultiEdit) Execute(ctx context.Context, raw json.RawMessage, env port.Tool
 	content := string(data)
 	// Apply all hunks in memory first; fail fast without writing.
 	for i, h := range a.Edits {
+		if h.Old == "" {
+			return errResult("", fmt.Sprintf("edit %d: old string must not be empty", i+1)), nil
+		}
 		if h.Old == h.New {
 			return errResult("", fmt.Sprintf("edit %d: no change", i+1)), nil
 		}
