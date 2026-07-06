@@ -109,4 +109,17 @@ func TestClipLine(t *testing.T) {
 	if !strings.HasPrefix(clipLine("\tx", 80), "    ") {
 		t.Error("clipLine should expand tabs")
 	}
+	// CJK: width is a cell budget, not a rune count. 40 Korean chars = 80 cells;
+	// clipping to 20 cells must yield a line that measures <= 20 cells (each Hangul
+	// syllable is 2 cells) and carries the "…" affordance — not 20 runes (40 cells).
+	if got := clipLine(strings.Repeat("가", 40), 20); cellWidth(got) > 20 {
+		t.Errorf("clipLine CJK cellWidth = %d, want <= 20 (got %q)", cellWidth(got), got)
+	}
+	if got := clipLine(strings.Repeat("가", 40), 20); !strings.HasSuffix(got, "…") {
+		t.Errorf("clipLine CJK should end with ellipsis, got %q", got)
+	}
+	// A line already within budget is returned unchanged (no spurious ellipsis).
+	if got := clipLine("가나다", 20); got != "가나다" {
+		t.Errorf("clipLine short CJK = %q, want unchanged", got)
+	}
 }

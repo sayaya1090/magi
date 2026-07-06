@@ -29,6 +29,7 @@ const (
 	blockReasoning      // model "thinking" output (de-emphasized)
 	blockImage          // pre-rendered image (half-block)
 	blockCouncilVerdict // one council member's vote (compact; click → detail modal)
+	blockShell          // a user-run `!`-prefixed shell command + its output
 )
 
 // block is one rendered unit in the transcript.
@@ -158,12 +159,17 @@ func (m *Model) transcript() string {
 		b.WriteString("\n")
 		nl++
 	}
+	m.liveThinkStart = -1
 	if m.running && strings.TrimSpace(m.liveThink) != "" && strings.TrimSpace(m.liveText) == "" {
 		b.WriteString("\n")
+		nl++
+		m.liveThinkStart = nl // the streaming thinking block is the last thing rendered; click it to fold
 		if m.showThink {
-			b.WriteString(label(styleBar, "thinking") + "\n" + indent(m.wrapThink(strings.TrimRight(m.liveThink, "\n"))))
+			// Expanded: carry the same fold chip as a collapsed thought so "click to collapse"
+			// is discoverable, not a hidden ctrl+t-only affordance.
+			b.WriteString(label(styleBar, "thinking") + " " + styleFoldChip.Render(" click to collapse ") + "\n" + indent(m.wrapThink(strings.TrimRight(m.liveThink, "\n"))))
 		} else {
-			b.WriteString(indent(styleThink.Render("✻ thinking… · ctrl+t to expand")))
+			b.WriteString(indent(styleThink.Render("✻ thinking… ") + styleFoldChip.Render(" click / ctrl+t ")))
 		}
 		b.WriteString("\n")
 	}
@@ -309,14 +315,20 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 		for i, v := range blk.councilVerdicts {
 			hue := m.councilColor(v.Member)
 			icon, word := councilVerdictLabel(v.Phase, v.Decision, v.Severity)
-			seg := lipgloss.NewStyle().Foreground(hue).Render("●") + " " +
-				lipgloss.NewStyle().Foreground(hue).Bold(true).Render(v.Member)
+			// Each member is CLICKABLE (column hit-test → detail modal), so it carries the
+			// same low-emphasis container fill as the fold chip to read as tappable. The fill
+			// must NOT change width — openCouncilDetailAt hit-tests against councilMemberPlain's
+			// rune width — so we paint a background (no padding) and fold the interior spaces
+			// into the painted runs, keeping the character layout identical to the plain form.
+			paint := func(st lipgloss.Style, s string) string { return st.Background(colPrimCont).Render(s) }
+			seg := paint(lipgloss.NewStyle().Foreground(hue), "● ") +
+				paint(lipgloss.NewStyle().Foreground(hue).Bold(true), v.Member)
 			if v.Lens != "" {
-				seg += "  " + styleToolResult.Render("["+v.Lens+"]")
+				seg += paint(styleToolResult, "  ["+v.Lens+"]")
 			}
-			seg += "  " + councilVerdictStyle(v.Phase, v.Decision, v.Severity).Render(icon+" "+word)
+			seg += paint(councilVerdictStyle(v.Phase, v.Decision, v.Severity), "  "+icon+" "+word)
 			if v.Confidence > 0 {
-				seg += styleToolResult.Render(fmt.Sprintf(" · %.0f%%", v.Confidence*100))
+				seg += paint(styleToolResult, fmt.Sprintf(" · %.0f%%", v.Confidence*100))
 			}
 			segs[i] = seg
 		}
@@ -367,13 +379,52 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 			// this one, or ctrl+t to expand all. Size the preview to the transcript
 			// width so it never overflows a narrow (panel-shrunk) transcript.
 			prev := clampInt(m.transcriptWidth()-34, 16, 64)
-			return indent(styleThink.Render("✻ thought · " + oneLine(txt, prev) + " · click / ctrl+t"))
+			return indent(styleThink.Render("✻ thought · "+oneLine(txt, prev)+" ") + styleFoldChip.Render(" click / ctrl+t "))
 		}
 		return label(styleBar, "thinking") + "\n" + indent(m.wrapThink(txt))
 	case blockImage:
 		return indent(blk.text) // pre-rendered half-block pixels
+	case blockShell:
+		// A `!`-run command: an accent "$ cmd" header, the combined output as a dim
+		// clipped body, and a trailing "exit N" (red when non-zero). blk.args holds the
+		// command, blk.text the output, blk.result the "exit N" label, blk.ok exit==0.
+		head := lipgloss.NewStyle().Foreground(colAccent).Bold(true).Render("$ ") +
+			lipgloss.NewStyle().Foreground(colAccent).Render(oneLine(blk.args, 200))
+		w := m.bodyWidth() - 2
+		exitStyle := styleToolResult
+		if !blk.ok {
+			exitStyle = styleError
+		}
+		body := indent(head)
+		if out := strings.TrimRight(blk.text, "\n"); strings.TrimSpace(out) != "" {
+			var lines []string
+			for _, ln := range strings.Split(out, "\n") {
+				lines = append(lines, styleToolResult.Render(clipLine(ln, w))) // clipLine strips control seqs
+			}
+			body += "\n" + indent(strings.Join(lines, "\n"))
+		}
+		body += "\n" + indent(exitStyle.Render(blk.result))
+		return body
 	}
 	return ""
+}
+
+// stripControl removes terminal control sequences from untrusted content (file
+// contents, command output) before it is rendered into the transcript, so an
+// embedded escape can't move the cursor, clear the screen, or spoof the window
+// title (audit finding N10). It drops ANSI/OSC escapes via ansi.Strip, then any
+// remaining C0/C1 control bytes except tab (clipLine expands tabs to spaces).
+func stripControl(s string) string {
+	s = ansi.Strip(s)
+	return strings.Map(func(r rune) rune {
+		if r == '\t' {
+			return r
+		}
+		if r < 0x20 || (r >= 0x7f && r <= 0x9f) {
+			return -1
+		}
+		return r
+	}, s)
 }
 
 // markdown renders assistant text as wrapped, syntax-highlighted markdown,

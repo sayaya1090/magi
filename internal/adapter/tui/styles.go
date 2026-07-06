@@ -64,12 +64,13 @@ var (
 	stylePalName    lipgloss.Style
 	styleThink      lipgloss.Style
 	styleDivider    lipgloss.Style
-	styleBadge      lipgloss.Style // running-subagent count badge
 	styleKeyLabel   lipgloss.Style // footer key (M3 Label: emphasized)
 	styleSelection  lipgloss.Style // mouse text-selection highlight
 	styleToast      lipgloss.Style // floating transient notice (toast)
 	styleBtn        lipgloss.Style // action button (unselected)
 	styleBtnSel     lipgloss.Style // action button (selected)
+	styleClickable  lipgloss.Style // inline clickable control (e.g. the "‹ back" breadcrumb)
+	styleFoldChip   lipgloss.Style // in-transcript expand/collapse toggle (fold affordance)
 )
 
 // palette maps Material Design 3 color roles to hex strings for one mode.
@@ -187,8 +188,6 @@ func applyTheme(isDark bool) {
 	stylePalName = n().Foreground(colAccent)
 	styleThink = n().Foreground(colMuted).Italic(true)
 	styleDivider = n().Foreground(colOutlVar)
-	// Badge: filled primary-container pill (M3 badge).
-	styleBadge = n().Foreground(colPrimary).Background(colPrimCont).Bold(true).Padding(0, 1)
 	// Footer key (M3 Label): accent + bold for emphasis.
 	styleKeyLabel = n().Foreground(colAccent).Bold(true)
 	// Selection highlight: primary-container fill (reads as a selection band).
@@ -199,4 +198,12 @@ func applyTheme(isDark bool) {
 	// selected, so it reads as a button distinct from the field rows.
 	styleBtn = n().Foreground(colSurface).Background(colOutline).Bold(true).Padding(0, 2)
 	styleBtnSel = n().Foreground(colSurface).Background(colPrimary).Bold(true).Padding(0, 2)
+	// Inline clickable control: a filled accent pill so an actionable element (the
+	// "‹ back" breadcrumb) reads as a BUTTON, not as plain accent-colored text. Uses
+	// the accent (interactive) hue, matching the toast/other tappable chrome.
+	styleClickable = n().Foreground(colSurface).Background(colAccent).Bold(true).Padding(0, 1)
+	// In-transcript fold toggle (expand/collapse): a low-emphasis filled chip (badge
+	// container) so the clickable part of an otherwise-dim fold line reads as tappable,
+	// without a wall of bright accent down the transcript.
+	styleFoldChip = n().Foreground(colAccent).Background(colPrimCont).Padding(0, 1)
 }

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // maxToolBodyLines is how many lines of a tool's output are shown collapsed; the
@@ -79,9 +80,9 @@ func foldRendered(lines []string, expanded bool) string {
 	body := strings.Join(shown, "\n")
 	switch {
 	case hidden > 0:
-		body += "\n" + styleThink.Render(fmt.Sprintf("… +%d more lines · click to expand", hidden))
+		body += "\n" + styleThink.Render(fmt.Sprintf("… +%d more lines ", hidden)) + styleFoldChip.Render(" click to expand ")
 	case expanded && len(lines) > maxToolBodyLines:
-		body += "\n" + styleThink.Render("· click to collapse")
+		body += "\n" + styleFoldChip.Render(" click to collapse ")
 	}
 	return body
 }
@@ -223,15 +224,27 @@ func jsonStrings(result string) ([]string, bool) {
 	return nil, false
 }
 
-// clipLine expands tabs and truncates a single line to width (rune-aware) so long
-// output can't break the transcript layout.
+// clipLine expands tabs and truncates a single line to width (cell-aware) so long
+// output can't break the transcript layout. Width is a terminal-cell budget, so a
+// CJK/wide-rune line is measured with cellWidth (each wide rune = 2 cells), not by
+// rune count — otherwise a Korean line would count 40 runes against a 60-cell
+// budget yet draw ~80 cells wide and be hard-cut later with no "…" affordance.
+//
+// It also strips terminal control sequences (audit finding N10): every tool-output
+// body — bash/read/grep/glob/list output and fetched web text — flows through here,
+// and that content is untrusted (a repo file, command output, a remote page). Left
+// raw, an embedded OSC title-spoof, cursor move, or screen-clear escape would drive
+// the user's terminal. Stripping here neutralizes them at the single choke point;
+// magi applies its own styling afterward, so no legitimate escapes are lost.
 func clipLine(s string, width int) string {
+	s = stripControl(s)
 	s = strings.ReplaceAll(s, "\t", "    ")
 	if width <= 1 {
 		return s
 	}
-	if r := []rune(s); len(r) > width {
-		return string(r[:width-1]) + "…"
+	if cellWidth(s) <= width {
+		return s
 	}
-	return s
+	// Truncate to width-1 cells (leaving one for the ellipsis), cell-accurately.
+	return ansi.Truncate(s, width-1, "") + "…"
 }

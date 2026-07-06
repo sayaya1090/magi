@@ -52,6 +52,47 @@ func probeAmbiguousWidth(out, in *os.File) (int, bool) {
 	return col - 1, true
 }
 
+// probeDecorWidths measures each decorative glyph (decorGlyphs) the same way as
+// probeAmbiguousWidth — emit at column 1, read the CPR column, erase — but in a
+// SINGLE raw-mode/deadline window so the whole batch is bounded (not N×150ms).
+// Returns a rune→isWide map. If the terminal doesn't answer CPR the batch is
+// abandoned (ok=false) rather than half-measured. An empty map with ok=true means
+// "measured, all narrow" — a valid result that yields no correction.
+func probeDecorWidths(out, in *os.File) (map[rune]bool, bool) {
+	if out == nil || in == nil {
+		return nil, false
+	}
+	if !term.IsTerminal(out.Fd()) || !term.IsTerminal(in.Fd()) {
+		return nil, false
+	}
+	if err := in.SetReadDeadline(time.Now().Add(200 * time.Millisecond)); err != nil {
+		return nil, false
+	}
+	defer in.SetReadDeadline(time.Time{})
+
+	state, err := term.MakeRaw(in.Fd())
+	if err != nil {
+		return nil, false
+	}
+	defer term.Restore(in.Fd(), state)
+
+	m := make(map[rune]bool, len(decorGlyphs))
+	for _, r := range decorGlyphs {
+		if _, err := io.WriteString(out, "\x1b7\r"+string(r)+"\x1b[6n"); err != nil {
+			return nil, false
+		}
+		col, ok := readCPRColumn(in)
+		_, _ = io.WriteString(out, "\x1b8\x1b[K") // restore + erase, whatever happened
+		if !ok || col < 1 {
+			return nil, false // CPR unsupported — keep default narrow
+		}
+		if col-1 >= 2 {
+			m[r] = true
+		}
+	}
+	return m, true
+}
+
 // readCPRColumn reads a Cursor-Position-Report (ESC [ row ; col R) and returns
 // the column. The read is bounded by the caller's deadline; a malformed or
 // missing report yields ok=false.

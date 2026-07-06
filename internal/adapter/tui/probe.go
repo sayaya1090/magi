@@ -54,3 +54,35 @@ func detectAmbiguousWidth() {
 		setAmbiguousWide(w == 2)
 	}
 }
+
+// detectDecorWidths decides, once at startup, the real cell width of the
+// decorative glyphs (decorGlyphs) that measure 1 in Unicode tables but may render
+// wide (see width.go). Resolution mirrors detectAmbiguousWidth:
+//
+//	MAGI_DECOR_WIDTH=wide|narrow   explicit override, always wins
+//	MAGI_WIDTH_PROBE=0             disables the live probe
+//	per-glyph probe on the tty     measures each glyph's real width
+//	(else)                         default narrow (unchanged behavior)
+//
+// It is best-effort: any uncertainty leaves decorWide unset (no correction). Call
+// after detectAmbiguousWidth so both share the one-shot startup raw-mode window.
+func detectDecorWidths() {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_DECOR_WIDTH"))) {
+	case "wide", "2", "double":
+		m := make(map[rune]bool, len(decorGlyphs))
+		for _, r := range decorGlyphs {
+			m[r] = true
+		}
+		setDecorWide(m)
+		return
+	case "narrow", "1", "single":
+		setDecorWide(map[rune]bool{})
+		return
+	}
+	if os.Getenv("MAGI_WIDTH_PROBE") == "0" {
+		return
+	}
+	if m, ok := probeDecorWidths(os.Stdout, os.Stdin); ok {
+		setDecorWide(m)
+	}
+}

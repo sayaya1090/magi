@@ -84,6 +84,9 @@ func (m *Model) handleMouse(msg tea.Msg) tea.Cmd {
 			} else if m.toggleThoughtAt(m.selAL) {
 				m.refresh()
 				return nil
+			} else if m.toggleLiveThinkAt(m.selAL) {
+				m.refresh()
+				return nil
 			}
 			// Plain click → focus a pane; a click outside any pane releases focus so the
 			// wheel/↑↓ drive the transcript again (the inverse of clicking to engage it).
@@ -415,6 +418,15 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		text := strings.TrimSpace(m.ta.Value())
 		if text == "" {
 			return nil, true
+		}
+		// `!`-prefix runs the rest as a shell command in the workdir (Claude-style
+		// inline shell). Its output is shown and folded into the next prompt's context.
+		// Works idle (staged) or mid-turn (steered) — runShellBang branches internally.
+		if strings.HasPrefix(text, "!") {
+			if cmd := strings.TrimSpace(text[1:]); cmd != "" {
+				return m.runShellBang(cmd), true
+			}
+			return nil, true // bare "!" — nothing to run
 		}
 		if m.running {
 			// A turn is in flight. Slash commands that are safe to run live are

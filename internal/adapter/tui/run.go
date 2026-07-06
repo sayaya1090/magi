@@ -20,6 +20,7 @@ func Run(ctx context.Context, a *app.App, cmds CommandSource, sid session.Sessio
 	// where ambiguous-width glyphs are often drawn wide) so the scrollbar gutter
 	// stays aligned on lines with special characters. Best-effort; see width.go.
 	detectAmbiguousWidth()
+	detectDecorWidths()
 	m := New(ctx, a, cmds, sid, model, workdir, isDark, imageProto)
 	p := tea.NewProgram(m)
 	_, err := p.Run()

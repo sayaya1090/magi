@@ -30,14 +30,14 @@ func (m Model) View() tea.View {
 	if m.councilDetail != nil {
 		// Council detail view: a clickable breadcrumb back to the transcript.
 		c := m.councilColor(m.councilDetail.Member)
-		headLine = styleKeyLabel.Render("‹ back") + styleHeader.Render("   ") +
+		headLine = styleClickable.Render("‹ back") + styleHeader.Render("   ") +
 			styleBrand.Render("✦ magi") + styleHeader.Render(" › ") +
 			lipgloss.NewStyle().Foreground(c).Bold(true).Render("⚖ "+m.councilDetail.Member+" verdict")
 	} else if vp := m.viewedPane(); m.zoom && vp != nil {
 		// Zoom view: the header is a clickable breadcrumb back to the overview.
 		p := vp
 		c := m.paneColorOf(p)
-		headLine = styleKeyLabel.Render("‹ back") + styleHeader.Render("   ") +
+		headLine = styleClickable.Render("‹ back") + styleHeader.Render("   ") +
 			styleBrand.Render("✦ magi") + styleHeader.Render(" › ") +
 			lipgloss.NewStyle().Foreground(c).Bold(true).Render(p.desc(max(20, m.width-24))) + "  " + m.paneStatus(p)
 	} else {
@@ -55,7 +55,10 @@ func (m Model) View() tea.View {
 			headLine += "  " + styleKeyLabel.Render(chip)
 		}
 		if len(m.activeAgents) > 0 {
-			headLine += "  " + styleBadge.Render(fmt.Sprintf("⛐ %d: %s", len(m.activeAgents), agentSummary(m.activeAgents)))
+			// Status chip, not a control: render like the sibling plan/council chips
+			// (accent label, no fill). A filled background reads as tappable, but the
+			// running-agent count is display-only — nothing happens when you click it.
+			headLine += "  " + styleKeyLabel.Render(fmt.Sprintf("⛐ %d: %s", len(m.activeAgents), agentSummary(m.activeAgents)))
 		}
 		// Right-align the scroll meter to the far edge so it stops crowding the plan/council/
 		// agent chips. styleHeader pads 1 cell on each side, so the content budget is width-2;

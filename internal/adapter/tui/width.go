@@ -21,6 +21,26 @@ var ambiguousWide bool
 // program starts; not safe for concurrent use with rendering (it isn't).
 func setAmbiguousWide(w bool) { ambiguousWide = w }
 
+// decorWide maps each decorative glyph the TUI draws to whether THIS terminal
+// renders it two cells wide. It is nil until detectDecorWidths runs. These glyphs
+// (decorGlyphs) all measure 1 in BOTH go-runewidth modes (narrow==wide==1), so
+// ambiguousExtra can never correct them — yet some terminals (notably Windows
+// Terminal) draw dingbats like ✦ ✻ ⚖ two cells wide, leaving every line that
+// carries one measured short and mis-padded. Because their real width can't be
+// derived from Unicode tables, it is measured per-glyph at startup. nil or an
+// all-false map = no correction = byte-identical to the previous behavior.
+var decorWide map[rune]bool
+
+// decorGlyphs is the set of "measures-1-everywhere but may render wide" glyphs the
+// TUI actually draws: ‹ › (guillemet breadcrumbs), ✦ (brand), ✻ (thought),
+// ⚖ (council), ⇅ (scroll meter). Every OTHER decorative glyph we draw
+// (· … → ← ↑ ↓ ★ ● ◆ ◈ ⛐ │ ─) is East-Asian *ambiguous* and already handled by
+// ambiguousExtra, so it is deliberately excluded here to avoid double-counting.
+var decorGlyphs = []rune{'‹', '›', '✦', '✻', '⚖', '⇅'}
+
+// setDecorWide records the per-glyph probe/override result.
+func setDecorWide(m map[rune]bool) { decorWide = m }
+
 // narrowCond and wideCond exist only to classify a rune as ambiguous: a rune is
 // ambiguous exactly when it measures 1 narrow but 2 wide. StrictEmojiNeutral
 // keeps emoji classification stable so we don't accidentally treat emoji as
@@ -39,10 +59,32 @@ var (
 // widths stay consistent with lipgloss.
 func cellWidth(s string) int {
 	w := ansi.StringWidth(s)
+	if !ambiguousWide && decorWide == nil {
+		return w
+	}
+	plain := ansi.Strip(s)
 	if ambiguousWide {
-		w += ambiguousExtra(ansi.Strip(s))
+		w += ambiguousExtra(plain)
+	}
+	if decorWide != nil {
+		w += decorExtra(plain)
 	}
 	return w
+}
+
+// decorExtra counts the extra cells consumed by decorative glyphs this terminal
+// draws wide (per detectDecorWidths), on an already-ANSI-stripped string. These
+// glyphs measure 1 via ansi.StringWidth, so each wide-drawn one costs one more.
+// decorGlyphs never overlaps the ambiguous set, so this is additive with
+// ambiguousExtra, never double-counting a rune.
+func decorExtra(plain string) int {
+	n := 0
+	for _, r := range plain {
+		if decorWide[r] {
+			n++
+		}
+	}
+	return n
 }
 
 // ambiguousExtra counts ambiguous-width runes in an already-ANSI-stripped

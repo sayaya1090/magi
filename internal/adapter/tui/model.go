@@ -130,9 +130,11 @@ type Model struct {
 	imageProto    string // "kitty" | "iterm2" | "" (half-block)
 
 	blocks          []block
+	pendingShell    []shellRun // `!`-run commands+output staged to prepend to the next prompt's context
 	liveText        string
 	liveThink       string    // streaming reasoning ("thinking") for the current turn
 	showThink       bool      // expand ALL reasoning blocks (default collapsed); toggle ctrl+t
+	liveThinkStart  int       // content line where the streaming "thinking" block begins (-1 = not shown); for click-to-toggle
 	blockLineStart  []int     // content line where each cached block begins (for click mapping)
 	paneLineStart   []int     // content line where each focused-pane block begins, in zoom view (click mapping)
 	lastThoughtAt   time.Time // last thought-toggle click time (to swallow a double-click's 2nd toggle)
@@ -341,6 +343,14 @@ func (m *Model) fadeDebug() string {
 // renderTickMsg drives throttled, coalesced repaints during streaming.
 type renderTickMsg struct{}
 
+// shellResultMsg carries the outcome of a `!`-inline-shell command back to the
+// Update loop, off the goroutine that ran it (so the TUI never blocks on it).
+type shellResultMsg struct {
+	cmd  string
+	out  string
+	exit int
+}
+
 // snackClearMsg auto-dismisses a snackbar after its delay (seq guards staleness).
 type snackClearMsg struct{ seq int }
 
@@ -453,6 +463,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.dirty = false
 		}
 		return m, renderTick()
+
+	case shellResultMsg:
+		return m, m.applyShellResult(msg)
 
 	case snackClearMsg:
 		if msg.seq == m.snackSeq {
@@ -587,6 +600,18 @@ func (m *Model) openCouncilDetailAt(line int) bool {
 	vd := vs[pick]
 	m.councilDetail = &vd
 	m.councilDetailEvidence = m.blocks[i].evidence
+	return true
+}
+
+// toggleLiveThinkAt folds/unfolds the streaming "thinking" block when the click
+// lands on it. That block is the streaming tail, not a member of m.blocks, so
+// toggleThoughtAt (which scans blockLineStart) can't reach it — handle it here.
+// It shares the global showThink flag, so a click behaves exactly like ctrl+t.
+func (m *Model) toggleLiveThinkAt(line int) bool {
+	if m.liveThinkStart < 0 || line < m.liveThinkStart {
+		return false
+	}
+	m.showThink = !m.showThink
 	return true
 }
 
@@ -923,6 +948,112 @@ func (m *Model) steer(text string) tea.Cmd {
 	})
 }
 
+// shellRun is one `!`-executed command and its captured output, staged to be
+// folded into the next prompt's context (Claude-style inline shell).
+type shellRun struct {
+	cmd  string
+	out  string
+	exit int
+}
+
+// maxShellOut caps the bytes of a single `!` command's output kept for both the
+// transcript and the injected context, so a chatty command can't blow the window.
+const maxShellOut = 16 << 10
+
+// runShellBang executes a `!`-prefixed command in the workdir, renders it as a
+// blockShell, and stages the output for the next prompt — or, mid-turn, steers it
+// straight into the running turn so the agent sees it at its next step.
+func (m *Model) runShellBang(cmd string) tea.Cmd {
+	m.ta.Reset()
+	m.history = append(m.history, "!"+cmd)
+	m.histIdx = len(m.history)
+	m.refresh()
+
+	// Run off the Bubble Tea Update goroutine so a slow command (`!npm ci`, `!sleep`)
+	// doesn't freeze the whole TUI; the result returns as a shellResultMsg.
+	ctx, workdir, app := m.ctx, m.workdir, m.app
+	return func() tea.Msg {
+		rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		out, exit, err := app.RunShell(rctx, workdir, cmd)
+		if err != nil {
+			out, exit = "error: "+err.Error(), -1
+		}
+		return shellResultMsg{cmd: cmd, out: out, exit: exit}
+	}
+}
+
+// applyShellResult records a finished `!` run: it appends the transcript block and
+// either steers the output into an in-flight turn or stages it for the next prompt.
+func (m *Model) applyShellResult(msg shellResultMsg) tea.Cmd {
+	out := msg.out
+	if capped, cut := capBytes(out, maxShellOut); cut {
+		out = capped + "\n…(output truncated)"
+	}
+	run := shellRun{cmd: msg.cmd, out: out, exit: msg.exit}
+	m.blocks = append(m.blocks, block{
+		kind:   blockShell,
+		args:   msg.cmd,
+		text:   out,
+		result: fmt.Sprintf("exit %d", msg.exit),
+		ok:     msg.exit == 0,
+	})
+	if m.running {
+		// A turn is in flight — inject immediately (steer) instead of staging.
+		send := shellContext([]shellRun{run})
+		sid := m.sid
+		m.refresh()
+		return tea.Batch(m.snack("ran !"+oneLine(msg.cmd, 40)+" — steered into the turn"), func() tea.Msg {
+			_ = m.app.Steer(m.ctx, command.SubmitPrompt{
+				SessionID: sid,
+				Parts:     []session.Part{{Kind: session.PartText, Text: send}},
+				Actor:     event.Actor{Kind: event.ActorUser, ID: "tui"},
+			})
+			return nil
+		})
+	}
+	m.pendingShell = append(m.pendingShell, run)
+	m.refresh()
+	return nil
+}
+
+// drainPendingShell formats and clears the staged `!` runs as a context preamble
+// to prepend to the next prompt (empty when nothing is staged).
+func (m *Model) drainPendingShell() string {
+	if len(m.pendingShell) == 0 {
+		return ""
+	}
+	pre := shellContext(m.pendingShell)
+	m.pendingShell = nil
+	return pre
+}
+
+// shellContext renders staged shell runs as a plain-text preamble the agent reads
+// as part of the next user message.
+func shellContext(runs []shellRun) string {
+	var b strings.Builder
+	for _, r := range runs {
+		b.WriteString("I ran a shell command:\n$ ")
+		b.WriteString(r.cmd)
+		b.WriteString("\n")
+		if out := strings.TrimRight(r.out, "\n"); out != "" {
+			b.WriteString(out)
+			b.WriteString("\n")
+		}
+		fmt.Fprintf(&b, "(exit %d)\n\n", r.exit)
+	}
+	return b.String()
+}
+
+// capBytes truncates s to at most n bytes, dropping any partial trailing rune, and
+// reports whether it cut anything.
+func capBytes(s string, n int) (string, bool) {
+	if len(s) <= n {
+		return s, false
+	}
+	return strings.ToValidUTF8(s[:n], ""), true
+}
+
 // safeWhileRunning reports whether a slash command is safe to run during an
 // in-flight turn (read-only / UI-only — does not mutate the running session).
 func safeWhileRunning(cmd string) bool {
@@ -937,6 +1068,11 @@ func safeWhileRunning(cmd string) bool {
 // input box, so flushing the queue never clobbers what the user is now typing.
 func (m *Model) sendPrompt(display, send string) tea.Cmd {
 	m.closePanes() // a new turn retires the previous turn's subagent panes
+	// Fold in any `!`-run shell output the user staged before this prompt, so the
+	// agent sees it in context (the display keeps only what the user typed).
+	if pre := m.drainPendingShell(); pre != "" {
+		send = pre + send
+	}
 	m.blocks = append(m.blocks, block{kind: blockUser, text: display})
 	m.running = true
 	m.turnStart = time.Now() // §8.1: start the elapsed/token meter

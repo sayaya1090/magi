@@ -57,6 +57,62 @@ func TestCellWidthWideAddsAmbiguous(t *testing.T) {
 	}
 }
 
+// withDecorWide runs fn with decorWide set to mark every decorGlyph wide (or
+// unset), restoring the process-global after.
+func withDecorWide(t *testing.T, wide bool, fn func()) {
+	t.Helper()
+	prev := decorWide
+	if wide {
+		m := make(map[rune]bool, len(decorGlyphs))
+		for _, r := range decorGlyphs {
+			m[r] = true
+		}
+		setDecorWide(m)
+	} else {
+		setDecorWide(nil)
+	}
+	defer setDecorWide(prev)
+	fn()
+}
+
+// TestCellWidthDecorWide checks that when the terminal draws the decorative
+// glyphs wide, cellWidth adds exactly one cell per such glyph — and that these
+// glyphs are NOT already caught by the ambiguous correction (so the decor probe
+// is genuinely needed), nor double-counted.
+func TestCellWidthDecorWide(t *testing.T) {
+	// Ambiguous correction alone must NOT move these glyphs: they measure 1 in both
+	// runewidth modes, so ambiguousExtra can't see them — this is the O1 gap.
+	for _, g := range []string{"‹", "›", "✦", "✻", "⚖", "⇅"} {
+		var narrow, ambWide int
+		withDecorWide(t, false, func() {
+			withAmbiguousWide(t, false, func() { narrow = cellWidth(g) })
+			withAmbiguousWide(t, true, func() { ambWide = cellWidth(g) })
+		})
+		if narrow != 1 || ambWide != 1 {
+			t.Errorf("decor glyph %q: narrow=%d ambiguousWide=%d, want 1/1 (ambiguous correction must not touch it)", g, narrow, ambWide)
+		}
+	}
+	// With the decor override on, each drawn-wide glyph costs one extra cell.
+	cases := []struct {
+		s     string
+		extra int
+	}{
+		{"ascii", 0},
+		{"‹ back", 1},   // one guillemet
+		{"✦ magi ⚖", 2}, // brand + council
+		{"‹›✦✻⚖⇅", 6},   // all six
+		{"·—→", 0},      // ambiguous set is NOT in decorWide (handled separately)
+	}
+	for _, c := range cases {
+		var off, on int
+		withDecorWide(t, false, func() { off = cellWidth(c.s) })
+		withDecorWide(t, true, func() { on = cellWidth(c.s) })
+		if on-off != c.extra {
+			t.Errorf("%q: on-off=%d, want %d (off=%d on=%d)", c.s, on-off, c.extra, off, on)
+		}
+	}
+}
+
 // TestPadOrTruncateExactWidth: the result is always exactly w cells (per
 // cellWidth), whether the input is short (padded), exact, or long (truncated),
 // in both width modes and with ANSI styling present.
