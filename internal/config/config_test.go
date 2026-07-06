@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -88,5 +89,53 @@ experience_dir = "/team/brain"
 	// A missing config dir is not an error (zero Config).
 	if _, err := Load(t.TempDir()); err != nil {
 		t.Errorf("missing config.toml should not error: %v", err)
+	}
+}
+
+// TestLoadWithUnknownKeys guards O10: a mistyped key must be surfaced, not
+// silently dropped. "profil" is the dangerous case — a typo of the guardrail
+// posture leaves Profile empty (the unconfined fallback) with no signal.
+func TestLoadWithUnknownKeys(t *testing.T) {
+	dir := t.TempDir()
+	toml := `model = "real-model"
+profil = "safe"
+modle = "typo"
+
+[theme.dark]
+primary = "#fff"
+
+[plugins.acme]
+anything = "goes"
+`
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(toml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, unknown, err := LoadWithUnknown(dir)
+	if err != nil {
+		t.Fatalf("unknown keys must not be a hard error: %v", err)
+	}
+	if c.Model != "real-model" {
+		t.Errorf("valid keys should still load: Model=%q", c.Model)
+	}
+	// The two typos must be reported...
+	got := map[string]bool{}
+	for _, k := range unknown {
+		got[k] = true
+	}
+	for _, want := range []string{"profil", "modle"} {
+		if !got[want] {
+			t.Errorf("typo %q should be reported unknown; got %v", want, unknown)
+		}
+	}
+	// ...but free-form map sections (theme colors, plugin settings) must NOT be
+	// flagged — their arbitrary keys are legitimately consumed into maps.
+	for _, k := range unknown {
+		if strings.HasPrefix(k, "theme.") || strings.HasPrefix(k, "plugins.") {
+			t.Errorf("free-form section key %q should not be flagged unknown", k)
+		}
+	}
+	// A missing file reports no unknown keys and no error.
+	if _, u, err := LoadWithUnknown(t.TempDir()); err != nil || u != nil {
+		t.Errorf("missing config: unknown=%v err=%v", u, err)
 	}
 }

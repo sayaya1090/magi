@@ -278,17 +278,36 @@ func WriteDefaultIfMissing(dir string) error {
 
 // Load reads config.toml from dir. A missing file is not an error.
 func Load(dir string) (Config, error) {
+	c, _, err := LoadWithUnknown(dir)
+	return c, err
+}
+
+// LoadWithUnknown is Load plus the list of TOML keys present in the file but not
+// matched by any Config field — i.e. likely typos ("profil", "modle"). Callers
+// surface these as warnings; unknown keys are deliberately NOT an error, so a
+// config written for a newer binary (with keys this build doesn't know) still
+// loads. Free-form sections (plugins, theme, mcp, routing) decode into maps, so
+// their arbitrary keys are consumed and never reported here. A missing file
+// yields zero values, no keys, and no error.
+func LoadWithUnknown(dir string) (Config, []string, error) {
 	var c Config
 	path := filepath.Join(dir, "config.toml")
 	b, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return c, nil
+			return c, nil, nil
 		}
-		return c, err
+		return c, nil, err
 	}
-	err = toml.Unmarshal(b, &c)
-	return c, err
+	md, err := toml.Decode(string(b), &c)
+	if err != nil {
+		return c, nil, err
+	}
+	var unknown []string
+	for _, k := range md.Undecoded() {
+		unknown = append(unknown, k.String())
+	}
+	return c, unknown, nil
 }
 
 var envVarPattern = regexp.MustCompile(`\$\{([^}]+)\}`)
