@@ -319,9 +319,8 @@ func run() int {
 		NewProvider:         newProvider,
 		RoutePersister:      routePersister{path: filepath.Join(plat.ConfigDir(), "config.toml")},
 		PermissionPersister: permPersister{path: filepath.Join(wd, ".magi", "config.toml")},
-		Planner:             cfg.Orchestration.Planner == nil || *cfg.Orchestration.Planner,       // default on; kill switch
-		MaxPlanDepth:        planDepthFromEnv(),                                                   // 0 → app defaults to 2; MAGI_MAX_PLAN_DEPTH overrides (bench A/B knob)
-		ReviewGate:          cfg.Orchestration.ReviewGate == nil || *cfg.Orchestration.ReviewGate, // default on; kill switch
+		Planner:             cfg.Orchestration.Planner == nil || *cfg.Orchestration.Planner, // default on; kill switch
+		MaxPlanDepth:        planDepthFromEnv(),                                             // 0 → app defaults to 2; MAGI_MAX_PLAN_DEPTH overrides (bench A/B knob)
 		Council:             councilPort,
 		CouncilRule:         corecouncil.Rule(cfg.Council.Rule),
 		CouncilMaxRounds:    councilMaxRounds(cfg.Council),
