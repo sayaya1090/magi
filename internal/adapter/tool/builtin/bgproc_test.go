@@ -175,3 +175,34 @@ func TestBackgroundKill(t *testing.T) {
 		t.Error("killing an unknown id should error")
 	}
 }
+
+// TestBackgroundKillStatusRace guards N11: a bash_output issued *immediately*
+// after bash_kill — before the reaper goroutine has observed the process exit —
+// must report "[id killed]", never a stale "[id running]". The kill path sets
+// p.killed synchronously (bgproc.go) precisely so this window can't lie.
+func TestBackgroundKillStatusRace(t *testing.T) {
+	env := port.ToolEnv{Workdir: t.TempDir()}
+	start, _ := Bash{}.Execute(context.Background(),
+		json.RawMessage(`{"command":"sleep 30","background":true}`), env)
+	id := bgIDRE.FindString(resultText(t, start))
+	if id == "" {
+		t.Fatal("no id")
+	}
+	idArg := json.RawMessage(`{"id":"` + id + `"}`)
+	kill, _ := BashKill{}.Execute(context.Background(), idArg, env)
+	if kill.IsError {
+		t.Fatalf("kill errored: %s", resultText(t, kill))
+	}
+	// No sleep: read status in the same instant the kill returns. The reaper may
+	// or may not have observed the exit yet — either way the status must be a
+	// terminal one ("killed" if we beat the reaper, "exited"/"done" if it beat us).
+	// The one thing it must never be is the stale "running" the N11 fix eliminates.
+	out, _ := BashOutput{}.Execute(context.Background(), idArg, env)
+	got := resultText(t, out)
+	if strings.Contains(got, "running") {
+		t.Errorf("bash_output right after kill reported a stale 'running' status: %q", got)
+	}
+	if !strings.Contains(got, "killed") && !strings.Contains(got, "done") && !strings.Contains(got, "exited") {
+		t.Errorf("bash_output after kill should be a terminal status, got %q", got)
+	}
+}
