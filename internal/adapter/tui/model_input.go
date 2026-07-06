@@ -10,6 +10,48 @@ import (
 )
 
 func (m *Model) handleMouse(msg tea.Msg) tea.Cmd {
+	// The permission modal is exclusive: while it's open a click on a button pill
+	// activates it (like the hotkeys), a click on any other pill moves focus there,
+	// and every other mouse event is swallowed so a click can't select/scroll the
+	// transcript behind the modal.
+	if m.perm != nil {
+		switch e := msg.(type) {
+		case tea.MouseClickMsg:
+			if e.Button == tea.MouseLeft {
+				if i, ok := m.permButtonAt(e.X, e.Y); ok {
+					m.perm.sel = i
+					m.refresh()
+				}
+			}
+		case tea.MouseReleaseMsg:
+			if e.Button == tea.MouseLeft {
+				if i, ok := m.permButtonAt(e.X, e.Y); ok {
+					return m.respond(permButtons()[i].decision)
+				}
+			}
+		}
+		return nil
+	}
+	// The ask_user question modal is likewise exclusive: a click on an option row
+	// focuses it (press) and picks it (release); every other mouse event is swallowed.
+	if m.quest != nil {
+		switch e := msg.(type) {
+		case tea.MouseClickMsg:
+			if e.Button == tea.MouseLeft {
+				if i, ok := m.questOptionAt(e.Y); ok {
+					m.quest.sel = i
+					m.refresh()
+				}
+			}
+		case tea.MouseReleaseMsg:
+			if e.Button == tea.MouseLeft {
+				if i, ok := m.questOptionAt(e.Y); ok {
+					return m.answerQuestion(m.quest.options[i])
+				}
+			}
+		}
+		return nil
+	}
 	switch e := msg.(type) {
 	case tea.MouseClickMsg:
 		// Clicking the breadcrumb header while zoomed (or in council detail) goes back.
@@ -149,6 +191,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			if q.sel < len(q.options)-1 {
 				q.sel++
 			}
+		case "tab":
+			q.sel = (q.sel + 1) % len(q.options)
+		case "shift+tab":
+			q.sel = (q.sel + len(q.options) - 1) % len(q.options)
 		case "enter":
 			return m.answerQuestion(q.options[q.sel]), true
 		case "esc":
@@ -177,6 +223,16 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			return m.respond("persist"), true
 		case "n", "N", "esc":
 			return m.respond("deny"), true
+		case "tab", "right":
+			m.perm.sel = (m.perm.sel + 1) % len(permButtons())
+			m.refresh()
+			return nil, true
+		case "shift+tab", "left":
+			m.perm.sel = (m.perm.sel + len(permButtons()) - 1) % len(permButtons())
+			m.refresh()
+			return nil, true
+		case "enter":
+			return m.respond(permButtons()[m.perm.sel].decision), true
 		}
 		return nil, true // swallow other keys while modal is open
 	}

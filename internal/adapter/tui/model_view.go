@@ -308,13 +308,29 @@ func colorizeChanges(changes string) string {
 	return strings.TrimSpace(b.String())
 }
 
+// questOptionAt maps a screen click to an option index, or ok=false if the click
+// isn't on an option row. The modal stacks the title and question above the options
+// inside the box, so option i sits 3 rows (box border + title + question) below the
+// box top — the same top the perm modal uses.
+func (m *Model) questOptionAt(y int) (int, bool) {
+	if m.quest == nil {
+		return 0, false
+	}
+	first := 2 + m.vp.Height() + m.panesBlockHeight() + 3
+	i := y - first
+	if i < 0 || i >= len(m.quest.options) {
+		return 0, false
+	}
+	return i, true
+}
+
 // questView renders the ask_user selection modal: the question plus numbered
 // options, the current pick highlighted.
 func (m *Model) questView() string {
 	q := m.quest
 	var b strings.Builder
 	b.WriteString(stylePermTitle.Render("question") + "  " +
-		styleFooter.Render("↑/↓ or 1-9 select · enter answer · esc dismiss") + "\n")
+		styleFooter.Render("↑/↓/tab or click · enter answer · esc dismiss") + "\n")
 	b.WriteString(q.question + "\n")
 	for i, opt := range q.options {
 		line := fmt.Sprintf("%d. %s", i+1, opt)
@@ -327,6 +343,66 @@ func (m *Model) questView() string {
 	return stylePermBox.Width(m.width - 4).Render(strings.TrimRight(b.String(), "\n"))
 }
 
+// permButton is one choice in the permission modal. key is the direct hotkey,
+// word the button label, decision the value sent to respond().
+type permButton struct{ key, word, decision string }
+
+// permButtons is the ordered choice set for the permission modal — the single
+// source of truth shared by the renderer (permView) and the click hit-tester
+// (permButtonAt), so their geometry can't drift.
+func permButtons() []permButton {
+	return []permButton{
+		{"y", "allow", "allow"},
+		{"a", "always", "always"},
+		{"p", "project", "persist"},
+		{"n", "deny", "deny"},
+	}
+}
+
+// permButtonWidth is a button's rendered cell width: label ("key word") plus the
+// styleBtn horizontal padding (2 cells each side). Labels are ASCII, so byte len
+// equals cell width.
+func permButtonWidth(b permButton) int { return len(b.key) + 1 + len(b.word) + 4 }
+
+// permModalHeight is the perm modal's rendered row count. It MUST match the reserve
+// in baseChromeHeight (title + tool line + buttons + hint + box border, +1 for a
+// reason line) so the layout and the click hit-test agree on where the box sits.
+func (m *Model) permModalHeight() int {
+	h := 6
+	if m.perm.reason != "" {
+		h++
+	}
+	return h
+}
+
+// permButtonAt maps a screen click to a button index, or ok=false if the click
+// isn't on the button row. The modal is bottom-anchored chrome (not viewport
+// content), so its top row is 2 (header) + the viewport + the reserved pane block,
+// exactly as View() stacks them; the buttons are the box's last content row (one
+// above the bottom border). Content starts at screen X=3 (border 1 + padding 2),
+// independent of lipgloss Width semantics.
+func (m *Model) permButtonAt(x, y int) (int, bool) {
+	if m.perm == nil {
+		return 0, false
+	}
+	top := 2 + m.vp.Height() + m.panesBlockHeight()
+	// Buttons are the second-to-last content row: below them sit the hint line and
+	// the box's bottom border, so the row is modalHeight-3 rows down from the top.
+	rowY := top + m.permModalHeight() - 3
+	if y != rowY {
+		return 0, false
+	}
+	cx := 3 // box border (1) + left padding (2)
+	for i, b := range permButtons() {
+		w := permButtonWidth(b)
+		if x >= cx && x < cx+w {
+			return i, true
+		}
+		cx += w + 1 // + 1-cell gap between buttons
+	}
+	return 0, false
+}
+
 func (m *Model) permView() string {
 	body := stylePermTitle.Render("permission required") + "\n" +
 		fmt.Sprintf("run tool %s %s\n", styleToolName.Render(m.perm.name), styleToolArgs.Render(compactArgs(m.perm.args)))
@@ -335,9 +411,19 @@ func (m *Model) permView() string {
 	if m.perm.reason != "" {
 		body += styleError.Render("⚠ "+m.perm.reason) + "\n"
 	}
-	body += styleFooter.Render("") +
-		footerKeys("y", "allow") + footerKeys("a", "always") +
-		footerKeys("p", "project (saves to .magi/config.toml)") + footerKeys("n", "deny")
+	// Focusable/clickable buttons: the selected one is a brighter filled pill.
+	// Tab cycles, the hotkeys (y/a/p/n) still fire directly, and a click on a
+	// pill activates it (permButtonAt shares this geometry).
+	btns := make([]string, 0, 4)
+	for i, b := range permButtons() {
+		st := styleBtn
+		if i == m.perm.sel {
+			st = styleBtnSel
+		}
+		btns = append(btns, st.Render(b.key+" "+b.word))
+	}
+	body += strings.Join(btns, " ") + "\n" +
+		styleFooter.Render("tab/click move · enter pick · p saves to .magi/config.toml")
 	return stylePermBox.Width(m.width - 4).Render(body)
 }
 

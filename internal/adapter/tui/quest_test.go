@@ -44,11 +44,11 @@ func TestQuestModalReservesHeight(t *testing.T) {
 	}
 	m.quest = nil
 	m.perm = &permReq{name: "bash", args: "{}", reason: "network egress command"}
-	if got := m.baseChromeHeight(); got != base+6 {
-		t.Fatalf("perm modal with a reason line should reserve 6 rows: base=%d got=%d", base, got)
+	if got := m.baseChromeHeight(); got != base+7 {
+		t.Fatalf("perm modal with a reason line should reserve 7 rows: base=%d got=%d", base, got)
 	}
 	m.perm.reason = ""
-	if got := m.baseChromeHeight(); got != base+5 {
-		t.Fatalf("plain perm modal reserves 5 rows: base=%d got=%d", base, got)
+	if got := m.baseChromeHeight(); got != base+6 {
+		t.Fatalf("plain perm modal reserves 6 rows: base=%d got=%d", base, got)
 	}
 }

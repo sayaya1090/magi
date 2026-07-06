@@ -90,6 +90,7 @@ type permReq struct {
 	name   string
 	args   string
 	reason string // policy reason the prompt fired (empty = routine confirmation)
+	sel    int    // focused button index into permButtons (Tab/click navigation)
 }
 
 // Model is the Bubble Tea model for the interactive TUI.

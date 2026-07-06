@@ -143,7 +143,7 @@ func (m *Model) baseChromeHeight() int {
 	}
 	h := 2 + (inputRows + 2) + 1 // header(2) + bordered input(rows+border) + footer
 	if m.perm != nil {
-		h += 5
+		h += 6 // title + tool line + buttons + hint + box border
 		if m.perm.reason != "" {
 			h++ // the policy-reason warning line
 		}
