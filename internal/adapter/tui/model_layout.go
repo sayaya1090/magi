@@ -6,6 +6,7 @@ import (
 
 	"charm.land/bubbles/v2/viewport"
 	"charm.land/glamour/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -143,14 +144,15 @@ func (m *Model) baseChromeHeight() int {
 	}
 	h := 2 + (inputRows + 2) + 1 // header(2) + bordered input(rows+border) + footer
 	if m.perm != nil {
-		h += 6 // title + tool line + buttons + hint + box border
-		if m.perm.reason != "" {
-			h++ // the policy-reason warning line
-		}
+		// Reserve the modal's *rendered* height, not a nominal row count: a long
+		// tool line, policy reason, or the hint can wrap at narrow widths, and an
+		// under-reserve pushes the input/footer off the bottom of the screen.
+		h += lipgloss.Height(m.permView())
 	}
 	if m.quest != nil {
-		// ask_user modal: title + question + one row per option, inside a border.
-		h += len(m.quest.options) + 4
+		// ask_user modal: title + question + options inside a border. Measure the
+		// render so a wrapping question or long option can't under-reserve.
+		h += lipgloss.Height(m.questView())
 	}
 	if m.resuming {
 		rows := len(m.resumeList)
