@@ -48,6 +48,15 @@ func resolvePath(workdir, p string) (string, error) {
 // If the workdir or ancestor can't be resolved it falls back to the lexical check
 // (returns nil) rather than spuriously denying.
 func withinSymlinkJail(base, abs string) error {
+	return jailCheck(base, abs, 0)
+}
+
+// jailCheck verifies abs resolves inside base, following symlinks. depth bounds
+// symlink-chain recursion so a cycle (a→b→a) can't spin forever.
+func jailCheck(base, abs string, depth int) error {
+	if depth > 40 { // matches the kernel's typical ELOOP ceiling
+		return fmt.Errorf("symlink chain too deep")
+	}
 	realBase, err := filepath.EvalSymlinks(base)
 	if err != nil {
 		return nil
@@ -65,6 +74,19 @@ func withinSymlinkJail(base, abs string) error {
 	}
 	realAnc, err := filepath.EvalSymlinks(anc)
 	if err != nil {
+		// anc exists (Lstat succeeded) but can't be fully resolved — the usual cause
+		// is a symlink whose target does not exist yet. Failing open here is an escape
+		// hatch: `ln -s /outside/new workdir/link` then writing "link" follows the
+		// link and lands outside the workdir. Instead of trusting it, follow the link
+		// and jail-check where it *points*, so a broken in-workdir symlink is caught.
+		if li, lerr := os.Lstat(anc); lerr == nil && li.Mode()&os.ModeSymlink != 0 {
+			if tgt, rerr := os.Readlink(anc); rerr == nil {
+				if !filepath.IsAbs(tgt) {
+					tgt = filepath.Join(filepath.Dir(anc), tgt)
+				}
+				return jailCheck(base, filepath.Clean(tgt), depth+1)
+			}
+		}
 		return nil
 	}
 	rel, err := filepath.Rel(realBase, realAnc)
