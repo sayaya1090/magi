@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -71,6 +72,67 @@ func TestSearchHighlightAndView(t *testing.T) {
 	m.updateSearch()
 	if len(m.searchHits) != 0 {
 		t.Fatalf("empty query should clear hits, got %v", m.searchHits)
+	}
+}
+
+// sgrRE matches an SGR escape; highlightedSpans returns the visible text that
+// highlightSearch wrapped in a non-reset style. In these tests contentLines carry
+// no pre-existing ANSI, so every styled span is a highlight.
+var sgrRE = regexp.MustCompile("\x1b\\[[0-9;]*m")
+
+func highlightedSpans(s string) []string {
+	var runs []string
+	var cur strings.Builder
+	in, i := false, 0
+	for i < len(s) {
+		if loc := sgrRE.FindStringIndex(s[i:]); loc != nil && loc[0] == 0 {
+			reset := s[i:i+loc[1]] == "\x1b[0m" || s[i:i+loc[1]] == "\x1b[m"
+			if in && reset {
+				if cur.Len() > 0 {
+					runs = append(runs, cur.String())
+					cur.Reset()
+				}
+				in = false
+			} else if !reset {
+				in = true
+			}
+			i += loc[1]
+			continue
+		}
+		if in {
+			cur.WriteByte(s[i])
+		}
+		i++
+	}
+	if cur.Len() > 0 {
+		runs = append(runs, cur.String())
+	}
+	return runs
+}
+
+// TestSearchHighlightAmbiguousWide guards O13, an O8-class mismatch: highlightSearch
+// computed its cut columns with cellWidth but cuts with ansi.Cut (StringWidth), so
+// on a terminal that draws ambiguous runes wide the highlight slid right by one
+// column per ambiguous rune in the prefix — tinting the wrong characters.
+func TestSearchHighlightAmbiguousWide(t *testing.T) {
+	applyTheme(true)
+	setAmbiguousWide(true)
+	defer setAmbiguousWide(false)
+
+	m := &Model{}
+	m.vp = viewport.New()
+	m.vp.SetWidth(40)
+	m.vp.SetHeight(4)
+	m.contentPlain = []string{"★★★error here"} // 3 ambiguous-width runes before the match
+	m.contentLines = append([]string(nil), m.contentPlain...)
+	m.vp.SetContent(strings.Join(m.contentPlain, "\n"))
+	m.searching = true
+	m.searchQuery = "error"
+	m.updateSearch()
+
+	spans := highlightedSpans(m.highlightSearch(strings.Join(m.contentLines, "\n")))
+	if len(spans) != 1 || spans[0] != "error" {
+		t.Errorf("highlight tinted %q, want exactly [\"error\"]", spans)
 	}
 }
 

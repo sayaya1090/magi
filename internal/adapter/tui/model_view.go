@@ -508,8 +508,12 @@ func (m *Model) highlightSearch(content string) string {
 				break
 			}
 			start := from + idx
-			c0 := cellWidth(plain[:start])
-			c1 := cellWidth(plain[:start+len(q)])
+			// Cut coordinates must be in ansi.StringWidth cells, since ansi.Cut and
+			// w below measure that way. cellWidth adds a per-ambiguous-rune correction
+			// that ansi.Cut does not understand, so using it here shifts the highlight
+			// right by one column per ambiguous rune in the prefix on wide terminals.
+			c0 := ansi.StringWidth(plain[:start])
+			c1 := ansi.StringWidth(plain[:start+len(q)])
 			if c0 < done { // overlapping match — skip
 				from = start + len(q)
 				continue
