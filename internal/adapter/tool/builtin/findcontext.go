@@ -96,13 +96,8 @@ func (FindContext) Execute(ctx context.Context, raw json.RawMessage, env port.To
 			}
 			return nil
 		}
-		// WalkDir yields symlinked files as entries and ReadFile below follows them;
-		// an in-workdir symlink pointing outside would leak that file's ranked snippet.
-		// Re-run the jail and skip any symlink that escapes the workdir.
-		if d.Type()&fs.ModeSymlink != 0 {
-			if _, err := resolvePath(env.Workdir, p); err != nil {
-				return nil
-			}
+		if symlinkEscapesJail(env.Workdir, p, d) {
+			return nil // an in-workdir symlink pointing outside would leak its snippet
 		}
 		if walked > 5000 {
 			return fs.SkipDir

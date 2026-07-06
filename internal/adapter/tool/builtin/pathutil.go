@@ -11,6 +11,21 @@ import (
 	"strings"
 )
 
+// symlinkEscapesJail reports whether the walked entry at absolute path p is a
+// symlink that resolves outside workdir. filepath.WalkDir does not descend into
+// symlinked directories, but it still yields symlinked FILES as entries, and a
+// subsequent os.ReadFile follows them — so every walk-based tool that reads file
+// contents (grep, findcontext, …) must call this and skip the entry when true, or
+// an in-workdir symlink pointing outside leaks that file. Non-symlink entries are
+// never treated as escaping here (the walk root itself is resolvePath-checked).
+func symlinkEscapesJail(workdir, p string, d fs.DirEntry) bool {
+	if d.Type()&fs.ModeSymlink == 0 {
+		return false
+	}
+	_, err := resolvePath(workdir, p)
+	return err != nil
+}
+
 // resolvePath joins p against workdir and verifies the result stays inside the
 // workdir tree. It returns the cleaned absolute path, or an error if the path
 // escapes the jail (F-TOOL common rule C2).
