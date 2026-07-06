@@ -124,11 +124,6 @@ planner = true             # ordered procedure → a strategy per step (solo|par
                            # accepted as non-blocking advice (injected for the executor). It also derives completion
                            # criteria (deliverables · test guidance) as that turn's termination contract.
                            # plan_absorb = true → fold the advice into the plan via one extra planner pass (default off)
-review_gate = true         # pre-finish review gate (on by default): when a mutating top-level turn tries to
-                           # finish, delegate verification to independent read-only subagents instead of the
-                           # agent self-verifying — tester actually runs the build/tests (real PASS/FAIL), reviewer
-                           # reads the changed files for spec violations; their findings are injected so real
-                           # problems get fixed first. Fires once per run; falls back to a self-verify nudge when off.
 
 [mcp.filesystem]           # MCP server (stdio, or HTTP via url=)
 command = "npx"

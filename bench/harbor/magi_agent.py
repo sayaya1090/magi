@@ -138,7 +138,6 @@ class MagiAgent(BaseInstalledAgent):
             "MAGI_ADAPT",
             "MAGI_REFINE_SHARED",
             "MAGI_SPEC_FIDELITY",
-            "MAGI_EVIDENCE_GATE",
             "MAGI_PLAN_CONVERGE",
             "MAGI_STALL_CONVERGE",
         ):

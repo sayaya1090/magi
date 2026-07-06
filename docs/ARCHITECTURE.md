@@ -174,62 +174,21 @@ in `loop.go` calls into them each step):
   an agent that edits in response to a nudge always re-arms normally — convergence never cuts a
   productive redirect. The planner also emits an advisory `estimated_steps` that the
   per-step budget line cites as a pacing reference (never a limit).
-- **pre-finish verification**: when a turn that changed files (write/edit OR a bash
-  write) tries to finish (`depth==0`), it verifies once — before the council runs. By
-  default (`Config.ReviewGate`, on; `[orchestration] review_gate=false` to disable) this is
-  **delegated** to independent read-only subagents (`app/review_gate.go`) dispatched in
-  parallel: one holistic `tester` (actually runs the build/tests and reports the real
-  PASS/FAIL — one run covers the whole change, so splitting it would only lose integration
-  signal) plus one `reviewer` per changed *area* (the turn's changed files grouped by
-  directory into slices of ≤5, so a large change fans out over several reviewers instead of
-  one shallow pass, mirroring the planner's explorer fan-out). Their combined findings are
-  injected as a system prompt so the agent fixes any real problem before finishing — a
-  failed or unrun check reads as UNFINISHED, never a pass. Fresh-context reviewers catch
-  what the implementer's own confirmation bias waves through (all are inspection-only, so
-  auto-dispatch is safe).
-- **fresh-evidence completion gate (the behavioral, language-agnostic authority)**: the
-  `tester` ends its report with a mandated `VERDICT: PASS|FAIL|BLOCKED` line
-  (`parseTesterVerdict`) — its reasoning may be in any language, but the machine-checked
-  outcome is one of three protocol tokens, and a missing/unrecognized verdict is treated as
-  BLOCKED (an unverified result never reads as a pass). A deliverable-producing turn may
-  only finish once the tester returned PASS for the **current deliverable version**, where
-  "version" is `guard.mutationEpoch()` (bumped by edit/write AND bash file-writes). Any
-  later change bumps the epoch, making a prior PASS stale and forcing re-verification — so
-  "verified" means "verified THIS code, actually run", not the agent asserting success in
-  prose. A FAIL/BLOCKED (or an epoch never PASSed) blocks the verified-finish path; the gate
-  **re-arms** on each genuinely new mutation (a pure re-confirm with no edits won't re-spawn)
-  while a per-run budget of `reviewSpawnBudget` (8) review subagents lasts, after which the
-  council alone is the bounded backstop (no unbounded re-verify loop). With the gate off (or
-  the `tester`/`reviewer` agents absent — e.g. a bare bench profile) it degrades gracefully
-  to a two-pass self-verification nudge (coverage, then correctness) that fires once per run,
-  rather than hard-blocking a weak model into a deadlock. Explicitly-requested synthetic
-  content is allowed but must be LABELED fictional in the final report.
-- **execution-evidence landing gate — false-victory = false-impossibility (`evidenceGateEnabled`,
-  `MAGI_EVIDENCE_GATE`, default on)**: the completion gate's dual. A top-level turn that changed a
-  deliverable may not land a *confident* outcome — neither "done" NOR "cannot be done" — unless the
-  current version was independently run to a tester PASS this turn (`guard.mutationEpoch() ==
-  reviewPassedEpoch`). Both errors are the same bug: a terminal claim without executed observation of
-  the current version. Not verified → the loop pushes ONCE ("actually run it now; if you genuinely
-  cannot, say plainly what you could not verify — never invent output or a stand-in to look done"),
-  then lands the turn labeled **`TurnFinished{Unverified:true}`** (TUI shows `⚠ UNVERIFIED`) rather
-  than blocking or erroring — an honest non-committal landing. This is orthogonal to the council
-  (which judges *is the work good* on text+diff and can be fooled by a plausible success narrative);
-  the gate enforces the machine-checked *was it run*. The `tester` contract is correspondingly told
-  to **construct** a meaningful check from the task's own spec when the repo ships none (not a guessed
-  hidden grader, not a trivial always-true assertion), and BLOCKED is narrowed to genuine
-  can't-run-anything / too-underspecified-to-derive-a-check — a missing test is not by itself BLOCKED.
-  Symmetrically, every child hand-off contract (delegate/refine/stuck) carries the single-sourced
-  `noFabricate` clause so a subagent asked "report how you verified it" is also licensed to admit an
-  honest negative instead of manufacturing one.
+- **pre-finish landing**: a top-level turn that changed files finishes as soon as the model
+  stops calling tools and the consensus council (when configured) votes done — there is no
+  separate delegated review gate or self-verify self-prompt. The `tester`/`reviewer` agents
+  remain in the registry as manual `task`-tool delegation targets; they are no longer
+  auto-dispatched. The advisory `guard.unverifiedDeliverable()` signal (below) still feeds
+  the council so a changed-but-never-run deliverable is a hard fact a text vote can't wave
+  through.
 - **churn graceful-finish**: when the loop guard force-stops a spinning turn (`guard.stuck()`
   repeat/stall), the outcome depends on whether the run produced a deliverable. Epoch > 0
   (real output already written, now only re-confirming) → finish cleanly (`turn.finished`,
   exit 0) with the work as-is, so a completed task is not misreported as an agent-level
   failure. Epoch 0 (pure thrash, nothing produced) → keep the `loop_guard`/`stall_guard`
   error abort so the failure stays visible.
-- **fabrication defense — behavioral, structural, no phrase matching**: the authority is the
-  fresh-evidence gate above (the tester actually runs the build/tests, in any language). Its
-  cheap advisory pre-flag is now **structural, not lexical**: `guard.unverifiedDeliverable()`
+- **fabrication defense — behavioral, structural, no phrase matching**: the signal is
+  **structural, not lexical**: `guard.unverifiedDeliverable()`
   is true when the turn produced/changed a deliverable this epoch (`mutationEpoch() > 0`) but
   ran **no command that exercises the current version** (`execSinceMut == 0`). Execution is
   counted by leading verb: a small closed set of POSIX inspection verbs (`ls`/`cat`/`echo`/
@@ -240,13 +199,11 @@ in `loop.go` calls into them each step):
   (`core/selfcheck`, now deleted): it is language-agnostic (it reads behavior, not wording),
   catches confident-but-false "verified" claims (there is no execution to point to), and needs
   no ever-growing phrase list. It is deliberately biased toward NOT flagging (unknown verbs
-  read as execution) to keep false positives low. The flag feeds three advisory paths, none a
-  hard block: the council as a deterministic `self-check: unverified` signal; a sharpened
-  self-verify nudge ("you ran nothing that exercises this — run it now, or say plainly there
-  is nothing to run"); and the subagent take-report branch, which refuses a "done" report once
-  when the subagent *could* have run its work (`agent.allows("bash")`) but didn't — a
-  read/write-only agent that cannot execute is never refused, deferring instead to the parent
-  tester that runs the merged deliverable for real.
+  read as execution) to keep false positives low. The flag feeds two advisory paths, neither a
+  hard block: the council as a deterministic `self-check: unverified` signal; and the subagent
+  take-report branch, which refuses a "done" report once when the subagent *could* have run its
+  work (`agent.allows("bash")`) but didn't — a read/write-only agent that cannot execute is
+  never refused.
 - **no retry storm**: a terminal provider error ends the turn; `startRun` does NOT
   re-run a failed turn (only re-runs to pick up a user *steer*).
 - **language lock** (`langDirective`): the user's script (Hangul/Kana/…) is detected
@@ -341,10 +298,9 @@ The orchestrator (top-level session, `Parent==""`) delegates via the **`task`** 
   double-bounded: a dedicated `Config.MaxPlanDepth` (default 2, tighter than `MaxDepth`) caps
   planner recursion, and it fires only for producing agents (`producesFiles` = allows
   `write`/`edit`, **not** bash — a run-only tester/verifier never re-plans), off the
-  interactive path, and not in workflow mode. The fabrication gates (review-gate tester +
-  council) run at **depth 0 only**: a parent that merely delegated seeds `usedMutator` so its
-  depth-0 tester inspects the *merged* working tree — leaves don't each re-run the full
-  council; the parent verifies the aggregate.
+  interactive path, and not in workflow mode. The consensus council runs at **depth 0 only**:
+  a parent that merely delegated verifies the *merged* working tree — leaves don't each re-run
+  the full council; the parent verifies the aggregate.
 - **Recursion policy** (planned decomposition first; `guardExpansion` + `planEnvelope` in
   `app/planner.go`): the default is *up-front* hierarchical decomposition with just-in-time
   sub-planning, not ADaPT's *as-needed* (reactive) re-decomposition. Two deterministic guardrails
@@ -377,7 +333,7 @@ The orchestrator (top-level session, `Parent==""`) delegates via the **`task`** 
   per-phase clone-at-spawn. Session sharing is accounting-neutral (each phase is still one
   `spawn`/`runAttempt`: depth+1, budget, supervisor) and council-safe (change capture is per
   `runLoop` invocation via `newRunGuard`, not per session). It drives a local re-plan → escalate
-  loop: **success** completes the todo and flags `delegated` (the depth-0 review gate verifies
+  loop: **success** completes the todo and flags `delegated` (the depth-0 council verifies
   the merged tree); **failure** records the reason into the *parent* context (`recordRefineFailure`)
   and retries locally up to `refineLocalRetries` — the failure reason is prefixed onto the retry
   prompt so the attempt is *informed* ("a previous attempt failed because X"), and under the shared
