@@ -439,6 +439,17 @@ func (a *App) SetModel(sid session.SessionID, modelID string) {
 	}
 }
 
+// SessionModel returns the active model name for a session, or "" if unknown. The
+// TUI uses it to refresh its header after a plugin reload_config changes the model.
+func (a *App) SessionModel(sid session.SessionID) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if s, ok := a.sessions[sid]; ok {
+		return s.Model.Model
+	}
+	return ""
+}
+
 // SetAgentRoute applies a runtime routing edit for an agent. A value naming a
 // configured profile routes the agent to that backend (provider+model); any
 // other value is a bare model on the default backend; empty clears the override.
