@@ -106,6 +106,22 @@ func clipLine(s string, n int) string {
 	return s[:cut] + "…"
 }
 
+// clipSpec bounds an authoritative "follow VERBATIM" spec at n bytes (rune-safe).
+// Unlike clipLine it does NOT append a bare "…": a delegate told to reproduce exact
+// identifiers can otherwise copy the dangling ellipsis into an edit old-string (or an
+// output the grader checks), matching nothing. When it truncates it appends an explicit
+// marker on its own line so the model knows the cutoff is not part of the spec.
+func clipSpec(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "\n[…spec truncated here — this cutoff is NOT part of the spec; if you need an exact value beyond this point, ask for the remainder rather than reproducing this line]"
+}
+
 // toolResultText renders a tool result's JSON content as readable one-ish-line text
 // (unwrapping a JSON string, collapsing newlines) for the council evidence summary.
 func toolResultText(raw json.RawMessage) string {

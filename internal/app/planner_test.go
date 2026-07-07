@@ -1056,6 +1056,40 @@ func TestExecuteStepsDelegateBriefsSiblingContext(t *testing.T) {
 	}
 }
 
+// A context-free delegate's ONLY spec is the goal carried in its brief. A goal longer than
+// the old 2000B cap was clipped with a bare "…", dropping exact identifiers/blocks the child
+// must reproduce (and the child could copy the dangling ellipsis into an edit old-string that
+// matches nothing). The VERBATIM spec must survive well past 2000B, and any truncation must be
+// an explicit marker, never a bare "…".
+func TestDelegateBriefSpecSurvivesLongGoal(t *testing.T) {
+	filler := strings.Repeat("Requirement line padding the spec past two thousand bytes. ", 40) // >2300B
+	exact := `EXACT_BLOCK = "kv-store-value-42"`
+	goal := filler + "\n" + exact + "\n"
+	if len(goal) <= 2000 {
+		t.Fatalf("test setup: goal must exceed the old cap; got %d", len(goal))
+	}
+	brief := delegateBrief(goal, []planStep{{Title: "impl", Task: "do it"}}, 0, nil)
+	if !strings.Contains(brief, "SPEC (authoritative") {
+		t.Fatal("spec fidelity should be on by default")
+	}
+	if !strings.Contains(brief, exact) {
+		t.Errorf("exact block past 2000B was dropped from the VERBATIM spec:\n%s", brief)
+	}
+	if strings.Contains(brief, "line padding the spec…") || strings.Contains(brief, "bytes.…") {
+		t.Errorf("spec was clipped with a bare ellipsis:\n%s", brief)
+	}
+}
+
+// Past the generous cap the spec still truncates (context is bounded) but with an explicit
+// marker the child can recognize — not a bare "…" it would reproduce verbatim.
+func TestDelegateBriefSpecTruncationIsExplicit(t *testing.T) {
+	goal := strings.Repeat("x", 9000) // past the 8000B cap
+	brief := delegateBrief(goal, []planStep{{Title: "impl", Task: "do it"}}, 0, nil)
+	if !strings.Contains(brief, "spec truncated here") {
+		t.Errorf("over-cap spec should carry an explicit truncation marker:\n%s", brief[:min(len(brief), 400)])
+	}
+}
+
 // The brief is A/B-gated: MAGI_STEP_CONTEXT=0 restores the pre-brief context-free hand-off, so
 // a paired ON/OFF bench can isolate its effect. With it off, a delegate child's prompt must
 // carry NONE of the brief — only its self-contained task.

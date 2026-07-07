@@ -1308,8 +1308,11 @@ func delegateBrief(goal string, steps []planStep, i int, prior []string) string 
 		// paraphrased goal is its ONLY spec. When spec fidelity is on, carry the goal verbatim
 		// (generously clipped) and label it authoritative, so the child copies exact identifiers
 		// from it rather than normalizing them. Off → the compact 400-char orientation line.
+		// The cap is generous (8000B covers virtually every real request) and, crucially, uses
+		// clipSpec — a bare "…" here made the child reproduce a truncated block into an edit
+		// old-string that then matched nothing (the exact defect the VERBATIM label promises against).
 		if specFidelityEnabled() {
-			b.WriteString("SPEC (authoritative — for any exact name, field, format, or value, follow this VERBATIM): " + clipLine(g, 2000) + "\n")
+			b.WriteString("SPEC (authoritative — for any exact name, field, format, or value, follow this VERBATIM): " + clipSpec(g, 8000) + "\n")
 		} else {
 			b.WriteString("Overall goal (the whole task your part serves): " + clipLine(g, 400) + "\n")
 		}
