@@ -62,6 +62,9 @@ func (a *App) systemFor(agent AgentSpec, workdir string, isSub bool) string {
 	// BSD flags, package manager, path style) instead of guessing — both the orchestrator
 	// and subagents run bash, so both need it.
 	sys += "\n\n" + envInfo(workdir)
+	// Static, so it doesn't perturb the prefix (KV) cache across steps. Applies to every
+	// agent: markdown tables render/align well everywhere and never hurt in raw text.
+	sys += outputFormatGuide
 	// Subagents don't see the conversation and report back by RETURNING their
 	// final message. Weak models otherwise "present" conclusions via bash/echo and
 	// never terminate — so spell out how to finish. The role is decided by whether
@@ -210,6 +213,19 @@ const subagentReportClause = " When done, call the 'report' tool to finish: stat
 
 // subagentFinishClause is the fallback when no report tool exists.
 const subagentFinishClause = " When the task is done, write your answer as your final message and stop."
+
+// outputFormatGuide steers tabular output toward markdown tables. Replies render as
+// markdown (glamour), which lays out `| a | b |` tables and measures DISPLAY width — so
+// a CJK/wide cell (2 cells) still aligns. A hand-padded ASCII/box table instead counts
+// runes, so any wide character shifts that column out of line; passing width numbers to
+// the model can't fix this (it streams tokens before their width is known). The cure is
+// to not hand-align at all: emit a markdown table and let the renderer align it.
+const outputFormatGuide = "\n\n# Output formatting\n" +
+	"Your replies render as GitHub-flavored markdown in a terminal. To present tabular data, use a markdown " +
+	"table (| col | col | with a |---|---| separator row) — the renderer aligns the columns for you, correctly " +
+	"accounting for wide/CJK characters that take two cells. Do NOT hand-align columns with spaces or draw " +
+	"ASCII/box-drawing tables: space padding counts characters, not display width, so any CJK or other wide " +
+	"content shifts the columns out of alignment."
 
 // securityGuide is the prompt-injection rule shared by subagents (the
 // orchestrator has its own copy in its system prompt).

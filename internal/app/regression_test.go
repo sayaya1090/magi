@@ -111,6 +111,20 @@ func TestSystemForStableAgentOrder(t *testing.T) {
 	}
 }
 
+// Every agent (top-level and subagent) is told to emit markdown tables rather than
+// hand-align columns: the markdown renderer aligns CJK/wide columns correctly, whereas
+// space-padded ASCII tables misalign because padding counts runes, not display cells.
+func TestSystemForCarriesOutputFormatGuide(t *testing.T) {
+	a := newOrchApp(t, &recLLM{reply: func(string) string { return "" }}, Config{})
+	dir := t.TempDir()
+	for _, isSub := range []bool{false, true} {
+		got := a.systemFor(AgentSpec{System: "base"}, dir, isSub)
+		if !strings.Contains(got, "markdown table") || !strings.Contains(got, "Do NOT hand-align") {
+			t.Errorf("systemFor(isSub=%v) missing the output-formatting guide:\n%s", isSub, got)
+		}
+	}
+}
+
 // TestNoteEditRevertToBaseline: editing a file and then restoring its pre-turn content
 // is a self-revert and must be flagged.
 func TestNoteEditRevertToBaseline(t *testing.T) {
