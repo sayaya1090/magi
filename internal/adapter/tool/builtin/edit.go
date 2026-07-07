@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 
+	"golang.org/x/text/unicode/norm"
+
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
@@ -106,6 +108,29 @@ func applyEdit(content, old, new string, all bool) (string, string, error) {
 		}
 	}
 
+	// 2.5 Unicode-normalization-tolerant exact. A file saved on macOS is frequently
+	// stored NFD (decomposed Hangul/accents: "함" → ㅎ+ㅏ+ㅁ) while a model emits NFC
+	// (precomposed) — visually identical but byte-unequal, so the exact tiers miss and
+	// the edit fails with "not found". Try old in the file's likely form (NFC then NFD)
+	// and, on a hit, write new in that SAME form so the rest of the file's normalization
+	// is left untouched. crlf is reused from tier 2 so this composes with EOL differences.
+	for _, form := range []norm.Form{norm.NFC, norm.NFD} {
+		oldF := toEOL(form.String(old), crlf)
+		if oldF == old {
+			continue // this form is what we already tried exactly above
+		}
+		if c := strings.Count(content, oldF); c > 0 {
+			if c > 1 && !all {
+				return "", "", fmt.Errorf("not unique: old string occurs %d times — add surrounding context, or set replaceAll", c)
+			}
+			newF := toEOL(form.String(new), crlf)
+			if all {
+				return strings.ReplaceAll(content, oldF, newF), " (matched ignoring unicode normalization)", nil
+			}
+			return strings.Replace(content, oldF, newF, 1), " (matched ignoring unicode normalization)", nil
+		}
+	}
+
 	// 3. Trailing-whitespace-tolerant, whole-line match against the original
 	// bytes (so the rest of the file — including its line endings — is untouched).
 	if updated, n, err := replaceFlexible(content, old, new, all); err != nil {
@@ -127,9 +152,11 @@ func toEOL(s string, crlf bool) string {
 	return s
 }
 
-// lineKey is the whitespace-tolerant comparison key for one line.
+// lineKey is the whitespace- and normalization-tolerant comparison key for one line:
+// trailing EOL/whitespace stripped and Unicode folded to NFC, so an NFD file line and an
+// NFC old line (the macOS Hangul case) compare equal even alongside whitespace drift.
 func lineKey(line string) string {
-	return strings.TrimRight(strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r"), " \t")
+	return norm.NFC.String(strings.TrimRight(strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r"), " \t"))
 }
 
 // replaceFlexible finds the block of whole lines whose trailing-trimmed form

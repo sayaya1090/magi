@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
@@ -56,7 +55,10 @@ func (MultiEdit) Execute(ctx context.Context, raw json.RawMessage, env port.Tool
 	}
 
 	content := string(data)
-	// Apply all hunks in memory first; fail fast without writing.
+	// Apply all hunks in memory first; fail fast without writing. Delegate each hunk to
+	// applyEdit so multiedit inherits the same tolerant matching as edit (line endings,
+	// Unicode normalization — the macOS NFD-Hangul case — and trailing whitespace) instead
+	// of a strict byte-exact match that fails on the identical inputs edit would accept.
 	for i, h := range a.Edits {
 		if h.Old == "" {
 			return errResult("", fmt.Sprintf("edit %d: old string must not be empty", i+1)), nil
@@ -64,18 +66,11 @@ func (MultiEdit) Execute(ctx context.Context, raw json.RawMessage, env port.Tool
 		if h.Old == h.New {
 			return errResult("", fmt.Sprintf("edit %d: no change", i+1)), nil
 		}
-		count := strings.Count(content, h.Old)
-		switch {
-		case count == 0:
-			return errResult("", fmt.Sprintf("edit %d: not found", i+1)), nil
-		case count > 1 && !h.ReplaceAll:
-			return errResult("", fmt.Sprintf("edit %d: not unique (%d matches)", i+1, count)), nil
+		updated, _, eerr := applyEdit(content, h.Old, h.New, h.ReplaceAll)
+		if eerr != nil {
+			return errResult("", fmt.Sprintf("edit %d: %s", i+1, eerr.Error())), nil
 		}
-		if h.ReplaceAll {
-			content = strings.ReplaceAll(content, h.Old, h.New)
-		} else {
-			content = strings.Replace(content, h.Old, h.New, 1)
-		}
+		content = updated
 	}
 
 	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {

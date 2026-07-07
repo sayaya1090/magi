@@ -15,6 +15,7 @@ require (
 	github.com/mattn/go-runewidth v0.0.23
 	github.com/yuin/gopher-lua v1.1.2
 	golang.org/x/sys v0.45.0
+	golang.org/x/text v0.30.0
 )
 
 require (
@@ -38,5 +39,4 @@ require (
 	github.com/yuin/goldmark-emoji v1.0.6 // indirect
 	golang.org/x/net v0.39.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/text v0.30.0 // indirect
 )
