@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"time"
 
@@ -83,12 +84,18 @@ func maybeUpdateOnStartup(ctx context.Context, configDir, current, exe string, o
 		return false
 	case update.PolicyForce:
 		fmt.Fprintf(out, "\nmagi %s is a required update (you have %s). Installing… press ctrl-c to cancel.\n", rel.Version, current)
+		// A real signal-cancellable context so ctrl-c aborts both the countdown and
+		// the install itself, rather than relying on the default SIGINT hard-kill
+		// (which would go away the moment anything upstream installs its own handler).
+		ictx, stop := signal.NotifyContext(ctx, os.Interrupt)
+		defer stop()
 		select {
 		case <-time.After(forceAbortWindow):
-		case <-ctx.Done():
+		case <-ictx.Done():
+			fmt.Fprintln(out, "update cancelled — continuing on the current version.")
 			return false
 		}
-		res, err := forceInstallFn(ctx, src, current, exe)
+		res, err := forceInstallFn(ictx, src, current, exe)
 		if err != nil {
 			fmt.Fprintf(out, "magi: auto-update failed: %v — continuing on %s\n", err, current)
 			return false
