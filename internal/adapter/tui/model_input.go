@@ -29,6 +29,10 @@ func (m *Model) handleMouse(msg tea.Msg) tea.Cmd {
 					return m.respond(permButtons()[i].decision)
 				}
 			}
+		case tea.MouseWheelMsg:
+			// The wheel still scrolls the transcript behind the modal so the context of
+			// the decision stays reviewable while the prompt is open.
+			m.wheelScrollTranscript(e.Button)
 		}
 		return nil
 	}
@@ -49,6 +53,8 @@ func (m *Model) handleMouse(msg tea.Msg) tea.Cmd {
 					return m.answerQuestion(m.quest.options[i])
 				}
 			}
+		case tea.MouseWheelMsg:
+			m.wheelScrollTranscript(e.Button)
 		}
 		return nil
 	}
@@ -206,6 +212,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 					return m.answerQuestion(q.options[i]), true
 				}
 			}
+			// Transcript scroll keys stay live so the question's context is reviewable.
+			m.scrollTranscriptKey(key)
 		}
 		m.refresh()
 		return nil, true
@@ -234,7 +242,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		case "enter":
 			return m.respond(permButtons()[m.perm.sel].decision), true
 		}
-		return nil, true // swallow other keys while modal is open
+		// Let the transcript scroll keys through so the user can page back to re-read
+		// the context of the decision; everything else is swallowed by the modal.
+		m.scrollTranscriptKey(msg.String())
+		return nil, true
 	}
 
 	// Transcript search bar: capture keys while open (the textarea otherwise
@@ -503,6 +514,41 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		return m.submit(text), true
 	}
 	return nil, false
+}
+
+// scrollTranscriptKey applies the viewport scroll keys and reports whether the key was
+// one. Modal handlers (permission / question) call it before swallowing input so the
+// user can page back through the transcript to re-read the context of a decision — the
+// alt-screen hides the terminal's own scrollback, so this is the only way back.
+func (m *Model) scrollTranscriptKey(key string) bool {
+	switch key {
+	case "pgup":
+		m.vp.PageUp()
+	case "pgdown":
+		m.vp.PageDown()
+	case "ctrl+u":
+		m.vp.HalfPageUp()
+	case "ctrl+d":
+		m.vp.HalfPageDown()
+	case "shift+up":
+		m.vp.ScrollUp(1)
+	case "shift+down":
+		m.vp.ScrollDown(1)
+	default:
+		return false
+	}
+	return true
+}
+
+// wheelScrollTranscript scrolls the transcript by a mouse-wheel button, used by the
+// modal mouse handlers so the wheel keeps working behind an open prompt.
+func (m *Model) wheelScrollTranscript(b tea.MouseButton) {
+	switch b {
+	case tea.MouseWheelUp:
+		m.vp.ScrollUp(3)
+	case tea.MouseWheelDown:
+		m.vp.ScrollDown(3)
+	}
 }
 
 // handleSlash dispatches built-in slash commands. Content commands render into
