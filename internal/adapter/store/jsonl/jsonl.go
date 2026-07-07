@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -237,29 +238,58 @@ func readFile(path string, fromSeq int64) ([]event.Event, error) {
 	defer f.Close()
 
 	var evs []event.Event
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
-	for sc.Scan() {
-		line := sc.Bytes()
-		if len(line) == 0 {
-			continue
-		}
-		var e event.Event
-		if err := json.Unmarshal(line, &e); err != nil {
+	r := bufio.NewReader(f)
+	for {
+		line, skip, rErr := readLogLine(r)
+		if !skip && len(line) > 0 {
+			var e event.Event
 			// Tolerate a corrupt or torn line — e.g. a partially-flushed final line read
 			// concurrently with an in-flight Append, or on-disk corruption. Skipping it
 			// keeps the store openable and resume/ListSessions working; failing the whole
 			// read here would brick every session that shares the (one bad line) log.
-			continue
+			if json.Unmarshal(line, &e) == nil && e.Seq > fromSeq {
+				evs = append(evs, e)
+			}
 		}
-		if e.Seq > fromSeq {
-			evs = append(evs, e)
+		if rErr != nil {
+			if rErr == io.EOF {
+				return evs, nil
+			}
+			return nil, rErr
 		}
 	}
-	if err := sc.Err(); err != nil {
-		return nil, err
+}
+
+// maxLogLineBytes bounds how large a single JSONL line we'll buffer while reading.
+// Realistic events (a 10 MiB read escaped into JSON, a base64 image) stay well under
+// it; a line past it is drained and skipped rather than buffered — so a degenerate or
+// corrupt length can't OOM the process nor, via the old scanner's ErrTooLong, brick
+// New()/resume for every session sharing the directory. A var (not const) only so
+// tests can shrink it to exercise the skip path without writing 128 MiB.
+var maxLogLineBytes = 128 << 20 // 128 MiB
+
+// readLogLine reads one '\n'-terminated line, tolerating lines of any length: a line
+// longer than maxLogLineBytes is drained to its newline and reported with skip=true
+// (line nil) instead of being buffered or raising an error. The final line may return
+// with err==io.EOF and no trailing newline.
+func readLogLine(r *bufio.Reader) (line []byte, skip bool, err error) {
+	for {
+		chunk, e := r.ReadSlice('\n') // valid only until the next read; we copy below
+		if !skip {
+			if len(line)+len(chunk) > maxLogLineBytes {
+				skip, line = true, nil // over budget: drop and keep draining to the newline
+			} else {
+				line = append(line, chunk...)
+			}
+		}
+		if e == bufio.ErrBufferFull {
+			continue // delimiter not yet reached; keep accumulating this line
+		}
+		if n := len(line); n > 0 && line[n-1] == '\n' {
+			line = line[:n-1]
+		}
+		return line, skip, e
 	}
-	return evs, nil
 }
 
 // Compact rewrites the log so that all events with seq <= upToSeq are replaced
