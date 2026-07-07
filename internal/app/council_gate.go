@@ -75,6 +75,80 @@ func turnToolEvidence(evs []event.Event, k int) string {
 	return "- " + strings.Join(lines, "\n- ")
 }
 
+// knowledgeLookupTools are the tools whose whole job is to fetch an EXTERNAL FACT the
+// agent does not already possess. A failure here that the agent does not recover from
+// is the N14 "research dead-end" fabrication branch: the agent fills the gap with a
+// guessed premise (e.g. a restriction-enzyme site, an API detail, a constant) and
+// proceeds. The execution-evidence gate (runGuard.unverifiedDeliverable, structural,
+// about the deliverable existing/being exercised) is blind to it because execution
+// succeeds — the lie is in a FACT, not the artifact — and an LLM council cannot verify
+// a domain fact from reasoning alone.
+var knowledgeLookupTools = map[string]bool{
+	"websearch":  true,
+	"web_search": true,
+	"webfetch":   true,
+	"web_fetch":  true,
+	"fetch":      true,
+}
+
+// unverifiedLookup scans the LATEST turn and returns a non-empty detail when a
+// knowledge-lookup tool failed and NO lookup in the turn succeeded — i.e. the agent may
+// have proceeded on an unverified external premise. It returns "" when there was no
+// failed lookup, or when any lookup succeeded (the agent plausibly recovered a fact).
+// Recovery is judged turn-wide, not per-fact: a single successful lookup silences the
+// signal even if it answered a different question — a deliberate bias toward silence to
+// keep the signal from churning; it under-fires rather than over-fires.
+//
+// It is deliberately structural and language-agnostic, mirroring
+// runGuard.unverifiedDeliverable, and — crucially — it resurfaces a failure that
+// turnToolEvidence's most-recent-k window would otherwise age out (the failed lookup
+// happens early; the deliverable's format checks happen last), so the council would
+// never see the un-verified premise without this signal. Advisory, not a veto: it makes
+// the council look harder, exactly like the self-check "unverified" fabrication signal.
+func unverifiedLookup(evs []event.Event) string {
+	names := map[string]string{} // callID -> tool name
+	var failed []string          // "tool: err snippet" for each un-recovered failed lookup
+	anySuccess := false          // a lookup returned without error → plausible recovery
+	for _, e := range evs {
+		if e.Type == event.TypePromptSubmitted { // new turn boundary → judge only the latest turn
+			names = map[string]string{}
+			failed = nil
+			anySuccess = false
+			continue
+		}
+		if e.Type != event.TypePartAppended {
+			continue
+		}
+		var d event.PartAppendedData
+		if json.Unmarshal(e.Data, &d) != nil {
+			continue
+		}
+		switch d.Part.Kind {
+		case session.PartToolCall:
+			if d.Part.ToolCall != nil {
+				names[d.Part.ToolCall.CallID] = d.Part.ToolCall.Name
+			}
+		case session.PartToolResult:
+			r := d.Part.ToolResult
+			if r == nil || !knowledgeLookupTools[names[r.CallID]] {
+				continue
+			}
+			if r.IsError {
+				failed = append(failed, names[r.CallID]+": "+clipLine(toolResultText(r.Content), councilActionCap))
+			} else {
+				anySuccess = true
+			}
+		}
+	}
+	if len(failed) == 0 || anySuccess {
+		return ""
+	}
+	return "a knowledge lookup failed this turn and no lookup succeeded — any external fact the agent " +
+		"went on to use (an API detail, constant, sequence, name, spec) may be an UNVERIFIED guess rather than a " +
+		"confirmed value. If the deliverable depends on such a fact, its correctness is unproven:\n- " +
+		strings.Join(failed, "\n- ")
+}
+
 // fmtElapsed renders a duration coarsely (seconds under a minute, else Xm or XhYm)
 // — a pacing signal, not a stopwatch display.
 func fmtElapsed(d time.Duration) string {
@@ -282,6 +356,15 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	if strings.TrimSpace(fabrication) != "" {
 		signals = append(signals, port.Signal{Source: "self-check", Kind: "unverified", Status: "fail", Detail: tailForCouncil(fabrication, councilSignalCap)})
 		signalSummaries = append(signalSummaries, "self-check: unverified")
+	}
+	// Always-on deterministic signal (N14): a knowledge lookup failed this turn and was
+	// never recovered, so a fact the deliverable rests on may be a guessed premise. This
+	// resurfaces a failure that turnToolEvidence's recency window ages out before the
+	// council convenes — the research-dead-end fabrication branch the execution-evidence
+	// gate above cannot see (execution succeeds; the lie is in a fact, not the artifact).
+	if lp := unverifiedLookup(evs); lp != "" {
+		signals = append(signals, port.Signal{Source: "self-check", Kind: "unverified-premise", Status: "fail", Detail: tailForCouncil(lp, councilSignalCap)})
+		signalSummaries = append(signalSummaries, "self-check: unverified-premise")
 	}
 	if a.plat != nil {
 		for _, sp := range a.cfg.CouncilSignals {
