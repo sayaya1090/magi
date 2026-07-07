@@ -361,11 +361,23 @@ func run() int {
 	// teams commit so the workflow travels with the repo). Loaded BEFORE the LLM
 	// client so config can supply model/base_url. Hooks merge; project scalars
 	// override global.
-	cfg, unknown, _ := config.LoadWithUnknown(plat.ConfigDir())
+	cfg, unknown, err := config.LoadWithUnknown(plat.ConfigDir())
+	if err != nil {
+		// A malformed user config (e.g. a duplicate top-level key that fails the
+		// whole-file TOML parse) must NOT silently fall back to an empty Config —
+		// that would drop the user's model, [plugins.*], and every other setting
+		// with no warning. Refuse to start so the problem is visible and fixable.
+		fmt.Fprintf(os.Stderr, "magi: cannot parse %s: %v\n", filepath.Join(plat.ConfigDir(), "config.toml"), err)
+		return 1
+	}
 	warnUnknownConfigKeys(os.Stderr, "config.toml", unknown)
-	if proj, punk, err := config.LoadWithUnknown(filepath.Join(wd, ".magi")); err == nil {
+	if proj, punk, perr := config.LoadWithUnknown(filepath.Join(wd, ".magi")); perr == nil {
 		cfg = mergeProjectConfig(cfg, proj)
 		warnUnknownConfigKeys(os.Stderr, ".magi/config.toml", punk)
+	} else {
+		// Project overlay is optional and repo-local; a parse error there warns and
+		// is skipped rather than blocking startup on the (valid) global config.
+		fmt.Fprintf(os.Stderr, "magi: cannot parse %s, ignoring project config: %v\n", filepath.Join(wd, ".magi", "config.toml"), perr)
 	}
 
 	// Resolve model/base_url/permission with precedence: explicit flag > env >
@@ -566,13 +578,18 @@ func run() int {
 	// MCP: create manager for both config-based and plugin-based MCP servers
 	mcpMgr := mcp.NewManager(reg)
 
-	// Plugin host: provide MCP manager, context registry, and runtime info to plugins
+	// Plugin host: provide MCP manager, context registry, and runtime info to plugins.
+	// sid is created just below (CreateSession) but the host needs it now to wire
+	// magi.set_model to the live session; the closure captures it by reference so it
+	// resolves the current session at call time (plugins call set_model mid-session).
+	var sid session.SessionID
 	host := pluginlua.NewHostWithConfig(pluginlua.HostConfig{
 		ToolSink:      reg,
 		MCPMgr:        mcpMgr,
 		ContextReg:    a,
 		LLMReg:        llm,
 		BaseReg:       llm,
+		ModelReg:      modelSetter{setModel: func(m string) { a.SetModel(sid, m) }},
 		PluginConfigs: cfg.Plugins,
 		ConfigPath:    filepath.Join(plat.ConfigDir(), "config.toml"),
 		DataDir:       plat.ConfigDir(),
@@ -613,7 +630,7 @@ func run() int {
 	}
 
 	ctx := context.Background()
-	sid, err := a.CreateSession(ctx, command.CreateSession{
+	sid, err = a.CreateSession(ctx, command.CreateSession{
 		Workdir: wd,
 		Model:   session.ModelRef{Provider: "openai", Model: modelID},
 		Actor:   event.Actor{Kind: event.ActorUser, ID: "cli"},
@@ -1162,6 +1179,12 @@ func (p permPersister) PersistAllow(rule string) error {
 	}
 	return config.AppendListItem(p.path, "allow", rule)
 }
+
+// modelSetter adapts App.SetModel (which is fire-and-forget: it applies to the
+// live session and best-effort persists) to the plugin host's ModelRegistry.
+type modelSetter struct{ setModel func(string) }
+
+func (m modelSetter) SetModel(modelID string) error { m.setModel(modelID); return nil }
 
 type routePersister struct{ path string }
 
