@@ -405,15 +405,23 @@ func (a *App) resolveAgentSpec(name string) (AgentSpec, bool) {
 }
 
 // AgentRoutes returns each configured agent's current effective routing (model +
-// profile), for the /route editor. Sorted by name.
-func (a *App) AgentRoutes() []AgentRoute {
+// profile), for the /route editor. Sorted by name. Unrouted agents inherit the
+// SESSION's live model (the single source of truth that SetModel updates), not the
+// static config default — so a runtime model change is reflected here too.
+func (a *App) AgentRoutes(sid session.SessionID) []AgentRoute {
 	names := a.AgentNames()
+	a.mu.Lock()
+	sessModel := a.cfg.Model.Model
+	if s, ok := a.sessions[sid]; ok && s.Model.Model != "" {
+		sessModel = s.Model.Model
+	}
+	a.mu.Unlock()
 	out := make([]AgentRoute, 0, len(names))
 	for _, n := range names {
 		spec, _ := a.resolveAgentSpec(n)
 		m := spec.Model.Model
 		if m == "" {
-			m = a.cfg.Model.Model // unrouted agents inherit the session/default model
+			m = sessModel // unrouted agents inherit the session's current model
 		}
 		out = append(out, AgentRoute{Name: n, Model: m, Provider: spec.Provider})
 	}
@@ -437,6 +445,11 @@ func (a *App) SetModel(sid session.SessionID, modelID string) {
 	if p != nil {
 		_ = p.PersistModel(modelID) // best-effort
 	}
+	// Broadcast the change on the bus so any observer (the TUI header, the /route
+	// editor) re-reads the model from one signal — regardless of whether this came
+	// from the plugin set_model bridge, the /route edit, or reload_config.
+	d, _ := json.Marshal(event.ModelChangedData{Model: modelID})
+	a.publishTransient(sid, event.TypeModelChanged, event.Actor{Kind: event.ActorSystem, ID: "route"}, d)
 }
 
 // SessionModel returns the active model name for a session, or "" if unknown. The
@@ -872,8 +885,13 @@ func (a *App) appendPromptText(ctx context.Context, sid session.SessionID, actor
 	return a.appendFact(ctx, sid, event.TypePromptSubmitted, actor, pd)
 }
 
-// publishTransient publishes a bus-only event (not persisted).
+// publishTransient publishes a bus-only event (not persisted). No-op when the App
+// was built without a bus (minimal test construction) — a transient event has no
+// meaning with no subscribers.
 func (a *App) publishTransient(sid session.SessionID, typ event.Type, actor event.Actor, data json.RawMessage) {
+	if a.bus == nil {
+		return
+	}
 	a.touch(sid)
 	a.bus.Publish(event.Event{SessionID: sid, Type: typ, Actor: actor, TS: time.Now(), Stage: a.currentStage(sid), Data: data})
 }

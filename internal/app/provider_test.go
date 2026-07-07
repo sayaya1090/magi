@@ -61,7 +61,7 @@ func TestSetAgentRoute(t *testing.T) {
 
 	// AgentRoutes reflects the edits; unrouted shows the default model.
 	routes := map[string]AgentRoute{}
-	for _, r := range a.AgentRoutes() {
+	for _, r := range a.AgentRoutes("") {
 		routes[r.Name] = r
 	}
 	if routes["explore"].Provider != "fast" || routes["explore"].Model != "gpt-oss:20b" {
@@ -73,7 +73,7 @@ func TestSetAgentRoute(t *testing.T) {
 	if spec, _ := a.resolveAgentSpec("coder"); spec.Model.Model != "" {
 		t.Errorf("clearing should drop the override, got %+v", spec)
 	}
-	if routes := a.AgentRoutes(); routesByName(routes, "coder").Model != "base-model" {
+	if routes := a.AgentRoutes(""); routesByName(routes, "coder").Model != "base-model" {
 		t.Errorf("cleared coder should inherit default model, got %q", routesByName(routes, "coder").Model)
 	}
 }

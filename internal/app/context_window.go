@@ -35,7 +35,7 @@ func (a *App) ContextWindows(ctx context.Context, sid session.SessionID) []Model
 		out = append(out, ModelWindow{Model: id, Window: a.contextWindow(id), Session: sess})
 	}
 	add(s.Model.Model, true) // session model first, flagged
-	for _, r := range a.AgentRoutes() {
+	for _, r := range a.AgentRoutes(sid) {
 		add(r.Model, false)
 	}
 	for _, p := range a.Profiles() {
