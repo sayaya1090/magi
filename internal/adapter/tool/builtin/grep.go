@@ -12,9 +12,22 @@ import (
 	"regexp"
 	"strings"
 
+	"golang.org/x/text/unicode/norm"
+
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
+
+// isASCIIOnly reports whether s has no byte ≥ 0x80, i.e. no multi-byte rune. Used to
+// skip Unicode-normalization work on the common ASCII path.
+func isASCIIOnly(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
+}
 
 // Grep searches file contents by regular expression. (F-TOOL-GREP)
 type Grep struct{}
@@ -64,7 +77,17 @@ func (Grep) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return errResult("", "invalid arguments: "+err.Error()), nil
 	}
-	re, err := regexp.Compile(a.Pattern)
+	// A file saved on macOS is frequently NFD (decomposed Hangul/accents) while a model
+	// types the pattern NFC (precomposed) — byte-unequal, so a literal regex silently
+	// misses every Korean line. When the pattern has non-ASCII runes, fold both the
+	// pattern and each tested line to NFC (the match test only; output is the original
+	// bytes). ASCII patterns are untouched, so the common case keeps exact byte behavior.
+	pattern := a.Pattern
+	normUni := !isASCIIOnly(pattern)
+	if normUni {
+		pattern = norm.NFC.String(pattern)
+	}
+	re, err := regexp.Compile(pattern)
 	if err != nil {
 		return errResult("", "invalid regex: "+err.Error()), nil
 	}
@@ -103,8 +126,13 @@ func (Grep) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		line := 0
 		for sc.Scan() {
 			line++
-			if re.MatchString(sc.Text()) {
-				matches = append(matches, fmt.Sprintf("%s:%d:%s", rel, line, sc.Text()))
+			text := sc.Text()
+			hay := text
+			if normUni {
+				hay = norm.NFC.String(text)
+			}
+			if re.MatchString(hay) {
+				matches = append(matches, fmt.Sprintf("%s:%d:%s", rel, line, text))
 			}
 		}
 		return nil

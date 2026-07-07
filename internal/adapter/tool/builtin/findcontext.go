@@ -11,6 +11,8 @@ import (
 	"strings"
 	"unicode"
 
+	"golang.org/x/text/unicode/norm"
+
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
@@ -75,7 +77,9 @@ func (FindContext) Execute(ctx context.Context, raw json.RawMessage, env port.To
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return errResult("", "invalid arguments: "+err.Error()), nil
 	}
-	terms := keywords(a.Query)
+	// NFC-fold the query so its Hangul/accents compare equal to an NFD file on disk
+	// (macOS); path parts and content are folded to NFC at their match sites below.
+	terms := keywords(norm.NFC.String(a.Query))
 	if len(terms) == 0 {
 		return errResult("", "query has no usable keywords"), nil
 	}
@@ -108,8 +112,8 @@ func (FindContext) Execute(ctx context.Context, raw json.RawMessage, env port.To
 		rel = filepath.ToSlash(rel)
 
 		score := 0
-		base := strings.ToLower(filepath.Base(rel))
-		dirPart := strings.ToLower(strings.TrimSuffix(rel, filepath.Base(rel)))
+		base := strings.ToLower(norm.NFC.String(filepath.Base(rel)))
+		dirPart := strings.ToLower(norm.NFC.String(strings.TrimSuffix(rel, filepath.Base(rel))))
 		for _, t := range terms {
 			if strings.Contains(base, t) {
 				score += 5 // basename hit: strong
@@ -154,6 +158,9 @@ func (FindContext) Execute(ctx context.Context, raw json.RawMessage, env port.To
 //   - a definition line otherwise mentioning a term in its head (+6).
 //   - plain content mentions (+1 per distinct term) + a multi-term coverage bonus.
 func scoreContent(content string, terms []string) (score, defLine int, defSym, snippet string) {
+	// Fold to NFC so an NFD file (macOS Hangul) matches the NFC-folded query terms;
+	// visually identical, and line count/offsets are unaffected for the snippet.
+	content = norm.NFC.String(content)
 	lower := strings.ToLower(content)
 	present := 0
 	for _, t := range terms {
