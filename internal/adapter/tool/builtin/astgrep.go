@@ -151,10 +151,20 @@ func parseAstGrepStream(out []byte, workdir string) []astMatch {
 		if m.File == "" {
 			continue
 		}
-		file := m.File
-		if rel, err := filepath.Rel(workdir, m.File); err == nil && !strings.HasPrefix(rel, "..") {
-			file = filepath.ToSlash(rel)
+		// Never surface a path outside the workdir jail: ast-grep walks the tree
+		// itself (an external process the in-code symlink guard can't reach), so a
+		// match resolving outside workdir — now or under a future --follow — must be
+		// dropped, not emitted as an absolute path with its snippet. This mirrors the
+		// grep/findcontext jail invariant (out-of-jail → never returned).
+		p := m.File
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(workdir, p)
 		}
+		rel, err := filepath.Rel(workdir, p)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		file := filepath.ToSlash(rel)
 		snippet := m.Lines
 		if snippet == "" {
 			snippet = m.Text
