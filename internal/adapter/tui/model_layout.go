@@ -137,7 +137,20 @@ func (m *Model) advancePaneFade() bool {
 // baseChromeHeight is the fixed chrome (everything except the agent-pane block):
 // header, bordered input, footer, and any active modal. It must NOT call
 // panesBlockHeight (panesBlockHeight derives its cap from this — no recursion).
+// splashActive reports whether the fresh-session splash is showing with the input
+// prompt hosted inside the viewport (no transcript, nothing running, no modal). In
+// that state the input is centered under the wordmark rather than pinned at the
+// bottom, so chrome sizing, input width, and cursor placement all key off this.
+func (m *Model) splashActive() bool {
+	return m.ready && len(m.blocks) == 0 && !m.running && !m.resuming &&
+		!m.routing && !m.searching && !m.zoom && m.councilDetail == nil &&
+		m.perm == nil && m.quest == nil && len(m.paletteMatches()) == 0
+}
+
 func (m *Model) baseChromeHeight() int {
+	if m.splashActive() {
+		return 3 // header(2) + footer(1); the input lives inside the splash viewport
+	}
 	inputRows := m.ta.Height()
 	if inputRows < 1 {
 		inputRows = 1
@@ -299,6 +312,16 @@ func (m *Model) refresh() {
 	// line), capped at maxInputRows.
 	if rows := clampInt(m.ta.LineCount(), 1, maxInputRows); rows != m.ta.Height() {
 		m.ta.SetHeight(rows)
+	}
+	// On the fresh splash screen the input sits centered under the wordmark at a
+	// narrower width; elsewhere it spans the transcript. Keep the textarea wrapped to
+	// whichever is active so its rendered lines match the box we draw around it.
+	wantW := m.width - 4
+	if m.splashActive() {
+		wantW = clampInt(m.width-8, 24, 72)
+	}
+	if wantW != m.ta.Width() {
+		m.ta.SetWidth(wantW)
 	}
 	// Capture follow intent from the CURRENT state, before any height/content
 	// change — a layout change (subagent pane added/removed, terminal resize) or

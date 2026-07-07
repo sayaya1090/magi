@@ -92,11 +92,18 @@ func (m Model) View() tea.View {
 
 	// The input stays live even while a turn runs — you can keep typing, and
 	// pressing enter queues the prompt for when the turn finishes.
+	splash := m.splashActive()
 	inputStyle := styleInput
 	if m.ta.Focused() {
 		inputStyle = styleInputFocus
 	}
-	input := inputStyle.Width(m.width - 2).Render(m.ta.View())
+	inputContentW := m.width - 2
+	if splash {
+		// Fresh screen: narrow box centered under the wordmark (ta content + padding;
+		// the border adds the remaining 2 cols).
+		inputContentW = m.ta.Width() + 2
+	}
+	input := inputStyle.Width(inputContentW).Render(m.ta.View())
 
 	// Transcript area (viewport + tiled subagent panes) = left column; the status
 	// panel, if any, sits to its right at a fixed width.
@@ -107,8 +114,15 @@ func (m Model) View() tea.View {
 	// instead of floating with empty space beneath the input.
 	vpw := tw // the transcript content spans the full width (no drawn scrollbar)
 	var vpContent string
-	if len(m.blocks) == 0 && !m.running && !m.resuming {
-		// Fresh session: show the NERV/MAGI startup splash until the first message.
+	var splashCurRow, splashCurCol int
+	if splash {
+		// Fresh session: host the input prompt inside the viewport, centered directly
+		// under the wordmark, and remember where its first text cell landed so the
+		// real cursor can be placed there.
+		vpContent, splashCurRow, splashCurCol = splashCompose(vpw, m.vp.Height(), input)
+	} else if len(m.blocks) == 0 && !m.running && !m.resuming {
+		// Fresh session but a modal is open: plain centered splash; the input stays
+		// pinned at the bottom under the modal.
 		vpContent = splashView(vpw, m.vp.Height())
 	} else {
 		vpContent = m.vp.View()
@@ -152,7 +166,9 @@ func (m Model) View() tea.View {
 		parts = append(parts, pv)
 		aboveInput += lipgloss.Height(pv)
 	}
-	parts = append(parts, input)
+	if !splash {
+		parts = append(parts, input) // on splash the input lives inside the viewport
+	}
 	parts = append(parts, status)
 	v.Content = lipgloss.JoinVertical(lipgloss.Left, parts...)
 
@@ -176,10 +192,18 @@ func (m Model) View() tea.View {
 	// turn runs, so queued typing composes correctly.
 	if m.perm == nil && m.ta.Focused() {
 		if c := m.ta.Cursor(); c != nil {
-			// Offset by the input box (border+padding = 2 cols) and the rows above it
-			// (+1 for the box's top border).
-			c.Position.X += 2
-			c.Position.Y += aboveInput + 1
+			if splash {
+				// The box lives inside the viewport (below the header's 2 rows);
+				// splashCompose gives its first text cell and ta.Cursor is the offset
+				// within the textarea content.
+				c.Position.X = splashCurCol + c.Position.X
+				c.Position.Y = 2 + splashCurRow + c.Position.Y
+			} else {
+				// Offset by the input box (border+padding = 2 cols) and the rows above
+				// it (+1 for the box's top border).
+				c.Position.X += 2
+				c.Position.Y += aboveInput + 1
+			}
 			v.Cursor = c
 		}
 	}

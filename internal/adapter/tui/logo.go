@@ -26,16 +26,47 @@ func logoBlock() string {
 	return lipgloss.JoinVertical(lipgloss.Center, art, "", ver)
 }
 
-// splashView renders the startup splash in a width×height area: the MAGI wordmark
-// in NERV red + the build version, horizontally centered and biased below the
-// vertical center so it sits just above the input prompt — grouping the logo with
-// the prompt on the fresh screen instead of floating it in an empty viewport.
-// Shown until the first message.
+// splashView renders the startup splash centered in a width×height area: the MAGI
+// wordmark in NERV red + the build version. Used as a fallback (e.g. when a modal
+// is open on a fresh session); the normal fresh screen uses splashCompose to place
+// the input prompt directly beneath the wordmark.
 func splashView(width, height int) string {
-	return lipgloss.Place(width, max(1, height), lipgloss.Center, splashVPos, logoBlock())
+	return lipgloss.Place(width, max(1, height), lipgloss.Center, lipgloss.Center, logoBlock())
 }
 
-// splashVPos biases the wordmark below center so its base meets the prompt. Note
-// lipgloss.PlaceVertical splits the gap as above=gap*(1-pos): a SMALLER pos means
-// MORE space above, i.e. the content sits lower. 0.32 ≈ two-thirds down.
-const splashVPos lipgloss.Position = 0.32
+// splashCompose renders the fresh-screen content: the wordmark with the input box
+// centered directly beneath it, the pair centered as a group in a vpw×height area.
+// It returns the content and the viewport-relative (row, col) of the input box's
+// first text cell, so the caller can place the real cursor inside the box.
+func splashCompose(vpw, height int, inputBox string) (content string, curRow, curCol int) {
+	logoLines := strings.Split(logoBlock(), "\n")
+	boxLines := strings.Split(inputBox, "\n")
+	boxW := lipgloss.Width(inputBox)
+	boxLeft := max(0, (vpw-boxW)/2)
+
+	const gap = 1 // one blank row between the wordmark and the input box
+	groupH := len(logoLines) + gap + len(boxLines)
+	top := max(0, (height-groupH)/2)
+
+	center := func(s string) string {
+		return strings.Repeat(" ", max(0, (vpw-lipgloss.Width(s))/2)) + s
+	}
+	rows := make([]string, 0, height)
+	for i := 0; i < top; i++ {
+		rows = append(rows, "")
+	}
+	for _, l := range logoLines {
+		rows = append(rows, center(l))
+	}
+	rows = append(rows, "") // gap
+	for _, l := range boxLines {
+		rows = append(rows, center(l))
+	}
+	for len(rows) < height {
+		rows = append(rows, "")
+	}
+	// Cursor: first text cell of the box = top border + left border + left padding(1).
+	curRow = top + len(logoLines) + gap + 1
+	curCol = boxLeft + 2
+	return strings.Join(rows, "\n"), curRow, curCol
+}
