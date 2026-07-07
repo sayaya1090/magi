@@ -558,6 +558,26 @@ NFC 폴딩(glob 툴 + grep 슬래시-글롭 동시 커버). `grepGlobMatch`의 b
 나열 경로는 원본 on-disk 바이트 보존, ASCII 패턴 무손상. 회귀: `norm_search_test.go`
 (`TestGlobMatchesNFDNameWithNFCPattern`, `TestGrepGlobFilterMatchesNFDName`).
 
+## Wave 13 — astgrep 감옥 불변식(O15/O16 형제, 외부 프로세스 표면)
+
+### O19 🟡 astgrep 스트림 파서가 워크디렉터리 밖 매치를 절대경로+스니펫으로 방출(감옥 불변식 위반, 재현+수정+커밋)
+O15/O16이 grep/findcontext의 심링크 읽기-이스케이프를 닫았지만 **astgrep은 미커버**. ast-grep는
+트리를 **외부 프로세스가 직접 walk**하므로 인-코드 심링크 가드(`symlinkEscapesJail`)가 닿지 못함 →
+마지막 방어선은 `parseAstGrepStream`. 그런데 이 파서는 밖 파일에 대해 `filepath.Rel`이 `..`
+프리픽스를 내면 **스킵하지 않고 절대경로를 그대로 emit + 스니펫까지 포함**(astgrep.go:154-157).
+
+**증거(Wave 13, 순수함수 프로브):** `parseAstGrepStream({"file":"/etc/secret.go",...snippet...})` →
+`emitted file="/etc/secret.go" text="const Token=\"TOPSECRET\""` (count=1). **밖 경로+스니펫 방출 확정.**
+모든 다른 툴의 불변식(밖=미반환, rel만)과 어긋남.
+
+**현 시점 라이브 미도달(∴🟡):** ast-grep 0.44.0은 기본적으로 심링크를 **안 따라감**(라이브 확인:
+`work/link→outside` 심링크 두고 run → 빈 결과), `a.Path`는 `resolvePath`가 O14 감옥으로 차단.
+∴ 현재 익스플로잇 불가 — 하지만 미래 `--follow`/정규화 quirk 대비 방어심화 + rel-경로 일관성 버그.
+
+**✅ 수정+커밋(`af0ede5`):** 파서가 밖 경로(`Rel` 에러 or `..`/`../` 프리픽스)를 **드롭**(continue),
+상대경로는 workdir에 join 후 판정(이스케이프 오인 방지). 회귀: `astgrep_jail_test.go`
+(밖-드롭 / 안-유지-rel / 상대경로-유지). 기존 라이브 `TestAstGrepRealMatch` green(happy-path 무회귀).
+
 ---
 
 ## 이번 세션 수정 요약 (커밋 대기 — 요청 시에만)
@@ -589,6 +609,8 @@ NFC 폴딩(glob 툴 + grep 슬래시-글롭 동시 커버). `grepGlobMatch`의 b
   `findcontext.go` + `norm_search_test.go`. **커밋됨 16a3fa8.**
 - **O18** 🟠 glob·grep --glob NFD-파일명 vs NFC-패턴 조용한 무매치(O17 파일명 형제) — `glob.go`,
   `grep.go` + `norm_search_test.go`. **커밋됨 817771d.**
+- **O19** 🟡 astgrep 파서가 밖 매치를 절대경로+스니펫으로 방출(O15/O16 외부프로세스 형제, 방어심화)
+  — `astgrep.go` + `astgrep_jail_test.go`. **커밋됨 af0ede5.**
 - **P4** `magi.ask` 폼 UI(nil 라벨·세로 옵션·로고) — `bridge.go`, `prompt.go`, `logo.go`
   (+`prompt_test.go`, `ask_test.go`). **커밋됨 79b6099.**
 - **P5** 모달 열림 중 트랜스크립트 스크롤 허용 — `model_input.go`
