@@ -83,7 +83,10 @@ func (a *App) systemFor(agent AgentSpec, workdir string, isSub bool) string {
 	}
 	var b strings.Builder
 	b.WriteString(sys)
-	b.WriteString("\n\nYou can delegate to subagents with the task tool. Available agents:")
+	b.WriteString("\n\nYou can delegate to subagents with the task tool. When the work is about specific files, " +
+		"pass the file PATHS in the prompt and tell the subagent to read them directly — do NOT paste file contents " +
+		"or long excerpts into the prompt. Pasted content may be truncated and it wastes context; the subagent has its " +
+		"own read tools and must see the real, current file. Available agents:")
 	// Render in a STABLE (sorted) order: a.cfg.Agents is a map, and Go randomizes map
 	// iteration, so an unsorted range would reorder this block every step — mutating the
 	// system prompt byte-for-byte and defeating the backend's prefix (KV) cache for exactly
