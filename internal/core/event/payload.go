@@ -96,6 +96,13 @@ type TodosChangedData struct {
 	Todos []session.Todo `json:"todos"`
 }
 
+// ModelChangedData — TypeModelChanged. The session's new active model, so any UI
+// caching the model name (header chip, routing editor) re-reads it from one signal
+// regardless of which path changed it (plugin set_model, /route edit, reload_config).
+type ModelChangedData struct {
+	Model string `json:"model"`
+}
+
 // Usage captures token/cost accounting for a turn.
 type Usage struct {
 	In   int     `json:"in"`
