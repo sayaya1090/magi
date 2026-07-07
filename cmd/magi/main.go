@@ -67,6 +67,24 @@ var (
 	pluginInstallFn = runPluginInstall
 )
 
+// newReleaseSource builds the release source used by EVERY self-update path — the
+// `-update` core path (runCoreUpdate), the interactive startup check, and force
+// install (both via latestSource). It is the single construction seam: a fork
+// retargets all three at once by reassigning this in an init() (e.g. to a private or
+// GitHub Enterprise source via update.NewGitHubSource(owner, repo, update.WithAPIBase(…),
+// update.WithToken(…)) or an entirely custom update.Source) without editing any call
+// site. Default is the public release repo.
+var newReleaseSource = func() update.Source { return update.NewGitHubSource(ghOwner, ghRepo) }
+
+// onInteractiveStart holds hooks run once, in order, right after the startup update
+// check when an interactive session boots (never in headless/bench/pipe runs, which
+// don't reach the interactive block). A fork composes extra boot-time Go logic — e.g.
+// refreshing bundled plugins or starting a periodic update loop bound to the session
+// ctx — by appending here in an init(), instead of editing run(). The ctx is the
+// session context (cancelled on exit, so a hook's goroutine loop stops naturally); the
+// second arg is the resolved config dir. Empty by default.
+var onInteractiveStart []func(ctx context.Context, configDir string)
+
 // runUpdateCmd dispatches the requested update actions and returns a process exit
 // code (non-zero if any action failed). `-plugin-install` is standalone: it clones
 // one plugin and returns, rather than sweeping existing ones.
@@ -96,7 +114,7 @@ func runCoreUpdate() int {
 		return 1
 	}
 	fmt.Println("checking for updates…")
-	res, err := update.Run(context.Background(), update.NewGitHubSource(ghOwner, ghRepo), version.Version, exe)
+	res, err := update.Run(context.Background(), newReleaseSource(), version.Version, exe)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "magi: update failed:", err)
 		return 1
@@ -617,6 +635,12 @@ func run() int {
 			if maybeUpdateOnStartup(ctx, plat.ConfigDir(), version.Version, exe, os.Stdout) {
 				return 0
 			}
+		}
+		// Boot-time composition seam: forks append Go logic (bundled-plugin refresh,
+		// periodic update loop, …) that runs once the interactive session is committed
+		// to launching. No-op unless something registered a hook in init().
+		for _, h := range onInteractiveStart {
+			h(ctx, plat.ConfigDir())
 		}
 		// Apply config color-theme overrides (merged over the NERV/MAGI defaults).
 		tui.SetThemePalettes(cfg.Theme.Dark, cfg.Theme.Light)

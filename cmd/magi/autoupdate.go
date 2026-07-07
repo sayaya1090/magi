@@ -19,7 +19,10 @@ const updateCheckTTL = 24 * time.Hour
 // Seams overridable in tests: the release source, the force-install action, and
 // the force countdown. Production defaults hit GitHub / run the real installer.
 var (
-	latestSource   = func() update.Source { return update.NewGitHubSource(ghOwner, ghRepo) }
+	// latestSource is the startup/force-install source. It delegates to newReleaseSource
+	// (main.go) so a fork retargets every self-update path by reassigning that one factory;
+	// tests still override latestSource directly to inject a fake.
+	latestSource   = func() update.Source { return newReleaseSource() }
 	forceInstallFn = func(ctx context.Context, src update.Source, current, exe string) (update.Result, error) {
 		return update.Run(ctx, src, current, exe)
 	}
