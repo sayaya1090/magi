@@ -158,12 +158,38 @@ func (p *plugin) bridgeHTTP(L *lua.LState) int {
 	return 1
 }
 
+// captured is one request the one-shot server decided to hand back to Lua, along
+// with its (already-read) body. Passed over a channel so the HTTP handler never
+// touches the Lua state or the plugin lock — the invariant that keeps serveOnce
+// deadlock-free even while fire() holds p.mu across the whole hook.
+type captured struct {
+	r    *http.Request
+	body []byte
+}
+
 // serveOnce is magi.serve's one-shot mode (no handler): a loopback HTTP listener that
-// blocks until the first matching request arrives (or timeout), returns its {query, path},
-// then shuts down — the OAuth/SSO redirect target. Binds 127.0.0.1 only.
+// blocks until the awaited request arrives (or timeout), returns it, then shuts down —
+// the OAuth/SSO redirect target. Binds 127.0.0.1 only.
+//
+// Two shapes, both blocking (so a startup hook can gate session entry until auth
+// completes) and both served by a pure-Go handler that never enters Lua:
+//
+//   - Plain redirect capture (no respond_html): the first request whose path matches
+//     `path` is returned as {query, path}; used when the token rides in the query.
+//   - Companion (respond_html set): a two-request browser SSO flow. GET requests get
+//     served the respond_html companion page (whose JS POSTs the token back) and the
+//     wait continues; the POST to `path` is captured and returned as
+//     {method, path, query, body, headers}, where body carries the token.
 func (p *plugin) serveOnce(L *lua.LState, spec *lua.LTable, port int) int {
 	wantPath := spec.RawGetString("path").String()
+	companion, hasCompanion := "", false
+	if v := spec.RawGetString("respond_html"); v != lua.LNil {
+		companion, hasCompanion = v.String(), true
+	}
 	timeout := 120 * time.Second
+	if hasCompanion {
+		timeout = 300 * time.Second // browser SSO round-trips are slower than a bare redirect
+	}
 	if t := int(lua.LVAsNumber(spec.RawGetString("timeout"))); t > 0 {
 		timeout = time.Duration(t) * time.Second
 	}
@@ -172,14 +198,22 @@ func (p *plugin) serveOnce(L *lua.LState, spec *lua.LTable, port int) int {
 	if err != nil {
 		return fail(L, "serve: listen: "+err.Error())
 	}
-	hit := make(chan *http.Request, 1)
+	hit := make(chan captured, 1)
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if wantPath != "" && r.URL.Path != wantPath {
+		// Companion mode: serve the companion page on any non-capturing request and
+		// keep waiting; capture only the POST that carries the token.
+		if hasCompanion && !(r.Method == http.MethodPost && (wantPath == "" || r.URL.Path == wantPath)) {
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte(companion))
+			return
+		}
+		if !hasCompanion && wantPath != "" && r.URL.Path != wantPath {
 			http.NotFound(w, r)
 			return
 		}
+		body, _ := io.ReadAll(io.LimitReader(r.Body, serveBodyMax))
 		select {
-		case hit <- r:
+		case hit <- captured{r: r, body: body}:
 		default:
 		}
 		w.Header().Set("Content-Type", "text/html")
@@ -189,7 +223,8 @@ func (p *plugin) serveOnce(L *lua.LState, spec *lua.LTable, port int) int {
 	defer srv.Close()
 
 	select {
-	case r := <-hit:
+	case c := <-hit:
+		r := c.r
 		res := L.NewTable()
 		q := L.NewTable()
 		for k, vs := range r.URL.Query() {
@@ -199,6 +234,13 @@ func (p *plugin) serveOnce(L *lua.LState, spec *lua.LTable, port int) int {
 		}
 		L.SetField(res, "query", q)
 		L.SetField(res, "path", lua.LString(r.URL.Path))
+		L.SetField(res, "method", lua.LString(r.Method))
+		L.SetField(res, "body", lua.LString(string(c.body)))
+		h := L.NewTable()
+		for k := range r.Header {
+			L.SetField(h, k, lua.LString(r.Header.Get(k)))
+		}
+		L.SetField(res, "headers", h)
 		L.Push(res)
 		return 1
 	case <-time.After(timeout):
@@ -212,7 +254,11 @@ func (p *plugin) serveOnce(L *lua.LState, spec *lua.LTable, port int) int {
 //     magi.serve{port=, handler=function(req) return resp end} -> {port=, stop=function()}
 //   - WITHOUT a handler — one-shot blocking wait (the OAuth/SSO redirect target):
 //     magi.serve{port=, path=, timeout=} -> {query={k=v}, path=}  (blocks until the first
-//     matching request, then shuts down)
+//     matching request, then shuts down). Add respond_html= to switch to the two-request
+//     browser-SSO companion flow: GET requests are answered with respond_html (whose JS
+//     posts the token back) and the wait continues; the POST to path is captured and
+//     returned as {method=, path=, query=, body=, headers=} with body carrying the token.
+//     This lets a startup hook block session entry until auth completes (default 300s).
 //
 // Persistent mode: routes every
 // request through the Lua handler IN-PROCESS — no external runtime, so it works inside
