@@ -18,6 +18,7 @@ type bgGroup struct {
 	outstanding int
 	wake        chan struct{}   // buffered(1); a signal means "re-read, something changed"
 	inflight    map[string]bool // (agent+prompt) keys currently running, for re-dispatch dedup
+	completed   map[string]bool // (agent+prompt) keys that have already finished, for serial re-dispatch dedup
 
 	// injected/consumed track subagent results that have been written to the
 	// session vs. those the orchestrator has already been re-invoked to handle.
@@ -113,6 +114,17 @@ func (a *App) dispatch(ctx context.Context, parent session.Session, depth int, r
 		a.mu.Unlock()
 		return req.Agent + " is already running in the background with this exact task — not re-dispatched; its result will arrive as a message. Wait for it instead of delegating again."
 	}
+	if g.completed[key] {
+		// An identical task for this agent already FINISHED. A delegate is context-free,
+		// so re-running the same prompt only reproduces the same result — a weak orchestrator
+		// that keeps re-delegating an identical degenerate task (e.g. handing "hi" to a coder
+		// over and over because the reply wasn't the review it wanted) would livelock here,
+		// each completion re-waking it to dispatch the same thing again. Refuse: the finished
+		// result is already in the conversation. To make progress the model must USE that
+		// result or send a DIFFERENT prompt.
+		a.mu.Unlock()
+		return req.Agent + " already ran with this exact task and its result is already in the conversation above — re-running it verbatim would only reproduce the same output. Use that result, or dispatch with a DIFFERENT, more specific prompt. Not re-dispatched."
+	}
 	g.inflight[key] = true
 	g.outstanding++
 	a.wg.Add(1)
@@ -127,6 +139,10 @@ func (a *App) dispatch(ctx context.Context, parent session.Session, depth int, r
 		a.mu.Lock()
 		if g := a.bg[parent.ID]; g != nil {
 			delete(g.inflight, key)
+			if g.completed == nil {
+				g.completed = map[string]bool{}
+			}
+			g.completed[key] = true // remember it finished, so an identical serial re-dispatch is refused
 			if g.outstanding > 0 {
 				g.outstanding--
 			}
