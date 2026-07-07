@@ -99,6 +99,7 @@ func runTask(llm port.LLMProvider, model string, plat port.Platform, task Task) 
 	reg.Register(builtin.Task{})
 	reg.Register(builtin.Ask{})
 	reg.Register(builtin.Report{})
+	reg.Register(builtin.ResolveConcern{})
 	ref := session.ModelRef{Provider: "openai", Model: model}
 	a := app.New(store, llm, reg, bus.New(), plat, app.Config{
 		Model:      ref,
