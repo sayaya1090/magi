@@ -18,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/term"
 
 	councilllm "github.com/sayaya1090/magi/internal/adapter/council/llm"
 	expgit "github.com/sayaya1090/magi/internal/adapter/experience/git"
@@ -39,6 +40,7 @@ import (
 	"github.com/sayaya1090/magi/internal/port"
 	"github.com/sayaya1090/magi/internal/prompt"
 	"github.com/sayaya1090/magi/internal/update"
+	pluginupd "github.com/sayaya1090/magi/internal/update/plugin"
 	"github.com/sayaya1090/magi/internal/version"
 )
 
@@ -48,8 +50,46 @@ const (
 	ghRepo  = "magi"
 )
 
-// runUpdate performs a self-update from the latest GitHub release.
-func runUpdate() int {
+// updateOpts selects which update actions a single `-update*` invocation runs.
+type updateOpts struct {
+	core    bool   // update the magi binary
+	plugins bool   // update managed (git) plugins
+	install string // git URL to clone (if non-empty), then exit
+	pin     string // optional ref for install
+	extra   string // extra plugins dir (-plugins), for discovery
+}
+
+// Action seams, swappable in tests to assert dispatch routing without touching
+// the network, git, or the user's real config dir.
+var (
+	coreUpdateFn    = runCoreUpdate
+	pluginUpdateFn  = runPluginUpdates
+	pluginInstallFn = runPluginInstall
+)
+
+// runUpdateCmd dispatches the requested update actions and returns a process exit
+// code (non-zero if any action failed). `-plugin-install` is standalone: it clones
+// one plugin and returns, rather than sweeping existing ones.
+func runUpdateCmd(o updateOpts) int {
+	if o.install != "" {
+		return pluginInstallFn(o.install, o.pin)
+	}
+	rc := 0
+	if o.core {
+		if code := coreUpdateFn(); code != 0 {
+			rc = code
+		}
+	}
+	if o.plugins {
+		if code := pluginUpdateFn(o.extra); code != 0 {
+			rc = code
+		}
+	}
+	return rc
+}
+
+// runCoreUpdate performs a self-update of the binary from the latest GitHub release.
+func runCoreUpdate() int {
 	exe, err := os.Executable()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "magi: locate executable:", err)
@@ -66,6 +106,46 @@ func runUpdate() int {
 	} else {
 		fmt.Println(res.Skipped)
 	}
+	return 0
+}
+
+// runPluginUpdates fast-forwards every managed (git) plugin found under the plugin
+// roots. Non-git plugins are reported as skipped, never mutated.
+func runPluginUpdates(extra string) int {
+	wd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "magi: getwd:", err)
+		return 1
+	}
+	roots := pluginDirs(platform.New(), wd, extra)
+	managed := pluginupd.Discover(roots)
+	if len(managed) == 0 {
+		fmt.Println("no plugins found")
+		return 0
+	}
+	for _, m := range managed {
+		res := pluginupd.UpdateOne(context.Background(), m)
+		switch {
+		case res.Skipped != "":
+			fmt.Printf("· %s: %s\n", res.Name, res.Skipped)
+		case res.Updated:
+			fmt.Printf("✓ %s: %s → %s\n", res.Name, res.From, res.To)
+		default:
+			fmt.Printf("· %s: up to date\n", res.Name)
+		}
+	}
+	return 0
+}
+
+// runPluginInstall clones a plugin from a git URL into the user plugins dir.
+func runPluginInstall(url, pin string) int {
+	dest := filepath.Join(platform.New().ConfigDir(), "plugins")
+	m, err := pluginupd.Install(context.Background(), url, pin, dest)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "magi: plugin install:", err)
+		return 1
+	}
+	fmt.Printf("installed %s %s → %s\n", m.Name, m.Version, m.Dir)
 	return 0
 }
 
@@ -152,24 +232,29 @@ func validateGuardrailValues(profile, permission, sandbox string) string {
 
 func run() int {
 	var (
-		prompt      = flag.String("p", "", "headless prompt (use '-' to read from stdin)")
-		output      = flag.String("output", "text", "output format: text|json")
-		model       = flag.String("model", env("MAGI_MODEL", "gpt-oss:120b-cloud"), "model id")
-		baseURL     = flag.String("base-url", env("MAGI_BASE_URL", "http://localhost:11434/v1"), "OpenAI-compatible base URL")
-		permission  = flag.String("permission", env("MAGI_PERMISSION", ""), "tool permission policy: ask|auto|allow|deny (auto = accept edits, confirm commands)")
-		profile     = flag.String("profile", env("MAGI_PROFILE", ""), "guardrail posture: safe|standard|yolo")
-		workflow    = flag.Bool("workflow", env("MAGI_WORKFLOW", "") != "", "drive the task through the deterministic localize→implement→verify→review pipeline")
-		verifyCmd   = flag.String("verify-cmd", env("MAGI_VERIFY_CMD", ""), "workflow verification command (auto-detected if empty)")
-		noCache     = flag.Bool("no-cache", env("MAGI_NO_CACHE", "") != "", "disable prompt cache_control (on by default; auto-falls back if the backend rejects it)")
-		httpTimeout = flag.Duration("http-timeout", envDur("MAGI_HTTP_TIMEOUT", 0), "max wait for LLM response headers (e.g. 120s); 0 = unbounded")
-		pluginsDir  = flag.String("plugins", env("MAGI_PLUGINS", ""), "extra plugins directory to load")
-		listModels  = flag.Bool("list-models", false, "list the backend's available models and exit")
-		doctor      = flag.Bool("doctor", false, "check the environment (LLM endpoint, optional tools, sandbox, config) and exit")
-		showVersion = flag.Bool("version", false, "print version and exit")
-		doUpdate    = flag.Bool("update", false, "update magi to the latest release and exit")
-		theme       = flag.String("theme", env("MAGI_THEME", "auto"), "color theme: auto|dark|light")
-		noHarness   = flag.Bool("no-harness", false, "disable the built-in harness (default hooks like format-on-save)")
-		timeBudget  = flag.Duration("time-budget", envDur("MAGI_TIME_BUDGET", 0), "soft wall-clock budget shown to the agent as guidance (e.g. 20m); 0 = off. Never affects leaderboard/comparison runs unless set.")
+		prompt          = flag.String("p", "", "headless prompt (use '-' to read from stdin)")
+		output          = flag.String("output", "text", "output format: text|json")
+		model           = flag.String("model", env("MAGI_MODEL", "gpt-oss:120b-cloud"), "model id")
+		baseURL         = flag.String("base-url", env("MAGI_BASE_URL", "http://localhost:11434/v1"), "OpenAI-compatible base URL")
+		permission      = flag.String("permission", env("MAGI_PERMISSION", ""), "tool permission policy: ask|auto|allow|deny (auto = accept edits, confirm commands)")
+		profile         = flag.String("profile", env("MAGI_PROFILE", ""), "guardrail posture: safe|standard|yolo")
+		workflow        = flag.Bool("workflow", env("MAGI_WORKFLOW", "") != "", "drive the task through the deterministic localize→implement→verify→review pipeline")
+		verifyCmd       = flag.String("verify-cmd", env("MAGI_VERIFY_CMD", ""), "workflow verification command (auto-detected if empty)")
+		noCache         = flag.Bool("no-cache", env("MAGI_NO_CACHE", "") != "", "disable prompt cache_control (on by default; auto-falls back if the backend rejects it)")
+		httpTimeout     = flag.Duration("http-timeout", envDur("MAGI_HTTP_TIMEOUT", 0), "max wait for LLM response headers (e.g. 120s); 0 = unbounded")
+		pluginsDir      = flag.String("plugins", env("MAGI_PLUGINS", ""), "extra plugins directory to load")
+		listModels      = flag.Bool("list-models", false, "list the backend's available models and exit")
+		doctor          = flag.Bool("doctor", false, "check the environment (LLM endpoint, optional tools, sandbox, config) and exit")
+		showVersion     = flag.Bool("version", false, "print version and exit")
+		doUpdate        = flag.Bool("update", false, "update magi core and managed plugins to the latest release, then exit")
+		doUpdateCore    = flag.Bool("update-core", false, "update only the magi binary, then exit")
+		doUpdatePlugins = flag.Bool("update-plugins", false, "update only managed (git) plugins, then exit")
+		pluginInstall   = flag.String("plugin-install", "", "git URL of a plugin to clone into the user plugins dir, then exit")
+		pluginPin       = flag.String("plugin-pin", "", "optional tag/branch/commit for -plugin-install")
+		theme           = flag.String("theme", env("MAGI_THEME", "auto"), "color theme: auto|dark|light")
+		noHarness       = flag.Bool("no-harness", false, "disable the built-in harness (default hooks like format-on-save)")
+		timeBudget      = flag.Duration("time-budget", envDur("MAGI_TIME_BUDGET", 0), "soft wall-clock budget shown to the agent as guidance (e.g. 20m); 0 = off. Never affects leaderboard/comparison runs unless set.")
+		noUpdateCheck   = flag.Bool("no-update-check", env("MAGI_NO_UPDATE_CHECK", "") != "", "disable the interactive startup update check")
 	)
 	flag.Parse()
 
@@ -181,6 +266,18 @@ func run() int {
 	if msg := validateEnumFlags(*output, *permission, *profile, *theme); msg != "" {
 		fmt.Fprintln(os.Stderr, "magi: "+msg)
 		return 2
+	}
+
+	// Update commands exit before the theme probe and any LLM/TUI setup: they are
+	// batch operations that shouldn't pay for terminal detection or model probing.
+	if *doUpdate || *doUpdateCore || *doUpdatePlugins || *pluginInstall != "" {
+		return runUpdateCmd(updateOpts{
+			core:    *doUpdate || *doUpdateCore,
+			plugins: *doUpdate || *doUpdatePlugins,
+			install: *pluginInstall,
+			pin:     *pluginPin,
+			extra:   *pluginsDir,
+		})
 	}
 
 	// Resolve the color theme. "auto" detects the terminal background; explicit
@@ -199,10 +296,6 @@ func run() int {
 		fmt.Println(version.String())
 		return 0
 	}
-	if *doUpdate {
-		return runUpdate()
-	}
-
 	// `-p` given at all (even empty) means headless: an explicit empty prompt should
 	// error clearly, not fall through to the TUI (which then crashes with no TTY when
 	// stdin/stdout is a pipe).
@@ -515,6 +608,16 @@ func run() int {
 
 	// Interactive TUI when no headless prompt was given.
 	if !headless {
+		// Startup update check — interactive TTY only (bench/headless/pipe never
+		// reach here or fail the isTTY gate), so a benchmark run makes no network
+		// call and gets no surprise install. A required (minor/major) update
+		// installs and exits; a patch bump only prints a banner and continues.
+		if shouldCheckUpdates(headless, term.IsTerminal(os.Stdout.Fd()), *noUpdateCheck) {
+			exe, _ := os.Executable()
+			if maybeUpdateOnStartup(ctx, plat.ConfigDir(), version.Version, exe, os.Stdout) {
+				return 0
+			}
+		}
 		// Apply config color-theme overrides (merged over the NERV/MAGI defaults).
 		tui.SetThemePalettes(cfg.Theme.Dark, cfg.Theme.Light)
 		// Hot-reload plugins while the session is live.
