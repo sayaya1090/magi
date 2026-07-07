@@ -53,6 +53,29 @@ func TestBridgeAsk(t *testing.T) {
 	}
 }
 
+// A field that omits label/default must reach the prompter as "" — not the literal
+// "nil" that LNil.String() yields — so prompt.go's empty-label→Name fallback works
+// and the row doesn't render "› nil".
+func TestBridgeAskOmittedLabelIsEmpty(t *testing.T) {
+	pr := &stubPrompter{answers: map[string]any{}}
+	h := NewHostWithConfig(HostConfig{ToolSink: builtin.NewRegistry(), Prompter: pr, Logf: func(string) {}})
+	dir := writePlugin(t, `name="ask"`+"\n"+`capabilities=["tool"]`,
+		`magi.ask{ fields={ { name="how", type="select", options={"browser"} } } }`,
+	)
+	if _, err := h.Load(context.Background(), dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(pr.gotSpec.Fields) != 1 {
+		t.Fatalf("fields = %+v", pr.gotSpec.Fields)
+	}
+	if got := pr.gotSpec.Fields[0].Label; got != "" {
+		t.Errorf("omitted label = %q, want empty (not the literal \"nil\")", got)
+	}
+	if got := pr.gotSpec.Fields[0].Default; got != "" {
+		t.Errorf("omitted default = %q, want empty", got)
+	}
+}
+
 // Without a prompter (e.g. headless), magi.ask returns an error the plugin can
 // handle.
 func TestBridgeAskNoPrompter(t *testing.T) {

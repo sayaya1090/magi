@@ -1,11 +1,13 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/sayaya1090/magi/internal/prompt"
+	"github.com/sayaya1090/magi/internal/version"
 )
 
 func pkey(m promptModel, s string) promptModel {
@@ -20,15 +22,16 @@ func ptype(m promptModel, s string) promptModel {
 	return m
 }
 
-// The form collects text, select, confirm, and multiselect answers.
+// The form collects text, confirm, multiselect, and select answers. Options are laid
+// out vertically, so ↑/↓ walks the options of a list before crossing to the next field.
 func TestPromptFormAnswers(t *testing.T) {
 	applyTheme(true)
 	m := newPromptModel(prompt.Spec{Title: "t", Fields: []prompt.Field{
 		{Name: "note", Type: prompt.TypeNote, Label: "hi"},
 		{Name: "user", Type: prompt.TypeText},
-		{Name: "mode", Type: prompt.TypeSelect, Options: []string{"a", "b", "c"}},
 		{Name: "ok", Type: prompt.TypeConfirm},
 		{Name: "tags", Type: prompt.TypeMultiselect, Options: []string{"x", "y", "z"}},
+		{Name: "mode", Type: prompt.TypeSelect, Options: []string{"a", "b", "c"}},
 	}})
 
 	// First focusable skips the note → the text field.
@@ -36,14 +39,15 @@ func TestPromptFormAnswers(t *testing.T) {
 		t.Fatalf("first focusable = %d, want 1 (text)", m.sel)
 	}
 	m = ptype(m, "alice")
-	m = pkey(m, "down")  // → select
-	m = pkey(m, "right") // a→b
 	m = pkey(m, "down")  // → confirm
 	m = pkey(m, "right") // toggle to yes
-	m = pkey(m, "down")  // → multiselect
-	m = pkey(m, "space") // toggle x
-	m = pkey(m, "right") // cursor → y
-	m = pkey(m, "space") // toggle y
+	m = pkey(m, "down")  // → multiselect, cursor on x
+	m = pkey(m, "space") // check x
+	m = pkey(m, "down")  // cursor x→y (within the list)
+	m = pkey(m, "space") // check y
+	m = pkey(m, "down")  // cursor y→z (still within the list)
+	m = pkey(m, "down")  // z is last → cross to select, optIdx=a
+	m = pkey(m, "down")  // a→b (select cursor is the selection)
 
 	a := m.answers()
 	if a["user"] != "alice" {
@@ -58,6 +62,48 @@ func TestPromptFormAnswers(t *testing.T) {
 	tags, _ := a["tags"].([]string)
 	if len(tags) != 2 || tags[0] != "x" || tags[1] != "y" {
 		t.Errorf("tags = %v", a["tags"])
+	}
+}
+
+// A select's ↑/↓ moves within its options and only crosses to Submit past the last
+// option; Enter on a select advances (to Submit when it is the last field).
+func TestPromptSelectVerticalNav(t *testing.T) {
+	applyTheme(true)
+	m := newPromptModel(prompt.Spec{Fields: []prompt.Field{
+		{Name: "mode", Type: prompt.TypeSelect, Options: []string{"a", "b", "c"}},
+	}})
+	if m.sel != 0 {
+		t.Fatalf("sel = %d, want 0 (select)", m.sel)
+	}
+	m = pkey(m, "down") // a→b, stays on the field
+	if m.sel != 0 || m.state[0].optIdx != 1 {
+		t.Fatalf("after down: sel=%d optIdx=%d, want 0/1", m.sel, m.state[0].optIdx)
+	}
+	m = pkey(m, "enter") // confirm + advance → Submit
+	if m.sel != len(m.spec.Fields) {
+		t.Errorf("Enter on select should advance to Submit, sel=%d", m.sel)
+	}
+	if m.answers()["mode"] != "b" {
+		t.Errorf("mode = %v, want b", m.answers()["mode"])
+	}
+}
+
+// The logo banner and the vertical options both render (no panic, expected glyphs).
+func TestPromptViewRendersLogoAndVerticalOptions(t *testing.T) {
+	applyTheme(true)
+	m := newPromptModel(prompt.Spec{Fields: []prompt.Field{
+		{Name: "mode", Type: prompt.TypeSelect, Options: []string{"first", "second"}},
+	}})
+	out := m.View().Content
+	if !strings.Contains(out, "first") || !strings.Contains(out, "second") {
+		t.Errorf("options missing from view")
+	}
+	if !strings.Contains(out, "●") || !strings.Contains(out, "○") {
+		t.Errorf("select markers missing: %q", out)
+	}
+	// logoBlock renders the wordmark; its version line is always present.
+	if !strings.Contains(out, version.String()) {
+		t.Errorf("logo/version banner missing from prompt view")
 	}
 }
 

@@ -195,16 +195,25 @@ func (p *plugin) bridgeAsk(L *lua.LState) int {
 	spec := L.CheckTable(1)
 	s := prompt.Spec{Title: spec.RawGetString("title").String()}
 	if ft, ok := spec.RawGetString("fields").(*lua.LTable); ok {
+		// A missing Lua key returns LNil, whose .String() is the literal "nil" — which
+		// would slip past prompt.go's empty-label fallback and render "› nil". Normalize
+		// absent values to "" so the fallback (label == "" → Name) works.
+		str := func(v lua.LValue) string {
+			if v == lua.LNil {
+				return ""
+			}
+			return v.String()
+		}
 		ft.ForEach(func(_, fv lua.LValue) {
 			ftbl, ok := fv.(*lua.LTable)
 			if !ok {
 				return
 			}
 			f := prompt.Field{
-				Name:    ftbl.RawGetString("name").String(),
-				Type:    ftbl.RawGetString("type").String(),
-				Label:   ftbl.RawGetString("label").String(),
-				Default: ftbl.RawGetString("default").String(),
+				Name:    str(ftbl.RawGetString("name")),
+				Type:    str(ftbl.RawGetString("type")),
+				Label:   str(ftbl.RawGetString("label")),
+				Default: str(ftbl.RawGetString("default")),
 			}
 			if opts, ok := ftbl.RawGetString("options").(*lua.LTable); ok {
 				opts.ForEach(func(_, ov lua.LValue) {

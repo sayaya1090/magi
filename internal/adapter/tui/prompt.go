@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/sayaya1090/magi/internal/prompt"
 )
@@ -95,11 +96,43 @@ func (m promptModel) key(e tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.sel = len(m.spec.Fields) // jump to Submit
 		return m, nil
 	case "up", "ctrl+p":
+		// Options are laid out vertically, so ↑ first walks within a select/multiselect;
+		// only at the top edge does it leave for the previous field.
+		if m.sel < len(m.spec.Fields) {
+			f, st := m.spec.Fields[m.sel], &m.state[m.sel]
+			switch f.Type {
+			case prompt.TypeSelect:
+				if st.optIdx > 0 {
+					st.optIdx--
+					return m, nil
+				}
+			case prompt.TypeMultiselect:
+				if st.subIdx > 0 {
+					st.subIdx--
+					return m, nil
+				}
+			}
+		}
 		if n := m.firstFocusable(m.sel-1, -1); n < m.sel {
 			m.sel = n
 		}
 		return m, nil
 	case "down", "ctrl+n":
+		if m.sel < len(m.spec.Fields) {
+			f, st := m.spec.Fields[m.sel], &m.state[m.sel]
+			switch f.Type {
+			case prompt.TypeSelect:
+				if st.optIdx < len(f.Options)-1 {
+					st.optIdx++
+					return m, nil
+				}
+			case prompt.TypeMultiselect:
+				if st.subIdx < len(f.Options)-1 {
+					st.subIdx++
+					return m, nil
+				}
+			}
+		}
 		if n := m.firstFocusable(m.sel+1, 1); n > m.sel {
 			m.sel = n
 		}
@@ -119,8 +152,12 @@ func (m promptModel) key(e tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		switch e.String() {
 		case "left":
 			st.optIdx = wrap(st.optIdx-1, len(f.Options))
-		case "right", "enter":
+		case "right":
 			st.optIdx = wrap(st.optIdx+1, len(f.Options))
+		case "enter":
+			// The highlighted row is already the selection (optIdx follows the cursor),
+			// so Enter just confirms and advances — landing on Submit when last.
+			m.sel = m.firstFocusable(m.sel+1, 1)
 		}
 	case prompt.TypeMultiselect:
 		switch e.String() {
@@ -195,12 +232,47 @@ func (m promptModel) answers() map[string]any {
 
 func (m promptModel) View() tea.View {
 	var b strings.Builder
+	// Identity banner: the same wordmark as the startup splash, so a plugin login
+	// screen reads as "the startup page with a login form attached", not a bare form.
+	b.WriteString(lipgloss.PlaceHorizontal(max(1, m.width), lipgloss.Center, logoBlock()) + "\n\n")
 	if m.spec.Title != "" {
 		b.WriteString(stylePermTitle.Render(m.spec.Title) + "\n\n")
 	}
 	for i, f := range m.spec.Fields {
 		st := m.state[i]
 		sel := i == m.sel
+		// Option lists render vertically — one option per line — so long labels stay
+		// readable and the Submit button falls naturally below them.
+		if f.Type == prompt.TypeSelect || f.Type == prompt.TypeMultiselect {
+			if f.Label != "" {
+				b.WriteString("  " + styleFooter.Render(f.Label) + "\n")
+			}
+			for j, o := range f.Options {
+				var marker string
+				var cur bool
+				if f.Type == prompt.TypeSelect {
+					marker = "○"
+					if j == st.optIdx { // for select the highlighted row is the selection
+						marker = "●"
+					}
+					cur = sel && j == st.optIdx
+				} else {
+					marker = "[ ]"
+					if st.checks[j] {
+						marker = "[x]"
+					}
+					cur = sel && j == st.subIdx
+				}
+				row := marker + " " + o
+				if cur {
+					b.WriteString(stylePalName.Render("  › ") + stylePalSelRow.Render(" "+row+" ") + "\n")
+				} else {
+					b.WriteString("    " + styleToolResult.Render(row) + "\n")
+				}
+			}
+			continue
+		}
+
 		var val string
 		switch f.Type {
 		case prompt.TypeNote:
@@ -211,30 +283,6 @@ func (m promptModel) View() tea.View {
 			if sel {
 				val += "▌"
 			}
-		case prompt.TypeSelect:
-			opts := make([]string, len(f.Options))
-			for j, o := range f.Options {
-				if j == st.optIdx {
-					opts[j] = stylePalSelRow.Render(" " + o + " ")
-				} else {
-					opts[j] = styleToolResult.Render(o)
-				}
-			}
-			val = strings.Join(opts, "  ")
-		case prompt.TypeMultiselect:
-			parts := make([]string, len(f.Options))
-			for j, o := range f.Options {
-				box := "[ ]"
-				if st.checks[j] {
-					box = "[x]"
-				}
-				cell := box + " " + o
-				if sel && j == st.subIdx {
-					cell = stylePalSelRow.Render(" " + cell + " ")
-				}
-				parts[j] = cell
-			}
-			val = strings.Join(parts, "  ")
 		case prompt.TypeConfirm:
 			yes, no := "yes", "no"
 			if st.boolV {
