@@ -154,7 +154,7 @@ func Install(ctx context.Context, url, ref, destRoot string) (Managed, error) {
 			_ = os.RemoveAll(dest)
 			return Managed{}, fmt.Errorf("git clone: %w", err)
 		}
-		if _, err := git(ctx, dest, "checkout", "--quiet", ref); err != nil {
+		if _, err := git(ctx, dest, "checkout", "--quiet", ref, "--"); err != nil {
 			_ = os.RemoveAll(dest)
 			return Managed{}, fmt.Errorf("git checkout %q: %w", ref, err)
 		}
