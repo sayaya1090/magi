@@ -104,3 +104,54 @@ func TestSplitCamel(t *testing.T) {
 		t.Errorf("splitCamel=%v", g)
 	}
 }
+
+// Non-Latin queries must tokenize instead of dead-ending with "no usable
+// keywords" — an ASCII-only word predicate dropped every rune of a Korean/CJK/
+// Cyrillic query. ASCII behavior (stopwords, <3, camel split) is unchanged.
+func TestKeywordsUnicode(t *testing.T) {
+	cases := map[string][]string{
+		"설정 파싱":    {"설정", "파싱"},
+		"конфиг":   {"конфиг"},
+		"データベース":   {"データベース"},
+		"auth설정":   {"auth설정"},     // no delimiter → one token (splitCamel only breaks ASCII case)
+		"auth 설정":  {"auth", "설정"}, // a space DOES split the two scripts
+		"café":     {"café"},
+		"the a of": nil, // ASCII stopwords/short still dropped
+	}
+	for q, want := range cases {
+		got := keywords(q)
+		for _, w := range want {
+			found := false
+			for _, g := range got {
+				if g == w {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("keywords(%q)=%v, missing %q", q, got, w)
+			}
+		}
+		if want == nil && len(got) != 0 {
+			t.Errorf("keywords(%q) should be empty, got %v", q, got)
+		}
+	}
+}
+
+// End to end: a Korean-language query locates a file whose comment/identifier is
+// in Korean. Before the Unicode fix this returned "no usable keywords".
+func TestFindContextKoreanQuery(t *testing.T) {
+	got, isErr := runJSON(t, FindContext{}, findCtxArgs{Query: "사용자 인증"}, func(d string) {
+		writeFile(d, "auth/login.go", "package auth\n\n// 사용자 인증 처리\nfunc Login() {}\n")
+		writeFile(d, "util/math.go", "package util\n\nfunc Add(a, b int) int { return a + b }\n")
+	})
+	if isErr {
+		t.Fatalf("Korean query should not error: %v", got)
+	}
+	if len(got) == 0 {
+		t.Fatal("Korean query should locate the file mentioning 사용자 인증")
+	}
+	top := got[0].(map[string]any)["path"].(string)
+	if top != "auth/login.go" {
+		t.Errorf("Korean-mentioning file should rank first; got %q", top)
+	}
+}

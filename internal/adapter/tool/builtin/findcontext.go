@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
@@ -256,9 +257,11 @@ var stopwords = map[string]bool{
 	"file": true, "files": true, "code": true, "line": true, "value": true, "values": true,
 }
 
-// keywords tokenizes a query into distinct lowercase terms (>=3 chars), splitting
+// keywords tokenizes a query into distinct lowercase terms (>=3 bytes), splitting
 // snake_case and camelCase into subtokens and dropping generic stopwords, so
-// "parseConfig" and "parse_config" both yield {parse, config}.
+// "parseConfig" and "parse_config" both yield {parse, config}. Word chars are
+// Unicode letters/digits, so a Korean/CJK/Cyrillic query tokenizes too (a single
+// CJK syllable is 3 bytes, so the length gate admits it — those are morpheme-dense).
 func keywords(q string) []string {
 	seen := map[string]bool{}
 	var out []string
@@ -269,9 +272,12 @@ func keywords(q string) []string {
 			out = append(out, w)
 		}
 	}
-	// First split on non-alphanumeric (handles snake_case, spaces, punctuation).
+	// Split on non-word runes (handles snake_case, spaces, punctuation). Word runes
+	// are Unicode letters/digits — an ASCII-only predicate here dropped every rune of
+	// a non-Latin query, dead-ending findcontext with "no usable keywords" on Korean/
+	// CJK/Cyrillic codebases and prompts.
 	for _, tok := range strings.FieldsFunc(q, func(r rune) bool {
-		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9')
+		return !(unicode.IsLetter(r) || unicode.IsDigit(r))
 	}) {
 		add(tok) // the whole token (e.g. parseconfig)
 		for _, sub := range splitCamel(tok) {
