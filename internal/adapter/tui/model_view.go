@@ -47,6 +47,14 @@ func (m Model) View() tea.View {
 		if m.plannerMode != "" {
 			headLine += "  " + styleKeyLabel.Render("◈ plan: "+m.plannerMode)
 		}
+		// Live plan progress + the currently-running (sub-)step, so a refine/delegate
+		// child's re-plan surfaces in the header the same way it nests in the panel. Only
+		// the in-progress leaf is shown (accent+bold via styleKeyLabel) — pending/done
+		// steps stay in the panel — so the header highlights just the active step.
+		if done, total, crumbs := activePlanPath(m.app, m.sid); total > 0 && len(crumbs) > 0 {
+			step := oneLine(strings.Join(crumbs, " › "), max(12, m.width/3))
+			headLine += "  " + styleKeyLabel.Render(fmt.Sprintf("◐ %s  %d/%d", step, done, total))
+		}
 		if m.councilRound > 0 {
 			chip := fmt.Sprintf("⚖ council r%d", m.councilRound)
 			if m.councilMember != "" {
