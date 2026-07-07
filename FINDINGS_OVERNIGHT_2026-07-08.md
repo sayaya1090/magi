@@ -517,6 +517,30 @@ EOL/공백/정규화 관용이 아예 없어 같은 버그 + 더 취약.
 `wheelScrollTranscript`(휠)를 두 모달 키·마우스 핸들러에서 통과. 모달은 유지(결정 대기 지속).
 회귀: `modal_scroll_test.go`(`TestScrollTranscriptKey`, `TestPermissionModalStaysScrollable`).
 
+## Wave 11 — 유니코드 정규화 클래스 헌트(검색 표면)
+
+### O17 🟠 grep·findcontext가 NFD 파일을 NFC 쿼리로 조용히 놓침(P3 형제, 재현+수정+커밋)
+P3(edit/multiedit NFD)에서 명명한 클래스를 **검색 표면**으로 확장. 파일이 disk에 NFD로
+저장(macOS 한글)돼 있고 모델은 NFC로 쿼리하면 바이트 불일치 → 무매치.
+
+**증거(Wave 11 프로브 `K_norm_search`, 결정론):** `writeFile("kor.go", "// "+NFD("함수 정의"))`
+후 —
+- `grep{pattern: NFC("함수")}` → `[]` (miss). **NFD 패턴 control은 매치**, Latin control도 매치
+  → 정규화 불일치임이 격리됨.
+- `findcontext{query: NFC("함수 정의")}` → 빈 결과(score 0). 둘 다 P3와 동일 클래스로 확정.
+
+**근본원인:** grep은 `regexp.MatchString(line)`(바이트 리터럴), findcontext는
+`strings.Contains(lower, term)`(바이트) — 둘 다 NFD≠NFC를 못 넘김.
+
+**✅ 수정+커밋(`16a3fa8`):**
+- `grep`: 패턴에 **비-ASCII 룬이 있을 때만** 패턴과 각 테스트 라인을 NFC 폴딩(매치 테스트에만;
+  출력은 원본 on-disk 바이트 보존). ASCII 패턴은 무손상(exact-byte 유지) → 일반 케이스 무회귀.
+  헬퍼 `isASCIIOnly`.
+- `findcontext`: 쿼리 term(`keywords(NFC(query))`) · 경로 파트(base/dirPart) · 콘텐츠
+  (`scoreContent` 최상단 `content=NFC(content)`)를 NFC 폴딩 후 스코어.
+- 회귀: `norm_search_test.go`(NFD-파일↔NFC-쿼리 grep/findcontext + grep ASCII 무회귀 +
+  출력 원본바이트 보존). 프로브 하네스는 비커밋 유지. builtin 전체 green, vet clean.
+
 ---
 
 ## 이번 세션 수정 요약 (커밋 대기 — 요청 시에만)
@@ -544,6 +568,8 @@ EOL/공백/정규화 관용이 아예 없어 같은 버그 + 더 취약.
   `grep_symlink_test.go::TestGrepSymlinkJail`. **커밋됨 a0e7fcc.**
 - **O16** 🔴 findcontext 심링크 경유 밖 스니펫 유출(읽기) — `findcontext.go` +
   `findcontext_symlink_test.go::TestFindContextSymlinkJail`. **커밋됨 d062d07.**
+- **O17** 🟠 grep·findcontext NFD-파일 vs NFC-쿼리 조용한 무매치(P3 검색 형제) — `grep.go`,
+  `findcontext.go` + `norm_search_test.go`. **커밋됨 16a3fa8.**
 - **P4** `magi.ask` 폼 UI(nil 라벨·세로 옵션·로고) — `bridge.go`, `prompt.go`, `logo.go`
   (+`prompt_test.go`, `ask_test.go`). **커밋됨 79b6099.**
 - **P5** 모달 열림 중 트랜스크립트 스크롤 허용 — `model_input.go`
