@@ -37,6 +37,8 @@ func installBridge(p *plugin) {
 	L.SetField(t, "workdir", L.NewFunction(p.bridgeWorkdir))
 	L.SetField(t, "model", L.NewFunction(p.bridgeModel))
 	L.SetField(t, "set_model", L.NewFunction(p.bridgeSetModel))
+	L.SetField(t, "clear_transcript", L.NewFunction(p.bridgeClearTranscript))
+	L.SetField(t, "reload_config", L.NewFunction(p.bridgeReloadConfig))
 	L.SetField(t, "platform", L.NewFunction(p.bridgePlatform))
 	L.SetField(t, "time", L.NewFunction(p.bridgeTime))
 	L.SetField(t, "nonce", L.NewFunction(p.bridgeNonce))
@@ -375,7 +377,7 @@ func (p *plugin) bridgeWorkdir(L *lua.LState) int {
 // magi.model() -> string
 func (p *plugin) bridgeModel(L *lua.LState) int {
 	if p.host != nil {
-		L.Push(lua.LString(p.host.runtime.Model))
+		L.Push(lua.LString(p.host.runtimeModel()))
 	} else {
 		L.Push(lua.LString(""))
 	}
@@ -401,7 +403,57 @@ func (p *plugin) bridgeSetModel(L *lua.LState) int {
 	if err := p.host.modelReg.SetModel(model); err != nil {
 		return fail(L, "set_model: "+err.Error())
 	}
+	p.host.setRuntimeModel(model) // keep magi.model() in sync
 	p.logf("[" + p.name + "] set session model: " + model)
+	L.Push(lua.LTrue)
+	return 1
+}
+
+// magi.reload_config() -> true | (nil, err)
+// Re-reads the user's config.toml and applies what can take effect live — currently
+// the session model. A parse error is returned as (nil, err) and the running session
+// keeps its settings (so a corrupt edit can't silently blank the model). Other
+// settings (routing, base URLs, plugin reloads) still require a restart. Gated on
+// config:write:model since it can change the session model.
+func (p *plugin) bridgeReloadConfig(L *lua.LState) int {
+	if p.host == nil || p.host.configPath == "" {
+		return fail(L, "reload_config: config path not available")
+	}
+	if !p.perms.allowConfigWrite("model") {
+		return fail(L, "permission denied: config:write:model")
+	}
+	v, ok, err := readConfigKey(p.host.configPath, "model")
+	if err != nil {
+		return fail(L, "reload_config: cannot parse config: "+err.Error())
+	}
+	if ok {
+		if s, isStr := v.(string); isStr {
+			if s = strings.TrimSpace(s); s != "" {
+				if p.host.modelReg != nil {
+					if err := p.host.modelReg.SetModel(s); err != nil {
+						return fail(L, "reload_config: "+err.Error())
+					}
+				}
+				p.host.setRuntimeModel(s)
+			}
+		}
+	}
+	p.host.pushUIEffect("reload_config")
+	p.logf("[" + p.name + "] reload config")
+	L.Push(lua.LTrue)
+	return 1
+}
+
+// magi.clear_transcript() -> true
+// Queues a UI effect that clears the visible transcript back to the splash screen
+// (the on-disk session is untouched). A plugin's /logout command uses this to return
+// the user to a clean start. UI-only, so it needs no capability grant.
+func (p *plugin) bridgeClearTranscript(L *lua.LState) int {
+	if p.host == nil {
+		return fail(L, "clear_transcript: unavailable")
+	}
+	p.host.pushUIEffect("clear_transcript")
+	p.logf("[" + p.name + "] clear transcript")
 	L.Push(lua.LTrue)
 	return 1
 }

@@ -196,6 +196,33 @@ magi.register_command{
 	}
 }
 
+// A command that calls magi.clear_transcript() queues a UI effect the TUI drains
+// after dispatch (returning to the splash). The effect is one-shot: a second drain
+// yields nothing.
+func TestClearTranscriptQueuesUIEffect(t *testing.T) {
+	dir := writePlugin(t,
+		`name="out"`+"\n"+`capabilities=["command"]`,
+		`magi.register_command{ name="logout", execute = function() magi.clear_transcript() end }`,
+	)
+	h := hostWith(nil, nil)
+	if _, err := h.Load(context.Background(), dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := h.TakeUIEffects(); len(got) != 0 {
+		t.Fatalf("no command run yet, want no effects, got %v", got)
+	}
+	if handled, err := h.DispatchCommand("logout", nil); !handled || err != nil {
+		t.Fatalf("DispatchCommand handled=%v err=%v", handled, err)
+	}
+	got := h.TakeUIEffects()
+	if len(got) != 1 || got[0] != "clear_transcript" {
+		t.Fatalf("effects = %v, want [clear_transcript]", got)
+	}
+	if again := h.TakeUIEffects(); len(again) != 0 {
+		t.Errorf("effects should drain once, second take got %v", again)
+	}
+}
+
 // An unknown command is not handled, so the TUI can fall back to "unknown command".
 func TestDispatchCommandUnknown(t *testing.T) {
 	h := hostWith(nil, nil)

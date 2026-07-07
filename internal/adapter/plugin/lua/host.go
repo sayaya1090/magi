@@ -79,8 +79,9 @@ type Host struct {
 	prompter      prompt.Prompter           // interactive prompts (magi.ask); nil = unavailable
 	logf          func(string)
 
-	mu      sync.Mutex
-	plugins map[string]*plugin
+	mu        sync.Mutex
+	plugins   map[string]*plugin
+	uiEffects []string // UI effects queued by bridges (e.g. "clear_transcript"), drained by the interactive UI
 }
 
 // HostConfig configures the plugin host.
@@ -244,6 +245,41 @@ func (h *Host) DispatchCommand(name string, args []string) (bool, error) {
 		return false, nil
 	}
 	return true, cmd.Execute(args)
+}
+
+// setRuntimeModel updates the model reported by magi.model() so a set_model /
+// reload_config bridge keeps the read side in sync with the running session.
+func (h *Host) setRuntimeModel(model string) {
+	h.mu.Lock()
+	h.runtime.Model = model
+	h.mu.Unlock()
+}
+
+// runtimeModel returns the model reported to plugins (guarded, since set_model /
+// reload_config may update it from a command handler).
+func (h *Host) runtimeModel() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.runtime.Model
+}
+
+// pushUIEffect queues a UI effect requested by a plugin bridge (e.g. clearing the
+// transcript back to the splash). Runs during a command's Lua handler, when the
+// caller has released h.mu; the interactive UI drains these via TakeUIEffects.
+func (h *Host) pushUIEffect(kind string) {
+	h.mu.Lock()
+	h.uiEffects = append(h.uiEffects, kind)
+	h.mu.Unlock()
+}
+
+// TakeUIEffects returns and clears the queued UI effects. The TUI calls this right
+// after DispatchCommand so a plugin command (e.g. /logout) can return to the splash.
+func (h *Host) TakeUIEffects() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	e := h.uiEffects
+	h.uiEffects = nil
+	return e
 }
 
 // unregister removes a plugin's tools from the sink (caller holds h.mu).
