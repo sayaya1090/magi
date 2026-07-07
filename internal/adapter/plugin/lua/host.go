@@ -54,6 +54,15 @@ type BaseURLRegistry interface {
 	ClearBaseURLIfEquals(url string)
 }
 
+// ModelRegistry lets a plugin change the current session's active model at
+// runtime (magi.set_model) — e.g. an SSO plugin that picks the model to use only
+// after it learns which backend the user is entitled to. It mirrors what the TUI
+// /route editor does; the implementation is expected to apply the change to the
+// live session and persist it. An empty model id is rejected by the bridge.
+type ModelRegistry interface {
+	SetModel(modelID string) error
+}
+
 // Host loads, reloads, and unloads Lua plugins, registering their tools into a
 // shared ToolSink so changes take effect in the running agent (hot reload).
 type Host struct {
@@ -62,6 +71,7 @@ type Host struct {
 	contextReg    ContextProviderRegistry
 	llmReg        LLMHeaderRegistry
 	baseReg       BaseURLRegistry
+	modelReg      ModelRegistry
 	runtime       RuntimeInfo
 	pluginConfigs map[string]map[string]any // [plugins.<name>] sections from config.toml
 	configPath    string                    // path to the user's config.toml (magi.get/set_config_key)
@@ -80,6 +90,7 @@ type HostConfig struct {
 	ContextReg    ContextProviderRegistry   // optional: enables magi.register_context_provider()
 	LLMReg        LLMHeaderRegistry         // optional: enables magi.set_llm_headers()
 	BaseReg       BaseURLRegistry           // optional: enables magi.set_base_url()
+	ModelReg      ModelRegistry             // optional: enables magi.set_model()
 	PluginConfigs map[string]map[string]any // optional: [plugins.<name>] settings, read via magi.store_get
 	ConfigPath    string                    // optional: path to config.toml (enables magi.get/set_config_key)
 	DataDir       string                    // base dir for per-plugin persistent config stores (store_set)
@@ -107,6 +118,7 @@ func NewHostWithConfig(cfg HostConfig) *Host {
 		contextReg:    cfg.ContextReg,
 		llmReg:        cfg.LLMReg,
 		baseReg:       cfg.BaseReg,
+		modelReg:      cfg.ModelReg,
 		runtime:       cfg.Runtime,
 		pluginConfigs: cfg.PluginConfigs,
 		configPath:    cfg.ConfigPath,

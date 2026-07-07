@@ -36,6 +36,7 @@ func installBridge(p *plugin) {
 	L.SetField(t, "write_file", L.NewFunction(p.bridgeWriteFile))
 	L.SetField(t, "workdir", L.NewFunction(p.bridgeWorkdir))
 	L.SetField(t, "model", L.NewFunction(p.bridgeModel))
+	L.SetField(t, "set_model", L.NewFunction(p.bridgeSetModel))
 	L.SetField(t, "platform", L.NewFunction(p.bridgePlatform))
 	L.SetField(t, "time", L.NewFunction(p.bridgeTime))
 	L.SetField(t, "nonce", L.NewFunction(p.bridgeNonce))
@@ -378,6 +379,30 @@ func (p *plugin) bridgeModel(L *lua.LState) int {
 	} else {
 		L.Push(lua.LString(""))
 	}
+	return 1
+}
+
+// magi.set_model(model) -> true | (nil, err)
+// Changes the current session's active model at runtime (and persists it, like the
+// /route editor). Gated on config:write:model since it writes the top-level `model`
+// key; a plugin always holds write over its own [plugins.<name>] section but must be
+// granted config:write:model to steer the session model.
+func (p *plugin) bridgeSetModel(L *lua.LState) int {
+	if p.host == nil || p.host.modelReg == nil {
+		return fail(L, "set_model: model registry not available")
+	}
+	model := strings.TrimSpace(L.CheckString(1))
+	if model == "" {
+		return fail(L, "set_model: model must be a non-empty string")
+	}
+	if !p.perms.allowConfigWrite("model") {
+		return fail(L, "permission denied: config:write:model")
+	}
+	if err := p.host.modelReg.SetModel(model); err != nil {
+		return fail(L, "set_model: "+err.Error())
+	}
+	p.logf("[" + p.name + "] set session model: " + model)
+	L.Push(lua.LTrue)
 	return 1
 }
 

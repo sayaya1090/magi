@@ -41,7 +41,13 @@ func (p *plugin) bridgeGetConfigKey(L *lua.LState) int {
 	if !p.ownsConfigKey(key) && !p.perms.allowConfigRead(key) {
 		return fail(L, "permission denied: config:read:"+key)
 	}
-	v, ok := readConfigKey(p.host.configPath, key)
+	v, ok, err := readConfigKey(p.host.configPath, key)
+	if err != nil {
+		// A parse error is NOT the same as an absent key: returning the default here
+		// would make a plugin re-write config it can't actually read, compounding the
+		// corruption. Surface it as (nil, err) so the plugin can back off instead.
+		return fail(L, "get_config_key: cannot parse config: "+err.Error())
+	}
 	if !ok {
 		L.Push(def)
 		return 1
@@ -89,24 +95,26 @@ func splitConfigKey(key string) (section, leaf string) {
 	return "", key
 }
 
-// readConfigKey decodes config.toml and navigates the dotted key. Returns (value, true) on
-// a hit; (nil, false) on any decode error or missing segment.
-func readConfigKey(path, key string) (any, bool) {
+// readConfigKey decodes config.toml and navigates the dotted key. Returns
+// (value, true, nil) on a hit; (nil, false, nil) when the key is simply absent;
+// and (nil, false, err) when the file itself fails to parse. Callers must
+// distinguish the last case from absence — a corrupt file is not a missing key.
+func readConfigKey(path, key string) (any, bool, error) {
 	var m map[string]any
 	if _, err := toml.DecodeFile(path, &m); err != nil {
-		return nil, false
+		return nil, false, err
 	}
 	cur := any(m)
 	for _, seg := range strings.Split(key, ".") {
 		mp, ok := cur.(map[string]any)
 		if !ok {
-			return nil, false
+			return nil, false, nil
 		}
 		v, ok := mp[seg]
 		if !ok {
-			return nil, false
+			return nil, false, nil
 		}
 		cur = v
 	}
-	return cur, true
+	return cur, true, nil
 }

@@ -188,3 +188,22 @@ func TestConfigKeyUnitHelpers(t *testing.T) {
 		t.Error("routing.model should not be deny-listed")
 	}
 }
+
+// A corrupt config.toml (unparseable) surfaces to get_config_key as (nil, err) —
+// distinct from a missing key, which returns the caller's default. This lets a
+// plugin detect "config is broken" and back off instead of blindly re-writing.
+func TestConfigKeyReadParseError(t *testing.T) {
+	out, _ := configHost(t,
+		`name="p"`+"\n"+`permissions=["config:read:model"]`,
+		`local v, e = magi.get_config_key("model", "fallback")
+magi.log("v=" .. tostring(v))
+magi.log("e=" .. tostring(e))`,
+		"model = \"a\"\nmodel = \"b\"\n", // duplicate top-level key → parse error
+	)
+	if !strings.Contains(out, "v=nil") {
+		t.Errorf("a parse error must NOT return the default value: %q", out)
+	}
+	if !strings.Contains(out, "cannot parse config") {
+		t.Errorf("a parse error should be surfaced as an error string: %q", out)
+	}
+}
