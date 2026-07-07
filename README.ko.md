@@ -198,8 +198,13 @@ CGO_ENABLED=0 go build -o magi ./cmd/magi
 ```sh
 ./magi                         # 대화형 TUI
 ./magi --version               # 버전 출력
-./magi --update                # 최신 릴리스로 자가 업데이트(체크섬 검증)
+./magi --update                # 바이너리 + 관리형 플러그인 업데이트(체크섬 검증)
+./magi --update-core           # 바이너리만 업데이트
+./magi --update-plugins        # 관리형(git) 플러그인만 업데이트
 ```
+
+인터랙티브 터미널에서는 하루 한 번 새 릴리스를 확인함: 패치는 배너만, 마이너/메이저는 자동 설치(취소 가능)
+후 재시작 안내. 비인터랙티브 실행(`-p`·파이프·CI)에선 확인 안 함. `--no-update-check`로 끔.
 
 **TUI에서:** **Enter** 전송 · **Esc** 진행 중 턴 중단 · **Ctrl+C** / `/quit` 종료.
 위험 툴(`write`/`edit`/`bash`)은 실행 전 확인(`y` 허용 · `a` 항상 · `n` 거부).

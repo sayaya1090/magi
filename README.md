@@ -206,8 +206,15 @@ Pure Go — a single static binary, no CGo. Copy it anywhere and run.
 ```sh
 ./magi                         # interactive TUI
 ./magi --version               # print version
-./magi --update                # self-update to the latest release (checksum-verified)
+./magi --update                # update the binary AND managed plugins (checksum-verified)
+./magi --update-core           # update only the binary
+./magi --update-plugins        # update only managed (git) plugins
 ```
+
+On an interactive terminal, magi checks for a newer release at most once a day: a patch
+release just shows a banner, a minor/major release installs automatically (cancellable),
+then asks you to restart. Non-interactive runs (`-p`, pipes, CI) never check. Opt out with
+`--no-update-check`.
 
 **In the TUI:** **Enter** sends · **Esc** interrupts the running turn · **Ctrl+C** / `/quit` exits.
 Dangerous tools (`write`/`edit`/`bash`) ask before they run (`y` allow · `a` always · `n` deny).

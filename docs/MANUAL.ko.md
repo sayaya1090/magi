@@ -59,8 +59,22 @@ echo "explain main.go" | ./magi -p -                   # stdin
 ### 버전 / 자동 업데이트
 ```sh
 ./magi --version
-./magi --update        # 최신 릴리스로 자가 업데이트(체크섬 검증)
+./magi --update            # 바이너리 + 관리형 플러그인 모두 업데이트 후 종료
+./magi --update-core       # 바이너리만 업데이트(체크섬 검증)
+./magi --update-plugins    # 관리형(git) 플러그인만 업데이트
+./magi --plugin-install <git-url> [--plugin-pin <ref>]   # 플러그인을 사용자 플러그인 디렉터리로 clone
 ```
+
+**관리형 플러그인** = git 체크아웃인 플러그인(`--plugin-install`로 설치했거나 직접 clone한 것).
+`--update-plugins`는 각 플러그인에 fast-forward pull을 실행하며, 로컬 커밋/변경이 있어 ff 불가하거나
+git remote가 없는 플러그인은 보고 후 **건너뜀 — 강제로 덮지 않음**. 직접 배치한 비-git 플러그인은
+손대지 않음. 플러그인은 핫리로드되므로 `--update-plugins` 후 재시작 불필요.
+
+**인터랙티브 기동 시 체크.** 터미널에서 TUI로 띄우면 최대 24시간에 한 번 새 릴리스를 확인함.
+**패치** 릴리스는 한 줄 배너만 띄우고(`… magi --update 실행`), **마이너/메이저** 릴리스는 필수로 간주해
+짧은 취소 가능 대기 후 자동 설치하고 재시작을 안내함. 이 체크는 **인터랙티브 TTY에서만** 발화 —
+`-p`·파이프·CI·벤치마크에선 절대 안 됨 — 이라 비인터랙티브 실행은 네트워크 호출도, 갑작스러운 설치도
+없음. `--no-update-check`(또는 `MAGI_NO_UPDATE_CHECK=1`)로 끔.
 
 ## 3. 설정
 
@@ -82,7 +96,10 @@ echo "explain main.go" | ./magi -p -                   # stdin
 | `--no-cache` | `MAGI_NO_CACHE` | (꺼짐) | 프롬프트 `cache_control` 비활성화(기본 켜짐; 백엔드가 거부하면 자동 폴백) |
 | `--list-models` | — | — | 백엔드의 사용 가능 모델 나열 후 종료 |
 | `--doctor` | — | — | 환경 진단 후 종료(§환경 점검) |
-| `--version` / `--update` | — | — | 버전 출력 / 체크섬 검증 자가 업데이트 |
+| `--version` | — | — | 버전 출력 후 종료 |
+| `--update` / `--update-core` / `--update-plugins` | — | — | 바이너리+플러그인 / 바이너리만 / 관리형 플러그인만 업데이트 후 종료 |
+| `--plugin-install` / `--plugin-pin` | — | — | clone할 플러그인 git URL / 그에 대한 태그·브랜치·커밋(선택) |
+| `--no-update-check` | `MAGI_NO_UPDATE_CHECK` | (꺼짐) | 인터랙티브 기동 시 업데이트 체크 비활성화 |
 | — | `MAGI_API_KEY` | (없음) | 원격 백엔드 키 (Ollama 불필요) |
 
 권한 모드: `ask`=매번 확인 · `auto`=**편집은 자동 승인, 명령(bash)/네트워크만 확인** · `allow`=전부 자동 · `deny`=차단. TUI에서 `Shift+Tab`(또는 `/permission`)으로 순환.
@@ -366,6 +383,11 @@ name = "wordcount"
 capabilities = ["tool"]
 permissions = ["fs:read:."]
 ```
+
+**설치 / 업데이트.** git repo로 배포된 플러그인(repo 루트에 `plugin.toml`)은
+`magi --plugin-install <git-url> [--plugin-pin <태그/브랜치>]`로 설치하며, `<config>/plugins/`로
+clone된다. `magi --update-plugins`(또는 바이너리까지 갱신하는 `--update`)는 git 체크아웃 플러그인마다
+fast-forward하며, 로컬 변경이나 remote 없음은 보고 후 건너뜀(덮지 않음). §버전/자동 업데이트 참고.
 
 ## 10. MCP
 

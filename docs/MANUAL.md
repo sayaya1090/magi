@@ -68,8 +68,25 @@ which exits non-zero; warnings are advisory and do not change the exit code.
 ### Version / self-update
 ```sh
 ./magi --version
-./magi --update        # self-update to the latest release (checksum-verified)
+./magi --update            # update the binary AND managed plugins, then exit
+./magi --update-core       # update only the binary (checksum-verified)
+./magi --update-plugins    # update only managed (git) plugins
+./magi --plugin-install <git-url> [--plugin-pin <ref>]   # clone a plugin into the user plugins dir
 ```
+
+**Managed plugins** = plugins that are git checkouts (installed via `--plugin-install`
+or cloned by hand). `--update-plugins` runs a fast-forward pull on each; a plugin with
+local commits/changes (not fast-forwardable) or with no git remote is reported and
+**skipped, never force-overwritten**. Hand-dropped, non-git plugins are left untouched.
+Plugins hot-reload, so no restart is needed after `--update-plugins`.
+
+**Interactive startup check.** When you launch the TUI on a terminal, magi checks for a
+newer release at most once every 24h. A **patch** release just prints a one-line banner
+(`… run magi --update`); a **minor or major** release is treated as required and installs
+automatically after a short cancellable pause, then asks you to restart. This check fires
+**only** on an interactive TTY — never under `-p`, a pipe, CI, or a benchmark — so
+non-interactive runs make no network call and get no surprise install. Disable it with
+`--no-update-check` (or `MAGI_NO_UPDATE_CHECK=1`).
 
 ## 3. Configuration
 
@@ -91,7 +108,10 @@ Flags / environment variables (precedence: flag > env > default):
 | `--no-cache` | `MAGI_NO_CACHE` | (off) | disable prompt `cache_control` (on by default; auto-falls back if the backend rejects it) |
 | `--list-models` | — | — | list the backend's available models and exit |
 | `--doctor` | — | — | environment diagnostics and exit (see §Environment check) |
-| `--version` / `--update` | — | — | print version / checksum-verified self-update |
+| `--version` | — | — | print version and exit |
+| `--update` / `--update-core` / `--update-plugins` | — | — | update binary+plugins / binary only / managed plugins only, then exit |
+| `--plugin-install` / `--plugin-pin` | — | — | git URL of a plugin to clone into the user plugins dir / optional tag/branch/commit for it |
+| `--no-update-check` | `MAGI_NO_UPDATE_CHECK` | (off) | disable the interactive startup update check |
 | — | `MAGI_API_KEY` | (none) | key for remote backends (not needed for Ollama) |
 | — | `MAGI_AMBIGUOUS_WIDTH` | `auto` | `wide`\|`narrow`\|`auto` — force East-Asian ambiguous-char cell width (see below) |
 
@@ -385,6 +405,12 @@ name = "wordcount"
 capabilities = ["tool"]
 permissions = ["fs:read:."]
 ```
+
+**Install / update.** A plugin published as a git repo (its repo root holds `plugin.toml`)
+installs with `magi --plugin-install <git-url> [--plugin-pin <tag/branch>]`, which clones it
+into `<config>/plugins/`. `magi --update-plugins` (or `--update`, which also updates the
+binary) fast-forwards every git-checkout plugin; local changes or a missing remote are
+reported and skipped rather than overwritten. See §Version / self-update.
 
 ## 10. MCP
 
