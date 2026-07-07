@@ -566,7 +566,14 @@ func toStr(v any) string {
 }
 
 func oneLine(s string, max int) string {
+	// Newlines first (stripControl drops \n outright, which would fuse adjacent
+	// words), then strip terminal control sequences so untrusted preview/header
+	// content — model thoughts, tool args/results, subagent snippets — can't move
+	// the cursor, clear the screen, or spoof the title (audit finding N10). The
+	// transcript BODY path is already guarded by clipLine; oneLine is the matching
+	// choke point for the one-line preview/header paths that skip clipLine.
 	s = strings.ReplaceAll(s, "\n", " ")
+	s = stripControl(s)
 	s = strings.Join(strings.Fields(s), " ")
 	if max <= 0 {
 		return ""

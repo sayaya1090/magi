@@ -596,6 +596,28 @@ isErr=false, `bad-lang` isErr=true(무회귀). 회귀: `astgrep_test.go`
 
 ---
 
+## Wave 15 — 터미널 주입 잔여 표면(N10 형제, 프리뷰/헤더 렌더 경로)
+
+### O21 🟠 `oneLine`이 프리뷰/헤더에서 제어시퀀스를 안 지움 — N10 형제 표면(재현+수정+회귀테스트)
+N10 방어는 트랜스크립트 **본문** 경로(`clipLine`→`stripControl`)에만 적용됐는데, 접힌
+thought 프리뷰·tool-args/result 요약·서브에이전트 스니펫 같은 **한 줄 프리뷰/헤더**는
+`clipLine`을 안 거치고 `oneLine`으로만 렌더됨. `oneLine`은 `strings.Fields`(유니코드 공백만
+분리) + `ansi.Truncate`(폭 계산용 ANSI 인식이나 출력엔 **보존**)뿐이라 OSC/BEL/CSI/C0을
+그대로 통과 → **모델 생성(신뢰불가) 콘텐츠**가 터미널 타이틀 스푸핑·커서 이동·화면 클리어 가능.
+
+**증거(Wave 15 프로브, 결정론):** `oneLine("before\x1b]0;PWNED\x07\x1b[2Jafter\x00end")` →
+제어바이트 전부 생존. 실렌더 경로 확인 — 접힌 `blockReasoning` 프리뷰 →
+`"  ✻ thought · before\x1b]0;PWNED\a\x1b[2Jafter\x00end  click / ctrl+t "` (LEAK-ON-RENDER).
+
+**✅ 수정:** `oneLine` 내부에서 폭 트렁케이트 **전에** `stripControl` 경유 — 줄바꿈→공백 치환을
+먼저 해 `stripControl`이 `\n`을 드롭해도 단어가 붙지 않게 순서 고정. `clipLine`과 동일 촉약점
+패턴이라 모든 프리뷰/헤더 호출부(thought/args/result, `panes.go`·`panel.go`·`model_route.go`)가
+한 번에 방어됨. 재프로브: 제어바이트 0, 인쇄가능문자 보존, 기존 `TestOneLine` 무회귀.
+회귀: `oneline_control_test.go` (`TestOneLineStripsControl`, `TestOneLineNewlineBecomesSpace`,
+`TestReasoningPreviewSanitized`).
+
+---
+
 ## 이번 세션 수정 요약 (커밋 대기 — 요청 시에만)
 
 - **O3** edit/multiedit 빈 old 거부 — `edit.go`, `multiedit.go` (+`edit_empty_old_test.go`).
@@ -629,6 +651,8 @@ isErr=false, `bad-lang` isErr=true(무회귀). 회귀: `astgrep_test.go`
   — `astgrep.go` + `astgrep_jail_test.go`. **커밋됨 af0ede5.**
 - **O20** 🟠 astgrep이 매치0(exit 1)을 패턴/lang 에러로 오보 → 모델 불신/thrash — `astgrep.go`
   + `astgrep_test.go`. **커밋됨 c9a12c0.**
+- **O21** 🟠 `oneLine` 프리뷰/헤더가 제어시퀀스 미제거(N10 본문방어의 프리뷰 형제) — `render.go`
+  (`oneLine`→`stripControl`) + `oneline_control_test.go`.
 - **P4** `magi.ask` 폼 UI(nil 라벨·세로 옵션·로고) — `bridge.go`, `prompt.go`, `logo.go`
   (+`prompt_test.go`, `ask_test.go`). **커밋됨 79b6099.**
 - **P5** 모달 열림 중 트랜스크립트 스크롤 허용 — `model_input.go`
