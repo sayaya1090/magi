@@ -246,6 +246,14 @@ func memberSystem(m council.Member, phase, task string) string {
 			"compile — \"done\" requires that the turn actually RAN that check and its REAL output is visible in the "+
 			"SIGNALS, tool results, or report. An artifact that was produced but never exercised is unverified: vote "+
 			"continue and name the exact check to run. Unanimous confidence is not a substitute for one real run.\n"+
+			"Correctness also covers PREMISES the deliverable rests on. When its correctness depends on an EXTERNAL "+
+			"FACT the agent could not confirm — a `self-check/unverified-premise` signal is present (a knowledge lookup "+
+			"failed and was never recovered), or the report shows a key value was assumed, recalled, or inferred rather "+
+			"than looked up/tested — treat that fact as UNVERIFIED. A deliverable in exactly the right shape and format "+
+			"built on an unconfirmed domain fact (an API detail, a constant, a sequence, a spec, an identifier) is NOT "+
+			"done: you cannot certify such a fact from reasoning alone, so do NOT vote done on faith that it is probably "+
+			"right — vote continue and tell the agent to verify the fact or state the uncertainty plainly instead of "+
+			"asserting it as settled.\n"+
 			"A report that RATIONALIZES incompletion is NOT done. If the report's own words say a required part was "+
 			"impossible, skipped, never actually run, only inferred from documentation or reasoning, or \"needed no "+
 			"work\" without shown verification, that is an ADMISSION the deliverable was not produced or confirmed — "+
