@@ -26,8 +26,16 @@ func logoBlock() string {
 	return lipgloss.JoinVertical(lipgloss.Center, art, "", ver)
 }
 
-// splashView renders the startup splash centered in a width×height area: the MAGI
-// wordmark in NERV red + the build version. Shown until the first message.
+// splashView renders the startup splash in a width×height area: the MAGI wordmark
+// in NERV red + the build version, horizontally centered and biased below the
+// vertical center so it sits just above the input prompt — grouping the logo with
+// the prompt on the fresh screen instead of floating it in an empty viewport.
+// Shown until the first message.
 func splashView(width, height int) string {
-	return lipgloss.Place(width, max(1, height), lipgloss.Center, lipgloss.Center, logoBlock())
+	return lipgloss.Place(width, max(1, height), lipgloss.Center, splashVPos, logoBlock())
 }
+
+// splashVPos biases the wordmark below center so its base meets the prompt. Note
+// lipgloss.PlaceVertical splits the gap as above=gap*(1-pos): a SMALLER pos means
+// MORE space above, i.e. the content sits lower. 0.32 ≈ two-thirds down.
+const splashVPos lipgloss.Position = 0.32

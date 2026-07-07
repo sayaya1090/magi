@@ -156,8 +156,13 @@ func (m promptModel) key(e tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			st.optIdx = wrap(st.optIdx+1, len(f.Options))
 		case "enter":
 			// The highlighted row is already the selection (optIdx follows the cursor),
-			// so Enter just confirms and advances — landing on Submit when last.
+			// so Enter just confirms and advances. When the next focusable is Submit —
+			// i.e. this was the last input field — submit outright rather than parking
+			// on the button, so a lone select menu takes one Enter, not two.
 			m.sel = m.firstFocusable(m.sel+1, 1)
+			if m.sel == len(m.spec.Fields) {
+				return m, tea.Quit
+			}
 		}
 	case prompt.TypeMultiselect:
 		switch e.String() {

@@ -100,6 +100,9 @@ type permReq struct {
 type CommandSource interface {
 	PluginCommands() []port.PluginCommand
 	DispatchCommand(name string, args []string) (bool, error)
+	// TakeUIEffects drains UI effects a command queued while running (e.g. a
+	// plugin /logout asking to clear the transcript back to the splash).
+	TakeUIEffects() []string
 }
 
 type Model struct {

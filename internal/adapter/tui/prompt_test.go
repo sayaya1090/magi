@@ -66,7 +66,7 @@ func TestPromptFormAnswers(t *testing.T) {
 }
 
 // A select's ↑/↓ moves within its options and only crosses to Submit past the last
-// option; Enter on a select advances (to Submit when it is the last field).
+// option. Enter on the last field submits in one press (no parking on Submit).
 func TestPromptSelectVerticalNav(t *testing.T) {
 	applyTheme(true)
 	m := newPromptModel(prompt.Spec{Fields: []prompt.Field{
@@ -79,12 +79,35 @@ func TestPromptSelectVerticalNav(t *testing.T) {
 	if m.sel != 0 || m.state[0].optIdx != 1 {
 		t.Fatalf("after down: sel=%d optIdx=%d, want 0/1", m.sel, m.state[0].optIdx)
 	}
-	m = pkey(m, "enter") // confirm + advance → Submit
-	if m.sel != len(m.spec.Fields) {
-		t.Errorf("Enter on select should advance to Submit, sel=%d", m.sel)
+	// Enter on the sole select field submits directly (single Enter, not two).
+	r, cmd := m.key(keyPress("enter"))
+	m = r.(promptModel)
+	if cmd == nil {
+		t.Errorf("Enter on the last select should submit (return a Quit cmd), got nil")
 	}
 	if m.answers()["mode"] != "b" {
 		t.Errorf("mode = %v, want b", m.answers()["mode"])
+	}
+}
+
+// In a multi-field form, Enter on a non-last select advances to the next input
+// field rather than submitting.
+func TestPromptSelectEnterAdvancesMidForm(t *testing.T) {
+	applyTheme(true)
+	m := newPromptModel(prompt.Spec{Fields: []prompt.Field{
+		{Name: "mode", Type: prompt.TypeSelect, Options: []string{"a", "b"}},
+		{Name: "note", Type: prompt.TypeText},
+	}})
+	if m.sel != 0 {
+		t.Fatalf("sel = %d, want 0 (select)", m.sel)
+	}
+	r, cmd := m.key(keyPress("enter"))
+	m = r.(promptModel)
+	if cmd != nil {
+		t.Errorf("Enter on a non-last select must not submit, got a cmd")
+	}
+	if m.sel != 1 {
+		t.Errorf("Enter should advance to the text field, sel=%d want 1", m.sel)
 	}
 }
 

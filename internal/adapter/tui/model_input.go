@@ -698,6 +698,7 @@ func (m *Model) handleSlash(text string) (tea.Cmd, bool) {
 				} else {
 					out = m.snack(cmd + " ✓")
 				}
+				m.applyPluginUIEffects()
 				break
 			}
 		}
@@ -705,6 +706,29 @@ func (m *Model) handleSlash(text string) (tea.Cmd, bool) {
 	}
 	m.refresh()
 	return out, true
+}
+
+// applyPluginUIEffects drains UI effects a just-dispatched plugin command queued
+// and applies them to the view. Only cosmetic effects are honored; the on-disk
+// session is never touched here.
+func (m *Model) applyPluginUIEffects() {
+	if m.cmds == nil {
+		return
+	}
+	for _, e := range m.cmds.TakeUIEffects() {
+		switch e {
+		case "clear_transcript":
+			m.blocks = nil
+			m.cache = m.cache[:0]
+			m.liveText = ""
+		case "reload_config":
+			// reload_config may have changed the session model; re-read it so the
+			// header chip reflects the running session.
+			if mdl := m.app.SessionModel(m.sid); mdl != "" {
+				m.model = mdl
+			}
+		}
+	}
 }
 
 // cmdContext handles the /context command. Bare "/context" lists usage + every
