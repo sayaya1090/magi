@@ -110,6 +110,18 @@ func (m *Model) applyEvent(e event.Event) {
 			m.turnOut = d.OutTokens // ↓ cumulative output so far
 		}
 
+	case event.TypeModelChanged:
+		// The session's active model changed at runtime (plugin set_model, /route
+		// edit, reload_config) — refresh the cached header chip and, if the routing
+		// editor is open, its rows, from this one signal.
+		var d event.ModelChangedData
+		if json.Unmarshal(e.Data, &d) == nil && d.Model != "" {
+			m.model = d.Model
+			if m.routing {
+				m.refreshRouteList()
+			}
+		}
+
 	case event.TypeWorkflowPhase:
 		var d event.WorkflowPhaseData
 		if json.Unmarshal(e.Data, &d) == nil && d.Phase == "plan" {

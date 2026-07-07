@@ -54,7 +54,7 @@ func (m *Model) openRouteEditor() {
 
 func (m *Model) refreshRouteList() {
 	rows := []routeRow{{kind: rowSession, name: sessionRouteRow, value: m.model}}
-	for _, r := range m.app.AgentRoutes() {
+	for _, r := range m.app.AgentRoutes(m.sid) {
 		v := r.Model
 		if r.Provider != "" {
 			v += "  @" + r.Provider

@@ -95,7 +95,7 @@ func TestRouteEditorAppliesEdit(t *testing.T) {
 	if m.routeEditing {
 		t.Error("enter should apply and exit editing")
 	}
-	for _, r := range m.app.AgentRoutes() {
+	for _, r := range m.app.AgentRoutes(m.sid) {
 		if r.Name == "explore" && (r.Provider != "fast" || r.Model != "gpt-oss:20b") {
 			t.Errorf("explore route after edit = %+v", r)
 		}
@@ -208,7 +208,7 @@ func TestRouteEditorProfilePicker(t *testing.T) {
 	}
 	picked := m.routeBuf
 	m.handleRouteKey(keyPress("enter")) // apply
-	for _, r := range m.app.AgentRoutes() {
+	for _, r := range m.app.AgentRoutes(m.sid) {
 		if r.Name == "coder" && r.Provider != picked {
 			t.Errorf("coder should be routed to picked profile %q, got %+v", picked, r)
 		}
@@ -233,7 +233,7 @@ func TestRouteEditorBackspaceAndCancel(t *testing.T) {
 	if !m.routing {
 		t.Error("esc from editing should keep the editor open (cancel edit, not close)")
 	}
-	for _, r := range m.app.AgentRoutes() {
+	for _, r := range m.app.AgentRoutes(m.sid) {
 		if r.Name == "coder" && r.Model != "base" {
 			t.Errorf("cancel must not apply, coder model = %q", r.Model)
 		}
