@@ -133,6 +133,48 @@ func IsNewer(current, latest string) bool {
 	return false
 }
 
+// Policy is what the interactive auto-check should do about an available release,
+// derived purely from which semver component advanced.
+type Policy int
+
+const (
+	PolicyNone   Policy = iota // no newer release, or versions unparseable → do nothing
+	PolicyNotify               // patch bump (x.y.Z): non-intrusive banner only
+	PolicyForce                // minor or major bump (x.Y.z / X.y.z): auto-install
+)
+
+// UpdatePolicy decides notify-vs-force from the version delta: a patch-only bump
+// is Notify, a minor OR major bump is Force ("중간 이상 = 강제"). Anything that
+// isn't a strictly-newer, fully-parseable pair is PolicyNone, so a dev build or a
+// malformed tag never triggers a forced install (fail-safe: we don't force).
+func UpdatePolicy(current, latest string) Policy {
+	lv, ok := parseSemver(latest)
+	if !ok {
+		return PolicyNone
+	}
+	cv, ok := parseSemver(current)
+	if !ok {
+		// current is "dev"/unparseable: offer the update, but never force it.
+		return PolicyNotify
+	}
+	if lv[0] != cv[0] {
+		if lv[0] > cv[0] {
+			return PolicyForce
+		}
+		return PolicyNone // latest older (major)
+	}
+	if lv[1] != cv[1] {
+		if lv[1] > cv[1] {
+			return PolicyForce
+		}
+		return PolicyNone // latest older (minor)
+	}
+	if lv[2] > cv[2] {
+		return PolicyNotify
+	}
+	return PolicyNone // same or older
+}
+
 // parseSemver parses "vX.Y.Z" / "X.Y.Z" (ignoring any pre-release suffix).
 func parseSemver(s string) ([3]int, bool) {
 	s = strings.TrimPrefix(strings.TrimSpace(s), "v")
