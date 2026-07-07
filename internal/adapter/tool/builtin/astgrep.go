@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -105,7 +106,15 @@ func (AstGrep) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEn
 	cmd.WaitDelay = 2 * time.Second
 	out, err := cmd.Output()
 	if err != nil {
-		// ast-grep exits non-zero on a bad pattern; surface stderr-ish hint.
+		// ast-grep exits 1 for a valid search that simply matched nothing (like
+		// grep) — that is a successful "no matches", not a pattern/lang error.
+		// Only exit codes ≥2 (2=bad usage/lang, 8=pattern parse error, …) are real
+		// failures. Misreporting exit 1 as an error made the model distrust a
+		// correct structural query and thrash.
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && ee.ExitCode() == 1 {
+			return okText("", "no structural matches"), nil
+		}
 		if len(out) == 0 {
 			return errResult("", "astgrep: "+err.Error()+" (check the pattern/lang)"), nil
 		}

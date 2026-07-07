@@ -91,3 +91,48 @@ func TestAstGrepRealMatch(t *testing.T) {
 		t.Errorf("match = %+v, want a.go:4", matches[0])
 	}
 }
+
+// A valid pattern that simply matches nothing must report "no structural matches",
+// not a pattern/lang error: ast-grep exits 1 on no-match (like grep), and treating
+// that as failure made the model distrust a correct query.
+func TestAstGrepNoMatchIsNotError(t *testing.T) {
+	if _, ok := astGrepBin(); !ok {
+		t.Skip("ast-grep not installed")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte("package a\nfunc F() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Well-formed Go pattern with no possible match in this file.
+	raw, _ := json.Marshal(astGrepArgs{Pattern: "$A + $B + $C + $D", Lang: "go"})
+	res, err := AstGrep{}.Execute(context.Background(), raw, port.ToolEnv{Workdir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError {
+		t.Fatalf("a valid no-match search must not be an error; got %q", res.Content)
+	}
+	if !strings.Contains(string(res.Content), "no structural matches") {
+		t.Errorf("want \"no structural matches\"; got %q", res.Content)
+	}
+}
+
+// A genuinely bad lang (ast-grep exit 2) must still surface as an error, so the
+// exit-1 carve-out doesn't swallow real failures.
+func TestAstGrepBadLangStillErrors(t *testing.T) {
+	if _, ok := astGrepBin(); !ok {
+		t.Skip("ast-grep not installed")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte("package a\nfunc F() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(astGrepArgs{Pattern: "$A == nil", Lang: "klingon"})
+	res, err := AstGrep{}.Execute(context.Background(), raw, port.ToolEnv{Workdir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError {
+		t.Errorf("a bad lang (exit 2) must remain an error; got %q", res.Content)
+	}
+}
