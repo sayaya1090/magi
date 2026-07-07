@@ -151,3 +151,75 @@ func TestAppendListItem(t *testing.T) {
 		t.Fatalf("multi-line array was modified: %s", b3)
 	}
 }
+
+// When a commented template default sits above the user's active key, SetKey must
+// update the ACTIVE line and leave the comment inert — activating the comment
+// would create a duplicate top-level key that fails the whole-file TOML parse.
+func TestSetKeyPrefersActiveOverComment(t *testing.T) {
+	dir := t.TempDir()
+	p := writeFile(t, dir, "# model = \"tmpl\"\nmodel = \"actual\"\n\n[routing]\ncoder = \"x\"\n")
+	if err := SetKey(p, "", "model", "changed"); err != nil {
+		t.Fatal(err)
+	}
+	got := read(t, p)
+	active := 0
+	for _, ln := range strings.Split(got, "\n") {
+		tl := strings.TrimSpace(ln)
+		if strings.HasPrefix(tl, "[") {
+			break
+		}
+		if strings.HasPrefix(tl, "model") && strings.Contains(tl, "=") {
+			active++
+		}
+	}
+	if active != 1 {
+		t.Fatalf("want exactly 1 active top-level model line, got %d:\n%s", active, got)
+	}
+	c, err := Load(dir)
+	if err != nil {
+		t.Fatalf("resulting config must still parse: %v\n%s", err, got)
+	}
+	if c.Model != "changed" {
+		t.Fatalf("model = %q, want \"changed\"", c.Model)
+	}
+	if !strings.Contains(got, "# model = \"tmpl\"") {
+		t.Fatalf("template comment should be preserved:\n%s", got)
+	}
+}
+
+// With no active key, SetKey activates the commented template default in place
+// (no duplicate, no stray insertion).
+func TestSetKeyActivatesLoneComment(t *testing.T) {
+	dir := t.TempDir()
+	p := writeFile(t, dir, "# model = \"tmpl\"\n\n[routing]\ncoder = \"x\"\n")
+	if err := SetKey(p, "", "model", "chosen"); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Model != "chosen" {
+		t.Fatalf("model = %q, want \"chosen\"", c.Model)
+	}
+	got := read(t, p)
+	if strings.Contains(got, "# model") {
+		t.Fatalf("the comment should have been activated, not left commented:\n%s", got)
+	}
+}
+
+// Clearing removes only the active line and leaves a template comment intact.
+func TestSetKeyClearLeavesComment(t *testing.T) {
+	dir := t.TempDir()
+	p := writeFile(t, dir, "# model = \"tmpl\"\nmodel = \"actual\"\n")
+	if err := SetKey(p, "", "model", ""); err != nil {
+		t.Fatal(err)
+	}
+	got := read(t, p)
+	if strings.Contains(got, "\nmodel = ") || strings.HasPrefix(got, "model = ") {
+		t.Fatalf("active model line should be gone:\n%s", got)
+	}
+	if !strings.Contains(got, "# model = \"tmpl\"") {
+		t.Fatalf("template comment should be preserved:\n%s", got)
+	}
+}

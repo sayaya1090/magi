@@ -139,3 +139,17 @@ anything = "goes"
 		t.Errorf("missing config: unknown=%v err=%v", u, err)
 	}
 }
+
+// A malformed config (duplicate top-level key → whole-file TOML parse failure)
+// must be returned as an ERROR, not silently swallowed into an empty Config. The
+// CLI relies on this to refuse startup rather than drop every setting silently.
+func TestLoadWithUnknownParseErrorSurfaces(t *testing.T) {
+	dir := t.TempDir()
+	bad := "model = \"a\"\nmodel = \"b\"\n" // duplicate top-level key
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(bad), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := LoadWithUnknown(dir); err == nil {
+		t.Fatal("expected a parse error for a duplicate top-level key, got nil")
+	}
+}

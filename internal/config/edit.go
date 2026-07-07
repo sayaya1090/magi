@@ -79,19 +79,39 @@ func SetKey(path, section, key, value string) error {
 		}
 	}
 
-	// Replace an existing (active or commented) key line within the section.
+	// Find the key line to act on, preferring an ACTIVE (uncommented) line over a
+	// commented template line. keyRe matches both `key =` and `# key =` (so we can
+	// uncomment a template default), but activating a comment while an active line
+	// already exists would produce a DUPLICATE top-level key — which makes the whole
+	// file fail TOML parse. So only activate a comment when nothing active matches.
+	active, commented := -1, -1
 	for i := start; i < end; i++ {
-		if keyRe.MatchString(lines[i]) {
-			if value == "" {
-				lines = append(lines[:i], lines[i+1:]...)
-			} else {
-				lines[i] = target
+		if !keyRe.MatchString(lines[i]) {
+			continue
+		}
+		if strings.HasPrefix(strings.TrimSpace(lines[i]), "#") {
+			if commented < 0 {
+				commented = i
 			}
-			return writeLines(path, lines)
+		} else if active < 0 {
+			active = i
 		}
 	}
 	if value == "" {
-		return nil // nothing to clear
+		// Clearing: remove the active line if there is one; a bare template comment
+		// is already inert, so leave it be.
+		if active >= 0 {
+			lines = append(lines[:active], lines[active+1:]...)
+			return writeLines(path, lines)
+		}
+		return nil // nothing active to clear
+	}
+	if idx := active; idx >= 0 || commented >= 0 {
+		if idx < 0 {
+			idx = commented
+		}
+		lines[idx] = target
+		return writeLines(path, lines)
 	}
 	// Insert: top-level at the end of the preamble, a table right after its header.
 	at := start
