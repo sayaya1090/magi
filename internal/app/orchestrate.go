@@ -283,6 +283,48 @@ func (a *App) injectSubagentResult(ctx context.Context, parent session.SessionID
 	// Detached context: the parent turn's ctx may already be winding down.
 	_ = a.appendPromptText(context.WithoutCancel(ctx), parent,
 		event.Actor{Kind: event.ActorAgent, ID: "subagent:" + agentName}, text)
+	// A leaf subagent runs at depth>0 and never convenes a council, so its structural
+	// signals would die at this boundary — the parent would read only the child's prose.
+	// Fold the child's ledger and re-raise still-open concerns onto the parent, scoped to
+	// the child agent, so the parent council sees them as first-class evidence.
+	a.bubbleSubagentConcerns(context.WithoutCancel(ctx), parent, agentName, res.SessionID)
+}
+
+// bubbleSubagentConcerns carries a finished child's open concerns across the subagent
+// boundary. It re-keys each by child agent (subagent:<name>/<childKey>) so one child's
+// concerns stay distinct from the parent's own and from other children, embeds the
+// provenance in Detail (council evidence is prose-only, it never sees Scope), and skips
+// keys already open on the parent so a re-injection cannot duplicate. Best-effort: a read
+// failure means no bubble-up, never a spawn failure.
+func (a *App) bubbleSubagentConcerns(ctx context.Context, parent session.SessionID, agentName string, child session.SessionID) {
+	if child == "" {
+		return
+	}
+	childEvs, err := a.store.Read(ctx, child, 0)
+	if err != nil {
+		return
+	}
+	open := sessionConcerns(childEvs)
+	if len(open) == 0 {
+		return
+	}
+	present := map[string]bool{}
+	if pevs, perr := a.store.Read(ctx, parent, 0); perr == nil {
+		for _, c := range sessionConcerns(pevs) {
+			present[c.Key] = true
+		}
+	}
+	scope := "subagent:" + agentName
+	for _, c := range open {
+		key := scope + "/" + c.Key
+		if present[key] {
+			continue
+		}
+		detail := fmt.Sprintf("[via subagent %s] %s", agentName, c.Detail)
+		_ = a.appendConcernRaised(ctx, parent,
+			event.Actor{Kind: event.ActorAgent, ID: scope},
+			key, c.Source, c.Kind, c.Status, detail, scope)
+	}
 }
 
 // cloneConversation copies the parent's reconstructable conversation into the child

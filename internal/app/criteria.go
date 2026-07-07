@@ -103,14 +103,23 @@ func (a *App) acceptanceCriteria(ctx context.Context, agent AgentSpec, s session
 	return c
 }
 
+// elicitCriteriaSystem instructs the criteria elicitation. Beyond listing prose
+// done-conditions, it asks that any execution-confirmable condition also carry HOW to
+// confirm it (the command/call and expected output), reusing any verification procedure
+// the task itself states — so the contract is checkpoint-friendly for both the executor
+// (checkpoint-first) and the termination gate.
+const elicitCriteriaSystem = "You define acceptance criteria for a coding task. List the concrete, checkable " +
+	"conditions that must ALL hold for it to be DONE — correctness, tests/build passing, edge cases, and staying " +
+	"in scope. For any condition that can be confirmed by execution, also state HOW to confirm it (the exact " +
+	"command or function call to run and the expected output), reusing any verification procedure the task itself " +
+	"specifies. Output a short bullet checklist only, no preamble."
+
 // elicitCriteria asks the model (tool-free) for the concrete done-conditions of a
 // task. Uses the agent's provider so it follows per-agent backend routing.
 func (a *App) elicitCriteria(ctx context.Context, agent AgentSpec, s session.Session, task string) string {
 	req := port.ChatRequest{
-		Model: s.Model.Model,
-		System: "You define acceptance criteria for a coding task. List the concrete, checkable conditions that must ALL " +
-			"hold for it to be DONE — correctness, tests/build passing, edge cases, and staying in scope. Output a short " +
-			"bullet checklist only, no preamble.",
+		Model:    s.Model.Model,
+		System:   elicitCriteriaSystem,
 		Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: task}}}},
 	}
 	stream, err := a.providerFor(agent).StreamChat(ctx, req)

@@ -1,9 +1,11 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 
 	"github.com/sayaya1090/magi/internal/core/event"
+	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
@@ -106,4 +108,23 @@ func sessionConcerns(evs []event.Event) []Concern {
 		}
 	}
 	return out
+}
+
+// appendConcernRaised persists a concern.raised fact. Callers guard idempotency by only
+// raising when the Key is not already open (the fold dedups regardless, but not
+// re-appending an identical fact every council round keeps the log from growing without
+// bound). Low-level; the producers (council gate, subagent boundary) supply the Key/Scope.
+func (a *App) appendConcernRaised(ctx context.Context, sid session.SessionID, actor event.Actor, key, source, kind, status, detail, scope string) error {
+	d, _ := json.Marshal(event.ConcernRaisedData{
+		Key: key, Source: source, Kind: kind, Status: status, Detail: detail, Scope: scope,
+	})
+	return a.appendFact(ctx, sid, event.TypeConcernRaised, actor, d)
+}
+
+// appendConcernResolved persists a concern.resolved tombstone by Key. By is "auto" for a
+// deterministic recovery or "orchestrator" for a guarded judged reset. The raised fact is
+// never deleted; the fold simply treats the Key as closed until (if ever) re-raised.
+func (a *App) appendConcernResolved(ctx context.Context, sid session.SessionID, actor event.Actor, key, by, reason string) error {
+	d, _ := json.Marshal(event.ConcernResolvedData{Key: key, By: by, Reason: reason})
+	return a.appendFact(ctx, sid, event.TypeConcernResolved, actor, d)
 }

@@ -191,6 +191,9 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth, 
 	if specFidelityEnabled() {
 		_ = a.appendPromptText(ctx, s.ID, event.Actor{Kind: event.ActorSystem, ID: "planner"}, specFidelityNote)
 	}
+	if checkpointFirstEnabled() {
+		_ = a.appendPromptText(ctx, s.ID, event.Actor{Kind: event.ActorSystem, ID: "planner"}, checkpointFirstNote)
+	}
 
 	findings, delegated := a.executeSteps(ctx, s, prompt, steps, depth)
 	if strings.TrimSpace(findings) == "" {
@@ -207,6 +210,9 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 	sys := spec.System + "\n\n# Repository (top level)\n" + repoMap(s.Workdir) + "\n\n" + plannerContract + planEnvelope(depth, a.cfg.MaxPlanDepth, maxSteps)
 	if specFidelityEnabled() {
 		sys += literalRule
+	}
+	if checkpointFirstEnabled() {
+		sys += checkpointFirstRule
 	}
 	if names := a.delegatableAgents(); len(names) > 0 {
 		sys += "\n\nDelegate executors available (use one as a delegate step's \"agent\"): " + strings.Join(names, ", ") + "."
@@ -372,6 +378,29 @@ const specFidelityNote = "# Execution note — spec fidelity\n" +
 	"wording VERBATIM, not the summary. Do NOT normalize or rename it (if the request names a field " +
 	"`value`, keep it `value`, do not shorten it to `val`)."
 
+// checkpointFirstNote is injected into the MAIN session before execution when
+// checkpointFirstEnabled(): a test-first ordering directive. It fires on the same seam
+// as specFidelityNote, so it reaches the solo, planned, and refine paths alike. See
+// checkpointFirstEnabled.
+const checkpointFirstNote = "# Execution note — checkpoint first\n" +
+	"If this task states HOW your output will be checked or applied — a code snippet, a command, a " +
+	"function call, or an input/output contract — then BEFORE implementing the solution, FIRST write a " +
+	"small runnable checkpoint in the working directory that reproduces exactly that check (like writing " +
+	"the test before the code). Build its inputs from the spec itself, INCLUDING any counter-example the " +
+	"task names, and encode the expected result. Then implement until the checkpoint passes, and only " +
+	"report done once you have RUN it and seen it pass. Do not invent an oracle the spec does not give — " +
+	"reproduce the stated procedure. If a runnable checkpoint genuinely cannot be built cheaply (the " +
+	"conditions are purely prose), proceed as usual."
+
+// checkpointFirstRule is appended to the planner contract when checkpointFirstEnabled():
+// it makes a multi-step plan ORDER the checkpoint early (a sequencing concern, not a new
+// verification owner), so later steps implement against an artifact that already exists.
+const checkpointFirstRule = "\n\nCHECKPOINT FIRST: if the request states HOW completion is checked or the output " +
+	"applied (a snippet, command, function call, or I/O contract), make an EARLY step build a small runnable " +
+	"checkpoint reproducing that check (inputs synthesized from the spec, including any named counter-example); " +
+	"later steps implement until it passes. Only add this when the check is actually executable — do not pad a " +
+	"prose-only task with it."
+
 // planEnvelope gives the planner the two facts it otherwise plans blind to: the step
 // BUDGET it is planning within, and its DEPTH relative to the recursion cap. Both let it
 // right-size the procedure — a plan produced at the cap, or with little budget, should be
@@ -521,6 +550,24 @@ func specFidelityEnabled() bool {
 		return false
 	}
 	return true
+}
+
+// checkpointFirstEnabled turns on test-first ordering: when a task states HOW its
+// completion is checked (a snippet, command, function call, or I/O contract), the
+// agent is told to FIRST materialize that as a runnable checkpoint in the workdir —
+// synthesizing inputs from the spec, including any counter-example it names — and
+// then implement until the checkpoint passes, rather than reasoning about a
+// verifiable artifact symbolically and never running it (regex-log: a regex rewritten
+// 7× with re.findall never once executed). A behavioral nudge on top of the existing
+// end-of-turn unverifiedDeliverable backstop, not a replacement. Default OFF (opt-in,
+// unvalidated): MAGI_CHECKPOINT_FIRST=1 enables it for an A/B arm. Mirrors
+// specFidelityEnabled's env shape.
+func checkpointFirstEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_CHECKPOINT_FIRST"))) {
+	case "1", "on", "true", "yes":
+		return true
+	}
+	return false
 }
 
 // sharedRefineEnabled runs a plan's sequentially-dependent refine phases in ONE shared child

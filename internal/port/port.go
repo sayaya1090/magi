@@ -204,6 +204,12 @@ type ToolEnv struct {
 	// status is "done" | "blocked" | "failed". Set only for subagents. Returns an
 	// error if called by a non-subagent or after a report was already filed.
 	Report func(summary, status, details string) error
+	// ResolveConcern retires a structural concern from the durable ledger by key.
+	// Set ONLY for the top-level orchestrator (depth 0); nil for subagents. It is
+	// advisory-only: a concern that is still true is re-raised deterministically on
+	// the next turn (the ledger self-heals), so a reset can clear accumulated memory
+	// but never launder away a fact that remains true.
+	ResolveConcern func(key, reason string) error
 	// SetTodos replaces the session's plan (TodoWrite); nil when unavailable.
 	SetTodos func(todos []session.Todo)
 	// Propose contributes a memory/skill to the shared experience store (D13);

@@ -101,8 +101,16 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// Tool-env callbacks: background dispatch for the top-level orchestrator; escalation
 	// (ask) + report for subagents, routed THROUGH the parent so full context is kept.
 	var dispatchFn func(port.SpawnRequest) string
+	var resolveConcernFn func(key, reason string) error
 	if depth == 0 {
 		dispatchFn = func(req port.SpawnRequest) string { return a.dispatch(ctx, s, depth, req) }
+		// Only the orchestrator, which holds the whole-task view, may retire a concern —
+		// and only advisorily: a still-true concern is re-raised next turn (self-healing),
+		// so this cannot launder a fact away, only clear stale advisory memory.
+		resolveConcernFn = func(key, reason string) error {
+			return a.appendConcernResolved(context.WithoutCancel(ctx), sid,
+				event.Actor{Kind: event.ActorAgent, ID: "orchestrator"}, key, "orchestrator", reason)
+		}
 	}
 	var askFn func(string) (string, error)
 	var reportFn func(summary, status, details string) error
@@ -149,11 +157,12 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		},
 		// Background dispatch is offered only to the top-level orchestrator; nested
 		// subagents delegate synchronously (they have no UI thread to keep free).
-		Dispatch: dispatchFn,
-		Ask:      askFn,
-		AskUser:  a.askUserFn(ctx, s, depth, tc),
-		Report:   reportFn,
-		SetTodos: func(td []session.Todo) { a.putTodos(ctx, sid, actor, td) },
+		Dispatch:       dispatchFn,
+		ResolveConcern: resolveConcernFn,
+		Ask:            askFn,
+		AskUser:        a.askUserFn(ctx, s, depth, tc),
+		Report:         reportFn,
+		SetTodos:       func(td []session.Todo) { a.putTodos(ctx, sid, actor, td) },
 		Propose: func(c port.Contribution) error {
 			if a.cfg.Experience == nil {
 				return fmt.Errorf("shared experience not configured")

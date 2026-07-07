@@ -23,6 +23,11 @@ const (
 	councilActionCap  = 400 // per-item byte cap
 )
 
+// concernPremiseKey is the stable ledger Key for the N14 unverified-premise concern. It
+// equals the fresh signal's "source/kind", so the ledger merge dedups a concern that
+// already fired this turn against the one carried from an earlier turn.
+const concernPremiseKey = "self-check/unverified-premise"
+
 // turnToolEvidence summarizes THIS turn's tool RESULTS as real, git-independent
 // evidence of what actually happened — a write that reported bytes, a `cat` that shows
 // the content. It deliberately EXCLUDES the model's own text: that is the agent's claim
@@ -147,6 +152,43 @@ func unverifiedLookup(evs []event.Event) string {
 		"went on to use (an API detail, constant, sequence, name, spec) may be an UNVERIFIED guess rather than a " +
 		"confirmed value. If the deliverable depends on such a fact, its correctness is unproven:\n- " +
 		strings.Join(failed, "\n- ")
+}
+
+// lookupRecovered reports whether a knowledge lookup SUCCEEDED in the latest turn — the
+// only POSITIVE evidence that an unverified-premise concern is actually resolved. It is
+// deliberately distinct from "unverifiedLookup returned empty": empty also covers a turn
+// with no lookup at all, and mere absence must NEVER auto-resolve a still-open concern
+// (that would let a quiet turn launder away a premise that was never verified). Only a
+// real, successful lookup clears it.
+func lookupRecovered(evs []event.Event) bool {
+	names := map[string]string{}
+	recovered := false
+	for _, e := range evs {
+		if e.Type == event.TypePromptSubmitted { // judge only the latest turn
+			names = map[string]string{}
+			recovered = false
+			continue
+		}
+		if e.Type != event.TypePartAppended {
+			continue
+		}
+		var d event.PartAppendedData
+		if json.Unmarshal(e.Data, &d) != nil {
+			continue
+		}
+		switch d.Part.Kind {
+		case session.PartToolCall:
+			if d.Part.ToolCall != nil {
+				names[d.Part.ToolCall.CallID] = d.Part.ToolCall.Name
+			}
+		case session.PartToolResult:
+			r := d.Part.ToolResult
+			if r != nil && knowledgeLookupTools[names[r.CallID]] && !r.IsError {
+				recovered = true
+			}
+		}
+	}
+	return recovered
 }
 
 // fmtElapsed renders a duration coarsely (seconds under a minute, else Xm or XhYm)
@@ -362,9 +404,31 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	// resurfaces a failure that turnToolEvidence's recency window ages out before the
 	// council convenes — the research-dead-end fabrication branch the execution-evidence
 	// gate above cannot see (execution succeeds; the lie is in a fact, not the artifact).
-	if lp := unverifiedLookup(evs); lp != "" {
+	lp := unverifiedLookup(evs)
+	if lp != "" {
 		signals = append(signals, port.Signal{Source: "self-check", Kind: "unverified-premise", Status: "fail", Detail: tailForCouncil(lp, councilSignalCap)})
 		signalSummaries = append(signalSummaries, "self-check: unverified-premise")
+	}
+	// Persist the premise concern to the durable ledger so it survives BEYOND this turn:
+	// the fresh signal above only fires the turn the lookup failed, but the fact the
+	// deliverable rests on stays unverified until it is actually looked up. Raise it
+	// (idempotently — only when not already open) when it fires; auto-resolve ONLY on
+	// positive recovery (a lookup succeeded this turn), never on mere absence. Absence must
+	// leave a still-true concern open — that is what stops a quiet turn (or a reset) from
+	// laundering an unverified premise into an approval. sessionConcerns here folds the
+	// PRE-round log; the resolve/raise below then updates it for the merge that follows.
+	premiseOpen := false
+	for _, c := range sessionConcerns(evs) {
+		if c.Key == concernPremiseKey {
+			premiseOpen = true
+			break
+		}
+	}
+	switch {
+	case lp != "" && !premiseOpen:
+		_ = a.appendConcernRaised(ctx, sid, councilActor, concernPremiseKey, "self-check", "unverified-premise", "fail", tailForCouncil(lp, councilSignalCap), "")
+	case premiseOpen && lookupRecovered(evs):
+		_ = a.appendConcernResolved(ctx, sid, councilActor, concernPremiseKey, "auto", "a knowledge lookup succeeded this turn")
 	}
 	if a.plat != nil {
 		for _, sp := range a.cfg.CouncilSignals {
@@ -391,6 +455,26 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	// convened fact or deliberate on partial evidence.
 	if ctx.Err() != nil {
 		return false
+	}
+
+	// Merge the open ledger into this round's signals: carry a concern the council would
+	// otherwise not see — one raised on an EARLIER turn (cross-turn survival) or bubbled up
+	// from a SUBAGENT (cross-boundary). Dedup by Key against the freshly computed signals so
+	// a concern that already fired THIS turn is not listed twice, while a still-open concern
+	// that did NOT fire this turn is surfaced from the ledger. Re-read the log so this turn's
+	// own raise/resolve above are reflected (a just-resolved concern is not re-carried).
+	ledgerEvs, _ := a.store.Read(ctx, sid, 0)
+	present := map[string]bool{}
+	for _, sg := range signals {
+		present[sg.Source+"/"+sg.Kind] = true
+	}
+	for _, c := range sessionConcerns(ledgerEvs) {
+		if present[c.Key] {
+			continue
+		}
+		signals = append(signals, c.Signal())
+		signalSummaries = append(signalSummaries, c.Source+": "+c.Kind+" (carried)")
+		present[c.Key] = true
 	}
 
 	// Tell the council when the turn changed nothing (no agent file edits, no signals): a
