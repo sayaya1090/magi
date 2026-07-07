@@ -184,6 +184,34 @@ type PlanRevisedData struct {
 	Reason    string   `json:"reason,omitempty"`
 }
 
+// --- Concern ledger ---
+
+// ConcernRaisedData — TypeConcernRaised. One durable, role-scoped structural signal.
+// Key is the STABLE identity used to dedup and to resolve (e.g. "self-check/unverified-premise"):
+// a later Raised for the same Key reopens a resolved concern — that is what makes an
+// orchestrator reset safe, since a still-true signal re-surfaces on the next fold. The
+// Source/Kind/Status/Detail mirror port.Signal so the fold can hand a concern straight to the
+// council as evidence. Scope names the origin role/agent (e.g. "self-check", "subagent:scout")
+// so a bubbled-up child concern is distinguishable from one raised on this session.
+type ConcernRaisedData struct {
+	Key    string `json:"key"`
+	Source string `json:"source"`
+	Kind   string `json:"kind"`
+	Status string `json:"status"`
+	Detail string `json:"detail,omitempty"`
+	Scope  string `json:"scope,omitempty"`
+}
+
+// ConcernResolvedData — TypeConcernResolved (tombstone by Key). By is "auto" for a
+// deterministic recovery (the condition that raised it no longer holds) or "orchestrator"
+// for a guarded, judged reset; Reason carries the short cause. A tombstone never deletes the
+// raised fact — the ledger fold simply treats the Key as closed until (if ever) re-raised.
+type ConcernResolvedData struct {
+	Key    string `json:"key"`
+	Reason string `json:"reason,omitempty"`
+	By     string `json:"by"` // auto | orchestrator
+}
+
 // --- Transient payloads (bus only) ---
 
 // PartDeltaData — TypePartDelta (streaming text chunk).

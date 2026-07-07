@@ -41,6 +41,16 @@ const (
 	// judged verdict of whether the revision actually addressed the council's concern.
 	// Persisted so "was the revision productive" is auditable from the log/trace.
 	TypePlanRevised Type = "plan.revised"
+
+	// Concern ledger: a durable, role-scoped structural signal (fabrication,
+	// unverified-premise, a subagent's un-recovered concern). Raised deterministically
+	// and folded back into the council's evidence, so a signal survives across turns and
+	// across the subagent→parent boundary instead of being recomputed-and-discarded each
+	// council round. Resolved (tombstone) on deterministic recovery or a guarded
+	// orchestrator reset. A later Raised for the same Key reopens it — the property that
+	// makes reset safe: a still-true fact re-surfaces on the next fold.
+	TypeConcernRaised   Type = "concern.raised"
+	TypeConcernResolved Type = "concern.resolved"
 )
 
 // Transient events — bus only, not persisted.
