@@ -65,7 +65,11 @@ func grepGlobMatch(globs, workdir, path, base string) bool {
 			}
 			continue
 		}
-		if ok, _ := filepath.Match(g, base); ok {
+		gg, bb := g, base
+		if !isASCIIOnly(g) { // fold an NFD filename to the NFC glob (see matchGlob)
+			gg, bb = norm.NFC.String(g), norm.NFC.String(base)
+		}
+		if ok, _ := filepath.Match(gg, bb); ok {
 			return true
 		}
 	}

@@ -78,3 +78,46 @@ func TestFindContextMatchesNFDFileWithNFCQuery(t *testing.T) {
 		t.Errorf("NFD-content file should rank first; got %q", top)
 	}
 }
+
+// glob matches by filename; an NFD-named file on disk must match the NFC pattern the
+// model types. Before the fix, filepath.Match compared unequal bytes and listed nothing.
+func TestGlobMatchesNFDNameWithNFCPattern(t *testing.T) {
+	nfc := "함수"
+	nfd := norm.NFD.String(nfc)
+	if nfc == nfd {
+		t.Fatal("setup: NFC and NFD forms are identical")
+	}
+	got, isErr := runJSON(t, Glob{}, map[string]any{"pattern": "*" + nfc + "*.go"}, func(d string) {
+		writeFile(d, nfd+".go", "package x\nfunc F() {}\n")
+		writeFile(d, "plain.go", "package y\n")
+	})
+	if isErr {
+		t.Fatal("glob should not error")
+	}
+	out := grepJoin(got)
+	if !strings.Contains(out, nfd) {
+		t.Errorf("NFC pattern should match the NFD-named file (with original bytes); got %q", out)
+	}
+	if strings.Contains(out, "plain.go") {
+		t.Errorf("substring pattern should not list the Latin file; got %q", out)
+	}
+}
+
+// grep's --glob filter runs the same name match; an NFC glob must not exclude an
+// NFD-named file whose content matches.
+func TestGrepGlobFilterMatchesNFDName(t *testing.T) {
+	nfc := "함수"
+	nfd := norm.NFD.String(nfc)
+	if nfc == nfd {
+		t.Fatal("setup: NFC and NFD forms are identical")
+	}
+	got, isErr := runJSON(t, Grep{}, map[string]any{"pattern": "func F", "glob": "*" + nfc + "*.go"}, func(d string) {
+		writeFile(d, nfd+".go", "package x\nfunc F() {}\n")
+	})
+	if isErr {
+		t.Fatal("grep should not error")
+	}
+	if out := grepJoin(got); !strings.Contains(out, nfd) {
+		t.Errorf("NFC --glob should not exclude the NFD-named file; got %q", out)
+	}
+}

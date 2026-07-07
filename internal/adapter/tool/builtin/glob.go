@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 
+	"golang.org/x/text/unicode/norm"
+
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
@@ -91,7 +93,15 @@ func patternWantsHidden(pattern string) bool {
 // matchGlob matches a slash-separated name against a glob pattern. The "**"
 // segment matches zero or more path segments; other segments use filepath.Match
 // semantics (*, ?, [..]).
+//
+// A non-ASCII pattern folds both sides to NFC so an NFD filename on disk (macOS
+// decomposes Hangul/accents) matches the NFC pattern a model types. ASCII patterns
+// are untouched, so the common case keeps exact byte behavior.
 func matchGlob(pattern, name string) bool {
+	if !isASCIIOnly(pattern) {
+		pattern = norm.NFC.String(pattern)
+		name = norm.NFC.String(name)
+	}
 	return matchSegs(strings.Split(pattern, "/"), strings.Split(name, "/"))
 }
 
