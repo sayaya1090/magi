@@ -578,6 +578,22 @@ O15/O16이 grep/findcontext의 심링크 읽기-이스케이프를 닫았지만 
 상대경로는 workdir에 join 후 판정(이스케이프 오인 방지). 회귀: `astgrep_jail_test.go`
 (밖-드롭 / 안-유지-rel / 상대경로-유지). 기존 라이브 `TestAstGrepRealMatch` green(happy-path 무회귀).
 
+## Wave 14 — astgrep 라이브 엣지케이스(외부 CLI 종료코드)
+
+### O20 🟠 astgrep이 "매치 없음"(exit 1)을 패턴/lang 에러로 오보(라이브 재현+수정+커밋)
+정상 패턴이 단지 0건일 때 ast-grep은 **exit 1**(grep과 동일 관례)로 끝나는데, 툴은 "non-zero+빈
+stdout"을 전부 `astgrep: ... (check the pattern/lang)` 에러로 뭉갬 → **올바른 구조검색이 잘못된
+패턴처럼 보여 모델이 불신·thrash**. 전용 `"no structural matches"` 분기가 도달 불가였음.
+
+**증거(Wave 14 라이브 프로브 `M_astgrep`):** `$A + $B + $C + $D`(유효, 0건) → `isErr=true
+"astgrep: exit status 1 (check the pattern/lang)"`. 종료코드 확인: 매치0=**1**, 매치有=0,
+bad-lang=**2**, bad-pattern`$$$`=**8**.
+
+**✅ 수정+커밋(`c9a12c0`):** `errors.As(*exec.ExitError)`로 **exit==1이면 "no structural
+matches"** 반환, `≥2`(2 bad-lang, 8 pattern-parse)만 실패로 유지. 재프로브: `no-match`
+isErr=false, `bad-lang` isErr=true(무회귀). 회귀: `astgrep_test.go`
+(`TestAstGrepNoMatchIsNotError`, `TestAstGrepBadLangStillErrors`).
+
 ---
 
 ## 이번 세션 수정 요약 (커밋 대기 — 요청 시에만)
@@ -611,6 +627,8 @@ O15/O16이 grep/findcontext의 심링크 읽기-이스케이프를 닫았지만 
   `grep.go` + `norm_search_test.go`. **커밋됨 817771d.**
 - **O19** 🟡 astgrep 파서가 밖 매치를 절대경로+스니펫으로 방출(O15/O16 외부프로세스 형제, 방어심화)
   — `astgrep.go` + `astgrep_jail_test.go`. **커밋됨 af0ede5.**
+- **O20** 🟠 astgrep이 매치0(exit 1)을 패턴/lang 에러로 오보 → 모델 불신/thrash — `astgrep.go`
+  + `astgrep_test.go`. **커밋됨 c9a12c0.**
 - **P4** `magi.ask` 폼 UI(nil 라벨·세로 옵션·로고) — `bridge.go`, `prompt.go`, `logo.go`
   (+`prompt_test.go`, `ask_test.go`). **커밋됨 79b6099.**
 - **P5** 모달 열림 중 트랜스크립트 스크롤 허용 — `model_input.go`
