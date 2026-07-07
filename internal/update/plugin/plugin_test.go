@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -60,6 +61,8 @@ func TestRepoName(t *testing.T) {
 		"https://github.com/u/magi-foo.git/": "magi-foo",
 		"git@github.com:u/magi-bar.git":      "magi-bar",
 		"magi-baz":                           "magi-baz",
+		"https://x/u/magi-q.git?ref=main":    "magi-q", // query stripped
+		"https://x/u/magi-s//":               "magi-s", // double trailing slash
 	}
 	for in, want := range cases {
 		if got := repoName(in); got != want {
@@ -188,6 +191,39 @@ func TestInstallClonesPlugin(t *testing.T) {
 	// A second install into the same root must refuse rather than clobber.
 	if _, err := Install(context.Background(), remote, "", destRoot); err == nil {
 		t.Error("expected refusal to overwrite an existing plugin dir")
+	}
+}
+
+// Install honors a pin to a tag AND to a bare commit SHA (the latter needs the
+// full-clone fallback, since `clone --branch` rejects a SHA).
+func TestInstallAtPinnedRef(t *testing.T) {
+	haveGit(t)
+	remote := makeRemote(t, "pinned", "1.0.0")
+	v1sha := strings.TrimSpace(run(t, remote, "rev-parse", "HEAD"))
+	run(t, remote, "tag", "v1")
+	// Advance the remote so HEAD != the pin; the pin must win.
+	writeManifest(t, remote, "pinned", "2.0.0")
+	run(t, remote, "add", "-A")
+	run(t, remote, "commit", "-q", "-m", "bump")
+
+	// Pin to the tag.
+	tagDest := t.TempDir()
+	m, err := Install(context.Background(), remote, "v1", tagDest)
+	if err != nil {
+		t.Fatalf("install @tag: %v", err)
+	}
+	if m.Version != "1.0.0" {
+		t.Errorf("tag pin resolved to version %q, want 1.0.0", m.Version)
+	}
+
+	// Pin to the raw commit SHA (exercises the full-clone + checkout fallback).
+	shaDest := t.TempDir()
+	m2, err := Install(context.Background(), remote, v1sha, shaDest)
+	if err != nil {
+		t.Fatalf("install @sha: %v", err)
+	}
+	if m2.Version != "1.0.0" {
+		t.Errorf("sha pin resolved to version %q, want 1.0.0", m2.Version)
 	}
 }
 

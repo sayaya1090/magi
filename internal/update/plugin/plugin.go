@@ -107,8 +107,13 @@ func UpdateOne(ctx context.Context, m Managed) Result {
 	if _, err := git(ctx, m.Dir, "fetch", "--quiet"); err != nil {
 		return Result{Name: m.Name, Skipped: "fetch failed: " + oneLineErr(err)}
 	}
+	// A detached HEAD or a branch with no configured upstream has no @{u} to
+	// merge; report that precisely instead of blaming "local changes".
+	if _, err := git(ctx, m.Dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"); err != nil {
+		return Result{Name: m.Name, Skipped: "no upstream tracking branch (detached or unset) — update skipped"}
+	}
 	if _, err := git(ctx, m.Dir, "merge", "--ff-only", "--quiet", "@{u}"); err != nil {
-		return Result{Name: m.Name, Skipped: "not fast-forwardable (local changes?) — update skipped"}
+		return Result{Name: m.Name, Skipped: "not fast-forwardable (local commits) — update skipped"}
 	}
 	after := gitRev(ctx, m.Dir)
 	if before == after {
@@ -134,13 +139,25 @@ func Install(ctx context.Context, url, ref, destRoot string) (Managed, error) {
 	if _, err := os.Stat(dest); err == nil {
 		return Managed{}, fmt.Errorf("plugin %q already exists at %s (use -update-plugins to update)", name, dest)
 	}
-	args := []string{"clone", "--depth", "1"}
-	if ref != "" {
-		args = append(args, "--branch", ref)
-	}
-	args = append(args, url, dest)
-	if _, err := git(ctx, destRoot, args...); err != nil {
-		return Managed{}, fmt.Errorf("git clone: %w", err)
+	// No pin: a shallow clone of the default branch is enough. With a pin, clone in
+	// full and `checkout` it — `clone --branch` accepts only a branch/tag, so a
+	// commit SHA needs the object history present. Clean up a partial checkout on
+	// any failure (a git timeout can SIGKILL mid-clone and leave dest behind,
+	// which would otherwise wedge this plugin name against re-install).
+	if ref == "" {
+		if _, err := git(ctx, destRoot, "clone", "--depth", "1", url, dest); err != nil {
+			_ = os.RemoveAll(dest)
+			return Managed{}, fmt.Errorf("git clone: %w", err)
+		}
+	} else {
+		if _, err := git(ctx, destRoot, "clone", url, dest); err != nil {
+			_ = os.RemoveAll(dest)
+			return Managed{}, fmt.Errorf("git clone: %w", err)
+		}
+		if _, err := git(ctx, dest, "checkout", "--quiet", ref); err != nil {
+			_ = os.RemoveAll(dest)
+			return Managed{}, fmt.Errorf("git checkout %q: %w", ref, err)
+		}
 	}
 	if _, err := os.Stat(filepath.Join(dest, "plugin.toml")); err != nil {
 		_ = os.RemoveAll(dest)
@@ -213,7 +230,10 @@ func readManifest(dir string) (manifestMeta, bool) {
 // segment with any ".git" suffix and trailing slash stripped.
 func repoName(url string) string {
 	s := strings.TrimSpace(url)
-	s = strings.TrimSuffix(s, "/")
+	if i := strings.IndexAny(s, "?#"); i >= 0 { // drop query/fragment first
+		s = s[:i]
+	}
+	s = strings.TrimRight(s, "/")
 	s = strings.TrimSuffix(s, ".git")
 	if i := strings.LastIndexAny(s, "/:"); i >= 0 {
 		s = s[i+1:]
