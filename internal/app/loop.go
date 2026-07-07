@@ -506,7 +506,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			msg := "You've repeated the same no-progress action several times and are getting blocked. " +
 				"Stop and change approach: try a different tool or a smaller step, or inspect WHY the last " +
 				"attempts failed (read the error, check paths/state) before retrying. Re-read the original task:\n" +
-				clipLine(task, 1500)
+				clipSpec(task, 1500)
 			if kind == "stalled" {
 				msg = "You've run many steps without changing anything or making concrete progress — you may be " +
 					"re-running checks or restating the same conclusion instead of advancing the task. Stop and take a " +
@@ -514,7 +514,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					"it is and why before continuing. Guess only when necessary: if a value is unknown but discoverable, " +
 					"run the tool or command that determines it (compute, parse, crack, query, or read the real state) " +
 					"rather than trying values blindly. Re-read the original task:\n" +
-					clipLine(task, 1500)
+					clipSpec(task, 1500)
 			}
 			pd, _ := json.Marshal(event.PromptSubmittedData{
 				MessageID: "m_" + newID(),
