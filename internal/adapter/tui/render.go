@@ -237,7 +237,11 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 	}
 	switch blk.kind {
 	case blockUser:
-		return label(styleUserLabel, "you") + "\n" + indent(strings.TrimRight(blk.text, "\n"))
+		// Wrap to the transcript width (like tool results and thinking) so a long
+		// prompt soft-wraps instead of overflowing off-screen and being clipped.
+		// Width is bodyWidth-2 to leave room for the 2-col indent().
+		body := lipgloss.NewStyle().Width(m.bodyWidth() - 2).Render(strings.TrimRight(blk.text, "\n"))
+		return label(styleUserLabel, "you") + "\n" + indent(body)
 	case blockAssistant:
 		return label(asstStyle, asstName) + "\n" + m.markdown(blk.text)
 	case blockToolCall:
