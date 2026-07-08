@@ -10,6 +10,7 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 	"github.com/sayaya1090/magi/internal/core/bus"
+	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -103,6 +104,94 @@ func TestInterjectQueue(t *testing.T) {
 	if got := a.takePendingInterject(sid); got != "" {
 		t.Fatalf("empty queue should pop \"\", got %q", got)
 	}
+}
+
+// replan is offered only to a plan-eligible agent (planner on, write-capable, below the
+// plan-depth cap) — mirroring the env.Replan nil-gating so a read-only or max-depth agent
+// isn't advertised a dead tool. This gate is depth-dynamic, so toolSpecs takes depth.
+func TestReplanGatedToPlanEligible(t *testing.T) {
+	store, err := jsonl.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := builtin.Default()
+	reg.Register(builtin.Replan{})
+	a := New(store, completingLLM{}, reg, bus.New(), nil, Config{Permission: "allow", Planner: true, MaxPlanDepth: 2})
+	t.Cleanup(func() { _ = a.Close(context.Background()) })
+
+	writer := AgentSpec{Name: "default"}                           // allow-all → produces files
+	reader := AgentSpec{Name: "readonly", Tools: []string{"read"}} // cannot write
+
+	// Plan-eligible: write-capable, below the depth cap.
+	if !hasSpec(a.toolSpecs(writer, false, 0), "replan") {
+		t.Error("a plan-eligible orchestrator should be offered replan")
+	}
+	if !hasSpec(a.toolSpecs(writer, true, 1), "replan") {
+		t.Error("a plan-eligible subagent (depth<cap) should be offered replan")
+	}
+	// Not eligible: at/over the depth cap, or read-only.
+	if hasSpec(a.toolSpecs(writer, true, 2), "replan") {
+		t.Error("an agent at the plan-depth cap must NOT be offered replan")
+	}
+	if hasSpec(a.toolSpecs(reader, false, 0), "replan") {
+		t.Error("a read-only agent must NOT be offered replan")
+	}
+}
+
+// Regression for the run-goroutine post-loop deadlock: that block runs while a.mu is held,
+// so it must inspect the pending-interject queue INLINE. The self-locking queue helpers
+// (hasPendingInterject/takePendingInterject/drain) would re-lock a.mu and wedge the
+// goroutine — silently, since turn.finished is already emitted, so only a POST-loop effect
+// exposes it. A queued interjection on a clean turn must re-surface as its own user prompt;
+// a deadlocked goroutine never gets there. We poll the store (not a.mu-guarded) so a
+// regression fails cleanly instead of also hanging the test on the wedged lock.
+func TestQueuedInterjectionResurfacedNoDeadlock(t *testing.T) {
+	store, err := jsonl.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := New(store, completingLLM{}, builtin.Default(), bus.New(), nil, Config{Permission: "allow"})
+	t.Cleanup(func() {
+		cc, cx := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cx()
+		_ = a.Close(cc)
+	})
+	ctx := context.Background()
+	sid, _ := a.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir()})
+
+	// Park an interjection before the turn runs; only the post-loop block re-surfaces it.
+	a.enqueueInterject(sid, "follow-up: also handle X")
+	if err := a.Submit(ctx, command.SubmitPrompt{
+		SessionID: sid,
+		Parts:     []session.Part{{Kind: session.PartText, Text: "hi"}},
+		Actor:     event.Actor{Kind: event.ActorUser, ID: "tui"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The interjection re-surfaces as a 2nd user prompt.submitted (the "hi" is the 1st).
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		evs, _ := store.Read(ctx, sid, 0)
+		if n := userPrompts(evs); n >= 2 {
+			return // re-surfaced → goroutine did not deadlock
+		}
+		if time.Now().After(deadline) {
+			evs, _ := store.Read(ctx, sid, 0)
+			t.Fatalf("queued interjection never re-surfaced (%d user prompts) — post-loop block deadlocked", userPrompts(evs))
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func userPrompts(evs []event.Event) int {
+	n := 0
+	for _, e := range evs {
+		if e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser {
+			n++
+		}
+	}
+	return n
 }
 
 // A tool's Execute callback can't touch loop-local state, so it records a turnControl

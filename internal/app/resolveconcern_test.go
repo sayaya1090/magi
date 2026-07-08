@@ -35,10 +35,10 @@ func TestResolveConcernGatedToOrchestrator(t *testing.T) {
 
 	agent := AgentSpec{Name: "default"} // allow-all
 
-	if !hasSpec(a.toolSpecs(agent, false), "resolveconcern") {
+	if !hasSpec(a.toolSpecs(agent, false, 0), "resolveconcern") {
 		t.Error("orchestrator should be offered resolveconcern")
 	}
-	if hasSpec(a.toolSpecs(agent, true), "resolveconcern") {
+	if hasSpec(a.toolSpecs(agent, true, 1), "resolveconcern") {
 		t.Error("a subagent must NOT be offered resolveconcern")
 	}
 }
