@@ -137,10 +137,14 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	prevFinishCalls := -1                        // guard.callCount() at that rejection (-1 = none yet)
 	councilSpent := time.Duration(0)             // self-measured wall-clock consumed by deliberations
 	councilDeadlock := false                     // set by the gate iff its finish was a genuine round-cap deadlock (never approved)
-	turnTask := ""                               // the user instruction THIS turn answers, snapshotted at
-	// step 0 — so a steer that lands during the council gate can't hijack what the
-	// council judges against (that interjection gets its own follow-up turn instead).
-	usedTools := seedWork // did this turn do real work? (planner investigation seeds it; council skips pure conversational turns)
+	turnTask := ""                               // the user instruction THIS turn answers, snapshotted at step 0. A
+	// steer that lands mid-turn is QUEUED by default (runs as its own follow-up turn), so
+	// it can't silently hijack what the council judges against — unless the agent explicitly
+	// routes it (route_interjection redirect/append re-snapshots turnTask here via reground).
+	usedTools := seedWork   // did this turn do real work? (planner investigation seeds it; council skips pure conversational turns)
+	handledUserPrompts := 0 // genuine (ActorUser) prompts already absorbed into turnTask; a rise past this at step>0 is a mid-turn interjection
+	replanCount := 0        // agent-initiated replans honored this turn (budget-capped so replan can't indefinitely reset the stall guard)
+	replanAtCalls := -1     // guard.callCount() at the last honored replan (require real work between replans)
 	// Turn usage accumulation (§8.1): output tokens and cost sum across steps; input
 	// is the last step's (the current context size, not a sum).
 	var cumOut, lastIn int
@@ -176,6 +180,22 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		defer func() { a.finalizeTodos(context.WithoutCancel(ctx), sid, finished) }()
 	}
 
+	// reground resets the turn's termination/stall accounting so a freshly-adopted task
+	// (redirect/append) or plan (replan) isn't instantly force-stopped by the previous
+	// approach's accumulated no-progress count. rebuildPlan additionally re-runs the
+	// pre-flight planner for a fresh decomposition.
+	reground := func(rebuildPlan bool) {
+		guard.resetStall()
+		councilRounds = 0
+		lastCouncilFeedback = ""
+		prevFinishText = ""
+		prevFinishCalls = -1
+		councilDeadlock = false
+		if rebuildPlan && a.planEligible(agent, depth) {
+			a.maybePlanPreflight(ctx, s, depth, maxSteps)
+		}
+	}
+
 	for step := 0; step < maxSteps; step++ {
 		if ctx.Err() != nil {
 			return lastText, ctx.Err()
@@ -188,7 +208,41 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			return lastText, err
 		}
 		if step == 0 {
-			turnTask = lastUserPromptText(evs) // the prompt that drove this turn
+			turnTask = lastUserPromptText(evs)         // the prompt that drove this turn
+			handledUserPrompts = countUserPrompts(evs) // baseline; a later rise is a mid-turn interjection
+		} else {
+			// Drain any control signal a tool left last step (route an interjection, or an
+			// agent-initiated replan), applying the reground the loop owns but the tool can't.
+			if tc := a.takeTurnControl(sid); tc.route != "" || tc.replan {
+				// redirect re-anchors turnTask on the interjection; append folds it in. Either
+				// way the interjection is absorbed now, so don't also re-surface it as its own
+				// turn, and reground so the stall/council accounting tracks the adopted task.
+				// "queue" (or empty) leaves turnTask on the current task — the interjection stays
+				// queued and runs as its own turn after this one ends.
+				if it := strings.TrimSpace(lastUserPromptText(evs)); it != "" {
+					if nt, changed := applyRoute(tc.route, turnTask, it); changed {
+						turnTask = nt
+						a.consumeInterject(sid, it)
+						reground(true)
+					}
+				}
+				if tc.replan {
+					a.honorReplan(ctx, sid, tc.reason, &replanCount, &replanAtCalls, guard.callCount(), reground)
+				}
+			}
+			// Detect a mid-turn user interjection (a new genuine user prompt appeared since we
+			// last absorbed one). Top level only — subagents aren't steered by the user. Queue it
+			// by default (safe: preserves both tasks) and tell the agent it's deferred so it stops
+			// oscillating; the agent may call route_interjection to redirect/append instead.
+			if depth == 0 && !a.cfg.Workflow {
+				if cnt := countUserPrompts(evs); cnt > handledUserPrompts {
+					handledUserPrompts = cnt
+					if it := strings.TrimSpace(lastUserPromptText(evs)); it != "" && it != strings.TrimSpace(turnTask) {
+						a.enqueueInterject(sid, it)
+						a.injectQueuingDirective(ctx, sid, turnTask, it)
+					}
+				}
+			}
 		}
 
 		// Durable project memory (AGENTS.md) is part of the system prompt and is never
@@ -653,6 +707,85 @@ func (a *App) injectOrchestrationDirective(ctx context.Context, sid session.Sess
 		event.Actor{Kind: event.ActorSystem, ID: "auto-orchestrate"}, pd)
 }
 
+// applyRoute computes the turnTask after routing a mid-turn interjection. "redirect"
+// re-anchors on the interjection; "append" folds it into the current task; anything else
+// ("queue"/"") leaves the task unchanged. changed reports whether the anchor moved (and
+// thus whether the caller should absorb the interjection and reground).
+func applyRoute(action, turnTask, interject string) (newTask string, changed bool) {
+	switch action {
+	case "redirect":
+		return strings.TrimSpace(interject), true
+	case "append":
+		return strings.TrimSpace(turnTask + "\n\n" + interject), true
+	default:
+		return turnTask, false
+	}
+}
+
+// injectQueuingDirective tells the agent a new user request arrived mid-turn and has
+// been QUEUED to run after the current task, so it keeps focus instead of oscillating
+// between the two (the live-observed thrash: plexus #7–#10). The agent may call
+// route_interjection to redirect (switch now) or append (fold in) when confident.
+func (a *App) injectQueuingDirective(ctx context.Context, sid session.SessionID, turnTask, interject string) {
+	text := "magi runtime note (not user input): a new user request arrived while you are mid-task:\n" +
+		clipSpec(interject, 800) + "\n\n" +
+		"It has been QUEUED and will run as its own turn after you finish the current task:\n" +
+		clipSpec(turnTask, 800) + "\n\n" +
+		"Keep working on the current task; do not switch away from it. If — and only if — you are confident the new " +
+		"request should change your direction NOW, or be folded into the current task, call route_interjection " +
+		"(action \"redirect\" or \"append\") with a one-line reason. When unsure, do nothing and it stays queued."
+	pd, _ := json.Marshal(event.PromptSubmittedData{
+		MessageID: "m_" + newID(),
+		Parts:     []session.Part{{Kind: session.PartText, Text: text}},
+	})
+	_ = a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
+}
+
+// maxReplansPerTurn caps agent-initiated replans so replan cannot indefinitely reset
+// the stall guard (the abuse vector: replan→reset→thrash→replan). Past the cap the
+// stall guard is left intact and genuine thrash force-stops normally.
+const maxReplansPerTurn = 2
+
+// honorReplan applies an agent-initiated replan under an anti-abuse budget: at most
+// maxReplansPerTurn per turn, and only when real tool work happened since the previous
+// replan (back-to-back replans without action are churn). When honored it rebuilds the
+// plan and resets the stall/council accounting (reground); when refused it injects
+// guidance and leaves the stall guard intact.
+func (a *App) honorReplan(ctx context.Context, sid session.SessionID, reason string, count, atCalls *int, curCalls int, reground func(bool)) {
+	inject := func(msg string) {
+		pd, _ := json.Marshal(event.PromptSubmittedData{
+			MessageID: "m_" + newID(),
+			Parts:     []session.Part{{Kind: session.PartText, Text: msg}},
+		})
+		_ = a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
+	}
+	if *count >= maxReplansPerTurn {
+		inject(fmt.Sprintf("Replan refused: you have already replanned %d times this turn. Do not replan again — make "+
+			"concrete progress on the current plan, or if you are truly blocked, report status \"failed\" and state exactly "+
+			"what stopped you.", *count))
+		return
+	}
+	// Require real tool work between replans. guard.callCount() counts EVERY tool call,
+	// including the replan call that raised this signal, so a back-to-back replan-only step
+	// still advances curCalls by exactly 1 (its own call) over the last honored replan's
+	// snapshot. Anything at-or-below that +1 means nothing but the replan itself happened —
+	// churn — so refuse; genuine work (bash/edit/read) lands curCalls at atCalls+2 or more.
+	if *atCalls >= 0 && curCalls <= *atCalls+1 {
+		inject("Replan refused: you replanned again without taking any real action since the last replan. Actually " +
+			"attempt the current plan (run a command, edit a file, inspect why it failed) before deciding it is unworkable.")
+		return
+	}
+	*count++
+	*atCalls = curCalls
+	note := "Replanning at your request"
+	if r := strings.TrimSpace(reason); r != "" {
+		note += ": " + clipLine(r, 200)
+	}
+	note += ". The plan and the no-progress window have been reset — decompose a fresh approach and proceed."
+	inject(note)
+	reground(true)
+}
+
 // emitArtifact persists an artifact emitted by a tool/subagent (D11).
 func (a *App) emitArtifact(ctx context.Context, sid session.SessionID, actor event.Actor, art artifact.Artifact) {
 	d, _ := json.Marshal(event.ArtifactEmittedData{Artifact: art})
@@ -709,6 +842,18 @@ func lastUserPromptText(evs []event.Event) string {
 		}
 	}
 	return ""
+}
+
+// countUserPrompts counts genuine user (ActorUser) prompts in the event log. The loop
+// snapshots this at step 0 and watches for a rise, which signals a mid-turn interjection.
+func countUserPrompts(evs []event.Event) int {
+	n := 0
+	for _, e := range evs {
+		if e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser {
+			n++
+		}
+	}
+	return n
 }
 
 // currentTaskText is the query for push-side shard hints: the most recent genuine

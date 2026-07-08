@@ -66,6 +66,20 @@ type App struct {
 	estSteps              map[session.SessionID]int            // planner's advisory step estimate per turn (guarded by mu)
 	autoOrchestrateActive map[session.SessionID]bool           // whether auto-orchestration has been triggered for this session (guarded by mu)
 	probingWindows        map[string]struct{}                  // models whose context window is being (or was) lazily probed (guarded by mu)
+
+	turnControl      map[session.SessionID]turnControl // pending mid-turn routing/replan signal set by a tool, drained by the loop (guarded by mu)
+	pendingInterject map[session.SessionID][]string    // interjections queued to run as their own turn after the current one ends (guarded by mu)
+}
+
+// turnControl is a mid-turn control signal a tool records for the running loop to
+// drain at its next step. The loop owns turnTask/councilRounds/guard (stack-local),
+// so a tool cannot mutate them directly; it leaves this signal instead and the loop
+// applies the reground. route routes a queued user interjection (queue|redirect|
+// append); replan is the agent's own "this plan is unworkable" declaration.
+type turnControl struct {
+	route  string // "", "queue", "redirect", or "append"
+	replan bool
+	reason string
 }
 
 // New constructs an App.
@@ -100,6 +114,8 @@ func New(store port.Store, llm port.LLMProvider, tools port.ToolRegistry, b *bus
 		reports:               map[session.SessionID]*subReport{},
 		autoOrchestrateActive: map[session.SessionID]bool{},
 		probingWindows:        map[string]struct{}{},
+		turnControl:           map[session.SessionID]turnControl{},
+		pendingInterject:      map[session.SessionID][]string{},
 	}
 }
 
@@ -637,6 +653,82 @@ func (a *App) appendPrompt(ctx context.Context, c command.SubmitPrompt) error {
 	return a.appendFact(ctx, c.SessionID, event.TypePromptSubmitted, c.Actor, data)
 }
 
+// signalTurnControl records a mid-turn routing/replan signal from a tool for the
+// running loop to drain at its next step. It merges into any existing signal so a
+// route and a later replan in the same step window both survive.
+func (a *App) signalTurnControl(sid session.SessionID, mut func(*turnControl)) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	tc := a.turnControl[sid]
+	mut(&tc)
+	a.turnControl[sid] = tc
+}
+
+// takeTurnControl returns and clears the pending control signal for a session.
+func (a *App) takeTurnControl(sid session.SessionID) turnControl {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	tc := a.turnControl[sid]
+	delete(a.turnControl, sid)
+	return tc
+}
+
+// enqueueInterject parks a mid-turn user interjection to be run as its own turn
+// once the current turn ends (drained by the run goroutine's re-check).
+func (a *App) enqueueInterject(sid session.SessionID, text string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.pendingInterject[sid] = append(a.pendingInterject[sid], text)
+}
+
+// consumeInterject removes a specific queued interjection (absorbed this turn by a
+// redirect/append route, so it must not also re-surface as its own follow-up turn).
+func (a *App) consumeInterject(sid session.SessionID, text string) {
+	text = strings.TrimSpace(text)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	q := a.pendingInterject[sid]
+	out := q[:0]
+	for _, t := range q {
+		if t != text {
+			out = append(out, t)
+		}
+	}
+	if len(out) == 0 {
+		delete(a.pendingInterject, sid)
+	} else {
+		a.pendingInterject[sid] = out
+	}
+}
+
+// takePendingInterject pops the oldest queued interjection (FIFO), or "" if none.
+func (a *App) takePendingInterject(sid session.SessionID) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	q := a.pendingInterject[sid]
+	if len(q) == 0 {
+		return ""
+	}
+	text := q[0]
+	if len(q) == 1 {
+		delete(a.pendingInterject, sid)
+	} else {
+		a.pendingInterject[sid] = q[1:]
+	}
+	return text
+}
+
+// hasPendingInterject reports whether any interjection is queued for a session.
+func (a *App) hasPendingInterject(sid session.SessionID) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return len(a.pendingInterject[sid]) > 0
+}
+
 // startRun launches the agent loop for a session unless one is already running
 // (single run goroutine per session). After the loop ends it re-checks, under
 // the lock, for a user message that was steered in during the exit window and
@@ -665,6 +757,20 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 			// backend into an error storm. The error event already ended the turn.
 			if err == nil && runCtx.Err() == nil && a.hasUnansweredUserPrompt(runCtx, sid) {
 				a.mu.Unlock()
+				continue
+			}
+			// A queued interjection (routed "queue" during the turn) is buried mid-transcript
+			// by the current turn's own output, so hasUnansweredUserPrompt no longer sees it.
+			// Re-surface it as a fresh user prompt so it runs as its own turn, then loop.
+			if err == nil && runCtx.Err() == nil && a.hasPendingInterject(sid) {
+				a.mu.Unlock()
+				if text := a.takePendingInterject(sid); text != "" {
+					_ = a.appendPrompt(context.WithoutCancel(runCtx), command.SubmitPrompt{
+						SessionID: sid,
+						Actor:     event.Actor{Kind: event.ActorUser, ID: "tui"},
+						Parts:     []session.Part{{Kind: session.PartText, Text: text}},
+					})
+				}
 				continue
 			}
 			delete(a.cancels, sid)
