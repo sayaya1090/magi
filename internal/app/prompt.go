@@ -18,8 +18,10 @@ import (
 
 // ---- helpers ----
 
-// toolSpecs returns the tools available to an agent (honoring its allowlist).
-func (a *App) toolSpecs(agent AgentSpec, isSub bool) []port.ToolSpec {
+// toolSpecs returns the tools available to an agent (honoring its allowlist). depth
+// is the orchestration nesting level, used to hide tools whose eligibility is
+// depth-dynamic (replan is offered only to a plan-eligible agent).
+func (a *App) toolSpecs(agent AgentSpec, isSub bool, depth int) []port.ToolSpec {
 	var specs []port.ToolSpec
 	for _, t := range a.tools.List() {
 		name := t.Name()
@@ -45,6 +47,14 @@ func (a *App) toolSpecs(agent AgentSpec, isSub bool) []port.ToolSpec {
 			// Only the top-level interactive session has a human to ask; a
 			// subagent escalates via ask, headless has no one to block on.
 			if isSub || !a.cfg.Interactive {
+				continue
+			}
+		case "replan":
+			// Re-planning is meaningful only to a plan-eligible agent (write-capable,
+			// below the plan-depth cap, planner on). Offering it to a read-only or
+			// max-depth agent advertises a dead tool env.Replan would reject anyway —
+			// this mirrors that nil-gating so weak models don't waste a call on it.
+			if !a.planEligible(agent, depth) {
 				continue
 			}
 		}

@@ -761,10 +761,20 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 			}
 			// A queued interjection (routed "queue" during the turn) is buried mid-transcript
 			// by the current turn's own output, so hasUnansweredUserPrompt no longer sees it.
-			// Re-surface it as a fresh user prompt so it runs as its own turn, then loop.
-			if err == nil && runCtx.Err() == nil && a.hasPendingInterject(sid) {
+			// Inspect the queue directly under the lock we already hold — the pending-queue
+			// helpers take a.mu themselves, so calling them here would re-lock and deadlock.
+			alive := err == nil && runCtx.Err() == nil
+			queued := a.pendingInterject[sid]
+			if alive && len(queued) > 0 {
+				// Re-surface the oldest as a fresh user prompt so it runs as its own turn.
+				text := queued[0]
+				if len(queued) == 1 {
+					delete(a.pendingInterject, sid)
+				} else {
+					a.pendingInterject[sid] = queued[1:]
+				}
 				a.mu.Unlock()
-				if text := a.takePendingInterject(sid); text != "" {
+				if text = strings.TrimSpace(text); text != "" {
 					_ = a.appendPrompt(context.WithoutCancel(runCtx), command.SubmitPrompt{
 						SessionID: sid,
 						Actor:     event.Actor{Kind: event.ActorUser, ID: "tui"},
@@ -773,8 +783,24 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 				}
 				continue
 			}
+			// Retiring the run goroutine (terminal error, cancel, or nothing left to run).
+			// Don't strand a queued interjection in the in-memory map: persist each back to
+			// the log as an unanswered user prompt so it survives (picked up on the next run)
+			// instead of being silently lost — but do NOT re-run here, preserving the
+			// no-retry-storm guarantee on a failing/cancelled backend.
 			delete(a.cancels, sid)
+			delete(a.pendingInterject, sid)
 			a.mu.Unlock()
+			for _, text := range queued {
+				if text = strings.TrimSpace(text); text == "" {
+					continue
+				}
+				_ = a.appendPrompt(context.WithoutCancel(runCtx), command.SubmitPrompt{
+					SessionID: sid,
+					Actor:     event.Actor{Kind: event.ActorUser, ID: "tui"},
+					Parts:     []session.Part{{Kind: session.PartText, Text: text}},
+				})
+			}
 			break
 		}
 		// On interruption the loop returns without a terminal event; emit one (on a

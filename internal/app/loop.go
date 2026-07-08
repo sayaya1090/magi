@@ -295,7 +295,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			Model:    s.Model.Model,
 			System:   sys,
 			Messages: msgs,
-			Tools:    a.toolSpecs(agent, isSub),
+			Tools:    a.toolSpecs(agent, isSub, depth),
 		}
 
 		stream, err := a.providerFor(agent).StreamChat(ctx, req)
