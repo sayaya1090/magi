@@ -27,16 +27,24 @@ func TestRetrieveAndPropose(t *testing.T) {
 		t.Fatalf("expected tabs memory first, got %+v", mems)
 	}
 
-	// Propose lands in pending/.
+	// Propose lands directly in memories/ (no pending/ review gate) and is
+	// immediately retrievable — the write-only bug regression guard.
 	if err := s.Propose(ctx, port.Contribution{
 		Memories: []port.Memory{{Text: "Run make build before committing", Tags: []string{"build"}}},
 		Source:   "agent",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	entries, _ := os.ReadDir(filepath.Join(dir, "pending"))
-	if len(entries) != 1 {
-		t.Fatalf("expected 1 pending file, got %d", len(entries))
+	entries, _ := os.ReadDir(filepath.Join(dir, "memories"))
+	if len(entries) != 3 { // tabs, ports, + the new one
+		t.Fatalf("expected 3 memory files after propose, got %d", len(entries))
+	}
+	got, _, err := s.Retrieve(ctx, "what should I run before committing?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) == 0 || !contains(got[0].Text, "make build") {
+		t.Fatalf("a proposed memory must be recallable immediately, got %+v", got)
 	}
 }
 

@@ -238,8 +238,15 @@ type ToolEnv struct {
 	// Recall re-hydrates a topic's full detail that an earlier compaction shed from
 	// context, looked up by topic/keywords against the compaction shards; nil when
 	// unavailable. (recall_context)
-	Recall   func(query string) (string, error)
-	Platform Platform
+	Recall func(query string) (string, error)
+	// RecallMemory pulls durable team memories/skills (the shared experience store)
+	// that match a query, on demand. Distinct from Recall (which recovers this
+	// session's compacted context): this reaches the cross-session D13 store. The
+	// prompt only advertises a count; the agent calls this to pull the details, so
+	// nothing is spent on context until it actually wants them. nil when the
+	// experience store is not configured. (recall_memory)
+	RecallMemory func(query string) (string, error)
+	Platform     Platform
 	// Sandbox requests OS-level confinement for commands (bash). Zero value
 	// (empty Mode) means unconfined.
 	Sandbox SandboxSpec
@@ -354,6 +361,9 @@ type Contribution struct {
 	Memories []Memory
 	Skills   []Skill
 	Source   string
+	// Scope selects the tier a layered store writes to: "global" for cross-project
+	// knowledge, "" or "project" (the default) for workspace-local learnings.
+	Scope string
 }
 
 // ---- Plugin host (D10: hot-reloadable capability bundles) ----

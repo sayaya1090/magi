@@ -60,15 +60,23 @@ func (s *Store) Retrieve(ctx context.Context, query string) ([]port.Memory, []po
 	return topMemories(mems, 5), topSkills(skills, 3), nil
 }
 
-// Propose writes a contribution to the review queue and commits it best-effort.
+// Propose writes a contribution directly into the retrievable store and commits
+// it best-effort. Memories land in memories/ and skills in skills/ — the same
+// directories Retrieve reads — so a remembered fact is recallable immediately.
+// (There is deliberately no pending/ review gate on the agent path: an autonomous
+// run that can write but never read back its own learnings is write-only and
+// useless. Provenance stays in the file body via tags and a (source: …) line.)
 func (s *Store) Propose(ctx context.Context, c port.Contribution) error {
-	dir := filepath.Join(s.dir, "pending")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
+	memDir := filepath.Join(s.dir, "memories")
+	skillDir := filepath.Join(s.dir, "skills")
 	stamp := time.Now().UTC().Format("20060102-150405")
+	if len(c.Memories) > 0 {
+		if err := os.MkdirAll(memDir, 0o755); err != nil {
+			return err
+		}
+	}
 	for i, m := range c.Memories {
-		name := filepath.Join(dir, "mem-"+stamp+"-"+itoa(i)+".md")
+		name := filepath.Join(memDir, "mem-"+stamp+"-"+itoa(i)+".md")
 		body := m.Text
 		if len(m.Tags) > 0 {
 			body = "tags: " + strings.Join(m.Tags, ", ") + "\n\n" + body
@@ -80,13 +88,18 @@ func (s *Store) Propose(ctx context.Context, c port.Contribution) error {
 			return err
 		}
 	}
+	if len(c.Skills) > 0 {
+		if err := os.MkdirAll(skillDir, 0o755); err != nil {
+			return err
+		}
+	}
 	for _, sk := range c.Skills {
-		name := filepath.Join(dir, "skill-"+sanitize(sk.Name)+".md")
+		name := filepath.Join(skillDir, "skill-"+sanitize(sk.Name)+".md")
 		if err := os.WriteFile(name, []byte(sk.Description+"\n\n"+sk.Body), 0o644); err != nil {
 			return err
 		}
 	}
-	s.gitCommit(ctx, "magi: propose experience ("+stamp+")")
+	s.gitCommit(ctx, "magi: add experience ("+stamp+")")
 	return nil
 }
 

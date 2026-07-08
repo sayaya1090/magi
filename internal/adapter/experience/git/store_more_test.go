@@ -107,8 +107,9 @@ func TestRetrieveSkills(t *testing.T) {
 	}
 }
 
-// Propose writes each memory (with tags + source) and each skill (under a
-// sanitized, non-escaping filename) into pending/.
+// Propose writes each memory (with tags + source) into memories/ and each skill
+// (under a sanitized, non-escaping filename) into skills/ — the directories Retrieve
+// reads, so the entries are immediately recallable.
 func TestProposeMemoriesAndSkills(t *testing.T) {
 	dir := t.TempDir()
 	err := New(dir).Propose(context.Background(), port.Contribution{
@@ -122,35 +123,38 @@ func TestProposeMemoriesAndSkills(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, _ := os.ReadDir(filepath.Join(dir, "pending"))
-	if len(entries) != 3 { // 2 memories + 1 skill
-		t.Fatalf("want 3 pending files, got %d", len(entries))
+	mems, _ := os.ReadDir(filepath.Join(dir, "memories"))
+	if len(mems) != 2 {
+		t.Fatalf("want 2 memory files, got %d", len(mems))
 	}
-	var sawSkill, sawTagged bool
-	for _, e := range entries {
+	skills, _ := os.ReadDir(filepath.Join(dir, "skills"))
+	if len(skills) != 1 {
+		t.Fatalf("want 1 skill file, got %d", len(skills))
+	}
+
+	var sawTagged bool
+	for _, e := range mems {
 		name := e.Name()
-		if strings.HasPrefix(name, "skill-") {
-			sawSkill = true
-			// The stem (filename minus the "skill-" prefix and ".md" suffix) must contain
-			// no path separators or dots — i.e. the unsafe name was fully sanitized and
-			// can't escape pending/.
-			stem := strings.TrimSuffix(strings.TrimPrefix(name, "skill-"), ".md")
-			if strings.ContainsAny(stem, "/.") {
-				t.Errorf("skill filename not sanitized (escapable): %q", name)
-			}
-			if name != "skill-"+sanitize("../evil name")+".md" {
-				t.Errorf("skill filename = %q, want sanitized form", name)
-			}
-		}
-		b, _ := os.ReadFile(filepath.Join(dir, "pending", name))
+		b, _ := os.ReadFile(filepath.Join(dir, "memories", name))
 		if strings.Contains(string(b), "tags: a, b") {
 			sawTagged = true
 		}
-		if strings.HasPrefix(name, "mem-") && !strings.Contains(string(b), "(source: agent)") {
+		if !strings.Contains(string(b), "(source: agent)") {
 			t.Errorf("memory %q missing source attribution", name)
 		}
 	}
-	if !sawSkill || !sawTagged {
-		t.Errorf("expected a skill file and a tagged memory (skill=%v tagged=%v)", sawSkill, sawTagged)
+	if !sawTagged {
+		t.Error("expected a tagged memory")
+	}
+
+	// The unsafe skill name must be fully sanitized — no separators/dots that could
+	// escape skills/.
+	sname := skills[0].Name()
+	stem := strings.TrimSuffix(strings.TrimPrefix(sname, "skill-"), ".md")
+	if strings.ContainsAny(stem, "/.") {
+		t.Errorf("skill filename not sanitized (escapable): %q", sname)
+	}
+	if sname != "skill-"+sanitize("../evil name")+".md" {
+		t.Errorf("skill filename = %q, want sanitized form", sname)
 	}
 }
