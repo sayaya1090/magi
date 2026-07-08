@@ -206,6 +206,24 @@ in `loop.go` calls into them each step):
   never refused.
 - **no retry storm**: a terminal provider error ends the turn; `startRun` does NOT
   re-run a failed turn (only re-runs to pick up a user *steer*).
+- **mid-turn interjection routing**: `turnTask` (what the nudge and council anchor on) is
+  snapshotted once at step 0, so a 2nd user request that lands *mid-turn* used to be ignored
+  by both — the agent thrashed, re-running the already-done first task. Now the loop detects a
+  new genuine (`ActorUser`) prompt at step>0 and, by default, **queues** it: it stays anchored
+  on the current task, a deterministic directive tells the agent the request is deferred (so it
+  stops oscillating), and at turn end the queued text is re-surfaced as its own follow-up turn
+  (`pendingInterject`, drained in `startRun`). The orchestrator may override with the
+  **`route_interjection`** tool — `redirect` (re-anchor `turnTask` on the interjection now) or
+  `append` (fold it in) — which re-snapshots the task and `reground`s the stall/council
+  accounting. A tool's Execute callback can't touch loop-local state, so it records a per-session
+  `turnControl` signal the loop drains at the top of each step. Depth-0/orchestrator only —
+  subagents aren't user-steered.
+- **agent-initiated replan** (`replan` tool, plan-eligible agents): when the work itself proves
+  the current plan unworkable (a premise broke), the agent requests a fresh decomposition +
+  reset no-progress window instead of thrashing into the stall guard. Anti-abuse: `honorReplan`
+  caps it at `maxReplansPerTurn` (2) and refuses a back-to-back replan with no tool work in
+  between (`guard.callCount()` unchanged) — so replan can't indefinitely reset the stall guard;
+  a refused replan leaves the guard intact and injects guidance.
 - **language lock** (`langDirective`): the user's script (Hangul/Kana/…) is detected
   and a "reply in X" directive is prepended to the system prompt (top-level only).
 

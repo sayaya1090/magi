@@ -269,6 +269,20 @@ perm-3: policy=ask, user denies           ⇒ tool-result ERR("denied"), loop co
 perm-4: policy=ask, user answers "always" ⇒ 1st write asks, 2nd write auto-allowed
 ```
 
+### F-LOOP-STEER — 실행 중 사용자 개입 라우팅 + 자발적 replan
+규칙: `turnTask`(넛지·council 앵커)는 step 0에 1회 동결된다. 그래서 실행 *중* 도착한 2번째 사용자 요청은 앵커에 반영되지 않아 에이전트가 진동하며 이미 끝낸 1번을 재실행하는 병목이 있었다.
+- R1 **기본=큐잉**: step>0에서 새 `ActorUser` 프롬프트 감지 시(≠현재 turnTask) `pendingInterject` FIFO에 적재 + "요청은 현재 과업 종료 후 처리되도록 큐잉됐으니 현재 과업에 집중" 결정론적 지시 1회 주입. 턴 종료 시 `startRun`이 큐를 드레인해 자기 턴으로 재부상. depth 0·비워크플로만.
+- R2 **`route_interjection`**(orchestrator 전용): `redirect`=개입으로 `turnTask` 재앵커 + reground, `append`=현재 과업에 합류(A∪개입) + reground, `queue`=명시적 유지. 흡수(redirect/append)된 개입은 큐에서 제거(`consumeInterject`)돼 재부상 안 함.
+- R3 **`replan`**(plan-eligible 전용): 작업 결과가 플랜을 불가능하게 만들 때 새 분해 + 무진전 창 리셋 요청. `honorReplan` 예산 = 턴당 최대 `maxReplansPerTurn`(2) + 직전 replan 이후 실제 툴 작업 없으면 거부(`guard.callCount()` 불변) → 스톨 가드 무한 리셋 불가. 거부 시 가드 유지 + 지시 주입.
+- R4 툴 Execute 콜백은 loop-local(`turnTask`/`guard`/`councilRounds`)을 못 만지므로 세션별 `turnControl` 신호만 기록하고 루프가 매 스텝 최상단에서 드레인.
+
+```
+steer-queue-1:    A 실행 중 B 도착, route 미호출        ⇒ A 앵커 유지 + B 큐잉, 턴 종료 후 B가 자기 턴
+steer-redirect-1: route_interjection redirect            ⇒ turnTask=B로 재앵커, 넛지가 B 재접지 + reground
+replan-budget-1:  replan×2 (작업 사이) 후 3번째           ⇒ 캡 도달로 거부, 스톨 가드 유지
+replan-nowork-1:  직전 replan 이후 무작업 상태로 재호출    ⇒ 거부(back-to-back churn)
+```
+
 ### F-LOOP-RECURSION — bounded recursion (D7)
 규칙: depth>3 거부 / 동시>8 큐잉 / 누적>50 차단 / 토큰예산 초과 graceful stop / 사이클 감지.
 
