@@ -18,7 +18,12 @@ const pasteThreshold = 200
 // pastes into a [#N pasted L lines] placeholder while keeping
 // the full text for expansion on send.
 func (m *Model) handlePaste(content string) {
+	// Normalize every newline flavor to "\n". Terminals deliver line breaks
+	// inside a bracketed paste as CR (0x0D, the Enter byte), not LF, so handling
+	// only "\r\n" left CR-separated pastes counted as one line and rendered with
+	// raw CRs that overwrite the row on redraw (plexus#11).
 	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\r", "\n")
 	lines := strings.Count(content, "\n") + 1
 	if lines <= 1 && len(content) <= pasteThreshold {
 		m.ta.InsertString(content) // small inline paste
