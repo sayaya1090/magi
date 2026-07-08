@@ -67,6 +67,42 @@ func errEvent(t *testing.T, msg string) event.Event {
 	return event.Event{Type: event.TypeError, Data: b}
 }
 
+func reasoningDelta(t *testing.T, text string) event.Event {
+	t.Helper()
+	b, err := json.Marshal(event.PartDeltaData{Kind: session.PartReasoning, Text: text})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return event.Event{Type: event.TypePartDelta, Data: b}
+}
+
+// A stream of reasoning deltas emits a throttled "thinking" heartbeat to stderr —
+// making a long silent think-stream visible — while stdout stays a clean transcript
+// (the raw reasoning text never leaks into it).
+func TestRunHeadlessReasoningHeartbeat(t *testing.T) {
+	f := &fakeHeadless{events: []event.Event{
+		reasoningDelta(t, "let me think about "),
+		reasoningDelta(t, "the approach here "),
+		reasoningDelta(t, "step by step"),
+		partEvent(t, session.Part{Kind: session.PartText, Text: "answer"}),
+		{Type: event.TypeTurnFinished},
+	}}
+	var out, errw bytes.Buffer
+	if exit := runHeadless(context.Background(), f, "sid", "p", false, &out, &errw); exit != 0 {
+		t.Fatalf("exit = %d, want 0", exit)
+	}
+	if beats := strings.Count(errw.String(), "⋯ thinking"); beats != 1 {
+		t.Errorf("heartbeat count = %d, want 1 (throttled); stderr:\n%s", beats, errw.String())
+	}
+	// Raw reasoning must not pollute the transcript; the answer text must.
+	if strings.Contains(out.String(), "step by step") {
+		t.Errorf("reasoning text leaked into stdout transcript:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "answer") {
+		t.Errorf("answer text missing from stdout:\n%s", out.String())
+	}
+}
+
 // runHeadless in text mode renders each part to out, submits the prompt, and exits
 // 0 at TurnFinished.
 func TestRunHeadlessText(t *testing.T) {

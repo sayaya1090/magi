@@ -140,6 +140,7 @@ class MagiAgent(BaseInstalledAgent):
             "MAGI_SPEC_FIDELITY",
             "MAGI_PLAN_CONVERGE",
             "MAGI_STALL_CONVERGE",
+            "MAGI_STREAM_DIAG",
         ):
             val = os.environ.get(key)
             if val:

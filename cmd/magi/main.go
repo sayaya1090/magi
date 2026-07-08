@@ -821,10 +821,24 @@ func runHeadless(ctx context.Context, a headlessApp, sid session.SessionID, prom
 	}
 
 	exit := 0
+	var lastThinkBeat time.Time
 	for e := range sub {
 		if jsonOut {
 			b, _ := json.Marshal(e)
 			fmt.Fprintln(out, string(b))
+		} else if e.Type == event.TypePartDelta {
+			// Reasoning deltas are transient and never enter the transcript, so a model
+			// that spends minutes reasoning before its next tool call looks identical to
+			// a hang in headless text mode. Surface a throttled "thinking" heartbeat (on
+			// stderr, keeping stdout a clean transcript) so a live think-stream is
+			// distinguishable from a genuine stall.
+			var d event.PartDeltaData
+			if json.Unmarshal(e.Data, &d) == nil && d.Kind == session.PartReasoning {
+				if now := time.Now(); now.Sub(lastThinkBeat) >= headlessThinkBeat {
+					fmt.Fprintln(errw, "⋯ thinking")
+					lastThinkBeat = now
+				}
+			}
 		} else {
 			renderText(out, errw, e)
 		}
@@ -838,6 +852,12 @@ func runHeadless(ctx context.Context, a headlessApp, sid session.SessionID, prom
 	}
 	return exit
 }
+
+// headlessThinkBeat throttles the "⋯ thinking" heartbeat emitted while the model
+// streams reasoning in headless text mode (see runHeadless). It bounds heartbeat
+// noise on a long reasoning stream to one line per interval. (var so tests can
+// tune it.)
+var headlessThinkBeat = 15 * time.Second
 
 // renderText prints a human-readable view of fact events for headless text mode.
 func renderText(out, errw io.Writer, e event.Event) {
