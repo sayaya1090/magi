@@ -481,6 +481,7 @@ func run() int {
 	reg.Register(builtin.Report{})            // subagent → orchestrator final result (output)
 	reg.Register(builtin.AskUser{})           // top-level: multiple-choice question to the human user
 	reg.Register(builtin.ResolveConcern{})    // orchestrator-only: retire a handled ledger concern
+	reg.Register(builtin.CancelDispatch{})    // orchestrator-only: cancel remaining parallel subagents
 	reg.Register(builtin.RouteInterjection{}) // orchestrator-only: route a mid-turn user interjection
 	reg.Register(builtin.Replan{})            // plan-eligible: declare the current plan unworkable and re-plan
 	agents := defaultAgents()
