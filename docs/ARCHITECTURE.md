@@ -221,7 +221,31 @@ in `loop.go` calls into them each step):
   inspects the queue inline (calling the self-locking queue helpers there would re-lock the
   mutex and deadlock the goroutine); on a terminal error/cancel it persists any still-queued
   interjection back to the log as an unanswered prompt rather than stranding it in memory, but
-  does not re-run it (preserving the no-retry-storm guarantee).
+  does not re-run it (preserving the no-retry-storm guarantee). The re-surfaced prompt carries a
+  `ResurfacedFrom` link to the original prompt's MessageID so the display layer pairs the query
+  with its answer: `SessionState`→`dropResurfacedOrigins` drops the stranded original on replay,
+  and the TUI's `applyEvent` pulls the still-visible live bubble down to just above the incoming
+  answer (`moveUserBlockToEnd`) — display-only, turn logic is unchanged (it uses `reconstruct` directly).
+- **idle-park aside handler** (`handleAside`): the routing above assumes the orchestrator is
+  running its own steps, which the soft directive rides on. But when the planner's only work
+  this turn is background explorers, the loop *idle-parks* (§5, `awaitingExplorers`) and runs
+  no step — so a soft "you MAY answer" directive starves: an interjection there got a verbal
+  ack at best and never fired the wired steer tools. The idle-park path instead runs a
+  **bounded, tool-capable mini-loop** in isolated context (just the aside + a clip of the task
+  for reference — never the whole transcript, which would let synthesis pressure bury the
+  reply). It offers EXACTLY three *signal/interaction* tools — `route_interjection`,
+  `cancel_dispatch`, `ask_user` — and NO execution tools (read/bash/write/`task`): those would
+  re-create the starvation/duplication bug by doing the delegated work in this isolated turn.
+  So the aside turn only SIGNALS (reply to chitchat, or route ± cancel ± clarify); the real
+  re-plan/re-dispatch happens in the next normal step with the full toolset restored. The
+  aside is enqueued *before* the mini-loop (so `route_interjection`'s pending-interjection
+  requirement is met); a routed redirect/append is left queued for the `turnControl` drain to
+  apply, while a resolved chitchat reply or a bare cancel is consumed there so it doesn't also
+  re-run as its own turn. A "switch now" redirect is expected to pair with `cancel_dispatch`
+  (the prompt says so) — a bare redirect is no-loss but only re-anchors what gets synthesized
+  once the still-running explorers report. Asides that piled up *before* the park (e.g. during
+  planning) are flushed through the same handler on park entry (`pendingInterjectTexts`
+  snapshot) instead of starving until turn end.
 - **agent-initiated replan** (`replan` tool, plan-eligible agents): when the work itself proves
   the current plan unworkable (a premise broke), the agent requests a fresh decomposition +
   reset no-progress window instead of thrashing into the stall guard. It is advertised only to a

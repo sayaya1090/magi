@@ -32,6 +32,13 @@ type SessionCreatedData struct {
 type PromptSubmittedData struct {
 	MessageID string         `json:"messageId"`
 	Parts     []session.Part `json:"parts"`
+	// ResurfacedFrom links a re-emitted queued interjection back to the MessageID of
+	// the original prompt the user typed. The drain re-runs a queued interjection as
+	// its own turn by emitting a fresh prompt (new MessageID); this field lets the
+	// display layer pair the query with its answer — dropping the stranded original on
+	// replay and pulling the live bubble down to just above the answer. Empty for
+	// ordinary prompts/steers.
+	ResurfacedFrom string `json:"resurfacedFrom,omitempty"`
 }
 
 // PartAppendedData — TypePartAppended (a single completed part).

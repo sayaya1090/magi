@@ -62,10 +62,13 @@ func TestHasUnansweredUserPrompt(t *testing.T) {
 	}
 }
 
-// A message steered in while the agent is busy in a tool call is picked up in the
-// same turn: the next model request includes it. A blocking tool holds the turn
-// open so the test can inject deterministically.
-func TestSteerMidTurnPickedUp(t *testing.T) {
+// A message steered in while the agent is busy is treated as an interjection: it
+// is deferred (masked from the in-flight turn's model context so it cannot merge
+// into the current task) and then drained to run as its OWN subsequent turn. This
+// asserts both halves of that contract — the running turn does NOT see it, and it
+// is not lost: it reappears as a fresh turn. A blocking tool holds the turn open
+// so the test can inject deterministically.
+func TestSteerMidTurnDeferredToOwnTurn(t *testing.T) {
 	release := make(chan struct{})
 	started := make(chan struct{})
 	bt := &blockingTool{started: started, release: release}
@@ -108,16 +111,42 @@ func TestSteerMidTurnPickedUp(t *testing.T) {
 	}
 	close(release) // let the tool finish; the loop reads events again for step 2
 
-	waitForTerminal(t, a, sid)
+	waitForTerminal(t, a, sid) // the "start" turn completes first
 
-	// The second model request must contain the steered message.
+	// The continued "start" turn (request index 1, captured while the interjection
+	// was still queued) must NOT contain it: deferral prevents the mid-turn merge.
 	rec.mu.Lock()
-	defer rec.mu.Unlock()
 	if len(rec.reqs) < 2 {
+		rec.mu.Unlock()
 		t.Fatalf("expected >=2 model requests, got %d", len(rec.reqs))
 	}
-	if !requestContains(rec.reqs[len(rec.reqs)-1], "ALSO_DO_THIS") {
-		t.Fatal("steered message was not present in the continued turn's context")
+	if requestContains(rec.reqs[1], "ALSO_DO_THIS") {
+		rec.mu.Unlock()
+		t.Fatal("interjection merged into the in-flight turn (should have been deferred)")
+	}
+	rec.mu.Unlock()
+
+	// It must not be lost: the drain re-runs it as its own turn, producing a later
+	// request that does contain it.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		rec.mu.Lock()
+		var ran bool
+		for _, r := range rec.reqs[2:] {
+			if requestContains(r, "ALSO_DO_THIS") {
+				ran = true
+				break
+			}
+		}
+		n := len(rec.reqs)
+		rec.mu.Unlock()
+		if ran {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("deferred interjection never ran as its own turn (%d requests seen)", n)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

@@ -99,6 +99,65 @@ func reconstruct(evs []event.Event) []session.Message {
 	return out
 }
 
+// filterDeferredEvents removes user prompt events whose MessageID is currently deferred
+// (a mid-turn interjection queued to run as its own later turn). Applied to the LIVE
+// views only — the running turn's model context and the council's per-turn evidence scan
+// — so a still-queued interjection can neither merge into the current turn nor reset the
+// council's PromptSubmitted turn-boundary window. Order and seqs of the remaining events
+// are preserved, so reconstruct's compaction boundaries are unaffected.
+func filterDeferredEvents(evs []event.Event, deferred map[string]bool) []event.Event {
+	if len(deferred) == 0 {
+		return evs
+	}
+	out := make([]event.Event, 0, len(evs))
+	for _, e := range evs {
+		if e.Type == event.TypePromptSubmitted {
+			var d event.PromptSubmittedData
+			if json.Unmarshal(e.Data, &d) == nil && deferred[d.MessageID] {
+				continue
+			}
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+// dropResurfacedOrigins removes the ORIGINAL prompt event of any queued interjection
+// that was later re-emitted (linked via ResurfacedFrom). Applied to display/resume
+// views only (SessionState): the re-emitted copy sits next to its answer at the back
+// of the stream, so dropping the stranded original leaves a single query paired with
+// its answer instead of a duplicate. Order and seqs of the remaining events are
+// preserved. Turn logic (which uses reconstruct directly) is unaffected.
+func dropResurfacedOrigins(evs []event.Event) []event.Event {
+	var origins map[string]bool
+	for _, e := range evs {
+		if e.Type != event.TypePromptSubmitted {
+			continue
+		}
+		var d event.PromptSubmittedData
+		if json.Unmarshal(e.Data, &d) == nil && d.ResurfacedFrom != "" {
+			if origins == nil {
+				origins = map[string]bool{}
+			}
+			origins[d.ResurfacedFrom] = true
+		}
+	}
+	if len(origins) == 0 {
+		return evs
+	}
+	out := make([]event.Event, 0, len(evs))
+	for _, e := range evs {
+		if e.Type == event.TypePromptSubmitted {
+			var d event.PromptSubmittedData
+			if json.Unmarshal(e.Data, &d) == nil && origins[d.MessageID] {
+				continue
+			}
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
 // recallHint is the line appended to a compaction summary telling the model the shed
 // detail is recoverable and which topics to ask for. Empty when nothing was sharded.
 func recallHint(topics []string) string {

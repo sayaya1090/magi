@@ -364,7 +364,14 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	// work (and the agent then "fixes" it by undoing what the user just asked for).
 	// turnTask was snapshotted at the turn's first step (not re-read here), so a steer
 	// that arrives during deliberation can't swap what the council judges against.
+	// Mask EVERY interjection detected this turn: each is a PromptSubmitted spliced
+	// mid-turn, and the evidence scanners below (turnToolEvidence/unverifiedLookup/
+	// lookupRecovered) treat every PromptSubmitted as a turn boundary — so an un-masked
+	// interjection would reset their window and make the council judge only the fragment
+	// after it. taskEvents (not liveEvents) so an interjection answered inline during a
+	// background dispatch — never queued — is still hidden from the council.
 	evs, _ := a.store.Read(ctx, sid, 0)
+	evs = a.taskEvents(sid, evs)
 	task := turnTask
 	if task == "" { // defensive: fall back to the latest genuine prompt
 		task = lastUserPromptText(evs)

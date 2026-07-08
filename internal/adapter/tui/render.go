@@ -607,6 +607,22 @@ func userPrompts(msgs []session.Message) []string {
 	return out
 }
 
+// moveUserBlockToEnd relocates the last blockUser whose text matches to the end of
+// the slice, so a re-surfacing queued interjection's query renders just above its
+// incoming answer (Q&A pairing). If no match is found it appends a fresh user block
+// as a safe fallback. Matched by text — mirrors App.consumeInterject.
+func moveUserBlockToEnd(blocks []block, text string) []block {
+	text = strings.TrimSpace(text)
+	for i := len(blocks) - 1; i >= 0; i-- {
+		if blocks[i].kind == blockUser && strings.TrimSpace(blocks[i].text) == text {
+			b := blocks[i]
+			blocks = append(blocks[:i], blocks[i+1:]...)
+			return append(blocks, b)
+		}
+	}
+	return append(blocks, block{kind: blockUser, text: text})
+}
+
 // rebuildBlocks converts reconstructed messages into transcript blocks (used
 // when resuming a session).
 func rebuildBlocks(msgs []session.Message) []block {

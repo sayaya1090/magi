@@ -190,6 +190,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	handledUserPrompts := 0 // genuine (ActorUser) prompts already absorbed into turnTask; a rise past this at step>0 is a mid-turn interjection
 	replanCount := 0        // agent-initiated replans honored this turn (budget-capped so replan can't indefinitely reset the stall guard)
 	replanAtCalls := -1     // guard.callCount() at the last honored replan (require real work between replans)
+	seeded := false         // step-0 turnTask seed ran once; a park-and-retry (step--) must not re-seed/re-enqueue
 	// Turn usage accumulation (§8.1): output tokens and cost sum across steps; input
 	// is the last step's (the current context size, not a sum).
 	var cumOut, lastIn int
@@ -247,14 +248,38 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		}
 		a.setStage(sid, stageExecute) // tag this iteration's events as execute (D15)
 
+		answerInterjectNow := false // set when this step detects a visible interjection to reply to now
+
 		evs, err := a.store.Read(ctx, sid, 0)
 		if err != nil {
 			a.emitError(ctx, sid, agentActor, err.Error())
 			return lastText, err
 		}
-		if step == 0 {
-			turnTask = lastUserPromptText(evs)         // the prompt that drove this turn
-			handledUserPrompts = countUserPrompts(evs) // baseline; a later rise is a mid-turn interjection
+		if step == 0 && !seeded {
+			seeded = true // guard: a park-and-retry (step--) re-enters at step 0 but must not re-seed
+			// turnTask is the prompt that SEEDED this turn — the first genuine user prompt
+			// not already answered by a previous turn — NOT merely the latest. User prompts
+			// that piled up after the seed but before execution began (e.g. while a synchronous
+			// planning/explorer phase held the loop) are interjections: queue them so they run
+			// as their own turns and never become what the council judges against. (Top level
+			// only; a subagent session has no ActorUser prompts so seedPromptIdx returns -1.)
+			entries := userPromptEntries(evs)
+			if depth == 0 && !a.cfg.Workflow {
+				if seed := seedPromptIdx(evs); seed >= 0 && seed < len(entries) {
+					turnTask = entries[seed].Text
+					for _, it := range entries[seed+1:] {
+						if txt := strings.TrimSpace(it.Text); txt != "" && txt != strings.TrimSpace(turnTask) {
+							a.markInterjectSeen(sid, it.MsgID)
+							a.enqueueInterject(sid, it.MsgID, txt)
+						}
+					}
+				} else {
+					turnTask = lastUserPromptText(evs)
+				}
+			} else {
+				turnTask = lastUserPromptText(evs) // the prompt that drove this turn
+			}
+			handledUserPrompts = len(entries) // baseline; a later rise is a mid-turn interjection
 		} else {
 			// Drain any control signal a tool left last step (route an interjection, or an
 			// agent-initiated replan), applying the reground the loop owns but the tool can't.
@@ -276,28 +301,114 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 				}
 			}
 			// Detect a mid-turn user interjection (a new genuine user prompt appeared since we
-			// last absorbed one). Top level only — subagents aren't steered by the user. Queue it
-			// by default (safe: preserves both tasks) and tell the agent it's deferred so it stops
-			// oscillating; the agent may call route_interjection to redirect/append instead.
+			// last absorbed one). Top level only — subagents aren't steered by the user. Every
+			// interjection is masked from turnTask/council derivation (markInterjectSeen) so it
+			// can't swap what the council judges against. How the orchestrator handles it depends
+			// on what it is doing:
+			//   - idle-parked waiting on its own explorers (awaitingExplorers): it has no work to
+			//     interleave, so a soft "MAY answer" directive starves the reply (observed: asides
+			//     dropped for the whole delegated task). Run handleAside — a focused tool-capable
+			//     turn that replies to chitchat OR signals a steer (route_interjection to redirect/
+			//     append/queue, cancel_dispatch to stop now-irrelevant subagents, ask_user to
+			//     clarify). If it acts on the work we break the park so the next normal step
+			//     applies the route and re-dispatches with the full toolset.
+			//   - ordinary background delegation (dispatching but not parked): the orchestrator
+			//     keeps running its own turns, so let the next working turn answer via the soft
+			//     directive (answering in a separate turn here would double-reply, and the aside is
+			//     left visible so the working turn can route it).
+			//   - otherwise idle: queue it to run as its own turn and tell the agent it is deferred
+			//     so it stops oscillating (it may still call route_interjection to redirect/append).
 			if depth == 0 && !a.cfg.Workflow {
-				prompts := userPromptTexts(evs)
+				prompts := userPromptEntries(evs)
 				if len(prompts) > handledUserPrompts {
-					// Enqueue EVERY user prompt that appeared since the last check, not just
-					// the newest: two messages steered in during one long step would otherwise
-					// advance the counter past the earlier one, dropping it silently.
+					dispatching := a.bgOutstanding(sid) > 0
+					idleWaiting := dispatching && a.awaitingExplorers(sid) // parked with no work to interleave
+					// Handle EVERY user prompt that appeared since the last check, not just the
+					// newest: two messages steered in during one long step would otherwise advance
+					// the counter past the earlier one, dropping it silently.
 					var newest string
 					for _, it := range prompts[handledUserPrompts:] {
-						if it = strings.TrimSpace(it); it != "" && it != strings.TrimSpace(turnTask) {
-							a.enqueueInterject(sid, it)
-							newest = it
+						if txt := strings.TrimSpace(it.Text); txt != "" && txt != strings.TrimSpace(turnTask) {
+							a.markInterjectSeen(sid, it.MsgID)
+							switch {
+							case idleWaiting:
+								// Enqueue-first so route_interjection (which requires a pending
+								// interjection) can fire, then run the focused handler. It consumes a
+								// resolved chitchat reply / bare cancel itself and leaves a routed
+								// redirect/append queued for the turnControl drain to apply.
+								a.enqueueInterject(sid, it.MsgID, txt)
+								if a.handleAside(ctx, agent, s, depth, turnTask, txt) {
+									answerInterjectNow = true // break the park so the route/cancel takes effect next step
+								}
+							case !dispatching:
+								// Defer: queue it (masked from the live model context too) to run as
+								// its own turn.
+								a.enqueueInterject(sid, it.MsgID, txt)
+							}
+							// Ordinary dispatch (dispatching && !idleWaiting): left visible for the
+							// interleaving working turn to answer via the soft directive below.
+							newest = txt
 						}
 					}
 					handledUserPrompts = len(prompts)
-					if newest != "" {
-						a.injectQueuingDirective(ctx, sid, turnTask, newest)
+					// idle-park is fully owned by handleAside above. The directive is only for the
+					// other cases (non-dispatch queue notice, ordinary-dispatch soft answer).
+					if newest != "" && !idleWaiting {
+						a.injectInterjectDirective(ctx, sid, turnTask, newest, dispatching)
+						if dispatching {
+							// The directive we just appended is the last event, so lastIsUserSteer/
+							// needsOrchestratorTurn would read false and the early park below would
+							// re-swallow it; skip the park this iteration so the model runs and replies.
+							answerInterjectNow = true
+						}
 					}
 				}
 			}
+		}
+
+		// Async explorer preflight: when the planner dispatched its read-only explorers to the
+		// background (a pure-investigation plan), the orchestrator has nothing to synthesize until
+		// they report. Park here — BEFORE running the model — rather than answering with no findings.
+		// The park releases the moment a user interjects (needsOrchestratorTurn → lastIsUserSteer),
+		// so the loop falls through and answers it inline (dispatching=true above); or when the
+		// explorers finish (bgOutstanding hits 0), so it wakes to synthesize. Top level only;
+		// consumes no step budget. Mirrors the post-step bg-wait (below the no-tool-call branch).
+		// Gated on awaitingExplorers so ordinary background delegation still interleaves the
+		// orchestrator's OWN work (it never sets the flag) instead of parking here.
+		if depth == 0 && a.awaitingExplorers(sid) && !answerInterjectNow && a.bgOutstanding(sid) > 0 && !a.needsOrchestratorTurn(ctx, sid) {
+			// Flush asides that were queued earlier (e.g. during planning) BEFORE we park —
+			// otherwise they starve until turn-end (the pendingInterject drain fires only then),
+			// which for a long/council-looping turn is minutes. Handle each already-queued item
+			// through the same focused handler; if one acts on the work, break the park so the
+			// route/cancel takes effect instead of waiting on the explorers.
+			if queued := a.pendingInterjectTexts(sid); len(queued) > 0 {
+				for _, txt := range queued {
+					if a.handleAside(ctx, agent, s, depth, turnTask, txt) {
+						answerInterjectNow = true
+					}
+				}
+				if answerInterjectNow {
+					step-- // re-evaluate: skip the park and run a normal step to apply the route
+					continue
+				}
+			}
+			for a.bgOutstanding(sid) > 0 && ctx.Err() == nil && !a.needsOrchestratorTurn(ctx, sid) {
+				select {
+				case <-a.bgWaitChan(sid):
+				case <-ctx.Done():
+				}
+			}
+			if ctx.Err() != nil {
+				return lastText, ctx.Err()
+			}
+			if a.bgOutstanding(sid) == 0 {
+				a.setAwaitExplorers(sid, false) // all explorers reported → normal synthesis/interleave from here
+			}
+			if a.needsOrchestratorTurn(ctx, sid) {
+				a.bgConsume(sid) // don't re-wake for the same results (re-armed when new ones inject)
+			}
+			step-- // re-evaluate without spending this step's budget
+			continue
 		}
 
 		// Durable project memory (AGENTS.md) is part of the system prompt and is never
@@ -322,13 +433,13 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			vol = a.volatileContext(ctx, s, agent, isSub, evs, step, maxSteps, time.Since(runStart)) // refresh after compaction
 		}
 
-		msgs := reconstruct(evs)
+		msgs := reconstruct(a.liveEvents(sid, evs))
 		// If auto-orchestration fires, it injects a directive as a new event; re-read
 		// and rebuild msgs so the directive reaches the model in THIS turn, not the next.
 		if a.checkAutoOrchestration(ctx, sid, depth, s.Model.Model, sys, msgs) {
 			if evs2, err := a.store.Read(ctx, sid, 0); err == nil {
 				evs = evs2
-				msgs = reconstruct(evs)
+				msgs = reconstruct(a.liveEvents(sid, evs))
 				vol = a.volatileContext(ctx, s, agent, isSub, evs, step, maxSteps, time.Since(runStart))
 			}
 		}
@@ -518,7 +629,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 						// the stall window and loop so the parent integrates and verifies the child's work.
 						task := strings.TrimSpace(turnTask)
 						if task == "" {
-							task = strings.TrimSpace(lastUserText(reconstruct(evs)))
+							task = strings.TrimSpace(lastUserText(reconstruct(a.taskEvents(sid, evs))))
 						}
 						if a.redecomposeStuck(ctx, s, agent, task, lastCouncilFeedback, depth) {
 							recovered = true
@@ -621,7 +732,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			// would no-op exactly where weak models thrash most (narrow tool-driven subtasks).
 			task := strings.TrimSpace(turnTask)
 			if task == "" {
-				task = strings.TrimSpace(lastUserText(reconstruct(evs)))
+				task = strings.TrimSpace(lastUserText(reconstruct(a.taskEvents(sid, evs))))
 			}
 			msg := "You've repeated the same no-progress action several times and are getting blocked. " +
 				"Stop and change approach: try a different tool or a smaller step, or inspect WHY the last " +
@@ -666,7 +777,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			if kind == "stall" && !recovered && a.planEligible(agent, depth) {
 				task := strings.TrimSpace(turnTask)
 				if task == "" {
-					task = strings.TrimSpace(lastUserText(reconstruct(evs)))
+					task = strings.TrimSpace(lastUserText(reconstruct(a.taskEvents(sid, evs))))
 				}
 				if a.redecomposeStuck(ctx, s, agent, task,
 					"repeated no-progress: the previous attempt could not advance the task", depth) {
@@ -788,23 +899,209 @@ func applyRoute(action, turnTask, interject string) (newTask string, changed boo
 	}
 }
 
-// injectQueuingDirective tells the agent a new user request arrived mid-turn and has
-// been QUEUED to run after the current task, so it keeps focus instead of oscillating
-// between the two (the live-observed thrash: plexus #7–#10). The agent may call
-// route_interjection to redirect (switch now) or append (fold in) when confident.
-func (a *App) injectQueuingDirective(ctx context.Context, sid session.SessionID, turnTask, interject string) {
-	text := "magi runtime note (not user input): a new user request arrived while you are mid-task:\n" +
-		clipSpec(interject, 800) + "\n\n" +
-		"It has been QUEUED and will run as its own turn after you finish the current task:\n" +
-		clipSpec(turnTask, 800) + "\n\n" +
-		"Keep working on the current task; do not switch away from it. If — and only if — you are confident the new " +
-		"request should change your direction NOW, or be folded into the current task, call route_interjection " +
-		"(action \"redirect\" or \"append\") with a one-line reason. When unsure, do nothing and it stays queued."
+// injectInterjectDirective tells the agent a new user message arrived mid-turn. When
+// deferred (not dispatching) it has been QUEUED to run after the current task, so the
+// agent keeps focus instead of oscillating between the two (the live-observed thrash:
+// plexus #7–#10) and may call route_interjection to redirect/append when confident.
+// When dispatching (background subagents running, agent otherwise idle) the message is
+// left visible and the agent is invited to answer it briefly without abandoning the task.
+func (a *App) injectInterjectDirective(ctx context.Context, sid session.SessionID, turnTask, interject string, dispatching bool) {
+	var text string
+	if dispatching {
+		// The orchestrator is otherwise idle while background subagents work, so it is free
+		// to be responsive. Let it answer a short interjection inline WITHOUT abandoning or
+		// folding it into the delegated task (which would corrupt that deliverable).
+		text = "magi runtime note (not user input): a new user message arrived while the background subagents " +
+			"you dispatched are still running:\n" + clipSpec(interject, 800) + "\n\n" +
+			"You are otherwise idle until they report, so you MAY answer this briefly right now (e.g. a question or " +
+			"a greeting). Do NOT abandon the delegated task, and do NOT fold this into its deliverable:\n" +
+			clipSpec(turnTask, 800) + "\n\n" +
+			"Answer only this aside — do NOT start reading/grepping or investigating the task yourself while the " +
+			"subagents run; they own that work and duplicating it wastes turns. " +
+			"If it is actually a new substantive task, say you will take it up after the current one finishes, then " +
+			"keep coordinating the subagents."
+	} else {
+		text = "magi runtime note (not user input): a new user request arrived while you are mid-task:\n" +
+			clipSpec(interject, 800) + "\n\n" +
+			"It has been QUEUED and will run as its own turn after you finish the current task:\n" +
+			clipSpec(turnTask, 800) + "\n\n" +
+			"Keep working on the current task; do not switch away from it. If — and only if — you are confident the new " +
+			"request should change your direction NOW, or be folded into the current task, call route_interjection " +
+			"(action \"redirect\" or \"append\") with a one-line reason. When unsure, do nothing and it stays queued."
+	}
 	pd, _ := json.Marshal(event.PromptSubmittedData{
 		MessageID: "m_" + newID(),
 		Parts:     []session.Part{{Kind: session.PartText, Text: text}},
 	})
 	_ = a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
+}
+
+// asideHandlerSystem drives the idle-park interjection handler: a focused, tool-capable turn
+// that either replies briefly (chitchat) or SIGNALS a change of course, without doing the
+// delegated work itself. It runs in fresh, minimal context (just the aside + a clip of the
+// task for reference) so a reply is guaranteed to flush — the original bug was the main
+// synthesis turn, handed the full task, deprioritizing conversational replies and dropping
+// them for the entire delegated task. Only signal/interaction tools (route_interjection,
+// cancel_dispatch, ask_user) are offered — never read/bash/write/task — so the model cannot
+// start (or duplicate) the subagents' work here; the real re-plan/re-dispatch resumes in the
+// next normal step, which regains the full toolset.
+const asideHandlerSystem = "You dispatched background subagents and are now idle, waiting for them to report. " +
+	"While you wait, the user sent you the message below. Handle ONLY this message — do NOT read files, run " +
+	"commands, or investigate the task here; the subagents own that work and duplicating it wastes turns.\n\n" +
+	"- If it is small talk or a question, reply briefly (one or two sentences) and end your turn with no tool call.\n" +
+	"- If it changes the work: keep results already produced, call cancel_dispatch to stop any running subagent whose " +
+	"work is now irrelevant, and call route_interjection to set the direction — \"redirect\" to switch to it now, " +
+	"\"append\" to fold it into the current task so both are satisfied (ordering words like \"before\"/\"after\" are " +
+	"honored when you re-plan), or \"queue\" to defer it to its own later turn.\n" +
+	"- If the request is ambiguous, call ask_user to clarify before routing.\n\n" +
+	"The actual re-planning and re-dispatch happen in your normal turn after this — here you only reply or signal."
+
+// maxAsideSteps caps the idle-park handler's mini-loop so it always terminates: enough to
+// ask_user and then route in the same handling, but bounded against a tool-call loop.
+const maxAsideSteps = 4
+
+// handleAside runs a focused, tool-capable turn for a user interjection that arrived while the
+// orchestrator is idle-parked on its own explorers. It replies to chitchat OR signals a steer
+// (route_interjection / cancel_dispatch), optionally clarifying first via ask_user. The aside
+// MUST already be enqueued (enqueue-first) so route_interjection — which requires a pending
+// interjection — can fire. It returns whether it ACTED (route redirect/append, or a cancel):
+// true means the caller should break the park so the next normal step drains the route and
+// re-dispatches with the full toolset; false means re-park (a chitchat reply, a bare "queue",
+// or nothing usable). Queue disposition is handled here: a redirect/append is left queued for
+// the loop's turnControl drain to consume; a resolved chitchat reply or a bare cancel is
+// consumed so it does not also re-run as its own turn; a defer/failure is left queued (no loss).
+func (a *App) handleAside(ctx context.Context, agent AgentSpec, s session.Session, depth int, turnTask, aside string) (acted bool) {
+	sys := asideHandlerSystem
+	if t := strings.TrimSpace(turnTask); t != "" {
+		sys += "\n\nThe background task (context only — do not act on it here):\n" + clipSpec(t, 500)
+	}
+	// Signal/interaction tools only — the model can reply or change course but cannot start
+	// (or duplicate) the subagents' delegated work here.
+	var specs []port.ToolSpec
+	for _, name := range []string{"route_interjection", "cancel_dispatch", "ask_user"} {
+		if t, ok := a.tools.Get(name); ok {
+			specs = append(specs, port.ToolSpec{Name: name, Description: t.Description(), Schema: t.Schema()})
+		}
+	}
+	actor := event.Actor{Kind: event.ActorAgent, ID: orDefault(agent.Name, "default")}
+	msgs := []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: aside}}}}
+	var didRoute, didCancel, didReply bool
+	for step := 0; step < maxAsideSteps; step++ {
+		req := port.ChatRequest{Model: s.Model.Model, System: sys, Messages: msgs, Tools: specs}
+		stream, err := a.providerFor(agent).StreamChat(ctx, req)
+		if err != nil {
+			break
+		}
+		msgID := "m_" + newID()
+		textPartID := "p_" + newID()
+		// Drain the stream ourselves rather than via consumeStream: this isolated turn must not
+		// overwrite the session's real context-size meter with its tiny request, nor append a
+		// stray TypeError to the delegated task's log on a transient failure — on error we stop.
+		var text strings.Builder
+		var calls []session.ToolCall
+		failed := false
+		for ev := range stream {
+			switch ev.Type {
+			case port.ProviderText:
+				text.WriteString(ev.Text)
+				d, _ := json.Marshal(event.PartDeltaData{MessageID: msgID, PartID: textPartID, Kind: session.PartText, Text: ev.Text})
+				a.publishTransient(s.ID, event.TypePartDelta, actor, d)
+			case port.ProviderToolCall:
+				if ev.ToolCall != nil {
+					calls = append(calls, *ev.ToolCall)
+				}
+			case port.ProviderError:
+				failed = true
+			}
+		}
+		if failed {
+			break
+		}
+		reply := strings.TrimSpace(text.String())
+		// Persist visible text (a chitchat reply, or a brief ack before a route) so it streams
+		// and stays in the transcript. Tool-call/result parts are kept only in this mini-loop's
+		// local context — not persisted — to avoid polluting the delegated task's log; the tool
+		// EFFECTS (turnControl route, cancel notices) reach the loop through their own channels.
+		if reply != "" {
+			a.appendPart(ctx, s.ID, actor, msgID, session.RoleAssistant, session.Part{ID: textPartID, Kind: session.PartText, Text: reply})
+			didReply = true
+		}
+		if len(calls) == 0 {
+			break // final turn: replied (or produced nothing) — done
+		}
+		asgParts := []session.Part{}
+		if reply != "" {
+			asgParts = append(asgParts, session.Part{ID: textPartID, Kind: session.PartText, Text: reply})
+		}
+		for i := range calls {
+			c := calls[i]
+			asgParts = append(asgParts, session.Part{Kind: session.PartToolCall, ToolCall: &c})
+		}
+		msgs = append(msgs, session.Message{Role: session.RoleAssistant, Parts: asgParts})
+		for i := range calls {
+			c := calls[i]
+			res := a.execAsideTool(ctx, s, depth, &c, &didRoute, &didCancel)
+			msgs = append(msgs, session.Message{Role: session.RoleTool, Parts: []session.Part{{Kind: session.PartToolResult, ToolResult: &res}}})
+		}
+	}
+	switch {
+	case didRoute:
+		return true // redirect/append: the loop's turnControl drain consumes + re-anchors next step
+	case didCancel:
+		a.consumeInterject(s.ID, aside) // cancel with no re-anchor: resolved here
+		return true
+	case didReply:
+		a.consumeInterject(s.ID, aside) // chitchat: answered here, don't also re-run as a turn
+		return false
+	default:
+		return false // bare "queue" or nothing usable: leave queued to run later (no loss)
+	}
+}
+
+// execAsideTool executes one signal/interaction tool call from the idle-park handler against a
+// minimal ToolEnv (only route/cancel/ask_user wired; every execution tool is nil, so the model
+// cannot do delegated work here). It records which class of action fired so handleAside can set
+// its return and queue disposition. Mirrors the routeInterjectionFn/cancelDispatchFn closures
+// in execute.go so behavior (pending-interjection requirement, turnControl signal) is identical.
+func (a *App) execAsideTool(ctx context.Context, s session.Session, depth int, c *session.ToolCall, didRoute, didCancel *bool) session.ToolResult {
+	env := port.ToolEnv{
+		SessionID: s.ID,
+		RouteInterjection: func(action, reason string) error {
+			if !a.hasPendingInterject(s.ID) {
+				return fmt.Errorf("there is no queued interjection to route right now")
+			}
+			a.signalTurnControl(s.ID, func(tc *turnControl) {
+				tc.route = action
+				if reason != "" {
+					tc.reason = reason
+				}
+			})
+			if action == "redirect" || action == "append" {
+				*didRoute = true // "queue" changes nothing, so it neither routes nor breaks the park
+			}
+			return nil
+		},
+		CancelDispatch: func(agent, reason string) (int, error) {
+			n, err := a.cancelDispatched(ctx, s.ID, agent, reason)
+			if err == nil {
+				*didCancel = true
+			}
+			return n, err
+		},
+		AskUser: a.askUserFn(ctx, s, depth, c),
+	}
+	tool, ok := a.tools.Get(c.Name)
+	if !ok {
+		b, _ := json.Marshal("unknown tool: " + c.Name)
+		return session.ToolResult{CallID: c.CallID, Content: b, IsError: true}
+	}
+	res, err := tool.Execute(ctx, c.Args, env)
+	if err != nil {
+		b, _ := json.Marshal(err.Error())
+		return session.ToolResult{CallID: c.CallID, Content: b, IsError: true}
+	}
+	res.CallID = c.CallID
+	return res
 }
 
 // maxReplansPerTurn caps agent-initiated replans so replan cannot indefinitely reset
@@ -921,12 +1218,61 @@ func countUserPrompts(evs []event.Event) int {
 // mid-turn interjection, even when several land during a single blocked step (a
 // count-only check would advance past the earlier ones and drop them).
 func userPromptTexts(evs []event.Event) []string {
-	var out []string
+	entries := userPromptEntries(evs)
+	out := make([]string, len(entries))
+	for i, e := range entries {
+		out[i] = e.Text
+	}
+	return out
+}
+
+// userPrompt is a genuine user prompt with the id of the event that carried it, so the
+// interjection detector can mask that exact event while the message stays queued.
+type userPrompt struct {
+	MsgID string
+	Text  string
+}
+
+// seedPromptIdx returns the index (in userPromptEntries order) of the genuine user
+// prompt that SEEDS the current top-level turn: the first user prompt not already
+// answered by an assistant reply. It is meaningful only at step 0, where the current
+// turn has produced no output yet — so any assistant (ActorAgent) part in the log
+// belongs to a PREVIOUS turn, and the first user prompt after the last such part is
+// this turn's seed. Later user prompts are mid-turn interjections that piled up before
+// execution began. Returns -1 when the log has no genuine user prompt (e.g. a subagent
+// session, whose seed is authored by ActorAgent).
+func seedPromptIdx(evs []event.Event) int {
+	ui := -1           // running index into userPromptEntries order
+	lastAnswered := -1 // highest user-prompt index a prior assistant reply covered
+	for _, e := range evs {
+		switch {
+		case e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser:
+			ui++
+		case e.Type == event.TypePartAppended && e.Actor.Kind == event.ActorAgent:
+			if ui >= 0 {
+				lastAnswered = ui
+			}
+		}
+	}
+	if ui < 0 {
+		return -1
+	}
+	seed := lastAnswered + 1
+	if seed > ui {
+		seed = ui // defensive: everything already answered → treat the latest as seed
+	}
+	return seed
+}
+
+// userPromptEntries returns every genuine user (ActorUser) prompt in log order, each
+// paired with its PromptSubmitted MessageID.
+func userPromptEntries(evs []event.Event) []userPrompt {
+	var out []userPrompt
 	for _, e := range evs {
 		if e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser {
 			var d event.PromptSubmittedData
 			if json.Unmarshal(e.Data, &d) == nil {
-				out = append(out, partsText(d.Parts))
+				out = append(out, userPrompt{MsgID: d.MessageID, Text: partsText(d.Parts)})
 			}
 		}
 	}

@@ -52,6 +52,16 @@ func (m *Model) applyEvent(e event.Event) {
 		if e.Actor.Kind == event.ActorAgent {
 			name := strings.TrimPrefix(e.Actor.ID, "subagent:")
 			m.blocks = append(m.blocks, block{kind: blockInfo, text: "↩ " + name + " reported (open its pane to read)"})
+			return
+		}
+		// A queued interjection re-surfacing as its own turn (ResurfacedFrom set): while
+		// queued the original bubble stayed at its input position; now its answer is
+		// about to render, so pull that bubble down to just above the answer — remove the
+		// stranded original and re-append it at the end so the query/answer form a pair.
+		var d event.PromptSubmittedData
+		if json.Unmarshal(e.Data, &d) == nil && d.ResurfacedFrom != "" {
+			text := joinTextParts(d.Parts)
+			m.blocks = moveUserBlockToEnd(m.blocks, text)
 		}
 
 	case event.TypePartDelta:

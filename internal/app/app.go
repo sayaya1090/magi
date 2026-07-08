@@ -67,8 +67,21 @@ type App struct {
 	autoOrchestrateActive map[session.SessionID]bool           // whether auto-orchestration has been triggered for this session (guarded by mu)
 	probingWindows        map[string]struct{}                  // models whose context window is being (or was) lazily probed (guarded by mu)
 
-	turnControl      map[session.SessionID]turnControl // pending mid-turn routing/replan signal set by a tool, drained by the loop (guarded by mu)
-	pendingInterject map[session.SessionID][]string    // interjections queued to run as their own turn after the current one ends (guarded by mu)
+	turnControl      map[session.SessionID]turnControl           // pending mid-turn routing/replan signal set by a tool, drained by the loop (guarded by mu)
+	pendingInterject map[session.SessionID][]pendingInterjection // interjections queued to run as their own turn after the current one ends (guarded by mu)
+	interjectSeen    map[session.SessionID]map[string]bool       // every mid-turn interjection MessageID detected THIS turn, masked from turnTask/council derivation even after it leaves the pending queue (guarded by mu)
+	awaitExplorers   map[session.SessionID]bool                  // the planner dispatched read-only explorers as THIS turn's primary work; the loop parks (pre-model) until they report instead of running a findings-less review (guarded by mu)
+}
+
+// pendingInterjection is a mid-turn user message parked to run as its own turn once
+// the current one ends. MsgID is the PromptSubmitted event that carried it: while the
+// interjection sits in the queue, that event is masked from the LIVE-judgment views
+// (the running turn's model context and the council's per-turn scan) so it can neither
+// merge into the current turn nor reset the council's turn-boundary window. It becomes
+// visible again the moment it leaves the queue (drained, or absorbed via route_interjection).
+type pendingInterjection struct {
+	MsgID string
+	Text  string
 }
 
 // turnControl is a mid-turn control signal a tool records for the running loop to
@@ -115,7 +128,9 @@ func New(store port.Store, llm port.LLMProvider, tools port.ToolRegistry, b *bus
 		autoOrchestrateActive: map[session.SessionID]bool{},
 		probingWindows:        map[string]struct{}{},
 		turnControl:           map[session.SessionID]turnControl{},
-		pendingInterject:      map[session.SessionID][]string{},
+		pendingInterject:      map[session.SessionID][]pendingInterjection{},
+		interjectSeen:         map[session.SessionID]map[string]bool{},
+		awaitExplorers:        map[session.SessionID]bool{},
 	}
 }
 
@@ -221,7 +236,10 @@ func (a *App) SessionState(ctx context.Context, sid session.SessionID) ([]sessio
 			last = e.Seq
 		}
 	}
-	return reconstruct(evs), last, nil
+	// Pair each re-surfaced queued interjection with its answer for display: drop the
+	// stranded original so only the re-emitted copy (which sits next to its answer at
+	// the back of the stream) renders. Display-only — turn logic uses reconstruct directly.
+	return reconstruct(dropResurfacedOrigins(evs)), last, nil
 }
 
 // Todos returns a session's current plan.
@@ -611,9 +629,32 @@ func (a *App) CreateSession(ctx context.Context, c command.CreateSession) (sessi
 func (a *App) resetForNewTopLevel(sid session.SessionID) {
 	a.SetTodos(sid, nil) // takes a.mu itself
 	a.mu.Lock()
-	delete(a.criteria, sid) // drop cached criteria; re-elicited at the next gate (D15)
-	delete(a.estSteps, sid) // …and the previous task's advisory step estimate
+	delete(a.criteria, sid)       // drop cached criteria; re-elicited at the next gate (D15)
+	delete(a.estSteps, sid)       // …and the previous task's advisory step estimate
+	delete(a.interjectSeen, sid)  // this turn's interjection mask set — the next turn starts clean
+	delete(a.awaitExplorers, sid) // the async-explorer wait is per-turn; the next turn starts clean
 	a.mu.Unlock()
+}
+
+// setAwaitExplorers marks (or clears) that the planner dispatched read-only explorers as
+// this turn's primary work, so the loop's pre-model park engages until they report.
+func (a *App) setAwaitExplorers(sid session.SessionID, v bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if v {
+		a.awaitExplorers[sid] = true
+	} else {
+		delete(a.awaitExplorers, sid)
+	}
+}
+
+// awaitingExplorers reports whether this turn is parked waiting for planner-dispatched
+// read-only explorers. Distinguishes the async-explorer scenario (park pre-model, no
+// findings-less review) from ordinary background delegation (interleave own work).
+func (a *App) awaitingExplorers(sid session.SessionID) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.awaitExplorers[sid]
 }
 
 // Submit appends the user's prompt and starts the agent loop asynchronously.
@@ -664,6 +705,21 @@ func (a *App) appendPrompt(ctx context.Context, c command.SubmitPrompt) error {
 	return a.appendFact(ctx, c.SessionID, event.TypePromptSubmitted, c.Actor, data)
 }
 
+// appendResurfacedPrompt re-emits a queued interjection as a fresh user prompt that
+// runs as its own turn (like appendPrompt), but links back to the original prompt's
+// MessageID via ResurfacedFrom so the display layer can pair the query with its
+// answer (drop the stranded original on replay; pull the live bubble down). Turn
+// semantics are identical to appendPrompt — the link is display-only metadata.
+func (a *App) appendResurfacedPrompt(ctx context.Context, sid session.SessionID, originMsgID, text string) error {
+	a.setStage(sid, stageExecute)
+	data, _ := json.Marshal(event.PromptSubmittedData{
+		MessageID:      "m_" + newID(),
+		Parts:          []session.Part{{Kind: session.PartText, Text: text}},
+		ResurfacedFrom: originMsgID,
+	})
+	return a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorUser, ID: "tui"}, data)
+}
+
 // signalTurnControl records a mid-turn routing/replan signal from a tool for the
 // running loop to drain at its next step. It merges into any existing signal so a
 // route and a later replan in the same step window both survive.
@@ -685,28 +741,31 @@ func (a *App) takeTurnControl(sid session.SessionID) turnControl {
 }
 
 // enqueueInterject parks a mid-turn user interjection to be run as its own turn
-// once the current turn ends (drained by the run goroutine's re-check).
-func (a *App) enqueueInterject(sid session.SessionID, text string) {
+// once the current turn ends (drained by the run goroutine's re-check). msgID is the
+// PromptSubmitted event that carried it, so the loop can mask that event from the
+// live-judgment views while the interjection stays queued (deferredInterjectIDs).
+func (a *App) enqueueInterject(sid session.SessionID, msgID, text string) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.pendingInterject[sid] = append(a.pendingInterject[sid], text)
+	a.pendingInterject[sid] = append(a.pendingInterject[sid], pendingInterjection{MsgID: msgID, Text: text})
 }
 
 // consumeInterject removes a specific queued interjection (absorbed this turn by a
 // redirect/append route, so it must not also re-surface as its own follow-up turn).
+// Matched by text — the route path only has the interjection's text, not its MsgID.
 func (a *App) consumeInterject(sid session.SessionID, text string) {
 	text = strings.TrimSpace(text)
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	q := a.pendingInterject[sid]
 	out := q[:0]
-	for _, t := range q {
-		if t != text {
-			out = append(out, t)
+	for _, p := range q {
+		if p.Text != text {
+			out = append(out, p)
 		}
 	}
 	if len(out) == 0 {
@@ -724,7 +783,7 @@ func (a *App) takePendingInterject(sid session.SessionID) string {
 	if len(q) == 0 {
 		return ""
 	}
-	text := q[0]
+	text := q[0].Text
 	if len(q) == 1 {
 		delete(a.pendingInterject, sid)
 	} else {
@@ -738,6 +797,96 @@ func (a *App) hasPendingInterject(sid session.SessionID) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return len(a.pendingInterject[sid]) > 0
+}
+
+// pendingInterjectTexts snapshots the queued interjection texts (FIFO order) without
+// removing them. The idle-park flush handles each already-queued item through handleAside,
+// which consumes a resolved reply / bare cancel itself and leaves a routed item for the
+// turnControl drain — so the caller must iterate a copy, not mutate the queue mid-loop.
+func (a *App) pendingInterjectTexts(sid session.SessionID) []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	q := a.pendingInterject[sid]
+	if len(q) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(q))
+	for _, p := range q {
+		out = append(out, p.Text)
+	}
+	return out
+}
+
+// deferredInterjectIDs is the set of PromptSubmitted MessageIDs currently queued as
+// interjections — the events to mask from the live-judgment views. Membership IS the
+// mask lifetime: an interjection leaves the queue (drained or absorbed) exactly when it
+// should become visible again, so no separate bookkeeping can drift out of sync.
+func (a *App) deferredInterjectIDs(sid session.SessionID) map[string]bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	q := a.pendingInterject[sid]
+	if len(q) == 0 {
+		return nil
+	}
+	ids := make(map[string]bool, len(q))
+	for _, p := range q {
+		if p.MsgID != "" {
+			ids[p.MsgID] = true
+		}
+	}
+	return ids
+}
+
+// liveEvents returns evs with currently-QUEUED interjection prompts removed, for the
+// running turn's MODEL CONTEXT (reconstruct). A dispatch-visible interjection (one the
+// orchestrator may answer while background subagents run, so it was never queued) stays
+// visible here. Full history (SessionState, compaction) still sees every event.
+func (a *App) liveEvents(sid session.SessionID, evs []event.Event) []event.Event {
+	return filterDeferredEvents(evs, a.deferredInterjectIDs(sid))
+}
+
+// markInterjectSeen records that a MessageID is a mid-turn interjection detected this
+// turn. Unlike the pending queue, this membership persists until the turn boundary
+// (resetForNewTopLevel), so turnTask/council derivation stays masked from the
+// interjection even after it leaves the queue (drained, or never queued because the
+// orchestrator answered it inline during a background dispatch).
+func (a *App) markInterjectSeen(sid session.SessionID, msgID string) {
+	if msgID == "" {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	m := a.interjectSeen[sid]
+	if m == nil {
+		m = map[string]bool{}
+		a.interjectSeen[sid] = m
+	}
+	m[msgID] = true
+}
+
+// interjectSeenIDs is the set of interjection MessageIDs detected this turn — the events
+// to mask from turnTask/council derivation so neither is ever anchored on a mid-turn
+// splice. Superset of deferredInterjectIDs (which drops entries as they drain).
+func (a *App) interjectSeenIDs(sid session.SessionID) map[string]bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	m := a.interjectSeen[sid]
+	if len(m) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(m))
+	for k := range m {
+		out[k] = true
+	}
+	return out
+}
+
+// taskEvents returns evs with EVERY interjection detected this turn removed, for the
+// task-identity views — turnTask derivation and the council's per-turn evidence scan.
+// Wider than liveEvents: it also hides interjections the orchestrator answered inline
+// (never queued) so they cannot swap what the council judges against.
+func (a *App) taskEvents(sid session.SessionID, evs []event.Event) []event.Event {
+	return filterDeferredEvents(evs, a.interjectSeenIDs(sid))
 }
 
 // startRun launches the agent loop for a session unless one is already running
@@ -778,7 +927,8 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 			queued := a.pendingInterject[sid]
 			if alive && len(queued) > 0 {
 				// Re-surface the oldest as a fresh user prompt so it runs as its own turn.
-				text := queued[0]
+				text := queued[0].Text
+				origin := queued[0].MsgID
 				if len(queued) == 1 {
 					delete(a.pendingInterject, sid)
 				} else {
@@ -791,11 +941,9 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 					// merits instead of the finished task's plan/criteria (a queued,
 					// unrelated request must not be held to the previous task's contract).
 					a.resetForNewTopLevel(sid)
-					_ = a.appendPrompt(context.WithoutCancel(runCtx), command.SubmitPrompt{
-						SessionID: sid,
-						Actor:     event.Actor{Kind: event.ActorUser, ID: "tui"},
-						Parts:     []session.Part{{Kind: session.PartText, Text: text}},
-					})
+					// Link back to the original prompt so the display layer pairs the query
+					// with its answer instead of showing it twice / stranded up top.
+					_ = a.appendResurfacedPrompt(context.WithoutCancel(runCtx), sid, origin, text)
 				}
 				continue
 			}
@@ -813,15 +961,14 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 				// drain and Submit).
 				a.resetForNewTopLevel(sid)
 			}
-			for _, text := range queued {
-				if text = strings.TrimSpace(text); text == "" {
+			for _, q := range queued {
+				text := strings.TrimSpace(q.Text)
+				if text == "" {
 					continue
 				}
-				_ = a.appendPrompt(context.WithoutCancel(runCtx), command.SubmitPrompt{
-					SessionID: sid,
-					Actor:     event.Actor{Kind: event.ActorUser, ID: "tui"},
-					Parts:     []session.Part{{Kind: session.PartText, Text: text}},
-				})
+				// Same resurface link as the alive drain: the re-persisted prompt runs as
+				// its own turn on the next run, so pair it with the original on display.
+				_ = a.appendResurfacedPrompt(context.WithoutCancel(runCtx), sid, q.MsgID, text)
 			}
 			break
 		}

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -120,32 +121,50 @@ func TestReplayForksBeforeLastTurn(t *testing.T) {
 	}
 }
 
-// Replay must pick the turn-STARTING prompt, not a mid-run steer (which is also a
-// user prompt.submitted) — otherwise it would fork inside an unfinished turn.
+// Replay must pick the turn-STARTING prompt, not a steer answered inline within the
+// same turn (also an ActorUser prompt.submitted). A steer that sits BEFORE its turn's
+// turn.finished is part of that unfinished turn; forking at it would fork mid-turn. We
+// drive Replay over a synthetic log so this is independent of how the live loop happens
+// to defer/merge/drain interjections — it pins Replay's own boundary rule.
 func TestReplayPicksTurnStarterNotSteer(t *testing.T) {
 	a, wd := newApp(t, &fakeLLM{}, Config{})
 	ctx := context.Background()
-	sid := startSession(t, a, wd)
-	runOn(t, a, sid, "turn one")
-	// Second turn, steered mid-run. Both "turn two" and the steer are ActorUser
-	// prompts; replay must choose "turn two" (the turn-starter).
-	if err := a.Submit(ctx, command.SubmitPrompt{SessionID: sid,
-		Parts: []session.Part{{Kind: session.PartText, Text: "turn two"}},
-		Actor: event.Actor{Kind: event.ActorUser, ID: "u"}}); err != nil {
+	sid := startSession(t, a, wd) // seq 1: session.created
+
+	userPrompt := func(id, text string) event.Event {
+		d, _ := json.Marshal(event.PromptSubmittedData{MessageID: id,
+			Parts: []session.Part{{Kind: session.PartText, Text: text}}})
+		return event.Event{SessionID: sid, Type: event.TypePromptSubmitted,
+			Actor: event.Actor{Kind: event.ActorUser, ID: "u"}, Data: d}
+	}
+	agentPart := func(id, text string) event.Event {
+		d, _ := json.Marshal(event.PartAppendedData{MessageID: id, Role: session.RoleAssistant,
+			Part: session.Part{Kind: session.PartText, Text: text}})
+		return event.Event{SessionID: sid, Type: event.TypePartAppended,
+			Actor: event.Actor{Kind: event.ActorAgent, ID: "agent"}, Data: d}
+	}
+	finished := func() event.Event {
+		d, _ := json.Marshal(event.TurnFinishedData{})
+		return event.Event{SessionID: sid, Type: event.TypeTurnFinished,
+			Actor: event.Actor{Kind: event.ActorAgent, ID: "agent"}, Data: d}
+	}
+
+	// Turn one (complete), then turn two whose answer is interrupted by an inline steer
+	// that lands BEFORE turn two's turn.finished — i.e. answered within the same turn.
+	if _, err := a.store.Append(ctx, sid,
+		userPrompt("u1", "turn one"), agentPart("a1", "ok one"), finished(),
+		userPrompt("u2", "turn two"), agentPart("a2", "working"),
+		userPrompt("u3", "also do this"), agentPart("a3", "ok both"), finished(),
+	); err != nil {
 		t.Fatal(err)
 	}
-	_ = a.Steer(ctx, command.SubmitPrompt{SessionID: sid,
-		Parts: []session.Part{{Kind: session.PartText, Text: "also do this"}},
-		Actor: event.Actor{Kind: event.ActorUser, ID: "u"}})
-	waitForTerminal(t, a, sid)
-	waitIdle(t, a, sid)
 
 	_, prompt, err := a.Replay(ctx, sid)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if prompt != "turn two" {
-		t.Fatalf("replay prompt = %q, want the turn-starter %q (not the steer)", prompt, "turn two")
+		t.Fatalf("replay prompt = %q, want the turn-starter %q (not the inline steer)", prompt, "turn two")
 	}
 }
 

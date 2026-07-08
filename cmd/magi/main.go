@@ -1127,23 +1127,30 @@ func envDur(key string, def time.Duration) time.Duration {
 // Model empty to inherit the session model; per-agent routing can be set in
 // config (model routing, M6).
 func defaultAgents() map[string]app.AgentSpec {
-	ro := []string{"read", "grep", "glob", "list", "findcontext", "astgrep", "ask", "report"} // read-only search + ask(escalate)/report(deliver)
+	// read-only search + ask(escalate)/report(deliver) + pure-Go aggregation (tabulate/
+	// countmatches/countlines/groupby) so a read-only agent can REDUCE data — sum a
+	// column, count matches, tally groups — without a shell.
+	ro := []string{"read", "grep", "glob", "list", "findcontext", "astgrep", "tabulate", "countmatches", "countlines", "groupby", "ask", "report"}
+	// aggHint steers read-only agents to the aggregation tools for quantitative
+	// questions instead of re-reading a large file to add up a column by hand (the
+	// coverage-% thrash that made explorers delegate arithmetic back to the parent).
+	aggHint := " For any quantitative question (counts, sums, coverage %, LOC, distributions) use tabulate/countmatches/countlines/groupby rather than reading a large file to compute it by hand."
 	return map[string]app.AgentSpec{
 		"explore": {
 			Name:   "explore",
-			System: "You are a read-only code explorer. Investigate the codebase with read/grep/glob/list and report concise findings. Never modify files.",
+			System: "You are a read-only code explorer. Investigate the codebase with read/grep/glob/list and report concise findings. Never modify files." + aggHint,
 			Tools:  ro,
 		},
 		"locator": {
 			Name: "locator",
 			System: "You are a code-search specialist. Locate relevant files, symbols, and usages with grep/glob/list/read/findcontext/astgrep. " +
-				"Report exact file:line locations with brief context. Never modify files.",
+				"Report exact file:line locations with brief context. Never modify files." + aggHint,
 			Tools: ro,
 		},
 		"analyst": {
 			Name: "analyst",
 			System: "You are a deep-reasoning advisor. Analyze hard problems, trade-offs, and root causes using read/grep/glob/list. " +
-				"Give a clear, well-reasoned answer. Never modify files.",
+				"Give a clear, well-reasoned answer. Never modify files." + aggHint,
 			Tools: ro,
 		},
 		"architect": {
@@ -1156,18 +1163,18 @@ func defaultAgents() map[string]app.AgentSpec {
 			Name: "coder",
 			System: "You are a coding agent. Implement the requested change: LOCALIZE first with findcontext/astgrep/grep, then edit. " +
 				"Make the smallest correct change, verify it, and summarize what you did.",
-			Tools: []string{"read", "write", "edit", "multiedit", "grep", "glob", "list", "findcontext", "astgrep", "bash", "ask", "report"},
+			Tools: []string{"read", "write", "edit", "multiedit", "grep", "glob", "list", "findcontext", "astgrep", "tabulate", "countmatches", "countlines", "groupby", "bash", "ask", "report"},
 		},
 		"reviewer": {
 			Name:   "reviewer",
-			System: "You are a code reviewer. Inspect the relevant files (read/grep/glob/list) and report concrete issues and suggestions. Do not modify files.",
+			System: "You are a code reviewer. Inspect the relevant files (read/grep/glob/list) and report concrete issues and suggestions. Do not modify files." + aggHint,
 			Tools:  ro,
 		},
 		"tester": {
 			Name: "tester",
 			System: "You are a verification specialist. Run builds and tests with bash, use lsp_diagnostics for LSP errors, " +
 				"and report pass/fail with concise failure details. Do not modify source files.",
-			Tools: []string{"read", "grep", "glob", "list", "bash", "lsp_diagnostics", "ask", "report"},
+			Tools: []string{"read", "grep", "glob", "list", "bash", "lsp_diagnostics", "tabulate", "countmatches", "countlines", "groupby", "ask", "report"},
 		},
 		// planner is the pre-flight procedure planner (not delegated to via task): the
 		// app calls it once per top-level turn to decompose the request into an ordered
@@ -1181,7 +1188,9 @@ func defaultAgents() map[string]app.AgentSpec {
 				"parallel (independent read-only investigations you already know), or scout (discover a work-list at " +
 				"runtime, then investigate each item in parallel). Read-only explorers are explore|locator|analyst and " +
 				"must never write. Prefer the fewest steps that genuinely help; a simple request is a single solo step. " +
-				"Plan how to INVESTIGATE, not how to code.",
+				"Plan how to INVESTIGATE, not how to code. Read-only explorers CAN compute quantitative aggregates " +
+				"(counts, sums, coverage %, LOC, distributions) with tabulate/countmatches/countlines/groupby, so " +
+				"quantitative questions are fine to route to them — do not reserve those for a shell-capable agent.",
 			Tools: ro,
 		},
 	}

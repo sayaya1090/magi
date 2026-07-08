@@ -254,11 +254,16 @@ func (a *App) needsOrchestratorTurn(ctx context.Context, sid session.SessionID) 
 
 // lastIsUserSteer reports whether the most recent message-bearing event is a
 // prompt submitted by the actual USER (a steer) — not a subagent result/nudge.
+// Currently-DEFERRED interjections are excluded: a queued interjection is one the
+// loop has decided NOT to act on now (it runs as its own later turn), so it must not
+// wake the orchestrator out of its bg-wait/early-park. A dispatch-visible interjection
+// (never queued) is not deferred, so it still counts — that is the wake we want.
 func (a *App) lastIsUserSteer(ctx context.Context, sid session.SessionID) bool {
-	evs, err := a.store.Read(ctx, sid, 0)
+	raw, err := a.store.Read(ctx, sid, 0)
 	if err != nil {
 		return false
 	}
+	evs := a.liveEvents(sid, raw) // drop currently-queued interjections
 	for i := len(evs) - 1; i >= 0; i-- {
 		switch evs[i].Type {
 		case event.TypePromptSubmitted:

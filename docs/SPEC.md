@@ -276,6 +276,7 @@ perm-4: policy=ask, user answers "always" ⇒ 1st write asks, 2nd write auto-all
 - R3 **`replan`**(plan-eligible 전용): 작업 결과가 플랜을 불가능하게 만들 때 새 분해 + 무진전 창 리셋 요청. `honorReplan` 예산 = 턴당 최대 `maxReplansPerTurn`(2) + 직전 replan 이후 실제 툴 작업 없으면 거부(`guard.callCount()` 불변) → 스톨 가드 무한 리셋 불가. 거부 시 가드 유지 + 지시 주입. **툴 광고 게이팅**: `replan`은 `toolSpecs`에서 `planEligible(agent, depth)`(planner on·write-capable·depth<cap)인 에이전트에만 노출 — read-only/최대깊이 서브에이전트에겐 `env.Replan` nil-게이팅과 대칭으로 죽은 툴을 감춤.
 - R4 툴 Execute 콜백은 loop-local(`turnTask`/`guard`/`councilRounds`)을 못 만지므로 세션별 `turnControl` 신호만 기록하고 루프가 매 스텝 최상단에서 드레인.
 - R5 **큐 유실 방지**: 큐잉된 개입은 턴이 정상 종료면 자기 턴으로 재부상하고, 백엔드 에러/취소로 run 고루틴이 종료돼도 in-memory 맵에 고립되지 않는다 — 남은 개입을 미답변 user 프롬프트로 로그에 영속화(다음 run에서 픽업)하되 실패 중 백엔드로 즉시 재실행하진 않는다(no-retry-storm 유지). run 고루틴 post-loop 블록은 `a.mu`를 잡은 채 실행되므로 큐를 **인라인**으로 검사·삭제(자체 잠금 헬퍼 호출 금지 — 재잠금 시 고루틴 데드락).
+- R6 **idle-park aside 핸들러**(`handleAside`): R1의 소프트 지시는 orchestrator가 자기 스텝을 돈다는 전제에 얹힌다. 하지만 이번 턴의 유일한 작업이 백그라운드 explorer뿐이면 루프는 모델 실행 없이 *idle-park*(`awaitingExplorers`, F-ORCH 참조)하므로 소프트 지시가 굶는다(개입이 구두 인정만 받고 배선된 steer 툴이 발화 안 됨). 이 경로에선 **격리 컨텍스트(개입+task 클립만, 전체 트랜스크립트 미포함)의 상한 미니루프**를 돌린다. 노출 툴은 **신호·상호작용 3종뿐** — `route_interjection`·`cancel_dispatch`·`ask_user` — 이고 실행 툴(read/bash/write/`task`)은 **미노출**(격리 턴에서 델리게이트 작업을 벌이면 스타베이션/중복 재발). 즉 미니루프는 *신호만* 한다(잡담 즉답, 또는 route±cancel±clarify); 실제 재-플랜/재-디스패치는 전체 툴이 복원된 다음 정상 스텝이 수행. **enqueue-first**: route는 pending 개입을 요구하므로 미니루프 진입 전 개입을 큐잉한다. 처리 결과별 큐 처분 — routed(redirect/append)는 `turnControl` 드레인이 적용하도록 **큐에 잔류**, 해소된 잡담 응답/단독 cancel은 **여기서 consume**(자기 턴 중복 재실행 방지). "지금 전환" redirect는 `cancel_dispatch` 동반이 기대된다(프롬프트 지시) — 단독 redirect는 무손실이나 explorer 보고 후 synthesis 대상만 재앵커. park **진입 전** 쌓인 개입(예 계획단계)은 같은 핸들러로 park-entry flush(`pendingInterjectTexts` 스냅샷)돼 턴 종료까지 굶지 않는다. depth 0·비워크플로만.
 
 ```
 steer-queue-1:    A 실행 중 B 도착, route 미호출        ⇒ A 앵커 유지 + B 큐잉, 턴 종료 후 B가 자기 턴
@@ -284,6 +285,9 @@ replan-budget-1:  replan×2 (작업 사이) 후 3번째           ⇒ 캡 도달
 replan-nowork-1:  직전 replan 이후 무작업 상태로 재호출    ⇒ 거부(back-to-back churn)
 replan-gate-1:    read-only/최대깊이 에이전트 toolSpecs   ⇒ replan 미노출(plan-eligible만 광고)
 steer-drain-err-1: 개입 큐잉 상태에서 턴이 에러로 종료      ⇒ 개입은 로그에 영속(유실 X)·즉시 재실행 X
+aside-park-chat-1: idle-park 중 잡담 도착                 ⇒ 격리 미니루프 즉답 + consume, 재-park (route X)
+aside-park-steer-1: idle-park 중 "docs만" 도착           ⇒ cancel_dispatch+route_interjection redirect, park 깨고 다음 스텝 재-디스패치
+aside-park-flush-1: 계획단계 큐잉분이 park 진입 전 존재    ⇒ park-entry flush로 즉시 처리(턴 종료 대기 X)
 ```
 
 ### F-LOOP-RECURSION — bounded recursion (D7)

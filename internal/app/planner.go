@@ -195,12 +195,105 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth, 
 		_ = a.appendPromptText(ctx, s.ID, event.Actor{Kind: event.ActorSystem, ID: "planner"}, checkpointFirstNote)
 	}
 
+	// Async explorer preflight: a top-level plan with NO write step is pure investigation.
+	// Dispatch its explorers to the BACKGROUND instead of blocking here, so the orchestrator
+	// loop parks in its bg-wait and stays responsive to user interjections during the fan-out
+	// (see runLoop's early park + needsOrchestratorTurn). Their findings arrive as messages
+	// (injectSubagentResult) and the orchestrator synthesizes the review from them — no
+	// injectPlannerFindings on this path. A mixed plan (has delegate/refine) keeps the
+	// synchronous executeSteps below, so a write step still sees prior findings in its brief.
+	if asyncExplorersEnabled() && depth == 0 && !a.cfg.Workflow && !a.hasWriteStep(steps) {
+		if a.dispatchExplorerSteps(ctx, s, prompt, steps, depth) {
+			return true, false // explorers dispatched; the loop parks, answers interjections, then synthesizes
+		}
+		return false, false // nothing to dispatch (all solo / empty groups) → solo path
+	}
+
 	findings, delegated := a.executeSteps(ctx, s, prompt, steps, depth)
 	if strings.TrimSpace(findings) == "" {
 		return false, false
 	}
 	a.injectPlannerFindings(ctx, s.ID, findings, delegated)
 	return true, delegated
+}
+
+// hasWriteStep reports whether any step in the plan carries out WRITE work (delegate/refine) —
+// i.e. it is dispatched through a writeStepRunner rather than the read-only explorer path. Used
+// to gate the async-explorer fast path to pure-investigation plans only.
+func (a *App) hasWriteStep(steps []planStep) bool {
+	for _, st := range steps {
+		if a.writeStepRunner(st.Strategy) != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// dispatchExplorerSteps fans out a pure-read-only plan's explorer groups as BACKGROUND subagents
+// (a.dispatch) rather than blocking on them. It walks steps in order — the same strategy handling
+// as executeSteps, minus write steps (the caller guarantees none) — and returns true once at least
+// one explorer was dispatched, so the caller can seed usedTools and the loop parks for the results.
+// The per-turn explorer budget (maxPlanExplorers) is still honored. Scout's discover phase runs
+// synchronously (a quick single explorer that yields the work-list); its per-item explorers are
+// what get backgrounded.
+func (a *App) dispatchExplorerSteps(ctx context.Context, s session.Session, goal string, steps []planStep, depth int) bool {
+	budget := maxPlanExplorers
+	fanGoal := ""
+	if !stepContextDisabled() {
+		fanGoal = goal // orient read-only explorers with the overall goal (mirrors executeSteps)
+	}
+	dispatched := 0
+	for i, st := range steps {
+		if budget <= 0 || ctx.Err() != nil {
+			break
+		}
+		var groups []planGroup
+		switch st.Strategy {
+		case "parallel":
+			groups = capGroups(st.Groups, &budget)
+		case "scout":
+			groups = a.scoutGroups(ctx, s, st, &budget, depth)
+		default: // solo → main agent does it; nothing to dispatch
+			continue
+		}
+		if len(groups) == 0 {
+			continue // per-step degrade
+		}
+		a.advanceTo(ctx, s.ID, plannerActor, i) // moved on to step i: earlier steps ✓, step i running ◐
+		for _, g := range groups {
+			// dispatch is non-blocking: it bumps bgOutstanding, runs the explorer in a goroutine,
+			// and injects the result as a message when done. Duplicate (agent,prompt) pairs are
+			// deduped inside dispatch — explorer groups carry distinct focus/question, so they don't
+			// collide. The ctx is the turn ctx, alive for the whole loop that follows.
+			a.dispatch(ctx, s, depth, port.SpawnRequest{Agent: g.Agent, Prompt: explorerPrompt(fanGoal, g)})
+			dispatched++
+		}
+	}
+	if dispatched == 0 {
+		return false
+	}
+	// Mark this turn as awaiting explorer results: the loop parks pre-model (no findings-less
+	// review) until they report. Scoped to this signal so ordinary background delegation still
+	// interleaves the orchestrator's own work (TestOrchestratorInterleavesOwnWork).
+	a.setAwaitExplorers(s.ID, true)
+	a.injectAsyncExplorerNote(ctx, s.ID, dispatched)
+	return true
+}
+
+// injectAsyncExplorerNote tells the orchestrator that N read-only explorers are running in the
+// background and their findings will arrive as messages — the async counterpart to
+// injectPlannerFindings' "trust your own explorers, synthesize from them" framing, plus the note
+// that it may answer user messages while it waits.
+func (a *App) injectAsyncExplorerNote(ctx context.Context, sid session.SessionID, n int) {
+	text := fmt.Sprintf("# Investigation in progress — %d read-only explorer subagent(s) dispatched\n\n"+
+		"You dispatched %d read-only explorer(s) to investigate this task. Their findings will arrive as "+
+		"messages ([subagent … result]). Treat them as YOUR OWN explorers' results — your primary source — "+
+		"and SYNTHESIZE the answer directly from them; do not re-investigate what they cover. A plan (todos) "+
+		"is set for this task — CONTINUE and update those todos as you go; do not replace them wholesale. "+
+		"Do NOT read/grep/investigate the codebase yourself while the explorers run — they OWN that "+
+		"investigation and duplicating it wastes turns and races their work. If a user message arrives, "+
+		"answer that aside briefly, then wait for the findings.", n, n)
+	_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "planner"}, text)
 }
 
 // runPlanner does a single tool-free LLM call on the planner's own provider and
@@ -568,6 +661,22 @@ func checkpointFirstEnabled() bool {
 		return true
 	}
 	return false
+}
+
+// asyncExplorersEnabled routes a top-level, read-only-only plan's explorer fan-out through the
+// BACKGROUND dispatch path (a.dispatch) instead of the synchronous runExplorers, so the
+// orchestrator loop parks in its bg-wait — staying responsive to user interjections — while the
+// ~85s exploration runs, rather than blocking the whole turn before the loop even starts. Only a
+// plan with NO write step (delegate/refine) is eligible; a mixed plan keeps the synchronous
+// executeSteps path so a write step still sees prior explorer findings in its brief (ordering
+// dependency). Default ON; MAGI_ASYNC_EXPLORERS=off restores the fully-synchronous preflight (the
+// A/B knob). Mirrors specFidelityEnabled's env shape.
+func asyncExplorersEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_ASYNC_EXPLORERS"))) {
+	case "0", "off", "false", "no":
+		return false
+	}
+	return true
 }
 
 // sharedRefineEnabled runs a plan's sequentially-dependent refine phases in ONE shared child
@@ -1530,6 +1639,17 @@ func parseList(text string) []string {
 
 // runExplorers dispatches the groups as read-only subagents concurrently and
 // returns their findings concatenated in a stable order.
+// explorerPrompt builds the read-only investigation prompt for one explorer group, optionally
+// prefixed with the overall goal for orientation. Shared by the synchronous (runExplorers) and
+// background (dispatchExplorerSteps) fan-out paths so both send an identical prompt.
+func explorerPrompt(goal string, g planGroup) string {
+	prompt := fmt.Sprintf("Investigate (read-only): %s\n\n%s", g.Focus, g.Question)
+	if og := strings.TrimSpace(goal); og != "" {
+		prompt = "Overall goal (context for your investigation): " + clipLine(og, 400) + "\n\n" + prompt
+	}
+	return prompt
+}
+
 func (a *App) runExplorers(ctx context.Context, s session.Session, groups []planGroup, goal string, depth int) string {
 	type res struct {
 		i    int
@@ -1542,10 +1662,7 @@ func (a *App) runExplorers(ctx context.Context, s session.Session, groups []plan
 		wg.Add(1)
 		go func(i int, g planGroup) {
 			defer wg.Done()
-			prompt := fmt.Sprintf("Investigate (read-only): %s\n\n%s", g.Focus, g.Question)
-			if og := strings.TrimSpace(goal); og != "" {
-				prompt = "Overall goal (context for your investigation): " + clipLine(og, 400) + "\n\n" + prompt
-			}
+			prompt := explorerPrompt(goal, g)
 			// Bound each read-only explorer well under the 5m subagent cap: a focused
 			// investigation is quick, and one explorer chasing a bad target must not stall
 			// the whole step (runExplorers waits for all) for the full SubagentTimeout.
