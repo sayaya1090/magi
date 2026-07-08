@@ -602,16 +602,27 @@ func (a *App) CreateSession(ctx context.Context, c command.CreateSession) (sessi
 	return sid, nil
 }
 
+// resetForNewTopLevel clears the per-task state that must not leak from a finished
+// turn into a fresh top-level request: the plan/todos, cached acceptance criteria,
+// and the advisory step estimate. Used by Submit and by the queued-interjection
+// drain — a message that stayed queued runs as its OWN turn, so it must be judged on
+// its own merits, not held to the previous task's contract (which made the council
+// judge an unrelated queued request against the finished task's leftover plan).
+func (a *App) resetForNewTopLevel(sid session.SessionID) {
+	a.SetTodos(sid, nil) // takes a.mu itself
+	a.mu.Lock()
+	delete(a.criteria, sid) // drop cached criteria; re-elicited at the next gate (D15)
+	delete(a.estSteps, sid) // …and the previous task's advisory step estimate
+	a.mu.Unlock()
+}
+
 // Submit appends the user's prompt and starts the agent loop asynchronously.
 func (a *App) Submit(ctx context.Context, c command.SubmitPrompt) error {
-	// A new top-level request starts with a fresh plan — clear the previous
-	// turn's todos so a stale (completed) plan doesn't linger in the UI; the
-	// agent repopulates it via todowrite if the new task warrants one.
-	a.SetTodos(c.SessionID, nil)
-	a.mu.Lock()
-	delete(a.criteria, c.SessionID) // new top-level prompt → drop cached criteria; re-elicited at the next gate (D15)
-	delete(a.estSteps, c.SessionID) // …and the previous task's advisory step estimate
-	a.mu.Unlock()
+	// A new top-level request starts with a fresh per-task contract so the
+	// previous turn's plan/criteria don't leak into the new one (see
+	// resetForNewTopLevel). The agent repopulates the plan via todowrite if
+	// the new task warrants one.
+	a.resetForNewTopLevel(c.SessionID)
 	if err := a.appendPrompt(ctx, c); err != nil {
 		return err
 	}
@@ -775,6 +786,11 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 				}
 				a.mu.Unlock()
 				if text = strings.TrimSpace(text); text != "" {
+					// This queued message runs as its OWN top-level turn — give it the
+					// same fresh slate Submit does, so the council judges it on its own
+					// merits instead of the finished task's plan/criteria (a queued,
+					// unrelated request must not be held to the previous task's contract).
+					a.resetForNewTopLevel(sid)
 					_ = a.appendPrompt(context.WithoutCancel(runCtx), command.SubmitPrompt{
 						SessionID: sid,
 						Actor:     event.Actor{Kind: event.ActorUser, ID: "tui"},
@@ -791,6 +807,12 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 			delete(a.cancels, sid)
 			delete(a.pendingInterject, sid)
 			a.mu.Unlock()
+			if len(queued) > 0 {
+				// Persisted to run as their own turns later — clear the finished task's
+				// contract now so they don't inherit it when picked up (mirrors the alive
+				// drain and Submit).
+				a.resetForNewTopLevel(sid)
+			}
 			for _, text := range queued {
 				if text = strings.TrimSpace(text); text == "" {
 					continue
