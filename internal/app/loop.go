@@ -137,6 +137,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	prevFinishCalls := -1                        // guard.callCount() at that rejection (-1 = none yet)
 	councilSpent := time.Duration(0)             // self-measured wall-clock consumed by deliberations
 	councilDeadlock := false                     // set by the gate iff its finish was a genuine round-cap deadlock (never approved)
+	unverifiedReason := ""                       // non-empty when the turn finishes WITHOUT council approval (deadlock/cost-cap/resubmit); propagated to turn.finished so the UI marks it UNVERIFIED, not a clean done
 	turnTask := ""                               // the user instruction THIS turn answers, snapshotted at step 0. A
 	// steer that lands mid-turn is QUEUED by default (runs as its own follow-up turn), so
 	// it can't silently hijack what the council judges against — unless the agent explicitly
@@ -235,11 +236,21 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			// by default (safe: preserves both tasks) and tell the agent it's deferred so it stops
 			// oscillating; the agent may call route_interjection to redirect/append instead.
 			if depth == 0 && !a.cfg.Workflow {
-				if cnt := countUserPrompts(evs); cnt > handledUserPrompts {
-					handledUserPrompts = cnt
-					if it := strings.TrimSpace(lastUserPromptText(evs)); it != "" && it != strings.TrimSpace(turnTask) {
-						a.enqueueInterject(sid, it)
-						a.injectQueuingDirective(ctx, sid, turnTask, it)
+				prompts := userPromptTexts(evs)
+				if len(prompts) > handledUserPrompts {
+					// Enqueue EVERY user prompt that appeared since the last check, not just
+					// the newest: two messages steered in during one long step would otherwise
+					// advance the counter past the earlier one, dropping it silently.
+					var newest string
+					for _, it := range prompts[handledUserPrompts:] {
+						if it = strings.TrimSpace(it); it != "" && it != strings.TrimSpace(turnTask) {
+							a.enqueueInterject(sid, it)
+							newest = it
+						}
+					}
+					handledUserPrompts = len(prompts)
+					if newest != "" {
+						a.injectQueuingDirective(ctx, sid, turnTask, newest)
 					}
 				}
 			}
@@ -441,35 +452,46 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 						Note: "answer resubmitted unchanged after council feedback — finishing without re-deliberation; treat as UNVERIFIED",
 					})
 					a.appendFact(ctx, sid, event.TypeCouncilDecided, event.Actor{Kind: event.ActorSystem, ID: "council"}, dd)
-				} else if a.runCouncilGate(ctx, s, agent, turnTask, lastText, &councilRounds, &lastCouncilFeedback, buildCouncilChanges(guard.changeSet()), maxSteps-step, fab, time.Since(runStart), &councilSpent, &councilDeadlock) {
-					prevFinishText, prevFinishCalls = lastText, guard.callCount()
-					continue
-				} else if !recovered && councilDeadlock &&
-					strings.TrimSpace(lastCouncilFeedback) != "" && a.planEligible(agent, depth) {
-					// Council deadlock: the members used every round and never approved, still holding
-					// an unmet concern — the gate flags this explicitly (councilDeadlock), so a DONE
-					// vote that merely landed on the last allowed round does NOT reach here. The agent
-					// is stuck against a wall it could not clear on its own; before finishing UNVERIFIED,
-					// hand the task plus that exact concern to a fresh child that re-plans and breaks it
-					// down (ADaPT failure-recursion, solo-stuck branch). Fires once; on success, reset
-					// the stall window and loop so the parent integrates and verifies the child's work.
-					task := strings.TrimSpace(turnTask)
-					if task == "" {
-						task = strings.TrimSpace(lastUserText(reconstruct(evs)))
-					}
-					if a.redecomposeStuck(ctx, s, agent, task, lastCouncilFeedback, depth) {
-						recovered = true
-						guard.resetStall()
+					unverifiedReason = "the same answer was resubmitted unchanged after council feedback, without re-deliberation"
+				} else {
+					keepWorking, unv := a.runCouncilGate(ctx, s, agent, turnTask, lastText, &councilRounds, &lastCouncilFeedback, buildCouncilChanges(guard.changeSet()), maxSteps-step, fab, time.Since(runStart), &councilSpent, &councilDeadlock)
+					if keepWorking {
+						prevFinishText, prevFinishCalls = lastText, guard.callCount()
 						continue
+					}
+					// The gate is letting the turn finish. A non-empty reason means it did so
+					// WITHOUT approving (deadlock/cost-cap/no-feedback/unavailable) — carry that
+					// into turn.finished below so the UI shows UNVERIFIED, not a confident done.
+					unverifiedReason = unv
+					if !recovered && councilDeadlock &&
+						strings.TrimSpace(lastCouncilFeedback) != "" && a.planEligible(agent, depth) {
+						// Council deadlock: the members used every round and never approved, still holding
+						// an unmet concern — the gate flags this explicitly (councilDeadlock), so a DONE
+						// vote that merely landed on the last allowed round does NOT reach here. The agent
+						// is stuck against a wall it could not clear on its own; before finishing UNVERIFIED,
+						// hand the task plus that exact concern to a fresh child that re-plans and breaks it
+						// down (ADaPT failure-recursion, solo-stuck branch). Fires once; on success, reset
+						// the stall window and loop so the parent integrates and verifies the child's work.
+						task := strings.TrimSpace(turnTask)
+						if task == "" {
+							task = strings.TrimSpace(lastUserText(reconstruct(evs)))
+						}
+						if a.redecomposeStuck(ctx, s, agent, task, lastCouncilFeedback, depth) {
+							recovered = true
+							guard.resetStall()
+							continue
+						}
 					}
 				}
 			}
 			a.setStage(sid, stageFinalize) // turn is ending (D15)
 			// Turn-cumulative usage (§8.1): out/cost summed across steps, in = last.
 			u := event.Usage{In: lastIn, Out: cumOut, Cost: cumCost}
-			d, _ := json.Marshal(event.TurnFinishedData{Usage: u})
+			// A finish the council never approved (deadlock/cost-cap/resubmit) lands as
+			// UNVERIFIED so the UI stops painting an abandoned task as a confident done.
+			d, _ := json.Marshal(event.TurnFinishedData{Usage: u, Unverified: unverifiedReason != "", Reason: unverifiedReason})
 			a.appendFact(ctx, sid, event.TypeTurnFinished, agentActor, d)
-			finished = true // genuine completion (council done / nothing more to do)
+			finished = true // the turn is over (approved done, or an honest UNVERIFIED landing)
 			return lastText, nil
 		}
 
@@ -847,13 +869,24 @@ func lastUserPromptText(evs []event.Event) string {
 // countUserPrompts counts genuine user (ActorUser) prompts in the event log. The loop
 // snapshots this at step 0 and watches for a rise, which signals a mid-turn interjection.
 func countUserPrompts(evs []event.Event) int {
-	n := 0
+	return len(userPromptTexts(evs))
+}
+
+// userPromptTexts returns the text of every genuine user (ActorUser) prompt in log
+// order. The loop diffs its length against handledUserPrompts to enqueue EACH new
+// mid-turn interjection, even when several land during a single blocked step (a
+// count-only check would advance past the earlier ones and drop them).
+func userPromptTexts(evs []event.Event) []string {
+	var out []string
 	for _, e := range evs {
 		if e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser {
-			n++
+			var d event.PromptSubmittedData
+			if json.Unmarshal(e.Data, &d) == nil {
+				out = append(out, partsText(d.Parts))
+			}
 		}
 	}
-	return n
+	return out
 }
 
 // currentTaskText is the query for push-side shard hints: the most recent genuine

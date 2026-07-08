@@ -174,7 +174,7 @@ func TestCouncilGateCancelDuringDeliberation(t *testing.T) {
 	defer cancel()
 
 	rounds, lastFB := 0, ""
-	if a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB, "", 40, "", 0, new(time.Duration), nil) {
+	if keep, _ := a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB, "", 40, "", 0, new(time.Duration), nil); keep {
 		t.Error("gate must NOT continue after a mid-deliberation cancel")
 	}
 	if cc.calls != 1 {
@@ -196,7 +196,7 @@ func TestCouncilGateSkipsWhenAlreadyCancelled(t *testing.T) {
 	cancel() // already cancelled before the gate runs
 
 	rounds, lastFB := 0, ""
-	if a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB, "", 40, "", 0, new(time.Duration), nil) {
+	if keep, _ := a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB, "", 40, "", 0, new(time.Duration), nil); keep {
 		t.Error("gate must not continue when entered with a cancelled context")
 	}
 	if fc.calls != 0 {
@@ -222,7 +222,7 @@ func TestCouncilGateCostCapStopsLateRounds(t *testing.T) {
 	// rounds=1 (a round already ran), spent 5m of a 6m turn (>=60s and spent*4 >= turn).
 	rounds, lastFB := 1, "still unmet: foo"
 	spent := 5 * time.Minute
-	if a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB, "", 40, "", 6*time.Minute, &spent, nil) {
+	if keep, _ := a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB, "", 40, "", 6*time.Minute, &spent, nil); keep {
 		t.Error("cost cap should finish (not continue) once deliberation dominates the turn")
 	}
 	if fc.calls != 0 {
@@ -249,7 +249,7 @@ func TestCouncilGateCostCapAllowsFirstRound(t *testing.T) {
 
 	rounds, lastFB := 0, ""
 	spent := 10 * time.Minute // huge, but rounds==0 so the cap is not consulted
-	a.runCouncilGate(context.Background(), s, agent, "task", "report", &rounds, &lastFB, "", 40, "", 6*time.Minute, &spent, nil)
+	_, _ = a.runCouncilGate(context.Background(), s, agent, "task", "report", &rounds, &lastFB, "", 40, "", 6*time.Minute, &spent, nil)
 	if fc.calls != 1 {
 		t.Errorf("first round must always deliberate regardless of prior cost; calls=%d", fc.calls)
 	}
@@ -270,8 +270,8 @@ func TestCouncilGateDeadlockSignal(t *testing.T) {
 		s, agent := newGateSession(t, a, wd)
 		rounds, lastFB, deadlock := 0, "", false
 		for i := 0; i < 5; i++ { // bounded; the gate finishes well within the cap+1
-			if !a.runCouncilGate(context.Background(), s, agent, "task", "report",
-				&rounds, &lastFB, "", 40, "", 0, new(time.Duration), &deadlock) {
+			if keep, _ := a.runCouncilGate(context.Background(), s, agent, "task", "report",
+				&rounds, &lastFB, "", 40, "", 0, new(time.Duration), &deadlock); !keep {
 				break
 			}
 		}

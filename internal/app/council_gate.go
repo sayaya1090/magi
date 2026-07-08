@@ -283,7 +283,14 @@ func tailForCouncil(s string, n int) string {
 //
 // Safety (so the council can never trap the loop): rounds are capped, repeated or
 // empty feedback stops the gate, and any deliberation error finishes the turn.
-func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent AgentSpec, turnTask, lastText string, rounds *int, lastFeedback *string, changes string, stepsLeft int, fabrication string, turnElapsed time.Duration, spent *time.Duration, deadlocked *bool) bool {
+// Returns keepWorking (true → the turn must run another step) and, when the turn
+// is allowed to FINISH (keepWorking false), an unverifiedReason: non-empty means
+// the council never actually approved this result (round-cap deadlock, cost-cap,
+// no-new-feedback, or an unavailable council) so the finish is UNVERIFIED, not a
+// genuine done. Empty reason on a finish = a real approval (or a cancel the loop
+// unwinds separately). The caller propagates the reason into turn.finished so the
+// UI does not paint an abandoned task as a confident "done".
+func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent AgentSpec, turnTask, lastText string, rounds *int, lastFeedback *string, changes string, stepsLeft int, fabrication string, turnElapsed time.Duration, spent *time.Duration, deadlocked *bool) (keepWorking bool, unverifiedReason string) {
 	// deadlocked reports (to the caller) whether this finish is a genuine round-cap
 	// deadlock — the council used its whole budget and never approved — as opposed to
 	// an approval or a cost-capped finish. Only the round-cap branch sets it, so a
@@ -295,7 +302,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	// An interrupt mid-finish must not trigger a deliberation or inject a spurious
 	// feedback prompt — let the loop unwind the cancellation.
 	if ctx.Err() != nil {
-		return false
+		return false, ""
 	}
 	sid := s.ID
 	councilActor := event.Actor{Kind: event.ActorSystem, ID: "council"}
@@ -323,7 +330,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		if deadlocked != nil {
 			*deadlocked = true
 		}
-		return false
+		return false, fmt.Sprintf("the council never approved this result within %d round(s)", maxRounds)
 	}
 	// Cost-efficiency cap (self-measured, no external info): when deliberation has
 	// already eaten a disproportionate share of the turn's own wall clock — a slow
@@ -336,7 +343,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 				fmtElapsed(*spent), fmtElapsed(turnElapsed)),
 		})
 		a.appendFact(ctx, sid, event.TypeCouncilDecided, councilActor, dd)
-		return false
+		return false, "deliberation was cost-capped before the council approved"
 	}
 	*rounds++
 
@@ -454,7 +461,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	// Cancellation during GitDiff/verify: unwind rather than persist a misleading
 	// convened fact or deliberate on partial evidence.
 	if ctx.Err() != nil {
-		return false
+		return false, ""
 	}
 
 	// Merge the open ledger into this round's signals: carry a concern the council would
@@ -521,11 +528,11 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 			Round: *rounds, Decision: string(council.Done), Note: "council unavailable: " + err.Error(),
 		})
 		a.appendFact(ctx, sid, event.TypeCouncilDecided, councilActor, dd)
-		return false
+		return false, "the council was unavailable, so the result was not approved: " + err.Error()
 	}
 	// An interrupt during deliberation: unwind rather than inject feedback.
 	if ctx.Err() != nil {
-		return false
+		return false, ""
 	}
 
 	for _, v := range delib.Verdicts {
@@ -544,7 +551,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 
 	if delib.Decision != council.Continue {
 		emitDecided(council.Done, "", "")
-		return false // the council agrees the turn may finish
+		return false, "" // the council agrees the turn may finish — a genuine, verified done
 	}
 
 	// No-progress guard: empty or repeated feedback means another round would just
@@ -552,7 +559,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	fb := strings.TrimSpace(delib.Feedback)
 	if fb == "" || fb == *lastFeedback {
 		emitDecided(council.Done, "", "members voted continue but gave no new feedback — finishing; the council never approved this result, treat it as UNVERIFIED")
-		return false
+		return false, "the council voted to continue but produced no actionable feedback, so the result stands unapproved"
 	}
 	*lastFeedback = fb
 
@@ -576,5 +583,5 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		Parts:     []session.Part{{Kind: session.PartText, Text: "Council review (not user input) — the task is not yet done:\n" + inject}},
 	})
 	a.appendFact(ctx, sid, event.TypePromptSubmitted, councilActor, pd)
-	return true
+	return true, ""
 }
