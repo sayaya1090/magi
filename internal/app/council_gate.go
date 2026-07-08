@@ -556,10 +556,24 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	}
 	*lastFeedback = fb
 
+	// Rung 1 (stuck-concern escalation, opt-in): once the council has held the turn open
+	// for councilMeansRound+ rounds, the bare objection has demonstrably failed to move the
+	// agent — append a concrete, task-agnostic recipe for satisfying it (how to keep a
+	// process alive, how to produce real evidence), keyed off the feedback's own words. The
+	// hint rides only on the injected prompt; lastFeedback and the recorded decision keep the
+	// RAW feedback, so no-progress repeat-detection is unaffected and the gate is never
+	// weakened (augment, not approve). See docs/proposals/council-stuck-concern-escalation.md.
+	inject := fb
+	if councilMeansEnabled() && *rounds >= councilMeansRound {
+		if hint := meansHint(fb); hint != "" {
+			inject = fb + "\n\n" + hint
+		}
+	}
+
 	emitDecided(council.Continue, fb, "")
 	pd, _ := json.Marshal(event.PromptSubmittedData{
 		MessageID: "m_" + newID(),
-		Parts:     []session.Part{{Kind: session.PartText, Text: "Council review (not user input) — the task is not yet done:\n" + fb}},
+		Parts:     []session.Part{{Kind: session.PartText, Text: "Council review (not user input) — the task is not yet done:\n" + inject}},
 	})
 	a.appendFact(ctx, sid, event.TypePromptSubmitted, councilActor, pd)
 	return true
