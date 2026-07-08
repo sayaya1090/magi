@@ -20,6 +20,12 @@ type bgGroup struct {
 	inflight    map[string]bool // (agent+prompt) keys currently running, for re-dispatch dedup
 	completed   map[string]bool // (agent+prompt) keys that have already finished, for serial re-dispatch dedup
 
+	// cancelled records child sessions the orchestrator explicitly cancelled (via
+	// cancel_dispatch) and why. injectSubagentResult reads it to render an honest
+	// "cancelled by orchestrator" notice with a side-effect manifest for compensation,
+	// instead of the generic ctx-cancel error a user Esc / stall-abort produces.
+	cancelled map[session.SessionID]string
+
 	// injected/consumed track subagent results that have been written to the
 	// session vs. those the orchestrator has already been re-invoked to handle.
 	// This is the ordering-independent signal that there are fresh results to
@@ -267,13 +273,34 @@ func (a *App) lastIsUserSteer(ctx context.Context, sid session.SessionID) bool {
 // injectSubagentResult appends a subagent's result to the parent session as a
 // user-role prompt so the orchestrator reads and acts on it.
 func (a *App) injectSubagentResult(ctx context.Context, parent session.SessionID, agentName string, res port.SpawnResult) {
-	body := res.Text
-	if res.Err != "" {
-		body = "ERROR: " + res.Err
-	} else if strings.TrimSpace(body) == "" {
-		body = "(no output — the subagent finished without producing a result; re-dispatch with clearer instructions or handle this yourself)"
+	// Was this child cancelled by the orchestrator (cancel_dispatch)? If so, render an
+	// honest cancel notice with a manifest of what it already did, so the orchestrator can
+	// run its own compensating (undo) actions — nothing is auto-rolled back (R0).
+	a.mu.Lock()
+	var cancelReason string
+	var cancelled bool
+	if g := a.bg[parent]; g != nil {
+		cancelReason, cancelled = g.cancelled[res.SessionID]
 	}
-	text := fmt.Sprintf("[subagent %s result]\n%s", agentName, body)
+	a.mu.Unlock()
+
+	var text string
+	if cancelled {
+		text = fmt.Sprintf("[subagent %s cancelled by orchestrator: %s]\n"+
+			"It did NOT finish and nothing was auto-rolled back. Actions it performed before "+
+			"cancel (undo any that must not persist, using your own tools — this is your "+
+			"compensating step):\n%s\n"+
+			"If none of these need undoing, ignore this and synthesize from the results you kept.",
+			agentName, cancelReason, a.subagentActionManifest(ctx, res.SessionID))
+	} else {
+		body := res.Text
+		if res.Err != "" {
+			body = "ERROR: " + res.Err
+		} else if strings.TrimSpace(body) == "" {
+			body = "(no output — the subagent finished without producing a result; re-dispatch with clearer instructions or handle this yourself)"
+		}
+		text = fmt.Sprintf("[subagent %s result]\n%s", agentName, body)
+	}
 	// Tell the orchestrator what's still pending so it waits for the rest (rather
 	// than re-dispatching) and knows when it can synthesize. Self is still counted
 	// here (decremented after injection), so subtract it.
@@ -288,6 +315,69 @@ func (a *App) injectSubagentResult(ctx context.Context, parent session.SessionID
 	// Fold the child's ledger and re-raise still-open concerns onto the parent, scoped to
 	// the child agent, so the parent council sees them as first-class evidence.
 	a.bubbleSubagentConcerns(context.WithoutCancel(ctx), parent, agentName, res.SessionID)
+}
+
+// subagentActionManifest summarizes the tool actions a (usually cancelled) child ran, so
+// the orchestrator can decide which side effects to compensate for. Best-effort: a read
+// failure or an action-free child yields a placeholder, never an error.
+func (a *App) subagentActionManifest(ctx context.Context, child session.SessionID) string {
+	if child == "" {
+		return "(no actions recorded)"
+	}
+	evs, err := a.store.Read(context.WithoutCancel(ctx), child, 0)
+	if err != nil {
+		return "(actions unavailable — could not read the subagent's log)"
+	}
+	if m := turnToolEvidence(evs, 12); m != "" {
+		return m
+	}
+	return "(no side-effecting actions recorded)"
+}
+
+// cancelDispatched cancels the parent orchestrator's still-running BACKGROUND subagents.
+// agentFilter=="" cancels all remaining; otherwise only that role. It refuses when no
+// result from the current wave has arrived yet (the feature exists to drop siblings an
+// INTERMEDIATE result made unnecessary — cancelling a wave you've seen nothing from is
+// abuse) and when reason is empty (intent must be recorded). Cancelling flows through the
+// normal dispatch cleanup: each child's ctx.Done unwinds spawn, whose result is injected
+// with a compensation manifest and decrements outstanding. Returns the count cancelled.
+func (a *App) cancelDispatched(ctx context.Context, parent session.SessionID, agentFilter, reason string) (int, error) {
+	if strings.TrimSpace(reason) == "" {
+		return 0, fmt.Errorf("cancel needs a reason — say why the remaining subagents are no longer needed")
+	}
+	a.mu.Lock()
+	g := a.bg[parent]
+	if g == nil || (len(g.completed) == 0 && g.injected == 0) {
+		a.mu.Unlock()
+		return 0, fmt.Errorf("no intermediate result has arrived yet — wait for at least one subagent's result before deciding the rest are unnecessary")
+	}
+	if g.cancelled == nil {
+		g.cancelled = map[session.SessionID]string{}
+	}
+	var cancels []func()
+	for id, s := range a.sessions {
+		if s.Parent != parent || !s.Escalatable {
+			continue // only background-dispatched children of this orchestrator
+		}
+		if agentFilter != "" && s.Agent != agentFilter {
+			continue
+		}
+		c := a.cancels[id]
+		if c == nil {
+			continue // already finished / not running
+		}
+		g.cancelled[id] = reason
+		cancels = append(cancels, c)
+	}
+	a.mu.Unlock()
+
+	// Each cancelled child injects its own honest "cancelled by orchestrator: <reason>"
+	// notice into the parent log (injectSubagentResult), so repeated/abusive cancels are
+	// already visible there — no separate audit fact is needed.
+	for _, c := range cancels {
+		c() // child ctx.Done → spawn unwinds → injectSubagentResult renders the cancel notice
+	}
+	return len(cancels), nil
 }
 
 // bubbleSubagentConcerns carries a finished child's open concerns across the subagent

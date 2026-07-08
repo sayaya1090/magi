@@ -192,6 +192,14 @@ type ToolEnv struct {
 	// was NOT (e.g. an identical task is already running) so the caller can tell
 	// the model instead of silently duplicating work.
 	Dispatch func(req SpawnRequest) string
+	// CancelDispatch cancels the orchestrator's still-running BACKGROUND subagents
+	// when an intermediate result made the rest unnecessary. agent=="" cancels all
+	// remaining; otherwise only that role. It returns the number cancelled, or an
+	// error when cancel isn't allowed yet (no intermediate result has arrived) or no
+	// reason was given. Nothing is auto-rolled back: each cancelled subagent's result
+	// carries a manifest of what it did so the orchestrator can compensate. Set only
+	// for the top-level orchestrator (depth 0); nil for subagents.
+	CancelDispatch func(agent, reason string) (int, error)
 	// Ask lets a running subagent request something from its orchestrator
 	// mid-task (escalation); it blocks until the orchestrator replies. Set only
 	// for subagents; nil for the top-level agent.

@@ -101,9 +101,13 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// Tool-env callbacks: background dispatch for the top-level orchestrator; escalation
 	// (ask) + report for subagents, routed THROUGH the parent so full context is kept.
 	var dispatchFn func(port.SpawnRequest) string
+	var cancelDispatchFn func(agent, reason string) (int, error)
 	var resolveConcernFn func(key, reason string) error
 	if depth == 0 {
 		dispatchFn = func(req port.SpawnRequest) string { return a.dispatch(ctx, s, depth, req) }
+		cancelDispatchFn = func(agent, reason string) (int, error) {
+			return a.cancelDispatched(ctx, s.ID, agent, reason)
+		}
 		// Only the orchestrator, which holds the whole-task view, may retire a concern —
 		// and only advisorily: a still-true concern is re-raised next turn (self-healing),
 		// so this cannot launder a fact away, only clear stale advisory memory.
@@ -190,6 +194,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		// Background dispatch is offered only to the top-level orchestrator; nested
 		// subagents delegate synchronously (they have no UI thread to keep free).
 		Dispatch:          dispatchFn,
+		CancelDispatch:    cancelDispatchFn,
 		ResolveConcern:    resolveConcernFn,
 		RouteInterjection: routeInterjectionFn,
 		Replan:            replanFn,
