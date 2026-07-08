@@ -232,11 +232,16 @@ func New(ctx context.Context, a *app.App, cmds CommandSource, sid session.Sessio
 	applyTheme(isDark)
 
 	ta := textarea.New()
-	ta.Placeholder = "Ask magi to do something…  (enter to send)"
+	ta.Placeholder = "Ask magi to do something…  (enter to send · alt+enter/ctrl+j newline)"
 	ta.Prompt = "❯ "
 	ta.CharLimit = 0
 	ta.ShowLineNumbers = false
-	ta.SetHeight(1)
+	// Size the box from the true visual line count (soft wraps included), not just
+	// logical newlines, so a long wrapped prompt isn't clipped to its last row.
+	// Capped at maxInputRows; refresh() no longer sets the height manually.
+	ta.DynamicHeight = true
+	ta.MinHeight = 1
+	ta.MaxHeight = maxInputRows
 	// Report a real OS cursor (not a drawn one) so IME pre-edit (e.g. Korean)
 	// composes at the input position instead of the screen corner.
 	ta.SetVirtualCursor(false)
@@ -783,7 +788,9 @@ func permChip(mode string) string {
 // recallHistory replaces the input with a previously submitted prompt
 // (↑ older, ↓ newer). Returns true when it handled the key.
 func (m *Model) recallHistory(dir int) bool {
-	if m.running || len(m.history) == 0 || m.ta.LineCount() > 1 {
+	// Height() (not LineCount) so a wrapped single line also keeps ↑/↓ navigating
+	// within the box instead of recalling history.
+	if m.running || len(m.history) == 0 || m.ta.Height() > 1 {
 		return false
 	}
 	ni := m.histIdx + dir

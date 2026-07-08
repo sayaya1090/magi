@@ -308,11 +308,10 @@ func (m *Model) refresh() {
 	if !m.ready {
 		return
 	}
-	// Grow the input box to fit multi-line input (so it doesn't show only the last
-	// line), capped at maxInputRows.
-	if rows := clampInt(m.ta.LineCount(), 1, maxInputRows); rows != m.ta.Height() {
-		m.ta.SetHeight(rows)
-	}
+	// The input box height is owned by textarea.DynamicHeight (set in newModel):
+	// it sizes to the true visual line count — soft wraps included — capped at
+	// maxInputRows, recomputed inside ta.Update before refresh runs. So we read
+	// m.ta.Height() below rather than setting it here.
 	// On the fresh splash screen the input sits centered under the wordmark at a
 	// narrower width; elsewhere it spans the transcript. Keep the textarea wrapped to
 	// whichever is active so its rendered lines match the box we draw around it.
