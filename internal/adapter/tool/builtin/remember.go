@@ -15,16 +15,17 @@ import (
 type Remember struct{}
 
 type rememberArgs struct {
-	Text string   `json:"text"`
-	Tags []string `json:"tags"`
+	Text  string   `json:"text"`
+	Tags  []string `json:"tags"`
+	Scope string   `json:"scope"`
 }
 
 func (Remember) Name() string { return "remember" }
 func (Remember) Description() string {
-	return "Save a durable learning (convention, pitfall, solution pattern) to the shared team memory for review. Provide concise 'text' and optional 'tags'. Do not include secrets."
+	return "Save a durable learning (convention, pitfall, solution pattern) to the shared team memory so it can be recalled in later sessions. Provide concise 'text' and optional 'tags'. Optional 'scope': \"project\" (default — a workspace-specific learning) or \"global\" (knowledge useful across all projects). Do not include secrets."
 }
 func (Remember) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"},"tags":{"type":"array","items":{"type":"string"}}},"required":["text"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"},"tags":{"type":"array","items":{"type":"string"}},"scope":{"type":"string","enum":["project","global"],"description":"project (default) or global"}},"required":["text"]}`)
 }
 
 func (Remember) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
@@ -38,11 +39,20 @@ func (Remember) Execute(ctx context.Context, raw json.RawMessage, env port.ToolE
 	if strings.TrimSpace(a.Text) == "" {
 		return errResult("", "text is required"), nil
 	}
+	scope := strings.TrimSpace(a.Scope)
+	if scope != "" && scope != "project" && scope != "global" {
+		return errResult("", "scope must be \"project\" or \"global\""), nil
+	}
 	if err := env.Propose(port.Contribution{
 		Memories: []port.Memory{{Text: a.Text, Tags: a.Tags}},
 		Source:   "agent",
+		Scope:    scope,
 	}); err != nil {
 		return errResult("", err.Error()), nil
 	}
-	return okText("", "saved to shared memory (pending review)"), nil
+	where := "project"
+	if scope == "global" {
+		where = "global"
+	}
+	return okText("", "saved to "+where+" memory (recallable via recall_memory)"), nil
 }

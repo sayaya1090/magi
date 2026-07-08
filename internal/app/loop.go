@@ -931,14 +931,34 @@ func lastUserText(msgs []session.Message) string {
 	return ""
 }
 
-// formatExperience renders retrieved shared memories/skills for the prompt.
-func formatExperience(mems []port.Memory, skills []port.Skill) string {
+// experiencePointer renders the one-line push notice: how many stored memories/skills
+// match, pointing the agent at recall_memory to pull the detail. Empty when nothing
+// matched, so the section is dropped entirely.
+func experiencePointer(nMem, nSkill int) string {
+	total := nMem + nSkill
+	if total == 0 {
+		return ""
+	}
+	noun := "entry"
+	if total != 1 {
+		noun = "entries"
+	}
+	return fmt.Sprintf("%d relevant team memory/skill %s exist — call recall_memory with keywords to read the details.", total, noun)
+}
+
+// formatExperienceFull renders the full memory/skill entries for a recall_memory pull
+// (as opposed to the one-line push pointer). This is where the detail actually enters
+// context, and only when the agent asked for it.
+func formatExperienceFull(mems []port.Memory, skills []port.Skill) string {
 	var b strings.Builder
 	for _, m := range mems {
-		b.WriteString("- " + oneLineHint(m.Text) + "\n")
+		b.WriteString("- " + strings.TrimSpace(m.Text) + "\n")
 	}
 	for _, s := range skills {
-		b.WriteString("- skill " + s.Name + ": " + oneLineHint(s.Description) + "\n")
+		b.WriteString("- skill " + s.Name + ": " + strings.TrimSpace(s.Description) + "\n")
+		if body := strings.TrimSpace(s.Body); body != "" {
+			b.WriteString("  " + strings.ReplaceAll(body, "\n", "\n  ") + "\n")
+		}
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

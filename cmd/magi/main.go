@@ -21,7 +21,7 @@ import (
 	"github.com/charmbracelet/x/term"
 
 	councilllm "github.com/sayaya1090/magi/internal/adapter/council/llm"
-	expgit "github.com/sayaya1090/magi/internal/adapter/experience/git"
+	explayered "github.com/sayaya1090/magi/internal/adapter/experience/layered"
 	"github.com/sayaya1090/magi/internal/adapter/llm/openai"
 	"github.com/sayaya1090/magi/internal/adapter/mcp"
 	"github.com/sayaya1090/magi/internal/adapter/platform"
@@ -487,12 +487,16 @@ func run() int {
 	agents := defaultAgents()
 	applyAgentModels(agents, cfg.Routing, cfg.LLM.Profiles) // per-agent model + endpoint routing (M6)
 
-	// Shared experience (D13): default to <config>/experience, overridable by
-	// config.toml experience_dir. A git repo there enables team sharing.
+	// Shared experience (D13): two tiers. The global tier defaults to
+	// <config>/experience (overridable by config.toml experience_dir) and holds
+	// cross-project knowledge. The project tier lives at <workspace>/.magi/experience
+	// (git-trackable with the repo) and holds workspace-specific learnings. A git repo
+	// in either enables team sharing.
 	expDir := cfg.ExperienceDir
 	if expDir == "" {
 		expDir = filepath.Join(plat.ConfigDir(), "experience")
 	}
+	expProjectDir := filepath.Join(wd, ".magi", "experience")
 
 	// When a profile is selected, let it drive the permission axis (filled in
 	// app.Config.withDefaults). Only fall back to the historical mode default when
@@ -555,7 +559,7 @@ func run() int {
 		Deny:                cfg.Deny,
 		AllowDomains:        cfg.AllowDomains,
 		Agents:              agents,
-		Experience:          expgit.New(expDir),
+		Experience:          explayered.New(expProjectDir, expDir),
 		Hooks:               toAppHooks(cfg.Hooks),
 		Harness:             !*noHarness,
 		Workflow:            *workflow,

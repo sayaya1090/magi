@@ -176,12 +176,15 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 	// Compacted-context RAG (push half): topics an earlier compaction shed that look
 	// lexically relevant to the current task, as one-line pointers into recall_context.
 	b.WriteString(shardHints(evs, currentTaskText(evs)))
-	// Shared experience (D13): relevant team memories/skills for the current request.
+	// Shared experience (D13): advertise only how many team memories/skills match the
+	// current request — a one-line pointer, not the entries themselves. The agent pulls
+	// the detail on demand with recall_memory, so relevant knowledge stays reachable
+	// without spending context on it every turn.
 	if a.cfg.Experience != nil {
 		if q := lastUserText(reconstruct(evs)); q != "" {
 			if mems, skills, err := a.cfg.Experience.Retrieve(ctx, q); err == nil {
-				if e := formatExperience(mems, skills); e != "" {
-					b.WriteString("\n\n# Shared experience\n" + e)
+				if p := experiencePointer(len(mems), len(skills)); p != "" {
+					b.WriteString("\n\n# Shared experience\n" + p)
 				}
 			}
 		}

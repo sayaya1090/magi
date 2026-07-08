@@ -73,6 +73,7 @@ func Default() *Registry {
 	r.Register(Skill{})
 	r.Register(FindContext{})
 	r.Register(RecallContext{})
+	r.Register(RecallMemory{})
 	r.Register(AstGrep{})
 	r.Register(LspDiag{})
 	r.Register(LspDefinition{})

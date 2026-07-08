@@ -214,6 +214,16 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 			// (so two phrasings of one topic don't both spend it, and a miss is free).
 			return a.recallContext(ctx, sid, query, guard)
 		},
+		RecallMemory: func(query string) (string, error) {
+			if a.cfg.Experience == nil {
+				return "", fmt.Errorf("shared experience not configured")
+			}
+			mems, skills, err := a.cfg.Experience.Retrieve(ctx, query)
+			if err != nil {
+				return "", err
+			}
+			return formatExperienceFull(mems, skills), nil
+		},
 		Sandbox: port.SandboxSpec{Mode: a.cfg.Sandbox, Workdir: workdir},
 	})
 	if err != nil {
