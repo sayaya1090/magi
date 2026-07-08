@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -160,6 +161,10 @@ func New(baseURL, apiKey string, opts ...Option) *Client {
 // ProviderError events on the channel (llm-err-1, llm-err-2).
 func (c *Client) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan port.ProviderEvent, error) {
 	useCache := c.cache && !c.cacheOff.Load()
+	// A cancelable child ctx bounds the request body: consume() can unblock a read
+	// that is stranded waiting for a trailing `[DONE]` the backend never sends
+	// (see the epilogue backstop in consume).
+	streamCtx, cancel := context.WithCancel(ctx)
 	var resp *http.Response
 	var lastStatus int
 	var lastBody string
@@ -167,9 +172,10 @@ func (c *Client) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan por
 	for {
 		body, merr := json.Marshal(buildRequest(r, true, useCache, c.reasoningEffort))
 		if merr != nil {
+			cancel()
 			return nil, merr
 		}
-		resp, lastStatus, lastBody, lastErr = c.send(ctx, body)
+		resp, lastStatus, lastBody, lastErr = c.send(streamCtx, body)
 		// Auto-fallback: a cached request rejected as a bad request (400/422) likely
 		// means the backend doesn't accept the cache_control content shape. Retry
 		// once without caching and remember it for the rest of the session, so
@@ -183,6 +189,7 @@ func (c *Client) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan por
 		break
 	}
 	if resp == nil {
+		cancel()
 		if lastErr != nil {
 			return nil, lastErr // connection-level / context failure
 		}
@@ -199,18 +206,19 @@ func (c *Client) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan por
 
 	ch := make(chan port.ProviderEvent)
 	go func() {
+		defer cancel()
 		defer close(ch)
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			msg, _ := io.ReadAll(io.LimitReader(resp.Body, 8*1024))
-			emit(ctx, ch, port.ProviderEvent{
+			emit(streamCtx, ch, port.ProviderEvent{
 				Type: port.ProviderError,
 				Err:  fmt.Errorf("llm: %s (status %d): %s", describeStatus(resp.StatusCode), resp.StatusCode, strings.TrimSpace(string(msg))),
 			})
 			return
 		}
-		c.consume(ctx, resp.Body, ch, known)
+		c.consume(streamCtx, cancel, resp.Body, ch, known)
 	}()
 	return ch, nil
 }
@@ -300,13 +308,43 @@ func (c *Client) send(ctx context.Context, body []byte) (resp *http.Response, la
 	return nil, lastStatus, lastBody, err
 }
 
+// errStreamComplete is a sentinel that stops sseEvents once the response is
+// semantically complete (finish_reason + trailing usage), so termination no
+// longer depends on a `[DONE]` sentinel. It is not surfaced to the caller.
+var errStreamComplete = errors.New("stream complete")
+
+// streamEpilogueGrace bounds how long consume waits, AFTER finish_reason, for a
+// trailing usage/`[DONE]` frame before forcing the blocked body read to unwind.
+// It caps only the post-finish epilogue — never live token generation. (var, not
+// const, so tests can shrink it.)
+var streamEpilogueGrace = 8 * time.Second
+
+// streamDiag enables opt-in stderr diagnostics (MAGI_STREAM_DIAG) that record when
+// a stream is closed after finish without a `[DONE]`/usage terminator — the signal
+// that a backend held the connection open past a complete response.
+var streamDiag = os.Getenv("MAGI_STREAM_DIAG") != ""
+
 // consume parses the SSE stream and emits normalized events. known is the set of
 // offered tool names, used by the text fallback to recognize tool calls emitted
 // as plain content (F-LLM-TOOLS-FALLBACK).
-func (c *Client) consume(ctx context.Context, body io.Reader, ch chan<- port.ProviderEvent, known map[string]bool) {
+//
+// Termination is driven by finish_reason, not by `[DONE]`: some OpenAI-compatible
+// backends (observed with Ollama cloud gateways) delay or omit `[DONE]` while
+// holding the HTTP connection open, which would otherwise strand the reader on
+// resp.Body until the run's wall-clock ctx — a multi-minute silent hang after the
+// answer was already fully received. Once finish_reason (and the trailing usage
+// chunk) arrive, consume stops; a bounded epilogue (cancel) backstops the rare
+// backend that sends neither usage nor `[DONE]`.
+func (c *Client) consume(ctx context.Context, cancel context.CancelFunc, body io.Reader, ch chan<- port.ProviderEvent, known map[string]bool) {
 	acc := newToolAccumulator()
 	var fullText strings.Builder
 	nativeCalls := false
+	var (
+		sawFinish bool
+		sawUsage  bool
+		epilogue  *time.Timer
+		finishAt  time.Time
+	)
 
 	err := sseEvents(body, func(data []byte) error {
 		var chunk streamChunk
@@ -315,6 +353,7 @@ func (c *Client) consume(ctx context.Context, body io.Reader, ch chan<- port.Pro
 			return nil
 		}
 		if chunk.Usage != nil {
+			sawUsage = true
 			emit(ctx, ch, port.ProviderEvent{
 				Type:  port.ProviderUsage,
 				Usage: &event.Usage{In: chunk.Usage.PromptTokens, Out: chunk.Usage.CompletionTokens},
@@ -350,13 +389,42 @@ func (c *Client) consume(ctx context.Context, body io.Reader, ch chan<- port.Pro
 					}
 				}
 				emit(ctx, ch, port.ProviderEvent{Type: port.ProviderFinish})
+				sawFinish = true
+				finishAt = time.Now()
 			}
+		}
+		// The turn is complete once finish_reason and the trailing usage chunk have
+		// both arrived. Stop here instead of waiting for `[DONE]`. Note the invariant:
+		// both the fast stop and the epilogue backstop below are keyed on finish_reason,
+		// so a backend that withholds finish_reason entirely still relies on `[DONE]`/EOF
+		// (or the run ctx) — strictly no worse than the prior behavior.
+		if sawFinish && sawUsage {
+			return errStreamComplete
+		}
+		if sawFinish && epilogue == nil {
+			// finish_reason arrived but no usage yet. Wait a bounded grace for the
+			// metering chunk, then cancel the request ctx to unwind the blocked read.
+			epilogue = time.AfterFunc(streamEpilogueGrace, cancel)
 		}
 		return nil
 	})
-	if err != nil {
-		// Mid-stream read error: emit error; partial parts already emitted
-		// upstream are preserved (F-LLM-ERROR llm-err-2).
+	if epilogue != nil {
+		epilogue.Stop()
+	}
+	switch {
+	case err == nil || errors.Is(err, errStreamComplete):
+		// Clean end: `[DONE]`, EOF, or our finish-driven stop.
+	case sawFinish:
+		// The read unwound only after the turn was already complete (epilogue cancel
+		// or a post-finish transport error). The response is whole; the only thing
+		// lost is a trailing metering frame — not an error worth failing the loop.
+		if streamDiag {
+			fmt.Fprintf(os.Stderr, "magi: stream closed %s after finish without [DONE] (%v)\n",
+				time.Since(finishAt).Round(time.Millisecond), err)
+		}
+	default:
+		// Mid-stream read error before any finish: emit it; partial parts already
+		// emitted upstream are preserved (F-LLM-ERROR llm-err-2).
 		emit(ctx, ch, port.ProviderEvent{Type: port.ProviderError, Err: err})
 	}
 }
