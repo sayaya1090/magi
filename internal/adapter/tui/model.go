@@ -788,9 +788,7 @@ func permChip(mode string) string {
 // recallHistory replaces the input with a previously submitted prompt
 // (↑ older, ↓ newer). Returns true when it handled the key.
 func (m *Model) recallHistory(dir int) bool {
-	// Height() (not LineCount) so a wrapped single line also keeps ↑/↓ navigating
-	// within the box instead of recalling history.
-	if m.running || len(m.history) == 0 || m.ta.Height() > 1 {
+	if m.running || len(m.history) == 0 || m.ta.LineCount() > 1 {
 		return false
 	}
 	ni := m.histIdx + dir
