@@ -112,6 +112,38 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 				event.Actor{Kind: event.ActorAgent, ID: "orchestrator"}, key, "orchestrator", reason)
 		}
 	}
+	// Route a mid-turn user interjection (top-level only — subagents aren't steered by
+	// the user). The tool has already validated action ∈ {queue,redirect,append}; we
+	// record the signal for the loop to drain and apply at its next step.
+	var routeInterjectionFn func(action, reason string) error
+	if depth == 0 {
+		routeInterjectionFn = func(action, reason string) error {
+			if !a.hasPendingInterject(sid) {
+				return fmt.Errorf("there is no queued interjection to route right now")
+			}
+			a.signalTurnControl(sid, func(tc *turnControl) {
+				tc.route = action
+				if reason != "" {
+					tc.reason = reason
+				}
+			})
+			return nil
+		}
+	}
+	// Agent-initiated replan for a plan-eligible agent (write-capable, below the plan-
+	// depth cap). Records the signal; the loop enforces the per-turn budget and rebuild.
+	var replanFn func(reason string) error
+	if a.planEligible(agent, depth) {
+		replanFn = func(reason string) error {
+			a.signalTurnControl(sid, func(tc *turnControl) {
+				tc.replan = true
+				if reason != "" {
+					tc.reason = reason
+				}
+			})
+			return nil
+		}
+	}
 	var askFn func(string) (string, error)
 	var reportFn func(summary, status, details string) error
 	if s.Parent != "" {
@@ -157,12 +189,14 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		},
 		// Background dispatch is offered only to the top-level orchestrator; nested
 		// subagents delegate synchronously (they have no UI thread to keep free).
-		Dispatch:       dispatchFn,
-		ResolveConcern: resolveConcernFn,
-		Ask:            askFn,
-		AskUser:        a.askUserFn(ctx, s, depth, tc),
-		Report:         reportFn,
-		SetTodos:       func(td []session.Todo) { a.putTodos(ctx, sid, actor, td) },
+		Dispatch:          dispatchFn,
+		ResolveConcern:    resolveConcernFn,
+		RouteInterjection: routeInterjectionFn,
+		Replan:            replanFn,
+		Ask:               askFn,
+		AskUser:           a.askUserFn(ctx, s, depth, tc),
+		Report:            reportFn,
+		SetTodos:          func(td []session.Todo) { a.putTodos(ctx, sid, actor, td) },
 		Propose: func(c port.Contribution) error {
 			if a.cfg.Experience == nil {
 				return fmt.Errorf("shared experience not configured")

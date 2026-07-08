@@ -35,9 +35,9 @@ func (a *App) toolSpecs(agent AgentSpec, isSub bool) []port.ToolSpec {
 			if !isSub {
 				continue
 			}
-		case "task", "resolveconcern":
-			// Delegation and concern-reset are the orchestrator's alone; a leaf subagent
-			// has neither the whole-task view nor the authority for either.
+		case "task", "resolveconcern", "route_interjection":
+			// Delegation, concern-reset, and interjection-routing are the orchestrator's
+			// alone; a leaf subagent has neither the whole-task view nor the user steer.
 			if isSub {
 				continue
 			}

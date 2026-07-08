@@ -210,6 +210,16 @@ type ToolEnv struct {
 	// the next turn (the ledger self-heals), so a reset can clear accumulated memory
 	// but never launder away a fact that remains true.
 	ResolveConcern func(key, reason string) error
+	// RouteInterjection routes a user request that arrived mid-turn: action is
+	// "queue" (default — run it after the current task), "redirect" (switch to it
+	// now), or "append" (fold it into the current task). Set ONLY for the top-level
+	// orchestrator (depth 0); nil for subagents, which the user does not steer.
+	RouteInterjection func(action, reason string) error
+	// Replan lets a plan-eligible agent declare its current plan unworkable and get a
+	// fresh decomposition plus a reset no-progress window. Budget-capped per turn so it
+	// cannot indefinitely bypass the stall guard. Set for plan-eligible agents; nil
+	// otherwise (read-only or max-depth agents, which cannot re-plan).
+	Replan func(reason string) error
 	// SetTodos replaces the session's plan (TodoWrite); nil when unavailable.
 	SetTodos func(todos []session.Todo)
 	// Propose contributes a memory/skill to the shared experience store (D13);
