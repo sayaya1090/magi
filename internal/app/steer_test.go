@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
@@ -83,6 +84,11 @@ func TestSteerMidTurnPickedUp(t *testing.T) {
 		},
 	}
 	a := New(store, rec, reg, bus.New(), nil, Config{Permission: "allow"})
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = a.Close(ctx) // drain dispatch/persist goroutines before TempDir removal
+	})
 	ctx := context.Background()
 	sid, _ := a.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir()})
 
