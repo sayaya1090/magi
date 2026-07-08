@@ -481,6 +481,15 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			_ = m.app.Interrupt(m.ctx, command.Interrupt{SessionID: m.sid})
 			return nil, true
 		}
+	case "alt+enter", "ctrl+j", "shift+enter":
+		// enter is reserved for send/steer, so these insert a literal newline to
+		// compose a multi-line message. ctrl+j (LF) works on every terminal;
+		// alt+enter and shift+enter need the terminal to send a distinct code
+		// (Kitty keyboard protocol) — where it doesn't, that key arrives as enter
+		// and sends, which is fine since ctrl+j always covers the newline case.
+		m.ta.InsertString("\n")
+		m.refresh()
+		return nil, true
 	case "enter":
 		text := strings.TrimSpace(m.ta.Value())
 		if text == "" {
