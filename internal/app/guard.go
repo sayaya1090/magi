@@ -39,6 +39,19 @@ const (
 	// that ignored the first one or two, few enough that a genuinely read-heavy turn is not
 	// spammed. A real file mutation re-arms the window (see mutated).
 	maxStallNudges = 3
+	// bannerSpinNudge/bannerSpinStop catch the "completion-banner spin": a weak model that has
+	// declared the task done keeps emitting a no-op banner (`echo "TASK COMPLETED"`, `true`, …)
+	// as a TOOL CALL every turn, so len(toolCalls) is never 0 and the run never reaches the
+	// finish/council gate — it churns to the harbor wall clock and returns reward=None (ungraded
+	// waste). bannerSpin counts CONSECUTIVE pure no-op banners (see isNoOpBanner/noteSpin); any
+	// real action resets it. Thresholds are calibrated on 216 reward-graded Terminal-Bench runs:
+	// passing runs (reward=1) peaked at a banner streak of 8, so a force-stop at 9 STRICTLY
+	// exceeds every observed pass streak — zero false-positive by construction — while catching
+	// the 9 failing runs that spun 9..23 banners to the wall clock. The nudge fires earlier (5)
+	// as a one-shot teach-the-end-turn hint; it only messages, so a pass run that briefly spins
+	// is unharmed.
+	bannerSpinNudge = 5
+	bannerSpinStop  = 9
 )
 
 // runGuard detects no-progress loops within a single run by fingerprinting each
@@ -91,6 +104,14 @@ type runGuard struct {
 	// agent that edited a file in direct response to the nudge (the opposite of the intent).
 	stallConverge      bool
 	progressSinceNudge bool
+
+	// bannerSpin counts CONSECUTIVE pure no-op completion banners (isNoOpBanner) since the last
+	// real action. It is ORTHOGONAL to epoch/sinceProgress: a fabricating agent that interleaves
+	// deliverable rewrites bumps the epoch (resetting the stall counter) but a rewrite is not a
+	// banner, so it also resets bannerSpin to 0 — the spin only survives an UNBROKEN banner run,
+	// which is exactly the keep-alive dodge. nudgedSpin fires the one-shot re-grounding once.
+	bannerSpin int
+	nudgedSpin bool
 
 	// changed records this turn's file edits (before/after content) as the council's
 	// evidence of what the AGENT actually changed — reconstructed from its own write/edit
@@ -379,6 +400,21 @@ func (g *runGuard) noteBashExec(cmd string, novel bool) {
 	g.mu.Unlock()
 }
 
+// noteSpin updates the consecutive completion-banner counter for one executed tool call. A
+// bash call whose command is a pure no-op banner (isNoOpBanner) increments bannerSpin; ANY
+// other tool call — a non-banner bash, a write/edit, a read, todowrite, … — is a real action
+// and resets it to 0. It is called once per executed call from execute.go (blocked calls
+// return before that point, so they never count). cmd is "" for non-bash tools.
+func (g *runGuard) noteSpin(name, cmd string) {
+	g.mu.Lock()
+	if name == "bash" && isNoOpBanner(cmd) {
+		g.bannerSpin++
+	} else {
+		g.bannerSpin = 0
+	}
+	g.mu.Unlock()
+}
+
 // unverifiedDeliverable reports the structural, language-agnostic fabrication signal that
 // replaced the English-only phrase scan: the agent produced or changed a deliverable this
 // turn (epoch>0) yet has run NO command exercising the CURRENT version (execSinceMut==0).
@@ -439,6 +475,38 @@ func isInspectOnly(cmd string) bool {
 		}
 	}
 	return true
+}
+
+// isNoOpBanner reports whether cmd is a pure "completion banner": a command that only prints
+// or trivially succeeds, writing to no file and running no program-under-test. It is exactly
+// the keep-alive an agent spams every turn to dodge the len(toolCalls)==0 finish gate after
+// declaring the task done. It is DELIBERATELY NARROWER than isInspectOnly: it excludes
+// ls/cat/exit/false and rejects any redirect or pipe, because those either read real state or
+// author/feed a file (a legitimate `cat`/`ls`/`grep` exploration or an `echo … > f` write must
+// NOT read as a spin). The verb set is exactly {echo, printf, true, :} (a leading `cd` is
+// tolerated as a no-op prefix). This set MUST stay in lockstep with the offline calibration
+// classifier that measured the passing-run banner-streak ceiling (=8); widening it (e.g. adding
+// exit/false) raised that ceiling to 11 in the data and would invalidate bannerSpinStop.
+func isNoOpBanner(cmd string) bool {
+	if strings.ContainsAny(cmd, ">|") || strings.Contains(cmd, "tee ") {
+		return false // authors/feeds a file or pipes into another program — not a no-op
+	}
+	saw := false
+	for _, seg := range strings.Split(strings.ReplaceAll(cmd, "&&", ";"), ";") {
+		fields := strings.Fields(seg)
+		if len(fields) == 0 {
+			continue // empty segment (e.g. a trailing operator) — nothing ran here
+		}
+		switch fields[0] {
+		case "cd":
+			continue // a no-op prefix (`cd /app && echo …`); does not itself disqualify
+		case "echo", "printf", "true", ":":
+			saw = true
+		default:
+			return false
+		}
+	}
+	return saw
 }
 
 // isRedirectFragment reports whether tok is a leftover piece of a redirect, not a command
@@ -625,6 +693,12 @@ func (g *runGuard) stuck() string {
 	if g.blocked >= blockedBudget {
 		return "repeat"
 	}
+	// Ordered before "stall" on purpose: a spin force-stop must SKIP the redecompose recovery
+	// (which is gated on kind=="stall" in loop.go) — handing a spinning agent to a fresh child
+	// only risks the same banner spin in the child. Returning "spin" here lands the run directly.
+	if g.bannerSpin >= bannerSpinStop {
+		return "spin"
+	}
 	if g.stallNudges >= maxStallNudges && g.sinceProgress-g.lastStallAt >= noProgressNudge {
 		return "stall"
 	}
@@ -663,6 +737,12 @@ func (g *runGuard) shouldNudge() string {
 	if g.blocked >= nudgeThreshold && !g.nudgedBlocked {
 		g.nudgedBlocked = true
 		return "blocked"
+	}
+	// Spin is more specific than the stalled re-arm below (a run of pure completion banners),
+	// so it takes precedence: a one-shot hint to end the turn instead of echoing "done" again.
+	if g.bannerSpin >= bannerSpinNudge && !g.nudgedSpin {
+		g.nudgedSpin = true
+		return "spin"
 	}
 	if g.stallNudges < maxStallNudges && g.sinceProgress-g.lastStallAt >= noProgressNudge {
 		// D18a convergence: a re-arm (>=1 nudge already fired) whose window produced NO

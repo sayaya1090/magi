@@ -738,6 +738,14 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 				"Stop and change approach: try a different tool or a smaller step, or inspect WHY the last " +
 				"attempts failed (read the error, check paths/state) before retrying. Re-read the original task:\n" +
 				clipSpec(task, 1500)
+			if kind == "spin" {
+				msg = "You've run a no-op command (echo/printf/true) several times in a row — a \"done\" banner is " +
+					"not a step and does not finish the task. If the work is genuinely COMPLETE: end your turn now by " +
+					"replying with NO tool call at all — that is what triggers verification and completion; do NOT run " +
+					"another command. If it is NOT complete: stop announcing success and take a real action — run the " +
+					"actual program/test against the deliverable, or fix what's failing. Re-read the original task:\n" +
+					clipSpec(task, 1500)
+			}
 			if kind == "stalled" {
 				msg = "You've run many steps without changing anything or making concrete progress — you may be " +
 					"re-running checks or restating the same conclusion instead of advancing the task. Stop and take a " +
@@ -800,6 +808,9 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			msg, code := "stopped: the agent repeated the same action without progress (loop guard)", "loop_guard"
 			if kind == "stall" {
 				msg, code = "stopped: no real progress after repeated redirection (stall guard)", "stall_guard"
+			}
+			if kind == "spin" {
+				msg, code = "stopped: repeated completion-banner spin without ending the turn (spin guard)", "spin_guard"
 			}
 			d, _ := json.Marshal(event.ErrorData{Message: msg, Code: code})
 			a.appendFact(ctx, sid, event.TypeError, event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)

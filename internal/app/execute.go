@@ -277,6 +277,22 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 				guard.noteBashExec(ba.Command, guardNovel) // ran a program → execution evidence (independent of any redirect)
 			}
 		}
+		// Completion-banner spin: count consecutive pure no-op banners (echo/printf/true/:) an
+		// agent spams to keep the turn alive after declaring done; ANY real action resets it. It
+		// runs here for every call that reached guard bookkeeping, INCLUDING an IsError bash — a
+		// failed real command is still a real action that must reset the spin. Banners are always
+		// bash and never error, so they always reach this point. cmd is "" for non-bash tools (or
+		// unparsable bash args) → not a banner → resets.
+		spinCmd := ""
+		if tc.Name == "bash" {
+			var ba struct {
+				Command string `json:"command"`
+			}
+			if json.Unmarshal(tc.Args, &ba) == nil {
+				spinCmd = ba.Command
+			}
+		}
+		guard.noteSpin(tc.Name, spinCmd)
 	}
 	// Record the agent's before→after change for the council. Gate on the tool's own success
 	// (toolOK), NOT res.IsError — a write that landed but failed gofmt/a hook is exactly the
