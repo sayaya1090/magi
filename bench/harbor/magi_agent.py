@@ -141,10 +141,25 @@ class MagiAgent(BaseInstalledAgent):
             "MAGI_PLAN_CONVERGE",
             "MAGI_STALL_CONVERGE",
             "MAGI_STREAM_DIAG",
+            "MAGI_REASONING_EFFORT",
         ):
             val = os.environ.get(key)
             if val:
                 env[key] = val
+
+        # gemma is a "thinking" model: it reasons with no internal cap, and magi
+        # sends neither a reasoning_effort nor a max_tokens bound. On a large agentic
+        # step a single generation can spend tens of thousands of reasoning tokens
+        # (~38 tok/s measured) and burn the whole 900s harbor budget before ever
+        # emitting a tool call — the "silent hang" seen on pytorch-model-recovery.
+        # magi's own planner/council supplies the deliberation, so disable the model's
+        # internal thinking for the bench unless the caller overrode it. Measured on
+        # gemma4:26b via Ollama: reasoning_effort=none keeps native tool calls intact
+        # and cuts per-step latency ~5-7x (1s vs 7s actionable, 13s vs 58s heavy),
+        # whereas "low" barely moves it. Scoped to gemma so reasoning models that
+        # benefit from thinking (e.g. gpt-oss) are untouched.
+        if "MAGI_REASONING_EFFORT" not in env and model.startswith("gemma"):
+            env["MAGI_REASONING_EFFORT"] = "none"
 
         # Stream magi's stdout to disk line-by-line instead of writing it once at exec
         # completion. Harbor caps the agent phase with a trial-level asyncio.wait_for;
