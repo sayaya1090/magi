@@ -506,9 +506,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		}
 		if m.running {
 			// A turn is in flight. Slash commands that are safe to run live are
-			// allowed; the rest are rejected. Plain messages STEER the running
-			// agent — they're injected into the current turn (picked up at its next
-			// step), not parked in a queue.
+			// allowed; the rest are rejected. Plain messages are handed to the engine,
+			// which QUEUES them by default to run as their own turn after the current
+			// one finishes (the agent may route them in sooner) — see App.Steer.
 			if strings.HasPrefix(text, "/") {
 				if safeWhileRunning(strings.Fields(text)[0]) {
 					return m.handleSlash(text)

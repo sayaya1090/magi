@@ -943,9 +943,13 @@ func (m *Model) steer(text string) tea.Cmd {
 	m.ta.Reset()
 	m.refresh()
 	sid := m.sid
-	note := "steered into the running turn"
+	// Be honest about routing: the engine QUEUES a mid-turn message by default and
+	// runs it as its own turn after the current one finishes (the agent may fold it
+	// in sooner). Saying "steered into the running turn" implied immediate handling
+	// and left users unsure whether the current task was abandoned or the new one lost.
+	note := "queued · runs after the current task finishes (agent may fold it in sooner)"
 	if m.anyPaneRunning() {
-		note = "steered — the main agent will see this when the running subagents finish this step"
+		note = "queued · the main agent picks it up after the running subagents finish this step"
 	}
 	return tea.Batch(m.snack(note), func() tea.Msg {
 		_ = m.app.Steer(m.ctx, command.SubmitPrompt{
