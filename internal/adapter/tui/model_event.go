@@ -52,14 +52,31 @@ func (m *Model) applyEvent(e event.Event) {
 		if e.Actor.Kind == event.ActorAgent {
 			return
 		}
-		// A queued interjection re-surfacing as its own turn (ResurfacedFrom set): while
-		// queued the original bubble stayed at its input position; now its answer is
-		// about to render, so pull that bubble down to just above the answer — remove the
-		// stranded original and re-append it at the end so the query/answer form a pair.
+		// The user prompt was added locally (submit/steer) before the engine minted its
+		// MessageID; this event carries it. Bind it to the local bubble (reqID) so the
+		// bubble can show the in-flight spinner and later pair with an inline answer.
 		var d event.PromptSubmittedData
-		if json.Unmarshal(e.Data, &d) == nil && d.ResurfacedFrom != "" {
-			text := joinTextParts(d.Parts)
-			m.blocks = moveUserBlockToEnd(m.blocks, text)
+		if json.Unmarshal(e.Data, &d) != nil {
+			return
+		}
+		text := joinTextParts(d.Parts)
+		if d.ResurfacedFrom != "" {
+			// A queued interjection re-surfacing as its own turn: while queued the original
+			// bubble stayed at its input position; now its answer is about to render, so pull
+			// that bubble (keyed by its reqID == ResurfacedFrom) down to just above the
+			// answer so the query/answer form a pair. This resurfaced prompt IS the new turn.
+			m.blocks = moveUserBlockToEnd(m.blocks, d.ResurfacedFrom, text)
+			m.cache = m.cache[:0] // reorder shifts block indices — the prefix cache is now stale
+			m.turnReqID = d.ResurfacedFrom
+			return
+		}
+		stampUserReqID(m.blocks, text, d.MessageID)
+		if m.awaitingTurnReqID {
+			// This is the fresh submit that started the running turn — it owns the spinner.
+			// A queued interjection landing mid-turn arrives with the flag already cleared,
+			// so it never steals the spinner from the request being processed.
+			m.turnReqID = d.MessageID
+			m.awaitingTurnReqID = false
 		}
 
 	case event.TypePartDelta:
@@ -203,6 +220,9 @@ func (m *Model) applyEvent(e event.Event) {
 		var d event.ErrorData
 		_ = json.Unmarshal(e.Data, &d)
 		m.running = false
+		m.clearSpinnerCache(m.turnReqID)
+		m.turnReqID = ""
+		m.awaitingTurnReqID = false
 		m.liveText = ""
 		m.liveThink = ""
 		m.activeAgents = nil
@@ -233,6 +253,17 @@ func (m *Model) onPartAppended(d event.PartAppendedData) {
 			break
 		}
 		m.blocks = append(m.blocks, block{kind: blockAssistant, text: d.Part.Text})
+		// An inline interjection answer (InReplyTo set) never resurfaces as its own turn,
+		// so its question bubble is stranded up at its input position. Pull it down to just
+		// above this answer so the two read as a [question → answer] group lifted out of
+		// the main-task flow, question on top. No-op if the question can't be located.
+		if d.InReplyTo != "" {
+			var moved bool
+			m.blocks, moved = moveUserBlockBefore(m.blocks, d.InReplyTo, len(m.blocks)-1)
+			if moved {
+				m.cache = m.cache[:0] // reorder shifts block indices — the prefix cache is stale
+			}
+		}
 	case session.PartToolCall:
 		if d.Part.ToolCall != nil {
 			m.liveText = ""
@@ -341,11 +372,33 @@ func (m *Model) onCouncilDecided(d event.CouncilDecidedData) {
 	m.blocks = append(m.blocks, block{kind: blockInfo, text: line})
 }
 
+// clearSpinnerCache drops the prefix-cache entry (and the tail after it) for the bubble
+// that was spinning under reqID, so it re-renders as ▌ now that the turn is over. A mid-turn
+// full cache reset (resize/theme/reasoning toggle) can re-cache the in-flight bubble WITH a
+// spinner frame; without this, that frozen glyph would persist past turn end until the next
+// reset. No-op when reqID is empty or the bubble was never cached.
+func (m *Model) clearSpinnerCache(reqID string) {
+	if reqID == "" {
+		return
+	}
+	for i := range m.blocks {
+		if m.blocks[i].kind == blockUser && m.blocks[i].reqID == reqID {
+			if i < len(m.cache) {
+				m.cache = m.cache[:i]
+			}
+			return
+		}
+	}
+}
+
 // onTurnFinished tears down live-turn state (running flag, streaming buffers,
 // council chip, active panes), freezes the turn meter from final usage, and
 // appends the one-line turn receipt.
 func (m *Model) onTurnFinished(e event.Event) {
 	m.running = false
+	m.clearSpinnerCache(m.turnReqID)
+	m.turnReqID = "" // the request's bubble reverts from spinner to ▌
+	m.awaitingTurnReqID = false
 	m.liveText = ""
 	m.liveThink = ""
 	m.activeAgents = nil

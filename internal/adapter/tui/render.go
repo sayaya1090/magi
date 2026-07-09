@@ -35,10 +35,16 @@ const (
 // block is one rendered unit in the transcript.
 type block struct {
 	kind blockKind
-	text string // markdown (assistant/user) or pre-rendered content
-	name string // tool name (toolCall)
-	args string // tool args (toolCall)
-	ok   bool   // tool success (toolResult, or a toolCall's attached result)
+	// reqID is the origin MessageID of the user request a block belongs to (set on a
+	// blockUser once its prompt.submitted event arrives). It doubles as the key for
+	// pairing an inline answer with its question (moveUserBlockBefore) and for showing the
+	// in-flight spinner on the request currently being processed. Empty on resume-rebuilt
+	// blocks, which fall back to text matching.
+	reqID string
+	text  string // markdown (assistant/user) or pre-rendered content
+	name  string // tool name (toolCall)
+	args  string // tool args (toolCall)
+	ok    bool   // tool success (toolResult, or a toolCall's attached result)
 	// A tool result is folded into its toolCall block so the call renders as one
 	// line whose leading glyph flips ⚙ → ✓/✗ on completion.
 	done     bool   // the toolCall's result has arrived
@@ -154,6 +160,12 @@ func (m *Model) transcript() string {
 			nl++
 		}
 		m.blockLineStart = append(m.blockLineStart, nl) // line where block i starts
+		// The in-flight request bubble shows an animated spinner, so it must NOT be served
+		// from the static cache — render it fresh this frame (cheap: no glamour). The cache
+		// keeps its ▌ version, which becomes correct again the moment the turn finishes.
+		if m.running && m.turnReqID != "" && m.blocks[i].kind == blockUser && m.blocks[i].reqID == m.turnReqID {
+			r = m.renderBlock(m.blocks[i])
+		}
 		b.WriteString(r)
 		nl += strings.Count(r, "\n")
 		b.WriteString("\n")
@@ -241,7 +253,14 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 		// prompt soft-wraps instead of overflowing off-screen and being clipped.
 		// Width is bodyWidth-2 to leave room for the 2-col indent().
 		body := lipgloss.NewStyle().Width(m.bodyWidth() - 2).Render(strings.TrimRight(blk.text, "\n"))
-		return label(styleUserLabel, "you") + "\n" + indent(body)
+		// While this request's turn is being processed, its bar (▌) becomes a spinner;
+		// it reverts to ▌ when the turn finishes (turnReqID cleared). transcript() renders
+		// this one block uncached each frame so the spinner animates.
+		lbl := label(styleUserLabel, "you")
+		if m.running && blk.reqID != "" && blk.reqID == m.turnReqID {
+			lbl = m.sp.View() + " " + styleUserLabel.Render("you")
+		}
+		return lbl + "\n" + indent(body)
 	case blockAssistant:
 		return label(asstStyle, asstName) + "\n" + m.markdown(blk.text)
 	case blockToolCall:
@@ -607,20 +626,82 @@ func userPrompts(msgs []session.Message) []string {
 	return out
 }
 
-// moveUserBlockToEnd relocates the last blockUser whose text matches to the end of
-// the slice, so a re-surfacing queued interjection's query renders just above its
-// incoming answer (Q&A pairing). If no match is found it appends a fresh user block
-// as a safe fallback. Matched by text — mirrors App.consumeInterject.
-func moveUserBlockToEnd(blocks []block, text string) []block {
+// moveUserBlockToEnd relocates the matching blockUser to the end of the slice, so a
+// re-surfacing queued interjection's query renders just above its incoming answer (Q&A
+// pairing). It matches by reqID first (the resurfaced prompt's ResurfacedFrom == the
+// original block's reqID), falling back to text for resume-rebuilt blocks that carry no
+// reqID. If nothing matches it appends a fresh user block as a safe fallback.
+func moveUserBlockToEnd(blocks []block, reqID, text string) []block {
+	if i := findUserBlock(blocks, reqID, text); i >= 0 {
+		b := blocks[i]
+		blocks = append(blocks[:i], blocks[i+1:]...)
+		return append(blocks, b)
+	}
+	return append(blocks, block{kind: blockUser, reqID: reqID, text: strings.TrimSpace(text)})
+}
+
+// moveUserBlockBefore relocates the matching blockUser to just before position idx (the
+// index of the inline answer that replies to it), so an interjection answered inline —
+// which never resurfaces as its own turn — still reads as a [question → answer] pair
+// pulled out of the main-task flow, question on top. A no-op if no block matches or the
+// block is already immediately before idx. reqID-only (inline answers always have one).
+func moveUserBlockBefore(blocks []block, reqID string, idx int) ([]block, bool) {
+	if reqID == "" || idx <= 0 || idx > len(blocks) {
+		return blocks, false
+	}
+	i := -1
+	for j := idx - 1; j >= 0; j-- {
+		if blocks[j].kind == blockUser && blocks[j].reqID == reqID {
+			i = j
+			break
+		}
+	}
+	if i < 0 || i == idx-1 {
+		return blocks, false // no match, or already adjacent above the answer
+	}
+	b := blocks[i]
+	blocks = append(blocks[:i], blocks[i+1:]...)
+	// Removing i (which is < idx) shifts the answer down by one, so the slot just before
+	// the answer is now idx-1.
+	out := make([]block, 0, len(blocks)+1)
+	out = append(out, blocks[:idx-1]...)
+	out = append(out, b)
+	out = append(out, blocks[idx-1:]...)
+	return out, true
+}
+
+// stampUserReqID records reqID on the OLDEST reqID-less blockUser that matches text,
+// binding a locally-added request bubble to its origin MessageID once the prompt.submitted
+// event arrives. prompt.submitted events arrive in submit order, so the first-arriving one
+// must claim the oldest unstamped bubble — a newest-first scan would swap the reqIDs of two
+// pending same-text bubbles. Returns whether a block was stamped.
+func stampUserReqID(blocks []block, text, reqID string) bool {
+	text = strings.TrimSpace(text)
+	for i := range blocks {
+		if blocks[i].kind == blockUser && blocks[i].reqID == "" && strings.TrimSpace(blocks[i].text) == text {
+			blocks[i].reqID = reqID
+			return true
+		}
+	}
+	return false
+}
+
+// findUserBlock returns the index of the matching blockUser (reqID first, then text), or -1.
+func findUserBlock(blocks []block, reqID, text string) int {
+	if reqID != "" {
+		for i := len(blocks) - 1; i >= 0; i-- {
+			if blocks[i].kind == blockUser && blocks[i].reqID == reqID {
+				return i
+			}
+		}
+	}
 	text = strings.TrimSpace(text)
 	for i := len(blocks) - 1; i >= 0; i-- {
 		if blocks[i].kind == blockUser && strings.TrimSpace(blocks[i].text) == text {
-			b := blocks[i]
-			blocks = append(blocks[:i], blocks[i+1:]...)
-			return append(blocks, b)
+			return i
 		}
 	}
-	return append(blocks, block{kind: blockUser, text: text})
+	return -1
 }
 
 // rebuildBlocks converts reconstructed messages into transcript blocks (used

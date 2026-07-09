@@ -129,9 +129,15 @@ type Model struct {
 	width, height int
 	ready         bool
 	running       bool
-	quitting      bool
-	isDark        bool
-	imageProto    string // "kitty" | "iterm2" | "" (half-block)
+	// turnReqID is the reqID of the request whose turn is currently being processed; its
+	// user block shows the in-flight spinner. awaitingTurnReqID marks the window between a
+	// fresh submit and its prompt.submitted arriving, so only that prompt (not a queued
+	// interjection landing mid-turn) claims turnReqID. Cleared when the turn finishes.
+	turnReqID         string
+	awaitingTurnReqID bool
+	quitting          bool
+	isDark            bool
+	imageProto        string // "kitty" | "iterm2" | "" (half-block)
 
 	blocks          []block
 	pendingShell    []shellRun // `!`-run commands+output staged to prepend to the next prompt's context
@@ -1088,7 +1094,8 @@ func (m *Model) sendPrompt(display, send string) tea.Cmd {
 	}
 	m.blocks = append(m.blocks, block{kind: blockUser, text: display})
 	m.running = true
-	m.turnStart = time.Now() // §8.1: start the elapsed/token meter
+	m.awaitingTurnReqID = true // the next ActorUser prompt.submitted owns this turn's spinner
+	m.turnStart = time.Now()   // §8.1: start the elapsed/token meter
 	m.turnIn, m.turnOut, m.turnDur = 0, 0, 0
 	m.turnSteps, m.turnCouncil, m.turnFiles = 0, 0, map[string]bool{}
 	m.turnUnverified = false
