@@ -45,13 +45,11 @@ func (m *Model) respond(decision string) tea.Cmd {
 func (m *Model) applyEvent(e event.Event) {
 	switch e.Type {
 	case event.TypePromptSubmitted:
-		// A subagent result injected into the parent (actor=agent) shows in the
-		// main transcript as a COMPACT one-liner — the full text lives in that
-		// subagent's pane/detail view. Real user prompts are added locally (submit/
-		// steer), so they're not handled here.
+		// A subagent result injected into the parent (actor=agent) is swallowed here:
+		// the full text lives in that subagent's own pane/detail view, so surfacing a
+		// per-report one-liner in the main transcript is just noise. Real user prompts
+		// are added locally (submit/steer), so they're not handled here.
 		if e.Actor.Kind == event.ActorAgent {
-			name := strings.TrimPrefix(e.Actor.ID, "subagent:")
-			m.blocks = append(m.blocks, block{kind: blockInfo, text: "↩ " + name + " reported (open its pane to read)"})
 			return
 		}
 		// A queued interjection re-surfacing as its own turn (ResurfacedFrom set): while
@@ -359,6 +357,9 @@ func (m *Model) onTurnFinished(e event.Event) {
 		if !p.done {
 			p.done = true
 			p.doneAt = time.Now()
+			if p.dur == 0 && !p.started.IsZero() {
+				p.dur = time.Since(p.started) // freeze the meter too, else it keeps climbing
+			}
 		}
 	}
 	// Freeze the turn meter from the cumulative usage (§8.1).

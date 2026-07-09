@@ -593,6 +593,15 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 			AgentID: string(child.ID), Parent: string(parent.ID), Role: spec.Name, State: "done",
 		})
 		a.publishTransient(parent.ID, event.TypeAgentStatus, actor, d)
+		// Guarantee the child's live pane freezes at THIS boundary, whatever runLoop
+		// exit path it took. The clean finish emits its own persisted TurnFinished, but
+		// a cancel/timeout/stall or a severed stream returns without one (and, unlike the
+		// top-level run, a child has no fallback emitter) — so the pane's timer would run
+		// until the parent turn's sweep. A transient TurnFinished on the child sid isn't
+		// ctx-gated, so it lands even when the child was cancelled; the pane treats a
+		// repeat as an idempotent no-op.
+		fd, _ := json.Marshal(event.TurnFinishedData{})
+		a.publishTransient(child.ID, event.TypeTurnFinished, actor, fd)
 	}
 
 	ticker := time.NewTicker(maxDur(a.cfg.SubagentStall/3, time.Second))
