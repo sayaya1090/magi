@@ -113,6 +113,8 @@ Flags / environment variables (precedence: flag > env > default):
 | `--plugin-install` / `--plugin-pin` | — | — | git URL of a plugin to clone into the user plugins dir / optional tag/branch/commit for it |
 | `--no-update-check` | `MAGI_NO_UPDATE_CHECK` | (off) | disable the interactive startup update check |
 | — | `MAGI_API_KEY` | (none) | key for remote backends (not needed for Ollama) |
+| — | `MAGI_EMOJI_WIDTH` | (auto-probe) | force emoji cell width: `narrow`\|`1` (one cell) or `wide`\|`2` (two cells). If unset, a startup probe measures it |
+| — | `MAGI_WIDTH_PROBE` | (on) | `0` skips the startup terminal-width probes (ambiguous · decor · emoji) = no correction (library default widths) |
 | — | `MAGI_AMBIGUOUS_WIDTH` | `auto` | `wide`\|`narrow`\|`auto` — force East-Asian ambiguous-char cell width (see below) |
 
 Permission modes: `ask` = confirm every time · `auto` = **edits auto-approved, only commands (bash)/network confirmed** · `allow` = everything auto · `deny` = blocked. Cycle in the TUI with `Shift+Tab` (or `/permission`).
@@ -265,9 +267,11 @@ Wheel scroll · drag select · click focus all work **without any mode switch** 
 - **edit/write appear as colored diffs** — syntax highlighting (language detected by file extension) + a line-number gutter, additions/deletions as `+`/`-`.
 - **bash · read · grep · glob · list · webfetch · websearch results appear as collapsed blocks** inline (read shows line numbers + syntax highlighting). Long ones get a `… +N more` footer and **clicking the block expands it**.
 - **Council rejection reasons** are shown wrapped below the one-line verdict (the full reason is in the detail modal via member click).
+- **Council waiting line**: while a round is open and deliberation is under way, the footer names what it's waiting on in one fixed line alongside the spinner — `⚖ 플랜 감사 판정 대기 중…` for a plan audit, `⚖ 카운슬 심의 판정 대기 중…` for review/consensus — so the pause doesn't read as a stall.
+- **Pre-review report folding**: a "review this" request flows report → council review → revised report; when a review round votes continue, the original (pre-review) report is folded to a one-line stub (`≡ (검수 전 보고서 — 접힘, 아래 최종본 참고)`) **the moment the revision actually lands**, leaving only the final result. The fold is deferred to the revision's arrival, so an interrupted or errored review leaves the original intact; an identical revision leaves the original untouched (no blink-out-and-reappear).
 
 ### Status panel (post-it)
-When there are plans (todos) · subagents · context, a **rounded-outline box (post-it) appears at the top-right** (hidden if none). The transcript uses the full width and the box is drawn overlaid on top of it (bottom-aligned, so it usually floats over empty space); **dragging the box's left edge adjusts its width**. Click a subagent line to zoom into that agent.
+When there are plans (todos) · subagents · context, a **rounded-outline box (post-it) appears at the top-right** (hidden if none). The transcript uses the full width and the box is drawn overlaid on top of it (bottom-aligned, so it usually floats over empty space); **dragging the box's left edge adjusts its width**. Click a subagent line to zoom into that agent. The box border is assembled from the terminal's real cell widths, so a todo/subagent line carrying an emoji like 🚀 keeps the right `│` aligned whether the terminal draws it one cell or two — the emoji width is probed once at startup, and can be forced with `MAGI_EMOJI_WIDTH` or disabled with `MAGI_WIDTH_PROBE=0`.
 
 ### Theme
 At startup it detects dark/light from the terminal background color, and **if you change the OS theme while running it follows within a few seconds** (it re-queries the background color periodically). Force `auto`/`dark`/`light` with `--theme` (or `MAGI_THEME`).
