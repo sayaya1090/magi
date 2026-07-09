@@ -244,6 +244,15 @@ func (m *Model) foldToolResult(text string, ok bool) {
 
 func (m *Model) renderBlock(blk block) string { return m.renderBlockAs(blk, "magi", nil) }
 
+// userLabel is the display name for the user's transcript blocks: the name a plugin
+// injected via magi.set_user_label, or "you" when none was set.
+func (m *Model) userLabel() string {
+	if m.userLbl != "" {
+		return m.userLbl
+	}
+	return "you"
+}
+
 // renderBlockAs renders a block, labelling assistant output with asstName (and
 // asstColor if set) — used so a subagent's detail view attributes lines to that
 // agent instead of "magi".
@@ -263,12 +272,13 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 		// animates), a distinct queued glyph while it waits mid-turn to be picked up, or ▌ at
 		// rest. queuedGlyph is a single cell (like ▌) so the 2-col bar column stays aligned —
 		// wide emoji would break width accounting.
-		lbl := label(styleUserLabel, "you")
+		who := m.userLabel()
+		lbl := label(styleUserLabel, who)
 		switch {
 		case m.running && blk.reqID != "" && blk.reqID == m.turnReqID:
-			lbl = m.sp.View() + " " + styleUserLabel.Render("you")
+			lbl = m.sp.View() + " " + styleUserLabel.Render(who)
 		case blk.queued:
-			lbl = styleQueuedBar.Render(queuedGlyph+" ") + styleUserLabel.Render("you")
+			lbl = styleQueuedBar.Render(queuedGlyph+" ") + styleUserLabel.Render(who)
 		}
 		return lbl + "\n" + indent(body)
 	case blockAssistant:

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sayaya1090/magi/internal/config"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 // doctorCheck is one environment probe's outcome. Status is one of "ok",
@@ -35,7 +36,7 @@ type doctorDeps struct {
 // endpoint (the #1 real-world failure — an unreachable backend looks like an
 // infinite hang), optional tool binaries that silently degrade when absent,
 // the OS sandbox backend, and config references to undefined profiles.
-func doctorChecks(ctx context.Context, d doctorDeps) []doctorCheck {
+func doctorChecks(ctx context.Context, d doctorDeps, extra ...doctorCheck) []doctorCheck {
 	var out []doctorCheck
 
 	// LLM endpoint: reachable, and is the configured model served?
@@ -104,6 +105,37 @@ func doctorChecks(ctx context.Context, d doctorDeps) []doctorCheck {
 		} else {
 			out = append(out, doctorCheck{"sandbox", "ok", "bubblewrap"})
 		}
+	}
+
+	// Plugin-contributed checks come last, after magi's own built-ins, so a
+	// plugin can never mask a core failure and the report reads core-then-plugins.
+	out = append(out, extra...)
+	return out
+}
+
+// clampDoctorStatus normalizes an arbitrary probe status to the four known
+// values so printDoctor's icon map and the exit-code rule stay well-defined;
+// anything unrecognized is treated as advisory "info".
+func clampDoctorStatus(s string) string {
+	switch s {
+	case "ok", "warn", "fail", "info":
+		return s
+	default:
+		return "info"
+	}
+}
+
+// runPluginDoctorProbes runs each plugin probe under its own short timeout and
+// converts it to a doctorCheck. A probe that returns no status is treated as
+// "info"; the loop is sequential because the underlying Lua states are not
+// concurrency-safe and each probe locks its own plugin.
+func runPluginDoctorProbes(ctx context.Context, probes []port.DoctorProbe) []doctorCheck {
+	out := make([]doctorCheck, 0, len(probes))
+	for _, p := range probes {
+		pctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		status, detail := p.Run(pctx)
+		cancel()
+		out = append(out, doctorCheck{Name: p.Name(), Status: clampDoctorStatus(status), Detail: detail})
 	}
 	return out
 }

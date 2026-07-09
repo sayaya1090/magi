@@ -17,6 +17,7 @@ import (
 	corecouncil "github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 // fakeHeadless is a canned headlessApp: Subscribe replays a fixed event slice
@@ -487,3 +488,58 @@ func TestDoctorChecks(t *testing.T) {
 		t.Fatalf("unlisted model should warn: %+v", checks)
 	}
 }
+
+// Plugin-contributed checks are appended after the built-ins (so they can't mask
+// a core failure), and a plugin fail still drives the exit code to 1.
+func TestDoctorChecksExtra(t *testing.T) {
+	deps := doctorDeps{
+		ListModels: func(context.Context) ([]string, error) { return []string{"m1"}, nil },
+		LookPath:   func(string) (string, error) { return "/bin/x", nil },
+		Model:      "m1", BaseURL: "http://x/v1", GOOS: "linux",
+	}
+	extra := []doctorCheck{{Name: "sso token", Status: "fail", Detail: "expired"}}
+	checks := doctorChecks(context.Background(), deps, extra...)
+	last := checks[len(checks)-1]
+	if last.Name != "sso token" || last.Status != "fail" {
+		t.Fatalf("extra check must come last: %+v", checks)
+	}
+	var out strings.Builder
+	if exit := printDoctor(&out, checks); exit != 1 {
+		t.Fatalf("a plugin fail should exit 1, got %d", exit)
+	}
+}
+
+// clampDoctorStatus normalizes anything outside {ok,warn,fail,info} to info so a
+// misbehaving probe can't produce an unknown icon or perturb the exit code.
+func TestClampDoctorStatus(t *testing.T) {
+	for _, s := range []string{"ok", "warn", "fail", "info"} {
+		if got := clampDoctorStatus(s); got != s {
+			t.Errorf("clamp(%q) = %q, want unchanged", s, got)
+		}
+	}
+	for _, s := range []string{"", "OK", "broken", "critical"} {
+		if got := clampDoctorStatus(s); got != "info" {
+			t.Errorf("clamp(%q) = %q, want info", s, got)
+		}
+	}
+}
+
+// runPluginDoctorProbes runs each probe and clamps its status into a doctorCheck.
+func TestRunPluginDoctorProbes(t *testing.T) {
+	probes := []port.DoctorProbe{
+		fakeProbe{name: "a", status: "ok", detail: "fine"},
+		fakeProbe{name: "b", status: "weird", detail: "coerced"},
+	}
+	checks := runPluginDoctorProbes(context.Background(), probes)
+	if len(checks) != 2 {
+		t.Fatalf("want 2 checks, got %d", len(checks))
+	}
+	if checks[0].Status != "ok" || checks[1].Status != "info" {
+		t.Errorf("statuses = %q/%q, want ok/info", checks[0].Status, checks[1].Status)
+	}
+}
+
+type fakeProbe struct{ name, status, detail string }
+
+func (f fakeProbe) Name() string                         { return f.name }
+func (f fakeProbe) Run(context.Context) (string, string) { return f.status, f.detail }

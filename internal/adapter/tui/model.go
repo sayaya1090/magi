@@ -111,6 +111,7 @@ type Model struct {
 	cmds    CommandSource // plugin slash commands (may be nil)
 	sid     session.SessionID
 	model   string
+	userLbl string // display name for the user block (plugin set_user_label); "" = "you"
 	workdir string
 
 	forkOrigin session.SessionID // the session this one was forked from (for /loopdiff)
@@ -263,6 +264,9 @@ func New(ctx context.Context, a *app.App, cmds CommandSource, sid session.Sessio
 		isDark: isDark, imageProto: imageProto, ta: ta, sp: sp,
 		focusPane: -1, roleColor: map[string]int{}, panelW: defaultPanelWidth,
 	}
+	// Seed the user label from any value a startup plugin already set (its transient
+	// broadcast fires before this model subscribes, so read the stored value here).
+	m.userLbl = a.UserLabel(sid)
 	m.applyWidgetStyles() // theme-dependent textarea/spinner styling (re-applied on theme flip)
 	return m
 }

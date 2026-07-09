@@ -404,6 +404,10 @@ func run() int {
 	llm := openai.New(baseURLVal, env("MAGI_API_KEY", os.Getenv("OPENAI_API_KEY")), llmOpts...)
 
 	if *doctor {
+		// Plugin-contributed probes: load plugins far enough to collect their
+		// checks (no startup handlers → no interactive auth during a diagnostic).
+		extra := runPluginDoctorProbes(context.Background(),
+			loadDoctorProbes(cfg, plat, wd, *pluginsDir, llm))
 		checks := doctorChecks(context.Background(), doctorDeps{
 			ListModels: llm.ListModels,
 			LookPath:   exec.LookPath,
@@ -412,7 +416,7 @@ func run() int {
 			Council:    cfg.Council,
 			Profiles:   cfg.LLM.Profiles,
 			GOOS:       defaultDoctorGOOS(),
-		})
+		}, extra...)
 		return printDoctor(os.Stdout, checks)
 	}
 
@@ -598,6 +602,7 @@ func run() int {
 		LLMReg:        llm,
 		BaseReg:       llm,
 		ModelReg:      modelSetter{setModel: func(m string) { a.SetModel(sid, m) }},
+		UserReg:       userLabelSetter{set: func(l string) { a.SetUserLabel(sid, l) }},
 		PluginConfigs: cfg.Plugins,
 		ConfigPath:    filepath.Join(plat.ConfigDir(), "config.toml"),
 		DataDir:       plat.ConfigDir(),
@@ -1222,6 +1227,49 @@ func (p permPersister) PersistAllow(rule string) error {
 type modelSetter struct{ setModel func(string) }
 
 func (m modelSetter) SetModel(modelID string) error { m.setModel(modelID); return nil }
+
+// userLabelSetter adapts App.SetUserLabel (fire-and-forget: applies to the live
+// session and broadcasts) to the plugin host's UserLabelRegistry.
+type userLabelSetter struct{ set func(string) }
+
+func (u userLabelSetter) SetUserLabel(label string) { u.set(label) }
+
+// loadDoctorProbes builds a throwaway plugin host that loads every plugin far
+// enough to collect its -doctor probes, but deliberately does NOT fire the
+// startup lifecycle — so a diagnostic run never triggers a plugin's interactive
+// auth or network flow. Probes register at plugin load time (top-level chunk)
+// and are self-contained by contract (they read a persistent store), so load is
+// all that's needed. The host and its plugins are abandoned when -doctor returns
+// and the process exits. Optional registries left nil (ContextReg/ModelReg/
+// UserReg/Prompter) are guarded by the bridge, so a plugin calling them at load
+// time simply fails to load and drops out of the report — it cannot hang -doctor.
+//
+// ConfigPath/DataDir point at the real store on purpose: a probe checks live
+// state (e.g. store_get on a cached auth token), which needs genuine read access.
+// That also gives a load-time write (set_config_key/store_set) reach to the real
+// store — but such a plugin does strictly more at its normal startup, which this
+// path skips, so -doctor is never the wider surface.
+func loadDoctorProbes(cfg config.Config, plat *platform.OS, wd, pluginsDir string, llm *openai.Client) []port.DoctorProbe {
+	reg := builtin.Default()
+	host := pluginlua.NewHostWithConfig(pluginlua.HostConfig{
+		ToolSink:      reg,
+		MCPMgr:        mcp.NewManager(reg),
+		LLMReg:        llm,
+		BaseReg:       llm,
+		PluginConfigs: cfg.Plugins,
+		ConfigPath:    filepath.Join(plat.ConfigDir(), "config.toml"),
+		DataDir:       plat.ConfigDir(),
+		Runtime: pluginlua.RuntimeInfo{
+			Model:    cfg.Model,
+			Platform: runtime.GOOS,
+			Workdir:  wd,
+		},
+	})
+	for _, dir := range pluginDirs(plat, wd, pluginsDir) {
+		host.LoadDir(context.Background(), dir)
+	}
+	return host.DoctorProbes()
+}
 
 type routePersister struct{ path string }
 

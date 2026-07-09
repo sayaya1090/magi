@@ -147,6 +147,17 @@ func (m *Model) applyEvent(e event.Event) {
 			}
 		}
 
+	case event.TypeUserLabelChanged:
+		// A plugin set the user's display label (e.g. an SSO plugin injecting the
+		// authenticated username). Update it and drop the block cache so already-
+		// rendered user blocks re-render with the new label, not the stale "you".
+		var d event.UserLabelData
+		if json.Unmarshal(e.Data, &d) == nil && d.Label != "" {
+			m.userLbl = d.Label
+			m.cache = m.cache[:0]
+			m.dirty = true
+		}
+
 	case event.TypeWorkflowPhase:
 		var d event.WorkflowPhaseData
 		if json.Unmarshal(e.Data, &d) == nil && d.Phase == "plan" {
