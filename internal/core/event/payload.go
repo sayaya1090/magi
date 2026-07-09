@@ -46,6 +46,13 @@ type PartAppendedData struct {
 	MessageID string       `json:"messageId"`
 	Role      session.Role `json:"role"`
 	Part      session.Part `json:"part"`
+	// InReplyTo is set on an assistant part that ANSWERS a specific queued/mid-turn
+	// user message inline (the idle-park / finish-boundary triage reply), carrying that
+	// message's origin MessageID. Unlike a resurfaced interjection (ResurfacedFrom, which
+	// re-runs as its own turn), an inline answer produces no fresh prompt, so this is the
+	// only link the display layer has to pair the answer with its question and pull the
+	// stranded question bubble down just above the answer. Empty for ordinary output.
+	InReplyTo string `json:"inReplyTo,omitempty"`
 }
 
 // PermissionDecidedData — TypePermissionDecided (audit trail).
