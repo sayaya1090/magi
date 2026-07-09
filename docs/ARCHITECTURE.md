@@ -211,17 +211,27 @@ in `loop.go` calls into them each step):
   by both — the agent thrashed, re-running the already-done first task. Now the loop detects a
   new genuine (`ActorUser`) prompt at step>0 and, by default, **queues** it: it stays anchored
   on the current task, a deterministic directive tells the agent the request is deferred (so it
-  stops oscillating), and at turn end the queued text is re-surfaced as its own follow-up turn
-  (`pendingInterject`, drained in `startRun`). The orchestrator may override with the
-  **`route_interjection`** tool — `redirect` (re-anchor `turnTask` on the interjection now) or
-  `append` (fold it in) — which re-snapshots the task and `reground`s the stall/council
-  accounting. A tool's Execute callback can't touch loop-local state, so it records a per-session
-  `turnControl` signal the loop drains at the top of each step. Depth-0/orchestrator only —
-  subagents aren't user-steered. The `startRun` drain runs *inside the held `a.mu`*, so it
-  inspects the queue inline (calling the self-locking queue helpers there would re-lock the
-  mutex and deadlock the goroutine); on a terminal error/cancel it persists any still-queued
-  interjection back to the log as an unanswered prompt rather than stranding it in memory, but
-  does not re-run it (preserving the no-retry-storm guarantee). The re-surfaced prompt carries a
+  stops oscillating), and the queued text goes on the wait queue (`pendingInterject`, drained in
+  `startRun`). The orchestrator may override with the **`route_interjection`** tool — `redirect`
+  (re-anchor `turnTask` on the interjection now) or `append` (fold it in) — which re-snapshots the
+  task and `reground`s the stall/council accounting. A tool's Execute callback can't touch
+  loop-local state, so it records a per-session `turnControl` signal the loop drains at the top of
+  each step. Depth-0/orchestrator only — subagents aren't user-steered.
+- **finish-boundary triage of the wait queue**: at turn end the `startRun` drain pops each queued
+  interjection one at a time and runs the shared triage mini-turn (`triageQueued` → `interjectTurn`
+  in `modeQueued`, §idle-park below): the model either **answers** a question/chitchat inline from
+  the session's own recent transcript (no fresh-slate reset, so a follow-up like "how many files
+  did you change?" keeps the task context) and the item is consumed, or it **routes** (calls
+  `route_interjection` — any action, since there is no running turn to re-anchor) to signal *real
+  work*, which **escalates** the item to its own fresh top-level turn. The safe default is escalate:
+  a triage that produces no usable reply runs the steer as its own turn rather than risk dropping
+  it. Each pop is atomic under `a.mu` but the triage model call runs unlocked; the teardown re-checks
+  both the trailing-message safety net (`hasUnansweredUserPrompt`) and the queue under the *same*
+  lock as the `cancels` delete, so a steer landing during triage (`Steer` also takes `a.mu`) is
+  never stranded — it is either caught and re-run or seen by `Steer` as a retired goroutine it
+  restarts. On a terminal error/cancel the drain skips triage and persists any still-queued
+  interjection back to the log as an unanswered prompt rather than stranding it in memory, but does
+  not re-run it (preserving the no-retry-storm guarantee). An escalated (or persisted) prompt carries a
   `ResurfacedFrom` link to the original prompt's MessageID so the display layer pairs the query
   with its answer: `SessionState`→`dropResurfacedOrigins` drops the stranded original on replay,
   and the TUI's `applyEvent` pulls the still-visible live bubble down to just above the incoming
@@ -233,7 +243,11 @@ in `loop.go` calls into them each step):
   ack at best and never fired the wired steer tools. The idle-park path instead runs a
   **bounded, tool-capable mini-loop** in isolated context (just the aside + a clip of the task
   for reference — never the whole transcript, which would let synthesis pressure bury the
-  reply). It offers EXACTLY three *signal/interaction* tools — `route_interjection`,
+  reply). This is the same `interjectTurn` primitive the finish-boundary drain triage uses; the
+  two share the stream/persist/effect-trace machinery and differ only by `triageMode` — `modeAside`
+  (here) wires `route_interjection` to signal the running turn's `turnControl`, while `modeQueued`
+  (drain) marks `escalate` since the turn has already ended. It offers EXACTLY three
+  *signal/interaction* tools — `route_interjection`,
   `cancel_dispatch`, `ask_user` — and NO execution tools (read/bash/write/`task`): those would
   re-create the starvation/duplication bug by doing the delegated work in this isolated turn.
   So the aside turn only SIGNALS (reply to chitchat, or route ± cancel ± clarify); the real
