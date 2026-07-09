@@ -97,6 +97,7 @@ Flags / environment variables (precedence: flag > env > default):
 | `--model` | `MAGI_MODEL` | `gpt-oss:120b-cloud` | model id (Ollama free cloud; `ollama signin`) |
 | `--base-url` | `MAGI_BASE_URL` | `http://localhost:11434/v1` | OpenAI-compatible base URL |
 | `--permission` | `MAGI_PERMISSION` | TUI=`ask` / headless=`allow` | `ask`\|`auto`\|`allow`\|`deny` |
+| `--profile` | `MAGI_PROFILE` | (none) | guardrail preset `safe`\|`standard`\|`yolo` — sets permission + sandbox together (below) |
 | `--theme` | `MAGI_THEME` | `auto` | `auto`\|`dark`\|`light` |
 | `--plugins` | `MAGI_PLUGINS` | (none) | additional plugin directory |
 | `--no-harness` | — | (off = harness on) | disable the built-in harness (format/diagnostics/Stop hooks) |
@@ -118,6 +119,8 @@ Flags / environment variables (precedence: flag > env > default):
 | — | `MAGI_AMBIGUOUS_WIDTH` | `auto` | `wide`\|`narrow`\|`auto` — force East-Asian ambiguous-char cell width (see below) |
 
 Permission modes: `ask` = confirm every time · `auto` = **edits auto-approved, only commands (bash)/network confirmed** · `allow` = everything auto · `deny` = blocked. Cycle in the TUI with `Shift+Tab` (or `/permission`).
+
+Guardrail posture (`--profile`/`MAGI_PROFILE`) is a preset that sets both axes (**approval** × **OS sandbox**) at once: `safe` = `ask` + `read-only`, `standard` (recommended) = `auto` + `workspace-write` (auto-approve edits, confirm commands/network, confine writes to the workspace), `yolo` = `allow` + `full`. An explicit `--permission`/`sandbox` overrides the preset. With no profile set, the sandbox stays opt-in (unconfined) and only the permission default applies — so an existing user's network / out-of-tree writes aren't silently cut. The sandbox axis (`sandbox = "read-only"|"workspace-write"|"full"`) can also be set directly in `config.toml`.
 
 Config file `<config>/config.toml` (macOS `~/Library/Application Support/magi`, Linux `~/.config/magi`):
 ```toml
@@ -225,6 +228,7 @@ Hook commands run in a shell and receive the `MAGI_TOOL`/`MAGI_PATH` environment
 | `/replay` | **re-run the previous turn on the branch** (reproduce the same input). Compare with `/loopdiff` |
 | `/loopdiff` | **structurally compare the current branch against the fork origin** (turns · steps · tools · council · tokens) |
 | `/init` | analyze the project then write AGENTS.md |
+| `/ultra <task>` | **ultra work mode** — orchestrate specialist subagents to carry out the task |
 | `/permission` | cycle permission mode (ask→auto→allow→deny) |
 | `/compact` | summarize/shrink the context (re-hydratable — see below) |
 | `/clear` | clear the screen |

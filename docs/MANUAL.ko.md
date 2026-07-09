@@ -85,6 +85,7 @@ git remote가 없는 플러그인은 보고 후 **건너뜀 — 강제로 덮지
 | `--model` | `MAGI_MODEL` | `gpt-oss:120b-cloud` | 모델 id (Ollama 무료 클라우드; `ollama signin`) |
 | `--base-url` | `MAGI_BASE_URL` | `http://localhost:11434/v1` | OpenAI 호환 base URL |
 | `--permission` | `MAGI_PERMISSION` | TUI=`ask`/헤드리스=`allow` | `ask`\|`auto`\|`allow`\|`deny` |
+| `--profile` | `MAGI_PROFILE` | (없음) | 가드레일 프리셋 `safe`\|`standard`\|`yolo` — 권한+샌드박스를 한 번에 설정(아래) |
 | `--theme` | `MAGI_THEME` | `auto` | `auto`\|`dark`\|`light` |
 | `--plugins` | `MAGI_PLUGINS` | (없음) | 추가 플러그인 디렉터리 |
 | `--no-harness` | — | (꺼짐=하네스 켜짐) | 내장 하네스(포맷/진단/Stop 훅) 비활성화 |
@@ -105,6 +106,8 @@ git remote가 없는 플러그인은 보고 후 **건너뜀 — 강제로 덮지
 | — | `MAGI_WIDTH_PROBE` | (켜짐) | `0`이면 기동 시 터미널 폭 프로브(ambiguous·데코·이모지)를 건너뜀 = 무보정(라이브러리 기본폭 사용) |
 
 권한 모드: `ask`=매번 확인 · `auto`=**편집은 자동 승인, 명령(bash)/네트워크만 확인** · `allow`=전부 자동 · `deny`=차단. TUI에서 `Shift+Tab`(또는 `/permission`)으로 순환.
+
+가드레일 posture(`--profile`/`MAGI_PROFILE`)는 두 축(**권한 승인** × **OS 샌드박스**)을 한 번에 잡는 프리셋이다: `safe`=`ask`+`read-only`, `standard`(권장)=`auto`+`workspace-write`(편집 자동승인·명령/네트워크 확인·쓰기는 워크스페이스로 제한), `yolo`=`allow`+`full`. `--permission`/`sandbox`를 따로 주면 프리셋보다 우선한다. profile 미지정 시 샌드박스는 opt-in(무제한)으로 남고 권한만 기본 적용된다 — 기존 사용자의 네트워크/트리 밖 쓰기를 조용히 끊지 않기 위함. 샌드박스 축(`sandbox = "read-only"|"workspace-write"|"full"`)은 `config.toml`에서 직접 지정할 수도 있다.
 
 설정 파일 `<config>/config.toml` (macOS `~/Library/Application Support/magi`, Linux `~/.config/magi`):
 ```toml
@@ -208,6 +211,7 @@ primary = "#B45309"
 | `/replay` | 직전 턴을 **분기에서 다시 실행**(같은 입력 재현). `/loopdiff`로 비교 |
 | `/loopdiff` | 현재 분기를 **fork 원본과 구조 비교**(턴·스텝·툴·council·토큰) |
 | `/init` | 프로젝트 분석 후 AGENTS.md 작성 |
+| `/ultra <task>` | **울트라 작업 모드** — 전문가 서브에이전트를 오케스트레이션해 과제 수행 |
 | `/permission` | 권한 모드 순환(ask→auto→allow→deny) |
 | `/compact` | 컨텍스트 요약·축소 |
 | `/clear` | 화면 초기화 |
