@@ -642,6 +642,18 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					}
 				}
 			}
+			// A user steer can land AFTER this step's top-of-loop interjection scan but
+			// before the turn commits here: during the final (no-tool) step's model stream,
+			// or during a council deliberation that then voted done. It was never enqueued
+			// (only the top-of-loop scan enqueues), and the finish path persists the
+			// assistant's text after it, so the run goroutine's last-message-role safety net
+			// (hasUnansweredUserPrompt) is fooled by the trailing assistant message too — the
+			// steer would be silently lost, not even queued. Re-read the store one last time
+			// and enqueue any prompt that appeared past the baseline so it drains as its own
+			// turn. Top level only — subagents are not user-steerable.
+			if depth == 0 && !a.cfg.Workflow {
+				a.enqueueLateInterjections(ctx, sid, handledUserPrompts, turnTask)
+			}
 			a.setStage(sid, stageFinalize) // turn is ending (D15)
 			// Turn-cumulative usage (§8.1): out/cost summed across steps, in = last.
 			u := event.Usage{In: lastIn, Out: cumOut, Cost: cumCost}
@@ -993,7 +1005,21 @@ type asideEffect struct {
 	cancelled int    // subagents stopped via cancel_dispatch
 	didRoute  bool   // a redirect/append fired (breaks the park, re-plans next step)
 	didCancel bool   // a cancel_dispatch fired
+	escalate  bool   // modeQueued: the model routed → run the steer as its own top-level turn
 }
+
+// triageMode selects how the shared interjection mini-turn (interjectTurn) wires
+// route_interjection and what disposition its caller applies.
+type triageMode int
+
+const (
+	// modeAside: the orchestrator is idle-parked on its own subagents mid-turn. route_interjection
+	// signals turnControl so the parked turn re-anchors/re-plans; a reply is chitchat.
+	modeAside triageMode = iota
+	// modeQueued: the turn has ended and a queued steer is being drained. route_interjection means
+	// "this needs real work" → escalate to its own fresh top-level turn; a reply answers it inline.
+	modeQueued
+)
 
 // handleAside runs a focused, tool-capable turn for a user interjection that arrived while the
 // orchestrator is idle-parked on its own explorers. It replies to chitchat OR signals a steer
@@ -1010,8 +1036,86 @@ func (a *App) handleAside(ctx context.Context, agent AgentSpec, s session.Sessio
 	if t := strings.TrimSpace(turnTask); t != "" {
 		sys += "\n\nThe background task (context only — do not act on it here):\n" + clipSpec(t, 500)
 	}
+	replied, eff := a.interjectTurn(ctx, agent, s, depth, sys, aside, modeAside)
+	switch {
+	case eff.didRoute:
+		return true // redirect/append: the loop's turnControl drain consumes + re-anchors next step
+	case eff.didCancel:
+		a.consumeInterject(s.ID, aside) // cancel with no re-anchor: resolved here
+		return true
+	case replied:
+		a.consumeInterject(s.ID, aside) // chitchat: answered here, don't also re-run as a turn
+		return false
+	default:
+		return false // bare "queue" or nothing usable: leave queued to run later (no loss)
+	}
+}
+
+// queuedTriageSystem drives the finish-boundary triage of a dequeued steer (modeQueued). The
+// previous task is done, so the model either answers a question/chitchat from the session's
+// recent context, or routes (any action) to hand real work to a fresh, fully-tooled turn. Safe
+// default is to route: a needless fresh turn is cheap, a dropped task is not.
+const queuedTriageSystem = "A user message was queued while you were finishing the previous task, which is now " +
+	"complete. Handle ONLY this message and decide:\n" +
+	"- If it is a question, a greeting, or otherwise fully answerable from the conversation so far, ANSWER it now in " +
+	"one or two sentences and end your turn with NO tool call.\n" +
+	"- If it needs real work — editing files, running commands, investigating the codebase, or anything you cannot " +
+	"answer from what you already know — call route_interjection (any action) with a one-line reason. Do NOT attempt " +
+	"the work here; routing hands it to a fresh, fully-tooled turn.\n" +
+	"When unsure, route it — a needless fresh turn is cheap, a dropped task is not."
+
+// triageQueued runs the shared interjection mini-turn on a steer dequeued at the finish
+// boundary and reports whether it must ESCALATE to its own top-level turn. A question or
+// chitchat is answered inline here (in the session's own recent context, no fresh-slate
+// reset — so a follow-up like "how many files did you change?" keeps the task context) and
+// returns false. Anything the model routes, or that produces nothing usable, returns true so
+// the drain resurfaces it as a fresh turn. The safe default is escalate: no work is dropped.
+func (a *App) triageQueued(ctx context.Context, agent AgentSpec, s session.Session, aside string) (escalate bool) {
+	sys := queuedTriageSystem
+	if tail := a.recentTranscript(ctx, s.ID, 8, 2000); tail != "" {
+		sys += "\n\nRecent conversation (for context — do not re-answer it):\n" + tail
+	}
+	replied, eff := a.interjectTurn(ctx, agent, s, 0, sys, aside, modeQueued)
+	if eff.escalate {
+		return true // routed → run it as its own fully-tooled turn
+	}
+	if replied {
+		return false // answered inline from context — the drain consumes it (pops the queue)
+	}
+	return true // nothing usable → run it as its own turn rather than risk dropping real work
+}
+
+// recentTranscript renders the last maxMsgs reconstructed messages of a session as compact
+// "role: text" lines, byte-bounded by maxBytes, for use as read-only context in an isolated
+// mini-turn (e.g. finish-boundary triage). Returns "" if the session cannot be read.
+func (a *App) recentTranscript(ctx context.Context, sid session.SessionID, maxMsgs, maxBytes int) string {
+	evs, err := a.store.Read(ctx, sid, 0)
+	if err != nil {
+		return ""
+	}
+	msgs := reconstruct(evs)
+	if len(msgs) > maxMsgs {
+		msgs = msgs[len(msgs)-maxMsgs:]
+	}
+	var b strings.Builder
+	for _, m := range msgs {
+		if txt := strings.TrimSpace(partsText(m.Parts)); txt != "" {
+			fmt.Fprintf(&b, "%s: %s\n", m.Role, clipLine(txt, 400))
+		}
+	}
+	return clipSpec(strings.TrimSpace(b.String()), maxBytes)
+}
+
+// interjectTurn runs the shared focused mini-turn for a user interjection: it offers only the
+// signal/interaction tools (route_interjection/cancel_dispatch/ask_user), streams a reply,
+// executes any tool calls against a minimal env (no execution tools, so it cannot do delegated
+// work here), persists a durable effect trace, and returns whether it produced a text reply
+// plus the accumulated effect. Queue disposition (consume vs escalate vs break-park) is the
+// caller's, since it differs by mode. mode selects how route_interjection is wired: modeAside
+// signals turnControl to re-anchor the parked turn; modeQueued marks escalate.
+func (a *App) interjectTurn(ctx context.Context, agent AgentSpec, s session.Session, depth int, sys, aside string, mode triageMode) (replied bool, eff asideEffect) {
 	// Signal/interaction tools only — the model can reply or change course but cannot start
-	// (or duplicate) the subagents' delegated work here.
+	// (or duplicate) delegated work here.
 	var specs []port.ToolSpec
 	for _, name := range []string{"route_interjection", "cancel_dispatch", "ask_user"} {
 		if t, ok := a.tools.Get(name); ok {
@@ -1020,8 +1124,6 @@ func (a *App) handleAside(ctx context.Context, agent AgentSpec, s session.Sessio
 	}
 	actor := event.Actor{Kind: event.ActorAgent, ID: orDefault(agent.Name, "default")}
 	msgs := []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: aside}}}}
-	var eff asideEffect
-	var didReply bool
 	for step := 0; step < maxAsideSteps; step++ {
 		req := port.ChatRequest{Model: s.Model.Model, System: sys, Messages: msgs, Tools: specs}
 		stream, err := a.providerFor(agent).StreamChat(ctx, req)
@@ -1060,7 +1162,7 @@ func (a *App) handleAside(ctx context.Context, agent AgentSpec, s session.Sessio
 		// EFFECTS (turnControl route, cancel notices) reach the loop through their own channels.
 		if reply != "" {
 			a.appendPart(ctx, s.ID, actor, msgID, session.RoleAssistant, session.Part{ID: textPartID, Kind: session.PartText, Text: reply})
-			didReply = true
+			replied = true
 		}
 		if len(calls) == 0 {
 			break // final turn: replied (or produced nothing) — done
@@ -1076,13 +1178,14 @@ func (a *App) handleAside(ctx context.Context, agent AgentSpec, s session.Sessio
 		msgs = append(msgs, session.Message{Role: session.RoleAssistant, Parts: asgParts})
 		for i := range calls {
 			c := calls[i]
-			res := a.execAsideTool(ctx, s, depth, &c, &eff)
+			res := a.execAsideTool(ctx, s, depth, &c, &eff, mode)
 			msgs = append(msgs, session.Message{Role: session.RoleTool, Parts: []session.Part{{Kind: session.PartToolResult, ToolResult: &res}}})
 		}
 	}
 	// Persist a durable, auditable trace of the steer's EFFECT (system actor, so interjection
 	// detection — ActorUser only — ignores it). Uses WithoutCancel so the record survives even
-	// if this handling raced a cancellation.
+	// if this handling raced a cancellation. Pure modeQueued escalation leaves no trace here —
+	// the drain's resurfaced prompt is itself the record.
 	if eff.didRoute || eff.didCancel {
 		var b strings.Builder
 		b.WriteString("Steer applied (not user input): ")
@@ -1101,18 +1204,7 @@ func (a *App) handleAside(ctx context.Context, agent AgentSpec, s session.Sessio
 		fmt.Fprintf(&b, "\nInterjection: %s", clipSpec(strings.TrimSpace(aside), 300))
 		_ = a.appendPromptText(context.WithoutCancel(ctx), s.ID, event.Actor{Kind: event.ActorSystem, ID: "steer"}, b.String())
 	}
-	switch {
-	case eff.didRoute:
-		return true // redirect/append: the loop's turnControl drain consumes + re-anchors next step
-	case eff.didCancel:
-		a.consumeInterject(s.ID, aside) // cancel with no re-anchor: resolved here
-		return true
-	case didReply:
-		a.consumeInterject(s.ID, aside) // chitchat: answered here, don't also re-run as a turn
-		return false
-	default:
-		return false // bare "queue" or nothing usable: leave queued to run later (no loss)
-	}
+	return replied, eff
 }
 
 // execAsideTool executes one signal/interaction tool call from the idle-park handler against a
@@ -1120,10 +1212,21 @@ func (a *App) handleAside(ctx context.Context, agent AgentSpec, s session.Sessio
 // cannot do delegated work here). It records which class of action fired so handleAside can set
 // its return and queue disposition. Mirrors the routeInterjectionFn/cancelDispatchFn closures
 // in execute.go so behavior (pending-interjection requirement, turnControl signal) is identical.
-func (a *App) execAsideTool(ctx context.Context, s session.Session, depth int, c *session.ToolCall, eff *asideEffect) session.ToolResult {
+func (a *App) execAsideTool(ctx context.Context, s session.Session, depth int, c *session.ToolCall, eff *asideEffect, mode triageMode) session.ToolResult {
 	env := port.ToolEnv{
 		SessionID: s.ID,
 		RouteInterjection: func(action, reason string) error {
+			if mode == modeQueued {
+				// The turn has already ended; there is no running turn to re-anchor. Any route
+				// action here simply means "this needs real work" — mark it so the drain runs the
+				// steer as its own fresh, fully-tooled turn.
+				eff.escalate = true
+				eff.route = action
+				if reason != "" {
+					eff.reason = reason
+				}
+				return nil
+			}
 			if !a.hasPendingInterject(s.ID) {
 				return fmt.Errorf("there is no queued interjection to route right now")
 			}
@@ -1327,6 +1430,39 @@ func seedPromptIdx(evs []event.Event) int {
 		seed = ui // defensive: everything already answered → treat the latest as seed
 	}
 	return seed
+}
+
+// enqueueLateInterjections re-reads the store at the finish boundary and queues any
+// genuine user prompt that appeared past the baseline (handled) — a steer that landed
+// after this step's top-of-loop scan but before the turn committed (final-step stream,
+// or a council round that then voted done). Such a prompt was never enqueued and is
+// invisible to the run goroutine's last-message-role safety net, so without this it is
+// silently lost. Enqueuing (and masking) it makes the pending-interjection drain run it
+// as its own fresh top-level turn — the same disposition an ordinary deferred steer gets
+// — instead of dropping it. Mirrors the top-of-loop deferral (skip empty / == turnTask).
+func (a *App) enqueueLateInterjections(ctx context.Context, sid session.SessionID, handled int, turnTask string) {
+	evs, err := a.store.Read(ctx, sid, 0)
+	if err != nil {
+		return
+	}
+	prompts := userPromptEntries(evs)
+	if len(prompts) <= handled {
+		return
+	}
+	// If the last message is itself a user prompt, the run goroutine's hasUnansweredUserPrompt
+	// safety net already re-runs the loop, whose top-of-loop scan handles every late prompt —
+	// enqueuing here too would run it a second time (a spurious duplicate turn). Act ONLY when a
+	// late prompt is buried under a trailing non-user message: the exact blind spot of that net.
+	if msgs := reconstruct(evs); len(msgs) == 0 || msgs[len(msgs)-1].Role == session.RoleUser {
+		return
+	}
+	task := strings.TrimSpace(turnTask)
+	for _, it := range prompts[handled:] {
+		if txt := strings.TrimSpace(it.Text); txt != "" && txt != task {
+			a.markInterjectSeen(sid, it.MsgID)
+			a.enqueueInterject(sid, it.MsgID, txt)
+		}
+	}
 }
 
 // userPromptEntries returns every genuine user (ActorUser) prompt in log order, each

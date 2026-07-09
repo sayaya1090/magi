@@ -909,66 +909,127 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 		defer cancel()
 		for {
 			err := a.run(runCtx, sid)
-			a.mu.Lock()
-			// Atomic with the delete: if a steer landed after the loop's last read
-			// but before we tear down, run again rather than stranding it. But do NOT
-			// re-run after a terminal error (e.g. a provider 429/5xx): the prompt is
-			// still "unanswered", and re-running would hammer a failing/rate-limited
+			// Do NOT re-run or triage after a terminal error (e.g. a provider 429/5xx) or a
+			// cancel: the prompt is still "unanswered", and re-running would hammer a failing
 			// backend into an error storm. The error event already ended the turn.
-			if err == nil && runCtx.Err() == nil && a.hasUnansweredUserPrompt(runCtx, sid) {
-				a.mu.Unlock()
-				continue
-			}
-			// A queued interjection (routed "queue" during the turn) is buried mid-transcript
-			// by the current turn's own output, so hasUnansweredUserPrompt no longer sees it.
-			// Inspect the queue directly under the lock we already hold — the pending-queue
-			// helpers take a.mu themselves, so calling them here would re-lock and deadlock.
 			alive := err == nil && runCtx.Err() == nil
-			queued := a.pendingInterject[sid]
-			if alive && len(queued) > 0 {
-				// Re-surface the oldest as a fresh user prompt so it runs as its own turn.
-				text := queued[0].Text
-				origin := queued[0].MsgID
-				if len(queued) == 1 {
-					delete(a.pendingInterject, sid)
-				} else {
-					a.pendingInterject[sid] = queued[1:]
-				}
+
+			// (1) A steer that landed as the trailing message (Steer appends to the store) is seen
+			// by hasUnansweredUserPrompt — re-run at once to answer it. Under the SAME lock, snapshot
+			// the user-prompt high-water mark: at this instant no unanswered steer trails, so every
+			// counted prompt is already answered or is a queued item's original. A steer arriving
+			// later increments the count past baseInput and is caught at teardown (3) — even if a
+			// triage reply later buries it (an ActorAgent part hides it from hasUnansweredUserPrompt's
+			// last-message view AND makes seedPromptIdx treat it as answered).
+			a.mu.Lock()
+			if alive && a.hasUnansweredUserPrompt(runCtx, sid) {
 				a.mu.Unlock()
-				if text = strings.TrimSpace(text); text != "" {
-					// This queued message runs as its OWN top-level turn — give it the
-					// same fresh slate Submit does, so the council judges it on its own
-					// merits instead of the finished task's plan/criteria (a queued,
-					// unrelated request must not be held to the previous task's contract).
-					a.resetForNewTopLevel(sid)
-					// Link back to the original prompt so the display layer pairs the query
-					// with its answer instead of showing it twice / stranded up top.
-					_ = a.appendResurfacedPrompt(context.WithoutCancel(runCtx), sid, origin, text)
-				}
 				continue
 			}
-			// Retiring the run goroutine (terminal error, cancel, or nothing left to run).
-			// Don't strand a queued interjection in the in-memory map: persist each back to
-			// the log as an unanswered user prompt so it survives (picked up on the next run)
-			// instead of being silently lost — but do NOT re-run here, preserving the
-			// no-retry-storm guarantee on a failing/cancelled backend.
-			delete(a.cancels, sid)
-			delete(a.pendingInterject, sid)
-			a.mu.Unlock()
-			if len(queued) > 0 {
-				// Persisted to run as their own turns later — clear the finished task's
-				// contract now so they don't inherit it when picked up (mirrors the alive
-				// drain and Submit).
-				a.resetForNewTopLevel(sid)
+			baseInput := 0
+			if alive {
+				evs, _ := a.store.Read(runCtx, sid, 0)
+				baseInput = len(userPromptEntries(evs))
 			}
-			for _, q := range queued {
-				text := strings.TrimSpace(q.Text)
-				if text == "" {
+			a.mu.Unlock()
+
+			// (2) Drain queued interjections one at a time with finish-boundary triage: a focused
+			// mini-turn answers a question/chitchat inline (in the session's own recent context,
+			// no fresh-slate reset) and moves on; anything needing real work escalates to its own
+			// top-level turn. Pop under the lock (atomic vs. enqueue), then triage unlocked (it
+			// runs the model). A steer arriving mid-triage is caught by the count re-check in (3).
+			if alive {
+				rerun := false
+				for runCtx.Err() == nil {
+					a.mu.Lock()
+					q := a.pendingInterject[sid]
+					if len(q) == 0 {
+						a.mu.Unlock()
+						break
+					}
+					item := q[0]
+					if len(q) == 1 {
+						delete(a.pendingInterject, sid)
+					} else {
+						a.pendingInterject[sid] = q[1:]
+					}
+					a.mu.Unlock()
+					text := strings.TrimSpace(item.Text)
+					if text == "" {
+						continue
+					}
+					s := a.sessionInfo(runCtx, sid)
+					if a.triageQueued(runCtx, a.agentFor(s), s, text) {
+						// Escalate: run it as its OWN top-level turn with the same fresh slate Submit
+						// gives, so the council judges it on its own merits instead of the finished
+						// task's plan/criteria. Link back to the original prompt so the display layer
+						// pairs the query with its answer. If the ctx was cancelled during triage,
+						// persist it but do NOT re-run on a dead ctx (no-retry-storm).
+						a.resetForNewTopLevel(sid)
+						_ = a.appendResurfacedPrompt(context.WithoutCancel(runCtx), sid, item.MsgID, text)
+						if runCtx.Err() == nil {
+							rerun = true
+						}
+						break
+					}
+					// Answered inline — already popped and the reply persisted; drain the next.
+				}
+				if rerun {
 					continue
 				}
-				// Same resurface link as the alive drain: the re-persisted prompt runs as
-				// its own turn on the next run, so pair it with the original on display.
-				_ = a.appendResurfacedPrompt(context.WithoutCancel(runCtx), sid, q.MsgID, text)
+			}
+
+			// (3) Retire the run goroutine. Re-read the user-prompt high-water mark under the SAME
+			// lock as the cancels delete, so a steer that landed during triage — even one a triage
+			// reply buried (invisible to both hasUnansweredUserPrompt and seedPromptIdx) — is caught
+			// rather than stranded. Steer takes a.mu for its running check, so it serializes: we
+			// either see the new input here, or Steer restarts the retired goroutine.
+			a.mu.Lock()
+			var newSteers []userPrompt
+			if alive {
+				evs, _ := a.store.Read(runCtx, sid, 0)
+				if np := userPromptEntries(evs); len(np) > baseInput {
+					newSteers = np[baseInput:] // genuine steers that arrived after the snapshot
+				}
+			}
+			// Only re-run while the ctx is live; on a cancel we still recover the input below
+			// (persist-only) but must not re-run on a dead ctx (no-retry-storm).
+			if alive && runCtx.Err() == nil && (len(newSteers) > 0 || len(a.pendingInterject[sid]) > 0) {
+				a.mu.Unlock()
+				// Re-surface every prompt past the baseline as its own turn (fresh contract) so the
+				// re-run seeds onto it even when a triage reply buried it in the transcript.
+				if len(newSteers) > 0 {
+					a.resetForNewTopLevel(sid)
+					for _, p := range newSteers {
+						if txt := strings.TrimSpace(p.Text); txt != "" {
+							_ = a.appendResurfacedPrompt(context.WithoutCancel(runCtx), sid, p.MsgID, txt)
+						}
+					}
+				}
+				continue
+			}
+			delete(a.cancels, sid)
+			queued := a.pendingInterject[sid]
+			delete(a.pendingInterject, sid)
+			a.mu.Unlock()
+			// Terminal error/cancel path: persist any still-queued interjection AND any steer that
+			// arrived (possibly buried by a triage reply) during a now-cancelled drain, so both
+			// survive to the next run instead of being silently lost — but do NOT re-run here
+			// (no-retry-storm on a failing/cancelled backend). newSteers and queued are disjoint: a
+			// queued item's original prompt predates the baseline, so it is never in newSteers.
+			if len(newSteers) > 0 || len(queued) > 0 {
+				// Clear the finished task's contract so they don't inherit it when picked up.
+				a.resetForNewTopLevel(sid)
+				for _, p := range newSteers {
+					if txt := strings.TrimSpace(p.Text); txt != "" {
+						_ = a.appendResurfacedPrompt(context.WithoutCancel(runCtx), sid, p.MsgID, txt)
+					}
+				}
+				for _, q := range queued {
+					if text := strings.TrimSpace(q.Text); text != "" {
+						_ = a.appendResurfacedPrompt(context.WithoutCancel(runCtx), sid, q.MsgID, text)
+					}
+				}
 			}
 			break
 		}
