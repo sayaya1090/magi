@@ -30,17 +30,32 @@ internal/
   port/                     interfaces the core depends on (port.go): LLMProvider, Store,
                             Tool/ToolEnv, ExperienceStore, PluginHost, Platform, Scheduler…
   app/                      application service + agent loop + orchestration + guardrails + workflow
-    app.go                  App (the Application): commands in → events out; session state
+    app.go                  App (the Application): commands in → events out; session/turn state
+    routing.go query.go     app.go's split siblings: agent/model/profile routing + permission
+                            config (routing.go), and the read-only session/workspace query
+                            surface — transcript, plan, child sessions, git-diff/shell (query.go)
     config.go               Config/AgentSpec/route+profile types, withDefaults, applyProfile
     todos.go                plan/TODO state machine (SetTodos, advanceTo, finalizeTodos)
     loop.go                 runLoop: the agent loop; buildStepSystem (cacheable prompt); the
                             per-step stream/persist/finish flow
-    guard.go council_gate.go criteria.go execute.go permission.go prompt.go
-                            loop.go's split siblings: runGuard (stall/loop/regression),
-                            the consensus gate, acceptance criteria, tool execution,
-                            permission prompting, and prompt/system assembly
+    interject.go            loop.go's split sibling: mid-turn steer/interjection machinery —
+                            routing (applyRoute), the idle-park/finish triage mini-turns
+                            (handleAside/triageQueued/interjectTurn), agent-initiated replan
+                            (honorReplan), and the interjection/turnControl state accessors
+    guard.go shellcmd.go council_gate.go criteria.go execute.go permission.go prompt.go
+                            loop.go's split siblings: runGuard (stall/loop/regression) and its
+                            stateless shell-command classifier (shellcmd.go), the consensus gate,
+                            acceptance criteria, tool execution, permission prompting, and
+                            prompt/system assembly
     orchestrate.go          subagent dispatch/spawn/supervisor; escalate (ask); bgGroup
-    planner.go              recursive pre-flight planner: solo/parallel/scout/delegate/refine; planEnvelope budget/depth hint, guardExpansion depth-cap guard, MAGI_ADAPT-gated reactive retry + escalate, MAGI_REFINE_SHARED shared-session refine phases, MAGI_SPEC_FIDELITY literal-preservation (planner rule + plan-time note + verbatim delegate SPEC anchor)
+    planner.go plan_flags.go plan_prompts.go
+                            recursive pre-flight planner: solo/parallel/scout/delegate/refine;
+                            planEnvelope budget/depth hint, guardExpansion depth-cap guard,
+                            MAGI_ADAPT-gated reactive retry + escalate, MAGI_REFINE_SHARED
+                            shared-session refine phases, MAGI_SPEC_FIDELITY literal-preservation
+                            (planner rule + plan-time note + verbatim delegate SPEC anchor); the
+                            MAGI_* A/B env knobs (plan_flags.go) and prompt/contract builders
+                            (plan_prompts.go) are split into siblings
     workflow.go             deterministic phase pipeline (localize→implement→verify→review)
     policy.go               guardrail policy engine (rules, secret-deny, bash scan, egress)
     hooks.go                lifecycle hooks (PreToolUse/PostToolUse/Stop) + built-in harness
