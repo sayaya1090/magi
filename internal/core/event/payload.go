@@ -117,6 +117,13 @@ type ModelChangedData struct {
 	Model string `json:"model"`
 }
 
+// UserLabelData — TypeUserLabelChanged. The display name to show for the user in
+// the transcript (e.g. an authenticated username injected by an SSO plugin via
+// magi.set_user_label). Empty is never broadcast; the UI falls back to "you".
+type UserLabelData struct {
+	Label string `json:"label"`
+}
+
 // Usage captures token/cost accounting for a turn.
 type Usage struct {
 	In   int     `json:"in"`

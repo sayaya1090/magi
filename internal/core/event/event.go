@@ -66,6 +66,7 @@ const (
 	TypeWorkflowPhase       Type = "workflow.phase"
 	TypeCouncilDeliberating Type = "council.deliberating" // a member is being polled (live panel)
 	TypeModelChanged        Type = "model.changed"        // session's active model changed at runtime — UI re-reads it
+	TypeUserLabelChanged    Type = "user.label.changed"   // user display label changed (plugin set_user_label) — UI re-reads it
 )
 
 // transientTypes is the set of bus-only event types.

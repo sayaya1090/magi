@@ -336,6 +336,19 @@ type ContextChunk struct {
 	Text   string
 }
 
+// ---- Doctor probes ----
+
+// DoctorProbe is an environment check a plugin contributes to `magi -doctor`
+// (e.g. an SSO plugin verifying its cached token isn't expired). Run reports a
+// status — one of "ok", "warn", "fail", "info" — and a human-readable detail; an
+// unrecognized status is normalized to "info" by the doctor command. Probes must
+// be self-contained (read cached/persistent state) since -doctor loads plugins
+// without firing their startup handlers.
+type DoctorProbe interface {
+	Name() string
+	Run(ctx context.Context) (status, detail string)
+}
+
 // ---- Shared experience (D13: team brain, git-repo backed) ----
 
 // ExperienceStore is the shared, curated memory+skill store for a team.
