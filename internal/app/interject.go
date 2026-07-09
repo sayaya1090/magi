@@ -306,18 +306,18 @@ func (a *App) interjectTurn(ctx context.Context, agent AgentSpec, s session.Sess
 		// local context — not persisted — to avoid polluting the delegated task's log; the tool
 		// EFFECTS (turnControl route, cancel notices) reach the loop through their own channels.
 		if reply != "" {
-			// Tag the visible reply with the answered message's origin id (replyTo) so the
-			// TUI can pull that question bubble down just above this inline answer — but ONLY
-			// when this reply is terminal (no tool call follows). A reply that precedes a
-			// route/cancel call is a brief ack before hand-off: modeQueued then resurfaces the
-			// message as its own turn, whose ResurfacedFrom already reorders the bubble. Tagging
-			// the ack too would move the same bubble twice and strand the ack with no question.
-			// eff.escalate is checked too (it is sticky across the mini-loop's steps): a closing
-			// sentence in a later, tool-call-free step still follows an earlier route, so it must
-			// stay untagged as well. eff.escalate can only be set by an earlier calls>0 step, so
-			// a genuine single-step inline answer (which never routed) keeps its tag.
+			// Tag the visible reply with the answered message's origin id (replyTo) so the TUI
+			// can pull that question bubble down into a [question → answer] group — but ONLY for a
+			// PURE inline answer with no side effect. If the interjection acted on the task —
+			// routed (modeAside re-anchor: didRoute; modeQueued: escalate), or cancelled a subagent
+			// (didCancel) — its visible text is an ack for a real action woven into the main flow,
+			// not a standalone answer; grouping it would detach the question bubble from the steer
+			// it actually applied (or, for modeQueued, double-move it against the resurface). The
+			// effect flags are sticky across the mini-loop's steps, so a confirmation emitted in a
+			// later tool-call-free step (calls==0) still reads its earlier route/cancel and stays
+			// untagged; len(calls)>0 covers the same-step ack, before execAsideTool sets the flags.
 			rt := replyTo
-			if len(calls) > 0 || eff.escalate {
+			if len(calls) > 0 || eff.escalate || eff.didRoute || eff.didCancel {
 				rt = ""
 			}
 			a.appendReplyPart(ctx, s.ID, actor, msgID, rt, session.RoleAssistant, session.Part{ID: textPartID, Kind: session.PartText, Text: reply})
