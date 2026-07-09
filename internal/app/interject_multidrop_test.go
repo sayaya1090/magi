@@ -50,7 +50,9 @@ func TestSteerMultipleMidTurnAllQueued(t *testing.T) {
 	reg := builtin.Default()
 	reg.Register(bt)
 
-	rec := &recordingLLM{steps: [][]port.ProviderEvent{
+	// Both queued steers need real work, so finish-boundary triage escalates each to its own
+	// turn (routeAside → true). Triage turns don't advance the positional script below.
+	rec := &triageAwareLLM{routeAside: func(string) bool { return true }, steps: [][]port.ProviderEvent{
 		// Turn A step 0: call the blocking tool (holds the turn open).
 		{{Type: port.ProviderToolCall, ToolCall: &session.ToolCall{CallID: "c_block", Name: "block", Args: json.RawMessage(`{}`)}}, {Type: port.ProviderFinish}},
 		// Turn A step 1: finish without absorbing → B and C stay queued.

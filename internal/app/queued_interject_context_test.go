@@ -30,7 +30,10 @@ func TestQueuedInterjectionGetsFreshTaskContract(t *testing.T) {
 	reg := builtin.Default()
 	reg.Register(bt)
 
-	llm := &recordingLLM{steps: [][]port.ProviderEvent{
+	// The unrelated question is steered in as WORK (routeAside → true) so finish-boundary triage
+	// escalates it to its own turn 2 — where its fresh-contract judging is asserted. Triage turns
+	// don't advance the positional script below.
+	llm := &triageAwareLLM{routeAside: func(string) bool { return true }, steps: [][]port.ProviderEvent{
 		// Turn 1 step 0: set a plan with a leftover PENDING item, then block (hold turn open).
 		{
 			{Type: port.ProviderToolCall, ToolCall: &session.ToolCall{CallID: "c_todo", Name: "todowrite", Args: json.RawMessage(`{"todos":[{"content":"TASK1-LEFTOVER-STEP","status":"pending"}]}`)}},
