@@ -1255,7 +1255,7 @@ func newPlannerApp(t *testing.T, cfg Config) (*App, session.SessionID) {
 func TestPlannerDisabledNoOp(t *testing.T) {
 	a, sid := newPlannerApp(t, Config{Planner: false})
 	before := countEvents(t, a, sid)
-	a.maybePlanPreflight(context.Background(), a.sessionInfo(context.Background(), sid), 0, 120)
+	a.maybePlanPreflight(context.Background(), a.sessionInfo(context.Background(), sid), 0, 120, "")
 	if got := countEvents(t, a, sid); got != before {
 		t.Errorf("disabled planner should append nothing, events %d→%d", before, got)
 	}
@@ -1265,7 +1265,7 @@ func TestPlannerDisabledNoOp(t *testing.T) {
 func TestPlannerNoAgentNoOp(t *testing.T) {
 	a, sid := newPlannerApp(t, Config{Planner: true}) // no Agents["planner"]
 	before := countEvents(t, a, sid)
-	a.maybePlanPreflight(context.Background(), a.sessionInfo(context.Background(), sid), 0, 120)
+	a.maybePlanPreflight(context.Background(), a.sessionInfo(context.Background(), sid), 0, 120, "")
 	if got := countEvents(t, a, sid); got != before {
 		t.Errorf("missing planner agent should append nothing, events %d→%d", before, got)
 	}
@@ -1713,13 +1713,39 @@ func planReply(req string) string {
 	return ""
 }
 
+// A re-plan after route_interjection must decompose the ADOPTED task (taskOverride), not the
+// bare last user prompt: an "append" steer's last prompt is only the added constraint, so
+// re-planning on it alone would drop the original goal. taskOverride threads the adopted
+// turnTask through so the fresh decomposition keeps both.
+func TestPreflightUsesTaskOverride(t *testing.T) {
+	llm := &recLLM{reply: planReply}
+	// The seeded user prompt lacks ONLYDOCS456; only the override carries it, so seeing it in a
+	// planner request proves the override — not lastUserPrompt — drove the decomposition.
+	a, sid := specFidelityApp(t, llm, "read and summarize the WHOLEREPO123")
+	a.maybePlanPreflight(context.Background(), a.sessionInfo(context.Background(), sid), 0, 120,
+		"read and summarize the WHOLEREPO123 — ONLYDOCS456 directory only")
+
+	llm.mu.Lock()
+	defer llm.mu.Unlock()
+	saw := false
+	for _, p := range llm.prompts {
+		if strings.Contains(p, "ONLYDOCS456") {
+			saw = true
+			break
+		}
+	}
+	if !saw {
+		t.Errorf("planner did not decompose the taskOverride (ONLYDOCS456 absent from all %d requests)", len(llm.prompts))
+	}
+}
+
 // Spec fidelity ON (default): once a plan governs the turn, the main session carries the
 // spec-fidelity note (Part B), and the planner's own system prompt carries the literal-preservation
 // rule (Part A). Both re-anchor deep planning on the request's verbatim identifiers.
 func TestSpecFidelityNoteInjected(t *testing.T) {
 	llm := &recLLM{reply: planReply}
 	a, sid := specFidelityApp(t, llm, "add a field named value to the request message")
-	a.maybePlanPreflight(context.Background(), a.sessionInfo(context.Background(), sid), 0, 120)
+	a.maybePlanPreflight(context.Background(), a.sessionInfo(context.Background(), sid), 0, 120, "")
 
 	if txt := sessionText(t, a, sid); !strings.Contains(txt, "spec fidelity") || !strings.Contains(txt, "VERBATIM") {
 		t.Errorf("Part B note not injected into the main session; session text was:\n%s", txt)
@@ -1788,7 +1814,7 @@ func TestSpecFidelityDisabled(t *testing.T) {
 
 	llm := &recLLM{reply: planReply}
 	a, sid := specFidelityApp(t, llm, "add a field named value to the request message")
-	a.maybePlanPreflight(context.Background(), a.sessionInfo(context.Background(), sid), 0, 120)
+	a.maybePlanPreflight(context.Background(), a.sessionInfo(context.Background(), sid), 0, 120, "")
 	if txt := sessionText(t, a, sid); strings.Contains(txt, "spec fidelity") {
 		t.Errorf("MAGI_SPEC_FIDELITY=0 must NOT inject the Part B note; session text was:\n%s", txt)
 	}

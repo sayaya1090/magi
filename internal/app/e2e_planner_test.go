@@ -157,7 +157,7 @@ func TestE2EProcedurePlanner(t *testing.T) {
 
 	// Synchronous: planner decompose → (multi-step) plan audit → execute steps
 	// (scout/fanout explorers) → inject findings. No main turn.
-	a.maybePlanPreflight(ctx, a.sessionInfo(ctx, sid), 0, 120)
+	a.maybePlanPreflight(ctx, a.sessionInfo(ctx, sid), 0, 120, "")
 	cancelSub()
 	<-collected
 

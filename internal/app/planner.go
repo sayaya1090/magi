@@ -148,7 +148,11 @@ func (a *App) planEligible(agent AgentSpec, depth int) bool {
 // via a sub-agent: those writes land in the child's guard, not the parent's, so the
 // caller must seed usedMutator to force the parent's depth-0 verification (review-gate
 // tester / council) to inspect and verify the MERGED working tree.
-func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth, maxSteps int) (planned, delegated bool) {
+// taskOverride, when non-empty, is the task the plan should decompose instead of the
+// session's last user prompt — used when regrounding after a route_interjection so the
+// re-plan follows the ADOPTED task (append folds the original goal + the steer's
+// constraint) rather than the bare steer text, which alone loses the original intent.
+func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth, maxSteps int, taskOverride string) (planned, delegated bool) {
 	if !a.cfg.Planner {
 		return false, false
 	}
@@ -156,13 +160,16 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth, 
 	if !ok {
 		return false, false // planner not configured
 	}
-	prompt := a.lastUserPrompt(ctx, s.ID)
+	prompt := strings.TrimSpace(taskOverride)
+	if prompt == "" {
+		prompt = a.lastUserPrompt(ctx, s.ID)
+	}
 	if strings.TrimSpace(prompt) == "" {
 		return false, false
 	}
 	a.setStage(s.ID, stagePlan) // tag pre-flight planning events as the plan stage (D15)
 
-	plan := a.runPlanner(ctx, spec, s, prompt, "", depth, maxSteps)
+	plan := a.runPlanner(ctx, spec, s, prompt, "", depth, maxSteps, strings.TrimSpace(taskOverride))
 	a.storeStepEstimate(s.ID, plan.EstimatedSteps) // advisory pacing reference, solo or not
 	steps := guardExpansion(sanitizeSteps(plan), depth, a.cfg.MaxPlanDepth)
 	if len(steps) == 0 {
@@ -299,7 +306,12 @@ func (a *App) injectAsyncExplorerNote(ctx context.Context, sid session.SessionID
 // runPlanner does a single tool-free LLM call on the planner's own provider and
 // parses the procedure from the reply. revise is non-empty on a re-plan after a
 // council plan-audit asked for changes. Returns a zero planResult on any error.
-func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session, prompt, revise string, depth, maxSteps int) planResult {
+// anchor, when non-empty, is the exact task the plan must decompose — appended as a final
+// instruction so it survives even when the conversation window (plannerWindow's byte budget)
+// drops the original prompt. Used on a re-plan after route_interjection: a long turn's explorer
+// results can push the original goal out of the window, leaving only the steer, so the adopted
+// turnTask (original goal + the steer's constraint) is re-anchored here explicitly.
+func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session, prompt, revise string, depth, maxSteps int, anchor string) planResult {
 	sys := spec.System + "\n\n# Repository (top level)\n" + repoMap(s.Workdir) + "\n\n" + plannerContract + planEnvelope(depth, a.cfg.MaxPlanDepth, maxSteps)
 	if specFidelityEnabled() {
 		sys += literalRule
@@ -329,6 +341,10 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 	}
 	if len(msgs) == 0 { // defensive: never call with an empty conversation
 		msgs = []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: prompt}}}}
+	}
+	if anc := strings.TrimSpace(anchor); anc != "" {
+		msgs = append(msgs, session.Message{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText,
+			Text: "# Task to plan now (decompose THIS exact task; it supersedes earlier framing):\n" + anc}}})
 	}
 	model := s.Model.Model
 	if spec.Model != (session.ModelRef{}) {
@@ -931,7 +947,7 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 				a.injectCouncilAdvice(ctx, s.ID, advice, true) // accepted: the executor heeds it
 				note = "plan approved with advisory notes (non-blocking)"
 				if a.cfg.CouncilPlanAbsorb { // option B: fold the advice into the plan now
-					if next := sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, advice, depth, maxSteps)); len(next) > 0 {
+					if next := sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, advice, depth, maxSteps, "")); len(next) > 0 {
 						steps = next
 					}
 				}
@@ -967,9 +983,9 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		// Re-plan with the blocking feedback folded in (one retry — local models are flaky
 		// and an empty/unparseable reply shouldn't silently drop the revision).
 		a.setStage(sid, stagePlan)
-		next := sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, fb, depth, maxSteps))
+		next := sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, fb, depth, maxSteps, ""))
 		if len(next) == 0 {
-			next = sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, fb, depth, maxSteps))
+			next = sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, fb, depth, maxSteps, ""))
 		}
 		a.setStage(sid, stageCouncil)
 		if len(next) == 0 {

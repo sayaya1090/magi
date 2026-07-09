@@ -204,7 +204,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	// parallel/scout/delegate). Read-only explorers/verifiers and workflow mode are gated
 	// out. Injects findings before the agent runs; degrades to solo on any failure.
 	if a.planEligible(agent, depth) {
-		planned, _ := a.maybePlanPreflight(ctx, s, depth, maxSteps)
+		planned, _ := a.maybePlanPreflight(ctx, s, depth, maxSteps, "")
 		if planned {
 			usedTools = true // planner did real work — seed the termination council
 		}
@@ -238,7 +238,10 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		prevFinishCalls = -1
 		councilDeadlock = false
 		if rebuildPlan && a.planEligible(agent, depth) {
-			a.maybePlanPreflight(ctx, s, depth, maxSteps)
+			// Re-plan against the ADOPTED task (turnTask), not the bare last user prompt:
+			// after a route_interjection "append" the last prompt is only the steer's
+			// constraint, which alone would lose the original goal in the re-decomposition.
+			a.maybePlanPreflight(ctx, s, depth, maxSteps, turnTask)
 		}
 	}
 
@@ -959,17 +962,38 @@ func (a *App) injectInterjectDirective(ctx context.Context, sid session.SessionI
 const asideHandlerSystem = "You dispatched background subagents and are now idle, waiting for them to report. " +
 	"While you wait, the user sent you the message below. Handle ONLY this message — do NOT read files, run " +
 	"commands, or investigate the task here; the subagents own that work and duplicating it wastes turns.\n\n" +
-	"- If it is small talk or a question, reply briefly (one or two sentences) and end your turn with no tool call.\n" +
-	"- If it changes the work: keep results already produced, call cancel_dispatch to stop any running subagent whose " +
-	"work is now irrelevant, and call route_interjection to set the direction — \"redirect\" to switch to it now, " +
-	"\"append\" to fold it into the current task so both are satisfied (ordering words like \"before\"/\"after\" are " +
-	"honored when you re-plan), or \"queue\" to defer it to its own later turn.\n" +
+	"- If it is PURELY small talk or a standalone question unrelated to the task (a greeting, trivia), reply " +
+	"briefly (one or two sentences) and end your turn with no tool call.\n" +
+	"- If it touches the work in ANY way — narrows or widens scope, changes which files/directories/targets are in " +
+	"play, adds or drops a constraint, reorders, or switches the goal — you MUST call route_interjection. A text " +
+	"acknowledgment like \"got it, I'll focus on X\" does NOT change what the running subagents or the plan do; " +
+	"acknowledging without routing silently DROPS the steer and the off-scope work continues. So: call " +
+	"route_interjection to set the direction — \"redirect\" to switch to it now, \"append\" to fold it into the " +
+	"current task so both are satisfied (ordering words like \"before\"/\"after\" are honored when you re-plan), or " +
+	"\"queue\" to defer it to its own later turn — and keep results already produced. If running subagents are now " +
+	"doing work the steer made irrelevant (e.g. reading files outside a newly narrowed scope), also call " +
+	"cancel_dispatch to stop them so the re-plan re-dispatches under the new scope.\n" +
+	"  Example: while explorers read the whole repo, the user says \"only the docs directory\" — that narrows scope, " +
+	"so call route_interjection \"append\" (and cancel_dispatch the explorers reading outside docs), do NOT merely " +
+	"reply \"got it\".\n" +
 	"- If the request is ambiguous, call ask_user to clarify before routing.\n\n" +
 	"The actual re-planning and re-dispatch happen in your normal turn after this — here you only reply or signal."
 
 // maxAsideSteps caps the idle-park handler's mini-loop so it always terminates: enough to
 // ask_user and then route in the same handling, but bounded against a tool-call loop.
 const maxAsideSteps = 4
+
+// asideEffect captures what an idle-park aside handling actually did to the running work, so
+// handleAside can both set its queue disposition AND persist a durable audit record — the raw
+// tool call/result parts stay in the mini-loop (to keep the delegated task's log clean), so
+// without this the effect (a route redirect/append, a cancel) would leave no trace at all.
+type asideEffect struct {
+	route     string // route_interjection action that fired (redirect/append/queue), "" if none
+	reason    string // route/cancel reason as given by the model
+	cancelled int    // subagents stopped via cancel_dispatch
+	didRoute  bool   // a redirect/append fired (breaks the park, re-plans next step)
+	didCancel bool   // a cancel_dispatch fired
+}
 
 // handleAside runs a focused, tool-capable turn for a user interjection that arrived while the
 // orchestrator is idle-parked on its own explorers. It replies to chitchat OR signals a steer
@@ -996,7 +1020,8 @@ func (a *App) handleAside(ctx context.Context, agent AgentSpec, s session.Sessio
 	}
 	actor := event.Actor{Kind: event.ActorAgent, ID: orDefault(agent.Name, "default")}
 	msgs := []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: aside}}}}
-	var didRoute, didCancel, didReply bool
+	var eff asideEffect
+	var didReply bool
 	for step := 0; step < maxAsideSteps; step++ {
 		req := port.ChatRequest{Model: s.Model.Model, System: sys, Messages: msgs, Tools: specs}
 		stream, err := a.providerFor(agent).StreamChat(ctx, req)
@@ -1051,14 +1076,35 @@ func (a *App) handleAside(ctx context.Context, agent AgentSpec, s session.Sessio
 		msgs = append(msgs, session.Message{Role: session.RoleAssistant, Parts: asgParts})
 		for i := range calls {
 			c := calls[i]
-			res := a.execAsideTool(ctx, s, depth, &c, &didRoute, &didCancel)
+			res := a.execAsideTool(ctx, s, depth, &c, &eff)
 			msgs = append(msgs, session.Message{Role: session.RoleTool, Parts: []session.Part{{Kind: session.PartToolResult, ToolResult: &res}}})
 		}
 	}
+	// Persist a durable, auditable trace of the steer's EFFECT (system actor, so interjection
+	// detection — ActorUser only — ignores it). Uses WithoutCancel so the record survives even
+	// if this handling raced a cancellation.
+	if eff.didRoute || eff.didCancel {
+		var b strings.Builder
+		b.WriteString("Steer applied (not user input): ")
+		if eff.didRoute {
+			fmt.Fprintf(&b, "route_interjection %q", eff.route)
+		}
+		if eff.didCancel {
+			if eff.didRoute {
+				b.WriteString("; ")
+			}
+			fmt.Fprintf(&b, "cancel_dispatch stopped %d subagent(s)", eff.cancelled)
+		}
+		if r := strings.TrimSpace(eff.reason); r != "" {
+			fmt.Fprintf(&b, " — %s", clipSpec(r, 300))
+		}
+		fmt.Fprintf(&b, "\nInterjection: %s", clipSpec(strings.TrimSpace(aside), 300))
+		_ = a.appendPromptText(context.WithoutCancel(ctx), s.ID, event.Actor{Kind: event.ActorSystem, ID: "steer"}, b.String())
+	}
 	switch {
-	case didRoute:
+	case eff.didRoute:
 		return true // redirect/append: the loop's turnControl drain consumes + re-anchors next step
-	case didCancel:
+	case eff.didCancel:
 		a.consumeInterject(s.ID, aside) // cancel with no re-anchor: resolved here
 		return true
 	case didReply:
@@ -1074,7 +1120,7 @@ func (a *App) handleAside(ctx context.Context, agent AgentSpec, s session.Sessio
 // cannot do delegated work here). It records which class of action fired so handleAside can set
 // its return and queue disposition. Mirrors the routeInterjectionFn/cancelDispatchFn closures
 // in execute.go so behavior (pending-interjection requirement, turnControl signal) is identical.
-func (a *App) execAsideTool(ctx context.Context, s session.Session, depth int, c *session.ToolCall, didRoute, didCancel *bool) session.ToolResult {
+func (a *App) execAsideTool(ctx context.Context, s session.Session, depth int, c *session.ToolCall, eff *asideEffect) session.ToolResult {
 	env := port.ToolEnv{
 		SessionID: s.ID,
 		RouteInterjection: func(action, reason string) error {
@@ -1087,15 +1133,23 @@ func (a *App) execAsideTool(ctx context.Context, s session.Session, depth int, c
 					tc.reason = reason
 				}
 			})
+			eff.route = action
+			if reason != "" {
+				eff.reason = reason
+			}
 			if action == "redirect" || action == "append" {
-				*didRoute = true // "queue" changes nothing, so it neither routes nor breaks the park
+				eff.didRoute = true // "queue" changes nothing, so it neither routes nor breaks the park
 			}
 			return nil
 		},
 		CancelDispatch: func(agent, reason string) (int, error) {
 			n, err := a.cancelDispatched(ctx, s.ID, agent, reason)
 			if err == nil {
-				*didCancel = true
+				eff.didCancel = true
+				eff.cancelled += n
+				if reason != "" && eff.reason == "" {
+					eff.reason = reason
+				}
 			}
 			return n, err
 		},
