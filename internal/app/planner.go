@@ -431,111 +431,6 @@ func msgLen(m session.Message) int {
 	return len(b)
 }
 
-// plannerContract instructs the planner to emit an ordered procedure with a
-// per-step execution strategy, not a solo/parallel boolean.
-const plannerContract = "Plan the PROCEDURE to handle the request: an ordered, minimal list of steps, each with how to execute it.\n" +
-	"ORDER matters — lay the steps out logically: first locate/scout what is actually relevant, then investigate it, " +
-	"then any step that builds on earlier findings. A simple request is a single step. Do NOT pad the plan with broad, " +
-	"unrelated area-splits — every step must serve THIS request.\n\n" +
-	"Each step has a \"strategy\":\n" +
-	"- \"solo\": the main agent does it directly (no explorer). Use for anything that writes/edits, or that needs full context.\n" +
-	"- \"parallel\": independent read-only investigations you ALREADY know are relevant — give \"groups\" (each {agent, focus, question}).\n" +
-	"- \"scout\": you DON'T yet know the work-list — give \"discover\" (the list to produce, SCOPED TO WHAT THE TASK NEEDS — " +
-	"e.g. for a bug hunt, the source files/packages in scope, NOT tangential files like docs) and \"each\" (what to find " +
-	"out about every item); a read-only explorer lists them, then one explorer runs per item in parallel.\n" +
-	"- \"delegate\": hand a LARGE, INDEPENDENT chunk of the WORK (that WRITES/BUILDS/RUNS/FIXES something) to a sub-agent " +
-	"that plans and carries it out on its own — give \"task\" (the full self-contained instruction) and \"agent\" (the executor). " +
-	"Use this ONLY when the task genuinely splits into big, mostly-independent build/fix units (e.g. two separate subcommands, " +
-	"a component plus its tests). Decompose CONSERVATIVELY: a small, quick, or tightly-coupled piece of work is a \"solo\" step, " +
-	"NOT a delegate — do NOT shatter one coherent change into many tiny delegates. Prefer the fewest units that are each " +
-	"worth handing off whole. If no executor agent is available (see below), don't use delegate.\n" +
-	"- \"refine\": a large sub-GOAL that is NOT independent — it depends on or builds on earlier steps, or is too big to " +
-	"state as one concrete action yet. State it at a HIGH LEVEL and give \"task\" (what the sub-goal must achieve). It is " +
-	"expanded into concrete sub-steps AT EXECUTION TIME, WITH the current context carried forward (unlike delegate, which " +
-	"hands an independent chunk to a context-free sub-agent). Use refine to break a HARD problem into a few abstract phases " +
-	"you will each work out in detail as you reach them; a small or already-concrete action stays \"solo\". An abstract " +
-	"refine step is fine — you are NOT required to spell out its internal actions here. " +
-	"When a task is genuinely HARD and its parts are SEQUENTIALLY DEPENDENT — each stage needs the result of the one " +
-	"before (a storage layer, THEN an index built ON that storage, THEN operations built ON that index) — PREFER " +
-	"opening the plan with a few \"refine\" phases over one long flat list of \"solo\" steps; you will expand each phase in " +
-	"context when you reach it. Keep flat \"solo\" lists for tasks whose steps are short and mostly independent.\n\n" +
-	"Explorers are READ-ONLY (agent ∈ explore|locator|analyst); never use them to write. " +
-	"Also give \"estimated_steps\": your honest guess at the TOTAL number of tool calls the whole task needs " +
-	"(a one-file tweak ~5, a feature with tests ~30, a big build/debug ~100). It is pacing guidance only — never a limit.\n" +
-	"Reply with ONLY a JSON object, no prose:\n" +
-	`{"reason":"one sentence","estimated_steps":12,"steps":[{"title":"...","strategy":"solo|parallel|scout|delegate|refine","groups":[{"agent":"explore","focus":"...","question":"..."}],"agent":"explore","discover":"...","each":"...","task":"..."}]}` +
-	"\n\nExample — a HARD, sequentially-dependent task (\"build a persistent key-value store backed by a " +
-	"write-ahead log\") is opened as a few high-level \"refine\" PHASES, each worked out in context when reached, " +
-	"NOT flattened into a long list of \"solo\" steps:\n" +
-	`{"reason":"each layer builds on the one below, so open with phases and expand each in context","estimated_steps":40,"steps":[{"title":"On-disk write-ahead log","strategy":"refine","task":"design and implement the append-only log file format and an append operation"},{"title":"In-memory index from the log","strategy":"refine","task":"replay the log on startup to build a key to offset index"},{"title":"KV operations","strategy":"refine","task":"implement get/put/delete over the index and the log, keeping them consistent"},{"title":"Log compaction","strategy":"refine","task":"add a pass that rewrites the log to drop superseded records"}]}`
-
-// literalRule is appended to the planner contract when specFidelityEnabled(): it forbids
-// paraphrasing a literal contract, so the exact identifiers a grader checks survive into the
-// step title/task (and from there into every downstream executor). See specFidelityEnabled.
-const literalRule = "\n\nPRESERVE LITERALS: when the request specifies EXACT identifiers — a field/message/function " +
-	"name, an output format, a numeric threshold, a path, or a literal string — reproduce it VERBATIM in the step " +
-	"\"title\"/\"task\". Never paraphrase a literal contract (keep a field named `value` as `value`, not \"the value\"; " +
-	"keep `YYYY-MM-DD` verbatim). The plan is a summary of the request, but its literals are NOT summaries."
-
-// specFidelityNote is injected into the MAIN session once a plan governs execution (Part B): the
-// todos summarize the request, so the executor is told to defer to the ORIGINAL wording for any
-// exact identifier rather than normalizing it. Fires before executeSteps, so refine clones and the
-// findings-synthesis path inherit it via the parent context. See specFidelityEnabled.
-const specFidelityNote = "# Execution note — spec fidelity\n" +
-	"The plan (todos) is a SUMMARY of this request. For any exact identifier — a name, field, " +
-	"function/message, output format, threshold, or literal string — follow the ORIGINAL request's " +
-	"wording VERBATIM, not the summary. Do NOT normalize or rename it (if the request names a field " +
-	"`value`, keep it `value`, do not shorten it to `val`)."
-
-// checkpointFirstNote is injected into the MAIN session before execution when
-// checkpointFirstEnabled(): a test-first ordering directive. It fires on the same seam
-// as specFidelityNote, so it reaches the solo, planned, and refine paths alike. See
-// checkpointFirstEnabled.
-const checkpointFirstNote = "# Execution note — checkpoint first\n" +
-	"If this task states HOW your output will be checked or applied — a code snippet, a command, a " +
-	"function call, or an input/output contract — then BEFORE implementing the solution, FIRST write a " +
-	"small runnable checkpoint in the working directory that reproduces exactly that check (like writing " +
-	"the test before the code). Build its inputs from the spec itself, INCLUDING any counter-example the " +
-	"task names, and encode the expected result. Then implement until the checkpoint passes, and only " +
-	"report done once you have RUN it and seen it pass. Do not invent an oracle the spec does not give — " +
-	"reproduce the stated procedure. If a runnable checkpoint genuinely cannot be built cheaply (the " +
-	"conditions are purely prose), proceed as usual."
-
-// checkpointFirstRule is appended to the planner contract when checkpointFirstEnabled():
-// it makes a multi-step plan ORDER the checkpoint early (a sequencing concern, not a new
-// verification owner), so later steps implement against an artifact that already exists.
-const checkpointFirstRule = "\n\nCHECKPOINT FIRST: if the request states HOW completion is checked or the output " +
-	"applied (a snippet, command, function call, or I/O contract), make an EARLY step build a small runnable " +
-	"checkpoint reproducing that check (inputs synthesized from the spec, including any named counter-example); " +
-	"later steps implement until it passes. Only add this when the check is actually executable — do not pad a " +
-	"prose-only task with it."
-
-// planEnvelope gives the planner the two facts it otherwise plans blind to: the step
-// BUDGET it is planning within, and its DEPTH relative to the recursion cap. Both let it
-// right-size the procedure — a plan produced at the cap, or with little budget, should be
-// small and concrete. The cap line is also a soft mirror of guardExpansion's hard rule:
-// at the cap a "refine" step could never be expanded (planEligible needs depth < MaxPlanDepth,
-// so a refine at depth d expands only while d+1 < MaxPlanDepth), so it must not be emitted.
-func planEnvelope(depth, maxPlanDepth, maxSteps int) string {
-	var b strings.Builder
-	b.WriteString("\n\nBudget & depth (right-size the plan to these):\n")
-	scope := "the whole task"
-	if depth > 0 {
-		scope = "this sub-task"
-	}
-	fmt.Fprintf(&b, "- About %d tool calls are available for %s — pacing guidance, not a hard limit.\n", maxSteps, scope)
-	fmt.Fprintf(&b, "- Planning depth %d of max %d.\n", depth, maxPlanDepth)
-	if depth+1 >= maxPlanDepth {
-		b.WriteString("- You are AT the depth cap: every step MUST be concrete (solo/parallel/scout/delegate). " +
-			"Do NOT use \"refine\" — an abstract step here can never be expanded, so it would dead-end; work it out inline instead.\n")
-	} else {
-		b.WriteString("- Below the cap: \"refine\" phases are allowed and are expanded in context when reached. " +
-			"If this plan is itself an expansion of a refine step and uses \"refine\", it MUST also contain at least one " +
-			"concrete work step — never a plan that only re-defers the work.\n")
-	}
-	return b.String()
-}
-
 // parsePlan extracts the first BALANCED {...} JSON object from text and unmarshals
 // it. Models wrap the object in prose/fences, and weak local models often append
 // trailing prose containing a stray '}' — the old first-'{'/last-'}' span then
@@ -602,143 +497,6 @@ func stripStrategyTag(title string) string {
 	return title
 }
 
-// sanitizeSteps enforces guardrails: valid strategies, read-only explorers, a
-// usable shape per strategy, and a capped step count. A "solo" step is kept (it
-// structures the procedure / todos) even though it dispatches nothing.
-// refineDisabled is a bench A/B knob (mirrors MAGI_MAX_PLAN_DEPTH): MAGI_REFINE=0 downgrades
-// refine steps to solo, reproducing the pre-refine baseline (every sub-goal flattened inline)
-// so a paired refine-ON/OFF comparison can run on the same task. Default on.
-func refineDisabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_REFINE"))) {
-	case "0", "off", "false", "no":
-		return true
-	}
-	return false
-}
-
-// stepContextDisabled is a bench A/B knob (mirrors MAGI_REFINE): MAGI_STEP_CONTEXT=0 turns
-// OFF the compact context brief injected into delegate hand-offs and read-only fan-out — the
-// children then run fully context-free (the pre-brief baseline), so a paired ON/OFF run can
-// measure whether the brief helps. Default on. It gates ONLY the brief; it never copies the
-// parent conversation (that stays refine's job) — so even ON, delegate/fan-out get an
-// overall-goal line plus sibling boundaries/outputs, not the parent's reasoning history.
-func stepContextDisabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_STEP_CONTEXT"))) {
-	case "0", "off", "false", "no":
-		return true
-	}
-	return false
-}
-
-// adaptDisabled turns OFF the REACTIVE (as-needed) failure re-decomposition — the ADaPT
-// mechanism where a step that fails is retried by decomposing it further. MAGI_ADAPT=0 leaves
-// only PLANNED decomposition (the up-front hierarchical plan) plus the stall safety net
-// (redecomposeStuck): a failed delegate/refine node backtracks after one shot instead of
-// spawning informed retries / re-decomposition. This is the recursion-policy A/B knob — with it
-// off, magi is closer to HTN-style hierarchical planning with just-in-time sub-planning than to
-// ADaPT proper. Default on (=current reactive behavior) so the flag flips the arm, not the base.
-func adaptDisabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_ADAPT"))) {
-	case "0", "off", "false", "no":
-		return true
-	}
-	return false
-}
-
-// specFidelityEnabled keeps a plan faithful to the request's LITERAL contract — exact field/
-// message/function names, output formats, thresholds, literal strings. Deep planning paraphrases
-// the instruction, and the executor then normalizes a literal (kv-store-grpc: the request's
-// `value` field became `val`, failing a grader that checks verbatim); a shallow/solo run reads the
-// raw instruction directly and keeps the literal. This flag turns on three defenses (a planner
-// "preserve literals" rule, a plan-time spec-fidelity note, and a verbatim SPEC anchor for the
-// context-free delegate child). Default ON; MAGI_SPEC_FIDELITY=0 restores the paraphrase-only
-// baseline (the A/B knob). Mirrors stepContextDisabled/adaptDisabled.
-func specFidelityEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_SPEC_FIDELITY"))) {
-	case "0", "off", "false", "no":
-		return false
-	}
-	return true
-}
-
-// checkpointFirstEnabled turns on test-first ordering: when a task states HOW its
-// completion is checked (a snippet, command, function call, or I/O contract), the
-// agent is told to FIRST materialize that as a runnable checkpoint in the workdir —
-// synthesizing inputs from the spec, including any counter-example it names — and
-// then implement until the checkpoint passes, rather than reasoning about a
-// verifiable artifact symbolically and never running it (regex-log: a regex rewritten
-// 7× with re.findall never once executed). A behavioral nudge on top of the existing
-// end-of-turn unverifiedDeliverable backstop, not a replacement. Default OFF (opt-in,
-// unvalidated): MAGI_CHECKPOINT_FIRST=1 enables it for an A/B arm. Mirrors
-// specFidelityEnabled's env shape.
-func checkpointFirstEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_CHECKPOINT_FIRST"))) {
-	case "1", "on", "true", "yes":
-		return true
-	}
-	return false
-}
-
-// asyncExplorersEnabled routes a top-level, read-only-only plan's explorer fan-out through the
-// BACKGROUND dispatch path (a.dispatch) instead of the synchronous runExplorers, so the
-// orchestrator loop parks in its bg-wait — staying responsive to user interjections — while the
-// ~85s exploration runs, rather than blocking the whole turn before the loop even starts. Only a
-// plan with NO write step (delegate/refine) is eligible; a mixed plan keeps the synchronous
-// executeSteps path so a write step still sees prior explorer findings in its brief (ordering
-// dependency). Default ON; MAGI_ASYNC_EXPLORERS=off restores the fully-synchronous preflight (the
-// A/B knob). Mirrors specFidelityEnabled's env shape.
-func asyncExplorersEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_ASYNC_EXPLORERS"))) {
-	case "0", "off", "false", "no":
-		return false
-	}
-	return true
-}
-
-// sharedRefineEnabled runs a plan's sequentially-dependent refine phases in ONE shared child
-// session (the first phase creates it via clone; later phases REUSE it, so each sees its
-// predecessors' actual work) rather than giving each phase its own spawn-time clone of the
-// parent — the fix for tightly-coupled phases missing each other's outputs. Default ON;
-// MAGI_REFINE_SHARED=0 restores the legacy per-phase clone-at-spawn baseline (the A/B knob).
-func sharedRefineEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_REFINE_SHARED"))) {
-	case "0", "off", "false", "no":
-		return false
-	}
-	return true
-}
-
-// planConvergeEnabled gates the plan-audit convergence judgment (D17): when the council
-// rejects a plan and the planner re-plans, judge whether the revision actually addressed
-// the concern and stop the loop early on an unproductive (ignored-the-concern) revision,
-// rather than bounding purely on the round count. Default ON; MAGI_PLAN_CONVERGE=0 restores
-// the round-count-only behavior (the PlanRevised diff is still emitted, but with no verdict).
-func planConvergeEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_PLAN_CONVERGE"))) {
-	case "0", "off", "false", "no":
-		return false
-	}
-	return true
-}
-
-// stallConvergeEnabled gates the stalled-nudge convergence (D18a): the no-progress "stalled"
-// nudge re-arms up to maxStallNudges times keyed purely on the sinceProgress count, without
-// checking whether the redirect actually changed anything. When a re-arm's window produced no
-// structural forward motion — neither a real mutation NOR a NOVEL exercising command
-// (progressSinceNudge stays false) — the nudge was ignored, so collapse the remaining nudge
-// budget and let the stall force-stop land the honest outcome now instead of burning more
-// no-progress windows. It only ACCELERATES the same terminal landing (stuck()=="stall"); it
-// never forces a pass and never fires while the agent is making progress (a mutation sets
-// progressSinceNudge=true and restarts the window, so a post-nudge edit re-arms normally). Default
-// ON; MAGI_STALL_CONVERGE=0 restores the fixed maxStallNudges re-arm.
-func stallConvergeEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_STALL_CONVERGE"))) {
-	case "0", "off", "false", "no":
-		return false
-	}
-	return true
-}
-
 // refineShare threads the shared-session state across a plan's refine phases: the first phase
 // pins the child session it created and that session's executor here; later phases reuse both
 // so they run in ONE session with a stable agent. Zero value = no shared session yet.
@@ -747,6 +505,9 @@ type refineShare struct {
 	agent string
 }
 
+// sanitizeSteps enforces guardrails: valid strategies, read-only explorers, a
+// usable shape per strategy, and a capped step count. A "solo" step is kept (it
+// structures the procedure / todos) even though it dispatches nothing.
 func sanitizeSteps(p planResult) []planStep {
 	var out []planStep
 	for _, st := range p.Steps {
@@ -1334,31 +1095,6 @@ func (a *App) runRefineStep(ctx context.Context, s session.Session, st planStep,
 	return stepFinding(st.Title, "refine FAILED after local retries — reconsider the approach yourself", "("+fail+"; this sub-goal is unfinished)"), false
 }
 
-// refinePrompt frames a refine step as an in-context sub-goal. On a local retry it leads
-// with the prior failure so the next attempt changes approach (the failure is also in the
-// cloned context, but stating it explicitly steadies a weak model).
-func refinePrompt(st planStep, fail string) string {
-	p := ""
-	if f := strings.TrimSpace(fail); f != "" {
-		p = "A previous attempt at this sub-goal did NOT succeed: " + f + "\nTake a DIFFERENT approach this time.\n\n"
-	}
-	return p + st.Task + "\n\n(You are working out ONE sub-goal of a larger plan, continuing from the conversation " +
-		"so far. Break it into concrete steps as needed, complete it fully, then " + noFabricate + " If after real " +
-		"effort this sub-goal genuinely cannot be done, report status \"failed\" and say plainly what blocked you — " +
-		"do not report unfinished work as done.)"
-}
-
-// noFabricate is the anti-fabrication half of every child hand-off's self-verify contract:
-// verify by real execution and cite it, and if you could NOT run/confirm something, admit it
-// rather than manufacture a verified-looking result. The delegate and stuck-recovery hand-offs
-// previously asked only to "report how you verified it" with no license for the honest negative
-// — an asymmetry that pressures a weak model to fabricate (write a stand-in results file it never
-// produced) just to answer the ask. Single-sourced so all hand-offs stay symmetric.
-const noFabricate = "verify it yourself by actually running it, and report concretely how you verified it (the " +
-	"command you ran and its real output). If you could NOT actually run or confirm something, say so plainly and " +
-	"treat it as unverified — never invent or hand-write output, and never write a stand-in or placeholder file to " +
-	"make it look done; hiding the gap is worse than admitting it."
-
 // refineReportsFailure reports whether the child explicitly declared the sub-goal failed
 // (a "STATUS: FAILED" report frame — see subReport.result in app.go). This is the child's
 // own "no viable approach" verdict, used to backtrack early.
@@ -1438,86 +1174,6 @@ func (a *App) redecomposeStuck(ctx context.Context, s session.Session, agent Age
 	}
 	a.injectSubagentResult(ctx, s.ID, name, r)
 	return true
-}
-
-// stuckRedecomposePrompt frames the solo-stuck recovery: the decompose instruction, the task,
-// and the specific wall the previous attempt hit (a stall reason or the council's last unmet
-// concern) so the child knows what to break through, then the delegate contract's self-verify
-// framing. Reuses decomposePrefix so its "BREAK IT DOWN" wording stays single-sourced.
-func stuckRedecomposePrompt(task, blockReason string) string {
-	p := decomposePrefix + strings.TrimSpace(task)
-	if r := strings.TrimSpace(blockReason); r != "" {
-		p += "\n\nWhat blocked the previous attempt (address this directly): " + r
-	}
-	return p + "\n\n(You are taking over a task a previous attempt got stuck on; partial work may " +
-		"already be on disk. Complete it fully, then " + noFabricate + ")"
-}
-
-// delegatePrompt frames a delegate step as a self-contained sub-task instruction, optionally
-// prefixed with a compact brief (see delegateBrief). The brief is orientation only — the task
-// itself stays self-contained, so an empty brief leaves the original context-free hand-off.
-func delegatePrompt(st planStep, brief string) string {
-	p := ""
-	if b := strings.TrimSpace(brief); b != "" {
-		p = b + "\n\n"
-	}
-	return p + st.Task + "\n\n(You are handling ONE independent part of a larger plan. Complete this part fully, " +
-		"then " + noFabricate + ")"
-}
-
-// delegateBrief builds the compact context a delegate child gets IN ADDITION to its
-// self-contained task: the overall goal (so its choices align with the whole task, not just
-// its slice), the OTHER step titles (boundaries — what it must NOT redo), and what earlier
-// steps ALREADY produced (interfaces/outputs to build on rather than reinvent). It carries
-// NO parent conversation or reasoning — that is refine's job (a full context clone); a
-// delegate child stays a clean-room worker that just knows where its slice fits. Every part
-// is clipped so the brief can't blow up as siblings accumulate. Returns "" when there is
-// nothing worth briefing (e.g. a lone first step with no goal text).
-func delegateBrief(goal string, steps []planStep, i int, prior []string) string {
-	var b strings.Builder
-	if g := strings.TrimSpace(goal); g != "" {
-		// Part C: the delegate child is context-free — it never sees the raw request, so a
-		// paraphrased goal is its ONLY spec. When spec fidelity is on, carry the goal verbatim
-		// (generously clipped) and label it authoritative, so the child copies exact identifiers
-		// from it rather than normalizing them. Off → the compact 400-char orientation line.
-		// The cap is generous (8000B covers virtually every real request) and, crucially, uses
-		// clipSpec — a bare "…" here made the child reproduce a truncated block into an edit
-		// old-string that then matched nothing (the exact defect the VERBATIM label promises against).
-		if specFidelityEnabled() {
-			b.WriteString("SPEC (authoritative — for any exact name, field, format, or value, follow this VERBATIM): " + clipSpec(g, 8000) + "\n")
-		} else {
-			b.WriteString("Overall goal (the whole task your part serves): " + clipLine(g, 400) + "\n")
-		}
-	}
-	var others []string
-	for j, st := range steps {
-		if j != i {
-			if t := strings.TrimSpace(st.Title); t != "" {
-				others = append(others, t)
-			}
-		}
-	}
-	if len(others) > 0 {
-		b.WriteString("Other steps handled separately (do NOT redo these): " + clipLine(strings.Join(others, "; "), 400) + "\n")
-	}
-	if p := strings.TrimSpace(strings.Join(prior, "\n")); p != "" {
-		b.WriteString("Already produced by earlier steps — build on these, don't rebuild:\n" + clipLine(p, 800) + "\n")
-	}
-	return strings.TrimSpace(b.String())
-}
-
-// decomposePrefix leads the ADaPT failure-branch retry: the direct attempt did not
-// complete, so tell the executor to break the sub-task down and do the pieces one at a
-// time. The executor re-plans at depth+1, so this decomposition instruction lands in its
-// own pre-flight planner.
-const decomposePrefix = "A direct attempt at the task below did NOT complete. Approach it differently now: BREAK IT DOWN " +
-	"into smaller, independent steps and carry them out ONE AT A TIME, verifying each before moving on.\n\n"
-
-// redecomposePrompt frames the ADaPT failure-branch retry as the delegate instruction with
-// the decompose prefix — it reuses delegatePrompt's self-contained framing, so the two
-// share their trailing contract instead of duplicating it.
-func redecomposePrompt(st planStep, brief string) string {
-	return decomposePrefix + delegatePrompt(st, brief)
 }
 
 // capGroups trims a parallel step's groups to the remaining per-turn budget.
@@ -1651,19 +1307,6 @@ func parseList(text string) []string {
 		}
 	}
 	return out
-}
-
-// runExplorers dispatches the groups as read-only subagents concurrently and
-// returns their findings concatenated in a stable order.
-// explorerPrompt builds the read-only investigation prompt for one explorer group, optionally
-// prefixed with the overall goal for orientation. Shared by the synchronous (runExplorers) and
-// background (dispatchExplorerSteps) fan-out paths so both send an identical prompt.
-func explorerPrompt(goal string, g planGroup) string {
-	prompt := fmt.Sprintf("Investigate (read-only): %s\n\n%s", g.Focus, g.Question)
-	if og := strings.TrimSpace(goal); og != "" {
-		prompt = "Overall goal (context for your investigation): " + clipLine(og, 400) + "\n\n" + prompt
-	}
-	return prompt
 }
 
 func (a *App) runExplorers(ctx context.Context, s session.Session, groups []planGroup, goal string, depth int) string {
