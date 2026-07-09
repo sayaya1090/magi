@@ -172,7 +172,8 @@ func waitSessionIdle(t *testing.T, a *App, sid session.SessionID) {
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		a.mu.Lock()
-		idle := a.cancels[sid] == nil && len(a.pendingInterject[sid]) == 0
+		st, _ := a.stateIf(sid)
+		idle := st == nil || (st.cancel == nil && len(st.pendingInterject) == 0)
 		a.mu.Unlock()
 		if idle {
 			return

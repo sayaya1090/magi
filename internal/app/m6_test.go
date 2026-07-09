@@ -106,7 +106,7 @@ func TestModelRouting(t *testing.T) {
 	})
 	parent := session.Session{ID: "s_p", Workdir: t.TempDir(), Agent: "default", Model: session.ModelRef{Model: "qwen3-coder:30b"}}
 	a.mu.Lock()
-	a.sessions[parent.ID] = parent
+	a.stateLocked(parent.ID).meta = parent
 	a.mu.Unlock()
 
 	res := a.spawn(context.Background(), parent, 0, port.SpawnRequest{Agent: "fast", Prompt: "go"})

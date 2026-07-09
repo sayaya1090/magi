@@ -38,10 +38,10 @@ type bgGroup struct {
 // bgFor returns (creating if needed) the background group for a parent session.
 // Caller must hold a.mu.
 func (a *App) bgFor(sid session.SessionID) *bgGroup {
-	g := a.bg[sid]
+	g := a.stateLocked(sid).bg
 	if g == nil {
 		g = &bgGroup{wake: make(chan struct{}, 1)}
-		a.bg[sid] = g
+		a.stateLocked(sid).bg = g
 	}
 	return g
 }
@@ -61,8 +61,8 @@ func (a *App) bgWake(sid session.SessionID) {
 func (a *App) bgOutstanding(sid session.SessionID) int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if g := a.bg[sid]; g != nil {
-		return g.outstanding
+	if st, ok := a.stateIf(sid); ok && st.bg != nil {
+		return st.bg.outstanding
 	}
 	return 0
 }
@@ -81,8 +81,8 @@ func (a *App) bgWaitChan(sid session.SessionID) chan struct{} {
 func (a *App) bgHasUnconsumed(sid session.SessionID) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if g := a.bg[sid]; g != nil {
-		return g.injected > g.consumed
+	if st, ok := a.stateIf(sid); ok && st.bg != nil {
+		return st.bg.injected > st.bg.consumed
 	}
 	return false
 }
@@ -92,8 +92,8 @@ func (a *App) bgHasUnconsumed(sid session.SessionID) bool {
 func (a *App) bgConsume(sid session.SessionID) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if g := a.bg[sid]; g != nil {
-		g.consumed = g.injected
+	if st, ok := a.stateIf(sid); ok && st.bg != nil {
+		st.bg.consumed = st.bg.injected
 	}
 }
 
@@ -143,7 +143,7 @@ func (a *App) dispatch(ctx context.Context, parent session.Session, depth int, r
 		// up incrementally (partial results, not all-or-nothing).
 		a.injectSubagentResult(ctx, parent.ID, req.Agent, res)
 		a.mu.Lock()
-		if g := a.bg[parent.ID]; g != nil {
+		if g := a.stateLocked(parent.ID).bg; g != nil {
 			delete(g.inflight, key)
 			if g.completed == nil {
 				g.completed = map[string]bool{}
@@ -176,19 +176,19 @@ func (a *App) escalate(ctx context.Context, parent session.SessionID, fromRole, 
 	}
 	ch := make(chan string, 1)
 	a.mu.Lock()
-	if a.pendingAsks[parent] != nil {
+	if a.stateLocked(parent).pendingAsk != nil {
 		a.mu.Unlock()
 		return "", fmt.Errorf("the orchestrator is already handling another question; try again shortly")
 	}
-	a.pendingAsks[parent] = ch
+	a.stateLocked(parent).pendingAsk = ch
 	a.mu.Unlock()
 	defer func() {
 		a.mu.Lock()
 		// Only clear OUR entry: if answerPendingAsk already consumed it and another
 		// subagent has since registered its own ch, deleting unconditionally would
 		// orphan that second subagent (it'd block until its 2-minute timeout).
-		if a.pendingAsks[parent] == ch {
-			delete(a.pendingAsks, parent)
+		if a.stateLocked(parent).pendingAsk == ch {
+			a.stateLocked(parent).pendingAsk = nil
 		}
 		a.mu.Unlock()
 	}()
@@ -214,9 +214,9 @@ func (a *App) escalate(ctx context.Context, parent session.SessionID, fromRole, 
 // blocked in escalate(). Returns true if it consumed the reply as an answer.
 func (a *App) answerPendingAsk(sid session.SessionID, reply string) bool {
 	a.mu.Lock()
-	ch := a.pendingAsks[sid]
+	ch := a.stateLocked(sid).pendingAsk
 	if ch != nil {
-		delete(a.pendingAsks, sid)
+		a.stateLocked(sid).pendingAsk = nil
 	}
 	a.mu.Unlock()
 	if ch == nil {
@@ -237,7 +237,7 @@ func (a *App) answerPendingAsk(sid session.SessionID, reply string) bool {
 // per-completion and fabricating/re-dispatching.
 func (a *App) needsOrchestratorTurn(ctx context.Context, sid session.SessionID) bool {
 	a.mu.Lock()
-	ask := a.pendingAsks[sid] != nil
+	ask := a.stateLocked(sid).pendingAsk != nil
 	a.mu.Unlock()
 	if ask {
 		return true
@@ -284,7 +284,7 @@ func (a *App) injectSubagentResult(ctx context.Context, parent session.SessionID
 	a.mu.Lock()
 	var cancelReason string
 	var cancelled bool
-	if g := a.bg[parent]; g != nil {
+	if g := a.stateLocked(parent).bg; g != nil {
 		cancelReason, cancelled = g.cancelled[res.SessionID]
 	}
 	a.mu.Unlock()
@@ -351,7 +351,7 @@ func (a *App) cancelDispatched(ctx context.Context, parent session.SessionID, ag
 		return 0, fmt.Errorf("cancel needs a reason — say why the remaining subagents are no longer needed")
 	}
 	a.mu.Lock()
-	g := a.bg[parent]
+	g := a.stateLocked(parent).bg
 	if g == nil || (len(g.completed) == 0 && g.injected == 0) {
 		a.mu.Unlock()
 		return 0, fmt.Errorf("no intermediate result has arrived yet — wait for at least one subagent's result before deciding the rest are unnecessary")
@@ -360,14 +360,15 @@ func (a *App) cancelDispatched(ctx context.Context, parent session.SessionID, ag
 		g.cancelled = map[session.SessionID]string{}
 	}
 	var cancels []func()
-	for id, s := range a.sessions {
+	for id, st := range a.states {
+		s := st.meta
 		if s.Parent != parent || !s.Escalatable {
 			continue // only background-dispatched children of this orchestrator
 		}
 		if agentFilter != "" && s.Agent != agentFilter {
 			continue
 		}
-		c := a.cancels[id]
+		c := st.cancel
 		if c == nil {
 			continue // already finished / not running
 		}
@@ -511,7 +512,7 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 	var child session.Session
 	if req.ReuseSession != "" {
 		a.mu.Lock()
-		c, ok := a.sessions[req.ReuseSession]
+		c, ok := a.metaLocked(req.ReuseSession)
 		a.mu.Unlock()
 		if ok {
 			child = c
@@ -529,7 +530,7 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 			Escalatable: req.Background, // only background-dispatched children can be answered
 		}
 		a.mu.Lock()
-		a.sessions[child.ID] = child
+		a.stateLocked(child.ID).meta = child
 		a.mu.Unlock()
 
 		cd, _ := json.Marshal(event.SessionCreatedData{
@@ -569,11 +570,11 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 	attemptCtx, cancel := context.WithTimeout(ctx, a.cfg.SubagentTimeout)
 	defer cancel()
 	a.mu.Lock()
-	a.cancels[child.ID] = cancel
+	a.stateLocked(child.ID).cancel = cancel
 	a.mu.Unlock()
 	defer func() {
 		a.mu.Lock()
-		delete(a.cancels, child.ID)
+		a.stateLocked(child.ID).cancel = nil
 		a.mu.Unlock()
 	}()
 

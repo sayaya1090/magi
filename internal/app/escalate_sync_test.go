@@ -100,7 +100,7 @@ func TestBackgroundSpawnAskEscalates(t *testing.T) {
 	go func() {
 		for i := 0; i < 400; i++ {
 			a.mu.Lock()
-			pending := a.pendingAsks[parentID] != nil
+			pending := a.stateLocked(parentID).pendingAsk != nil
 			a.mu.Unlock()
 			if pending {
 				a.answerPendingAsk(parentID, "use ./logs")
@@ -132,8 +132,8 @@ func childSessionContains(t *testing.T, a *App, parent session.SessionID, needle
 	t.Helper()
 	a.mu.Lock()
 	var kids []session.SessionID
-	for id, s := range a.sessions {
-		if s.Parent == parent {
+	for id, st := range a.states {
+		if st.meta.Parent == parent {
 			kids = append(kids, id)
 		}
 	}

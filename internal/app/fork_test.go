@@ -20,7 +20,7 @@ func waitIdle(t *testing.T, a *App, sid session.SessionID) {
 	t.Helper()
 	for i := 0; i < 2000; i++ {
 		a.mu.Lock()
-		running := a.cancels[sid] != nil
+		running := a.stateLocked(sid).cancel != nil
 		a.mu.Unlock()
 		if !running {
 			return

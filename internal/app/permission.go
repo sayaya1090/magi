@@ -26,14 +26,14 @@ func (a *App) askUserFn(ctx context.Context, s session.Session, depth int, tc *s
 		qid := fmt.Sprintf("%s#%d", tc.CallID, seq)
 		ch := make(chan string, 1)
 		a.mu.Lock()
-		if a.questions[sid] == nil {
-			a.questions[sid] = map[string]chan string{}
+		if a.stateLocked(sid).questions == nil {
+			a.stateLocked(sid).questions = map[string]chan string{}
 		}
-		a.questions[sid][qid] = ch
+		a.stateLocked(sid).questions[qid] = ch
 		a.mu.Unlock()
 		defer func() {
 			a.mu.Lock()
-			delete(a.questions[sid], qid)
+			delete(a.stateLocked(sid).questions, qid)
 			a.mu.Unlock()
 		}()
 		qd, _ := json.Marshal(event.QuestionRequestedData{CallID: qid, Question: question, Options: options, Index: seq})
@@ -72,7 +72,7 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 	}
 	// "ask" (and "auto" for non-edit tools): honor a prior "always" grant.
 	a.mu.Lock()
-	if a.grants[sid][tc.Name] {
+	if st, ok := a.stateIf(sid); ok && st.grants[tc.Name] {
 		a.mu.Unlock()
 		return true
 	}
@@ -86,15 +86,15 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 		return a.Permission() == "allow"
 	}
 	ch := make(chan string, 1)
-	if a.perms[sid] == nil {
-		a.perms[sid] = map[string]chan string{}
+	if a.stateLocked(sid).perms == nil {
+		a.stateLocked(sid).perms = map[string]chan string{}
 	}
-	a.perms[sid][tc.CallID] = ch
+	a.stateLocked(sid).perms[tc.CallID] = ch
 	a.mu.Unlock()
 
 	defer func() {
 		a.mu.Lock()
-		delete(a.perms[sid], tc.CallID)
+		delete(a.stateLocked(sid).perms, tc.CallID)
 		a.mu.Unlock()
 	}()
 
@@ -105,10 +105,10 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 	case dec := <-ch:
 		if dec == "always" || dec == "persist" {
 			a.mu.Lock()
-			if a.grants[sid] == nil {
-				a.grants[sid] = map[string]bool{}
+			if a.stateLocked(sid).grants == nil {
+				a.stateLocked(sid).grants = map[string]bool{}
 			}
-			a.grants[sid][tc.Name] = true
+			a.stateLocked(sid).grants[tc.Name] = true
 			a.mu.Unlock()
 			// "persist" additionally records the grant as a project allow rule
 			// (`tool(**)` in .magi/config.toml), so the choice survives restarts —

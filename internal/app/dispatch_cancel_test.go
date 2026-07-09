@@ -28,8 +28,8 @@ func registerRunningChild(a *App, parent, child session.SessionID, agent, wd str
 	done := make(chan struct{})
 	go func() { <-ctx.Done(); close(done) }()
 	a.mu.Lock()
-	a.sessions[child] = sess
-	a.cancels[child] = cancel
+	a.stateLocked(child).meta = sess
+	a.stateLocked(child).cancel = cancel
 	a.mu.Unlock()
 	// Initialize the child's event log so later appends (and reads) resolve, as spawn does.
 	cd, _ := json.Marshal(event.SessionCreatedData{Workdir: wd, Agent: agent})
@@ -109,7 +109,7 @@ func TestDispatchCancelCancelsAndReportsHonestly(t *testing.T) {
 
 	// The reason was recorded so injectSubagentResult renders the honest notice.
 	a.mu.Lock()
-	reason, marked := a.bg[sid].cancelled["s_child_b"]
+	reason, marked := a.stateLocked(sid).bg.cancelled["s_child_b"]
 	a.mu.Unlock()
 	if !marked || reason == "" {
 		t.Fatalf("cancelled child should be marked with its reason, got marked=%v reason=%q", marked, reason)

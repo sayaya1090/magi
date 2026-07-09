@@ -52,7 +52,7 @@ func (a *App) Fork(ctx context.Context, sid session.SessionID, upToSeq int64) (s
 		s.Meta = m
 	}
 	a.mu.Lock()
-	a.sessions[newSid] = s
+	a.stateLocked(newSid).meta = s
 	a.mu.Unlock()
 	return newSid, nil
 }

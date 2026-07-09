@@ -69,7 +69,7 @@ func TestSpawnReturnsResult(t *testing.T) {
 		Agents:     map[string]AgentSpec{"worker": {Name: "worker", System: "work"}},
 	})
 	a.mu.Lock()
-	a.sessions["s_parent"] = parentSession(t.TempDir())
+	a.stateLocked("s_parent").meta = parentSession(t.TempDir())
 	a.mu.Unlock()
 
 	res := a.spawn(context.Background(), parentSession(t.TempDir()), 0, port.SpawnRequest{Agent: "worker", Prompt: "do it"})

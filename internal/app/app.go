@@ -35,22 +35,14 @@ type App struct {
 	cfg              Config
 	contextProviders []port.ContextProvider // RAG-like context injectors
 
-	mu        sync.Mutex
-	wg        sync.WaitGroup                               // tracks run + dispatch goroutines for graceful Close
-	closed    bool                                         // set by Close: no new run/dispatch goroutines (no Add after Wait)
-	cancels   map[session.SessionID]context.CancelFunc     // in-flight runs (Interrupt)
-	perms     map[session.SessionID]map[string]chan string // pending permission decisions
-	questions map[session.SessionID]map[string]chan string // pending ask_user picks by call id
-	grants    map[session.SessionID]map[string]bool        // "always" grants per tool
-	sessions  map[session.SessionID]session.Session        // session metadata cache
+	mu     sync.Mutex
+	wg     sync.WaitGroup // tracks run + dispatch goroutines for graceful Close
+	closed bool           // set by Close: no new run/dispatch goroutines (no Add after Wait)
 
 	sem        chan struct{} // concurrency limiter for subagents (D7)
 	spawnCount atomic.Int64  // cumulative subagents spawned (runaway backstop)
 
-	lastActivity sync.Map                          // session.SessionID -> time.Time (liveness for the sidecar health check)
-	bg           map[session.SessionID]*bgGroup    // per-parent background subagent tracking
-	pendingAsks  map[session.SessionID]chan string // parent session -> channel for a subagent's pending ask answer
-	reports      map[session.SessionID]*subReport  // subagent session -> filed final report (guarded by mu)
+	lastActivity sync.Map // session.SessionID -> time.Time (liveness for the sidecar health check)
 
 	memMu      sync.Mutex
 	memCache   map[string]string       // workdir -> durable AGENTS.md memory
@@ -59,18 +51,81 @@ type App struct {
 	permPolicy string  // runtime-adjustable permission policy (guarded by mu)
 	policy     *Policy // guardrail rules engine (deny floor, allow rules, bash scan)
 
-	lastPromptTokens      map[session.SessionID]int            // real prompt_tokens from last turn (guarded by mu)
-	todos                 map[session.SessionID][]session.Todo // per-session plan (guarded by mu)
-	stage                 map[session.SessionID]string         // current loop stage for event tagging (guarded by mu)
-	criteria              map[session.SessionID]string         // elicited acceptance criteria per turn (guarded by mu)
-	estSteps              map[session.SessionID]int            // planner's advisory step estimate per turn (guarded by mu)
-	autoOrchestrateActive map[session.SessionID]bool           // whether auto-orchestration has been triggered for this session (guarded by mu)
-	probingWindows        map[string]struct{}                  // models whose context window is being (or was) lazily probed (guarded by mu)
+	probingWindows map[string]struct{} // models whose context window is being (or was) lazily probed (guarded by mu)
 
-	turnControl      map[session.SessionID]turnControl           // pending mid-turn routing/replan signal set by a tool, drained by the loop (guarded by mu)
-	pendingInterject map[session.SessionID][]pendingInterjection // interjections queued to run as their own turn after the current one ends (guarded by mu)
-	interjectSeen    map[session.SessionID]map[string]bool       // every mid-turn interjection MessageID detected THIS turn, masked from turnTask/council derivation even after it leaves the pending queue (guarded by mu)
-	awaitExplorers   map[session.SessionID]bool                  // the planner dispatched read-only explorers as THIS turn's primary work; the loop parks (pre-model) until they report instead of running a findings-less review (guarded by mu)
+	states map[session.SessionID]*sessionState // per-session state, consolidating the maps above (guarded by mu); migrated group-by-group
+}
+
+// sessionState holds all per-session state for one session, consolidating what used to
+// be ~18 separate map[session.SessionID]X fields on App. One entry is created lazily on
+// first access (state/stateLocked) and lives for the process lifetime — a nil/zero field
+// is the "absent" signal (e.g. cancel==nil means no in-flight run), matching the old
+// "key absent" semantics. All fields are guarded by App.mu; child sessions get their own
+// entry just like top-level ones. Turn-scoped fields are zeroed by resetForNewTopLevel;
+// the rest live for the whole session.
+type sessionState struct {
+	// Whole-session lifetime.
+	cancel           context.CancelFunc     // in-flight run's cancel (Interrupt); nil = not running
+	meta             session.Session        // session metadata cache
+	todos            []session.Todo         // per-session plan
+	stage            string                 // current loop stage for event tagging
+	lastPromptTokens int                    // real prompt_tokens from the last turn
+	pendingInterject []pendingInterjection  // interjections queued to run as their own turn
+	turnControl      turnControl            // pending mid-turn routing/replan signal
+	perms            map[string]chan string // pending permission decisions by call id
+	questions        map[string]chan string // pending ask_user picks by call id
+	grants           map[string]bool        // "always" grants per tool
+	pendingAsk       chan string            // channel for a subagent's pending ask answer (parent)
+	bg               *bgGroup               // background subagent tracking (parent)
+	report           *subReport             // filed final report (subagent session)
+	// Turn-scoped (zeroed by resetForNewTopLevel).
+	criteria        string          // elicited acceptance criteria this turn
+	estSteps        int             // planner's advisory step estimate this turn
+	interjectSeen   map[string]bool // interjection MessageIDs detected this turn (masked from turnTask/council)
+	awaitExplorers  bool            // planner dispatched read-only explorers as this turn's primary work
+	autoOrchestrate bool            // whether auto-orchestration has been triggered this session
+}
+
+// stateLocked returns the session's state, creating it on first use. The caller MUST
+// hold a.mu. The nil-map guard lets zero-value App literals (used in tests) be safe;
+// production always goes through New, which pre-allocates the map.
+func (a *App) stateLocked(sid session.SessionID) *sessionState {
+	if a.states == nil {
+		a.states = map[session.SessionID]*sessionState{}
+	}
+	st := a.states[sid]
+	if st == nil {
+		st = &sessionState{}
+		a.states[sid] = st
+	}
+	return st
+}
+
+// state returns the session's state, creating it on first use, taking a.mu itself.
+func (a *App) state(sid session.SessionID) *sessionState {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.stateLocked(sid)
+}
+
+// stateIf returns the session's state without creating one — the read/liveness path that
+// preserves the old "key absent" semantics (ok==false means nothing was ever recorded).
+// The caller MUST hold a.mu.
+func (a *App) stateIf(sid session.SessionID) (*sessionState, bool) {
+	st, ok := a.states[sid]
+	return st, ok
+}
+
+// metaLocked returns a session's cached metadata, preserving the old `a.sessions[sid]`
+// present/absent semantics: ok is true only for a session that was actually created
+// (its meta.ID is set), never for a state entry that a lazy per-session write created.
+// The caller MUST hold a.mu.
+func (a *App) metaLocked(sid session.SessionID) (session.Session, bool) {
+	st, ok := a.stateIf(sid)
+	if !ok || st.meta.ID == "" {
+		return session.Session{}, false
+	}
+	return st.meta, true
 }
 
 // pendingInterjection is a mid-turn user message parked to run as its own turn once
@@ -100,37 +155,20 @@ func New(store port.Store, llm port.LLMProvider, tools port.ToolRegistry, b *bus
 	c := cfg.withDefaults()
 	c.ProfileModels = cloneStringMap(c.ProfileModels) // runtime edits must not mutate the caller's map
 	return &App{
-		store:                 store,
-		llm:                   llm,
-		providers:             cloneProviders(c.Providers),
-		profileDefs:           cloneProfileDefs(c.ProfileDefs),
-		routeOverrides:        map[string]routeOverride{},
-		tools:                 tools,
-		bus:                   b,
-		plat:                  plat,
-		cfg:                   c,
-		cancels:               map[session.SessionID]context.CancelFunc{},
-		perms:                 map[session.SessionID]map[string]chan string{},
-		questions:             map[session.SessionID]map[string]chan string{},
-		grants:                map[session.SessionID]map[string]bool{},
-		sessions:              map[session.SessionID]session.Session{},
-		sem:                   make(chan struct{}, c.Concurrency),
-		permPolicy:            c.Permission,
-		policy:                newPolicy(c.Allow, c.Deny, c.AllowDomains),
-		lastPromptTokens:      map[session.SessionID]int{},
-		todos:                 map[session.SessionID][]session.Todo{},
-		stage:                 map[session.SessionID]string{},
-		criteria:              map[session.SessionID]string{},
-		estSteps:              map[session.SessionID]int{},
-		bg:                    map[session.SessionID]*bgGroup{},
-		pendingAsks:           map[session.SessionID]chan string{},
-		reports:               map[session.SessionID]*subReport{},
-		autoOrchestrateActive: map[session.SessionID]bool{},
-		probingWindows:        map[string]struct{}{},
-		turnControl:           map[session.SessionID]turnControl{},
-		pendingInterject:      map[session.SessionID][]pendingInterjection{},
-		interjectSeen:         map[session.SessionID]map[string]bool{},
-		awaitExplorers:        map[session.SessionID]bool{},
+		store:          store,
+		llm:            llm,
+		providers:      cloneProviders(c.Providers),
+		profileDefs:    cloneProfileDefs(c.ProfileDefs),
+		routeOverrides: map[string]routeOverride{},
+		tools:          tools,
+		bus:            b,
+		plat:           plat,
+		cfg:            c,
+		sem:            make(chan struct{}, c.Concurrency),
+		permPolicy:     c.Permission,
+		policy:         newPolicy(c.Allow, c.Deny, c.AllowDomains),
+		probingWindows: map[string]struct{}{},
+		states:         map[session.SessionID]*sessionState{},
 	}
 }
 
@@ -161,10 +199,10 @@ func reportStatusWord(line string) string {
 func (a *App) fileReport(sid session.SessionID, summary, status, details string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.reports[sid] != nil {
+	if a.stateLocked(sid).report != nil {
 		return fmt.Errorf("you already filed a report this turn; your turn is ending")
 	}
-	a.reports[sid] = &subReport{summary: summary, status: status, details: details}
+	a.stateLocked(sid).report = &subReport{summary: summary, status: status, details: details}
 	return nil
 }
 
@@ -172,8 +210,8 @@ func (a *App) fileReport(sid session.SessionID, summary, status, details string)
 func (a *App) takeReport(sid session.SessionID) *subReport {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	r := a.reports[sid]
-	delete(a.reports, sid)
+	r := a.stateLocked(sid).report
+	a.stateLocked(sid).report = nil
 	return r
 }
 
@@ -214,11 +252,13 @@ func (a *App) Rewind(ctx context.Context, sid session.SessionID, n int) (int64, 
 		return 0, err
 	}
 	a.mu.Lock()
-	delete(a.lastPromptTokens, sid)
-	delete(a.todos, sid)
-	delete(a.stage, sid)
-	delete(a.criteria, sid)
-	delete(a.estSteps, sid)
+	if st, ok := a.stateIf(sid); ok {
+		st.lastPromptTokens = 0
+		st.todos = nil
+		st.stage = ""
+		st.criteria = ""
+		st.estSteps = 0
+	}
 	a.mu.Unlock()
 	return boundary, nil
 }
@@ -246,7 +286,10 @@ func (a *App) SessionState(ctx context.Context, sid session.SessionID) ([]sessio
 func (a *App) Todos(sid session.SessionID) []session.Todo {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.todos[sid]
+	if st, ok := a.stateIf(sid); ok {
+		return st.todos
+	}
+	return nil
 }
 
 // PlanChildren returns the child sessions spawned to carry out the given plan step
@@ -258,7 +301,8 @@ func (a *App) PlanChildren(parent session.SessionID, step int) []session.Session
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	var kids []session.Session
-	for _, s := range a.sessions {
+	for _, st := range a.states {
+		s := st.meta
 		if s.Parent == parent && s.ParentStep != nil && *s.ParentStep == step {
 			kids = append(kids, s)
 		}
@@ -281,12 +325,15 @@ func (a *App) PlanChildren(parent session.SessionID, step int) []session.Session
 func (a *App) realPromptTokens(sid session.SessionID) int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.lastPromptTokens[sid]
+	if st, ok := a.stateIf(sid); ok {
+		return st.lastPromptTokens
+	}
+	return 0
 }
 
 func (a *App) setPromptTokens(sid session.SessionID, n int) {
 	a.mu.Lock()
-	a.lastPromptTokens[sid] = n
+	a.stateLocked(sid).lastPromptTokens = n
 	a.mu.Unlock()
 }
 
@@ -446,7 +493,7 @@ func (a *App) AgentRoutes(sid session.SessionID) []AgentRoute {
 	names := a.AgentNames()
 	a.mu.Lock()
 	sessModel := a.cfg.Model.Model
-	if s, ok := a.sessions[sid]; ok && s.Model.Model != "" {
+	if s, ok := a.metaLocked(sid); ok && s.Model.Model != "" {
 		sessModel = s.Model.Model
 	}
 	a.mu.Unlock()
@@ -470,9 +517,9 @@ func (a *App) SetModel(sid session.SessionID, modelID string) {
 		return
 	}
 	a.mu.Lock()
-	if s, ok := a.sessions[sid]; ok {
+	if s, ok := a.metaLocked(sid); ok {
 		s.Model = session.ModelRef{Provider: "openai", Model: modelID}
-		a.sessions[sid] = s
+		a.stateLocked(sid).meta = s
 	}
 	p := a.cfg.RoutePersister
 	a.mu.Unlock()
@@ -491,7 +538,7 @@ func (a *App) SetModel(sid session.SessionID, modelID string) {
 func (a *App) SessionModel(sid session.SessionID) string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if s, ok := a.sessions[sid]; ok {
+	if s, ok := a.metaLocked(sid); ok {
 		return s.Model.Model
 	}
 	return ""
@@ -610,7 +657,7 @@ func (a *App) CreateSession(ctx context.Context, c command.CreateSession) (sessi
 		Created: time.Now(),
 	}
 	a.mu.Lock()
-	a.sessions[sid] = s
+	a.stateLocked(sid).meta = s
 	a.mu.Unlock()
 
 	data, _ := json.Marshal(event.SessionCreatedData{Workdir: c.Workdir, Agent: c.Agent, Model: model})
@@ -629,10 +676,11 @@ func (a *App) CreateSession(ctx context.Context, c command.CreateSession) (sessi
 func (a *App) resetForNewTopLevel(sid session.SessionID) {
 	a.SetTodos(sid, nil) // takes a.mu itself
 	a.mu.Lock()
-	delete(a.criteria, sid)       // drop cached criteria; re-elicited at the next gate (D15)
-	delete(a.estSteps, sid)       // …and the previous task's advisory step estimate
-	delete(a.interjectSeen, sid)  // this turn's interjection mask set — the next turn starts clean
-	delete(a.awaitExplorers, sid) // the async-explorer wait is per-turn; the next turn starts clean
+	st := a.stateLocked(sid)
+	st.criteria = ""          // drop cached criteria; re-elicited at the next gate (D15)
+	st.estSteps = 0           // …and the previous task's advisory step estimate
+	st.interjectSeen = nil    // this turn's interjection mask set — the next turn starts clean
+	st.awaitExplorers = false // the async-explorer wait is per-turn; the next turn starts clean
 	a.mu.Unlock()
 }
 
@@ -641,11 +689,7 @@ func (a *App) resetForNewTopLevel(sid session.SessionID) {
 func (a *App) setAwaitExplorers(sid session.SessionID, v bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if v {
-		a.awaitExplorers[sid] = true
-	} else {
-		delete(a.awaitExplorers, sid)
-	}
+	a.stateLocked(sid).awaitExplorers = v
 }
 
 // awaitingExplorers reports whether this turn is parked waiting for planner-dispatched
@@ -654,7 +698,10 @@ func (a *App) setAwaitExplorers(sid session.SessionID, v bool) {
 func (a *App) awaitingExplorers(sid session.SessionID) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.awaitExplorers[sid]
+	if st, ok := a.stateIf(sid); ok {
+		return st.awaitExplorers
+	}
+	return false
 }
 
 // Submit appends the user's prompt and starts the agent loop asynchronously.
@@ -683,7 +730,8 @@ func (a *App) Steer(ctx context.Context, c command.SubmitPrompt) error {
 	// steer immediately (otherwise it would sleep until a subagent finished).
 	a.bgWake(c.SessionID)
 	a.mu.Lock()
-	running := a.cancels[c.SessionID] != nil
+	st, ok := a.stateIf(c.SessionID)
+	running := ok && st.cancel != nil
 	a.mu.Unlock()
 	if !running {
 		a.startRun(ctx, c.SessionID) // turn already ended — process it now
@@ -726,17 +774,17 @@ func (a *App) appendResurfacedPrompt(ctx context.Context, sid session.SessionID,
 func (a *App) signalTurnControl(sid session.SessionID, mut func(*turnControl)) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	tc := a.turnControl[sid]
+	tc := a.stateLocked(sid).turnControl
 	mut(&tc)
-	a.turnControl[sid] = tc
+	a.stateLocked(sid).turnControl = tc
 }
 
 // takeTurnControl returns and clears the pending control signal for a session.
 func (a *App) takeTurnControl(sid session.SessionID) turnControl {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	tc := a.turnControl[sid]
-	delete(a.turnControl, sid)
+	tc := a.stateLocked(sid).turnControl
+	a.stateLocked(sid).turnControl = turnControl{}
 	return tc
 }
 
@@ -751,7 +799,7 @@ func (a *App) enqueueInterject(sid session.SessionID, msgID, text string) {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.pendingInterject[sid] = append(a.pendingInterject[sid], pendingInterjection{MsgID: msgID, Text: text})
+	a.stateLocked(sid).pendingInterject = append(a.stateLocked(sid).pendingInterject, pendingInterjection{MsgID: msgID, Text: text})
 }
 
 // consumeInterject removes a specific queued interjection (absorbed this turn by a
@@ -761,7 +809,7 @@ func (a *App) consumeInterject(sid session.SessionID, text string) {
 	text = strings.TrimSpace(text)
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	q := a.pendingInterject[sid]
+	q := a.stateLocked(sid).pendingInterject
 	out := q[:0]
 	for _, p := range q {
 		if p.Text != text {
@@ -769,9 +817,9 @@ func (a *App) consumeInterject(sid session.SessionID, text string) {
 		}
 	}
 	if len(out) == 0 {
-		delete(a.pendingInterject, sid)
+		a.stateLocked(sid).pendingInterject = nil
 	} else {
-		a.pendingInterject[sid] = out
+		a.stateLocked(sid).pendingInterject = out
 	}
 }
 
@@ -779,15 +827,15 @@ func (a *App) consumeInterject(sid session.SessionID, text string) {
 func (a *App) takePendingInterject(sid session.SessionID) string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	q := a.pendingInterject[sid]
+	q := a.stateLocked(sid).pendingInterject
 	if len(q) == 0 {
 		return ""
 	}
 	text := q[0].Text
 	if len(q) == 1 {
-		delete(a.pendingInterject, sid)
+		a.stateLocked(sid).pendingInterject = nil
 	} else {
-		a.pendingInterject[sid] = q[1:]
+		a.stateLocked(sid).pendingInterject = q[1:]
 	}
 	return text
 }
@@ -796,7 +844,7 @@ func (a *App) takePendingInterject(sid session.SessionID) string {
 func (a *App) hasPendingInterject(sid session.SessionID) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return len(a.pendingInterject[sid]) > 0
+	return len(a.stateLocked(sid).pendingInterject) > 0
 }
 
 // pendingInterjectTexts snapshots the queued interjection texts (FIFO order) without
@@ -806,7 +854,7 @@ func (a *App) hasPendingInterject(sid session.SessionID) bool {
 func (a *App) pendingInterjectTexts(sid session.SessionID) []string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	q := a.pendingInterject[sid]
+	q := a.stateLocked(sid).pendingInterject
 	if len(q) == 0 {
 		return nil
 	}
@@ -824,7 +872,7 @@ func (a *App) pendingInterjectTexts(sid session.SessionID) []string {
 func (a *App) deferredInterjectIDs(sid session.SessionID) map[string]bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	q := a.pendingInterject[sid]
+	q := a.stateLocked(sid).pendingInterject
 	if len(q) == 0 {
 		return nil
 	}
@@ -856,12 +904,11 @@ func (a *App) markInterjectSeen(sid session.SessionID, msgID string) {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	m := a.interjectSeen[sid]
-	if m == nil {
-		m = map[string]bool{}
-		a.interjectSeen[sid] = m
+	st := a.stateLocked(sid)
+	if st.interjectSeen == nil {
+		st.interjectSeen = map[string]bool{}
 	}
-	m[msgID] = true
+	st.interjectSeen[msgID] = true
 }
 
 // interjectSeenIDs is the set of interjection MessageIDs detected this turn — the events
@@ -870,7 +917,11 @@ func (a *App) markInterjectSeen(sid session.SessionID, msgID string) {
 func (a *App) interjectSeenIDs(sid session.SessionID) map[string]bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	m := a.interjectSeen[sid]
+	st, ok := a.stateIf(sid)
+	if !ok {
+		return nil
+	}
+	m := st.interjectSeen
 	if len(m) == 0 {
 		return nil
 	}
@@ -895,12 +946,13 @@ func (a *App) taskEvents(sid session.SessionID, evs []event.Event) []event.Event
 // runs again so nothing is stranded.
 func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 	a.mu.Lock()
-	if a.closed || a.cancels[sid] != nil {
+	st := a.stateLocked(sid)
+	if a.closed || st.cancel != nil {
 		a.mu.Unlock()
 		return // shutting down, or already running (the loop picks up steered input on re-read)
 	}
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	a.cancels[sid] = cancel
+	st.cancel = cancel
 	a.wg.Add(1)
 	a.mu.Unlock()
 
@@ -942,16 +994,16 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 				rerun := false
 				for runCtx.Err() == nil {
 					a.mu.Lock()
-					q := a.pendingInterject[sid]
+					q := a.stateLocked(sid).pendingInterject
 					if len(q) == 0 {
 						a.mu.Unlock()
 						break
 					}
 					item := q[0]
 					if len(q) == 1 {
-						delete(a.pendingInterject, sid)
+						a.stateLocked(sid).pendingInterject = nil
 					} else {
-						a.pendingInterject[sid] = q[1:]
+						a.stateLocked(sid).pendingInterject = q[1:]
 					}
 					a.mu.Unlock()
 					text := strings.TrimSpace(item.Text)
@@ -994,7 +1046,7 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 			}
 			// Only re-run while the ctx is live; on a cancel we still recover the input below
 			// (persist-only) but must not re-run on a dead ctx (no-retry-storm).
-			if alive && runCtx.Err() == nil && (len(newSteers) > 0 || len(a.pendingInterject[sid]) > 0) {
+			if alive && runCtx.Err() == nil && (len(newSteers) > 0 || len(a.stateLocked(sid).pendingInterject) > 0) {
 				a.mu.Unlock()
 				// Re-surface every prompt past the baseline as its own turn (fresh contract) so the
 				// re-run seeds onto it even when a triage reply buried it in the transcript.
@@ -1008,9 +1060,9 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 				}
 				continue
 			}
-			delete(a.cancels, sid)
-			queued := a.pendingInterject[sid]
-			delete(a.pendingInterject, sid)
+			a.stateLocked(sid).cancel = nil
+			queued := a.stateLocked(sid).pendingInterject
+			a.stateLocked(sid).pendingInterject = nil
 			a.mu.Unlock()
 			// Terminal error/cancel path: persist any still-queued interjection AND any steer that
 			// arrived (possibly buried by a triage reply) during a now-cancelled drain, so both
@@ -1067,8 +1119,10 @@ func (a *App) hasUnansweredUserPrompt(ctx context.Context, sid session.SessionID
 func (a *App) Close(ctx context.Context) error {
 	a.mu.Lock()
 	a.closed = true // stop new run/dispatch goroutines so wg.Add can't follow wg.Wait
-	for _, cancel := range a.cancels {
-		cancel()
+	for _, st := range a.states {
+		if st.cancel != nil {
+			st.cancel()
+		}
 	}
 	a.mu.Unlock()
 	done := make(chan struct{})
@@ -1087,7 +1141,10 @@ func (a *App) Close(ctx context.Context) error {
 // Interrupt cancels the in-flight turn for a session.
 func (a *App) Interrupt(ctx context.Context, c command.Interrupt) error {
 	a.mu.Lock()
-	cancel := a.cancels[c.SessionID]
+	var cancel context.CancelFunc
+	if st, ok := a.stateIf(c.SessionID); ok {
+		cancel = st.cancel
+	}
 	a.mu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -1098,7 +1155,10 @@ func (a *App) Interrupt(ctx context.Context, c command.Interrupt) error {
 // RespondQuestion delivers the user's pick to a waiting ask_user execution.
 func (a *App) RespondQuestion(ctx context.Context, c command.RespondQuestion) error {
 	a.mu.Lock()
-	ch := a.questions[c.SessionID][c.CallID]
+	var ch chan string
+	if st, ok := a.stateIf(c.SessionID); ok {
+		ch = st.questions[c.CallID]
+	}
 	a.mu.Unlock()
 	if ch == nil {
 		return fmt.Errorf("no pending question for call %s", c.CallID)
@@ -1113,7 +1173,10 @@ func (a *App) RespondQuestion(ctx context.Context, c command.RespondQuestion) er
 // RespondPermission delivers a decision to a waiting tool execution.
 func (a *App) RespondPermission(ctx context.Context, c command.RespondPermission) error {
 	a.mu.Lock()
-	ch := a.perms[c.SessionID][c.CallID]
+	var ch chan string
+	if st, ok := a.stateIf(c.SessionID); ok {
+		ch = st.perms[c.CallID]
+	}
 	a.mu.Unlock()
 	if ch == nil {
 		return fmt.Errorf("no pending permission for call %s", c.CallID)
@@ -1270,7 +1333,7 @@ const (
 // tagged with it (Loop map / rewind grouping).
 func (a *App) setStage(sid session.SessionID, stage string) {
 	a.mu.Lock()
-	a.stage[sid] = stage
+	a.stateLocked(sid).stage = stage
 	a.mu.Unlock()
 }
 
@@ -1278,8 +1341,8 @@ func (a *App) setStage(sid session.SessionID, stage string) {
 func (a *App) currentStage(sid session.SessionID) string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if s := a.stage[sid]; s != "" {
-		return s
+	if st, ok := a.stateIf(sid); ok && st.stage != "" {
+		return st.stage
 	}
 	return stageExecute
 }
@@ -1299,7 +1362,7 @@ func (a *App) idleFor(sid session.SessionID) time.Duration {
 
 func (a *App) sessionInfo(ctx context.Context, sid session.SessionID) session.Session {
 	a.mu.Lock()
-	s, ok := a.sessions[sid]
+	s, ok := a.metaLocked(sid)
 	a.mu.Unlock()
 	if ok {
 		return s
@@ -1312,7 +1375,7 @@ func (a *App) sessionInfo(ctx context.Context, sid session.SessionID) session.Se
 			_ = json.Unmarshal(e.Data, &d)
 			s = session.Session{ID: sid, Workdir: d.Workdir, Agent: d.Agent, Model: d.Model}
 			a.mu.Lock()
-			a.sessions[sid] = s
+			a.stateLocked(sid).meta = s
 			a.mu.Unlock()
 			break
 		}

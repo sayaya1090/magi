@@ -247,7 +247,7 @@ func TestExecuteStepsMarksExecutedTodos(t *testing.T) {
 	})
 	s := parentSession(t.TempDir())
 	a.mu.Lock()
-	a.sessions[s.ID] = s
+	a.stateLocked(s.ID).meta = s
 	a.mu.Unlock()
 
 	steps := []planStep{
@@ -364,7 +364,7 @@ func TestExecuteStepsDelegate(t *testing.T) {
 	})
 	s := parentSession(t.TempDir())
 	a.mu.Lock()
-	a.sessions[s.ID] = s
+	a.stateLocked(s.ID).meta = s
 	a.mu.Unlock()
 
 	steps := []planStep{
@@ -391,7 +391,7 @@ func TestExecuteStepsDelegate(t *testing.T) {
 		t.Fatalf("delegate step 1 should have exactly one child session, got %v", kids)
 	}
 	a.mu.Lock()
-	child := a.sessions[kids[0]]
+	child := a.stateLocked(kids[0]).meta
 	a.mu.Unlock()
 	if child.ParentStep == nil || *child.ParentStep != 1 {
 		t.Errorf("child ParentStep should be 1, got %v", child.ParentStep)
@@ -410,7 +410,7 @@ func TestExecuteStepsDelegateInvalidAgentDegrades(t *testing.T) {
 	})
 	s := parentSession(t.TempDir())
 	a.mu.Lock()
-	a.sessions[s.ID] = s
+	a.stateLocked(s.ID).meta = s
 	a.mu.Unlock()
 
 	steps := []planStep{{Title: "build X", Strategy: "delegate", Agent: "explore", Task: "write cmd/x"}}
@@ -435,7 +435,7 @@ func TestExecuteStepsDelegateFailureStaysPending(t *testing.T) {
 	})
 	s := parentSession(t.TempDir())
 	a.mu.Lock()
-	a.sessions[s.ID] = s
+	a.stateLocked(s.ID).meta = s
 	a.mu.Unlock()
 
 	steps := []planStep{{Title: "build X", Strategy: "delegate", Agent: "coder", Task: "write cmd/x"}}
@@ -467,7 +467,7 @@ func TestExecuteStepsDelegateFailureRecursion(t *testing.T) {
 		})
 		s := parentSession(t.TempDir())
 		a.mu.Lock()
-		a.sessions[s.ID] = s
+		a.stateLocked(s.ID).meta = s
 		a.mu.Unlock()
 		a.registerPlanTodos(context.Background(), s.ID, []planStep{{Title: "build X", Strategy: "delegate", Agent: "coder", Task: "write cmd/x"}})
 		return a, s
@@ -595,7 +595,7 @@ func TestExecuteStepsRefineSuccess(t *testing.T) {
 	})
 	s := parentSession(t.TempDir())
 	a.mu.Lock()
-	a.sessions[s.ID] = s
+	a.stateLocked(s.ID).meta = s
 	a.mu.Unlock()
 
 	steps := []planStep{
@@ -627,7 +627,7 @@ func TestExecuteStepsRefineSuccessSeedsSiblingContext(t *testing.T) {
 	})
 	s := parentSession(t.TempDir())
 	a.mu.Lock()
-	a.sessions[s.ID] = s
+	a.stateLocked(s.ID).meta = s
 	a.mu.Unlock()
 	// Persist the parent so the seed note lands in its log (the store routes appends by the
 	// session.created event) — as in live runtime; mirrors the escalate test.
@@ -671,7 +671,7 @@ func TestExecuteStepsRefineSharedSession(t *testing.T) {
 	})
 	s := parentSession(t.TempDir())
 	a.mu.Lock()
-	a.sessions[s.ID] = s
+	a.stateLocked(s.ID).meta = s
 	a.mu.Unlock()
 
 	steps := []planStep{
@@ -685,8 +685,8 @@ func TestExecuteStepsRefineSharedSession(t *testing.T) {
 
 	var kids []session.SessionID
 	a.mu.Lock()
-	for id, sess := range a.sessions {
-		if sess.Parent == s.ID {
+	for id, st := range a.states {
+		if st.meta.Parent == s.ID {
 			kids = append(kids, id)
 		}
 	}
@@ -723,7 +723,7 @@ func TestExecuteStepsRefineSharedDisabled(t *testing.T) {
 	})
 	s := parentSession(t.TempDir())
 	a.mu.Lock()
-	a.sessions[s.ID] = s
+	a.stateLocked(s.ID).meta = s
 	a.mu.Unlock()
 
 	steps := []planStep{
@@ -737,8 +737,8 @@ func TestExecuteStepsRefineSharedDisabled(t *testing.T) {
 
 	kids := 0
 	a.mu.Lock()
-	for _, sess := range a.sessions {
-		if sess.Parent == s.ID {
+	for _, st := range a.states {
+		if st.meta.Parent == s.ID {
 			kids++
 		}
 	}
@@ -760,7 +760,7 @@ func TestExecuteStepsRefineFailureEscalates(t *testing.T) {
 	})
 	s := parentSession(t.TempDir())
 	a.mu.Lock()
-	a.sessions[s.ID] = s
+	a.stateLocked(s.ID).meta = s
 	a.mu.Unlock()
 	// Persist the parent session so recordRefineFailure's note actually lands in its log
 	// (the store routes appends by the session.created event) — as in live runtime.
@@ -891,7 +891,7 @@ func TestExecuteStepsRefineNoRetryWhenAdaptDisabled(t *testing.T) {
 	})
 	s := parentSession(t.TempDir())
 	a.mu.Lock()
-	a.sessions[s.ID] = s
+	a.stateLocked(s.ID).meta = s
 	a.mu.Unlock()
 	cd, _ := json.Marshal(event.SessionCreatedData{Workdir: s.Workdir, Agent: s.Agent, Model: s.Model})
 	if err := a.appendFact(context.Background(), s.ID, event.TypeSessionCreated, event.Actor{Kind: event.ActorUser}, cd); err != nil {
@@ -928,7 +928,7 @@ func TestExecuteStepsRefineEarlyBacktrack(t *testing.T) {
 	})
 	s := parentSession(t.TempDir())
 	a.mu.Lock()
-	a.sessions[s.ID] = s
+	a.stateLocked(s.ID).meta = s
 	a.mu.Unlock()
 
 	steps := []planStep{{Title: "build a small language", Strategy: "refine", Agent: "coder", Task: "lexer→parser→eval→REPL"}}
@@ -961,7 +961,7 @@ func TestExecuteStepsRefineInvalidAgentDegrades(t *testing.T) {
 	})
 	s := parentSession(t.TempDir())
 	a.mu.Lock()
-	a.sessions[s.ID] = s
+	a.stateLocked(s.ID).meta = s
 	a.mu.Unlock()
 
 	steps := []planStep{{Title: "build a language", Strategy: "refine", Agent: "explore", Task: "lexer→parser→eval"}}
@@ -988,7 +988,7 @@ func TestExecuteStepsRefineNoAgentUsesFallback(t *testing.T) {
 	})
 	s := parentSession(t.TempDir())
 	a.mu.Lock()
-	a.sessions[s.ID] = s
+	a.stateLocked(s.ID).meta = s
 	a.mu.Unlock()
 
 	// refine with NO agent named — the common case.
@@ -1020,7 +1020,7 @@ func TestExecuteStepsDelegateBriefsSiblingContext(t *testing.T) {
 	})
 	s := parentSession(t.TempDir())
 	a.mu.Lock()
-	a.sessions[s.ID] = s
+	a.stateLocked(s.ID).meta = s
 	a.mu.Unlock()
 
 	goal := "Build a key-value web service with a storage layer and an HTTP API"
@@ -1102,7 +1102,7 @@ func TestExecuteStepsDelegateBriefDisabled(t *testing.T) {
 	})
 	s := parentSession(t.TempDir())
 	a.mu.Lock()
-	a.sessions[s.ID] = s
+	a.stateLocked(s.ID).meta = s
 	a.mu.Unlock()
 
 	steps := []planStep{
@@ -1133,7 +1133,7 @@ func TestRedecomposeStuck(t *testing.T) {
 		})
 		sid := startSession(t, a, t.TempDir()) // seeds session.created so injectSubagentResult can append
 		a.mu.Lock()
-		s := a.sessions[sid]
+		s := a.stateLocked(sid).meta
 		a.mu.Unlock()
 		return a, s, agents["coder"]
 	}
@@ -1774,7 +1774,7 @@ func TestSpecFidelityDelegateAnchor(t *testing.T) {
 	})
 	s := parentSession(t.TempDir())
 	a.mu.Lock()
-	a.sessions[s.ID] = s
+	a.stateLocked(s.ID).meta = s
 	a.mu.Unlock()
 
 	// A goal long enough that its tail marker sits past the old 400-char clip but within 2000.
@@ -1834,7 +1834,7 @@ func TestSpecFidelityDisabled(t *testing.T) {
 	})
 	s := parentSession(t.TempDir())
 	d.mu.Lock()
-	d.sessions[s.ID] = s
+	d.stateLocked(s.ID).meta = s
 	d.mu.Unlock()
 	steps := []planStep{
 		{Title: "storage", Strategy: "delegate", Agent: "coder", Task: "implement storage"},

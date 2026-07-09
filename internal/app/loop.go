@@ -870,7 +870,7 @@ func (a *App) checkAutoOrchestration(ctx context.Context, sid session.SessionID,
 		return false // explicitly disabled
 	}
 	a.mu.Lock()
-	if a.autoOrchestrateActive[sid] {
+	if st, ok := a.stateIf(sid); ok && st.autoOrchestrate {
 		a.mu.Unlock()
 		return false // already triggered
 	}
@@ -885,7 +885,7 @@ func (a *App) checkAutoOrchestration(ctx context.Context, sid session.SessionID,
 
 	if ratio > a.cfg.AutoOrchestrate {
 		a.mu.Lock()
-		a.autoOrchestrateActive[sid] = true
+		a.stateLocked(sid).autoOrchestrate = true
 		a.mu.Unlock()
 
 		a.injectOrchestrationDirective(ctx, sid, ratio)

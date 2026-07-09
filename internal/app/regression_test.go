@@ -14,8 +14,8 @@ import (
 // TestVolatileContextHoldsPlan: the per-step plan goes into volatileContext (the ephemeral
 // trailing message), NOT the system prompt — so the system prompt stays cache-stable.
 func TestVolatileContextHoldsPlan(t *testing.T) {
-	a := &App{todos: map[session.SessionID][]session.Todo{
-		"s1": {{Content: "implement X", Status: "in_progress"}},
+	a := &App{states: map[session.SessionID]*sessionState{
+		"s1": {todos: []session.Todo{{Content: "implement X", Status: "in_progress"}}},
 	}}
 	s := session.Session{ID: "s1"}
 	out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 0, 0, 0)
@@ -28,7 +28,7 @@ func TestVolatileContextHoldsPlan(t *testing.T) {
 // carries the current step / ceiling and frames the ceiling as a limit, not a quota — so
 // the model paces itself without padding to the max.
 func TestVolatileContextStepBudget(t *testing.T) {
-	a := &App{todos: map[session.SessionID][]session.Todo{}}
+	a := &App{}
 	s := session.Session{ID: "s1"}
 	out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 6, 40, 0)
 	if !strings.Contains(out, "# Step budget") || !strings.Contains(out, "step 7 of at most 40") {
@@ -51,7 +51,7 @@ func TestVolatileContextStepBudget(t *testing.T) {
 // TestVolatileContextElapsed: the self-measured wall clock appears only once it crosses a
 // minute (sub-minute is noise), and it is stated as our own stopwatch — no external info.
 func TestVolatileContextElapsed(t *testing.T) {
-	a := &App{todos: map[session.SessionID][]session.Todo{}}
+	a := &App{}
 	s := session.Session{ID: "s1"}
 	// Under a minute: nothing.
 	if out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 6, 40, 30*time.Second); strings.Contains(out, "wall-clock") {
@@ -68,11 +68,11 @@ func TestVolatileContextElapsed(t *testing.T) {
 // stated as user guidance, and once elapsed passes it the line flips to EXCEEDED.
 func TestVolatileContextTimeBudget(t *testing.T) {
 	s := session.Session{ID: "s1"}
-	off := &App{todos: map[session.SessionID][]session.Todo{}}
+	off := &App{}
 	if out := off.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 6, 40, 5*time.Minute); strings.Contains(out, "asked for this to finish") {
 		t.Fatalf("time budget off by default should emit no budget line, got %q", out)
 	}
-	on := &App{todos: map[session.SessionID][]session.Todo{}, cfg: Config{TimeBudget: 30 * time.Minute}}
+	on := &App{cfg: Config{TimeBudget: 30 * time.Minute}}
 	if out := on.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 6, 40, 10*time.Minute); !strings.Contains(out, "within 30m") || !strings.Contains(out, "remaining") {
 		t.Fatalf("time budget should state remaining, got %q", out)
 	}
@@ -84,7 +84,7 @@ func TestVolatileContextTimeBudget(t *testing.T) {
 // TestVolatileContextEmpty: no todos / experience / RAG → empty (nothing to inject, so no
 // trailing message is added and the prefix is maximally cacheable).
 func TestVolatileContextEmpty(t *testing.T) {
-	a := &App{todos: map[session.SessionID][]session.Todo{}}
+	a := &App{}
 	s := session.Session{ID: "s1"}
 	if out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 0, 0, 0); out != "" {
 		t.Fatalf("expected empty volatile context, got %q", out)
@@ -573,7 +573,7 @@ func TestNoteEditPerFile(t *testing.T) {
 // The planner's step estimate rides the budget block as pacing advice — and only
 // as advice: no estimate, no extra sentence; the hard ceiling wording is unchanged.
 func TestVolatileContextStepEstimate(t *testing.T) {
-	a := &App{todos: map[session.SessionID][]session.Todo{}, estSteps: map[session.SessionID]int{}}
+	a := &App{}
 	s := session.Session{ID: "s1"}
 	if out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, 0, 240, 0); strings.Contains(out, "estimated at roughly") {
 		t.Fatalf("no estimate should add no advisory line, got %q", out)

@@ -24,7 +24,7 @@ func TestEscalateRoundTrip(t *testing.T) {
 	// Wait for the ask to register, then deliver the orchestrator's reply.
 	for i := 0; i < 200; i++ {
 		a.mu.Lock()
-		pending := a.pendingAsks[parent] != nil
+		pending := a.stateLocked(parent).pendingAsk != nil
 		a.mu.Unlock()
 		if pending {
 			break
@@ -55,7 +55,7 @@ func TestEscalateRejectsConcurrent(t *testing.T) {
 	go a.escalate(context.Background(), parent, "coder", "first?")
 	for i := 0; i < 200; i++ {
 		a.mu.Lock()
-		pending := a.pendingAsks[parent] != nil
+		pending := a.stateLocked(parent).pendingAsk != nil
 		a.mu.Unlock()
 		if pending {
 			break

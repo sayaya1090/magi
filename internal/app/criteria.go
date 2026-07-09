@@ -28,7 +28,7 @@ func (a *App) storePlanCriteria(ctx context.Context, s session.Session, crit []s
 	}
 	text := "- " + strings.Join(crit, "\n- ")
 	a.mu.Lock()
-	a.criteria[s.ID] = text
+	a.stateLocked(s.ID).criteria = text
 	a.mu.Unlock()
 	content, _ := json.Marshal(text)
 	a.emitArtifact(ctx, s.ID, event.Actor{Kind: event.ActorSystem, ID: "council"}, artifact.Artifact{
@@ -45,7 +45,7 @@ func (a *App) storeStepEstimate(sid session.SessionID, est int) {
 		return
 	}
 	a.mu.Lock()
-	a.estSteps[sid] = est
+	a.stateLocked(sid).estSteps = est
 	a.mu.Unlock()
 }
 
@@ -53,7 +53,10 @@ func (a *App) storeStepEstimate(sid session.SessionID, est int) {
 func (a *App) stepEstimate(sid session.SessionID) int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.estSteps[sid]
+	if st, ok := a.stateIf(sid); ok {
+		return st.estSteps
+	}
+	return 0
 }
 
 // cachedCriteria returns this turn's already-known acceptance criteria (e.g. set by
@@ -61,7 +64,11 @@ func (a *App) stepEstimate(sid session.SessionID) int {
 func (a *App) cachedCriteria(sid session.SessionID) string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if c := a.criteria[sid]; c != noCriteria {
+	st, ok := a.stateIf(sid)
+	if !ok {
+		return ""
+	}
+	if c := st.criteria; c != noCriteria {
 		return c
 	}
 	return ""
@@ -72,7 +79,7 @@ func (a *App) cachedCriteria(sid session.SessionID) string {
 // reviewable artifact so the contract the council judges against is observable.
 func (a *App) acceptanceCriteria(ctx context.Context, agent AgentSpec, s session.Session, task string) string {
 	a.mu.Lock()
-	c := a.criteria[s.ID]
+	c := a.stateLocked(s.ID).criteria
 	a.mu.Unlock()
 	if c == noCriteria { // elicitation already ran this turn and produced nothing
 		return ""
@@ -88,12 +95,12 @@ func (a *App) acceptanceCriteria(ctx context.Context, agent AgentSpec, s session
 		// Cache the miss so a persistently failing elicitation isn't retried every
 		// round (strictly once per turn).
 		a.mu.Lock()
-		a.criteria[s.ID] = noCriteria
+		a.stateLocked(s.ID).criteria = noCriteria
 		a.mu.Unlock()
 		return ""
 	}
 	a.mu.Lock()
-	a.criteria[s.ID] = c
+	a.stateLocked(s.ID).criteria = c
 	a.mu.Unlock()
 	content, _ := json.Marshal(c)
 	a.emitArtifact(ctx, s.ID, event.Actor{Kind: event.ActorSystem, ID: "council"}, artifact.Artifact{

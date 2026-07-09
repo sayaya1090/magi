@@ -12,7 +12,7 @@ import (
 // plan on a new prompt. Observable mutations go through putTodos.
 func (a *App) SetTodos(sid session.SessionID, td []session.Todo) {
 	a.mu.Lock()
-	a.todos[sid] = td
+	a.stateLocked(sid).todos = td
 	a.mu.Unlock()
 }
 
@@ -21,11 +21,11 @@ func (a *App) SetTodos(sid session.SessionID, td []session.Todo) {
 // the panel. appendFact MUST be called outside a.mu (it re-locks via currentStage).
 func (a *App) putTodos(ctx context.Context, sid session.SessionID, actor event.Actor, td []session.Todo) {
 	a.mu.Lock()
-	if todosEqual(a.todos[sid], td) {
+	if todosEqual(a.stateLocked(sid).todos, td) {
 		a.mu.Unlock()
 		return
 	}
-	a.todos[sid] = td
+	a.stateLocked(sid).todos = td
 	a.mu.Unlock()
 	d, _ := json.Marshal(event.TodosChangedData{Todos: td})
 	_ = a.appendFact(ctx, sid, event.TypeTodosChanged, actor, d)
@@ -40,7 +40,7 @@ func (a *App) putTodos(ctx context.Context, sid session.SessionID, actor event.A
 // emitted outside the lock, only if something changed.
 func (a *App) completeThrough(ctx context.Context, sid session.SessionID, actor event.Actor, i int) {
 	a.mu.Lock()
-	td := a.todos[sid]
+	td := a.stateLocked(sid).todos
 	if i < 0 || i >= len(td) {
 		a.mu.Unlock()
 		return
@@ -57,7 +57,7 @@ func (a *App) completeThrough(ctx context.Context, sid session.SessionID, actor 
 		a.mu.Unlock()
 		return
 	}
-	a.todos[sid] = cp
+	a.stateLocked(sid).todos = cp
 	a.mu.Unlock()
 	d, _ := json.Marshal(event.TodosChangedData{Todos: cp})
 	_ = a.appendFact(ctx, sid, event.TypeTodosChanged, actor, d)
@@ -70,14 +70,14 @@ func (a *App) completeThrough(ctx context.Context, sid session.SessionID, actor 
 // outside it, only on a real change.
 func (a *App) setTodoStatusIf(ctx context.Context, sid session.SessionID, actor event.Actor, i int, from, to string) {
 	a.mu.Lock()
-	td := a.todos[sid]
+	td := a.stateLocked(sid).todos
 	if i < 0 || i >= len(td) || td[i].Status != from {
 		a.mu.Unlock()
 		return
 	}
 	cp := append([]session.Todo(nil), td...)
 	cp[i].Status = to
-	a.todos[sid] = cp
+	a.stateLocked(sid).todos = cp
 	a.mu.Unlock()
 	d, _ := json.Marshal(event.TodosChangedData{Todos: cp})
 	_ = a.appendFact(ctx, sid, event.TypeTodosChanged, actor, d)
@@ -96,7 +96,7 @@ func (a *App) markTodoActive(ctx context.Context, sid session.SessionID, actor e
 // before a fan-out has no signal of its own). One fact, only if something changed.
 func (a *App) advanceTo(ctx context.Context, sid session.SessionID, actor event.Actor, i int) {
 	a.mu.Lock()
-	td := a.todos[sid]
+	td := a.stateLocked(sid).todos
 	if i < 0 || i >= len(td) {
 		a.mu.Unlock()
 		return
@@ -117,7 +117,7 @@ func (a *App) advanceTo(ctx context.Context, sid session.SessionID, actor event.
 		a.mu.Unlock()
 		return
 	}
-	a.todos[sid] = cp
+	a.stateLocked(sid).todos = cp
 	a.mu.Unlock()
 	d, _ := json.Marshal(event.TodosChangedData{Todos: cp})
 	_ = a.appendFact(ctx, sid, event.TypeTodosChanged, actor, d)
@@ -135,7 +135,7 @@ func (a *App) advanceTo(ctx context.Context, sid session.SessionID, actor event.
 func (a *App) markFirstPendingActive(ctx context.Context, sid session.SessionID, actor event.Actor) {
 	a.mu.Lock()
 	idx := -1
-	for i, t := range a.todos[sid] {
+	for i, t := range a.stateLocked(sid).todos {
 		if t.Status == "pending" {
 			idx = i
 			break
@@ -158,7 +158,7 @@ func (a *App) finalizeTodos(ctx context.Context, sid session.SessionID, finished
 		target = "completed"
 	}
 	a.mu.Lock()
-	td := a.todos[sid]
+	td := a.stateLocked(sid).todos
 	if len(td) == 0 {
 		a.mu.Unlock()
 		return
@@ -175,7 +175,7 @@ func (a *App) finalizeTodos(ctx context.Context, sid session.SessionID, finished
 		a.mu.Unlock()
 		return
 	}
-	a.todos[sid] = cp
+	a.stateLocked(sid).todos = cp
 	a.mu.Unlock()
 	d, _ := json.Marshal(event.TodosChangedData{Todos: cp})
 	_ = a.appendFact(ctx, sid, event.TypeTodosChanged, event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)

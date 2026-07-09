@@ -114,7 +114,7 @@ func TestRoutePersisted(t *testing.T) {
 	p := &recordPersister{}
 	a := &App{
 		routeOverrides: map[string]routeOverride{},
-		sessions:       map[session.SessionID]session.Session{"s1": {ID: "s1"}},
+		states:         map[session.SessionID]*sessionState{"s1": {meta: session.Session{ID: "s1"}}},
 		cfg: Config{
 			Agents:         map[string]AgentSpec{"coder": {Name: "coder"}},
 			RoutePersister: p,
