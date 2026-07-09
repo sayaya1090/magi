@@ -18,6 +18,14 @@ import (
 // actually rely on makes the flag match how our real output is rendered.
 const probeGlyph = "│"
 
+// emojiProbeGlyph is the representative emoji the startup probe measures to decide
+// whether this terminal draws emoji narrow (1 cell) or wide (2). 🚀 (U+1F680) is a
+// plain single-rune emoji ansi.StringWidth counts as 2; measuring the real column
+// it lands on tells us which way the terminal actually renders it. One probe stands
+// in for the whole emoji class (see isUnstableWide) — per-glyph precision for ZWJ /
+// flag sequences is a non-goal.
+const emojiProbeGlyph = "🚀"
+
 // detectAmbiguousWidth decides, once at startup, whether the terminal draws
 // East-Asian ambiguous-width runes as two cells and records it via
 // setAmbiguousWide. Resolution order:
@@ -84,5 +92,33 @@ func detectDecorWidths() {
 	}
 	if m, ok := probeDecorWidths(os.Stdout, os.Stdin); ok {
 		setDecorWide(m)
+	}
+}
+
+// detectEmojiWidth decides, once at startup, whether the terminal draws emoji one
+// cell wide (see emojiNarrow in width.go) and records it via setEmojiNarrow.
+// Resolution mirrors detectAmbiguousWidth:
+//
+//	MAGI_EMOJI_WIDTH=narrow|wide   explicit override, always wins
+//	MAGI_WIDTH_PROBE=0             disables the live probe
+//	live probe on the tty          measures emojiProbeGlyph's real width
+//	(else)                         default wide (unchanged behavior)
+//
+// Best-effort: any uncertainty leaves the default (wide, no correction). Call after
+// detectDecorWidths so all three share the one-shot startup raw-mode window.
+func detectEmojiWidth() {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_EMOJI_WIDTH"))) {
+	case "narrow", "1", "single":
+		setEmojiNarrow(true)
+		return
+	case "wide", "2", "double":
+		setEmojiNarrow(false)
+		return
+	}
+	if os.Getenv("MAGI_WIDTH_PROBE") == "0" {
+		return
+	}
+	if w, ok := probeEmojiWidth(os.Stdout, os.Stdin); ok {
+		setEmojiNarrow(w < 2)
 	}
 }

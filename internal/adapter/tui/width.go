@@ -5,6 +5,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
+	"github.com/rivo/uniseg"
 )
 
 // ambiguousWide reports whether the host terminal draws East-Asian *ambiguous*
@@ -41,6 +42,34 @@ var decorGlyphs = []rune{'‹', '›', '✦', '✻', '⚖', '⇅'}
 // setDecorWide records the per-glyph probe/override result.
 func setDecorWide(m map[rune]bool) { decorWide = m }
 
+// emojiNarrow reports whether THIS terminal draws emoji one cell wide instead of
+// the two cells ansi.StringWidth/lipgloss assume. Many terminals (and fonts) draw
+// 🚀 and friends in a single cell; when they do, every emoji on a line leaves the
+// measured width one cell too long, so a fixed right column (the status-panel
+// border) is pushed out of alignment on exactly the rows that carry one. Decided
+// once at startup by detectEmojiWidth (env override or a live CPR probe) and read
+// only through cellWidth. Default false = wide, byte-identical to prior behavior.
+var emojiNarrow bool
+
+// graphemeWidthCache memoizes, per grapheme CLUSTER, the cellWidth *correction* an
+// emoji-narrow terminal needs: -1 for an unstable-wide emoji (ansi says 2, the
+// terminal draws 1) or 0 otherwise. It is the "문자마다 계산된 실측폭을 메모리에 캐시"
+// store — each glyph is classified once, then reused. Keyed by the FULL cluster
+// string, not its first rune: a keycap like "1️⃣" (base '1' + VS16 + U+20E3) and the
+// bare "1" share a first rune but have different widths, so a base-rune key would
+// let one poison the other. Populated lazily by emojiExtra during rendering (no
+// probe: pure computation), reset by setEmojiNarrow so a re-decided flag can't leave
+// stale entries. Single-goroutine render path — no locking.
+var graphemeWidthCache = map[string]int{}
+
+// setEmojiNarrow records the probe/override result and clears the per-grapheme cache
+// (its classifications were computed under the previous flag). Called once before
+// the program starts; not safe for concurrent use with rendering (it isn't).
+func setEmojiNarrow(w bool) {
+	emojiNarrow = w
+	graphemeWidthCache = map[string]int{}
+}
+
 // narrowCond and wideCond exist only to classify a rune as ambiguous: a rune is
 // ambiguous exactly when it measures 1 narrow but 2 wide. StrictEmojiNeutral
 // keeps emoji classification stable so we don't accidentally treat emoji as
@@ -55,11 +84,13 @@ var (
 // narrow (the default) the two are identical, so swapping call sites is a no-op.
 // When the terminal is known to draw them wide, cellWidth adds one cell per
 // ambiguous rune — the correction that keeps the scrollbar and other fixed
-// columns aligned. Emoji/grapheme handling is left to ansi.StringWidth so wrap
-// widths stay consistent with lipgloss.
+// columns aligned. When the terminal draws emoji narrow (emojiNarrow), it also
+// subtracts one cell per unstable-wide emoji grapheme (see emojiExtra), keyed off
+// a per-cluster cache; otherwise emoji/grapheme handling is left to ansi.StringWidth
+// so wrap widths stay consistent with lipgloss.
 func cellWidth(s string) int {
 	w := ansi.StringWidth(s)
-	if !ambiguousWide && decorWide == nil {
+	if !ambiguousWide && decorWide == nil && !emojiNarrow {
 		return w
 	}
 	plain := ansi.Strip(s)
@@ -69,7 +100,68 @@ func cellWidth(s string) int {
 	if decorWide != nil {
 		w += decorExtra(plain)
 	}
+	if emojiNarrow {
+		w += emojiExtra(plain)
+	}
 	return w
+}
+
+// emojiExtra returns the (negative) cell correction for an already-ANSI-stripped
+// string on an emoji-narrow terminal: -1 per grapheme cluster that ansi.StringWidth
+// counts as two cells but the terminal actually draws in one (isUnstableWide). It
+// walks grapheme clusters (rivo/uniseg) so a multi-rune emoji is one unit, and
+// memoizes each classification by the full cluster string in graphemeWidthCache.
+func emojiExtra(plain string) int {
+	n := 0
+	g := uniseg.NewGraphemes(plain)
+	for g.Next() {
+		cluster := g.Str()
+		if cluster == "" {
+			continue
+		}
+		if d, ok := graphemeWidthCache[cluster]; ok {
+			n += d
+			continue
+		}
+		d := 0
+		if isUnstableWide(cluster) {
+			d = -1
+		}
+		graphemeWidthCache[cluster] = d
+		n += d
+	}
+	return n
+}
+
+// isUnstableWide reports whether a grapheme cluster is an emoji whose on-screen
+// width is terminal-dependent — ansi.StringWidth measures it as two cells, but many
+// terminals/fonts draw it in one. It uses an ALLOWLIST of emoji signals rather than
+// a denylist of CJK blocks: only true emoji are shrunk, so every stable-wide script
+// (CJK ideographs, kana, Hangul incl. compatibility jamo, fullwidth forms, enclosed
+// CJK) is safe by construction — critical since over-shrinking Korean text is a
+// worse failure than leaving a rare emoji un-shrunk. The width==2 guard already
+// excludes ambiguous/decor glyphs (★ · → etc., which measure 1). Emoji signals: a
+// variation selector (VS16) or keycap combiner anywhere in the cluster, or a first
+// rune in the pictographic blocks.
+func isUnstableWide(cluster string) bool {
+	if ansi.StringWidth(cluster) != 2 {
+		return false
+	}
+	for _, r := range cluster {
+		switch {
+		case r == 0xFE0F: // VS16: emoji-presentation selector (e.g. ▶️, 1️⃣)
+			return true
+		case r == 0x20E3: // combining enclosing keycap (0️⃣–9️⃣, #️⃣, *️⃣)
+			return true
+		case r >= 0x1F000 && r <= 0x1FAFF: // emoji & pictographs (all blocks, incl. flags 1F1E6+)
+			return true
+		case r >= 0x2600 && r <= 0x27BF: // Misc Symbols + Dingbats (the width-2 ones, e.g. ✅)
+			return true
+		case r >= 0x2B00 && r <= 0x2BFF: // Misc Symbols and Arrows (⭐ ⬛ ⬆ …)
+			return true
+		}
+	}
+	return false
 }
 
 // decorExtra counts the extra cells consumed by decorative glyphs this terminal

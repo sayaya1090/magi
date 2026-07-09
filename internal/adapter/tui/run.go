@@ -21,6 +21,7 @@ func Run(ctx context.Context, a *app.App, cmds CommandSource, sid session.Sessio
 	// stays aligned on lines with special characters. Best-effort; see width.go.
 	detectAmbiguousWidth()
 	detectDecorWidths()
+	detectEmojiWidth()
 	m := New(ctx, a, cmds, sid, model, workdir, isDark, imageProto)
 	p := tea.NewProgram(m)
 	_, err := p.Run()

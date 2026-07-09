@@ -80,7 +80,10 @@ func (m *Model) floatPanel() (box string, top, left int, ok bool) {
 	}
 	top = headerRows + floatMarginTop
 	box = m.statusPanel(top + 1) // panelTop = first content row (just inside the top border)
-	left = m.width - lipgloss.Width(box) - floatMarginRight
+	// The box's outer width is exactly panelW-4 TERMINAL cells (roundedBox guarantees
+	// it); use that rather than lipgloss.Width(box), which counts emoji as two cells and
+	// would drag the whole box left on rows that carry one.
+	left = m.width - (m.panelW - 4) - floatMarginRight
 	if left < 24 {
 		return "", 0, 0, false // keep a usable transcript width
 	}
@@ -164,16 +167,36 @@ func (m *Model) statusPanel(panelTop int) string {
 	}
 
 	body := strings.Join(lines, "\n")
-	// Outline only, no fill: a border glyph isn't drawn at the cell's outer edge, so
-	// any background color spills past the line (cream protrudes) or leaves a ring.
-	// Keeping the interior transparent (terminal background) sidesteps that entirely —
-	// just a clean rounded outline.
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colOutlVar).
-		Width(content).
-		Padding(0, 1).
-		Render(body)
+	return roundedBox(body, content)
+}
+
+// roundedBox draws body inside a rounded outline whose OUTER width is exactly
+// `content` TERMINAL cells (per cellWidth), replacing lipgloss's Border().Width()
+// render. lipgloss measures each row with lipgloss.Width — which counts emoji as
+// two cells even when the terminal draws them in one — so an emoji in a todo left
+// its row short and pushed the right │ out of line. Here every body row is laid to
+// `content-4` cells with padOrTruncate (cellWidth-based, emoji-aware), then wrapped
+// in "│ … │", so all rows occupy the same cells and the right border stays plumb.
+// Outline only, interior transparent (no fill) — same rationale as before: a
+// background would spill past the border cells.
+func roundedBox(body string, content int) string {
+	if content < 2 {
+		return ""
+	}
+	bs := lipgloss.NewStyle().Foreground(colOutlVar)
+	inner := content - 4 // text area: minus 2 border + 2 padding columns
+	if inner < 0 {
+		inner = 0
+	}
+	bar := bs.Render(strings.Repeat("─", content-2))
+	var b strings.Builder
+	b.WriteString(bs.Render("╭") + bar + bs.Render("╮"))
+	for _, row := range strings.Split(body, "\n") {
+		b.WriteByte('\n')
+		b.WriteString(bs.Render("│") + " " + padOrTruncate(row, inner) + " " + bs.Render("│"))
+	}
+	b.WriteString("\n" + bs.Render("╰") + bar + bs.Render("╯"))
+	return b.String()
 }
 
 // handlePanelClick maps a click in the right panel's subagent list to that
@@ -184,7 +207,7 @@ func (m *Model) handlePanelClick(x, y int) bool {
 	if !ok {
 		return false // no post-it on screen — let the click reach the transcript
 	}
-	w, h := lipgloss.Width(box), lipgloss.Height(box)
+	w, h := m.panelW-4, lipgloss.Height(box) // outer width is exactly panelW-4 cells (see roundedBox)
 	if x < left || x >= left+w || y < top || y >= top+h {
 		return false // outside the floating box
 	}

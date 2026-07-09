@@ -52,6 +52,40 @@ func probeAmbiguousWidth(out, in *os.File) (int, bool) {
 	return col - 1, true
 }
 
+// probeEmojiWidth measures the real cell width of emojiProbeGlyph the same way as
+// probeAmbiguousWidth — emit at column 1, read the CPR column, restore+erase — in
+// its own bounded raw-mode/deadline window. Returns (width, true) only on a clean
+// round-trip; any uncertainty (non-tty, no CPR answer) yields ok=false so the
+// default (wide, no correction) stands.
+func probeEmojiWidth(out, in *os.File) (int, bool) {
+	if out == nil || in == nil {
+		return 0, false
+	}
+	if !term.IsTerminal(out.Fd()) || !term.IsTerminal(in.Fd()) {
+		return 0, false
+	}
+	if err := in.SetReadDeadline(time.Now().Add(150 * time.Millisecond)); err != nil {
+		return 0, false
+	}
+	defer in.SetReadDeadline(time.Time{})
+
+	state, err := term.MakeRaw(in.Fd())
+	if err != nil {
+		return 0, false
+	}
+	defer term.Restore(in.Fd(), state)
+
+	if _, err := io.WriteString(out, "\x1b7\r"+emojiProbeGlyph+"\x1b[6n"); err != nil {
+		return 0, false
+	}
+	col, ok := readCPRColumn(in)
+	_, _ = io.WriteString(out, "\x1b8\x1b[K") // restore + erase, whatever happened
+	if !ok || col < 1 {
+		return 0, false
+	}
+	return col - 1, true
+}
+
 // probeDecorWidths measures each decorative glyph (decorGlyphs) the same way as
 // probeAmbiguousWidth — emit at column 1, read the CPR column, erase — but in a
 // SINGLE raw-mode/deadline window so the whole batch is bounded (not N×150ms).
