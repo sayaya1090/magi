@@ -28,6 +28,7 @@ func installBridge(p *plugin) {
 	L.SetField(t, "register_mcp", L.NewFunction(p.bridgeRegisterMCP))
 	L.SetField(t, "register_context_provider", L.NewFunction(p.bridgeRegisterContextProvider))
 	L.SetField(t, "register_command", L.NewFunction(p.bridgeRegisterCommand))
+	L.SetField(t, "register_doctor_probes", L.NewFunction(p.bridgeRegisterDoctorProbes))
 	L.SetField(t, "set_llm_headers", L.NewFunction(p.bridgeSetLLMHeaders))
 	L.SetField(t, "on", L.NewFunction(p.bridgeOn))
 	L.SetField(t, "ask", L.NewFunction(p.bridgeAsk))
@@ -37,6 +38,7 @@ func installBridge(p *plugin) {
 	L.SetField(t, "workdir", L.NewFunction(p.bridgeWorkdir))
 	L.SetField(t, "model", L.NewFunction(p.bridgeModel))
 	L.SetField(t, "set_model", L.NewFunction(p.bridgeSetModel))
+	L.SetField(t, "set_user_label", L.NewFunction(p.bridgeSetUserLabel))
 	L.SetField(t, "clear_transcript", L.NewFunction(p.bridgeClearTranscript))
 	L.SetField(t, "reload_config", L.NewFunction(p.bridgeReloadConfig))
 	L.SetField(t, "platform", L.NewFunction(p.bridgePlatform))
@@ -362,6 +364,36 @@ func (p *plugin) bridgeRegisterCommand(L *lua.LState) int {
 	return 0
 }
 
+// magi.register_doctor_probes{name = function() return status, detail end, ...}
+// Registers one or more environment checks that `magi -doctor` runs and folds into
+// its report — e.g. an SSO plugin verifying its cached token. Each value is a
+// function returning (status, detail) where status is ok|warn|fail|info. Gated on
+// the "doctor" capability. Probes are collected at load time, so -doctor can gather
+// them without firing plugin startup handlers (no interactive auth during a check).
+func (p *plugin) bridgeRegisterDoctorProbes(L *lua.LState) int {
+	p.requireCap(L, "doctor")
+	spec := L.CheckTable(1)
+	n := 0
+	spec.ForEach(func(k, v lua.LValue) {
+		name, ok := k.(lua.LString)
+		if !ok || string(name) == "" {
+			return
+		}
+		fn, ok := v.(*lua.LFunction)
+		if !ok {
+			return
+		}
+		p.probes = append(p.probes, &luaDoctorProbe{plugin: p, name: string(name), fn: fn})
+		n++
+	})
+	if n == 0 {
+		L.RaiseError("register_doctor_probes: expected a table of {name = function}")
+		return 0
+	}
+	p.logf(fmt.Sprintf("Registered %d doctor probe(s)", n))
+	return 0
+}
+
 func (p *plugin) bridgeLog(L *lua.LState) int {
 	if p.logf != nil {
 		p.logf("[" + p.name + "] " + L.ToString(1))
@@ -405,6 +437,26 @@ func (p *plugin) bridgeSetModel(L *lua.LState) int {
 	}
 	p.host.setRuntimeModel(model) // keep magi.model() in sync
 	p.logf("[" + p.name + "] set session model: " + model)
+	L.Push(lua.LTrue)
+	return 1
+}
+
+// magi.set_user_label(name) -> true | (nil, err)
+// Sets the display name shown for the user in the transcript (replacing the default
+// "you") — e.g. an SSO plugin injecting the authenticated username. Gated on the
+// "ui" capability (a UI-touching primitive class), like register_command's
+// "command" cap. An empty name is rejected so a failed lookup can't blank the label.
+func (p *plugin) bridgeSetUserLabel(L *lua.LState) int {
+	p.requireCap(L, "ui")
+	if p.host == nil || p.host.userReg == nil {
+		return fail(L, "set_user_label: user label registry not available")
+	}
+	label := strings.TrimSpace(L.CheckString(1))
+	if label == "" {
+		return fail(L, "set_user_label: name must be a non-empty string")
+	}
+	p.host.userReg.SetUserLabel(label)
+	p.logf("[" + p.name + "] set user label: " + label)
 	L.Push(lua.LTrue)
 	return 1
 }

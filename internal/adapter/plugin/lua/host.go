@@ -63,6 +63,14 @@ type ModelRegistry interface {
 	SetModel(modelID string) error
 }
 
+// UserLabelRegistry lets a plugin set the display name shown for the user in the
+// transcript (magi.set_user_label) — e.g. an SSO plugin that learns the
+// authenticated username. The implementation applies it to the live session and
+// broadcasts the change; an empty label is ignored (the UI keeps "you").
+type UserLabelRegistry interface {
+	SetUserLabel(label string)
+}
+
 // Host loads, reloads, and unloads Lua plugins, registering their tools into a
 // shared ToolSink so changes take effect in the running agent (hot reload).
 type Host struct {
@@ -72,6 +80,7 @@ type Host struct {
 	llmReg        LLMHeaderRegistry
 	baseReg       BaseURLRegistry
 	modelReg      ModelRegistry
+	userReg       UserLabelRegistry
 	runtime       RuntimeInfo
 	pluginConfigs map[string]map[string]any // [plugins.<name>] sections from config.toml
 	configPath    string                    // path to the user's config.toml (magi.get/set_config_key)
@@ -92,6 +101,7 @@ type HostConfig struct {
 	LLMReg        LLMHeaderRegistry         // optional: enables magi.set_llm_headers()
 	BaseReg       BaseURLRegistry           // optional: enables magi.set_base_url()
 	ModelReg      ModelRegistry             // optional: enables magi.set_model()
+	UserReg       UserLabelRegistry         // optional: enables magi.set_user_label()
 	PluginConfigs map[string]map[string]any // optional: [plugins.<name>] settings, read via magi.store_get
 	ConfigPath    string                    // optional: path to config.toml (enables magi.get/set_config_key)
 	DataDir       string                    // base dir for per-plugin persistent config stores (store_set)
@@ -120,6 +130,7 @@ func NewHostWithConfig(cfg HostConfig) *Host {
 		llmReg:        cfg.LLMReg,
 		baseReg:       cfg.BaseReg,
 		modelReg:      cfg.ModelReg,
+		userReg:       cfg.UserReg,
 		runtime:       cfg.Runtime,
 		pluginConfigs: cfg.PluginConfigs,
 		configPath:    cfg.ConfigPath,
@@ -223,6 +234,20 @@ func (h *Host) PluginCommands() []port.PluginCommand {
 		}
 	}
 	return cmds
+}
+
+// DoctorProbes returns every environment check contributed by loaded plugins, so
+// `magi -doctor` can fold them into its report (mirrors PluginCommands).
+func (h *Host) DoctorProbes() []port.DoctorProbe {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var probes []port.DoctorProbe
+	for _, p := range h.plugins {
+		for _, pr := range p.probes {
+			probes = append(probes, pr)
+		}
+	}
+	return probes
 }
 
 // DispatchCommand runs the plugin command whose name matches (leading slash

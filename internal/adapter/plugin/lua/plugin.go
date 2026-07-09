@@ -25,6 +25,7 @@ type plugin struct {
 	L        *lua.LState
 	tools    []*luaTool
 	commands []*luaCommand               // slash commands registered via magi.register_command
+	probes   []*luaDoctorProbe           // -doctor checks registered via magi.register_doctor_probes
 	env      port.ToolEnv                // set per tool Execute so bridge calls see the workdir
 	hooks    map[string][]*lua.LFunction // lifecycle handlers registered via magi.on(event, fn)
 	servers  []io.Closer                 // loopback HTTP servers opened via magi.serve; closed on unload

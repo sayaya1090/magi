@@ -77,6 +77,7 @@ type sessionState struct {
 	pendingAsk       chan string            // channel for a subagent's pending ask answer (parent)
 	bg               *bgGroup               // background subagent tracking (parent)
 	report           *subReport             // filed final report (subagent session)
+	userLabel        string                 // display name for the user in the transcript (plugin set_user_label); "" = "you"
 	// Turn-scoped (zeroed by resetForNewTopLevel).
 	criteria        string          // elicited acceptance criteria this turn
 	estSteps        int             // planner's advisory step estimate this turn

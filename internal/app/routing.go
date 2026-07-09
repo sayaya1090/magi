@@ -105,6 +105,33 @@ func (a *App) SetModel(sid session.SessionID, modelID string) {
 	a.publishTransient(sid, event.TypeModelChanged, event.Actor{Kind: event.ActorSystem, ID: "route"}, d)
 }
 
+// SetUserLabel sets the display name shown for the user in the transcript (e.g. an
+// authenticated username an SSO plugin injects via magi.set_user_label) and
+// broadcasts it so the TUI re-reads from one signal — mirroring SetModel. An empty
+// label is ignored (the UI keeps its "you" fallback).
+func (a *App) SetUserLabel(sid session.SessionID, label string) {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return
+	}
+	a.mu.Lock()
+	a.stateLocked(sid).userLabel = label
+	a.mu.Unlock()
+	d, _ := json.Marshal(event.UserLabelData{Label: label})
+	a.publishTransient(sid, event.TypeUserLabelChanged, event.Actor{Kind: event.ActorSystem, ID: "plugin"}, d)
+}
+
+// UserLabel returns the display label set for a session's user, or "" if none was
+// set (the TUI then falls back to "you").
+func (a *App) UserLabel(sid session.SessionID) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if st, ok := a.stateIf(sid); ok {
+		return st.userLabel
+	}
+	return ""
+}
+
 // SessionModel returns the active model name for a session, or "" if unknown. The
 // TUI uses it to refresh its header after a plugin reload_config changes the model.
 func (a *App) SessionModel(sid session.SessionID) string {
