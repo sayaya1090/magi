@@ -33,6 +33,16 @@ func (cancelFlowLLM) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan
 	switch {
 	case strings.Contains(last, "SECOND_REQUEST"):
 		emit(port.ProviderEvent{Type: port.ProviderText, Text: "handled the new request"}, port.ProviderEvent{Type: port.ProviderFinish})
+	case strings.Contains(last, "review with subagents"):
+		// Initial orchestrator turn: dispatch both subagents in one call. Keyed on
+		// the ACTUAL first user prompt, not a catch-all default — otherwise a wake
+		// whose last message is the orchestrator's own trailing text (see the default
+		// case) would fall through here and re-dispatch identical subagents, tripping
+		// the loop guard. A real orchestrator dispatches from the task, once.
+		emit(port.ProviderEvent{Type: port.ProviderToolCall, ToolCall: &session.ToolCall{
+			CallID: "c_task", Name: "task",
+			Args: json.RawMessage(`{"tasks":[{"agent":"coder","prompt":"QUICK_TASK"},{"agent":"tester","prompt":"BLOCK_TASK"}]}`),
+		}}, port.ProviderEvent{Type: port.ProviderFinish})
 	case strings.Contains(last, "[subagent"):
 		// At least one result is in → synthesize and finish.
 		emit(port.ProviderEvent{Type: port.ProviderText, Text: "synthesis of available results"}, port.ProviderEvent{Type: port.ProviderFinish})
@@ -47,11 +57,12 @@ func (cancelFlowLLM) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan
 			<-ctx.Done()
 		}()
 	default:
-		// Initial orchestrator turn: dispatch both subagents in one call.
-		emit(port.ProviderEvent{Type: port.ProviderToolCall, ToolCall: &session.ToolCall{
-			CallID: "c_task", Name: "task",
-			Args: json.RawMessage(`{"tasks":[{"agent":"coder","prompt":"QUICK_TASK"},{"agent":"tester","prompt":"BLOCK_TASK"}]}`),
-		}}, port.ProviderEvent{Type: port.ProviderFinish})
+		// Re-invoked with the orchestrator's OWN trailing text as the last message
+		// (e.g. "dispatched; waiting" or a prior synthesis) once the subagent results
+		// are already in the store: nothing new to act on. A real model reads the
+		// whole conversation and synthesizes from the results above rather than
+		// re-dispatching — so finish, never spawn again.
+		emit(port.ProviderEvent{Type: port.ProviderText, Text: "synthesis of available results"}, port.ProviderEvent{Type: port.ProviderFinish})
 	}
 	return ch, nil
 }
