@@ -16,8 +16,11 @@ func TestRouteInterjectionExecute(t *testing.T) {
 		t.Error("route_interjection without env.RouteInterjection should error (orchestrator-only)")
 	}
 
-	var gotAction, gotReason string
-	env := port.ToolEnv{RouteInterjection: func(action, reason string) error { gotAction, gotReason = action, reason; return nil }}
+	var gotAction, gotReason, gotReqID string
+	env := port.ToolEnv{RouteInterjection: func(action, reason, requestID string) error {
+		gotAction, gotReason, gotReqID = action, reason, requestID
+		return nil
+	}}
 
 	// Unknown action → error, callback not invoked.
 	gotAction = ""
@@ -54,5 +57,14 @@ func TestRouteInterjectionExecute(t *testing.T) {
 	}
 	if gotReason != "fold in" {
 		t.Errorf("reason should be trimmed and forwarded, got %q", gotReason)
+	}
+
+	// request_id is optional, trimmed, and forwarded so the drain can target a specific request.
+	gotReqID = ""
+	if r, _ := (RouteInterjection{}).Execute(ctx, json.RawMessage(`{"action":"append","reason":"r","request_id":" ab12cd34 "}`), env); r.IsError {
+		t.Errorf("request_id should be accepted, got error: %q", resultText(t, r))
+	}
+	if gotReqID != "ab12cd34" {
+		t.Errorf("request_id should be trimmed and forwarded, got %q", gotReqID)
 	}
 }

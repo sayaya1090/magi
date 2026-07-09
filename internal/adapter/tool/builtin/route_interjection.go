@@ -18,8 +18,9 @@ import (
 type RouteInterjection struct{}
 
 type routeInterjectionArgs struct {
-	Action string `json:"action"`
-	Reason string `json:"reason"`
+	Action    string `json:"action"`
+	Reason    string `json:"reason"`
+	RequestID string `json:"request_id"`
 }
 
 func (RouteInterjection) Name() string { return "route_interjection" }
@@ -28,10 +29,11 @@ func (RouteInterjection) Description() string {
 		"NOTHING and let it stay QUEUED — it runs as its own turn after you finish the current task. Call this ONLY when " +
 		"you are confident: action \"redirect\" to set the current task aside and switch to the new request now; " +
 		"\"append\" to fold the new request into the current task and satisfy both before finishing; \"queue\" to " +
-		"explicitly confirm deferral. When unsure, do not call this. Give a one-line reason."
+		"explicitly confirm deferral. When several requests are pending, pass request_id (the [req: …] handle shown " +
+		"with each) to say which one you are routing. When unsure, do not call this. Give a one-line reason."
 }
 func (RouteInterjection) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"action":{"type":"string","enum":["queue","redirect","append"],"description":"queue (defer to its own turn), redirect (switch to it now), or append (fold into current task)"},"reason":{"type":"string","description":"one line: why this routing"}},"required":["action","reason"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"action":{"type":"string","enum":["queue","redirect","append"],"description":"queue (defer to its own turn), redirect (switch to it now), or append (fold into current task)"},"reason":{"type":"string","description":"one line: why this routing"},"request_id":{"type":"string","description":"which pending request to route: the [req: …] handle shown with the message; omit to route the oldest pending request"}},"required":["action","reason"]}`)
 }
 
 func (RouteInterjection) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
@@ -50,7 +52,7 @@ func (RouteInterjection) Execute(ctx context.Context, raw json.RawMessage, env p
 	default:
 		return errResult("", `action must be one of "queue", "redirect", or "append"`), nil
 	}
-	if err := env.RouteInterjection(action, strings.TrimSpace(a.Reason)); err != nil {
+	if err := env.RouteInterjection(action, strings.TrimSpace(a.Reason), strings.TrimSpace(a.RequestID)); err != nil {
 		return errResult("", err.Error()), nil
 	}
 	msg := map[string]string{

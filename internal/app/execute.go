@@ -119,14 +119,15 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// Route a mid-turn user interjection (top-level only — subagents aren't steered by
 	// the user). The tool has already validated action ∈ {queue,redirect,append}; we
 	// record the signal for the loop to drain and apply at its next step.
-	var routeInterjectionFn func(action, reason string) error
+	var routeInterjectionFn func(action, reason, requestID string) error
 	if depth == 0 {
-		routeInterjectionFn = func(action, reason string) error {
+		routeInterjectionFn = func(action, reason, requestID string) error {
 			if !a.hasPendingInterject(sid) {
 				return fmt.Errorf("there is no queued interjection to route right now")
 			}
 			a.signalTurnControl(sid, func(tc *turnControl) {
 				tc.route = action
+				tc.routeID = requestID
 				if reason != "" {
 					tc.reason = reason
 				}

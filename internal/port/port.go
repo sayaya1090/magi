@@ -220,9 +220,11 @@ type ToolEnv struct {
 	ResolveConcern func(key, reason string) error
 	// RouteInterjection routes a user request that arrived mid-turn: action is
 	// "queue" (default — run it after the current task), "redirect" (switch to it
-	// now), or "append" (fold it into the current task). Set ONLY for the top-level
-	// orchestrator (depth 0); nil for subagents, which the user does not steer.
-	RouteInterjection func(action, reason string) error
+	// now), or "append" (fold it into the current task). requestID names which pending
+	// request to route (the [req: …] handle shown in the directive; "" = the oldest
+	// pending). Set ONLY for the top-level orchestrator (depth 0); nil for subagents,
+	// which the user does not steer.
+	RouteInterjection func(action, reason, requestID string) error
 	// Replan lets a plan-eligible agent declare its current plan unworkable and get a
 	// fresh decomposition plus a reset no-progress window. Budget-capped per turn so it
 	// cannot indefinitely bypass the stall guard. Set for plan-eligible agents; nil

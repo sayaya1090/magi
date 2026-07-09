@@ -1034,6 +1034,20 @@ func (a *App) injectCouncilAdvice(ctx context.Context, sid session.SessionID, ad
 	_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "council"}, text)
 }
 
+// injectSteerConstraint folds a mid-turn "append" steer into the RUNNING turn as a
+// constraint, without re-planning. The approved plan is frozen for the turn's lifetime;
+// the steer adjusts HOW the in-progress work is carried out, not WHAT is planned. The
+// steer is still enforced at completion because the loop keeps turnTask = original+steer,
+// so the termination council judges against both. This is the append counterpart to a
+// redirect (which does re-plan, because the goal itself changed).
+func (a *App) injectSteerConstraint(ctx context.Context, sid session.SessionID, steer string) {
+	text := "# Mid-task steer (from the user)\n\n" + steer + "\n\n---\n" +
+		"Apply this as a constraint on the work already in progress. KEEP the current plan and " +
+		"todos — do NOT restart, re-plan, or re-decompose. Adjust only HOW you carry out the " +
+		"remaining steps so this constraint is satisfied, and make sure it holds before you finish."
+	_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "steer"}, text)
+}
+
 func (a *App) injectPlannerFindings(ctx context.Context, sid session.SessionID, findings string, delegated bool) {
 	text := "# Investigation findings (from the explorer subagents you just dispatched)\n\n" + findings +
 		"\n\n---\nThese are the results of YOUR OWN read-only explorers — trust them as your primary " +

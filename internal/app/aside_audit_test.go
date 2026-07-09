@@ -104,7 +104,7 @@ func TestAsideRoutePersistsAuditRecord(t *testing.T) {
 	a, s := newSteerApp(t, llm)
 	a.enqueueInterject(s.ID, "m1", "only look under docs/")
 
-	if !a.handleAside(context.Background(), AgentSpec{Name: "default"}, s, 0, "review the whole repo", "only look under docs/") {
+	if !a.handleAside(context.Background(), AgentSpec{Name: "default"}, s, 0, "review the whole repo", "m_b1", "only look under docs/") {
 		t.Fatalf("an append steer must act (break the park)")
 	}
 	rec := steerAuditText(t, a, s.ID)
@@ -123,7 +123,7 @@ func TestAsideAuditRecordNotSeenAsInterjection(t *testing.T) {
 	}}
 	a, s := newSteerApp(t, llm)
 	a.enqueueInterject(s.ID, "m1", "docs only please")
-	a.handleAside(context.Background(), AgentSpec{Name: "default"}, s, 0, "task", "docs only please")
+	a.handleAside(context.Background(), AgentSpec{Name: "default"}, s, 0, "task", "m_b2", "docs only please")
 
 	evs, _ := a.store.Read(context.Background(), s.ID, 0)
 	for _, e := range userPromptEntries(evs) {
@@ -141,7 +141,7 @@ func TestAsideChitchatEmitsNoAuditRecord(t *testing.T) {
 	}}
 	a, s := newSteerApp(t, llm)
 	a.enqueueInterject(s.ID, "m1", "how's it going?")
-	a.handleAside(context.Background(), AgentSpec{Name: "default"}, s, 0, "task", "how's it going?")
+	a.handleAside(context.Background(), AgentSpec{Name: "default"}, s, 0, "task", "m_b3", "how's it going?")
 
 	if rec := steerAuditText(t, a, s.ID); rec != "" {
 		t.Errorf("chitchat must not emit a steer audit record; got: %q", rec)
