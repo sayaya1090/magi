@@ -456,3 +456,171 @@ func (a *App) enqueueLateInterjections(ctx context.Context, sid session.SessionI
 		}
 	}
 }
+
+// ---- interjection / steer state accessors (moved from app.go) ----
+// State-management layer for the mid-turn steer machinery above: turnControl signals,
+// the pending-interjection queue, and the interjection-seen mask. All guard a.mu.
+
+// signalTurnControl records a mid-turn routing/replan signal from a tool for the
+// running loop to drain at its next step. It merges into any existing signal so a
+// route and a later replan in the same step window both survive.
+func (a *App) signalTurnControl(sid session.SessionID, mut func(*turnControl)) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	tc := a.stateLocked(sid).turnControl
+	mut(&tc)
+	a.stateLocked(sid).turnControl = tc
+}
+
+// takeTurnControl returns and clears the pending control signal for a session.
+func (a *App) takeTurnControl(sid session.SessionID) turnControl {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	tc := a.stateLocked(sid).turnControl
+	a.stateLocked(sid).turnControl = turnControl{}
+	return tc
+}
+
+// enqueueInterject parks a mid-turn user interjection to be run as its own turn
+// once the current turn ends (drained by the run goroutine's re-check). msgID is the
+// PromptSubmitted event that carried it, so the loop can mask that event from the
+// live-judgment views while the interjection stays queued (deferredInterjectIDs).
+func (a *App) enqueueInterject(sid session.SessionID, msgID, text string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.stateLocked(sid).pendingInterject = append(a.stateLocked(sid).pendingInterject, pendingInterjection{MsgID: msgID, Text: text})
+}
+
+// consumeInterject removes a specific queued interjection (absorbed this turn by a
+// redirect/append route, so it must not also re-surface as its own follow-up turn).
+// Matched by text — the route path only has the interjection's text, not its MsgID.
+func (a *App) consumeInterject(sid session.SessionID, text string) {
+	text = strings.TrimSpace(text)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	q := a.stateLocked(sid).pendingInterject
+	out := q[:0]
+	for _, p := range q {
+		if p.Text != text {
+			out = append(out, p)
+		}
+	}
+	if len(out) == 0 {
+		a.stateLocked(sid).pendingInterject = nil
+	} else {
+		a.stateLocked(sid).pendingInterject = out
+	}
+}
+
+// takePendingInterject pops the oldest queued interjection (FIFO), or "" if none.
+func (a *App) takePendingInterject(sid session.SessionID) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	q := a.stateLocked(sid).pendingInterject
+	if len(q) == 0 {
+		return ""
+	}
+	text := q[0].Text
+	if len(q) == 1 {
+		a.stateLocked(sid).pendingInterject = nil
+	} else {
+		a.stateLocked(sid).pendingInterject = q[1:]
+	}
+	return text
+}
+
+// hasPendingInterject reports whether any interjection is queued for a session.
+func (a *App) hasPendingInterject(sid session.SessionID) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return len(a.stateLocked(sid).pendingInterject) > 0
+}
+
+// pendingInterjectTexts snapshots the queued interjection texts (FIFO order) without
+// removing them. The idle-park flush handles each already-queued item through handleAside,
+// which consumes a resolved reply / bare cancel itself and leaves a routed item for the
+// turnControl drain — so the caller must iterate a copy, not mutate the queue mid-loop.
+func (a *App) pendingInterjectTexts(sid session.SessionID) []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	q := a.stateLocked(sid).pendingInterject
+	if len(q) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(q))
+	for _, p := range q {
+		out = append(out, p.Text)
+	}
+	return out
+}
+
+// deferredInterjectIDs is the set of PromptSubmitted MessageIDs currently queued as
+// interjections — the events to mask from the live-judgment views. Membership IS the
+// mask lifetime: an interjection leaves the queue (drained or absorbed) exactly when it
+// should become visible again, so no separate bookkeeping can drift out of sync.
+func (a *App) deferredInterjectIDs(sid session.SessionID) map[string]bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	q := a.stateLocked(sid).pendingInterject
+	if len(q) == 0 {
+		return nil
+	}
+	ids := make(map[string]bool, len(q))
+	for _, p := range q {
+		if p.MsgID != "" {
+			ids[p.MsgID] = true
+		}
+	}
+	return ids
+}
+
+// liveEvents returns evs with currently-QUEUED interjection prompts removed, for the
+// running turn's MODEL CONTEXT (reconstruct). A dispatch-visible interjection (one the
+// orchestrator may answer while background subagents run, so it was never queued) stays
+// visible here. Full history (SessionState, compaction) still sees every event.
+func (a *App) liveEvents(sid session.SessionID, evs []event.Event) []event.Event {
+	return filterDeferredEvents(evs, a.deferredInterjectIDs(sid))
+}
+
+// markInterjectSeen records that a MessageID is a mid-turn interjection detected this
+// turn. Unlike the pending queue, this membership persists until the turn boundary
+// (resetForNewTopLevel), so turnTask/council derivation stays masked from the
+// interjection even after it leaves the queue (drained, or never queued because the
+// orchestrator answered it inline during a background dispatch).
+func (a *App) markInterjectSeen(sid session.SessionID, msgID string) {
+	if msgID == "" {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st := a.stateLocked(sid)
+	if st.interjectSeen == nil {
+		st.interjectSeen = map[string]bool{}
+	}
+	st.interjectSeen[msgID] = true
+}
+
+// interjectSeenIDs is the set of interjection MessageIDs detected this turn — the events
+// to mask from turnTask/council derivation so neither is ever anchored on a mid-turn
+// splice. Superset of deferredInterjectIDs (which drops entries as they drain).
+func (a *App) interjectSeenIDs(sid session.SessionID) map[string]bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st, ok := a.stateIf(sid)
+	if !ok {
+		return nil
+	}
+	m := st.interjectSeen
+	if len(m) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(m))
+	for k := range m {
+		out[k] = true
+	}
+	return out
+}
