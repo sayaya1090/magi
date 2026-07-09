@@ -245,7 +245,24 @@ in `loop.go` calls into them each step):
   (the prompt says so) — a bare redirect is no-loss but only re-anchors what gets synthesized
   once the still-running explorers report. Asides that piled up *before* the park (e.g. during
   planning) are flushed through the same handler on park entry (`pendingInterjectTexts`
-  snapshot) instead of starving until turn end.
+  snapshot) instead of starving until turn end. Because the mini-loop's raw tool call/result
+  stay isolated (to keep the delegated task's log clean), a routed/cancelled steer would leave
+  no trace in the transcript — so its *effect* (`asideEffect`: which `route_interjection` action
+  fired, how many subagents `cancel_dispatch` stopped, the reason) is persisted as a durable
+  **system-actor `steer`** prompt. That actor is deliberately not `ActorUser`, so every
+  interjection/turn-detection path (all `ActorUser`-filtered) ignores it — it audits, it never
+  becomes a new "last user prompt" or `turnTask`. The prompt itself is also stiffened: a text
+  ack ("got it, I'll focus on X") changes nothing, so anything that touches the work (narrows/
+  widens scope, changes files/targets, adds/drops a constraint, reorders, switches goal) MUST
+  route rather than merely reply.
+- **re-plan anchors on the adopted task**: when a route (`redirect`/`append`) `reground`s with a
+  fresh decomposition, the re-plan must decompose `turnTask` (the *adopted* task — for `append`,
+  the original goal folded with the steer's constraint), not the bare last user prompt (which is
+  only the steer). `maybePlanPreflight` takes the adopted task as `taskOverride`; since the
+  planner decomposes a *window* of conversation (`plannerWindow`'s byte budget), a long turn's
+  explorer results can push the original goal out of that window, so `runPlanner` appends the
+  adopted task as a final anchor message that survives the trim. Normal pre-flight and plan-audit
+  re-plans pass no override, so their input is byte-identical.
 - **agent-initiated replan** (`replan` tool, plan-eligible agents): when the work itself proves
   the current plan unworkable (a premise broke), the agent requests a fresh decomposition +
   reset no-progress window instead of thrashing into the stall guard. It is advertised only to a
