@@ -399,6 +399,17 @@ func (m *Model) onTurnFinished(e event.Event) {
 	m.clearSpinnerCache(m.turnReqID)
 	m.turnReqID = "" // the request's bubble reverts from spinner to ▌
 	m.awaitingTurnReqID = false
+	// The turn ended and the interjection queue drained: any bubble still flagged queued
+	// (waiting mid-turn) is no longer waiting — clear the glyph. Inline-answered/resurfaced
+	// bubbles already cleared theirs; this catches any that weren't reached.
+	for i := range m.blocks {
+		if m.blocks[i].queued {
+			m.blocks[i].queued = false
+			if i < len(m.cache) {
+				m.cache = m.cache[:i]
+			}
+		}
+	}
 	m.liveText = ""
 	m.liveThink = ""
 	m.activeAgents = nil

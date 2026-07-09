@@ -945,7 +945,7 @@ func (m *Model) steer(text string) tea.Cmd {
 	m.history = append(m.history, text)
 	m.histIdx = len(m.history)
 	send := m.expandPastes(m.expandMentions(text))
-	m.blocks = append(m.blocks, block{kind: blockUser, text: m.expandPastes(text)})
+	m.blocks = append(m.blocks, block{kind: blockUser, text: m.expandPastes(text), queued: true})
 	m.ta.Reset()
 	m.refresh()
 	sid := m.sid

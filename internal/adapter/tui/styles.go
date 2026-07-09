@@ -47,6 +47,7 @@ var (
 	styleUserLabel  lipgloss.Style
 	styleAsstLabel  lipgloss.Style
 	styleBar        lipgloss.Style
+	styleQueuedBar  lipgloss.Style // a mid-turn queued user bubble's bar (distinct from ▌)
 	styleToolName   lipgloss.Style
 	styleToolArgs   lipgloss.Style
 	styleToolOK     lipgloss.Style
@@ -169,6 +170,7 @@ func applyTheme(isDark bool) {
 	styleUserLabel = n().Foreground(colAccent).Bold(true)
 	styleAsstLabel = n().Foreground(colPrimary).Bold(true)
 	styleBar = n().Foreground(colOutline)
+	styleQueuedBar = n().Foreground(colWarn)
 	styleToolName = n().Foreground(colPrimary)
 	styleToolArgs = n().Foreground(colMuted)
 	styleToolOK = n().Foreground(colSuccess)

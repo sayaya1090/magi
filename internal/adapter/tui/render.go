@@ -50,6 +50,11 @@ type block struct {
 	done     bool   // the toolCall's result has arrived
 	result   string // the toolCall's result summary text
 	expanded bool   // a reasoning block individually expanded by a click
+	// queued marks a blockUser that was submitted mid-turn (a steer) and is still waiting to be
+	// handled: its bar renders as a distinct "queued" glyph rather than ▌ or the in-flight
+	// spinner. Cleared when the message is answered inline (moveUserBlockBefore), resurfaces as
+	// its own turn (moveUserBlockToEnd), or the turn finishes and the queue drains.
+	queued bool
 	// councilVerdicts carries a round's member votes for a blockCouncilVerdict block:
 	// they render compact on ONE line, and a click opens the full-screen detail for
 	// the member under the cursor. evidence is the pre-formatted "what the members saw
@@ -253,12 +258,17 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 		// prompt soft-wraps instead of overflowing off-screen and being clipped.
 		// Width is bodyWidth-2 to leave room for the 2-col indent().
 		body := lipgloss.NewStyle().Width(m.bodyWidth() - 2).Render(strings.TrimRight(blk.text, "\n"))
-		// While this request's turn is being processed, its bar (▌) becomes a spinner;
-		// it reverts to ▌ when the turn finishes (turnReqID cleared). transcript() renders
-		// this one block uncached each frame so the spinner animates.
+		// The bar reflects the request's state: a spinner while its turn is being processed
+		// (reverts to ▌ on finish; transcript() renders this block uncached each frame so it
+		// animates), a distinct queued glyph while it waits mid-turn to be picked up, or ▌ at
+		// rest. queuedGlyph is a single cell (like ▌) so the 2-col bar column stays aligned —
+		// wide emoji would break width accounting.
 		lbl := label(styleUserLabel, "you")
-		if m.running && blk.reqID != "" && blk.reqID == m.turnReqID {
+		switch {
+		case m.running && blk.reqID != "" && blk.reqID == m.turnReqID:
 			lbl = m.sp.View() + " " + styleUserLabel.Render("you")
+		case blk.queued:
+			lbl = styleQueuedBar.Render(queuedGlyph+" ") + styleUserLabel.Render("you")
 		}
 		return lbl + "\n" + indent(body)
 	case blockAssistant:
@@ -468,6 +478,11 @@ func label(style lipgloss.Style, name string) string {
 	return styleBar.Render("▌ ") + style.Render(name)
 }
 
+// queuedGlyph marks a mid-turn queued user bubble's bar. It must be a single terminal cell
+// (like ▌ and the braille spinner) so the 2-col bar column stays aligned — wide/emoji glyphs
+// mis-measure and shift the layout. · (middle dot) reads as a quiet "waiting" marker.
+const queuedGlyph = "·"
+
 // transcriptWidth is the column width available to transcript content — the
 // terminal width minus the right side panel (and its gap). Floored so callers
 // can subtract a small indent without going negative.
@@ -634,6 +649,7 @@ func userPrompts(msgs []session.Message) []string {
 func moveUserBlockToEnd(blocks []block, reqID, text string) []block {
 	if i := findUserBlock(blocks, reqID, text); i >= 0 {
 		b := blocks[i]
+		b.queued = false // it now runs as its own turn (shows the spinner), no longer waiting
 		blocks = append(blocks[:i], blocks[i+1:]...)
 		return append(blocks, b)
 	}
@@ -660,6 +676,7 @@ func moveUserBlockBefore(blocks []block, reqID string, idx int) ([]block, bool) 
 		return blocks, false // no match, or already adjacent above the answer
 	}
 	b := blocks[i]
+	b.queued = false // answered inline — it's handled, no longer waiting in the queue
 	blocks = append(blocks[:i], blocks[i+1:]...)
 	// Removing i (which is < idx) shifts the answer down by one, so the slot just before
 	// the answer is now idx-1.
