@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
+	"github.com/sayaya1090/magi/internal/core/session"
 )
 
 func ev(t *testing.T, ty event.Type, data any) event.Event {
@@ -239,4 +240,161 @@ func TestCouncilPlanForcedProceedLabel(t *testing.T) {
 	if !strings.Contains(l2.text, "finished (no consensus)") || strings.Contains(l2.text, ": done ") {
 		t.Fatalf("no-progress forced finish should read 'finished (no consensus)', got %q", l2.text)
 	}
+}
+
+// While a council round is open the footer must name which judgment is awaited
+// (fixed phrase + spinner), so the wait doesn't read as a stall. councilPhase is
+// armed on convened and cleared on decided, and picks the phase-specific label.
+func TestCouncilWaitingIndicator(t *testing.T) {
+	mm := newTestModel(t)
+	m := &mm
+
+	// A finalize/consensus review round: phase is armed and the label names the review.
+	m.applyEvent(ev(t, event.TypeCouncilConvened, event.CouncilConvenedData{
+		Round: 1, Members: []string{"Melchior", "Balthasar", "Casper"}, Rule: "majority",
+	}))
+	if m.councilRound != 1 || m.councilPhase != "" {
+		t.Fatalf("review round: round=%d phase=%q, want round=1 phase=\"\"", m.councilRound, m.councilPhase)
+	}
+	if got := councilWaitLabel(m.councilPhase); !strings.Contains(got, "카운슬") || !strings.Contains(got, "대기") {
+		t.Fatalf("review wait label should name the council wait, got %q", got)
+	}
+	// The label must differ per phase so the user can tell a plan audit from a review.
+	if councilWaitLabel("plan") == councilWaitLabel("") {
+		t.Fatalf("plan-audit and review wait labels must differ")
+	}
+	if got := councilWaitLabel("plan"); !strings.Contains(got, "플랜") {
+		t.Fatalf("plan wait label should name the plan audit, got %q", got)
+	}
+
+	// A decision ends the open round → phase clears (footer reverts to "working…").
+	m.applyEvent(ev(t, event.TypeCouncilDecided, event.CouncilDecidedData{
+		Round: 1, Decision: "done", Tally: council.Breakdown{Done: 3},
+	}))
+	if m.councilPhase != "" {
+		t.Fatalf("councilPhase should clear after a decision, got %q", m.councilPhase)
+	}
+
+	// A plan-audit round arms the plan phase for the plan-specific label.
+	m.applyEvent(ev(t, event.TypeCouncilConvened, event.CouncilConvenedData{
+		Round: 1, Phase: "plan", Members: []string{"Melchior"}, Rule: "majority",
+	}))
+	if m.councilPhase != "plan" {
+		t.Fatalf("plan round should arm councilPhase=plan, got %q", m.councilPhase)
+	}
+}
+
+// For a "검수해줘"-style request the flow is report → council review → revised report.
+// A review round that votes "continue" re-prompts for a revision; the pre-review report
+// must fold to a stub — but ONLY once the revision actually lands, so an interrupted
+// revision leaves the original report intact rather than a dangling stub. A "done"
+// review or a plan-phase continue must never touch the report.
+func TestCollapsePreReviewReport(t *testing.T) {
+	seedReport := func(t *testing.T) (*Model, int) {
+		t.Helper()
+		mm := newTestModel(t)
+		m := &mm
+		m.blocks = append(m.blocks,
+			block{kind: blockUser, text: "검수해줘"},
+			block{kind: blockAssistant, text: "여기 전체 보고서입니다 …(긴 내용)"},
+		)
+		return m, len(m.blocks) - 1
+	}
+
+	// report → review continue → the report is NOT folded yet (revision hasn't landed)…
+	// then the revision's PartText arrives → the pre-review report folds to a stub and the
+	// revision appends in full below it.
+	t.Run("continue folds only when the revision lands", func(t *testing.T) {
+		m, reportIdx := seedReport(t)
+		m.applyEvent(ev(t, event.TypeCouncilDecided, event.CouncilDecidedData{
+			Round: 1, Decision: "continue", Tally: council.Breakdown{Done: 1, Continue: 2},
+			Feedback: "누락된 항목 추가",
+		}))
+		if m.blocks[reportIdx].kind != blockAssistant {
+			t.Fatalf("report must stay intact until the revision lands, got kind=%d", m.blocks[reportIdx].kind)
+		}
+		if !m.reviewFoldNext {
+			t.Fatalf("a review continue should arm the deferred fold")
+		}
+		m.onPartAppended(part(session.PartText, "개정된 최종 보고서"))
+		if m.blocks[reportIdx].kind != blockInfo || !strings.Contains(m.blocks[reportIdx].text, "접힘") {
+			t.Fatalf("pre-review report should fold to a stub once revised: %+v", m.blocks[reportIdx])
+		}
+		last := m.blocks[len(m.blocks)-1]
+		if last.kind != blockAssistant || last.text != "개정된 최종 보고서" {
+			t.Fatalf("the revision should append in full below the stub, got %+v", last)
+		}
+		if m.reviewFoldNext {
+			t.Fatalf("the deferred fold should disarm after firing")
+		}
+	})
+
+	// Edge: the revision comes back identical to the pre-review report. The model didn't
+	// actually change anything, so the original must stay EXACTLY as it is — not folded,
+	// not re-printed. A blink-out-then-identical-reappear reads as a glitch; the duplicate
+	// re-send is dropped silently and nothing is appended.
+	t.Run("identical revision keeps the original untouched", func(t *testing.T) {
+		m, reportIdx := seedReport(t)
+		orig := m.blocks[reportIdx].text
+		m.applyEvent(ev(t, event.TypeCouncilDecided, event.CouncilDecidedData{
+			Round: 1, Decision: "continue", Tally: council.Breakdown{Done: 1, Continue: 2},
+			Feedback: "다시 확인",
+		}))
+		before := len(m.blocks)
+		m.onPartAppended(part(session.PartText, orig)) // same text back
+		if m.blocks[reportIdx].kind != blockAssistant || m.blocks[reportIdx].text != orig {
+			t.Fatalf("original report must stay untouched, got %+v", m.blocks[reportIdx])
+		}
+		if len(m.blocks) != before {
+			t.Fatalf("identical re-send must add no block (no fold, no re-print), got %d new", len(m.blocks)-before)
+		}
+	})
+
+	// The MAJOR-fix guarantee: a review continue whose revision never materializes
+	// (user interrupt / error / tool-only forced finish) must leave the original report
+	// fully readable, not a stub pointing at a non-existent "final below".
+	t.Run("interrupted revision preserves the report", func(t *testing.T) {
+		m, reportIdx := seedReport(t)
+		m.applyEvent(ev(t, event.TypeCouncilDecided, event.CouncilDecidedData{
+			Round: 1, Decision: "continue", Tally: council.Breakdown{Done: 1, Continue: 2},
+			Feedback: "누락된 항목 추가",
+		}))
+		m.onTurnFinished(event.Event{Type: event.TypeTurnFinished}) // no PartText ever arrived
+		if m.blocks[reportIdx].kind != blockAssistant {
+			t.Fatalf("an aborted revision must keep the original report, got kind=%d", m.blocks[reportIdx].kind)
+		}
+		if m.reviewFoldNext {
+			t.Fatalf("turn end should disarm the deferred fold")
+		}
+	})
+
+	// A "done" review keeps the report (it IS the final result — nothing follows).
+	t.Run("review done keeps the report", func(t *testing.T) {
+		m, reportIdx := seedReport(t)
+		m.applyEvent(ev(t, event.TypeCouncilDecided, event.CouncilDecidedData{
+			Round: 1, Decision: "done", Tally: council.Breakdown{Done: 3},
+		}))
+		if m.reviewFoldNext {
+			t.Fatalf("a done review must not arm the fold")
+		}
+		if m.blocks[reportIdx].kind != blockAssistant {
+			t.Fatalf("a done review must keep the report, got kind=%d", m.blocks[reportIdx].kind)
+		}
+	})
+
+	// A plan-audit "continue" (revise) is about the plan, not an answer report — it must
+	// not arm the fold even if an assistant block precedes it.
+	t.Run("plan continue does not arm the fold", func(t *testing.T) {
+		m, reportIdx := seedReport(t)
+		m.applyEvent(ev(t, event.TypeCouncilDecided, event.CouncilDecidedData{
+			Round: 1, Phase: "plan", Decision: "continue", Tally: council.Breakdown{Continue: 2},
+			Feedback: "플랜 수정",
+		}))
+		if m.reviewFoldNext {
+			t.Fatalf("a plan-audit continue must not arm the fold")
+		}
+		if m.blocks[reportIdx].kind != blockAssistant {
+			t.Fatalf("a plan-audit continue must not fold an answer report, got kind=%d", m.blocks[reportIdx].kind)
+		}
+	})
 }

@@ -88,7 +88,15 @@ func (m Model) View() tea.View {
 	var status string
 	switch {
 	case m.running:
-		status = "  " + m.sp.View() + styleFooter.Render(" working… "+turnMeter(time.Since(m.turnStart), m.turnIn, m.turnOut)+"  ") + footerKeys("esc", "interrupt")
+		// While a council round is open the agent is blocked waiting on the panel's
+		// verdict, not running tools — a generic "working…" reads as "maybe stuck".
+		// Name the awaited judgment (fixed phrase, no model query) so the spinner is
+		// clearly attached to the council, resolving on council.decided.
+		work := "working… "
+		if m.councilRound > 0 {
+			work = councilWaitLabel(m.councilPhase) + " "
+		}
+		status = "  " + m.sp.View() + styleFooter.Render(" "+work+turnMeter(time.Since(m.turnStart), m.turnIn, m.turnOut)+"  ") + footerKeys("esc", "interrupt")
 	case m.turnDur > 0:
 		status = styleFooter.Render("  "+turnMeter(m.turnDur, m.turnIn, m.turnOut)) + "   " + footer()
 	default:
@@ -601,6 +609,17 @@ func (m *Model) ctxMeter() string {
 	return fmt.Sprintf("   ctx %.0f%%", m.ctxPct)
 }
 
+// councilWaitLabel is the fixed footer phrase shown (with the spinner) while a
+// council round is open, naming which judgment is awaited so the wait doesn't read
+// as a stall. Phase "plan" is the pre-execution plan audit; anything else is the
+// finalize/consensus review of the answer.
+func councilWaitLabel(phase string) string {
+	if phase == "plan" {
+		return "⚖ 플랜 감사 판정 대기 중…"
+	}
+	return "⚖ 카운슬 심의 판정 대기 중…"
+}
+
 // turnSummary renders the end-of-turn receipt line, e.g.
 // "▣ turn: 14 steps · 3 files · council r2 · 3m49s". Parts with nothing to say
 // are omitted; a pure conversational turn (no tools) renders nothing at all.
@@ -643,6 +662,30 @@ func (m *Model) lastAssistantText() string {
 // sameAnswer reports whether two answers are the same modulo whitespace.
 func sameAnswer(a, b string) bool {
 	return strings.Join(strings.Fields(a), " ") == strings.Join(strings.Fields(b), " ")
+}
+
+// collapseReviewedReport folds the most recent assistant report of THIS turn (back
+// to the last user block) into a one-line stub. Called when a council REVIEW round
+// sends the answer back for revision: for a "검수해줘"-style request the flow is
+// report → council review → revised report, so the pre-review copy is superseded the
+// moment the round rejects it — showing both full reports is just noise. Unlike the
+// near-verbatim sameAnswer dedup, this collapses unconditionally (the revision may
+// differ substantially), keeping only the final result. No-op when no assistant block
+// follows the last user turn. Truncates the render cache at the folded block so it
+// re-renders as the stub.
+func (m *Model) collapseReviewedReport() {
+	for i := len(m.blocks) - 1; i >= 0; i-- {
+		switch m.blocks[i].kind {
+		case blockAssistant:
+			m.blocks[i] = block{kind: blockInfo, text: "≡ (검수 전 보고서 — 접힘, 아래 최종본 참고)"}
+			if len(m.cache) > i {
+				m.cache = m.cache[:i]
+			}
+			return
+		case blockUser:
+			return
+		}
+	}
 }
 
 // turnMeter renders elapsed + token usage, e.g. "3m49s · ↑28.1k ↓10.4k". Token

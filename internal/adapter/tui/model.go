@@ -168,6 +168,8 @@ type Model struct {
 	turnOut        int             // cumulative output tokens this turn (↓)
 	councilRound   int             // current council round (0 = no council active); header chip
 	councilMember  string          // member currently being polled (live); cleared when the turn ends
+	councilPhase   string          // phase of the open round ("plan" audit vs "" review/consensus); drives the footer waiting line
+	reviewFoldNext bool            // a review round voted continue → fold the pre-review report once its revision actually lands
 
 	cache  []string // rendered finalized blocks (keyed by cacheW)
 	cacheW int      // width the cache was rendered at

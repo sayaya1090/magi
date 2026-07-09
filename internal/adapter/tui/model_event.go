@@ -208,6 +208,7 @@ func (m *Model) applyEvent(e event.Event) {
 		}
 		m.councilRound = 0
 		m.councilMember = ""
+		m.councilPhase = ""
 		var d event.CouncilDecidedData
 		if json.Unmarshal(e.Data, &d) == nil {
 			m.onCouncilDecided(d)
@@ -228,6 +229,8 @@ func (m *Model) applyEvent(e event.Event) {
 		m.activeAgents = nil
 		m.councilRound = 0
 		m.councilMember = ""
+		m.councilPhase = ""
+		m.reviewFoldNext = false   // an errored turn's revision never lands — keep the report
 		if !m.turnStart.IsZero() { // freeze the meter too (mirror panes) (§8.1)
 			m.turnDur = time.Since(m.turnStart)
 		}
@@ -245,6 +248,24 @@ func (m *Model) onPartAppended(d event.PartAppendedData) {
 		m.blocks = append(m.blocks, block{kind: blockReasoning, text: d.Part.Text})
 	case session.PartText:
 		m.liveText = ""
+		// The revision promised by a review-round "continue" has now landed. THIS is the
+		// first moment we can tell whether it actually changed: the pre-review report is
+		// still in m.blocks and the revision is d.Part.Text (at council.decided the
+		// revision didn't exist yet, which is why the fold is deferred to here).
+		//   • Unchanged→ the model re-sent the same answer. Keep the original exactly where
+		//     it is and DROP the duplicate silently — don't fold it and don't re-print it,
+		//     so the report never blinks out and reappears identical (which just reads as a
+		//     glitch).
+		//   • Changed  → fold the superseded original to a stub; the revision renders full.
+		// The fold runs before the generic sameAnswer dedup, so once folded lastAssistantText
+		// finds no prior assistant block and the changed revision always appends in full.
+		if m.reviewFoldNext {
+			m.reviewFoldNext = false
+			if prev := m.lastAssistantText(); prev != "" && sameAnswer(prev, d.Part.Text) {
+				break // identical revision: leave the original untouched, drop the re-send
+			}
+			m.collapseReviewedReport()
+		}
 		// A long answer the council rejected and the model re-sent nearly
 		// verbatim is brutal to re-read. Collapse an assistant block that
 		// duplicates the previous assistant block in this turn to a stub.
@@ -298,6 +319,7 @@ func (m *Model) onPartAppended(d event.PartAppendedData) {
 // arms the header chip. (D14 — the consensus termination gate.)
 func (m *Model) onCouncilConvened(d event.CouncilConvenedData) {
 	m.councilRound = d.Round
+	m.councilPhase = d.Phase                            // drives the footer "판정 대기 중" line while the round is open
 	m.pendingCouncilEvidence = formatCouncilEvidence(d) // shown in each verdict's detail view
 	label, verb := "council", "deliberate"
 	if d.Phase == "plan" {
@@ -370,6 +392,16 @@ func (m *Model) onCouncilDecided(d event.CouncilDecidedData) {
 		line += " → feedback injected"
 	}
 	m.blocks = append(m.blocks, block{kind: blockInfo, text: line})
+	// A review round (non-plan) that votes "continue" re-prompts the model for a
+	// revised answer (council_gate emitDecided(Continue,…) → re-run), so the report
+	// just shown is about to be superseded. DON'T fold it yet: the revision might never
+	// materialize (interrupt, error, or a tool-only forced finish), and folding in place
+	// would leave a "아래 최종본 참고" stub pointing at nothing. Arm a deferred fold
+	// instead — collapseReviewedReport runs from onPartAppended the moment the actual
+	// replacement lands. Forced finishes come through as "done", so they never arm this.
+	if d.Phase != "plan" && d.Decision == "continue" {
+		m.reviewFoldNext = true
+	}
 }
 
 // clearSpinnerCache drops the prefix-cache entry (and the tail after it) for the bubble
@@ -415,6 +447,8 @@ func (m *Model) onTurnFinished(e event.Event) {
 	m.activeAgents = nil
 	m.councilRound = 0
 	m.councilMember = ""
+	m.councilPhase = ""
+	m.reviewFoldNext = false // turn ended with no revision landing — keep the report visible
 	// The turn ended: any pane still marked unfinished (e.g. a completion event
 	// that never arrived) should now fade too, so nothing lingers after the turn.
 	for _, p := range m.panes {
