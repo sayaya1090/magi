@@ -207,7 +207,9 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	turnTask := ""                               // the user instruction THIS turn answers, snapshotted at step 0. A
 	// steer that lands mid-turn is QUEUED by default (runs as its own follow-up turn), so
 	// it can't silently hijack what the council judges against — unless the agent explicitly
-	// routes it (route_interjection redirect/append re-snapshots turnTask here via reground).
+	// routes it. A "redirect" re-snapshots turnTask and rebuilds the plan (the goal changed);
+	// an "append" folds the steer into turnTask (so the termination gate still enforces it)
+	// but FREEZES the plan — the steer is injected as a constraint, not re-decomposed.
 	usedTools := seedWork   // did this turn do real work? (planner investigation seeds it; council skips pure conversational turns)
 	handledUserPrompts := 0 // genuine (ActorUser) prompts already absorbed into turnTask; a rise past this at step>0 is a mid-turn interjection
 	replanCount := 0        // agent-initiated replans honored this turn (budget-capped so replan can't indefinitely reset the stall guard)
@@ -251,7 +253,11 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	// reground resets the turn's termination/stall accounting so a freshly-adopted task
 	// (redirect/append) or plan (replan) isn't instantly force-stopped by the previous
 	// approach's accumulated no-progress count. rebuildPlan additionally re-runs the
-	// pre-flight planner for a fresh decomposition.
+	// pre-flight planner for a fresh decomposition — used ONLY when the goal changes
+	// (redirect) or the agent explicitly replans (honorReplan). An "append" steer does
+	// NOT rebuild: the approved plan is frozen for the turn and the steer is injected as
+	// a constraint instead, so a mid-turn add-on can't reopen the plan audit or cancel
+	// and re-dispatch the explorers.
 	reground := func(rebuildPlan bool) {
 		guard.resetStall()
 		// Field-wise reset (not ts.council = councilTurn{}): council.spent is the turn's
@@ -311,16 +317,19 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			// Drain any control signal a tool left last step (route an interjection, or an
 			// agent-initiated replan), applying the reground the loop owns but the tool can't.
 			if tc := a.takeTurnControl(sid); tc.route != "" || tc.replan {
-				// redirect re-anchors turnTask on the interjection; append folds it in. Either
-				// way the interjection is absorbed now, so don't also re-surface it as its own
-				// turn, and reground so the stall/council accounting tracks the adopted task.
-				// "queue" (or empty) leaves turnTask on the current task — the interjection stays
-				// queued and runs as its own turn after this one ends.
-				if it := strings.TrimSpace(lastUserPromptText(evs)); it != "" {
-					if nt, changed := applyRoute(tc.route, turnTask, it); changed {
-						turnTask = nt
-						a.consumeInterject(sid, it)
-						reground(true)
+				// Absorb a routed interjection now, so it isn't also re-surfaced as its own
+				// turn. The route binds to a SPECIFIC queued request (resolveRouteTarget: the
+				// id the model named, else the oldest queued), not to lastUserPromptText — so
+				// with several interjections piled up none is re-absorbed or cross-applied.
+				// redirect re-anchors turnTask and rebuilds the plan; append folds the steer in
+				// but FREEZES the plan (constraint injection only) — see applyInterjectRoute.
+				// "queue"/"" leaves turnTask untouched; an empty resolve means it was already
+				// absorbed, so the route is a no-op.
+				if tc.route != "" {
+					if mid, it := a.resolveRouteTarget(sid, tc.routeID); it != "" {
+						if nt, changed := a.applyInterjectRoute(ctx, sid, tc.route, turnTask, mid, it, reground); changed {
+							turnTask = nt
+						}
 					}
 				}
 				if tc.replan {
@@ -353,7 +362,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					// Handle EVERY user prompt that appeared since the last check, not just the
 					// newest: two messages steered in during one long step would otherwise advance
 					// the counter past the earlier one, dropping it silently.
-					var newest string
+					var newest, newestID string
 					for _, it := range prompts[handledUserPrompts:] {
 						if txt := strings.TrimSpace(it.Text); txt != "" && txt != strings.TrimSpace(turnTask) {
 							a.markInterjectSeen(sid, it.MsgID)
@@ -364,7 +373,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 								// resolved chitchat reply / bare cancel itself and leaves a routed
 								// redirect/append queued for the turnControl drain to apply.
 								a.enqueueInterject(sid, it.MsgID, txt)
-								if a.handleAside(ctx, agent, s, depth, turnTask, txt) {
+								if a.handleAside(ctx, agent, s, depth, turnTask, it.MsgID, txt) {
 									answerInterjectNow = true // break the park so the route/cancel takes effect next step
 								}
 							case !dispatching:
@@ -374,14 +383,14 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 							}
 							// Ordinary dispatch (dispatching && !idleWaiting): left visible for the
 							// interleaving working turn to answer via the soft directive below.
-							newest = txt
+							newest, newestID = txt, it.MsgID
 						}
 					}
 					handledUserPrompts = len(prompts)
 					// idle-park is fully owned by handleAside above. The directive is only for the
 					// other cases (non-dispatch queue notice, ordinary-dispatch soft answer).
 					if newest != "" && !idleWaiting {
-						a.injectInterjectDirective(ctx, sid, turnTask, newest, dispatching)
+						a.injectInterjectDirective(ctx, sid, turnTask, newestID, newest, dispatching)
 						if dispatching {
 							// The directive we just appended is the last event, so lastIsUserSteer/
 							// needsOrchestratorTurn would read false and the early park below would
@@ -408,9 +417,9 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			// which for a long/council-looping turn is minutes. Handle each already-queued item
 			// through the same focused handler; if one acts on the work, break the park so the
 			// route/cancel takes effect instead of waiting on the explorers.
-			if queued := a.pendingInterjectTexts(sid); len(queued) > 0 {
-				for _, txt := range queued {
-					if a.handleAside(ctx, agent, s, depth, turnTask, txt) {
+			if queued := a.pendingInterjectItems(sid); len(queued) > 0 {
+				for _, it := range queued {
+					if a.handleAside(ctx, agent, s, depth, turnTask, it.MsgID, it.Text) {
 						answerInterjectNow = true
 					}
 				}
@@ -972,6 +981,14 @@ func (a *App) emitArtifact(ctx context.Context, sid session.SessionID, actor eve
 
 func (a *App) appendPart(ctx context.Context, sid session.SessionID, actor event.Actor, msgID string, role session.Role, part session.Part) {
 	d, _ := json.Marshal(event.PartAppendedData{MessageID: msgID, Role: role, Part: part})
+	a.appendFact(ctx, sid, event.TypePartAppended, actor, d)
+}
+
+// appendReplyPart is appendPart for an inline interjection answer: it tags the part with
+// InReplyTo (the answered message's origin MessageID) so the display layer can pair the
+// answer with its question. replyTo=="" behaves exactly like appendPart.
+func (a *App) appendReplyPart(ctx context.Context, sid session.SessionID, actor event.Actor, msgID, replyTo string, role session.Role, part session.Part) {
+	d, _ := json.Marshal(event.PartAppendedData{MessageID: msgID, Role: role, Part: part, InReplyTo: replyTo})
 	a.appendFact(ctx, sid, event.TypePartAppended, actor, d)
 }
 

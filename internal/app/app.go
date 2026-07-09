@@ -144,9 +144,10 @@ type pendingInterjection struct {
 // applies the reground. route routes a queued user interjection (queue|redirect|
 // append); replan is the agent's own "this plan is unworkable" declaration.
 type turnControl struct {
-	route  string // "", "queue", "redirect", or "append"
-	replan bool
-	reason string
+	route   string // "", "queue", "redirect", or "append"
+	routeID string // the request id the route targets (route_interjection request_id); "" = oldest queued
+	replan  bool
+	reason  string
 }
 
 // New constructs an App.
@@ -377,7 +378,12 @@ func (a *App) appendPrompt(ctx context.Context, c command.SubmitPrompt) error {
 	if c.Actor.Kind == event.ActorUser {
 		a.setStage(c.SessionID, stageExecute)
 	}
+	// A user request carries a time-sortable id (routing binds to it, and the display layer
+	// pairs it with its response); system-injected prompts keep the cheap random id.
 	msgID := "m_" + newID()
+	if c.Actor.Kind == event.ActorUser {
+		msgID = "m_" + newSortableID()
+	}
 	data, _ := json.Marshal(event.PromptSubmittedData{MessageID: msgID, Parts: c.Parts})
 	return a.appendFact(ctx, c.SessionID, event.TypePromptSubmitted, c.Actor, data)
 }
@@ -390,7 +396,7 @@ func (a *App) appendPrompt(ctx context.Context, c command.SubmitPrompt) error {
 func (a *App) appendResurfacedPrompt(ctx context.Context, sid session.SessionID, originMsgID, text string) error {
 	a.setStage(sid, stageExecute)
 	data, _ := json.Marshal(event.PromptSubmittedData{
-		MessageID:      "m_" + newID(),
+		MessageID:      "m_" + newSortableID(),
 		Parts:          []session.Part{{Kind: session.PartText, Text: text}},
 		ResurfacedFrom: originMsgID,
 	})
@@ -476,7 +482,7 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 						continue
 					}
 					s := a.sessionInfo(runCtx, sid)
-					if a.triageQueued(runCtx, a.agentFor(s), s, text) {
+					if a.triageQueued(runCtx, a.agentFor(s), s, item.MsgID, text) {
 						// Escalate: run it as its OWN top-level turn with the same fresh slate Submit
 						// gives, so the council judges it on its own merits instead of the finished
 						// task's plan/criteria. Link back to the original prompt so the display layer
@@ -820,6 +826,19 @@ func (a *App) sessionInfo(ctx context.Context, sid session.SessionID) session.Se
 func newID() string {
 	var b [12]byte
 	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
+}
+
+// newSortableID returns a 32-hex-char identifier whose lexicographic order matches
+// creation order: 6 bytes of big-endian Unix milliseconds followed by 10 crypto-random
+// bytes (UUIDv7/ULID-style, dependency-free). Used for user-request MessageIDs so a request
+// can be ordered, correlated with its response, and named back by the model when routing.
+func newSortableID() string {
+	var b [16]byte
+	ms := uint64(time.Now().UnixMilli())
+	b[0], b[1], b[2] = byte(ms>>40), byte(ms>>32), byte(ms>>24)
+	b[3], b[4], b[5] = byte(ms>>16), byte(ms>>8), byte(ms)
+	_, _ = rand.Read(b[6:])
 	return hex.EncodeToString(b[:])
 }
 

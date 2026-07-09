@@ -32,13 +32,47 @@ func applyRoute(action, turnTask, interject string) (newTask string, changed boo
 	}
 }
 
+// applyInterjectRoute absorbs a routed mid-turn interjection into the running turn and
+// applies the reground the loop owns. It returns the (possibly re-anchored) turnTask and
+// whether it changed. The reground COST differs by route, and that difference is the whole
+// point of the fix:
+//   - "redirect": the goal itself changed, so reground(true) — a fresh decomposition and a
+//     new plan audit are warranted.
+//   - "append": the approved plan is FROZEN for the turn. The steer is injected as a
+//     constraint on the in-progress work (injectSteerConstraint) and reground(false) resets
+//     only the stall/council accounting — NO re-plan, NO re-audit, NO explorer re-dispatch.
+//     The steer is still enforced at completion because turnTask now folds it in, so the
+//     termination council judges against original+steer.
+//   - "queue"/"" : nothing changed; the interjection stays queued to run as its own turn.
+//
+// msgID identifies the specific queued interjection being absorbed; it is consumed by id so
+// re-draining the same signal is a no-op (idempotency) even when two interjections share text.
+func (a *App) applyInterjectRoute(ctx context.Context, sid session.SessionID, route, turnTask, msgID, interject string, reground func(bool)) (newTask string, changed bool) {
+	nt, changed := applyRoute(route, turnTask, interject)
+	if !changed {
+		return turnTask, false
+	}
+	a.consumeInterjectByID(sid, msgID)
+	if route == "redirect" {
+		reground(true)
+	} else {
+		a.injectSteerConstraint(ctx, sid, interject)
+		reground(false)
+	}
+	return nt, true
+}
+
 // injectInterjectDirective tells the agent a new user message arrived mid-turn. When
 // deferred (not dispatching) it has been QUEUED to run after the current task, so the
 // agent keeps focus instead of oscillating between the two (the live-observed thrash:
 // plexus #7–#10) and may call route_interjection to redirect/append when confident.
 // When dispatching (background subagents running, agent otherwise idle) the message is
 // left visible and the agent is invited to answer it briefly without abandoning the task.
-func (a *App) injectInterjectDirective(ctx context.Context, sid session.SessionID, turnTask, interject string, dispatching bool) {
+func (a *App) injectInterjectDirective(ctx context.Context, sid session.SessionID, turnTask, msgID, interject string, dispatching bool) {
+	reqLine := ""
+	if h := shortReqID(msgID); h != "" {
+		reqLine = "\n\nThis request's id is [req: " + h + "] — pass it as route_interjection request_id to route THIS one."
+	}
 	var text string
 	if dispatching {
 		// The orchestrator is otherwise idle while background subagents work, so it is free
@@ -62,6 +96,7 @@ func (a *App) injectInterjectDirective(ctx context.Context, sid session.SessionI
 			"request should change your direction NOW, or be folded into the current task, call route_interjection " +
 			"(action \"redirect\" or \"append\") with a one-line reason. When unsure, do nothing and it stays queued."
 	}
+	text += reqLine
 	pd, _ := json.Marshal(event.PromptSubmittedData{
 		MessageID: "m_" + newID(),
 		Parts:     []session.Part{{Kind: session.PartText, Text: text}},
@@ -138,12 +173,15 @@ const (
 // or nothing usable). Queue disposition is handled here: a redirect/append is left queued for
 // the loop's turnControl drain to consume; a resolved chitchat reply or a bare cancel is
 // consumed so it does not also re-run as its own turn; a defer/failure is left queued (no loss).
-func (a *App) handleAside(ctx context.Context, agent AgentSpec, s session.Session, depth int, turnTask, aside string) (acted bool) {
+func (a *App) handleAside(ctx context.Context, agent AgentSpec, s session.Session, depth int, turnTask, msgID, aside string) (acted bool) {
 	sys := asideHandlerSystem
+	if h := shortReqID(msgID); h != "" {
+		sys += "\n\nThis message's request id is [req: " + h + "] — pass it as route_interjection request_id to route THIS message."
+	}
 	if t := strings.TrimSpace(turnTask); t != "" {
 		sys += "\n\nThe background task (context only — do not act on it here):\n" + clipSpec(t, 500)
 	}
-	replied, eff := a.interjectTurn(ctx, agent, s, depth, sys, aside, modeAside)
+	replied, eff := a.interjectTurn(ctx, agent, s, depth, sys, aside, modeAside, msgID)
 	switch {
 	case eff.didRoute:
 		return true // redirect/append: the loop's turnControl drain consumes + re-anchors next step
@@ -177,12 +215,12 @@ const queuedTriageSystem = "A user message was queued while you were finishing t
 // reset — so a follow-up like "how many files did you change?" keeps the task context) and
 // returns false. Anything the model routes, or that produces nothing usable, returns true so
 // the drain resurfaces it as a fresh turn. The safe default is escalate: no work is dropped.
-func (a *App) triageQueued(ctx context.Context, agent AgentSpec, s session.Session, aside string) (escalate bool) {
+func (a *App) triageQueued(ctx context.Context, agent AgentSpec, s session.Session, msgID, aside string) (escalate bool) {
 	sys := queuedTriageSystem
 	if tail := a.recentTranscript(ctx, s.ID, 8, 2000); tail != "" {
 		sys += "\n\nRecent conversation (for context — do not re-answer it):\n" + tail
 	}
-	replied, eff := a.interjectTurn(ctx, agent, s, 0, sys, aside, modeQueued)
+	replied, eff := a.interjectTurn(ctx, agent, s, 0, sys, aside, modeQueued, msgID)
 	if eff.escalate {
 		return true // routed → run it as its own fully-tooled turn
 	}
@@ -220,7 +258,7 @@ func (a *App) recentTranscript(ctx context.Context, sid session.SessionID, maxMs
 // plus the accumulated effect. Queue disposition (consume vs escalate vs break-park) is the
 // caller's, since it differs by mode. mode selects how route_interjection is wired: modeAside
 // signals turnControl to re-anchor the parked turn; modeQueued marks escalate.
-func (a *App) interjectTurn(ctx context.Context, agent AgentSpec, s session.Session, depth int, sys, aside string, mode triageMode) (replied bool, eff asideEffect) {
+func (a *App) interjectTurn(ctx context.Context, agent AgentSpec, s session.Session, depth int, sys, aside string, mode triageMode, replyTo string) (replied bool, eff asideEffect) {
 	// Signal/interaction tools only — the model can reply or change course but cannot start
 	// (or duplicate) delegated work here.
 	var specs []port.ToolSpec
@@ -268,7 +306,21 @@ func (a *App) interjectTurn(ctx context.Context, agent AgentSpec, s session.Sess
 		// local context — not persisted — to avoid polluting the delegated task's log; the tool
 		// EFFECTS (turnControl route, cancel notices) reach the loop through their own channels.
 		if reply != "" {
-			a.appendPart(ctx, s.ID, actor, msgID, session.RoleAssistant, session.Part{ID: textPartID, Kind: session.PartText, Text: reply})
+			// Tag the visible reply with the answered message's origin id (replyTo) so the
+			// TUI can pull that question bubble down just above this inline answer — but ONLY
+			// when this reply is terminal (no tool call follows). A reply that precedes a
+			// route/cancel call is a brief ack before hand-off: modeQueued then resurfaces the
+			// message as its own turn, whose ResurfacedFrom already reorders the bubble. Tagging
+			// the ack too would move the same bubble twice and strand the ack with no question.
+			// eff.escalate is checked too (it is sticky across the mini-loop's steps): a closing
+			// sentence in a later, tool-call-free step still follows an earlier route, so it must
+			// stay untagged as well. eff.escalate can only be set by an earlier calls>0 step, so
+			// a genuine single-step inline answer (which never routed) keeps its tag.
+			rt := replyTo
+			if len(calls) > 0 || eff.escalate {
+				rt = ""
+			}
+			a.appendReplyPart(ctx, s.ID, actor, msgID, rt, session.RoleAssistant, session.Part{ID: textPartID, Kind: session.PartText, Text: reply})
 			replied = true
 		}
 		if len(calls) == 0 {
@@ -322,7 +374,7 @@ func (a *App) interjectTurn(ctx context.Context, agent AgentSpec, s session.Sess
 func (a *App) execAsideTool(ctx context.Context, s session.Session, depth int, c *session.ToolCall, eff *asideEffect, mode triageMode) session.ToolResult {
 	env := port.ToolEnv{
 		SessionID: s.ID,
-		RouteInterjection: func(action, reason string) error {
+		RouteInterjection: func(action, reason, requestID string) error {
 			if mode == modeQueued {
 				// The turn has already ended; there is no running turn to re-anchor. Any route
 				// action here simply means "this needs real work" — mark it so the drain runs the
@@ -339,6 +391,7 @@ func (a *App) execAsideTool(ctx context.Context, s session.Session, depth int, c
 			}
 			a.signalTurnControl(s.ID, func(tc *turnControl) {
 				tc.route = action
+				tc.routeID = requestID
 				if reason != "" {
 					tc.reason = reason
 				}
@@ -516,6 +569,64 @@ func (a *App) consumeInterject(sid session.SessionID, text string) {
 	}
 }
 
+// consumeInterjectByID removes the queued interjection with this MsgID (absorbed by a
+// route this turn). Preferred over consumeInterject(text) when the MsgID is known: it is
+// exact even when two interjections share text, and dropping it from the queue is what makes
+// re-draining the same route signal a no-op — resolveRouteTarget then finds nothing.
+func (a *App) consumeInterjectByID(sid session.SessionID, msgID string) {
+	if msgID == "" {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	q := a.stateLocked(sid).pendingInterject
+	out := q[:0]
+	for _, p := range q {
+		if p.MsgID != msgID {
+			out = append(out, p)
+		}
+	}
+	if len(out) == 0 {
+		a.stateLocked(sid).pendingInterject = nil
+	} else {
+		a.stateLocked(sid).pendingInterject = out
+	}
+}
+
+// resolveRouteTarget picks which queued interjection a route signal applies to. When the
+// orchestrator named a request (idHint — a full request id or a short suffix of one, as
+// surfaced by shortReqID), match it against the queued MsgIDs; otherwise fall back to the
+// OLDEST queued interjection (FIFO, which is also the lowest sortable id). Returns "","" when
+// nothing is queued — the interjection was already absorbed, so the route is a no-op. This is
+// the routing fix: the route binds to a specific queued request, not to lastUserPromptText,
+// so piled interjections neither get re-absorbed nor cross-applied.
+func (a *App) resolveRouteTarget(sid session.SessionID, idHint string) (msgID, text string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	q := a.stateLocked(sid).pendingInterject
+	if len(q) == 0 {
+		return "", ""
+	}
+	if idHint = strings.TrimSpace(idHint); idHint != "" {
+		for _, p := range q {
+			if p.MsgID == idHint || (len(idHint) >= 4 && strings.HasSuffix(p.MsgID, idHint)) {
+				return p.MsgID, p.Text
+			}
+		}
+	}
+	return q[0].MsgID, q[0].Text
+}
+
+// shortReqID is the compact request handle shown to the model in an interjection directive
+// (the last 8 chars of the MsgID). The model echoes it back as route_interjection request_id;
+// resolveRouteTarget suffix-matches it. Full ids match too, so this is only for brevity.
+func shortReqID(msgID string) string {
+	if len(msgID) <= 8 {
+		return msgID
+	}
+	return msgID[len(msgID)-8:]
+}
+
 // takePendingInterject pops the oldest queued interjection (FIFO), or "" if none.
 func (a *App) takePendingInterject(sid session.SessionID) string {
 	a.mu.Lock()
@@ -540,21 +651,20 @@ func (a *App) hasPendingInterject(sid session.SessionID) bool {
 	return len(a.stateLocked(sid).pendingInterject) > 0
 }
 
-// pendingInterjectTexts snapshots the queued interjection texts (FIFO order) without
-// removing them. The idle-park flush handles each already-queued item through handleAside,
-// which consumes a resolved reply / bare cancel itself and leaves a routed item for the
-// turnControl drain — so the caller must iterate a copy, not mutate the queue mid-loop.
-func (a *App) pendingInterjectTexts(sid session.SessionID) []string {
+// pendingInterjectItems snapshots the queued interjections (FIFO order) without removing
+// them. The idle-park flush handles each already-queued item through handleAside, which
+// consumes a resolved reply / bare cancel itself and leaves a routed item for the turnControl
+// drain — so the caller must iterate a copy, not mutate the queue mid-loop. Each item keeps
+// its MsgID so the flush can surface the request handle and route by id.
+func (a *App) pendingInterjectItems(sid session.SessionID) []pendingInterjection {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	q := a.stateLocked(sid).pendingInterject
 	if len(q) == 0 {
 		return nil
 	}
-	out := make([]string, 0, len(q))
-	for _, p := range q {
-		out = append(out, p.Text)
-	}
+	out := make([]pendingInterjection, len(q))
+	copy(out, q)
 	return out
 }
 
