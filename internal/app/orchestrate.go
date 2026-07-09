@@ -559,12 +559,6 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 	a.appendFact(ctx, child.ID, event.TypePromptSubmitted, actor, pd)
 	a.touch(child.ID) // seed liveness so the watchdog doesn't fire immediately
 
-	// Announce the spawn on the parent session for the live pane view.
-	sd, _ := json.Marshal(event.AgentStatusData{
-		AgentID: string(child.ID), Parent: string(parent.ID), Role: spec.Name, State: "running",
-	})
-	a.publishTransient(parent.ID, event.TypeAgentSpawned, actor, sd)
-
 	// Run the subagent with a hard per-attempt timeout. Register its cancel so
 	// the user can interrupt this specific subagent (Esc on its focused pane).
 	attemptCtx, cancel := context.WithTimeout(ctx, a.cfg.SubagentTimeout)
@@ -577,6 +571,16 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 		a.stateLocked(child.ID).cancel = nil
 		a.mu.Unlock()
 	}()
+
+	// Announce the spawn on the parent session for the live pane view. Published
+	// AFTER the cancel is registered so an Interrupt issued in response to THIS
+	// event (a UI/test cancelling the just-spawned subagent) always finds a live
+	// cancel func. Announcing first raced the registration: the interrupt would
+	// read a nil cancel, no-op, and the subagent would run to its full timeout.
+	sd, _ := json.Marshal(event.AgentStatusData{
+		AgentID: string(child.ID), Parent: string(parent.ID), Role: spec.Name, State: "running",
+	})
+	a.publishTransient(parent.ID, event.TypeAgentSpawned, actor, sd)
 
 	type outcome struct {
 		text string
