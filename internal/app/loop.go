@@ -175,12 +175,9 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	recovered := false     // stuck-recovery redecompose (stall/council deadlock → depth+1 child) fired at most once per run
 	guard := newRunGuard()
 	guard.stallConverge = stallConvergeEnabled() // D18a: collapse the stalled-nudge re-arm when a redirect produced no forward motion
-	councilRounds := 0                           // consensus termination gate rounds this turn (D14)
-	lastCouncilFeedback := ""                    // last round's feedback (no-progress detection)
+	var ct councilTurn                           // consensus gate's per-turn accounting (rounds/feedback/spent/deadlocked); zeroed on reground (D14)
 	prevFinishText := ""                         // the answer the council rejected last round
 	prevFinishCalls := -1                        // guard.callCount() at that rejection (-1 = none yet)
-	councilSpent := time.Duration(0)             // self-measured wall-clock consumed by deliberations
-	councilDeadlock := false                     // set by the gate iff its finish was a genuine round-cap deadlock (never approved)
 	unverifiedReason := ""                       // non-empty when the turn finishes WITHOUT council approval (deadlock/cost-cap/resubmit); propagated to turn.finished so the UI marks it UNVERIFIED, not a clean done
 	turnTask := ""                               // the user instruction THIS turn answers, snapshotted at step 0. A
 	// steer that lands mid-turn is QUEUED by default (runs as its own follow-up turn), so
@@ -232,11 +229,13 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	// pre-flight planner for a fresh decomposition.
 	reground := func(rebuildPlan bool) {
 		guard.resetStall()
-		councilRounds = 0
-		lastCouncilFeedback = ""
+		// Field-wise reset (not ct = councilTurn{}): ct.spent is the turn's cumulative
+		// deliberation clock for the cost cap and must survive a re-ground.
+		ct.rounds = 0
+		ct.feedback = ""
+		ct.deadlocked = false
 		prevFinishText = ""
 		prevFinishCalls = -1
-		councilDeadlock = false
 		if rebuildPlan && a.planEligible(agent, depth) {
 			// Re-plan against the ADOPTED task (turnTask), not the bare last user prompt:
 			// after a route_interjection "append" the last prompt is only the steer's
@@ -606,13 +605,20 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 				// and print the same answer twice. Finish instead, marked plainly.
 				if prevFinishCalls >= 0 && guard.callCount() == prevFinishCalls && normEq(lastText, prevFinishText) {
 					dd, _ := json.Marshal(event.CouncilDecidedData{
-						Round: councilRounds + 1, Decision: string(council.Done),
+						Round: ct.rounds + 1, Decision: string(council.Done),
 						Note: "answer resubmitted unchanged after council feedback — finishing without re-deliberation; treat as UNVERIFIED",
 					})
 					a.appendFact(ctx, sid, event.TypeCouncilDecided, event.Actor{Kind: event.ActorSystem, ID: "council"}, dd)
 					unverifiedReason = "the same answer was resubmitted unchanged after council feedback, without re-deliberation"
 				} else {
-					keepWorking, unv := a.runCouncilGate(ctx, s, agent, turnTask, lastText, &councilRounds, &lastCouncilFeedback, buildCouncilChanges(guard.changeSet()), maxSteps-step, fab, time.Since(runStart), &councilSpent, &councilDeadlock)
+					keepWorking, unv := a.runCouncilGate(ctx, s, agent, councilInput{
+						turnTask:    turnTask,
+						lastText:    lastText,
+						changes:     buildCouncilChanges(guard.changeSet()),
+						fabrication: fab,
+						stepsLeft:   maxSteps - step,
+						turnElapsed: time.Since(runStart),
+					}, &ct)
 					if keepWorking {
 						prevFinishText, prevFinishCalls = lastText, guard.callCount()
 						continue
@@ -621,10 +627,10 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					// WITHOUT approving (deadlock/cost-cap/no-feedback/unavailable) — carry that
 					// into turn.finished below so the UI shows UNVERIFIED, not a confident done.
 					unverifiedReason = unv
-					if !recovered && councilDeadlock &&
-						strings.TrimSpace(lastCouncilFeedback) != "" && a.planEligible(agent, depth) {
+					if !recovered && ct.deadlocked &&
+						strings.TrimSpace(ct.feedback) != "" && a.planEligible(agent, depth) {
 						// Council deadlock: the members used every round and never approved, still holding
-						// an unmet concern — the gate flags this explicitly (councilDeadlock), so a DONE
+						// an unmet concern — the gate flags this explicitly (ct.deadlocked), so a DONE
 						// vote that merely landed on the last allowed round does NOT reach here. The agent
 						// is stuck against a wall it could not clear on its own; before finishing UNVERIFIED,
 						// hand the task plus that exact concern to a fresh child that re-plans and breaks it
@@ -634,7 +640,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 						if task == "" {
 							task = strings.TrimSpace(lastUserText(reconstruct(a.taskEvents(sid, evs))))
 						}
-						if a.redecomposeStuck(ctx, s, agent, task, lastCouncilFeedback, depth) {
+						if a.redecomposeStuck(ctx, s, agent, task, ct.feedback, depth) {
 							recovered = true
 							guard.resetStall()
 							continue

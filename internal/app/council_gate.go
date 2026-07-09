@@ -275,6 +275,31 @@ func tailForCouncil(s string, n int) string {
 	return "…[earlier output truncated]\n" + s[cut:]
 }
 
+// councilInput is the read-only evidence one council round judges: the turn's
+// task and the agent's latest report/diff, plus the self-measured turn clock,
+// remaining step budget, and any structural fabrication signal. Snapshotted by
+// the caller so a steer mid-deliberation can't swap what the council judges.
+type councilInput struct {
+	turnTask    string        // the goal the council judges "done" against (turn-snapshotted)
+	lastText    string        // the agent's final message this step (the claim under review)
+	changes     string        // the agent's before→after edits (bounded)
+	fabrication string        // structural unverified-deliverable signal, "" when none
+	stepsLeft   int           // remaining step budget, surfaced to members
+	turnElapsed time.Duration // the turn's own wall clock, for the cost-efficiency cap
+}
+
+// councilTurn is the per-turn accounting the consensus gate carries ACROSS rounds:
+// rounds run, the last round's feedback (no-progress detection), wall-clock spent
+// deliberating (cost cap), and whether a finish was a genuine round-cap deadlock.
+// The loop owns one per turn (zeroed on reground) and passes a pointer so each
+// round updates it in place — replacing the four in/out pointer params it grew from.
+type councilTurn struct {
+	rounds     int           // consensus gate rounds this turn (D14)
+	feedback   string        // last round's feedback (no-progress detection)
+	spent      time.Duration // self-measured wall-clock consumed by deliberations
+	deadlocked bool          // set iff a finish was a genuine round-cap deadlock (never approved)
+}
+
 // runCouncilGate runs the consensus termination gate (D14) at top level. It
 // returns true when the council voted to CONTINUE — it has injected the
 // aggregated feedback as a system prompt, so the caller should loop again. It
@@ -290,15 +315,13 @@ func tailForCouncil(s string, n int) string {
 // genuine done. Empty reason on a finish = a real approval (or a cancel the loop
 // unwinds separately). The caller propagates the reason into turn.finished so the
 // UI does not paint an abandoned task as a confident "done".
-func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent AgentSpec, turnTask, lastText string, rounds *int, lastFeedback *string, changes string, stepsLeft int, fabrication string, turnElapsed time.Duration, spent *time.Duration, deadlocked *bool) (keepWorking bool, unverifiedReason string) {
-	// deadlocked reports (to the caller) whether this finish is a genuine round-cap
+func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent AgentSpec, in councilInput, ct *councilTurn) (keepWorking bool, unverifiedReason string) {
+	// ct.deadlocked reports (to the caller) whether this finish is a genuine round-cap
 	// deadlock — the council used its whole budget and never approved — as opposed to
 	// an approval or a cost-capped finish. Only the round-cap branch sets it, so a
 	// stuck-recovery hook can distinguish "held unmet for every round" from a DONE vote
 	// that happened to land on the last allowed round (identical by rounds count alone).
-	if deadlocked != nil {
-		*deadlocked = false
-	}
+	ct.deadlocked = false
 	// An interrupt mid-finish must not trigger a deliberation or inject a spurious
 	// feedback prompt — let the loop unwind the cancellation.
 	if ctx.Err() != nil {
@@ -312,40 +335,38 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	if maxRounds <= 0 {
 		maxRounds = 3
 	}
-	if *rounds >= maxRounds {
+	if ct.rounds >= maxRounds {
 		// Round cap hit — finish (a normal outcome, not an error), but say plainly
 		// that the council never approved: a deadlocked result must read as
 		// UNVERIFIED, not as a done the members agreed to. Carry the last feedback
 		// so the record shows WHAT was still unmet. Recorded on a fresh round number
 		// so it doesn't collide with the last deliberated round.
 		note := fmt.Sprintf("unresolved after %d rounds — finishing; the council never approved this result, treat it as UNVERIFIED", maxRounds)
-		if fb := strings.TrimSpace(*lastFeedback); fb != "" {
+		if fb := strings.TrimSpace(ct.feedback); fb != "" {
 			note += "; still unmet: " + clipLine(fb, 200)
 		}
 		dd, _ := json.Marshal(event.CouncilDecidedData{
-			Round: *rounds + 1, Decision: string(council.Done),
+			Round: ct.rounds + 1, Decision: string(council.Done),
 			Note: note,
 		})
 		a.appendFact(ctx, sid, event.TypeCouncilDecided, councilActor, dd)
-		if deadlocked != nil {
-			*deadlocked = true
-		}
+		ct.deadlocked = true
 		return false, fmt.Sprintf("the council never approved this result within %d round(s)", maxRounds)
 	}
 	// Cost-efficiency cap (self-measured, no external info): when deliberation has
 	// already eaten a disproportionate share of the turn's own wall clock — a slow
 	// backend polling 3 members per round — further rounds cost more than they
 	// return. At least one round always runs; the cap only stops round 2+.
-	if *rounds >= 1 && *spent >= 60*time.Second && *spent*4 >= turnElapsed {
+	if ct.rounds >= 1 && ct.spent >= 60*time.Second && ct.spent*4 >= in.turnElapsed {
 		dd, _ := json.Marshal(event.CouncilDecidedData{
-			Round: *rounds + 1, Decision: string(council.Done),
+			Round: ct.rounds + 1, Decision: string(council.Done),
 			Note: fmt.Sprintf("deliberation has cost %s of a %s turn — finishing instead of another round; treat as UNVERIFIED",
-				fmtElapsed(*spent), fmtElapsed(turnElapsed)),
+				fmtElapsed(ct.spent), fmtElapsed(in.turnElapsed)),
 		})
 		a.appendFact(ctx, sid, event.TypeCouncilDecided, councilActor, dd)
 		return false, "deliberation was cost-capped before the council approved"
 	}
-	*rounds++
+	ct.rounds++
 
 	members := a.cfg.CouncilMembers
 	if len(members) == 0 {
@@ -372,11 +393,11 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	// background dispatch — never queued — is still hidden from the council.
 	evs, _ := a.store.Read(ctx, sid, 0)
 	evs = a.taskEvents(sid, evs)
-	task := turnTask
+	task := in.turnTask
 	if task == "" { // defensive: fall back to the latest genuine prompt
 		task = lastUserPromptText(evs)
 	}
-	changes = truncateForCouncil(changes, councilDiffCap) // the agent's before→after edits, bounded
+	changes := truncateForCouncil(in.changes, councilDiffCap) // the agent's before→after edits, bounded
 	// The agent's plan (todos, with status) is the council's CONTRACT (D15): the
 	// completeness lens judges the report/diff against it, and any still-pending
 	// item is strong grounds to continue. Empty when the agent kept no plan.
@@ -409,8 +430,8 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	// opt-in command signals below, this needs no config — it is derived structurally from the
 	// tool log the council is already judging against, and it is language-agnostic (it replaced
 	// the old English confession-phrase scan that missed non-English or non-confessing fakes).
-	if strings.TrimSpace(fabrication) != "" {
-		signals = append(signals, port.Signal{Source: "self-check", Kind: "unverified", Status: "fail", Detail: tailForCouncil(fabrication, councilSignalCap)})
+	if strings.TrimSpace(in.fabrication) != "" {
+		signals = append(signals, port.Signal{Source: "self-check", Kind: "unverified", Status: "fail", Detail: tailForCouncil(in.fabrication, councilSignalCap)})
 		signalSummaries = append(signalSummaries, "self-check: unverified")
 	}
 	// Always-on deterministic signal (N14): a knowledge lookup failed this turn and was
@@ -502,22 +523,22 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		labels[i] = m.Name
 	}
 	cd, _ := json.Marshal(event.CouncilConvenedData{
-		Round: *rounds, Members: labels, Rule: string(rule), Signals: signalSummaries,
-		Task: task, Plan: plan, Report: lastText, Changes: changes, NoChanges: noChanges,
+		Round: ct.rounds, Members: labels, Rule: string(rule), Signals: signalSummaries,
+		Task: task, Plan: plan, Report: in.lastText, Changes: changes, NoChanges: noChanges,
 	})
 	a.appendFact(ctx, sid, event.TypeCouncilConvened, councilActor, cd)
 	// Live panel: announce which members are deliberating this round.
 	for _, m := range members {
-		ld, _ := json.Marshal(event.CouncilDeliberatingData{Round: *rounds, Member: m.Name, State: "asking"})
+		ld, _ := json.Marshal(event.CouncilDeliberatingData{Round: ct.rounds, Member: m.Name, State: "asking"})
 		a.publishTransient(sid, event.TypeCouncilDeliberating, councilActor, ld)
 	}
 
 	delibStart := time.Now()
 	delib, err := a.cfg.Council.Deliberate(ctx, port.DeliberationRequest{
-		Round:        *rounds,
+		Round:        ct.rounds,
 		Task:         task,
 		Plan:         plan,
-		Report:       lastText,
+		Report:       in.lastText,
 		Actions:      turnToolEvidence(evs, councilActionsCap),
 		Signals:      signals,
 		Changes:      changes,
@@ -525,14 +546,14 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		Members:      members,
 		Rule:         rule,
 		DefaultModel: s.Model.Model,
-		StepsLeft:    stepsLeft,
+		StepsLeft:    in.stepsLeft,
 	})
-	*spent += time.Since(delibStart)
+	ct.spent += time.Since(delibStart)
 	if err != nil {
 		// A gate failure must not trap the turn — record it as a forced finish
 		// (a note, not an error event, since the turn completes normally).
 		dd, _ := json.Marshal(event.CouncilDecidedData{
-			Round: *rounds, Decision: string(council.Done), Note: "council unavailable: " + err.Error(),
+			Round: ct.rounds, Decision: string(council.Done), Note: "council unavailable: " + err.Error(),
 		})
 		a.appendFact(ctx, sid, event.TypeCouncilDecided, councilActor, dd)
 		return false, "the council was unavailable, so the result was not approved: " + err.Error()
@@ -544,14 +565,14 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 
 	for _, v := range delib.Verdicts {
 		vd, _ := json.Marshal(event.CouncilVerdictData{
-			Round: *rounds, Member: v.Member, Lens: v.Lens, Decision: string(v.Decision),
+			Round: ct.rounds, Member: v.Member, Lens: v.Lens, Decision: string(v.Decision),
 			Confidence: v.Confidence, Rationale: v.Rationale, Feedback: v.Feedback,
 		})
 		a.appendFact(ctx, sid, event.TypeCouncilVerdict, councilActor, vd)
 	}
 	emitDecided := func(decision council.Decision, feedback, note string) {
 		dd, _ := json.Marshal(event.CouncilDecidedData{
-			Round: *rounds, Decision: string(decision), Tally: delib.Breakdown, Feedback: feedback, Note: note,
+			Round: ct.rounds, Decision: string(decision), Tally: delib.Breakdown, Feedback: feedback, Note: note,
 		})
 		a.appendFact(ctx, sid, event.TypeCouncilDecided, councilActor, dd)
 	}
@@ -564,11 +585,11 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	// No-progress guard: empty or repeated feedback means another round would just
 	// spin, so finish instead — recorded as a forced "done", not an error.
 	fb := strings.TrimSpace(delib.Feedback)
-	if fb == "" || fb == *lastFeedback {
+	if fb == "" || fb == ct.feedback {
 		emitDecided(council.Done, "", "members voted continue but gave no new feedback — finishing; the council never approved this result, treat it as UNVERIFIED")
 		return false, "the council voted to continue but produced no actionable feedback, so the result stands unapproved"
 	}
-	*lastFeedback = fb
+	ct.feedback = fb
 
 	// Rung 1 (stuck-concern escalation, opt-in): once the council has held the turn open
 	// for councilMeansRound+ rounds, the bare objection has demonstrably failed to move the
@@ -578,7 +599,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	// RAW feedback, so no-progress repeat-detection is unaffected and the gate is never
 	// weakened (augment, not approve). See docs/proposals/council-stuck-concern-escalation.md.
 	inject := fb
-	if councilMeansEnabled() && *rounds >= councilMeansRound {
+	if councilMeansEnabled() && ct.rounds >= councilMeansRound {
 		if hint := meansHint(fb); hint != "" {
 			inject = fb + "\n\n" + hint
 		}

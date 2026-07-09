@@ -140,7 +140,7 @@ type pendingInterjection struct {
 }
 
 // turnControl is a mid-turn control signal a tool records for the running loop to
-// drain at its next step. The loop owns turnTask/councilRounds/guard (stack-local),
+// drain at its next step. The loop owns turnTask/councilTurn/guard (stack-local),
 // so a tool cannot mutate them directly; it leaves this signal instead and the loop
 // applies the reground. route routes a queued user interjection (queue|redirect|
 // append); replan is the agent's own "this plan is unworkable" declaration.

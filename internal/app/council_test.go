@@ -173,8 +173,8 @@ func TestCouncilGateCancelDuringDeliberation(t *testing.T) {
 	cc.cancel = cancel
 	defer cancel()
 
-	rounds, lastFB := 0, ""
-	if keep, _ := a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB, "", 40, "", 0, new(time.Duration), nil); keep {
+	var ct councilTurn
+	if keep, _ := a.runCouncilGate(ctx, s, agent, councilInput{turnTask: "task", lastText: "report", stepsLeft: 40}, &ct); keep {
 		t.Error("gate must NOT continue after a mid-deliberation cancel")
 	}
 	if cc.calls != 1 {
@@ -195,15 +195,15 @@ func TestCouncilGateSkipsWhenAlreadyCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // already cancelled before the gate runs
 
-	rounds, lastFB := 0, ""
-	if keep, _ := a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB, "", 40, "", 0, new(time.Duration), nil); keep {
+	var ct councilTurn
+	if keep, _ := a.runCouncilGate(ctx, s, agent, councilInput{turnTask: "task", lastText: "report", stepsLeft: 40}, &ct); keep {
 		t.Error("gate must not continue when entered with a cancelled context")
 	}
 	if fc.calls != 0 {
 		t.Errorf("Deliberate must not run on a cancelled gate; calls=%d", fc.calls)
 	}
-	if rounds != 0 {
-		t.Errorf("a cancelled gate must not consume a round; rounds=%d", rounds)
+	if ct.rounds != 0 {
+		t.Errorf("a cancelled gate must not consume a round; rounds=%d", ct.rounds)
 	}
 	if countType(mustRead(t, a, s.ID), event.TypeCouncilConvened) != 0 {
 		t.Error("a cancelled gate must not convene the council")
@@ -220,9 +220,8 @@ func TestCouncilGateCostCapStopsLateRounds(t *testing.T) {
 	ctx := context.Background()
 
 	// rounds=1 (a round already ran), spent 5m of a 6m turn (>=60s and spent*4 >= turn).
-	rounds, lastFB := 1, "still unmet: foo"
-	spent := 5 * time.Minute
-	if keep, _ := a.runCouncilGate(ctx, s, agent, "task", "report", &rounds, &lastFB, "", 40, "", 6*time.Minute, &spent, nil); keep {
+	ct := councilTurn{rounds: 1, feedback: "still unmet: foo", spent: 5 * time.Minute}
+	if keep, _ := a.runCouncilGate(ctx, s, agent, councilInput{turnTask: "task", lastText: "report", stepsLeft: 40, turnElapsed: 6 * time.Minute}, &ct); keep {
 		t.Error("cost cap should finish (not continue) once deliberation dominates the turn")
 	}
 	if fc.calls != 0 {
@@ -247,9 +246,8 @@ func TestCouncilGateCostCapAllowsFirstRound(t *testing.T) {
 	a, wd := newApp(t, workingLLM(), Config{Council: fc})
 	s, agent := newGateSession(t, a, wd)
 
-	rounds, lastFB := 0, ""
-	spent := 10 * time.Minute // huge, but rounds==0 so the cap is not consulted
-	_, _ = a.runCouncilGate(context.Background(), s, agent, "task", "report", &rounds, &lastFB, "", 40, "", 6*time.Minute, &spent, nil)
+	ct := councilTurn{spent: 10 * time.Minute} // huge, but rounds==0 so the cap is not consulted
+	_, _ = a.runCouncilGate(context.Background(), s, agent, councilInput{turnTask: "task", lastText: "report", stepsLeft: 40, turnElapsed: 6 * time.Minute}, &ct)
 	if fc.calls != 1 {
 		t.Errorf("first round must always deliberate regardless of prior cost; calls=%d", fc.calls)
 	}
@@ -268,14 +266,14 @@ func TestCouncilGateDeadlockSignal(t *testing.T) {
 		fc := &fakeCouncil{delibs: delibs}
 		a, wd := newApp(t, workingLLM(), Config{Council: fc, CouncilMaxRounds: 2})
 		s, agent := newGateSession(t, a, wd)
-		rounds, lastFB, deadlock := 0, "", false
+		var ct councilTurn
 		for i := 0; i < 5; i++ { // bounded; the gate finishes well within the cap+1
-			if keep, _ := a.runCouncilGate(context.Background(), s, agent, "task", "report",
-				&rounds, &lastFB, "", 40, "", 0, new(time.Duration), &deadlock); !keep {
+			if keep, _ := a.runCouncilGate(context.Background(), s, agent,
+				councilInput{turnTask: "task", lastText: "report", stepsLeft: 40}, &ct); !keep {
 				break
 			}
 		}
-		return deadlock, rounds
+		return ct.deadlocked, ct.rounds
 	}
 
 	// Distinct feedback every round (so the no-progress short-circuit never fires) → the council
