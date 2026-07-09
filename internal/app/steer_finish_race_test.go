@@ -508,3 +508,16 @@ func TestSteerArrivingDuringTriageNotDropped(t *testing.T) {
 		t.Fatalf("a steer that arrived during triage was silently dropped; finishes=%d", countType(evs, event.TypeTurnFinished))
 	}
 }
+
+// userPrompts counts genuine user-actor PromptSubmitted events in a log — a
+// re-surfaced queued interjection appends a second one, so tests use it to assert
+// a steer landed as its own follow-up turn (shared with the interject probes).
+func userPrompts(evs []event.Event) int {
+	n := 0
+	for _, e := range evs {
+		if e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser {
+			n++
+		}
+	}
+	return n
+}
