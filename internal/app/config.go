@@ -145,8 +145,8 @@ type Config struct {
 
 	// Subagent supervision (sidecar): each background subagent is watched for
 	// liveness and restarted on stall/timeout/transient error.
-	SubagentTimeout     time.Duration // hard cap per attempt (default 5m)
-	SubagentStall       time.Duration // no-activity → considered stalled (default 90s)
+	SubagentTimeout     time.Duration // hard cap per attempt (default 30m) — pathological backstop only
+	SubagentStall       time.Duration // no-activity → considered stalled (default 4m), suppressed while a tool runs
 	SubagentMaxRestarts int           // restarts on stall/timeout/error (default 2)
 
 	// AutoOrchestrate triggers automatic orchestration mode when context usage
@@ -256,12 +256,18 @@ func (c Config) withDefaults() Config {
 		c.CompactRatio = 0.8
 	}
 	if c.SubagentTimeout == 0 {
-		c.SubagentTimeout = 5 * time.Minute
+		// Generous hard cap: the orchestrator cannot size a delegated task to a
+		// wall-clock budget, so this is NOT a fitting deadline — it only backstops
+		// the pathological cases the stall watchdog can't see: an infinite reasoning
+		// stream (deltas keep re-arming the stall) or a tool hung past its own
+		// timeout. Legitimate slow multi-step work finishes well under it.
+		c.SubagentTimeout = 30 * time.Minute
 	}
 	if c.SubagentStall == 0 {
-		// Generous: time-to-first-token on a large prompt (e.g. a big doc review)
-		// can be long with no stream activity; too tight a stall causes false
-		// restarts (duplicate subagent panes). The hard timeout is the real cap.
+		// No-activity liveness: catches a truly wedged child (no events at all).
+		// Stays ACTIVITY-based (any event, including streaming deltas) so a slow
+		// single generation is not false-killed, and is suppressed entirely while a
+		// tool is in flight (a silent long bash emits no events until it returns).
 		c.SubagentStall = 4 * time.Minute
 	}
 	if c.SubagentMaxRestarts == 0 {
