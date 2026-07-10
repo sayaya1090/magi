@@ -771,18 +771,20 @@ func (a *App) finishTurn(ctx context.Context, s session.Session, agent AgentSpec
 	//   - Subagent: if report is available it has NOT filed one (report terminates
 	//     the run earlier), so nudge it to call report with actual findings; when
 	//     report is unavailable, only an EMPTY result warrants the nudge.
-	//   - Top level: a turn that ran NO tool all turn AND ends with empty text —
-	//     a reasoning-only stop, common with harmony-format weak models that emit
-	//     only their analysis channel and stop — delivered literally nothing. The
-	//     council gate can't catch it (it requires usedTools), so it would finish
-	//     silently as a confident done with no deliverable and no UNVERIFIED flag.
-	//     Nudge it once to actually produce a result instead of finishing empty.
+	//   - Top level: a turn that ends with empty answer text delivered nothing the
+	//     user can read — a reasoning-only stop, common with harmony-format weak
+	//     models that emit only their analysis channel (or tool calls) and stop.
+	//     This holds whether the turn ran NO tool at all OR ran tools and then went
+	//     silent on the final step: the council gate (usedTools) can still vote the
+	//     tool work "done" and finish with no deliverable text and no UNVERIFIED
+	//     flag, so the user gets silence. Nudge once for a real result — the same
+	//     empty-turn nudge subagents already get — regardless of usedTools.
 	// Fires once per turn either way, so a still-empty retry then finishes normally.
 	if !ts.nudgedEmpty {
 		_, hasReport := a.tools.Get("report")
 		reportAvail := isSub && hasReport && agent.allows("report")
 		emptyResult := strings.TrimSpace(lastText) == ""
-		if (isSub && (reportAvail || emptyResult)) || (!isSub && !usedTools && emptyResult) {
+		if (isSub && (reportAvail || emptyResult)) || (!isSub && emptyResult) {
 			ts.nudgedEmpty = true
 			msg := "You are ending your turn without delivering a result. Call the 'report' tool NOW with " +
 				"your actual findings/answer and a status (done/blocked/failed). Do not stop with a partial " +
