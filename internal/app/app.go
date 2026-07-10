@@ -78,6 +78,14 @@ type sessionState struct {
 	bg               *bgGroup               // background subagent tracking (parent)
 	report           *subReport             // filed final report (subagent session)
 	userLabel        string                 // display name for the user in the transcript (plugin set_user_label); "" = "you"
+	// deferredAbandoned is the set of interjection origin MessageIDs that were queued in a
+	// PRIOR process (F5 ledger) and never resolved — reconstructed once from the log on the
+	// first run after load (deferredHydrated). Unlike pendingInterject (in-memory, lost on a
+	// kill) these stay masked from the live turn context for the whole session so a stranded
+	// interjection is not silently mixed into the next request; resetForNewTopLevel does NOT
+	// clear them (the abandonment is a whole-session fact, not a per-turn one).
+	deferredAbandoned map[string]bool
+	deferredHydrated  bool
 	// Turn-scoped (zeroed by resetForNewTopLevel).
 	criteria        string          // elicited acceptance criteria this turn
 	estSteps        int             // planner's advisory step estimate this turn
@@ -417,6 +425,10 @@ func (a *App) taskEvents(sid session.SessionID, evs []event.Event) []event.Event
 // the lock, for a user message that was steered in during the exit window and
 // runs again so nothing is stranded.
 func (a *App) startRun(ctx context.Context, sid session.SessionID) {
+	// Before any turn processes this session's events in THIS process, reconstruct which
+	// interjections a prior process left queued-but-unresolved (F5) so they stay masked from
+	// the turn context instead of leaking in as pending prompts. One-shot per session.
+	a.ensureDeferredHydrated(ctx, sid)
 	a.mu.Lock()
 	st := a.stateLocked(sid)
 	if a.closed || st.cancel != nil {
@@ -497,6 +509,9 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 						break
 					}
 					// Answered inline — already popped and the reply persisted; drain the next.
+					// Ledger it resolved (F5) so a later reload does not see the deferred entry
+					// with no resolution and wrongly re-mask an interjection that was answered.
+					a.recordDeferral(context.WithoutCancel(runCtx), sid, item.MsgID, true)
 				}
 				if rerun {
 					continue

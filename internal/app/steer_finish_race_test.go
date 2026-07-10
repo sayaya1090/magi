@@ -390,7 +390,7 @@ func TestQueuedSteerAnsweredInlineNoNewTurn(t *testing.T) {
 
 	// Queue the steer before the turn so it is buried mid-transcript (drain triage, not the
 	// trailing-message safety net, must handle it).
-	a.enqueueInterject(sid, "m_q", "just a quick question — how did it go?")
+	a.enqueueInterject(context.Background(), sid, "m_q", "just a quick question — how did it go?")
 	a.Submit(ctx, command.SubmitPrompt{
 		SessionID: sid,
 		Parts:     []session.Part{{Kind: session.PartText, Text: "do the task"}},
@@ -433,7 +433,7 @@ func TestQueuedSteerRoutedRunsAsOwnTurn(t *testing.T) {
 	ctx := context.Background()
 	sid, _ := a.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir()})
 
-	a.enqueueInterject(sid, "m_q", "also refactor the parser")
+	a.enqueueInterject(context.Background(), sid, "m_q", "also refactor the parser")
 	a.Submit(ctx, command.SubmitPrompt{
 		SessionID: sid,
 		Parts:     []session.Part{{Kind: session.PartText, Text: "do the task"}},
@@ -485,7 +485,7 @@ func TestSteerArrivingDuringTriageNotDropped(t *testing.T) {
 	ctx := context.Background()
 	sid, _ := a.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir()})
 
-	a.enqueueInterject(sid, "m_q1", "quick question — how did it go?")
+	a.enqueueInterject(context.Background(), sid, "m_q1", "quick question — how did it go?")
 	a.Submit(ctx, command.SubmitPrompt{
 		SessionID: sid,
 		Parts:     []session.Part{{Kind: session.PartText, Text: "do the task"}},

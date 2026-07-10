@@ -52,7 +52,7 @@ func (a *App) applyInterjectRoute(ctx context.Context, sid session.SessionID, ro
 	if !changed {
 		return turnTask, false
 	}
-	a.consumeInterjectByID(sid, msgID)
+	a.consumeInterjectByID(ctx, sid, msgID)
 	if route == "redirect" {
 		reground(true)
 	} else {
@@ -186,10 +186,10 @@ func (a *App) handleAside(ctx context.Context, agent AgentSpec, s session.Sessio
 	case eff.didRoute:
 		return true // redirect/append: the loop's turnControl drain consumes + re-anchors next step
 	case eff.didCancel:
-		a.consumeInterject(s.ID, aside) // cancel with no re-anchor: resolved here
+		a.consumeInterject(ctx, s.ID, aside) // cancel with no re-anchor: resolved here
 		return true
 	case replied:
-		a.consumeInterject(s.ID, aside) // chitchat: answered here, don't also re-run as a turn
+		a.consumeInterject(ctx, s.ID, aside) // chitchat: answered here, don't also re-run as a turn
 		return false
 	default:
 		return false // bare "queue" or nothing usable: leave queued to run later (no loss)
@@ -505,7 +505,7 @@ func (a *App) enqueueLateInterjections(ctx context.Context, sid session.SessionI
 	for _, it := range prompts[handled:] {
 		if txt := strings.TrimSpace(it.Text); txt != "" && txt != task {
 			a.markInterjectSeen(sid, it.MsgID)
-			a.enqueueInterject(sid, it.MsgID, txt)
+			a.enqueueInterject(ctx, sid, it.MsgID, txt)
 		}
 	}
 }
@@ -538,34 +538,90 @@ func (a *App) takeTurnControl(sid session.SessionID) turnControl {
 // once the current turn ends (drained by the run goroutine's re-check). msgID is the
 // PromptSubmitted event that carried it, so the loop can mask that event from the
 // live-judgment views while the interjection stays queued (deferredInterjectIDs).
-func (a *App) enqueueInterject(sid session.SessionID, msgID, text string) {
+func (a *App) enqueueInterject(ctx context.Context, sid session.SessionID, msgID, text string) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return
 	}
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	a.stateLocked(sid).pendingInterject = append(a.stateLocked(sid).pendingInterject, pendingInterjection{MsgID: msgID, Text: text})
+	a.mu.Unlock()
+	// Ledger the deferral so a reload can tell a still-queued interjection from a resolved
+	// one after the in-memory queue is gone (F5). Written after the queue mutation and
+	// outside a.mu — appendFact does store I/O and must not run under the app lock.
+	a.recordDeferral(ctx, sid, msgID, false)
+}
+
+// recordDeferral appends one entry to the interjection deferral ledger (F5): Resolved:false
+// when a prompt is queued as an interjection, Resolved:true when it later leaves the queue
+// absorbed inline or by a route. Best-effort — a failed write only means a reload may re-run
+// a stranded interjection (the prior behavior), never a crash. Empty msgID is a no-op.
+func (a *App) recordDeferral(ctx context.Context, sid session.SessionID, msgID string, resolved bool) {
+	if msgID == "" {
+		return
+	}
+	data, _ := json.Marshal(event.InterjectionDeferredData{MessageID: msgID, Resolved: resolved})
+	_ = a.appendFact(ctx, sid, event.TypeInterjectionDeferred, event.Actor{Kind: event.ActorSystem, ID: "interject"}, data)
+}
+
+// ensureDeferredHydrated reconstructs, once per session per process, the set of interjections
+// a prior process left queued-but-unresolved (F5) and seeds them into deferredAbandoned so the
+// live-view masks keep hiding them. The store read runs outside a.mu; a double-checked flag
+// makes it idempotent and cheap on every later call. A read error leaves it un-hydrated so the
+// next run retries rather than falsely concluding nothing was abandoned.
+func (a *App) ensureDeferredHydrated(ctx context.Context, sid session.SessionID) {
+	a.mu.Lock()
+	done := a.stateLocked(sid).deferredHydrated
+	a.mu.Unlock()
+	if done {
+		return
+	}
+	evs, err := a.store.Read(ctx, sid, 0)
+	if err != nil {
+		return
+	}
+	abandoned := abandonedDeferrals(evs)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st := a.stateLocked(sid)
+	if st.deferredHydrated {
+		return
+	}
+	st.deferredHydrated = true
+	for id := range abandoned {
+		if st.deferredAbandoned == nil {
+			st.deferredAbandoned = map[string]bool{}
+		}
+		st.deferredAbandoned[id] = true
+	}
 }
 
 // consumeInterject removes a specific queued interjection (absorbed this turn by a
 // redirect/append route, so it must not also re-surface as its own follow-up turn).
 // Matched by text — the route path only has the interjection's text, not its MsgID.
-func (a *App) consumeInterject(sid session.SessionID, text string) {
+func (a *App) consumeInterject(ctx context.Context, sid session.SessionID, text string) {
 	text = strings.TrimSpace(text)
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	q := a.stateLocked(sid).pendingInterject
 	out := q[:0]
+	var removed []string
 	for _, p := range q {
 		if p.Text != text {
 			out = append(out, p)
+		} else if p.MsgID != "" {
+			removed = append(removed, p.MsgID)
 		}
 	}
 	if len(out) == 0 {
 		a.stateLocked(sid).pendingInterject = nil
 	} else {
 		a.stateLocked(sid).pendingInterject = out
+	}
+	a.mu.Unlock()
+	// Ledger each absorbed interjection as resolved so a reload does not treat it as an
+	// abandoned (still-queued) one and mask an exchange that was actually answered (F5).
+	for _, id := range removed {
+		a.recordDeferral(ctx, sid, id, true)
 	}
 }
 
@@ -573,23 +629,30 @@ func (a *App) consumeInterject(sid session.SessionID, text string) {
 // route this turn). Preferred over consumeInterject(text) when the MsgID is known: it is
 // exact even when two interjections share text, and dropping it from the queue is what makes
 // re-draining the same route signal a no-op — resolveRouteTarget then finds nothing.
-func (a *App) consumeInterjectByID(sid session.SessionID, msgID string) {
+func (a *App) consumeInterjectByID(ctx context.Context, sid session.SessionID, msgID string) {
 	if msgID == "" {
 		return
 	}
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	q := a.stateLocked(sid).pendingInterject
 	out := q[:0]
+	removed := false
 	for _, p := range q {
 		if p.MsgID != msgID {
 			out = append(out, p)
+		} else {
+			removed = true
 		}
 	}
 	if len(out) == 0 {
 		a.stateLocked(sid).pendingInterject = nil
 	} else {
 		a.stateLocked(sid).pendingInterject = out
+	}
+	a.mu.Unlock()
+	// Ledger the absorbed interjection as resolved (F5) so a reload does not re-mask it.
+	if removed {
+		a.recordDeferral(ctx, sid, msgID, true)
 	}
 }
 
@@ -675,11 +738,17 @@ func (a *App) pendingInterjectItems(sid session.SessionID) []pendingInterjection
 func (a *App) deferredInterjectIDs(sid session.SessionID) map[string]bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	q := a.stateLocked(sid).pendingInterject
-	if len(q) == 0 {
+	st := a.stateLocked(sid)
+	q := st.pendingInterject
+	ab := st.deferredAbandoned
+	if len(q) == 0 && len(ab) == 0 {
 		return nil
 	}
-	ids := make(map[string]bool, len(q))
+	ids := make(map[string]bool, len(q)+len(ab))
+	// Interjections a prior process left queued-but-abandoned (F5) stay masked too.
+	for id := range ab {
+		ids[id] = true
+	}
 	for _, p := range q {
 		if p.MsgID != "" {
 			ids[p.MsgID] = true
@@ -725,10 +794,15 @@ func (a *App) interjectSeenIDs(sid session.SessionID) map[string]bool {
 		return nil
 	}
 	m := st.interjectSeen
-	if len(m) == 0 {
+	ab := st.deferredAbandoned
+	if len(m) == 0 && len(ab) == 0 {
 		return nil
 	}
-	out := make(map[string]bool, len(m))
+	out := make(map[string]bool, len(m)+len(ab))
+	// Abandoned deferrals from a prior process (F5) also stay masked from turnTask/council.
+	for id := range ab {
+		out[id] = true
+	}
 	for k := range m {
 		out[k] = true
 	}

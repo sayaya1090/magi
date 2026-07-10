@@ -102,7 +102,7 @@ func TestAsideRoutePersistsAuditRecord(t *testing.T) {
 		steerCall("route_interjection", `{"action":"append","reason":"only the docs directory"}`),
 	}}
 	a, s := newSteerApp(t, llm)
-	a.enqueueInterject(s.ID, "m1", "only look under docs/")
+	a.enqueueInterject(context.Background(), s.ID, "m1", "only look under docs/")
 
 	if !a.handleAside(context.Background(), AgentSpec{Name: "default"}, s, 0, "review the whole repo", "m_b1", "only look under docs/") {
 		t.Fatalf("an append steer must act (break the park)")
@@ -122,7 +122,7 @@ func TestAsideAuditRecordNotSeenAsInterjection(t *testing.T) {
 		steerCall("route_interjection", `{"action":"append","reason":"docs only"}`),
 	}}
 	a, s := newSteerApp(t, llm)
-	a.enqueueInterject(s.ID, "m1", "docs only please")
+	a.enqueueInterject(context.Background(), s.ID, "m1", "docs only please")
 	a.handleAside(context.Background(), AgentSpec{Name: "default"}, s, 0, "task", "m_b2", "docs only please")
 
 	evs, _ := a.store.Read(context.Background(), s.ID, 0)
@@ -140,7 +140,7 @@ func TestAsideChitchatEmitsNoAuditRecord(t *testing.T) {
 		{{Type: port.ProviderText, Text: "still working on it"}, {Type: port.ProviderFinish}},
 	}}
 	a, s := newSteerApp(t, llm)
-	a.enqueueInterject(s.ID, "m1", "how's it going?")
+	a.enqueueInterject(context.Background(), s.ID, "m1", "how's it going?")
 	a.handleAside(context.Background(), AgentSpec{Name: "default"}, s, 0, "task", "m_b3", "how's it going?")
 
 	if rec := steerAuditText(t, a, s.ID); rec != "" {

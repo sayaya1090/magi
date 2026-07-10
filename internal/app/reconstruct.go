@@ -122,6 +122,45 @@ func filterDeferredEvents(evs []event.Event, deferred map[string]bool) []event.E
 	return out
 }
 
+// abandonedDeferrals reconstructs, from the deferral ledger (F5), the set of interjection
+// origin MessageIDs that were queued but never resolved. An interjection is RESOLVED when
+// it leaves the queue: absorbed inline / by a route (an InterjectionDeferred entry with
+// Resolved:true) or drained to its own turn (a PromptSubmitted whose ResurfacedFrom points
+// back to it). Everything queued (Resolved:false) and not so resolved is abandoned — the
+// in-memory queue was lost to a process kill before it could drain. Callers keep these
+// masked from the live turn context so a stranded interjection is not mixed into the next
+// request. Returns nil when nothing is abandoned.
+func abandonedDeferrals(evs []event.Event) map[string]bool {
+	deferred := map[string]bool{}
+	resolved := map[string]bool{}
+	for _, e := range evs {
+		switch e.Type {
+		case event.TypeInterjectionDeferred:
+			var d event.InterjectionDeferredData
+			if json.Unmarshal(e.Data, &d) != nil || d.MessageID == "" {
+				continue
+			}
+			if d.Resolved {
+				resolved[d.MessageID] = true
+			} else {
+				deferred[d.MessageID] = true
+			}
+		case event.TypePromptSubmitted:
+			var d event.PromptSubmittedData
+			if json.Unmarshal(e.Data, &d) == nil && d.ResurfacedFrom != "" {
+				resolved[d.ResurfacedFrom] = true
+			}
+		}
+	}
+	for id := range resolved {
+		delete(deferred, id)
+	}
+	if len(deferred) == 0 {
+		return nil
+	}
+	return deferred
+}
+
 // dropResurfacedOrigins removes the ORIGINAL prompt event of any queued interjection
 // that was later re-emitted (linked via ResurfacedFrom). Applied to display/resume
 // views only (SessionState): the re-emitted copy sits next to its answer at the back

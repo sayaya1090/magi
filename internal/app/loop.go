@@ -303,7 +303,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					for _, it := range entries[seed+1:] {
 						if txt := strings.TrimSpace(it.Text); txt != "" && txt != strings.TrimSpace(turnTask) {
 							a.markInterjectSeen(sid, it.MsgID)
-							a.enqueueInterject(sid, it.MsgID, txt)
+							a.enqueueInterject(ctx, sid, it.MsgID, txt)
 						}
 					}
 				} else {
@@ -372,14 +372,14 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 								// interjection) can fire, then run the focused handler. It consumes a
 								// resolved chitchat reply / bare cancel itself and leaves a routed
 								// redirect/append queued for the turnControl drain to apply.
-								a.enqueueInterject(sid, it.MsgID, txt)
+								a.enqueueInterject(ctx, sid, it.MsgID, txt)
 								if a.handleAside(ctx, agent, s, depth, turnTask, it.MsgID, txt) {
 									answerInterjectNow = true // break the park so the route/cancel takes effect next step
 								}
 							case !dispatching:
 								// Defer: queue it (masked from the live model context too) to run as
 								// its own turn.
-								a.enqueueInterject(sid, it.MsgID, txt)
+								a.enqueueInterject(ctx, sid, it.MsgID, txt)
 							}
 							// Ordinary dispatch (dispatching && !idleWaiting): left visible for the
 							// interleaving working turn to answer via the soft directive below.
