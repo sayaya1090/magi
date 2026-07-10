@@ -727,7 +727,7 @@ func humanTokens(n int) string {
 
 func footer() string {
 	return styleFooter.Render("") +
-		footerKeys("enter", "send") + footerKeys("esc", "interrupt") + footerKeys("ctrl+c", "quit")
+		footerKeys("enter", "send") + footerKeys("esc", "interrupt") + footerKeys("ctrl+q", "quit")
 }
 
 func footerKeys(key, desc string) string {

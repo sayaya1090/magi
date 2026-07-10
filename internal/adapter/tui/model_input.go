@@ -294,12 +294,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			sid := m.resumeList[m.resumeSel].ID
 			m.refresh()
 			return m.switchSession(sid), true
-		case "esc", "ctrl+c":
+		case "esc":
 			m.resuming = false
 			m.refresh()
 			return nil, true
 		}
-		return nil, true // swallow other keys while the picker is open
+		return nil, true // swallow other keys while the picker is open (incl. ctrl+c → copy)
 	}
 
 	// Interactive /route editor takes priority while open.
@@ -340,9 +340,14 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	}
 
 	switch msg.String() {
-	case "ctrl+c":
+	case "ctrl+q":
 		m.quitting = true
 		return tea.Quit, true
+	case "ctrl+c":
+		// Inert: Ctrl+C is left for the terminal's own drag-select+copy, so lifting
+		// text out of the transcript never kills the session. Quit moved to ctrl+q
+		// (and /quit); interrupting a running turn stays on esc.
+		return nil, true
 	case "ctrl+l":
 		m.blocks = nil
 		m.cache = m.cache[:0]

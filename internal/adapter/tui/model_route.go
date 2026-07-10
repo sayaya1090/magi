@@ -274,7 +274,7 @@ func (m *Model) handleRouteKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		case rowAddProfile:
 			m.openProfileForm("")
 		}
-	case "esc", "ctrl+c":
+	case "esc":
 		m.routing = false
 	}
 	m.refresh()
@@ -363,7 +363,7 @@ func (m *Model) handleProfileForm(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		}
 		f.editing = true
 		f.buf = f.fields[f.sel].value
-	case "esc", "ctrl+c":
+	case "esc":
 		m.profileForm = nil // discard, back to the list
 	}
 	m.refresh()

@@ -940,7 +940,7 @@ const helpText = "commands:\n" +
 	"mouse:\n" +
 	"  wheel scrolls · drag to select & copy · click a subagent pane to focus (no modes)\n" +
 	"keys:\n" +
-	"  enter send · esc interrupt · ↑/↓ history · pgup/pgdn scroll · ctrl+l clear · shift+tab perm mode · ctrl+c quit"
+	"  enter send · esc interrupt · ↑/↓ history · pgup/pgdn scroll · ctrl+l clear · shift+tab perm mode · ctrl+q quit"
 
 // submit sends a user prompt, expanding @file mentions and collapsed-paste
 // placeholders into full content. The transcript shows the FULL pasted content
