@@ -153,9 +153,9 @@ type Actor struct {
 | `part.appended` | `{messageId, role, part}` (완성된 part 1개) |
 | `permission.decided` | `{callId, decision}` (감사용) |
 | `artifact.emitted` | `{artifact}` |
-| `council.convened` 🚧 | `{round, members[], rule}` (D14 — 종료 게이트 소집) |
-| `council.verdict` 🚧 | `{round, member, decision(done\|continue\|abstain), confidence, rationale, feedback}` |
-| `council.decided` 🚧 | `{round, decision, tally, injectedFeedback}` (continue면 feedback이 prompt.submitted로 주입됨) |
+| `council.convened` | `{round, members[], rule}` (D14 출하 M9 — 종료 게이트 소집) |
+| `council.verdict` | `{round, member, decision(done\|continue\|abstain), confidence, rationale, feedback}` |
+| `council.decided` | `{round, decision, tally, injectedFeedback}` (continue면 feedback이 prompt.submitted로 주입됨) |
 | `compaction` | `{summary, replacesUpToSeq, tokens:{before,after}}` |
 | `turn.finished` | `{usage:{in,out,cost}}` |
 | `todos.changed` | `{todos[]}` (계획 변경 1회마다 — 시드→단계 체크→완료/취소; 로그·재생·패널 리렌더) |
@@ -171,7 +171,7 @@ type Actor struct {
 | `agent.spawned` / `agent.status` | `{agentId, parent, role, state}` (멀티에이전트 라이브) |
 | `context.usage` | `{used, max, …}` (컨텍스트 미터 — 전이) |
 | `workflow.phase` | `{phase, status, detail}` (워크플로 엔진 단계 진행 — 전이) |
-| `council.deliberating` 🚧 | `{round, member, state}` (라이브 심의 패널 — 전이, D14) |
+| `council.deliberating` | `{round, member, state}` (라이브 심의 패널 — 전이, D14 출하 M9) |
 
 > 원칙: **사실(fact)은 영속, 진행상황(delta/progress)은 전이.** 재생 시 delta는 불필요(완성 part로 충분). → 로그가 깔끔하고 D6의 "버스=저장" 정신 유지.
 
@@ -301,7 +301,7 @@ type Platform interface { // 크로스플랫폼 추상화(§9.5)
     TerminalCaps() TermCaps // truecolor/이미지 프로토콜 탐지
 }
 
-// Council — 루프 종료 게이트(D14, 🚧 planned). 위원 팬아웃은 어댑터, 합의규칙은 순수 core.
+// Council — 루프 종료 게이트(D14, 출하 M9). 위원 팬아웃은 어댑터, 합의규칙은 순수 core.
 // 기본 어댑터는 위원별 LLMProvider.StreamChat 병렬 호출 → 응답을 Verdict로 파싱(JSON폴백 재사용).
 type Council interface {
     Deliberate(ctx context.Context, r DeliberationRequest) (Deliberation, error)
@@ -352,7 +352,7 @@ run(sessionID):
       tool-call    -> collect
       finish       -> store.Append(part.appended for text)    // 영속
     if no tool calls:
-      // 🚧 D14/D15 council 게이트 (depth==0, 카운슬 활성, max_rounds 미초과 시):
+      // D14/D15 council 게이트 (출하 M9; depth==0, 카운슬 활성, max_rounds 미초과 시):
       //   verify → Signal 수집;  report 단계 유도(주장);
       //   delib = council.Deliberate({task, plan, report, signals, diff, members, rule})
       //   store.Append(council.convened / council.verdict×N / council.decided)

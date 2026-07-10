@@ -45,6 +45,8 @@ Headless output contract (stable — scripts, CI, and the bench adapters key off
 - **stderr** = errors only. Agent-level errors use the greppable form
   `error[<code>]: <message>`.
 
+**Headless permission denials are honest, not a fake user decision.** Under `--permission auto`/`ask` in headless mode there is no one to answer a prompt, so `bash`/`webfetch` are unavailable. The tool result the agent receives says so **categorically** — "not available this run (this mode can't approve without a prompt), don't retry; proceed without it or report why you couldn't" — rather than the misleading `denied by user` an interactive deny would send. The distinction matters: `denied by user` reads as "the human said no to *this* call", so the agent retries variations and thrashes; the categorical message tells it the capability is simply off for the whole run, so it adapts once. Use `--permission allow` (or run interactively) if the task needs those tools. A one-line stderr note also flags the mismatch at startup.
+
 ### Environment check
 ```sh
 ./magi --doctor
@@ -114,6 +116,7 @@ Flags / environment variables (precedence: flag > env > default):
 | `--plugin-install` / `--plugin-pin` | — | — | git URL of a plugin to clone into the user plugins dir / optional tag/branch/commit for it |
 | `--no-update-check` | `MAGI_NO_UPDATE_CHECK` | (off) | disable the interactive startup update check |
 | — | `MAGI_API_KEY` | (none) | key for remote backends (not needed for Ollama) |
+| — | `MAGI_REASONING_EFFORT` | (backend default) | passed to the backend as `reasoning_effort` for reasoning models — e.g. `none` to disable thinking, or `low`\|`medium`\|`high`; empty = omit the field |
 | — | `MAGI_EMOJI_WIDTH` | (auto-probe) | force emoji cell width: `narrow`\|`1` (one cell) or `wide`\|`2` (two cells). If unset, a startup probe measures it |
 | — | `MAGI_WIDTH_PROBE` | (on) | `0` skips the startup terminal-width probes (ambiguous · decor · emoji) = no correction (library default widths) |
 | — | `MAGI_AMBIGUOUS_WIDTH` | `auto` | `wide`\|`narrow`\|`auto` — force East-Asian ambiguous-char cell width (see below) |
@@ -121,6 +124,8 @@ Flags / environment variables (precedence: flag > env > default):
 Permission modes: `ask` = confirm every time · `auto` = **edits auto-approved, only commands (bash)/network confirmed** · `allow` = everything auto · `deny` = blocked. Cycle in the TUI with `Shift+Tab` (or `/permission`).
 
 Guardrail posture (`--profile`/`MAGI_PROFILE`) is a preset that sets both axes (**approval** × **OS sandbox**) at once: `safe` = `ask` + `read-only`, `standard` (recommended) = `auto` + `workspace-write` (auto-approve edits, confirm commands/network, confine writes to the workspace), `yolo` = `allow` + `full`. An explicit `--permission`/`sandbox` overrides the preset. With no profile set, the sandbox stays opt-in (unconfined) and only the permission default applies — so an existing user's network / out-of-tree writes aren't silently cut. The sandbox axis (`sandbox = "read-only"|"workspace-write"|"full"`) can also be set directly in `config.toml`.
+
+**Fine-grained rules (`config.toml`).** Beyond the mode, three list keys narrow the policy: `allow` / `deny` are glob rules over tool invocations (e.g. `Bash(git push:*)` auto-approves that command, `Read(**/.env)` blocks reading secrets) — this is what the `p` permission choice (§4) persists — and `deny` wins over `allow`. `allow_domains` restricts **WebFetch/bash network egress to a host allowlist** (e.g. `["api.github.com"]`); empty = no host restriction. All three **append** across the global and project configs rather than overriding, and are on the fixed deny-list a plugin's `set_config_key` can never touch (EXTENDING §Plugins).
 
 Config file `<config>/config.toml` (macOS `~/Library/Application Support/magi`, Linux `~/.config/magi`):
 ```toml
@@ -178,7 +183,11 @@ primary = "#B45309"
 > On first run a commented default `config.toml` is generated automatically (left untouched if it already exists).
 > **Malformed config is never silently ignored**: if the global `config.toml` fails to parse (e.g. a duplicate top-level key), magi prints the parse error and refuses to start rather than falling back to an empty config that would drop your model, plugins, and every other setting. A malformed **project** `.magi/config.toml` warns and is skipped (the valid global config still applies). An unknown *key* (a typo) is only a warning — it never blocks startup.
 
-> **Loop & execution safety guards (deterministic, always on)**: beyond the council, a few cheap deterministic guards catch failure modes a weak model walks into on its own. **Self-regression check** — magi tracks each file's content states within a turn; if an edit returns a file to a state it already had this turn (the silent "fix it, then quietly undo the fix" trap), a neutral note is appended to that tool result so the agent re-checks (advisory, never blocks; once per file). **Non-interactive command execution** — every `bash` command runs with no controlling terminal and stdin closed, so a command that tries to prompt (git credentials, `ssh` host-key confirmation, `apt`, a pager) **fails fast instead of hanging** until the timeout. **Loop guard** — an identical no-progress tool call repeated past a small limit is refused (the earlier result is echoed back); when the agent keeps thrashing it first gets **one corrective re-grounding** (re-read the original task, change approach), and only if it persists is the run stopped gracefully rather than burning the whole step budget. **Stall force-stop** — when the agent makes no progress across several steps even after the corrective nudge, the run is stopped gracefully (`stall_guard`) instead of grinding to the ceiling; a `bash` write counts as progress so a legitimately slow build isn't misread as a stall.
+> **Loop & execution safety guards (deterministic, always on)**: beyond the council, a few cheap deterministic guards catch failure modes a weak model walks into on its own. **Self-regression check** — magi tracks each file's content states within a turn; if an edit returns a file to a state it already had this turn (the silent "fix it, then quietly undo the fix" trap), a neutral note is appended to that tool result so the agent re-checks (advisory, never blocks; once per file). **Non-interactive command execution** — every `bash` command runs with no controlling terminal and stdin closed, so a command that tries to prompt (git credentials, `ssh` host-key confirmation, `apt`, a pager) **fails fast instead of hanging** until the timeout. **Loop guard** — an identical no-progress tool call repeated past a small limit is refused (the earlier result is echoed back); when the agent keeps thrashing it first gets **one corrective re-grounding** (re-read the original task, change approach), and only if it persists is the run stopped gracefully rather than burning the whole step budget. **Stall force-stop** — when the agent makes no progress across several steps even after the corrective nudge, the run is stopped gracefully (`stall_guard`) instead of grinding to the ceiling; a `bash` write counts as progress so a legitimately slow build isn't misread as a stall. **Empty-finish nudge** — a turn that ends with **no answer text** delivered nothing the user can read. This happens when a harmony-format weak model emits only its analysis channel and stops (a "reasoning-only stop"), or when it runs tools and then goes silent on the final step — in which case the council gate, seeing the tool work, could otherwise vote it "done" and finish with no deliverable and no UNVERIFIED flag. The turn is nudged **once** to actually write the result (the same nudge subagents get to call `report`), regardless of whether tools were used; a still-empty retry then finishes normally, so it can't loop.
+
+> **Concern ledger & checkpoint-first planning (multi-step work).** A structural concern the council raises early — "the auth change has no test", "this migration is irreversible" — must not be forgotten three turns later when the model is deep in unrelated edits. magi keeps a **durable ledger** of such concerns that persists across turns and is re-surfaced to the planner; a **checkpoint-first gate** makes the plan address open concerns before it declares completion, rather than letting a turn end "done" with a known unresolved risk on the table. Because only the orchestrator holds the full context (original request · whole plan · every subagent's result), **only the orchestrator can retire a concern**, via the `resolveconcern` tool, and only after it is genuinely resolved — the executor can't quietly wave its own risk away.
+
+> **Anti-fabrication under pressure.** The failure mode these guards target is a weak model, cornered by a shrinking step/time budget or a dead end, **inventing** a plausible result (a file's contents, a test outcome, a computed total) rather than admitting it's stuck. The system prompt explicitly forbids fabricating results or evidence under stuck/budget pressure and tells the model to report the honest partial state instead; the deterministic **data tools** (§5) give it a real way to compute tallies so it never has to guess; and the council judges on **fresh execution evidence and signal-command results** (below), not on the model's assertion that it finished — so a confident but unbacked "done" is caught, while an honest "I could not do X because Y" is accepted. An honest failure is a correct outcome; a fabricated success is the bug.
 
 ### Time & step budget
 
@@ -312,6 +321,7 @@ Put `@path/file` in a message and that file's contents are attached to the agent
 ### Header display
 `model <id> · ctx <%>` + **permission chip (color-coded)** + a `⛐ N: explore, coder×2` badge (name · color) while subagents are running.
 - Permission chip colors: `ask` = amber (safe) · `auto` = cyan (edits auto) · `allow` = yellow (caution) · `deny` = red (blocked).
+- While a multi-step plan is executing, the header also surfaces the **active plan step** (the current item of the procedure planner's checklist), so what the agent is working on right now is visible without opening the status panel.
 
 ### Session resume (`/resume`)
 `/resume` (no arg) → **interactive picker**: shows each session's time + first-message summary, select with `↑/↓`, resume with `Enter`, cancel with `Esc`. You can also switch directly with `/resume N`.
@@ -335,36 +345,84 @@ A collection of interaction behaviors under verification — organized so screen
 
 ## 5. Tools (built-in)
 
+The tool set a given agent sees is gated by its **role** (read-only agents get no write/bash) and by **depth** (some orchestration tools are top-level only) — the tables below are the full catalog. The `Permission` column is the approval axis the tool trips (`ask` = confirmed under `ask`/`auto`; `—` = read-only, never prompts).
+
+### File & search
 | Tool | Description | Permission |
 |---|---|---|
 | `read` | read a file (line numbers, offset/limit) | — |
 | `write` | create/overwrite a file | ask |
 | `edit` | exact string replacement (unique match) | ask |
-| `multiedit` | apply multiple hunks atomically | ask |
+| `multiedit` | apply multiple hunks to one file atomically (all-or-nothing) | ask |
 | `grep` | regex content search | — |
-| `glob` | glob (** supported) | — |
+| `glob` | filename glob (`**` supported) | — |
 | `list` | directory listing | — |
-| `findcontext` | locate relevant code (context gathering) | — |
-| `astgrep` | structural (AST) code search | — |
-| `bash` | shell execution (timeout · exit code, `background` for long-running commands) | ask |
-| `bash_output` | fetch new output from a background command | — |
+| `findcontext` | rank the files most relevant to a natural-language query, **prioritizing files that DEFINE the named symbols** (funcs/classes/types) — cheaper and more precise than reading broadly | — |
+| `astgrep` | structural (AST) code search (`ast-grep`) — matches code shape, not text, so a rename/reformat doesn't fool it | — |
+
+### Data & aggregation (deterministic — don't hand-count)
+Weak models routinely miscount rows or fabricate a total when asked to "count/sum" over a large file. These tools do the arithmetic **in Go, deterministically**, so the answer is real evidence rather than a guess, and a huge file never has to enter the context to be tallied.
+| Tool | Description | Permission |
+|---|---|---|
+| `countlines` | line/word/byte counts (pure-Go `wc`) over a file or glob — LOC & size tallies without reading whole files | — |
+| `countmatches` | count regex/fixed-string occurrences across a file or glob → total + how many files matched | — |
+| `groupby` | group delimited rows by a column value (or a regex capture) → per-group count or `sum(value_column)`, sorted | — |
+| `tabulate` | aggregate one numeric column of a delimited file (`sum`\|`count`\|`avg`\|`min`\|`max`) over rows passing an optional numeric filter | — |
+
+### Execution
+| Tool | Description | Permission |
+|---|---|---|
+| `bash` | shell execution (timeout · exit code; `background=true` for long-running commands). Runs with **no controlling terminal and stdin closed** so a command that tries to prompt fails fast instead of hanging | ask |
+| `bash_output` | fetch new output from a background command since the last read | — |
+| `bash_input` | send a line to the **stdin of a background command** — drives a REPL/line-debugger (`python3`, `psql`, `gdb`); `eof=true` closes stdin. A pipe, not a TTY (curses/password prompts won't work) | — |
 | `bash_kill` | terminate a background command | — |
-| `lsp_diagnostics` | gopls diagnostics (types/unused etc.) — Go only | — |
-| `lsp_definition` | symbol definition location (Go via gopls; ~30 langs via LSP) | — |
+
+### Code navigation (LSP)
+| Tool | Description | Permission |
+|---|---|---|
+| `lsp_diagnostics` | `gopls` diagnostics (types/unused etc.) — Go | — |
+| `lsp_definition` | symbol definition location (Go via `gopls`; ~30 langs via LSP) | — |
 | `lsp_references` | all references to a symbol (semantic, multi-language) | — |
 | `lsp_symbols` | file symbol outline (multi-language) | — |
+
+### Web
+| Tool | Description | Permission |
+|---|---|---|
 | `webfetch` | URL → text | ask |
 | `websearch` | web search (DuckDuckGo, or Brave/Tavily key) | ask |
-| `todowrite` | record a plan (checklist) | — |
-| `ask_user` | multiple-choice question to the USER (selection modal; top-level interactive only) | — |
-| `skill` | load a named skill's body | — |
-| `recall_context` | re-hydrate detail an earlier compaction shed (by topic; a file path works well) | — |
-| `remember` | contribute a lesson to shared memory | — |
-| `task` | delegate to subagents (single/parallel) | — |
 
-- All file tools **deny access outside the working directory** (jail).
-- Read-only tools run **in parallel** within a turn.
-- After a file modification, **diagnostic feedback** (Go: gofmt/go vet, Python: py_compile) → the agent self-corrects.
+### Planning & self-control
+| Tool | Description | Permission |
+|---|---|---|
+| `todowrite` | record/update a plan (checklist). The status panel is driven by deterministic signals too, so progress updates even without this call | — |
+| `replan` | declare the **current plan is unworkable** given what execution has actually shown (a premise broke) and get a fresh decomposition — instead of grinding the dead plan to the step ceiling. Plan-eligible agents only | — |
+| `recall_context` | re-hydrate detail an earlier compaction shed, **verbatim**, by topic (a file path works well) | — |
+
+### Memory
+| Tool | Description | Permission |
+|---|---|---|
+| `recall_memory` | pull saved team memories/skills from the shared experience store by keyword | — |
+| `remember` | contribute a lesson to shared memory (lands in `pending/` for review) | — |
+| `skill` | load a named skill's body to follow it | — |
+
+### Subagents & orchestration
+| Tool | Description | Permission |
+|---|---|---|
+| `task` | delegate to subagents (single/parallel); backgrounded as sidecars at top level | — |
+| `report` | (subagent) end the turn and hand the result back to the orchestrator with a status (done/blocked/failed) | — |
+| `ask` | (subagent) ask the orchestrator — which holds the full context — to unblock you; blocks then resumes on the answer | — |
+| `cancel_dispatch` | (orchestrator) cancel still-running background subagents once an intermediate result made their work moot — reclaim the budget instead of waiting | — |
+| `resolveconcern` | (orchestrator) retire a structural concern from the durable ledger **after** it is genuinely resolved (see §3, concern ledger) | — |
+| `route_interjection` | (top level) decide how to handle a **new user request that arrived mid-task** — `redirect` (switch now) · `append` (satisfy both) · `queue` (defer). The safe default is to not call it and let the request run as its own turn | — |
+
+### User interaction
+| Tool | Description | Permission |
+|---|---|---|
+| `ask_user` | multiple-choice question **to the user** (selection modal; top-level interactive only — declined gracefully in headless) | — |
+
+- All file tools **deny access outside the working directory** (a jail) — a `../../etc/hosts` read is refused, not served.
+- Read-only tools run **in parallel** within a step; writes are serialized.
+- After a file modification, **diagnostic feedback** (Go: gofmt/`go vet`, Python: `py_compile`) is fed back so the agent self-corrects (the harness, §3).
 
 ## 6. Multi-agent
 
@@ -438,14 +496,17 @@ auto-registered. When the server shuts down, those tools are removed.
 - **qwen3-coder:30b** — the strongest **local** coder (24 GB GPU). Run fully local with `--model qwen3-coder:30b`.
 - **gpt-oss:20b** — a lighter local alternative (shows reasoning).
 - Small models (llama3.1:8b etc.) tend to leak function calls when tools are active → not recommended.
-- It parses all tool-call variants of local/cloud models (JSON/XML/native).
 
-## 12. Unsupported / Future
+**Provider resilience (why a flaky backend rarely loses your turn).** magi treats the OpenAI-compatible layer as best-effort and recovers rather than aborting where it safely can:
+- **Tool-call parsing** — it parses all tool-call variants of local/cloud models (JSON/XML/native), and if a backend rejects `cache_control` (400/422) it transparently retries once without caching and remembers that for the session.
+- **Transient failures** — connection errors and 429/5xx are retried with bounded backoff (honoring `Retry-After`); an exhausted retry surfaces the **status + body** so the failure is diagnosable, never a bare "request failed".
+- **Harmony tool-call misparse** — Ollama's gpt-oss harmony parser sometimes **500s when the model emits its final answer as prose** but the server tries to read it as a tool call (`error parsing tool call: raw=…`). Because the request is unchanged across retries the 500 is deterministic, so magi retries **once with the tools array stripped**: with no tools advertised the server skips tool-call parsing and returns the same prose as normal content — the answer the model actually produced is recovered instead of the turn hard-aborting. Scoped to that exact signature, so a genuine outage still surfaces as an error.
 
-OS sandbox, a live LSP server (gopls), automatic context ranking, web search (a search API key),
-prompt caching (hosted only), and a web UI / remote sharing are not implemented (detailed table in [FEATURES.md](FEATURES.md)).
+## 12. Status & scope
 
-**Loop-engineering track (signature, planned — D14~D16)**: a **consensus council** that takes the termination decision away from any single model (Melchior · Balthasar · Casper), loop macro stages (Plan→Execute→Verify→Report→Council→Finalize), a live deliberation panel · Loop map, and rewind/fork/session diff. See [PLAN.md §4.2](PLAN.md) for the design. Not yet implemented.
+The **loop-engineering track is shipped**, not planned — it is the signature of the tool and is described throughout this manual: the **consensus council** that takes the termination decision away from any single model (Melchior · Balthasar · Casper, §3), the **Loop map** (`/loop`), the live deliberation panel, **rewind/fork/session-diff** (`/rewind` · `/fork` · `/loopdiff`, §4), the **concern ledger** (§3), and **re-hydratable compaction** (§4). Likewise already implemented: the **OS sandbox** (`--profile`/`sandbox`, §3), **LSP navigation** (`lsp_*`, §5), **web search** (`websearch`), and **prompt caching** (`cache_control`, on by default with automatic fallback). The feature/milestone spec with test examples lives in [`SPEC.md`](SPEC.md); the internals in [`ARCHITECTURE.md`](ARCHITECTURE.md).
+
+**Genuinely out of scope (today).** No web UI or hosted remote sharing — magi is a terminal client (sharing is via a git-backed experience store, §7, not a server). Automatic context *ranking* is deliberately lexical/deterministic (BM25-lite, §4), not embedding-based, so there is no vector-DB dependency. These are scope choices, not gaps to be silently filled.
 
 [Ollama]: https://ollama.com
 </content>
