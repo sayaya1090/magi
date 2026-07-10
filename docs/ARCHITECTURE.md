@@ -72,7 +72,8 @@ internal/
     tui/                    Bubble Tea UI, split by concern: model.go (Model + Update),
                             model_input.go (mouse/key/slash), model_event.go (event folding),
                             model_route.go (route/profile forms), model_layout.go (resize/panes),
-                            model_view.go (render). Transcript, subagent panes, /route editor.
+                            model_view.go (render). Transcript, subagent panes, /route editor
+                            (session-model suggest box = profiles ∪ `App.ListModels` gateway catalog).
   httpx/                    shared static+dynamic HTTP header set (MCP + LLM client)
   config/                   TOML config loader + comment-preserving editor (SetKey)
   eval/                     quantitative task-suite harness (success/steps/tokens)
@@ -284,6 +285,22 @@ in `loop.go` calls into them each step):
   ack ("got it, I'll focus on X") changes nothing, so anything that touches the work (narrows/
   widens scope, changes files/targets, adds/drops a constraint, reorders, switches goal) MUST
   route rather than merely reply.
+- **deferral ledger survives a hard kill** (`interjection.deferred`): the interjection mask —
+  which queued follow-ups the running turn must *not* fold into its model context — lives only in
+  the in-memory queue (`pendingInterject`/`interjectSeen`). A graceful teardown resurfaces every
+  still-queued item (above), but a hard kill drops the queue while the original `PromptSubmitted`
+  facts stay on disk, so a reload would re-see them as fresh pending prompts and mix an abandoned
+  interjection into the next request. An append-only ledger of `TypeInterjectionDeferred{MessageID,
+  Resolved}` facts records each queue transition: enqueue writes `Resolved:false`, an absorbed-inline/
+  by-route removal writes `Resolved:true` (`recordDeferral`), and a drain-to-own-turn needs no mark
+  (already recorded by the resurfaced prompt's `ResurfacedFrom`). On load `abandonedDeferrals` =
+  deferred(false) − Resolved:true − `ResurfacedFrom` origins; `ensureDeferredHydrated` seeds it once
+  per session into `SessionState.deferredAbandoned` (read outside `a.mu`, double-checked flag, never
+  cleared by `resetForNewTopLevel`). Both mask accessors (`deferredInterjectIDs` for live context,
+  `interjectSeenIDs` for turnTask/council) union that set, so an abandoned orphan stays masked from
+  the model while remaining grey in the transcript (raw `reconstruct` is untouched — history, not
+  turn logic). The ledger writes are inert extra facts no control-flow predicate reads, so the
+  graceful path is byte-identical.
 - **re-plan anchors on the adopted task**: when a route (`redirect`/`append`) `reground`s with a
   fresh decomposition, the re-plan must decompose `turnTask` (the *adopted* task — for `append`,
   the original goal folded with the steer's constraint), not the bare last user prompt (which is
