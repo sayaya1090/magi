@@ -3,6 +3,7 @@ package openai
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -175,6 +176,84 @@ func TestErrorStatus(t *testing.T) {
 	}
 	if !sawErr {
 		t.Fatal("llm-err-1: expected an error (returned or event)")
+	}
+}
+
+// Harmony tool-call misparse recovery: Ollama's gpt-oss parser 500s
+// ("error parsing tool call: raw=<prose>") when the model answers in prose but the
+// server tries to read it as a tool call. Because the request is identical across
+// HTTP retries the 500 is deterministic, so StreamChat must retry ONCE with the
+// tools array stripped — with no tools the server skips tool-call parsing and the
+// same prose comes back as normal content, instead of hard-aborting the turn.
+func TestHarmonyToolParseRetryWithoutTools(t *testing.T) {
+	var withTools, withoutTools int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(b), "\"tools\"") {
+			withTools++
+			http.Error(w, `{"error":{"message":"error parsing tool call: raw='**Summary:** the answer'"}}`, http.StatusInternalServerError)
+			return
+		}
+		withoutTools++
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"the recovered answer\"}}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"))
+	}))
+	defer srv.Close()
+
+	ch, err := New(srv.URL, "").StreamChat(context.Background(), port.ChatRequest{
+		Model: "m",
+		Tools: []port.ToolSpec{{Name: "read"}},
+	})
+	if err != nil {
+		t.Fatalf("StreamChat should recover by dropping tools, not error: %v", err)
+	}
+	var text string
+	for e := range ch {
+		switch e.Type {
+		case port.ProviderText:
+			text += e.Text
+		case port.ProviderError:
+			t.Fatalf("unexpected error event after tools-stripped retry: %v", e.Err)
+		}
+	}
+	if text != "the recovered answer" {
+		t.Fatalf("expected the prose answer to be recovered, got %q", text)
+	}
+	if withTools == 0 || withoutTools != 1 {
+		t.Fatalf("expected a with-tools 500 then exactly one tools-stripped retry, got withTools=%d withoutTools=%d", withTools, withoutTools)
+	}
+}
+
+// A non-tool-parse 5xx (a genuine outage) must NOT trigger the tools-stripped retry —
+// it should surface as an error so the real failure is diagnosable, not masked.
+func TestGenericServerErrorNotToolStripped(t *testing.T) {
+	var reqs int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		if !strings.Contains(string(b), "\"tools\"") {
+			t.Errorf("a generic 5xx must not be retried without tools; got a tools-stripped request")
+		}
+		reqs++
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	ch, err := New(srv.URL, "").StreamChat(context.Background(), port.ChatRequest{
+		Model: "m",
+		Tools: []port.ToolSpec{{Name: "read"}},
+	})
+	sawErr := err != nil
+	if ch != nil {
+		for e := range ch {
+			if e.Type == port.ProviderError {
+				sawErr = true
+			}
+		}
+	}
+	if !sawErr {
+		t.Fatal("a persistent generic 500 must surface as an error")
 	}
 }
 
