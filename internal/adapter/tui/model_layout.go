@@ -179,6 +179,14 @@ func (m *Model) baseChromeHeight() int {
 			h += len(m.profileForm.fields) + 3 // fields + spacer + Save + header
 		} else {
 			h += len(m.routeList) + 3 // rows + header + profiles separator (blank + label)
+			// The session-row suggest box adds its own lines below that row.
+			if m.routeEditing && len(m.routeList) > 0 && m.routeList[m.routeSel].kind == rowSession {
+				if n := len(m.modelSuggestions()); n > 0 {
+					h += n
+				} else if !m.catalogLoaded {
+					h++ // "loading models…" hint line
+				}
+			}
 		}
 	}
 	if n := len(m.paletteMatches()); !m.running && n > 0 {

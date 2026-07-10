@@ -200,6 +200,13 @@ type Model struct {
 	routePickIdx int          // profile index while cycling with ←/→ (-1 = free text)
 	profileForm  *profileForm // non-nil while adding/editing an LLM profile
 
+	// Session-model suggest box (the /route session row): a merged, de-duplicated
+	// list of configured profile models + the gateway's live catalog, so a user
+	// picks a real model instead of typing an ID that silently fails later.
+	modelCatalog  []string // gateway /models result (fetched async, may be empty)
+	catalogLoaded bool     // catalog prefetch finished/attempted (gates re-fetch + loading hint)
+	modelSugSel   int      // selected suggestion index while editing (-1 = free text, use routeBuf)
+
 	// Multi-agent live view (B): one pane per spawned subagent child session.
 	panes     []*agentPane // active/finished subagent panes, in spawn order
 	focusPane int          // index into panes of the focused pane (-1 = main transcript)
@@ -487,6 +494,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case shellResultMsg:
 		return m, m.applyShellResult(msg)
+
+	case modelCatalogMsg:
+		m.modelCatalog = msg.models
+		m.catalogLoaded = true
+		if m.routing {
+			m.refresh() // repaint the open editor with the freshly-loaded suggestions
+		}
+		return m, nil
 
 	case snackClearMsg:
 		if msg.seq == m.snackSeq {

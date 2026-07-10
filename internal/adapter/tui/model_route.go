@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -11,6 +12,75 @@ import (
 
 // sessionRouteRow is the editor's first row: the session's default model.
 const sessionRouteRow = "(session)"
+
+// modelSugMax caps how many model suggestions the session-row box shows at once.
+const modelSugMax = 8
+
+// modelCatalogMsg carries the gateway's live model catalog back to the Update
+// loop, off the goroutine that fetched it (so opening /route never blocks).
+type modelCatalogMsg struct{ models []string }
+
+// fetchModelsCmd asks the default backend for its model catalog in the background.
+// Errors/empty results collapse to an empty slice — the suggest box then falls
+// back to configured profile models (and ultimately free text). A short timeout
+// keeps a slow or unreachable gateway from stalling the prefetch.
+func (m *Model) fetchModelsCmd() tea.Cmd {
+	a := m.app
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		ids, err := a.ListModels(ctx)
+		if err != nil {
+			ids = nil
+		}
+		return modelCatalogMsg{models: ids}
+	}
+}
+
+// modelSuggestions returns the session-row suggest list: configured profile
+// models first, then the gateway's live catalog, de-duplicated and filtered by
+// the current routeBuf (case-insensitive substring), capped at modelSugMax. An
+// empty routeBuf shows the merged list head. Profiles alone populate it when the
+// gateway is unreachable, so the box stays useful without a live catalog.
+func (m *Model) modelSuggestions() []string {
+	seen := map[string]bool{}
+	merged := make([]string, 0, len(m.modelCatalog)+4)
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" || seen[s] {
+			return
+		}
+		seen[s] = true
+		merged = append(merged, s)
+	}
+	for _, p := range m.app.Profiles() {
+		add(p.Model)
+	}
+	for _, id := range m.modelCatalog {
+		add(id)
+	}
+	q := strings.ToLower(strings.TrimSpace(m.routeBuf))
+	out := make([]string, 0, modelSugMax)
+	for _, s := range merged {
+		if q != "" && !strings.Contains(strings.ToLower(s), q) {
+			continue
+		}
+		out = append(out, s)
+		if len(out) >= modelSugMax {
+			break
+		}
+	}
+	return out
+}
+
+// clampModelSug pins modelSugSel into [-1, n-1]: -1 means "free text (routeBuf)",
+// 0..n-1 selects a suggestion. A stale index (the list shrank as the user typed)
+// collapses back to free text so the wrap arithmetic stays in bounds.
+func (m *Model) clampModelSug(n int) {
+	if n <= 0 || m.modelSugSel < -1 || m.modelSugSel >= n {
+		m.modelSugSel = -1
+	}
+}
 
 type routeRowKind int
 
@@ -45,11 +115,18 @@ type formField struct {
 }
 
 // openRouteEditor opens the models & routing editor: session model, per-agent
-// routing, the defined profiles, and an "+ add profile" row.
-func (m *Model) openRouteEditor() {
+// routing, the defined profiles, and an "+ add profile" row. It returns a
+// background command that prefetches the gateway's model catalog on first open
+// (nil thereafter — the catalog is cached for the session).
+func (m *Model) openRouteEditor() tea.Cmd {
 	m.profileForm = nil
 	m.refreshRouteList()
 	m.routeSel, m.routing, m.routeEditing, m.routeBuf = 0, true, false, ""
+	m.modelSugSel = -1
+	if m.catalogLoaded {
+		return nil
+	}
+	return m.fetchModelsCmd()
 }
 
 func (m *Model) refreshRouteList() {
@@ -82,11 +159,17 @@ func (m *Model) handleRouteKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		return nil, true
 	}
 	if m.routeEditing {
+		editingSession := m.routeList[m.routeSel].kind == rowSession
 		switch msg.String() {
 		case "enter":
 			row := m.routeList[m.routeSel]
 			val := strings.TrimSpace(m.routeBuf)
-			if row.kind == rowSession {
+			// On the session row a highlighted suggestion wins over the typed
+			// buffer, so ↑/↓+enter applies a real catalog model directly.
+			if editingSession {
+				if sugs := m.modelSuggestions(); m.modelSugSel >= 0 && m.modelSugSel < len(sugs) {
+					val = sugs[m.modelSugSel]
+				}
 				if val != "" {
 					m.app.SetModel(m.sid, val)
 					m.model = val
@@ -102,11 +185,51 @@ func (m *Model) handleRouteKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			m.routeEditing = false
 			m.refresh()
 			return nil, true
+		case "up", "down":
+			// Session row only: circular move through the suggest box. Entering
+			// navigation from free text (-1) lands on an end. Other rows keep
+			// arrow keys inert (agents use ←/→ for profiles).
+			if editingSession {
+				if sugs := m.modelSuggestions(); len(sugs) > 0 {
+					n := len(sugs)
+					m.clampModelSug(n)
+					switch {
+					case m.modelSugSel < 0:
+						if msg.String() == "up" {
+							m.modelSugSel = n - 1
+						} else {
+							m.modelSugSel = 0
+						}
+					case msg.String() == "up":
+						m.modelSugSel = (m.modelSugSel - 1 + n) % n
+					default:
+						m.modelSugSel = (m.modelSugSel + 1) % n
+					}
+					m.refresh()
+				}
+			}
+			return nil, true
+		case "tab":
+			// Session row only: accept the highlighted (or first) suggestion into
+			// the buffer, like shell completion, then return to free-text editing.
+			if editingSession {
+				if sugs := m.modelSuggestions(); len(sugs) > 0 {
+					idx := m.modelSugSel
+					if idx < 0 || idx >= len(sugs) {
+						idx = 0
+					}
+					m.routeBuf = sugs[idx]
+					m.modelSugSel = -1
+					m.refresh()
+				}
+			}
+			return nil, true
 		case "backspace":
 			if n := len(m.routeBuf); n > 0 {
 				m.routeBuf = m.routeBuf[:n-1]
 			}
 			m.routePickIdx = -1 // back to free text
+			m.modelSugSel = -1  // re-filter from the typed buffer
 			m.refresh()
 			return nil, true
 		case "left":
@@ -125,6 +248,7 @@ func (m *Model) handleRouteKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		if t := msg.Key().Text; t != "" {
 			m.routeBuf += t
 			m.routePickIdx = -1 // typing overrides the profile picker
+			m.modelSugSel = -1  // typing re-filters and drops any highlight
 			m.refresh()
 		}
 		return nil, true
@@ -144,6 +268,7 @@ func (m *Model) handleRouteKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			m.routeEditing = true
 			m.routeBuf = ""
 			m.routePickIdx = -1
+			m.modelSugSel = -1
 		case rowProfile:
 			m.openProfileForm(strings.TrimPrefix(row.name, "profile:"))
 		case rowAddProfile:
@@ -287,7 +412,13 @@ func (m *Model) routeView() string {
 	var b strings.Builder
 	hint := "↑/↓ select · enter edit/open · esc close"
 	if m.routeEditing {
-		hint = "type value · ←/→ pick profile · enter apply · empty clears · esc"
+		if m.routeList[m.routeSel].kind == rowSession {
+			// A session always has a model, so an empty buffer is a no-op here
+			// (unlike agent rows, where empty clears the override).
+			hint = "type to filter · ↑/↓ pick · tab fill · enter apply · esc"
+		} else {
+			hint = "type value · ←/→ pick profile · enter apply · empty clears · esc"
+		}
 	}
 	b.WriteString(stylePermTitle.Render("models & routing") + "  " + styleFooter.Render(hint) + "\n")
 	sepDrawn := false
@@ -317,8 +448,35 @@ func (m *Model) routeView() string {
 		} else {
 			b.WriteString("  " + styleToolResult.Render(line) + "\n")
 		}
+		// Under the session row while editing it, show the model suggest box.
+		if i == m.routeSel && m.routeEditing && r.kind == rowSession {
+			b.WriteString(m.modelSuggestBox())
+		}
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// modelSuggestBox renders the session-row model suggest list: the merged,
+// filtered candidates with the highlighted one marked. While the catalog is
+// still loading and no profile models are available it shows a dim hint; once
+// loaded with nothing matching it renders nothing (free-text entry, unchanged).
+func (m *Model) modelSuggestBox() string {
+	sugs := m.modelSuggestions()
+	if len(sugs) == 0 {
+		if !m.catalogLoaded {
+			return "    " + styleFooter.Render("loading models…") + "\n"
+		}
+		return ""
+	}
+	var b strings.Builder
+	for i, s := range sugs {
+		if i == m.modelSugSel {
+			b.WriteString("    " + stylePalSelRow.Render("› "+s) + "\n")
+		} else {
+			b.WriteString("      " + styleToolResult.Render(s) + "\n")
+		}
+	}
+	return b.String()
 }
 
 // profileFormView renders the multi-field profile sub-editor.

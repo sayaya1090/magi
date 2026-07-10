@@ -611,7 +611,7 @@ func (m *Model) handleSlash(text string) (tea.Cmd, bool) {
 		m.liveText = ""
 		out = m.snack("cleared")
 	case "/model", "/agents", "/route":
-		m.openRouteEditor() // session model + per-agent routing, interactively
+		out = m.openRouteEditor() // session model + per-agent routing, interactively
 	case "/tools":
 		m.info("tools:\n  " + joinOr(m.app.ToolNames(), "(none)"))
 	case "/sessions":
