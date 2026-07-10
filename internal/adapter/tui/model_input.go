@@ -457,17 +457,20 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			m.councilDetail = nil
 			return nil, true
 		}
+		// In the agent detail (zoom) screen, esc always goes back — even for a
+		// still-running subagent. Interrupting a focused pane stays in the list
+		// view below (where esc has no detail to leave).
+		if m.zoom {
+			m.exitZoom()
+			m.refresh()
+			return nil, true
+		}
 		// Focused on a still-running subagent → interrupt just that one (stays
 		// focused so you see it stop). Press esc again to leave the view.
 		if m.focusPane >= 0 && m.focusPane < len(m.panes) && !m.panes[m.focusPane].done {
 			p := m.panes[m.focusPane]
 			_ = m.app.Interrupt(m.ctx, command.Interrupt{SessionID: p.sid})
 			return m.snack("interrupting " + p.role), true
-		}
-		if m.zoom {
-			m.exitZoom()
-			m.refresh()
-			return nil, true
 		}
 		if m.focusPane >= 0 {
 			m.focusPane = -1
