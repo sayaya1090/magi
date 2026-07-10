@@ -16,6 +16,10 @@ import (
 // isDark selects the color theme. The model subscribes to the session itself
 // (see Init/startSub) so it can switch sessions on /resume.
 func Run(ctx context.Context, a *app.App, cmds CommandSource, sid session.SessionID, model, workdir string, isDark bool, imageProto string) error {
+	// Put the console into UTF-8 so multi-byte glyphs survive a drag-copy out of
+	// it (Windows only; a no-op elsewhere). Restore the prior code page on exit.
+	defer configureConsole()()
+
 	// Match our display-width measure to the host terminal (mainly for Windows,
 	// where ambiguous-width glyphs are often drawn wide) so the scrollbar gutter
 	// stays aligned on lines with special characters. Best-effort; see width.go.
