@@ -169,6 +169,7 @@ func (c *Client) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan por
 	var lastStatus int
 	var lastBody string
 	var lastErr error
+	triedNoTools := false
 	for {
 		body, merr := json.Marshal(buildRequest(r, true, useCache, c.reasoningEffort))
 		if merr != nil {
@@ -184,6 +185,21 @@ func (c *Client) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan por
 			resp.Body.Close()
 			c.cacheOff.Store(true)
 			useCache = false
+			continue
+		}
+		// Harmony tool-call misparse recovery: some backends (notably Ollama's
+		// gpt-oss harmony parser) return 500 "error parsing tool call: raw=<prose>"
+		// when the model emits its FINAL ANSWER as prose but the server insists on
+		// parsing it as a tool call. The request is unchanged between HTTP retries,
+		// so send() exhausts its budget and we would hard-abort — discarding an answer
+		// the model actually produced (it sits inside the error body). Retry once with
+		// the tools array stripped: with no tools advertised the server skips tool-call
+		// parsing and returns the same prose as normal content. One-shot (triedNoTools)
+		// and scoped to this exact signature, so a genuine 5xx outage still surfaces.
+		if resp == nil && lastStatus >= 500 && !triedNoTools && len(r.Tools) > 0 &&
+			strings.Contains(lastBody, "parsing tool call") {
+			triedNoTools = true
+			r.Tools = nil
 			continue
 		}
 		break
