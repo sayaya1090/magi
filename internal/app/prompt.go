@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -202,14 +203,137 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 }
 
 // envInfo describes the runtime environment (OS, arch, shell, workdir, date) so the model
-// chooses commands that actually work on this host rather than assuming Linux/GNU.
+// chooses commands that actually work on this host rather than assuming Linux/GNU. The
+// reported shell MUST match what the bash tool actually invokes (see builtin.shell): on
+// Windows that is PowerShell, not sh — reporting "sh" there made models emit Linux/GNU
+// syntax that fails.
 func envInfo(workdir string) string {
-	shell := "sh"
-	if s := os.Getenv("SHELL"); s != "" {
-		shell = filepath.Base(s)
+	return buildEnvInfo(runtime.GOOS, runtime.GOARCH, os.Getenv("SHELL"), workdir, time.Now().Format("2006-01-02"), osReleaseOnce())
+}
+
+// osReleaseOnce reads /etc/os-release at most once per process — the file is immutable
+// for the host's lifetime, and systemFor (hence envInfo) runs every loop step, so a
+// per-step read would be pure waste. Non-Linux hosts skip the read entirely.
+var osReleaseOnce = sync.OnceValue(func() string {
+	if runtime.GOOS != "linux" {
+		return ""
 	}
-	return fmt.Sprintf("# Environment\n- OS: %s (%s)\n- Shell: %s\n- Working directory: %s\n- Date: %s",
-		runtime.GOOS, runtime.GOARCH, shell, workdir, time.Now().Format("2006-01-02"))
+	// Distro identity drives which package manager the model should use; without it,
+	// models guess (apt on Alpine, etc.). /etc/os-release is the freedesktop standard.
+	b, err := os.ReadFile("/etc/os-release")
+	if err != nil {
+		return ""
+	}
+	return string(b)
+})
+
+// buildEnvInfo is the pure core of envInfo (goos/os-release injectable for testing).
+// shellEnv is $SHELL (ignored on Windows, where the bash tool always uses PowerShell);
+// osRelease is the raw /etc/os-release contents (Linux only, "" when unavailable).
+func buildEnvInfo(goos, arch, shellEnv, workdir, date, osRelease string) string {
+	shell := "sh"
+	extra := ""
+	switch goos {
+	case "windows":
+		shell = "powershell"
+		extra = "\n- Note: the `bash` tool runs commands through PowerShell (`powershell -NoProfile -Command`). " +
+			"Use PowerShell/Windows syntax (e.g. `Get-ChildItem`, `Remove-Item`, `$env:VAR`, `;` to chain), " +
+			"NOT Linux/GNU commands (`ls`, `rm`, `grep`, `&&`) or POSIX paths."
+	case "linux":
+		if shellEnv != "" {
+			shell = filepath.Base(shellEnv)
+		}
+		extra = linuxDistroLines(osRelease)
+	case "darwin":
+		if shellEnv != "" {
+			shell = filepath.Base(shellEnv)
+		}
+		// macOS ships no system package manager; Homebrew is the de-facto one. Steer the
+		// model to it instead of guessing apt/yum, and to the BSD userland (not GNU).
+		extra = "\n- Package manager: brew (install with `brew install <pkg>`) — macOS has no apt/yum" +
+			"\n- Note: BSD userland — some flags differ from GNU (e.g. `sed -i ''`, no `sed -i` bare)."
+	default:
+		if shellEnv != "" {
+			shell = filepath.Base(shellEnv)
+		}
+	}
+	return fmt.Sprintf("# Environment\n- OS: %s (%s)\n- Shell: %s\n- Working directory: %s\n- Date: %s%s",
+		goos, arch, shell, workdir, date, extra)
+}
+
+// linuxDistroLines renders the distro name/version and its package manager from raw
+// /etc/os-release contents so the model uses the right install command. Empty when the
+// file was unavailable or unparseable.
+func linuxDistroLines(osRelease string) string {
+	if osRelease == "" {
+		return ""
+	}
+	kv := parseOSRelease(osRelease)
+	name := kv["PRETTY_NAME"]
+	if name == "" {
+		name = strings.TrimSpace(kv["NAME"] + " " + kv["VERSION_ID"])
+	}
+	if name == "" {
+		return ""
+	}
+	out := "\n- Distro: " + name
+	if pm := linuxPackageManager(kv["ID"], kv["ID_LIKE"]); pm != "" {
+		out += fmt.Sprintf("\n- Package manager: %s (install with `%s`) — prefer it; don't assume apt/yum", pm, pmInstallHint(pm))
+	}
+	return out
+}
+
+// parseOSRelease parses KEY=VALUE lines (values optionally quoted) from os-release.
+func parseOSRelease(content string) map[string]string {
+	m := map[string]string{}
+	for _, ln := range strings.Split(content, "\n") {
+		ln = strings.TrimSpace(ln)
+		if ln == "" || strings.HasPrefix(ln, "#") {
+			continue
+		}
+		k, v, ok := strings.Cut(ln, "=")
+		if !ok {
+			continue
+		}
+		m[strings.TrimSpace(k)] = strings.Trim(strings.TrimSpace(v), `"'`)
+	}
+	return m
+}
+
+// linuxPackageManager maps an os-release ID / ID_LIKE to its package manager. ID_LIKE
+// lets derivatives (Mint→ubuntu→debian, Rocky→rhel) resolve without an explicit entry.
+func linuxPackageManager(id, idLike string) string {
+	for _, f := range strings.Fields(strings.ToLower(id + " " + idLike)) {
+		switch f {
+		case "debian", "ubuntu":
+			return "apt"
+		case "fedora", "rhel", "centos", "rocky", "almalinux":
+			return "dnf"
+		case "alpine":
+			return "apk"
+		case "arch", "manjaro":
+			return "pacman"
+		case "opensuse", "suse", "sles":
+			return "zypper"
+		}
+	}
+	return ""
+}
+
+func pmInstallHint(pm string) string {
+	switch pm {
+	case "apt":
+		return "apt-get install -y <pkg>"
+	case "dnf":
+		return "dnf install -y <pkg>"
+	case "apk":
+		return "apk add <pkg>"
+	case "pacman":
+		return "pacman -S --noconfirm <pkg>"
+	case "zypper":
+		return "zypper install -y <pkg>"
+	}
+	return pm + " install <pkg>"
 }
 
 // subagentGuide is appended to every subagent's system prompt. It defines how a
