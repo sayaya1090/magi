@@ -11,7 +11,8 @@ import (
 func ctrlKey(r rune) tea.KeyPressMsg { return tea.KeyPressMsg{Code: r, Mod: tea.ModCtrl} }
 
 // Global shortcuts: ctrl+l clears the transcript, ctrl+t toggles reasoning
-// visibility, and ctrl+c requests shutdown.
+// visibility, and ctrl+q requests shutdown. ctrl+c is deliberately inert — it is
+// left for the terminal's drag-select+copy, so it must NOT quit.
 func TestHandleKeyGlobalShortcuts(t *testing.T) {
 	mm := newTestModel(t)
 	m := &mm
@@ -33,9 +34,14 @@ func TestHandleKeyGlobalShortcuts(t *testing.T) {
 		t.Error("ctrl+t should toggle showThink")
 	}
 
-	cmd, h := m.handleKey(ctrlKey('c'))
+	// ctrl+c must be inert (swallowed, no quit) so a terminal drag-copy is safe.
+	if cmd, h := m.handleKey(ctrlKey('c')); !h || cmd != nil || m.quitting {
+		t.Errorf("ctrl+c must be inert, not quit; handled=%v cmd!=nil=%v quitting=%v", h, cmd != nil, m.quitting)
+	}
+
+	cmd, h := m.handleKey(ctrlKey('q'))
 	if !h || cmd == nil || !m.quitting {
-		t.Errorf("ctrl+c should quit; handled=%v cmd!=nil=%v quitting=%v", h, cmd != nil, m.quitting)
+		t.Errorf("ctrl+q should quit; handled=%v cmd!=nil=%v quitting=%v", h, cmd != nil, m.quitting)
 	}
 }
 
