@@ -25,6 +25,29 @@ magi.log("ok=" .. tostring(ok))`)
 	}
 }
 
+// A UTF-8 (Korean) label passed from Lua reaches the registry as the exact same
+// bytes — Lua strings are byte strings, so the gopher-lua bridge must neither
+// re-encode nor escape them. This closes the Lua→Go leg of the label's UTF-8
+// contract (the app→event→TUI legs are covered in internal/app and
+// internal/adapter/tui); together they prove any escaped display comes from a
+// plugin escaping the string itself, never from magi's pipeline.
+func TestSetUserLabelUnicode(t *testing.T) {
+	reg := &fakeUserReg{}
+	const want = "변냁재" // U+BCC0 U+B0C1 U+C7AC
+	_, _ = loadHost(t, HostConfig{UserReg: reg},
+		`name="p"`+"\n"+`capabilities=["ui"]`,
+		`magi.set_user_label("`+want+`")`)
+	if reg.got != want {
+		t.Fatalf("registry got %q, want %q — the Lua→Go bridge must preserve raw UTF-8", reg.got, want)
+	}
+	if strings.Contains(reg.got, `\u`) {
+		t.Fatalf("label reached the registry ASCII-escaped: %q", reg.got)
+	}
+	if r := []rune(reg.got); len(r) != 3 || r[0] != 0xBCC0 || r[1] != 0xB0C1 || r[2] != 0xC7AC {
+		t.Fatalf("label decoded to %d runes %U, want U+BCC0 U+B0C1 U+C7AC", len(r), r)
+	}
+}
+
 // Without the "ui" capability the call is refused at the bridge (a raised Lua
 // error) and the registry is never touched.
 func TestSetUserLabelNeedsCap(t *testing.T) {
