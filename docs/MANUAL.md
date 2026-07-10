@@ -252,7 +252,8 @@ Hook commands run in a shell and receive the `MAGI_TOOL`/`MAGI_PATH` environment
 | Ctrl+F | search the transcript (type to narrow · enter/↓ next · ↑ prev · esc close) |
 | Ctrl+L | clear the screen |
 | Shift+Tab | switch permission mode |
-| Ctrl+C | exit |
+| Ctrl+Q | exit (or `/quit`) |
+| Ctrl+C | *nothing* — deliberately left free for the terminal's own drag-select + copy |
 | mouse wheel | scroll · click a panel → focus (click again → zoom) |
 | permission modal: y/a/p/n | allow (once) / always (this session) / project (persist to `.magi/config.toml`) / deny |
 

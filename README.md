@@ -216,7 +216,7 @@ release just shows a banner, a minor/major release installs automatically (cance
 then asks you to restart. Non-interactive runs (`-p`, pipes, CI) never check. Opt out with
 `--no-update-check`.
 
-**In the TUI:** **Enter** sends · **Esc** interrupts the running turn · **Ctrl+C** / `/quit` exits.
+**In the TUI:** **Enter** sends · **Esc** interrupts the running turn · **Ctrl+Q** / `/quit` exits (Ctrl+C is left free for drag-copy).
 Dangerous tools (`write`/`edit`/`bash`) ask before they run (`y` allow · `a` always · `n` deny).
 Markdown and syntax highlighting adapt to dark/light terminals automatically.
 
