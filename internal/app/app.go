@@ -42,6 +42,7 @@ type App struct {
 	spawnCount atomic.Int64  // cumulative subagents spawned (runaway backstop)
 
 	lastActivity sync.Map // session.SessionID -> time.Time (liveness for the sidecar health check)
+	toolsRunning sync.Map // session.SessionID -> *atomic.Int64 (tools in flight; suppresses the stall watchdog)
 
 	memMu      sync.Mutex
 	memCache   map[string]string       // workdir -> durable AGENTS.md memory
@@ -814,6 +815,29 @@ func (a *App) idleFor(sid session.SessionID) time.Duration {
 		return time.Since(v.(time.Time))
 	}
 	return 0
+}
+
+// enterTool / leaveTool bracket a single tool execution for a session, and
+// toolInFlight reports whether any tool is currently running. The stall watchdog
+// consults toolInFlight so a legitimately long, silent tool (e.g. a multi-minute
+// bash build that emits no events until it returns) is not mistaken for a wedged
+// child. A tool that hangs past its own timeout is still bounded by the hard cap.
+func (a *App) enterTool(sid session.SessionID) {
+	v, _ := a.toolsRunning.LoadOrStore(sid, new(atomic.Int64))
+	v.(*atomic.Int64).Add(1)
+}
+
+func (a *App) leaveTool(sid session.SessionID) {
+	if v, ok := a.toolsRunning.Load(sid); ok {
+		v.(*atomic.Int64).Add(-1)
+	}
+}
+
+func (a *App) toolInFlight(sid session.SessionID) bool {
+	if v, ok := a.toolsRunning.Load(sid); ok {
+		return v.(*atomic.Int64).Load() > 0
+	}
+	return false
 }
 
 func (a *App) sessionInfo(ctx context.Context, sid session.SessionID) session.Session {

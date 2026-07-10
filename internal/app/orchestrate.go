@@ -623,7 +623,11 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 			return port.SpawnResult{Text: o.text, SessionID: child.ID}, false
 
 		case <-ticker.C:
-			if a.idleFor(child.ID) > a.cfg.SubagentStall {
+			// Stall = no event activity for SubagentStall AND no tool in flight. The
+			// tool guard keeps a silent long-running tool (a bash build emits nothing
+			// until it returns) from being mistaken for a wedged child; such a tool is
+			// bounded by its own timeout, and a genuine hang past that by the hard cap.
+			if a.idleFor(child.ID) > a.cfg.SubagentStall && !a.toolInFlight(child.ID) {
 				cancel() // abort the stalled attempt
 				<-done   // let runLoop unwind
 				announceDone()

@@ -202,6 +202,11 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 			changeBefore = readForChange(workdir, changePath)
 		}
 	}
+	// Mark a tool as in flight so the stall watchdog does not kill a child that is
+	// legitimately blocked in a long, silent tool (e.g. a multi-minute bash). Held
+	// through the rest of executeTool (result append / council eval), which is short.
+	a.enterTool(sid)
+	defer a.leaveTool(sid)
 	res, err := tool.Execute(ctx, tc.Args, port.ToolEnv{
 		SessionID:    sid,
 		Workdir:      workdir,
