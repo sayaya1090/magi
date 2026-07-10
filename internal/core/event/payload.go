@@ -41,6 +41,17 @@ type PromptSubmittedData struct {
 	ResurfacedFrom string `json:"resurfacedFrom,omitempty"`
 }
 
+// InterjectionDeferredData — TypeInterjectionDeferred. One entry in the deferral
+// ledger keyed by the interjection's origin PromptSubmitted MessageID. Resolved:false
+// is written when the prompt is queued as an interjection; Resolved:true when it later
+// leaves the queue by being absorbed inline or by a route_interjection. A reload treats
+// a MessageID with an unresolved entry (and no ResurfacedFrom re-emission) as an
+// abandoned interjection to keep masking from the live turn context.
+type InterjectionDeferredData struct {
+	MessageID string `json:"messageId"`
+	Resolved  bool   `json:"resolved,omitempty"`
+}
+
 // PartAppendedData — TypePartAppended (a single completed part).
 type PartAppendedData struct {
 	MessageID string       `json:"messageId"`

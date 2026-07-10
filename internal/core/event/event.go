@@ -51,6 +51,16 @@ const (
 	// makes reset safe: a still-true fact re-surfaces on the next fold.
 	TypeConcernRaised   Type = "concern.raised"
 	TypeConcernResolved Type = "concern.resolved"
+
+	// Interjection deferral ledger (F5): a durable record that a user prompt was queued
+	// as a mid-turn interjection (Resolved:false at enqueue) and, later, that it left the
+	// queue by being absorbed inline/by a route (Resolved:true). Drain-to-own-turn is
+	// already recorded by the resurfaced prompt's ResurfacedFrom link, so it needs no
+	// mark here. The in-memory queue that masks a live interjection does not survive a
+	// process kill; this ledger lets a reload reconstruct which queued interjections were
+	// never resolved (deferred-but-abandoned) so they stay masked from turn context and
+	// are not silently mixed into the next request, instead of leaking as pending prompts.
+	TypeInterjectionDeferred Type = "interjection.deferred"
 )
 
 // Transient events — bus only, not persisted.
