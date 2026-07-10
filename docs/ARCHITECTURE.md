@@ -384,7 +384,9 @@ The orchestrator (top-level session, `Parent==""`) delegates via the **`task`** 
   (`SpawnRequest.Background` flows to `Session.Escalatable`); their `ask` **fails
   fast** with guidance ("proceed with your best assumption and note any ambiguity")
   instead of blocking until the 2-minute escalation timeout.
-- **Supervisor**: per-attempt timeout, stall watchdog, bounded auto-restart.
+- **Supervisor**: activity-based stall watchdog (primary liveness; suppressed while a
+  tool is in flight so a silent long tool isn't mistaken for a hang), a generous
+  per-attempt hard timeout as a pathological backstop, and bounded auto-restart.
 - **Auto-orchestration** (`Config.AutoOrchestrate`): when context usage exceeds the
   threshold (default 60%, -1 to disable), the system injects a directive forcing the
   top-level agent into orchestration mode — decompose work and delegate to subagents.

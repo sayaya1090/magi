@@ -436,9 +436,9 @@ Limits (D7): depth 3 · concurrency 8 · cumulative 50. Assign per-agent models 
 ### Sidecar execution model (main = the UI thread)
 When the top-level orchestrator delegates with `task`, the subagent runs as a **background sidecar** and `task` returns immediately. The main agent isn't blocked (= idle like a UI thread) and **reacts to user input right away**, while each subagent result is injected into the main session **as it finishes** and processed **incrementally**. Injected results come with **the number of subagents still running**, so the orchestrator decides for itself whether to wait for the rest (rather than re-delegating) · to **delegate a new follow-up** based on results · or to synthesize. It delegates heavy work and handles light work inline.
 
-Each sidecar has a **supervisor** doing health checks:
-- **Hard timeout** (`SubagentTimeout`, default 5 min/attempt) — abort on no response.
-- **Stall detection** (`SubagentStall`, default 4 min of inactivity) — generous so it catches only true hangs (avoids false restarts from first-token latency on large prompts).
+Each sidecar has a **supervisor** doing health checks. The orchestrator can't know in advance how long a delegated task will take, so the two watchdogs are deliberately asymmetric — a tight liveness check plus a *generous* wall-clock backstop:
+- **Stall detection** (`SubagentStall`, default 4 min of no activity) — the primary liveness guard, catching a truly wedged child (no events at all). It stays **activity-based**: any event, including streaming reasoning/text deltas, re-arms it, so a slow single generation is never false-killed. It is **suppressed while a tool is in flight** — a silent long-running tool (e.g. a multi-minute `bash` build) emits nothing until it returns, and is bounded by its own timeout rather than mistaken for a hang.
+- **Hard timeout** (`SubagentTimeout`, default 30 min/attempt) — **not** a fitting deadline (the orchestrator can't size work to a wall clock); a pathological backstop only, for the cases the stall can't see: an infinite reasoning stream (deltas keep re-arming the stall) or a tool hung past its own timeout. Legitimate slow multi-step work finishes well under it.
 - **Auto-restart** (`SubagentMaxRestarts`, default 2) — retry on stall/timeout/transient error (reusing the same role panel), inject an ERROR result when exhausted. The rest · the main continue even if one dies.
 
 (Nested subagents work via synchronous delegation — background is top-level only.)
