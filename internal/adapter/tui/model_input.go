@@ -311,18 +311,15 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	// Suppressed while a turn runs — the palette is hidden then.
 	if matches := m.paletteMatches(); !m.running && len(matches) > 0 {
 		sel := m.clampSel(len(matches))
+		n := len(matches)
 		switch msg.String() {
 		case "up":
-			m.palSel = sel - 1
-			if m.palSel < 0 {
-				m.palSel = 0
-			}
+			// Wrap around: stepping up past the top lands on the bottom entry.
+			m.palSel = (sel - 1 + n) % n
 			return nil, true
 		case "down":
-			m.palSel = sel + 1
-			if m.palSel >= len(matches) {
-				m.palSel = len(matches) - 1
-			}
+			// Wrap around: stepping down past the bottom lands on the top entry.
+			m.palSel = (sel + 1) % n
 			return nil, true
 		case "tab":
 			m.ta.SetValue(matches[sel].name + " ")
