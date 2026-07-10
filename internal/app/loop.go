@@ -766,16 +766,23 @@ func (a *App) finishTurn(ctx context.Context, s session.Session, agent AgentSpec
 			return loopContinue
 		}
 	}
-	// A subagent must deliver a real result before finishing. Reaching this
-	// branch means it produced no tool call — and if report is available, it
-	// has NOT filed one (report terminates the run earlier). One nudge forces
-	// it to call report with actual findings instead of returning whatever
-	// stray text (often a mid-thought fragment) happened to be last. When
-	// report is unavailable, only an EMPTY result warrants the nudge.
-	if isSub && !ts.nudgedEmpty {
+	// A turn must deliver a real result before finishing. Reaching this branch
+	// means it produced no tool call this step.
+	//   - Subagent: if report is available it has NOT filed one (report terminates
+	//     the run earlier), so nudge it to call report with actual findings; when
+	//     report is unavailable, only an EMPTY result warrants the nudge.
+	//   - Top level: a turn that ran NO tool all turn AND ends with empty text —
+	//     a reasoning-only stop, common with harmony-format weak models that emit
+	//     only their analysis channel and stop — delivered literally nothing. The
+	//     council gate can't catch it (it requires usedTools), so it would finish
+	//     silently as a confident done with no deliverable and no UNVERIFIED flag.
+	//     Nudge it once to actually produce a result instead of finishing empty.
+	// Fires once per turn either way, so a still-empty retry then finishes normally.
+	if !ts.nudgedEmpty {
 		_, hasReport := a.tools.Get("report")
-		reportAvail := hasReport && agent.allows("report")
-		if reportAvail || strings.TrimSpace(lastText) == "" {
+		reportAvail := isSub && hasReport && agent.allows("report")
+		emptyResult := strings.TrimSpace(lastText) == ""
+		if (isSub && (reportAvail || emptyResult)) || (!isSub && !usedTools && emptyResult) {
 			ts.nudgedEmpty = true
 			msg := "You are ending your turn without delivering a result. Call the 'report' tool NOW with " +
 				"your actual findings/answer and a status (done/blocked/failed). Do not stop with a partial " +
