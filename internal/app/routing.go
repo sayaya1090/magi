@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"sort"
 	"strings"
@@ -141,6 +142,21 @@ func (a *App) SessionModel(sid session.SessionID) string {
 		return s.Model.Model
 	}
 	return ""
+}
+
+// ListModels returns the default backend's model catalog (GET /models via the
+// gateway), for the /route editor's suggest box. The port.LLMProvider interface
+// carries only StreamChat, so this reaches ListModels through an optional type
+// assertion — a provider that doesn't implement it (or a nil provider) yields
+// (nil, nil), and the editor falls back to configured profiles / free text.
+func (a *App) ListModels(ctx context.Context) ([]string, error) {
+	lister, ok := a.llm.(interface {
+		ListModels(context.Context) ([]string, error)
+	})
+	if !ok {
+		return nil, nil
+	}
+	return lister.ListModels(ctx)
 }
 
 // SetAgentRoute applies a runtime routing edit for an agent. A value naming a
