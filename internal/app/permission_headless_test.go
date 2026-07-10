@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -44,6 +45,28 @@ func TestRequestPermissionNonInteractiveNeverBlocks(t *testing.T) {
 		case <-time.After(2 * time.Second):
 			t.Fatalf("perm=%q force=%v BLOCKED — headless must never wait on a prompt", c.perm, c.force)
 		}
+	}
+}
+
+// A headless denial is reported to the agent as a categorical "unavailable, don't
+// retry" — not the misleading "denied by user" (there is no user), which would
+// invite the agent to re-issue the same doomed call and flail. Interactive mode
+// still says "denied by user" because a human really did decide.
+func TestDenyReasonHeadlessVsInteractive(t *testing.T) {
+	headless, _ := newApp(t, &fakeLLM{}, Config{Permission: "auto", Interactive: false})
+	got := headless.denyReason("bash")
+	for _, want := range []string{"headless", "Do not retry", "--permission allow", "bash"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("headless denyReason %q missing %q", got, want)
+		}
+	}
+	if strings.Contains(got, "denied by user") {
+		t.Errorf("headless denyReason must not claim a user decided: %q", got)
+	}
+
+	interactive, _ := newApp(t, &fakeLLM{}, Config{Permission: "ask", Interactive: true})
+	if r := interactive.denyReason("bash"); r != "denied by user" {
+		t.Errorf("interactive denyReason = %q, want \"denied by user\"", r)
 	}
 }
 
