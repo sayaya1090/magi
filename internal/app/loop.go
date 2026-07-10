@@ -847,7 +847,8 @@ func (a *App) finishTurn(ctx context.Context, s session.Session, agent AgentSpec
 		if ts.prevFinishCalls >= 0 && guard.callCount() == ts.prevFinishCalls && normEq(lastText, ts.prevFinishText) {
 			dd, _ := json.Marshal(event.CouncilDecidedData{
 				Round: ts.council.rounds + 1, Decision: string(council.Done),
-				Note: "answer resubmitted unchanged after council feedback — finishing without re-deliberation; treat as UNVERIFIED",
+				Note:   "answer resubmitted unchanged after council feedback — finishing without re-deliberation; treat as UNVERIFIED",
+				Forced: true,
 			})
 			a.appendFact(ctx, sid, event.TypeCouncilDecided, event.Actor{Kind: event.ActorSystem, ID: "council"}, dd)
 			ts.unverifiedReason = "the same answer was resubmitted unchanged after council feedback, without re-deliberation"

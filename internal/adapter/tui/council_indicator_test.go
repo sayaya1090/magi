@@ -242,6 +242,36 @@ func TestCouncilPlanForcedProceedLabel(t *testing.T) {
 	}
 }
 
+// The Forced flag — not the Note wording — is what labels a finish "no consensus".
+// Regression: a forced finish whose note lacks the "finishing"/"proceeding" words
+// (e.g. "council unavailable: …") was silently rendered as a clean done. With the
+// explicit flag, any forced landing reads "no consensus" regardless of wording,
+// while a genuine consensus done with an incidental note stays a real done.
+func TestCouncilForcedFlagDrivesLabel(t *testing.T) {
+	// council-unavailable forced finish: note has no magic substring, but Forced=true.
+	m := newTestModel(t)
+	m.applyEvent(ev(t, event.TypeCouncilDecided, event.CouncilDecidedData{
+		Round: 1, Decision: "done", Tally: council.Breakdown{},
+		Note: "council unavailable: backend timeout", Forced: true,
+	}))
+	last := m.blocks[len(m.blocks)-1]
+	if !strings.Contains(last.text, "finished (no consensus)") {
+		t.Fatalf("a Forced finish must read 'no consensus' regardless of note wording, got %q", last.text)
+	}
+
+	// Genuine consensus done that happens to carry a note (advisory) must NOT be
+	// mislabeled: Forced=false → a real done, even with a note present.
+	m2 := newTestModel(t)
+	m2.applyEvent(ev(t, event.TypeCouncilDecided, event.CouncilDecidedData{
+		Round: 1, Phase: "plan", Decision: "done", Tally: council.Breakdown{Done: 3},
+		Note: "plan approved with advisory notes (non-blocking)", Forced: false,
+	}))
+	l2 := m2.blocks[len(m2.blocks)-1]
+	if strings.Contains(l2.text, "no consensus") {
+		t.Fatalf("a genuine (Forced=false) approval must not read 'no consensus', got %q", l2.text)
+	}
+}
+
 // While a council round is open the footer must name which judgment is awaited
 // (fixed phrase + spinner), so the wait doesn't read as a stall. councilPhase is
 // armed on convened and cleared on decided, and picks the phase-specific label.

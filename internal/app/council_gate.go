@@ -347,7 +347,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		}
 		dd, _ := json.Marshal(event.CouncilDecidedData{
 			Round: ct.rounds + 1, Decision: string(council.Done),
-			Note: note,
+			Note: note, Forced: true,
 		})
 		a.appendFact(ctx, sid, event.TypeCouncilDecided, councilActor, dd)
 		ct.deadlocked = true
@@ -362,6 +362,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 			Round: ct.rounds + 1, Decision: string(council.Done),
 			Note: fmt.Sprintf("deliberation has cost %s of a %s turn — finishing instead of another round; treat as UNVERIFIED",
 				fmtElapsed(ct.spent), fmtElapsed(in.turnElapsed)),
+			Forced: true,
 		})
 		a.appendFact(ctx, sid, event.TypeCouncilDecided, councilActor, dd)
 		return false, "deliberation was cost-capped before the council approved"
@@ -553,7 +554,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		// A gate failure must not trap the turn — record it as a forced finish
 		// (a note, not an error event, since the turn completes normally).
 		dd, _ := json.Marshal(event.CouncilDecidedData{
-			Round: ct.rounds, Decision: string(council.Done), Note: "council unavailable: " + err.Error(),
+			Round: ct.rounds, Decision: string(council.Done), Note: "council unavailable: " + err.Error(), Forced: true,
 		})
 		a.appendFact(ctx, sid, event.TypeCouncilDecided, councilActor, dd)
 		return false, "the council was unavailable, so the result was not approved: " + err.Error()
@@ -570,15 +571,15 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		})
 		a.appendFact(ctx, sid, event.TypeCouncilVerdict, councilActor, vd)
 	}
-	emitDecided := func(decision council.Decision, feedback, note string) {
+	emitDecided := func(decision council.Decision, feedback, note string, forced bool) {
 		dd, _ := json.Marshal(event.CouncilDecidedData{
-			Round: ct.rounds, Decision: string(decision), Tally: delib.Breakdown, Feedback: feedback, Note: note,
+			Round: ct.rounds, Decision: string(decision), Tally: delib.Breakdown, Feedback: feedback, Note: note, Forced: forced,
 		})
 		a.appendFact(ctx, sid, event.TypeCouncilDecided, councilActor, dd)
 	}
 
 	if delib.Decision != council.Continue {
-		emitDecided(council.Done, "", "")
+		emitDecided(council.Done, "", "", false)
 		return false, "" // the council agrees the turn may finish — a genuine, verified done
 	}
 
@@ -586,7 +587,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	// spin, so finish instead — recorded as a forced "done", not an error.
 	fb := strings.TrimSpace(delib.Feedback)
 	if fb == "" || fb == ct.feedback {
-		emitDecided(council.Done, "", "members voted continue but gave no new feedback — finishing; the council never approved this result, treat it as UNVERIFIED")
+		emitDecided(council.Done, "", "members voted continue but gave no new feedback — finishing; the council never approved this result, treat it as UNVERIFIED", true)
 		return false, "the council voted to continue but produced no actionable feedback, so the result stands unapproved"
 	}
 	ct.feedback = fb
@@ -605,7 +606,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		}
 	}
 
-	emitDecided(council.Continue, fb, "")
+	emitDecided(council.Continue, fb, "", false)
 	pd, _ := json.Marshal(event.PromptSubmittedData{
 		MessageID: "m_" + newID(),
 		Parts:     []session.Part{{Kind: session.PartText, Text: "Council review (not user input) — the task is not yet done:\n" + inject}},

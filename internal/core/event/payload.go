@@ -182,6 +182,12 @@ type CouncilDecidedData struct {
 	// Note explains a gate-forced finish (e.g. round cap reached or no progress),
 	// when the members did not themselves vote done. Empty for a normal decision.
 	Note string `json:"note,omitempty"`
+	// Forced marks a finish the members did NOT themselves approve — a gate-forced
+	// landing (round-cap deadlock, cost-cap, council unavailable, no-progress, an
+	// unchanged resubmission, or a plan audit proceeding past an unresolved concern).
+	// The UI reads this to label the outcome "no consensus" instead of a clean done;
+	// it replaces a fragile scan of Note's wording. Absent (false) = genuine decision.
+	Forced bool `json:"forced,omitempty"`
 	// Criteria is the synthesized completion criteria from a plan-audit approval
 	// (plan phase only) — the contract the turn is later judged against.
 	Criteria []string `json:"criteria,omitempty"`

@@ -665,7 +665,7 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 			Members: members, Rule: rule, DefaultModel: s.Model.Model,
 		})
 		if err != nil { // a gate failure must not block the turn → proceed with the plan
-			dd, _ := json.Marshal(event.CouncilDecidedData{Round: round, Phase: "plan", Decision: string(council.Done), Note: "plan council unavailable: " + err.Error()})
+			dd, _ := json.Marshal(event.CouncilDecidedData{Round: round, Phase: "plan", Decision: string(council.Done), Note: "plan council unavailable: " + err.Error(), Forced: true})
 			a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd)
 			return steps
 		}
@@ -725,7 +725,7 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 			}
 			dd, _ := json.Marshal(event.CouncilDecidedData{
 				Round: round, Phase: "plan", Decision: string(council.Done), Tally: delib.Breakdown,
-				Note: fmt.Sprintf("critical plan concern unresolved after %d round(s) — proceeding", round), Criteria: delib.Criteria,
+				Note: fmt.Sprintf("critical plan concern unresolved after %d round(s) — proceeding", round), Criteria: delib.Criteria, Forced: true,
 			})
 			a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd)
 			return steps
@@ -747,7 +747,7 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 			a.storePlanCriteria(ctx, s, delib.Criteria)
 			dd2, _ := json.Marshal(event.CouncilDecidedData{
 				Round: round, Phase: "plan", Decision: string(council.Done), Tally: delib.Breakdown,
-				Note: "re-plan failed — proceeding with the prior plan", Criteria: delib.Criteria,
+				Note: "re-plan failed — proceeding with the prior plan", Criteria: delib.Criteria, Forced: true,
 			})
 			a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd2)
 			return steps
@@ -788,7 +788,7 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 			dd3, _ := json.Marshal(event.CouncilDecidedData{
 				Round: round, Phase: "plan", Decision: string(council.Done), Tally: delib.Breakdown,
 				Note:     fmt.Sprintf("plan revision did not address the concern after %d round(s) — proceeding (execution + landing gates arbitrate)", round),
-				Criteria: delib.Criteria,
+				Criteria: delib.Criteria, Forced: true,
 			})
 			a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd3)
 			return next

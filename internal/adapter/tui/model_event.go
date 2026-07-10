@@ -371,9 +371,11 @@ func (m *Model) onCouncilDecided(d event.CouncilDecidedData) {
 	// A plan re-plan (continue) is always critical-driven (the severity veto), so the
 	// round word is "revise"; termination continue → "reject".
 	_, verdict := councilVerdictLabel(d.Phase, d.Decision, "critical")
-	if strings.Contains(d.Note, "finishing") || strings.Contains(d.Note, "proceeding") {
-		// Any forced finish (round cap OR no-progress) — not a real approval/done.
-		// Normal consensus decisions carry no note; error fallbacks read as-is.
+	// A gate-forced finish (round cap, cost cap, unavailable, no-progress, unchanged
+	// resubmit, or a plan proceeding past an unresolved concern) is not a real approval.
+	// The event's Forced flag says so explicitly; the Note substring is only a fallback
+	// for legacy logs persisted before that field existed.
+	if d.Forced || strings.Contains(d.Note, "finishing") || strings.Contains(d.Note, "proceeding") {
 		verdict = "finished (no consensus)"
 		if d.Phase == "plan" {
 			verdict = "proceed (no consensus)"
