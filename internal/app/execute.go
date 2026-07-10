@@ -44,11 +44,29 @@ func (a *App) gatePermission(ctx context.Context, sid session.SessionID, actor e
 		dd, _ := json.Marshal(event.PermissionDecidedData{CallID: tc.CallID, Decision: decision})
 		a.appendFact(ctx, sid, event.TypePermissionDecided, actor, dd)
 		if !allowed {
-			a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID, "denied by user", true)
+			a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID, a.denyReason(tc.Name), true)
 			return true
 		}
 	}
 	return false
+}
+
+// denyReason explains a permission denial to the agent as its tool result. In a
+// headless run there is no human to say "no": requestPermission denied the call
+// categorically because the permission mode (ask/auto/deny) cannot approve a
+// dangerous/forced tool with no interactive prompt. Reporting that as "denied by
+// user" is a lie that invites a pointless retry — the agent re-issues the same call,
+// gets denied again, and flails. So name the real cause and tell it not to retry.
+// With an interactive human present it genuinely WAS a user decision.
+func (a *App) denyReason(tool string) string {
+	if a.cfg.Interactive {
+		return "denied by user"
+	}
+	return fmt.Sprintf(
+		"%s is unavailable in this headless run: permission mode %q cannot approve it with no interactive prompt. "+
+			"Do not retry this tool — continue without it, or stop and report that it could not be run and why. "+
+			"(The operator can re-run with --permission allow to enable it.)",
+		tool, a.Permission())
 }
 
 // gatePreHooks runs PreToolUse hooks, which can block execution (e.g. protect paths).
