@@ -315,6 +315,16 @@ type councilTurn struct {
 // genuine done. Empty reason on a finish = a real approval (or a cancel the loop
 // unwinds separately). The caller propagates the reason into turn.finished so the
 // UI does not paint an abandoned task as a confident "done".
+// councilKeepWork rides on every done-gate rejection. A rejection tends to trigger a
+// weak model's "start over" reflex — rm -rf the finished artifacts and rebuild from
+// scratch — which destroys working state, recharges churn, and leaves nothing standing
+// (not even a required server process) when the wall clock expires. The council asked
+// for EVIDENCE, not a rebuild; say so explicitly at the moment of rejection.
+const councilKeepWork = "\n\nWhat is missing is EVIDENCE, not a rebuild: do NOT delete, recreate, or rebuild " +
+	"work that already exists — destroying finished artifacts loses progress and does not address the feedback. " +
+	"Take the SMALLEST action that produces the requested evidence against the CURRENT state (run the real " +
+	"command or test and show its output, keep required processes running)."
+
 func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent AgentSpec, in councilInput, ct *councilTurn) (keepWorking bool, unverifiedReason string) {
 	// ct.deadlocked reports (to the caller) whether this finish is a genuine round-cap
 	// deadlock — the council used its whole budget and never approved — as opposed to
@@ -609,7 +619,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	emitDecided(council.Continue, fb, "", false)
 	pd, _ := json.Marshal(event.PromptSubmittedData{
 		MessageID: "m_" + newID(),
-		Parts:     []session.Part{{Kind: session.PartText, Text: "Council review (not user input) — the task is not yet done:\n" + inject}},
+		Parts:     []session.Part{{Kind: session.PartText, Text: "Council review (not user input) — the task is not yet done:\n" + inject + councilKeepWork}},
 	})
 	a.appendFact(ctx, sid, event.TypePromptSubmitted, councilActor, pd)
 	return true, ""
