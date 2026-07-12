@@ -310,6 +310,7 @@ var slashCommands = []cmdInfo{
 	{"/diff", "show the working-tree git diff"},
 	{"/loop", "show the loop map (turns · steps · council)"},
 	{"/context", "context window usage; /context <tokens> sets the model's window (e.g. 128k, unlimited)"},
+	{"/subagent", "subagent timeout: show base + elastic cap; /subagent <dur> sets the base (e.g. 5m, 90s)"},
 	{"/fork", "branch this session to explore an alternative (origin kept)"},
 	{"/replay", "re-run the last turn on a branch (compare with /loopdiff)"},
 	{"/loopdiff", "compare this branch with its fork origin"},
@@ -1098,7 +1099,7 @@ func capBytes(s string, n int) (string, bool) {
 // in-flight turn (read-only / UI-only — does not mutate the running session).
 func safeWhileRunning(cmd string) bool {
 	switch cmd {
-	case "/help", "/model", "/agents", "/route", "/tools", "/sessions", "/diff", "/loop", "/loopdiff", "/context", "/permission":
+	case "/help", "/model", "/agents", "/route", "/tools", "/sessions", "/diff", "/loop", "/loopdiff", "/context", "/subagent", "/permission":
 		return true
 	}
 	return false

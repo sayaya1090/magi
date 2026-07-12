@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/sayaya1090/magi/internal/core/command"
@@ -644,6 +645,8 @@ func (m *Model) handleSlash(text string) (tea.Cmd, bool) {
 		}
 	case "/context":
 		out = m.cmdContext(fields)
+	case "/subagent":
+		out = m.cmdSubagent(fields)
 	case "/fork":
 		if m.running {
 			out = m.snack("cannot fork while running")
@@ -781,6 +784,23 @@ func (m *Model) cmdContext(fields []string) tea.Cmd {
 			return nil
 		}
 	}
+}
+
+// cmdSubagent handles the /subagent command. Bare "/subagent" shows the base
+// cap and the current elastic effective cap; "/subagent <duration>" (e.g. "5m",
+// "90s") sets the base at runtime — the elastic range follows immediately.
+func (m *Model) cmdSubagent(fields []string) tea.Cmd {
+	if len(fields) < 2 {
+		return m.snack(m.app.SubagentTimeoutInfo(m.ctx, m.sid))
+	}
+	d, err := time.ParseDuration(fields[1])
+	if err != nil {
+		return m.snack("usage: /subagent [<duration>] (e.g. /subagent 5m)")
+	}
+	if err := m.app.SetSubagentTimeout(d); err != nil {
+		return m.snack("subagent: " + err.Error())
+	}
+	return m.snack("subagent timeout base set to " + d.String())
 }
 
 // parseTokenCount parses a context-window size like "128000", "128k", "1m", or

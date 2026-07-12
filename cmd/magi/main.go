@@ -585,6 +585,7 @@ func run() int {
 		CouncilSignals:      councilSignals(cfg.Council),
 		CouncilCriteria:     cfg.Council.Criteria,
 		TimeBudget:          *timeBudget,
+		SubagentTimeout:     subagentTimeoutFrom(cfg.Orchestration), // 0 → app default (5m); env overrides config
 	})
 
 	// MCP: create manager for both config-based and plugin-based MCP servers
@@ -1349,6 +1350,22 @@ func profileModels(profiles map[string]config.LLMProfile) map[string]string {
 // without a rebuild: depth 2 = full recursion, depth 1 = top-level plan + single-level
 // delegate but no child re-planning or failure-recursion. Unset/invalid → 0, which lets the
 // app apply its default of 2. Negative values are ignored.
+// subagentTimeoutFrom resolves the base subagent hard cap: the
+// MAGI_SUBAGENT_TIMEOUT env (bench A/B knob) wins over the config file's
+// [orchestration] subagent_timeout; both are Go duration strings. 0 = unset,
+// letting the app apply its built-in default.
+func subagentTimeoutFrom(o config.OrchestrationConfig) time.Duration {
+	for _, s := range []string{os.Getenv("MAGI_SUBAGENT_TIMEOUT"), o.SubagentTimeout} {
+		if s = strings.TrimSpace(s); s == "" {
+			continue
+		}
+		if d, err := time.ParseDuration(s); err == nil && d > 0 {
+			return d
+		}
+	}
+	return 0
+}
+
 func planDepthFromEnv() int {
 	v := strings.TrimSpace(os.Getenv("MAGI_MAX_PLAN_DEPTH"))
 	if v == "" {
