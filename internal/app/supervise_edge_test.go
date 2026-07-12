@@ -63,6 +63,7 @@ func (f *busyNeverFinishLLM) count() int {
 // then RESTARTED — the counterpart to the stall path (also retried) and the severed
 // stream (not retried). Confirms the full supervisory retry taxonomy.
 func TestSubagentTimeoutRestarted(t *testing.T) {
+	t.Setenv("MAGI_SUBAGENT_JUDGE", "off") // deterministic-cap path under test; the judge would consume a scripted call
 	store, err := jsonl.New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

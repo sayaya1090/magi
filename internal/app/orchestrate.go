@@ -569,12 +569,21 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 	a.appendFact(ctx, child.ID, event.TypePromptSubmitted, actor, pd)
 	a.touch(child.ID) // seed liveness so the watchdog doesn't fire immediately
 
-	// Run the subagent with a hard per-attempt timeout — the elastic cap, which
-	// flexes with observed model speed around the configured base (attemptCap is
-	// the single policy point; see subagent_cap.go). Register its cancel so the
-	// user can interrupt this specific subagent (Esc on its focused pane).
-	attemptCtx, cancel := context.WithTimeout(ctx, a.attemptCap(model.Model))
+	// Run the subagent under a judgment lease: the elastic cap (attemptCap, see
+	// subagent_cap.go) is the INITIAL lease; when it expires the orchestrator's
+	// model judges the child's activity digest — churn is killed, real progress
+	// earns an extension — bounded by the absolute backstop (subagent_judge.go).
+	// Cancellation is ours (not a ctx deadline) so lease decisions and user
+	// interrupts share one path; capExpired marks OUR kills as retryable.
+	// Register the cancel so the user can interrupt this specific subagent
+	// (Esc on its focused pane).
+	attemptCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	attemptStart := time.Now()
+	backstop := a.subagentBackstop()
+	capExpired := false
+	capTimer := time.NewTimer(a.attemptCap(model.Model))
+	defer capTimer.Stop()
 	a.mu.Lock()
 	a.stateLocked(child.ID).cancel = cancel
 	a.mu.Unlock()
@@ -627,12 +636,55 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 		case o := <-done:
 			announceDone()
 			if o.err != nil {
-				// Retry only when our own per-attempt timeout fired (not a parent
-				// cancellation, which should propagate as a terminal failure).
-				timedOut := attemptCtx.Err() == context.DeadlineExceeded && ctx.Err() == nil
+				// Retry only when OUR lease/backstop kill fired (not a parent
+				// cancellation or user interrupt, which propagate as terminal).
+				timedOut := capExpired && ctx.Err() == nil
 				return port.SpawnResult{Err: o.err.Error(), SessionID: child.ID}, timedOut
 			}
 			return port.SpawnResult{Text: o.text, SessionID: child.ID}, false
+
+		case <-capTimer.C:
+			// Lease expiry. Judge (or, with judging disabled, kill outright): an
+			// extension is clamped so the attempt can never outlive the backstop,
+			// and a spent backstop skips the judge entirely — no verdict can add
+			// time that doesn't exist. The child keeps running while the judge
+			// deliberates; a kill verdict cancels it exactly like the old hard cap.
+			ext := time.Duration(0)
+			if backstop > time.Since(attemptStart) {
+				ext = a.judgeLease(ctx, parent, child, req.Prompt, time.Since(attemptStart))
+			}
+			// Clamp AFTER the judge call: the verdict can take up to judgeCallTimeout,
+			// and the extension clock only starts at the Reset below, so a pre-call
+			// remainder would let each judged extension overshoot the backstop by the
+			// judge's own latency.
+			if rem := backstop - time.Since(attemptStart); ext > rem {
+				ext = rem
+			}
+			if ext <= 0 {
+				// The child kept running while the judge deliberated; if it FINISHED
+				// in that window its outcome — possibly a success — beats the lease
+				// verdict. Never discard a completed attempt.
+				select {
+				case o := <-done:
+					announceDone()
+					if o.err != nil {
+						return port.SpawnResult{Err: o.err.Error(), SessionID: child.ID}, false
+					}
+					return port.SpawnResult{Text: o.text, SessionID: child.ID}, false
+				default:
+				}
+				capExpired = true
+				cancel()
+				<-done
+				announceDone()
+				return port.SpawnResult{Err: "subagent lease expired", SessionID: child.ID}, true
+			}
+			ld, _ := json.Marshal(event.AgentStatusData{
+				AgentID: string(child.ID), Parent: string(parent.ID), Role: spec.Name,
+				State: fmt.Sprintf("lease extended +%s (judged in progress)", fmtElapsed(ext)),
+			})
+			a.publishTransient(parent.ID, event.TypeAgentStatus, actor, ld)
+			capTimer.Reset(ext)
 
 		case <-ticker.C:
 			// Stall = no event activity for SubagentStall AND no tool in flight. The
