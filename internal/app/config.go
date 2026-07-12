@@ -145,7 +145,7 @@ type Config struct {
 
 	// Subagent supervision (sidecar): each background subagent is watched for
 	// liveness and restarted on stall/timeout/transient error.
-	SubagentTimeout     time.Duration // hard cap per attempt (default 30m) — pathological backstop only
+	SubagentTimeout     time.Duration // hard cap per attempt (default 5m)
 	SubagentStall       time.Duration // no-activity → considered stalled (default 4m), suppressed while a tool runs
 	SubagentMaxRestarts int           // restarts on stall/timeout/error (default 2)
 
@@ -256,12 +256,13 @@ func (c Config) withDefaults() Config {
 		c.CompactRatio = 0.8
 	}
 	if c.SubagentTimeout == 0 {
-		// Generous hard cap: the orchestrator cannot size a delegated task to a
-		// wall-clock budget, so this is NOT a fitting deadline — it only backstops
-		// the pathological cases the stall watchdog can't see: an infinite reasoning
-		// stream (deltas keep re-arming the stall) or a tool hung past its own
-		// timeout. Legitimate slow multi-step work finishes well under it.
-		c.SubagentTimeout = 30 * time.Minute
+		// Tight per-attempt cap: a churning subagent (hallucinated targets, Q&A
+		// ping-pong with the parent) stays event-active, so neither the stall
+		// watchdog nor the tool-in-flight guard ever cuts it — the hard cap is the
+		// only bound. At 30m one bad explorer outlived a whole bench task budget
+		// (log-summary regression, 2026-07-10); 5m keeps a churner from eating the
+		// parent's wall clock while legitimate focused subagent work fits well under.
+		c.SubagentTimeout = 5 * time.Minute
 	}
 	if c.SubagentStall == 0 {
 		// No-activity liveness: catches a truly wedged child (no events at all).
