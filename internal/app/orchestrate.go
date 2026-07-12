@@ -138,7 +138,17 @@ func (a *App) dispatch(ctx context.Context, parent session.Session, depth int, r
 
 	go func() {
 		defer a.wg.Done()
-		res := a.spawn(ctx, parent, depth, req)
+		// An overall req.Timeout bounds every restart attempt of this background spawn.
+		// It expires as a parent-ctx cancellation, which runAttempt classifies as
+		// terminal (not a per-attempt timeout), so an expired spawn is NOT retried —
+		// the error result is injected below and the parent moves on.
+		sctx := ctx
+		if req.Timeout > 0 {
+			var scancel context.CancelFunc
+			sctx, scancel = context.WithTimeout(ctx, req.Timeout)
+			defer scancel()
+		}
+		res := a.spawn(sctx, parent, depth, req)
 		// Inject the result as a message on the parent so the orchestrator picks it
 		// up incrementally (partial results, not all-or-nothing).
 		a.injectSubagentResult(ctx, parent.ID, req.Agent, res)

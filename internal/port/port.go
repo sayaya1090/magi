@@ -6,6 +6,7 @@ package port
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/core/artifact"
 	"github.com/sayaya1090/magi/internal/core/council"
@@ -291,6 +292,13 @@ type SpawnRequest struct {
 	// session, so each phase sees its predecessors' actual work (not just a spawn-time clone).
 	// Empty = current behavior (new session). Takes precedence over CloneContext when set.
 	ReuseSession session.SessionID
+	// Timeout, when non-zero, bounds the ENTIRE background spawn (all restart attempts
+	// included) from dispatch time. Used by the planner's async explorer fan-out: a
+	// churning explorer stays event-active (the stall watchdog never fires) and a
+	// per-attempt timeout alone still multiplies by the restart budget, so without an
+	// overall bound one bad explorer can outlive the parent's whole wall-clock budget.
+	// Expiry cancels via the parent-ctx path, which spawn treats as terminal (no retry).
+	Timeout time.Duration
 	// PlanStepIndex is the parent plan-step index this child carries out (delegate/refine
 	// write-step). Recorded on the child session (and its SessionCreated fact) so the plan
 	// tree can be reconstructed and the child's todos render indented under the step. nil
