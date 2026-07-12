@@ -271,8 +271,12 @@ func (a *App) dispatchExplorerSteps(ctx context.Context, s session.Session, goal
 			// dispatch is non-blocking: it bumps bgOutstanding, runs the explorer in a goroutine,
 			// and injects the result as a message when done. Duplicate (agent,prompt) pairs are
 			// deduped inside dispatch — explorer groups carry distinct focus/question, so they don't
-			// collide. The ctx is the turn ctx, alive for the whole loop that follows.
-			a.dispatch(ctx, s, depth, port.SpawnRequest{Agent: g.Agent, Prompt: explorerPrompt(fanGoal, g)})
+			// collide. The ctx is the turn ctx, alive for the whole loop that follows; Timeout
+			// bounds the whole spawn (restarts included) like the sync path's explorerTimeout —
+			// without it a churning explorer holds the parked parent for its full restart budget.
+			a.dispatch(ctx, s, depth, port.SpawnRequest{
+				Agent: g.Agent, Prompt: explorerPrompt(fanGoal, g), Timeout: explorerTimeout,
+			})
 			dispatched++
 		}
 	}
