@@ -53,6 +53,8 @@ type App struct {
 
 	probingWindows map[string]struct{} // models whose context window is being (or was) lazily probed (guarded by mu)
 
+	llmLat llmLatencies // recent LLM round-trip durations per model (elastic subagent cap input)
+
 	states map[session.SessionID]*sessionState // per-session state, consolidating the maps above (guarded by mu); migrated group-by-group
 }
 

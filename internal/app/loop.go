@@ -500,6 +500,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			Tools:    a.toolSpecs(agent, isSub, depth),
 		}
 
+		stepStart := time.Now()
 		stream, err := a.providerFor(agent).StreamChat(ctx, req)
 		if err != nil {
 			a.emitError(ctx, sid, agentActor, err.Error())
@@ -529,6 +530,11 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		if ctx.Err() != nil {
 			return lastText, ctx.Err()
 		}
+		// Feed the elastic subagent cap: one full model round trip (request → stream
+		// fully consumed) is the speed signal it budgets attempts against. Recorded
+		// only for an intact stream — a timeout/interrupt-censored duration is not a
+		// round trip and would bias the cap (timeouts stretch it, Esc shrinks it).
+		a.llmLat.record(s.Model.Model, time.Since(stepStart))
 
 		// Persist the assistant message: reasoning (if any), then text, then tool calls.
 		if reasoning != "" {

@@ -145,7 +145,7 @@ type Config struct {
 
 	// Subagent supervision (sidecar): each background subagent is watched for
 	// liveness and restarted on stall/timeout/transient error.
-	SubagentTimeout     time.Duration // hard cap per attempt (default 5m)
+	SubagentTimeout     time.Duration // BASE hard cap per attempt (default 5m); the effective cap flexes with observed model speed (subagent_cap.go)
 	SubagentStall       time.Duration // no-activity → considered stalled (default 4m), suppressed while a tool runs
 	SubagentMaxRestarts int           // restarts on stall/timeout/error (default 2)
 

@@ -569,9 +569,11 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 	a.appendFact(ctx, child.ID, event.TypePromptSubmitted, actor, pd)
 	a.touch(child.ID) // seed liveness so the watchdog doesn't fire immediately
 
-	// Run the subagent with a hard per-attempt timeout. Register its cancel so
-	// the user can interrupt this specific subagent (Esc on its focused pane).
-	attemptCtx, cancel := context.WithTimeout(ctx, a.cfg.SubagentTimeout)
+	// Run the subagent with a hard per-attempt timeout — the elastic cap, which
+	// flexes with observed model speed around the configured base (attemptCap is
+	// the single policy point; see subagent_cap.go). Register its cancel so the
+	// user can interrupt this specific subagent (Esc on its focused pane).
+	attemptCtx, cancel := context.WithTimeout(ctx, a.attemptCap(model.Model))
 	defer cancel()
 	a.mu.Lock()
 	a.stateLocked(child.ID).cancel = cancel
