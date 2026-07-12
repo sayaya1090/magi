@@ -668,11 +668,14 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			}
 			if kind == "stalled" {
 				msg = "You've run many steps without changing anything or making concrete progress — you may be " +
-					"re-running checks or restating the same conclusion instead of advancing the task. Stop and take a " +
-					"DIFFERENT concrete action toward the deliverable; if something is blocking you, state exactly what " +
-					"it is and why before continuing. Guess only when necessary: if a value is unknown but discoverable, " +
-					"run the tool or command that determines it (compute, parse, crack, query, or read the real state) " +
-					"rather than trying values blindly. Re-read the original task:\n" +
+					"re-running checks or restating the same conclusion instead of advancing the task. If the work is " +
+					"genuinely COMPLETE: end your turn now by replying with NO tool call at all — that is what triggers " +
+					"verification and completion; another confirmation command does not, and never delete or rebuild " +
+					"finished work just to produce visible activity. If it is NOT complete: stop and take a DIFFERENT " +
+					"concrete action toward the deliverable; if something is blocking you, state exactly what it is and " +
+					"why before continuing. Guess only when necessary: if a value is unknown but discoverable, run the " +
+					"tool or command that determines it (compute, parse, crack, query, or read the real state) rather " +
+					"than trying values blindly. Re-read the original task:\n" +
 					clipSpec(task, 1500)
 			}
 			pd, _ := json.Marshal(event.PromptSubmittedData{
