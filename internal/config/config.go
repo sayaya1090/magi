@@ -60,6 +60,10 @@ type LLMConfig struct {
 // parallel read-only explorers; nil means default (on), set false to disable.
 type OrchestrationConfig struct {
 	Planner *bool `toml:"planner"`
+	// SubagentTimeout is the BASE per-attempt hard cap for subagents, as a Go
+	// duration string ("5m", "90s"). The effective cap flexes elastically with
+	// observed model speed around this base. Empty = built-in default (5m).
+	SubagentTimeout string `toml:"subagent_timeout"`
 }
 
 // ThemeConfig overrides TUI colors per mode. Keys are Material Design 3 color
@@ -217,6 +221,9 @@ const defaultConfigTemplate = `# magi configuration. Everything here is optional
 # planner = true   # pre-flight planner: before a turn, decide solo vs parallel
 #                  # read-only exploration. Default on; set false to disable.
 #                  # Route it to a cheap backend with [routing] planner = "fast".
+# subagent_timeout = "5m"  # base per-attempt subagent hard cap; the effective cap
+#                          # flexes with observed model speed (slow model → longer).
+#                          # Adjustable at runtime with /subagent.
 
 # --- Plugin settings: a [plugins.<name>] table is readable by that plugin via
 # magi.store_get("key"). Plugins persist their own values with store_set. ---
