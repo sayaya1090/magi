@@ -602,6 +602,22 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	}
 	ct.feedback = fb
 
+	// A FINAL-round rejection lands immediately instead of injecting. Feedback
+	// injected here would hand the model one more UNBOUNDED work phase — the round
+	// cap above can only fire at the NEXT no-tool-call finish attempt, and a
+	// completion-looping model (banner echoes, trivial re-verification commands)
+	// never produces one, so the turn burns to the wall clock and the timeout kill
+	// takes any running deliverable processes down with it (pypi-server,
+	// 2026-07-13). Landing now records the same UNVERIFIED deadlock and leaves the
+	// work — files AND processes — standing for verification.
+	if ct.rounds >= maxRounds {
+		note := fmt.Sprintf("unresolved after %d rounds — finishing; the council never approved this result, treat it as UNVERIFIED; still unmet: %s",
+			maxRounds, clipLine(fb, 200))
+		emitDecided(council.Done, fb, note, true)
+		ct.deadlocked = true
+		return false, fmt.Sprintf("the council never approved this result within %d round(s)", maxRounds)
+	}
+
 	// Rung 1 (stuck-concern escalation, opt-in): once the council has held the turn open
 	// for councilMeansRound+ rounds, the bare objection has demonstrably failed to move the
 	// agent — append a concrete, task-agnostic recipe for satisfying it (how to keep a
