@@ -452,7 +452,7 @@ primary = "#B45309"
 ## 9. 플러그인 (Lua)
 
 `<config>/plugins/<name>/` 또는 `<workdir>/.magi/plugins/<name>/`에
-`plugin.toml` + `init.lua`. capability: `tool`·`command`(`/login` 같은 슬래시 커맨드)·`context-provider`·`mcp`·`llm-headers`·`analyze`·`experience`(magi.propose_experience — 플러그인이 학습한 교훈/스킬을 D13 공유 스토어 리뷰 큐로 제안). 파일 변경 시 **핫리로드**.
+`plugin.toml` + `init.lua`. capability: `tool`·`command`(`/login` 같은 슬래시 커맨드)·`context-provider`·`mcp`·`llm-headers`·`analyze`·`experience`(magi.propose_experience — 플러그인이 학습한 교훈/스킬을 D13 공유 스토어 리뷰 큐로 제안)·`notify`(magi.notify — 세션 트랜스크립트에 시스템 ⟳ 노트 추가, 능동 알림 채널; 모델도 다음 턴에 봄). `magi.remove_file`은 fs:write 권한으로 워크디렉토리 파일/디렉토리 삭제 — 산출물 쓰는 플러그인의 undo 반쪽. 파일 변경 시 **핫리로드**.
 샌드박스(위험 stdlib 차단) + 매니페스트 권한(`fs:read`, `net`, `exec`) 집행.
 예제: `plugins/examples/wordcount`.
 
