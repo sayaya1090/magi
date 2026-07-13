@@ -436,23 +436,25 @@ func CloseLSPPool() {
 	}
 }
 
-// AutoDiagnose is the post-edit hook entry point: it returns diagnostics for a
-// just-saved file, or — the first time a needed server is missing this session —
-// an OS-appropriate install hint (including a prerequisite runtime bootstrap when
-// that's missing too). Any failure or an unsupported file degrades to "" so the
-// edit turn is never blocked or slowed beyond the pool's own bounded wait.
-func AutoDiagnose(ctx context.Context, workdir, absPath, goos string) string {
+// AutoDiagnose is the post-edit hook entry point. It returns two distinct things,
+// because the caller must treat them differently: diag is real diagnostics found
+// in the just-saved file (a correctness problem the edit should be flagged for),
+// while advice is a once-per-session install hint shown when the needed server is
+// merely absent (an environment note, NOT an edit failure — the edit succeeded).
+// Any failure or an unsupported file yields ("","") so the edit turn is never
+// blocked or slowed beyond the pool's own bounded wait.
+func AutoDiagnose(ctx context.Context, workdir, absPath, goos string) (diag, advice string) {
 	diags, missing, err := lspPool.Diagnose(ctx, workdir, absPath)
 	if missing != "" {
 		if !lspPool.markAdvised(workdir, missing) {
-			return ""
+			return "", ""
 		}
-		return composeInstallAdvice(missing, goos, prereqMissingFor(missing))
+		return "", composeInstallAdvice(missing, goos, prereqMissingFor(missing))
 	}
 	if err != nil {
-		return ""
+		return "", ""
 	}
-	return diags
+	return diags, ""
 }
 
 // prereqMissingFor reports whether a server's prerequisite runtime is absent from

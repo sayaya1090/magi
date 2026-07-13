@@ -273,9 +273,15 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 			res.Content = appendToContent(res.Content, "\n\n"+h)
 			res.IsError = true
 		}
-		if diag := a.diagnose(ctx, workdir, path); diag != "" {
+		diag, advice := a.diagnose(ctx, workdir, path)
+		if diag != "" {
 			res.Content = appendToContent(res.Content, "\n\n[diagnostics]\n"+diag)
 			res.IsError = true
+		}
+		// A missing language server is an environment note, not an edit failure: the
+		// edit succeeded, so attach the install hint without flipping IsError.
+		if advice != "" {
+			res.Content = appendToContent(res.Content, "\n\n[lsp] "+advice)
 		}
 	}
 

@@ -200,13 +200,17 @@ func TestPoolMissingServerAdviceOnce(t *testing.T) {
 	if err != nil || missing != "rust-analyzer" {
 		t.Fatalf("missing=%q err=%v, want rust-analyzer", missing, err)
 	}
-	// First AutoDiagnose advises, second is silent (session-once).
-	first := AutoDiagnose(context.Background(), wd, f, "darwin")
-	if !strings.Contains(first, "rustup component add rust-analyzer") {
-		t.Errorf("first advice = %q", first)
+	// First AutoDiagnose advises (as advice, never as a diagnostic), second is
+	// silent (session-once).
+	diag, advice := AutoDiagnose(context.Background(), wd, f, "darwin")
+	if diag != "" {
+		t.Errorf("missing server must not produce a diagnostic, got %q", diag)
 	}
-	if second := AutoDiagnose(context.Background(), wd, f, "darwin"); second != "" {
-		t.Errorf("second advice = %q, want empty (advised once)", second)
+	if !strings.Contains(advice, "rustup component add rust-analyzer") {
+		t.Errorf("first advice = %q", advice)
+	}
+	if d2, a2 := AutoDiagnose(context.Background(), wd, f, "darwin"); d2 != "" || a2 != "" {
+		t.Errorf("second call = (%q,%q), want empty (advised once)", d2, a2)
 	}
 }
 

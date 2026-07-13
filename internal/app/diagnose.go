@@ -17,34 +17,37 @@ import (
 // diagnostics pass so the agent can self-correct (LSP-style feedback loop).
 var fileModifiers = map[string]bool{"write": true, "edit": true, "multiedit": true}
 
-// diagnose runs a fast language checker on a just-modified file and returns any
-// problems (empty when clean or unsupported). This is a lightweight stand-in for
-// full LSP diagnostics; it catches the common syntax-error class immediately.
-func (a *App) diagnose(ctx context.Context, workdir, path string) string {
+// diagnose runs a fast language checker on a just-modified file. It returns two
+// things the caller treats differently: diag is a correctness problem found in the
+// file (the edit should be flagged so the agent self-corrects), while advice is a
+// non-error environment note (a once-per-session hint that a language server is
+// absent). Both are empty when the file is clean, unsupported, or unchecked.
+func (a *App) diagnose(ctx context.Context, workdir, path string) (diag, advice string) {
 	if a.plat == nil || path == "" {
-		return ""
+		return "", ""
 	}
 	switch filepath.Ext(path) {
 	case ".go":
-		return a.diagnoseGo(ctx, workdir, path)
+		return a.diagnoseGo(ctx, workdir, path), ""
 	case ".py":
 		res, err := a.plat.Exec(ctx, port.Cmd{Path: "python3", Args: []string{"-m", "py_compile", path}, Dir: workdir})
 		if err == nil && res.ExitCode != 0 {
-			return strings.TrimSpace(string(res.Stderr))
+			return strings.TrimSpace(string(res.Stderr)), ""
 		}
-		return ""
+		return "", ""
 	default:
 		// Every other language goes through the warm LSP pool: it reuses a running
 		// server per (workdir, language) so cold-starting per edit is paid once, and
-		// degrades to "" (or a once-per-session install hint) when no server is
+		// degrades to empty (or a once-per-session install hint) when no server is
 		// available — never blocking the edit turn.
 		return a.diagnoseLSP(ctx, workdir, path)
 	}
 }
 
 // diagnoseLSP runs post-edit diagnostics for a non-Go/Py file via the warm LSP
-// pool. Bounded and best-effort: any failure or unsupported extension yields "".
-func (a *App) diagnoseLSP(ctx context.Context, workdir, path string) string {
+// pool. Bounded and best-effort: any failure or unsupported extension yields
+// ("",""). A missing server surfaces as advice, never as a diagnostic.
+func (a *App) diagnoseLSP(ctx context.Context, workdir, path string) (diag, advice string) {
 	abs := path
 	if !filepath.IsAbs(abs) {
 		abs = filepath.Join(workdir, path)

@@ -44,7 +44,7 @@ func TestDiagnoseGoSyntaxError(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(wd, "bad.go"), []byte("package x\n\nfunc {\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out := a.diagnose(context.Background(), wd, "bad.go")
+	out, _ := a.diagnose(context.Background(), wd, "bad.go")
 	if strings.TrimSpace(out) == "" {
 		t.Error("gofmt should report a syntax error for a malformed Go file")
 	}
@@ -55,7 +55,7 @@ func TestDiagnoseGoSyntaxError(t *testing.T) {
 	}
 	// (go vet may not run cleanly outside a module; the gofmt-clean path returns no
 	// syntax error, which is what we assert here.)
-	if out := a.diagnose(context.Background(), wd, "ok.go"); strings.Contains(out, "expected") {
+	if out, _ := a.diagnose(context.Background(), wd, "ok.go"); strings.Contains(out, "expected") {
 		t.Errorf("clean file should have no syntax error, got %q", out)
 	}
 }
