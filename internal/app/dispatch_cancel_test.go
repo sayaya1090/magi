@@ -70,6 +70,53 @@ func TestDispatchCancelAbuseGate(t *testing.T) {
 	}
 }
 
+// A subagent that ESCALATES a blocker (e.g. "I have no permission to run git") before
+// any sibling finishes is an intermediate signal from the wave: the orchestrator has
+// heard from it and may legitimately cancel the batch to take over itself. Without this,
+// the abuse gate (completed==0 && injected==0) silently refused the cancel and the other
+// siblings kept running — the exact bug reported for a 3-way parallel commit review.
+func TestDispatchCancelEscalationLiftsGate(t *testing.T) {
+	a, wd := newApp(t, workingLLM(), Config{Permission: "allow"})
+	ctx := context.Background()
+	sid, _ := a.CreateSession(ctx, command.CreateSession{Workdir: wd})
+
+	// Two siblings running, none finished: the gate would normally refuse.
+	registerRunningChild(a, sid, "s_child_g1", "coder", wd)
+	registerRunningChild(a, sid, "s_child_g2", "coder", wd)
+	a.mu.Lock()
+	g := a.bgFor(sid)
+	g.outstanding = 2
+	a.mu.Unlock()
+
+	// Sanity: with no signal at all, cancel is refused.
+	if _, err := a.cancelDispatched(ctx, sid, "", "give up"); err == nil {
+		t.Fatal("cancel should be refused before any result OR escalation")
+	}
+
+	// One subagent escalates a blocker. escalate blocks on the orchestrator's reply, so
+	// run it in the background and wait until the ask is registered (asked incremented).
+	go a.escalate(ctx, sid, "coder", "I have no permission to run git — should I stop?")
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		a.mu.Lock()
+		asked := a.stateLocked(sid).bg.asked
+		a.mu.Unlock()
+		if asked > 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// Now the orchestrator decides to cancel both and take over: it must succeed.
+	n, err := a.cancelDispatched(ctx, sid, "", "no git access — I'll review the commits directly")
+	if err != nil {
+		t.Fatalf("cancel should be allowed once a subagent has escalated: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("both running siblings should be cancelled, got %d", n)
+	}
+}
+
 func TestDispatchCancelCancelsAndReportsHonestly(t *testing.T) {
 	a, wd := newApp(t, workingLLM(), Config{Permission: "allow"})
 	ctx := context.Background()

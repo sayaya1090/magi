@@ -33,6 +33,14 @@ type bgGroup struct {
 	// text lands after the async results (which would fool a last-message check).
 	injected int
 	consumed int
+
+	// asked counts escalations (escalate/ask) raised by this wave's subagents. An
+	// escalation is an intermediate signal from the wave — the orchestrator has heard
+	// from it — so it lifts cancelDispatched's abuse gate the same way a finished
+	// result does. Without this, a subagent that escalates a blocker (e.g. "no git
+	// permission") leaves completed/injected at 0, so the orchestrator's decision to
+	// cancel the batch and take over is silently refused and the siblings keep running.
+	asked int
 }
 
 // bgFor returns (creating if needed) the background group for a parent session.
@@ -191,6 +199,11 @@ func (a *App) escalate(ctx context.Context, parent session.SessionID, fromRole, 
 		return "", fmt.Errorf("the orchestrator is already handling another question; try again shortly")
 	}
 	a.stateLocked(parent).pendingAsk = ch
+	// An escalation is an intermediate signal from the wave: it lets the orchestrator
+	// legitimately cancel the batch (cancelDispatched) even before any subagent finishes.
+	if g := a.stateLocked(parent).bg; g != nil {
+		g.asked++
+	}
 	a.mu.Unlock()
 	defer func() {
 		a.mu.Lock()
@@ -350,10 +363,12 @@ func (a *App) subagentActionManifest(ctx context.Context, child session.SessionI
 }
 
 // cancelDispatched cancels the parent orchestrator's still-running BACKGROUND subagents.
-// agentFilter=="" cancels all remaining; otherwise only that role. It refuses when no
-// result from the current wave has arrived yet (the feature exists to drop siblings an
-// INTERMEDIATE result made unnecessary — cancelling a wave you've seen nothing from is
-// abuse) and when reason is empty (intent must be recorded). Cancelling flows through the
+// agentFilter=="" cancels all remaining; otherwise only that role. It refuses when the
+// current wave has produced no signal at all — no finished result AND no escalation (an
+// ask is the orchestrator hearing from the wave, so it counts). The feature exists to
+// drop siblings an INTERMEDIATE result or blocker made unnecessary; cancelling a wave
+// you've seen nothing from is abuse. It also refuses when reason is empty (intent must
+// be recorded). Cancelling flows through the
 // normal dispatch cleanup: each child's ctx.Done unwinds spawn, whose result is injected
 // with a compensation manifest and decrements outstanding. Returns the count cancelled.
 func (a *App) cancelDispatched(ctx context.Context, parent session.SessionID, agentFilter, reason string) (int, error) {
@@ -362,9 +377,9 @@ func (a *App) cancelDispatched(ctx context.Context, parent session.SessionID, ag
 	}
 	a.mu.Lock()
 	g := a.stateLocked(parent).bg
-	if g == nil || (len(g.completed) == 0 && g.injected == 0) {
+	if g == nil || (len(g.completed) == 0 && g.injected == 0 && g.asked == 0) {
 		a.mu.Unlock()
-		return 0, fmt.Errorf("no intermediate result has arrived yet — wait for at least one subagent's result before deciding the rest are unnecessary")
+		return 0, fmt.Errorf("no intermediate result has arrived yet — wait for at least one subagent's result (or escalation) before deciding the rest are unnecessary")
 	}
 	if g.cancelled == nil {
 		g.cancelled = map[session.SessionID]string{}
