@@ -2,5 +2,5 @@ name = "engram"
 version = "1.0.0"
 description = "자기개선 관찰자 — 결과가 확정된 턴에서 교훈/검증된 스킬을 추출해 SESSION_SUMMARY.md/.claude/skills에 누적하고, 세션 컨텍스트로 회상한다"
 entry = "init.lua"
-capabilities = ["context-provider", "analyze", "experience"]
+capabilities = ["context-provider", "analyze", "experience", "notify"]
 permissions = ["fs:read", "fs:write"]

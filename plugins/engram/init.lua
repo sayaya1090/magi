@@ -301,7 +301,7 @@ end
 
 -- 캡처: 결과가 확정된 턴 → 사이드카 분석 → 교훈 기록 + 검증된 스킬 저장.
 -- 이 핸들러는 호스트의 관찰 워커에서 돌므로 느린 사이드카가 턴을 막지 않는다.
-local function analyze_and_record(sid, hint)
+local function analyze_and_record(sid, hint, user)
   local r = recent[sid]
   if not r or #r < 2 then return end -- 직전 시도가 될 맥락 부족
   local input = render_window(r)
@@ -339,7 +339,8 @@ local function analyze_and_record(sid, hint)
           magi.log("engram: 유사 교훈 이미 기록됨 — 스킵: " .. tostring(lesson.task))
         else
           local ok = append_lesson{
-            timestamp = magi.time(), username = "user",
+            timestamp = magi.time(),
+            username = magi.store_get("username") or user or "user",
             category = tostring(lesson.category or "기타"),
             task = tostring(lesson.task), approach = tostring(lesson.approach or ""),
             outcome = outcome, lesson = tostring(lesson.lesson),
@@ -367,6 +368,9 @@ local function analyze_and_record(sid, hint)
   if skill and skill.name and skill.technique then
     local slug = save_skill(skill)
     magi.log("engram: 스킬 저장 — " .. slug)
+    magi.store_set("last_skill", slug)
+    magi.notify(sid, "engram: 검증된 성공에서 스킬 '" .. slug
+      .. "' 을(를) 자동 저장했습니다. 잘못 저장됐으면 'N' 또는 '스킬 취소'라고 입력하면 되돌립니다.")
     local _, perr = magi.propose_experience{
       skills = { {
         name = slug,
@@ -378,7 +382,48 @@ local function analyze_and_record(sid, hint)
   end
 end
 
+-- 짧은 부정 응답(자동 저장된 스킬 취소) 판정 — ds-cortex isDenial 포트.
+local DENIALS = {
+  "^%s*[nN][oO]?%s*[.!]?%s*$", "^%s*아니요?%s*[.!]?%s*$", "^%s*아냐%s*[.!]?%s*$",
+  "^%s*취소%s*[.!]?%s*$", "^%s*스킬%s*취소%s*[.!]?%s*$", "^%s*하지%s*마%s*[.!]?%s*$",
+  "^%s*[pP][aA][sS][sS]%s*[.!]?%s*$", "^%s*[sS][kK][iI][pP]%s*[.!]?%s*$", "^%s*스킵%s*[.!]?%s*$",
+}
+local function is_denial(text)
+  for _, pat in ipairs(DENIALS) do
+    if string.match(tostring(text or ""), pat) then return true end
+  end
+  return false
+end
+
+-- 마지막 자동 저장 스킬의 취소(undo): 저장 직후 "다음 사용자 메시지"까지가 취소 창.
+local function undo_last_skill(sid)
+  local slug = magi.store_get("last_skill")
+  if not slug or slug == "" then return false end
+  magi.remove_file(SKILLS_DIR .. "/" .. slug)
+  -- 인덱스에서도 제거
+  local idx = magi.store_get("skill_index") or ""
+  local out = {}
+  for line in string.gmatch(idx, "[^\n]+") do
+    if string.match(line, "^([^\t]*)\t") ~= slug then out[#out + 1] = line end
+  end
+  magi.store_set("skill_index", table.concat(out, "\n"))
+  magi.store_set("last_skill", "")
+  magi.notify(sid, "engram: 스킬 '" .. slug .. "' 저장을 취소(삭제)했습니다.")
+  magi.log("engram: 스킬 취소 — " .. slug)
+  return true
+end
+
 magi.on("user_message", function(ev)
+  -- 취소 창: 직전에 자동 저장된 스킬이 있으면, 이 메시지가 짧은 부정이면 되돌리고
+  -- 아니면 창을 닫는다(one-shot — 원본 ds-cortex의 다음-턴 취소 시맨틱).
+  local last = magi.store_get("last_skill")
+  if last and last ~= "" then
+    if is_denial(ev.text) then
+      undo_last_skill(ev.session)
+    else
+      magi.store_set("last_skill", "")
+    end
+  end
   push_recent(ev.session, "user", ev.text)
 end)
 
@@ -412,7 +457,9 @@ magi.on("turn_finished", function(ev)
   local outcome = ev.outcome or "done"
   update_usage(ev.skills, outcome)
   if ANALYZE_OUTCOMES[outcome] then
-    analyze_and_record(ev.session, outcome_hint(outcome, ev.reason))
+    local user = ev.user
+    if user == "" then user = nil end
+    analyze_and_record(ev.session, outcome_hint(outcome, ev.reason), user)
   end
 end)
 
