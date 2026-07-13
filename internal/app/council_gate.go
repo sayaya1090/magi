@@ -461,6 +461,34 @@ const councilKeepWork = "\n\nWhat is missing is EVIDENCE, not a rebuild: do NOT 
 	"Take the SMALLEST action that produces the requested evidence against the CURRENT state (run the real " +
 	"command or test and show its output, keep required processes running)."
 
+// councilCompletionAudit rides on every done-gate rejection, after the round's
+// feedback. Over a long turn a weak model drifts: it paraphrases the spec (losing
+// verbatim identifiers a grader checks), narrows success to the easiest passing
+// subset, and reports "done" from intent rather than evidence. The audit re-anchors
+// the turn on the FULL objective and forces completion to be proven requirement by
+// requirement against the current state — not merely consistent with completion.
+const councilCompletionAudit = "\n\nCompletion audit — treat 'done' as UNPROVEN until you verify it:\n" +
+	"- Keep the FULL objective. Do not redefine success as a smaller, easier, or merely-compatible task, and do not paraphrase the spec — preserve its exact identifiers, names, and values verbatim.\n" +
+	"- Derive every explicit requirement, named artifact, command, and test from the objective, and for each one inspect the authoritative current-state evidence (file contents, command output, test result) that would prove it.\n" +
+	"- Match the check's scope to the requirement's scope; a narrow check does not prove a broad claim.\n" +
+	"- Treat uncertain, indirect, or missing evidence as NOT done — gather stronger evidence or keep working. Do not rely on intent, partial progress, or a plausible-looking answer as proof."
+
+// continuationText assembles the prompt injected when the council votes CONTINUE:
+// the round's feedback, then a verbatim re-anchor of the objective (so the agent
+// cannot lose the exact spec over a long turn), then the completion-audit rubric.
+func continuationText(inject, task string) string {
+	var b strings.Builder
+	b.WriteString("Council review (not user input) — the task is not yet done:\n")
+	b.WriteString(inject)
+	b.WriteString(councilKeepWork)
+	if t := strings.TrimSpace(task); t != "" {
+		b.WriteString("\n\nOriginal objective (verbatim — pursue this exact end state, do not narrow or paraphrase it):\n")
+		b.WriteString(clipLine(t, councilDiffCap))
+	}
+	b.WriteString(councilCompletionAudit)
+	return b.String()
+}
+
 func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent AgentSpec, in councilInput, ct *councilTurn) (keepWorking bool, unverifiedReason string) {
 	// ct.deadlocked reports (to the caller) whether this finish is a genuine round-cap
 	// deadlock — the council used its whole budget and never approved — as opposed to
@@ -878,7 +906,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	ct.prevVerdicts = merged
 	pd, _ := json.Marshal(event.PromptSubmittedData{
 		MessageID: "m_" + newID(),
-		Parts:     []session.Part{{Kind: session.PartText, Text: "Council review (not user input) — the task is not yet done:\n" + inject + councilKeepWork}},
+		Parts:     []session.Part{{Kind: session.PartText, Text: continuationText(inject, task)}},
 	})
 	a.appendFact(ctx, sid, event.TypePromptSubmitted, councilActor, pd)
 	return true, ""
