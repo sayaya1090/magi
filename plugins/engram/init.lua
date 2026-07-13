@@ -469,12 +469,28 @@ magi.register_context_provider{
   provide = function(q)
     local raw = magi.read_file(SUMMARY)
     if not raw or raw == "" then return {} end
+    -- 관련성 게이트: 현재 질의와 토큰이 겹치는 교훈 행만 주입한다. 무관한 행(예:
+    -- 세션 첫 턴의 교훈)이 매 스텝 실리면 모델 추론이 그 옛 요청을 계속 되뇐다
+    -- (실측 버그 리포트). 질의가 짧아 겹침 판단이 무의미하면 최근 행으로 폴백.
+    local qset, qn = tokenize(q.prompt or "")
     local rows = {}
     for line in string.gmatch(raw, "[^\n]+") do
       local t = string.gsub(line, "^%s+", "")
       if string.sub(t, 1, 1) == "|" and not string.find(t, "일시 | 사용자", 1, true)
         and not string.match(t, "^|%s*:?%-%-") then
-        rows[#rows + 1] = t
+        if qn >= 3 then
+          -- 행 토큰이 질의 문자열의 부분문자열로 나타나는지로 겹침을 센다:
+          -- 한국어 조사("포트가" vs "포트") 때문에 토큰 동등 비교는 오탐 필터링한다.
+          local qtext = string.lower(q.prompt or "")
+          local rset = tokenize(t)
+          local inter = 0
+          for w in pairs(rset) do
+            if string.find(qtext, w, 1, true) then inter = inter + 1 end
+          end
+          if inter >= 2 then rows[#rows + 1] = t end
+        else
+          rows[#rows + 1] = t
+        end
       end
     end
     if #rows == 0 then return {} end
@@ -487,7 +503,7 @@ magi.register_context_provider{
     end
     local block = table.concat({
       "[DS-CORTEX — 이 저장소에 축적된 과거 작업 교훈입니다.]",
-      "- 현재 작업과 상황이 실제로 일치할 때만 참고하세요. 무관하면 무시하세요.",
+      "- 현재 작업과 상황이 실제로 일치할 때만 참고하세요. 무관하면 답변·사고 과정에서 언급 자체를 하지 마세요(이 기록을 요약하거나 되뇌지 말 것).",
       "- 일치하는 교훈을 근거로 쓸 때는 누가·언제·어떤 결과(❌/✅)였는지를 함께 밝히세요.",
       "- 동일 상황에서 ❌실패로 기록된 접근은 피하세요.",
       "",
