@@ -241,10 +241,11 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		a.resetForNewTopLevel(sid)
 	}
 	if a.planEligible(agent, depth) {
-		planned, _ := a.maybePlanPreflight(ctx, s, depth, maxSteps, "")
-		if planned {
-			usedTools = true // planner did real work — seed the termination council
-		}
+		// The planner running is NOT itself work: it decides solo-vs-fan-out and may
+		// register todos, but authors nothing. Only real tool execution (below) seeds
+		// usedTools, so the termination council convenes on turns that actually did
+		// something — not on every turn merely because the planner preflight fired.
+		a.maybePlanPreflight(ctx, s, depth, maxSteps, "")
 	}
 	// Show the agent working the next step (◐) for the rest of the turn — a deterministic
 	// in_progress signal, since a weak model rarely calls todowrite (no-op if no todos).

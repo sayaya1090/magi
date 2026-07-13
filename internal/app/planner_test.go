@@ -355,6 +355,57 @@ func TestDelegateAgentResolution(t *testing.T) {
 	}
 }
 
+// With DisableDelegate set ([orchestration] delegate = false), no agent is offered as a
+// delegate executor and any named executor is rejected — so the planner uses only
+// solo/parallel/scout and delegate/refine steps degrade to solo (read-only explorers
+// still available). This is the "explorers only, no write-capable executor" mode.
+func TestDelegateDisabledOffersNoExecutor(t *testing.T) {
+	agents := map[string]AgentSpec{
+		"coder":   {Name: "coder", Tools: []string{"read", "write", "edit", "bash"}},
+		"explore": {Name: "explore", Tools: []string{"read", "grep"}},
+	}
+	on := &App{cfg: Config{Agents: agents}} // zero value = delegation on (historical default)
+	if names := on.delegatableAgents(); len(names) != 1 || names[0] != "coder" {
+		t.Fatalf("with delegation on, delegatableAgents = %v, want [coder]", names)
+	}
+	off := &App{cfg: Config{Agents: agents, DisableDelegate: true}}
+	if names := off.delegatableAgents(); len(names) != 0 {
+		t.Errorf("with delegation disabled, delegatableAgents = %v, want none", names)
+	}
+	if _, ok := off.delegateAgentName("coder"); ok {
+		t.Error("with delegation disabled, even a valid executor must be rejected (degrade to solo)")
+	}
+}
+
+// The triviality gate skips the pre-flight planner only for a single short clause, and
+// keeps planning anything longer, multi-line, or joined by a coordinator/sequencer.
+func TestIsTrivialPrompt(t *testing.T) {
+	trivial := []string{
+		"fix the typo",
+		"run the tests",
+		"rename getUser to fetchUser",
+		"format this file",
+		"오타 고쳐줘",
+	}
+	for _, p := range trivial {
+		if !isTrivialPrompt(p) {
+			t.Errorf("isTrivialPrompt(%q) = false, want true", p)
+		}
+	}
+	planned := []string{
+		"",
+		"add a field named value to the request message",  // names an identifier + target
+		"fix the bug\nand add a test",                     // multi-line
+		"refactor the auth module and update all callers", // coordinator
+		"first migrate the schema, then backfill rows",    // sequencer + comma
+	}
+	for _, p := range planned {
+		if isTrivialPrompt(p) {
+			t.Errorf("isTrivialPrompt(%q) = true, want false", p)
+		}
+	}
+}
+
 // A delegate step dispatches its executor (recursive execution), merges the report,
 // flags delegated=true, and checks the todo off.
 func TestExecuteStepsDelegate(t *testing.T) {

@@ -60,6 +60,11 @@ type LLMConfig struct {
 // parallel read-only explorers; nil means default (on), set false to disable.
 type OrchestrationConfig struct {
 	Planner *bool `toml:"planner"`
+	// Delegate enables handing write-capable sub-tasks to an executor subagent
+	// (delegate/refine strategies); nil means default (off) — all file-authoring work
+	// stays on the main agent while read-only explorers still fan out. Set true to
+	// allow a write-capable executor.
+	Delegate *bool `toml:"delegate"`
 	// SubagentTimeout is the BASE per-attempt hard cap for subagents, as a Go
 	// duration string ("5m", "90s"). The effective cap flexes elastically with
 	// observed model speed around this base. Empty = built-in default (5m).
@@ -221,6 +226,9 @@ const defaultConfigTemplate = `# magi configuration. Everything here is optional
 # planner = true   # pre-flight planner: before a turn, decide solo vs parallel
 #                  # read-only exploration. Default on; set false to disable.
 #                  # Route it to a cheap backend with [routing] planner = "fast".
+# delegate = true  # hand write-capable sub-tasks to an executor subagent
+#                  # (delegate/refine). Default off — all file authoring stays on the
+#                  # main agent; set true to allow it. Read-only explorers fan out either way.
 # subagent_timeout = "5m"  # base per-attempt subagent hard cap; the effective cap
 #                          # flexes with observed model speed (slow model → longer).
 #                          # Adjustable at runtime with /subagent.

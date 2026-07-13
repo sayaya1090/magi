@@ -97,6 +97,9 @@ func producesFiles(spec AgentSpec) bool {
 // execute a delegated sub-task, sorted for a stable prompt. Empty means delegate is
 // unavailable — the planner is told to use solo/parallel/scout only.
 func (a *App) delegatableAgents() []string {
+	if a.cfg.DisableDelegate {
+		return nil // delegation disabled → planner told to use solo/parallel/scout only
+	}
 	var out []string
 	for name := range a.cfg.Agents {
 		if name == plannerAgent {
@@ -115,6 +118,9 @@ func (a *App) delegatableAgents() []string {
 // degrades to solo (the main agent handles that work) rather than dispatching to a
 // bogus or read-only agent.
 func (a *App) delegateAgentName(name string) (string, bool) {
+	if a.cfg.DisableDelegate {
+		return "", false // delegation disabled → any delegate/refine step degrades to solo
+	}
 	name = strings.TrimSpace(name)
 	if name == "" || name == plannerAgent {
 		return "", false
@@ -152,6 +158,24 @@ func (a *App) planEligible(agent AgentSpec, depth int) bool {
 // session's last user prompt — used when regrounding after a route_interjection so the
 // re-plan follows the ADOPTED task (append folds the original goal + the steer's
 // constraint) rather than the bare steer text, which alone loses the original intent.
+// isTrivialPrompt reports whether a request is simple enough to skip the pre-flight
+// planner entirely — one short clause. Skipping avoids a planner LLM round-trip (and the
+// plan-audit council it can trigger) on work the main agent finishes in one shot. The
+// test is purely structural, no keyword lists: a request is trivial only when it is short
+// in both bytes and words and carries no clause-joining punctuation. A coordinated task
+// ("refactor auth and update the callers") overruns the word bound or the punctuation,
+// so it still gets planned; anything long or multi-line does too.
+func isTrivialPrompt(prompt string) bool {
+	p := strings.TrimSpace(prompt)
+	if p == "" || strings.ContainsAny(p, "\n\r,;") {
+		return false // multi-line or multi-clause ⇒ likely multi-part
+	}
+	if len(p) > 60 || len(strings.Fields(p)) > 6 {
+		return false // long enough to plausibly need locating/decomposition
+	}
+	return true
+}
+
 func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth, maxSteps int, taskOverride string) (planned, delegated bool) {
 	if !a.cfg.Planner {
 		return false, false
@@ -165,6 +189,13 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth, 
 		prompt = a.lastUserPrompt(ctx, s.ID)
 	}
 	if strings.TrimSpace(prompt) == "" {
+		return false, false
+	}
+	// Triviality skip: a single short clause is handled by the main agent in one shot,
+	// so the planner round-trip (and the plan-audit council it can trigger) is pure
+	// overhead. Only the ordinary path skips — a regrounding re-plan (taskOverride) is a
+	// deliberate decomposition we always honor.
+	if taskOverride == "" && isTrivialPrompt(prompt) {
 		return false, false
 	}
 	a.setStage(s.ID, stagePlan) // tag pre-flight planning events as the plan stage (D15)
