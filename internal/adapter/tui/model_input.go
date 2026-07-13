@@ -189,6 +189,16 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	// Question modal (ask_user): ↑/↓ or 1-9 select, enter answers, esc dismisses.
 	if m.quest != nil {
 		q := m.quest
+		// A well-formed question always offers ≥2 options (the ask_user tool enforces
+		// it), but guard the modal against a malformed one: with no options, wrapping
+		// nav would divide by zero and index-select would panic — a keystroke must
+		// never crash the TUI. Only dismissal stays live. Mirrors searchStep's guard.
+		if len(q.options) == 0 {
+			if key := msg.String(); key == "esc" || key == "enter" {
+				return m.answerQuestion(""), true
+			}
+			return nil, true
+		}
 		switch key := msg.String(); key {
 		case "up", "k":
 			if q.sel > 0 {
