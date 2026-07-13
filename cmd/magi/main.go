@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -552,6 +553,12 @@ func run() int {
 		councilPort = councilllm.New(resolve, modelID)
 	}
 
+	// Observer plugins (user_message/turn_finished): the host doesn't exist yet
+	// when the app is constructed, so a late-bound forwarder bridges the two —
+	// events before bind() (there are none: the first turn starts after plugin
+	// load) are dropped harmlessly.
+	obs := &pluginObserver{}
+
 	a := app.New(store, llm, reg, bus.New(), plat, app.Config{
 		Model:               session.ModelRef{Provider: "openai", Model: modelID},
 		System:              systemPrompt,
@@ -586,6 +593,7 @@ func run() int {
 		CouncilCriteria:     cfg.Council.Criteria,
 		TimeBudget:          *timeBudget,
 		SubagentTimeout:     subagentTimeoutFrom(cfg.Orchestration), // 0 → app default (5m); env overrides config
+		Observer:            obs,
 	})
 
 	// MCP: create manager for both config-based and plugin-based MCP servers
@@ -608,6 +616,7 @@ func run() int {
 		ConfigPath:    filepath.Join(plat.ConfigDir(), "config.toml"),
 		DataDir:       plat.ConfigDir(),
 		Prompter:      promptFunc(tui.RunPrompt),
+		Analyzer:      sidecarAnalyzer{llm: llm, defaultModel: modelID},
 		Runtime: pluginlua.RuntimeInfo{
 			Model:    modelID,
 			Platform: runtime.GOOS,
@@ -615,6 +624,7 @@ func run() int {
 		},
 		Logf: nil,
 	})
+	obs.bind(host)
 	for _, dir := range pluginDirs(plat, wd, *pluginsDir) {
 		host.LoadDir(context.Background(), dir)
 	}
@@ -1350,6 +1360,77 @@ func profileModels(profiles map[string]config.LLMProfile) map[string]string {
 // without a rebuild: depth 2 = full recursion, depth 1 = top-level plan + single-level
 // delegate but no child re-planning or failure-recursion. Unset/invalid → 0, which lets the
 // app apply its default of 2. Negative values are ignored.
+// pluginObserver forwards app conversation milestones to the plugin host's
+// observation events. Late-bound: the app is constructed before the host, so
+// the host pointer lands via bind(); events before that (none in practice —
+// the first turn starts after plugin load) are dropped.
+type pluginObserver struct {
+	host atomic.Pointer[pluginlua.Host]
+}
+
+func (o *pluginObserver) bind(h *pluginlua.Host) { o.host.Store(h) }
+
+func (o *pluginObserver) UserMessage(sid, text string) {
+	if h := o.host.Load(); h != nil {
+		h.FireEventWith("user_message", map[string]string{"session": sid, "text": text})
+	}
+}
+
+func (o *pluginObserver) TurnFinished(sid, finalText, outcome, reason string) {
+	if h := o.host.Load(); h != nil {
+		h.FireEventWith("turn_finished", map[string]string{
+			"session": sid, "text": finalText, "outcome": outcome, "reason": reason,
+		})
+	}
+}
+
+// WantsTurnFinished lets the app skip the per-turn store scan when no loaded
+// plugin actually listens for turn_finished.
+func (o *pluginObserver) WantsTurnFinished() bool {
+	h := o.host.Load()
+	return h != nil && h.HasEventHandlers("turn_finished")
+}
+
+// sidecarAnalyzer implements the plugin host's Analyzer (magi.analyze): a
+// one-shot, tool-free chat call on the main LLM client. model "" falls back to
+// the startup session model.
+type sidecarAnalyzer struct {
+	llm          port.LLMProvider
+	defaultModel string
+}
+
+func (s sidecarAnalyzer) Analyze(ctx context.Context, system, text, model string) (string, error) {
+	if model == "" {
+		model = s.defaultModel
+	}
+	stream, err := s.llm.StreamChat(ctx, port.ChatRequest{
+		Model:  model,
+		System: system,
+		Messages: []session.Message{
+			{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: text}}},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	var streamErr error
+	for ev := range stream {
+		switch ev.Type {
+		case port.ProviderText:
+			b.WriteString(ev.Text)
+		case port.ProviderError:
+			// Surface a mid-stream failure instead of returning a silent
+			// empty/partial reply the plugin would misread as bad JSON.
+			streamErr = fmt.Errorf("analyze stream: %v", ev.Err)
+		}
+	}
+	if streamErr != nil && b.Len() == 0 {
+		return "", streamErr
+	}
+	return b.String(), nil
+}
+
 // subagentTimeoutFrom resolves the base subagent hard cap: the
 // MAGI_SUBAGENT_TIMEOUT env (bench A/B knob) wins over the config file's
 // [orchestration] subagent_timeout; both are Go duration strings. 0 = unset,
