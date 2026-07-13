@@ -619,6 +619,7 @@ func run() int {
 		Prompter:      promptFunc(tui.RunPrompt),
 		Analyzer:      sidecarAnalyzer{llm: llm, defaultModel: modelID},
 		Experience:    experienceStore,
+		Notify:        func(sid, text string) { a.PluginNote(sid, text) },
 		Runtime: pluginlua.RuntimeInfo{
 			Model:    modelID,
 			Platform: runtime.GOOS,
@@ -1408,7 +1409,7 @@ func (o *pluginObserver) TurnFinished(sid string, ob app.TurnObservation) {
 		}
 		h.FireEventWith("turn_finished", map[string]string{
 			"session": sid, "text": ob.FinalText, "outcome": ob.Outcome, "reason": ob.Reason,
-			"skills": strings.Join(ob.SkillsLoaded, ","),
+			"skills": strings.Join(ob.SkillsLoaded, ","), "user": ob.UserLabel,
 		})
 	}
 }
