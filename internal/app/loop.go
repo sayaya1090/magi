@@ -203,12 +203,8 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	reportRefused := false // a subagent's unverified "done" report was refused once this run
 	guard := newRunGuard()
 	guard.stallConverge = stallConvergeEnabled() // D18a: collapse the stalled-nudge re-arm when a redirect produced no forward motion
-	// Stash this run's dead-ends as it exits so a parent can surface a finished child's burned
-	// approaches (bubbleSubagentLedger) — the ledger lives only in this local guard and would
-	// otherwise die at the subagent boundary. Empty on a clean run, so it costs nothing then.
-	defer func() { a.setLedgerDigest(sid, guard.triedDigest(8)) }()
-	ts := turnState{prevFinishCalls: -1} // per-turn mutable bookkeeping (finish guards, council accounting, stuck-recovery); zeroed field-wise on reground
-	turnTask := ""                       // the user instruction THIS turn answers, snapshotted at step 0. A
+	ts := turnState{prevFinishCalls: -1}         // per-turn mutable bookkeeping (finish guards, council accounting, stuck-recovery); zeroed field-wise on reground
+	turnTask := ""                               // the user instruction THIS turn answers, snapshotted at step 0. A
 	// steer that lands mid-turn is QUEUED by default (runs as its own follow-up turn), so
 	// it can't silently hijack what the council judges against — unless the agent explicitly
 	// routes it. A "redirect" re-snapshots turnTask and rebuilds the plan (the goal changed);
@@ -289,9 +285,6 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			// Re-plan against the ADOPTED task (turnTask), not the bare last user prompt:
 			// after a route_interjection "append" the last prompt is only the steer's
 			// constraint, which alone would lose the original goal in the re-decomposition.
-			// Hand the fresh plan's read-only explorers the dead-ends burned so far this turn,
-			// so re-exploration builds on them instead of repeating the same empty searches.
-			a.setReplanLedger(sid, guard.triedDigest(8))
 			a.maybePlanPreflight(ctx, s, depth, maxSteps, turnTask)
 		}
 	}
@@ -705,12 +698,6 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					"than trying values blindly. Re-read the original task:\n" +
 					clipSpec(task, 1500)
 			}
-			// Fold in the attempt ledger: tell the stalling agent exactly which actions already
-			// dead-ended this turn so it diverges instead of re-running them. Empty on a clean
-			// run, so the nudge text is unchanged when there is nothing to report.
-			if tried := guard.triedDigest(8); tried != "" {
-				msg += "\n\nAlready tried this turn (did NOT work — do NOT repeat, take a different approach):\n" + tried
-			}
 			pd, _ := json.Marshal(event.PromptSubmittedData{
 				MessageID: "m_" + newID(),
 				Parts:     []session.Part{{Kind: session.PartText, Text: msg}},
@@ -898,7 +885,6 @@ func (a *App) finishTurn(ctx context.Context, s session.Session, agent AgentSpec
 				fabrication: fab,
 				stepsLeft:   maxSteps - step,
 				turnElapsed: time.Since(runStart),
-				tried:       guard.triedDigest(8),
 			}, &ts.council)
 			if keepWorking {
 				ts.prevFinishText, ts.prevFinishCalls = lastText, guard.callCount()
