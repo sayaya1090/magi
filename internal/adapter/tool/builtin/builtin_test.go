@@ -43,11 +43,13 @@ func writeFile(dir, rel, content string) {
 func TestRead(t *testing.T) {
 	seed := func(dir string) { writeFile(dir, "a.txt", "hello\nworld\n") }
 
-	if got, isErr := run(t, Read{}, readArgs{Path: "a.txt"}, seed); isErr || got != "     1\thello\n     2\tworld\n" {
-		t.Errorf("read-1: got %q err=%v", got, isErr)
+	want1 := formatHashLine(1, "hello") + "\n" + formatHashLine(2, "world") + "\n"
+	if got, isErr := run(t, Read{}, readArgs{Path: "a.txt"}, seed); isErr || got != want1 {
+		t.Errorf("read-1: got %q want %q err=%v", got, want1, isErr)
 	}
-	if got, isErr := run(t, Read{}, readArgs{Path: "a.txt", Offset: 2, Limit: 1}, seed); isErr || got != "     2\tworld\n" {
-		t.Errorf("read-2: got %q err=%v", got, isErr)
+	want2 := formatHashLine(2, "world") + "\n"
+	if got, isErr := run(t, Read{}, readArgs{Path: "a.txt", Offset: 2, Limit: 1}, seed); isErr || got != want2 {
+		t.Errorf("read-2: got %q want %q err=%v", got, want2, isErr)
 	}
 	if _, isErr := run(t, Read{}, readArgs{Path: "nope.txt"}, nil); !isErr {
 		t.Errorf("read-3: expected error for missing file")

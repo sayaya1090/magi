@@ -25,15 +25,17 @@ type editArgs struct {
 	Path       string `json:"path"`
 	Old        string `json:"old"`
 	New        string `json:"new"`
+	At         string `json:"at"`
+	To         string `json:"to"`
 	ReplaceAll bool   `json:"replaceAll"`
 }
 
 func (Edit) Name() string { return "edit" }
 func (Edit) Description() string {
-	return "Replace a string in a file (unique match unless replaceAll). Matching tolerates line-ending and trailing-whitespace differences; leading indentation must match."
+	return "Replace text in a file. Default: give `old` (a unique snippet) and `new`; matching tolerates line-ending and trailing-whitespace drift but leading indentation must match. Anchored: instead give `at` a line ref \"N#hh\" from a read (optionally `to` a second ref for a range) and `new` as the replacement — the edit is rejected if that line changed since you read it. Use `at` alone, not with `old`."
 }
 func (Edit) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"old":{"type":"string"},"new":{"type":"string"},"replaceAll":{"type":"boolean"}},"required":["path","old","new"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"old":{"type":"string"},"new":{"type":"string"},"at":{"type":"string","description":"line ref N#hh from a read to anchor the edit; replaces line N (through ` + "`to`" + ` if given)"},"to":{"type":"string","description":"end line ref N#hh for a range replace with ` + "`at`" + `"},"replaceAll":{"type":"boolean"}},"required":["path"]}`)
 }
 
 func (Edit) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
@@ -41,14 +43,21 @@ func (Edit) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return errResult("", "invalid arguments: "+err.Error()), nil
 	}
-	// An empty old string matches at every character boundary, so the uniqueness
-	// check would report a nonsensical "occurs N times". Reject it with a clear
-	// message (use write to create/replace whole files).
-	if a.Old == "" {
-		return errResult("", "old string must not be empty (use write to create or replace a whole file)"), nil
-	}
-	if a.Old == a.New {
-		return errResult("", "no change: old equals new"), nil
+	anchored := strings.TrimSpace(a.At) != ""
+	if anchored {
+		if a.Old != "" {
+			return errResult("", "provide either `old` or `at`, not both — `at` anchors to a line ref and `new` replaces it"), nil
+		}
+	} else {
+		// An empty old string matches at every character boundary, so the uniqueness
+		// check would report a nonsensical "occurs N times". Reject it with a clear
+		// message (use write to create/replace whole files, or `at` to anchor by line).
+		if a.Old == "" {
+			return errResult("", "old string must not be empty (use write to create or replace a whole file, or `at` to anchor by line ref)"), nil
+		}
+		if a.Old == a.New {
+			return errResult("", "no change: old equals new"), nil
+		}
 	}
 	abs, err := resolvePath(env.Workdir, a.Path)
 	if err != nil {
@@ -60,6 +69,10 @@ func (Edit) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 			return errResult("", "file not found: "+a.Path), nil
 		}
 		return errResult("", err.Error()), nil
+	}
+
+	if anchored {
+		return applyAnchoredEdit(string(data), a, abs), nil
 	}
 
 	updated, note, eerr := applyEdit(string(data), a.Old, a.New, a.ReplaceAll)
@@ -76,6 +89,40 @@ func (Edit) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		msg += fmt.Sprintf(" @%d", 1+strings.Count(string(data)[:idx], "\n"))
 	}
 	return okText("", msg), nil
+}
+
+// applyAnchoredEdit handles the `at`(/`to`) path: it validates the line ref(s)
+// against the CURRENT file (rejecting a stale/wrong-line reference) and replaces
+// the anchored line or range with a.New. The hash check is what makes this a
+// guard rather than a blind by-line write.
+func applyAnchoredEdit(content string, a editArgs, abs string) session.ToolResult {
+	from, err := checkAnchor(content, a.At)
+	if err != nil {
+		return errResult("", err.Error())
+	}
+	to := from
+	if strings.TrimSpace(a.To) != "" {
+		t, err := checkAnchor(content, a.To)
+		if err != nil {
+			return errResult("", err.Error())
+		}
+		if t < from {
+			return errResult("", fmt.Sprintf("`to` line %d is before `at` line %d — order the anchors low→high", t, from))
+		}
+		to = t
+	}
+	updated := replaceLineRange(content, from, to, a.New)
+	if updated == content {
+		return errResult("", "no change: the anchored range already equals `new`")
+	}
+	if err := os.WriteFile(abs, []byte(updated), 0o644); err != nil {
+		return errResult("", err.Error())
+	}
+	span := fmt.Sprintf(" @%d", from)
+	if to != from {
+		span = fmt.Sprintf(" @%d-%d", from, to)
+	}
+	return okText("", "edited "+a.Path+span)
 }
 
 // applyEdit returns the updated content, a note about how the match was made, or
@@ -137,6 +184,15 @@ func applyEdit(content, old, new string, all bool) (string, string, error) {
 		return "", "", err
 	} else if n > 0 {
 		return updated, " (matched ignoring trailing whitespace)", nil
+	}
+
+	// 3.5 Salvage a pasted read: the model may have copied "N#hh|..." read output
+	// straight into old. If every line carries that marker, strip it and retry once
+	// (the stripped text no longer carries markers, so this can't recurse further).
+	if stripped, ok := stripHashPrefixes(old); ok {
+		if u, _, err := applyEdit(content, stripped, new, all); err == nil {
+			return u, " (matched after stripping read line-number prefixes)", nil
+		}
 	}
 
 	// 4. Not found — point at the closest near-miss so the model can self-correct.
