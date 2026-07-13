@@ -488,7 +488,7 @@ permissions = ["fs:read:."]
 enabled = true
 ```
 
-An enabled embedded plugin is materialized under `<config>/plugins-embedded/` at every start, so it always tracks the binary's version — updates ride `magi --update`, no separate plugin update. A same-named plugin in the regular plugin dirs takes precedence (fork it there to customize).
+An enabled embedded plugin is materialized under `<config>/plugins-embedded/` at every start, so it always tracks the binary's version — updates ride `magi --update`, no separate plugin update. A same-named plugin in the regular plugin dirs takes precedence (fork it there to customize). **Forks bundling their own plugins** edit one file: `plugins/embedded.go` (add the plugin dir, a `//go:embed all:<name>` var, and an `Embedded` map entry — subdirectories ship too).
 
 **Install / update.** A plugin published as a git repo (its repo root holds `plugin.toml`)
 installs with `magi --plugin-install <git-url> [--plugin-pin <tag/branch>]`, which clones it

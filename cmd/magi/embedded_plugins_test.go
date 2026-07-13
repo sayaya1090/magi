@@ -7,18 +7,19 @@ import (
 	"github.com/sayaya1090/magi/plugins"
 )
 
-// The embedded engram plugin ships both files the loader needs, with the
+// The embedded engram plugin (via the fork-extensible Embedded registry) ships
+// both files the loader needs, with the
 // expected manifest identity — a broken go:embed path would otherwise only
 // surface at a user's runtime.
 func TestEmbeddedEngramComplete(t *testing.T) {
-	manifest, err := plugins.Engram.ReadFile("engram/plugin.toml")
+	manifest, err := plugins.Embedded["engram"].ReadFile("engram/plugin.toml")
 	if err != nil {
 		t.Fatalf("embedded manifest missing: %v", err)
 	}
 	if !strings.Contains(string(manifest), `name = "engram"`) {
 		t.Errorf("manifest lost its identity:\n%s", manifest)
 	}
-	code, err := plugins.Engram.ReadFile("engram/init.lua")
+	code, err := plugins.Embedded["engram"].ReadFile("engram/init.lua")
 	if err != nil {
 		t.Fatalf("embedded init.lua missing: %v", err)
 	}

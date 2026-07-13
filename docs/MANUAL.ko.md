@@ -472,7 +472,7 @@ permissions = ["fs:read:."]
 enabled = true
 ```
 
-켜진 내장 플러그인은 매 시작 시 `<config>/plugins-embedded/`에 풀리므로 항상 바이너리 버전을 따른다 — 업데이트는 `magi --update`에 실려 오고 별도 플러그인 업데이트가 필요 없다. 일반 플러그인 디렉토리에 같은 이름이 있으면 그쪽이 우선한다(커스터마이즈는 그리로 포크).
+켜진 내장 플러그인은 매 시작 시 `<config>/plugins-embedded/`에 풀리므로 항상 바이너리 버전을 따른다 — 업데이트는 `magi --update`에 실려 오고 별도 플러그인 업데이트가 필요 없다. 일반 플러그인 디렉토리에 같은 이름이 있으면 그쪽이 우선한다(커스터마이즈는 그리로 포크). **포크가 자체 플러그인을 번들**하려면 `plugins/embedded.go` 한 파일만 수정하면 된다(플러그인 디렉토리 추가 + `//go:embed all:<name>` 변수 + `Embedded` 맵 등록 — 하위 디렉토리도 함께 실린다).
 
 **설치 / 업데이트.** git repo로 배포된 플러그인(repo 루트에 `plugin.toml`)은
 `magi --plugin-install <git-url> [--plugin-pin <태그/브랜치>]`로 설치하며, `<config>/plugins/`로

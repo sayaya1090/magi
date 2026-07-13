@@ -4,10 +4,12 @@ package main
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"os/user"
@@ -1383,30 +1385,49 @@ func profileModels(profiles map[string]config.LLMProfile) map[string]string {
 // materialized copy under <config>/plugins-embedded/ is overwritten every start
 // so it always tracks the binary's version (updates ride magi --update).
 func loadEmbeddedPlugins(host *pluginlua.Host, plat *platform.OS, cfg config.Config) {
-	embeddedOn := func(name string) bool {
+	for name, pfs := range plugins.Embedded {
 		v, ok := cfg.Plugins[name]["enabled"]
-		b, isB := v.(bool)
-		return ok && isB && b
+		if b, isB := v.(bool); !ok || !isB || !b {
+			continue // opt-in only
+		}
+		if host.Has(name) {
+			continue // a user-installed plugin of the same name won
+		}
+		dir := filepath.Join(plat.ConfigDir(), "plugins-embedded", name)
+		if err := materializeEmbedded(pfs, name, dir); err != nil {
+			fmt.Fprintf(os.Stderr, "embedded plugin %s: %v\n", name, err)
+			continue
+		}
+		if _, err := host.Load(context.Background(), dir); err != nil {
+			fmt.Fprintf(os.Stderr, "embedded plugin %s failed to load: %v\n", name, err)
+		}
 	}
-	if !embeddedOn("engram") || host.Has("engram") {
-		return
-	}
-	dir := filepath.Join(plat.ConfigDir(), "plugins-embedded", "engram")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return
-	}
-	for _, f := range []string{"plugin.toml", "init.lua"} {
-		b, err := plugins.Engram.ReadFile("engram/" + f)
+}
+
+// materializeEmbedded copies every embedded file under <name>/ (subdirectories
+// included — a plugin may bundle scripts/references) into dir, overwriting.
+func materializeEmbedded(pfs embed.FS, name, dir string) error {
+	return fs.WalkDir(pfs, name, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return
+			return err
 		}
-		if err := os.WriteFile(filepath.Join(dir, f), b, 0o644); err != nil {
-			return
+		rel, rerr := filepath.Rel(name, path)
+		if rerr != nil || rel == "." {
+			return nil
 		}
-	}
-	if _, err := host.Load(context.Background(), dir); err != nil {
-		fmt.Fprintln(os.Stderr, "embedded plugin engram failed to load:", err)
-	}
+		dst := filepath.Join(dir, rel)
+		if d.IsDir() {
+			return os.MkdirAll(dst, 0o755)
+		}
+		b, rerr := pfs.ReadFile(path)
+		if rerr != nil {
+			return rerr
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(dst, b, 0o644)
+	})
 }
 
 // osUsername resolves the login user for plugin runtime info ("" if unknown).
