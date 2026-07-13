@@ -462,8 +462,8 @@ If a subagent gets stuck during execution, it **asks the orchestrator via the `a
 
 ## 8. Skills
 
-`<config>/skills/*.md` or `<workdir>/.magi/skills/*.md` (first line = description, rest = body).
-The list is exposed in the system prompt, and the model loads a body with the `skill` tool to follow it.
+`<config>/skills/*.md` or `<workdir>/.magi/skills/*.md` (first line = description, rest = body), plus the **skill-creator layout** `<workdir>/.claude/skills/<slug>/SKILL.md` (frontmatter `description` = trigger) — the format Claude Code/OpenCode tooling and the bundled engram plugin produce, readable without conversion.
+The list is exposed in the system prompt, and the model loads a body with the `skill` tool to follow it. The skill list refreshes when the source dirs change (mtime), so a skill engram saves mid-session is available on the next turn without a restart.
 
 ## 9. Plugins (Lua)
 
