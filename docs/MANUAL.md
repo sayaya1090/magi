@@ -481,6 +481,15 @@ capabilities = ["tool"]
 permissions = ["fs:read:."]
 ```
 
+**Embedded plugins.** The binary ships the **engram** self-improvement plugin (auto lesson/skill capture — see `plugins/engram/README.md`). It is **opt-in** (it spends sidecar LLM tokens and writes knowledge files into the workspace):
+
+```toml
+[plugins.engram]
+enabled = true
+```
+
+An enabled embedded plugin is materialized under `<config>/plugins-embedded/` at every start, so it always tracks the binary's version — updates ride `magi --update`, no separate plugin update. A same-named plugin in the regular plugin dirs takes precedence (fork it there to customize).
+
 **Install / update.** A plugin published as a git repo (its repo root holds `plugin.toml`)
 installs with `magi --plugin-install <git-url> [--plugin-pin <tag/branch>]`, which clones it
 into `<config>/plugins/`. `magi --update-plugins` (or `--update`, which also updates the

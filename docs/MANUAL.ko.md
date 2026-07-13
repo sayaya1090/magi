@@ -465,6 +465,15 @@ capabilities = ["tool"]
 permissions = ["fs:read:."]
 ```
 
+**내장(embedded) 플러그인.** 바이너리에는 **engram** 자기개선 플러그인(교훈/스킬 자동 캡처 — `plugins/engram/README.md`)이 실려 있다. 사이드카 LLM 토큰을 쓰고 워크스페이스에 지식 파일을 만들므로 **옵트인**이다:
+
+```toml
+[plugins.engram]
+enabled = true
+```
+
+켜진 내장 플러그인은 매 시작 시 `<config>/plugins-embedded/`에 풀리므로 항상 바이너리 버전을 따른다 — 업데이트는 `magi --update`에 실려 오고 별도 플러그인 업데이트가 필요 없다. 일반 플러그인 디렉토리에 같은 이름이 있으면 그쪽이 우선한다(커스터마이즈는 그리로 포크).
+
 **설치 / 업데이트.** git repo로 배포된 플러그인(repo 루트에 `plugin.toml`)은
 `magi --plugin-install <git-url> [--plugin-pin <태그/브랜치>]`로 설치하며, `<config>/plugins/`로
 clone된다. `magi --update-plugins`(또는 바이너리까지 갱신하는 `--update`)는 git 체크아웃 플러그인마다
