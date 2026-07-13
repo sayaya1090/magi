@@ -66,6 +66,18 @@ sidecar_model = "qwen3-coder:30b"
 - `magi.analyze` (capability `"analyze"` — 매니페스트 선언 필수)
 - `magi.json_decode`
 
+## 품질 장치
+
+- **중복 방지 3중**: 세션 내 키 가드 → 사이드카에 [기존 교훈] 다이제스트를 줘 재기록 거부 지시 →
+  **결정론적 토큰 유사도 백스톱**(기존 교훈과 과반 겹치면 스킵; LLM 규칙은 소프트해서 실측상 뚫린다).
+- **스킬 필드 확장**: `verify`(적용 후 확인 절차 — 200자 초과 시 `scripts/verify.sh`로 분리),
+  `avoid`(쓰면 안 되는 경우/알려진 함정 — ❌실패 교훈 병합처). technique은 검증된 커맨드 원문 그대로.
+- **사용 실적 계측**: 호스트가 turn_finished에 실어주는 "이번 턴 로드된 스킬" × 구조적 outcome으로
+  스킬별 로드/성공/실패를 스토어(`skill_usage`)에 누적 — 병합·정리 판단의 실측 근거이며,
+  [기존 스킬] 다이제스트에도 노출된다.
+- **D13 합류**: 기록된 교훈/스킬을 `magi.propose_experience`로 공유 경험 스토어 리뷰 큐에도 제안
+  (capability `experience`; 스토어 없으면 무시).
+
 ## 산출물 / 한계
 
 | 경로 | 내용 | git |
