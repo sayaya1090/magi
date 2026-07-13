@@ -276,7 +276,11 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 		lbl := label(styleUserLabel, who)
 		switch {
 		case m.running && blk.reqID != "" && blk.reqID == m.turnReqID:
-			lbl = m.sp.View() + " " + styleUserLabel.Render(who)
+			// spinner.Dot frames already carry a trailing space ("⣾ ", 2 cells) —
+			// adding another made this state's bar column 3 cells while the ▌/·
+			// states are 2, shifting the label right by one; on a wide (CJK) user
+			// label the misaligned first paint can land mid-glyph.
+			lbl = m.sp.View() + styleUserLabel.Render(who)
 		case blk.queued:
 			lbl = styleQueuedBar.Render(queuedGlyph+" ") + styleUserLabel.Render(who)
 		}
