@@ -452,11 +452,11 @@ primary = "#B45309"
 ## 9. 플러그인 (Lua)
 
 `<config>/plugins/<name>/` 또는 `<workdir>/.magi/plugins/<name>/`에
-`plugin.toml` + `init.lua`. capability: `tool`·`command`(`/login` 같은 슬래시 커맨드)·`context-provider`·`mcp`·`llm-headers`·`analyze`. 파일 변경 시 **핫리로드**.
+`plugin.toml` + `init.lua`. capability: `tool`·`command`(`/login` 같은 슬래시 커맨드)·`context-provider`·`mcp`·`llm-headers`·`analyze`·`experience`(magi.propose_experience — 플러그인이 학습한 교훈/스킬을 D13 공유 스토어 리뷰 큐로 제안). 파일 변경 시 **핫리로드**.
 샌드박스(위험 stdlib 차단) + 매니페스트 권한(`fs:read`, `net`, `exec`) 집행.
 예제: `plugins/examples/wordcount`.
 
-**관찰자(observer) 플러그인.** 라이프사이클 이벤트(`startup`/`shutdown`/`session_start`) 외에 `magi.on`은 페이로드 테이블을 받는 **관찰 이벤트** 2종을 지원한다: `user_message`(`{session, text}` — 진짜 사용자 프롬프트 제출)와 `turn_finished`(`{session, text, outcome, reason}` — 톱레벨 턴 종료, text는 최종 어시스턴트 답변). `outcome`은 턴의 **구조적 판정**이라 관찰자가 성패를 문구에서 추측할 필요가 없다: `verified`(카운슬이 직접 done 합의) · `unverified`(승인 없이 착지 — 딜록/비용캡/라운드캡) · `guard`(루프/스톨 가드 강제정지) · `error` · `done`(판정 없는 평이한 종료); `reason`은 사유. 둘 다 **턴 경로 밖에서 비동기로**(바운드 큐 + 워커 1개) 발화되므로 느린 핸들러가 대화를 지연시키지 않고, 큐가 넘치면 이벤트를 버린다(관찰은 best-effort). 여기에 **`magi.analyze{system=, text=, model=?}`** — 도구 없는 **원샷 사이드카 LLM 호출**(토큰을 쓰므로 capability `analyze` 필요; 시간 제한; model 생략 시 세션 모델) — 과 **`magi.json_decode(s)`**를 조합하면, 플러그인이 대화를 관찰해 구조화 지식(교훈·요약)을 추출하고 `magi.write_file`로 축적한 뒤 `magi.register_context_provider`로 되먹일 수 있다. 번들된 **`plugins/engram`** 자기개선 플러그인(구조적 outcome을 게이트로 교훈/스킬 자동 추출)이 이 3종 조합의 레퍼런스다 — 해당 README 참고.
+**관찰자(observer) 플러그인.** 라이프사이클 이벤트(`startup`/`shutdown`/`session_start`) 외에 `magi.on`은 페이로드 테이블을 받는 **관찰 이벤트** 2종을 지원한다: `user_message`(`{session, text}` — 진짜 사용자 프롬프트 제출)와 `turn_finished`(`{session, text, outcome, reason, skills}` — 톱레벨 턴 종료, text는 최종 어시스턴트 답변; `skills`는 이번 턴에 로드된 스킬명 콤마 목록 — 사용 실적 계측용). `outcome`은 턴의 **구조적 판정**이라 관찰자가 성패를 문구에서 추측할 필요가 없다: `verified`(카운슬이 직접 done 합의) · `unverified`(승인 없이 착지 — 딜록/비용캡/라운드캡) · `guard`(루프/스톨 가드 강제정지) · `error` · `done`(판정 없는 평이한 종료); `reason`은 사유. 둘 다 **턴 경로 밖에서 비동기로**(바운드 큐 + 워커 1개) 발화되므로 느린 핸들러가 대화를 지연시키지 않고, 큐가 넘치면 이벤트를 버린다(관찰은 best-effort). 여기에 **`magi.analyze{system=, text=, model=?}`** — 도구 없는 **원샷 사이드카 LLM 호출**(토큰을 쓰므로 capability `analyze` 필요; 시간 제한; model 생략 시 세션 모델) — 과 **`magi.json_decode(s)`**를 조합하면, 플러그인이 대화를 관찰해 구조화 지식(교훈·요약)을 추출하고 `magi.write_file`로 축적한 뒤 `magi.register_context_provider`로 되먹일 수 있다. 번들된 **`plugins/engram`** 자기개선 플러그인(구조적 outcome을 게이트로 교훈/스킬 자동 추출)이 이 3종 조합의 레퍼런스다 — 해당 README 참고.
 
 ```toml
 # plugin.toml
