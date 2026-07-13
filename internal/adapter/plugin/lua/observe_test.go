@@ -80,19 +80,30 @@ func TestObservationHandlerErrorIsIsolated(t *testing.T) {
 	}
 }
 
-// fakeAnalyzer scripts magi.analyze replies.
+// fakeAnalyzer scripts magi.analyze replies. With replies set, they are
+// consumed in order (last one repeats); otherwise reply/err apply to every call.
 type fakeAnalyzer struct {
-	reply string
-	err   error
-	mu    sync.Mutex
-	sys   string
-	text  string
+	reply   string
+	replies []string
+	err     error
+	mu      sync.Mutex
+	sys     string
+	text    string
+	calls   int
 }
 
 func (f *fakeAnalyzer) Analyze(_ context.Context, system, text, _ string) (string, error) {
 	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.sys, f.text = system, text
-	f.mu.Unlock()
+	f.calls++
+	if len(f.replies) > 0 {
+		i := f.calls - 1
+		if i >= len(f.replies) {
+			i = len(f.replies) - 1
+		}
+		return f.replies[i], f.err
+	}
 	return f.reply, f.err
 }
 

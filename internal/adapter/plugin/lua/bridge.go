@@ -14,6 +14,7 @@ import (
 
 	lua "github.com/yuin/gopher-lua"
 
+	"github.com/sayaya1090/magi/internal/port"
 	"github.com/sayaya1090/magi/internal/prompt"
 )
 
@@ -33,6 +34,7 @@ func installBridge(p *plugin) {
 	L.SetField(t, "on", L.NewFunction(p.bridgeOn))
 	L.SetField(t, "analyze", L.NewFunction(p.bridgeAnalyze))
 	L.SetField(t, "json_decode", L.NewFunction(p.bridgeJSONDecode))
+	L.SetField(t, "propose_experience", L.NewFunction(p.bridgeProposeExperience))
 	L.SetField(t, "ask", L.NewFunction(p.bridgeAsk))
 	L.SetField(t, "log", L.NewFunction(p.bridgeLog))
 	L.SetField(t, "read_file", L.NewFunction(p.bridgeReadFile))
@@ -654,6 +656,65 @@ func (p *plugin) bridgeAnalyze(L *lua.LState) int {
 		return fail(L, "analyze: "+err.Error())
 	}
 	L.Push(lua.LString(out))
+	return 1
+}
+
+// magi.propose_experience{scope=?, memories={{text=,tags={..}},…}, skills={{name=,description=,body=},…}}
+// → true (or nil, err). Routes a plugin's learned knowledge into the D13 shared
+// experience store's review queue (team tier via git), so plugin-captured
+// lessons/skills join the same curation pipeline as everything else. Capability
+// "experience" — it writes to a team-shared store.
+func (p *plugin) bridgeProposeExperience(L *lua.LState) int {
+	p.requireCap(L, "experience")
+	if p.host == nil || p.host.experience == nil {
+		return fail(L, "propose_experience: no experience store available")
+	}
+	spec := L.CheckTable(1)
+	var c port.Contribution
+	c.Source = "plugin:" + p.name
+	if v := spec.RawGetString("scope"); v != lua.LNil {
+		c.Scope = v.String()
+	}
+	if mt, ok := spec.RawGetString("memories").(*lua.LTable); ok {
+		mt.ForEach(func(_, v lua.LValue) {
+			t, ok := v.(*lua.LTable)
+			if !ok {
+				return
+			}
+			m := port.Memory{Text: t.RawGetString("text").String()}
+			if tags, ok := t.RawGetString("tags").(*lua.LTable); ok {
+				tags.ForEach(func(_, tv lua.LValue) { m.Tags = append(m.Tags, tv.String()) })
+			}
+			if strings.TrimSpace(m.Text) != "" && m.Text != "nil" {
+				c.Memories = append(c.Memories, m)
+			}
+		})
+	}
+	if st, ok := spec.RawGetString("skills").(*lua.LTable); ok {
+		st.ForEach(func(_, v lua.LValue) {
+			t, ok := v.(*lua.LTable)
+			if !ok {
+				return
+			}
+			s := port.Skill{
+				Name:        t.RawGetString("name").String(),
+				Description: t.RawGetString("description").String(),
+				Body:        t.RawGetString("body").String(),
+			}
+			if strings.TrimSpace(s.Name) != "" && s.Name != "nil" {
+				c.Skills = append(c.Skills, s)
+			}
+		})
+	}
+	if len(c.Memories) == 0 && len(c.Skills) == 0 {
+		return fail(L, "propose_experience: nothing to propose")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := p.host.experience.Propose(ctx, c); err != nil {
+		return fail(L, "propose_experience: "+err.Error())
+	}
+	L.Push(lua.LTrue)
 	return 1
 }
 

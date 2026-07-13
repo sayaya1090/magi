@@ -88,6 +88,7 @@ type Host struct {
 	dataDir       string                    // base dir for per-plugin persistent stores
 	prompter      prompt.Prompter           // interactive prompts (magi.ask); nil = unavailable
 	analyzer      Analyzer                  // sidecar LLM analysis (magi.analyze); nil = unavailable
+	experience    port.ExperienceStore      // D13 team store (magi.propose_experience); nil = unavailable
 	logf          func(string)
 
 	mu        sync.Mutex
@@ -129,6 +130,7 @@ type HostConfig struct {
 	ModelReg      ModelRegistry             // optional: enables magi.set_model()
 	UserReg       UserLabelRegistry         // optional: enables magi.set_user_label()
 	Analyzer      Analyzer                  // optional: enables magi.analyze (sidecar LLM analysis)
+	Experience    port.ExperienceStore      // optional: enables magi.propose_experience (D13 team store)
 	PluginConfigs map[string]map[string]any // optional: [plugins.<name>] settings, read via magi.store_get
 	ConfigPath    string                    // optional: path to config.toml (enables magi.get/set_config_key)
 	DataDir       string                    // base dir for per-plugin persistent config stores (store_set)
@@ -164,6 +166,7 @@ func NewHostWithConfig(cfg HostConfig) *Host {
 		dataDir:       cfg.DataDir,
 		prompter:      cfg.Prompter,
 		analyzer:      cfg.Analyzer,
+		experience:    cfg.Experience,
 		logf:          cfg.Logf,
 		plugins:       map[string]*plugin{},
 	}
