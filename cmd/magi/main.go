@@ -709,6 +709,7 @@ func run() int {
 		// server the agent started doesn't leak past the TUI. Headless (-p) runs
 		// deliberately skip this — a launched server must survive for post-run steps.
 		defer builtin.KillBackgroundProcesses()
+		defer builtin.CloseLSPPool() // twin of the above: reap warm language servers on exit
 		if err := tui.Run(ctx, a, host, sid, modelID, wd, isDark, plat.TerminalCaps().Image); err != nil {
 			fmt.Fprintln(os.Stderr, "magi: tui:", err)
 			return 1

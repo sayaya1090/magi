@@ -153,6 +153,9 @@ func startLSP(ctx context.Context, srv lspServer, workdir string) (*lspClient, e
 
 func (c *lspClient) close() {
 	_ = c.in.Close()
+	if c.cmd == nil { // in-process fake (tests): no OS process to reap
+		return
+	}
 	if c.cmd.Process != nil {
 		_ = c.cmd.Process.Kill()
 	}
