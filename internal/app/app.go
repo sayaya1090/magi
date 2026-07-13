@@ -518,6 +518,7 @@ func (a *App) observeTurnFinished(ctx context.Context, sid session.SessionID) {
 	var skillsLoaded []string
 	skillSeen := map[string]bool{}
 	sawVerified, sawUnverified, sawGuard, sawError := false, false, false, false
+	sawToolCall, sawCouncil := false, false
 	reasonUnverified, reasonGuard, reasonError := "", "", ""
 	for _, e := range evs[seen:] {
 		switch e.Type {
@@ -531,14 +532,17 @@ func (a *App) observeTurnFinished(ctx context.Context, sid session.SessionID) {
 					finalText = t
 				}
 			}
-			// Skill loads this turn (usage metering for observers).
-			if d.Part.Kind == session.PartToolCall && d.Part.ToolCall != nil && d.Part.ToolCall.Name == "skill" {
-				var sa struct {
-					Name string `json:"name"`
-				}
-				if json.Unmarshal(d.Part.ToolCall.Args, &sa) == nil && sa.Name != "" && !skillSeen[sa.Name] {
-					skillSeen[sa.Name] = true
-					skillsLoaded = append(skillsLoaded, sa.Name)
+			if d.Part.Kind == session.PartToolCall && d.Part.ToolCall != nil {
+				sawToolCall = true // this turn did real work — the council's own gate trigger (usedTools)
+				// Skill loads this turn (usage metering for observers).
+				if d.Part.ToolCall.Name == "skill" {
+					var sa struct {
+						Name string `json:"name"`
+					}
+					if json.Unmarshal(d.Part.ToolCall.Args, &sa) == nil && sa.Name != "" && !skillSeen[sa.Name] {
+						skillSeen[sa.Name] = true
+						skillsLoaded = append(skillsLoaded, sa.Name)
+					}
 				}
 			}
 		case event.TypeTurnFinished:
@@ -547,6 +551,7 @@ func (a *App) observeTurnFinished(ctx context.Context, sid session.SessionID) {
 				sawUnverified, reasonUnverified = true, d.Reason
 			}
 		case event.TypeCouncilDecided:
+			sawCouncil = true // the consensus gate actually ran this turn (approved or forced)
 			var d event.CouncilDecidedData
 			if json.Unmarshal(e.Data, &d) == nil && d.Phase == "" && d.Decision == string(council.Done) && !d.Forced {
 				sawVerified = true
@@ -576,6 +581,12 @@ func (a *App) observeTurnFinished(ctx context.Context, sid session.SessionID) {
 		outcome, reason = "guard", reasonGuard
 	case sawError:
 		outcome, reason = "error", reasonError
+	case sawToolCall && !sawCouncil:
+		// A turn that did real work (the council's own usedTools trigger) yet no
+		// consensus gate ran — council disabled, workflow mode, or a sub-depth
+		// finish. Surface it instead of silently labelling it "done" so observers
+		// don't record an unconfirmed completion as a success.
+		outcome, reason = "ungated", "no verification gate ran on a tool-using turn"
 	}
 	a.cfg.Observer.TurnFinished(string(sid), TurnObservation{
 		FinalText: finalText, Outcome: outcome, Reason: reason,
