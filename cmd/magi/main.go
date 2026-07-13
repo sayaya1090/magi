@@ -622,7 +622,7 @@ func run() int {
 			Platform: runtime.GOOS,
 			Workdir:  wd,
 		},
-		Logf: nil,
+		Logf: pluginLogf(),
 	})
 	obs.bind(host)
 	for _, dir := range pluginDirs(plat, wd, *pluginsDir) {
@@ -632,6 +632,15 @@ func run() int {
 	// turn) — e.g. an SSO plugin authenticates here. shutdown runs on exit.
 	host.FireEvent("startup")
 	defer host.FireEvent("shutdown")
+	// Drain queued observation events before shutdown fires: a headless one-shot
+	// run exits right after its turn, and an observer's sidecar analysis (engram's
+	// lesson extraction) would otherwise be killed mid-flight every time.
+	defer host.DrainEvents(3 * time.Minute)
+	// …and BEFORE the drain (LIFO), wait for the app's run goroutines: headless
+	// main returns the instant it sees the TurnFinished fact, but the turn
+	// goroutine enqueues the turn_finished observation a moment LATER — draining
+	// first would always see an empty queue and lose the observation.
+	defer a.Close(context.Background())
 	defer mcpMgr.Close()
 	for name, s := range cfg.MCP {
 		var err error
@@ -1360,6 +1369,16 @@ func profileModels(profiles map[string]config.LLMProfile) map[string]string {
 // without a rebuild: depth 2 = full recursion, depth 1 = top-level plan + single-level
 // delegate but no child re-planning or failure-recursion. Unset/invalid → 0, which lets the
 // app apply its default of 2. Negative values are ignored.
+// pluginLogf returns the plugin host's log sink: silent by default (plugin
+// chatter must not pollute the TUI/headless stdout), stderr with MAGI_DEBUG=1
+// so a misbehaving plugin (or a silently-failing observer) is diagnosable.
+func pluginLogf() func(string) {
+	if os.Getenv("MAGI_DEBUG") == "" {
+		return nil // NewHostWithConfig defaults to a no-op
+	}
+	return func(s string) { fmt.Fprintln(os.Stderr, "[plugin] "+s) }
+}
+
 // pluginObserver forwards app conversation milestones to the plugin host's
 // observation events. Late-bound: the app is constructed before the host, so
 // the host pointer lands via bind(); events before that (none in practice —
@@ -1372,12 +1391,18 @@ func (o *pluginObserver) bind(h *pluginlua.Host) { o.host.Store(h) }
 
 func (o *pluginObserver) UserMessage(sid, text string) {
 	if h := o.host.Load(); h != nil {
+		if os.Getenv("MAGI_DEBUG") != "" {
+			fmt.Fprintf(os.Stderr, "[observer] user_message sid=%s len=%d\n", sid, len(text))
+		}
 		h.FireEventWith("user_message", map[string]string{"session": sid, "text": text})
 	}
 }
 
 func (o *pluginObserver) TurnFinished(sid, finalText, outcome, reason string) {
 	if h := o.host.Load(); h != nil {
+		if os.Getenv("MAGI_DEBUG") != "" {
+			fmt.Fprintf(os.Stderr, "[observer] turn_finished sid=%s outcome=%s len=%d\n", sid, outcome, len(finalText))
+		}
 		h.FireEventWith("turn_finished", map[string]string{
 			"session": sid, "text": finalText, "outcome": outcome, "reason": reason,
 		})

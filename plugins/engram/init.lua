@@ -217,7 +217,14 @@ local function analyze_and_record(sid, hint)
     return
   end
   local result = parse_cortex_json(raw)
-  if not result then return end
+  if not result then
+    magi.log("engram: 사이드카 응답 파싱 실패(무시)")
+    return
+  end
+  if not result.lesson and not result.skill then
+    magi.log("engram: 기록할 교훈/스킬 없음(사소하거나 미확정)")
+    return
+  end
 
   local lesson = result.lesson
   if lesson and lesson.task and lesson.lesson then
