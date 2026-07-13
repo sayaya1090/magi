@@ -119,10 +119,7 @@ const elicitCriteriaSystem = "You define acceptance criteria for a coding task. 
 	"conditions that must ALL hold for it to be DONE — correctness, tests/build passing, edge cases, and staying " +
 	"in scope. For any condition that can be confirmed by execution, also state HOW to confirm it (the exact " +
 	"command or function call to run and the expected output), reusing any verification procedure the task itself " +
-	"specifies. When the task NAMES exact identifiers — a field/message/function/class name, a file path, an output " +
-	"format, a port, a literal string — quote each one VERBATIM as its own criterion (e.g. `SetValRequest has a " +
-	"field named value (int)`): graders check these literally, and a normalized name (value → val) is a failure " +
-	"even when the implementation is otherwise self-consistent. Output a short bullet checklist only, no preamble."
+	"specifies. Output a short bullet checklist only, no preamble."
 
 // elicitCriteria asks the model (tool-free) for the concrete done-conditions of a
 // task. Uses the agent's provider so it follows per-agent backend routing.
