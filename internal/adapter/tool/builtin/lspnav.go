@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -25,7 +26,8 @@ import (
 func runGopls(ctx context.Context, workdir string, args ...string) (string, *session.ToolResult) {
 	goplsPath, err := exec.LookPath("gopls")
 	if err != nil {
-		r := errResult("", "gopls is not installed. Install it with:\n  go install golang.org/x/tools/gopls@latest")
+		install, _ := serverInstall("gopls", runtime.GOOS)
+		r := errResult("", "gopls is not installed. Install it with:\n    "+install)
 		return "", &r
 	}
 	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -47,8 +48,9 @@ func (LspDiag) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEn
 	// Check if gopls is available
 	goplsPath, err := exec.LookPath("gopls")
 	if err != nil {
+		install, _ := serverInstall("gopls", runtime.GOOS)
 		return session.ToolResult{
-			Content: []byte("gopls is not installed. Install it with:\n  go install golang.org/x/tools/gopls@latest\n\n" +
+			Content: []byte("gopls is not installed. Install it with:\n    " + install + "\n\n" +
 				"Alternatively, run `go build ./...` or `go test ./...` to see compiler diagnostics."),
 			IsError: true,
 		}, nil
@@ -110,12 +112,19 @@ func lspDiagnoseResult(ctx context.Context, workdir, relPath string) session.Too
 	if err != nil {
 		return errResult("", err.Error())
 	}
-	diags, err := lspDiagnose(ctx, workdir, abs)
+	out, missing, err := lspPool.Diagnose(ctx, workdir, abs)
+	if missing != "" {
+		// The manual tool advises every call (unlike the auto-hook's once-per-session).
+		advice := composeInstallAdvice(missing, runtime.GOOS, prereqMissingFor(missing))
+		if advice == "" {
+			advice = "no language server ('" + missing + "') is installed for this file; install it to enable diagnostics."
+		}
+		return session.ToolResult{Content: []byte(advice), IsError: false}
+	}
 	if err != nil {
 		return session.ToolResult{Content: []byte("no diagnostics available: " + err.Error() +
 			"\nInstall the language server to enable diagnostics, or build/run the project to surface compiler errors."), IsError: false}
 	}
-	out := formatDiagnostics(diags, filepath.ToSlash(relPath))
 	if out == "" {
 		out = "No diagnostics found. Code is clean!"
 	}
