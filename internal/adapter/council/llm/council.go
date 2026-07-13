@@ -220,7 +220,11 @@ func memberSystem(m council.Member, phase, task string) string {
 		"You are %s, a member of the council that decides whether an AI coding agent's turn is truly finished. "+
 			"Your lens is %q: %s\n\n"+
 			"Judge the agent's REPORT against the TASK and PLAN. Use the SIGNALS and DIFF as evidence WHEN PRESENT — "+
-			"but the ABSENCE of a diff or signal is NEVER a reason to continue. Many turns (investigation, reading, "+
+			"but the ABSENCE of a diff or signal is NEVER a reason to continue. "+
+			"When the TASK names EXACT identifiers (a field/message/function name, a path, a format, a port, a literal "+
+			"string), check the DIFF/artifacts use them VERBATIM: a normalized identifier (the task says `value`, the "+
+			"code says `val`) is a CONCRETE defect — vote continue and name the exact mismatch — even when the "+
+			"implementation is internally self-consistent and the agent's own tests pass. Many turns (investigation, reading, "+
 			"answering, analysis) legitimately produce no diff; demanding one is exactly the reflexive churn to avoid.\n"+
 			"Choose exactly one vote:\n"+
 			"- \"done\": through your lens, the report reasonably satisfies the task. Judge it on its merits — if there is "+
@@ -353,7 +357,9 @@ func planMemberSystem(m council.Member, lens string) string {
 			"criteria, a verify step, or more detail — would be WRONG. Hold real plans to exactly this bar.\n\n"+
 			"SEPARATELY, through your lens, propose this task's COMPLETION CRITERIA in `criteria`: a short list (1-3) of "+
 			"concrete done-conditions used to judge the FINISHED work later (e.g. a file/output that must exist, a check "+
-			"that must pass). Each criterion MUST be ACHIEVABLE and PROPORTIONATE to the task's size: for an analysis, "+
+			"that must pass). When the task NAMES exact identifiers — field/message/function names, paths, formats, "+
+			"ports, literal strings — quote them VERBATIM in a criterion (a grader checks them literally; a normalized "+
+			"name like value→val fails even when self-consistent). Each criterion MUST be ACHIEVABLE and PROPORTIONATE to the task's size: for an analysis, "+
 			"survey, or investigation over a LARGE set (many files/items), do NOT write a done-condition that demands "+
 			"EXHAUSTIVE enumeration of every item or atom-level precision (\"list ALL N files with EXACT line numbers\") "+
 			"— that is impractical and will be enforced as an impossible contract. Phrase such a criterion as the QUALITY "+
