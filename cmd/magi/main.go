@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -624,6 +625,7 @@ func run() int {
 			Model:    modelID,
 			Platform: runtime.GOOS,
 			Workdir:  wd,
+			Username: osUsername(),
 		},
 		Logf: pluginLogf(),
 	})
@@ -1372,6 +1374,14 @@ func profileModels(profiles map[string]config.LLMProfile) map[string]string {
 // without a rebuild: depth 2 = full recursion, depth 1 = top-level plan + single-level
 // delegate but no child re-planning or failure-recursion. Unset/invalid → 0, which lets the
 // app apply its default of 2. Negative values are ignored.
+// osUsername resolves the login user for plugin runtime info ("" if unknown).
+func osUsername() string {
+	if u, err := user.Current(); err == nil && u.Username != "" {
+		return filepath.Base(u.Username) // strip a DOMAIN\ prefix on Windows
+	}
+	return os.Getenv("USER")
+}
+
 // pluginLogf returns the plugin host's log sink: silent by default (plugin
 // chatter must not pollute the TUI/headless stdout), stderr with MAGI_DEBUG=1
 // so a misbehaving plugin (or a silently-failing observer) is diagnosable.
