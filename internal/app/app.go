@@ -16,6 +16,7 @@ import (
 
 	"github.com/sayaya1090/magi/internal/core/bus"
 	"github.com/sayaya1090/magi/internal/core/command"
+	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
@@ -72,6 +73,7 @@ type sessionState struct {
 	todos            []session.Todo         // per-session plan
 	stage            string                 // current loop stage for event tagging
 	lastPromptTokens int                    // real prompt_tokens from the last turn
+	observedEvents   int                    // event high-water mark of the last turn_finished observation (stale-answer guard)
 	pendingInterject []pendingInterjection  // interjections queued to run as their own turn
 	turnControl      turnControl            // pending mid-turn routing/replan signal
 	perms            map[string]chan string // pending permission decisions by call id
@@ -397,7 +399,23 @@ func (a *App) appendPrompt(ctx context.Context, c command.SubmitPrompt) error {
 		msgID = "m_" + newSortableID()
 	}
 	data, _ := json.Marshal(event.PromptSubmittedData{MessageID: msgID, Parts: c.Parts})
-	return a.appendFact(ctx, c.SessionID, event.TypePromptSubmitted, c.Actor, data)
+	if err := a.appendFact(ctx, c.SessionID, event.TypePromptSubmitted, c.Actor, data); err != nil {
+		return err
+	}
+	// Observation: surface genuine user prompts (not system/council injections)
+	// to observer plugins. The observer queues and returns — never blocks here.
+	if a.cfg.Observer != nil && c.Actor.Kind == event.ActorUser {
+		var texts []string
+		for _, pt := range c.Parts {
+			if pt.Kind == session.PartText && strings.TrimSpace(pt.Text) != "" {
+				texts = append(texts, pt.Text)
+			}
+		}
+		if len(texts) > 0 {
+			a.cfg.Observer.UserMessage(string(c.SessionID), strings.Join(texts, "\n"))
+		}
+	}
+	return nil
 }
 
 // appendResurfacedPrompt re-emits a queued interjection as a fresh user prompt that
@@ -421,6 +439,94 @@ func (a *App) appendResurfacedPrompt(ctx context.Context, sid session.SessionID,
 // (never queued) so they cannot swap what the council judges against.
 func (a *App) taskEvents(sid session.SessionID, evs []event.Event) []event.Event {
 	return filterDeferredEvents(evs, a.interjectSeenIDs(sid))
+}
+
+// observeTurnFinished surfaces a completed top-level turn to observer plugins:
+// the final assistant text is what a lesson-extraction observer analyzes. Fired
+// after run() returns whatever way the turn ended. Only assistant text NEWER
+// than the last observation fires — a turn that produced no new answer (provider
+// error, cancel before any text) must not re-fire the previous turn's answer as
+// if it were this one's. The observer enqueues and returns.
+func (a *App) observeTurnFinished(ctx context.Context, sid session.SessionID) {
+	if a.cfg.Observer == nil {
+		return
+	}
+	// Skip the store scan entirely when nothing listens (headless/bench with no
+	// observer plugins) — this runs on every top-level turn.
+	if w, ok := a.cfg.Observer.(interface{ WantsTurnFinished() bool }); ok && !w.WantsTurnFinished() {
+		return
+	}
+	// A cancelled turn still carries whatever was said — don't let the dead
+	// runCtx suppress the read.
+	evs, err := a.store.Read(context.WithoutCancel(ctx), sid, 0)
+	if err != nil {
+		return
+	}
+	a.mu.Lock()
+	seen := a.stateLocked(sid).observedEvents
+	a.stateLocked(sid).observedEvents = len(evs)
+	a.mu.Unlock()
+	if seen > len(evs) {
+		seen = 0 // defensive: store shrank (should not happen)
+	}
+
+	// Structural outcome from this turn's event window: the host KNOWS how the
+	// turn ended, so observers get ground truth instead of parsing phrasing.
+	// Precedence: unverified > verified > guard > error > done — an unverified
+	// landing is authoritative over a council vote earlier in the turn, and a
+	// council-approved finish outranks a transient error it recovered from.
+	var finalText string
+	sawVerified, sawUnverified, sawGuard, sawError := false, false, false, false
+	reasonUnverified, reasonGuard, reasonError := "", "", ""
+	for _, e := range evs[seen:] {
+		switch e.Type {
+		case event.TypePartAppended:
+			var d event.PartAppendedData
+			if json.Unmarshal(e.Data, &d) != nil {
+				continue
+			}
+			if d.Role == session.RoleAssistant && d.Part.Kind == session.PartText {
+				if t := strings.TrimSpace(d.Part.Text); t != "" {
+					finalText = t
+				}
+			}
+		case event.TypeTurnFinished:
+			var d event.TurnFinishedData
+			if json.Unmarshal(e.Data, &d) == nil && d.Unverified {
+				sawUnverified, reasonUnverified = true, d.Reason
+			}
+		case event.TypeCouncilDecided:
+			var d event.CouncilDecidedData
+			if json.Unmarshal(e.Data, &d) == nil && d.Phase == "" && d.Decision == string(council.Done) && !d.Forced {
+				sawVerified = true
+			}
+		case event.TypeError:
+			var d event.ErrorData
+			if json.Unmarshal(e.Data, &d) != nil {
+				continue
+			}
+			if d.Code == "loop_guard" || d.Code == "stall_guard" {
+				sawGuard, reasonGuard = true, d.Code
+			} else {
+				sawError, reasonError = true, d.Message
+			}
+		}
+	}
+	if finalText == "" {
+		return // no new assistant text this turn — nothing for an observer to analyze
+	}
+	outcome, reason := "done", ""
+	switch {
+	case sawUnverified:
+		outcome, reason = "unverified", reasonUnverified
+	case sawVerified:
+		outcome = "verified"
+	case sawGuard:
+		outcome, reason = "guard", reasonGuard
+	case sawError:
+		outcome, reason = "error", reasonError
+	}
+	a.cfg.Observer.TurnFinished(string(sid), finalText, outcome, reason)
 }
 
 // startRun launches the agent loop for a session unless one is already running
@@ -448,6 +554,7 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 		defer cancel()
 		for {
 			err := a.run(runCtx, sid)
+			a.observeTurnFinished(runCtx, sid)
 			// Do NOT re-run or triage after a terminal error (e.g. a provider 429/5xx) or a
 			// cancel: the prompt is still "unanswered", and re-running would hammer a failing
 			// backend into an error storm. The error event already ended the turn.

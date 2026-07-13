@@ -75,6 +75,26 @@ func (s AgentSpec) allows(tool string) bool {
 }
 
 // Config holds run-time policy for the agent loop and orchestration (D7).
+// TurnObserver receives top-level conversation milestones, for observer-style
+// integrations (the Lua plugin host forwards these as user_message /
+// turn_finished events). Both calls happen on the conversation path, so
+// implementations must return immediately (enqueue and go).
+//
+// TurnFinished carries the turn's STRUCTURAL outcome so observers never have to
+// guess success from phrasing (the host already knows):
+//
+//	verified   — the council itself voted done (evidence-backed completion)
+//	unverified — the turn landed but the council never approved (deadlock/cost/round cap)
+//	guard      — a loop/stall guard force-stopped the turn
+//	error      — the turn ended on an error event
+//	done       — plain finish with no council verdict either way (e.g. conversational turn)
+//
+// reason carries the unverified reason / guard code / error message ("" otherwise).
+type TurnObserver interface {
+	UserMessage(sessionID, text string)
+	TurnFinished(sessionID, finalText, outcome, reason string)
+}
+
 type Config struct {
 	Model      session.ModelRef
 	System     string
@@ -129,6 +149,11 @@ type Config struct {
 
 	// Experience is the shared team memory/skills store (D13). Optional.
 	Experience port.ExperienceStore
+
+	// Observer receives top-level conversation milestones (the plugin host's
+	// user_message / turn_finished lifecycle events). Implementations must be
+	// non-blocking — the host queues the event and returns. Optional.
+	Observer TurnObserver
 
 	// Hooks are lifecycle automations (PreToolUse/PostToolUse/Stop) that enforce
 	// team procedure. Harness enables built-in defaults (e.g. gofmt on save).
