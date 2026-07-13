@@ -116,6 +116,15 @@ func (a *App) SetUserLabel(sid session.SessionID, label string) {
 		return
 	}
 	a.mu.Lock()
+	// No session yet: an SSO-style plugin that logs in during its STARTUP handler
+	// calls this before CreateSession has run — latch the label and CreateSession
+	// applies it to every new session, instead of silently writing it under the
+	// empty session id (the "username missing on the first turn" bug).
+	if sid == "" {
+		a.pendingUserLabel = label
+		a.mu.Unlock()
+		return
+	}
 	a.stateLocked(sid).userLabel = label
 	a.mu.Unlock()
 	d, _ := json.Marshal(event.UserLabelData{Label: label})
