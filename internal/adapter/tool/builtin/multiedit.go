@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
@@ -55,6 +56,7 @@ func (MultiEdit) Execute(ctx context.Context, raw json.RawMessage, env port.Tool
 	}
 
 	content := string(data)
+	var addedAll, priorAll strings.Builder
 	// Apply all hunks in memory first; fail fast without writing. Delegate each hunk to
 	// applyEdit so multiedit inherits the same tolerant matching as edit (line endings,
 	// Unicode normalization — the macOS NFD-Hangul case — and trailing whitespace) instead
@@ -71,10 +73,14 @@ func (MultiEdit) Execute(ctx context.Context, raw json.RawMessage, env port.Tool
 			return errResult("", fmt.Sprintf("edit %d: %s", i+1, eerr.Error())), nil
 		}
 		content = updated
+		addedAll.WriteString(h.New + "\n")
+		priorAll.WriteString(h.Old + "\n")
 	}
 
 	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
 		return errResult("", err.Error()), nil
 	}
-	return okText("", fmt.Sprintf("applied %d edits to %s", len(a.Edits), a.Path)), nil
+	msg := fmt.Sprintf("applied %d edits to %s", len(a.Edits), a.Path)
+	msg += commentNoiseAdvisory(addedAll.String(), priorAll.String())
+	return okText("", msg), nil
 }

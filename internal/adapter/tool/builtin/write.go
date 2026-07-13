@@ -44,7 +44,9 @@ func (Write) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv)
 	if err := os.WriteFile(abs, []byte(a.Content), 0o644); err != nil {
 		return errResult("", relPathErr(err, env.Workdir)), nil
 	}
-	return okText("", fmt.Sprintf("wrote %d bytes to %s", len(a.Content), a.Path)), nil
+	msg := fmt.Sprintf("wrote %d bytes to %s", len(a.Content), a.Path)
+	msg += commentNoiseAdvisory(a.Content, "")
+	return okText("", msg), nil
 }
 
 // relPathErr rewrites an OS error that embeds the absolute workdir path back to a
