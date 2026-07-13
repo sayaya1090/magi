@@ -24,7 +24,13 @@ func (h *Host) LoadDir(ctx context.Context, root string) ([]string, []error) {
 	var errs []error
 	for _, e := range entries {
 		if !e.IsDir() {
-			continue
+			// DirEntry.IsDir is false for a symlink even when it points at a
+			// directory — and `ln -s <repo>/plugins/engram ~/.config/magi/plugins/`
+			// is the documented install. Follow the link before skipping.
+			fi, err := os.Stat(filepath.Join(root, e.Name()))
+			if err != nil || !fi.IsDir() {
+				continue
+			}
 		}
 		dir := filepath.Join(root, e.Name())
 		if _, err := os.Stat(filepath.Join(dir, "plugin.toml")); err != nil {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/port"
 	"github.com/sayaya1090/magi/internal/prompt"
@@ -101,6 +102,7 @@ type Host struct {
 	// is best-effort, never back-pressure on the conversation).
 	evOnce  sync.Once
 	evQueue chan firedEvent
+	evBusy  sync.WaitGroup // outstanding queued/running observation events (DrainEvents)
 }
 
 type firedEvent struct {
@@ -205,13 +207,30 @@ func (h *Host) FireEventWith(event string, payload map[string]string) {
 				for _, p := range plugins {
 					p.fireWith(ev.name, ev.payload)
 				}
+				h.evBusy.Done()
 			}
 		}()
 	})
+	h.evBusy.Add(1)
 	select {
 	case h.evQueue <- firedEvent{name: event, payload: payload}:
 	default:
+		h.evBusy.Done()
 		h.logf("plugin events: queue full — dropped " + event)
+	}
+}
+
+// DrainEvents waits (up to timeout) for queued observation events to finish.
+// A headless one-shot run exits right after its turn — without a drain the
+// process dies before an observer's sidecar analysis lands, so nothing is ever
+// captured outside the TUI. Call before shutdown.
+func (h *Host) DrainEvents(timeout time.Duration) {
+	done := make(chan struct{})
+	go func() { h.evBusy.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		h.logf("plugin events: drain timed out — an observation may be lost")
 	}
 }
 
