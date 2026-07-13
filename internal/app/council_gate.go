@@ -298,6 +298,70 @@ type councilTurn struct {
 	feedback   string        // last round's feedback (no-progress detection)
 	spent      time.Duration // self-measured wall-clock consumed by deliberations
 	deadlocked bool          // set iff a finish was a genuine round-cap deadlock (never approved)
+	// Round-cost reduction state (set at each rejection):
+	rejectToolCalls int               // total tool calls at the last rejection — a re-finish with the same count changed nothing
+	rejectEvs       int               // event-log length at the last rejection (delta-evidence boundary for the re-round)
+	prevVerdicts    []council.Verdict // last round's verdicts (done votes carry into a focused re-round)
+}
+
+// countToolCalls counts the tool-call parts in the event log — a cheap monotonic
+// fingerprint of "did the agent DO anything": equal counts across a rejection →
+// re-finish mean zero new actions, so no evidence-based verdict can have changed.
+func countToolCalls(evs []event.Event) int {
+	n := 0
+	for _, e := range evs {
+		if e.Type != event.TypePartAppended {
+			continue
+		}
+		var d event.PartAppendedData
+		if json.Unmarshal(e.Data, &d) == nil && d.Part.Kind == session.PartToolCall {
+			n++
+		}
+	}
+	return n
+}
+
+// deltaToolEvidence renders the tool results in evs (no prompt-boundary resets —
+// the window IS the delta since the last rejection, which starts right after the
+// feedback injection). Format mirrors turnToolEvidence.
+func deltaToolEvidence(evs []event.Event, k int) string {
+	names := map[string]string{}
+	var lines []string
+	for _, e := range evs {
+		if e.Type != event.TypePartAppended {
+			continue
+		}
+		var d event.PartAppendedData
+		if json.Unmarshal(e.Data, &d) != nil {
+			continue
+		}
+		switch d.Part.Kind {
+		case session.PartToolCall:
+			if d.Part.ToolCall != nil {
+				names[d.Part.ToolCall.CallID] = d.Part.ToolCall.Name
+			}
+		case session.PartToolResult:
+			if d.Part.ToolResult == nil {
+				continue
+			}
+			name := names[d.Part.ToolResult.CallID]
+			if name == "" {
+				name = "tool"
+			}
+			status := "ok"
+			if d.Part.ToolResult.IsError {
+				status = "error"
+			}
+			lines = append(lines, "tool "+name+" ["+status+"]: "+clipLine(toolResultText(d.Part.ToolResult.Content), councilActionCap))
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	if len(lines) > k {
+		lines = lines[len(lines)-k:]
+	}
+	return "- " + strings.Join(lines, "\n- ")
 }
 
 // runCouncilGate runs the consensus termination gate (D14) at top level. It
@@ -404,6 +468,39 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	// background dispatch — never queued — is still hidden from the council.
 	evs, _ := a.store.Read(ctx, sid, 0)
 	evs = a.taskEvents(sid, evs)
+
+	// No-progress delta gate (round-cost reduction 1): a re-finish with ZERO new
+	// tool actions since the last rejection cannot change any evidence-based
+	// verdict — deliberating again only burns wall clock (the completion-loop
+	// pattern paid this every round). Reuse the standing rejection without
+	// convening; the reused round still counts, so a persistent re-declarer
+	// reaches the round cap (and its UNVERIFIED landing) sooner, not later.
+	if ct.rounds >= 2 && len(ct.prevVerdicts) > 0 && countToolCalls(evs) == ct.rejectToolCalls {
+		if ct.rounds >= maxRounds {
+			note := fmt.Sprintf("unresolved after %d rounds — finishing; the council never approved this result, treat it as UNVERIFIED; still unmet: %s",
+				maxRounds, clipLine(ct.feedback, 200))
+			dd, _ := json.Marshal(event.CouncilDecidedData{
+				Round: ct.rounds, Decision: string(council.Done), Note: note, Forced: true,
+			})
+			a.appendFact(ctx, sid, event.TypeCouncilDecided, councilActor, dd)
+			ct.deadlocked = true
+			return false, fmt.Sprintf("the council never approved this result within %d round(s)", maxRounds)
+		}
+		dd, _ := json.Marshal(event.CouncilDecidedData{
+			Round: ct.rounds, Decision: string(council.Continue), Feedback: ct.feedback,
+			Note: "no new tool actions since the last rejection — verdict reused without deliberation",
+		})
+		a.appendFact(ctx, sid, event.TypeCouncilDecided, councilActor, dd)
+		pd, _ := json.Marshal(event.PromptSubmittedData{
+			MessageID: "m_" + newID(),
+			Parts: []session.Part{{Kind: session.PartText, Text: "Council review (not user input) — you re-declared " +
+				"completion WITHOUT taking any new action since the last rejection; the previous feedback still stands:\n" +
+				ct.feedback + councilKeepWork}},
+		})
+		a.appendFact(ctx, sid, event.TypePromptSubmitted, councilActor, pd)
+		return true, ""
+	}
+
 	task := in.turnTask
 	if task == "" { // defensive: fall back to the latest genuine prompt
 		task = lastUserPromptText(evs)
@@ -529,8 +626,50 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	// exist — the consensus rule is unchanged.
 	noChanges := strings.TrimSpace(changes) == "" && len(signals) == 0
 
-	labels := make([]string, len(members))
-	for i, m := range members {
+	// Focused re-round (round-cost reduction 2): from round 2 on, members that
+	// already voted done are carried (their vote re-counts under the rule without
+	// a re-poll), and only the dissenters re-judge — against the DELTA of actions
+	// since their rejection, framed on their own standing concern. This both
+	// shrinks the per-round prompt/generation and stops the fresh-nitpick churn a
+	// full re-audit invites. Falls back to a full round when everyone dissented.
+	pollMembers := members
+	actions := turnToolEvidence(evs, councilActionsCap)
+	var carried []council.Verdict
+	var prior map[string]string
+	deltaRound := false
+	if ct.rounds >= 2 && len(ct.prevVerdicts) > 0 {
+		var repoll []council.Member
+		prior = map[string]string{}
+		for _, v := range ct.prevVerdicts {
+			if v.Decision == council.Done {
+				carried = append(carried, v)
+				continue
+			}
+			for _, m := range members {
+				if m.Name == v.Member {
+					repoll = append(repoll, m)
+					break
+				}
+			}
+			if c0 := strings.TrimSpace(v.Feedback); c0 != "" {
+				prior[v.Member] = c0
+			} else {
+				prior[v.Member] = v.Rationale
+			}
+		}
+		if len(carried) > 0 && len(repoll) > 0 {
+			deltaRound = true
+			pollMembers = repoll
+			if from := ct.rejectEvs; from > 0 && from < len(evs) {
+				if d := deltaToolEvidence(evs[from:], councilActionsCap); d != "" {
+					actions = d
+				}
+			}
+		}
+	}
+
+	labels := make([]string, len(pollMembers))
+	for i, m := range pollMembers {
 		labels[i] = m.Name
 	}
 	cd, _ := json.Marshal(event.CouncilConvenedData{
@@ -539,7 +678,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	})
 	a.appendFact(ctx, sid, event.TypeCouncilConvened, councilActor, cd)
 	// Live panel: announce which members are deliberating this round.
-	for _, m := range members {
+	for _, m := range pollMembers {
 		ld, _ := json.Marshal(event.CouncilDeliberatingData{Round: ct.rounds, Member: m.Name, State: "asking"})
 		a.publishTransient(sid, event.TypeCouncilDeliberating, councilActor, ld)
 	}
@@ -550,14 +689,17 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		Task:         task,
 		Plan:         plan,
 		Report:       in.lastText,
-		Actions:      turnToolEvidence(evs, councilActionsCap),
+		Actions:      actions,
 		Signals:      signals,
 		Changes:      changes,
 		NoChanges:    noChanges,
-		Members:      members,
+		Members:      pollMembers,
 		Rule:         rule,
 		DefaultModel: s.Model.Model,
 		StepsLeft:    in.stepsLeft,
+		DeltaRound:   deltaRound,
+		CarriedDone:  carried,
+		PriorConcern: prior,
 	})
 	ct.spent += time.Since(delibStart)
 	if err != nil {
@@ -633,6 +775,24 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	}
 
 	emitDecided(council.Continue, fb, "", false)
+	// Rejection state for the next round's cost reducers: the action fingerprint
+	// (no-progress delta gate), the delta boundary, and this round's verdicts
+	// (done votes carry; dissenters get a focused re-round). A delta round's
+	// fresh verdicts are merged over the carried ones so a member's latest
+	// position always wins.
+	ct.rejectToolCalls = countToolCalls(evs)
+	ct.rejectEvs = len(evs)
+	merged := append([]council.Verdict(nil), delib.Verdicts...)
+	seen := map[string]bool{}
+	for _, v := range merged {
+		seen[v.Member] = true
+	}
+	for _, v := range carried {
+		if !seen[v.Member] {
+			merged = append(merged, v)
+		}
+	}
+	ct.prevVerdicts = merged
 	pd, _ := json.Marshal(event.PromptSubmittedData{
 		MessageID: "m_" + newID(),
 		Parts:     []session.Part{{Kind: session.PartText, Text: "Council review (not user input) — the task is not yet done:\n" + inject + councilKeepWork}},
