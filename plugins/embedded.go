@@ -19,10 +19,17 @@ import "embed"
 //go:embed all:engram
 var engram embed.FS
 
-// Embedded maps each bundled plugin's name to its embedded files. The files
-// live under "<name>/" inside the FS; every embedded plugin is OPT-IN via
-// [plugins.<name>] enabled = true (bundled plugins may spend LLM tokens or
-// write workspace files — turning one on is the user's explicit choice).
-var Embedded = map[string]embed.FS{
-	"engram": engram,
+// EmbeddedPlugin is one bundled plugin: its files (under "<name>/") and
+// whether it loads when the config says nothing. An explicit
+// [plugins.<name>] enabled = true|false always wins; DefaultOn only decides
+// the unset case. MAGI_EMBEDDED_PLUGINS=off disables all of them regardless
+// (automation/bench runs that must not change measured behavior).
+type EmbeddedPlugin struct {
+	FS        embed.FS
+	DefaultOn bool
+}
+
+// Embedded maps each bundled plugin's name to its definition.
+var Embedded = map[string]EmbeddedPlugin{
+	"engram": {FS: engram, DefaultOn: true},
 }

@@ -12,14 +12,14 @@ import (
 // expected manifest identity — a broken go:embed path would otherwise only
 // surface at a user's runtime.
 func TestEmbeddedEngramComplete(t *testing.T) {
-	manifest, err := plugins.Embedded["engram"].ReadFile("engram/plugin.toml")
+	manifest, err := plugins.Embedded["engram"].FS.ReadFile("engram/plugin.toml")
 	if err != nil {
 		t.Fatalf("embedded manifest missing: %v", err)
 	}
 	if !strings.Contains(string(manifest), `name = "engram"`) {
 		t.Errorf("manifest lost its identity:\n%s", manifest)
 	}
-	code, err := plugins.Embedded["engram"].ReadFile("engram/init.lua")
+	code, err := plugins.Embedded["engram"].FS.ReadFile("engram/init.lua")
 	if err != nil {
 		t.Fatalf("embedded init.lua missing: %v", err)
 	}

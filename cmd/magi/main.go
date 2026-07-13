@@ -1385,16 +1385,24 @@ func profileModels(profiles map[string]config.LLMProfile) map[string]string {
 // materialized copy under <config>/plugins-embedded/ is overwritten every start
 // so it always tracks the binary's version (updates ride magi --update).
 func loadEmbeddedPlugins(host *pluginlua.Host, plat *platform.OS, cfg config.Config) {
-	for name, pfs := range plugins.Embedded {
-		v, ok := cfg.Plugins[name]["enabled"]
-		if b, isB := v.(bool); !ok || !isB || !b {
-			continue // opt-in only
+	if strings.EqualFold(os.Getenv("MAGI_EMBEDDED_PLUGINS"), "off") {
+		return // global kill switch for automation/bench (measurement must not shift)
+	}
+	for name, ep := range plugins.Embedded {
+		enabled := ep.DefaultOn
+		if v, ok := cfg.Plugins[name]["enabled"]; ok {
+			if b, isB := v.(bool); isB {
+				enabled = b // an explicit config bool always wins
+			}
+		}
+		if !enabled {
+			continue
 		}
 		if host.Has(name) {
 			continue // a user-installed plugin of the same name won
 		}
 		dir := filepath.Join(plat.ConfigDir(), "plugins-embedded", name)
-		if err := materializeEmbedded(pfs, name, dir); err != nil {
+		if err := materializeEmbedded(ep.FS, name, dir); err != nil {
 			fmt.Fprintf(os.Stderr, "embedded plugin %s: %v\n", name, err)
 			continue
 		}
