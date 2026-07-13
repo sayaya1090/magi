@@ -167,10 +167,15 @@ func TestAsyncDispatchInjectsResult(t *testing.T) {
 	reg := builtin.Default()
 	reg.Register(builtin.Task{})
 	a := New(store, &routingLLM{}, reg, bus.New(), nil, Config{
-		Permission:          "allow",
-		Agents:              map[string]AgentSpec{"worker": {Name: "worker"}},
-		SubagentStall:       2 * time.Second,
-		SubagentTimeout:     5 * time.Second,
+		Permission: "allow",
+		Agents:     map[string]AgentSpec{"worker": {Name: "worker"}},
+		// The fake worker emits its output instantly, so this test only exercises the
+		// happy async-dispatch path — never a real stall. The watchdogs are set generously
+		// so a loaded CI runner that starves the background goroutine for a second or two
+		// cannot trip the stall/timeout guard and turn an instant, correct worker into a
+		// spurious error terminal (the observed flake).
+		SubagentStall:       30 * time.Second,
+		SubagentTimeout:     60 * time.Second,
 		SubagentMaxRestarts: 1,
 	})
 	ctx := context.Background()
