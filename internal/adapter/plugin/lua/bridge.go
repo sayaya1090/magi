@@ -31,6 +31,8 @@ func installBridge(p *plugin) {
 	L.SetField(t, "register_doctor_probes", L.NewFunction(p.bridgeRegisterDoctorProbes))
 	L.SetField(t, "set_llm_headers", L.NewFunction(p.bridgeSetLLMHeaders))
 	L.SetField(t, "on", L.NewFunction(p.bridgeOn))
+	L.SetField(t, "analyze", L.NewFunction(p.bridgeAnalyze))
+	L.SetField(t, "json_decode", L.NewFunction(p.bridgeJSONDecode))
 	L.SetField(t, "ask", L.NewFunction(p.bridgeAsk))
 	L.SetField(t, "log", L.NewFunction(p.bridgeLog))
 	L.SetField(t, "read_file", L.NewFunction(p.bridgeReadFile))
@@ -169,13 +171,17 @@ var knownEvents = map[string]bool{
 	"startup":       true, // after plugins load, before the first turn (UI ready)
 	"shutdown":      true, // on exit
 	"session_start": true, // a new top-level session was created
+	// Observation events (payload table arg; fired asynchronously off the turn
+	// path, best-effort): conversation milestones for observer-style plugins.
+	"user_message":  true, // {session=, text=} — a genuine user prompt was submitted
+	"turn_finished": true, // {session=, text=} — a top-level turn ended (text = final assistant answer)
 }
 
 // magi.on(event, fn) — register a lifecycle handler the host calls at `event`.
 func (p *plugin) bridgeOn(L *lua.LState) int {
 	event := L.CheckString(1)
 	if !knownEvents[event] {
-		L.RaiseError("on: unknown event %q (known: startup, shutdown, session_start)", event)
+		L.RaiseError("on: unknown event %q (known: startup, shutdown, session_start, user_message, turn_finished)", event)
 		return 0
 	}
 	fn, ok := L.Get(2).(*lua.LFunction)
@@ -612,6 +618,55 @@ func fail(L *lua.LState, msg string) int {
 	L.Push(lua.LNil)
 	L.Push(lua.LString(msg))
 	return 2
+}
+
+// analyzeTimeout bounds one magi.analyze sidecar call. Generous: observer
+// plugins run analysis off the turn path (the host's event worker), so a slow
+// local model hurts only later observations, never the conversation.
+const analyzeTimeout = 2 * time.Minute
+
+// magi.analyze{system=, text=, model=?} → raw response text. A one-shot,
+// tool-free LLM call for observation-style plugins (lesson/skill extraction).
+// It cannot see the session, register tools, or mutate anything — it is a pure
+// text→text sidecar on the configured backend.
+func (p *plugin) bridgeAnalyze(L *lua.LState) int {
+	p.requireCap(L, "analyze") // it spends LLM tokens — must be declared in the manifest
+	if p.host == nil || p.host.analyzer == nil {
+		return fail(L, "analyze: no analyzer available")
+	}
+	spec := L.CheckTable(1)
+	// An absent field is LNil, whose String() is the literal "nil" — read each
+	// through a nil guard so a missing system/text can't silently become "nil".
+	str := func(key string) string {
+		if v := spec.RawGetString(key); v != lua.LNil {
+			return v.String()
+		}
+		return ""
+	}
+	system, text, model := str("system"), str("text"), str("model")
+	if strings.TrimSpace(text) == "" {
+		return fail(L, "analyze: text is required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), analyzeTimeout)
+	defer cancel()
+	out, err := p.host.analyzer.Analyze(ctx, system, text, model)
+	if err != nil {
+		return fail(L, "analyze: "+err.Error())
+	}
+	L.Push(lua.LString(out))
+	return 1
+}
+
+// magi.json_decode(s) → table (or nil, err). JSON decoding for plugins that
+// parse structured sidecar output; the sandbox has no require/package, so a
+// pure-Lua JSON library isn't an option.
+func (p *plugin) bridgeJSONDecode(L *lua.LState) int {
+	var v any
+	if err := json.Unmarshal([]byte(L.CheckString(1)), &v); err != nil {
+		return fail(L, "json_decode: "+err.Error())
+	}
+	L.Push(goToLua(L, v))
+	return 1
 }
 
 func failPath(L *lua.LState, rel string) int {

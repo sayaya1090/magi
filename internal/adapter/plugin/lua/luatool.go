@@ -37,7 +37,13 @@ func (t *luaTool) Execute(ctx context.Context, raw json.RawMessage, env port.Too
 	defer t.plugin.mu.Unlock()
 
 	L := t.plugin.L
-	t.plugin.env = env // expose current workdir/permissions to bridge calls
+	// Expose the current workdir/permissions to bridge calls for THIS call only —
+	// restore afterwards so observation handlers and context providers (which run
+	// outside any tool call) keep the load-time seeded env instead of whatever
+	// the last tool call happened to leave behind.
+	prevEnv := t.plugin.env
+	t.plugin.env = env
+	defer func() { t.plugin.env = prevEnv }()
 
 	var args any
 	if len(raw) > 0 {

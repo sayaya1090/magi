@@ -54,6 +54,13 @@ func loadPlugin(dir string, logf func(string), host *Host) (*plugin, error) {
 		host:     host,
 		logf:     logf,
 	}
+	// Seed the bridge workdir from the host runtime so read_file/write_file work
+	// OUTSIDE tool execution too (lifecycle/observation handlers, context
+	// providers). Tool Execute still overwrites env per call, which keeps the
+	// stricter per-call workdir when one is provided.
+	if host != nil && host.runtime.Workdir != "" {
+		p.env.Workdir = host.runtime.Workdir
+	}
 	p.L = newSandbox()
 	installBridge(p)
 
@@ -95,6 +102,9 @@ func (p *plugin) close() {
 
 // fire runs this plugin's handlers for a lifecycle event, synchronously (a
 // handler may block — e.g. a startup auth flow). Errors are logged, not fatal.
+// Note: close()/reload and the synchronous shutdown fire take the same p.mu, so
+// they can wait behind an in-flight observation handler (bounded by the
+// analyze bridge's own timeout).
 func (p *plugin) fire(event string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -103,6 +113,38 @@ func (p *plugin) fire(event string) {
 	}
 	for _, fn := range p.hooks[event] {
 		if err := p.L.CallByParam(lua.P{Fn: fn, NRet: 0, Protect: true}); err != nil {
+			p.logf(fmt.Sprintf("[%s] on(%s): %v", p.name, event, err))
+		}
+	}
+}
+
+// hasHook reports whether this plugin registered a handler for event. A plugin
+// busy in a handler (mutex held — possibly for a minutes-long magi.analyze) is
+// assumed to HAVE handlers rather than blocking the asker: the only long holder
+// is an observation handler, which by definition registered one.
+func (p *plugin) hasHook(event string) bool {
+	if !p.mu.TryLock() {
+		return true
+	}
+	defer p.mu.Unlock()
+	return len(p.hooks[event]) > 0
+}
+
+// fireWith runs this plugin's handlers for a payload-carrying event, passing the
+// payload as a Lua table argument. Called from the host's single event worker
+// (never the turn path), so a slow handler only delays later observations.
+func (p *plugin) fireWith(event string, payload map[string]string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.L == nil {
+		return
+	}
+	for _, fn := range p.hooks[event] {
+		t := p.L.NewTable()
+		for k, v := range payload {
+			p.L.SetField(t, k, lua.LString(v))
+		}
+		if err := p.L.CallByParam(lua.P{Fn: fn, NRet: 0, Protect: true}, t); err != nil {
 			p.logf(fmt.Sprintf("[%s] on(%s): %v", p.name, event, err))
 		}
 	}

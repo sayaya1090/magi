@@ -86,14 +86,38 @@ type Host struct {
 	configPath    string                    // path to the user's config.toml (magi.get/set_config_key)
 	dataDir       string                    // base dir for per-plugin persistent stores
 	prompter      prompt.Prompter           // interactive prompts (magi.ask); nil = unavailable
+	analyzer      Analyzer                  // sidecar LLM analysis (magi.analyze); nil = unavailable
 	logf          func(string)
 
 	mu        sync.Mutex
 	plugins   map[string]*plugin
 	uiEffects []string // UI effects queued by bridges (e.g. "clear_transcript"), drained by the interactive UI
+
+	// Observation events (user_message / turn_finished) are fired through a
+	// bounded queue drained by ONE worker goroutine: the app-side caller
+	// (FireEventWith) never blocks on a plugin handler — a handler is free to
+	// run a slow magi.analyze sidecar without holding up the turn — and per-
+	// plugin handler order is preserved. Overflow drops the event (observation
+	// is best-effort, never back-pressure on the conversation).
+	evOnce  sync.Once
+	evQueue chan firedEvent
+}
+
+type firedEvent struct {
+	name    string
+	payload map[string]string
 }
 
 // HostConfig configures the plugin host.
+// Analyzer runs a one-shot, tool-free LLM analysis on behalf of a plugin
+// (magi.analyze) — a "sidecar" call for observation-style plugins (lesson
+// extraction, summarizers) that must never mutate anything. model "" = the
+// session's current model. Implementations bound the call with their own
+// timeout.
+type Analyzer interface {
+	Analyze(ctx context.Context, system, text, model string) (string, error)
+}
+
 type HostConfig struct {
 	ToolSink      ToolSink
 	MCPMgr        MCPManager                // optional: enables magi.register_mcp()
@@ -102,6 +126,7 @@ type HostConfig struct {
 	BaseReg       BaseURLRegistry           // optional: enables magi.set_base_url()
 	ModelReg      ModelRegistry             // optional: enables magi.set_model()
 	UserReg       UserLabelRegistry         // optional: enables magi.set_user_label()
+	Analyzer      Analyzer                  // optional: enables magi.analyze (sidecar LLM analysis)
 	PluginConfigs map[string]map[string]any // optional: [plugins.<name>] settings, read via magi.store_get
 	ConfigPath    string                    // optional: path to config.toml (enables magi.get/set_config_key)
 	DataDir       string                    // base dir for per-plugin persistent config stores (store_set)
@@ -136,8 +161,57 @@ func NewHostWithConfig(cfg HostConfig) *Host {
 		configPath:    cfg.ConfigPath,
 		dataDir:       cfg.DataDir,
 		prompter:      cfg.Prompter,
+		analyzer:      cfg.Analyzer,
 		logf:          cfg.Logf,
 		plugins:       map[string]*plugin{},
+	}
+}
+
+// HasEventHandlers reports whether any loaded plugin registered a handler for
+// the event — lets the app skip building observation payloads nobody consumes.
+// The plugin list is snapshotted and h.mu RELEASED before touching any p.mu:
+// bridge paths run Lua under p.mu and then take h.mu (runtimeModel/uiEffects),
+// so holding both here would invert the lock order into an ABBA deadlock.
+func (h *Host) HasEventHandlers(event string) bool {
+	h.mu.Lock()
+	plugins := make([]*plugin, 0, len(h.plugins))
+	for _, p := range h.plugins {
+		plugins = append(plugins, p)
+	}
+	h.mu.Unlock()
+	for _, p := range plugins {
+		if p.hasHook(event) {
+			return true
+		}
+	}
+	return false
+}
+
+// FireEventWith enqueues a payload-carrying observation event (user_message /
+// turn_finished) for every loaded plugin. Non-blocking: the caller returns
+// immediately and one background worker runs the handlers in order; when the
+// queue is full the event is dropped (observation is best-effort).
+func (h *Host) FireEventWith(event string, payload map[string]string) {
+	h.evOnce.Do(func() {
+		h.evQueue = make(chan firedEvent, 128)
+		go func() {
+			for ev := range h.evQueue {
+				h.mu.Lock()
+				plugins := make([]*plugin, 0, len(h.plugins))
+				for _, p := range h.plugins {
+					plugins = append(plugins, p)
+				}
+				h.mu.Unlock()
+				for _, p := range plugins {
+					p.fireWith(ev.name, ev.payload)
+				}
+			}
+		}()
+	})
+	select {
+	case h.evQueue <- firedEvent{name: event, payload: payload}:
+	default:
+		h.logf("plugin events: queue full — dropped " + event)
 	}
 }
 
