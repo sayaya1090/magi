@@ -44,6 +44,7 @@ import (
 	"github.com/sayaya1090/magi/internal/update"
 	pluginupd "github.com/sayaya1090/magi/internal/update/plugin"
 	"github.com/sayaya1090/magi/internal/version"
+	"github.com/sayaya1090/magi/plugins"
 )
 
 // ghOwner/ghRepo identify the release repository for self-update.
@@ -633,6 +634,7 @@ func run() int {
 	for _, dir := range pluginDirs(plat, wd, *pluginsDir) {
 		host.LoadDir(context.Background(), dir)
 	}
+	loadEmbeddedPlugins(host, plat, cfg)
 	// Lifecycle: run plugin startup handlers now (after load, before the first
 	// turn) — e.g. an SSO plugin authenticates here. shutdown runs on exit.
 	host.FireEvent("startup")
@@ -1374,6 +1376,39 @@ func profileModels(profiles map[string]config.LLMProfile) map[string]string {
 // without a rebuild: depth 2 = full recursion, depth 1 = top-level plan + single-level
 // delegate but no child re-planning or failure-recursion. Unset/invalid → 0, which lets the
 // app apply its default of 2. Negative values are ignored.
+// loadEmbeddedPlugins loads plugins compiled into the binary, so a binary-only
+// install (brew / install.sh) can enable them with a config switch. Each is
+// OPT-IN ([plugins.<name>] enabled = true — they may spend LLM tokens or write
+// workspace files), a user-installed plugin of the same name wins, and the
+// materialized copy under <config>/plugins-embedded/ is overwritten every start
+// so it always tracks the binary's version (updates ride magi --update).
+func loadEmbeddedPlugins(host *pluginlua.Host, plat *platform.OS, cfg config.Config) {
+	embeddedOn := func(name string) bool {
+		v, ok := cfg.Plugins[name]["enabled"]
+		b, isB := v.(bool)
+		return ok && isB && b
+	}
+	if !embeddedOn("engram") || host.Has("engram") {
+		return
+	}
+	dir := filepath.Join(plat.ConfigDir(), "plugins-embedded", "engram")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	for _, f := range []string{"plugin.toml", "init.lua"} {
+		b, err := plugins.Engram.ReadFile("engram/" + f)
+		if err != nil {
+			return
+		}
+		if err := os.WriteFile(filepath.Join(dir, f), b, 0o644); err != nil {
+			return
+		}
+	}
+	if _, err := host.Load(context.Background(), dir); err != nil {
+		fmt.Fprintln(os.Stderr, "embedded plugin engram failed to load:", err)
+	}
+}
+
 // osUsername resolves the login user for plugin runtime info ("" if unknown).
 func osUsername() string {
 	if u, err := user.Current(); err == nil && u.Username != "" {
