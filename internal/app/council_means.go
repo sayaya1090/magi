@@ -20,19 +20,20 @@ import (
 // and is recorded separately from the raw feedback so repeat-detection is unaffected.
 
 // councilMeansRound is the council round at (and after) which a means recipe is appended.
-// Round 1 gets the plain objection; only sustained deadlock (round 2+) warrants a hint, so
-// a one-round nudge that the agent would have fixed anyway is left untouched.
-const councilMeansRound = 2
+// From the FIRST rejection: bench forensics (openssl/pypi round-cost analysis, 2026-07-13)
+// showed the wasted cycle is round 1 → an untargeted rework phase → round 2 rejection for
+// the same concern; giving the recipe up front converts that into one targeted action.
+const councilMeansRound = 1
 
-// councilMeansEnabled gates Rung 1 (opt-in, default OFF): MAGI_COUNCIL_MEANS=1|on|true|yes
-// turns it on. Off by default so the council's injected feedback is byte-identical to the
-// historical behavior unless explicitly enabled (bench A/B knob, mirrors MAGI_REFINE etc.).
+// councilMeansEnabled gates Rung 1 (default ON): MAGI_COUNCIL_MEANS=off|0|false|no
+// disables it (bench A/B knob) — e.g. to reproduce the historical plain-objection
+// feedback byte-for-byte.
 func councilMeansEnabled() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_COUNCIL_MEANS"))) {
-	case "1", "on", "true", "yes":
-		return true
+	case "off", "0", "false", "no":
+		return false
 	}
-	return false
+	return true
 }
 
 // meansHint returns a concrete, task-agnostic recipe for satisfying the council's objection,

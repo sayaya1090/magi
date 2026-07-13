@@ -32,18 +32,20 @@ func TestMeansHintNoMatch(t *testing.T) {
 	}
 }
 
-// The env gate is off unless explicitly enabled, so the default council behavior is unchanged.
+// Means escalation is ON by default (round-cost reduction: the recipe rides the
+// FIRST rejection); MAGI_COUNCIL_MEANS=off is the A/B knob to reproduce the
+// historical plain-objection feedback.
 func TestCouncilMeansEnabledGate(t *testing.T) {
 	t.Setenv("MAGI_COUNCIL_MEANS", "")
-	if councilMeansEnabled() {
-		t.Fatal("means escalation must be OFF by default")
+	if !councilMeansEnabled() {
+		t.Fatal("means escalation must be ON by default")
 	}
 	t.Setenv("MAGI_COUNCIL_MEANS", "1")
 	if !councilMeansEnabled() {
-		t.Fatal("MAGI_COUNCIL_MEANS=1 should enable it")
+		t.Fatal("MAGI_COUNCIL_MEANS=1 keeps it enabled")
 	}
 	t.Setenv("MAGI_COUNCIL_MEANS", "off")
 	if councilMeansEnabled() {
-		t.Fatal("MAGI_COUNCIL_MEANS=off should keep it disabled")
+		t.Fatal("MAGI_COUNCIL_MEANS=off must disable it")
 	}
 }
