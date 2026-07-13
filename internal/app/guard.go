@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -135,6 +136,18 @@ type runGuard struct {
 	// oscillating agent (A→B→A→B…) is warned once per file, not on every swing — a repeated
 	// nudge could itself push a weak model to keep thrashing.
 	regressWarned map[string]bool
+
+	// failedStates is the tabu list: a deliverable content-signature (deliverableSigLocked over
+	// the agent's own edits this turn) maps to a short snippet of the exercise error observed at
+	// that exact state. It is populated when an EXERCISING command (a test/program run, not an
+	// inspect-only builtin) FAILS — recording "this precise set of file contents was already
+	// tried and did not work". noteEdit catches a byte-revert to ANY earlier state; the tabu list
+	// is the higher-precision complement: it fires only when an edit reproduces a state whose
+	// test is known to fail, so an agent circling back to a proven-bad approach is told so
+	// instead of re-running the same failing loop. tabuWarned makes the warning once-per-signature
+	// (a repeated nudge could itself push a weak model to keep thrashing).
+	failedStates map[uint64]string
+	tabuWarned   map[uint64]bool
 }
 
 // fileChange is one file's before/after content captured around an agent edit this turn.
@@ -150,6 +163,7 @@ func newRunGuard() *runGuard {
 		lastMut: map[string]string{}, changed: map[string]*fileChange{},
 		recalled: map[string]bool{}, contentHist: map[string][]uint64{},
 		regressWarned: map[string]bool{},
+		failedStates:  map[uint64]string{}, tabuWarned: map[uint64]bool{},
 	}
 }
 
@@ -208,6 +222,80 @@ func (g *runGuard) noteEdit(path, before, after string) (warn string, regressed 
 	g.regressWarned[path] = true
 	return "note: this edit restored a content state this file already had earlier this turn — " +
 		"if reverting your own earlier change was intentional, ignore this.", true
+}
+
+// tabuSnippetCap bounds the stored error snippet so the tabu list stays small and the
+// warning fed back to the model is a hint, not a re-dump of the whole failure.
+const tabuSnippetCap = 200
+
+// deliverableSigLocked returns a 64-bit signature over the CURRENT net contents of every
+// file the agent has edited this turn (path + hashContent(after), in stable path order). It
+// identifies "the deliverable in exactly this state" independent of the path order edits
+// arrived in. 0 when the agent has authored nothing yet (no state to tabu). Caller holds g.mu.
+func (g *runGuard) deliverableSigLocked() uint64 {
+	if len(g.changeOrder) == 0 {
+		return 0
+	}
+	paths := append([]string(nil), g.changeOrder...)
+	sort.Strings(paths)
+	h := fnv.New64a()
+	for _, p := range paths {
+		_, _ = h.Write([]byte(p))
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write([]byte(strconv.FormatUint(hashContent(g.changed[p].after), 16)))
+		_, _ = h.Write([]byte{0})
+	}
+	return h.Sum64()
+}
+
+// noteExerciseFail records the CURRENT deliverable state as tabu after an exercising command
+// (a test/program run — not an inspect-only builtin) failed against it, keyed by the state's
+// content-signature with a short snippet of what failed. Idempotent per signature (the first
+// failure's snippet is kept). A no-op when the command was inspect-only or the agent has not
+// authored a deliverable yet. errText is the failing tool's result content.
+func (g *runGuard) noteExerciseFail(cmd, errText string) {
+	if isInspectOnly(cmd) {
+		return // inspecting state is not exercising the deliverable → not a tabu-worthy failure
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	sig := g.deliverableSigLocked()
+	if sig == 0 {
+		return
+	}
+	if _, seen := g.failedStates[sig]; seen {
+		return
+	}
+	snip := strings.TrimSpace(errText)
+	if len(snip) > tabuSnippetCap {
+		snip = snip[:tabuSnippetCap] + "…"
+	}
+	snip = strings.ReplaceAll(snip, "\n", " ")
+	g.failedStates[sig] = snip
+}
+
+// checkTabu reports whether the deliverable's CURRENT state (after the latest edit) matches a
+// state whose exercise already failed this turn — i.e. the agent has circled back to a
+// proven-bad approach. Returns a one-shot advisory (once per signature) citing the prior
+// failure, or "" when the state is new, clean, or already warned. Advisory only: it never
+// blocks the edit.
+func (g *runGuard) checkTabu() string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	sig := g.deliverableSigLocked()
+	if sig == 0 || g.tabuWarned[sig] {
+		return ""
+	}
+	snip, bad := g.failedStates[sig]
+	if !bad {
+		return ""
+	}
+	g.tabuWarned[sig] = true
+	w := "note: this edit reproduces a deliverable state whose test already failed earlier this turn"
+	if snip != "" {
+		w += " (prior failure: " + snip + ")"
+	}
+	return w + " — that approach is on the tabu list; try a different fix, not this one again."
 }
 
 // recallBudget caps re-hydrations per turn (distinct topics bypass the identical-call

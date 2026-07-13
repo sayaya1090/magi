@@ -307,6 +307,18 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 				guard.noteBashExec(ba.Command, guardNovel) // ran a program → execution evidence (independent of any redirect)
 			}
 		}
+		// A FAILED exercising command tabus the deliverable's current state: "this exact set
+		// of file contents was tried and its test failed", so a later edit that circles back
+		// to it is flagged (see checkTabu). Inspect-only failures (a bad `ls`/`grep`) are not
+		// deliverable evidence and are skipped inside noteExerciseFail.
+		if res.IsError && tc.Name == "bash" {
+			var ba struct {
+				Command string `json:"command"`
+			}
+			if json.Unmarshal(tc.Args, &ba) == nil {
+				guard.noteExerciseFail(ba.Command, string(res.Content))
+			}
+		}
 		// Completion-banner spin: count consecutive pure no-op banners (echo/printf/true/:) an
 		// agent spams to keep the turn alive after declaring done; ANY real action resets it. It
 		// runs here for every call that reached guard bookkeeping, INCLUDING an IsError bash — a
@@ -344,6 +356,11 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 			if regressed && mutatedReset {
 				guard.retractProgress()
 			}
+		}
+		// Tabu check: this edit may have returned the deliverable to a state whose test already
+		// failed this turn (a proven-bad approach the agent is circling back to). Advisory only.
+		if tabu := guard.checkTabu(); tabu != "" {
+			res.Content = appendToContent(res.Content, "\n\n[tabu] "+tabu)
 		}
 	}
 
