@@ -29,6 +29,11 @@ func (OS) Exec(ctx context.Context, c port.Cmd) (port.ExecResult, error) {
 	if len(c.Stdin) > 0 {
 		cmd.Stdin = strings.NewReader(string(c.Stdin))
 	}
+	// Detach the controlling terminal so an interactive command (e.g. `!ssh host`
+	// prompting for a password) can't open /dev/tty and seize the TUI's terminal,
+	// which corrupts the display. stdin stays /dev/null when unset, so tty-less
+	// prompts fail fast rather than hang. No-op on Windows.
+	detach(cmd)
 	stdout := &capWriter{limit: c.MaxOutput}
 	stderr := &capWriter{limit: c.MaxOutput}
 	cmd.Stdout = stdout
