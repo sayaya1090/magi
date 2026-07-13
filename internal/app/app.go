@@ -99,6 +99,8 @@ type sessionState struct {
 	estSteps        int             // planner's advisory step estimate this turn
 	interjectSeen   map[string]bool // interjection MessageIDs detected this turn (masked from turnTask/council)
 	awaitExplorers  bool            // planner dispatched read-only explorers as this turn's primary work
+	replanLedger    string          // parent guard's attempt-ledger digest, stashed at a replan so re-dispatched explorers see the turn's dead-ends
+	ledgerDigest    string          // this session's own dead-end digest at its last runLoop exit, read by the parent when bubbling a finished child's ledger up
 	autoOrchestrate bool            // whether auto-orchestration has been triggered this session
 }
 
@@ -344,6 +346,7 @@ func (a *App) resetForNewTopLevel(sid session.SessionID) {
 	}
 	st.interjectSeen = keep
 	st.awaitExplorers = false // the async-explorer wait is per-turn; the next turn starts clean
+	st.replanLedger = ""      // dead-end digest is turn-scoped; a fresh top-level turn starts clean
 	a.mu.Unlock()
 }
 
@@ -365,6 +368,47 @@ func (a *App) awaitingExplorers(sid session.SessionID) bool {
 		return st.awaitExplorers
 	}
 	return false
+}
+
+// setReplanLedger stashes the parent guard's dead-end digest at a replan boundary so the
+// re-dispatched explorers (which run without the parent guard in scope) can be handed the
+// approaches already burned this turn. Cleared per top-level turn.
+func (a *App) setReplanLedger(sid session.SessionID, digest string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.stateLocked(sid).replanLedger = digest
+}
+
+// replanLedgerFor returns the dead-end digest stashed for this turn (empty on a first plan),
+// read by the explorer dispatch paths to prime read-only subagents against known dead-ends.
+func (a *App) replanLedgerFor(sid session.SessionID) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if st, ok := a.stateIf(sid); ok {
+		return st.replanLedger
+	}
+	return ""
+}
+
+// setLedgerDigest records a session's own dead-end digest as its runLoop exits. A leaf
+// subagent never convenes a council, so its ledger would otherwise die at the boundary;
+// stashing it lets the parent surface the child's burned approaches (bubbleSubagentLedger).
+func (a *App) setLedgerDigest(sid session.SessionID, digest string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.stateLocked(sid).ledgerDigest = digest
+}
+
+// ledgerDigestFor returns a (child) session's stashed dead-end digest, empty when it recorded
+// none. Read by the parent at the subagent boundary to fold the child's dead-ends into its
+// own context.
+func (a *App) ledgerDigestFor(sid session.SessionID) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if st, ok := a.stateIf(sid); ok {
+		return st.ledgerDigest
+	}
+	return ""
 }
 
 // Submit appends the user's prompt and starts the agent loop asynchronously.

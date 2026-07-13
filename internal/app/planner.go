@@ -306,7 +306,7 @@ func (a *App) dispatchExplorerSteps(ctx context.Context, s session.Session, goal
 			// bounds the whole spawn (restarts included) like the sync path's explorerTimeout —
 			// without it a churning explorer holds the parked parent for its full restart budget.
 			a.dispatch(ctx, s, depth, port.SpawnRequest{
-				Agent: g.Agent, Prompt: explorerPrompt(fanGoal, g), Timeout: explorerTimeout,
+				Agent: g.Agent, Prompt: explorerPrompt(fanGoal, g, a.replanLedgerFor(s.ID)), Timeout: explorerTimeout,
 			})
 			dispatched++
 		}
@@ -882,8 +882,29 @@ func (a *App) registerPlanTodos(ctx context.Context, sid session.SessionID, step
 // plannerActor attributes the planner's todo writes (seed + per-step check-off).
 var plannerActor = event.Actor{Kind: event.ActorAgent, ID: plannerAgent}
 
-// capGroups trims a parallel step's groups to the remaining per-turn budget.
+// normFocus coarsely normalizes an explorer's focus/item into a dedup key (lowercased,
+// whitespace-collapsed) so near-identical fan-out targets — the model emitting "the parser"
+// and "the Parser " as two groups — collapse to one investigation instead of two explorers
+// chasing the same thing. Mirrors attemptSig's coarse-collision intent.
+func normFocus(s string) string {
+	return strings.ToLower(strings.Join(strings.Fields(s), " "))
+}
+
+// capGroups drops near-duplicate groups (same normalized focus) and trims what remains to the
+// per-turn budget. Deduping before the trim keeps a distinct target from being crowded out of
+// the budget by a repeat of one already in the list.
 func capGroups(groups []planGroup, budget *int) []planGroup {
+	seen := make(map[string]bool, len(groups))
+	deduped := groups[:0]
+	for _, g := range groups {
+		k := normFocus(g.Focus)
+		if k != "" && seen[k] {
+			continue
+		}
+		seen[k] = true
+		deduped = append(deduped, g)
+	}
+	groups = deduped
 	if len(groups) > *budget {
 		groups = groups[:*budget]
 	}
@@ -988,6 +1009,7 @@ func keepScoutItem(workdir, item string) bool {
 // line, stripping numbering/bullets/fences and blank or prose-like lines.
 func parseList(text string) []string {
 	var out []string
+	seen := map[string]bool{}
 	for _, ln := range strings.Split(text, "\n") {
 		ln = strings.TrimSpace(ln)
 		if ln == "" || strings.HasPrefix(ln, "```") {
@@ -997,6 +1019,14 @@ func parseList(text string) []string {
 		ln = strings.TrimSpace(ln)
 		if ln == "" || len(ln) > 200 {
 			continue
+		}
+		// Fold near-duplicate items so the scout doesn't fan two explorers at the same
+		// target (the model often lists "config.go" and "Config.go", or repeats a line).
+		if k := normFocus(ln); k != "" {
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
 		}
 		// A work-item is a short token/path/name. A MULTI-WORD line is prose, not an
 		// item, when it is long OR ends in sentence/heading punctuation — i.e. a header
@@ -1027,7 +1057,7 @@ func (a *App) runExplorers(ctx context.Context, s session.Session, groups []plan
 		wg.Add(1)
 		go func(i int, g planGroup) {
 			defer wg.Done()
-			prompt := explorerPrompt(goal, g)
+			prompt := explorerPrompt(goal, g, a.replanLedgerFor(s.ID))
 			// Bound each read-only explorer well under the 5m subagent cap: a focused
 			// investigation is quick, and one explorer chasing a bad target must not stall
 			// the whole step (runExplorers waits for all) for the full SubagentTimeout.

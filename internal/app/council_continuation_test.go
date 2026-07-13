@@ -11,7 +11,7 @@ import (
 func TestContinuationTextReanchorsObjectiveAndAudits(t *testing.T) {
 	task := "implement get_val(key) returning the stored value verbatim"
 	fb := "the value is not returned for missing keys"
-	got := continuationText(fb, task)
+	got := continuationText(fb, task, "")
 
 	// The round's feedback is present.
 	if !strings.Contains(got, fb) {
@@ -39,11 +39,24 @@ func TestContinuationTextReanchorsObjectiveAndAudits(t *testing.T) {
 // An empty objective must not emit an empty "Original objective:" stub — the re-anchor
 // block is skipped entirely, but the audit still rides.
 func TestContinuationTextSkipsEmptyObjective(t *testing.T) {
-	got := continuationText("do X", "   ")
+	got := continuationText("do X", "   ", "")
 	if strings.Contains(got, "Original objective") {
 		t.Errorf("no objective block should appear for a blank task; got:\n%s", got)
 	}
 	if !strings.Contains(got, "Completion audit") {
 		t.Errorf("audit must still ride when the objective is blank; got:\n%s", got)
+	}
+}
+
+// When the attempt ledger is non-empty, the CONTINUE injection lists the dead-ends and tells
+// the agent to diverge; an empty ledger adds nothing.
+func TestContinuationTextInjectsTriedLedger(t *testing.T) {
+	got := continuationText("do X", "task", "- fail grep foo → no match")
+	if !strings.Contains(got, "do NOT repeat") || !strings.Contains(got, "grep foo") {
+		t.Errorf("continuation must inject the tried-ledger digest; got:\n%s", got)
+	}
+	clean := continuationText("do X", "task", "")
+	if strings.Contains(clean, "do NOT repeat") {
+		t.Errorf("no tried block should appear for an empty ledger; got:\n%s", clean)
 	}
 }

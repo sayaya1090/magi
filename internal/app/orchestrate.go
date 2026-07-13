@@ -329,6 +329,16 @@ func (a *App) injectSubagentResult(ctx context.Context, parent session.SessionID
 		}
 		text = fmt.Sprintf("[subagent %s result]\n%s", agentName, body)
 	}
+	// Fold the child's dead-ends into the parent's context so the orchestrator builds on the
+	// approaches the subagent already burned instead of re-issuing them itself (or fanning a
+	// fresh explorer at the same target). A leaf never convenes a council, so this injected
+	// note is the only channel its ledger has across the boundary. Skipped for cancelled
+	// children (the cancel notice already carries their action manifest).
+	if !cancelled {
+		if tried := a.ledgerDigestFor(res.SessionID); tried != "" {
+			text += "\n\n" + agentName + " already tried these (dead-ends — do NOT re-issue them; take a different approach):\n" + tried
+		}
+	}
 	// Tell the orchestrator what's still pending so it waits for the rest (rather
 	// than re-dispatching) and knows when it can synthesize. Self is still counted
 	// here (decremented after injection), so subtract it.

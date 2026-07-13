@@ -292,6 +292,7 @@ type councilInput struct {
 	fabrication string        // structural unverified-deliverable signal, "" when none
 	stepsLeft   int           // remaining step budget, surfaced to members
 	turnElapsed time.Duration // the turn's own wall clock, for the cost-efficiency cap
+	tried       string        // attempt-ledger digest (dead-ends this turn) re-injected on CONTINUE so the next round diverges; "" when none
 }
 
 // councilTurn is the per-turn accounting the consensus gate carries ACROSS rounds:
@@ -476,11 +477,15 @@ const councilCompletionAudit = "\n\nCompletion audit — treat 'done' as UNPROVE
 // continuationText assembles the prompt injected when the council votes CONTINUE:
 // the round's feedback, then a verbatim re-anchor of the objective (so the agent
 // cannot lose the exact spec over a long turn), then the completion-audit rubric.
-func continuationText(inject, task string) string {
+func continuationText(inject, task, tried string) string {
 	var b strings.Builder
 	b.WriteString("Council review (not user input) — the task is not yet done:\n")
 	b.WriteString(inject)
 	b.WriteString(councilKeepWork)
+	if t := strings.TrimSpace(tried); t != "" {
+		b.WriteString("\n\nYou already tried these this turn and they did NOT work — do NOT repeat them; take a DIFFERENT approach:\n")
+		b.WriteString(t)
+	}
 	if t := strings.TrimSpace(task); t != "" {
 		b.WriteString("\n\nOriginal objective (verbatim — pursue this exact end state, do not narrow or paraphrase it):\n")
 		b.WriteString(clipLine(t, councilDiffCap))
@@ -906,7 +911,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	ct.prevVerdicts = merged
 	pd, _ := json.Marshal(event.PromptSubmittedData{
 		MessageID: "m_" + newID(),
-		Parts:     []session.Part{{Kind: session.PartText, Text: continuationText(inject, task)}},
+		Parts:     []session.Part{{Kind: session.PartText, Text: continuationText(inject, task, in.tried)}},
 	})
 	a.appendFact(ctx, sid, event.TypePromptSubmitted, councilActor, pd)
 	return true, ""

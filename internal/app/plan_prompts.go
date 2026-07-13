@@ -224,10 +224,16 @@ func redecomposePrompt(st planStep, brief string) string {
 // explorerPrompt builds the read-only investigation prompt for one explorer group, optionally
 // prefixed with the overall goal for orientation. Shared by the synchronous (runExplorers) and
 // background (dispatchExplorerSteps) fan-out paths so both send an identical prompt.
-func explorerPrompt(goal string, g planGroup) string {
+func explorerPrompt(goal string, g planGroup, tried string) string {
 	prompt := fmt.Sprintf("Investigate (read-only): %s\n\n%s", g.Focus, g.Question)
 	if og := strings.TrimSpace(goal); og != "" {
 		prompt = "Overall goal (context for your investigation): " + clipLine(og, 400) + "\n\n" + prompt
+	}
+	// On a re-plan the parent has already burned some approaches; hand the explorer those
+	// dead-ends so it builds on them instead of repeating the same empty searches. Advisory
+	// only — empty on a first plan, so the prompt is unchanged on a clean run.
+	if t := strings.TrimSpace(tried); t != "" {
+		prompt += "\n\nAlready attempted (dead-ends — build on these, do NOT repeat them):\n" + t
 	}
 	return prompt
 }
