@@ -481,12 +481,14 @@ capabilities = ["tool"]
 permissions = ["fs:read:."]
 ```
 
-**Embedded plugins.** The binary ships the **engram** self-improvement plugin (auto lesson/skill capture — see `plugins/engram/README.md`). It is **opt-in** (it spends sidecar LLM tokens and writes knowledge files into the workspace):
+**Embedded plugins.** The binary ships the **engram** self-improvement plugin (auto lesson/skill capture — see `plugins/engram/README.md`). It is **on by default**; disable it (it spends sidecar LLM tokens and writes knowledge files into the workspace) with:
 
 ```toml
 [plugins.engram]
-enabled = true
+enabled = false
 ```
+
+`MAGI_EMBEDDED_PLUGINS=off` disables ALL embedded plugins regardless of config — use it for automation/bench runs whose measured behavior must not shift.
 
 An enabled embedded plugin is materialized under `<config>/plugins-embedded/` at every start, so it always tracks the binary's version — updates ride `magi --update`, no separate plugin update. A same-named plugin in the regular plugin dirs takes precedence (fork it there to customize). **Forks bundling their own plugins** edit one file: `plugins/embedded.go` (add the plugin dir, a `//go:embed all:<name>` var, and an `Embedded` map entry — subdirectories ship too).
 

@@ -465,12 +465,14 @@ capabilities = ["tool"]
 permissions = ["fs:read:."]
 ```
 
-**내장(embedded) 플러그인.** 바이너리에는 **engram** 자기개선 플러그인(교훈/스킬 자동 캡처 — `plugins/engram/README.md`)이 실려 있다. 사이드카 LLM 토큰을 쓰고 워크스페이스에 지식 파일을 만들므로 **옵트인**이다:
+**내장(embedded) 플러그인.** 바이너리에는 **engram** 자기개선 플러그인(교훈/스킬 자동 캡처 — `plugins/engram/README.md`)이 실려 있다. **기본 켜짐**이며, 사이드카 LLM 토큰 소비·워크스페이스 지식 파일 생성이 부담이면 끈다:
 
 ```toml
 [plugins.engram]
-enabled = true
+enabled = false
 ```
+
+`MAGI_EMBEDDED_PLUGINS=off`는 설정과 무관하게 내장 플러그인 전부를 끈다 — 측정 행동이 흔들리면 안 되는 자동화/벤치 런용.
 
 켜진 내장 플러그인은 매 시작 시 `<config>/plugins-embedded/`에 풀리므로 항상 바이너리 버전을 따른다 — 업데이트는 `magi --update`에 실려 오고 별도 플러그인 업데이트가 필요 없다. 일반 플러그인 디렉토리에 같은 이름이 있으면 그쪽이 우선한다(커스터마이즈는 그리로 포크). **포크가 자체 플러그인을 번들**하려면 `plugins/embedded.go` 한 파일만 수정하면 된다(플러그인 디렉토리 추가 + `//go:embed all:<name>` 변수 + `Embedded` 맵 등록 — 하위 디렉토리도 함께 실린다).
 
