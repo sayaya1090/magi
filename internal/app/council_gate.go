@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -19,8 +20,13 @@ import (
 const (
 	councilDiffCap    = 6000
 	councilSignalCap  = 2000
-	councilActionsCap = 8   // most recent turn outputs (model text + tool results) shown to the council
-	councilActionCap  = 400 // per-item byte cap
+	councilActionsCap = 8    // most recent turn outputs (model text + tool results) shown to the council
+	councilActionCap  = 4000 // per-item byte cap — 400 was far too tight: it clipped a file/output mid-content
+	// (e.g. a `cat script.py` whose bug was past byte 400), so the council could see a wrong
+	// RESULT but not the CAUSE, and its feedback stayed symptom-level round after round. Kept in
+	// the same ballpark as councilDiffCap so a whole small file/output is visible, not a fragment.
+	maxSubagentsShown  = 6 // most recent this-turn subagents whose evidence is surfaced to the council
+	subagentActionsCap = 6 // most recent tool results per subagent shown to the council
 )
 
 // concernPremiseKey is the stable ledger Key for the N14 unverified-premise concern. It
@@ -364,6 +370,72 @@ func deltaToolEvidence(evs []event.Event, k int) string {
 	return "- " + strings.Join(lines, "\n- ")
 }
 
+// lastUserPromptTS returns the timestamp of the most recent GENUINE user prompt in evs
+// (the turn boundary). Injected subagent results and escalations are ActorAgent prompts,
+// so they are skipped — only an ActorUser prompt starts a top-level turn. Zero when none.
+func lastUserPromptTS(evs []event.Event) time.Time {
+	for i := len(evs) - 1; i >= 0; i-- {
+		e := evs[i]
+		if e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser {
+			return e.TS
+		}
+	}
+	return time.Time{}
+}
+
+// subagentTurnEvidence renders the tool evidence of the subagents this orchestrator (parent)
+// dispatched DURING THE CURRENT TURN. A delegating orchestrator runs few or no tools itself
+// and injects each subagent's result as a prose PROMPT — which turnToolEvidence both excludes
+// (it is model text, not a tool result) and treats as a turn boundary (it resets the window).
+// So without this the council judges delegated work on the orchestrator's synthesis alone,
+// blind to what the subagents actually did. This restores the raw child tool evidence, labeled
+// per subagent, so the council sees the real actions. Scoped by creation time to the current
+// turn (children from a prior turn linger in a.states and must not leak in). Best-effort: an
+// unreadable child is skipped, never an error.
+func (a *App) subagentTurnEvidence(ctx context.Context, parent session.SessionID, parentEvs []event.Event) string {
+	turnStart := lastUserPromptTS(parentEvs)
+	a.mu.Lock()
+	var kids []session.Session
+	for _, st := range a.states {
+		s := st.meta
+		if s.Parent != parent {
+			continue
+		}
+		if !turnStart.IsZero() && s.Created.Before(turnStart) {
+			continue // a child from a previous turn of this session
+		}
+		kids = append(kids, s)
+	}
+	a.mu.Unlock()
+	if len(kids) == 0 {
+		return ""
+	}
+	sort.Slice(kids, func(i, j int) bool {
+		if !kids[i].Created.Equal(kids[j].Created) {
+			return kids[i].Created.Before(kids[j].Created)
+		}
+		return kids[i].ID < kids[j].ID
+	})
+	if len(kids) > maxSubagentsShown { // keep the most recent wave when many were dispatched
+		kids = kids[len(kids)-maxSubagentsShown:]
+	}
+	var blocks []string
+	for _, k := range kids {
+		cevs, err := a.store.Read(ctx, k.ID, 0)
+		if err != nil {
+			continue
+		}
+		if m := turnToolEvidence(cevs, subagentActionsCap); m != "" {
+			label := k.Agent
+			if label == "" {
+				label = "subagent"
+			}
+			blocks = append(blocks, "subagent "+label+":\n"+m)
+		}
+	}
+	return strings.Join(blocks, "\n")
+}
+
 // runCouncilGate runs the consensus termination gate (D14) at top level. It
 // returns true when the council voted to CONTINUE — it has injected the
 // aggregated feedback as a system prompt, so the caller should loop again. It
@@ -665,6 +737,17 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 					actions = d
 				}
 			}
+		}
+	}
+
+	// Delegated work lives in child sessions the council's own evidence scan cannot see.
+	// Fold in this turn's subagent tool evidence so a delegating orchestrator is judged on
+	// what its subagents actually did, not just on its synthesis of them.
+	if sub := a.subagentTurnEvidence(ctx, sid, evs); sub != "" {
+		if actions == "" {
+			actions = sub
+		} else {
+			actions = actions + "\n" + sub
 		}
 	}
 
