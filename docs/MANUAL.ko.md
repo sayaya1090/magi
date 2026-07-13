@@ -446,7 +446,7 @@ primary = "#B45309"
 
 ## 8. 스킬
 
-`<config>/skills/*.md` 또는 `<workdir>/.magi/skills/*.md` (첫 줄=설명, 이하=본문), 그리고 **skill-creator 규격** `<workdir>/.claude/skills/<slug>/SKILL.md`(frontmatter `description`=트리거) — Claude Code/OpenCode 도구와 번들 engram 플러그인이 만드는 형식을 변환 없이 읽는다. 스킬 목록은 소스 디렉토리 변경(mtime) 시 갱신되므로, engram이 세션 중 저장한 스킬도 재시작 없이 다음 턴부터 쓸 수 있다.
+`<config>/skills/*.md` 또는 `<workdir>/.magi/skills/*.md` (첫 줄=설명, 이하=본문), 그리고 **skill-creator 규격** `<workdir>/.claude/skills/<slug>/SKILL.md`(frontmatter `description`=트리거) — 표준 skill-creator 규격으로, Claude Code 도구와 번들 engram 플러그인이 만드는 형식을 변환 없이 읽는다. 스킬 목록은 소스 디렉토리 변경(mtime) 시 갱신되므로, engram이 세션 중 저장한 스킬도 재시작 없이 다음 턴부터 쓸 수 있다.
 시스템 프롬프트에 목록이 노출되고, 모델이 `skill` 툴로 본문을 로드해 따른다.
 
 ## 9. 플러그인 (Lua)
