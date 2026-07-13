@@ -3,7 +3,9 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 // loadSkills reads the skill-creator layout (.claude/skills/<slug>/SKILL.md,
@@ -65,6 +67,53 @@ func TestLoadSkillsCreatorLayoutAndInvalidation(t *testing.T) {
 	// And an unchanged tree serves from cache (same slice contents, no error).
 	if got := len(a.loadSkills(wd)); got != 3 {
 		t.Fatalf("cache path broke: got %d", got)
+	}
+}
+
+// A skill-creator skill's bundled resources (scripts/, references/) surface in
+// the body as a manifest with the absolute dir, so relative references in the
+// instructions are resolvable; a SKILL.md-only skill gets no manifest. And an
+// in-place SKILL.md edit invalidates the cache.
+func TestLoadSkillsBundledResourcesAndEditInvalidation(t *testing.T) {
+	wd := t.TempDir()
+	a := &App{}
+	sc := filepath.Join(wd, ".claude", "skills", "pdf_tools")
+	if err := os.MkdirAll(filepath.Join(sc, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sc, "SKILL.md"),
+		[]byte("---\nname: pdf_tools\ndescription: \"pdf 처리\"\n---\nrun scripts/extract.py"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sc, "scripts", "extract.py"), []byte("print()"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sc, "reference.md"), []byte("ref"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	body, ok := a.skillBody(wd, "pdf_tools")
+	if !ok {
+		t.Fatal("skill not loaded")
+	}
+	for _, want := range []string{"Bundled skill resources", sc, "scripts/extract.py", "reference.md"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("manifest missing %q in body:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "- SKILL.md") {
+		t.Error("SKILL.md itself must not be listed as a resource")
+	}
+
+	// In-place SKILL.md edit → next load sees the new content (file-mtime in the signature).
+	time.Sleep(10 * time.Millisecond) // ensure a distinct mtime on coarse filesystems
+	if err := os.WriteFile(filepath.Join(sc, "SKILL.md"),
+		[]byte("---\nname: pdf_tools\ndescription: \"pdf 처리 v2\"\n---\nnew body"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body2, _ := a.skillBody(wd, "pdf_tools")
+	if !strings.Contains(body2, "new body") {
+		t.Errorf("edited SKILL.md not picked up:\n%s", body2)
 	}
 }
 

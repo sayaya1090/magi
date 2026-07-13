@@ -85,6 +85,14 @@ func (a *App) loadSkills(workdir string) []port.Skill {
 				continue
 			}
 			seen[e.Name()] = true
+			// A skill-creator skill may bundle auxiliary files (scripts/,
+			// references/, assets/) that SKILL.md references by relative path.
+			// The body alone strands those references — the model has no idea
+			// where the skill lives — so append a resource manifest with the
+			// absolute skill dir and its file list.
+			if manifest := skillResources(filepath.Join(claudeDir, e.Name())); manifest != "" {
+				text += "\n\n" + manifest
+			}
 			skills = append(skills, port.Skill{
 				Name:        e.Name(),
 				Description: frontmatterDescription(text),
@@ -118,12 +126,55 @@ func dirSignature(dirs []string) string {
 						if sfi, err := os.Stat(filepath.Join(d, e.Name())); err == nil {
 							fmt.Fprintf(&b, "%s=%d;", e.Name(), sfi.ModTime().UnixNano())
 						}
+						// An in-place SKILL.md edit bumps the FILE's mtime, not its
+						// directory's — stat it too so edits invalidate the cache.
+						if mfi, err := os.Stat(filepath.Join(d, e.Name(), "SKILL.md")); err == nil {
+							fmt.Fprintf(&b, "m%d;", mfi.ModTime().UnixNano())
+						}
 					}
 				}
 			}
 		}
 	}
 	return b.String()
+}
+
+// skillResources renders a skill directory's bundled files (everything except
+// SKILL.md itself) as a manifest the model can act on: the absolute base dir
+// plus relative paths, so "run scripts/setup.py" style references in the body
+// resolve via the read/bash tools. Bounded, and empty for a SKILL.md-only skill.
+func skillResources(dir string) string {
+	const maxEntries = 50
+	var files []string
+	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil //nolint:nilerr // unreadable entries are simply omitted
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil || rel == "SKILL.md" {
+			return nil
+		}
+		files = append(files, filepath.ToSlash(rel))
+		return nil
+	})
+	if len(files) == 0 {
+		return ""
+	}
+	sort.Strings(files)
+	truncated := false
+	if len(files) > maxEntries {
+		files, truncated = files[:maxEntries], true
+	}
+	var b strings.Builder
+	b.WriteString("## Bundled skill resources\n")
+	b.WriteString("This skill ships auxiliary files under `" + dir + "` — when the instructions above reference a relative path, resolve it against that directory (read/run with the usual tools):\n")
+	for _, f := range files {
+		b.WriteString("- " + f + "\n")
+	}
+	if truncated {
+		b.WriteString("- … (more files omitted; list the directory for the rest)\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // frontmatterDescription extracts `description:` from a leading YAML frontmatter
