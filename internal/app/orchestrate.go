@@ -649,9 +649,9 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 			// and a spent backstop skips the judge entirely — no verdict can add
 			// time that doesn't exist. The child keeps running while the judge
 			// deliberates; a kill verdict cancels it exactly like the old hard cap.
-			ext := time.Duration(0)
+			ext, verdictNote := time.Duration(0), "backstop spent"
 			if backstop > time.Since(attemptStart) {
-				ext = a.judgeLease(ctx, parent, child, req.Prompt, time.Since(attemptStart))
+				ext, verdictNote = a.judgeLease(ctx, parent, child, req.Prompt, time.Since(attemptStart))
 			}
 			// Clamp AFTER the judge call: the verdict can take up to judgeCallTimeout,
 			// and the extension clock only starts at the Reset below, so a pre-call
@@ -673,11 +673,18 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 					return port.SpawnResult{Text: o.text, SessionID: child.ID}, false
 				default:
 				}
+				// Transparency: WHY the lease ended (v11 forensics had kills with no
+				// visible reason — undiagnosable from the run alone).
+				kd, _ := json.Marshal(event.AgentStatusData{
+					AgentID: string(child.ID), Parent: string(parent.ID), Role: spec.Name,
+					State: "lease expired (" + verdictNote + ")",
+				})
+				a.publishTransient(parent.ID, event.TypeAgentStatus, actor, kd)
 				capExpired = true
 				cancel()
 				<-done
 				announceDone()
-				return port.SpawnResult{Err: "subagent lease expired", SessionID: child.ID}, true
+				return port.SpawnResult{Err: "subagent lease expired (" + verdictNote + ")", SessionID: child.ID}, true
 			}
 			ld, _ := json.Marshal(event.AgentStatusData{
 				AgentID: string(child.ID), Parent: string(parent.ID), Role: spec.Name,

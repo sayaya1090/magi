@@ -59,15 +59,17 @@ func (a *App) leaseExtension() time.Duration {
 }
 
 // judgeLease decides whether the child, having exhausted its current lease,
-// gets an extension. Returns the extension to grant (0 = kill). elapsed is the
-// attempt's age; the caller enforces the backstop clamp on the returned value.
-func (a *App) judgeLease(ctx context.Context, parent session.Session, child session.Session, task string, elapsed time.Duration) time.Duration {
+// gets an extension. Returns the extension to grant (0 = kill) and a short note
+// explaining the verdict (for the supervisor's transparency event — v11 bench
+// forensics had kills with no visible WHY). elapsed is the attempt's age; the
+// caller enforces the backstop clamp on the returned value.
+func (a *App) judgeLease(ctx context.Context, parent session.Session, child session.Session, task string, elapsed time.Duration) (time.Duration, string) {
 	if !subagentJudgeEnabled() {
-		return 0
+		return 0, "judging disabled"
 	}
 	evs, err := a.store.Read(ctx, child.ID, 0)
 	if err != nil {
-		return 0 // no evidence to judge by → fail safe to the deterministic kill
+		return 0, "no evidence readable: " + err.Error() // fail safe to the deterministic kill
 	}
 	digest := childToolDigest(evs, judgeDigestCalls)
 	if digest == "" {
@@ -99,7 +101,7 @@ func (a *App) judgeLease(ctx context.Context, parent session.Session, child sess
 		},
 	})
 	if err != nil {
-		return 0
+		return 0, "judge call failed: " + err.Error()
 	}
 	var reply strings.Builder
 	for ev := range stream {
@@ -107,13 +109,17 @@ func (a *App) judgeLease(ctx context.Context, parent session.Session, child sess
 			reply.WriteString(ev.Text)
 		}
 	}
-	verdict := strings.ToUpper(reply.String())
+	raw := strings.TrimSpace(reply.String())
+	verdict := strings.ToUpper(raw)
 	// Fail safe: only an unambiguous EXTEND extends; KILL, both words, garbage,
 	// or an empty (timed-out) reply all keep the deterministic kill.
 	if strings.Contains(verdict, "EXTEND") && !strings.Contains(verdict, "KILL") {
-		return a.leaseExtension()
+		return a.leaseExtension(), "judge: EXTEND"
 	}
-	return 0
+	if raw == "" {
+		return 0, "judge: empty reply (timeout?)"
+	}
+	return 0, "judge: " + clipLine(raw, 120)
 }
 
 // childToolDigest renders the child's last k tool CALLS (name + clipped args,
