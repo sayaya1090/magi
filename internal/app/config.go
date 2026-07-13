@@ -97,6 +97,10 @@ type TurnObservation struct {
 	Outcome      string
 	Reason       string
 	SkillsLoaded []string
+	// UserLabel is the session's display name for the user (magi.set_user_label,
+	// e.g. an SSO plugin) — "" when unset. Lets an observer attribute captured
+	// knowledge to the actual person.
+	UserLabel string
 }
 
 type TurnObserver interface {

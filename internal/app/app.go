@@ -442,6 +442,25 @@ func (a *App) taskEvents(sid session.SessionID, evs []event.Event) []event.Event
 	return filterDeferredEvents(evs, a.interjectSeenIDs(sid))
 }
 
+// PluginNote appends a system note from a plugin to the session transcript —
+// the plugin host's magi.notify. It uses the established system-actor prompt
+// pattern (council/planner notes), so it renders as a ⟳ note, never counts as
+// an unanswered user prompt, and the model sees it next turn (an "engram saved
+// skill X — reply N to undo" notice is actionable precisely because the model
+// and the user both see it).
+func (a *App) PluginNote(sessionID, text string) {
+	text = strings.TrimSpace(text)
+	if sessionID == "" || text == "" {
+		return
+	}
+	pd, _ := json.Marshal(event.PromptSubmittedData{
+		MessageID: "m_" + newID(),
+		Parts:     []session.Part{{Kind: session.PartText, Text: text}},
+	})
+	_ = a.appendFact(context.Background(), session.SessionID(sessionID), event.TypePromptSubmitted,
+		event.Actor{Kind: event.ActorSystem, ID: "plugin"}, pd)
+}
+
 // observeTurnFinished surfaces a completed top-level turn to observer plugins:
 // the final assistant text is what a lesson-extraction observer analyzes. Fired
 // after run() returns whatever way the turn ended. Only assistant text NEWER
@@ -466,6 +485,7 @@ func (a *App) observeTurnFinished(ctx context.Context, sid session.SessionID) {
 	a.mu.Lock()
 	seen := a.stateLocked(sid).observedEvents
 	a.stateLocked(sid).observedEvents = len(evs)
+	userLabel := a.stateLocked(sid).userLabel
 	a.mu.Unlock()
 	if seen > len(evs) {
 		seen = 0 // defensive: store shrank (should not happen)
@@ -540,7 +560,8 @@ func (a *App) observeTurnFinished(ctx context.Context, sid session.SessionID) {
 		outcome, reason = "error", reasonError
 	}
 	a.cfg.Observer.TurnFinished(string(sid), TurnObservation{
-		FinalText: finalText, Outcome: outcome, Reason: reason, SkillsLoaded: skillsLoaded,
+		FinalText: finalText, Outcome: outcome, Reason: reason,
+		SkillsLoaded: skillsLoaded, UserLabel: userLabel,
 	})
 }
 
