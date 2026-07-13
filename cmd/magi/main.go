@@ -558,6 +558,7 @@ func run() int {
 	// events before bind() (there are none: the first turn starts after plugin
 	// load) are dropped harmlessly.
 	obs := &pluginObserver{}
+	experienceStore := explayered.New(expProjectDir, expDir)
 
 	a := app.New(store, llm, reg, bus.New(), plat, app.Config{
 		Model:               session.ModelRef{Provider: "openai", Model: modelID},
@@ -570,7 +571,7 @@ func run() int {
 		Deny:                cfg.Deny,
 		AllowDomains:        cfg.AllowDomains,
 		Agents:              agents,
-		Experience:          explayered.New(expProjectDir, expDir),
+		Experience:          experienceStore,
 		Hooks:               toAppHooks(cfg.Hooks),
 		Harness:             !*noHarness,
 		Workflow:            *workflow,
@@ -617,6 +618,7 @@ func run() int {
 		DataDir:       plat.ConfigDir(),
 		Prompter:      promptFunc(tui.RunPrompt),
 		Analyzer:      sidecarAnalyzer{llm: llm, defaultModel: modelID},
+		Experience:    experienceStore,
 		Runtime: pluginlua.RuntimeInfo{
 			Model:    modelID,
 			Platform: runtime.GOOS,
@@ -1155,7 +1157,7 @@ func defaultAgents() map[string]app.AgentSpec {
 	// read-only search + ask(escalate)/report(deliver) + pure-Go aggregation (tabulate/
 	// countmatches/countlines/groupby) so a read-only agent can REDUCE data — sum a
 	// column, count matches, tally groups — without a shell.
-	ro := []string{"read", "grep", "glob", "list", "findcontext", "astgrep", "tabulate", "countmatches", "countlines", "groupby", "ask", "report"}
+	ro := []string{"read", "grep", "glob", "list", "findcontext", "astgrep", "tabulate", "countmatches", "countlines", "groupby", "skill", "ask", "report"}
 	// aggHint steers read-only agents to the aggregation tools for quantitative
 	// questions instead of re-reading a large file to add up a column by hand (the
 	// coverage-% thrash that made explorers delegate arithmetic back to the parent).
@@ -1182,13 +1184,13 @@ func defaultAgents() map[string]app.AgentSpec {
 			Name: "architect",
 			System: "You are a planning specialist. Produce a concrete step-by-step implementation plan (files to change, approach, risks) " +
 				"using read/grep/glob/list and the todowrite tool. Do not modify code.",
-			Tools: []string{"read", "grep", "glob", "list", "todowrite", "ask", "report"},
+			Tools: []string{"read", "grep", "glob", "list", "todowrite", "skill", "ask", "report"},
 		},
 		"coder": {
 			Name: "coder",
 			System: "You are a coding agent. Implement the requested change: LOCALIZE first with findcontext/astgrep/grep, then edit. " +
 				"Make the smallest correct change, verify it, and summarize what you did.",
-			Tools: []string{"read", "write", "edit", "multiedit", "grep", "glob", "list", "findcontext", "astgrep", "tabulate", "countmatches", "countlines", "groupby", "bash", "ask", "report"},
+			Tools: []string{"read", "write", "edit", "multiedit", "grep", "glob", "list", "findcontext", "astgrep", "tabulate", "countmatches", "countlines", "groupby", "bash", "skill", "ask", "report"},
 		},
 		"reviewer": {
 			Name:   "reviewer",
@@ -1199,7 +1201,7 @@ func defaultAgents() map[string]app.AgentSpec {
 			Name: "tester",
 			System: "You are a verification specialist. Run builds and tests with bash, use lsp_diagnostics for LSP errors, " +
 				"and report pass/fail with concise failure details. Do not modify source files.",
-			Tools: []string{"read", "grep", "glob", "list", "bash", "lsp_diagnostics", "tabulate", "countmatches", "countlines", "groupby", "ask", "report"},
+			Tools: []string{"read", "grep", "glob", "list", "bash", "lsp_diagnostics", "tabulate", "countmatches", "countlines", "groupby", "skill", "ask", "report"},
 		},
 		// planner is the pre-flight procedure planner (not delegated to via task): the
 		// app calls it once per top-level turn to decompose the request into an ordered
@@ -1398,13 +1400,15 @@ func (o *pluginObserver) UserMessage(sid, text string) {
 	}
 }
 
-func (o *pluginObserver) TurnFinished(sid, finalText, outcome, reason string) {
+func (o *pluginObserver) TurnFinished(sid string, ob app.TurnObservation) {
 	if h := o.host.Load(); h != nil {
 		if os.Getenv("MAGI_DEBUG") != "" {
-			fmt.Fprintf(os.Stderr, "[observer] turn_finished sid=%s outcome=%s len=%d\n", sid, outcome, len(finalText))
+			fmt.Fprintf(os.Stderr, "[observer] turn_finished sid=%s outcome=%s skills=%v len=%d\n",
+				sid, ob.Outcome, ob.SkillsLoaded, len(ob.FinalText))
 		}
 		h.FireEventWith("turn_finished", map[string]string{
-			"session": sid, "text": finalText, "outcome": outcome, "reason": reason,
+			"session": sid, "text": ob.FinalText, "outcome": ob.Outcome, "reason": ob.Reason,
+			"skills": strings.Join(ob.SkillsLoaded, ","),
 		})
 	}
 }
