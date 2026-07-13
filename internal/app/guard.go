@@ -148,6 +148,26 @@ type runGuard struct {
 	// (a repeated nudge could itself push a weak model to keep thrashing).
 	failedStates map[uint64]string
 	tabuWarned   map[uint64]bool
+
+	// attempts is the attempt ledger: a normalized action signature (attemptSig) maps to a
+	// record of a DEAD-END the agent hit this turn — a command that failed, or a search that
+	// came back empty. Unlike failedStates (keyed on deliverable file-content, so it only
+	// catches circling back to a proven-bad file state), the ledger records EXPLORATION
+	// dead-ends and near-duplicate actions (the coarse signature makes "similar" collide). Its
+	// only reader is triedDigest, whose output is injected — advisory only — at re-exploration
+	// boundaries (council-continue re-anchor, no-progress nudge, explorer briefs) so the next
+	// attempt is told what already failed and to diverge. It never blocks an action. Empty on a
+	// clean run ⇒ triedDigest returns "" ⇒ no behavioral change.
+	attempts     map[string]attemptRec
+	attemptOrder []string // first-seen order, for stable digest rendering
+}
+
+// attemptRec is one dead-end in the attempt ledger: what was tried and how it came up short.
+type attemptRec struct {
+	kind    string // "fail" (command errored) | "empty" (search found nothing) | "rejected" (council turned down this conclusion)
+	target  string // the normalized thing tried (a command's tool+primary arg, a search query)
+	outcome string // a short clip of the failure/why, "" for a bare empty result
+	count   int    // times this signature recurred (idempotent per signature)
 }
 
 // fileChange is one file's before/after content captured around an agent edit this turn.
@@ -164,6 +184,7 @@ func newRunGuard() *runGuard {
 		recalled: map[string]bool{}, contentHist: map[string][]uint64{},
 		regressWarned: map[string]bool{},
 		failedStates:  map[uint64]string{}, tabuWarned: map[uint64]bool{},
+		attempts: map[string]attemptRec{},
 	}
 }
 
@@ -296,6 +317,146 @@ func (g *runGuard) checkTabu() string {
 		w += " (prior failure: " + snip + ")"
 	}
 	return w + " — that approach is on the tabu list; try a different fix, not this one again."
+}
+
+// attemptSig normalizes an action into a coarse signature so that near-duplicate attempts
+// collide on one ledger entry (the point is to notice "you already tried this KIND of thing",
+// not to demand a byte-identical repeat). For bash it keeps the leading verb plus the first
+// path-ish/subcommand token and drops the rest (flags, redirects, quoting); for a search tool
+// it is the tool name plus its query. The result is lowercased and whitespace-collapsed.
+func attemptSig(toolName, cmdOrQuery string) string {
+	s := strings.ToLower(strings.TrimSpace(cmdOrQuery))
+	if toolName != "" && toolName != "bash" {
+		return toolName + " " + strings.Join(strings.Fields(s), " ")
+	}
+	// bash: verb + first token that looks like a subcommand/target (not a flag/redirect).
+	fields := strings.Fields(s)
+	if len(fields) == 0 {
+		return "bash"
+	}
+	sig := fields[0]
+	for _, f := range fields[1:] {
+		if strings.HasPrefix(f, "-") || f == "|" || f == "&&" || f == ";" || strings.ContainsAny(f, "|<>") {
+			continue
+		}
+		sig += " " + f
+		break
+	}
+	return sig
+}
+
+// ledgerSearchTools are the read/search tools whose EMPTY result is a meaningful dead-end
+// (the agent looked and found nothing) worth recording in the attempt ledger, so a later
+// re-exploration doesn't re-run the same fruitless search.
+var ledgerSearchTools = map[string]bool{
+	"grep": true, "findcontext": true, "astgrep": true, "glob": true, "list": true, "countmatches": true,
+}
+
+// attemptTarget extracts a display target for the attempt ledger from a tool call: the bash
+// command, or the first meaningful string argument (pattern/query/path/name/…) of a structured
+// tool. Best-effort — returns "" when nothing usable is found (then the call is not ledgered).
+func attemptTarget(name string, raw json.RawMessage) string {
+	if name == "bash" {
+		var ba struct {
+			Command string `json:"command"`
+		}
+		if json.Unmarshal(raw, &ba) == nil {
+			return strings.TrimSpace(ba.Command)
+		}
+		return ""
+	}
+	var m map[string]any
+	if json.Unmarshal(raw, &m) != nil {
+		return ""
+	}
+	for _, k := range []string{"pattern", "query", "q", "path", "name", "file", "dir", "topic"} {
+		if s, ok := m[k].(string); ok && strings.TrimSpace(s) != "" {
+			return strings.TrimSpace(s)
+		}
+	}
+	return ""
+}
+
+// isNoMatchResult reports whether a search tool's result content signals "found nothing" —
+// an empty body or a common no-match marker. Conservative: unsure ⇒ false (don't ledger),
+// since a false "empty" is noise and the ledger is advisory.
+func isNoMatchResult(content string) bool {
+	c := strings.ToLower(strings.TrimSpace(content))
+	if c == "" {
+		return true
+	}
+	for _, marker := range []string{"no matches", "no match found", "not found", "0 matches", "no results", "no files found"} {
+		if strings.Contains(c, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// noteAttempt records a dead-end under its normalized signature, idempotent per signature
+// (a recurrence bumps count rather than adding a line). outcome is clipped and single-lined,
+// mirroring noteExerciseFail's snippet handling. A blank sig is ignored.
+func (g *runGuard) noteAttempt(kind, sig, target, outcome string) {
+	sig = strings.TrimSpace(sig)
+	if sig == "" {
+		return
+	}
+	snip := strings.ReplaceAll(strings.TrimSpace(outcome), "\n", " ")
+	if len(snip) > tabuSnippetCap {
+		snip = snip[:tabuSnippetCap] + "…"
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if rec, ok := g.attempts[sig]; ok {
+		rec.count++
+		if rec.outcome == "" && snip != "" {
+			rec.outcome = snip // fill in a reason if the first sighting had none
+		}
+		g.attempts[sig] = rec
+		return
+	}
+	g.attempts[sig] = attemptRec{kind: kind, target: strings.TrimSpace(target), outcome: snip, count: 1}
+	g.attemptOrder = append(g.attemptOrder, sig)
+}
+
+// triedDigest renders up to maxN of the most recent dead-ends as compact advisory lines
+// ("- <kind> <target> → <outcome>"), newest last. Returns "" when the ledger is empty, so
+// callers inject nothing on a clean run. Read-only; safe to call from any injection site.
+func (g *runGuard) triedDigest(maxN int) string {
+	if maxN <= 0 {
+		return ""
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	n := len(g.attemptOrder)
+	if n == 0 {
+		return ""
+	}
+	start := 0
+	if n > maxN {
+		start = n - maxN
+	}
+	var b strings.Builder
+	for _, sig := range g.attemptOrder[start:] {
+		rec := g.attempts[sig]
+		tgt := rec.target
+		if tgt == "" {
+			tgt = sig
+		}
+		b.WriteString("- ")
+		b.WriteString(rec.kind)
+		b.WriteString(" ")
+		b.WriteString(tgt)
+		if rec.outcome != "" {
+			b.WriteString(" → ")
+			b.WriteString(rec.outcome)
+		}
+		if rec.count > 1 {
+			b.WriteString(fmt.Sprintf(" (×%d)", rec.count))
+		}
+		b.WriteString("\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // recallBudget caps re-hydrations per turn (distinct topics bypass the identical-call

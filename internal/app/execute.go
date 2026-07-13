@@ -335,6 +335,21 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 			}
 		}
 		guard.noteSpin(tc.Name, spinCmd)
+
+		// Attempt ledger: record DEAD-ENDS — a failed action, or a search that came back empty —
+		// under a coarse normalized signature so a later re-exploration is told what already did
+		// not work and to diverge (triedDigest is injected at the council-continue re-anchor, the
+		// no-progress nudge, and explorer briefs). Advisory only; never blocks. A successful,
+		// informative result is NOT recorded, so a clean run leaves the ledger empty.
+		if tgt := attemptTarget(tc.Name, tc.Args); tgt != "" {
+			sig := attemptSig(tc.Name, tgt)
+			switch {
+			case res.IsError:
+				guard.noteAttempt("fail", sig, clipLine(tgt, 120), string(res.Content))
+			case ledgerSearchTools[tc.Name] && isNoMatchResult(string(res.Content)):
+				guard.noteAttempt("empty", sig, clipLine(tgt, 120), "")
+			}
+		}
 	}
 	// Record the agent's before→after change for the council. Gate on the tool's own success
 	// (toolOK), NOT res.IsError — a write that landed but failed gofmt/a hook is exactly the
