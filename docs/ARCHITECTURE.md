@@ -330,7 +330,12 @@ mode) does NOT finish immediately: it convenes a **council** that votes done-vs-
   finish unless affirmatively satisfied). Member fan-out is `adapter/council/llm` over an
   `LLMProvider`; a member that errors or returns unparseable output abstains.
 - On **continue**, the aggregated feedback is injected as a `prompt.submitted`
-  (reusing the Stop-hook injection path) and the loop runs again. On **done** (or the
+  (reusing the Stop-hook injection path) and the loop runs again. The injection
+  (`continuationText`) re-anchors the **verbatim objective** — so a long turn can't
+  lose the exact spec to a paraphrase — followed by a short **completion-audit rubric**
+  (`councilCompletionAudit`: treat "done" as UNPROVEN until the current state shows it,
+  uncertain ⇒ not done), which re-grounds a weak model resuming after a continue vote
+  on the letter of the task. On **done** (or the
   safety stops below) the turn finishes.
 - Safety so the gate can't trap the loop: `CouncilMaxRounds` cap (default 3), a
   no-progress guard (empty/repeated feedback finishes), a **cost-efficiency cap**
@@ -547,13 +552,27 @@ rust-analyzer, clangd), degrading gracefully when a server is absent. `websearch
 uses DuckDuckGo by default, or Brave/Tavily when `BRAVE_API_KEY`/`TAVILY_API_KEY` is set.
 
 Notes: file tools are jailed to the workdir (`pathutil.go:resolvePath`); `read`
-recovers imprecise paths by basename; `edit` matches exact → line-ending-normalized
-→ trailing-whitespace-tolerant (leading indentation never guessed); `findcontext`
-ranks by symbol definition + path + content coverage; `astgrep` is structural
-(AST) search via the external `ast-grep` CLI (shells out, no CGO) and degrades to
-a "use grep/findcontext" message when the binary is absent; `lsp_diagnostics` runs
-gopls check for LSP diagnostics (type errors, unused vars) and degrades to a "use
-go build/test" suggestion when gopls is not installed.
+recovers imprecise paths by basename and renders each line as `N#hh|content` — the
+1-based line number, a 2-char content hash of that line, then the text — so a later
+edit can address a line by hash. `edit` takes **either** a text match (`old`/`new`:
+exact → line-ending-normalized → trailing-whitespace-tolerant, leading indentation
+never guessed, plus a salvage tier that strips pasted `N#hh|` read prefixes before
+retrying) **or** an **anchor** (`at:"N#hh"`, optional `to:` for a line range): the
+anchor recomputes the hash from the *current* file content and rejects a stale or
+mismatched reference — a deterministic guard against editing a line that has since
+moved or changed underneath a stale read. `write`/`edit`/`multiedit` additionally
+append a **non-blocking advisory** when freshly added comments read like
+change-narration ("// I've updated the loop …") or placeholders/elisions
+("// rest of the code unchanged", "// …") — comments should capture non-obvious
+intent, not narrate the diff; the edit still applies. `findcontext` ranks by symbol
+definition + path + content coverage; `astgrep` is structural (AST) search via the
+external `ast-grep` CLI (shells out, no CGO) and degrades to a "use grep/findcontext"
+message when the binary is absent; `lsp_diagnostics` reports LSP diagnostics (type
+errors, unused/undefined symbols, …) for a file in **any supported language** — Go
+through the gopls CLI, every other language (Python, Rust, TypeScript/JS, C/C++, and
+the long tail `serverFor` knows) by opening the file in its language server and
+reading the pushed `textDocument/publishDiagnostics` — errors and warnings only,
+degrading to a "build/run the project" suggestion when no server is installed.
 
 **Add a tool**: implement `port.Tool`, register it in `builtin.Default()` (or via a
 plugin/MCP). For role-scoped tools, `toolSpecs` filters `ask`/`report` to subagents
