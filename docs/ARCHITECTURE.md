@@ -178,6 +178,14 @@ in `loop.go` calls into them each step):
   implement↔revert oscillation keeps climbing toward a stall stop instead of resetting it
   every swing (without this, a model that writes a stub, reverts it, and re-tries forever
   never trips any guard and burns the whole budget).
+  **Tabu list** (`failedStates`/`checkTabu`): the higher-precision complement to the
+  self-revert check. When a command that *exercises* the deliverable fails (`noteExerciseFail`,
+  gated by the same `isInspectOnly` verb set as the execution-evidence signal), the whole
+  authored file set's content signature (`deliverableSigLocked` over `changeSet` after-states)
+  is recorded with a snippet of the failure. A later edit whose signature matches a recorded
+  failing state gets a one-shot advisory citing that failure — so an agent circling back to a
+  proven-bad state is told so, where the self-revert check only knows a state *repeated*, not
+  that it was known to fail. Advisory, once per signature, never a block.
   After the stall nudges are exhausted, one further ignored window force-stops the run as
   `stall_guard` — the backstop that keeps an unresponsive agent from wandering to the
   (240-step default) ceiling. **Stalled-nudge convergence** (`stallConverge`,
