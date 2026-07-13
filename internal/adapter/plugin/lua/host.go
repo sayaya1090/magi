@@ -196,6 +196,15 @@ func (h *Host) HasEventHandlers(event string) bool {
 	return false
 }
 
+// Has reports whether a plugin with the given name is loaded — lets the caller
+// skip an embedded fallback when a user-installed plugin of the same name won.
+func (h *Host) Has(name string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	_, ok := h.plugins[name]
+	return ok
+}
+
 // FireEventWith enqueues a payload-carrying observation event (user_message /
 // turn_finished) for every loaded plugin. Non-blocking: the caller returns
 // immediately and one background worker runs the handlers in order; when the

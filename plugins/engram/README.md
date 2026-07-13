@@ -44,7 +44,14 @@ OpenCode 어댑터는 사용자 발화 키워드("됐다/실패")로 성패를 *
 
 ## 설치 / 설정
 
-이 디렉토리는 magi 저장소에 번들돼 있다. 사용하려면 플러그인 경로로 링크:
+**바이너리에 내장돼 있다** — 설치 없이 config 한 줄로 켠다(옵트인):
+
+```toml
+[plugins.engram]
+enabled = true
+```
+
+업데이트는 `magi --update`(바이너리)에 실려 온다. 커스터마이즈하려면 이 디렉토리를 일반 플러그인 경로로 복사/링크하면 그쪽이 우선한다:
 
 ```bash
 ln -s "<magi-repo>/plugins/engram" ~/.config/magi/plugins/engram   # 또는 <워크스페이스>/.magi/plugins/
