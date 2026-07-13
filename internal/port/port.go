@@ -124,6 +124,16 @@ type DeliberationRequest struct {
 	Changes string           // this turn's file edits, reconstructed from the agent's write/edit tools (optional)
 	Members []council.Member // who votes (defaults to the MAGI when empty)
 	Rule    council.Rule     // how votes are tallied (defaults to majority)
+	// Focused re-round (round ≥2 cost reduction): DeltaRound marks a deliberation
+	// where only the previously-dissenting members are re-polled. CarriedDone are
+	// the prior round's done votes, folded back in before the rule is applied —
+	// a satisfied member is not asked to re-review the whole turn. PriorConcern
+	// maps a re-polled member to the concern it raised last round, so it judges
+	// whether the DELTA (Actions holds only what happened since the rejection)
+	// resolves ITS objection instead of re-auditing from scratch.
+	DeltaRound   bool
+	CarriedDone  []council.Verdict
+	PriorConcern map[string]string
 	// DefaultModel is used for members that don't pin their own Model (typically
 	// the session's current model, so the council follows model switches).
 	DefaultModel string

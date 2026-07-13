@@ -57,6 +57,11 @@ func (c *Council) Deliberate(ctx context.Context, req port.DeliberationRequest) 
 	}
 	wg.Wait()
 
+	// Focused re-round: fold the prior round's done votes back in before the rule
+	// runs, so the tally still spans the full council even though only the
+	// dissenting members were re-polled.
+	verdicts = append(verdicts, req.CarriedDone...)
+
 	d := council.Deliberate(req.Round, verdicts, rule)
 	if req.Phase == "plan" {
 		// Plan audit: synthesize the members' proposed completion criteria into the
@@ -143,10 +148,22 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 		v.Rationale = "no council backend resolved for provider " + m.Provider
 		return v
 	}
+	user := evidence(req)
+	if req.DeltaRound {
+		if concern := strings.TrimSpace(req.PriorConcern[m.Name]); concern != "" {
+			// Focused re-round: the member re-judges ITS OWN standing objection
+			// against the delta, instead of re-auditing the whole turn (which is
+			// both slower and how fresh nitpicks appear round after round).
+			user += "\n\n# Focused re-round\nYou previously voted continue with this concern:\n" + concern +
+				"\n\nThe Actions section above contains ONLY what the agent did since that rejection (the delta). " +
+				"Judge whether the delta resolves YOUR concern: vote done if it does; if not, state precisely " +
+				"what is still missing — do not raise new, unrelated objections."
+		}
+	}
 	stream, err := provider.StreamChat(ctx, port.ChatRequest{
 		Model:    model,
 		System:   memberSystem(m, req.Phase, req.Task),
-		Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: evidence(req)}}}},
+		Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: user}}}},
 		Params:   map[string]any{"temperature": 0.0},
 	})
 	if err != nil {
