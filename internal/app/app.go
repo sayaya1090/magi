@@ -477,6 +477,8 @@ func (a *App) observeTurnFinished(ctx context.Context, sid session.SessionID) {
 	// landing is authoritative over a council vote earlier in the turn, and a
 	// council-approved finish outranks a transient error it recovered from.
 	var finalText string
+	var skillsLoaded []string
+	skillSeen := map[string]bool{}
 	sawVerified, sawUnverified, sawGuard, sawError := false, false, false, false
 	reasonUnverified, reasonGuard, reasonError := "", "", ""
 	for _, e := range evs[seen:] {
@@ -489,6 +491,16 @@ func (a *App) observeTurnFinished(ctx context.Context, sid session.SessionID) {
 			if d.Role == session.RoleAssistant && d.Part.Kind == session.PartText {
 				if t := strings.TrimSpace(d.Part.Text); t != "" {
 					finalText = t
+				}
+			}
+			// Skill loads this turn (usage metering for observers).
+			if d.Part.Kind == session.PartToolCall && d.Part.ToolCall != nil && d.Part.ToolCall.Name == "skill" {
+				var sa struct {
+					Name string `json:"name"`
+				}
+				if json.Unmarshal(d.Part.ToolCall.Args, &sa) == nil && sa.Name != "" && !skillSeen[sa.Name] {
+					skillSeen[sa.Name] = true
+					skillsLoaded = append(skillsLoaded, sa.Name)
 				}
 			}
 		case event.TypeTurnFinished:
@@ -527,7 +539,9 @@ func (a *App) observeTurnFinished(ctx context.Context, sid session.SessionID) {
 	case sawError:
 		outcome, reason = "error", reasonError
 	}
-	a.cfg.Observer.TurnFinished(string(sid), finalText, outcome, reason)
+	a.cfg.Observer.TurnFinished(string(sid), TurnObservation{
+		FinalText: finalText, Outcome: outcome, Reason: reason, SkillsLoaded: skillsLoaded,
+	})
 }
 
 // startRun launches the agent loop for a session unless one is already running

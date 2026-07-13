@@ -89,10 +89,19 @@ func (s AgentSpec) allows(tool string) bool {
 //	error      — the turn ended on an error event
 //	done       — plain finish with no council verdict either way (e.g. conversational turn)
 //
-// reason carries the unverified reason / guard code / error message ("" otherwise).
+// Reason carries the unverified reason / guard code / error message ("" otherwise).
+// SkillsLoaded lists skills the agent loaded (the skill tool) during the turn, so
+// an observer can meter which skills actually get used and with what outcome.
+type TurnObservation struct {
+	FinalText    string
+	Outcome      string
+	Reason       string
+	SkillsLoaded []string
+}
+
 type TurnObserver interface {
 	UserMessage(sessionID, text string)
-	TurnFinished(sessionID, finalText, outcome, reason string)
+	TurnFinished(sessionID string, o TurnObservation)
 }
 
 type Config struct {

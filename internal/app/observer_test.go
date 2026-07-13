@@ -25,11 +25,11 @@ func (r *recordingObserver) UserMessage(sid, text string) {
 	r.users = append(r.users, text)
 }
 
-func (r *recordingObserver) TurnFinished(sid, finalText, outcome, reason string) {
+func (r *recordingObserver) TurnFinished(sid string, o TurnObservation) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.finishes = append(r.finishes, finalText)
-	r.outcomes = append(r.outcomes, outcome)
+	r.finishes = append(r.finishes, o.FinalText)
+	r.outcomes = append(r.outcomes, o.Outcome)
 }
 
 func (r *recordingObserver) snapshot() (users, finishes []string) {
