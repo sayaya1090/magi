@@ -45,9 +45,10 @@ type App struct {
 	lastActivity sync.Map // session.SessionID -> time.Time (liveness for the sidecar health check)
 	toolsRunning sync.Map // session.SessionID -> *atomic.Int64 (tools in flight; suppresses the stall watchdog)
 
-	memMu      sync.Mutex
-	memCache   map[string]string       // workdir -> durable AGENTS.md memory
-	skillCache map[string][]port.Skill // workdir -> loaded skills
+	memMu         sync.Mutex
+	memCache      map[string]string       // workdir -> durable AGENTS.md memory
+	skillCache    map[string][]port.Skill // workdir -> loaded skills
+	skillCacheSig map[string]string       // workdir -> source-dir mtime signature (invalidates skillCache)
 
 	permPolicy string  // runtime-adjustable permission policy (guarded by mu)
 	policy     *Policy // guardrail rules engine (deny floor, allow rules, bash scan)
