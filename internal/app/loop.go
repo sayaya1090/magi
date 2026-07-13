@@ -227,6 +227,19 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	// same path, so a big task splits recursively (heterogeneous: each node picks solo/
 	// parallel/scout/delegate). Read-only explorers/verifiers and workflow mode are gated
 	// out. Injects findings before the agent runs; degrades to solo on any failure.
+	// Per-turn contract reset at the TURN's start, not only at Submit: a turn can
+	// also begin via Steer-after-finish, the run goroutine's exit-window re-run, or
+	// a resurfaced queued interjection — none of which pass through Submit. Without
+	// this, such a turn inherits the PREVIOUS task's todos/criteria, and the
+	// council, planner, and nudges keep citing the old request as the live contract
+	// ("the user asked to commit" haunting every later turn). It must run BEFORE
+	// the planner preflight — the reset clears awaitExplorers, which the planner's
+	// async fan-out is about to set for THIS turn. seedWork marks a caller that
+	// already staged this turn's work (dispatched explorers, set the park) before
+	// entering the loop — resetting would wipe that staging, so skip it.
+	if depth == 0 && !a.cfg.Workflow && !seedWork {
+		a.resetForNewTopLevel(sid)
+	}
 	if a.planEligible(agent, depth) {
 		planned, _ := a.maybePlanPreflight(ctx, s, depth, maxSteps, "")
 		if planned {

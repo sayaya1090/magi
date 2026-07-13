@@ -55,6 +55,8 @@ type App struct {
 
 	probingWindows map[string]struct{} // models whose context window is being (or was) lazily probed (guarded by mu)
 
+	pendingUserLabel string // user label set before any session existed (SSO startup login); applied at CreateSession (guarded by mu)
+
 	llmLat llmLatencies // recent LLM round-trip durations per model (elastic subagent cap input)
 
 	states map[session.SessionID]*sessionState // per-session state, consolidating the maps above (guarded by mu); migrated group-by-group
@@ -303,6 +305,11 @@ func (a *App) CreateSession(ctx context.Context, c command.CreateSession) (sessi
 	}
 	a.mu.Lock()
 	a.stateLocked(sid).meta = s
+	// A user label set before any session existed (an SSO plugin's startup login)
+	// was latched — apply it so the identity rides every session from turn one.
+	if a.pendingUserLabel != "" {
+		a.stateLocked(sid).userLabel = a.pendingUserLabel
+	}
 	a.mu.Unlock()
 
 	data, _ := json.Marshal(event.SessionCreatedData{Workdir: c.Workdir, Agent: c.Agent, Model: model})
@@ -322,9 +329,20 @@ func (a *App) resetForNewTopLevel(sid session.SessionID) {
 	a.SetTodos(sid, nil) // takes a.mu itself
 	a.mu.Lock()
 	st := a.stateLocked(sid)
-	st.criteria = ""          // drop cached criteria; re-elicited at the next gate (D15)
-	st.estSteps = 0           // …and the previous task's advisory step estimate
-	st.interjectSeen = nil    // this turn's interjection mask set — the next turn starts clean
+	st.criteria = "" // drop cached criteria; re-elicited at the next gate (D15)
+	st.estSteps = 0  // …and the previous task's advisory step estimate
+	// Reset the interjection mask, but KEEP masking anything still WAITING in the
+	// queue: a queued interjection's original PromptSubmitted must stay hidden
+	// until it runs as its own turn — dropping its mask here would leak it into
+	// the new turn's context and double-answer it.
+	var keep map[string]bool
+	for _, it := range st.pendingInterject {
+		if keep == nil {
+			keep = map[string]bool{}
+		}
+		keep[it.MsgID] = true
+	}
+	st.interjectSeen = keep
 	st.awaitExplorers = false // the async-explorer wait is per-turn; the next turn starts clean
 	a.mu.Unlock()
 }
