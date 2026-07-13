@@ -35,6 +35,8 @@ func installBridge(p *plugin) {
 	L.SetField(t, "analyze", L.NewFunction(p.bridgeAnalyze))
 	L.SetField(t, "json_decode", L.NewFunction(p.bridgeJSONDecode))
 	L.SetField(t, "propose_experience", L.NewFunction(p.bridgeProposeExperience))
+	L.SetField(t, "notify", L.NewFunction(p.bridgeNotify))
+	L.SetField(t, "remove_file", L.NewFunction(p.bridgeRemoveFile))
 	L.SetField(t, "ask", L.NewFunction(p.bridgeAsk))
 	L.SetField(t, "log", L.NewFunction(p.bridgeLog))
 	L.SetField(t, "read_file", L.NewFunction(p.bridgeReadFile))
@@ -713,6 +715,44 @@ func (p *plugin) bridgeProposeExperience(L *lua.LState) int {
 	defer cancel()
 	if err := p.host.experience.Propose(ctx, c); err != nil {
 		return fail(L, "propose_experience: "+err.Error())
+	}
+	L.Push(lua.LTrue)
+	return 1
+}
+
+// magi.notify(session, text) → true (or nil, err). Appends a system note to the
+// session transcript (rendered as a ⟳ note; the model sees it next turn) — the
+// active-notification channel for observer plugins ("skill saved — reply N to
+// undo"). Capability "notify": it injects text into the conversation.
+func (p *plugin) bridgeNotify(L *lua.LState) int {
+	p.requireCap(L, "notify")
+	if p.host == nil || p.host.notify == nil {
+		return fail(L, "notify: no notification channel available")
+	}
+	sid, text := L.CheckString(1), L.CheckString(2)
+	if strings.TrimSpace(sid) == "" || strings.TrimSpace(text) == "" {
+		return fail(L, "notify: session and text are required")
+	}
+	p.host.notify(sid, text)
+	L.Push(lua.LTrue)
+	return 1
+}
+
+// magi.remove_file(rel) → true (or nil, err). Deletes a file or directory
+// (recursively) inside the workdir — the undo half of a plugin that writes
+// artifacts (e.g. engram retracting a just-saved skill). Same fs:write grant
+// and workdir confinement as write_file.
+func (p *plugin) bridgeRemoveFile(L *lua.LState) int {
+	rel := L.CheckString(1)
+	abs, ok := p.resolve(rel)
+	if !ok {
+		return failPath(L, rel)
+	}
+	if !p.perms.allowFSWrite(rel) {
+		return fail(L, "permission denied: fs:write "+rel)
+	}
+	if err := os.RemoveAll(abs); err != nil {
+		return fail(L, err.Error())
 	}
 	L.Push(lua.LTrue)
 	return 1
