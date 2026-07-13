@@ -223,8 +223,12 @@ func memberSystem(m council.Member, phase, task string) string {
 			"but the ABSENCE of a diff or signal is NEVER a reason to continue. "+
 			"When the TASK names EXACT identifiers (a field/message/function name, a path, a format, a port, a literal "+
 			"string), check the DIFF/artifacts use them VERBATIM: a normalized identifier (the task says `value`, the "+
-			"code says `val`) is a CONCRETE defect — vote continue and name the exact mismatch — even when the "+
-			"implementation is internally self-consistent and the agent's own tests pass. Many turns (investigation, reading, "+
+			"code says `val`) is a CONCRETE defect — vote continue and QUOTE the task's exact wording next to the "+
+			"code's, so the fix direction is unambiguous — even when the implementation is internally self-consistent "+
+			"and the agent's own tests pass. The TASK TEXT is the ONLY reference for names: NEVER derive the \"right\" "+
+			"name from consistency with other fields or code conventions — a task may deliberately mix names (e.g. a "+
+			"request field `value` but a response field `val`), and demanding uniformity the task did not ask for is a "+
+			"FALSE defect that corrupts correct work. If you did not find the name in the task text, do not flag it. Many turns (investigation, reading, "+
 			"answering, analysis) legitimately produce no diff; demanding one is exactly the reflexive churn to avoid.\n"+
 			"Choose exactly one vote:\n"+
 			"- \"done\": through your lens, the report reasonably satisfies the task. Judge it on its merits — if there is "+
@@ -359,7 +363,8 @@ func planMemberSystem(m council.Member, lens string) string {
 			"concrete done-conditions used to judge the FINISHED work later (e.g. a file/output that must exist, a check "+
 			"that must pass). When the task NAMES exact identifiers — field/message/function names, paths, formats, "+
 			"ports, literal strings — quote them VERBATIM in a criterion (a grader checks them literally; a normalized "+
-			"name like value→val fails even when self-consistent). Each criterion MUST be ACHIEVABLE and PROPORTIONATE to the task's size: for an analysis, "+
+			"name like value→val fails even when self-consistent). Only names the task itself states — never invent "+
+			"a uniformity it did not ask for. Each criterion MUST be ACHIEVABLE and PROPORTIONATE to the task's size: for an analysis, "+
 			"survey, or investigation over a LARGE set (many files/items), do NOT write a done-condition that demands "+
 			"EXHAUSTIVE enumeration of every item or atom-level precision (\"list ALL N files with EXACT line numbers\") "+
 			"— that is impractical and will be enforced as an impossible contract. Phrase such a criterion as the QUALITY "+
