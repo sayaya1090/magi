@@ -326,15 +326,14 @@ func (a *App) recordRefineSuccess(ctx context.Context, sid session.SessionID, st
 // than blindly re-running); false when no executor is available or the child also failed, so
 // the caller falls through to its existing force-stop/finish.
 func (a *App) redecomposeStuck(ctx context.Context, s session.Session, agent AgentSpec, task, blockReason string, depth int) bool {
-	// Re-spawn the same write-capable agent (planEligible guarantees it produces files),
-	// mirroring runDelegateStep's same-executor retry; fall back to any delegatable agent.
-	name, ok := a.delegateAgentName(agent.Name)
+	// Pick a write-capable executor for the re-plan, preferring the stuck agent itself
+	// (same-executor retry, mirroring runDelegateStep). recoveryExecutor is intentionally NOT
+	// gated by DisableDelegate: this is an emergency lifeline, not normal delegation, so it
+	// stays available under the delegate=off default where the stall/deadlock/idle-resubmit
+	// recovery would otherwise be dead.
+	name, ok := a.recoveryExecutor(agent.Name)
 	if !ok {
-		names := a.delegatableAgents()
-		if len(names) == 0 {
-			return false // no valid executor → cannot recover, let the caller stop
-		}
-		name = names[0]
+		return false // no write-capable executor → cannot recover, let the caller stop
 	}
 	r := a.spawn(ctx, s, depth, port.SpawnRequest{Agent: name, Prompt: stuckRedecomposePrompt(task, blockReason)})
 	if r.Err != "" || strings.TrimSpace(r.Text) == "" {

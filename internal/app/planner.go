@@ -132,6 +132,38 @@ func (a *App) delegateAgentName(name string) (string, bool) {
 	return name, true
 }
 
+// recoveryExecutor picks a write-capable agent to carry a stuck-recovery re-plan
+// (redecomposeStuck). Unlike delegateAgentName/delegatableAgents it is DELIBERATELY NOT
+// gated by DisableDelegate: turning delegation off shapes NORMAL planning (it keeps the
+// winning solo path — the planner never fans work out to write sub-agents), but a solo
+// agent that has thrashed or deadlocked still needs a lifeline. Without one, delegate=off
+// leaves a stuck turn with zero recovery attempts — it just finishes UNVERIFIED, the
+// dominant idle-resubmit failure. Prefers the stuck agent itself (same-executor retry, like
+// runDelegateStep) when it is write-capable, else any configured write-capable non-planner
+// agent, stably ordered. ("", false) only when no write-capable agent exists at all (an
+// all-read-only set), so the caller falls through to its existing force-stop/finish.
+func (a *App) recoveryExecutor(preferred string) (string, bool) {
+	if name := strings.TrimSpace(preferred); name != "" && name != plannerAgent {
+		if spec, ok := a.resolveAgentSpec(name); ok && producesFiles(spec) {
+			return name, true
+		}
+	}
+	var out []string
+	for name := range a.cfg.Agents {
+		if name == plannerAgent {
+			continue
+		}
+		if spec, ok := a.resolveAgentSpec(name); ok && producesFiles(spec) {
+			out = append(out, name)
+		}
+	}
+	if len(out) == 0 {
+		return "", false
+	}
+	sort.Strings(out)
+	return out[0], true
+}
+
 // planEligible gates the recursive pre-flight planner (D17): plan only for an agent
 // that PRODUCES a deliverable (a read-only explorer/reviewer is a leaf — it never
 // re-plans), only while below the recursion cap, and never in workflow mode (the
