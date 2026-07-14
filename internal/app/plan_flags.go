@@ -101,6 +101,25 @@ func stepVerifyEnabled() bool {
 	return true
 }
 
+// recoveryRunCapEnabled caps stuck-recovery re-decomposition to fire at most once per RUN
+// TREE rather than once per depth level. redecomposeStuck's one-shot guard (turnState.recovered)
+// is per-turn, and each spawned recovery child runs its own fresh turnState — so under the
+// delegate-off default a depth-0 stall spawns a coder at depth 1, that coder stalls and (still
+// planEligible) spawns another at depth 2, and so on until the plan-depth cap stops it with a
+// stall_guard halt (observed on compile-compcert). With this on, a recovery child is seeded as
+// already-recovered, so it cannot trigger its OWN redecomposeStuck: exactly one recovery
+// executor is spawned per run tree. Default OFF (opt-in, unvalidated): MAGI_RECOVERY_RUNCAP=1
+// enables it for an A/B arm — it narrows the [[stuck-recovery-decoupled]] recovery reach, so it
+// needs a paired bench run before it is treated as an improvement. Mirrors checkpointFirstEnabled's
+// env shape.
+func recoveryRunCapEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_RECOVERY_RUNCAP"))) {
+	case "1", "on", "true", "yes":
+		return true
+	}
+	return false
+}
+
 // asyncExplorersEnabled routes a top-level, read-only-only plan's explorer fan-out through the
 // BACKGROUND dispatch path (a.dispatch) instead of the synchronous runExplorers, so the
 // orchestrator loop parks in its bg-wait — staying responsive to user interjections — while the

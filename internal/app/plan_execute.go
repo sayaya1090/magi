@@ -335,7 +335,14 @@ func (a *App) redecomposeStuck(ctx context.Context, s session.Session, agent Age
 	if !ok {
 		return false // no write-capable executor → cannot recover, let the caller stop
 	}
-	r := a.spawn(ctx, s, depth, port.SpawnRequest{Agent: name, Prompt: stuckRedecomposePrompt(task, blockReason)})
+	// Recovery is honored only under the run-tree cap (recoveryRunCapEnabled): the child then
+	// starts already-recovered and cannot cascade its own redecomposeStuck. Off = baseline
+	// (child re-arms recovery per depth level).
+	r := a.spawn(ctx, s, depth, port.SpawnRequest{
+		Agent:    name,
+		Prompt:   stuckRedecomposePrompt(task, blockReason),
+		Recovery: recoveryRunCapEnabled(),
+	})
 	if r.Err != "" || strings.TrimSpace(r.Text) == "" {
 		return false
 	}

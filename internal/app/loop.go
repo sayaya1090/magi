@@ -205,7 +205,18 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	guard := newRunGuard()
 	guard.stallConverge = stallConvergeEnabled() // D18a: collapse the stalled-nudge re-arm when a redirect produced no forward motion
 	ts := turnState{prevFinishCalls: -1}         // per-turn mutable bookkeeping (finish guards, council accounting, stuck-recovery); zeroed field-wise on reground
-	turnTask := ""                               // the user instruction THIS turn answers, snapshotted at step 0. A
+	// Run-tree recovery cap: a child spawned by the stuck-recovery lifeline starts already
+	// flagged as recovered, so it cannot fire its OWN redecomposeStuck. reground does NOT clear
+	// this field, so the cap holds across the child's whole run — exactly one recovery executor
+	// per run tree rather than one per depth level. Gated so flag-off is the unchanged baseline.
+	if recoveryRunCapEnabled() {
+		a.mu.Lock()
+		if st, ok := a.stateIf(sid); ok && st.recoverySeed {
+			ts.recovered = true
+		}
+		a.mu.Unlock()
+	}
+	turnTask := "" // the user instruction THIS turn answers, snapshotted at step 0. A
 	// steer that lands mid-turn is QUEUED by default (runs as its own follow-up turn), so
 	// it can't silently hijack what the council judges against — unless the agent explicitly
 	// routes it. A "redirect" re-snapshots turnTask and rebuilds the plan (the goal changed);

@@ -1286,6 +1286,59 @@ func TestRedecomposeStuck(t *testing.T) {
 	})
 }
 
+// The run-tree recovery cap (MAGI_RECOVERY_RUNCAP) marks a recovery child as already-recovered
+// so it cannot fire its OWN redecomposeStuck — one recovery executor per run tree instead of one
+// per depth level. The mark is the child session's recoverySeed flag, set only when the cap is on.
+func TestRedecomposeStuckRunCap(t *testing.T) {
+	coder := map[string]AgentSpec{"coder": {Name: "coder", System: "x", Tools: []string{"read", "write", "edit", "bash"}}}
+	newApp := func() (*App, session.Session, AgentSpec) {
+		a := newOrchApp(t, &recLLM{reply: func(req string) string {
+			if strings.Contains(req, "BREAK IT DOWN") {
+				return "re-planned and finished it"
+			}
+			return ""
+		}}, Config{Permission: "allow", MaxAgents: 100, MaxDepth: 5, MaxPlanDepth: 2, Agents: coder})
+		sid := startSession(t, a, t.TempDir())
+		a.mu.Lock()
+		s := a.stateLocked(sid).meta
+		a.mu.Unlock()
+		return a, s, coder["coder"]
+	}
+	// childSeeded reports whether any child session of parent has recoverySeed set.
+	childSeeded := func(a *App, parent session.SessionID) bool {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		for _, st := range a.states {
+			if st.meta.Parent == parent && st.recoverySeed {
+				return true
+			}
+		}
+		return false
+	}
+
+	t.Run("cap on seeds the child", func(t *testing.T) {
+		t.Setenv("MAGI_RECOVERY_RUNCAP", "1")
+		a, s, agent := newApp()
+		if !a.redecomposeStuck(context.Background(), s, agent, "task", "blocked", 0) {
+			t.Fatal("a recovering child must return true")
+		}
+		if !childSeeded(a, s.ID) {
+			t.Error("with the cap on, the recovery child must be seeded as already-recovered")
+		}
+	})
+
+	t.Run("cap off leaves the child unseeded", func(t *testing.T) {
+		t.Setenv("MAGI_RECOVERY_RUNCAP", "0")
+		a, s, agent := newApp()
+		if !a.redecomposeStuck(context.Background(), s, agent, "task", "blocked", 0) {
+			t.Fatal("a recovering child must return true")
+		}
+		if childSeeded(a, s.ID) {
+			t.Error("with the cap off, the recovery child must NOT be seeded (baseline cascade preserved)")
+		}
+	})
+}
+
 // keepScoutItem keeps single-token targets and real in-tree paths, but drops multi-word
 // prose (a header/sentence the model emitted around its list) that doesn't exist as a
 // path — the leak that sent an explorer chasing a nonexistent target until it timed out.

@@ -94,6 +94,12 @@ type sessionState struct {
 	// clear them (the abandonment is a whole-session fact, not a per-turn one).
 	deferredAbandoned map[string]bool
 	deferredHydrated  bool
+	// recoverySeed marks a child session spawned by the stuck-recovery lifeline: runLoop seeds
+	// its turnState as already-recovered so the child cannot fire its OWN redecomposeStuck,
+	// capping recovery to one executor per run tree (recoveryRunCapEnabled). Set once at spawn
+	// time; not turn-scoped (a recovery child never re-enters resetForNewTopLevel — it runs at
+	// depth>0).
+	recoverySeed bool
 	// Turn-scoped (zeroed by resetForNewTopLevel).
 	criteria          string                     // elicited acceptance criteria this turn
 	deliverableChecks []council.DeliverableCheck // plan-audit per-step executable checks this turn

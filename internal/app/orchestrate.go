@@ -576,6 +576,14 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 		}
 	}
 
+	// A stuck-recovery child starts flagged as already-recovered so it cannot fire its own
+	// redecomposeStuck (run-tree recovery cap). Marked on the child state, consumed by runLoop.
+	if req.Recovery {
+		a.mu.Lock()
+		a.stateLocked(child.ID).recoverySeed = true
+		a.mu.Unlock()
+	}
+
 	msgID := "m_" + newID()
 	pd, _ := json.Marshal(event.PromptSubmittedData{
 		MessageID: msgID,
