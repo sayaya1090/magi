@@ -140,8 +140,11 @@ class MagiAgent(BaseInstalledAgent):
         # semantics, unlisted edge cases), so it should plan for them (default ON). MAGI_CHECKPOINT_FIRST=off
         # is a thirteenth: it turns off test-first ordering (default ON) — when a task states HOW its
         # output is checked, reproduce that check as a runnable checkpoint before implementing — the
-        # A/B knob for whether that beats reasoning about a verifiable artifact symbolically. All are
-        # forwarded so the arms share one prebuilt binary.
+        # A/B knob for whether that beats reasoning about a verifiable artifact symbolically.
+        # MAGI_SOLO_AUDIT=off is a fourteenth: it turns off the single-step plan audit (default ON),
+        # restoring the >=2-step-only audit so a 1-step plan authors no per-step deliverable
+        # criteria/checks — the A/B knob for whether auditing a lone step closes the completion-gate
+        # gap it otherwise leaves open. All are forwarded so the arms share one prebuilt binary.
         for key in (
             "MAGI_BASE_URL",
             "MAGI_API_KEY",
@@ -158,6 +161,7 @@ class MagiAgent(BaseInstalledAgent):
             "MAGI_ORIENT",
             "MAGI_IMPLICIT_ACCEPT",
             "MAGI_CHECKPOINT_FIRST",
+            "MAGI_SOLO_AUDIT",
             "MAGI_STREAM_DIAG",
             "MAGI_REASONING_EFFORT",
         ):
