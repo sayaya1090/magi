@@ -437,19 +437,12 @@ func run() int {
 		return 0
 	}
 
-	// Model metadata registry. When the configured model isn't seeded (e.g. a cloud
-	// model like gpt-oss:120b-cloud), probe the backend for its real context window so the
-	// context meter and auto-compaction use accurate numbers instead of the conservative
-	// 8K fallback (which let one big result overflow the real window). Best-effort, short
-	// timeout, non-fatal — falls back to the registry default.
+	// Model metadata registry. It's populated with the configured model's real
+	// context window by a backend probe, but that probe is DEFERRED until after
+	// plugin startup (see below): a plugin may repoint the LLM at a remote backend
+	// via magi.set_base_url, and probing here — before plugins load — would always
+	// hit the default localhost endpoint instead.
 	modelReg := coremodel.NewRegistry()
-	if modelID != "" && !modelReg.Has(modelID) {
-		pctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
-		if w, ok := llm.ProbeContextWindow(pctx, modelID); ok {
-			modelReg.Register(coremodel.Info{ID: modelID, ContextWindow: w, MaxOutput: w / 4, Tools: true})
-		}
-		cancel()
-	}
 
 	// Reclaim any leftover magi temp logs from a prior run (a background server that
 	// outlived a headless run, or a runCapture temp an open child handle blocked from
@@ -683,6 +676,24 @@ func run() int {
 		return 1
 	}
 	host.FireEvent("session_start") // plugins may react to a new session
+
+	// Context-window probe, deferred to here on purpose. Plugin startup and
+	// session_start handlers have now run, so a plugin that repoints the LLM at a
+	// remote backend (magi.set_base_url) has already done so — probing now hits that
+	// backend, not the default localhost:11434. When the configured model isn't
+	// seeded (e.g. a cloud model like gpt-oss:120b-cloud), we ask the backend for its
+	// real context window so the context meter and auto-compaction use accurate
+	// numbers instead of the conservative fallback (which let one big result overflow
+	// the real window). Best-effort, short timeout, non-fatal; falls back to the
+	// registry default. The lazy per-model probe (App.contextWindow) is the runtime
+	// twin for models first seen after a /route switch.
+	if modelID != "" && !modelReg.Has(modelID) {
+		pctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+		if w, ok := llm.ProbeContextWindow(pctx, modelID); ok {
+			modelReg.Register(coremodel.Info{ID: modelID, ContextWindow: w, MaxOutput: w / 4, Tools: true})
+		}
+		cancel()
+	}
 
 	// Interactive TUI when no headless prompt was given.
 	if !headless {

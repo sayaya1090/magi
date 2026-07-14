@@ -92,3 +92,38 @@ func TestProbeRejectsZero(t *testing.T) {
 		t.Error("a zero context length should be rejected, not accepted")
 	}
 }
+
+// The probe reads the base URL dynamically, so a runtime override installed by a plugin
+// (magi.set_base_url) redirects it. This is what lets main() defer the startup probe until
+// after plugin startup: the probe then targets the plugin-configured backend instead of the
+// default localhost endpoint. A regression here would silently reintroduce the localhost hit.
+func TestProbeFollowsRuntimeBaseURL(t *testing.T) {
+	var stale, live int
+	staleSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		stale++
+		http.NotFound(w, r) // stands in for the default localhost endpoint: no such model
+	}))
+	defer staleSrv.Close()
+	liveSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		live++
+		if r.URL.Path == "/models" {
+			_, _ = w.Write([]byte(`{"data":[{"id":"m","max_model_len":131072}]}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer liveSrv.Close()
+
+	c := New(staleSrv.URL, "")
+	c.SetBaseURL(liveSrv.URL) // plugin repoints the backend at runtime
+	got, ok := c.ProbeContextWindow(context.Background(), "m")
+	if !ok || got != 131072 {
+		t.Fatalf("ProbeContextWindow = (%d,%v), want (131072,true) via the overridden base", got, ok)
+	}
+	if live == 0 {
+		t.Error("probe never hit the plugin-set backend")
+	}
+	if stale != 0 {
+		t.Errorf("probe hit the stale default base %d time(s); it must follow the runtime override", stale)
+	}
+}
