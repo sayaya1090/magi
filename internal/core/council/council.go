@@ -14,6 +14,7 @@
 package council
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -58,6 +59,45 @@ type Verdict struct {
 	// verification guidance), set only in the plan-audit phase where the council
 	// derives the contract the turn is later judged against. Empty otherwise.
 	Criteria []string `json:"criteria,omitempty"`
+	// Checks is a member's proposed per-step executable deliverable checks, set only
+	// in the plan-audit phase. Each pairs an expected deliverable with a shell command
+	// (and optional expected output substring) that verifies it deterministically —
+	// so the contract can be settled by execution at plan time rather than re-litigated
+	// by a vote after the work. Empty otherwise.
+	Checks []DeliverableCheck `json:"checks,omitempty"`
+}
+
+// DeliverableCheck is one plan step's expected deliverable paired with an executable
+// verification. Command is run in the task workdir; the deliverable may be a file, a
+// build/test result, or program output on screen (stdout/stderr). The check passes
+// when the command exits 0 and — if Expect is non-empty — its output MATCHES Expect
+// as a regular expression (Expect == "" means exit-code-only). Step is the plan step
+// it belongs to (title or ordinal), used to map a passing check back to its todo; a
+// step may carry several checks (several deliverables), and its todo completes only
+// when all of them pass. Authored at plan time.
+type DeliverableCheck struct {
+	Step        string `json:"step,omitempty"`
+	Deliverable string `json:"deliverable,omitempty"`
+	Command     string `json:"command"`
+	Expect      string `json:"expect,omitempty"`
+}
+
+// Passes reports whether a completed check's command output satisfies the check.
+// A non-zero exit always fails. With no Expect it is exit-code-only. Otherwise Expect
+// is matched as a regular expression against out; if Expect is not a valid regexp we
+// fall back to a literal substring test rather than fail the whole run on a malformed
+// pattern (fail-safe: a bad pattern shouldn't strand a genuinely-done step). Pure.
+func (c DeliverableCheck) Passes(out string, code int) bool {
+	if code != 0 {
+		return false
+	}
+	if c.Expect == "" {
+		return true
+	}
+	if re, err := regexp.Compile(c.Expect); err == nil {
+		return re.MatchString(out)
+	}
+	return strings.Contains(out, c.Expect)
 }
 
 // Plan-audit severity tiers. Only SeverityCritical blocks the plan gate; warn/info
@@ -91,6 +131,10 @@ type Deliberation struct {
 	// Criteria is the synthesized completion criteria from a plan-audit round
 	// (merged from the members' proposals). Empty in the termination phase.
 	Criteria []string `json:"criteria,omitempty"`
+	// Checks is the synthesized per-step executable deliverable checks from a
+	// plan-audit round (merged from the members' proposals). Empty in the
+	// termination phase. A step may carry several checks (several deliverables).
+	Checks []DeliverableCheck `json:"checks,omitempty"`
 }
 
 // DefaultMembers returns the three default council members — the MAGI. The theme
@@ -141,6 +185,46 @@ func MergeCriteria(vs []Verdict) []string {
 				c = strings.TrimSpace(string(r[:maxRunes]))
 			}
 			key := strings.ToLower(c)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, c)
+			if len(out) == maxItems {
+				return out
+			}
+		}
+	}
+	return out
+}
+
+// MergeChecks synthesizes the members' proposed per-step deliverable checks into one
+// deduped, bounded list (plan-audit phase). A check with no Command carries nothing
+// executable and is dropped. Deduplication keys on the command plus its expected
+// pattern (case-insensitive), so two members proposing the same verification collapse
+// to one while distinct deliverables of the same step are all kept. Fields are trimmed
+// and length-bounded; order is stable. Pure, no I/O.
+func MergeChecks(vs []Verdict) []DeliverableCheck {
+	const maxItems, maxRunes = 16, 300
+	clip := func(s string) string {
+		s = strings.TrimSpace(s)
+		if r := []rune(s); len(r) > maxRunes {
+			s = strings.TrimSpace(string(r[:maxRunes]))
+		}
+		return s
+	}
+	seen := make(map[string]bool)
+	var out []DeliverableCheck
+	for _, v := range vs {
+		for _, c := range v.Checks {
+			c.Step = clip(c.Step)
+			c.Deliverable = clip(c.Deliverable)
+			c.Command = clip(c.Command)
+			c.Expect = clip(c.Expect)
+			if c.Command == "" {
+				continue
+			}
+			key := strings.ToLower(c.Command + "\x00" + c.Expect)
 			if seen[key] {
 				continue
 			}

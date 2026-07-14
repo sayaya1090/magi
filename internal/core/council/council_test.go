@@ -238,3 +238,59 @@ func TestMergeCriteria(t *testing.T) {
 		t.Errorf("no criteria should yield nil, got %v", g)
 	}
 }
+
+func TestMergeChecks(t *testing.T) {
+	vs := []Verdict{
+		{Member: "Melchior", Checks: []DeliverableCheck{
+			{Step: "build", Deliverable: "binary", Command: " go build ./... "},
+			{Step: "run", Deliverable: "output", Command: "./app", Expect: "^ok$"},
+		}},
+		{Member: "Balthasar", Checks: []DeliverableCheck{
+			{Step: "build", Command: "go build ./...", Expect: ""}, // dup command+expect → dropped
+			{Step: "run", Command: "./app", Expect: "^fail$"},      // same cmd, different expect → kept
+		}},
+		{Member: "Casper", Checks: []DeliverableCheck{
+			{Step: "noop", Command: ""}, // no command → dropped
+		}},
+	}
+	got := MergeChecks(vs)
+	if len(got) != 3 {
+		t.Fatalf("MergeChecks len = %d (%v), want 3", len(got), got)
+	}
+	if got[0].Command != "go build ./..." { // trimmed
+		t.Errorf("command not trimmed: %q", got[0].Command)
+	}
+	// Cap at 16.
+	var many []Verdict
+	for i := 0; i < 40; i++ {
+		many = append(many, Verdict{Checks: []DeliverableCheck{{Command: string(rune('a'+i%26)) + string(rune('0'+i/26))}}})
+	}
+	if g := MergeChecks(many); len(g) != 16 {
+		t.Errorf("checks should cap at 16, got %d", len(g))
+	}
+	if g := MergeChecks([]Verdict{{Member: "x", Decision: Done}}); g != nil {
+		t.Errorf("no checks should yield nil, got %v", g)
+	}
+}
+
+func TestDeliverableCheckPasses(t *testing.T) {
+	cases := []struct {
+		name string
+		c    DeliverableCheck
+		out  string
+		code int
+		want bool
+	}{
+		{"nonzero exit fails", DeliverableCheck{}, "anything", 1, false},
+		{"exit-code-only pass", DeliverableCheck{}, "", 0, true},
+		{"regex match", DeliverableCheck{Expect: "^total: [0-9]+$"}, "total: 42", 0, true},
+		{"regex no match", DeliverableCheck{Expect: "^total: [0-9]+$"}, "total: none", 0, false},
+		{"bad regex falls back to substring", DeliverableCheck{Expect: "a(b"}, "xxa(byy", 0, true},
+		{"bad regex substring absent", DeliverableCheck{Expect: "a(b"}, "nope", 0, false},
+	}
+	for _, tc := range cases {
+		if got := tc.c.Passes(tc.out, tc.code); got != tc.want {
+			t.Errorf("%s: Passes = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
