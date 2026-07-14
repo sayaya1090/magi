@@ -135,9 +135,13 @@ class MagiAgent(BaseInstalledAgent):
         # coder. MAGI_ORIENT=off is an eleventh: it turns off the explore-first grounding pass
         # (default ON), which lands the workspace's build/verify anchors and layout in the main
         # context before planning — the A/B knob for whether that grounding beats the un-grounded
-        # baseline. MAGI_IMPLICIT_ACCEPT=1 is a twelfth: it tells the planner the grading check is
-        # hidden and stricter than the prose, so it should plan for the unstated-but-conventional
-        # acceptance conditions (default off). All are forwarded so the arms share one prebuilt binary.
+        # baseline. MAGI_IMPLICIT_ACCEPT=off is a twelfth: it tells the planner a task's real
+        # acceptance conditions are usually stricter than the prose (exact output, unstated standard
+        # semantics, unlisted edge cases), so it should plan for them (default ON). MAGI_CHECKPOINT_FIRST=off
+        # is a thirteenth: it turns off test-first ordering (default ON) — when a task states HOW its
+        # output is checked, reproduce that check as a runnable checkpoint before implementing — the
+        # A/B knob for whether that beats reasoning about a verifiable artifact symbolically. All are
+        # forwarded so the arms share one prebuilt binary.
         for key in (
             "MAGI_BASE_URL",
             "MAGI_API_KEY",
@@ -153,6 +157,7 @@ class MagiAgent(BaseInstalledAgent):
             "MAGI_RECOVERY_RUNCAP",
             "MAGI_ORIENT",
             "MAGI_IMPLICIT_ACCEPT",
+            "MAGI_CHECKPOINT_FIRST",
             "MAGI_STREAM_DIAG",
             "MAGI_REASONING_EFFORT",
         ):
