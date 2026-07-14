@@ -184,6 +184,7 @@ type turnState struct {
 	prevFinishCalls  int         // guard.callCount() at that rejection (-1 = none yet)
 	unverifiedReason string      // non-empty when the turn finishes WITHOUT council approval
 	recovered        bool        // stuck-recovery redecompose fired at most once (shared with the stall path)
+	stepNudged       bool        // deliverable-check failure nudge injected at most once (MAGI_STEP_VERIFY)
 	council          councilTurn // consensus gate rounds/feedback/spent/deadlock (D14)
 }
 
@@ -281,6 +282,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		ts.council.deadlocked = false
 		ts.prevFinishText = ""
 		ts.prevFinishCalls = -1
+		ts.stepNudged = false // a re-grounded task gets a fresh deliverable-check nudge budget
 		if rebuildPlan && a.planEligible(agent, depth) {
 			// Re-plan against the ADOPTED task (turnTask), not the bare last user prompt:
 			// after a route_interjection "append" the last prompt is only the steer's
@@ -857,87 +859,98 @@ func (a *App) finishTurn(ctx context.Context, s session.Session, agent AgentSpec
 	// conversational reply (no tool use, e.g. a greeting) has nothing to
 	// verify, so gating it just churns and can derail a weak model.
 	if depth == 0 && a.cfg.Council != nil && !a.cfg.Workflow && usedTools {
-		// Structural fabrication evidence for the council: if the agent changed a
-		// deliverable this turn but ran no command exercising the current version, that is a
-		// hard, language-agnostic fact a text-only vote can't wave through. Replaces the old
-		// English-only confession-phrase scan.
-		fab := ""
-		if guard.unverifiedDeliverable() {
-			fab = "the agent changed a deliverable this turn but ran no command exercising the current version — it is unverified by execution"
+		// Deterministic per-step deliverable gate (MAGI_STEP_VERIFY): run the plan-audit
+		// council's executable checks and believe the result. All-pass finishes VERIFIED
+		// and SKIPS the open-ended termination council (its authority was spent at plan
+		// time — no new demands). A real failure injects the failing output once and loops.
+		// Inactive (flag off / no checks / no platform) falls through to the council below.
+		stepGate := a.runStepGate(ctx, s, ts)
+		if stepGate == gateFailRetry {
+			return loopContinue
 		}
-		// Idle resubmission short-circuit: the council rejected this answer,
-		// and the agent came back having run NO tool and changed (almost)
-		// nothing — re-deliberating the same evidence can only burn a round
-		// and print the same answer twice. Finish instead, marked plainly.
-		if ts.prevFinishCalls >= 0 && guard.callCount() == ts.prevFinishCalls && normEq(lastText, ts.prevFinishText) {
-			// The agent is stuck against a wall it keeps resubmitting past: the council already
-			// rejected this exact answer once and it came back unchanged with no new tool call.
-			// Before finishing UNVERIFIED, hand the task plus the concern it failed to act on to a
-			// fresh write-capable child that re-plans and breaks it down (ADaPT solo-stuck branch) —
-			// the same lifeline the stall/deadlock branches use, and now reachable here so the
-			// dominant idle-resubmit failure gets one real recovery attempt instead of none. Fires
-			// once (ts.recovered); on success reset the stall window AND the finish latch (so the
-			// next round re-deliberates the child's integrated work rather than short-circuiting).
-			if !ts.recovered && a.planEligible(agent, depth) {
-				task := strings.TrimSpace(turnTask)
-				if task == "" {
-					task = strings.TrimSpace(lastUserText(reconstruct(a.taskEvents(sid, evs))))
+		if stepGate == gateInactive {
+			// Structural fabrication evidence for the council: if the agent changed a
+			// deliverable this turn but ran no command exercising the current version, that is a
+			// hard, language-agnostic fact a text-only vote can't wave through. Replaces the old
+			// English-only confession-phrase scan.
+			fab := ""
+			if guard.unverifiedDeliverable() {
+				fab = "the agent changed a deliverable this turn but ran no command exercising the current version — it is unverified by execution"
+			}
+			// Idle resubmission short-circuit: the council rejected this answer,
+			// and the agent came back having run NO tool and changed (almost)
+			// nothing — re-deliberating the same evidence can only burn a round
+			// and print the same answer twice. Finish instead, marked plainly.
+			if ts.prevFinishCalls >= 0 && guard.callCount() == ts.prevFinishCalls && normEq(lastText, ts.prevFinishText) {
+				// The agent is stuck against a wall it keeps resubmitting past: the council already
+				// rejected this exact answer once and it came back unchanged with no new tool call.
+				// Before finishing UNVERIFIED, hand the task plus the concern it failed to act on to a
+				// fresh write-capable child that re-plans and breaks it down (ADaPT solo-stuck branch) —
+				// the same lifeline the stall/deadlock branches use, and now reachable here so the
+				// dominant idle-resubmit failure gets one real recovery attempt instead of none. Fires
+				// once (ts.recovered); on success reset the stall window AND the finish latch (so the
+				// next round re-deliberates the child's integrated work rather than short-circuiting).
+				if !ts.recovered && a.planEligible(agent, depth) {
+					task := strings.TrimSpace(turnTask)
+					if task == "" {
+						task = strings.TrimSpace(lastUserText(reconstruct(a.taskEvents(sid, evs))))
+					}
+					reason := strings.TrimSpace(ts.council.feedback)
+					if reason == "" {
+						reason = "the same answer was resubmitted unchanged after council feedback"
+					}
+					if a.redecomposeStuck(ctx, s, agent, task, reason, depth) {
+						ts.recovered = true
+						guard.resetStall()
+						ts.prevFinishText, ts.prevFinishCalls = "", -1
+						return loopContinue
+					}
 				}
-				reason := strings.TrimSpace(ts.council.feedback)
-				if reason == "" {
-					reason = "the same answer was resubmitted unchanged after council feedback"
-				}
-				if a.redecomposeStuck(ctx, s, agent, task, reason, depth) {
-					ts.recovered = true
-					guard.resetStall()
-					ts.prevFinishText, ts.prevFinishCalls = "", -1
+				dd, _ := json.Marshal(event.CouncilDecidedData{
+					Round: ts.council.rounds + 1, Decision: string(council.Done),
+					Note:   "answer resubmitted unchanged after council feedback — finishing without re-deliberation; treat as UNVERIFIED",
+					Forced: true,
+				})
+				a.appendFact(ctx, sid, event.TypeCouncilDecided, event.Actor{Kind: event.ActorSystem, ID: "council"}, dd)
+				ts.unverifiedReason = "the same answer was resubmitted unchanged after council feedback, without re-deliberation"
+			} else {
+				keepWorking, unv := a.runCouncilGate(ctx, s, agent, councilInput{
+					turnTask:    turnTask,
+					lastText:    lastText,
+					changes:     buildCouncilChanges(guard.changeSet()),
+					fabrication: fab,
+					stepsLeft:   maxSteps - step,
+					turnElapsed: time.Since(runStart),
+				}, &ts.council)
+				if keepWorking {
+					ts.prevFinishText, ts.prevFinishCalls = lastText, guard.callCount()
 					return loopContinue
 				}
-			}
-			dd, _ := json.Marshal(event.CouncilDecidedData{
-				Round: ts.council.rounds + 1, Decision: string(council.Done),
-				Note:   "answer resubmitted unchanged after council feedback — finishing without re-deliberation; treat as UNVERIFIED",
-				Forced: true,
-			})
-			a.appendFact(ctx, sid, event.TypeCouncilDecided, event.Actor{Kind: event.ActorSystem, ID: "council"}, dd)
-			ts.unverifiedReason = "the same answer was resubmitted unchanged after council feedback, without re-deliberation"
-		} else {
-			keepWorking, unv := a.runCouncilGate(ctx, s, agent, councilInput{
-				turnTask:    turnTask,
-				lastText:    lastText,
-				changes:     buildCouncilChanges(guard.changeSet()),
-				fabrication: fab,
-				stepsLeft:   maxSteps - step,
-				turnElapsed: time.Since(runStart),
-			}, &ts.council)
-			if keepWorking {
-				ts.prevFinishText, ts.prevFinishCalls = lastText, guard.callCount()
-				return loopContinue
-			}
-			// The gate is letting the turn finish. A non-empty reason means it did so
-			// WITHOUT approving (deadlock/cost-cap/no-feedback/unavailable) — carry that
-			// into turn.finished below so the UI shows UNVERIFIED, not a confident done.
-			ts.unverifiedReason = unv
-			if !ts.recovered && ts.council.deadlocked &&
-				strings.TrimSpace(ts.council.feedback) != "" && a.planEligible(agent, depth) {
-				// Council deadlock: the members used every round and never approved, still holding
-				// an unmet concern — the gate flags this explicitly (ts.council.deadlocked), so a DONE
-				// vote that merely landed on the last allowed round does NOT reach here. The agent
-				// is stuck against a wall it could not clear on its own; before finishing UNVERIFIED,
-				// hand the task plus that exact concern to a fresh child that re-plans and breaks it
-				// down (ADaPT failure-recursion, solo-stuck branch). Fires once; on success, reset
-				// the stall window and loop so the parent integrates and verifies the child's work.
-				task := strings.TrimSpace(turnTask)
-				if task == "" {
-					task = strings.TrimSpace(lastUserText(reconstruct(a.taskEvents(sid, evs))))
-				}
-				if a.redecomposeStuck(ctx, s, agent, task, ts.council.feedback, depth) {
-					ts.recovered = true
-					guard.resetStall()
-					return loopContinue
+				// The gate is letting the turn finish. A non-empty reason means it did so
+				// WITHOUT approving (deadlock/cost-cap/no-feedback/unavailable) — carry that
+				// into turn.finished below so the UI shows UNVERIFIED, not a confident done.
+				ts.unverifiedReason = unv
+				if !ts.recovered && ts.council.deadlocked &&
+					strings.TrimSpace(ts.council.feedback) != "" && a.planEligible(agent, depth) {
+					// Council deadlock: the members used every round and never approved, still holding
+					// an unmet concern — the gate flags this explicitly (ts.council.deadlocked), so a DONE
+					// vote that merely landed on the last allowed round does NOT reach here. The agent
+					// is stuck against a wall it could not clear on its own; before finishing UNVERIFIED,
+					// hand the task plus that exact concern to a fresh child that re-plans and breaks it
+					// down (ADaPT failure-recursion, solo-stuck branch). Fires once; on success, reset
+					// the stall window and loop so the parent integrates and verifies the child's work.
+					task := strings.TrimSpace(turnTask)
+					if task == "" {
+						task = strings.TrimSpace(lastUserText(reconstruct(a.taskEvents(sid, evs))))
+					}
+					if a.redecomposeStuck(ctx, s, agent, task, ts.council.feedback, depth) {
+						ts.recovered = true
+						guard.resetStall()
+						return loopContinue
+					}
 				}
 			}
-		}
+		} // end gateInactive: normal termination council path
 	}
 	// A user steer can land AFTER this step's top-of-loop interjection scan but
 	// before the turn commits here: during the final (no-tool) step's model stream,

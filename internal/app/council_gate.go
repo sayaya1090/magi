@@ -474,12 +474,17 @@ const councilCompletionAudit = "\n\nCompletion audit — treat 'done' as UNPROVE
 	"- Treat uncertain, indirect, or missing evidence as NOT done — gather stronger evidence or keep working. Do not rely on intent, partial progress, or a plausible-looking answer as proof."
 
 // continuationText assembles the prompt injected when the council votes CONTINUE:
-// the round's feedback, then a verbatim re-anchor of the objective (so the agent
-// cannot lose the exact spec over a long turn), then the completion-audit rubric.
-func continuationText(inject, task string) string {
+// the round's feedback, the frozen acceptance contract (when the plan-audit froze
+// executable deliverable checks — the review may only judge against these, never add
+// new scope), then a verbatim re-anchor of the objective (so the agent cannot lose the
+// exact spec over a long turn), then the completion-audit rubric.
+func continuationText(inject, task, contract string) string {
 	var b strings.Builder
 	b.WriteString("Council review (not user input) — the task is not yet done:\n")
 	b.WriteString(inject)
+	if c := strings.TrimSpace(contract); c != "" {
+		b.WriteString(c)
+	}
 	b.WriteString(councilKeepWork)
 	if t := strings.TrimSpace(task); t != "" {
 		b.WriteString("\n\nOriginal objective (verbatim — pursue this exact end state, do not narrow or paraphrase it):\n")
@@ -906,7 +911,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	ct.prevVerdicts = merged
 	pd, _ := json.Marshal(event.PromptSubmittedData{
 		MessageID: "m_" + newID(),
-		Parts:     []session.Part{{Kind: session.PartText, Text: continuationText(inject, task)}},
+		Parts:     []session.Part{{Kind: session.PartText, Text: continuationText(inject, task, a.frozenContractClause(a.cachedChecks(sid)))}},
 	})
 	a.appendFact(ctx, sid, event.TypePromptSubmitted, councilActor, pd)
 	return true, ""
