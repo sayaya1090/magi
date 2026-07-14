@@ -65,8 +65,10 @@ func (c *Council) Deliberate(ctx context.Context, req port.DeliberationRequest) 
 	d := council.Deliberate(req.Round, verdicts, rule)
 	if req.Phase == "plan" {
 		// Plan audit: synthesize the members' proposed completion criteria into the
-		// contract the turn will later be judged against.
+		// contract the turn will later be judged against, plus any per-step executable
+		// deliverable checks (settled by execution at plan time, not re-voted later).
 		d.Criteria = council.MergeCriteria(verdicts)
+		d.Checks = council.MergeChecks(verdicts)
 	}
 	return d, nil
 }
@@ -191,6 +193,7 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 	v.Feedback = r.Feedback
 	v.Severity = r.Severity // plan-audit phase only; gates blocking vs advisory
 	v.Criteria = r.Criteria // plan-audit phase only; empty otherwise
+	v.Checks = r.Checks     // plan-audit phase only; per-step executable deliverable checks
 	return v
 }
 
@@ -202,6 +205,8 @@ type memberReply struct {
 	Feedback   string   `json:"feedback"`
 	Severity   string   `json:"severity"` // plan-audit phase: critical|warn|info for a revise vote
 	Criteria   []string `json:"criteria"` // plan-audit phase: proposed completion criteria
+	// Checks are plan-audit per-step executable deliverable checks (empty otherwise).
+	Checks []council.DeliverableCheck `json:"checks"`
 }
 
 // memberSystem builds the system prompt for one member: its identity (the theme
@@ -364,8 +369,21 @@ func planMemberSystem(m council.Member, lens string) string {
 			"criterion still requires the concrete artifact to exist and its check to pass; do not soften that.) These are "+
 			"NOT steps the plan must contain, and their absence from the plan is NEVER a reason to revise. Keep each item "+
 			"one short line; omit if your lens adds nothing.\n\n"+
+			"ALSO, where a step's deliverable is MACHINE-CHECKABLE, propose one or more executable `checks`. Each check "+
+			"names the plan `step` it belongs to (its title or number), the expected `deliverable` in one short phrase, a "+
+			"shell `command` that verifies it from the task's working directory, and an optional `expect` REGULAR "+
+			"EXPRESSION the command's output must match (omit `expect` for an exit-code-only check). PREFER a check that "+
+			"EXERCISES the deliverable's content over one that only asserts a file exists — run it, grep its contents, or "+
+			"test that it is non-empty (`test -s out.txt`, not bare `test -f`) — so a stale or empty leftover cannot pass. "+
+			"The deliverable may be a file (`test -s out.txt`), a build/test result (`go build ./...`), or PROGRAM OUTPUT "+
+			"ON SCREEN — for output, run the program and match its stdout with `expect` (e.g. command `./run --demo`, "+
+			"expect `^total: [0-9]+$`). A "+
+			"step may have SEVERAL checks (several deliverables). Propose checks ONLY when they are concrete and would "+
+			"genuinely pass for correct work — commands must be non-destructive and deterministic. For a "+
+			"read/review/analyze/answer step there is usually nothing to execute: emit NO check for it (the prose "+
+			"`criteria` already cover it). Omit `checks` entirely if your lens has none.\n\n"+
 			"Respond with ONLY a JSON object, no prose, no code fence:\n"+
-			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific fix (only if continue)","severity":"critical|warn|info (only if continue)","criteria":["..."]}`,
+			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific fix (only if continue)","severity":"critical|warn|info (only if continue)","criteria":["..."],"checks":[{"step":"...","deliverable":"...","command":"...","expect":"..."}]}`,
 		m.Name, m.Lens, lens)
 }
 

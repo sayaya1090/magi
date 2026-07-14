@@ -83,6 +83,24 @@ func checkpointFirstEnabled() bool {
 	return false
 }
 
+// stepVerifyEnabled turns on the per-step deliverable contract: the plan-audit council
+// authors executable checks for each step's expected deliverable at PLAN time, the solo
+// loop runs them deterministically at its finish boundary (runVerifyCmd + regex/exit
+// predicate), a passing check deterministically checks off its todo, and when every check
+// passes the termination council's open-ended continue path is skipped (the contract was
+// settled at planning — no new demands after). A real check FAILURE injects the failing
+// command's output as a one-shot continuation nudge; a clean run injects nothing (no
+// context pollution). Default OFF (opt-in, unvalidated): MAGI_STEP_VERIFY=1 enables it for
+// an A/B arm; OFF leaves storage, the gate, and the council path fully inert. Mirrors
+// checkpointFirstEnabled's env shape.
+func stepVerifyEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_STEP_VERIFY"))) {
+	case "1", "on", "true", "yes":
+		return true
+	}
+	return false
+}
+
 // asyncExplorersEnabled routes a top-level, read-only-only plan's explorer fan-out through the
 // BACKGROUND dispatch path (a.dispatch) instead of the synchronous runExplorers, so the
 // orchestrator loop parks in its bg-wait — staying responsive to user interjections — while the

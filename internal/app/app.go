@@ -95,11 +95,12 @@ type sessionState struct {
 	deferredAbandoned map[string]bool
 	deferredHydrated  bool
 	// Turn-scoped (zeroed by resetForNewTopLevel).
-	criteria        string          // elicited acceptance criteria this turn
-	estSteps        int             // planner's advisory step estimate this turn
-	interjectSeen   map[string]bool // interjection MessageIDs detected this turn (masked from turnTask/council)
-	awaitExplorers  bool            // planner dispatched read-only explorers as this turn's primary work
-	autoOrchestrate bool            // whether auto-orchestration has been triggered this session
+	criteria          string                     // elicited acceptance criteria this turn
+	deliverableChecks []council.DeliverableCheck // plan-audit per-step executable checks this turn
+	estSteps          int                        // planner's advisory step estimate this turn
+	interjectSeen     map[string]bool            // interjection MessageIDs detected this turn (masked from turnTask/council)
+	awaitExplorers    bool                       // planner dispatched read-only explorers as this turn's primary work
+	autoOrchestrate   bool                       // whether auto-orchestration has been triggered this session
 }
 
 // stateLocked returns the session's state, creating it on first use. The caller MUST
@@ -329,8 +330,9 @@ func (a *App) resetForNewTopLevel(sid session.SessionID) {
 	a.SetTodos(sid, nil) // takes a.mu itself
 	a.mu.Lock()
 	st := a.stateLocked(sid)
-	st.criteria = "" // drop cached criteria; re-elicited at the next gate (D15)
-	st.estSteps = 0  // …and the previous task's advisory step estimate
+	st.criteria = ""           // drop cached criteria; re-elicited at the next gate (D15)
+	st.deliverableChecks = nil // …and the previous task's plan-audit executable checks
+	st.estSteps = 0            // …and the previous task's advisory step estimate
 	// Reset the interjection mask, but KEEP masking anything still WAITING in the
 	// queue: a queued interjection's original PromptSubmitted must stay hidden
 	// until it runs as its own turn — dropping its mask here would leak it into

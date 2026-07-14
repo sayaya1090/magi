@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/sayaya1090/magi/internal/core/artifact"
+	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
@@ -35,6 +36,37 @@ func (a *App) storePlanCriteria(ctx context.Context, s session.Session, crit []s
 		ID: "art_" + newID(), Kind: "acceptance-criteria", Title: "Acceptance criteria (plan audit)",
 		Content: content, SourceAgent: "council", Status: "proposed", Created: time.Now(),
 	})
+}
+
+// storePlanChecks records the per-step executable deliverable checks the plan-audit
+// council derived, so the solo loop's deterministic step gate can settle the contract
+// by execution (see stepVerifyEnabled). Mirrors storePlanCriteria: called only for
+// the plan that actually proceeds, so a re-plan overwrites, and it emits a reviewable
+// artifact so the executable contract is observable. Empty input stores nothing.
+func (a *App) storePlanChecks(ctx context.Context, s session.Session, checks []council.DeliverableCheck) {
+	if len(checks) == 0 || !stepVerifyEnabled() { // OFF → fully inert (no state, no artifact, no todo change)
+		return
+	}
+	a.mu.Lock()
+	a.stateLocked(s.ID).deliverableChecks = checks
+	a.mu.Unlock()
+	content, _ := json.Marshal(checks)
+	a.emitArtifact(ctx, s.ID, event.Actor{Kind: event.ActorSystem, ID: "council"}, artifact.Artifact{
+		ID: "art_" + newID(), Kind: "deliverable-checks", Title: "Deliverable checks (plan audit)",
+		Content: content, SourceAgent: "council", Status: "proposed", Created: time.Now(),
+	})
+	a.annotateTodosWithDeliverables(ctx, s.ID, checks) // show each step's expected deliverable in the panel
+}
+
+// cachedChecks returns this turn's per-step executable deliverable checks (set by the
+// plan-audit council), or nil when none were derived. Read by the step gate.
+func (a *App) cachedChecks(sid session.SessionID) []council.DeliverableCheck {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if st, ok := a.stateIf(sid); ok {
+		return st.deliverableChecks
+	}
+	return nil
 }
 
 // storeStepEstimate records the planner's advisory step estimate for the turn
