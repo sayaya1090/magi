@@ -132,12 +132,12 @@ class MagiAgent(BaseInstalledAgent):
         # baseline that leaves the step gate and its council skip inert. MAGI_RECOVERY_RUNCAP=1 is a
         # tenth: it caps stuck-recovery re-decomposition to one executor per run tree (default off),
         # the A/B knob for whether the recovery cascade under delegate-off collapses to a single
-        # coder. MAGI_ENV_SCAN=1 is an eleventh: it grounds the planner in a two-level repo scan plus
-        # build-anchor excerpts instead of the flat top-level name list (default off), the A/B knob
-        # for whether a plan cohering with the files present beats one derived from the prose alone.
-        # MAGI_IMPLICIT_ACCEPT=1 is a twelfth: it tells the planner the grading check is hidden and
-        # stricter than the prose, so it should plan for the unstated-but-conventional acceptance
-        # conditions (default off). All are forwarded so the arms share one prebuilt binary.
+        # coder. MAGI_ORIENT=off is an eleventh: it turns off the explore-first grounding pass
+        # (default ON), which lands the workspace's build/verify anchors and layout in the main
+        # context before planning — the A/B knob for whether that grounding beats the un-grounded
+        # baseline. MAGI_IMPLICIT_ACCEPT=1 is a twelfth: it tells the planner the grading check is
+        # hidden and stricter than the prose, so it should plan for the unstated-but-conventional
+        # acceptance conditions (default off). All are forwarded so the arms share one prebuilt binary.
         for key in (
             "MAGI_BASE_URL",
             "MAGI_API_KEY",
@@ -151,7 +151,7 @@ class MagiAgent(BaseInstalledAgent):
             "MAGI_STALL_CONVERGE",
             "MAGI_STEP_VERIFY",
             "MAGI_RECOVERY_RUNCAP",
-            "MAGI_ENV_SCAN",
+            "MAGI_ORIENT",
             "MAGI_IMPLICIT_ACCEPT",
             "MAGI_STREAM_DIAG",
             "MAGI_REASONING_EFFORT",
