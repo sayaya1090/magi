@@ -139,12 +139,20 @@ func TestOrientEmptyWorkdirGraceful(t *testing.T) {
 	}
 }
 
-// The A/B gate reads MAGI_ORIENT with the same truthy set as the sibling plan flags. OFF (unset)
-// keeps the loop from ever calling maybeOrient, so the baseline is unchanged.
+// Orienting is ON by default; MAGI_ORIENT=off (the A/B knob) is the only way to suppress it, so an
+// unset or truthy value orients and only an explicit falsey value opts out.
 func TestOrientEnabledFlag(t *testing.T) {
 	t.Setenv("MAGI_ORIENT", "")
+	if !orientEnabled() {
+		t.Fatal("unset MAGI_ORIENT should default ON")
+	}
+	t.Setenv("MAGI_ORIENT", "off")
 	if orientEnabled() {
-		t.Fatal("unset MAGI_ORIENT should be OFF")
+		t.Fatal("MAGI_ORIENT=off should be OFF")
+	}
+	t.Setenv("MAGI_ORIENT", "0")
+	if orientEnabled() {
+		t.Fatal("MAGI_ORIENT=0 should be OFF")
 	}
 	t.Setenv("MAGI_ORIENT", "1")
 	if !orientEnabled() {

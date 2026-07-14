@@ -144,14 +144,14 @@ func implicitAcceptEnabled() bool {
 // environment instead of the instruction prose alone. The facts land in the conversation the
 // executor keeps — not just the planner prompt — matching the "reason with full context"
 // principle. Facts, not speculative instructions (contrast the reverted attempt ledger), so a
-// clean run is not misdirected. Default OFF (opt-in, unvalidated): MAGI_ORIENT=1 enables it for
-// an A/B arm. Mirrors checkpointFirstEnabled's env shape.
+// clean run is not misdirected. Default ON; MAGI_ORIENT=off restores the un-grounded baseline
+// (the A/B knob). Mirrors asyncExplorersEnabled's env shape.
 func orientEnabled() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_ORIENT"))) {
-	case "1", "on", "true", "yes":
-		return true
+	case "0", "off", "false", "no":
+		return false
 	}
-	return false
+	return true
 }
 
 // asyncExplorersEnabled routes a top-level, read-only-only plan's explorer fan-out through the
