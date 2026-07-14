@@ -249,8 +249,14 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth, 
 
 	// Plan audit (D17): a multi-step procedure is reviewed by the council BEFORE it
 	// runs. Suppressed in workflow mode (the deterministic engine owns staging) and
-	// when no council is configured.
-	if len(steps) >= 2 && a.cfg.Council != nil && !a.cfg.Workflow {
+	// when no council is configured. minAudit is normally 2 (a lone step has nothing to
+	// order), but soloAuditEnabled lowers it to 1 so a 1-step plan still gets the per-step
+	// deliverable criteria/checks the completion gate needs — the cancel-async gap.
+	minAudit := 2
+	if soloAuditEnabled() {
+		minAudit = 1
+	}
+	if len(steps) >= minAudit && a.cfg.Council != nil && !a.cfg.Workflow {
 		steps = guardExpansion(a.runPlanAuditGate(ctx, s, spec, prompt, steps, depth, maxSteps), depth, a.cfg.MaxPlanDepth)
 		if len(steps) == 0 {
 			return false, false

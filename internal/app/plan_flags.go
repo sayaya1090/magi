@@ -199,6 +199,25 @@ func planConvergeEnabled() bool {
 	return true
 }
 
+// soloAuditEnabled extends the plan-audit council — and the per-step deliverable criteria
+// and executable checks it authors (storePlanCriteria/storePlanChecks) — to a SINGLE-step
+// plan. Normally the audit is gated to a >=2-step procedure (maybePlanPreflight): a 1-step
+// plan skips it entirely, so it authors NO criteria and NO checks. The completion gate then
+// has no plan-time contract to verify and falls back to the termination council's plausibility
+// vote over clipped happy-path tool evidence — which is not a literal-spec or edge-case checker
+// (cancel-async-tasks: a lone "create run.py" step was voted done with the cancellation cleanup
+// path never exercised). With this on, a 1-step plan gets the same audit and deliverable
+// contract a multi-step one does; the async-explorer path and note injections already run for a
+// 1-step plan, so this only adds the missing audit+contract. Default ON; MAGI_SOLO_AUDIT=off
+// restores the >=2-step-only audit (the A/B knob). Mirrors specFidelityEnabled's env shape.
+func soloAuditEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_SOLO_AUDIT"))) {
+	case "0", "off", "false", "no":
+		return false
+	}
+	return true
+}
+
 // stallConvergeEnabled gates the stalled-nudge convergence (D18a): the no-progress "stalled"
 // nudge re-arms up to maxStallNudges times keyed purely on the sinceProgress count, without
 // checking whether the redirect actually changed anything. When a re-arm's window produced no
