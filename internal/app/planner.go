@@ -36,7 +36,7 @@ const (
 
 // planGroup is one independent investigation to parallelize.
 type planGroup struct {
-	Agent    string `json:"agent"`    // read-only explorer: explore|locator|analyst
+	Agent    string `json:"agent"`    // read-only explorer: explore|locator
 	Focus    string `json:"focus"`    // short label of the area
 	Question string `json:"question"` // what this explorer should find out
 }
@@ -79,9 +79,15 @@ type planResult struct {
 	EstimatedSteps int `json:"estimated_steps"`
 }
 
-// readOnlyExplorers are the only agents the planner may dispatch — investigation
+// readOnlyExplorers are the only agents the planner may fan out — investigation
 // is read-only, so there are no file conflicts and nothing to fabricate-then-write.
-var readOnlyExplorers = map[string]bool{"explore": true, "locator": true, "analyst": true}
+// These are LOCATE/GATHER roles only. The analyst (deep-reasoning) role is
+// deliberately NOT here: a fanned-out explorer receives just its focus/question and a
+// clipped goal (explorerPrompt), never the parent's full context, so analysis — which
+// depends on maximum context — belongs in the full-context main agent (a solo step),
+// not a context-starved subagent. analyst stays a registered agent, reachable by an
+// explicit delegate, just not an auto-fanout target.
+var readOnlyExplorers = map[string]bool{"explore": true, "locator": true}
 
 // producesFiles reports whether an agent authors file deliverables (has edit/write),
 // as opposed to a read-only explorer or a run-only verifier. It gates both preflight

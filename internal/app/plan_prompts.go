@@ -16,7 +16,10 @@ const plannerContract = "Plan the PROCEDURE to handle the request: an ordered, m
 	"then any step that builds on earlier findings. A simple request is a single step. Do NOT pad the plan with broad, " +
 	"unrelated area-splits — every step must serve THIS request.\n\n" +
 	"Each step has a \"strategy\":\n" +
-	"- \"solo\": the main agent does it directly (no explorer). Use for anything that writes/edits, or that needs full context.\n" +
+	"- \"solo\": the main agent does it directly (no explorer). Use for anything that writes/edits, or that needs full " +
+	"context — including any REASONING/ANALYSIS step (weighing trade-offs, diagnosing a root cause, synthesizing a " +
+	"conclusion or decision). Analysis depends on maximum context, which only the main agent has; never hand it to an " +
+	"explorer, whose view is limited to the focus/question you give it.\n" +
 	"- \"parallel\": independent read-only investigations you ALREADY know are relevant — give \"groups\" (each {agent, focus, question}).\n" +
 	"- \"scout\": you DON'T yet know the work-list — give \"discover\" (the list to produce, SCOPED TO WHAT THE TASK NEEDS — " +
 	"e.g. for a bug hunt, the source files/packages in scope, NOT tangential files like docs) and \"each\" (what to find " +
@@ -37,7 +40,8 @@ const plannerContract = "Plan the PROCEDURE to handle the request: an ordered, m
 	"before (a storage layer, THEN an index built ON that storage, THEN operations built ON that index) — PREFER " +
 	"opening the plan with a few \"refine\" phases over one long flat list of \"solo\" steps; you will expand each phase in " +
 	"context when you reach it. Keep flat \"solo\" lists for tasks whose steps are short and mostly independent.\n\n" +
-	"Explorers are READ-ONLY (agent ∈ explore|locator|analyst); never use them to write. " +
+	"Explorers are READ-ONLY and LOCATE/GATHER only (agent ∈ explore|locator); never use them to write, and never to " +
+	"REASON or ANALYZE — a step that draws a conclusion, weighs trade-offs, or diagnoses a cause is a \"solo\" step. " +
 	"Also give \"estimated_steps\": your honest guess at the TOTAL number of tool calls the whole task needs " +
 	"(a one-file tweak ~5, a feature with tests ~30, a big build/debug ~100). It is pacing guidance only — never a limit.\n" +
 	"Reply with ONLY a JSON object, no prose:\n" +

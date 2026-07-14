@@ -1233,8 +1233,10 @@ func defaultAgents() map[string]app.AgentSpec {
 			System: "You are a procedure planner. Given the user's request, lay out the ORDERED procedure to handle it — " +
 				"a minimal list of steps, each tagged with HOW to execute it: solo (the main agent does it directly), " +
 				"parallel (independent read-only investigations you already know), or scout (discover a work-list at " +
-				"runtime, then investigate each item in parallel). Read-only explorers are explore|locator|analyst and " +
-				"must never write. Prefer the fewest steps that genuinely help; a simple request is a single solo step. " +
+				"runtime, then investigate each item in parallel). Read-only explorers are explore|locator — they LOCATE " +
+				"and GATHER only, and must never write; any step that REASONS or ANALYZES (trade-offs, root cause, a " +
+				"synthesized conclusion) is a solo step, run by the main agent with full context, not an explorer. " +
+				"Prefer the fewest steps that genuinely help; a simple request is a single solo step. " +
 				"Plan how to INVESTIGATE, not how to code. Read-only explorers CAN compute quantitative aggregates " +
 				"(counts, sums, coverage %, LOC, distributions) with tabulate/countmatches/countlines/groupby, so " +
 				"quantitative questions are fine to route to them — do not reserve those for a shell-capable agent.",
