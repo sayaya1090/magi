@@ -870,6 +870,30 @@ func (a *App) finishTurn(ctx context.Context, s session.Session, agent AgentSpec
 		// nothing — re-deliberating the same evidence can only burn a round
 		// and print the same answer twice. Finish instead, marked plainly.
 		if ts.prevFinishCalls >= 0 && guard.callCount() == ts.prevFinishCalls && normEq(lastText, ts.prevFinishText) {
+			// The agent is stuck against a wall it keeps resubmitting past: the council already
+			// rejected this exact answer once and it came back unchanged with no new tool call.
+			// Before finishing UNVERIFIED, hand the task plus the concern it failed to act on to a
+			// fresh write-capable child that re-plans and breaks it down (ADaPT solo-stuck branch) —
+			// the same lifeline the stall/deadlock branches use, and now reachable here so the
+			// dominant idle-resubmit failure gets one real recovery attempt instead of none. Fires
+			// once (ts.recovered); on success reset the stall window AND the finish latch (so the
+			// next round re-deliberates the child's integrated work rather than short-circuiting).
+			if !ts.recovered && a.planEligible(agent, depth) {
+				task := strings.TrimSpace(turnTask)
+				if task == "" {
+					task = strings.TrimSpace(lastUserText(reconstruct(a.taskEvents(sid, evs))))
+				}
+				reason := strings.TrimSpace(ts.council.feedback)
+				if reason == "" {
+					reason = "the same answer was resubmitted unchanged after council feedback"
+				}
+				if a.redecomposeStuck(ctx, s, agent, task, reason, depth) {
+					ts.recovered = true
+					guard.resetStall()
+					ts.prevFinishText, ts.prevFinishCalls = "", -1
+					return loopContinue
+				}
+			}
 			dd, _ := json.Marshal(event.CouncilDecidedData{
 				Round: ts.council.rounds + 1, Decision: string(council.Done),
 				Note:   "answer resubmitted unchanged after council feedback — finishing without re-deliberation; treat as UNVERIFIED",
