@@ -66,9 +66,9 @@ func setChecks(a *App, sid session.SessionID, checks []council.DeliverableCheck)
 	a.mu.Unlock()
 }
 
-// The gate stays inert when the flag is off, even with checks stored and a platform.
+// The gate stays inert when the flag is explicitly off, even with checks stored and a platform.
 func TestRunStepGateInactiveWhenFlagOff(t *testing.T) {
-	// flag intentionally NOT set → off.
+	t.Setenv("MAGI_STEP_VERIFY", "0") // default is on; this arm turns it off
 	plat := &scriptPlatform{codes: []int{0}}
 	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow"})
 	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Command: "true"}})

@@ -90,15 +90,15 @@ func checkpointFirstEnabled() bool {
 // passes the termination council's open-ended continue path is skipped (the contract was
 // settled at planning — no new demands after). A real check FAILURE injects the failing
 // command's output as a one-shot continuation nudge; a clean run injects nothing (no
-// context pollution). Default OFF (opt-in, unvalidated): MAGI_STEP_VERIFY=1 enables it for
-// an A/B arm; OFF leaves storage, the gate, and the council path fully inert. Mirrors
-// checkpointFirstEnabled's env shape.
+// context pollution). Default ON; MAGI_STEP_VERIFY=0 restores the baseline that leaves
+// storage, the gate, and the council path fully inert (the A/B knob). Mirrors
+// specFidelityEnabled's env shape.
 func stepVerifyEnabled() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_STEP_VERIFY"))) {
-	case "1", "on", "true", "yes":
-		return true
+	case "0", "off", "false", "no":
+		return false
 	}
-	return false
+	return true
 }
 
 // asyncExplorersEnabled routes a top-level, read-only-only plan's explorer fan-out through the
