@@ -315,6 +315,11 @@ type SpawnRequest struct {
 	// for spawns not tied to a plan step (council, scout list, stuck re-decompose). Ignored
 	// on the ReuseSession path — a shared child keeps its first phase's step.
 	PlanStepIndex *int
+	// Recovery marks a child spawned by the stuck-recovery lifeline (redecomposeStuck). Such a
+	// child starts already flagged as recovered, so it cannot trigger its OWN stuck-recovery —
+	// capping re-decomposition to one executor per run tree instead of one per depth level (the
+	// depth-cascade fix, gated by recoveryRunCapEnabled). Ignored when the cap is off.
+	Recovery bool
 }
 
 // SpawnResult is a subagent's outcome.
