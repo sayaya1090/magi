@@ -120,34 +120,34 @@ func recoveryRunCapEnabled() bool {
 	return false
 }
 
-// envScanEnabled enriches the planner's repository grounding beyond the flat top-level name
-// list (repoMap): when on, the planner is shown a two-level tree plus a bounded excerpt of the
-// build/convention anchor files actually present (Makefile, go.mod, package.json, pyproject.toml,
-// CMakeLists.txt, Cargo.toml, README, …), so a plan coheres with the existing source/build system
-// instead of being derived from the instruction prose alone. A terminal-bench grader tests the
-// solution's fit with the environment (a headless build must edit the real Makefile, not invent
-// one), and that fit is only visible from the files present. Default OFF (opt-in, unvalidated):
-// MAGI_ENV_SCAN=1 enables it for an A/B arm. OFF keeps the exact repoMap grounding (baseline
-// byte-for-byte). Mirrors checkpointFirstEnabled's env shape.
-func envScanEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_ENV_SCAN"))) {
-	case "1", "on", "true", "yes":
-		return true
-	}
-	return false
-}
-
 // implicitAcceptEnabled tells the planner that the task's real acceptance conditions are hidden
 // and usually stricter than the instruction prose: a terminal-bench grader checks exact output
 // tokens/formats the prose only gestures at, and standard domain semantics the prose never spells
 // out (cleanup must still run on cancellation; a headless build must not link display libraries).
 // When on, the planner is asked to surface those unstated-but-conventional conditions and fold
 // them into the relevant steps' deliverables, so the plan targets the real contract rather than
-// the literal sentence. Complements envScanEnabled (files present) with domain convention. Default
-// OFF (opt-in, unvalidated): MAGI_IMPLICIT_ACCEPT=1 enables it for an A/B arm. Mirrors
+// the literal sentence. Complements the orient grounding (files present) with domain convention.
+// Default OFF (opt-in, unvalidated): MAGI_IMPLICIT_ACCEPT=1 enables it for an A/B arm. Mirrors
 // checkpointFirstEnabled's env shape.
 func implicitAcceptEnabled() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_IMPLICIT_ACCEPT"))) {
+	case "1", "on", "true", "yes":
+		return true
+	}
+	return false
+}
+
+// orientEnabled turns on the explore-first grounding pass (maybeOrient): once per session, at the
+// first cold write-capable top-level turn, the deterministic build/verify anchors and layout of
+// the workspace (repoContext) are landed in the MAIN agent's context BEFORE the planner runs, so
+// both the executor and the planner (which reads the session window) start grounded in the real
+// environment instead of the instruction prose alone. The facts land in the conversation the
+// executor keeps — not just the planner prompt — matching the "reason with full context"
+// principle. Facts, not speculative instructions (contrast the reverted attempt ledger), so a
+// clean run is not misdirected. Default OFF (opt-in, unvalidated): MAGI_ORIENT=1 enables it for
+// an A/B arm. Mirrors checkpointFirstEnabled's env shape.
+func orientEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_ORIENT"))) {
 	case "1", "on", "true", "yes":
 		return true
 	}

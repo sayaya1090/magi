@@ -100,6 +100,12 @@ type sessionState struct {
 	// time; not turn-scoped (a recovery child never re-enters resetForNewTopLevel — it runs at
 	// depth>0).
 	recoverySeed bool
+	// grounded marks that the explore-first orient pass (maybeOrient) has run for this session,
+	// so its deterministic environment grounding is injected exactly ONCE — at the first cold,
+	// write-capable top-level turn. Session-scoped (a whole-session fact, like the two above):
+	// resetForNewTopLevel does NOT clear it, since later turns already carry the environment in
+	// context and re-scanning would burn budget for no new signal. See orientEnabled.
+	grounded bool
 	// Turn-scoped (zeroed by resetForNewTopLevel).
 	criteria          string                     // elicited acceptance criteria this turn
 	deliverableChecks []council.DeliverableCheck // plan-audit per-step executable checks this turn

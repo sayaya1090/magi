@@ -7,21 +7,6 @@ import (
 	"testing"
 )
 
-func TestEnvScanEnabledDefaultOff(t *testing.T) {
-	t.Setenv("MAGI_ENV_SCAN", "")
-	if envScanEnabled() {
-		t.Fatal("MAGI_ENV_SCAN unset must be OFF (opt-in)")
-	}
-	t.Setenv("MAGI_ENV_SCAN", "1")
-	if !envScanEnabled() {
-		t.Fatal("MAGI_ENV_SCAN=1 must be ON")
-	}
-	t.Setenv("MAGI_ENV_SCAN", "off")
-	if envScanEnabled() {
-		t.Fatal("MAGI_ENV_SCAN=off must be OFF")
-	}
-}
-
 func TestRepoContextTwoLevelAndAnchorExcerpt(t *testing.T) {
 	dir := t.TempDir()
 	// A build anchor at top level whose opening lines must surface.

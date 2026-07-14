@@ -387,9 +387,6 @@ func (a *App) injectAsyncExplorerNote(ctx context.Context, sid session.SessionID
 // turnTask (original goal + the steer's constraint) is re-anchored here explicitly.
 func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session, prompt, revise string, depth, maxSteps int, anchor string) planResult {
 	repoBlock := "# Repository (top level)\n" + repoMap(s.Workdir)
-	if envScanEnabled() {
-		repoBlock = "# Repository\n" + repoContext(s.Workdir)
-	}
 	sys := spec.System + "\n\n" + repoBlock + "\n\n" + plannerContract + planEnvelope(depth, a.cfg.MaxPlanDepth, maxSteps)
 	if specFidelityEnabled() {
 		sys += literalRule
@@ -1234,11 +1231,11 @@ func repoAnchorFile(name string) bool {
 	return strings.HasPrefix(name, "README")
 }
 
-// repoContext is the enriched planner grounding used when envScanEnabled(): a two-level tree of
-// the workdir plus a bounded excerpt of the build/convention anchor files present, so the plan
-// coheres with the existing source and toolchain rather than the instruction prose alone. Pure,
-// best-effort, and hard-bounded (entry counts + total byte budget) so a large tree can never
-// balloon the planner prompt or perturb the KV cache unpredictably. See envScanEnabled.
+// repoContext is the enriched workspace grounding landed by maybeOrient (orientEnabled): a
+// two-level tree of the workdir plus a bounded excerpt of the build/convention anchor files
+// present, so the plan and the executor cohere with the existing source and toolchain rather than
+// the instruction prose alone. Pure, best-effort, and hard-bounded (entry counts + total byte
+// budget) so a large tree can never balloon the context or perturb the KV cache unpredictably.
 func repoContext(workdir string) string {
 	ents, err := os.ReadDir(workdir)
 	if err != nil {
