@@ -252,6 +252,13 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	if depth == 0 && !a.cfg.Workflow && !seedWork {
 		a.resetForNewTopLevel(sid)
 	}
+	// Explore-first grounding (opt-in): on the first cold, write-capable top-level turn, land the
+	// workspace's build/verify anchors and layout into the main context BEFORE planning, so both
+	// the executor and the planner (which reads the session window) start grounded in the real
+	// environment. Once per session (maybeOrient's grounded flag), deterministic, hard-bounded.
+	if orientEnabled() && depth == 0 && !a.cfg.Workflow && a.planEligible(agent, depth) {
+		a.maybeOrient(ctx, s)
+	}
 	if a.planEligible(agent, depth) {
 		// The planner running is NOT itself work: it decides solo-vs-fan-out and may
 		// register todos, but authors nothing. Only real tool execution (below) seeds
