@@ -127,8 +127,17 @@ class MagiAgent(BaseInstalledAgent):
         # instead of burning the round cap before execution starts. MAGI_STALL_CONVERGE=0 is an
         # eighth: it turns off the stalled-nudge convergence (collapse the no-progress re-arm when
         # a redirect produced no forward motion), restoring the fixed maxStallNudges re-arm — the
-        # A/B knob for whether an ignored stall lands the honest force-stop sooner. All are
-        # forwarded so the arms share one prebuilt binary.
+        # A/B knob for whether an ignored stall lands the honest force-stop sooner. MAGI_STEP_VERIFY=0
+        # is a ninth: it turns off the per-step deliverable contract (default on), restoring the
+        # baseline that leaves the step gate and its council skip inert. MAGI_RECOVERY_RUNCAP=1 is a
+        # tenth: it caps stuck-recovery re-decomposition to one executor per run tree (default off),
+        # the A/B knob for whether the recovery cascade under delegate-off collapses to a single
+        # coder. MAGI_ENV_SCAN=1 is an eleventh: it grounds the planner in a two-level repo scan plus
+        # build-anchor excerpts instead of the flat top-level name list (default off), the A/B knob
+        # for whether a plan cohering with the files present beats one derived from the prose alone.
+        # MAGI_IMPLICIT_ACCEPT=1 is a twelfth: it tells the planner the grading check is hidden and
+        # stricter than the prose, so it should plan for the unstated-but-conventional acceptance
+        # conditions (default off). All are forwarded so the arms share one prebuilt binary.
         for key in (
             "MAGI_BASE_URL",
             "MAGI_API_KEY",
@@ -140,6 +149,10 @@ class MagiAgent(BaseInstalledAgent):
             "MAGI_SPEC_FIDELITY",
             "MAGI_PLAN_CONVERGE",
             "MAGI_STALL_CONVERGE",
+            "MAGI_STEP_VERIFY",
+            "MAGI_RECOVERY_RUNCAP",
+            "MAGI_ENV_SCAN",
+            "MAGI_IMPLICIT_ACCEPT",
             "MAGI_STREAM_DIAG",
             "MAGI_REASONING_EFFORT",
         ):
