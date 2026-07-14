@@ -38,6 +38,9 @@ func (Write) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv)
 	if err != nil {
 		return errResult("", err.Error()), nil
 	}
+	// Serialize against a concurrent edit/write of the same file so an overwrite and
+	// another tool's read-modify-write don't interleave. Per-path.
+	defer pathLocks.lock(lockKey(abs))()
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		return errResult("", relPathErr(err, env.Workdir)), nil
 	}

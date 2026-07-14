@@ -47,6 +47,9 @@ func (MultiEdit) Execute(ctx context.Context, raw json.RawMessage, env port.Tool
 	if err != nil {
 		return errResult("", err.Error()), nil
 	}
+	// Serialize the read-apply-write against concurrent edits/writes of the same file
+	// so all-or-nothing hunks don't interleave with another tool's write. Per-path.
+	defer pathLocks.lock(lockKey(abs))()
 	data, err := os.ReadFile(abs)
 	if err != nil {
 		if os.IsNotExist(err) {

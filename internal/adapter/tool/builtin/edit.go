@@ -63,6 +63,10 @@ func (Edit) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	if err != nil {
 		return errResult("", err.Error()), nil
 	}
+	// Serialize the whole read-modify-write against concurrent edits/writes of the
+	// same file (parallel subagents sharing a workdir), so neither loses the other's
+	// update. Per-path, so edits to different files stay parallel.
+	defer pathLocks.lock(lockKey(abs))()
 	data, err := os.ReadFile(abs)
 	if err != nil {
 		if os.IsNotExist(err) {
