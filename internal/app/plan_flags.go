@@ -72,15 +72,16 @@ func specFidelityEnabled() bool {
 // then implement until the checkpoint passes, rather than reasoning about a
 // verifiable artifact symbolically and never running it (regex-log: a regex rewritten
 // 7× with re.findall never once executed). A behavioral nudge on top of the existing
-// end-of-turn unverifiedDeliverable backstop, not a replacement. Default OFF (opt-in,
-// unvalidated): MAGI_CHECKPOINT_FIRST=1 enables it for an A/B arm. Mirrors
-// specFidelityEnabled's env shape.
+// end-of-turn unverifiedDeliverable backstop, not a replacement. It self-limits to tasks
+// that actually state an executable check and steps aside for prose-only conditions, so a
+// clean run is not misdirected. Default ON; MAGI_CHECKPOINT_FIRST=off restores the baseline
+// that never orders/injects the checkpoint (the A/B knob). Mirrors specFidelityEnabled's env shape.
 func checkpointFirstEnabled() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_CHECKPOINT_FIRST"))) {
-	case "1", "on", "true", "yes":
-		return true
+	case "0", "off", "false", "no":
+		return false
 	}
-	return false
+	return true
 }
 
 // stepVerifyEnabled turns on the per-step deliverable contract: the plan-audit council
@@ -110,8 +111,8 @@ func stepVerifyEnabled() bool {
 // already-recovered, so it cannot trigger its OWN redecomposeStuck: exactly one recovery
 // executor is spawned per run tree. Default OFF (opt-in, unvalidated): MAGI_RECOVERY_RUNCAP=1
 // enables it for an A/B arm — it narrows the [[stuck-recovery-decoupled]] recovery reach, so it
-// needs a paired bench run before it is treated as an improvement. Mirrors checkpointFirstEnabled's
-// env shape.
+// needs a paired bench run before it is treated as an improvement. Default OFF (opt-in): only an
+// explicit truthy MAGI_RECOVERY_RUNCAP enables it for an A/B arm.
 func recoveryRunCapEnabled() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_RECOVERY_RUNCAP"))) {
 	case "1", "on", "true", "yes":
@@ -120,21 +121,23 @@ func recoveryRunCapEnabled() bool {
 	return false
 }
 
-// implicitAcceptEnabled tells the planner that the task's real acceptance conditions are hidden
-// and usually stricter than the instruction prose: a terminal-bench grader checks exact output
-// tokens/formats the prose only gestures at, and standard domain semantics the prose never spells
-// out (cleanup must still run on cancellation; a headless build must not link display libraries).
-// When on, the planner is asked to surface those unstated-but-conventional conditions and fold
-// them into the relevant steps' deliverables, so the plan targets the real contract rather than
-// the literal sentence. Complements the orient grounding (files present) with domain convention.
-// Default OFF (opt-in, unvalidated): MAGI_IMPLICIT_ACCEPT=1 enables it for an A/B arm. Mirrors
-// checkpointFirstEnabled's env shape.
+// implicitAcceptEnabled tells the planner that a task's real acceptance conditions are usually
+// stricter than the instruction prose: the exact output tokens/formats the prose only gestures at,
+// the standard domain semantics it never spells out (cleanup must still run on cancellation; a
+// headless build must not link display libraries), and the edge cases it implies but never lists
+// (malformed/empty/boundary inputs, error paths). When on, the planner is asked to surface those
+// unstated-but-conventional conditions and fold them into the relevant steps' deliverables, so the
+// plan targets the real contract rather than the literal sentence. Complements the orient grounding
+// (files present) with domain convention, and pairs with checkpoint-first (the surfaced edge cases
+// become the checkpoint's cases). Framed as general edge-case rigor, not a hidden benchmark grader,
+// so it applies identically off-bench. Default ON; MAGI_IMPLICIT_ACCEPT=off restores the
+// literal-sentence baseline (the A/B knob). Mirrors specFidelityEnabled's env shape.
 func implicitAcceptEnabled() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_IMPLICIT_ACCEPT"))) {
-	case "1", "on", "true", "yes":
-		return true
+	case "0", "off", "false", "no":
+		return false
 	}
-	return false
+	return true
 }
 
 // orientEnabled turns on the explore-first grounding pass (maybeOrient): once per session, at the

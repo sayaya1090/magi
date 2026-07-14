@@ -80,8 +80,11 @@ const checkpointFirstNote = "# Execution note — checkpoint first\n" +
 	"the test before the code). Build its inputs from the spec itself, INCLUDING any counter-example the " +
 	"task names, and encode the expected result. Then implement until the checkpoint passes, and only " +
 	"report done once you have RUN it and seen it pass. Do not invent an oracle the spec does not give — " +
-	"reproduce the stated procedure. If a runnable checkpoint genuinely cannot be built cheaply (the " +
-	"conditions are purely prose), proceed as usual."
+	"reproduce the stated procedure. For an edge case you INFERRED rather than one the task states, only " +
+	"assert an expected result you can derive with confidence from the spec or domain semantics; if its " +
+	"correct output is uncertain, harden the implementation against it instead of pinning the checkpoint " +
+	"to a guessed value. If a runnable checkpoint genuinely cannot be built cheaply (the conditions are " +
+	"purely prose), proceed as usual."
 
 // checkpointFirstRule is appended to the planner contract when checkpointFirstEnabled():
 // it makes a multi-step plan ORDER the checkpoint early (a sequencing concern, not a new
@@ -92,19 +95,20 @@ const checkpointFirstRule = "\n\nCHECKPOINT FIRST: if the request states HOW com
 	"later steps implement until it passes. Only add this when the check is actually executable — do not pad a " +
 	"prose-only task with it."
 
-// implicitAcceptRule is appended to the planner contract when implicitAcceptEnabled(): the
-// automated check that grades this task is NOT shown to the agent and is typically stricter than
-// the instruction prose, so the planner is told to surface the unstated-but-conventional
-// acceptance conditions and fold them into the steps' deliverables. See implicitAcceptEnabled.
-const implicitAcceptRule = "\n\nHIDDEN ACCEPTANCE — plan for the real contract, not just the sentence: the automated " +
-	"check that grades this task is NOT shown to you, and it is usually STRICTER than the prose. Before finalizing, ask what " +
-	"a careful reviewer would ALSO require and make the relevant steps deliver it: (1) EXACT output — if the task shows or " +
-	"implies a specific format, token, or message, produce it verbatim (a literal like `Cleaned up.` or `Results: X Y Z`, " +
-	"exact counts/casing), not a paraphrase; (2) STANDARD SEMANTICS the prose assumes but does not spell out (a task whose " +
-	"jobs must clean up on cancellation implies interrupt/cancellation actually runs their cleanup; a headless build implies " +
-	"no display-library linkage; a parser implies the malformed/edge inputs it never lists); (3) IDIOMATIC over hacky — use " +
-	"the mechanism the domain expects, since a check often distinguishes them. Do NOT invent requirements the task excludes; " +
-	"infer only what a competent implementation of THIS task would obviously satisfy."
+// implicitAcceptRule is appended to the planner contract when implicitAcceptEnabled(): a task's
+// real acceptance conditions are usually stricter than the instruction prose — the exact output
+// it implies, the standard semantics it assumes, and the edge cases it never lists — so the planner
+// is told to surface those and fold them into the steps' deliverables. See implicitAcceptEnabled.
+const implicitAcceptRule = "\n\nEDGE-CASE RIGOR — plan for the real contract, not just the sentence: a correct solution " +
+	"must survive careful scrutiny, not only the happy path the prose spells out. Before finalizing, ask what a careful " +
+	"reviewer would ALSO require and make the relevant steps deliver it: (1) EXACT output — if the task shows or implies a " +
+	"specific format, token, or message, produce it verbatim (a literal like `Cleaned up.` or `Results: X Y Z`, exact " +
+	"counts/casing), not a paraphrase; (2) STANDARD SEMANTICS the prose assumes but does not spell out (a task whose jobs " +
+	"must clean up on cancellation implies interrupt/cancellation actually runs their cleanup; a headless build implies no " +
+	"display-library linkage); (3) EDGE CASES the task implies but never lists — malformed, empty, or boundary inputs, error " +
+	"paths, and concurrency — handled rather than assumed away; (4) IDIOMATIC over hacky — use the mechanism the domain " +
+	"expects. Do NOT invent requirements the task excludes; infer only what a competent implementation of THIS task would " +
+	"obviously satisfy."
 
 // planEnvelope gives the planner the two facts it otherwise plans blind to: the step
 // BUDGET it is planning within, and its DEPTH relative to the recursion cap. Both let it

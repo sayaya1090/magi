@@ -5,19 +5,19 @@ import (
 	"testing"
 )
 
-// checkpointFirstEnabled is opt-in: OFF unless explicitly turned on (unvalidated
-// behavioral nudge). Mirrors the specFidelity flag test shape, but inverted default.
+// checkpointFirstEnabled is ON by default: only an explicit falsey MAGI_CHECKPOINT_FIRST
+// suppresses it (the A/B knob). Mirrors the specFidelity flag test shape.
 func TestCheckpointFirstEnabled(t *testing.T) {
-	for _, v := range []string{"1", "on", "true", "yes", "ON", "True"} {
+	for _, v := range []string{"", "1", "on", "true", "yes", "ON", "True", "garbage"} {
 		t.Setenv("MAGI_CHECKPOINT_FIRST", v)
 		if !checkpointFirstEnabled() {
-			t.Errorf("MAGI_CHECKPOINT_FIRST=%q should enable checkpoint-first", v)
+			t.Errorf("MAGI_CHECKPOINT_FIRST=%q should enable checkpoint-first (default is on)", v)
 		}
 	}
-	for _, v := range []string{"", "0", "off", "false", "no", "garbage"} {
+	for _, v := range []string{"0", "off", "false", "no", "OFF"} {
 		t.Setenv("MAGI_CHECKPOINT_FIRST", v)
 		if checkpointFirstEnabled() {
-			t.Errorf("MAGI_CHECKPOINT_FIRST=%q should NOT enable (default is off)", v)
+			t.Errorf("MAGI_CHECKPOINT_FIRST=%q should NOT enable", v)
 		}
 	}
 }
