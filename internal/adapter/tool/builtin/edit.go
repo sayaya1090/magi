@@ -79,7 +79,7 @@ func (Edit) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	if eerr != nil {
 		return errResult("", eerr.Error()), nil
 	}
-	if err := os.WriteFile(abs, []byte(updated), 0o644); err != nil {
+	if err := atomicWriteFile(abs, []byte(updated), 0o644); err != nil {
 		return errResult("", err.Error()), nil
 	}
 	// Report the 1-based start line of the edit so the UI can number the diff (only
@@ -116,7 +116,7 @@ func applyAnchoredEdit(content string, a editArgs, abs string) session.ToolResul
 	if updated == content {
 		return errResult("", "no change: the anchored range already equals `new`")
 	}
-	if err := os.WriteFile(abs, []byte(updated), 0o644); err != nil {
+	if err := atomicWriteFile(abs, []byte(updated), 0o644); err != nil {
 		return errResult("", err.Error())
 	}
 	span := fmt.Sprintf(" @%d", from)

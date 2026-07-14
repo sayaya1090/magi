@@ -77,7 +77,7 @@ func (MultiEdit) Execute(ctx context.Context, raw json.RawMessage, env port.Tool
 		priorAll.WriteString(h.Old + "\n")
 	}
 
-	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+	if err := atomicWriteFile(abs, []byte(content), 0o644); err != nil {
 		return errResult("", err.Error()), nil
 	}
 	msg := fmt.Sprintf("applied %d edits to %s", len(a.Edits), a.Path)

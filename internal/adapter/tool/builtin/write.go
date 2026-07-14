@@ -41,7 +41,7 @@ func (Write) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv)
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		return errResult("", relPathErr(err, env.Workdir)), nil
 	}
-	if err := os.WriteFile(abs, []byte(a.Content), 0o644); err != nil {
+	if err := atomicWriteFile(abs, []byte(a.Content), 0o644); err != nil {
 		return errResult("", relPathErr(err, env.Workdir)), nil
 	}
 	msg := fmt.Sprintf("wrote %d bytes to %s", len(a.Content), a.Path)
