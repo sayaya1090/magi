@@ -120,6 +120,23 @@ func recoveryRunCapEnabled() bool {
 	return false
 }
 
+// envScanEnabled enriches the planner's repository grounding beyond the flat top-level name
+// list (repoMap): when on, the planner is shown a two-level tree plus a bounded excerpt of the
+// build/convention anchor files actually present (Makefile, go.mod, package.json, pyproject.toml,
+// CMakeLists.txt, Cargo.toml, README, …), so a plan coheres with the existing source/build system
+// instead of being derived from the instruction prose alone. A terminal-bench grader tests the
+// solution's fit with the environment (a headless build must edit the real Makefile, not invent
+// one), and that fit is only visible from the files present. Default OFF (opt-in, unvalidated):
+// MAGI_ENV_SCAN=1 enables it for an A/B arm. OFF keeps the exact repoMap grounding (baseline
+// byte-for-byte). Mirrors checkpointFirstEnabled's env shape.
+func envScanEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_ENV_SCAN"))) {
+	case "1", "on", "true", "yes":
+		return true
+	}
+	return false
+}
+
 // asyncExplorersEnabled routes a top-level, read-only-only plan's explorer fan-out through the
 // BACKGROUND dispatch path (a.dispatch) instead of the synchronous runExplorers, so the
 // orchestrator loop parks in its bg-wait — staying responsive to user interjections — while the
