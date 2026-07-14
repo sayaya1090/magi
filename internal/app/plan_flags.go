@@ -137,6 +137,23 @@ func envScanEnabled() bool {
 	return false
 }
 
+// implicitAcceptEnabled tells the planner that the task's real acceptance conditions are hidden
+// and usually stricter than the instruction prose: a terminal-bench grader checks exact output
+// tokens/formats the prose only gestures at, and standard domain semantics the prose never spells
+// out (cleanup must still run on cancellation; a headless build must not link display libraries).
+// When on, the planner is asked to surface those unstated-but-conventional conditions and fold
+// them into the relevant steps' deliverables, so the plan targets the real contract rather than
+// the literal sentence. Complements envScanEnabled (files present) with domain convention. Default
+// OFF (opt-in, unvalidated): MAGI_IMPLICIT_ACCEPT=1 enables it for an A/B arm. Mirrors
+// checkpointFirstEnabled's env shape.
+func implicitAcceptEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_IMPLICIT_ACCEPT"))) {
+	case "1", "on", "true", "yes":
+		return true
+	}
+	return false
+}
+
 // asyncExplorersEnabled routes a top-level, read-only-only plan's explorer fan-out through the
 // BACKGROUND dispatch path (a.dispatch) instead of the synchronous runExplorers, so the
 // orchestrator loop parks in its bg-wait — staying responsive to user interjections — while the

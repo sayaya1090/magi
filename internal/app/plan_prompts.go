@@ -88,6 +88,20 @@ const checkpointFirstRule = "\n\nCHECKPOINT FIRST: if the request states HOW com
 	"later steps implement until it passes. Only add this when the check is actually executable — do not pad a " +
 	"prose-only task with it."
 
+// implicitAcceptRule is appended to the planner contract when implicitAcceptEnabled(): the
+// automated check that grades this task is NOT shown to the agent and is typically stricter than
+// the instruction prose, so the planner is told to surface the unstated-but-conventional
+// acceptance conditions and fold them into the steps' deliverables. See implicitAcceptEnabled.
+const implicitAcceptRule = "\n\nHIDDEN ACCEPTANCE — plan for the real contract, not just the sentence: the automated " +
+	"check that grades this task is NOT shown to you, and it is usually STRICTER than the prose. Before finalizing, ask what " +
+	"a careful reviewer would ALSO require and make the relevant steps deliver it: (1) EXACT output — if the task shows or " +
+	"implies a specific format, token, or message, produce it verbatim (a literal like `Cleaned up.` or `Results: X Y Z`, " +
+	"exact counts/casing), not a paraphrase; (2) STANDARD SEMANTICS the prose assumes but does not spell out (a task whose " +
+	"jobs must clean up on cancellation implies interrupt/cancellation actually runs their cleanup; a headless build implies " +
+	"no display-library linkage; a parser implies the malformed/edge inputs it never lists); (3) IDIOMATIC over hacky — use " +
+	"the mechanism the domain expects, since a check often distinguishes them. Do NOT invent requirements the task excludes; " +
+	"infer only what a competent implementation of THIS task would obviously satisfy."
+
 // planEnvelope gives the planner the two facts it otherwise plans blind to: the step
 // BUDGET it is planning within, and its DEPTH relative to the recursion cap. Both let it
 // right-size the procedure — a plan produced at the cap, or with little budget, should be

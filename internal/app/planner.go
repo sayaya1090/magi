@@ -391,6 +391,9 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 	if checkpointFirstEnabled() {
 		sys += checkpointFirstRule
 	}
+	if implicitAcceptEnabled() {
+		sys += implicitAcceptRule
+	}
 	if names := a.delegatableAgents(); len(names) > 0 {
 		sys += "\n\nDelegate executors available (use one as a delegate step's \"agent\"): " + strings.Join(names, ", ") + "."
 	} else {
