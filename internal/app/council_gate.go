@@ -494,6 +494,144 @@ func continuationText(inject, task, contract string) string {
 	return b.String()
 }
 
+// councilPreRoundCaps applies the two finish-without-deliberating caps before a round is
+// spent, returning (unverifiedReason, done): done=true means the gate must finish now, always
+// UNVERIFIED (the council never approved). The round cap (deadlock) additionally sets
+// ct.deadlocked so a stuck-recovery hook can distinguish "held unmet for every round" from a
+// DONE vote that merely landed on the last allowed round. The cost cap stops round 2+ once
+// deliberation has eaten a disproportionate share of the turn's own wall clock (a slow backend
+// polling members) — at least one round always runs. done=false lets the caller convene.
+func (a *App) councilPreRoundCaps(ctx context.Context, sid session.SessionID, in councilInput, ct *councilTurn, maxRounds int, councilActor event.Actor) (string, bool) {
+	if ct.rounds >= maxRounds {
+		// Round cap hit — finish (a normal outcome, not an error), but say plainly that the
+		// council never approved: a deadlocked result must read as UNVERIFIED, not as a done the
+		// members agreed to. Carry the last feedback so the record shows WHAT was still unmet.
+		// Recorded on a fresh round number so it doesn't collide with the last deliberated round.
+		note := fmt.Sprintf("unresolved after %d rounds — finishing; the council never approved this result, treat it as UNVERIFIED", maxRounds)
+		if fb := strings.TrimSpace(ct.feedback); fb != "" {
+			note += "; still unmet: " + clipLine(fb, 200)
+		}
+		dd, _ := json.Marshal(event.CouncilDecidedData{
+			Round: ct.rounds + 1, Decision: string(council.Done),
+			Note: note, Forced: true,
+		})
+		a.appendFact(ctx, sid, event.TypeCouncilDecided, councilActor, dd)
+		ct.deadlocked = true
+		return fmt.Sprintf("the council never approved this result within %d round(s)", maxRounds), true
+	}
+	// Cost-efficiency cap (self-measured, no external info): when deliberation has already eaten
+	// a disproportionate share of the turn's own wall clock — a slow backend polling 3 members
+	// per round — further rounds cost more than they return. At least one round always runs; the
+	// cap only stops round 2+.
+	if ct.rounds >= 1 && ct.spent >= 60*time.Second && ct.spent*4 >= in.turnElapsed {
+		dd, _ := json.Marshal(event.CouncilDecidedData{
+			Round: ct.rounds + 1, Decision: string(council.Done),
+			Note: fmt.Sprintf("deliberation has cost %s of a %s turn — finishing instead of another round; treat as UNVERIFIED",
+				fmtElapsed(ct.spent), fmtElapsed(in.turnElapsed)),
+			Forced: true,
+		})
+		a.appendFact(ctx, sid, event.TypeCouncilDecided, councilActor, dd)
+		return "deliberation was cost-capped before the council approved", true
+	}
+	return "", false
+}
+
+// councilSignals assembles the deterministic evidence this round's members judge on, returning
+// the signals and their one-line summaries. Two always-on structural signals need no config:
+// unverified execution (a deliverable changed but never exercised, in.fabrication) and an
+// unverified premise (a knowledge lookup that failed this turn and was never recovered, N14) —
+// the latter is also persisted to the durable concern ledger so it survives beyond this turn
+// (raised idempotently, auto-resolved ONLY on a positive lookup recovery, never on mere
+// absence). Then the opt-in [council] signal commands run (D16). Finally the open ledger is
+// merged in, deduped by key, so a concern raised on an earlier turn or bubbled up from a
+// subagent is carried even when it did not fire this turn.
+func (a *App) councilSignals(ctx context.Context, s session.Session, evs []event.Event, fabrication string, councilActor event.Actor) ([]port.Signal, []string) {
+	sid := s.ID
+	var signals []port.Signal
+	var signalSummaries []string
+	// Always-on deterministic signal: the agent changed a deliverable this turn but ran no
+	// command exercising the current version (see runGuard.unverifiedDeliverable). Unlike the
+	// opt-in command signals below, this needs no config — it is derived structurally from the
+	// tool log the council is already judging against, and it is language-agnostic (it replaced
+	// the old English confession-phrase scan that missed non-English or non-confessing fakes).
+	if strings.TrimSpace(fabrication) != "" {
+		signals = append(signals, port.Signal{Source: "self-check", Kind: "unverified", Status: "fail", Detail: tailForCouncil(fabrication, councilSignalCap)})
+		signalSummaries = append(signalSummaries, "self-check: unverified")
+	}
+	// Always-on deterministic signal (N14): a knowledge lookup failed this turn and was never
+	// recovered, so a fact the deliverable rests on may be a guessed premise. This resurfaces a
+	// failure that turnToolEvidence's recency window ages out before the council convenes — the
+	// research-dead-end fabrication branch the execution-evidence gate cannot see (execution
+	// succeeds; the lie is in a fact, not the artifact).
+	lp := unverifiedLookup(evs)
+	if lp != "" {
+		signals = append(signals, port.Signal{Source: "self-check", Kind: "unverified-premise", Status: "fail", Detail: tailForCouncil(lp, councilSignalCap)})
+		signalSummaries = append(signalSummaries, "self-check: unverified-premise")
+	}
+	// Persist the premise concern to the durable ledger so it survives BEYOND this turn: the
+	// fresh signal above only fires the turn the lookup failed, but the fact the deliverable
+	// rests on stays unverified until it is actually looked up. Raise it (idempotently — only
+	// when not already open) when it fires; auto-resolve ONLY on positive recovery (a lookup
+	// succeeded this turn), never on mere absence. Absence must leave a still-true concern open —
+	// that is what stops a quiet turn (or a reset) from laundering an unverified premise into an
+	// approval. sessionConcerns here folds the PRE-round log; the resolve/raise below then
+	// updates it for the merge that follows.
+	premiseOpen := false
+	for _, c := range sessionConcerns(evs) {
+		if c.Key == concernPremiseKey {
+			premiseOpen = true
+			break
+		}
+	}
+	switch {
+	case lp != "" && !premiseOpen:
+		_ = a.appendConcernRaised(ctx, sid, councilActor, concernPremiseKey, "self-check", "unverified-premise", "fail", tailForCouncil(lp, councilSignalCap), "")
+	case premiseOpen && lookupRecovered(evs):
+		_ = a.appendConcernResolved(ctx, sid, councilActor, concernPremiseKey, "auto", "a knowledge lookup succeeded this turn")
+	}
+	if a.plat != nil {
+		for _, sp := range a.cfg.CouncilSignals {
+			if ctx.Err() != nil {
+				break // interrupted — stop spawning further checks
+			}
+			if strings.TrimSpace(sp.Command) == "" {
+				continue
+			}
+			name := sp.Name
+			if name == "" {
+				name = "check"
+			}
+			out, code := a.runVerifyCmd(ctx, s.Workdir, sp.Command)
+			status := "pass"
+			if code != 0 {
+				status = "fail"
+			}
+			signals = append(signals, port.Signal{Source: name, Kind: "check", Status: status, Detail: tailForCouncil(out, councilSignalCap)})
+			signalSummaries = append(signalSummaries, name+": "+status)
+		}
+	}
+	// Merge the open ledger into this round's signals: carry a concern the council would
+	// otherwise not see — one raised on an EARLIER turn (cross-turn survival) or bubbled up from
+	// a SUBAGENT (cross-boundary). Dedup by Key against the freshly computed signals so a concern
+	// that already fired THIS turn is not listed twice, while a still-open concern that did NOT
+	// fire this turn is surfaced from the ledger. Re-read the log so this turn's own raise/resolve
+	// above are reflected (a just-resolved concern is not re-carried).
+	ledgerEvs, _ := a.store.Read(ctx, sid, 0)
+	present := map[string]bool{}
+	for _, sg := range signals {
+		present[sg.Source+"/"+sg.Kind] = true
+	}
+	for _, c := range sessionConcerns(ledgerEvs) {
+		if present[c.Key] {
+			continue
+		}
+		signals = append(signals, c.Signal())
+		signalSummaries = append(signalSummaries, c.Source+": "+c.Kind+" (carried)")
+		present[c.Key] = true
+	}
+	return signals, signalSummaries
+}
+
 func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent AgentSpec, in councilInput, ct *councilTurn) (keepWorking bool, unverifiedReason string) {
 	// ct.deadlocked reports (to the caller) whether this finish is a genuine round-cap
 	// deadlock — the council used its whole budget and never approved — as opposed to
@@ -514,37 +652,8 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	if maxRounds <= 0 {
 		maxRounds = 3
 	}
-	if ct.rounds >= maxRounds {
-		// Round cap hit — finish (a normal outcome, not an error), but say plainly
-		// that the council never approved: a deadlocked result must read as
-		// UNVERIFIED, not as a done the members agreed to. Carry the last feedback
-		// so the record shows WHAT was still unmet. Recorded on a fresh round number
-		// so it doesn't collide with the last deliberated round.
-		note := fmt.Sprintf("unresolved after %d rounds — finishing; the council never approved this result, treat it as UNVERIFIED", maxRounds)
-		if fb := strings.TrimSpace(ct.feedback); fb != "" {
-			note += "; still unmet: " + clipLine(fb, 200)
-		}
-		dd, _ := json.Marshal(event.CouncilDecidedData{
-			Round: ct.rounds + 1, Decision: string(council.Done),
-			Note: note, Forced: true,
-		})
-		a.appendFact(ctx, sid, event.TypeCouncilDecided, councilActor, dd)
-		ct.deadlocked = true
-		return false, fmt.Sprintf("the council never approved this result within %d round(s)", maxRounds)
-	}
-	// Cost-efficiency cap (self-measured, no external info): when deliberation has
-	// already eaten a disproportionate share of the turn's own wall clock — a slow
-	// backend polling 3 members per round — further rounds cost more than they
-	// return. At least one round always runs; the cap only stops round 2+.
-	if ct.rounds >= 1 && ct.spent >= 60*time.Second && ct.spent*4 >= in.turnElapsed {
-		dd, _ := json.Marshal(event.CouncilDecidedData{
-			Round: ct.rounds + 1, Decision: string(council.Done),
-			Note: fmt.Sprintf("deliberation has cost %s of a %s turn — finishing instead of another round; treat as UNVERIFIED",
-				fmtElapsed(ct.spent), fmtElapsed(in.turnElapsed)),
-			Forced: true,
-		})
-		a.appendFact(ctx, sid, event.TypeCouncilDecided, councilActor, dd)
-		return false, "deliberation was cost-capped before the council approved"
+	if reason, done := a.councilPreRoundCaps(ctx, sid, in, ct, maxRounds, councilActor); done {
+		return false, reason
 	}
 	ct.rounds++
 
@@ -634,95 +743,11 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		}
 	}
 
-	// Opt-in deterministic evidence (D16): run each configured signal command and
-	// feed its outcome to the council, so members judge on proof, not just claims.
-	var signals []port.Signal
-	var signalSummaries []string
-	// Always-on deterministic signal: the agent changed a deliverable this turn but ran no
-	// command exercising the current version (see runGuard.unverifiedDeliverable). Unlike the
-	// opt-in command signals below, this needs no config — it is derived structurally from the
-	// tool log the council is already judging against, and it is language-agnostic (it replaced
-	// the old English confession-phrase scan that missed non-English or non-confessing fakes).
-	if strings.TrimSpace(in.fabrication) != "" {
-		signals = append(signals, port.Signal{Source: "self-check", Kind: "unverified", Status: "fail", Detail: tailForCouncil(in.fabrication, councilSignalCap)})
-		signalSummaries = append(signalSummaries, "self-check: unverified")
-	}
-	// Always-on deterministic signal (N14): a knowledge lookup failed this turn and was
-	// never recovered, so a fact the deliverable rests on may be a guessed premise. This
-	// resurfaces a failure that turnToolEvidence's recency window ages out before the
-	// council convenes — the research-dead-end fabrication branch the execution-evidence
-	// gate above cannot see (execution succeeds; the lie is in a fact, not the artifact).
-	lp := unverifiedLookup(evs)
-	if lp != "" {
-		signals = append(signals, port.Signal{Source: "self-check", Kind: "unverified-premise", Status: "fail", Detail: tailForCouncil(lp, councilSignalCap)})
-		signalSummaries = append(signalSummaries, "self-check: unverified-premise")
-	}
-	// Persist the premise concern to the durable ledger so it survives BEYOND this turn:
-	// the fresh signal above only fires the turn the lookup failed, but the fact the
-	// deliverable rests on stays unverified until it is actually looked up. Raise it
-	// (idempotently — only when not already open) when it fires; auto-resolve ONLY on
-	// positive recovery (a lookup succeeded this turn), never on mere absence. Absence must
-	// leave a still-true concern open — that is what stops a quiet turn (or a reset) from
-	// laundering an unverified premise into an approval. sessionConcerns here folds the
-	// PRE-round log; the resolve/raise below then updates it for the merge that follows.
-	premiseOpen := false
-	for _, c := range sessionConcerns(evs) {
-		if c.Key == concernPremiseKey {
-			premiseOpen = true
-			break
-		}
-	}
-	switch {
-	case lp != "" && !premiseOpen:
-		_ = a.appendConcernRaised(ctx, sid, councilActor, concernPremiseKey, "self-check", "unverified-premise", "fail", tailForCouncil(lp, councilSignalCap), "")
-	case premiseOpen && lookupRecovered(evs):
-		_ = a.appendConcernResolved(ctx, sid, councilActor, concernPremiseKey, "auto", "a knowledge lookup succeeded this turn")
-	}
-	if a.plat != nil {
-		for _, sp := range a.cfg.CouncilSignals {
-			if ctx.Err() != nil {
-				break // interrupted — stop spawning further checks
-			}
-			if strings.TrimSpace(sp.Command) == "" {
-				continue
-			}
-			name := sp.Name
-			if name == "" {
-				name = "check"
-			}
-			out, code := a.runVerifyCmd(ctx, s.Workdir, sp.Command)
-			status := "pass"
-			if code != 0 {
-				status = "fail"
-			}
-			signals = append(signals, port.Signal{Source: name, Kind: "check", Status: status, Detail: tailForCouncil(out, councilSignalCap)})
-			signalSummaries = append(signalSummaries, name+": "+status)
-		}
-	}
-	// Cancellation during GitDiff/verify: unwind rather than persist a misleading
-	// convened fact or deliberate on partial evidence.
+	signals, signalSummaries := a.councilSignals(ctx, s, evs, in.fabrication, councilActor)
+	// Cancellation during verify: unwind rather than persist a misleading convened fact or
+	// deliberate on partial evidence.
 	if ctx.Err() != nil {
 		return false, ""
-	}
-
-	// Merge the open ledger into this round's signals: carry a concern the council would
-	// otherwise not see — one raised on an EARLIER turn (cross-turn survival) or bubbled up
-	// from a SUBAGENT (cross-boundary). Dedup by Key against the freshly computed signals so
-	// a concern that already fired THIS turn is not listed twice, while a still-open concern
-	// that did NOT fire this turn is surfaced from the ledger. Re-read the log so this turn's
-	// own raise/resolve above are reflected (a just-resolved concern is not re-carried).
-	ledgerEvs, _ := a.store.Read(ctx, sid, 0)
-	present := map[string]bool{}
-	for _, sg := range signals {
-		present[sg.Source+"/"+sg.Kind] = true
-	}
-	for _, c := range sessionConcerns(ledgerEvs) {
-		if present[c.Key] {
-			continue
-		}
-		signals = append(signals, c.Signal())
-		signalSummaries = append(signalSummaries, c.Source+": "+c.Kind+" (carried)")
-		present[c.Key] = true
 	}
 
 	// Tell the council when the turn changed nothing (no agent file edits, no signals): a
