@@ -340,9 +340,15 @@ func (a *App) redecomposeStuck(ctx context.Context, s session.Session, agent Age
 	// Preferred recovery (default): decompose the stuck task into an explicit TODO list and drive
 	// the units one at a time, each in a full-context child scoped to just that unit. This forces
 	// incremental forward progress instead of re-handing the monolith. Falls through to the
-	// single whole-task re-spawn below when the flag is off or decomposition yielded <2 units.
-	if stuckDecomposeEnabled() && a.driveStuckTodos(ctx, s, agent, task, blockReason, depth) {
-		return true
+	// single whole-task re-spawn below ONLY when the flag is off or decomposition yielded <2
+	// units. When the decomposition actually ran and EVERY scoped unit failed, re-spawning the
+	// whole task has even less chance than the units did — that would just burn one more child's
+	// budget after N failures — so recovery reports failure and the caller force-stops honestly.
+	if stuckDecomposeEnabled() {
+		landed, attempted := a.driveStuckTodos(ctx, s, agent, task, blockReason, depth)
+		if landed || attempted {
+			return landed
+		}
 	}
 	// Recovery is honored only under the run-tree cap (recoveryRunCapEnabled, default off): the
 	// child then starts already-recovered and cannot cascade its own redecomposeStuck. Off =
@@ -364,25 +370,43 @@ func (a *App) redecomposeStuck(ctx context.Context, s session.Session, agent Age
 }
 
 // driveStuckTodos is the decomposing recovery: it re-plans the stuck task into an ordered TODO
-// list and drives the units ONE AT A TIME. Each unit is handed to a fresh child seeded with the
-// FULL parent context (CloneContext) — so it inherits everything already read/changed and does not
-// re-fixate rebuilding context — but its prompt scopes it to just that unit. A unit that lands is
-// integrated and its todo checked off before the next starts; a unit that fails is left pending and
-// the driver moves on, so a single stuck unit never sinks the whole recovery. Returns false (so the
-// caller falls back to the single whole-task re-spawn) when the planner could not split the task
-// into at least two units — one unit is just the monolith again.
-func (a *App) driveStuckTodos(ctx context.Context, s session.Session, agent AgentSpec, task, blockReason string, depth int) bool {
+// list and drives the units ONE AT A TIME. The first unit's child is seeded with the FULL parent
+// context (CloneContext) — so it inherits everything already read/changed and does not re-fixate
+// rebuilding context — and each later unit CONTINUES the previous landed unit's session
+// (ReuseSession, the refine shared-session pattern), so it sees its predecessors' actual tool
+// work rather than a summary, and the parent conversation is not re-cloned per unit. A unit that
+// fails poisons its session with the failed attempt, so the chain resets and the next unit starts
+// from a fresh parent clone. A unit that lands is integrated and its todo checked off before the
+// next starts; a failed unit is left pending and the driver moves on, so a single stuck unit
+// never sinks the whole recovery.
+//
+// landed is true when at least one unit produced integrated work. attempted is true when the
+// decomposition actually ran (>=2 units were driven): the caller uses attempted && !landed to
+// skip the whole-task fallback re-spawn — after every scoped unit failed, the monolith has even
+// less chance. attempted==false means decomposition wasn't possible (no planner / <2 units) and
+// the fallback is still worth one child.
+func (a *App) driveStuckTodos(ctx context.Context, s session.Session, agent AgentSpec, task, blockReason string, depth int) (landed, attempted bool) {
 	spec, ok := a.cfg.Agents[plannerAgent]
 	if !ok {
-		return false // no planner configured → cannot decompose
+		return false, false // no planner configured → cannot decompose
 	}
 	plan := a.runPlanner(ctx, spec, s, task, "", depth, a.cfg.MaxSteps, task)
 	steps := guardExpansion(sanitizeSteps(plan), depth, a.cfg.MaxPlanDepth)
 	if len(steps) < 2 {
-		return false // nothing gained from decomposing into a single unit
+		return false, false // nothing gained from decomposing into a single unit
 	}
-	a.registerPlanTodos(ctx, s.ID, steps)
-	landed := 0
+	// Append the recovery units BELOW any existing plan todos rather than replacing the list
+	// (registerPlanTodos replaces wholesale): the stuck task is often one step of an outer plan,
+	// and clobbering that list would erase the outer plan's progress from the panel. Todos()
+	// hands out the live slice, so copy before appending.
+	existing := a.Todos(s.ID)
+	base := len(existing)
+	combined := append([]session.Todo(nil), existing...)
+	for _, st := range steps {
+		combined = append(combined, session.Todo{Content: st.Title, Status: "pending"})
+	}
+	a.putTodos(ctx, s.ID, plannerActor, combined)
+	var chain session.SessionID // last landed unit's session; empty → fresh clone from the parent
 	for i, st := range steps {
 		if ctx.Err() != nil {
 			break
@@ -391,20 +415,42 @@ func (a *App) driveStuckTodos(ctx context.Context, s session.Session, agent Agen
 		// completed (they assume strict in-order completion), which would silently mark a skipped
 		// failed unit "done". Here each unit owns its status independently so a stalled one stays
 		// visibly not-done while the rest advance.
-		a.markTodoActive(ctx, s.ID, plannerActor, i) // this unit running ◐
-		r := a.spawnResolved(ctx, s, depth, agent, port.SpawnRequest{
-			Agent:        agent.Name,
-			Prompt:       stuckUnitPrompt(st, blockReason, i == 0),
-			CloneContext: true,
-			Recovery:     recoveryRunCapEnabled(),
-		})
+		a.markTodoActive(ctx, s.ID, plannerActor, base+i) // this unit running ◐
+		req := port.SpawnRequest{
+			Agent:    agent.Name,
+			Prompt:   stuckUnitPrompt(st, blockReason),
+			MaxSteps: stuckUnitBudget(a.cfg.MaxSteps),
+			Recovery: recoveryRunCapEnabled(),
+		}
+		if chain != "" {
+			req.ReuseSession = chain
+		} else {
+			req.CloneContext = true
+		}
+		r := a.spawnResolved(ctx, s, depth, agent, req)
 		if r.Err != "" || strings.TrimSpace(r.Text) == "" {
-			a.setTodoStatusIf(ctx, s.ID, plannerActor, i, "in_progress", "pending") // stalled → revert, keep going
+			a.setTodoStatusIf(ctx, s.ID, plannerActor, base+i, "in_progress", "pending") // stalled → revert, keep going
+			chain = ""                                                                   // failed attempt poisons the shared session → next unit re-clones the parent
 			continue
 		}
 		a.injectSubagentResult(ctx, s.ID, agent.Name, r)
-		a.setTodoStatusIf(ctx, s.ID, plannerActor, i, "in_progress", "completed") // this unit done
-		landed++
+		a.setTodoStatusIf(ctx, s.ID, plannerActor, base+i, "in_progress", "completed") // this unit done
+		chain = r.SessionID
+		landed = true
 	}
-	return landed > 0
+	return landed, true
+}
+
+// stuckUnitBudget caps a recovery unit child's loop steps. A unit is deliberately a small slice
+// of the task, so it gets a quarter of the whole-task budget: enough for a read→edit→verify
+// cycle, small enough that a unit which re-fixates fails fast and yields to the next unit
+// instead of burning the full budget times the restart count, times N units — which could eat
+// the run's remaining wall clock inside a single recovery. Floor of 8 keeps tiny configured
+// budgets from degenerating to a child that can't finish one honest cycle.
+func stuckUnitBudget(maxSteps int) int {
+	b := maxSteps / 4
+	if b < 8 {
+		b = 8
+	}
+	return b
 }

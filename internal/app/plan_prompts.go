@@ -180,9 +180,9 @@ func stuckRedecomposePrompt(task, blockReason string) string {
 // re-read to reconstruct context; it just carries out this single scoped unit within that context.
 // This is the anti-fixation lever: the previous attempt looped re-reading the same file instead of
 // acting, so the unit prompt hands the model the context it kept looping to rebuild and a small,
-// concrete next action. blockReason (the wall the previous attempt hit) is included only on the
-// first unit, to steer it away from the exact fixation.
-func stuckUnitPrompt(st planStep, blockReason string, first bool) string {
+// concrete next action. blockReason (the wall the previous attempt hit) rides on EVERY unit — the
+// unit that actually touches the fixation point may be any of them, and one warning line is cheap.
+func stuckUnitPrompt(st planStep, blockReason string) string {
 	unit := strings.TrimSpace(st.Task)
 	if unit == "" {
 		unit = strings.TrimSpace(st.Title)
@@ -190,10 +190,8 @@ func stuckUnitPrompt(st planStep, blockReason string, first bool) string {
 	p := "You already have the full conversation and all work so far in context — do NOT re-read " +
 		"files or re-derive what you already know. A previous attempt on the larger task got stuck. " +
 		"It has been broken into small units; carry out ONLY THIS ONE unit now, then stop:\n\n" + unit
-	if first {
-		if r := strings.TrimSpace(blockReason); r != "" {
-			p += "\n\nWhat blocked the previous attempt (do not repeat it): " + r
-		}
+	if r := strings.TrimSpace(blockReason); r != "" {
+		p += "\n\nWhat blocked the previous attempt (do not repeat it): " + r
 	}
 	return p + "\n\n(Complete just this unit fully — take the real action, don't re-inspect what you " +
 		"already have. Then " + noFabricate + ")"
