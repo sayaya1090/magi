@@ -330,7 +330,7 @@ func (g *runGuard) allowRecall(topic string) (bool, string) {
 func (g *runGuard) check(name string, args json.RawMessage) (block bool, n int, fp string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	fp = name + "\x00" + strconv.Itoa(g.epoch) + "\x00" + canonicalArgs(args)
+	fp = name + "\x00" + strconv.Itoa(g.epoch) + "\x00" + guardArgs(name, args)
 	g.calls++
 	g.sinceProgress++ // reset only by a real mutation (mutated); rises across varied calls
 	g.seen[fp]++
@@ -734,6 +734,31 @@ func canonicalArgs(raw json.RawMessage) string {
 	b, err := json.Marshal(v) // Go marshals map keys in sorted order
 	if err != nil {
 		return string(raw)
+	}
+	return string(b)
+}
+
+// guardArgs canonicalizes a call's args for the loop-guard fingerprint. It is
+// stricter than canonicalArgs for tools whose no-progress repeats can hide
+// behind a volatile parameter: a `read` that re-reads the SAME file head while
+// only nudging `limit` (offset unchanged) is the same no-progress step, yet a
+// full-args fingerprint treats limit=60/65/70 as three distinct calls, so each
+// counter stays under repeatLimit and the exact-repeat block never fires — the
+// model paces a read loop past the guard. Dropping `limit` collapses those onto
+// one fingerprint so the block engages. Genuine paging advances `offset` (a
+// different head), which is kept, so real forward reads are unaffected.
+func guardArgs(name string, raw json.RawMessage) string {
+	if name != "read" {
+		return canonicalArgs(raw)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return canonicalArgs(raw) // not an object (or malformed) — fall back
+	}
+	delete(m, "limit")
+	b, err := json.Marshal(m) // sorted keys
+	if err != nil {
+		return canonicalArgs(raw)
 	}
 	return string(b)
 }
