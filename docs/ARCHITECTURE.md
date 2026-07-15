@@ -331,7 +331,7 @@ in `loop.go` calls into them each step):
 **Consensus council gate (D14, the signature — `runCouncilGate`).** When `Config.Council`
 is set (ON by default; disable with `[council] enabled=false`), the finish branch (no tool calls, `depth==0`, not workflow
 mode) does NOT finish immediately: it convenes a **council** that votes done-vs-continue.
-- 3 default members (the MAGI): Melchior/correctness, Balthasar/verification,
+- 3 default members (the MAGI): Melchior/spec-fidelity, Balthasar/verification,
   Casper/completeness — theme-name labels, lens attributes, configurable via `[council]`.
 - Consensus is pure `core/council.Tally` (unanimous|majority|quorum:k|weighted:θ|veto);
   a tie/unmet-quorum/abstain-all/degenerate-param all resolve to **continue** (never

@@ -344,7 +344,7 @@ headless-4: LLM error                      ⇒ message to stderr, exit != 0
 - R1 `core/council.Tally(verdicts, rule)`는 **순수 함수** — 동일 입력 동일 출력, I/O 없음.
 - R2 합의규칙: `unanimous`(전원 done) · `majority`(done>50%) · `quorum:k`(done≥k) · `weighted:θ`(done 가중합/총가중≥θ) · `veto`(지정 위원 거부 시 done 무시).
 - R3 **동률·정족수 미달 → continue**(조기종료 방지). `abstain`은 분모에서 제외.
-- R4 위원 = `{Name(라벨), Lens(속성), Model, Weight}`. 기본 3인: Melchior(correctness)·Balthasar(verification)·Casper(completeness).
+- R4 위원 = `{Name(라벨), Lens(속성), Model, Weight}`. 기본 3인: Melchior(spec-fidelity)·Balthasar(verification)·Casper(completeness).
 - R5 `decision==continue` → `AggregateFeedback(verdicts)`를 `prompt.submitted`(actor=council)로 주입 후 루프 속행(Stop훅과 동일 경로).
 - R6 안전: `max_rounds` 초과 시 노트 + 강제 `turn.finished` / 연속 라운드 무진전 감지 시 정지 / depth>0은 기본 비활성.
 - R7 이벤트: `council.convened`·`council.verdict`(위원별)·`council.decided` 영속, `council.deliberating` 전이.

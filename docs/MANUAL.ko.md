@@ -158,7 +158,7 @@ rule       = "majority"    # unanimous | majority | quorum:2 | weighted:0.6 | ve
 max_rounds = 3             # 라운드 상한(무진전·취소 안전장치와 함께 무한루프 방지)
 preset     = "full"        # "light" = 검증 위원 1인·1라운드 (인터랙티브 지연 절감; member/max_rounds 명시가 우선)
 # [[council.member]]       # 생략 시 MAGI 기본 3인 사용
-# name = "Melchior"; lens = "correctness"   # lens: correctness|verification|completeness
+# name = "Melchior"; lens = "spec-fidelity"  # lens: spec-fidelity|verification|completeness (legacy: correctness)
 
 [theme.dark]               # 컬러 테마 오버라이드 (모드별). 미지정 role은 NERV/MAGI 기본값 유지
 primary = "#FF7A1A"        # role: primary·accent·muted·outline·error·success·
