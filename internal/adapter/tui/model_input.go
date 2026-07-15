@@ -2,13 +2,19 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/sayaya1090/magi/internal/core/command"
 )
+
+// mouseDebug (MAGI_MOUSE_DEBUG) surfaces the click→cell mapping as a toast, for
+// diagnosing terminals whose drawn glyph positions diverge from reported mouse cells.
+var mouseDebug = os.Getenv("MAGI_MOUSE_DEBUG") != ""
 
 func (m *Model) handleMouse(msg tea.Msg) tea.Cmd {
 	// The permission modal is exclusive: while it's open a click on a button pill
@@ -78,6 +84,20 @@ func (m *Model) handleMouse(msg tea.Msg) tea.Cmd {
 			m.selAL, m.selAC = m.screenToContent(e.X, e.Y)
 			m.selHL, m.selHC = m.selAL, m.selAC
 			m.selecting, m.selDragged, m.selActive = true, false, false
+			// MAGI_MOUSE_DEBUG: show what magi believes sits under the pointer, so a
+			// terminal whose visual glyph positions diverge from its reported mouse
+			// cells (font/width mismatches) can be told apart from an app-side
+			// mapping bug — the app-side chain is pinned exact by tests.
+			if mouseDebug {
+				line, col := m.selAL, m.selAC
+				ctxt := ""
+				if line >= 0 && line < len(m.contentPlain) {
+					p := m.contentPlain[line]
+					lo, hi := max(0, col-6), min(ansi.StringWidth(p), col+6)
+					ctxt = ansi.Cut(p, lo, col) + "⟨" + ansi.Cut(p, col, min(hi, col+2)) + "⟩" + ansi.Cut(p, min(hi, col+2), hi)
+				}
+				m.snackbar = fmt.Sprintf("mouse x=%d y=%d → line=%d col=%d %q", e.X, e.Y, line, col, ctxt)
+			}
 		}
 	case tea.MouseMotionMsg:
 		if m.resizingPanel {
