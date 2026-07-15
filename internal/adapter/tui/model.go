@@ -253,6 +253,16 @@ func New(ctx context.Context, a *app.App, cmds CommandSource, sid session.Sessio
 	ta := textarea.New()
 	ta.Placeholder = "Ask magi to do something...  (enter to send | alt+enter/ctrl+j newline)"
 	ta.Prompt = "❯ "
+	// One ❯ on the first display row only: the textarea repeats the prompt on every
+	// soft-wrapped/extra row, which reads as separate entries on a multi-row prompt.
+	// Continuation rows get two spaces so the text column stays aligned (the cursor
+	// math measures promptView(0), so the offset is unchanged).
+	ta.SetPromptFunc(2, func(pi textarea.PromptInfo) string {
+		if pi.LineNumber == 0 {
+			return "❯ "
+		}
+		return "  "
+	})
 	ta.CharLimit = 0
 	ta.ShowLineNumbers = false
 	// Size the box from the true visual line count (soft wraps included), not just

@@ -48,17 +48,27 @@ func TestNoSpaceInputKeepsRowsAndCursor(t *testing.T) {
 		taRows := len(strings.Split(m.ta.View(), "\n"))
 		v := m.View()
 		rows := strings.Split(v.Content, "\n")
-		// Count the box's content rows and check each keeps its prompt.
-		content := 0
+		// Count the box's content rows: exactly ONE prompt (first display row only —
+		// continuation rows deliberately blank it), and every row's right border in
+		// the same column (the EOL cursor cell must not push the cursor row wider).
+		content, prompts, borderCol := 0, 0, -1
 		for _, r := range rows {
-			plain := ansi.Strip(r)
+			plain := strings.TrimRight(ansi.Strip(r), " ")
 			if !strings.Contains(plain, "│") {
 				continue
 			}
 			content++
-			if !strings.Contains(plain, "❯") {
-				t.Errorf("%s: box row lost its prompt (re-wrapped): %q", tc.name, plain)
+			if strings.Contains(plain, "❯") {
+				prompts++
 			}
+			if w := ansi.StringWidth(plain); borderCol < 0 {
+				borderCol = w
+			} else if w != borderCol {
+				t.Errorf("%s: right border drifted (row width %d vs %d): %q", tc.name, w, borderCol, plain)
+			}
+		}
+		if prompts != 1 {
+			t.Errorf("%s: want exactly 1 prompt row, got %d", tc.name, prompts)
 		}
 		if content != taRows {
 			t.Errorf("%s: box shows %d content rows, textarea rendered %d (box re-wrapped)", tc.name, content, taRows)

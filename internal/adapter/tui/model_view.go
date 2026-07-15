@@ -122,9 +122,9 @@ func (m Model) View() tea.View {
 	// with unbroken input (long paths, spaceless Korean) rows lost their prompt,
 	// single glyphs spilled onto their own rows, and the reported cursor drifted by
 	// the accumulated difference while IME pre-edit rendered at that wrong spot.
-	inputContentW := m.width - 2 // total box width; ta rows are m.width-6 (see refresh)
+	inputContentW := m.width - 2 // total box width; ta rows are m.width-7, +1 slack (see refresh)
 	if splash {
-		inputContentW = m.ta.Width() + lipgloss.Width(m.ta.Prompt) + 4
+		inputContentW = m.ta.Width() + lipgloss.Width(m.ta.Prompt) + 5 // +1 slack: the EOL cursor cell widens a full row by one
 	}
 	input := inputStyle.Width(inputContentW).Render(m.ta.View())
 
