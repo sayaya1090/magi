@@ -188,6 +188,22 @@ type turnState struct {
 	council          councilTurn // consensus gate rounds/feedback/spent/deadlock (D14)
 }
 
+// turnCtx bundles the values that are fixed for the whole turn — the session, the
+// running agent, its nesting depth and step budget, the agent's event actor, the
+// turn's start clock, and the run guard. They are threaded together (rather than as
+// a long parameter list) into the finish path so finishTurn's signature carries only
+// the step-varying inputs alongside this one bundle. guard is a pointer, so its
+// mutations propagate; the rest are read-only per turn.
+type turnCtx struct {
+	s        session.Session
+	agent    AgentSpec
+	depth    int
+	maxSteps int
+	actor    event.Actor
+	runStart time.Time
+	guard    *runGuard
+}
+
 // runLoop drives the agent loop until the model stops, max steps are reached, or
 // the run is interrupted. It returns the final assistant text (used as a
 // subagent's result). depth is the orchestration nesting level (D7); maxSteps<=0
@@ -205,6 +221,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	guard := newRunGuard()
 	guard.stallConverge = stallConvergeEnabled() // D18a: collapse the stalled-nudge re-arm when a redirect produced no forward motion
 	ts := turnState{prevFinishCalls: -1}         // per-turn mutable bookkeeping (finish guards, council accounting, stuck-recovery); zeroed field-wise on reground
+	tc := turnCtx{s: s, agent: agent, depth: depth, maxSteps: maxSteps, actor: agentActor, runStart: runStart, guard: guard}
 	// Run-tree recovery cap: a child spawned by the stuck-recovery lifeline starts already
 	// flagged as recovered, so it cannot fire its OWN redecomposeStuck. reground does NOT clear
 	// this field, so the cap holds across the child's whole run — exactly one recovery executor
@@ -597,7 +614,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		if len(toolCalls) == 0 {
 			// Turn-cumulative usage (§8.1): out/cost summed across steps, in = last.
 			u := event.Usage{In: lastIn, Out: cumOut, Cost: cumCost}
-			switch a.finishTurn(ctx, s, agent, depth, maxSteps, step, turnTask, lastText, evs, agentActor, usedTools, handledUserPrompts, runStart, u, guard, &ts) {
+			switch a.finishTurn(ctx, tc, step, turnTask, lastText, evs, usedTools, handledUserPrompts, u, &ts) {
 			case loopRetryStep:
 				step-- // re-woken by a background subagent result: re-enter WITHOUT spending a step
 				continue
@@ -802,7 +819,9 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 // and returns a loopAction telling the step loop whether to keep looping, re-enter without
 // spending a step, finish the turn, or unwind a cancellation. Extracted verbatim from runLoop's
 // step loop — behavior is unchanged; the caller owns step/lastText and acts on the returned action.
-func (a *App) finishTurn(ctx context.Context, s session.Session, agent AgentSpec, depth, maxSteps, step int, turnTask, lastText string, evs []event.Event, agentActor event.Actor, usedTools bool, handledUserPrompts int, runStart time.Time, u event.Usage, guard *runGuard, ts *turnState) loopAction {
+func (a *App) finishTurn(ctx context.Context, tc turnCtx, step int, turnTask, lastText string, evs []event.Event, usedTools bool, handledUserPrompts int, u event.Usage, ts *turnState) loopAction {
+	s, agent, guard := tc.s, tc.agent, tc.guard
+	depth, maxSteps, agentActor, runStart := tc.depth, tc.maxSteps, tc.actor, tc.runStart
 	sid := s.ID
 	isSub := s.Parent != ""
 	if !ts.stopChecked {
