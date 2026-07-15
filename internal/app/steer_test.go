@@ -114,15 +114,21 @@ func TestSteerMidTurnDeferredToOwnTurn(t *testing.T) {
 	waitForTerminal(t, a, sid) // the "start" turn completes first
 
 	// The continued "start" turn (request index 1, captured while the interjection
-	// was still queued) must NOT contain it: deferral prevents the mid-turn merge.
+	// was still queued) must NOT absorb it as an instruction: the original prompt is
+	// masked (deferred), and the text may appear ONLY inside the ephemeral
+	// "magi runtime note" advisory (which tells the model it was queued and how to
+	// route it) — never as a bare user message merged into the turn.
 	rec.mu.Lock()
 	if len(rec.reqs) < 2 {
 		rec.mu.Unlock()
 		t.Fatalf("expected >=2 model requests, got %d", len(rec.reqs))
 	}
-	if requestContains(rec.reqs[1], "ALSO_DO_THIS") {
-		rec.mu.Unlock()
-		t.Fatal("interjection merged into the in-flight turn (should have been deferred)")
+	for _, msg := range rec.reqs[1].Messages {
+		text := joinPartText(msg.Parts)
+		if strings.Contains(text, "ALSO_DO_THIS") && !strings.Contains(text, "magi runtime note") {
+			rec.mu.Unlock()
+			t.Fatalf("interjection merged into the in-flight turn outside the runtime note: %q", text)
+		}
 	}
 	rec.mu.Unlock()
 

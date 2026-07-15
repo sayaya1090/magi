@@ -75,6 +75,17 @@ type sessionState struct {
 	// must show up), and RegisterContextProvider (a new provider must be consulted).
 	expPtrQ, expPtr string // experience pointer cache: query key + rendered line
 	ragQ, ragText   string // plugin-RAG cache: query key + assembled block
+	// Ephemeral interjection notices. These used to be PERSISTED PromptSubmitted facts,
+	// which outlived their interjection: every later turn (and a session reload) still
+	// saw a stale "a new request arrived and was QUEUED" note carrying a copy of the
+	// prompt — the model could re-act on an already-resolved interjection, and the
+	// reload view rendered the note as a fake user bubble. Now they ride only the
+	// per-step volatile context: interjectNotes is keyed by the queued interjection's
+	// origin MessageID and pruned the moment that id leaves the deferred set (resolved
+	// by route/drain/resurface), and asideNoteOnce (the dispatch-case "you may answer
+	// briefly" nudge) is consumed by the next step's request build.
+	interjectNotes map[string]string
+	asideNoteOnce  string
 }
 
 // stateLocked returns the session's state, creating it on first use. The caller MUST

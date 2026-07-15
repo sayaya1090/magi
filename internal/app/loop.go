@@ -543,7 +543,7 @@ func (a *App) detectInterjections(ctx context.Context, tc turnCtx, evs []event.E
 	// idle-park is fully owned by handleAside above. The directive is only for the other cases
 	// (non-dispatch queue notice, ordinary-dispatch soft answer).
 	if newest != "" && !idleWaiting {
-		a.injectInterjectDirective(ctx, sid, turnTask, newestID, newest, dispatching)
+		a.noteInterjection(sid, turnTask, newestID, newest, dispatching)
 		if dispatching {
 			// The directive we just appended is the last event, so lastIsUserSteer/
 			// needsOrchestratorTurn would read false and the early park below would re-swallow
@@ -577,7 +577,23 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 	// here but injected as an ephemeral trailing message, NOT into `sys`. `sys` (above) is
 	// now byte-stable within a turn, so the backend's prefix cache is reused across steps;
 	// only this small block at the tail is re-processed each step.
-	vol := a.volatileContext(ctx, s, agent, isSub, evs, raw, step, tc.maxSteps, time.Since(tc.runStart))
+	// Pending interjection notices ride the volatile block (ephemeral, never persisted):
+	// a queued-interjection note lives exactly as long as its interjection stays queued,
+	// and the dispatch-case nudge is one-shot — so a resolved interjection can no longer
+	// echo into later turns or reload views the way the old persisted directive facts
+	// did. Taken ONCE per step (the one-shot is consumed) and re-attached on every vol
+	// recompute below, so a compaction refresh doesn't drop it.
+	note := a.takeInterjectNotes(sid)
+	withNote := func(v string) string {
+		if note == "" {
+			return v
+		}
+		if v == "" {
+			return note
+		}
+		return v + "\n\n" + note
+	}
+	vol := withNote(a.volatileContext(ctx, s, agent, isSub, evs, raw, step, tc.maxSteps, time.Since(tc.runStart)))
 
 	// Context-aware auto-compaction (M6): if the assembled context exceeds the model's
 	// window budget, summarize older turns and re-read. Measure against sys+vol so the
@@ -585,7 +601,7 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 	if a.maybeCompact(ctx, s, agent, agentActor, evs, raw, sys+"\n\n"+vol) {
 		evs, _ = a.store.Read(ctx, sid, 0)
 		raw = reconstruct(evs) // refresh after compaction
-		vol = a.volatileContext(ctx, s, agent, isSub, evs, raw, step, tc.maxSteps, time.Since(tc.runStart))
+		vol = withNote(a.volatileContext(ctx, s, agent, isSub, evs, raw, step, tc.maxSteps, time.Since(tc.runStart)))
 	}
 
 	msgs := reconstruct(a.liveEvents(sid, evs))
@@ -596,7 +612,7 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 			evs = evs2
 			msgs = reconstruct(a.liveEvents(sid, evs))
 			raw = reconstruct(evs)
-			vol = a.volatileContext(ctx, s, agent, isSub, evs, raw, step, tc.maxSteps, time.Since(tc.runStart))
+			vol = withNote(a.volatileContext(ctx, s, agent, isSub, evs, raw, step, tc.maxSteps, time.Since(tc.runStart)))
 		}
 	}
 	// Append the volatile context as an ephemeral trailing user message (not persisted, so

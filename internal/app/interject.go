@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -12,7 +13,7 @@ import (
 )
 
 // Mid-turn interjection / steer machinery, split out of loop.go: routing a user
-// message that arrives while a turn runs (applyRoute / injectInterjectDirective), the
+// message that arrives while a turn runs (applyRoute / noteInterjection), the
 // idle-park and finish-boundary triage mini-turns (handleAside / triageQueued /
 // interjectTurn / execAsideTool), agent-initiated replan (honorReplan), and late-steer
 // enqueue at the finish boundary. Behavior unchanged; runLoop/finishTurn stay in loop.go.
@@ -62,13 +63,21 @@ func (a *App) applyInterjectRoute(ctx context.Context, sid session.SessionID, ro
 	return nt, true
 }
 
-// injectInterjectDirective tells the agent a new user message arrived mid-turn. When
+// noteInterjection tells the agent a new user message arrived mid-turn. When
 // deferred (not dispatching) it has been QUEUED to run after the current task, so the
 // agent keeps focus instead of oscillating between the two (the live-observed thrash:
 // plexus #7–#10) and may call route_interjection to redirect/append when confident.
 // When dispatching (background subagents running, agent otherwise idle) the message is
 // left visible and the agent is invited to answer it briefly without abandoning the task.
-func (a *App) injectInterjectDirective(ctx context.Context, sid session.SessionID, turnTask, msgID, interject string, dispatching bool) {
+//
+// The notice is EPHEMERAL: it is staged in session state and injected into the per-step
+// volatile context (buildStepRequest), never persisted as a PromptSubmitted fact. A
+// persisted notice outlived its interjection — every later turn (and a session reload)
+// still carried a stale "queued" note with a copy of the prompt, so an already-resolved
+// interjection could influence the next request. The queued-case note is keyed by the
+// origin MessageID and vanishes the moment the interjection resolves; the dispatch-case
+// nudge is one-shot (consumed by the next step's request).
+func (a *App) noteInterjection(sid session.SessionID, turnTask, msgID, interject string, dispatching bool) {
 	reqLine := ""
 	if h := shortReqID(msgID); h != "" {
 		reqLine = "\n\nThis request's id is [req: " + h + "] — pass it as route_interjection request_id to route THIS one."
@@ -97,11 +106,52 @@ func (a *App) injectInterjectDirective(ctx context.Context, sid session.SessionI
 			"(action \"redirect\" or \"append\") with a one-line reason. When unsure, do nothing and it stays queued."
 	}
 	text += reqLine
-	pd, _ := json.Marshal(event.PromptSubmittedData{
-		MessageID: "m_" + newID(),
-		Parts:     []session.Part{{Kind: session.PartText, Text: text}},
-	})
-	_ = a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
+	a.mu.Lock()
+	st := a.stateLocked(sid)
+	if dispatching {
+		st.asideNoteOnce = text
+	} else {
+		if st.interjectNotes == nil {
+			st.interjectNotes = map[string]string{}
+		}
+		st.interjectNotes[msgID] = text
+	}
+	a.mu.Unlock()
+}
+
+// takeInterjectNotes assembles the interjection notices to append to THIS step's
+// volatile context: every note whose queued interjection is still unresolved (pruning
+// the rest — a note must not outlive its interjection), plus the one-shot dispatch
+// nudge, which is consumed here. Empty when there is nothing pending.
+func (a *App) takeInterjectNotes(sid session.SessionID) string {
+	deferred := a.deferredInterjectIDs(sid)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st, ok := a.stateIf(sid)
+	if !ok {
+		return ""
+	}
+	var parts []string
+	if len(st.interjectNotes) > 0 {
+		// Prune resolved notes; emit the live ones in a stable (msgID) order.
+		ids := make([]string, 0, len(st.interjectNotes))
+		for id := range st.interjectNotes {
+			if deferred == nil || !deferred[id] {
+				delete(st.interjectNotes, id) // resolved (routed/drained/resurfaced) → gone
+				continue
+			}
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		for _, id := range ids {
+			parts = append(parts, st.interjectNotes[id])
+		}
+	}
+	if st.asideNoteOnce != "" {
+		parts = append(parts, st.asideNoteOnce)
+		st.asideNoteOnce = ""
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // asideHandlerSystem drives the idle-park interjection handler: a focused, tool-capable turn
