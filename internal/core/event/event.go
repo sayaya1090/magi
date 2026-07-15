@@ -61,6 +61,15 @@ const (
 	// never resolved (deferred-but-abandoned) so they stay masked from turn context and
 	// are not silently mixed into the next request, instead of leaking as pending prompts.
 	TypeInterjectionDeferred Type = "interjection.deferred"
+
+	// TypePromptAbandoned records that a user prompt's turn was cancelled (Interrupt)
+	// before it produced any answer, so the prompt must not seed a LATER, unrelated
+	// request. Without it seedPromptIdx keeps picking the cancelled prompt as the first
+	// "unanswered" one and anchors the next turn onto it (treating the genuinely new
+	// prompt as a mere interjection). Persisted so the abandonment survives a reload and
+	// is visible to seedPromptIdx, which reads the log; ignored by reconstruct, so the
+	// cancelled prompt's text stays in context (a follow-up that augments it still works).
+	TypePromptAbandoned Type = "prompt.abandoned"
 )
 
 // Transient events — bus only, not persisted.

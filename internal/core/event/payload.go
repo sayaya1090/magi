@@ -41,6 +41,14 @@ type PromptSubmittedData struct {
 	ResurfacedFrom string `json:"resurfacedFrom,omitempty"`
 }
 
+// PromptAbandonedData — TypePromptAbandoned. Names the cancelled prompt by the
+// MessageID of its PromptSubmitted event. seedPromptIdx treats a prompt with a matching
+// abandoned marker as resolved (never a turn seed), so a cancelled request does not
+// hijack a subsequent unrelated one.
+type PromptAbandonedData struct {
+	MsgID string `json:"msgId"`
+}
+
 // InterjectionDeferredData — TypeInterjectionDeferred. One entry in the deferral
 // ledger keyed by the interjection's origin PromptSubmitted MessageID. Resolved:false
 // is written when the prompt is queued as an interjection; Resolved:true when it later
