@@ -334,12 +334,8 @@ func planMemberSystem(m council.Member, lens string) string {
 			"sub-check, or edge case is enumerated. A plan whose steps touch each part of the request IS complete → "+
 			"approve. Revise ONLY if a whole REQUIRED part of the task has no step addressing it at all (name the missing "+
 			"part). A broad step like \"review the docs\" already covers its details — do not revise to enumerate them.\n"+
-			"- SPEC-FIDELITY at plan time judges whether the steps PRESERVE the task's literal contract: when the task "+
-			"dictates exact names, values, formats, paths, or output tokens, a step that paraphrases or renames them "+
-			"(so the executor would build to the paraphrase) is a concrete flaw — quote the literal in feedback. A plan "+
-			"that simply doesn't restate every literal is FINE; revise only when a step's own wording CONTRADICTS or "+
-			"renames a stated literal. Approach soundness (is this a reasonable way to do the task, is a necessary "+
-			"ACTION missing) is part of your judgment too — not whether the plan adds checks/validation.\n\n"+
+			"- CORRECTNESS judges whether the APPROACH is sound and no necessary ACTION is missing — not whether the plan "+
+			"adds checks/validation.\n\n"+
 			"NEVER revise for any of the following — these are NOT flaws in a plan:\n"+
 			"- the plan doesn't spell out verification criteria, acceptance criteria, success metrics, tests, or a "+
 			"checklist (those belong to execution and to the `criteria` field below — NOT to the plan's steps);\n"+
@@ -356,8 +352,8 @@ func planMemberSystem(m council.Member, lens string) string {
 			"A SIMPLE task needs only a SIMPLE plan. Never invent a flaw. If you cannot name a concrete defect in the "+
 			"steps, you APPROVE (or abstain).\n\n"+
 			"CALIBRATION — match this bar. Task: \"review the project's dev docs\"; Plan: \"1.[scout] find the docs  "+
-			"2.[parallel] read each  3.[solo] summarize\". The CORRECT verdicts are: spec-fidelity → done (discover→read→"+
-			"synthesize is sound and no stated literal is contradicted); completeness → done (the steps cover the "+
+			"2.[parallel] read each  3.[solo] summarize\". The CORRECT verdicts are: correctness → done (discover→read→"+
+			"synthesize is a sound approach with no necessary action missing); completeness → done (the steps cover the "+
 			"whole request); verification → abstain (nothing to verify yet). Revising this plan — to add acceptance "+
 			"criteria, a verify step, or more detail — would be WRONG. Hold real plans to exactly this bar.\n\n"+
 			"SEPARATELY, through your lens, propose this task's COMPLETION CRITERIA in `criteria`: a short list (1-3) of "+

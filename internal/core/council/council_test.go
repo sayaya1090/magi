@@ -198,7 +198,7 @@ func TestDefaultMembersAreTheMAGI(t *testing.T) {
 	if len(m) != 3 {
 		t.Fatalf("got %d members, want 3 (the MAGI)", len(m))
 	}
-	want := map[string]string{"Melchior": "spec-fidelity", "Balthasar": "verification", "Casper": "completeness"}
+	want := map[string]string{"Melchior": "correctness", "Balthasar": "verification", "Casper": "completeness"}
 	for _, mem := range m {
 		if want[mem.Name] != mem.Lens {
 			t.Fatalf("member %q lens = %q, want %q", mem.Name, mem.Lens, want[mem.Name])

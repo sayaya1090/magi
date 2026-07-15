@@ -138,15 +138,10 @@ type Deliberation struct {
 }
 
 // DefaultMembers returns the three default council members — the MAGI. The theme
-// name is the label; the lens is the attribute. The lens set is aligned 1:1 with
-// the bench-measured failure axes: fabricated/unproven done (verification),
-// paraphrased literals — a `value` field renamed `val` fails a verbatim grader
-// (spec-fidelity), and scope left uncovered incl. implied conditions (completeness).
-// spec-fidelity replaced the earlier correctness lens, which overlapped completeness
-// at completion time while nobody owned the literal contract.
+// name is the label; the lens is the attribute (the decision the user confirmed).
 func DefaultMembers() []Member {
 	return []Member{
-		{Name: "Melchior", Lens: "spec-fidelity"},
+		{Name: "Melchior", Lens: "correctness"},
 		{Name: "Balthasar", Lens: "verification"},
 		{Name: "Casper", Lens: "completeness"},
 	}
@@ -154,12 +149,10 @@ func DefaultMembers() []Member {
 
 // Lenses maps each lens to a one-line description of what that member judges.
 // Pure data, reused by the adapter to build each member's system prompt.
-// "correctness" stays defined for user configs that still name it.
 var Lenses = map[string]string{
-	"spec-fidelity": "Does the work match the task's LITERAL contract — the exact names, values, formats, paths, and output tokens the task states? Compare the produced content against the task's own words; a renamed field, paraphrased value, or wrong location is a defect even when the work is otherwise sound.",
-	"correctness":   "Is the work correct? Consider edge cases and regressions.",
-	"verification":  "Is there evidence it works (build/tests pass)? Don't accept claims without proof.",
-	"completeness":  "Did it do everything the task/plan asked for? Nothing left unfinished.",
+	"correctness":  "Is the work correct? Consider edge cases and regressions.",
+	"verification": "Is there evidence it works (build/tests pass)? Don't accept claims without proof.",
+	"completeness": "Did it do everything the task/plan asked for? Nothing left unfinished.",
 }
 
 // Deliberate tallies the verdicts under the rule and assembles a Deliberation,

@@ -128,7 +128,7 @@ func (c CouncilConfig) IsEnabled() bool {
 }
 
 // CouncilMember is one configured council seat: a theme-name label, a judging
-// lens (spec-fidelity|verification|completeness, or the legacy correctness), an optional model override, and
+// lens (correctness|verification|completeness), an optional model override, and
 // an optional weight (default 1).
 type CouncilMember struct {
 	Name     string  `toml:"name"`
@@ -253,7 +253,7 @@ const defaultConfigTemplate = `# magi configuration. Everything here is optional
 # command = "golangci-lint run"
 # [[council.member]]        # omit members to use the MAGI defaults
 # name = "Melchior"
-# lens = "spec-fidelity"     # spec-fidelity | verification | completeness (or legacy: correctness)
+# lens = "correctness"      # correctness | verification | completeness
 # # model    = "qwen3-coder:30b"   # optional; defaults to the session model
 # # provider = "fast"              # optional [llm.profiles.*] backend (mix cheap+strong)
 # # weight   = 1
