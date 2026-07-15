@@ -1,0 +1,212 @@
+package app
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/sayaya1090/magi/internal/core/council"
+	"github.com/sayaya1090/magi/internal/core/event"
+	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
+)
+
+// runPlanAuditGate has the council review the PROCEDURE before it runs (D17). It
+// returns the procedure to execute — the original (approved or force-approved) or
+// a revised one. The pure tally is reused via the council adapter with Phase=plan;
+// there is no diff/report/signals, and revise feedback drives a re-plan (it is NOT
+// injected into the main session). It has its own bounded rounds.
+func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec AgentSpec, prompt string, steps []planStep, depth, maxSteps int) []planStep {
+	sid := s.ID
+	actor := event.Actor{Kind: event.ActorSystem, ID: "council"}
+	a.setStage(sid, stageCouncil)
+	members := a.cfg.CouncilMembers
+	if len(members) == 0 {
+		members = council.DefaultMembers()
+	}
+	labels := make([]string, len(members))
+	for i, m := range members {
+		labels[i] = m.Name
+	}
+	// Consensus rule — the same one the termination gate uses (no special quorum:1
+	// relaxation): the plan audit is a real consensus. planMemberSystem already
+	// revises only for a concrete flaw, so majority converges.
+	rule := a.cfg.CouncilRule
+	if rule == "" {
+		rule = council.DefaultRule
+	}
+	// The plan audit shares the termination gate's round cap (CouncilMaxRounds,
+	// default 3) rather than a shorter hardcoded limit: round 1 often surfaces a
+	// concrete fix that round 2 still hasn't fully absorbed, so a too-small cap
+	// force-proceeds on a plan that one more round would have converged.
+	maxRounds := a.cfg.CouncilMaxRounds
+	if maxRounds <= 0 {
+		maxRounds = 3
+	}
+
+	// Ground the audit in the conversation: a follow-up plan ("change it to two
+	// newlines") is unjudgeable against the bare instruction alone, so the members
+	// thrash (revise → no consensus). Prepend a compact recent transcript.
+	auditTask := prompt
+	if evs, err := a.store.Read(ctx, sid, 0); err == nil {
+		if cx := recentTranscript(reconstruct(evs), 1500); cx != "" {
+			auditTask = "# Recent conversation (for context)\n" + cx + "\n\n# Current request to plan for\n" + prompt
+		}
+	}
+
+	for round := 1; round <= maxRounds; round++ {
+		if ctx.Err() != nil {
+			return steps
+		}
+		cd, _ := json.Marshal(event.CouncilConvenedData{
+			Round: round, Phase: "plan", Members: labels, Rule: string(rule),
+			Task: auditTask, Plan: renderSteps(steps),
+		})
+		a.appendFact(ctx, sid, event.TypeCouncilConvened, actor, cd)
+		for _, m := range members {
+			ld, _ := json.Marshal(event.CouncilDeliberatingData{Round: round, Member: m.Name, State: "asking"})
+			a.publishTransient(sid, event.TypeCouncilDeliberating, actor, ld)
+		}
+
+		delib, err := a.cfg.Council.Deliberate(ctx, port.DeliberationRequest{
+			Round: round, Phase: "plan", Task: auditTask, Plan: renderSteps(steps),
+			Members: members, Rule: rule, DefaultModel: s.Model.Model,
+		})
+		if err != nil { // a gate failure must not block the turn → proceed with the plan
+			dd, _ := json.Marshal(event.CouncilDecidedData{Round: round, Phase: "plan", Decision: string(council.Done), Note: "plan council unavailable: " + err.Error(), Forced: true})
+			a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd)
+			return steps
+		}
+		for _, v := range delib.Verdicts {
+			vd, _ := json.Marshal(event.CouncilVerdictData{
+				Round: round, Phase: "plan", Member: v.Member, Lens: v.Lens, Decision: string(v.Decision),
+				Confidence: v.Confidence, Rationale: v.Rationale, Feedback: v.Feedback, Severity: v.Severity,
+			})
+			a.appendFact(ctx, sid, event.TypeCouncilVerdict, actor, vd)
+		}
+
+		// Severity-gated decision (D17): only a CRITICAL revision blocks the agent from
+		// starting work. warn/info concerns are ACCEPTED as advice — injected so the
+		// executor heeds them during the turn, and the council's completion criteria (which
+		// the termination gate verifies) still apply — instead of looping the plan, which on
+		// a slow model burned the whole budget before any work. critical vetoes (one member
+		// suffices) so a genuine plan flaw still stops the agent.
+		// The abstract-vs-absurd distinction for refine plans is made by the member LENS,
+		// not a blanket code rule: the lens approves an intentionally high-level refine step
+		// (abstractness is not a flaw — it is worked out at execution time) but STILL fires
+		// critical for a genuinely unsound plan (wrong approach, a required part missing, a
+		// plan that would not achieve the task), even when abstract. A deterministic
+		// "refine ⇒ never critical" override was rejected: it would also wave through an
+		// absurd plan, which must still be rejected.
+		critical := council.HasCriticalRevision(delib.Verdicts)
+		advice := strings.TrimSpace(council.AdvisoryFeedback(delib.Verdicts))
+
+		if !critical { // approve, possibly carrying non-blocking advice
+			a.storePlanCriteria(ctx, s, delib.Criteria) // the contract for the termination gate
+			a.storePlanChecks(ctx, s, delib.Checks)     // …plus the executable per-step deliverable checks
+			note := ""
+			if advice != "" {
+				a.injectCouncilAdvice(ctx, s.ID, advice, true) // accepted: the executor heeds it
+				note = "plan approved with advisory notes (non-blocking)"
+				if a.cfg.CouncilPlanAbsorb { // option B: fold the advice into the plan now
+					if next := sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, advice, depth, maxSteps, "")); len(next) > 0 {
+						steps = next
+					}
+				}
+			}
+			dd, _ := json.Marshal(event.CouncilDecidedData{
+				Round: round, Phase: "plan", Decision: string(council.Done),
+				Tally: delib.Breakdown, Note: note, Criteria: delib.Criteria,
+			})
+			a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd)
+			return steps
+		}
+
+		// critical → block. Stop if the cap is hit or there is no actionable feedback.
+		fb := strings.TrimSpace(council.CriticalFeedback(delib.Verdicts))
+		if round >= maxRounds || fb == "" {
+			a.storePlanCriteria(ctx, s, delib.Criteria) // proceeding with this plan → keep its criteria
+			a.storePlanChecks(ctx, s, delib.Checks)
+			// Proceeding PAST an unresolved critical: hand the executor that critical
+			// concern (plus any advice) so it can still try to address it — don't bury it
+			// in a note only.
+			if carry := strings.TrimSpace(fb + "\n\n" + advice); carry != "" {
+				a.injectCouncilAdvice(ctx, s.ID, carry, false)
+			}
+			dd, _ := json.Marshal(event.CouncilDecidedData{
+				Round: round, Phase: "plan", Decision: string(council.Done), Tally: delib.Breakdown,
+				Note: fmt.Sprintf("critical plan concern unresolved after %d round(s) — proceeding", round), Criteria: delib.Criteria, Forced: true,
+			})
+			a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd)
+			return steps
+		}
+		dd, _ := json.Marshal(event.CouncilDecidedData{Round: round, Phase: "plan", Decision: string(council.Continue), Tally: delib.Breakdown, Feedback: fb})
+		a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd)
+
+		// Re-plan with the blocking feedback folded in (one retry — local models are flaky
+		// and an empty/unparseable reply shouldn't silently drop the revision).
+		a.setStage(sid, stagePlan)
+		next := sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, fb, depth, maxSteps, ""))
+		if len(next) == 0 {
+			next = sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, fb, depth, maxSteps, ""))
+		}
+		a.setStage(sid, stageCouncil)
+		if len(next) == 0 {
+			// Re-plan failed → proceed with the prior plan, but say so (don't silently
+			// run a plan the council just rejected). Keep this round's criteria.
+			a.storePlanCriteria(ctx, s, delib.Criteria)
+			a.storePlanChecks(ctx, s, delib.Checks)
+			dd2, _ := json.Marshal(event.CouncilDecidedData{
+				Round: round, Phase: "plan", Decision: string(council.Done), Tally: delib.Breakdown,
+				Note: "re-plan failed — proceeding with the prior plan", Criteria: delib.Criteria, Forced: true,
+			})
+			a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd2)
+			return steps
+		}
+
+		// Plan-audit convergence (D17): judge whether the revision actually engaged the
+		// council's critical concern. A productive revision (addressed) keeps looping to the
+		// cap as before; an unproductive one (ignored the concern) stops early — re-planning
+		// again tends to repeat the same conclusion, so hand the concern to the executor and
+		// let the execution + landing gates arbitrate ("run it to know", the plan-side symmetry
+		// of the evidence gate) instead of burning rounds. The before/after diff + critique +
+		// verdict are always emitted as a PlanRevised fact, so the revision is observable even
+		// when gating is off (Addressed nil then).
+		var addressed *bool
+		reason := ""
+		if planConvergeEnabled() {
+			v, jerr := a.cfg.Council.JudgeRevision(ctx, port.RevisionJudgeRequest{
+				Critique: fb, PriorPlan: renderSteps(steps), RevisedPlan: renderSteps(next), DefaultModel: s.Model.Model,
+			})
+			if jerr != nil { // fail open — a flaky judge must never cut a productive loop
+				v = port.RevisionVerdict{Addressed: true, Reason: "revision judge error: " + jerr.Error()}
+			}
+			ok := v.Addressed
+			addressed = &ok
+			reason = v.Reason
+		}
+		pr, _ := json.Marshal(event.PlanRevisedData{
+			Round: round, Critique: fb, Before: stepSummaries(steps), After: stepSummaries(next),
+			Addressed: addressed, Reason: reason,
+		})
+		a.appendFact(ctx, sid, event.TypePlanRevised, actor, pr)
+
+		if addressed != nil && !*addressed {
+			// Unproductive re-plan → stop early. Proceed with the revised plan but hand the
+			// executor the unaddressed concern (execution + landing gates arbitrate).
+			a.storePlanCriteria(ctx, s, delib.Criteria)
+			a.storePlanChecks(ctx, s, delib.Checks)
+			a.injectCouncilAdvice(ctx, s.ID, fb, false)
+			dd3, _ := json.Marshal(event.CouncilDecidedData{
+				Round: round, Phase: "plan", Decision: string(council.Done), Tally: delib.Breakdown,
+				Note:     fmt.Sprintf("plan revision did not address the concern after %d round(s) — proceeding (execution + landing gates arbitrate)", round),
+				Criteria: delib.Criteria, Forced: true,
+			})
+			a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd3)
+			return next
+		}
+		steps = next
+	}
+	return steps
+}
