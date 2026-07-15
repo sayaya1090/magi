@@ -62,132 +62,6 @@ type App struct {
 	states map[session.SessionID]*sessionState // per-session state, consolidating the maps above (guarded by mu); migrated group-by-group
 }
 
-// sessionState holds all per-session state for one session, consolidating what used to
-// be ~18 separate map[session.SessionID]X fields on App. One entry is created lazily on
-// first access (state/stateLocked) and lives for the process lifetime — a nil/zero field
-// is the "absent" signal (e.g. cancel==nil means no in-flight run), matching the old
-// "key absent" semantics. All fields are guarded by App.mu; child sessions get their own
-// entry just like top-level ones. Turn-scoped fields are zeroed by resetForNewTopLevel;
-// the rest live for the whole session.
-type sessionState struct {
-	// Whole-session lifetime.
-	cancel           context.CancelFunc     // in-flight run's cancel (Interrupt); nil = not running
-	meta             session.Session        // session metadata cache
-	todos            []session.Todo         // per-session plan
-	stage            string                 // current loop stage for event tagging
-	lastPromptTokens int                    // real prompt_tokens from the last turn
-	observedEvents   int                    // event high-water mark of the last turn_finished observation (stale-answer guard)
-	pendingInterject []pendingInterjection  // interjections queued to run as their own turn
-	turnControl      turnControl            // pending mid-turn routing/replan signal
-	perms            map[string]chan string // pending permission decisions by call id
-	questions        map[string]chan string // pending ask_user picks by call id
-	grants           map[string]bool        // "always" grants per tool
-	pendingAsk       chan string            // channel for a subagent's pending ask answer (parent)
-	bg               *bgGroup               // background subagent tracking (parent)
-	report           *subReport             // filed final report (subagent session)
-	userLabel        string                 // display name for the user in the transcript (plugin set_user_label); "" = "you"
-	// deferredAbandoned is the set of interjection origin MessageIDs that were queued in a
-	// PRIOR process (F5 ledger) and never resolved — reconstructed once from the log on the
-	// first run after load (deferredHydrated). Unlike pendingInterject (in-memory, lost on a
-	// kill) these stay masked from the live turn context for the whole session so a stranded
-	// interjection is not silently mixed into the next request; resetForNewTopLevel does NOT
-	// clear them (the abandonment is a whole-session fact, not a per-turn one).
-	deferredAbandoned map[string]bool
-	deferredHydrated  bool
-	// recoverySeed marks a child session spawned by the stuck-recovery lifeline: runLoop seeds
-	// its turnState as already-recovered so the child cannot fire its OWN redecomposeStuck,
-	// capping recovery to one executor per run tree (recoveryRunCapEnabled). Set once at spawn
-	// time; not turn-scoped (a recovery child never re-enters resetForNewTopLevel — it runs at
-	// depth>0).
-	recoverySeed bool
-	// grounded marks that the explore-first orient pass (maybeOrient) has run for this session,
-	// so its deterministic environment grounding is injected exactly ONCE — at the first cold,
-	// write-capable top-level turn. Session-scoped (a whole-session fact, like the two above):
-	// resetForNewTopLevel does NOT clear it, since later turns already carry the environment in
-	// context and re-scanning would burn budget for no new signal. See orientEnabled.
-	grounded bool
-	// activeSeedMsgID is the MessageID of the user prompt that SEEDS the currently
-	// running top-level turn (set at step 0, loop.go). If that turn is cancelled before
-	// answering, the cancel path marks this prompt abandoned (TypePromptAbandoned) so it
-	// can't hijack a later, unrelated request. Overwritten at each turn's seed; the cancel
-	// handler guards against staleness by re-checking it is still the unanswered seed, so
-	// it is safe outside the turn-scoped reset block.
-	activeSeedMsgID string
-	// Turn-scoped (zeroed by resetForNewTopLevel).
-	criteria          string                     // elicited acceptance criteria this turn
-	deliverableChecks []council.DeliverableCheck // plan-audit per-step executable checks this turn
-	estSteps          int                        // planner's advisory step estimate this turn
-	interjectSeen     map[string]bool            // interjection MessageIDs detected this turn (masked from turnTask/council)
-	awaitExplorers    bool                       // planner dispatched read-only explorers as this turn's primary work
-	autoOrchestrate   bool                       // whether auto-orchestration has been triggered this session
-	// Per-turn retrieval memoization. Both lookups key on the last user prompt, which is
-	// constant across a turn — without this every loop step re-scans the whole experience
-	// store and re-queries every plugin context provider (each with a 5s timeout) for an
-	// identical query. Keyed by the query text, so a new prompt misses naturally; also
-	// cleared by resetForNewTopLevel, a successful Propose (a memory the agent just saved
-	// must show up), and RegisterContextProvider (a new provider must be consulted).
-	expPtrQ, expPtr string // experience pointer cache: query key + rendered line
-	ragQ, ragText   string // plugin-RAG cache: query key + assembled block
-}
-
-// stateLocked returns the session's state, creating it on first use. The caller MUST
-// hold a.mu. The nil-map guard lets zero-value App literals (used in tests) be safe;
-// production always goes through New, which pre-allocates the map.
-func (a *App) stateLocked(sid session.SessionID) *sessionState {
-	if a.states == nil {
-		a.states = map[session.SessionID]*sessionState{}
-	}
-	st := a.states[sid]
-	if st == nil {
-		st = &sessionState{}
-		a.states[sid] = st
-	}
-	return st
-}
-
-// stateIf returns the session's state without creating one — the read/liveness path that
-// preserves the old "key absent" semantics (ok==false means nothing was ever recorded).
-// The caller MUST hold a.mu.
-func (a *App) stateIf(sid session.SessionID) (*sessionState, bool) {
-	st, ok := a.states[sid]
-	return st, ok
-}
-
-// metaLocked returns a session's cached metadata, preserving the old `a.sessions[sid]`
-// present/absent semantics: ok is true only for a session that was actually created
-// (its meta.ID is set), never for a state entry that a lazy per-session write created.
-// The caller MUST hold a.mu.
-func (a *App) metaLocked(sid session.SessionID) (session.Session, bool) {
-	st, ok := a.stateIf(sid)
-	if !ok || st.meta.ID == "" {
-		return session.Session{}, false
-	}
-	return st.meta, true
-}
-
-// pendingInterjection is a mid-turn user message parked to run as its own turn once
-// the current one ends. MsgID is the PromptSubmitted event that carried it: while the
-// interjection sits in the queue, that event is masked from the LIVE-judgment views
-// (the running turn's model context and the council's per-turn scan) so it can neither
-// merge into the current turn nor reset the council's turn-boundary window. It becomes
-// visible again the moment it leaves the queue (drained, or absorbed via route_interjection).
-type pendingInterjection struct {
-	MsgID string
-	Text  string
-}
-
-// turnControl is a mid-turn control signal a tool records for the running loop to
-// drain at its next step. The loop owns turnTask/councilTurn/guard (stack-local),
-// so a tool cannot mutate them directly; it leaves this signal instead and the loop
-// applies the reground. route routes a queued user interjection (queue|redirect|
-// append); replan is the agent's own "this plan is unworkable" declaration.
-type turnControl struct {
-	route   string // "", "queue", "redirect", or "append"
-	routeID string // the request id the route targets (route_interjection request_id); "" = oldest queued
-	replan  bool
-	reason  string
-}
-
 // New constructs an App.
 func New(store port.Store, llm port.LLMProvider, tools port.ToolRegistry, b *bus.Bus, plat port.Platform, cfg Config) *App {
 	c := cfg.withDefaults()
@@ -208,76 +82,6 @@ func New(store port.Store, llm port.LLMProvider, tools port.ToolRegistry, b *bus
 		probingWindows: map[string]struct{}{},
 		states:         map[session.SessionID]*sessionState{},
 	}
-}
-
-// subReport is a subagent's filed final result (the explicit output contract).
-type subReport struct {
-	summary, status, details string
-}
-
-// reportStatusPrefix leads every report frame subReport.result emits: a single
-// "STATUS: <WORD>" line the orchestrator and planner parse to tell done from blocked/failed.
-const reportStatusPrefix = "STATUS: "
-
-// reportStatusWord extracts the status token of a report frame's leading "STATUS: <WORD>" line
-// (upper-cased), or "" when line (trimmed) is not exactly that frame — the single recognizer
-// behind refineReportsFailure and stripReportStatus. The "STATUS:" keyword is matched
-// case-insensitively; the emitted frame is always upper-case, so this only widens tolerance for
-// free-typed model text.
-func reportStatusWord(line string) string {
-	f := strings.Fields(strings.TrimSpace(line))
-	if len(f) == 2 && strings.EqualFold(f[0], strings.TrimSpace(reportStatusPrefix)) {
-		return strings.ToUpper(f[1])
-	}
-	return ""
-}
-
-// fileReport records a subagent's final report once; later calls in the same
-// turn are rejected so a model can't spam it. (output side of the contract)
-func (a *App) fileReport(sid session.SessionID, summary, status, details string) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.stateLocked(sid).report != nil {
-		return fmt.Errorf("you already filed a report this turn; your turn is ending")
-	}
-	a.stateLocked(sid).report = &subReport{summary: summary, status: status, details: details}
-	return nil
-}
-
-// takeReport returns and clears any report filed for a session.
-func (a *App) takeReport(sid session.SessionID) *subReport {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	r := a.stateLocked(sid).report
-	a.stateLocked(sid).report = nil
-	return r
-}
-
-// result renders the subagent's result around the given answer body, leading with
-// the status so the orchestrator can tell done from blocked/failed at a glance.
-func (r *subReport) result(answer string) string {
-	out := reportStatusPrefix + strings.ToUpper(r.status) + "\n" + strings.TrimSpace(answer)
-	if d := strings.TrimSpace(r.details); d != "" && !strings.Contains(answer, d) {
-		out += "\n\n" + d
-	}
-	return out
-}
-
-// realPromptTokens returns the actual prompt token count from the last turn (0
-// if not yet known).
-func (a *App) realPromptTokens(sid session.SessionID) int {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if st, ok := a.stateIf(sid); ok {
-		return st.lastPromptTokens
-	}
-	return 0
-}
-
-func (a *App) setPromptTokens(sid session.SessionID, n int) {
-	a.mu.Lock()
-	a.stateLocked(sid).lastPromptTokens = n
-	a.mu.Unlock()
 }
 
 // AgentNames returns the configured subagent names, sorted.
@@ -338,64 +142,6 @@ func (a *App) CreateSession(ctx context.Context, c command.CreateSession) (sessi
 		return "", err
 	}
 	return sid, nil
-}
-
-// resetForNewTopLevel clears the per-task state that must not leak from a finished
-// turn into a fresh top-level request: the plan/todos, cached acceptance criteria,
-// and the advisory step estimate. Used by Submit and by the queued-interjection
-// drain — a message that stayed queued runs as its OWN turn, so it must be judged on
-// its own merits, not held to the previous task's contract (which made the council
-// judge an unrelated queued request against the finished task's leftover plan).
-func (a *App) resetForNewTopLevel(sid session.SessionID) {
-	a.SetTodos(sid, nil) // takes a.mu itself
-	a.mu.Lock()
-	st := a.stateLocked(sid)
-	st.criteria = ""           // drop cached criteria; re-elicited at the next gate (D15)
-	st.deliverableChecks = nil // …and the previous task's plan-audit executable checks
-	st.estSteps = 0            // …and the previous task's advisory step estimate
-	// Reset the interjection mask, but KEEP masking anything still WAITING in the
-	// queue: a queued interjection's original PromptSubmitted must stay hidden
-	// until it runs as its own turn — dropping its mask here would leak it into
-	// the new turn's context and double-answer it.
-	var keep map[string]bool
-	for _, it := range st.pendingInterject {
-		if keep == nil {
-			keep = map[string]bool{}
-		}
-		keep[it.MsgID] = true
-	}
-	st.interjectSeen = keep
-	st.awaitExplorers = false // the async-explorer wait is per-turn; the next turn starts clean
-	st.expPtrQ, st.expPtr = "", ""
-	st.ragQ, st.ragText = "", "" // retrieval caches are turn-scoped even when the prompt text repeats
-	a.mu.Unlock()
-	// The subagent budget is a RUNAWAY backstop (one turn spawning without bound), not a
-	// lifetime meter: without this reset a long interactive session accumulates ordinary
-	// planner/recovery spawns across turns until every later spawn fails with "agent budget
-	// exhausted" for the rest of the process. A runaway plays out within one turn, so a
-	// per-turn window loses none of the protection. Process-wide (spawnCount is App-level):
-	// concurrent top-level sessions share the window, which still bounds any single runaway.
-	a.spawnCount.Store(0)
-}
-
-// setAwaitExplorers marks (or clears) that the planner dispatched read-only explorers as
-// this turn's primary work, so the loop's pre-model park engages until they report.
-func (a *App) setAwaitExplorers(sid session.SessionID, v bool) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.stateLocked(sid).awaitExplorers = v
-}
-
-// awaitingExplorers reports whether this turn is parked waiting for planner-dispatched
-// read-only explorers. Distinguishes the async-explorer scenario (park pre-model, no
-// findings-less review) from ordinary background delegation (interleave own work).
-func (a *App) awaitingExplorers(sid session.SessionID) bool {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if st, ok := a.stateIf(sid); ok {
-		return st.awaitExplorers
-	}
-	return false
 }
 
 // Submit appends the user's prompt and starts the agent loop asynchronously.
@@ -489,25 +235,6 @@ func (a *App) appendResurfacedPrompt(ctx context.Context, sid session.SessionID,
 // (never queued) so they cannot swap what the council judges against.
 func (a *App) taskEvents(sid session.SessionID, evs []event.Event) []event.Event {
 	return filterDeferredEvents(evs, a.interjectSeenIDs(sid))
-}
-
-// PluginNote appends a system note from a plugin to the session transcript —
-// the plugin host's magi.notify. It uses the established system-actor prompt
-// pattern (council/planner notes), so it renders as a ⟳ note, never counts as
-// an unanswered user prompt, and the model sees it next turn (an "engram saved
-// skill X — reply N to undo" notice is actionable precisely because the model
-// and the user both see it).
-func (a *App) PluginNote(sessionID, text string) {
-	text = strings.TrimSpace(text)
-	if sessionID == "" || text == "" {
-		return
-	}
-	pd, _ := json.Marshal(event.PromptSubmittedData{
-		MessageID: "m_" + newID(),
-		Parts:     []session.Part{{Kind: session.PartText, Text: text}},
-	})
-	_ = a.appendFact(context.Background(), session.SessionID(sessionID), event.TypePromptSubmitted,
-		event.Actor{Kind: event.ActorSystem, ID: "plugin"}, pd)
 }
 
 // observeTurnFinished surfaces a completed top-level turn to observer plugins:
@@ -807,39 +534,6 @@ func (a *App) hasUnansweredUserPrompt(ctx context.Context, sid session.SessionID
 	return msgs[len(msgs)-1].Role == session.RoleUser
 }
 
-// setActiveSeed records the MessageID of the prompt seeding the current top-level turn,
-// so a cancel can mark exactly that prompt abandoned (see abandonSeedOnCancel).
-func (a *App) setActiveSeed(sid session.SessionID, msgID string) {
-	a.mu.Lock()
-	a.stateLocked(sid).activeSeedMsgID = msgID
-	a.mu.Unlock()
-}
-
-// abandonSeedOnCancel marks the cancelled turn's seed prompt abandoned so it does not
-// seed a later, unrelated request. It only writes the marker when that prompt is STILL
-// the unanswered seed (guarding against a stale activeSeedMsgID from a turn that already
-// answered or was superseded — seedPromptIdx already skips those). The cancelled prompt's
-// text stays in the log/context, so a follow-up that augments it still has the history.
-func (a *App) abandonSeedOnCancel(ctx context.Context, sid session.SessionID) {
-	a.mu.Lock()
-	mid := a.stateLocked(sid).activeSeedMsgID
-	a.stateLocked(sid).activeSeedMsgID = ""
-	a.mu.Unlock()
-	if mid == "" {
-		return
-	}
-	evs, err := a.store.Read(ctx, sid, 0)
-	if err != nil {
-		return
-	}
-	if !promptUnanswered(evs, mid) {
-		return // already answered or superseded — nothing to abandon
-	}
-	d, _ := json.Marshal(event.PromptAbandonedData{MsgID: mid})
-	_ = a.appendFact(ctx, sid, event.TypePromptAbandoned,
-		event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)
-}
-
 // Close cancels every in-flight run and background subagent, then waits for their
 // goroutines to finish (bounded by ctx). This drains pending store writes before
 // shutdown so they cannot race teardown — e.g. a test's temp-dir cleanup, which
@@ -995,51 +689,6 @@ func (a *App) Subscribe(ctx context.Context, sid session.SessionID, fromSeq int6
 
 // ---- internals ----
 
-// appendFact persists a fact event (assigning seq) and publishes it on the bus.
-func (a *App) appendFact(ctx context.Context, sid session.SessionID, typ event.Type, actor event.Actor, data json.RawMessage) error {
-	ev := event.Event{SessionID: sid, Type: typ, Actor: actor, TS: time.Now(), Stage: a.currentStage(sid), Data: data}
-	seqs, err := a.store.Append(ctx, sid, ev)
-	if err != nil {
-		return err
-	}
-	ev.Seq = seqs[0]
-	a.touch(sid)
-	a.bus.Publish(ev)
-	return nil
-}
-
-// appendPromptText appends a single-text-part PromptSubmitted event to a session — the shared
-// shape behind every "inject a note into a conversation" site (subagent Q&A, subagent results,
-// refine success/failure records, plan-council notes, planner findings). Callers that must
-// outlive the current turn pass context.WithoutCancel(ctx); the error is returned for the few
-// sites that care and ignored (`_ =`) by the fire-and-forget ones.
-func (a *App) appendPromptText(ctx context.Context, sid session.SessionID, actor event.Actor, text string) error {
-	pd, _ := json.Marshal(event.PromptSubmittedData{
-		MessageID: "m_" + newID(),
-		Parts:     []session.Part{{Kind: session.PartText, Text: text}},
-	})
-	return a.appendFact(ctx, sid, event.TypePromptSubmitted, actor, pd)
-}
-
-// publishTransient publishes a bus-only event (not persisted). No-op when the App
-// was built without a bus (minimal test construction) — a transient event has no
-// meaning with no subscribers.
-func (a *App) publishTransient(sid session.SessionID, typ event.Type, actor event.Actor, data json.RawMessage) {
-	if a.bus == nil {
-		return
-	}
-	a.touch(sid)
-	a.bus.Publish(event.Event{SessionID: sid, Type: typ, Actor: actor, TS: time.Now(), Stage: a.currentStage(sid), Data: data})
-}
-
-// emitToolProgress publishes a long-running tool's live progress note as a
-// transient (bus-only, droppable) event so the TUI and headless stream can show
-// what is being waited on. No-op when the bus is absent.
-func (a *App) emitToolProgress(sid session.SessionID, actor event.Actor, callID, name, text string) {
-	d, _ := json.Marshal(event.ToolProgressData{CallID: callID, Name: name, Text: text})
-	a.publishTransient(sid, event.TypeToolProgress, actor, d)
-}
-
 // Loop stages tag events with the macro phase they belong to (D15).
 const (
 	stagePlan     = "plan"
@@ -1047,60 +696,6 @@ const (
 	stageCouncil  = "council"
 	stageFinalize = "finalize"
 )
-
-// setStage records the current loop stage for a session; subsequent events are
-// tagged with it (Loop map / rewind grouping).
-func (a *App) setStage(sid session.SessionID, stage string) {
-	a.mu.Lock()
-	a.stateLocked(sid).stage = stage
-	a.mu.Unlock()
-}
-
-// currentStage returns the session's current stage, defaulting to execute.
-func (a *App) currentStage(sid session.SessionID) string {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if st, ok := a.stateIf(sid); ok && st.stage != "" {
-		return st.stage
-	}
-	return stageExecute
-}
-
-// touch records activity for a session (used by the sidecar liveness check).
-func (a *App) touch(sid session.SessionID) {
-	a.lastActivity.Store(sid, time.Now())
-}
-
-// idleFor returns how long a session has had no event activity.
-func (a *App) idleFor(sid session.SessionID) time.Duration {
-	if v, ok := a.lastActivity.Load(sid); ok {
-		return time.Since(v.(time.Time))
-	}
-	return 0
-}
-
-// enterTool / leaveTool bracket a single tool execution for a session, and
-// toolInFlight reports whether any tool is currently running. The stall watchdog
-// consults toolInFlight so a legitimately long, silent tool (e.g. a multi-minute
-// bash build that emits no events until it returns) is not mistaken for a wedged
-// child. A tool that hangs past its own timeout is still bounded by the hard cap.
-func (a *App) enterTool(sid session.SessionID) {
-	v, _ := a.toolsRunning.LoadOrStore(sid, new(atomic.Int64))
-	v.(*atomic.Int64).Add(1)
-}
-
-func (a *App) leaveTool(sid session.SessionID) {
-	if v, ok := a.toolsRunning.Load(sid); ok {
-		v.(*atomic.Int64).Add(-1)
-	}
-}
-
-func (a *App) toolInFlight(sid session.SessionID) bool {
-	if v, ok := a.toolsRunning.Load(sid); ok {
-		return v.(*atomic.Int64).Load() > 0
-	}
-	return false
-}
 
 func (a *App) sessionInfo(ctx context.Context, sid session.SessionID) session.Session {
 	a.mu.Lock()
@@ -1142,55 +737,4 @@ func newSortableID() string {
 	b[3], b[4], b[5] = byte(ms>>16), byte(ms>>8), byte(ms)
 	_, _ = rand.Read(b[6:])
 	return hex.EncodeToString(b[:])
-}
-
-// RegisterContextProvider adds a context provider for RAG-like context injection.
-func (a *App) RegisterContextProvider(p port.ContextProvider) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.contextProviders = append(a.contextProviders, p)
-	for _, st := range a.states {
-		st.ragQ, st.ragText = "", "" // the new provider must be consulted on the next lookup
-	}
-}
-
-// contextBudget caps the characters of provider-injected context per turn so a
-// chatty RAG source can't blow the window.
-const contextBudget = 8000
-
-// gatherContext queries every registered context provider for the current
-// request and returns their chunks formatted for the system prompt (empty if
-// none). Each provider is bounded by a short timeout so a slow or hung source
-// degrades to "no extra context" instead of stalling the turn.
-func (a *App) gatherContext(ctx context.Context, q port.ContextQuery) string {
-	a.mu.Lock()
-	providers := append([]port.ContextProvider(nil), a.contextProviders...)
-	a.mu.Unlock()
-	if len(providers) == 0 {
-		return ""
-	}
-
-	var b strings.Builder
-	for _, p := range providers {
-		cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		chunks, err := p.Provide(cctx, q)
-		cancel()
-		if err != nil {
-			continue // a failing provider must not break the turn
-		}
-		for _, c := range chunks {
-			text := strings.TrimSpace(c.Text)
-			if text == "" {
-				continue
-			}
-			if c.Source != "" {
-				b.WriteString("## " + c.Source + "\n")
-			}
-			b.WriteString(text + "\n\n")
-			if b.Len() >= contextBudget {
-				return strings.TrimSpace(b.String()[:contextBudget])
-			}
-		}
-	}
-	return strings.TrimSpace(b.String())
 }
