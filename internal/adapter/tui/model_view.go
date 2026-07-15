@@ -113,11 +113,18 @@ func (m Model) View() tea.View {
 	if m.ta.Focused() {
 		inputStyle = styleInputFocus
 	}
-	inputContentW := m.width - 2
+	// Style.Width is the box's TOTAL width — border and padding included — so the
+	// text area inside is Width-4. The textarea's view rows are prompt+inner wide
+	// (ta.Width() returns the INNER width; SetWidth reserves the prompt), and the
+	// box MUST leave them at least that much room: a box even 2 cols short re-wraps
+	// any FULL view row. Only space-less input force-breaks rows to full width —
+	// prompts with spaces wrap early at word boundaries — which is why this bug hid:
+	// with unbroken input (long paths, spaceless Korean) rows lost their prompt,
+	// single glyphs spilled onto their own rows, and the reported cursor drifted by
+	// the accumulated difference while IME pre-edit rendered at that wrong spot.
+	inputContentW := m.width - 2 // total box width; ta rows are m.width-6 (see refresh)
 	if splash {
-		// Fresh screen: narrow box centered under the wordmark (ta content + padding;
-		// the border adds the remaining 2 cols).
-		inputContentW = m.ta.Width() + 2
+		inputContentW = m.ta.Width() + lipgloss.Width(m.ta.Prompt) + 4
 	}
 	input := inputStyle.Width(inputContentW).Render(m.ta.View())
 

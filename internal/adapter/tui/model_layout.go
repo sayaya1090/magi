@@ -13,7 +13,7 @@ import (
 
 func (m *Model) resize(w, h int) {
 	m.width, m.height = w, h
-	m.ta.SetWidth(w - 4)
+	m.ta.SetWidth(w - 6)
 	m.buildGlam(m.width - m.panelCols()) // wrap to the transcript width (panel-aware)
 
 	if !m.ready {
@@ -324,7 +324,7 @@ func (m *Model) refresh() {
 	// On the fresh splash screen the input sits centered under the wordmark at a
 	// narrower width; elsewhere it spans the transcript. Keep the textarea wrapped to
 	// whichever is active so its rendered lines match the box we draw around it.
-	wantW := m.width - 4
+	wantW := m.width - 6 // box total is m.width-2; border+padding eat 4, so rows must be m.width-6
 	if m.splashActive() {
 		// Proportional, not a fixed cap: at ~100-col terminals a fixed 100-col cap made
 		// the box a near-full-width bar under the 49-col console diagram — technically
