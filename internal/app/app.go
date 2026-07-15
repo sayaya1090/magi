@@ -369,6 +369,13 @@ func (a *App) resetForNewTopLevel(sid session.SessionID) {
 	st.expPtrQ, st.expPtr = "", ""
 	st.ragQ, st.ragText = "", "" // retrieval caches are turn-scoped even when the prompt text repeats
 	a.mu.Unlock()
+	// The subagent budget is a RUNAWAY backstop (one turn spawning without bound), not a
+	// lifetime meter: without this reset a long interactive session accumulates ordinary
+	// planner/recovery spawns across turns until every later spawn fails with "agent budget
+	// exhausted" for the rest of the process. A runaway plays out within one turn, so a
+	// per-turn window loses none of the protection. Process-wide (spawnCount is App-level):
+	// concurrent top-level sessions share the window, which still bounds any single runaway.
+	a.spawnCount.Store(0)
 }
 
 // setAwaitExplorers marks (or clears) that the planner dispatched read-only explorers as
