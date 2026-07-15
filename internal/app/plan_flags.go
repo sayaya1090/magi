@@ -8,17 +8,34 @@ import (
 // Bench A/B env knobs for the planner. Each reader parses one MAGI_* env var into a
 // bool so a paired ON/OFF run can measure a mechanism in isolation; see each doc for the
 // arm it flips and its default. Split out of planner.go for cohesion (behavior unchanged).
+//
+// Two value shapes, shared by every reader below: a default-ON mechanism is disabled
+// only by an explicit off-value (envOff), and a default-OFF mechanism is enabled only
+// by an explicit on-value (envOn). Anything else — unset, empty, or unrecognized —
+// leaves the default.
 
-// refineDisabled is a bench A/B knob (mirrors MAGI_MAX_PLAN_DEPTH): MAGI_REFINE=0 downgrades
-// refine steps to solo, reproducing the pre-refine baseline (every sub-goal flattened inline)
-// so a paired refine-ON/OFF comparison can run on the same task. Default on.
-func refineDisabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_REFINE"))) {
+// envOff reports whether the named env var holds an explicit off-value.
+func envOff(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
 	case "0", "off", "false", "no":
 		return true
 	}
 	return false
 }
+
+// envOn reports whether the named env var holds an explicit on-value.
+func envOn(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "on", "true", "yes":
+		return true
+	}
+	return false
+}
+
+// refineDisabled is a bench A/B knob (mirrors MAGI_MAX_PLAN_DEPTH): MAGI_REFINE=0 downgrades
+// refine steps to solo, reproducing the pre-refine baseline (every sub-goal flattened inline)
+// so a paired refine-ON/OFF comparison can run on the same task. Default on.
+func refineDisabled() bool { return envOff("MAGI_REFINE") }
 
 // stepContextDisabled is a bench A/B knob (mirrors MAGI_REFINE): MAGI_STEP_CONTEXT=0 turns
 // OFF the compact context brief injected into delegate hand-offs and read-only fan-out — the
@@ -26,13 +43,7 @@ func refineDisabled() bool {
 // measure whether the brief helps. Default on. It gates ONLY the brief; it never copies the
 // parent conversation (that stays refine's job) — so even ON, delegate/fan-out get an
 // overall-goal line plus sibling boundaries/outputs, not the parent's reasoning history.
-func stepContextDisabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_STEP_CONTEXT"))) {
-	case "0", "off", "false", "no":
-		return true
-	}
-	return false
-}
+func stepContextDisabled() bool { return envOff("MAGI_STEP_CONTEXT") }
 
 // adaptDisabled turns OFF the REACTIVE (as-needed) failure re-decomposition — the ADaPT
 // mechanism where a step that fails is retried by decomposing it further. MAGI_ADAPT=0 leaves
@@ -41,13 +52,7 @@ func stepContextDisabled() bool {
 // spawning informed retries / re-decomposition. This is the recursion-policy A/B knob — with it
 // off, magi is closer to HTN-style hierarchical planning with just-in-time sub-planning than to
 // ADaPT proper. Default on (=current reactive behavior) so the flag flips the arm, not the base.
-func adaptDisabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_ADAPT"))) {
-	case "0", "off", "false", "no":
-		return true
-	}
-	return false
-}
+func adaptDisabled() bool { return envOff("MAGI_ADAPT") }
 
 // specFidelityEnabled keeps a plan faithful to the request's LITERAL contract — exact field/
 // message/function names, output formats, thresholds, literal strings. Deep planning paraphrases
@@ -56,14 +61,8 @@ func adaptDisabled() bool {
 // raw instruction directly and keeps the literal. This flag turns on three defenses (a planner
 // "preserve literals" rule, a plan-time spec-fidelity note, and a verbatim SPEC anchor for the
 // context-free delegate child). Default ON; MAGI_SPEC_FIDELITY=0 restores the paraphrase-only
-// baseline (the A/B knob). Mirrors stepContextDisabled/adaptDisabled.
-func specFidelityEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_SPEC_FIDELITY"))) {
-	case "0", "off", "false", "no":
-		return false
-	}
-	return true
-}
+// baseline (the A/B knob).
+func specFidelityEnabled() bool { return !envOff("MAGI_SPEC_FIDELITY") }
 
 // checkpointFirstEnabled turns on test-first ordering: when a task states HOW its
 // completion is checked (a snippet, command, function call, or I/O contract), the
@@ -75,14 +74,8 @@ func specFidelityEnabled() bool {
 // end-of-turn unverifiedDeliverable backstop, not a replacement. It self-limits to tasks
 // that actually state an executable check and steps aside for prose-only conditions, so a
 // clean run is not misdirected. Default ON; MAGI_CHECKPOINT_FIRST=off restores the baseline
-// that never orders/injects the checkpoint (the A/B knob). Mirrors specFidelityEnabled's env shape.
-func checkpointFirstEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_CHECKPOINT_FIRST"))) {
-	case "0", "off", "false", "no":
-		return false
-	}
-	return true
-}
+// that never orders/injects the checkpoint (the A/B knob).
+func checkpointFirstEnabled() bool { return !envOff("MAGI_CHECKPOINT_FIRST") }
 
 // stepVerifyEnabled turns on the per-step deliverable contract: the plan-audit council
 // authors executable checks for each step's expected deliverable at PLAN time, the solo
@@ -92,38 +85,16 @@ func checkpointFirstEnabled() bool {
 // settled at planning — no new demands after). A real check FAILURE injects the failing
 // command's output as a one-shot continuation nudge; a clean run injects nothing (no
 // context pollution). Default ON; MAGI_STEP_VERIFY=0 restores the baseline that leaves
-// storage, the gate, and the council path fully inert (the A/B knob). Mirrors
-// specFidelityEnabled's env shape.
-func stepVerifyEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_STEP_VERIFY"))) {
-	case "0", "off", "false", "no":
-		return false
-	}
-	return true
-}
+// storage, the gate, and the council path fully inert (the A/B knob).
+func stepVerifyEnabled() bool { return !envOff("MAGI_STEP_VERIFY") }
 
 // recoveryRunCapEnabled caps stuck-recovery re-decomposition to fire at most once per RUN
-// TREE rather than once per depth level. redecomposeStuck's one-shot guard (turnState.recovered)
-// is per-turn, and each spawned recovery child runs its own fresh turnState — so under the
-// delegate-off default a depth-0 stall spawns a coder at depth 1, that coder stalls and (still
-// planEligible) spawns another at depth 2, and so on until the plan-depth cap stops it with a
-// stall_guard halt (observed on compile-compcert). With this on, a recovery child is seeded as
-// already-recovered, so it cannot trigger its OWN redecomposeStuck: exactly one recovery
-// executor is spawned per run tree. Default ON: the coder-cascade halt it prevents is a clear
-// failure mode, and one recovery executor per run tree is the intended reach of
-// [[stuck-recovery-decoupled]]. MAGI_RECOVERY_RUNCAP=off restores the per-depth re-decomposition
-// for an A/B arm.
-// recoveryRunCapEnabled is off by default: multiple recovery executors are allowed per run
-// tree (each stuck level re-arms its own lifeline, bounded by MaxPlanDepth). Set
-// MAGI_RECOVERY_RUNCAP=on to restore the one-executor-per-run-tree cap (the recovery child
-// starts already-recovered and cannot cascade).
-func recoveryRunCapEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_RECOVERY_RUNCAP"))) {
-	case "1", "on", "true", "yes":
-		return true
-	}
-	return false
-}
+// TREE rather than once per depth level: a recovery child is seeded as already-recovered, so
+// it cannot trigger its OWN redecomposeStuck (no coder→coder cascade down the depth levels).
+// Off (the default), multiple recovery executors are allowed per run tree — each stuck level
+// re-arms its own lifeline, bounded by MaxPlanDepth. Set MAGI_RECOVERY_RUNCAP=on to restore
+// the one-executor-per-run-tree cap.
+func recoveryRunCapEnabled() bool { return envOn("MAGI_RECOVERY_RUNCAP") }
 
 // stuckDecomposeEnabled changes what stuck-recovery (redecomposeStuck) DOES when an agent is
 // force-stopped stuck: instead of re-handing the WHOLE task to one fresh child, it decomposes the
@@ -134,14 +105,8 @@ func recoveryRunCapEnabled() bool {
 // units that already landed persist even if a later one stalls. It ALSO widens the recovery gate to
 // the "repeat" stall kind (a loop-guard block spiral), which the whole-task re-hand-off could not
 // help (it would just re-fixate). Default ON; MAGI_STUCK_DECOMPOSE=off restores the single
-// whole-task re-spawn baseline (stall-kind only). Mirrors implicitAcceptEnabled's env shape.
-func stuckDecomposeEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_STUCK_DECOMPOSE"))) {
-	case "0", "off", "false", "no":
-		return false
-	}
-	return true
-}
+// whole-task re-spawn baseline (stall-kind only).
+func stuckDecomposeEnabled() bool { return !envOff("MAGI_STUCK_DECOMPOSE") }
 
 // implicitAcceptEnabled tells the planner that a task's real acceptance conditions are usually
 // stricter than the instruction prose: the exact output tokens/formats the prose only gestures at,
@@ -153,14 +118,8 @@ func stuckDecomposeEnabled() bool {
 // (files present) with domain convention, and pairs with checkpoint-first (the surfaced edge cases
 // become the checkpoint's cases). Framed as general edge-case rigor, not a hidden benchmark grader,
 // so it applies identically off-bench. Default ON; MAGI_IMPLICIT_ACCEPT=off restores the
-// literal-sentence baseline (the A/B knob). Mirrors specFidelityEnabled's env shape.
-func implicitAcceptEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_IMPLICIT_ACCEPT"))) {
-	case "0", "off", "false", "no":
-		return false
-	}
-	return true
-}
+// literal-sentence baseline (the A/B knob).
+func implicitAcceptEnabled() bool { return !envOff("MAGI_IMPLICIT_ACCEPT") }
 
 // orientEnabled turns on the explore-first grounding pass (maybeOrient): once per session, at the
 // first cold write-capable top-level turn, the deterministic build/verify anchors and layout of
@@ -170,14 +129,8 @@ func implicitAcceptEnabled() bool {
 // executor keeps — not just the planner prompt — matching the "reason with full context"
 // principle. Facts, not speculative instructions (contrast the reverted attempt ledger), so a
 // clean run is not misdirected. Default ON; MAGI_ORIENT=off restores the un-grounded baseline
-// (the A/B knob). Mirrors asyncExplorersEnabled's env shape.
-func orientEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_ORIENT"))) {
-	case "0", "off", "false", "no":
-		return false
-	}
-	return true
-}
+// (the A/B knob).
+func orientEnabled() bool { return !envOff("MAGI_ORIENT") }
 
 // asyncExplorersEnabled routes a top-level, read-only-only plan's explorer fan-out through the
 // BACKGROUND dispatch path (a.dispatch) instead of the synchronous runExplorers, so the
@@ -186,40 +139,22 @@ func orientEnabled() bool {
 // plan with NO write step (delegate/refine) is eligible; a mixed plan keeps the synchronous
 // executeSteps path so a write step still sees prior explorer findings in its brief (ordering
 // dependency). Default ON; MAGI_ASYNC_EXPLORERS=off restores the fully-synchronous preflight (the
-// A/B knob). Mirrors specFidelityEnabled's env shape.
-func asyncExplorersEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_ASYNC_EXPLORERS"))) {
-	case "0", "off", "false", "no":
-		return false
-	}
-	return true
-}
+// A/B knob).
+func asyncExplorersEnabled() bool { return !envOff("MAGI_ASYNC_EXPLORERS") }
 
 // sharedRefineEnabled runs a plan's sequentially-dependent refine phases in ONE shared child
 // session (the first phase creates it via clone; later phases REUSE it, so each sees its
 // predecessors' actual work) rather than giving each phase its own spawn-time clone of the
 // parent — the fix for tightly-coupled phases missing each other's outputs. Default ON;
 // MAGI_REFINE_SHARED=0 restores the legacy per-phase clone-at-spawn baseline (the A/B knob).
-func sharedRefineEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_REFINE_SHARED"))) {
-	case "0", "off", "false", "no":
-		return false
-	}
-	return true
-}
+func sharedRefineEnabled() bool { return !envOff("MAGI_REFINE_SHARED") }
 
 // planConvergeEnabled gates the plan-audit convergence judgment (D17): when the council
 // rejects a plan and the planner re-plans, judge whether the revision actually addressed
 // the concern and stop the loop early on an unproductive (ignored-the-concern) revision,
 // rather than bounding purely on the round count. Default ON; MAGI_PLAN_CONVERGE=0 restores
 // the round-count-only behavior (the PlanRevised diff is still emitted, but with no verdict).
-func planConvergeEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_PLAN_CONVERGE"))) {
-	case "0", "off", "false", "no":
-		return false
-	}
-	return true
-}
+func planConvergeEnabled() bool { return !envOff("MAGI_PLAN_CONVERGE") }
 
 // soloAuditEnabled extends the plan-audit council — and the per-step deliverable criteria
 // and executable checks it authors (storePlanCriteria/storePlanChecks) — to a SINGLE-step
@@ -231,14 +166,8 @@ func planConvergeEnabled() bool {
 // path never exercised). With this on, a 1-step plan gets the same audit and deliverable
 // contract a multi-step one does; the async-explorer path and note injections already run for a
 // 1-step plan, so this only adds the missing audit+contract. Default ON; MAGI_SOLO_AUDIT=off
-// restores the >=2-step-only audit (the A/B knob). Mirrors specFidelityEnabled's env shape.
-func soloAuditEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_SOLO_AUDIT"))) {
-	case "0", "off", "false", "no":
-		return false
-	}
-	return true
-}
+// restores the >=2-step-only audit (the A/B knob).
+func soloAuditEnabled() bool { return !envOff("MAGI_SOLO_AUDIT") }
 
 // waitGuardEnabled gates the environment-wait recovery suppression: when a stall force-stop is
 // reached but the no-progress window is dominated by waiting/polling (guard.stallIsWait — sleep,
@@ -248,14 +177,8 @@ func soloAuditEnabled() bool {
 // coder→coder whose child timeout is misreported as the whole run's context-deadline. Suppressing
 // only the spawn leaves the honest stall stop intact (delivered→clean finish, or stall_guard), so
 // an endless wait is still capped. Default ON; MAGI_WAIT_GUARD=off restores the unconditional
-// recovery spawn (the A/B knob). Mirrors soloAuditEnabled's env shape.
-func waitGuardEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_WAIT_GUARD"))) {
-	case "0", "off", "false", "no":
-		return false
-	}
-	return true
-}
+// recovery spawn (the A/B knob).
+func waitGuardEnabled() bool { return !envOff("MAGI_WAIT_GUARD") }
 
 // stallConvergeEnabled gates the stalled-nudge convergence (D18a): the no-progress "stalled"
 // nudge re-arms up to maxStallNudges times keyed purely on the sinceProgress count, without
@@ -267,10 +190,4 @@ func waitGuardEnabled() bool {
 // never forces a pass and never fires while the agent is making progress (a mutation sets
 // progressSinceNudge=true and restarts the window, so a post-nudge edit re-arms normally). Default
 // ON; MAGI_STALL_CONVERGE=0 restores the fixed maxStallNudges re-arm.
-func stallConvergeEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_STALL_CONVERGE"))) {
-	case "0", "off", "false", "no":
-		return false
-	}
-	return true
-}
+func stallConvergeEnabled() bool { return !envOff("MAGI_STALL_CONVERGE") }
