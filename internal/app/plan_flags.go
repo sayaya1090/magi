@@ -113,12 +113,16 @@ func stepVerifyEnabled() bool {
 // failure mode, and one recovery executor per run tree is the intended reach of
 // [[stuck-recovery-decoupled]]. MAGI_RECOVERY_RUNCAP=off restores the per-depth re-decomposition
 // for an A/B arm.
+// recoveryRunCapEnabled is off by default: multiple recovery executors are allowed per run
+// tree (each stuck level re-arms its own lifeline, bounded by MaxPlanDepth). Set
+// MAGI_RECOVERY_RUNCAP=on to restore the one-executor-per-run-tree cap (the recovery child
+// starts already-recovered and cannot cascade).
 func recoveryRunCapEnabled() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_RECOVERY_RUNCAP"))) {
-	case "0", "off", "false", "no":
-		return false
+	case "1", "on", "true", "yes":
+		return true
 	}
-	return true
+	return false
 }
 
 // implicitAcceptEnabled tells the planner that a task's real acceptance conditions are usually

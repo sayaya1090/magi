@@ -477,15 +477,24 @@ func (a *App) cloneConversation(ctx context.Context, from, to session.SessionID)
 // has a hard timeout and a stall watchdog, and stalls/timeouts/transient errors
 // are retried up to SubagentMaxRestarts.
 func (a *App) spawn(ctx context.Context, parent session.Session, depth int, req port.SpawnRequest) port.SpawnResult {
+	spec, ok := a.resolveAgentSpec(req.Agent)
+	if !ok {
+		return port.SpawnResult{Err: "unknown agent: " + req.Agent}
+	}
+	return a.spawnResolved(ctx, parent, depth, spec, req)
+}
+
+// spawnResolved is spawn's core with the agent spec already resolved. It exists so the
+// stuck-recovery lifeline (redecomposeStuck) can re-run the *main orchestrator's own* spec —
+// which is built on the fly by agentFor and is deliberately absent from cfg.Agents, so a
+// name lookup via resolveAgentSpec would fail with "unknown agent". Recovery is the main
+// agent doing the work itself, not a handoff to a registered subagent.
+func (a *App) spawnResolved(ctx context.Context, parent session.Session, depth int, spec AgentSpec, req port.SpawnRequest) port.SpawnResult {
 	if depth+1 > a.cfg.MaxDepth {
 		return port.SpawnResult{Err: fmt.Sprintf("max depth reached (%d)", a.cfg.MaxDepth)}
 	}
 	if a.spawnCount.Add(1) > int64(a.cfg.MaxAgents) {
 		return port.SpawnResult{Err: fmt.Sprintf("agent budget exhausted (%d)", a.cfg.MaxAgents)}
-	}
-	spec, ok := a.resolveAgentSpec(req.Agent)
-	if !ok {
-		return port.SpawnResult{Err: "unknown agent: " + req.Agent}
 	}
 
 	var last port.SpawnResult

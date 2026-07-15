@@ -326,26 +326,28 @@ func (a *App) recordRefineSuccess(ctx context.Context, sid session.SessionID, st
 // than blindly re-running); false when no executor is available or the child also failed, so
 // the caller falls through to its existing force-stop/finish.
 func (a *App) redecomposeStuck(ctx context.Context, s session.Session, agent AgentSpec, task, blockReason string, depth int) bool {
-	// Pick a write-capable executor for the re-plan, preferring the stuck agent itself
-	// (same-executor retry, mirroring runDelegateStep). recoveryExecutor is intentionally NOT
-	// gated by DisableDelegate: this is an emergency lifeline, not normal delegation, so it
-	// stays available under the delegate=off default where the stall/deadlock/idle-resubmit
-	// recovery would otherwise be dead.
-	name, ok := a.recoveryExecutor(agent.Name)
-	if !ok {
-		return false // no write-capable executor → cannot recover, let the caller stop
+	// Recovery re-runs the stuck agent's OWN spec on a fresh re-plan of the task — the main
+	// orchestrator doing the work itself, not a handoff to a separate coder subagent. Every
+	// call site gates on planEligible → producesFiles(agent), so the stuck agent is guaranteed
+	// write-capable; the guard below is a defensive backstop for that invariant. This is an
+	// emergency lifeline (NOT normal delegation), so it stays available under delegate=off
+	// where the stall/deadlock/idle-resubmit recovery would otherwise be dead. spawnResolved
+	// (not spawn) is used because the main agent's spec is built on the fly and absent from
+	// cfg.Agents, so a name lookup would fail.
+	if !producesFiles(agent) {
+		return false // read-only stuck agent → cannot author a recovery, let the caller stop
 	}
-	// Recovery is honored only under the run-tree cap (recoveryRunCapEnabled): the child then
-	// starts already-recovered and cannot cascade its own redecomposeStuck. Off = baseline
-	// (child re-arms recovery per depth level).
-	r := a.spawn(ctx, s, depth, port.SpawnRequest{
-		Agent:    name,
+	// Recovery is honored only under the run-tree cap (recoveryRunCapEnabled, default off): the
+	// child then starts already-recovered and cannot cascade its own redecomposeStuck. Off =
+	// baseline, multiple recovery executors per run tree (child re-arms recovery per depth level).
+	r := a.spawnResolved(ctx, s, depth, agent, port.SpawnRequest{
+		Agent:    agent.Name,
 		Prompt:   stuckRedecomposePrompt(task, blockReason),
 		Recovery: recoveryRunCapEnabled(),
 	})
 	if r.Err != "" || strings.TrimSpace(r.Text) == "" {
 		return false
 	}
-	a.injectSubagentResult(ctx, s.ID, name, r)
+	a.injectSubagentResult(ctx, s.ID, agent.Name, r)
 	return true
 }
