@@ -19,8 +19,9 @@ const keepRecentEvents = 6
 // maybeCompact summarizes older context when the estimated token count exceeds
 // the model's window budget, returning true if a compaction event was appended.
 // (M6 context-aware compaction, building on F-COMPACT.)
-func (a *App) maybeCompact(ctx context.Context, s session.Session, agent AgentSpec, actor event.Actor, evs []event.Event, sys string) bool {
-	msgs := reconstruct(evs)
+// msgs is reconstruct(evs), built once per step by the caller and shared (reconstruct is
+// O(events); this sizing check runs every step).
+func (a *App) maybeCompact(ctx context.Context, s session.Session, agent AgentSpec, actor event.Actor, evs []event.Event, msgs []session.Message, sys string) bool {
 	window := a.contextWindow(s.Model.Model)
 	if window <= 0 {
 		return false // unknown/unlimited window → no ratio-based auto-compaction

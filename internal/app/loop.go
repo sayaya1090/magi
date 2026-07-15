@@ -664,18 +664,24 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 	isSub := s.Parent != ""
 	sys := a.buildStepSystem(agent, s.Workdir, isSub, evs)
 
+	// Unfiltered reconstruction of the whole log, built ONCE per step and shared by the
+	// volatile-context retrieval query and the compaction sizing check below — reconstruct
+	// is O(events), so each avoided rebuild matters on long sessions.
+	raw := reconstruct(evs)
+
 	// Per-step-volatile context (current plan, shared experience, retrieved RAG): built
 	// here but injected as an ephemeral trailing message, NOT into `sys`. `sys` (above) is
 	// now byte-stable within a turn, so the backend's prefix cache is reused across steps;
 	// only this small block at the tail is re-processed each step.
-	vol := a.volatileContext(ctx, s, agent, isSub, evs, step, tc.maxSteps, time.Since(tc.runStart))
+	vol := a.volatileContext(ctx, s, agent, isSub, evs, raw, step, tc.maxSteps, time.Since(tc.runStart))
 
 	// Context-aware auto-compaction (M6): if the assembled context exceeds the model's
 	// window budget, summarize older turns and re-read. Measure against sys+vol so the
 	// trigger still accounts for the volatile block (it's only used for sizing here).
-	if a.maybeCompact(ctx, s, agent, agentActor, evs, sys+"\n\n"+vol) {
+	if a.maybeCompact(ctx, s, agent, agentActor, evs, raw, sys+"\n\n"+vol) {
 		evs, _ = a.store.Read(ctx, sid, 0)
-		vol = a.volatileContext(ctx, s, agent, isSub, evs, step, tc.maxSteps, time.Since(tc.runStart)) // refresh after compaction
+		raw = reconstruct(evs) // refresh after compaction
+		vol = a.volatileContext(ctx, s, agent, isSub, evs, raw, step, tc.maxSteps, time.Since(tc.runStart))
 	}
 
 	msgs := reconstruct(a.liveEvents(sid, evs))
@@ -685,7 +691,8 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 		if evs2, err := a.store.Read(ctx, sid, 0); err == nil {
 			evs = evs2
 			msgs = reconstruct(a.liveEvents(sid, evs))
-			vol = a.volatileContext(ctx, s, agent, isSub, evs, step, tc.maxSteps, time.Since(tc.runStart))
+			raw = reconstruct(evs)
+			vol = a.volatileContext(ctx, s, agent, isSub, evs, raw, step, tc.maxSteps, time.Since(tc.runStart))
 		}
 	}
 	// Append the volatile context as an ephemeral trailing user message (not persisted, so

@@ -128,7 +128,10 @@ func (a *App) systemFor(agent AgentSpec, workdir string, isSub bool) string {
 // stays byte-stable within a turn and the backend's prefix (KV) cache survives across steps.
 // Returns "" when there is nothing to inject. Gating matches the old in-`sys` behavior:
 // experience applies to subagents too, RAG is top-level only.
-func (a *App) volatileContext(ctx context.Context, s session.Session, agent AgentSpec, isSub bool, evs []event.Event, step, maxSteps int, elapsed time.Duration) string {
+// raw is reconstruct(evs) computed by the caller — the step loop already needs it for
+// compaction sizing, and reconstruct is O(events), so it is built once per step and
+// shared rather than re-derived here for the retrieval query.
+func (a *App) volatileContext(ctx context.Context, s session.Session, agent AgentSpec, isSub bool, evs []event.Event, raw []session.Message, step, maxSteps int, elapsed time.Duration) string {
 	var b strings.Builder
 	// Step budget: give the agent continuous budget awareness every step so it paces itself.
 	// Two failure modes to prevent: (1) running to the ceiling mid-exploration and being cut
@@ -178,12 +181,8 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 	// lexically relevant to the current task, as one-line pointers into recall_context.
 	b.WriteString(shardHints(evs, currentTaskText(evs)))
 	// Both retrieval hooks below key on the last user prompt, which is constant across a
-	// turn — and reconstruct is O(events) — so compute the query ONCE per step and let the
-	// per-turn caches absorb the (identical) lookups the remaining steps would repeat.
-	var retrievalQ string
-	if a.cfg.Experience != nil || !isSub {
-		retrievalQ = lastUserText(reconstruct(evs))
-	}
+	// turn; the per-turn caches absorb the (identical) lookups the remaining steps repeat.
+	retrievalQ := lastUserText(raw)
 	// Shared experience (D13): advertise only how many team memories/skills match the
 	// current request — a one-line pointer, not the entries themselves. The agent pulls
 	// the detail on demand with recall_memory, so relevant knowledge stays reachable
