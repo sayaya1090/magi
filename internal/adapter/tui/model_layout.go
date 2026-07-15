@@ -8,6 +8,7 @@ import (
 	"charm.land/glamour/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/rivo/uniseg"
 )
 
 func (m *Model) resize(w, h int) {
@@ -382,6 +383,41 @@ func (m *Model) selBounds() (sl, sc, el, ec int) {
 	return
 }
 
+// snapSelCols snaps a line's selection columns to grapheme cell boundaries of the
+// plain text: the start floors to the glyph's first cell, the end ceils past its
+// last. Without this, an endpoint landing on the SECOND cell of a wide character
+// (Hangul, emoji, CJK) bisects the glyph, and the three ANSI-aware cuts around it
+// disagree about which side owns it — the left cut drops the glyph while the
+// middle cut adopts it — so the highlight edge jumps a full glyph as the pointer
+// crosses each wide character. Snapping makes the cut seams always coincide with
+// glyph seams, and the whole glyph under either endpoint is selected.
+func snapSelCols(plain string, c0, c1 int) (int, int) {
+	s0, s1, w := 0, -1, 0
+	g := uniseg.NewGraphemes(plain)
+	for g.Next() {
+		cw := g.Width()
+		if w < c0 && w+cw <= c0 {
+			// still left of the start — advance the floor candidate
+		} else if w <= c0 {
+			s0 = w // c0 lands inside/at this glyph → floor to its first cell
+		}
+		if s1 < 0 && w+cw >= c1 {
+			s1 = w + cw // c1 lands inside/at this glyph → ceil past its last cell
+			if c1 == w {
+				s1 = w // …unless it sits exactly on the glyph's leading seam
+			}
+		}
+		w += cw
+	}
+	if c0 >= w {
+		s0 = w
+	}
+	if s1 < 0 || c1 >= w {
+		s1 = w
+	}
+	return s0, s1
+}
+
 // highlightSelection reverse-videos the selected cell range on each line,
 // preserving the surrounding markdown styling (cells are cut ANSI-aware).
 func (m *Model) highlightSelection() string {
@@ -406,6 +442,12 @@ func (m *Model) highlightSelection() string {
 		}
 		if c1 > w {
 			c1 = w
+		}
+		if c0 >= c1 {
+			continue
+		}
+		if i < len(m.contentPlain) {
+			c0, c1 = snapSelCols(m.contentPlain[i], c0, c1)
 		}
 		if c0 >= c1 {
 			continue
@@ -471,6 +513,9 @@ func (m *Model) selectedText() string {
 		if c0 > c1 {
 			c0 = c1
 		}
+		// Same grapheme snap as the highlight, so what is copied is exactly what
+		// reads as selected (a wide glyph under either endpoint is included whole).
+		c0, c1 = snapSelCols(plain, c0, c1)
 		rows = append(rows, strings.TrimRight(ansi.Cut(plain, c0, c1), " "))
 	}
 	return strings.TrimRight(strings.Join(rows, "\n"), "\n")
