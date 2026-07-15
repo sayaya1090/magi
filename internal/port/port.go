@@ -192,6 +192,12 @@ type ToolEnv struct {
 	AskPermission func(callID, name string, args json.RawMessage) (bool, error)
 	// EmitArtifact lets a tool publish a reviewable artifact (D11).
 	EmitArtifact func(artifact.Artifact)
+	// EmitProgress lets a long-running tool publish a live, best-effort progress
+	// note (e.g. wait_for's poll status) while it blocks, so the TUI spinner and
+	// the headless stream can show what is being waited on instead of a silent
+	// gap. Transient and droppable; always set by the application, but a tool
+	// should still nil-check it (a bare ToolEnv has no observer).
+	EmitProgress func(text string)
 	// Spawn runs a subagent and returns its final output. It is set by the
 	// application for the task tool; nil when subagents are unavailable. The
 	// application enforces bounded recursion (D7). (F-AGENT-MULTI)

@@ -289,6 +289,16 @@ type ToolStartedData struct {
 	Name   string `json:"name"`
 }
 
+// ToolProgressData — TypeToolProgress: a live, best-effort progress note emitted
+// by a long-running tool while it blocks (e.g. wait_for polling a readiness
+// condition). Transient and droppable — never persisted; the UI shows only the
+// latest note and drops it when the tool's result lands.
+type ToolProgressData struct {
+	CallID string `json:"callId"`
+	Name   string `json:"name"`
+	Text   string `json:"text"`
+}
+
 // PermissionRequestedData — TypePermissionRequested (UI prompt).
 type PermissionRequestedData struct {
 	CallID string `json:"callId"`
