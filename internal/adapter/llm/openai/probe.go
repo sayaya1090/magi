@@ -63,23 +63,46 @@ func (c *Client) getJSON(ctx context.Context, method, url string, body []byte) (
 	return out, true
 }
 
-// probeModelsEndpoint reads GET /v1/models and looks for a context-length field on the
-// entry whose id matches model (vLLM's max_model_len, or context_length/context_window).
+// probeModelsEndpoint reads GET /v1/models and looks for a context-length field
+// (vLLM's max_model_len, or context_length/context_window). It prefers the entry whose
+// id matches model exactly; failing that — the common case where a single-model server
+// (e.g. vLLM without --served-model-name) advertises the model under a full HF path that
+// differs from the short alias the client was launched with — it falls back to the sole
+// entry that carries a context field. The fallback stays strict when several models are
+// served: with more than one candidate the id is genuinely ambiguous, so it reports none.
 func (c *Client) probeModelsEndpoint(ctx context.Context, model string) (int, bool) {
 	out, ok := c.getJSON(ctx, http.MethodGet, c.base()+"/models", nil)
 	if !ok {
 		return 0, false
 	}
 	data, _ := out["data"].([]any)
+	var soleWindow, candidates int
 	for _, e := range data {
 		m, _ := e.(map[string]any)
-		if m == nil || asString(m["id"]) != model {
+		if m == nil {
 			continue
 		}
-		for _, k := range []string{"max_model_len", "context_length", "context_window", "max_context_length"} {
-			if w, ok := asInt(m[k]); ok {
-				return w, true
-			}
+		w, hasWindow := modelEntryWindow(m)
+		if hasWindow && asString(m["id"]) == model {
+			return w, true // exact id match wins
+		}
+		if hasWindow {
+			soleWindow = w
+			candidates++
+		}
+	}
+	if candidates == 1 {
+		return soleWindow, true // single-model server whose id differs from the alias
+	}
+	return 0, false
+}
+
+// modelEntryWindow extracts a context-window value from one /v1/models entry, trying the
+// field names different OpenAI-compatible servers use.
+func modelEntryWindow(m map[string]any) (int, bool) {
+	for _, k := range []string{"max_model_len", "context_length", "context_window", "max_context_length"} {
+		if w, ok := asInt(m[k]); ok {
+			return w, true
 		}
 	}
 	return 0, false
