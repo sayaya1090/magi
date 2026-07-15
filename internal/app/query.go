@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
@@ -71,6 +72,21 @@ func (a *App) SessionState(ctx context.Context, sid session.SessionID) ([]sessio
 	// stranded original so only the re-emitted copy (which sits next to its answer at
 	// the back of the stream) renders. Display-only — turn logic uses reconstruct directly.
 	return reconstruct(dropResurfacedOrigins(evs)), last, nil
+}
+
+// CouncilMemberNames returns the configured council seats' names in order — the
+// MAGI defaults when none are configured. Display-only (the splash nameplates);
+// the gate resolves members itself so a config change cannot skew a running vote.
+func (a *App) CouncilMemberNames() []string {
+	ms := a.cfg.CouncilMembers
+	if len(ms) == 0 {
+		ms = council.DefaultMembers()
+	}
+	names := make([]string, len(ms))
+	for i, m := range ms {
+		names[i] = m.Name
+	}
+	return names
 }
 
 // Todos returns a session's current plan.

@@ -12,11 +12,11 @@ import (
 func TestSplashViewCentered(t *testing.T) {
 	applyTheme(true)
 	const w, h = 60, 30
-	rows := strings.Split(splashView(w, h), "\n")
+	rows := strings.Split(splashView(w, h, ""), "\n")
 	if len(rows) != h {
 		t.Fatalf("splash height = %d, want %d", len(rows), h)
 	}
-	if !strings.Contains(splashView(w, h), version.String()) {
+	if !strings.Contains(splashView(w, h, ""), version.String()) {
 		t.Errorf("splash should include the build version %q", version.String())
 	}
 }
@@ -29,7 +29,7 @@ func TestSplashComposeInputUnderLogo(t *testing.T) {
 	const vpw, h = 80, 30
 	// A 3-line box: top border, one content row, bottom border.
 	box := "+----------+\n|          |\n+----------+"
-	content, curRow, curCol := splashCompose(vpw, h, box)
+	content, curRow, curCol := splashCompose(vpw, h, "", box)
 	rows := strings.Split(content, "\n")
 	if len(rows) != h {
 		t.Fatalf("compose height = %d, want %d", len(rows), h)
@@ -65,5 +65,37 @@ func TestSplashComposeInputUnderLogo(t *testing.T) {
 	boxLeft := strings.IndexByte(rows[boxTopRow], '+')
 	if curCol != boxLeft+2 {
 		t.Errorf("cursor col = %d, want box interior %d", curCol, boxLeft+2)
+	}
+}
+
+// With identity lines (council nameplates + boot readout) the splash inserts them
+// between the wordmark and the box, and the cursor math accounts for them.
+func TestSplashComposeWithIdentity(t *testing.T) {
+	applyTheme(true)
+	const vpw, h = 80, 30
+	box := "+----------+\n|          |\n+----------+"
+	identity := "MELCHIOR·1   BALTHASAR·2   CASPER·3\nqwen3-coder:30b · ~/proj"
+	content, curRow, _ := splashCompose(vpw, h, identity, box)
+	rows := strings.Split(content, "\n")
+	idRow, boxTopRow := -1, -1
+	for i, r := range rows {
+		if strings.Contains(r, "MELCHIOR·1") {
+			idRow = i
+		}
+		if boxTopRow < 0 && strings.Contains(r, "+----------+") {
+			boxTopRow = i
+		}
+	}
+	if idRow < 0 || boxTopRow < 0 {
+		t.Fatalf("identity (row %d) or box (row %d) not found", idRow, boxTopRow)
+	}
+	if !(idRow < boxTopRow) {
+		t.Errorf("identity (row %d) must sit above the box (row %d)", idRow, boxTopRow)
+	}
+	if !strings.Contains(rows[idRow+1], "qwen3-coder:30b") {
+		t.Errorf("boot readout should follow the nameplates, got %q", rows[idRow+1])
+	}
+	if curRow != boxTopRow+1 {
+		t.Errorf("cursor row = %d, want box content row %d (identity must shift it)", curRow, boxTopRow+1)
 	}
 }

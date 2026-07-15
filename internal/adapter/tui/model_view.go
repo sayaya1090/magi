@@ -135,11 +135,11 @@ func (m Model) View() tea.View {
 		// Fresh session: host the input prompt inside the viewport, centered directly
 		// under the wordmark, and remember where its first text cell landed so the
 		// real cursor can be placed there.
-		vpContent, splashCurRow, splashCurCol = splashCompose(vpw, m.vp.Height(), input)
+		vpContent, splashCurRow, splashCurCol = splashCompose(vpw, m.vp.Height(), m.splashIdentity(), input)
 	} else if len(m.blocks) == 0 && !m.running && !m.resuming {
 		// Fresh session but a modal is open: plain centered splash; the input stays
 		// pinned at the bottom under the modal.
-		vpContent = splashView(vpw, m.vp.Height())
+		vpContent = splashView(vpw, m.vp.Height(), m.splashIdentity())
 	} else {
 		vpContent = m.vp.View()
 		if strings.TrimSpace(vpContent) == "" {
