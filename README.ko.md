@@ -38,7 +38,7 @@ you ▸ deploy 명령에 --dry-run 플래그 추가해줘
   … 에이전트가 cmd/deploy.go 편집, go build 실행 …
 
   ⚖ council · round 1
-     ● Melchior   [correctness]   done    · 88%
+     ● Melchior   [spec-fidelity] done    · 88%
      ● Balthasar  [verification]  reject  · 91%   → --dry-run을 덮는 테스트 없음
      ● Casper     [completeness]  done    · 80%
      → reject  (1 done / 2 continue)   피드백 주입, 루프 계속
@@ -63,7 +63,7 @@ you ▸ deploy 명령에 --dry-run 플래그 추가해줘
 
 | 멤버 | 렌즈 | 묻는 것 |
 |---|---|---|
-| **Melchior** | `correctness` | 작업이 올바른가? 엣지 케이스·회귀는? |
+| **Melchior** | `spec-fidelity` | 과제가 명시한 리터럴 계약(정확한 이름·값·포맷·경로)과 산출물이 문자 그대로 일치하는가? 필드명 하나만 바뀌어도 결함이다. |
 | **Balthasar** | `verification` | *증거*가 있는가 — 빌드/테스트가 통과하나? 주장은 믿지 않는다. |
 | **Casper** | `completeness` | 요청한 걸 다 했나? 미완으로 남은 건 없나? |
 
@@ -100,7 +100,7 @@ verify     = "go test ./..."   # 매 라운드 카운슬이 따지는 결정적 
 # 벤치를 커스터마이즈 — 또는 MAGI 기본 유지
 [[council.member]]
 name = "Melchior"
-lens = "correctness"
+lens = "spec-fidelity"
 # model / provider로 멤버를 더 싸거나 강한 백엔드로 라우팅 가능
 ```
 
