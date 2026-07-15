@@ -130,6 +130,56 @@ func applyAnchoredEdit(content string, a editArgs, abs string) session.ToolResul
 	return okText("", "edited "+a.Path+span+commentNoiseAdvisory(a.New, content))
 }
 
+// notUniqueErr builds the ambiguous-match error. It names the line anchors of every
+// occurrence (capped) so the model can pivot to the `at`/`to` anchored mode in ONE
+// retry instead of guessing how much context to add — the dominant real-world edit
+// failure is exactly this loop. The anchors replace WHOLE lines, so the advice says so.
+func notUniqueErr(content, old string, count int, spans []anchorSpan) error {
+	list := make([]string, 0, len(spans))
+	for _, s := range spans {
+		list = append(list, s.String())
+	}
+	return fmt.Errorf("not unique: old string occurs %d times, at %s — re-send with `at` (and `to` for a multi-line span) from ONE of these to replace those whole lines with `new`, or add surrounding context to `old`, or set replaceAll",
+		count, strings.Join(list, ", "))
+}
+
+// anchorSpan is one occurrence's whole-line span, as `at`/`to` refs.
+type anchorSpan struct{ at, to string }
+
+func (s anchorSpan) String() string {
+	if s.to == "" || s.to == s.at {
+		return s.at
+	}
+	return s.at + ".." + s.to
+}
+
+// maxAnchorSpans caps how many occurrences an error enumerates.
+const maxAnchorSpans = 8
+
+// substringSpans locates each occurrence of old (exact substring) in content and
+// returns its whole-line anchor span (start line ref, end line ref).
+func substringSpans(content, old string) []anchorSpan {
+	lines := fileLines(content)
+	ref := func(n int) string { // 1-based line → "N#hh"
+		return fmt.Sprintf("%d#%s", n, lineHash(strings.TrimRight(lines[n-1], "\r\n")))
+	}
+	span := 1 + strings.Count(strings.TrimSuffix(old, "\n"), "\n")
+	var out []anchorSpan
+	for idx, pos := 0, 0; len(out) < maxAnchorSpans; pos += idx + len(old) {
+		idx = strings.Index(content[pos:], old)
+		if idx < 0 {
+			break
+		}
+		start := 1 + strings.Count(content[:pos+idx], "\n")
+		end := start + span - 1
+		if end > len(lines) {
+			end = len(lines)
+		}
+		out = append(out, anchorSpan{at: ref(start), to: ref(end)})
+	}
+	return out
+}
+
 // applyEdit returns the updated content, a note about how the match was made, or
 // an error. Strategy: exact → EOL-normalized exact → trailing-whitespace-tolerant
 // whole-line match → helpful near-miss error.
@@ -137,7 +187,7 @@ func applyEdit(content, old, new string, all bool) (string, string, error) {
 	// 1. Exact.
 	if c := strings.Count(content, old); c > 0 {
 		if c > 1 && !all {
-			return "", "", fmt.Errorf("not unique: old string occurs %d times — add surrounding context to disambiguate, or set replaceAll", c)
+			return "", "", notUniqueErr(content, old, c, substringSpans(content, old))
 		}
 		if all {
 			return strings.ReplaceAll(content, old, new), "", nil
@@ -151,7 +201,7 @@ func applyEdit(content, old, new string, all bool) (string, string, error) {
 	if oldN != old {
 		if c := strings.Count(content, oldN); c > 0 {
 			if c > 1 && !all {
-				return "", "", fmt.Errorf("not unique: old string occurs %d times — add surrounding context, or set replaceAll", c)
+				return "", "", notUniqueErr(content, oldN, c, substringSpans(content, oldN))
 			}
 			if all {
 				return strings.ReplaceAll(content, oldN, newN), " (matched ignoring line endings)", nil
@@ -173,7 +223,7 @@ func applyEdit(content, old, new string, all bool) (string, string, error) {
 		}
 		if c := strings.Count(content, oldF); c > 0 {
 			if c > 1 && !all {
-				return "", "", fmt.Errorf("not unique: old string occurs %d times — add surrounding context, or set replaceAll", c)
+				return "", "", notUniqueErr(content, oldF, c, substringSpans(content, oldF))
 			}
 			newF := toEOL(form.String(new), crlf)
 			if all {
@@ -251,7 +301,15 @@ func replaceFlexible(content, old, new string, all bool) (string, int, error) {
 		return content, 0, nil
 	}
 	if len(matches) > 1 && !all {
-		return "", 0, fmt.Errorf("not unique: %d whitespace-tolerant matches — add surrounding context, or set replaceAll", len(matches))
+		spans := make([]anchorSpan, 0, min(len(matches), maxAnchorSpans))
+		for _, m := range matches[:min(len(matches), maxAnchorSpans)] {
+			start, end := m+1, m+len(oldKeys)
+			spans = append(spans, anchorSpan{
+				at: fmt.Sprintf("%d#%s", start, lineHash(strings.TrimRight(lines[m], "\r\n"))),
+				to: fmt.Sprintf("%d#%s", end, lineHash(strings.TrimRight(lines[end-1], "\r\n"))),
+			})
+		}
+		return "", 0, notUniqueErr(content, old, len(matches), spans)
 	}
 
 	// Build replacement text using the matched region's terminator style.
