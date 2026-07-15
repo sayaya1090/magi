@@ -27,6 +27,12 @@ func (m *Model) handlePaste(content string) {
 	lines := strings.Count(content, "\n") + 1
 	if lines <= 1 && len(content) <= pasteThreshold {
 		m.ta.InsertString(content) // small inline paste
+		// InsertString does not reposition the textarea's internal viewport: a paste
+		// long enough to soft-wrap past MaxHeight leaves the view showing the TOP
+		// rows while Cursor() reports a row past the visible window — the reported
+		// cursor lands outside/below the input box until the next keypress. MoveToEnd
+		// is where the cursor already is; it exists here purely for its reposition.
+		m.ta.MoveToEnd()
 		return
 	}
 	if m.pastes == nil {
@@ -36,6 +42,7 @@ func (m *Model) handlePaste(content string) {
 	id := m.pasteSeq
 	m.pastes[id] = content
 	m.ta.InsertString(fmt.Sprintf("[#%d pasted %d lines]", id, lines))
+	m.ta.MoveToEnd() // same reposition guarantee as the inline path
 }
 
 // expandPastes replaces placeholders with their full stored content, so the
