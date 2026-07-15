@@ -174,6 +174,31 @@ func stuckRedecomposePrompt(task, blockReason string) string {
 		"already be on disk. Complete it fully, then " + noFabricate + ")"
 }
 
+// stuckUnitPrompt frames ONE work unit of a stuck task's decomposition for a child that was
+// seeded with the FULL parent context (CloneContext). Because the whole conversation — every file
+// already read, every partial change already on disk — is carried forward, the child must NOT
+// re-read to reconstruct context; it just carries out this single scoped unit within that context.
+// This is the anti-fixation lever: the previous attempt looped re-reading the same file instead of
+// acting, so the unit prompt hands the model the context it kept looping to rebuild and a small,
+// concrete next action. blockReason (the wall the previous attempt hit) is included only on the
+// first unit, to steer it away from the exact fixation.
+func stuckUnitPrompt(st planStep, blockReason string, first bool) string {
+	unit := strings.TrimSpace(st.Task)
+	if unit == "" {
+		unit = strings.TrimSpace(st.Title)
+	}
+	p := "You already have the full conversation and all work so far in context — do NOT re-read " +
+		"files or re-derive what you already know. A previous attempt on the larger task got stuck. " +
+		"It has been broken into small units; carry out ONLY THIS ONE unit now, then stop:\n\n" + unit
+	if first {
+		if r := strings.TrimSpace(blockReason); r != "" {
+			p += "\n\nWhat blocked the previous attempt (do not repeat it): " + r
+		}
+	}
+	return p + "\n\n(Complete just this unit fully — take the real action, don't re-inspect what you " +
+		"already have. Then " + noFabricate + ")"
+}
+
 // delegatePrompt frames a delegate step as a self-contained sub-task instruction, optionally
 // prefixed with a compact brief (see delegateBrief). The brief is orientation only — the task
 // itself stays self-contained, so an empty brief leaves the original context-free hand-off.

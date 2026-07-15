@@ -403,6 +403,21 @@ func (g *runGuard) resetStall() {
 	g.progressSinceNudge = false
 }
 
+// resetRepeat clears the blocked-repeat counter (and the stall window) after a "repeat"-kind
+// stuck recovery lands. resetStall alone is not enough here: stuck() returns "repeat" the instant
+// blocked >= blockedBudget, so without zeroing blocked the very next guard check would re-halt the
+// parent before it can integrate and verify the recovery child's work. Zeroing blocked gives the
+// parent a fresh window to continue — the same fresh window resetStall grants a stall recovery.
+func (g *runGuard) resetRepeat() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.blocked = 0
+	g.sinceProgress = 0
+	g.lastStallAt = 0
+	g.stallNudges = 0
+	g.progressSinceNudge = false
+}
+
 const guardResultEcho = 4 << 10 // cap on the cached result echoed back on a block
 
 // record stores a call's result content (capped) so a later blocked repeat can be

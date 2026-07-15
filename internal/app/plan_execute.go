@@ -337,17 +337,74 @@ func (a *App) redecomposeStuck(ctx context.Context, s session.Session, agent Age
 	if !producesFiles(agent) {
 		return false // read-only stuck agent → cannot author a recovery, let the caller stop
 	}
+	// Preferred recovery (default): decompose the stuck task into an explicit TODO list and drive
+	// the units one at a time, each in a full-context child scoped to just that unit. This forces
+	// incremental forward progress instead of re-handing the monolith. Falls through to the
+	// single whole-task re-spawn below when the flag is off or decomposition yielded <2 units.
+	if stuckDecomposeEnabled() && a.driveStuckTodos(ctx, s, agent, task, blockReason, depth) {
+		return true
+	}
 	// Recovery is honored only under the run-tree cap (recoveryRunCapEnabled, default off): the
 	// child then starts already-recovered and cannot cascade its own redecomposeStuck. Off =
 	// baseline, multiple recovery executors per run tree (child re-arms recovery per depth level).
+	// CloneContext seeds the child with the parent's conversation: recovery is the main orchestrator
+	// CONTINUING its own work (not a clean-room hand-off), so the accumulated context — files already
+	// read, partial work on disk — must carry forward, or the fresh child re-derives it and re-fixates.
 	r := a.spawnResolved(ctx, s, depth, agent, port.SpawnRequest{
-		Agent:    agent.Name,
-		Prompt:   stuckRedecomposePrompt(task, blockReason),
-		Recovery: recoveryRunCapEnabled(),
+		Agent:        agent.Name,
+		Prompt:       stuckRedecomposePrompt(task, blockReason),
+		CloneContext: true,
+		Recovery:     recoveryRunCapEnabled(),
 	})
 	if r.Err != "" || strings.TrimSpace(r.Text) == "" {
 		return false
 	}
 	a.injectSubagentResult(ctx, s.ID, agent.Name, r)
 	return true
+}
+
+// driveStuckTodos is the decomposing recovery: it re-plans the stuck task into an ordered TODO
+// list and drives the units ONE AT A TIME. Each unit is handed to a fresh child seeded with the
+// FULL parent context (CloneContext) — so it inherits everything already read/changed and does not
+// re-fixate rebuilding context — but its prompt scopes it to just that unit. A unit that lands is
+// integrated and its todo checked off before the next starts; a unit that fails is left pending and
+// the driver moves on, so a single stuck unit never sinks the whole recovery. Returns false (so the
+// caller falls back to the single whole-task re-spawn) when the planner could not split the task
+// into at least two units — one unit is just the monolith again.
+func (a *App) driveStuckTodos(ctx context.Context, s session.Session, agent AgentSpec, task, blockReason string, depth int) bool {
+	spec, ok := a.cfg.Agents[plannerAgent]
+	if !ok {
+		return false // no planner configured → cannot decompose
+	}
+	plan := a.runPlanner(ctx, spec, s, task, "", depth, a.cfg.MaxSteps, task)
+	steps := guardExpansion(sanitizeSteps(plan), depth, a.cfg.MaxPlanDepth)
+	if len(steps) < 2 {
+		return false // nothing gained from decomposing into a single unit
+	}
+	a.registerPlanTodos(ctx, s.ID, steps)
+	landed := 0
+	for i, st := range steps {
+		if ctx.Err() != nil {
+			break
+		}
+		// Per-unit status, NOT advanceTo/completeThrough: those back-fill every earlier step to
+		// completed (they assume strict in-order completion), which would silently mark a skipped
+		// failed unit "done". Here each unit owns its status independently so a stalled one stays
+		// visibly not-done while the rest advance.
+		a.markTodoActive(ctx, s.ID, plannerActor, i) // this unit running ◐
+		r := a.spawnResolved(ctx, s, depth, agent, port.SpawnRequest{
+			Agent:        agent.Name,
+			Prompt:       stuckUnitPrompt(st, blockReason, i == 0),
+			CloneContext: true,
+			Recovery:     recoveryRunCapEnabled(),
+		})
+		if r.Err != "" || strings.TrimSpace(r.Text) == "" {
+			a.setTodoStatusIf(ctx, s.ID, plannerActor, i, "in_progress", "pending") // stalled → revert, keep going
+			continue
+		}
+		a.injectSubagentResult(ctx, s.ID, agent.Name, r)
+		a.setTodoStatusIf(ctx, s.ID, plannerActor, i, "in_progress", "completed") // this unit done
+		landed++
+	}
+	return landed > 0
 }
