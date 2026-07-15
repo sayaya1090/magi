@@ -783,10 +783,7 @@ func (a *App) injectStuckNudge(ctx context.Context, tc turnCtx, turnTask string,
 	// ActorUser), so fall back to the latest user-role message — the subagent's task —
 	// mirroring the council gate's defensive fallback. Otherwise the re-grounding
 	// would no-op exactly where weak models thrash most (narrow tool-driven subtasks).
-	task := strings.TrimSpace(turnTask)
-	if task == "" {
-		task = strings.TrimSpace(lastUserText(reconstruct(a.taskEvents(sid, evs))))
-	}
+	task := a.turnTaskOr(turnTask, sid, evs)
 	msg := "You've repeated the same no-progress action several times and are getting blocked. " +
 		"Stop and change approach: try a different tool or a smaller step, or inspect WHY the last " +
 		"attempts failed (read the error, check paths/state) before retrying. Re-read the original task:\n" +
@@ -827,6 +824,16 @@ func (a *App) injectStuckNudge(ctx context.Context, tc turnCtx, turnTask string,
 // spinning on confirmation is effectively DONE — finish it cleanly (exit 0) rather than
 // flagging an agent-level error that misreports a completed task as failure. A run that
 // produced NOTHING is genuine thrash — abort with a visible error.
+// turnTaskOr returns the tracked turnTask, falling back to re-deriving the task from the
+// event log when it is empty — the shared fallback of the re-ground, stuck-recovery, and
+// idle-resubmit paths, so they can't drift apart (this was copy-pasted four times).
+func (a *App) turnTaskOr(turnTask string, sid session.SessionID, evs []event.Event) string {
+	if task := strings.TrimSpace(turnTask); task != "" {
+		return task
+	}
+	return strings.TrimSpace(lastUserText(reconstruct(a.taskEvents(sid, evs))))
+}
+
 func (a *App) handleStuckGuard(ctx context.Context, tc turnCtx, turnTask string, evs []event.Event, u event.Usage, ts *turnState) (bool, bool) {
 	kind := tc.guard.stuck()
 	if kind == "" {
@@ -855,10 +862,7 @@ func (a *App) handleStuckGuard(ctx context.Context, tc turnCtx, turnTask string,
 	recoverable := kind == "stall" || (kind == "repeat" && stuckDecomposeEnabled())
 	if recoverable && !ts.recovered && a.planEligible(agent, depth) &&
 		!(waitGuardEnabled() && guard.stallIsWait()) {
-		task := strings.TrimSpace(turnTask)
-		if task == "" {
-			task = strings.TrimSpace(lastUserText(reconstruct(a.taskEvents(sid, evs))))
-		}
+		task := a.turnTaskOr(turnTask, sid, evs)
 		blockReason := "repeated no-progress: the previous attempt could not advance the task"
 		if kind == "repeat" {
 			blockReason = "loop guard blocked repeated identical actions: the previous attempt kept " +
@@ -1059,10 +1063,7 @@ func (a *App) runTerminationGate(ctx context.Context, tc turnCtx, step int, turn
 		// gets one real recovery attempt. Fires once (ts.recovered); on success reset the stall
 		// window AND the finish latch so the next round re-deliberates the child's integrated work.
 		if !ts.recovered && a.planEligible(agent, depth) {
-			task := strings.TrimSpace(turnTask)
-			if task == "" {
-				task = strings.TrimSpace(lastUserText(reconstruct(a.taskEvents(sid, evs))))
-			}
+			task := a.turnTaskOr(turnTask, sid, evs)
 			reason := strings.TrimSpace(ts.council.feedback)
 			if reason == "" {
 				reason = "the same answer was resubmitted unchanged after council feedback"
@@ -1106,10 +1107,7 @@ func (a *App) runTerminationGate(ctx context.Context, tc turnCtx, step int, turn
 		// Before finishing UNVERIFIED, hand the task plus that exact concern to a fresh child that
 		// re-plans and breaks it down (ADaPT failure-recursion). Fires once; on success reset the
 		// stall window and loop so the parent integrates and verifies the child's work.
-		task := strings.TrimSpace(turnTask)
-		if task == "" {
-			task = strings.TrimSpace(lastUserText(reconstruct(a.taskEvents(sid, evs))))
-		}
+		task := a.turnTaskOr(turnTask, sid, evs)
 		if a.redecomposeStuck(ctx, s, agent, task, ts.council.feedback, depth) {
 			ts.recovered = true
 			guard.resetStall()
