@@ -177,29 +177,81 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 	// Compacted-context RAG (push half): topics an earlier compaction shed that look
 	// lexically relevant to the current task, as one-line pointers into recall_context.
 	b.WriteString(shardHints(evs, currentTaskText(evs)))
+	// Both retrieval hooks below key on the last user prompt, which is constant across a
+	// turn — and reconstruct is O(events) — so compute the query ONCE per step and let the
+	// per-turn caches absorb the (identical) lookups the remaining steps would repeat.
+	var retrievalQ string
+	if a.cfg.Experience != nil || !isSub {
+		retrievalQ = lastUserText(reconstruct(evs))
+	}
 	// Shared experience (D13): advertise only how many team memories/skills match the
 	// current request — a one-line pointer, not the entries themselves. The agent pulls
 	// the detail on demand with recall_memory, so relevant knowledge stays reachable
 	// without spending context on it every turn.
-	if a.cfg.Experience != nil {
-		if q := lastUserText(reconstruct(evs)); q != "" {
-			if mems, skills, err := a.cfg.Experience.Retrieve(ctx, q); err == nil {
-				if p := experiencePointer(len(mems), len(skills)); p != "" {
-					b.WriteString("\n\n# Shared experience\n" + p)
-				}
-			}
+	if a.cfg.Experience != nil && retrievalQ != "" {
+		if p := a.experiencePointerCached(ctx, s.ID, retrievalQ); p != "" {
+			b.WriteString("\n\n# Shared experience\n" + p)
 		}
 	}
 	// Plugin-registered context providers (RAG): top-level only — subagents run focused
 	// prompts and are skipped to avoid re-querying per delegation.
 	if !isSub {
-		if q := lastUserText(reconstruct(evs)); q != "" {
-			if c := a.gatherContext(ctx, port.ContextQuery{SessionID: s.ID, Workdir: s.Workdir, Prompt: q}); c != "" {
+		if q := retrievalQ; q != "" {
+			if c := a.gatherContextCached(ctx, s, q); c != "" {
 				b.WriteString("\n\n# Retrieved context\n" + c)
 			}
 		}
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// experiencePointerCached memoizes the shared-experience pointer per (session, query).
+// Retrieve re-reads and re-scores every memory/skill file on each call, and the query —
+// the last user prompt — is constant across a turn, so without the cache every loop step
+// repeats an identical scan. Cached on success only: a transient Retrieve error keeps the
+// per-step retry the uncached code had. Invalidated by a successful Propose (see the tool
+// env in executeTool) so a memory the agent just saved is advertised immediately.
+func (a *App) experiencePointerCached(ctx context.Context, sid session.SessionID, q string) string {
+	a.mu.Lock()
+	st := a.stateLocked(sid)
+	if st.expPtrQ == q {
+		p := st.expPtr
+		a.mu.Unlock()
+		return p
+	}
+	a.mu.Unlock()
+	mems, skills, err := a.cfg.Experience.Retrieve(ctx, q)
+	if err != nil {
+		return ""
+	}
+	p := experiencePointer(len(mems), len(skills))
+	a.mu.Lock()
+	st = a.stateLocked(sid)
+	st.expPtrQ, st.expPtr = q, p
+	a.mu.Unlock()
+	return p
+}
+
+// gatherContextCached memoizes the plugin-RAG context block per (session, query). Unlike
+// the experience pointer, an EMPTY result is cached too: gatherContext folds provider
+// errors into "" (best-effort), and a provider that errors or times out (5s each) would
+// otherwise re-block every remaining step of the turn on the same query — exactly the
+// per-step stall this cache exists to remove. Invalidated by RegisterContextProvider.
+func (a *App) gatherContextCached(ctx context.Context, s session.Session, q string) string {
+	a.mu.Lock()
+	st := a.stateLocked(s.ID)
+	if st.ragQ == q {
+		c := st.ragText
+		a.mu.Unlock()
+		return c
+	}
+	a.mu.Unlock()
+	c := a.gatherContext(ctx, port.ContextQuery{SessionID: s.ID, Workdir: s.Workdir, Prompt: q})
+	a.mu.Lock()
+	st = a.stateLocked(s.ID)
+	st.ragQ, st.ragText = q, c
+	a.mu.Unlock()
+	return c
 }
 
 // envInfo describes the runtime environment (OS, arch, shell, workdir, date) so the model

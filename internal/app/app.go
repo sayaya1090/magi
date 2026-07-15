@@ -120,6 +120,14 @@ type sessionState struct {
 	interjectSeen     map[string]bool            // interjection MessageIDs detected this turn (masked from turnTask/council)
 	awaitExplorers    bool                       // planner dispatched read-only explorers as this turn's primary work
 	autoOrchestrate   bool                       // whether auto-orchestration has been triggered this session
+	// Per-turn retrieval memoization. Both lookups key on the last user prompt, which is
+	// constant across a turn — without this every loop step re-scans the whole experience
+	// store and re-queries every plugin context provider (each with a 5s timeout) for an
+	// identical query. Keyed by the query text, so a new prompt misses naturally; also
+	// cleared by resetForNewTopLevel, a successful Propose (a memory the agent just saved
+	// must show up), and RegisterContextProvider (a new provider must be consulted).
+	expPtrQ, expPtr string // experience pointer cache: query key + rendered line
+	ragQ, ragText   string // plugin-RAG cache: query key + assembled block
 }
 
 // stateLocked returns the session's state, creating it on first use. The caller MUST
@@ -358,6 +366,8 @@ func (a *App) resetForNewTopLevel(sid session.SessionID) {
 	}
 	st.interjectSeen = keep
 	st.awaitExplorers = false // the async-explorer wait is per-turn; the next turn starts clean
+	st.expPtrQ, st.expPtr = "", ""
+	st.ragQ, st.ragText = "", "" // retrieval caches are turn-scoped even when the prompt text repeats
 	a.mu.Unlock()
 }
 
@@ -1132,6 +1142,9 @@ func (a *App) RegisterContextProvider(p port.ContextProvider) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.contextProviders = append(a.contextProviders, p)
+	for _, st := range a.states {
+		st.ragQ, st.ragText = "", "" // the new provider must be consulted on the next lookup
+	}
 }
 
 // contextBudget caps the characters of provider-injected context per turn so a

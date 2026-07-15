@@ -245,7 +245,14 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 			if a.cfg.Experience == nil {
 				return fmt.Errorf("shared experience not configured")
 			}
-			return a.cfg.Experience.Propose(ctx, c)
+			err := a.cfg.Experience.Propose(ctx, c)
+			if err == nil {
+				a.mu.Lock()
+				st := a.stateLocked(sid)
+				st.expPtrQ, st.expPtr = "", "" // a just-saved memory must show in the next pointer
+				a.mu.Unlock()
+			}
+			return err
 		},
 		LoadSkill: func(name string) (string, bool) { return a.skillBody(s.Workdir, name) },
 		Recall: func(query string) (string, error) {
