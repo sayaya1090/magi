@@ -28,56 +28,93 @@ func logoBlock() string {
 	return lipgloss.JoinVertical(lipgloss.Center, art, "", ver)
 }
 
-// logoRawLines is the wordmark + version as INDIVIDUAL lines with no block padding,
-// for callers that center each line themselves (splashCompose). Joining them into a
-// padded block first (logoBlock's JoinVertical) and then centering per line double-
-// centers: the join pads the art lines out to the widest line's width, the outer
-// centering then centers padding-included widths, and the art glyphs land a few
-// cells off the true axis — visibly skewed against the input box below.
-func logoRawLines() []string {
-	st := lipgloss.NewStyle().Foreground(logoColor).Bold(true)
-	var out []string
-	for _, l := range strings.Split(strings.TrimRight(magiLogo, "\n"), "\n") {
-		out = append(out, st.Render(l))
+// splashConsole renders the MAGI tri-console diagram in the deliberation display's
+// triangular composition: the first seat's block on top, its stem tee-ing into a
+// bus bar that feeds the second and third seats below — the wordmark beneath. The
+// frame is NERV red; each seat's nameplate is tinted its member hue. Custom
+// councils show their own seat names, center-fitted into the canonical slots.
+//
+// Geometry (1-based columns; axis = 25): top box spans 18..32 with its ╦ stem on
+// the axis; the bus bar spans 11..39 with ╩ on the axis; the side boxes span 3..19
+// and 31..47, each with its ╩ centered under a bar end (11 / 39). Every line is
+// padded to one common width (artW): splashCompose centers each line independently
+// by its width, and equal widths are what keep the diagram's internal alignment
+// intact. The wordmark/version sit on the same axis.
+func (m *Model) splashConsole() []string {
+	frame := lipgloss.NewStyle().Foreground(logoColor).Bold(true)
+	names := m.app.CouncilMemberNames()
+	seat := func(i, w int) string {
+		if i >= len(names) {
+			return strings.Repeat(" ", w)
+		}
+		label := strings.ToUpper(strings.TrimSpace(names[i])) + " · " + strconv.Itoa(i+1)
+		if lipgloss.Width(label) > w {
+			r := []rune(label)
+			for lipgloss.Width(string(r)) > w && len(r) > 0 {
+				r = r[:len(r)-1]
+			}
+			label = string(r)
+		}
+		pad := w - lipgloss.Width(label)
+		left := pad / 2
+		return lipgloss.NewStyle().Foreground(m.councilColor(names[i])).Bold(true).
+			Render(strings.Repeat(" ", left) + label + strings.Repeat(" ", pad-left))
 	}
-	out = append(out, "", styleToolResult.Render(version.String()))
-	return out
+	f := frame.Render
+	const artW, axis = 49, 25
+	centerAt := func(s string, w int) string {
+		left := axis - (w+1)/2
+		if left < 0 {
+			left = 0
+		}
+		return strings.Repeat(" ", left) + s
+	}
+	sp := strings.Repeat
+	bar := func(n int) string { return sp("═", n) }
+	lines := []string{
+		sp(" ", 16) + f("╔"+bar(15)+"╗"),
+		sp(" ", 16) + f("║") + seat(0, 15) + f("║"),
+		sp(" ", 16) + f("╚"+bar(7)+"╦"+bar(7)+"╝"),
+		sp(" ", 10) + f("╔"+bar(13)+"╩"+bar(13)+"╗"),
+		sp(" ", 2) + f("╔"+bar(7)+"╩"+bar(7)+"╗") + sp(" ", 11) + f("╔"+bar(7)+"╩"+bar(7)+"╗"),
+		sp(" ", 2) + f("║") + seat(1, 15) + f("║") + sp(" ", 11) + f("║") + seat(2, 15) + f("║"),
+		sp(" ", 2) + f("╚"+bar(15)+"╝") + sp(" ", 11) + f("╚"+bar(15)+"╝"),
+		"",
+		centerAt(f("M  A  G  I"), 10),
+		"",
+		centerAt(styleToolResult.Render(version.String()), lipgloss.Width(version.String())),
+	}
+	for i, l := range lines {
+		if w := lipgloss.Width(l); w < artW {
+			lines[i] = l + sp(" ", artW-w)
+		}
+	}
+	return lines
 }
 
-// splashIdentity renders the two identity lines shown under the wordmark on the
-// startup splash: the council nameplates — each configured seat in its member hue,
-// numbered like the MAGI consoles (MELCHIOR·1  BALTHASAR·2  CASPER·3) — and a dim
-// boot readout of the session (model · workdir, home shortened to ~). The
-// nameplates use the CONFIGURED seats, so a custom council shows its own names.
+// splashIdentity is the dim boot readout under the console diagram: the session's
+// model and workdir (home shortened to ~). The seat nameplates live in the diagram
+// itself, so this is a single line.
 func (m *Model) splashIdentity() string {
-	var seats []string
-	for i, name := range m.app.CouncilMemberNames() {
-		st := lipgloss.NewStyle().Foreground(m.councilColor(name)).Bold(true)
-		seats = append(seats, st.Render(strings.ToUpper(strings.TrimSpace(name))+"·"+strconv.Itoa(i+1)))
-	}
-	plates := strings.Join(seats, "   ")
 	wd := m.workdir
 	if home, err := os.UserHomeDir(); err == nil && home != "" && strings.HasPrefix(wd, home) {
 		wd = "~" + strings.TrimPrefix(wd, home)
 	}
-	readout := styleToolResult.Render(m.model + " · " + wd)
-	// Plain newline join — NOT JoinVertical(Center): splashCompose centers each line
-	// by its own width, and block-level pre-padding would double-center (the logo's
-	// visible skew against the input box came from exactly that).
-	return plates + "\n" + readout
+	return styleToolResult.Render(m.model + " · " + wd)
 }
 
-// splashView renders the startup splash centered in a width×height area: the MAGI
-// wordmark in NERV red + the build version, with the identity lines (council
-// nameplates + boot readout) beneath when non-empty. Used as a fallback (e.g. when
-// a modal is open on a fresh session); the normal fresh screen uses splashCompose
-// to place the input prompt directly beneath the wordmark.
-func splashView(width, height int, identity string) string {
-	block := logoBlock()
+// splashView renders the startup splash centered in a width×height area: the
+// console diagram (equal-width lines) with the identity readout beneath when
+// non-empty. Used as a fallback (e.g. when a modal is open on a fresh session);
+// the normal fresh screen uses splashCompose to place the input prompt directly
+// beneath the diagram.
+func splashView(width, height int, logo []string, identity string) string {
+	lines := append([]string(nil), logo...)
 	if identity != "" {
-		block = lipgloss.JoinVertical(lipgloss.Center, block, "", identity)
+		lines = append(lines, "", identity)
 	}
-	return lipgloss.Place(width, max(1, height), lipgloss.Center, lipgloss.Center, block)
+	content, _, _ := splashCompose(width, max(1, height), lines, "", "")
+	return content
 }
 
 // splashCompose renders the fresh-screen content: the wordmark, the identity lines
@@ -85,19 +122,25 @@ func splashView(width, height int, identity string) string {
 // vpw×height area. It returns the content and the viewport-relative (row, col) of
 // the input box's first text cell, so the caller can place the real cursor inside
 // the box.
-func splashCompose(vpw, height int, identity, inputBox string) (content string, curRow, curCol int) {
-	logoLines := logoRawLines()
+func splashCompose(vpw, height int, logo []string, identity, inputBox string) (content string, curRow, curCol int) {
+	logoLines := logo
 	var idLines []string
 	if identity != "" {
 		idLines = strings.Split(identity, "\n")
 	}
-	boxLines := strings.Split(inputBox, "\n")
+	var boxLines []string
+	if inputBox != "" {
+		boxLines = strings.Split(inputBox, "\n")
+	}
 	boxW := lipgloss.Width(inputBox)
 	boxLeft := max(0, (vpw-boxW)/2)
 
 	const gap = 1 // one blank row between each splash section
 	groupH := func() int {
-		h := len(logoLines) + gap + len(boxLines)
+		h := len(logoLines) + len(boxLines)
+		if len(boxLines) > 0 {
+			h += gap
+		}
 		if len(idLines) > 0 {
 			h += len(idLines) + gap
 		}
@@ -133,9 +176,11 @@ func splashCompose(vpw, height int, identity, inputBox string) (content string, 
 			rows = append(rows, center(l))
 		}
 	}
-	rows = append(rows, "") // gap
-	for _, l := range boxLines {
-		rows = append(rows, center(l))
+	if len(boxLines) > 0 {
+		rows = append(rows, "") // gap
+		for _, l := range boxLines {
+			rows = append(rows, center(l))
+		}
 	}
 	for len(rows) < height {
 		rows = append(rows, "")

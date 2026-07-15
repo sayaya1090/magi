@@ -7,16 +7,22 @@ import (
 	"github.com/sayaya1090/magi/internal/version"
 )
 
+// logoTestLines is a small stand-in for the console diagram in compose tests.
+func logoTestLines() []string {
+	return []string{"ARTLINE", "", version.String()}
+}
+
 // The fallback splash (modal-open case) renders the wordmark + version centered in
 // its area.
 func TestSplashViewCentered(t *testing.T) {
 	applyTheme(true)
 	const w, h = 60, 30
-	rows := strings.Split(splashView(w, h, ""), "\n")
+	logo := []string{"ARTLINE", "", version.String()}
+	rows := strings.Split(splashView(w, h, logo, ""), "\n")
 	if len(rows) != h {
 		t.Fatalf("splash height = %d, want %d", len(rows), h)
 	}
-	if !strings.Contains(splashView(w, h, ""), version.String()) {
+	if !strings.Contains(splashView(w, h, logo, ""), version.String()) {
 		t.Errorf("splash should include the build version %q", version.String())
 	}
 }
@@ -29,7 +35,7 @@ func TestSplashComposeInputUnderLogo(t *testing.T) {
 	const vpw, h = 80, 30
 	// A 3-line box: top border, one content row, bottom border.
 	box := "+----------+\n|          |\n+----------+"
-	content, curRow, curCol := splashCompose(vpw, h, "", box)
+	content, curRow, curCol := splashCompose(vpw, h, []string{"ARTLINE", "", version.String()}, "", box)
 	rows := strings.Split(content, "\n")
 	if len(rows) != h {
 		t.Fatalf("compose height = %d, want %d", len(rows), h)
@@ -76,7 +82,7 @@ func TestSplashComposeShedsDecorationOnOverflow(t *testing.T) {
 	// An 8-row box (6 content rows + borders) into a 14-row viewport: the logo(8)
 	// + identity(2) + gaps cannot fit alongside it.
 	box := "╭────╮\n│ l1 │\n│ l2 │\n│ l3 │\n│ l4 │\n│ l5 │\n│ l6 │\n╰────╯"
-	content, curRow, _ := splashCompose(80, 14, "PLATES\nreadout", box)
+	content, curRow, _ := splashCompose(80, 14, logoTestLines(), "PLATES\nreadout", box)
 	rows := strings.Split(content, "\n")
 	if len(rows) != 14 {
 		t.Fatalf("composed rows = %d, want exactly the viewport height 14", len(rows))
@@ -102,7 +108,7 @@ func TestSplashComposeWithIdentity(t *testing.T) {
 	const vpw, h = 80, 30
 	box := "+----------+\n|          |\n+----------+"
 	identity := "MELCHIOR·1   BALTHASAR·2   CASPER·3\nqwen3-coder:30b · ~/proj"
-	content, curRow, _ := splashCompose(vpw, h, identity, box)
+	content, curRow, _ := splashCompose(vpw, h, []string{"ARTLINE"}, identity, box)
 	rows := strings.Split(content, "\n")
 	idRow, boxTopRow := -1, -1
 	for i, r := range rows {

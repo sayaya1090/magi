@@ -22,7 +22,15 @@ func TestSplashSectionsShareCenterAxis(t *testing.T) {
 	applyTheme(true)
 	const vpw = 120
 	box := "╭──────────╮\n│ ❯        │\n╰──────────╯"
-	content, _, _ := splashCompose(vpw, 40, "MELCHIOR·1   BALTHASAR·2   CASPER·3\nmodel · ~/wd", box)
+	// A symmetric stand-in for the console diagram: equal-width lines (25) whose
+	// glyphs are centered on one axis — the property splashConsole guarantees.
+	logo := []string{
+		"    ╔═══════════════╗    ",
+		"    ║     SEAT!     ║    ",
+		"    ╚═══════╦═══════╝    ",
+		"       M  A  G  I        ",
+	}
+	content, _, _ := splashCompose(vpw, 40, logo, "model · ~/wd", box)
 	for _, r := range strings.Split(content, "\n") {
 		plain := strings.TrimRight(ansi.Strip(r), " ")
 		if strings.TrimSpace(plain) == "" {
