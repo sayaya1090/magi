@@ -7,8 +7,11 @@ import (
 )
 
 type fakeModelReg struct {
-	got string
-	err error
+	got       string // last model passed to SetModel
+	gotWinID  string // last model passed to SetContextWindow
+	gotWin    int    // last tokens passed to SetContextWindow
+	winCalled bool
+	err       error
 }
 
 func (f *fakeModelReg) SetModel(m string) error {
@@ -16,6 +19,16 @@ func (f *fakeModelReg) SetModel(m string) error {
 		return f.err
 	}
 	f.got = m
+	return nil
+}
+
+func (f *fakeModelReg) SetContextWindow(modelID string, tokens int) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.gotWinID = modelID
+	f.gotWin = tokens
+	f.winCalled = true
 	return nil
 }
 

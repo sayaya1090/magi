@@ -44,6 +44,7 @@ func installBridge(p *plugin) {
 	L.SetField(t, "workdir", L.NewFunction(p.bridgeWorkdir))
 	L.SetField(t, "model", L.NewFunction(p.bridgeModel))
 	L.SetField(t, "set_model", L.NewFunction(p.bridgeSetModel))
+	L.SetField(t, "set_context_window", L.NewFunction(p.bridgeSetContextWindow))
 	L.SetField(t, "set_user_label", L.NewFunction(p.bridgeSetUserLabel))
 	L.SetField(t, "clear_transcript", L.NewFunction(p.bridgeClearTranscript))
 	L.SetField(t, "reload_config", L.NewFunction(p.bridgeReloadConfig))
@@ -447,6 +448,36 @@ func (p *plugin) bridgeSetModel(L *lua.LState) int {
 	}
 	p.host.setRuntimeModel(model) // keep magi.model() in sync
 	p.logf("[" + p.name + "] set session model: " + model)
+	L.Push(lua.LTrue)
+	return 1
+}
+
+// magi.set_context_window(tokens[, model]) -> true | (nil, err)
+// Overrides the context window (in tokens) magi uses for a model — e.g. a plugin that
+// learns the real window from an in-house model API the built-in backend prober can't
+// reach, then pushes it so the footer gauge and ratio-based auto-compaction use the true
+// size. tokens <= 0 sets the window to unlimited/unknown. An omitted or empty model
+// targets the session's current model (the common case). The override blocks a later lazy
+// backend probe from clobbering it; it is a runtime value, so a plugin re-applies it (e.g.
+// on session_start) rather than relying on persistence. Gated on config:write:model — same
+// grant as set_model, since it writes model metadata.
+func (p *plugin) bridgeSetContextWindow(L *lua.LState) int {
+	if p.host == nil || p.host.modelReg == nil {
+		return fail(L, "set_context_window: model registry not available")
+	}
+	tokens := L.CheckInt(1)
+	model := strings.TrimSpace(L.OptString(2, ""))
+	if !p.perms.allowConfigWrite("model") {
+		return fail(L, "permission denied: config:write:model")
+	}
+	if err := p.host.modelReg.SetContextWindow(model, tokens); err != nil {
+		return fail(L, "set_context_window: "+err.Error())
+	}
+	target := model
+	if target == "" {
+		target = "session model"
+	}
+	p.logf(fmt.Sprintf("[%s] set context window: %s = %d", p.name, target, tokens))
 	L.Push(lua.LTrue)
 	return 1
 }

@@ -56,13 +56,25 @@ type BaseURLRegistry interface {
 	ClearBaseURLIfEquals(url string)
 }
 
-// ModelRegistry lets a plugin change the current session's active model at
-// runtime (magi.set_model) — e.g. an SSO plugin that picks the model to use only
-// after it learns which backend the user is entitled to. It mirrors what the TUI
-// /route editor does; the implementation is expected to apply the change to the
-// live session and persist it. An empty model id is rejected by the bridge.
+// ModelRegistry lets a plugin change model settings for the live session at
+// runtime. It groups the model-configuration bridges that share the
+// config:write:model grant and a single wiring adapter over the App:
+//   - SetModel (magi.set_model): switch the session's active model — e.g. an SSO
+//     plugin that picks the model only after it learns which backend the user is
+//     entitled to. Mirrors the TUI /route editor.
+//   - SetContextWindow (magi.set_context_window): override a model's context
+//     window in tokens — e.g. a plugin that learns the real window from an
+//     in-house model API the built-in backend prober can't reach. Mirrors the
+//     /context command; tokens <= 0 means unlimited/unknown, and the override
+//     blocks a later lazy probe from clobbering it. An empty modelID targets the
+//     session's current model.
+//
+// Implementations apply the change to the live session. An empty model id is
+// rejected by the set_model bridge (but allowed by set_context_window, where it
+// means "the session model").
 type ModelRegistry interface {
 	SetModel(modelID string) error
+	SetContextWindow(modelID string, tokens int) error
 }
 
 // UserLabelRegistry lets a plugin set the display name shown for the user in the
