@@ -908,7 +908,11 @@ func (a *App) RespondPermission(ctx context.Context, c command.RespondPermission
 }
 
 // Compact appends a compaction snapshot summarizing the conversation so far.
-// (M1: summary generation is a stub; the mechanism + persistence are real.)
+// Manual /compact replaces the whole conversation with a real model-written brief
+// (same summarizer the auto-compaction path uses) plus deterministic per-file recall
+// shards, so older detail stays retrievable. If the summary comes back empty (model
+// error/empty stream) it returns without appending — a failed summary must never
+// replace the context with a stub that wipes it.
 func (a *App) Compact(ctx context.Context, c command.Compact) error {
 	evs, err := a.store.Read(ctx, c.SessionID, 0)
 	if err != nil {
@@ -919,13 +923,22 @@ func (a *App) Compact(ctx context.Context, c command.Compact) error {
 		upTo = evs[n-1].Seq
 	}
 	msgs := reconstruct(evs)
-	summary := summarize(msgs)
-	// Manual compaction replaces everything up to upTo, so the post-state is just
-	// the summary.
+	if len(msgs) == 0 {
+		return nil // nothing to compact
+	}
+	s := a.sessionInfo(ctx, c.SessionID)
+	summary := a.summarizeViaLLM(ctx, a.agentFor(s), s, msgs)
+	if summary == "" {
+		return fmt.Errorf("compaction skipped: summary unavailable")
+	}
+	// Manual compaction replaces everything up to upTo, so the post-state is just the
+	// summary; the compacted region is indexed by file path so detail stays recallable.
+	shards := shardByPath(msgs, s.Workdir)
 	data, _ := json.Marshal(event.CompactionData{
 		Summary: summary, ReplacesUpToSeq: upTo,
 		TokensBefore: estimateTokens("", msgs),
 		TokensAfter:  estimateTokens(summary, nil),
+		Shards:       shards,
 	})
 	return a.appendFact(ctx, c.SessionID, event.TypeCompaction, c.Actor, data)
 }
@@ -1119,11 +1132,6 @@ func newSortableID() string {
 	b[3], b[4], b[5] = byte(ms>>16), byte(ms>>8), byte(ms)
 	_, _ = rand.Read(b[6:])
 	return hex.EncodeToString(b[:])
-}
-
-// summarize is a placeholder summary used by Compact in M1.
-func summarize(msgs []session.Message) string {
-	return fmt.Sprintf("[compacted %d earlier messages]", len(msgs))
 }
 
 // RegisterContextProvider adds a context provider for RAG-like context injection.
