@@ -600,53 +600,19 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			}
 		}
 
-		// Explicit output contract: a subagent that filed a report has delivered its
-		// final result and its turn ends now — no more steps, no bash-echo looping.
-		if rep := a.takeReport(sid); rep != nil {
-			// A subagent finishing via report short-circuits the pre-finish gates above:
-			// self-verify, the structural fabrication check, and the council are all top-level
-			// only, and this return fires before the len(toolCalls)==0 finish branch ever runs.
-			// So the delegated path needs its own check. A "done" report whose deliverable was
-			// changed but never exercised (unverifiedDeliverable, keyed off this subagent's own
-			// tool log) is not done — the language-agnostic replacement for the report tool's
-			// former English confession-phrase scan. Gated on the subagent actually HAVING a way
-			// to run its work (bash): a read/write-only agent cannot execute anything, so blocking
-			// it for "not running it" would be a false positive — that case defers to the parent's
-			// review-gate tester, which runs the merged deliverable for real. Refuse ONCE.
-			if rep.status == "done" && !reportRefused && agent.allows("bash") && guard.unverifiedDeliverable() {
-				reportRefused = true
-				msg := "You reported done, but you changed a deliverable this turn and ran no command that " +
-					"exercises the current version, so its behavior is unverified. Actually run the required " +
-					"program/command against your result and confirm the REAL output, then report. If you truly " +
-					"cannot run it here, report status \"failed\" and say plainly what stopped you — do not report " +
-					"unverified work as done."
-				pd, _ := json.Marshal(event.PromptSubmittedData{
-					MessageID: "m_" + newID(),
-					Parts:     []session.Part{{Kind: session.PartText, Text: msg}},
-				})
-				a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
-				continue
+		// Explicit output contract: a subagent that filed a report has delivered its final
+		// result and its turn ends now — no more steps, no bash-echo looping. handleReport may
+		// refuse an unverified "done" once (loopContinue) or finish the turn (loopFinish, with
+		// the result string to return).
+		u := event.Usage{In: lastIn, Out: cumOut, Cost: cumCost}
+		if act, result, handled := a.handleReport(ctx, tc, lastText, u, &reportRefused); handled {
+			switch act {
+			case loopContinue:
+				continue // refused an unverified "done" — pushed back to actually run it
+			case loopFinish:
+				finished = true // report filed → turn delivered its result
+				return result, nil
 			}
-			// Prefer the answer the model already wrote as its message (it streamed
-			// live to the pane). Only when the model put the answer in report.summary
-			// do we append it as the final assistant message so the pane shows it.
-			answer := strings.TrimSpace(rep.summary)
-			if answer == "" {
-				answer = lastText
-			} else {
-				paneText := answer
-				if strings.TrimSpace(rep.details) != "" {
-					paneText += "\n\n" + rep.details
-				}
-				a.appendPart(ctx, sid, agentActor, "m_"+newID(), session.RoleAssistant, session.Part{
-					ID: "p_" + newID(), Kind: session.PartText, Text: paneText,
-				})
-			}
-			u := event.Usage{In: lastIn, Out: cumOut, Cost: cumCost}
-			d, _ := json.Marshal(event.TurnFinishedData{Usage: u})
-			a.appendFact(ctx, sid, event.TypeTurnFinished, agentActor, d)
-			finished = true // report filed → turn delivered its result
-			return rep.result(answer), nil
 		}
 
 		// Corrective re-grounding: before any force-stop, give a thrashing agent ONE nudge to
@@ -657,7 +623,6 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// stop=true when the run must end now: clean=true finishes cleanly (delivered-but-spinning),
 		// clean=false aborted with a visible error (genuine thrash). Recovery re-arms the loop
 		// internally and returns stop=false so the parent integrates the child's result.
-		u := event.Usage{In: lastIn, Out: cumOut, Cost: cumCost}
 		if stop, clean := a.handleStuckGuard(ctx, tc, turnTask, evs, u, &ts); stop {
 			if clean {
 				finished = true
@@ -730,6 +695,58 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 		Messages: msgs,
 		Tools:    a.toolSpecs(agent, isSub, tc.depth),
 	}, evs
+}
+
+// handleReport applies a subagent's filed report (the explicit output contract). It returns
+// (action, result, handled): handled=false when no report was filed (fall through to the
+// guards). A "done" report whose deliverable was changed but never exercised this turn
+// (unverifiedDeliverable, keyed off this subagent's own tool log) is the language-agnostic
+// replacement for the report tool's former English confession-phrase scan — refused ONCE
+// (loopContinue) so the agent actually runs its work. Gated on the subagent HAVING a way to
+// run it (bash): a read/write-only agent cannot execute anything, so blocking it for "not
+// running it" would be a false positive — that case defers to the parent's review-gate tester,
+// which runs the merged deliverable for real. Otherwise the turn finishes (loopFinish) with the
+// report's result. This short-circuits the top-level-only pre-finish gates, so the delegated
+// path carries its own verification here.
+func (a *App) handleReport(ctx context.Context, tc turnCtx, lastText string, u event.Usage, reportRefused *bool) (loopAction, string, bool) {
+	s, agent := tc.s, tc.agent
+	sid := s.ID
+	rep := a.takeReport(sid)
+	if rep == nil {
+		return 0, "", false
+	}
+	if rep.status == "done" && !*reportRefused && agent.allows("bash") && tc.guard.unverifiedDeliverable() {
+		*reportRefused = true
+		msg := "You reported done, but you changed a deliverable this turn and ran no command that " +
+			"exercises the current version, so its behavior is unverified. Actually run the required " +
+			"program/command against your result and confirm the REAL output, then report. If you truly " +
+			"cannot run it here, report status \"failed\" and say plainly what stopped you — do not report " +
+			"unverified work as done."
+		pd, _ := json.Marshal(event.PromptSubmittedData{
+			MessageID: "m_" + newID(),
+			Parts:     []session.Part{{Kind: session.PartText, Text: msg}},
+		})
+		a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
+		return loopContinue, "", true
+	}
+	// Prefer the answer the model already wrote as its message (it streamed live to the pane).
+	// Only when the model put the answer in report.summary do we append it as the final
+	// assistant message so the pane shows it.
+	answer := strings.TrimSpace(rep.summary)
+	if answer == "" {
+		answer = lastText
+	} else {
+		paneText := answer
+		if strings.TrimSpace(rep.details) != "" {
+			paneText += "\n\n" + rep.details
+		}
+		a.appendPart(ctx, sid, tc.actor, "m_"+newID(), session.RoleAssistant, session.Part{
+			ID: "p_" + newID(), Kind: session.PartText, Text: paneText,
+		})
+	}
+	d, _ := json.Marshal(event.TurnFinishedData{Usage: u})
+	a.appendFact(ctx, sid, event.TypeTurnFinished, tc.actor, d)
+	return loopFinish, rep.result(answer), true
 }
 
 // injectStuckNudge gives a thrashing agent ONE corrective nudge before the force-stop:
