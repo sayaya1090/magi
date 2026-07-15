@@ -140,6 +140,8 @@ func (m *Model) applyEvent(e event.Event) {
 		var d event.ContextUsageData
 		if json.Unmarshal(e.Data, &d) == nil {
 			m.ctxPct = d.Percent
+			m.ctxTokens = d.Tokens  // used, for the persistent footer gauge (survives turn reset)
+			m.ctxWindow = d.Window  // max window (0 = unknown), for the footer gauge
 			m.turnIn = d.Tokens     // ↑ current context (§8.1)
 			m.turnOut = d.OutTokens // ↓ cumulative output so far
 		}

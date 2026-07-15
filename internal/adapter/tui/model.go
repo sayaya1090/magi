@@ -158,6 +158,8 @@ type Model struct {
 	searchHits      []int     // content-line indexes containing the query
 	searchCur       int       // index into searchHits of the current match
 	ctxPct          float64   // context window usage %
+	ctxTokens       int       // current context size in tokens (used), for the footer gauge
+	ctxWindow       int       // model's context window in tokens (0 = unknown), for the footer gauge
 	plannerMode     string    // last planner decision (solo | parallel N) shown in the header
 
 	turnStart      time.Time       // wall-clock start of the current turn (§8.1 elapsed)
