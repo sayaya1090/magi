@@ -90,6 +90,22 @@ type CompactionData struct {
 	Shards          []ContextShard `json:"shards,omitempty"`
 }
 
+// Reduction reports how much this compaction shed: tokens freed (before minus
+// after, clamped at 0) and that as a whole-percent share of the pre-compaction
+// size (0 when TokensBefore is 0). It backs the human-facing "↯ compacted
+// ~X→Y (−Z, −P%)" line in both the headless printer and the TUI, so the size
+// difference is stated explicitly rather than left for the reader to subtract.
+func (d CompactionData) Reduction() (freed, pct int) {
+	freed = d.TokensBefore - d.TokensAfter
+	if freed < 0 {
+		freed = 0
+	}
+	if d.TokensBefore > 0 {
+		pct = (freed*100 + d.TokensBefore/2) / d.TokensBefore // integer round-to-nearest
+	}
+	return freed, pct
+}
+
 // ContextShard indexes one topic within a compacted region: a label/brief the
 // agent matches against, plus the IDs of the original messages it covers. The
 // messages themselves are not copied — they remain in the event log and are

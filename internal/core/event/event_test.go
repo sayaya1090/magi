@@ -10,6 +10,31 @@ import (
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
+// CompactionData.Reduction reports freed tokens and a rounded percent, clamps a
+// non-shrinking compaction to 0, and never divides by a zero pre-compaction size.
+func TestCompactionReduction(t *testing.T) {
+	cases := []struct {
+		before, after  int
+		wantFreed, pct int
+	}{
+		{12000, 4000, 8000, 67}, // 8000/12000 = 66.7% → rounds to 67
+		{1000, 750, 250, 25},
+		{100, 100, 0, 0}, // no shrink
+		{100, 120, 0, 0}, // grew → clamp freed at 0, no negative pct
+		{0, 0, 0, 0},     // empty before → no divide-by-zero
+		{3, 2, 1, 33},    // 1/3 = 33.3% → 33
+		{3, 1, 2, 67},    // 2/3 = 66.7% → 67
+	}
+	for _, c := range cases {
+		d := CompactionData{TokensBefore: c.before, TokensAfter: c.after}
+		freed, pct := d.Reduction()
+		if freed != c.wantFreed || pct != c.pct {
+			t.Errorf("Reduction(%d→%d) = (%d,%d), want (%d,%d)",
+				c.before, c.after, freed, pct, c.wantFreed, c.pct)
+		}
+	}
+}
+
 // F-EVENT-FACT-TRANSIENT: fact vs transient classification.
 func TestTypeClassification(t *testing.T) {
 	tests := []struct {
