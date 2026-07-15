@@ -643,8 +643,13 @@ func run() int {
 	defer host.FireEvent("shutdown")
 	// Drain queued observation events before shutdown fires: a headless one-shot
 	// run exits right after its turn, and an observer's sidecar analysis (engram's
-	// lesson extraction) would otherwise be killed mid-flight every time.
-	defer host.DrainEvents(3 * time.Minute)
+	// lesson extraction) would otherwise be killed mid-flight every time. Bounded
+	// so a SLOW sidecar model can't hang exit: on the default cloud model the
+	// analyze lands in seconds, but on a slow local sidecar an unbounded (or
+	// multi-minute) drain turns a delivered result into an apparent hang and
+	// corrupts automation timing. Override with MAGI_DRAIN_TIMEOUT; full opt-out
+	// is MAGI_EMBEDDED_PLUGINS=off (engram then never loads, nothing to drain).
+	defer host.DrainEvents(envDur("MAGI_DRAIN_TIMEOUT", 30*time.Second))
 	// …and BEFORE the drain (LIFO), wait for the app's run goroutines: headless
 	// main returns the instant it sees the TurnFinished fact, but the turn
 	// goroutine enqueues the turn_finished observation a moment LATER — draining
