@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"os"
 	"strings"
 	"time"
 
@@ -460,6 +461,35 @@ func (m *Model) highlightSelection() string {
 	return strings.Join(out, "\n")
 }
 
+// appleTermCharMouse: Apple's Terminal.app draws wide characters across two grid
+// cells but reports mouse columns counting each CHARACTER as one — measured live: a
+// drag over a Korean transcript line landed at 0.63× of the true cell column,
+// exactly (ascii+hangul)/(ascii+2·hangul) for that prefix, growing down the line.
+// When set, reported x is treated as a character index into the clicked line and
+// converted to its starting cell. ASCII lines are unaffected (index == cell there).
+// MAGI_MOUSE_COMPAT=off opts out in case a Terminal.app version reports true cells.
+var appleTermCharMouse = os.Getenv("TERM_PROGRAM") == "Apple_Terminal" &&
+	strings.ToLower(os.Getenv("MAGI_MOUSE_COMPAT")) != "off"
+
+// charIndexToCell converts a character (grapheme) index into the line to the CELL
+// column where that grapheme starts. An index past the last grapheme maps just past
+// the final cell (start-of-tail), clamped by the caller.
+func charIndexToCell(plain string, idx int) int {
+	if idx <= 0 {
+		return 0
+	}
+	w, n := 0, 0
+	g := uniseg.NewGraphemes(plain)
+	for g.Next() {
+		if n == idx {
+			return w
+		}
+		w += g.Width()
+		n++
+	}
+	return w + (idx - n) // past end: extend into the trailing blank cells 1:1
+}
+
 // screenToContent maps a screen cell (x,y) to a (content line, display column),
 // accounting for the header height and the current scroll offset.
 func (m *Model) screenToContent(x, y int) (line, col int) {
@@ -476,6 +506,9 @@ func (m *Model) screenToContent(x, y int) (line, col int) {
 		col = 0
 	}
 	if line >= 0 && line < len(m.contentPlain) {
+		if appleTermCharMouse {
+			col = charIndexToCell(m.contentPlain[line], col)
+		}
 		if w := ansi.StringWidth(m.contentPlain[line]); col > w {
 			col = w
 		}

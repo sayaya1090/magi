@@ -74,3 +74,32 @@ func TestSelectedTextWideChars(t *testing.T) {
 		t.Errorf("selectedText = %q, want %q", got, "나다라마")
 	}
 }
+
+// Apple Terminal reports mouse columns counting each character as one even though
+// wide glyphs occupy two cells; charIndexToCell converts that character index to the
+// glyph's starting cell so a drag in a Korean transcript lands where the pointer is.
+func TestCharIndexToCell(t *testing.T) {
+	line := "  가나다 abc 라마" // cells: sp sp 가(2-4) 나(4-6) 다(6-8) sp a b c sp 라 마
+	cases := []struct{ idx, cell int }{
+		{0, 0}, {1, 1},
+		{2, 2},   // 가
+		{3, 4},   // 나
+		{4, 6},   // 다
+		{5, 8},   // space
+		{6, 9},   // a
+		{9, 12},  // space
+		{10, 13}, // 라
+		{11, 15}, // 마
+		{12, 17}, // end
+		{15, 20}, // past end: 1:1 into the blank tail
+	}
+	for _, c := range cases {
+		if got := charIndexToCell(line, c.idx); got != c.cell {
+			t.Errorf("charIndexToCell(%d) = %d, want %d", c.idx, got, c.cell)
+		}
+	}
+	// Pure ASCII: identity.
+	if got := charIndexToCell("hello world", 7); got != 7 {
+		t.Errorf("ascii identity broken: %d", got)
+	}
+}
