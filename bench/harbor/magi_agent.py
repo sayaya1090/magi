@@ -144,7 +144,13 @@ class MagiAgent(BaseInstalledAgent):
         # MAGI_SOLO_AUDIT=off is a fourteenth: it turns off the single-step plan audit (default ON),
         # restoring the >=2-step-only audit so a 1-step plan authors no per-step deliverable
         # criteria/checks — the A/B knob for whether auditing a lone step closes the completion-gate
-        # gap it otherwise leaves open. All are forwarded so the arms share one prebuilt binary.
+        # gap it otherwise leaves open. MAGI_WAIT_GUARD=off is a fifteenth: it turns off the
+        # environment-wait recovery suppression (default ON) — when a stall is dominated by
+        # waiting/polling (sleep/ping/nc/readiness loops) the stuck-recovery coder spawn is skipped,
+        # since a coder cannot speed an external wait and under delegate-off the recovery cascades
+        # coder→coder whose timeout is misreported as the run's own deadline — the A/B knob for
+        # whether suppressing that futile recovery beats the unconditional respawn. All are
+        # forwarded so the arms share one prebuilt binary.
         for key in (
             "MAGI_BASE_URL",
             "MAGI_API_KEY",
@@ -162,6 +168,7 @@ class MagiAgent(BaseInstalledAgent):
             "MAGI_IMPLICIT_ACCEPT",
             "MAGI_CHECKPOINT_FIRST",
             "MAGI_SOLO_AUDIT",
+            "MAGI_WAIT_GUARD",
             "MAGI_STREAM_DIAG",
             "MAGI_REASONING_EFFORT",
         ):
