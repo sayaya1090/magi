@@ -114,3 +114,23 @@ func TestBashFixCycleNotBlocked(t *testing.T) {
 		t.Errorf("post-mutation build must start a fresh fingerprint, got n=%d", n)
 	}
 }
+
+// MAGI_GUARD_EXEC_EXEMPT=off restores the pre-exemption baseline for A/B isolation:
+// identical exec repeats hard-block again, and redirect-less mutations stop bumping
+// the epoch.
+func TestExecExemptOff(t *testing.T) {
+	t.Setenv("MAGI_GUARD_EXEC_EXEMPT", "off")
+	g := newRunGuard()
+	build := []byte(`{"command":"go build ./..."}`)
+	g.check("bash", build)
+	g.check("bash", build)
+	if block, _, _ := g.check("bash", build); !block {
+		t.Error("with the exemption off, an identical exec repeat must hard-block")
+	}
+	if g.noteBashWrite("sed -i 's/a/b/' f.go") {
+		t.Error("with the exemption off, a redirect-less mutation must not bump the epoch")
+	}
+	if !g.noteBashWrite("echo hi > f.txt") {
+		t.Error("redirect writes must still bump the epoch (pre-exemption baseline)")
+	}
+}

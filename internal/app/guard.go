@@ -345,7 +345,7 @@ func (g *runGuard) check(name string, args json.RawMessage) (block bool, n int, 
 	g.seen[fp]++
 	n = g.seen[fp]
 	if n > repeatLimit {
-		if name == "bash" {
+		if name == "bash" && execExemptEnabled() {
 			var ba struct {
 				Command string `json:"command"`
 			}
@@ -496,7 +496,7 @@ func (g *runGuard) changeSet() []fileChange {
 // the re-run build/test as an identical no-progress repeat. It returns whether the
 // command authored a file.
 func (g *runGuard) noteBashWrite(cmd string) bool {
-	if !redirectsToFile(cmd) && !mutatesFiles(cmd) {
+	if !redirectsToFile(cmd) && !(execExemptEnabled() && mutatesFiles(cmd)) {
 		return false
 	}
 	// A bash command that writes a file IS real progress — the tool-agnostic twin of

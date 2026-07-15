@@ -180,6 +180,17 @@ func soloAuditEnabled() bool { return !envOff("MAGI_SOLO_AUDIT") }
 // recovery spawn (the A/B knob).
 func waitGuardEnabled() bool { return !envOff("MAGI_WAIT_GUARD") }
 
+// execExemptEnabled gates the loop guard's exec-repeat exemption AND the
+// redirect-less bash-mutation epoch bump (both landed together in f3d1fbc): when on
+// (default), an identical exec bash call (build/test/any script) is never
+// hard-blocked — its outcome can change through state the guard cannot see, and the
+// stall layer owns genuine spins — and `sed -i`/`patch`/install-style commands count
+// as mutations that re-key the repeat fingerprints. MAGI_GUARD_EXEC_EXEMPT=off
+// restores the pre-f3d1fbc baseline (every identical call blocked past repeatLimit,
+// only redirect/heredoc/tee bash counted as mutation) — the A/B knob for whether the
+// exemption's longer fix-cycles help or hurt.
+func execExemptEnabled() bool { return !envOff("MAGI_GUARD_EXEC_EXEMPT") }
+
 // stallConvergeEnabled gates the stalled-nudge convergence (D18a): the no-progress "stalled"
 // nudge re-arms up to maxStallNudges times keyed purely on the sinceProgress count, without
 // checking whether the redirect actually changed anything. When a re-arm's window produced no
