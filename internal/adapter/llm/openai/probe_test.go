@@ -93,6 +93,39 @@ func TestProbeRejectsZero(t *testing.T) {
 	}
 }
 
+// A single-model server that advertises the model under an id different from the alias the
+// client was launched with (e.g. vLLM exposing the full HF path) still resolves: the sole
+// entry carrying a context field is unambiguous. With several models advertised the id is
+// genuinely ambiguous, so the fallback declines rather than guess.
+func TestProbeSingleModelIDMismatch(t *testing.T) {
+	single := func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/models" {
+			_, _ = w.Write([]byte(`{"data":[{"id":"Qwen/Qwen3-Coder-30B","max_model_len":262144}]}`))
+			return
+		}
+		http.NotFound(w, r)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(single))
+	defer srv.Close()
+	// launched as "qwen3-coder" but the server calls it "Qwen/Qwen3-Coder-30B"
+	if got, ok := New(srv.URL, "").ProbeContextWindow(context.Background(), "qwen3-coder"); !ok || got != 262144 {
+		t.Fatalf("ProbeContextWindow = (%d,%v), want (262144,true) via single-entry fallback", got, ok)
+	}
+
+	multi := func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/models" {
+			_, _ = w.Write([]byte(`{"data":[{"id":"a","max_model_len":1000},{"id":"b","max_model_len":2000}]}`))
+			return
+		}
+		http.NotFound(w, r)
+	}
+	msrv := httptest.NewServer(http.HandlerFunc(multi))
+	defer msrv.Close()
+	if _, ok := New(msrv.URL, "").ProbeContextWindow(context.Background(), "c"); ok {
+		t.Error("with several models and no id match the probe must decline, not guess")
+	}
+}
+
 // The probe reads the base URL dynamically, so a runtime override installed by a plugin
 // (magi.set_base_url) redirects it. This is what lets main() defer the startup probe until
 // after plugin startup: the probe then targets the plugin-configured backend instead of the
