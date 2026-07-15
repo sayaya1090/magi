@@ -326,10 +326,12 @@ func (m *Model) refresh() {
 	// whichever is active so its rendered lines match the box we draw around it.
 	wantW := m.width - 4
 	if m.splashActive() {
-		// Wide enough to type a real first prompt (multi-clause, pasted paths) without
-		// immediate soft-wrapping; still narrower than the transcript width so it reads
-		// as a centered prompt, not a full-width editor.
-		wantW = clampInt(m.width-8, 24, 100)
+		// Proportional, not a fixed cap: at ~100-col terminals a fixed 100-col cap made
+		// the box a near-full-width bar under the 49-col console diagram — technically
+		// centered, but reading as a bottom bar rather than a centered prompt. 60% of
+		// the width keeps it visibly narrower than the transcript at every size while
+		// staying wide enough to type a real first prompt without immediate wrapping.
+		wantW = clampInt((m.width*3)/5, 44, 100)
 	}
 	if wantW != m.ta.Width() {
 		m.ta.SetWidth(wantW)

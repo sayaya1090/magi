@@ -833,7 +833,7 @@ func (m *Model) recallHistory(dir int) bool {
 	}
 	m.histIdx = ni
 	m.ta.SetValue(m.history[ni])
-	m.ta.CursorEnd()
+	m.syncTaViewport() // a long recalled prompt scrolls the box; CursorEnd alone clamps on stale content
 	return true
 }
 

@@ -83,7 +83,20 @@ func TestPasteRepositionsCursorInsideBox(t *testing.T) {
 	if !strings.Contains(plain, "│") {
 		t.Errorf("cursor row %d is not inside the input box: %q", cy, plain)
 	}
-	if !strings.Contains(plain, "pasted-content") {
-		t.Errorf("cursor row should hold the pasted tail, got: %q", plain)
+	// The row under the cursor must hold the pasted TAIL — some non-blank content
+	// (soft wrap may split mid-word, so don't demand a whole word), and no row of
+	// the box below it may hold more text (the cursor sits on the last content row).
+	interior := strings.Trim(plain, " │")
+	if strings.TrimSpace(interior) == "" {
+		t.Errorf("cursor row should hold the pasted tail, got blank interior: %q", plain)
+	}
+	for i := cy + 1; i < len(rows); i++ {
+		p := ansi.Strip(rows[i])
+		if !strings.Contains(p, "│") {
+			break // past the box bottom
+		}
+		if strings.TrimSpace(strings.Trim(p, " │")) != "" {
+			t.Errorf("row %d below the cursor still holds content %q — cursor is not on the last row", i, p)
+		}
 	}
 }

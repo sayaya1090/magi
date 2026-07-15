@@ -27,12 +27,7 @@ func (m *Model) handlePaste(content string) {
 	lines := strings.Count(content, "\n") + 1
 	if lines <= 1 && len(content) <= pasteThreshold {
 		m.ta.InsertString(content) // small inline paste
-		// InsertString does not reposition the textarea's internal viewport: a paste
-		// long enough to soft-wrap past MaxHeight leaves the view showing the TOP
-		// rows while Cursor() reports a row past the visible window — the reported
-		// cursor lands outside/below the input box until the next keypress. MoveToEnd
-		// is where the cursor already is; it exists here purely for its reposition.
-		m.ta.MoveToEnd()
+		m.syncTaViewport()
 		return
 	}
 	if m.pastes == nil {
@@ -42,7 +37,20 @@ func (m *Model) handlePaste(content string) {
 	id := m.pasteSeq
 	m.pastes[id] = content
 	m.ta.InsertString(fmt.Sprintf("[#%d pasted %d lines]", id, lines))
-	m.ta.MoveToEnd() // same reposition guarantee as the inline path
+	m.syncTaViewport()
+}
+
+// syncTaViewport forces the textarea's internal viewport to track the cursor after a
+// programmatic insert. Repositioning clamps its scroll against the viewport's CONTENT,
+// and the content is only (re)rendered by View() — so when one event lands several
+// wrapped rows at once (a paste), the reposition inside the insert clamps against the
+// stale, shorter content and the view stays on the TOP rows while the reported cursor
+// row walks off the bottom of the box. Rendering once first gives the reposition the
+// real content length. (Typing is immune: each keypress re-renders, so the clamp lags at
+// most one row and catches up on the next key.)
+func (m *Model) syncTaViewport() {
+	_ = m.ta.View() // render → the internal viewport now holds the full wrapped content
+	m.ta.MoveToEnd()
 }
 
 // expandPastes replaces placeholders with their full stored content, so the

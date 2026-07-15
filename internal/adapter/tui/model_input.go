@@ -403,7 +403,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		if val := m.ta.Value(); val != "" && !strings.HasPrefix(val, "/") {
 			if c := m.historyComplete(val); c != "" {
 				m.ta.SetValue(c)
-				m.ta.CursorEnd()
+				m.syncTaViewport() // long completions scroll the box; see paste.go
 				m.refresh()
 				return nil, true
 			}
