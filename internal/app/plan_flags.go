@@ -109,16 +109,16 @@ func stepVerifyEnabled() bool {
 // planEligible) spawns another at depth 2, and so on until the plan-depth cap stops it with a
 // stall_guard halt (observed on compile-compcert). With this on, a recovery child is seeded as
 // already-recovered, so it cannot trigger its OWN redecomposeStuck: exactly one recovery
-// executor is spawned per run tree. Default OFF (opt-in, unvalidated): MAGI_RECOVERY_RUNCAP=1
-// enables it for an A/B arm — it narrows the [[stuck-recovery-decoupled]] recovery reach, so it
-// needs a paired bench run before it is treated as an improvement. Default OFF (opt-in): only an
-// explicit truthy MAGI_RECOVERY_RUNCAP enables it for an A/B arm.
+// executor is spawned per run tree. Default ON: the coder-cascade halt it prevents is a clear
+// failure mode, and one recovery executor per run tree is the intended reach of
+// [[stuck-recovery-decoupled]]. MAGI_RECOVERY_RUNCAP=off restores the per-depth re-decomposition
+// for an A/B arm.
 func recoveryRunCapEnabled() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_RECOVERY_RUNCAP"))) {
-	case "1", "on", "true", "yes":
-		return true
+	case "0", "off", "false", "no":
+		return false
 	}
-	return false
+	return true
 }
 
 // implicitAcceptEnabled tells the planner that a task's real acceptance conditions are usually
