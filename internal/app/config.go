@@ -283,7 +283,7 @@ func (c Config) withDefaults() Config {
 		c.Permission = "ask"
 	}
 	if c.DangerTools == nil {
-		c.DangerTools = map[string]bool{"write": true, "edit": true, "multiedit": true, "bash": true, "webfetch": true, "websearch": true}
+		c.DangerTools = map[string]bool{"write": true, "edit": true, "multiedit": true, "bash": true, "wait_for": true, "webfetch": true, "websearch": true}
 	}
 	if c.MaxDepth == 0 {
 		c.MaxDepth = 3

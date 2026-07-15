@@ -188,13 +188,15 @@ func (p *Policy) Decide(toolName string, args json.RawMessage) (verdict, reason 
 			if h := hostOf(subj); h != "" && !anyHost(p.allowDomains, h) {
 				return "deny", "host " + h + " not in egress allowlist"
 			}
-		case "bash":
+		case "bash", "wait_for":
+			// wait_for executes its condition through the shell, so its subject is
+			// scanned for egress exactly like a bash command.
 			if bashEgress.MatchString(subj) {
 				return "ask", "network egress command (host allowlist enforced)"
 			}
 		}
 	}
-	if tool == "bash" {
+	if tool == "bash" || tool == "wait_for" {
 		if rs := scanBash(subj, p); rs != "" {
 			return "ask", rs
 		}
@@ -245,8 +247,8 @@ func scanBash(cmd string, p *Policy) string {
 	return ""
 }
 
-// subjectOf extracts the match subject for a tool call: the command for bash,
-// the URL for webfetch, otherwise the path argument.
+// subjectOf extracts the match subject for a tool call: the command for bash, the
+// condition for wait_for, the URL for webfetch, otherwise the path argument.
 func subjectOf(tool string, args json.RawMessage) string {
 	var m map[string]any
 	_ = json.Unmarshal(args, &m)
@@ -259,6 +261,8 @@ func subjectOf(tool string, args json.RawMessage) string {
 	switch tool {
 	case "bash":
 		return get("command")
+	case "wait_for":
+		return get("condition")
 	case "webfetch":
 		return get("url")
 	default:

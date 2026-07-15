@@ -966,6 +966,14 @@ func (a *App) publishTransient(sid session.SessionID, typ event.Type, actor even
 	a.bus.Publish(event.Event{SessionID: sid, Type: typ, Actor: actor, TS: time.Now(), Stage: a.currentStage(sid), Data: data})
 }
 
+// emitToolProgress publishes a long-running tool's live progress note as a
+// transient (bus-only, droppable) event so the TUI and headless stream can show
+// what is being waited on. No-op when the bus is absent.
+func (a *App) emitToolProgress(sid session.SessionID, actor event.Actor, callID, name, text string) {
+	d, _ := json.Marshal(event.ToolProgressData{CallID: callID, Name: name, Text: text})
+	a.publishTransient(sid, event.TypeToolProgress, actor, d)
+}
+
 // Loop stages tag events with the macro phase they belong to (D15).
 const (
 	stagePlan     = "plan"
