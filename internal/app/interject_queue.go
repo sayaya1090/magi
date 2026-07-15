@@ -290,7 +290,13 @@ func (a *App) deferredInterjectIDs(sid session.SessionID) map[string]bool {
 // orchestrator may answer while background subagents run, so it was never queued) stays
 // visible here. Full history (SessionState, compaction) still sees every event.
 func (a *App) liveEvents(sid session.SessionID, evs []event.Event) []event.Event {
-	return filterDeferredEvents(evs, a.deferredInterjectIDs(sid))
+	// Also drop the ORIGINAL prompt of any interjection that was later re-emitted as its
+	// own turn (ResurfacedFrom): once resurfaced it leaves the deferred set, so without
+	// this the model's context carries the same instruction twice — the stranded original
+	// mid-history plus the resurfaced copy that actually seeds the turn. The display path
+	// (SessionState) already dropped origins; this aligns the model's view with it. Seqs
+	// of the remaining events are preserved, so compaction boundaries are unaffected.
+	return filterDeferredEvents(dropResurfacedOrigins(evs), a.deferredInterjectIDs(sid))
 }
 
 // markInterjectSeen records that a MessageID is a mid-turn interjection detected this
