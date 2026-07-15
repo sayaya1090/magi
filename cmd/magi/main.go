@@ -604,12 +604,18 @@ func run() int {
 	// resolves the current session at call time (plugins call set_model mid-session).
 	var sid session.SessionID
 	host := pluginlua.NewHostWithConfig(pluginlua.HostConfig{
-		ToolSink:      reg,
-		MCPMgr:        mcpMgr,
-		ContextReg:    a,
-		LLMReg:        llm,
-		BaseReg:       llm,
-		ModelReg:      modelSetter{setModel: func(m string) { a.SetModel(sid, m) }},
+		ToolSink:   reg,
+		MCPMgr:     mcpMgr,
+		ContextReg: a,
+		LLMReg:     llm,
+		BaseReg:    llm,
+		ModelReg: modelSetter{
+			setModel: func(m string) { a.SetModel(sid, m) },
+			setWindow: func(model string, tokens int) error {
+				_, err := a.SetContextWindow(context.Background(), sid, model, tokens)
+				return err
+			},
+		},
 		UserReg:       userLabelSetter{set: func(l string) { a.SetUserLabel(sid, l) }},
 		PluginConfigs: cfg.Plugins,
 		ConfigPath:    filepath.Join(plat.ConfigDir(), "config.toml"),
@@ -1248,11 +1254,20 @@ func (p permPersister) PersistAllow(rule string) error {
 	return config.AppendListItem(p.path, "allow", rule)
 }
 
-// modelSetter adapts App.SetModel (which is fire-and-forget: it applies to the
-// live session and best-effort persists) to the plugin host's ModelRegistry.
-type modelSetter struct{ setModel func(string) }
+// modelSetter adapts App's model-configuration methods to the plugin host's
+// ModelRegistry: SetModel (fire-and-forget — applies to the live session and
+// best-effort persists) and SetContextWindow (returns a note we discard and an
+// error we surface). Both close over the current session id.
+type modelSetter struct {
+	setModel  func(string)
+	setWindow func(model string, tokens int) error
+}
 
 func (m modelSetter) SetModel(modelID string) error { m.setModel(modelID); return nil }
+
+func (m modelSetter) SetContextWindow(modelID string, tokens int) error {
+	return m.setWindow(modelID, tokens)
+}
 
 // userLabelSetter adapts App.SetUserLabel (fire-and-forget: applies to the live
 // session and broadcasts) to the plugin host's UserLabelRegistry.
