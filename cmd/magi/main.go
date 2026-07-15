@@ -886,6 +886,14 @@ func runHeadless(ctx context.Context, a headlessApp, sid session.SessionID, prom
 					lastThinkBeat = now
 				}
 			}
+		} else if e.Type == event.TypeToolProgress {
+			// A long-running tool's live poll status (e.g. wait_for). Like the thinking
+			// heartbeat, keep it on stderr so stdout stays a clean transcript; the tool
+			// self-paces its emits, so print each one rather than throttling here.
+			var d event.ToolProgressData
+			if json.Unmarshal(e.Data, &d) == nil && strings.TrimSpace(d.Text) != "" {
+				fmt.Fprintln(errw, "⋯ "+d.Text)
+			}
 		} else {
 			renderText(out, errw, e)
 		}

@@ -143,6 +143,7 @@ type Model struct {
 	blocks          []block
 	pendingShell    []shellRun // `!`-run commands+output staged to prepend to the next prompt's context
 	liveText        string
+	liveProgress    string    // latest live progress note from a long-running tool (wait_for); cleared when its result lands
 	liveThink       string    // streaming reasoning ("thinking") for the current turn
 	showThink       bool      // expand ALL reasoning blocks (default collapsed); toggle ctrl+t
 	liveThinkStart  int       // content line where the streaming "thinking" block begins (-1 = not shown); for click-to-toggle
@@ -753,7 +754,7 @@ func (m *Model) switchSession(sid session.SessionID) tea.Cmd {
 	m.history = userPrompts(msgs) // seed ↑/↓ recall + tab completion from prior turns
 	m.histIdx = len(m.history)
 	m.cache = m.cache[:0]
-	m.liveText, m.liveThink, m.running, m.activeAgents = "", "", false, nil
+	m.liveText, m.liveThink, m.liveProgress, m.running, m.activeAgents = "", "", "", false, nil
 	// Subscribe from lastSeq so we stream only new events (transcript already shown).
 	// startSub calls closePanes (retiring the old session's panes), so restore the
 	// resumed session's subagent panes AFTER it — otherwise they're wiped immediately.

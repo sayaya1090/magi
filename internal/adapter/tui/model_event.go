@@ -90,6 +90,15 @@ func (m *Model) applyEvent(e event.Event) {
 			}
 		}
 
+	case event.TypeToolProgress:
+		// A long-running tool's live poll status (wait_for). Keep only the latest
+		// note; it renders as one ephemeral line by the spinner and is dropped when
+		// the tool's result lands (see PartToolResult below) or the turn ends.
+		var d event.ToolProgressData
+		if json.Unmarshal(e.Data, &d) == nil {
+			m.liveProgress = strings.TrimSpace(d.Text)
+		}
+
 	case event.TypePartAppended:
 		var d event.PartAppendedData
 		if json.Unmarshal(e.Data, &d) != nil {
@@ -250,6 +259,7 @@ func (m *Model) applyEvent(e event.Event) {
 		m.awaitingTurnReqID = false
 		m.liveText = ""
 		m.liveThink = ""
+		m.liveProgress = ""
 		m.activeAgents = nil
 		m.councilRound = 0
 		m.councilMember = ""
@@ -332,6 +342,7 @@ func (m *Model) onPartAppended(d event.PartAppendedData) {
 			})
 		}
 	case session.PartToolResult:
+		m.liveProgress = "" // the tool that was reporting progress has now returned
 		if d.Part.ToolResult != nil {
 			m.foldToolResult(toolResultText(d.Part.ToolResult), !d.Part.ToolResult.IsError)
 		}
@@ -470,6 +481,7 @@ func (m *Model) onTurnFinished(e event.Event) {
 	}
 	m.liveText = ""
 	m.liveThink = ""
+	m.liveProgress = ""
 	m.activeAgents = nil
 	m.councilRound = 0
 	m.councilMember = ""
