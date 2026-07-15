@@ -251,7 +251,7 @@ func New(ctx context.Context, a *app.App, cmds CommandSource, sid session.Sessio
 	applyTheme(isDark)
 
 	ta := textarea.New()
-	ta.Placeholder = "Ask magi to do something…  (enter to send · alt+enter/ctrl+j newline)"
+	ta.Placeholder = "Ask magi to do something...  (enter to send | alt+enter/ctrl+j newline)"
 	ta.Prompt = "❯ "
 	ta.CharLimit = 0
 	ta.ShowLineNumbers = false

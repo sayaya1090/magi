@@ -47,7 +47,7 @@ func (m *Model) splashConsole() []string {
 		if i >= len(names) {
 			return strings.Repeat(" ", w)
 		}
-		label := strings.ToUpper(strings.TrimSpace(names[i])) + " · " + strconv.Itoa(i+1)
+		label := strings.ToUpper(strings.TrimSpace(names[i])) + " - " + strconv.Itoa(i+1)
 		if lipgloss.Width(label) > w {
 			r := []rune(label)
 			for lipgloss.Width(string(r)) > w && len(r) > 0 {
@@ -100,7 +100,7 @@ func (m *Model) splashIdentity() string {
 	if home, err := os.UserHomeDir(); err == nil && home != "" && strings.HasPrefix(wd, home) {
 		wd = "~" + strings.TrimPrefix(wd, home)
 	}
-	return styleToolResult.Render(m.model + " · " + wd)
+	return styleToolResult.Render(m.model + "  -  " + wd)
 }
 
 // splashView renders the startup splash centered in a width×height area: the
