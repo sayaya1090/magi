@@ -68,6 +68,33 @@ func TestSplashComposeInputUnderLogo(t *testing.T) {
 	}
 }
 
+// When a multi-line input makes the splash group taller than the viewport, the
+// compose sheds decoration (identity first, then the wordmark) and truncates,
+// keeping the input box — where the user is typing — fully visible.
+func TestSplashComposeShedsDecorationOnOverflow(t *testing.T) {
+	applyTheme(true)
+	// An 8-row box (6 content rows + borders) into a 14-row viewport: the logo(8)
+	// + identity(2) + gaps cannot fit alongside it.
+	box := "╭────╮\n│ l1 │\n│ l2 │\n│ l3 │\n│ l4 │\n│ l5 │\n│ l6 │\n╰────╯"
+	content, curRow, _ := splashCompose(80, 14, "PLATES\nreadout", box)
+	rows := strings.Split(content, "\n")
+	if len(rows) != 14 {
+		t.Fatalf("composed rows = %d, want exactly the viewport height 14", len(rows))
+	}
+	bottom := -1
+	for i, r := range rows {
+		if strings.Contains(r, "╰") {
+			bottom = i
+		}
+	}
+	if bottom < 0 {
+		t.Fatal("box bottom border pushed out of the viewport")
+	}
+	if curRow >= 14 {
+		t.Fatalf("cursor row %d out of the viewport", curRow)
+	}
+}
+
 // With identity lines (council nameplates + boot readout) the splash inserts them
 // between the wordmark and the box, and the cursor math accounts for them.
 func TestSplashComposeWithIdentity(t *testing.T) {

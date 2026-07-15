@@ -77,11 +77,26 @@ func splashCompose(vpw, height int, identity, inputBox string) (content string, 
 	boxLeft := max(0, (vpw-boxW)/2)
 
 	const gap = 1 // one blank row between each splash section
-	groupH := len(logoLines) + gap + len(boxLines)
-	if len(idLines) > 0 {
-		groupH += len(idLines) + gap
+	groupH := func() int {
+		h := len(logoLines) + gap + len(boxLines)
+		if len(idLines) > 0 {
+			h += len(idLines) + gap
+		}
+		return h
 	}
-	top := max(0, (height-groupH)/2)
+	// The input box must stay fully visible: a multi-line prompt (newlines or soft
+	// wraps, up to maxInputRows) can make the group taller than the viewport, and an
+	// overflowing compose pushes the box's lower rows — where the user is typing —
+	// off screen. Shed decoration before box rows: identity lines first, then the
+	// wordmark. (The trailing truncate below is the last resort for a viewport
+	// shorter than the box itself.)
+	if groupH() > height && len(idLines) > 0 {
+		idLines = nil
+	}
+	if groupH() > height && len(logoLines) > 0 {
+		logoLines = nil
+	}
+	top := max(0, (height-groupH())/2)
 
 	center := func(s string) string {
 		return strings.Repeat(" ", max(0, (vpw-lipgloss.Width(s))/2)) + s
@@ -105,6 +120,9 @@ func splashCompose(vpw, height int, identity, inputBox string) (content string, 
 	}
 	for len(rows) < height {
 		rows = append(rows, "")
+	}
+	if len(rows) > height {
+		rows = rows[:height] // never hand the viewport more rows than it can show
 	}
 	// Cursor: first text cell of the box = top border + left border + left padding(1).
 	curRow = top + len(logoLines) + gap + 1

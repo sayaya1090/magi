@@ -325,7 +325,10 @@ func (m *Model) refresh() {
 	// whichever is active so its rendered lines match the box we draw around it.
 	wantW := m.width - 4
 	if m.splashActive() {
-		wantW = clampInt(m.width-8, 24, 72)
+		// Wide enough to type a real first prompt (multi-clause, pasted paths) without
+		// immediate soft-wrapping; still narrower than the transcript width so it reads
+		// as a centered prompt, not a full-width editor.
+		wantW = clampInt(m.width-8, 24, 100)
 	}
 	if wantW != m.ta.Width() {
 		m.ta.SetWidth(wantW)
