@@ -1178,10 +1178,12 @@ func envDur(key string, def time.Duration) time.Duration {
 	return def
 }
 
-// defaultAgents is the bundled orchestration policy: a small set of specialized
-// subagents the main agent can delegate to via the task tool (D9). Each leaves
-// Model empty to inherit the session model; per-agent routing can be set in
-// config (model routing, M6).
+// defaultAgents is the bundled orchestration policy: the read-only investigators
+// the main agent can fan out to via the task tool (explore/locator) plus the
+// pre-flight planner. There are deliberately NO write-capable subagents — the main
+// agent does all authoring itself (the solo path), so delegation degrades to solo
+// and the planner only fans out read-only exploration. Each leaves Model empty to
+// inherit the session model; per-agent routing can be set in config (model routing, M6).
 func defaultAgents() map[string]app.AgentSpec {
 	// read-only search + ask(escalate)/report(deliver) + pure-Go aggregation (tabulate/
 	// countmatches/countlines/groupby) so a read-only agent can REDUCE data — sum a
@@ -1202,35 +1204,6 @@ func defaultAgents() map[string]app.AgentSpec {
 			System: "You are a code-search specialist. Locate relevant files, symbols, and usages with grep/glob/list/read/findcontext/astgrep. " +
 				"Report exact file:line locations with brief context. Never modify files." + aggHint,
 			Tools: ro,
-		},
-		"analyst": {
-			Name: "analyst",
-			System: "You are a deep-reasoning advisor. Analyze hard problems, trade-offs, and root causes using read/grep/glob/list. " +
-				"Give a clear, well-reasoned answer. Never modify files." + aggHint,
-			Tools: ro,
-		},
-		"architect": {
-			Name: "architect",
-			System: "You are a planning specialist. Produce a concrete step-by-step implementation plan (files to change, approach, risks) " +
-				"using read/grep/glob/list and the todowrite tool. Do not modify code.",
-			Tools: []string{"read", "grep", "glob", "list", "todowrite", "skill", "ask", "report"},
-		},
-		"coder": {
-			Name: "coder",
-			System: "You are a coding agent. Implement the requested change: LOCALIZE first with findcontext/astgrep/grep, then edit. " +
-				"Make the smallest correct change, verify it, and summarize what you did.",
-			Tools: []string{"read", "write", "edit", "multiedit", "grep", "glob", "list", "findcontext", "astgrep", "tabulate", "countmatches", "countlines", "groupby", "bash", "skill", "ask", "report"},
-		},
-		"reviewer": {
-			Name:   "reviewer",
-			System: "You are a code reviewer. Inspect the relevant files (read/grep/glob/list) and report concrete issues and suggestions. Do not modify files." + aggHint,
-			Tools:  ro,
-		},
-		"tester": {
-			Name: "tester",
-			System: "You are a verification specialist. Run builds and tests with bash, use lsp_diagnostics for LSP errors, " +
-				"and report pass/fail with concise failure details. Do not modify source files.",
-			Tools: []string{"read", "grep", "glob", "list", "bash", "lsp_diagnostics", "tabulate", "countmatches", "countlines", "groupby", "skill", "ask", "report"},
 		},
 		// planner is the pre-flight procedure planner (not delegated to via task): the
 		// app calls it once per top-level turn to decompose the request into an ordered
