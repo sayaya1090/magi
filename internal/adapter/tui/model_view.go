@@ -42,7 +42,7 @@ func (m Model) View() tea.View {
 			lipgloss.NewStyle().Foreground(c).Bold(true).Render(p.desc(max(20, m.width-24))) + "  " + m.paneStatus(p)
 	} else {
 		headLine = styleBrand.Render("✦ magi") +
-			styleHeader.Render("   model "+m.model+m.ctxMeter()+"   ") +
+			styleHeader.Render("   model "+m.model+"   ") +
 			permChip(m.app.Permission())
 		if m.plannerMode != "" {
 			headLine += "  " + styleKeyLabel.Render("◈ plan: "+m.plannerMode)
@@ -96,9 +96,9 @@ func (m Model) View() tea.View {
 		if m.councilRound > 0 {
 			work = councilWaitLabel(m.councilPhase) + " "
 		}
-		status = "  " + m.sp.View() + styleFooter.Render(" "+work+turnMeter(time.Since(m.turnStart), m.turnIn, m.turnOut)+"  ") + footerKeys("esc", "interrupt")
+		status = "  " + m.sp.View() + styleFooter.Render(" "+work+turnMeter(time.Since(m.turnStart), m.turnIn, m.turnOut)+gaugeSep(m.ctxGauge())+"  ") + footerKeys("esc", "interrupt")
 	case m.turnDur > 0:
-		status = styleFooter.Render("  "+turnMeter(m.turnDur, m.turnIn, m.turnOut)) + "   " + footer()
+		status = styleFooter.Render("  "+turnMeter(m.turnDur, m.turnIn, m.turnOut)+gaugeSep(m.ctxGauge())) + "   " + footer()
 	default:
 		status = footer()
 	}
@@ -601,12 +601,27 @@ func (m *Model) scrollMeter() string {
 	return styleKeyLabel.Render(chip)
 }
 
-// ctxMeter renders the context-window usage indicator (e.g. "   ctx 42%").
-func (m *Model) ctxMeter() string {
-	if m.ctxPct <= 0 {
+// ctxGauge renders the persistent context-window usage gauge for the footer, e.g.
+// "ctx 42% · 55.2k/131.0k". When the window is unknown (no catalog entry and the
+// probe found nothing) it falls back to tokens only, "ctx ~55.2k". Empty until the
+// first live usage event arrives (ctxTokens == 0), so the footer stays clean.
+func (m *Model) ctxGauge() string {
+	if m.ctxTokens <= 0 {
 		return ""
 	}
-	return fmt.Sprintf("   ctx %.0f%%", m.ctxPct)
+	if m.ctxWindow > 0 {
+		return fmt.Sprintf("ctx %.0f%% · %s/%s", m.ctxPct, humanTokens(m.ctxTokens), humanTokens(m.ctxWindow))
+	}
+	return "ctx ~" + humanTokens(m.ctxTokens)
+}
+
+// gaugeSep prefixes the context gauge with a separator when it is non-empty, so an
+// empty gauge (before the first usage event) adds no dangling " · " to the meter.
+func gaugeSep(gauge string) string {
+	if gauge == "" {
+		return ""
+	}
+	return " · " + gauge
 }
 
 // councilWaitLabel is the fixed footer phrase shown (with the spinner) while a
