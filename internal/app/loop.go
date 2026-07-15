@@ -341,30 +341,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		}
 		if step == 0 && !seeded {
 			seeded = true // guard: a park-and-retry (step--) re-enters at step 0 but must not re-seed
-			// turnTask is the prompt that SEEDED this turn — the first genuine user prompt
-			// not already answered by a previous turn — NOT merely the latest. User prompts
-			// that piled up after the seed but before execution began (e.g. while a synchronous
-			// planning/explorer phase held the loop) are interjections: queue them so they run
-			// as their own turns and never become what the council judges against. (Top level
-			// only; a subagent session has no ActorUser prompts so seedPromptIdx returns -1.)
-			entries := userPromptEntries(evs)
-			if depth == 0 && !a.cfg.Workflow {
-				if seed := seedPromptIdx(evs); seed >= 0 && seed < len(entries) {
-					turnTask = entries[seed].Text
-					a.setActiveSeed(sid, entries[seed].MsgID) // so a cancel can abandon exactly this prompt
-					for _, it := range entries[seed+1:] {
-						if txt := strings.TrimSpace(it.Text); txt != "" && txt != strings.TrimSpace(turnTask) {
-							a.markInterjectSeen(sid, it.MsgID)
-							a.enqueueInterject(ctx, sid, it.MsgID, txt)
-						}
-					}
-				} else {
-					turnTask = lastUserPromptText(evs)
-				}
-			} else {
-				turnTask = lastUserPromptText(evs) // the prompt that drove this turn
-			}
-			handledUserPrompts = len(entries) // baseline; a later rise is a mid-turn interjection
+			turnTask, handledUserPrompts = a.seedTurnTask(ctx, tc, evs)
 		} else {
 			// Drain any control signal a tool left last step (route an interjection, or an
 			// agent-initiated replan), applying the reground the loop owns but the tool can't.
@@ -388,70 +365,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					a.honorReplan(ctx, sid, tc.reason, &replanCount, &replanAtCalls, guard.callCount(), reground)
 				}
 			}
-			// Detect a mid-turn user interjection (a new genuine user prompt appeared since we
-			// last absorbed one). Top level only — subagents aren't steered by the user. Every
-			// interjection is masked from turnTask/council derivation (markInterjectSeen) so it
-			// can't swap what the council judges against. How the orchestrator handles it depends
-			// on what it is doing:
-			//   - idle-parked waiting on its own explorers (awaitingExplorers): it has no work to
-			//     interleave, so a soft "MAY answer" directive starves the reply (observed: asides
-			//     dropped for the whole delegated task). Run handleAside — a focused tool-capable
-			//     turn that replies to chitchat OR signals a steer (route_interjection to redirect/
-			//     append/queue, cancel_dispatch to stop now-irrelevant subagents, ask_user to
-			//     clarify). If it acts on the work we break the park so the next normal step
-			//     applies the route and re-dispatches with the full toolset.
-			//   - ordinary background delegation (dispatching but not parked): the orchestrator
-			//     keeps running its own turns, so let the next working turn answer via the soft
-			//     directive (answering in a separate turn here would double-reply, and the aside is
-			//     left visible so the working turn can route it).
-			//   - otherwise idle: queue it to run as its own turn and tell the agent it is deferred
-			//     so it stops oscillating (it may still call route_interjection to redirect/append).
-			if depth == 0 && !a.cfg.Workflow {
-				prompts := userPromptEntries(evs)
-				if len(prompts) > handledUserPrompts {
-					dispatching := a.bgOutstanding(sid) > 0
-					idleWaiting := dispatching && a.awaitingExplorers(sid) // parked with no work to interleave
-					// Handle EVERY user prompt that appeared since the last check, not just the
-					// newest: two messages steered in during one long step would otherwise advance
-					// the counter past the earlier one, dropping it silently.
-					var newest, newestID string
-					for _, it := range prompts[handledUserPrompts:] {
-						if txt := strings.TrimSpace(it.Text); txt != "" && txt != strings.TrimSpace(turnTask) {
-							a.markInterjectSeen(sid, it.MsgID)
-							switch {
-							case idleWaiting:
-								// Enqueue-first so route_interjection (which requires a pending
-								// interjection) can fire, then run the focused handler. It consumes a
-								// resolved chitchat reply / bare cancel itself and leaves a routed
-								// redirect/append queued for the turnControl drain to apply.
-								a.enqueueInterject(ctx, sid, it.MsgID, txt)
-								if a.handleAside(ctx, agent, s, depth, turnTask, it.MsgID, txt) {
-									answerInterjectNow = true // break the park so the route/cancel takes effect next step
-								}
-							case !dispatching:
-								// Defer: queue it (masked from the live model context too) to run as
-								// its own turn.
-								a.enqueueInterject(ctx, sid, it.MsgID, txt)
-							}
-							// Ordinary dispatch (dispatching && !idleWaiting): left visible for the
-							// interleaving working turn to answer via the soft directive below.
-							newest, newestID = txt, it.MsgID
-						}
-					}
-					handledUserPrompts = len(prompts)
-					// idle-park is fully owned by handleAside above. The directive is only for the
-					// other cases (non-dispatch queue notice, ordinary-dispatch soft answer).
-					if newest != "" && !idleWaiting {
-						a.injectInterjectDirective(ctx, sid, turnTask, newestID, newest, dispatching)
-						if dispatching {
-							// The directive we just appended is the last event, so lastIsUserSteer/
-							// needsOrchestratorTurn would read false and the early park below would
-							// re-swallow it; skip the park this iteration so the model runs and replies.
-							answerInterjectNow = true
-						}
-					}
-				}
-			}
+			handledUserPrompts, answerInterjectNow = a.detectInterjections(ctx, tc, evs, turnTask, handledUserPrompts)
 		}
 
 		// Async explorer preflight: when the planner dispatched its read-only explorers to the
@@ -635,6 +549,105 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	d, _ := json.Marshal(event.ErrorData{Message: "max steps reached", Code: "max_steps"})
 	a.appendFact(ctx, sid, event.TypeError, event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)
 	return lastText, nil
+}
+
+// seedTurnTask snapshots the turn's task at step 0 and returns it with the baseline user-
+// prompt count. turnTask is the prompt that SEEDED this turn — the first genuine user prompt
+// not already answered by a previous turn — NOT merely the latest. User prompts that piled up
+// after the seed but before execution began (e.g. while a synchronous planning/explorer phase
+// held the loop) are interjections: they are masked and queued so they run as their own turns
+// and never become what the council judges against. Top level only; a subagent session has no
+// ActorUser prompts so seedPromptIdx returns -1 and the latest user text drives the turn.
+func (a *App) seedTurnTask(ctx context.Context, tc turnCtx, evs []event.Event) (string, int) {
+	sid := tc.s.ID
+	entries := userPromptEntries(evs)
+	var turnTask string
+	if tc.depth == 0 && !a.cfg.Workflow {
+		if seed := seedPromptIdx(evs); seed >= 0 && seed < len(entries) {
+			turnTask = entries[seed].Text
+			a.setActiveSeed(sid, entries[seed].MsgID) // so a cancel can abandon exactly this prompt
+			for _, it := range entries[seed+1:] {
+				if txt := strings.TrimSpace(it.Text); txt != "" && txt != strings.TrimSpace(turnTask) {
+					a.markInterjectSeen(sid, it.MsgID)
+					a.enqueueInterject(ctx, sid, it.MsgID, txt)
+				}
+			}
+		} else {
+			turnTask = lastUserPromptText(evs)
+		}
+	} else {
+		turnTask = lastUserPromptText(evs) // the prompt that drove this turn
+	}
+	return turnTask, len(entries) // baseline; a later rise is a mid-turn interjection
+}
+
+// detectInterjections handles a mid-turn user interjection (a new genuine user prompt appeared
+// since we last absorbed one), returning the updated handled-prompt count and whether a visible
+// interjection must be answered now (break any park). Top level only — subagents aren't steered
+// by the user. Every interjection is masked from turnTask/council derivation (markInterjectSeen)
+// so it can't swap what the council judges against. How it is handled depends on what the
+// orchestrator is doing:
+//   - idle-parked waiting on its own explorers (awaitingExplorers): it has no work to interleave,
+//     so a soft "MAY answer" directive starves the reply (observed: asides dropped for the whole
+//     delegated task). Run handleAside — a focused tool-capable turn that replies to chitchat OR
+//     signals a steer (route_interjection to redirect/append/queue, cancel_dispatch to stop
+//     now-irrelevant subagents, ask_user to clarify). If it acts on the work we break the park so
+//     the next normal step applies the route and re-dispatches with the full toolset.
+//   - ordinary background delegation (dispatching but not parked): the orchestrator keeps running
+//     its own turns, so let the next working turn answer via the soft directive (answering in a
+//     separate turn here would double-reply, and the aside is left visible so it can route it).
+//   - otherwise idle: queue it to run as its own turn and tell the agent it is deferred so it
+//     stops oscillating (it may still call route_interjection to redirect/append).
+func (a *App) detectInterjections(ctx context.Context, tc turnCtx, evs []event.Event, turnTask string, handledUserPrompts int) (int, bool) {
+	if tc.depth != 0 || a.cfg.Workflow {
+		return handledUserPrompts, false
+	}
+	s, agent, depth := tc.s, tc.agent, tc.depth
+	sid := s.ID
+	prompts := userPromptEntries(evs)
+	if len(prompts) <= handledUserPrompts {
+		return handledUserPrompts, false
+	}
+	answerNow := false
+	dispatching := a.bgOutstanding(sid) > 0
+	idleWaiting := dispatching && a.awaitingExplorers(sid) // parked with no work to interleave
+	// Handle EVERY user prompt that appeared since the last check, not just the newest: two
+	// messages steered in during one long step would otherwise advance the counter past the
+	// earlier one, dropping it silently.
+	var newest, newestID string
+	for _, it := range prompts[handledUserPrompts:] {
+		if txt := strings.TrimSpace(it.Text); txt != "" && txt != strings.TrimSpace(turnTask) {
+			a.markInterjectSeen(sid, it.MsgID)
+			switch {
+			case idleWaiting:
+				// Enqueue-first so route_interjection (which requires a pending interjection) can
+				// fire, then run the focused handler. It consumes a resolved chitchat reply / bare
+				// cancel itself and leaves a routed redirect/append queued for the drain to apply.
+				a.enqueueInterject(ctx, sid, it.MsgID, txt)
+				if a.handleAside(ctx, agent, s, depth, turnTask, it.MsgID, txt) {
+					answerNow = true // break the park so the route/cancel takes effect next step
+				}
+			case !dispatching:
+				// Defer: queue it (masked from the live model context too) to run as its own turn.
+				a.enqueueInterject(ctx, sid, it.MsgID, txt)
+			}
+			// Ordinary dispatch (dispatching && !idleWaiting): left visible for the interleaving
+			// working turn to answer via the soft directive below.
+			newest, newestID = txt, it.MsgID
+		}
+	}
+	// idle-park is fully owned by handleAside above. The directive is only for the other cases
+	// (non-dispatch queue notice, ordinary-dispatch soft answer).
+	if newest != "" && !idleWaiting {
+		a.injectInterjectDirective(ctx, sid, turnTask, newestID, newest, dispatching)
+		if dispatching {
+			// The directive we just appended is the last event, so lastIsUserSteer/
+			// needsOrchestratorTurn would read false and the early park below would re-swallow
+			// it; skip the park this iteration so the model runs and replies.
+			answerNow = true
+		}
+	}
+	return len(prompts), answerNow
 }
 
 // buildStepRequest assembles one step's model request: the byte-stable system prompt
