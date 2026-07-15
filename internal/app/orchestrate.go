@@ -641,7 +641,7 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 	}
 	done := make(chan outcome, 1)
 	go func() {
-		t, e := a.runLoop(attemptCtx, child, spec, depth+1, 0, false)
+		t, e := a.runLoop(attemptCtx, child, spec, depth+1, req.MaxSteps, false)
 		done <- outcome{t, e}
 	}()
 

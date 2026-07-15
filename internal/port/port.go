@@ -326,6 +326,11 @@ type SpawnRequest struct {
 	// capping re-decomposition to one executor per run tree instead of one per depth level (the
 	// depth-cascade fix, gated by recoveryRunCapEnabled). Ignored when the cap is off.
 	Recovery bool
+	// MaxSteps, when >0, caps each attempt's agent-loop steps for this child instead of the
+	// configured default. Used for children whose task is deliberately small (a stuck-recovery
+	// unit): a scoped unit that re-fixates should fail fast and yield to the next unit, not
+	// burn the full whole-task step budget times the restart count.
+	MaxSteps int
 }
 
 // SpawnResult is a subagent's outcome.
