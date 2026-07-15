@@ -197,6 +197,78 @@ func leadingVerb(seg string) string {
 	return v
 }
 
+// fileMutateVerbs are commands whose SUCCESS mutates the filesystem by their very purpose,
+// no redirect involved: file coreutils, patchers, archive extractors, sync tools. They are
+// the redirect-less counterpart of redirectsToFile for the mutation epoch bump — without
+// them, a bash-heavy fix cycle (`sed -i`, `patch`, `cp`) registers NO progress, so the
+// build/test commands re-run between fixes read as identical no-progress repeats and the
+// loop guard blocks the third build even though the tree genuinely changed between runs.
+// The set is deliberately small and CLOSED, like inspectOnlyCmds. Build/test runners
+// (make, go build, pytest) are deliberately NOT here: they are execution evidence
+// (noteBashExec), and their artifacts are derived state — counting them as mutations would
+// let a pure rebuild spin reset its own repeat counter forever.
+var fileMutateVerbs = map[string]bool{
+	"cp": true, "mv": true, "rm": true, "mkdir": true, "rmdir": true, "touch": true,
+	"ln": true, "install": true, "truncate": true, "chmod": true, "chown": true,
+	"patch": true, "rsync": true, "dd": true,
+	"unzip": true, "gunzip": true, "bunzip2": true, "unxz": true, "zstd": true,
+}
+
+// mutatingSubcommands maps a tool to the subcommands that mutate the worktree or the
+// environment (as opposed to its read-only queries: `git status`, `go vet`, `npm ls`).
+var mutatingSubcommands = map[string]map[string]bool{
+	"git": {"apply": true, "checkout": true, "restore": true, "reset": true, "merge": true,
+		"rebase": true, "cherry-pick": true, "revert": true, "stash": true, "mv": true,
+		"rm": true, "clean": true, "pull": true, "clone": true, "am": true, "commit": true},
+	"go":   {"mod": true, "get": true, "generate": true},
+	"pip":  {"install": true, "uninstall": true},
+	"pip3": {"install": true, "uninstall": true},
+	"npm":  {"install": true, "ci": true, "i": true, "add": true, "uninstall": true, "remove": true},
+	"yarn": {"add": true, "install": true, "remove": true},
+	"pnpm": {"install": true, "add": true, "remove": true},
+	"apt":  {"install": true, "remove": true}, "apt-get": {"install": true, "remove": true},
+	"apk": {"add": true, "del": true}, "yum": {"install": true, "remove": true},
+	"dnf": {"install": true, "remove": true}, "brew": {"install": true, "uninstall": true},
+}
+
+// mutatesFiles reports whether any segment of cmd runs a redirect-less file-mutating
+// command: a fileMutateVerbs coreutil, an in-place `sed -i`/`perl -i`, a mutating
+// tool subcommand (git apply, go mod, pip install, …), or a tar with a
+// create/extract/update flag. Same heuristic tokenizer family as isInspectOnly —
+// quoting-agnostic, feeding only the advisory epoch bump.
+func mutatesFiles(cmd string) bool {
+	for _, seg := range splitShellSegments(stripHeredocs(cmd)) {
+		fields := strings.Fields(seg)
+		if len(fields) == 0 {
+			continue
+		}
+		verb := leadingVerb(seg)
+		if fileMutateVerbs[verb] {
+			return true
+		}
+		switch verb {
+		case "sed", "perl":
+			for _, f := range fields[1:] {
+				if f == "-i" || strings.HasPrefix(f, "-i.") || strings.HasPrefix(f, "-i'") {
+					return true
+				}
+			}
+		case "tar":
+			if len(fields) > 1 {
+				flags := strings.TrimPrefix(fields[1], "-")
+				if strings.ContainsAny(flags, "xcru") && !strings.Contains(flags, "t") {
+					return true
+				}
+			}
+		default:
+			if subs := mutatingSubcommands[verb]; subs != nil && len(fields) > 1 && subs[fields[1]] {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // redirectsToFile reports whether cmd sends output into a real file — a heredoc (`<<`), a
 // pipe into `tee`, or a `>`/`>>` whose target is an actual path. It deliberately EXCLUDES
 // file-descriptor duplications (`2>&1`, `>&2`, `>&-`) and `/dev/*` sinks (`>/dev/null`),

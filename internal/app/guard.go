@@ -327,6 +327,15 @@ func (g *runGuard) allowRecall(topic string) (bool, string) {
 // check records a tool call and reports whether it should be blocked as a repeat,
 // how many times this exact call has been seen at the current epoch, and the
 // fingerprint (so the caller can record/echo its result).
+//
+// The hard block applies only to repeats whose outcome provably cannot change: re-reading
+// an unchanged file, re-running an inspect-only banner, replaying the identical write. An
+// EXEC bash command (build/test/run — anything not inspect-only) is exempt: its outcome
+// can legitimately change through state the guard cannot see (a `sed -i` the mutation
+// heuristics missed, a dependency install, a daemon coming up), so blocking the third
+// identical `go build`/`go test` obstructs real fix cycles. A genuine test-rerun spin is
+// still terminated by the stall layer (sinceProgress keeps climbing here → nudges →
+// force-stop); it just isn't hard-blocked call-by-call.
 func (g *runGuard) check(name string, args json.RawMessage) (block bool, n int, fp string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -336,6 +345,14 @@ func (g *runGuard) check(name string, args json.RawMessage) (block bool, n int, 
 	g.seen[fp]++
 	n = g.seen[fp]
 	if n > repeatLimit {
+		if name == "bash" {
+			var ba struct {
+				Command string `json:"command"`
+			}
+			if json.Unmarshal(args, &ba) == nil && !isInspectOnly(ba.Command) {
+				return false, n, fp // exec repeat — outcome may change; stall layer owns this
+			}
+		}
 		g.blocked++
 		return true, n, fp
 	}
@@ -468,14 +485,18 @@ func (g *runGuard) changeSet() []fileChange {
 	return out
 }
 
-// noteBashWrite records a bash command that AUTHORS a file — a heredoc (`<<`), a `tee`, or
-// a `>`/`>>` redirect to a real path — and bumps the mutation epoch for it. It excludes
-// file-descriptor duplications (`2>&1`, `>&2`) and `/dev/*` sinks (`>/dev/null`), which
-// capture or discard a command's output rather than produce a deliverable (see
-// redirectsToFile); read-only commands (a bare `grep`/`cat`) also return false and do not
-// bump. It returns whether the command authored a file.
+// noteBashWrite records a bash command that AUTHORS or MUTATES a file — a heredoc (`<<`),
+// a `tee`, a `>`/`>>` redirect to a real path, or a redirect-less mutating command
+// (`sed -i`, `patch`, `cp`, `git apply`, `pip install`, … — see mutatesFiles) — and bumps
+// the mutation epoch for it. It excludes file-descriptor duplications (`2>&1`, `>&2`) and
+// `/dev/*` sinks (`>/dev/null`), which capture or discard a command's output rather than
+// produce a deliverable (see redirectsToFile); read-only commands (a bare `grep`/`cat`)
+// also return false and do not bump. Without the mutatesFiles arm, a bash-driven fix
+// cycle (sed -i → build → test, repeat) registers no progress and the loop guard blocks
+// the re-run build/test as an identical no-progress repeat. It returns whether the
+// command authored a file.
 func (g *runGuard) noteBashWrite(cmd string) bool {
-	if !redirectsToFile(cmd) {
+	if !redirectsToFile(cmd) && !mutatesFiles(cmd) {
 		return false
 	}
 	// A bash command that writes a file IS real progress — the tool-agnostic twin of
