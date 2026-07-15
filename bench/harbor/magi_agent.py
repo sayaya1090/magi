@@ -129,10 +129,10 @@ class MagiAgent(BaseInstalledAgent):
         # a redirect produced no forward motion), restoring the fixed maxStallNudges re-arm — the
         # A/B knob for whether an ignored stall lands the honest force-stop sooner. MAGI_STEP_VERIFY=0
         # is a ninth: it turns off the per-step deliverable contract (default on), restoring the
-        # baseline that leaves the step gate and its council skip inert. MAGI_RECOVERY_RUNCAP=1 is a
-        # tenth: it caps stuck-recovery re-decomposition to one executor per run tree (default off),
-        # the A/B knob for whether the recovery cascade under delegate-off collapses to a single
-        # coder. MAGI_ORIENT=off is an eleventh: it turns off the explore-first grounding pass
+        # baseline that leaves the step gate and its council skip inert. MAGI_RECOVERY_RUNCAP=off is a
+        # tenth: it turns off the one-executor-per-run-tree recovery cap (default ON), restoring the
+        # per-depth re-decomposition — the A/B knob for whether capping the delegate-off recovery
+        # cascade to a single coder beats the baseline. MAGI_ORIENT=off is an eleventh: it turns off the explore-first grounding pass
         # (default ON), which lands the workspace's build/verify anchors and layout in the main
         # context before planning — the A/B knob for whether that grounding beats the un-grounded
         # baseline. MAGI_IMPLICIT_ACCEPT=off is a twelfth: it tells the planner a task's real
