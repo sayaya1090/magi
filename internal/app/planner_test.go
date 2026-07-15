@@ -377,44 +377,6 @@ func TestDelegateDisabledOffersNoExecutor(t *testing.T) {
 	}
 }
 
-// recoveryExecutor is the stuck-recovery lifeline and is DELIBERATELY NOT gated by
-// DisableDelegate: even with delegation off (the default), a thrashed/deadlocked/idle-resubmit
-// turn must still be able to hand off to a write-capable child. It prefers the stuck agent
-// itself when write-capable, otherwise the first write-capable non-planner agent, and only
-// reports "none" when the whole set is read-only.
-func TestRecoveryExecutorIgnoresDisableDelegate(t *testing.T) {
-	agents := map[string]AgentSpec{
-		"coder":   {Name: "coder", Tools: []string{"read", "write", "edit", "bash"}},
-		"explore": {Name: "explore", Tools: []string{"read", "grep"}},
-		"tester":  {Name: "tester", Tools: []string{"read", "grep", "bash"}}, // authors nothing
-		"planner": {Name: "planner", Tools: []string{"read", "write"}},       // reserved
-	}
-	off := &App{cfg: Config{Agents: agents, DisableDelegate: true}}
-
-	// Unlike delegatableAgents, the recovery lifeline stays available under delegate=off.
-	if names := off.delegatableAgents(); len(names) != 0 {
-		t.Fatalf("precondition: delegation is disabled, delegatableAgents = %v, want none", names)
-	}
-	if n, ok := off.recoveryExecutor("coder"); !ok || n != "coder" {
-		t.Errorf("recoveryExecutor must prefer a write-capable stuck agent even with delegate off; got %q %v", n, ok)
-	}
-	// A read-only or reserved stuck agent falls back to the first write-capable executor.
-	for _, preferred := range []string{"", "explore", "tester", "planner", "ghost"} {
-		if n, ok := off.recoveryExecutor(preferred); !ok || n != "coder" {
-			t.Errorf("recoveryExecutor(%q) must fall back to coder; got %q %v", preferred, n, ok)
-		}
-	}
-
-	// An all-read-only set has no lifeline, so recovery reports none and the caller stops.
-	ro := &App{cfg: Config{Agents: map[string]AgentSpec{
-		"explore": {Name: "explore", Tools: []string{"read", "grep"}},
-		"tester":  {Name: "tester", Tools: []string{"read", "bash"}},
-	}}}
-	if n, ok := ro.recoveryExecutor("explore"); ok {
-		t.Errorf("an all-read-only set must yield no recovery executor; got %q", n)
-	}
-}
-
 // The triviality gate skips the pre-flight planner only for a single short clause, and
 // keeps planning anything longer, multi-line, or joined by a coordinator/sequencer.
 func TestIsTrivialPrompt(t *testing.T) {
@@ -1276,12 +1238,13 @@ func TestRedecomposeStuck(t *testing.T) {
 		}
 	})
 
-	// No delegatable executor (only a read-only agent): recovery is impossible → false.
-	t.Run("no executor", func(t *testing.T) {
+	// The stuck agent itself is read-only: it cannot author a recovery → false. (In production
+	// planEligible → producesFiles already blocks this at the call site; the guard is a backstop.)
+	t.Run("read-only stuck agent", func(t *testing.T) {
 		ro := map[string]AgentSpec{"looker": {Name: "looker", System: "x", Tools: []string{"read"}}}
 		a, s, _ := newApp(&recLLM{reply: func(string) string { return "x" }}, ro)
-		if a.redecomposeStuck(context.Background(), s, AgentSpec{Name: "looker"}, "task", "blocked", 0) {
-			t.Error("with no write-capable executor redecomposeStuck must return false")
+		if a.redecomposeStuck(context.Background(), s, AgentSpec{Name: "looker", Tools: []string{"read"}}, "task", "blocked", 0) {
+			t.Error("a read-only stuck agent cannot author a recovery; redecomposeStuck must return false")
 		}
 	})
 }
