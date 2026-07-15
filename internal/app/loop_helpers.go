@@ -31,25 +31,6 @@ func lastUserPromptText(evs []event.Event) string {
 	return ""
 }
 
-// countUserPrompts counts genuine user (ActorUser) prompts in the event log. The loop
-// snapshots this at step 0 and watches for a rise, which signals a mid-turn interjection.
-func countUserPrompts(evs []event.Event) int {
-	return len(userPromptTexts(evs))
-}
-
-// userPromptTexts returns the text of every genuine user (ActorUser) prompt in log
-// order. The loop diffs its length against handledUserPrompts to enqueue EACH new
-// mid-turn interjection, even when several land during a single blocked step (a
-// count-only check would advance past the earlier ones and drop them).
-func userPromptTexts(evs []event.Event) []string {
-	entries := userPromptEntries(evs)
-	out := make([]string, len(entries))
-	for i, e := range entries {
-		out[i] = e.Text
-	}
-	return out
-}
-
 // userPrompt is a genuine user prompt with the id of the event that carried it, so the
 // interjection detector can mask that exact event while the message stays queued.
 type userPrompt struct {

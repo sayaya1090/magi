@@ -137,13 +137,6 @@ func (a *App) stateLocked(sid session.SessionID) *sessionState {
 	return st
 }
 
-// state returns the session's state, creating it on first use, taking a.mu itself.
-func (a *App) state(sid session.SessionID) *sessionState {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.stateLocked(sid)
-}
-
 // stateIf returns the session's state without creating one — the read/liveness path that
 // preserves the old "key absent" semantics (ok==false means nothing was ever recorded).
 // The caller MUST hold a.mu.

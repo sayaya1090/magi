@@ -99,9 +99,6 @@ func describeStatus(status int) string {
 // Option configures a Client.
 type Option func(*Client)
 
-// WithHTTPClient overrides the default HTTP client.
-func WithHTTPClient(h *http.Client) Option { return func(c *Client) { c.http = h } }
-
 // WithHeaders adds static custom headers sent on every request — e.g. an in-house
 // gateway's X-CLIENT-API-KEY. Set from config ([llm].headers); values should be
 // resolved (env-expanded) by the caller.

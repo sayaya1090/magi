@@ -116,22 +116,3 @@ func TestCouncilVerdictLabelSeverity(t *testing.T) {
 		}
 	}
 }
-
-func contains(s, sub string) bool {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
-}
-
-func countLines(s string) int {
-	n := 1
-	for _, c := range s {
-		if c == '\n' {
-			n++
-		}
-	}
-	return n
-}
