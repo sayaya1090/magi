@@ -162,10 +162,36 @@ workflow engine (§6). `runLoop(ctx, session, agent, depth, maxSteps)`:
 
 Guards that make weak models safe (in `guard.go`/`orchestrate.go`; the loop body
 in `loop.go` calls into them each step):
-- **runGuard**: identical `(tool,args)` call blocked past `repeatLimit`; `blockedBudget`
-  blocked repeats → `loop_guard` stop (long before MaxSteps). A successful file write/edit
-  with *changed* content bumps a mutation epoch that resets the counts, so re-running a test
-  after an edit (real progress) isn't blocked; a blocked repeat echoes the earlier result.
+- **runGuard**: an identical `(tool,args)` call is hard-blocked past `repeatLimit` **only
+  when its outcome provably cannot change**: `read`s (whose fingerprint drops the `limit`
+  arg, so re-reading the same head with limit jitter collapses onto one counter while
+  genuine paging via `offset` doesn't), inspect-only bash (the closed `echo`/`cat`/`ls`
+  verb set), and identical write replays. **Exec bash — build, test, any script — is
+  exempt**: its outcome can change through state the guard can't see, and build/test can
+  be invoked too many ways to enumerate, so exec is defined by exclusion from the closed
+  inspect set; a genuine exec spin still climbs the no-progress window and is terminated
+  by the stall layer. `blockedBudget` blocked repeats → the `repeat` stuck kind (recovered
+  below, else `loop_guard` stop). A successful file write/edit with *changed* content bumps
+  a mutation epoch that resets the counts — and so does a bash command that authors or
+  mutates files, whether by redirect/heredoc/`tee` (`noteBashWrite`) or by a redirect-less
+  mutating verb (`mutatesFiles`: `sed -i`, `patch`, `cp`/`mv`/`rm`, `git apply/checkout/…`,
+  `go mod`, `pip`/`npm install`, `tar x`, …) — so a bash-driven fix cycle re-keys its
+  build/test fingerprints the same way an edit-tool fix does. A blocked repeat echoes the
+  earlier result.
+- **decomposing stuck recovery** (`redecomposeStuck` → `driveStuckTodos`,
+  `MAGI_STUCK_DECOMPOSE`, default on): when a plan-eligible turn is force-stopped stuck
+  (`stall`, or `repeat` when the flag is on), recovery re-plans the stuck task into an
+  explicit TODO list and drives the units ONE AT A TIME — each unit in a child seeded with
+  the **full parent conversation** (`CloneContext`, so it continues from what was already
+  read instead of re-deriving context and re-fixating) but scoped by prompt to just that
+  unit, on a quarter of the whole-task step budget (floor 8) so a re-fixating unit fails
+  fast. A landed unit's session is **reused** for the next unit (the refine shared-session
+  pattern); a failed unit reverts its todo to pending, resets the chain to a fresh parent
+  clone, and the driver moves on — units already landed survive. Recovery units are
+  *appended* below any existing plan todos. When decomposition wasn't possible (<2 units)
+  the old whole-task re-spawn runs as fallback (now also `CloneContext`); when it ran and
+  every unit failed, the fallback is skipped. On a landed `repeat` recovery the blocked
+  counter is cleared too (`resetRepeat` — `resetStall` alone would re-halt immediately).
 - **corrective re-grounding nudge**: before a force-stop, a re-grounding message (re-read
   the task, change approach) is injected. It fires on either stall the guard can see —
   `blocked` past `nudgeThreshold` (the *same* action repeated, once per run), OR
@@ -234,9 +260,14 @@ in `loop.go` calls into them each step):
   snapshotted once at step 0, so a 2nd user request that lands *mid-turn* used to be ignored
   by both — the agent thrashed, re-running the already-done first task. Now the loop detects a
   new genuine (`ActorUser`) prompt at step>0 and, by default, **queues** it: it stays anchored
-  on the current task, a deterministic directive tells the agent the request is deferred (so it
+  on the current task, an **ephemeral notice** tells the agent the request is deferred (so it
   stops oscillating), and the queued text goes on the wait queue (`pendingInterject`, drained in
-  `startRun`). The orchestrator may override with the **`route_interjection`** tool — `redirect`
+  `startRun`). The notice rides the per-step volatile context — never persisted — keyed by the
+  interjection's MessageID and pruned the moment it resolves (routed/drained/resurfaced), so a
+  handled interjection can't echo a stale "queued" note into later turns or reload views; the
+  dispatch-case "answer briefly now" nudge is one-shot. Once a queued interjection re-runs as
+  its own turn, `liveEvents` also drops its stranded ORIGINAL prompt from the model context
+  (`dropResurfacedOrigins`, previously display-only) so the instruction never appears twice. The orchestrator may override with the **`route_interjection`** tool — `redirect`
   (re-anchor `turnTask` on the interjection now) or `append` (fold it in) — which re-snapshots the
   task and `reground`s the stall/council accounting. A tool's Execute callback can't touch
   loop-local state, so it records a per-session `turnControl` signal the loop drains at the top of
@@ -493,7 +524,9 @@ The orchestrator (top-level session, `Parent==""`) delegates via the **`task`** 
   step**. Structure is a one-time immutable fact — the child's `SessionCreated` event carries
   `ParentStep *int` (the parent plan-step index it was spawned from; nil = not a plan-step child, e.g.
   council/scout-list/stuck-redecompose), threaded `PlanStepIndex` through `SpawnRequest` →
-  `runAttempt` → `Session.ParentStep`. State stays **single-source**: each session owns its own todos
+  `runAttempt` → `Session.ParentStep`. `SpawnRequest.MaxSteps` (>0) caps a child's per-attempt
+  loop steps below the configured default — used by the stuck-recovery units, whose task is
+  deliberately a small slice of the whole. State stays **single-source**: each session owns its own todos
   (no mirroring into the parent), so failure backtracking needs no cross-tree resync. `App.PlanChildren(parent, step)`
   joins children by `Parent==parent && *ParentStep==step` in creation order; `renderPlan(sid, depth)`
   recurses, depth naturally bounded by `MaxPlanDepth`. Purely additive: with no child sub-todos the

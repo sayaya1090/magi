@@ -369,8 +369,11 @@ run(sessionID):
     if budget/depth exceeded (D7): graceful stop
 ```
 
-> as-built 추가: maxSteps 인자화 + **루프 가드**(반복/blocked 예산 초과 시 loop_guard 정지),
-> 서브에이전트 report 유도 넛지, 언어 지시(langDirective) 주입, 워크플로 모드 시 `runWorkflow`로 분기.
+> as-built 추가: maxSteps 인자화 + **루프 가드**(반복/blocked 예산 초과 시 loop_guard 정지 —
+> 단, 하드차단은 결과가 불변인 반복(read·inspect-only bash·동일 write)에만 적용되고 exec bash는
+> 면제되어 stall 계층이 처리; stall/repeat 정지는 분해형 복구(redecomposeStuck→driveStuckTodos)가
+> 먼저 받는다), 서브에이전트 report 유도 넛지, 언어 지시(langDirective) 주입, 워크플로 모드 시
+> `runWorkflow`로 분기.
 
 ---
 

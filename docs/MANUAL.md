@@ -120,6 +120,8 @@ Flags / environment variables (precedence: flag > env > default):
 | — | `MAGI_EMOJI_WIDTH` | (auto-probe) | force emoji cell width: `narrow`\|`1` (one cell) or `wide`\|`2` (two cells). If unset, a startup probe measures it |
 | — | `MAGI_WIDTH_PROBE` | (on) | `0` skips the startup terminal-width probes (ambiguous · decor · emoji) = no correction (library default widths) |
 | — | `MAGI_AMBIGUOUS_WIDTH` | `auto` | `wide`\|`narrow`\|`auto` — force East-Asian ambiguous-char cell width (see below) |
+| — | `MAGI_MOUSE_COMPAT` | (auto) | compensation for terminals reporting mouse columns per character — auto-detected for JetBrains/Apple Terminal; `chars`=force, `off`=disable (see §Mouse) |
+| — | `MAGI_MOUSE_DEBUG` | (off) | `1` toasts each click's coordinate→character mapping (drag-position diagnosis) |
 
 Permission modes: `ask` = confirm every time · `auto` = **edits auto-approved, only commands (bash)/network confirmed** · `allow` = everything auto · `deny` = blocked. Cycle in the TUI with `Shift+Tab` (or `/permission`).
 
@@ -278,7 +280,11 @@ Each working turn ends with a one-line receipt — `▣ turn: 14 steps · 3 file
 **Ambiguous-width characters (mostly a Windows note):** at startup magi probes the terminal once and matches its cell-width measure automatically (Console-API cursor delta on Windows, a cursor-position query elsewhere). If the probe can't run (e.g. redirected stdio) or guesses wrong, force it with `MAGI_AMBIGUOUS_WIDTH=wide` (or `narrow`); `MAGI_WIDTH_PROBE=0` disables the probe, and the standard `RUNEWIDTH_EASTASIAN=1` is also honored.
 
 ### Mouse / text copy (no modes)
-Wheel scroll · drag select · click focus all work **without any mode switch** — because the app handles selection/copy itself. **Dragging highlights that range (character/cell granularity, partial-line selection allowed), and releasing copies it to the clipboard** (tries both the OS clipboard `pbcopy`/`wl-copy`/`xclip` and OSC52). Wheel scrolling during a drag works too (the selection is pinned to content position, so it persists across scrolling).
+Wheel scroll · drag select · click focus all work **without any mode switch** — because the app handles selection/copy itself. **Dragging highlights that range (character/cell granularity, partial-line selection allowed), and releasing copies it to the clipboard** (tries both the OS clipboard `pbcopy`/`wl-copy`/`xclip` and OSC52). Wheel scrolling during a drag works too (the selection is pinned to content position, so it persists across scrolling). Selection edges **snap to grapheme boundaries**, so a wide character (Hangul, emoji) is never half-selected.
+
+**Whole-block copy (⧉)**: every user/assistant block's label line carries a ⧉ chip — clicking it copies that block's **source text** (the raw markdown, not the styled render).
+
+**IDE-embedded terminal compatibility**: JetBrains' terminal (IntelliJ etc.) and Apple Terminal draw wide characters across two cells but report mouse columns counting each character as one, so drags land left of the pointer without compensation. magi detects both (`TERMINAL_EMULATOR`/`TERM_PROGRAM`) and compensates automatically; force it on another terminal with `MAGI_MOUSE_COMPAT=chars`, opt out with `off`, and run with `MAGI_MOUSE_DEBUG=1` to toast each click's coordinate→character mapping. Note: JetBrains' embedded terminal also breaks Korean IME composition (commits bare jamo) — an app can't fix that layer; use an external terminal (e.g. iTerm2) for heavy CJK input.
 
 ### Transcript rendering
 - **edit/write appear as colored diffs** — syntax highlighting (language detected by file extension) + a line-number gutter, additions/deletions as `+`/`-`.
@@ -355,7 +361,7 @@ The tool set a given agent sees is gated by its **role** (read-only agents get n
 |---|---|---|
 | `read` | read a file (line numbers, offset/limit) | — |
 | `write` | create/overwrite a file | ask |
-| `edit` | exact string replacement (unique match) | ask |
+| `edit` | exact string replacement (unique match) — ambiguous matches list each occurrence's line anchor (`N#hh`); `at`/`to` mode replaces an anchored line safely using read's line refs | ask |
 | `multiedit` | apply multiple hunks to one file atomically (all-or-nothing) | ask |
 | `grep` | regex content search | — |
 | `glob` | filename glob (`**` supported) | — |
