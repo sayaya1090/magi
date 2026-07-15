@@ -499,58 +499,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			continue
 		}
 
-		// Durable project memory (AGENTS.md) is part of the system prompt and is never
-		// compacted away. The system prompt is assembled byte-stable within a turn (so
-		// the backend's prefix/KV cache survives across steps); per-step-volatile
-		// context (current plan/TODOs, shared experience, retrieved RAG) is injected
-		// separately as an ephemeral trailing message below, NOT into sys.
-		isSub := s.Parent != ""
-		sys := a.buildStepSystem(agent, s.Workdir, isSub, evs)
-
-		// Per-step-volatile context (current plan, shared experience, retrieved RAG): built
-		// here but injected as an ephemeral trailing message, NOT into `sys`. `sys` (above) is
-		// now byte-stable within a turn, so the backend's prefix cache is reused across steps;
-		// only this small block at the tail is re-processed each step.
-		vol := a.volatileContext(ctx, s, agent, isSub, evs, step, maxSteps, time.Since(runStart))
-
-		// Context-aware auto-compaction (M6): if the assembled context exceeds the model's
-		// window budget, summarize older turns and re-read. Measure against sys+vol so the
-		// trigger still accounts for the volatile block (it's only used for sizing here).
-		if a.maybeCompact(ctx, s, agent, agentActor, evs, sys+"\n\n"+vol) {
-			evs, _ = a.store.Read(ctx, sid, 0)
-			vol = a.volatileContext(ctx, s, agent, isSub, evs, step, maxSteps, time.Since(runStart)) // refresh after compaction
-		}
-
-		msgs := reconstruct(a.liveEvents(sid, evs))
-		// If auto-orchestration fires, it injects a directive as a new event; re-read
-		// and rebuild msgs so the directive reaches the model in THIS turn, not the next.
-		if a.checkAutoOrchestration(ctx, sid, depth, s.Model.Model, sys, msgs) {
-			if evs2, err := a.store.Read(ctx, sid, 0); err == nil {
-				evs = evs2
-				msgs = reconstruct(a.liveEvents(sid, evs))
-				vol = a.volatileContext(ctx, s, agent, isSub, evs, step, maxSteps, time.Since(runStart))
-			}
-		}
-		// Append the volatile context as an ephemeral trailing user message (not persisted, so
-		// it never enters the event log, the language lock, or the council's task snapshot).
-		// Placed last for recency and so the entire real prefix stays cacheable. A trailing
-		// user message after tool results (and a 2nd user message at step 0) is accepted by
-		// OpenAI/Ollama directly; the Anthropic-via-LiteLLM path relies on LiteLLM coalescing
-		// consecutive same-role messages.
-		if vol != "" {
-			msgs = append(msgs, session.Message{Role: session.RoleUser, Parts: []session.Part{{
-				Kind: session.PartText,
-				Text: "# Runtime context (your live plan and any retrieved references — not a new user instruction)\n" + vol,
-			}}})
-		}
-		a.publishContextUsage(sid, agentActor, s.Model.Model, sys, msgs, cumOut)
-
-		req := port.ChatRequest{
-			Model:    s.Model.Model,
-			System:   sys,
-			Messages: msgs,
-			Tools:    a.toolSpecs(agent, isSub, depth),
-		}
+		req, evs := a.buildStepRequest(ctx, tc, evs, step, cumOut)
 
 		stepStart := time.Now()
 		stream, err := a.providerFor(agent).StreamChat(ctx, req)
@@ -809,6 +758,66 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	d, _ := json.Marshal(event.ErrorData{Message: "max steps reached", Code: "max_steps"})
 	a.appendFact(ctx, sid, event.TypeError, event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)
 	return lastText, nil
+}
+
+// buildStepRequest assembles one step's model request: the byte-stable system prompt
+// (durable AGENTS.md memory, cached across steps within a turn), context-aware auto-
+// compaction, auto-orchestration, and the reconstructed message history with the
+// per-step-volatile context (live plan/experience/RAG) appended as an ephemeral trailing
+// user message — never persisted, so it stays out of the event log, language lock, and
+// council snapshot. Compaction and auto-orchestration can inject events and re-read the
+// log, so the possibly-refreshed evs is returned alongside the request. Also publishes the
+// live context-usage meter. Extracted from runLoop's step loop; behavior unchanged.
+func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Event, step, cumOut int) (port.ChatRequest, []event.Event) {
+	s, agent, agentActor := tc.s, tc.agent, tc.actor
+	sid := s.ID
+	isSub := s.Parent != ""
+	sys := a.buildStepSystem(agent, s.Workdir, isSub, evs)
+
+	// Per-step-volatile context (current plan, shared experience, retrieved RAG): built
+	// here but injected as an ephemeral trailing message, NOT into `sys`. `sys` (above) is
+	// now byte-stable within a turn, so the backend's prefix cache is reused across steps;
+	// only this small block at the tail is re-processed each step.
+	vol := a.volatileContext(ctx, s, agent, isSub, evs, step, tc.maxSteps, time.Since(tc.runStart))
+
+	// Context-aware auto-compaction (M6): if the assembled context exceeds the model's
+	// window budget, summarize older turns and re-read. Measure against sys+vol so the
+	// trigger still accounts for the volatile block (it's only used for sizing here).
+	if a.maybeCompact(ctx, s, agent, agentActor, evs, sys+"\n\n"+vol) {
+		evs, _ = a.store.Read(ctx, sid, 0)
+		vol = a.volatileContext(ctx, s, agent, isSub, evs, step, tc.maxSteps, time.Since(tc.runStart)) // refresh after compaction
+	}
+
+	msgs := reconstruct(a.liveEvents(sid, evs))
+	// If auto-orchestration fires, it injects a directive as a new event; re-read
+	// and rebuild msgs so the directive reaches the model in THIS turn, not the next.
+	if a.checkAutoOrchestration(ctx, sid, tc.depth, s.Model.Model, sys, msgs) {
+		if evs2, err := a.store.Read(ctx, sid, 0); err == nil {
+			evs = evs2
+			msgs = reconstruct(a.liveEvents(sid, evs))
+			vol = a.volatileContext(ctx, s, agent, isSub, evs, step, tc.maxSteps, time.Since(tc.runStart))
+		}
+	}
+	// Append the volatile context as an ephemeral trailing user message (not persisted, so
+	// it never enters the event log, the language lock, or the council's task snapshot).
+	// Placed last for recency and so the entire real prefix stays cacheable. A trailing
+	// user message after tool results (and a 2nd user message at step 0) is accepted by
+	// OpenAI/Ollama directly; the Anthropic-via-LiteLLM path relies on LiteLLM coalescing
+	// consecutive same-role messages.
+	if vol != "" {
+		msgs = append(msgs, session.Message{Role: session.RoleUser, Parts: []session.Part{{
+			Kind: session.PartText,
+			Text: "# Runtime context (your live plan and any retrieved references — not a new user instruction)\n" + vol,
+		}}})
+	}
+	a.publishContextUsage(sid, agentActor, s.Model.Model, sys, msgs, cumOut)
+
+	return port.ChatRequest{
+		Model:    s.Model.Model,
+		System:   sys,
+		Messages: msgs,
+		Tools:    a.toolSpecs(agent, isSub, tc.depth),
+	}, evs
 }
 
 // finishTurn runs the no-tool-call finish path for a single step: stop-hook enforcement,
