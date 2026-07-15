@@ -649,107 +649,19 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			return rep.result(answer), nil
 		}
 
-		// Corrective re-grounding: before the force-stop, give a thrashing agent ONE nudge
-		// to re-read the original task and change approach — a stuck weak model often just
-		// needs redirecting, and this is far cheaper than burning the rest of the budget.
-		if kind := guard.shouldNudge(); kind != "" {
-			// turnTask is empty for a subagent run (its seed is authored by ActorAgent, not
-			// ActorUser), so fall back to the latest user-role message — the subagent's task —
-			// mirroring the council gate's defensive fallback. Otherwise the re-grounding
-			// would no-op exactly where weak models thrash most (narrow tool-driven subtasks).
-			task := strings.TrimSpace(turnTask)
-			if task == "" {
-				task = strings.TrimSpace(lastUserText(reconstruct(a.taskEvents(sid, evs))))
-			}
-			msg := "You've repeated the same no-progress action several times and are getting blocked. " +
-				"Stop and change approach: try a different tool or a smaller step, or inspect WHY the last " +
-				"attempts failed (read the error, check paths/state) before retrying. Re-read the original task:\n" +
-				clipSpec(task, 1500)
-			if kind == "spin" {
-				msg = "You've run a no-op command (echo/printf/true) several times in a row — a \"done\" banner is " +
-					"not a step and does not finish the task. If the work is genuinely COMPLETE: end your turn now by " +
-					"replying with NO tool call at all — that is what triggers verification and completion; do NOT run " +
-					"another command. If it is NOT complete: stop announcing success and take a real action — run the " +
-					"actual program/test against the deliverable, or fix what's failing. Re-read the original task:\n" +
-					clipSpec(task, 1500)
-			}
-			if kind == "stalled" {
-				msg = "You've run many steps without changing anything or making concrete progress — you may be " +
-					"re-running checks or restating the same conclusion instead of advancing the task. If the work is " +
-					"genuinely COMPLETE: end your turn now by replying with NO tool call at all — that is what triggers " +
-					"verification and completion; another confirmation command does not, and never delete or rebuild " +
-					"finished work just to produce visible activity. If it is NOT complete: stop and take a DIFFERENT " +
-					"concrete action toward the deliverable; if something is blocking you, state exactly what it is and " +
-					"why before continuing. Guess only when necessary: if a value is unknown but discoverable, run the " +
-					"tool or command that determines it (compute, parse, crack, query, or read the real state) rather " +
-					"than trying values blindly. Re-read the original task:\n" +
-					clipSpec(task, 1500)
-			}
-			pd, _ := json.Marshal(event.PromptSubmittedData{
-				MessageID: "m_" + newID(),
-				Parts:     []session.Part{{Kind: session.PartText, Text: msg}},
-			})
-			a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
-		}
+		// Corrective re-grounding: before any force-stop, give a thrashing agent ONE nudge to
+		// re-read the task and change approach — far cheaper than burning the rest of the budget.
+		a.injectStuckNudge(ctx, tc, turnTask, evs)
 
-		// Loop guard: stop rather than burning the full step budget, on hard repeats or
-		// on a stall the agent kept ignoring after every nudge (varied-but-unproductive
-		// calls never trip the repeat count). HOW it stops depends on whether the run
-		// produced a deliverable: a run that already wrote real output (epoch > 0) and is
-		// only spinning on confirmation is effectively DONE — finish it cleanly (exit 0)
-		// with its last text, rather than flagging an agent-level error that misreports a
-		// completed task as a failure (the false NonZeroAgentExitCodeError seen on tasks
-		// that actually passed). A run that produced NOTHING is genuine thrash — keep the
-		// error abort so the failure is visible.
-		if kind := guard.stuck(); kind != "" {
-			// Last-resort structural recovery: a stall the agent kept ignoring after every
-			// nudge means it is genuinely stuck, not just slow. Before force-stopping, hand the
-			// remaining work to a fresh child that re-plans from scratch (redecomposeStuck),
-			// ONCE, for a plan-eligible (write-capable, below the depth cap) agent. planEligible
-			// (not a depth==0 guard) is intentional: a stuck solo SUBAGENT below the plan-depth
-			// cap can recover the same way; the child is depth+1 so its own planEligible bounds
-			// further recursion. On success, reset the stall window and loop so the parent
-			// integrates and verifies the child's result; on failure fall through to the stop.
-			// recovered is set only on a successful spawn, so a transient child failure does not
-			// permanently disable the (still fire-at-most-once) hook.
-			// …UNLESS the stall is really an environment wait (a window dominated by
-			// sleep/ping/poll commands): a fresh coder cannot speed an external wait, and
-			// under delegate-off the recovery cascades coder→coder whose timeout is
-			// misreported as the run's own context-deadline. waitGuardEnabled suppresses only
-			// the spawn; the honest stall stop below still lands, so the wait stays capped.
-			if kind == "stall" && !ts.recovered && a.planEligible(agent, depth) &&
-				!(waitGuardEnabled() && guard.stallIsWait()) {
-				task := strings.TrimSpace(turnTask)
-				if task == "" {
-					task = strings.TrimSpace(lastUserText(reconstruct(a.taskEvents(sid, evs))))
-				}
-				if a.redecomposeStuck(ctx, s, agent, task,
-					"repeated no-progress: the previous attempt could not advance the task", depth) {
-					ts.recovered = true
-					guard.resetStall()
-					continue
-				}
-			}
-			if guard.mutationEpoch() > 0 {
-				// Delivered-but-spinning: finish cleanly (TurnFinished → exit 0) with the
-				// work as-is. The repeated no-progress steps already stand in the transcript,
-				// so no error event is needed to explain the stop.
-				a.setStage(sid, stageFinalize)
-				u := event.Usage{In: lastIn, Out: cumOut, Cost: cumCost}
-				fd, _ := json.Marshal(event.TurnFinishedData{Usage: u})
-				a.appendFact(ctx, sid, event.TypeTurnFinished, agentActor, fd)
+		// Loop/stall/spin force-stop (with the last-resort stuck-recovery lifeline). Returns
+		// stop=true when the run must end now: clean=true finishes cleanly (delivered-but-spinning),
+		// clean=false aborted with a visible error (genuine thrash). Recovery re-arms the loop
+		// internally and returns stop=false so the parent integrates the child's result.
+		u := event.Usage{In: lastIn, Out: cumOut, Cost: cumCost}
+		if stop, clean := a.handleStuckGuard(ctx, tc, turnTask, evs, u, &ts); stop {
+			if clean {
 				finished = true
-				return lastText, nil
 			}
-			msg, code := "stopped: the agent repeated the same action without progress (loop guard)", "loop_guard"
-			if kind == "stall" {
-				msg, code = "stopped: no real progress after repeated redirection (stall guard)", "stall_guard"
-			}
-			if kind == "spin" {
-				msg, code = "stopped: repeated completion-banner spin without ending the turn (spin guard)", "spin_guard"
-			}
-			d, _ := json.Marshal(event.ErrorData{Message: msg, Code: code})
-			a.appendFact(ctx, sid, event.TypeError, event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)
 			return lastText, nil
 		}
 	}
@@ -818,6 +730,118 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 		Messages: msgs,
 		Tools:    a.toolSpecs(agent, isSub, tc.depth),
 	}, evs
+}
+
+// injectStuckNudge gives a thrashing agent ONE corrective nudge before the force-stop:
+// re-read the task and change approach. Fires only when the run guard flags a nudge-worthy
+// pattern (repeat / no-op spin / stall), with a message tailored to which. A stuck weak
+// model often just needs redirecting, and this is far cheaper than burning the budget.
+func (a *App) injectStuckNudge(ctx context.Context, tc turnCtx, turnTask string, evs []event.Event) {
+	kind := tc.guard.shouldNudge()
+	if kind == "" {
+		return
+	}
+	sid := tc.s.ID
+	// turnTask is empty for a subagent run (its seed is authored by ActorAgent, not
+	// ActorUser), so fall back to the latest user-role message — the subagent's task —
+	// mirroring the council gate's defensive fallback. Otherwise the re-grounding
+	// would no-op exactly where weak models thrash most (narrow tool-driven subtasks).
+	task := strings.TrimSpace(turnTask)
+	if task == "" {
+		task = strings.TrimSpace(lastUserText(reconstruct(a.taskEvents(sid, evs))))
+	}
+	msg := "You've repeated the same no-progress action several times and are getting blocked. " +
+		"Stop and change approach: try a different tool or a smaller step, or inspect WHY the last " +
+		"attempts failed (read the error, check paths/state) before retrying. Re-read the original task:\n" +
+		clipSpec(task, 1500)
+	if kind == "spin" {
+		msg = "You've run a no-op command (echo/printf/true) several times in a row — a \"done\" banner is " +
+			"not a step and does not finish the task. If the work is genuinely COMPLETE: end your turn now by " +
+			"replying with NO tool call at all — that is what triggers verification and completion; do NOT run " +
+			"another command. If it is NOT complete: stop announcing success and take a real action — run the " +
+			"actual program/test against the deliverable, or fix what's failing. Re-read the original task:\n" +
+			clipSpec(task, 1500)
+	}
+	if kind == "stalled" {
+		msg = "You've run many steps without changing anything or making concrete progress — you may be " +
+			"re-running checks or restating the same conclusion instead of advancing the task. If the work is " +
+			"genuinely COMPLETE: end your turn now by replying with NO tool call at all — that is what triggers " +
+			"verification and completion; another confirmation command does not, and never delete or rebuild " +
+			"finished work just to produce visible activity. If it is NOT complete: stop and take a DIFFERENT " +
+			"concrete action toward the deliverable; if something is blocking you, state exactly what it is and " +
+			"why before continuing. Guess only when necessary: if a value is unknown but discoverable, run the " +
+			"tool or command that determines it (compute, parse, crack, query, or read the real state) rather " +
+			"than trying values blindly. Re-read the original task:\n" +
+			clipSpec(task, 1500)
+	}
+	pd, _ := json.Marshal(event.PromptSubmittedData{
+		MessageID: "m_" + newID(),
+		Parts:     []session.Part{{Kind: session.PartText, Text: msg}},
+	})
+	a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
+}
+
+// handleStuckGuard is the loop/stall/spin force-stop: it ends the run rather than burning
+// the full step budget on hard repeats or a stall the agent kept ignoring after every nudge
+// (varied-but-unproductive calls never trip the repeat count). It returns (stop, clean):
+// stop=false means keep looping (not stuck, or recovery re-armed the run); stop=true ends the
+// run now, with clean telling the caller whether to mark the turn finished (finalizeTodos
+// completes vs cancels). A run that already wrote real output (mutationEpoch>0) and is only
+// spinning on confirmation is effectively DONE — finish it cleanly (exit 0) rather than
+// flagging an agent-level error that misreports a completed task as failure. A run that
+// produced NOTHING is genuine thrash — abort with a visible error.
+func (a *App) handleStuckGuard(ctx context.Context, tc turnCtx, turnTask string, evs []event.Event, u event.Usage, ts *turnState) (bool, bool) {
+	kind := tc.guard.stuck()
+	if kind == "" {
+		return false, false
+	}
+	s, agent, guard, depth := tc.s, tc.agent, tc.guard, tc.depth
+	sid := s.ID
+	// Last-resort structural recovery: a stall the agent kept ignoring after every nudge means
+	// it is genuinely stuck, not just slow. Before force-stopping, hand the remaining work to a
+	// fresh child that re-plans from scratch (redecomposeStuck), ONCE, for a plan-eligible
+	// (write-capable, below the depth cap) agent. planEligible (not a depth==0 guard) is
+	// intentional: a stuck solo SUBAGENT below the plan-depth cap can recover the same way; the
+	// child is depth+1 so its own planEligible bounds further recursion. On success, reset the
+	// stall window and keep looping so the parent integrates and verifies the child's result; on
+	// failure fall through to the stop. recovered is set only on a successful spawn, so a
+	// transient child failure does not permanently disable the (still fire-at-most-once) hook.
+	// …UNLESS the stall is really an environment wait (a window dominated by sleep/ping/poll
+	// commands): a fresh coder cannot speed an external wait, and under delegate-off the recovery
+	// cascades coder→coder whose timeout is misreported as the run's own context-deadline.
+	// waitGuardEnabled suppresses only the spawn; the honest stall stop below still lands.
+	if kind == "stall" && !ts.recovered && a.planEligible(agent, depth) &&
+		!(waitGuardEnabled() && guard.stallIsWait()) {
+		task := strings.TrimSpace(turnTask)
+		if task == "" {
+			task = strings.TrimSpace(lastUserText(reconstruct(a.taskEvents(sid, evs))))
+		}
+		if a.redecomposeStuck(ctx, s, agent, task,
+			"repeated no-progress: the previous attempt could not advance the task", depth) {
+			ts.recovered = true
+			guard.resetStall()
+			return false, false // recovered → keep looping
+		}
+	}
+	if guard.mutationEpoch() > 0 {
+		// Delivered-but-spinning: finish cleanly (TurnFinished → exit 0) with the work as-is.
+		// The repeated no-progress steps already stand in the transcript, so no error event is
+		// needed to explain the stop.
+		a.setStage(sid, stageFinalize)
+		fd, _ := json.Marshal(event.TurnFinishedData{Usage: u})
+		a.appendFact(ctx, sid, event.TypeTurnFinished, tc.actor, fd)
+		return true, true
+	}
+	msg, code := "stopped: the agent repeated the same action without progress (loop guard)", "loop_guard"
+	if kind == "stall" {
+		msg, code = "stopped: no real progress after repeated redirection (stall guard)", "stall_guard"
+	}
+	if kind == "spin" {
+		msg, code = "stopped: repeated completion-banner spin without ending the turn (spin guard)", "spin_guard"
+	}
+	d, _ := json.Marshal(event.ErrorData{Message: msg, Code: code})
+	a.appendFact(ctx, sid, event.TypeError, event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)
+	return true, false
 }
 
 // finishTurn runs the no-tool-call finish path for a single step: stop-hook enforcement,
