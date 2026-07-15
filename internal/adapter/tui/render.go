@@ -292,9 +292,9 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 		case blk.queued:
 			lbl = styleQueuedBar.Render(queuedGlyph+" ") + styleUserLabel.Render(who)
 		}
-		return lbl + "\n" + indent(body)
+		return lbl + copyChip() + "\n" + indent(body)
 	case blockAssistant:
-		return label(asstStyle, asstName) + "\n" + m.markdown(blk.text)
+		return label(asstStyle, asstName) + copyChip() + "\n" + m.markdown(blk.text)
 	case blockToolCall:
 		// Leading glyph reflects state: ⚙ while running, ✓/✗ once the result is in
 		// (the result is folded onto this same line — no separate result line).
@@ -498,6 +498,15 @@ func (m *Model) markdown(s string) string {
 
 func label(style lipgloss.Style, name string) string {
 	return styleBar.Render("▌ ") + style.Render(name)
+}
+
+// copyChip is the per-block copy button appended to a user/assistant label line:
+// a low-emphasis fold-style chip holding ⧉ (U+29C9, East-Asian-Neutral — renders one
+// cell everywhere, unlike the ambiguous-width clipboard glyphs). Clicking it copies
+// the block's SOURCE text (raw markdown, not the styled render); the hit-test in
+// copyBlockAt mirrors this exact geometry: label width + one space + a 3-cell chip.
+func copyChip() string {
+	return " " + styleFoldChip.Render("⧉")
 }
 
 // queuedGlyph marks a mid-turn queued user bubble's bar. It must be a single terminal cell

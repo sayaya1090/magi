@@ -139,6 +139,11 @@ func (m *Model) handleMouse(msg tea.Msg) tea.Cmd {
 				m.refresh()
 				return nil
 			}
+			// Plain click on a block label's copy chip → copy that block's source text.
+			if cmd, ok := m.copyBlockAt(m.selAL, m.selAC); ok {
+				m.refresh()
+				return cmd
+			}
 			// Plain click: expand/collapse a clicked reasoning ("thought") block,
 			// else focus a subagent pane. In the zoom view the click targets the
 			// focused subagent's blocks, not the main transcript's.

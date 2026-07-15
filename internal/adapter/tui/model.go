@@ -665,6 +665,39 @@ func (m *Model) toggleLiveThinkAt(line int) bool {
 	return true
 }
 
+// copyBlockAt copies a user/assistant block's SOURCE text when (line, col) hits the
+// copy chip on its label line. The geometry mirrors the render exactly: bar (2 cells)
+// + label + one space + a 3-cell chip (fold-chip padding around ⧉). Returns the
+// clipboard command and whether the click was consumed.
+func (m *Model) copyBlockAt(line, col int) (tea.Cmd, bool) {
+	for i, start := range m.blockLineStart {
+		if start != line || i >= len(m.blocks) {
+			continue
+		}
+		b := m.blocks[i]
+		var name string
+		switch b.kind {
+		case blockUser:
+			name = m.userLabel()
+		case blockAssistant:
+			name = "magi"
+		default:
+			return nil, false
+		}
+		chipStart := 2 + lipgloss.Width(name) + 1
+		if col < chipStart || col >= chipStart+3 {
+			return nil, false
+		}
+		text := strings.TrimRight(b.text, "\n")
+		if text == "" {
+			return nil, false
+		}
+		copyToOSClipboard(text)
+		return tea.Batch(tea.SetClipboard(text), m.snack(fmt.Sprintf("copied %d chars", len([]rune(text))))), true
+	}
+	return nil, false
+}
+
 func (m *Model) toggleThoughtAt(line int) bool {
 	i := -1
 	for j := len(m.blockLineStart) - 1; j >= 0; j-- {
