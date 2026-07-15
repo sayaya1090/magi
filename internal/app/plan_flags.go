@@ -125,6 +125,24 @@ func recoveryRunCapEnabled() bool {
 	return false
 }
 
+// stuckDecomposeEnabled changes what stuck-recovery (redecomposeStuck) DOES when an agent is
+// force-stopped stuck: instead of re-handing the WHOLE task to one fresh child, it decomposes the
+// task into an explicit multi-unit TODO list and drives the units ONE AT A TIME — each unit handed
+// to a fresh child seeded with the FULL parent context (CloneContext) but scoped to just that one
+// unit, its result integrated, and the todo checked off before the next unit starts. This forces
+// incremental forward progress: a small scoped unit re-fixates far less than the monolith, and
+// units that already landed persist even if a later one stalls. It ALSO widens the recovery gate to
+// the "repeat" stall kind (a loop-guard block spiral), which the whole-task re-hand-off could not
+// help (it would just re-fixate). Default ON; MAGI_STUCK_DECOMPOSE=off restores the single
+// whole-task re-spawn baseline (stall-kind only). Mirrors implicitAcceptEnabled's env shape.
+func stuckDecomposeEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_STUCK_DECOMPOSE"))) {
+	case "0", "off", "false", "no":
+		return false
+	}
+	return true
+}
+
 // implicitAcceptEnabled tells the planner that a task's real acceptance conditions are usually
 // stricter than the instruction prose: the exact output tokens/formats the prose only gestures at,
 // the standard domain semantics it never spells out (cleanup must still run on cancellation; a
