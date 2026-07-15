@@ -18,3 +18,10 @@ test-output.txt
 # Python bytecode (bench adapter)
 __pycache__/
 *.pyc
+
+# local build/test artifacts
+magi.exe
+cover.out
+
+# bench run outputs (dated dirs; tracked reports under runs/ stay tracked)
+/runs/
