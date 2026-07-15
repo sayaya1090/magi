@@ -218,6 +218,23 @@ func soloAuditEnabled() bool {
 	return true
 }
 
+// waitGuardEnabled gates the environment-wait recovery suppression: when a stall force-stop is
+// reached but the no-progress window is dominated by waiting/polling (guard.stallIsWait — sleep,
+// ping, nc, an `until … do sleep … done` readiness loop), the stuck-recovery coder spawn at the
+// loop.go stall gate is suppressed. A coder cannot speed an external wait (a rebooting VM, a
+// service starting), so redecomposing it is futile AND harmful: under delegate-off it spawns
+// coder→coder whose child timeout is misreported as the whole run's context-deadline. Suppressing
+// only the spawn leaves the honest stall stop intact (delivered→clean finish, or stall_guard), so
+// an endless wait is still capped. Default ON; MAGI_WAIT_GUARD=off restores the unconditional
+// recovery spawn (the A/B knob). Mirrors soloAuditEnabled's env shape.
+func waitGuardEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_WAIT_GUARD"))) {
+	case "0", "off", "false", "no":
+		return false
+	}
+	return true
+}
+
 // stallConvergeEnabled gates the stalled-nudge convergence (D18a): the no-progress "stalled"
 // nudge re-arms up to maxStallNudges times keyed purely on the sinceProgress count, without
 // checking whether the redirect actually changed anything. When a re-arm's window produced no

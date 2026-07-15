@@ -57,6 +57,60 @@ func isInspectOnly(cmd string) bool {
 	return true
 }
 
+// waitVerbs are commands whose whole job is to BLOCK on time or PROBE an external endpoint's
+// readiness — a delay or a connectivity poll, never work that advances a deliverable. A "stall"
+// built from these is an agent waiting on the ENVIRONMENT (a rebooting VM, a service coming up),
+// not thrashing on the task; handing that to a fresh recovery coder cannot speed an external wait
+// (see stallIsWait and the loop.go stuck-recovery gate). The set is deliberately small and CLOSED
+// — unambiguous wait/probe verbs — so anything that also does real work (curl fetching a body,
+// `timeout` wrapping a test) is NOT counted here and still reads as execution.
+var waitVerbs = map[string]bool{
+	"sleep": true, "ping": true, "ping6": true, "wait": true,
+	"nc": true, "ncat": true, "netcat": true, "telnet": true,
+}
+
+// loopKeywords are the shell loop/conditional words (and the `!` negation) a poll idiom wraps its
+// real verb in (`until nc -z host port; do sleep 5; done`, `while ! nc -z db 5432; do sleep; done`).
+// isWaitCommand skips a leading run of them so the poll body classifies by its real command
+// (nc/sleep) rather than by the `until`/`while`/`!` prefix.
+var loopKeywords = map[string]bool{
+	"until": true, "while": true, "do": true, "done": true, "if": true,
+	"then": true, "else": true, "elif": true, "fi": true, "for": true, "in": true, "!": true,
+}
+
+// isWaitCommand reports whether cmd does nothing but wait/poll: every segment (after skipping
+// leading loop/conditional keywords and redirect fragments) is either a wait verb (waitVerbs)
+// or an inspect-only builtin, AND at least one segment is a genuine wait verb. A path-qualified
+// first token runs a program and disqualifies the whole command (same rule as isInspectOnly).
+// Mirrors the isInspectOnly tokenizer — heuristic, quoting-agnostic, advisory. An empty command
+// is not a wait (it waited on nothing).
+func isWaitCommand(cmd string) bool {
+	sawWait := false
+	for _, s := range splitShellSegments(stripHeredocs(cmd)) {
+		fields := strings.Fields(s)
+		i := 0
+		for i < len(fields) && (loopKeywords[fields[i]] || isRedirectFragment(fields[i])) {
+			i++ // skip loop keywords and split redirect artifacts to reach the real verb
+		}
+		if i >= len(fields) {
+			continue // keyword-only segment (e.g. a trailing `done`) — neutral
+		}
+		tok := fields[i]
+		if strings.ContainsRune(tok, '/') {
+			return false // a path-qualified command runs a program — not a pure wait
+		}
+		switch {
+		case waitVerbs[tok]:
+			sawWait = true
+		case inspectOnlyCmds[tok]:
+			// neutral: a poll condition/banner (test, [, echo) is allowed but is not itself a wait
+		default:
+			return false // a real command (pytest, make, ./run, …) → not a pure wait
+		}
+	}
+	return sawWait
+}
+
 // isNoOpBanner reports whether cmd is a pure "completion banner": a command that only prints
 // or trivially succeeds, writing to no file and running no program-under-test. It is exactly
 // the keep-alive an agent spams every turn to dodge the len(toolCalls)==0 finish gate after

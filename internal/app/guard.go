@@ -82,6 +82,12 @@ type runGuard struct {
 	// agnostic "produced/changed a deliverable then declared done without running it" signal
 	// (see unverifiedDeliverable) that replaced the English-only fabrication phrase scan.
 	execSinceMut int
+	// waitSinceMut counts bash commands that only WAITED or POLLED (isWaitCommand — a delay or an
+	// external-readiness probe, ANY exit code) SINCE the last real mutation. It powers stallIsWait:
+	// a no-progress window dominated by these is an agent blocked on the environment, not thrashing
+	// the task, so the stuck-recovery coder spawn is suppressed for it (a coder cannot speed an
+	// external wait). Like sinceProgress/execSinceMut it is version-scoped: a real mutation resets it.
+	waitSinceMut int
 	// prevSince/prevStallAt snapshot sinceProgress/lastStallAt just before mutated() zeroes them,
 	// so retractProgress can restore the climb when a later content check reveals that "mutation"
 	// was a self-revert (churn, not forward progress) — otherwise an implement↔revert oscillation
@@ -356,6 +362,7 @@ func (g *runGuard) mutated(path, sig string) (reset bool) {
 	g.sinceProgress = 0         // a real change is progress → restart the no-progress count
 	g.lastStallAt = 0           // …and the stall-nudge window, so a fresh stall re-arms cleanly
 	g.execSinceMut = 0          // a new deliverable version is unverified until something exercises IT
+	g.waitSinceMut = 0          // a real change is progress → the environment-wait ratio restarts too
 	g.progressSinceNudge = true // a real mutation IS forward motion → protects the re-arm from collapse
 	return true
 }
@@ -486,6 +493,34 @@ func (g *runGuard) noteBashExec(cmd string, novel bool) {
 		g.progressSinceNudge = true // a first-seen exercising command is forward motion
 	}
 	g.mu.Unlock()
+}
+
+// noteBashWait records that a bash command only WAITED or POLLED (isWaitCommand) — a delay or an
+// external-readiness probe — since the last mutation. It is called for EVERY bash call regardless
+// of exit code: a poll to a not-yet-ready endpoint FAILS (a down host, a refused connection) and
+// that failing poll is exactly the wait we must count, so gating on success would miss the common
+// case. It bumps no epoch and resets no progress counter — waiting is not progress — so the stall
+// force-stop still eventually caps an endless wait; it only feeds stallIsWait's recovery-suppression.
+func (g *runGuard) noteBashWait(cmd string) {
+	if !isWaitCommand(cmd) {
+		return
+	}
+	g.mu.Lock()
+	g.waitSinceMut++
+	g.mu.Unlock()
+}
+
+// stallIsWait reports whether the current no-progress window is dominated by waiting/polling — at
+// least half of the sinceProgress calls since the last mutation were wait commands. It gates the
+// stuck-recovery coder spawn (loop.go): a coder cannot speed an external wait, so a wait-dominated
+// stall must NOT trigger the redecompose cascade, which under delegate-off spawns coder→coder and
+// whose child timeout gets misreported as the whole run's context-deadline. Suppressing recovery
+// still lets the honest stall stop land (delivered→clean finish, or stall_guard), so an unbounded
+// wait remains capped — this removes only the futile, harmful recovery, not the backstop.
+func (g *runGuard) stallIsWait() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.sinceProgress > 0 && g.waitSinceMut*2 >= g.sinceProgress
 }
 
 // noteSpin updates the consecutive completion-banner counter for one executed tool call. A
