@@ -170,6 +170,19 @@ func (m *Model) applyEvent(e event.Event) {
 			m.blocks = append(m.blocks, block{kind: blockInfo, text: info})
 		}
 
+	case event.TypeCompaction:
+		// Context compaction shed older history into a summary. In the TUI this
+		// otherwise happens invisibly, so surface it as a transcript line stating the
+		// before→after size AND the difference (freed tokens + percent), matching the
+		// headless printer — the user sees how much room was reclaimed, not just that
+		// it happened.
+		var d event.CompactionData
+		if json.Unmarshal(e.Data, &d) == nil {
+			freed, pct := d.Reduction()
+			m.blocks = append(m.blocks, block{kind: blockInfo, text: fmt.Sprintf(
+				"↯ context compacted: ~%d→%d tok (−%d, −%d%%)", d.TokensBefore, d.TokensAfter, freed, pct)})
+		}
+
 	case event.TypeCouncilConvened:
 		// A council round opened: record it as a transcript milestone and arm the
 		// header chip. (D14 — the consensus termination gate.)

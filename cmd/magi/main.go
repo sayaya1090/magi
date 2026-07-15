@@ -979,8 +979,9 @@ func renderText(out, errw io.Writer, e event.Event) {
 		// context was shed, instead of it happening invisibly.
 		var d event.CompactionData
 		if json.Unmarshal(e.Data, &d) == nil {
-			fmt.Fprintf(out, "↯ context compacted: ~%d→%d tok (history up to seq %d summarized)\n",
-				d.TokensBefore, d.TokensAfter, d.ReplacesUpToSeq)
+			freed, pct := d.Reduction()
+			fmt.Fprintf(out, "↯ context compacted: ~%d→%d tok (−%d, −%d%%; history up to seq %d summarized)\n",
+				d.TokensBefore, d.TokensAfter, freed, pct, d.ReplacesUpToSeq)
 		}
 	case event.TypePromptSubmitted:
 		// The user's own prompt is already on screen; surface only system-injected
