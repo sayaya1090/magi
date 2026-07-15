@@ -461,15 +461,25 @@ func (m *Model) highlightSelection() string {
 	return strings.Join(out, "\n")
 }
 
-// appleTermCharMouse: Apple's Terminal.app draws wide characters across two grid
-// cells but reports mouse columns counting each CHARACTER as one — measured live: a
-// drag over a Korean transcript line landed at 0.63× of the true cell column,
-// exactly (ascii+hangul)/(ascii+2·hangul) for that prefix, growing down the line.
-// When set, reported x is treated as a character index into the clicked line and
-// converted to its starting cell. ASCII lines are unaffected (index == cell there).
-// MAGI_MOUSE_COMPAT=off opts out in case a Terminal.app version reports true cells.
-var appleTermCharMouse = os.Getenv("TERM_PROGRAM") == "Apple_Terminal" &&
-	strings.ToLower(os.Getenv("MAGI_MOUSE_COMPAT")) != "off"
+// charMouseTerminal: some terminals draw wide characters across two grid cells but
+// report mouse columns counting each CHARACTER as one — measured live in JetBrains'
+// JediTerm (the IDE-embedded terminal, TERMINAL_EMULATOR=JetBrains-JediTerm): a drag
+// over a Korean transcript line landed at 0.63× of the true cell column, exactly
+// (ascii+hangul)/(ascii+2·hangul) for that prefix, growing down the line. When set,
+// reported x is treated as a character index into the clicked line and converted to
+// that grapheme's starting cell. ASCII lines are unaffected (index == cell there).
+// MAGI_MOUSE_COMPAT=chars forces it on for other terminals with the same behavior;
+// MAGI_MOUSE_COMPAT=off opts out.
+var charMouseTerminal = func() bool {
+	switch strings.ToLower(os.Getenv("MAGI_MOUSE_COMPAT")) {
+	case "off":
+		return false
+	case "chars":
+		return true
+	}
+	return os.Getenv("TERMINAL_EMULATOR") == "JetBrains-JediTerm" ||
+		os.Getenv("TERM_PROGRAM") == "Apple_Terminal"
+}()
 
 // charIndexToCell converts a character (grapheme) index into the line to the CELL
 // column where that grapheme starts. An index past the last grapheme maps just past
@@ -506,7 +516,7 @@ func (m *Model) screenToContent(x, y int) (line, col int) {
 		col = 0
 	}
 	if line >= 0 && line < len(m.contentPlain) {
-		if appleTermCharMouse {
+		if charMouseTerminal {
 			col = charIndexToCell(m.contentPlain[line], col)
 		}
 		if w := ansi.StringWidth(m.contentPlain[line]); col > w {
