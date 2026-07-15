@@ -334,6 +334,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			if depth == 0 && !a.cfg.Workflow {
 				if seed := seedPromptIdx(evs); seed >= 0 && seed < len(entries) {
 					turnTask = entries[seed].Text
+					a.setActiveSeed(sid, entries[seed].MsgID) // so a cancel can abandon exactly this prompt
 					for _, it := range entries[seed+1:] {
 						if txt := strings.TrimSpace(it.Text); txt != "" && txt != strings.TrimSpace(turnTask) {
 							a.markInterjectSeen(sid, it.MsgID)

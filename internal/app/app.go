@@ -106,6 +106,13 @@ type sessionState struct {
 	// resetForNewTopLevel does NOT clear it, since later turns already carry the environment in
 	// context and re-scanning would burn budget for no new signal. See orientEnabled.
 	grounded bool
+	// activeSeedMsgID is the MessageID of the user prompt that SEEDS the currently
+	// running top-level turn (set at step 0, loop.go). If that turn is cancelled before
+	// answering, the cancel path marks this prompt abandoned (TypePromptAbandoned) so it
+	// can't hijack a later, unrelated request. Overwritten at each turn's seed; the cancel
+	// handler guards against staleness by re-checking it is still the unanswered seed, so
+	// it is safe outside the turn-scoped reset block.
+	activeSeedMsgID string
 	// Turn-scoped (zeroed by resetForNewTopLevel).
 	criteria          string                     // elicited acceptance criteria this turn
 	deliverableChecks []council.DeliverableCheck // plan-audit per-step executable checks this turn
@@ -765,6 +772,9 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 		// detached context, since runCtx is cancelled) so observers like the TUI
 		// stop showing "working" instead of hanging forever.
 		if runCtx.Err() != nil {
+			// Mark the cancelled turn's seed prompt abandoned so an unrelated next request
+			// isn't anchored onto it (and a follow-up that augments it still seeds on itself).
+			a.abandonSeedOnCancel(context.WithoutCancel(runCtx), sid)
 			d, _ := json.Marshal(event.TurnFinishedData{})
 			_ = a.appendFact(context.WithoutCancel(runCtx), sid, event.TypeTurnFinished,
 				event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)
@@ -785,6 +795,39 @@ func (a *App) hasUnansweredUserPrompt(ctx context.Context, sid session.SessionID
 		return false
 	}
 	return msgs[len(msgs)-1].Role == session.RoleUser
+}
+
+// setActiveSeed records the MessageID of the prompt seeding the current top-level turn,
+// so a cancel can mark exactly that prompt abandoned (see abandonSeedOnCancel).
+func (a *App) setActiveSeed(sid session.SessionID, msgID string) {
+	a.mu.Lock()
+	a.stateLocked(sid).activeSeedMsgID = msgID
+	a.mu.Unlock()
+}
+
+// abandonSeedOnCancel marks the cancelled turn's seed prompt abandoned so it does not
+// seed a later, unrelated request. It only writes the marker when that prompt is STILL
+// the unanswered seed (guarding against a stale activeSeedMsgID from a turn that already
+// answered or was superseded — seedPromptIdx already skips those). The cancelled prompt's
+// text stays in the log/context, so a follow-up that augments it still has the history.
+func (a *App) abandonSeedOnCancel(ctx context.Context, sid session.SessionID) {
+	a.mu.Lock()
+	mid := a.stateLocked(sid).activeSeedMsgID
+	a.stateLocked(sid).activeSeedMsgID = ""
+	a.mu.Unlock()
+	if mid == "" {
+		return
+	}
+	evs, err := a.store.Read(ctx, sid, 0)
+	if err != nil {
+		return
+	}
+	if !promptUnanswered(evs, mid) {
+		return // already answered or superseded — nothing to abandon
+	}
+	d, _ := json.Marshal(event.PromptAbandonedData{MsgID: mid})
+	_ = a.appendFact(ctx, sid, event.TypePromptAbandoned,
+		event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)
 }
 
 // Close cancels every in-flight run and background subagent, then waits for their

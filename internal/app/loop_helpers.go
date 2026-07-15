@@ -66,12 +66,19 @@ type userPrompt struct {
 // execution began. Returns -1 when the log has no genuine user prompt (e.g. a subagent
 // session, whose seed is authored by ActorAgent).
 func seedPromptIdx(evs []event.Event) int {
-	ui := -1           // running index into userPromptEntries order
-	lastAnswered := -1 // highest user-prompt index a prior assistant reply covered
+	abandoned := abandonedPromptIDs(evs) // prompts whose turn was cancelled — resolved, never a seed
+	ui := -1                             // running index into userPromptEntries order
+	lastAnswered := -1                   // highest user-prompt index a prior assistant reply covered
 	for _, e := range evs {
 		switch {
 		case e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser:
 			ui++
+			// A cancelled (abandoned) prompt counts as resolved: skip it so the next
+			// genuine prompt seeds the turn instead of the dead one.
+			var d event.PromptSubmittedData
+			if json.Unmarshal(e.Data, &d) == nil && abandoned[d.MessageID] {
+				lastAnswered = ui
+			}
 		case e.Type == event.TypePartAppended && e.Actor.Kind == event.ActorAgent:
 			if ui >= 0 {
 				lastAnswered = ui
@@ -86,6 +93,46 @@ func seedPromptIdx(evs []event.Event) int {
 		seed = ui // defensive: everything already answered → treat the latest as seed
 	}
 	return seed
+}
+
+// abandonedPromptIDs returns the set of user-prompt MessageIDs marked abandoned (their
+// turn was cancelled before answering — TypePromptAbandoned). seedPromptIdx uses it to
+// skip a cancelled prompt so it cannot seed a later, unrelated turn.
+func abandonedPromptIDs(evs []event.Event) map[string]bool {
+	var out map[string]bool
+	for _, e := range evs {
+		if e.Type == event.TypePromptAbandoned {
+			var d event.PromptAbandonedData
+			if json.Unmarshal(e.Data, &d) == nil && d.MsgID != "" {
+				if out == nil {
+					out = map[string]bool{}
+				}
+				out[d.MsgID] = true
+			}
+		}
+	}
+	return out
+}
+
+// promptUnanswered reports whether the user prompt with msgID exists in the log and has
+// no assistant (ActorAgent) reply after it. Used to guard the cancel-abandon path against
+// a stale seed reference: a prompt that already produced an answer must not be abandoned.
+func promptUnanswered(evs []event.Event, msgID string) bool {
+	seen := false
+	for _, e := range evs {
+		switch {
+		case e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser:
+			var d event.PromptSubmittedData
+			if json.Unmarshal(e.Data, &d) == nil && d.MessageID == msgID {
+				seen = true
+			}
+		case e.Type == event.TypePartAppended && e.Actor.Kind == event.ActorAgent:
+			if seen {
+				return false // an assistant reply landed after the prompt → answered
+			}
+		}
+	}
+	return seen
 }
 
 // userPromptEntries returns every genuine user (ActorUser) prompt in log order, each
