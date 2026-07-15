@@ -840,16 +840,30 @@ func (a *App) handleStuckGuard(ctx context.Context, tc turnCtx, turnTask string,
 	// commands): a fresh coder cannot speed an external wait, and under delegate-off the recovery
 	// cascades coder→coder whose timeout is misreported as the run's own context-deadline.
 	// waitGuardEnabled suppresses only the spawn; the honest stall stop below still lands.
-	if kind == "stall" && !ts.recovered && a.planEligible(agent, depth) &&
+	// The decomposing recovery (stuckDecomposeEnabled) also rescues a "repeat" stall — a
+	// loop-guard block spiral (the read-loop fixation) that the old whole-task re-hand-off
+	// could never help, since handing the monolith back just re-fixates. It is gated on the
+	// flag precisely because only the decomposing recovery (small scoped units) breaks that
+	// spiral; with the flag off, "repeat" keeps its baseline behavior (force-stop below).
+	recoverable := kind == "stall" || (kind == "repeat" && stuckDecomposeEnabled())
+	if recoverable && !ts.recovered && a.planEligible(agent, depth) &&
 		!(waitGuardEnabled() && guard.stallIsWait()) {
 		task := strings.TrimSpace(turnTask)
 		if task == "" {
 			task = strings.TrimSpace(lastUserText(reconstruct(a.taskEvents(sid, evs))))
 		}
-		if a.redecomposeStuck(ctx, s, agent, task,
-			"repeated no-progress: the previous attempt could not advance the task", depth) {
+		blockReason := "repeated no-progress: the previous attempt could not advance the task"
+		if kind == "repeat" {
+			blockReason = "loop guard blocked repeated identical actions: the previous attempt kept " +
+				"retrying the same call instead of taking the next real step"
+		}
+		if a.redecomposeStuck(ctx, s, agent, task, blockReason, depth) {
 			ts.recovered = true
-			guard.resetStall()
+			if kind == "repeat" {
+				guard.resetRepeat() // clear the blocked counter too, else stuck() re-halts immediately
+			} else {
+				guard.resetStall()
+			}
 			return false, false // recovered → keep looping
 		}
 	}
