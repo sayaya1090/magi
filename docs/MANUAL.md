@@ -489,6 +489,8 @@ enabled = false
 
 `MAGI_EMBEDDED_PLUGINS=off` disables ALL embedded plugins regardless of config — use it for automation/bench runs whose measured behavior must not shift.
 
+On exit, magi briefly drains queued observation events so an observer's sidecar analysis (e.g. engram's lesson extraction) can land before the process dies — important for a headless one-shot that would otherwise exit mid-analysis. The wait is bounded (default `30s`) so a *slow* sidecar model can't hang exit; override with `MAGI_DRAIN_TIMEOUT` (a Go duration, e.g. `5s`, `2m`). With embedded plugins off there is nothing to drain.
+
 An enabled embedded plugin is materialized under `<config>/plugins-embedded/` at every start, so it always tracks the binary's version — updates ride `magi --update`, no separate plugin update. A same-named plugin in the regular plugin dirs takes precedence (fork it there to customize). **Forks bundling their own plugins** edit one file: `plugins/embedded.go` (add the plugin dir, a `//go:embed all:<name>` var, and an `Embedded` map entry — subdirectories ship too).
 
 **Install / update.** A plugin published as a git repo (its repo root holds `plugin.toml`)
