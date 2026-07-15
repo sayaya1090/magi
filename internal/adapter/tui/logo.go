@@ -28,6 +28,22 @@ func logoBlock() string {
 	return lipgloss.JoinVertical(lipgloss.Center, art, "", ver)
 }
 
+// logoRawLines is the wordmark + version as INDIVIDUAL lines with no block padding,
+// for callers that center each line themselves (splashCompose). Joining them into a
+// padded block first (logoBlock's JoinVertical) and then centering per line double-
+// centers: the join pads the art lines out to the widest line's width, the outer
+// centering then centers padding-included widths, and the art glyphs land a few
+// cells off the true axis — visibly skewed against the input box below.
+func logoRawLines() []string {
+	st := lipgloss.NewStyle().Foreground(logoColor).Bold(true)
+	var out []string
+	for _, l := range strings.Split(strings.TrimRight(magiLogo, "\n"), "\n") {
+		out = append(out, st.Render(l))
+	}
+	out = append(out, "", styleToolResult.Render(version.String()))
+	return out
+}
+
 // splashIdentity renders the two identity lines shown under the wordmark on the
 // startup splash: the council nameplates — each configured seat in its member hue,
 // numbered like the MAGI consoles (MELCHIOR·1  BALTHASAR·2  CASPER·3) — and a dim
@@ -45,7 +61,10 @@ func (m *Model) splashIdentity() string {
 		wd = "~" + strings.TrimPrefix(wd, home)
 	}
 	readout := styleToolResult.Render(m.model + " · " + wd)
-	return lipgloss.JoinVertical(lipgloss.Center, plates, readout)
+	// Plain newline join — NOT JoinVertical(Center): splashCompose centers each line
+	// by its own width, and block-level pre-padding would double-center (the logo's
+	// visible skew against the input box came from exactly that).
+	return plates + "\n" + readout
 }
 
 // splashView renders the startup splash centered in a width×height area: the MAGI
@@ -67,7 +86,7 @@ func splashView(width, height int, identity string) string {
 // the input box's first text cell, so the caller can place the real cursor inside
 // the box.
 func splashCompose(vpw, height int, identity, inputBox string) (content string, curRow, curCol int) {
-	logoLines := strings.Split(logoBlock(), "\n")
+	logoLines := logoRawLines()
 	var idLines []string
 	if identity != "" {
 		idLines = strings.Split(identity, "\n")
