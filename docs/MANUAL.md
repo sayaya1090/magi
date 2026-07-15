@@ -303,9 +303,9 @@ Slash commands during work: read-only/UI-only ones (`/help` · `/route` (=`/mode
 ### Multi-agent live view (split-pane)
 While subagents are alive, **a live panel for each subagent** is tiled below the main transcript (subscribing to each child session in real time). Each subagent is assigned a **unique color** (M3 tonal palette) applied consistently to its panel border · header badge · the `⚙ task → <name>` highlight in the transcript.
 - Move focus with `Tab` (or by clicking a panel) → the focused panel gets a **focus ring** in its color.
-- `Ctrl+O` (or clicking the focused panel again) **zooms in** → observe that subagent's full transcript in detail. On entering zoom it jumps to the bottom (latest/conclusion). **Clicking** the top **breadcrumb `‹ back  ✦ magi › coder`** (or `Esc`) returns. In the detail view, assistant lines are shown under **the agent's name (in color)** rather than `magi`.
-- **Color is the identifier**: if the main agent gives several jobs to the same kind of agent, **each job (session) gets its own panel**. The same role shares the **same hue** (matching the transcript's `task → coder` highlight); the **2nd and 3rd are distinguished by brightness**.
-- **Panels are managed by role**: even if the same role (e.g. coder) is restarted/re-delegated, **the existing window is reused rather than a new one created**.
+- `Ctrl+O` (or clicking the focused panel again) **zooms in** → observe that subagent's full transcript in detail. On entering zoom it jumps to the bottom (latest/conclusion). **Clicking** the top **breadcrumb `‹ back  ✦ magi › locator`** (or `Esc`) returns. In the detail view, assistant lines are shown under **the agent's name (in color)** rather than `magi`.
+- **Color is the identifier**: if the main agent gives several jobs to the same kind of agent, **each job (session) gets its own panel**. The same role shares the **same hue** (matching the transcript's `task → locator` highlight); the **2nd and 3rd are distinguished by brightness**.
+- **Panels are managed by role**: even if the same role (e.g. locator) is restarted/re-delegated, **the existing window is reused rather than a new one created**.
 - **Lifecycle**: large tiles while working, **collapsing to a one-line compact when the turn ends** (still openable with `Ctrl+O`). They disappear when you send the next message, and are later restored via `/resume`.
 
 ### Right-side status panel
@@ -322,7 +322,7 @@ Multi-line (or over-200-char) pastes are folded into a `[#N pasted L lines]` chi
 Put `@path/file` in a message and that file's contents are attached to the agent context.
 
 ### Header display
-`model <id> · ctx <%>` + **permission chip (color-coded)** + a `⛐ N: explore, coder×2` badge (name · color) while subagents are running.
+`model <id> · ctx <%>` + **permission chip (color-coded)** + a `⛐ N: explore, locator×2` badge (name · color) while subagents are running.
 - Permission chip colors: `ask` = amber (safe) · `auto` = cyan (edits auto) · `allow` = yellow (caution) · `deny` = red (blocked).
 - While a multi-step plan is executing, the header also surfaces the **active plan step** (the current item of the procedure planner's checklist), so what the agent is working on right now is visible without opening the status panel.
 
@@ -429,10 +429,9 @@ Weak models routinely miscount rows or fabricate a total when asked to "count/su
 
 ## 6. Multi-agent
 
-Delegate to subagents with the `task` tool. Default agents:
+Delegate to subagents with the `task` tool. The bundled roster is read-only investigators only — there is no write-capable subagent, so the main agent does all authoring itself (the solo path). Default agents:
 - **explore** — read-only code exploration
-- **reviewer** — code review (read-only)
-- **coder** — implementation (read/write/edit/multiedit/grep/glob/list/bash)
+- **locator** — file/symbol/usage search (read-only)
 
 Limits (D7): depth 3 · concurrency 8 · cumulative 50. Assign per-agent models with `[routing]`.
 

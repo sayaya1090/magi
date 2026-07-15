@@ -81,12 +81,12 @@ type planResult struct {
 
 // readOnlyExplorers are the only agents the planner may fan out — investigation
 // is read-only, so there are no file conflicts and nothing to fabricate-then-write.
-// These are LOCATE/GATHER roles only. The analyst (deep-reasoning) role is
-// deliberately NOT here: a fanned-out explorer receives just its focus/question and a
-// clipped goal (explorerPrompt), never the parent's full context, so analysis — which
-// depends on maximum context — belongs in the full-context main agent (a solo step),
-// not a context-starved subagent. analyst stays a registered agent, reachable by an
-// explicit delegate, just not an auto-fanout target.
+// These are LOCATE/GATHER roles only. Deep reasoning is deliberately NOT fanned out:
+// a fanned-out explorer receives just its focus/question and a clipped goal
+// (explorerPrompt), never the parent's full context, so analysis — which depends on
+// maximum context — belongs in the full-context main agent (a solo step), not a
+// context-starved subagent. The bundled roster carries no write-capable subagent, so
+// all authoring stays on the main agent's solo path.
 var readOnlyExplorers = map[string]bool{"explore": true, "locator": true}
 
 // producesFiles reports whether an agent authors file deliverables (has edit/write),
