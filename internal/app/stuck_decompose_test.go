@@ -8,22 +8,23 @@ import (
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
-// stuckDecomposeEnabled defaults ON and only an explicit off-value flips it, so the
-// decomposing recovery is the default and MAGI_STUCK_DECOMPOSE=off restores the baseline.
+// stuckDecomposeEnabled defaults OFF (2026-07-16 regression bisect: recovery fired
+// mid-build on a repeat block and burned the wall clock); an explicit on-value
+// re-enables the decomposing recovery.
 func TestStuckDecomposeEnabledDefault(t *testing.T) {
-	if !stuckDecomposeEnabled() {
-		t.Fatal("default must be ON")
+	if stuckDecomposeEnabled() {
+		t.Fatal("default must be OFF")
 	}
-	for _, v := range []string{"0", "off", "false", "no", "OFF"} {
-		t.Setenv("MAGI_STUCK_DECOMPOSE", v)
-		if stuckDecomposeEnabled() {
-			t.Errorf("%q must disable", v)
-		}
-	}
-	for _, v := range []string{"1", "on", "true", "whatever"} {
+	for _, v := range []string{"1", "on", "true", "yes", "ON"} {
 		t.Setenv("MAGI_STUCK_DECOMPOSE", v)
 		if !stuckDecomposeEnabled() {
-			t.Errorf("%q must leave it ON", v)
+			t.Errorf("%q must enable", v)
+		}
+	}
+	for _, v := range []string{"0", "off", "false", "no", "whatever"} {
+		t.Setenv("MAGI_STUCK_DECOMPOSE", v)
+		if stuckDecomposeEnabled() {
+			t.Errorf("%q must leave it OFF", v)
 		}
 	}
 }
@@ -224,6 +225,7 @@ func TestDriveStuckTodosSingleUnitFallsBack(t *testing.T) {
 // child on the whole-task monolith re-spawn — recovery reports failure and the caller
 // force-stops. The monolith fallback still fires when decomposition wasn't possible.
 func TestRedecomposeStuckAllUnitsFailedSkipsMonolith(t *testing.T) {
+	t.Setenv("MAGI_STUCK_DECOMPOSE", "1") // exercises the decomposing path (default now OFF)
 	plan := `{"steps":[
 		{"title":"unit A","strategy":"solo","task":"do A"},
 		{"title":"unit B","strategy":"solo","task":"do B"}]}`

@@ -83,10 +83,14 @@ func checkpointFirstEnabled() bool { return !envOff("MAGI_CHECKPOINT_FIRST") }
 // predicate), a passing check deterministically checks off its todo, and when every check
 // passes the termination council's open-ended continue path is skipped (the contract was
 // settled at planning — no new demands after). A real check FAILURE injects the failing
-// command's output as a one-shot continuation nudge; a clean run injects nothing (no
-// context pollution). Default ON; MAGI_STEP_VERIFY=0 restores the baseline that leaves
-// storage, the gate, and the council path fully inert (the A/B knob).
-func stepVerifyEnabled() bool { return !envOff("MAGI_STEP_VERIFY") }
+// command's output as a one-shot continuation nudge; a clean run injects nothing.
+//
+// Default OFF (regression bisect, 2026-07-16): a weak model authors TRIVIAL checks
+// ("file exists", "import succeeds"), all of them pass, and the all-pass path then
+// SKIPS the termination council entirely — the live council-skip false-done family
+// (cancel-async-tasks ended "council round 0: done — 0 done / 0 continue" with the
+// real cancellation edge case never interrogated). MAGI_STEP_VERIFY=1 re-enables.
+func stepVerifyEnabled() bool { return envOn("MAGI_STEP_VERIFY") }
 
 // recoveryRunCapEnabled caps stuck-recovery re-decomposition to fire at most once per RUN
 // TREE rather than once per depth level: a recovery child is seeded as already-recovered, so
@@ -104,9 +108,14 @@ func recoveryRunCapEnabled() bool { return envOn("MAGI_RECOVERY_RUNCAP") }
 // incremental forward progress: a small scoped unit re-fixates far less than the monolith, and
 // units that already landed persist even if a later one stalls. It ALSO widens the recovery gate to
 // the "repeat" stall kind (a loop-guard block spiral), which the whole-task re-hand-off could not
-// help (it would just re-fixate). Default ON; MAGI_STUCK_DECOMPOSE=off restores the single
-// whole-task re-spawn baseline (stall-kind only).
-func stuckDecomposeEnabled() bool { return !envOff("MAGI_STUCK_DECOMPOSE") }
+// help (it would just re-fixate).
+//
+// Default OFF (regression bisect, 2026-07-16): a "repeat" block during a legitimate
+// long wait (compile-compcert: make in background, bash_output polls hard-blocked)
+// now triggers a full re-plan plus per-unit child spawns MID-BUILD, burning the
+// run's wall clock on recovery instead of waiting (reward=null, finished_at=null).
+// MAGI_STUCK_DECOMPOSE=1 re-enables the decomposing recovery (stall+repeat kinds).
+func stuckDecomposeEnabled() bool { return envOn("MAGI_STUCK_DECOMPOSE") }
 
 // implicitAcceptEnabled tells the planner that a task's real acceptance conditions are usually
 // stricter than the instruction prose: the exact output tokens/formats the prose only gestures at,
