@@ -1314,6 +1314,10 @@ func loadDoctorProbes(cfg config.Config, plat *platform.OS, wd, pluginsDir strin
 	for _, dir := range pluginDirs(plat, wd, pluginsDir) {
 		host.LoadDir(context.Background(), dir)
 	}
+	// Embedded plugins register doctor probes too, and the normal path loads them
+	// via this same helper — without it, a bundled plugin's probes silently never
+	// appear in -doctor (the throwaway host only scanned the on-disk dirs).
+	loadEmbeddedPlugins(host, plat, cfg)
 	return host.DoctorProbes()
 }
 
