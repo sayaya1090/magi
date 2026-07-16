@@ -411,8 +411,10 @@ func run() int {
 	if *doctor {
 		// Plugin-contributed probes: load plugins far enough to collect their
 		// checks (no startup handlers → no interactive auth during a diagnostic).
-		extra := runPluginDoctorProbes(context.Background(),
-			loadDoctorProbes(cfg, plat, wd, *pluginsDir, llm))
+		// The load report (which sources were scanned, what loaded, what failed)
+		// joins the checks so a missing plugin is diagnosable from the output.
+		probes, loadReport := loadDoctorProbes(cfg, plat, wd, *pluginsDir, llm)
+		extra := append(loadReport, runPluginDoctorProbes(context.Background(), probes)...)
 		checks := doctorChecks(context.Background(), doctorDeps{
 			ListModels: llm.ListModels,
 			LookPath:   exec.LookPath,
@@ -1295,7 +1297,22 @@ func (u userLabelSetter) SetUserLabel(label string) { u.set(label) }
 // That also gives a load-time write (set_config_key/store_set) reach to the real
 // store — but such a plugin does strictly more at its normal startup, which this
 // path skips, so -doctor is never the wider surface.
-func loadDoctorProbes(cfg config.Config, plat *platform.OS, wd, pluginsDir string, llm *openai.Client) []port.DoctorProbe {
+// doctorSink discards what a plugin registers through the OPTIONAL registries so
+// a plugin that touches them at load time (register_context_provider, set_model,
+// set_user_label) still LOADS in the -doctor host exactly as it does in a normal
+// run. Leaving those registries nil made such a plugin fail to load and silently
+// drop out of -doctor together with its probes — the report lied by omission.
+type doctorSink struct{}
+
+func (doctorSink) RegisterContextProvider(port.ContextProvider) {}
+func (doctorSink) SetModel(string) error                        { return nil }
+func (doctorSink) SetContextWindow(string, int) error           { return nil }
+func (doctorSink) SetUserLabel(string)                          {}
+
+// It also returns one check per scanned plugin source (and per load failure), so
+// -doctor shows WHY a plugin's probes are absent — a skipped directory or a load
+// error used to leave no trace, making a missing plugin undiagnosable.
+func loadDoctorProbes(cfg config.Config, plat *platform.OS, wd, pluginsDir string, llm *openai.Client) ([]port.DoctorProbe, []doctorCheck) {
 	reg := builtin.Default()
 	host := pluginlua.NewHostWithConfig(pluginlua.HostConfig{
 		ToolSink:      reg,
@@ -1305,20 +1322,46 @@ func loadDoctorProbes(cfg config.Config, plat *platform.OS, wd, pluginsDir strin
 		PluginConfigs: cfg.Plugins,
 		ConfigPath:    filepath.Join(plat.ConfigDir(), "config.toml"),
 		DataDir:       plat.ConfigDir(),
+		// Discard-only registries: a plugin that registers a context provider or
+		// sets model/user state at LOAD time must still load here exactly as it
+		// does in a normal run — with these nil it failed to load and its probes
+		// silently vanished from the report (observed live with engram).
+		ContextReg: doctorSink{},
+		ModelReg:   doctorSink{},
+		UserReg:    doctorSink{},
+		Logf:       pluginLogf(),
 		Runtime: pluginlua.RuntimeInfo{
 			Model:    cfg.Model,
 			Platform: runtime.GOOS,
 			Workdir:  wd,
 		},
 	})
+	var report []doctorCheck
 	for _, dir := range pluginDirs(plat, wd, pluginsDir) {
-		host.LoadDir(context.Background(), dir)
+		loaded, errs := host.LoadDir(context.Background(), dir)
+		switch {
+		case len(loaded) > 0:
+			report = append(report, doctorCheck{Name: "plugins", Status: "ok",
+				Detail: dir + " → " + strings.Join(loaded, ", ")})
+		case len(errs) == 0:
+			report = append(report, doctorCheck{Name: "plugins", Status: "info",
+				Detail: dir + " → none (directory absent or empty)"})
+		}
+		for _, err := range errs {
+			report = append(report, doctorCheck{Name: "plugins", Status: "fail",
+				Detail: dir + " → load error: " + err.Error()})
+		}
 	}
 	// Embedded plugins register doctor probes too, and the normal path loads them
 	// via this same helper — without it, a bundled plugin's probes silently never
 	// appear in -doctor (the throwaway host only scanned the on-disk dirs).
+	before := len(host.DoctorProbes())
 	loadEmbeddedPlugins(host, plat, cfg)
-	return host.DoctorProbes()
+	if n := len(host.DoctorProbes()) - before; n > 0 {
+		report = append(report, doctorCheck{Name: "plugins", Status: "ok",
+			Detail: fmt.Sprintf("embedded → %d doctor probe(s)", n)})
+	}
+	return host.DoctorProbes(), report
 }
 
 type routePersister struct{ path string }
