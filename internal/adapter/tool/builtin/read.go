@@ -27,9 +27,9 @@ const defaultReadLines = 2000
 type Read struct{}
 
 type readArgs struct {
-	Path   string `json:"path"`
-	Offset int    `json:"offset"` // 1-based start line (optional)
-	Limit  int    `json:"limit"`  // max lines (optional)
+	Path   string  `json:"path"`
+	Offset flexInt `json:"offset"` // 1-based start line (optional); tolerant parse (flexInt)
+	Limit  flexInt `json:"limit"`  // max lines (optional); tolerant parse (flexInt)
 }
 
 func (Read) Name() string        { return "read" }
@@ -83,18 +83,18 @@ func (Read) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		return errResult("", "binary file: "+a.Path), nil
 	}
 
-	start := a.Offset
+	start := int(a.Offset)
 	if start < 1 {
 		start = 1
 	}
 	// Apply a default line window when the caller gives no explicit limit, so a bare
 	// read of a large file returns a navigable page instead of dumping everything.
-	limit, defaulted := a.Limit, false
+	limit, defaulted := int(a.Limit), false
 	if limit <= 0 {
 		limit, defaulted = defaultReadLines, true
 	}
 	full := string(data)
-	content := sliceLines(full, a.Offset, limit)
+	content := sliceLines(full, int(a.Offset), limit)
 	total := countLines(full)
 
 	body := locatedNote

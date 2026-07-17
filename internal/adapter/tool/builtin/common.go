@@ -2,9 +2,32 @@ package builtin
 
 import (
 	"encoding/json"
+	"strconv"
+	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/session"
 )
+
+// flexInt is an integer tool argument that tolerates the shapes weak models
+// actually emit: 300, 300.0, "300", "300.000000", "300s". Strict int fields
+// rejected the WHOLE tool call over a field's type ("cannot unmarshal string
+// into … type int") — observed live: the model then abandoned the action
+// (skipped reading a file it needed and proceeded on assumption) instead of
+// correcting the type. An unparseable value falls back to 0 (= the field's
+// unset/default semantics) rather than failing the call: these fields are
+// bounds and positions, never the point of the call.
+type flexInt int
+
+func (v *flexInt) UnmarshalJSON(b []byte) error {
+	s := strings.TrimSpace(strings.Trim(string(b), `"`))
+	s = strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(s, "sec"), "s"))
+	if f, err := strconv.ParseFloat(s, 64); err == nil {
+		*v = flexInt(int(f))
+	} else {
+		*v = 0 // unparseable → unset/default, never a rejected call
+	}
+	return nil
+}
 
 // errResult builds a failed ToolResult with a message.
 func errResult(callID, msg string) session.ToolResult {

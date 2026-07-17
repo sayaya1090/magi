@@ -24,9 +24,9 @@ import (
 type Bash struct{}
 
 type bashArgs struct {
-	Command    string `json:"command"`
-	Timeout    int    `json:"timeout"`    // seconds (default 120, max 600)
-	Background bool   `json:"background"` // run detached; returns an id to poll/kill
+	Command    string  `json:"command"`
+	Timeout    flexInt `json:"timeout"`    // seconds (default 120, max 600); tolerant parse (flexInt)
+	Background bool    `json:"background"` // run detached; returns an id to poll/kill
 }
 
 func (Bash) Name() string { return "bash" }
@@ -52,7 +52,7 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		}
 		return okText("", fmt.Sprintf("started background command %s — poll with bash_output{id:%q}, stop with bash_kill{id:%q}", p.id, p.id, p.id)), nil
 	}
-	timeout := a.Timeout
+	timeout := int(a.Timeout)
 	if timeout <= 0 {
 		timeout = 120
 	}

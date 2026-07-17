@@ -51,10 +51,10 @@ func runGopls(ctx context.Context, workdir string, args ...string) (string, *ses
 
 // lspPosArgs is the shared position for definition/references.
 type lspPosArgs struct {
-	Path   string `json:"path"`
-	Line   int    `json:"line"`
-	Col    int    `json:"col"`    // 1-based column; optional if symbol is given
-	Symbol string `json:"symbol"` // a name on `line` to locate the column from
+	Path   string  `json:"path"`
+	Line   flexInt `json:"line"`
+	Col    flexInt `json:"col"`    // 1-based column; optional if symbol is given
+	Symbol string  `json:"symbol"` // a name on `line` to locate the column from
 }
 
 // resolveByteCol resolves the 1-based byte column for the args: an explicit col, or
@@ -68,7 +68,7 @@ func resolveByteCol(workdir string, a lspPosArgs) (abs string, col int, err erro
 		return "", 0, fmt.Errorf("line is required (1-based)")
 	}
 	if a.Col > 0 {
-		return abs, a.Col, nil
+		return abs, int(a.Col), nil
 	}
 	if a.Symbol == "" {
 		return "", 0, fmt.Errorf("provide either col or symbol")
@@ -78,7 +78,7 @@ func resolveByteCol(workdir string, a lspPosArgs) (abs string, col int, err erro
 		return "", 0, err
 	}
 	lines := strings.Split(string(data), "\n")
-	if a.Line > len(lines) {
+	if int(a.Line) > len(lines) {
 		return "", 0, fmt.Errorf("line %d is past end of file (%d lines)", a.Line, len(lines))
 	}
 	idx := strings.Index(lines[a.Line-1], a.Symbol)
@@ -114,10 +114,10 @@ func lspNavigate(ctx context.Context, workdir string, a lspPosArgs, method strin
 	}
 	lines := strings.Split(string(data), "\n")
 	char := 0
-	if a.Line-1 < len(lines) {
-		char = utf16Col(lines[a.Line-1], byteCol-1)
+	if int(a.Line)-1 < len(lines) {
+		char = utf16Col(lines[int(a.Line)-1], byteCol-1)
 	}
-	return lspQuery(ctx, workdir, abs, method, a.Line-1, char)
+	return lspQuery(ctx, workdir, abs, method, int(a.Line)-1, char)
 }
 
 // relativize rewrites absolute workdir paths in gopls output to workspace-relative.

@@ -117,7 +117,7 @@ func TestTabulateOps(t *testing.T) {
 	}
 	for _, c := range cases {
 		a := base(c.op)
-		a.Column = c.col
+		a.Column = flexInt(c.col)
 		got, isErr := runObj(t, Tabulate{}, a, seed)
 		if isErr {
 			t.Fatalf("%s col%d: err %s", c.op, c.col, got)

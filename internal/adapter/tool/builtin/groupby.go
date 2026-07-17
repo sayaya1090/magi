@@ -20,14 +20,14 @@ import (
 type GroupBy struct{}
 
 type groupByArgs struct {
-	Path        string `json:"path"`
-	KeyColumn   int    `json:"key_column"`
-	KeyPattern  string `json:"key_pattern"`
-	ValueColumn int    `json:"value_column"`
-	Op          string `json:"op"`
-	Delimiter   string `json:"delimiter"`
-	SkipHeader  bool   `json:"skip_header"`
-	Top         int    `json:"top"`
+	Path        string  `json:"path"`
+	KeyColumn   flexInt `json:"key_column"`
+	KeyPattern  string  `json:"key_pattern"`
+	ValueColumn flexInt `json:"value_column"`
+	Op          string  `json:"op"`
+	Delimiter   string  `json:"delimiter"`
+	SkipHeader  bool    `json:"skip_header"`
+	Top         flexInt `json:"top"`
 }
 
 func (GroupBy) Name() string { return "groupby" }
@@ -115,7 +115,7 @@ func (GroupBy) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEn
 			key = m[1]
 		} else {
 			cols := fields(ln, a.Delimiter)
-			key = cell(cols, a.KeyColumn)
+			key = cell(cols, int(a.KeyColumn))
 			if key == "" {
 				continue
 			}
@@ -123,7 +123,7 @@ func (GroupBy) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEn
 		var inc float64 = 1
 		if op == "sum" {
 			cols := fields(ln, a.Delimiter)
-			v, ok := parseFloatCell(cell(cols, a.ValueColumn))
+			v, ok := parseFloatCell(cell(cols, int(a.ValueColumn)))
 			if !ok {
 				continue
 			}
@@ -155,8 +155,8 @@ func (GroupBy) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEn
 		return pos[groups[i].Key] < pos[groups[j].Key] // stable: first-seen wins ties
 	})
 	groupsTruncated := false
-	if len(groups) > top {
-		groups = groups[:top]
+	if len(groups) > int(top) {
+		groups = groups[:int(top)]
 		groupsTruncated = true
 	}
 	out := map[string]any{

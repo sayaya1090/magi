@@ -25,8 +25,8 @@ import (
 type FindContext struct{}
 
 type findCtxArgs struct {
-	Query string `json:"query"`
-	Limit int    `json:"limit"`
+	Query string  `json:"query"`
+	Limit flexInt `json:"limit"`
 }
 
 type rankedFile struct {
@@ -144,7 +144,7 @@ func (FindContext) Execute(ctx context.Context, raw json.RawMessage, env port.To
 		}
 		return ranked[i].Path < ranked[j].Path
 	})
-	if len(ranked) > limit {
+	if len(ranked) > int(limit) {
 		ranked = ranked[:limit]
 	}
 	return okJSON("", ranked), nil

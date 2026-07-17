@@ -24,9 +24,9 @@ import (
 type WaitFor struct{}
 
 type waitForArgs struct {
-	Condition string `json:"condition"`
-	Timeout   int    `json:"timeout"`  // seconds (default 300; max 1800)
-	Interval  int    `json:"interval"` // seconds between checks (default 5; max 60)
+	Condition string  `json:"condition"`
+	Timeout   flexInt `json:"timeout"`  // seconds (default 300; max 1800); tolerant parse (flexInt)
+	Interval  flexInt `json:"interval"` // seconds between checks (default 5; max 60); tolerant parse (flexInt)
 }
 
 func (WaitFor) Name() string { return "wait_for" }
@@ -55,14 +55,14 @@ func (WaitFor) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEn
 	if strings.TrimSpace(a.Condition) == "" {
 		return errResult("", "condition is required"), nil
 	}
-	timeout := a.Timeout
+	timeout := int(a.Timeout)
 	if timeout <= 0 {
 		timeout = waitForDefaultTimeout
 	}
 	if timeout > waitForMaxTimeout {
 		timeout = waitForMaxTimeout
 	}
-	interval := a.Interval
+	interval := int(a.Interval)
 	if interval <= 0 {
 		interval = waitForDefaultInterval
 	}

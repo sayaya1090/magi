@@ -17,14 +17,14 @@ import (
 type Tabulate struct{}
 
 type tabFilter struct {
-	Column int     `json:"column"`
+	Column flexInt `json:"column"`
 	Op     string  `json:"op"`
 	Value  float64 `json:"value"`
 }
 
 type tabArgs struct {
 	Path       string     `json:"path"`
-	Column     int        `json:"column"`
+	Column     flexInt    `json:"column"`
 	Op         string     `json:"op"`
 	Delimiter  string     `json:"delimiter"`
 	Filter     *tabFilter `json:"filter"`
@@ -92,7 +92,7 @@ func (Tabulate) Execute(ctx context.Context, raw json.RawMessage, env port.ToolE
 		}
 		cols := fields(ln, a.Delimiter)
 		if a.Filter != nil {
-			fv, ok := parseFloatCell(cell(cols, a.Filter.Column))
+			fv, ok := parseFloatCell(cell(cols, int(a.Filter.Column)))
 			if !ok {
 				continue
 			}
@@ -101,7 +101,7 @@ func (Tabulate) Execute(ctx context.Context, raw json.RawMessage, env port.ToolE
 			}
 		}
 		rows++ // a row that passed the filter (count reports this)
-		v, ok := parseFloatCell(cell(cols, a.Column))
+		v, ok := parseFloatCell(cell(cols, int(a.Column)))
 		if !ok {
 			continue
 		}

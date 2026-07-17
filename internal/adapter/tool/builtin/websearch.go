@@ -27,8 +27,8 @@ type WebSearch struct {
 }
 
 type webSearchArgs struct {
-	Query string `json:"query"`
-	Count int    `json:"count"` // max results (default 5, max 10)
+	Query string  `json:"query"`
+	Count flexInt `json:"count"` // max results (default 5, max 10)
 }
 
 func (WebSearch) Name() string { return "websearch" }
@@ -47,7 +47,7 @@ func (w WebSearch) Execute(ctx context.Context, raw json.RawMessage, env port.To
 	if strings.TrimSpace(a.Query) == "" {
 		return errResult("", "query is required"), nil
 	}
-	count := a.Count
+	count := int(a.Count)
 	if count <= 0 {
 		count = 5
 	}
