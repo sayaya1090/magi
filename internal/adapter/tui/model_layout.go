@@ -356,8 +356,17 @@ func (m *Model) refresh() {
 		// Council verdict detail takes over the viewport (like a zoomed pane).
 		content = m.renderCouncilDetail(vpw)
 	} else if m.zoom {
-		// Zoomed: the viewport shows the focused subagent's full transcript.
-		content = m.renderZoom(vpw)
+		// Zoomed: the viewport shows the focused subagent's full transcript. A zoom
+		// with nothing to show (the followed live pane finished and was removed, or
+		// focus was cleared) must self-heal back to the overview: renderZoom would
+		// return "" here while View() falls back to the overview header — a blank
+		// transcript behind a header with no way back. Exit the zoom instead and
+		// keep the normal transcript built above.
+		if m.viewedPane() != nil {
+			content = m.renderZoom(vpw)
+		} else {
+			m.exitZoom()
+		}
 	}
 	// Keep styled + ANSI-stripped copies for cell-precise selection + copy.
 	m.contentLines = strings.Split(content, "\n")

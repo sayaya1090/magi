@@ -148,10 +148,14 @@ func (m *Model) handleMouse(msg tea.Msg) tea.Cmd {
 			// else focus a subagent pane. In the zoom view the click targets the
 			// focused subagent's blocks, not the main transcript's.
 			if m.zoom {
-				if m.toggleThoughtAtZoom(m.selAL) {
-					m.refresh()
-					return nil
-				}
+				// A click inside the detail view either toggles a reasoning block or
+				// does nothing — it must NOT fall through to the overview's focus
+				// logic below: handlePaneClick no-ops while zoomed, so the fallthrough
+				// could only clear focusPane, and for a live-follow zoom (zoomPane
+				// nil) that empties viewedPane and blanks the detail screen.
+				m.toggleThoughtAtZoom(m.selAL)
+				m.refresh()
+				return nil
 			} else if m.openCouncilDetailAt(m.selAL) {
 				m.refresh()
 				return nil
