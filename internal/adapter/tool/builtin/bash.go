@@ -111,9 +111,52 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		// Launch failure (command not found, etc.) rather than non-zero exit.
 		return errResult("", err.Error()+"\n"+truncateOut(body)), nil
 	}
-	res := okText("", fmt.Sprintf("exit %d\n%s", exit, truncateOut(body)))
+	disp := truncateOut(body)
+	// A command that returns exit 0 while its output carries a real crash/traceback is
+	// almost always one whose failing exit code was swallowed by a `|| echo`/`|| true`
+	// tail. Both the model (which read the "exit 0" as a pass) and the council (which sees
+	// this result marked [ok]) would otherwise rubber-stamp it. Annotate — never reclassify
+	// — right after the status line so the note sits at the head, where the council's
+	// head-clip and the model both see it. Flag-gated for A/B isolation.
+	if bodyscanEnabled() {
+		if note := maskedFailureNote(exit, disp); note != "" {
+			disp = note + "\n" + disp
+		}
+	}
+	res := okText("", fmt.Sprintf("exit %d\n%s", exit, disp))
 	res.IsError = exit != 0
 	return res, nil
+}
+
+// bodyscanEnabled gates the exit-0 body-scan annotation (MAGI_EXITCODE_BODYSCAN,
+// default ON). Off (=0/off/false/no) reproduces the exact pre-scan behavior for a
+// clean A/B baseline.
+func bodyscanEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_EXITCODE_BODYSCAN"))) {
+	case "0", "off", "false", "no":
+		return false
+	}
+	return true
+}
+
+// maskedFailureNote returns a one-line advisory when exit==0 but the output holds a
+// high-precision crash/traceback signature — the fingerprint of a failure whose exit
+// code was masked. It never fires on a non-zero exit (the ✗/[error] already speaks) and
+// requires the Go signatures to be paired with a goroutine dump, so a command that merely
+// prints "panic:"/"fatal error:" as data is not flagged. Advisory only: the result stays
+// classified by its exit code; this just makes the discrepancy visible.
+func maskedFailureNote(exit int, body string) string {
+	if exit != 0 {
+		return ""
+	}
+	crash := strings.Contains(body, "Traceback (most recent call last):") || // Python
+		strings.Contains(body, "Exception in thread ") || // JVM
+		(strings.Contains(body, "panic: ") && strings.Contains(body, "\ngoroutine ")) || // Go panic
+		(strings.Contains(body, "fatal error: ") && strings.Contains(body, "\ngoroutine ")) // Go runtime
+	if !crash {
+		return ""
+	}
+	return "[note: exit 0 but the output contains a crash/traceback — a failing command may have had its exit code masked (e.g. `|| echo`, `|| true`). Do not treat this as success without an independent check.]"
 }
 
 // runCapture runs cmd with its combined stdout/stderr sent to a temp FILE, then
