@@ -43,6 +43,15 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	if strings.TrimSpace(a.Command) == "" {
 		return errResult("", "command is required"), nil
 	}
+	// Self-kill protection (see bash_selfkill.go): a kill-by-match whose target
+	// matches our own process is blocked outright — self-termination is
+	// unrecoverable, so this is the one deliberate exception to annotate-only.
+	if selfKillGuardEnabled() {
+		cmdline, name := selfIdentity()
+		if reason := selfKillReason(a.Command, cmdline, name); reason != "" {
+			return errResult("", reason), nil
+		}
+	}
 	if a.Background {
 		p, err := bg.start(env.Workdir, env.Sandbox, a.Command)
 		if err != nil {
