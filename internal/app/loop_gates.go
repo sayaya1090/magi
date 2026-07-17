@@ -45,9 +45,11 @@ func (a *App) injectStuckNudge(ctx context.Context, tc turnCtx, turnTask string,
 			"verification and completion; another confirmation command does not, and never delete or rebuild " +
 			"finished work just to produce visible activity. If it is NOT complete: stop and take a DIFFERENT " +
 			"concrete action toward the deliverable; if something is blocking you, state exactly what it is and " +
-			"why before continuing. Guess only when necessary: if a value is unknown but discoverable, run the " +
-			"tool or command that determines it (compute, parse, crack, query, or read the real state) rather " +
-			"than trying values blindly. Re-read the original task:\n" +
+			"why before continuing. If you are WAITING on a long-running install or build: do NOT restart it or " +
+			"launch another copy — start it once (bash with background=true), then poll bash_output or block on " +
+			"wait_for until it actually finishes. Guess only when necessary: if a value is unknown but " +
+			"discoverable, run the tool or command that determines it (compute, parse, crack, query, or read " +
+			"the real state) rather than trying values blindly. Re-read the original task:\n" +
 			clipSpec(task, 1500)
 	}
 	pd, _ := json.Marshal(event.PromptSubmittedData{
