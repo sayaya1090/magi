@@ -3,6 +3,8 @@
 This is the **as-built** reference for developing on magi. `DESIGN.md`, `SPEC.md`,
 and `PLAN.md` are the original design intent / roadmap (kept for rationale, decisions
 D1–D13); where they disagree with this file, **this file wins**.
+Visual companion: [DIAGRAMS.md](DIAGRAMS.md) — top-level container, turn lifecycle,
+component map, and the harness-intervention (nudge/gate) flowcharts, in mermaid.
 
 magi is an extensible terminal AI coding agent: a Go core, a Bubble Tea TUI,
 Lua plugins, OpenAI-compatible LLM access (Ollama/LiteLLM/etc.), multi-agent
