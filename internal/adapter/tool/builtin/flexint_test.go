@@ -27,6 +27,15 @@ func TestFlexIntShapes(t *testing.T) {
 		{`"garbage"`, 0},
 		{`null`, 0},
 		{`""`, 0},
+		// Edges: scientific notation, negatives, out-of-range clamp (float→int of an
+		// out-of-range value is implementation-defined in Go — the clamp pins it).
+		{`3e2`, 300},
+		{`"-5"`, -5},
+		{`"  300  "`, 300},
+		{`1e20`, 1 << 31},
+		{`-1e20`, -(1 << 31)},
+		{`[300]`, 0},
+		{`{}`, 0},
 	} {
 		var v flexInt
 		if err := json.Unmarshal([]byte(tc.in), &v); err != nil {

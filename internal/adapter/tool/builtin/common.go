@@ -38,6 +38,16 @@ func (v *flexInt) UnmarshalJSON(b []byte) error {
 	s := strings.TrimSpace(strings.Trim(string(b), `"`))
 	s = strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(s, "sec"), "s"))
 	if f, err := strconv.ParseFloat(s, 64); err == nil {
+		// Clamp before converting: float→int conversion of an out-of-range value is
+		// implementation-defined in Go (saturates on amd64/arm64, but that's the
+		// platform, not the spec). ±2^31 comfortably exceeds every real bound these
+		// fields carry (seconds, line numbers, columns, result counts).
+		const lim = 1 << 31
+		if f > lim {
+			f = lim
+		} else if f < -lim {
+			f = -lim
+		}
 		*v = flexInt(int(f))
 	} else {
 		*v = 0 // unparseable → unset/default, never a rejected call
