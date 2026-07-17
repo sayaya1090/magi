@@ -69,6 +69,38 @@ func TestMaskedFailureNoteContent(t *testing.T) {
 	}
 }
 
+// maskingTailNote fires on exit 0 when the command's final list operator is a pure
+// exit-code mask (true/:/exit 0/echo — things that can only hide a failure), and stays
+// quiet for genuine fallback control flow (`cmd || other-cmd`).
+func TestMaskingTailNote(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		exit int
+		cmd  string
+		want bool
+	}{
+		{"|| true", 0, "python3 test.py || true", true},
+		{"|| colon", 0, "make check || :", true},
+		{"|| exit 0", 0, "./run-tests.sh || exit 0", true},
+		{"|| echo with args", 0, `timeout 5 python3 t.py 2>&1 || echo "Exit code: $?"`, true},
+		{"trailing whitespace", 0, "false || true  ", true},
+		// Genuine fallbacks are intentional control flow, not masks.
+		{"fallback command", 0, "which python3 || which python", false},
+		{"fallback then real cmd after echo", 0, "x || echo retrying; make", false},
+		{"no tail", 0, "python3 test.py", false},
+		{"or inside, not at end", 0, "a || true && b", false},
+		// Non-zero exit: the mask didn't engage (or didn't matter) — ✗ already speaks.
+		{"non-zero exit", 3, "python3 test.py || true", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := maskingTailNote(tc.exit, tc.cmd) != ""
+			if got != tc.want {
+				t.Errorf("maskingTailNote(%d, %q) fired=%v, want %v", tc.exit, tc.cmd, got, tc.want)
+			}
+		})
+	}
+}
+
 // End-to-end wiring: a `|| true`-masked crash gets the note directly after the status
 // line (the head position both the model and the council's head-clip read); the off
 // flag reproduces the un-annotated baseline; a genuine non-zero exit stays note-free.
@@ -86,6 +118,14 @@ func TestBashExecuteAnnotatesMaskedFailure(t *testing.T) {
 	}
 	if !strings.HasPrefix(out, "exit 0\n[note: exit 0") {
 		t.Errorf("note must sit right after the status line, got %q", out[:min(len(out), 120)])
+	}
+
+	// A silent masked failure (no crash text at all) still gets the structural
+	// masking-tail note — the command string alone proves the exit is uninformative.
+	r, _ = Bash{}.Execute(context.Background(), json.RawMessage(`{"command":"false || true"}`), env)
+	out = resultText(t, r)
+	if r.IsError || !strings.Contains(out, "masks the primary command's exit code") {
+		t.Errorf("silent `|| true` mask must be annotated, got IsError=%v %q", r.IsError, out)
 	}
 
 	t.Setenv("MAGI_EXITCODE_BODYSCAN", "off")

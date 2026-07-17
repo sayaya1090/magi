@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -29,7 +30,7 @@ type bashArgs struct {
 
 func (Bash) Name() string { return "bash" }
 func (Bash) Description() string {
-	return "Run a shell command in the working directory. Returns combined stdout/stderr and the exit code. Use for builds, tests, git, and file operations not covered by other tools. Set background=true for a long-running command (dev server, watcher, slow build): it returns an id immediately; read its output with bash_output, send stdin with bash_input (to drive a REPL/interactive program), and stop it with bash_kill."
+	return "Run a shell command in the working directory. Returns combined stdout/stderr and the exit code. Use for builds, tests, git, and file operations not covered by other tools. A non-zero exit is reported as normal, useful output — never mask a command's failure just to make it look clean (`|| true`, `|| echo $?`; in PowerShell, error-swallowing try/catch or -ErrorAction SilentlyContinue): that turns a failing check into a false pass. Set background=true for a long-running command (dev server, watcher, slow build): it returns an id immediately; read its output with bash_output, send stdin with bash_input (to drive a REPL/interactive program), and stop it with bash_kill."
 }
 func (Bash) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"timeout":{"type":"integer","description":"seconds (default 120, max 600)"},"background":{"type":"boolean","description":"run detached; returns an id for bash_output/bash_kill"}},"required":["command"]}`)
@@ -121,6 +122,12 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	if bodyscanEnabled() {
 		if note := maskedFailureNote(exit, disp); note != "" {
 			disp = note + "\n" + disp
+		} else if note := maskingTailNote(exit, a.Command); note != "" {
+			// No crash text, but the COMMAND ends in a pure masking idiom — the
+			// exit 0 is structurally uninformative even when the output looks clean
+			// (`false || true` fails silently). Static on the command string, so it
+			// also catches failures that print nothing.
+			disp = note + "\n" + disp
 		}
 	}
 	res := okText("", fmt.Sprintf("exit %d\n%s", exit, disp))
@@ -157,6 +164,26 @@ func maskedFailureNote(exit int, body string) string {
 		return ""
 	}
 	return "[note: exit 0 but the output contains a crash/traceback — a failing command may have had its exit code masked (e.g. `|| echo`, `|| true`). Do not treat this as success without an independent check.]"
+}
+
+// maskingTail matches a command whose FINAL list operator is a pure exit-code mask:
+// `|| true`, `|| :`, `|| exit 0`, or `|| echo …`. These differ from a genuine fallback
+// (`cmd || other-cmd`, which is intentional control flow and must not be flagged): true/:
+// /exit 0/echo can never repair the failure, only hide it. The echo arm stops at |&;` so
+// a further real command after the echo keeps the tail unmatched (under-fire on quoted
+// separators is fine — the scan is advisory).
+var maskingTail = regexp.MustCompile(`\|\|\s*(?:true|:|exit\s+0|echo\b[^|&;` + "`" + `]*)\s*$`)
+
+// maskingTailNote flags an exit-0 result whose command text ends in a pure masking
+// idiom: the reported exit says nothing about the primary command — with or without
+// crash text in the output (`false || true` fails with clean output and exit 0). It is
+// the deterministic complement to maskedFailureNote's output scan, and never fires on a
+// non-zero exit (the mask evidently didn't engage, or didn't matter).
+func maskingTailNote(exit int, command string) string {
+	if exit != 0 || !maskingTail.MatchString(strings.TrimSpace(command)) {
+		return ""
+	}
+	return "[note: this command ends in a `|| …` tail that masks the primary command's exit code — this exit 0 is NOT evidence the primary command succeeded. Re-run without the tail if you need its true status.]"
 }
 
 // runCapture runs cmd with its combined stdout/stderr sent to a temp FILE, then
