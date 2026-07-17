@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -122,6 +123,12 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	if bodyscanEnabled() {
 		if note := maskedFailureNote(exit, disp); note != "" {
 			disp = note + "\n" + disp
+		} else if note := backgroundTailNote(exit, a.Command, env.SessionID); note != "" {
+			// The command ends in a shell `&`: exit 0 only means the child STARTED.
+			// A weak model reads the instant clean exit as progress, abandons the
+			// in-flight install/build, and relaunches it — the compile-compcert
+			// failure arc (7 competing opam switch creations, none awaited).
+			disp = note + "\n" + disp
 		} else if note := maskingTailNote(exit, a.Command); note != "" {
 			// No crash text, but the COMMAND ends in a pure masking idiom — the
 			// exit 0 is structurally uninformative even when the output looks clean
@@ -164,6 +171,81 @@ func maskedFailureNote(exit int, body string) string {
 		return ""
 	}
 	return "[note: exit 0 but the output contains a crash/traceback — a failing command may have had its exit code masked (e.g. `|| echo`, `|| true`). Do not treat this as success without an independent check.]"
+}
+
+// backgroundTail matches a command whose last character is a lone `&` — the whole
+// command (or its final segment) was detached into the background, so the shell's
+// exit 0 arrived before the child did anything. `&&` is a list operator, not a
+// detach, and must not match.
+var backgroundTail = regexp.MustCompile(`(^|[^&])&\s*$`)
+
+// bgLaunched tracks, per session, the program names already detached with a shell
+// `&` tail, so a relaunch of the same program gets a stronger warning: the agent is
+// about to race its own in-flight install (lock contention, duplicate downloads)
+// instead of awaiting it. Session-keyed (each subagent has its own), process-lifetime.
+var bgLaunched = struct {
+	mu sync.Mutex
+	m  map[string]map[string]bool // sessionID -> program set
+}{m: map[string]map[string]bool{}}
+
+// backgroundTailNote flags an exit-0 result whose command was `&`-detached: the exit
+// says "started", not "finished" — with a stronger variant when the same program was
+// already detached earlier in this session and never awaited. Advisory only, and it
+// points at the tool's REAL affordances for long commands (background=true +
+// bash_output, or wait_for) so the model has a concrete alternative to relaunching.
+func backgroundTailNote(exit int, command string, sid session.SessionID) string {
+	if exit != 0 || !backgroundTail.MatchString(strings.TrimSpace(command)) {
+		return ""
+	}
+	prog := bgProgram(command)
+	dup := false
+	if prog != "" {
+		bgLaunched.mu.Lock()
+		set := bgLaunched.m[string(sid)]
+		if set == nil {
+			set = map[string]bool{}
+			bgLaunched.m[string(sid)] = set
+		}
+		dup = set[prog]
+		set[prog] = true
+		bgLaunched.mu.Unlock()
+	}
+	if dup {
+		return "[note: `" + prog + "` was ALREADY started in the background with `&` earlier in this run and its completion was never confirmed — launching another copy races the in-flight one (lock contention, duplicate downloads). Wait for the first: use bash with background=true and poll bash_output, or block on completion with wait_for.]"
+	}
+	return "[note: this command was detached with a trailing `&` — exit 0 only means it STARTED; it is not evidence of completion or success. Poll it (background=true + bash_output) or wait for it (wait_for) instead of assuming it finished or launching it again.]"
+}
+
+// bgProgram extracts the meaningful program name from an `&`-detached command for
+// the relaunch warning: last `&&`/`;` segment, first pipeline stage, first token that
+// isn't an env assignment or a wrapper (sudo/nohup/env/timeout <n>). Heuristic — a
+// miss just downgrades the duplicate warning to the generic note.
+func bgProgram(command string) string {
+	s := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(command), "&"))
+	for _, sep := range []string{"&&", ";"} {
+		if i := strings.LastIndex(s, sep); i >= 0 {
+			s = s[i+len(sep):]
+		}
+	}
+	if i := strings.Index(s, "|"); i >= 0 {
+		s = s[:i]
+	}
+	fields := strings.Fields(s)
+	for i := 0; i < len(fields); i++ {
+		f := fields[i]
+		switch {
+		case strings.Contains(f, "="): // VAR=val prefix
+			continue
+		case f == "sudo" || f == "nohup" || f == "env":
+			continue
+		case f == "timeout" && i+1 < len(fields): // skip the duration argument too
+			i++
+			continue
+		default:
+			return f
+		}
+	}
+	return ""
 }
 
 // maskingTail matches a command whose FINAL list operator is a pure exit-code mask:
