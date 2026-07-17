@@ -29,7 +29,7 @@ type editHunk struct {
 
 func (MultiEdit) Name() string { return "multiedit" }
 func (MultiEdit) Description() string {
-	return "Apply multiple exact find/replace edits to a single file atomically (all-or-nothing). Provide {path, edits:[{old,new,replaceAll?}]}. Each 'old' must match uniquely (unless replaceAll)."
+	return "Apply multiple exact find/replace edits to a single file atomically (all-or-nothing). Provide {path, edits:[{old,new,replaceAll?}]}. Each 'old' must match uniquely (unless replaceAll). Edits are applied IN ORDER against the already-edited content: a later 'old' must match the file as it will be AFTER the earlier edits, so never overlap hunks — if two changes touch the same or adjacent lines, merge them into one hunk."
 }
 func (MultiEdit) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"edits":{"type":"array","items":{"type":"object","properties":{"old":{"type":"string"},"new":{"type":"string"},"replaceAll":{"type":"boolean"}},"required":["old","new"]}}},"required":["path","edits"]}`)
@@ -60,6 +60,7 @@ func (MultiEdit) Execute(ctx context.Context, raw json.RawMessage, env port.Tool
 
 	content := string(data)
 	var addedAll, priorAll strings.Builder
+	skipped := 0
 	// Apply all hunks in memory first; fail fast without writing. Delegate each hunk to
 	// applyEdit so multiedit inherits the same tolerant matching as edit (line endings,
 	// Unicode normalization — the macOS NFD-Hangul case — and trailing whitespace) instead
@@ -69,7 +70,10 @@ func (MultiEdit) Execute(ctx context.Context, raw json.RawMessage, env port.Tool
 			return errResult("", fmt.Sprintf("edit %d: old string must not be empty", i+1)), nil
 		}
 		if h.Old == h.New {
-			return errResult("", fmt.Sprintf("edit %d: no change", i+1)), nil
+			// A no-op hunk (models sometimes include an unchanged hunk "for context")
+			// is harmless — skip it rather than rejecting the whole batch for it.
+			skipped++
+			continue
 		}
 		updated, _, eerr := applyEdit(content, h.Old, h.New, h.ReplaceAll)
 		if eerr != nil {
@@ -79,11 +83,18 @@ func (MultiEdit) Execute(ctx context.Context, raw json.RawMessage, env port.Tool
 		addedAll.WriteString(h.New + "\n")
 		priorAll.WriteString(h.Old + "\n")
 	}
+	applied := len(a.Edits) - skipped
+	if applied == 0 {
+		return errResult("", "every edit was a no-op (old == new) — nothing to change"), nil
+	}
 
 	if err := atomicWriteFile(abs, []byte(content), 0o644); err != nil {
 		return errResult("", err.Error()), nil
 	}
-	msg := fmt.Sprintf("applied %d edits to %s", len(a.Edits), a.Path)
+	msg := fmt.Sprintf("applied %d edits to %s", applied, a.Path)
+	if skipped > 0 {
+		msg += fmt.Sprintf(" (skipped %d no-op hunk(s) whose old == new)", skipped)
+	}
 	msg += commentNoiseAdvisory(addedAll.String(), priorAll.String())
 	return okText("", msg), nil
 }
