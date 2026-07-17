@@ -18,11 +18,11 @@ import (
 type CountMatches struct{}
 
 type countMatchArgs struct {
-	Pattern    string `json:"pattern"`
-	Path       string `json:"path"`
-	Glob       string `json:"glob"`
-	Fixed      bool   `json:"fixed"`
-	IgnoreCase bool   `json:"ignore_case"`
+	Pattern    string   `json:"pattern"`
+	Path       string   `json:"path"`
+	Glob       string   `json:"glob"`
+	Fixed      flexBool `json:"fixed"`
+	IgnoreCase flexBool `json:"ignore_case"`
 }
 
 func (CountMatches) Name() string { return "countmatches" }

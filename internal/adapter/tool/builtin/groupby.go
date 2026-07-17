@@ -20,14 +20,14 @@ import (
 type GroupBy struct{}
 
 type groupByArgs struct {
-	Path        string  `json:"path"`
-	KeyColumn   flexInt `json:"key_column"`
-	KeyPattern  string  `json:"key_pattern"`
-	ValueColumn flexInt `json:"value_column"`
-	Op          string  `json:"op"`
-	Delimiter   string  `json:"delimiter"`
-	SkipHeader  bool    `json:"skip_header"`
-	Top         flexInt `json:"top"`
+	Path        string   `json:"path"`
+	KeyColumn   flexInt  `json:"key_column"`
+	KeyPattern  string   `json:"key_pattern"`
+	ValueColumn flexInt  `json:"value_column"`
+	Op          string   `json:"op"`
+	Delimiter   string   `json:"delimiter"`
+	SkipHeader  flexBool `json:"skip_header"`
+	Top         flexInt  `json:"top"`
 }
 
 func (GroupBy) Name() string { return "groupby" }

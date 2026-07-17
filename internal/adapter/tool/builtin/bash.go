@@ -24,9 +24,9 @@ import (
 type Bash struct{}
 
 type bashArgs struct {
-	Command    string  `json:"command"`
-	Timeout    flexInt `json:"timeout"`    // seconds (default 120, max 600); tolerant parse (flexInt)
-	Background bool    `json:"background"` // run detached; returns an id to poll/kill
+	Command    string   `json:"command"`
+	Timeout    flexInt  `json:"timeout"`    // seconds (default 120, max 600); tolerant parse (flexInt)
+	Background flexBool `json:"background"` // run detached; returns an id to poll/kill
 }
 
 func (Bash) Name() string { return "bash" }

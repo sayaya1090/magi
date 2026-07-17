@@ -403,10 +403,10 @@ func (BashInput) Schema() json.RawMessage {
 }
 func (BashInput) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
 	var a struct {
-		ID      string `json:"id"`
-		Input   string `json:"input"`
-		Newline *bool  `json:"newline"`
-		EOF     bool   `json:"eof"`
+		ID      string   `json:"id"`
+		Input   string   `json:"input"`
+		Newline *bool    `json:"newline"`
+		EOF     flexBool `json:"eof"`
 	}
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return errResult("", "invalid arguments: "+err.Error()), nil

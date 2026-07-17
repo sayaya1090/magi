@@ -22,12 +22,12 @@ import (
 type Edit struct{}
 
 type editArgs struct {
-	Path       string `json:"path"`
-	Old        string `json:"old"`
-	New        string `json:"new"`
-	At         string `json:"at"`
-	To         string `json:"to"`
-	ReplaceAll bool   `json:"replaceAll"`
+	Path       string   `json:"path"`
+	Old        string   `json:"old"`
+	New        string   `json:"new"`
+	At         string   `json:"at"`
+	To         string   `json:"to"`
+	ReplaceAll flexBool `json:"replaceAll"`
 }
 
 func (Edit) Name() string { return "edit" }
@@ -79,7 +79,7 @@ func (Edit) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		return applyAnchoredEdit(string(data), a, abs), nil
 	}
 
-	updated, note, eerr := applyEdit(string(data), a.Old, a.New, a.ReplaceAll)
+	updated, note, eerr := applyEdit(string(data), a.Old, a.New, bool(a.ReplaceAll))
 	if eerr != nil {
 		return errResult("", eerr.Error()), nil
 	}

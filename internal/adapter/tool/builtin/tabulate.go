@@ -28,7 +28,7 @@ type tabArgs struct {
 	Op         string     `json:"op"`
 	Delimiter  string     `json:"delimiter"`
 	Filter     *tabFilter `json:"filter"`
-	SkipHeader bool       `json:"skip_header"`
+	SkipHeader flexBool   `json:"skip_header"`
 }
 
 func (Tabulate) Name() string { return "tabulate" }

@@ -18,6 +18,22 @@ import (
 // bounds and positions, never the point of the call.
 type flexInt int
 
+// flexBool is a boolean tool argument with the same tolerance rationale as
+// flexInt: weak models emit "true"/"false" (and occasionally 1/0) where the
+// schema says boolean, and a strict bool rejected the whole call over it.
+// Junk falls back to false (= the field's unset/default semantics).
+type flexBool bool
+
+func (v *flexBool) UnmarshalJSON(b []byte) error {
+	switch strings.ToLower(strings.TrimSpace(strings.Trim(string(b), `"`))) {
+	case "true", "yes", "on", "1":
+		*v = true
+	default:
+		*v = false // false, junk, null — all mean "not set"
+	}
+	return nil
+}
+
 func (v *flexInt) UnmarshalJSON(b []byte) error {
 	s := strings.TrimSpace(strings.Trim(string(b), `"`))
 	s = strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(s, "sec"), "s"))

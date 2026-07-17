@@ -22,9 +22,9 @@ type multiEditArgs struct {
 }
 
 type editHunk struct {
-	Old        string `json:"old"`
-	New        string `json:"new"`
-	ReplaceAll bool   `json:"replaceAll"`
+	Old        string   `json:"old"`
+	New        string   `json:"new"`
+	ReplaceAll flexBool `json:"replaceAll"`
 }
 
 func (MultiEdit) Name() string { return "multiedit" }
@@ -75,7 +75,7 @@ func (MultiEdit) Execute(ctx context.Context, raw json.RawMessage, env port.Tool
 			skipped++
 			continue
 		}
-		updated, _, eerr := applyEdit(content, h.Old, h.New, h.ReplaceAll)
+		updated, _, eerr := applyEdit(content, h.Old, h.New, bool(h.ReplaceAll))
 		if eerr != nil {
 			return errResult("", fmt.Sprintf("edit %d: %s", i+1, eerr.Error())), nil
 		}
