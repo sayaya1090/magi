@@ -596,3 +596,33 @@ func TestVolatileContextStepEstimate(t *testing.T) {
 		t.Fatal("absurd estimate should not overwrite")
 	}
 }
+
+// TestVolatileContextShowsCriteria: the completion criteria the plan council derived (and
+// the termination council will judge against) are shown to the WORKING agent each step —
+// the worker must see the contract it is judged by, or a long run optimizes a proxy
+// (observed: 20 builds, one testsuite run, in a turn graded by the testsuite). Off-flag
+// restores the judge-only baseline.
+func TestVolatileContextShowsCriteria(t *testing.T) {
+	a := &App{states: map[session.SessionID]*sessionState{
+		"s1": {criteria: "- the OCaml testsuite reports 40 tests passed"},
+	}}
+	s := session.Session{ID: "s1"}
+	out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, nil, 0, 0, 0)
+	if !strings.Contains(out, "# Completion criteria") || !strings.Contains(out, "40 tests passed") {
+		t.Fatalf("criteria should reach the working agent's context, got %q", out)
+	}
+
+	t.Setenv("MAGI_CRITERIA_CONTEXT", "0")
+	if out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, nil, 0, 0, 0); strings.Contains(out, "# Completion criteria") {
+		t.Fatalf("off flag must restore the judge-only baseline, got %q", out)
+	}
+}
+
+// A session with no cached criteria adds no empty header.
+func TestVolatileContextNoCriteriaNoHeader(t *testing.T) {
+	a := &App{}
+	s := session.Session{ID: "s1"}
+	if out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, nil, 0, 0, 0); strings.Contains(out, "# Completion criteria") {
+		t.Fatalf("no criteria → no header, got %q", out)
+	}
+}

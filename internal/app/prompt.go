@@ -174,6 +174,16 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 				"before continuing.", est))
 		}
 	}
+	// Completion criteria (D15/D17): the plan council derives these from the task and
+	// the TERMINATION council judges the finished work against them — show the same
+	// contract to the working agent, so a long run iterates toward the actual
+	// done-conditions instead of a cheap proxy (a build that compiles is not a test
+	// that passes). Cached per session → byte-stable within a turn (KV-cache friendly).
+	if criteriaContextEnabled() {
+		if crit := a.cachedCriteria(s.ID); crit != "" {
+			b.WriteString("\n\n# Completion criteria\nThe finished work will be judged against these — verify against them directly, not a weaker proxy:\n" + crit)
+		}
+	}
 	if td := a.Todos(s.ID); len(td) > 0 {
 		b.WriteString("\n\n# Current plan (TODOs)\n" + formatTodos(td))
 	}

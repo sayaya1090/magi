@@ -211,3 +211,14 @@ func execExemptEnabled() bool { return !envOff("MAGI_GUARD_EXEC_EXEMPT") }
 // progressSinceNudge=true and restarts the window, so a post-nudge edit re-arms normally). Default
 // ON; MAGI_STALL_CONVERGE=0 restores the fixed maxStallNudges re-arm.
 func stallConvergeEnabled() bool { return !envOff("MAGI_STALL_CONVERGE") }
+
+// criteriaContextEnabled gates showing the session's completion criteria to the WORKING
+// agent in every step's volatile context. The criteria already exist — the plan council
+// derives them from the task and stores them (storePlanCriteria) — but their only consumer
+// was the termination council, which judges the FINISHED work against them. The worker
+// never saw the contract it would be judged by, so a long run could optimize a cheap
+// proxy the whole way (observed: 20 `make`s and ONE testsuite run in a 3-hour turn whose
+// grading criterion was the testsuite). Showing the judge's own contract to the worker is
+// self-derived wiring, not external information. Default ON; MAGI_CRITERIA_CONTEXT=0
+// restores the judge-only baseline for A/B.
+func criteriaContextEnabled() bool { return !envOff("MAGI_CRITERIA_CONTEXT") }
