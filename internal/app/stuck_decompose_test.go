@@ -244,3 +244,34 @@ func TestRedecomposeStuckAllUnitsFailedSkipsMonolith(t *testing.T) {
 		t.Error("whole-task fallback must be skipped after an attempted decomposition failed every unit")
 	}
 }
+
+// A NOVEL inspect-only command after a stalled nudge counts as responding to the
+// redirect (the agent demonstrably changed direction), so the D18a convergence must
+// not collapse the nudge budget; a REPEATED inspection or the off-flag keeps the
+// exercising-only baseline. Deliverable-exercise accounting is untouched either way.
+func TestStallNoveltyCountsNovelInspection(t *testing.T) {
+	g := newRunGuard()
+	g.progressSinceNudge = false
+	// cat/ls are the true inspect-only class (grep/find are already exercising-class
+	// and get novelty credit on the other branch).
+	g.noteBashExec(`cat runtime/shared_heap.c`, true) // novel inspection
+	if !g.progressSinceNudge {
+		t.Fatal("a novel inspection must count as responding to the nudge")
+	}
+	if g.execSinceMut != 0 {
+		t.Fatal("inspection must not count as exercising the deliverable")
+	}
+
+	g2 := newRunGuard()
+	g2.noteBashExec(`cat runtime/shared_heap.c`, false) // seen before
+	if g2.progressSinceNudge {
+		t.Fatal("a repeated inspection is head-banging, not a response")
+	}
+
+	t.Setenv("MAGI_STALL_NOVELTY", "0")
+	g3 := newRunGuard()
+	g3.noteBashExec(`ls -la runtime`, true)
+	if g3.progressSinceNudge {
+		t.Fatal("off flag must restore the exercising-only baseline")
+	}
+}

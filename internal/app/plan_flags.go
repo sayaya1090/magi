@@ -222,3 +222,15 @@ func stallConvergeEnabled() bool { return !envOff("MAGI_STALL_CONVERGE") }
 // self-derived wiring, not external information. Default ON; MAGI_CRITERIA_CONTEXT=0
 // restores the judge-only baseline for A/B.
 func criteriaContextEnabled() bool { return !envOff("MAGI_CRITERIA_CONTEXT") }
+
+// stallNoveltyEnabled gates counting a NOVEL inspect-only command (a first-seen
+// fingerprint — a new grep pattern, a new file listed) as "the agent responded to the
+// stalled nudge", so the D18a convergence only collapses the nudge budget when the
+// post-nudge window repeats already-seen fingerprints — true head-banging. Observed
+// without it: an agent told to "take a different action" pivoted through eleven
+// distinct novel searches and was force-stopped mid-pivot as if it had ignored the
+// redirect, with three quarters of its budget unspent. The hard bound is unchanged:
+// after maxStallNudges spent, a further windowful of anything-but-mutation still
+// lands the honest stall. Default ON; MAGI_STALL_NOVELTY=0 restores the
+// exercising-only baseline.
+func stallNoveltyEnabled() bool { return !envOff("MAGI_STALL_NOVELTY") }

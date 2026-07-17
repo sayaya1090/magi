@@ -376,9 +376,16 @@ func TestNoteBashExecNovelty(t *testing.T) {
 	if g.execSinceMut != 2 {
 		t.Fatalf("execSinceMut must still count every exercise, got %d", g.execSinceMut)
 	}
-	g.noteBashExec("ls -la", true) // inspect-only → neither motion nor exec
+	// A NOVEL inspection now counts as responding to the redirect (MAGI_STALL_NOVELTY,
+	// default ON) but is still not an exercise; a repeated inspection moves neither.
+	g.noteBashExec("ls -la", true)
+	if !g.progressSinceNudge || g.execSinceMut != 2 {
+		t.Fatalf("novel inspect-only: progress=%v exec=%d want true/2", g.progressSinceNudge, g.execSinceMut)
+	}
+	g.progressSinceNudge = false
+	g.noteBashExec("ls -la", false)
 	if g.progressSinceNudge || g.execSinceMut != 2 {
-		t.Fatalf("inspect-only must move neither, progress=%v exec=%d", g.progressSinceNudge, g.execSinceMut)
+		t.Fatalf("repeated inspect-only must move neither, progress=%v exec=%d", g.progressSinceNudge, g.execSinceMut)
 	}
 }
 

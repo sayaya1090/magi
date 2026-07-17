@@ -521,6 +521,17 @@ func (g *runGuard) noteBashWrite(cmd string) bool {
 // exercise as before (its unverifiedDeliverable semantics are unchanged).
 func (g *runGuard) noteBashExec(cmd string, novel bool) {
 	if isInspectOnly(cmd) {
+		// A NOVEL inspection is not deliverable progress, but it IS a response to the
+		// "take a different action" redirect: the agent demonstrably changed direction
+		// (a new grep pattern, a new file). Counting it keeps the D18a collapse for
+		// true head-banging (only already-seen fingerprints after the nudge) while a
+		// genuine pivot keeps its full nudge budget. execSinceMut is deliberately NOT
+		// bumped — inspection remains non-exercise for unverifiedDeliverable.
+		if novel && stallNoveltyEnabled() {
+			g.mu.Lock()
+			g.progressSinceNudge = true
+			g.mu.Unlock()
+		}
 		return
 	}
 	g.mu.Lock()

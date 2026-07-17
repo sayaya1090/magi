@@ -104,6 +104,21 @@ func (a *App) handleStuckGuard(ctx context.Context, tc turnCtx, turnTask string,
 	// flag precisely because only the decomposing recovery (small scoped units) breaks that
 	// spiral; with the flag off, "repeat" keeps its baseline behavior (force-stop below).
 	recoverable := kind == "stall" || (kind == "repeat" && stuckDecomposeEnabled())
+	// recoveryOutcome names why the run is stopping WITHOUT a successful recovery, and is
+	// carried into the stop message: a force-stopped run whose recovery silently declined
+	// (spawn cap, planner failure, wait-stall, already used) was otherwise undiagnosable
+	// from the transcript — the forensics had to guess. One word each, greppable.
+	recoveryOutcome := "not-attempted"
+	switch {
+	case !recoverable:
+		recoveryOutcome = "repeat-not-recoverable (MAGI_STUCK_DECOMPOSE off)"
+	case ts.recovered:
+		recoveryOutcome = "already-used-this-run"
+	case !a.planEligible(agent, depth):
+		recoveryOutcome = "plan-ineligible"
+	case waitGuardEnabled() && guard.stallIsWait():
+		recoveryOutcome = "wait-stall (a fresh child cannot speed an external wait)"
+	}
 	if recoverable && !ts.recovered && a.planEligible(agent, depth) &&
 		!(waitGuardEnabled() && guard.stallIsWait()) {
 		task := a.turnTaskOr(turnTask, sid, evs)
@@ -121,6 +136,7 @@ func (a *App) handleStuckGuard(ctx context.Context, tc turnCtx, turnTask string,
 			}
 			return false, false // recovered → keep looping
 		}
+		recoveryOutcome = "attempted-but-failed (planner or child spawn declined)"
 	}
 	if guard.mutationEpoch() > 0 {
 		// Delivered-but-spinning: finish cleanly (TurnFinished → exit 0) with the work as-is.
@@ -138,6 +154,7 @@ func (a *App) handleStuckGuard(ctx context.Context, tc turnCtx, turnTask string,
 	if kind == "spin" {
 		msg, code = "stopped: repeated completion-banner spin without ending the turn (spin guard)", "spin_guard"
 	}
+	msg += "; recovery: " + recoveryOutcome
 	d, _ := json.Marshal(event.ErrorData{Message: msg, Code: code})
 	a.appendFact(ctx, sid, event.TypeError, event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)
 	return true, false
