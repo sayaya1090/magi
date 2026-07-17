@@ -4,12 +4,10 @@ package main
 
 import (
 	"context"
-	"embed"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"os/exec"
 	"os/user"
@@ -17,7 +15,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -42,11 +39,8 @@ import (
 	coremodel "github.com/sayaya1090/magi/internal/core/model"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
-	"github.com/sayaya1090/magi/internal/prompt"
 	"github.com/sayaya1090/magi/internal/update"
-	pluginupd "github.com/sayaya1090/magi/internal/update/plugin"
 	"github.com/sayaya1090/magi/internal/version"
-	"github.com/sayaya1090/magi/plugins"
 )
 
 // ghOwner/ghRepo identify the release repository for self-update.
@@ -129,46 +123,6 @@ func runCoreUpdate() int {
 	} else {
 		fmt.Println(res.Skipped)
 	}
-	return 0
-}
-
-// runPluginUpdates fast-forwards every managed (git) plugin found under the plugin
-// roots. Non-git plugins are reported as skipped, never mutated.
-func runPluginUpdates(extra string) int {
-	wd, err := os.Getwd()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "magi: getwd:", err)
-		return 1
-	}
-	roots := pluginDirs(platform.New(), wd, extra)
-	managed := pluginupd.Discover(roots)
-	if len(managed) == 0 {
-		fmt.Println("no plugins found")
-		return 0
-	}
-	for _, m := range managed {
-		res := pluginupd.UpdateOne(context.Background(), m)
-		switch {
-		case res.Skipped != "":
-			fmt.Printf("· %s: %s\n", res.Name, res.Skipped)
-		case res.Updated:
-			fmt.Printf("✓ %s: %s → %s\n", res.Name, res.From, res.To)
-		default:
-			fmt.Printf("· %s: up to date\n", res.Name)
-		}
-	}
-	return 0
-}
-
-// runPluginInstall clones a plugin from a git URL into the user plugins dir.
-func runPluginInstall(url, pin string) int {
-	dest := filepath.Join(platform.New().ConfigDir(), "plugins")
-	m, err := pluginupd.Install(context.Background(), url, pin, dest)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "magi: plugin install:", err)
-		return 1
-	}
-	fmt.Printf("installed %s %s → %s\n", m.Name, m.Version, m.Dir)
 	return 0
 }
 
@@ -1069,20 +1023,6 @@ func truncate(s string, n int) string {
 	return s[:n] + "…"
 }
 
-// pluginDirs returns the directories scanned for plugins, in priority order:
-// the global config dir, a project-local .magi/plugins, and an optional
-// explicit --plugins directory.
-func pluginDirs(plat *platform.OS, workdir, extra string) []string {
-	dirs := []string{
-		filepath.Join(plat.ConfigDir(), "plugins"),
-		filepath.Join(workdir, ".magi", "plugins"),
-	}
-	if extra != "" {
-		dirs = append(dirs, extra)
-	}
-	return dirs
-}
-
 // councilSignals builds the council's deterministic signal list: the `verify`
 // shorthand (named "verify") first, then any [[council.signal]] entries.
 func councilSignals(cc config.CouncilConfig) []app.CouncilSignalSpec {
@@ -1240,157 +1180,6 @@ func defaultAgents() map[string]app.AgentSpec {
 	}
 }
 
-// promptFunc adapts tui.RunPrompt to the prompt.Prompter interface the plugin
-// host expects.
-type promptFunc func(prompt.Spec) (map[string]any, error)
-
-func (f promptFunc) Ask(s prompt.Spec) (map[string]any, error) { return f(s) }
-
-// routePersister writes /route editor edits back to the global config.toml,
-// preserving its comments, so per-agent routing and the session model survive
-// restarts.
-// permPersister appends "always allow (project)" rules to the project config
-// (.magi/config.toml), which teams commit — so a trusted tool stays trusted for
-// everyone across sessions. The directory is created on first use.
-type permPersister struct{ path string }
-
-func (p permPersister) PersistAllow(rule string) error {
-	if err := os.MkdirAll(filepath.Dir(p.path), 0o755); err != nil {
-		return err
-	}
-	return config.AppendListItem(p.path, "allow", rule)
-}
-
-// modelSetter adapts App's model-configuration methods to the plugin host's
-// ModelRegistry: SetModel (fire-and-forget — applies to the live session and
-// best-effort persists) and SetContextWindow (returns a note we discard and an
-// error we surface). Both close over the current session id.
-type modelSetter struct {
-	setModel  func(string)
-	setWindow func(model string, tokens int) error
-}
-
-func (m modelSetter) SetModel(modelID string) error { m.setModel(modelID); return nil }
-
-func (m modelSetter) SetContextWindow(modelID string, tokens int) error {
-	return m.setWindow(modelID, tokens)
-}
-
-// userLabelSetter adapts App.SetUserLabel (fire-and-forget: applies to the live
-// session and broadcasts) to the plugin host's UserLabelRegistry.
-type userLabelSetter struct{ set func(string) }
-
-func (u userLabelSetter) SetUserLabel(label string) { u.set(label) }
-
-// loadDoctorProbes builds a throwaway plugin host that loads every plugin far
-// enough to collect its -doctor probes, but deliberately does NOT fire the
-// startup lifecycle — so a diagnostic run never triggers a plugin's interactive
-// auth or network flow. Probes register at plugin load time (top-level chunk)
-// and are self-contained by contract (they read a persistent store), so load is
-// all that's needed. The host and its plugins are abandoned when -doctor returns
-// and the process exits. Optional registries left nil (ContextReg/ModelReg/
-// UserReg/Prompter) are guarded by the bridge, so a plugin calling them at load
-// time simply fails to load and drops out of the report — it cannot hang -doctor.
-//
-// ConfigPath/DataDir point at the real store on purpose: a probe checks live
-// state (e.g. store_get on a cached auth token), which needs genuine read access.
-// That also gives a load-time write (set_config_key/store_set) reach to the real
-// store — but such a plugin does strictly more at its normal startup, which this
-// path skips, so -doctor is never the wider surface.
-// doctorSink discards what a plugin registers through the OPTIONAL registries so
-// a plugin that touches them at load time (register_context_provider, set_model,
-// set_user_label) still LOADS in the -doctor host exactly as it does in a normal
-// run. Leaving those registries nil made such a plugin fail to load and silently
-// drop out of -doctor together with its probes — the report lied by omission.
-type doctorSink struct{}
-
-func (doctorSink) RegisterContextProvider(port.ContextProvider) {}
-func (doctorSink) SetModel(string) error                        { return nil }
-func (doctorSink) SetContextWindow(string, int) error           { return nil }
-func (doctorSink) SetUserLabel(string)                          {}
-
-// It also returns one check per scanned plugin source (and per load failure), so
-// -doctor shows WHY a plugin's probes are absent — a skipped directory or a load
-// error used to leave no trace, making a missing plugin undiagnosable.
-func loadDoctorProbes(cfg config.Config, plat *platform.OS, wd, pluginsDir string, llm *openai.Client) ([]port.DoctorProbe, []doctorCheck) {
-	reg := builtin.Default()
-	host := pluginlua.NewHostWithConfig(pluginlua.HostConfig{
-		ToolSink:      reg,
-		MCPMgr:        mcp.NewManager(reg),
-		LLMReg:        llm,
-		BaseReg:       llm,
-		PluginConfigs: cfg.Plugins,
-		ConfigPath:    filepath.Join(plat.ConfigDir(), "config.toml"),
-		DataDir:       plat.ConfigDir(),
-		// Discard-only registries: a plugin that registers a context provider or
-		// sets model/user state at LOAD time must still load here exactly as it
-		// does in a normal run — with these nil it failed to load and its probes
-		// silently vanished from the report (observed live with engram).
-		ContextReg: doctorSink{},
-		ModelReg:   doctorSink{},
-		UserReg:    doctorSink{},
-		Logf:       pluginLogf(),
-		Runtime: pluginlua.RuntimeInfo{
-			Model:    cfg.Model,
-			Platform: runtime.GOOS,
-			Workdir:  wd,
-		},
-	})
-	var report []doctorCheck
-	for _, dir := range pluginDirs(plat, wd, pluginsDir) {
-		loaded, errs := host.LoadDir(context.Background(), dir)
-		switch {
-		case len(loaded) > 0:
-			report = append(report, doctorCheck{Name: "plugins", Status: "ok",
-				Detail: dir + " → " + strings.Join(loaded, ", ")})
-		case len(errs) == 0:
-			report = append(report, doctorCheck{Name: "plugins", Status: "info",
-				Detail: dir + " → none (directory absent or empty)"})
-		}
-		for _, err := range errs {
-			report = append(report, doctorCheck{Name: "plugins", Status: "fail",
-				Detail: dir + " → load error: " + err.Error()})
-		}
-	}
-	// Embedded plugins register doctor probes too, and the normal path loads them
-	// via this same helper — without it, a bundled plugin's probes silently never
-	// appear in -doctor (the throwaway host only scanned the on-disk dirs).
-	before := len(host.DoctorProbes())
-	loadEmbeddedPlugins(host, plat, cfg)
-	if n := len(host.DoctorProbes()) - before; n > 0 {
-		report = append(report, doctorCheck{Name: "plugins", Status: "ok",
-			Detail: fmt.Sprintf("embedded → %d doctor probe(s)", n)})
-	}
-	return host.DoctorProbes(), report
-}
-
-type routePersister struct{ path string }
-
-func (r routePersister) PersistRoute(agent, value string) error {
-	return config.SetKey(r.path, "routing", agent, value)
-}
-func (r routePersister) PersistModel(modelID string) error {
-	return config.SetKey(r.path, "", "model", modelID)
-}
-func (r routePersister) PersistProfile(p app.ProfileDef) error {
-	sec := "llm.profiles." + p.Name
-	if err := config.SetKey(r.path, sec, "base_url", p.BaseURL); err != nil {
-		return err
-	}
-	if err := config.SetKey(r.path, sec, "api_key", p.APIKey); err != nil {
-		return err
-	}
-	if err := config.SetKey(r.path, sec, "model", p.Model); err != nil {
-		return err
-	}
-	for k, v := range p.Headers {
-		if err := config.SetKey(r.path, sec+".headers", k, v); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // profileDefs converts config profiles into app.ProfileDef (raw values; ${ENV}
 // is expanded when the provider is built).
 func profileDefs(profiles map[string]config.LLMProfile) map[string]app.ProfileDef {
@@ -1437,126 +1226,12 @@ func profileModels(profiles map[string]config.LLMProfile) map[string]string {
 	return m
 }
 
-// planDepthFromEnv reads MAGI_MAX_PLAN_DEPTH as the recursive-planner depth cap. It exists
-// so the benchmark harness (which runs `magi -p` with no config.toml) can toggle recursion
-// without a rebuild: depth 2 = full recursion, depth 1 = top-level plan + single-level
-// delegate but no child re-planning or failure-recursion. Unset/invalid → 0, which lets the
-// app apply its default of 2. Negative values are ignored.
-// loadEmbeddedPlugins loads plugins compiled into the binary, so a binary-only
-// install (brew / install.sh) can enable them with a config switch. Each is
-// OPT-IN ([plugins.<name>] enabled = true — they may spend LLM tokens or write
-// workspace files), a user-installed plugin of the same name wins, and the
-// materialized copy under <config>/plugins-embedded/ is overwritten every start
-// so it always tracks the binary's version (updates ride magi --update).
-func loadEmbeddedPlugins(host *pluginlua.Host, plat *platform.OS, cfg config.Config) {
-	if strings.EqualFold(os.Getenv("MAGI_EMBEDDED_PLUGINS"), "off") {
-		return // global kill switch for automation/bench (measurement must not shift)
-	}
-	for name, ep := range plugins.Embedded {
-		enabled := ep.DefaultOn
-		if v, ok := cfg.Plugins[name]["enabled"]; ok {
-			if b, isB := v.(bool); isB {
-				enabled = b // an explicit config bool always wins
-			}
-		}
-		if !enabled {
-			continue
-		}
-		if host.Has(name) {
-			continue // a user-installed plugin of the same name won
-		}
-		dir := filepath.Join(plat.ConfigDir(), "plugins-embedded", name)
-		if err := materializeEmbedded(ep.FS, name, dir); err != nil {
-			fmt.Fprintf(os.Stderr, "embedded plugin %s: %v\n", name, err)
-			continue
-		}
-		if _, err := host.Load(context.Background(), dir); err != nil {
-			fmt.Fprintf(os.Stderr, "embedded plugin %s failed to load: %v\n", name, err)
-		}
-	}
-}
-
-// materializeEmbedded copies every embedded file under <name>/ (subdirectories
-// included — a plugin may bundle scripts/references) into dir, overwriting.
-func materializeEmbedded(pfs embed.FS, name, dir string) error {
-	return fs.WalkDir(pfs, name, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, rerr := filepath.Rel(name, path)
-		if rerr != nil || rel == "." {
-			return nil
-		}
-		dst := filepath.Join(dir, rel)
-		if d.IsDir() {
-			return os.MkdirAll(dst, 0o755)
-		}
-		b, rerr := pfs.ReadFile(path)
-		if rerr != nil {
-			return rerr
-		}
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return err
-		}
-		return os.WriteFile(dst, b, 0o644)
-	})
-}
-
 // osUsername resolves the login user for plugin runtime info ("" if unknown).
 func osUsername() string {
 	if u, err := user.Current(); err == nil && u.Username != "" {
 		return filepath.Base(u.Username) // strip a DOMAIN\ prefix on Windows
 	}
 	return os.Getenv("USER")
-}
-
-// pluginLogf returns the plugin host's log sink: silent by default (plugin
-// chatter must not pollute the TUI/headless stdout), stderr with MAGI_DEBUG=1
-// so a misbehaving plugin (or a silently-failing observer) is diagnosable.
-func pluginLogf() func(string) {
-	if os.Getenv("MAGI_DEBUG") == "" {
-		return nil // NewHostWithConfig defaults to a no-op
-	}
-	return func(s string) { fmt.Fprintln(os.Stderr, "[plugin] "+s) }
-}
-
-// pluginObserver forwards app conversation milestones to the plugin host's
-// observation events. Late-bound: the app is constructed before the host, so
-// the host pointer lands via bind(); events before that (none in practice —
-// the first turn starts after plugin load) are dropped.
-type pluginObserver struct {
-	host atomic.Pointer[pluginlua.Host]
-}
-
-func (o *pluginObserver) bind(h *pluginlua.Host) { o.host.Store(h) }
-
-func (o *pluginObserver) UserMessage(sid, text string) {
-	if h := o.host.Load(); h != nil {
-		if os.Getenv("MAGI_DEBUG") != "" {
-			fmt.Fprintf(os.Stderr, "[observer] user_message sid=%s len=%d\n", sid, len(text))
-		}
-		h.FireEventWith("user_message", map[string]string{"session": sid, "text": text})
-	}
-}
-
-func (o *pluginObserver) TurnFinished(sid string, ob app.TurnObservation) {
-	if h := o.host.Load(); h != nil {
-		if os.Getenv("MAGI_DEBUG") != "" {
-			fmt.Fprintf(os.Stderr, "[observer] turn_finished sid=%s outcome=%s skills=%v len=%d\n",
-				sid, ob.Outcome, ob.SkillsLoaded, len(ob.FinalText))
-		}
-		h.FireEventWith("turn_finished", map[string]string{
-			"session": sid, "text": ob.FinalText, "outcome": ob.Outcome, "reason": ob.Reason,
-			"skills": strings.Join(ob.SkillsLoaded, ","), "user": ob.UserLabel,
-		})
-	}
-}
-
-// WantsTurnFinished lets the app skip the per-turn store scan when no loaded
-// plugin actually listens for turn_finished.
-func (o *pluginObserver) WantsTurnFinished() bool {
-	h := o.host.Load()
-	return h != nil && h.HasEventHandlers("turn_finished")
 }
 
 // sidecarAnalyzer implements the plugin host's Analyzer (magi.analyze): a
