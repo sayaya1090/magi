@@ -179,7 +179,8 @@ in `loop.go` calls into them each step):
   build/test fingerprints the same way an edit-tool fix does. A blocked repeat echoes the
   earlier result.
 - **decomposing stuck recovery** (`redecomposeStuck` → `driveStuckTodos`,
-  `MAGI_STUCK_DECOMPOSE`, default on): when a plan-eligible turn is force-stopped stuck
+  `MAGI_STUCK_DECOMPOSE`, default OFF — a remote-bench bisect showed the mid-build
+  re-plan burning the wall clock; set =1 to re-enable): when a plan-eligible turn is force-stopped stuck
   (`stall`, or `repeat` when the flag is on), recovery re-plans the stuck task into an
   explicit TODO list and drives the units ONE AT A TIME — each unit in a child seeded with
   the **full parent conversation** (`CloneContext`, so it continues from what was already
@@ -362,7 +363,7 @@ in `loop.go` calls into them each step):
 **Consensus council gate (D14, the signature — `runCouncilGate`).** When `Config.Council`
 is set (ON by default; disable with `[council] enabled=false`), the finish branch (no tool calls, `depth==0`, not workflow
 mode) does NOT finish immediately: it convenes a **council** that votes done-vs-continue.
-- 3 default members (the MAGI): Melchior/spec-fidelity, Balthasar/verification,
+- 3 default members (the MAGI): Melchior/correctness, Balthasar/verification,
   Casper/completeness — theme-name labels, lens attributes, configurable via `[council]`.
 - Consensus is pure `core/council.Tally` (unanimous|majority|quorum:k|weighted:θ|veto);
   a tie/unmet-quorum/abstain-all/degenerate-param all resolve to **continue** (never

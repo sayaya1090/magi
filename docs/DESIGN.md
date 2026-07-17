@@ -324,7 +324,7 @@ type DeliberationRequest struct {
 // 없이 말빨로 done" 회귀를 막음 — [ok]/exit-0 자체는 증거 아님, 산출물을 보여야 함.
 type CouncilMember struct { // 테마명 라벨 + 렌즈 속성
     Name   string  // "Melchior" | "Balthasar" | "Casper"
-    Lens   string  // "spec-fidelity" | "verification" | "completeness" (legacy: "correctness")
+    Lens   string  // "correctness" | "verification" | "completeness" (대체 렌즈: "spec-fidelity")
     Model  string  // 빈값=세션 모델
     Weight float64
 }

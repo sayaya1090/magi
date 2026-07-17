@@ -38,7 +38,7 @@ you ▸ add a --dry-run flag to the deploy command
   … agent edits cmd/deploy.go, runs go build …
 
   ⚖ council · round 1
-     ● Melchior   [spec-fidelity] done    · 88%
+     ● Melchior   [correctness]   done    · 88%
      ● Balthasar  [verification]  reject  · 91%   → no test covers --dry-run
      ● Casper     [completeness]  done    · 80%
      → reject  (1 done / 2 continue)   feedback injected, loop continues
@@ -65,7 +65,7 @@ The three default members — the **MAGI** — each judge through a different le
 
 | Member | Lens | Asks |
 |---|---|---|
-| **Melchior** | `spec-fidelity` | Does the artifact match the task's LITERAL contract — exact names, values, formats, paths? A renamed field is a defect even when the work is otherwise sound. |
+| **Melchior** | `correctness` | Is the work correct? Edge cases, regressions? |
 | **Balthasar** | `verification` | Is there *evidence* it works — do build/tests pass? No claims on faith. |
 | **Casper** | `completeness` | Did it do everything the task asked? Nothing left unfinished? |
 
@@ -104,7 +104,7 @@ verify     = "go test ./..."   # a deterministic signal the council weighs each 
 # Customize the bench — or keep the MAGI default
 [[council.member]]
 name = "Melchior"
-lens = "spec-fidelity"
+lens = "correctness"
 # model / provider can route a member to a cheaper or stronger backend
 ```
 
