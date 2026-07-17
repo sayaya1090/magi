@@ -140,3 +140,38 @@ func maskingTailNote(exit int, command string) string {
 	}
 	return "[note: this command ends in a `|| …` tail that masks the primary command's exit code — this exit 0 is NOT evidence the primary command succeeded. Re-run without the tail if you need its true status.]"
 }
+
+// ephemeralShellState matches a command that mutates shell state with the intent
+// of it lasting — `export` / `source` as a command word. A bare VAR=val prefix is
+// NOT matched: it scopes the single command and models use it correctly all the
+// time (CGO_ENABLED=0 go build …); it's `export` that signals "for later".
+var ephemeralShellState = regexp.MustCompile(`(^|[;&|(]\s*)(export|source)\s`)
+
+// ephemeralNoted tracks, per session, whether the ephemeral-shell-state note has
+// already been delivered — it is a fact about the TOOL (every call is a fresh
+// shell), so once per session is enough; repeating it on every export would be
+// noise. Session-keyed like bgLaunched, process-lifetime.
+var ephemeralNoted = struct {
+	mu sync.Mutex
+	m  map[string]bool
+}{m: map[string]bool{}}
+
+// ephemeralEnvNote flags the FIRST successful command in a session that uses
+// export/source: shell state set in a bash call does not outlive it, and other
+// processes never see it. The live failure this teaches against: an agent "made
+// a binary available in the PATH" via `export PATH=… && sqlite3 …`, verified
+// through the same prefix, and landed a deliverable a fresh process could not
+// find — the whole task lost to a missing symlink. Advisory, once per session.
+func ephemeralEnvNote(exit int, command string, sid session.SessionID) string {
+	if exit != 0 || !ephemeralShellState.MatchString(command) {
+		return ""
+	}
+	ephemeralNoted.mu.Lock()
+	seen := ephemeralNoted.m[string(sid)]
+	ephemeralNoted.m[string(sid)] = true
+	ephemeralNoted.mu.Unlock()
+	if seen {
+		return ""
+	}
+	return "[note: shell state set in this call (export/source/cd) does NOT outlive it — every bash call starts a fresh shell, and other processes never see it. If something must stay available afterwards (a PATH entry, an env var, an activated environment), persist it in the filesystem — install or symlink the binary, write the config — and re-verify WITHOUT the in-call setup.]"
+}

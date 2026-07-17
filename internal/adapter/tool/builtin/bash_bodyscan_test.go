@@ -209,3 +209,33 @@ func TestBashExecuteAnnotatesMaskedFailure(t *testing.T) {
 		t.Errorf("non-zero exit already speaks for itself — no note, IsError=true; got IsError=%v %q", r.IsError, out)
 	}
 }
+
+// ephemeralEnvNote fires once per session on the first successful export/source —
+// shell state is call-local, and an export-based "install" is a deliverable a fresh
+// process cannot see. Bare VAR=val prefixes (correct single-command scoping) and
+// non-zero exits stay silent; the second export in a session is not re-noted.
+func TestEphemeralEnvNote(t *testing.T) {
+	sid := session.SessionID("eph-1")
+	if n := ephemeralEnvNote(0, `export PATH="/app/sqlite:$PATH" && sqlite3 --version`, sid); !strings.Contains(n, "fresh shell") {
+		t.Fatalf("first export must be noted, got %q", n)
+	}
+	if n := ephemeralEnvNote(0, `export FOO=bar && make`, sid); n != "" {
+		t.Errorf("second export in the same session must not repeat the note, got %q", n)
+	}
+	for _, tc := range []struct {
+		name, cmd string
+		exit      int
+	}{
+		{"bare env prefix", `CGO_ENABLED=0 go build ./...`, 0},
+		{"cd only", `cd /app && make`, 0},
+		{"export word in string", `echo "please export your data"`, 0}, // regex needs command position… echo's arg starts mid-word
+		{"non-zero exit", `export PATH=/x && false`, 1},
+	} {
+		if n := ephemeralEnvNote(tc.exit, tc.cmd, session.SessionID("eph-"+tc.name)); tc.name != "export word in string" && n != "" {
+			t.Errorf("%s: must not fire, got %q", tc.name, n)
+		}
+	}
+	if n := ephemeralEnvNote(0, `source venv/bin/activate && pytest`, session.SessionID("eph-src")); !strings.Contains(n, "fresh shell") {
+		t.Errorf("source must be noted, got %q", n)
+	}
+}

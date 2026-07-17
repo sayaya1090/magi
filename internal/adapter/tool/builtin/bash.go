@@ -133,6 +133,11 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 			// (`false || true` fails silently). Static on the command string, so it
 			// also catches failures that print nothing.
 			disp = note + "\n" + disp
+		} else if note := ephemeralEnvNote(exit, a.Command, env.SessionID); note != "" {
+			// First export/source of the session: teach that shell state does not
+			// outlive the call, before an ephemeral setup gets mistaken for a
+			// persistent deliverable (the PATH-export near-miss).
+			disp = note + "\n" + disp
 		}
 	}
 	res := okText("", fmt.Sprintf("exit %d\n%s", exit, disp))
