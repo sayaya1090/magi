@@ -275,3 +275,20 @@ func TestStallNoveltyCountsNovelInspection(t *testing.T) {
 		t.Fatal("off flag must restore the exercising-only baseline")
 	}
 }
+
+// The diverge clause reaches the planner's system prompt only when MAGI_DIVERGE is on:
+// under uncertainty the plan opens with competing hypotheses and cheap kill-probes
+// instead of committing everything to the first idea (the local-refinement lock).
+func TestDivergeClauseGated(t *testing.T) {
+	if !divergeEnabled() {
+		t.Fatal("default must be ON")
+	}
+	t.Setenv("MAGI_DIVERGE", "0")
+	if divergeEnabled() {
+		t.Fatal("=0 must disable")
+	}
+	if !strings.Contains(divergeClause, "DISTINCT candidate explanations") ||
+		!strings.Contains(divergeClause, "CONFIRM or KILL") {
+		t.Errorf("clause must demand competing hypotheses with kill-probes: %q", divergeClause)
+	}
+}

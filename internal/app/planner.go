@@ -357,6 +357,9 @@ func (a *App) injectAsyncExplorerNote(ctx context.Context, sid session.SessionID
 func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session, prompt, revise string, depth, maxSteps int, anchor string) planResult {
 	repoBlock := "# Repository (top level)\n" + repoMap(s.Workdir)
 	sys := spec.System + "\n\n" + repoBlock + "\n\n" + plannerContract + planEnvelope(depth, a.cfg.MaxPlanDepth, maxSteps)
+	if divergeEnabled() {
+		sys += divergeClause
+	}
 	if specFidelityEnabled() {
 		sys += literalRule
 	}

@@ -161,6 +161,20 @@ const noFabricate = "verify it yourself by actually running it, and report concr
 	"treat it as unverified — never invent or hand-write output, and never write a stand-in or placeholder file to " +
 	"make it look done; hiding the gap is worse than admitting it."
 
+// divergeClause (MAGI_DIVERGE, default ON) teaches the diverge→triage→commit shape for
+// problems whose CAUSE or APPROACH is genuinely uncertain: enumerate a few DISTINCT
+// candidate explanations first, kill the wrong ones with cheap decisive probes, then
+// commit the budget to the survivor. Counterweight to the observed local-refinement
+// lock: three bench post-mortems in a row spent the whole budget drilling variations
+// of the FIRST hypothesis while the winning fix lay on a neighboring axis nobody
+// re-examined. Appended to the planner contract at build time (plan_flags gate).
+const divergeClause = "\nWhen the CAUSE of a problem (or the right approach) is genuinely UNCERTAIN — a bug hunt, a " +
+	"root-cause diagnosis, a reverse-engineering question — do NOT commit the whole plan to your first hypothesis. " +
+	"Open with ONE step that lists 2-3 DISTINCT candidate explanations (different mechanisms, not variations of one " +
+	"idea) each with the cheapest observation that would CONFIRM or KILL it; run those probes (parallel/scout if " +
+	"read-only, solo otherwise); then commit the remaining steps to the surviving candidate. If work on the survivor " +
+	"later stalls, revisit the list and switch to the next candidate rather than iterating variations of a dead one.\n"
+
 // stuckRedecomposePrompt frames the solo-stuck recovery: the decompose instruction, the task,
 // and the specific wall the previous attempt hit (a stall reason or the council's last unmet
 // concern) so the child knows what to break through, then the delegate contract's self-verify

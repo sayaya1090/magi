@@ -234,3 +234,10 @@ func criteriaContextEnabled() bool { return !envOff("MAGI_CRITERIA_CONTEXT") }
 // lands the honest stall. Default ON; MAGI_STALL_NOVELTY=0 restores the
 // exercising-only baseline.
 func stallNoveltyEnabled() bool { return !envOff("MAGI_STALL_NOVELTY") }
+
+// divergeEnabled gates the planner's diverge→triage→commit clause (divergeClause in
+// plan_prompts.go): under uncertainty, enumerate distinct hypotheses and kill them with
+// cheap probes before committing the budget — breadth first, then depth. Model-facing
+// prompt text, so the bench (not intent) decides whether it stays; default ON,
+// MAGI_DIVERGE=0 restores the baseline planner contract.
+func divergeEnabled() bool { return !envOff("MAGI_DIVERGE") }
