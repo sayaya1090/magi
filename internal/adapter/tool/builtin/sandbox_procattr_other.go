@@ -31,3 +31,15 @@ func detachTTY(attr *syscall.SysProcAttr) *syscall.SysProcAttr {
 func killGroup(pid int) error {
 	return syscall.Kill(-pid, syscall.SIGKILL)
 }
+
+// signalGroup delivers a GRACEFUL signal (SIGINT/SIGTERM) to the whole process
+// group — the Ctrl-C affordance for a hung background command: unlike killGroup
+// the target gets to run its handlers/cleanup and print what it learned, which
+// the agent can then read with bash_output.
+func signalGroup(pid int, sig string) error {
+	s := syscall.SIGINT
+	if sig == "term" {
+		s = syscall.SIGTERM
+	}
+	return syscall.Kill(-pid, s)
+}

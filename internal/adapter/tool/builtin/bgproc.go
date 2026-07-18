@@ -357,14 +357,15 @@ type BashKill struct{}
 
 func (BashKill) Name() string { return "bash_kill" }
 func (BashKill) Description() string {
-	return "Stop a background command started with bash (background=true), by its id."
+	return "Stop a background command started with bash (background=true), by its id. Default is a hard stop. Set signal=\"int\" (Ctrl-C) or \"term\" for a GRACEFUL interrupt instead: the process gets to run its cleanup handlers and print what it knows — read that output with bash_output afterwards. Prefer signal=\"int\" first on a hung test/program you still want answers from; hard-kill only when it ignores the interrupt. (Unix only; on Windows use the default hard stop.)"
 }
 func (BashKill) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","description":"the background process id, e.g. bg_1"}},"required":["id"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","description":"the background process id, e.g. bg_1"},"signal":{"type":"string","enum":["int","term"],"description":"optional graceful signal (Ctrl-C equivalent); omit for the default hard stop"}},"required":["id"]}`)
 }
 func (BashKill) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
 	var a struct {
-		ID string `json:"id"`
+		ID     string `json:"id"`
+		Signal string `json:"signal"`
 	}
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return errResult("", "invalid arguments: "+err.Error()), nil
@@ -375,6 +376,16 @@ func (BashKill) Execute(ctx context.Context, raw json.RawMessage, env port.ToolE
 	p := bg.get(a.ID)
 	if p == nil {
 		return errResult("", "no such background process: "+a.ID), nil
+	}
+	if sig := strings.ToLower(strings.TrimSpace(a.Signal)); sig == "int" || sig == "term" {
+		// Graceful interrupt (the Ctrl-C affordance): deliver the signal and DON'T
+		// tear anything down — the process may handle it, print its cleanup, and
+		// exit on its own; the agent reads the outcome with bash_output. If it
+		// ignores the signal, a plain bash_kill still hard-stops it.
+		if err := signalGroup(p.pid, sig); err != nil {
+			return errResult("", "signal failed: "+err.Error()), nil
+		}
+		return okText("", "sent SIG"+strings.ToUpper(sig)+" to "+a.ID+" — check bash_output for its cleanup output; run bash_kill without signal if it doesn't exit"), nil
 	}
 	// Mark killed synchronously so an immediately following bash_output reports
 	// "[id killed]" instead of a stale "[id running]" until the reaper sets done.

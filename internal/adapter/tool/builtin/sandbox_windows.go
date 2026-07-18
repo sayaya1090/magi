@@ -3,6 +3,7 @@
 package builtin
 
 import (
+	"errors"
 	"syscall"
 	"unsafe"
 
@@ -74,4 +75,11 @@ func restrictedSelfToken() (windows.Token, error) {
 		return 0, e
 	}
 	return restricted, nil
+}
+
+// signalGroup has no POSIX equivalent on Windows: there is no process-group
+// SIGINT/SIGTERM to deliver from outside a console. Callers surface this as a
+// friendly error; the hard bash_kill path (context cancel) still works.
+func signalGroup(pid int, sig string) error {
+	return errors.New("graceful signals are not supported on Windows — use bash_kill without signal (hard stop)")
 }
