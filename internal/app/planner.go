@@ -357,7 +357,13 @@ func (a *App) injectAsyncExplorerNote(ctx context.Context, sid session.SessionID
 func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session, prompt, revise string, depth, maxSteps int, anchor string) planResult {
 	repoBlock := "# Repository (top level)\n" + repoMap(s.Workdir)
 	sys := spec.System + "\n\n" + repoBlock + "\n\n" + plannerContract + planEnvelope(depth, a.cfg.MaxPlanDepth, maxSteps)
-	if divergeEnabled() {
+	// Diverge only on RE-plans: an audit revision (revise != "") or a stuck-recovery
+	// decompose (anchor != "" — those callers pass the task as the anchor). The three
+	// post-mortems that motivated the clause were all about switching axes AFTER a
+	// first approach stalled; on a FIRST plan the clause only inflated clear-approach
+	// plans (heavier steps, extra audit rejections — observed on extract-elf), so the
+	// initial plan keeps the baseline contract.
+	if divergeEnabled() && (strings.TrimSpace(revise) != "" || strings.TrimSpace(anchor) != "") {
 		sys += divergeClause
 	}
 	if specFidelityEnabled() {
