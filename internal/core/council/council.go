@@ -150,8 +150,13 @@ func DefaultMembers() []Member {
 // Lenses maps each lens to a one-line description of what that member judges.
 // Pure data, reused by the adapter to build each member's system prompt.
 var Lenses = map[string]string{
-	"correctness":  "Is the work correct? Consider edge cases and regressions.",
-	"verification": "Is there evidence it works (build/tests pass)? Don't accept claims without proof.",
+	"correctness": "Is the work correct? Consider edge cases and regressions.",
+	"verification": "Is there evidence it works (build/tests pass)? Don't accept claims without proof. " +
+		"When the task's acceptance involves an EXTERNAL event — a signal (Ctrl-C/SIGINT), a kill, a " +
+		"disconnect, a restart — demand evidence that the event was delivered for REAL (a subprocess " +
+		"receiving the actual signal), not simulated in-process (raising the exception by hand): the " +
+		"delivery semantics differ, and a handler that only fires in the simulation is dead code in " +
+		"the real scenario. No real-delivery evidence → not done.",
 	"completeness": "Did it do everything the task/plan asked for? Nothing left unfinished.",
 }
 
