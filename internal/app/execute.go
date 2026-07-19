@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/artifact"
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -204,7 +205,15 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 
 	tool, ok := a.tools.Get(tc.Name)
 	if !ok {
-		a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID, "unknown tool: "+tc.Name, true)
+		// A bare "unknown tool" reply gets retried verbatim: models carry other
+		// harnesses' tool names as priors (todo_write, run) and, told only that the
+		// name is unknown, guess the same name again — observed 4 identical
+		// todo_write calls in one run, each a full round trip on a slow model.
+		// Name the actual roster (and the todo special case) so one rejection
+		// converts to a correct next call instead of another guess.
+		a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID,
+			"unknown tool: "+tc.Name+". Available tools: "+strings.Join(a.ToolNames(), ", ")+
+				". There is no todo/plan tool — the plan is tracked automatically; just do the work.", true)
 		return
 	}
 	// For a file edit, snapshot the file's content BEFORE the tool runs so the council can
