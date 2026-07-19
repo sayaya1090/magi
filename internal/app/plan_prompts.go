@@ -70,7 +70,14 @@ const specFidelityNote = "# Execution note — spec fidelity\n" +
 	"`value`, keep it `value`, do not shorten it to `val`). This rule is about NAMES and FORMATS, " +
 	"not implementation structure: do not transplant the request's prose vocabulary into code " +
 	"constructs (a request mentioning an event or exception does not mean code must catch or name " +
-	"that exact token somewhere) — satisfy such requirements by BEHAVIOR, not by echoing the wording."
+	"that exact token somewhere) — satisfy such requirements by BEHAVIOR, not by echoing the wording.\n" +
+	"Identifiers cut BOTH ways: beyond preserving them, MINE them. The request's names and type " +
+	"signatures are compressed spec — a parameter's type constrains what its values (and their " +
+	"lifecycles) can be, and a name like `max_*` states an exact bound — so derive requirements from " +
+	"them that the prose leaves unsaid. Then implement the situation they describe with the domain's " +
+	"STANDARD idiom — the construct the language or stdlib built for exactly that job — rather than " +
+	"hand-assembling the mechanism from lower-level parts: the idiom already handles the edge " +
+	"semantics (ordering, cancellation, partial failure) a hand-rolled version quietly drops."
 
 // checkpointFirstNote is injected into the MAIN session before execution when
 // checkpointFirstEnabled(): a test-first ordering directive. It fires on the same seam
