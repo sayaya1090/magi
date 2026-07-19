@@ -240,6 +240,17 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth, 
 	if checkpointFirstEnabled() {
 		_ = a.appendPromptText(ctx, s.ID, event.Actor{Kind: event.ActorSystem, ID: "planner"}, checkpointFirstNote)
 	}
+	// Signature mining as a dedicated STEP, not a clause: a weak executor follows "mine
+	// the signatures" poorly when it is one instruction among many, but consumes a
+	// completed conclusion well. The side call runs once here (plan seam, before any
+	// step executes); its output lands as a finished note. Best-effort — an empty or
+	// failed elicitation injects nothing.
+	if specMineEnabled() {
+		a.emitToolProgress(s.ID, plannerActor, "", "planner", "mining the request's identifiers/types…")
+		if mined := a.elicitSpecMine(ctx, spec, s, prompt); mined != "" {
+			_ = a.appendPromptText(ctx, s.ID, event.Actor{Kind: event.ActorSystem, ID: "planner"}, specMineNote(mined))
+		}
+	}
 
 	// Async explorer preflight: a top-level plan with NO write step is pure investigation.
 	// Dispatch its explorers to the BACKGROUND instead of blocking here, so the orchestrator

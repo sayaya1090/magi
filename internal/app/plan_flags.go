@@ -64,6 +64,15 @@ func adaptDisabled() bool { return envOff("MAGI_ADAPT") }
 // baseline (the A/B knob).
 func specFidelityEnabled() bool { return !envOff("MAGI_SPEC_FIDELITY") }
 
+// specMineEnabled gates the DEDICATED signature-mining side call (specmine.go): a
+// tool-free elicitation that extracts, from the request's identifiers and type
+// signatures, the requirements the prose leaves unsaid plus the standard idiom for
+// that situation — injected as a finished note the executor consumes. Split into its
+// own step because a weak executor follows "mine the signature" poorly as one clause
+// among many, but consumes a completed conclusion well (the same reason criteria are
+// elicited, not instructed). Default ON; MAGI_SPEC_MINE=0 removes the call (A/B knob).
+func specMineEnabled() bool { return !envOff("MAGI_SPEC_MINE") }
+
 // checkpointFirstEnabled turns on test-first ordering: when a task states HOW its
 // completion is checked (a snippet, command, function call, or I/O contract), the
 // agent is told to FIRST materialize that as a runnable checkpoint in the workdir —
