@@ -69,6 +69,11 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 			a.publishTransient(sid, event.TypeCouncilDeliberating, actor, ld)
 		}
 
+		// Council deliberation is len(members) sequential side LLM calls with no
+		// stream events; on a slow model a round is minutes of silence. Same
+		// rationale as runPlanner's progress emit.
+		a.emitToolProgress(sid, actor, "", "council",
+			fmt.Sprintf("plan audit round %d/%d: %d member(s) deliberating…", round, maxRounds, len(members)))
 		delib, err := a.cfg.Council.Deliberate(ctx, port.DeliberationRequest{
 			Round: round, Phase: "plan", Task: auditTask, Plan: renderSteps(steps),
 			Members: members, Rule: rule, DefaultModel: s.Model.Model,
@@ -176,6 +181,7 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		var addressed *bool
 		reason := ""
 		if planConvergeEnabled() {
+			a.emitToolProgress(sid, actor, "", "council", "judging whether the revision addressed the concern…")
 			v, jerr := a.cfg.Council.JudgeRevision(ctx, port.RevisionJudgeRequest{
 				Critique: fb, PriorPlan: renderSteps(steps), RevisedPlan: renderSteps(next), DefaultModel: s.Model.Model,
 			})

@@ -411,6 +411,18 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 		System:   sys,
 		Messages: msgs,
 	}
+	// A planner generation is a side LLM call: it produces no PartDelta events, so
+	// on a slow model the minutes it takes are indistinguishable from a hang in the
+	// TUI and headless stream (observed: 90 min of re-plan rounds rendering as one
+	// silent line). Emit transient progress at entry and on a parse failure so a
+	// live plan phase is visibly alive and a silent-retry loop is visible AS a loop.
+	tag := "plan"
+	if strings.TrimSpace(revise) != "" {
+		tag = "re-plan (council revision)"
+	} else if strings.TrimSpace(anchor) != "" {
+		tag = "re-plan (decompose)"
+	}
+	a.emitToolProgress(s.ID, plannerActor, "", "planner", tag+": generating…")
 	stream, err := a.providerFor(spec).StreamChat(ctx, req)
 	if err != nil {
 		return planResult{}
@@ -421,7 +433,12 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 			b.WriteString(ev.Text)
 		}
 	}
-	return parsePlan(b.String())
+	res := parsePlan(b.String())
+	if len(res.Steps) == 0 {
+		a.emitToolProgress(s.ID, plannerActor, "", "planner",
+			fmt.Sprintf("%s: reply yielded no parseable plan (%d chars)", tag, b.Len()))
+	}
+	return res
 }
 
 // recentTranscript renders a compact, bounded tail of the conversation as plain text
