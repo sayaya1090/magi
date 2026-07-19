@@ -128,6 +128,7 @@ func buildRequest(r port.ChatRequest, stream, cache bool, reasoningEffort string
 		out.Messages = append(out.Messages, sys)
 	}
 	out.Messages = append(out.Messages, convertMessages(r.Messages)...)
+	out.Messages = normalizeSystemPlacement(out.Messages)
 
 	for _, t := range r.Tools {
 		out.Tools = append(out.Tools, wireTool{
@@ -228,6 +229,53 @@ func repairToolOrdering(msgs []session.Message) []session.Message {
 		default:
 			out = append(out, m)
 		}
+	}
+	return out
+}
+
+// normalizeSystemPlacement enforces the strictest common template contract: at most
+// ONE system message, at position 0. Strict OpenAI-compatible chat templates
+// (Mistral-family, some vLLM/llama.cpp templates, no-system-role model families)
+// return HTTP 400 on a second or mid-conversation system message — which magi can
+// legitimately produce (a compaction summary is reconstructed as a system-role
+// message right after the main system prompt). Leading system messages are merged
+// into one; any later system message is demoted to a user message with a
+// "[system note]" prefix. String-content merge only — a cache_control textBlock
+// system stays intact as the head (the merge appends the extra text as plain string
+// is impossible there, so the extra becomes a demoted note instead).
+func normalizeSystemPlacement(msgs []wireMessage) []wireMessage {
+	out := make([]wireMessage, 0, len(msgs))
+	headDone := false
+	for i, m := range msgs {
+		if m.Role != "system" {
+			out = append(out, m)
+			if len(out) > 0 {
+				headDone = true
+			}
+			continue
+		}
+		// System message: first one at the very head passes through.
+		if i == 0 {
+			out = append(out, m)
+			continue
+		}
+		if !headDone && len(out) > 0 && out[0].Role == "system" {
+			// Still in the leading system run — merge string contents.
+			if hs, ok := out[0].Content.(string); ok {
+				if ms, ok2 := m.Content.(string); ok2 {
+					out[0].Content = hs + "\n\n" + ms
+					continue
+				}
+			}
+		}
+		// Mid-conversation (or unmergeable) system → demote to a prefixed user message.
+		txt := ""
+		if s, ok := m.Content.(string); ok {
+			txt = s
+		} else if b, err := json.Marshal(m.Content); err == nil {
+			txt = string(b)
+		}
+		out = append(out, wireMessage{Role: "user", Content: "[system note]\n" + txt})
 	}
 	return out
 }
