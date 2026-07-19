@@ -60,6 +60,19 @@ func (m *Model) applyEvent(e event.Event) {
 			return
 		}
 		text := joinTextParts(d.Parts)
+		if e.Actor.Kind == event.ActorSystem {
+			// System-injected context (planner/orient/specmine/council notes): the model
+			// sees these as guidance, but the TUI silently dropped them — headless prints
+			// a "⟳ <id> note:" line, so the richer surface showed LESS than the plain one
+			// (a user could not see the mined note at all). Render the first line as an
+			// info row; the full text stays in the transcript store.
+			head := text
+			if i := strings.IndexByte(head, '\n'); i > 0 {
+				head = head[:i]
+			}
+			m.blocks = append(m.blocks, block{kind: blockInfo, text: "⟳ " + e.Actor.ID + " note: " + clipLine(head, 160)})
+			return
+		}
 		if d.ResurfacedFrom != "" {
 			// A queued interjection re-surfacing as its own turn: while queued the original
 			// bubble stayed at its input position; now its answer is about to render, so pull
