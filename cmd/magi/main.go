@@ -913,6 +913,15 @@ func renderText(out, errw io.Writer, e event.Event) {
 				line += " · " + strings.Join(d.Signals, ", ")
 			}
 			fmt.Fprintln(out, line)
+			// Plan-audit round 1 carries the proposed procedure — print it, so the plan
+			// under judgment is in the transcript (post-hoc analysis otherwise cannot see
+			// WHAT was approved/rejected; later rounds show diffs via PlanRevised).
+			if d.Phase == "plan" && d.Round == 1 && strings.TrimSpace(d.Plan) != "" {
+				fmt.Fprintln(out, "⟳ proposed plan:")
+				for _, ln := range strings.Split(strings.TrimSpace(d.Plan), "\n") {
+					fmt.Fprintln(out, "    "+truncate(ln, 200))
+				}
+			}
 		}
 	case event.TypeCouncilDecided:
 		var d event.CouncilDecidedData
