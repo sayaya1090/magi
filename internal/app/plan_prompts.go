@@ -67,7 +67,10 @@ const specFidelityNote = "# Execution note — spec fidelity\n" +
 	"The plan (todos) is a SUMMARY of this request. For any exact identifier — a name, field, " +
 	"function/message, output format, threshold, or literal string — follow the ORIGINAL request's " +
 	"wording VERBATIM, not the summary. Do NOT normalize or rename it (if the request names a field " +
-	"`value`, keep it `value`, do not shorten it to `val`)."
+	"`value`, keep it `value`, do not shorten it to `val`). This rule is about NAMES and FORMATS, " +
+	"not implementation structure: do not transplant the request's prose vocabulary into code " +
+	"constructs (a request mentioning an event or exception does not mean code must catch or name " +
+	"that exact token somewhere) — satisfy such requirements by BEHAVIOR, not by echoing the wording."
 
 // checkpointFirstNote is injected into the MAIN session before execution when
 // checkpointFirstEnabled(): a test-first ordering directive. It fires on the same seam
@@ -80,7 +83,11 @@ const checkpointFirstNote = "# Execution note — checkpoint first\n" +
 	"the test before the code). Build its inputs from the spec itself, INCLUDING any counter-example the " +
 	"task names, and encode the expected result. Then implement until the checkpoint passes, and only " +
 	"report done once you have RUN it and seen it pass. Do not invent an oracle the spec does not give — " +
-	"reproduce the stated procedure. For an edge case you INFERRED rather than one the task states, only " +
+	"reproduce the stated procedure. If the stated scenario involves an EXTERNAL event — a signal " +
+	"(Ctrl-C/SIGINT), a kill, a disconnect, a restart — the checkpoint must deliver that event for " +
+	"REAL: run your artifact as a subprocess and send the actual signal/event to it. Do NOT simulate " +
+	"the event in-process (e.g. raising the exception yourself) — delivery semantics differ, and a " +
+	"simulation can pass while the real event fails. For an edge case you INFERRED rather than one the task states, only " +
 	"assert an expected result you can derive with confidence from the spec or domain semantics; if its " +
 	"correct output is uncertain, harden the implementation against it instead of pinning the checkpoint " +
 	"to a guessed value. If a runnable checkpoint genuinely cannot be built cheaply (the conditions are " +
@@ -92,7 +99,9 @@ const checkpointFirstNote = "# Execution note — checkpoint first\n" +
 const checkpointFirstRule = "\n\nCHECKPOINT FIRST: if the request states HOW completion is checked or the output " +
 	"applied (a snippet, command, function call, or I/O contract), make an EARLY step build a small runnable " +
 	"checkpoint reproducing that check (inputs synthesized from the spec, including any named counter-example); " +
-	"later steps implement until it passes. Only add this when the check is actually executable — do not pad a " +
+	"later steps implement until it passes. External events named by the request (a signal, a kill, a " +
+	"disconnect) must be delivered for real — subprocess plus the actual signal — never simulated in-process. " +
+	"Only add this when the check is actually executable — do not pad a " +
 	"prose-only task with it."
 
 // implicitAcceptRule is appended to the planner contract when implicitAcceptEnabled(): a task's
