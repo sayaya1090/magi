@@ -377,7 +377,11 @@ func planMemberSystem(m council.Member, lens string) string {
 			"test that it is non-empty (`test -s out.txt`, not bare `test -f`) — so a stale or empty leftover cannot pass. "+
 			"The deliverable may be a file (`test -s out.txt`), a build/test result (`go build ./...`), or PROGRAM OUTPUT "+
 			"ON SCREEN — for output, run the program and match its stdout with `expect` (e.g. command `./run --demo`, "+
-			"expect `^total: [0-9]+$`). A "+
+			"expect `^total: [0-9]+$`). When the task's acceptance involves an EXTERNAL event — a signal "+
+			"(Ctrl-C/SIGINT), a kill, a disconnect — author a check that DELIVERS the event for real: launch the "+
+			"artifact as a background process, send the actual signal, and match the required output (e.g. command "+
+			"`python3 app.py & p=$!; sleep 1; kill -INT $p; wait $p 2>/dev/null; ...`, expect the cleanup marker). "+
+			"An in-process simulation (raising the exception by hand) verifies the wrong delivery path. A "+
 			"step may have SEVERAL checks (several deliverables). Propose checks ONLY when they are concrete and would "+
 			"genuinely pass for correct work — commands must be non-destructive and deterministic. For a "+
 			"read/review/analyze/answer step there is usually nothing to execute: emit NO check for it (the prose "+
