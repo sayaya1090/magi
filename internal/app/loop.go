@@ -480,7 +480,15 @@ func (a *App) seedTurnTask(ctx context.Context, tc turnCtx, evs []event.Event) (
 			turnTask = lastUserPromptText(evs)
 		}
 	} else {
-		turnTask = lastUserPromptText(evs) // the prompt that drove this turn
+		// Subagent (and workflow) turns: prefer the recorded spawn/unit seed. A
+		// CloneContext child's log carries the parent's original user prompts
+		// (actors preserved), so the last-ActorUser fallback would anchor the
+		// child on a STALE parent request instead of its spawn task.
+		if sp := a.seedPromptOf(sid); sp != "" {
+			turnTask = sp
+		} else {
+			turnTask = lastUserPromptText(evs) // the prompt that drove this turn
+		}
 	}
 	return turnTask, len(entries) // baseline; a later rise is a mid-turn interjection
 }

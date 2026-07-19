@@ -607,6 +607,14 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 		Parts:     []session.Part{{Kind: session.PartText, Text: req.Prompt}},
 	})
 	a.appendFact(ctx, child.ID, event.TypePromptSubmitted, actor, pd)
+	// Record the seed deterministically: a CloneContext child's event log also contains
+	// the parent's ORIGINAL user prompts (actors preserved), so "last ActorUser prompt"
+	// resolves to a STALE parent request there — the child's nudges/council/criteria then
+	// anchor on the wrong task (field report: a cloned child appearing to execute an
+	// earlier prompt instead of its spawn task). seedTurnTask prefers this record.
+	a.mu.Lock()
+	a.stateLocked(child.ID).seedPrompt = req.Prompt
+	a.mu.Unlock()
 	a.touch(child.ID) // seed liveness so the watchdog doesn't fire immediately
 
 	// Run the subagent under a judgment lease: the elastic cap (attemptCap, see
@@ -752,6 +760,17 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 			return port.SpawnResult{Err: ctx.Err().Error(), SessionID: child.ID}, false
 		}
 	}
+}
+
+// seedPromptOf returns the spawn/unit prompt a subagent session was seeded with
+// ("" for top-level sessions or children spawned before this record existed).
+func (a *App) seedPromptOf(sid session.SessionID) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if st, ok := a.stateIf(sid); ok {
+		return st.seedPrompt
+	}
+	return ""
 }
 
 // retryPivotNote builds the strategy-change directive appended to a restarted

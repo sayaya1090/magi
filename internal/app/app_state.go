@@ -63,6 +63,7 @@ type sessionState struct {
 	// Turn-scoped (zeroed by resetForNewTopLevel).
 	criteria          string                     // elicited acceptance criteria this turn
 	minedNote         string                     // specmine result this turn (soft contract; shown to the termination council)
+	seedPrompt        string                     // subagent: the spawn/unit prompt THIS child was seeded with (see seedTurnTask)
 	deliverableChecks []council.DeliverableCheck // plan-audit per-step executable checks this turn
 	estSteps          int                        // planner's advisory step estimate this turn
 	interjectSeen     map[string]bool            // interjection MessageIDs detected this turn (masked from turnTask/council)
