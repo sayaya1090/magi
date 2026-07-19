@@ -248,6 +248,7 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth, 
 	if specMineEnabled() {
 		a.emitToolProgress(s.ID, plannerActor, "", "planner", "mining the request's identifiers/types…")
 		if mined := a.elicitSpecMine(ctx, spec, s, prompt); mined != "" {
+			a.storeSpecMine(s.ID, mined) // the termination council sees the same soft contract
 			_ = a.appendPromptText(ctx, s.ID, event.Actor{Kind: event.ActorSystem, ID: "planner"}, specMineNote(mined))
 		}
 	}

@@ -379,6 +379,21 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 			plan = "Acceptance criteria:\n" + crit
 		}
 	}
+	// The mined identifier/type requirements (specmine) are a soft contract the
+	// executor received before implementing. Show them to the members too: without
+	// this, an implementation that ignores the note's recommended standard construct
+	// and hand-rolls the mechanism (observed: the note named the construct, the code
+	// re-cancelled tasks mid-cleanup) presents no visible deviation for the council
+	// to question — the judges never saw the recommendation the executor got.
+	if mined := a.cachedSpecMine(s.ID); mined != "" {
+		sec := "Requirements mined from the request's identifiers/types (the executor was shown these; " +
+			"if the implementation deviates from the recommended construct, check the deviation is justified):\n" + mined
+		if plan != "" {
+			plan = sec + "\n\n" + plan
+		} else {
+			plan = sec
+		}
+	}
 
 	signals, signalSummaries := a.councilSignals(ctx, s, evs, in.fabrication, councilActor)
 	// Cancellation during verify: unwind rather than persist a misleading convened fact or

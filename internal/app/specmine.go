@@ -149,6 +149,24 @@ func parseSpecMine(text string) (specMineResult, bool) {
 	return res, false
 }
 
+// storeSpecMine caches this turn's mined note so the termination council can see the
+// soft contract the executor received (cleared by resetForNewTopLevel).
+func (a *App) storeSpecMine(sid session.SessionID, mined string) {
+	a.mu.Lock()
+	a.stateLocked(sid).minedNote = mined
+	a.mu.Unlock()
+}
+
+// cachedSpecMine returns this turn's mined note ("" when mining didn't run).
+func (a *App) cachedSpecMine(sid session.SessionID) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if st, ok := a.stateIf(sid); ok {
+		return st.minedNote
+	}
+	return ""
+}
+
 // specMineNote wraps a mined result for injection into the main session. The header
 // mirrors the other execution notes so the executor reads it as system guidance.
 func specMineNote(mined string) string {

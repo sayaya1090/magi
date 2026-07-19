@@ -62,6 +62,7 @@ type sessionState struct {
 	activeSeedMsgID string
 	// Turn-scoped (zeroed by resetForNewTopLevel).
 	criteria          string                     // elicited acceptance criteria this turn
+	minedNote         string                     // specmine result this turn (soft contract; shown to the termination council)
 	deliverableChecks []council.DeliverableCheck // plan-audit per-step executable checks this turn
 	estSteps          int                        // planner's advisory step estimate this turn
 	interjectSeen     map[string]bool            // interjection MessageIDs detected this turn (masked from turnTask/council)
@@ -174,6 +175,7 @@ func (a *App) resetForNewTopLevel(sid session.SessionID) {
 	a.mu.Lock()
 	st := a.stateLocked(sid)
 	st.criteria = ""           // drop cached criteria; re-elicited at the next gate (D15)
+	st.minedNote = ""          // …and the previous task's mined identifier/type requirements
 	st.deliverableChecks = nil // …and the previous task's plan-audit executable checks
 	st.estSteps = 0            // …and the previous task's advisory step estimate
 	// Reset the interjection mask, but KEEP masking anything still WAITING in the
