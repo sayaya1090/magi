@@ -87,7 +87,10 @@ const checkpointFirstNote = "# Execution note — checkpoint first\n" +
 	"(Ctrl-C/SIGINT), a kill, a disconnect, a restart — the checkpoint must deliver that event for " +
 	"REAL: run your artifact as a subprocess and send the actual signal/event to it. Do NOT simulate " +
 	"the event in-process (e.g. raising the exception yourself) — delivery semantics differ, and a " +
-	"simulation can pass while the real event fails. For an edge case you INFERRED rather than one the task states, only " +
+	"simulation can pass while the real event fails. The checkpoint IS the oracle: when it fails, treat " +
+	"the defect as being in the IMPLEMENTATION until proven otherwise — never weaken, simplify, or replace " +
+	"the checkpoint with an easier variant just to make it pass (fix the checkpoint only for a genuine " +
+	"authoring bug, and keep its scenario — task counts, event timing — intact). For an edge case you INFERRED rather than one the task states, only " +
 	"assert an expected result you can derive with confidence from the spec or domain semantics; if its " +
 	"correct output is uncertain, harden the implementation against it instead of pinning the checkpoint " +
 	"to a guessed value. If a runnable checkpoint genuinely cannot be built cheaply (the conditions are " +
