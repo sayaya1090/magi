@@ -502,10 +502,18 @@ func (a *App) spawnResolved(ctx context.Context, parent session.Session, depth i
 		if ctx.Err() != nil {
 			return port.SpawnResult{Err: ctx.Err().Error()}
 		}
+		attemptReq := req
 		if attempt > 0 {
 			a.emitAgentRestart(parent.ID, spec.Name, attempt, last.Err)
+			// A restart with the IDENTICAL prompt and seed re-runs the identical
+			// failure: observed on compile-compcert, a recovery child timed out in a
+			// long toolchain install three times in a row, each attempt walking the
+			// same path into the same wall (the "self-clone retry loop" field report).
+			// Tell the retry what happened — the failure reason plus a digest of the
+			// previous attempt's tool trail — and require a DIFFERENT route.
+			attemptReq.Prompt = req.Prompt + retryPivotNote(ctx, a, last, attempt)
 		}
-		res, retry := a.runAttempt(ctx, parent, depth, spec, req)
+		res, retry := a.runAttempt(ctx, parent, depth, spec, attemptReq)
 		if !retry {
 			return res
 		}
@@ -744,6 +752,29 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 			return port.SpawnResult{Err: ctx.Err().Error(), SessionID: child.ID}, false
 		}
 	}
+}
+
+// retryPivotNote builds the strategy-change directive appended to a restarted
+// attempt's prompt: the previous attempt's failure reason plus a digest of its
+// tool trail (when its session is readable), and an explicit requirement to take
+// a different route — retrying the identical plan against the same wall is how a
+// timeout loop burns every restart. Best-effort: with no readable trail it still
+// names the failure and demands a pivot.
+func retryPivotNote(ctx context.Context, a *App, last port.SpawnResult, attempt int) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "\n\n# Retry %d — previous attempt failed: %s\n", attempt, strings.TrimSpace(last.Err))
+	if last.SessionID != "" {
+		if evs, err := a.store.Read(ctx, last.SessionID, 0); err == nil {
+			if d := childToolDigest(evs, 12); d != "" {
+				b.WriteString("Its tool trail (what has ALREADY been tried — do not walk this path again):\n" + d + "\n")
+			}
+		}
+	}
+	b.WriteString("Take a DIFFERENT route this time: change the approach, not just the parameters " +
+		"(a faster variant, a prebuilt artifact, a workaround flag, or a smaller first deliverable). " +
+		"If a single step needs longer than this attempt's whole budget, do the smallest useful part " +
+		"first and report what remains — do NOT restart the same long-running path.")
+	return b.String()
 }
 
 // emitAgentRestart announces a subagent restart on the parent for visibility.
