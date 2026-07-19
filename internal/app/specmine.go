@@ -21,7 +21,10 @@ const elicitSpecMineSystem = "You extract the requirements a coding request enco
 	"construct/idiom the language or its stdlib provides for exactly that job (name it), in preference to " +
 	"hand-assembling the mechanism from lower-level parts — the idiom already carries the edge semantics " +
 	"(ordering, cancellation, partial failure) a hand-rolled version drops. Derive ONLY what the given " +
-	"surfaces actually imply — do not invent requirements. Output the bullet list only, no preamble."
+	"surfaces actually imply — do not invent requirements. ADDITIONS ONLY: never restate what the " +
+	"request's prose already says explicitly — the reader has the request; repeating it dilutes the " +
+	"note. If the names and types imply nothing beyond the prose, output exactly NONE. Otherwise " +
+	"output the bullet list only, no preamble."
 
 // elicitSpecMine asks the model (tool-free) to mine the request's identifiers and type
 // signatures for implied requirements and the standard idiom. Empty string on failure —
@@ -42,7 +45,13 @@ func (a *App) elicitSpecMine(ctx context.Context, agent AgentSpec, s session.Ses
 			b.WriteString(ev.Text)
 		}
 	}
-	return strings.TrimSpace(b.String())
+	out := strings.TrimSpace(b.String())
+	// The elicitation answers NONE when the surfaces add nothing beyond the prose —
+	// treat that (and trivial echoes of it) as "inject nothing".
+	if len(out) < 8 && strings.Contains(strings.ToUpper(out), "NONE") {
+		return ""
+	}
+	return out
 }
 
 // specMineNote wraps a mined result for injection into the main session. The header
