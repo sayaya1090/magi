@@ -392,6 +392,7 @@ council-nochanges-noterror-1: GitDiff 실패(비-git) ⇒ NoChanges=false(쓰기
   - **단일 step·workflow 모드는 감사 스킵**. diff/report/signal 없음(plan 전용 멤버 프롬프트; steps의 구체적 결함만 revise — 검증/수용 기준·테스트·verify 스텝 미명시는 결함 아님, 그건 `criteria` 소관). 비-critical 조언은 **criteria(아래 P6)로 종료 게이트가 검증**.
 - P6 **완료기준 도출(계약)**: 계획 감사에서 각 위원이 approve/revise와 함께 자기 렌즈의 **완료기준**(기대 산출물·검증/테스트 지침)을 제안 → 순수 `council.MergeCriteria`(trim·dedup·cap)로 합성 → **승인/강제승인된 plan**의 기준을 그 턴의 `a.criteria`에 저장(재계획 시 최종 plan 것으로 덮어씀, 빈 결과는 미저장). 종료 게이트는 이 캐시를 **계약으로 항상 사용**(plan턴); plan 없는/단일 step 턴은 기존 `[council] criteria` opt-in elicit. D15 acceptance-criteria 아티팩트로 관찰. 결과는 `council.decided`(plan)에 `criteria`로 노출.
 - P5 안전: per-fanout cap(`maxPlanGroups`) + **per-turn 총 explorer cap**(`maxPlanExplorers`) + step cap(`maxPlanSteps`) + **per-step degrade**(한 step 실패 → 그 step만 메인 위임).
+- P7 **시그니처 채굴(specmine, `MAGI_SPEC_MINE` 기본 ON)**: 플랜 확정 직후 2-패스 사이드 도출 — ①목표-지향 자유 분석("프로즈만으로 짠 구현이 어디서 틀리나"를 이름·타입 시그니처에서) ②엄격 JSON 증류(`surface→요구→표준구조물` ≤5줄 + 무조건 `USE:` 1줄; 캡·단일-승자는 코드 재집행, 파스 1회 재시도, best-effort) → 완성 노트로 메인 세션 주입 + **종료 게이트에 소프트 계약으로 제시**(이탈은 금지가 아니라 심문; `cachedSpecMine`, 턴 리셋 시 소거). `specmine` 에이전트 정의 시 도출을 별도 가중치로 라우팅(노트의 진실성은 도출 모델 믿음에 바운드). 근거: 약한 모델은 메타지시(자기절제·상충해소)를 못 따르고 완성된 결론은 소비함 — 단일-패스는 지면 자기논쟁으로 자충수, 노트-절은 첫-샘플 프레임 불변(2026-07-19 cancel-async 캠페인, 역대 0/10→2-패스 2/2).
 
 ```
 planner-solo-1:      단순 요청 ⇒ 단일 solo step ⇒ explorer 0 (감사 스킵)

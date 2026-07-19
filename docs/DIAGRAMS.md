@@ -82,7 +82,7 @@ flowchart TD
 | 그룹 | 역할 | 파일 |
 |---|---|---|
 | **LOOP** | 턴 구동, 스트리밍, 인터젝션 감지, 종료 게이트 | `loop` · `loop_gates` · `loop_stream` · `loop_helpers` · `loopmap` · `interject` · `interject_queue` |
-| **PLAN** | ADaPT 재귀 분해, solo 우선(delegate off 기본), 플랜 감사 | `planner` · `plan_execute` · `plan_audit` · `plan_scout` · `plan_prompts` · `plan_flags` · `orient` · `step_verify`(기본 OFF) · `todos` |
+| **PLAN** | ADaPT 재귀 분해, solo 우선(delegate off 기본), 플랜 감사, 시그니처 채굴 | `planner` · `plan_execute` · `plan_audit` · `plan_scout` · `plan_prompts` · `plan_flags` · `orient` · `specmine`(2-패스 도출) · `step_verify`(기본 OFF) · `todos` |
 | **COUNCIL** | 3인 카운슬이 툴 증거만으로 완료 판정(서사 불인정) | `council_gate` · `council_evidence` · `council_means` · `criteria` · `concern` |
 | **GUARD** | 반복·정체·배너스핀 탐지, 넛지→차단→강제종료 에스컬레이션 | `guard`(repeat 지문 · noProgress · bannerSpin) · unverifiedDeliverable 구조 신호 |
 | **ORCH** | 서브에이전트 스폰·결과 주입·심판; 회복은 자기 스펙 직접 스폰 | `orchestrate` · `fork` · `subagent_cap` · `subagent_judge` · `workflow` · `execute` |

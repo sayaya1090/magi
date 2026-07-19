@@ -58,6 +58,14 @@ internal/
                             (planner rule + plan-time note + verbatim delegate SPEC anchor); the
                             MAGI_* A/B env knobs (plan_flags.go) and prompt/contract builders
                             (plan_prompts.go) are split into siblings
+    specmine.go             signature mining (MAGI_SPEC_MINE, default on): a two-pass side
+                            elicitation at the plan seam — free-form analysis of what the
+                            request's names/type signatures imply beyond its prose, then a
+                            strict-JSON distillation (≤5 lines + one USE recommendation; cap
+                            and single-winner re-enforced in code) — injected as a finished
+                            execution note and shown to the termination gate as a soft
+                            contract (cachedSpecMine); optional "specmine" agent reroutes
+                            the elicitation to different weights
     workflow.go             deterministic phase pipeline (localize→implement→verify→review)
     policy.go               guardrail policy engine (rules, secret-deny, bash scan, egress)
     hooks.go                lifecycle hooks (PreToolUse/PostToolUse/Stop) + built-in harness
