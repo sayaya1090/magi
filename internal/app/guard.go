@@ -741,9 +741,19 @@ func relForChange(workdir, path string) string {
 	return path
 }
 
-// buildCouncilChanges renders the turn's file changes as the council's evidence: a per-file
-// "### path" header followed by the before→after line diff. Files whose diff is empty are
-// skipped. The caller caps the total.
+// councilFileFullCap is the per-file size (bytes) up to which the council is shown the
+// file's CURRENT content in full instead of a before→after diff. A member judging
+// correctness needs the actual current source: over a many-rewrite turn the first-before
+// vs latest-after diff clamps ("… (N more)" / "≈ large change"), and members were observed
+// rejecting on that literally — "the file content as reported is incomplete (uses
+// ellipsis)" — while a dead code path stayed invisible because no member ever saw the
+// whole file. Diffs remain for larger files, where they are the more compact evidence.
+const councilFileFullCap = 4000
+
+// buildCouncilChanges renders the turn's file changes as the council's evidence: per file,
+// the full current content when it is small (councilFileFullCap), otherwise a "### path"
+// header with the before→after line diff. Files whose diff is empty are skipped. The
+// caller caps the total.
 func buildCouncilChanges(cs []fileChange) string {
 	var b strings.Builder
 	for _, c := range cs {
@@ -753,6 +763,10 @@ func buildCouncilChanges(cs []fileChange) string {
 		}
 		if b.Len() > 0 {
 			b.WriteString("\n")
+		}
+		if n := len(c.after); n > 0 && n <= councilFileFullCap {
+			b.WriteString("### " + c.path + " (current content, full)\n" + c.after + "\n")
+			continue
 		}
 		b.WriteString("### " + c.path + "\n" + d + "\n")
 	}

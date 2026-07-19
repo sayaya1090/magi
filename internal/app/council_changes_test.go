@@ -8,26 +8,39 @@ import (
 )
 
 // recordChange keeps the FIRST before and the LATEST after per file (so multiple edits
-// collapse to one net change), and buildCouncilChanges renders each as a "### path" header
-// plus the before→after line diff.
+// collapse to one net change). buildCouncilChanges shows a small file's CURRENT content in
+// full (councilFileFullCap) and falls back to the before→after line diff for larger files.
 func TestCouncilChangeReconstruction(t *testing.T) {
 	g := newRunGuard()
 	g.recordChange("a.go", "old line\n", "new line\n")
 	g.recordChange("a.go", "IGNORED-2ND-BEFORE", "new line 2\n") // before stays first; after updates
 	g.recordChange("b.txt", "", "created\n")                     // new file
+	big := strings.Repeat("x", councilFileFullCap) + "\nchanged tail\n"
+	g.recordChange("big.txt", "was\n", big) // over the cap → diff path
 
 	cs := g.changeSet()
-	if len(cs) != 2 {
-		t.Fatalf("want 2 changed files, got %d", len(cs))
+	if len(cs) != 3 {
+		t.Fatalf("want 3 changed files, got %d", len(cs))
 	}
 	if cs[0].path != "a.go" || cs[0].before != "old line\n" || cs[0].after != "new line 2\n" {
 		t.Errorf("a.go should collapse to first-before/last-after, got %+v", cs[0])
 	}
 	out := buildCouncilChanges(cs)
-	for _, want := range []string{"### a.go", "-old line", "+new line 2", "### b.txt", "+created"} {
+	// Small files: full current content, no diff markers needed.
+	for _, want := range []string{"### a.go (current content, full)", "new line 2", "### b.txt (current content, full)", "created"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("change evidence missing %q:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, "-old line") {
+		t.Errorf("small file should show current content, not a diff:\n%s", out)
+	}
+	// Large file: diff path (compact), not the full dump.
+	if !strings.Contains(out, "### big.txt\n") {
+		t.Errorf("large file should use the diff header:\n%s", out)
+	}
+	if strings.Contains(out, "### big.txt (current content, full)") {
+		t.Errorf("large file must not be dumped in full:\n%s", out)
 	}
 }
 
