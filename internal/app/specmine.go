@@ -13,18 +13,19 @@ import (
 // the requirements those surfaces imply plus the standard construct for the job. The
 // output is consumed verbatim by the executor as a finished note, so it must be short,
 // concrete, and free of speculation beyond what the surfaces actually state.
-const elicitSpecMineSystem = "You extract the requirements a coding request encodes in its NAMES and TYPE " +
-	"SIGNATURES rather than its prose. From the request's identifiers, parameter/return types, and stated " +
-	"formats, list as short bullets: (1) constraints they imply that the prose leaves unsaid — a type " +
-	"constrains what its values (and their lifecycles) can be or do; a name like max_*/timeout_*/n_* states " +
-	"an exact bound; a format fixes shape; (2) for the situation those surfaces describe, the STANDARD " +
-	"construct/idiom the language or its stdlib provides for exactly that job (name it), in preference to " +
-	"hand-assembling the mechanism from lower-level parts — the idiom already carries the edge semantics " +
-	"(ordering, cancellation, partial failure) a hand-rolled version drops. Derive ONLY what the given " +
-	"surfaces actually imply — do not invent requirements. ADDITIONS ONLY: never restate what the " +
-	"request's prose already says explicitly — the reader has the request; repeating it dilutes the " +
-	"note. If the names and types imply nothing beyond the prose, output exactly NONE. Otherwise " +
-	"output the bullet list only, no preamble."
+const elicitSpecMineSystem = "You review a coding request's NAMES and TYPE SIGNATURES with ONE goal: find " +
+	"where an implementation written from the prose alone would go WRONG. For each identifier, " +
+	"parameter/return type, or stated format that guards against such a failure, output one line:\n" +
+	"SURFACE → the unsaid requirement it implies → the STANDARD construct (name it) the language/stdlib " +
+	"provides that satisfies it.\n" +
+	"Reason from what the surfaces state: a type constrains what its values — and their lifecycles — can " +
+	"do; a name like max_*/timeout_*/n_* states an exact bound; a format fixes shape. Prefer the named " +
+	"standard construct over hand-assembling the mechanism from lower-level parts — the idiom already " +
+	"carries the edge semantics (ordering, cancellation, partial failure) a hand-rolled version drops. " +
+	"Derive ONLY what the given surfaces actually imply — do not invent requirements. ADDITIONS ONLY: " +
+	"never restate what the request's prose already says explicitly — the reader has the request; " +
+	"repeating it dilutes the note. Skip surfaces that guard nothing (no line for them). If no surface " +
+	"implies anything beyond the prose, output exactly NONE. Otherwise output the lines only, no preamble."
 
 // elicitSpecMine asks the model (tool-free) to mine the request's identifiers and type
 // signatures for implied requirements and the standard idiom. Empty string on failure —
