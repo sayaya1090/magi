@@ -135,6 +135,39 @@ func TestSwallowingPipeNote(t *testing.T) {
 	}
 }
 
+// ptyNeededNote fires for tty-gated commands (ssh/telnet/qemu-serial) launched WITHOUT a
+// pty, and stays quiet for ssh-* non-interactive tools, scp, plain builds, and pty:true.
+func TestPtyNeededNote(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cmd  string
+		pty  bool
+		want bool
+	}{
+		{"ssh host", "ssh alpine@localhost", false, true},
+		{"ssh with flags", "ssh -p 2222 -i key root@127.0.0.1", false, true},
+		{"telnet", "telnet 10.0.2.15 23", false, true},
+		{"qemu -nographic", "qemu-system-x86_64 -m 512 -nographic -drive file=alpine.qcow2", false, true},
+		{"qemu -serial stdio", "qemu-system-aarch64 -serial mon:stdio -kernel vmlinuz", false, true},
+		{"in a && chain", "cd /app && ssh alpine@localhost", false, true},
+		// pty already set → no nudge.
+		{"ssh with pty", "ssh alpine@localhost", true, false},
+		// Not interactive-tty-gated.
+		{"ssh-keygen", "ssh-keygen -t ed25519 -f id", false, false},
+		{"ssh-copy-id", "ssh-copy-id -i key root@host", false, false},
+		{"scp", "scp file host:/tmp", false, false},
+		{"plain build", "make world", false, false},
+		{"qemu no serial", "qemu-img create -f qcow2 disk.qcow2 1G", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ptyNeededNote(tc.cmd, tc.pty) != ""
+			if got != tc.want {
+				t.Errorf("ptyNeededNote(%q, pty=%v) fired=%v, want %v", tc.cmd, tc.pty, got, tc.want)
+			}
+		})
+	}
+}
+
 // backgroundTailNote fires on exit 0 when the command is `&`-detached (exit 0 means
 // "started", not "finished"), never on `&&` lists, and warns harder when the same
 // program is detached twice in one session (racing the in-flight copy).

@@ -25,14 +25,15 @@ type bashArgs struct {
 	Command    string   `json:"command"`
 	Timeout    flexInt  `json:"timeout"`    // seconds (default 120, max 600); tolerant parse (flexInt)
 	Background flexBool `json:"background"` // run detached; returns an id to poll/kill
+	Pty        flexBool `json:"pty"`        // with background: attach a real terminal (ssh/serial/curses)
 }
 
 func (Bash) Name() string { return "bash" }
 func (Bash) Description() string {
-	return "Run a shell command in the working directory. Returns combined stdout/stderr and the exit code. Use for builds, tests, git, and file operations not covered by other tools. A non-zero exit is reported as normal, useful output — never mask a command's failure just to make it look clean (`|| true`, `|| echo $?`; in PowerShell, error-swallowing try/catch or -ErrorAction SilentlyContinue): that turns a failing check into a false pass. Set background=true for a long-running command (dev server, watcher, slow build): it returns an id immediately; read its output with bash_output, send stdin with bash_input (to drive a REPL/interactive program), and stop it with bash_kill."
+	return "Run a shell command in the working directory. Returns combined stdout/stderr and the exit code. Use for builds, tests, git, and file operations not covered by other tools. A non-zero exit is reported as normal, useful output — never mask a command's failure just to make it look clean (`|| true`, `|| echo $?`; in PowerShell, error-swallowing try/catch or -ErrorAction SilentlyContinue): that turns a failing check into a false pass. Set background=true for a long-running command (dev server, watcher, slow build): it returns an id immediately; read its output with bash_output, send stdin with bash_input (to drive a REPL/interactive program), and stop it with bash_kill. Add pty=true (with background) for a command that needs a real terminal — ssh (its password prompt reads /dev/tty, not stdin), a serial/getty login, or a full-screen/curses program — then drive it with bash_input/bash_output."
 }
 func (Bash) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"timeout":{"type":"integer","description":"seconds (default 120, max 600)"},"background":{"type":"boolean","description":"run detached; returns an id for bash_output/bash_kill"}},"required":["command"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"timeout":{"type":"integer","description":"seconds (default 120, max 600)"},"background":{"type":"boolean","description":"run detached; returns an id for bash_output/bash_kill"},"pty":{"type":"boolean","description":"with background: attach a real pseudo-terminal so ssh/serial-console/curses programs can be driven via bash_input"}},"required":["command"]}`)
 }
 
 func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
@@ -53,11 +54,19 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		}
 	}
 	if a.Background {
-		p, err := bg.start(env.Workdir, env.Sandbox, a.Command)
+		p, err := bg.start(env.Workdir, env.Sandbox, a.Command, bool(a.Pty))
 		if err != nil {
 			return errResult("", "failed to start background command: "+err.Error()), nil
 		}
-		return okText("", fmt.Sprintf("started background command %s — poll with bash_output{id:%q}, stop with bash_kill{id:%q}", p.id, p.id, p.id)), nil
+		msg := fmt.Sprintf("started background command %s — poll with bash_output{id:%q}, stop with bash_kill{id:%q}", p.id, p.id, p.id)
+		if bool(a.Pty) {
+			msg += " (on a pseudo-terminal — send keystrokes/answers with bash_input)"
+		} else if note := ptyNeededNote(a.Command, false); note != "" {
+			// Backgrounded a tty-gated command (ssh/serial) on a plain pipe — it can't be
+			// driven. Steer to pty:true rather than let the model poll a dead prompt.
+			msg = note + "\n" + msg
+		}
+		return okText("", msg), nil
 	}
 	timeout := int(a.Timeout)
 	if timeout <= 0 {
@@ -154,6 +163,14 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 			// First export/source of the session: teach that shell state does not
 			// outlive the call, before an ephemeral setup gets mistaken for a
 			// persistent deliverable (the PATH-export near-miss).
+			disp = note + "\n" + disp
+		}
+	}
+	// A tty-gated command (ssh, serial console) run in the foreground gets no controlling
+	// terminal (detachTTY), so its /dev/tty prompt fails — steer to the interactive pty
+	// path. Only on failure: a key-auth `ssh host cmd` that succeeded needs no tty.
+	if exit != 0 {
+		if note := ptyNeededNote(a.Command, false); note != "" {
 			disp = note + "\n" + disp
 		}
 	}

@@ -164,6 +164,24 @@ func swallowingPipeNote(exit int, command string) string {
 	return "[note: this exit 0 is the `tail`/`head` at the end of the pipe, NOT the command before it — a build/test that failed would still show exit 0 here, and the truncation can hide the final error/status line. You do not need to pipe to tail/head to limit output: this tool already returns large output capped to its head AND tail with the real exit code. Re-run without the pipe to see the true status.]"
 }
 
+// ptyGated matches a command that needs a controlling terminal to interact with: ssh /
+// telnet / minicom as a command word (the `\s` after the verb excludes ssh-keygen/ssh-add/
+// ssh-copy-id, which are `ssh-` with no space), or a qemu-system invocation with a serial
+// console on the terminal (`-nographic`/`-serial`). These read a password or a login prompt
+// from /dev/tty, which a plain pipe (the default background stdin) cannot answer.
+var ptyGated = regexp.MustCompile(`(?:^|[;&|(]\s*)(?:ssh|telnet|minicom)\s|qemu-system\S*.*-(?:nographic|serial)\b`)
+
+// ptyNeededNote steers a tty-gated command toward the interactive pty path. It fires only
+// when pty is NOT already set: an ssh password prompt / serial getty login cannot be driven
+// over a pipe, so without a pty the model waits out the whole timeout on a prompt it can
+// never answer — the qemu-alpine-ssh failure. Advisory; the caller decides where to surface it.
+func ptyNeededNote(command string, usePTY bool) string {
+	if usePTY || !ptyGated.MatchString(strings.TrimSpace(command)) {
+		return ""
+	}
+	return "[note: this command needs a controlling terminal — ssh reads its password from /dev/tty (not stdin), and a serial/getty login expects a tty; a plain pipe cannot drive them. Re-launch with background:true AND pty:true, then answer prompts with bash_input and read with bash_output. (Key-based auth or `sshpass` avoids the prompt entirely.)]"
+}
+
 // ephemeralShellState matches a command that mutates shell state with the intent
 // of it lasting — `export` / `source` as a command word. A bare VAR=val prefix is
 // NOT matched: it scopes the single command and models use it correctly all the

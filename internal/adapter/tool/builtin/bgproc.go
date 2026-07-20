@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -90,8 +91,10 @@ type bgProc struct {
 	started time.Time
 	pid     int // process-group leader pid (Setsid => pgid == pid); used by killGroup
 
+	pty bool // process was started on a pseudo-terminal (stdin is the PTY master)
+
 	mu     sync.Mutex
-	stdin  io.WriteCloser // open pipe to the process's stdin (for bash_input); closed on exit
+	stdin  io.WriteCloser // stdin sink for bash_input: a pipe, or the PTY master when pty; closed on exit
 	read   int            // absolute offset the agent has consumed up to
 	done   bool
 	killed bool // bash_kill was issued; status reads "killed" until the reaper sets done
@@ -108,7 +111,7 @@ type bgManager struct {
 
 var bg = &bgManager{procs: map[string]*bgProc{}}
 
-func (m *bgManager) start(workdir string, sb port.SandboxSpec, command string) (*bgProc, error) {
+func (m *bgManager) start(workdir string, sb port.SandboxSpec, command string, usePTY bool) (*bgProc, error) {
 	name, args := shell(command)
 	if argv, wrapped := sandboxArgv(sb, command); wrapped {
 		name, args = argv[0], argv[1:]
@@ -132,34 +135,66 @@ func (m *bgManager) start(workdir string, sb port.SandboxSpec, command string) (
 	pctx, cancel := context.WithCancel(context.Background()) // outlives the tool call
 	cmd := exec.CommandContext(pctx, name, args...)
 	cmd.Dir = workdir
-	// New session: own process group, no controlling terminal. Detaches the child
-	// from magi's group and makes killGroup(pid) reach any workers it forks.
-	cmd.SysProcAttr = detachTTY(sandboxProcAttr(sb))
-	cmd.Stdout, cmd.Stderr = f, f
-	// Keep stdin open so bash_input can drive an interactive process (REPL, line
-	// debugger). Must be obtained BEFORE Start; closed when the process exits.
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		_ = f.Close()
-		_ = os.Remove(f.Name())
-		cancel()
-		return nil, err
-	}
-	if err := cmd.Start(); err != nil {
-		_ = stdin.Close()
-		_ = f.Close()
-		_ = os.Remove(f.Name())
-		cancel()
-		return nil, err
-	}
-	// The child inherited its own fd for the log at fork; the parent's handle is no
-	// longer needed (reads reopen the path read-only).
 	logPath := f.Name()
-	_ = f.Close()
+
+	var stdin io.WriteCloser
+	if usePTY {
+		if !ptySupported {
+			_ = f.Close()
+			_ = os.Remove(logPath)
+			cancel()
+			return nil, errors.New("pty is not supported on this platform")
+		}
+		// Opt-in pseudo-terminal: the child gets a real controlling tty (ptyStart sets
+		// Setsid+Setctty), so ssh's /dev/tty password prompt and a serial getty login
+		// work and can be driven with bash_input. A terminal merges stdout+stderr into
+		// one stream, which a goroutine copies to the same log file the pipe path writes,
+		// so bash_output reads it identically. In PTY mode the copy goroutine OWNS f and
+		// the master and closes both when the slave EOFs (process exit) — unlike the pipe
+		// path, which closes f right after Start because the child inherited its own fd.
+		ptmx, err := ptyStart(cmd)
+		if err != nil {
+			_ = f.Close()
+			_ = os.Remove(logPath)
+			cancel()
+			return nil, err
+		}
+		stdin = ptmx
+		go func() {
+			_, _ = io.Copy(f, ptmx)
+			_ = ptmx.Close()
+			_ = f.Close()
+		}()
+	} else {
+		// New session: own process group, no controlling terminal. Detaches the child
+		// from magi's group and makes killGroup(pid) reach any workers it forks.
+		cmd.SysProcAttr = detachTTY(sandboxProcAttr(sb))
+		cmd.Stdout, cmd.Stderr = f, f
+		// Keep stdin open so bash_input can drive an interactive process (REPL, line
+		// debugger). Must be obtained BEFORE Start; closed when the process exits.
+		sp, err := cmd.StdinPipe()
+		if err != nil {
+			_ = f.Close()
+			_ = os.Remove(logPath)
+			cancel()
+			return nil, err
+		}
+		if err := cmd.Start(); err != nil {
+			_ = sp.Close()
+			_ = f.Close()
+			_ = os.Remove(logPath)
+			cancel()
+			return nil, err
+		}
+		stdin = sp
+		// The child inherited its own fd for the log at fork; the parent's handle is no
+		// longer needed (reads reopen the path read-only).
+		_ = f.Close()
+	}
 
 	m.mu.Lock()
 	m.seq++
-	p := &bgProc{id: fmt.Sprintf("bg_%d", m.seq), command: command, logPath: logPath, stdin: stdin, cancel: cancel, started: time.Now(), pid: cmd.Process.Pid}
+	p := &bgProc{id: fmt.Sprintf("bg_%d", m.seq), command: command, logPath: logPath, stdin: stdin, cancel: cancel, started: time.Now(), pid: cmd.Process.Pid, pty: usePTY}
 	m.procs[p.id] = p
 	m.pruneLocked()
 	m.mu.Unlock()
@@ -176,8 +211,12 @@ func (m *bgManager) start(workdir string, sb port.SandboxSpec, command string) (
 		p.done, p.exit = true, exit
 		p.stdin = nil // no more input accepted once exited
 		p.mu.Unlock()
-		_ = stdin.Close() // release the pipe
-		cancel()          // release the process context now that it has exited
+		// Pipe mode: release the stdin pipe here. PTY mode: the copy goroutine closes the
+		// master (== stdin) and the log file when the slave EOFs, so don't double-close.
+		if !usePTY {
+			_ = stdin.Close()
+		}
+		cancel() // release the process context now that it has exited
 	}()
 	return p, nil
 }
