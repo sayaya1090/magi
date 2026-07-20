@@ -58,14 +58,19 @@ func (c *Council) Deliberate(ctx context.Context, req port.DeliberationRequest) 
 	wg.Wait()
 
 	// Disagreement-triggered rebuttal (debate): the independent vote above kept the
-	// members' errors uncorrelated; now, ONLY when they actually split, let each see
-	// the others' reasoning once and hold or revise. This surfaces a conflict the
-	// independent tally hides — two members voting done for contradictory reasons, or
-	// one catching a defect the majority missed — instead of letting a coin-flip
-	// majority stand. Skipped on unanimity (no call) and on the focused re-round
-	// (already a targeted re-poll).
+	// members' errors uncorrelated; now let each see the others' reasoning once and
+	// hold or revise. It fires ONLY when the split would otherwise FINISH the turn —
+	// the independent tally is Done but a minority dissents. That is the case debate
+	// exists for: a premature done where one member caught a defect the majority
+	// missed (the cross-model report: a real bug flagged, then overruled 2-1). When
+	// the tally is already Continue, debate is skipped: the dissent cannot change the
+	// outcome (the turn continues regardless), and it must NOT be used to talk a
+	// hesitant council INTO done — debate may only make finishing HARDER, never
+	// easier, so it can't manufacture a coin-flip approval. Also skipped on unanimity
+	// (no split) and the focused re-round (already a targeted re-poll).
 	var debate *council.DebateOutcome
-	if req.Debate && !req.DeltaRound && splitVerdicts(verdicts) {
+	if indepDec, _ := council.Tally(verdicts, rule); req.Debate && !req.DeltaRound &&
+		splitVerdicts(verdicts) && indepDec == council.Done {
 		before, _ := council.Tally(verdicts, rule)
 		revised := c.rebut(ctx, req, members, verdicts)
 		changed := 0

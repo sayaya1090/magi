@@ -513,3 +513,36 @@ func TestDeliberateNoDebateKeepsSplit(t *testing.T) {
 		t.Fatalf("want exactly 3 polls (no rebuttal), got %d", calls)
 	}
 }
+
+// Debate is skipped when the independent tally is already Continue: the dissent can't
+// change the outcome, and debate must never be used to talk a hesitant council into
+// done. Melchior+Casper continue, Balthasar done → continue-majority → no rebuttal,
+// exactly 3 polls.
+func TestDeliberateSkipDebateOnContinueMajority(t *testing.T) {
+	var calls, rebuttals int64
+	c := New(only(fakeLLM{reply: func(r port.ChatRequest) string {
+		atomic.AddInt64(&calls, 1)
+		if strings.Contains(textOf(r), "Council disagreement") {
+			atomic.AddInt64(&rebuttals, 1)
+		}
+		if memberIn(r, "Balthasar") {
+			return `{"decision":"done","rationale":"looks fine"}`
+		}
+		return `{"decision":"continue","rationale":"incomplete","feedback":"more"}`
+	}}), "m")
+	d, _ := c.Deliberate(context.Background(), port.DeliberationRequest{
+		Round: 1, Task: "do x", Rule: council.RuleMajority, Debate: true,
+	})
+	if n := atomic.LoadInt64(&rebuttals); n != 0 {
+		t.Errorf("debate must be skipped on a continue-majority, ran %d time(s)", n)
+	}
+	if n := atomic.LoadInt64(&calls); n != 3 {
+		t.Errorf("want exactly 3 polls (no rebuttal), got %d", n)
+	}
+	if d.Decision != council.Continue {
+		t.Errorf("decision = %q, want continue", d.Decision)
+	}
+	if d.Debate != nil {
+		t.Errorf("no DebateOutcome expected when skipped, got %+v", d.Debate)
+	}
+}
