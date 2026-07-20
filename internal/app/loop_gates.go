@@ -345,10 +345,35 @@ func (a *App) runTerminationGate(ctx context.Context, tc turnCtx, step int, turn
 		ts.unverifiedReason = "the same answer was resubmitted unchanged after council feedback, without re-deliberation"
 		return 0, false
 	}
+	// Exec-evidence layer 1 (deterministic, pre-council): the turn authored runnable
+	// files that NO exercising command ever named — the exact signature of the
+	// "written, never run, council approved anyway" regressions (headless-terminal
+	// 2/7, large-scale 3/5; field-confirmed cross-model). One nudge before spending
+	// a council round is cheaper than a rejection round, and non-blocking: a second
+	// finish proceeds to the gate with the fact in the council's evidence instead.
+	if execEvidenceEnabled() && !ts.execNudged {
+		if un := guard.unexercisedArtifacts(); len(un) > 0 {
+			ts.execNudged = true
+			_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "guard"},
+				"You are finishing without ever RUNNING what you wrote: "+strings.Join(un, ", ")+
+					" — no executed command has invoked these. Importing or compiling is not running. "+
+					"Execute the smallest REAL invocation of each (the program's primary scenario) and "+
+					"check its output before finishing; if one is genuinely not meant to be executed "+
+					"directly, say so in your report.")
+			return loopContinue, true
+		}
+	}
+	changes := buildCouncilChanges(guard.changeSet())
+	if execEvidenceEnabled() {
+		if un := guard.unexercisedArtifacts(); len(un) > 0 {
+			changes += "\n\n### authored but never executed this turn (no command ever invoked them)\n- " +
+				strings.Join(un, "\n- ")
+		}
+	}
 	keepWorking, unv := a.runCouncilGate(ctx, s, agent, councilInput{
 		turnTask:    turnTask,
 		lastText:    lastText,
-		changes:     buildCouncilChanges(guard.changeSet()),
+		changes:     changes,
 		fabrication: fab,
 		stepsLeft:   maxSteps - step,
 		turnElapsed: time.Since(tc.runStart),

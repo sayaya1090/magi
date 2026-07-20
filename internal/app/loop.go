@@ -84,6 +84,7 @@ const (
 type turnState struct {
 	stopChecked      bool        // stop hooks enforced at most once per turn
 	nudgedEmpty      bool        // empty-subagent "call report" nudge fired at most once
+	execNudged       bool        // authored-but-never-executed nudge fired at most once (exec-evidence)
 	prevFinishText   string      // the answer the council rejected last round
 	prevFinishCalls  int         // guard.callCount() at that rejection (-1 = none yet)
 	unverifiedReason string      // non-empty when the turn finishes WITHOUT council approval

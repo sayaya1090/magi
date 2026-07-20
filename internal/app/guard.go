@@ -123,8 +123,9 @@ type runGuard struct {
 	// changed records this turn's file edits (before/after content) as the council's
 	// evidence of what the AGENT actually changed — reconstructed from its own write/edit
 	// tools, not git, so a human/external/bash change is never mis-attributed to the agent.
-	changed     map[string]*fileChange
-	changeOrder []string // first-seen order, for stable rendering
+	changed       map[string]*fileChange
+	changeOrder   []string        // first-seen order, for stable rendering
+	exercisedFile map[string]bool // authored files an EXERCISING command has named (exec-evidence)
 
 	// recalled bounds recall_context: re-hydrating compacted detail re-inflates context
 	// (which can re-trigger compaction), so a turn may recall each topic once and only up
@@ -167,7 +168,8 @@ func newRunGuard() *runGuard {
 	return &runGuard{
 		seen: map[string]int{}, results: map[string]string{},
 		lastMut: map[string]string{}, changed: map[string]*fileChange{},
-		recalled: map[string]bool{}, contentHist: map[string][]uint64{},
+		exercisedFile: map[string]bool{},
+		recalled:      map[string]bool{}, contentHist: map[string][]uint64{},
 		regressWarned: map[string]bool{},
 		failedStates:  map[uint64]string{}, tabuWarned: map[uint64]bool{},
 	}
@@ -539,7 +541,53 @@ func (g *runGuard) noteBashExec(cmd string, novel bool) {
 	if novel {
 		g.progressSinceNudge = true // a first-seen exercising command is forward motion
 	}
+	// Per-artifact exercise ledger (exec-evidence layer 1): an EXERCISING command that
+	// names an authored file marks that file as having actually been run/loaded at
+	// least once. Inspection commands returned above never reach here, so `cat x.py`
+	// does not count as running x.py.
+	for path := range g.changed {
+		if g.exercisedFile[path] {
+			continue
+		}
+		if base := filepath.Base(path); base != "" && strings.Contains(cmd, base) {
+			g.exercisedFile[path] = true
+		}
+	}
 	g.mu.Unlock()
+}
+
+// runnableExt lists extensions whose files plausibly EXECUTE (a program the turn
+// should have run at least once before claiming done). Docs/config/data files are
+// excluded on purpose: "authored but never executed" is only meaningful for code.
+var runnableExt = map[string]bool{
+	".py": true, ".sh": true, ".js": true, ".ts": true, ".go": true, ".c": true,
+	".cc": true, ".cpp": true, ".rs": true, ".rb": true, ".pl": true, ".php": true,
+	".java": true, ".mjs": true,
+}
+
+// unexercisedArtifacts returns this turn's authored runnable files that no
+// exercising command ever named — the deterministic "written but never run" fact
+// the exec-evidence nudge and the council evidence trailer are built on. A file
+// can also become exercised retroactively (written after an earlier mention is
+// impossible — mentions are only recorded for already-authored files — so a late
+// write followed by no run stays listed, which is exactly the failure mode).
+func (g *runGuard) unexercisedArtifacts() []string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	var out []string
+	for _, p := range g.changeOrder {
+		c := g.changed[p]
+		if c == nil || strings.TrimSpace(c.after) == "" {
+			continue // deletion/emptied — nothing to run
+		}
+		if !runnableExt[strings.ToLower(filepath.Ext(p))] {
+			continue
+		}
+		if !g.exercisedFile[p] {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // noteBashWait records that a bash command only WAITED or POLLED (isWaitCommand) — a delay or an

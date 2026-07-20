@@ -73,6 +73,16 @@ func specFidelityEnabled() bool { return !envOff("MAGI_SPEC_FIDELITY") }
 // elicited, not instructed). Default ON; MAGI_SPEC_MINE=0 removes the call (A/B knob).
 func specMineEnabled() bool { return !envOff("MAGI_SPEC_MINE") }
 
+// execEvidenceEnabled gates the exec-evidence layers: the deterministic per-artifact
+// exercise ledger's pre-council nudge ("you never ran what you wrote") plus the
+// council-evidence trailer listing authored-but-never-executed files. Targets the
+// regression signature where a syntactically complete but never-run deliverable is
+// approved (headless-terminal, large-scale; cross-confirmed on another model).
+// Non-blocking by design: one nudge, then the fact rides as evidence — the earlier
+// BLOCKING evidence gates were removed for bench regression, and this deliberately
+// is not one. Default ON; MAGI_EXEC_EVIDENCE=0 restores the baseline (A/B knob).
+func execEvidenceEnabled() bool { return !envOff("MAGI_EXEC_EVIDENCE") }
+
 // checkpointFirstEnabled turns on test-first ordering: when a task states HOW its
 // completion is checked (a snippet, command, function call, or I/O contract), the
 // agent is told to FIRST materialize that as a runnable checkpoint in the workdir —

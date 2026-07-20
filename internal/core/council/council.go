@@ -156,7 +156,9 @@ var Lenses = map[string]string{
 		"disconnect, a restart — demand evidence that the event was delivered for REAL (a subprocess " +
 		"receiving the actual signal), not simulated in-process (raising the exception by hand): the " +
 		"delivery semantics differ, and a handler that only fires in the simulation is dead code in " +
-		"the real scenario. No real-delivery evidence → not done.",
+		"the real scenario. No real-delivery evidence → not done. More generally, an EXECUTABLE " +
+		"deliverable (a program, script, or server) claimed done needs evidence it actually RAN at " +
+		"least once against its primary scenario — importing or compiling it is not running it.",
 	"completeness": "Did it do everything the task/plan asked for? Nothing left unfinished.",
 }
 
