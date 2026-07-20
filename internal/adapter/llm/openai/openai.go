@@ -96,6 +96,17 @@ func describeStatus(status int) string {
 	return "request rejected"
 }
 
+// diagFor returns the wire role-sequence diagnostic to append to an error, but ONLY for
+// 400/422 — a message-shape rejection is where "which role sat at which index" is the whole
+// question (e.g. "system message must be at the beginning" despite normalizeSystemPlacement).
+// Other statuses (auth, rate-limit, 5xx) are unrelated to message order, so they stay clean.
+func diagFor(status int, roleDiag string) string {
+	if (status == 400 || status == 422) && roleDiag != "" {
+		return " " + roleDiag
+	}
+	return ""
+}
+
 // Option configures a Client.
 type Option func(*Client)
 
@@ -167,8 +178,11 @@ func (c *Client) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan por
 	var lastBody string
 	var lastErr error
 	triedNoTools := false
+	var lastRoleDiag string // role sequence of the most recent request, for 400/422 diagnostics
 	for {
-		body, merr := json.Marshal(buildRequest(r, true, useCache, c.reasoningEffort))
+		br := buildRequest(r, true, useCache, c.reasoningEffort)
+		lastRoleDiag = wireRoleDiag(br.Messages)
+		body, merr := json.Marshal(br)
 		if merr != nil {
 			cancel()
 			return nil, merr
@@ -207,7 +221,7 @@ func (c *Client) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan por
 			return nil, lastErr // connection-level / context failure
 		}
 		if lastStatus != 0 {
-			return nil, fmt.Errorf("llm: %s (status %d): %s", describeStatus(lastStatus), lastStatus, lastBody)
+			return nil, fmt.Errorf("llm: %s (status %d): %s%s", describeStatus(lastStatus), lastStatus, lastBody, diagFor(lastStatus, lastRoleDiag))
 		}
 		return nil, fmt.Errorf("llm: request failed")
 	}
@@ -227,7 +241,7 @@ func (c *Client) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan por
 			msg, _ := io.ReadAll(io.LimitReader(resp.Body, 8*1024))
 			emit(streamCtx, ch, port.ProviderEvent{
 				Type: port.ProviderError,
-				Err:  fmt.Errorf("llm: %s (status %d): %s", describeStatus(resp.StatusCode), resp.StatusCode, strings.TrimSpace(string(msg))),
+				Err:  fmt.Errorf("llm: %s (status %d): %s%s", describeStatus(resp.StatusCode), resp.StatusCode, strings.TrimSpace(string(msg)), diagFor(resp.StatusCode, lastRoleDiag)),
 			})
 			return
 		}

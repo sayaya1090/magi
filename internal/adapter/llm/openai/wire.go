@@ -2,6 +2,8 @@ package openai
 
 import (
 	"encoding/json"
+	"fmt"
+	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
@@ -231,6 +233,30 @@ func repairToolOrdering(msgs []session.Message) []session.Message {
 		}
 	}
 	return out
+}
+
+// wireRoleDiag renders a compact role-sequence summary of a request's messages for
+// diagnostics — ROLES ONLY, never content (a compacted history reaching this layer can be
+// ~100 MB; dumping it would be ruinous). It surfaces exactly what a "system message must be
+// at the beginning" 400 needs to be root-caused from a run log: how many system messages the
+// wire request carries and at which indices (after normalizeSystemPlacement), plus the head
+// of the role run. Appended to the error text on a 400/422 so it lands in the run transcript.
+func wireRoleDiag(msgs []wireMessage) string {
+	var sysIdx []int
+	roles := make([]string, 0, len(msgs))
+	for i, m := range msgs {
+		if m.Role == "system" {
+			sysIdx = append(sysIdx, i)
+		}
+		if i < 20 {
+			roles = append(roles, m.Role)
+		}
+	}
+	head := strings.Join(roles, ",")
+	if len(msgs) > 20 {
+		head += ",…"
+	}
+	return fmt.Sprintf("[wire-diag: %d msgs, systemCount=%d at idx %v, roles=%s]", len(msgs), len(sysIdx), sysIdx, head)
 }
 
 // normalizeSystemPlacement enforces the strictest common template contract: at most
