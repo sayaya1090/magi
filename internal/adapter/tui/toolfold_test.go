@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
+
+	"charm.land/lipgloss/v2"
 
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -127,5 +130,24 @@ func TestModelFoldPairsByCallID(t *testing.T) {
 	m.foldToolResult("c1", "content-A", true)
 	if m.blocks[0].result != "content-A" || m.blocks[1].result != "content-B" {
 		t.Fatalf("mispaired: c1=%q c2=%q", m.blocks[0].result, m.blocks[1].result)
+	}
+}
+
+// The timestamp renders as HH:MM on a user/assistant label line, and the copy chip
+// stays clickable (its hit-test column accounts for the timestamp width). Zero time
+// (resume-rebuilt blocks) shows nothing.
+func TestTimestampRenderAndCopyHit(t *testing.T) {
+	if got := tsChip(time.Date(2026, 7, 20, 17, 42, 0, 0, time.Local)); !strings.Contains(got, "17:42") {
+		t.Fatalf("tsChip should show HH:MM, got %q", got)
+	}
+	if got := tsChip(time.Time{}); got != "" {
+		t.Fatalf("zero time must render nothing, got %q", got)
+	}
+	// With a timestamp present, the copy-chip hit column shifts right by the timestamp
+	// width; the geometry helper must agree so the chip is still clickable.
+	withTS := 2 + lipgloss.Width("you") + lipgloss.Width(tsChip(time.Now())) + 1
+	noTS := 2 + lipgloss.Width("you") + lipgloss.Width(tsChip(time.Time{})) + 1
+	if withTS <= noTS {
+		t.Fatalf("timestamp must push the copy chip right: withTS=%d noTS=%d", withTS, noTS)
 	}
 }

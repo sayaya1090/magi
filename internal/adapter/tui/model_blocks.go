@@ -141,7 +141,10 @@ func (m *Model) copyBlockAt(line, col int) (tea.Cmd, bool) {
 		default:
 			return nil, false
 		}
-		chipStart := 2 + lipgloss.Width(name) + 1
+		// bar (2) + label + timestamp chip (between label and copy chip, B-layout) + 1 space
+		// + the 3-cell copy chip. The timestamp width must be included or the click column
+		// for the chip drifts left by its width and the copy button becomes unclickable.
+		chipStart := 2 + lipgloss.Width(name) + lipgloss.Width(tsChip(b.ts)) + 1
 		if col < chipStart || col >= chipStart+3 {
 			return nil, false
 		}

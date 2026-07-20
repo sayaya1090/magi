@@ -117,7 +117,7 @@ func (m *Model) applyEvent(e event.Event) {
 		if json.Unmarshal(e.Data, &d) != nil {
 			return
 		}
-		m.onPartAppended(d)
+		m.onPartAppended(d, e.TS)
 
 	case event.TypeAgentSpawned:
 		var d event.AgentStatusData
@@ -290,7 +290,7 @@ func (m *Model) applyEvent(e event.Event) {
 // onPartAppended folds a finalized transcript part (reasoning/text/tool call or
 // result) into the block list, deduping a near-identical re-sent answer and
 // tracking per-turn step/file counts.
-func (m *Model) onPartAppended(d event.PartAppendedData) {
+func (m *Model) onPartAppended(d event.PartAppendedData, ts time.Time) {
 	switch d.Part.Kind {
 	case session.PartReasoning:
 		m.liveThink = ""
@@ -322,7 +322,7 @@ func (m *Model) onPartAppended(d event.PartAppendedData) {
 			m.blocks = append(m.blocks, block{kind: blockInfo, text: "≡ (이전 답변과 사실상 동일한 재응답 — 생략)"})
 			break
 		}
-		m.blocks = append(m.blocks, block{kind: blockAssistant, text: d.Part.Text})
+		m.blocks = append(m.blocks, block{kind: blockAssistant, text: d.Part.Text, ts: ts})
 		// An inline interjection answer (InReplyTo set) never resurfaces as its own turn,
 		// so its question bubble is stranded up at its input position. Pull it down to just
 		// above this answer so the two read as a [question → answer] group lifted out of

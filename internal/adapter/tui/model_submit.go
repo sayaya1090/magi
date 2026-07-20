@@ -44,7 +44,7 @@ func (m *Model) steer(text string) tea.Cmd {
 	m.history = append(m.history, text)
 	m.histIdx = len(m.history)
 	send := m.expandPastes(m.expandMentions(text))
-	m.blocks = append(m.blocks, block{kind: blockUser, text: m.expandPastes(text), queued: true})
+	m.blocks = append(m.blocks, block{kind: blockUser, text: m.expandPastes(text), queued: true, ts: time.Now()})
 	m.ta.Reset()
 	m.refresh()
 	sid := m.sid
@@ -191,7 +191,7 @@ func (m *Model) sendPrompt(display, send string) tea.Cmd {
 	if pre := m.drainPendingShell(); pre != "" {
 		send = pre + send
 	}
-	m.blocks = append(m.blocks, block{kind: blockUser, text: display})
+	m.blocks = append(m.blocks, block{kind: blockUser, text: display, ts: time.Now()})
 	m.running = true
 	m.awaitingTurnReqID = true // the next ActorUser prompt.submitted owns this turn's spinner
 	m.turnStart = time.Now()   // §8.1: start the elapsed/token meter

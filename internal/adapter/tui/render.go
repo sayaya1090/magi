@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"sort"
 	"strings"
+	"time"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -46,7 +47,8 @@ type block struct {
 	args   string // tool args (toolCall)
 	callID string // tool call id (toolCall) — pairs a result to its EXACT call, so parallel
 	// tool results (which complete out of order) attach to the right call, not the latest one
-	ok bool // tool success (toolResult, or a toolCall's attached result)
+	ts time.Time // when a user/assistant message was created — shown as HH:MM on its label line
+	ok bool      // tool success (toolResult, or a toolCall's attached result)
 	// A tool result is folded into its toolCall block so the call renders as one
 	// line whose leading glyph flips ⚙ → ✓/✗ on completion.
 	done     bool   // the toolCall's result has arrived
@@ -313,9 +315,12 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 		case blk.queued:
 			lbl = styleQueuedBar.Render(queuedGlyph+" ") + styleUserLabel.Render(who)
 		}
-		return lbl + copyChip() + "\n" + indent(body)
+		// B-layout: label · HH:MM · copy chip — the timestamp sits BETWEEN the label and
+		// the chip so the chip stays the last thing on the line and copyBlockAt's hit-test
+		// geometry (label width + space + 3-cell chip) is unchanged.
+		return lbl + tsChip(blk.ts) + copyChip() + "\n" + indent(body)
 	case blockAssistant:
-		return label(asstStyle, asstName) + copyChip() + "\n" + m.markdown(blk.text)
+		return label(asstStyle, asstName) + tsChip(blk.ts) + copyChip() + "\n" + m.markdown(blk.text)
 	case blockToolCall:
 		// Leading glyph reflects state: ⚙ while running, ✓/✗ once the result is in
 		// (the result is folded onto this same line — no separate result line).
@@ -528,6 +533,17 @@ func label(style lipgloss.Style, name string) string {
 // copyBlockAt mirrors this exact geometry: label width + one space + a 3-cell chip.
 func copyChip() string {
 	return " " + styleFoldChip.Render("⧉")
+}
+
+// tsChip renders a message's creation time as a low-emphasis " HH:MM" on its label
+// line (B-layout: between the label and the copy chip). Empty for a zero time, so a
+// resume-rebuilt block with no recorded timestamp simply shows nothing. HH:MM is
+// static (no per-second churn), so it doesn't fight the width-keyed block cache.
+func tsChip(ts time.Time) string {
+	if ts.IsZero() {
+		return ""
+	}
+	return " " + styleFoldChip.Render(ts.Format("15:04"))
 }
 
 // queuedGlyph marks a mid-turn queued user bubble's bar. It must be a single terminal cell

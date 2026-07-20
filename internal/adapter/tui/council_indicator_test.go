@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/sayaya1090/magi/internal/core/council"
@@ -346,7 +347,7 @@ func TestCollapsePreReviewReport(t *testing.T) {
 		if !m.reviewFoldNext {
 			t.Fatalf("a review continue should arm the deferred fold")
 		}
-		m.onPartAppended(part(session.PartText, "개정된 최종 보고서"))
+		m.onPartAppended(part(session.PartText, "개정된 최종 보고서"), time.Time{})
 		if m.blocks[reportIdx].kind != blockInfo || !strings.Contains(m.blocks[reportIdx].text, "접힘") {
 			t.Fatalf("pre-review report should fold to a stub once revised: %+v", m.blocks[reportIdx])
 		}
@@ -371,7 +372,7 @@ func TestCollapsePreReviewReport(t *testing.T) {
 			Feedback: "다시 확인",
 		}))
 		before := len(m.blocks)
-		m.onPartAppended(part(session.PartText, orig)) // same text back
+		m.onPartAppended(part(session.PartText, orig), time.Time{}) // same text back
 		if m.blocks[reportIdx].kind != blockAssistant || m.blocks[reportIdx].text != orig {
 			t.Fatalf("original report must stay untouched, got %+v", m.blocks[reportIdx])
 		}

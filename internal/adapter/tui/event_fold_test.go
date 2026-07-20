@@ -26,8 +26,8 @@ func toolCallPart(name, args string) event.PartAppendedData {
 
 func TestOnPartAppended_TextAndReasoningAppendBlocks(t *testing.T) {
 	m := &Model{liveText: "streaming…", liveThink: "thinking…"}
-	m.onPartAppended(part(session.PartReasoning, "because X"))
-	m.onPartAppended(part(session.PartText, "final answer"))
+	m.onPartAppended(part(session.PartReasoning, "because X"), time.Time{})
+	m.onPartAppended(part(session.PartText, "final answer"), time.Time{})
 
 	if m.liveText != "" || m.liveThink != "" {
 		t.Errorf("live buffers not cleared: text=%q think=%q", m.liveText, m.liveThink)
@@ -48,9 +48,9 @@ func TestOnPartAppended_CollapsesNearDuplicateResend(t *testing.T) {
 	// collapse to a stub instead of re-flooding the transcript.
 	long := strings.Repeat("This is a substantial paragraph of the answer. ", 20)
 	m := &Model{}
-	m.onPartAppended(part(session.PartText, long))
+	m.onPartAppended(part(session.PartText, long), time.Time{})
 	// Re-sent verbatim except for whitespace (sameAnswer ignores whitespace runs).
-	m.onPartAppended(part(session.PartText, "  "+strings.ReplaceAll(long, " ", "\n")))
+	m.onPartAppended(part(session.PartText, "  "+strings.ReplaceAll(long, " ", "\n")), time.Time{})
 
 	if len(m.blocks) != 2 {
 		t.Fatalf("want 2 blocks (full + stub), got %d", len(m.blocks))
@@ -65,8 +65,8 @@ func TestOnPartAppended_CollapsesNearDuplicateResend(t *testing.T) {
 
 func TestOnPartAppended_DistinctAnswersNotCollapsed(t *testing.T) {
 	m := &Model{}
-	m.onPartAppended(part(session.PartText, strings.Repeat("alpha ", 100)))
-	m.onPartAppended(part(session.PartText, strings.Repeat("beta ", 100)))
+	m.onPartAppended(part(session.PartText, strings.Repeat("alpha ", 100)), time.Time{})
+	m.onPartAppended(part(session.PartText, strings.Repeat("beta ", 100)), time.Time{})
 	if len(m.blocks) != 2 || m.blocks[1].kind != blockAssistant {
 		t.Fatalf("distinct answers must both render as assistant blocks: %+v", m.blocks)
 	}
@@ -74,9 +74,9 @@ func TestOnPartAppended_DistinctAnswersNotCollapsed(t *testing.T) {
 
 func TestOnPartAppended_ToolCallTracksStepsAndFiles(t *testing.T) {
 	m := &Model{}
-	m.onPartAppended(toolCallPart("read", `{"path":"a.go"}`))
-	m.onPartAppended(toolCallPart("write", `{"path":"b.go"}`))
-	m.onPartAppended(toolCallPart("edit", `{"path":"b.go"}`)) // same file, counts once
+	m.onPartAppended(toolCallPart("read", `{"path":"a.go"}`), time.Time{})
+	m.onPartAppended(toolCallPart("write", `{"path":"b.go"}`), time.Time{})
+	m.onPartAppended(toolCallPart("edit", `{"path":"b.go"}`), time.Time{}) // same file, counts once
 
 	if m.turnSteps != 3 {
 		t.Errorf("turnSteps: got %d, want 3 (every tool call counts)", m.turnSteps)
