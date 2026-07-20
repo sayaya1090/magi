@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -239,20 +240,45 @@ func (a *App) setActiveSeed(sid session.SessionID, msgID string) {
 // text stays in the log/context, so a follow-up that augments it still has the history.
 func (a *App) abandonSeedOnCancel(ctx context.Context, sid session.SessionID) {
 	a.mu.Lock()
-	mid := a.stateLocked(sid).activeSeedMsgID
-	a.stateLocked(sid).activeSeedMsgID = ""
+	st := a.stateLocked(sid)
+	mid := st.activeSeedMsgID
+	st.activeSeedMsgID = ""
+	// Cancelling the running turn also clears the QUEUE: a user who presses Esc means
+	// "reset this context", not "drop only the current task and keep the ones I already
+	// forgot I queued". Draining here stops a stale queued interjection from seeding the
+	// NEXT turn and surprising the user (who sent a fresh request expecting IT to run,
+	// then watched a forgotten old one execute instead). The drained prompts stay in the
+	// log — a later request that augments one still has its text — they just no longer SEED.
+	queued := st.pendingInterject
+	st.pendingInterject = nil
 	a.mu.Unlock()
-	if mid == "" {
-		return
+
+	// Abandon each drained interjection + resolve its deferral ledger entry, so neither
+	// seedPromptIdx nor a reload re-runs it. Best-effort ordering: markers first.
+	drained := 0
+	for _, p := range queued {
+		if p.MsgID == "" {
+			continue
+		}
+		dd, _ := json.Marshal(event.PromptAbandonedData{MsgID: p.MsgID})
+		_ = a.appendFact(ctx, sid, event.TypePromptAbandoned, event.Actor{Kind: event.ActorSystem, ID: "loop"}, dd)
+		a.recordDeferral(ctx, sid, p.MsgID, true) // resolved: left the queue (abandoned)
+		drained++
 	}
-	evs, err := a.store.Read(ctx, sid, 0)
-	if err != nil {
-		return
+
+	if mid != "" {
+		if evs, err := a.store.Read(ctx, sid, 0); err == nil && promptUnanswered(evs, mid) {
+			d, _ := json.Marshal(event.PromptAbandonedData{MsgID: mid})
+			_ = a.appendFact(ctx, sid, event.TypePromptAbandoned,
+				event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)
+		}
 	}
-	if !promptUnanswered(evs, mid) {
-		return // already answered or superseded — nothing to abandon
+	// Tell the user their queue was cleared, so the cancel's wider effect is not silent
+	// (B-note): "cancelled + N queued request(s) also cleared". Only when something was
+	// actually queued — a plain cancel with an empty queue stays quiet. Rendered via the
+	// system-note path (ActorSystem PromptSubmitted → the TUI/headless "⟳ … note" line).
+	if drained > 0 {
+		_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"},
+			fmt.Sprintf("cancelled — %d queued request(s) also cleared; your newest request runs next.", drained))
 	}
-	d, _ := json.Marshal(event.PromptAbandonedData{MsgID: mid})
-	_ = a.appendFact(ctx, sid, event.TypePromptAbandoned,
-		event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)
 }
