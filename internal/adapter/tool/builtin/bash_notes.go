@@ -141,6 +141,29 @@ func maskingTailNote(exit int, command string) string {
 	return "[note: this command ends in a `|| …` tail that masks the primary command's exit code — this exit 0 is NOT evidence the primary command succeeded. Re-run without the tail if you need its true status.]"
 }
 
+// swallowingPipe matches a command whose FINAL stage is a pure output truncator —
+// `| tail …` or `| head …` (a single pipe, not `||`). The model's intent is benign
+// (limit output volume), but the effect is the same trap as a masking tail: a pipeline's
+// exit status is its LAST stage's, and tail/head almost always exit 0, so a build/test
+// that CRASHED still reports exit 0 — and the truncation can drop the very verdict line
+// (final "Error"/"Segfault"/"bootstrap complete") the model needs. grep/cat/awk are
+// deliberately excluded: their exit code and filtered output are frequently the point.
+var swallowingPipe = regexp.MustCompile(`(^|[^|])\|\s*(?:tail|head)\b[^|]*$`)
+
+// swallowingPipeNote flags an exit-0 result whose command ends in a `| tail`/`| head`
+// output truncator. Distinct from maskingTailNote (which targets the clearly-wrong
+// `|| true` mask), this teaches a redundancy the weak model reaches for reflexively: the
+// bash tool ALREADY returns large output capped to its head AND tail with the true exit
+// code, so piping to tail/head only discards that exit code and can hide the verdict.
+// The live failure it targets: fix-ocaml-gc, `make world 2>&1 | tail -100` → exit 0 → the
+// model could not tell its fix built, mistrusted a good edit, and reverted it.
+func swallowingPipeNote(exit int, command string) string {
+	if exit != 0 || !swallowingPipe.MatchString(strings.TrimSpace(command)) {
+		return ""
+	}
+	return "[note: this exit 0 is the `tail`/`head` at the end of the pipe, NOT the command before it — a build/test that failed would still show exit 0 here, and the truncation can hide the final error/status line. You do not need to pipe to tail/head to limit output: this tool already returns large output capped to its head AND tail with the real exit code. Re-run without the pipe to see the true status.]"
+}
+
 // ephemeralShellState matches a command that mutates shell state with the intent
 // of it lasting — `export` / `source` as a command word. A bare VAR=val prefix is
 // NOT matched: it scopes the single command and models use it correctly all the

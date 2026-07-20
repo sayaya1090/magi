@@ -102,6 +102,39 @@ func TestMaskingTailNote(t *testing.T) {
 	}
 }
 
+// swallowingPipeNote fires on exit 0 when the command's final stage is a `| tail`/`| head`
+// output truncator (which masks the leading command's exit code), and stays quiet for
+// `||`, grep/cat filters, and non-zero exits.
+func TestSwallowingPipeNote(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		exit int
+		cmd  string
+		want bool
+	}{
+		{"make | tail", 0, "make world 2>&1 | tail -100", true},
+		{"cmd | head", 0, "cargo build 2>&1 | head -50", true},
+		{"tail no args", 0, "pytest | tail", true},
+		{"tail with pipe upstream", 0, "make 2>&1 | grep -i error | tail -20", true},
+		{"trailing whitespace", 0, "make | tail -5  ", true},
+		// Not a swallowing truncator.
+		{"grep filter", 0, "make 2>&1 | grep error", false},
+		{"cat", 0, "cat build.log | cat", false},
+		{"|| fallback not pipe", 0, "make || tail log", false},
+		{"no pipe", 0, "make world", false},
+		{"tail as leading word, not piped", 0, "tail -f log", false},
+		// Non-zero exit already speaks for itself.
+		{"non-zero exit", 2, "make world 2>&1 | tail -100", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := swallowingPipeNote(tc.exit, tc.cmd) != ""
+			if got != tc.want {
+				t.Errorf("swallowingPipeNote(%d, %q) fired=%v, want %v", tc.exit, tc.cmd, got, tc.want)
+			}
+		})
+	}
+}
+
 // backgroundTailNote fires on exit 0 when the command is `&`-detached (exit 0 means
 // "started", not "finished"), never on `&&` lists, and warns harder when the same
 // program is detached twice in one session (racing the in-flight copy).

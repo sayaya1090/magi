@@ -142,6 +142,14 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 			// (`false || true` fails silently). Static on the command string, so it
 			// also catches failures that print nothing.
 			disp = note + "\n" + disp
+		} else if note := swallowingPipeNote(exit, a.Command); note != "" {
+			// The command ends in `| tail`/`| head`: the exit 0 is the truncator's,
+			// not the build/test before it (a crashed make still shows exit 0), and
+			// the truncation can hide the final verdict line. It is also redundant —
+			// this tool already head+tail-caps large output with the true exit code.
+			// The fix-ocaml-gc bench arc: `make world 2>&1 | tail -100` reported exit
+			// 0, the model couldn't tell if its fix built, and reverted a good edit.
+			disp = note + "\n" + disp
 		} else if note := ephemeralEnvNote(exit, a.Command, env.SessionID); note != "" {
 			// First export/source of the session: teach that shell state does not
 			// outlive the call, before an ephemeral setup gets mistaken for a
