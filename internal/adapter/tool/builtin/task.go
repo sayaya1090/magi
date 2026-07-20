@@ -1,6 +1,7 @@
 package builtin
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"strings"
@@ -18,12 +19,63 @@ type Task struct{}
 type taskArgs struct {
 	Agent  string    `json:"agent"`
 	Prompt string    `json:"prompt"`
-	Tasks  []subTask `json:"tasks"` // optional: parallel fan-out
+	Tasks  flexTasks `json:"tasks"` // optional: parallel fan-out
 }
 
 type subTask struct {
 	Agent  string `json:"agent"`
 	Prompt string `json:"prompt"`
+}
+
+// flexTasks is the `tasks` fan-out array with the same tolerance rationale as
+// flexInt/flexBool: the whole delegation call was being rejected over the field's
+// SHAPE, not its content. Observed live (fix-ocaml-gc bench): a model stuck in a
+// search loop tried to escape by fanning out, but emitted tasks as a JSON *string*
+// ("[{...}]") — a double-encoded array — and got "cannot unmarshal string into
+// []subTask". The call died, the model stayed stuck, and the run failed on the
+// stall guard. The escape hatch must not hinge on the model getting array-vs-string
+// exactly right. Accepted shapes: a real array [{…}]; a double-encoded string
+// "[{…}]" (unwrap once and retry); a single object {agent,prompt} (wrap it). Junk
+// falls back to empty, which the caller treats as "no fan-out" and reads Agent/Prompt.
+type flexTasks []subTask
+
+func (t *flexTasks) UnmarshalJSON(b []byte) error {
+	b = bytes.TrimSpace(b)
+	if len(b) == 0 || string(b) == "null" {
+		return nil
+	}
+	// Proper array — the normal path.
+	if b[0] == '[' {
+		var arr []subTask
+		if err := json.Unmarshal(b, &arr); err != nil {
+			return err
+		}
+		*t = arr
+		return nil
+	}
+	// Double-encoded array: the value is a JSON string whose content is itself a
+	// JSON array (or object). Unwrap the string once and re-parse.
+	if b[0] == '"' {
+		var s string
+		if err := json.Unmarshal(b, &s); err != nil {
+			return err
+		}
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return nil
+		}
+		return t.UnmarshalJSON([]byte(s))
+	}
+	// Single object instead of a one-element array — wrap it.
+	if b[0] == '{' {
+		var one subTask
+		if err := json.Unmarshal(b, &one); err != nil {
+			return err
+		}
+		*t = []subTask{one}
+		return nil
+	}
+	return nil // unparseable shape → no fan-out (caller falls back to agent/prompt)
 }
 
 func (Task) Name() string { return "task" }
