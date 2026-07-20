@@ -28,7 +28,10 @@ type subTask struct {
 
 func (Task) Name() string { return "task" }
 func (Task) Description() string {
-	return "Delegate work to subagents. For a single task pass {agent, prompt}. When you have SEVERAL tasks that " +
+	return "Delegate work to subagents. The agent name MUST be one listed under 'Available agents' in your " +
+		"system prompt — those are the ONLY agents that exist. Do NOT invent role names (analyst, researcher, " +
+		"report-writer, …): a made-up name fails the call and wastes the step; if no listed agent fits, do the " +
+		"work yourself. For a single task pass {agent, prompt}. When you have SEVERAL tasks that " +
 		"don't depend on each other (e.g. two reviewers looking at the same thing), pass them ALL AT ONCE as " +
 		"{tasks:[{agent,prompt},...]} so they run IN PARALLEL — this is strongly preferred over dispatching them one " +
 		"at a time. Only dispatch sequentially (separate calls) when a task genuinely needs an earlier task's result."

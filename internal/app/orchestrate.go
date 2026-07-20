@@ -479,7 +479,16 @@ func (a *App) cloneConversation(ctx context.Context, from, to session.SessionID)
 func (a *App) spawn(ctx context.Context, parent session.Session, depth int, req port.SpawnRequest) port.SpawnResult {
 	spec, ok := a.resolveAgentSpec(req.Agent)
 	if !ok {
-		return port.SpawnResult{Err: "unknown agent: " + req.Agent}
+		// Same failure shape as an unknown TOOL: told only that the name is unknown,
+		// the model invents another stereotypical role (analyst, report-writer) or
+		// silently gives up on delegating. Name the actual roster so one rejection
+		// converts into a valid call — or an informed decision to do the work itself.
+		roster := "none are configured — do the work yourself"
+		if names := a.AgentNames(); len(names) > 0 {
+			roster = strings.Join(names, ", ")
+		}
+		return port.SpawnResult{Err: "unknown agent: " + req.Agent + ". Available agents: " + roster +
+			". Do not invent agent names; if none fits, do the work yourself."}
 	}
 	return a.spawnResolved(ctx, parent, depth, spec, req)
 }
