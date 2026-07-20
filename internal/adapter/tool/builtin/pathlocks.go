@@ -18,8 +18,9 @@ import (
 // order. The lock is keyed per path, so edits to different files stay parallel.
 //
 // It is in-process only: it does NOT guard against a separate process, the agent's
-// own bash tool, or an external editor mutating the file. The edit tool's
-// hash-anchored line refs remain the guard for changes made outside this lock.
+// own bash tool, or an external editor mutating the file. For changes made outside
+// this lock, the edit tool's default `old`-snippet match is the guard: a stale
+// snippet no longer matches, so the edit is rejected rather than landing blind.
 var pathLocks = &pathLockSet{m: map[string]*refMutex{}}
 
 // refMutex is a mutex plus a reference count (waiters + current holder) so an

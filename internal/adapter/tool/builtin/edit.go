@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"golang.org/x/text/unicode/norm"
@@ -32,10 +33,10 @@ type editArgs struct {
 
 func (Edit) Name() string { return "edit" }
 func (Edit) Description() string {
-	return "Replace text in a file. Default: give `old` (a unique snippet) and `new`; matching tolerates line-ending and trailing-whitespace drift but leading indentation must match. Anchored: instead give `at` a line ref \"N#hh\" from a read (optionally `to` a second ref for a range) and `new` as the replacement — the edit is rejected if that line changed since you read it. Use `at` alone, not with `old`."
+	return "Replace text in a file. Default: give `old` (a unique snippet) and `new`; matching tolerates line-ending and trailing-whitespace drift but leading indentation must match. Anchored: instead give `at` a line number \"N\" from a read (optionally `to` a second number for a range) and `new` as the replacement — it replaces those whole lines. Use `at` alone, not with `old`."
 }
 func (Edit) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"old":{"type":"string"},"new":{"type":"string"},"at":{"type":"string","description":"line ref N#hh from a read to anchor the edit; replaces line N (through ` + "`to`" + ` if given)"},"to":{"type":"string","description":"end line ref N#hh for a range replace with ` + "`at`" + `"},"replaceAll":{"type":"boolean"}},"required":["path"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"old":{"type":"string"},"new":{"type":"string"},"at":{"type":"string","description":"line number N from a read to anchor the edit; replaces line N (through ` + "`to`" + ` if given)"},"to":{"type":"string","description":"end line number N for a range replace with ` + "`at`" + `"},"replaceAll":{"type":"boolean"}},"required":["path"]}`)
 }
 
 func (Edit) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
@@ -96,10 +97,9 @@ func (Edit) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	return okText("", msg), nil
 }
 
-// applyAnchoredEdit handles the `at`(/`to`) path: it validates the line ref(s)
-// against the CURRENT file (rejecting a stale/wrong-line reference) and replaces
-// the anchored line or range with a.New. The hash check is what makes this a
-// guard rather than a blind by-line write.
+// applyAnchoredEdit handles the `at`(/`to`) path: it validates the line number(s)
+// against the CURRENT file (rejecting a past-end reference) and replaces the
+// anchored line or range with a.New.
 func applyAnchoredEdit(content string, a editArgs, abs string) session.ToolResult {
 	from, err := checkAnchor(content, a.At)
 	if err != nil {
@@ -160,9 +160,7 @@ const maxAnchorSpans = 8
 // returns its whole-line anchor span (start line ref, end line ref).
 func substringSpans(content, old string) []anchorSpan {
 	lines := fileLines(content)
-	ref := func(n int) string { // 1-based line → "N#hh"
-		return fmt.Sprintf("%d#%s", n, lineHash(strings.TrimRight(lines[n-1], "\r\n")))
-	}
+	ref := func(n int) string { return strconv.Itoa(n) } // 1-based line → "N"
 	span := 1 + strings.Count(strings.TrimSuffix(old, "\n"), "\n")
 	var out []anchorSpan
 	for idx, pos := 0, 0; len(out) < maxAnchorSpans; pos += idx + len(old) {
@@ -241,15 +239,6 @@ func applyEdit(content, old, new string, all bool) (string, string, error) {
 		return updated, " (matched ignoring trailing whitespace)", nil
 	}
 
-	// 3.5 Salvage a pasted read: the model may have copied "N#hh|..." read output
-	// straight into old. If every line carries that marker, strip it and retry once
-	// (the stripped text no longer carries markers, so this can't recurse further).
-	if stripped, ok := stripHashPrefixes(old); ok {
-		if u, _, err := applyEdit(content, stripped, new, all); err == nil {
-			return u, " (matched after stripping read line-number prefixes)", nil
-		}
-	}
-
 	// 4. Not found — point at the closest near-miss so the model can self-correct.
 	return "", "", fmt.Errorf("not found: old string not present%s", nearMissHint(content, old))
 }
@@ -305,8 +294,8 @@ func replaceFlexible(content, old, new string, all bool) (string, int, error) {
 		for _, m := range matches[:min(len(matches), maxAnchorSpans)] {
 			start, end := m+1, m+len(oldKeys)
 			spans = append(spans, anchorSpan{
-				at: fmt.Sprintf("%d#%s", start, lineHash(strings.TrimRight(lines[m], "\r\n"))),
-				to: fmt.Sprintf("%d#%s", end, lineHash(strings.TrimRight(lines[end-1], "\r\n"))),
+				at: strconv.Itoa(start),
+				to: strconv.Itoa(end),
 			})
 		}
 		return "", 0, notUniqueErr(content, old, len(matches), spans)

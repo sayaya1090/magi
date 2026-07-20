@@ -43,11 +43,11 @@ func writeFile(dir, rel, content string) {
 func TestRead(t *testing.T) {
 	seed := func(dir string) { writeFile(dir, "a.txt", "hello\nworld\n") }
 
-	want1 := formatHashLine(1, "hello") + "\n" + formatHashLine(2, "world") + "\n"
+	want1 := formatNumberedLine(1, "hello") + "\n" + formatNumberedLine(2, "world") + "\n"
 	if got, isErr := run(t, Read{}, readArgs{Path: "a.txt"}, seed); isErr || got != want1 {
 		t.Errorf("read-1: got %q want %q err=%v", got, want1, isErr)
 	}
-	want2 := formatHashLine(2, "world") + "\n"
+	want2 := formatNumberedLine(2, "world") + "\n"
 	if got, isErr := run(t, Read{}, readArgs{Path: "a.txt", Offset: 2, Limit: 1}, seed); isErr || got != want2 {
 		t.Errorf("read-2: got %q want %q err=%v", got, want2, isErr)
 	}

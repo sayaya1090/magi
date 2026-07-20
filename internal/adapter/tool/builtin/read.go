@@ -106,9 +106,9 @@ func (Read) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	if content == "" && start > 1 && start > total {
 		body += fmt.Sprintf("(note: offset %d is past end of file; file has %d lines)\n", start, total)
 	}
-	// Prefix each line with "N#hh|" — its 1-based number and a content hash — so
+	// Prefix each line with "N\t" — its 1-based number and a tab (cat -n style) — so
 	// the model can reference a line accurately and anchor an edit to it (the edit
-	// tool's `at` field), which lets the edit reject a stale/wrong-line reference.
+	// tool's `at` field). The tab gutter reads as metadata, not as file content.
 	body += numberLines(content, start)
 	// If the default window (not an explicit limit) hid trailing lines, say so and
 	// where to resume — otherwise the model can't tell the file was clipped.
@@ -153,9 +153,9 @@ func countLines(s string) int {
 	return n
 }
 
-// numberLines prefixes each line with "N#hh|" — its 1-based number and a content
-// hash (see hashline.go) — starting at firstLine, so the model can quote a line
-// back as an edit anchor.
+// numberLines prefixes each line with "N\t" — its 1-based number and a tab (see
+// hashline.go) — starting at firstLine, so the model can quote a line back as an
+// edit anchor.
 func numberLines(s string, firstLine int) string {
 	if s == "" {
 		return s
@@ -167,7 +167,7 @@ func numberLines(s string, firstLine int) string {
 		if i > 0 {
 			b.WriteByte('\n')
 		}
-		b.WriteString(formatHashLine(firstLine+i, line))
+		b.WriteString(formatNumberedLine(firstLine+i, line))
 	}
 	if hadTrailingNL {
 		b.WriteByte('\n')
