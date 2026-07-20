@@ -77,28 +77,37 @@ func seedPromptIdx(evs []event.Event) int {
 }
 
 // hasUnansweredPrompt reports whether a genuine (ActorUser) prompt exists that no
-// assistant reply has yet covered and that was not abandoned — the STRICT question
-// seedPromptIdx blurs (it defaults to the last prompt even when all are answered).
-// Used at the run goroutine's exit window to catch a prompt that landed mid-council
-// (buried behind the approved answer) so it re-runs instead of being stranded.
-func hasUnansweredPrompt(evs []event.Event) bool {
+// assistant reply has yet covered, that was not abandoned, and that is NOT a queued
+// interjection (deferred set) — the STRICT question seedPromptIdx blurs (it defaults
+// to the last prompt even when all are answered). Used at the run goroutine's exit
+// window to catch a prompt that landed mid-council (buried behind the approved answer)
+// so it re-runs instead of being stranded. DEFERRED prompts are excluded on purpose:
+// a queued interjection is already owned by the dedicated drain path (triage), so
+// counting it here too would make the generic re-run fire in a loop — the "consecutive
+// requests keep getting recalled" bug — instead of letting the queue drain it once.
+func hasUnansweredPrompt(evs []event.Event, deferred map[string]bool) bool {
 	abandoned := abandonedPromptIDs(evs)
-	ui, lastAnswered := -1, -1
+	ui, lastOpen := -1, -1 // lastOpen = highest index of a still-open (unanswered, non-deferred) prompt
+	answeredThrough := -1  // highest prompt index a later agent reply covered
 	for _, e := range evs {
 		switch {
 		case e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser:
 			ui++
 			var d event.PromptSubmittedData
-			if json.Unmarshal(e.Data, &d) == nil && abandoned[d.MessageID] {
-				lastAnswered = ui // abandoned = resolved
+			if json.Unmarshal(e.Data, &d) != nil {
+				continue
 			}
+			if abandoned[d.MessageID] || deferred[d.MessageID] {
+				continue // resolved (cancelled) or spoken-for (queued) → never "open"
+			}
+			lastOpen = ui
 		case e.Type == event.TypePartAppended && e.Actor.Kind == event.ActorAgent:
 			if ui >= 0 {
-				lastAnswered = ui
+				answeredThrough = ui
 			}
 		}
 	}
-	return lastAnswered < ui // a prompt after the last answered one is still open
+	return lastOpen > answeredThrough // an open prompt with no later agent reply
 }
 
 // abandonedPromptIDs returns the set of user-prompt MessageIDs marked abandoned (their

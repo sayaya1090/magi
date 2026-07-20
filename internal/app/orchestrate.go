@@ -272,7 +272,7 @@ func (a *App) needsOrchestratorTurn(ctx context.Context, sid session.SessionID) 
 	// once. bgHasUnconsumed is the ordering-independent signal (set when a result
 	// is injected, cleared when the orchestrator is re-invoked); hasUnansweredUserPrompt
 	// is kept as a belt-and-suspenders check for the common last-message-is-result case.
-	return a.bgOutstanding(sid) == 0 && (a.bgHasUnconsumed(sid) || a.hasUnansweredUserPrompt(ctx, sid))
+	return a.bgOutstanding(sid) == 0 && (a.bgHasUnconsumed(sid) || a.hasUnansweredUserPrompt(ctx, sid, a.deferredInterjectIDs(sid)))
 }
 
 // lastIsUserSteer reports whether the most recent message-bearing event is a

@@ -50,14 +50,14 @@ func TestHasUnansweredUserPrompt(t *testing.T) {
 		Parts:     []session.Part{{Kind: session.PartText, Text: "q"}},
 		Actor:     event.Actor{Kind: event.ActorUser, ID: "tui"},
 	})
-	if !a.hasUnansweredUserPrompt(ctx, sid) {
+	if !a.hasUnansweredUserPrompt(ctx, sid, nil) {
 		t.Fatal("expected unanswered user prompt before any run")
 	}
 
 	// Run a turn → the assistant answers → no longer unanswered.
 	a.startRun(ctx, sid)
 	waitForTerminal(t, a, sid)
-	if a.hasUnansweredUserPrompt(ctx, sid) {
+	if a.hasUnansweredUserPrompt(ctx, sid, nil) {
 		t.Fatal("expected no unanswered prompt after the assistant responded")
 	}
 }

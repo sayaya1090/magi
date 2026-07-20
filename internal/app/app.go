@@ -390,8 +390,14 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 			// later increments the count past baseInput and is caught at teardown (3) — even if a
 			// triage reply later buries it (an ActorAgent part hides it from hasUnansweredUserPrompt's
 			// last-message view AND makes seedPromptIdx treat it as answered).
+			// Snapshot the deferred (queued-interjection) set BEFORE taking a.mu: the
+			// re-run gate below runs under a.mu, and deferredInterjectIDs locks a.mu too —
+			// calling it there would re-enter and deadlock. A queued item can only leave
+			// the set (drained), never join it, while this goroutine sits between turns,
+			// so a pre-lock snapshot is safe.
+			deferredSnap := a.deferredInterjectIDs(sid)
 			a.mu.Lock()
-			if alive && a.hasUnansweredUserPrompt(runCtx, sid) {
+			if alive && a.hasUnansweredUserPrompt(runCtx, sid, deferredSnap) {
 				a.mu.Unlock()
 				continue
 			}
@@ -522,7 +528,7 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 // hasUnansweredUserPrompt reports whether the last message in the session is a
 // user prompt with no assistant response after it (a steered-in message the
 // agent has not yet handled).
-func (a *App) hasUnansweredUserPrompt(ctx context.Context, sid session.SessionID) bool {
+func (a *App) hasUnansweredUserPrompt(ctx context.Context, sid session.SessionID, deferred map[string]bool) bool {
 	evs, err := a.store.Read(ctx, sid, 0)
 	if err != nil {
 		return false
@@ -531,10 +537,11 @@ func (a *App) hasUnansweredUserPrompt(ctx context.Context, sid session.SessionID
 	// finish deliberation is buried when the loop then appends the approved answer (and
 	// council-decided facts), so the last reconstructed message is the assistant's — and
 	// the new request is silently stranded. Ask the real question instead: is any genuine
-	// user prompt still UNANSWERED (an assistant reply appeared after it) and not
-	// abandoned? That catches a mid-council interjection regardless of what the loop
-	// appended after it.
-	return hasUnansweredPrompt(evs)
+	// user prompt still UNANSWERED, not abandoned, and NOT a queued interjection? The
+	// deferred exclusion matters: a queued interjection is owned by the dedicated drain
+	// path, so counting it here re-runs it in a loop (the recall bug); a mid-council
+	// prompt is not queued (it arrived after the last step's scan), so it still re-runs.
+	return hasUnansweredPrompt(evs, deferred)
 }
 
 // Close cancels every in-flight run and background subagent, then waits for their
