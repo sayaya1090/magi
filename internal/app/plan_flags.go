@@ -83,6 +83,16 @@ func specMineEnabled() bool { return !envOff("MAGI_SPEC_MINE") }
 // is not one. Default ON; MAGI_EXEC_EVIDENCE=0 restores the baseline (A/B knob).
 func execEvidenceEnabled() bool { return !envOff("MAGI_EXEC_EVIDENCE") }
 
+// councilDebateEnabled gates the disagreement-triggered rebuttal round: after the
+// members vote independently, a SPLIT (both done and continue) triggers one round
+// where each sees the others' rationales and may hold or revise, then a re-tally.
+// Motivated by the observed variance in council judgment (the same deliverable
+// approved 3-0 on one run, rejected 0-3 on another) — a coin-flip majority stands
+// when members disagree for contradictory reasons or one catches a defect the
+// others miss. Unanimous votes skip it (no extra call). Default ON;
+// MAGI_COUNCIL_DEBATE=0 restores the independent-vote-only tally (A/B knob).
+func councilDebateEnabled() bool { return !envOff("MAGI_COUNCIL_DEBATE") }
+
 // checkpointFirstEnabled turns on test-first ordering: when a task states HOW its
 // completion is checked (a snippet, command, function call, or I/O contract), the
 // agent is told to FIRST materialize that as a runnable checkpoint in the workdir —

@@ -76,7 +76,7 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 			fmt.Sprintf("plan audit round %d/%d: %d member(s) deliberating…", round, maxRounds, len(members)))
 		delib, err := a.cfg.Council.Deliberate(ctx, port.DeliberationRequest{
 			Round: round, Phase: "plan", Task: auditTask, Plan: renderSteps(steps),
-			Members: members, Rule: rule, DefaultModel: s.Model.Model,
+			Members: members, Rule: rule, Debate: councilDebateEnabled(), DefaultModel: s.Model.Model,
 		})
 		if err != nil { // a gate failure must not block the turn → proceed with the plan
 			dd, _ := json.Marshal(event.CouncilDecidedData{Round: round, Phase: "plan", Decision: string(council.Done), Note: "plan council unavailable: " + err.Error(), Forced: true})

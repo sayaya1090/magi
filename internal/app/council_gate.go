@@ -488,6 +488,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		NoChanges:    noChanges,
 		Members:      pollMembers,
 		Rule:         rule,
+		Debate:       councilDebateEnabled(),
 		DefaultModel: s.Model.Model,
 		StepsLeft:    in.stepsLeft,
 		DeltaRound:   deltaRound,

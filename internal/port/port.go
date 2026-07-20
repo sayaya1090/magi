@@ -137,6 +137,13 @@ type DeliberationRequest struct {
 	// DefaultModel is used for members that don't pin their own Model (typically
 	// the session's current model, so the council follows model switches).
 	DefaultModel string
+	// Debate enables the disagreement-triggered rebuttal round: after the members
+	// vote INDEPENDENTLY (round 1 above, preserving uncorrelated errors), if they
+	// split (both done and continue present), each member is shown the others'
+	// verdicts+rationales ONCE and may hold or change its vote; the re-tally is the
+	// result. Consensus → one outcome; still split → the ordinary rule decides.
+	// No extra call when the independent vote is unanimous (the common case).
+	Debate bool
 	// StepsLeft is how many steps the agent has before it is force-stopped at its
 	// budget ceiling (0 = unknown/not applicable). When it is low, members should
 	// prefer accepting a reasonable working result over demanding another round of

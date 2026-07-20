@@ -57,6 +57,17 @@ func (c *Council) Deliberate(ctx context.Context, req port.DeliberationRequest) 
 	}
 	wg.Wait()
 
+	// Disagreement-triggered rebuttal (debate): the independent vote above kept the
+	// members' errors uncorrelated; now, ONLY when they actually split, let each see
+	// the others' reasoning once and hold or revise. This surfaces a conflict the
+	// independent tally hides — two members voting done for contradictory reasons, or
+	// one catching a defect the majority missed — instead of letting a coin-flip
+	// majority stand. Skipped on unanimity (no call) and on the focused re-round
+	// (already a targeted re-poll).
+	if req.Debate && !req.DeltaRound && splitVerdicts(verdicts) {
+		verdicts = c.rebut(ctx, req, members, verdicts)
+	}
+
 	// Focused re-round: fold the prior round's done votes back in before the rule
 	// runs, so the tally still spans the full council even though only the
 	// dissenting members were re-polled.
@@ -71,6 +82,65 @@ func (c *Council) Deliberate(ctx context.Context, req port.DeliberationRequest) 
 		d.Checks = council.MergeChecks(verdicts)
 	}
 	return d, nil
+}
+
+// splitVerdicts reports whether the members disagree — at least one done AND at
+// least one continue among the non-abstaining votes. Only a real split triggers the
+// rebuttal round; unanimity (or all-abstain) needs no debate.
+func splitVerdicts(vs []council.Verdict) bool {
+	var done, cont bool
+	for _, v := range vs {
+		switch v.Decision {
+		case council.Done:
+			done = true
+		case council.Continue:
+			cont = true
+		}
+	}
+	return done && cont
+}
+
+// rebut runs one rebuttal round: each member sees a compact digest of the OTHER
+// members' verdicts and rationales and may hold or change its vote. Members are
+// re-polled in parallel, each keeping its own lens/prompt; a member whose re-poll
+// fails or is unparseable keeps its round-1 verdict (fail-safe, never lost). The
+// digest is built once from the independent verdicts so no member sees a peer's
+// already-revised vote (simultaneous rebuttal, not sequential anchoring).
+func (c *Council) rebut(ctx context.Context, req port.DeliberationRequest, members []council.Member, indep []council.Verdict) []council.Verdict {
+	byName := map[string]council.Verdict{}
+	for _, v := range indep {
+		byName[v.Member] = v
+	}
+	out := make([]council.Verdict, len(members))
+	var wg sync.WaitGroup
+	for i, m := range members {
+		wg.Add(1)
+		go func(i int, m council.Member) {
+			defer wg.Done()
+			prior := byName[m.Name]
+			peers := peerDigest(indep, m.Name)
+			rv := c.pollRebut(ctx, req, m, prior, peers)
+			out[i] = rv
+		}(i, m)
+	}
+	wg.Wait()
+	return out
+}
+
+// peerDigest renders the other members' verdicts+rationales for the rebuttal prompt.
+func peerDigest(vs []council.Verdict, self string) string {
+	var b strings.Builder
+	for _, v := range vs {
+		if v.Member == self || v.Decision == council.Abstain {
+			continue
+		}
+		line := "- " + v.Member + " (" + v.Lens + ") voted " + string(v.Decision)
+		if r := strings.TrimSpace(v.Rationale); r != "" {
+			line += ": " + r
+		}
+		b.WriteString(line + "\n")
+	}
+	return strings.TrimSpace(b.String())
 }
 
 // judgeReply is the JSON shape the revision judge is asked to return.
@@ -194,6 +264,61 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 	v.Severity = r.Severity // plan-audit phase only; gates blocking vs advisory
 	v.Criteria = r.Criteria // plan-audit phase only; empty otherwise
 	v.Checks = r.Checks     // plan-audit phase only; per-step executable deliverable checks
+	return v
+}
+
+// pollRebut re-polls one member in the rebuttal round: same lens/prompt as poll, but
+// the evidence carries the peer digest and an instruction to hold or revise. On any
+// error or unparseable reply it returns the member's PRIOR verdict unchanged, so the
+// rebuttal can only refine consensus, never lose a vote to a flaky re-poll.
+func (c *Council) pollRebut(ctx context.Context, req port.DeliberationRequest, m council.Member, prior council.Verdict, peers string) council.Verdict {
+	if strings.TrimSpace(peers) == "" {
+		return prior // no dissent to consider (all others abstained)
+	}
+	model := m.Model
+	if model == "" {
+		model = req.DefaultModel
+	}
+	if model == "" {
+		model = c.model
+	}
+	provider := c.resolve(m.Provider)
+	if provider == nil {
+		return prior
+	}
+	user := evidence(req) + "\n\n# Council disagreement — reconsider once\n" +
+		"The council split. Your independent verdict was " + string(prior.Decision) + ". The other members:\n" +
+		peers + "\n\nWeigh their reasoning against yours. If a peer identifies a real defect your lens should " +
+		"honor, change your vote; if your verdict still holds under their reasoning, keep it and say why. Do " +
+		"not defer just to agree, and do not raise brand-new unrelated objections — this is about the concerns " +
+		"already on the table. Reply in the SAME JSON shape."
+	stream, err := provider.StreamChat(ctx, port.ChatRequest{
+		Model:    model,
+		System:   memberSystem(m, req.Phase, req.Task),
+		Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: user}}}},
+		Params:   map[string]any{"temperature": 0.0},
+	})
+	if err != nil {
+		return prior
+	}
+	var b strings.Builder
+	for ev := range stream {
+		if ev.Type == port.ProviderText {
+			b.WriteString(ev.Text)
+		}
+	}
+	r, ok := parseReply(b.String())
+	if !ok {
+		return prior
+	}
+	v := council.Verdict{Member: m.Name, Lens: m.Lens, Weight: m.Weight}
+	v.Decision = decisionOf(r.Decision)
+	v.Confidence = r.Confidence
+	v.Rationale = r.Rationale
+	v.Feedback = r.Feedback
+	v.Severity = r.Severity
+	v.Criteria = r.Criteria
+	v.Checks = r.Checks
 	return v
 }
 

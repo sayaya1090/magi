@@ -32,6 +32,18 @@ func memberIn(r port.ChatRequest, name string) bool {
 	return strings.Contains(r.System, "You are "+name)
 }
 
+// textOf returns the concatenated user-message text of a request (the evidence body,
+// where the rebuttal round's peer digest appears).
+func textOf(r port.ChatRequest) string {
+	var b strings.Builder
+	for _, m := range r.Messages {
+		for _, p := range m.Parts {
+			b.WriteString(p.Text)
+		}
+	}
+	return b.String()
+}
+
 // only returns a resolver that always yields p (when per-member routing is irrelevant).
 func only(p port.LLMProvider) func(string) port.LLMProvider {
 	return func(string) port.LLMProvider { return p }
@@ -446,5 +458,52 @@ func TestParseReplyRequiresDecision(t *testing.T) {
 	}
 	if r, ok := parseReply(`{"decision":"DONE"}`); !ok || decisionOf(r.Decision) != council.Done {
 		t.Fatalf("uppercase DONE should parse to done, got ok=%v r=%+v", ok, r)
+	}
+}
+
+// Debate: a split independent vote triggers one rebuttal round. Here Melchior is
+// shown the majority's done votes and flips to done → consensus. The rebuttal reply
+// is detectable by the peer-digest section in the prompt.
+func TestDeliberateDebateResolvesSplit(t *testing.T) {
+	c := New(only(fakeLLM{reply: func(r port.ChatRequest) string {
+		rebuttal := strings.Contains(textOf(r), "Council disagreement")
+		if memberIn(r, "Melchior") {
+			if rebuttal { // reconsiders and joins the majority
+				return `{"decision":"done","rationale":"peers are right, tests do cover it"}`
+			}
+			return `{"decision":"continue","rationale":"looks incomplete"}`
+		}
+		return `{"decision":"done","rationale":"tests pass"}`
+	}}), "m")
+	d, _ := c.Deliberate(context.Background(), port.DeliberationRequest{
+		Round: 1, Task: "do x", Rule: council.RuleMajority, Debate: true,
+	})
+	if d.Decision != council.Done {
+		t.Fatalf("decision = %q, want done after debate", d.Decision)
+	}
+}
+
+// Debate off (or unanimous) never triggers a rebuttal: a member that would flip on
+// rebuttal keeps its independent vote, so a genuine split stands under the rule.
+func TestDeliberateNoDebateKeepsSplit(t *testing.T) {
+	calls := 0
+	c := New(only(fakeLLM{reply: func(r port.ChatRequest) string {
+		calls++
+		if strings.Contains(textOf(r), "Council disagreement") {
+			t.Error("rebuttal round ran with Debate=false")
+		}
+		if memberIn(r, "Melchior") {
+			return `{"decision":"continue","rationale":"incomplete","feedback":"more"}`
+		}
+		return `{"decision":"done","rationale":"ok"}`
+	}}), "m")
+	d, _ := c.Deliberate(context.Background(), port.DeliberationRequest{
+		Round: 1, Task: "do x", Rule: council.RuleMajority, Debate: false,
+	})
+	if d.Decision != council.Done { // 2 done / 1 continue → majority done, no debate
+		t.Fatalf("decision = %q, want done (majority, no debate)", d.Decision)
+	}
+	if calls != 3 {
+		t.Fatalf("want exactly 3 polls (no rebuttal), got %d", calls)
 	}
 }
