@@ -510,21 +510,81 @@ func msgLen(m session.Message) int {
 	return len(b)
 }
 
-// parsePlan extracts the first BALANCED {...} JSON object from text and unmarshals
-// it. Models wrap the object in prose/fences, and weak local models often append
-// trailing prose containing a stray '}' — the old first-'{'/last-'}' span then
-// over-captured and failed to parse, silently degrading a valid multi-step plan to
-// the solo path. The balanced scan (string/escape-aware) takes just the object.
+// parsePlan extracts the plan JSON object from a model reply and unmarshals it. Models
+// wrap the object in prose/fences, and weak local models often precede it with reasoning
+// that contains a STRAY '{' — a code fragment ("`{last_free_block}`"), a set literal, an
+// example. Taking only the FIRST balanced object then grabs that stray and fails to parse,
+// silently degrading a real multi-step plan to nothing (observed in a stuck-decompose
+// re-plan: a 1717-char reply "yielded no parseable plan"). So scan EVERY top-level balanced
+// object and take the first that unmarshals into a plan with at least one step. If none has
+// steps, fall back to the first that unmarshals at all (preserves the old shape for a
+// legitimately-empty plan); else empty.
 func parsePlan(text string) planResult {
-	js := firstBalancedObject(text)
-	if js == "" {
-		return planResult{}
+	var firstValid *planResult
+	for _, js := range balancedObjects(text) {
+		var p planResult
+		if json.Unmarshal([]byte(js), &p) != nil {
+			continue // not JSON, or not the plan shape — try the next object
+		}
+		if len(p.Steps) > 0 {
+			return p // a real plan wins immediately
+		}
+		if firstValid == nil {
+			pp := p
+			firstValid = &pp
+		}
 	}
-	var p planResult
-	if json.Unmarshal([]byte(js), &p) != nil {
-		return planResult{}
+	if firstValid != nil {
+		return *firstValid
 	}
-	return p
+	return planResult{}
+}
+
+// balancedObjects returns every TOP-LEVEL balanced {...} object in s, in order, respecting
+// strings and escapes (braces inside string values don't confuse it). Nested objects (a
+// plan's step objects) stay inside their parent — only depth-0 spans are returned — so the
+// caller can try each candidate independently and skip a stray brace that precedes the real
+// object.
+func balancedObjects(s string) []string {
+	var out []string
+	i := 0
+	for i < len(s) {
+		start := strings.IndexByte(s[i:], '{')
+		if start < 0 {
+			break
+		}
+		start += i
+		depth, inStr, esc, end := 0, false, false, -1
+		for j := start; j < len(s); j++ {
+			ch := s[j]
+			switch {
+			case esc:
+				esc = false
+			case ch == '\\' && inStr:
+				esc = true
+			case ch == '"':
+				inStr = !inStr
+			case inStr:
+				// inside a string literal — ignore structural chars
+			case ch == '{':
+				depth++
+			case ch == '}':
+				depth--
+				if depth == 0 {
+					end = j
+				}
+			}
+			if end >= 0 {
+				break
+			}
+		}
+		if end < 0 {
+			break // unbalanced tail — no more complete objects
+		}
+		out = append(out, s[start:end+1])
+		i = end + 1
+	}
+	return out
 }
 
 // firstBalancedObject returns the first balanced {...} object in s, respecting

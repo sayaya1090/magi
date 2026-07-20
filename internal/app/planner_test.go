@@ -117,6 +117,18 @@ func TestParsePlan(t *testing.T) {
 	if p := parsePlan(`{"reason":"use {braces} carefully","steps":[{"title":"y","strategy":"solo"}]}`); len(p.Steps) != 1 {
 		t.Errorf("brace-in-string parse: %+v", p)
 	}
+	// LEADING stray brace before the real plan (the stuck-decompose "1717 chars, no
+	// parseable plan" case): a weak model's reasoning contains a code fragment / set literal
+	// with its own {...} BEFORE the plan object. Taking only the first balanced object grabs
+	// the stray and fails; scanning every object finds the real plan.
+	if p := parsePlan("The bug is in `{last_free_block}` — my plan:\n" +
+		`{"steps":[{"title":"fix merge","strategy":"solo"}]}`); len(p.Steps) != 1 {
+		t.Errorf("leading-stray-brace parse should skip to the real plan: %+v", p)
+	}
+	// A non-plan JSON object before the plan (e.g. an example the model echoed) is skipped.
+	if p := parsePlan(`Example input {"a":1,"b":2}. Here is the plan: {"steps":[{"title":"z","strategy":"solo"}]}`); len(p.Steps) != 1 {
+		t.Errorf("non-plan object before the plan should be skipped: %+v", p)
+	}
 }
 
 func TestSanitizeSteps(t *testing.T) {
