@@ -139,12 +139,18 @@ func recoveryRunCapEnabled() bool { return envOn("MAGI_RECOVERY_RUNCAP") }
 // the "repeat" stall kind (a loop-guard block spiral), which the whole-task re-hand-off could not
 // help (it would just re-fixate).
 //
-// Default OFF (regression bisect, 2026-07-16): a "repeat" block during a legitimate
-// long wait (compile-compcert: make in background, bash_output polls hard-blocked)
-// now triggers a full re-plan plus per-unit child spawns MID-BUILD, burning the
-// run's wall clock on recovery instead of waiting (reward=null, finished_at=null).
-// MAGI_STUCK_DECOMPOSE=1 re-enables the decomposing recovery (stall+repeat kinds).
-func stuckDecomposeEnabled() bool { return envOn("MAGI_STUCK_DECOMPOSE") }
+// Default ON (2026-07-21): the decomposing recovery is what rescues a pure search/read
+// loop — the fix-ocaml-gc and custom-memory-heap-crash bench failures were both an agent
+// spiralling on grep/read with zero edits, exactly the fixation the whole-task re-hand-off
+// cannot break. It was OFF (2026-07-16 regression bisect) because a "repeat" block during a
+// legitimate long wait (compile-compcert: make in background, bash_output polls hard-blocked)
+// triggered a full re-plan plus per-unit child spawns MID-BUILD, burning the run's wall clock.
+// That regression is now closed at the source: isPollTool (guard.check) counts bash_output /
+// wait_for polls toward the environment-wait ratio EVEN WHEN hard-blocked, so a build-poll
+// spiral reads as a wait (stallIsWait true) and the existing wait-guard suppresses the recovery
+// for the "repeat" kind too — while a genuine fixation (no polls, just re-reads) still recovers.
+// MAGI_STUCK_DECOMPOSE=off restores the whole-task re-hand-off (A/B baseline).
+func stuckDecomposeEnabled() bool { return !envOff("MAGI_STUCK_DECOMPOSE") }
 
 // implicitAcceptEnabled tells the planner that a task's real acceptance conditions are usually
 // stricter than the instruction prose: the exact output tokens/formats the prose only gestures at,

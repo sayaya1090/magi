@@ -8,23 +8,25 @@ import (
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
-// stuckDecomposeEnabled defaults OFF (2026-07-16 regression bisect: recovery fired
-// mid-build on a repeat block and burned the wall clock); an explicit on-value
-// re-enables the decomposing recovery.
+// stuckDecomposeEnabled defaults ON (2026-07-21): the decomposing recovery rescues the
+// search/read-loop fixations (fix-ocaml-gc, heap-crash) the whole-task re-hand-off cannot.
+// The 2026-07-16 mid-build regression that forced it off is now closed at the source
+// (isPollTool counts bash_output/wait_for polls as an environment wait), so only an explicit
+// off-value restores the whole-task baseline.
 func TestStuckDecomposeEnabledDefault(t *testing.T) {
-	if stuckDecomposeEnabled() {
-		t.Fatal("default must be OFF")
+	if !stuckDecomposeEnabled() {
+		t.Fatal("default must be ON")
 	}
-	for _, v := range []string{"1", "on", "true", "yes", "ON"} {
-		t.Setenv("MAGI_STUCK_DECOMPOSE", v)
-		if !stuckDecomposeEnabled() {
-			t.Errorf("%q must enable", v)
-		}
-	}
-	for _, v := range []string{"0", "off", "false", "no", "whatever"} {
+	for _, v := range []string{"0", "off", "false", "no", "OFF"} {
 		t.Setenv("MAGI_STUCK_DECOMPOSE", v)
 		if stuckDecomposeEnabled() {
-			t.Errorf("%q must leave it OFF", v)
+			t.Errorf("%q must disable", v)
+		}
+	}
+	for _, v := range []string{"1", "on", "true", "yes", "whatever", ""} {
+		t.Setenv("MAGI_STUCK_DECOMPOSE", v)
+		if !stuckDecomposeEnabled() {
+			t.Errorf("%q must leave it ON", v)
 		}
 	}
 }

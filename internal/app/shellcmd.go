@@ -78,6 +78,16 @@ var loopKeywords = map[string]bool{
 	"then": true, "else": true, "elif": true, "fi": true, "for": true, "in": true, "!": true,
 }
 
+// isPollTool reports whether a tool call (by name) is an environment wait rather than work on a
+// deliverable: bash_output polls a background job's new output, wait_for blocks until a condition
+// holds. Both are the tool-level equivalent of a sleep/poll bash idiom (isWaitCommand) — the guard
+// counts them toward the environment-wait ratio so a poll spiral (background build + repeated
+// bash_output) reads as a wait and does not trigger the futile stuck-recovery spawn. bash_input
+// (sends stdin) is deliberately excluded — it drives a program, it does not merely wait.
+func isPollTool(name string) bool {
+	return name == "bash_output" || name == "wait_for"
+}
+
 // isWaitCommand reports whether cmd does nothing but wait/poll: every segment (after skipping
 // leading loop/conditional keywords and redirect fragments) is either a wait verb (waitVerbs)
 // or an inspect-only builtin, AND at least one segment is a genuine wait verb. A path-qualified

@@ -344,6 +344,20 @@ func (g *runGuard) check(name string, args json.RawMessage) (block bool, n int, 
 	fp = name + "\x00" + strconv.Itoa(g.epoch) + "\x00" + guardArgs(name, args)
 	g.calls++
 	g.sinceProgress++ // reset only by a real mutation (mutated); rises across varied calls
+	// A background-job poll (bash_output) or an explicit block-until (wait_for) is waiting on
+	// the ENVIRONMENT, exactly like a sleep/poll bash idiom (noteBashWait): it advances no
+	// deliverable. Count it toward the wait ratio HERE — in check(), which runs for EVERY call
+	// before the block decision — rather than at the post-execute noteBashWait, because a poll
+	// spiral hard-blocks (n>repeatLimit) and a blocked call returns early, never reaching the
+	// post-execute path. Without counting the blocked polls, waitSinceMut froze at 2 while
+	// sinceProgress climbed to the "repeat" force-stop, so stallIsWait() read false and the
+	// decomposing recovery fired MID-BUILD — the compile-compcert regression that forced
+	// MAGI_STUCK_DECOMPOSE off. Bumping both counters per poll keeps the ratio balanced, so a
+	// pure poll window reads as a wait and suppresses the futile recovery, while a mixed window
+	// (real work between polls) correctly does not.
+	if isPollTool(name) {
+		g.waitSinceMut++
+	}
 	g.seen[fp]++
 	n = g.seen[fp]
 	if n > repeatLimit {
