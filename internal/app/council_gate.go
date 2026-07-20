@@ -505,6 +505,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		a.appendFact(ctx, sid, event.TypeCouncilDecided, councilActor, dd)
 		return false, "the council was unavailable, so the result was not approved: " + err.Error()
 	}
+	a.emitDebate(sid, councilActor, "terminate", ct.rounds, delib.Debate)
 	// An interrupt during deliberation: unwind rather than inject feedback.
 	if ctx.Err() != nil {
 		return false, ""

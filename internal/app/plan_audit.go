@@ -83,6 +83,7 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 			a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd)
 			return steps
 		}
+		a.emitDebate(sid, actor, "plan", round, delib.Debate)
 		for _, v := range delib.Verdicts {
 			vd, _ := json.Marshal(event.CouncilVerdictData{
 				Round: round, Phase: "plan", Member: v.Member, Lens: v.Lens, Decision: string(v.Decision),

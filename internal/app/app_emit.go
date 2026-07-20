@@ -3,9 +3,11 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync/atomic"
 	"time"
 
+	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -45,6 +47,22 @@ func (a *App) publishTransient(sid session.SessionID, typ event.Type, actor even
 	}
 	a.touch(sid)
 	a.bus.Publish(event.Event{SessionID: sid, Type: typ, Actor: actor, TS: time.Now(), Stage: a.currentStage(sid), Data: data})
+}
+
+// emitDebate surfaces a disagreement-triggered rebuttal round (council debate) as a
+// transient progress note, so the otherwise-internal rebuttal is observable in the
+// TUI and headless stream. No-op when debate did not run (unanimous vote or disabled).
+func (a *App) emitDebate(sid session.SessionID, actor event.Actor, phase string, round int, d *council.DebateOutcome) {
+	if d == nil {
+		return
+	}
+	verb := "held"
+	if d.Before != d.After {
+		verb = "flipped " + string(d.Before) + "→" + string(d.After)
+	}
+	a.emitToolProgress(sid, actor, "", "council",
+		fmt.Sprintf("%s round %d debate: split → rebuttal, %d member(s) changed, %s",
+			phase, round, d.Changed, verb))
 }
 
 // emitToolProgress publishes a long-running tool's live progress note as a

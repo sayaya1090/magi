@@ -135,6 +135,18 @@ type Deliberation struct {
 	// plan-audit round (merged from the members' proposals). Empty in the
 	// termination phase. A step may carry several checks (several deliverables).
 	Checks []DeliverableCheck `json:"checks,omitempty"`
+	// Debate records a disagreement-triggered rebuttal round: nil when it did not run
+	// (unanimous vote, or debate disabled), non-nil with the before→after decisions
+	// when it did — so the otherwise-internal rebuttal is observable in the transcript.
+	Debate *DebateOutcome `json:"debate,omitempty"`
+}
+
+// DebateOutcome summarizes one rebuttal round for observability: the pre-debate and
+// post-debate decisions, plus how many members changed their vote.
+type DebateOutcome struct {
+	Before  Decision `json:"before"`  // council decision on the independent vote
+	After   Decision `json:"after"`   // council decision after the rebuttal
+	Changed int      `json:"changed"` // members whose vote flipped in the rebuttal
 }
 
 // DefaultMembers returns the three default council members — the MAGI. The theme

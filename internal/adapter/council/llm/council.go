@@ -64,8 +64,23 @@ func (c *Council) Deliberate(ctx context.Context, req port.DeliberationRequest) 
 	// one catching a defect the majority missed — instead of letting a coin-flip
 	// majority stand. Skipped on unanimity (no call) and on the focused re-round
 	// (already a targeted re-poll).
+	var debate *council.DebateOutcome
 	if req.Debate && !req.DeltaRound && splitVerdicts(verdicts) {
-		verdicts = c.rebut(ctx, req, members, verdicts)
+		before, _ := council.Tally(verdicts, rule)
+		revised := c.rebut(ctx, req, members, verdicts)
+		changed := 0
+		prior := map[string]council.Decision{}
+		for _, v := range verdicts {
+			prior[v.Member] = v.Decision
+		}
+		for _, v := range revised {
+			if p, ok := prior[v.Member]; ok && p != v.Decision {
+				changed++
+			}
+		}
+		after, _ := council.Tally(revised, rule)
+		debate = &council.DebateOutcome{Before: before, After: after, Changed: changed}
+		verdicts = revised
 	}
 
 	// Focused re-round: fold the prior round's done votes back in before the rule
@@ -74,6 +89,7 @@ func (c *Council) Deliberate(ctx context.Context, req port.DeliberationRequest) 
 	verdicts = append(verdicts, req.CarriedDone...)
 
 	d := council.Deliberate(req.Round, verdicts, rule)
+	d.Debate = debate
 	if req.Phase == "plan" {
 		// Plan audit: synthesize the members' proposed completion criteria into the
 		// contract the turn will later be judged against, plus any per-step executable
