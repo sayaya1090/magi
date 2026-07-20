@@ -14,7 +14,7 @@ import (
 // user's newest request. Each drained item is marked abandoned so seedPromptIdx skips
 // it, and a user-facing note reports how many were cleared.
 func TestCancelClearsQueue(t *testing.T) {
-	a := newTestApp(t)
+	a, _ := storeApp(t)
 	ctx := context.Background()
 	sid := session.SessionID("s_cancelq")
 	seedSession(t, a, sid)

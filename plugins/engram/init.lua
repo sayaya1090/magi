@@ -452,6 +452,97 @@ end)
 -- 스킬 사용 실적 원장(플러그인 스토어): slug\t로드수\t성공수\t실패수.
 -- 호스트가 turn_finished 페이로드에 실어주는 "이번 턴에 로드된 스킬" ×
 -- 구조적 outcome으로 결정론적으로 계측한다 — 큐레이션(병합/정리)의 실측 근거.
+-- Last-used dates (YYYY-MM-DD per skill slug) drive date-based pruning. Stored as a
+-- newline-joined "slug\tdate" map alongside skill_usage.
+local function load_lastused()
+  local m = {}
+  for line in string.gmatch(magi.store_get("skill_lastused") or "", "[^\n]+") do
+    local n, d = string.match(line, "^([^\t]*)\t(.*)$")
+    if n then m[n] = d end
+  end
+  return m
+end
+
+local function save_lastused(m)
+  local out = {}
+  for n, d in pairs(m) do out[#out + 1] = n .. "\t" .. d end
+  magi.store_set("skill_lastused", table.concat(out, "\n"))
+end
+
+-- days_between returns the whole-day difference between two YYYY-MM-DD strings
+-- (a - b) using a proleptic-Gregorian day count. Returns nil on a malformed date.
+local function to_days(ymd)
+  local y, m, d = string.match(ymd or "", "^(%d+)-(%d+)-(%d+)$")
+  if not y then return nil end
+  y, m, d = tonumber(y), tonumber(m), tonumber(d)
+  -- days since a fixed epoch (Howard Hinnant's civil algorithm)
+  y = (m <= 2) and (y - 1) or y
+  local era = math.floor(((y >= 0) and y or (y - 399)) / 400)
+  local yoe = y - era * 400
+  local doy = math.floor((153 * ((m > 2) and (m - 3) or (m + 9)) + 2) / 5) + d - 1
+  local doe = yoe * 365 + math.floor(yoe / 4) - math.floor(yoe / 100) + doy
+  return era * 146097 + doe - 719468
+end
+
+-- PRUNE_DAYS default; overridable per-user with /engram-prune-days (stored).
+local PRUNE_DAYS_DEFAULT = 7
+
+local function prune_days()
+  local v = tonumber(magi.store_get("prune_days") or "")
+  if v and v > 0 then return math.floor(v) end
+  return PRUNE_DAYS_DEFAULT
+end
+
+-- prune_stale archives engram-authored skills unused for >= prune_days days: it MOVES
+-- .claude/skills/<slug>/SKILL.md to .claude/skills/.archive/<slug>/SKILL.md (read →
+-- write → remove — recoverable, git-tracked) and drops the slug from the index/usage/
+-- lastused. HUMAN-edited skills are protected: a skill whose SKILL.md no longer carries
+-- the engram auto-generated marker is never archived. Pure count/date logic — no LLM.
+local ENGRAM_MARKER = "engram: 작업 이력에서 자동 추출된 스킬"
+
+local function prune_stale()
+  local today = to_days(string.sub(magi.time(), 1, 10))
+  if not today then return end
+  local cutoff = prune_days()
+  local lastused = load_lastused()
+  local idx = magi.store_get("skill_index") or ""
+  local archived = {}
+  for line in string.gmatch(idx, "[^\n]+") do
+    local slug = string.match(line, "^([^\t]*)\t")
+    if slug then
+      local path = SKILLS_DIR .. "/" .. slug .. "/SKILL.md"
+      local body = magi.read_file(path)
+      if body and string.find(body, ENGRAM_MARKER, 1, true) then -- engram-owned only
+        local ld = to_days(lastused[slug])
+        -- A skill with no recorded last-used date is treated as stale by AGE only if it
+        -- has never been loaded; but without a date we can't measure age, so skip it —
+        -- it earns a date the first time it's loaded. Only archive dated-and-stale ones.
+        if ld and (today - ld) >= cutoff then
+          magi.write_file(SKILLS_DIR .. "/.archive/" .. slug .. "/SKILL.md", body)
+          magi.remove_file(path)
+          archived[slug] = true
+        end
+      end
+    end
+  end
+  if next(archived) == nil then return end
+  -- Drop archived slugs from the index, usage, and lastused maps.
+  local function filter_lines(key, slugof)
+    local kept = {}
+    for line in string.gmatch(magi.store_get(key) or "", "[^\n]+") do
+      local s = slugof(line)
+      if s and not archived[s] then kept[#kept + 1] = line end
+    end
+    magi.store_set(key, table.concat(kept, "\n"))
+  end
+  filter_lines("skill_index", function(l) return string.match(l, "^([^\t]*)\t") end)
+  filter_lines("skill_usage", function(l) return string.match(l, "^([^\t]*)\t") end)
+  filter_lines("skill_lastused", function(l) return string.match(l, "^([^\t]*)\t") end)
+  local names = {}
+  for s in pairs(archived) do names[#names + 1] = s end
+  magi.log("engram: " .. #names .. "개 미사용 스킬 아카이브(>" .. cutoff .. "일): " .. table.concat(names, ", "))
+end
+
 local function update_usage(skills_csv, outcome)
   if not skills_csv or skills_csv == "" then return end
   local map, order = {}, {}
@@ -459,13 +550,17 @@ local function update_usage(skills_csv, outcome)
     local n, l, o, b = string.match(line, "^([^\t]*)\t(%d+)\t(%d+)\t(%d+)$")
     if n then map[n] = { tonumber(l), tonumber(o), tonumber(b) } order[#order + 1] = n end
   end
+  local today = string.sub(magi.time(), 1, 10) -- YYYY-MM-DD (UTC), for last-used pruning
+  local lastused = load_lastused()
   for name in string.gmatch(skills_csv, "[^,]+") do
     local m = map[name]
     if not m then m = { 0, 0, 0 } map[name] = m order[#order + 1] = name end
     m[1] = m[1] + 1
     if outcome == "verified" then m[2] = m[2] + 1
     elseif outcome == "unverified" or outcome == "guard" or outcome == "error" then m[3] = m[3] + 1 end
+    lastused[name] = today -- loaded this turn → refresh its last-used date
   end
+  save_lastused(lastused)
   local out = {}
   for _, n in ipairs(order) do
     local m = map[n]
@@ -483,7 +578,23 @@ magi.on("turn_finished", function(ev)
     if user == "" then user = nil end
     analyze_and_record(ev.session, outcome_hint(outcome, ev.reason), user)
   end
+  prune_stale() -- archive engram-owned skills unused past the cutoff (count/date only)
 end)
+
+-- /engram-prune-days [N] — show or set the unused-skill archive cutoff (days). Human-
+-- edited skills are never archived regardless of the cutoff.
+magi.register_command{
+  name = "engram-prune-days",
+  description = "미사용 스킬 아카이브 기준 일수 조회/설정 (예: /engram-prune-days 14)",
+  execute = function(args)
+    local n = tonumber((args or ""):match("%d+"))
+    if n and n > 0 then
+      magi.store_set("prune_days", tostring(math.floor(n)))
+      return "engram: 미사용 스킬 아카이브 기준을 " .. math.floor(n) .. "일로 설정했습니다."
+    end
+    return "engram: 현재 아카이브 기준 " .. prune_days() .. "일. 변경하려면 `/engram-prune-days <일수>`."
+  end,
+}
 
 -- 회상: 최근 교훈을 컨텍스트로 주입(원장이 없으면 침묵). 행/문자 상한으로 바운드.
 magi.register_context_provider{

@@ -76,6 +76,9 @@ func (a *App) loadSkills(workdir string) []port.Skill {
 			if !e.IsDir() || seen[e.Name()] {
 				continue
 			}
+			if strings.HasPrefix(e.Name(), ".") {
+				continue // dot-dirs are not skills (e.g. .archive/ holds pruned skills)
+			}
 			data, err := os.ReadFile(filepath.Join(claudeDir, e.Name(), "SKILL.md"))
 			if err != nil {
 				continue
