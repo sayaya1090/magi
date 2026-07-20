@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/core/council"
@@ -486,11 +487,13 @@ func TestDeliberateDebateResolvesSplit(t *testing.T) {
 // Debate off (or unanimous) never triggers a rebuttal: a member that would flip on
 // rebuttal keeps its independent vote, so a genuine split stands under the rule.
 func TestDeliberateNoDebateKeepsSplit(t *testing.T) {
-	calls := 0
+	// Members poll concurrently, so the reply callback runs in parallel goroutines:
+	// use atomics, never touch *testing.T from inside it (that is itself a data race).
+	var calls, rebuttals int64
 	c := New(only(fakeLLM{reply: func(r port.ChatRequest) string {
-		calls++
+		atomic.AddInt64(&calls, 1)
 		if strings.Contains(textOf(r), "Council disagreement") {
-			t.Error("rebuttal round ran with Debate=false")
+			atomic.AddInt64(&rebuttals, 1)
 		}
 		if memberIn(r, "Melchior") {
 			return `{"decision":"continue","rationale":"incomplete","feedback":"more"}`
@@ -500,10 +503,13 @@ func TestDeliberateNoDebateKeepsSplit(t *testing.T) {
 	d, _ := c.Deliberate(context.Background(), port.DeliberationRequest{
 		Round: 1, Task: "do x", Rule: council.RuleMajority, Debate: false,
 	})
+	if n := atomic.LoadInt64(&rebuttals); n != 0 {
+		t.Errorf("rebuttal round ran %d time(s) with Debate=false", n)
+	}
 	if d.Decision != council.Done { // 2 done / 1 continue → majority done, no debate
 		t.Fatalf("decision = %q, want done (majority, no debate)", d.Decision)
 	}
-	if calls != 3 {
+	if calls := atomic.LoadInt64(&calls); calls != 3 {
 		t.Fatalf("want exactly 3 polls (no rebuttal), got %d", calls)
 	}
 }
