@@ -925,7 +925,16 @@ func renderText(out, errw io.Writer, e event.Event) {
 	case event.TypeCouncilDecided:
 		var d event.CouncilDecidedData
 		if json.Unmarshal(e.Data, &d) == nil {
-			line := fmt.Sprintf("⚖ council round %d: %s — %d done / %d continue", d.Round, d.Decision, d.Tally.Done, d.Tally.Continue)
+			// A gate-FORCED finish (round-cap deadlock, cost-cap, unavailable, no-progress,
+			// unchanged resubmit) lands with Decision="done" to END the turn — but the members
+			// did NOT approve it. Printing the raw "done" reads as an approval and is the exact
+			// confusion reported ("1 done / 2 continue, yet it says done"). Label a forced
+			// finish "UNVERIFIED (no consensus)" so it can't be mistaken for a clean done.
+			outcome := d.Decision
+			if d.Forced {
+				outcome = "UNVERIFIED (no consensus)"
+			}
+			line := fmt.Sprintf("⚖ council round %d: %s — %d done / %d continue", d.Round, outcome, d.Tally.Done, d.Tally.Continue)
 			if d.Note != "" {
 				line += " (" + d.Note + ")"
 			} else if d.Feedback != "" {
