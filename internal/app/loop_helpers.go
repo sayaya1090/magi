@@ -76,6 +76,31 @@ func seedPromptIdx(evs []event.Event) int {
 	return seed
 }
 
+// hasUnansweredPrompt reports whether a genuine (ActorUser) prompt exists that no
+// assistant reply has yet covered and that was not abandoned — the STRICT question
+// seedPromptIdx blurs (it defaults to the last prompt even when all are answered).
+// Used at the run goroutine's exit window to catch a prompt that landed mid-council
+// (buried behind the approved answer) so it re-runs instead of being stranded.
+func hasUnansweredPrompt(evs []event.Event) bool {
+	abandoned := abandonedPromptIDs(evs)
+	ui, lastAnswered := -1, -1
+	for _, e := range evs {
+		switch {
+		case e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser:
+			ui++
+			var d event.PromptSubmittedData
+			if json.Unmarshal(e.Data, &d) == nil && abandoned[d.MessageID] {
+				lastAnswered = ui // abandoned = resolved
+			}
+		case e.Type == event.TypePartAppended && e.Actor.Kind == event.ActorAgent:
+			if ui >= 0 {
+				lastAnswered = ui
+			}
+		}
+	}
+	return lastAnswered < ui // a prompt after the last answered one is still open
+}
+
 // abandonedPromptIDs returns the set of user-prompt MessageIDs marked abandoned (their
 // turn was cancelled before answering — TypePromptAbandoned). seedPromptIdx uses it to
 // skip a cancelled prompt so it cannot seed a later, unrelated turn.

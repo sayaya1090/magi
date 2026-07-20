@@ -527,11 +527,14 @@ func (a *App) hasUnansweredUserPrompt(ctx context.Context, sid session.SessionID
 	if err != nil {
 		return false
 	}
-	msgs := reconstruct(evs)
-	if len(msgs) == 0 {
-		return false
-	}
-	return msgs[len(msgs)-1].Role == session.RoleUser
+	// "Trailing user message" is too narrow: a prompt that arrives DURING the council's
+	// finish deliberation is buried when the loop then appends the approved answer (and
+	// council-decided facts), so the last reconstructed message is the assistant's — and
+	// the new request is silently stranded. Ask the real question instead: is any genuine
+	// user prompt still UNANSWERED (an assistant reply appeared after it) and not
+	// abandoned? That catches a mid-council interjection regardless of what the loop
+	// appended after it.
+	return hasUnansweredPrompt(evs)
 }
 
 // Close cancels every in-flight run and background subagent, then waits for their
