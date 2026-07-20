@@ -608,7 +608,7 @@ func (g *runGuard) noteBashWait(cmd string) {
 // stallIsWait reports whether the current no-progress window is dominated by waiting/polling — at
 // least half of the sinceProgress calls since the last mutation were wait commands. It gates the
 // stuck-recovery coder spawn (loop.go): a coder cannot speed an external wait, so a wait-dominated
-// stall must NOT trigger the redecompose cascade, which under delegate-off spawns coder→coder and
+// stall must NOT trigger the redecompose cascade, which with no delegatable executor spawns coder→coder and
 // whose child timeout gets misreported as the whole run's context-deadline. Suppressing recovery
 // still lets the honest stall stop land (delivered→clean finish, or stall_guard), so an unbounded
 // wait remains capped — this removes only the futile, harmful recovery, not the backstop.

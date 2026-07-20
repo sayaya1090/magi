@@ -99,9 +99,6 @@ func producesFiles(spec AgentSpec) bool {
 // execute a delegated sub-task, sorted for a stable prompt. Empty means delegate is
 // unavailable — the planner is told to use solo/parallel/scout only.
 func (a *App) delegatableAgents() []string {
-	if a.cfg.DisableDelegate {
-		return nil // delegation disabled → planner told to use solo/parallel/scout only
-	}
 	var out []string
 	for name := range a.cfg.Agents {
 		if name == plannerAgent {
@@ -120,9 +117,6 @@ func (a *App) delegatableAgents() []string {
 // degrades to solo (the main agent handles that work) rather than dispatching to a
 // bogus or read-only agent.
 func (a *App) delegateAgentName(name string) (string, bool) {
-	if a.cfg.DisableDelegate {
-		return "", false // delegation disabled → any delegate/refine step degrades to solo
-	}
 	name = strings.TrimSpace(name)
 	if name == "" || name == plannerAgent {
 		return "", false

@@ -95,7 +95,7 @@ func (a *App) handleStuckGuard(ctx context.Context, tc turnCtx, turnTask string,
 	// failure fall through to the stop. recovered is set only on a successful spawn, so a
 	// transient child failure does not permanently disable the (still fire-at-most-once) hook.
 	// …UNLESS the stall is really an environment wait (a window dominated by sleep/ping/poll
-	// commands): a fresh coder cannot speed an external wait, and under delegate-off the recovery
+	// commands): a fresh coder cannot speed an external wait, and with no delegatable executor the recovery
 	// cascades coder→coder whose timeout is misreported as the run's own context-deadline.
 	// waitGuardEnabled suppresses only the spawn; the honest stall stop below still lands.
 	// The decomposing recovery (stuckDecomposeEnabled) also rescues a "repeat" stall — a

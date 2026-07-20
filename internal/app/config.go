@@ -219,15 +219,11 @@ type Config struct {
 	// read-only explorers and injects their findings before the main agent runs.
 	Planner bool
 
-	// DisableDelegate turns off handing a write-capable sub-task to an executor
-	// subagent (the delegate/refine strategies). When set, no agent is offered as a
-	// delegate executor, so the planner uses only solo/parallel/scout and any
-	// delegate/refine step degrades to solo — read-only explorers still fan out,
-	// but all file-authoring work stays with the main agent. Negative polarity so the
-	// zero value keeps delegation ENABLED, which the in-code tests rely on; the shipped
-	// default is off — the config→app boundary maps [orchestration] delegate's
-	// nil-default-off to this (nil or false ⇒ DisableDelegate true).
-	DisableDelegate bool
+	// Delegation is roster-gated, not a separate flag: an agent is offered as a
+	// delegate/refine executor iff it is configured AND write-capable (producesFiles).
+	// The default roster is read-only explorers only, so nothing is delegatable and
+	// every delegate/refine step degrades to solo; DEFINING a write-capable agent in
+	// [agents] is what turns delegation on for it. See delegatableAgents.
 
 	// Council, when non-nil, gates loop termination at depth 0 (D14): when the
 	// model would finish, a consensus council votes done/continue instead, and a

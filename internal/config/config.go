@@ -60,11 +60,6 @@ type LLMConfig struct {
 // parallel read-only explorers; nil means default (on), set false to disable.
 type OrchestrationConfig struct {
 	Planner *bool `toml:"planner"`
-	// Delegate enables handing write-capable sub-tasks to an executor subagent
-	// (delegate/refine strategies); nil means default (off) — all file-authoring work
-	// stays on the main agent while read-only explorers still fan out. Set true to
-	// allow a write-capable executor.
-	Delegate *bool `toml:"delegate"`
 	// SubagentTimeout is the BASE per-attempt hard cap for subagents, as a Go
 	// duration string ("5m", "90s"). The effective cap flexes elastically with
 	// observed model speed around this base. Empty = built-in default (5m).

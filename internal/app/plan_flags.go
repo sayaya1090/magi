@@ -211,7 +211,7 @@ func soloAuditEnabled() bool { return !envOff("MAGI_SOLO_AUDIT") }
 // reached but the no-progress window is dominated by waiting/polling (guard.stallIsWait — sleep,
 // ping, nc, an `until … do sleep … done` readiness loop), the stuck-recovery coder spawn at the
 // loop.go stall gate is suppressed. A coder cannot speed an external wait (a rebooting VM, a
-// service starting), so redecomposing it is futile AND harmful: under delegate-off it spawns
+// service starting), so redecomposing it is futile AND harmful: with no delegatable executor it spawns
 // coder→coder whose child timeout is misreported as the whole run's context-deadline. Suppressing
 // only the spawn leaves the honest stall stop intact (delivered→clean finish, or stall_guard), so
 // an endless wait is still capped. Default ON; MAGI_WAIT_GUARD=off restores the unconditional

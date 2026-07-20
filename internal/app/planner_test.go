@@ -355,25 +355,33 @@ func TestDelegateAgentResolution(t *testing.T) {
 	}
 }
 
-// With DisableDelegate set ([orchestration] delegate = false), no agent is offered as a
-// delegate executor and any named executor is rejected — so the planner uses only
-// solo/parallel/scout and delegate/refine steps degrade to solo (read-only explorers
-// still available). This is the "explorers only, no write-capable executor" mode.
-func TestDelegateDisabledOffersNoExecutor(t *testing.T) {
-	agents := map[string]AgentSpec{
+// Delegation is roster-gated: a write-capable agent in the roster IS delegatable;
+// a roster with no write-capable agent (the shipped read-only default) offers none,
+// so the planner uses only solo/parallel/scout and delegate/refine steps degrade to
+// solo. Defining a write agent is what turns delegation on.
+func TestDelegateRosterGated(t *testing.T) {
+	withCoder := map[string]AgentSpec{
 		"coder":   {Name: "coder", Tools: []string{"read", "write", "edit", "bash"}},
 		"explore": {Name: "explore", Tools: []string{"read", "grep"}},
 	}
-	on := &App{cfg: Config{Agents: agents}} // zero value = delegation on (historical default)
+	on := &App{cfg: Config{Agents: withCoder}}
 	if names := on.delegatableAgents(); len(names) != 1 || names[0] != "coder" {
-		t.Fatalf("with delegation on, delegatableAgents = %v, want [coder]", names)
+		t.Fatalf("with a write agent defined, delegatableAgents = %v, want [coder]", names)
 	}
-	off := &App{cfg: Config{Agents: agents, DisableDelegate: true}}
+	if _, ok := on.delegateAgentName("coder"); !ok {
+		t.Error("a defined write agent must resolve as a delegate executor")
+	}
+	// Read-only-only roster (the shipped default): nothing delegatable.
+	readOnly := map[string]AgentSpec{
+		"explore": {Name: "explore", Tools: []string{"read", "grep"}},
+		"locator": {Name: "locator", Tools: []string{"read", "glob"}},
+	}
+	off := &App{cfg: Config{Agents: readOnly}}
 	if names := off.delegatableAgents(); len(names) != 0 {
-		t.Errorf("with delegation disabled, delegatableAgents = %v, want none", names)
+		t.Errorf("read-only roster: delegatableAgents = %v, want none", names)
 	}
-	if _, ok := off.delegateAgentName("coder"); ok {
-		t.Error("with delegation disabled, even a valid executor must be rejected (degrade to solo)")
+	if _, ok := off.delegateAgentName("explore"); ok {
+		t.Error("a read-only agent must never resolve as a delegate executor")
 	}
 }
 

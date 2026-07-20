@@ -330,7 +330,7 @@ func (a *App) redecomposeStuck(ctx context.Context, s session.Session, agent Age
 	// orchestrator doing the work itself, not a handoff to a separate coder subagent. Every
 	// call site gates on planEligible → producesFiles(agent), so the stuck agent is guaranteed
 	// write-capable; the guard below is a defensive backstop for that invariant. This is an
-	// emergency lifeline (NOT normal delegation), so it stays available under delegate=off
+	// emergency lifeline (NOT normal delegation), so it stays available with no delegatable executor
 	// where the stall/deadlock/idle-resubmit recovery would otherwise be dead. spawnResolved
 	// (not spawn) is used because the main agent's spec is built on the fly and absent from
 	// cfg.Agents, so a name lookup would fail.
