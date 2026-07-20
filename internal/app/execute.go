@@ -338,6 +338,14 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 				guard.noteBashExec(ba.Command, guardNovel) // ran a program → execution evidence (independent of any redirect)
 			}
 		}
+		// A successful NON-bash read-only inspection (read/grep/glob/list/…) that is
+		// first-seen this epoch is forward motion: gathering new information — e.g.
+		// reading several DIFFERENT files — must not climb toward the stall nudge.
+		// File modifiers go through mutated(); bash is handled above; a spawn/report is
+		// its own path. Everything else here is inspection.
+		if !res.IsError && tc.Name != "bash" && !fileModifiers[tc.Name] && tc.Name != "task" {
+			guard.noteInspectProgress(guardNovel)
+		}
 		// A FAILED exercising command tabus the deliverable's current state: "this exact set
 		// of file contents was tried and its test failed", so a later edit that circles back
 		// to it is flagged (see checkTabu). Inspect-only failures (a bad `ls`/`grep`) are not

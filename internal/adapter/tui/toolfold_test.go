@@ -77,3 +77,55 @@ func TestToolResultErrorGlyph(t *testing.T) {
 		t.Errorf("failed call should show ✗: %q", line)
 	}
 }
+
+// toolResultC is toolResult with a CallID, for the parallel-pairing test.
+func toolResultC(callID, content string, isErr bool) *session.ToolResult {
+	b, _ := json.Marshal(content)
+	return &session.ToolResult{CallID: callID, Content: b, IsError: isErr}
+}
+
+// Parallel read-only tool results complete OUT OF ORDER. Each result must fold into
+// its OWN call by CallID, not into the latest-unfinished call — otherwise a read of
+// A shows B's content (the observed mispairing).
+func TestParallelResultsPairByCallID(t *testing.T) {
+	msgs := []session.Message{
+		{Role: session.RoleAssistant, Parts: []session.Part{
+			{Kind: session.PartToolCall, ToolCall: &session.ToolCall{CallID: "c1", Name: "read", Args: []byte(`{"path":"a.md"}`)}},
+			{Kind: session.PartToolCall, ToolCall: &session.ToolCall{CallID: "c2", Name: "read", Args: []byte(`{"path":"b.md"}`)}},
+			{Kind: session.PartToolCall, ToolCall: &session.ToolCall{CallID: "c3", Name: "read", Args: []byte(`{"path":"c.md"}`)}},
+		}},
+		// Results arrive out of order: c2, then c3, then c1.
+		{Role: session.RoleTool, Parts: []session.Part{{Kind: session.PartToolResult, ToolResult: toolResultC("c2", "content-B", false)}}},
+		{Role: session.RoleTool, Parts: []session.Part{{Kind: session.PartToolResult, ToolResult: toolResultC("c3", "content-C", false)}}},
+		{Role: session.RoleTool, Parts: []session.Part{{Kind: session.PartToolResult, ToolResult: toolResultC("c1", "content-A", false)}}},
+	}
+	blocks := rebuildBlocks(msgs)
+	want := map[string]string{"c1": "content-A", "c2": "content-B", "c3": "content-C"}
+	seen := 0
+	for _, b := range blocks {
+		if b.kind != blockToolCall {
+			continue
+		}
+		seen++
+		if exp, ok := want[b.callID]; ok && !strings.Contains(b.result, exp) {
+			t.Errorf("call %s (%s) got result %q, want %q — parallel results mispaired", b.callID, b.args, b.result, exp)
+		}
+	}
+	if seen != 3 {
+		t.Fatalf("want 3 tool-call blocks, got %d", seen)
+	}
+}
+
+// Live-model path (foldToolResult on Model): same out-of-order pairing must hold.
+func TestModelFoldPairsByCallID(t *testing.T) {
+	m := &Model{}
+	m.blocks = []block{
+		{kind: blockToolCall, name: "read", args: `{"path":"a"}`, callID: "c1"},
+		{kind: blockToolCall, name: "read", args: `{"path":"b"}`, callID: "c2"},
+	}
+	m.foldToolResult("c2", "content-B", true)
+	m.foldToolResult("c1", "content-A", true)
+	if m.blocks[0].result != "content-A" || m.blocks[1].result != "content-B" {
+		t.Fatalf("mispaired: c1=%q c2=%q", m.blocks[0].result, m.blocks[1].result)
+	}
+}

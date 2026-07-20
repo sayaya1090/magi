@@ -369,14 +369,15 @@ func (m *Model) applyPaneEvent(p *agentPane, e event.Event) {
 			if d.Part.ToolCall != nil {
 				p.live = ""
 				p.blocks = append(p.blocks, block{
-					kind: blockToolCall,
-					name: d.Part.ToolCall.Name,
-					args: string(d.Part.ToolCall.Args),
+					kind:   blockToolCall,
+					name:   d.Part.ToolCall.Name,
+					args:   string(d.Part.ToolCall.Args),
+					callID: d.Part.ToolCall.CallID,
 				})
 			}
 		case session.PartToolResult:
 			if d.Part.ToolResult != nil {
-				p.blocks = foldToolResultInto(p.blocks, toolResultText(d.Part.ToolResult), !d.Part.ToolResult.IsError)
+				p.blocks = foldToolResultInto(p.blocks, d.Part.ToolResult.CallID, toolResultText(d.Part.ToolResult), !d.Part.ToolResult.IsError)
 			}
 		}
 	case event.TypeTurnFinished, event.TypeError:

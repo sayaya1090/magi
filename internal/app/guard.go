@@ -521,6 +521,24 @@ func (g *runGuard) noteBashWrite(cmd string) bool {
 // forward motion for the stalled-nudge convergence (re-running an already-run test on an
 // unchanged deliverable is not), so it sets progressSinceNudge; execSinceMut counts every
 // exercise as before (its unverifiedDeliverable semantics are unchanged).
+// noteInspectProgress credits a NOVEL read-only inspection (a first-seen read/grep/glob/
+// list — a DIFFERENT file or query) as forward motion for the stall window: gathering
+// new information is real progress, not the "restating the same conclusion" loop the
+// stall nudge targets. Reading MANY distinct files in a row must not trip the nudge
+// (the reported false stall). A REPEATED read is not novel and is left to climb — the
+// read-loop guard already handles re-reading the same file. It advances lastStallAt to
+// the current window position (not a full reset) so an agent that only ever inspects,
+// never acting, still eventually stalls; each novel inspect just buys one more window.
+func (g *runGuard) noteInspectProgress(novel bool) {
+	if !novel {
+		return
+	}
+	g.mu.Lock()
+	g.lastStallAt = g.sinceProgress // window measured from here → this novel inspect reset it
+	g.progressSinceNudge = true
+	g.mu.Unlock()
+}
+
 func (g *runGuard) noteBashExec(cmd string, novel bool) {
 	if isInspectOnly(cmd) {
 		// A NOVEL inspection is not deliverable progress, but it IS a response to the

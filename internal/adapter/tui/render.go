@@ -40,11 +40,13 @@ type block struct {
 	// pairing an inline answer with its question (moveUserBlockBefore) and for showing the
 	// in-flight spinner on the request currently being processed. Empty on resume-rebuilt
 	// blocks, which fall back to text matching.
-	reqID string
-	text  string // markdown (assistant/user) or pre-rendered content
-	name  string // tool name (toolCall)
-	args  string // tool args (toolCall)
-	ok    bool   // tool success (toolResult, or a toolCall's attached result)
+	reqID  string
+	text   string // markdown (assistant/user) or pre-rendered content
+	name   string // tool name (toolCall)
+	args   string // tool args (toolCall)
+	callID string // tool call id (toolCall) — pairs a result to its EXACT call, so parallel
+	// tool results (which complete out of order) attach to the right call, not the latest one
+	ok bool // tool success (toolResult, or a toolCall's attached result)
 	// A tool result is folded into its toolCall block so the call renders as one
 	// line whose leading glyph flips ⚙ → ✓/✗ on completion.
 	done     bool   // the toolCall's result has arrived
@@ -229,10 +231,29 @@ func balanceFences(s string) string {
 // still pending, so the call renders as a single line with a flipped glyph. If no
 // such call exists (e.g. a result without a recorded call), it falls back to a
 // standalone result block. It invalidates the affected cache entries.
-func (m *Model) foldToolResult(text string, ok bool) {
+func (m *Model) foldToolResult(callID, text string, ok bool) {
+	// Prefer an EXACT callID match: parallel tool results complete out of order, so
+	// folding into "the latest unfinished call" mispairs path↔result (a read of A
+	// showing B's content). Fall back to the latest-unfinished scan only when the
+	// result carries no callID (older events / non-tool paths).
+	if callID != "" {
+		for i := len(m.blocks) - 1; i >= 0; i-- {
+			b := &m.blocks[i]
+			if b.kind == blockToolCall && b.callID == callID && !b.done {
+				b.done, b.ok, b.result = true, ok, text
+				if len(m.cache) > i {
+					m.cache = m.cache[:i]
+				}
+				return
+			}
+			if b.kind == blockAssistant || b.kind == blockUser {
+				break
+			}
+		}
+	}
 	for i := len(m.blocks) - 1; i >= 0; i-- {
 		b := &m.blocks[i]
-		if b.kind == blockToolCall && !b.done {
+		if b.kind == blockToolCall && !b.done && (callID == "" || b.callID == "") {
 			b.done = true
 			b.ok = ok
 			b.result = text
@@ -775,14 +796,14 @@ func rebuildBlocks(msgs []session.Message) []block {
 					}
 				case session.PartToolCall:
 					if p.ToolCall != nil {
-						out = append(out, block{kind: blockToolCall, name: p.ToolCall.Name, args: string(p.ToolCall.Args)})
+						out = append(out, block{kind: blockToolCall, name: p.ToolCall.Name, args: string(p.ToolCall.Args), callID: p.ToolCall.CallID})
 					}
 				}
 			}
 		case session.RoleTool:
 			for _, p := range msg.Parts {
 				if p.Kind == session.PartToolResult && p.ToolResult != nil {
-					out = foldToolResultInto(out, toolResultText(p.ToolResult), !p.ToolResult.IsError)
+					out = foldToolResultInto(out, p.ToolResult.CallID, toolResultText(p.ToolResult), !p.ToolResult.IsError)
 				}
 			}
 		}
@@ -790,11 +811,24 @@ func rebuildBlocks(msgs []session.Message) []block {
 	return out
 }
 
-// foldToolResultInto attaches a tool result to the most recent pending toolCall
-// block (mirrors Model.foldToolResult for the resume/rebuild path).
-func foldToolResultInto(out []block, text string, ok bool) []block {
+// foldToolResultInto attaches a tool result to its toolCall block by callID (mirrors
+// Model.foldToolResult for the resume/rebuild and subagent-pane paths). Matching by
+// callID keeps parallel results — which complete out of order — paired to the right
+// call; the latest-unfinished scan is the fallback for callID-less events.
+func foldToolResultInto(out []block, callID, text string, ok bool) []block {
+	if callID != "" {
+		for i := len(out) - 1; i >= 0; i-- {
+			if out[i].kind == blockToolCall && out[i].callID == callID && !out[i].done {
+				out[i].done, out[i].ok, out[i].result = true, ok, text
+				return out
+			}
+			if out[i].kind == blockAssistant || out[i].kind == blockUser {
+				break
+			}
+		}
+	}
 	for i := len(out) - 1; i >= 0; i-- {
-		if out[i].kind == blockToolCall && !out[i].done {
+		if out[i].kind == blockToolCall && !out[i].done && (callID == "" || out[i].callID == "") {
 			out[i].done = true
 			out[i].ok = ok
 			out[i].result = text

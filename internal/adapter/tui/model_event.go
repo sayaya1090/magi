@@ -351,15 +351,16 @@ func (m *Model) onPartAppended(d event.PartAppendedData) {
 				}
 			}
 			m.blocks = append(m.blocks, block{
-				kind: blockToolCall,
-				name: d.Part.ToolCall.Name,
-				args: string(d.Part.ToolCall.Args),
+				kind:   blockToolCall,
+				name:   d.Part.ToolCall.Name,
+				args:   string(d.Part.ToolCall.Args),
+				callID: d.Part.ToolCall.CallID,
 			})
 		}
 	case session.PartToolResult:
 		m.liveProgress = "" // the tool that was reporting progress has now returned
 		if d.Part.ToolResult != nil {
-			m.foldToolResult(toolResultText(d.Part.ToolResult), !d.Part.ToolResult.IsError)
+			m.foldToolResult(d.Part.ToolResult.CallID, toolResultText(d.Part.ToolResult), !d.Part.ToolResult.IsError)
 		}
 	}
 }
