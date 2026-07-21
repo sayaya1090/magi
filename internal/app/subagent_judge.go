@@ -164,6 +164,13 @@ func (a *App) judgeLease(ctx context.Context, parent session.Session, child sess
 		},
 	})
 	if err != nil {
+		// The judge is UNAVAILABLE (call failed), not a verdict of churn. Killing here throws away a
+		// possibly-productive subagent because our supervisor couldn't reach its model — the compile-
+		// compcert stall, where a heavy build slowed the judge and three subagents died on the judge's
+		// own timeout. Inability to judge extends (bounded by the backstop, which still caps a runaway).
+		if subagentWaitLeaseEnabled() {
+			return a.leaseExtension(), "judge unavailable (call failed) — extending, backstop caps it"
+		}
 		return 0, "judge call failed: " + err.Error()
 	}
 	var reply strings.Builder
@@ -174,12 +181,17 @@ func (a *App) judgeLease(ctx context.Context, parent session.Session, child sess
 	}
 	raw := strings.TrimSpace(reply.String())
 	verdict := strings.ToUpper(raw)
-	// Fail safe: only an unambiguous EXTEND extends; KILL, both words, garbage,
-	// or an empty (timed-out) reply all keep the deterministic kill.
+	// Fail safe: only an unambiguous EXTEND extends; an actual KILL/ambiguous/garbage verdict keeps
+	// the deterministic kill. But an EMPTY reply is the judge TIMING OUT — inability to judge, not a
+	// churn verdict — so it extends (bounded by the backstop) rather than killing a subagent whose
+	// work just outran a slow judge call (the compile-compcert three-strikes empty-reply kill).
 	if strings.Contains(verdict, "EXTEND") && !strings.Contains(verdict, "KILL") {
 		return a.leaseExtension(), "judge: EXTEND"
 	}
 	if raw == "" {
+		if subagentWaitLeaseEnabled() {
+			return a.leaseExtension(), "judge unavailable (empty/timeout) — extending, backstop caps it"
+		}
 		return 0, "judge: empty reply (timeout?)"
 	}
 	return 0, "judge: " + clipLine(raw, 120)
