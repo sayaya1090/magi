@@ -225,7 +225,9 @@ func workerChecklist(checks []council.DeliverableCheck, stepIdx int) string {
 	}
 	var b strings.Builder
 	b.WriteString("Acceptance checklist — before you report done, RUN each of these and confirm it passes; " +
-		"do NOT report done while any of them is failing:")
+		"do NOT report done while any of them is failing. If an item genuinely CANNOT be satisfied — a real " +
+		"blocker, not a bug you can fix — stop retrying it and report (status blocked/failed) WHICH item is " +
+		"unmet and WHY, so it can be re-planned rather than silently dropped:")
 	for i, c := range mine {
 		fmt.Fprintf(&b, "\n%d. ", i+1)
 		if d := strings.TrimSpace(c.Deliverable); d != "" {
