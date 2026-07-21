@@ -302,6 +302,11 @@ func (s SandboxSpec) Confined() bool {
 type SpawnRequest struct {
 	Agent  string
 	Prompt string
+	// Tools, when non-empty, overrides the child's tool allowlist for this spawn only:
+	// the worker sees exactly these tools (further narrowed by the role/env gates in
+	// toolSpecs) instead of its agent's configured set. Used by the context curator to
+	// hand a worker a task-scoped toolset. Empty = the agent's own allowlist (default).
+	Tools []string
 	// Background marks an asynchronously dispatched subagent (the task tool / sidecar):
 	// the orchestrator stays in its loop and can answer the subagent's `ask`
 	// escalations. Synchronous spawns (planner explorers, nested spawns) leave it

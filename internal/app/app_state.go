@@ -65,6 +65,7 @@ type sessionState struct {
 	criteria          string                     // elicited acceptance criteria this turn
 	minedNote         string                     // specmine result this turn (soft contract; shown to the termination council)
 	seedPrompt        string                     // subagent: the spawn/unit prompt THIS child was seeded with (see seedTurnTask)
+	curatedTools      []string                   // subagent: per-spawn tool allowlist override (SpawnRequest.Tools); nil = the agent's own allowlist
 	deliverableChecks []council.DeliverableCheck // plan-audit per-step executable checks this turn
 	estSteps          int                        // planner's advisory step estimate this turn
 	interjectSeen     map[string]bool            // interjection MessageIDs detected this turn (masked from turnTask/council)

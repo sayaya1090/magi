@@ -32,10 +32,20 @@ func (a *App) SetPermission(p string) {
 // agentFor returns the AgentSpec for a session, falling back to a default built
 // from the global system prompt with access to all tools.
 func (a *App) agentFor(s session.Session) AgentSpec {
-	if spec, ok := a.resolveAgentSpec(s.Agent); ok {
-		return spec
+	spec, ok := a.resolveAgentSpec(s.Agent)
+	if !ok {
+		spec = AgentSpec{Name: orDefault(s.Agent, "default"), System: a.cfg.System}
 	}
-	return AgentSpec{Name: orDefault(s.Agent, "default"), System: a.cfg.System}
+	// Per-spawn tool allowlist override (SpawnRequest.Tools → curatedTools): a curated worker
+	// sees exactly the tools chosen for its task (still narrowed by toolSpecs' role/env gates),
+	// not its agent's full configured set. nil = the agent's own allowlist.
+	a.mu.Lock()
+	ct := a.stateLocked(s.ID).curatedTools
+	a.mu.Unlock()
+	if len(ct) > 0 {
+		spec.Tools = append([]string(nil), ct...)
+	}
+	return spec
 }
 
 // resolveAgentSpec looks up an agent's configured spec and applies any runtime

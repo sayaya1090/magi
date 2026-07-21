@@ -693,6 +693,9 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 	// earlier prompt instead of its spawn task). seedTurnTask prefers this record.
 	a.mu.Lock()
 	a.stateLocked(child.ID).seedPrompt = req.Prompt
+	if len(req.Tools) > 0 {
+		a.stateLocked(child.ID).curatedTools = req.Tools // per-spawn tool allowlist override (curator)
+	}
 	a.mu.Unlock()
 	a.touch(child.ID) // seed liveness so the watchdog doesn't fire immediately
 
