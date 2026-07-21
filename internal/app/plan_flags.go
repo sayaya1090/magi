@@ -67,11 +67,16 @@ func specFidelityEnabled() bool { return !envOff("MAGI_SPEC_FIDELITY") }
 // specMineEnabled gates the DEDICATED signature-mining side call (specmine.go): a
 // tool-free elicitation that extracts, from the request's identifiers and type
 // signatures, the requirements the prose leaves unsaid plus the standard idiom for
-// that situation — injected as a finished note the executor consumes. Split into its
-// own step because a weak executor follows "mine the signature" poorly as one clause
-// among many, but consumes a completed conclusion well (the same reason criteria are
-// elicited, not instructed). Default ON; MAGI_SPEC_MINE=0 removes the call (A/B knob).
-func specMineEnabled() bool { return !envOff("MAGI_SPEC_MINE") }
+// that situation — injected as a finished note the executor consumes.
+//
+// Default OFF. On a weak executor the mined note is at best ignored and at worst
+// actively harmful: a cross-machine run showed it REINFORCING a wrong identifier
+// (kv-store-grpc: the note derived `val` and the executor kept `val`, failing a
+// grader that checks `value`) and injecting a FALSE premise ("hyphens in a .proto
+// filename trigger SyntaxError"). It also spends an extra LLM call and adds a
+// per-plan note to the context. Strong models saw an occasional uplift, so keep it
+// behind MAGI_SPEC_MINE=1 rather than deleting it (the A/B knob).
+func specMineEnabled() bool { return envOn("MAGI_SPEC_MINE") }
 
 // workdirCheckpointEnabled gates the opt-in work-tree rollback (checkpoint.go): before a subagent's
 // first attempt the work-tree is snapshotted into a PRIVATE scratch git-dir (never the user's own
