@@ -254,7 +254,12 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth, 
 	// (injectSubagentResult) and the orchestrator synthesizes the review from them — no
 	// injectPlannerFindings on this path. A mixed plan (has delegate/refine) keeps the
 	// synchronous executeSteps below, so a write step still sees prior findings in its brief.
-	if asyncExplorersEnabled() && depth == 0 && !a.cfg.Workflow && !a.hasWriteStep(steps) {
+	// When force-delegate will route this plan's SOLO steps to workers (executeSteps, below), the
+	// plan is no longer pure investigation even though hasWriteStep is false — so DON'T take the
+	// read-only explorer shortcut, or those steps run solo on the main agent and the worker/curator
+	// path never engages (a bench showed every all-solo plan bypassing it here).
+	forcingWorkers := forceDelegateEnabled() && len(a.delegatableAgents()) > 0
+	if asyncExplorersEnabled() && depth == 0 && !a.cfg.Workflow && !a.hasWriteStep(steps) && !forcingWorkers {
 		if a.dispatchExplorerSteps(ctx, s, prompt, steps, depth) {
 			return true, false // explorers dispatched; the loop parks, answers interjections, then synthesizes
 		}
