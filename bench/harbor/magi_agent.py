@@ -181,6 +181,7 @@ class MagiAgent(BaseInstalledAgent):
             "MAGI_EXITCODE_BODYSCAN",
             "MAGI_WORKERS",
             "MAGI_CURATE",
+            "MAGI_FORCE_DELEGATE",
         ):
             val = os.environ.get(key)
             if val:

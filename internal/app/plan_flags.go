@@ -94,6 +94,14 @@ func workdirCheckpointEnabled() bool { return envOn("MAGI_WORKDIR_CHECKPOINT") }
 // delegate and reintroduces delegation (a bench A/B knob); MAGI_CURATE=1 enables it.
 func curateEnabled() bool { return envOn("MAGI_CURATE") }
 
+// forceDelegateEnabled rewrites every "solo" plan step into a "delegate" step routed to a worker,
+// so execution runs in worker sub-agents instead of the main agent inline. The planner leaves most
+// write-work as solo even when a worker is available and told to prefer delegating, so this is the
+// deterministic lever that actually moves execution onto workers — and the only way to exercise the
+// context curator (which hooks the delegate path). Requires a delegatable agent (MAGI_WORKERS);
+// default OFF, an A/B/validation knob. MAGI_FORCE_DELEGATE=1 enables it.
+func forceDelegateEnabled() bool { return envOn("MAGI_FORCE_DELEGATE") }
+
 // execEvidenceEnabled gates the exec-evidence layers: the deterministic per-artifact
 // exercise ledger's pre-council nudge ("you never ran what you wrote") plus the
 // council-evidence trailer listing authored-but-never-executed files. Targets the

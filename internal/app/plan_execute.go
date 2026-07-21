@@ -36,6 +36,17 @@ func (a *App) executeSteps(ctx context.Context, s session.Session, goal string, 
 		if budget <= 0 || ctx.Err() != nil {
 			break
 		}
+		// Force execution onto workers: the planner leaves write-work as "solo" even with a worker
+		// available, so this deterministically re-routes each solo step through the delegate runner
+		// (which the context curator hooks). Requires a delegatable agent; no-op otherwise.
+		if forceDelegateEnabled() && st.Strategy == "solo" {
+			if names := a.delegatableAgents(); len(names) > 0 {
+				st.Strategy = "delegate"
+				if strings.TrimSpace(st.Agent) == "" {
+					st.Agent = names[0]
+				}
+			}
+		}
 		// Write-capable steps (delegate, refine) are dispatched by the same caller glue — both
 		// run inline in this sequential loop (never fanned out) so their writes can't race the
 		// council's change capture (see allParallelSafe), and both re-plan at depth+1. They
