@@ -335,8 +335,12 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		req, evs := a.buildStepRequest(ctx, tc, evs, step, cumOut)
 
 		stepStart := time.Now()
-		stream, err := a.providerFor(agent).StreamChat(ctx, req)
+		// A cancelable child ctx so the reasoning-spin guard can stop a runaway response mid-stream
+		// (see consumeStream). Cancelling streamCtx (not ctx) leaves the turn's own context intact.
+		streamCtx, streamCancel := context.WithCancel(ctx)
+		stream, err := a.providerFor(agent).StreamChat(streamCtx, req)
 		if err != nil {
+			streamCancel()
 			a.emitError(ctx, sid, agentActor, err.Error())
 			return lastText, err
 		}
@@ -344,9 +348,19 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		msgID := "m_" + newID()
 		textPartID := "p_" + newID()
 		reasonPartID := "p_" + newID()
-		res, serr := a.consumeStream(ctx, sid, agentActor, stream, msgID, textPartID, reasonPartID)
+		res, serr := a.consumeStream(streamCtx, sid, agentActor, stream, msgID, textPartID, reasonPartID, streamCancel)
+		streamCancel()
 		if serr != nil {
 			return lastText, serr
+		}
+		// Reasoning-only spin: the response was cancelled after streaming huge output with no tool
+		// call. Discard it (it's garbage), nudge the agent to ACT, and move on — the step/stall
+		// guards never see a response that never finishes, so this is the only place to break it.
+		if res.reasoningSpun {
+			a.emitToolProgress(sid, agentActor, "", agent.Name, "cancelled a reasoning-only spin — take a concrete action")
+			guard.noteStep()
+			_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, reasoningSpinNudge)
+			continue
 		}
 		text, reasoning := res.text, res.reasoning
 		toolCalls, usage, textConsumed := res.toolCalls, res.usage, res.textConsumed

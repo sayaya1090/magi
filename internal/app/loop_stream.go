@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,12 +17,34 @@ import (
 // streamStep is the outcome of consuming one model-response stream: the finalized
 // assistant text/reasoning, the tool calls it requested, and the usage report.
 type streamStep struct {
-	text         string
-	reasoning    string
-	toolCalls    []*session.ToolCall
-	usage        *event.Usage
-	textConsumed bool // the text was a prompt-fallback tool call, not a real answer
+	text          string
+	reasoning     string
+	toolCalls     []*session.ToolCall
+	usage         *event.Usage
+	textConsumed  bool // the text was a prompt-fallback tool call, not a real answer
+	reasoningSpun bool // the response was cancelled as a reasoning-only spin (see reasoningSpinCap)
 }
+
+// reasoningSpinCap is the max output bytes a single model response may stream WITHOUT ever emitting
+// a tool call before it is cancelled as a reasoning-only spin: a weak model that "thinks" forever
+// and never acts (observed at 35–70 MB of reasoning deltas with zero tool calls on hard tasks —
+// path-tracing, circuit-fibsqrt, qemu). The step/stall guards fire BETWEEN steps, so a response
+// that never finishes is invisible to them; this bounds it mid-stream. The default is high enough
+// that any legitimate single-response reasoning fits; MAGI_SPIN_CAP overrides (0 disables).
+func reasoningSpinCap() int {
+	if v := strings.TrimSpace(os.Getenv("MAGI_SPIN_CAP")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n // 0 = disabled
+		}
+	}
+	return 400_000 // ~400KB of pure output; the observed spins were 175x this
+}
+
+// reasoningSpinNudge is injected after a reasoning-only spin is cancelled: stop thinking, act.
+const reasoningSpinNudge = "You streamed a very long chain of reasoning without taking ANY action — " +
+	"no tool call at all. Thinking alone does not make progress. STOP reasoning now and take the " +
+	"concrete next step with a TOOL: write a file, run a command, or report. Do not re-derive what " +
+	"you were working out in your head — act."
 
 // consumeStream drains one provider stream, publishing text/reasoning deltas as
 // transient events and recording the real prompt-token count for the meter. A
@@ -32,10 +55,11 @@ type streamStep struct {
 // together in one run without affecting normal operation.
 var streamDiag = os.Getenv("MAGI_STREAM_DIAG") != ""
 
-func (a *App) consumeStream(ctx context.Context, sid session.SessionID, agentActor event.Actor, stream <-chan port.ProviderEvent, msgID, textPartID, reasonPartID string) (streamStep, error) {
+func (a *App) consumeStream(ctx context.Context, sid session.SessionID, agentActor event.Actor, stream <-chan port.ProviderEvent, msgID, textPartID, reasonPartID string, cancel context.CancelFunc) (streamStep, error) {
 	var text, reasoning strings.Builder
 	var res streamStep
 	streamErr := false
+	spinCap := reasoningSpinCap()
 	// Opt-in diagnostics (MAGI_STREAM_DIAG): distinguish a pre-finish stall (model
 	// slow / no bytes) from a post-finish drain delay (backend withholding [DONE]).
 	// idleC stays nil when disabled, so the select degenerates to a plain range.
@@ -92,6 +116,16 @@ loop:
 		case port.ProviderError:
 			a.emitError(ctx, sid, agentActor, ev.Err.Error())
 			streamErr = true
+		}
+		// Reasoning-only spin guard: a single response streaming huge output with NO tool call yet
+		// never finishes, so the between-steps guards can't see it. Cancel it mid-stream; the caller
+		// nudges the agent to ACT instead of think forever.
+		if spinCap > 0 && len(res.toolCalls) == 0 && reasoning.Len()+text.Len() > spinCap {
+			res.reasoningSpun = true
+			if cancel != nil {
+				cancel()
+			}
+			break loop
 		}
 	}
 	if streamDiag && finished {
