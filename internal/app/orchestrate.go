@@ -463,13 +463,65 @@ func (a *App) cloneConversation(ctx context.Context, from, to session.SessionID)
 	clone := make([]event.Event, 0, len(evs))
 	for _, e := range evs {
 		switch e.Type {
-		case event.TypePromptSubmitted, event.TypePartAppended, event.TypeCompaction:
+		case event.TypePromptSubmitted:
+			// reconstruct maps EVERY prompt to RoleUser regardless of actor, so a verbatim
+			// clone leaves the parent's own turn-driving messages indistinguishable from the
+			// child's delegated task — the child then answers a request that was never its
+			// own (field report: a cloned child executing the parent's original user prompt).
+			// Clean division: keep the WORK (assistant/tool events below), but strip the
+			// parent's steering prompts so only the seed appended after the clone reads as an
+			// instruction.
+			switch e.Actor.Kind {
+			case event.ActorUser:
+				// The parent's ORIGINAL user request. Reframe it to a background marker
+				// (keeps a valid leading RoleUser message for the provider) rather than
+				// letting its verbatim wording pull the child off its delegated unit.
+				if reframed, ok := reframeInheritedPrompt(e.Data); ok {
+					clone = append(clone, event.Event{Type: e.Type, Actor: e.Actor, Data: reframed})
+				}
+			case event.ActorSystem:
+				// Parent-turn system steering (planner spec/checkpoint/mining notes, loop
+				// resubmissions): scoped to the parent's turn and pure context weight — the
+				// child re-derives its own notes at plan time. Drop them.
+			default:
+				// ActorAgent: subagent results and other inherited work — keep as context.
+				clone = append(clone, event.Event{Type: e.Type, Actor: e.Actor, Data: e.Data})
+			}
+		case event.TypePartAppended, event.TypeCompaction:
 			clone = append(clone, event.Event{Type: e.Type, Actor: e.Actor, Data: e.Data})
 		}
 	}
 	if len(clone) > 0 {
 		_, _ = a.store.Append(ctx, to, clone...)
 	}
+}
+
+// inheritedContextHeader replaces a cloned parent user prompt so a CloneContext child reads it as
+// background, not as its own instruction. The child's real task is the seed prompt appended after
+// the clone; this leaves the earlier request visible only as a labelled context boundary.
+const inheritedContextHeader = "[Inherited context — an earlier request handled by the agent that " +
+	"dispatched you. Shown for background only; do NOT answer or restart it. Your task is the most " +
+	"recent instruction at the end of this conversation.]"
+
+// reframeInheritedPrompt rewrites a cloned user prompt to the inherited-context header, preserving
+// the MessageID (and thus a valid leading RoleUser message) while dropping the verbatim request
+// that a weak child would mistake for its own task. Idempotent: an already-reframed prompt (nested
+// clone) is returned unchanged. Returns false when the payload can't be parsed, so the caller skips
+// it entirely.
+func reframeInheritedPrompt(data []byte) ([]byte, bool) {
+	var d event.PromptSubmittedData
+	if json.Unmarshal(data, &d) != nil {
+		return nil, false
+	}
+	if len(d.Parts) == 1 && d.Parts[0].Kind == session.PartText && d.Parts[0].Text == inheritedContextHeader {
+		return data, true // already reframed (nested clone)
+	}
+	d.Parts = []session.Part{{Kind: session.PartText, Text: inheritedContextHeader}}
+	out, err := json.Marshal(d)
+	if err != nil {
+		return nil, false
+	}
+	return out, true
 }
 
 // spawn runs a named subagent to completion and returns its output. It is the
