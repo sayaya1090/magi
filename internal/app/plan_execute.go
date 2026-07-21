@@ -144,7 +144,17 @@ func (a *App) runDelegateStep(ctx context.Context, s session.Session, st planSte
 	}
 	*budget-- // count against the per-turn dispatch budget like an explorer
 	a.advanceTo(ctx, s.ID, plannerActor, i)
-	r := a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agentName, Prompt: delegatePrompt(st, brief), PlanStepIndex: &i})
+	// Context curator (MAGI_CURATE): distill a focused, literal-preserving brief and a task-scoped
+	// tool allowlist for this worker. Best-effort — an empty brief leaves the mechanical brief and
+	// the worker's default toolset (curTools nil), so curation never blocks the delegate.
+	var curTools []string
+	if curateEnabled() {
+		if cb, ct := a.curateDelegate(ctx, a.agentFor(s), s, st, brief); cb != "" {
+			brief = cb
+			curTools = ct
+		}
+	}
+	r := a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agentName, Prompt: delegatePrompt(st, brief), Tools: curTools, PlanStepIndex: &i})
 	text := strings.TrimSpace(r.Text)
 	// ADaPT failure branch (reactive, as-needed decomposition): a hard failure (spawn error
 	// or empty result), while we're still below the plan-depth cap and have budget, gets ONE
@@ -155,7 +165,7 @@ func (a *App) runDelegateStep(ctx context.Context, s session.Session, st planSte
 	// off, a failed delegate backtracks after one shot (planned decomposition only).
 	if !adaptDisabled() && (r.Err != "" || text == "") && depth+1 < a.cfg.MaxPlanDepth && *budget > 0 {
 		*budget--
-		r = a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agentName, Prompt: redecomposePrompt(st, brief), PlanStepIndex: &i})
+		r = a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agentName, Prompt: redecomposePrompt(st, brief), Tools: curTools, PlanStepIndex: &i})
 		text = strings.TrimSpace(r.Text)
 	}
 	if r.Err != "" || text == "" {

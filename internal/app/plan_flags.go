@@ -86,6 +86,14 @@ func specMineEnabled() bool { return envOn("MAGI_SPEC_MINE") }
 // MAGI_WORKDIR_CHECKPOINT=1 enables it.
 func workdirCheckpointEnabled() bool { return envOn("MAGI_WORKDIR_CHECKPOINT") }
 
+// curateEnabled gates the context curator (curate.go): before a delegate worker is spawned, a
+// tool-free side call distills a focused, literal-preserving brief AND selects the SPECIALIZED
+// tools the sub-task actually needs, so the worker runs on a lean, task-scoped context instead of
+// the full tool list + a mechanical brief. The worker always keeps a base toolset (read/write/edit/
+// bash/…), so a mis-selection can only ADD, never starve it. Default OFF — it adds an LLM call per
+// delegate and reintroduces delegation (a bench A/B knob); MAGI_CURATE=1 enables it.
+func curateEnabled() bool { return envOn("MAGI_CURATE") }
+
 // execEvidenceEnabled gates the exec-evidence layers: the deterministic per-artifact
 // exercise ledger's pre-council nudge ("you never ran what you wrote") plus the
 // council-evidence trailer listing authored-but-never-executed files. Targets the
