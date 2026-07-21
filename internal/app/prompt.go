@@ -58,6 +58,14 @@ func (a *App) toolSpecs(agent AgentSpec, isSub bool, depth int) []port.ToolSpec 
 			if !a.planEligible(agent, depth) {
 				continue
 			}
+		case "tabulate", "countmatches", "countlines", "groupby":
+			// Aggregation helpers exist for agents that CANNOT shell out; an agent with
+			// bash does the same with awk/sort/uniq/wc/grep -c, so carrying them is pure
+			// per-request weight in a bash-capable tool list. Drop them there; a read-only
+			// explorer (no bash) keeps them as its only way to REDUCE data without a shell.
+			if agent.allows("bash") {
+				continue
+			}
 		}
 		specs = append(specs, port.ToolSpec{Name: name, Description: t.Description(), Schema: t.Schema()})
 	}
