@@ -127,10 +127,31 @@ func TestEvidenceBudgetNote(t *testing.T) {
 
 // A report that rationalizes incompletion ("impossible, so this is full completion",
 // "nothing needed fixing") must be treated as an admission, not a done — the clause
+// The keep clause + schema field appear ONLY when keep is requested (MAGI_COUNCIL_KEEP),
+// so the baseline prompt is byte-for-byte unchanged when it is off.
+func TestMemberPromptKeepGated(t *testing.T) {
+	m := council.Member{Name: "x", Lens: "correctness"}
+	off := memberSystem(m, "terminate", "fix the bug", false)
+	if strings.Contains(off, "\"keep\"") || strings.Contains(off, "must NOT redo or revert") {
+		t.Error("keep clause/schema must be absent when keep is off")
+	}
+	on := memberSystem(m, "terminate", "fix the bug", true)
+	if !strings.Contains(on, "must NOT redo or revert") {
+		t.Error("keep clause missing when keep is on")
+	}
+	if !strings.Contains(on, "\"keep\"") {
+		t.Error("keep schema field missing when keep is on")
+	}
+	// Advisory framing: it must say it does not change the vote.
+	if !strings.Contains(on, "NEVER changes your decision") {
+		t.Error("keep clause must state it is advisory (never changes the decision)")
+	}
+}
+
 // that closes the reval3 play-zork / run-pdp11 / fasttext class of false approvals.
 func TestMemberPromptRationalizedDone(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "verification"}
-	s := memberSystem(m, "terminate", "beat the game")
+	s := memberSystem(m, "terminate", "beat the game", false)
 	if !strings.Contains(s, "RATIONALIZES incompletion") {
 		t.Error("terminate prompt missing the rationalized-done clause")
 	}
@@ -148,14 +169,14 @@ func TestMemberPromptRationalizedDone(t *testing.T) {
 		t.Error("terminate prompt missing the verification-run clause")
 	}
 	// Plan phase judges a procedure before any report exists — the clause must not leak.
-	if p := memberSystem(m, "plan", "beat the game"); strings.Contains(p, "RATIONALIZES incompletion") {
+	if p := memberSystem(m, "plan", "beat the game", false); strings.Contains(p, "RATIONALIZES incompletion") {
 		t.Error("rationalized-done clause leaked into the plan-audit prompt")
 	}
 }
 
 func TestMemberPromptArtifactGrounding(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "completeness"}
-	s := memberSystem(m, "terminate", "build a CLI tool")
+	s := memberSystem(m, "terminate", "build a CLI tool", false)
 	if !strings.Contains(s, "is NOT itself the artifact") {
 		t.Error("terminate prompt missing artifact-grounding clause")
 	}
@@ -187,7 +208,7 @@ func TestMemberPromptArtifactGrounding(t *testing.T) {
 	}
 	// terminate-only: the plan-audit prompt must NOT demand artifacts pre-flight, nor
 	// carry the terminate-phase artifact framing.
-	p := memberSystem(m, "plan", "build a CLI tool")
+	p := memberSystem(m, "plan", "build a CLI tool", false)
 	if strings.Contains(p, "is NOT itself the artifact") {
 		t.Error("artifact clause leaked into the plan-audit prompt")
 	}
@@ -213,7 +234,7 @@ func TestMemberPromptProportionality(t *testing.T) {
 
 	// terminate phase: representative coverage of a large set is done; demanding
 	// exhaustive enumeration / atom-level precision is churn, not a defect.
-	s := memberSystem(m, "terminate", "find refactoring candidates")
+	s := memberSystem(m, "terminate", "find refactoring candidates", false)
 	if !strings.Contains(s, "EXHAUSTIVE enumeration") {
 		t.Error("terminate prompt missing the proportional-completeness clause")
 	}
@@ -242,7 +263,7 @@ func TestMemberPromptProportionality(t *testing.T) {
 
 	// plan phase: criteria must be achievable/proportionate — no "all N with exact
 	// lines" done-condition; the old exhaustive "every doc is covered" example is gone.
-	p := memberSystem(m, "plan", "find refactoring candidates")
+	p := memberSystem(m, "plan", "find refactoring candidates", false)
 	if !strings.Contains(p, "ACHIEVABLE and PROPORTIONATE") {
 		t.Error("plan criteria instruction missing the proportionality guidance")
 	}
@@ -270,7 +291,7 @@ func TestMemberPromptProportionality(t *testing.T) {
 // refine strategy leans on; it lives in the plan prompt only.
 func TestMemberPromptRefine(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "completeness"}
-	p := memberSystem(m, "plan", "build a small interpreted language")
+	p := memberSystem(m, "plan", "build a small interpreted language", false)
 
 	// Abstractness alone is never a critical revision.
 	if !strings.Contains(p, "NEVER critical-revise a refine step for abstractness") {
@@ -281,7 +302,7 @@ func TestMemberPromptRefine(t *testing.T) {
 		t.Error("plan prompt missing the 'absurd abstract plan is still critical' balance")
 	}
 	// The refine guidance is plan-audit only — it must not leak into the terminate prompt.
-	if s := memberSystem(m, "terminate", "build a small interpreted language"); strings.Contains(s, "critical-revise a refine step") {
+	if s := memberSystem(m, "terminate", "build a small interpreted language", false); strings.Contains(s, "critical-revise a refine step") {
 		t.Error("refine plan-audit guidance leaked into the terminate prompt")
 	}
 }

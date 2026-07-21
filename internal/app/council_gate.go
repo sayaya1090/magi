@@ -489,6 +489,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		Members:      pollMembers,
 		Rule:         rule,
 		Debate:       councilDebateEnabled(),
+		Keep:         councilKeepEnabled(),
 		DefaultModel: s.Model.Model,
 		StepsLeft:    in.stepsLeft,
 		DeltaRound:   deltaRound,
@@ -567,6 +568,13 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		if hint := meansHint(fb); hint != "" {
 			inject = fb + "\n\n" + hint
 		}
+	}
+	// Advisory keep (MAGI_COUNCIL_KEEP): surface what's already correct ABOVE the fix, so the
+	// agent doesn't revert a settled part or re-verify it to exhaustion. It rides only on the
+	// injected prompt — ct.feedback stays the raw fb, so no-progress repeat-detection and the
+	// recorded decision are unchanged, and the gate is never weakened.
+	if k := strings.TrimSpace(delib.Keep); k != "" {
+		inject = k + "\n\n" + inject
 	}
 
 	emitDecided(council.Continue, fb, "", false)

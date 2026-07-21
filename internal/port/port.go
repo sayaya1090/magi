@@ -144,6 +144,11 @@ type DeliberationRequest struct {
 	// result. Consensus → one outcome; still split → the ordinary rule decides.
 	// No extra call when the independent vote is unanimous (the common case).
 	Debate bool
+	// Keep asks each member to ALSO report, alongside its fix feedback, what the report
+	// already gets right through its lens — advisory "keep this, don't redo/revert it" that
+	// is surfaced above the feedback when the turn continues. It never affects the decision
+	// or tally. Off → members are not asked and no keep is produced (MAGI_COUNCIL_KEEP).
+	Keep bool
 	// StepsLeft is how many steps the agent has before it is force-stopped at its
 	// budget ceiling (0 = unknown/not applicable). When it is low, members should
 	// prefer accepting a reasonable working result over demanding another round of

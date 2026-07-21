@@ -168,6 +168,42 @@ func TestAggregateFeedback(t *testing.T) {
 	}
 }
 
+func TestAggregateKeep(t *testing.T) {
+	vs := []Verdict{
+		{Member: "Melchior", Lens: "correctness", Decision: Continue, Feedback: "handle nil", Keep: "the parser change is correct"},
+		{Member: "Balthasar", Lens: "verification", Decision: Done, Keep: "the tests pass"}, // done member's keep IS included
+		{Member: "Casper", Lens: "completeness", Decision: Continue, Keep: "   "},           // blank keep skipped
+	}
+	got := AggregateKeep(vs)
+	if !strings.Contains(got, "the parser change is correct") || !strings.Contains(got, "the tests pass") {
+		t.Fatalf("keep aggregate missing entries:\n%s", got)
+	}
+	if !strings.Contains(got, "do NOT redo or revert") {
+		t.Fatalf("keep aggregate missing the don't-revert framing:\n%s", got)
+	}
+	if !strings.Contains(got, "Melchior (correctness)") {
+		t.Fatalf("keep aggregate missing labeled member:\n%s", got)
+	}
+	// No keep supplied → empty (the MAGI_COUNCIL_KEEP-off case: no member was asked).
+	if AggregateKeep([]Verdict{v("a", Continue), v("b", Done)}) != "" {
+		t.Fatalf("expected empty keep when none supplied")
+	}
+}
+
+// Deliberate populates Keep on a Continue outcome and never on the decision path.
+func TestDeliberateCarriesKeep(t *testing.T) {
+	d := Deliberate(1, []Verdict{
+		{Member: "Melchior", Decision: Continue, Feedback: "fix X", Keep: "module A is done"},
+		{Member: "Casper", Decision: Done},
+	}, RuleMajority)
+	if d.Decision != Continue {
+		t.Fatalf("want continue, got %s", d.Decision)
+	}
+	if !strings.Contains(d.Keep, "module A is done") {
+		t.Fatalf("continue should carry keep: %q", d.Keep)
+	}
+}
+
 func TestDeliberate(t *testing.T) {
 	// Continue carries aggregated feedback.
 	cont := Deliberate(1, []Verdict{

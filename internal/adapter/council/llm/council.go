@@ -255,7 +255,7 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 	}
 	stream, err := provider.StreamChat(ctx, port.ChatRequest{
 		Model:    model,
-		System:   memberSystem(m, req.Phase, req.Task),
+		System:   memberSystem(m, req.Phase, req.Task, req.Keep),
 		Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: user}}}},
 		Params:   map[string]any{"temperature": 0.0},
 	})
@@ -282,6 +282,7 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 	v.Confidence = r.Confidence
 	v.Rationale = r.Rationale
 	v.Feedback = r.Feedback
+	v.Keep = r.Keep
 	v.Severity = r.Severity // plan-audit phase only; gates blocking vs advisory
 	v.Criteria = r.Criteria // plan-audit phase only; empty otherwise
 	v.Checks = r.Checks     // plan-audit phase only; per-step executable deliverable checks
@@ -315,7 +316,7 @@ func (c *Council) pollRebut(ctx context.Context, req port.DeliberationRequest, m
 		"already on the table. Reply in the SAME JSON shape."
 	stream, err := provider.StreamChat(ctx, port.ChatRequest{
 		Model:    model,
-		System:   memberSystem(m, req.Phase, req.Task),
+		System:   memberSystem(m, req.Phase, req.Task, req.Keep),
 		Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: user}}}},
 		Params:   map[string]any{"temperature": 0.0},
 	})
@@ -337,6 +338,7 @@ func (c *Council) pollRebut(ctx context.Context, req port.DeliberationRequest, m
 	v.Confidence = r.Confidence
 	v.Rationale = r.Rationale
 	v.Feedback = r.Feedback
+	v.Keep = r.Keep
 	v.Severity = r.Severity
 	v.Criteria = r.Criteria
 	v.Checks = r.Checks
@@ -349,6 +351,7 @@ type memberReply struct {
 	Confidence float64  `json:"confidence"`
 	Rationale  string   `json:"rationale"`
 	Feedback   string   `json:"feedback"`
+	Keep       string   `json:"keep"`     // advisory: what's already correct (only when asked; MAGI_COUNCIL_KEEP)
 	Severity   string   `json:"severity"` // plan-audit phase: critical|warn|info for a revise vote
 	Criteria   []string `json:"criteria"` // plan-audit phase: proposed completion criteria
 	// Checks are plan-audit per-step executable deliverable checks (empty otherwise).
@@ -359,13 +362,24 @@ type memberReply struct {
 // label) and its judging lens (the attribute), plus the strict output contract.
 // The phase selects whether the member judges a finished turn ("terminate") or a
 // proposed procedure ("plan").
-func memberSystem(m council.Member, phase, task string) string {
+func memberSystem(m council.Member, phase, task string, keep bool) string {
 	lens := council.Lenses[m.Lens]
 	if lens == "" {
 		lens = "Judge whether the task is genuinely complete."
 	}
 	if phase == "plan" {
 		return withLangNote(planMemberSystem(m, lens), task)
+	}
+	// Optional advisory (MAGI_COUNCIL_KEEP): each member also names what the report already
+	// gets right through ITS lens, so the agent doesn't revert a correct part or re-verify a
+	// settled one. It never changes the vote — feedback still drives continue.
+	keepClause, schema := "", `{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific gap (only if continue)"}`
+	if keep {
+		keepClause = "Also, through YOUR lens ONLY, note in `keep` what the report ALREADY gets right that the agent " +
+			"must NOT redo or revert — a brief phrase (e.g. \"the parser change is correct and tested\"). This is purely " +
+			"advisory: it NEVER changes your decision, and you still name any real defect in `feedback`. Leave `keep` " +
+			"empty if nothing is clearly settled through your lens; never affirm something you cannot verify.\n"
+		schema = `{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific gap (only if continue)","keep":"what's already correct through your lens — advisory, optional"}`
 	}
 	return withLangNote(fmt.Sprintf(
 		"You are %s, a member of the council that decides whether an AI coding agent's turn is truly finished. "+
@@ -436,9 +450,10 @@ func memberSystem(m council.Member, phase, task string) string {
 			"Never invent a defect, never demand evidence the task never required, and never continue out of mere "+
 			"uncertainty or a wish for more proof. When the turn changed no files, judge the report's SUBSTANCE against "+
 			"the task — the absence of a diff is not itself a defect, but a wrong or incomplete answer still is.\n\n"+
+			"%s"+
 			"Respond with ONLY a JSON object, no prose, no code fence:\n"+
-			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific gap (only if continue)"}`,
-		m.Name, m.Lens, lens), task)
+			"%s",
+		m.Name, m.Lens, lens, keepClause, schema), task)
 }
 
 // withLangNote appends, when the task is in a non-English language, an instruction to

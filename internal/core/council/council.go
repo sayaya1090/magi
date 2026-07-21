@@ -48,6 +48,7 @@ type Verdict struct {
 	Confidence float64  `json:"confidence,omitempty"` // 0..1, self-reported
 	Rationale  string   `json:"rationale,omitempty"`  // why
 	Feedback   string   `json:"feedback,omitempty"`   // actionable, used when Continue
+	Keep       string   `json:"keep,omitempty"`       // what the report already gets right (advisory, MAGI_COUNCIL_KEEP)
 	Weight     float64  `json:"weight,omitempty"`     // 0 = 1
 	// Severity tiers a plan-audit revise (continue) vote: only "critical" blocks the
 	// plan gate; "warn"/"info" are advisory (heeded but non-blocking). An ABSENT severity
@@ -128,6 +129,10 @@ type Deliberation struct {
 	Decision  Decision  `json:"decision"`
 	Breakdown Breakdown `json:"breakdown"`
 	Feedback  string    `json:"feedback,omitempty"`
+	// Keep is the merged advisory "what's already correct — don't redo/revert" from the
+	// members (MAGI_COUNCIL_KEEP). Purely informational: it never affects the decision or
+	// tally, and is surfaced ABOVE the feedback when the turn continues.
+	Keep string `json:"keep,omitempty"`
 	// Criteria is the synthesized completion criteria from a plan-audit round
 	// (merged from the members' proposals). Empty in the termination phase.
 	Criteria []string `json:"criteria,omitempty"`
@@ -182,6 +187,7 @@ func Deliberate(round int, vs []Verdict, rule Rule) Deliberation {
 	d := Deliberation{Round: round, Verdicts: vs, Decision: dec, Breakdown: b}
 	if dec == Continue {
 		d.Feedback = AggregateFeedback(vs)
+		d.Keep = AggregateKeep(vs) // advisory; empty unless MAGI_COUNCIL_KEEP asked for it
 	}
 	return d
 }
@@ -329,6 +335,31 @@ func AggregateFeedback(vs []Verdict) string {
 	return mergeFeedback(vs,
 		func(v Verdict) bool { return v.Decision == Continue },
 		"The council did not agree the task is done. Address this feedback, then continue:")
+}
+
+// AggregateKeep merges the members' advisory "keep" notes — what the report already gets
+// right, that the agent should NOT redo or revert — into one block rendered ABOVE the fix
+// feedback. It reads every verdict that supplied a keep regardless of vote: an affirmation of
+// correct work is useful even from a member who otherwise voted done. Advisory only — it never
+// affects the decision or tally. "" when no member supplied a keep (e.g. MAGI_COUNCIL_KEEP off,
+// so no member was asked for one).
+func AggregateKeep(vs []Verdict) string {
+	var parts []string
+	for _, v := range vs {
+		k := strings.TrimSpace(v.Keep)
+		if k == "" {
+			continue
+		}
+		label := v.Member
+		if v.Lens != "" {
+			label += " (" + v.Lens + ")"
+		}
+		parts = append(parts, "- "+label+": "+k)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "Already correct — keep this, do NOT redo or revert it:\n" + strings.Join(parts, "\n")
 }
 
 // severityOf normalizes a verdict's plan-audit severity. An ABSENT severity (empty —

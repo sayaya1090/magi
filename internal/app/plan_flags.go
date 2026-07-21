@@ -93,6 +93,15 @@ func execEvidenceEnabled() bool { return !envOff("MAGI_EXEC_EVIDENCE") }
 // MAGI_COUNCIL_DEBATE=0 restores the independent-vote-only tally (A/B knob).
 func councilDebateEnabled() bool { return !envOff("MAGI_COUNCIL_DEBATE") }
 
+// councilKeepEnabled asks each council member to ALSO report what the report already gets
+// right through its lens — advisory "keep this, don't redo/revert it" surfaced above the fix
+// feedback when the turn continues. It never affects the decision or tally. It targets two
+// observed weak-model failures: reverting a correct edit because nothing affirmed it (the
+// ocaml merge-check fix), and re-verifying already-working parts to exhaustion because nothing
+// said they were settled (the kv-store finish spin). Default OFF (A/B): MAGI_COUNCIL_KEEP=1
+// enables it; the extra prompt/note tokens ship only when on, keeping the baseline unchanged.
+func councilKeepEnabled() bool { return envOn("MAGI_COUNCIL_KEEP") }
+
 // checkpointFirstEnabled turns on test-first ordering: when a task states HOW its
 // completion is checked (a snippet, command, function call, or I/O contract), the
 // agent is told to FIRST materialize that as a runnable checkpoint in the workdir —
