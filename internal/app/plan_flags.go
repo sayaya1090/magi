@@ -91,16 +91,18 @@ func workdirCheckpointEnabled() bool { return envOn("MAGI_WORKDIR_CHECKPOINT") }
 // tools the sub-task actually needs, so the worker runs on a lean, task-scoped context instead of
 // the full tool list + a mechanical brief. The worker always keeps a base toolset (read/write/edit/
 // bash/…), so a mis-selection can only ADD, never starve it. Default OFF — it adds an LLM call per
-// delegate and reintroduces delegation (a bench A/B knob); MAGI_CURATE=1 enables it.
-func curateEnabled() bool { return envOn("MAGI_CURATE") }
+// delegate and reintroduces delegation. Default ON (for the curated-worker architecture A/B on the
+// weak-model bench); MAGI_CURATE=0 restores the mechanical brief + full toolset baseline.
+func curateEnabled() bool { return !envOff("MAGI_CURATE") }
 
 // forceDelegateEnabled rewrites every "solo" plan step into a "delegate" step routed to a worker,
 // so execution runs in worker sub-agents instead of the main agent inline. The planner leaves most
 // write-work as solo even when a worker is available and told to prefer delegating, so this is the
 // deterministic lever that actually moves execution onto workers — and the only way to exercise the
-// context curator (which hooks the delegate path). Requires a delegatable agent (MAGI_WORKERS);
-// default OFF, an A/B/validation knob. MAGI_FORCE_DELEGATE=1 enables it.
-func forceDelegateEnabled() bool { return envOn("MAGI_FORCE_DELEGATE") }
+// context curator (which hooks the delegate path). Requires a delegatable agent (MAGI_WORKERS).
+// Default ON (so the curated-worker architecture actually engages on the weak-model bench);
+// MAGI_FORCE_DELEGATE=0 restores the solo baseline (execution inline in the main agent).
+func forceDelegateEnabled() bool { return !envOff("MAGI_FORCE_DELEGATE") }
 
 // execEvidenceEnabled gates the exec-evidence layers: the deterministic per-artifact
 // exercise ledger's pre-council nudge ("you never ran what you wrote") plus the

@@ -32,12 +32,12 @@ func toSet(xs []string) map[string]bool {
 }
 
 func TestCurateEnabledDefaultOff(t *testing.T) {
-	if curateEnabled() {
-		t.Fatal("default must be OFF")
-	}
-	t.Setenv("MAGI_CURATE", "1")
 	if !curateEnabled() {
-		t.Error("=1 must enable")
+		t.Fatal("default must be ON")
+	}
+	t.Setenv("MAGI_CURATE", "0")
+	if curateEnabled() {
+		t.Error("=0 must disable")
 	}
 }
 

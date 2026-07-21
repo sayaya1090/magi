@@ -1189,12 +1189,12 @@ func defaultAgents() map[string]app.AgentSpec {
 		},
 	}
 	// worker: a write-capable execution sub-agent the planner can DELEGATE a self-contained
-	// sub-task to (not just coding — implement, build, configure, run, verify). Opt-in via
-	// MAGI_WORKERS so the default roster stays read-only (delegate unavailable → solo path,
-	// the delegate-off baseline); enabling it gives the context curator (MAGI_CURATE) a worker
-	// whose task-scoped toolset it can narrow. nil Tools = full toolset (write-capable ⇒
-	// delegatable); the curator scopes it per task.
-	if v := os.Getenv("MAGI_WORKERS"); v == "1" || v == "on" || v == "true" || v == "yes" {
+	// sub-task to (not just coding — implement, build, configure, run, verify). It gives the
+	// context curator (MAGI_CURATE) a worker whose task-scoped toolset it can narrow. Default ON
+	// (part of the curated-worker architecture); MAGI_WORKERS=0 removes it so the roster stays
+	// read-only (delegate unavailable → solo path, the delegate-off baseline). nil Tools = full
+	// toolset (write-capable ⇒ delegatable); the curator scopes it per task.
+	if v := strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_WORKERS"))); v != "0" && v != "off" && v != "false" && v != "no" {
 		agents["worker"] = app.AgentSpec{
 			Name: "worker",
 			System: "You are a worker sub-agent. Carry out the ONE delegated sub-task end to end — read what " +
