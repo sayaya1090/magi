@@ -33,7 +33,7 @@ type editArgs struct {
 
 func (Edit) Name() string { return "edit" }
 func (Edit) Description() string {
-	return "Replace text in a file. Default: give `old` (a unique snippet) and `new`; matching tolerates line-ending and trailing-whitespace drift but leading indentation must match. Anchored: instead give `at` a line number \"N\" from a read (optionally `to` a second number for a range) and `new` as the replacement — it replaces those whole lines. Use `at` alone, not with `old`."
+	return "Replace text in a file. Default: give `old` (a unique snippet) and `new`; matching tolerates line-ending and trailing-whitespace drift but leading indentation must match. Example: edit{old:\"return 1\", new:\"return 2\"}. Anchored: when `old` is ambiguous (appears more than once) give `at` a line number \"N\" from a read (optionally `to` a second number for a range) and `new` — it replaces those whole lines. Example: edit{at:\"42\", new:\"    return 2\"}. Use `at` alone, not with `old`."
 }
 func (Edit) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"old":{"type":"string"},"new":{"type":"string"},"at":{"type":"string","description":"line number N from a read to anchor the edit; replaces line N (through ` + "`to`" + ` if given)"},"to":{"type":"string","description":"end line number N for a range replace with ` + "`at`" + `"},"replaceAll":{"type":"boolean"}},"required":["path"]}`)
