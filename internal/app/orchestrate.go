@@ -558,6 +558,16 @@ func (a *App) spawnResolved(ctx context.Context, parent session.Session, depth i
 		return port.SpawnResult{Err: fmt.Sprintf("agent budget exhausted (%d)", a.cfg.MaxAgents)}
 	}
 
+	// Work-tree checkpoint (opt-in): snapshot before the first attempt so a RETRY rolls back to a
+	// clean tree instead of re-running on the failed attempt's debris (compile-compcert self-clone
+	// retry loop). Bounded to this subagent's own retry loop — a solo execution boundary, so a
+	// sibling's tree is never rolled back under it. Best-effort; nil when unavailable or disabled.
+	var cp *workdirCheckpoint
+	if workdirCheckpointEnabled() && a.cfg.SubagentMaxRestarts > 0 {
+		cp = newWorkdirCheckpoint(parent.Workdir)
+		defer cp.cleanup()
+	}
+
 	var last port.SpawnResult
 	for attempt := 0; attempt <= a.cfg.SubagentMaxRestarts; attempt++ {
 		if ctx.Err() != nil {
@@ -566,6 +576,14 @@ func (a *App) spawnResolved(ctx context.Context, parent session.Session, depth i
 		attemptReq := req
 		if attempt > 0 {
 			a.emitAgentRestart(parent.ID, spec.Name, attempt, last.Err)
+			// Roll the work-tree back to the pre-attempt checkpoint (if any) so the retry starts
+			// from the same clean state the first attempt did, not the debris it left behind.
+			if cp != nil {
+				if err := cp.restore(); err == nil {
+					a.emitToolProgress(parent.ID, event.Actor{Kind: event.ActorAgent, ID: orDefault(parent.Agent, "default")},
+						"", spec.Name, "rolled the work tree back to the pre-attempt checkpoint")
+				}
+			}
 			// A restart with the IDENTICAL prompt and seed re-runs the identical
 			// failure: observed on compile-compcert, a recovery child timed out in a
 			// long toolchain install three times in a row, each attempt walking the

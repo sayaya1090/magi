@@ -73,6 +73,14 @@ func specFidelityEnabled() bool { return !envOff("MAGI_SPEC_FIDELITY") }
 // elicited, not instructed). Default ON; MAGI_SPEC_MINE=0 removes the call (A/B knob).
 func specMineEnabled() bool { return !envOff("MAGI_SPEC_MINE") }
 
+// workdirCheckpointEnabled gates the opt-in work-tree rollback (checkpoint.go): before a subagent's
+// first attempt the work-tree is snapshotted into a PRIVATE scratch git-dir (never the user's own
+// .git/stash/HEAD), and each retry restores that snapshot so it re-runs on a clean tree instead of
+// the failed attempt's debris (the compile-compcert self-clone retry loop). Default OFF — restore
+// is a destructive clean, so it stays opt-in and bench-scoped until A/B-validated.
+// MAGI_WORKDIR_CHECKPOINT=1 enables it.
+func workdirCheckpointEnabled() bool { return envOn("MAGI_WORKDIR_CHECKPOINT") }
+
 // execEvidenceEnabled gates the exec-evidence layers: the deterministic per-artifact
 // exercise ledger's pre-council nudge ("you never ran what you wrote") plus the
 // council-evidence trailer listing authored-but-never-executed files. Targets the
