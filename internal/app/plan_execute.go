@@ -64,6 +64,14 @@ func (a *App) executeSteps(ctx context.Context, s session.Session, goal string, 
 			if f, done := run(ctx, s, st, brief, i, depth, &budget, &rshare); f != "" {
 				out = append(out, f)
 				delegated = delegated || done
+				// Sequential re-plan: under force-delegate the steps were originally solo (dependent),
+				// so a step that could NOT produce its result leaves the LATER steps without their
+				// prerequisite. Stop here rather than run them on a missing input — the recorded FAILED
+				// finding drives the finish gate to re-plan from what's actually done. (Independent
+				// natural-delegate plans are not force-delegated, so they keep running the other parts.)
+				if !done && forceDelegateEnabled() {
+					break
+				}
 			}
 			continue
 		}
