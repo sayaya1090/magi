@@ -41,8 +41,39 @@ func (m *Model) respond(decision string) tea.Cmd {
 	}
 }
 
+// reviveForEngineActivity turns the running indicator back on when the engine produces
+// generation/tool activity while the TUI believes the turn is idle. m.running and the
+// spinner are armed CLIENT-side on submit (model_submit), not by an engine turn-start
+// event — so a turn that re-runs entirely engine-side is invisible: a prompt that landed
+// mid-COUNCIL is re-processed after the previous turn already emitted TurnFinished
+// (m.running=false, turnReqID cleared), yet no client submit fires to re-arm the spinner.
+// Without this the new turn runs silently — the last answer looks complete and idle while
+// work is actually happening. Any real generation (a PartDelta token, a tool's live
+// progress) proves a turn is running, so re-arm and claim the spinner for the most recent
+// user bubble (the prompt now being answered).
+func (m *Model) reviveForEngineActivity() {
+	if m.running {
+		return
+	}
+	m.running = true
+	if m.turnReqID == "" {
+		for i := len(m.blocks) - 1; i >= 0; i-- {
+			if m.blocks[i].kind == blockUser && m.blocks[i].reqID != "" {
+				m.turnReqID = m.blocks[i].reqID
+				break
+			}
+		}
+	}
+}
+
 // applyEvent folds a domain event into the transcript state.
 func (m *Model) applyEvent(e event.Event) {
+	// Engine-side generation/tool activity means a turn is running even if the TUI armed
+	// no spinner for it (an engine-initiated re-run, e.g. a mid-council prompt). Re-arm.
+	switch e.Type {
+	case event.TypePartDelta, event.TypeToolProgress:
+		m.reviveForEngineActivity()
+	}
 	switch e.Type {
 	case event.TypePromptSubmitted:
 		// A subagent result injected into the parent (actor=agent) is swallowed here:

@@ -140,3 +140,37 @@ func TestOnTurnFinished_ZeroUsageKeepsPriorTotals(t *testing.T) {
 		t.Errorf("zero-usage finish clobbered totals: in=%d out=%d", m.turnIn, m.turnOut)
 	}
 }
+
+// A turn that re-runs entirely engine-side (a mid-council prompt processed after the prior
+// turn already finished) arms no client spinner. Generation activity — a streaming token or
+// a tool's live progress — must revive the running indicator and claim the spinner for the
+// most recent user bubble, so the new turn isn't invisible (the "looks idle/complete while
+// actually working" confusion).
+func TestReviveForEngineActivity(t *testing.T) {
+	delta := func() event.Event {
+		d, _ := json.Marshal(event.PartDeltaData{Kind: session.PartText, Text: "hi"})
+		return event.Event{Type: event.TypePartDelta, Data: d}
+	}
+	// Idle (post-finish) with a mid-council user bubble whose reqID is set.
+	m := &Model{running: false, turnReqID: "", blocks: []block{
+		{kind: blockUser, text: "answered earlier", reqID: "m_old"},
+		{kind: blockAssistant, text: "the earlier answer"},
+		{kind: blockUser, text: "the mid-council prompt", reqID: "m_mid"},
+	}}
+	m.applyEvent(delta())
+	if !m.running {
+		t.Fatal("generation activity while idle must re-arm running")
+	}
+	if m.turnReqID != "m_mid" {
+		t.Fatalf("spinner must claim the most recent user bubble, got %q", m.turnReqID)
+	}
+
+	// Already running with a claimed turn → revive is a no-op (never steals the spinner).
+	m2 := &Model{running: true, turnReqID: "m_a", blocks: []block{
+		{kind: blockUser, reqID: "m_a"}, {kind: blockUser, reqID: "m_b"},
+	}}
+	m2.applyEvent(delta())
+	if m2.turnReqID != "m_a" {
+		t.Fatalf("revive must not move an already-claimed spinner, got %q", m2.turnReqID)
+	}
+}
