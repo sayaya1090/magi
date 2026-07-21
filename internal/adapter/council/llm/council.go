@@ -403,6 +403,12 @@ func memberSystem(m council.Member, phase, task string, keep bool) string {
 			"the agent's OWN CLAIM — do NOT accept it as proof; judge only the executed check results, tool outputs, and diff. "+
 			"When a `deliverable-check` signal is present and FAILED, the plan's own executable contract is objectively unmet: "+
 			"vote continue no matter how confidently the report asserts success. "+
+			"But passing checks are NECESSARY, not sufficient: those checks are the council's own approximation of a HIDDEN "+
+			"grader that may be stricter, and a self-authored 'checkpoint' test the agent wrote is weaker still. Where the "+
+			"TASK states an exact contract — a literal command line, a concrete input→output example, a numeric threshold — "+
+			"do not vote done unless the evidence SHOWS that EXACT command was run and its output matched the stated value; a "+
+			"substitute that merely looks equivalent, or the agent's own test standing in for the task's stated one, is a "+
+			"common false done (Council 3-0 done, grader 0). "+
 			"Otherwise — a read, "+
 			"review, analyze, explain, or answer "+
 			"task — the deliverable IS the answer or review in the REPORT itself: judge its substance, and never demand a "+
@@ -542,7 +548,12 @@ func planMemberSystem(m council.Member, lens string) string {
 			"test that it is non-empty (`test -s out.txt`, not bare `test -f`) — so a stale or empty leftover cannot pass. "+
 			"The deliverable may be a file (`test -s out.txt`), a build/test result (`go build ./...`), or PROGRAM OUTPUT "+
 			"ON SCREEN — for output, run the program and match its stdout with `expect` (e.g. command `./run --demo`, "+
-			"expect `^total: [0-9]+$`). When the task's acceptance involves an EXTERNAL event — a signal "+
+			"expect `^total: [0-9]+$`). CRITICAL: if the task ITSELF states the exact check — a literal command line, a "+
+			"concrete input→output example, or a numeric threshold — the check MUST reproduce that command and expected "+
+			"value VERBATIM, never a paraphrase or a value you invented. The hidden grader enforces the TASK'S own "+
+			"contract, so a self-substituted command or expected output passes your check but fails the grader (e.g. the "+
+			"task names `pmars -b -r 50 -f flashpaper.red rave.red | tail -n 1` — run exactly that; a task giving "+
+			"`sim 208 → 377` — assert exactly that mapping). When the task's acceptance involves an EXTERNAL event — a signal "+
 			"(Ctrl-C/SIGINT), a kill, a disconnect — author a check that DELIVERS the event for real: launch the "+
 			"artifact as a background process, send the actual signal, and match the required output (e.g. command "+
 			"`python3 app.py & p=$!; sleep 1; kill -INT $p; wait $p 2>/dev/null; ...`, expect the cleanup marker). "+
