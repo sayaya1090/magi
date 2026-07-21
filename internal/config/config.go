@@ -35,11 +35,21 @@ type Config struct {
 	Orchestration OrchestrationConfig `toml:"orchestration"` // multi-agent behavior toggles
 	Theme         ThemeConfig         `toml:"theme"`         // TUI color overrides (dark/light)
 	Council       CouncilConfig       `toml:"council"`       // consensus termination gate (D14)
+	Limits        LimitsConfig        `toml:"limits"`        // token caps (per-request output, context budget)
 
 	// Plugins holds free-form per-plugin settings: [plugins.<name>] tables a
 	// plugin reads via magi.store_get. The host passes each plugin only its
 	// own section.
 	Plugins map[string]map[string]any `toml:"plugins"`
+}
+
+// LimitsConfig caps token usage — a safety valve against runaway generation on a weak model.
+// MaxOutputTokens sets the per-request output cap sent to the LLM (0 = provider default).
+// ContextTokens overrides each model's context-window budget used for compaction sizing
+// (0 = use the model's probed/registered window).
+type LimitsConfig struct {
+	MaxOutputTokens int `toml:"max_output_tokens"`
+	ContextTokens   int `toml:"context_tokens"`
 }
 
 // LLMConfig tunes the LLM backend connection. Headers are custom HTTP headers

@@ -360,6 +360,9 @@ func run() int {
 	if *httpTimeout > 0 {
 		llmOpts = append(llmOpts, openai.WithResponseHeaderTimeout(*httpTimeout))
 	}
+	if cfg.Limits.MaxOutputTokens > 0 {
+		llmOpts = append(llmOpts, openai.WithMaxTokens(cfg.Limits.MaxOutputTokens)) // [limits] max_output_tokens
+	}
 	llm := openai.New(baseURLVal, env("MAGI_API_KEY", os.Getenv("OPENAI_API_KEY")), llmOpts...)
 
 	if *doctor {
@@ -648,10 +651,18 @@ func run() int {
 	// twin for models first seen after a /route switch.
 	if modelID != "" && !modelReg.Has(modelID) {
 		pctx, cancel := context.WithTimeout(ctx, 4*time.Second)
-		if w, ok := llm.ProbeContextWindow(pctx, modelID); ok {
-			modelReg.Register(coremodel.Info{ID: modelID, ContextWindow: w, MaxOutput: w / 4, Tools: true})
-		}
+		w, ok := llm.ProbeContextWindow(pctx, modelID)
 		cancel()
+		if cfg.Limits.ContextTokens > 0 { // [limits] context_tokens overrides/forces the window
+			w, ok = cfg.Limits.ContextTokens, true
+		}
+		if ok {
+			mo := w / 4
+			if cfg.Limits.MaxOutputTokens > 0 { // [limits] max_output_tokens caps the output budget
+				mo = cfg.Limits.MaxOutputTokens
+			}
+			modelReg.Register(coremodel.Info{ID: modelID, ContextWindow: w, MaxOutput: mo, Tools: true})
+		}
 	}
 
 	// Interactive TUI when no headless prompt was given.

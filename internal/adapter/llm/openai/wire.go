@@ -21,6 +21,9 @@ type chatRequest struct {
 	// field; Ollama honors "none" to disable thinking). Empty = omit → provider
 	// default, so non-thinking models are unaffected.
 	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	// MaxTokens caps the output tokens per response ([limits] max_output_tokens); 0 =
+	// omit → provider default.
+	MaxTokens int `json:"max_tokens,omitempty"`
 }
 
 // streamOptions asks the server to emit a final usage chunk while streaming.
@@ -116,8 +119,8 @@ type wireUsage struct {
 // cache is set, it attaches cache_control breakpoints to the (large, stable)
 // system prompt and tool list so an Anthropic model behind LiteLLM caches that
 // prefix instead of re-billing it every turn.
-func buildRequest(r port.ChatRequest, stream, cache bool, reasoningEffort string) chatRequest {
-	out := chatRequest{Model: r.Model, Stream: stream, ReasoningEffort: reasoningEffort}
+func buildRequest(r port.ChatRequest, stream, cache bool, reasoningEffort string, maxTokens int) chatRequest {
+	out := chatRequest{Model: r.Model, Stream: stream, ReasoningEffort: reasoningEffort, MaxTokens: maxTokens}
 	if stream {
 		out.StreamOptions = &streamOptions{IncludeUsage: true}
 	}

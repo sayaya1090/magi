@@ -43,7 +43,7 @@ func TestAssistantToolCallContentNotNull(t *testing.T) {
 			Role:  session.RoleAssistant,
 			Parts: []session.Part{{Kind: session.PartToolCall, ToolCall: &session.ToolCall{CallID: "c1", Name: "read", Args: json.RawMessage(`{"path":"x"}`)}}},
 		}},
-	}, false, false, "")
+	}, false, false, "", 0)
 	b, _ := json.Marshal(req)
 	s := string(b)
 	if !strings.Contains(s, `"content":""`) {
@@ -60,12 +60,12 @@ func TestAssistantToolCallContentNotNull(t *testing.T) {
 func TestReasoningEffortWire(t *testing.T) {
 	req := port.ChatRequest{Model: "m", Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: "hi"}}}}}
 
-	on, _ := json.Marshal(buildRequest(req, true, false, "none"))
+	on, _ := json.Marshal(buildRequest(req, true, false, "none", 0))
 	if !jsonContains(on, `"reasoning_effort":"none"`) {
 		t.Errorf("effort set: expected reasoning_effort:none; got %s", on)
 	}
 
-	off, _ := json.Marshal(buildRequest(req, true, false, ""))
+	off, _ := json.Marshal(buildRequest(req, true, false, "", 0))
 	if strings.Contains(string(off), "reasoning_effort") {
 		t.Errorf("effort empty: must omit reasoning_effort; got %s", off)
 	}
@@ -79,7 +79,7 @@ func TestPromptCacheBreakpoints(t *testing.T) {
 		System: "you are a long stable system prompt",
 		Tools:  []port.ToolSpec{{Name: "read"}, {Name: "edit"}},
 	}
-	on, _ := json.Marshal(buildRequest(req, true, true, ""))
+	on, _ := json.Marshal(buildRequest(req, true, true, "", 0))
 	if !jsonContains(on, `"cache_control"`) || !jsonContains(on, `"ephemeral"`) {
 		t.Errorf("cache on: expected cache_control/ephemeral; got %s", on)
 	}
@@ -88,7 +88,7 @@ func TestPromptCacheBreakpoints(t *testing.T) {
 		t.Errorf("cache on: system should be content blocks; got %s", on)
 	}
 
-	off, _ := json.Marshal(buildRequest(req, true, false, ""))
+	off, _ := json.Marshal(buildRequest(req, true, false, "", 0))
 	if jsonContains(off, `"cache_control"`) {
 		t.Errorf("cache off: must NOT emit cache_control; got %s", off)
 	}

@@ -33,6 +33,7 @@ type Client struct {
 	cacheOff atomic.Bool // set after a backend rejects the cache shape (sticky fallback)
 
 	reasoningEffort string // OpenAI-compat reasoning_effort (e.g. "none" to disable thinking); "" = omit
+	maxTokens       int    // per-request output cap ([limits] max_output_tokens); 0 = provider default
 
 	headers *httpx.Headers // static (config) + dynamic (plugin) custom headers
 }
@@ -132,6 +133,15 @@ func (c *Client) applyExtraHeaders(req *http.Request) { c.headers.Apply(req) }
 // honors them; harmless caches are ignored by providers that don't.
 func WithPromptCache() Option { return func(c *Client) { c.cache = true } }
 
+// WithMaxTokens caps output tokens per response ([limits] max_output_tokens). 0 = provider default.
+func WithMaxTokens(n int) Option {
+	return func(c *Client) {
+		if n > 0 {
+			c.maxTokens = n
+		}
+	}
+}
+
 // WithResponseHeaderTimeout bounds how long to wait for the response headers
 // after sending a request. Headers arrive before any token, so this catches a
 // gateway/model that never starts responding WITHOUT cutting a slow token stream
@@ -180,7 +190,7 @@ func (c *Client) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan por
 	triedNoTools := false
 	var lastRoleDiag string // role sequence of the most recent request, for 400/422 diagnostics
 	for {
-		br := buildRequest(r, true, useCache, c.reasoningEffort)
+		br := buildRequest(r, true, useCache, c.reasoningEffort, c.maxTokens)
 		lastRoleDiag = wireRoleDiag(br.Messages)
 		body, merr := json.Marshal(br)
 		if merr != nil {
