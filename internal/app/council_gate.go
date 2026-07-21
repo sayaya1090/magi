@@ -53,6 +53,7 @@ type councilInput struct {
 	lastText    string        // the agent's final message this step (the claim under review)
 	changes     string        // the agent's before→after edits (bounded)
 	fabrication string        // structural unverified-deliverable signal, "" when none
+	checkLedger string        // failing deliverable-check results (executed, not narrated), "" when none
 	stepsLeft   int           // remaining step budget, surfaced to members
 	turnElapsed time.Duration // the turn's own wall clock, for the cost-efficiency cap
 }
@@ -182,10 +183,17 @@ func (a *App) councilPreRoundCaps(ctx context.Context, sid session.SessionID, in
 // absence). Then the opt-in [council] signal commands run (D16). Finally the open ledger is
 // merged in, deduped by key, so a concern raised on an earlier turn or bubbled up from a
 // subagent is carried even when it did not fire this turn.
-func (a *App) councilSignals(ctx context.Context, s session.Session, evs []event.Event, fabrication string, councilActor event.Actor) ([]port.Signal, []string) {
+func (a *App) councilSignals(ctx context.Context, s session.Session, evs []event.Event, fabrication, checkLedger string, councilActor event.Actor) ([]port.Signal, []string) {
 	sid := s.ID
 	var signals []port.Signal
 	var signalSummaries []string
+	// Executed deliverable-check ledger (MAGI_STEP_VERIFY): the plan's checks were RUN and some
+	// failed. A hard FAILING signal the council must honor over the agent's "I'm done" claim —
+	// real command output, not narration. This is the ledger the whole gate exists for.
+	if strings.TrimSpace(checkLedger) != "" {
+		signals = append(signals, port.Signal{Source: "deliverable-check", Kind: "contract", Status: "fail", Detail: tailForCouncil(checkLedger, councilSignalCap)})
+		signalSummaries = append(signalSummaries, "deliverable-check: FAILED")
+	}
 	// Always-on deterministic signal: the agent changed a deliverable this turn but ran no
 	// command exercising the current version (see runGuard.unverifiedDeliverable). Unlike the
 	// opt-in command signals below, this needs no config — it is derived structurally from the
@@ -395,7 +403,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		}
 	}
 
-	signals, signalSummaries := a.councilSignals(ctx, s, evs, in.fabrication, councilActor)
+	signals, signalSummaries := a.councilSignals(ctx, s, evs, in.fabrication, in.checkLedger, councilActor)
 	// Cancellation during verify: unwind rather than persist a misleading convened fact or
 	// deliberate on partial evidence.
 	if ctx.Err() != nil {

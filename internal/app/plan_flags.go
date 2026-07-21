@@ -98,9 +98,9 @@ func councilDebateEnabled() bool { return !envOff("MAGI_COUNCIL_DEBATE") }
 // feedback when the turn continues. It never affects the decision or tally. It targets two
 // observed weak-model failures: reverting a correct edit because nothing affirmed it (the
 // ocaml merge-check fix), and re-verifying already-working parts to exhaustion because nothing
-// said they were settled (the kv-store finish spin). Default OFF (A/B): MAGI_COUNCIL_KEEP=1
-// enables it; the extra prompt/note tokens ship only when on, keeping the baseline unchanged.
-func councilKeepEnabled() bool { return envOn("MAGI_COUNCIL_KEEP") }
+// said they were settled (the kv-store finish spin). Default ON; MAGI_COUNCIL_KEEP=0 restores the
+// baseline (no keep clause, byte-identical prompt) for A/B.
+func councilKeepEnabled() bool { return !envOff("MAGI_COUNCIL_KEEP") }
 
 // subagentWaitLeaseEnabled makes the subagent lease judge treat WAITING on a long external
 // operation — a VM booting, a build compiling, a package installing, a service coming up — as a
@@ -119,8 +119,8 @@ func subagentWaitLeaseEnabled() bool { return !envOff("MAGI_SUBAGENT_WAIT_LEASE"
 // rabbit hole regardless of tool-call volume, then routes it to the same nudge → stuck-recovery →
 // honest-stop ladder. Waiting on a long external op is explicitly NOT a rabbit hole — the "idle"
 // kind is suppressed by the same wait guards as stall recovery (stallIsWait + childWaitMajority),
-// so a VM boot / build / install is never cut. Default OFF (A/B): MAGI_TURN_PROGRESS_CHECK=1.
-func turnProgressCheckEnabled() bool { return envOn("MAGI_TURN_PROGRESS_CHECK") }
+// so a VM boot / build / install is never cut. Default ON; MAGI_TURN_PROGRESS_CHECK=0 restores the baseline (A/B).
+func turnProgressCheckEnabled() bool { return !envOff("MAGI_TURN_PROGRESS_CHECK") }
 
 // checkpointFirstEnabled turns on test-first ordering: when a task states HOW its
 // completion is checked (a snippet, command, function call, or I/O contract), the
@@ -143,12 +143,14 @@ func checkpointFirstEnabled() bool { return !envOff("MAGI_CHECKPOINT_FIRST") }
 // settled at planning — no new demands after). A real check FAILURE injects the failing
 // command's output as a one-shot continuation nudge; a clean run injects nothing.
 //
-// Default OFF (regression bisect, 2026-07-16): a weak model authors TRIVIAL checks
-// ("file exists", "import succeeds"), all of them pass, and the all-pass path then
-// SKIPS the termination council entirely — the live council-skip false-done family
-// (cancel-async-tasks ended "council round 0: done — 0 done / 0 continue" with the
-// real cancellation edge case never interrogated). MAGI_STEP_VERIFY=1 re-enables.
-func stepVerifyEnabled() bool { return envOn("MAGI_STEP_VERIFY") }
+// Default ON. It was OFF (2026-07-16 regression bisect) for one reason: an all-pass then SKIPPED
+// the termination council, so a weak plan-audit's TRIVIAL checks ("file exists") all passed and a
+// false done landed (cancel-async council-skip). That skip is now removed — runStepGate never
+// finishes the turn; it RUNS each check and feeds the results to the council as a hard
+// `deliverable-check` signal (real command output, not the agent's "I'm done" narration), so a
+// failing check blocks done while trivial passes still face the council's completeness lens.
+// MAGI_STEP_VERIFY=0 restores the no-ledger baseline for A/B.
+func stepVerifyEnabled() bool { return !envOff("MAGI_STEP_VERIFY") }
 
 // recoveryRunCapEnabled caps stuck-recovery re-decomposition to fire at most once per RUN
 // TREE rather than once per depth level: a recovery child is seeded as already-recovered, so

@@ -399,6 +399,10 @@ func memberSystem(m council.Member, phase, task string, keep bool) string {
 			"decisive: the workdir may not be a git repo — weigh the produced tool results instead.) A tool's [ok]/exit-0 "+
 			"status is NOT itself proof — the result must SHOW the artifact (its bytes or content); an echo, ls, or command "+
 			"that does not reveal the artifact proves nothing, and the agent's own narration is a claim, never evidence. "+
+			"In particular a statement that the task is \"done\", \"complete\", \"verified\", or that \"all tests passed\" is "+
+			"the agent's OWN CLAIM — do NOT accept it as proof; judge only the executed check results, tool outputs, and diff. "+
+			"When a `deliverable-check` signal is present and FAILED, the plan's own executable contract is objectively unmet: "+
+			"vote continue no matter how confidently the report asserts success. "+
 			"Otherwise — a read, "+
 			"review, analyze, explain, or answer "+
 			"task — the deliverable IS the answer or review in the REPORT itself: judge its substance, and never demand a "+

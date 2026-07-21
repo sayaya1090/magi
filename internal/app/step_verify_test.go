@@ -73,7 +73,7 @@ func TestRunStepGateInactiveWhenFlagOff(t *testing.T) {
 	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow"})
 	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Command: "true"}})
 	ts := &turnState{}
-	if got := a.runStepGate(context.Background(), a.sessionInfo(context.Background(), sid), ts); got != gateInactive {
+	if got, _ := a.runStepGate(context.Background(), a.sessionInfo(context.Background(), sid), ts); got != gateInactive {
 		t.Fatalf("flag off → %v, want gateInactive", got)
 	}
 	if plat.calls != 0 {
@@ -81,7 +81,8 @@ func TestRunStepGateInactiveWhenFlagOff(t *testing.T) {
 	}
 }
 
-// All checks pass → gatePass, and the passing step's todo is checked off deterministically.
+// All checks pass → gateInactive (council still judges — no skip), and the passing step's todo is
+// checked off deterministically.
 func TestRunStepGateAllPass(t *testing.T) {
 	t.Setenv("MAGI_STEP_VERIFY", "1")
 	plat := &scriptPlatform{codes: []int{0}} // Exec → stdout "verify output", exit 0
@@ -90,8 +91,8 @@ func TestRunStepGateAllPass(t *testing.T) {
 	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Command: "run", Expect: "verify"}})
 
 	ts := &turnState{}
-	if got := a.runStepGate(context.Background(), a.sessionInfo(context.Background(), sid), ts); got != gatePass {
-		t.Fatalf("all-pass → %v, want gatePass", got)
+	if got, _ := a.runStepGate(context.Background(), a.sessionInfo(context.Background(), sid), ts); got != gateInactive {
+		t.Fatalf("all-pass → %v, want gateInactive (council no longer skipped)", got)
 	}
 	td := a.Todos(sid)
 	if td[0].Status != "completed" {
@@ -109,13 +110,13 @@ func TestRunStepGateFailInjectsOnceThenFallsBack(t *testing.T) {
 
 	ts := &turnState{}
 	s := a.sessionInfo(context.Background(), sid)
-	if got := a.runStepGate(context.Background(), s, ts); got != gateFailRetry {
+	if got, _ := a.runStepGate(context.Background(), s, ts); got != gateFailRetry {
 		t.Fatalf("first fail → %v, want gateFailRetry", got)
 	}
 	if !ts.stepNudged {
 		t.Error("first fail must latch ts.stepNudged")
 	}
-	if got := a.runStepGate(context.Background(), s, ts); got != gateInactive {
+	if got, _ := a.runStepGate(context.Background(), s, ts); got != gateInactive {
 		t.Fatalf("second fail (already nudged) → %v, want gateInactive", got)
 	}
 }
@@ -138,7 +139,7 @@ func TestRunStepGateMultipleDeliverablesPerStep(t *testing.T) {
 	})
 
 	ts := &turnState{}
-	if got := a.runStepGate(context.Background(), a.sessionInfo(context.Background(), sid), ts); got != gateFailRetry {
+	if got, _ := a.runStepGate(context.Background(), a.sessionInfo(context.Background(), sid), ts); got != gateFailRetry {
 		t.Fatalf("mixed → %v, want gateFailRetry (step 1 has a failing deliverable)", got)
 	}
 	td := a.Todos(sid)

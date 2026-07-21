@@ -47,13 +47,13 @@ const stepCheckOutputCap = 1200
 //
 // Passing checks always check off their todos, even on a mixed pass/fail round, so the
 // panel reflects real progress.
-func (a *App) runStepGate(ctx context.Context, s session.Session, ts *turnState) stepGateOutcome {
+func (a *App) runStepGate(ctx context.Context, s session.Session, ts *turnState) (stepGateOutcome, string) {
 	if !stepVerifyEnabled() || a.plat == nil {
-		return gateInactive
+		return gateInactive, ""
 	}
 	checks := a.cachedChecks(s.ID)
 	if len(checks) == 0 {
-		return gateInactive
+		return gateInactive, ""
 	}
 
 	// Run each check; group results by the plan step it belongs to so a step's todo is
@@ -70,7 +70,7 @@ func (a *App) runStepGate(ctx context.Context, s session.Session, ts *turnState)
 	for _, c := range checks {
 		out, code := a.runVerifyCmd(ctx, s.Workdir, c.Command)
 		if code == -1 { // platform vanished mid-run: can't verify → don't decide
-			return gateInactive
+			return gateInactive, ""
 		}
 		ok := c.Passes(out, code)
 		results = append(results, result{check: c, out: out, pass: ok})
@@ -90,22 +90,34 @@ func (a *App) runStepGate(ctx context.Context, s session.Session, ts *turnState)
 	// completion signal that todowrite-driven panels lack (see todos.go).
 	a.checkOffPassedSteps(ctx, s.ID, stepPass)
 
+	// All-pass NO LONGER skips the termination council. Skipping was the reason this gate shipped
+	// OFF: a weak plan-audit authors TRIVIAL checks ("file exists"), they all pass, the council is
+	// skipped, and a false done lands. Instead the ledger is EVIDENCE the council always judges on —
+	// real executed check results, not the agent's "I'm done" narration — so trivial passes still
+	// face the council's completeness lens, and a genuine failing check is a hard signal it must honor.
 	if !anyFail {
-		dd, _ := json.Marshal(event.CouncilDecidedData{
-			Round: ts.council.rounds + 1, Decision: string(council.Done),
-			Note:   "deliverable checks passed — contract satisfied by execution; termination council skipped",
-			Forced: true,
-		})
-		a.appendFact(ctx, s.ID, event.TypeCouncilDecided, event.Actor{Kind: event.ActorSystem, ID: "council"}, dd)
-		return gatePass
+		return gateInactive, ""
+	}
+
+	// Build the failing-check ledger for the council (real command/expected/actual — not prose).
+	var ledger strings.Builder
+	ledger.WriteString("deliverable checks FAILED by execution (the agent's claim of completion is unverified):")
+	for _, r := range results {
+		if r.pass {
+			continue
+		}
+		fmt.Fprintf(&ledger, "\n- step %q — %s: `%s`", r.check.Step, r.check.Deliverable, r.check.Command)
+		if r.check.Expect != "" {
+			fmt.Fprintf(&ledger, " expected %q", r.check.Expect)
+		}
+		fmt.Fprintf(&ledger, " → actual: %s", clipLine(strings.TrimSpace(r.out), 200))
 	}
 
 	if ts.stepNudged {
-		return gateInactive // already nudged once this turn → let the council arbitrate
+		return gateInactive, ledger.String() // already nudged once → let the council judge on the ledger
 	}
-	// Inject the failing checks (command + expected + output tail) ONCE as a system
-	// continuation so the agent knows exactly what to fix. Only fires on a REAL failure,
-	// so a clean run never sees this text (no context pollution — the ledger lesson).
+	// Inject the failing checks (command + expected + output tail) ONCE as a system continuation
+	// so the agent knows exactly what to fix. Only fires on a REAL failure (no context pollution).
 	var b strings.Builder
 	b.WriteString("Deliverable check failed — the plan's expected outputs are not yet satisfied. Fix these, do not stop:\n")
 	for _, r := range results {
@@ -118,9 +130,11 @@ func (a *App) runStepGate(ctx context.Context, s session.Session, ts *turnState)
 		}
 		fmt.Fprintf(&b, "  actual output:\n%s\n", clipLine(strings.TrimSpace(r.out), stepCheckOutputCap))
 	}
+	b.WriteString("\nIf a check genuinely CANNOT be satisfied, do not silently declare done — state plainly in " +
+		"your final report which requirement is unmet and WHY (an honest blocked/failed status).")
 	a.appendPromptText(ctx, s.ID, event.Actor{Kind: event.ActorSystem, ID: "council"}, b.String())
 	ts.stepNudged = true
-	return gateFailRetry
+	return gateFailRetry, ledger.String()
 }
 
 // emitStepCheck records one check's deterministic result as a reviewable fact, so the

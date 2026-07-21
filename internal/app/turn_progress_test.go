@@ -3,12 +3,12 @@ package app
 import "testing"
 
 func TestTurnProgressCheckDefault(t *testing.T) {
-	if turnProgressCheckEnabled() {
-		t.Fatal("default must be OFF")
-	}
-	t.Setenv("MAGI_TURN_PROGRESS_CHECK", "1")
 	if !turnProgressCheckEnabled() {
-		t.Error("=1 must enable")
+		t.Fatal("default must be ON")
+	}
+	t.Setenv("MAGI_TURN_PROGRESS_CHECK", "0")
+	if turnProgressCheckEnabled() {
+		t.Error("=0 must disable")
 	}
 }
 
@@ -16,6 +16,7 @@ func TestTurnProgressCheckDefault(t *testing.T) {
 // makes stuck() return "idle" (routes to recovery); off, it never fires. A mutation resets it.
 func TestGuardIdleStuck(t *testing.T) {
 	// Flag OFF → never idle, however many steps.
+	t.Setenv("MAGI_TURN_PROGRESS_CHECK", "0")
 	g := newRunGuard()
 	for i := 0; i < progressStallSteps+5; i++ {
 		g.noteStep()

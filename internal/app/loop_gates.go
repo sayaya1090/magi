@@ -310,13 +310,12 @@ func (a *App) runTerminationGate(ctx context.Context, tc turnCtx, step int, turn
 	}
 	s, agent, guard, depth, maxSteps := tc.s, tc.agent, tc.guard, tc.depth, tc.maxSteps
 	sid := s.ID
-	stepGate := a.runStepGate(ctx, s, ts)
+	stepGate, checkLedger := a.runStepGate(ctx, s, ts)
 	if stepGate == gateFailRetry {
 		return loopContinue, true
 	}
-	if stepGate != gateInactive {
-		return 0, false // all-pass: finish VERIFIED, council authority spent at plan time
-	}
+	// No all-pass council skip: the ledger (checkLedger) is EVIDENCE fed to the council below, not
+	// a fast-path to done — the council always judges, so trivial passing checks can't false-done.
 	// Structural fabrication evidence for the council: if the agent changed a deliverable this
 	// turn but ran no command exercising the current version, that is a hard, language-agnostic
 	// fact a text-only vote can't wave through.
@@ -385,6 +384,7 @@ func (a *App) runTerminationGate(ctx context.Context, tc turnCtx, step int, turn
 		lastText:    lastText,
 		changes:     changes,
 		fabrication: fab,
+		checkLedger: checkLedger,
 		stepsLeft:   maxSteps - step,
 		turnElapsed: time.Since(tc.runStart),
 	}, &ts.council)
