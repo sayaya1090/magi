@@ -28,13 +28,11 @@ type askUserArgs struct {
 
 func (AskUser) Name() string { return "ask_user" }
 func (AskUser) Description() string {
-	return "Ask the USER to choose between concrete options (a selection modal, one question at a time). Use it " +
-		"when a decision is genuinely the user's to make — approach, scope, naming, destructive vs safe variant — " +
-		"and the options are real alternatives you can enumerate (2-4 each, short labels). Do NOT use it for " +
-		"decisions with an obvious default, or to ask permission the tool system already handles. Each answer is " +
-		"the chosen option's text; an empty answer means the user dismissed the question — proceed on your best " +
-		"judgment and say so. When the answers arrive, ACT on them directly; if asking was the whole request, just " +
-		"restate the user's pick and finish — do not start exploring the codebase on your own."
+	return "Ask the USER to choose between concrete options (a selection modal, one question at a time). Use " +
+		"when a decision is genuinely the user's — approach, scope, naming, destructive vs safe — with 2-4 real " +
+		"alternatives (short labels). Not for decisions with an obvious default, or permission the tool system " +
+		"handles. Each answer is the chosen option's text; empty = dismissed, so proceed on your best judgment and " +
+		"say so. Act on the answers directly; if asking was the whole request, restate the pick and finish."
 }
 func (AskUser) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"questions":{"type":"array","items":{"type":"object",` +

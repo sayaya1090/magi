@@ -23,11 +23,11 @@ type reportArgs struct {
 
 func (Report) Name() string { return "report" }
 func (Report) Description() string {
-	return "End your turn and hand your result back to the orchestrator. WRITE your actual answer/findings as your " +
-		"normal message FIRST (it streams to the user live), THEN call this to finish. Fields: status = \"done\" " +
-		"(finished), \"blocked\" (need something only the orchestrator can give — say what), or \"failed\" (attempted " +
-		"but failed — say why); summary (optional — only if you did NOT already write your answer as your message); " +
-		"details (optional). After reporting you stop — do NOT use bash/echo to present results."
+	return "End your turn and hand your result to the orchestrator. WRITE your actual answer/findings as your " +
+		"normal message FIRST (it streams to the user live), THEN call this. Fields: status = \"done\", " +
+		"\"blocked\" (need something only the orchestrator can give — say what), or \"failed\" (say why); summary " +
+		"(optional, only if you did NOT already write your answer); details (optional). After reporting you stop — " +
+		"do NOT use bash/echo to present results."
 }
 func (Report) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"status":{"type":"string","enum":["done","blocked","failed"]},"summary":{"type":"string"},"details":{"type":"string"}},"required":["status"]}`)

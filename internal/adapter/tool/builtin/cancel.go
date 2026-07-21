@@ -27,12 +27,11 @@ type cancelDispatchArgs struct {
 
 func (CancelDispatch) Name() string { return "cancel_dispatch" }
 func (CancelDispatch) Description() string {
-	return "Cancel still-running background subagents you dispatched, when an intermediate result made the " +
-		"REST of the parallel wave unnecessary. Pass a one-line 'reason'; optionally 'agent' to cancel only that " +
-		"role (default: all remaining). Use this ONLY after you have actually seen a result that settles the " +
-		"question — do not cancel a wave you have received nothing from yet. Nothing is rolled back automatically: " +
-		"each cancelled subagent's result lists the actions it already performed, and YOU must undo (compensate " +
-		"for) any side effects that must not persist before you rely on the workspace."
+	return "Cancel still-running background subagents you dispatched when an intermediate result made the REST " +
+		"of the parallel wave unnecessary. Pass a one-line 'reason'; optional 'agent' to cancel only that role " +
+		"(default: all remaining). Use ONLY after seeing a result that settles the question. Nothing is rolled " +
+		"back automatically — each cancelled result lists what it already did, and YOU must undo any side effects " +
+		"that must not persist before you rely on the workspace."
 }
 func (CancelDispatch) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"agent":{"type":"string","description":"optional role to cancel; omit to cancel all remaining"},"reason":{"type":"string","description":"one line: why the remaining subagents are no longer needed"}},"required":["reason"]}`)

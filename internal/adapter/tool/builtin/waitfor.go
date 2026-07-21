@@ -31,7 +31,7 @@ type waitForArgs struct {
 
 func (WaitFor) Name() string { return "wait_for" }
 func (WaitFor) Description() string {
-	return "Block until a shell condition succeeds (exit code 0) or a timeout elapses, re-checking on a fixed interval. Use it to wait on an external readiness signal — a service/port coming up, a host finishing a reboot, a background job completing — with a single tool call (e.g. condition \"nc -z localhost 5432\"). Prefer this over a bash sleep/poll loop: it is one step (no stall), allows a longer wait than a single bash call, and reports live progress while it waits. The condition is re-run once per interval; the first exit-0 ends the wait."
+	return "Block until a shell condition succeeds (exit 0) or a timeout elapses, re-checking on a fixed interval. Use to wait on an external readiness signal — a service/port coming up, a reboot finishing, a background job completing (e.g. condition \"nc -z localhost 5432\"). Prefer over a bash sleep/poll loop: one step (no stall), allows a longer wait, and reports live progress. The first exit-0 ends the wait."
 }
 func (WaitFor) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"condition":{"type":"string","description":"shell command re-run each interval; exit 0 ends the wait"},"timeout":{"type":"integer","description":"max seconds to wait (default 300, max 1800)"},"interval":{"type":"integer","description":"seconds between checks (default 5, max 60)"}},"required":["condition"]}`)

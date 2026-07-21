@@ -396,7 +396,7 @@ type BashKill struct{}
 
 func (BashKill) Name() string { return "bash_kill" }
 func (BashKill) Description() string {
-	return "Stop a background command started with bash (background=true), by its id. Default is a hard stop. Set signal=\"int\" (Ctrl-C) or \"term\" for a GRACEFUL interrupt instead: the process gets to run its cleanup handlers and print what it knows — read that output with bash_output afterwards. Prefer signal=\"int\" first on a hung test/program you still want answers from; hard-kill only when it ignores the interrupt. (Unix only; on Windows use the default hard stop.)"
+	return "Stop a background command (bash background=true) by its id. Default is a hard stop. Set signal=\"int\" (Ctrl-C) or \"term\" for a GRACEFUL interrupt: the process runs cleanup handlers and prints what it knows — read it with bash_output after. Prefer signal=\"int\" first on a hung test you still want answers from; hard-kill only when it ignores the interrupt. (Unix only; Windows uses the default hard stop.)"
 }
 func (BashKill) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","description":"the background process id, e.g. bg_1"},"signal":{"type":"string","enum":["int","term"],"description":"optional graceful signal (Ctrl-C equivalent); omit for the default hard stop"}},"required":["id"]}`)
@@ -446,7 +446,7 @@ type BashInput struct{}
 
 func (BashInput) Name() string { return "bash_input" }
 func (BashInput) Description() string {
-	return "Send input to the stdin of a background command (started with bash background=true), then read its reply with bash_output. Drives line-oriented interactive programs — a REPL (python3, psql), a line debugger (gdb, pdb), etc. A trailing newline is appended by default (sends one line); set newline=false for raw/partial input, or eof=true to close stdin (signals end-of-input; some tools only flush/exit on EOF). This is a pipe, not a terminal: programs that require a TTY (full-screen/curses UIs, interactive password prompts) won't work."
+	return "Send input to the stdin of a background command (bash background=true), then read its reply with bash_output. Drives line-oriented interactive programs — a REPL (python3, psql), a line debugger (gdb, pdb). A trailing newline is appended by default; set newline=false for raw/partial input, or eof=true to close stdin (some tools only flush/exit on EOF). This is a pipe, not a terminal — programs needing a TTY (curses UIs, password prompts) won't work."
 }
 func (BashInput) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","description":"the background process id, e.g. bg_1"},"input":{"type":"string","description":"text to write to stdin"},"newline":{"type":"boolean","description":"append a newline (default true)"},"eof":{"type":"boolean","description":"close stdin instead of writing (end-of-input)"}},"required":["id"]}`)

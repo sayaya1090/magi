@@ -20,10 +20,9 @@ type askArgs struct {
 
 func (Ask) Name() string { return "ask" }
 func (Ask) Description() string {
-	return "Ask your orchestrator for something you need to continue. It has the FULL context (the user's original " +
-		"request, the overall plan, and other subagents' results) and can: clarify intent or make a decision; give " +
-		"you the user's request details, file paths, or constraints; relay your question to the USER; and coordinate " +
-		"with OTHER subagents (it routes peer questions, so ask it rather than guessing what another agent found). " +
+	return "Ask your orchestrator for something you need to continue. It has the FULL context (the user's " +
+		"request, the overall plan, other subagents' results) and can clarify intent, make a decision, give you " +
+		"request details/paths/constraints, relay your question to the USER, and coordinate with OTHER subagents. " +
 		"Blocks until it replies and returns the answer. Use only when your own tools (read/grep/…) can't get it."
 }
 func (Ask) Schema() json.RawMessage {

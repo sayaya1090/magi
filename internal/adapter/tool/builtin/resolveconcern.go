@@ -25,11 +25,10 @@ type resolveConcernArgs struct {
 
 func (ResolveConcern) Name() string { return "resolveconcern" }
 func (ResolveConcern) Description() string {
-	return "Retire a structural concern from the ledger AFTER you have genuinely resolved it — e.g. you " +
-		"verified the premise it flagged, or the plan changed so it no longer applies. Pass the exact key " +
-		"(as shown in the council evidence) and a one-line reason. This clears ONLY advisory memory: if the " +
-		"underlying issue is still real it is re-raised automatically next turn, so do NOT use it to silence a " +
-		"concern you have not actually addressed."
+	return "Retire a structural concern from the ledger AFTER you have genuinely resolved it (verified the " +
+		"premise it flagged, or the plan changed so it no longer applies). Pass the exact key (from the council " +
+		"evidence) and a one-line reason. Clears ONLY advisory memory — if the underlying issue is still real it " +
+		"is re-raised next turn, so do NOT use it to silence a concern you have not addressed."
 }
 func (ResolveConcern) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"key":{"type":"string","description":"exact concern key to retire"},"reason":{"type":"string","description":"one line: how it was resolved"}},"required":["key","reason"]}`)

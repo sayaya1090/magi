@@ -29,7 +29,7 @@ type editHunk struct {
 
 func (MultiEdit) Name() string { return "multiedit" }
 func (MultiEdit) Description() string {
-	return "Apply multiple exact find/replace edits to a single file atomically (all-or-nothing). Provide {path, edits:[{old,new,replaceAll?}]}. Each 'old' must match uniquely (unless replaceAll). Edits are applied IN ORDER against the already-edited content: a later 'old' must match the file as it will be AFTER the earlier edits, so never overlap hunks — if two changes touch the same or adjacent lines, merge them into one hunk."
+	return "Apply multiple exact find/replace edits to one file atomically (all-or-nothing): {path, edits:[{old,new,replaceAll?}]}. Each 'old' must match uniquely unless replaceAll. Edits apply IN ORDER against already-edited content, so never overlap hunks — merge changes that touch the same or adjacent lines into one hunk."
 }
 func (MultiEdit) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"edits":{"type":"array","items":{"type":"object","properties":{"old":{"type":"string"},"new":{"type":"string"},"replaceAll":{"type":"boolean"}},"required":["old","new"]}}},"required":["path","edits"]}`)

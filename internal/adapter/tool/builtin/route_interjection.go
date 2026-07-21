@@ -25,12 +25,11 @@ type routeInterjectionArgs struct {
 
 func (RouteInterjection) Name() string { return "route_interjection" }
 func (RouteInterjection) Description() string {
-	return "Decide how to handle a NEW user request that arrived while you are mid-task. The safe default is to do " +
-		"NOTHING and let it stay QUEUED — it runs as its own turn after you finish the current task. Call this ONLY when " +
-		"you are confident: action \"redirect\" to set the current task aside and switch to the new request now; " +
-		"\"append\" to fold the new request into the current task and satisfy both before finishing; \"queue\" to " +
-		"explicitly confirm deferral. When several requests are pending, pass request_id (the [req: …] handle shown " +
-		"with each) to say which one you are routing. When unsure, do not call this. Give a one-line reason."
+	return "Decide how to handle a NEW user request that arrived mid-task. Safe default: do NOTHING — it stays " +
+		"QUEUED and runs as its own turn after you finish. Call ONLY when confident: \"redirect\" (set the current " +
+		"task aside, switch now), \"append\" (fold into the current task, satisfy both before finishing), or " +
+		"\"queue\" (confirm deferral). With several pending, pass request_id (the [req: …] handle) to say which. " +
+		"When unsure, do not call this. Give a one-line reason."
 }
 func (RouteInterjection) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"action":{"type":"string","enum":["queue","redirect","append"],"description":"queue (defer to its own turn), redirect (switch to it now), or append (fold into current task)"},"reason":{"type":"string","description":"one line: why this routing"},"request_id":{"type":"string","description":"which pending request to route: the [req: …] handle shown with the message; omit to route the oldest pending request"}},"required":["action","reason"]}`)
