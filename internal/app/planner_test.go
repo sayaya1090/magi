@@ -253,6 +253,8 @@ func TestStripStrategyTag(t *testing.T) {
 // parallel exploration), so the panel reflects real progress even when the model
 // never calls todowrite. Solo steps are the main agent's work and stay pending.
 func TestExecuteStepsMarksExecutedTodos(t *testing.T) {
+	t.Setenv("MAGI_FORCE_DELEGATE", "0") // baseline solo/parallel behavior, not forced-worker
+	t.Setenv("MAGI_CURATE", "0")
 	a := newOrchApp(t, &gateLLM{text: "finding text"}, Config{
 		Permission: "allow", MaxAgents: 100, MaxDepth: 4,
 		Agents: map[string]AgentSpec{"explore": {Name: "explore", System: "x"}},
@@ -429,6 +431,8 @@ func TestIsTrivialPrompt(t *testing.T) {
 // A delegate step dispatches its executor (recursive execution), merges the report,
 // flags delegated=true, and checks the todo off.
 func TestExecuteStepsDelegate(t *testing.T) {
+	t.Setenv("MAGI_FORCE_DELEGATE", "0") // exercise the explicit delegate step, not forced solo→delegate
+	t.Setenv("MAGI_CURATE", "0")         // no curator side-call desyncing the fake LLM steps
 	a := newOrchApp(t, &gateLLM{text: "built and verified"}, Config{
 		Permission: "allow", MaxAgents: 100, MaxDepth: 4,
 		Agents: map[string]AgentSpec{"coder": {Name: "coder", System: "x", Tools: []string{"read", "write", "edit", "bash"}}},
