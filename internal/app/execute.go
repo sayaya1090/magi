@@ -96,25 +96,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		guardFP = fp
 		guardNovel = n == 1
 		if block {
-			msg := fmt.Sprintf(
-				"Loop guard: you have already made this exact %q call %d times with nothing changed since. "+
-					"Stop repeating it — take a different step, or finish and summarize. (Edit a file and the same "+
-					"command is allowed again, since that's real progress.)",
-				tc.Name, n)
-			// Read fixation: re-reading the same file head — often paced past the guard by
-			// nudging offset/limit — is the classic no-progress loop. We already hold the
-			// content (appended below), so steer directly OFF another read instead of the
-			// generic "take a different step", which a fixated model tends to satisfy with
-			// yet another read.
-			if tc.Name == "read" {
-				msg = fmt.Sprintf(
-					"Loop guard: you have already read this %d times and its contents (below) have not changed — "+
-						"reading it again cannot make progress. Do NOT read it again. Take the next real action: make "+
-						"the edit/write you were about to make, inspect a DIFFERENT file or region, or finish and "+
-						"summarize. If you are waiting for this file to change, do not poll it with read — use the "+
-						"wait_for tool (if available) to block until it actually changes.",
-					n)
-			}
+			msg := loopGuardBlockMsg(tc.Name, n)
 			if last := guard.lastResult(fp); last != "" {
 				msg += "\n\nThe earlier result (unchanged) was:\n" + last
 			}

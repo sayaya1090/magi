@@ -256,6 +256,44 @@ func formatTodos(td []session.Todo) string {
 	return b.String()
 }
 
+// loopGuardBlockMsg builds the message shown when the loop guard blocks an identical
+// tool call repeated past the limit. Most tools get the generic "take a different step",
+// but two fixation loops get a tool-specific steer toward the RIGHT alternative, which a
+// weak model rarely finds on its own:
+//   - read: re-reading an unchanged file — steer off another read (edit, inspect elsewhere,
+//     or wait_for if waiting on a change).
+//   - bash_output: re-polling a still-running background job to see if it finished — the
+//     compile-compcert stall, where the agent polled `apt-get install` and never started the
+//     actual build. Steer to wait_for (one blocking call until the job completes) AND to
+//     independent work that does not depend on the job.
+func loopGuardBlockMsg(toolName string, n int) string {
+	switch toolName {
+	case "read":
+		return fmt.Sprintf(
+			"Loop guard: you have already read this %d times and its contents (below) have not changed — "+
+				"reading it again cannot make progress. Do NOT read it again. Take the next real action: make "+
+				"the edit/write you were about to make, inspect a DIFFERENT file or region, or finish and "+
+				"summarize. If you are waiting for this file to change, do not poll it with read — use the "+
+				"wait_for tool (if available) to block until it actually changes.",
+			n)
+	case "bash_output":
+		return fmt.Sprintf(
+			"Loop guard: you have polled this background job %d times and it is still running — "+
+				"re-polling cannot make it finish faster. Do NOT poll it again. Instead: use the wait_for "+
+				"tool (if available) to BLOCK until it completes in ONE call (e.g. a condition that checks the "+
+				"job's result — a built file exists, a package is installed), then continue. Meanwhile, do any "+
+				"work that does NOT depend on this job (download sources, write config, prepare the next step) — "+
+				"do not let one background wait stall the whole task.",
+			n)
+	default:
+		return fmt.Sprintf(
+			"Loop guard: you have already made this exact %q call %d times with nothing changed since. "+
+				"Stop repeating it — take a different step, or finish and summarize. (Edit a file and the same "+
+				"command is allowed again, since that's real progress.)",
+			toolName, n)
+	}
+}
+
 func orDefault(s, def string) string {
 	if s == "" {
 		return def
