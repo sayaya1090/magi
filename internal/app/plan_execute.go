@@ -183,21 +183,25 @@ func (a *App) runDelegateStep(ctx context.Context, s session.Session, st planSte
 	// from the Task), so a monolithic attempt that failed can succeed piece by piece. Single
 	// attempt — bounded by the depth gate and the shared budget. Gated by MAGI_ADAPT: with it
 	// off, a failed delegate backtracks after one shot (planned decomposition only).
-	if !adaptDisabled() && (r.Err != "" || text == "") && depth+1 < a.cfg.MaxPlanDepth && *budget > 0 {
+	if !adaptDisabled() && delegateNotDone(r, text) && depth+1 < a.cfg.MaxPlanDepth && *budget > 0 {
 		*budget--
 		r = a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agentName, Prompt: redecomposePrompt(st, brief), Tools: curTools, PlanStepIndex: &i})
 		text = strings.TrimSpace(r.Text)
 	}
-	if r.Err != "" || text == "" {
-		// Still failed → the sub-task is NOT done. Leave its todo pending so the main
-		// agent picks it up, and record it as FAILED (never "(delegated to …)", so the
-		// redo-prevention directive can't tell the agent to skip re-doing it).
-		note := "the delegated sub-agent returned no result"
+	if delegateNotDone(r, text) {
+		// Still not done — spawn error, empty result, OR the worker reported it BLOCKED/FAILED (an
+		// acceptance-checklist item it could not meet). The sub-task is NOT done: leave its todo
+		// pending and record it as FAILED (never "(delegated to …)") WITH the worker's reason, so the
+		// unmet requirement surfaces to the finish gate and drives re-planning rather than a silent
+		// "done".
+		note := "the delegated worker returned no result"
 		if r.Err != "" {
-			note = "the delegated sub-agent errored: " + r.Err
+			note = "the delegated worker errored: " + r.Err
+		} else if text != "" {
+			note = "the delegated worker could not complete it: " + clipLine(stripReportStatus(text), 300)
 		}
 		a.setTodoStatusIf(ctx, s.ID, plannerActor, i, "in_progress", "pending")
-		return stepFinding(st.Title, "delegate FAILED — do this yourself", "("+note+"; this sub-task is unfinished)"), false
+		return stepFinding(st.Title, "delegate FAILED — re-plan or do it yourself", "("+note+"; this sub-task is unfinished)"), false
 	}
 	a.completeThrough(ctx, s.ID, plannerActor, i)
 	return stepFinding(st.Title, "delegated to "+agentName, text), true
@@ -337,6 +341,22 @@ func (a *App) runRefineStep(ctx context.Context, s session.Session, st planStep,
 func refineReportsFailure(text string) bool {
 	line, _, _ := strings.Cut(strings.TrimLeft(text, "\n"), "\n")
 	return reportStatusWord(line) == "FAILED"
+}
+
+// delegateNotDone reports whether a delegate attempt did NOT finish its sub-task: a spawn error, an
+// empty result, or a worker report whose leading STATUS is BLOCKED or FAILED (an acceptance-checklist
+// item it could not meet). Unlike refineReportsFailure (FAILED only), a BLOCKED delegate also counts
+// as not-done, so an unmet requirement surfaces for re-planning instead of being marked complete.
+func delegateNotDone(r port.SpawnResult, text string) bool {
+	if r.Err != "" || strings.TrimSpace(text) == "" {
+		return true
+	}
+	line, _, _ := strings.Cut(strings.TrimLeft(text, "\n"), "\n")
+	switch reportStatusWord(line) {
+	case "BLOCKED", "FAILED":
+		return true
+	}
+	return false
 }
 
 // refineFailReason summarizes why a refine attempt failed, for the parent-context failure
