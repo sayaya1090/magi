@@ -26,14 +26,15 @@ type bashArgs struct {
 	Timeout    flexInt  `json:"timeout"`    // seconds (default 120, max 600); tolerant parse (flexInt)
 	Background flexBool `json:"background"` // run detached; returns an id to poll/kill
 	Pty        flexBool `json:"pty"`        // with background: attach a real terminal (ssh/serial/curses)
+	Verify     flexBool `json:"verify"`     // model declares this a build/test/run check — its exit code IS the verdict
 }
 
 func (Bash) Name() string { return "bash" }
 func (Bash) Description() string {
-	return "Run a shell command in the working directory. Returns combined stdout/stderr and the exit code. Use for builds, tests, git, and file operations not covered by other tools. A non-zero exit is reported as normal, useful output — never mask a command's failure just to make it look clean (`|| true`, `|| echo $?`; in PowerShell, error-swallowing try/catch or -ErrorAction SilentlyContinue): that turns a failing check into a false pass. Each call is a FRESH shell, so a server/watcher you start with a trailing `&` DIES when the call returns — your next step won't find it running. To keep something alive across steps, use background=true (NOT `&`): it returns an id and the process persists until you bash_kill it. Read its output with bash_output, send input with bash_input (drive a REPL), stop it with bash_kill. Example — run a server, then test it in the next step: bash{command:\"python server.py\", background:true} → bash{command:\"curl -s localhost:5328/health\"}. Add pty=true (with background) for a command that needs a real terminal — ssh (its password prompt reads /dev/tty, not stdin), a serial/getty login, or a full-screen/curses program — then drive it with bash_input/bash_output."
+	return "Run a shell command in the working directory. Returns combined stdout/stderr and the exit code. Use for builds, tests, git, and file operations not covered by other tools. A non-zero exit is reported as normal, useful output — never mask a command's failure just to make it look clean (`|| true`, `|| echo $?`; in PowerShell, error-swallowing try/catch or -ErrorAction SilentlyContinue): that turns a failing check into a false pass. Each call is a FRESH shell, so a server/watcher you start with a trailing `&` DIES when the call returns — your next step won't find it running. To keep something alive across steps, use background=true (NOT `&`): it returns an id and the process persists until you bash_kill it. Read its output with bash_output, send input with bash_input (drive a REPL), stop it with bash_kill. Example — run a server, then test it in the next step: bash{command:\"python server.py\", background:true} → bash{command:\"curl -s localhost:5328/health\"}. Add pty=true (with background) for a command that needs a real terminal — ssh (its password prompt reads /dev/tty, not stdin), a serial/getty login, or a full-screen/curses program — then drive it with bash_input/bash_output. Set verify=true when THIS command is how you check a build/test/run succeeded (make, a test suite, ./run.sh, compiling, executing your program) — its exit code and full output are the verdict; then do NOT pipe it through tail/head (that masks the exit code), just run it directly (output is already head+tail capped)."
 }
 func (Bash) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"timeout":{"type":"integer","description":"seconds (default 120, max 600)"},"background":{"type":"boolean","description":"run detached; returns an id for bash_output/bash_kill"},"pty":{"type":"boolean","description":"with background: attach a real pseudo-terminal so ssh/serial-console/curses programs can be driven via bash_input"}},"required":["command"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"timeout":{"type":"integer","description":"seconds (default 120, max 600)"},"background":{"type":"boolean","description":"run detached; returns an id for bash_output/bash_kill"},"pty":{"type":"boolean","description":"with background: attach a real pseudo-terminal so ssh/serial-console/curses programs can be driven via bash_input"},"verify":{"type":"boolean","description":"true when this command checks a build/test/run succeeded (its exit code is the verdict) — then don't pipe it through tail/head"}},"required":["command"]}`)
 }
 
 func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
@@ -151,13 +152,12 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 			// (`false || true` fails silently). Static on the command string, so it
 			// also catches failures that print nothing.
 			disp = note + "\n" + disp
-		} else if note := swallowingPipeNote(exit, a.Command); note != "" {
-			// The command ends in `| tail`/`| head`: the exit 0 is the truncator's,
-			// not the build/test before it (a crashed make still shows exit 0), and
-			// the truncation can hide the final verdict line. It is also redundant —
-			// this tool already head+tail-caps large output with the true exit code.
-			// The fix-ocaml-gc bench arc: `make world 2>&1 | tail -100` reported exit
-			// 0, the model couldn't tell if its fix built, and reverted a good edit.
+		} else if note := swallowingPipeNote(exit, a.Command, bool(a.Verify)); note != "" {
+			// A verify=true call (build/test/run check) ends in `| tail`/`| head`: the exit 0
+			// is the truncator's, not the check's (a crashed make still shows exit 0), and the
+			// truncation can hide the verdict line. Fires only on the model's own verify flag,
+			// not a command guess. The fix-ocaml-gc bench arc: `make world 2>&1 | tail -100`
+			// reported exit 0, the model couldn't tell if its fix built, and reverted a good edit.
 			disp = note + "\n" + disp
 		} else if note := ephemeralEnvNote(exit, a.Command, env.SessionID); note != "" {
 			// First export/source of the session: teach that shell state does not

@@ -150,18 +150,22 @@ func maskingTailNote(exit int, command string) string {
 // deliberately excluded: their exit code and filtered output are frequently the point.
 var swallowingPipe = regexp.MustCompile(`(^|[^|])\|\s*(?:tail|head)\b[^|]*$`)
 
-// swallowingPipeNote flags an exit-0 result whose command ends in a `| tail`/`| head`
-// output truncator. Distinct from maskingTailNote (which targets the clearly-wrong
-// `|| true` mask), this teaches a redundancy the weak model reaches for reflexively: the
-// bash tool ALREADY returns large output capped to its head AND tail with the true exit
-// code, so piping to tail/head only discards that exit code and can hide the verdict.
-// The live failure it targets: fix-ocaml-gc, `make world 2>&1 | tail -100` → exit 0 → the
-// model could not tell its fix built, mistrusted a good edit, and reverted it.
-func swallowingPipeNote(exit int, command string) string {
-	if exit != 0 || !swallowingPipe.MatchString(strings.TrimSpace(command)) {
+// swallowingPipeNote flags an exit-0 result whose command ends in a `| tail`/`| head` output
+// truncator WHEN the model declared this call a build/test verification (verify=true). A
+// pipeline's exit status is its LAST stage's, and tail/head almost always exit 0, so a
+// verification piped through them reports exit 0 even when the build/test failed, and the
+// truncation can drop the verdict line — the fix-ocaml-gc trap (`make world 2>&1 | tail -100`
+// → exit 0 → the model mistrusted a good edit and reverted it). It fires ONLY on verify=true:
+// gating on the model's own intent instead of guessing from the command avoids the false
+// positives an earlier heuristic produced (it nagged on every benign `ls … | head` /
+// `git diff … | head`, crying wolf on the case that matters). A verification does not need the
+// pipe anyway — the bash tool already returns large output capped to its head AND tail with the
+// real exit code.
+func swallowingPipeNote(exit int, command string, verify bool) string {
+	if !verify || exit != 0 || !swallowingPipe.MatchString(strings.TrimSpace(command)) {
 		return ""
 	}
-	return "[note: this exit 0 is the `tail`/`head` at the end of the pipe, NOT the command before it — a build/test that failed would still show exit 0 here, and the truncation can hide the final error/status line. You do not need to pipe to tail/head to limit output: this tool already returns large output capped to its head AND tail with the real exit code. Re-run without the pipe to see the true status.]"
+	return "[note: this exit 0 is the `tail`/`head` at the end of the pipe, NOT the build/test before it — a failed build/test would still show exit 0 here, and the truncation can hide the final error/status line. You do not need to pipe to tail/head: this tool already returns large output capped to its head AND tail with the real exit code. Re-run without the pipe to see the true status.]"
 }
 
 // ptyGated matches a command that needs a controlling terminal to interact with: ssh /

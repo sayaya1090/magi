@@ -102,34 +102,36 @@ func TestMaskingTailNote(t *testing.T) {
 	}
 }
 
-// swallowingPipeNote fires on exit 0 when the command's final stage is a `| tail`/`| head`
-// output truncator (which masks the leading command's exit code), and stays quiet for
-// `||`, grep/cat filters, and non-zero exits.
+// swallowingPipeNote fires ONLY when the model declared verify=true (this is a build/test/run
+// check) AND the command ends in a `| tail`/`| head` truncator that masks the exit code. It
+// never fires on verify=false — the model's own intent replaces the old brittle command
+// guess, which can't classify an arbitrary `./run.sh` and cried wolf on benign `ls | head`.
 func TestSwallowingPipeNote(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		exit int
-		cmd  string
-		want bool
+		name   string
+		exit   int
+		cmd    string
+		verify bool
+		want   bool
 	}{
-		{"make | tail", 0, "make world 2>&1 | tail -100", true},
-		{"cmd | head", 0, "cargo build 2>&1 | head -50", true},
-		{"tail no args", 0, "pytest | tail", true},
-		{"tail with pipe upstream", 0, "make 2>&1 | grep -i error | tail -20", true},
-		{"trailing whitespace", 0, "make | tail -5  ", true},
-		// Not a swallowing truncator.
-		{"grep filter", 0, "make 2>&1 | grep error", false},
-		{"cat", 0, "cat build.log | cat", false},
-		{"|| fallback not pipe", 0, "make || tail log", false},
-		{"no pipe", 0, "make world", false},
-		{"tail as leading word, not piped", 0, "tail -f log", false},
-		// Non-zero exit already speaks for itself.
-		{"non-zero exit", 2, "make world 2>&1 | tail -100", false},
+		{"verify make | tail", 0, "make world 2>&1 | tail -100", true, true},
+		{"verify test | head", 0, "cargo test 2>&1 | head -50", true, true},
+		{"verify script | tail", 0, "./run.sh | tail", true, true}, // arbitrary script — a guess couldn't classify it
+		{"verify pipe upstream", 0, "make 2>&1 | grep -i error | tail -20", true, true},
+		// verify=false → never fires, whatever the command (this is the false-positive fix).
+		{"not verify: make | tail", 0, "make world 2>&1 | tail -100", false, false},
+		{"not verify: ls | head", 0, "ls -la boot/ | head -20", false, false},
+		{"not verify: git diff | head", 0, "cd /app && git diff | head -200", false, false},
+		// verify but not a masking truncator, or non-zero exit → no note.
+		{"verify grep filter (no truncator)", 0, "make 2>&1 | grep error", true, false},
+		{"verify no pipe", 0, "make world", true, false},
+		{"verify || not pipe", 0, "make || tail log", true, false},
+		{"verify non-zero exit", 2, "make world 2>&1 | tail -100", true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := swallowingPipeNote(tc.exit, tc.cmd) != ""
+			got := swallowingPipeNote(tc.exit, tc.cmd, tc.verify) != ""
 			if got != tc.want {
-				t.Errorf("swallowingPipeNote(%d, %q) fired=%v, want %v", tc.exit, tc.cmd, got, tc.want)
+				t.Errorf("swallowingPipeNote(%d, %q, verify=%v) fired=%v, want %v", tc.exit, tc.cmd, tc.verify, got, tc.want)
 			}
 		})
 	}
