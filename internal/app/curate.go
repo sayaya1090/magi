@@ -3,9 +3,11 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 
+	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -71,7 +73,31 @@ func (a *App) curateDelegate(ctx context.Context, agent AgentSpec, s session.Ses
 	if !ok {
 		return "", nil
 	}
-	return strings.TrimSpace(pkt.Brief), a.resolveCuratedTools(pkt.Tools)
+	brief := strings.TrimSpace(pkt.Brief)
+	tools := a.resolveCuratedTools(pkt.Tools)
+	// Transparency: surface what the curator produced so a run is interpretable (which specialized
+	// tools it added over the base, and the brief size) — the delegate hand-off is otherwise opaque.
+	added := selectedSpecialized(tools)
+	a.emitToolProgress(s.ID, event.Actor{Kind: event.ActorAgent, ID: "curator"}, "", "curator",
+		fmt.Sprintf("curated worker context — brief %d chars, +%d specialized tool(s) [%s]",
+			len(brief), len(added), strings.Join(added, ", ")))
+	return brief, tools
+}
+
+// selectedSpecialized returns the non-base tools in a curated allowlist — the ones the curator
+// actually chose to ADD for the sub-task (the base set is always present).
+func selectedSpecialized(tools []string) []string {
+	base := map[string]bool{}
+	for _, n := range curateBaseTools {
+		base[n] = true
+	}
+	var out []string
+	for _, n := range tools {
+		if !base[n] {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // specializedToolNames lists the non-base, worker-callable registered tools the curator may select

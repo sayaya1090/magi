@@ -69,6 +69,17 @@ func TestResolveCuratedTools(t *testing.T) {
 	}
 }
 
+// selectedSpecialized reports only the non-base tools (what the curator ADDED for the sub-task).
+func TestSelectedSpecialized(t *testing.T) {
+	got := toSet(selectedSpecialized([]string{"read", "bash", "lsp", "webfetch"}))
+	if got["read"] || got["bash"] {
+		t.Error("base tools must be excluded from the added set")
+	}
+	if !got["lsp"] || !got["webfetch"] {
+		t.Error("specialized tools must be reported as added")
+	}
+}
+
 // The selectable menu excludes both base tools and orchestration-only tools.
 func TestSpecializedToolNames(t *testing.T) {
 	a := curateApp(t)
