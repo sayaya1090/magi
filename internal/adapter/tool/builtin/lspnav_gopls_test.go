@@ -35,15 +35,15 @@ func TestLspNavGoplsReal(t *testing.T) {
 	}
 
 	// Outline lists the file's functions.
-	if out, isErr := run(LspSymbols{}, `{"path":"a.go"}`); isErr || !strings.Contains(out, "Foo") || !strings.Contains(out, "Bar") {
-		t.Errorf("lsp_symbols = %q (err=%v)", out, isErr)
+	if out, isErr := run(Lsp{}, `{"kind":"symbols","path":"a.go"}`); isErr || !strings.Contains(out, "Foo") || !strings.Contains(out, "Bar") {
+		t.Errorf("lsp symbols = %q (err=%v)", out, isErr)
 	}
 	// Definition of Bar (used on line 3) resolves to its declaration (line 5).
-	if out, isErr := run(LspDefinition{}, `{"path":"a.go","line":3,"symbol":"Bar"}`); isErr || !strings.Contains(out, "a.go:5") {
-		t.Errorf("lsp_definition = %q (err=%v), want a.go:5", out, isErr)
+	if out, isErr := run(Lsp{}, `{"kind":"definition","path":"a.go","line":3,"symbol":"Bar"}`); isErr || !strings.Contains(out, "a.go:5") {
+		t.Errorf("lsp definition = %q (err=%v), want a.go:5", out, isErr)
 	}
 	// References of Foo include its declaration line.
-	if out, isErr := run(LspReferences{}, `{"path":"a.go","line":3,"symbol":"Foo"}`); isErr || !strings.Contains(out, "a.go:3") {
-		t.Errorf("lsp_references = %q (err=%v)", out, isErr)
+	if out, isErr := run(Lsp{}, `{"kind":"references","path":"a.go","line":3,"symbol":"Foo"}`); isErr || !strings.Contains(out, "a.go:3") {
+		t.Errorf("lsp references = %q (err=%v)", out, isErr)
 	}
 }

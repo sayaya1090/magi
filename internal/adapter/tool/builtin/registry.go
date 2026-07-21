@@ -81,8 +81,6 @@ func Default() *Registry {
 	r.Register(RecallMemory{})
 	r.Register(AstGrep{})
 	r.Register(LspDiag{})
-	r.Register(LspDefinition{})
-	r.Register(LspReferences{})
-	r.Register(LspSymbols{})
+	r.Register(Lsp{}) // merged definition/references/symbols (kind-selected)
 	return r
 }

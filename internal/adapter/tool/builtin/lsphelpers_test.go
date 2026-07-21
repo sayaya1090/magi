@@ -85,15 +85,19 @@ func TestLspNavArgErrors(t *testing.T) {
 	ctx := context.Background()
 	env := port.ToolEnv{Workdir: t.TempDir()}
 	// Non-Go path with neither col nor symbol → error from resolveByteCol.
-	if r, _ := (LspDefinition{}).Execute(ctx, json.RawMessage(`{"path":"a.ts","line":1}`), env); !r.IsError {
+	if r, _ := (Lsp{}).Execute(ctx, json.RawMessage(`{"kind":"definition","path":"a.ts","line":1}`), env); !r.IsError {
 		t.Error("definition without col/symbol should error")
 	}
-	if r, _ := (LspReferences{}).Execute(ctx, json.RawMessage(`{"path":"a.ts","line":0}`), env); !r.IsError {
+	if r, _ := (Lsp{}).Execute(ctx, json.RawMessage(`{"kind":"references","path":"a.ts","line":0}`), env); !r.IsError {
 		t.Error("references with line<1 should error")
 	}
 	// Invalid JSON args → error.
-	if r, _ := (LspSymbols{}).Execute(ctx, json.RawMessage(`not json`), env); !r.IsError {
+	if r, _ := (Lsp{}).Execute(ctx, json.RawMessage(`not json`), env); !r.IsError {
 		t.Error("invalid args should error")
+	}
+	// Unknown kind → error.
+	if r, _ := (Lsp{}).Execute(ctx, json.RawMessage(`{"kind":"bogus","path":"a.ts"}`), env); !r.IsError {
+		t.Error("unknown kind should error")
 	}
 }
 

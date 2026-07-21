@@ -128,123 +128,120 @@ func relativize(out, workdir string) string {
 	return strings.ReplaceAll(out, workdir+string(os.PathSeparator), "")
 }
 
-// LspDefinition reports where the symbol at a position is defined.
-type LspDefinition struct{}
+// Lsp is the merged semantic-navigation tool. definition, references, and symbols share one server
+// backend — and definition/references share the same position args — so they are ONE tool selected
+// by `kind` rather than three near-identical entries the model pays for in every request's tool
+// list. (lsp_diagnostics stays separate: different args and purpose.)
+type Lsp struct{}
 
-func (LspDefinition) Name() string { return "lsp_definition" }
-func (LspDefinition) Description() string {
-	return "Find where a symbol is defined, via LSP. Picks the server by file extension across ~30 languages: Go, TypeScript/JavaScript, Python, Rust, C/C++/Objective-C, Java, Kotlin, Scala, C#, Ruby, PHP, Swift, Lua, shell, Zig, Haskell, OCaml, Dart, and web/config formats (HTML/CSS/JSON/YAML/TOML/Terraform/Markdown). Give path + line and either col or a symbol name on that line. Resolves across files/packages. Degrades gracefully when that language's server isn't installed."
+func (Lsp) Name() string { return "lsp" }
+func (Lsp) Description() string {
+	return "Semantic code navigation via LSP (precise, unlike grep). Set kind: \"definition\" (where a " +
+		"symbol is defined), \"references\" (all uses across the project), or \"symbols\" (a file's " +
+		"outline). For definition/references give path + line and either col or a symbol name on that " +
+		"line; for symbols give path only. Picks the server by file extension across ~30 languages (Go, " +
+		"TypeScript/JavaScript, Python, Rust, C/C++, Java, and more); degrades gracefully when that " +
+		"language's server isn't installed."
 }
-func (LspDefinition) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"line":{"type":"integer","description":"1-based line"},"col":{"type":"integer","description":"1-based column (optional if symbol given)"},"symbol":{"type":"string","description":"a name on that line to locate the column from"}},"required":["path","line"]}`)
+func (Lsp) Schema() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{"kind":{"type":"string","enum":["definition","references","symbols"],"description":"navigation kind"},"path":{"type":"string"},"line":{"type":"integer","description":"1-based line (definition/references)"},"col":{"type":"integer","description":"1-based column (optional if symbol given)"},"symbol":{"type":"string","description":"a name on that line to locate the column from"}},"required":["kind","path"]}`)
 }
-func (LspDefinition) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
-	var a lspPosArgs
+func (Lsp) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
+	var a struct {
+		Kind string `json:"kind"`
+		lspPosArgs
+	}
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return errResult("", "invalid arguments: "+err.Error()), nil
 	}
+	switch strings.ToLower(strings.TrimSpace(a.Kind)) {
+	case "definition", "def":
+		return lspDefinitionExec(ctx, env, a.lspPosArgs), nil
+	case "references", "reference", "refs":
+		return lspReferencesExec(ctx, env, a.lspPosArgs), nil
+	case "symbols", "symbol", "outline":
+		return lspSymbolsExec(ctx, env, a.lspPosArgs.Path), nil
+	default:
+		return errResult("", `kind must be one of: definition, references, symbols`), nil
+	}
+}
+
+// lspDefinitionExec reports where the symbol at a position is defined.
+func lspDefinitionExec(ctx context.Context, env port.ToolEnv, a lspPosArgs) session.ToolResult {
 	if !isGo(a.Path) {
 		res, err := lspNavigate(ctx, env.Workdir, a, "textDocument/definition")
 		if err != nil {
-			return errResult("", err.Error()), nil
+			return errResult("", err.Error())
 		}
 		body := formatLocations(res, env.Workdir)
 		if body == "" {
 			body = "no definition found"
 		}
-		return okText("", body), nil
+		return okText("", body)
 	}
 	pos, err := resolvePos(env.Workdir, a)
 	if err != nil {
-		return errResult("", err.Error()), nil
+		return errResult("", err.Error())
 	}
 	out, errRes := runGopls(ctx, env.Workdir, "definition", pos)
 	if errRes != nil {
-		return *errRes, nil
+		return *errRes
 	}
-	return okText("", strings.TrimSpace(relativize(out, env.Workdir))), nil
+	return okText("", strings.TrimSpace(relativize(out, env.Workdir)))
 }
 
-// LspReferences lists all references to the symbol at a position.
-type LspReferences struct{}
-
-func (LspReferences) Name() string { return "lsp_references" }
-func (LspReferences) Description() string {
-	return "Find all references to a symbol across the project, via LSP — precise, unlike grep. Picks the server by file extension across ~30 languages: Go, TypeScript/JavaScript, Python, Rust, C/C++/Objective-C, Java, Kotlin, Scala, C#, Ruby, PHP, Swift, Lua, shell, Zig, Haskell, OCaml, Dart, and web/config formats (HTML/CSS/JSON/YAML/TOML/Terraform/Markdown). Give path + line and either col or a symbol name on that line. Degrades gracefully when that language's server isn't installed."
-}
-func (LspReferences) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"line":{"type":"integer","description":"1-based line"},"col":{"type":"integer","description":"1-based column (optional if symbol given)"},"symbol":{"type":"string","description":"a name on that line to locate the column from"}},"required":["path","line"]}`)
-}
-func (LspReferences) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
-	var a lspPosArgs
-	if err := json.Unmarshal(raw, &a); err != nil {
-		return errResult("", "invalid arguments: "+err.Error()), nil
-	}
+// lspReferencesExec lists all references to the symbol at a position.
+func lspReferencesExec(ctx context.Context, env port.ToolEnv, a lspPosArgs) session.ToolResult {
 	if !isGo(a.Path) {
 		res, err := lspNavigate(ctx, env.Workdir, a, "textDocument/references")
 		if err != nil {
-			return errResult("", err.Error()), nil
+			return errResult("", err.Error())
 		}
 		body := formatLocations(res, env.Workdir)
 		if body == "" {
 			body = "no references found"
 		}
-		return okText("", truncateOut(body)), nil
+		return okText("", truncateOut(body))
 	}
 	pos, err := resolvePos(env.Workdir, a)
 	if err != nil {
-		return errResult("", err.Error()), nil
+		return errResult("", err.Error())
 	}
 	out, errRes := runGopls(ctx, env.Workdir, "references", pos)
 	if errRes != nil {
-		return *errRes, nil
+		return *errRes
 	}
 	body := strings.TrimSpace(relativize(out, env.Workdir))
 	if body == "" {
 		body = "no references found"
 	}
-	return okText("", truncateOut(body)), nil
+	return okText("", truncateOut(body))
 }
 
-// LspSymbols lists the symbols (functions, types, methods) declared in a file.
-type LspSymbols struct{}
-
-func (LspSymbols) Name() string { return "lsp_symbols" }
-func (LspSymbols) Description() string {
-	return "List the symbols (functions, types, methods, vars) declared in a file with their kinds and ranges, via LSP. A quick file outline. Picks the server by file extension across ~30 languages: Go, TypeScript/JavaScript, Python, Rust, C/C++/Objective-C, Java, Kotlin, Scala, C#, Ruby, PHP, Swift, Lua, shell, Zig, Haskell, OCaml, Dart, and web/config formats (HTML/CSS/JSON/YAML/TOML/Terraform/Markdown). Degrades gracefully when that language's server isn't installed."
-}
-func (LspSymbols) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}`)
-}
-func (LspSymbols) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
-	var a struct {
-		Path string `json:"path"`
-	}
-	if err := json.Unmarshal(raw, &a); err != nil {
-		return errResult("", "invalid arguments: "+err.Error()), nil
-	}
-	abs, err := resolvePath(env.Workdir, a.Path)
+// lspSymbolsExec lists the symbols (functions, types, methods) declared in a file.
+func lspSymbolsExec(ctx context.Context, env port.ToolEnv, path string) session.ToolResult {
+	abs, err := resolvePath(env.Workdir, path)
 	if err != nil {
-		return errResult("", err.Error()), nil
+		return errResult("", err.Error())
 	}
-	if !isGo(a.Path) {
+	if !isGo(path) {
 		res, err := lspQuery(ctx, env.Workdir, abs, "textDocument/documentSymbol", 0, 0)
 		if err != nil {
-			return errResult("", err.Error()), nil
+			return errResult("", err.Error())
 		}
 		body := formatSymbols(res)
 		if body == "" {
 			body = "no symbols found"
 		}
-		return okText("", truncateOut(body)), nil
+		return okText("", truncateOut(body))
 	}
 	out, errRes := runGopls(ctx, env.Workdir, "symbols", abs)
 	if errRes != nil {
-		return *errRes, nil
+		return *errRes
 	}
 	body := strings.TrimSpace(out)
 	if body == "" {
 		body = "no symbols found"
 	}
-	return okText("", truncateOut(body)), nil
+	return okText("", truncateOut(body))
 }
