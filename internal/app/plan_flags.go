@@ -102,6 +102,15 @@ func councilDebateEnabled() bool { return !envOff("MAGI_COUNCIL_DEBATE") }
 // enables it; the extra prompt/note tokens ship only when on, keeping the baseline unchanged.
 func councilKeepEnabled() bool { return envOn("MAGI_COUNCIL_KEEP") }
 
+// subagentWaitLeaseEnabled makes the subagent lease judge treat WAITING on a long external
+// operation — a VM booting, a build compiling, a package installing, a service coming up — as a
+// legitimate wait, not churn. Without it, a subagent blocked on such an operation polls with no
+// deliverable motion, the judge reads that as churning, and KILLs it every lease (~2.5 min) —
+// the qemu-alpine-ssh stall, where an Alpine boot never got enough runway. The subagent-lease
+// counterpart of stallIsWait. Default ON (a conservative safety fix, bounded by the backstop);
+// MAGI_SUBAGENT_WAIT_LEASE=0 restores the judge-everything baseline for A/B.
+func subagentWaitLeaseEnabled() bool { return !envOff("MAGI_SUBAGENT_WAIT_LEASE") }
+
 // checkpointFirstEnabled turns on test-first ordering: when a task states HOW its
 // completion is checked (a snippet, command, function call, or I/O contract), the
 // agent is told to FIRST materialize that as a runnable checkpoint in the workdir —

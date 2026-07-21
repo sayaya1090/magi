@@ -52,6 +52,51 @@ func (a *App) subagentBackstop() time.Duration {
 }
 
 // leaseExtension is one extension grant: half the configured base per verdict.
+// childWaitMajority reports whether the child's recent tool calls are DOMINATED by waiting on
+// the environment — a sleep/poll bash idiom (isWaitCommand) or a background-job / block-until
+// poll (isPollTool: bash_output, wait_for). A subagent legitimately blocked on a long external
+// operation it cannot speed up (a VM booting, a build compiling, a package installing) produces
+// exactly this: repetitive polls with no deliverable motion. The lease judge would read that as
+// churn and KILL — but a restart cannot boot the VM faster, so waiting must extend, not die. The
+// subagent-lease counterpart of stallIsWait. Conservative: only unambiguous wait/poll verbs
+// count, over the same recent window the judge sees, and it needs a real majority across at least
+// two calls — so genuine task-churn (edits, varied commands, re-verification) never trips it.
+func childWaitMajority(evs []event.Event, k int) bool {
+	type call struct{ name, cmd string }
+	var calls []call
+	for _, e := range evs {
+		if e.Type != event.TypePartAppended {
+			continue
+		}
+		var d event.PartAppendedData
+		if json.Unmarshal(e.Data, &d) != nil || d.Part.Kind != session.PartToolCall || d.Part.ToolCall == nil {
+			continue
+		}
+		cmd := ""
+		if d.Part.ToolCall.Name == "bash" {
+			var ba struct {
+				Command string `json:"command"`
+			}
+			_ = json.Unmarshal(d.Part.ToolCall.Args, &ba)
+			cmd = ba.Command
+		}
+		calls = append(calls, call{d.Part.ToolCall.Name, cmd})
+	}
+	if len(calls) > k {
+		calls = calls[len(calls)-k:]
+	}
+	if len(calls) < 2 {
+		return false // too little evidence to call it a wait
+	}
+	waits := 0
+	for _, c := range calls {
+		if isPollTool(c.name) || (c.name == "bash" && isWaitCommand(c.cmd)) {
+			waits++
+		}
+	}
+	return waits*2 > len(calls) // strict majority
+}
+
 func (a *App) leaseExtension() time.Duration {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -71,6 +116,15 @@ func (a *App) judgeLease(ctx context.Context, parent session.Session, child sess
 	if err != nil {
 		return 0, "no evidence readable: " + err.Error() // fail safe to the deterministic kill
 	}
+	// Deterministic wait check (before the LLM judge): a child whose recent activity is
+	// dominated by waiting/polling on the environment (sleep/nc/ping, bash_output, wait_for)
+	// is blocked on a long external operation it cannot speed up — extend rather than let the
+	// judge misread the repetition as churn and kill a legitimate boot/build wait. Bounded by
+	// the backstop like any extension; only unambiguous wait/poll verbs count (see
+	// childWaitMajority), so real task-churn never trips it.
+	if subagentWaitLeaseEnabled() && childWaitMajority(evs, judgeDigestCalls) {
+		return a.leaseExtension(), "waiting on external op (not churn)"
+	}
 	digest := childToolDigest(evs, judgeDigestCalls)
 	if digest == "" {
 		// A child that produced NO tool activity in a whole lease is either wedged
@@ -81,14 +135,23 @@ func (a *App) judgeLease(ctx context.Context, parent session.Session, child sess
 		digest = "(no tool calls at all this attempt)"
 	}
 
+	waitClause := ""
+	if subagentWaitLeaseEnabled() {
+		waitClause = "IMPORTANT: a subagent WAITING on a long external operation it cannot speed up — a VM " +
+			"booting, a build compiling, a package installing, a service coming up — shows repetitive polling " +
+			"or console-capturing with little visible change. That is a legitimate WAIT, not churn: a restart " +
+			"cannot boot the VM or finish the build any faster, so EXTEND it. Reserve KILL for genuine task-churn " +
+			"— re-editing or re-verifying already-settled work, or cycling questions without advancing. "
+	}
 	prompt := fmt.Sprintf(
 		"You supervise a running subagent (role %q). Its task:\n%s\n\n"+
 			"It has been running for %s and reached its time lease. Its recent tool activity, oldest first:\n%s\n\n"+
 			"Decide from the activity alone: is it making REAL forward progress on the task (new, distinct actions "+
 			"that advance the deliverable) — or churning: repeating near-identical calls, re-verifying what is "+
 			"already established, or cycling questions without advancing? "+
-			"Reply with exactly one word: EXTEND (real progress, give it more time) or KILL (churning, restart it).",
-		child.Agent, clipSpec(task, 800), fmtElapsed(elapsed), digest)
+			"%s"+
+			"Reply with exactly one word: EXTEND (real progress or a legitimate wait, give it more time) or KILL (churning, restart it).",
+		child.Agent, clipSpec(task, 800), fmtElapsed(elapsed), digest, waitClause)
 
 	jctx, jcancel := context.WithTimeout(ctx, judgeCallTimeout)
 	defer jcancel()
