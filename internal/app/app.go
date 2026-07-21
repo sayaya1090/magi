@@ -422,15 +422,28 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 						a.mu.Unlock()
 						break
 					}
-					item := q[0]
-					if len(q) == 1 {
-						a.stateLocked(sid).pendingInterject = nil
-					} else {
-						a.stateLocked(sid).pendingInterject = q[1:]
-					}
+					// COALESCE the whole batch into ONE interjection instead of answering each.
+					// Rapid follow-ups queued while a turn ran ("how's it going", then "?", "다시",
+					// "aa") are impatience, not N separate tasks — replying to each spams N near-
+					// identical answers, badly so when the turn is blocked on background subagents
+					// (every one gets the same "still waiting" reply). The most RECENT item survives
+					// (that is the prompt the user is actually waiting on) and carries the merged,
+					// de-duplicated text; the earlier ones are marked resolved+abandoned so neither
+					// seedPromptIdx nor a reload re-runs them.
+					a.stateLocked(sid).pendingInterject = nil
 					a.mu.Unlock()
-					text := strings.TrimSpace(item.Text)
+					item := q[len(q)-1]
+					text := coalesceInterjectionText(q)
+					for _, p := range q {
+						if p.MsgID == "" || p.MsgID == item.MsgID {
+							continue
+						}
+						ad, _ := json.Marshal(event.PromptAbandonedData{MsgID: p.MsgID})
+						_ = a.appendFact(context.WithoutCancel(runCtx), sid, event.TypePromptAbandoned, event.Actor{Kind: event.ActorSystem, ID: "loop"}, ad)
+						a.recordDeferral(context.WithoutCancel(runCtx), sid, p.MsgID, true) // resolved: coalesced away
+					}
 					if text == "" {
+						a.recordDeferral(context.WithoutCancel(runCtx), sid, item.MsgID, true)
 						continue
 					}
 					s := a.sessionInfo(runCtx, sid)
@@ -447,9 +460,9 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 						}
 						break
 					}
-					// Answered inline — already popped and the reply persisted; drain the next.
-					// Ledger it resolved (F5) so a later reload does not see the deferred entry
-					// with no resolution and wrongly re-mask an interjection that was answered.
+					// Answered inline — already popped and the reply persisted; drain the next batch
+					// (any interjection that arrived during triage). Ledger it resolved (F5) so a later
+					// reload does not see the deferred entry with no resolution and wrongly re-mask it.
 					a.recordDeferral(context.WithoutCancel(runCtx), sid, item.MsgID, true)
 				}
 				if rerun {

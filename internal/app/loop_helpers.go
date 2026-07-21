@@ -294,6 +294,24 @@ func loopGuardBlockMsg(toolName string, n int) string {
 	}
 }
 
+// coalesceInterjectionText merges a batch of queued interjections into one prompt text: the
+// distinct non-empty texts in arrival order, de-duplicated (a re-typed identical question
+// collapses to one) and joined by newlines. Merging rather than picking one loses no content —
+// if the follow-ups WERE distinct, they all ride into the single answered prompt.
+func coalesceInterjectionText(q []pendingInterjection) string {
+	seen := map[string]bool{}
+	var out []string
+	for _, p := range q {
+		t := strings.TrimSpace(p.Text)
+		if t == "" || seen[t] {
+			continue
+		}
+		seen[t] = true
+		out = append(out, t)
+	}
+	return strings.Join(out, "\n")
+}
+
 func orDefault(s, def string) string {
 	if s == "" {
 		return def
