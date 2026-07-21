@@ -261,7 +261,12 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 			}
 			return formatExperienceFull(mems, skills), nil
 		},
-		Sandbox: port.SandboxSpec{Mode: a.cfg.Sandbox, Workdir: workdir},
+		// AllowNet ties network egress to the APPROVAL axis: permission=allow means full trust
+		// (the headless/bench posture), so the OS sandbox must not hard-block the network — a
+		// confined mode still confines the FILESYSTEM, but ssh/curl/apt/pip work. Without this a
+		// benchmark run silently loses network the moment a container has bwrap/sandbox-exec, and
+		// subagents (same execute path) inherit it too.
+		Sandbox: port.SandboxSpec{Mode: a.cfg.Sandbox, Workdir: workdir, AllowNet: a.cfg.Permission == "allow"},
 	})
 	if err != nil {
 		a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID, string(capToolResult([]byte(err.Error()))), true)
