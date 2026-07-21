@@ -236,6 +236,20 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			return lastText, ctx.Err()
 		}
 		a.setStage(sid, stageExecute) // tag this iteration's events as execute (D15)
+		guard.noteStep()              // step-based rabbit-hole counter (turnProgressCheckEnabled)
+		// One-shot nudge before the "idle" stuck recovery: an agent reasoning for many steps with
+		// no deliverable is pushed to ACT (write/run/verify) — often all a reasoning loop needs.
+		if guard.idleNudgeDue() {
+			nd, _ := json.Marshal(event.PromptSubmittedData{
+				MessageID: "m_" + newID(),
+				Parts: []session.Part{{Kind: session.PartText, Text: "You have taken many steps of analysis " +
+					"without producing or changing any deliverable (no file written, no command run to build/verify). " +
+					"Reasoning alone does not finish the task. STOP analyzing and take the concrete next action NOW: " +
+					"write the file, run the build/test, or execute the program — then verify its output. If you are " +
+					"waiting on a long external operation, poll it or use wait_for; otherwise, act."}},
+			})
+			a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "orchestrator"}, nd)
+		}
 
 		answerInterjectNow := false // set when this step detects a visible interjection to reply to now
 

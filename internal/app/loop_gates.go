@@ -103,7 +103,15 @@ func (a *App) handleStuckGuard(ctx context.Context, tc turnCtx, turnTask string,
 	// could never help, since handing the monolith back just re-fixates. It is gated on the
 	// flag precisely because only the decomposing recovery (small scoped units) breaks that
 	// spiral; with the flag off, "repeat" keeps its baseline behavior (force-stop below).
-	recoverable := kind == "stall" || (kind == "repeat" && stuckDecomposeEnabled())
+	// The step-based "idle" kind (turnProgressCheckEnabled) is a reasoning rabbit hole — hours of
+	// thinking with no deliverable — and routes to the SAME recovery. It carries an EXTRA wait
+	// guard: besides the tool-call wait ratio (stallIsWait), childWaitMajority on the recent calls
+	// suppresses it when the agent is polling a background job (a booting VM, a running build), so
+	// a legitimate wait is never mistaken for a rabbit hole and cut.
+	recoverable := kind == "stall" || (kind == "repeat" && stuckDecomposeEnabled()) ||
+		(kind == "idle" && turnProgressCheckEnabled())
+	waitBlocked := waitGuardEnabled() && (guard.stallIsWait() ||
+		(kind == "idle" && childWaitMajority(evs, judgeDigestCalls)))
 	// recoveryOutcome names why the run is stopping WITHOUT a successful recovery, and is
 	// carried into the stop message: a force-stopped run whose recovery silently declined
 	// (spawn cap, planner failure, wait-stall, already used) was otherwise undiagnosable
@@ -116,16 +124,18 @@ func (a *App) handleStuckGuard(ctx context.Context, tc turnCtx, turnTask string,
 		recoveryOutcome = "already-used-this-run"
 	case !a.planEligible(agent, depth):
 		recoveryOutcome = "plan-ineligible"
-	case waitGuardEnabled() && guard.stallIsWait():
+	case waitBlocked:
 		recoveryOutcome = "wait-stall (a fresh child cannot speed an external wait)"
 	}
-	if recoverable && !ts.recovered && a.planEligible(agent, depth) &&
-		!(waitGuardEnabled() && guard.stallIsWait()) {
+	if recoverable && !ts.recovered && a.planEligible(agent, depth) && !waitBlocked {
 		task := a.turnTaskOr(turnTask, sid, evs)
 		blockReason := "repeated no-progress: the previous attempt could not advance the task"
 		if kind == "repeat" {
 			blockReason = "loop guard blocked repeated identical actions: the previous attempt kept " +
 				"retrying the same call instead of taking the next real step"
+		} else if kind == "idle" {
+			blockReason = "many steps of analysis produced NO deliverable (no file written/changed): the " +
+				"previous attempt reasoned in circles instead of writing, running, and verifying the artifact"
 		}
 		if a.redecomposeStuck(ctx, s, agent, task, blockReason, depth) {
 			ts.recovered = true

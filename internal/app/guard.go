@@ -53,6 +53,15 @@ const (
 	// is unharmed.
 	bannerSpinNudge = 5
 	bannerSpinStop  = 9
+	// progressNudgeSteps/progressStallSteps drive the STEP-based no-deliverable-progress check
+	// (turnProgressCheckEnabled) that the tool-call counters above miss on a reasoning loop.
+	// stepsSinceMut counts run-loop STEPS since the last file mutation, so an agent that streams
+	// thinking without acting still accrues it. At the nudge step it is pushed once to ACT; if it
+	// reaches the stall step still having produced nothing, stuck() returns "idle" → the recovery
+	// ladder. Generous (a legitimately read/plan-heavy stretch clears the nudge without a mutation),
+	// and the "idle" kind is wait-suppressed so a VM boot / build wait is never counted as a stall.
+	progressNudgeSteps = 10
+	progressStallSteps = 18
 )
 
 // runGuard detects no-progress loops within a single run by fingerprinting each
@@ -119,6 +128,13 @@ type runGuard struct {
 	// which is exactly the keep-alive dodge. nudgedSpin fires the one-shot re-grounding once.
 	bannerSpin int
 	nudgedSpin bool
+
+	// stepsSinceMut counts run-loop STEPS (not tool calls) since the last file mutation, for the
+	// step-based no-deliverable-progress check (turnProgressCheckEnabled). Unlike sinceProgress it
+	// rises even when a step issues no tool call, so a reasoning loop that streams thinking without
+	// acting is caught. Reset by mutated(); idleNudged fires the one-shot "act now" nudge once.
+	stepsSinceMut int
+	idleNudged    bool
 
 	// changed records this turn's file edits (before/after content) as the council's
 	// evidence of what the AGENT actually changed — reconstructed from its own write/edit
@@ -396,6 +412,8 @@ func (g *runGuard) mutated(path, sig string) (reset bool) {
 	g.lastStallAt = 0           // …and the stall-nudge window, so a fresh stall re-arms cleanly
 	g.execSinceMut = 0          // a new deliverable version is unverified until something exercises IT
 	g.waitSinceMut = 0          // a real change is progress → the environment-wait ratio restarts too
+	g.stepsSinceMut = 0         // a real deliverable version resets the step-based rabbit-hole counter
+	g.idleNudged = false        // …and re-arms its one-shot "act now" nudge
 	g.progressSinceNudge = true // a real mutation IS forward motion → protects the re-arm from collapse
 	return true
 }
@@ -434,6 +452,11 @@ func (g *runGuard) resetStall() {
 	g.lastStallAt = 0
 	g.stallNudges = 0
 	g.progressSinceNudge = false
+	// Also give the step-based rabbit-hole check a fresh window: a recovery child's mutations land
+	// in ITS session, not the parent guard, so stepsSinceMut would not reset via mutated() and the
+	// parent would re-trip "idle" and force-stop the instant it resumes after a successful recovery.
+	g.stepsSinceMut = 0
+	g.idleNudged = false
 }
 
 // resetRepeat clears the blocked-repeat counter (and the stall window) after a "repeat"-kind
@@ -699,7 +722,39 @@ func (g *runGuard) stuck() string {
 	if g.stallNudges >= maxStallNudges && g.sinceProgress-g.lastStallAt >= noProgressNudge {
 		return "stall"
 	}
+	// Step-based rabbit hole: the counters above are per TOOL CALL, so a reasoning loop that
+	// streams thinking with few/no tool calls and produces no mutation slips past them (path-
+	// tracing-reverse, circuit-fibsqrt). stepsSinceMut rises per STEP, so this catches it. Distinct
+	// "idle" kind so the caller can apply the wait guards (a VM boot / build wait must NOT be cut).
+	if turnProgressCheckEnabled() && g.stepsSinceMut >= progressStallSteps {
+		return "idle"
+	}
 	return ""
+}
+
+// noteStep advances the step-based rabbit-hole counter once per run-loop iteration. Called from
+// the loop regardless of whether the step issued a tool call (that is the point — a reasoning
+// step advances it too).
+func (g *runGuard) noteStep() {
+	g.mu.Lock()
+	g.stepsSinceMut++
+	g.mu.Unlock()
+}
+
+// idleNudgeDue reports whether the one-shot "you've analyzed for many steps without producing
+// anything — act now" nudge should fire this step: at the nudge threshold, once per mutation
+// window. Gated by the flag; a later mutation resets it (mutated).
+func (g *runGuard) idleNudgeDue() bool {
+	if !turnProgressCheckEnabled() {
+		return false
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !g.idleNudged && g.stepsSinceMut >= progressNudgeSteps && g.stepsSinceMut < progressStallSteps {
+		g.idleNudged = true
+		return true
+	}
+	return false
 }
 
 // callCount returns the total tool calls recorded this run.

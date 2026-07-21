@@ -111,6 +111,17 @@ func councilKeepEnabled() bool { return envOn("MAGI_COUNCIL_KEEP") }
 // MAGI_SUBAGENT_WAIT_LEASE=0 restores the judge-everything baseline for A/B.
 func subagentWaitLeaseEnabled() bool { return !envOff("MAGI_SUBAGENT_WAIT_LEASE") }
 
+// turnProgressCheckEnabled adds a STEP-based no-deliverable-progress check to the top-level
+// turn. The stall/loop guards count TOOL CALLS since the last mutation, so they miss a reasoning
+// loop: an agent that streams thinking for hours issuing few/no tool calls and producing nothing
+// (path-tracing-reverse burned ~4h on hand-disassembly; circuit-fibsqrt wrote 131MB of algorithm
+// reasoning and never emitted gates.txt). Counting STEPS since the last mutation catches the
+// rabbit hole regardless of tool-call volume, then routes it to the same nudge → stuck-recovery →
+// honest-stop ladder. Waiting on a long external op is explicitly NOT a rabbit hole — the "idle"
+// kind is suppressed by the same wait guards as stall recovery (stallIsWait + childWaitMajority),
+// so a VM boot / build / install is never cut. Default OFF (A/B): MAGI_TURN_PROGRESS_CHECK=1.
+func turnProgressCheckEnabled() bool { return envOn("MAGI_TURN_PROGRESS_CHECK") }
+
 // checkpointFirstEnabled turns on test-first ordering: when a task states HOW its
 // completion is checked (a snippet, command, function call, or I/O contract), the
 // agent is told to FIRST materialize that as a runnable checkpoint in the workdir —
