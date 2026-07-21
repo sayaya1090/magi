@@ -2,8 +2,11 @@ package app
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 	"strings"
 
+	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
@@ -165,6 +168,12 @@ func (a *App) runDelegateStep(ctx context.Context, s session.Session, st planSte
 			curTools = ct
 		}
 	}
+	// Hand the worker its acceptance checklist (the plan-audit's executable deliverable checks for
+	// this step): it must RUN each and confirm it passes before reporting done, so a delegated part
+	// isn't left with a requirement silently skipped (caught only later at the orchestrator gate).
+	if cl := workerChecklist(a.cachedChecks(s.ID), i); cl != "" {
+		brief = strings.TrimSpace(brief + "\n\n" + cl)
+	}
 	r := a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agentName, Prompt: delegatePrompt(st, brief), Tools: curTools, PlanStepIndex: &i})
 	text := strings.TrimSpace(r.Text)
 	// ADaPT failure branch (reactive, as-needed decomposition): a hard failure (spawn error
@@ -192,6 +201,42 @@ func (a *App) runDelegateStep(ctx context.Context, s session.Session, st planSte
 	}
 	a.completeThrough(ctx, s.ID, plannerActor, i)
 	return stepFinding(st.Title, "delegated to "+agentName, text), true
+}
+
+// workerChecklist renders the plan-audit's executable deliverable checks as an explicit acceptance
+// checklist the delegated worker must satisfy before reporting done — each with the command to run
+// and the expected result. Checks tagged for THIS step (by leading step number) are preferred; when
+// none are tagged, all of the turn's checks are shown, since over-informing beats letting the
+// worker silently skip a requirement. Empty when no checks were derived.
+func workerChecklist(checks []council.DeliverableCheck, stepIdx int) string {
+	if len(checks) == 0 {
+		return ""
+	}
+	want := strconv.Itoa(stepIdx + 1)
+	var mine []council.DeliverableCheck
+	for _, c := range checks {
+		s := strings.TrimSpace(c.Step)
+		if s == want || strings.HasPrefix(s, want+".") || strings.HasPrefix(s, want+" ") || strings.HasPrefix(s, want+")") {
+			mine = append(mine, c)
+		}
+	}
+	if len(mine) == 0 {
+		mine = checks
+	}
+	var b strings.Builder
+	b.WriteString("Acceptance checklist — before you report done, RUN each of these and confirm it passes; " +
+		"do NOT report done while any of them is failing:")
+	for i, c := range mine {
+		fmt.Fprintf(&b, "\n%d. ", i+1)
+		if d := strings.TrimSpace(c.Deliverable); d != "" {
+			b.WriteString(d + " — ")
+		}
+		b.WriteString("run: " + strings.TrimSpace(c.Command))
+		if e := strings.TrimSpace(c.Expect); e != "" {
+			b.WriteString("  (expect: " + e + ")")
+		}
+	}
+	return b.String()
 }
 
 // refineLocalRetries bounds how many INFORMED local attempts a refine node gets before it
