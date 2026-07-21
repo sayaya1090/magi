@@ -382,7 +382,10 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 		sys += implicitAcceptRule
 	}
 	if names := a.delegatableAgents(); len(names) > 0 {
-		sys += "\n\nDelegate executors available (use one as a delegate step's \"agent\"): " + strings.Join(names, ", ") + "."
+		sys += "\n\nDelegate executors available (use one as a delegate step's \"agent\"): " + strings.Join(names, ", ") +
+			". PREFER delegating each substantial, self-contained chunk of the WORK — writing/building/running/fixing — " +
+			"to an executor as a \"delegate\" step rather than doing it yourself as \"solo\": execution then runs in the " +
+			"worker's own scoped context. Keep \"solo\" only for small glue and for reasoning/analysis steps."
 	} else {
 		sys += "\n\nNo delegate executors are configured — do NOT use the \"delegate\" strategy; use solo/parallel/scout only."
 	}

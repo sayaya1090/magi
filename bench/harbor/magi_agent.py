@@ -179,6 +179,8 @@ class MagiAgent(BaseInstalledAgent):
             "MAGI_DIVERGE",
             "MAGI_STALL_NOVELTY",
             "MAGI_EXITCODE_BODYSCAN",
+            "MAGI_WORKERS",
+            "MAGI_CURATE",
         ):
             val = os.environ.get(key)
             if val:

@@ -1156,7 +1156,7 @@ func defaultAgents() map[string]app.AgentSpec {
 	// questions instead of re-reading a large file to add up a column by hand (the
 	// coverage-% thrash that made explorers delegate arithmetic back to the parent).
 	aggHint := " For any quantitative question (counts, sums, coverage %, LOC, distributions) use tabulate/countmatches/countlines/groupby rather than reading a large file to compute it by hand."
-	return map[string]app.AgentSpec{
+	agents := map[string]app.AgentSpec{
 		"explore": {
 			Name:   "explore",
 			System: "You are a read-only code explorer. Investigate the codebase with read/grep/glob/list and report concise findings. Never modify files." + aggHint,
@@ -1188,6 +1188,23 @@ func defaultAgents() map[string]app.AgentSpec {
 			Tools: ro,
 		},
 	}
+	// worker: a write-capable execution sub-agent the planner can DELEGATE a self-contained
+	// sub-task to (not just coding — implement, build, configure, run, verify). Opt-in via
+	// MAGI_WORKERS so the default roster stays read-only (delegate unavailable → solo path,
+	// the delegate-off baseline); enabling it gives the context curator (MAGI_CURATE) a worker
+	// whose task-scoped toolset it can narrow. nil Tools = full toolset (write-capable ⇒
+	// delegatable); the curator scopes it per task.
+	if v := os.Getenv("MAGI_WORKERS"); v == "1" || v == "on" || v == "true" || v == "yes" {
+		agents["worker"] = app.AgentSpec{
+			Name: "worker",
+			System: "You are a worker sub-agent. Carry out the ONE delegated sub-task end to end — read what " +
+				"you need, make the changes or run the commands it requires, and VERIFY the result by executing " +
+				"the relevant build/test/command. Preserve every literal identifier (names, fields, output " +
+				"formats, thresholds) EXACTLY as given — never rename or normalize. Report a concise result of " +
+				"what you did and how you verified it.",
+		}
+	}
+	return agents
 }
 
 // profileDefs converts config profiles into app.ProfileDef (raw values; ${ENV}
