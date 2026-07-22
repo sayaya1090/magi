@@ -20,7 +20,9 @@ import (
 // repeats the SAME action without progress long before MaxSteps would, so a
 // stuck weak model fails fast instead of grinding for minutes.
 const (
-	repeatLimit   = 2 // identical tool calls allowed before the next is blocked
+	repeatLimit = 4 // identical tool calls allowed before the next is blocked (raised from 2:
+	//                   a legitimate check→act→re-check→act rhythm hit the block too eagerly; a real
+	//                   loop still trips it, and blockedBudget/stall layers below catch persistence)
 	blockedBudget = 6 // total blocked repeats in a run before forcing a stop
 	// nudgeThreshold sits below blockedBudget: when blocked repeats reach it, the agent
 	// is clearly thrashing, so before force-stopping we inject ONE corrective re-grounding

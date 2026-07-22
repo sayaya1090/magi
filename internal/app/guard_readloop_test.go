@@ -17,11 +17,15 @@ func TestReadLoopLimitJitterBlocks(t *testing.T) {
 		block, _, _ := g.check("read", raw)
 		return block
 	}
-	if read(60) || read(65) {
-		t.Fatal("first two same-region reads must be allowed")
+	// repeatLimit same-region reads (limit jittered each time) are allowed — limit is dropped from
+	// the fingerprint, so they collapse onto one counter; the next one blocks on schedule.
+	for i := 0; i < repeatLimit; i++ {
+		if read(60 + i*5) {
+			t.Fatalf("same-region read #%d must be allowed under repeatLimit=%d", i+1, repeatLimit)
+		}
 	}
-	if !read(70) {
-		t.Fatal("third same-region read (limit jittered) must be blocked — the fingerprint must ignore limit")
+	if !read(60 + repeatLimit*5) {
+		t.Fatal("the read past repeatLimit (limit jittered) must be blocked — the fingerprint must ignore limit")
 	}
 }
 

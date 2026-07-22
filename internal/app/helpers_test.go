@@ -50,9 +50,11 @@ func TestRunGuard(t *testing.T) {
 	// The cached result of a call is echoed back when a later repeat is blocked.
 	g2 := newRunGuard()
 	a2 := json.RawMessage(`{"cmd":"go test"}`)
-	_, _, fp := g2.check("bash", a2)
+	_, _, fp := g2.check("bash", a2) // 1st
 	g2.record(fp, "FAIL: 1 test failed")
-	g2.check("bash", a2) // 2nd (still allowed)
+	for i := 2; i <= repeatLimit; i++ {
+		g2.check("bash", a2) // 2nd..repeatLimit-th (still allowed)
+	}
 	if block, _, fp3 := g2.check("bash", a2); !block || g2.lastResult(fp3) != "FAIL: 1 test failed" {
 		t.Errorf("blocked repeat should expose the cached earlier result, got block=%v last=%q", block, g2.lastResult(fp3))
 	}

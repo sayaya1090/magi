@@ -86,8 +86,9 @@ func TestBashFixCycleNotBlocked(t *testing.T) {
 	// Control 1: an inspect-only bash repeat (outcome cannot change) still hard-blocks.
 	g2 := newRunGuard()
 	insp := json.RawMessage(`{"command":"cat main.go"}`)
-	g2.check("bash", insp)
-	g2.check("bash", insp)
+	for i := 0; i < repeatLimit; i++ {
+		g2.check("bash", insp)
+	}
 	if block, _, _ := g2.check("bash", insp); !block {
 		t.Error("an inspect-only repeat must still be blocked")
 	}
@@ -95,8 +96,9 @@ func TestBashFixCycleNotBlocked(t *testing.T) {
 	// Control 2: non-bash repeats (read, etc.) keep the block untouched.
 	g3 := newRunGuard()
 	rd := json.RawMessage(`{"file":"main.go"}`)
-	g3.check("read", rd)
-	g3.check("read", rd)
+	for i := 0; i < repeatLimit; i++ {
+		g3.check("read", rd)
+	}
 	if block, _, _ := g3.check("read", rd); !block {
 		t.Error("a read repeat must still be blocked")
 	}
@@ -122,8 +124,9 @@ func TestExecExemptOff(t *testing.T) {
 	t.Setenv("MAGI_GUARD_EXEC_EXEMPT", "off")
 	g := newRunGuard()
 	build := []byte(`{"command":"go build ./..."}`)
-	g.check("bash", build)
-	g.check("bash", build)
+	for i := 0; i < repeatLimit; i++ {
+		g.check("bash", build)
+	}
 	if block, _, _ := g.check("bash", build); !block {
 		t.Error("with the exemption off, an identical exec repeat must hard-block")
 	}
