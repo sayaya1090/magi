@@ -7,6 +7,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -141,6 +142,16 @@ func (m *Model) statusPanel(panelTop int) string {
 		lines = m.appendPlanTree(lines, m.panelSID(), inner, 0)
 	}
 
+	// Shared artifact ledger: the exact paths/interfaces the plan's steps have produced — shown here
+	// (and in every worker panel) because it is shared by everyone working the plan.
+	if led := m.app.SharedLedger(m.panelSID()); len(led) > 0 {
+		sep()
+		lines = append(lines, panelHead("Shared ledger"))
+		for _, e := range led {
+			lines = append(lines, wrapPanel(ledgerLine(e), inner)...)
+		}
+	}
+
 	if len(m.panes) > 0 || len(m.doneRoster) > 0 {
 		sep()
 		lines = append(lines, panelHead("Subagents"))
@@ -211,6 +222,13 @@ func (m *Model) workerPanel(p *agentPane) string {
 			lines = append(lines, wrapPanel(fmt.Sprintf("%d. %s", i+1, item), inner)...)
 		}
 	}
+	if led := m.app.SharedLedger(p.sid); len(led) > 0 {
+		sep()
+		lines = append(lines, panelHead("Shared ledger"))
+		for _, e := range led {
+			lines = append(lines, wrapPanel(ledgerLine(e), inner)...)
+		}
+	}
 	if todos := m.app.Todos(p.sid); len(todos) > 0 {
 		done := 0
 		for _, t := range todos {
@@ -230,6 +248,16 @@ func (m *Model) workerPanel(p *agentPane) string {
 		lines = lines[:maxRows]
 	}
 	return roundedBox(strings.Join(lines, "\n"), content)
+}
+
+// ledgerLine formats one shared-ledger row for a panel: "• step — facts", or "• facts" when the
+// producing step is unlabelled. The facts are shown verbatim (the exact paths workers must reuse).
+func ledgerLine(e app.LedgerRow) string {
+	facts := strings.TrimSpace(e.Facts)
+	if step := strings.TrimSpace(e.Step); step != "" {
+		return "• " + step + " — " + facts
+	}
+	return "• " + facts
 }
 
 // wrapPanel word-wraps s to width cells and returns its lines, so a long request/checklist entry
