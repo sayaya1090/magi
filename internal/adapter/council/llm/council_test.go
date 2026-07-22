@@ -148,6 +148,26 @@ func TestMemberPromptKeepGated(t *testing.T) {
 	}
 }
 
+// Plan-phase keep is gated the same way and, crucially, asks each member to note what to preserve
+// EVEN WHEN APPROVING — so a revision forced by another member's flaw doesn't drop the good steps.
+func TestPlanMemberPromptKeepGated(t *testing.T) {
+	m := council.Member{Name: "x", Lens: "completeness"}
+	off := memberSystem(m, "plan", "build a server", false)
+	if strings.Contains(off, "\"keep\"") || strings.Contains(off, "EVEN WHEN YOU APPROVE") {
+		t.Error("plan keep clause/schema must be absent when keep is off")
+	}
+	on := memberSystem(m, "plan", "build a server", true)
+	if !strings.Contains(on, "EVEN WHEN YOU APPROVE") {
+		t.Error("plan keep clause must ask to preserve even on approve")
+	}
+	if !strings.Contains(on, "\"keep\"") {
+		t.Error("plan keep schema field missing when keep is on")
+	}
+	if !strings.Contains(on, "never changes your vote") {
+		t.Error("plan keep clause must state it is advisory")
+	}
+}
+
 // that closes the reval3 play-zork / run-pdp11 / fasttext class of false approvals.
 func TestMemberPromptRationalizedDone(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "verification"}

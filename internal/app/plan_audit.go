@@ -151,11 +151,22 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd)
 
 		// Re-plan with the blocking feedback folded in (one retry — local models are flaky
-		// and an empty/unparseable reply shouldn't silently drop the revision).
+		// and an empty/unparseable reply shouldn't silently drop the revision). Carry the
+		// members' `keep` — the steps some lens already blessed — as ADVICE, so a revision
+		// triggered by one member's critical flaw doesn't discard the parts the others approved.
+		// Advisory, never a constraint: if fixing the flaw genuinely requires changing a kept
+		// step, the re-planner is free to.
+		revise := fb
+		if councilKeepEnabled() {
+			if keep := strings.TrimSpace(council.AggregateKeep(delib.Verdicts)); keep != "" {
+				revise = fb + "\n\nAlready sound through some lens — PREFER to preserve these, but this is " +
+					"advice, not a rule: change them if the fix truly requires it.\n" + keep
+			}
+		}
 		a.setStage(sid, stagePlan)
-		next := sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, fb, depth, maxSteps, ""))
+		next := sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, revise, depth, maxSteps, ""))
 		if len(next) == 0 {
-			next = sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, fb, depth, maxSteps, ""))
+			next = sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, revise, depth, maxSteps, ""))
 		}
 		a.setStage(sid, stageCouncil)
 		if len(next) == 0 {

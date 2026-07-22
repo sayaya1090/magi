@@ -460,7 +460,7 @@ func memberSystem(m council.Member, phase, task string, keep bool) string {
 		lens = "Judge whether the task is genuinely complete."
 	}
 	if phase == "plan" {
-		return withLangNote(planMemberSystem(m, lens), task)
+		return withLangNote(planMemberSystem(m, lens, keep), task)
 	}
 	// Optional advisory (MAGI_COUNCIL_KEEP): each member also names what the report already
 	// gets right through ITS lens, so the agent doesn't revert a correct part or re-verify a
@@ -581,7 +581,15 @@ func withLangNote(prompt, task string) string {
 // planMemberSystem builds the prompt for the pre-flight plan audit: the member
 // judges whether the PROPOSED PROCEDURE is a sound way to accomplish the task,
 // through its lens — there is no report/diff/signals yet.
-func planMemberSystem(m council.Member, lens string) string {
+func planMemberSystem(m council.Member, lens string, keep bool) string {
+	keepClause, keepField := "", ""
+	if keep {
+		keepClause = "Also, through YOUR lens, note in `keep` the plan steps that are ALREADY sound and must survive " +
+			"if the plan is revised — do this EVEN WHEN YOU APPROVE, because another member's flaw sends the WHOLE plan " +
+			"back to be re-planned, and without this the revision can drop the correct parts your lens already blessed. " +
+			"Advisory: it never changes your vote; omit if nothing through your lens is clearly settled.\n\n"
+		keepField = `,"keep":"plan steps already sound through your lens that a revision must preserve — advisory, optional"`
+	}
 	return fmt.Sprintf(
 		"You are %s, a member of a council that audits an AI coding agent's PROPOSED PROCEDURE before it runs. "+
 			"Your lens is %q: %s\n\n"+
@@ -662,9 +670,10 @@ func planMemberSystem(m council.Member, lens string) string {
 			"genuinely pass for correct work — commands must be non-destructive and deterministic. For a "+
 			"read/review/analyze/answer step there is usually nothing to execute: emit NO check for it (the prose "+
 			"`criteria` already cover it). Omit `checks` entirely if your lens has none.\n\n"+
+			"%s"+
 			"Respond with ONLY a JSON object, no prose, no code fence:\n"+
-			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific fix (only if continue)","severity":"critical|warn|info (only if continue)","criteria":["..."],"checks":[{"step":"...","deliverable":"...","command":"...","expect":"..."}]}`,
-		m.Name, m.Lens, lens)
+			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific fix (only if continue)","severity":"critical|warn|info (only if continue)","criteria":["..."],"checks":[{"step":"...","deliverable":"...","command":"...","expect":"..."}]`+keepField+`}`,
+		m.Name, m.Lens, lens, keepClause)
 }
 
 // evidence renders the deliberation request into the user message the members see.

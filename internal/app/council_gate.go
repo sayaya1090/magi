@@ -583,7 +583,8 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	// injected prompt — ct.feedback stays the raw fb, so no-progress repeat-detection and the
 	// recorded decision are unchanged, and the gate is never weakened.
 	if k := strings.TrimSpace(delib.Keep); k != "" {
-		inject = k + "\n\n" + inject
+		inject = "Already correct through some lens — PREFER to keep these, don't revert or re-verify them; " +
+			"this is advice, not a rule (change one only if the fix truly requires it):\n" + k + "\n\n" + inject
 	}
 
 	emitDecided(council.Continue, fb, "", false)
