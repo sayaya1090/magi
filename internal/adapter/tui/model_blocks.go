@@ -107,6 +107,11 @@ func (m *Model) openCouncilDetailAt(line int) bool {
 	vd := vs[pick]
 	m.councilDetail = &vd
 	m.councilDetailEvidence = m.blocks[i].evidence
+	// Load the outstanding structural concerns ONCE here (an event-log read), so the ledger in
+	// renderCouncilDetail shows what the council still has open without reading per frame.
+	if m.app != nil {
+		m.councilDetailConcerns = m.app.OpenConcerns(m.ctx, m.sid)
+	}
 	return true
 }
 

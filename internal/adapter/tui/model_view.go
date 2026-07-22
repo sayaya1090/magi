@@ -311,6 +311,22 @@ func (m *Model) renderCouncilDetail(width int) string {
 			b.WriteString("\n" + cl + "\n")
 		}
 	}
+	// Open structural concerns: what the council raised and still has OUTSTANDING (re-raised until
+	// resolved). Loaded once when the detail opened (m.councilDetailConcerns).
+	if len(m.councilDetailConcerns) > 0 {
+		b.WriteString("\n" + styleFooter.Render("— ledger: open concerns —") + "\n")
+		for _, c := range m.councilDetailConcerns {
+			line := "• "
+			if tag := strings.Trim(c.Source+"/"+c.Kind, "/"); tag != "" {
+				line += "[" + tag + "] "
+			}
+			line += c.Status
+			if dt := strings.TrimSpace(c.Detail); dt != "" {
+				line += ": " + dt
+			}
+			b.WriteString(wrap.Render(line) + "\n")
+		}
+	}
 	return b.String()
 }
 

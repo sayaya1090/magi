@@ -222,6 +222,7 @@ type Model struct {
 
 	councilDetail          *event.CouncilVerdictData // open council-verdict detail (full-screen; nil = closed)
 	councilDetailEvidence  string                    // the evidence shown alongside the open verdict
+	councilDetailConcerns  []port.Signal             // open structural concerns, loaded once when the detail opens
 	paneScroll             int                       // scroll offset into the subagent pane list (clamped in renderPanes)
 	pendingCouncilEvidence string                    // evidence from the latest convened round, attached to its verdicts
 	roleColor              map[string]int            // role name -> agentPalette index (stable per session)
