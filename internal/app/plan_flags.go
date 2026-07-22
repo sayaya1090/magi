@@ -69,15 +69,18 @@ func specFidelityEnabled() bool { return !envOff("MAGI_SPEC_FIDELITY") }
 // signatures, the requirements the prose leaves unsaid plus the standard idiom for
 // that situation — injected as a finished note the executor consumes.
 //
-// Default ON (MAGI_SPEC_MINE=off restores the un-mined baseline). It was briefly
-// defaulted OFF (978d1e0) after a weak executor took the mined note the wrong way:
-// a cross-machine run showed it REINFORCING a wrong identifier (kv-store-grpc: the
-// note derived `val` and the executor kept `val`, failing a grader that checks
-// `value`) and injecting a FALSE premise ("hyphens in a .proto filename trigger
-// SyntaxError"). That failure is exactly the literal-drift the curated brief now
-// defends against (verbatim `literals`), so the mine is re-enabled to feed that
-// defense rather than stand alone. It costs one extra LLM call and a per-plan note.
-func specMineEnabled() bool { return !envOff("MAGI_SPEC_MINE") }
+// Default OFF (MAGI_SPEC_MINE=1 opts in). It was briefly defaulted ON again on the theory
+// that the mined identifiers would feed the curated brief's verbatim `literals` defense — but
+// that was wrong twice over: the mine's output does not actually flow into the curator packet,
+// and on a solo-planned task (no curator engaged at all) the note just re-primes the executor
+// AND the council with "honor kv-store verbatim", which is exactly the literal-drift 978d1e0
+// turned it off for. A live kv-store-grpc run reproduced it: the agent produced the correct
+// underscore `kv_store_pb2.py` and a running server, then the council — pushed by that verbatim
+// pressure — rejected it as "not matching the hyphenated proto filename" and drove a rename to
+// `kv-store_pb2.py` (a Python SyntaxError), thrashing a solved task. So the mine stays OFF: on a
+// weak executor its cost (a wrong-identifier / false-premise nudge) outweighs the occasional
+// strong-model uplift. Opt in per run for A/B only.
+func specMineEnabled() bool { return envOn("MAGI_SPEC_MINE") }
 
 // workdirCheckpointEnabled gates the opt-in work-tree rollback (checkpoint.go): before a subagent's
 // first attempt the work-tree is snapshotted into a PRIVATE scratch git-dir (never the user's own
