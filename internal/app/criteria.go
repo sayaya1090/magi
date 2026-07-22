@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -47,6 +48,14 @@ func (a *App) storePlanChecks(ctx context.Context, s session.Session, checks []c
 	if len(checks) == 0 || !stepVerifyEnabled() { // OFF → fully inert (no state, no artifact, no todo change)
 		return
 	}
+	// Validate the checks BEFORE they become the gate: the authoring members can write a check whose
+	// own command cannot satisfy its own expect (a `sort -u` that dedups two identical versions while
+	// the expect wants both), which then FALSE-FAILS a correct step forever. A tool-free review pass
+	// repairs/drops such checks — the same "review beats self-check" principle the council rests on.
+	checks = a.validateChecks(ctx, a.agentFor(s), s, checks)
+	if len(checks) == 0 {
+		return
+	}
 	a.mu.Lock()
 	a.stateLocked(s.ID).deliverableChecks = checks
 	a.mu.Unlock()
@@ -56,6 +65,77 @@ func (a *App) storePlanChecks(ctx context.Context, s session.Session, checks []c
 		Content: content, SourceAgent: "council", Status: "proposed", Created: time.Now(),
 	})
 	a.annotateTodosWithDeliverables(ctx, s.ID, checks) // show each step's expected deliverable in the panel
+}
+
+// checkValidateEnabled gates the deliverable-check review pass (default ON; MAGI_CHECK_VALIDATE=0 for
+// an A/B baseline that uses the authored checks as-is).
+func checkValidateEnabled() bool { return !envOff("MAGI_CHECK_VALIDATE") }
+
+const validateChecksSystem = "You review the executable deliverable `checks` a planning council authored, BEFORE " +
+	"they are used to gate a task. Each check is {step, deliverable, command, expect}: the `command` runs and, if " +
+	"`expect` is present, the command's output must MATCH that regular expression (no `expect` = exit-code-only). " +
+	"Return ONLY a JSON array of the checks, REPAIRED where flawed and DROPPING any that cannot be made valid. Apply:\n" +
+	"- SELF-CONSISTENCY (most important): the command's output must be ABLE to match its `expect`. A transform that " +
+	"reshapes the output away from `expect` is a bug that false-fails forever — e.g. `sort -u` collapses duplicate " +
+	"lines, so `pip show grpcio grpcio-tools | grep '^Version:' | sort -u | awk '{print $2}'` yields ONE version, " +
+	"but an expect of `^1\\.73\\.0 1\\.73\\.0$` (two) can NEVER match. FIX by removing the offending transform, or " +
+	"BETTER convert to an EXIT-CODE check (drop `expect`): chain the conditions with `&&` and `grep -q` (e.g. " +
+	"`pip show grpcio 2>/dev/null | grep -q '^Version: 1.73.0' && pip show grpcio-tools 2>/dev/null | grep -q '^Version: 1.73.0'`).\n" +
+	"- PORTABLE: the command may use ONLY tools guaranteed present (coreutils, grep/test, python3, the task's own " +
+	"toolchain). Replace `ss`/`netstat`/`lsof` with a dependency-free python socket connect.\n" +
+	"- EXERCISES the deliverable: a bare file-existence/size check for something that must BEHAVE or produce a " +
+	"correct value is too weak; keep/author a check that RUNS it and asserts the outcome.\n" +
+	"- Preserve each check's `step` label exactly. Keep `expect` ONLY when it reliably matches correct output; " +
+	"otherwise drop `expect` and rely on the exit code. Do NOT invent new checks or change what a check verifies — " +
+	"only repair HOW it verifies. Return [] if none survive. JSON array only, no prose, no code fence."
+
+// validateChecks runs a tool-free review over the plan-audit's deliverable checks, repairing or
+// dropping ones whose command cannot satisfy its own expect, uses a missing tool, or only asserts a
+// file exists. Best-effort: on a disabled flag, an empty set, a transport failure, or an unparseable
+// reply it returns the input UNCHANGED, so the review never blocks a plan.
+func (a *App) validateChecks(ctx context.Context, agent AgentSpec, s session.Session, checks []council.DeliverableCheck) []council.DeliverableCheck {
+	if !checkValidateEnabled() || len(checks) == 0 {
+		return checks
+	}
+	in, err := json.Marshal(checks)
+	if err != nil {
+		return checks
+	}
+	model := s.Model.Model
+	if agent.Model != (session.ModelRef{}) {
+		model = agent.Model.Model
+	}
+	raw := a.specMineCall(ctx, agent, s.ID, "check-audit", model, validateChecksSystem, string(in))
+	out, ok := parseChecksArray(raw)
+	if !ok || len(out) == 0 { // unusable review → keep the authored checks rather than drop the contract
+		return checks
+	}
+	if len(out) != len(checks) {
+		a.emitToolProgress(s.ID, plannerActor, "", "check-audit",
+			fmt.Sprintf("reviewed deliverable checks: %d → %d (repaired/dropped invalid)", len(checks), len(out)))
+	}
+	return out
+}
+
+// parseChecksArray extracts the first balanced JSON array from a review reply and unmarshals it into
+// deliverable checks. A check with no command is dropped (nothing to run).
+func parseChecksArray(raw string) ([]council.DeliverableCheck, bool) {
+	s := strings.TrimSpace(raw)
+	i, j := strings.IndexByte(s, '['), strings.LastIndexByte(s, ']')
+	if i < 0 || j <= i {
+		return nil, false
+	}
+	var cs []council.DeliverableCheck
+	if json.Unmarshal([]byte(s[i:j+1]), &cs) != nil {
+		return nil, false
+	}
+	var out []council.DeliverableCheck
+	for _, c := range cs {
+		if strings.TrimSpace(c.Command) != "" {
+			out = append(out, c)
+		}
+	}
+	return out, true
 }
 
 // cachedChecks returns this turn's per-step executable deliverable checks (set by the
