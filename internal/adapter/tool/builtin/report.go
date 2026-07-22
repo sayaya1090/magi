@@ -16,21 +16,27 @@ import (
 type Report struct{}
 
 type reportArgs struct {
-	Summary string `json:"summary"`
-	Status  string `json:"status"`
-	Details string `json:"details"`
+	Summary    string `json:"summary"`
+	Status     string `json:"status"`
+	Details    string `json:"details"`
+	Evidence   string `json:"evidence"`
+	Deviations string `json:"deviations"`
+	Handoff    string `json:"handoff"`
 }
 
 func (Report) Name() string { return "report" }
 func (Report) Description() string {
 	return "End your turn and hand your result to the orchestrator. WRITE your actual answer/findings as your " +
-		"normal message FIRST (it streams to the user live), THEN call this. Fields: status = \"done\", " +
-		"\"blocked\" (need something only the orchestrator can give — say what), or \"failed\" (say why); summary " +
-		"(optional, only if you did NOT already write your answer); details (optional). After reporting you stop — " +
-		"do NOT use bash/echo to present results."
+		"normal message FIRST (it streams to the user live), THEN call this to close the loop on what you were " +
+		"asked. Fields: status = \"done\", \"blocked\" (need something only the orchestrator can give — say what), " +
+		"or \"failed\" (say why); summary (optional, only if you did NOT already write your answer); " +
+		"evidence (for \"done\": the command you RAN and its real output that proves the deliverable passes — a " +
+		"claim without evidence is not done); deviations (assumptions you made, workarounds, any boundary you " +
+		"could not hold — omit if none); handoff (facts the next step needs: interfaces/identifiers/paths you " +
+		"produced — omit if none); details (optional). After reporting you stop — do NOT use bash/echo to present results."
 }
 func (Report) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"status":{"type":"string","enum":["done","blocked","failed"]},"summary":{"type":"string"},"details":{"type":"string"}},"required":["status"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"status":{"type":"string","enum":["done","blocked","failed"]},"summary":{"type":"string"},"evidence":{"type":"string"},"deviations":{"type":"string"},"handoff":{"type":"string"},"details":{"type":"string"}},"required":["status"]}`)
 }
 
 func (Report) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
@@ -56,7 +62,10 @@ func (Report) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv
 	// exercised (internal/app.runGuard.unverifiedDeliverable), and when the PARENT turn finishes
 	// the review-gate tester runs the merged deliverable for real. Both are language-agnostic;
 	// "blocked"/"failed" remain honest outcomes that always pass through.
-	if err := env.Report(a.Summary, status, a.Details); err != nil {
+	if err := env.Report(port.ReportInput{
+		Summary: a.Summary, Status: status, Details: a.Details,
+		Evidence: a.Evidence, Deviations: a.Deviations, Handoff: a.Handoff,
+	}); err != nil {
 		return errResult("", err.Error()), nil
 	}
 	return okText("", "Report filed (status: "+status+"). Your turn is complete."), nil

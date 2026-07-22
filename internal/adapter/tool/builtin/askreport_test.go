@@ -33,11 +33,11 @@ func TestReportExecute(t *testing.T) {
 	if r, _ := (Report{}).Execute(ctx, json.RawMessage(`{"summary":"s"}`), port.ToolEnv{}); !r.IsError {
 		t.Error("report without env.Report should error")
 	}
-	var gotStatus string
-	env := port.ToolEnv{Report: func(summary, status, details string) error { gotStatus = status; return nil }}
-	// A known status passes through.
-	if r, _ := (Report{}).Execute(ctx, json.RawMessage(`{"summary":"s","status":"blocked"}`), env); r.IsError || gotStatus != "blocked" {
-		t.Errorf("blocked status = %q (err=%v)", gotStatus, r.IsError)
+	var gotStatus, gotEvidence string
+	env := port.ToolEnv{Report: func(in port.ReportInput) error { gotStatus = in.Status; gotEvidence = in.Evidence; return nil }}
+	// A known status passes through, and the structured fields reach the callback.
+	if r, _ := (Report{}).Execute(ctx, json.RawMessage(`{"summary":"s","status":"blocked","evidence":"ran X → ok"}`), env); r.IsError || gotStatus != "blocked" || gotEvidence != "ran X → ok" {
+		t.Errorf("blocked status = %q evidence = %q (err=%v)", gotStatus, gotEvidence, r.IsError)
 	}
 	// An unknown/empty status normalizes to "done".
 	(Report{}).Execute(ctx, json.RawMessage(`{"summary":"s","status":"weird"}`), env)

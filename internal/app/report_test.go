@@ -167,6 +167,40 @@ func TestSubagentNudgedToReportWhenTrailingOff(t *testing.T) {
 	}
 }
 
+// subReport.result renders the delegation-loop sections after the status+answer, in weight order,
+// omitting empty ones and never repeating a section already folded into the answer body.
+func TestSubReportResultSections(t *testing.T) {
+	r := &subReport{
+		status: "done", details: "impl in kv.go",
+		evidence:   "grpcurl Get k → val:7",
+		deviations: "assumed port 5328 free",
+		handoff:    "server on :5328, class Server",
+	}
+	got := r.result("built the KV server")
+	for _, want := range []string{
+		"STATUS: DONE\nbuilt the KV server",
+		"DETAILS: impl in kv.go",
+		"EVIDENCE: grpcurl Get k → val:7",
+		"DEVIATIONS: assumed port 5328 free",
+		"HANDOFF: server on :5328, class Server",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("result missing %q\n---\n%s", want, got)
+		}
+	}
+	// Ordering: EVIDENCE before DEVIATIONS before HANDOFF (weight order).
+	if !(strings.Index(got, "EVIDENCE") < strings.Index(got, "DEVIATIONS") &&
+		strings.Index(got, "DEVIATIONS") < strings.Index(got, "HANDOFF")) {
+		t.Errorf("sections out of weight order:\n%s", got)
+	}
+	// Empty sections omitted; a section already in the answer body is not repeated.
+	lean := &subReport{status: "blocked", evidence: "in the answer"}
+	g2 := lean.result("could not compile: in the answer")
+	if strings.Contains(g2, "EVIDENCE:") || strings.Contains(g2, "DEVIATIONS") || strings.Contains(g2, "HANDOFF") {
+		t.Errorf("empty/duplicate sections must be omitted, got %q", g2)
+	}
+}
+
 // A blocked report surfaces its status so the orchestrator won't read it as done.
 func TestSubagentReportBlockedStatus(t *testing.T) {
 	a, parent := newReportApp(t, "blocked")

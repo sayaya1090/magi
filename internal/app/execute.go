@@ -165,9 +165,9 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		}
 	}
 	var askFn func(string) (string, error)
-	var reportFn func(summary, status, details string) error
+	var reportFn func(port.ReportInput) error
 	if s.Parent != "" {
-		reportFn = func(summary, status, details string) error { return a.fileReport(sid, summary, status, details) }
+		reportFn = func(in port.ReportInput) error { return a.fileReport(sid, in) }
 		if s.Escalatable {
 			// Background-dispatched: the orchestrator stays in its loop and answers asks.
 			askFn = func(q string) (string, error) { return a.escalate(ctx, s.Parent, agent.Name, q) }

@@ -196,6 +196,21 @@ type Tool interface {
 	Execute(ctx context.Context, args json.RawMessage, env ToolEnv) (session.ToolResult, error)
 }
 
+// ReportInput is a subagent's structured final report — the output side of the delegation
+// contract, mirroring the curated brief it was given. Only Status is required; the rest close
+// the loop on the delegated deliverable so the orchestrator/council can judge on evidence:
+// Summary/Details carry the result narrative, Evidence is the verification that proves "done",
+// Deviations surfaces assumptions/workarounds/unmet boundaries (management-by-exception), and
+// Handoff hands the next step the facts it needs.
+type ReportInput struct {
+	Summary    string
+	Status     string
+	Details    string
+	Evidence   string
+	Deviations string
+	Handoff    string
+}
+
 // ToolEnv carries per-execution context and capabilities granted to a tool.
 type ToolEnv struct {
 	SessionID session.SessionID
@@ -240,7 +255,7 @@ type ToolEnv struct {
 	// Report is how a subagent delivers its FINAL result and ends its turn:
 	// status is "done" | "blocked" | "failed". Set only for subagents. Returns an
 	// error if called by a non-subagent or after a report was already filed.
-	Report func(summary, status, details string) error
+	Report func(ReportInput) error
 	// ResolveConcern retires a structural concern from the durable ledger by key.
 	// Set ONLY for the top-level orchestrator (depth 0); nil for subagents. It is
 	// advisory-only: a concern that is still true is re-raised deterministically on
