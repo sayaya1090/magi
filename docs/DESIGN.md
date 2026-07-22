@@ -317,6 +317,11 @@ type DeliberationRequest struct {
     Diff     string         // 선택: 작업 diff (git diff; 비-git 작업폴더면 비어 있음)
     Members  []CouncilMember
     Rule     string         // unanimous|majority|quorum:k|weighted:θ|veto
+    Debate   bool           // MAGI_COUNCIL_DEBATE: SPLIT would-be-done → 위원 반박 1라운드 재폴링
+    Devil    bool           // MAGI_COUNCIL_DEVIL: 무-split done → 데빌 우려를 위원이 비판적으로 재판정(구속 투표 아님)
+    Keep     bool           // MAGI_COUNCIL_KEEP: 위원이 "유지할 부분"을 명시 → continue 피드백에 자문으로 실림(plan 리비전에도)
+    // 후속 필드(DeltaRound·CarriedDone·PriorConcern·DefaultModel·StepsLeft·NoChanges·Changes)는 port.go 참조.
+    // Phase="plan"이면 결과 Deliberation에 위원이 제안한 Criteria + 실행형 deliverable Checks가 담긴다(D17, F-COUNCIL R12).
 }
 // 증거 출처: Diff는 git diff라 비-git 작업폴더(샌드박스 태스크 디렉터리)에선 비어 →
 // 생성물 판단 불가로 종료 게이트가 무한 churn하던 문제를, 이번 턴의 "툴 결과"(Actions)를
