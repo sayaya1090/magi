@@ -213,6 +213,7 @@ func run() int {
 		output          = flag.String("output", "text", "output format: text|json")
 		model           = flag.String("model", env("MAGI_MODEL", "gpt-oss:120b-cloud"), "model id")
 		baseURL         = flag.String("base-url", env("MAGI_BASE_URL", "http://localhost:11434/v1"), "OpenAI-compatible base URL")
+		apiKey          = flag.String("api-key", env("MAGI_API_KEY", os.Getenv("OPENAI_API_KEY")), "API key for the backend (or set MAGI_API_KEY; note a CLI value is visible in the process list)")
 		permission      = flag.String("permission", env("MAGI_PERMISSION", ""), "tool permission policy: ask|auto|allow|deny (auto = accept edits, confirm commands)")
 		profile         = flag.String("profile", env("MAGI_PROFILE", ""), "guardrail posture: safe|standard|yolo")
 		workflow        = flag.Bool("workflow", env("MAGI_WORKFLOW", "") != "", "drive the task through the deterministic localize→implement→verify→review pipeline")
@@ -352,6 +353,13 @@ func run() int {
 	if !explicit["base-url"] && os.Getenv("MAGI_BASE_URL") == "" && cfg.BaseURL != "" {
 		baseURLVal = cfg.BaseURL
 	}
+	// API key precedence: --api-key flag > MAGI_API_KEY > OPENAI_API_KEY > config api_key. The flag's
+	// default already resolves the two env vars, so config only fills in when the flag was not passed
+	// and neither env is set (mirrors base-url; config api_key was previously inert for the main backend).
+	apiKeyVal := *apiKey
+	if !explicit["api-key"] && os.Getenv("MAGI_API_KEY") == "" && os.Getenv("OPENAI_API_KEY") == "" && cfg.APIKey != "" {
+		apiKeyVal = config.ExpandEnv(cfg.APIKey)
+	}
 
 	var llmOpts []openai.Option
 	if !*noCache {
@@ -363,7 +371,7 @@ func run() int {
 	if cfg.Limits.MaxOutputTokens > 0 {
 		llmOpts = append(llmOpts, openai.WithMaxTokens(cfg.Limits.MaxOutputTokens)) // [limits] max_output_tokens
 	}
-	llm := openai.New(baseURLVal, env("MAGI_API_KEY", os.Getenv("OPENAI_API_KEY")), llmOpts...)
+	llm := openai.New(baseURLVal, apiKeyVal, llmOpts...)
 
 	if *doctor {
 		// Plugin-contributed probes: load plugins far enough to collect their

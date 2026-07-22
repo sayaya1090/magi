@@ -14,6 +14,7 @@ import (
 type Config struct {
 	Model         string               `toml:"model"`
 	BaseURL       string               `toml:"base_url"`
+	APIKey        string               `toml:"api_key"` // default backend key; ${ENV} expanded. Flag/env override (see cmd/magi)
 	Permission    string               `toml:"permission"`
 	MCP           map[string]MCPServer `toml:"mcp"`            // name -> server
 	Routing       map[string]string    `toml:"routing"`        // agent name -> model (M6 routing)
