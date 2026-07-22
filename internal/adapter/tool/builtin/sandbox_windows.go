@@ -16,9 +16,23 @@ import (
 // so there is no argv to rewrite.
 func sandboxArgv(spec port.SandboxSpec, command string) ([]string, bool) { return nil, false }
 
-// detachTTY is a no-op on Windows: there is no controlling-terminal concept to detach
-// (interactive console handling differs), and any sandbox token is left intact.
-func detachTTY(attr *syscall.SysProcAttr) *syscall.SysProcAttr { return attr }
+// detachTTY denies the foreground command a console. Windows has no controlling terminal,
+// but its analog of "no tty, so an interactive prompt fails fast instead of hanging" is
+// DETACHED_PROCESS: the child inherits no console, so ssh/git/sudo host-key or password reads
+// — which use the console directly, not stdin — fail immediately rather than blocking on the
+// console the agent process owns (a foreground `ssh host cmd` on a first-seen host otherwise
+// hangs on "Are you sure you want to continue connecting?" AND freezes the shared-console TUI,
+// while the timeout kills only the shell and leaves the ssh grandchild holding that console).
+// stdout/stderr are redirected to a file, so the missing console costs nothing for output, and
+// programs that truly need a terminal go through the explicit pty path (background+pty=true).
+// A sandbox Token, when present, is preserved.
+func detachTTY(attr *syscall.SysProcAttr) *syscall.SysProcAttr {
+	if attr == nil {
+		attr = &syscall.SysProcAttr{}
+	}
+	attr.CreationFlags |= windows.DETACHED_PROCESS
+	return attr
+}
 
 // killGroup is a no-op on Windows: there is no POSIX process-group signalling, and
 // the background command's context-cancel already terminates its process. Callers
