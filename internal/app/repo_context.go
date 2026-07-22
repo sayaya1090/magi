@@ -71,7 +71,7 @@ func repoContext(workdir string) string {
 	}
 	sort.Slice(ents, func(i, j int) bool { return ents[i].Name() < ents[j].Name() })
 	var b strings.Builder
-	const maxTopEntries, maxChildEntries = 60, 20
+	const maxTopEntries, maxChildEntries = 40, 12
 	top := 0
 	var anchors []string
 	for _, e := range ents {
@@ -121,8 +121,10 @@ func repoContext(workdir string) string {
 			anchors = append(anchors, n)
 		}
 	}
-	// Peek at the anchor files: the opening lines carry the toolchain/layout the plan must fit.
-	const maxAnchors, anchorLineCap, anchorByteCap = 4, 40, 1500
+	// Peek at the anchor files: a SHORT opening peek carries the toolchain signal; the agent can
+	// read the full file on demand, so this stays tight (the excerpts were the bulk of orient's
+	// context weight — 4×1500B — for grounding that a name + a few lines already conveys).
+	const maxAnchors, anchorLineCap, anchorByteCap = 3, 12, 500
 	if len(anchors) > maxAnchors {
 		anchors = anchors[:maxAnchors]
 	}

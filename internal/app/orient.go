@@ -9,10 +9,12 @@ import (
 )
 
 // maybeOrient runs the explore-first grounding pass: once per session, it lands the workspace's
-// deterministic build/verify anchors and layout (repoContext) into the MAIN agent's context as a
-// factual system message, BEFORE the planner preflight. The planner reads the session window
-// (runPlanner → plannerWindow), so this single injection grounds both the executor and the plan in
-// the real environment instead of the instruction prose alone.
+// deterministic layout and setup files (repoContext) into the MAIN agent's context as a factual
+// system message, BEFORE the planner preflight, and directs the agent to check the task's real
+// prerequisites (tools, deps, files, services, access) and provision what is missing — rather than
+// presuming a build/test step, since not every task builds code. The planner reads the session
+// window (runPlanner → plannerWindow), so this single injection grounds both the executor and the
+// plan in the real environment instead of the instruction prose alone.
 //
 // Gated by orientEnabled and, at the call site, to the first cold, write-capable top-level turn.
 // It is deterministic and hard-bounded (repoContext's own entry/byte caps), and injects FACTS —
@@ -41,8 +43,10 @@ func (a *App) maybeOrient(ctx context.Context, s session.Session) {
 	}
 
 	text := "# Working environment (oriented once, before you start)\n\n" + repo +
-		"\n\n---\nThese are the REAL build/verify anchors and layout of this workspace. Use the " +
-		"existing build/test mechanism shown above rather than inventing one, and edit the files " +
-		"that already exist rather than creating parallel ones."
+		"\n\n---\nThis is the workspace as it exists now. Before starting, work out what THIS task actually " +
+		"requires — the tools, dependencies, files, services, or access it needs — and check each is present; " +
+		"set up or create what is missing instead of assuming it, and build on what is already here rather than " +
+		"adding parallel structures. Not every task is a build task, so ground in the task's real prerequisites, " +
+		"not a presumed compile/test step."
 	_ = a.appendPromptText(ctx, s.ID, event.Actor{Kind: event.ActorSystem, ID: "orient"}, text)
 }
