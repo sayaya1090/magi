@@ -69,18 +69,15 @@ func specFidelityEnabled() bool { return !envOff("MAGI_SPEC_FIDELITY") }
 // signatures, the requirements the prose leaves unsaid plus the standard idiom for
 // that situation — injected as a finished note the executor consumes.
 //
-// Default OFF (MAGI_SPEC_MINE=1 opts in). It was briefly defaulted ON again on the theory
-// that the mined identifiers would feed the curated brief's verbatim `literals` defense — but
-// that was wrong twice over: the mine's output does not actually flow into the curator packet,
-// and on a solo-planned task (no curator engaged at all) the note just re-primes the executor
-// AND the council with "honor kv-store verbatim", which is exactly the literal-drift 978d1e0
-// turned it off for. A live kv-store-grpc run reproduced it: the agent produced the correct
-// underscore `kv_store_pb2.py` and a running server, then the council — pushed by that verbatim
-// pressure — rejected it as "not matching the hyphenated proto filename" and drove a rename to
-// `kv-store_pb2.py` (a Python SyntaxError), thrashing a solved task. So the mine stays OFF: on a
-// weak executor its cost (a wrong-identifier / false-premise nudge) outweighs the occasional
-// strong-model uplift. Opt in per run for A/B only.
-func specMineEnabled() bool { return envOn("MAGI_SPEC_MINE") }
+// Default ON (MAGI_SPEC_MINE=off opts out). The kv-store-grpc regression that once justified
+// turning it off — the note pushing "honor kv-store verbatim", which made the council reject the
+// correct underscore `kv_store_pb2.py` and drive a rename to the hyphenated form (a Python
+// SyntaxError) — is addressed at the source: the mining prompt and the injected note now carry a
+// tool-derived-name guard (a name a compiler/generator/language DERIVES follows the tool's real
+// output, never the request's raw spelling — see specmine.go). That caveat rides the note into the
+// termination council too, so both the executor and the reviewers stop treating a generated name as
+// a fixed literal. The mine's TRUTH is still bounded by the eliciting model, so it stays A/B-gated.
+func specMineEnabled() bool { return !envOff("MAGI_SPEC_MINE") }
 
 // workdirCheckpointEnabled gates the opt-in work-tree rollback (checkpoint.go): before a subagent's
 // first attempt the work-tree is snapshotted into a PRIVATE scratch git-dir (never the user's own

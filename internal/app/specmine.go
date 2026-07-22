@@ -32,7 +32,15 @@ const elicitSpecMineSystem = "You review a coding request's NAMES and TYPE SIGNA
 	"shape. Prefer the named standard construct over hand-assembling the mechanism from lower-level " +
 	"parts — the idiom already carries the edge semantics (ordering, cancellation, partial failure) a " +
 	"hand-rolled version drops. Derive ONLY what the given surfaces actually imply — do not invent " +
-	"requirements. If no surface implies anything beyond the prose, say NONE."
+	"requirements.\n" +
+	"CRITICAL — do NOT treat a name that a compiler, code generator, or language convention DERIVES from " +
+	"the request as a fixed literal to preserve. A generated module/file name, or an identifier a tool " +
+	"sanitizes (a hyphenated `.proto` filename yields an UNDERSCORED Python module; `protoc`/`grpc_tools` " +
+	"emit `foo_bar_pb2.py`, never `foo-bar_pb2.py`), takes whatever form the tool ACTUALLY emits — forcing " +
+	"the request's raw spelling onto it breaks the build. For such a name, the requirement is 'use the " +
+	"generator's real output', and the construct is the tool that produces it; never 'match the raw " +
+	"filename/spelling'.\n" +
+	"If no surface implies anything beyond the prose, say NONE."
 
 // distillSpecMineSystem instructs pass 2: compress the pass-1 analysis into a strict
 // JSON shape. Compression of GIVEN text is a task weak models perform far more
@@ -172,6 +180,10 @@ func (a *App) cachedSpecMine(sid session.SessionID) string {
 func specMineNote(mined string) string {
 	return "# Execution note — requirements mined from the request's identifiers/types\n" +
 		"Derived from the request's own names and type signatures (not from its prose). Honor these " +
-		"alongside the stated requirements, and prefer the named standard construct over hand-rolling:\n" +
+		"alongside the stated requirements, and prefer the named standard construct over hand-rolling. " +
+		"But a name a tool or language DERIVES (a generated module/file, a sanitized identifier — e.g. a " +
+		"hyphenated `.proto` filename becomes an UNDERSCORED Python module) follows the tool's ACTUAL " +
+		"output; never force the request's raw spelling onto a generated name, and don't fault one for not " +
+		"matching it:\n" +
 		mined
 }
