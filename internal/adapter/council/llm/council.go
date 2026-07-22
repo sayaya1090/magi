@@ -751,7 +751,18 @@ func planMemberSystem(m council.Member, lens string, keep bool) string {
 			"trapping the run in a re-verify loop until timeout. In particular, to test that a server LISTENS on a port, "+
 			"do NOT use `ss`/`netstat`/`lsof` (routinely missing in minimal images) — use a dependency-free connect, e.g. "+
 			"command `python3 -c \"import socket,sys; sys.exit(0 if socket.socket().connect_ex(('localhost',PORT))==0 else 1)\"` "+
-			"(or `curl -sf http://localhost:PORT/...` for HTTP). Propose checks ONLY when they are concrete and would "+
+			"(or `curl -sf http://localhost:PORT/...` for HTTP). WORK AND CHECK ARE SEPARATE — the verifying command "+
+			"must be IDEMPOTENT and cause NO state change: it may be run any number of times with the same result and "+
+			"no side effects, because it VERIFIES the deliverable, it never PERFORMS, re-performs, or substitutes for the "+
+			"step's own work. A command that PRODUCES or MUTATES the artifact — compress, download, build, generate, move, "+
+			"delete (`tar -czf`, `scp`/`rsync`, `rm`, `mv`, a `>` redirect that writes the deliverable, `git commit`) — IS "+
+			"the work, NOT a check: running it as the check re-does the step every gate cycle and false-fails on any "+
+			"transient error, trapping the run in a redo loop (observed: a download step whose 'check' was "+
+			"`ssh host 'tar -czf /tmp/b.tgz DIR'` re-compressed the remote tree, exited non-zero, and re-ran the download "+
+			"forever). Instead probe the ALREADY-produced artifact at its FINAL location read-only: to verify a downloaded "+
+			"archive use `test -s ./out.tgz` or `tar -tzf ./out.tgz >/dev/null` (LIST, never CREATE); to verify a build, "+
+			"RUN the built binary — never re-invoke the build as the check. Verify the step's OWN stated deliverable, not "+
+			"an intermediate. Propose checks ONLY when they are concrete and would "+
 			"genuinely pass for correct work — commands must be non-destructive and deterministic. SMOKE CHECK when "+
 			"full correctness is UNVERIFIABLE: a step that PRODUCES a runnable artifact (a program, script, generated "+
 			"file) must ALWAYS get at least a SMOKE check even when you cannot check the exact answer because the "+

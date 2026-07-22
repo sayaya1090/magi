@@ -85,6 +85,13 @@ const validateChecksSystem = "You review the executable deliverable `checks` a p
 	"toolchain). Replace `ss`/`netstat`/`lsof` with a dependency-free python socket connect.\n" +
 	"- EXERCISES the deliverable: a bare file-existence/size check for something that must BEHAVE or produce a " +
 	"correct value is too weak; keep/author a check that RUNS it and asserts the outcome.\n" +
+	"- IDEMPOTENT, NO STATE CHANGE (work≠check): a check must VERIFY the deliverable read-only, never PERFORM the " +
+	"step's work. DROP or repair any command that CREATES/MUTATES the artifact — compress/download/build/generate/" +
+	"move/delete (`tar -czf`, `scp`/`rsync`, `rm`, `mv`, a `>` redirect that writes the deliverable, `git commit`): " +
+	"re-doing the work as its own check re-runs the step every gate cycle and false-fails on any transient error, " +
+	"trapping the run in a redo loop. Replace with an idempotent read-only probe of the already-produced artifact at " +
+	"its final path (`tar -tzf f.tgz` LIST not `-czf` CREATE, `test -s f`, run the built binary not re-build it). " +
+	"Verify the step's stated deliverable, not an intermediate.\n" +
 	"- Preserve each check's `step` label exactly. Keep `expect` ONLY when it reliably matches correct output; " +
 	"otherwise drop `expect` and rely on the exit code. Do NOT invent new checks or change what a check verifies — " +
 	"only repair HOW it verifies. Return [] if none survive. JSON array only, no prose, no code fence."
