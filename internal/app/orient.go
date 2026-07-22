@@ -43,10 +43,7 @@ func (a *App) maybeOrient(ctx context.Context, s session.Session) {
 	}
 
 	text := "# Working environment (oriented once, before you start)\n\n" + repo +
-		"\n\n---\nThis is the workspace as it exists now. Before starting, work out what THIS task actually " +
-		"requires — the tools, dependencies, files, services, or access it needs — and check each is present; " +
-		"set up or create what is missing instead of assuming it, and build on what is already here rather than " +
-		"adding parallel structures. Not every task is a build task, so ground in the task's real prerequisites, " +
-		"not a presumed compile/test step."
+		"\n\n---\nThis is the workspace as it exists now — build on what is already here (its files, tools, and " +
+		"conventions) rather than adding parallel structures."
 	_ = a.appendPromptText(ctx, s.ID, event.Actor{Kind: event.ActorSystem, ID: "orient"}, text)
 }

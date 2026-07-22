@@ -23,16 +23,23 @@ const specMineAgent = "specmine"
 // conflicts yourself" rule produced a page of out-loud arguing that talked itself out
 // of the right construct). Pass 2 distills. The one goal survives: find where a
 // prose-only implementation goes wrong.
-const elicitSpecMineSystem = "You review a coding request's NAMES and TYPE SIGNATURES with ONE goal: find " +
-	"where an implementation written from the prose alone would go WRONG. For each identifier, " +
-	"parameter/return type, or stated format that guards against such a failure, note: the surface, the " +
-	"unsaid requirement it implies, and the STANDARD construct (name it) the language/stdlib provides " +
-	"that satisfies it. Reason from what the surfaces state: a type constrains what its values — and " +
-	"their lifecycles — can do; a name like max_*/timeout_*/n_* states an exact bound; a format fixes " +
-	"shape. Prefer the named standard construct over hand-assembling the mechanism from lower-level " +
-	"parts — the idiom already carries the edge semantics (ordering, cancellation, partial failure) a " +
-	"hand-rolled version drops. Derive ONLY what the given surfaces actually imply — do not invent " +
-	"requirements.\n" +
+const elicitSpecMineSystem = "You read a coding request and work out, BEFORE any code is written, what it " +
+	"actually takes to satisfy it — on two fronts.\n" +
+	"FIRST, its NAMES and TYPE SIGNATURES: find where an implementation written from the prose alone would " +
+	"go WRONG. For each identifier, parameter/return type, or stated format that guards against such a " +
+	"failure, note: the surface, the unsaid requirement it implies, and the STANDARD construct (name it) the " +
+	"language/stdlib provides that satisfies it. Reason from what the surfaces state: a type constrains what " +
+	"its values — and their lifecycles — can do; a name like max_*/timeout_*/n_* states an exact bound; a " +
+	"format fixes shape. Prefer the named standard construct over hand-assembling the mechanism from " +
+	"lower-level parts — the idiom already carries the edge semantics (ordering, cancellation, partial " +
+	"failure) a hand-rolled version drops.\n" +
+	"SECOND, its PREREQUISITES: the things that must already exist or be provisioned for the work to succeed, " +
+	"which the request names but an implementation tends to ASSUME are present — an exact dependency and " +
+	"version to install, a service/process that must be running, a file/directory/port/credential to create " +
+	"or open, a tool that must be on PATH. For each, the requirement is what to CHECK, and the construct is " +
+	"the concrete action that PROVISIONS it when absent (the install/create/start command). Understanding " +
+	"what the task needs comes first; provisioning follows from it.\n" +
+	"Derive ONLY what the given surfaces actually imply — do not invent requirements.\n" +
 	"CRITICAL — do NOT treat a name that a compiler, code generator, or language convention DERIVES from " +
 	"the request as a fixed literal to preserve. A generated module/file name, or an identifier a tool " +
 	"sanitizes (a hyphenated `.proto` filename yields an UNDERSCORED Python module; `protoc`/`grpc_tools` " +
@@ -178,9 +185,10 @@ func (a *App) cachedSpecMine(sid session.SessionID) string {
 // specMineNote wraps a mined result for injection into the main session. The header
 // mirrors the other execution notes so the executor reads it as system guidance.
 func specMineNote(mined string) string {
-	return "# Execution note — requirements mined from the request's identifiers/types\n" +
-		"Derived from the request's own names and type signatures (not from its prose). Honor these " +
-		"alongside the stated requirements, and prefer the named standard construct over hand-rolling. " +
+	return "# Execution note — what this task needs (its identifiers, types, and prerequisites)\n" +
+		"Worked out from the request's own names, type signatures, and stated dependencies (not its prose). " +
+		"Honor the identifiers/formats exactly and prefer the named standard construct over hand-rolling; and " +
+		"CHECK each prerequisite below is actually present, provisioning what is missing BEFORE you rely on it. " +
 		"But a name a tool or language DERIVES (a generated module/file, a sanitized identifier — e.g. a " +
 		"hyphenated `.proto` filename becomes an UNDERSCORED Python module) follows the tool's ACTUAL " +
 		"output; never force the request's raw spelling onto a generated name, and don't fault one for not " +
