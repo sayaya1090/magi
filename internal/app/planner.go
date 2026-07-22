@@ -440,17 +440,11 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 		tag = "re-plan (decompose)"
 	}
 	a.emitToolProgress(s.ID, plannerActor, "", "planner", tag+": generating…")
-	stream, err := a.providerFor(spec).StreamChat(ctx, req)
+	text, err := a.drainText(ctx, spec, req) // stall-watchdog drain: a hung re-plan generate aborts, not wall-clock
 	if err != nil {
 		return planResult{}
 	}
-	var b strings.Builder
-	for ev := range stream {
-		if ev.Type == port.ProviderText {
-			b.WriteString(ev.Text)
-		}
-	}
-	res := parsePlan(b.String())
+	res := parsePlan(text)
 	if len(res.Steps) == 0 {
 		// Weak models often bury the JSON under pages of reasoning, or ramble until the output
 		// budget cuts the object off mid-string — both leave no balanced plan object to parse
@@ -458,17 +452,11 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 		// unparseable → no plan → the solo fallback flailed into the loop guard). Give ONE focused
 		// retry that forbids all prose, so the bare object is emitted (and fits the budget).
 		a.emitToolProgress(s.ID, plannerActor, "", "planner",
-			fmt.Sprintf("%s: no parseable plan (%d chars) — retrying JSON-only", tag, b.Len()))
+			fmt.Sprintf("%s: no parseable plan (%d chars) — retrying JSON-only", tag, len(text)))
 		retry := req
 		retry.System = sys + "\n\n" + planJSONOnlyReminder
-		if stream2, err2 := a.providerFor(spec).StreamChat(ctx, retry); err2 == nil {
-			var b2 strings.Builder
-			for ev := range stream2 {
-				if ev.Type == port.ProviderText {
-					b2.WriteString(ev.Text)
-				}
-			}
-			if r2 := parsePlan(b2.String()); len(r2.Steps) > 0 {
+		if text2, err2 := a.drainText(ctx, spec, retry); err2 == nil {
+			if r2 := parsePlan(text2); len(r2.Steps) > 0 {
 				return r2
 			}
 		}
