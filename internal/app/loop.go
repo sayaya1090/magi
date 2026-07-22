@@ -335,23 +335,45 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		req, evs := a.buildStepRequest(ctx, tc, evs, step, cumOut)
 
 		stepStart := time.Now()
-		// A cancelable child ctx so the reasoning-spin guard can stop a runaway response mid-stream
-		// (see consumeStream). Cancelling streamCtx (not ctx) leaves the turn's own context intact.
-		streamCtx, streamCancel := context.WithCancel(ctx)
-		stream, err := a.providerFor(agent).StreamChat(streamCtx, req)
-		if err != nil {
+		var res streamStep
+		var msgID, textPartID, reasonPartID string
+		for sAttempt := 0; ; sAttempt++ {
+			// A cancelable child ctx so the reasoning-spin and stall guards can stop a response
+			// mid-stream (see consumeStream). Cancelling streamCtx (not ctx) leaves the turn's context
+			// intact. stepStart is reset each attempt so a stalled retry doesn't bias the latency meter.
+			stepStart = time.Now()
+			streamCtx, streamCancel := context.WithCancel(ctx)
+			stream, err := a.providerFor(agent).StreamChat(streamCtx, req)
+			if err != nil {
+				streamCancel()
+				a.emitError(ctx, sid, agentActor, err.Error())
+				return lastText, err
+			}
+			msgID = "m_" + newID()
+			textPartID = "p_" + newID()
+			reasonPartID = "p_" + newID()
+			var serr error
+			res, serr = a.consumeStream(streamCtx, sid, agentActor, stream, msgID, textPartID, reasonPartID, streamCancel)
 			streamCancel()
-			a.emitError(ctx, sid, agentActor, err.Error())
-			return lastText, err
-		}
-
-		msgID := "m_" + newID()
-		textPartID := "p_" + newID()
-		reasonPartID := "p_" + newID()
-		res, serr := a.consumeStream(streamCtx, sid, agentActor, stream, msgID, textPartID, reasonPartID, streamCancel)
-		streamCancel()
-		if serr != nil {
-			return lastText, serr
+			if serr != nil {
+				return lastText, serr
+			}
+			// Stall-retry: the stream produced NO output for streamStallTimeout (a hung/silent backend).
+			// Re-issue the SAME request rather than strand the turn until the wall clock — a transient
+			// stall recovers on retry, and nothing was committed (the guard fires only before the first
+			// token), so re-generating is safe. noteStep charges the wasted attempt so a permanently
+			// silent backend still trips the step budget instead of looping.
+			if res.stalled && sAttempt < maxStreamStallRetries && ctx.Err() == nil {
+				a.emitToolProgress(sid, agentActor, "", agent.Name, fmt.Sprintf("no response for %s — retrying the request", streamStallTimeout))
+				guard.noteStep()
+				continue
+			}
+			if res.stalled {
+				serr := fmt.Errorf("llm: no response after %d stalled attempt(s) (backend silent ~%s each)", sAttempt+1, streamStallTimeout)
+				a.emitError(ctx, sid, agentActor, serr.Error())
+				return lastText, serr
+			}
+			break
 		}
 		// Reasoning-only spin: the response was cancelled after streaming huge output with no tool
 		// call. Discard it (it's garbage), nudge the agent to ACT, and move on — the step/stall

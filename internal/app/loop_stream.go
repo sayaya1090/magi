@@ -23,7 +23,29 @@ type streamStep struct {
 	usage         *event.Usage
 	textConsumed  bool // the text was a prompt-fallback tool call, not a real answer
 	reasoningSpun bool // the response was cancelled as a reasoning-only spin (see reasoningSpinCap)
+	stalled       bool // the stream went silent before the FIRST token (hung backend) — safe to retry
 }
+
+// streamStallTimeout bounds how long a response stream may stay SILENT — no event of any kind — before
+// consumeStream aborts it. A hung or wedged backend accepts the request, returns 200, then streams
+// nothing; without this the read blocks on the turn's ctx, which for a main generate is the whole
+// task wall clock (a 45-minute silent hang observed on a stuck local backend, cobol-modernization).
+// It is INACTIVITY-based (reset by every event), so a slow-but-alive model that streams tokens or
+// reasoning is never tripped — only a truly dead stream is. A stall BEFORE the first token is
+// retryable (streamStep.stalled); a freeze mid-generation just ends the stream with the partial
+// output. Var, not const, so tests can shrink it. MAGI_STREAM_STALL overrides (0 disables).
+var streamStallTimeout = func() time.Duration {
+	if v := strings.TrimSpace(os.Getenv("MAGI_STREAM_STALL")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return time.Duration(n) * time.Second
+		}
+	}
+	return 120 * time.Second
+}()
+
+// maxStreamStallRetries bounds how many times a main generate re-issues a request that stalled before
+// its first token, before surfacing the hang as an error rather than retrying forever.
+var maxStreamStallRetries = 2
 
 // reasoningSpinCap is the max output bytes a single model response may stream WITHOUT ever emitting
 // a tool call before it is cancelled as a reasoning-only spin: a weak model that "thinks" forever
@@ -63,17 +85,23 @@ func (a *App) consumeStream(ctx context.Context, sid session.SessionID, agentAct
 	if a.cfg.MaxOutputTokens > 0 {
 		spinCap = 0 // [limits] max_output_tokens caps each response at the token level — defer to it
 	}
-	// Opt-in diagnostics (MAGI_STREAM_DIAG): distinguish a pre-finish stall (model
-	// slow / no bytes) from a post-finish drain delay (backend withholding [DONE]).
-	// idleC stays nil when disabled, so the select degenerates to a plain range.
+	// Stall watchdog: `last` is the time of the most recent event, so `now - last` is how long the
+	// stream has been silent. The ticker lets the select wake even while the backend sends nothing, so
+	// a hung stream is aborted at streamStallTimeout instead of stranding the read until the turn's
+	// wall clock. Opt-in diagnostics (MAGI_STREAM_DIAG) also log sustained gaps here.
 	var (
 		idleC    <-chan time.Time
 		last     = time.Now()
+		diagLast = time.Now()
 		finished bool
 		finishAt time.Time
 	)
-	if streamDiag {
-		t := time.NewTicker(15 * time.Second)
+	if streamStallTimeout > 0 || streamDiag {
+		tick := 15 * time.Second
+		if streamStallTimeout > 0 && streamStallTimeout < tick {
+			tick = streamStallTimeout
+		}
+		t := time.NewTicker(tick)
 		defer t.Stop()
 		idleC = t.C
 	}
@@ -88,9 +116,22 @@ loop:
 			ev = e
 			last = time.Now()
 		case now := <-idleC:
-			if gap := now.Sub(last); gap >= 20*time.Second {
+			gap := now.Sub(last)
+			// Silent past the bound → abort so a wedged backend can't hold the turn to the wall clock.
+			// No output yet ⇒ mark it retryable (the caller re-issues the request); a mid-generation
+			// freeze just ends the stream with whatever partial output already arrived.
+			if streamStallTimeout > 0 && gap >= streamStallTimeout {
+				if text.Len()+reasoning.Len() == 0 && len(res.toolCalls) == 0 {
+					res.stalled = true
+				}
+				if cancel != nil {
+					cancel()
+				}
+				break loop
+			}
+			if streamDiag && now.Sub(diagLast) >= 20*time.Second && gap >= 20*time.Second {
 				fmt.Fprintf(os.Stderr, "magi: stream idle %s (finished=%v) sid=%s\n", gap.Round(time.Second), finished, sid)
-				last = now // re-arm; report each sustained gap once
+				diagLast = now // report each sustained gap once
 			}
 			continue
 		}
