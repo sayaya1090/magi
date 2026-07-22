@@ -324,8 +324,55 @@ func (a *App) runDelegateStep(ctx context.Context, s session.Session, st planSte
 		a.setTodoStatusIf(ctx, s.ID, plannerActor, i, "in_progress", "pending")
 		return stepFinding(st.Title, "delegate FAILED — re-plan or do it yourself", "("+note+"; this sub-task is unfinished)"), false
 	}
+	// Step gate: the worker CLAIMED done, but the step only completes when its OWN deliverable checks
+	// actually PASS. A failing check means the claim is unverified — route the step to re-planning
+	// (carrying the failing-check output as the reason, so the re-plan ADAPTS instead of re-emitting the
+	// identical step) rather than advance a false "done" the council would then have to catch. There is
+	// no restart loop: re-planning is already bounded by depth/budget and can change the approach, and a
+	// worker that genuinely cannot pass a check reports it blocked/failed above (불가 + reason). This is
+	// what lets the council assume every step it sees was actually verified.
+	if pass, fails := a.verifyStepChecks(ctx, s, i); !pass {
+		a.setTodoStatusIf(ctx, s.ID, plannerActor, i, "in_progress", "pending")
+		return stepFinding(st.Title, "delegate FAILED — deliverable check unmet, re-plan",
+			"(the worker reported done but its deliverable checks FAILED:\n"+fails+"\nthis sub-task is NOT done)"), false
+	}
 	a.completeThrough(ctx, s.ID, plannerActor, i)
 	return stepFinding(st.Title, "delegated to "+agentName, text), true
+}
+
+// verifyStepChecks runs the plan-audit deliverable checks that belong to step stepIdx and reports
+// whether they ALL pass, plus a ledger of the failing ones (deliverable — command → actual output).
+// It is the deterministic half of the step gate: a delegate worker's "done" is accepted only when its
+// step's checks actually pass. Returns (true, "") when verification is inactive — flag off, no
+// platform, or no checks for this step — so it never blocks a step it cannot judge.
+func (a *App) verifyStepChecks(ctx context.Context, s session.Session, stepIdx int) (bool, string) {
+	if !stepVerifyEnabled() || a.plat == nil {
+		return true, ""
+	}
+	mine := stepChecks(a.cachedChecks(s.ID), stepIdx)
+	if len(mine) == 0 {
+		return true, ""
+	}
+	var fails []string
+	for _, c := range mine {
+		out, code := a.runVerifyCmd(ctx, s.Workdir, c.Command)
+		if code == -1 { // platform vanished mid-run: can't verify → don't block the step
+			return true, ""
+		}
+		pass := c.Passes(out, code)
+		a.emitStepCheck(ctx, s.ID, c, code, pass)
+		if !pass {
+			d := strings.TrimSpace(c.Deliverable)
+			if d == "" {
+				d = strings.TrimSpace(c.Command)
+			}
+			fails = append(fails, fmt.Sprintf("- %s — `%s` → %s", d, strings.TrimSpace(c.Command), clipLine(strings.TrimSpace(out), 200)))
+		}
+	}
+	if len(fails) == 0 {
+		return true, ""
+	}
+	return false, strings.Join(fails, "\n")
 }
 
 // workerChecklist renders the plan-audit's executable deliverable checks as an explicit acceptance
