@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/core/council"
@@ -34,5 +35,35 @@ func TestValidateChecksFlagOffPassthrough(t *testing.T) {
 	out := a.validateChecks(context.Background(), a.agentFor(s), s, in)
 	if len(out) != 1 || out[0].Command != in[0].Command {
 		t.Fatalf("flag off must return the authored checks unchanged, got %+v", out)
+	}
+}
+
+// The validation prompt must carry the work≠check principle so the review can turn a mutating,
+// non-idempotent "check" (which re-does the step's work and traps the run in a redo loop) into a
+// read-only probe. Guards the criteria.go prompt against a silent regression.
+func TestValidateChecksPromptForbidsMutatingChecks(t *testing.T) {
+	for _, want := range []string{"IDEMPOTENT", "work≠check", "tar -czf"} {
+		if !strings.Contains(validateChecksSystem, want) {
+			t.Errorf("validateChecksSystem must state the work≠check rule (missing %q)", want)
+		}
+	}
+}
+
+// With the flag on, validateChecks replaces a mutating check with the review's read-only repair:
+// the authored `ssh host 'tar -czf ...'` (which re-compresses the remote tree every gate cycle) must
+// not survive verbatim — the reviewed idempotent probe is used instead.
+func TestValidateChecksRepairsMutatingCheck(t *testing.T) {
+	t.Setenv("MAGI_CHECK_VALIDATE", "1")
+	repaired := `[{"step":"2","deliverable":"downloaded archive","command":"tar -tzf ./bench.tgz >/dev/null"}]`
+	a := newOrchApp(t, &gateLLM{text: repaired}, Config{Permission: "allow", MaxAgents: 10})
+	s := parentSession(t.TempDir())
+	in := []council.DeliverableCheck{{Step: "2", Deliverable: "downloaded archive",
+		Command: "ssh host 'tar -czf /tmp/bench.tgz /remote/dir' && echo OK"}}
+	out := a.validateChecks(context.Background(), a.agentFor(s), s, in)
+	if len(out) != 1 {
+		t.Fatalf("want 1 reviewed check, got %d", len(out))
+	}
+	if strings.Contains(out[0].Command, "tar -czf") || strings.Contains(out[0].Command, "ssh ") {
+		t.Errorf("the mutating authored check must be replaced by the read-only probe, got %q", out[0].Command)
 	}
 }

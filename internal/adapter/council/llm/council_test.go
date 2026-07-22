@@ -168,6 +168,20 @@ func TestPlanMemberPromptKeepGated(t *testing.T) {
 	}
 }
 
+// The plan-audit member authors executable checks, so its prompt must state that a check is SEPARATE
+// from the work: idempotent, no state change, never re-performing the step's own producing action. A
+// mutating "check" (tar -czf, scp, rm) re-does the step every gate cycle and traps the run in a redo
+// loop — this guards the authoring guidance against a silent regression.
+func TestPlanMemberPromptSeparatesWorkFromCheck(t *testing.T) {
+	m := council.Member{Name: "x", Lens: "correctness"}
+	p := memberSystem(m, "plan", "download and analyze the results", false)
+	for _, want := range []string{"WORK AND CHECK ARE SEPARATE", "IDEMPOTENT", "tar -czf"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("plan check-authoring prompt must forbid mutating checks (missing %q)", want)
+		}
+	}
+}
+
 // that closes the reval3 play-zork / run-pdp11 / fasttext class of false approvals.
 func TestMemberPromptRationalizedDone(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "verification"}
