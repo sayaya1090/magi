@@ -134,6 +134,10 @@ type Config struct {
 	// AllowDomains restricts WebFetch/bash network egress to these hosts (and
 	// subdomains). Empty = no host allowlist.
 	AllowDomains []string
+	// MaxOutputTokens mirrors [limits] max_output_tokens: >0 means the provider caps each response
+	// at the token level, which supersedes the reasoning-spin guard (a coarser byte-cap cancel), so
+	// the guard defers to it. 0 = provider default → the spin guard stays the backstop.
+	MaxOutputTokens int
 
 	// Agents are named subagents spawnable via the task tool.
 	Agents map[string]AgentSpec

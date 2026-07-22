@@ -51,3 +51,23 @@ func TestReasoningSpinGuard(t *testing.T) {
 		t.Error("output under the cap must not spin")
 	}
 }
+
+// When [limits] max_output_tokens is set, the provider caps each response at the token level, so
+// the coarser spin guard defers to it and never fires.
+func TestSpinGuardDefersToMaxOutput(t *testing.T) {
+	t.Setenv("MAGI_SPIN_CAP", "100")
+	a, _ := newApp(t, &fakeLLM{}, Config{Permission: "allow", MaxOutputTokens: 8000})
+	ch := make(chan port.ProviderEvent, 10)
+	for i := 0; i < 6; i++ {
+		ch <- port.ProviderEvent{Type: port.ProviderReasoning, Text: "reasoning chunk of some length "}
+	}
+	close(ch)
+	res, err := a.consumeStream(context.Background(), session.SessionID("s"),
+		event.Actor{Kind: event.ActorAgent, ID: "x"}, ch, "m", "pt", "pr", func() {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.reasoningSpun {
+		t.Error("with max_output_tokens set, the spin guard must defer (not fire)")
+	}
+}

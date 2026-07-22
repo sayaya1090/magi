@@ -60,6 +60,9 @@ func (a *App) consumeStream(ctx context.Context, sid session.SessionID, agentAct
 	var res streamStep
 	streamErr := false
 	spinCap := reasoningSpinCap()
+	if a.cfg.MaxOutputTokens > 0 {
+		spinCap = 0 // [limits] max_output_tokens caps each response at the token level — defer to it
+	}
 	// Opt-in diagnostics (MAGI_STREAM_DIAG): distinguish a pre-finish stall (model
 	// slow / no bytes) from a post-finish drain delay (backend withholding [DONE]).
 	// idleC stays nil when disabled, so the select degenerates to a plain range.

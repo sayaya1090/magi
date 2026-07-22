@@ -519,6 +519,7 @@ func run() int {
 		Allow:               cfg.Allow,
 		Deny:                cfg.Deny,
 		AllowDomains:        cfg.AllowDomains,
+		MaxOutputTokens:     cfg.Limits.MaxOutputTokens, // [limits]; the spin guard defers when set
 		Agents:              agents,
 		Experience:          experienceStore,
 		Hooks:               toAppHooks(cfg.Hooks),
