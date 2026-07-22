@@ -453,6 +453,14 @@ func memberSystem(m council.Member, phase, task string, keep bool) string {
 			"\"honest acknowledgment of limitations\", \"nothing to fix\"). An eloquent justification never converts "+
 			"unfinished work into done: vote continue, and in feedback tell the agent to either actually perform and "+
 			"verify that part, or finish honestly by reporting the task as failed/blocked instead of done.\n"+
+			"The REPORT leads with a `STATUS:` line and may carry labeled sections. When an `EVIDENCE:` section is "+
+			"present it is where the run-the-check proof should be — but it is still the agent's transcription: accept "+
+			"it only when the SIGNALS or tool results corroborate that run; an EVIDENCE line that merely restates the "+
+			"claimed output with no tool result showing it is still a claim, not proof. When a `DEVIATIONS:` section is "+
+			"present on a done report, the agent has ITSELF flagged assumptions, workarounds, or boundaries it could "+
+			"not hold — read each one: if any names an unmet requirement, an unverified premise, or a task constraint "+
+			"that was crossed, vote continue and cite it; a confident overall framing never neutralizes an exception "+
+			"the agent itself recorded.\n"+
 			"- \"continue\": ONLY when you can name a SPECIFIC, REAL defect through your lens — a FAILING signal, a part of "+
 			"the task/plan the report itself shows is unmet, or a concrete error in the work. Put the next step in "+
 			"`feedback`. A missing diff or signal is NOT a defect.\n"+
