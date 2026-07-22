@@ -589,14 +589,19 @@ func TestDeliberateSkipDebateOnContinueMajority(t *testing.T) {
 }
 
 func isDevil(r port.ChatRequest) bool { return strings.Contains(r.System, "devil's advocate") }
+func isDevilReview(r port.ChatRequest) bool {
+	return strings.Contains(textOf(r), "judge it CRITICALLY")
+}
 
-// Devil's advocate: on a UNANIMOUS done (no split, so the rebuttal never fires) the devil is
-// polled; a concrete-defect continue VETOES the finish even though its lone vote can't flip the
-// majority tally, and its feedback is surfaced.
-func TestDeliberateDevilVetoesUnanimousDone(t *testing.T) {
+// Devil as a critically-reviewed input: on a UNANIMOUS done the devil raises a concern, the
+// members RE-JUDGE it, and if a member AGREES the concern is a real defect the turn continues.
+func TestDeliberateDevilConcernUpheld(t *testing.T) {
 	c := New(only(fakeLLM{reply: func(r port.ChatRequest) string {
 		if isDevil(r) {
-			return `{"decision":"continue","rationale":"server never actually started","feedback":"run the server and show it binds :5328"}`
+			return `{"decision":"continue","rationale":"server never started","feedback":"run the server and show it binds :5328"}`
+		}
+		if isDevilReview(r) { // members review the concern and agree it's real
+			return `{"decision":"continue","rationale":"right, no run shown","feedback":"actually run it"}`
 		}
 		return `{"decision":"done","rationale":"looks complete"}`
 	}}), "m")
@@ -604,16 +609,37 @@ func TestDeliberateDevilVetoesUnanimousDone(t *testing.T) {
 		Round: 1, Task: "do x", Rule: council.RuleMajority, Devil: true,
 	})
 	if d.Decision != council.Continue {
-		t.Fatalf("decision = %q, want continue (devil veto)", d.Decision)
-	}
-	if !strings.Contains(d.Feedback, "binds :5328") {
-		t.Errorf("devil feedback must surface, got %q", d.Feedback)
+		t.Fatalf("decision = %q, want continue (members upheld the devil's real concern)", d.Decision)
 	}
 }
 
-// A devil that finds no real defect abstains, and the unanimous done stands.
-func TestDeliberateDevilAbstainKeepsDone(t *testing.T) {
+// The key regression fix: a SPURIOUS devil concern (int32→int64 that the grader does not require)
+// is REJECTED on critical review — the members hold done, so a working solution is not overturned.
+func TestDeliberateDevilConcernRejected(t *testing.T) {
 	c := New(only(fakeLLM{reply: func(r port.ChatRequest) string {
+		if isDevil(r) {
+			return `{"decision":"continue","rationale":"could be int64","feedback":"change int32 to int64"}`
+		}
+		if isDevilReview(r) { // members judge critically: int32 satisfies the task → hold done
+			return `{"decision":"done","rationale":"int32 meets the spec; the devil overreaches"}`
+		}
+		return `{"decision":"done","rationale":"works"}`
+	}}), "m")
+	d, _ := c.Deliberate(context.Background(), port.DeliberationRequest{
+		Round: 1, Task: "do x", Rule: council.RuleMajority, Devil: true,
+	})
+	if d.Decision != council.Done {
+		t.Fatalf("decision = %q, want done (spurious devil concern rejected on review)", d.Decision)
+	}
+}
+
+// A devil that finds no real defect abstains → no review round → the unanimous done stands.
+func TestDeliberateDevilAbstainKeepsDone(t *testing.T) {
+	var reviews int64
+	c := New(only(fakeLLM{reply: func(r port.ChatRequest) string {
+		if isDevilReview(r) {
+			atomic.AddInt64(&reviews, 1)
+		}
 		if isDevil(r) {
 			return `{"decision":"abstain","rationale":"tried to break it, deliverable is genuinely met"}`
 		}
@@ -624,6 +650,9 @@ func TestDeliberateDevilAbstainKeepsDone(t *testing.T) {
 	})
 	if d.Decision != council.Done {
 		t.Errorf("decision = %q, want done (devil abstained)", d.Decision)
+	}
+	if n := atomic.LoadInt64(&reviews); n != 0 {
+		t.Errorf("no review round should run when the devil abstains, got %d", n)
 	}
 }
 

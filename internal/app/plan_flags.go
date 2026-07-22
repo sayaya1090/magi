@@ -125,13 +125,13 @@ func execEvidenceEnabled() bool { return !envOff("MAGI_EXEC_EVIDENCE") }
 // MAGI_COUNCIL_DEBATE=0 restores the independent-vote-only tally (A/B knob).
 func councilDebateEnabled() bool { return !envOff("MAGI_COUNCIL_DEBATE") }
 
-// councilDevilEnabled gates the devil's-advocate pass. The rebuttal round only fires on a
-// SPLIT, so a unanimous (or no-split) DONE sails through with nobody having argued against it —
-// exactly the premature consensus a devil's advocate exists to stress-test. When on, an
-// otherwise-unchallenged done triggers ONE adversarial member that tries to falsify done; it can
-// only flip done→continue by naming a specific real defect (the standard continue bar) and never
-// votes done, so like debate it can only make finishing harder. Default ON; MAGI_COUNCIL_DEVIL=0
-// restores the no-devil baseline (A/B knob).
+// councilDevilEnabled gates the devil's-advocate pass. The rebuttal round only fires on a SPLIT,
+// so a unanimous (no-split) DONE sails through with nobody having argued against it — the premature
+// consensus a devil exists to stress-test. When on, an otherwise-unchallenged done has one
+// adversarial member argue the strongest case against it; its concern is then RE-JUDGED by the
+// members CRITICALLY (a spurious concern the task never required is rejected; a real missed defect
+// flips them to continue) and their re-tally decides — the devil casts no binding vote. Default ON;
+// MAGI_COUNCIL_DEVIL=0 restores the no-devil baseline (A/B knob).
 func councilDevilEnabled() bool { return !envOff("MAGI_COUNCIL_DEVIL") }
 
 // councilKeepEnabled asks each council member to ALSO report what the report already gets
