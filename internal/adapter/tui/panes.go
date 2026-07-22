@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -672,6 +673,15 @@ func (m *Model) renderZoom(width int) string {
 	// can be mapped back to a pane block (e.g. to expand a thinking block).
 	m.paneLineStart = m.paneLineStart[:0]
 	nl := 0
+	// Acceptance checklist: the contract this subagent must satisfy (the plan-audit deliverable
+	// checks for its step), shown at the top of its detail view like the plan panel on the main
+	// screen. Prepended before the transcript; nl advances so block click hit-testing stays aligned.
+	if m.app != nil {
+		if cl := renderPaneChecklist(m.app.SubagentChecklist(p.sid), cstyle, width); cl != "" {
+			b.WriteString(cl + "\n")
+			nl += strings.Count(cl, "\n") + 1
+		}
+	}
 	for i, blk := range p.blocks {
 		if i > 0 {
 			b.WriteString("\n")
@@ -688,6 +698,33 @@ func (m *Model) renderZoom(width int) string {
 	}
 	if s := strings.TrimSpace(p.live); s != "" {
 		b.WriteString("\n" + label(cstyle.Bold(true), p.label()) + "\n" + indent(lipgloss.NewStyle().Width(max(20, width-4)).Render(s)))
+	}
+	return b.String()
+}
+
+// renderPaneChecklist renders a subagent's acceptance checklist — the deliverables it must
+// satisfy before reporting done — as a compact panel: each item's deliverable with its
+// verifying command beneath. Empty when the subagent carries no plan-step checks.
+func renderPaneChecklist(checks []council.DeliverableCheck, cstyle lipgloss.Style, width int) string {
+	if len(checks) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(label(cstyle.Bold(true), "acceptance checklist"))
+	wrap := lipgloss.NewStyle().Width(max(20, width-6))
+	for i, c := range checks {
+		head := strings.TrimSpace(c.Deliverable)
+		if head == "" {
+			head = strings.TrimSpace(c.Command)
+		}
+		b.WriteString(fmt.Sprintf("\n%s %s", styleFooter.Render(fmt.Sprintf("%d.", i+1)), wrap.Render(head)))
+		if cmd := strings.TrimSpace(c.Command); cmd != "" && cmd != head {
+			line := "run: " + cmd
+			if e := strings.TrimSpace(c.Expect); e != "" {
+				line += "  (expect: " + e + ")"
+			}
+			b.WriteString("\n   " + styleFooter.Render(line))
+		}
 	}
 	return b.String()
 }

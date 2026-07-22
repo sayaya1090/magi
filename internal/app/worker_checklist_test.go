@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/core/council"
+	"github.com/sayaya1090/magi/internal/core/session"
 )
 
 func TestWorkerChecklist(t *testing.T) {
@@ -41,5 +42,60 @@ func TestWorkerChecklist(t *testing.T) {
 
 	if workerChecklist(nil, 0) != "" {
 		t.Error("no checks → empty checklist")
+	}
+}
+
+// stepChecks filters by the 1-based step label and falls back to all when nothing matches —
+// the structured basis both workerChecklist and the TUI's SubagentChecklist share.
+func TestStepChecks(t *testing.T) {
+	checks := []council.DeliverableCheck{
+		{Step: "1", Command: "a"},
+		{Step: "2. gen", Command: "b"},
+		{Step: "2)", Command: "c"},
+	}
+	if got := stepChecks(checks, 1); len(got) != 2 || got[0].Command != "b" || got[1].Command != "c" {
+		t.Errorf("step 2 (idx 1) should match '2. gen' and '2)': %+v", got)
+	}
+	if got := stepChecks(checks, 0); len(got) != 1 || got[0].Command != "a" {
+		t.Errorf("step 1 (idx 0) should match only '1': %+v", got)
+	}
+	if got := stepChecks(checks, 7); len(got) != 3 {
+		t.Errorf("no match → fall back to all, got %d", len(got))
+	}
+	if stepChecks(nil, 0) != nil {
+		t.Error("no checks → nil")
+	}
+}
+
+// SubagentChecklist resolves a child session to its parent plan step's deliverable checks; a
+// child with no parent/step, or an unknown session, yields nothing.
+func TestSubagentChecklist(t *testing.T) {
+	a := curateApp(t)
+	step := 1
+	parent := session.SessionID("s_parent")
+	child := session.SessionID("s_child")
+	a.mu.Lock()
+	a.stateLocked(parent).deliverableChecks = []council.DeliverableCheck{
+		{Step: "1", Command: "step0"},
+		{Step: "2", Deliverable: "the step-2 artifact", Command: "step1"},
+	}
+	a.stateLocked(child).meta = session.Session{ID: child, Parent: parent, ParentStep: &step}
+	a.stateLocked(parent).meta = session.Session{ID: parent}
+	a.mu.Unlock()
+
+	got := a.SubagentChecklist(child)
+	if len(got) != 1 || got[0].Command != "step1" {
+		t.Fatalf("child on step idx 1 must get step-2's check, got %+v", got)
+	}
+	// A child with no plan-step link → nothing.
+	orphan := session.SessionID("s_orphan")
+	a.mu.Lock()
+	a.stateLocked(orphan).meta = session.Session{ID: orphan, Parent: parent}
+	a.mu.Unlock()
+	if got := a.SubagentChecklist(orphan); got != nil {
+		t.Errorf("child with no ParentStep must yield nil, got %+v", got)
+	}
+	if got := a.SubagentChecklist("nope"); got != nil {
+		t.Errorf("unknown session must yield nil, got %+v", got)
 	}
 }

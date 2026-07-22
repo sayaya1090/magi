@@ -99,6 +99,25 @@ func (a *App) Todos(sid session.SessionID) []session.Todo {
 	return nil
 }
 
+// SubagentChecklist returns the acceptance checklist a delegated subagent must satisfy: the
+// plan-audit deliverable checks for the parent plan step this child carries out, the same
+// contract handed to it in its brief (workerChecklist). Empty for a child not tied to a plan
+// step, or when the plan produced no checks. Read by the TUI to show that checklist in a
+// subagent's detail view, mirroring the main plan panel.
+func (a *App) SubagentChecklist(childSID session.SessionID) []council.DeliverableCheck {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st, ok := a.stateIf(childSID)
+	if !ok || st.meta.Parent == "" || st.meta.ParentStep == nil {
+		return nil
+	}
+	pst, ok := a.stateIf(st.meta.Parent)
+	if !ok {
+		return nil
+	}
+	return stepChecks(pst.deliverableChecks, *st.meta.ParentStep)
+}
+
 // PlanChildren returns the child sessions spawned to carry out the given plan step
 // of parent, in creation order. It joins the parent link (session.Parent) with the
 // per-child ParentStep edge recorded at spawn — the pair reconstructs the plan tree

@@ -220,9 +220,14 @@ func (a *App) runDelegateStep(ctx context.Context, s session.Session, st planSte
 // and the expected result. Checks tagged for THIS step (by leading step number) are preferred; when
 // none are tagged, all of the turn's checks are shown, since over-informing beats letting the
 // worker silently skip a requirement. Empty when no checks were derived.
-func workerChecklist(checks []council.DeliverableCheck, stepIdx int) string {
+// stepChecks selects the deliverable checks that belong to plan step stepIdx (0-based),
+// matching the council's 1-based Step label ("3", "3.", "3) …"); when none match it returns
+// ALL checks — the same lenient fallback workerChecklist relies on so a mislabeled check is
+// still surfaced rather than silently dropped. Shared by the worker brief and the TUI's
+// per-subagent checklist view.
+func stepChecks(checks []council.DeliverableCheck, stepIdx int) []council.DeliverableCheck {
 	if len(checks) == 0 {
-		return ""
+		return nil
 	}
 	want := strconv.Itoa(stepIdx + 1)
 	var mine []council.DeliverableCheck
@@ -233,7 +238,15 @@ func workerChecklist(checks []council.DeliverableCheck, stepIdx int) string {
 		}
 	}
 	if len(mine) == 0 {
-		mine = checks
+		return checks
+	}
+	return mine
+}
+
+func workerChecklist(checks []council.DeliverableCheck, stepIdx int) string {
+	mine := stepChecks(checks, stepIdx)
+	if len(mine) == 0 {
+		return ""
 	}
 	var b strings.Builder
 	b.WriteString("Acceptance checklist — before you report done, RUN each of these and confirm it passes; " +
