@@ -64,6 +64,81 @@ func turnToolEvidence(evs []event.Event, k int) string {
 	return "- " + strings.Join(lines, "\n- ")
 }
 
+// stuckObstacleWords flag a tool result that hit a CONCRETE wall (vs a clean success), so a
+// stuck-recovery reason can name the exact obstacle instead of a generic "reasoned in circles".
+var stuckObstacleWords = []string{
+	"timed out", "no such file", "not found", "cannot ", "permission denied",
+	"undefined reference", "fatal", "segmentation fault", "traceback", "assertion",
+	"command not found", "failed", "does not exist", "unable to",
+}
+
+// stuckEvidence extracts the CONCRETE obstacles this turn's tool calls hit — errored results,
+// timeouts, missing files, build failures — so a stuck-recovery's block reason can name the specific
+// walls the previous attempt ran into ("address THESE") rather than a generic label the planner can't
+// act on. It is the leadership move: a subordinate who is stuck needs the concrete reality and what to
+// do differently, not "you went in circles". Deterministic (no LLM call), grounded in real results,
+// most-recent obstacles first (capped). Empty when nothing notable failed.
+func stuckEvidence(evs []event.Event, k int) string {
+	names := map[string]string{}
+	var obst []string
+	seen := map[string]bool{}
+	for _, e := range evs {
+		if e.Type == event.TypePromptSubmitted { // new turn → keep only the latest turn's obstacles
+			names, obst, seen = map[string]string{}, nil, map[string]bool{}
+			continue
+		}
+		if e.Type != event.TypePartAppended {
+			continue
+		}
+		var d event.PartAppendedData
+		if json.Unmarshal(e.Data, &d) != nil {
+			continue
+		}
+		switch d.Part.Kind {
+		case session.PartToolCall:
+			if d.Part.ToolCall != nil {
+				names[d.Part.ToolCall.CallID] = d.Part.ToolCall.Name
+			}
+		case session.PartToolResult:
+			r := d.Part.ToolResult
+			if r == nil {
+				continue
+			}
+			content := strings.TrimSpace(toolResultText(r.Content))
+			low := strings.ToLower(content)
+			hit := r.IsError
+			if !hit {
+				for _, w := range stuckObstacleWords {
+					if strings.Contains(low, w) {
+						hit = true
+						break
+					}
+				}
+			}
+			if !hit || content == "" {
+				continue
+			}
+			name := names[r.CallID]
+			if name == "" {
+				name = "tool"
+			}
+			line := name + ": " + clipLine(content, 160)
+			if seen[line] {
+				continue
+			}
+			seen[line] = true
+			obst = append(obst, line)
+		}
+	}
+	if len(obst) == 0 {
+		return ""
+	}
+	if len(obst) > k {
+		obst = obst[len(obst)-k:]
+	}
+	return " Concrete walls the previous attempt hit (address THESE directly — do not just re-analyze or repeat the same commands): " + strings.Join(obst, "; ")
+}
+
 // knowledgeLookupTools are the tools whose whole job is to fetch an EXTERNAL FACT the
 // agent does not already possess. A failure here that the agent does not recover from
 // is the N14 "research dead-end" fabrication branch: the agent fills the gap with a

@@ -137,6 +137,11 @@ func (a *App) handleStuckGuard(ctx context.Context, tc turnCtx, turnTask string,
 			blockReason = "many steps of analysis produced NO deliverable (no file written/changed): the " +
 				"previous attempt reasoned in circles instead of writing, running, and verifying the artifact"
 		}
+		// Name the CONCRETE walls (failed commands, timeouts, missing files) rather than only the generic
+		// label, so recovery attacks the real obstacle instead of re-emitting the same plan — the
+		// leadership move: specific reality + what to do differently beats "you went in circles" (which
+		// produced the same plan 16x on fix-ocaml-gc).
+		blockReason += stuckEvidence(evs, 4)
 		if a.redecomposeStuck(ctx, s, agent, task, blockReason, depth) {
 			ts.recovered = true
 			if kind == "repeat" {
