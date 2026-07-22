@@ -69,14 +69,15 @@ func specFidelityEnabled() bool { return !envOff("MAGI_SPEC_FIDELITY") }
 // signatures, the requirements the prose leaves unsaid plus the standard idiom for
 // that situation — injected as a finished note the executor consumes.
 //
-// Default OFF. On a weak executor the mined note is at best ignored and at worst
-// actively harmful: a cross-machine run showed it REINFORCING a wrong identifier
-// (kv-store-grpc: the note derived `val` and the executor kept `val`, failing a
-// grader that checks `value`) and injecting a FALSE premise ("hyphens in a .proto
-// filename trigger SyntaxError"). It also spends an extra LLM call and adds a
-// per-plan note to the context. Strong models saw an occasional uplift, so keep it
-// behind MAGI_SPEC_MINE=1 rather than deleting it (the A/B knob).
-func specMineEnabled() bool { return envOn("MAGI_SPEC_MINE") }
+// Default ON (MAGI_SPEC_MINE=off restores the un-mined baseline). It was briefly
+// defaulted OFF (978d1e0) after a weak executor took the mined note the wrong way:
+// a cross-machine run showed it REINFORCING a wrong identifier (kv-store-grpc: the
+// note derived `val` and the executor kept `val`, failing a grader that checks
+// `value`) and injecting a FALSE premise ("hyphens in a .proto filename trigger
+// SyntaxError"). That failure is exactly the literal-drift the curated brief now
+// defends against (verbatim `literals`), so the mine is re-enabled to feed that
+// defense rather than stand alone. It costs one extra LLM call and a per-plan note.
+func specMineEnabled() bool { return !envOff("MAGI_SPEC_MINE") }
 
 // workdirCheckpointEnabled gates the opt-in work-tree rollback (checkpoint.go): before a subagent's
 // first attempt the work-tree is snapshotted into a PRIVATE scratch git-dir (never the user's own

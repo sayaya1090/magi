@@ -2,22 +2,23 @@ package app
 
 import "testing"
 
-// specMineEnabled defaults OFF: the mined note misled a weak executor (kv-store-grpc `val`/`value`)
-// and injected a false premise, so it must be opt-in. An explicit truthy value re-enables it.
-func TestSpecMineDefaultOff(t *testing.T) {
-	if specMineEnabled() {
-		t.Fatal("default must be OFF")
+// specMineEnabled defaults ON: the mined identifiers now feed the curated brief's verbatim-literal
+// defense (the kv-store-grpc `val`/`value` drift it once caused is what that defense targets).
+// MAGI_SPEC_MINE=off restores the un-mined baseline.
+func TestSpecMineDefaultOn(t *testing.T) {
+	if !specMineEnabled() {
+		t.Fatal("default must be ON")
 	}
-	for _, v := range []string{"1", "on", "true", "yes"} {
-		t.Setenv("MAGI_SPEC_MINE", v)
-		if !specMineEnabled() {
-			t.Errorf("%q must enable", v)
-		}
-	}
-	for _, v := range []string{"0", "off", "false", ""} {
+	for _, v := range []string{"0", "off", "false"} {
 		t.Setenv("MAGI_SPEC_MINE", v)
 		if specMineEnabled() {
-			t.Errorf("%q must leave it OFF", v)
+			t.Errorf("%q must disable", v)
+		}
+	}
+	for _, v := range []string{"1", "on", "true", "yes", ""} {
+		t.Setenv("MAGI_SPEC_MINE", v)
+		if !specMineEnabled() {
+			t.Errorf("%q must leave it ON", v)
 		}
 	}
 }
