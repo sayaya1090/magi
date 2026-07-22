@@ -752,7 +752,16 @@ func planMemberSystem(m council.Member, lens string, keep bool) string {
 			"do NOT use `ss`/`netstat`/`lsof` (routinely missing in minimal images) — use a dependency-free connect, e.g. "+
 			"command `python3 -c \"import socket,sys; sys.exit(0 if socket.socket().connect_ex(('localhost',PORT))==0 else 1)\"` "+
 			"(or `curl -sf http://localhost:PORT/...` for HTTP). Propose checks ONLY when they are concrete and would "+
-			"genuinely pass for correct work — commands must be non-destructive and deterministic. For a "+
+			"genuinely pass for correct work — commands must be non-destructive and deterministic. SMOKE CHECK when "+
+			"full correctness is UNVERIFIABLE: a step that PRODUCES a runnable artifact (a program, script, generated "+
+			"file) must ALWAYS get at least a SMOKE check even when you cannot check the exact answer because the "+
+			"reference/expected output is hidden — assert the artifact RUNS without error and emits output in the "+
+			"expected SHAPE (exists, non-empty, valid JSON/CSV, right column/field count, plausible row count). Skipping "+
+			"such a step leaves the run with NO done-signal, so the agent second-guesses a working solution and refines "+
+			"it until the wall clock (observed on extract-elf: a correct extract.js kept being re-verified for 45min with "+
+			"zero checks). Example for \"write extract.js that outputs {addr: value} JSON\": command `node /app/extract.js "+
+			"/app/a.out > /tmp/o.json && node -e \"const o=require('/tmp/o.json'); process.exit(o && Object.keys(o).length>0?0:1)\"` "+
+			"(runs + non-empty object) — not the hidden exact values. For a "+
 			"read/review/analyze/answer step there is usually nothing to execute: emit NO check for it (the prose "+
 			"`criteria` already cover it). Omit `checks` entirely if your lens has none.\n\n"+
 			"%s"+
