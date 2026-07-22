@@ -59,10 +59,11 @@ type curatePacket struct {
 	Tools       []string `json:"tools"`
 }
 
-// renderCurateBrief formats a packet into a weighted, sectioned brief the context-free worker reads
-// as its whole world, in delegation order: WHY the work exists, what is already done (build on it),
-// the RESULT to achieve (method left to the worker), the verbatim literals it must not change (highest
-// weight), the boundaries it must not cross, and the done-when acceptance test. Empty when unusable.
+// renderCurateBrief formats a packet into the weighted, sectioned CONTEXT a worker reads around its
+// task: WHY the work exists, what is already done (build on it), the verbatim literals it must not
+// change (highest weight), the boundaries it must not cross, and the done-when acceptance test. The
+// task itself is NOT rendered here — delegatePrompt states it under its own "YOUR PART" header, so
+// this brief stays pure context and never duplicates the instruction. Empty when unusable.
 func renderCurateBrief(p curatePacket) string {
 	var b strings.Builder
 	section := func(title, body string) {
@@ -84,7 +85,6 @@ func renderCurateBrief(p curatePacket) string {
 	}
 	section("Goal (why this exists)", p.Goal)
 	section("Progress so far (build on this — do NOT redo it)", p.Progress)
-	section("Your task (achieve this result — you choose how)", p.Task)
 	section("Preserve these EXACTLY (verbatim — never rename, shorten, or normalize)", bullets(p.Literals))
 	section("Boundaries (do NOT cross)", bullets(p.Constraints))
 	section("Done when", p.Deliverable)

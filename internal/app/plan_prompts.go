@@ -198,16 +198,22 @@ func stuckUnitPrompt(st planStep, blockReason string) string {
 		"already have. Then " + noFabricate + ")"
 }
 
-// delegatePrompt frames a delegate step as a self-contained sub-task instruction, optionally
-// prefixed with a compact brief (see delegateBrief). The brief is orientation only — the task
-// itself stays self-contained, so an empty brief leaves the original context-free hand-off.
+// delegatePrompt frames a delegate step for a worker, with a CRISP separation between the worker's
+// own scope and the surrounding context so the two are never confused: the task leads under a
+// "YOUR PART" header (do exactly this, nothing more), and the brief (overall goal, what's already
+// done, literals/boundaries, the acceptance checklist — see delegateBrief/the curated brief) follows
+// under a "CONTEXT" header labelled reference-only, NOT a to-do list. The task is stated once here;
+// the curated brief no longer restates it (renderCurateBrief), so there is no duplicate instruction.
 func delegatePrompt(st planStep, brief string) string {
-	p := ""
+	var p strings.Builder
+	p.WriteString("── YOUR PART — do EXACTLY this one part of a larger plan, nothing more ──\n")
+	p.WriteString(strings.TrimSpace(st.Task) + "\n")
 	if b := strings.TrimSpace(brief); b != "" {
-		p = b + "\n\n"
+		p.WriteString("\n── CONTEXT (reference only — how your part fits; do NOT do the whole request yourself) ──\n")
+		p.WriteString(b + "\n")
 	}
-	return p + st.Task + "\n\n(You are handling ONE independent part of a larger plan. Complete this part fully, " +
-		"then " + noFabricate + ")"
+	p.WriteString("\n(Complete just YOUR PART fully, then " + noFabricate + ")")
+	return p.String()
 }
 
 // delegateBrief builds the compact context a delegate child gets IN ADDITION to its

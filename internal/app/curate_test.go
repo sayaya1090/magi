@@ -69,7 +69,7 @@ func TestRenderCurateBrief(t *testing.T) {
 	})
 	for _, want := range []string{
 		"# Goal (why this exists)\nship a KV store",
-		"# Progress so far", "# Your task", "- value", "- GetResponse",
+		"# Progress so far", "- value", "- GetResponse",
 		"# Boundaries (do NOT cross)\n- do not change the proto",
 		"# Done when\ngrpcurl Get returns value",
 	} {
