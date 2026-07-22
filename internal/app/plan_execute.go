@@ -349,7 +349,10 @@ func (a *App) verifyStepChecks(ctx context.Context, s session.Session, stepIdx i
 	if !stepVerifyEnabled() || a.plat == nil {
 		return true, ""
 	}
-	mine := stepChecks(a.cachedChecks(s.ID), stepIdx)
+	// STRICT match, not stepChecks' lenient "all checks" fallback: gate a step ONLY on checks labelled
+	// for it. An unmatched check (e.g. a later step's "server on port 5328") cannot pass yet and would
+	// falsely re-plan a step that is fine. Unlabelled/other-step checks are caught at the terminal gate.
+	mine := matchStepChecks(a.cachedChecks(s.ID), stepIdx)
 	if len(mine) == 0 {
 		return true, ""
 	}
@@ -389,6 +392,19 @@ func stepChecks(checks []council.DeliverableCheck, stepIdx int) []council.Delive
 	if len(checks) == 0 {
 		return nil
 	}
+	if mine := matchStepChecks(checks, stepIdx); len(mine) > 0 {
+		return mine
+	}
+	return checks // lenient fallback: over-inform the worker rather than drop a mislabeled check
+}
+
+// matchStepChecks returns ONLY the checks whose council Step label matches plan step stepIdx
+// (0-based → 1-based label "3", "3.", "3) …"), with NO lenient fallback. The gate (verifyStepChecks)
+// uses this strict form: running an UNMATCHED check against a step is a false failure — e.g. gating
+// step 1 "install deps" on a step-4 "server listening on port 5328" check that cannot pass until the
+// server exists — which would re-plan a step that is actually fine. stepChecks keeps the lenient
+// fallback because over-informing the WORKER (its acceptance checklist) is safe; over-GATING is not.
+func matchStepChecks(checks []council.DeliverableCheck, stepIdx int) []council.DeliverableCheck {
 	want := strconv.Itoa(stepIdx + 1)
 	var mine []council.DeliverableCheck
 	for _, c := range checks {
@@ -396,9 +412,6 @@ func stepChecks(checks []council.DeliverableCheck, stepIdx int) []council.Delive
 		if s == want || strings.HasPrefix(s, want+".") || strings.HasPrefix(s, want+" ") || strings.HasPrefix(s, want+")") {
 			mine = append(mine, c)
 		}
-	}
-	if len(mine) == 0 {
-		return checks
 	}
 	return mine
 }
