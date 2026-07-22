@@ -68,6 +68,7 @@ type sessionState struct {
 	curatedTools      []string                   // subagent: per-spawn tool allowlist override (SpawnRequest.Tools); nil = the agent's own allowlist
 	deliverableChecks []council.DeliverableCheck // plan-audit per-step executable checks this turn
 	estSteps          int                        // planner's advisory step estimate this turn
+	stepLedger        []ledgerEntry              // shared artifact ledger: each completed step's produced paths/interfaces (handoff), passed VERBATIM to every later worker and shown in every right panel
 	interjectSeen     map[string]bool            // interjection MessageIDs detected this turn (masked from turnTask/council)
 	awaitExplorers    bool                       // planner dispatched read-only explorers as this turn's primary work
 	autoOrchestrate   bool                       // whether auto-orchestration has been triggered this session
@@ -181,6 +182,7 @@ func (a *App) resetForNewTopLevel(sid session.SessionID) {
 	st.minedNote = ""          // …and the previous task's mined identifier/type requirements
 	st.deliverableChecks = nil // …and the previous task's plan-audit executable checks
 	st.estSteps = 0            // …and the previous task's advisory step estimate
+	st.stepLedger = nil        // …and the previous task's shared artifact ledger
 	// Reset the interjection mask, but KEEP masking anything still WAITING in the
 	// queue: a queued interjection's original PromptSubmitted must stay hidden
 	// until it runs as its own turn — dropping its mask here would leak it into

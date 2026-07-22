@@ -134,6 +134,29 @@ func (a *App) CouncilContract(sid session.SessionID) (string, []council.Delivera
 	return a.cachedCriteria(sid), a.cachedChecks(sid)
 }
 
+// LedgerRow is one shared artifact-ledger row for the TUI: a plan step and the concrete
+// deliverables (file paths, interfaces) it produced for later steps to reuse.
+type LedgerRow struct {
+	Step  string
+	Facts string
+}
+
+// SharedLedger returns the shared artifact ledger to show in a right panel — the exact
+// paths/interfaces the plan's steps have produced so far. A delegate child sees its PARENT plan's
+// ledger (what its sibling steps produced, the shared context it was handed); a top-level session
+// sees its own. Empty when nothing has been recorded yet.
+func (a *App) SharedLedger(sid session.SessionID) []LedgerRow {
+	entries := a.sharedLedger(sid)
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make([]LedgerRow, len(entries))
+	for i, e := range entries {
+		out[i] = LedgerRow{Step: e.Step, Facts: e.Facts}
+	}
+	return out
+}
+
 // OpenConcerns folds the session's event log into its live structural-concern ledger and returns
 // the still-open concerns as signals — the outstanding items the council keeps re-raising until
 // resolved. It reads the store, so the TUI calls it ONCE when the council detail opens, not per

@@ -26,6 +26,88 @@ type refineShare struct {
 	agent string
 }
 
+// ledgerEntry is one row of the shared artifact ledger: the concrete deliverables (file paths,
+// interfaces, endpoints) a completed step produced, so every LATER step reuses the exact locations
+// instead of guessing or re-creating them. Accumulated across a plan and passed VERBATIM to each
+// worker (bypassing the curator, which paraphrases) and shown in every right panel — the ledger is
+// shared by everyone working the plan.
+type ledgerEntry struct {
+	Step  string // the producing step's title
+	Facts string // its handoff — the paths/interfaces the next step builds on, verbatim
+}
+
+// handoffFacts pulls a completed step's HANDOFF section — the exact paths/interfaces the worker
+// declared for the next step — out of its rendered finding (subReport.result writes HANDOFF as the
+// LAST weighted section, so everything after its label is the handoff). Empty when none was filed.
+func handoffFacts(finding string) string {
+	const tag = "\nHANDOFF: "
+	if i := strings.LastIndex(finding, tag); i >= 0 {
+		return strings.TrimSpace(finding[i+len(tag):])
+	}
+	return ""
+}
+
+// appendLedger records a completed step's produced deliverables on the plan session's shared ledger.
+// No-op on empty facts (nothing concrete to hand off).
+func (a *App) appendLedger(sid session.SessionID, step, facts string) {
+	if strings.TrimSpace(facts) == "" {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st := a.stateLocked(sid)
+	st.stepLedger = append(st.stepLedger, ledgerEntry{Step: strings.TrimSpace(step), Facts: strings.TrimSpace(facts)})
+}
+
+// ledgerOf returns a session's OWN artifact ledger (the steps its plan has produced so far). Used to
+// inject the ledger into the next worker and to render the top-level plan panel.
+func (a *App) ledgerOf(sid session.SessionID) []ledgerEntry {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if st, ok := a.stateIf(sid); ok {
+		return st.stepLedger
+	}
+	return nil
+}
+
+// sharedLedger returns the ledger a session SHARES with the plan it belongs to: a delegate child
+// sees its PARENT's ledger (what its sibling steps produced — the shared context it was handed), a
+// top-level session sees its own. Read by the TUI so every worker panel shows the same ledger.
+func (a *App) sharedLedger(sid session.SessionID) []ledgerEntry {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st, ok := a.stateIf(sid)
+	if !ok {
+		return nil
+	}
+	if st.meta.Parent != "" {
+		if pst, ok := a.stateIf(st.meta.Parent); ok {
+			return pst.stepLedger
+		}
+	}
+	return st.stepLedger
+}
+
+// renderLedger formats the shared ledger as the VERBATIM block appended to a worker's prompt (after
+// curation, so the exact paths survive the curator's paraphrase). Empty when the ledger is empty.
+func renderLedger(entries []ledgerEntry) string {
+	if len(entries) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("── SHARED DELIVERABLES LEDGER (exact paths/interfaces earlier steps ALREADY produced — " +
+		"reuse these VERBATIM; do NOT re-create, re-download, or guess where they are) ──")
+	for _, e := range entries {
+		line := clipLine(e.Facts, 400)
+		if e.Step != "" {
+			b.WriteString("\n• " + e.Step + ": " + line)
+		} else {
+			b.WriteString("\n• " + line)
+		}
+	}
+	return b.String()
+}
+
 // forceDelegateSteps rewrites every "solo" step into a "delegate" step routed to a worker, ONCE and
 // up front (before the todos are registered and before executeSteps runs) rather than per-step at
 // dispatch. This keeps the plan the user SEES honest: previously the rewrite happened inside
@@ -80,6 +162,16 @@ func (a *App) executeSteps(ctx context.Context, s session.Session, goal string, 
 			if f, done := run(ctx, s, st, brief, i, depth, &budget, &rshare); f != "" {
 				out = append(out, f)
 				delegated = delegated || done
+				// Record what this step produced on the SHARED ledger, so the next worker gets its exact
+				// paths/interfaces verbatim (below) instead of the curator's paraphrase. Prefer the
+				// worker's own HANDOFF; fall back to the result summary when it filed none.
+				if done {
+					facts := handoffFacts(f)
+					if facts == "" {
+						facts = clipLine(stripReportStatus(f), 200)
+					}
+					a.appendLedger(s.ID, st.Title, facts)
+				}
 				// Sequential re-plan: under force-delegate the steps were originally solo (dependent),
 				// so a step that could NOT produce its result leaves the LATER steps without their
 				// prerequisite. Stop here rather than run them on a missing input — the recorded FAILED
@@ -197,6 +289,11 @@ func (a *App) runDelegateStep(ctx context.Context, s session.Session, st planSte
 	// isn't left with a requirement silently skipped (caught only later at the orchestrator gate).
 	if cl := workerChecklist(a.cachedChecks(s.ID), i); cl != "" {
 		brief = strings.TrimSpace(brief + "\n\n" + cl)
+	}
+	// Shared artifact ledger: append the exact paths/interfaces earlier steps produced, VERBATIM and
+	// AFTER curation, so the curator's paraphrase can't drop a file location the next step needs.
+	if lg := renderLedger(a.ledgerOf(s.ID)); lg != "" {
+		brief = strings.TrimSpace(brief + "\n\n" + lg)
 	}
 	r := a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agentName, Prompt: delegatePrompt(st, brief), Tools: curTools, PlanStepIndex: &i})
 	text := strings.TrimSpace(r.Text)
