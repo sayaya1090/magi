@@ -105,6 +105,8 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	// don't need a tty), which remain bounded only by the command timeout. No-op on Windows,
 	// where there is no controlling-terminal concept to detach.
 	cmd.SysProcAttr = detachTTY(sboxAttr)
+	started := time.Now()
+	bashDebugf("exec start: timeout=%ds shell=%s cmd=%q", timeout, name, dbgClip(a.Command))
 	out, err := runCapture(cmd)
 	// Safety net: if a token-confined launch (Windows) fails to START (process never
 	// ran), retry unconfined so confinement can never break the bash tool outright.
@@ -122,6 +124,7 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	if cmd.ProcessState != nil {
 		exit = cmd.ProcessState.ExitCode()
 	}
+	bashDebugf("exec done: elapsed=%s exit=%d ctxErr=%v runErr=%v", time.Since(started).Round(time.Millisecond), exit, cctx.Err(), err)
 	body := string(out)
 	if cctx.Err() == context.DeadlineExceeded {
 		body += fmt.Sprintf("\n[timed out after %ds]", timeout)
@@ -188,7 +191,37 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 // Set per-cmd (captures this exact *exec.Cmd), so the retry path arms independently.
 func armCancel(cmd *exec.Cmd) {
 	cmd.WaitDelay = 3 * time.Second
-	cmd.Cancel = func() error { return killCmdTree(cmd) }
+	cmd.Cancel = func() error {
+		pid := -1
+		if cmd.Process != nil {
+			pid = cmd.Process.Pid
+		}
+		err := killCmdTree(cmd)
+		bashDebugf("cancel fired: kill tree pid=%d err=%v", pid, err)
+		return err
+	}
+}
+
+// bashDebugf writes a diagnostic line to stderr when MAGI_BASH_DEBUG is set (any non-empty
+// value). It exists to localize the Windows timeout hang from a machine we cannot run here:
+// the trace (exec start → started pid → cancel fired/taskkill result → wait returned → exec
+// done) shows exactly which step wedges — e.g. a "started" with no "wait returned" means Wait
+// itself is stuck, while a "cancel fired" whose taskkill errored points at the kill. Off by
+// default, so normal runs stay silent.
+func bashDebugf(format string, args ...any) {
+	if os.Getenv("MAGI_BASH_DEBUG") == "" {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "[bash-debug %s] %s\n", time.Now().Format("15:04:05.000"), fmt.Sprintf(format, args...))
+}
+
+// dbgClip collapses a command to a single bounded line for a debug log.
+func dbgClip(s string) string {
+	s = strings.ReplaceAll(strings.ReplaceAll(s, "\n", " "), "\r", " ")
+	if len(s) > 200 {
+		s = s[:200] + "…"
+	}
+	return s
 }
 
 // runCapture runs cmd with its combined stdout/stderr sent to a temp FILE, then
@@ -209,9 +242,12 @@ func runCapture(cmd *exec.Cmd) ([]byte, error) {
 	defer f.Close()
 	cmd.Stdout, cmd.Stderr = f, f
 	if err := cmd.Start(); err != nil {
+		bashDebugf("start failed: %v", err)
 		return nil, err
 	}
+	bashDebugf("started pid=%d — waiting", cmd.Process.Pid)
 	werr := cmd.Wait()
+	bashDebugf("wait returned pid=%d err=%v", cmd.Process.Pid, werr)
 	// Read whatever was flushed by the time the shell exited, bounded to captureCap so a
 	// command that emits hundreds of MB (`cat huge`, a runaway build) can't buffer it all
 	// into memory — we keep the head and the tail (where errors and final status usually
