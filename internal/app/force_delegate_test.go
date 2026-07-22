@@ -26,9 +26,15 @@ func TestForceDelegateConvertsSoloByDefault(t *testing.T) {
 	a.mu.Unlock()
 
 	steps := []planStep{{Title: "make calc", Strategy: "solo", Task: "create calc.py"}}
+	// The planner routes solo→delegate UP FRONT (forceDelegateSteps), before the todos are shown and
+	// before executeSteps runs — so the displayed plan matches what actually runs. Mirror that order.
+	steps = a.forceDelegateSteps(steps)
+	if steps[0].Strategy != "delegate" || steps[0].Agent != "worker" {
+		t.Fatalf("forceDelegateSteps must rewrite solo→delegate routed to the worker, got %+v", steps[0])
+	}
 	a.registerPlanTodos(context.Background(), s.ID, steps)
 	findings, delegated := a.executeSteps(context.Background(), s, "goal", steps, 0)
 	if !delegated {
-		t.Errorf("force-delegate (default ON) must convert the solo step to a worker delegate; delegated=%v findings=%q", delegated, findings)
+		t.Errorf("the delegate step must actually run on the worker; delegated=%v findings=%q", delegated, findings)
 	}
 }

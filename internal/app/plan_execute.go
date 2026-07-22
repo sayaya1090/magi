@@ -26,10 +26,37 @@ type refineShare struct {
 	agent string
 }
 
+// forceDelegateSteps rewrites every "solo" step into a "delegate" step routed to a worker, ONCE and
+// up front (before the todos are registered and before executeSteps runs) rather than per-step at
+// dispatch. This keeps the plan the user SEES honest: previously the rewrite happened inside
+// executeSteps, so the rendered todos still read "[solo]" while execution silently routed the step to
+// a worker. No-op when force-delegate is off or no worker is available — the steps stay "solo" and the
+// main agent runs them inline. Idempotent: a step already "delegate" is left untouched.
+func (a *App) forceDelegateSteps(steps []planStep) []planStep {
+	if !forceDelegateEnabled() {
+		return steps
+	}
+	names := a.delegatableAgents()
+	if len(names) == 0 {
+		return steps
+	}
+	for i := range steps {
+		if steps[i].Strategy == "solo" {
+			steps[i].Strategy = "delegate"
+			if strings.TrimSpace(steps[i].Agent) == "" {
+				steps[i].Agent = names[0]
+			}
+		}
+	}
+	return steps
+}
+
 // executeSteps runs each step by its strategy, accumulating explorer findings.
 // A per-turn explorer budget caps total dispatch; a step that can't dispatch
 // (solo, or a scout/parallel that yields nothing) degrades to "the main agent
-// handles it" without aborting the procedure.
+// handles it" without aborting the procedure. Solo→delegate routing is already
+// applied up front (forceDelegateSteps), so a "solo" step here means force-delegate
+// is off or no worker exists — the main agent handles it inline.
 func (a *App) executeSteps(ctx context.Context, s session.Session, goal string, steps []planStep, depth int) (findings string, delegated bool) {
 	budget := maxPlanExplorers
 	stepCtx := !stepContextDisabled() // A/B: off → delegate/fan-out run context-free (pre-brief baseline)
@@ -38,17 +65,6 @@ func (a *App) executeSteps(ctx context.Context, s session.Session, goal string, 
 	for i, st := range steps {
 		if budget <= 0 || ctx.Err() != nil {
 			break
-		}
-		// Force execution onto workers: the planner leaves write-work as "solo" even with a worker
-		// available, so this deterministically re-routes each solo step through the delegate runner
-		// (which the context curator hooks). Requires a delegatable agent; no-op otherwise.
-		if forceDelegateEnabled() && st.Strategy == "solo" {
-			if names := a.delegatableAgents(); len(names) > 0 {
-				st.Strategy = "delegate"
-				if strings.TrimSpace(st.Agent) == "" {
-					st.Agent = names[0]
-				}
-			}
 		}
 		// Write-capable steps (delegate, refine) are dispatched by the same caller glue — both
 		// run inline in this sequential loop (never fanned out) so their writes can't race the

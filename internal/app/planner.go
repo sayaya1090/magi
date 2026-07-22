@@ -221,6 +221,11 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth, 
 		// (a single remaining step is fine — nothing to fan out, but solo work follows)
 	}
 
+	// Route solo→delegate NOW, before the plan is shown or run — so the registered todos, the plan
+	// event, and executeSteps all reflect the SAME strategy. Without this the user saw "[solo]" steps
+	// that silently ran on a worker (the rewrite used to happen per-step inside executeSteps).
+	steps = a.forceDelegateSteps(steps)
+
 	a.registerPlanTodos(ctx, s.ID, steps)
 	a.emitPhase(s.ID, "plan", planSummary(steps), strings.TrimSpace(plan.Reason))
 
