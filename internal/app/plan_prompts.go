@@ -62,7 +62,10 @@ const plannerContract = "Plan the PROCEDURE to handle the request: an ordered, m
 const literalRule = "\n\nPRESERVE LITERALS: when the request specifies EXACT identifiers — a field/message/function " +
 	"name, an output format, a numeric threshold, a path, or a literal string — reproduce it VERBATIM in the step " +
 	"\"title\"/\"task\". Never paraphrase a literal contract (keep a field named `value` as `value`, not \"the value\"; " +
-	"keep `YYYY-MM-DD` verbatim). The plan is a summary of the request, but its literals are NOT summaries."
+	"keep `YYYY-MM-DD` verbatim). The plan is a summary of the request, but its literals are NOT summaries. " +
+	"Only names the REQUEST fixes are literals: if the request leaves a filename or symbol open and you name one just " +
+	"to illustrate, write it as an example (\"e.g. `calc.py`\"), NEVER as a fixed name — pinning your own example forces " +
+	"a worker onto a name the request never demanded."
 
 // (specFidelityNote removed: literal fidelity is carried by literalRule in the planner contract
 // above and the curated brief's verbatim `literals`, so the per-turn execution note was redundant.)

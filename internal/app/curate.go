@@ -40,7 +40,11 @@ const curateSystem = "You prepare a work packet for a worker sub-agent that carr
 	"- literals: an array of the EXACT strings that must appear UNCHANGED in the worker's output — names, " +
 	"fields, function/message names, output formats, thresholds, literal values — copied VERBATIM from the " +
 	"input. Highest-weight field: the worker must never rename, shorten, or normalize any (if the input says " +
-	"`value`, list `value`, never `val`). Empty array if none.\n" +
+	"`value`, list `value`, never `val`). Include ONLY strings the request REQUIRES exactly; EXCLUDE anything " +
+	"offered as an EXAMPLE or suggestion (introduced by \"e.g.\", \"for example\", \"such as\", \"like\", or a " +
+	"name invented to illustrate) and anything the request leaves the worker free to choose — pinning an example " +
+	"filename wrongly forces that exact name. When unsure whether a name is required or illustrative, leave it out. " +
+	"Empty array if none.\n" +
 	"- constraints: the boundaries the worker must respect — what NOT to change, behavior/interfaces that " +
 	"must stay intact, non-goals, limits. An array; empty if none.\n" +
 	"- deliverable: what must exist or pass for this sub-task to be counted done (the acceptance test).\n" +
