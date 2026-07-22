@@ -42,6 +42,11 @@ const plannerContract = "Plan the PROCEDURE to handle the request: an ordered, m
 	"context when you reach it. Keep flat \"solo\" lists for tasks whose steps are short and mostly independent.\n\n" +
 	"Explorers are READ-ONLY and LOCATE/GATHER only (agent ∈ explore|locator); never use them to write, and never to " +
 	"REASON or ANALYZE — a step that draws a conclusion, weighs trade-offs, or diagnoses a cause is a \"solo\" step. " +
+	"Explorers also have NO shell — their tools are LOCAL file reads (read/grep/glob/list) only. So an investigation is " +
+	"an explorer step ONLY if it can be answered by reading local files. Anything that must RUN a command — ssh or reach " +
+	"a REMOTE host, execute a program, probe a network/HTTP endpoint, query a database, or inspect a live " +
+	"service/process/environment — needs bash, which an explorer lacks; route it to \"solo\" (the main agent has bash), " +
+	"never parallel/scout. \"Explore the server\" is not automatically an explorer task: if it means ssh to a machine, it is solo. " +
 	"Also give \"estimated_steps\": your honest guess at the TOTAL number of tool calls the whole task needs " +
 	"(a one-file tweak ~5, a feature with tests ~30, a big build/debug ~100). It is pacing guidance only — never a limit.\n" +
 	"Reply with ONLY a JSON object, no prose:\n" +
