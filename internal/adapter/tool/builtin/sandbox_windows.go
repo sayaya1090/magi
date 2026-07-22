@@ -4,6 +4,8 @@ package builtin
 
 import (
 	"errors"
+	"os/exec"
+	"strconv"
 	"syscall"
 	"unsafe"
 
@@ -11,6 +13,21 @@ import (
 
 	"github.com/sayaya1090/magi/internal/port"
 )
+
+// killCmdTree force-terminates the command AND every descendant it spawned. Windows'
+// default context-cancel kills only the launched process (the powershell shell), leaving a
+// grandchild — ssh, ping, a build — alive; that survivor holds the inherited stdout handle,
+// so cmd.Wait never returns and the tool hangs past its timeout for ANY command (a foreground
+// `ssh host cmd` on a first-seen host was the reported symptom, but a plain `ping -n 60` hung
+// identically). taskkill /T walks the child tree via ParentProcessId (unaffected by the
+// detached-console flag); /F is unconditional. Best-effort: a process that already exited or a
+// racing PID reuse is not an error worth surfacing.
+func killCmdTree(cmd *exec.Cmd) error {
+	if cmd.Process == nil {
+		return nil
+	}
+	return exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(cmd.Process.Pid)).Run()
+}
 
 // Windows has no CLI sandbox wrapper (unlike macOS sandbox-exec / Linux bwrap),
 // so there is no argv to rewrite.

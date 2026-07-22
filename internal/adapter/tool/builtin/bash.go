@@ -90,10 +90,11 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	}
 	cmd := exec.CommandContext(cctx, name, args...)
 	cmd.Dir = env.Workdir
-	// On timeout, CommandContext kills the shell but a child (e.g. `sleep`) can
-	// keep the output pipe open, blocking CombinedOutput until the child exits.
-	// WaitDelay bounds that post-kill wait so a timed-out command returns promptly.
-	cmd.WaitDelay = 2 * time.Second
+	// On timeout the default context-cancel kills only the launched shell; a child it spawned
+	// (a build, ssh, ping) can survive holding the inherited output handle, which on Windows
+	// wedges cmd.Wait forever so the tool hangs past its timeout for ANY command. armCancel
+	// wires a whole-tree kill into cancellation and keeps a WaitDelay backstop so Wait returns.
+	armCancel(cmd)
 	// Windows confinement is applied as a process token (no CLI wrapper exists).
 	sboxAttr := sandboxProcAttr(env.Sandbox)
 	// Run in a new session with no controlling terminal (Unix), so a command that tries to
@@ -112,7 +113,7 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	if err != nil && cmd.ProcessState == nil && sboxAttr != nil {
 		cmd = exec.CommandContext(cctx, name, args...)
 		cmd.Dir = env.Workdir
-		cmd.WaitDelay = 2 * time.Second
+		armCancel(cmd)
 		cmd.SysProcAttr = detachTTY(nil)
 		out, err = runCapture(cmd)
 	}
@@ -177,6 +178,17 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	res := okText("", fmt.Sprintf("exit %d\n%s", exit, disp))
 	res.IsError = exit != 0
 	return res, nil
+}
+
+// armCancel makes a timed-out or cancelled command terminate its WHOLE process tree and
+// guarantees cmd.Wait returns. os/exec's default cancel kills only the launched process, so a
+// surviving grandchild that inherited the output handle can wedge Wait — observed on Windows,
+// where every command (not just ssh) hung well past its timeout. killCmdTree is the platform
+// tree kill; WaitDelay is the backstop that force-returns Wait if that kill is slow or partial.
+// Set per-cmd (captures this exact *exec.Cmd), so the retry path arms independently.
+func armCancel(cmd *exec.Cmd) {
+	cmd.WaitDelay = 3 * time.Second
+	cmd.Cancel = func() error { return killCmdTree(cmd) }
 }
 
 // runCapture runs cmd with its combined stdout/stderr sent to a temp FILE, then

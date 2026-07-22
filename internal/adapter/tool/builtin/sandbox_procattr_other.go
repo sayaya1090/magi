@@ -3,10 +3,23 @@
 package builtin
 
 import (
+	"os/exec"
 	"syscall"
 
 	"github.com/sayaya1090/magi/internal/port"
 )
+
+// killCmdTree matches the default context-cancel kill off Windows: the shell runs under
+// Setsid (detachTTY) and dies to a plain Process.Kill, which unblocks cmd.Wait, while the
+// command timeout bounds any orphaned child. It exists so the cross-platform bash tool can
+// wire a single Cancel hook; the Windows build is where that hook does the load-bearing work
+// (killing the whole tree so Wait can return at all).
+func killCmdTree(cmd *exec.Cmd) error {
+	if cmd.Process == nil {
+		return nil
+	}
+	return cmd.Process.Kill()
+}
 
 // sandboxProcAttr is a no-op off Windows; those platforms confine via an argv
 // wrapper (sandbox-exec / bwrap) instead of a process token.
