@@ -31,7 +31,7 @@ type bashArgs struct {
 
 func (Bash) Name() string { return "bash" }
 func (Bash) Description() string {
-	return "Run a shell command in the working directory; returns combined stdout/stderr and the exit code. A non-zero exit is normal, useful output — never mask a failure (`|| true`, error-swallowing catch) into a false pass. Each call is a FRESH shell, so a process started with a trailing `&` dies when the call returns. To keep something alive across steps use background=true (NOT `&`): it returns an id and persists until bash_kill; read it with bash_output, send input with bash_input. Keep STARTING and CHECKING as strictly SEPARATE calls: launch the long-running process with background=true ALONE (its command, no trailing `&`, no appended check), then run any readiness/verification check (netstat/ss/pgrep/curl/…) as its OWN foreground call so you actually SEE the result — a check bundled after the process in a background command has its output captured inside the job (you get back only the id), so you never see it and will loop restarting a server that is already up. Add pty=true (with background) for programs that need a real terminal — ssh (password prompt reads /dev/tty), a serial/getty login, or a curses UI. Set verify=true when THIS command is your build/test/run check — its exit code is the verdict, so run it directly and do NOT pipe it through tail/head (that hides the exit code; output is already head+tail capped)."
+	return "Run a shell command in the working directory; returns combined stdout/stderr and the exit code (a non-zero exit is normal output — never mask it with `|| true`). Each call is a FRESH shell. To keep a process (e.g. a server) alive across steps set background=true — it returns an id: poll with bash_output, stop with bash_kill, send input with bash_input. START a process and VERIFY it in SEPARATE calls: start it with background=true, then check it (netstat/pgrep/curl) in a foreground call so you see the result. Add pty=true (with background) for programs needing a real terminal (ssh password prompt, serial login, curses UI). Set verify=true when THIS command is your build/test/run check — run it directly, don't pipe through tail/head (hides the exit code)."
 }
 func (Bash) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"timeout":{"type":"integer","description":"seconds (default 120, max 600)"},"background":{"type":"boolean","description":"run detached; returns an id for bash_output/bash_input/bash_kill"},"pty":{"type":"boolean","description":"with background: real terminal for ssh/serial/curses programs"},"verify":{"type":"boolean","description":"this command is your build/test check — don't pipe it through tail/head"}},"required":["command"]}`)
@@ -55,14 +55,25 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		}
 	}
 	if a.Background {
-		p, err := bg.start(env.Workdir, env.Sandbox, a.Command, bool(a.Pty))
+		// background=true ALREADY persists the process as its own job, so a trailing `&` (or a
+		// `nohup` wrapper) is worse than redundant: it backgrounds the process INSIDE the job's
+		// shell, the shell then has nothing left to do and exits immediately, and bash_output
+		// reports `[job exited 0]` — the model reads that as "the server died" and restarts it in
+		// a loop, even though (with nohup) a detached copy is actually running. The tool description
+		// says not to do this, but weak models do it anyway, so strip it and run the bare command as
+		// the job's foreground — then the job stays alive exactly as long as the process does.
+		cmd, stripped := stripBackgroundArtifacts(a.Command)
+		p, err := bg.start(env.Workdir, env.Sandbox, cmd, bool(a.Pty))
 		if err != nil {
 			return errResult("", "failed to start background command: "+err.Error()), nil
 		}
 		msg := fmt.Sprintf("started background command %s — poll with bash_output{id:%q}, stop with bash_kill{id:%q}", p.id, p.id, p.id)
+		if stripped {
+			msg += " (note: dropped a redundant `&`/`nohup` — background=true already keeps it running as this job; poll bash_output to see it stay up)"
+		}
 		if bool(a.Pty) {
 			msg += " (on a pseudo-terminal — send keystrokes/answers with bash_input)"
-		} else if note := ptyNeededNote(a.Command, false); note != "" {
+		} else if note := ptyNeededNote(cmd, false); note != "" {
 			// Backgrounded a tty-gated command (ssh/serial) on a plain pipe — it can't be
 			// driven. Steer to pty:true rather than let the model poll a dead prompt.
 			msg = note + "\n" + msg
@@ -181,6 +192,24 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	res := okText("", fmt.Sprintf("exit %d\n%s", exit, disp))
 	res.IsError = exit != 0
 	return res, nil
+}
+
+// stripBackgroundArtifacts removes a trailing `&` and a leading `nohup` from a background-launched
+// command: background=true already persists it as its own job, so those only make the job's shell
+// exit immediately (see the background branch). Conservative — a SINGLE trailing `&` (never `&&`)
+// and a leading `nohup ` word. Returns the cleaned command and whether anything was stripped.
+func stripBackgroundArtifacts(command string) (string, bool) {
+	c := strings.TrimSpace(command)
+	if rest, ok := strings.CutPrefix(c, "nohup "); ok {
+		c = strings.TrimSpace(rest)
+	}
+	if strings.HasSuffix(c, "&") && !strings.HasSuffix(c, "&&") {
+		c = strings.TrimSpace(strings.TrimSuffix(c, "&"))
+	}
+	if c == "" || c == strings.TrimSpace(command) {
+		return command, false
+	}
+	return c, true
 }
 
 // armCancel makes a timed-out or cancelled command terminate its WHOLE process tree and
