@@ -725,14 +725,19 @@ func planMemberSystem(m council.Member, lens string, keep bool) string {
 			"ALSO, where a step's deliverable is MACHINE-CHECKABLE, propose one or more executable `checks`. Each check "+
 			"names the plan `step` it belongs to (its title or number), the expected `deliverable` in one short phrase, a "+
 			"shell `command` that verifies it from the task's working directory, and an optional `expect` REGULAR "+
-			"EXPRESSION the command's output must match (omit `expect` for an exit-code-only check). PREFER a check that "+
-			"EXERCISES the deliverable's content over one that only asserts a file exists — run it, grep its contents, or "+
-			"test that it is non-empty (`test -s out.txt`, not bare `test -f`) — so a stale or empty leftover cannot pass. "+
-			"The deliverable may be a file (`test -s out.txt`), a build/test result (`go build ./...`), or PROGRAM OUTPUT "+
-			"ON SCREEN — for output, run the program and match its stdout with `expect` (e.g. command `./run --demo`, "+
-			"expect `^total: [0-9]+$`). CRITICAL: if the task ITSELF states the exact check — a literal command line, a "+
-			"concrete input→output example, or a numeric threshold — the check MUST reproduce that command and expected "+
-			"value VERBATIM, never a paraphrase or a value you invented. The hidden grader enforces the TASK'S own "+
+			"EXPRESSION the command's output must match (omit `expect` for an exit-code-only check). A check that only "+
+			"asserts a file EXISTS or is non-empty is INSUFFICIENT whenever the deliverable must BEHAVE or produce a "+
+			"correct result — you MUST author a check that RUNS it and asserts the OUTCOME. Asserting the artifact is "+
+			"present while never exercising it is the single biggest reason a broken solution gets approved: a program that "+
+			"builds but computes the wrong answer, a `gates.txt` that exists but simulates to the wrong value, a server "+
+			"file that never actually listens, a cleanup handler that never fires. So beyond any existence check, run it, "+
+			"grep its contents, or exercise its behavior (`test -s out.txt`, not bare `test -f`) so a stale, empty, or "+
+			"WRONG leftover cannot pass. The deliverable may be a file (`test -s out.txt`), a build/test result "+
+			"(`go build ./...`), or PROGRAM OUTPUT ON SCREEN — for output, run the program and match its stdout with "+
+			"`expect` (e.g. command `./run --demo`, expect `^total: [0-9]+$`). HIGHEST-PRIORITY CHECK: if the task shows "+
+			"ANY concrete example — a literal command line, an input→output mapping, or a numeric threshold — your FIRST "+
+			"check MUST run that EXACT input and assert that EXACT output, verbatim, never a paraphrase or a value you "+
+			"invented; this one check catches a wrong-but-present artifact that every file-existence check misses. The hidden grader enforces the TASK'S own "+
 			"contract, so a self-substituted command or expected output passes your check but fails the grader (e.g. the "+
 			"task names `pmars -b -r 50 -f flashpaper.red rave.red | tail -n 1` — run exactly that; a task giving "+
 			"`sim 208 → 377` — assert exactly that mapping). When the task's acceptance involves an EXTERNAL event — a signal "+
