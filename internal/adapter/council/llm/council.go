@@ -740,7 +740,13 @@ func planMemberSystem(m council.Member, lens string, keep bool) string {
 			"artifact as a background process, send the actual signal, and match the required output (e.g. command "+
 			"`python3 app.py & p=$!; sleep 1; kill -INT $p; wait $p 2>/dev/null; ...`, expect the cleanup marker). "+
 			"An in-process simulation (raising the exception by hand) verifies the wrong delivery path. A "+
-			"step may have SEVERAL checks (several deliverables). Propose checks ONLY when they are concrete and would "+
+			"step may have SEVERAL checks (several deliverables). PORTABLE PROBES: the `command` may use ONLY tools "+
+			"guaranteed to exist in the task's runtime — coreutils, `grep`/`test`, `python3`, and the task's own "+
+			"toolchain. A check that fails merely because its TOOL is absent is a false negative that can NEVER pass, "+
+			"trapping the run in a re-verify loop until timeout. In particular, to test that a server LISTENS on a port, "+
+			"do NOT use `ss`/`netstat`/`lsof` (routinely missing in minimal images) — use a dependency-free connect, e.g. "+
+			"command `python3 -c \"import socket,sys; sys.exit(0 if socket.socket().connect_ex(('localhost',PORT))==0 else 1)\"` "+
+			"(or `curl -sf http://localhost:PORT/...` for HTTP). Propose checks ONLY when they are concrete and would "+
 			"genuinely pass for correct work — commands must be non-destructive and deterministic. For a "+
 			"read/review/analyze/answer step there is usually nothing to execute: emit NO check for it (the prose "+
 			"`criteria` already cover it). Omit `checks` entirely if your lens has none.\n\n"+
