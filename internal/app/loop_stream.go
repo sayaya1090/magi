@@ -48,53 +48,23 @@ var streamStallTimeout = func() time.Duration {
 var maxStreamStallRetries = 2
 
 // drainText consumes a TEXT-ONLY provider stream (the planner and other tool-free side calls that only
-// accumulate the reply, unlike consumeStream which also publishes deltas), applying the SAME inactivity
-// watchdog: if no event arrives for streamStallTimeout it cancels the request, so a silent/hung backend
-// cannot strand the call until the turn's wall clock. This closes the gap consumeStream's watchdog left
-// open — the planner's re-plan generate consumes the stream directly and a fix-ocaml-gc re-plan hung
-// there for ~57min. The watchdog is inactivity-based (reset by every event), so a slow-but-alive
-// generation is never tripped. On a stall the drained text is usually empty, which flows into the
-// caller's own no-result path (the planner's JSON-only retry). Returns the accumulated text and any
-// StreamChat transport error.
+// accumulate the reply, unlike consumeStream which also publishes deltas). It carries NO hang watchdog
+// of its own: the provider is wrapped by guardedProvider (GuardProvider), which aborts a silent or
+// spinning generation at the receive point, so a hung re-plan generate closes the stream and drainText
+// returns (usually empty) — which flows into the caller's own no-result path (the planner's JSON-only
+// retry). Returns the accumulated text and any StreamChat transport error.
 func (a *App) drainText(ctx context.Context, spec AgentSpec, req port.ChatRequest) (string, error) {
-	sctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	stream, err := a.providerFor(spec).StreamChat(sctx, req)
+	stream, err := a.providerFor(spec).StreamChat(ctx, req)
 	if err != nil {
 		return "", err
 	}
 	var b strings.Builder
-	if streamStallTimeout <= 0 { // watchdog disabled → plain drain
-		for ev := range stream {
-			if ev.Type == port.ProviderText {
-				b.WriteString(ev.Text)
-			}
-		}
-		return b.String(), nil
-	}
-	last := time.Now()
-	tick := 15 * time.Second
-	if streamStallTimeout < tick {
-		tick = streamStallTimeout
-	}
-	t := time.NewTicker(tick)
-	defer t.Stop()
-	for {
-		select {
-		case ev, ok := <-stream:
-			if !ok {
-				return b.String(), nil
-			}
-			last = time.Now() // any event (text OR reasoning) proves the stream is alive
-			if ev.Type == port.ProviderText {
-				b.WriteString(ev.Text)
-			}
-		case now := <-t.C:
-			if now.Sub(last) >= streamStallTimeout {
-				cancel() // silent past the bound → abort; the provider closes the stream and we return
-			}
+	for ev := range stream {
+		if ev.Type == port.ProviderText {
+			b.WriteString(ev.Text)
 		}
 	}
+	return b.String(), nil
 }
 
 // reasoningSpinCap is the max output bytes a single model response may stream WITHOUT ever emitting

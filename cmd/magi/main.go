@@ -371,7 +371,7 @@ func run() int {
 	if cfg.Limits.MaxOutputTokens > 0 {
 		llmOpts = append(llmOpts, openai.WithMaxTokens(cfg.Limits.MaxOutputTokens)) // [limits] max_output_tokens
 	}
-	llm := openai.New(baseURLVal, apiKeyVal, llmOpts...)
+	llm := openai.New(baseURLVal, apiKeyVal, llmOpts...) // concrete client: doctor/probe/header calls need it
 
 	if *doctor {
 		// Plugin-contributed probes: load plugins far enough to collect their
@@ -502,10 +502,10 @@ func run() int {
 		resolve := func(name string) port.LLMProvider {
 			if name != "" {
 				if p := providers[name]; p != nil {
-					return p
+					return p // already guarded by the factory
 				}
 			}
-			return llm
+			return app.GuardProvider(llm) // universal hang guard on the council's default backend too
 		}
 		councilPort = councilllm.New(resolve, modelID)
 	}
@@ -517,7 +517,7 @@ func run() int {
 	obs := &pluginObserver{}
 	experienceStore := explayered.New(expProjectDir, expDir)
 
-	a := app.New(store, llm, reg, bus.New(), plat, app.Config{
+	a := app.New(store, app.GuardProvider(llm), reg, bus.New(), plat, app.Config{
 		Model:               session.ModelRef{Provider: "openai", Model: modelID},
 		System:              systemPrompt,
 		Permission:          perm,
@@ -1256,7 +1256,7 @@ func newProviderFactory(llmOpts []openai.Option, defaultBase string) app.Provide
 		if base == "" {
 			base = defaultBase
 		}
-		return openai.New(base, config.ExpandEnv(p.APIKey), opts...)
+		return app.GuardProvider(openai.New(base, config.ExpandEnv(p.APIKey), opts...))
 	}
 }
 
