@@ -1413,6 +1413,12 @@ const systemPrompt = "You are magi, an AI coding agent working in the user's pro
 	"4. VERIFY — when fixing a bug, REPRODUCE it first (run the failing test/command), then fix, then re-run until it " +
 	"passes; keep the other tests green. Run the project's build/test command when apparent and iterate until clean — " +
 	"never end a turn leaving the code broken. The harness auto-formats and feeds back diagnostics; fix them. " +
+	"CHECKPOINT FIRST: when the task STATES how completion is checked or the output applied (a command, snippet, " +
+	"function call, or input/output contract), reproduce that exact check as a small runnable checkpoint EARLY — build " +
+	"its inputs from the spec itself, including any counter-example it names, and drive the implementation until the " +
+	"checkpoint passes; report done only after you have RUN it and seen it pass. Deliver any external event the task " +
+	"names (a signal/Ctrl-C, a kill, a disconnect) for REAL — run your artifact as a subprocess and send the ACTUAL " +
+	"signal — never simulate it in-process, and never weaken/replace the checkpoint just to make it pass. " +
 	"AFTER tests pass, do a POST-COMPLETION CRITIQUE: (a) Does the change fulfill the original requirement? " +
 	"(b) Did I introduce regressions or break existing functionality? (c) Is the diff minimal, or did I touch unrelated code? " +
 	"If you spot issues, fix them before summarizing. Keep the final diff minimal — revert UNRELATED or incidental edits, but never the outputs the task asked you to produce; before declaring done, confirm those required outputs still exist (a cleanup step must not delete them).\n" +

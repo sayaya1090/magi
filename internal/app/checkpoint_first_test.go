@@ -22,14 +22,9 @@ func TestCheckpointFirstEnabled(t *testing.T) {
 	}
 }
 
-// The note and planner rule must carry the load-bearing ideas: build the check FIRST,
-// reproduce the stated procedure, and include a named counter-example.
+// The planner rule (no longer a separate per-turn note) must carry the load-bearing ideas: order
+// the check EARLY, reproduce the stated procedure, and include a named counter-example.
 func TestCheckpointFirstConstants(t *testing.T) {
-	for _, want := range []string{"checkpoint", "BEFORE", "counter-example"} {
-		if !strings.Contains(checkpointFirstNote, want) {
-			t.Errorf("checkpointFirstNote missing %q", want)
-		}
-	}
 	for _, want := range []string{"CHECKPOINT FIRST", "EARLY step", "counter-example"} {
 		if !strings.Contains(checkpointFirstRule, want) {
 			t.Errorf("checkpointFirstRule missing %q", want)

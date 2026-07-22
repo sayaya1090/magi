@@ -224,16 +224,14 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth, 
 	a.registerPlanTodos(ctx, s.ID, steps)
 	a.emitPhase(s.ID, "plan", planSummary(steps), strings.TrimSpace(plan.Reason))
 
-	// Spec fidelity (Part B): a plan now governs execution, so the todos are a SUMMARY of the
-	// request. Re-anchor the main agent on the original wording for literal identifiers before any
-	// step runs — this fires ahead of executeSteps, so refine clones and the findings-synthesis
-	// path inherit it via the parent context. All-solo plans (no findings) rely on this too.
-	if specFidelityEnabled() {
-		_ = a.appendPromptText(ctx, s.ID, event.Actor{Kind: event.ActorSystem, ID: "planner"}, specFidelityNote)
-	}
-	if checkpointFirstEnabled() {
-		_ = a.appendPromptText(ctx, s.ID, event.Actor{Kind: event.ActorSystem, ID: "planner"}, checkpointFirstNote)
-	}
+	// Spec fidelity and checkpoint-first are NO LONGER injected as per-turn execution notes here:
+	// both were redundant with plan-stage machinery and only bloated the context. Literal fidelity
+	// lives in the planner contract's literalRule (below) and the curated brief's verbatim `literals`;
+	// checkpoint-first lives in the planner contract's checkpointFirstRule (which orders an early
+	// checkpoint STEP), the plan-audit's executable deliverable checks (the concrete checkpoints the
+	// worker runs), and a standing rule in the executor's system prompt — so the discipline is kept in
+	// the plan and the work rules rather than re-stated as a message every turn.
+
 	// Signature mining as a dedicated STEP, not a clause: a weak executor follows "mine
 	// the signatures" poorly when it is one instruction among many, but consumes a
 	// completed conclusion well. The side call runs once here (plan seam, before any

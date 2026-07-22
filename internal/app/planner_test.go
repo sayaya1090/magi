@@ -1899,14 +1899,18 @@ func TestPreflightUsesTaskOverride(t *testing.T) {
 // Spec fidelity ON (default): once a plan governs the turn, the main session carries the
 // spec-fidelity note (Part B), and the planner's own system prompt carries the literal-preservation
 // rule (Part A). Both re-anchor deep planning on the request's verbatim identifiers.
-func TestSpecFidelityNoteInjected(t *testing.T) {
+// Literal fidelity now lives ONLY in the planner contract's literal-preservation rule (the per-turn
+// execution note was removed as redundant with that rule + the curated brief's verbatim literals).
+func TestSpecFidelityRuleInPlannerContract(t *testing.T) {
 	llm := &recLLM{reply: planReply}
 	a, sid := specFidelityApp(t, llm, "add a field named value to the request message")
 	a.maybePlanPreflight(context.Background(), a.sessionInfo(context.Background(), sid), 0, 120, "")
 
-	if txt := sessionText(t, a, sid); !strings.Contains(txt, "spec fidelity") || !strings.Contains(txt, "VERBATIM") {
-		t.Errorf("Part B note not injected into the main session; session text was:\n%s", txt)
+	// The redundant execution note must NO LONGER be injected into the session.
+	if txt := sessionText(t, a, sid); strings.Contains(txt, "Execution note — spec fidelity") {
+		t.Errorf("the spec-fidelity execution note should no longer be injected; session text:\n%s", txt)
 	}
+	// …but the literal-preservation RULE must still be in the planner system prompt.
 	llm.mu.Lock()
 	defer llm.mu.Unlock()
 	var sawRule bool

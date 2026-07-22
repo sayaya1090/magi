@@ -64,49 +64,12 @@ const literalRule = "\n\nPRESERVE LITERALS: when the request specifies EXACT ide
 	"\"title\"/\"task\". Never paraphrase a literal contract (keep a field named `value` as `value`, not \"the value\"; " +
 	"keep `YYYY-MM-DD` verbatim). The plan is a summary of the request, but its literals are NOT summaries."
 
-// specFidelityNote is injected into the MAIN session once a plan governs execution (Part B): the
-// todos summarize the request, so the executor is told to defer to the ORIGINAL wording for any
-// exact identifier rather than normalizing it. Fires before executeSteps, so refine clones and the
-// findings-synthesis path inherit it via the parent context. See specFidelityEnabled.
-const specFidelityNote = "# Execution note — spec fidelity\n" +
-	"The plan (todos) is a SUMMARY of this request. For any exact identifier — a name, field, " +
-	"function/message, output format, threshold, or literal string — follow the ORIGINAL request's " +
-	"wording VERBATIM, not the summary. Do NOT normalize or rename it (if the request names a field " +
-	"`value`, keep it `value`, do not shorten it to `val`). This rule is about NAMES and FORMATS, " +
-	"not implementation structure: do not transplant the request's prose vocabulary into code " +
-	"constructs (a request mentioning an event or exception does not mean code must catch or name " +
-	"that exact token somewhere) — satisfy such requirements by BEHAVIOR, not by echoing the wording.\n" +
-	"Identifiers cut BOTH ways: beyond preserving them, MINE them. The request's names and type " +
-	"signatures are compressed spec — a parameter's type constrains what its values (and their " +
-	"lifecycles) can be, and a name like `max_*` states an exact bound — so derive requirements from " +
-	"them that the prose leaves unsaid. Then implement the situation they describe with the domain's " +
-	"STANDARD idiom — the construct the language or stdlib built for exactly that job — rather than " +
-	"hand-assembling the mechanism from lower-level parts: the idiom already handles the edge " +
-	"semantics (ordering, cancellation, partial failure) a hand-rolled version quietly drops."
+// (specFidelityNote removed: literal fidelity is carried by literalRule in the planner contract
+// above and the curated brief's verbatim `literals`, so the per-turn execution note was redundant.)
 
-// checkpointFirstNote is injected into the MAIN session before execution when
-// checkpointFirstEnabled(): a test-first ordering directive. It fires on the same seam
-// as specFidelityNote, so it reaches the solo, planned, and refine paths alike. See
-// checkpointFirstEnabled.
-const checkpointFirstNote = "# Execution note — checkpoint first\n" +
-	"If this task states HOW your output will be checked or applied — a code snippet, a command, a " +
-	"function call, or an input/output contract — then BEFORE implementing the solution, FIRST write a " +
-	"small runnable checkpoint in the working directory that reproduces exactly that check (like writing " +
-	"the test before the code). Build its inputs from the spec itself, INCLUDING any counter-example the " +
-	"task names, and encode the expected result. Then implement until the checkpoint passes, and only " +
-	"report done once you have RUN it and seen it pass. Do not invent an oracle the spec does not give — " +
-	"reproduce the stated procedure. If the stated scenario involves an EXTERNAL event — a signal " +
-	"(Ctrl-C/SIGINT), a kill, a disconnect, a restart — the checkpoint must deliver that event for " +
-	"REAL: run your artifact as a subprocess and send the actual signal/event to it. Do NOT simulate " +
-	"the event in-process (e.g. raising the exception yourself) — delivery semantics differ, and a " +
-	"simulation can pass while the real event fails. The checkpoint IS the oracle: when it fails, treat " +
-	"the defect as being in the IMPLEMENTATION until proven otherwise — never weaken, simplify, or replace " +
-	"the checkpoint with an easier variant just to make it pass (fix the checkpoint only for a genuine " +
-	"authoring bug, and keep its scenario — task counts, event timing — intact). For an edge case you INFERRED rather than one the task states, only " +
-	"assert an expected result you can derive with confidence from the spec or domain semantics; if its " +
-	"correct output is uncertain, harden the implementation against it instead of pinning the checkpoint " +
-	"to a guessed value. If a runnable checkpoint genuinely cannot be built cheaply (the conditions are " +
-	"purely prose), proceed as usual."
+// (checkpointFirstNote removed: the discipline is now carried by checkpointFirstRule in the planner
+// contract — which orders an EARLY checkpoint step — the plan-audit's executable deliverable checks,
+// and a standing rule in the executor's system prompt. The per-turn note was redundant.)
 
 // checkpointFirstRule is appended to the planner contract when checkpointFirstEnabled():
 // it makes a multi-step plan ORDER the checkpoint early (a sequencing concern, not a new
