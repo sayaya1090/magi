@@ -781,7 +781,18 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 			// deliberates; a kill verdict cancels it exactly like the old hard cap.
 			ext, verdictNote := time.Duration(0), "backstop spent"
 			if backstop > time.Since(attemptStart) {
-				ext, verdictNote = a.judgeLease(ctx, parent, child, req.Prompt, time.Since(attemptStart))
+				// A tool executing right now is active work, not churn: a foreground build
+				// (`make`, a long test run) emits no events and is not a poll/wait verb, so the
+				// judge — and the deterministic wait-check — can misread a mid-build child as
+				// wedged and KILL it exactly when it is legitimately busy. Extend deterministically
+				// while a tool is in flight, the lease-side mirror of the stall watchdog's own
+				// tool-in-flight suppression. The tool's own timeout (≤10m) bounds the call and the
+				// backstop still caps the attempt, so this cannot extend a real runaway.
+				if a.toolInFlight(child.ID) {
+					ext, verdictNote = a.leaseExtension(), "tool in flight (active work, not churn)"
+				} else {
+					ext, verdictNote = a.judgeLease(ctx, parent, child, req.Prompt, time.Since(attemptStart))
+				}
 			}
 			// Clamp AFTER the judge call: the verdict can take up to judgeCallTimeout,
 			// and the extension clock only starts at the Reset below, so a pre-call
