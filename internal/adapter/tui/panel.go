@@ -75,7 +75,10 @@ const (
 // when there's nothing to show or the terminal is too narrow to float it without
 // crowding the transcript. statusPanel records each subagent row's panelY for clicks.
 func (m *Model) floatPanel() (box string, top, left int, ok bool) {
-	if m.zoom || !m.hasPanel() {
+	// Show in the OVERVIEW (plan + subagent roster) when there's something to show, and in a
+	// WORKER DETAIL view (zoomed into a subagent) as that worker's dedicated dossier panel.
+	zoomWorker := m.zoom && m.viewedPane() != nil
+	if !zoomWorker && (m.zoom || !m.hasPanel()) {
 		return "", 0, 0, false
 	}
 	top = headerRows + floatMarginTop
@@ -99,6 +102,12 @@ func (m *Model) floatPanel() (box string, top, left int, ok bool) {
 // panelW. panelTop is the SCREEN row of its first content line, so each subagent
 // row's panelY maps clicks correctly. Returns "" when hidden.
 func (m *Model) statusPanel(panelTop int) string {
+	// Worker detail: zoomed into a subagent → the panel is THAT worker's dossier (its request brief
+	// + acceptance checklist + own sub-plan), keyed to the focused pane. So each parallel worker
+	// gets its own panel when you drill into it — no mixing in the shared plan panel.
+	if p := m.viewedPane(); m.zoom && p != nil && m.app != nil {
+		return m.workerPanel(p)
+	}
 	if !m.hasPanel() {
 		return ""
 	}
@@ -161,40 +170,6 @@ func (m *Model) statusPanel(panelTop int) string {
 		}
 	}
 
-	// The active worker's request + checklist: the structured brief it was dispatched with (goal,
-	// task, verbatim literals, constraints, deliverable) and the acceptance checks it must satisfy —
-	// so the panel shows "what this worker was asked to do", the way it shows the plan above. The
-	// curated-delegate path runs one worker at a time, so show the first still-running one.
-	if m.app != nil {
-		for _, p := range m.panes {
-			if p.done {
-				continue
-			}
-			req := strings.TrimSpace(m.app.SubagentRequest(p.sid))
-			checks := m.app.SubagentChecklist(p.sid)
-			if req == "" && len(checks) == 0 {
-				continue
-			}
-			if req != "" {
-				sep()
-				lines = append(lines, panelHead("Request → "+p.label()))
-				lines = append(lines, capPanelLines(wrapPanel(req, inner), 16)...)
-			}
-			if len(checks) > 0 {
-				sep()
-				lines = append(lines, panelHead("Checklist"))
-				for i, c := range checks {
-					item := strings.TrimSpace(c.Deliverable)
-					if item == "" {
-						item = strings.TrimSpace(c.Command)
-					}
-					lines = append(lines, wrapPanel(fmt.Sprintf("%d. %s", i+1, item), inner)...)
-				}
-			}
-			break
-		}
-	}
-
 	if m.ctxPct > 0 {
 		sep()
 		lines = append(lines, panelHead("Context"), ctxBar(m.ctxPct, inner))
@@ -204,6 +179,59 @@ func (m *Model) statusPanel(panelTop int) string {
 	return roundedBox(body, content)
 }
 
+// workerPanel renders a subagent's dedicated dossier for its detail (zoom) view: the FULL request
+// brief it was dispatched with (goal, task, verbatim literals, constraints, deliverable), its
+// acceptance checklist, and its own sub-plan if any. The request is shown in full — not truncated
+// with an ellipsis — since the whole point of the detail view is to read exactly what the worker
+// was asked. If the box would run past the screen it is clipped (no marker), never hidden.
+func (m *Model) workerPanel(p *agentPane) string {
+	content := m.panelW - 4
+	inner := content - 4
+	var lines []string
+	sep := func() {
+		if len(lines) > 0 {
+			lines = append(lines, "")
+		}
+	}
+
+	lines = append(lines, panelHead(p.label()))
+	if req := strings.TrimSpace(m.app.SubagentRequest(p.sid)); req != "" {
+		sep()
+		lines = append(lines, panelHead("Request"))
+		lines = append(lines, wrapPanel(req, inner)...)
+	}
+	if checks := m.app.SubagentChecklist(p.sid); len(checks) > 0 {
+		sep()
+		lines = append(lines, panelHead("Checklist"))
+		for i, c := range checks {
+			item := strings.TrimSpace(c.Deliverable)
+			if item == "" {
+				item = strings.TrimSpace(c.Command)
+			}
+			lines = append(lines, wrapPanel(fmt.Sprintf("%d. %s", i+1, item), inner)...)
+		}
+	}
+	if todos := m.app.Todos(p.sid); len(todos) > 0 {
+		done := 0
+		for _, t := range todos {
+			if t.Status == "completed" {
+				done++
+			}
+		}
+		sep()
+		lines = append(lines, panelHead(fmt.Sprintf("Plan  %d/%d", done, len(todos))))
+		lines = m.appendPlanTree(lines, p.sid, inner, 0)
+	}
+	if len(lines) <= 1 {
+		return "" // just the label — nothing worth a box
+	}
+	// Clip (never ellipsize) to the vertical space so the float can't run off the bottom.
+	if maxRows := m.height - floatMarginTop - headerRows - 6; maxRows > 4 && len(lines) > maxRows {
+		lines = lines[:maxRows]
+	}
+	return roundedBox(strings.Join(lines, "\n"), content)
+}
+
 // wrapPanel word-wraps s to width cells and returns its lines, so a long request/checklist entry
 // shows in full across rows instead of being truncated to one line by roundedBox's padOrTruncate.
 func wrapPanel(s string, width int) []string {
@@ -211,16 +239,6 @@ func wrapPanel(s string, width int) []string {
 		width = 4
 	}
 	return strings.Split(lipgloss.NewStyle().Width(width).Render(s), "\n")
-}
-
-// capPanelLines bounds a wrapped block to n lines (the panel has finite height), marking a cut with
-// an ellipsis so it's clear the content continues.
-func capPanelLines(lines []string, n int) []string {
-	if len(lines) <= n {
-		return lines
-	}
-	out := append([]string{}, lines[:n]...)
-	return append(out, "…")
 }
 
 // roundedBox draws body inside a rounded outline whose OUTER width is exactly
