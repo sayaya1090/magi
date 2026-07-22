@@ -202,17 +202,30 @@ func armCancel(cmd *exec.Cmd) {
 	}
 }
 
-// bashDebugf writes a diagnostic line to stderr when MAGI_BASH_DEBUG is set (any non-empty
-// value). It exists to localize the Windows timeout hang from a machine we cannot run here:
-// the trace (exec start → started pid → cancel fired/taskkill result → wait returned → exec
-// done) shows exactly which step wedges — e.g. a "started" with no "wait returned" means Wait
-// itself is stuck, while a "cancel fired" whose taskkill errored points at the kill. Off by
-// default, so normal runs stay silent.
+// bashDebugf appends a diagnostic line to a FILE when MAGI_BASH_DEBUG is set. It writes to a file
+// — not stderr — because in TUI mode the alternate screen swallows stderr, so the trace never
+// appeared. The env value is the log path; a bare "1"/"true"/"on"/"yes" defaults to
+// magi-bash-debug.log in the working directory. The trace (exec start → started pid → cancel
+// fired/taskkill result → wait returned → exec done) localizes the Windows timeout hang: a
+// "started" with no "wait returned" means Wait itself is stuck, a "cancel fired" whose taskkill
+// errored points at the kill, and no "cancel fired" at all means the deadline never triggered.
+// Off (empty env) by default, so normal and bench runs stay silent.
 func bashDebugf(format string, args ...any) {
-	if os.Getenv("MAGI_BASH_DEBUG") == "" {
+	v := strings.TrimSpace(os.Getenv("MAGI_BASH_DEBUG"))
+	if v == "" {
 		return
 	}
-	fmt.Fprintf(os.Stderr, "[bash-debug %s] %s\n", time.Now().Format("15:04:05.000"), fmt.Sprintf(format, args...))
+	path := v
+	switch strings.ToLower(v) {
+	case "1", "true", "on", "yes":
+		path = "magi-bash-debug.log"
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintf(f, "[bash-debug %s] %s\n", time.Now().Format("15:04:05.000"), fmt.Sprintf(format, args...))
 }
 
 // dbgClip collapses a command to a single bounded line for a debug log.
