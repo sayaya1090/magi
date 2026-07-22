@@ -110,11 +110,45 @@ func (a *App) validateChecks(ctx context.Context, agent AgentSpec, s session.Ses
 	if !ok || len(out) == 0 { // unusable review → keep the authored checks rather than drop the contract
 		return checks
 	}
-	if len(out) != len(checks) {
-		a.emitToolProgress(s.ID, plannerActor, "", "check-audit",
-			fmt.Sprintf("reviewed deliverable checks: %d → %d (repaired/dropped invalid)", len(checks), len(out)))
-	}
+	a.recordCheckAudit(ctx, s.ID, checks, out)
 	return out
+}
+
+// recordCheckAudit persists what the check review changed — not just a count — so a rejected or
+// repaired check is inspectable after the fact (why a step gated the way it did). It emits a
+// reviewable "check-audit" artifact carrying the FULL before/after check sets, and a progress line
+// naming the deliverables that were dropped or had their verifying command rewritten. A check is
+// "kept as-is" iff its exact command survives; anything else (dropped OR repaired) is reported.
+// No-op when nothing changed.
+func (a *App) recordCheckAudit(ctx context.Context, sid session.SessionID, before, after []council.DeliverableCheck) {
+	afterCmd := make(map[string]bool, len(after))
+	for _, c := range after {
+		afterCmd[strings.TrimSpace(c.Command)] = true
+	}
+	var changed []string
+	for _, c := range before {
+		if afterCmd[strings.TrimSpace(c.Command)] {
+			continue // survived verbatim → kept
+		}
+		d := strings.TrimSpace(c.Deliverable)
+		if d == "" {
+			d = clipLine(strings.TrimSpace(c.Command), 60)
+		}
+		changed = append(changed, d)
+	}
+	if len(changed) == 0 && len(before) == len(after) {
+		return // review ran but left every check untouched — nothing to report
+	}
+	content, _ := json.Marshal(map[string][]council.DeliverableCheck{"before": before, "after": after})
+	a.emitArtifact(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "council"}, artifact.Artifact{
+		ID: "art_" + newID(), Kind: "check-audit", Title: "Deliverable check audit (repaired/dropped)",
+		Content: content, SourceAgent: "council", Status: "proposed", Created: time.Now(),
+	})
+	msg := fmt.Sprintf("check-audit: %d → %d checks", len(before), len(after))
+	if len(changed) > 0 {
+		msg += " — dropped/repaired: " + clipLine(strings.Join(changed, "; "), 240)
+	}
+	a.emitToolProgress(sid, plannerActor, "", "check-audit", msg)
 }
 
 // parseChecksArray extracts the first balanced JSON array from a review reply and unmarshals it into
