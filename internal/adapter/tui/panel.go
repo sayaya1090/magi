@@ -161,6 +161,40 @@ func (m *Model) statusPanel(panelTop int) string {
 		}
 	}
 
+	// The active worker's request + checklist: the structured brief it was dispatched with (goal,
+	// task, verbatim literals, constraints, deliverable) and the acceptance checks it must satisfy —
+	// so the panel shows "what this worker was asked to do", the way it shows the plan above. The
+	// curated-delegate path runs one worker at a time, so show the first still-running one.
+	if m.app != nil {
+		for _, p := range m.panes {
+			if p.done {
+				continue
+			}
+			req := strings.TrimSpace(m.app.SubagentRequest(p.sid))
+			checks := m.app.SubagentChecklist(p.sid)
+			if req == "" && len(checks) == 0 {
+				continue
+			}
+			if req != "" {
+				sep()
+				lines = append(lines, panelHead("Request → "+p.label()))
+				lines = append(lines, capPanelLines(wrapPanel(req, inner), 16)...)
+			}
+			if len(checks) > 0 {
+				sep()
+				lines = append(lines, panelHead("Checklist"))
+				for i, c := range checks {
+					item := strings.TrimSpace(c.Deliverable)
+					if item == "" {
+						item = strings.TrimSpace(c.Command)
+					}
+					lines = append(lines, wrapPanel(fmt.Sprintf("%d. %s", i+1, item), inner)...)
+				}
+			}
+			break
+		}
+	}
+
 	if m.ctxPct > 0 {
 		sep()
 		lines = append(lines, panelHead("Context"), ctxBar(m.ctxPct, inner))
@@ -168,6 +202,25 @@ func (m *Model) statusPanel(panelTop int) string {
 
 	body := strings.Join(lines, "\n")
 	return roundedBox(body, content)
+}
+
+// wrapPanel word-wraps s to width cells and returns its lines, so a long request/checklist entry
+// shows in full across rows instead of being truncated to one line by roundedBox's padOrTruncate.
+func wrapPanel(s string, width int) []string {
+	if width < 4 {
+		width = 4
+	}
+	return strings.Split(lipgloss.NewStyle().Width(width).Render(s), "\n")
+}
+
+// capPanelLines bounds a wrapped block to n lines (the panel has finite height), marking a cut with
+// an ellipsis so it's clear the content continues.
+func capPanelLines(lines []string, n int) []string {
+	if len(lines) <= n {
+		return lines
+	}
+	out := append([]string{}, lines[:n]...)
+	return append(out, "…")
 }
 
 // roundedBox draws body inside a rounded outline whose OUTER width is exactly

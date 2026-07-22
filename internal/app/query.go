@@ -99,6 +99,14 @@ func (a *App) Todos(sid session.SessionID) []session.Todo {
 	return nil
 }
 
+// SubagentRequest returns the request a subagent was dispatched with — its seed prompt, which for
+// a curated delegate is the structured brief (goal, task, verbatim literals, constraints,
+// deliverable) plus its acceptance checklist. Read by the TUI to show, in the right panel, what the
+// worker was actually asked to do. Empty for a session that was not seeded (the top-level turn).
+func (a *App) SubagentRequest(sid session.SessionID) string {
+	return a.seedPromptOf(sid)
+}
+
 // SubagentChecklist returns the acceptance checklist a delegated subagent must satisfy: the
 // plan-audit deliverable checks for the parent plan step this child carries out, the same
 // contract handed to it in its brief (workerChecklist). Empty for a child not tied to a plan
