@@ -260,13 +260,15 @@ model    = "gpt-oss:20b"
 
 ## Agents & Tools
 
-**Bundled subagents** — seven specialists delegated via the `task` tool, with bounded recursion
+**Bundled subagents** — delegated via the `task` tool, with bounded recursion
 (depth/concurrency/total caps) so fan-out can't run away:
 
-`explore` · `locator` · `analyst` · `architect` · `coder` · `reviewer` · `tester`
+read-only `explore` · `locator` (investigators) · a write-capable `worker` (the curated-delegate
+executor, enabled by default via `MAGI_WORKERS`)
 
 (plus `planner` — the pre-flight procedure planner above, run automatically each turn rather than
-delegated via `task`.)
+delegated via `task`. The earlier solo-era roster of analyst/architect/coder/reviewer/tester was
+consolidated into the single curated worker.)
 
 **Built-in tools:**
 
