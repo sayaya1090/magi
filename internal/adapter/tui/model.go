@@ -82,6 +82,7 @@ type questReq struct {
 }
 
 type permReq struct {
+	sid    session.SessionID // session that raised it — the MAIN turn or a SUBAGENT child (routes the reply)
 	callID string
 	name   string
 	args   string
@@ -471,6 +472,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.dirty = true
 				cmds = append(cmds, waitEvent(p.ch, p.sid, p.sub))
 			}
+			// A subagent's permission/question request BLOCKS the child until answered, and the
+			// pane transcript can't collect a decision — surface it in the shared modal, tagged
+			// with the CHILD sid so respond() routes the reply back to the child's waiting call.
+			m.surfaceChildPrompt(msg.sid, msg.ev)
 			return m, tea.Batch(cmds...)
 		}
 		if msg.sub != m.mainSub {
