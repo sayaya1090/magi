@@ -299,6 +299,18 @@ func (m *Model) renderCouncilDetail(width int) string {
 	if v.Feedback != "" {
 		b.WriteString("\n" + styleFooter.Render("next step") + "\n" + wrap.Render(v.Feedback) + "\n")
 	}
+	// Ledger: the contract this council judges the turn against — the acceptance criteria and the
+	// executable deliverable checks it verifies. Shown so the detail view reveals not just one
+	// member's vote but WHAT the whole council is checking for.
+	if m.app != nil {
+		crit, checks := m.app.CouncilContract(m.sid)
+		if crit = strings.TrimSpace(crit); crit != "" {
+			b.WriteString("\n" + styleFooter.Render("— ledger: acceptance criteria —") + "\n" + wrap.Render(crit) + "\n")
+		}
+		if cl := renderChecklist("deliverable checks (verified by the council)", checks, lipgloss.NewStyle().Foreground(hue), width); cl != "" {
+			b.WriteString("\n" + cl + "\n")
+		}
+	}
 	return b.String()
 }
 

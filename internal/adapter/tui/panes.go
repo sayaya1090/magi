@@ -677,7 +677,7 @@ func (m *Model) renderZoom(width int) string {
 	// checks for its step), shown at the top of its detail view like the plan panel on the main
 	// screen. Prepended before the transcript; nl advances so block click hit-testing stays aligned.
 	if m.app != nil {
-		if cl := renderPaneChecklist(m.app.SubagentChecklist(p.sid), cstyle, width); cl != "" {
+		if cl := renderChecklist("acceptance checklist", m.app.SubagentChecklist(p.sid), cstyle, width); cl != "" {
 			b.WriteString(cl + "\n")
 			nl += strings.Count(cl, "\n") + 1
 		}
@@ -702,15 +702,15 @@ func (m *Model) renderZoom(width int) string {
 	return b.String()
 }
 
-// renderPaneChecklist renders a subagent's acceptance checklist — the deliverables it must
-// satisfy before reporting done — as a compact panel: each item's deliverable with its
-// verifying command beneath. Empty when the subagent carries no plan-step checks.
-func renderPaneChecklist(checks []council.DeliverableCheck, cstyle lipgloss.Style, width int) string {
+// renderChecklist renders a list of deliverable checks as a compact panel under the given
+// title: each item's deliverable with its verifying command beneath. Shared by a subagent's
+// acceptance checklist and the council detail's verification ledger. Empty for no checks.
+func renderChecklist(title string, checks []council.DeliverableCheck, cstyle lipgloss.Style, width int) string {
 	if len(checks) == 0 {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString(label(cstyle.Bold(true), "acceptance checklist"))
+	b.WriteString(label(cstyle.Bold(true), title))
 	wrap := lipgloss.NewStyle().Width(max(20, width-6))
 	for i, c := range checks {
 		head := strings.TrimSpace(c.Deliverable)

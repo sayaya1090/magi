@@ -118,6 +118,14 @@ func (a *App) SubagentChecklist(childSID session.SessionID) []council.Deliverabl
 	return stepChecks(pst.deliverableChecks, *st.meta.ParentStep)
 }
 
+// CouncilContract returns what the termination council judges the turn against: the prose
+// acceptance criteria and the plan-audit's executable per-step deliverable checks — the ledger
+// the council verifies. Read by the TUI to show that ledger in the council detail view. Either
+// may be empty (a turn with no council-derived contract).
+func (a *App) CouncilContract(sid session.SessionID) (string, []council.DeliverableCheck) {
+	return a.cachedCriteria(sid), a.cachedChecks(sid)
+}
+
 // PlanChildren returns the child sessions spawned to carry out the given plan step
 // of parent, in creation order. It joins the parent link (session.Parent) with the
 // per-child ParentStep edge recorded at spawn — the pair reconstructs the plan tree

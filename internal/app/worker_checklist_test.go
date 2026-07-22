@@ -99,3 +99,21 @@ func TestSubagentChecklist(t *testing.T) {
 		t.Errorf("unknown session must yield nil, got %+v", got)
 	}
 }
+
+// CouncilContract returns the turn's acceptance criteria and deliverable checks — the ledger the
+// council detail view surfaces.
+func TestCouncilContract(t *testing.T) {
+	a := curateApp(t)
+	sid := session.SessionID("s_main")
+	a.mu.Lock()
+	a.stateLocked(sid).criteria = "the server responds on :5328"
+	a.stateLocked(sid).deliverableChecks = []council.DeliverableCheck{{Step: "1", Command: "curl :5328"}}
+	a.mu.Unlock()
+	crit, checks := a.CouncilContract(sid)
+	if crit != "the server responds on :5328" || len(checks) != 1 || checks[0].Command != "curl :5328" {
+		t.Fatalf("contract = %q %+v", crit, checks)
+	}
+	if crit, checks := a.CouncilContract("nope"); crit != "" || checks != nil {
+		t.Errorf("unknown session must yield empty contract, got %q %+v", crit, checks)
+	}
+}
