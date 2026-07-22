@@ -8,6 +8,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/sayaya1090/magi/internal/app"
+	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -142,6 +143,17 @@ func (m *Model) statusPanel(panelTop int) string {
 		lines = m.appendPlanTree(lines, m.panelSID(), inner, 0)
 	}
 
+	// Completion checklist: the plan-audit's per-step executable deliverable checks — what counts as
+	// each step DONE and the command that verifies it. Shown at the plan level (not only in a worker or
+	// council drill-down) so the completion contract the run is judged against is always visible.
+	if _, checks := m.app.CouncilContract(m.panelSID()); len(checks) > 0 {
+		sep()
+		lines = append(lines, panelHead("Completion checks"))
+		for _, c := range checks {
+			lines = append(lines, wrapPanel(checkLine(c), inner)...)
+		}
+	}
+
 	// Shared artifact ledger: the exact paths/interfaces the plan's steps have produced — shown here
 	// (and in every worker panel) because it is shared by everyone working the plan.
 	if led := m.app.SharedLedger(m.panelSID()); len(led) > 0 {
@@ -248,6 +260,20 @@ func (m *Model) workerPanel(p *agentPane) string {
 		lines = lines[:maxRows]
 	}
 	return roundedBox(strings.Join(lines, "\n"), content)
+}
+
+// checkLine formats one completion check for the plan panel: "• deliverable — run: cmd", falling
+// back to the command itself as the label when the deliverable phrase is empty.
+func checkLine(c council.DeliverableCheck) string {
+	head := strings.TrimSpace(c.Deliverable)
+	cmd := strings.TrimSpace(c.Command)
+	if head == "" {
+		head, cmd = cmd, ""
+	}
+	if cmd != "" {
+		return "• " + head + " — run: " + cmd
+	}
+	return "• " + head
 }
 
 // ledgerLine formats one shared-ledger row for a panel: "• step — facts", or "• facts" when the
