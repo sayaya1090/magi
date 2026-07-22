@@ -131,6 +131,34 @@ func TestParsePlan(t *testing.T) {
 	}
 }
 
+// A first planner reply with no parseable JSON triggers ONE JSON-only retry; when the retry emits a
+// bare object the plan is recovered — the fix for fix-ocaml-gc (a 4247-char reply, then an
+// unparseable re-plan, left no plan and the solo fallback flailed into the loop guard).
+func TestRunPlannerJSONOnlyRetry(t *testing.T) {
+	spec := AgentSpec{Name: "planner", System: "You are a planner."}
+	cfg := Config{Permission: "allow", MaxAgents: 10, MaxDepth: 3, MaxPlanDepth: 2}
+
+	llm := &recLLM{reply: func(req string) string {
+		if strings.Contains(req, "could not be parsed") { // the JSON-only retry prompt
+			return `{"steps":[{"title":"do it","strategy":"solo"}]}`
+		}
+		return "Let me reason at length about the approach… (no JSON object here)"
+	}}
+	a := newOrchApp(t, llm, cfg)
+	res := a.runPlanner(context.Background(), spec, parentSession(t.TempDir()), "build a thing", "", 0, 30, "")
+	if len(res.Steps) != 1 || res.Steps[0].Title != "do it" {
+		t.Fatalf("JSON-only retry should recover a plan, got %+v", res.Steps)
+	}
+
+	// A parseable first reply must NOT trigger a retry (one planner call only).
+	llm2 := &recLLM{reply: func(string) string { return `{"steps":[{"title":"x","strategy":"solo"}]}` }}
+	a2 := newOrchApp(t, llm2, cfg)
+	a2.runPlanner(context.Background(), spec, parentSession(t.TempDir()), "p", "", 0, 30, "")
+	if n := len(llm2.prompts); n != 1 {
+		t.Errorf("a parseable first reply must not trigger a retry, got %d planner call(s)", n)
+	}
+}
+
 func TestSanitizeSteps(t *testing.T) {
 	got := sanitizeSteps(planResult{Steps: []planStep{
 		{Title: "a", Strategy: "solo"}, // kept (structures the procedure)

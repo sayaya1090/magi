@@ -449,11 +449,38 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 	}
 	res := parsePlan(b.String())
 	if len(res.Steps) == 0 {
+		// Weak models often bury the JSON under pages of reasoning, or ramble until the output
+		// budget cuts the object off mid-string — both leave no balanced plan object to parse
+		// (fix-ocaml-gc died this way: a 4247-char reply, then a 1841-char re-plan, both
+		// unparseable → no plan → the solo fallback flailed into the loop guard). Give ONE focused
+		// retry that forbids all prose, so the bare object is emitted (and fits the budget).
 		a.emitToolProgress(s.ID, plannerActor, "", "planner",
-			fmt.Sprintf("%s: reply yielded no parseable plan (%d chars)", tag, b.Len()))
+			fmt.Sprintf("%s: no parseable plan (%d chars) — retrying JSON-only", tag, b.Len()))
+		retry := req
+		retry.System = sys + "\n\n" + planJSONOnlyReminder
+		if stream2, err2 := a.providerFor(spec).StreamChat(ctx, retry); err2 == nil {
+			var b2 strings.Builder
+			for ev := range stream2 {
+				if ev.Type == port.ProviderText {
+					b2.WriteString(ev.Text)
+				}
+			}
+			if r2 := parsePlan(b2.String()); len(r2.Steps) > 0 {
+				return r2
+			}
+		}
+		a.emitToolProgress(s.ID, plannerActor, "", "planner",
+			fmt.Sprintf("%s: still no parseable plan after JSON-only retry", tag))
 	}
 	return res
 }
+
+// planJSONOnlyReminder is appended to the planner system prompt on a retry after an unparseable
+// reply: strip ALL prose so the model emits the bare JSON object (which also keeps it inside a
+// tight output budget that reasoning would otherwise overflow).
+const planJSONOnlyReminder = "CRITICAL: your previous reply could not be parsed as JSON. Reply with " +
+	"ONLY the JSON object specified above — no reasoning, no explanation, no markdown fence, nothing " +
+	"before the opening `{` or after the closing `}`. Begin your reply with `{` and end it with `}`."
 
 // recentTranscript renders a compact, bounded tail of the conversation as plain text
 // — for grounding the plan-audit council, which otherwise judges the plan against the
