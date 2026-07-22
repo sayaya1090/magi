@@ -118,7 +118,7 @@ Flags / environment variables (precedence: flag > env > default):
 | `--update` / `--update-core` / `--update-plugins` | — | — | update binary+plugins / binary only / managed plugins only, then exit |
 | `--plugin-install` / `--plugin-pin` | — | — | git URL of a plugin to clone into the user plugins dir / optional tag/branch/commit for it |
 | `--no-update-check` | `MAGI_NO_UPDATE_CHECK` | (off) | disable the interactive startup update check |
-| — | `MAGI_API_KEY` | (none) | key for remote backends (not needed for Ollama) |
+| `--api-key` | `MAGI_API_KEY` | (none) | key for the backend (also config `api_key`, `${ENV}`-expanded; falls back to `OPENAI_API_KEY`). A CLI value is visible in the process list, so env/config are the safer default. Not needed for Ollama |
 | — | `MAGI_REASONING_EFFORT` | (backend default) | passed to the backend as `reasoning_effort` for reasoning models — e.g. `none` to disable thinking, or `low`\|`medium`\|`high`; empty = omit the field |
 | — | `MAGI_EMOJI_WIDTH` | (auto-probe) | force emoji cell width: `narrow`\|`1` (one cell) or `wide`\|`2` (two cells). If unset, a startup probe measures it |
 | — | `MAGI_WIDTH_PROBE` | (on) | `0` skips the startup terminal-width probes (ambiguous · decor · emoji) = no correction (library default widths) |

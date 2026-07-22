@@ -104,7 +104,7 @@ git remote가 없는 플러그인은 보고 후 **건너뜀 — 강제로 덮지
 | `--update` / `--update-core` / `--update-plugins` | — | — | 바이너리+플러그인 / 바이너리만 / 관리형 플러그인만 업데이트 후 종료 |
 | `--plugin-install` / `--plugin-pin` | — | — | clone할 플러그인 git URL / 그에 대한 태그·브랜치·커밋(선택) |
 | `--no-update-check` | `MAGI_NO_UPDATE_CHECK` | (꺼짐) | 인터랙티브 기동 시 업데이트 체크 비활성화 |
-| — | `MAGI_API_KEY` | (없음) | 원격 백엔드 키 (Ollama 불필요) |
+| `--api-key` | `MAGI_API_KEY` | (없음) | 백엔드 키 (config `api_key`도 가능, `${ENV}` 확장; `OPENAI_API_KEY`로 폴백). CLI 값은 프로세스 목록에 노출되니 env/config가 더 안전. Ollama 불필요 |
 | — | `MAGI_REASONING_EFFORT` | (백엔드 기본) | reasoning 모델용 `reasoning_effort`로 백엔드에 전달 — 예: `none`으로 thinking 비활성, 또는 `low`\|`medium`\|`high`; 비우면 필드 생략 |
 | — | `MAGI_EMOJI_WIDTH` | (자동 프로브) | 이모지 셀 폭을 강제: `narrow`\|`1`(1칸) 또는 `wide`\|`2`(2칸). 미지정 시 기동 프로브가 실측 |
 | — | `MAGI_WIDTH_PROBE` | (켜짐) | `0`이면 기동 시 터미널 폭 프로브(ambiguous·데코·이모지)를 건너뜀 = 무보정(라이브러리 기본폭 사용) |

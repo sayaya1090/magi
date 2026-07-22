@@ -412,6 +412,20 @@ mode) does NOT finish immediately: it convenes a **council** that votes done-vs-
   per-file diff (line-capped to a summary past 1000 lines so it can't OOM). This is
   git-independent and correctly attributed — a human/external/bash change is never credited
   to the agent. (`GitDiff` remains, but only for the `/diff` command, not the council.)
+- **Beyond the independent vote**, three mechanisms harden the gate (each flag-gated, default on):
+  a **rebuttal round** (`MAGI_COUNCIL_DEBATE`) re-polls members once when they SPLIT on a would-be
+  done, so a real defect one member caught isn't overruled by a coin-flip majority; a **devil's
+  advocate** (`MAGI_COUNCIL_DEVIL`) argues the strongest case against an *unchallenged* (no-split)
+  done, and its concern is then RE-JUDGED CRITICALLY by the members — a real missed defect flips them
+  to continue, a spurious one (an overreach the task never required) is rejected, and the devil casts
+  no binding vote; and advisory **`keep`** (`MAGI_COUNCIL_KEEP`) has each member name what is already
+  correct, folded into the continue feedback so the agent doesn't revert a settled part. The same
+  `keep` rides into the **plan-audit** revision so a fix forced by one member's flaw doesn't drop
+  steps the others approved.
+- **Executable deliverable checks (`MAGI_STEP_VERIFY`)**: the plan-audit council also proposes
+  per-step shell checks (`{deliverable, command, expect}`); these are RUN, and a failing check is a
+  hard `deliverable-check` signal the vote can't wave through. They double as a delegated worker's
+  **acceptance checklist** (§5) and surface in the TUI's council/subagent detail views.
 - Events: `council.convened`/`council.verdict`/`council.decided` (fact) +
   `council.deliberating` (transient). See PLAN §4.2, DESIGN §5/§6, SPEC F-COUNCIL.
 
@@ -530,6 +544,20 @@ The orchestrator (top-level session, `Parent==""`) delegates via the **`task`** 
   child (`delegateBrief` carries the goal as an authoritative SPEC, generously clipped, since the
   child never sees the raw request). `MAGI_SPEC_FIDELITY=0` restores the paraphrase-only baseline.
 
+- **Curated worker (context management — the recent central direction, default on)**: keep the
+  *weak model's* working context lean by running write work as a delegated sub-agent that starts
+  context-free, fed only a distilled brief. Three coupled flags: `MAGI_WORKERS` adds a write-capable
+  **worker** to the roster; `MAGI_FORCE_DELEGATE` deterministically re-routes a plan's SOLO write steps
+  to it (the planner leaves write-work as solo even when a worker exists); `MAGI_CURATE` runs the
+  **context curator** (`app/curate.go`, a tool-free LLM elicitation) which, before the worker spawns,
+  builds a **structured brief** — goal · progress · task (the *result* wanted, not keystrokes) · verbatim
+  `literals` · constraints · deliverable — plus a **task-scoped tool allowlist** (the worker always keeps
+  the base file/shell/report tools; the curator only ADDS specialized ones, so it can never starve the
+  worker). The worker returns a **structured accountability report** (`STATUS:` + evidence · deviations ·
+  handoff — the output side of the contract); a `STATUS: BLOCKED/FAILED` leading line (`delegateNotDone`)
+  drives an early re-plan. The step's **acceptance checklist** (its plan-audit deliverable checks) is
+  handed to the worker to RUN before reporting done. Each flag is default on with an `=off` A/B knob.
+
 - **Plan-tree hierarchy (normalized B-variant)**: when a delegate/refine step's child forms its own
   sub-plan at depth+1, the TUI plan panel renders the child's sub-todos **indented under the parent
   step**. Structure is a one-time immutable fact — the child's `SessionCreated` event carries
@@ -544,8 +572,11 @@ The orchestrator (top-level session, `Parent==""`) delegates via the **`task`** 
   panel renders exactly as before, so no A/B flag. (Shared-session refine keeps the first phase's
   step — a reused child is not re-attributed.)
 
-Default subagents (`cmd/magi/main.go:defaultAgents`): explore, locator, analyst,
-architect, coder, tester, reviewer, planner — each with a restricted toolset (+ ask/report).
+Default subagents (`cmd/magi/main.go:defaultAgents`): read-only **explore** and **locator**
+(investigators), the pre-flight **planner**, and — when `MAGI_WORKERS != off` (default) — a
+write-capable **worker** for the curated-delegate path; each with a restricted toolset (+ ask/report).
+(The older solo-era roster of analyst/architect/coder/tester/reviewer was dropped as delegation moved
+to the single curated worker; an optional **specmine** agent runs signature mining when configured.)
 
 **Per-agent backend routing (M6+)**: `[routing] <agent>` selects a model on the
 default backend, or names an `[llm.profiles.<name>]` (endpoint/key/model/headers) to
