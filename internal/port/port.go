@@ -144,6 +144,13 @@ type DeliberationRequest struct {
 	// result. Consensus → one outcome; still split → the ordinary rule decides.
 	// No extra call when the independent vote is unanimous (the common case).
 	Debate bool
+	// Devil enables the devil's-advocate pass: when the independent tally is DONE but
+	// there was NO split (so the rebuttal round never fires), one adversarial member is
+	// appointed to make the strongest case the turn is NOT finished. It can only FLIP
+	// done→continue by naming a specific real defect (the same bar as any continue) and
+	// never votes done — so, like debate, it can only make finishing harder, stress-testing
+	// a premature unanimous consensus that would otherwise sail through unchallenged.
+	Devil bool
 	// Keep asks each member to ALSO report, alongside its fix feedback, what the report
 	// already gets right through its lens — advisory "keep this, don't redo/revert it" that
 	// is surfaced above the feedback when the turn continues. It never affects the decision

@@ -88,6 +88,24 @@ func (c *Council) Deliberate(ctx context.Context, req port.DeliberationRequest) 
 		verdicts = revised
 	}
 
+	// Devil's advocate: the rebuttal above only fires on a SPLIT, so a unanimous (or
+	// otherwise no-split) DONE sails through with nobody having argued against it — the
+	// premature consensus a devil's advocate exists to stress-test. Appoint one adversarial
+	// member to make the strongest case the turn is NOT done. A devil that names a specific
+	// real defect VETOES the finish (it never votes done, so like debate it can only make
+	// finishing harder, never manufacture an approval); one that finds nothing abstains and
+	// the done stands. Skipped on the focused re-round and in plan audit (no "done" yet).
+	var devilVeto *council.Verdict
+	if req.Devil && !req.DeltaRound && req.Phase != "plan" {
+		if dec, _ := council.Tally(verdicts, rule); dec == council.Done && !splitVerdicts(verdicts) {
+			if dv := c.devilAdvocate(ctx, req); dv.Decision == council.Continue {
+				v := dv
+				devilVeto = &v
+				verdicts = append(verdicts, v)
+			}
+		}
+	}
+
 	// Focused re-round: fold the prior round's done votes back in before the rule
 	// runs, so the tally still spans the full council even though only the
 	// dissenting members were re-polled.
@@ -95,6 +113,15 @@ func (c *Council) Deliberate(ctx context.Context, req port.DeliberationRequest) 
 
 	d := council.Deliberate(req.Round, verdicts, rule)
 	d.Debate = debate
+	// The devil's veto overrides the majority tally (which its lone continue could not flip):
+	// force continue and surface its defect as feedback, since Deliberate only aggregates
+	// feedback when its own tally already said continue.
+	if devilVeto != nil && d.Decision == council.Done {
+		d.Decision = council.Continue
+		if f := council.AggregateFeedback(verdicts); strings.TrimSpace(f) != "" {
+			d.Feedback = f
+		}
+	}
 	if req.Phase == "plan" {
 		// Plan audit: synthesize the members' proposed completion criteria into the
 		// contract the turn will later be judged against, plus any per-step executable
@@ -344,6 +371,71 @@ func (c *Council) pollRebut(ctx context.Context, req port.DeliberationRequest, m
 	v.Checks = r.Checks
 	return v
 }
+
+// devilAdvocate polls one adversarial member against a would-be DONE. It reads the same evidence
+// but under an adversarial system prompt: find the single most likely REAL reason the turn is not
+// finished. It returns Continue ONLY with a concrete defect, else Abstain — it never returns Done,
+// so it can only make finishing harder. Any error or unparseable/soft reply yields Abstain, so a
+// flaky devil call can never, by itself, block a done.
+func (c *Council) devilAdvocate(ctx context.Context, req port.DeliberationRequest) council.Verdict {
+	v := council.Verdict{Member: "Devil", Lens: "adversary", Decision: council.Abstain}
+	model := req.DefaultModel
+	if model == "" {
+		model = c.model
+	}
+	provider := c.resolve("")
+	if provider == nil {
+		return v
+	}
+	user := evidence(req) + "\n\n# Your charge\nThe council is about to rule this turn DONE. Make the " +
+		"strongest case it is NOT — find the single most likely REAL way the deliverable is unmet, unverified, " +
+		"or wrong, grounded in the task, report, and signals above."
+	stream, err := provider.StreamChat(ctx, port.ChatRequest{
+		Model:    model,
+		System:   withLangNote(devilSystem, req.Task),
+		Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: user}}}},
+		Params:   map[string]any{"temperature": 0.0},
+	})
+	if err != nil {
+		return v
+	}
+	var b strings.Builder
+	for ev := range stream {
+		if ev.Type == port.ProviderText {
+			b.WriteString(ev.Text)
+		}
+	}
+	r, ok := parseReply(b.String())
+	if !ok {
+		return v
+	}
+	// The devil never carries a done: only a continue with a real, specific defect counts.
+	if decisionOf(r.Decision) != council.Continue || strings.TrimSpace(r.Feedback) == "" {
+		return v
+	}
+	v.Decision = council.Continue
+	v.Confidence = r.Confidence
+	v.Rationale = r.Rationale
+	v.Feedback = r.Feedback
+	return v
+}
+
+// devilSystem is the adversarial member's contract: argue against done, but only on a REAL defect.
+const devilSystem = "You are the council's devil's advocate. The other members are ready to rule this AI " +
+	"coding agent's turn DONE, and nobody has argued the other side. Your job is to stress-test that " +
+	"consensus: assume it is premature and hunt for the single most likely REAL reason the turn is not " +
+	"actually finished — a required deliverable that does not exist, exists but was never run/verified, or " +
+	"whose content/value/name/format does not match what the TASK literally asked; a checkable behavior never " +
+	"exercised; a premise assumed rather than confirmed; a stated part the report itself admits is skipped or " +
+	"rationalized away. The agent's own narration (\"done\", \"verified\", \"all tests pass\") is a CLAIM, never " +
+	"proof — judge only the shown tool results, signals, and diff.\n" +
+	"Vote \"continue\" ONLY if you can name a SPECIFIC, concrete defect and put the exact next step in " +
+	"`feedback` — that is the only vote that counts. If, after genuinely trying to break it, you find no real " +
+	"defect and would only be manufacturing doubt or demanding evidence the task never required, vote " +
+	"\"abstain\". You must NEVER vote \"done\": finding nothing is an abstain, not an endorsement. Do not invent " +
+	"defects and do not nitpick breadth on an analysis/review answer that already covers the task representatively.\n" +
+	"Respond with ONLY a JSON object, no prose, no code fence:\n" +
+	`{"decision":"continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific defect and next step (required for continue)"}`
 
 // memberReply is the JSON shape each member is asked to return.
 type memberReply struct {

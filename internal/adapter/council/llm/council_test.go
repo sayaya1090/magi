@@ -567,3 +567,77 @@ func TestDeliberateSkipDebateOnContinueMajority(t *testing.T) {
 		t.Errorf("no DebateOutcome expected when skipped, got %+v", d.Debate)
 	}
 }
+
+func isDevil(r port.ChatRequest) bool { return strings.Contains(r.System, "devil's advocate") }
+
+// Devil's advocate: on a UNANIMOUS done (no split, so the rebuttal never fires) the devil is
+// polled; a concrete-defect continue VETOES the finish even though its lone vote can't flip the
+// majority tally, and its feedback is surfaced.
+func TestDeliberateDevilVetoesUnanimousDone(t *testing.T) {
+	c := New(only(fakeLLM{reply: func(r port.ChatRequest) string {
+		if isDevil(r) {
+			return `{"decision":"continue","rationale":"server never actually started","feedback":"run the server and show it binds :5328"}`
+		}
+		return `{"decision":"done","rationale":"looks complete"}`
+	}}), "m")
+	d, _ := c.Deliberate(context.Background(), port.DeliberationRequest{
+		Round: 1, Task: "do x", Rule: council.RuleMajority, Devil: true,
+	})
+	if d.Decision != council.Continue {
+		t.Fatalf("decision = %q, want continue (devil veto)", d.Decision)
+	}
+	if !strings.Contains(d.Feedback, "binds :5328") {
+		t.Errorf("devil feedback must surface, got %q", d.Feedback)
+	}
+}
+
+// A devil that finds no real defect abstains, and the unanimous done stands.
+func TestDeliberateDevilAbstainKeepsDone(t *testing.T) {
+	c := New(only(fakeLLM{reply: func(r port.ChatRequest) string {
+		if isDevil(r) {
+			return `{"decision":"abstain","rationale":"tried to break it, deliverable is genuinely met"}`
+		}
+		return `{"decision":"done","rationale":"complete"}`
+	}}), "m")
+	d, _ := c.Deliberate(context.Background(), port.DeliberationRequest{
+		Round: 1, Task: "do x", Rule: council.RuleMajority, Devil: true,
+	})
+	if d.Decision != council.Done {
+		t.Errorf("decision = %q, want done (devil abstained)", d.Decision)
+	}
+}
+
+// The devil never runs when disabled, and never on a SPLIT (that is the rebuttal's territory):
+// a 2-done/1-continue majority-done stays done with no devil poll.
+func TestDeliberateDevilSkippedOffAndOnSplit(t *testing.T) {
+	var devilCalls int64
+	reply := func(r port.ChatRequest) string {
+		if isDevil(r) {
+			atomic.AddInt64(&devilCalls, 1)
+			return `{"decision":"continue","rationale":"x","feedback":"y"}`
+		}
+		if memberIn(r, "Melchior") {
+			return `{"decision":"continue","rationale":"incomplete","feedback":"more"}`
+		}
+		return `{"decision":"done","rationale":"ok"}`
+	}
+	// Devil OFF: even the unanimous-done path must not poll a devil.
+	cOff := New(only(fakeLLM{reply: func(r port.ChatRequest) string {
+		if isDevil(r) {
+			atomic.AddInt64(&devilCalls, 1)
+		}
+		return `{"decision":"done","rationale":"ok"}`
+	}}), "m")
+	if d, _ := cOff.Deliberate(context.Background(), port.DeliberationRequest{Round: 1, Task: "x", Rule: council.RuleMajority, Devil: false}); d.Decision != council.Done {
+		t.Fatalf("devil-off decision = %q, want done", d.Decision)
+	}
+	// Devil ON but a SPLIT (2 done / 1 continue → majority done): devil must NOT fire.
+	cSplit := New(only(fakeLLM{reply: reply}), "m")
+	d, _ := cSplit.Deliberate(context.Background(), port.DeliberationRequest{Round: 1, Task: "x", Rule: council.RuleMajority, Devil: true})
+	if d.Decision != council.Done {
+		t.Errorf("split majority-done decision = %q, want done (devil skipped on split)", d.Decision)
+	}
+	if n := atomic.LoadInt64(&devilCalls); n != 0 {
+		t.Errorf("devil must not be polled when off or on a split, got %d call(s)", n)
+	}
+}

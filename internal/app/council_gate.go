@@ -497,6 +497,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		Members:      pollMembers,
 		Rule:         rule,
 		Debate:       councilDebateEnabled(),
+		Devil:        councilDevilEnabled(),
 		Keep:         councilKeepEnabled(),
 		DefaultModel: s.Model.Model,
 		StepsLeft:    in.stepsLeft,
