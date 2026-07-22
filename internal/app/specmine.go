@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -91,14 +92,14 @@ func (a *App) elicitSpecMine(ctx context.Context, agent AgentSpec, s session.Ses
 	if spec.Model != (session.ModelRef{}) {
 		model = spec.Model.Model
 	}
-	analysis := a.specMineCall(ctx, spec, model, elicitSpecMineSystem, task)
+	analysis := a.specMineCall(ctx, spec, s.ID, "spec-mine", model, elicitSpecMineSystem, task)
 	if analysis == "" || (len(analysis) < 8 && strings.Contains(strings.ToUpper(analysis), "NONE")) {
 		return ""
 	}
-	distilled := a.specMineCall(ctx, spec, model, distillSpecMineSystem, analysis)
+	distilled := a.specMineCall(ctx, spec, s.ID, "spec-mine", model, distillSpecMineSystem, analysis)
 	res, ok := parseSpecMine(distilled)
 	if !ok { // local models are flaky — one retry
-		distilled = a.specMineCall(ctx, spec, model, distillSpecMineSystem, analysis)
+		distilled = a.specMineCall(ctx, spec, s.ID, "spec-mine", model, distillSpecMineSystem, analysis)
 		res, ok = parseSpecMine(distilled)
 	}
 	if !ok || (len(res.Lines) == 0 && strings.TrimSpace(res.Final) == "") {
@@ -129,8 +130,18 @@ func (a *App) elicitSpecMine(ctx context.Context, agent AgentSpec, s session.Ses
 // is safe; the bound is generous enough for a slow local model's legitimate 2–3 minute generation.
 const specMineCallTimeout = 180 * time.Second
 
-// specMineCall is one tool-free side call; empty string on transport failure or timeout.
-func (a *App) specMineCall(ctx context.Context, spec AgentSpec, model, system, user string) string {
+// specMineBeatInterval throttles the "thinking…" heartbeat a side call emits while the model streams
+// reasoning, so a slow-but-working generation is visibly ALIVE without flooding the UI with the side
+// call's internal reasoning.
+const specMineBeatInterval = 5 * time.Second
+
+// specMineCall is one tool-free side call (signature mining, curation); empty string on transport
+// failure or timeout. Note generation used to show NOTHING until the final text arrived — it captured
+// only ProviderText and silently dropped the model's reasoning — so a reasoning model that thinks for
+// a while looked identical to a wedged backend. It now streams a throttled, labelled "thinking…"
+// heartbeat while the model reasons: a heartbeat means it is alive and thinking; continued silence
+// means the backend is genuinely stuck. sid=="" disables the heartbeat (no session to emit under).
+func (a *App) specMineCall(ctx context.Context, spec AgentSpec, sid session.SessionID, label, model, system, user string) string {
 	cctx, cancel := context.WithTimeout(ctx, specMineCallTimeout)
 	defer cancel()
 	stream, err := a.providerFor(spec).StreamChat(cctx, port.ChatRequest{
@@ -142,9 +153,17 @@ func (a *App) specMineCall(ctx context.Context, spec AgentSpec, model, system, u
 		return ""
 	}
 	var b strings.Builder
+	start := time.Now()
+	lastBeat := start
 	for ev := range stream {
-		if ev.Type == port.ProviderText {
+		switch ev.Type {
+		case port.ProviderText:
 			b.WriteString(ev.Text)
+		case port.ProviderReasoning:
+			if sid != "" && time.Since(lastBeat) >= specMineBeatInterval {
+				a.emitToolProgress(sid, plannerActor, "", label, fmt.Sprintf("%s: thinking… (%ds)", label, int(time.Since(start).Seconds())))
+				lastBeat = time.Now()
+			}
 		}
 	}
 	return strings.TrimSpace(b.String())

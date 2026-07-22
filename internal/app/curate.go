@@ -120,7 +120,7 @@ func (a *App) curateDelegate(ctx context.Context, agent AgentSpec, s session.Ses
 		b.WriteString("Context:\n" + clipSpec(c, 1500) + "\n\n")
 	}
 	b.WriteString("Sub-task:\n" + clipSpec(task, 1500) + "\n\nSpecialized tools available: " + strings.Join(specialized, ", "))
-	raw := a.specMineCall(ctx, agent, model, curateSystem, b.String()) // reuse the tool-free elicitation
+	raw := a.specMineCall(ctx, agent, s.ID, "curator", model, curateSystem, b.String()) // reuse the tool-free elicitation
 	pkt, ok := parseCuratePacket(raw)
 	if !ok {
 		return "", nil
