@@ -27,20 +27,68 @@ var curateBaseTools = []string{
 	"bash", "bash_output", "bash_input", "bash_kill", "todowrite", "report", "ask", "skill",
 }
 
-const curateSystem = "You prepare a work packet for a worker sub-agent that will carry out ONE sub-task. " +
-	"You are given the surrounding context, the sub-task, and a list of SPECIALIZED tools available. " +
-	"Reply with ONLY a JSON object: {\"brief\": string, \"tools\": [string]}.\n" +
-	"brief: restate the sub-task as a self-contained instruction the worker can act on alone. Copy " +
-	"EVERY literal identifier — a name, field, function/message, output format, threshold, or literal " +
-	"string — VERBATIM from the input; never paraphrase, rename, shorten, or normalize it (if it says " +
-	"`value`, write `value`, not `val`). Include only what THIS sub-task needs.\n" +
-	"tools: the specialized tools even SLIGHTLY relevant to the sub-task (err toward including — a " +
-	"missing tool blocks the worker). Use exact names from the provided list; omit any you are unsure " +
-	"exist. Basic file/shell/report tools are always available and must NOT be listed."
+const curateSystem = "You prepare a work packet for a worker sub-agent that carries out ONE sub-task of a " +
+	"larger job. It starts with NO memory of the overall request — your packet is all it sees. Reply with " +
+	"ONLY a JSON object with these fields; the STRUCTURE tells the worker what weighs most:\n" +
+	"- goal: WHY this work exists — the overall objective and what the finished result should be, so the " +
+	"worker understands where its part fits.\n" +
+	"- progress: what earlier steps ALREADY produced (files created, decisions made, interfaces defined) so " +
+	"the worker BUILDS ON it and does not redo or contradict it. Omit if this is the first step.\n" +
+	"- task: the RESULT this worker must achieve, stated concretely — what must be TRUE when it is done. " +
+	"Delegate the outcome, not the keystrokes: leave HOW to the worker unless one specific method is " +
+	"required, and only then name it.\n" +
+	"- literals: an array of the EXACT strings that must appear UNCHANGED in the worker's output — names, " +
+	"fields, function/message names, output formats, thresholds, literal values — copied VERBATIM from the " +
+	"input. Highest-weight field: the worker must never rename, shorten, or normalize any (if the input says " +
+	"`value`, list `value`, never `val`). Empty array if none.\n" +
+	"- constraints: the boundaries the worker must respect — what NOT to change, behavior/interfaces that " +
+	"must stay intact, non-goals, limits. An array; empty if none.\n" +
+	"- deliverable: what must exist or pass for this sub-task to be counted done (the acceptance test).\n" +
+	"- tools: the specialized tools even SLIGHTLY relevant (err toward including — a missing tool blocks the " +
+	"worker). Exact names from the list; omit any you are unsure exist. Basic file/shell/report tools are " +
+	"always available and must NOT be listed.\n" +
+	"Include only what THIS sub-task needs; keep each field tight."
 
 type curatePacket struct {
-	Brief string   `json:"brief"`
-	Tools []string `json:"tools"`
+	Goal        string   `json:"goal"`        // why the work exists / the final objective
+	Progress    string   `json:"progress"`    // what earlier steps already produced
+	Task        string   `json:"task"`        // the RESULT wanted (outcome, not method)
+	Literals    []string `json:"literals"`    // verbatim strings that must not change
+	Constraints []string `json:"constraints"` // boundaries: what not to change / non-goals
+	Deliverable string   `json:"deliverable"` // acceptance test for done-ness
+	Tools       []string `json:"tools"`
+}
+
+// renderCurateBrief formats a packet into a weighted, sectioned brief the context-free worker reads
+// as its whole world, in delegation order: WHY the work exists, what is already done (build on it),
+// the RESULT to achieve (method left to the worker), the verbatim literals it must not change (highest
+// weight), the boundaries it must not cross, and the done-when acceptance test. Empty when unusable.
+func renderCurateBrief(p curatePacket) string {
+	var b strings.Builder
+	section := func(title, body string) {
+		if s := strings.TrimSpace(body); s != "" {
+			if b.Len() > 0 {
+				b.WriteString("\n")
+			}
+			b.WriteString("# " + title + "\n" + s + "\n")
+		}
+	}
+	bullets := func(items []string) string {
+		var out []string
+		for _, it := range items {
+			if s := strings.TrimSpace(it); s != "" {
+				out = append(out, "- "+s)
+			}
+		}
+		return strings.Join(out, "\n")
+	}
+	section("Goal (why this exists)", p.Goal)
+	section("Progress so far (build on this — do NOT redo it)", p.Progress)
+	section("Your task (achieve this result — you choose how)", p.Task)
+	section("Preserve these EXACTLY (verbatim — never rename, shorten, or normalize)", bullets(p.Literals))
+	section("Boundaries (do NOT cross)", bullets(p.Constraints))
+	section("Done when", p.Deliverable)
+	return strings.TrimSpace(b.String())
 }
 
 // curateDelegate builds a delegate worker's context packet from the surrounding context and the
@@ -73,7 +121,10 @@ func (a *App) curateDelegate(ctx context.Context, agent AgentSpec, s session.Ses
 	if !ok {
 		return "", nil
 	}
-	brief := strings.TrimSpace(pkt.Brief)
+	brief := renderCurateBrief(pkt)
+	if brief == "" { // nothing usable produced → fall back to the mechanical brief
+		return "", nil
+	}
 	tools := a.resolveCuratedTools(pkt.Tools)
 	// Transparency: surface what the curator produced so a run is interpretable (which specialized
 	// tools it added over the base, and the brief size) — the delegate hand-off is otherwise opaque.

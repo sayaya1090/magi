@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
@@ -42,12 +43,42 @@ func TestCurateEnabledDefaultOff(t *testing.T) {
 }
 
 func TestParseCuratePacket(t *testing.T) {
-	p, ok := parseCuratePacket(`prefix {"brief":"do X with value","tools":["lsp","astgrep"]} trailing`)
-	if !ok || p.Brief != "do X with value" || len(p.Tools) != 2 {
+	p, ok := parseCuratePacket(`prefix {"task":"do X","literals":["value"],"tools":["lsp","astgrep"]} trailing`)
+	if !ok || p.Task != "do X" || len(p.Literals) != 1 || p.Literals[0] != "value" || len(p.Tools) != 2 {
 		t.Fatalf("parse = %v %+v", ok, p)
 	}
 	if _, ok := parseCuratePacket("no json here"); ok {
 		t.Error("prose-only must not parse")
+	}
+}
+
+// renderCurateBrief lays the packet out as weighted sections so the context-free worker can tell the
+// verbatim must-not-change literals and boundaries from background — and delegates the outcome, not a
+// keystroke script. An empty packet renders empty so the caller falls back to the mechanical brief.
+func TestRenderCurateBrief(t *testing.T) {
+	if got := renderCurateBrief(curatePacket{}); got != "" {
+		t.Errorf("empty packet must render empty, got %q", got)
+	}
+	brief := renderCurateBrief(curatePacket{
+		Goal:        "ship a KV store",
+		Progress:    "server skeleton exists",
+		Task:        "implement Get",
+		Literals:    []string{"value", "  ", "GetResponse"}, // blank entry must be dropped
+		Constraints: []string{"do not change the proto"},
+		Deliverable: "grpcurl Get returns value",
+	})
+	for _, want := range []string{
+		"# Goal (why this exists)\nship a KV store",
+		"# Progress so far", "# Your task", "- value", "- GetResponse",
+		"# Boundaries (do NOT cross)\n- do not change the proto",
+		"# Done when\ngrpcurl Get returns value",
+	} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("brief missing %q\n---\n%s", want, brief)
+		}
+	}
+	if strings.Contains(brief, "-  \n") || strings.Contains(brief, "- \n") {
+		t.Errorf("blank literal was not dropped:\n%s", brief)
 	}
 }
 
