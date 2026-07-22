@@ -33,23 +33,14 @@ func killCmdTree(cmd *exec.Cmd) error {
 // so there is no argv to rewrite.
 func sandboxArgv(spec port.SandboxSpec, command string) ([]string, bool) { return nil, false }
 
-// detachTTY denies the foreground command a console. Windows has no controlling terminal,
-// but its analog of "no tty, so an interactive prompt fails fast instead of hanging" is
-// DETACHED_PROCESS: the child inherits no console, so ssh/git/sudo host-key or password reads
-// — which use the console directly, not stdin — fail immediately rather than blocking on the
-// console the agent process owns (a foreground `ssh host cmd` on a first-seen host otherwise
-// hangs on "Are you sure you want to continue connecting?" AND freezes the shared-console TUI,
-// while the timeout kills only the shell and leaves the ssh grandchild holding that console).
-// stdout/stderr are redirected to a file, so the missing console costs nothing for output, and
-// programs that truly need a terminal go through the explicit pty path (background+pty=true).
-// A sandbox Token, when present, is preserved.
-func detachTTY(attr *syscall.SysProcAttr) *syscall.SysProcAttr {
-	if attr == nil {
-		attr = &syscall.SysProcAttr{}
-	}
-	attr.CreationFlags |= windows.DETACHED_PROCESS
-	return attr
-}
+// detachTTY is a no-op on Windows. DETACHED_PROCESS was tried here to make interactive prompts
+// fail fast, but it did not fix the reported hang (the real cause was the timeout not killing the
+// process tree — see killCmdTree) AND it broke output capture: a detached child reopens its own
+// console and its command output (`ssh host "echo x"` returning exit 0 with EMPTY stdout) never
+// reached the redirected file. So the console is left attached; the timeout tree-kill bounds any
+// hang, and truly interactive programs go through the explicit pty path (background+pty=true).
+// A sandbox Token, when present, is left intact.
+func detachTTY(attr *syscall.SysProcAttr) *syscall.SysProcAttr { return attr }
 
 // killGroup is a no-op on Windows: there is no POSIX process-group signalling, and
 // the background command's context-cancel already terminates its process. Callers
