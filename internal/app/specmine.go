@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
@@ -120,9 +121,19 @@ func (a *App) elicitSpecMine(ctx context.Context, agent AgentSpec, s session.Ses
 	return strings.TrimSpace(b.String())
 }
 
-// specMineCall is one tool-free side call; empty string on transport failure.
+// specMineCallTimeout bounds ONE tool-free side call. Signature mining and the curator both make
+// these calls on the critical pre-execution path with no other guard, so an unbounded generation
+// that hangs (a stuck backend, a runaway reasoning spin) would freeze the whole turn until the
+// harbor/task wall clock — the observed multi-minute stalls right around the mining seam. The call
+// is strictly best-effort (empty result → no note injected, the turn proceeds), so cutting it off
+// is safe; the bound is generous enough for a slow local model's legitimate 2–3 minute generation.
+const specMineCallTimeout = 180 * time.Second
+
+// specMineCall is one tool-free side call; empty string on transport failure or timeout.
 func (a *App) specMineCall(ctx context.Context, spec AgentSpec, model, system, user string) string {
-	stream, err := a.providerFor(spec).StreamChat(ctx, port.ChatRequest{
+	cctx, cancel := context.WithTimeout(ctx, specMineCallTimeout)
+	defer cancel()
+	stream, err := a.providerFor(spec).StreamChat(cctx, port.ChatRequest{
 		Model:    model,
 		System:   system,
 		Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: user}}}},
