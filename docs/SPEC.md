@@ -354,6 +354,7 @@ headless-4: LLM error                      ⇒ message to stderr, exit != 0
 - R7 이벤트: `council.convened`·`council.verdict`(위원별)·`council.decided` 영속, `council.deliberating` 전이.
 - R8 **게이트 범위 = 작업 턴만**: 툴을 하나도 쓰지 않은 대화 턴(인사·질문)은 게이트 스킵 — 작은 대화가 심의 루프에 갇히지 않는다. 언어 잠금은 council/훅이 주입한 user-role 프롬프트가 아니라 **실제 사용자의 마지막 프롬프트** 기준(언어 표류 방지).
 - R9 **위원 투표 정책**: 위원은 자기 렌즈로 **구체적·실재하는 결함**(실패 시그널·report가 드러내는 미충족 계약·명백한 오류)을 짚을 때만 `continue`(피드백에 다음 스텝 명시), 과제를 합당히 만족하면 `done`, 렌즈로 판단 불가면 `abstain`. **증거(diff/signal)의 부재 자체는 결코 `continue` 사유가 아니다** — 조사·읽기·분석·응답 턴은 원래 diff가 없으며, 없는 산출물을 요구하는 게 만성 churn의 주원인. 증거는 *있으면* 활용하고, 없으면 report/과제로 판단하거나 abstain. council 증거의 diff는 **untracked 신규 파일 내용까지 포함**(임시 `GIT_INDEX_FILE` 인덱스, 실제 인덱스 불변) → 갓 만든 파일도 증거로 보임.
+  - **R9a 목적만 전달, 방법은 위임**: 위원이 스스로 검증 절차를 발명할 때(카운슬이 만든 요구, 과제가 명시한 리터럴 계약이 *아닌* 경우)는 **무엇이 참임을 보여야 하는가(목적)만** 피드백에 담고 **어떻게 확인할지는 에이전트에 맡긴다** — 특정 조사 명령(`ps`/`netstat`/`lsof`/`curl`)을 못박지 않는다(그 도구가 환경에 없으면 목적이 이미 충족돼도 영원히 미충족이 됨: kv-store-grpc run17 실증, `ps: not found`). **이미 end-to-end 기능 성공이 보이면**(예: 클라이언트 호출이 올바른 응답을 받음) 그것이 "must respond/run"을 **충족**한다 — 그 위에 프로세스/포트 목록을 추가로 요구하는 건 ritual churn이고, 기능 성공은 프로세스 목록보다 강한 증거. (단 **과제가 리터럴 명령/입출력/수치를 명시**한 경우는 그 정확한 것 그대로 요구 — brief-paraphrase false-done 방어는 유지.)
 - R10 **무변경 턴 신호(NoChanges)**: diff가 (성공적으로) 비고 signal도 0이면 그 턴은 **변경 없는 read-only/조사/응답 턴**으로 판정해 `DeliberationRequest.NoChanges`로 council에 알린다 → 위원은 "검증할 산출물이 없는 작업"임을 알고 합당한 report를 승인(R9). **합의규칙은 그대로 보존**(완화/quorum:1 미사용) — 게이트가 돌 땐 언제나 진짜 합의. 단 **GitDiff 실패**(비-git 등)는 "변경 없음"으로 보지 않음(실제 쓰기 턴 오판 방지). 전원 abstain이면 무진전 가드가 종료.
 - R11 **독립투표 이후 강화**(각 플래그 기본 on): ①**반박 라운드**(`MAGI_COUNCIL_DEBATE`) — would-be-done이 SPLIT(일부 done/일부 continue)일 때 위원을 1회 재폴링(각자 타 위원 근거 보고 유지/변경) → 한 위원이 잡은 실결함이 코인플립 다수결에 묻히지 않음. ②**데빌**(`MAGI_COUNCIL_DEVIL`) — 무-split done(아무도 반대 안 함)에 지정 적수가 최강의 "미완" 논변을 제기하되, 그 우려를 위원이 **비판적으로 재판정**(데빌은 일부러 결함을 찾으니 과잉·과제-무관일 수 있음) → 실결함이면 continue, 헛것이면 기각. **데빌은 구속력 투표가 아니라 검토 입력**(veto 아님). ③**keep**(`MAGI_COUNCIL_KEEP`, 자문) — 각 위원이 이미 맞는 부분을 명시 → continue 피드백 위에 실려 재작업이 정착된 부분을 되돌리지 않게 함(plan-audit 리비전에도 동일하게 실림).
 - R12 **실행 가능한 deliverable-check**(`MAGI_STEP_VERIFY`): plan-audit council이 스텝별 shell 체크(`{step, deliverable, command, expect}`)를 제안 → **실행**되며, 실패 체크는 종결 투표가 못 덮는 하드 `deliverable-check` 시그널. 위임 워커의 **acceptance 체크리스트**로도 쓰이고 TUI 메인 플랜 패널 + council/subagent 상세뷰에 표시(F-PLAN-REC). 세 단계로 강화:
@@ -377,6 +378,7 @@ council-gate-skip-1:       툴 미사용 대화 턴 ⇒ 게이트 스킵(council
 council-abstain-noevid-1:  verification 렌즈 + 시그널·diff 없음 ⇒ abstain(반사적 continue 금지)(R9)
 council-evidence-newfile-1: 신규 untracked 파일 생성 ⇒ diff에 파일 내용 포함 ⇒ done 수렴(R9)
 council-noevid-noContinue-1: 증거 부재만으로는 continue 금지 ⇒ report/과제로 판단 or abstain (R9)
+council-objective-not-method-1: terminate 프롬프트 ⇒ 목적(무엇을 증명)만 요구·특정 조사명령 미지정·end-to-end 성공 수용 (R9a)
 council-nochanges-1:       diff 성공·공백 + signal 0 ⇒ NoChanges=true, 합의규칙 보존(완화 X)   (R10)
 council-nochanges-noterror-1: GitDiff 실패(비-git) ⇒ NoChanges=false(쓰기 턴 오판 방지)         (R10)
 council-debate-split-1:    would-be-done + SPLIT ⇒ 반박 1라운드 재폴링 후 재tally               (R11)
