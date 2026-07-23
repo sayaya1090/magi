@@ -159,7 +159,16 @@ const validateChecksSystem = "You review the executable deliverable `checks` a p
 	"BETTER convert to an EXIT-CODE check (drop `expect`): chain the conditions with `&&` and `grep -q` (e.g. " +
 	"`pip show grpcio 2>/dev/null | grep -q '^Version: 1.73.0' && pip show grpcio-tools 2>/dev/null | grep -q '^Version: 1.73.0'`).\n" +
 	"- PORTABLE: the command may use ONLY tools guaranteed present (coreutils, grep/test, python3, the task's own " +
-	"toolchain). Replace `ss`/`netstat`/`lsof` with a dependency-free python socket connect.\n" +
+	"toolchain). Replace `ss`/`netstat`/`lsof` with a dependency-free python socket connect. Invoke a tool by its " +
+	"BARE name so PATH resolves it (`pip3`, or `python3 -m pip`); NEVER hardcode an absolute install path like " +
+	"`/usr/bin/pip3` — the same tool lives at `/usr/local/bin/pip3` or a venv/pyenv shim on another image, so an " +
+	"absolute path false-fails on the machine it was not written for. Strip any leading `/usr/bin/`, `/usr/local/bin/` " +
+	"from a tool the PATH already resolves.\n" +
+	"- TOOL-DERIVED NAMES: when a check greps for or stats a file a code generator EMITS, use the name the tool " +
+	"ACTUALLY produces, not the request's raw spelling. `protoc`/`grpc_tools` sanitize a hyphenated `.proto` into an " +
+	"UNDERSCORED module — `kv-store.proto` yields `kv_store_pb2.py`, never `kv-store_pb2.py` — so a check demanding " +
+	"the hyphenated form can NEVER pass and fights the toolchain (the agent renames to satisfy the grep, which breaks " +
+	"the import, then renames back: an unwinnable loop). Rewrite the check to the generator's real output name.\n" +
 	"- EXERCISES the deliverable: a bare file-existence/size check for something that must BEHAVE or produce a " +
 	"correct value is too weak; keep/author a check that RUNS it and asserts the outcome.\n" +
 	"- IDEMPOTENT, NO STATE CHANGE (work≠check): a check must VERIFY the deliverable read-only, never PERFORM the " +

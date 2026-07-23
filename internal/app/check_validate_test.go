@@ -60,6 +60,29 @@ func TestValidateChecksPromptKeepsStepScoping(t *testing.T) {
 	}
 }
 
+// The validation prompt must forbid hardcoded absolute tool paths: a check that pins `/usr/bin/pip3`
+// false-fails on an image where the tool lives at `/usr/local/bin/pip3` or a venv shim. Guards the
+// PORTABLE clause against the kv-store-grpc regression (an absolute pip path the container did not have).
+func TestValidateChecksPromptForbidsAbsoluteToolPaths(t *testing.T) {
+	for _, want := range []string{"/usr/bin/pip3", "BARE name", "PATH resolves"} {
+		if !strings.Contains(validateChecksSystem, want) {
+			t.Errorf("validateChecksSystem must forbid hardcoded absolute tool paths (missing %q)", want)
+		}
+	}
+}
+
+// The validation prompt must require a check that greps a generated file to use the name the tool
+// actually emits: `grpc_tools` sanitizes `kv-store.proto` to the UNDERSCORED `kv_store_pb2.py`, so a
+// check demanding the hyphenated form fights the toolchain in an unwinnable rename loop. Guards the
+// TOOL-DERIVED NAMES clause against the kv-store-grpc regression.
+func TestValidateChecksPromptRespectsToolDerivedNames(t *testing.T) {
+	for _, want := range []string{"TOOL-DERIVED NAMES", "kv_store_pb2.py", "UNDERSCORED"} {
+		if !strings.Contains(validateChecksSystem, want) {
+			t.Errorf("validateChecksSystem must respect tool-derived filenames (missing %q)", want)
+		}
+	}
+}
+
 // With the flag on, validateChecks replaces a mutating check with the review's read-only repair:
 // the authored `ssh host 'tar -czf ...'` (which re-compresses the remote tree every gate cycle) must
 // not survive verbatim — the reviewed idempotent probe is used instead.
