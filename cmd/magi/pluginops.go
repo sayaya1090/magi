@@ -5,8 +5,8 @@ package main
 // observation-event bridge. Pure wiring — moved out of main.go.
 
 import (
+	"bytes"
 	"context"
-	"embed"
 	"fmt"
 	"io/fs"
 	"os"
@@ -85,8 +85,9 @@ func pluginDirs(plat *platform.OS, workdir, extra string) []string {
 // install (brew / install.sh) can enable them with a config switch. Each is
 // OPT-IN ([plugins.<name>] enabled = true — they may spend LLM tokens or write
 // workspace files), a user-installed plugin of the same name wins, and the
-// materialized copy under <config>/plugins-embedded/ is overwritten every start
-// so it always tracks the binary's version (updates ride magi --update).
+// materialized copy under <config>/plugins-embedded/ is refreshed to the binary's
+// version each start — but only files whose content actually changed are rewritten
+// (updates ride magi --update; an unchanged rebuild touches nothing).
 func loadEmbeddedPlugins(host *pluginlua.Host, plat *platform.OS, cfg config.Config) {
 	if strings.EqualFold(os.Getenv("MAGI_EMBEDDED_PLUGINS"), "off") {
 		return // global kill switch for automation/bench (measurement must not shift)
@@ -116,8 +117,13 @@ func loadEmbeddedPlugins(host *pluginlua.Host, plat *platform.OS, cfg config.Con
 }
 
 // materializeEmbedded copies every embedded file under <name>/ (subdirectories
-// included — a plugin may bundle scripts/references) into dir, overwriting.
-func materializeEmbedded(pfs embed.FS, name, dir string) error {
+// included — a plugin may bundle scripts/references) into dir. A file whose on-disk
+// copy already matches is left untouched: rewriting identical bytes still emits an
+// fsnotify event, and a second magi instance sharing this config dir watches these
+// paths — an unconditional rewrite hot-reloads the plugin in the OTHER instance,
+// which drops any set_base_url redirect it installed. Skipping no-op writes keeps
+// one instance's startup from disturbing another's while still tracking the binary.
+func materializeEmbedded(pfs fs.FS, name, dir string) error {
 	return fs.WalkDir(pfs, name, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -130,12 +136,15 @@ func materializeEmbedded(pfs embed.FS, name, dir string) error {
 		if d.IsDir() {
 			return os.MkdirAll(dst, 0o755)
 		}
-		b, rerr := pfs.ReadFile(path)
+		b, rerr := fs.ReadFile(pfs, path)
 		if rerr != nil {
 			return rerr
 		}
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return err
+		}
+		if cur, err := os.ReadFile(dst); err == nil && bytes.Equal(cur, b) {
+			return nil // already current — don't rewrite (no spurious watcher event)
 		}
 		return os.WriteFile(dst, b, 0o644)
 	})
