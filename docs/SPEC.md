@@ -301,6 +301,8 @@ rec-2: 8 agents running      → 9th spawn        ⇒ queued (not rejected)
 rec-3: cumulative=50 reached → 51st spawn       ⇒ rejected ERR("agent budget")
 ```
 
+- **감독자 리스(supervisor lease)**: 각 서브에이전트 시도는 엘라스틱 시간 리스를 갖고, 만료 시 (a) **툴 in-flight**(`toolInFlight`, 포그라운드 빌드/테스트/자작 스크립트 — 이름 무관)면 결정적 extend, (b) `MAGI_SUBAGENT_PROC_LEASE`(기본 on): 자식이 소유한 **매기-관리 백그라운드 프로세스**(`bash{background:true}`로 띄운 job, PID 추적)가 **CPU를 실제로 쓰고 있으면**(리스-만료 시점에 ~400ms 창으로 CPU-time 델타 샘플, 임계 이상) extend — 재시작이 그 작업을 더 빠르게 만들지 못하므로 churn 아님, (c) 둘 다 아니면 판사(`judgeLease`)가 중재(waiting-majority 결정적 체크 → LLM 판정). 모든 extend는 **backstop**(`subagentBackstop` = `subagentCapMaxFactor`×`SubagentTimeout`)이 총량 캡. **경계**: CPU 델타≈0인 idle/wedged 프로세스는 extend 안 됨(멈춘 서버 무한연장 방지); 포그라운드 raw `scp … &`로 분리된 손자 프로세스는 미추적(프로세스-그룹 집계 필요, 스코프 밖); darwin은 CPU 델타 폴백이 0이라 게이트가 liveness로만 degrade(워커 = Windows/Linux 기준). 실증: 플렉서스 #224 원격 다운로드가 오프-툴 백그라운드 전송 중 churn 오판·KILL→무한 재계획.
+
 ---
 
 ## F-COMPACT — 컨텍스트 압축
