@@ -635,6 +635,15 @@ func memberSystem(m council.Member, phase, task string, keep bool) string {
 			"not hold — read each one: if any names an unmet requirement, an unverified premise, or a task constraint "+
 			"that was crossed, vote continue and cite it; a confident overall framing never neutralizes an exception "+
 			"the agent itself recorded.\n"+
+			"When the report CONTESTS a prior council demand — a `CONTEST:` line, or the report otherwise arguing a "+
+			"specific earlier requirement is already met or impossible exactly as stated — do not ignore it: judge the "+
+			"evidence it cites. If a tool result or SIGNAL already shown establishes that requirement, or shows the "+
+			"demanded METHOD is unavailable in this environment (a named command absent) while the requirement's "+
+			"objective is demonstrably met end-to-end, then that point is settled: do NOT reissue it — either vote done "+
+			"or name a DIFFERENT, real defect. Reissuing verbatim a demand the agent has shown is already met or "+
+			"impossible-as-stated is exactly the churn to avoid. But a contest only REMOVES that one point; it is NEVER "+
+			"itself evidence the whole task is done — judge every other requirement on its merits, and if the contest "+
+			"cites no concrete tool output (it merely re-asserts completion), disregard it and keep the demand.\n"+
 			"- \"continue\": ONLY when you can name a SPECIFIC, REAL defect through your lens — a FAILING signal, a part of "+
 			"the task/plan the report itself shows is unmet, or a concrete error in the work. Put the next step in "+
 			"`feedback`. A missing diff or signal is NOT a defect.\n"+

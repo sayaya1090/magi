@@ -124,6 +124,7 @@ func continuationText(inject, task, contract string) string {
 		b.WriteString(c)
 	}
 	b.WriteString(councilKeepWork)
+	b.WriteString(councilContestAffordance)
 	if t := strings.TrimSpace(task); t != "" {
 		b.WriteString("\n\nOriginal objective (verbatim — pursue this exact end state, do not narrow or paraphrase it):\n")
 		b.WriteString(clipLine(t, councilDiffCap))
@@ -131,6 +132,21 @@ func continuationText(inject, task, contract string) string {
 	b.WriteString(councilCompletionAudit)
 	return b.String()
 }
+
+// councilContestAffordance rides on every continue injection: it gives the agent a
+// removal-only rebuttal so it stops churning on a demand that is already met or
+// impossible exactly as stated. The agent does NOT get to declare the task done — a
+// contest only asks the council to drop ONE point and re-judge; the council still
+// decides done independently, so the false-done guard the council exists for holds.
+// The evidence bar (a contest with no concrete tool output is ignored) is what keeps
+// this from reopening "done because I say so".
+const councilContestAffordance = "\n\nIf a SPECIFIC point above is already satisfied by evidence you have ALREADY shown, " +
+	"or is impossible exactly as stated (it names a tool/command absent in this environment) while its underlying " +
+	"objective is already met end-to-end, do NOT churn trying to satisfy the literal ask. Instead answer with a line:\n" +
+	"  CONTEST: <the exact demand> — <the concrete evidence it is already met, or why the stated method is impossible here and how the objective is already met>\n" +
+	"This does NOT finish the task and is NOT a claim of done: the council re-judges your cited evidence next round and, " +
+	"if it holds, drops that one point and judges the rest on its merits. Cite REAL tool output or a signal — a CONTEST " +
+	"that merely re-asserts completion with no evidence is ignored. Only contest a point you can back; otherwise do the work."
 
 // councilPreRoundCaps applies the two finish-without-deliberating caps before a round is
 // spent, returning (unverifiedReason, done): done=true means the gate must finish now, always
