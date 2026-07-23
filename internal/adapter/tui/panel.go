@@ -269,18 +269,14 @@ func (m *Model) workerPanel(p *agentPane) string {
 
 // checkLine formats one completion check for the plan panel with a state glyph: a green ✓ for a
 // check whose verify command has passed, an animated spinner for a check whose step is currently in
-// progress, else a muted bullet. The label is the deliverable phrase ("run: cmd" appended when the
-// phrase is present), or the command itself when no phrase was authored. A passed line is dimmed and
-// struck through — done, out of the way — mirroring the plan tree's completed-todo styling.
+// progress, else a muted bullet. The label is the deliverable phrase alone (the "run: cmd" tail is
+// dropped — the right panel is too narrow for it), falling back to the command itself only when no
+// phrase was authored. A passed line is dimmed and struck through — done, out of the way — mirroring
+// the plan tree's completed-todo styling.
 func (m *Model) checkLine(cs app.CheckStatus) string {
-	head := strings.TrimSpace(cs.Check.Deliverable)
-	cmd := strings.TrimSpace(cs.Check.Command)
-	if head == "" {
-		head, cmd = cmd, ""
-	}
-	label := head
-	if cmd != "" {
-		label = head + " — run: " + cmd
+	label := strings.TrimSpace(cs.Check.Deliverable)
+	if label == "" {
+		label = strings.TrimSpace(cs.Check.Command) // no phrase authored → show the command itself
 	}
 	switch cs.State {
 	case app.CheckPassed:
