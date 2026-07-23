@@ -312,25 +312,30 @@ func TestSetBaseURLTrimsSlash(t *testing.T) {
 	}
 }
 
-// ClearBaseURLIfEquals only clears when the override still matches (compare-and-swap),
-// so unloading one plugin can't wipe an override another has installed since.
-func TestClearBaseURLIfEquals(t *testing.T) {
+// ClearBaseURL releases the override only when the token still identifies the current one:
+// a non-owning token is a no-op, and a newer SetBaseURL with the SAME url (a hot-reload's new
+// instance) supersedes the old token so the outgoing instance's release can't revert the
+// redirect — the multi-instance localhost-revert bug.
+func TestClearBaseURL(t *testing.T) {
 	c := New("http://configured.example/v1", "")
-	c.SetBaseURL("http://127.0.0.1:1/v1")
+	tok := c.SetBaseURL("http://127.0.0.1:1/v1")
 
-	c.ClearBaseURLIfEquals("http://127.0.0.1:9/v1") // not current → no-op
+	c.ClearBaseURL(tok + 999) // not the current owner → no-op
 	if c.base() != "http://127.0.0.1:1/v1" {
-		t.Fatalf("non-matching clear changed base: %q", c.base())
+		t.Fatalf("non-owning clear changed base: %q", c.base())
 	}
-	c.ClearBaseURLIfEquals("http://127.0.0.1:1/v1") // matches → restore configured
+	c.ClearBaseURL(tok) // owner → restore configured
 	if c.base() != "http://configured.example/v1" {
-		t.Errorf("matching clear should restore configured base, got %q", c.base())
+		t.Errorf("owning clear should restore configured base, got %q", c.base())
 	}
-	// Trailing slash is trimmed before the compare.
-	c.SetBaseURL("http://127.0.0.1:2/v1")
-	c.ClearBaseURLIfEquals("http://127.0.0.1:2/v1/")
-	if c.base() != "http://configured.example/v1" {
-		t.Errorf("clear should trim trailing slash before compare, got %q", c.base())
+
+	// Reload self-clobber guard: a newer Set with the same url takes ownership; the old
+	// token must NOT clear it.
+	old := c.SetBaseURL("http://gw.example/v1")
+	c.SetBaseURL("http://gw.example/v1") // reload re-installs, new token
+	c.ClearBaseURL(old)                  // old instance closes → must be a no-op
+	if c.base() != "http://gw.example/v1" {
+		t.Errorf("stale token cleared a re-installed override, got %q", c.base())
 	}
 }
 

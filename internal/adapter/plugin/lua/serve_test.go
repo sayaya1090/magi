@@ -187,23 +187,30 @@ magi.log("port=" .. tostring(s.port))`,
 	}
 }
 
-// stubBaseReg records the last base URL a plugin set.
+// stubBaseReg records the last base URL a plugin set, with token ownership mirroring the
+// real Client so the reload/unload clobber tests exercise the actual release semantics.
 type stubBaseReg struct {
 	mu  sync.Mutex
 	url string
+	tok uint64
+	seq uint64
 }
 
-func (s *stubBaseReg) SetBaseURL(u string) {
+func (s *stubBaseReg) SetBaseURL(u string) uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.seq++
 	s.url = u
+	s.tok = s.seq
+	return s.tok
 }
 
-func (s *stubBaseReg) ClearBaseURLIfEquals(u string) {
+func (s *stubBaseReg) ClearBaseURL(tok uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.url == u {
+	if s.tok == tok {
 		s.url = ""
+		s.tok = 0
 	}
 }
 
@@ -294,6 +301,31 @@ func TestSetBaseURLUnloadDoesNotClobberOther(t *testing.T) {
 	}
 	if reg.get() != "http://127.0.0.1:2222/v1" {
 		t.Errorf("unloading A clobbered B's still-active override, got %q", reg.get())
+	}
+}
+
+// Hot-reloading a plugin that redirects the LLM backend to a FIXED url (the multi-instance
+// gateway case: two magi instances sharing a config dir, one re-materializing the embedded
+// plugin trips the other's watcher) must keep the override. Load runs the new instance's
+// set_base_url BEFORE closing the old one; with value-blind clearing the old close saw its
+// own url still in place and reverted to the configured backend (localhost → gateway 404).
+func TestSetBaseURLReloadSameURLKeepsOverride(t *testing.T) {
+	reg := &stubBaseReg{}
+	h := NewHostWithConfig(HostConfig{
+		BaseReg: reg,
+		Runtime: RuntimeInfo{Workdir: t.TempDir()},
+		Logf:    func(string) {},
+	})
+	dir := writePlugin(t, `name="c"`+"\n"+`permissions=["net:127.0.0.1"]`,
+		`magi.set_base_url("http://127.0.0.1:1234/v1")`)
+	if _, err := h.Load(context.Background(), dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, err := h.Load(context.Background(), dir); err != nil { // hot-reload, same url
+		t.Fatalf("reload: %v", err)
+	}
+	if reg.get() != "http://127.0.0.1:1234/v1" {
+		t.Errorf("hot-reload with the same base URL dropped the override, got %q", reg.get())
 	}
 }
 
