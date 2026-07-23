@@ -316,6 +316,31 @@ func (a *App) runTerminationGate(ctx context.Context, tc turnCtx, step int, turn
 	s, agent, guard, depth, maxSteps := tc.s, tc.agent, tc.guard, tc.depth, tc.maxSteps
 	sid := s.ID
 	stepGate, checkLedger := a.runStepGate(ctx, s, ts)
+	// Non-converging self-check landing (internal signal only — no external wall clock): a
+	// non-empty ledger means a deliverable check FAILED this attempt. If the agent has edited the
+	// deliverable (mutation epoch advancing) across checkChurnCap such attempts and the SAME check
+	// still fails, the check is not converging (an inverted/impossible plan-audit check, e.g.
+	// kv-store-grpc's `exit(connect_ex(...)==0)` that passes only when the server is DOWN). Rather
+	// than churn edits — each of which refills the stall window via mutated — to an external
+	// hard-kill that tears the live deliverable down (reward 0), land gracefully UNVERIFIED with
+	// work standing so the external verifier judges the running result. A converging check resets
+	// the counter (resetCheckChurn below), so this never fires on a task whose check eventually passes.
+	if checkLedger != "" {
+		if checkChurnLandEnabled() && guard.noteCheckFail() >= checkChurnCap() {
+			dd, _ := json.Marshal(event.CouncilDecidedData{
+				Round: ts.council.rounds + 1, Decision: string(council.Done),
+				Note: "deliverable self-check failed across repeated edit cycles without converging — " +
+					"landing with work standing so the external verifier judges the live deliverable; treat as UNVERIFIED",
+				Forced: true,
+			})
+			a.appendFact(ctx, sid, event.TypeCouncilDecided, event.Actor{Kind: event.ActorSystem, ID: "council"}, dd)
+			ts.unverifiedReason = "deliverable self-check kept failing across repeated edit cycles without " +
+				"converging — landing with work standing so the external verifier judges the live deliverable"
+			return 0, false
+		}
+	} else {
+		guard.resetCheckChurn() // all checks passed → the self-check converged; clear the churn count
+	}
 	if stepGate == gateFailRetry {
 		return loopContinue, true
 	}
