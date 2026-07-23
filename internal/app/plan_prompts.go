@@ -59,13 +59,14 @@ const plannerContract = "Plan the PROCEDURE to handle the request: an ordered, m
 // literalRule is appended to the planner contract when specFidelityEnabled(): it forbids
 // paraphrasing a literal contract, so the exact identifiers a grader checks survive into the
 // step title/task (and from there into every downstream executor). See specFidelityEnabled.
-const literalRule = "\n\nPRESERVE LITERALS: when the request specifies EXACT identifiers — a field/message/function " +
-	"name, an output format, a numeric threshold, a path, or a literal string — reproduce it VERBATIM in the step " +
-	"\"title\"/\"task\". Never paraphrase a literal contract (keep a field named `value` as `value`, not \"the value\"; " +
-	"keep `YYYY-MM-DD` verbatim). The plan is a summary of the request, but its literals are NOT summaries. " +
-	"Only names the REQUEST fixes are literals: if the request leaves a filename or symbol open and you name one just " +
-	"to illustrate, write it as an example (\"e.g. `calc.py`\"), NEVER as a fixed name — pinning your own example forces " +
-	"a worker onto a name the request never demanded."
+const literalRule = "\n\nPRESERVE LITERALS:\n" +
+	"- When the request specifies EXACT identifiers — a field/message/function name, an output format, a numeric " +
+	"threshold, a path, or a literal string — reproduce it VERBATIM in the step \"title\"/\"task\".\n" +
+	"- Never paraphrase a literal contract: keep a field named `value` as `value` (not \"the value\"); keep " +
+	"`YYYY-MM-DD` verbatim. The plan is a summary of the request, but its literals are NOT summaries.\n" +
+	"- Only names the REQUEST fixes are literals. If the request leaves a filename or symbol open and you name one " +
+	"just to illustrate, write it as an example (\"e.g. `calc.py`\"), NEVER as a fixed name — pinning your own example " +
+	"forces a worker onto a name the request never demanded."
 
 // (specFidelityNote removed: literal fidelity is carried by literalRule in the planner contract
 // above and the curated brief's verbatim `literals`, so the per-turn execution note was redundant.)
@@ -77,27 +78,29 @@ const literalRule = "\n\nPRESERVE LITERALS: when the request specifies EXACT ide
 // checkpointFirstRule is appended to the planner contract when checkpointFirstEnabled():
 // it makes a multi-step plan ORDER the checkpoint early (a sequencing concern, not a new
 // verification owner), so later steps implement against an artifact that already exists.
-const checkpointFirstRule = "\n\nCHECKPOINT FIRST: if the request states HOW completion is checked or the output " +
-	"applied (a snippet, command, function call, or I/O contract), make an EARLY step build a small runnable " +
-	"checkpoint reproducing that check (inputs synthesized from the spec, including any named counter-example); " +
-	"later steps implement until it passes. External events named by the request (a signal, a kill, a " +
-	"disconnect) must be delivered for real — subprocess plus the actual signal — never simulated in-process. " +
-	"Only add this when the check is actually executable — do not pad a " +
-	"prose-only task with it."
+const checkpointFirstRule = "\n\nCHECKPOINT FIRST:\n" +
+	"- If the request states HOW completion is checked or the output applied (a snippet, command, function call, or " +
+	"I/O contract), make an EARLY step build a small runnable checkpoint reproducing that check — inputs synthesized " +
+	"from the spec, including any named counter-example; later steps implement until it passes.\n" +
+	"- External events named by the request (a signal, a kill, a disconnect) must be delivered for real — subprocess " +
+	"plus the actual signal — never simulated in-process.\n" +
+	"- Only add this when the check is actually executable; do not pad a prose-only task with it."
 
 // implicitAcceptRule is appended to the planner contract when implicitAcceptEnabled(): a task's
 // real acceptance conditions are usually stricter than the instruction prose — the exact output
 // it implies, the standard semantics it assumes, and the edge cases it never lists — so the planner
 // is told to surface those and fold them into the steps' deliverables. See implicitAcceptEnabled.
-const implicitAcceptRule = "\n\nEDGE-CASE RIGOR — plan for the real contract, not just the sentence: a correct solution " +
+const implicitAcceptRule = "\n\nEDGE-CASE RIGOR — plan for the real contract, not just the sentence. A correct solution " +
 	"must survive careful scrutiny, not only the happy path the prose spells out. Before finalizing, ask what a careful " +
-	"reviewer would ALSO require and make the relevant steps deliver it: (1) EXACT output — if the task shows or implies a " +
-	"specific format, token, or message, produce it verbatim (a literal like `Cleaned up.` or `Results: X Y Z`, exact " +
-	"counts/casing), not a paraphrase; (2) STANDARD SEMANTICS the prose assumes but does not spell out (a task whose jobs " +
-	"must clean up on cancellation implies interrupt/cancellation actually runs their cleanup; a headless build implies no " +
-	"display-library linkage); (3) EDGE CASES the task implies but never lists — malformed, empty, or boundary inputs, error " +
-	"paths, and concurrency — handled rather than assumed away; (4) IDIOMATIC over hacky — use the mechanism the domain " +
-	"expects. Do NOT invent requirements the task excludes; infer only what a competent implementation of THIS task would " +
+	"reviewer would ALSO require and make the relevant steps deliver it:\n" +
+	"- EXACT output — if the task shows or implies a specific format, token, or message, produce it verbatim (a literal " +
+	"like `Cleaned up.` or `Results: X Y Z`, exact counts/casing), not a paraphrase.\n" +
+	"- STANDARD SEMANTICS the prose assumes but does not spell out — a task whose jobs must clean up on cancellation " +
+	"implies interrupt/cancellation actually runs their cleanup; a headless build implies no display-library linkage.\n" +
+	"- EDGE CASES the task implies but never lists — malformed, empty, or boundary inputs, error paths, and concurrency " +
+	"— handled rather than assumed away.\n" +
+	"- IDIOMATIC over hacky — use the mechanism the domain expects.\n" +
+	"Do NOT invent requirements the task excludes; infer only what a competent implementation of THIS task would " +
 	"obviously satisfy."
 
 // planEnvelope gives the planner the two facts it otherwise plans blind to: the step
@@ -128,28 +131,36 @@ func planEnvelope(depth, maxPlanDepth, maxSteps int) string {
 
 // refinePrompt frames a refine step as an in-context sub-goal. On a local retry it leads
 // with the prior failure so the next attempt changes approach (the failure is also in the
-// cloned context, but stating it explicitly steadies a weak model).
+// cloned context, but stating it explicitly steadies a weak model). Itemized (개조식) so a
+// weak model reads discrete obligations instead of parsing one long sentence.
 func refinePrompt(st planStep, fail string) string {
-	p := ""
+	var p strings.Builder
 	if f := strings.TrimSpace(fail); f != "" {
-		p = "A previous attempt at this sub-goal did NOT succeed: " + f + "\nTake a DIFFERENT approach this time.\n\n"
+		p.WriteString("A previous attempt at this sub-goal did NOT succeed: " + f + "\n")
+		p.WriteString("Take a DIFFERENT approach this time.\n\n")
 	}
-	return p + st.Task + "\n\n(You are working out ONE sub-goal of a larger plan, continuing from the conversation " +
-		"so far. Break it into concrete steps as needed, complete it fully, then " + noFabricate + " If after real " +
-		"effort this sub-goal genuinely cannot be done, report status \"failed\" and say plainly what blocked you — " +
-		"do not report unfinished work as done.)"
+	p.WriteString("SUB-GOAL — one part of a larger plan; you continue from the conversation so far:\n")
+	p.WriteString(strings.TrimSpace(st.Task) + "\n\n")
+	p.WriteString("How to proceed:\n")
+	p.WriteString("- Break it into concrete steps as needed and complete it fully.\n")
+	p.WriteString("- If after real effort it genuinely cannot be done, report status \"failed\" and say " +
+		"plainly what blocked you — never report unfinished work as done.\n\n")
+	p.WriteString(verifyContract)
+	return p.String()
 }
 
-// noFabricate is the anti-fabrication half of every child hand-off's self-verify contract:
+// verifyContract is the self-verify + anti-fabrication clause shared by every child hand-off:
 // verify by real execution and cite it, and if you could NOT run/confirm something, admit it
-// rather than manufacture a verified-looking result. The delegate and stuck-recovery hand-offs
-// previously asked only to "report how you verified it" with no license for the honest negative
-// — an asymmetry that pressures a weak model to fabricate (write a stand-in results file it never
-// produced) just to answer the ask. Single-sourced so all hand-offs stay symmetric.
-const noFabricate = "verify it yourself by actually running it, and report concretely how you verified it (the " +
-	"command you ran and its real output). If you could NOT actually run or confirm something, say so plainly and " +
-	"treat it as unverified — never invent or hand-write output, and never write a stand-in or placeholder file to " +
-	"make it look done; hiding the gap is worse than admitting it."
+// rather than manufacture a verified-looking result. The hand-offs previously asked only to
+// "report how you verified it" with no license for the honest negative — an asymmetry that
+// pressures a weak model to fabricate (write a stand-in results file it never produced) just to
+// answer the ask. Single-sourced so all hand-offs stay symmetric, and itemized (개조식) so each
+// obligation reads as its own line.
+const verifyContract = "Before reporting done:\n" +
+	"- Verify it yourself by actually running it; report the exact command you ran and its real output.\n" +
+	"- If you could NOT actually run or confirm something, say so plainly and treat it as unverified.\n" +
+	"- Never invent or hand-write output, and never write a stand-in or placeholder file to make it " +
+	"look done — hiding the gap is worse than admitting it."
 
 // divergeClause (MAGI_DIVERGE, default ON) teaches the diverge→triage→commit shape for
 // problems whose CAUSE or APPROACH is genuinely uncertain: enumerate a few DISTINCT
@@ -159,23 +170,29 @@ const noFabricate = "verify it yourself by actually running it, and report concr
 // of the FIRST hypothesis while the winning fix lay on a neighboring axis nobody
 // re-examined. Appended to the planner contract at build time (plan_flags gate).
 const divergeClause = "\nWhen the CAUSE of a problem (or the right approach) is genuinely UNCERTAIN — a bug hunt, a " +
-	"root-cause diagnosis, a reverse-engineering question — do NOT commit the whole plan to your first hypothesis. " +
-	"Open with ONE step that lists 2-3 DISTINCT candidate explanations (different mechanisms, not variations of one " +
-	"idea) each with the cheapest observation that would CONFIRM or KILL it; run those probes (parallel/scout if " +
-	"read-only, solo otherwise); then commit the remaining steps to the surviving candidate. If work on the survivor " +
-	"later stalls, revisit the list and switch to the next candidate rather than iterating variations of a dead one.\n"
+	"root-cause diagnosis, a reverse-engineering question — do NOT commit the whole plan to your first hypothesis:\n" +
+	"- Open with ONE step that lists 2-3 DISTINCT candidate explanations (different mechanisms, not variations of one " +
+	"idea), each with the cheapest observation that would CONFIRM or KILL it.\n" +
+	"- Run those probes (parallel/scout if read-only, solo otherwise), then commit the remaining steps to the " +
+	"surviving candidate.\n" +
+	"- If work on the survivor later stalls, revisit the list and switch to the next candidate rather than iterating " +
+	"variations of a dead one.\n"
 
 // stuckRedecomposePrompt frames the solo-stuck recovery: the decompose instruction, the task,
 // and the specific wall the previous attempt hit (a stall reason or the council's last unmet
 // concern) so the child knows what to break through, then the delegate contract's self-verify
 // framing. Reuses decomposePrefix so its "BREAK IT DOWN" wording stays single-sourced.
 func stuckRedecomposePrompt(task, blockReason string) string {
-	p := decomposePrefix + strings.TrimSpace(task)
+	var p strings.Builder
+	p.WriteString(decomposePrefix) // ends with a blank line; carries the "BREAK IT DOWN" wording
+	p.WriteString("TASK:\n" + strings.TrimSpace(task) + "\n")
 	if r := strings.TrimSpace(blockReason); r != "" {
-		p += "\n\nWhat blocked the previous attempt (address this directly): " + r
+		p.WriteString("\nWHAT BLOCKED THE PREVIOUS ATTEMPT (address this directly):\n" + r + "\n")
 	}
-	return p + "\n\n(You are taking over a task a previous attempt got stuck on; partial work may " +
-		"already be on disk. Complete it fully, then " + noFabricate + ")"
+	p.WriteString("\nNote: you are taking over a task a previous attempt got stuck on — partial work may " +
+		"already be on disk. Complete it fully.\n\n")
+	p.WriteString(verifyContract)
+	return p.String()
 }
 
 // stuckUnitPrompt frames ONE work unit of a stuck task's decomposition for a child that was
@@ -191,14 +208,19 @@ func stuckUnitPrompt(st planStep, blockReason string) string {
 	if unit == "" {
 		unit = strings.TrimSpace(st.Title)
 	}
-	p := "You already have the full conversation and all work so far in context — do NOT re-read " +
-		"files or re-derive what you already know. A previous attempt on the larger task got stuck. " +
-		"It has been broken into small units; carry out ONLY THIS ONE unit now, then stop:\n\n" + unit
+	var p strings.Builder
+	p.WriteString("You already have the full conversation and all work so far in context:\n")
+	p.WriteString("- do NOT re-read files or re-derive what you already know.\n")
+	p.WriteString("- a previous attempt on the larger task got stuck; it has been broken into small units.\n\n")
+	p.WriteString("Now carry out ONLY THIS ONE unit, then stop:\n")
+	p.WriteString(unit + "\n")
 	if r := strings.TrimSpace(blockReason); r != "" {
-		p += "\n\nWhat blocked the previous attempt (do not repeat it): " + r
+		p.WriteString("\nWHAT BLOCKED THE PREVIOUS ATTEMPT (do not repeat it):\n" + r + "\n")
 	}
-	return p + "\n\n(Complete just this unit fully — take the real action, don't re-inspect what you " +
-		"already have. Then " + noFabricate + ")"
+	p.WriteString("\nComplete just this unit fully — take the real action, don't re-inspect what you " +
+		"already have.\n\n")
+	p.WriteString(verifyContract)
+	return p.String()
 }
 
 // delegatePrompt frames a delegate step for a worker, with a CRISP separation between the worker's
@@ -209,13 +231,14 @@ func stuckUnitPrompt(st planStep, blockReason string) string {
 // the curated brief no longer restates it (renderCurateBrief), so there is no duplicate instruction.
 func delegatePrompt(st planStep, brief string) string {
 	var p strings.Builder
-	p.WriteString("── YOUR PART — do EXACTLY this one part of a larger plan, nothing more ──\n")
+	p.WriteString("YOUR PART — do EXACTLY this one part of a larger plan, nothing more:\n")
 	p.WriteString(strings.TrimSpace(st.Task) + "\n")
 	if b := strings.TrimSpace(brief); b != "" {
-		p.WriteString("\n── CONTEXT (reference only — how your part fits; do NOT do the whole request yourself) ──\n")
+		p.WriteString("\nCONTEXT — reference only; how your part fits, NOT a to-do list (do not do the whole request yourself):\n")
 		p.WriteString(b + "\n")
 	}
-	p.WriteString("\n(Complete just YOUR PART fully, then " + noFabricate + ")")
+	p.WriteString("\nComplete just YOUR PART fully.\n\n")
+	p.WriteString(verifyContract)
 	return p.String()
 }
 
@@ -280,9 +303,11 @@ func redecomposePrompt(st planStep, brief string) string {
 // prefixed with the overall goal for orientation. Shared by the synchronous (runExplorers) and
 // background (dispatchExplorerSteps) fan-out paths so both send an identical prompt.
 func explorerPrompt(goal string, g planGroup) string {
-	prompt := fmt.Sprintf("Investigate (read-only): %s\n\n%s", g.Focus, g.Question)
+	var p strings.Builder
 	if og := strings.TrimSpace(goal); og != "" {
-		prompt = "Overall goal (context for your investigation): " + clipLine(og, 400) + "\n\n" + prompt
+		p.WriteString("Overall goal (context for your investigation): " + clipLine(og, 400) + "\n\n")
 	}
-	return prompt
+	p.WriteString("INVESTIGATE (read-only) — " + strings.TrimSpace(g.Focus) + ":\n")
+	p.WriteString(strings.TrimSpace(g.Question))
+	return p.String()
 }
