@@ -111,7 +111,10 @@ type bgManager struct {
 
 var bg = &bgManager{procs: map[string]*bgProc{}}
 
-func (m *bgManager) start(workdir string, sb port.SandboxSpec, command string, usePTY bool) (*bgProc, error) {
+// trackProc, when non-nil, is notified with (pid, true) once the job is running and
+// (pid, false) when it exits, so the orchestrator's subagent-lease judge can see a
+// magi-managed background process actively working even with no tool in flight.
+func (m *bgManager) start(workdir string, sb port.SandboxSpec, command string, usePTY bool, trackProc func(pid int, running bool)) (*bgProc, error) {
 	name, args := shell(command)
 	if argv, wrapped := sandboxArgv(sb, command); wrapped {
 		name, args = argv[0], argv[1:]
@@ -199,6 +202,10 @@ func (m *bgManager) start(workdir string, sb port.SandboxSpec, command string, u
 	m.pruneLocked()
 	m.mu.Unlock()
 
+	if trackProc != nil {
+		trackProc(p.pid, true)
+	}
+
 	go func() {
 		err := cmd.Wait()
 		exit := 0
@@ -211,6 +218,9 @@ func (m *bgManager) start(workdir string, sb port.SandboxSpec, command string, u
 		p.done, p.exit = true, exit
 		p.stdin = nil // no more input accepted once exited
 		p.mu.Unlock()
+		if trackProc != nil {
+			trackProc(p.pid, false) // drop the pid from the session's lease-visible set
+		}
 		// Pipe mode: release the stdin pipe here. PTY mode: the copy goroutine closes the
 		// master (== stdin) and the log file when the slave EOFs, so don't double-close.
 		if !usePTY {

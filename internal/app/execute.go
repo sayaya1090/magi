@@ -218,6 +218,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		Platform:     a.plat,
 		EmitArtifact: func(art artifact.Artifact) { a.emitArtifact(ctx, sid, actor, art) },
 		EmitProgress: func(text string) { a.emitToolProgress(sid, actor, tc.CallID, tc.Name, text) },
+		TrackProc:    a.procTracker(sid),
 		Spawn: func(sctx context.Context, req port.SpawnRequest) port.SpawnResult {
 			return a.spawn(sctx, s, depth, req)
 		},
