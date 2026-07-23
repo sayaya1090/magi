@@ -6,11 +6,46 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 )
 
 // setKeyMu serializes the read-modify-write in SetKey so concurrent writers (plugins via
 // magi.set_config_key, the /route editor) can't race and lose updates or corrupt the file.
+// It only covers writers in THIS process; withFileLock adds the cross-process half.
 var setKeyMu sync.Mutex
+
+// withFileLock serializes the read-modify-write of `target` across SEPARATE processes,
+// which setKeyMu cannot: two magi instances sharing one config.toml (e.g. a plugin doing
+// a live set_model in each) otherwise both read the same bytes, edit independently, and
+// the last WriteFile clobbers the other's change — or, mid-write, the reader parses a torn
+// file. An O_EXCL sidecar lock (portable to Windows, unlike flock) makes the RMW atomic
+// between processes. On contention it waits briefly then proceeds unlocked rather than
+// deadlock a rare config write; a lock left by a crashed process is reclaimed once stale.
+func withFileLock(target string, fn func() error) error {
+	lock := target + ".lock"
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		f, err := os.OpenFile(lock, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		if err == nil {
+			f.Close()
+			defer os.Remove(lock)
+			return fn()
+		}
+		if !os.IsExist(err) {
+			return fn() // can't create the lock for an unrelated reason — don't block the write
+		}
+		if time.Now().After(deadline) {
+			// Reclaim a lock a crashed writer never released; otherwise give up waiting and
+			// proceed (setKeyMu still serializes same-process writers).
+			if fi, e := os.Stat(lock); e == nil && time.Since(fi.ModTime()) > 15*time.Second {
+				os.Remove(lock)
+				continue
+			}
+			return fn()
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
 
 // SetKey surgically sets `key = "value"` under the given TOML table in the file
 // at path, preserving the rest of the file (comments, template, other sections).
@@ -23,6 +58,10 @@ var setKeyMu sync.Mutex
 func SetKey(path, section, key, value string) error {
 	setKeyMu.Lock()
 	defer setKeyMu.Unlock()
+	return withFileLock(path, func() error { return setKeyLocked(path, section, key, value) })
+}
+
+func setKeyLocked(path, section, key, value string) error {
 	b, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return err
@@ -137,6 +176,10 @@ func writeLines(path string, lines []string) error {
 func AppendListItem(path, key, value string) error {
 	setKeyMu.Lock()
 	defer setKeyMu.Unlock()
+	return withFileLock(path, func() error { return appendListItemLocked(path, key, value) })
+}
+
+func appendListItemLocked(path, key, value string) error {
 	b, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return err

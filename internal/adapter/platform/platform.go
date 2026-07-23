@@ -80,7 +80,16 @@ func (w *capWriter) Write(p []byte) (int, error) {
 }
 
 // ConfigDir returns the magi config directory (e.g. ~/.config/magi).
+//
+// MAGI_CONFIG_DIR overrides it outright, so two instances on one machine can be
+// given separate config trees (their own config.toml, plugin auth store, etc.).
+// Without it both share ~/.config/magi/config.toml, and a plugin that persists a
+// runtime choice (a live set_model, an SSO login) has one instance's write land
+// in the other's file — the multi-instance collision point.
 func (OS) ConfigDir() string {
+	if d := strings.TrimSpace(os.Getenv("MAGI_CONFIG_DIR")); d != "" {
+		return d
+	}
 	base, err := os.UserConfigDir()
 	if err != nil {
 		return filepath.Join(os.TempDir(), "magi")
@@ -90,7 +99,14 @@ func (OS) ConfigDir() string {
 
 // DataDir returns the magi data directory (e.g. ~/.cache/magi on Linux,
 // ~/Library/Caches/magi on macOS, %LocalAppData%/magi on Windows).
+//
+// MAGI_DATA_DIR overrides it, the DataDir counterpart of MAGI_CONFIG_DIR — it
+// isolates the plugin data store (<data>/plugin-data/<name>.json, where an SSO
+// plugin caches its token) so parallel instances don't share one token slot.
 func (OS) DataDir() string {
+	if d := strings.TrimSpace(os.Getenv("MAGI_DATA_DIR")); d != "" {
+		return d
+	}
 	base, err := os.UserCacheDir()
 	if err != nil {
 		return filepath.Join(os.TempDir(), "magi")
