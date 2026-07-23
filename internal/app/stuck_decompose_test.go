@@ -155,8 +155,9 @@ func TestDriveStuckTodosChainsLandedSessions(t *testing.T) {
 	}
 }
 
-// Recovery units are APPENDED below an existing plan's todos, never clobbering them: the
-// stuck task is often one step of an outer plan whose progress must stay visible.
+// When an OUTER delegated plan is in progress — a step has spawned a child session whose sub-work
+// renders in the tree — recovery units are APPENDED below the existing todos, never clobbering the
+// outer plan's visible progress.
 func TestDriveStuckTodosPreservesOuterTodos(t *testing.T) {
 	plan := `{"steps":[
 		{"title":"unit A","strategy":"solo","task":"do A"},
@@ -166,6 +167,11 @@ func TestDriveStuckTodosPreservesOuterTodos(t *testing.T) {
 		{Content: "outer step 1", Status: "completed"},
 		{Content: "outer step 2", Status: "in_progress"},
 	})
+	// A real delegated child under outer step 2 makes this an outer-plan case (not solo) → append.
+	step := 1
+	a.mu.Lock()
+	a.states["outer_child"] = &sessionState{meta: session.Session{ID: "outer_child", Parent: s.ID, ParentStep: &step}}
+	a.mu.Unlock()
 
 	landed, _ := a.driveStuckTodos(context.Background(), s, a.cfg.Agents["coder"], "task", "reason", 0)
 	if !landed {
@@ -181,6 +187,36 @@ func TestDriveStuckTodosPreservesOuterTodos(t *testing.T) {
 	}
 	if td[2].Status != "completed" || td[3].Status != "completed" {
 		t.Errorf("appended units should be completed, got %q / %q", td[2].Status, td[3].Status)
+	}
+}
+
+// On the SOLO path — no step has spawned a child session, so the existing todos are just this same
+// whole task's own, now-superseded plan the main agent ran inline — recovery REPLACES the list
+// wholesale so the panel shows one plan, not the original stacked above a duplicate decomposition.
+func TestDriveStuckTodosSoloReplacesTodos(t *testing.T) {
+	plan := `{"steps":[
+		{"title":"unit A","strategy":"solo","task":"do A"},
+		{"title":"unit B","strategy":"solo","task":"do B"}]}`
+	a, s := stuckDriverApp(t, plan, func(req string) string { return "landed" })
+	// The same whole task's original plan, partially done — but NO delegated child under any step.
+	a.SetTodos(s.ID, []session.Todo{
+		{Content: "read the code", Status: "completed"},
+		{Content: "fix and verify", Status: "in_progress"},
+	})
+
+	landed, _ := a.driveStuckTodos(context.Background(), s, a.cfg.Agents["coder"], "task", "reason", 0)
+	if !landed {
+		t.Fatal("units should land")
+	}
+	td := a.Todos(s.ID)
+	if len(td) != 2 {
+		t.Fatalf("solo recovery must REPLACE (not append): expected just the 2 units, got %d", len(td))
+	}
+	if td[0].Content != "unit A" || td[1].Content != "unit B" {
+		t.Errorf("replaced list must be the recovery units, got %q / %q", td[0].Content, td[1].Content)
+	}
+	if td[0].Status != "completed" || td[1].Status != "completed" {
+		t.Errorf("both landed units should be completed, got %q / %q", td[0].Status, td[1].Status)
 	}
 }
 

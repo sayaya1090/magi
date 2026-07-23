@@ -697,13 +697,28 @@ func (a *App) driveStuckTodos(ctx context.Context, s session.Session, agent Agen
 	if len(steps) < 2 {
 		return false, false // nothing gained from decomposing into a single unit
 	}
-	// Append the recovery units BELOW any existing plan todos rather than replacing the list
-	// (registerPlanTodos replaces wholesale): the stuck task is often one step of an outer plan,
-	// and clobbering that list would erase the outer plan's progress from the panel. Todos()
-	// hands out the live slice, so copy before appending.
+	// Where the recovery units go depends on whether an OUTER delegated plan is in progress. If any
+	// existing step has spawned a child session (a real delegate/refine sub-plan whose progress
+	// renders in the tree), the stuck task is one step of that plan and clobbering the list would
+	// erase its progress — so append the units BELOW. But on the SOLO path (no step has a child; the
+	// existing todos are just this same whole task's own, now-superseded plan the main agent ran
+	// inline) appending would stack a duplicate decomposition of the same task under the original —
+	// so REPLACE wholesale, exactly like a fresh plan, and the panel shows one plan not two. Todos()
+	// hands out the live slice, so copy before reusing.
 	existing := a.Todos(s.ID)
-	base := len(existing)
-	combined := append([]session.Todo(nil), existing...)
+	outerPlan := false
+	for i := range existing {
+		if len(a.PlanChildren(s.ID, i)) > 0 {
+			outerPlan = true
+			break
+		}
+	}
+	var combined []session.Todo
+	base := 0
+	if outerPlan {
+		combined = append([]session.Todo(nil), existing...)
+		base = len(existing)
+	}
 	for _, st := range steps {
 		combined = append(combined, session.Todo{Content: st.Title, Status: "pending"})
 	}
