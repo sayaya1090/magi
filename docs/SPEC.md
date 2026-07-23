@@ -460,6 +460,7 @@ plan-envelope-1:      planner 프롬프트에 예산+깊이+캡 힌트 주입   
 - 권한 집행: 미선언 권한 호출 → 거부.
 - **핫리로드**: 파일 변경 → 해당 플러그인만 언로드/재로드, 세션 상태 무손실.
 - 예시(추후): 플러그인 로드 시 tool 레지스트리 등장 / 미선언 fs 접근 거부 / 파일 수정 후 N초 내 재로드.
+- **멀티 인스턴스 격리**: 한 머신에서 여러 magi를 동시에 띄우면 기본적으로 **하나의** config 트리(`ConfigDir()/config.toml`)와 data 트리(`DataDir()/plugin-data/<name>.json`, 예: SSO 토큰 캐시)를 공유한다. 플러그인이 런타임 선택을 영속하면(`set_model`→`config.SetKey`, `store_set`) 한 인스턴스의 쓰기가 다른 인스턴스 파일에 착지하는 충돌점이다. 두 방어: ①`config.SetKey`/`AppendListItem`은 in-process 뮤텍스에 더해 **크로스-프로세스 O_EXCL 락**(`withFileLock`, Windows 이식성 위해 flock 대신)으로 read-modify-write를 프로세스 간에도 원자화 — 두 인스턴스의 동시 쓰기가 torn-write/lost-update로 config.toml을 깨뜨리지 않음(깨진 config는 TOML 파싱 실패→기동 거부, 즉 조용한 기본값 폴백 없음). ②`MAGI_CONFIG_DIR`/`MAGI_DATA_DIR` 환경변수가 config/data 디렉토리를 인스턴스별로 **완전 분리** → 각자 자기 config.toml·플러그인 토큰 슬롯을 가짐(공유 자체를 없앰).
 
 ## F-MCP (M4)
 - 서버 spawn(stdio) → tools/list 발견 → 레지스트리 등록 → 호출 브리지. 서버 죽으면 툴 제거.
