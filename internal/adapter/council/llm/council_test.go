@@ -182,6 +182,19 @@ func TestPlanMemberPromptSeparatesWorkFromCheck(t *testing.T) {
 	}
 }
 
+// The check-authoring prompt must require an INTEGER step label (so the numeric gate matches
+// instead of falling back to a flattened union) and state that the per-step checks be jointly
+// satisfiable and checklist-driven — the guard against the plexus #224 contradictory checklist.
+func TestPlanMemberPromptScopesChecksToSteps(t *testing.T) {
+	m := council.Member{Name: "x", Lens: "correctness"}
+	p := memberSystem(m, "plan", "compress, extract, analyze, then clean up", false)
+	for _, want := range []string{"INTEGER STEP NUMBER", "JOINTLY", "CHECKLIST-DRIVEN"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("plan check-authoring prompt must scope checks to steps (missing %q)", want)
+		}
+	}
+}
+
 // that closes the reval3 play-zork / run-pdp11 / fasttext class of false approvals.
 func TestMemberPromptRationalizedDone(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "verification"}

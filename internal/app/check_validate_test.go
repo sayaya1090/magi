@@ -49,6 +49,17 @@ func TestValidateChecksPromptForbidsMutatingChecks(t *testing.T) {
 	}
 }
 
+// The validation prompt must keep a cleanup/absence check on its own step rather than merging it
+// with an existence check for the same artifact — the review's half of the step-scoping guard
+// that prevents a jointly-unsatisfiable checklist.
+func TestValidateChecksPromptKeepsStepScoping(t *testing.T) {
+	for _, want := range []string{"scopes the check to its step", "jointly-unsatisfiable"} {
+		if !strings.Contains(validateChecksSystem, want) {
+			t.Errorf("validateChecksSystem must keep checks step-scoped (missing %q)", want)
+		}
+	}
+}
+
 // With the flag on, validateChecks replaces a mutating check with the review's read-only repair:
 // the authored `ssh host 'tar -czf ...'` (which re-compresses the remote tree every gate cycle) must
 // not survive verbatim — the reviewed idempotent probe is used instead.
