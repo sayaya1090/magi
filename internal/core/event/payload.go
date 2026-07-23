@@ -228,6 +228,17 @@ type CouncilDecidedData struct {
 	Criteria []string `json:"criteria,omitempty"`
 }
 
+// StepCheckData — TypeStepCheck (one deterministic deliverable-check execution).
+// It carries the pieces separately so the UI can render a clean glyph line
+// (✓/✗ + step + deliverable) instead of parsing a formatted note.
+type StepCheckData struct {
+	Step        string `json:"step,omitempty"`        // the plan step the check belongs to (its label)
+	Deliverable string `json:"deliverable,omitempty"` // what the check verifies (human phrase)
+	Command     string `json:"command,omitempty"`     // the command that was run
+	Code        int    `json:"code"`                  // its exit code
+	Pass        bool   `json:"pass"`                  // whether it satisfied the check
+}
+
 // CouncilDeliberatingData — TypeCouncilDeliberating (transient, live panel).
 // Only "asking" is currently produced (one per member when a round opens); a
 // panel infers the "voted" state from the persisted council.verdict facts.
