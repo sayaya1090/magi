@@ -790,6 +790,14 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 				// backstop still caps the attempt, so this cannot extend a real runaway.
 				if a.toolInFlight(child.ID) {
 					ext, verdictNote = a.leaseExtension(), "tool in flight (active work, not churn)"
+				} else if subagentProcLeaseEnabled() && a.childProcActive(child.ID) {
+					// Off-tool background work: a bash{background:true} job (a long transfer/build the
+					// model launched and stopped polling) is invisible to toolInFlight and to the
+					// wait-majority check, so the judge would read it as churn and KILL — the #224
+					// remote-download spin. Sample the owned pids' CPU: if a live job is actively
+					// burning CPU, a restart cannot finish it faster, so extend. Idle/wedged jobs
+					// (flat CPU) fall through to the judge; the backstop still caps the attempt.
+					ext, verdictNote = a.leaseExtension(), "background process actively using CPU (not churn)"
 				} else {
 					ext, verdictNote = a.judgeLease(ctx, parent, child, req.Prompt, time.Since(attemptStart))
 				}

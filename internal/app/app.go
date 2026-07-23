@@ -44,6 +44,7 @@ type App struct {
 
 	lastActivity sync.Map // session.SessionID -> time.Time (liveness for the sidecar health check)
 	toolsRunning sync.Map // session.SessionID -> *atomic.Int64 (tools in flight; suppresses the stall watchdog)
+	sessionProcs sync.Map // session.SessionID -> *procSet (live background-job pids; lets the lease judge see off-tool CPU work)
 
 	memMu         sync.Mutex
 	memCache      map[string]string       // workdir -> durable AGENTS.md memory

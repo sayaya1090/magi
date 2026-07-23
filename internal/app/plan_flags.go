@@ -152,6 +152,17 @@ func councilKeepEnabled() bool { return !envOff("MAGI_COUNCIL_KEEP") }
 // MAGI_SUBAGENT_WAIT_LEASE=0 restores the judge-everything baseline for A/B.
 func subagentWaitLeaseEnabled() bool { return !envOff("MAGI_SUBAGENT_WAIT_LEASE") }
 
+// subagentProcLeaseEnabled makes the subagent lease judge extend when the child owns a
+// magi-managed background process (a bash{background:true} job) that is ACTIVELY using CPU at
+// lease expiry. Foreground work is already covered by toolInFlight, but an off-tool background
+// transfer/build (a long scp/tar/make the model launched as a job and stopped polling) emits no
+// events and is not a poll verb, so the judge misreads it as churn and KILLs it every lease —
+// the plexus #224 remote-download spin. Sampling real CPU (not the command name) is robust to a
+// worker wrapping its work in a self-written script. Idle/wedged processes (CPU ~flat) do NOT
+// extend, and the backstop still caps the attempt. Default ON; MAGI_SUBAGENT_PROC_LEASE=0
+// restores the judge-everything baseline for A/B.
+func subagentProcLeaseEnabled() bool { return !envOff("MAGI_SUBAGENT_PROC_LEASE") }
+
 // turnProgressCheckEnabled adds a STEP-based no-deliverable-progress check to the top-level
 // turn. The stall/loop guards count TOOL CALLS since the last mutation, so they miss a reasoning
 // loop: an agent that streams thinking for hours issuing few/no tool calls and producing nothing

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
@@ -156,6 +157,9 @@ func (p *scriptPlatform) Exec(ctx context.Context, c port.Cmd) (port.ExecResult,
 func (p *scriptPlatform) ConfigDir() string           { return "" }
 func (p *scriptPlatform) DataDir() string             { return "" }
 func (p *scriptPlatform) TerminalCaps() port.TermCaps { return port.TermCaps{} }
+func (p *scriptPlatform) ProcessCPUTime(int) (time.Duration, bool) {
+	return 0, false
+}
 
 // The verify gate loops implement→verify until the verification command passes,
 // bounded by WorkflowMaxLoops.

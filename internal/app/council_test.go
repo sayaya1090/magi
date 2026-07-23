@@ -496,9 +496,10 @@ func (verifyFailPlatform) Exec(ctx context.Context, c port.Cmd) (port.ExecResult
 	}
 	return port.ExecResult{Stdout: []byte("--- FAIL: TestX"), ExitCode: 1}, nil
 }
-func (verifyFailPlatform) ConfigDir() string           { return "" }
-func (verifyFailPlatform) DataDir() string             { return "" }
-func (verifyFailPlatform) TerminalCaps() port.TermCaps { return port.TermCaps{} }
+func (verifyFailPlatform) ConfigDir() string                        { return "" }
+func (verifyFailPlatform) DataDir() string                          { return "" }
+func (verifyFailPlatform) TerminalCaps() port.TermCaps              { return port.TermCaps{} }
+func (verifyFailPlatform) ProcessCPUTime(int) (time.Duration, bool) { return 0, false }
 
 // With a "verify" signal configured, the gate runs it and feeds the outcome to
 // the council; the convened event surfaces a summary (D16, opt-in).

@@ -232,6 +232,13 @@ type ToolEnv struct {
 	// gap. Transient and droppable; always set by the application, but a tool
 	// should still nil-check it (a bare ToolEnv has no observer).
 	EmitProgress func(text string)
+	// TrackProc reports a magi-managed background OS process's lifecycle to the
+	// orchestrator: running=true when a bash{background:true} job starts, false when
+	// it exits. It lets the subagent-lease judge see a live worker process even when
+	// no tool is in flight (off-tool background work), so a long transfer/build is
+	// extended rather than killed as churn. nil when the host doesn't track (the
+	// interject aside path has no execution tools); a tool must nil-check it.
+	TrackProc func(pid int, running bool)
 	// Spawn runs a subagent and returns its final output. It is set by the
 	// application for the task tool; nil when subagents are unavailable. The
 	// application enforces bounded recursion (D7). (F-AGENT-MULTI)
@@ -516,6 +523,12 @@ type Platform interface {
 	ConfigDir() string
 	DataDir() string
 	TerminalCaps() TermCaps
+	// ProcessCPUTime returns the process's cumulative CPU time (user+system) and
+	// whether it is alive. The subagent-lease supervisor samples it across a short
+	// window to tell an actively-working background process (CPU advancing) from a
+	// wedged or idle one, so a genuine long transfer/build is extended instead of
+	// killed as churn. Best-effort: an unreadable or dead pid returns (0, false).
+	ProcessCPUTime(pid int) (time.Duration, bool)
 }
 
 // Cmd is a command to execute.
