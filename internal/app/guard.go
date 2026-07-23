@@ -103,12 +103,19 @@ type runGuard struct {
 	// so retractProgress can restore the climb when a later content check reveals that "mutation"
 	// was a self-revert (churn, not forward progress) — otherwise an implement↔revert oscillation
 	// resets the counter each swing and never trips the stall force-stop.
-	prevSince     int
-	prevStallAt   int
-	calls         int  // total tool calls this run (idle-resubmission detection)
-	nudgedBlocked bool // "blocked"-kind re-grounding fired (once; stuck() force-stops if it persists)
-	stallNudges   int  // count of "stalled"-kind re-groundings fired this run (capped at maxStallNudges)
-	lastStallAt   int  // sinceProgress value at the last stalled nudge, for spacing the re-arm
+	prevSince   int
+	prevStallAt int
+	// prevStepsSinceMut snapshots stepsSinceMut just before mutated() zeroes it, so retractProgress
+	// can ALSO restore the STEP-based idle window on a self-revert. Without this, an oscillating
+	// edit loop (rewrite→prior-state→rewrite) refills the step-based "idle" trigger on every swing
+	// even though retractProgress restored the tool-call counter — so a reasoning-heavy churn (few
+	// tool calls, mostly analysis + oscillating rewrites) dodges BOTH stall paths and burns to the
+	// external wall clock (custom-memory-heap-crash: 125+ steps rewriting the same stub to timeout).
+	prevStepsSinceMut int
+	calls             int  // total tool calls this run (idle-resubmission detection)
+	nudgedBlocked     bool // "blocked"-kind re-grounding fired (once; stuck() force-stops if it persists)
+	stallNudges       int  // count of "stalled"-kind re-groundings fired this run (capped at maxStallNudges)
+	lastStallAt       int  // sinceProgress value at the last stalled nudge, for spacing the re-arm
 	// stallConverge enables the D18a re-arm collapse (set by the loop from MAGI_STALL_CONVERGE;
 	// zero value = off, so a test opts in explicitly). progressSinceNudge is the structural
 	// "the agent made forward motion since the last stalled nudge" signal: set true by EITHER a
@@ -423,13 +430,14 @@ func (g *runGuard) mutated(path, sig string) (reset bool) {
 	g.epoch++
 	g.prevSince = g.sinceProgress // snapshot for a possible retraction (see prevSince)
 	g.prevStallAt = g.lastStallAt
-	g.sinceProgress = 0         // a real change is progress → restart the no-progress count
-	g.lastStallAt = 0           // …and the stall-nudge window, so a fresh stall re-arms cleanly
-	g.execSinceMut = 0          // a new deliverable version is unverified until something exercises IT
-	g.waitSinceMut = 0          // a real change is progress → the environment-wait ratio restarts too
-	g.stepsSinceMut = 0         // a real deliverable version resets the step-based rabbit-hole counter
-	g.idleNudged = false        // …and re-arms its one-shot "act now" nudge
-	g.progressSinceNudge = true // a real mutation IS forward motion → protects the re-arm from collapse
+	g.prevStepsSinceMut = g.stepsSinceMut // …and the step-based window, so a self-revert can restore it too
+	g.sinceProgress = 0                   // a real change is progress → restart the no-progress count
+	g.lastStallAt = 0                     // …and the stall-nudge window, so a fresh stall re-arms cleanly
+	g.execSinceMut = 0                    // a new deliverable version is unverified until something exercises IT
+	g.waitSinceMut = 0                    // a real change is progress → the environment-wait ratio restarts too
+	g.stepsSinceMut = 0                   // a real deliverable version resets the step-based rabbit-hole counter
+	g.idleNudged = false                  // …and re-arms its one-shot "act now" nudge
+	g.progressSinceNudge = true           // a real mutation IS forward motion → protects the re-arm from collapse
 	return true
 }
 
@@ -444,6 +452,11 @@ func (g *runGuard) retractProgress() {
 	defer g.mu.Unlock()
 	g.sinceProgress = g.prevSince
 	g.lastStallAt = g.prevStallAt
+	// Restore the step-based idle window too: a self-revert is not a fresh deliverable version, so
+	// the "reasoning rabbit hole" counter (stepsSinceMut, drives stuck()=="idle") must keep climbing
+	// across an oscillating rewrite loop instead of being zeroed on every swing — otherwise a
+	// reasoning-heavy churn never trips the idle recovery and runs to the wall-clock kill.
+	g.stepsSinceMut = g.prevStepsSinceMut
 	// The mutation being retracted was a self-revert (churn), not forward motion, so it must
 	// NOT keep the D18a re-arm from collapsing. mutated() set progressSinceNudge=true; clear it
 	// here so an implement↔revert oscillation — whose every swing re-sets that flag — no longer
