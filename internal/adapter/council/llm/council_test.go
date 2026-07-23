@@ -195,6 +195,31 @@ func TestPlanMemberPromptScopesChecksToSteps(t *testing.T) {
 	}
 }
 
+// The check-authoring prompt must forbid over-demand: a check may assert only what the task states,
+// never a version/build-id/incidental the task did not pin. Over-specification false-fails correct
+// work and never converges — the mirror of the too-weak file-existence trap.
+func TestPlanMemberPromptForbidsOverDemand(t *testing.T) {
+	m := council.Member{Name: "x", Lens: "correctness"}
+	p := memberSystem(m, "plan", "install a dependency and run a server", false)
+	for _, want := range []string{"do NOT demand MORE than the task states", "over-specification", "minimal condition"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("plan check-authoring prompt must forbid over-demand (missing %q)", want)
+		}
+	}
+}
+
+// Guard against benchmark overfitting: the check-authoring prompt's examples must be task-agnostic —
+// no eval-set task's exact command, filename, or value may be baked into a prompt the model sees.
+func TestPlanMemberPromptNoEvalSetSpecifics(t *testing.T) {
+	m := council.Member{Name: "x", Lens: "correctness"}
+	p := memberSystem(m, "plan", "build the thing", false)
+	for _, banned := range []string{"pmars", "flashpaper", "rave.red", "extract-elf", "extract.js", "a.out", "grpcio", "kv-store"} {
+		if strings.Contains(p, banned) {
+			t.Errorf("check-authoring prompt leaks eval-set-specific token %q — use a task-agnostic example", banned)
+		}
+	}
+}
+
 // that closes the reval3 play-zork / run-pdp11 / fasttext class of false approvals.
 func TestMemberPromptRationalizedDone(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "verification"}

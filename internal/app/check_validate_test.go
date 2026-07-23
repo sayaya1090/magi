@@ -72,13 +72,42 @@ func TestValidateChecksPromptForbidsAbsoluteToolPaths(t *testing.T) {
 }
 
 // The validation prompt must require a check that greps a generated file to use the name the tool
-// actually emits: `grpc_tools` sanitizes `kv-store.proto` to the UNDERSCORED `kv_store_pb2.py`, so a
-// check demanding the hyphenated form fights the toolchain in an unwinnable rename loop. Guards the
-// TOOL-DERIVED NAMES clause against the kv-store-grpc regression.
+// actually emits: `grpc_tools` sanitizes a hyphenated `.proto` to an UNDERSCORED module, so a check
+// demanding the hyphenated form fights the toolchain in an unwinnable rename loop. Guards the
+// TOOL-DERIVED NAMES clause with a task-agnostic example (no eval-set filename).
 func TestValidateChecksPromptRespectsToolDerivedNames(t *testing.T) {
-	for _, want := range []string{"TOOL-DERIVED NAMES", "kv_store_pb2.py", "UNDERSCORED"} {
+	for _, want := range []string{"TOOL-DERIVED NAMES", "data_feed_pb2.py", "UNDERSCORED"} {
 		if !strings.Contains(validateChecksSystem, want) {
 			t.Errorf("validateChecksSystem must respect tool-derived filenames (missing %q)", want)
+		}
+	}
+}
+
+// The validation prompt must forbid over-demand: a check may assert only what the task itself states,
+// never a version/build-id/incidental the task did not pin — over-specification false-fails a correct
+// deliverable and can never converge on an environment that differs in that incidental.
+func TestValidateChecksPromptForbidsOverDemand(t *testing.T) {
+	for _, want := range []string{"NECESSITY", "over-demand", "minimal condition"} {
+		if !strings.Contains(validateChecksSystem, want) {
+			t.Errorf("validateChecksSystem must forbid over-demand (missing %q)", want)
+		}
+	}
+}
+
+// Guard against benchmark overfitting: prompt examples must be task-agnostic. No eval-set task's exact
+// identifiers (a pinned dependency version, a specific task filename) may be baked into a prompt the
+// model sees — an example lifted verbatim from the test set tunes the prompt to the benchmark.
+func TestPromptsCarryNoEvalSetSpecifics(t *testing.T) {
+	banned := []string{"grpcio", "1.73", "kv-store", "kv_store", "pmars", "flashpaper", "rave.red", "extract-elf", "extract.js"}
+	for _, p := range []struct {
+		name, text string
+	}{
+		{"validateChecksSystem", validateChecksSystem},
+	} {
+		for _, b := range banned {
+			if strings.Contains(p.text, b) {
+				t.Errorf("%s leaks eval-set-specific token %q — use a task-agnostic example", p.name, b)
+			}
 		}
 	}
 }
