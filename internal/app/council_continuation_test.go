@@ -38,6 +38,28 @@ func TestContinuationTextReanchorsObjectiveAndAudits(t *testing.T) {
 	}
 }
 
+// The CONTINUE injection must offer the removal-only rebuttal: the agent may CONTEST a
+// demand that is already met or impossible-as-stated instead of churning, but the
+// affordance must state the evidence bar and that a contest is not itself a done claim
+// (so it never reopens false-done — the council still decides done).
+func TestContinuationTextOffersContest(t *testing.T) {
+	got := continuationText("confirm exactly one server process via ps", "run a server on port 5328", "")
+
+	if !strings.Contains(got, "CONTEST:") {
+		t.Errorf("continuation must offer the CONTEST affordance; got:\n%s", got)
+	}
+	// Removal-only + evidence bar + not-a-done-claim guards must all be present.
+	if !strings.Contains(got, "impossible exactly as stated") {
+		t.Error("contest affordance must cover the impossible-as-stated case (absent tool)")
+	}
+	if !strings.Contains(got, "is NOT a claim of done") {
+		t.Error("contest affordance must state it does not finish the task (false-done guard)")
+	}
+	if !strings.Contains(got, "is ignored") {
+		t.Error("contest affordance must state the evidence bar (no-evidence contest is ignored)")
+	}
+}
+
 // An empty objective must not emit an empty "Original objective:" stub — the re-anchor
 // block is skipped entirely, but the audit still rides.
 func TestContinuationTextSkipsEmptyObjective(t *testing.T) {

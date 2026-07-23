@@ -255,6 +255,35 @@ func TestMemberPromptObjectiveNotMethod(t *testing.T) {
 	}
 }
 
+// When the report contests a prior demand, the member must adjudicate the cited evidence:
+// if it shows the requirement met or the method impossible-as-stated, drop the demand (do
+// not reissue); but a contest only removes that one point and is never itself proof of done,
+// and a contest with no concrete evidence is disregarded (false-done guard).
+func TestMemberPromptContestAdjudication(t *testing.T) {
+	m := council.Member{Name: "x", Lens: "correctness"}
+	s := memberSystem(m, "terminate", "run a server on port 5328", false)
+
+	if !strings.Contains(s, "CONTEST") {
+		t.Error("terminate prompt must instruct the member how to judge a CONTEST")
+	}
+	// Valid contest -> do not reissue the demand.
+	if !strings.Contains(s, "do NOT reissue it") {
+		t.Error("a valid contest must stop the member from reissuing the demand")
+	}
+	// Removal-only: never itself proof of done.
+	if !strings.Contains(s, "NEVER "+"itself evidence the whole task is done") {
+		t.Error("contest must be removal-only, never itself proof of done")
+	}
+	// Evidence bar: a no-evidence contest is disregarded (keeps the false-done guard).
+	if !strings.Contains(s, "disregard it and keep the demand") {
+		t.Error("a contest with no concrete evidence must be disregarded")
+	}
+	// Plan phase judges a procedure with no report — the terminate-only clause must not leak.
+	if p := memberSystem(m, "plan", "run a server", false); strings.Contains(p, "do NOT reissue it") {
+		t.Error("contest-adjudication clause leaked into the plan-audit prompt")
+	}
+}
+
 func TestMemberPromptArtifactGrounding(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "completeness"}
 	s := memberSystem(m, "terminate", "build a CLI tool", false)
