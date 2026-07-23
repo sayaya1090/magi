@@ -201,7 +201,15 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth, 
 	steps := guardExpansion(sanitizeSteps(plan), depth, a.cfg.MaxPlanDepth)
 	if len(steps) == 0 {
 		a.emitPhase(s.ID, "plan", "solo", strings.TrimSpace(plan.Reason)) // ran, judged single-area
-		return false, false                                               // solo — the default, cheap path
+		// Solo bypasses the plan audit entirely, so it authors NO deliverable checks and the
+		// termination gate has no executed-check ledger to judge on — the main's "done" faces only
+		// the council's plausibility vote. Author one check for the objective (a single synthetic
+		// step) so solo work still lands a verifiable contract. Coverage-gated + best-effort; council
+		// or workflow presence is not required (the step gate runs independently).
+		if !a.cfg.Workflow {
+			a.storeCoveredChecks(ctx, s, prompt, []planStep{{Title: prompt, Strategy: "solo"}}, nil)
+		}
+		return false, false // solo — the default, cheap path
 	}
 
 	// Plan audit (D17): a multi-step procedure is reviewed by the council BEFORE it

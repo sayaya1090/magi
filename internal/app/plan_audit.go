@@ -109,8 +109,8 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		advice := strings.TrimSpace(council.AdvisoryFeedback(delib.Verdicts))
 
 		if !critical { // approve, possibly carrying non-blocking advice
-			a.storePlanCriteria(ctx, s, delib.Criteria) // the contract for the termination gate
-			a.storePlanChecks(ctx, s, delib.Checks)     // …plus the executable per-step deliverable checks
+			a.storePlanCriteria(ctx, s, delib.Criteria)               // the contract for the termination gate
+			a.storeCoveredChecks(ctx, s, prompt, steps, delib.Checks) // …plus per-step deliverable checks, coverage-filled
 			note := ""
 			if advice != "" {
 				a.injectCouncilAdvice(ctx, s.ID, advice, true) // accepted: the executor heeds it
@@ -133,7 +133,7 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		fb := strings.TrimSpace(council.CriticalFeedback(delib.Verdicts))
 		if round >= maxRounds || fb == "" {
 			a.storePlanCriteria(ctx, s, delib.Criteria) // proceeding with this plan → keep its criteria
-			a.storePlanChecks(ctx, s, delib.Checks)
+			a.storeCoveredChecks(ctx, s, prompt, steps, delib.Checks)
 			// Proceeding PAST an unresolved critical: hand the executor that critical
 			// concern (plus any advice) so it can still try to address it — don't bury it
 			// in a note only.
@@ -173,7 +173,7 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 			// Re-plan failed → proceed with the prior plan, but say so (don't silently
 			// run a plan the council just rejected). Keep this round's criteria.
 			a.storePlanCriteria(ctx, s, delib.Criteria)
-			a.storePlanChecks(ctx, s, delib.Checks)
+			a.storeCoveredChecks(ctx, s, prompt, steps, delib.Checks)
 			dd2, _ := json.Marshal(event.CouncilDecidedData{
 				Round: round, Phase: "plan", Decision: string(council.Done), Tally: delib.Breakdown,
 				Note: "re-plan failed — proceeding with the prior plan", Criteria: delib.Criteria, Forced: true,
@@ -214,7 +214,7 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 			// Unproductive re-plan → stop early. Proceed with the revised plan but hand the
 			// executor the unaddressed concern (execution + landing gates arbitrate).
 			a.storePlanCriteria(ctx, s, delib.Criteria)
-			a.storePlanChecks(ctx, s, delib.Checks)
+			a.storeCoveredChecks(ctx, s, prompt, next, delib.Checks)
 			a.injectCouncilAdvice(ctx, s.ID, fb, false)
 			dd3, _ := json.Marshal(event.CouncilDecidedData{
 				Round: round, Phase: "plan", Decision: string(council.Done), Tally: delib.Breakdown,
