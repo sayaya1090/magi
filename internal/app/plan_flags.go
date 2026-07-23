@@ -57,6 +57,32 @@ func checkChurnCap() int {
 
 func checkChurnLandEnabled() bool { return checkChurnCap() > 0 }
 
+// defaultExerciseChurnCap is how many times the SAME build/test the agent itself runs may FAIL
+// across distinct edits — without that command ever passing — before a solo run lands gracefully
+// UNVERIFIED with work standing (see runGuard.exerciseFail / handleStuckGuard). More generous than
+// the check-churn cap: this is the agent's own iterative debugging, so a legitimately hard fix that
+// takes several edit→test cycles must not be cut — only a genuinely non-converging command (still
+// the same failure many edits later, never a pass) reaches it. Keyed per command, so a passing
+// sibling resets nothing here — the failing command must itself keep failing.
+const defaultExerciseChurnCap = 6
+
+// exerciseChurnCap returns the effective cap. MAGI_EXERCISE_CHURN_CAP overrides it: a positive
+// integer sets the cap, "0" (or a non-positive/garbage value) disables the landing entirely, and
+// unset uses the default. exerciseChurnLandEnabled reports whether the landing is active.
+func exerciseChurnCap() int {
+	v := strings.TrimSpace(os.Getenv("MAGI_EXERCISE_CHURN_CAP"))
+	if v == "" {
+		return defaultExerciseChurnCap
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
+}
+
+func exerciseChurnLandEnabled() bool { return exerciseChurnCap() > 0 }
+
 // refineDisabled is a bench A/B knob (mirrors MAGI_MAX_PLAN_DEPTH): MAGI_REFINE=0 downgrades
 // refine steps to solo, reproducing the pre-refine baseline (every sub-goal flattened inline)
 // so a paired refine-ON/OFF comparison can run on the same task. Default on.

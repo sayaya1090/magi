@@ -193,6 +193,25 @@ type runGuard struct {
 	// the count (that head-banging is the existing stall path's job — see stuck()/sinceProgress).
 	checkFailChurn int
 	checkFailEpoch int
+
+	// exerciseFail is the OBSERVED sibling of checkFailChurn: keyed by a normalized exercising
+	// command (a build/test the agent itself ran), it counts how many times that SAME command has
+	// FAILED across distinct edits without ever passing — "the same build/test, N edits later, still
+	// the same failure". checkFailChurn only fires at a finish ATTEMPT the agent makes; a solo run
+	// that churns novel edits and never declares done never reaches it, so it burns to the external
+	// wall-clock kill (custom-memory-heap-crash: 3/3 AgentTimeout, self-revert 0, idle 0 — every
+	// novel edit resets the stall/idle windows and no finish is ever attempted). This counter needs
+	// no finish and no extra execution: it reads the agent's OWN bash results. Keyed by COMMAND (not
+	// deliverable state) on purpose — a passing sibling (a debug build that runs clean) must not reset
+	// a failing one (the release build that crashes). A command's PASS clears its entry (converged); a
+	// FAIL bumps its count only when the mutation epoch advanced since that command's last counted fail
+	// (a pure repeat with no new edit is the stall path's job). When any command's count crosses
+	// exerciseChurnCap the solo run lands UNVERIFIED with work standing (handleStuckGuard) instead of
+	// churning to the wall clock. exerciseFailEpoch is the epoch at each command's last counted fail.
+	// Limitation (bench-tunable, errs toward NOT landing): trivial arg variance (`tail -3` vs `tail -5`)
+	// splits the key, so recurrence is only counted for byte-identical-modulo-whitespace commands.
+	exerciseFail      map[string]int
+	exerciseFailEpoch map[string]int
 }
 
 // fileChange is one file's before/after content captured around an agent edit this turn.
@@ -210,6 +229,7 @@ func newRunGuard() *runGuard {
 		recalled:      map[string]bool{}, contentHist: map[string][]uint64{},
 		regressWarned: map[string]bool{},
 		failedStates:  map[uint64]string{}, tabuWarned: map[uint64]bool{},
+		exerciseFail: map[string]int{}, exerciseFailEpoch: map[string]int{},
 	}
 }
 
@@ -815,6 +835,62 @@ func (g *runGuard) resetCheckChurn() {
 	g.checkFailChurn = 0
 	g.checkFailEpoch = g.epoch
 	g.mu.Unlock()
+}
+
+// noteExerciseResult records the outcome of one exercising bash command (a test/program run — not
+// an inspect-only builtin) the agent ran against the current deliverable, and returns the running
+// cross-edit fail count for THAT command. A PASS clears the command's count (it converged); a FAIL
+// bumps it only when a new edit (mutation epoch) has landed since the command's last counted fail,
+// so head-banging the SAME command with no intervening edit does not inflate it (that is the stall
+// path's job). Inspect-only commands and pre-deliverable calls (epoch 0) are ignored. This is the
+// observed, finish-independent counterpart of noteCheckFail: it needs no finish attempt and runs no
+// extra command — it only reads what the agent already executed.
+func (g *runGuard) noteExerciseResult(cmd string, failed bool) int {
+	if isInspectOnly(cmd) {
+		return 0
+	}
+	key := normalizeExerciseCmd(cmd)
+	if key == "" {
+		return 0
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !failed {
+		delete(g.exerciseFail, key)
+		delete(g.exerciseFailEpoch, key)
+		return 0
+	}
+	if g.epoch == 0 {
+		return 0 // no deliverable authored yet — a failure is not deliverable churn
+	}
+	if g.epoch > g.exerciseFailEpoch[key] {
+		g.exerciseFail[key]++
+		g.exerciseFailEpoch[key] = g.epoch
+	}
+	return g.exerciseFail[key]
+}
+
+// exerciseChurnMax returns the highest cross-edit fail count over all exercising commands — the
+// signal that some build/test the agent runs has stayed failing across that many edits without ever
+// passing. handleStuckGuard lands the run UNVERIFIED once it crosses exerciseChurnCap.
+func (g *runGuard) exerciseChurnMax() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	max := 0
+	for _, n := range g.exerciseFail {
+		if n > max {
+			max = n
+		}
+	}
+	return max
+}
+
+// normalizeExerciseCmd collapses whitespace runs to single spaces and trims, so a command counts as
+// "the same" across edits when it is byte-identical modulo spacing. Deliberately conservative — it
+// does NOT strip volatile flags (a display filter like `| tail -5` splits the key from `| tail -3`),
+// which errs toward NOT landing (a split key climbs slower), the safe direction for a force-stop.
+func normalizeExerciseCmd(cmd string) string {
+	return strings.Join(strings.Fields(cmd), " ")
 }
 
 // mutationEpoch returns the current mutation epoch — the number of real file mutations
