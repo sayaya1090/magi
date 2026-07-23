@@ -208,6 +208,20 @@ func TestPlanMemberPromptForbidsOverDemand(t *testing.T) {
 	}
 }
 
+// The sufficiency floor: the check-authoring prompt must reject proxy-only checks. Reaching the artifact
+// (exists, port accepts a connection, module imports, build succeeds, process alive) is a precondition a
+// non-functional stub also passes; the prompt must demand the check invoke the stated behavior and assert
+// the result, choosing the weakest input that forces the real code path.
+func TestPlanMemberPromptDemandsContractExercise(t *testing.T) {
+	m := council.Member{Name: "x", Lens: "correctness"}
+	p := memberSystem(m, "plan", "install a dependency and run a server", false)
+	for _, want := range []string{"PRECONDITION, not proof", "non-functional stub", "weakest input", "real code path"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("plan check-authoring prompt must reject proxy-only (too-weak) checks (missing %q)", want)
+		}
+	}
+}
+
 // Guard against benchmark overfitting: the check-authoring prompt's examples must be task-agnostic —
 // no eval-set task's exact command, filename, or value may be baked into a prompt the model sees.
 func TestPlanMemberPromptNoEvalSetSpecifics(t *testing.T) {

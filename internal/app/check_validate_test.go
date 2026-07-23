@@ -94,6 +94,18 @@ func TestValidateChecksPromptForbidsOverDemand(t *testing.T) {
 	}
 }
 
+// The sufficiency floor (opposite of over-demand): a check that only confirms the deliverable can be
+// reached — file exists, port accepts a connection, module imports, build succeeds — is a precondition,
+// not proof, and a non-functional stub passes it. The prompt must demand the check invoke the stated
+// behavior and assert the result, using the weakest input that forces the real code path.
+func TestValidateChecksPromptDemandsContractExercise(t *testing.T) {
+	for _, want := range []string{"precondition", "non-functional stub", "weakest input", "real code path"} {
+		if !strings.Contains(validateChecksSystem, want) {
+			t.Errorf("validateChecksSystem must forbid proxy-only (too-weak) checks (missing %q)", want)
+		}
+	}
+}
+
 // Guard against benchmark overfitting: prompt examples must be task-agnostic. No eval-set task's exact
 // identifiers (a pinned dependency version, a specific task filename) may be baked into a prompt the
 // model sees — an example lifted verbatim from the test set tunes the prompt to the benchmark.
