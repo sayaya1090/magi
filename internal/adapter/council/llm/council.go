@@ -603,7 +603,15 @@ func memberSystem(m council.Member, phase, task string, keep bool) string {
 			"something, a service that must respond, a command that must produce a required output, a build that must "+
 			"compile — \"done\" requires that the turn actually RAN that check and its REAL output is visible in the "+
 			"SIGNALS, tool results, or report. An artifact that was produced but never exercised is unverified: vote "+
-			"continue and name the exact check to run. Unanimous confidence is not a substitute for one real run.\n"+
+			"continue and name the OBJECTIVE still to be shown true — WHAT must hold — and leave HOW to the agent. Do "+
+			"NOT prescribe a specific inspection command (ps/netstat/lsof/curl/pgrep): the tool may be absent in this "+
+			"environment, and then a met objective reads as forever-unmet. If the turn ALREADY shows the behavior "+
+			"working end-to-end — a functional exercise that succeeded, e.g. a client call that got the correct "+
+			"response, a build that ran, a query that returned the required row — that IS the run: accept it as "+
+			"satisfying the must-respond/must-run bar. Demanding an additional process listing or port scan on top of a "+
+			"passing end-to-end exercise is exactly the ritual churn to avoid; a working round-trip is STRONGER evidence "+
+			"than a process listing. (This does not relax a literal contract the TASK itself stated — that still owes "+
+			"the exact command and value above.) Unanimous confidence is not a substitute for one real run.\n"+
 			"Correctness also covers PREMISES the deliverable rests on. When its correctness depends on an EXTERNAL "+
 			"FACT the agent could not confirm — a `self-check/unverified-premise` signal is present (a knowledge lookup "+
 			"failed and was never recovered), or the report shows a key value was assumed, recalled, or inferred rather "+
