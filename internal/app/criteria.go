@@ -153,11 +153,16 @@ const validateChecksSystem = "You review the executable deliverable `checks` a p
 	"`expect` is present, the command's output must MATCH that regular expression (no `expect` = exit-code-only). " +
 	"Return ONLY a JSON array of the checks, REPAIRED where flawed and DROPPING any that cannot be made valid. Apply:\n" +
 	"- SELF-CONSISTENCY (most important): the command's output must be ABLE to match its `expect`. A transform that " +
-	"reshapes the output away from `expect` is a bug that false-fails forever — e.g. `sort -u` collapses duplicate " +
-	"lines, so `pip show grpcio grpcio-tools | grep '^Version:' | sort -u | awk '{print $2}'` yields ONE version, " +
-	"but an expect of `^1\\.73\\.0 1\\.73\\.0$` (two) can NEVER match. FIX by removing the offending transform, or " +
-	"BETTER convert to an EXIT-CODE check (drop `expect`): chain the conditions with `&&` and `grep -q` (e.g. " +
-	"`pip show grpcio 2>/dev/null | grep -q '^Version: 1.73.0' && pip show grpcio-tools 2>/dev/null | grep -q '^Version: 1.73.0'`).\n" +
+	"reshapes the output away from `expect` is a bug that false-fails forever — e.g. a pipeline ending in `sort -u` " +
+	"collapses two identical lines into ONE, so an `expect` written for TWO can NEVER match; a `head -1` keeps only the " +
+	"first line while `expect` names a later one. FIX by removing the offending transform, or BETTER convert to an " +
+	"EXIT-CODE check (drop `expect`): assert each condition directly by chaining `&&` with `grep -q`.\n" +
+	"- NECESSITY (no over-demand): assert ONLY what the task's own contract requires. NEVER pin a value the task did " +
+	"not itself state — a specific version, build id, exact path, timestamp, or incidental attribute — and never " +
+	"demand more than the stated outcome. Over-specification false-fails a CORRECT deliverable and can never converge " +
+	"on an environment that differs in that incidental. Narrow each check to the minimal condition that proves the " +
+	"objective: for an installed dependency assert it is importable/usable, not an exact version, UNLESS the task pins " +
+	"one; drop or loosen any pinned specific the task did not require.\n" +
 	"- PORTABLE: the command may use ONLY tools guaranteed present (coreutils, grep/test, python3, the task's own " +
 	"toolchain). Replace `ss`/`netstat`/`lsof` with a dependency-free python socket connect. Invoke a tool by its " +
 	"BARE name so PATH resolves it (`pip3`, or `python3 -m pip`); NEVER hardcode an absolute install path like " +
@@ -166,7 +171,7 @@ const validateChecksSystem = "You review the executable deliverable `checks` a p
 	"from a tool the PATH already resolves.\n" +
 	"- TOOL-DERIVED NAMES: when a check greps for or stats a file a code generator EMITS, use the name the tool " +
 	"ACTUALLY produces, not the request's raw spelling. `protoc`/`grpc_tools` sanitize a hyphenated `.proto` into an " +
-	"UNDERSCORED module — `kv-store.proto` yields `kv_store_pb2.py`, never `kv-store_pb2.py` — so a check demanding " +
+	"UNDERSCORED module — a `data-feed.proto` yields `data_feed_pb2.py`, never `data-feed_pb2.py` — so a check demanding " +
 	"the hyphenated form can NEVER pass and fights the toolchain (the agent renames to satisfy the grep, which breaks " +
 	"the import, then renames back: an unwinnable loop). Rewrite the check to the generator's real output name.\n" +
 	"- EXERCISES the deliverable: a bare file-existence/size check for something that must BEHAVE or produce a " +
