@@ -137,15 +137,43 @@ func (a *App) runStepGate(ctx context.Context, s session.Session, ts *turnState)
 	return gateFailRetry, ledger.String()
 }
 
-// emitStepCheck records one check's deterministic result as a reviewable fact, so the
-// contract's execution is observable (parity with the plan-audit criteria artifact).
+// emitStepCheck records one check's deterministic result as its own reviewable fact, so the
+// contract's execution is observable (parity with the plan-audit criteria artifact). It is a
+// TypeStepCheck, NOT a council decision: a single check has no round or tally, and rendering it
+// as a council-round outcome ("round 0: finished (no consensus) — 0 done / 0 continue") was
+// misleading. The UI renders it as a clean ✓/✗ line from the structured fields.
 func (a *App) emitStepCheck(ctx context.Context, sid session.SessionID, c council.DeliverableCheck, code int, pass bool) {
-	dd, _ := json.Marshal(event.CouncilDecidedData{
-		Decision: boolDecision(pass),
-		Note:     fmt.Sprintf("check [%s] %q: %s (exit %d)", c.Step, c.Deliverable, c.Command, code),
-		Forced:   true,
+	a.recordCheckResult(sid, c, pass)
+	dd, _ := json.Marshal(event.StepCheckData{
+		Step:        strings.TrimSpace(c.Step),
+		Deliverable: strings.TrimSpace(c.Deliverable),
+		Command:     strings.TrimSpace(c.Command),
+		Code:        code,
+		Pass:        pass,
 	})
-	a.appendFact(ctx, sid, event.TypeCouncilDecided, event.Actor{Kind: event.ActorSystem, ID: "council"}, dd)
+	a.appendFact(ctx, sid, event.TypeStepCheck, event.Actor{Kind: event.ActorSystem, ID: "council"}, dd)
+}
+
+// checkKey identifies a deliverable check by its step label + command, stable across the run
+// (the same check runs the same command each gate cycle). Keys the per-check pass state.
+func checkKey(c council.DeliverableCheck) string {
+	return strings.TrimSpace(c.Step) + "\x00" + strings.TrimSpace(c.Command)
+}
+
+// recordCheckResult stores one check's latest verify result so the plan panel can render a
+// green ✓ for a passing check (and revert it if a later run fails). Turn-scoped: cleared with
+// deliverableChecks in resetForNewTopLevel.
+func (a *App) recordCheckResult(sid session.SessionID, c council.DeliverableCheck, pass bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st, ok := a.stateIf(sid)
+	if !ok {
+		return
+	}
+	if st.passedChecks == nil {
+		st.passedChecks = map[string]bool{}
+	}
+	st.passedChecks[checkKey(c)] = pass
 }
 
 // checkOffPassedSteps marks the todo of each fully-passing plan step completed. It maps
@@ -291,11 +319,4 @@ func (a *App) frozenContractClause(checks []council.DeliverableCheck) string {
 		}
 	}
 	return b.String()
-}
-
-func boolDecision(pass bool) string {
-	if pass {
-		return string(council.Done)
-	}
-	return string(council.Continue)
 }

@@ -134,6 +134,55 @@ func (a *App) CouncilContract(sid session.SessionID) (string, []council.Delivera
 	return a.cachedCriteria(sid), a.cachedChecks(sid)
 }
 
+// CheckState is the display state of one completion check in the plan panel.
+type CheckState int
+
+const (
+	CheckPending CheckState = iota // not yet verified passing, and not the current step
+	CheckActive                    // belongs to the step currently in progress (render a spinner)
+	CheckPassed                    // its verify command last ran green (render a ✓)
+)
+
+// CheckStatus pairs a completion check with its current display state.
+type CheckStatus struct {
+	Check council.DeliverableCheck
+	State CheckState
+}
+
+// CompletionChecks returns the turn's completion checks annotated with display state for the
+// plan panel: CheckPassed once a check's verify command has run green, CheckActive while the
+// check's step is the one in progress (so the panel can spin it), else CheckPending. A passed
+// check wins over active. Empty when the turn derived no checks.
+func (a *App) CompletionChecks(sid session.SessionID) []CheckStatus {
+	checks := a.cachedChecks(sid)
+	if len(checks) == 0 {
+		return nil
+	}
+	todos := a.Todos(sid)
+
+	a.mu.Lock()
+	passed := map[string]bool{}
+	if st, ok := a.stateIf(sid); ok {
+		for k, v := range st.passedChecks {
+			passed[k] = v
+		}
+	}
+	a.mu.Unlock()
+
+	out := make([]CheckStatus, len(checks))
+	for i, c := range checks {
+		state := CheckPending
+		if idx := matchTodoIndex(todos, c.Step); idx >= 0 && todos[idx].Status == "in_progress" {
+			state = CheckActive
+		}
+		if passed[checkKey(c)] {
+			state = CheckPassed // a green check overrides the in-progress spinner
+		}
+		out[i] = CheckStatus{Check: c, State: state}
+	}
+	return out
+}
+
 // LedgerRow is one shared artifact-ledger row for the TUI: a plan step and the concrete
 // deliverables (file paths, interfaces) it produced for later steps to reuse.
 type LedgerRow struct {
