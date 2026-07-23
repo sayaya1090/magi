@@ -723,7 +723,9 @@ func planMemberSystem(m council.Member, lens string, keep bool) string {
 			"NOT steps the plan must contain, and their absence from the plan is NEVER a reason to revise. Keep each item "+
 			"one short line; omit if your lens adds nothing.\n\n"+
 			"ALSO, where a step's deliverable is MACHINE-CHECKABLE, propose one or more executable `checks`. Each check "+
-			"names the plan `step` it belongs to (its title or number), the expected `deliverable` in one short phrase, a "+
+			"names the plan `step` it belongs to as its INTEGER STEP NUMBER (\"3\", not the step's title — the gate matches "+
+			"by number, so a title label matches NO step and gets flattened onto the wrong worker), the expected "+
+			"`deliverable` in one short phrase, a "+
 			"shell `command` that verifies it from the task's working directory, and an optional `expect` REGULAR "+
 			"EXPRESSION the command's output must match (omit `expect` for an exit-code-only check). A check that only "+
 			"asserts a file EXISTS or is non-empty is INSUFFICIENT whenever the deliverable must BEHAVE or produce a "+
@@ -774,7 +776,16 @@ func planMemberSystem(m council.Member, lens string, keep bool) string {
 			"/app/a.out > /tmp/o.json && node -e \"const o=require('/tmp/o.json'); process.exit(o && Object.keys(o).length>0?0:1)\"` "+
 			"(runs + non-empty object) — not the hidden exact values. For a "+
 			"read/review/analyze/answer step there is usually nothing to execute: emit NO check for it (the prose "+
-			"`criteria` already cover it). Omit `checks` entirely if your lens has none.\n\n"+
+			"`criteria` already cover it). CHECKLIST-DRIVEN, JOINTLY SATISFIABLE: author each step together with its "+
+			"own done-condition — a step that produces a runnable/inspectable artifact should carry at least one check "+
+			"that DEFINES 'done' for it, so the checklist drives the step, not the reverse. A check belongs ONLY to the "+
+			"step whose work creates or changes that state and is verified AT that step (label it with that step's "+
+			"number); never re-assert it under a later step. The checks, read in plan order, must be JOINTLY "+
+			"SATISFIABLE: do NOT require the SAME artifact PRESENT under one step and ABSENT under another as if both "+
+			"held at once — a teardown/cleanup step's absence-check (`test ! -f a.tgz`) belongs to THAT step alone and is "+
+			"verified right after it, while an earlier step's existence-check (`test -s a.tgz`) already passed at its own "+
+			"earlier step; putting both into one step's list makes a checklist no state can satisfy. "+
+			"Omit `checks` entirely if your lens has none.\n\n"+
 			"%s"+
 			"Respond with ONLY a JSON object, no prose, no code fence:\n"+
 			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific fix (only if continue)","severity":"critical|warn|info (only if continue)","criteria":["..."],"checks":[{"step":"...","deliverable":"...","command":"...","expect":"..."}]`+keepField+`}`,

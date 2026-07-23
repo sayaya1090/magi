@@ -92,7 +92,10 @@ const validateChecksSystem = "You review the executable deliverable `checks` a p
 	"trapping the run in a redo loop. Replace with an idempotent read-only probe of the already-produced artifact at " +
 	"its final path (`tar -tzf f.tgz` LIST not `-czf` CREATE, `test -s f`, run the built binary not re-build it). " +
 	"Verify the step's stated deliverable, not an intermediate.\n" +
-	"- Preserve each check's `step` label exactly. Keep `expect` ONLY when it reliably matches correct output; " +
+	"- Preserve each check's `step` label exactly — it scopes the check to its step. A cleanup/absence check " +
+	"(`test ! -f a.tgz`) MUST keep its own step label; never merge it onto the same step as an existence check " +
+	"(`test -s a.tgz`) for the same artifact — they are verified at different steps, and co-locating them makes a " +
+	"jointly-unsatisfiable checklist. Keep `expect` ONLY when it reliably matches correct output; " +
 	"otherwise drop `expect` and rely on the exit code. Do NOT invent new checks or change what a check verifies — " +
 	"only repair HOW it verifies. Return [] if none survive. JSON array only, no prose, no code fence."
 

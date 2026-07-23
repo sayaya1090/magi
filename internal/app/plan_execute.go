@@ -384,10 +384,15 @@ func (a *App) verifyStepChecks(ctx context.Context, s session.Session, stepIdx i
 // none are tagged, all of the turn's checks are shown, since over-informing beats letting the
 // worker silently skip a requirement. Empty when no checks were derived.
 // stepChecks selects the deliverable checks that belong to plan step stepIdx (0-based),
-// matching the council's 1-based Step label ("3", "3.", "3) …"); when none match it returns
-// ALL checks — the same lenient fallback workerChecklist relies on so a mislabeled check is
-// still surfaced rather than silently dropped. Shared by the worker brief and the TUI's
-// per-subagent checklist view.
+// matching the council's 1-based Step label ("3", "3.", "3) …"). The lenient "show ALL when
+// none match" fallback fires ONLY when the WHOLE set is unlabeled (no check carries a numeric
+// step): then step attribution is impossible and over-informing the worker beats dropping a
+// requirement. But once ANY check IS step-labeled, a step whose label matches none of them gets
+// an EMPTY list, never the union — because dumping every step's checks onto one worker flattens
+// temporally-separate steps into a jointly-unsatisfiable checklist (a "produce a.tgz" existence
+// check beside a later "cleanup: a.tgz absent" check can never both pass at once; observed on
+// plexus #224 when title-labeled checks matched no step and fell back to the union). Shared by
+// the worker brief (workerChecklist) and the TUI's per-subagent checklist view.
 func stepChecks(checks []council.DeliverableCheck, stepIdx int) []council.DeliverableCheck {
 	if len(checks) == 0 {
 		return nil
@@ -395,7 +400,22 @@ func stepChecks(checks []council.DeliverableCheck, stepIdx int) []council.Delive
 	if mine := matchStepChecks(checks, stepIdx); len(mine) > 0 {
 		return mine
 	}
-	return checks // lenient fallback: over-inform the worker rather than drop a mislabeled check
+	if anyStepLabeled(checks) {
+		return nil // labeled set, but none for THIS step → show its own (none), never the contradictory union
+	}
+	return checks // wholly unlabeled: step attribution impossible → over-inform rather than drop
+}
+
+// anyStepLabeled reports whether at least one check carries a numeric step label (its Step,
+// trimmed, begins with a digit) — i.e. the council attributed checks to steps, so stepChecks
+// must honor those labels strictly instead of flattening the whole set onto one worker.
+func anyStepLabeled(checks []council.DeliverableCheck) bool {
+	for _, c := range checks {
+		if s := strings.TrimSpace(c.Step); s != "" && s[0] >= '0' && s[0] <= '9' {
+			return true
+		}
+	}
+	return false
 }
 
 // matchStepChecks returns ONLY the checks whose council Step label matches plan step stepIdx
