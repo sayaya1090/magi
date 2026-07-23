@@ -9,6 +9,30 @@ import (
 	"github.com/sayaya1090/magi/internal/port"
 )
 
+// MAGI_CONFIG_DIR / MAGI_DATA_DIR override the config/data trees outright, so two
+// instances on one machine can be pointed at separate directories (their own
+// config.toml and plugin auth store) instead of colliding on the shared defaults.
+func TestConfigDataDirEnvOverride(t *testing.T) {
+	t.Setenv("MAGI_CONFIG_DIR", "/tmp/magi-cfg-A")
+	t.Setenv("MAGI_DATA_DIR", "/tmp/magi-data-A")
+	if got := (OS{}).ConfigDir(); got != "/tmp/magi-cfg-A" {
+		t.Errorf("ConfigDir() = %q, want the MAGI_CONFIG_DIR override", got)
+	}
+	if got := (OS{}).DataDir(); got != "/tmp/magi-data-A" {
+		t.Errorf("DataDir() = %q, want the MAGI_DATA_DIR override", got)
+	}
+}
+
+// Without the override (empty or unset), the dirs fall back to the OS user config/
+// cache location — the env var must not force an empty path.
+func TestConfigDirEnvEmptyFallsBack(t *testing.T) {
+	t.Setenv("MAGI_CONFIG_DIR", "")
+	got := (OS{}).ConfigDir()
+	if got == "" || !strings.HasSuffix(got, "magi") {
+		t.Errorf("empty override must fall back to <userConfig>/magi, got %q", got)
+	}
+}
+
 func TestExecCapturesOutput(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("uses POSIX echo")

@@ -4,7 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func writeFile(t *testing.T, dir, content string) string {
@@ -205,6 +208,88 @@ func TestSetKeyActivatesLoneComment(t *testing.T) {
 	got := read(t, p)
 	if strings.Contains(got, "# model") {
 		t.Fatalf("the comment should have been activated, not left commented:\n%s", got)
+	}
+}
+
+// withFileLock must give exclusive access to a target across concurrent holders —
+// the cross-process serialization SetKey relies on (two magi instances sharing one
+// config.toml). Exercised here via goroutines, but the guard is the O_EXCL sidecar
+// lock, which serializes any holders on the machine, not just this process.
+func TestWithFileLockSerializes(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "config.toml")
+	var active, maxSeen int32
+	var wg sync.WaitGroup
+	for i := 0; i < 24; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = withFileLock(target, func() error {
+				n := atomic.AddInt32(&active, 1)
+				for {
+					m := atomic.LoadInt32(&maxSeen)
+					if n <= m || atomic.CompareAndSwapInt32(&maxSeen, m, n) {
+						break
+					}
+				}
+				time.Sleep(time.Millisecond) // widen the window an overlap would land in
+				atomic.AddInt32(&active, -1)
+				return nil
+			})
+		}()
+	}
+	wg.Wait()
+	if maxSeen != 1 {
+		t.Fatalf("withFileLock allowed %d concurrent holders; want strict mutual exclusion", maxSeen)
+	}
+}
+
+// A stale lock left by a crashed writer must not wedge config writes forever:
+// withFileLock reclaims it once older than the stale threshold. Simulated by
+// pre-creating the lock file with an old mtime.
+func TestWithFileLockReclaimsStale(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "config.toml")
+	lock := target + ".lock"
+	if err := os.WriteFile(lock, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-30 * time.Second)
+	if err := os.Chtimes(lock, old, old); err != nil {
+		t.Fatal(err)
+	}
+	ran := false
+	if err := withFileLock(target, func() error { ran = true; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if !ran {
+		t.Fatal("a stale lock should be reclaimed so the write still runs")
+	}
+}
+
+// Concurrent SetKey calls to distinct keys must all land — no lost update, and the
+// file stays parseable — guarding the locked read-modify-write.
+func TestSetKeyConcurrentNoLostUpdate(t *testing.T) {
+	dir := t.TempDir()
+	p := writeFile(t, dir, "[routing]\n")
+	var wg sync.WaitGroup
+	keys := []string{"explore", "planner", "coder", "council", "verifier", "reviewer"}
+	for _, k := range keys {
+		wg.Add(1)
+		go func(k string) {
+			defer wg.Done()
+			if err := SetKey(p, "routing", k, "m-"+k); err != nil {
+				t.Errorf("SetKey %s: %v", k, err)
+			}
+		}(k)
+	}
+	wg.Wait()
+	c, err := Load(dir)
+	if err != nil {
+		t.Fatalf("config must stay parseable after concurrent writes: %v\n%s", err, read(t, p))
+	}
+	for _, k := range keys {
+		if c.Routing[k] != "m-"+k {
+			t.Errorf("lost update: routing.%s = %q, want %q\n%s", k, c.Routing[k], "m-"+k, read(t, p))
+		}
 	}
 }
 
