@@ -221,6 +221,40 @@ func TestMemberPromptRationalizedDone(t *testing.T) {
 	}
 }
 
+// A council-invented verification must state the OBJECTIVE and leave the method to the agent,
+// never prescribe a specific inspection command that may be absent in the container. A passing
+// end-to-end exercise satisfies the must-respond/run bar (kv-store-grpc run17: `ps: not found`
+// made the council reject a live, working gRPC server across 3 rounds because it demanded a
+// process listing instead of crediting the successful client round-trip).
+func TestMemberPromptObjectiveNotMethod(t *testing.T) {
+	m := council.Member{Name: "x", Lens: "correctness"}
+	s := memberSystem(m, "terminate", "run a server on port 5328", false)
+
+	// The old wording prescribed the method; it must be gone.
+	if strings.Contains(s, "name the exact check to run") {
+		t.Error("prompt still tells the member to name the exact check (prescribes method)")
+	}
+	// It must ask for the objective and delegate the how.
+	if !strings.Contains(s, "name the OBJECTIVE still to be shown true") {
+		t.Error("prompt must ask the member to name the objective, not a command")
+	}
+	if !strings.Contains(s, "leave HOW to the agent") {
+		t.Error("prompt must delegate the verification method to the agent")
+	}
+	// It must forbid prescribing an environment-specific inspection command.
+	if !strings.Contains(s, "ps/netstat/lsof/curl/pgrep") {
+		t.Error("prompt must forbid prescribing a specific inspection command")
+	}
+	// A passing end-to-end exercise must be accepted as the run (no extra process/port listing).
+	if !strings.Contains(s, "working end-to-end") || !strings.Contains(s, "ritual churn") {
+		t.Error("prompt must credit a passing end-to-end exercise instead of demanding a listing")
+	}
+	// The task-specified literal-contract requirement must remain intact.
+	if !strings.Contains(s, "EXACT command was run") {
+		t.Error("literal task-contract requirement was lost")
+	}
+}
+
 func TestMemberPromptArtifactGrounding(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "completeness"}
 	s := memberSystem(m, "terminate", "build a CLI tool", false)
