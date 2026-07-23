@@ -67,9 +67,86 @@ func (a *App) storePlanChecks(ctx context.Context, s session.Session, checks []c
 	a.annotateTodosWithDeliverables(ctx, s.ID, checks) // show each step's expected deliverable in the panel
 }
 
+// storeCoveredChecks fills any per-step coverage gap (ensureStepCoverage) and then stores the
+// result. Callers pass the plan the checks are meant to gate: the plan audit its current procedure,
+// the 0-step solo path a single synthetic step for the objective. When coverage is off or already
+// complete this is exactly storePlanChecks(delib.Checks).
+func (a *App) storeCoveredChecks(ctx context.Context, s session.Session, prompt string, steps []planStep, checks []council.DeliverableCheck) {
+	a.storePlanChecks(ctx, s, a.ensureStepCoverage(ctx, s, prompt, steps, checks))
+}
+
 // checkValidateEnabled gates the deliverable-check review pass (default ON; MAGI_CHECK_VALIDATE=0 for
 // an A/B baseline that uses the authored checks as-is).
 func checkValidateEnabled() bool { return !envOff("MAGI_CHECK_VALIDATE") }
+
+const coverageFillSystem = "You author executable deliverable `checks` that verify a plan's per-step outputs, FILLING GAPS. " +
+	"You are given the plan STEPS (numbered in order), the TASK, and the checks authored SO FAR. Some steps that " +
+	"PRODUCE a deliverable currently have NO check, so the completion gate cannot verify them. Return a JSON array = the " +
+	"existing checks UNCHANGED, PLUS one NEW check for EACH producing step that lacks one. A check is " +
+	"{step, deliverable, command, expect}: `command` runs and, if `expect` is set, its output must MATCH that regular " +
+	"expression; no `expect` = exit-code-only. For every NEW check:\n" +
+	"- SCOPE by step: set `step` to that step's 1-based number (matching the plan order) so it gates only that step.\n" +
+	"- EXERCISE the deliverable: run or inspect what the step produces and assert the OUTCOME — a bare file-exists is too " +
+	"weak when the artifact must behave or hold a correct value (run the server and hit its port, run the program and " +
+	"compare output, import the module).\n" +
+	"- PORTABLE: only tools guaranteed present (coreutils, grep/test, python3, the task's own toolchain). Replace " +
+	"ss/netstat/lsof with a dependency-free python socket connect.\n" +
+	"- IDEMPOTENT, NO STATE CHANGE (work≠check): verify the already-produced artifact READ-ONLY; NEVER create/build/" +
+	"download/move/delete it (a check that re-does the work traps the run in a redo loop).\n" +
+	"- A pure investigation/read-only step (it writes no artifact) needs NO check — do NOT invent one for it.\n" +
+	"Do NOT alter or drop the existing checks, and do NOT change what any check verifies. JSON array only, no prose, no code fence."
+
+// ensureStepCoverage guarantees every producing plan step has at least one deliverable check. The
+// plan audit authors delib.Checks with no coverage guarantee — a weak model emits one check for a
+// many-step plan, and runStepGate only verifies steps that appear in the check set, so the rest land
+// unverified. When the authored checks cover fewer distinct steps than the plan has, a single gap-fill
+// pass authors checks for the uncovered producing steps (read-only steps are told to be skipped, so an
+// unfillable gap simply returns the same set — one extra call, never a loop). The 0-step solo path
+// passes a single synthetic step, so it gets one check for its objective the same way. Best-effort: a
+// disabled flag, no gap, a transport failure, or a reply that is not a coverage-increasing superset
+// returns the input UNCHANGED, so the fill never weakens or blocks the authored contract.
+func (a *App) ensureStepCoverage(ctx context.Context, s session.Session, prompt string, steps []planStep, checks []council.DeliverableCheck) []council.DeliverableCheck {
+	if !checkCoverageEnabled() || len(steps) == 0 {
+		return checks
+	}
+	covered := map[string]bool{}
+	for _, c := range checks {
+		covered[strings.TrimSpace(c.Step)] = true
+	}
+	if len(covered) >= len(steps) { // every step already has (at least) a check → no gap
+		return checks
+	}
+	in, err := json.Marshal(checks)
+	if err != nil {
+		return checks
+	}
+	agent := a.agentFor(s)
+	model := s.Model.Model
+	if agent.Model != (session.ModelRef{}) {
+		model = agent.Model.Model
+	}
+	task := strings.TrimSpace(prompt)
+	if len(task) > 2000 { // the step list already carries the per-step detail; cap the raw task
+		task = task[:2000]
+	}
+	input := "# Plan steps\n" + renderSteps(steps) + "\n\n# Task\n" + task + "\n\n# Checks authored so far (JSON)\n" + string(in)
+	raw := a.specMineCall(ctx, agent, s.ID, "check-coverage", model, coverageFillSystem, input)
+	out, ok := parseChecksArray(raw)
+	if !ok || len(out) < len(checks) { // unusable / dropped existing checks → keep the authored set
+		return checks
+	}
+	newCovered := map[string]bool{}
+	for _, c := range out {
+		newCovered[strings.TrimSpace(c.Step)] = true
+	}
+	if len(newCovered) <= len(covered) { // reply added no distinct-step coverage → nothing gained
+		return checks
+	}
+	a.emitToolProgress(s.ID, plannerActor, "", "check-coverage",
+		fmt.Sprintf("check-coverage: %d→%d checks, %d→%d step(s) covered (%d plan step(s))",
+			len(checks), len(out), len(covered), len(newCovered), len(steps)))
+	return out
+}
 
 const validateChecksSystem = "You review the executable deliverable `checks` a planning council authored, BEFORE " +
 	"they are used to gate a task. Each check is {step, deliverable, command, expect}: the `command` runs and, if " +

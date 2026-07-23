@@ -321,6 +321,16 @@ func planConvergeEnabled() bool { return !envOff("MAGI_PLAN_CONVERGE") }
 // restores the >=2-step-only audit (the A/B knob).
 func soloAuditEnabled() bool { return !envOff("MAGI_SOLO_AUDIT") }
 
+// checkCoverageEnabled gates the per-step deliverable-check coverage fill (ensureStepCoverage).
+// The plan audit authors delib.Checks with NO coverage guarantee — the count is whatever the model
+// happened to emit, decoupled from the plan structure — so a weak model writes one check for an
+// 11-step plan and the termination gate (which only verifies steps that appear in the check set)
+// waves the other ten through unverified. With this on, when the authored checks cover fewer distinct
+// steps than the plan has, a single gap-fill pass authors checks for the uncovered producing steps;
+// it also gives the 0-step solo path — which never reaches the plan audit — one check for its
+// objective. Default ON; MAGI_CHECK_COVERAGE=off is the A/B baseline (author-only checks).
+func checkCoverageEnabled() bool { return !envOff("MAGI_CHECK_COVERAGE") }
+
 // waitGuardEnabled gates the environment-wait recovery suppression: when a stall force-stop is
 // reached but the no-progress window is dominated by waiting/polling (guard.stallIsWait — sleep,
 // ping, nc, an `until … do sleep … done` readiness loop), the stuck-recovery coder spawn at the
