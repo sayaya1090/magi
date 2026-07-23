@@ -86,9 +86,13 @@ const coverageFillSystem = "You author executable deliverable `checks` that veri
 	"{step, deliverable, command, expect}: `command` runs and, if `expect` is set, its output must MATCH that regular " +
 	"expression; no `expect` = exit-code-only. For every NEW check:\n" +
 	"- SCOPE by step: set `step` to that step's 1-based number (matching the plan order) so it gates only that step.\n" +
-	"- EXERCISE the deliverable: run or inspect what the step produces and assert the OUTCOME — a bare file-exists is too " +
-	"weak when the artifact must behave or hold a correct value (run the server and hit its port, run the program and " +
-	"compare output, import the module).\n" +
+	"- EXERCISE the deliverable (precondition is not proof): reaching the artifact — a file exists, a port accepts a " +
+	"connection, a module imports, a build succeeds, a process is alive — is a precondition, NOT proof of the contract; " +
+	"a non-functional stub passes all of them. When the step's artifact must DO something (answer a request, return a " +
+	"value, transform an input, produce an output), invoke that behavior through the same interface its consumer uses " +
+	"and assert on the RESULT (call the endpoint and assert the returned value, run the program on an input and compare " +
+	"its output), choosing the weakest input that still forces the real code path so a stub that merely exists or opens " +
+	"the port FAILS.\n" +
 	"- PORTABLE: only tools guaranteed present (coreutils, grep/test, python3, the task's own toolchain). Replace " +
 	"ss/netstat/lsof with a dependency-free python socket connect.\n" +
 	"- IDEMPOTENT, NO STATE CHANGE (work≠check): verify the already-produced artifact READ-ONLY; NEVER create/build/" +
@@ -174,8 +178,14 @@ const validateChecksSystem = "You review the executable deliverable `checks` a p
 	"UNDERSCORED module — a `data-feed.proto` yields `data_feed_pb2.py`, never `data-feed_pb2.py` — so a check demanding " +
 	"the hyphenated form can NEVER pass and fights the toolchain (the agent renames to satisfy the grep, which breaks " +
 	"the import, then renames back: an unwinnable loop). Rewrite the check to the generator's real output name.\n" +
-	"- EXERCISES the deliverable: a bare file-existence/size check for something that must BEHAVE or produce a " +
-	"correct value is too weak; keep/author a check that RUNS it and asserts the outcome.\n" +
+	"- EXERCISES the deliverable (precondition is not proof): a check that only confirms the deliverable can be " +
+	"REACHED — a file exists or is non-empty, a port accepts a connection, a module imports, a build succeeds, a " +
+	"process is alive — is too weak, because a non-functional stub passes every one of those. When the task states " +
+	"the deliverable must DO something (answer a request, return a value, transform an input, produce an output), the " +
+	"check must INVOKE that named behavior through the same interface its consumer uses and assert on the RESULT — " +
+	"call the endpoint and assert the returned value, run the program on an input and compare its output to the task's " +
+	"stated mapping — choosing the weakest input that still forces the real code path so a stub that merely exists or " +
+	"opens the port FAILS. Do not DROP such a check for being weak; STRENGTHEN it into one that exercises the contract.\n" +
 	"- IDEMPOTENT, NO STATE CHANGE (work≠check): a check must VERIFY the deliverable read-only, never PERFORM the " +
 	"step's work. DROP or repair any command that CREATES/MUTATES the artifact — compress/download/build/generate/" +
 	"move/delete (`tar -czf`, `scp`/`rsync`, `rm`, `mv`, a `>` redirect that writes the deliverable, `git commit`): " +
