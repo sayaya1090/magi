@@ -362,6 +362,7 @@ headless-4: LLM error                      ⇒ message to stderr, exit != 0
   - **스텝 스코핑 + 단계 간 무모순**(체크리스트 주도): 각 체크는 **정수 스텝 번호**로 라벨돼 자기 스텝에만 귀속되고, 게이트(`verifyStepChecks`)도 워커의 acceptance 체크리스트(`workerChecklist`)도 **그 스텝 체크만** 봄 — 전체를 한 워커/한 게이트에 평평하게 몰지 않음. 이유: 플랜 실행 순서를 따라 체크 집합이 **동시 충족 가능(joint satisfiability)** 해야 하는데, 시점이 다른 스텝들을 한데 모으면 모순이 생김. 어떤 산출물의 **존재**를 요구하는 체크(예: 압축 스텝 `test -s a.tgz`)와 **부재**를 요구하는 체크(예: 정리 스텝 `test ! -f a.tgz`)가 **같은 시점에** 요구되면 어떤 상태로도 통과 불가. 정리/teardown 스텝의 부재-체크는 **그 스텝에서만** 검증되고, 앞선 존재-체크는 이미 앞 스텝에서 통과했으므로 공존 요구가 아님 — 뒤 스텝의 종료상태를 앞 스텝 체크리스트에 넣지 말 것. 작성 규칙: 각 스텝을 자기 **머신체크 가능한 done-조건(체크)** 과 함께 정의(산출물을 만드는 스텝은 done을 정의하는 체크를 최소 1개; read/analyze 스텝은 예외). 라벨이 하나라도 있으면 **strict 스텝 매칭**(매칭 0이면 빈 목록), **전부 무라벨일 때만** over-inform으로 전량 표시(실증: `ssh … 'tar -czf …'` 봉합 후 재실행에서 압축·해제·분석·정리 체크가 제목-라벨→매칭실패→fallback으로 한 워커에 통째 덤프돼 자기모순 체크리스트가 됨, 플렉서스 #224).
   - **②스텝-게이트**(`verifyStepChecks`): 위임 워커가 done 보고 후 **그 스텝의 체크**(strict step-label 매칭, 크로스-스텝 오검사 금지)를 실행 → 실패면 done 안 주고 **실패사유 실어 리플랜**(재시작 루프 없음; 워커가 진짜 불가면 blocked/failed+사유 보고). ⇒ **council 도달 = 다 검증됨** 불변식.
   - **③작성 프롬프트**: 체크는 파일존재 아닌 **행동 실행**(서버 실행→포트 응답, 프로그램→출력 대조), task 예제(입력→출력)를 **verbatim 재현**, **이식가능 프로브**만 사용.
+  - **④수렴 안 하는 자기 체크 → 작업물 세워둔 채 착지**(`MAGI_CHECK_CHURN_CAP`, `noteCheckFail`/`resetCheckChurn`, 기본 cap 4, `0`=off): mutation epoch가 전진(에이전트가 산출물을 편집)했는데도 **같은 deliverable 체크가 연속 N회 FAIL**이면 그 체크는 *수렴하지 않는 자기 체크*로 판정하고, 런은 **작업물(파일+백그라운드 프로세스)을 세워둔 채 UNVERIFIED로 정상 착지**한다 — 외부 verifier가 라이브 산출물을 판정하게. 체크가 PASS로 바뀌면 카운터 리셋(정상 수렴은 무영향; 편집 없는 순수 반복은 증가시키지 않아 기존 stall 경로 몫으로 남김). **외부 벽시계를 쓰지 않는 순수 내부 신호**(치팅 회피). 봉합: plan-audit가 만든 **반전 체크**(`exit(connect_ex(('localhost',P))==0)` — 서버가 *죽어야* 통과)가 done을 영원히 막고, 매 편집이 stall 창을 재충전(`mutated`)해 force-stop도 안 걸려, 살아있는 서버를 붙든 채 외부 하드킬→reward 0으로 무너지던 것(kv-store-grpc 실증). 반전 체크 자체 수정은 별건이고 이는 모델-무관 최종 안전망.
 
 ```
 council-tally-unanimous-1: rule=unanimous, [done,done,continue]      ⇒ continue
@@ -381,6 +382,8 @@ council-nochanges-noterror-1: GitDiff 실패(비-git) ⇒ NoChanges=false(쓰기
 council-debate-split-1:    would-be-done + SPLIT ⇒ 반박 1라운드 재폴링 후 재tally               (R11)
 council-devil-review-1:    무-split done + 데빌 우려 ⇒ 위원 비판검토 ⇒ 헛 우려면 done 유지        (R11)
 council-check-fail-1:      deliverable-check 실행 실패 ⇒ 하드 signal ⇒ continue                 (R12)
+council-check-churn-land-1: epoch 전진+같은 체크 N회 FAIL ⇒ 작업물 세워둔 채 UNVERIFIED 착지   (R12④)
+council-check-converge-1:  체크 PASS ⇒ churn 카운터 리셋(정상 수렴 무영향)                       (R12④)
 ```
 
 ## F-LOOP-STAGES (루프 트랙) — macro 단계 + stage 태그(D15)
