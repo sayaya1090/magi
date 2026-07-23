@@ -79,6 +79,32 @@ func (a *App) turnTaskOr(turnTask string, sid session.SessionID, evs []event.Eve
 }
 
 func (a *App) handleStuckGuard(ctx context.Context, tc turnCtx, turnTask string, evs []event.Event, u event.Usage, ts *turnState) (bool, bool) {
+	// Observed check-churn (finish-independent, solo-path counterpart to the delegate path's
+	// verifyStepChecks gate): the agent's OWN build/test command has now FAILED across
+	// exerciseChurnCap distinct edits without ever passing (noteExerciseResult, wired from the
+	// bash exec path in execute.go). That is a non-convergence signal even when NO stall/idle/repeat
+	// kind trips — a solo agent that keeps rewriting the deliverable with never-seen-before content
+	// (monotonic-novel churn, not oscillation, so retractProgress never arms) and re-running the same
+	// failing build would otherwise burn to the external wall clock with reward 0. Land gracefully
+	// UNVERIFIED with the work standing so the external verifier judges the live deliverable — using
+	// ONLY the agent's own executed results, no external clock. Checked before stuck() so it fires on
+	// a run that never trips a stall/idle window (the solo gap this closes).
+	if exerciseChurnLandEnabled() && tc.guard.exerciseChurnMax() >= exerciseChurnCap() {
+		sid := tc.s.ID
+		ts.unverifiedReason = "the agent's own build/test kept failing across repeated edits without " +
+			"converging — landing with work standing so the external verifier judges the live deliverable"
+		dd, _ := json.Marshal(event.CouncilDecidedData{
+			Round: ts.council.rounds + 1, Decision: string(council.Done),
+			Note: "the agent's own build/test kept failing across repeated edits without converging — " +
+				"landing with work standing so the external verifier judges the live deliverable; treat as UNVERIFIED",
+			Forced: true,
+		})
+		a.appendFact(ctx, sid, event.TypeCouncilDecided, event.Actor{Kind: event.ActorSystem, ID: "council"}, dd)
+		a.setStage(sid, stageFinalize)
+		fd, _ := json.Marshal(event.TurnFinishedData{Usage: u, Unverified: true, Reason: ts.unverifiedReason})
+		a.appendFact(ctx, sid, event.TypeTurnFinished, tc.actor, fd)
+		return true, true
+	}
 	kind := tc.guard.stuck()
 	if kind == "" {
 		return false, false

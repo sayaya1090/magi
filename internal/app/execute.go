@@ -324,6 +324,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 			if json.Unmarshal(tc.Args, &ba) == nil {
 				guard.noteBashWrite(ba.Command)            // authored a file → epoch bump
 				guard.noteBashExec(ba.Command, guardNovel) // ran a program → execution evidence (independent of any redirect)
+				guard.noteExerciseResult(ba.Command, false) // this build/test PASSED → clear its check-churn count (converged)
 			}
 		}
 		// A successful NON-bash read-only inspection (read/grep/glob/list/…) that is
@@ -344,6 +345,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 			}
 			if json.Unmarshal(tc.Args, &ba) == nil {
 				guard.noteExerciseFail(ba.Command, string(res.Content))
+				guard.noteExerciseResult(ba.Command, true) // this build/test FAILED against the current edit → climb its check-churn count
 			}
 		}
 		// Completion-banner spin: count consecutive pure no-op banners (echo/printf/true/:) an
