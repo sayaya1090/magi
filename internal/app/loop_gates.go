@@ -325,7 +325,12 @@ func (a *App) runTerminationGate(ctx context.Context, tc turnCtx, step int, turn
 	// hard-kill that tears the live deliverable down (reward 0), land gracefully UNVERIFIED with
 	// work standing so the external verifier judges the running result. A converging check resets
 	// the counter (resetCheckChurn below), so this never fires on a task whose check eventually passes.
+	// countedChurn guards against double-counting a churn cycle: when the step gate hands up a
+	// failing ledger we count it here, and the council below (which still sees that ledger as
+	// evidence) must NOT count the same finish attempt again.
+	countedChurn := false
 	if checkLedger != "" {
+		countedChurn = true
 		if checkChurnLandEnabled() && guard.noteCheckFail() >= checkChurnCap() {
 			dd, _ := json.Marshal(event.CouncilDecidedData{
 				Round: ts.council.rounds + 1, Decision: string(council.Done),
@@ -338,9 +343,12 @@ func (a *App) runTerminationGate(ctx context.Context, tc turnCtx, step int, turn
 				"converging — landing with work standing so the external verifier judges the live deliverable"
 			return 0, false
 		}
-	} else {
-		guard.resetCheckChurn() // all checks passed → the self-check converged; clear the churn count
 	}
+	// NOTE: the churn counter is NOT reset merely because the step gate passed. A task whose
+	// per-step checks pass but whose COUNCIL keeps rejecting (kv-store-grpc: the step files exist,
+	// but a contradictory deliverable check the agent can't satisfy holds the council unmet) would
+	// otherwise have its run-scoped counter zeroed every turn, masking the non-convergence. The
+	// counter is reset ONLY on a genuine council approval (below), where verification truly converged.
 	if stepGate == gateFailRetry {
 		return loopContinue, true
 	}
@@ -419,6 +427,29 @@ func (a *App) runTerminationGate(ctx context.Context, tc turnCtx, step int, turn
 		turnElapsed: time.Since(tc.runStart),
 	}, &ts.council)
 	if keepWorking {
+		// Council-path non-convergence landing (internal signal only — no external wall clock, the
+		// same honest signal the step-gate branch uses). The council rejected this finish. If the agent
+		// has EDITED the deliverable (mutation epoch advancing — noteCheckFail's epoch guard) across
+		// checkChurnCap such rejected finishes without the council ever approving, verification is not
+		// converging: a contradictory/impossible deliverable check the agent can't satisfy (kv-store-grpc
+		// demanded stub files named with a hyphen that grpc_tools MUST spell with an underscore, so
+		// satisfying the grep broke the import and vice-versa — an unwinnable edit loop). Churning edits
+		// to the external hard-kill tears the live deliverable down (reward 0); land UNVERIFIED with work
+		// standing so the external verifier judges the running result. Counted only when checkLedger was
+		// empty this turn (else the step-gate branch already counted it) and only on an epoch-advancing
+		// edit (an idle re-finish is the idle-resubmit path above); a converging task resets on approval.
+		if !countedChurn && checkChurnLandEnabled() && guard.noteCheckFail() >= checkChurnCap() {
+			dd, _ := json.Marshal(event.CouncilDecidedData{
+				Round: ts.council.rounds + 1, Decision: string(council.Done),
+				Note: "council kept rejecting across repeated edit cycles without converging — landing with " +
+					"work standing so the external verifier judges the live deliverable; treat as UNVERIFIED",
+				Forced: true,
+			})
+			a.appendFact(ctx, sid, event.TypeCouncilDecided, event.Actor{Kind: event.ActorSystem, ID: "council"}, dd)
+			ts.unverifiedReason = "the council kept rejecting across repeated edit cycles without converging — " +
+				"landing with work standing so the external verifier judges the live deliverable"
+			return 0, false
+		}
 		ts.prevFinishText, ts.prevFinishCalls = lastText, guard.callCount()
 		return loopContinue, true
 	}
@@ -426,6 +457,9 @@ func (a *App) runTerminationGate(ctx context.Context, tc turnCtx, step int, turn
 	// (deadlock/cost-cap/no-feedback/unavailable) — carry that into turn.finished so the UI shows
 	// UNVERIFIED, not a confident done.
 	ts.unverifiedReason = unv
+	if unv == "" {
+		guard.resetCheckChurn() // genuine council approval → verification converged; clear the churn count
+	}
 	if !ts.recovered && ts.council.deadlocked &&
 		strings.TrimSpace(ts.council.feedback) != "" && a.planEligible(agent, depth) {
 		// Council deadlock: the members used every round and never approved, still holding an unmet
