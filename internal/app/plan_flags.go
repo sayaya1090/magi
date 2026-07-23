@@ -2,6 +2,7 @@ package app
 
 import (
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -31,6 +32,30 @@ func envOn(name string) bool {
 	}
 	return false
 }
+
+// defaultCheckChurnCap is how many finish attempts whose deliverable self-check keeps FAILING
+// while the agent edits the deliverable (mutation epoch advancing) are allowed before the run
+// lands gracefully UNVERIFIED with work standing. Generous on purpose: a CONVERGING check passes
+// and resets the counter (resetCheckChurn), so only a non-converging (inverted/impossible) check
+// ever reaches the cap — the value only bounds how long that pathological churn runs.
+const defaultCheckChurnCap = 4
+
+// checkChurnCap returns the effective cap. MAGI_CHECK_CHURN_CAP overrides it: a positive integer
+// sets the cap, "0" (or a non-positive/garbage value) disables the graceful landing entirely,
+// and unset uses the default. checkChurnLandEnabled reports whether the landing is active.
+func checkChurnCap() int {
+	v := strings.TrimSpace(os.Getenv("MAGI_CHECK_CHURN_CAP"))
+	if v == "" {
+		return defaultCheckChurnCap
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
+}
+
+func checkChurnLandEnabled() bool { return checkChurnCap() > 0 }
 
 // refineDisabled is a bench A/B knob (mirrors MAGI_MAX_PLAN_DEPTH): MAGI_REFINE=0 downgrades
 // refine steps to solo, reproducing the pre-refine baseline (every sub-goal flattened inline)

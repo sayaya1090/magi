@@ -173,6 +173,19 @@ type runGuard struct {
 	// (a repeated nudge could itself push a weak model to keep thrashing).
 	failedStates map[uint64]string
 	tabuWarned   map[uint64]bool
+
+	// checkFailChurn counts finish attempts whose deliverable self-check FAILED while the
+	// mutation epoch had advanced since the previous counted failure — i.e. the agent edited the
+	// deliverable and the SAME check still fails. A converging check eventually passes and resets
+	// this (resetCheckChurn), so only a non-converging check (an inverted/impossible check the
+	// plan-audit authored, e.g. `exit(connect_ex(...)==0)` which passes only when the server is
+	// DOWN) climbs it. When it crosses checkChurnCap the run lands gracefully UNVERIFIED with work
+	// standing so the external verifier judges the live deliverable, instead of churning edits
+	// (each of which refills the stall window via mutated) to the external hard-kill. checkFailEpoch
+	// is the epoch at the last counted failure, so a pure repeat with NO new edit does not inflate
+	// the count (that head-banging is the existing stall path's job — see stuck()/sinceProgress).
+	checkFailChurn int
+	checkFailEpoch int
 }
 
 // fileChange is one file's before/after content captured around an agent edit this turn.
@@ -764,6 +777,31 @@ func (g *runGuard) callCount() int {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.calls
+}
+
+// noteCheckFail records that a finish attempt's deliverable self-check FAILED and returns the
+// running churn count. It increments only when the mutation epoch has advanced since the last
+// counted failure (the agent actually edited the deliverable and the check STILL fails) — a
+// repeat with no new edit is left to the stall path and does not inflate the count. A converging
+// check that eventually passes resets this via resetCheckChurn, so the count reaching checkChurnCap
+// is the language- and model-agnostic signal of a non-converging (inverted/impossible) self-check.
+func (g *runGuard) noteCheckFail() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.epoch > g.checkFailEpoch {
+		g.checkFailChurn++
+		g.checkFailEpoch = g.epoch
+	}
+	return g.checkFailChurn
+}
+
+// resetCheckChurn clears the check-fail churn count after the deliverable checks all PASS — a
+// converging self-check must never accumulate toward the graceful-landing cap.
+func (g *runGuard) resetCheckChurn() {
+	g.mu.Lock()
+	g.checkFailChurn = 0
+	g.checkFailEpoch = g.epoch
+	g.mu.Unlock()
 }
 
 // mutationEpoch returns the current mutation epoch — the number of real file mutations
