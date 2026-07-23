@@ -819,3 +819,60 @@ func TestDeliberateDevilSkippedOffAndOnSplit(t *testing.T) {
 		t.Errorf("devil must not be polled when off or on a split, got %d call(s)", n)
 	}
 }
+
+// A member whose first reply cannot be parsed as JSON (a verbose model wrapping the
+// object in prose) must be re-polled once with a JSON-only reminder before abstaining —
+// otherwise its vote silently drops from quorum and skews the tally. On a valid retry the
+// member's real verdict is adopted, not lost to abstention.
+func TestPollRetriesUnparseableThenAdopts(t *testing.T) {
+	var sawReminder atomic.Bool
+	c := New(only(fakeLLM{reply: func(r port.ChatRequest) string {
+		if strings.Contains(textOf(r), "ONLY the JSON") {
+			sawReminder.Store(true)
+			return `{"decision":"done","rationale":"complete on retry"}`
+		}
+		return "Sure, I'd say this looks finished, but let me explain at length with no JSON at all."
+	}}), "m")
+	d, _ := c.Deliberate(context.Background(), port.DeliberationRequest{
+		Round:   1,
+		Task:    "do x",
+		Members: []council.Member{{Name: "Solo", Lens: "correctness"}},
+		Rule:    council.RuleUnanimous,
+	})
+	if !sawReminder.Load() {
+		t.Fatal("first unparseable reply must trigger a retry carrying the JSON-only reminder")
+	}
+	var got council.Verdict
+	for _, v := range d.Verdicts {
+		if v.Member == "Solo" {
+			got = v
+		}
+	}
+	if got.Decision != council.Done {
+		t.Fatalf("Solo verdict = %+v, want done adopted from the parseable retry", got)
+	}
+}
+
+// If BOTH the initial poll and the JSON-only retry are unparseable, the member abstains
+// (unchanged fallback) — the retry adds a second chance, never a third.
+func TestPollBothUnparseableAbstains(t *testing.T) {
+	var calls atomic.Int32
+	c := New(only(fakeLLM{reply: func(port.ChatRequest) string {
+		calls.Add(1)
+		return "no json here at all, just musing about the task"
+	}}), "m")
+	d, _ := c.Deliberate(context.Background(), port.DeliberationRequest{
+		Round:   1,
+		Task:    "do x",
+		Members: []council.Member{{Name: "Solo", Lens: "correctness"}},
+		Rule:    council.RuleUnanimous,
+	})
+	for _, v := range d.Verdicts {
+		if v.Member == "Solo" && (v.Decision != council.Abstain || v.Rationale != "unparseable council reply") {
+			t.Fatalf("Solo verdict = %+v, want abstain/unparseable after both attempts fail", v)
+		}
+	}
+	if n := calls.Load(); n != 2 {
+		t.Fatalf("expected exactly 2 poll attempts (initial + one retry), got %d", n)
+	}
+}

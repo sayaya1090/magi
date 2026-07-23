@@ -270,30 +270,52 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 				"what is still missing — do not raise new, unrelated objections."
 		}
 	}
-	stream, err := provider.StreamChat(ctx, port.ChatRequest{
-		Model:    model,
-		System:   memberSystem(m, req.Phase, req.Task, req.Keep),
-		Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: user}}}},
-		Params:   map[string]any{"temperature": 0.0},
-	})
+	// ask streams one member turn for userMsg and parses its reply. Errors (backend down)
+	// and parse outcome are surfaced separately so the caller can distinguish "unavailable"
+	// (abstain) from "unparseable" (retry once with a JSON-only reminder).
+	sys := memberSystem(m, req.Phase, req.Task, req.Keep)
+	ask := func(userMsg string) (memberReply, bool, error) {
+		stream, err := provider.StreamChat(ctx, port.ChatRequest{
+			Model:    model,
+			System:   sys,
+			Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: userMsg}}}},
+			Params:   map[string]any{"temperature": 0.0},
+		})
+		if err != nil {
+			return memberReply{}, false, err
+		}
+		var b strings.Builder
+		for ev := range stream {
+			if ev.Type == port.ProviderText {
+				b.WriteString(ev.Text)
+			}
+		}
+		r, ok := parseReply(b.String())
+		return r, ok, nil
+	}
+
+	r, ok, err := ask(user)
 	if err != nil {
 		v.Decision = council.Abstain
 		v.Rationale = "council member unavailable: " + err.Error()
 		return v
 	}
-
-	var b strings.Builder
-	for ev := range stream {
-		if ev.Type == port.ProviderText {
-			b.WriteString(ev.Text)
-		}
-	}
-
-	r, ok := parseReply(b.String())
 	if !ok {
-		v.Decision = council.Abstain
-		v.Rationale = "unparseable council reply"
-		return v
+		// A verbose model can wrap the required JSON in prose and fail parsing, which would
+		// silently drop this member's vote from quorum and skew the tally with the remaining
+		// minority. Give it one focused retry demanding JSON only before abstaining — the same
+		// remedy the planner already applies to its own JSON replies.
+		r, ok, err = ask(user + councilJSONReminder)
+		if err != nil {
+			v.Decision = council.Abstain
+			v.Rationale = "council member unavailable: " + err.Error()
+			return v
+		}
+		if !ok {
+			v.Decision = council.Abstain
+			v.Rationale = "unparseable council reply"
+			return v
+		}
 	}
 	v.Decision = decisionOf(r.Decision)
 	v.Confidence = r.Confidence
@@ -494,6 +516,12 @@ func (c *Council) pollDevilReview(ctx context.Context, req port.DeliberationRequ
 }
 
 // devilSystem is the adversarial member's contract: argue against done, but only on a REAL defect.
+// councilJSONReminder is appended to a member's user message for a single re-poll when its first
+// reply could not be parsed as the required JSON — a verbose model wrapping the object in prose is
+// the common cause, and abstaining outright would drop the vote from quorum.
+const councilJSONReminder = "\n\n# Reply format\nYour previous reply could not be parsed as the required " +
+	"JSON. Reply with ONLY the JSON object — no prose, explanation, or markdown fences before or after it."
+
 const devilSystem = "You are the council's devil's advocate. The other members are ready to rule this AI " +
 	"coding agent's turn DONE, and nobody has argued the other side. Your job is to stress-test that " +
 	"consensus: assume it is premature and hunt for the single most likely REAL reason the turn is not " +
