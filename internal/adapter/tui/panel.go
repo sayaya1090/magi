@@ -8,7 +8,6 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/sayaya1090/magi/internal/app"
-	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -146,11 +145,17 @@ func (m *Model) statusPanel(panelTop int) string {
 	// Completion checklist: the plan-audit's per-step executable deliverable checks — what counts as
 	// each step DONE and the command that verifies it. Shown at the plan level (not only in a worker or
 	// council drill-down) so the completion contract the run is judged against is always visible.
-	if _, checks := m.app.CouncilContract(m.panelSID()); len(checks) > 0 {
+	if checks := m.app.CompletionChecks(m.panelSID()); len(checks) > 0 {
 		sep()
-		lines = append(lines, panelHead("Completion checks"))
-		for _, c := range checks {
-			lines = append(lines, wrapPanel(checkLine(c), inner)...)
+		passed := 0
+		for _, cs := range checks {
+			if cs.State == app.CheckPassed {
+				passed++
+			}
+		}
+		lines = append(lines, panelHead(fmt.Sprintf("Completion checks  %d/%d", passed, len(checks))))
+		for _, cs := range checks {
+			lines = append(lines, wrapPanel(m.checkLine(cs), inner)...)
 		}
 	}
 
@@ -262,18 +267,30 @@ func (m *Model) workerPanel(p *agentPane) string {
 	return roundedBox(strings.Join(lines, "\n"), content)
 }
 
-// checkLine formats one completion check for the plan panel: "• deliverable — run: cmd", falling
-// back to the command itself as the label when the deliverable phrase is empty.
-func checkLine(c council.DeliverableCheck) string {
-	head := strings.TrimSpace(c.Deliverable)
-	cmd := strings.TrimSpace(c.Command)
+// checkLine formats one completion check for the plan panel with a state glyph: a green ✓ for a
+// check whose verify command has passed, an animated spinner for a check whose step is currently in
+// progress, else a muted bullet. The label is the deliverable phrase ("run: cmd" appended when the
+// phrase is present), or the command itself when no phrase was authored. A passed line is dimmed and
+// struck through — done, out of the way — mirroring the plan tree's completed-todo styling.
+func (m *Model) checkLine(cs app.CheckStatus) string {
+	head := strings.TrimSpace(cs.Check.Deliverable)
+	cmd := strings.TrimSpace(cs.Check.Command)
 	if head == "" {
 		head, cmd = cmd, ""
 	}
+	label := head
 	if cmd != "" {
-		return "• " + head + " — run: " + cmd
+		label = head + " — run: " + cmd
 	}
-	return "• " + head
+	switch cs.State {
+	case app.CheckPassed:
+		return lipgloss.NewStyle().Foreground(colSuccess).Render("✓ ") +
+			lipgloss.NewStyle().Foreground(colMuted).Strikethrough(true).Render(label)
+	case app.CheckActive:
+		return m.sp.View() + " " + lipgloss.NewStyle().Bold(true).Render(label)
+	default:
+		return lipgloss.NewStyle().Foreground(colMuted).Render("• " + label)
+	}
 }
 
 // ledgerLine formats one shared-ledger row for a panel: "• step — facts", or "• facts" when the

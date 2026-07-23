@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -312,6 +313,12 @@ func (m *Model) applyEvent(e event.Event) {
 			m.onCouncilDecided(d)
 		}
 
+	case event.TypeStepCheck:
+		var d event.StepCheckData
+		if json.Unmarshal(e.Data, &d) == nil {
+			m.onStepCheck(d)
+		}
+
 	case event.TypeTurnFinished:
 		m.onTurnFinished(e)
 
@@ -449,6 +456,29 @@ func (m *Model) onCouncilConvened(d event.CouncilConvenedData) {
 	if showLine {
 		m.blocks = append(m.blocks, block{kind: blockInfo, text: line})
 	}
+}
+
+// onStepCheck renders one deterministic deliverable-check result as a clean, readable line —
+// a green ✓ or red ✗, the step label, and what it verifies — instead of the council-round
+// wrapper these facts used to be shoved through ("round 0: finished (no consensus) — 0 done /
+// 0 continue (check [1] …)"). A single executed check has no round or tally; this shows just
+// the result.
+func (m *Model) onStepCheck(d event.StepCheckData) {
+	what := strings.TrimSpace(d.Deliverable)
+	if what == "" {
+		what = strings.TrimSpace(d.Command)
+	}
+	if step := strings.TrimSpace(d.Step); step != "" {
+		what = "[" + step + "] " + what
+	}
+	glyph, tail := "✓", ""
+	color := colSuccess
+	if !d.Pass {
+		glyph, color = "✗", colError
+		tail = fmt.Sprintf(" — exit %d", d.Code)
+	}
+	line := lipgloss.NewStyle().Foreground(color).Render(glyph+" check ") + what + tail
+	m.blocks = append(m.blocks, block{kind: blockInfo, text: line})
 }
 
 // onCouncilDecided renders a round's outcome + tally line. The caller clears the
