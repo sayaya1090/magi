@@ -140,7 +140,7 @@ type CheckState int
 const (
 	CheckPending CheckState = iota // not yet verified passing, and not the current step
 	CheckActive                    // belongs to the step currently in progress (render a spinner)
-	CheckPassed                    // its verify command last ran green (render a ✓)
+	CheckPassed                    // its OWN verify command ran green (render a ✓)
 )
 
 // CheckStatus pairs a completion check with its current display state.
@@ -150,9 +150,11 @@ type CheckStatus struct {
 }
 
 // CompletionChecks returns the turn's completion checks annotated with display state for the
-// plan panel: CheckPassed once a check's verify command has run green, CheckActive while the
-// check's step is the one in progress (so the panel can spin it), else CheckPending. A passed
-// check wins over active. Empty when the turn derived no checks.
+// plan panel: CheckPassed once the check's OWN verify command has run green, CheckActive while the
+// check's step is the one in progress (so the panel can spin it), else CheckPending. A green run
+// wins over active. A merely-completed step does NOT flip its check to ✓ — that step-done ✓ lives
+// in the plan tree above; the completion-check ✓ is reserved for the check's own executed evidence,
+// so the two panel blocks never double-mark the same completed step. Empty when no checks derived.
 func (a *App) CompletionChecks(sid session.SessionID) []CheckStatus {
 	checks := a.cachedChecks(sid)
 	if len(checks) == 0 {
@@ -172,11 +174,18 @@ func (a *App) CompletionChecks(sid session.SessionID) []CheckStatus {
 	out := make([]CheckStatus, len(checks))
 	for i, c := range checks {
 		state := CheckPending
+		// The step being in progress spins its check. A step that is merely "completed" does NOT
+		// flip the check to ✓ here — the plan tree already shows that step-done ✓ one block up, and
+		// mirroring it would double-mark the same completed step. The completion-check ✓ is earned
+		// only by the check's own green run (below).
 		if idx := matchTodoIndex(todos, c.Step); idx >= 0 && todos[idx].Status == "in_progress" {
-			state = CheckActive
+			state = CheckActive // its step is running → spinner
 		}
-		if passed[checkKey(c)] {
-			state = CheckPassed // a green check overrides the in-progress spinner
+		// The check's OWN executed result is authoritative: a green run shows ✓ (outranking the
+		// spinner); a FAILED run stays a plain bullet — it cannot claim ✓ over its contradicting
+		// evidence, and unlike an in-progress step it is not "running".
+		if result, ran := passed[checkKey(c)]; ran && result {
+			state = CheckPassed
 		}
 		out[i] = CheckStatus{Check: c, State: state}
 	}

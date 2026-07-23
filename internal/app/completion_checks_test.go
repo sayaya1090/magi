@@ -58,3 +58,41 @@ func TestCompletionChecksState(t *testing.T) {
 		t.Errorf("a check that later fails must not stay CheckPassed, got %v", got[0].State)
 	}
 }
+
+// A merely-"completed" step whose check never ran shows a plain bullet — NOT a ✓ — so the panel's
+// two blocks don't double-mark the same completed step: the step-done ✓ lives in the plan tree, and
+// the completion-check ✓ is reserved for the check's OWN green run. A recorded green run earns the ✓;
+// a recorded FAIL stays a bullet.
+func TestCompletionChecksCompletedStepNoVerifyIsBullet(t *testing.T) {
+	a, sid, _ := newWorkflowApp(t, nil, nil, Config{Permission: "allow"})
+
+	checks := []council.DeliverableCheck{
+		{Step: "1", Deliverable: "built", Command: "test -f out"},
+		{Step: "2", Deliverable: "shipped", Command: "test -f dist"},
+	}
+	setChecks(a, sid, checks)
+	// Both steps done; NO verify result recorded for either (solo path, step-verify off).
+	a.SetTodos(sid, []session.Todo{
+		{Content: "build", Status: "completed"},
+		{Content: "ship", Status: "completed"},
+	})
+
+	got := a.CompletionChecks(sid)
+	if got[0].State != CheckPending {
+		t.Errorf("a completed step with no verify run must be a plain bullet (not ✓), got %v", got[0].State)
+	}
+	if got[1].State != CheckPending {
+		t.Errorf("a completed step with no verify run must be a plain bullet (not ✓), got %v", got[1].State)
+	}
+
+	// The check's own green run earns the ✓; a recorded FAIL keeps it a bullet.
+	a.recordCheckResult(sid, checks[0], true)
+	a.recordCheckResult(sid, checks[1], false)
+	got = a.CompletionChecks(sid)
+	if got[0].State != CheckPassed {
+		t.Errorf("a check that ran green must be ✓, got %v", got[0].State)
+	}
+	if got[1].State != CheckPending {
+		t.Errorf("a check that ran and FAILED must stay a bullet, got %v", got[1].State)
+	}
+}
