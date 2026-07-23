@@ -198,6 +198,26 @@ func TestPlanMemberPromptScopesChecksToSteps(t *testing.T) {
 // The check-authoring prompt must forbid over-demand: a check may assert only what the task states,
 // never a version/build-id/incidental the task did not pin. Over-specification false-fails correct
 // work and never converges — the mirror of the too-weak file-existence trap.
+// A continue demand for a task-unspecified specific (a type width, version pin, or identifier
+// spelling) must be grounded in the task's own words — the terminate-phase member prompt has to
+// place that burden on the member, or a phantom requirement churns a correct deliverable to the
+// wall clock (kv-store: a council int64 demand the grader never checked, cost an AgentTimeout).
+func TestMemberPromptGroundsDemandsInTask(t *testing.T) {
+	m := council.Member{Name: "x", Lens: "correctness"}
+	p := memberSystem(m, "terminate", "stand up a service", false)
+	for _, want := range []string{"GROUND every continue demand in the TASK", "where the TASK", "phantom requirement"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("terminate member prompt must require continue demands be grounded in the task (missing %q)", want)
+		}
+	}
+	// de-overfit: the grounding clause must illustrate the failure mode without eval-set tokens.
+	for _, banned := range []string{"grpcio", "kv-store", "int64", "int32"} {
+		if strings.Contains(p, banned) {
+			t.Errorf("terminate member prompt leaks eval-set-specific token %q — keep the example task-agnostic", banned)
+		}
+	}
+}
+
 func TestPlanMemberPromptForbidsOverDemand(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "correctness"}
 	p := memberSystem(m, "plan", "install a dependency and run a server", false)

@@ -677,8 +677,15 @@ func memberSystem(m council.Member, phase, task string, keep bool) string {
 			"`feedback`. A missing diff or signal is NOT a defect.\n"+
 			"- \"abstain\": your lens genuinely cannot judge from what is given. Excluded from the tally.\n\n"+
 			"Never invent a defect, never demand evidence the task never required, and never continue out of mere "+
-			"uncertainty or a wish for more proof. When the turn changed no files, judge the report's SUBSTANCE against "+
-			"the task — the absence of a diff is not itself a defect, but a wrong or incomplete answer still is.\n\n"+
+			"uncertainty or a wish for more proof. GROUND every continue demand in the TASK: when the defect you name "+
+			"is a SPECIFIC — an exact value, a numeric type or integer width, a version pin, a field or identifier's "+
+			"exact spelling or capitalization, a format, or a threshold — you must be able to point to where the TASK "+
+			"ITSELF states it, and say which task words require it in `feedback`. If the task does not state that "+
+			"specific, it is NOT a defect: demanding it sends the agent churning on a phantom requirement until the "+
+			"wall clock, on work that may already be correct. A plan or criteria phrasing that introduced a specific "+
+			"the task never stated does NOT license the demand — defer to the task's literal wording. When the turn "+
+			"changed no files, judge the report's SUBSTANCE against the task — the absence of a diff is not itself a "+
+			"defect, but a wrong or incomplete answer still is.\n\n"+
 			"%s"+
 			"Respond with ONLY a JSON object, no prose, no code fence:\n"+
 			"%s",
