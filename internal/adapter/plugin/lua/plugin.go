@@ -30,7 +30,7 @@ type plugin struct {
 	hooks    map[string][]*lua.LFunction // lifecycle handlers registered via magi.on(event, fn)
 	servers  []io.Closer                 // loopback HTTP servers opened via magi.serve; closed on unload
 	baseSet  bool                        // this plugin overrode the LLM base URL (magi.set_base_url)
-	baseURL  string                      // the exact override this plugin set; compare-and-cleared on unload
+	baseTok  uint64                      // ownership token of that override; released (only if still current) on unload
 	logf     func(string)
 }
 
@@ -88,10 +88,11 @@ func (p *plugin) close() {
 	p.servers = nil
 	// Restore the configured LLM backend if this plugin had redirected it: otherwise
 	// dynBase keeps pointing at the now-dead loopback proxy and every LLM call fails.
-	// Compare-and-clear so a reload (whose new instance already installed its own override
-	// before this old instance is closed) or another redirecting plugin isn't clobbered.
+	// Release by token so a reload (whose new instance installed a fresh override — a new
+	// token — before this old instance is closed) or another redirecting plugin isn't
+	// clobbered; a stale token makes ClearBaseURL a no-op.
 	if p.baseSet && p.host != nil && p.host.baseReg != nil {
-		p.host.baseReg.ClearBaseURLIfEquals(p.baseURL)
+		p.host.baseReg.ClearBaseURL(p.baseTok)
 		p.baseSet = false
 	}
 	if p.L != nil {

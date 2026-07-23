@@ -421,9 +421,8 @@ func (p *plugin) bridgeSetBaseURL(L *lua.LState) int {
 			return fail(L, "permission denied: net:"+u.Hostname())
 		}
 	}
-	p.host.baseReg.SetBaseURL(raw)
+	p.baseTok = p.host.baseReg.SetBaseURL(raw) // token used to release only our own override
 	p.baseSet = raw != ""
-	p.baseURL = raw // remembered so close() only clears if the registry still holds our value
 	p.logf("[" + p.name + "] set LLM base URL: " + raw)
 	L.Push(lua.LTrue)
 	return 1

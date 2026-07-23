@@ -50,10 +50,12 @@ type LLMHeaderRegistry interface {
 // (magi.set_base_url) — e.g. to point the agent at a loopback server the plugin runs
 // in-process via magi.serve. An empty string clears the override.
 type BaseURLRegistry interface {
-	SetBaseURL(url string)
-	// ClearBaseURLIfEquals clears the override only if it still equals url (compare-and-swap),
-	// so unloading one plugin can't wipe an override another plugin has since installed.
-	ClearBaseURLIfEquals(url string)
+	// SetBaseURL installs the override and returns an ownership token to release it with.
+	SetBaseURL(url string) uint64
+	// ClearBaseURL releases the override only if tok still identifies the current one, so
+	// unloading/reloading one plugin can't wipe an override a newer Set installed since
+	// (including a hot-reload's new instance re-installing the same URL).
+	ClearBaseURL(tok uint64)
 }
 
 // ModelRegistry lets a plugin change model settings for the live session at

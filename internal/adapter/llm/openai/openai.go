@@ -26,7 +26,8 @@ import (
 // Client is an OpenAI-compatible LLM provider.
 type Client struct {
 	baseURL  string
-	dynBase  atomic.Pointer[string] // runtime override (plugin magi.set_base_url); nil = use baseURL
+	dynBase  atomic.Pointer[baseOverride] // runtime override (plugin magi.set_base_url); nil = use baseURL
+	baseSeq  atomic.Uint64                // monotonic ownership-token source for dynBase
 	apiKey   string
 	http     *http.Client
 	cache    bool        // attach cache_control breakpoints (Anthropic via LiteLLM)
@@ -38,35 +39,47 @@ type Client struct {
 	headers *httpx.Headers // static (config) + dynamic (plugin) custom headers
 }
 
+// baseOverride is a runtime LLM base-URL override plus the ownership token that installed it.
+// The token lets a release (ClearBaseURL) distinguish "still mine" from "a newer Set replaced
+// mine with the same URL" — which a value compare cannot, so a hot-reload that re-installs the
+// identical gateway URL used to self-clobber the override back to the configured localhost.
+type baseOverride struct {
+	url string
+	tok uint64
+}
+
 // base returns the effective base URL: a runtime override (set by a plugin via
 // magi.set_base_url) if present, else the configured one. Read on every request so a
 // plugin can redirect the LLM backend mid-session.
 func (c *Client) base() string {
-	if p := c.dynBase.Load(); p != nil && *p != "" {
-		return *p
+	if o := c.dynBase.Load(); o != nil && o.url != "" {
+		return o.url
 	}
 	return c.baseURL
 }
 
-// SetBaseURL overrides the LLM backend base URL at runtime (e.g. a plugin pointing the
-// agent at a local proxy/mock). An empty string clears the override. Safe to call while
-// the client is in use.
-func (c *Client) SetBaseURL(url string) {
+// SetBaseURL overrides the LLM backend base URL at runtime (e.g. a plugin pointing the agent
+// at a local proxy/mock or a corporate gateway). An empty string clears the override for reads.
+// It returns an ownership token: pass it to ClearBaseURL to release the override only while it
+// is still the one in force. Safe to call while the client is in use.
+func (c *Client) SetBaseURL(url string) uint64 {
 	u := strings.TrimRight(url, "/")
-	c.dynBase.Store(&u)
+	tok := c.baseSeq.Add(1)
+	c.dynBase.Store(&baseOverride{url: u, tok: tok})
+	return tok
 }
 
-// ClearBaseURLIfEquals clears the override only if it still holds url — a compare-and-swap
-// so that unloading one plugin doesn't wipe an override a different (or freshly reloaded)
-// plugin has since installed. No-op if url isn't the current override.
-func (c *Client) ClearBaseURLIfEquals(url string) {
-	u := strings.TrimRight(url, "/")
+// ClearBaseURL releases the override only if tok still identifies the current one. A later
+// SetBaseURL — another redirecting plugin, or a hot-reload's new instance re-installing the
+// SAME URL before the old instance is closed — supersedes tok, so the outgoing instance's
+// close is a no-op instead of reverting a live gateway redirect back to the configured base.
+func (c *Client) ClearBaseURL(tok uint64) {
 	for {
-		p := c.dynBase.Load()
-		if p == nil || *p != u {
-			return // someone else owns the override now
+		o := c.dynBase.Load()
+		if o == nil || o.tok != tok {
+			return // superseded by a newer override, or already cleared
 		}
-		if c.dynBase.CompareAndSwap(p, nil) {
+		if c.dynBase.CompareAndSwap(o, nil) {
 			return
 		}
 	}
