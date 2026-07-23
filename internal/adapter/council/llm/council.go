@@ -745,8 +745,12 @@ func planMemberSystem(m council.Member, lens string, keep bool) string {
 			"`deliverable` in one short phrase, a "+
 			"shell `command` that verifies it from the task's working directory, and an optional `expect` REGULAR "+
 			"EXPRESSION the command's output must match (omit `expect` for an exit-code-only check). A check that only "+
-			"asserts a file EXISTS or is non-empty is INSUFFICIENT whenever the deliverable must BEHAVE or produce a "+
-			"correct result — you MUST author a check that RUNS it and asserts the OUTCOME. Asserting the artifact is "+
+			"confirms the deliverable can be REACHED — a file exists or is non-empty, a port accepts a connection, a "+
+			"module imports, a build succeeds, a process is alive — is a PRECONDITION, not proof, and is INSUFFICIENT "+
+			"whenever the deliverable must BEHAVE or produce a correct result, because a non-functional stub passes every "+
+			"one of those. You MUST author a check that INVOKES the behavior through the same interface its consumer uses "+
+			"and asserts the OUTCOME, choosing the weakest input that still forces the real code path so a stub that "+
+			"merely exists or opens the port FAILS. Asserting the artifact is "+
 			"present while never exercising it is the single biggest reason a broken solution gets approved: a program that "+
 			"builds but computes the wrong answer, a `gates.txt` that exists but simulates to the wrong value, a server "+
 			"file that never actually listens, a cleanup handler that never fires. So beyond any existence check, run it, "+
