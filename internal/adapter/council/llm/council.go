@@ -757,9 +757,12 @@ func planMemberSystem(m council.Member, lens string, keep bool) string {
 			"ANY concrete example — a literal command line, an input→output mapping, or a numeric threshold — your FIRST "+
 			"check MUST run that EXACT input and assert that EXACT output, verbatim, never a paraphrase or a value you "+
 			"invented; this one check catches a wrong-but-present artifact that every file-existence check misses. The hidden grader enforces the TASK'S own "+
-			"contract, so a self-substituted command or expected output passes your check but fails the grader (e.g. the "+
-			"task names `pmars -b -r 50 -f flashpaper.red rave.red | tail -n 1` — run exactly that; a task giving "+
-			"`sim 208 → 377` — assert exactly that mapping). When the task's acceptance involves an EXTERNAL event — a signal "+
+			"contract, so a self-substituted command or expected output passes your check but fails the grader: if the "+
+			"task quotes an exact command line, run THAT line unchanged; if it gives an example input→output mapping, "+
+			"assert exactly that mapping — never a value you invented. CONVERSELY do NOT demand MORE than the task states: "+
+			"never pin a version, build id, exact path, or incidental attribute the task did not itself specify — "+
+			"over-specification false-fails correct work and never converges. Assert the minimal condition that proves the "+
+			"stated objective. When the task's acceptance involves an EXTERNAL event — a signal "+
 			"(Ctrl-C/SIGINT), a kill, a disconnect — author a check that DELIVERS the event for real: launch the "+
 			"artifact as a background process, send the actual signal, and match the required output (e.g. command "+
 			"`python3 app.py & p=$!; sleep 1; kill -INT $p; wait $p 2>/dev/null; ...`, expect the cleanup marker). "+
@@ -788,10 +791,10 @@ func planMemberSystem(m council.Member, lens string, keep bool) string {
 			"reference/expected output is hidden — assert the artifact RUNS without error and emits output in the "+
 			"expected SHAPE (exists, non-empty, valid JSON/CSV, right column/field count, plausible row count). Skipping "+
 			"such a step leaves the run with NO done-signal, so the agent second-guesses a working solution and refines "+
-			"it until the wall clock (observed on extract-elf: a correct extract.js kept being re-verified for 45min with "+
-			"zero checks). Example for \"write extract.js that outputs {addr: value} JSON\": command `node /app/extract.js "+
-			"/app/a.out > /tmp/o.json && node -e \"const o=require('/tmp/o.json'); process.exit(o && Object.keys(o).length>0?0:1)\"` "+
-			"(runs + non-empty object) — not the hidden exact values. For a "+
+			"it until the wall clock. Example, for a step that writes a script emitting JSON: run the script on its input "+
+			"and assert the output PARSES and is non-empty — command `<script> <input> > /tmp/o.json && python3 -c "+
+			"\"import json,sys; sys.exit(0 if json.load(open('/tmp/o.json')) else 1)\"` (runs + non-empty) — shape only, "+
+			"never the hidden exact values. For a "+
 			"read/review/analyze/answer step there is usually nothing to execute: emit NO check for it (the prose "+
 			"`criteria` already cover it). CHECKLIST-DRIVEN, JOINTLY SATISFIABLE: author each step together with its "+
 			"own done-condition — a step that produces a runnable/inspectable artifact should carry at least one check "+
