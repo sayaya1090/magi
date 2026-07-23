@@ -218,6 +218,22 @@ func TestMemberPromptGroundsDemandsInTask(t *testing.T) {
 	}
 }
 
+// The devil advocate hunts for a reason the turn is not done, so it too can manufacture a
+// task-unspecified specific (the reviewDevil round catches spurious ones downstream, but the
+// concern should be grounded at the source, consistent with the members' obligation).
+func TestDevilPromptGroundsDemandsInTask(t *testing.T) {
+	for _, want := range []string{"When that defect is itself a SPECIFIC", "where the TASK ITSELF states it", "manufactured doubt"} {
+		if !strings.Contains(devilSystem, want) {
+			t.Errorf("devil prompt must require a specific defect be grounded in the task (missing %q)", want)
+		}
+	}
+	for _, banned := range []string{"grpcio", "kv-store", "int64", "int32"} {
+		if strings.Contains(devilSystem, banned) {
+			t.Errorf("devil prompt leaks eval-set-specific token %q — keep the example task-agnostic", banned)
+		}
+	}
+}
+
 func TestPlanMemberPromptForbidsOverDemand(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "correctness"}
 	p := memberSystem(m, "plan", "install a dependency and run a server", false)

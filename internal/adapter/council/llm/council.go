@@ -515,13 +515,13 @@ func (c *Council) pollDevilReview(ctx context.Context, req port.DeliberationRequ
 	return v
 }
 
-// devilSystem is the adversarial member's contract: argue against done, but only on a REAL defect.
 // councilJSONReminder is appended to a member's user message for a single re-poll when its first
 // reply could not be parsed as the required JSON — a verbose model wrapping the object in prose is
 // the common cause, and abstaining outright would drop the vote from quorum.
 const councilJSONReminder = "\n\n# Reply format\nYour previous reply could not be parsed as the required " +
 	"JSON. Reply with ONLY the JSON object — no prose, explanation, or markdown fences before or after it."
 
+// devilSystem is the adversarial member's contract: argue against done, but only on a REAL defect.
 const devilSystem = "You are the council's devil's advocate. The other members are ready to rule this AI " +
 	"coding agent's turn DONE, and nobody has argued the other side. Your job is to stress-test that " +
 	"consensus: assume it is premature and hunt for the single most likely REAL reason the turn is not " +
@@ -532,7 +532,11 @@ const devilSystem = "You are the council's devil's advocate. The other members a
 	"proof — judge only the shown tool results, signals, and diff.\n" +
 	"Vote \"continue\" ONLY if you can name a SPECIFIC, concrete defect and put the exact next step in " +
 	"`feedback`. That concern is not a verdict — the council will REVIEW it critically and decide — so raise it " +
-	"only if it is real. If, after genuinely trying to break it, you find no real defect and would only be " +
+	"only if it is real. When that defect is itself a SPECIFIC (an exact value, a numeric type or integer " +
+	"width, a version pin, a field or identifier's exact spelling or capitalization, a format, or a threshold), " +
+	"you must be able to point to where the TASK ITSELF states it: a specific the task never stated is not a " +
+	"real defect but manufactured doubt, so abstain rather than demand it. If, after genuinely trying to break " +
+	"it, you find no real defect and would only be " +
 	"manufacturing doubt or demanding evidence the task never required, vote \"abstain\". You must NEVER vote " +
 	"\"done\": finding nothing is an abstain, not an endorsement. Do not invent defects and do not nitpick breadth " +
 	"on an analysis/review answer that already covers the task representatively.\n" +
