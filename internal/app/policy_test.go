@@ -31,6 +31,38 @@ func TestPolicySecretDenyFloor(t *testing.T) {
 	}
 }
 
+// TestPolicyGlobMatchingSemantics locks the rule-matching contract: a glob
+// full-matches the subject, and only an explicit "**/" prefix makes it reach
+// nested paths. A bare glob matches the exact subject alone — the mechanism the
+// built-in secret floor relies on ("**/.env" over ".env"). Guards against a
+// future change that silently lets bare globs match any suffix segment (which
+// would over-block) or stops "**/" from crossing directories (which would let a
+// nested secret slip the floor). Uses ".foo"/".xyz" to avoid the secret floor.
+func TestPolicyGlobMatchingSemantics(t *testing.T) {
+	cases := []struct {
+		rule, path string
+		wantDeny   bool
+	}{
+		// "**/" prefix crosses directories: nested and bare alike.
+		{"read(**/.foo)", ".foo", true},
+		{"read(**/.foo)", "a/b/.foo", true},
+		// Bare glob is anchored: exact subject only, no suffix-segment match.
+		{"read(.foo)", ".foo", true},
+		{"read(.foo)", "a/b/.foo", false},
+		// "*" stays within a segment; "**/" spans segments.
+		{"read(*.xyz)", "main.xyz", true},
+		{"read(*.xyz)", "a/main.xyz", false},
+		{"read(**/*.xyz)", "a/main.xyz", true},
+	}
+	for _, c := range cases {
+		p := newPolicy(nil, []string{c.rule}, nil)
+		v, _ := p.Decide("read", args(map[string]string{"path": c.path}))
+		if (v == "deny") != c.wantDeny {
+			t.Errorf("rule %q path %q: verdict=%q wantDeny=%v", c.rule, c.path, v, c.wantDeny)
+		}
+	}
+}
+
 func TestPolicyBashScan(t *testing.T) {
 	p := newPolicy(nil, nil, nil)
 	cases := []struct {

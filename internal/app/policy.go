@@ -163,8 +163,10 @@ func (r policyRule) matches(tool, subject string) bool {
 	if r.re == nil {
 		return false
 	}
-	// Match the whole subject, or — for path globs without a leading ** — any
-	// suffix segment, so "**/.env" catches "a/b/.env" and ".env" alike.
+	// Full-match the subject against the anchored glob regexp. A rule reaches
+	// nested paths only through an explicit "**/" prefix (compiled to an optional
+	// leading-directory group), so "**/.env" catches both ".env" and "a/b/.env",
+	// while a bare ".env" glob matches only the exact subject ".env".
 	return r.re.MatchString(subject)
 }
 
