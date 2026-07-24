@@ -251,8 +251,12 @@ const validateChecksSystem = "You review the executable deliverable `checks` a p
 	"(`test ! -f a.tgz`) MUST keep its own step label; never merge it onto the same step as an existence check " +
 	"(`test -s a.tgz`) for the same artifact — they are verified at different steps, and co-locating them makes a " +
 	"jointly-unsatisfiable checklist. Keep `expect` ONLY when it reliably matches correct output; " +
-	"otherwise drop `expect` and rely on the exit code. Do NOT invent new checks or change what a check verifies — " +
-	"only repair HOW it verifies. Return [] if none survive. JSON array only, no prose, no code fence."
+	"otherwise drop `expect` and rely on the exit code.\n" +
+	"- SCOPE (repair, do not retarget): only repair HOW each check proves its OWN stated deliverable.\n" +
+	"  · strengthening a proxy into the real behavioral assertion of that SAME deliverable — a config into the effect " +
+	"it causes, a single sample into the whole reference — is the repair intended here, NOT a forbidden change.\n" +
+	"  · do NOT invent a check for a DIFFERENT deliverable, or retarget a check to another step's objective.\n" +
+	"Return [] if none survive. JSON array only, no prose, no code fence."
 
 // validateChecks runs a tool-free review over the plan-audit's deliverable checks, repairing or
 // dropping ones whose command cannot satisfy its own expect, uses a missing tool, or only asserts a

@@ -147,6 +147,15 @@ func TestValidateChecksPromptForbidsConfigProxyAndSpotCheck(t *testing.T) {
 			t.Errorf("validateChecksSystem must forbid config-proxy / single-sample checks (missing %q)", want)
 		}
 	}
+	// The no-invent clause must NOT read as forbidding the proxy→behavior strengthening above:
+	// strengthening a check's OWN deliverable is explicitly permitted; only inventing a check for a
+	// DIFFERENT deliverable / retargeting to another step is forbidden. (A weak model reading "do not
+	// change what a check verifies" literally would skip the strengthening — the reconciliation matters.)
+	for _, want := range []string{"NOT a forbidden change", "DIFFERENT deliverable"} {
+		if !strings.Contains(validateChecksSystem, want) {
+			t.Errorf("validateChecksSystem must reconcile no-invent with strengthening (missing %q)", want)
+		}
+	}
 }
 
 // Guard against benchmark overfitting: prompt examples must be task-agnostic. No eval-set task's exact
