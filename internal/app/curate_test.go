@@ -50,6 +50,18 @@ func TestParseCuratePacket(t *testing.T) {
 	if _, ok := parseCuratePacket("no json here"); ok {
 		t.Error("prose-only must not parse")
 	}
+	// A stray brace in the curator's reasoning before the real packet must NOT swallow it — the
+	// naive first-{/last-} span over-captured and lost the whole curation (dropping the worker to
+	// the literal-losing mechanical brief). The balanced scan skips the stray and finds the packet.
+	p, ok = parseCuratePacket("I'll select from `{lsp, astgrep}` and here is the packet:\n" +
+		`{"task":"do Y","literals":["value"]}`)
+	if !ok || p.Task != "do Y" || len(p.Literals) != 1 || p.Literals[0] != "value" {
+		t.Fatalf("stray-brace parse should recover the real packet: %v %+v", ok, p)
+	}
+	// A content-less object (e.g. a stray fragment) alone must not masquerade as a packet.
+	if pkt, ok := parseCuratePacket(`{"unrelated":1}`); ok && pkt.hasContent() {
+		t.Errorf("a non-packet object should not report content: %+v", pkt)
+	}
 }
 
 // renderCurateBrief lays the packet out as weighted sections so the context-free worker can tell the

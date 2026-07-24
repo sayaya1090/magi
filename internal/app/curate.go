@@ -205,15 +205,38 @@ func (a *App) resolveCuratedTools(selected []string) []string {
 	return out
 }
 
+// hasContent reports whether a parsed packet carries anything usable — used to skip a stray/
+// non-packet object (e.g. a code fragment `{...}` in the curator's reasoning) in favor of the
+// real packet that follows.
+func (p curatePacket) hasContent() bool {
+	return strings.TrimSpace(p.Goal) != "" || strings.TrimSpace(p.Progress) != "" ||
+		strings.TrimSpace(p.Task) != "" || strings.TrimSpace(p.Deliverable) != "" ||
+		len(p.Literals) > 0 || len(p.Constraints) > 0 || len(p.Tools) > 0
+}
+
+// parseCuratePacket extracts the curator's JSON packet from a reply that may wrap it in prose or
+// reasoning. A naive first-`{`-to-last-`}` span over-captures when the reasoning contains a stray
+// brace (a code fragment, a set literal) and then fails to parse — losing the whole curation and
+// dropping the worker back to the mechanical, literal-losing brief. So scan EVERY top-level
+// balanced object (like parsePlan) and take the first that unmarshals into a packet with content;
+// else the first that unmarshals at all; else none.
 func parseCuratePacket(raw string) (curatePacket, bool) {
-	s := strings.TrimSpace(raw)
-	i, j := strings.IndexByte(s, '{'), strings.LastIndexByte(s, '}')
-	if i < 0 || j <= i {
-		return curatePacket{}, false
+	var firstValid *curatePacket
+	for _, js := range balancedObjects(raw) {
+		var p curatePacket
+		if json.Unmarshal([]byte(js), &p) != nil {
+			continue // not JSON, or not the packet shape — try the next object
+		}
+		if p.hasContent() {
+			return p, true
+		}
+		if firstValid == nil {
+			pp := p
+			firstValid = &pp
+		}
 	}
-	var p curatePacket
-	if json.Unmarshal([]byte(s[i:j+1]), &p) != nil {
-		return curatePacket{}, false
+	if firstValid != nil {
+		return *firstValid, true
 	}
-	return p, true
+	return curatePacket{}, false
 }
