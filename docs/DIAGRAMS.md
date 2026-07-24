@@ -130,8 +130,12 @@ exit 0에 크래시 시그니처나 종료코드-무마 꼬리(`|| true` 등)가
 
 | 플래그 | 기본 | 제어 대상 |
 |---|---|---|
-| `MAGI_STEP_VERIFY` | OFF | 플랜타임 검증계획 → 전량통과 시 카운슬 스킵 (회귀 bisect로 OFF) |
-| `MAGI_STUCK_DECOMPOSE` | OFF | repeat-차단 시 TODO 분해 회복 (회귀 bisect로 OFF) |
+| `MAGI_STEP_VERIFY` | ON | 스텝별 실행 deliverable-check(게이트+워커 체크리스트); 스텝 완료마다 per-step 기록, 종료는 이미-✓ trust-green |
+| `MAGI_SUBST_REVIEW` | ON | `substitute_check` 대체를 엄격 카운슬(`Phase=substitution`)이 검토·정정루프, 승인 시 저장 체크 재작성 |
+| `MAGI_CONTRACT_FIRST` · `MAGI_STEP_CONTRACT` · `MAGI_CRITERIA_PERITEM` | ON | 계약-선행(요청→계약→플랜) · 재플랜 per-step 계약 · 종료 항목별 판정 |
+| `MAGI_CHECK_VALIDATE` · `MAGI_CHECK_COVERAGE` | ON | 체크 감사(수리/폐기) · 스텝 커버리지 갭 채우기 |
+| `MAGI_CHECK_CHURN_CAP` | 4 | 비수렴 자기체크 N회 FAIL → 작업물 세워둔 채 UNVERIFIED 착지(`0`=off) |
+| `MAGI_STUCK_DECOMPOSE` | ON | repeat-차단 시 TODO 분해 회복 |
 | `MAGI_RECOVERY_RUNCAP` | OFF | 런 트리당 회복실행 1회 제한 |
 | `MAGI_ORIENT` | ON | explore-first 그라운딩 |
 | `MAGI_SPEC_FIDELITY` | ON | 스펙 축어성 보존 노트 (카운슬 렌즈와 별개 기능) |

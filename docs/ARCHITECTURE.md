@@ -440,6 +440,27 @@ mode) does NOT finish immediately: it convenes a **council** that votes done-vs-
   authors per-step checks for its fresh plan, hands each recovery unit its checklist, and verifies
   the unit's checks before completing it, so a re-plan cannot false-complete a unit that returned
   text without meeting its contract.
+- **Per-step recording (completion hook + turn-boundary + trust-green)**: a step's checks are
+  RECORDED the moment that step lands, not batched at the finish. `completeThrough` (the shared
+  delegate/scout/refine completion hook) runs the newly-completed step's checks via `recordStepChecks`
+  (idempotent — a check the delegate gate already greened is skipped, so the two never double-run).
+  A mixed plan's SOLO steps run in the main agent's own turns (`executeSteps` skips them), so
+  `recordPendingStepChecks` records at each main-turn boundary, gated on the mutation epoch advancing
+  (a read-only turn runs nothing) and scoped to the execution frontier (a not-yet-started step's
+  check would just fail every turn). The terminal `runStepGate` then TRUSTS an already-✓ check
+  instead of re-running it — a reconciliation of what is not yet verified, not a batched re-verify.
+  The three paths share one `runCheckRecord` primitive (run → skip unexecutable → emit).
+- **Check substitution (`substitute_check`, `MAGI_SUBST_REVIEW`)**: when an acceptance check's command
+  cannot run in the environment (missing tool, wrong path, no permission, different setup — not the
+  deliverable being wrong), any agent runs an EQUIVALENT that verifies the same goal and registers it
+  with the `substitute_check` tool (granted to every worker via `curateBaseTools`). At the finish
+  boundary a STRICT review council (`Phase=="substitution"`, `reviewSubstitutions` — from
+  `handleReport` for a worker, `runTerminationGate` for a solo agent) judges whether the equivalent
+  is adequate (rejecting a weaker proxy, but demanding no more than the original check); a critical
+  concern loops the agent to correct and re-declare until the council agrees (bounded by the round
+  cap). An approved substitution then REWRITES the stored check to the working command
+  (`applyCheckSubs`) so the fix persists for the run — a worker's approved subs ride
+  `SpawnResult.CheckSubs` up to the parent whose session owns the checks.
 - **Per-item acceptance (`MAGI_CRITERIA_PERITEM`)**: the termination gate renders the acceptance
   criteria as a NUMBERED checklist and the member prompt requires each item be judged
   SATISFIED/UNSATISFIED individually — done lands only when EVERY item is satisfied, closing the
