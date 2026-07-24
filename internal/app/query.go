@@ -192,6 +192,34 @@ func (a *App) CompletionChecks(sid session.SessionID) []CheckStatus {
 	return out
 }
 
+// AcceptanceCriteria returns this turn's acceptance criteria — the prose completion conditions the
+// finished work is judged against — one item per line, for the plan panel. Paired with
+// CompletionChecks (the executable half), these are the "completion conditions". Empty when none.
+func (a *App) AcceptanceCriteria(sid session.SessionID) []string {
+	crit := a.cachedCriteria(sid)
+	if strings.TrimSpace(crit) == "" {
+		return nil
+	}
+	var out []string
+	for _, ln := range strings.Split(crit, "\n") {
+		ln = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(ln), "-"))
+		if ln != "" {
+			out = append(out, ln)
+		}
+	}
+	return out
+}
+
+// ContractFrozen reports whether a contract-first gate authored+froze this turn's completion
+// contract BEFORE planning (D-contract). The plan panel shows the completion conditions ABOVE the
+// plan when so, reflecting the contract-first order.
+func (a *App) ContractFrozen(sid session.SessionID) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st, ok := a.stateIf(sid)
+	return ok && st.contractFrozen
+}
+
 // LedgerRow is one shared artifact-ledger row for the TUI: a plan step and the concrete
 // deliverables (file paths, interfaces) it produced for later steps to reuse.
 type LedgerRow struct {

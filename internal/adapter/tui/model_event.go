@@ -430,23 +430,25 @@ func (m *Model) onCouncilConvened(d event.CouncilConvenedData) {
 	m.councilPhase = d.Phase                            // drives the footer "판정 대기 중" line while the round is open
 	m.pendingCouncilEvidence = formatCouncilEvidence(d) // shown in each verdict's detail view
 	label, verb := "council", "deliberate"
-	if d.Phase == "plan" {
+	switch d.Phase {
+	case "plan":
 		label, verb = "plan audit", "review the plan"
+	case "contract":
+		label, verb = "contract gate", "define the completion conditions"
 	}
 	// Noise control: the routine convened line (members + rule) repeats the
 	// same information every round and the header chip already shows the
 	// live deliberation — so it is only worth a transcript line when it
 	// carries something round-specific: deterministic SIGNALS (fabrication
-	// self-check, verify commands) or a plan-audit's procedure.
-	showLine := len(d.Signals) > 0 || d.Phase == "plan"
+	// self-check, verify commands), a plan-audit's procedure, or a contract round.
+	showLine := len(d.Signals) > 0 || d.Phase == "plan" || d.Phase == "contract"
 	line := fmt.Sprintf("⚖ %s round %d — %s %s (%s)", label, d.Round, strings.Join(d.Members, ", "), verb, d.Rule)
 	if len(d.Signals) > 0 {
 		line += " · " + strings.Join(d.Signals, ", ")
 	}
-	// Plan audit: show the procedure being judged THIS round, so a revised plan
-	// that gets rejected and replanned stays visible (you can see what changed
-	// across rounds, not just the final one that ran).
-	if d.Phase == "plan" {
+	// Plan audit shows the procedure being judged THIS round; the contract gate shows the DRAFT it is
+	// refining (empty on round 1 — the contract is born during the round and enumerated at the decision).
+	if d.Phase == "plan" || d.Phase == "contract" {
 		if plan := strings.TrimSpace(d.Plan); plan != "" {
 			for _, pl := range strings.Split(plan, "\n") {
 				line += "\n    " + pl
@@ -485,8 +487,11 @@ func (m *Model) onStepCheck(d event.StepCheckData) {
 // live council chip before invoking this (a decision ends the open round).
 func (m *Model) onCouncilDecided(d event.CouncilDecidedData) {
 	label := "council"
-	if d.Phase == "plan" {
+	switch d.Phase {
+	case "plan":
 		label = "plan audit"
+	case "contract":
+		label = "contract gate"
 	}
 	// A plan re-plan (continue) is always critical-driven (the severity veto), so the
 	// round word is "revise"; termination continue → "reject".
@@ -510,7 +515,7 @@ func (m *Model) onCouncilDecided(d event.CouncilDecidedData) {
 	}
 	if counts == "" {
 		doneLabel, contLabel := "done", "continue"
-		if d.Phase == "plan" {
+		if d.Phase == "plan" || d.Phase == "contract" {
 			doneLabel, contLabel = "approve", "revise"
 		}
 		counts = fmt.Sprintf("%d %s / %d %s", d.Tally.Done, doneLabel, d.Tally.Continue, contLabel)
@@ -523,6 +528,15 @@ func (m *Model) onCouncilDecided(d event.CouncilDecidedData) {
 		line += " (" + d.Note + ")"
 	} else if d.Feedback != "" {
 		line += " → feedback injected"
+	}
+	// Contract gate: enumerate the completion conditions this round settled, so it reads like the plan
+	// audit's proposed procedure — you see WHAT the contract judgment produced (1. … 2. …), not just a tally.
+	if d.Phase == "contract" && len(d.Criteria) > 0 {
+		for i, c := range d.Criteria {
+			if c = strings.TrimSpace(c); c != "" {
+				line += fmt.Sprintf("\n    %d. %s", i+1, c)
+			}
+		}
 	}
 	m.blocks = append(m.blocks, block{kind: blockInfo, text: line})
 	// A review round (non-plan) that votes "continue" re-prompts the model for a

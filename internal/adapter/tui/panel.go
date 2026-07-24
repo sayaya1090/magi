@@ -126,6 +126,46 @@ func (m *Model) statusPanel(panelTop int) string {
 		}
 	}
 
+	// Completion conditions = acceptance criteria (prose) + completion checks (executable). When a
+	// contract-first gate froze them BEFORE planning (D-contract), show them ABOVE the plan so the
+	// panel reflects the contract→plan order the run actually followed; otherwise the checks keep
+	// their legacy position below the plan and no criteria block is shown.
+	frozen := m.app.ContractFrozen(m.panelSID())
+	appendCriteria := func() {
+		if crit := m.app.AcceptanceCriteria(m.panelSID()); len(crit) > 0 {
+			sep()
+			lines = append(lines, panelHead("Completion criteria"))
+			for _, c := range crit {
+				// Empty checkbox like the plan/checks — a completion condition to satisfy (the council
+				// judges each at the end; the panel has no per-item exec signal, so it stays a checkbox).
+				lines = append(lines, wrapPanel(lipgloss.NewStyle().Foreground(colMuted).Render("☐ ")+c, inner)...)
+			}
+		}
+	}
+	// Completion checklist: the per-step executable deliverable checks — what counts as each step DONE
+	// and the command that verifies it. Shown at the plan level (not only in a worker or council
+	// drill-down) so the completion contract the run is judged against is always visible.
+	appendChecks := func() {
+		if checks := m.app.CompletionChecks(m.panelSID()); len(checks) > 0 {
+			sep()
+			passed := 0
+			for _, cs := range checks {
+				if cs.State == app.CheckPassed {
+					passed++
+				}
+			}
+			lines = append(lines, panelHead(fmt.Sprintf("Completion checks  %d/%d", passed, len(checks))))
+			for _, cs := range checks {
+				lines = append(lines, wrapPanel(m.checkLine(cs), inner)...)
+			}
+		}
+	}
+
+	if frozen { // contract-first: completion conditions come before the plan
+		appendCriteria()
+		appendChecks()
+	}
+
 	if todos := m.app.Todos(m.panelSID()); len(todos) > 0 {
 		done := 0
 		for _, t := range todos {
@@ -142,21 +182,8 @@ func (m *Model) statusPanel(panelTop int) string {
 		lines = m.appendPlanTree(lines, m.panelSID(), inner, 0)
 	}
 
-	// Completion checklist: the plan-audit's per-step executable deliverable checks — what counts as
-	// each step DONE and the command that verifies it. Shown at the plan level (not only in a worker or
-	// council drill-down) so the completion contract the run is judged against is always visible.
-	if checks := m.app.CompletionChecks(m.panelSID()); len(checks) > 0 {
-		sep()
-		passed := 0
-		for _, cs := range checks {
-			if cs.State == app.CheckPassed {
-				passed++
-			}
-		}
-		lines = append(lines, panelHead(fmt.Sprintf("Completion checks  %d/%d", passed, len(checks))))
-		for _, cs := range checks {
-			lines = append(lines, wrapPanel(m.checkLine(cs), inner)...)
-		}
+	if !frozen { // legacy order: checks below the plan
+		appendChecks()
 	}
 
 	// Shared artifact ledger: the exact paths/interfaces the plan's steps have produced — shown here
@@ -285,7 +312,9 @@ func (m *Model) checkLine(cs app.CheckStatus) string {
 	case app.CheckActive:
 		return m.sp.View() + " " + lipgloss.NewStyle().Bold(true).Render(label)
 	default:
-		return lipgloss.NewStyle().Foreground(colMuted).Render("• " + label)
+		// Empty checkbox, matching the plan tree's pending glyph (todoLine) — one checkbox
+		// language across the panel instead of a separate bullet for checks.
+		return lipgloss.NewStyle().Foreground(colMuted).Render("☐ " + label)
 	}
 }
 
@@ -293,10 +322,14 @@ func (m *Model) checkLine(cs app.CheckStatus) string {
 // producing step is unlabelled. The facts are shown verbatim (the exact paths workers must reuse).
 func ledgerLine(e app.LedgerRow) string {
 	facts := strings.TrimSpace(e.Facts)
+	// A ledger row is only recorded when its step COMPLETED (appendLedger), so it is always done:
+	// a green ✓ (matching the plan tree's completed glyph) instead of a neutral bullet, and no
+	// separate "done" text — the check conveys it.
+	check := lipgloss.NewStyle().Foreground(colSuccess).Render("✓ ")
 	if step := strings.TrimSpace(e.Step); step != "" {
-		return "• " + step + " — " + facts
+		return check + step + " — " + facts
 	}
-	return "• " + facts
+	return check + facts
 }
 
 // wrapPanel word-wraps s to width cells and returns its lines, so a long request/checklist entry
