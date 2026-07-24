@@ -40,10 +40,15 @@ func checkCommandUnrunnable(out string, code int) bool {
 	if code == 127 || code == 126 {
 		return true
 	}
+	if code == 0 {
+		return false // it RAN and succeeded — definitely runnable, whatever the output text says
+	}
 	low := strings.ToLower(out)
-	// Only the command-level shell signatures ("<name>: not found", "command not found",
-	// "executable file not found") — not "no such file"/"permission denied" alone, which a running
-	// command can emit about its ARGUMENTS (a deliverable failure, not an unrunnable check).
+	// A non-zero exit MAY be a wrapper surfacing a not-found under a different code: only the
+	// command-level shell signatures ("<name>: not found", "command not found", "executable file not
+	// found") — not "no such file"/"permission denied" alone, which a running command can emit about
+	// its ARGUMENTS (a deliverable failure, not an unrunnable check). Guarded by code!=0 above so a
+	// command that ran fine but happened to print "…: not found" in its output is never misread.
 	return strings.Contains(low, "command not found") ||
 		strings.Contains(low, ": not found") ||
 		strings.Contains(low, "executable file not found")
@@ -112,7 +117,10 @@ func (a *App) reviewSubstitutions(ctx context.Context, tc turnCtx, rounds *int) 
 	// one that RAN and FAILED is a real deliverable failure the agent must FIX, not substitute away.
 	justified, ranFailed := a.filterSubsByNecessity(ctx, s, pending)
 	if len(ranFailed) > 0 {
-		a.clearPendingSubs(sid) // refuse them; the failing original stays and drives the gate/re-plan
+		// Refuse the failure-masking subs (their failing original stays and drives the gate/re-plan), but
+		// KEEP any genuinely-justified subs pending so a mixed report doesn't lose them — they are reviewed
+		// on the next finish attempt after the agent addresses the real failure.
+		a.setPendingSubs(sid, justified)
 		*rounds = *rounds + 1
 		a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{Round: *rounds, Phase: "substitution",
 			Decision: string(council.Continue), Note: "substitution refused — the original check RAN and FAILED (a real deliverable failure, not a broken check)"})

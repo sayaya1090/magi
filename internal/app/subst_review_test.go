@@ -172,6 +172,34 @@ func TestReviewSubstitutionsRefusesRanFailed(t *testing.T) {
 	}
 }
 
+// A mixed report — one substitution whose original is genuinely unrunnable (justified) and one whose
+// original ran and FAILED (must be refused) — loops the agent for the failure but KEEPS the justified
+// substitution pending, so it is not lost.
+func TestReviewSubstitutionsMixedKeepsJustified(t *testing.T) {
+	t.Setenv("MAGI_SUBST_REVIEW", "1")
+	ctx := context.Background()
+	fc := &fakeCouncil{delibs: []council.Deliberation{{Decision: council.Done, Verdicts: []council.Verdict{{Decision: council.Done}}}}}
+	// Original for step 1 → exit 127 (unrunnable, justified); original for step 2 → exit 1 (ran & failed).
+	plat := &scriptPlatform{codes: []int{127, 1}}
+	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
+	setChecks(a, sid, []council.DeliverableCheck{
+		{Step: "1", Command: "ss -tlnp"},
+		{Step: "2", Command: "test -s out"},
+	})
+	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "ss -tlnp", Command: "python3 probe"})
+	a.addPendingSub(sid, port.CheckSub{Step: "2", Original: "test -s out", Command: "true"})
+
+	s := a.sessionInfo(ctx, sid)
+	act, looped := a.reviewSubstitutions(ctx, turnCtx{s: s, guard: newRunGuard(), depth: 0, maxSteps: 50}, new(int))
+	if !looped || act != loopContinue {
+		t.Fatalf("the ran-and-failed sub must loop the agent, got act=%v looped=%v", act, looped)
+	}
+	pend := a.pendingSubsOf(sid)
+	if len(pend) != 1 || pend[0].Step != "1" {
+		t.Fatalf("the justified (step 1) sub must be KEPT while the failure-masking (step 2) is dropped, got %+v", pend)
+	}
+}
+
 func TestCheckCommandUnrunnable(t *testing.T) {
 	cases := []struct {
 		out  string
@@ -185,6 +213,7 @@ func TestCheckCommandUnrunnable(t *testing.T) {
 		{"verify output", 0, false},                      // ran and passed
 		{"assertion failed", 1, false},                   // ran and failed — NOT unrunnable
 		{"cat: /x: No such file or directory", 1, false}, // ran, failed on its ARGUMENT — not unrunnable
+		{"key: not found\n", 0, false},                   // ran SUCCESSFULLY, just printed "not found" — runnable (exit-0 guard)
 	}
 	for _, c := range cases {
 		if got := checkCommandUnrunnable(c.out, c.code); got != c.want {

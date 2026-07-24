@@ -98,6 +98,20 @@ func (a *App) clearPendingSubs(sid session.SessionID) {
 	}
 }
 
+// setPendingSubs replaces the pending substitutions with exactly subs (empty = cleared). Used by the
+// necessity guard to keep the still-justified subs while dropping the refused/unneeded ones.
+func (a *App) setPendingSubs(sid session.SessionID, subs []port.CheckSub) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if st, ok := a.stateIf(sid); ok {
+		if len(subs) == 0 {
+			st.pendingSubs = nil
+		} else {
+			st.pendingSubs = append([]port.CheckSub(nil), subs...)
+		}
+	}
+}
+
 // stashApprovedSubs records a worker's review-approved check substitutions on its (subagent) session
 // so the parent's spawn attempt can pick them up (takeApprovedSubs → SpawnResult.CheckSubs) and
 // rewrite the matching stored deliverable checks to the working commands.
