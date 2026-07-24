@@ -93,6 +93,12 @@ type runGuard struct {
 	// agnostic "produced/changed a deliverable then declared done without running it" signal
 	// (see unverifiedDeliverable) that replaced the English-only fabrication phrase scan.
 	execSinceMut int
+	// execRuns is a MONOTONIC count of exercising (non-inspect) bash commands this run — unlike
+	// execSinceMut it never resets. The incremental step-check recorder keys on it so a check that
+	// newly-passes through a RUNTIME action rather than a file write (a started server now listening,
+	// a just-installed package now importable) is recorded the moment its turn ends, instead of only
+	// at the terminal gate: those actions bump no mutation epoch, so an epoch-only trigger misses them.
+	execRuns int
 	// waitSinceMut counts bash commands that only WAITED or POLLED (isWaitCommand — a delay or an
 	// external-readiness probe, ANY exit code) SINCE the last real mutation. It powers stallIsWait:
 	// a no-progress window dominated by these is an agent blocked on the environment, not thrashing
@@ -653,6 +659,7 @@ func (g *runGuard) noteBashExec(cmd string, novel bool) {
 	}
 	g.mu.Lock()
 	g.execSinceMut++
+	g.execRuns++ // monotonic: drives the incremental check recorder for runtime-satisfied checks
 	if novel {
 		g.progressSinceNudge = true // a first-seen exercising command is forward motion
 	}
@@ -969,6 +976,16 @@ func (g *runGuard) mutationEpoch() int {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.epoch
+}
+
+// execActivity returns the monotonic count of exercising (non-inspect) bash commands this run.
+// The incremental step-check recorder fires when this OR the mutation epoch advances, so a check
+// satisfied by a runtime action (a started server, an installed package) that bumps no mutation
+// epoch is still recorded at its own turn boundary rather than deferred to the terminal gate.
+func (g *runGuard) execActivity() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.execRuns
 }
 
 // shouldNudge reports whether the run has stalled enough to warrant a corrective

@@ -91,6 +91,7 @@ type turnState struct {
 	recovered        bool        // stuck-recovery redecompose fired at most once (shared with the stall path)
 	stepNudged       bool        // deliverable-check failure nudge injected at most once (MAGI_STEP_VERIFY)
 	lastCheckEpoch   int         // mutation epoch at the last incremental step-check pass (skip read-only turns)
+	lastCheckExec    int         // guard.execActivity() at that pass — also fire on a runtime action (server up, pkg installed)
 	substRounds      int         // substitution-review correction rounds spent this turn (solo path)
 	council          councilTurn // consensus gate rounds/feedback/spent/deadlock (D14)
 }
@@ -499,8 +500,13 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// advanced since the last pass: a check can only newly-pass if this turn changed state, so a
 		// read-only turn runs nothing. Recording only — the termination gate still owns finish/nudge.
 		if depth == 0 {
-			if ep := guard.mutationEpoch(); ep != ts.lastCheckEpoch {
-				ts.lastCheckEpoch = ep
+			// Fire on a mutation OR an exercising run: a check can newly-pass not only when a file
+			// changed but when a RUNTIME action took effect (a server now listening, a package now
+			// importable) — those bump execActivity, not the mutation epoch, so an epoch-only trigger
+			// deferred them to the terminal gate (the "checklist items don't tick off as I work" batch).
+			ep, ex := guard.mutationEpoch(), guard.execActivity()
+			if ep != ts.lastCheckEpoch || ex != ts.lastCheckExec {
+				ts.lastCheckEpoch, ts.lastCheckExec = ep, ex
 				a.recordPendingStepChecks(ctx, sid)
 			}
 		}
