@@ -433,7 +433,7 @@ Weak models routinely miscount rows or fabricate a total when asked to "count/su
 ### User interaction
 | Tool | Description | Permission |
 |---|---|---|
-| `ask_user` | multiple-choice question **to the user** (selection modal; top-level interactive only — declined gracefully in headless) | — |
+| `ask_user` | multiple-choice question **to the user** (selection modal; top-level interactive only — NOT registered in a headless/bench run, so it is never offered there, not merely declined) | — |
 
 - All file tools **deny access outside the working directory** (a jail) — a `../../etc/hosts` read is refused, not served.
 - Read-only tools run **in parallel** within a step; writes are serialized.
