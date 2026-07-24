@@ -28,6 +28,16 @@ func (a *App) storePlanCriteria(ctx context.Context, s session.Session, crit []s
 	if len(crit) == 0 {
 		return
 	}
+	// A contract-first gate (D-contract) already authored+reviewed this turn's criteria before the
+	// plan existed and FROZE them; the later plan-audit must not overwrite that reviewed contract
+	// with criteria it derived as a byproduct of the plan. The contract gate itself stores criteria
+	// BEFORE setting the freeze, so this guard never blocks the contract's own write.
+	a.mu.Lock()
+	frozen := a.stateLocked(s.ID).contractFrozen
+	a.mu.Unlock()
+	if frozen {
+		return
+	}
 	text := "- " + strings.Join(crit, "\n- ")
 	a.mu.Lock()
 	a.stateLocked(s.ID).criteria = text

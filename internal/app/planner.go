@@ -196,6 +196,13 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth, 
 	}
 	a.setStage(s.ID, stagePlan) // tag pre-flight planning events as the plan stage (D15)
 
+	// Contract-first (D-contract): author+review the acceptance contract for the TASK before the
+	// planner decomposes it, then feed it in so the plan targets a reviewed contract. No-op when
+	// the flag is off, no council is configured, or a contract was already frozen this turn.
+	if !a.cfg.Workflow {
+		a.runContractGate(ctx, s, prompt)
+	}
+
 	plan := a.runPlanner(ctx, spec, s, prompt, "", depth, maxSteps, strings.TrimSpace(taskOverride))
 	a.storeStepEstimate(s.ID, plan.EstimatedSteps) // advisory pacing reference, solo or not
 	steps := guardExpansion(sanitizeSteps(plan), depth, a.cfg.MaxPlanDepth)
@@ -426,6 +433,13 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 	if anc := strings.TrimSpace(anchor); anc != "" {
 		msgs = append(msgs, session.Message{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText,
 			Text: "# Task to plan now (decompose THIS exact task; it supersedes earlier framing):\n" + anc}}})
+	}
+	// Contract-first (D-contract): a council-reviewed acceptance contract was frozen before planning.
+	// Give it to the planner as the target the plan must satisfy — every criterion/check should be
+	// achieved by some step — so the plan is built around a reviewed contract, not an open reading.
+	if contract := a.contractForPlanner(s.ID); contract != "" {
+		msgs = append(msgs, session.Message{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText,
+			Text: "# Acceptance contract to satisfy (council-reviewed — plan so that EVERY item below is achieved by some step):\n" + contract}}})
 	}
 	model := s.Model.Model
 	if spec.Model != (session.ModelRef{}) {

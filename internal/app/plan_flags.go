@@ -287,6 +287,17 @@ func stepVerifyEnabled() bool { return !envOff("MAGI_STEP_VERIFY") }
 // generic tool-trail pivot; MAGI_RETRY_SPLIT=0 forces that fallback everywhere for A/B.
 func retrySplitEnabled() bool { return !envOff("MAGI_RETRY_SPLIT") }
 
+// contractFirstEnabled turns on the contract-first order (D-contract): BEFORE the planner
+// decomposes the request, the council authors and reviews the turn's acceptance CONTRACT
+// (completion criteria + executable deliverable checks) for the TASK itself — bounded above
+// by necessity (assert only what the task states) and below by sufficiency (exercise the
+// behavior, not just its existence). The approved contract is frozen and injected into the
+// planner so the plan is built to satisfy a reviewed contract, rather than the contract being
+// a byproduct of whatever plan the planner happened to emit. Off restores the plan-first
+// baseline where the plan-audit council derives criteria/checks after the plan (the A/B knob).
+// Default ON.
+func contractFirstEnabled() bool { return !envOff("MAGI_CONTRACT_FIRST") }
+
 // ctxCompactRetryEnabled controls the reactive-compaction safety net. On (the default), when the
 // provider rejects a generate request as too long (isContextOverflow), the loop force-compacts and
 // re-issues instead of dying with a terminal error — recovering runs whose context outgrew the

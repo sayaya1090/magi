@@ -67,6 +67,8 @@ type sessionState struct {
 	seedPrompt        string                     // subagent: the spawn/unit prompt THIS child was seeded with (see seedTurnTask)
 	curatedTools      []string                   // subagent: per-spawn tool allowlist override (SpawnRequest.Tools); nil = the agent's own allowlist
 	deliverableChecks []council.DeliverableCheck // plan-audit per-step executable checks this turn
+	contractFrozen    bool                       // a contract-first council gate authored this turn's criteria — plan-audit must not overwrite them (D-contract)
+	contractChecks    []council.DeliverableCheck // contract-first checks (not yet step-scoped); injected into the planner as the target contract
 	passedChecks      map[string]bool            // checkKey → latest verify result (true=pass); drives the panel's ✓ glyph
 	estSteps          int                        // planner's advisory step estimate this turn
 	stepLedger        []ledgerEntry              // shared artifact ledger: each completed step's produced paths/interfaces (handoff), passed VERBATIM to every later worker and shown in every right panel
@@ -182,6 +184,8 @@ func (a *App) resetForNewTopLevel(sid session.SessionID) {
 	st.criteria = ""           // drop cached criteria; re-elicited at the next gate (D15)
 	st.minedNote = ""          // …and the previous task's mined identifier/type requirements
 	st.deliverableChecks = nil // …and the previous task's plan-audit executable checks
+	st.contractFrozen = false  // …and the contract-first freeze (a new top-level re-derives the contract)
+	st.contractChecks = nil    // …and the previous task's contract-first checks
 	st.passedChecks = nil      // …and the previous task's per-check pass/fail glyph state
 	st.estSteps = 0            // …and the previous task's advisory step estimate
 	st.stepLedger = nil        // …and the previous task's shared artifact ledger
