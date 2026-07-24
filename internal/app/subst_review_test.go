@@ -34,6 +34,28 @@ func TestApplyCheckSubsRewritesCheck(t *testing.T) {
 	}
 }
 
+// When a step has SEVERAL checks, applyCheckSubs rewrites only the one whose command matches the sub's
+// Original — the other checks for that step are left untouched (no clobber, no accidental append).
+func TestApplyCheckSubsMultipleChecksPerStep(t *testing.T) {
+	ctx := context.Background()
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow"})
+	setChecks(a, sid, []council.DeliverableCheck{
+		{Step: "1", Command: "ss -tlnp"},   // the broken one, to be replaced
+		{Step: "1", Command: "pgrep serv"}, // a sibling check on the same step — must be preserved
+	})
+	a.applyCheckSubs(ctx, sid, []port.CheckSub{{Step: "1", Original: "ss -tlnp", Command: "python3 socket"}})
+	checks := a.cachedChecks(sid)
+	if len(checks) != 2 {
+		t.Fatalf("must rewrite in place, not append: %+v", checks)
+	}
+	if checks[0].Command != "python3 socket" {
+		t.Fatalf("the matching check must be rewritten, got %q", checks[0].Command)
+	}
+	if checks[1].Command != "pgrep serv" {
+		t.Fatalf("the sibling check must be untouched, got %q", checks[1].Command)
+	}
+}
+
 // An unmatched substitution (no check with that original) is appended as a new check for its step.
 func TestApplyCheckSubsAppendsWhenUnmatched(t *testing.T) {
 	ctx := context.Background()
