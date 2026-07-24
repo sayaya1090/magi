@@ -268,6 +268,12 @@ func cloneStringMap(m map[string]string) map[string]string {
 // providerFor returns the LLM provider for an agent: its named profile's backend
 // (per-agent endpoint/key routing) when set and registered, else the default.
 func (a *App) providerFor(spec AgentSpec) port.LLMProvider {
+	// Guarded by a.mu: SetProfile writes a.providers at runtime (a /profile edit from the TUI), and
+	// providerFor is read from every model-request goroutine — an unlocked read here is a concurrent
+	// map read+write (a data race, and a potential panic). Callers do the actual StreamChat OUTSIDE
+	// this call, never holding a.mu, so locking here can't deadlock.
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if spec.Provider != "" {
 		if p := a.providers[spec.Provider]; p != nil {
 			return p
