@@ -422,6 +422,19 @@ func (m *Model) onPartAppended(d event.PartAppendedData, ts time.Time) {
 	}
 }
 
+// councilPhaseLabel maps a council phase to its transcript label and the verb shown on the
+// convened line. Shared by the main transcript and the subagent-pane renderer so a worker's own
+// council/plan-audit rounds read the same way as the top-level ones.
+func councilPhaseLabel(phase string) (label, verb string) {
+	switch phase {
+	case "plan":
+		return "plan audit", "review the plan"
+	case "contract":
+		return "contract gate", "define the completion conditions"
+	}
+	return "council", "deliberate"
+}
+
 // onCouncilConvened records a newly-opened council round as a transcript
 // milestone (when it carries round-specific signals or a plan procedure) and
 // arms the header chip. (D14 — the consensus termination gate.)
@@ -429,13 +442,7 @@ func (m *Model) onCouncilConvened(d event.CouncilConvenedData) {
 	m.councilRound = d.Round
 	m.councilPhase = d.Phase                            // drives the footer "판정 대기 중" line while the round is open
 	m.pendingCouncilEvidence = formatCouncilEvidence(d) // shown in each verdict's detail view
-	label, verb := "council", "deliberate"
-	switch d.Phase {
-	case "plan":
-		label, verb = "plan audit", "review the plan"
-	case "contract":
-		label, verb = "contract gate", "define the completion conditions"
-	}
+	label, verb := councilPhaseLabel(d.Phase)
 	// Noise control: the routine convened line (members + rule) repeats the
 	// same information every round and the header chip already shows the
 	// live deliberation — so it is only worth a transcript line when it
@@ -486,13 +493,7 @@ func (m *Model) onStepCheck(d event.StepCheckData) {
 // onCouncilDecided renders a round's outcome + tally line. The caller clears the
 // live council chip before invoking this (a decision ends the open round).
 func (m *Model) onCouncilDecided(d event.CouncilDecidedData) {
-	label := "council"
-	switch d.Phase {
-	case "plan":
-		label = "plan audit"
-	case "contract":
-		label = "contract gate"
-	}
+	label, _ := councilPhaseLabel(d.Phase)
 	// A plan re-plan (continue) is always critical-driven (the severity veto), so the
 	// round word is "revise"; termination continue → "reject".
 	_, verdict := councilVerdictLabel(d.Phase, d.Decision, "critical")

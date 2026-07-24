@@ -381,6 +381,31 @@ func (m *Model) applyPaneEvent(p *agentPane, e event.Event) {
 				p.blocks = foldToolResultInto(p.blocks, d.Part.ToolResult.CallID, toolResultText(d.Part.ToolResult), !d.Part.ToolResult.IsError)
 			}
 		}
+	case event.TypeCouncilConvened:
+		// A worker runs its OWN council (plan audit) / planner when it decomposes a sub-task; those
+		// rounds emit to the worker's session, so render them in the worker's pane/detail too — the
+		// silent side-LLM work is now visible, not a blank gap (it is also counted as liveness).
+		var d event.CouncilConvenedData
+		if json.Unmarshal(e.Data, &d) == nil {
+			label, verb := councilPhaseLabel(d.Phase)
+			line := fmt.Sprintf("⚖ %s round %d — %s", label, d.Round, verb)
+			if plan := strings.TrimSpace(d.Plan); plan != "" && (d.Phase == "plan" || d.Phase == "contract") {
+				for _, pl := range strings.Split(plan, "\n") {
+					line += "\n    " + pl
+				}
+			}
+			p.blocks = append(p.blocks, block{kind: blockInfo, text: line})
+		}
+	case event.TypeCouncilDecided:
+		var d event.CouncilDecidedData
+		if json.Unmarshal(e.Data, &d) == nil {
+			label, _ := councilPhaseLabel(d.Phase)
+			line := fmt.Sprintf("⚖ %s round %d: %s — %d done / %d continue", label, d.Round, d.Decision, d.Tally.Done, d.Tally.Continue)
+			if d.Note != "" {
+				line += " (" + d.Note + ")"
+			}
+			p.blocks = append(p.blocks, block{kind: blockInfo, text: line})
+		}
 	case event.TypeTurnFinished, event.TypeError:
 		if !p.done {
 			p.done = true
