@@ -505,6 +505,40 @@ func TestRegressiveEditWithholdsProgress(t *testing.T) {
 	}
 }
 
+// TestNoteEditRegressedFlagAndIdempotent complements TestNoteEditWarnsOncePerFile (which
+// asserts only the warning string) by locking the `regressed` bool and the two edges it
+// leaves untested: a self-revert is regressed on EVERY swing even after the warning is
+// suppressed (so the caller keeps withholding progress); an idempotent rewrite is neither;
+// and regressWarned is per-PATH, so a different file still gets its own one-shot warning.
+func TestNoteEditRegressedFlagAndIdempotent(t *testing.T) {
+	g := newRunGuard()
+	const path = "calc.go"
+
+	// Forward edit orig→stub: new state, forward progress — no warning, not regressed.
+	if w, reg := g.noteEdit(path, "orig", "stub"); w != "" || reg {
+		t.Fatalf("forward edit: warn=%q regressed=%v; want \"\", false", w, reg)
+	}
+	// Revert stub→orig: back to a held state — regressed, and the FIRST warning fires.
+	if w, reg := g.noteEdit(path, "stub", "orig"); w == "" || !reg {
+		t.Fatalf("first self-revert: warn=%q regressed=%v; want non-empty, true", w, reg)
+	}
+	// Swing orig→stub again: still regressed (caller keeps withholding progress), but the
+	// warning is suppressed the second time on the same file.
+	if w, reg := g.noteEdit(path, "orig", "stub"); w != "" || !reg {
+		t.Fatalf("second swing: warn=%q regressed=%v; want \"\", true", w, reg)
+	}
+	// Idempotent rewrite (after == current state): neither a regression nor a warning.
+	if w, reg := g.noteEdit(path, "stub", "stub"); w != "" || reg {
+		t.Fatalf("idempotent rewrite: warn=%q regressed=%v; want \"\", false", w, reg)
+	}
+	// A DIFFERENT file gets its own one-shot warning (regressWarned is per-path).
+	const other = "util.go"
+	g.noteEdit(other, "A", "B")
+	if w, reg := g.noteEdit(other, "B", "A"); w == "" || !reg {
+		t.Fatalf("other file first revert: warn=%q regressed=%v; want non-empty, true", w, reg)
+	}
+}
+
 // TestBashWriteCountsAsProgress: a bash command that writes a file bumps the mutation
 // epoch (progress), while re-running the identical write does not — the tool-agnostic
 // twin of write/edit's epoch rule, so bash-heavy tasks don't misfire stall nudges.
