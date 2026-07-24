@@ -50,7 +50,7 @@ const plannerContract = "Plan the PROCEDURE to handle the request: an ordered, m
 	"Also give \"estimated_steps\": your honest guess at the TOTAL number of tool calls the whole task needs " +
 	"(a one-file tweak ~5, a feature with tests ~30, a big build/debug ~100). It is pacing guidance only — never a limit.\n" +
 	"Reply with ONLY a JSON object, no prose:\n" +
-	`{"reason":"one sentence","estimated_steps":12,"steps":[{"title":"...","strategy":"solo|parallel|scout|delegate|refine","groups":[{"agent":"explore","focus":"...","question":"..."}],"agent":"explore","discover":"...","each":"...","task":"..."}]}` +
+	`{"reason":"one sentence","estimated_steps":12,"contest":"(optional) only when re-planning: a task-grounded rebuttal of an unjustified council concern","steps":[{"title":"...","strategy":"solo|parallel|scout|delegate|refine","groups":[{"agent":"explore","focus":"...","question":"..."}],"agent":"explore","discover":"...","each":"...","task":"..."}]}` +
 	"\n\nExample — a HARD, sequentially-dependent task (\"build a persistent key-value store backed by a " +
 	"write-ahead log\") is opened as a few high-level \"refine\" PHASES, each worked out in context when reached, " +
 	"NOT flattened into a long list of \"solo\" steps:\n" +

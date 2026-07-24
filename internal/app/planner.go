@@ -66,6 +66,10 @@ type planStep struct {
 type planResult struct {
 	Steps  []planStep `json:"steps"`
 	Reason string     `json:"reason"`
+	// Contest is the re-planner's rebuttal to a plan-audit concern it believes the TASK does not
+	// require or that the plan already satisfies — set instead of complying, and re-judged by the
+	// next audit round (planContestEnabled). Empty on a normal plan.
+	Contest string `json:"contest,omitempty"`
 	// EstimatedSteps is the planner's guess at how many LOOP STEPS (tool calls)
 	// the whole task will take. Advisory only: it feeds the volatile budget line
 	// as a pacing reference ("~N expected") and NEVER lowers the hard ceiling —
@@ -428,8 +432,18 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 	msgs := plannerWindow(reconstruct(evs))
 	if strings.TrimSpace(revise) != "" {
 		// Re-plan: append the council's revise feedback as a final instruction.
-		msgs = append(msgs, session.Message{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText,
-			Text: "# Council review of your previous plan (address this and re-plan):\n" + revise}}})
+		instr := "# Council review of your previous plan (address this and re-plan):\n" + revise
+		// CONTEST channel: if the concern is genuinely NOT required by the task (or already satisfied),
+		// the planner may reject it instead of complying — keep the plan and give a task-grounded
+		// rebuttal in `contest` for the council to re-judge, rather than churn on a phantom demand.
+		if planContestEnabled() {
+			instr += "\n\nIf you judge this concern is UNJUSTIFIED — the TASK as written does not require what it " +
+				"demands, or your plan already satisfies it — do NOT distort the plan to comply. Instead KEEP your plan " +
+				"and set the top-level \"contest\" field to a one-sentence rebuttal that cites the TASK's own words (e.g. " +
+				"\"the task never asks for X; step N already produces Y\"). The council re-judges it: a real concern is " +
+				"upheld, an over-demand is dropped. Only contest when you can ground it in the task — otherwise revise."
+		}
+		msgs = append(msgs, session.Message{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: instr}}})
 	}
 	if len(msgs) == 0 { // defensive: never call with an empty conversation
 		msgs = []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: prompt}}}}

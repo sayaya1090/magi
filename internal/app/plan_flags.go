@@ -318,6 +318,15 @@ func stepContractEnabled() bool { return !envOff("MAGI_STEP_CONTRACT") }
 // ON; MAGI_CRITERIA_PERITEM=0 restores the single-block rendering for A/B.
 func criteriaPerItemEnabled() bool { return !envOff("MAGI_CRITERIA_PERITEM") }
 
+// planContestEnabled lets the plan/contract definition phase REJECT an unjust council concern
+// rather than only comply with it — the CONTEST channel the termination gate already has, brought
+// forward. In the plan audit, the re-planner may keep its plan and return a task-grounded rebuttal
+// (planResult.Contest) instead of distorting the plan to satisfy a demand the TASK never made; the
+// next audit round is shown the contest and re-judges it (uphold a real concern, drop an over-
+// demand). In the contract gate, the member prompt tells members to re-judge whether a carried
+// concern is task-grounded and drop it if not. Default ON; MAGI_PLAN_CONTEST=0 restores comply-only.
+func planContestEnabled() bool { return !envOff("MAGI_PLAN_CONTEST") }
+
 // ctxCompactRetryEnabled controls the reactive-compaction safety net. On (the default), when the
 // provider rejects a generate request as too long (isContextOverflow), the loop force-compacts and
 // re-issues instead of dying with a terminal error — recovering runs whose context outgrew the

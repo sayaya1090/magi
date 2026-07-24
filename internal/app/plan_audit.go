@@ -51,6 +51,7 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		}
 	}
 
+	pendingContest := "" // the re-planner's rebuttal of the prior round's concern, re-judged this round
 	for round := 1; round <= maxRounds; round++ {
 		if ctx.Err() != nil {
 			return steps
@@ -63,10 +64,11 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		a.emitToolProgress(sid, actor, "", "council",
 			fmt.Sprintf("plan audit round %d/%d: %d member(s) deliberating…", round, maxRounds, len(members)))
 		delib, err := a.cfg.Council.Deliberate(ctx, port.DeliberationRequest{
-			Round: round, Phase: "plan", Task: auditTask, Plan: renderSteps(steps),
+			Round: round, Phase: "plan", Task: auditTask, Plan: renderSteps(steps), Contest: pendingContest,
 			Members: members, Rule: rule, Debate: councilDebateEnabled(), DefaultModel: s.Model.Model,
 		})
-		if err != nil { // a gate failure must not block the turn → proceed with the plan
+		pendingContest = "" // consumed this round; a fresh re-plan below may set a new one
+		if err != nil {     // a gate failure must not block the turn → proceed with the plan
 			a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{Round: round, Phase: "plan", Decision: string(council.Done), Note: "plan council unavailable: " + err.Error(), Forced: true})
 			return steps
 		}
@@ -142,9 +144,17 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 			}
 		}
 		a.setStage(sid, stagePlan)
-		next := sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, revise, depth, maxSteps, ""))
+		replanned := a.runPlanner(ctx, spec, s, prompt, revise, depth, maxSteps, "")
+		next := sanitizeSteps(replanned)
 		if len(next) == 0 {
-			next = sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, revise, depth, maxSteps, ""))
+			replanned = a.runPlanner(ctx, spec, s, prompt, revise, depth, maxSteps, "")
+			next = sanitizeSteps(replanned)
+		}
+		// CONTEST: the re-planner may have rejected the concern as unjustified (kept its plan, set a
+		// task-grounded rebuttal) instead of complying — carry it into the next round so the council
+		// re-judges the concern rather than the plan looping against a phantom demand.
+		if planContestEnabled() {
+			pendingContest = strings.TrimSpace(replanned.Contest)
 		}
 		a.setStage(sid, stageCouncil)
 		if len(next) == 0 {
