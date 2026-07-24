@@ -96,6 +96,36 @@ func TestMatchShard(t *testing.T) {
 	}
 }
 
+// The ambiguity path (untested by TestMatchShard): when the top score TIES with the runner-up,
+// matchShard returns ambiguous=true so the caller lists the topics instead of guessing a shard.
+// Two same-basename paths and two substring matches are the realistic ties.
+func TestMatchShardAmbiguous(t *testing.T) {
+	// Two files share a basename: query "config.go" hits both at the basename tier → tie.
+	sameBase := []event.ContextShard{
+		{Topic: "internal/a/config.go"},
+		{Topic: "internal/b/config.go"},
+	}
+	if idx, amb := matchShard("config.go", sameBase); !amb || idx < 0 {
+		t.Errorf("same-basename query should be ambiguous: idx=%d amb=%v", idx, amb)
+	}
+	// Two topics both contain the query as a substring at the same score → tie.
+	bothSub := []event.ContextShard{
+		{Topic: "compact.go"},
+		{Topic: "compactor.go"},
+	}
+	if idx, amb := matchShard("compact", bothSub); !amb || idx < 0 {
+		t.Errorf("two substring matches should be ambiguous: idx=%d amb=%v", idx, amb)
+	}
+	// A clear winner (exact over substring) is NOT ambiguous.
+	mixed := []event.ContextShard{
+		{Topic: "compact"},   // exact → 1000
+		{Topic: "compactor"}, // substring → 500+len
+	}
+	if idx, amb := matchShard("compact", mixed); amb || idx != 0 {
+		t.Errorf("exact beats substring, not ambiguous: idx=%d amb=%v", idx, amb)
+	}
+}
+
 // rebuildMessages recovers messages by ID from the raw log, ignoring compaction.
 func TestRebuildMessages(t *testing.T) {
 	mk := func(seq int64, typ event.Type, data any) event.Event {
