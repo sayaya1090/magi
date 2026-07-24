@@ -49,6 +49,33 @@ func (a *App) storePlanCriteria(ctx context.Context, s session.Session, crit []s
 	})
 }
 
+// renderCriteriaChecklist turns the stored criteria (a "- item" bullet block) into an ENUMERATED
+// per-item checklist with an explicit instruction: the termination council must judge EACH item
+// SATISFIED/UNSATISFIED on evidence and may land "done" only when EVERY item is satisfied, naming
+// any unsatisfied one in feedback (D-contract Stage 3). This is the holistic-judgment fix — a block
+// of criteria invites a weak model to wave a partly-met contract to done; a numbered list forces a
+// per-item verdict. Falls back to the raw block if nothing parses.
+func renderCriteriaChecklist(crit string) string {
+	var items []string
+	for _, ln := range strings.Split(crit, "\n") {
+		ln = strings.TrimSpace(ln)
+		ln = strings.TrimSpace(strings.TrimPrefix(ln, "-"))
+		if ln != "" {
+			items = append(items, ln)
+		}
+	}
+	if len(items) == 0 {
+		return "Acceptance criteria:\n" + crit
+	}
+	var b strings.Builder
+	b.WriteString("Acceptance criteria — judge EACH item individually against the evidence; vote \"done\" ONLY if EVERY " +
+		"item is SATISFIED, and if ANY item is UNSATISFIED vote continue and name which one(s) in feedback:\n")
+	for i, it := range items {
+		fmt.Fprintf(&b, "%d. %s\n", i+1, it)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
 // storePlanChecks records the per-step executable deliverable checks the plan-audit
 // council derived, so the solo loop's deterministic step gate can settle the contract
 // by execution (see stepVerifyEnabled). Mirrors storePlanCriteria: called only for

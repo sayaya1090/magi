@@ -309,6 +309,15 @@ func contractFirstEnabled() bool { return !envOff("MAGI_CONTRACT_FIRST") }
 // ON; MAGI_STEP_CONTRACT=0 restores the unchecked recovery baseline for A/B.
 func stepContractEnabled() bool { return !envOff("MAGI_STEP_CONTRACT") }
 
+// criteriaPerItemEnabled renders the turn's acceptance criteria to the termination council as an
+// ENUMERATED per-item checklist rather than one prose block, so the council judges EACH criterion
+// individually (SATISFIED/UNSATISFIED with evidence) and can only land "done" when EVERY item is
+// satisfied — closing the holistic-judgment gap where a weak model waves a partly-met contract to
+// "done" (the headless-terminal false-done path). The termination member prompt always carries the
+// matching per-item clause; it stays inert when the criteria are not enumerated (flag off). Default
+// ON; MAGI_CRITERIA_PERITEM=0 restores the single-block rendering for A/B.
+func criteriaPerItemEnabled() bool { return !envOff("MAGI_CRITERIA_PERITEM") }
+
 // ctxCompactRetryEnabled controls the reactive-compaction safety net. On (the default), when the
 // provider rejects a generate request as too long (isContextOverflow), the loop force-compacts and
 // re-issues instead of dying with a terminal error — recovering runs whose context outgrew the

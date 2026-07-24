@@ -397,10 +397,16 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		crit = a.acceptanceCriteria(ctx, agent, s, task)
 	}
 	if crit != "" {
+		header := "Acceptance criteria:\n" + crit
+		// Per-item (D-contract Stage 3): present the criteria as an enumerated checklist and tell the
+		// council to judge EACH one, so a partly-met contract cannot be waved to "done" as a block.
+		if criteriaPerItemEnabled() {
+			header = renderCriteriaChecklist(crit)
+		}
 		if plan != "" {
-			plan = "Acceptance criteria:\n" + crit + "\n\nPlan (todos):\n" + plan
+			plan = header + "\n\nPlan (todos):\n" + plan
 		} else {
-			plan = "Acceptance criteria:\n" + crit
+			plan = header
 		}
 	}
 	// The mined identifier/type requirements (specmine) are a soft contract the
