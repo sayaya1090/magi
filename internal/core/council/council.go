@@ -266,9 +266,13 @@ func MergeChecks(vs []Verdict) []DeliverableCheck {
 // Tally applies a consensus rule to the verdicts and returns the council decision
 // with its breakdown. It is a pure function: same input, same output, no I/O.
 //
-// Invariant that makes the council safe against early termination: a tie, an
-// unmet quorum, no voters, or an unrecognized rule all resolve to Continue. The
-// council never finishes the loop unless its rule is affirmatively satisfied.
+// Invariant that makes the council safe against early termination: an unmet
+// quorum, no voters, or an unrecognized rule all resolve to Continue, and under
+// the default majority rule a count-tie does too (strict majority: 50/50 →
+// Continue). The one deliberate exception is weighted:θ — an explicit threshold
+// where a done-weight share of exactly θ affirmatively finishes (>= θ), so a
+// weighted:0.5 tie is Done by design (see TestTallyWeightedExactTie). The council
+// never finishes the loop unless its rule is affirmatively satisfied.
 func Tally(vs []Verdict, rule Rule) (Decision, Breakdown) {
 	b := tallyVotes(vs)
 	b.Rule = rule
