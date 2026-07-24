@@ -26,7 +26,7 @@ const contractDraftSystem = "You draft a coding task's ACCEPTANCE CONTRACT — i
 	"conditions, never an exhaustive list. Reply with ONLY a JSON object, no prose:\n" +
 	`{"criteria":["..."]}`
 
-// elicitContractDraft asks a single model for an initial contract (criteria + checks) so the first
+// elicitContractDraft asks a single model for an initial contract (goal-level criteria) so the first
 // council round reviews a concrete draft. Best-effort: an unparseable/empty reply yields nil, and the
 // council then authors from scratch.
 func (a *App) elicitContractDraft(ctx context.Context, spec AgentSpec, sid session.SessionID, model, task string) []string {
@@ -46,17 +46,18 @@ func (a *App) elicitContractDraft(ctx context.Context, spec AgentSpec, sid sessi
 }
 
 // runContractGate is the contract-first gate (D-contract): BEFORE the planner decomposes the
-// request, the council authors and reviews the turn's acceptance CONTRACT — completion criteria
-// (prose done-conditions) and executable deliverable checks — for the TASK itself. The contract
-// is bounded above by necessity (assert only what the task states) and below by sufficiency
-// (exercise the behavior, not its mere existence); the contract member prompt carries both bounds.
+// request, the council agrees the turn's acceptance CONTRACT — the completion CRITERIA (goal-level
+// done-conditions: WHAT must be true), for the TASK itself. It is GOALS ONLY: no method and no
+// executable verify commands, because nothing is built yet and any concrete command would pin a
+// path/tool that may be absent at run time — the concrete per-step checks are left to the plan-audit,
+// which sees the plan structure. The council is lenient (it must not demand what only doing reveals)
+// and bounded by necessity (assert only what the task states).
 //
-// It reuses the plan-audit machinery (Phase="contract"): each member proposes+critiques the
-// contract, MergeCriteria/MergeChecks synthesize the round's draft, and a CRITICAL revision drives
-// one more refining round (bounded by CouncilMaxRounds). On approval — or at the cap — the approved
-// criteria are stored and FROZEN so the later plan-audit does not overwrite them, and the checks are
-// stashed for the planner to target. The plan is then built to satisfy a reviewed contract rather
-// than the contract being a byproduct of whatever plan the planner emitted.
+// A single-model draft (elicitContractDraft) seeds the first round so the council REVIEWS a concrete
+// draft. Each round the members vote and give feedback; feedback is APPLIED by consolidation (a
+// REPLACE, so "reduce to N" reduces) rather than by re-merging member proposals (which only grows).
+// On approval — or at the cap — the criteria are stored and FROZEN so the later plan-audit does not
+// overwrite them, and injected into the planner so the plan targets a reviewed goal contract.
 func (a *App) runContractGate(ctx context.Context, s session.Session, prompt string) {
 	if !contractFirstEnabled() || a.cfg.Council == nil {
 		return
@@ -106,7 +107,7 @@ func (a *App) runContractGate(ctx context.Context, s session.Session, prompt str
 	// revealing it at the decision. Reads like the plan audit (the plan is shown before it is judged).
 	// Best-effort: on failure the draft is empty and the council authors from scratch as before.
 	criteria := a.elicitContractDraft(ctx, agent, sid, model, task)
-	draft := renderContract(criteria, nil)
+	draft := renderContract(criteria)
 
 	for round := 1; round <= maxRounds; round++ {
 		if ctx.Err() != nil {
@@ -130,7 +131,7 @@ func (a *App) runContractGate(ctx context.Context, s session.Session, prompt str
 		// review yet); once there is a draft, refinement is by consolidation below, not by re-merging.
 		if len(criteria) == 0 {
 			criteria = delib.Criteria
-			draft = renderContract(criteria, nil)
+			draft = renderContract(criteria)
 		}
 		// The contract is GOALS ONLY (criteria — what must be TRUE), never executable checks: the
 		// structure does not exist yet, so a concrete verify command here would pin a path/tool that
@@ -164,9 +165,9 @@ func (a *App) runContractGate(ctx context.Context, s session.Session, prompt str
 		// consolidation keeps the current contract and carries the feedback in the draft as a fallback.
 		if nc, ok := a.consolidateContract(ctx, agent, sid, model, task, criteria, fb); ok {
 			criteria = nc
-			draft = renderContract(criteria, nil)
+			draft = renderContract(criteria)
 		} else {
-			draft = strings.TrimSpace(renderContract(criteria, nil) + "\n\n# Council feedback to incorporate:\n" + fb)
+			draft = strings.TrimSpace(renderContract(criteria) + "\n\n# Council feedback to incorporate:\n" + fb)
 		}
 	}
 
@@ -181,8 +182,7 @@ func (a *App) runContractGate(ctx context.Context, s session.Session, prompt str
 	a.mu.Lock()
 	st := a.stateLocked(sid)
 	st.contractFrozen = true
-	st.contractChecks = nil // the contract is goals only; per-step verify checks come from the plan-audit
-	st.contractText = renderContract(criteria, nil)
+	st.contractText = renderContract(criteria)
 	a.mu.Unlock()
 	a.setStage(sid, stagePlan)
 }
@@ -227,32 +227,15 @@ func (a *App) consolidateContract(ctx context.Context, spec AgentSpec, sid sessi
 
 // renderContract renders the criteria + checks as a compact, human/model-readable block used both
 // to carry a draft between contract rounds and to inject the approved contract into the planner.
-func renderContract(criteria []string, checks []council.DeliverableCheck) string {
-	var b strings.Builder
-	if len(criteria) > 0 {
-		b.WriteString("Acceptance criteria (each must hold):\n")
-		for _, c := range criteria {
-			if c = strings.TrimSpace(c); c != "" {
-				b.WriteString("- " + c + "\n")
-			}
-		}
+func renderContract(criteria []string) string {
+	if len(criteria) == 0 {
+		return ""
 	}
-	if len(checks) > 0 {
-		b.WriteString("Executable checks (each must pass):\n")
-		for _, c := range checks {
-			cmd := strings.TrimSpace(c.Command)
-			if cmd == "" {
-				continue
-			}
-			line := "- "
-			if d := strings.TrimSpace(c.Deliverable); d != "" {
-				line += d + " — "
-			}
-			line += "`" + cmd + "`"
-			if e := strings.TrimSpace(c.Expect); e != "" {
-				line += " (expect: " + e + ")"
-			}
-			b.WriteString(line + "\n")
+	var b strings.Builder
+	b.WriteString("Acceptance criteria (each must hold):\n")
+	for _, c := range criteria {
+		if c = strings.TrimSpace(c); c != "" {
+			b.WriteString("- " + c + "\n")
 		}
 	}
 	return strings.TrimSpace(b.String())

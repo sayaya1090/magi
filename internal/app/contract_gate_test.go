@@ -23,20 +23,17 @@ func TestContractFirstFlag(t *testing.T) {
 }
 
 func TestRenderContract(t *testing.T) {
-	out := renderContract(
-		[]string{"the server answers SetVal", ""},
-		[]council.DeliverableCheck{
-			{Deliverable: "grpc round-trip", Command: "python3 client.py", Expect: "val=42"},
-			{Command: ""}, // no command → skipped
-		},
-	)
-	for _, want := range []string{"Acceptance criteria", "answers SetVal", "Executable checks", "python3 client.py", "expect: val=42"} {
+	out := renderContract([]string{"the server answers SetVal", ""})
+	for _, want := range []string{"Acceptance criteria", "answers SetVal"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("render missing %q in:\n%s", want, out)
 		}
 	}
 	if strings.Contains(out, "- \n") { // the empty criterion must be dropped, not rendered as a bare bullet
 		t.Errorf("empty criterion rendered:\n%s", out)
+	}
+	if renderContract(nil) != "" {
+		t.Error("no criteria → empty string")
 	}
 }
 
@@ -60,13 +57,13 @@ func TestRunContractGateFreezesContract(t *testing.T) {
 	}
 	a.mu.Lock()
 	frozen := a.stateLocked(sid).contractFrozen
-	checks := a.stateLocked(sid).contractChecks
+	dchecks := a.stateLocked(sid).deliverableChecks
 	a.mu.Unlock()
 	if !frozen {
 		t.Fatal("contract should be frozen after the gate")
 	}
-	if len(checks) != 0 {
-		t.Fatalf("the contract is goals only — no executable checks should be stored, got %+v", checks)
+	if len(dchecks) != 0 {
+		t.Fatalf("the contract is goals only — no executable checks should be stored, got %+v", dchecks)
 	}
 	if p := a.contractForPlanner(sid); !strings.Contains(p, "SetVal") {
 		t.Fatalf("planner contract missing the criterion: %q", p)
