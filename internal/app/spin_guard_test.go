@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -49,6 +50,36 @@ func TestReasoningSpinGuard(t *testing.T) {
 	// Under the cap → not a spin.
 	if res, _ := consume(spinEvs[:2]); res.reasoningSpun {
 		t.Error("output under the cap must not spin")
+	}
+}
+
+// The spin cap is on COMBINED text+reasoning output, not either channel alone: a response that
+// interleaves text and reasoning, neither of which alone crosses the cap but whose SUM does, with
+// no tool call, must still spin. Locks the reasoning.Len()+text.Len() semantics against a
+// regression that checked only one channel (which would let a mixed spin slip through).
+func TestSpinGuardSumsTextAndReasoning(t *testing.T) {
+	t.Setenv("MAGI_SPIN_CAP", "100")
+	a, _ := newApp(t, &fakeLLM{}, Config{Permission: "allow"})
+	ch := make(chan port.ProviderEvent, 6)
+	chunk := strings.Repeat("x", 30)
+	// T,R,T,R = 4×30 = 120 > 100, but at the crossing point text=60 and reasoning=60, so
+	// neither channel alone exceeds the cap — only the sum does.
+	ch <- port.ProviderEvent{Type: port.ProviderText, Text: chunk}
+	ch <- port.ProviderEvent{Type: port.ProviderReasoning, Text: chunk}
+	ch <- port.ProviderEvent{Type: port.ProviderText, Text: chunk}
+	ch <- port.ProviderEvent{Type: port.ProviderReasoning, Text: chunk}
+	close(ch)
+	cancelled := false
+	res, err := a.consumeStream(context.Background(), session.SessionID("s_mix"),
+		event.Actor{Kind: event.ActorAgent, ID: "x"}, ch, "m", "pt", "pr", func() { cancelled = true })
+	if err != nil {
+		t.Fatalf("consumeStream: %v", err)
+	}
+	if !res.reasoningSpun || !cancelled {
+		t.Errorf("combined text+reasoning past the cap must spin+cancel (spun=%v cancelled=%v)", res.reasoningSpun, cancelled)
+	}
+	if len(res.text) > 100 || len(res.reasoning) > 100 {
+		t.Errorf("neither channel alone should exceed the cap (text=%d reasoning=%d) — the sum is the trigger", len(res.text), len(res.reasoning))
 	}
 }
 
