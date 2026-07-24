@@ -109,6 +109,16 @@ func (a *App) storePlanChecks(ctx context.Context, s session.Session, checks []c
 // the 0-step solo path a single synthetic step for the objective. When coverage is off or already
 // complete this is exactly storePlanChecks(delib.Checks).
 func (a *App) storeCoveredChecks(ctx context.Context, s session.Session, prompt string, steps []planStep, checks []council.DeliverableCheck) {
+	// A contract-first gate already stored the reviewed contract's checks as this turn's deliverable
+	// checks and FROZE them; the later plan-audit (and the solo/recovery coverage fill) must not
+	// overwrite that reviewed set with checks it re-derived. The contract gate writes via
+	// storePlanChecks directly, before the freeze, so its own write is never blocked here.
+	a.mu.Lock()
+	frozen := a.stateLocked(s.ID).contractFrozen
+	a.mu.Unlock()
+	if frozen {
+		return
+	}
 	a.storePlanChecks(ctx, s, a.ensureStepCoverage(ctx, s, prompt, steps, checks))
 }
 
@@ -249,8 +259,8 @@ const validateChecksSystem = "You review the executable deliverable `checks` a p
 // file exists. Best-effort: on a disabled flag, an empty set, a transport failure, or an unparseable
 // reply it returns the input UNCHANGED, so the review never blocks a plan.
 func (a *App) validateChecks(ctx context.Context, agent AgentSpec, s session.Session, checks []council.DeliverableCheck) []council.DeliverableCheck {
-	if !checkValidateEnabled() || len(checks) == 0 {
-		return checks
+	if !checkValidateEnabled() || len(checks) == 0 || a.providerFor(agent) == nil {
+		return checks // no model wired (e.g. council-only tests) → keep the authored checks as-is
 	}
 	in, err := json.Marshal(checks)
 	if err != nil {

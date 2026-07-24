@@ -169,10 +169,14 @@ func (a *App) runContractGate(ctx context.Context, s session.Session, prompt str
 	if len(criteria) == 0 && len(checks) == 0 {
 		return // nothing usable → leave the opt-in criteria path intact, no freeze
 	}
-	// Store criteria FIRST (before the freeze so this write is not blocked), then freeze so the
-	// plan-audit cannot overwrite the reviewed contract, and stash the checks plus the rendered
-	// planner contract (so contractForPlanner is a straight read, not a criteria-string round-trip).
+	// Store the reviewed contract as this turn's actual verification set BEFORE the freeze (so these
+	// writes are not blocked): the criteria for the termination gate, and the CHECKS as the
+	// deliverable checks the step/finish gate executes and the panel displays — so the completion
+	// conditions the user sees and the run is verified against ARE the contract's own (facts +
+	// commands), not a separate set the plan-audit re-authored. Then freeze so the plan-audit does
+	// not overwrite the reviewed contract.
 	a.storePlanCriteria(ctx, s, criteria)
+	a.storePlanChecks(ctx, s, checks)
 	a.mu.Lock()
 	st := a.stateLocked(sid)
 	st.contractFrozen = true
