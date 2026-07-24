@@ -695,6 +695,11 @@ func memberSystem(m council.Member, phase, task string, keep bool) string {
 			"the task never stated does NOT license the demand — defer to the task's literal wording. When the turn "+
 			"changed no files, judge the report's SUBSTANCE against the task — the absence of a diff is not itself a "+
 			"defect, but a wrong or incomplete answer still is.\n\n"+
+			"PER-ITEM ACCEPTANCE: when the acceptance criteria are given as a NUMBERED checklist, judge EACH numbered "+
+			"item individually against the evidence — for every item decide SATISFIED or UNSATISFIED — and vote "+
+			"\"done\" ONLY when EVERY item you can judge is satisfied. If any item is UNSATISFIED, vote continue and "+
+			"name the item number(s) and exactly what is missing in `feedback`; never wave a partly-met checklist to "+
+			"done as a whole. (When the criteria are not enumerated, judge them as usual.)\n\n"+
 			"%s"+
 			"Respond with ONLY a JSON object, no prose, no code fence:\n"+
 			"%s",

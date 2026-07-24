@@ -226,6 +226,18 @@ func TestContractEvidenceRendersTaskAndDraft(t *testing.T) {
 	}
 }
 
+// The terminate member prompt must carry the per-item acceptance clause: when the criteria are an
+// enumerated checklist, judge each item and land done only if EVERY item is satisfied.
+func TestTerminateMemberPromptPerItem(t *testing.T) {
+	m := council.Member{Name: "x", Lens: "completeness"}
+	p := memberSystem(m, "terminate", "stand up a service", false)
+	for _, want := range []string{"PER-ITEM ACCEPTANCE", "NUMBERED checklist", "EVERY item", "UNSATISFIED"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("terminate prompt missing per-item clause fragment %q", want)
+		}
+	}
+}
+
 // The check-authoring prompt must forbid over-demand: a check may assert only what the task states,
 // never a version/build-id/incidental the task did not pin. Over-specification false-fails correct
 // work and never converges — the mirror of the too-weak file-existence trap.
