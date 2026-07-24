@@ -321,15 +321,11 @@ func (m *Model) checkLine(cs app.CheckStatus) string {
 // ledgerLine formats one shared-ledger row for a panel: "• step — facts", or "• facts" when the
 // producing step is unlabelled. The facts are shown verbatim (the exact paths workers must reuse).
 func ledgerLine(e app.LedgerRow) string {
-	facts := strings.TrimSpace(e.Facts)
 	// A ledger row is only recorded when its step COMPLETED (appendLedger), so it is always done:
-	// a green ✓ (matching the plan tree's completed glyph) instead of a neutral bullet, and no
-	// separate "done" text — the check conveys it.
+	// a green ✓ (matching the plan tree's completed glyph) instead of a neutral bullet. The panel is
+	// narrow, so show only the FACTS (the handoff paths/interfaces) — the step title is dropped.
 	check := lipgloss.NewStyle().Foreground(colSuccess).Render("✓ ")
-	if step := strings.TrimSpace(e.Step); step != "" {
-		return check + step + " — " + facts
-	}
-	return check + facts
+	return check + strings.TrimSpace(e.Facts)
 }
 
 // wrapPanel word-wraps s to width cells and returns its lines, so a long request/checklist entry
