@@ -318,14 +318,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	}
 	ct.rounds++
 
-	members := a.cfg.CouncilMembers
-	if len(members) == 0 {
-		members = council.DefaultMembers()
-	}
-	rule := a.cfg.CouncilRule
-	if rule == "" {
-		rule = council.DefaultRule
-	}
+	members, rule, _ := a.councilParams()
 
 	// Evidence: the user's goal (Task), the agent's final message (Report/claim),
 	// and the working diff. Plan (acceptance criteria) and Signals are D15/D16.

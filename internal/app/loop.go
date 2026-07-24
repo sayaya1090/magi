@@ -125,7 +125,6 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	agentActor := event.Actor{Kind: event.ActorAgent, ID: orDefault(agent.Name, "default")}
 	lastText := ""
 	reportRefused := false // a subagent's unverified "done" report was refused once this run
-	substReviewRounds := 0 // rounds the substitution-review council has asked this worker to correct
 	guard := newRunGuard()
 	guard.stallConverge = stallConvergeEnabled() // D18a: collapse the stalled-nudge re-arm when a redirect produced no forward motion
 	ts := turnState{prevFinishCalls: -1}         // per-turn mutable bookkeeping (finish guards, council accounting, stuck-recovery); zeroed field-wise on reground
@@ -511,7 +510,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// refuse an unverified "done" once (loopContinue) or finish the turn (loopFinish, with
 		// the result string to return).
 		u := event.Usage{In: lastIn, Out: cumOut, Cost: cumCost}
-		if act, result, handled := a.handleReport(ctx, tc, lastText, u, &reportRefused, &substReviewRounds); handled {
+		if act, result, handled := a.handleReport(ctx, tc, lastText, u, &reportRefused, &ts); handled {
 			switch act {
 			case loopContinue:
 				continue // refused an unverified "done" — pushed back to actually run it
@@ -744,7 +743,7 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 // which runs the merged deliverable for real. Otherwise the turn finishes (loopFinish) with the
 // report's result. This short-circuits the top-level-only pre-finish gates, so the delegated
 // path carries its own verification here.
-func (a *App) handleReport(ctx context.Context, tc turnCtx, lastText string, u event.Usage, reportRefused *bool, substReviewRounds *int) (loopAction, string, bool) {
+func (a *App) handleReport(ctx context.Context, tc turnCtx, lastText string, u event.Usage, reportRefused *bool, ts *turnState) (loopAction, string, bool) {
 	s, agent := tc.s, tc.agent
 	sid := s.ID
 	rep := a.takeReport(sid)
@@ -757,7 +756,7 @@ func (a *App) handleReport(ctx context.Context, tc turnCtx, lastText string, u e
 	// substitutions are stashed for the parent to apply to its stored checks. Runs before the finish
 	// path so a rejected substitution loops the worker instead of landing.
 	if rep.status == "done" {
-		if act, looped := a.reviewSubstitutions(ctx, tc, substReviewRounds); looped {
+		if act, looped := a.reviewSubstitutions(ctx, tc, &ts.substRounds); looped {
 			// Re-file the report intent so the corrected re-report is not lost, then loop.
 			return act, "", true
 		}

@@ -82,7 +82,7 @@ func (a *App) runStepGate(ctx context.Context, s session.Session, ts *turnState)
 			}
 			continue
 		}
-		out, code := a.runVerifyCmd(ctx, s.Workdir, c.Command)
+		ok, code, out := a.runCheckRecord(ctx, s.ID, s.Workdir, c)
 		if code == -1 { // platform vanished mid-run: can't verify → don't decide
 			return gateInactive, ""
 		}
@@ -93,7 +93,6 @@ func (a *App) runStepGate(ctx context.Context, s session.Session, ts *turnState)
 		if code == 127 {
 			continue
 		}
-		ok := c.Passes(out, code)
 		results = append(results, result{check: c, out: out, pass: ok})
 		if !stepSeen[key] {
 			stepSeen[key] = true
@@ -103,7 +102,6 @@ func (a *App) runStepGate(ctx context.Context, s session.Session, ts *turnState)
 			anyFail = true
 			stepPass[key] = false
 		}
-		a.emitStepCheck(ctx, s.ID, c, code, ok)
 	}
 
 	// Check off every step whose deliverables all passed — the deterministic solo-step
@@ -203,6 +201,22 @@ func (a *App) checkAlreadyGreen(sid session.SessionID, c council.DeliverableChec
 // a passed check; an unexecutable (127) or unverifiable (-1) result is not recorded — the terminal
 // gate and the worker's substitution evidence settle those. It only RECORDS for the panel; it does
 // not gate control flow (completeThrough is a display/state signal, not the step gate).
+// runCheckRecord runs one deliverable check, emits its result event (recording the ✓/✗ pass state so
+// the panel and the trust-green gate can read it), and returns the outcome. code -1 = the platform
+// vanished (cannot verify), code 127 = the check command is unexecutable here; in BOTH cases nothing
+// is emitted and pass is false, so a broken check never records a false ✗. Callers layer their own
+// trust-green skip and -1/127 policy around it — centralizing the run+Passes+emit body keeps that
+// contract identical across the per-step recorders and the terminal gate.
+func (a *App) runCheckRecord(ctx context.Context, sid session.SessionID, workdir string, c council.DeliverableCheck) (pass bool, code int, out string) {
+	out, code = a.runVerifyCmd(ctx, workdir, c.Command)
+	if code == -1 || code == 127 {
+		return false, code, out
+	}
+	pass = c.Passes(out, code)
+	a.emitStepCheck(ctx, sid, c, code, pass)
+	return pass, code, out
+}
+
 func (a *App) recordStepChecks(ctx context.Context, sid session.SessionID, stepIdx int) {
 	if !stepVerifyEnabled() || a.plat == nil {
 		return
@@ -216,11 +230,7 @@ func (a *App) recordStepChecks(ctx context.Context, sid session.SessionID, stepI
 		if a.checkAlreadyGreen(sid, c) {
 			continue // already ✓ (e.g. the delegate step gate ran it) — don't re-run
 		}
-		out, code := a.runVerifyCmd(ctx, s.Workdir, c.Command)
-		if code == -1 || code == 127 {
-			continue // can't verify (platform gone) or unexecutable check — don't record a false ✗
-		}
-		a.emitStepCheck(ctx, sid, c, code, c.Passes(out, code))
+		a.runCheckRecord(ctx, sid, s.Workdir, c) // emits ✓/✗; an unexecutable/unverifiable check self-skips
 	}
 }
 
@@ -328,18 +338,25 @@ func (a *App) recordPendingStepChecks(ctx context.Context, sid session.SessionID
 		return
 	}
 	s := a.sessionInfo(ctx, sid)
+	todos := a.Todos(sid)
 	stepPass := map[string]bool{}
 	stepSeen := map[string]bool{}
 	for _, c := range checks {
 		key := strings.TrimSpace(c.Step)
+		// Frontier scope: skip a check whose step has not STARTED (pending todo). Its deliverable
+		// isn't built yet, so the check would just fail and re-run every mutating turn until the step
+		// lands — where the completion hook (recordStepChecks) records it. Only run checks at/before
+		// the execution frontier, so the per-turn fan-out is bounded to started work.
+		if idx := matchTodoIndex(todos, c.Step); idx >= 0 && todos[idx].Status == "pending" {
+			continue
+		}
 		pass := a.checkAlreadyGreen(sid, c) // already ✓ counts as a passed run; don't re-run it
 		if !pass {
-			out, code := a.runVerifyCmd(ctx, s.Workdir, c.Command)
+			var code int
+			pass, code, _ = a.runCheckRecord(ctx, sid, s.Workdir, c)
 			if code == -1 || code == 127 {
 				continue // unverifiable (platform gone) or unexecutable check — skip, like runStepGate
 			}
-			pass = c.Passes(out, code)
-			a.emitStepCheck(ctx, sid, c, code, pass)
 		}
 		if !stepSeen[key] {
 			stepSeen[key] = true

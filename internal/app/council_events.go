@@ -12,6 +12,25 @@ import (
 // councilSystemActor is the actor every council-gate event is attributed to.
 func councilSystemActor() event.Actor { return event.Actor{Kind: event.ActorSystem, ID: "council"} }
 
+// councilParams resolves the council roster, tally rule, and per-turn round cap from config, applying
+// the shared defaults (DefaultMembers / DefaultRule / 3). Every council gate — plan audit, contract
+// gate, termination gate, substitution review — uses these same fallbacks, so they live here once.
+func (a *App) councilParams() ([]council.Member, council.Rule, int) {
+	members := a.cfg.CouncilMembers
+	if len(members) == 0 {
+		members = council.DefaultMembers()
+	}
+	rule := a.cfg.CouncilRule
+	if rule == "" {
+		rule = council.DefaultRule
+	}
+	maxRounds := a.cfg.CouncilMaxRounds
+	if maxRounds <= 0 {
+		maxRounds = 3
+	}
+	return members, rule, maxRounds
+}
+
 // emitCouncilConvened publishes the standard "a council round is starting" events: the convened
 // fact (round/phase/members/rule/task/plan) and a transient "deliberating" ping per member. It is
 // the shared preamble of every council gate round (plan audit, contract gate), extracted so the

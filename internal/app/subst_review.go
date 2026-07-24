@@ -42,18 +42,7 @@ func (a *App) reviewSubstitutions(ctx context.Context, tc turnCtx, rounds *int) 
 	}
 	actor := event.Actor{Kind: event.ActorAgent, ID: orDefault(s.Agent, "default")}
 
-	members := a.cfg.CouncilMembers
-	if len(members) == 0 {
-		members = council.DefaultMembers()
-	}
-	rule := a.cfg.CouncilRule
-	if rule == "" {
-		rule = council.DefaultRule
-	}
-	maxRounds := a.cfg.CouncilMaxRounds
-	if maxRounds <= 0 {
-		maxRounds = 3
-	}
+	members, rule, maxRounds := a.councilParams()
 	if *rounds >= maxRounds { // correction budget spent → drop the unapproved subs and proceed
 		a.clearPendingSubs(sid)
 		return 0, false

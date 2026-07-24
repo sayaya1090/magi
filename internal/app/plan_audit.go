@@ -21,25 +21,11 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 	sid := s.ID
 	actor := councilSystemActor()
 	a.setStage(sid, stageCouncil)
-	members := a.cfg.CouncilMembers
-	if len(members) == 0 {
-		members = council.DefaultMembers()
-	}
-	// Consensus rule — the same one the termination gate uses (no special quorum:1
-	// relaxation): the plan audit is a real consensus. planMemberSystem already
-	// revises only for a concrete flaw, so majority converges.
-	rule := a.cfg.CouncilRule
-	if rule == "" {
-		rule = council.DefaultRule
-	}
-	// The plan audit shares the termination gate's round cap (CouncilMaxRounds,
-	// default 3) rather than a shorter hardcoded limit: round 1 often surfaces a
-	// concrete fix that round 2 still hasn't fully absorbed, so a too-small cap
-	// force-proceeds on a plan that one more round would have converged.
-	maxRounds := a.cfg.CouncilMaxRounds
-	if maxRounds <= 0 {
-		maxRounds = 3
-	}
+	// Roster/rule/round-cap share the termination gate's config (no special quorum:1
+	// relaxation): the plan audit is a real consensus. planMemberSystem revises only for a
+	// concrete flaw, so majority converges; the shared round cap lets round 2 absorb a fix
+	// round 1 surfaced rather than force-proceeding on a plan one more round would converge.
+	members, rule, maxRounds := a.councilParams()
 
 	// Ground the audit in the conversation: a follow-up plan ("change it to two
 	// newlines") is unjudgeable against the bare instruction alone, so the members

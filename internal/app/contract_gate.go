@@ -75,18 +75,7 @@ func (a *App) runContractGate(ctx context.Context, s session.Session, prompt str
 	actor := councilSystemActor()
 	a.setStage(sid, stageCouncil)
 
-	members := a.cfg.CouncilMembers
-	if len(members) == 0 {
-		members = council.DefaultMembers()
-	}
-	rule := a.cfg.CouncilRule
-	if rule == "" {
-		rule = council.DefaultRule
-	}
-	maxRounds := a.cfg.CouncilMaxRounds
-	if maxRounds <= 0 {
-		maxRounds = 3
-	}
+	members, rule, maxRounds := a.councilParams()
 
 	// Ground the contract in the conversation, mirroring the plan audit: a follow-up request
 	// ("change it to two newlines") is uncontractable against the bare instruction alone.
