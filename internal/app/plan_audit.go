@@ -19,15 +19,11 @@ import (
 // injected into the main session). It has its own bounded rounds.
 func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec AgentSpec, prompt string, steps []planStep, depth, maxSteps int) []planStep {
 	sid := s.ID
-	actor := event.Actor{Kind: event.ActorSystem, ID: "council"}
+	actor := councilSystemActor()
 	a.setStage(sid, stageCouncil)
 	members := a.cfg.CouncilMembers
 	if len(members) == 0 {
 		members = council.DefaultMembers()
-	}
-	labels := make([]string, len(members))
-	for i, m := range members {
-		labels[i] = m.Name
 	}
 	// Consensus rule — the same one the termination gate uses (no special quorum:1
 	// relaxation): the plan audit is a real consensus. planMemberSystem already
@@ -59,15 +55,7 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		if ctx.Err() != nil {
 			return steps
 		}
-		cd, _ := json.Marshal(event.CouncilConvenedData{
-			Round: round, Phase: "plan", Members: labels, Rule: string(rule),
-			Task: auditTask, Plan: renderSteps(steps),
-		})
-		a.appendFact(ctx, sid, event.TypeCouncilConvened, actor, cd)
-		for _, m := range members {
-			ld, _ := json.Marshal(event.CouncilDeliberatingData{Round: round, Member: m.Name, State: "asking"})
-			a.publishTransient(sid, event.TypeCouncilDeliberating, actor, ld)
-		}
+		a.emitCouncilConvened(ctx, sid, actor, round, "plan", members, rule, auditTask, renderSteps(steps))
 
 		// Council deliberation is len(members) sequential side LLM calls with no
 		// stream events; on a slow model a round is minutes of silence. Same
@@ -84,13 +72,7 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 			return steps
 		}
 		a.emitDebate(sid, actor, "plan", round, delib.Debate)
-		for _, v := range delib.Verdicts {
-			vd, _ := json.Marshal(event.CouncilVerdictData{
-				Round: round, Phase: "plan", Member: v.Member, Lens: v.Lens, Decision: string(v.Decision),
-				Confidence: v.Confidence, Rationale: v.Rationale, Feedback: v.Feedback, Severity: v.Severity,
-			})
-			a.appendFact(ctx, sid, event.TypeCouncilVerdict, actor, vd)
-		}
+		a.emitCouncilVerdicts(ctx, sid, actor, round, "plan", delib.Verdicts)
 
 		// Severity-gated decision (D17): only a CRITICAL revision blocks the agent from
 		// starting work. warn/info concerns are ACCEPTED as advice — injected so the

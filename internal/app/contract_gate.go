@@ -38,16 +38,12 @@ func (a *App) runContractGate(ctx context.Context, s session.Session, prompt str
 	if already {
 		return
 	}
-	actor := event.Actor{Kind: event.ActorSystem, ID: "council"}
+	actor := councilSystemActor()
 	a.setStage(sid, stageCouncil)
 
 	members := a.cfg.CouncilMembers
 	if len(members) == 0 {
 		members = council.DefaultMembers()
-	}
-	labels := make([]string, len(members))
-	for i, m := range members {
-		labels[i] = m.Name
 	}
 	rule := a.cfg.CouncilRule
 	if rule == "" {
@@ -75,14 +71,7 @@ func (a *App) runContractGate(ctx context.Context, s session.Session, prompt str
 		if ctx.Err() != nil {
 			break
 		}
-		cd, _ := json.Marshal(event.CouncilConvenedData{
-			Round: round, Phase: "contract", Members: labels, Rule: string(rule), Task: task, Plan: draft,
-		})
-		a.appendFact(ctx, sid, event.TypeCouncilConvened, actor, cd)
-		for _, m := range members {
-			ld, _ := json.Marshal(event.CouncilDeliberatingData{Round: round, Member: m.Name, State: "asking"})
-			a.publishTransient(sid, event.TypeCouncilDeliberating, actor, ld)
-		}
+		a.emitCouncilConvened(ctx, sid, actor, round, "contract", members, rule, task, draft)
 		a.emitToolProgress(sid, actor, "", "council",
 			fmt.Sprintf("contract gate round %d/%d: %d member(s) deliberating…", round, maxRounds, len(members)))
 
@@ -96,13 +85,7 @@ func (a *App) runContractGate(ctx context.Context, s session.Session, prompt str
 			break
 		}
 		a.emitDebate(sid, actor, "contract", round, delib.Debate)
-		for _, v := range delib.Verdicts {
-			vd, _ := json.Marshal(event.CouncilVerdictData{
-				Round: round, Phase: "contract", Member: v.Member, Lens: v.Lens, Decision: string(v.Decision),
-				Confidence: v.Confidence, Rationale: v.Rationale, Feedback: v.Feedback, Severity: v.Severity,
-			})
-			a.appendFact(ctx, sid, event.TypeCouncilVerdict, actor, vd)
-		}
+		a.emitCouncilVerdicts(ctx, sid, actor, round, "contract", delib.Verdicts)
 		// Keep the round's synthesized contract (the members' merged proposals).
 		if len(delib.Criteria) > 0 {
 			criteria = delib.Criteria
