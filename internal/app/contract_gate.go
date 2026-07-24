@@ -23,8 +23,12 @@ const contractDraftSystem = "You draft a coding task's ACCEPTANCE CONTRACT — t
 	"(never a version/path/value the task did not require); and where the deliverable must DO " +
 	"something, a check must EXERCISE that behavior through the same interface its consumer uses and " +
 	"assert the outcome (a stub that merely exists must FAIL), replaying the task's own example " +
-	"verbatim when it gives one. Portable commands only (coreutils, grep/test, python3, the task's " +
-	"toolchain; never ss/netstat/lsof/pgrep). Reply with ONLY a JSON object, no prose:\n" +
+	"verbatim when it gives one. GOAL, NOT METHOD: a criterion states WHAT must be true, never HOW to " +
+	"achieve it — leave the implementation method to the worker; a check verifies the OUTCOME and must " +
+	"NOT prescribe a specific tool or build step (it may not exist at run time). Portable commands only " +
+	"(coreutils, grep/test, python3, the task's toolchain; never ss/netstat/lsof/pgrep). Keep the " +
+	"contract SMALL — a few essential conditions, not an exhaustive list; prefer fewer, higher-value " +
+	"items. Reply with ONLY a JSON object, no prose:\n" +
 	`{"criteria":["..."],"checks":[{"deliverable":"...","command":"...","expect":"..."}]}`
 
 // elicitContractDraft asks a single model for an initial contract (criteria + checks) so the first
@@ -128,18 +132,20 @@ func (a *App) runContractGate(ctx context.Context, s session.Session, prompt str
 		}
 		a.emitDebate(sid, actor, "contract", round, delib.Debate)
 		a.emitCouncilVerdicts(ctx, sid, actor, round, "contract", delib.Verdicts)
-		// Keep the round's synthesized contract (the members' merged proposals).
-		if len(delib.Criteria) > 0 {
-			criteria = delib.Criteria
+		// Seed from the members' proposals ONLY when elicit produced nothing (no draft to review yet);
+		// once there is a draft, refinement is by consolidation below, not by re-merging.
+		if len(criteria) == 0 && len(checks) == 0 {
+			criteria, checks = delib.Criteria, delib.Checks
+			draft = renderContract(criteria, checks)
 		}
-		if len(delib.Checks) > 0 {
-			checks = delib.Checks
-		}
+		// NOTE: the contract is the current `criteria`/`checks` (draft), REVISED by consolidation when
+		// there is feedback — NOT the union of the members' fresh proposals. Merging the members'
+		// proposals every round UNIONS them and only GROWS the contract, so a "reduce to 4" produced
+		// the opposite; the members here VOTE and give feedback, and one consolidation applies it.
 
 		// Incorporate ALL actionable feedback — critical AND advisory. The contract is the artifact
 		// being DEFINED here, so an advisory suggestion must REFINE it (there is no executor to hand
-		// a non-blocking note to, as the plan audit has); dropping it would lose the council's input.
-		// Finalize only when the round is clean (no feedback at all) or the round cap is hit.
+		// a non-blocking note to, as the plan audit has). Finalize only on a clean round or the cap.
 		critical := council.HasCriticalRevision(delib.Verdicts)
 		fb := strings.TrimSpace(council.CriticalFeedback(delib.Verdicts))
 		if fb == "" {
@@ -157,12 +163,14 @@ func (a *App) runContractGate(ctx context.Context, s session.Session, prompt str
 			break
 		}
 		a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{Round: round, Phase: "contract", Decision: string(council.Continue), Tally: delib.Breakdown, Feedback: fb})
-		// Refine: carry the current draft plus the feedback (blocking or advisory) into the next round.
-		draft = renderContract(criteria, checks)
-		if draft != "" {
-			draft += "\n\n# Council feedback to incorporate:\n" + fb
+		// APPLY the feedback to the current contract by CONSOLIDATION (a REPLACE, not a union): the
+		// revised contract is a RESULT of the feedback, so "reduce to 4" reduces. Best-effort — a failed
+		// consolidation keeps the current contract and carries the feedback in the draft as a fallback.
+		if nc, nk, ok := a.consolidateContract(ctx, agent, sid, model, task, criteria, checks, fb); ok {
+			criteria, checks = nc, nk
+			draft = renderContract(criteria, checks)
 		} else {
-			draft = "# Council feedback to address:\n" + fb
+			draft = strings.TrimSpace(renderContract(criteria, checks) + "\n\n# Council feedback to incorporate:\n" + fb)
 		}
 	}
 
@@ -184,6 +192,46 @@ func (a *App) runContractGate(ctx context.Context, s session.Session, prompt str
 	st.contractText = renderContract(criteria, checks)
 	a.mu.Unlock()
 	a.setStage(sid, stagePlan)
+}
+
+// consolidateContractSystem revises a contract by APPLYING the council's feedback and nothing more —
+// a REPLACE, so a "reduce to N" reduces (the old flow re-merged the members' proposals and only grew).
+const consolidateContractSystem = "You revise a task's acceptance contract by APPLYING the council's " +
+	"feedback — nothing more. Given the TASK, the CURRENT contract (criteria + checks), and the " +
+	"FEEDBACK, return the REVISED contract. Apply the feedback EXACTLY: if it says reduce/consolidate " +
+	"to N, return that many or fewer; if it says drop/merge/rename, do so; if it says fix, fix that. " +
+	"Do NOT re-expand, re-add dropped items, or introduce anything the feedback did not ask for — the " +
+	"result must be a CONSEQUENCE of the feedback, never a fresh superset. Keep criteria GOAL-focused " +
+	"(what must be TRUE, not how to do it) and checks portable, outcome-verifying (never prescribe an " +
+	"implementation method or a tool that may be absent). Reply with ONLY a JSON object, no prose:\n" +
+	`{"criteria":["..."],"checks":[{"deliverable":"...","command":"...","expect":"..."}]}`
+
+// consolidateContract applies the council's feedback to the current contract and returns the revised
+// criteria + checks. Best-effort: nil provider / unparseable / empty reply → (_, _, false), and the
+// caller keeps the current contract.
+func (a *App) consolidateContract(ctx context.Context, spec AgentSpec, sid session.SessionID, model, task string, criteria []string, checks []council.DeliverableCheck, fb string) ([]string, []council.DeliverableCheck, bool) {
+	if a.providerFor(spec) == nil {
+		return nil, nil, false
+	}
+	cur, err := json.Marshal(struct {
+		Criteria []string                   `json:"criteria"`
+		Checks   []council.DeliverableCheck `json:"checks"`
+	}{criteria, checks})
+	if err != nil {
+		return nil, nil, false
+	}
+	input := "# Task\n" + task + "\n\n# Current contract\n" + string(cur) + "\n\n# Council feedback to APPLY (and nothing more)\n" + fb
+	raw := a.specMineCall(ctx, spec, sid, "contract-consolidate", model, consolidateContractSystem, input)
+	for _, js := range balancedObjects(raw) {
+		var d struct {
+			Criteria []string                   `json:"criteria"`
+			Checks   []council.DeliverableCheck `json:"checks"`
+		}
+		if json.Unmarshal([]byte(js), &d) == nil && (len(d.Criteria) > 0 || len(d.Checks) > 0) {
+			return d.Criteria, d.Checks, true
+		}
+	}
+	return nil, nil, false
 }
 
 // assignChecksSystem maps each contract check to the plan step that produces it.

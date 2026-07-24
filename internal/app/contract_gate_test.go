@@ -108,37 +108,40 @@ func TestAssignContractChecksToSteps(t *testing.T) {
 	}
 }
 
-// A CRITICAL revision in round 1 drives one refining round; the round-2 (strengthened) contract
-// wins, and the refinement carried the round-1 concern back into the council.
+// A CRITICAL revision in round 1 drives a CONSOLIDATION that APPLIES the feedback (not a re-merge of
+// member proposals, which only grows the contract) — the strengthened contract wins in round 2.
 func TestRunContractGateRefinesOnCritical(t *testing.T) {
 	fc := &fakeCouncil{delibs: []council.Deliberation{
-		{
+		{ // round 1: critical revision, seeds an initial (weak) contract
 			Decision: council.Continue,
 			Verdicts: []council.Verdict{{Member: "Balthasar", Decision: council.Continue,
 				Severity: council.SeverityCritical, Feedback: "check only proves import, never runs the behavior"}},
 			Criteria: []string{"the module imports"},
 			Checks:   []council.DeliverableCheck{{Command: "python3 -c 'import x'"}},
 		},
-		{
+		{ // round 2: approves the consolidated contract
 			Decision: council.Done,
 			Verdicts: []council.Verdict{{Member: "Balthasar", Decision: council.Done}},
-			Criteria: []string{"running the module on the example produces the stated output"},
-			Checks:   []council.DeliverableCheck{{Command: "python3 run.py", Expect: "ok"}},
 		},
 	}}
+	var consolidateInput string
+	llm := &recLLM{reply: func(req string) string {
+		if strings.Contains(req, "revise a task's acceptance contract by APPLYING") { // the consolidation side-call
+			consolidateInput = req
+			return `{"criteria":["running the module on the example produces the stated output"],"checks":[{"deliverable":"runs","command":"python3 run.py","expect":"ok"}]}`
+		}
+		return "" // elicit-draft returns nothing → round 1 seeds from the members
+	}}
 	ctx := context.Background()
-	a, sid, _ := newWorkflowApp(t, nil, nil, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
+	a, sid, _ := newWorkflowApp(t, llm, nil, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
 	s := a.sessionInfo(ctx, sid)
 
 	a.runContractGate(ctx, s, "implement the module")
 
-	if fc.calls != 2 {
-		t.Fatalf("expected 2 contract rounds (critical then done), got %d", fc.calls)
-	}
 	if got := a.cachedCriteria(sid); !strings.Contains(got, "produces the stated output") {
-		t.Fatalf("final contract should be the strengthened round-2 one: %q", got)
+		t.Fatalf("final contract should be the CONSOLIDATED (feedback-applied) one: %q", got)
 	}
-	if !strings.Contains(fc.lastReq.Plan, "only proves import") {
-		t.Fatalf("refining round did not carry the round-1 concern: %q", fc.lastReq.Plan)
+	if !strings.Contains(consolidateInput, "only proves import") {
+		t.Fatalf("consolidation must receive the round-1 feedback to apply: %q", consolidateInput)
 	}
 }

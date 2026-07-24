@@ -926,6 +926,10 @@ func contractMemberSystem(m council.Member, lens string) string {
 			"STATE CHANGE: a check VERIFIES read-only; it never PERFORMS the work (no build/download/generate/`>`-write/"+
 			"`rm`/`mv` as a check). Keep each criterion one short line; emit checks only where machine-checkable and they "+
 			"would genuinely pass for correct work; omit a part your lens cannot add to.\n\n"+
+			"GOAL, NOT METHOD — and keep it SMALL: a criterion states WHAT must be true, never HOW to build it (leave the "+
+			"implementation method to the worker); a check verifies the OUTCOME and must not prescribe a specific tool or "+
+			"build step. A SMALL contract of a few essential, high-value conditions is BETTER than an exhaustive one — do "+
+			"NOT pad it; if the draft is already sufficient, approve rather than add more.\n\n"+
 			"RE-JUDGE CARRIED CONCERNS: when the draft carries a prior round's feedback, do not blindly perpetuate it. "+
 			"Check each carried concern against the TASK: if it demands something the task does not require (an over-"+
 			"demand), DROP it from the contract rather than encode it — an unjustified concern must not become a "+
