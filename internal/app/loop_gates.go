@@ -105,6 +105,28 @@ func (a *App) handleStuckGuard(ctx context.Context, tc turnCtx, turnTask string,
 		a.appendFact(ctx, sid, event.TypeTurnFinished, tc.actor, fd)
 		return true, true
 	}
+	// Sterile re-plan loop (plan-structural counterpart of the exercise-churn land above): the agent
+	// has replanned sterileReplanCap times without the completed-step high-water ever advancing —
+	// re-decomposition that finishes nothing. Each replan mutates novel content, so the stall/idle
+	// windows keep resetting and no build/test is the recurring failure, so neither the stall path nor
+	// exercise-churn fires; this closes that window. Land UNVERIFIED with work standing (external
+	// verifier judges the live deliverable) using ONLY magi's own replan/step signals — no external clock.
+	if sterileReplanLandEnabled() && tc.guard.sterileReplanMax() >= sterileReplanCap() {
+		sid := tc.s.ID
+		ts.unverifiedReason = "repeated re-planning finished no new step (the completed-step high-water " +
+			"never advanced) — landing with work standing so the external verifier judges the live deliverable"
+		dd, _ := json.Marshal(event.CouncilDecidedData{
+			Round: ts.council.rounds + 1, Decision: string(council.Done),
+			Note: "repeated re-planning finished no new step (the completed-step high-water never advanced) — " +
+				"landing with work standing so the external verifier judges the live deliverable; treat as UNVERIFIED",
+			Forced: true,
+		})
+		a.appendFact(ctx, sid, event.TypeCouncilDecided, event.Actor{Kind: event.ActorSystem, ID: "council"}, dd)
+		a.setStage(sid, stageFinalize)
+		fd, _ := json.Marshal(event.TurnFinishedData{Usage: u, Unverified: true, Reason: ts.unverifiedReason})
+		a.appendFact(ctx, sid, event.TypeTurnFinished, tc.actor, fd)
+		return true, true
+	}
 	kind := tc.guard.stuck()
 	if kind == "" {
 		return false, false

@@ -31,6 +31,19 @@ func (a *App) putTodos(ctx context.Context, sid session.SessionID, actor event.A
 	_ = a.appendFact(ctx, sid, event.TypeTodosChanged, actor, d)
 }
 
+// completedStepCount returns how many of the session's plan steps are currently marked completed.
+// It is the convergence signal noteReplan re-baselines against: if this does not climb across
+// repeated replans, the re-decomposition is finishing nothing.
+func (a *App) completedStepCount(sid session.SessionID) int {
+	n := 0
+	for _, t := range a.Todos(sid) {
+		if t.Status == "completed" {
+			n++
+		}
+	}
+	return n
+}
+
 // completeThrough marks every plan step up to and including index i completed. A
 // procedure runs top-to-bottom, so finishing step i means the steps before it are done
 // too — this both checks off a step the planner ran in pre-flight AND back-fills any

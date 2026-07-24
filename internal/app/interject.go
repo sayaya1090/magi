@@ -492,7 +492,9 @@ const maxReplansPerTurn = 2
 // replan (back-to-back replans without action are churn). When honored it rebuilds the
 // plan and resets the stall/council accounting (reground); when refused it injects
 // guidance and leaves the stall guard intact.
-func (a *App) honorReplan(ctx context.Context, sid session.SessionID, reason string, count, atCalls *int, curCalls int, reground func(bool)) {
+// It returns true when the replan was actually honored (plan rebuilt, accounting reset), so the
+// caller can record the replan against the sterile-replan convergence counter.
+func (a *App) honorReplan(ctx context.Context, sid session.SessionID, reason string, count, atCalls *int, curCalls int, reground func(bool)) bool {
 	inject := func(msg string) {
 		pd, _ := json.Marshal(event.PromptSubmittedData{
 			MessageID: "m_" + newID(),
@@ -504,7 +506,7 @@ func (a *App) honorReplan(ctx context.Context, sid session.SessionID, reason str
 		inject(fmt.Sprintf("Replan refused: you have already replanned %d times this turn. Do not replan again — make "+
 			"concrete progress on the current plan, or if you are truly blocked, report status \"failed\" and state exactly "+
 			"what stopped you.", *count))
-		return
+		return false
 	}
 	// Require real tool work between replans. guard.callCount() counts EVERY tool call,
 	// including the replan call that raised this signal, so a back-to-back replan-only step
@@ -514,7 +516,7 @@ func (a *App) honorReplan(ctx context.Context, sid session.SessionID, reason str
 	if *atCalls >= 0 && curCalls <= *atCalls+1 {
 		inject("Replan refused: you replanned again without taking any real action since the last replan. Actually " +
 			"attempt the current plan (run a command, edit a file, inspect why it failed) before deciding it is unworkable.")
-		return
+		return false
 	}
 	*count++
 	*atCalls = curCalls
@@ -525,6 +527,7 @@ func (a *App) honorReplan(ctx context.Context, sid session.SessionID, reason str
 	note += ". The plan and the no-progress window have been reset — decompose a fresh approach and proceed."
 	inject(note)
 	reground(true)
+	return true
 }
 
 // ---- interjection / steer state accessors (moved from app.go) ----

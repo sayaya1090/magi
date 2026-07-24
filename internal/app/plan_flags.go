@@ -83,6 +83,31 @@ func exerciseChurnCap() int {
 
 func exerciseChurnLandEnabled() bool { return exerciseChurnCap() > 0 }
 
+// defaultSterileReplanCap is how many consecutive agent-initiated replans may finish NO new plan
+// step — the completed-step high-water never advancing — before a solo run lands gracefully
+// UNVERIFIED with work standing (see runGuard.noteReplan / handleStuckGuard). Generous: a genuinely
+// hard task can legitimately need several re-decompositions, so only a re-plan loop that completes
+// nothing across this many passes reaches it. The high-water resets on any real step progress, so a
+// plan that keeps finishing steps never accumulates here.
+const defaultSterileReplanCap = 4
+
+// sterileReplanCap returns the effective cap. MAGI_REPLAN_CAP overrides it: a positive integer sets
+// the cap, "0" (or a non-positive/garbage value) disables the landing entirely, and unset uses the
+// default. sterileReplanLandEnabled reports whether the landing is active.
+func sterileReplanCap() int {
+	v := strings.TrimSpace(os.Getenv("MAGI_REPLAN_CAP"))
+	if v == "" {
+		return defaultSterileReplanCap
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
+}
+
+func sterileReplanLandEnabled() bool { return sterileReplanCap() > 0 }
+
 // refineDisabled is a bench A/B knob (mirrors MAGI_MAX_PLAN_DEPTH): MAGI_REFINE=0 downgrades
 // refine steps to solo, reproducing the pre-refine baseline (every sub-goal flattened inline)
 // so a paired refine-ON/OFF comparison can run on the same task. Default on.

@@ -212,6 +212,18 @@ type runGuard struct {
 	// splits the key, so recurrence is only counted for byte-identical-modulo-whitespace commands.
 	exerciseFail      map[string]int
 	exerciseFailEpoch map[string]int
+
+	// sterileReplan is the plan-structural sibling of exerciseFail: it counts consecutive
+	// agent-initiated replans that did NOT advance the plan's completed-step high-water. Where
+	// exerciseFail needs a build/test the agent keeps re-running and failing, this fires when the
+	// agent keeps RE-DECOMPOSING (replanning) without ever finishing another step — a non-convergent
+	// re-plan loop that mutates novel content each pass (so the stall/idle windows keep resetting)
+	// yet completes nothing. replanStepHW is the highest completed-step count seen at a replan; a
+	// replan that FOLLOWS real step progress (completed > high-water) resets the count and re-baselines,
+	// so a plan that is genuinely advancing — even across many replans — never trips. Only re-planning
+	// that finishes no new step climbs. handleStuckGuard lands UNVERIFIED once it crosses sterileReplanCap.
+	sterileReplan int
+	replanStepHW  int
 }
 
 // fileChange is one file's before/after content captured around an agent edit this turn.
@@ -883,6 +895,32 @@ func (g *runGuard) exerciseChurnMax() int {
 		}
 	}
 	return max
+}
+
+// noteReplan records one HONORED agent-initiated replan and returns the running count of
+// consecutive replans since the plan's completed-step high-water last advanced. A `completed`
+// higher than any prior replan means a step actually finished in between — real progress — so the
+// count resets to 0 and the high-water climbs; otherwise the replan finished no new step and the
+// sterile count rises. Convergence-aware by construction: only non-advancing re-decomposition
+// accumulates, so a plan that keeps completing steps (even while replanning the tail) never trips.
+func (g *runGuard) noteReplan(completed int) int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if completed > g.replanStepHW {
+		g.replanStepHW = completed
+		g.sterileReplan = 0
+		return 0
+	}
+	g.sterileReplan++
+	return g.sterileReplan
+}
+
+// sterileReplanMax returns the current consecutive-sterile-replan count (see noteReplan).
+// handleStuckGuard lands the run UNVERIFIED once it crosses sterileReplanCap.
+func (g *runGuard) sterileReplanMax() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.sterileReplan
 }
 
 // normalizeExerciseCmd collapses whitespace runs to single spaces and trims, so a command counts as

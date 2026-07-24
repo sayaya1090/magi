@@ -281,7 +281,12 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					}
 				}
 				if tc.replan {
-					a.honorReplan(ctx, sid, tc.reason, &replanCount, &replanAtCalls, guard.callCount(), reground)
+					if a.honorReplan(ctx, sid, tc.reason, &replanCount, &replanAtCalls, guard.callCount(), reground) {
+						// Record the honored replan against the sterile-replan convergence counter:
+						// if the completed-step high-water has not advanced across repeated replans,
+						// handleStuckGuard lands the run UNVERIFIED rather than re-decomposing forever.
+						guard.noteReplan(a.completedStepCount(sid))
+					}
 				}
 			}
 			handledUserPrompts, answerInterjectNow = a.detectInterjections(ctx, tc, evs, turnTask, handledUserPrompts)
