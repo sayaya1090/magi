@@ -235,6 +235,48 @@ func (a *App) recordCheckResult(sid session.SessionID, c council.DeliverableChec
 	}
 }
 
+// recordPendingStepChecks runs and records every not-yet-✓ deliverable check, then checks off any
+// plan step whose checks now all pass — the INCREMENTAL, turn-boundary counterpart to the per-step
+// completeThrough hook. A mixed plan's SOLO steps are done by the MAIN agent in its own turns
+// (executeSteps skips them, so completeThrough never fires for them); without this their ✓ would land
+// only at the terminal runStepGate, all at once. Recording only: no gating, no nudge (the termination
+// gate still owns those). Mirrors runStepGate's grouping (a step passes only when ALL its checks pass;
+// 127/-1 checks are skipped, not counted as failures) and is idempotent — an already-✓ check is not
+// re-run. Callers gate it on a mutation having occurred (a check can only newly-pass if state changed),
+// so a read-only turn costs nothing.
+func (a *App) recordPendingStepChecks(ctx context.Context, sid session.SessionID) {
+	if !stepVerifyEnabled() || a.plat == nil {
+		return
+	}
+	checks := a.cachedChecks(sid)
+	if len(checks) == 0 {
+		return
+	}
+	s := a.sessionInfo(ctx, sid)
+	stepPass := map[string]bool{}
+	stepSeen := map[string]bool{}
+	for _, c := range checks {
+		key := strings.TrimSpace(c.Step)
+		pass := a.checkAlreadyGreen(sid, c) // already ✓ counts as a passed run; don't re-run it
+		if !pass {
+			out, code := a.runVerifyCmd(ctx, s.Workdir, c.Command)
+			if code == -1 || code == 127 {
+				continue // unverifiable (platform gone) or unexecutable check — skip, like runStepGate
+			}
+			pass = c.Passes(out, code)
+			a.emitStepCheck(ctx, sid, c, code, pass)
+		}
+		if !stepSeen[key] {
+			stepSeen[key] = true
+			stepPass[key] = true
+		}
+		if !pass {
+			stepPass[key] = false
+		}
+	}
+	a.checkOffPassedSteps(ctx, s.ID, stepPass)
+}
+
 // checkOffPassedSteps marks the todo of each fully-passing plan step completed. It maps
 // a check's free-form Step label to a todo via matchTodoIndex; unmatched steps simply
 // don't move a todo (the check still gated the finish).

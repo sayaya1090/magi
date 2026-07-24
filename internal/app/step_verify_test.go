@@ -210,6 +210,49 @@ func TestCompleteThroughSkipsAlreadyGreen(t *testing.T) {
 	}
 }
 
+// recordPendingStepChecks fills a mixed plan's SOLO steps incrementally: a step whose check passes
+// this pass is recorded ✓ and checked off, a still-failing one is left, and an already-✓ check is not
+// re-run on the next pass.
+func TestRecordPendingStepChecksIncremental(t *testing.T) {
+	t.Setenv("MAGI_STEP_VERIFY", "1")
+	ctx := context.Background()
+	plat := &scriptPlatform{codes: []int{0, 1, 0}} // pass1: step1 ok, step2 fail; pass2: step2 ok
+	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow"})
+	a.putTodos(ctx, sid, plannerActor, []session.Todo{
+		{Content: "step one", Status: "in_progress"},
+		{Content: "step two", Status: "in_progress"},
+	})
+	setChecks(a, sid, []council.DeliverableCheck{
+		{Step: "1", Deliverable: "a", Command: "ra", Expect: "verify"},
+		{Step: "2", Deliverable: "b", Command: "rb", Expect: "verify"},
+	})
+
+	// First pass: step 1 passes → ✓ + checked off; step 2 fails → left.
+	a.recordPendingStepChecks(ctx, sid)
+	cs := a.CompletionChecks(sid)
+	if cs[0].State != CheckPassed {
+		t.Fatalf("step-1 check should be ✓ after first pass, got %v", cs[0].State)
+	}
+	if cs[1].State == CheckPassed {
+		t.Fatal("step-2 check failed → must NOT be ✓ yet")
+	}
+	if a.Todos(sid)[0].Status != "completed" {
+		t.Fatal("step-1 todo should be checked off")
+	}
+	if a.Todos(sid)[1].Status == "completed" {
+		t.Fatal("step-2 todo must not be checked off while its check fails")
+	}
+
+	// Second pass: step 1 already ✓ (not re-run), step 2 now passes.
+	a.recordPendingStepChecks(ctx, sid)
+	if a.CompletionChecks(sid)[1].State != CheckPassed {
+		t.Fatal("step-2 check should be ✓ after second pass")
+	}
+	if plat.calls != 3 {
+		t.Fatalf("step-1 must not re-run once ✓ (want 3 total calls: 1+2 then 1), got %d", plat.calls)
+	}
+}
+
 func TestAnnotateTodosWithDeliverables(t *testing.T) {
 	a, sid, _ := newWorkflowApp(t, nil, nil, Config{Permission: "allow"})
 	a.putTodos(context.Background(), sid, plannerActor, []session.Todo{

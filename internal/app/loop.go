@@ -90,6 +90,7 @@ type turnState struct {
 	unverifiedReason string      // non-empty when the turn finishes WITHOUT council approval
 	recovered        bool        // stuck-recovery redecompose fired at most once (shared with the stall path)
 	stepNudged       bool        // deliverable-check failure nudge injected at most once (MAGI_STEP_VERIFY)
+	lastCheckEpoch   int         // mutation epoch at the last incremental step-check pass (skip read-only turns)
 	council          councilTurn // consensus gate rounds/feedback/spent/deadlock (D14)
 }
 
@@ -487,6 +488,19 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					return lastText, ctx.Err()
 				}
 				a.executeTool(ctx, s, agent, depth, agentActor, tc, guard)
+			}
+		}
+
+		// Incremental per-step check recording: the main agent (depth 0) does a mixed plan's SOLO
+		// steps in its own turns — executeSteps skipped them, so completeThrough never fired for
+		// them. Record any newly-passing step's checks here so the panel fills as the agent works,
+		// instead of the terminal gate recording them all at once. Gated on the mutation epoch having
+		// advanced since the last pass: a check can only newly-pass if this turn changed state, so a
+		// read-only turn runs nothing. Recording only — the termination gate still owns finish/nudge.
+		if depth == 0 {
+			if ep := guard.mutationEpoch(); ep != ts.lastCheckEpoch {
+				ts.lastCheckEpoch = ep
+				a.recordPendingStepChecks(ctx, sid)
 			}
 		}
 
