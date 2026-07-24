@@ -195,6 +195,37 @@ func TestPlanMemberPromptScopesChecksToSteps(t *testing.T) {
 	}
 }
 
+// The contract-gate member prompt (Phase=="contract") bounds the acceptance contract on BOTH
+// sides: a LOWER bound (sufficiency — exercise the behavior, not mere existence of a stub) and an
+// UPPER bound (necessity — assert only what the task states). memberSystem must route the contract
+// phase to this prompt, and it must stay task-agnostic (no eval-set tokens).
+func TestContractMemberPromptBounds(t *testing.T) {
+	m := council.Member{Name: "x", Lens: "correctness"}
+	p := memberSystem(m, "contract", "implement the interface", false)
+	for _, want := range []string{"ACCEPTANCE CONTRACT", "LOWER BOUND", "UPPER BOUND", "sufficiency", "necessity", "PORTABLE", "IDEMPOTENT", "verbatim"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("contract member prompt missing %q", want)
+		}
+	}
+	for _, banned := range []string{"grpcio", "kv-store", "headless"} {
+		if strings.Contains(p, banned) {
+			t.Errorf("contract prompt leaks eval-set token %q", banned)
+		}
+	}
+}
+
+// The contract phase renders only the task (and any draft to refine) — no plan-audit "procedure"
+// framing, since no plan exists yet.
+func TestContractEvidenceRendersTaskAndDraft(t *testing.T) {
+	e := evidence(port.DeliberationRequest{Phase: "contract", Task: "build the widget", Plan: "draft: it must run"})
+	if !strings.Contains(e, "build the widget") || !strings.Contains(e, "draft: it must run") {
+		t.Errorf("contract evidence must render task and draft: %q", e)
+	}
+	if strings.Contains(e, "procedure") {
+		t.Errorf("contract evidence must not use the plan-audit procedure framing: %q", e)
+	}
+}
+
 // The check-authoring prompt must forbid over-demand: a check may assert only what the task states,
 // never a version/build-id/incidental the task did not pin. Over-specification false-fails correct
 // work and never converges — the mirror of the too-weak file-existence trap.

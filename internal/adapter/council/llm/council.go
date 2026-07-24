@@ -97,7 +97,7 @@ func (c *Council) Deliberate(ctx context.Context, req port.DeliberationRequest) 
 	// defect the members missed flips them to continue; a spurious devil concern is rejected and
 	// the done stands. The devil never gets a binding vote. Skipped on the focused re-round and in
 	// plan audit (no "done" to challenge yet).
-	if req.Devil && !req.DeltaRound && req.Phase != "plan" {
+	if req.Devil && !req.DeltaRound && req.Phase != "plan" && req.Phase != "contract" {
 		if dec, _ := council.Tally(verdicts, rule); dec == council.Done && !splitVerdicts(verdicts) {
 			if concern := c.devilConcern(ctx, req); concern != "" {
 				verdicts = c.reviewDevil(ctx, req, members, verdicts, concern)
@@ -112,10 +112,12 @@ func (c *Council) Deliberate(ctx context.Context, req port.DeliberationRequest) 
 
 	d := council.Deliberate(req.Round, verdicts, rule)
 	d.Debate = debate
-	if req.Phase == "plan" {
-		// Plan audit: synthesize the members' proposed completion criteria into the
-		// contract the turn will later be judged against, plus any per-step executable
-		// deliverable checks (settled by execution at plan time, not re-voted later).
+	if req.Phase == "plan" || req.Phase == "contract" {
+		// Plan audit / contract gate: synthesize the members' proposed completion criteria
+		// into the contract the turn will later be judged against, plus any executable
+		// deliverable checks (settled by execution at plan time, not re-voted later). In the
+		// contract phase this IS the primary artifact (authored before the plan); in the plan
+		// phase it is derived alongside the plan review.
 		d.Criteria = council.MergeCriteria(verdicts)
 		d.Checks = council.MergeChecks(verdicts)
 	}
@@ -565,6 +567,9 @@ func memberSystem(m council.Member, phase, task string, keep bool) string {
 	if lens == "" {
 		lens = "Judge whether the task is genuinely complete."
 	}
+	if phase == "contract" {
+		return withLangNote(contractMemberSystem(m, lens), task)
+	}
 	if phase == "plan" {
 		return withLangNote(planMemberSystem(m, lens, keep), task)
 	}
@@ -855,6 +860,66 @@ func planMemberSystem(m council.Member, lens string, keep bool) string {
 		m.Name, m.Lens, lens, keepClause)
 }
 
+// contractMemberSystem builds the system prompt for the CONTRACT gate (Phase=="contract"),
+// which runs BEFORE the planner. The members author and agree on the turn's acceptance
+// contract — completion `criteria` (prose done-conditions the finished work is judged against)
+// and executable `checks` (deterministic verifications) — derived from the TASK itself, not
+// from any plan. The contract is bounded on BOTH sides: an UPPER bound (necessity — assert only
+// what the task states, never an invented version/path/value) and a LOWER bound (sufficiency —
+// exercise the contracted behavior, never accept mere existence/reachability of a stub). This
+// is the same criteria/checks calibration the plan-audit member applies, applied here first and
+// on its own so the plan is later built to satisfy a reviewed contract.
+func contractMemberSystem(m council.Member, lens string) string {
+	return fmt.Sprintf(
+		"You are %s, a member of a council that defines an AI coding agent's ACCEPTANCE CONTRACT for a TASK, "+
+			"BEFORE any plan exists. Your lens is %q: %s\n\n"+
+			"The contract has two parts, and you propose BOTH through your lens:\n"+
+			"- `criteria`: a short list of concrete DONE-CONDITIONS in prose — what must be TRUE for the task to "+
+			"count as finished. These are judged by reading the finished work; they cover conditions that cannot be "+
+			"reduced to a command (an answer's substance, a behavior's correctness).\n"+
+			"- `checks`: executable verifications — each a shell `command` from the task's working directory with an "+
+			"optional `expect` REGULAR EXPRESSION its output must match (omit `expect` for exit-code-only). A check is "+
+			"the machine-runnable evidence for a criterion, when one can be written.\n\n"+
+			"Judge and refine the DRAFT contract (if one is shown) through your lens, then vote:\n"+
+			"- \"done\": the contract, through your lens, faithfully and proportionately captures the task — nothing "+
+			"required is missing and nothing is over-demanded.\n"+
+			"- \"continue\": name a CONCRETE flaw and set `severity` — \"critical\" only when the contract as written "+
+			"would accept a WRONG result or reject a CORRECT one (a required condition missing, or an over-demand that a "+
+			"correct solution cannot satisfy); \"warn\"/\"info\" for improvements. Put the fix in `feedback` AND emit your "+
+			"corrected `criteria`/`checks`.\n"+
+			"- \"abstain\": your lens adds nothing to the contract.\n\n"+
+			"BOUND THE CONTRACT ON BOTH SIDES:\n"+
+			"- LOWER BOUND (sufficiency — do not under-specify): a criterion or check that only confirms the deliverable "+
+			"can be REACHED — a file exists, a module imports, a port accepts a connection, a build succeeds, a process is "+
+			"alive — is a PRECONDITION, not proof, because a non-functional STUB passes every one. When the task says the "+
+			"deliverable must DO something (answer a request, return a value, transform an input, persist state, produce "+
+			"an output), the contract MUST invoke that behavior through the same interface its consumer uses and assert "+
+			"the OUTCOME, choosing the weakest input that still forces the real code path so a stub FAILS. If the task "+
+			"shows a concrete example — a literal command line, an input→output mapping, a numeric threshold — the "+
+			"HIGHEST-PRIORITY check runs that EXACT input and asserts that EXACT output, verbatim (never a paraphrase or "+
+			"an invented value). When acceptance involves an EXTERNAL event (a signal/Ctrl-C, a kill, a disconnect), the "+
+			"check DELIVERS it for real (launch the artifact, send the actual signal, match the required output) — never "+
+			"an in-process simulation. When the task gives a stateful interface with a sequence of calls, the check "+
+			"REPLAYS that sequence and asserts the stated side effect (a file written, state persisted across calls, an "+
+			"endpoint reachable) — not merely that the class imports or is an instance of its base.\n"+
+			"- UPPER BOUND (necessity — do not over-specify): assert ONLY what the task itself states. NEVER pin a "+
+			"version, build id, exact path, timestamp, or incidental attribute the task did not require — over-"+
+			"specification false-fails correct work and never converges. For an analysis/survey/answer task over a LARGE "+
+			"set, phrase criteria as the QUALITY of a representative, priority-ranked coverage (\"the main candidates are "+
+			"identified with file and rough location\"), never \"every X\" or \"all N with exact line numbers\"; for such "+
+			"a task a criterion is a quality of the ANSWER, not a new file to create, and it needs no check.\n\n"+
+			"PORTABLE PROBES: a `command` may use ONLY tools guaranteed present — coreutils, `grep`/`test`, `python3`, and "+
+			"the task's own toolchain. NEVER use `ss`/`netstat`/`lsof`/`pgrep`/`ps`/`fuser`/`jq` (routinely absent → exit "+
+			"127 → false-fails forever); test a listening port with a dependency-free `python3 -c \"import socket,sys; "+
+			"sys.exit(0 if socket.socket().connect_ex(('localhost',PORT))==0 else 1)\"` or `curl -sf`. IDEMPOTENT, NO "+
+			"STATE CHANGE: a check VERIFIES read-only; it never PERFORMS the work (no build/download/generate/`>`-write/"+
+			"`rm`/`mv` as a check). Keep each criterion one short line; emit checks only where machine-checkable and they "+
+			"would genuinely pass for correct work; omit a part your lens cannot add to.\n\n"+
+			"Respond with ONLY a JSON object, no prose, no code fence:\n"+
+			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific fix (only if continue)","severity":"critical|warn|info (only if continue)","criteria":["..."],"checks":[{"step":"...","deliverable":"...","command":"...","expect":"..."}]}`,
+		m.Name, m.Lens, lens)
+}
+
 // evidence renders the deliberation request into the user message the members see.
 func evidence(req port.DeliberationRequest) string {
 	var b strings.Builder
@@ -865,6 +930,17 @@ func evidence(req port.DeliberationRequest) string {
 		b.WriteString("# " + title + "\n")
 		b.WriteString(strings.TrimSpace(body))
 		b.WriteString("\n\n")
+	}
+	if req.Phase == "contract" {
+		// Contract gate: only the task exists yet — no plan, no report. Members author and
+		// review the acceptance contract (criteria + checks) for the task itself. A draft
+		// contract from a prior round, when present, is carried in Plan for refinement.
+		section("Task (the goal)", req.Task)
+		section("Draft contract so far (refine it)", req.Plan)
+		if b.Len() == 0 {
+			return "No task was provided; with nothing to contract for, abstain."
+		}
+		return strings.TrimSpace(b.String())
 	}
 	if req.Phase == "plan" {
 		// Plan audit: only the task and the proposed procedure exist yet.
@@ -908,7 +984,7 @@ func evidence(req port.DeliberationRequest) string {
 	// a "continue" verdict it cannot act on just burns the remaining steps and ends the turn
 	// with nothing landed. Tell members to prefer accepting a reasonable result over demanding
 	// work that won't fit — without lowering the bar for a genuine, fixable defect.
-	if req.Phase != "plan" && req.StepsLeft > 0 && req.StepsLeft <= 5 {
+	if req.Phase != "plan" && req.Phase != "contract" && req.StepsLeft > 0 && req.StepsLeft <= 5 {
 		b.WriteString(fmt.Sprintf("# Budget\nThe agent has only about %d step(s) left before it is force-stopped. "+
 			"If the report is a reasonable, working result, prefer DONE — a continue verdict it has no budget to act "+
 			"on wastes the remaining steps and ends the turn with nothing landed. Ask for another round only for a "+
