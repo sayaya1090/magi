@@ -27,13 +27,15 @@ type substituteArgs struct {
 
 func (SubstituteCheck) Name() string { return "substitute_check" }
 func (SubstituteCheck) Description() string {
-	return "Substitute an acceptance check whose given command cannot run HERE (missing tool, wrong path, no " +
-		"permission, different setup — NOT the deliverable being wrong). First RUN an equivalent command that " +
-		"verifies the SAME goal and confirm it passes, THEN call this to register it: step (the plan step), original " +
-		"(the original check command you are replacing), command (the working equivalent you ran), expect (optional " +
-		"expected output), reason (why the original could not run). The council reviews it before your turn finishes " +
-		"and, once approved, it replaces the stored check for the rest of the run. Do NOT use this to dodge a check " +
-		"that genuinely fails — that is a real failure to report, not a substitution."
+	return "Substitute an acceptance check whose given COMMAND cannot run HERE — it errors with \"not found\" / " +
+		"\"no such command\" / exit 127, or needs a missing tool, a wrong path, or a permission you lack (the CHECK " +
+		"is broken, NOT the deliverable). When that happens do NOT just quietly run a different command and move on — " +
+		"that leaves the broken check in place. Instead: first RUN an equivalent command that verifies the SAME goal " +
+		"and confirm it passes, THEN call this to register it: step (the plan step), original (the exact command that " +
+		"could not run), command (the working equivalent you ran), expect (optional expected output), reason (why the " +
+		"original could not run). The council reviews it before your turn finishes and, once approved, it replaces the " +
+		"stored check for the rest of the run. Do NOT use this to dodge a check that genuinely fails (the deliverable " +
+		"is wrong) — that is a real failure to report, not a substitution."
 }
 func (SubstituteCheck) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"step":{"type":"string"},"original":{"type":"string"},"command":{"type":"string"},"expect":{"type":"string"},"reason":{"type":"string"}},"required":["command"]}`)

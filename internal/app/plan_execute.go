@@ -545,14 +545,17 @@ func workerChecklist(checks []council.DeliverableCheck, stepIdx int) string {
 	}
 	var b strings.Builder
 	b.WriteString("Acceptance checklist — before you report done, RUN each of these and confirm it passes; " +
-		"do NOT report done while any of them is failing. If an item's given COMMAND cannot run HERE — a " +
-		"missing tool, a wrong path, no permission, a different setup (not the deliverable being wrong) — do " +
-		"NOT fail on it: run an EQUIVALENT command that verifies the SAME goal, then register it with the " +
-		"substitute_check tool (step, original command, the equivalent you ran, expect, reason). The council " +
-		"reviews it before you finish and, once approved, it replaces the check for the rest of the run. If an " +
-		"item's goal genuinely CANNOT be met — a real blocker, not a bug you can " +
-		"fix — stop retrying it and report (status blocked/failed) WHICH item is unmet and WHY, so it can be " +
-		"re-planned rather than silently dropped:")
+		"do NOT report done while any of them is failing.\n" +
+		"IF AN ITEM'S GIVEN COMMAND CANNOT RUN HERE — it errors with \"not found\" / \"no such command\" / exit " +
+		"127, or needs a missing tool, a wrong path, or a permission you lack (the CHECK is broken, NOT the " +
+		"deliverable) — do this, do NOT just quietly run a different command and move on:\n" +
+		"  1) run an EQUIVALENT command that verifies the SAME goal, then\n" +
+		"  2) you MUST call the substitute_check tool (step; original = the exact command that could not run; " +
+		"command = the equivalent you ran; expect; reason).\n" +
+		"A silent workaround is LOST — it leaves the broken check in place. substitute_check is what makes the " +
+		"fix reviewed by the council and PERSISTED for the rest of the run. Only if an item's goal genuinely " +
+		"CANNOT be met (a real blocker, not a bug you can fix) do you stop retrying and report status " +
+		"blocked/failed with WHICH item is unmet and WHY, so it can be re-planned rather than silently dropped:")
 	for i, c := range mine {
 		fmt.Fprintf(&b, "\n%d. ", i+1)
 		if d := strings.TrimSpace(c.Deliverable); d != "" {
