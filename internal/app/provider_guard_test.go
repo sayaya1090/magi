@@ -17,6 +17,11 @@ func TestDegenerateRepeat(t *testing.T) {
 		{"single char run", strings.Repeat("a", 200), true},
 		{"normal prose", "The quick brown fox jumps over the lazy dog. " +
 			"A completely ordinary paragraph of varied text that does not loop at all, continuing with more words.", false},
+		{"realistic planner JSON (must not false-fire)", `{"steps":[` +
+			`{"n":1,"strategy":"solo","title":"Read and analyze the OCaml runtime shared_heap.c"},` +
+			`{"n":2,"strategy":"solo","title":"Locate the POOL_BLOCK_FREE_HP macro and its callers"},` +
+			`{"n":3,"strategy":"solo","title":"Implement the run-length compression fix in the free-list walk"},` +
+			`{"n":4,"strategy":"solo","title":"Build the runtime and run the GC stress test to verify"}]}`, false},
 		{"blank lines only (not content)", strings.Repeat("\n", 200), false},
 		{"too short to judge", "the the the", false},
 		{"few reps below threshold", strings.Repeat("hello world ", 2), false}, // 24 bytes < repMinBlock
