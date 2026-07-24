@@ -25,6 +25,7 @@ import (
 var curateBaseTools = []string{
 	"read", "write", "edit", "multiedit", "grep", "glob", "list",
 	"bash", "bash_output", "bash_input", "bash_kill", "port_owner", "todowrite", "report", "ask", "skill",
+	"substitute_check", // every worker may hit an unrunnable acceptance check and must be able to substitute it
 }
 
 const curateSystem = "You prepare a work packet for a worker sub-agent that carries out ONE sub-task of a " +
