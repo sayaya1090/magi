@@ -43,3 +43,12 @@ func (a *App) emitCouncilVerdicts(ctx context.Context, sid session.SessionID, ac
 		a.appendFact(ctx, sid, event.TypeCouncilVerdict, actor, vd)
 	}
 }
+
+// emitCouncilDecided publishes a round's decision fact (done/continue, tally, note, criteria …).
+// Every council gate — plan audit, contract, and the termination gate — closes a round by
+// marshalling a CouncilDecidedData and appending it; this folds that two-line boilerplate into one
+// call so the gate bodies read as decisions, not serialization.
+func (a *App) emitCouncilDecided(ctx context.Context, sid session.SessionID, actor event.Actor, data event.CouncilDecidedData) {
+	dd, _ := json.Marshal(data)
+	a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd)
+}

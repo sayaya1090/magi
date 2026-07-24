@@ -69,6 +69,7 @@ type sessionState struct {
 	deliverableChecks []council.DeliverableCheck // plan-audit per-step executable checks this turn
 	contractFrozen    bool                       // a contract-first council gate authored this turn's criteria — plan-audit must not overwrite them (D-contract)
 	contractChecks    []council.DeliverableCheck // contract-first checks (not yet step-scoped); injected into the planner as the target contract
+	contractText      string                     // the frozen contract rendered for the planner (criteria+checks), so contractForPlanner is a straight read
 	passedChecks      map[string]bool            // checkKey → latest verify result (true=pass); drives the panel's ✓ glyph
 	estSteps          int                        // planner's advisory step estimate this turn
 	stepLedger        []ledgerEntry              // shared artifact ledger: each completed step's produced paths/interfaces (handoff), passed VERBATIM to every later worker and shown in every right panel
@@ -186,6 +187,7 @@ func (a *App) resetForNewTopLevel(sid session.SessionID) {
 	st.deliverableChecks = nil // …and the previous task's plan-audit executable checks
 	st.contractFrozen = false  // …and the contract-first freeze (a new top-level re-derives the contract)
 	st.contractChecks = nil    // …and the previous task's contract-first checks
+	st.contractText = ""       // …and its rendered planner contract
 	st.passedChecks = nil      // …and the previous task's per-check pass/fail glyph state
 	st.estSteps = 0            // …and the previous task's advisory step estimate
 	st.stepLedger = nil        // …and the previous task's shared artifact ledger

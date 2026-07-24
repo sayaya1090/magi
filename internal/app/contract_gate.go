@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -80,8 +79,7 @@ func (a *App) runContractGate(ctx context.Context, s session.Session, prompt str
 			Members: members, Rule: rule, Debate: councilDebateEnabled(), DefaultModel: s.Model.Model,
 		})
 		if err != nil { // a gate failure must never block the turn → proceed with whatever we have
-			dd, _ := json.Marshal(event.CouncilDecidedData{Round: round, Phase: "contract", Decision: string(council.Done), Note: "contract council unavailable: " + err.Error(), Forced: true})
-			a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd)
+			a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{Round: round, Phase: "contract", Decision: string(council.Done), Note: "contract council unavailable: " + err.Error(), Forced: true})
 			break
 		}
 		a.emitDebate(sid, actor, "contract", round, delib.Debate)
@@ -96,23 +94,20 @@ func (a *App) runContractGate(ctx context.Context, s session.Session, prompt str
 
 		critical := council.HasCriticalRevision(delib.Verdicts)
 		if !critical {
-			dd, _ := json.Marshal(event.CouncilDecidedData{
+			a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{
 				Round: round, Phase: "contract", Decision: string(council.Done), Tally: delib.Breakdown, Criteria: criteria,
 			})
-			a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd)
 			break
 		}
 		fb := strings.TrimSpace(council.CriticalFeedback(delib.Verdicts))
 		if round >= maxRounds || fb == "" {
-			dd, _ := json.Marshal(event.CouncilDecidedData{
+			a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{
 				Round: round, Phase: "contract", Decision: string(council.Done), Tally: delib.Breakdown,
 				Note: fmt.Sprintf("contract concern unresolved after %d round(s) — proceeding", round), Criteria: criteria, Forced: true,
 			})
-			a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd)
 			break
 		}
-		dd, _ := json.Marshal(event.CouncilDecidedData{Round: round, Phase: "contract", Decision: string(council.Continue), Tally: delib.Breakdown, Feedback: fb})
-		a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd)
+		a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{Round: round, Phase: "contract", Decision: string(council.Continue), Tally: delib.Breakdown, Feedback: fb})
 		// Refine: carry the current draft plus the blocking concern into the next round.
 		draft = renderContract(criteria, checks)
 		if draft != "" {
@@ -126,12 +121,14 @@ func (a *App) runContractGate(ctx context.Context, s session.Session, prompt str
 		return // nothing usable → leave the opt-in criteria path intact, no freeze
 	}
 	// Store criteria FIRST (before the freeze so this write is not blocked), then freeze so the
-	// plan-audit cannot overwrite the reviewed contract, and stash the checks for the planner.
+	// plan-audit cannot overwrite the reviewed contract, and stash the checks plus the rendered
+	// planner contract (so contractForPlanner is a straight read, not a criteria-string round-trip).
 	a.storePlanCriteria(ctx, s, criteria)
 	a.mu.Lock()
 	st := a.stateLocked(sid)
 	st.contractFrozen = true
 	st.contractChecks = checks
+	st.contractText = renderContract(criteria, checks)
 	a.mu.Unlock()
 	a.setStage(sid, stagePlan)
 }
@@ -174,17 +171,10 @@ func renderContract(criteria []string, checks []council.DeliverableCheck) string
 // contract instead of an unbounded interpretation of the request.
 func (a *App) contractForPlanner(sid session.SessionID) string {
 	a.mu.Lock()
+	defer a.mu.Unlock()
 	st := a.stateLocked(sid)
-	frozen, crit, checks := st.contractFrozen, st.criteria, append([]council.DeliverableCheck(nil), st.contractChecks...)
-	a.mu.Unlock()
-	if !frozen {
+	if !st.contractFrozen {
 		return ""
 	}
-	var criteria []string
-	if strings.TrimSpace(crit) != "" {
-		for _, ln := range strings.Split(crit, "\n") {
-			criteria = append(criteria, strings.TrimPrefix(strings.TrimSpace(ln), "- "))
-		}
-	}
-	return renderContract(criteria, checks)
+	return st.contractText
 }

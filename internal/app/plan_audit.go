@@ -67,8 +67,7 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 			Members: members, Rule: rule, Debate: councilDebateEnabled(), DefaultModel: s.Model.Model,
 		})
 		if err != nil { // a gate failure must not block the turn → proceed with the plan
-			dd, _ := json.Marshal(event.CouncilDecidedData{Round: round, Phase: "plan", Decision: string(council.Done), Note: "plan council unavailable: " + err.Error(), Forced: true})
-			a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd)
+			a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{Round: round, Phase: "plan", Decision: string(council.Done), Note: "plan council unavailable: " + err.Error(), Forced: true})
 			return steps
 		}
 		a.emitDebate(sid, actor, "plan", round, delib.Debate)
@@ -103,11 +102,10 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 					}
 				}
 			}
-			dd, _ := json.Marshal(event.CouncilDecidedData{
+			a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{
 				Round: round, Phase: "plan", Decision: string(council.Done),
 				Tally: delib.Breakdown, Note: note, Criteria: delib.Criteria,
 			})
-			a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd)
 			return steps
 		}
 
@@ -122,15 +120,13 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 			if carry := strings.TrimSpace(fb + "\n\n" + advice); carry != "" {
 				a.injectCouncilAdvice(ctx, s.ID, carry, false)
 			}
-			dd, _ := json.Marshal(event.CouncilDecidedData{
+			a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{
 				Round: round, Phase: "plan", Decision: string(council.Done), Tally: delib.Breakdown,
 				Note: fmt.Sprintf("critical plan concern unresolved after %d round(s) — proceeding", round), Criteria: delib.Criteria, Forced: true,
 			})
-			a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd)
 			return steps
 		}
-		dd, _ := json.Marshal(event.CouncilDecidedData{Round: round, Phase: "plan", Decision: string(council.Continue), Tally: delib.Breakdown, Feedback: fb})
-		a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd)
+		a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{Round: round, Phase: "plan", Decision: string(council.Continue), Tally: delib.Breakdown, Feedback: fb})
 
 		// Re-plan with the blocking feedback folded in (one retry — local models are flaky
 		// and an empty/unparseable reply shouldn't silently drop the revision). Carry the
@@ -156,11 +152,10 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 			// run a plan the council just rejected). Keep this round's criteria.
 			a.storePlanCriteria(ctx, s, delib.Criteria)
 			a.storeCoveredChecks(ctx, s, prompt, steps, delib.Checks)
-			dd2, _ := json.Marshal(event.CouncilDecidedData{
+			a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{
 				Round: round, Phase: "plan", Decision: string(council.Done), Tally: delib.Breakdown,
 				Note: "re-plan failed — proceeding with the prior plan", Criteria: delib.Criteria, Forced: true,
 			})
-			a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd2)
 			return steps
 		}
 
@@ -198,12 +193,11 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 			a.storePlanCriteria(ctx, s, delib.Criteria)
 			a.storeCoveredChecks(ctx, s, prompt, next, delib.Checks)
 			a.injectCouncilAdvice(ctx, s.ID, fb, false)
-			dd3, _ := json.Marshal(event.CouncilDecidedData{
+			a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{
 				Round: round, Phase: "plan", Decision: string(council.Done), Tally: delib.Breakdown,
 				Note:     fmt.Sprintf("plan revision did not address the concern after %d round(s) — proceeding (execution + landing gates arbitrate)", round),
 				Criteria: delib.Criteria, Forced: true,
 			})
-			a.appendFact(ctx, sid, event.TypeCouncilDecided, actor, dd3)
 			return next
 		}
 		steps = next
