@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -10,6 +11,41 @@ import (
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
+
+// contractDraftSystem drafts an initial acceptance contract for the council to review. Same
+// necessity/sufficiency bounds the contract members apply — kept short here since the council
+// refines it. Reply is a single JSON object.
+const contractDraftSystem = "You draft a coding task's ACCEPTANCE CONTRACT — the completion " +
+	"conditions a council will then review and refine. Produce two lists: `criteria` (prose " +
+	"done-conditions — what must be TRUE for the task to count as finished) and `checks` " +
+	"(executable verifications — a shell `command` from the task's working directory, optional " +
+	"`expect` regexp its output must match). BOUND IT: assert ONLY what the task itself states " +
+	"(never a version/path/value the task did not require); and where the deliverable must DO " +
+	"something, a check must EXERCISE that behavior through the same interface its consumer uses and " +
+	"assert the outcome (a stub that merely exists must FAIL), replaying the task's own example " +
+	"verbatim when it gives one. Portable commands only (coreutils, grep/test, python3, the task's " +
+	"toolchain; never ss/netstat/lsof/pgrep). Reply with ONLY a JSON object, no prose:\n" +
+	`{"criteria":["..."],"checks":[{"deliverable":"...","command":"...","expect":"..."}]}`
+
+// elicitContractDraft asks a single model for an initial contract (criteria + checks) so the first
+// council round reviews a concrete draft. Best-effort: an unparseable/empty reply yields nil, and the
+// council then authors from scratch.
+func (a *App) elicitContractDraft(ctx context.Context, spec AgentSpec, sid session.SessionID, model, task string) ([]string, []council.DeliverableCheck) {
+	if a.providerFor(spec) == nil { // no model wired (e.g. council-only tests) → skip, council authors
+		return nil, nil
+	}
+	raw := a.specMineCall(ctx, spec, sid, "contract-draft", model, contractDraftSystem, task)
+	for _, js := range balancedObjects(raw) {
+		var d struct {
+			Criteria []string                   `json:"criteria"`
+			Checks   []council.DeliverableCheck `json:"checks"`
+		}
+		if json.Unmarshal([]byte(js), &d) == nil && (len(d.Criteria) > 0 || len(d.Checks) > 0) {
+			return d.Criteria, d.Checks
+		}
+	}
+	return nil, nil
+}
 
 // runContractGate is the contract-first gate (D-contract): BEFORE the planner decomposes the
 // request, the council authors and reviews the turn's acceptance CONTRACT — completion criteria
@@ -62,9 +98,17 @@ func (a *App) runContractGate(ctx context.Context, s session.Session, prompt str
 		}
 	}
 
-	var criteria []string
-	var checks []council.DeliverableCheck
-	draft := "" // rendered draft carried into the next round for refinement
+	agent := a.agentFor(s)
+	model := s.Model.Model
+	if agent.Model != (session.ModelRef{}) {
+		model = agent.Model.Model
+	}
+	// Draft the contract FIRST (single-model), so the very first council round REVIEWS a concrete
+	// draft — shown at convened, before the deliberation — instead of authoring it silently and only
+	// revealing it at the decision. Reads like the plan audit (the plan is shown before it is judged).
+	// Best-effort: on failure the draft is empty and the council authors from scratch as before.
+	criteria, checks := a.elicitContractDraft(ctx, agent, sid, model, task)
+	draft := renderContract(criteria, checks)
 
 	for round := 1; round <= maxRounds; round++ {
 		if ctx.Err() != nil {
@@ -92,28 +136,33 @@ func (a *App) runContractGate(ctx context.Context, s session.Session, prompt str
 			checks = delib.Checks
 		}
 
+		// Incorporate ALL actionable feedback — critical AND advisory. The contract is the artifact
+		// being DEFINED here, so an advisory suggestion must REFINE it (there is no executor to hand
+		// a non-blocking note to, as the plan audit has); dropping it would lose the council's input.
+		// Finalize only when the round is clean (no feedback at all) or the round cap is hit.
 		critical := council.HasCriticalRevision(delib.Verdicts)
-		if !critical {
-			a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{
-				Round: round, Phase: "contract", Decision: string(council.Done), Tally: delib.Breakdown, Criteria: criteria,
-			})
-			break
-		}
 		fb := strings.TrimSpace(council.CriticalFeedback(delib.Verdicts))
-		if round >= maxRounds || fb == "" {
+		if fb == "" {
+			fb = strings.TrimSpace(council.AdvisoryFeedback(delib.Verdicts))
+		}
+		if fb == "" || round >= maxRounds {
+			note := ""
+			forced := critical && round >= maxRounds // proceeding past an unresolved BLOCKING concern
+			if forced {
+				note = fmt.Sprintf("contract concern unresolved after %d round(s) — proceeding", round)
+			}
 			a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{
-				Round: round, Phase: "contract", Decision: string(council.Done), Tally: delib.Breakdown,
-				Note: fmt.Sprintf("contract concern unresolved after %d round(s) — proceeding", round), Criteria: criteria, Forced: true,
+				Round: round, Phase: "contract", Decision: string(council.Done), Tally: delib.Breakdown, Criteria: criteria, Note: note, Forced: forced,
 			})
 			break
 		}
 		a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{Round: round, Phase: "contract", Decision: string(council.Continue), Tally: delib.Breakdown, Feedback: fb})
-		// Refine: carry the current draft plus the blocking concern into the next round.
+		// Refine: carry the current draft plus the feedback (blocking or advisory) into the next round.
 		draft = renderContract(criteria, checks)
 		if draft != "" {
-			draft += "\n\n# Council concern to fix:\n" + fb
+			draft += "\n\n# Council feedback to incorporate:\n" + fb
 		} else {
-			draft = "# Council concern to address:\n" + fb
+			draft = "# Council feedback to address:\n" + fb
 		}
 	}
 

@@ -529,15 +529,6 @@ func (m *Model) onCouncilDecided(d event.CouncilDecidedData) {
 	} else if d.Feedback != "" {
 		line += " → feedback injected"
 	}
-	// Contract gate: enumerate the completion conditions this round settled, so it reads like the plan
-	// audit's proposed procedure — you see WHAT the contract judgment produced (1. … 2. …), not just a tally.
-	if d.Phase == "contract" && len(d.Criteria) > 0 {
-		for i, c := range d.Criteria {
-			if c = strings.TrimSpace(c); c != "" {
-				line += fmt.Sprintf("\n    %d. %s", i+1, c)
-			}
-		}
-	}
 	m.blocks = append(m.blocks, block{kind: blockInfo, text: line})
 	// A review round (non-plan) that votes "continue" re-prompts the model for a
 	// revised answer (council_gate emitDecided(Continue,…) → re-run), so the report

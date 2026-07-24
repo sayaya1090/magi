@@ -32,7 +32,12 @@ func (m *Model) hasPanel() bool {
 	if m.app == nil {
 		return false
 	}
-	return len(m.app.Todos(m.panelSID())) > 0 || len(m.panes) > 0 || len(m.doneRoster) > 0
+	sid := m.panelSID()
+	// Show the panel as soon as the contract-first gate has agreed the completion conditions —
+	// before the plan produces any todos — so the reviewed contract appears the moment it is frozen
+	// (the contract→plan order). Also whenever there are todos, live panes, or finished ones.
+	return len(m.app.Todos(sid)) > 0 || len(m.panes) > 0 || len(m.doneRoster) > 0 ||
+		len(m.app.AcceptanceCriteria(sid)) > 0 || len(m.app.CompletionChecks(sid)) > 0
 }
 
 // panelCols is the horizontal space the panel RESERVES in the layout. The panel is a

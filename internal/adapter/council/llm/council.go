@@ -926,6 +926,10 @@ func contractMemberSystem(m council.Member, lens string) string {
 			"STATE CHANGE: a check VERIFIES read-only; it never PERFORMS the work (no build/download/generate/`>`-write/"+
 			"`rm`/`mv` as a check). Keep each criterion one short line; emit checks only where machine-checkable and they "+
 			"would genuinely pass for correct work; omit a part your lens cannot add to.\n\n"+
+			"RE-JUDGE CARRIED CONCERNS: when the draft carries a prior round's feedback, do not blindly perpetuate it. "+
+			"Check each carried concern against the TASK: if it demands something the task does not require (an over-"+
+			"demand), DROP it from the contract rather than encode it — an unjustified concern must not become a "+
+			"criterion or check. Keep only what the task's own words support.\n\n"+
 			"Respond with ONLY a JSON object, no prose, no code fence:\n"+
 			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific fix (only if continue)","severity":"critical|warn|info (only if continue)","criteria":["..."],"checks":[{"step":"...","deliverable":"...","command":"...","expect":"..."}]}`,
 		m.Name, m.Lens, lens)
