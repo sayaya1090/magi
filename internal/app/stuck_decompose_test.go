@@ -167,11 +167,13 @@ func TestDriveStuckTodosPreservesOuterTodos(t *testing.T) {
 		{Content: "outer step 1", Status: "completed"},
 		{Content: "outer step 2", Status: "in_progress"},
 	})
-	// A real delegated child under outer step 2 makes this an outer-plan case (not solo) → append.
+	// A real delegated child under outer step 2 that LANDED progress (a completed sub-todo) makes this
+	// an outer-plan case worth preserving (not solo) → append below it.
 	step := 1
 	a.mu.Lock()
 	a.states["outer_child"] = &sessionState{meta: session.Session{ID: "outer_child", Parent: s.ID, ParentStep: &step}}
 	a.mu.Unlock()
+	a.SetTodos("outer_child", []session.Todo{{Content: "sub-step it finished", Status: "completed"}})
 
 	landed, _ := a.driveStuckTodos(context.Background(), s, a.cfg.Agents["coder"], "task", "reason", 0)
 	if !landed {
@@ -187,6 +189,39 @@ func TestDriveStuckTodosPreservesOuterTodos(t *testing.T) {
 	}
 	if td[2].Status != "completed" || td[3].Status != "completed" {
 		t.Errorf("appended units should be completed, got %q / %q", td[2].Status, td[3].Status)
+	}
+}
+
+// A step whose delegated worker DIED without landing anything (its child has only pending todos,
+// no completed) is NOT a live outer plan to preserve: recovery drops the dead worker's stale
+// sub-steps and REPLACES the list with the fresh plan, instead of stacking the new steps under the
+// dead ones.
+func TestDriveStuckTodosDeadChildReplaces(t *testing.T) {
+	plan := `{"steps":[
+		{"title":"unit A","strategy":"solo","task":"do A"},
+		{"title":"unit B","strategy":"solo","task":"do B"}]}`
+	a, s := stuckDriverApp(t, plan, func(req string) string { return "landed" })
+	a.SetTodos(s.ID, []session.Todo{
+		{Content: "orig step 1", Status: "completed"},
+		{Content: "orig step 2", Status: "in_progress"},
+	})
+	// A child under step 2 whose worker died: it has ONLY a pending todo — no landed (completed) work.
+	step := 1
+	a.mu.Lock()
+	a.states["dead_child"] = &sessionState{meta: session.Session{ID: "dead_child", Parent: s.ID, ParentStep: &step}}
+	a.mu.Unlock()
+	a.SetTodos("dead_child", []session.Todo{{Content: "sub-step it never finished", Status: "pending"}})
+
+	landed, _ := a.driveStuckTodos(context.Background(), s, a.cfg.Agents["coder"], "task", "reason", 0)
+	if !landed {
+		t.Fatal("units should land")
+	}
+	td := a.Todos(s.ID)
+	if len(td) != 2 {
+		t.Fatalf("a dead worker's step must be REPLACED (not appended under): expected just the 2 units, got %d", len(td))
+	}
+	if td[0].Content != "unit A" || td[1].Content != "unit B" {
+		t.Errorf("replaced list must be the recovery units, got %q / %q", td[0].Content, td[1].Content)
 	}
 }
 

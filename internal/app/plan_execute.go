@@ -47,6 +47,23 @@ func handoffFacts(finding string) string {
 	return ""
 }
 
+// childLanded reports whether a plan step's child session(s) produced KEPT progress — at least one
+// completed todo. It decides whether a SOLO stuck re-plan APPENDS its new units below an existing
+// step (preserving a delegated sub-plan that actually got somewhere) or REPLACES it: a worker that
+// DIED without landing anything leaves only pending/failed (or no) todos, so its stale sub-steps
+// must be dropped, not stacked under the fresh plan. A partially-landed worker keeps the part it
+// finished. Only a still-relevant, progressing sub-plan counts as an outer plan to preserve.
+func (a *App) childLanded(parent session.SessionID, step int) bool {
+	for _, kid := range a.PlanChildren(parent, step) {
+		for _, td := range a.Todos(kid) {
+			if td.Status == "completed" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // appendLedger records a completed step's produced deliverables on the plan session's shared ledger.
 // No-op on empty facts (nothing concrete to hand off).
 func (a *App) appendLedger(sid session.SessionID, step, facts string) {
@@ -779,7 +796,7 @@ func (a *App) driveStuckTodos(ctx context.Context, s session.Session, agent Agen
 	existing := a.Todos(s.ID)
 	outerPlan := false
 	for i := range existing {
-		if len(a.PlanChildren(s.ID, i)) > 0 {
+		if a.childLanded(s.ID, i) {
 			outerPlan = true
 			break
 		}
