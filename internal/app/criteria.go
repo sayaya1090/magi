@@ -93,8 +93,12 @@ const coverageFillSystem = "You author executable deliverable `checks` that veri
 	"and assert on the RESULT (call the endpoint and assert the returned value, run the program on an input and compare " +
 	"its output), choosing the weakest input that still forces the real code path so a stub that merely exists or opens " +
 	"the port FAILS.\n" +
-	"- PORTABLE: only tools guaranteed present (coreutils, grep/test, python3, the task's own toolchain). Replace " +
-	"ss/netstat/lsof with a dependency-free python socket connect.\n" +
+	"- PORTABLE: use ONLY tools guaranteed present (coreutils, grep/test, python3, the task's own toolchain). Any tool " +
+	"OUTSIDE that set may be absent on the target image and exits 127 (`ss`, `netstat`, `lsof`, `pgrep`, `pidof`, `ps`, " +
+	"`fuser`, `jq`, ... are examples of the class, not an exhaustive list) — a 127 then false-fails a correct deliverable " +
+	"forever. Do the check with a python3 primitive instead: a port via a dependency-free socket connect, a process's " +
+	"liveness via `os.kill(pid, 0)` or reading `/proc`, JSON via python's `json` — never by shelling to a process/" +
+	"network/parse utility that may not be installed.\n" +
 	"- IDEMPOTENT, NO STATE CHANGE (work≠check): verify the already-produced artifact READ-ONLY; NEVER create/build/" +
 	"download/move/delete it (a check that re-does the work traps the run in a redo loop).\n" +
 	"- A pure investigation/read-only step (it writes no artifact) needs NO check — do NOT invent one for it.\n" +
@@ -168,7 +172,10 @@ const validateChecksSystem = "You review the executable deliverable `checks` a p
 	"objective: for an installed dependency assert it is importable/usable, not an exact version, UNLESS the task pins " +
 	"one; drop or loosen any pinned specific the task did not require.\n" +
 	"- PORTABLE: the command may use ONLY tools guaranteed present (coreutils, grep/test, python3, the task's own " +
-	"toolchain). Replace `ss`/`netstat`/`lsof` with a dependency-free python socket connect. Invoke a tool by its " +
+	"toolchain). Any tool OUTSIDE that set may be absent on the target image and exits 127 (`ss`, `netstat`, `lsof`, " +
+	"`pgrep`, `pidof`, `ps`, `fuser`, `jq`, ... are examples of the class, not an exhaustive list), which false-fails a " +
+	"correct deliverable forever. Replace it with a python3 primitive: a port via a dependency-free socket connect, a " +
+	"process's liveness via `os.kill(pid, 0)` or reading `/proc`, JSON via python's `json`. Invoke a tool by its " +
 	"BARE name so PATH resolves it (`pip3`, or `python3 -m pip`); NEVER hardcode an absolute install path like " +
 	"`/usr/bin/pip3` — the same tool lives at `/usr/local/bin/pip3` or a venv/pyenv shim on another image, so an " +
 	"absolute path false-fails on the machine it was not written for. Strip any leading `/usr/bin/`, `/usr/local/bin/` " +

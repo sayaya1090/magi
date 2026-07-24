@@ -83,6 +83,24 @@ func TestValidateChecksPromptRespectsToolDerivedNames(t *testing.T) {
 	}
 }
 
+// The PORTABLE clause must be stated as a PRINCIPLE, not an enumeration: any tool outside the
+// guaranteed set may be absent and exit 127, and process-liveness must be checked with a python3
+// primitive (os.kill / /proc), not a process utility. Guards against the pgrep-127 regression
+// where an authored check shelled to a process tool the target image did not have — and against
+// regressing to a fixed ss/netstat/lsof blocklist that leaves the next absent tool uncovered.
+func TestPortableClauseIsPrincipledNotEnumerated(t *testing.T) {
+	for _, sys := range []struct {
+		name string
+		text string
+	}{{"coverageFillSystem", coverageFillSystem}, {"validateChecksSystem", validateChecksSystem}} {
+		for _, want := range []string{"127", "os.kill(pid, 0)", "not an exhaustive list", "pgrep"} {
+			if !strings.Contains(sys.text, want) {
+				t.Errorf("%s PORTABLE clause must state the 127/liveness principle (missing %q)", sys.name, want)
+			}
+		}
+	}
+}
+
 // The validation prompt must forbid over-demand: a check may assert only what the task itself states,
 // never a version/build-id/incidental the task did not pin — over-specification false-fails a correct
 // deliverable and can never converge on an environment that differs in that incidental.
