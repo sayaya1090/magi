@@ -84,7 +84,7 @@ func backgroundTailNote(exit int, command string, sid session.SessionID) string 
 		bgLaunched.mu.Unlock()
 	}
 	if dup {
-		return "[note: `" + prog + "` was ALREADY started in the background with `&` earlier in this run and its completion was never confirmed — launching another copy races the in-flight one (lock contention, duplicate downloads). Wait for the first: use bash with background=true and poll bash_output, or block on completion with wait_for.]"
+		return "[note: `" + prog + "` was ALREADY started in the background with `&` earlier in this run and its completion was never confirmed — launching another copy races the in-flight one (lock contention, a duplicate server that squats the port so a grader hits the STALE copy). Don't stack another: for a server, free the port first with port_owner{port:N,kill:true} then start ONE with background=true (poll bash_output); for a one-shot job, wait for the first with wait_for.]"
 	}
 	return "[note: this command was detached with a trailing `&` — exit 0 only means it STARTED; it is not evidence of completion or success. Poll it (background=true + bash_output) or wait for it (wait_for) instead of assuming it finished or launching it again.]"
 }

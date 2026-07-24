@@ -67,6 +67,7 @@ func Default() *Registry {
 	r.Register(BashOutput{})
 	r.Register(BashKill{})
 	r.Register(BashInput{})
+	r.Register(PortOwner{})
 	r.Register(TodoWrite{})
 	r.Register(WebFetch{})
 	r.Register(WebSearch{})

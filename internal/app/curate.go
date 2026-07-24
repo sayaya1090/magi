@@ -24,7 +24,7 @@ import (
 // them it cannot read, edit, run, or report. The curator only ADDS specialized tools on top.
 var curateBaseTools = []string{
 	"read", "write", "edit", "multiedit", "grep", "glob", "list",
-	"bash", "bash_output", "bash_input", "bash_kill", "todowrite", "report", "ask", "skill",
+	"bash", "bash_output", "bash_input", "bash_kill", "port_owner", "todowrite", "report", "ask", "skill",
 }
 
 const curateSystem = "You prepare a work packet for a worker sub-agent that carries out ONE sub-task of a " +
