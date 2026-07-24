@@ -431,6 +431,8 @@ func councilPhaseLabel(phase string) (label, verb string) {
 		return "plan audit", "review the plan"
 	case "contract":
 		return "contract gate", "define the completion conditions"
+	case "substitution":
+		return "substitution review", "verify the check substitution"
 	}
 	return "council", "deliberate"
 }

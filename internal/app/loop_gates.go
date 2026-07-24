@@ -363,6 +363,13 @@ func (a *App) runTerminationGate(ctx context.Context, tc turnCtx, step int, turn
 	}
 	s, agent, guard, depth, maxSteps := tc.s, tc.agent, tc.guard, tc.depth, tc.maxSteps
 	sid := s.ID
+	// Substitution review (solo/top-level): a solo agent has no report tool, so its check substitutions
+	// (substitute_check) are vetted HERE at the finish boundary — same strict review a delegated worker
+	// gets at its report. A rejected substitution loops the agent to correct; an approved one rewrites
+	// this session's stored checks (below) so the step gate then verifies the working command.
+	if act, looped := a.reviewSubstitutions(ctx, tc, &ts.substRounds); looped {
+		return act, true
+	}
 	stepGate, checkLedger := a.runStepGate(ctx, s, ts)
 	// Non-converging self-check landing (internal signal only — no external wall clock): a
 	// non-empty ledger means a deliverable check FAILED this attempt. If the agent has edited the

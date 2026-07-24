@@ -91,6 +91,7 @@ type turnState struct {
 	recovered        bool        // stuck-recovery redecompose fired at most once (shared with the stall path)
 	stepNudged       bool        // deliverable-check failure nudge injected at most once (MAGI_STEP_VERIFY)
 	lastCheckEpoch   int         // mutation epoch at the last incremental step-check pass (skip read-only turns)
+	substRounds      int         // substitution-review correction rounds spent this turn (solo path)
 	council          councilTurn // consensus gate rounds/feedback/spent/deadlock (D14)
 }
 
@@ -124,6 +125,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	agentActor := event.Actor{Kind: event.ActorAgent, ID: orDefault(agent.Name, "default")}
 	lastText := ""
 	reportRefused := false // a subagent's unverified "done" report was refused once this run
+	substReviewRounds := 0 // rounds the substitution-review council has asked this worker to correct
 	guard := newRunGuard()
 	guard.stallConverge = stallConvergeEnabled() // D18a: collapse the stalled-nudge re-arm when a redirect produced no forward motion
 	ts := turnState{prevFinishCalls: -1}         // per-turn mutable bookkeeping (finish guards, council accounting, stuck-recovery); zeroed field-wise on reground
@@ -509,7 +511,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// refuse an unverified "done" once (loopContinue) or finish the turn (loopFinish, with
 		// the result string to return).
 		u := event.Usage{In: lastIn, Out: cumOut, Cost: cumCost}
-		if act, result, handled := a.handleReport(ctx, tc, lastText, u, &reportRefused); handled {
+		if act, result, handled := a.handleReport(ctx, tc, lastText, u, &reportRefused, &substReviewRounds); handled {
 			switch act {
 			case loopContinue:
 				continue // refused an unverified "done" — pushed back to actually run it
@@ -742,12 +744,23 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 // which runs the merged deliverable for real. Otherwise the turn finishes (loopFinish) with the
 // report's result. This short-circuits the top-level-only pre-finish gates, so the delegated
 // path carries its own verification here.
-func (a *App) handleReport(ctx context.Context, tc turnCtx, lastText string, u event.Usage, reportRefused *bool) (loopAction, string, bool) {
+func (a *App) handleReport(ctx context.Context, tc turnCtx, lastText string, u event.Usage, reportRefused *bool, substReviewRounds *int) (loopAction, string, bool) {
 	s, agent := tc.s, tc.agent
 	sid := s.ID
 	rep := a.takeReport(sid)
 	if rep == nil {
 		return 0, "", false
+	}
+	// Substitution review: any acceptance-check substitution this worker declared (substitute_check /
+	// report) is vetted HERE, in the worker's own session, by a strict review council before it can
+	// finish — the worker corrects and re-declares until the council agrees (bounded). Approved
+	// substitutions are stashed for the parent to apply to its stored checks. Runs before the finish
+	// path so a rejected substitution loops the worker instead of landing.
+	if rep.status == "done" {
+		if act, looped := a.reviewSubstitutions(ctx, tc, substReviewRounds); looped {
+			// Re-file the report intent so the corrected re-report is not lost, then loop.
+			return act, "", true
+		}
 	}
 	if rep.status == "done" && !*reportRefused && agent.allows("bash") && tc.guard.unverifiedDeliverable() {
 		*reportRefused = true
@@ -777,6 +790,14 @@ func (a *App) handleReport(ctx context.Context, tc turnCtx, lastText string, u e
 		a.appendPart(ctx, sid, tc.actor, "m_"+newID(), session.RoleAssistant, session.Part{
 			ID: "p_" + newID(), Kind: session.PartText, Text: paneText,
 		})
+	}
+	// With the review gate off, substitutions were never vetted or stashed above — pass any the worker
+	// declared straight through to the parent so the fix still persists (the A/B baseline).
+	if !substReviewEnabled() {
+		if pend := a.pendingSubsOf(sid); len(pend) > 0 {
+			a.stashApprovedSubs(sid, pend)
+			a.clearPendingSubs(sid)
+		}
 	}
 	d, _ := json.Marshal(event.TurnFinishedData{Usage: u})
 	a.appendFact(ctx, sid, event.TypeTurnFinished, tc.actor, d)

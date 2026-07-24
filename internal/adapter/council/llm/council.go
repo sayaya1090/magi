@@ -573,6 +573,9 @@ func memberSystem(m council.Member, phase, task string, keep bool) string {
 	if phase == "plan" {
 		return withLangNote(planMemberSystem(m, lens, keep), task)
 	}
+	if phase == "substitution" {
+		return withLangNote(substMemberSystem(m, lens), task)
+	}
 	// Optional advisory (MAGI_COUNCIL_KEEP): each member also names what the report already
 	// gets right through ITS lens, so the agent doesn't revert a correct part or re-verify a
 	// settled one. It never changes the vote — feedback still drives continue.
@@ -937,6 +940,41 @@ func contractMemberSystem(m council.Member, lens string) string {
 		m.Name, m.Lens, lens)
 }
 
+// substMemberSystem builds the system prompt for the SUBSTITUTION review (Phase=="substitution"): an
+// acceptance check's given command could not run here and the agent ran an EQUIVALENT it says verifies
+// the same goal. The members judge whether each substitute is an adequate, honest equivalent. Unlike
+// the plan/contract phase this is STRICT — the deliverable is already built, so a weak proxy is
+// rejected — but it must not demand more than the original check itself required.
+func substMemberSystem(m council.Member, lens string) string {
+	switch m.Lens {
+	case "correctness":
+		lens = "equivalence — does the substitute verify the SAME goal as the original check, not a weaker proxy?"
+	case "verification":
+		lens = "adequacy — does the substitute actually EXERCISE the behaviour the original checked (not mere existence/reachability)?"
+	case "completeness":
+		lens = "necessity — is the substitution justified (the original truly could not run here) and neither over- nor under-reaching?"
+	}
+	return fmt.Sprintf(
+		"You are %s, a member of a council reviewing an AI coding agent's ACCEPTANCE-CHECK SUBSTITUTION. Your lens is "+
+			"%q: %s\n\n"+
+			"An acceptance check's given command could not run in this environment, so the agent ran an EQUIVALENT command "+
+			"it says verifies the SAME goal. Judge whether each substitute is an ADEQUATE, HONEST equivalent of the "+
+			"original check.\n\n"+
+			"The deliverable is already BUILT, so do NOT be lenient as at plan time — a weak proxy (checking mere "+
+			"existence/reachability when the original exercised behaviour, or a command that cannot actually fail) is NOT "+
+			"acceptable. But do NOT demand MORE than the original check itself required.\n\n"+
+			"Vote:\n"+
+			"- \"done\": the substitute reasonably verifies the same goal as the original — the DEFAULT when the "+
+			"equivalence is sound.\n"+
+			"- \"continue\": the substitute is inadequate — a weaker proxy, does not exercise the behaviour, or the "+
+			"original could plausibly have run (unjustified substitution). Set severity \"critical\" and put the specific "+
+			"fix in `feedback` (what the substitute must instead verify).\n"+
+			"- \"abstain\": your lens adds nothing.\n\n"+
+			"Respond with ONLY a JSON object, no prose, no code fence:\n"+
+			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific fix (only if continue)","severity":"critical|warn|info (only if continue)"}`,
+		m.Name, m.Lens, lens)
+}
+
 // evidence renders the deliberation request into the user message the members see.
 func evidence(req port.DeliberationRequest) string {
 	var b strings.Builder
@@ -947,6 +985,16 @@ func evidence(req port.DeliberationRequest) string {
 		b.WriteString("# " + title + "\n")
 		b.WriteString(strings.TrimSpace(body))
 		b.WriteString("\n\n")
+	}
+	if req.Phase == "substitution" {
+		// Substitution review: the members judge whether the equivalent commands the agent ran
+		// adequately verify the same goals as the original acceptance checks it could not run.
+		section("What the substitutes must verify (the original checks & why they could not run)", req.Task)
+		section("The substitutions to review (the equivalent commands the agent ran)", req.Plan)
+		if b.Len() == 0 {
+			return "No substitution was provided; abstain."
+		}
+		return strings.TrimSpace(b.String())
 	}
 	if req.Phase == "contract" {
 		// Contract gate: only the task exists yet — no plan, no report. Members author and
