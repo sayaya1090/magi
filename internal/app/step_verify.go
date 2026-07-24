@@ -167,6 +167,50 @@ func checkKey(c council.DeliverableCheck) string {
 	return strings.TrimSpace(c.Step) + "\x00" + strings.TrimSpace(c.Command)
 }
 
+// checkAlreadyGreen reports whether a check has already been recorded ✓ this run — used to make
+// per-step recording idempotent so a step whose gate (verifyStepChecks) already passed it is not
+// re-run at the completion hook.
+func (a *App) checkAlreadyGreen(sid session.SessionID, c council.DeliverableCheck) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st, ok := a.stateIf(sid)
+	if !ok {
+		return false
+	}
+	return st.passedChecks[checkKey(c)]
+}
+
+// recordStepChecks runs and records the deliverable checks that belong to plan step stepIdx, the
+// moment that step is marked completed — the per-step, path-agnostic half of the completion panel.
+// verifyStepChecks records a delegate step's checks when it GATES the step, but the scout (:222)
+// and refine (:632) completion paths never run it, so their steps advanced unrecorded and every ✓
+// came from the terminal runStepGate all at once ("0/N until the end"). Driving it from the single
+// completion hook (completeThrough) fills the panel as each step lands, on every execution path.
+// Idempotent: a check already ✓ (delegate's verifyStepChecks) is skipped, so this never double-runs
+// a passed check; an unexecutable (127) or unverifiable (-1) result is not recorded — the terminal
+// gate and the worker's substitution evidence settle those. It only RECORDS for the panel; it does
+// not gate control flow (completeThrough is a display/state signal, not the step gate).
+func (a *App) recordStepChecks(ctx context.Context, sid session.SessionID, stepIdx int) {
+	if !stepVerifyEnabled() || a.plat == nil {
+		return
+	}
+	mine := matchStepChecks(a.cachedChecks(sid), stepIdx)
+	if len(mine) == 0 {
+		return
+	}
+	s := a.sessionInfo(ctx, sid)
+	for _, c := range mine {
+		if a.checkAlreadyGreen(sid, c) {
+			continue // already ✓ (e.g. the delegate step gate ran it) — don't re-run
+		}
+		out, code := a.runVerifyCmd(ctx, s.Workdir, c.Command)
+		if code == -1 || code == 127 {
+			continue // can't verify (platform gone) or unexecutable check — don't record a false ✗
+		}
+		a.emitStepCheck(ctx, sid, c, code, c.Passes(out, code))
+	}
+}
+
 // recordCheckResult stores one check's verify result so the plan panel can render a green ✓ for a
 // passing check. The ✓ is STICKY: once a check has passed, a later flaky re-run (e.g. a server
 // restarted between finish-gate passes) must NOT flicker the completed mark back to an empty box —

@@ -151,6 +151,65 @@ func TestRunStepGateMultipleDeliverablesPerStep(t *testing.T) {
 	}
 }
 
+// completeThrough records a step's deliverable checks the moment that step lands — the per-step,
+// path-agnostic panel fill so scout/refine steps (which never run verifyStepChecks) no longer wait
+// for the terminal gate to record every ✓ at once. A later step's check stays untouched until its
+// own step completes.
+func TestCompleteThroughRecordsStepChecksPerStep(t *testing.T) {
+	t.Setenv("MAGI_STEP_VERIFY", "1")
+	ctx := context.Background()
+	plat := &scriptPlatform{codes: []int{0, 0}} // both checks pass when actually run
+	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow"})
+	a.putTodos(ctx, sid, plannerActor, []session.Todo{
+		{Content: "step one", Status: "in_progress"},
+		{Content: "step two", Status: "pending"},
+	})
+	setChecks(a, sid, []council.DeliverableCheck{
+		{Step: "1", Deliverable: "a", Command: "ra", Expect: "verify"},
+		{Step: "2", Deliverable: "b", Command: "rb", Expect: "verify"},
+	})
+
+	// Step 1 lands → its check runs and records ✓; step 2's is not run yet.
+	a.completeThrough(ctx, sid, plannerActor, 0)
+	cs := a.CompletionChecks(sid)
+	if cs[0].State != CheckPassed {
+		t.Fatalf("step-1 check after its step lands = %v, want CheckPassed", cs[0].State)
+	}
+	if cs[1].State == CheckPassed {
+		t.Fatal("step-2 check must NOT be recorded before step 2 lands")
+	}
+	if plat.calls != 1 {
+		t.Fatalf("only step-1 check should have run, calls=%d", plat.calls)
+	}
+
+	// Step 2 lands → its check runs and records ✓.
+	a.completeThrough(ctx, sid, plannerActor, 1)
+	if a.CompletionChecks(sid)[1].State != CheckPassed {
+		t.Fatalf("step-2 check after its step lands must be CheckPassed")
+	}
+	if plat.calls != 2 {
+		t.Fatalf("step-2 check should have run once more, calls=%d", plat.calls)
+	}
+}
+
+// A check the delegate step gate already passed (recorded ✓) is not re-run at the completion hook —
+// per-step recording is idempotent, so the two paths never double-run a check.
+func TestCompleteThroughSkipsAlreadyGreen(t *testing.T) {
+	t.Setenv("MAGI_STEP_VERIFY", "1")
+	ctx := context.Background()
+	plat := &scriptPlatform{codes: []int{0}}
+	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow"})
+	a.putTodos(ctx, sid, plannerActor, []session.Todo{{Content: "step one", Status: "in_progress"}})
+	c := council.DeliverableCheck{Step: "1", Deliverable: "a", Command: "ra", Expect: "verify"}
+	setChecks(a, sid, []council.DeliverableCheck{c})
+	a.recordCheckResult(sid, c, true) // the step gate already passed it
+
+	a.completeThrough(ctx, sid, plannerActor, 0)
+	if plat.calls != 0 {
+		t.Fatalf("an already-✓ check must not be re-run at completion, calls=%d", plat.calls)
+	}
+}
+
 func TestAnnotateTodosWithDeliverables(t *testing.T) {
 	a, sid, _ := newWorkflowApp(t, nil, nil, Config{Permission: "allow"})
 	a.putTodos(context.Background(), sid, plannerActor, []session.Todo{
