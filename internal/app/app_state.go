@@ -8,6 +8,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 // sessionState holds all per-session state for one session, consolidating what used to
@@ -33,6 +34,8 @@ type sessionState struct {
 	pendingAsk       chan string            // channel for a subagent's pending ask answer (parent)
 	bg               *bgGroup               // background subagent tracking (parent)
 	report           *subReport             // filed final report (subagent session)
+	pendingSubs      []port.CheckSub        // check substitutions declared this turn (substitute_check tool / report), awaiting review
+	approvedSubs     []port.CheckSub        // review-approved check substitutions, picked up into SpawnResult (subagent session)
 	userLabel        string                 // display name for the user in the transcript (plugin set_user_label); "" = "you"
 	// deferredAbandoned is the set of interjection origin MessageIDs that were queued in a
 	// PRIOR process (F5 ledger) and never resolved — reconstructed once from the log on the

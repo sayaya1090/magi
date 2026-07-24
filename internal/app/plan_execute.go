@@ -348,6 +348,13 @@ func (a *App) runDelegateStep(ctx context.Context, s session.Session, st planSte
 		a.setTodoStatusIf(ctx, s.ID, plannerActor, i, "in_progress", "pending")
 		return stepFinding(st.Title, "delegate FAILED — re-plan or do it yourself", "("+note+"; this sub-task is unfinished)"), false
 	}
+	// Persist any review-approved check substitutions the worker filed: rewrite the stored checks to
+	// the working commands BEFORE the step gate runs, so the gate (and every later gate) verifies the
+	// command that actually works here instead of skipping the broken original. The worker's review
+	// council already vetted these; applyCheckSubs records them ✓ (trusted, not re-run).
+	if len(r.CheckSubs) > 0 {
+		a.applyCheckSubs(ctx, s.ID, r.CheckSubs)
+	}
 	// Step gate: the worker CLAIMED done, but the step only completes when its OWN deliverable checks
 	// actually PASS. A failing check means the claim is unverified — route the step to re-planning
 	// (carrying the failing-check output as the reason, so the re-plan ADAPTS instead of re-emitting the
@@ -540,9 +547,10 @@ func workerChecklist(checks []council.DeliverableCheck, stepIdx int) string {
 	b.WriteString("Acceptance checklist — before you report done, RUN each of these and confirm it passes; " +
 		"do NOT report done while any of them is failing. If an item's given COMMAND cannot run HERE — a " +
 		"missing tool, a wrong path, no permission, a different setup (not the deliverable being wrong) — do " +
-		"NOT fail on it: run an EQUIVALENT command that verifies the SAME goal and report it in the report's " +
-		"`substitutions` field (the original check, why its command could not run, the equivalent you ran, and " +
-		"its actual output). If an item's goal genuinely CANNOT be met — a real blocker, not a bug you can " +
+		"NOT fail on it: run an EQUIVALENT command that verifies the SAME goal, then register it with the " +
+		"substitute_check tool (step, original command, the equivalent you ran, expect, reason). The council " +
+		"reviews it before you finish and, once approved, it replaces the check for the rest of the run. If an " +
+		"item's goal genuinely CANNOT be met — a real blocker, not a bug you can " +
 		"fix — stop retrying it and report (status blocked/failed) WHICH item is unmet and WHY, so it can be " +
 		"re-planned rather than silently dropped:")
 	for i, c := range mine {

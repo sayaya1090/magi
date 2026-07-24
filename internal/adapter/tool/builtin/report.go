@@ -37,7 +37,8 @@ func (Report) Description() string {
 		"produced — omit if none); substitutions (if an acceptance-check's given command could NOT run here — a " +
 		"missing tool, wrong path, no permission, different setup — do NOT fail: run an EQUIVALENT command that " +
 		"verifies the same goal and report the original check, why it could not run, the equivalent command you ran, " +
-		"and its actual output — omit if none); details (optional). After reporting you stop — do NOT use bash/echo to present results."
+		"and its actual output — omit if none; to make the fix PERSIST use the substitute_check tool); details (optional). " +
+		"After reporting you stop — do NOT use bash/echo to present results."
 }
 func (Report) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"status":{"type":"string","enum":["done","blocked","failed"]},"summary":{"type":"string"},"evidence":{"type":"string"},"deviations":{"type":"string"},"handoff":{"type":"string"},"substitutions":{"type":"string"},"details":{"type":"string"}},"required":["status"]}`)

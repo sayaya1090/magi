@@ -232,7 +232,11 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		Ask:               askFn,
 		AskUser:           a.askUserFn(ctx, s, depth, tc),
 		Report:            reportFn,
-		SetTodos:          func(td []session.Todo) { a.putTodos(ctx, sid, actor, td) },
+		SubstituteCheck: func(cs port.CheckSub) error {
+			a.addPendingSub(sid, cs)
+			return nil
+		},
+		SetTodos: func(td []session.Todo) { a.putTodos(ctx, sid, actor, td) },
 		Propose: func(c port.Contribution) error {
 			if a.cfg.Experience == nil {
 				return fmt.Errorf("shared experience not configured")
@@ -322,8 +326,8 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 				Command string `json:"command"`
 			}
 			if json.Unmarshal(tc.Args, &ba) == nil {
-				guard.noteBashWrite(ba.Command)            // authored a file → epoch bump
-				guard.noteBashExec(ba.Command, guardNovel) // ran a program → execution evidence (independent of any redirect)
+				guard.noteBashWrite(ba.Command)             // authored a file → epoch bump
+				guard.noteBashExec(ba.Command, guardNovel)  // ran a program → execution evidence (independent of any redirect)
 				guard.noteExerciseResult(ba.Command, false) // this build/test PASSED → clear its check-churn count (converged)
 			}
 		}

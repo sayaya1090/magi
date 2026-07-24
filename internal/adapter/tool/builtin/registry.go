@@ -83,5 +83,6 @@ func Default() *Registry {
 	r.Register(AstGrep{})
 	r.Register(LspDiag{})
 	r.Register(Lsp{}) // merged definition/references/symbols (kind-selected)
+	r.Register(SubstituteCheck{})
 	return r
 }

@@ -58,6 +58,71 @@ func (a *App) takeReport(sid session.SessionID) *subReport {
 	return r
 }
 
+// addPendingSub registers (or upserts) a declared check substitution awaiting review. It upserts by
+// (step, original) so a worker CORRECTING a rejected substitution replaces its prior entry rather than
+// stacking a second one. Empty command is ignored.
+func (a *App) addPendingSub(sid session.SessionID, sub port.CheckSub) {
+	if strings.TrimSpace(sub.Command) == "" {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st := a.stateLocked(sid)
+	for i := range st.pendingSubs {
+		if strings.TrimSpace(st.pendingSubs[i].Step) == strings.TrimSpace(sub.Step) &&
+			strings.TrimSpace(st.pendingSubs[i].Original) == strings.TrimSpace(sub.Original) {
+			st.pendingSubs[i] = sub // correction replaces the prior declaration
+			return
+		}
+	}
+	st.pendingSubs = append(st.pendingSubs, sub)
+}
+
+// pendingSubsOf returns a copy of the substitutions declared this turn (for review).
+func (a *App) pendingSubsOf(sid session.SessionID) []port.CheckSub {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st, ok := a.stateIf(sid)
+	if !ok || len(st.pendingSubs) == 0 {
+		return nil
+	}
+	return append([]port.CheckSub(nil), st.pendingSubs...)
+}
+
+// clearPendingSubs drops the declared substitutions (after they are approved and applied).
+func (a *App) clearPendingSubs(sid session.SessionID) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if st, ok := a.stateIf(sid); ok {
+		st.pendingSubs = nil
+	}
+}
+
+// stashApprovedSubs records a worker's review-approved check substitutions on its (subagent) session
+// so the parent's spawn attempt can pick them up (takeApprovedSubs → SpawnResult.CheckSubs) and
+// rewrite the matching stored deliverable checks to the working commands.
+func (a *App) stashApprovedSubs(sid session.SessionID, subs []port.CheckSub) {
+	if len(subs) == 0 {
+		return
+	}
+	a.mu.Lock()
+	a.stateLocked(sid).approvedSubs = subs
+	a.mu.Unlock()
+}
+
+// takeApprovedSubs returns and clears any approved substitutions stashed for a session.
+func (a *App) takeApprovedSubs(sid session.SessionID) []port.CheckSub {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st, ok := a.stateIf(sid)
+	if !ok {
+		return nil
+	}
+	s := st.approvedSubs
+	st.approvedSubs = nil
+	return s
+}
+
 // result renders the subagent's result around the given answer body, leading with the status so
 // the orchestrator can tell done from blocked/failed at a glance, then the weighted sections that
 // close the delegation loop — evidence (the proof for a "done" claim), deviations (exceptions the

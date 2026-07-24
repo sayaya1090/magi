@@ -11,6 +11,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 // stepGateOutcome is the verdict of the deterministic per-step deliverable gate.
@@ -244,6 +245,68 @@ func (a *App) recordCheckResult(sid session.SessionID, c council.DeliverableChec
 		st.passedChecks[key] = true // passed → ✓, and it stays ✓ for the run
 	} else if !st.passedChecks[key] {
 		st.passedChecks[key] = false // not passed yet → reflect the failure; never downgrade a prior ✓
+	}
+}
+
+// applyCheckSubs rewrites the stored deliverable checks from a worker's review-approved substitutions,
+// so the FIX PERSISTS for the rest of the run: every later gate — including the terminal one — runs the
+// command that actually works here instead of skipping the broken original. For each sub it finds the
+// step's check whose command matches the sub's Original (exact match when a step has several checks),
+// rewrites its Command/Expect to the working equivalent, and falls back to the step's sole check or a
+// new appended check when Original does not match. The worker already ran the equivalent and its review
+// council approved it, so the rewritten check is recorded ✓ without re-running (trusted) — the terminal
+// trust-green gate then honors it rather than re-litigating an already-agreed substitution.
+func (a *App) applyCheckSubs(ctx context.Context, sid session.SessionID, subs []port.CheckSub) {
+	if len(subs) == 0 {
+		return
+	}
+	a.mu.Lock()
+	st, ok := a.stateIf(sid)
+	if !ok {
+		a.mu.Unlock()
+		return
+	}
+	checks := append([]council.DeliverableCheck(nil), st.deliverableChecks...)
+	var rewritten []council.DeliverableCheck
+	for _, sub := range subs {
+		cmd := strings.TrimSpace(sub.Command)
+		if cmd == "" {
+			continue
+		}
+		step := strings.TrimSpace(sub.Step)
+		orig := strings.TrimSpace(sub.Original)
+		expect := strings.TrimSpace(sub.Expect)
+		// Prefer an exact (step, original-command) match; else the step's sole check; else append.
+		target := -1
+		var stepIdxs []int
+		for i := range checks {
+			if strings.TrimSpace(checks[i].Step) != step {
+				continue
+			}
+			stepIdxs = append(stepIdxs, i)
+			if orig != "" && strings.TrimSpace(checks[i].Command) == orig {
+				target = i
+			}
+		}
+		if target < 0 && len(stepIdxs) == 1 {
+			target = stepIdxs[0]
+		}
+		if target >= 0 {
+			checks[target].Command = cmd
+			checks[target].Expect = expect
+			rewritten = append(rewritten, checks[target])
+		} else {
+			nc := council.DeliverableCheck{Step: step, Deliverable: "substituted check", Command: cmd, Expect: expect}
+			checks = append(checks, nc)
+			rewritten = append(rewritten, nc)
+		}
+	}
+	st.deliverableChecks = checks
+	a.mu.Unlock()
+	// Record each rewritten check ✓ (the worker verified it and the review council approved it — trust
+	// without re-running) and emit its event so the panel shows the substituted check as green.
+	for _, c := range rewritten {
+		a.emitStepCheck(ctx, sid, c, 0, true)
 	}
 }
 
