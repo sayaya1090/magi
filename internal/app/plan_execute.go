@@ -794,6 +794,19 @@ func (a *App) driveStuckTodos(ctx context.Context, s session.Session, agent Agen
 		combined = append(combined, session.Todo{Content: st.Title, Status: "pending"})
 	}
 	a.putTodos(ctx, s.ID, plannerActor, combined)
+
+	// Per-step contract for the RECOVERY re-plan (D-contract Stage 2): the normal plan path authors
+	// per-step deliverable checks and gates each step on them, but this recovery re-plan spawned each
+	// unit and marked it done on any non-empty result — no checks. Author them now so recovery units
+	// are contracted and verified like every other step. Only on the solo-REPLACE path: these checks
+	// wholly own the ledger there (step numbers 1..N align with the recovery units), whereas the
+	// outerPlan APPEND path must keep the outer plan's own checks intact rather than clobber them.
+	// Only when the step gate can actually RUN the checks (a platform is present, the same guard
+	// verifyStepChecks uses): authoring checks that could never execute is a wasted side-call.
+	gateRecovery := stepContractEnabled() && !outerPlan && a.plat != nil
+	if gateRecovery {
+		a.storeCoveredChecks(ctx, s, task, steps, nil)
+	}
 	var chain session.SessionID // last landed unit's session; empty → fresh clone from the parent
 	for i, st := range steps {
 		if ctx.Err() != nil {
@@ -804,9 +817,17 @@ func (a *App) driveStuckTodos(ctx context.Context, s session.Session, agent Agen
 		// failed unit "done". Here each unit owns its status independently so a stalled one stays
 		// visibly not-done while the rest advance.
 		a.markTodoActive(ctx, s.ID, plannerActor, base+i) // this unit running ◐
+		prompt := stuckUnitPrompt(st, blockReason)
+		// Hand the recovery unit its own acceptance checklist so it RUNS each check before reporting
+		// done — the same discipline a normal delegated step gets (workerChecklist above).
+		if gateRecovery {
+			if cl := workerChecklist(a.cachedChecks(s.ID), i); cl != "" {
+				prompt = strings.TrimSpace(prompt + "\n\n" + cl)
+			}
+		}
 		req := port.SpawnRequest{
 			Agent:    agent.Name,
-			Prompt:   stuckUnitPrompt(st, blockReason),
+			Prompt:   prompt,
 			MaxSteps: stuckUnitBudget(a.cfg.MaxSteps),
 			Recovery: recoveryRunCapEnabled(),
 		}
@@ -820,6 +841,16 @@ func (a *App) driveStuckTodos(ctx context.Context, s session.Session, agent Agen
 			a.setTodoStatusIf(ctx, s.ID, plannerActor, base+i, "in_progress", "pending") // stalled → revert, keep going
 			chain = ""                                                                   // failed attempt poisons the shared session → next unit re-clones the parent
 			continue
+		}
+		// Step gate for recovery: the unit CLAIMED done, but it only completes when its own deliverable
+		// checks pass. A failing check leaves the unit pending (the next unit re-clones the parent), so a
+		// recovery re-plan cannot false-complete a unit that returned text but did not meet its contract.
+		if gateRecovery {
+			if pass, _ := a.verifyStepChecks(ctx, s, i); !pass {
+				a.setTodoStatusIf(ctx, s.ID, plannerActor, base+i, "in_progress", "pending")
+				chain = ""
+				continue
+			}
 		}
 		a.injectSubagentResult(ctx, s.ID, agent.Name, r)
 		a.setTodoStatusIf(ctx, s.ID, plannerActor, base+i, "in_progress", "completed") // this unit done

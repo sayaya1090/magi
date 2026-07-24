@@ -298,6 +298,17 @@ func retrySplitEnabled() bool { return !envOff("MAGI_RETRY_SPLIT") }
 // Default ON.
 func contractFirstEnabled() bool { return !envOff("MAGI_CONTRACT_FIRST") }
 
+// stepContractEnabled extends the per-step deliverable contract to the STUCK-RECOVERY re-plan
+// (driveStuckTodos). The normal plan path already authors per-step checks and gates each step on
+// them (verifyStepChecks) with an unmet-only handoff on retry (retryContinuation); the recovery
+// re-plan bypassed all of that — it spawned each recovery unit and marked it completed on any
+// non-empty result, with NO deliverable checks. With this on, the solo-replace recovery authors
+// per-step checks for its fresh plan, hands each unit its checklist, and verifies the unit's checks
+// before marking it done — so a recovery re-plan gets the same contract every other plan does, and
+// the user's "on re-plan too, always define and check the step's criteria/checklist" holds. Default
+// ON; MAGI_STEP_CONTRACT=0 restores the unchecked recovery baseline for A/B.
+func stepContractEnabled() bool { return !envOff("MAGI_STEP_CONTRACT") }
+
 // ctxCompactRetryEnabled controls the reactive-compaction safety net. On (the default), when the
 // provider rejects a generate request as too long (isContextOverflow), the loop force-compacts and
 // re-issues instead of dying with a terminal error — recovering runs whose context outgrew the
