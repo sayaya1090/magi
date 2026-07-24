@@ -790,6 +790,12 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 				// backstop still caps the attempt, so this cannot extend a real runaway.
 				if a.toolInFlight(child.ID) {
 					ext, verdictNote = a.leaseExtension(), "tool in flight (active work, not churn)"
+				} else if a.deliberating(child.ID) {
+					// The child is inside its own council/planner gate — silent side-LLM calls that
+					// emit no stream and hold no tool, but ARE active work. Extend like a tool in
+					// flight so a legitimate deliberation is never killed for the between-round silence;
+					// the round cap and the backstop still bound a stuck gate.
+					ext, verdictNote = a.leaseExtension(), "deliberating (council/plan side-calls, not churn)"
 				} else if subagentProcLeaseEnabled() && a.childProcActive(child.ID) {
 					// Off-tool background work: a bash{background:true} job (a long transfer/build the
 					// model launched and stopped polling) is invisible to toolInFlight and to the
@@ -847,7 +853,7 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 			// tool guard keeps a silent long-running tool (a bash build emits nothing
 			// until it returns) from being mistaken for a wedged child; such a tool is
 			// bounded by its own timeout, and a genuine hang past that by the hard cap.
-			if a.idleFor(child.ID) > a.cfg.SubagentStall && !a.toolInFlight(child.ID) {
+			if a.idleFor(child.ID) > a.cfg.SubagentStall && !a.toolInFlight(child.ID) && !a.deliberating(child.ID) {
 				cancel() // abort the stalled attempt
 				<-done   // let runLoop unwind
 				announceDone()

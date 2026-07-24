@@ -91,6 +91,18 @@ func (a *App) currentStage(sid session.SessionID) string {
 	return stageExecute
 }
 
+// deliberating reports whether the session is currently inside a side-LLM gate — the council
+// (plan audit / contract / termination) or the planner — rather than executing tools. Those gates
+// make sequential member/planner LLM calls that stream nothing and hold no tool in flight, so to
+// the subagent lease they look idle even though they are ACTIVE work. The lease treats this like a
+// tool in flight (a legitimately long, silent operation) and does not kill mid-gate; the council
+// round cap and the attempt backstop still bound a genuinely stuck gate. This is what lets a worker
+// run its own plan-audit without being killed for the silence between council rounds.
+func (a *App) deliberating(sid session.SessionID) bool {
+	s := a.currentStage(sid)
+	return s == stageCouncil || s == stagePlan
+}
+
 // touch records activity for a session (used by the sidecar liveness check).
 func (a *App) touch(sid session.SessionID) {
 	a.lastActivity.Store(sid, time.Now())
