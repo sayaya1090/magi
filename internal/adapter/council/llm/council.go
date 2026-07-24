@@ -672,6 +672,13 @@ func memberSystem(m council.Member, phase, task string, keep bool) string {
 			"not hold — read each one: if any names an unmet requirement, an unverified premise, or a task constraint "+
 			"that was crossed, vote continue and cite it; a confident overall framing never neutralizes an exception "+
 			"the agent itself recorded.\n"+
+			"When a `CHECK-SUBSTITUTION:` section is present, an acceptance-check's given command could not run in this "+
+			"environment (a missing tool, wrong path, no permission, different setup) and the agent ran an EQUIVALENT "+
+			"command instead, with its output shown. Judge whether that equivalent REASONABLY verifies the SAME goal: "+
+			"if it does — it exercises the same behaviour/outcome and its shown output supports the claim — accept it as "+
+			"satisfying that check and do NOT demand the original (unrunnable) command. If the substitute is INADEQUATE "+
+			"(it checks something weaker, or a different thing, or shows no real output), vote continue and say exactly "+
+			"what a proper equivalent must verify — do not accept a hand-wave in place of a broken check.\n"+
 			"When the report CONTESTS a prior council demand — a `CONTEST:` line, or the report otherwise arguing a "+
 			"specific earlier requirement is already met or impossible exactly as stated — do not ignore it: judge the "+
 			"evidence it cites. If a tool result or SIGNAL already shown establishes that requirement, or shows the "+

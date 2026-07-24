@@ -72,6 +72,13 @@ func (a *App) runStepGate(ctx context.Context, s session.Session, ts *turnState)
 		if code == -1 { // platform vanished mid-run: can't verify → don't decide
 			return gateInactive, ""
 		}
+		// Exit 127 = the check's OWN command is not found (missing tool / wrong path): the CHECK is
+		// unexecutable here, NOT the deliverable failing. Don't count it as a failure that reworks the
+		// deliverable — skip it; the agent/worker's equivalent-substitution evidence and the council
+		// settle the goal instead of churning on a broken check.
+		if code == 127 {
+			continue
+		}
 		ok := c.Passes(out, code)
 		results = append(results, result{check: c, out: out, pass: ok})
 		key := strings.TrimSpace(c.Step)

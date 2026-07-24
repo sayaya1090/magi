@@ -16,12 +16,13 @@ import (
 type Report struct{}
 
 type reportArgs struct {
-	Summary    string `json:"summary"`
-	Status     string `json:"status"`
-	Details    string `json:"details"`
-	Evidence   string `json:"evidence"`
-	Deviations string `json:"deviations"`
-	Handoff    string `json:"handoff"`
+	Summary       string `json:"summary"`
+	Status        string `json:"status"`
+	Details       string `json:"details"`
+	Evidence      string `json:"evidence"`
+	Deviations    string `json:"deviations"`
+	Handoff       string `json:"handoff"`
+	Substitutions string `json:"substitutions"`
 }
 
 func (Report) Name() string { return "report" }
@@ -33,10 +34,13 @@ func (Report) Description() string {
 		"evidence (for \"done\": the command you RAN and its real output that proves the deliverable passes — a " +
 		"claim without evidence is not done); deviations (assumptions you made, workarounds, any boundary you " +
 		"could not hold — omit if none); handoff (facts the next step needs: interfaces/identifiers/paths you " +
-		"produced — omit if none); details (optional). After reporting you stop — do NOT use bash/echo to present results."
+		"produced — omit if none); substitutions (if an acceptance-check's given command could NOT run here — a " +
+		"missing tool, wrong path, no permission, different setup — do NOT fail: run an EQUIVALENT command that " +
+		"verifies the same goal and report the original check, why it could not run, the equivalent command you ran, " +
+		"and its actual output — omit if none); details (optional). After reporting you stop — do NOT use bash/echo to present results."
 }
 func (Report) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"status":{"type":"string","enum":["done","blocked","failed"]},"summary":{"type":"string"},"evidence":{"type":"string"},"deviations":{"type":"string"},"handoff":{"type":"string"},"details":{"type":"string"}},"required":["status"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"status":{"type":"string","enum":["done","blocked","failed"]},"summary":{"type":"string"},"evidence":{"type":"string"},"deviations":{"type":"string"},"handoff":{"type":"string"},"substitutions":{"type":"string"},"details":{"type":"string"}},"required":["status"]}`)
 }
 
 func (Report) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
@@ -64,7 +68,7 @@ func (Report) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv
 	// "blocked"/"failed" remain honest outcomes that always pass through.
 	if err := env.Report(port.ReportInput{
 		Summary: a.Summary, Status: status, Details: a.Details,
-		Evidence: a.Evidence, Deviations: a.Deviations, Handoff: a.Handoff,
+		Evidence: a.Evidence, Deviations: a.Deviations, Handoff: a.Handoff, Substitutions: a.Substitutions,
 	}); err != nil {
 		return errResult("", err.Error()), nil
 	}

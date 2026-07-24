@@ -14,6 +14,7 @@ import (
 type subReport struct {
 	summary, status, details      string
 	evidence, deviations, handoff string
+	substitutions                 string
 }
 
 // reportStatusPrefix leads every report frame subReport.result emits: a single
@@ -43,7 +44,7 @@ func (a *App) fileReport(sid session.SessionID, in port.ReportInput) error {
 	}
 	a.stateLocked(sid).report = &subReport{
 		summary: in.Summary, status: in.Status, details: in.Details,
-		evidence: in.Evidence, deviations: in.Deviations, handoff: in.Handoff,
+		evidence: in.Evidence, deviations: in.Deviations, handoff: in.Handoff, substitutions: in.Substitutions,
 	}
 	return nil
 }
@@ -73,6 +74,7 @@ func (r *subReport) result(answer string) string {
 	section("DETAILS", r.details)
 	section("EVIDENCE", r.evidence)
 	section("DEVIATIONS", r.deviations)
+	section("CHECK-SUBSTITUTION", r.substitutions)
 	section("HANDOFF", r.handoff)
 	return out
 }

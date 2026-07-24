@@ -386,6 +386,13 @@ func (a *App) verifyStepChecks(ctx context.Context, s session.Session, stepIdx i
 		if code == -1 { // platform vanished mid-run: can't verify → don't block the step
 			return true, ""
 		}
+		// Exit 127 = the check's OWN command is not found (a missing tool / wrong path) — the CHECK is
+		// unexecutable in this environment, not the deliverable failing. Do NOT churn the work on it:
+		// skip it here (the worker reports an equivalent substitution and the termination council judges
+		// the goal on that evidence). Only a check that actually RAN and failed gates the step.
+		if code == 127 {
+			continue
+		}
 		pass := c.Passes(out, code)
 		a.emitStepCheck(ctx, s.ID, c, code, pass)
 		if !pass {
@@ -531,9 +538,13 @@ func workerChecklist(checks []council.DeliverableCheck, stepIdx int) string {
 	}
 	var b strings.Builder
 	b.WriteString("Acceptance checklist — before you report done, RUN each of these and confirm it passes; " +
-		"do NOT report done while any of them is failing. If an item genuinely CANNOT be satisfied — a real " +
-		"blocker, not a bug you can fix — stop retrying it and report (status blocked/failed) WHICH item is " +
-		"unmet and WHY, so it can be re-planned rather than silently dropped:")
+		"do NOT report done while any of them is failing. If an item's given COMMAND cannot run HERE — a " +
+		"missing tool, a wrong path, no permission, a different setup (not the deliverable being wrong) — do " +
+		"NOT fail on it: run an EQUIVALENT command that verifies the SAME goal and report it in the report's " +
+		"`substitutions` field (the original check, why its command could not run, the equivalent you ran, and " +
+		"its actual output). If an item's goal genuinely CANNOT be met — a real blocker, not a bug you can " +
+		"fix — stop retrying it and report (status blocked/failed) WHICH item is unmet and WHY, so it can be " +
+		"re-planned rather than silently dropped:")
 	for i, c := range mine {
 		fmt.Fprintf(&b, "\n%d. ", i+1)
 		if d := strings.TrimSpace(c.Deliverable); d != "" {

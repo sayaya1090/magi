@@ -221,6 +221,12 @@ type ReportInput struct {
 	Evidence   string
 	Deviations string
 	Handoff    string
+	// Substitutions carries, for any acceptance-check whose given command could not run in this
+	// environment (a missing tool, a wrong path, no permission, a different setup), the EQUIVALENT
+	// command the worker ran instead and its actual output — so a broken CHECK does not fail the WORK.
+	// The step gate trusts it (does not re-run the original); the council judges whether the
+	// substitute reasonably verifies the goal, and may ask for a better one.
+	Substitutions string
 }
 
 // ToolEnv carries per-execution context and capabilities granted to a tool.

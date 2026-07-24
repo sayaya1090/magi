@@ -195,6 +195,18 @@ func TestPlanMemberPromptScopesChecksToSteps(t *testing.T) {
 	}
 }
 
+// The terminate member prompt must judge a CHECK-SUBSTITUTION: accept an equivalent that reasonably
+// verifies the goal, reject an inadequate one.
+func TestTerminateMemberPromptCheckSubstitution(t *testing.T) {
+	m := council.Member{Name: "x", Lens: "verification"}
+	p := memberSystem(m, "terminate", "stand up a service", false)
+	for _, want := range []string{"CHECK-SUBSTITUTION", "EQUIVALENT", "REASONABLY verifies", "INADEQUATE"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("terminate prompt missing check-substitution fragment %q", want)
+		}
+	}
+}
+
 // The plan member prompt must carry the CONTEST clause (re-judge a contested concern against the
 // task, drop an over-demand), and evidence must render the author's contest for the plan phase.
 func TestPlanMemberPromptContest(t *testing.T) {
