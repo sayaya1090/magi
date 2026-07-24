@@ -294,6 +294,31 @@ func TestMemberPromptGroundsDemandsInTask(t *testing.T) {
 	}
 }
 
+// Evidence-method over-demand (the gap #371 exposed): a member dismissed a PASSING in-process test
+// as "mere simulation" and demanded a harder real-world reproduction the task never required — the
+// same task passed elsewhere without it. The terminate-phase prompt must forbid upgrading the
+// ACCEPTANCE METHOD beyond what the task implies, WHILE still refusing a behavior only claimed, faked,
+// or never actually run. Task-agnostic (no SIGINT/cancel tokens).
+func TestMemberPromptForbidsEvidenceMethodOverDemand(t *testing.T) {
+	m := council.Member{Name: "x", Lens: "correctness"}
+	p := memberSystem(m, "terminate", "make the handler resilient", false)
+	for _, want := range []string{"mere simulation", "real-world reproduction", "ACCEPTANCE METHOD", "already shown working"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("terminate prompt must forbid evidence-method over-demand (missing %q)", want)
+		}
+	}
+	// It must NOT weaken the legitimate strictness a faked/never-run behavior owes (the #372 case).
+	if !strings.Contains(p, "CLAIMED, faked, or never actually run") {
+		t.Error("the extension must still refuse a claimed/faked/never-run behavior")
+	}
+	// de-overfit: no eval-set task token from the case that motivated it.
+	for _, banned := range []string{"SIGINT", "cancel-async", "Ctrl-C", "KeyboardInterrupt"} {
+		if strings.Contains(p, banned) {
+			t.Errorf("prompt leaks eval-set token %q — keep it task-agnostic", banned)
+		}
+	}
+}
+
 // The devil advocate hunts for a reason the turn is not done, so it too can manufacture a
 // task-unspecified specific (the reviewDevil round catches spurious ones downstream, but the
 // concern should be grounded at the source, consistent with the members' obligation).

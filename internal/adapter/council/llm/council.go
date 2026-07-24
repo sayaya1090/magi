@@ -650,8 +650,15 @@ func memberSystem(m council.Member, phase, task string, keep bool) string {
 			"response, a build that ran, a query that returned the required row — that IS the run: accept it as "+
 			"satisfying the must-respond/must-run bar. Demanding an additional process listing or port scan on top of a "+
 			"passing end-to-end exercise is exactly the ritual churn to avoid; a working round-trip is STRONGER evidence "+
-			"than a process listing. (This does not relax a literal contract the TASK itself stated — that still owes "+
-			"the exact command and value above.) Unanimous confidence is not a substitute for one real run.\n"+
+			"than a process listing. A PASSING functional test — an in-process or automated exercise that drove the "+
+			"deliverable through the same interface its consumer uses and showed the behavior holding — likewise counts "+
+			"as that run: do NOT dismiss it as \"mere simulation\" in order to demand a HARDER real-world reproduction the "+
+			"TASK never asked for (a real external signal, live hardware, a network peer, a production deployment, manual "+
+			"operation). The hidden grader may be stricter about whether the CONTRACTED behavior actually works — that is "+
+			"NOT licence to invent a stricter ACCEPTANCE METHOD than the task implies. (This never rescues a behavior only "+
+			"CLAIMED, faked, or never actually run — that stays continue; it forbids only piling a heavier proof ceremony "+
+			"onto a behavior already shown working.) (This does not relax a literal contract the TASK itself stated — that "+
+			"still owes the exact command and value above.) Unanimous confidence is not a substitute for one real run.\n"+
 			"Correctness also covers PREMISES the deliverable rests on. When its correctness depends on an EXTERNAL "+
 			"FACT the agent could not confirm — a `self-check/unverified-premise` signal is present (a knowledge lookup "+
 			"failed and was never recovered), or the report shows a key value was assumed, recalled, or inferred rather "+
