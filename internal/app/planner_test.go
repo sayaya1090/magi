@@ -129,6 +129,16 @@ func TestParsePlan(t *testing.T) {
 	if p := parsePlan(`Example input {"a":1,"b":2}. Here is the plan: {"steps":[{"title":"z","strategy":"solo"}]}`); len(p.Steps) != 1 {
 		t.Errorf("non-plan object before the plan should be skipped: %+v", p)
 	}
+	// LEADING stray brace that is never CLOSED — an unbalanced code fragment or opened set
+	// literal in reasoning ("the block { last_free_ptr …" with no matching }). Distinct from the
+	// closed `{last_free_block}` case above: an UNCLOSED stray used to swallow the entire reply
+	// (the scan from it never balanced, so it bailed and returned nothing), losing a real plan
+	// that followed — the multi-KB fix-ocaml re-plan that parsed to nothing, then flailed into
+	// the loop guard. The scan must skip the unclosed brace and still find the plan after it.
+	if p := parsePlan("the free block at { last_free_ptr and then, the plan:\n" +
+		`{"steps":[{"title":"walk the free list","strategy":"solo"}]}`); len(p.Steps) != 1 {
+		t.Errorf("unclosed leading stray brace should be skipped and the real plan found: %+v", p)
+	}
 }
 
 // A first planner reply with no parseable JSON triggers ONE JSON-only retry; when the retry emits a

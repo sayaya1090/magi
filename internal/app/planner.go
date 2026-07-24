@@ -645,7 +645,14 @@ func balancedObjects(s string) []string {
 			}
 		}
 		if end < 0 {
-			break // unbalanced tail — no more complete objects
+			// This '{' opens a span that never closes — a stray brace in prose/reasoning
+			// (weak models emit these: a code fragment, a set literal, an unclosed example),
+			// not the tail of a real object. Skip just this brace and keep scanning; a
+			// balanced plan object may still follow. Breaking here instead let one unclosed
+			// stray swallow a real plan that came after it — the exact degradation this
+			// whole-scan design exists to prevent (observed: a multi-KB reply parsed to nothing).
+			i = start + 1
+			continue
 		}
 		out = append(out, s[start:end+1])
 		i = end + 1
