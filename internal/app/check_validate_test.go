@@ -23,6 +23,17 @@ func TestParseChecksArray(t *testing.T) {
 	if _, ok := parseChecksArray("no array here"); ok {
 		t.Error("a reply with no JSON array must not parse")
 	}
+	// Edge cases: an empty array parses to zero checks (valid), reversed brackets and a bracket span
+	// that isn't valid JSON are rejected.
+	if out, ok := parseChecksArray("done: []"); !ok || len(out) != 0 {
+		t.Errorf("empty array must parse to zero checks, got ok=%v out=%+v", ok, out)
+	}
+	if _, ok := parseChecksArray("] backwards ["); ok {
+		t.Error("reversed brackets (] before [) must not parse")
+	}
+	if _, ok := parseChecksArray("prose [1] more [2] text"); ok {
+		t.Error("the outermost bracket span that isn't a valid checks array must not parse")
+	}
 }
 
 // With the flag off, validateChecks is a pure passthrough — the authored checks are used as-is and no
