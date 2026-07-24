@@ -253,6 +253,29 @@ func TestRecordPendingStepChecksIncremental(t *testing.T) {
 	}
 }
 
+// A SOLO step stays "pending" the whole time the main agent works it (advanceTo is only called for
+// scout/parallel/delegate), so recordPendingStepChecks must still record a PENDING step's check — a
+// todo-status frontier that skipped "pending" would silently disable the solo incremental recording.
+func TestRecordPendingStepChecksRecordsPendingSoloStep(t *testing.T) {
+	t.Setenv("MAGI_STEP_VERIFY", "1")
+	ctx := context.Background()
+	plat := &scriptPlatform{codes: []int{0}} // the check passes when run
+	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow"})
+	a.putTodos(ctx, sid, plannerActor, []session.Todo{{Content: "solo objective", Status: "pending"}})
+	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Deliverable: "a", Command: "ra", Expect: "verify"}})
+
+	a.recordPendingStepChecks(ctx, sid)
+	if plat.calls != 1 {
+		t.Fatalf("a pending solo step's check must be RUN, not skipped as not-started; calls=%d", plat.calls)
+	}
+	if a.CompletionChecks(sid)[0].State != CheckPassed {
+		t.Fatal("a pending solo step's passing check must be recorded ✓")
+	}
+	if a.Todos(sid)[0].Status != "completed" {
+		t.Fatal("the pending solo step should be checked off once its check passes")
+	}
+}
+
 func TestAnnotateTodosWithDeliverables(t *testing.T) {
 	a, sid, _ := newWorkflowApp(t, nil, nil, Config{Permission: "allow"})
 	a.putTodos(context.Background(), sid, plannerActor, []session.Todo{

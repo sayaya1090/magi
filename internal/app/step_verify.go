@@ -338,18 +338,16 @@ func (a *App) recordPendingStepChecks(ctx context.Context, sid session.SessionID
 		return
 	}
 	s := a.sessionInfo(ctx, sid)
-	todos := a.Todos(sid)
 	stepPass := map[string]bool{}
 	stepSeen := map[string]bool{}
 	for _, c := range checks {
 		key := strings.TrimSpace(c.Step)
-		// Frontier scope: skip a check whose step has not STARTED (pending todo). Its deliverable
-		// isn't built yet, so the check would just fail and re-run every mutating turn until the step
-		// lands — where the completion hook (recordStepChecks) records it. Only run checks at/before
-		// the execution frontier, so the per-turn fan-out is bounded to started work.
-		if idx := matchTodoIndex(todos, c.Step); idx >= 0 && todos[idx].Status == "pending" {
-			continue
-		}
+		// No todo-status frontier here: a SOLO step stays "pending" the whole time the main agent works
+		// it (only scout/parallel/delegate call advanceTo → in_progress), so skipping "pending" checks
+		// would skip exactly the solo work this recorder exists to capture — the per-step ✓ would never
+		// land until the terminal gate, regressing the incremental recording. The green-skip below already
+		// avoids re-running a passed check; a not-yet-passed check re-running each mutating turn is the
+		// inherent cost of detecting when its step lands.
 		pass := a.checkAlreadyGreen(sid, c) // already ✓ counts as a passed run; don't re-run it
 		if !pass {
 			var code int
