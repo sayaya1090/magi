@@ -664,11 +664,40 @@ func (g *runGuard) noteBashExec(cmd string, novel bool) {
 		if g.exercisedFile[path] {
 			continue
 		}
-		if base := filepath.Base(path); base != "" && strings.Contains(cmd, base) {
+		if base := filepath.Base(path); base != "" && cmdMentionsFile(cmd, base) {
 			g.exercisedFile[path] = true
 		}
 	}
 	g.mu.Unlock()
+}
+
+// cmdMentionsFile reports whether cmd names the file with basename `base` as a whole path
+// component, not merely as a substring of a LONGER filename — `python ax.py` must NOT mark the
+// authored file `x.py` as exercised, or a written-but-never-run artifact silently drops off the
+// exec-evidence ledger. The base must sit bounded by a path separator, whitespace, quote, or shell
+// metacharacter on each side (or the string edge), the way a real filename token appears in a
+// command; a filename-body byte (letter/digit/._-) adjacent to it means it is part of another name.
+func cmdMentionsFile(cmd, base string) bool {
+	for from := 0; ; {
+		i := strings.Index(cmd[from:], base)
+		if i < 0 {
+			return false
+		}
+		i += from
+		end := i + len(base)
+		beforeOK := i == 0 || !isFilenameByte(cmd[i-1])
+		afterOK := end == len(cmd) || !isFilenameByte(cmd[end])
+		if beforeOK && afterOK {
+			return true
+		}
+		from = i + 1
+	}
+}
+
+// isFilenameByte reports whether b can appear inside a filename token (so an adjacent one means the
+// candidate base is really part of a longer name).
+func isFilenameByte(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b == '_' || b == '-' || b == '.'
 }
 
 // runnableExt lists extensions whose files plausibly EXECUTE (a program the turn
