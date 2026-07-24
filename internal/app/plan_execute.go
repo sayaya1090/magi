@@ -306,7 +306,14 @@ func (a *App) runDelegateStep(ctx context.Context, s session.Session, st planSte
 	// off, a failed delegate backtracks after one shot (planned decomposition only).
 	if !adaptDisabled() && delegateNotDone(r, text) && depth+1 < a.cfg.MaxPlanDepth && *budget > 0 {
 		*budget--
-		r = a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agentName, Prompt: redecomposePrompt(st, brief), Tools: curTools, PlanStepIndex: &i})
+		// Don't re-hand the identical brief — that restarts YOUR PART from scratch. Append what the
+		// first attempt already satisfied (skip) vs what still fails (continue), so the retry picks up
+		// mid-task rather than re-deriving. Falls back to a generic pivot digest when no checks exist.
+		retryBrief := brief
+		if cont := a.retryContinuation(ctx, s, i, r); cont != "" {
+			retryBrief = strings.TrimSpace(brief + "\n\n" + cont)
+		}
+		r = a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agentName, Prompt: redecomposePrompt(st, retryBrief), Tools: curTools, PlanStepIndex: &i})
 		text = strings.TrimSpace(r.Text)
 	}
 	if delegateNotDone(r, text) {
@@ -376,6 +383,70 @@ func (a *App) verifyStepChecks(ctx context.Context, s session.Session, stepIdx i
 		return true, ""
 	}
 	return false, strings.Join(fails, "\n")
+}
+
+// partitionStepChecks RUNS step stepIdx's deliverable checks and splits them by result: passed holds
+// each passing check's Deliverable description, fails a "deliverable — command → actual output" ledger
+// line per failing check. active is false when there is nothing to run — verify disabled, no platform,
+// or no checks tagged for this step — so the caller can fall back to a non-check strategy. It is the
+// detailed sibling of verifyStepChecks (which needs only the all-pass verdict + fail ledger); the
+// checks are idempotent/no-mutation, so running them here to compute a retry split is side-effect free.
+func (a *App) partitionStepChecks(ctx context.Context, s session.Session, stepIdx int) (passed, fails []string, active bool) {
+	if !stepVerifyEnabled() || a.plat == nil {
+		return nil, nil, false
+	}
+	mine := matchStepChecks(a.cachedChecks(s.ID), stepIdx)
+	if len(mine) == 0 {
+		return nil, nil, false
+	}
+	for _, c := range mine {
+		out, code := a.runVerifyCmd(ctx, s.Workdir, c.Command)
+		if code == -1 { // platform vanished mid-run: cannot judge → let the caller fall back
+			return nil, nil, false
+		}
+		pass := c.Passes(out, code)
+		a.emitStepCheck(ctx, s.ID, c, code, pass)
+		d := strings.TrimSpace(c.Deliverable)
+		if d == "" {
+			d = strings.TrimSpace(c.Command)
+		}
+		if pass {
+			passed = append(passed, d)
+		} else {
+			fails = append(fails, fmt.Sprintf("- %s — `%s` → %s", d, strings.TrimSpace(c.Command), clipLine(strings.TrimSpace(out), 200)))
+		}
+	}
+	return passed, fails, true
+}
+
+// retryContinuation builds the addendum that turns a delegate FAIL retry from a restart into a
+// continuation. When the step has executable deliverable checks (retrySplitEnabled), it re-runs them
+// via partitionStepChecks and hands the second attempt a split by REAL disk state: passing checks
+// become an advisory "already satisfied — do not redo" block, failing checks a "still unmet — focus
+// here" block. Checks are a SUBSET of the contract, so the passing set is a LOWER BOUND on real
+// progress — the block says "don't redo what's proven", never "only the failing checks remain", so
+// work not covered by a check is still the worker's own. With no checks to run (or the split flag
+// off), it falls back to retryPivotNote's generic tool-trail digest + pivot directive, which is still
+// better than re-handing the identical brief. Returns "" only if even the fallback yields nothing.
+func (a *App) retryContinuation(ctx context.Context, s session.Session, stepIdx int, last port.SpawnResult) string {
+	if retrySplitEnabled() {
+		if passed, fails, active := a.partitionStepChecks(ctx, s, stepIdx); active {
+			var b strings.Builder
+			b.WriteString("# Continue from the previous attempt — do NOT restart YOUR PART from scratch\n")
+			b.WriteString("A previous attempt left partial work on disk; its acceptance criteria were just re-checked:\n")
+			if len(passed) > 0 {
+				b.WriteString("\nALREADY SATISFIED (proven done — do NOT redo these; the rest of YOUR PART is still yours):\n")
+				for _, d := range passed {
+					b.WriteString("- " + d + "\n")
+				}
+			}
+			if len(fails) > 0 {
+				b.WriteString("\nSTILL UNMET (focus here — deliverable — command → actual output):\n" + strings.Join(fails, "\n") + "\n")
+			}
+			return strings.TrimSpace(b.String())
+		}
+	}
+	return strings.TrimSpace(retryPivotNote(ctx, a, last, 1))
 }
 
 // workerChecklist renders the plan-audit's executable deliverable checks as an explicit acceptance

@@ -255,6 +255,13 @@ func checkpointFirstEnabled() bool { return !envOff("MAGI_CHECKPOINT_FIRST") }
 // MAGI_STEP_VERIFY=0 restores the no-ledger baseline for A/B.
 func stepVerifyEnabled() bool { return !envOff("MAGI_STEP_VERIFY") }
 
+// retrySplitEnabled controls how a delegate FAIL retry is briefed. On (the default), the retry
+// RE-RUNS the step's deliverable checks and hands the second attempt a "what's proven done / what
+// remains" split — so it continues from the first attempt's partial work instead of restarting the
+// whole part from the identical directive. With no executable checks to run it falls back to the
+// generic tool-trail pivot; MAGI_RETRY_SPLIT=0 forces that fallback everywhere for A/B.
+func retrySplitEnabled() bool { return !envOff("MAGI_RETRY_SPLIT") }
+
 // recoveryRunCapEnabled caps stuck-recovery re-decomposition to fire at most once per RUN
 // TREE rather than once per depth level: a recovery child is seeded as already-recovered, so
 // it cannot trigger its OWN redecomposeStuck (no coder→coder cascade down the depth levels).
