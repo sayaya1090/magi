@@ -85,6 +85,37 @@ func TestStepChecks(t *testing.T) {
 	}
 }
 
+// matchStepChecks must NOT let label "1" bleed into "10".."19": the separator-anchored match
+// (exact, or want followed by '.'/' '/')') is what stops the gate from running a step-10 check
+// against step 1 — a false failure that would re-plan a step that is actually fine. Lock the
+// boundary in both directions (a "1" query rejects "10"/"11"; "10"/"11" match their own steps).
+func TestMatchStepChecksNoPrefixBleed(t *testing.T) {
+	checks := []council.DeliverableCheck{
+		{Step: "1", Command: "one"},
+		{Step: "10", Command: "ten"},
+		{Step: "1.2", Command: "one-sub"},
+		{Step: "11) go", Command: "eleven"},
+	}
+	// step 1 (idx 0): only "1" and its "1.2" sub-step — never "10"/"11".
+	got := matchStepChecks(checks, 0)
+	if len(got) != 2 {
+		t.Fatalf("step 1 should match '1' and '1.2' only, got %d: %+v", len(got), got)
+	}
+	for _, c := range got {
+		if c.Command == "ten" || c.Command == "eleven" {
+			t.Errorf("step 1 must not match a '10'/'11' check: %+v", got)
+		}
+	}
+	// step 10 (idx 9): only "10".
+	if got := matchStepChecks(checks, 9); len(got) != 1 || got[0].Command != "ten" {
+		t.Errorf("step 10 should match only '10', got %+v", got)
+	}
+	// step 11 (idx 10): the "11) go" form.
+	if got := matchStepChecks(checks, 10); len(got) != 1 || got[0].Command != "eleven" {
+		t.Errorf("step 11 should match '11) go', got %+v", got)
+	}
+}
+
 // anyStepLabeled is true iff at least one check carries a numeric step label — the switch that
 // makes stepChecks honor labels strictly (no flatten-all) rather than over-inform.
 func TestAnyStepLabeled(t *testing.T) {
