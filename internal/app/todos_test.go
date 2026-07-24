@@ -94,6 +94,26 @@ func TestCompleteThrough(t *testing.T) {
 	}
 }
 
+// completeThrough back-fills pending/in_progress steps but must NEVER resurrect a CANCELLED step to
+// completed — a cancelled step was explicitly retired and flipping it would misreport it as done.
+func TestCompleteThroughSkipsCancelled(t *testing.T) {
+	a, sid := newPlannerApp(t, Config{})
+	actor := event.Actor{Kind: event.ActorAgent, ID: "p"}
+	a.putTodos(context.Background(), sid, actor, []session.Todo{
+		{Content: "a", Status: "cancelled"}, // explicitly retired
+		{Content: "b", Status: "pending"},
+		{Content: "c", Status: "pending"},
+	})
+	a.completeThrough(context.Background(), sid, actor, 2) // complete through the last step
+	got := a.Todos(sid)
+	if got[0].Status != "cancelled" {
+		t.Errorf("a cancelled step must stay cancelled, got %q", got[0].Status)
+	}
+	if got[1].Status != "completed" || got[2].Status != "completed" {
+		t.Errorf("pending steps should still back-fill to completed, got %q / %q", got[1].Status, got[2].Status)
+	}
+}
+
 // markTodoActive shows a running step as in_progress (◐), but only starts a pending
 // step — it never moves a completed/cancelled one back. markFirstPendingActive picks
 // the first still-pending step (so it skips ones pre-flight already checked off).

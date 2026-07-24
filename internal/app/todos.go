@@ -62,7 +62,10 @@ func (a *App) completeThrough(ctx context.Context, sid session.SessionID, actor 
 	changed := false
 	var newlyDone []int
 	for j := 0; j <= i; j++ {
-		if cp[j].Status != "completed" {
+		// Back-fill pending/in_progress steps to completed, but NEVER resurrect a cancelled step: a
+		// cancelled step was explicitly retired (finalizeTodos), and flipping it to completed would
+		// misreport it as done. (Cancelled is a turn-end state today, so this is defensive.)
+		if cp[j].Status != "completed" && cp[j].Status != "cancelled" {
 			cp[j].Status = "completed"
 			changed = true
 			newlyDone = append(newlyDone, j)
@@ -126,7 +129,7 @@ func (a *App) advanceTo(ctx context.Context, sid session.SessionID, actor event.
 	cp := append([]session.Todo(nil), td...)
 	changed := false
 	for j := 0; j < i; j++ {
-		if cp[j].Status != "completed" {
+		if cp[j].Status != "completed" && cp[j].Status != "cancelled" { // never resurrect a cancelled step
 			cp[j].Status = "completed"
 			changed = true
 		}
