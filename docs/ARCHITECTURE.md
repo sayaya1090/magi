@@ -422,10 +422,28 @@ mode) does NOT finish immediately: it convenes a **council** that votes done-vs-
   correct, folded into the continue feedback so the agent doesn't revert a settled part. The same
   `keep` rides into the **plan-audit** revision so a fix forced by one member's flaw doesn't drop
   steps the others approved.
+- **Contract-first gate (`MAGI_CONTRACT_FIRST`, `app/contract_gate.go`)**: BEFORE the planner
+  decomposes a request, a dedicated council round (`Phase=="contract"`) authors and reviews the
+  turn's acceptance **contract** — completion criteria plus executable checks — for the TASK itself.
+  The contract member prompt bounds it on both sides: a **lower bound** (sufficiency — exercise the
+  behavior through the consumer's interface, replay the task's own example verbatim, deliver real
+  external events; never accept a stub's mere existence) and an **upper bound** (necessity — assert
+  only what the task states). The approved criteria are stored and **frozen** so the later plan-audit
+  cannot overwrite the reviewed contract, and the whole contract is injected into the planner as the
+  target the plan must satisfy — so the plan is built around a reviewed contract rather than the
+  contract being a byproduct of whatever plan the planner emitted.
 - **Executable deliverable checks (`MAGI_STEP_VERIFY`)**: the plan-audit council also proposes
   per-step shell checks (`{deliverable, command, expect}`); these are RUN, and a failing check is a
   hard `deliverable-check` signal the vote can't wave through. They double as a delegated worker's
-  **acceptance checklist** (§5) and surface in the TUI's council/subagent detail views.
+  **acceptance checklist** (§5) and surface in the TUI's council/subagent detail views. The
+  **stuck-recovery re-plan** (`driveStuckTodos`, `MAGI_STEP_CONTRACT`) gets the same treatment — it
+  authors per-step checks for its fresh plan, hands each recovery unit its checklist, and verifies
+  the unit's checks before completing it, so a re-plan cannot false-complete a unit that returned
+  text without meeting its contract.
+- **Per-item acceptance (`MAGI_CRITERIA_PERITEM`)**: the termination gate renders the acceptance
+  criteria as a NUMBERED checklist and the member prompt requires each item be judged
+  SATISFIED/UNSATISFIED individually — done lands only when EVERY item is satisfied, closing the
+  holistic-judgment gap where a weak model waves a partly-met contract to done.
 - Events: `council.convened`/`council.verdict`/`council.decided` (fact) +
   `council.deliberating` (transient). See PLAN §4.2, DESIGN §5/§6, SPEC F-COUNCIL.
 
@@ -622,14 +640,17 @@ implement↔verify up to `WorkflowMaxLoops`. Emits `workflow.phase` events.
 ## 7. Tools (`adapter/tool/builtin`)
 
 Built-ins (registered in `builtin.Default()`): `read`, `write`, `edit`, `multiedit`,
-`grep`, `glob`, `list`, `bash`, `bash_output`, `bash_kill`, `todowrite`, `webfetch`,
-`websearch`, `remember`, `skill`, `findcontext`, `astgrep`, `lsp_diagnostics`,
+`grep`, `glob`, `list`, `bash`, `bash_output`, `bash_kill`, `port_owner`, `todowrite`,
+`webfetch`, `websearch`, `remember`, `skill`, `findcontext`, `astgrep`, `lsp_diagnostics`,
 `lsp_definition`, `lsp_references`, `lsp_symbols`. Orchestration tools (registered in
 `main.go`): `task`, `ask`, `report`.
 
 Background commands: `bash` with `background=true` starts a detached process
 (registry in `bgproc.go`) and returns an id; `bash_output` polls new output, `bash_kill`
-stops it. LSP navigation uses the gopls CLI for Go and a minimal stdio JSON-RPC client
+stops it. **`port_owner`** (`portowner.go`) finds which process is bound to a TCP port by
+scanning `/proc/net/tcp{,6}` + `/proc/<pid>/fd` and can kill it — a portable way to free a
+port squatted by a stale/leftover server when `pkill`/`lsof`/`ss`/`fuser` are absent
+(exit 127) in a stripped container (Linux only; a stub reports unsupported elsewhere). LSP navigation uses the gopls CLI for Go and a minimal stdio JSON-RPC client
 (`lspclient.go`) for other languages (typescript-language-server, pyright,
 rust-analyzer, clangd), degrading gracefully when a server is absent. `websearch`
 uses DuckDuckGo by default, or Brave/Tavily when `BRAVE_API_KEY`/`TAVILY_API_KEY` is set.
