@@ -79,6 +79,35 @@ func TestRunContractGateFreezesContract(t *testing.T) {
 	}
 }
 
+// assignContractChecksToSteps labels the frozen contract's (initially step-less) checks with the
+// plan step that produces each, so the per-step delegate gate can match them.
+func TestAssignContractChecksToSteps(t *testing.T) {
+	t.Setenv("MAGI_STEP_VERIFY", "1")
+	t.Setenv("MAGI_CHECK_VALIDATE", "0") // skip the validate side-call; store the assigned set as-is
+	assigned := `[{"step":"2","deliverable":"grpc round-trip","command":"python3 client.py","expect":"val=42"}]`
+	llm := &recLLM{reply: func(req string) string {
+		if strings.Contains(req, "assign each executable deliverable CHECK") {
+			return assigned
+		}
+		return ""
+	}}
+	a := newOrchApp(t, llm, Config{Permission: "allow", MaxSteps: 60})
+	s := parentSession(t.TempDir())
+	a.mu.Lock()
+	st := a.stateLocked(s.ID)
+	st.meta = s
+	st.contractFrozen = true
+	st.deliverableChecks = []council.DeliverableCheck{{Deliverable: "grpc round-trip", Command: "python3 client.py", Expect: "val=42"}}
+	a.mu.Unlock()
+
+	a.assignContractChecksToSteps(context.Background(), s, []planStep{{Title: "scaffold"}, {Title: "implement server"}})
+
+	got := a.cachedChecks(s.ID)
+	if len(got) != 1 || got[0].Step != "2" {
+		t.Fatalf("contract check should be assigned to step 2, got %+v", got)
+	}
+}
+
 // A CRITICAL revision in round 1 drives one refining round; the round-2 (strengthened) contract
 // wins, and the refinement carried the round-1 concern back into the council.
 func TestRunContractGateRefinesOnCritical(t *testing.T) {

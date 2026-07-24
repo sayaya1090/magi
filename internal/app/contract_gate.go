@@ -186,6 +186,62 @@ func (a *App) runContractGate(ctx context.Context, s session.Session, prompt str
 	a.setStage(sid, stagePlan)
 }
 
+// assignChecksSystem maps each contract check to the plan step that produces it.
+const assignChecksSystem = "You assign each executable deliverable CHECK to the plan STEP that " +
+	"produces it. You are given the numbered plan STEPS and a JSON array of CHECKS " +
+	"({step, deliverable, command, expect}). Return the SAME checks, unchanged EXCEPT set each " +
+	"check's `step` to the 1-based number of the step whose work produces that deliverable — the " +
+	"step after which the check can first pass. Do NOT modify command/expect/deliverable, and do " +
+	"NOT add or drop any check (return exactly as many as you were given). If a check verifies the " +
+	"whole task or you cannot tell which step, assign it the LAST step's number. JSON array only, " +
+	"no prose, no code fence."
+
+// assignContractChecksToSteps labels the frozen contract's checks with the plan step that produces
+// each, now that the plan exists. Without step labels the per-step delegate gate (verifyStepChecks,
+// matched by step number) cannot gate on them — only the solo finish gate, which runs every check,
+// does. Best-effort and idempotent: it no-ops when there is no frozen contract, no checks, no plan,
+// no model, the checks are already all labelled, or the reply drops/adds checks. On success it
+// re-stores the labelled set as the turn's deliverable checks.
+func (a *App) assignContractChecksToSteps(ctx context.Context, s session.Session, steps []planStep) {
+	sid := s.ID
+	a.mu.Lock()
+	frozen := a.stateLocked(sid).contractFrozen
+	checks := append([]council.DeliverableCheck(nil), a.stateLocked(sid).deliverableChecks...)
+	a.mu.Unlock()
+	if !frozen || len(checks) == 0 || len(steps) == 0 {
+		return
+	}
+	allLabelled := true
+	for _, c := range checks {
+		if strings.TrimSpace(c.Step) == "" {
+			allLabelled = false
+			break
+		}
+	}
+	if allLabelled {
+		return
+	}
+	agent := a.agentFor(s)
+	if a.providerFor(agent) == nil {
+		return
+	}
+	model := s.Model.Model
+	if agent.Model != (session.ModelRef{}) {
+		model = agent.Model.Model
+	}
+	in, err := json.Marshal(checks)
+	if err != nil {
+		return
+	}
+	input := "# Plan steps\n" + renderSteps(steps) + "\n\n# Checks to assign a step to\n" + string(in)
+	raw := a.specMineCall(ctx, agent, sid, "check-assign", model, assignChecksSystem, input)
+	out, ok := parseChecksArray(raw)
+	if !ok || len(out) != len(checks) { // must preserve every check → otherwise keep the unlabelled set
+		return
+	}
+	a.storePlanChecks(ctx, s, out)
+}
+
 // renderContract renders the criteria + checks as a compact, human/model-readable block used both
 // to carry a draft between contract rounds and to inject the approved contract into the planner.
 func renderContract(criteria []string, checks []council.DeliverableCheck) string {
