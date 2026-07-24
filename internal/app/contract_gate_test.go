@@ -40,14 +40,14 @@ func TestRenderContract(t *testing.T) {
 	}
 }
 
-// runContractGate authors+reviews the contract, stores the criteria, FREEZES them (so the later
-// plan-audit cannot overwrite), stashes the checks, and exposes the contract to the planner.
+// runContractGate agrees the contract's CRITERIA (goals only — no executable checks at contract
+// time), stores and FREEZES them (so the later plan-audit cannot overwrite), and exposes them to the
+// planner.
 func TestRunContractGateFreezesContract(t *testing.T) {
 	fc := &fakeCouncil{delibs: []council.Deliberation{{
 		Decision: council.Done,
 		Verdicts: []council.Verdict{{Member: "Melchior", Decision: council.Done}},
 		Criteria: []string{"the server answers SetVal and returns the stored value"},
-		Checks:   []council.DeliverableCheck{{Deliverable: "grpc round-trip", Command: "python3 client.py", Expect: "val=42"}},
 	}}}
 	ctx := context.Background()
 	a, sid, _ := newWorkflowApp(t, nil, nil, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
@@ -60,51 +60,22 @@ func TestRunContractGateFreezesContract(t *testing.T) {
 	}
 	a.mu.Lock()
 	frozen := a.stateLocked(sid).contractFrozen
-	stashed := a.stateLocked(sid).contractChecks
+	checks := a.stateLocked(sid).contractChecks
 	a.mu.Unlock()
 	if !frozen {
 		t.Fatal("contract should be frozen after the gate")
 	}
-	if len(stashed) != 1 || stashed[0].Expect != "val=42" {
-		t.Fatalf("contract checks not stashed: %+v", stashed)
+	if len(checks) != 0 {
+		t.Fatalf("the contract is goals only — no executable checks should be stored, got %+v", checks)
 	}
-	if p := a.contractForPlanner(sid); !strings.Contains(p, "val=42") || !strings.Contains(p, "SetVal") {
-		t.Fatalf("planner contract missing items: %q", p)
+	if p := a.contractForPlanner(sid); !strings.Contains(p, "SetVal") {
+		t.Fatalf("planner contract missing the criterion: %q", p)
 	}
 
 	// The later plan-audit must NOT overwrite the frozen, reviewed criteria.
 	a.storePlanCriteria(ctx, s, []string{"a weaker criterion the plan-audit derived"})
 	if got := a.cachedCriteria(sid); strings.Contains(got, "weaker") {
 		t.Fatalf("frozen criteria were overwritten by plan-audit: %q", got)
-	}
-}
-
-// assignContractChecksToSteps labels the frozen contract's (initially step-less) checks with the
-// plan step that produces each, so the per-step delegate gate can match them.
-func TestAssignContractChecksToSteps(t *testing.T) {
-	t.Setenv("MAGI_STEP_VERIFY", "1")
-	t.Setenv("MAGI_CHECK_VALIDATE", "0") // skip the validate side-call; store the assigned set as-is
-	assigned := `[{"step":"2","deliverable":"grpc round-trip","command":"python3 client.py","expect":"val=42"}]`
-	llm := &recLLM{reply: func(req string) string {
-		if strings.Contains(req, "assign each executable deliverable CHECK") {
-			return assigned
-		}
-		return ""
-	}}
-	a := newOrchApp(t, llm, Config{Permission: "allow", MaxSteps: 60})
-	s := parentSession(t.TempDir())
-	a.mu.Lock()
-	st := a.stateLocked(s.ID)
-	st.meta = s
-	st.contractFrozen = true
-	st.deliverableChecks = []council.DeliverableCheck{{Deliverable: "grpc round-trip", Command: "python3 client.py", Expect: "val=42"}}
-	a.mu.Unlock()
-
-	a.assignContractChecksToSteps(context.Background(), s, []planStep{{Title: "scaffold"}, {Title: "implement server"}})
-
-	got := a.cachedChecks(s.ID)
-	if len(got) != 1 || got[0].Step != "2" {
-		t.Fatalf("contract check should be assigned to step 2, got %+v", got)
 	}
 }
 
@@ -126,9 +97,9 @@ func TestRunContractGateRefinesOnCritical(t *testing.T) {
 	}}
 	var consolidateInput string
 	llm := &recLLM{reply: func(req string) string {
-		if strings.Contains(req, "revise a task's acceptance contract by APPLYING") { // the consolidation side-call
+		if strings.Contains(req, "APPLYING the council's") { // the consolidation side-call
 			consolidateInput = req
-			return `{"criteria":["running the module on the example produces the stated output"],"checks":[{"deliverable":"runs","command":"python3 run.py","expect":"ok"}]}`
+			return `{"criteria":["running the module on the example produces the stated output"]}`
 		}
 		return "" // elicit-draft returns nothing → round 1 seeds from the members
 	}}

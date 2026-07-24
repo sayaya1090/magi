@@ -244,14 +244,6 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth, 
 		// (a single remaining step is fine — nothing to fan out, but solo work follows)
 	}
 
-	// Contract-first (D-contract): the contract's checks were stored with NO step labels (the plan did
-	// not exist when the contract was frozen). Now that the plan is finalized, assign each check to the
-	// step that produces it, so the per-step delegate gate (verifyStepChecks, which matches by step
-	// number) can gate on them — not only the solo finish gate that runs every check.
-	if !a.cfg.Workflow {
-		a.assignContractChecksToSteps(ctx, s, steps)
-	}
-
 	// Route solo→delegate NOW, before the plan is shown or run — so the registered todos, the plan
 	// event, and executeSteps all reflect the SAME strategy. Without this the user saw "[solo]" steps
 	// that silently ran on a worker (the rewrite used to happen per-step inside executeSteps).

@@ -213,15 +213,20 @@ func TestPlanMemberPromptContest(t *testing.T) {
 
 // The contract-gate member prompt (Phase=="contract") bounds the acceptance contract on BOTH
 // sides: a LOWER bound (sufficiency — exercise the behavior, not mere existence of a stub) and an
-// UPPER bound (necessity — assert only what the task states). memberSystem must route the contract
-// phase to this prompt, and it must stay task-agnostic (no eval-set tokens).
+// The contract member prompt agrees GOAL-level criteria only (no executable checks at contract time),
+// is bounded by necessity + sufficiency, and is LENIENT — it must not demand what only doing reveals.
+// memberSystem must route the contract phase to it, and it must stay task-agnostic (no eval-set tokens).
 func TestContractMemberPromptBounds(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "correctness"}
 	p := memberSystem(m, "contract", "implement the interface", false)
-	for _, want := range []string{"ACCEPTANCE CONTRACT", "LOWER BOUND", "UPPER BOUND", "sufficiency", "necessity", "PORTABLE", "IDEMPOTENT", "verbatim"} {
+	for _, want := range []string{"ACCEPTANCE CONTRACT", "NECESSITY", "SUFFICIENCY", "LENIENT", "GOAL", "APPROVE"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("contract member prompt missing %q", want)
 		}
+	}
+	// Goals only — the contract phase must NOT solicit executable checks/commands.
+	if strings.Contains(p, `"checks"`) || strings.Contains(p, "shell `command`") {
+		t.Errorf("contract prompt must not author executable checks at contract time:\n%s", p)
 	}
 	for _, banned := range []string{"grpcio", "kv-store", "headless"} {
 		if strings.Contains(p, banned) {

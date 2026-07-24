@@ -769,7 +769,11 @@ func planMemberSystem(m council.Member, lens string, keep bool) string {
 			"of the task has no step at all, or the plan simply would not achieve the task — that is STILL critical, abstract "+
 			"or not. Reject the absurd, approve the merely abstract.\n"+
 			"A SIMPLE task needs only a SIMPLE plan. Never invent a flaw. If you cannot name a concrete defect in the "+
-			"steps, you APPROVE (or abstain).\n\n"+
+			"steps, you APPROVE (or abstain).\n"+
+			"BE LENIENT — the work has NOT run yet: what will and won't work (which paths exist, which tools are "+
+			"present, the exact outputs) can only be learned by DOING. Do NOT demand those execution-dependent "+
+			"specifics at plan time, and do NOT reject a plan for not spelling them out — they are discovered and "+
+			"handled during execution. Judge only whether the APPROACH is sound.\n\n"+
 			"CALIBRATION — match this bar. Task: \"review the project's dev docs\"; Plan: \"1.[scout] find the docs  "+
 			"2.[parallel] read each  3.[solo] summarize\". The CORRECT verdicts are: correctness → done (discover→read→"+
 			"synthesize is a sound approach with no necessary action missing); completeness → done (the steps cover the "+
@@ -881,61 +885,48 @@ func planMemberSystem(m council.Member, lens string, keep bool) string {
 // is the same criteria/checks calibration the plan-audit member applies, applied here first and
 // on its own so the plan is later built to satisfy a reviewed contract.
 func contractMemberSystem(m council.Member, lens string) string {
+	// The contract phase judges a DIFFERENT thing than the termination gate (a goal definition, not a
+	// finished result), so the members wear contract-fit lenses rather than their verify-a-result ones.
+	switch m.Lens {
+	case "correctness":
+		lens = "requirements fidelity — does the contract capture the task's REAL objective, not a proxy or a detail?"
+	case "verification":
+		lens = "achievability — is each condition realistic and knowable NOW, not something only doing the work can reveal?"
+	case "completeness":
+		lens = "necessity & size — nothing over-demanded or prematurely method-pinned; the contract is minimal and goal-level."
+	}
 	return fmt.Sprintf(
-		"You are %s, a member of a council that defines an AI coding agent's ACCEPTANCE CONTRACT for a TASK, "+
-			"BEFORE any plan exists. Your lens is %q: %s\n\n"+
-			"The contract has two parts, and you propose BOTH through your lens:\n"+
-			"- `criteria`: a short list of concrete DONE-CONDITIONS in prose — what must be TRUE for the task to "+
-			"count as finished. These are judged by reading the finished work; they cover conditions that cannot be "+
-			"reduced to a command (an answer's substance, a behavior's correctness).\n"+
-			"- `checks`: executable verifications — each a shell `command` from the task's working directory with an "+
-			"optional `expect` REGULAR EXPRESSION its output must match (omit `expect` for exit-code-only). A check is "+
-			"the machine-runnable evidence for a criterion, when one can be written.\n\n"+
-			"Judge and refine the DRAFT contract (if one is shown) through your lens, then vote:\n"+
-			"- \"done\": the contract, through your lens, faithfully and proportionately captures the task — nothing "+
-			"required is missing and nothing is over-demanded.\n"+
-			"- \"continue\": name a CONCRETE flaw and set `severity` — \"critical\" only when the contract as written "+
-			"would accept a WRONG result or reject a CORRECT one (a required condition missing, or an over-demand that a "+
-			"correct solution cannot satisfy); \"warn\"/\"info\" for improvements. Put the fix in `feedback` AND emit your "+
-			"corrected `criteria`/`checks`.\n"+
-			"- \"abstain\": your lens adds nothing to the contract.\n\n"+
-			"BOUND THE CONTRACT ON BOTH SIDES:\n"+
-			"- LOWER BOUND (sufficiency — do not under-specify): a criterion or check that only confirms the deliverable "+
-			"can be REACHED — a file exists, a module imports, a port accepts a connection, a build succeeds, a process is "+
-			"alive — is a PRECONDITION, not proof, because a non-functional STUB passes every one. When the task says the "+
-			"deliverable must DO something (answer a request, return a value, transform an input, persist state, produce "+
-			"an output), the contract MUST invoke that behavior through the same interface its consumer uses and assert "+
-			"the OUTCOME, choosing the weakest input that still forces the real code path so a stub FAILS. If the task "+
-			"shows a concrete example — a literal command line, an input→output mapping, a numeric threshold — the "+
-			"HIGHEST-PRIORITY check runs that EXACT input and asserts that EXACT output, verbatim (never a paraphrase or "+
-			"an invented value). When acceptance involves an EXTERNAL event (a signal/Ctrl-C, a kill, a disconnect), the "+
-			"check DELIVERS it for real (launch the artifact, send the actual signal, match the required output) — never "+
-			"an in-process simulation. When the task gives a stateful interface with a sequence of calls, the check "+
-			"REPLAYS that sequence and asserts the stated side effect (a file written, state persisted across calls, an "+
-			"endpoint reachable) — not merely that the class imports or is an instance of its base.\n"+
-			"- UPPER BOUND (necessity — do not over-specify): assert ONLY what the task itself states. NEVER pin a "+
-			"version, build id, exact path, timestamp, or incidental attribute the task did not require — over-"+
-			"specification false-fails correct work and never converges. For an analysis/survey/answer task over a LARGE "+
-			"set, phrase criteria as the QUALITY of a representative, priority-ranked coverage (\"the main candidates are "+
-			"identified with file and rough location\"), never \"every X\" or \"all N with exact line numbers\"; for such "+
-			"a task a criterion is a quality of the ANSWER, not a new file to create, and it needs no check.\n\n"+
-			"PORTABLE PROBES: a `command` may use ONLY tools guaranteed present — coreutils, `grep`/`test`, `python3`, and "+
-			"the task's own toolchain. NEVER use `ss`/`netstat`/`lsof`/`pgrep`/`ps`/`fuser`/`jq` (routinely absent → exit "+
-			"127 → false-fails forever); test a listening port with a dependency-free `python3 -c \"import socket,sys; "+
-			"sys.exit(0 if socket.socket().connect_ex(('localhost',PORT))==0 else 1)\"` or `curl -sf`. IDEMPOTENT, NO "+
-			"STATE CHANGE: a check VERIFIES read-only; it never PERFORMS the work (no build/download/generate/`>`-write/"+
-			"`rm`/`mv` as a check). Keep each criterion one short line; emit checks only where machine-checkable and they "+
-			"would genuinely pass for correct work; omit a part your lens cannot add to.\n\n"+
-			"GOAL, NOT METHOD — and keep it SMALL: a criterion states WHAT must be true, never HOW to build it (leave the "+
-			"implementation method to the worker); a check verifies the OUTCOME and must not prescribe a specific tool or "+
-			"build step. A SMALL contract of a few essential, high-value conditions is BETTER than an exhaustive one — do "+
-			"NOT pad it; if the draft is already sufficient, approve rather than add more.\n\n"+
-			"RE-JUDGE CARRIED CONCERNS: when the draft carries a prior round's feedback, do not blindly perpetuate it. "+
-			"Check each carried concern against the TASK: if it demands something the task does not require (an over-"+
-			"demand), DROP it from the contract rather than encode it — an unjustified concern must not become a "+
-			"criterion or check. Keep only what the task's own words support.\n\n"+
+		"You are %s, a member of a council that agrees an AI coding agent's ACCEPTANCE CONTRACT for a TASK "+
+			"BEFORE any plan or work exists. Your lens is %q: %s\n\n"+
+			"The contract is a SHORT list of `criteria`: goal-level DONE-CONDITIONS — what must be TRUE for the "+
+			"task to count as finished. A criterion states the GOAL (the outcome), NEVER the method or how to "+
+			"verify it: no commands, paths, filenames, tools, or step counts — the work does not exist yet, so any "+
+			"concrete detail is a guess that may be wrong at run time. Leave HOW, and how to check, to the worker "+
+			"and the later plan.\n\n"+
+			"Propose your `criteria` and vote:\n"+
+			"- \"done\": through your lens the contract captures the task's real objective — nothing REQUIRED is "+
+			"missing and nothing is over-demanded. This is the DEFAULT: a reasonable goal-level contract is done.\n"+
+			"- \"continue\": ONLY for a concrete flaw — a required objective missing, an over-demand, or a criterion "+
+			"that pins a METHOD/DETAIL. Set `severity` (\"critical\" only if the contract would accept a WRONG result "+
+			"or reject a CORRECT one) and put the fix in `feedback`.\n"+
+			"- \"abstain\": your lens adds nothing.\n\n"+
+			"BE LENIENT — DO NOT DEMAND WHAT ONLY DOING CAN TELL: at contract time nothing is built, so you cannot "+
+			"know which paths exist, which tools are present, or the exact outputs — and neither can the agent yet. "+
+			"Do NOT require any of that now, and do NOT reject a contract for lacking execution detail; that is "+
+			"discovered during the work and verified later. Judge only the GOAL — is the right outcome captured, at "+
+			"the right scope, without over-demand? When in doubt, APPROVE.\n\n"+
+			"NECESSITY (upper bound): assert ONLY what the task itself states — never a version, path, value, or "+
+			"incidental the task did not require. For an analysis/answer task a criterion is a quality of the ANSWER "+
+			"(a representative, priority-ranked coverage), never \"every X\" or \"all N\".\n\n"+
+			"SUFFICIENCY (lower bound, goal-level): a criterion that only says the deliverable EXISTS/imports/builds "+
+			"is too weak when the task needs it to DO something — state the criterion as the BEHAVIOUR/outcome (it "+
+			"answers the request, returns the value, persists the state), still as a GOAL, never a verify command.\n\n"+
+			"KEEP IT SMALL and APPLY FEEDBACK: a few essential, high-value conditions BEAT an exhaustive list — do "+
+			"NOT pad; if the draft is already sufficient, APPROVE rather than add more. When the draft carries prior "+
+			"feedback, APPLY it (reduce/drop/fix as asked); and DROP any carried concern the task does not actually "+
+			"require rather than encode an over-demand.\n\n"+
 			"Respond with ONLY a JSON object, no prose, no code fence:\n"+
-			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific fix (only if continue)","severity":"critical|warn|info (only if continue)","criteria":["..."],"checks":[{"step":"...","deliverable":"...","command":"...","expect":"..."}]}`,
+			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific fix (only if continue)","severity":"critical|warn|info (only if continue)","criteria":["..."]}`,
 		m.Name, m.Lens, lens)
 }
 
