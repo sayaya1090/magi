@@ -4,7 +4,20 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
+
+// checkCmdTimeout bounds a single deliverable-check command run (runVerifyCmd), so a hung/blocking
+// check can't strand the turn until its wall clock. Default 120s (the bash tool's own default ceiling);
+// MAGI_CHECK_TIMEOUT=<seconds> overrides, 0 disables the per-command bound.
+func checkCmdTimeout() time.Duration {
+	if v := strings.TrimSpace(os.Getenv("MAGI_CHECK_TIMEOUT")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return time.Duration(n) * time.Second
+		}
+	}
+	return 120 * time.Second
+}
 
 // Bench A/B env knobs for the planner. Each reader parses one MAGI_* env var into a
 // bool so a paired ON/OFF run can measure a mechanism in isolation; see each doc for the

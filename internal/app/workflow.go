@@ -224,6 +224,17 @@ func (a *App) runVerifyCmd(ctx context.Context, workdir, cmd string) (string, in
 	if a.plat == nil {
 		return "no platform to run verification", -1
 	}
+	// Per-command deadline: a check that HANGS (an ill-authored check, or a worker-provided
+	// substitution original that is a long-running/blocking command) would otherwise run until the
+	// turn's wall clock, since the gate passes only the turn context. Bound each check run like the
+	// bash tool bounds its own commands; a timeout kills the process (ExitCode -1 = can't verify, so a
+	// hung check never false-fails the deliverable — it just yields no verdict). MAGI_CHECK_TIMEOUT
+	// overrides the ceiling (0 = no per-command bound, the old behavior).
+	if d := checkCmdTimeout(); d > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, d)
+		defer cancel()
+	}
 	name, args := wfShell(cmd)
 	res, err := a.plat.Exec(ctx, port.Cmd{Path: name, Args: args, Dir: workdir})
 	out := string(res.Stdout)
