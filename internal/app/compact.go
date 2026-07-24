@@ -37,7 +37,16 @@ func (a *App) maybeCompact(ctx context.Context, s session.Session, agent AgentSp
 	if tokens <= budget {
 		return false
 	}
+	return a.compactNow(ctx, s, agent, actor, evs)
+}
 
+// compactNow folds older context into a summary down to the last keepRecentEvents facts,
+// regardless of any window/budget estimate. maybeCompact calls it once its ratio gate trips;
+// the stream loop calls it directly when the provider ITSELF rejects a request as too long —
+// the backend's own limit is ground truth that overrides our token estimate (which can under-
+// count, or be uncalibrated when the model's real window differs from a hand-set constant).
+// Returns false when there is nothing left to fold (already at the minimal kept tail).
+func (a *App) compactNow(ctx context.Context, s session.Session, agent AgentSpec, actor event.Actor, evs []event.Event) bool {
 	// Find the boundary: keep the last keepRecentEvents fact events verbatim.
 	factSeqs := make([]int64, 0, len(evs))
 	for _, e := range evs {
@@ -73,7 +82,7 @@ func (a *App) maybeCompact(ctx context.Context, s session.Session, agent AgentSp
 	d, _ := json.Marshal(event.CompactionData{
 		Summary:         summary,
 		ReplacesUpToSeq: boundary,
-		TokensBefore:    estimateTokens(sys, msgs),
+		TokensBefore:    estimateTokens("", reconstruct(evs)),
 		TokensAfter:     estimateTokens(summary, reconstruct(keptEvs)),
 		Shards:          shards,
 	})

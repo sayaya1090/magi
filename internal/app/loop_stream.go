@@ -47,6 +47,12 @@ var streamStallTimeout = func() time.Duration {
 // its first token, before surfacing the hang as an error rather than retrying forever.
 var maxStreamStallRetries = 2
 
+// maxCtxCompactRetries bounds how many times a single generate step force-compacts and re-issues after
+// the provider rejects the request as too long. Each retry folds more history into a summary; if the
+// context still overflows after this many folds (or nothing is left to fold), the error surfaces
+// rather than looping.
+var maxCtxCompactRetries = 3
+
 // drainText consumes a TEXT-ONLY provider stream (the planner and other tool-free side calls that only
 // accumulate the reply, unlike consumeStream which also publishes deltas). It carries NO hang watchdog
 // of its own: the provider is wrapped by guardedProvider (GuardProvider), which aborts a silent or

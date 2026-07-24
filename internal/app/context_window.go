@@ -10,6 +10,37 @@ import (
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
+// isContextOverflow reports whether a provider error is a rejection for exceeding the model's
+// context window (as opposed to a transient/network failure). OpenAI returns code
+// "context_length_exceeded"; vLLM/OpenAI-compatible backends phrase it "This model's maximum
+// context length is N tokens, however you requested M"; Anthropic-via-LiteLLM says "prompt is
+// too long". The match is on the message text (case-insensitive) since the wire error is a
+// plain 400 whose body varies by backend. Kept deliberately narrow — an unrelated 400 must not
+// trigger a compaction-and-retry.
+func isContextOverflow(err error) bool {
+	if err == nil {
+		return false
+	}
+	m := strings.ToLower(err.Error())
+	for _, sig := range []string{
+		"context_length_exceeded",
+		"maximum context length",
+		"context length",
+		"reduce the length",
+		"reduce the number of tokens",
+		"prompt is too long",
+		"too many tokens",
+		"exceeds the context",
+		"exceed context",
+		"input is too long",
+	} {
+		if strings.Contains(m, sig) {
+			return true
+		}
+	}
+	return false
+}
+
 // ModelWindow is one model currently in use and its resolved context window
 // (0 = unlimited/unknown). Session marks the top-level session model.
 type ModelWindow struct {

@@ -287,6 +287,14 @@ func stepVerifyEnabled() bool { return !envOff("MAGI_STEP_VERIFY") }
 // generic tool-trail pivot; MAGI_RETRY_SPLIT=0 forces that fallback everywhere for A/B.
 func retrySplitEnabled() bool { return !envOff("MAGI_RETRY_SPLIT") }
 
+// ctxCompactRetryEnabled controls the reactive-compaction safety net. On (the default), when the
+// provider rejects a generate request as too long (isContextOverflow), the loop force-compacts and
+// re-issues instead of dying with a terminal error — recovering runs whose context outgrew the
+// model's real window (e.g. an uncalibrated window constant, or unbounded growth across many
+// delegate rounds). MAGI_CTX_COMPACT_RETRY=0 restores the old fail-fast for A/B. Inert unless the
+// backend actually returns a context-length error.
+func ctxCompactRetryEnabled() bool { return !envOff("MAGI_CTX_COMPACT_RETRY") }
+
 // recoveryRunCapEnabled caps stuck-recovery re-decomposition to fire at most once per RUN
 // TREE rather than once per depth level: a recovery child is seeded as already-recovered, so
 // it cannot trigger its OWN redecomposeStuck (no coder→coder cascade down the depth levels).
