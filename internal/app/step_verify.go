@@ -68,6 +68,19 @@ func (a *App) runStepGate(ctx context.Context, s session.Session, ts *turnState)
 	stepSeen := map[string]bool{}
 	anyFail := false
 	for _, c := range checks {
+		key := strings.TrimSpace(c.Step)
+		// A check already recorded ✓ this run (per-step at completion, or an earlier gate pass) is
+		// TRUSTED — do not re-run it. The terminal gate is a reconciliation of what is not yet
+		// verified, not a batched re-verify of everything at the finish; re-running is exactly the
+		// "run all the checks at once at the end" the per-step recording replaced. Counts as its
+		// step's pass without another command (the completion ✓ is authoritative for the run).
+		if a.checkAlreadyGreen(s.ID, c) {
+			if !stepSeen[key] {
+				stepSeen[key] = true
+				stepPass[key] = true
+			}
+			continue
+		}
 		out, code := a.runVerifyCmd(ctx, s.Workdir, c.Command)
 		if code == -1 { // platform vanished mid-run: can't verify → don't decide
 			return gateInactive, ""
@@ -81,7 +94,6 @@ func (a *App) runStepGate(ctx context.Context, s session.Session, ts *turnState)
 		}
 		ok := c.Passes(out, code)
 		results = append(results, result{check: c, out: out, pass: ok})
-		key := strings.TrimSpace(c.Step)
 		if !stepSeen[key] {
 			stepSeen[key] = true
 			stepPass[key] = true
