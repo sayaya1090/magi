@@ -135,6 +135,20 @@ func TestValidateChecksPromptDemandsContractExercise(t *testing.T) {
 	}
 }
 
+// Two proxy classes the reachability list did not name, each observed slipping a wrong deliverable
+// past the gate: (1) a check that a configuration is SET rather than that it took EFFECT — "gcov flag
+// configured" instead of "the instrumented build actually emits coverage files" (a set flag that never
+// compiled passes); (2) a behavioral check that validates a single SAMPLE rather than the task's whole
+// reference/threshold — one address value instead of the required fraction of the reference (a solution
+// wrong on the rest passes). The prompt must name both generally, with NO task-specific token.
+func TestValidateChecksPromptForbidsConfigProxyAndSpotCheck(t *testing.T) {
+	for _, want := range []string{"never took effect", "EFFECT, not its cause", "WHOLE standard", "hand-picked sample"} {
+		if !strings.Contains(validateChecksSystem, want) {
+			t.Errorf("validateChecksSystem must forbid config-proxy / single-sample checks (missing %q)", want)
+		}
+	}
+}
+
 // Guard against benchmark overfitting: prompt examples must be task-agnostic. No eval-set task's exact
 // identifiers (a pinned dependency version, a specific task filename) may be baked into a prompt the
 // model sees — an example lifted verbatim from the test set tunes the prompt to the benchmark.

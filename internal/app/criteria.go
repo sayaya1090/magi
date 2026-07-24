@@ -224,12 +224,22 @@ const validateChecksSystem = "You review the executable deliverable `checks` a p
 	"the import, then renames back: an unwinnable loop). Rewrite the check to the generator's real output name.\n" +
 	"- EXERCISES the deliverable (precondition is not proof): a check that only confirms the deliverable can be " +
 	"REACHED — a file exists or is non-empty, a port accepts a connection, a module imports, a build succeeds, a " +
-	"process is alive — is too weak, because a non-functional stub passes every one of those. When the task states " +
-	"the deliverable must DO something (answer a request, return a value, transform an input, produce an output), the " +
-	"check must INVOKE that named behavior through the same interface its consumer uses and assert on the RESULT — " +
-	"call the endpoint and assert the returned value, run the program on an input and compare its output to the task's " +
-	"stated mapping — choosing the weakest input that still forces the real code path so a stub that merely exists or " +
-	"opens the port FAILS. Do not DROP such a check for being weak; STRENGTHEN it into one that exercises the contract.\n" +
+	"process is alive, or a SETTING merely SUPPOSED to produce the deliverable is in place (a build flag configured, " +
+	"an env var exported, a config value written) — is too weak, because a non-functional stub, or a configuration " +
+	"that never took effect, passes every one of those. When the task states the deliverable must DO something " +
+	"(answer a request, return a value, transform an input, produce an output), the check must INVOKE that named " +
+	"behavior through the same interface its consumer uses and assert on the RESULT — call the endpoint and assert the " +
+	"returned value, run the program on an input and compare its output to the task's stated mapping — choosing the " +
+	"weakest input that still forces the real code path so a stub that merely exists or opens the port FAILS.\n" +
+	"  · EFFECT, not its cause: when the deliverable is the EFFECT a configuration is supposed to cause, assert the " +
+	"effect after RUNNING the step that consumes the setting (the artifact the configured build emits appears from a " +
+	"fresh run), NOT that the setting is present — a flag that never took effect passes the config check and fails the " +
+	"real one.\n" +
+	"  · WHOLE standard, not a spot-check: when the task supplies a reference output, an expected dataset, or a " +
+	"threshold to meet, assert against that WHOLE standard (the full output matches the reference, or the count/" +
+	"fraction clears the task's stated bar), never a single hand-picked sample — one row that happens to match passes " +
+	"a deliverable that is wrong on all the rest.\n" +
+	"Do not DROP such a check for being weak; STRENGTHEN it into one that exercises the contract.\n" +
 	"- IDEMPOTENT, NO STATE CHANGE (work≠check): a check must VERIFY the deliverable read-only, never PERFORM the " +
 	"step's work. DROP or repair any command that CREATES/MUTATES the artifact — compress/download/build/generate/" +
 	"move/delete (`tar -czf`, `scp`/`rsync`, `rm`, `mv`, a `>` redirect that writes the deliverable, `git commit`): " +
