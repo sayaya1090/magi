@@ -197,9 +197,13 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth, 
 	a.setStage(s.ID, stagePlan) // tag pre-flight planning events as the plan stage (D15)
 
 	// Contract-first (D-contract): author+review the acceptance contract for the TASK before the
-	// planner decomposes it, then feed it in so the plan targets a reviewed contract. No-op when
-	// the flag is off, no council is configured, or a contract was already frozen this turn.
-	if !a.cfg.Workflow {
+	// planner decomposes it, then feed it in so the plan targets a reviewed contract. TOP-LEVEL ONLY
+	// (depth == 0): a delegated worker already received its acceptance checklist from the parent's
+	// contract, so re-deriving the whole contract in the worker is redundant AND dangerous — the
+	// contract gate is silent side-LLM council calls (no tool activity), and a leased worker sitting
+	// in them looks stuck to the supervisor and gets killed in a spawn→kill loop. No-op also when the
+	// flag is off, no council is configured, or a contract was already frozen this turn.
+	if !a.cfg.Workflow && depth == 0 {
 		a.runContractGate(ctx, s, prompt)
 	}
 
