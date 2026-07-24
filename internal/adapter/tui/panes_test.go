@@ -2,6 +2,7 @@ package tui
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -101,6 +102,32 @@ func TestApplyPaneEvent(t *testing.T) {
 	m.applyPaneEvent(p, event.Event{Type: event.TypeTurnFinished})
 	if !p.done {
 		t.Fatal("pane should be done after turn finished")
+	}
+}
+
+// applyPaneEvent renders a worker's OWN council verdicts (a substitution review at its finish
+// boundary, a plan audit when it decomposes) in the worker detail — each member's judgment plus
+// rationale and any correction feedback — not just the convened header and the final tally.
+// Regression: the pane switch handled Convened+Decided but not CouncilVerdict, so the judgment
+// content ("워커말만 나오네") never appeared.
+func TestApplyPaneEventRendersCouncilVerdict(t *testing.T) {
+	m := newPaneModel()
+	p := &agentPane{role: "worker"}
+
+	vd, _ := json.Marshal(event.CouncilVerdictData{
+		Round: 1, Phase: "substitution", Member: "Melchior", Lens: "equivalence",
+		Decision: "continue", Rationale: "the substitute only checks existence",
+		Feedback: "assert the returned value instead",
+	})
+	m.applyPaneEvent(p, event.Event{Type: event.TypeCouncilVerdict, Data: vd})
+	if len(p.blocks) != 1 {
+		t.Fatalf("a verdict should produce one block, got %d", len(p.blocks))
+	}
+	txt := p.blocks[0].text
+	for _, want := range []string{"Melchior", "the substitute only checks existence", "assert the returned value instead"} {
+		if !strings.Contains(txt, want) {
+			t.Errorf("worker pane verdict block missing %q; got:\n%s", want, txt)
+		}
 	}
 }
 

@@ -396,6 +396,24 @@ func (m *Model) applyPaneEvent(p *agentPane, e event.Event) {
 			}
 			p.blocks = append(p.blocks, block{kind: blockInfo, text: line})
 		}
+	case event.TypeCouncilVerdict:
+		// A worker runs its OWN council (a substitution review at its finish boundary, a plan audit
+		// when it decomposes); those verdicts emit to the worker's session. Render each member's
+		// judgment in the worker detail too, or it shows only the convened header and the final tally
+		// with no WHAT/WHY between them. The pane has no drill-in modal (unlike the main transcript),
+		// so the rationale and any correction feedback ride inline — that inline text IS the judgment
+		// content the review produced.
+		var d event.CouncilVerdictData
+		if json.Unmarshal(e.Data, &d) == nil {
+			line := councilMemberPlain(d)
+			if r := strings.TrimSpace(d.Rationale); r != "" {
+				line += "\n    " + r
+			}
+			if fb := strings.TrimSpace(d.Feedback); fb != "" {
+				line += "\n    ↳ " + fb
+			}
+			p.blocks = append(p.blocks, block{kind: blockInfo, text: line})
+		}
 	case event.TypeCouncilDecided:
 		var d event.CouncilDecidedData
 		if json.Unmarshal(e.Data, &d) == nil {
