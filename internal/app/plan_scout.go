@@ -15,6 +15,9 @@ import (
 
 // capGroups trims a parallel step's groups to the remaining per-turn budget.
 func capGroups(groups []planGroup, budget *int) []planGroup {
+	if *budget <= 0 {
+		return nil // budget exhausted → nothing fits (also guards groups[:*budget] against a negative index)
+	}
 	if len(groups) > *budget {
 		groups = groups[:*budget]
 	}
