@@ -51,11 +51,12 @@ func TestCompletionChecksState(t *testing.T) {
 		t.Errorf("a passed check must outrank the active spinner, got %v", got[1].State)
 	}
 
-	// A later failing run reverts the ✓ (the glyph reflects the latest result, not a latch).
+	// Sticky ✓: once a check has passed, a later flaky re-run does NOT revert the completed mark
+	// (the completion is real progress; the council/step gate judge on the live results, not this).
 	a.recordCheckResult(sid, checks[0], false)
 	got = a.CompletionChecks(sid)
-	if got[0].State == CheckPassed {
-		t.Errorf("a check that later fails must not stay CheckPassed, got %v", got[0].State)
+	if got[0].State != CheckPassed {
+		t.Errorf("a check that passed must STAY CheckPassed on a later flaky fail, got %v", got[0].State)
 	}
 }
 

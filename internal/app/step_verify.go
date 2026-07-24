@@ -160,9 +160,12 @@ func checkKey(c council.DeliverableCheck) string {
 	return strings.TrimSpace(c.Step) + "\x00" + strings.TrimSpace(c.Command)
 }
 
-// recordCheckResult stores one check's latest verify result so the plan panel can render a
-// green ✓ for a passing check (and revert it if a later run fails). Turn-scoped: cleared with
-// deliverableChecks in resetForNewTopLevel.
+// recordCheckResult stores one check's verify result so the plan panel can render a green ✓ for a
+// passing check. The ✓ is STICKY: once a check has passed, a later flaky re-run (e.g. a server
+// restarted between finish-gate passes) must NOT flicker the completed mark back to an empty box —
+// the completion is real progress, and the council/step gate judge on the LIVE results, not this
+// display state. So a pass always sets ✓, and a fail is recorded only while the check has NOT yet
+// passed. Turn-scoped: cleared with deliverableChecks in resetForNewTopLevel.
 func (a *App) recordCheckResult(sid session.SessionID, c council.DeliverableCheck, pass bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -173,7 +176,12 @@ func (a *App) recordCheckResult(sid session.SessionID, c council.DeliverableChec
 	if st.passedChecks == nil {
 		st.passedChecks = map[string]bool{}
 	}
-	st.passedChecks[checkKey(c)] = pass
+	key := checkKey(c)
+	if pass {
+		st.passedChecks[key] = true // passed → ✓, and it stays ✓ for the run
+	} else if !st.passedChecks[key] {
+		st.passedChecks[key] = false // not passed yet → reflect the failure; never downgrade a prior ✓
+	}
 }
 
 // checkOffPassedSteps marks the todo of each fully-passing plan step completed. It maps
