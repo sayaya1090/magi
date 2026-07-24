@@ -113,7 +113,12 @@ type DeliberationRequest struct {
 	NoChanges bool
 	Task      string // the user's original goal/request
 	Plan      string // acceptance criteria / contract, or the proposed procedure when Phase=="plan"
-	Report    string // the agent's self-reported result / claim (optional)
+	// Contest is the plan author's task-grounded rebuttal of the PRIOR round's critical concern
+	// (planContestEnabled): set on a plan/contract re-round when the re-planner rejected the concern
+	// as unjustified instead of complying. The members re-judge it — uphold a real concern, drop an
+	// over-demand. Empty when there is nothing contested.
+	Contest string
+	Report  string // the agent's self-reported result / claim (optional)
 	// Actions is a summary of this turn's tool RESULTS (e.g. write "wrote 13 bytes to
 	// hello.txt", bash `cat` output) — real, git-independent evidence so the council can
 	// judge a create/write turn in a non-git workdir on what happened, not on an absent

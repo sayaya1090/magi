@@ -775,6 +775,12 @@ func planMemberSystem(m council.Member, lens string, keep bool) string {
 			"synthesize is a sound approach with no necessary action missing); completeness → done (the steps cover the "+
 			"whole request); verification → abstain (nothing to verify yet). Revising this plan — to add acceptance "+
 			"criteria, a verify step, or more detail — would be WRONG. Hold real plans to exactly this bar.\n\n"+
+			"CONTEST: when a prior concern is shown as CONTESTED — the plan author argues the TASK does not "+
+			"require what it demanded, or the plan already satisfies it — re-judge that concern against the "+
+			"TASK's literal words. If the task genuinely does not demand it, the concern was an OVER-DEMAND: "+
+			"DROP it (approve, or name a DIFFERENT, real flaw) and do NOT re-raise it. Uphold it ONLY if you "+
+			"can point to the task words that require it. A contested concern you cannot ground in the task is "+
+			"not a valid reason to revise — re-issuing it is exactly the churn to avoid.\n\n"+
 			"SEPARATELY, through your lens, propose this task's COMPLETION CRITERIA in `criteria`: a short list (1-3) of "+
 			"concrete done-conditions used to judge the FINISHED work later (e.g. a file/output that must exist, a check "+
 			"that must pass). Each criterion MUST be ACHIEVABLE and PROPORTIONATE to the task's size: for an analysis, "+
@@ -942,6 +948,7 @@ func evidence(req port.DeliberationRequest) string {
 		// contract from a prior round, when present, is carried in Plan for refinement.
 		section("Task (the goal)", req.Task)
 		section("Draft contract so far (refine it)", req.Plan)
+		section("A prior concern was CONTESTED as unjustified — re-judge whether the TASK requires it; drop it if not", req.Contest)
 		if b.Len() == 0 {
 			return "No task was provided; with nothing to contract for, abstain."
 		}
@@ -950,6 +957,7 @@ func evidence(req port.DeliberationRequest) string {
 	if req.Phase == "plan" {
 		// Plan audit: only the task and the proposed procedure exist yet.
 		section("Task (the goal)", req.Task)
+		section("The plan author CONTESTED your prior concern as unjustified — re-judge it against the TASK; if the task truly does not require it, do NOT re-raise it", req.Contest)
 		section("Proposed procedure (the plan to audit)", req.Plan)
 		if b.Len() == 0 {
 			return "No task or procedure was provided; with nothing to judge, abstain."

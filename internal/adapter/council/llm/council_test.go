@@ -195,6 +195,22 @@ func TestPlanMemberPromptScopesChecksToSteps(t *testing.T) {
 	}
 }
 
+// The plan member prompt must carry the CONTEST clause (re-judge a contested concern against the
+// task, drop an over-demand), and evidence must render the author's contest for the plan phase.
+func TestPlanMemberPromptContest(t *testing.T) {
+	m := council.Member{Name: "x", Lens: "correctness"}
+	p := memberSystem(m, "plan", "build a thing", false)
+	for _, want := range []string{"CONTEST", "OVER-DEMAND", "ground in the task"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("plan prompt missing contest fragment %q", want)
+		}
+	}
+	e := evidence(port.DeliberationRequest{Phase: "plan", Task: "t", Plan: "1. do it", Contest: "the task never asks for retries"})
+	if !strings.Contains(e, "CONTESTED") || !strings.Contains(e, "never asks for retries") {
+		t.Errorf("plan evidence must render the contest: %q", e)
+	}
+}
+
 // The contract-gate member prompt (Phase=="contract") bounds the acceptance contract on BOTH
 // sides: a LOWER bound (sufficiency — exercise the behavior, not mere existence of a stub) and an
 // UPPER bound (necessity — assert only what the task states). memberSystem must route the contract
