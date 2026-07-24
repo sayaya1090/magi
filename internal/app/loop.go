@@ -92,6 +92,7 @@ type turnState struct {
 	stepNudged       bool        // deliverable-check failure nudge injected at most once (MAGI_STEP_VERIFY)
 	lastCheckEpoch   int         // mutation epoch at the last incremental step-check pass (skip read-only turns)
 	lastCheckExec    int         // guard.execActivity() at that pass — also fire on a runtime action (server up, pkg installed)
+	lastChecksVer    int         // checksVersion() at that pass — also fire when a re-plan derives new checks mid-run
 	substRounds      int         // substitution-review correction rounds spent this turn (solo path)
 	council          councilTurn // consensus gate rounds/feedback/spent/deadlock (D14)
 }
@@ -500,13 +501,15 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// advanced since the last pass: a check can only newly-pass if this turn changed state, so a
 		// read-only turn runs nothing. Recording only — the termination gate still owns finish/nudge.
 		if depth == 0 {
-			// Fire on a mutation OR an exercising run: a check can newly-pass not only when a file
-			// changed but when a RUNTIME action took effect (a server now listening, a package now
-			// importable) — those bump execActivity, not the mutation epoch, so an epoch-only trigger
-			// deferred them to the terminal gate (the "checklist items don't tick off as I work" batch).
-			ep, ex := guard.mutationEpoch(), guard.execActivity()
-			if ep != ts.lastCheckEpoch || ex != ts.lastCheckExec {
-				ts.lastCheckEpoch, ts.lastCheckExec = ep, ex
+			// Fire on a mutation OR an exercising run OR a change to the check SET itself: a check can
+			// newly-pass not only when a file changed but when a RUNTIME action took effect (a server
+			// now listening, a package now importable — those bump execActivity, not the mutation
+			// epoch), and a mid-run re-plan can DERIVE a new check for work already done (that bumps
+			// neither, only checksVer). An epoch-only trigger deferred all three to the terminal gate —
+			// the "checklist items don't tick off as I work" batch.
+			ep, ex, cv := guard.mutationEpoch(), guard.execActivity(), a.checksVersion(sid)
+			if ep != ts.lastCheckEpoch || ex != ts.lastCheckExec || cv != ts.lastChecksVer {
+				ts.lastCheckEpoch, ts.lastCheckExec, ts.lastChecksVer = ep, ex, cv
 				a.recordPendingStepChecks(ctx, sid)
 			}
 		}

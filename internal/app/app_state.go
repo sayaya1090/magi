@@ -70,6 +70,7 @@ type sessionState struct {
 	seedPrompt        string                     // subagent: the spawn/unit prompt THIS child was seeded with (see seedTurnTask)
 	curatedTools      []string                   // subagent: per-spawn tool allowlist override (SpawnRequest.Tools); nil = the agent's own allowlist
 	deliverableChecks []council.DeliverableCheck // plan-audit per-step executable checks this turn
+	checksVer         int                        // bumped whenever deliverableChecks is (re)stored — a re-plan adding checks mid-run must trigger the incremental recorder even without a new mutation/exec
 	contractFrozen    bool                       // a contract-first council gate authored this turn's criteria — plan-audit must not overwrite them (D-contract)
 	contractText      string                     // the frozen contract (criteria/goals) rendered for the planner, so contractForPlanner is a straight read
 	passedChecks      map[string]bool            // checkKey → latest verify result (true=pass); drives the panel's ✓ glyph

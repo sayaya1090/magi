@@ -94,7 +94,9 @@ func (a *App) storePlanChecks(ctx context.Context, s session.Session, checks []c
 		return
 	}
 	a.mu.Lock()
-	a.stateLocked(s.ID).deliverableChecks = checks
+	st := a.stateLocked(s.ID)
+	st.deliverableChecks = checks
+	st.checksVer++ // signal the incremental recorder that the check set changed (re-plan mid-run)
 	a.mu.Unlock()
 	content, _ := json.Marshal(checks)
 	a.emitArtifact(ctx, s.ID, event.Actor{Kind: event.ActorSystem, ID: "council"}, artifact.Artifact{
@@ -350,6 +352,18 @@ func (a *App) cachedChecks(sid session.SessionID) []council.DeliverableCheck {
 		return st.deliverableChecks
 	}
 	return nil
+}
+
+// checksVersion returns the monotonic version of this turn's stored deliverable-check set — bumped
+// each time storePlanChecks (re)writes it. The incremental recorder fires when this changes so a
+// re-plan that derives new checks mid-run gets a recording pass even without a fresh mutation/exec.
+func (a *App) checksVersion(sid session.SessionID) int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if st, ok := a.stateIf(sid); ok {
+		return st.checksVer
+	}
+	return 0
 }
 
 // storeStepEstimate records the planner's advisory step estimate for the turn
