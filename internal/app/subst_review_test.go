@@ -52,7 +52,7 @@ func TestReviewSubstitutionsApproveSolo(t *testing.T) {
 	t.Setenv("MAGI_SUBST_REVIEW", "1")
 	ctx := context.Background()
 	fc := &fakeCouncil{delibs: []council.Deliberation{{Decision: council.Done, Verdicts: []council.Verdict{{Decision: council.Done}}}}}
-	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{codes: []int{127}}, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
 	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Command: "ss -tlnp"}})
 	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "ss -tlnp", Command: "python3 probe", Reason: "ss absent"})
 
@@ -80,7 +80,7 @@ func TestReviewSubstitutionsCorrectionLoops(t *testing.T) {
 		Decision: council.Continue,
 		Verdicts: []council.Verdict{{Decision: council.Continue, Severity: council.SeverityCritical, Feedback: "weak proxy — exercise the RPC"}},
 	}}}
-	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{codes: []int{127}}, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
 	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Command: "ss -tlnp"}})
 	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "ss -tlnp", Command: "test -f x"})
 
@@ -108,7 +108,7 @@ func TestReviewSubstitutionsApproveWorkerStashes(t *testing.T) {
 	t.Setenv("MAGI_SUBST_REVIEW", "1")
 	ctx := context.Background()
 	fc := &fakeCouncil{delibs: []council.Deliberation{{Decision: council.Done, Verdicts: []council.Verdict{{Decision: council.Done}}}}}
-	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{codes: []int{127}}, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
 	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "ss -tlnp", Command: "python3 probe"})
 
 	s := a.sessionInfo(ctx, sid)
@@ -120,5 +120,75 @@ func TestReviewSubstitutionsApproveWorkerStashes(t *testing.T) {
 	got := a.takeApprovedSubs(sid)
 	if len(got) != 1 || got[0].Command != "python3 probe" {
 		t.Fatalf("approved worker substitution should be stashed for the parent, got %+v", got)
+	}
+}
+
+// Necessity guard: when the ORIGINAL check command actually RUNS and PASSES here, the substitution is
+// unneeded — it is dropped without convening the council, and the working original is kept unchanged.
+func TestReviewSubstitutionsDropsUnneeded(t *testing.T) {
+	t.Setenv("MAGI_SUBST_REVIEW", "1")
+	ctx := context.Background()
+	fc := &fakeCouncil{delibs: []council.Deliberation{{Decision: council.Done, Verdicts: []council.Verdict{{Decision: council.Done}}}}}
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{codes: []int{0}}, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
+	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Command: "ss -tlnp"}}) // original RUNS (exit 0) here
+	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "ss -tlnp", Command: "python3 probe", Reason: "works correctly"})
+
+	s := a.sessionInfo(ctx, sid)
+	if act, looped := a.reviewSubstitutions(ctx, turnCtx{s: s, guard: newRunGuard(), depth: 0, maxSteps: 50}, new(int)); looped {
+		t.Fatalf("an unneeded substitution must not loop, got act=%v", act)
+	}
+	if fc.calls != 0 {
+		t.Fatalf("an unneeded substitution must NOT convene the review council, calls=%d", fc.calls)
+	}
+	if got := a.cachedChecks(sid); got[0].Command != "ss -tlnp" {
+		t.Fatalf("the working original must be kept, not rewritten, got %q", got[0].Command)
+	}
+	if len(a.pendingSubsOf(sid)) != 0 {
+		t.Fatal("the unneeded substitution should be dropped")
+	}
+}
+
+// Necessity guard: when the ORIGINAL check command RUNS and FAILS, that is a real deliverable failure,
+// not a broken check — the substitution is refused (not applied, council not convened) and the agent is
+// looped to reconsider (fix the deliverable) instead of substituting the failure away.
+func TestReviewSubstitutionsRefusesRanFailed(t *testing.T) {
+	t.Setenv("MAGI_SUBST_REVIEW", "1")
+	ctx := context.Background()
+	fc := &fakeCouncil{delibs: []council.Deliberation{{Decision: council.Done, Verdicts: []council.Verdict{{Decision: council.Done}}}}}
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{codes: []int{1}}, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
+	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Command: "test -s out"}}) // original RUNS and FAILS (exit 1)
+	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "test -s out", Command: "true", Reason: "dodging"})
+
+	s := a.sessionInfo(ctx, sid)
+	act, looped := a.reviewSubstitutions(ctx, turnCtx{s: s, guard: newRunGuard(), depth: 0, maxSteps: 50}, new(int))
+	if !looped || act != loopContinue {
+		t.Fatalf("a ran-and-failed original must loop the agent to reconsider, got act=%v looped=%v", act, looped)
+	}
+	if fc.calls != 0 {
+		t.Fatalf("a real failure must NOT convene the substitution council, calls=%d", fc.calls)
+	}
+	if got := a.cachedChecks(sid); got[0].Command != "test -s out" {
+		t.Fatalf("a failing original must NOT be substituted away, got %q", got[0].Command)
+	}
+}
+
+func TestCheckCommandUnrunnable(t *testing.T) {
+	cases := []struct {
+		out  string
+		code int
+		want bool
+	}{
+		{"", 127, true}, // command not found
+		{"", 126, true}, // found but not executable
+		{"/bin/sh: 1: port_owner: not found", 1, true}, // sh not-found under a non-127 code
+		{"bash: foo: command not found", 2, true},
+		{"verify output", 0, false},                      // ran and passed
+		{"assertion failed", 1, false},                   // ran and failed — NOT unrunnable
+		{"cat: /x: No such file or directory", 1, false}, // ran, failed on its ARGUMENT — not unrunnable
+	}
+	for _, c := range cases {
+		if got := checkCommandUnrunnable(c.out, c.code); got != c.want {
+			t.Errorf("checkCommandUnrunnable(%q, %d) = %v, want %v", c.out, c.code, got, c.want)
+		}
 	}
 }

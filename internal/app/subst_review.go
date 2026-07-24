@@ -30,6 +30,64 @@ func substReviewEnabled() bool { return !envOff("MAGI_SUBST_REVIEW") }
 // the budget it drops the unapproved substitutions and proceeds (terminal gate + external verifier are
 // the backstop). Unlike the plan/contract phase this review is STRICT — the deliverable is built, so an
 // inadequate equivalent is rejected rather than leniently accepted.
+// checkCommandUnrunnable reports whether an exit code / output shows the CHECK COMMAND ITSELF could not
+// run in this environment (a missing tool, a non-executable file, a bad interpreter path) — as opposed
+// to the command running and the deliverable failing. Beyond 127 (command not found) it covers 126
+// (found but not executable / permission denied) and the shell not-found signatures some wrappers
+// surface under a different code. Deliberately narrow — a command that RAN and returned a normal failure
+// (exit 1, an assertion, an expect mismatch) is NOT unrunnable; that is a real deliverable failure.
+func checkCommandUnrunnable(out string, code int) bool {
+	if code == 127 || code == 126 {
+		return true
+	}
+	low := strings.ToLower(out)
+	// Only the command-level shell signatures ("<name>: not found", "command not found",
+	// "executable file not found") — not "no such file"/"permission denied" alone, which a running
+	// command can emit about its ARGUMENTS (a deliverable failure, not an unrunnable check).
+	return strings.Contains(low, "command not found") ||
+		strings.Contains(low, ": not found") ||
+		strings.Contains(low, "executable file not found")
+}
+
+// filterSubsByNecessity runs each substitution's ORIGINAL check command and classifies whether the
+// substitution is warranted: justified = the original genuinely cannot run here (a real substitution
+// case → the council reviews it); ranFailed = the original RAN and FAILED (a real deliverable failure,
+// NOT a broken check — must not be substituted away). A substitution whose original RAN and PASSED is
+// dropped (unneeded — the check works, keep it). Platform-gone (-1) or a missing original is treated as
+// justified so the council still judges rather than the guard silently dropping it.
+func (a *App) filterSubsByNecessity(ctx context.Context, s session.Session, subs []port.CheckSub) (justified, ranFailed []port.CheckSub) {
+	if a.plat == nil {
+		return subs, nil
+	}
+	checks := a.cachedChecks(s.ID)
+	for _, sub := range subs {
+		orig := strings.TrimSpace(sub.Original)
+		if orig == "" {
+			justified = append(justified, sub)
+			continue
+		}
+		out, code := a.runVerifyCmd(ctx, s.Workdir, orig)
+		if code == -1 || checkCommandUnrunnable(out, code) {
+			justified = append(justified, sub)
+			continue
+		}
+		// The original RAN. Judge pass by the matching stored check's own test (its Expect matters) when
+		// we can find it, else exit 0. A pass means the substitution is unneeded (dropped); a fail means a
+		// real deliverable failure the agent must fix, not substitute.
+		pass := code == 0
+		for _, c := range checks {
+			if strings.TrimSpace(c.Step) == strings.TrimSpace(sub.Step) && strings.TrimSpace(c.Command) == orig {
+				pass = c.Passes(out, code)
+				break
+			}
+		}
+		if !pass {
+			ranFailed = append(ranFailed, sub)
+		}
+	}
+	return justified, ranFailed
+}
+
 func (a *App) reviewSubstitutions(ctx context.Context, tc turnCtx, rounds *int) (loopAction, bool) {
 	if !substReviewEnabled() || a.cfg.Council == nil {
 		return 0, false
@@ -47,6 +105,32 @@ func (a *App) reviewSubstitutions(ctx context.Context, tc turnCtx, rounds *int) 
 		a.clearPendingSubs(sid)
 		return 0, false
 	}
+
+	// Deterministic necessity guard (before the council): a substitution is only warranted when the
+	// ORIGINAL check command genuinely cannot run here. Run each original and split three ways — an
+	// original that RAN and PASSED means the substitution is unneeded (dropped, keep the working check);
+	// one that RAN and FAILED is a real deliverable failure the agent must FIX, not substitute away.
+	justified, ranFailed := a.filterSubsByNecessity(ctx, s, pending)
+	if len(ranFailed) > 0 {
+		a.clearPendingSubs(sid) // refuse them; the failing original stays and drives the gate/re-plan
+		*rounds = *rounds + 1
+		a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{Round: *rounds, Phase: "substitution",
+			Decision: string(council.Continue), Note: "substitution refused — the original check RAN and FAILED (a real deliverable failure, not a broken check)"})
+		msg := "Do NOT substitute these acceptance checks — their ORIGINAL command RAN here and FAILED, which is a " +
+			"real failure of the DELIVERABLE, not a check that could not run:\n" + renderSubs(ranFailed) +
+			"\nFix the deliverable so the original check passes, or report status blocked/failed with why. " +
+			"substitute_check is ONLY for a check whose command cannot RUN at all (not found / exit 127)."
+		pd, _ := json.Marshal(event.PromptSubmittedData{MessageID: "m_" + newID(), Parts: []session.Part{{Kind: session.PartText, Text: msg}}})
+		a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "council"}, pd)
+		return loopContinue, true
+	}
+	if len(justified) == 0 { // every original ran and passed → substitutions unneeded, originals kept
+		a.clearPendingSubs(sid)
+		return 0, false
+	}
+	// Only genuinely-unrunnable substitutions reach the council, which judges whether each equivalent
+	// actually verifies the goal (the adequacy lens) before it is applied.
+	pending = justified
 
 	task := substReviewTask(pending)
 	subsText := renderSubs(pending)
