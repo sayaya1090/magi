@@ -92,11 +92,11 @@ type DeliverableCheck struct {
 // The output is matched TRIMMED, and an anchored pattern is retried line-wise, because
 // out is raw command output while Expect is written by an author describing what the
 // command PRINTS. Go anchors `^`/`$` to the whole text unless (?m), and shell output
-// essentially always ends in a newline — so `^1\.73\.0$` against "1.73.0\n" never
-// matched and the check could not pass in ANY world state. That is worse than a wrong
-// verdict: it is a permanent false failure that re-runs the step forever. Observed live:
-// a kv-store install step whose packages WERE at 1.73.0 failed its check six consecutive
-// times, forcing re-plans that burned the wall clock.
+// essentially always ends in a newline — so an anchored pattern like `^9\.8\.7$` against
+// "9.8.7\n" never matched and the check could not pass in ANY world state. That is worse
+// than a wrong verdict: it is a permanent false failure that re-runs the step forever.
+// Observed live: a package-install step whose packages WERE at the pinned version failed
+// its own check six consecutive times, forcing re-plans that burned the wall clock.
 func (c DeliverableCheck) Passes(out string, code int) bool {
 	if code != 0 {
 		return false

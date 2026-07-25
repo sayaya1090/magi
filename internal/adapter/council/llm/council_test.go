@@ -150,6 +150,34 @@ func TestMemberPromptKeepGated(t *testing.T) {
 
 // Plan-phase keep is gated the same way and, crucially, asks each member to note what to preserve
 // EVEN WHEN APPROVING — so a revision forced by another member's flaw doesn't drop the good steps.
+// A re-audited plan carries its revision history in the evidence so a member can judge the
+// DELTA (a rewrite that dropped prior work is a regression). The section must appear only when
+// there is a revision to describe, and — like every other prompt surface — must stay
+// task-agnostic: the framing is ours, the specifics come from the run.
+func TestPlanEvidenceCarriesRevision(t *testing.T) {
+	rev := "The concern that forced this revision: add a step that produces the artifact\n" +
+		"The plan BEFORE the revision: 1. survey the inputs\nConvergence judge: the revision did NOT engage the concern"
+	e := evidence(port.DeliberationRequest{Phase: "plan", Task: "build a server", Plan: "1. survey", Revision: rev})
+	if !strings.Contains(e, "REVISED") {
+		t.Errorf("plan evidence must label the revision section:\n%s", e)
+	}
+	if !strings.Contains(e, "DROPPED or WEAKENED") {
+		t.Errorf("the revision section must tell members a regression counts, not just a step-count change:\n%s", e)
+	}
+	if !strings.Contains(e, "the revision did NOT engage the concern") {
+		t.Errorf("the judge verdict must reach the members:\n%s", e)
+	}
+	// No revision → no section (a first-round audit must not be told about a rewrite that never happened).
+	if plain := evidence(port.DeliberationRequest{Phase: "plan", Task: "build a server", Plan: "1. survey"}); strings.Contains(plain, "REVISED") {
+		t.Errorf("first-round plan evidence must not carry a revision section:\n%s", plain)
+	}
+	for _, banned := range []string{"grpcio", "kv-store", "cobol", "1.73", "extract.js"} {
+		if strings.Contains(e, banned) {
+			t.Errorf("revision section leaks eval-set token %q", banned)
+		}
+	}
+}
+
 func TestPlanMemberPromptKeepGated(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "completeness"}
 	off := memberSystem(m, "plan", "build a server", false, false)
