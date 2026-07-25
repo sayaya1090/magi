@@ -207,6 +207,26 @@ func TestTerminateMemberPromptCheckSubstitution(t *testing.T) {
 	}
 }
 
+// The terminate prompt must verify STATED scope/boundary constraints against the diff/artifact — an
+// off-limits file edited, a required structural element missing, a forbidden action taken — with a
+// necessity guard against inventing a limit the task never stated. Grounds the observed self-
+// acknowledged constraint violation (an agent editing a protected file it knew was off-limits) and
+// the missing-required-terminator failure. Task-agnostic: no eval-set tokens in the prompt.
+func TestTerminateMemberPromptScopeBoundary(t *testing.T) {
+	m := council.Member{Name: "x", Lens: "completeness"}
+	p := memberSystem(m, "terminate", "fix the crash without touching the shared files", false)
+	for _, want := range []string{"SCOPE and BOUNDARY", "OFF-LIMITS", "out-of-scope edit", "violating constraint", "invent a limit the task never stated"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("terminate prompt missing scope/boundary fragment %q", want)
+		}
+	}
+	for _, banned := range []string{"user.cpp", "main.cpp", ".vim", "kv-store"} {
+		if strings.Contains(p, banned) {
+			t.Errorf("terminate prompt leaks an eval-set token %q", banned)
+		}
+	}
+}
+
 // The plan member prompt must carry the CONTEST clause (re-judge a contested concern against the
 // task, drop an over-demand), and evidence must render the author's contest for the plan phase.
 func TestPlanMemberPromptContest(t *testing.T) {

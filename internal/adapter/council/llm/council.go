@@ -639,6 +639,17 @@ func memberSystem(m council.Member, phase, task string, keep bool) string {
 			"it, a placeholder, a wrong field, or the right shape with the wrong value — is a concrete defect: vote "+
 			"continue and name the mismatch in feedback. Re-read the task wording literally; the agent's own paraphrase "+
 			"of what it did is a claim, never proof the content is right.\n"+
+			"SCOPE and BOUNDARY constraints are part of the contract, verified against the DIFF and the produced "+
+			"artifact — not just the report's prose. When the task fixes WHAT may change (\"only modify FILE\", \"do "+
+			"not touch AREA\", \"leave X unchanged\"), a diff that edits anything the task placed OFF-LIMITS is a "+
+			"defect EVEN IF the functional change is correct: vote continue and name the out-of-scope edit. The "+
+			"agent's own note that it \"had to\" cross the boundary — or a diff that quietly changes a protected file — "+
+			"does NOT license it (this is a common self-acknowledged violation: the reasoning admits \"violating "+
+			"constraint\" while the edit stands). Likewise, when the task requires the OUTPUT to contain a specific "+
+			"element or end a certain way (a required directive/marker/terminator the deliverable MUST include), or "+
+			"forbids a specific action, check the ACTUAL artifact for it — a required structural element the output "+
+			"LACKS, or a forbidden action taken, is a concrete defect. Do NOT invent a limit the task never stated — "+
+			"assert only a boundary the task itself set.\n"+
 			"Existence is not correctness: when the task implies a CHECKABLE behavior — a password that must unlock "+
 			"something, a service that must respond, a command that must produce a required output, a build that must "+
 			"compile — \"done\" requires that the turn actually RAN that check and its REAL output is visible in the "+
