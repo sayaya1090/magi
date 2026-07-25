@@ -49,7 +49,8 @@ var secretGlobs = []string{
 
 // bashDestructive matches commands whose blast radius is large and irreversible.
 var bashDestructive = []*regexp.Regexp{
-	regexp.MustCompile(`\brm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*[rf][a-zA-Z]*\b`), // rm -rf / -fr
+	regexp.MustCompile(`\brm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*[rf][a-zA-Z]*\b`), // rm -rf / -fr / -r / -f (short flags)
+	regexp.MustCompile(`\brm\s+[^;&|]*--(recursive|force)\b`),              // rm --recursive / --force (GNU long form)
 	regexp.MustCompile(`\bgit\s+push\b.*--force\b`),
 	regexp.MustCompile(`\bgit\s+push\b.*\s-f\b`),
 	regexp.MustCompile(`\bgit\s+reset\s+--hard\b`),
