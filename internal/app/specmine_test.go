@@ -129,11 +129,33 @@ func TestSpecMinePromptsClassify(t *testing.T) {
 		if !strings.Contains(sys, "VERBATIM") {
 			t.Error("both prompts must instruct capturing the example's I/O verbatim")
 		}
-		for _, banned := range []string{"KVStore", "GetVal", "kv-store"} {
+		for _, banned := range []string{"KVStore", "GetVal", "kv-store", "ELF", "a.out", "extract.js", "PT_LOAD"} {
 			if strings.Contains(sys, banned) {
 				t.Errorf("mining prompt leaks an eval-set token %q — keep it task-agnostic", banned)
 			}
 		}
+	}
+}
+
+// A TRANSFORM/reproduction task (output derived from a present input — a file to parse, a format to
+// convert, another program's output to match) fails on a subtly wrong RULE, not a wrong name, and a
+// single self-consistent implementation cannot catch its own rule error. Both prompts must instruct
+// mining the PRECISE input→output mapping (selection, order/stride, per-element computation, key/value
+// encoding) into the requirement so it is reproducible — task-agnostically. Grounds the extract-elf
+// logic-error miss (values did not match the reference).
+func TestSpecMinePromptTransformLens(t *testing.T) {
+	for _, want := range []string{"TRANSFORM", "endianness", "offset/stride", "byte-identical"} {
+		if !strings.Contains(elicitSpecMineSystem, want) {
+			t.Errorf("pass-1 prompt must mine the transform mapping (missing %q)", want)
+		}
+	}
+	// Pass-2 must carry the precise-mapping rule so the requirement survives distillation.
+	if !strings.Contains(distillSpecMineSystem, "TRANSFORM/reproduction") {
+		t.Error("pass-2 prompt must keep a transform finding's precise mapping in the requirement")
+	}
+	// Stays semantic (verify by effect against the real input), not a new hard-literal category.
+	if !strings.Contains(elicitSpecMineSystem, "stays SEMANTIC") {
+		t.Error("the transform lens must classify as semantic (verified by running against the real input)")
 	}
 }
 

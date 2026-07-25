@@ -26,7 +26,7 @@ const specMineAgent = "specmine"
 // of the right construct). Pass 2 distills. The one goal survives: find where a
 // prose-only implementation goes wrong.
 const elicitSpecMineSystem = "You read a coding request and work out, BEFORE any code is written, what it " +
-	"actually takes to satisfy it — on two fronts.\n" +
+	"actually takes to satisfy it — on three fronts.\n" +
 	"FIRST, its NAMES and TYPE SIGNATURES: find where an implementation written from the prose alone would " +
 	"go WRONG. For each identifier, parameter/return type, or stated format that guards against such a " +
 	"failure, note: the surface, the unsaid requirement it implies, and the STANDARD construct (name it) the " +
@@ -41,6 +41,19 @@ const elicitSpecMineSystem = "You read a coding request and work out, BEFORE any
 	"or open, a tool that must be on PATH. For each, the requirement is what to CHECK, and the construct is " +
 	"the concrete action that PROVISIONS it when absent (the install/create/start command). Understanding " +
 	"what the task needs comes first; provisioning follows from it.\n" +
+	"THIRD, when the request is a TRANSFORM or REPRODUCTION — it must produce output whose exact values are " +
+	"DERIVED from an input that is PRESENT (a file to parse, an encoded/binary format to read, a dataset to " +
+	"convert, or another program's output to match): the output is fully DETERMINED by that input plus a " +
+	"precise mapping, so the failure is a subtly wrong RULE, not a wrong name — and a single self-consistent " +
+	"implementation never catches its own rule error. Pin the mapping the output must obey and put it in the " +
+	"requirement: WHICH elements are selected (which records/fields/sections, and the filter that includes " +
+	"them), in what ORDER and at what offset/stride, the per-element COMPUTATION (byte width, endianness, " +
+	"sign, base/offset arithmetic), and the exact ENCODING of every key and value (decimal vs hex, string vs " +
+	"number, separators, padding, trailing newline). Where the prose underdetermines the rule, the " +
+	"requirement is to READ the present input to fix it — name that input. This stays SEMANTIC (verify by " +
+	"running against the REAL input, never by matching source text), but state it PRECISELY enough that any " +
+	"two correct implementations would emit byte-identical output; a vague 'parse it and output the values' " +
+	"is the failure, not the finding.\n" +
 	"Derive ONLY what the given surfaces actually imply — do not invent requirements.\n" +
 	"CLASSIFY each finding by HOW it must be honored, because the difference decides whether a checker " +
 	"asserts it literally or by behavior: a FIXED identifier or value the request names (a message/service/" +
@@ -57,7 +70,7 @@ const elicitSpecMineSystem = "You read a coding request and work out, BEFORE any
 	"the MINORITY: use it ONLY for a literal string a grader matches character-for-character — a filename, a " +
 	"function/message/RPC NAME, a port number, a pinned version, or an exact output token the task quotes. A " +
 	"described BEHAVIOR, ALGORITHM, FORMAT, or STRUCTURE is SEMANTIC even when it is required or important — " +
-	"importance does NOT make it hard: 'parse the ELF header', 'output JSON with these fields', 'sort the " +
+	"importance does NOT make it hard: 'parse the file header', 'output JSON with these fields', 'sort the " +
 	"results', 'return an int' are all SEMANTIC (satisfied by the running artifact, not by matching source " +
 	"text). Default to SEMANTIC; reach for HARD only when you can point to the exact literal the task wrote " +
 	"and a grader will compare byte-for-byte, and mark a genuinely open aspect UNCONSTRAINED. And when a " +
@@ -93,7 +106,10 @@ const distillSpecMineSystem = "You distill a working analysis into its final con
 	"`hard` is the MINORITY — reserve it for a literal a grader matches byte-for-byte (a name/port/filename/" +
 	"pinned version/quoted output token); a described behavior, algorithm, format, or structure is `semantic` " +
 	"even when required (importance does not make it hard). Default to `semantic` (the safe choice that never " +
-	"forces a made-up surface form onto correct code). \"final\" is ONE sentence naming the winning " +
+	"forces a made-up surface form onto correct code). For a TRANSFORM/reproduction finding (output derived " +
+	"from a present input), the `requirement` must carry the PRECISE mapping — element selection, order/" +
+	"stride, per-element computation (width/endianness/arithmetic), and key/value encoding — so it is " +
+	"reproducible byte-for-byte, not a vague 'parse it and output the values'. \"final\" is ONE sentence naming the winning " +
 	"construct(s) — SINGLE and unconditional: where the analysis argued both ways, pick the winner and DROP " +
 	"every caveat against it (a reader under pressure follows the escape hatch, not the advice). Do not " +
 	"restate what the original request's prose already says. If the analysis concluded nothing beyond the " +
