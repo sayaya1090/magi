@@ -26,6 +26,7 @@ type fakeCouncil struct {
 	delibs  []council.Deliberation
 	calls   int
 	lastReq port.DeliberationRequest
+	reqs    []port.DeliberationRequest // every request in order, so a re-round's carried context is assertable
 	// judge scripts the revision-addressed verdict; nil means "always addressed" (the
 	// default, so existing multi-round plan-audit fixtures still loop to the round cap).
 	// judgeCalls counts how many times JudgeRevision ran (0 proves the flag gated it off).
@@ -38,6 +39,7 @@ func (f *fakeCouncil) Deliberate(ctx context.Context, req port.DeliberationReque
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.lastReq = req
+	f.reqs = append(f.reqs, req)
 	i := f.calls
 	f.calls++
 	if i < len(f.delibs) {

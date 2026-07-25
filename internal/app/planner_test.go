@@ -1619,11 +1619,65 @@ func TestPlanAuditReplanFailProceedsWithNote(t *testing.T) {
 	}
 }
 
-// A revision the convergence judge finds does NOT address the concern stops the loop
-// early (before the round cap): the revised plan is returned, the concern is handed to the
-// executor, and a "did not address … proceeding" decision is emitted. This is the intrinsic
-// convergence bound — productivity, not round count.
-func TestPlanAuditConvergeNotAddressedStopsEarly(t *testing.T) {
+// DEFAULT: a revision the convergence judge finds does NOT address the concern is NOT adopted
+// unreviewed — it goes back to the full council next round. Adopting an unjudged rewrite is the
+// real hazard (a revision can be worse than what it replaced, at any step count), so the audit
+// spends a round rather than proceeding blind. The re-round is given the change context so a
+// member can see what the rewrite dropped.
+func TestPlanAuditUnaddressedRevisionIsReReviewed(t *testing.T) {
+	fc := &fakeCouncil{
+		delibs: []council.Deliberation{
+			{Round: 1, Decision: council.Continue, Verdicts: []council.Verdict{
+				{Member: "Melchior", Lens: "correctness", Decision: council.Continue, Severity: council.SeverityCritical, Feedback: "add a verify step"},
+			}, Criteria: []string{"build passes"}},
+			{Round: 2, Decision: council.Done}, // the re-review actually happens
+		},
+		judge: func(port.RevisionJudgeRequest) port.RevisionVerdict {
+			return port.RevisionVerdict{Addressed: false, Reason: "same steps, concern ignored"}
+		},
+	}
+	replanned := `{"steps":[{"title":"X","strategy":"solo"},{"title":"Y","strategy":"solo"}],"reason":"dropped the build step"}`
+	a, wd := newApp(t, &fakeLLM{steps: [][]port.ProviderEvent{textStep(replanned)}},
+		Config{Council: fc, Agents: map[string]AgentSpec{plannerAgent: {Name: "planner"}}})
+	s, steps := planAuditFixture(t, a, wd)
+	got := a.runPlanAuditGate(context.Background(), s, a.cfg.Agents[plannerAgent], "do A and B", steps, 0, 120)
+	if fc.calls != 2 {
+		t.Fatalf("an unaddressed revision must be re-deliberated, got %d Deliberate calls", fc.calls)
+	}
+	if len(got) != 2 || got[0].Title != "X" {
+		t.Fatalf("the re-reviewed (approved) plan should be returned, got %+v", got)
+	}
+	// Round 2 must carry the revision context: the prior plan, the concern, the planner's reason,
+	// and the judge's verdict — this is what lets a member spot a regression the step count hides.
+	if len(fc.reqs) < 2 {
+		t.Fatalf("want 2 recorded requests, got %d", len(fc.reqs))
+	}
+	rev := fc.reqs[1].Revision
+	for _, want := range []string{"add a verify step", "dropped the build step", "did NOT engage"} {
+		if !strings.Contains(rev, want) {
+			t.Errorf("re-round Revision context missing %q:\n%s", want, rev)
+		}
+	}
+	if !strings.Contains(rev, steps[0].Title) {
+		t.Errorf("re-round Revision context must carry the PRIOR plan (%q):\n%s", steps[0].Title, rev)
+	}
+	if fc.reqs[0].Revision != "" {
+		t.Errorf("the first round has no revision to describe, got %q", fc.reqs[0].Revision)
+	}
+	pr := planRevisedFacts(t, a, s.ID)
+	if len(pr) != 1 || pr[0].Addressed == nil || *pr[0].Addressed {
+		t.Fatalf("want one PlanRevised fact judged not-addressed, got %+v", pr)
+	}
+	if len(pr[0].Before) != 2 || len(pr[0].After) != 2 || pr[0].After[0] != "[solo] X" {
+		t.Fatalf("PlanRevised should carry before/after step summaries, got %+v", pr[0])
+	}
+}
+
+// LEGACY (MAGI_PLAN_CONVERGE_STOP=1): the old early-stop — an unproductive revision ends the audit
+// and that revision is adopted without review, with the concern handed to the executor. Kept behind
+// the flag for rollback/A-B.
+func TestPlanAuditConvergeStopFlagRestoresEarlyStop(t *testing.T) {
+	t.Setenv("MAGI_PLAN_CONVERGE_STOP", "1")
 	fc := &fakeCouncil{
 		delibs: []council.Deliberation{
 			{Round: 1, Decision: council.Continue, Verdicts: []council.Verdict{
@@ -1640,12 +1694,8 @@ func TestPlanAuditConvergeNotAddressedStopsEarly(t *testing.T) {
 		Config{Council: fc, Agents: map[string]AgentSpec{plannerAgent: {Name: "planner"}}})
 	s, steps := planAuditFixture(t, a, wd)
 	got := a.runPlanAuditGate(context.Background(), s, a.cfg.Agents[plannerAgent], "do A and B", steps, 0, 120)
-	// Returns the REVISED plan (handed to the executor to run), not the prior one.
 	if len(got) != 2 || got[0].Title != "X" {
 		t.Fatalf("early stop should return the revised plan, got %+v", got)
-	}
-	if fc.judgeCalls != 1 {
-		t.Fatalf("judge should run once (first unproductive revision stops), got %d", fc.judgeCalls)
 	}
 	if fc.calls != 1 {
 		t.Fatalf("early stop must not deliberate a second round, got %d Deliberate calls", fc.calls)
@@ -1655,16 +1705,8 @@ func TestPlanAuditConvergeNotAddressedStopsEarly(t *testing.T) {
 	if last.Decision != string(council.Done) || !strings.Contains(last.Note, "did not address") {
 		t.Fatalf("want an early 'did not address' proceeding decision, got %+v", last)
 	}
-	// The concern is handed to the executor as a (non-approved) advice injection.
 	if !injectedAdvice(t, a, s.ID, "add a verify step") {
 		t.Fatal("early stop should inject the unaddressed concern for the executor")
-	}
-	pr := planRevisedFacts(t, a, s.ID)
-	if len(pr) != 1 || pr[0].Addressed == nil || *pr[0].Addressed {
-		t.Fatalf("want one PlanRevised fact judged not-addressed, got %+v", pr)
-	}
-	if len(pr[0].Before) != 2 || len(pr[0].After) != 2 || pr[0].After[0] != "[solo] X" {
-		t.Fatalf("PlanRevised should carry before/after step summaries, got %+v", pr[0])
 	}
 }
 
