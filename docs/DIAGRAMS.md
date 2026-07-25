@@ -165,7 +165,7 @@ flowchart TD
 | `guardedProvider` (byte-spin) | 완료 없는 폭주 생성 | 누적 바이트 | 2×`spinCap`(기본 800KB), `MAGI_SPIN_CAP` | 취소 |
 | `guardedProvider` (repeat) | **degenerate 반복**(같은 문장/단어 무한) | 꼬리 단위 back-to-back ≥128B·≥3회 | `MAGI_REPEAT_CAP`(기본 on), 꼬리 4KB·256B마다 검사 | 취소(≈수백 B 만에, 800KB 안 기다림) |
 | `consumeStream` (stall) | 메인 generate 첫토큰 전 침묵 | 유휴 | `streamStall` 120s, `MAGI_STREAM_STALL` | 같은 요청 재발행(×2), 소진 시 에러 |
-| `consumeStream` (reasoningSpin) | 메인 generate reasoning만 무한 | 툴콜 0 + 바이트 | `spinCap` 400KB | 넛지("행동하라") |
+| `consumeStream` (reasoningSpin) | 메인 generate reasoning만 무한 | 툴콜 0 + 바이트 | `spinCap` 400KB (`[limits] max_output_tokens` 설정 시 이 넛지는 토큰캡에 위임=off, guardedProvider 800KB 백스톱은 유지) | 넛지("행동하라") |
 | `runGuard` (L3) | 툴콜 반복·정체·배너스핀 | 지문·무변이 스텝 | `guard.go` 상수 | 넛지→차단→회복→강제종료 |
 | `runVerifyCmd` 타임아웃 | 행/블로킹 **체크 명령**(워커-제공 substitution original 포함) | per-command 경과 | 기본 120s, `MAGI_CHECK_TIMEOUT`(0=off) | kill, exit -1=검증불가(거짓실패 아님) |
 
