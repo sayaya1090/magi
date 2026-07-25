@@ -243,3 +243,29 @@ func TestCheckCommandUnrunnable(t *testing.T) {
 		}
 	}
 }
+
+// The correction loop is BOUNDED: once the round budget (CouncilMaxRounds) is spent, the review drops
+// the still-unapproved substitutions and PROCEEDS to finish — the terminal gate and external verifier
+// are the backstop — instead of looping the agent forever. The council is not even consulted once the
+// budget is gone (the top guard fires first).
+func TestReviewSubstitutionsBudgetExhaustionProceeds(t *testing.T) {
+	t.Setenv("MAGI_SUBST_REVIEW", "1")
+	ctx := context.Background()
+	// A council that would keep rejecting — proving the BOUND, not the verdict, is what stops the loop.
+	fc := &fakeCouncil{delibs: []council.Deliberation{{Decision: council.Continue,
+		Verdicts: []council.Verdict{{Decision: council.Continue, Severity: council.SeverityCritical, Feedback: "still weak"}}}}}
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{codes: []int{127}}, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
+	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Command: "ss -tlnp"}})
+	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "ss -tlnp", Command: "test -f x"})
+
+	s := a.sessionInfo(ctx, sid)
+	tc := turnCtx{s: s, guard: newRunGuard(), depth: 0, maxSteps: 50}
+	rounds := 3 // budget already spent
+	act, looped := a.reviewSubstitutions(ctx, tc, &rounds)
+	if looped || act != 0 {
+		t.Fatalf("a spent budget must proceed (no further loop), got act=%v looped=%v", act, looped)
+	}
+	if len(a.pendingSubsOf(sid)) != 0 {
+		t.Error("a budget-exhausted review must drop the unapproved pending substitutions")
+	}
+}
