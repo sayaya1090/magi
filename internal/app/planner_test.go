@@ -2051,3 +2051,21 @@ func TestSpecFidelityDisabled(t *testing.T) {
 		}
 	}
 }
+
+// A trailing comma before a closing } or ] is a common weak-model JSON error that json.Unmarshal
+// rejects; parsePlan repairs it (respecting strings) instead of dumping the whole plan into the solo
+// fallback. The comma inside the string value must be preserved.
+func TestParsePlanToleratesTrailingComma(t *testing.T) {
+	raw := `{"reason":"go, then stop","steps":[{"title":"a","strategy":"solo",},{"title":"b","strategy":"solo"},]}`
+	p := parsePlan(raw)
+	if len(p.Steps) != 2 || p.Steps[0].Title != "a" || p.Steps[1].Title != "b" {
+		t.Fatalf("trailing-comma plan should parse to 2 steps, got %+v", p)
+	}
+	if p.Reason != "go, then stop" {
+		t.Errorf("comma inside a string value must be preserved, got reason=%q", p.Reason)
+	}
+	// stripTrailingCommas leaves already-valid JSON unchanged.
+	if got := stripTrailingCommas(`{"a":[1,2]}`); got != `{"a":[1,2]}` {
+		t.Errorf("valid JSON must be untouched, got %q", got)
+	}
+}

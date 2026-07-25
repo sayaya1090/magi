@@ -239,7 +239,12 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth, 
 		// step) so solo work still lands a verifiable contract. Coverage-gated + best-effort; council
 		// or workflow presence is not required (the step gate runs independently).
 		if !a.cfg.Workflow {
-			a.storeCoveredChecks(ctx, s, prompt, []planStep{{Title: prompt, Strategy: "solo"}}, nil)
+			solo := []planStep{{Title: prompt, Strategy: "solo"}}
+			// Ground even a solo turn in the real repository — ESPECIALLY when solo is a FALLBACK from a
+			// planner that couldn't emit a parseable plan (the weak model was already struggling, so it
+			// most needs the real signatures/paths). The empty-repo skip makes this free on greenfield.
+			a.exploreSpecMine(ctx, s, prompt, solo, depth)
+			a.storeCoveredChecks(ctx, s, prompt, solo, nil)
 		}
 		return false, false // solo — the default, cheap path
 	}
@@ -599,8 +604,8 @@ func msgLen(m session.Message) int {
 func parsePlan(text string) planResult {
 	var firstValid *planResult
 	for _, js := range balancedObjects(text) {
-		var p planResult
-		if json.Unmarshal([]byte(js), &p) != nil {
+		p, ok := unmarshalPlanLenient(js)
+		if !ok {
 			continue // not JSON, or not the plan shape — try the next object
 		}
 		if len(p.Steps) > 0 {
@@ -615,6 +620,62 @@ func parsePlan(text string) planResult {
 		return *firstValid
 	}
 	return planResult{}
+}
+
+// unmarshalPlanLenient parses one candidate object as a plan, tolerating a trailing comma before a
+// closing } or ] — a very common weak-model JSON error that json.Unmarshal rejects outright, and one
+// that otherwise dumps an entire valid-but-for-one-comma plan into the solo fallback.
+func unmarshalPlanLenient(js string) (planResult, bool) {
+	var p planResult
+	if json.Unmarshal([]byte(js), &p) == nil {
+		return p, true
+	}
+	if fixed := stripTrailingCommas(js); fixed != js {
+		if json.Unmarshal([]byte(fixed), &p) == nil {
+			return p, true
+		}
+	}
+	return planResult{}, false
+}
+
+// stripTrailingCommas removes a comma that immediately precedes a closing } or ] (ignoring
+// intervening whitespace). It respects string literals — a comma inside a quoted value is untouched —
+// so it only repairs the structural trailing comma JSON forbids but weak models routinely emit.
+func stripTrailingCommas(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	inStr, esc := false, false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if inStr {
+			b.WriteByte(c)
+			switch {
+			case esc:
+				esc = false
+			case c == '\\':
+				esc = true
+			case c == '"':
+				inStr = false
+			}
+			continue
+		}
+		if c == '"' {
+			inStr = true
+			b.WriteByte(c)
+			continue
+		}
+		if c == ',' {
+			j := i + 1
+			for j < len(s) && (s[j] == ' ' || s[j] == '\t' || s[j] == '\n' || s[j] == '\r') {
+				j++
+			}
+			if j < len(s) && (s[j] == '}' || s[j] == ']') {
+				continue // drop the trailing comma
+			}
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
 }
 
 // balancedObjects returns every TOP-LEVEL balanced {...} object in s, in order, respecting
