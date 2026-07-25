@@ -323,6 +323,20 @@ func TestDeliverableCheckPasses(t *testing.T) {
 		{"regex no match", DeliverableCheck{Expect: "^total: [0-9]+$"}, "total: none", 0, false},
 		{"bad regex falls back to substring", DeliverableCheck{Expect: "a(b"}, "xxa(byy", 0, true},
 		{"bad regex substring absent", DeliverableCheck{Expect: "a(b"}, "nope", 0, false},
+		// Real command output ends in a newline. Go anchors ^/$ to the whole text, so an
+		// anchored Expect used to be unsatisfiable in every world state — a permanent false
+		// failure that re-ran the step forever (observed live on a kv-store install check).
+		{"anchored vs trailing newline", DeliverableCheck{Expect: `^1\.73\.0$`}, "1.73.0\n", 0, true},
+		{"anchored vs trailing whitespace", DeliverableCheck{Expect: `^PASS$`}, "  PASS \n\n", 0, true},
+		// An anchored pattern over multi-line output describes ONE line.
+		{"anchored matches a line of multi-line output", DeliverableCheck{Expect: `^Version: 1\.73\.0$`},
+			"Version: 1.73.0\nVersion: 1.73.0\n", 0, true},
+		// Still a real verdict: the trim/line-wise retry must not turn a genuine mismatch into a pass.
+		{"anchored genuinely absent", DeliverableCheck{Expect: `^1\.73\.0$`}, "1.72.0\n", 0, false},
+		{"anchored absent from every line", DeliverableCheck{Expect: `^Version: 2\.0$`},
+			"Version: 1.73.0\nVersion: 1.73.0\n", 0, false},
+		{"substring still needs the literal", DeliverableCheck{Expect: "PASS"}, "FAIL\n", 0, false},
+		{"nonzero exit still fails an otherwise-matching output", DeliverableCheck{Expect: `^PASS$`}, "PASS\n", 3, false},
 	}
 	for _, tc := range cases {
 		if got := tc.c.Passes(tc.out, tc.code); got != tc.want {

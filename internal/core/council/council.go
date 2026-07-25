@@ -88,6 +88,15 @@ type DeliverableCheck struct {
 // is matched as a regular expression against out; if Expect is not a valid regexp we
 // fall back to a literal substring test rather than fail the whole run on a malformed
 // pattern (fail-safe: a bad pattern shouldn't strand a genuinely-done step). Pure.
+//
+// The output is matched TRIMMED, and an anchored pattern is retried line-wise, because
+// out is raw command output while Expect is written by an author describing what the
+// command PRINTS. Go anchors `^`/`$` to the whole text unless (?m), and shell output
+// essentially always ends in a newline — so `^1\.73\.0$` against "1.73.0\n" never
+// matched and the check could not pass in ANY world state. That is worse than a wrong
+// verdict: it is a permanent false failure that re-runs the step forever. Observed live:
+// a kv-store install step whose packages WERE at 1.73.0 failed its check six consecutive
+// times, forcing re-plans that burned the wall clock.
 func (c DeliverableCheck) Passes(out string, code int) bool {
 	if code != 0 {
 		return false
@@ -95,10 +104,22 @@ func (c DeliverableCheck) Passes(out string, code int) bool {
 	if c.Expect == "" {
 		return true
 	}
-	if re, err := regexp.Compile(c.Expect); err == nil {
-		return re.MatchString(out)
+	out = strings.TrimSpace(out)
+	re, err := regexp.Compile(c.Expect)
+	if err != nil {
+		return strings.Contains(out, c.Expect)
 	}
-	return strings.Contains(out, c.Expect)
+	if re.MatchString(out) {
+		return true
+	}
+	// Line-wise retry: with multi-line output an anchored pattern describes ONE line
+	// ("a line reading exactly this"), which whole-text anchoring can never satisfy.
+	// Only anchored patterns can gain a match here, so an unanchored pattern is
+	// unaffected and this cannot loosen a check that already had a verdict.
+	if mre, merr := regexp.Compile("(?m)" + c.Expect); merr == nil {
+		return mre.MatchString(out)
+	}
+	return false
 }
 
 // Plan-audit severity tiers. Only SeverityCritical blocks the plan gate; warn/info
