@@ -244,6 +244,13 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth, 
 		return false, false // solo — the default, cheap path
 	}
 
+	// Plan-based spec mining: a read-only subagent explores the REAL repository against the plan and
+	// injects the concrete existing signatures/paths/interfaces the steps must match — BEFORE the plan
+	// audit authors its checks, so the check-author (and executor) ground on the real thing instead of
+	// guessing. The prompt-analysis half already ran on the request alone at the front; this is the
+	// plan-based half. Best-effort, top-level only; a no-op when disabled or the spawn yields nothing.
+	a.exploreSpecMine(ctx, s, prompt, steps, depth)
+
 	// Plan audit (D17): a multi-step procedure is reviewed by the council BEFORE it
 	// runs. Suppressed in workflow mode (the deterministic engine owns staging) and
 	// when no council is configured. minAudit is normally 2 (a lone step has nothing to
