@@ -345,22 +345,28 @@ func (a *App) recordCheckAudit(ctx context.Context, sid session.SessionID, befor
 // parseChecksArray extracts the first balanced JSON array from a review reply and unmarshals it into
 // deliverable checks. A check with no command is dropped (nothing to run).
 func parseChecksArray(raw string) ([]council.DeliverableCheck, bool) {
-	s := strings.TrimSpace(raw)
-	i, j := strings.IndexByte(s, '['), strings.LastIndexByte(s, ']')
-	if i < 0 || j <= i {
-		return nil, false
-	}
-	var cs []council.DeliverableCheck
-	if json.Unmarshal([]byte(s[i:j+1]), &cs) != nil {
-		return nil, false
-	}
-	var out []council.DeliverableCheck
-	for _, c := range cs {
-		if strings.TrimSpace(c.Command) != "" {
-			out = append(out, c)
+	// Scan every top-level balanced [...] (respecting strings), not a naive first-[/last-] span: a
+	// reply that wraps the array in prose or trails reasoning with a stray ] would otherwise mis-span
+	// and lose the whole audit. Take the first array that yields runnable checks; else the first that
+	// unmarshals at all (a legitimately empty list); else none.
+	sawValid := false
+	for _, js := range balancedArrays(raw) {
+		var cs []council.DeliverableCheck
+		if json.Unmarshal([]byte(js), &cs) != nil {
+			continue // not JSON, or not the checks shape — try the next array
+		}
+		sawValid = true
+		var out []council.DeliverableCheck
+		for _, c := range cs {
+			if strings.TrimSpace(c.Command) != "" {
+				out = append(out, c)
+			}
+		}
+		if len(out) > 0 {
+			return out, true
 		}
 	}
-	return out, true
+	return nil, sawValid
 }
 
 // cachedChecks returns this turn's per-step executable deliverable checks (set by the

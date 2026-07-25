@@ -745,11 +745,26 @@ func stripTrailingCommas(s string) string {
 // plan's step objects) stay inside their parent — only depth-0 spans are returned — so the
 // caller can try each candidate independently and skip a stray brace that precedes the real
 // object.
-func balancedObjects(s string) []string {
+func balancedObjects(s string) []string { return balancedSpans(s, '{', '}') }
+
+// balancedArrays is balancedObjects for [...] arrays — every TOP-LEVEL balanced array in s, in
+// order, respecting strings and escapes. A JSON-array reply (e.g. a check-audit's list) that is
+// wrapped in prose or trailed by reasoning containing a stray ] is recovered by trying each
+// candidate, instead of a naive first-[/last-] span that mis-captures on any bracket outside the
+// real array.
+func balancedArrays(s string) []string { return balancedSpans(s, '[', ']') }
+
+// balancedSpans returns every TOP-LEVEL balanced open..close span in s, in order, respecting string
+// literals and escapes so a bracket inside a quoted value never shifts the boundary. An open that
+// never closes (a stray bracket in prose/reasoning — weak models emit these: a code fragment, a set
+// literal, an unclosed example) is skipped so a real balanced span that follows it is still found,
+// rather than letting one unclosed stray swallow the rest (observed: a multi-KB reply parsed to
+// nothing). It backs both balancedObjects and balancedArrays.
+func balancedSpans(s string, open, close byte) []string {
 	var out []string
 	i := 0
 	for i < len(s) {
-		start := strings.IndexByte(s[i:], '{')
+		start := strings.IndexByte(s[i:], open)
 		if start < 0 {
 			break
 		}
@@ -766,9 +781,9 @@ func balancedObjects(s string) []string {
 				inStr = !inStr
 			case inStr:
 				// inside a string literal — ignore structural chars
-			case ch == '{':
+			case ch == open:
 				depth++
-			case ch == '}':
+			case ch == close:
 				depth--
 				if depth == 0 {
 					end = j
@@ -779,13 +794,7 @@ func balancedObjects(s string) []string {
 			}
 		}
 		if end < 0 {
-			// This '{' opens a span that never closes — a stray brace in prose/reasoning
-			// (weak models emit these: a code fragment, a set literal, an unclosed example),
-			// not the tail of a real object. Skip just this brace and keep scanning; a
-			// balanced plan object may still follow. Breaking here instead let one unclosed
-			// stray swallow a real plan that came after it — the exact degradation this
-			// whole-scan design exists to prevent (observed: a multi-KB reply parsed to nothing).
-			i = start + 1
+			i = start + 1 // an unclosed stray; skip just it and keep scanning
 			continue
 		}
 		out = append(out, s[start:end+1])

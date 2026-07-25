@@ -36,6 +36,26 @@ func TestParseChecksArray(t *testing.T) {
 	}
 }
 
+// A reply whose real checks array is FOLLOWED by reasoning containing a stray ] — or that carries a ]
+// inside a command string — used to be lost: the naive first-[/last-] span over-captured to the wrong
+// bracket and failed to unmarshal, dropping the whole audit. balancedArrays takes the first balanced
+// array (respecting strings), so the audit survives.
+func TestParseChecksArrayStrayTrailingBracket(t *testing.T) {
+	// A stray ] in trailing reasoning after the real array.
+	trailing := `[{"step":"1","deliverable":"deps","command":"grep -q x"}] — see item [3] above`
+	out, ok := parseChecksArray(trailing)
+	if !ok || len(out) != 1 || out[0].Command != "grep -q x" {
+		t.Fatalf("array before trailing stray bracket must still parse, got ok=%v out=%+v", ok, out)
+	}
+	// A ] inside a command string, with another bracket span trailing — the string bracket must not
+	// close the array early, and the trailing span must not extend it.
+	inString := `[{"step":"1","command":"test ${a[0]} -eq 1"}] and then [done]`
+	out, ok = parseChecksArray(inString)
+	if !ok || len(out) != 1 || out[0].Command != "test ${a[0]} -eq 1" {
+		t.Fatalf("bracket inside a command string must be preserved, got ok=%v out=%+v", ok, out)
+	}
+}
+
 // With the flag off, validateChecks is a pure passthrough — the authored checks are used as-is and no
 // review call is made (the input is returned unchanged, including its exact contents).
 func TestValidateChecksFlagOffPassthrough(t *testing.T) {
