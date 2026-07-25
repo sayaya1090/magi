@@ -264,3 +264,25 @@ func TestSubagentCleanDoneAllowed(t *testing.T) {
 		t.Errorf("clean done should be honored, got %q", res.Text)
 	}
 }
+
+// reportStatusWord recognizes ONLY the exact two-field "STATUS: <WORD>" frame (keyword
+// case-insensitive, result upper-cased) — the recognizer stripReportStatus and refineReportsFailure
+// rely on. A multi-word tail must NOT parse, so a legitimate first work-item that merely starts with
+// "STATUS:" is never mistaken for the frame and stripped.
+func TestReportStatusWord(t *testing.T) {
+	cases := []struct{ line, want string }{
+		{"STATUS: DONE", "DONE"},
+		{"  STATUS: BLOCKED  ", "BLOCKED"},  // surrounding space trimmed
+		{"status: done", "DONE"},            // keyword case-insensitive, result upper-cased
+		{"STATUS: DONE all tests pass", ""}, // multi-word tail → not the frame
+		{"STATUS:", ""},                     // no word
+		{"STATUS:DONE", ""},                 // no space → single field
+		{"just some prose", ""},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := reportStatusWord(c.line); got != c.want {
+			t.Errorf("reportStatusWord(%q) = %q, want %q", c.line, got, c.want)
+		}
+	}
+}
