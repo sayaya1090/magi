@@ -538,6 +538,13 @@ func (g *runGuard) resetRepeat() {
 	g.lastStallAt = 0
 	g.stallNudges = 0
 	g.progressSinceNudge = false
+	// Match resetStall's FULL fresh window (this is meant to be "resetStall + blocked=0"): also clear
+	// the step-based rabbit-hole counter. Without it, a repeat spiral that ran many mutation-free steps
+	// leaves stepsSinceMut high, so the instant the parent resumes after a successful repeat recovery
+	// stuck() returns "idle" and force-stops — the recovery child's mutations landed in ITS session, not
+	// this guard, so mutated() never zeroed it here.
+	g.stepsSinceMut = 0
+	g.idleNudged = false
 }
 
 const guardResultEcho = 4 << 10 // cap on the cached result echoed back on a block
