@@ -191,7 +191,11 @@ func (a *App) finalizeTodos(ctx context.Context, sid session.SessionID, finished
 	cp := append([]session.Todo(nil), td...)
 	changed := false
 	for i := range cp {
-		if cp[i].Status != "completed" {
+		// Never resurrect a cancelled step — mirror advanceTo. On a genuine finish this keeps a
+		// step that was explicitly cancelled mid-turn from being relabelled "completed" (currently
+		// unreachable, since only this function sets "cancelled", but the guard keeps the two paths
+		// consistent so a future mid-turn cancel can't be laundered into a false completion).
+		if cp[i].Status != "completed" && cp[i].Status != "cancelled" {
 			cp[i].Status = target
 			changed = true
 		}

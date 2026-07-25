@@ -191,6 +191,23 @@ func TestFinalizeTodosCancelled(t *testing.T) {
 	}
 }
 
+// A step cancelled mid-turn must NOT be relabelled "completed" on a genuine finish — cancelled is
+// never resurrected (mirrors advanceTo); pending/in_progress still complete.
+func TestFinalizeTodosPreservesCancelledOnFinish(t *testing.T) {
+	a, sid := newPlannerApp(t, Config{})
+	a.putTodos(context.Background(), sid, event.Actor{Kind: event.ActorAgent, ID: "p"},
+		[]session.Todo{{Content: "done", Status: "completed"}, {Content: "cx", Status: "cancelled"}, {Content: "p", Status: "pending"}})
+
+	a.finalizeTodos(context.Background(), sid, true)
+	got := a.Todos(sid)
+	if got[1].Status != "cancelled" {
+		t.Errorf("a cancelled step must stay cancelled on finish, not be relabelled completed, got %q", got[1].Status)
+	}
+	if got[0].Status != "completed" || got[2].Status != "completed" {
+		t.Errorf("completed/pending steps should be completed on finish, got %q / %q", got[0].Status, got[2].Status)
+	}
+}
+
 // Nothing to finalize → no event (empty plan, or already all-completed).
 func TestFinalizeTodosNoOp(t *testing.T) {
 	a, sid := newPlannerApp(t, Config{})
