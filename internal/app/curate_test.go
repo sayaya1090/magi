@@ -62,6 +62,18 @@ func TestParseCuratePacket(t *testing.T) {
 	if pkt, ok := parseCuratePacket(`{"unrelated":1}`); ok && pkt.hasContent() {
 		t.Errorf("a non-packet object should not report content: %+v", pkt)
 	}
+	// A content-LESS-but-valid object BEFORE a content-ful one must not win: the scan prefers the
+	// first object with content over mere position, so a stray `{...}` fragment ahead of the real
+	// packet is skipped even when it is itself valid JSON.
+	if p, ok := parseCuratePacket(`{"unrelated":1} then {"task":"the real one","literals":["value"]}`); !ok ||
+		p.Task != "the real one" || len(p.Literals) != 1 {
+		t.Fatalf("content-ful packet must beat an earlier content-less object: %v %+v", ok, p)
+	}
+	// Among MULTIPLE content-ful objects the FIRST wins (the curator's real packet leads; trailing
+	// echoes/examples must not override it).
+	if p, ok := parseCuratePacket(`{"task":"first"} {"task":"second"}`); !ok || p.Task != "first" {
+		t.Fatalf("first content-ful object must win, got %v %+v", ok, p)
+	}
 }
 
 // renderCurateBrief lays the packet out as weighted sections so the context-free worker can tell the
