@@ -233,6 +233,17 @@ const validateChecksSystem = "You review the executable deliverable `checks` a p
 	"UNDERSCORED module — a `data-feed.proto` yields `data_feed_pb2.py`, never `data-feed_pb2.py` — so a check demanding " +
 	"the hyphenated form can NEVER pass and fights the toolchain (the agent renames to satisfy the grep, which breaks " +
 	"the import, then renames back: an unwinnable loop). Rewrite the check to the generator's real output name.\n" +
+	"- SEMANTICS, not source spelling (verify meaning by effect; never grep the task's prose back into the source): " +
+	"a structure or behavior the task states in PROSE — a message/record with named typed fields, a function returning " +
+	"a typed value, a format it must accept — is a SEMANTIC to satisfy, NOT a literal string the source file must " +
+	"contain. Verify it by EXERCISING the built artifact (compile/generate and inspect the produced type, run it and " +
+	"assert the typed result), never by grepping the SOURCE for the task's wording or an INVENTED notation of it — a " +
+	"pseudo-syntax like `<field: type>`, a `^service X$` that forces the name alone on a line, a required brace " +
+	"position. The task fixes IDENTIFIERS and VALUES verbatim (a message/service/RPC/function NAME, a port, a " +
+	"filename, a pinned version) and those a check MAY assert literally; but a field's declaration syntax, a type's " +
+	"spelling, and source layout are the author's to choose, so pinning them false-fails a correct artifact and forces " +
+	"the agent to contort valid code toward a fabricated pattern (often one no real compiler accepts). Rewrite such a " +
+	"check to assert the EFFECT — the artifact builds and the generated/runtime type has that named field — not the surface.\n" +
 	"- EXERCISES the deliverable (precondition is not proof): a check that only confirms the deliverable can be " +
 	"REACHED — a file exists or is non-empty, a port accepts a connection, a module imports, a build succeeds, a " +
 	"process is alive, or a SETTING merely SUPPOSED to produce the deliverable is in place (a build flag configured, " +
