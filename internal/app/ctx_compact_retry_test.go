@@ -155,3 +155,26 @@ func TestContextOverflowFlagOffFailsFast(t *testing.T) {
 		t.Errorf("flag off must not retry; provider calls=%d, want 1", c)
 	}
 }
+
+// compactNow is a no-op when there is no more than the kept tail (keepRecentEvents) of fact events
+// to fold — nothing to summarize, so no compaction event is written and no summarizer is called.
+func TestCompactNowNoOpWhenTooFewFacts(t *testing.T) {
+	ctx := context.Background()
+	store, _ := jsonl.New(t.TempDir())
+	llm := &usageLLM{text: "SUMMARY"}
+	a := New(store, llm, builtin.Default(), bus.New(), nil, Config{Permission: "allow"})
+	sid, _ := a.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir(), Model: session.ModelRef{Provider: "openai", Model: "unregistered"}})
+
+	for i := 0; i < keepRecentEvents; i++ { // ≤ keepRecentEvents+1 facts → below the fold threshold
+		d, _ := json.Marshal(event.PartAppendedData{MessageID: "m", Role: session.RoleAssistant, Part: session.Part{Kind: session.PartText, Text: "x"}})
+		a.appendFact(ctx, sid, event.TypePartAppended, event.Actor{}, d)
+	}
+	evs, _ := a.store.Read(ctx, sid, 0)
+	s := a.sessionInfo(ctx, sid)
+	if a.compactNow(ctx, s, AgentSpec{Name: "default"}, event.Actor{}, evs) {
+		t.Fatal("compactNow must be a no-op when facts don't exceed the kept tail")
+	}
+	if after, _ := a.store.Read(ctx, sid, 0); countType(after, event.TypeCompaction) != 0 {
+		t.Errorf("no compaction event expected when there is nothing to fold")
+	}
+}
