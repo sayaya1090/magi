@@ -75,3 +75,20 @@ func TestBuildLoopMapSystemPromptStaysInTurn(t *testing.T) {
 		t.Errorf("system prompt should not start a new turn:\n%s", m)
 	}
 }
+
+// A single assistant message with MULTIPLE tool-call parts is ONE step (steps dedup by MessageID) but
+// its tool COUNT reflects every call — so a multi-tool step reads "1 step · 2 tool calls", not two steps.
+func TestBuildLoopMapMultiToolPerMessage(t *testing.T) {
+	evs := []event.Event{
+		mkEvent(event.TypePromptSubmitted, event.ActorUser, stageExecute,
+			event.PromptSubmittedData{Parts: []session.Part{{Kind: session.PartText, Text: "do it"}}}),
+		mkEvent(event.TypePartAppended, event.ActorAgent, stageExecute,
+			event.PartAppendedData{MessageID: "m1", Role: session.RoleAssistant, Part: session.Part{Kind: session.PartToolCall, ToolCall: &session.ToolCall{Name: "read"}}}),
+		mkEvent(event.TypePartAppended, event.ActorAgent, stageExecute,
+			event.PartAppendedData{MessageID: "m1", Role: session.RoleAssistant, Part: session.Part{Kind: session.PartToolCall, ToolCall: &session.ToolCall{Name: "grep"}}}),
+	}
+	m := buildLoopMap(evs)
+	if !strings.Contains(m, "1 step · 2 tool calls") {
+		t.Errorf("two tool calls in one message must read '1 step · 2 tool calls':\n%s", m)
+	}
+}
