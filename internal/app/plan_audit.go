@@ -78,8 +78,7 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		advice := strings.TrimSpace(council.AdvisoryFeedback(delib.Verdicts))
 
 		if !critical { // approve, possibly carrying non-blocking advice
-			a.storePlanCriteria(ctx, s, delib.Criteria)               // the contract for the termination gate
-			a.storeCoveredChecks(ctx, s, prompt, steps, delib.Checks) // …plus per-step deliverable checks, coverage-filled
+			a.storePlanCriteria(ctx, s, delib.Criteria) // the contract for the termination gate (plan-independent goals)
 			note := ""
 			if advice != "" {
 				a.injectCouncilAdvice(ctx, s.ID, advice, true) // accepted: the executor heeds it
@@ -90,6 +89,10 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 					}
 				}
 			}
+			// Coverage-fill the checks against the FINAL plan — AFTER a CouncilPlanAbsorb re-plan may
+			// have replaced steps — so per-step check coverage matches the plan actually executed, not
+			// the pre-absorb one. (With absorb off, steps is unchanged, so this is behavior-preserving.)
+			a.storeCoveredChecks(ctx, s, prompt, steps, delib.Checks)
 			a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{
 				Round: round, Phase: "plan", Decision: string(council.Done),
 				Tally: delib.Breakdown, Note: note, Criteria: delib.Criteria,

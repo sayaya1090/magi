@@ -1791,6 +1791,36 @@ func TestPlanAuditWarnProceedsWithAdvice(t *testing.T) {
 	}
 }
 
+// Under CouncilPlanAbsorb the approve-with-advice path re-plans to fold the advice in, then stores
+// the checks against the FINAL re-planned steps (the reorder fix: coverage-fill must match the plan
+// actually executed, not the pre-absorb one). Characterizes the absorb path, previously untested:
+// it returns the re-planned plan and stores the council's checks after the absorb.
+func TestPlanAuditAbsorbReturnsReplannedAndStoresChecks(t *testing.T) {
+	t.Setenv("MAGI_CHECK_COVERAGE", "0") // keep the only LLM call the absorb re-plan
+	fc := &fakeCouncil{delibs: []council.Deliberation{
+		{Round: 1, Decision: council.Continue, Criteria: []string{"done when built"},
+			Checks: []council.DeliverableCheck{{Step: "1", Command: "true"}},
+			Verdicts: []council.Verdict{
+				{Member: "Casper", Lens: "completeness", Decision: council.Continue, Severity: council.SeverityWarn, Feedback: "add a build step"},
+			}},
+	}}
+	// The absorb re-plan returns a 3-step plan (different from the fixture's 2).
+	llm := &recLLM{reply: func(string) string {
+		return `{"steps":[{"title":"X","strategy":"solo"},{"title":"Y","strategy":"solo"},{"title":"Z","strategy":"solo"}]}`
+	}}
+	a, wd := newApp(t, llm, Config{Council: fc, CouncilPlanAbsorb: true,
+		Agents: map[string]AgentSpec{plannerAgent: {Name: "planner"}}})
+	s, steps := planAuditFixture(t, a, wd)
+	got := a.runPlanAuditGate(context.Background(), s, a.cfg.Agents[plannerAgent], "build a thing", steps, 0, 120)
+
+	if len(got) != 3 {
+		t.Fatalf("absorb should return the re-planned 3-step plan, got %d", len(got))
+	}
+	if len(a.cachedChecks(s.ID)) == 0 {
+		t.Fatal("the council's checks must be stored after the absorb")
+	}
+}
+
 // The plan-audit cap follows the configured CouncilMaxRounds (here 1), proving it's
 // the shared knob and not a hardcoded constant.
 func TestPlanAuditCapRespectsCouncilMaxRounds(t *testing.T) {
