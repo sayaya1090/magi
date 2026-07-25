@@ -200,6 +200,23 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth, 
 	}
 	a.setStage(s.ID, stagePlan) // tag pre-flight planning events as the plan stage (D15)
 
+	// Prompt analysis (FRONT step): BEFORE the contract gate and the planner decompose, analyze the
+	// REQUEST itself — its identifiers/types/prerequisites and HOW each requirement must be honored
+	// (⟨hard⟩ = match verbatim · ⟨example⟩ = reproduce the sample · ⟨semantic⟩ = verify by effect, not a
+	// source spelling) — and inject it as a note. Running it FIRST is the point: the contract gate, the
+	// planner, and the plan-audit check-author all read the classification. It used to run AFTER the
+	// plan was built, so only the executor and the termination council saw it and the check-author —
+	// where an over-literal source assertion is born (the kv-store `<key: string>` failure) — never did.
+	// Uses only the request text (no plan/repo dependency); plan-based repo exploration is a later step.
+	// Best-effort — an empty/failed elicitation injects nothing.
+	if specMineEnabled() {
+		a.emitToolProgress(s.ID, plannerActor, "", "planner", "analyzing the request (identifiers, types, how each is honored)…")
+		if mined := a.elicitSpecMine(ctx, spec, s, prompt); mined != "" {
+			a.storeSpecMine(s.ID, mined) // planner, check-author, and termination council share this contract
+			_ = a.appendPromptText(ctx, s.ID, event.Actor{Kind: event.ActorSystem, ID: "planner"}, specMineNote(mined))
+		}
+	}
+
 	// Contract-first (D-contract): author+review the acceptance contract for the TASK before the
 	// planner decomposes it, then feed it in so the plan targets a reviewed contract. TOP-LEVEL ONLY
 	// (depth == 0): a delegated worker already received its acceptance checklist from the parent's
@@ -259,19 +276,6 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth, 
 	// checkpoint STEP), the plan-audit's executable deliverable checks (the concrete checkpoints the
 	// worker runs), and a standing rule in the executor's system prompt — so the discipline is kept in
 	// the plan and the work rules rather than re-stated as a message every turn.
-
-	// Signature mining as a dedicated STEP, not a clause: a weak executor follows "mine
-	// the signatures" poorly when it is one instruction among many, but consumes a
-	// completed conclusion well. The side call runs once here (plan seam, before any
-	// step executes); its output lands as a finished note. Best-effort — an empty or
-	// failed elicitation injects nothing.
-	if specMineEnabled() {
-		a.emitToolProgress(s.ID, plannerActor, "", "planner", "mining the request's identifiers/types…")
-		if mined := a.elicitSpecMine(ctx, spec, s, prompt); mined != "" {
-			a.storeSpecMine(s.ID, mined) // the termination council sees the same soft contract
-			_ = a.appendPromptText(ctx, s.ID, event.Actor{Kind: event.ActorSystem, ID: "planner"}, specMineNote(mined))
-		}
-	}
 
 	// Async explorer preflight: a top-level plan with NO write step is pure investigation.
 	// Dispatch its explorers to the BACKGROUND instead of blocking here, so the orchestrator
