@@ -98,6 +98,33 @@ func TestSessionConcernsFold(t *testing.T) {
 		}
 	})
 
+	// Positional semantics behind most-recent-first: a re-raise of an ALREADY-OPEN key keeps its
+	// original position, but a raise that REOPENS a resolved key moves it to newest.
+	t.Run("re-raise of an open key keeps its position", func(t *testing.T) {
+		got := sessionConcerns([]event.Event{
+			evConcernRaised("k1", "kind", "d", ""),
+			evConcernRaised("k2", "kind", "d", ""),
+			evConcernRaised("k1", "kind", "d2", ""), // re-raise of still-open k1 → position unchanged
+		})
+		// most-recent-first: k2 (raised last among distinct opens) leads, k1 keeps its older slot.
+		if len(got) != 2 || got[0].Key != "k2" || got[1].Key != "k1" {
+			t.Fatalf("re-raise of open k1 must keep its position (want [k2 k1]), got %v", keysOf(got))
+		}
+	})
+
+	t.Run("reopen after resolve moves the key to newest", func(t *testing.T) {
+		got := sessionConcerns([]event.Event{
+			evConcernRaised("k1", "kind", "d", ""),
+			evConcernRaised("k2", "kind", "d", ""),
+			evConcernResolved("k1", "orchestrator"),
+			evConcernRaised("k1", "kind", "d", ""), // REOPEN k1 → newest position
+		})
+		// k1, reopened last, must now lead the most-recent-first output.
+		if len(got) != 2 || got[0].Key != "k1" || got[1].Key != "k2" {
+			t.Fatalf("reopened k1 must move to newest (want [k1 k2]), got %v", keysOf(got))
+		}
+	})
+
 	t.Run("malformed / empty-key events are ignored", func(t *testing.T) {
 		got := sessionConcerns([]event.Event{
 			{Type: event.TypeConcernRaised, Data: []byte("{bad json")},
