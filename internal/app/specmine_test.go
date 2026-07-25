@@ -129,7 +129,8 @@ func TestSpecMinePromptsClassify(t *testing.T) {
 		if !strings.Contains(sys, "VERBATIM") {
 			t.Error("both prompts must instruct capturing the example's I/O verbatim")
 		}
-		for _, banned := range []string{"KVStore", "GetVal", "kv-store", "ELF", "a.out", "extract.js", "PT_LOAD"} {
+		// Word-bounded: "ELF" as a standalone token, not the "elf" suffix of itself/yourself/shelf.
+		for _, banned := range []string{"KVStore", "GetVal", "kv-store", "ELF ", "ELF3", "ELF6", "a.out", "extract.js", "PT_LOAD"} {
 			if strings.Contains(sys, banned) {
 				t.Errorf("mining prompt leaks an eval-set token %q — keep it task-agnostic", banned)
 			}
@@ -156,6 +157,28 @@ func TestSpecMinePromptTransformLens(t *testing.T) {
 	// Stays semantic (verify by effect against the real input), not a new hard-literal category.
 	if !strings.Contains(elicitSpecMineSystem, "stays SEMANTIC") {
 		t.Error("the transform lens must classify as semantic (verified by running against the real input)")
+	}
+}
+
+// The CONSTRAINTS front mines the MUST/MUST-NOT conditions a task states but an implementation forgets
+// mid-work — a scope limit ("only modify X"), a structural requirement ("must contain / end with"), a
+// forbidden action — so the executor keeps them and a checker verifies them against the real diff/
+// artifact. Grounds the self-acknowledged scope violation and the missing-terminator failures. The
+// prompt stays task-agnostic (placeholders, no eval-set tokens).
+func TestSpecMinePromptConstraintsFront(t *testing.T) {
+	for _, want := range []string{"FOURTH", "CONSTRAINTS", "SCOPE limit", "off-limits", "STRUCTURAL requirement", "FORBIDDEN", "changed-file set stays within"} {
+		if !strings.Contains(elicitSpecMineSystem, want) {
+			t.Errorf("pass-1 prompt must mine explicit constraints (missing %q)", want)
+		}
+	}
+	// Necessity guard: only capture a constraint the task itself states.
+	if !strings.Contains(elicitSpecMineSystem, "only capture a constraint the task itself states") {
+		t.Error("the constraints front must not invent constraints the task never stated")
+	}
+	for _, banned := range []string{"user.cpp", "main.cpp", "apply_macros"} {
+		if strings.Contains(strings.ToLower(elicitSpecMineSystem), strings.ToLower(banned)) {
+			t.Errorf("constraints prompt leaks an eval-set token %q", banned)
+		}
 	}
 }
 

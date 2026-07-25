@@ -26,7 +26,7 @@ const specMineAgent = "specmine"
 // of the right construct). Pass 2 distills. The one goal survives: find where a
 // prose-only implementation goes wrong.
 const elicitSpecMineSystem = "You read a coding request and work out, BEFORE any code is written, what it " +
-	"actually takes to satisfy it — on three fronts.\n" +
+	"actually takes to satisfy it — on four fronts.\n" +
 	"FIRST, its NAMES and TYPE SIGNATURES: find where an implementation written from the prose alone would " +
 	"go WRONG. For each identifier, parameter/return type, or stated format that guards against such a " +
 	"failure, note: the surface, the unsaid requirement it implies, and the STANDARD construct (name it) the " +
@@ -54,6 +54,17 @@ const elicitSpecMineSystem = "You read a coding request and work out, BEFORE any
 	"running against the REAL input, never by matching source text), but state it PRECISELY enough that any " +
 	"two correct implementations would emit byte-identical output; a vague 'parse it and output the values' " +
 	"is the failure, not the finding.\n" +
+	"FOURTH, its explicit CONSTRAINTS — the MUST / MUST-NOT conditions the request STATES that are not the main " +
+	"deliverable but bound HOW it is reached, and that an implementation tends to forget mid-work while a grader " +
+	"still checks them: a SCOPE limit (only a named file/area may change, or one is off-limits — 'only modify X', " +
+	"'do not touch Y', 'leave Z unchanged'), a STRUCTURAL requirement the output MUST satisfy (it must contain, " +
+	"start with, or end with a specific element — a required marker, directive, or terminator), or a FORBIDDEN " +
+	"action (a tool/approach/command that must NOT be used). For each, the requirement is the condition that must " +
+	"hold (or never hold), and the construct is how to CONFIRM it read-only — the changed-file set stays within " +
+	"the allowed set, the artifact contains the required element, the forbidden thing is absent. These are " +
+	"CONTRACT terms: surface them so the executor keeps them and a checker verifies them against the real diff/" +
+	"artifact, not the narration. Classify a constraint HARD when the task names the exact file/token it fixes, " +
+	"else SEMANTIC; only capture a constraint the task itself states.\n" +
 	"Derive ONLY what the given surfaces actually imply — do not invent requirements.\n" +
 	"CLASSIFY each finding by HOW it must be honored, because the difference decides whether a checker " +
 	"asserts it literally or by behavior: a FIXED identifier or value the request names (a message/service/" +
