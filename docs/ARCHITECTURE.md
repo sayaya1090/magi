@@ -69,7 +69,7 @@ internal/
                             note (lines tagged ⟨hard⟩/⟨example⟩/⟨semantic⟩) and shown to the
                             termination gate as a soft contract (cachedSpecMine); optional
                             "specmine" agent reroutes the elicitation to different weights
-    workflow.go             deterministic phase pipeline (localize→implement→verify→review)
+    workflow.go             deterministic phase pipeline (localize→implement→verify→review→summarize)
     policy.go               guardrail policy engine (rules, secret-deny, bash scan, egress)
     hooks.go                lifecycle hooks (PreToolUse/PostToolUse/Stop) + built-in harness
     context.go diagnose.go compact.go …
