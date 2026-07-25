@@ -48,8 +48,18 @@ func (a *App) Rewind(ctx context.Context, sid session.SessionID, n int) (int64, 
 		st.lastPromptTokens = 0
 		st.todos = nil
 		st.stage = ""
-		st.criteria = ""
 		st.estSteps = 0
+		// Clear every turn-derived cache that feeds the plan/council panels, not just a subset:
+		// the rewound prompt is exactly what produced these, so leaving them behind renders a
+		// truncated turn's checks/ledger/frozen-contract over the restored (older) state. Mirror
+		// resetForNewTopLevel's derived-cache set (the next prompt re-derives them all anyway).
+		st.criteria = ""
+		st.minedNote = ""
+		st.deliverableChecks = nil
+		st.passedChecks = nil
+		st.contractFrozen = false
+		st.contractText = ""
+		st.stepLedger = nil
 	}
 	a.mu.Unlock()
 	return boundary, nil

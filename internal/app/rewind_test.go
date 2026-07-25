@@ -8,6 +8,7 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 	"github.com/sayaya1090/magi/internal/core/bus"
 	"github.com/sayaya1090/magi/internal/core/command"
+	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -71,5 +72,40 @@ func submitSync(t *testing.T, a *App, sid session.SessionID, text string) {
 		if e.Type == "turn.finished" || e.Type == "error" {
 			return
 		}
+	}
+}
+
+// Rewind must clear ALL turn-derived caches that feed the plan/council panels — not only todos/criteria/
+// estSteps — so a truncated turn's deliverable checks, ledger, and frozen contract don't render over the
+// restored (older) state: they belonged to the rewound-away prompt. (Regression guard for the class where
+// a new state field is added to one reset path but missed on another.)
+func TestRewindClearsDerivedCaches(t *testing.T) {
+	store, _ := jsonl.New(t.TempDir())
+	a := New(store, &usageLLM{text: "reply"}, builtin.Default(), bus.New(), nil, Config{Permission: "allow"})
+	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: t.TempDir()})
+	submitSync(t, a, sid, "do the thing")
+
+	// Seed the turn-derived caches as a completed plan-audit turn would.
+	a.mu.Lock()
+	st := a.stateLocked(sid)
+	st.deliverableChecks = []council.DeliverableCheck{{Step: "1", Command: "true"}}
+	st.passedChecks = map[string]bool{"k": true}
+	st.contractFrozen = true
+	st.contractText = "contract"
+	st.minedNote = "note"
+	st.stepLedger = []ledgerEntry{{Step: "1", Facts: "x"}}
+	a.mu.Unlock()
+
+	if _, err := a.Rewind(context.Background(), sid, 1); err != nil {
+		t.Fatalf("rewind: %v", err)
+	}
+
+	a.mu.Lock()
+	st = a.stateLocked(sid)
+	bad := st.deliverableChecks != nil || st.passedChecks != nil || st.contractFrozen ||
+		st.contractText != "" || st.minedNote != "" || st.stepLedger != nil
+	a.mu.Unlock()
+	if bad {
+		t.Error("Rewind must clear deliverableChecks/passedChecks/contractFrozen/contractText/minedNote/stepLedger")
 	}
 }
