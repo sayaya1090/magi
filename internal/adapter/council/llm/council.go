@@ -1037,6 +1037,7 @@ func evidence(req port.DeliberationRequest) string {
 		// Plan audit: only the task and the proposed procedure exist yet.
 		section("Task (the goal)", req.Task)
 		section("The plan author CONTESTED your prior concern as unjustified — re-judge it against the TASK; if the task truly does not require it, do NOT re-raise it", req.Contest)
+		section("How this plan was REVISED (judge the revision on its content — a rewrite that DROPPED or WEAKENED work the prior plan had is a regression, however many steps it now has)", req.Revision)
 		section("Proposed procedure (the plan to audit)", req.Plan)
 		if b.Len() == 0 {
 			return "No task or procedure was provided; with nothing to judge, abstain."

@@ -118,7 +118,13 @@ type DeliberationRequest struct {
 	// as unjustified instead of complying. The members re-judge it — uphold a real concern, drop an
 	// over-demand. Empty when there is nothing contested.
 	Contest string
-	Report  string // the agent's self-reported result / claim (optional)
+	// Revision is the change history for a plan that is being RE-audited: the concern the prior
+	// round raised, the plan as it stood then, the planner's own stated reason for the rewrite, and
+	// the convergence judge's verdict. Without it a re-round judges the new plan blind — it cannot
+	// see that a rewrite dropped or weakened work the previous plan had, which no step-count proxy
+	// detects (a revision can regress at the same length). Empty on a first-round audit.
+	Revision string
+	Report   string // the agent's self-reported result / claim (optional)
 	// Actions is a summary of this turn's tool RESULTS (e.g. write "wrote 13 bytes to
 	// hello.txt", bash `cat` output) — real, git-independent evidence so the council can
 	// judge a create/write turn in a non-git workdir on what happened, not on an absent
