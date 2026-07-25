@@ -76,6 +76,29 @@ func TestRunContractGateFreezesContract(t *testing.T) {
 	}
 }
 
+// Once a contract is frozen this turn, a second gate call (a same-turn re-plan) must SKIP the council
+// rather than pay another full deliberation pass — the `already` short-circuit. Only a genuinely new
+// top-level (which clears the freeze) re-derives it.
+func TestRunContractGateSkipsWhenAlreadyFrozen(t *testing.T) {
+	fc := &fakeCouncil{delibs: []council.Deliberation{{
+		Decision: council.Done,
+		Verdicts: []council.Verdict{{Member: "Melchior", Decision: council.Done}},
+		Criteria: []string{"the server answers SetVal"},
+	}}}
+	ctx := context.Background()
+	a, sid, _ := newWorkflowApp(t, nil, nil, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
+	s := a.sessionInfo(ctx, sid)
+
+	a.runContractGate(ctx, s, "build a kv-store")
+	if fc.calls != 1 {
+		t.Fatalf("first gate should deliberate once, got %d", fc.calls)
+	}
+	a.runContractGate(ctx, s, "build a kv-store") // frozen → must be a no-op
+	if fc.calls != 1 {
+		t.Fatalf("a frozen contract must skip the council on re-entry, got %d calls", fc.calls)
+	}
+}
+
 // A CRITICAL revision in round 1 drives a CONSOLIDATION that APPLIES the feedback (not a re-merge of
 // member proposals, which only grows the contract) — the strengthened contract wins in round 2.
 func TestRunContractGateRefinesOnCritical(t *testing.T) {

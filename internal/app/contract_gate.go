@@ -189,8 +189,8 @@ const consolidateContractSystem = "You revise a task's acceptance contract (its 
 	`{"criteria":["..."]}`
 
 // consolidateContract applies the council's feedback to the current contract and returns the revised
-// criteria + checks. Best-effort: nil provider / unparseable / empty reply → (_, _, false), and the
-// caller keeps the current contract.
+// criteria (the contract is GOALS ONLY — no checks). Best-effort: nil provider / unparseable / empty
+// reply → (nil, false), and the caller keeps the current contract.
 func (a *App) consolidateContract(ctx context.Context, spec AgentSpec, sid session.SessionID, model, task string, criteria []string, fb string) ([]string, bool) {
 	if a.providerFor(spec) == nil {
 		return nil, false
@@ -214,8 +214,9 @@ func (a *App) consolidateContract(ctx context.Context, spec AgentSpec, sid sessi
 	return nil, false
 }
 
-// renderContract renders the criteria + checks as a compact, human/model-readable block used both
-// to carry a draft between contract rounds and to inject the approved contract into the planner.
+// renderContract renders the criteria (the contract is GOALS ONLY) as a compact, human/model-readable
+// block used both to carry a draft between contract rounds and to inject the approved contract into
+// the planner.
 func renderContract(criteria []string) string {
 	if len(criteria) == 0 {
 		return ""
