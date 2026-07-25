@@ -133,6 +133,14 @@ func TestPortableClauseIsPrincipledNotEnumerated(t *testing.T) {
 				t.Errorf("%s PORTABLE clause must state the 127/liveness principle (missing %q)", sys.name, want)
 			}
 		}
+		// The clause must lead with the ONE general rule (any un-guaranteed dependency false-fails),
+		// with shell tools and language modules as instances — not two parallel enumerations that
+		// leave the next dependency kind (a service, a runtime, a file) uncovered.
+		for _, want := range []string{"of ANY kind", "ONE rule"} {
+			if !strings.Contains(sys.text, want) {
+				t.Errorf("%s PORTABLE clause must generalize to any un-guaranteed dependency (missing %q)", sys.name, want)
+			}
+		}
 	}
 }
 
