@@ -189,6 +189,33 @@ func TestRunStepGateUnexecutableCheckSkipped(t *testing.T) {
 	}
 }
 
+// A step with a check ALREADY recorded ✓ (trusted, not re-run) plus a sibling that FAILS this gate must
+// NOT be completed — a trusted-green sibling never launders a real failure in the same step. Locks the
+// stepSeen/stepPass interaction: the green branch marks the step seen+passing, yet a later failing check
+// in the same step still flips it to failing, and only the non-green check is actually executed.
+func TestRunStepGateGreenSiblingDoesNotLaunderFailure(t *testing.T) {
+	t.Setenv("MAGI_STEP_VERIFY", "1")
+	ctx := context.Background()
+	plat := &scriptPlatform{codes: []int{1}} // only the non-green sibling runs here, and it fails
+	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow"})
+	a.putTodos(ctx, sid, plannerActor, []session.Todo{{Content: "step one", Status: "in_progress"}})
+	green := council.DeliverableCheck{Step: "1", Deliverable: "a", Command: "ra", Expect: "verify"}
+	failing := council.DeliverableCheck{Step: "1", Deliverable: "b", Command: "rb", Expect: "verify"}
+	setChecks(a, sid, []council.DeliverableCheck{green, failing}) // green first: it marks the step seen+passing
+	a.recordCheckResult(sid, green, true)                         // trusted ✓ — the gate must skip (not re-run) it
+
+	ts := &turnState{}
+	if got, _ := a.runStepGate(ctx, a.sessionInfo(ctx, sid), ts); got != gateFailRetry {
+		t.Fatalf("trusted-green sibling + failing check → want gateFailRetry, got %v", got)
+	}
+	if plat.calls != 1 {
+		t.Errorf("only the non-green check should execute (green is trusted), calls=%d want 1", plat.calls)
+	}
+	if a.Todos(sid)[0].Status == "completed" {
+		t.Error("a real failure in the step must not be laundered by a trusted-green sibling")
+	}
+}
+
 func TestCompleteThroughRecordsStepChecksPerStep(t *testing.T) {
 	t.Setenv("MAGI_STEP_VERIFY", "1")
 	ctx := context.Background()

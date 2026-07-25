@@ -191,16 +191,6 @@ func (a *App) checkAlreadyGreen(sid session.SessionID, c council.DeliverableChec
 	return st.passedChecks[checkKey(c)]
 }
 
-// recordStepChecks runs and records the deliverable checks that belong to plan step stepIdx, the
-// moment that step is marked completed — the per-step, path-agnostic half of the completion panel.
-// verifyStepChecks records a delegate step's checks when it GATES the step, but the scout (:222)
-// and refine (:632) completion paths never run it, so their steps advanced unrecorded and every ✓
-// came from the terminal runStepGate all at once ("0/N until the end"). Driving it from the single
-// completion hook (completeThrough) fills the panel as each step lands, on every execution path.
-// Idempotent: a check already ✓ (delegate's verifyStepChecks) is skipped, so this never double-runs
-// a passed check; an unexecutable (127) or unverifiable (-1) result is not recorded — the terminal
-// gate and the worker's substitution evidence settle those. It only RECORDS for the panel; it does
-// not gate control flow (completeThrough is a display/state signal, not the step gate).
 // runCheckRecord runs one deliverable check, emits its result event (recording the ✓/✗ pass state so
 // the panel and the trust-green gate can read it), and returns the outcome. code -1 = the platform
 // vanished (cannot verify), code 127 = the check command is unexecutable here; in BOTH cases nothing
@@ -217,6 +207,16 @@ func (a *App) runCheckRecord(ctx context.Context, sid session.SessionID, workdir
 	return pass, code, out
 }
 
+// recordStepChecks runs and records the deliverable checks that belong to plan step stepIdx, the
+// moment that step is marked completed — the per-step, path-agnostic half of the completion panel.
+// verifyStepChecks records a delegate step's checks when it GATES the step, but the scout and refine
+// completion paths never run it, so their steps advanced unrecorded and every ✓ came from the terminal
+// runStepGate all at once ("0/N until the end"). Driving it from the single completion hook
+// (completeThrough) fills the panel as each step lands, on every execution path. Idempotent: a check
+// already ✓ (delegate's verifyStepChecks) is skipped, so this never double-runs a passed check; an
+// unexecutable (127) or unverifiable (-1) result is not recorded — the terminal gate and the worker's
+// substitution evidence settle those. It only RECORDS for the panel; it does not gate control flow
+// (completeThrough is a display/state signal, not the step gate).
 func (a *App) recordStepChecks(ctx context.Context, sid session.SessionID, stepIdx int) {
 	if !stepVerifyEnabled() || a.plat == nil {
 		return
