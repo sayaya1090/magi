@@ -36,6 +36,14 @@ func (a *App) exploreSpecMine(ctx context.Context, s session.Session, task strin
 	if !specMineExploreEnabled() || depth != 0 || a.cfg.Workflow || len(steps) == 0 {
 		return
 	}
+	// A greenfield task starts with an empty (or unreadable) workspace — there is nothing to explore, so
+	// spawning a read-only subagent to discover "the repository is empty" is pure overhead (a full LLM
+	// round-trip + a spawn). Skip it; the prompt-analysis half already grounded the request. Observed on
+	// the empty-repo bench tasks (kv-store-grpc et al.), which are greenfield.
+	repo := strings.TrimSpace(repoMap(s.Workdir))
+	if repo == "" || repo == "(unavailable)" {
+		return
+	}
 	base := a.agentFor(s)
 	// A read-only spec built on the fly (no config dependency, like the recovery lifeline): the tool
 	// allowlist alone makes it read-only — no write/edit/bash — so it cannot mutate the workspace.
@@ -48,7 +56,7 @@ func (a *App) exploreSpecMine(ctx context.Context, s session.Session, task strin
 	}
 	brief := "── TASK\n" + strings.TrimSpace(task) +
 		"\n\n── PLAN (do NOT carry it out — just find what it will build on)\n" + renderSteps(steps) +
-		"\n\n# Repository (top level)\n" + repoMap(s.Workdir) +
+		"\n\n# Repository (top level)\n" + repo +
 		"\n\nExplore read-only and report the concrete EXISTING facts (paths, signatures, interfaces) the steps must honor."
 	a.emitToolProgress(s.ID, plannerActor, "", "specmine", "exploring the repo for the plan's real signatures/paths…")
 	r := a.spawnResolved(ctx, s, depth, spec, port.SpawnRequest{Agent: "specmine", Prompt: brief})
