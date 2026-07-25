@@ -232,6 +232,16 @@ func councilDevilEnabled() bool { return !envOff("MAGI_COUNCIL_DEVIL") }
 // baseline (no keep clause, byte-identical prompt) for A/B.
 func councilKeepEnabled() bool { return !envOff("MAGI_COUNCIL_KEEP") }
 
+// constraintGateEnabled turns ON the termination council's scope/boundary REJECTION clause — verify the
+// diff/artifact against the task's stated scope limits, structural requirements, and forbidden actions,
+// voting continue on a violation. Default OFF: it ADDS a rejection criterion to a council the corrected
+// bench forensics showed is already prone to OVER-rejecting correct work (a task that passed the grader
+// while the council never approved). So it ships opt-in and is measured on an A/B arm before it becomes
+// default — shipping an unvalidated rejection-adder to an over-strict council can worsen false rejects.
+// The specMine constraints EXTRACTION stays on regardless: it is preventive (surfacing a boundary so the
+// executor does not cross it), not a new reason for the council to reject.
+func constraintGateEnabled() bool { return envOn("MAGI_CONSTRAINT_GATE") }
+
 // subagentWaitLeaseEnabled makes the subagent lease judge treat WAITING on a long external
 // operation — a VM booting, a build compiling, a package installing, a service coming up — as a
 // legitimate wait, not churn. Without it, a subagent blocked on such an operation polls with no

@@ -20,3 +20,23 @@ func TestCouncilKeepEnabledDefault(t *testing.T) {
 		}
 	}
 }
+
+// constraintGateEnabled defaults OFF (opt-in): the scope/boundary rejection clause adds a reason for an
+// already over-strict council to reject, so it ships off and is measured on an A/B arm before default.
+func TestConstraintGateEnabledDefaultOff(t *testing.T) {
+	if constraintGateEnabled() {
+		t.Fatal("default must be OFF (opt-in)")
+	}
+	for _, v := range []string{"1", "on", "true", "yes"} {
+		t.Setenv("MAGI_CONSTRAINT_GATE", v)
+		if !constraintGateEnabled() {
+			t.Errorf("%q must enable it", v)
+		}
+	}
+	for _, v := range []string{"0", "off", "false", "", "no"} {
+		t.Setenv("MAGI_CONSTRAINT_GATE", v)
+		if constraintGateEnabled() {
+			t.Errorf("%q must leave it OFF", v)
+		}
+	}
+}

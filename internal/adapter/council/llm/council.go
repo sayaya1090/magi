@@ -275,7 +275,7 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 	// ask streams one member turn for userMsg and parses its reply. Errors (backend down)
 	// and parse outcome are surfaced separately so the caller can distinguish "unavailable"
 	// (abstain) from "unparseable" (retry once with a JSON-only reminder).
-	sys := memberSystem(m, req.Phase, req.Task, req.Keep)
+	sys := memberSystem(m, req.Phase, req.Task, req.Keep, req.Constraints)
 	ask := func(userMsg string) (memberReply, bool, error) {
 		stream, err := provider.StreamChat(ctx, port.ChatRequest{
 			Model:    model,
@@ -357,7 +357,7 @@ func (c *Council) pollRebut(ctx context.Context, req port.DeliberationRequest, m
 		"already on the table. Reply in the SAME JSON shape."
 	stream, err := provider.StreamChat(ctx, port.ChatRequest{
 		Model:    model,
-		System:   memberSystem(m, req.Phase, req.Task, req.Keep),
+		System:   memberSystem(m, req.Phase, req.Task, req.Keep, req.Constraints),
 		Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: user}}}},
 		Params:   map[string]any{"temperature": 0.0},
 	})
@@ -491,7 +491,7 @@ func (c *Council) pollDevilReview(ctx context.Context, req port.DeliberationRequ
 		"and do not raise a brand-new objection of your own. Reply in the SAME JSON shape."
 	stream, err := provider.StreamChat(ctx, port.ChatRequest{
 		Model:    model,
-		System:   memberSystem(m, req.Phase, req.Task, req.Keep),
+		System:   memberSystem(m, req.Phase, req.Task, req.Keep, req.Constraints),
 		Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: user}}}},
 		Params:   map[string]any{"temperature": 0.0},
 	})
@@ -562,7 +562,7 @@ type memberReply struct {
 // label) and its judging lens (the attribute), plus the strict output contract.
 // The phase selects whether the member judges a finished turn ("terminate") or a
 // proposed procedure ("plan").
-func memberSystem(m council.Member, phase, task string, keep bool) string {
+func memberSystem(m council.Member, phase, task string, keep, constraints bool) string {
 	lens := council.Lenses[m.Lens]
 	if lens == "" {
 		lens = "Judge whether the task is genuinely complete."
@@ -586,6 +586,23 @@ func memberSystem(m council.Member, phase, task string, keep bool) string {
 			"advisory: it NEVER changes your decision, and you still name any real defect in `feedback`. Leave `keep` " +
 			"empty if nothing is clearly settled through your lens; never affirm something you cannot verify.\n"
 		schema = `{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific gap (only if continue)","keep":"what's already correct through your lens — advisory, optional"}`
+	}
+	// Scope/boundary verification (MAGI_CONSTRAINT_GATE, default off): OPT-IN because it adds a
+	// rejection criterion to a council that already tends to over-reject correct work — measured on an
+	// A/B arm before it becomes default. Empty when off (byte-identical baseline prompt).
+	scopeClause := ""
+	if constraints {
+		scopeClause = "SCOPE and BOUNDARY constraints are part of the contract, verified against the DIFF and the produced " +
+			"artifact — not just the report's prose. When the task fixes WHAT may change (\"only modify FILE\", \"do " +
+			"not touch AREA\", \"leave X unchanged\"), a diff that edits anything the task placed OFF-LIMITS is a " +
+			"defect EVEN IF the functional change is correct: vote continue and name the out-of-scope edit. The " +
+			"agent's own note that it \"had to\" cross the boundary — or a diff that quietly changes a protected file — " +
+			"does NOT license it (this is a common self-acknowledged violation: the reasoning admits \"violating " +
+			"constraint\" while the edit stands). Likewise, when the task requires the OUTPUT to contain a specific " +
+			"element or end a certain way (a required directive/marker/terminator the deliverable MUST include), or " +
+			"forbids a specific action, check the ACTUAL artifact for it — a required structural element the output " +
+			"LACKS, or a forbidden action taken, is a concrete defect. Do NOT invent a limit the task never stated — " +
+			"assert only a boundary the task itself set.\n"
 	}
 	return withLangNote(fmt.Sprintf(
 		"You are %s, a member of the council that decides whether an AI coding agent's turn is truly finished. "+
@@ -639,17 +656,7 @@ func memberSystem(m council.Member, phase, task string, keep bool) string {
 			"it, a placeholder, a wrong field, or the right shape with the wrong value — is a concrete defect: vote "+
 			"continue and name the mismatch in feedback. Re-read the task wording literally; the agent's own paraphrase "+
 			"of what it did is a claim, never proof the content is right.\n"+
-			"SCOPE and BOUNDARY constraints are part of the contract, verified against the DIFF and the produced "+
-			"artifact — not just the report's prose. When the task fixes WHAT may change (\"only modify FILE\", \"do "+
-			"not touch AREA\", \"leave X unchanged\"), a diff that edits anything the task placed OFF-LIMITS is a "+
-			"defect EVEN IF the functional change is correct: vote continue and name the out-of-scope edit. The "+
-			"agent's own note that it \"had to\" cross the boundary — or a diff that quietly changes a protected file — "+
-			"does NOT license it (this is a common self-acknowledged violation: the reasoning admits \"violating "+
-			"constraint\" while the edit stands). Likewise, when the task requires the OUTPUT to contain a specific "+
-			"element or end a certain way (a required directive/marker/terminator the deliverable MUST include), or "+
-			"forbids a specific action, check the ACTUAL artifact for it — a required structural element the output "+
-			"LACKS, or a forbidden action taken, is a concrete defect. Do NOT invent a limit the task never stated — "+
-			"assert only a boundary the task itself set.\n"+
+			"%s"+
 			"Existence is not correctness: when the task implies a CHECKABLE behavior — a password that must unlock "+
 			"something, a service that must respond, a command that must produce a required output, a build that must "+
 			"compile — \"done\" requires that the turn actually RAN that check and its REAL output is visible in the "+
@@ -731,7 +738,7 @@ func memberSystem(m council.Member, phase, task string, keep bool) string {
 			"%s"+
 			"Respond with ONLY a JSON object, no prose, no code fence:\n"+
 			"%s",
-		m.Name, m.Lens, lens, keepClause, schema), task)
+		m.Name, m.Lens, lens, scopeClause, keepClause, schema), task)
 }
 
 // withLangNote appends, when the task is in a non-English language, an instruction to

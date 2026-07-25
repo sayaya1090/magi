@@ -514,6 +514,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		Debate:       councilDebateEnabled(),
 		Devil:        councilDevilEnabled(),
 		Keep:         councilKeepEnabled(),
+		Constraints:  constraintGateEnabled(),
 		DefaultModel: s.Model.Model,
 		StepsLeft:    in.stepsLeft,
 		DeltaRound:   deltaRound,
