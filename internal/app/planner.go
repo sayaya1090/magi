@@ -500,7 +500,12 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 	if err != nil {
 		return planResult{}
 	}
-	res := parsePlan(text)
+	res, salvaged := parsePlanOrSalvage(text)
+	if salvaged {
+		a.emitToolProgress(s.ID, plannerActor, "", "planner",
+			fmt.Sprintf("%s: recovered %d step(s) from an unparseable plan via salvage (%d chars) :: %s",
+				tag, len(res.Steps), len(text), planParseExcerpt(text)))
+	}
 	if len(res.Steps) == 0 {
 		// Weak models often bury the JSON under pages of reasoning, or ramble until the output
 		// budget cuts the object off mid-string — both leave no balanced plan object to parse
@@ -512,7 +517,11 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 		retry := req
 		retry.System = sys + "\n\n" + planJSONOnlyReminder
 		if text2, err2 := a.drainText(ctx, spec, retry); err2 == nil {
-			if r2 := parsePlan(text2); len(r2.Steps) > 0 {
+			if r2, salv2 := parsePlanOrSalvage(text2); len(r2.Steps) > 0 {
+				if salv2 {
+					a.emitToolProgress(s.ID, plannerActor, "", "planner",
+						fmt.Sprintf("%s: JSON-only retry recovered %d step(s) via salvage", tag, len(r2.Steps)))
+				}
 				return r2
 			} else {
 				a.emitToolProgress(s.ID, plannerActor, "", "planner",
@@ -604,7 +613,13 @@ func msgLen(m session.Message) int {
 // object and take the first that unmarshals into a plan with at least one step. If none has
 // steps, fall back to the first that unmarshals at all (preserves the old shape for a
 // legitimately-empty plan); else empty.
-func parsePlan(text string) planResult {
+func parsePlan(text string) planResult { r, _ := parsePlanOrSalvage(text); return r }
+
+// parsePlanOrSalvage is parsePlan plus a `salvaged` flag: true when the plan's steps were recovered
+// from an unparseable (truncated/malformed) reply rather than a clean parse, so the caller can log
+// that the salvage path did the work — otherwise a rescued truncation is indistinguishable from a
+// clean first-try parse in the run.
+func parsePlanOrSalvage(text string) (planResult, bool) {
 	var firstValid *planResult
 	for _, js := range balancedObjects(text) {
 		p, ok := unmarshalPlanLenient(js)
@@ -612,7 +627,7 @@ func parsePlan(text string) planResult {
 			continue // not JSON, or not the plan shape — try the next object
 		}
 		if len(p.Steps) > 0 {
-			return p // a real plan wins immediately
+			return p, false // a real plan wins immediately (clean parse)
 		}
 		if firstValid == nil {
 			pp := p
@@ -625,12 +640,12 @@ func parsePlan(text string) planResult {
 	// unmarshals as a stepless planResult (JSON tolerates the missing "steps" field), so firstValid can
 	// be a spurious empty plan captured from the first recovered step. Recovered steps win.
 	if steps := salvageSteps(text); len(steps) > 0 {
-		return planResult{Steps: steps}
+		return planResult{Steps: steps}, true
 	}
 	if firstValid != nil {
-		return *firstValid
+		return *firstValid, false
 	}
-	return planResult{}
+	return planResult{}, false
 }
 
 // planStrategies is the set of recognized step strategies — used to tell a real plan step object from

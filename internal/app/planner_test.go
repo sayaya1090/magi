@@ -2092,3 +2092,18 @@ func TestSalvageStepsFromTruncatedPlan(t *testing.T) {
 		t.Errorf("a non-step object must not be salvaged as a step, got %+v", s)
 	}
 }
+
+// parsePlanOrSalvage reports whether the plan came from the salvage path (a truncated/malformed reply)
+// vs a clean parse — so a rescued truncation is visible in the run, not silently indistinguishable from
+// a clean first-try parse.
+func TestParsePlanOrSalvageFlag(t *testing.T) {
+	// Clean full plan → salvaged=false.
+	if _, salv := parsePlanOrSalvage(`{"steps":[{"title":"a","strategy":"solo"}],"reason":"x"}`); salv {
+		t.Error("a clean full plan must NOT be reported as salvaged")
+	}
+	// Truncated plan (outer {} never closes) → recovered via salvage, salvaged=true.
+	r, salv := parsePlanOrSalvage(`{"reason":"x","steps":[{"title":"a","strategy":"solo"},{"title":"b","strategy":"sol`)
+	if !salv || len(r.Steps) != 1 || r.Steps[0].Title != "a" {
+		t.Fatalf("a truncated plan must be recovered AND flagged salvaged, got salv=%v steps=%+v", salv, r.Steps)
+	}
+}
