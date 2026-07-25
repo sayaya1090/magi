@@ -1,9 +1,12 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 func TestDegenerateRepeat(t *testing.T) {
@@ -44,4 +47,26 @@ func TestDegenerateRepeatNoFalsePositiveOnVariedText(t *testing.T) {
 	if p := degenerateRepeat([]byte(b.String())); p > 0 {
 		t.Errorf("varied text falsely flagged as repetition (period %d)", p)
 	}
+}
+
+// GuardProvider is idempotent (double-wrap returns the same guarded provider, never a nested one) and
+// nil-safe, so applying it at every provider-creation site is cheap and cannot double-count the guard.
+func TestGuardProviderIdempotentAndNilSafe(t *testing.T) {
+	if GuardProvider(nil) != nil {
+		t.Error("GuardProvider(nil) must stay nil")
+	}
+	g1 := GuardProvider(noopProvider{})
+	if _, ok := g1.(guardedProvider); !ok {
+		t.Fatalf("GuardProvider must return a guardedProvider, got %T", g1)
+	}
+	if g2 := GuardProvider(g1); g2 != g1 {
+		t.Error("wrapping an already-guarded provider must return it unchanged, not double-wrap")
+	}
+}
+
+// noopProvider is a minimal port.LLMProvider for the wrapping tests; its StreamChat is never invoked.
+type noopProvider struct{}
+
+func (noopProvider) StreamChat(context.Context, port.ChatRequest) (<-chan port.ProviderEvent, error) {
+	return nil, nil
 }
