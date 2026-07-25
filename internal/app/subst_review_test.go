@@ -68,6 +68,38 @@ func TestApplyCheckSubsAppendsWhenUnmatched(t *testing.T) {
 	}
 }
 
+// When a step has exactly ONE check and the sub's Original does not match it (or is empty), applyCheckSubs
+// falls back to that sole check and rewrites it in place — it does NOT append a duplicate. This locks the
+// `len(stepIdxs) == 1` fallback branch (distinct from the exact-match and the no-step-match/append paths).
+func TestApplyCheckSubsSoleCheckFallback(t *testing.T) {
+	ctx := context.Background()
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow"})
+	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Command: "orig-broken"}})
+	// Original is blank (the worker did not echo the exact original command), but the step has a single
+	// check, so the sub still lands on it rather than appending a second check for the same step.
+	a.applyCheckSubs(ctx, sid, []port.CheckSub{{Step: "1", Command: "equiv", Expect: "ok"}})
+	checks := a.cachedChecks(sid)
+	if len(checks) != 1 {
+		t.Fatalf("sole-check fallback must rewrite in place, not append: %+v", checks)
+	}
+	if checks[0].Command != "equiv" || checks[0].Expect != "ok" {
+		t.Fatalf("the step's sole check must be rewritten to the equivalent, got %+v", checks[0])
+	}
+}
+
+// A substitution with an empty Command is ignored — no rewrite, no append. A worker that reports a
+// blank replacement must not blank out or duplicate a stored check.
+func TestApplyCheckSubsSkipsEmptyCommand(t *testing.T) {
+	ctx := context.Background()
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow"})
+	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Command: "orig"}})
+	a.applyCheckSubs(ctx, sid, []port.CheckSub{{Step: "1", Original: "orig", Command: "   "}})
+	checks := a.cachedChecks(sid)
+	if len(checks) != 1 || checks[0].Command != "orig" {
+		t.Fatalf("empty-command sub must be a no-op, got %+v", checks)
+	}
+}
+
 // A solo agent's approved substitution rewrites its OWN session's checks (depth 0), and the pending
 // queue is cleared so it is not re-reviewed.
 func TestReviewSubstitutionsApproveSolo(t *testing.T) {
