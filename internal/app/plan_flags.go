@@ -437,6 +437,14 @@ func sharedRefineEnabled() bool { return !envOff("MAGI_REFINE_SHARED") }
 // the round-count-only behavior (the PlanRevised diff is still emitted, but with no verdict).
 func planConvergeEnabled() bool { return !envOff("MAGI_PLAN_CONVERGE") }
 
+// planConvergeStopEnabled restores the legacy early-stop: when the convergence judge rules that a
+// revision did not engage the council's concern, END the audit and adopt that revision unreviewed.
+// It is OFF by default because adopting an unjudged rewrite is the failure it was meant to avoid —
+// a revision can be WORSE than what it replaced (observed: a rewrite that dropped the plan's only
+// concrete producing step was adopted because the judge had already called it unproductive). By
+// default the rewrite goes back to the full council instead; the round cap still bounds the cost.
+func planConvergeStopEnabled() bool { return envOn("MAGI_PLAN_CONVERGE_STOP") }
+
 // soloAuditEnabled extends the plan-audit council — and the per-step deliverable criteria
 // and executable checks it authors (storePlanCriteria/storePlanChecks) — to a SINGLE-step
 // plan. Normally the audit is gated to a >=2-step procedure (maybePlanPreflight): a 1-step

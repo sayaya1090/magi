@@ -37,7 +37,8 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		}
 	}
 
-	pendingContest := "" // the re-planner's rebuttal of the prior round's concern, re-judged this round
+	pendingContest := ""  // the re-planner's rebuttal of the prior round's concern, re-judged this round
+	pendingRevision := "" // how the plan changed since the prior round, so a re-round can spot a regression
 	for round := 1; round <= maxRounds; round++ {
 		if ctx.Err() != nil {
 			return steps
@@ -51,10 +52,12 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 			fmt.Sprintf("plan audit round %d/%d: %d member(s) deliberating…", round, maxRounds, len(members)))
 		delib, err := a.cfg.Council.Deliberate(ctx, port.DeliberationRequest{
 			Round: round, Phase: "plan", Task: auditTask, Plan: renderSteps(steps), Contest: pendingContest,
-			Members: members, Rule: rule, Debate: councilDebateEnabled(), DefaultModel: s.Model.Model,
+			Revision: pendingRevision,
+			Members:  members, Rule: rule, Debate: councilDebateEnabled(), DefaultModel: s.Model.Model,
 		})
-		pendingContest = "" // consumed this round; a fresh re-plan below may set a new one
-		if err != nil {     // a gate failure must not block the turn → proceed with the plan
+		pendingContest = ""  // consumed this round; a fresh re-plan below may set a new one
+		pendingRevision = "" // ditto — only the round right after a rewrite carries it
+		if err != nil {      // a gate failure must not block the turn → proceed with the plan
 			a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{Round: round, Phase: "plan", Decision: string(council.Done), Note: "plan council unavailable: " + err.Error(), Forced: true})
 			return steps
 		}
@@ -186,9 +189,11 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		})
 		a.appendFact(ctx, sid, event.TypePlanRevised, actor, pr)
 
-		if addressed != nil && !*addressed {
-			// Unproductive re-plan → stop early. Proceed with the revised plan but hand the
-			// executor the unaddressed concern (execution + landing gates arbitrate).
+		if addressed != nil && !*addressed && planConvergeStopEnabled() {
+			// Legacy early-stop (opt-in): an unproductive re-plan ends the audit and the revised
+			// plan is adopted unreviewed, handing the executor the unaddressed concern. Cheap in
+			// wall clock, but it ADOPTS a rewrite no council ever judged — observed replacing a
+			// plan with one that had dropped its only concrete producing step.
 			a.storePlanCriteria(ctx, s, delib.Criteria)
 			a.storeCoveredChecks(ctx, s, prompt, next, delib.Checks)
 			a.injectCouncilAdvice(ctx, s.ID, fb, false)
@@ -199,7 +204,42 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 			})
 			return next
 		}
+		// Default: NO plan leaves this gate unreviewed. Whether or not the revision engaged the
+		// concern, the rewrite goes back to the full council next round — spending rounds is the
+		// point, since the alternative is adopting an unjudged plan. The round cap still bounds it
+		// (the `round >= maxRounds` exit above proceeds with criteria + checks stored), so this
+		// costs at most the remaining rounds, never an unbounded loop.
+		pendingRevision = revisionContext(fb, steps, replanned.Reason, addressed, reason)
 		steps = next
 	}
 	return steps
+}
+
+// revisionContext renders what a re-audit round needs in order to judge a REWRITE rather than a
+// fresh plan: the concern that forced it, the plan as it stood before, the planner's own stated
+// reason, and the convergence judge's verdict. The prior plan is the load-bearing part — it is what
+// lets a member see that a rewrite dropped work, which no structural proxy can decide (a plan can
+// regress while keeping the same number of steps). Each part is clipped so a long plan cannot crowd
+// out the member's own evidence.
+func revisionContext(critique string, prior []planStep, planReason string, addressed *bool, judgeReason string) string {
+	var b strings.Builder
+	add := func(label, body string) {
+		if s := strings.TrimSpace(body); s != "" {
+			if b.Len() > 0 {
+				b.WriteString("\n")
+			}
+			b.WriteString(label + ": " + s + "\n")
+		}
+	}
+	add("The concern that forced this revision", clipSpec(critique, 1200))
+	add("The plan BEFORE the revision", clipSpec(renderSteps(prior), 1500))
+	add("The planner's stated reason for the rewrite", clipSpec(planReason, 600))
+	if addressed != nil {
+		verdict := "the revision DID engage the concern"
+		if !*addressed {
+			verdict = "the revision did NOT engage the concern"
+		}
+		add("Convergence judge", clipSpec(verdict+" — "+judgeReason, 600))
+	}
+	return strings.TrimSpace(b.String())
 }
