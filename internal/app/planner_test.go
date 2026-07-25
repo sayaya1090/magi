@@ -2070,6 +2070,82 @@ func TestParsePlanToleratesTrailingComma(t *testing.T) {
 	}
 }
 
+// A weak model routinely emits a multi-line "reason"/"task" string with RAW newlines/tabs inside the
+// quotes — which json.Unmarshal rejects ("invalid character in string literal") and the trailing-comma
+// repair does not touch. escapeControlCharsInStrings rewrites the in-string control chars to \n/\t so
+// the otherwise-valid plan parses instead of collapsing into the solo fallback.
+func TestParsePlanToleratesControlCharsInStrings(t *testing.T) {
+	// Literal newline + tab inside the reason value, and a literal newline inside a task value.
+	raw := "{\"reason\":\"first analyze\nthen\timplement\",\"steps\":[" +
+		"{\"title\":\"do\",\"strategy\":\"solo\",\"task\":\"run it\nand verify\"}]}"
+	p := parsePlan(raw)
+	if len(p.Steps) != 1 || p.Steps[0].Title != "do" {
+		t.Fatalf("control-char plan should parse to 1 step, got %+v", p)
+	}
+	if p.Reason != "first analyze\nthen\timplement" {
+		t.Errorf("the repaired string must decode back to its real newlines/tabs, got %q", p.Reason)
+	}
+	if p.Steps[0].Task != "run it\nand verify" {
+		t.Errorf("task string with a raw newline must survive, got %q", p.Steps[0].Task)
+	}
+	// Structural whitespace OUTSIDE strings (a pretty-printed plan) must be left alone and still parse.
+	if pp := parsePlan("{\n  \"steps\": [\n    {\"title\": \"a\", \"strategy\": \"solo\"}\n  ]\n}"); len(pp.Steps) != 1 {
+		t.Errorf("pretty-printed plan (newlines between tokens) must parse, got %+v", pp.Steps)
+	}
+	// A control-char-free string is returned unchanged (fast path).
+	if got := escapeControlCharsInStrings(`{"a":"b"}`); got != `{"a":"b"}` {
+		t.Errorf("clean JSON must be untouched, got %q", got)
+	}
+}
+
+// recordPlanParseFailure persists the raw reply as a diagnostic FACT (survives in the store) carrying
+// the failure kind and the raw text at full fidelity — the transient tool.progress log could not, so
+// an intermittent parse failure is now inspectable after the fact.
+func TestRecordPlanParseFailurePersists(t *testing.T) {
+	ctx := context.Background()
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow"})
+	raw := "{\"reason\":\"analyze\nthen build\",\"steps\":[]}" // a raw newline in the reason value
+	a.recordPlanParseFailure(ctx, sid, "plan", raw)
+
+	evs, err := a.store.Read(ctx, sid, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *event.DiagnosticData
+	for _, e := range evs {
+		if e.Type == event.TypeDiagnostic {
+			var d event.DiagnosticData
+			if json.Unmarshal(e.Data, &d) == nil {
+				found = &d
+			}
+		}
+	}
+	if found == nil {
+		t.Fatal("a diagnostic fact must be persisted on a parse failure")
+	}
+	if found.Source != "planner:plan" || found.Kind != "control-char-in-string" {
+		t.Errorf("diagnostic source/kind wrong: %+v", found)
+	}
+	if !strings.Contains(found.Detail, "analyze\nthen build") {
+		t.Errorf("detail must keep the raw text at full fidelity (real newline), got %q", found.Detail)
+	}
+}
+
+// planParseFailureKind classifies WHY a reply did not yield a plan, for the persisted diagnostic.
+func TestPlanParseFailureKind(t *testing.T) {
+	cases := []struct{ name, text, want string }{
+		{"prose only", "I will now write the plan for you.", "no-json-object"},
+		{"truncated", `{"steps":[{"title":"a","strategy":"sol`, "unbalanced-or-truncated"},
+		{"control char in string", "{\"reason\":\"line one\nline two\",\"steps\":[]}", "control-char-in-string"},
+		{"valid but no steps", `{"reason":"none","steps":[]}`, "no-steps-in-object"},
+	}
+	for _, c := range cases {
+		if got := planParseFailureKind(c.text); got != c.want {
+			t.Errorf("%s: planParseFailureKind=%q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
 // salvageSteps recovers the completed step objects from a plan TRUNCATED before its outer {} closed —
 // so a nearly-complete plan cut off by the output budget isn't dumped entirely into the solo fallback.
 // A nested group or a stray brace (no title / unknown strategy) is never mistaken for a step.

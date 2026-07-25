@@ -514,6 +514,7 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 		// retry that forbids all prose, so the bare object is emitted (and fits the budget).
 		a.emitToolProgress(s.ID, plannerActor, "", "planner",
 			fmt.Sprintf("%s: no parseable plan (%d chars) — retrying JSON-only :: %s", tag, len(text), planParseExcerpt(text)))
+		a.recordPlanParseFailure(ctx, s.ID, tag, text) // persist the raw reply so the failure is diagnosable
 		retry := req
 		retry.System = sys + "\n\n" + planJSONOnlyReminder
 		if text2, err2 := a.drainText(ctx, spec, retry); err2 == nil {
@@ -526,6 +527,7 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 			} else {
 				a.emitToolProgress(s.ID, plannerActor, "", "planner",
 					fmt.Sprintf("%s: JSON-only retry also unparseable (%d chars) :: %s", tag, len(text2), planParseExcerpt(text2)))
+				a.recordPlanParseFailure(ctx, s.ID, tag+"-retry", text2)
 			}
 		}
 		a.emitToolProgress(s.ID, plannerActor, "", "planner",
@@ -684,20 +686,142 @@ func planParseExcerpt(text string) string {
 	return fmt.Sprintf("%s …[%d chars omitted]… %s", t[:n], len(t)-2*n, t[len(t)-n:])
 }
 
+// planParseFailureKind classifies WHY a reply yielded no parseable plan, so an intermittent failure
+// is diagnosable from the persisted record rather than guessed at. It re-walks the reply the way
+// parsePlanOrSalvage did and reports the first discriminating cause: no JSON object at all; an
+// opening brace that never balances (truncated by the output budget); a control character inside a
+// string value (the repair-resistant case a multi-line "reason"/"task" string produces); some other
+// invalid JSON syntax; or a well-formed object that simply carried no steps.
+func planParseFailureKind(text string) string {
+	if strings.IndexByte(text, '{') < 0 {
+		return "no-json-object" // pure prose, or the JSON never started
+	}
+	objs := balancedObjects(text)
+	if len(objs) == 0 {
+		return "unbalanced-or-truncated" // a '{' opened but never closed
+	}
+	var firstErr error
+	for _, js := range objs {
+		var p planResult
+		err := json.Unmarshal([]byte(js), &p)
+		if err == nil {
+			continue // valid JSON but (on this path) no usable steps — keep looking for the real defect
+		}
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+	if firstErr == nil {
+		return "no-steps-in-object" // every object parsed; none carried steps
+	}
+	msg := firstErr.Error()
+	switch {
+	case strings.Contains(msg, "in string literal"):
+		return "control-char-in-string" // a raw newline/tab/control char inside a value
+	case strings.Contains(msg, "invalid character"):
+		return "invalid-json-syntax"
+	default:
+		return "unmarshal-error"
+	}
+}
+
+// recordPlanParseFailure persists the raw planner reply and a failure-kind classification as a
+// diagnostic fact, so an intermittent parse failure can be inspected after the fact — the transient
+// tool.progress log is bus-only and whitespace-collapsed, losing exactly the control characters that
+// most often cause the failure. Best-effort and bounded (the raw is clipped); a failed write is a
+// no-op. detail keeps the raw text at full fidelity (NOT collapsed) up to the clip.
+func (a *App) recordPlanParseFailure(ctx context.Context, sid session.SessionID, tag, text string) {
+	const clip = 8192
+	raw := text
+	if len(raw) > clip {
+		raw = raw[:clip] + fmt.Sprintf("\n…[%d more chars]", len(text)-clip)
+	}
+	d, _ := json.Marshal(event.DiagnosticData{
+		Source: "planner:" + tag,
+		Kind:   planParseFailureKind(text),
+		Detail: raw,
+	})
+	_ = a.appendFact(ctx, sid, event.TypeDiagnostic, plannerActor, d)
+}
+
 // unmarshalPlanLenient parses one candidate object as a plan, tolerating a trailing comma before a
 // closing } or ] — a very common weak-model JSON error that json.Unmarshal rejects outright, and one
 // that otherwise dumps an entire valid-but-for-one-comma plan into the solo fallback.
 func unmarshalPlanLenient(js string) (planResult, bool) {
-	var p planResult
-	if json.Unmarshal([]byte(js), &p) == nil {
+	tryParse := func(s string) (planResult, bool) {
+		var p planResult
+		return p, json.Unmarshal([]byte(s), &p) == nil
+	}
+	if p, ok := tryParse(js); ok {
 		return p, true
 	}
-	if fixed := stripTrailingCommas(js); fixed != js {
-		if json.Unmarshal([]byte(fixed), &p) == nil {
+	// Apply the two weak-model JSON repairs — a trailing comma before }/] , and a RAW control
+	// character (literal newline/tab) inside a string value — alone and combined. Both are errors
+	// json.Unmarshal rejects outright but that a weak model routinely emits (a multi-line "reason"
+	// or "task" string is the common source of the control char), and each otherwise dumps an
+	// entire valid-but-for-one-defect plan into the solo fallback.
+	seen := map[string]bool{js: true}
+	for _, fixed := range []string{
+		stripTrailingCommas(js),
+		escapeControlCharsInStrings(js),
+		escapeControlCharsInStrings(stripTrailingCommas(js)),
+	} {
+		if seen[fixed] {
+			continue
+		}
+		seen[fixed] = true
+		if p, ok := tryParse(fixed); ok {
 			return p, true
 		}
 	}
 	return planResult{}, false
+}
+
+// escapeControlCharsInStrings rewrites raw control characters (< 0x20) that appear INSIDE a JSON
+// string literal into their valid JSON escape (a literal newline/tab a weak model puts inside a
+// "reason"/"task" value becomes \n/\t), which json.Unmarshal otherwise rejects with "invalid
+// character ... in string literal" and stripTrailingCommas does not touch. Control characters
+// OUTSIDE strings — the whitespace between tokens — are left exactly as they are, so only the illegal
+// in-string ones are repaired. Respects escapes, so an already-escaped sequence is never doubled.
+func escapeControlCharsInStrings(s string) string {
+	if strings.IndexFunc(s, func(r rune) bool { return r < 0x20 }) < 0 {
+		return s // no control chars anywhere → nothing to repair
+	}
+	var b strings.Builder
+	b.Grow(len(s) + 16)
+	inStr, esc := false, false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !inStr {
+			if c == '"' {
+				inStr = true
+			}
+			b.WriteByte(c)
+			continue
+		}
+		switch {
+		case esc:
+			esc = false
+			b.WriteByte(c)
+		case c == '\\':
+			esc = true
+			b.WriteByte(c)
+		case c == '"':
+			inStr = false
+			b.WriteByte(c)
+		case c == '\n':
+			b.WriteString(`\n`)
+		case c == '\t':
+			b.WriteString(`\t`)
+		case c == '\r':
+			b.WriteString(`\r`)
+		case c < 0x20:
+			fmt.Fprintf(&b, `\u%04x`, c)
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
 }
 
 // stripTrailingCommas removes a comma that immediately precedes a closing } or ] (ignoring
