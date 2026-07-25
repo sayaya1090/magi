@@ -170,6 +170,48 @@ func TestSetProfileRuntime(t *testing.T) {
 	}
 }
 
+// SetAgentRoute → resolveAgentSpec: a route naming a PROFILE sets both the override model and the
+// profile provider (providerFor then routes to that backend); a route naming a BARE model sets only
+// the model, leaving the provider empty (= default backend); clearing the route restores the agent's
+// configured spec. This locks the profile-vs-bare distinction that drives per-agent routing.
+func TestAgentRouteBareVsProfileAndClear(t *testing.T) {
+	a := &App{
+		routeOverrides: map[string]routeOverride{},
+		providers:      map[string]port.LLMProvider{},
+		profileDefs:    map[string]ProfileDef{},
+		cfg: Config{
+			ProfileModels: map[string]string{"fast": "fast-model"},
+			Agents: map[string]AgentSpec{
+				"coder": {Name: "coder", Model: session.ModelRef{Provider: "openai", Model: "cfg-model"}, Provider: "cfgprov"},
+			},
+		},
+	}
+
+	// Baseline: no override → the configured spec verbatim.
+	if spec, ok := a.resolveAgentSpec("coder"); !ok || spec.Model.Model != "cfg-model" || spec.Provider != "cfgprov" {
+		t.Fatalf("baseline: model=%q provider=%q ok=%v, want cfg-model/cfgprov/true", spec.Model.Model, spec.Provider, ok)
+	}
+
+	// Profile route: model AND provider both come from the profile.
+	a.SetAgentRoute("coder", "fast")
+	if spec, _ := a.resolveAgentSpec("coder"); spec.Model.Model != "fast-model" || spec.Provider != "fast" {
+		t.Fatalf("profile route: model=%q provider=%q, want fast-model/fast", spec.Model.Model, spec.Provider)
+	}
+
+	// Bare-model route: model overridden, provider CLEARED to empty (default backend) — it must NOT
+	// retain the configured "cfgprov", or a bare-model edit would keep routing to the old profile.
+	a.SetAgentRoute("coder", "other-model")
+	if spec, _ := a.resolveAgentSpec("coder"); spec.Model.Model != "other-model" || spec.Provider != "" {
+		t.Fatalf("bare route: model=%q provider=%q, want other-model/empty", spec.Model.Model, spec.Provider)
+	}
+
+	// Clearing the route restores the configured spec.
+	a.SetAgentRoute("coder", "")
+	if spec, _ := a.resolveAgentSpec("coder"); spec.Model.Model != "cfg-model" || spec.Provider != "cfgprov" {
+		t.Fatalf("cleared: model=%q provider=%q, want cfg-model/cfgprov", spec.Model.Model, spec.Provider)
+	}
+}
+
 // New() clones cfg.ProfileModels and initializes routeOverrides to NON-NIL maps, so a runtime profile
 // or route edit on an app built from a MINIMAL Config (no maps supplied) must not panic on a nil-map
 // write. Guards against a regression in the New()/cloneStringMap init leaving those maps nil.
