@@ -4,6 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
+	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
+	"github.com/sayaya1090/magi/internal/core/bus"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
@@ -164,5 +167,23 @@ func TestSetProfileRuntime(t *testing.T) {
 	}
 	if a.providerFor(AgentSpec{Provider: "fast"}) != port.LLMProvider(namedLLM{"fast"}) {
 		t.Errorf("provider for new profile not registered")
+	}
+}
+
+// New() clones cfg.ProfileModels and initializes routeOverrides to NON-NIL maps, so a runtime profile
+// or route edit on an app built from a MINIMAL Config (no maps supplied) must not panic on a nil-map
+// write. Guards against a regression in the New()/cloneStringMap init leaving those maps nil.
+func TestSetProfileOnFreshAppNoNilMapPanic(t *testing.T) {
+	store, _ := jsonl.New(t.TempDir())
+	a := New(store, namedLLM{"d"}, builtin.Default(), bus.New(), nil, Config{Permission: "allow"})
+	a.SetProfile(ProfileDef{Name: "p", Model: "m"}) // writes a.cfg.ProfileModels[...] — nil map would panic
+	a.SetAgentRoute("agent", "p")                   // writes a.routeOverrides[...] — nil map would panic
+	if got := a.Profiles(); len(got) != 1 || got[0].Name != "p" {
+		t.Fatalf("profile not recorded on a fresh app: %+v", got)
+	}
+	if spec, _ := a.resolveAgentSpec("agent"); spec.Model.Model != "m" {
+		// resolveAgentSpec only resolves configured agents; "agent" isn't one, so it returns !ok — the
+		// route write itself not panicking is what this test locks.
+		_ = spec
 	}
 }
