@@ -94,11 +94,16 @@ func (a *App) contextWindow(id string) int {
 	if !seen && a.cfg.ContextWindowProber != nil {
 		a.probingWindows[id] = struct{}{} // mark before unlocking so we probe at most once
 		a.mu.Unlock()
+		// Fall back to the family window while the exact-window probe runs, so a variant
+		// we already have a sane window for (e.g. "qwen3-coder:480b-cloud" inheriting
+		// "qwen3-coder") isn't reported as 0/unlimited — which would disable ratio
+		// compaction at exactly the session-start budget calc — until the probe lands.
+		// Read it BEFORE launching the goroutine: the family window is a static seed the
+		// probe never writes, so this stays deterministic and free of the probe-write race
+		// (Get on an id the probe DID populate would read a non-zero window nondeterministically).
+		fallback := a.cfg.Models.Get(id).ContextWindow
 		go a.probeContextWindow(id)
-		// This first read must report 0 (unlimited) while the probe runs — return it
-		// directly rather than re-reading the registry, which the just-launched goroutine
-		// could already have populated (a race that reads as a non-zero first window).
-		return 0
+		return fallback
 	}
 	a.mu.Unlock()
 	return a.cfg.Models.Get(id).ContextWindow
