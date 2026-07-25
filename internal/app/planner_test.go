@@ -2169,6 +2169,56 @@ func TestSalvageStepsFromTruncatedPlan(t *testing.T) {
 	}
 }
 
+// The salvage path must apply the SAME weak-model JSON repairs as the clean path. A step's "task" is
+// the multi-line string a weak model most often emits with a RAW newline in it, and that rambling is
+// exactly what overflows the output budget and truncates the reply — so the two defects co-occur.
+// Parsing salvaged steps strictly discarded every complete step and lost an otherwise-recoverable
+// re-plan (observed: a council revision whose later steps carried the demanded work).
+func TestSalvageStepsAppliesLenientRepairs(t *testing.T) {
+	// Raw control char inside "task" + a trailing comma, in a reply truncated mid-final-step.
+	truncated := "{\"reason\":\"revise\",\"steps\":[" +
+		"{\"title\":\"derive layouts\",\"strategy\":\"solo\",\"task\":\"read the FD clauses\nthen map each PIC\"}," +
+		"{\"title\":\"verify output\",\"strategy\":\"solo\",\"task\":\"run program.py,\"}," +
+		"{\"title\":\"cut off here\",\"strategy\":\"sol"
+	steps := salvageSteps(truncated)
+	if len(steps) != 2 {
+		t.Fatalf("both complete steps must salvage despite the raw newline / trailing comma, got %d: %+v", len(steps), steps)
+	}
+	if steps[0].Title != "derive layouts" || !strings.Contains(steps[0].Task, "then map each PIC") {
+		t.Errorf("repaired step lost its task text: %+v", steps[0])
+	}
+	if steps[1].Title != "verify output" {
+		t.Errorf("second step not recovered: %+v", steps[1])
+	}
+	// A step object that is malformed beyond the known repairs is still skipped (no false salvage).
+	if s := salvageSteps(`{"title":"x","strategy":"solo",,,}`); len(s) != 0 {
+		t.Errorf("irreparable object must not salvage, got %+v", s)
+	}
+}
+
+// jsonRepairCandidates is the shared repair ladder: the input first (so a clean object parses on the
+// first try), then the trailing-comma, control-char, and combined variants, de-duplicated.
+func TestJSONRepairCandidates(t *testing.T) {
+	clean := `{"a":1}`
+	if got := jsonRepairCandidates(clean); len(got) != 1 || got[0] != clean {
+		t.Errorf("a clean object needs no variants, got %q", got)
+	}
+	got := jsonRepairCandidates("{\"a\":\"x\ny\",}")
+	if len(got) < 2 || got[0] != "{\"a\":\"x\ny\",}" {
+		t.Fatalf("candidates must start with the input, got %q", got)
+	}
+	var parsed bool
+	for _, c := range got {
+		var m map[string]any
+		if json.Unmarshal([]byte(c), &m) == nil {
+			parsed = true
+		}
+	}
+	if !parsed {
+		t.Errorf("no candidate repaired both defects: %q", got)
+	}
+}
+
 // parsePlanOrSalvage reports whether the plan came from the salvage path (a truncated/malformed reply)
 // vs a clean parse — so a rescued truncation is visible in the run, not silently indistinguishable from
 // a clean first-try parse.

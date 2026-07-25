@@ -663,8 +663,8 @@ var planStrategies = map[string]bool{"solo": true, "parallel": true, "scout": tr
 func salvageSteps(text string) []planStep {
 	var steps []planStep
 	for _, js := range balancedObjects(text) {
-		var st planStep
-		if json.Unmarshal([]byte(js), &st) != nil {
+		st, ok := unmarshalStepLenient(js)
+		if !ok {
 			continue
 		}
 		if strings.TrimSpace(st.Title) == "" || !planStrategies[strings.ToLower(strings.TrimSpace(st.Strategy))] {
@@ -673,6 +673,21 @@ func salvageSteps(text string) []planStep {
 		steps = append(steps, st)
 	}
 	return steps
+}
+
+// unmarshalStepLenient parses one salvaged step object with the same weak-model repairs the plan
+// object gets (jsonRepairCandidates). A step carries the multi-line "task" string, so a raw control
+// character inside it is the single likeliest defect in a reply that ALSO truncated — the case
+// salvage exists for. Parsing it strictly here silently discarded every complete step before the
+// cutoff and sent an otherwise-recoverable revision to the JSON-only retry.
+func unmarshalStepLenient(js string) (planStep, bool) {
+	for _, c := range jsonRepairCandidates(js) {
+		var st planStep
+		if json.Unmarshal([]byte(c), &st) == nil {
+			return st, true
+		}
+	}
+	return planStep{}, false
 }
 
 // planParseExcerpt renders a short single-line head+tail of an unparseable planner reply, so the run
@@ -748,18 +763,27 @@ func (a *App) recordPlanParseFailure(ctx context.Context, sid session.SessionID,
 // closing } or ] — a very common weak-model JSON error that json.Unmarshal rejects outright, and one
 // that otherwise dumps an entire valid-but-for-one-comma plan into the solo fallback.
 func unmarshalPlanLenient(js string) (planResult, bool) {
-	tryParse := func(s string) (planResult, bool) {
+	for _, c := range jsonRepairCandidates(js) {
 		var p planResult
-		return p, json.Unmarshal([]byte(s), &p) == nil
+		if json.Unmarshal([]byte(c), &p) == nil {
+			return p, true
+		}
 	}
-	if p, ok := tryParse(js); ok {
-		return p, true
-	}
-	// Apply the two weak-model JSON repairs — a trailing comma before }/] , and a RAW control
-	// character (literal newline/tab) inside a string value — alone and combined. Both are errors
-	// json.Unmarshal rejects outright but that a weak model routinely emits (a multi-line "reason"
-	// or "task" string is the common source of the control char), and each otherwise dumps an
-	// entire valid-but-for-one-defect plan into the solo fallback.
+	return planResult{}, false
+}
+
+// jsonRepairCandidates returns js followed by the weak-model repair variants a failed unmarshal
+// should be retried with: a trailing comma before }/] , a RAW control character (literal
+// newline/tab) inside a string value, and both together. Each is an error json.Unmarshal rejects
+// outright but that a weak model routinely emits — a multi-line "reason" or "task" string is the
+// common source of the control char. Candidates are de-duplicated and ordered cheapest-first, so a
+// clean object still parses on the first try.
+//
+// It is shared by every lenient JSON reader (the plan object AND the salvaged step objects): a
+// repair the clean path applies but the salvage path does not is worse than useless, since the
+// truncation that forces salvage is produced by exactly the rambling that emits these defects.
+func jsonRepairCandidates(js string) []string {
+	out := []string{js}
 	seen := map[string]bool{js: true}
 	for _, fixed := range []string{
 		stripTrailingCommas(js),
@@ -770,11 +794,9 @@ func unmarshalPlanLenient(js string) (planResult, bool) {
 			continue
 		}
 		seen[fixed] = true
-		if p, ok := tryParse(fixed); ok {
-			return p, true
-		}
+		out = append(out, fixed)
 	}
-	return planResult{}, false
+	return out
 }
 
 // escapeControlCharsInStrings rewrites raw control characters (< 0x20) that appear INSIDE a JSON
