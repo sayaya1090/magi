@@ -74,6 +74,30 @@ func TestCouncilNoProgressDeltaGateSkipsDeliberation(t *testing.T) {
 	}
 }
 
+// A council that votes CONTINUE but hands back NO actionable feedback cannot drive progress — the
+// gate must land a forced UNVERIFIED finish instead of injecting an empty prompt and looping forever.
+func TestCouncilContinueWithoutFeedbackLandsUnverified(t *testing.T) {
+	fc := &fakeCouncil{delibs: []council.Deliberation{
+		{Round: 1, Decision: council.Continue, Feedback: "", Verdicts: []council.Verdict{
+			{Member: "Melchior", Decision: council.Continue},
+			{Member: "Balthasar", Decision: council.Continue},
+			{Member: "Casper", Decision: council.Done},
+		}},
+	}}
+	a, wd := newApp(t, workingLLM(), Config{Council: fc, CouncilMaxRounds: 3})
+	s, agent := newGateSession(t, a, wd)
+
+	var ct councilTurn
+	keep, reason := a.runCouncilGate(context.Background(), s, agent,
+		councilInput{turnTask: "task", lastText: "done, trust me", stepsLeft: 40}, &ct)
+	if keep {
+		t.Fatal("continue with no feedback must finish, not keep working (empty feedback would spin)")
+	}
+	if !strings.Contains(reason, "no actionable feedback") {
+		t.Fatalf("empty-feedback continue should land UNVERIFIED, got %q", reason)
+	}
+}
+
 // A re-finish WITH new actions re-polls only the dissenting member: prior done
 // votes are carried, the request is a delta round focused on the standing concern.
 func TestCouncilFocusedReRound(t *testing.T) {
