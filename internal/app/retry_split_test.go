@@ -50,6 +50,49 @@ func TestPartitionStepChecksInactiveNoChecks(t *testing.T) {
 	}
 }
 
+// A step check that exits 127 (its OWN command is unexecutable — a missing tool like ss/netstat) must be
+// SKIPPED by the split, not counted as "still unmet" — mirroring verifyStepChecks. Here a 127 check sits
+// beside a passing one, so the split is one passed / zero fails and active stays true.
+func TestPartitionStepChecksSkips127(t *testing.T) {
+	t.Setenv("MAGI_STEP_VERIFY", "1")
+	plat := &scriptPlatform{codes: []int{127, 0}} // check-a unexecutable (127), check-b passes
+	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow"})
+	setChecks(a, sid, []council.DeliverableCheck{
+		{Step: "1", Deliverable: "port via ss", Command: "ss -tlnp"},
+		{Step: "1", Deliverable: "file present", Command: "test -s out"},
+	})
+	s := a.sessionInfo(context.Background(), sid)
+
+	passed, fails, active := a.partitionStepChecks(context.Background(), s, 0)
+	if !active {
+		t.Fatal("a real (passing) check present → active")
+	}
+	if len(fails) != 0 {
+		t.Errorf("a 127 (unexecutable) check must NOT be counted as still-unmet, got fails=%v", fails)
+	}
+	if len(passed) != 1 || passed[0] != "file present" {
+		t.Errorf("passed = %v, want [file present]", passed)
+	}
+}
+
+// When EVERY matched check is unexecutable (127), nothing was actually verified — there is no split to
+// give, so partitionStepChecks reports inactive and the caller falls back to the generic pivot rather
+// than an empty "re-checked" block.
+func TestPartitionStepChecksAll127Inactive(t *testing.T) {
+	t.Setenv("MAGI_STEP_VERIFY", "1")
+	plat := &scriptPlatform{codes: []int{127, 127}}
+	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow"})
+	setChecks(a, sid, []council.DeliverableCheck{
+		{Step: "1", Deliverable: "a", Command: "ss -tlnp"},
+		{Step: "1", Deliverable: "b", Command: "netstat -an"},
+	})
+	s := a.sessionInfo(context.Background(), sid)
+
+	if _, _, active := a.partitionStepChecks(context.Background(), s, 0); active {
+		t.Error("all-127 (nothing verifiable) → inactive so the caller falls back to the pivot")
+	}
+}
+
 // retryContinuation, with executable checks, hands the retry a SKIP/CONTINUE split by real disk
 // state: the passing deliverable under "ALREADY SATISFIED", the failing one under "STILL UNMET".
 func TestRetryContinuationSplitBlock(t *testing.T) {

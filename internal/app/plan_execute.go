@@ -449,6 +449,12 @@ func (a *App) partitionStepChecks(ctx context.Context, s session.Session, stepId
 		if code == -1 { // platform vanished mid-run: cannot judge → let the caller fall back
 			return nil, nil, false
 		}
+		// Exit 127 = the check's OWN command is unexecutable here (missing tool / wrong path), NOT the
+		// deliverable failing — mirror verifyStepChecks and SKIP it, rather than counting it as "still
+		// unmet" (which would steer the retry at a non-problem) and emitting a false ✗ for the panel.
+		if code == 127 {
+			continue
+		}
 		pass := c.Passes(out, code)
 		a.emitStepCheck(ctx, s.ID, c, code, pass)
 		d := strings.TrimSpace(c.Deliverable)
@@ -460,6 +466,11 @@ func (a *App) partitionStepChecks(ctx context.Context, s session.Session, stepId
 		} else {
 			fails = append(fails, fmt.Sprintf("- %s — `%s` → %s", d, strings.TrimSpace(c.Command), clipLine(strings.TrimSpace(out), 200)))
 		}
+	}
+	// Every matched check was unexecutable (127) → nothing was actually verified, so there is no split to
+	// give; signal inactive so the caller falls back to the generic pivot instead of an empty "re-checked" block.
+	if len(passed) == 0 && len(fails) == 0 {
+		return nil, nil, false
 	}
 	return passed, fails, true
 }
