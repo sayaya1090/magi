@@ -42,6 +42,14 @@ const elicitSpecMineSystem = "You read a coding request and work out, BEFORE any
 	"the concrete action that PROVISIONS it when absent (the install/create/start command). Understanding " +
 	"what the task needs comes first; provisioning follows from it.\n" +
 	"Derive ONLY what the given surfaces actually imply — do not invent requirements.\n" +
+	"CLASSIFY each finding by HOW it must be honored, because the difference decides whether a checker " +
+	"asserts it literally or by behavior: a FIXED identifier or value the request names (a message/service/" +
+	"function NAME, a port, a filename, a pinned version) is HARD — match it verbatim; a SAMPLE it gives (an " +
+	"input→output pair) is an EXAMPLE — reproduce that behavior; a structure, type, or behavior it only " +
+	"DESCRIBES in prose (a field of some type, a return value, a format) is SEMANTIC — satisfy the meaning " +
+	"and verify it by EFFECT (build/run/inspect), never by demanding a particular source spelling of the " +
+	"prose. Treating a SEMANTIC description as if it were a HARD literal (asserting the prose's exact wording " +
+	"in the source) forces correct code into a fabricated shape — when unsure, prefer SEMANTIC.\n" +
 	"CRITICAL — do NOT treat a name that a compiler, code generator, or language convention DERIVES from " +
 	"the request as a fixed literal to preserve. A generated module/file name, or an identifier a tool " +
 	"sanitizes (a hyphenated `.proto` filename yields an UNDERSCORED Python module; `protoc`/`grpc_tools` " +
@@ -57,12 +65,19 @@ const elicitSpecMineSystem = "You read a coding request and work out, BEFORE any
 // rule are enforced here (and again in code).
 const distillSpecMineSystem = "You distill a working analysis into its final conclusions. From the analysis " +
 	"given, keep ONLY the highest-stakes findings and output ONLY a JSON object, no prose, no code fence:\n" +
-	`{"lines":[{"surface":"...","requirement":"...","construct":"..."}],"final":"..."}` + "\n" +
-	"Rules: at most 5 lines. Each construct names a concrete language/stdlib construct. \"final\" is ONE " +
-	"sentence naming the winning construct(s) — SINGLE and unconditional: where the analysis argued both " +
-	"ways, pick the winner and DROP every caveat against it (a reader under pressure follows the escape " +
-	"hatch, not the advice). Do not restate what the original request's prose already says. If the " +
-	"analysis concluded nothing beyond the prose, output exactly {\"lines\":[],\"final\":\"\"}."
+	`{"lines":[{"surface":"...","requirement":"...","construct":"...","kind":"hard|example|semantic"}],"final":"..."}` + "\n" +
+	"Rules: at most 5 lines. Each construct names a concrete language/stdlib construct. Each line's `kind` " +
+	"says HOW its requirement must be honored: `hard` = a FIXED identifier or value the grader checks " +
+	"literally (a message/service/RPC/function NAME, a port, a filename, a pinned version) — match it " +
+	"verbatim; `example` = a SAMPLE the task gives (an input→output pair, a reference row) — reproduce that " +
+	"exact behavior; `semantic` = a structure/type/behavior DESCRIBED in prose (a field of some type, a " +
+	"format, what a call returns) — satisfy its MEANING and verify by EFFECT (build/run/inspect the produced " +
+	"artifact), NOT by any particular source spelling. When unsure, use `semantic` (the safe default that " +
+	"never forces a made-up surface form onto correct code). \"final\" is ONE sentence naming the winning " +
+	"construct(s) — SINGLE and unconditional: where the analysis argued both ways, pick the winner and DROP " +
+	"every caveat against it (a reader under pressure follows the escape hatch, not the advice). Do not " +
+	"restate what the original request's prose already says. If the analysis concluded nothing beyond the " +
+	"prose, output exactly {\"lines\":[],\"final\":\"\"}."
 
 // specMineResult is the distilled pass-2 shape.
 type specMineResult struct {
@@ -70,6 +85,11 @@ type specMineResult struct {
 		Surface     string `json:"surface"`
 		Requirement string `json:"requirement"`
 		Construct   string `json:"construct"`
+		// Kind classifies HOW the requirement must be honored — hard (a fixed identifier/value:
+		// match verbatim), example (a sample input→output: reproduce the behavior), or semantic
+		// (a described structure/type/behavior: satisfy the meaning, verify by effect). Absent /
+		// unknown normalizes to semantic (specKind), the safe default that never over-asserts source form.
+		Kind string `json:"kind"`
 	} `json:"lines"`
 	Final string `json:"final"`
 }
@@ -114,12 +134,29 @@ func (a *App) elicitSpecMine(ctx context.Context, agent AgentSpec, s session.Ses
 		if sfc == "" && req == "" && con == "" {
 			continue
 		}
-		b.WriteString("- " + sfc + " → " + req + " → " + con + "\n")
+		// Tag each line by HOW to honor it so the executor and the check-author treat a fixed
+		// identifier (verbatim) differently from a described behavior (verify by effect).
+		b.WriteString("- ⟨" + specKind(ln.Kind) + "⟩ " + sfc + " → " + req + " → " + con + "\n")
 	}
 	if f := strings.TrimSpace(res.Final); f != "" {
 		b.WriteString("USE: " + f + "\n")
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// specKind normalizes a mined line's classification into one of the three ways its requirement must
+// be honored, defaulting to the SAFE "semantic" when the model omits or garbles it — semantic means
+// "verify the meaning by effect", the default that never over-asserts a particular source spelling
+// (the kv-store `<key: string>` failure mode), so an unclassified line is treated conservatively.
+func specKind(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "hard", "literal", "identifier", "verbatim":
+		return "hard"
+	case "example", "sample":
+		return "example"
+	default:
+		return "semantic"
+	}
 }
 
 // specMineCallTimeout bounds ONE tool-free side call. Signature mining and the curator both make
@@ -217,11 +254,15 @@ func (a *App) cachedSpecMine(sid session.SessionID) string {
 func specMineNote(mined string) string {
 	return "# Execution note — what this task needs (its identifiers, types, and prerequisites)\n" +
 		"Worked out from the request's own names, type signatures, and stated dependencies (not its prose). " +
-		"Honor the identifiers/formats exactly and prefer the named standard construct over hand-rolling; and " +
-		"CHECK each prerequisite below is actually present, provisioning what is missing BEFORE you rely on it. " +
-		"But a name a tool or language DERIVES (a generated module/file, a sanitized identifier — e.g. a " +
-		"hyphenated `.proto` filename becomes an UNDERSCORED Python module) follows the tool's ACTUAL " +
-		"output; never force the request's raw spelling onto a generated name, and don't fault one for not " +
-		"matching it:\n" +
+		"Each line is tagged by HOW to honor it: ⟨hard⟩ = a fixed identifier/value — match it verbatim; " +
+		"⟨example⟩ = a sample input→output — reproduce that behavior exactly; ⟨semantic⟩ = a described " +
+		"structure/type/behavior — satisfy its MEANING and verify by EFFECT (build/run/inspect), NEVER by " +
+		"forcing a particular source spelling (a ⟨semantic⟩ 'field key of type string' is met by the built " +
+		"artifact having that field, not by the source literally containing the words). Prefer the named " +
+		"standard construct over hand-rolling; and CHECK each prerequisite below is actually present, " +
+		"provisioning what is missing BEFORE you rely on it. A name a tool or language DERIVES (a generated " +
+		"module/file, a sanitized identifier — e.g. a hyphenated `.proto` filename becomes an UNDERSCORED " +
+		"Python module) follows the tool's ACTUAL output; never force the request's raw spelling onto a " +
+		"generated name, and don't fault one for not matching it:\n" +
 		mined
 }
