@@ -57,6 +57,16 @@ func TestChildWaitMajority(t *testing.T) {
 	if childWaitMajority(mixed, 8) {
 		t.Error("a poll-minority window must not read as waiting")
 	}
+	// Exact TIE (2 waits, 2 real actions) is NOT a strict majority — a 50/50 wait/work split must fall
+	// through to the judge, so genuine churn interleaved with polls is never auto-extended. Locks the
+	// `waits*2 > len(calls)` boundary (4 is not > 4).
+	tie := []event.Event{
+		toolCallEv("bash_output", ""), toolCallEv("wait_for", ""),
+		toolCallEv("edit", ""), toolCallEv("bash", "make world"),
+	}
+	if childWaitMajority(tie, 8) {
+		t.Error("a 50/50 wait/work tie must NOT read as waiting (strict majority required)")
+	}
 }
 
 func TestSubagentWaitLeaseDefault(t *testing.T) {
