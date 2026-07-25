@@ -120,7 +120,12 @@ func (a *App) elicitSpecMine(ctx context.Context, agent AgentSpec, s session.Ses
 	if spec.Model != (session.ModelRef{}) {
 		model = spec.Model.Model
 	}
-	analysis := a.specMineCall(ctx, spec, s.ID, "spec-mine", model, elicitSpecMineSystem, task)
+	// Give the analysis the SAME repository map the planner sees (repoBlock), so it grounds the
+	// request's identifiers/types in what the repo actually contains (e.g. an existing file the task
+	// refers to) instead of reasoning from the prose alone. Only pass 1 (the analysis) needs it; pass 2
+	// distills pass-1 output. repoMap is a cheap top-level listing, already bounded.
+	elicitSys := elicitSpecMineSystem + "\n\n# Repository (top level)\n" + repoMap(s.Workdir)
+	analysis := a.specMineCall(ctx, spec, s.ID, "spec-mine", model, elicitSys, task)
 	if analysis == "" || (len(analysis) < 8 && strings.Contains(strings.ToUpper(analysis), "NONE")) {
 		return ""
 	}
@@ -189,12 +194,20 @@ const specMineBeatInterval = 5 * time.Second
 // heartbeat while the model reasons: a heartbeat means it is alive and thinking; continued silence
 // means the backend is genuinely stuck. sid=="" disables the heartbeat (no session to emit under).
 func (a *App) specMineCall(ctx context.Context, spec AgentSpec, sid session.SessionID, label, model, system, user string) string {
+	return a.specMineCallMsgs(ctx, spec, sid, label, model, system,
+		[]session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: user}}}})
+}
+
+// specMineCallMsgs is specMineCall with an explicit MESSAGE conversation instead of a single user
+// string — so a caller that wants the side-LLM to see the prior back-and-forth (the session window,
+// like the planner does) can pass it, not just one prompt. Same timeout + thinking-heartbeat.
+func (a *App) specMineCallMsgs(ctx context.Context, spec AgentSpec, sid session.SessionID, label, model, system string, msgs []session.Message) string {
 	cctx, cancel := context.WithTimeout(ctx, specMineCallTimeout)
 	defer cancel()
 	stream, err := a.providerFor(spec).StreamChat(cctx, port.ChatRequest{
 		Model:    model,
 		System:   system,
-		Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: user}}}},
+		Messages: msgs,
 	})
 	if err != nil {
 		return ""
