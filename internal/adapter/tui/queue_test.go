@@ -60,15 +60,22 @@ func TestEnterWhileRunningSteers(t *testing.T) {
 	}
 }
 
-// Safe slash commands run while working; unsafe ones are rejected.
+// Safe slash commands run while working; unsafe ones are rejected. safeWhileRunning is the SINGLE
+// authoritative gate (handleSlash is reachable while running only through it — the palette and idle
+// paths require !running), so this locks the full contract: every read-only/UI command is safe, and
+// every session-mutating one — especially the destructive /fork, /replay (branch), /rewind
+// (store.Truncate), /compact (store rewrite) — is rejected. A misclassification here would run a
+// mutating command mid-turn, so the whole set is enumerated, not a subset.
 func TestSafeWhileRunning(t *testing.T) {
-	safe := []string{"/help", "/model", "/agents", "/tools", "/sessions", "/diff", "/permission"}
+	safe := []string{"/help", "/model", "/agents", "/route", "/tools", "/sessions", "/diff",
+		"/loop", "/loopdiff", "/context", "/subagent", "/permission"}
 	for _, c := range safe {
 		if !safeWhileRunning(c) {
 			t.Errorf("%s should be safe while running", c)
 		}
 	}
-	unsafe := []string{"/rewind", "/resume", "/clear", "/init", "/ultra", "/compact", "/quit"}
+	unsafe := []string{"/rewind", "/resume", "/clear", "/init", "/ultra", "/compact",
+		"/fork", "/replay", "/quit"}
 	for _, c := range unsafe {
 		if safeWhileRunning(c) {
 			t.Errorf("%s should NOT be safe while running", c)
