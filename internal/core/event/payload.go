@@ -172,6 +172,16 @@ type ErrorData struct {
 	Code    string `json:"code,omitempty"`
 }
 
+// DiagnosticData — TypeDiagnostic. A recovered-from diagnostic whose raw input would otherwise be
+// lost. Source names the producer (e.g. "planner"), Kind is a short machine-readable classification
+// (e.g. "control-char-in-string"), and Detail carries the raw text (bounded) at full fidelity — NOT
+// whitespace-collapsed — so the actual failure mode is inspectable.
+type DiagnosticData struct {
+	Source string `json:"source"`
+	Kind   string `json:"kind,omitempty"`
+	Detail string `json:"detail,omitempty"`
+}
+
 // --- Council termination gate (D14) ---
 
 // CouncilConvenedData — TypeCouncilConvened (the gate opens for a round). It also

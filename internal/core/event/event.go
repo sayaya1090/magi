@@ -30,6 +30,16 @@ const (
 	TypeTodosChanged      Type = "todos.changed"
 	TypeError             Type = "error"
 
+	// TypeDiagnostic records a persisted-but-invisible diagnostic snapshot: something the run
+	// recovered from (so it is NOT an error and does not end the turn) but whose raw input would
+	// otherwise be lost, because it was produced by a tool-free side call whose output is not
+	// stored. The first user is an unparseable planner reply — persisting its raw text + a
+	// failure-kind classification makes an intermittent parse failure diagnosable after the fact,
+	// where the transient tool.progress log (whitespace-collapsed, bus-only) could not. It is a
+	// fact (survives in the jsonl) but reconstruct never turns it into a message, so it never
+	// enters the model's context.
+	TypeDiagnostic Type = "diagnostic"
+
 	// Council termination gate (D14): the consensus that decides whether the loop
 	// finishes or continues. Persisted so the deliberation is replayable/auditable.
 	TypeCouncilConvened Type = "council.convened"
