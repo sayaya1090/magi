@@ -53,8 +53,14 @@ const elicitSpecMineSystem = "You read a coding request and work out, BEFORE any
 	"aspect it does NOT pin (the source layout, an internal helper's name, the field-declaration syntax, the " +
 	"algorithm) is UNCONSTRAINED: note it so nothing downstream invents a constraint the task never stated. " +
 	"Treating a SEMANTIC description or an UNCONSTRAINED aspect as if it were a HARD literal (asserting the " +
-	"prose's exact wording in the source) forces correct code into a fabricated shape — when unsure, prefer " +
-	"SEMANTIC over HARD, and mark a genuinely open aspect UNCONSTRAINED.\n" +
+	"prose's exact wording in the source) forces correct code into a fabricated shape. HARD is NARROW and " +
+	"the MINORITY: use it ONLY for a literal string a grader matches character-for-character — a filename, a " +
+	"function/message/RPC NAME, a port number, a pinned version, or an exact output token the task quotes. A " +
+	"described BEHAVIOR, ALGORITHM, FORMAT, or STRUCTURE is SEMANTIC even when it is required or important — " +
+	"importance does NOT make it hard: 'parse the ELF header', 'output JSON with these fields', 'sort the " +
+	"results', 'return an int' are all SEMANTIC (satisfied by the running artifact, not by matching source " +
+	"text). Default to SEMANTIC; reach for HARD only when you can point to the exact literal the task wrote " +
+	"and a grader will compare byte-for-byte, and mark a genuinely open aspect UNCONSTRAINED.\n" +
 	"CRITICAL — do NOT treat a name that a compiler, code generator, or language convention DERIVES from " +
 	"the request as a fixed literal to preserve. A generated module/file name, or an identifier a tool " +
 	"sanitizes (a hyphenated `.proto` filename yields an UNDERSCORED Python module; `protoc`/`grpc_tools` " +
@@ -80,8 +86,10 @@ const distillSpecMineSystem = "You distill a working analysis into its final con
 	"a call returns) — satisfy its MEANING and verify by EFFECT (build/run/inspect the produced artifact), " +
 	"NOT by any particular source spelling; `unconstrained` = an aspect the task does NOT pin (source layout, " +
 	"an internal name, the declaration syntax, the algorithm) — record it so nothing downstream asserts it. " +
-	"When unsure, use `semantic` (the safe default that never forces a made-up surface form onto correct " +
-	"code). \"final\" is ONE sentence naming the winning " +
+	"`hard` is the MINORITY — reserve it for a literal a grader matches byte-for-byte (a name/port/filename/" +
+	"pinned version/quoted output token); a described behavior, algorithm, format, or structure is `semantic` " +
+	"even when required (importance does not make it hard). Default to `semantic` (the safe choice that never " +
+	"forces a made-up surface form onto correct code). \"final\" is ONE sentence naming the winning " +
 	"construct(s) — SINGLE and unconditional: where the analysis argued both ways, pick the winner and DROP " +
 	"every caveat against it (a reader under pressure follows the escape hatch, not the advice). Do not " +
 	"restate what the original request's prose already says. If the analysis concluded nothing beyond the " +

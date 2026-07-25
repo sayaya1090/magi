@@ -120,3 +120,17 @@ func TestSpecMinePromptsClassify(t *testing.T) {
 		}
 	}
 }
+
+// The classification prompts steer the weak model away from the observed over-⟨hard⟩ bias: HARD is the
+// minority (a byte-for-byte literal), and a behavior/format/structure is semantic even when required.
+func TestSpecMinePromptsNarrowHard(t *testing.T) {
+	for _, sys := range []string{elicitSpecMineSystem, distillSpecMineSystem} {
+		if !strings.Contains(sys, "MINORITY") {
+			t.Error("prompt must state HARD is the minority")
+		}
+		if !strings.Contains(strings.ToLower(sys), "importance does not make it hard") &&
+			!strings.Contains(strings.ToLower(sys), "importance does not make it hard.") {
+			t.Error("prompt must state importance does not make a requirement hard")
+		}
+	}
+}
