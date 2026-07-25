@@ -420,10 +420,12 @@ council-check-coverage-solo-1: 0-스텝 solo ⇒ 목적=단일 합성스텝 ⇒ 
 
 규칙:
 - P1 planner는 top-level 턴마다 **1회** tool-free 호출 → 요청을 **순서 있는 절차(steps)**로 분해, 각 step에 전략 `{solo|parallel|scout|delegate|refine}`(delegate/refine은 write-capable 재귀 전략, F-PLAN-REC). 파싱 실패/0 step → solo.
+  - **파싱 복구 사다리**(약모델 대응, 각 단계가 실패해야 다음으로): ①**균형 스캔**(`balancedObjects`, 문자열·이스케이프 존중) — 프로즈·추론에 섞인 stray brace가 진짜 객체를 삼키지 못하게, 닫히지 않은 여는 괄호는 **건너뛰고** 뒤의 균형 객체를 계속 찾는다. ②**관용 언마샬**(`unmarshalPlanLenient` ← `jsonRepairCandidates`): `}`/`]` 앞 **trailing comma**와 문자열 값 안의 **raw control char**(다중행 `reason`/`task`가 흔한 출처)를 복구해 재시도. ③**스텝 salvage**(`salvageSteps`): 출력 예산에 잘려 outer `{}`가 안 닫힌 응답에서, 잘림 전에 완성된 **스텝 객체만 직접 회수**(title + 인식된 strategy를 요구해 group/stray를 스텝으로 오인하지 않음) — **②와 같은 복구를 적용**한다(`unmarshalStepLenient`). 클린 경로만 관용적이고 salvage는 엄격했던 비대칭은 봉합됨: 잘림을 유발하는 장황함이 바로 control char를 만드는 원인이라 두 결함은 **동반 발생**하고, 엄격 파싱은 회수 가능한 스텝을 전부 버렸다. ④**JSON-only 재발행**: 그래도 0 step이면 프로즈 금지 리마인더를 붙여 1회 재요청. 각 실패는 원문과 함께 `recordPlanParseFailure`로 영속(사후 진단 가능).
 - P2 steps를 **기존 todos로 등록**(계약 통합) → TUI 단일 계획·council 계약 연결. 메인 에이전트는 이를 **이어서 갱신**(통째 replace 금지, findings 주입 메시지로 지시).
 - P3 `parallel` = 미리 아는 read-only 조사 그룹 병렬. `scout` = **솔로** explorer로 work-list 확보 → 각 항목을 **병렬**(적응형: fan-out 대상이 런타임 발견). dispatch는 read-only explorer(`explore|locator`)만 — bash 없는 익스플로러라 실행(ssh·명령·원격) 필요 조사는 solo.
 - P4 **계획 감사 게이트(심각도 게이팅)**: 절차가 **멀티스텝(2+)**이면 실행 전 council이 *절차*를 감사 — `Phase=plan`. 각 위원은 revise(continue) 시 결함의 **심각도**를 표기: `critical`(이대로면 실패/오답/위험) · `warn`(개선 권고) · `info`(사소). **블로킹은 critical만**(veto — **한 명이라도 critical이면 차단**; 합의규칙 Tally가 아니라 critical 유무로 판정). 누락/불명 심각도 → `warn`(비블로킹)으로 정규화.
   - **critical 있음** → 그 critical 피드백(`CriticalFeedback`)을 **planner 재계획**으로 라우팅(메인 세션 주입 아님), **종료 게이트와 공유하는 `CouncilMaxRounds`**(기본 3) 초과 → 강제 진행(note).
+  - **재작성된 플랜은 반드시 다시 심의된다**(`MAGI_PLAN_CONVERGE` 기본 ON = 수렴 판사 `JudgeRevision` 작동; `MAGI_PLAN_CONVERGE_STOP` 기본 OFF): 판사가 리비전이 concern을 다뤘는지(`addressed`) 판정하고 그 결과를 `PlanRevised` fact로 남기되, **어느 쪽이든 교체본은 다음 라운드에서 전체 카운슬이 재심의**한다. 판정이 `addressed=no`여도 그 리비전을 **채택하고 끝내지 않는다** — 재작성은 교체 대상보다 **나쁠 수 있고**(실측: 구체적 산출 스텝을 잃은 재작성), 그것은 스텝 수 같은 구조적 프록시로 판별 불가(**개수가 같아도 퇴화**한다). 비용은 라운드 캡이 이미 바운드하며(캡 도달 exit이 criteria·check를 저장하고 진행), 벽시계를 더 쓰더라도 **심의 안 거친 플랜이 실행되지 않게** 하는 쪽을 택한 것. 재심의 라운드에는 **변경 맥락**(`DeliberationRequest.Revision` — 요구된 concern·이전 플랜·플래너가 밝힌 변경사유·판사 판정)이 함께 전달돼 위원이 델타를 보고 퇴화를 짚을 수 있다. `MAGI_PLAN_CONVERGE_STOP=1`이면 구 동작(미해결 리비전에서 조기 종료·무심의 채택)으로 롤백.
   - **critical 없음** → **승인·진행**(재플랜 루프 없음). warn/info 피드백(`AdvisoryFeedback`)이 있으면 **실행 에이전트가 보도록 시스템 메시지로 1회 주입**(`injectCouncilAdvice`) — 듣고 반영 기대, 비블로킹. (옵션 `[council] plan_absorb`=on이면 planner가 조언을 1회 흡수해 plan 자체를 갱신; 기본 off.)
   - **단일 step·workflow 모드는 감사 스킵**. diff/report/signal 없음(plan 전용 멤버 프롬프트; steps의 구체적 결함만 revise — 검증/수용 기준·테스트·verify 스텝 미명시는 결함 아님, 그건 `criteria` 소관). 비-critical 조언은 **criteria(아래 P6)로 종료 게이트가 검증**.
 - P6 **완료기준 도출(계약)**: 계획 감사에서 각 위원이 approve/revise와 함께 자기 렌즈의 **완료기준**(기대 산출물·검증/테스트 지침)을 제안 → 순수 `council.MergeCriteria`(trim·dedup·cap)로 합성 → **승인/강제승인된 plan**의 기준을 그 턴의 `a.criteria`에 저장(재계획 시 최종 plan 것으로 덮어씀, 빈 결과는 미저장). 종료 게이트는 이 캐시를 **계약으로 항상 사용**(plan턴); plan 없는/단일 step 턴은 기존 `[council] criteria` opt-in elicit. D15 acceptance-criteria 아티팩트로 관찰. 결과는 `council.decided`(plan)에 `criteria`로 노출.
@@ -438,6 +440,8 @@ plan-audit-criteria-1: 승인 plan의 위원 제안 기준 합성 ⇒ a.criteria
 plan-audit-warn-1:    revise가 warn/info뿐 ⇒ 재플랜 없이 진행 + 조언 시스템 주입   (P4)
 plan-audit-critical-1: critical revise ⇒ critical 피드백 ⇒ planner 재계획          (P4)
 plan-audit-cap-1:     연속 critical ⇒ CouncilMaxRounds 도달 ⇒ 강제 진행(note)
+plan-audit-rereview-1: 재계획 ⇒ addressed=no여도 교체본을 다음 라운드 재심의(무심의 채택 금지) (P4)
+plan-audit-revctx-1:  재심의 라운드 ⇒ Revision(이전 플랜·concern·변경사유·판사판정) 전달 ⇒ 퇴화 판별 (P4)
 ```
 
 ## F-PLAN-REC (루프 트랙) — 재귀·계층 분해 delegate/refine + 재귀 정책(D18)

@@ -192,7 +192,8 @@ runVerifyCmd 타임아웃**에서 각각 바운드된다 — 어느 것도 턴 �
 | `MAGI_WAIT_GUARD` | ON | 대기(`wait_for`) 중 가드 관용 |
 | `MAGI_REFINE` · `MAGI_REFINE_SHARED` | ON | 리파인 패턴 · 세션 공유 |
 | `MAGI_ADAPT` | ON | ADaPT 반응형 재분해 |
-| `MAGI_PLAN_CONVERGE` · `MAGI_STALL_CONVERGE` | ON | 플랜/정체 수렴 가속 |
+| `MAGI_PLAN_CONVERGE` · `MAGI_STALL_CONVERGE` | ON | 플랜/정체 수렴 판정(리비전이 concern을 다뤘나 판사 판정 + 기록) |
+| `MAGI_PLAN_CONVERGE_STOP` | OFF | 켜면 구 동작: 미해결 리비전에서 조기 종료하고 그 교체본을 **무심의 채택**. 기본(OFF)은 교체본을 전체 카운슬이 재심의 |
 | `MAGI_SOLO_AUDIT` · `MAGI_CHECKPOINT_FIRST` · `MAGI_STEP_CONTEXT` · `MAGI_ASYNC_EXPLORERS` | ON | 솔로 감사 · 체크포인트 우선 · 스텝 컨텍스트 · 비동기 탐색 |
 | `MAGI_EXITCODE_BODYSCAN` | ON | bash exit-0 크래시/마스킹 주석 (`tool/builtin`) |
 | `MAGI_REPEAT_CAP` | ON | degenerate 반복(같은 문장/단어 무한) 안전망 (`provider_guard`) |
