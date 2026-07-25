@@ -22,6 +22,22 @@ func TestParseSpecMine(t *testing.T) {
 	}
 }
 
+// A mined value that contains an UNbalanced brace inside its string ("use } to close a block", "dict
+// is { key") must still parse — the whole distilled result was previously lost because the extractor
+// tracked brace depth without respecting string literals, so a lone } inside a value closed the
+// object early. balancedObjects respects strings, so the result now survives.
+func TestParseSpecMineBraceInStringValue(t *testing.T) {
+	for _, blob := range []string{
+		`{"lines":[{"surface":"block","requirement":"use } to close a block","construct":"syntax"}],"final":"ok"}`,
+		`{"lines":[{"surface":"dict","requirement":"a value like { key: val opens a map","construct":"map"}],"final":"ok"}`,
+	} {
+		res, got := parseSpecMine(blob)
+		if !got || len(res.Lines) != 1 || res.Final != "ok" {
+			t.Fatalf("brace-in-string value must still parse: got=%v %+v\nblob=%s", got, res, blob)
+		}
+	}
+}
+
 // The rendered note is code-capped at five lines and carries the single final
 // recommendation on a USE: line.
 func TestSpecMineRenderCap(t *testing.T) {

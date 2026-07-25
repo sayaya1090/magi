@@ -242,28 +242,31 @@ func (a *App) specMineCallMsgs(ctx context.Context, spec AgentSpec, sid session.
 }
 
 // parseSpecMine extracts the first balanced {...} JSON object and unmarshals it.
+// parseSpecMine extracts the distilled JSON object from a reply that may wrap it in prose or
+// reasoning. It scans EVERY top-level balanced object (balancedObjects, which respects strings and
+// escapes) and takes the first that unmarshals into a result with mined lines; else the first that
+// unmarshals at all; else none. A hand-rolled first-`{`-to-matching-`}` depth scan that ignored
+// string literals lost the whole result whenever a mined value contained an UNbalanced brace (e.g.
+// "use } to close a block", "dict is { key: val") — exactly the code/shape strings spec-mining emits.
 func parseSpecMine(text string) (specMineResult, bool) {
-	var res specMineResult
-	start := strings.Index(text, "{")
-	if start < 0 {
-		return res, false
-	}
-	depth := 0
-	for i := start; i < len(text); i++ {
-		switch text[i] {
-		case '{':
-			depth++
-		case '}':
-			depth--
-			if depth == 0 {
-				if json.Unmarshal([]byte(text[start:i+1]), &res) == nil {
-					return res, true
-				}
-				return res, false
-			}
+	var firstValid *specMineResult
+	for _, js := range balancedObjects(text) {
+		var res specMineResult
+		if json.Unmarshal([]byte(js), &res) != nil {
+			continue // not JSON, or not the result shape — try the next object
+		}
+		if len(res.Lines) > 0 {
+			return res, true // a mined result wins immediately
+		}
+		if firstValid == nil {
+			rr := res
+			firstValid = &rr
 		}
 	}
-	return res, false
+	if firstValid != nil {
+		return *firstValid, true
+	}
+	return specMineResult{}, false
 }
 
 // storeSpecMine caches this turn's mined note so the termination council can see the
