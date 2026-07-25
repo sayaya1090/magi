@@ -90,6 +90,49 @@ func TestForkCopiesHistoryIndependently(t *testing.T) {
 	}
 }
 
+// Fork at a mid-point upToSeq copies EXACTLY the events with seq <= upToSeq (a prefix), in order and
+// with their seq NUMBERS preserved — a prefix copy re-numbers to the same 1..N, which is what keeps a
+// compaction event's ReplacesUpToSeq pointing at the same logical event on the branch. Fork(…, 0) means
+// "everything" (no upper bound), so a partial fork must copy strictly fewer events than the whole.
+func TestForkPartialPrefixPreservesSeq(t *testing.T) {
+	a, wd := newApp(t, &fakeLLM{}, Config{})
+	ctx := context.Background()
+	sid := startSession(t, a, wd)
+	runOn(t, a, sid, "a task")
+	orig, _ := a.store.Read(ctx, sid, 0)
+	if len(orig) < 3 {
+		t.Skipf("need >=3 events to fork at a mid-point, got %d", len(orig))
+	}
+	cut := orig[len(orig)/2].Seq // a mid-point seq boundary
+
+	fork, err := a.Fork(ctx, sid, cut)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fe, _ := a.store.Read(ctx, fork, 0)
+
+	want := 0
+	for _, e := range orig {
+		if e.Seq <= cut {
+			want++
+		}
+	}
+	if len(fe) == 0 || len(fe) != want || len(fe) >= len(orig) {
+		t.Fatalf("partial fork has %d events, want the %d with seq<=%d (and < %d total)", len(fe), want, cut, len(orig))
+	}
+	for i, e := range fe {
+		if e.Seq > cut {
+			t.Errorf("partial fork copied an event past upToSeq: seq %d > %d", e.Seq, cut)
+		}
+		if e.Seq != orig[i].Seq {
+			t.Errorf("fork event %d seq %d != origin seq %d — a prefix copy must preserve seq numbering", i, e.Seq, orig[i].Seq)
+		}
+	}
+	if fe[0].Type != event.TypeSessionCreated {
+		t.Error("a partial fork must still start with session.created")
+	}
+}
+
 func TestReplayForksBeforeLastTurn(t *testing.T) {
 	a, wd := newApp(t, &fakeLLM{}, Config{})
 	ctx := context.Background()
