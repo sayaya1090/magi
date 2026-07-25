@@ -226,6 +226,32 @@ func TestReviewSubstitutionsRefusesRanFailed(t *testing.T) {
 	}
 }
 
+// A substitution whose ORIGINAL check RAN with exit 0 but whose Expect assertion did NOT match the
+// output is a real deliverable failure (the check ran, its assertion failed) — NOT a broken check — so
+// it must be refused like any ran-and-failed original, not substituted away. Locks the Passes(Expect)
+// branch of the necessity guard, distinct from the non-zero-exit path the other ranFailed test covers.
+func TestReviewSubstitutionsRefusesExitZeroExpectMismatch(t *testing.T) {
+	t.Setenv("MAGI_SUBST_REVIEW", "1")
+	ctx := context.Background()
+	fc := &fakeCouncil{delibs: []council.Deliberation{{Decision: council.Done, Verdicts: []council.Verdict{{Decision: council.Done}}}}}
+	// scriptPlatform returns exit 0 with stdout "verify output"; the check's Expect cannot match it.
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{codes: []int{0}}, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
+	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Command: "grep foo out", Expect: "MUST_APPEAR"}})
+	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "grep foo out", Command: "true", Reason: "dodging the assertion"})
+
+	s := a.sessionInfo(ctx, sid)
+	act, looped := a.reviewSubstitutions(ctx, turnCtx{s: s, guard: newRunGuard(), depth: 0, maxSteps: 50}, new(int))
+	if !looped || act != loopContinue {
+		t.Fatalf("an exit-0-but-Expect-mismatch original must loop the agent (real assertion failure), got act=%v looped=%v", act, looped)
+	}
+	if fc.calls != 0 {
+		t.Fatalf("an assertion failure (not a broken check) must NOT convene the substitution council, calls=%d", fc.calls)
+	}
+	if got := a.cachedChecks(sid); got[0].Command != "grep foo out" {
+		t.Fatalf("the failing original must NOT be substituted away, got %q", got[0].Command)
+	}
+}
+
 // A mixed report — one substitution whose original is genuinely unrunnable (justified) and one whose
 // original ran and FAILED (must be refused) — loops the agent for the failure but KEEPS the justified
 // substitution pending, so it is not lost.
