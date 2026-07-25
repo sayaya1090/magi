@@ -45,11 +45,16 @@ const elicitSpecMineSystem = "You read a coding request and work out, BEFORE any
 	"CLASSIFY each finding by HOW it must be honored, because the difference decides whether a checker " +
 	"asserts it literally or by behavior: a FIXED identifier or value the request names (a message/service/" +
 	"function NAME, a port, a filename, a pinned version) is HARD — match it verbatim; a SAMPLE it gives (an " +
-	"input→output pair) is an EXAMPLE — reproduce that behavior; a structure, type, or behavior it only " +
-	"DESCRIBES in prose (a field of some type, a return value, a format) is SEMANTIC — satisfy the meaning " +
-	"and verify it by EFFECT (build/run/inspect), never by demanding a particular source spelling of the " +
-	"prose. Treating a SEMANTIC description as if it were a HARD literal (asserting the prose's exact wording " +
-	"in the source) forces correct code into a fabricated shape — when unsure, prefer SEMANTIC.\n" +
+	"input→output pair) is an EXAMPLE — reproduce that behavior, and capture the ACTUAL input and expected " +
+	"output VERBATIM in the requirement (e.g. `input 208 → output 377`) so it can be reproduced and checked " +
+	"exactly; a structure, type, or behavior it only DESCRIBES in prose (a field of some type, a return " +
+	"value, a format) is SEMANTIC — satisfy the meaning and verify it by EFFECT (build/run/inspect), never by " +
+	"demanding a particular source spelling of the prose. Also call out what the request LEAVES FREE — an " +
+	"aspect it does NOT pin (the source layout, an internal helper's name, the field-declaration syntax, the " +
+	"algorithm) is UNCONSTRAINED: note it so nothing downstream invents a constraint the task never stated. " +
+	"Treating a SEMANTIC description or an UNCONSTRAINED aspect as if it were a HARD literal (asserting the " +
+	"prose's exact wording in the source) forces correct code into a fabricated shape — when unsure, prefer " +
+	"SEMANTIC over HARD, and mark a genuinely open aspect UNCONSTRAINED.\n" +
 	"CRITICAL — do NOT treat a name that a compiler, code generator, or language convention DERIVES from " +
 	"the request as a fixed literal to preserve. A generated module/file name, or an identifier a tool " +
 	"sanitizes (a hyphenated `.proto` filename yields an UNDERSCORED Python module; `protoc`/`grpc_tools` " +
@@ -65,15 +70,18 @@ const elicitSpecMineSystem = "You read a coding request and work out, BEFORE any
 // rule are enforced here (and again in code).
 const distillSpecMineSystem = "You distill a working analysis into its final conclusions. From the analysis " +
 	"given, keep ONLY the highest-stakes findings and output ONLY a JSON object, no prose, no code fence:\n" +
-	`{"lines":[{"surface":"...","requirement":"...","construct":"...","kind":"hard|example|semantic"}],"final":"..."}` + "\n" +
+	`{"lines":[{"surface":"...","requirement":"...","construct":"...","kind":"hard|example|semantic|unconstrained"}],"final":"..."}` + "\n" +
 	"Rules: at most 5 lines. Each construct names a concrete language/stdlib construct. Each line's `kind` " +
 	"says HOW its requirement must be honored: `hard` = a FIXED identifier or value the grader checks " +
 	"literally (a message/service/RPC/function NAME, a port, a filename, a pinned version) — match it " +
 	"verbatim; `example` = a SAMPLE the task gives (an input→output pair, a reference row) — reproduce that " +
-	"exact behavior; `semantic` = a structure/type/behavior DESCRIBED in prose (a field of some type, a " +
-	"format, what a call returns) — satisfy its MEANING and verify by EFFECT (build/run/inspect the produced " +
-	"artifact), NOT by any particular source spelling. When unsure, use `semantic` (the safe default that " +
-	"never forces a made-up surface form onto correct code). \"final\" is ONE sentence naming the winning " +
+	"exact behavior, and put the ACTUAL input and expected output VERBATIM in `requirement` (e.g. `208 → " +
+	"377`); `semantic` = a structure/type/behavior DESCRIBED in prose (a field of some type, a format, what " +
+	"a call returns) — satisfy its MEANING and verify by EFFECT (build/run/inspect the produced artifact), " +
+	"NOT by any particular source spelling; `unconstrained` = an aspect the task does NOT pin (source layout, " +
+	"an internal name, the declaration syntax, the algorithm) — record it so nothing downstream asserts it. " +
+	"When unsure, use `semantic` (the safe default that never forces a made-up surface form onto correct " +
+	"code). \"final\" is ONE sentence naming the winning " +
 	"construct(s) — SINGLE and unconditional: where the analysis argued both ways, pick the winner and DROP " +
 	"every caveat against it (a reader under pressure follows the escape hatch, not the advice). Do not " +
 	"restate what the original request's prose already says. If the analysis concluded nothing beyond the " +
@@ -154,6 +162,8 @@ func specKind(s string) string {
 		return "hard"
 	case "example", "sample":
 		return "example"
+	case "unconstrained", "free", "open", "unspecified":
+		return "unconstrained"
 	default:
 		return "semantic"
 	}
@@ -255,10 +265,13 @@ func specMineNote(mined string) string {
 	return "# Execution note — what this task needs (its identifiers, types, and prerequisites)\n" +
 		"Worked out from the request's own names, type signatures, and stated dependencies (not its prose). " +
 		"Each line is tagged by HOW to honor it: ⟨hard⟩ = a fixed identifier/value — match it verbatim; " +
-		"⟨example⟩ = a sample input→output — reproduce that behavior exactly; ⟨semantic⟩ = a described " +
-		"structure/type/behavior — satisfy its MEANING and verify by EFFECT (build/run/inspect), NEVER by " +
-		"forcing a particular source spelling (a ⟨semantic⟩ 'field key of type string' is met by the built " +
-		"artifact having that field, not by the source literally containing the words). Prefer the named " +
+		"⟨example⟩ = a sample input→output — reproduce that behavior exactly (the literal I/O is in the line); " +
+		"⟨semantic⟩ = a described structure/type/behavior — satisfy its MEANING and verify by EFFECT (build/" +
+		"run/inspect), NEVER by forcing a particular source spelling (a ⟨semantic⟩ 'field key of type string' " +
+		"is met by the built artifact having that field, not by the source literally containing the words); " +
+		"⟨unconstrained⟩ = an aspect the task does NOT pin (source layout, an internal name, the algorithm) — " +
+		"you are FREE to choose it, so do not treat it as a requirement and do not let any check assert it. " +
+		"Prefer the named " +
 		"standard construct over hand-rolling; and CHECK each prerequisite below is actually present, " +
 		"provisioning what is missing BEFORE you rely on it. A name a tool or language DERIVES (a generated " +
 		"module/file, a sanitized identifier — e.g. a hyphenated `.proto` filename becomes an UNDERSCORED " +
