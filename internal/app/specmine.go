@@ -60,7 +60,11 @@ const elicitSpecMineSystem = "You read a coding request and work out, BEFORE any
 	"importance does NOT make it hard: 'parse the ELF header', 'output JSON with these fields', 'sort the " +
 	"results', 'return an int' are all SEMANTIC (satisfied by the running artifact, not by matching source " +
 	"text). Default to SEMANTIC; reach for HARD only when you can point to the exact literal the task wrote " +
-	"and a grader will compare byte-for-byte, and mark a genuinely open aspect UNCONSTRAINED.\n" +
+	"and a grader will compare byte-for-byte, and mark a genuinely open aspect UNCONSTRAINED. And when a " +
+	"fixed value sits INSIDE a larger string whose shape the task did NOT dictate — a port inside a bind " +
+	"address (the interface part, `[::]` vs `0.0.0.0` vs a hostname, is the implementer's choice), a name " +
+	"inside a URL, a value inside a connection string — only the value the task fixed is HARD; the enclosing " +
+	"format is UNCONSTRAINED, so do NOT promote the whole string to a verbatim literal.\n" +
 	"CRITICAL — do NOT treat a name that a compiler, code generator, or language convention DERIVES from " +
 	"the request as a fixed literal to preserve. A generated module/file name, or an identifier a tool " +
 	"sanitizes (a hyphenated `.proto` filename yields an UNDERSCORED Python module; `protoc`/`grpc_tools` " +

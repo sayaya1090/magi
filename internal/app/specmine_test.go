@@ -134,3 +134,20 @@ func TestSpecMinePromptsNarrowHard(t *testing.T) {
 		}
 	}
 }
+
+// A fixed value inside a larger string the task didn't shape (a port inside a bind address, a name in a
+// URL) must not promote the WHOLE string to hard — only the value is hard, the enclosing format is the
+// implementer's choice. Grounds the over-hard fix observed live (a bind address classified verbatim).
+func TestSpecMinePromptEnclosingFormatNotHard(t *testing.T) {
+	for _, want := range []string{"INSIDE a larger string", "bind address", "the enclosing", "UNCONSTRAINED"} {
+		if !strings.Contains(elicitSpecMineSystem, want) {
+			t.Errorf("classification prompt must keep an enclosing format unconstrained (missing %q)", want)
+		}
+	}
+	// Task-agnostic: `[::]` / `0.0.0.0` are generic networking, but a concrete eval-set port must not leak.
+	for _, banned := range []string{"5328", "KVStore", "kv-store"} {
+		if strings.Contains(elicitSpecMineSystem, banned) {
+			t.Errorf("prompt leaks an eval-set token %q", banned)
+		}
+	}
+}
