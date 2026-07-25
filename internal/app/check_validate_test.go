@@ -94,6 +94,26 @@ func TestValidateChecksPromptRespectsToolDerivedNames(t *testing.T) {
 	}
 }
 
+// A check must verify a prose-described structure/behavior by its EFFECT (compile/run and inspect the
+// produced type), not by grepping the SOURCE for the task's wording or an invented pseudo-notation of
+// it. Observed (kv-store-grpc): the plan-audit encoded "a message with a key (string) field" as a
+// literal source grep `GetValRequest <key: string>` plus `^service X$` — patterns no valid proto3
+// contains — so the agent contorted the source toward a fabricated shape for ~30 actions. Guards the
+// SEMANTICS clause with task-agnostic tokens (no eval-set identifiers).
+func TestValidateChecksPromptForbidsSourceNotationAssertion(t *testing.T) {
+	for _, want := range []string{"SEMANTICS, not source spelling", "<field: type>", "^service X$", "source layout"} {
+		if !strings.Contains(validateChecksSystem, want) {
+			t.Errorf("validateChecksSystem must forbid asserting source spelling over semantics (missing %q)", want)
+		}
+	}
+	// The clause states the general principle; it must not smuggle the eval-set's own identifiers.
+	for _, banned := range []string{"KVStore", "GetVal", "GetValRequest", "kv-store"} {
+		if strings.Contains(validateChecksSystem, banned) {
+			t.Errorf("validateChecksSystem leaks an eval-set token %q — keep the SEMANTICS example task-agnostic", banned)
+		}
+	}
+}
+
 // A python check must treat a non-stdlib MODULE as it treats a missing shell tool: pkg_resources
 // (removed from modern setuptools, absent on minimal images) false-fails a correctly installed
 // package. Both check-authoring prompts must steer version checks to importlib.metadata / __version__.
