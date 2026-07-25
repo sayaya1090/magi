@@ -152,6 +152,26 @@ func TestNoteEditOscillation(t *testing.T) {
 	}
 }
 
+// TestNoteEditWarnsOncePerFileButRegressesEverySwing: the human-facing warning fires at most once per
+// file (a repeated nudge can itself push a weak model to keep thrashing), but the regressed SIGNAL must
+// stay true on EVERY swing so the caller keeps withholding progress credit and an implement↔revert
+// oscillation cannot dodge the stall force-stop by silently stopping to be flagged.
+func TestNoteEditWarnsOncePerFileButRegressesEverySwing(t *testing.T) {
+	g := newRunGuard()
+	const path = "a.go"
+	if w, r := g.noteEdit(path, "orig", "A"); w != "" || r {
+		t.Fatalf("forward edit: want (\"\", false), got (%q, %v)", w, r)
+	}
+	// First revert (back to the baseline): warns AND regresses.
+	if w, r := g.noteEdit(path, "A", "orig"); w == "" || !r {
+		t.Fatalf("first revert: want a warning + regressed=true, got (%q, %v)", w, r)
+	}
+	// Swing back to a state already seen: the warning is now suppressed, but it is STILL a regression.
+	if w, r := g.noteEdit(path, "orig", "A"); w != "" || !r {
+		t.Fatalf("second swing: want (\"\", true) — warn once, regress every swing — got (%q, %v)", w, r)
+	}
+}
+
 // TestNoteEditForwardProgress: distinct new states never warn.
 func TestNoteEditForwardProgress(t *testing.T) {
 	g := newRunGuard()
