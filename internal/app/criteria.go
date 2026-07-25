@@ -137,7 +137,9 @@ const coverageFillSystem = "You author executable deliverable `checks` that veri
 	"`fuser`, `jq`, ... are examples of the class, not an exhaustive list) — a 127 then false-fails a correct deliverable " +
 	"forever. Do the check with a python3 primitive instead: a port via a dependency-free socket connect, a process's " +
 	"liveness via `os.kill(pid, 0)` or reading `/proc`, JSON via python's `json` — never by shelling to a process/" +
-	"network/parse utility that may not be installed.\n" +
+	"network/parse utility that may not be installed. A non-stdlib python MODULE can be absent too: do NOT use " +
+	"`pkg_resources` (removed from modern setuptools) for a version — use `importlib.metadata.version('pkg')` or the " +
+	"module's `__version__`, or just assert the import works.\n" +
 	"- IDEMPOTENT, NO STATE CHANGE (work≠check): verify the already-produced artifact READ-ONLY; NEVER create/build/" +
 	"download/move/delete it (a check that re-does the work traps the run in a redo loop).\n" +
 	"- A pure investigation/read-only step (it writes no artifact) needs NO check — do NOT invent one for it.\n" +
@@ -219,6 +221,11 @@ const validateChecksSystem = "You review the executable deliverable `checks` a p
 	"`/usr/bin/pip3` — the same tool lives at `/usr/local/bin/pip3` or a venv/pyenv shim on another image, so an " +
 	"absolute path false-fails on the machine it was not written for. Strip any leading `/usr/bin/`, `/usr/local/bin/` " +
 	"from a tool the PATH already resolves.\n" +
+	"  · A python3 check is portable ONLY through the standard library and the task's own dependencies — a " +
+	"non-stdlib MODULE can be absent just like a missing shell tool. `pkg_resources` is the common trap (removed " +
+	"from modern setuptools, absent on minimal images), so a version check via `pkg_resources.get_distribution(...)` " +
+	"false-fails a correctly installed package. Read a version with `importlib.metadata.version('pkg')` (stdlib since " +
+	"3.8) or the module's own `__version__`; assert import/usability, not a distribution lookup.\n" +
 	"- TOOL-DERIVED NAMES: when a check greps for or stats a file a code generator EMITS, use the name the tool " +
 	"ACTUALLY produces, not the request's raw spelling. `protoc`/`grpc_tools` sanitize a hyphenated `.proto` into an " +
 	"UNDERSCORED module — a `data-feed.proto` yields `data_feed_pb2.py`, never `data-feed_pb2.py` — so a check demanding " +

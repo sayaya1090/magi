@@ -94,6 +94,30 @@ func TestValidateChecksPromptRespectsToolDerivedNames(t *testing.T) {
 	}
 }
 
+// A python check must treat a non-stdlib MODULE as it treats a missing shell tool: pkg_resources
+// (removed from modern setuptools, absent on minimal images) false-fails a correctly installed
+// package. Both check-authoring prompts must steer version checks to importlib.metadata / __version__.
+// Observed: a magi-authored "grpcio installed at 1.73.0" check used pkg_resources and false-failed
+// (internal UNVERIFIED) though the external verifier passed. Task-agnostic (pkg_resources is a general
+// Python trap, not an eval-set token).
+func TestPortableClauseCoversPythonModules(t *testing.T) {
+	for _, sys := range []struct{ name, text string }{
+		{"validateChecksSystem", validateChecksSystem},
+		{"coverageFillSystem", coverageFillSystem},
+	} {
+		for _, want := range []string{"pkg_resources", "importlib.metadata"} {
+			if !strings.Contains(sys.text, want) {
+				t.Errorf("%s PORTABLE clause must cover absent python modules (missing %q)", sys.name, want)
+			}
+		}
+		for _, banned := range []string{"grpcio", "kv-store", "1.73.0"} {
+			if strings.Contains(sys.text, banned) {
+				t.Errorf("%s leaks an eval-set token %q — keep the example task-agnostic", sys.name, banned)
+			}
+		}
+	}
+}
+
 // The PORTABLE clause must be stated as a PRINCIPLE, not an enumeration: any tool outside the
 // guaranteed set may be absent and exit 127, and process-liveness must be checked with a python3
 // primitive (os.kill / /proc), not a process utility. Guards against the pgrep-127 regression
