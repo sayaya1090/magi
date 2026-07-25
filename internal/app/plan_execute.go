@@ -139,6 +139,20 @@ func (a *App) forceDelegateSteps(steps []planStep) []planStep {
 	if len(names) == 0 {
 		return steps
 	}
+	// Spawn budget (plan-driven twin of the dispatch note): once this turn has already delegated past
+	// the soft budget, STOP rewriting solo steps into delegates. Delegation is needed early to exceed a
+	// single agent's context ceiling, but a re-plan after over-spawning that re-delegates everything
+	// just fragments the context across more workers and rarely rescues a stuck task — so keep the
+	// steps solo and let the main agent do the work directly. Same soft budget as dispatchBudgetNote.
+	if !envOff("MAGI_SPAWN_BUDGET") {
+		soft := a.cfg.MaxAgents / 4
+		if soft < 4 {
+			soft = 4
+		}
+		if int(a.spawnCount.Load()) >= soft {
+			return steps
+		}
+	}
 	for i := range steps {
 		if steps[i].Strategy == "solo" {
 			steps[i].Strategy = "delegate"
