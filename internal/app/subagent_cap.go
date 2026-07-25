@@ -73,6 +73,9 @@ func (l *llmLatencies) avg(model string) time.Duration {
 }
 
 func meanDur(r []time.Duration) time.Duration {
+	if len(r) == 0 {
+		return 0 // guard the division: today's callers pre-check, but an empty slice must not panic
+	}
 	var sum time.Duration
 	for _, d := range r {
 		sum += d

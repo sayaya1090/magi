@@ -5,6 +5,20 @@ import (
 	"time"
 )
 
+// meanDur averages the samples, and an EMPTY slice returns 0 rather than panicking on a
+// divide-by-zero — the callers pre-check today, but the guard keeps a future one from panicking.
+func TestMeanDur(t *testing.T) {
+	if got := meanDur(nil); got != 0 {
+		t.Errorf("meanDur(nil) = %v, want 0 (no panic)", got)
+	}
+	if got := meanDur([]time.Duration{}); got != 0 {
+		t.Errorf("meanDur(empty) = %v, want 0", got)
+	}
+	if got := meanDur([]time.Duration{10 * time.Second, 20 * time.Second, 30 * time.Second}); got != 20*time.Second {
+		t.Errorf("meanDur = %v, want 20s", got)
+	}
+}
+
 // attemptCap: base when unobserved; K×avg inside the elastic band; clamped to
 // [base/2, base×3] outside it; per-model samples win over the global fallback.
 func TestAttemptCapElastic(t *testing.T) {
