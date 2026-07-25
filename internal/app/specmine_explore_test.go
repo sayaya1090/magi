@@ -89,3 +89,22 @@ func TestExploreSpecMineNoOps(t *testing.T) {
 		t.Errorf("disabled flag must not inject, got %q", got)
 	}
 }
+
+// The exploration prompt enforces accuracy over volume: report only what was actually read, never
+// invent contents, and check that field sizes sum to a measured record length — the fix for the
+// observed errors (a record size off by arithmetic, an invented sample row) that "use verbatim" then
+// pushed the worker to trust. And the injected note softens "verbatim" for DERIVED facts (sizes/
+// contents), telling the worker to trust its own read of the file over the pass's reading.
+func TestSpecMineExploreAccuracyDiscipline(t *testing.T) {
+	for _, want := range []string{"ACCURACY over volume", "actually READ", "MUST sum to the record length", "did not open"} {
+		if !strings.Contains(specMineExploreSystem, want) {
+			t.Errorf("exploration prompt must enforce read-grounded accuracy (missing %q)", want)
+		}
+	}
+	// Task-agnostic — no eval-set identifiers baked into the prompt.
+	for _, banned := range []string{"ACCOUNTS.DAT", "program.cbl", "cobol"} {
+		if strings.Contains(strings.ToLower(specMineExploreSystem), strings.ToLower(banned)) {
+			t.Errorf("exploration prompt leaks an eval-set token %q", banned)
+		}
+	}
+}
