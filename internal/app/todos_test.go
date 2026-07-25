@@ -232,3 +232,23 @@ func TestFormatTodosCancelled(t *testing.T) {
 		t.Errorf("formatTodos = %q, want %q", s, want)
 	}
 }
+
+// formatTodos maps each known status to its mark, joins with newlines, renders an empty plan as "",
+// and falls back to the pending "[ ]" mark for an unknown/blank status — so a future status value the
+// map doesn't cover degrades to a neutral box rather than a blank line.
+func TestFormatTodosMappingAndFallback(t *testing.T) {
+	if got := formatTodos(nil); got != "" {
+		t.Errorf("empty plan must render as \"\", got %q", got)
+	}
+	got := formatTodos([]session.Todo{
+		{Content: "a", Status: "completed"},
+		{Content: "b", Status: "in_progress"},
+		{Content: "c", Status: "pending"},
+		{Content: "d", Status: "somethingnew"}, // unknown → falls back to the pending box
+		{Content: "e", Status: ""},             // blank → same fallback
+	})
+	want := "[x] a\n[~] b\n[ ] c\n[ ] d\n[ ] e"
+	if got != want {
+		t.Errorf("formatTodos mapping/fallback:\n got %q\nwant %q", got, want)
+	}
+}
