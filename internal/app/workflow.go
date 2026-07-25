@@ -280,12 +280,18 @@ func (a *App) lastSeq(ctx context.Context, sid session.SessionID) int64 {
 }
 
 // fileEditsSince reports whether any successful file-modifying tool result was
-// appended after fromSeq (used by the implement gate).
+// appended after fromSeq (used by the implement gate). It requires the edit to have
+// SUCCEEDED: a write/edit/multiedit CALL that errored (a bad old_string, a write to a
+// forbidden path) leaves the file unchanged, so counting the mere call would pass the
+// implement gate on an attempt that changed nothing — and, with no deterministic verifier,
+// let REVIEW/SUMMARIZE claim success over an unmodified tree. So we correlate each
+// file-modifier call to its result by CallID and count only a non-error result.
 func (a *App) fileEditsSince(ctx context.Context, sid session.SessionID, fromSeq int64) bool {
 	evs, err := a.store.Read(ctx, sid, fromSeq)
 	if err != nil {
 		return false
 	}
+	modCall := map[string]bool{} // CallID → is a file-modifying tool call
 	for _, e := range evs {
 		if e.Seq <= fromSeq || e.Type != event.TypePartAppended {
 			continue
@@ -294,8 +300,15 @@ func (a *App) fileEditsSince(ctx context.Context, sid session.SessionID, fromSeq
 		if json.Unmarshal(e.Data, &d) != nil {
 			continue
 		}
-		if d.Part.Kind == session.PartToolCall && d.Part.ToolCall != nil && fileModifiers[d.Part.ToolCall.Name] {
-			return true
+		switch d.Part.Kind {
+		case session.PartToolCall:
+			if d.Part.ToolCall != nil && fileModifiers[d.Part.ToolCall.Name] {
+				modCall[d.Part.ToolCall.CallID] = true
+			}
+		case session.PartToolResult:
+			if r := d.Part.ToolResult; r != nil && !r.IsError && modCall[r.CallID] {
+				return true // a file-modifying call that actually SUCCEEDED
+			}
 		}
 	}
 	return false

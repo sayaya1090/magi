@@ -12,6 +12,7 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 	"github.com/sayaya1090/magi/internal/core/bus"
 	"github.com/sayaya1090/magi/internal/core/command"
+	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
@@ -203,4 +204,34 @@ func contains2(xs []string, v string) bool {
 		}
 	}
 	return false
+}
+
+// fileEditsSince (the implement gate) counts a file edit only when the write/edit/multiedit call
+// actually SUCCEEDED — a call whose result is an error (bad old_string, forbidden path) left the tree
+// unchanged and must not pass the gate. Otherwise, with no deterministic verifier, an attempt that
+// changed nothing would advance to REVIEW/SUMMARIZE and claim success over an unmodified tree.
+func TestFileEditsSinceRequiresSuccessfulResult(t *testing.T) {
+	a, sid, _ := newWorkflowApp(t, nil, nil, Config{Permission: "allow"})
+	ctx := context.Background()
+	base := a.lastSeq(ctx, sid)
+	appendPart := func(p session.Part) {
+		d, _ := json.Marshal(event.PartAppendedData{MessageID: "m", Role: session.RoleAssistant, Part: p})
+		if err := a.appendFact(ctx, sid, event.TypePartAppended, event.Actor{}, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// A file-modifier call whose result ERRORED does not count.
+	appendPart(session.Part{Kind: session.PartToolCall, ToolCall: &session.ToolCall{Name: "edit", CallID: "c1"}})
+	appendPart(session.Part{Kind: session.PartToolResult, ToolResult: &session.ToolResult{CallID: "c1", IsError: true}})
+	if a.fileEditsSince(ctx, sid, base) {
+		t.Error("a FAILED edit must NOT count as a file edit")
+	}
+
+	// A successful write does count.
+	appendPart(session.Part{Kind: session.PartToolCall, ToolCall: &session.ToolCall{Name: "write", CallID: "c2"}})
+	appendPart(session.Part{Kind: session.PartToolResult, ToolResult: &session.ToolResult{CallID: "c2", IsError: false}})
+	if !a.fileEditsSince(ctx, sid, base) {
+		t.Error("a SUCCESSFUL write must count as a file edit")
+	}
 }
