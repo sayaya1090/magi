@@ -66,3 +66,31 @@ func TestEscalateRejectsConcurrent(t *testing.T) {
 		t.Fatal("expected the second concurrent ask to be rejected")
 	}
 }
+
+// answerPendingAsk consumes a pending escalation at most once: with no pending ask it returns false;
+// after it consumes one the entry is cleared, so a second answer also returns false and the reply is
+// delivered to the waiting channel exactly once. Locks the no-pending and consume-once branches that
+// the round-trip test (which only exercises a single successful answer) does not.
+func TestAnswerPendingAskConsumesOnce(t *testing.T) {
+	a, wd := newApp(t, &fakeLLM{}, Config{Permission: "allow"})
+	parent, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
+
+	if a.answerPendingAsk(parent, "hi") {
+		t.Fatal("answerPendingAsk with no pending ask must return false")
+	}
+
+	ch := make(chan string, 1)
+	a.mu.Lock()
+	a.stateLocked(parent).pendingAsk = ch
+	a.mu.Unlock()
+
+	if !a.answerPendingAsk(parent, "use X") {
+		t.Fatal("answerPendingAsk must consume a registered pending ask (true)")
+	}
+	if got := <-ch; got != "use X" {
+		t.Fatalf("the reply must be delivered to the waiting channel, got %q", got)
+	}
+	if a.answerPendingAsk(parent, "again") {
+		t.Fatal("a second answer after the ask was consumed must return false (entry cleared)")
+	}
+}
