@@ -41,3 +41,27 @@ func TestTruncateAt(t *testing.T) {
 		t.Error("boundary before first seq should keep none")
 	}
 }
+
+// shardPath extracts the file a tool call targeted (workdir-relative) so a compacted message lands
+// on the right recall topic. It reads "path" (most file tools) or falls back to "file" (astgrep/LSP
+// nav), returns "" for a call that names no file (bash/web) so it lands in "discussion", and never
+// panics on malformed args (best-effort unmarshal).
+func TestShardPath(t *testing.T) {
+	wd := "/w"
+	cases := []struct {
+		name, args, want string
+	}{
+		{"path field, workdir-relative", `{"path":"/w/sub/f.go"}`, "sub/f.go"},
+		{"relative path joined to workdir", `{"path":"sub/g.go"}`, "sub/g.go"},
+		{"file fallback when no path (astgrep/LSP)", `{"file":"/w/x.go"}`, "x.go"},
+		{"path wins over file", `{"path":"/w/a.go","file":"/w/b.go"}`, "a.go"},
+		{"no file → empty (bash/web)", `{"command":"ls -la"}`, ""},
+		{"empty object → empty", `{}`, ""},
+		{"malformed JSON → empty (best-effort, no panic)", `not json`, ""},
+	}
+	for _, c := range cases {
+		if got := shardPath(wd, json.RawMessage(c.args)); got != c.want {
+			t.Errorf("%s: shardPath(%q) = %q, want %q", c.name, c.args, got, c.want)
+		}
+	}
+}
