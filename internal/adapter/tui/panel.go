@@ -141,9 +141,10 @@ func (m *Model) statusPanel(panelTop int) string {
 			sep()
 			lines = append(lines, panelHead("Completion criteria"))
 			for _, c := range crit {
-				// Empty checkbox like the plan/checks — a completion condition to satisfy (the council
-				// judges each at the end; the panel has no per-item exec signal, so it stays a checkbox).
-				lines = append(lines, wrapPanel(lipgloss.NewStyle().Foreground(colMuted).Render("☐ ")+c, inner)...)
+				// A bullet, NOT a checkbox: a criterion is prose the council judges collectively at the
+				// end, with no per-item exec signal to ever tick it — a checkbox would imply a per-item
+				// state that never arrives. (Executable per-step checks below get the ☐/spinner/✓.)
+				lines = append(lines, wrapPanel(lipgloss.NewStyle().Foreground(colMuted).Render("• ")+c, inner)...)
 			}
 		}
 	}
