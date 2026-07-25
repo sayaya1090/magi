@@ -218,7 +218,7 @@ const defaultConfigTemplate = `# magi configuration. Everything here is optional
 # [llm.profiles.fast.headers]
 # X-CLIENT-API-KEY = "${FAST_CLIENT_KEY}"
 
-# --- MCP servers (stdio or HTTP); tools auto-register ---
+# --- MCP servers (stdio or HTTP); tools auto-register as mcp__<name>__<tool> ---
 # [mcp.filesystem]
 # command = "npx"
 # args    = ["-y", "@modelcontextprotocol/server-filesystem", "."]
