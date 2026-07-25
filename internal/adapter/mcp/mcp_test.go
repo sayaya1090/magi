@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
+	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
@@ -81,7 +82,7 @@ func TestManagerSpawnAndRegister(t *testing.T) {
 		t.Fatalf("AddStdio: %v", err)
 	}
 
-	tool, ok := reg.Get("echo")
+	tool, ok := reg.Get("mcp__fake__echo")
 	if !ok {
 		t.Fatal("echo tool not registered from MCP server")
 	}
@@ -106,13 +107,60 @@ func TestServerExitUnregisters(t *testing.T) {
 	if err := mgr.AddStdio(ctx, "fake", os.Args[0], nil, []string{"MAGI_FAKE_MCP=1"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := reg.Get("echo"); !ok {
+	if _, ok := reg.Get("mcp__fake__echo"); !ok {
 		t.Fatal("echo should be registered")
 	}
 
 	mgr.Remove("fake") // simulates teardown / server gone
 
-	if _, ok := reg.Get("echo"); ok {
+	if _, ok := reg.Get("mcp__fake__echo"); ok {
 		t.Error("echo should be unregistered after server removal")
+	}
+}
+
+func TestNamespacedToolName(t *testing.T) {
+	cases := []struct{ server, tool, want string }{
+		{"fake", "echo", "mcp__fake__echo"},
+		{"my-server", "read_file", "mcp__my-server__read_file"},
+		{"a b", "x.y", "mcp__a_b__x_y"}, // spaces/dots → '_'
+		{"", "", "mcp__x__x"},           // empty parts → placeholder, never a bare "mcp____"
+	}
+	for _, c := range cases {
+		if got := namespacedToolName(c.server, c.tool); got != c.want {
+			t.Errorf("namespacedToolName(%q,%q)=%q want %q", c.server, c.tool, got, c.want)
+		}
+	}
+}
+
+// A stub builtin tool that records its identity, to prove an MCP tool did not overwrite it.
+type stubTool struct{ id string }
+
+func (s stubTool) Name() string            { return "echo" }
+func (s stubTool) Description() string     { return s.id }
+func (s stubTool) Schema() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (s stubTool) Execute(context.Context, json.RawMessage, port.ToolEnv) (session.ToolResult, error) {
+	return session.ToolResult{}, nil
+}
+
+// Namespacing keeps an MCP tool from SHADOWING an identically-named builtin: with a builtin "echo"
+// already registered, an MCP server that also advertises "echo" must land under mcp__fake__echo and
+// leave the builtin under "echo" untouched (the registry replaces by name).
+func TestMCPToolDoesNotShadowBuiltin(t *testing.T) {
+	reg := builtin.NewRegistry()
+	reg.Register(stubTool{id: "the-builtin"})
+	mgr := NewManager(reg)
+	defer mgr.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := mgr.AddStdio(ctx, "fake", os.Args[0], nil, []string{"MAGI_FAKE_MCP=1"}); err != nil {
+		t.Fatal(err)
+	}
+	b, ok := reg.Get("echo")
+	if !ok || b.Description() != "the-builtin" {
+		t.Errorf("builtin 'echo' was shadowed by the MCP tool: %+v (ok=%v)", b, ok)
+	}
+	if _, ok := reg.Get("mcp__fake__echo"); !ok {
+		t.Error("the MCP echo should be reachable under its namespaced name")
 	}
 }

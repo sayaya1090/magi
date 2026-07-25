@@ -144,8 +144,8 @@ func TestManagerHTTPTransport(t *testing.T) {
 		t.Fatalf("AddHTTP: %v", err)
 	}
 
-	if !reg.tools["http_echo"] {
-		t.Fatal("http_echo tool not registered from HTTP MCP server")
+	if !reg.tools["mcp__http-server__http_echo"] {
+		t.Fatalf("namespaced http_echo tool not registered from HTTP MCP server; got %+v", reg.tools)
 	}
 }
 

@@ -10,10 +10,13 @@ import (
 	"github.com/sayaya1090/magi/internal/port"
 )
 
-// mcpTool adapts a remote MCP tool to port.Tool.
+// mcpTool adapts a remote MCP tool to port.Tool. name is the NAMESPACED name the agent calls (so it
+// cannot shadow a builtin or another server's tool — the registry replaces by name); remote is the
+// server-side name the call is forwarded to.
 type mcpTool struct {
 	client      *Client
 	name        string
+	remote      string
 	description string
 	schema      json.RawMessage
 }
@@ -28,7 +31,7 @@ func (t *mcpTool) Execute(ctx context.Context, args json.RawMessage, env port.To
 	cctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
-	res, err := t.client.CallTool(cctx, t.name, args)
+	res, err := t.client.CallTool(cctx, t.remote, args)
 	if err != nil {
 		b, _ := json.Marshal(err.Error())
 		return session.ToolResult{Content: b, IsError: true}, nil

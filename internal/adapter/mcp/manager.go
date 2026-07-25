@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -101,9 +102,10 @@ func (m *Manager) registerClient(ctx context.Context, name string, client *Clien
 		if len(schema) == 0 {
 			schema = []byte(`{"type":"object"}`)
 		}
-		t := &mcpTool{client: client, name: d.Name, description: d.Description, schema: schema}
+		reg := namespacedToolName(name, d.Name)
+		t := &mcpTool{client: client, name: reg, remote: d.Name, description: d.Description, schema: schema}
 		m.sink.Register(t)
-		sc.tools = append(sc.tools, d.Name)
+		sc.tools = append(sc.tools, reg)
 	}
 
 	m.mu.Lock()
@@ -144,6 +146,31 @@ func (m *Manager) Close() {
 	for _, n := range names {
 		m.Remove(n)
 	}
+}
+
+// namespacedToolName builds the registry name for a server's tool as "mcp__<server>__<tool>", each
+// part sanitized to the function-name charset ([A-Za-z0-9_-], others → '_'). Namespacing is what
+// keeps an MCP tool from SHADOWING a builtin (the registry replaces by name, so a server advertising
+// `read`/`write`/`list` would otherwise clobber those tools) or colliding with another server's
+// identically-named tool. The server-side name is preserved separately (mcpTool.remote) for the call.
+func namespacedToolName(server, tool string) string {
+	return "mcp__" + sanitizeToolPart(server) + "__" + sanitizeToolPart(tool)
+}
+
+func sanitizeToolPart(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '-':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	if b.Len() == 0 {
+		return "x"
+	}
+	return b.String()
 }
 
 // procCloser closes the server's stdin and kills the process.
