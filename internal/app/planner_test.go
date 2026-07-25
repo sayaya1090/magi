@@ -2069,3 +2069,26 @@ func TestParsePlanToleratesTrailingComma(t *testing.T) {
 		t.Errorf("valid JSON must be untouched, got %q", got)
 	}
 }
+
+// salvageSteps recovers the completed step objects from a plan TRUNCATED before its outer {} closed —
+// so a nearly-complete plan cut off by the output budget isn't dumped entirely into the solo fallback.
+// A nested group or a stray brace (no title / unknown strategy) is never mistaken for a step.
+func TestSalvageStepsFromTruncatedPlan(t *testing.T) {
+	// Outer plan object is cut off mid-third-step; steps 1 and 2 are complete, a groups object and a
+	// stray brace are present. parsePlan must recover exactly the two real steps.
+	truncated := `{"reason":"do it","steps":[` +
+		`{"title":"install deps","strategy":"solo"},` +
+		`{"title":"scan","strategy":"parallel","groups":[{"agent":"explore","focus":"x"}]},` +
+		`{"title":"impl","strategy":"sol`
+	p := parsePlan(truncated)
+	if len(p.Steps) != 2 || p.Steps[0].Title != "install deps" || p.Steps[1].Title != "scan" {
+		t.Fatalf("salvage should recover the 2 complete steps, got %+v", p.Steps)
+	}
+	if p.Steps[1].Strategy != "parallel" || len(p.Steps[1].Groups) != 1 {
+		t.Errorf("a recovered step must keep its nested fields, got %+v", p.Steps[1])
+	}
+	// A reply with balanced objects but NO real step (only a group-shaped object) salvages nothing.
+	if s := salvageSteps(`{"agent":"explore","focus":"y"}`); len(s) != 0 {
+		t.Errorf("a non-step object must not be salvaged as a step, got %+v", s)
+	}
+}

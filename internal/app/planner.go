@@ -508,12 +508,15 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 		// unparseable → no plan → the solo fallback flailed into the loop guard). Give ONE focused
 		// retry that forbids all prose, so the bare object is emitted (and fits the budget).
 		a.emitToolProgress(s.ID, plannerActor, "", "planner",
-			fmt.Sprintf("%s: no parseable plan (%d chars) — retrying JSON-only", tag, len(text)))
+			fmt.Sprintf("%s: no parseable plan (%d chars) — retrying JSON-only :: %s", tag, len(text), planParseExcerpt(text)))
 		retry := req
 		retry.System = sys + "\n\n" + planJSONOnlyReminder
 		if text2, err2 := a.drainText(ctx, spec, retry); err2 == nil {
 			if r2 := parsePlan(text2); len(r2.Steps) > 0 {
 				return r2
+			} else {
+				a.emitToolProgress(s.ID, plannerActor, "", "planner",
+					fmt.Sprintf("%s: JSON-only retry also unparseable (%d chars) :: %s", tag, len(text2), planParseExcerpt(text2)))
 			}
 		}
 		a.emitToolProgress(s.ID, plannerActor, "", "planner",
@@ -616,10 +619,54 @@ func parsePlan(text string) planResult {
 			firstValid = &pp
 		}
 	}
+	// Salvage BEFORE returning firstValid: a plan object TRUNCATED by the output budget never closes its
+	// outer {}, so no planResult with steps parses — but the step objects emitted before the cutoff are
+	// still balanced and recoverable. It must run before firstValid because a lone step object ALSO
+	// unmarshals as a stepless planResult (JSON tolerates the missing "steps" field), so firstValid can
+	// be a spurious empty plan captured from the first recovered step. Recovered steps win.
+	if steps := salvageSteps(text); len(steps) > 0 {
+		return planResult{Steps: steps}
+	}
 	if firstValid != nil {
 		return *firstValid
 	}
 	return planResult{}
+}
+
+// planStrategies is the set of recognized step strategies — used to tell a real plan step object from
+// a nested group or a stray brace when salvaging steps from an unparseable reply.
+var planStrategies = map[string]bool{"solo": true, "parallel": true, "scout": true, "delegate": true, "refine": true}
+
+// salvageSteps recovers plan STEP objects directly from a reply whose overall plan object did not
+// parse — the truncation case, where the outer {} was cut off but the earlier step objects are
+// complete and balanced (balancedObjects skips the unclosed outer brace and returns them at depth 0).
+// It accepts a balanced object only when it looks like a real step — a non-empty title AND a
+// recognized strategy — so a nested group, a deliverable object, or a stray brace is never mistaken
+// for a step. Steps are returned in reply order.
+func salvageSteps(text string) []planStep {
+	var steps []planStep
+	for _, js := range balancedObjects(text) {
+		var st planStep
+		if json.Unmarshal([]byte(js), &st) != nil {
+			continue
+		}
+		if strings.TrimSpace(st.Title) == "" || !planStrategies[strings.ToLower(strings.TrimSpace(st.Strategy))] {
+			continue
+		}
+		steps = append(steps, st)
+	}
+	return steps
+}
+
+// planParseExcerpt renders a short single-line head+tail of an unparseable planner reply, so the run
+// log shows the actual failure mode (truncation, prose, wrong JSON shape) instead of only its length.
+func planParseExcerpt(text string) string {
+	t := strings.Join(strings.Fields(text), " ") // collapse all whitespace to one line
+	const n = 200
+	if len(t) <= 2*n {
+		return t
+	}
+	return fmt.Sprintf("%s …[%d chars omitted]… %s", t[:n], len(t)-2*n, t[len(t)-n:])
 }
 
 // unmarshalPlanLenient parses one candidate object as a plan, tolerating a trailing comma before a
