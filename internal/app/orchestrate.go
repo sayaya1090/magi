@@ -329,6 +329,18 @@ func (a *App) lastIsUserSteer(ctx context.Context, sid session.SessionID) bool {
 	return false
 }
 
+// noteChildKilled records on the CHILD's OWN session why the orchestrator ended it early — a lease
+// expiry or a cancel_dispatch — so the reason sits at the end of that child's detail view (its pane),
+// not only in the parent log. Transient (bus-only), mirroring the parent-side lease/cancel notices;
+// the "killed" prefix is what applyPaneEvent renders as a visible line. Best-effort: no-op if the bus
+// is absent (headless with no subscriber).
+func (a *App) noteChildKilled(child, parent session.SessionID, role, reason string) {
+	kd, _ := json.Marshal(event.AgentStatusData{
+		AgentID: string(child), Parent: string(parent), Role: role, State: "killed — " + reason,
+	})
+	a.publishTransient(child, event.TypeAgentStatus, event.Actor{Kind: event.ActorSystem, ID: "orchestrator"}, kd)
+}
+
 // injectSubagentResult appends a subagent's result to the parent session as a
 // user-role prompt so the orchestrator reads and acts on it.
 func (a *App) injectSubagentResult(ctx context.Context, parent session.SessionID, agentName string, res port.SpawnResult) {
@@ -416,6 +428,11 @@ func (a *App) cancelDispatched(ctx context.Context, parent session.SessionID, ag
 		g.cancelled = map[session.SessionID]string{}
 	}
 	var cancels []func()
+	type killNotice struct {
+		id   session.SessionID
+		role string
+	}
+	var killed []killNotice
 	for id, st := range a.states {
 		s := st.meta
 		if s.Parent != parent || !s.Escalatable {
@@ -430,12 +447,17 @@ func (a *App) cancelDispatched(ctx context.Context, parent session.SessionID, ag
 		}
 		g.cancelled[id] = reason
 		cancels = append(cancels, c)
+		killed = append(killed, killNotice{id: id, role: s.Agent})
 	}
 	a.mu.Unlock()
 
 	// Each cancelled child injects its own honest "cancelled by orchestrator: <reason>"
 	// notice into the parent log (injectSubagentResult), so repeated/abusive cancels are
-	// already visible there — no separate audit fact is needed.
+	// already visible there — no separate audit fact is needed. It ALSO gets the reason on
+	// its OWN session (noteChildKilled) so the same "why" sits at the end of its detail view.
+	for _, k := range killed {
+		a.noteChildKilled(k.id, parent, k.role, "cancelled by orchestrator: "+reason)
+	}
 	for _, c := range cancels {
 		c() // child ctx.Done → spawn unwinds → injectSubagentResult renders the cancel notice
 	}
@@ -866,6 +888,8 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 					State: "lease expired (" + verdictNote + ")",
 				})
 				a.publishTransient(parent.ID, event.TypeAgentStatus, actor, kd)
+				// …and on the CHILD's own session, so the reason sits at the end of its detail view too.
+				a.noteChildKilled(child.ID, parent.ID, spec.Name, "lease expired ("+verdictNote+")")
 				capExpired = true
 				cancel()
 				<-done

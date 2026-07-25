@@ -165,3 +165,31 @@ func TestPaneLookup(t *testing.T) {
 		t.Fatal("lookups should miss")
 	}
 }
+
+// When the orchestrator kills a child, it posts a "killed — <why>" AgentStatus onto the child's own
+// session; applyPaneEvent must render that as a visible line at the end of the pane (the child's
+// detail view). Non-kill AgentStatus states (done / lease-extended parent chrome) add no pane line.
+func TestPaneShowsKillReason(t *testing.T) {
+	m := newPaneModel()
+	p := &agentPane{sid: session.SessionID("s_child"), role: "worker"}
+
+	status := func(state string) event.Event {
+		d, _ := json.Marshal(event.AgentStatusData{AgentID: "s_child", State: state})
+		return event.Event{Type: event.TypeAgentStatus, Data: d}
+	}
+
+	// A non-kill status is parent-side chrome — no pane line.
+	m.applyPaneEvent(p, status("lease extended +2m (judged in progress)"))
+	if len(p.blocks) != 0 {
+		t.Fatalf("non-kill AgentStatus must not add a pane line, got %d", len(p.blocks))
+	}
+
+	// The kill notice lands as a visible line carrying the reason.
+	m.applyPaneEvent(p, status("killed — lease expired (churn, no progress)"))
+	if len(p.blocks) != 1 {
+		t.Fatalf("kill notice must add exactly one pane line, got %d", len(p.blocks))
+	}
+	if got := p.blocks[0].text; !strings.Contains(got, "killed") || !strings.Contains(got, "lease expired") {
+		t.Errorf("pane kill line lost its reason: %q", got)
+	}
+}

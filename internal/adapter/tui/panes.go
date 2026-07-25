@@ -424,6 +424,15 @@ func (m *Model) applyPaneEvent(p *agentPane, e event.Event) {
 			}
 			p.blocks = append(p.blocks, block{kind: blockInfo, text: line})
 		}
+	case event.TypeAgentStatus:
+		// The orchestrator posts a "killed — <why>" status onto the CHILD's own session when it
+		// ends the child early (lease expired, or cancel_dispatch). Render it as a visible line so
+		// the reason sits at the END of the child's detail view — not only in the parent log. Other
+		// AgentStatus states (done/lease-extended) are parent-side chrome, so only kills show here.
+		var d event.AgentStatusData
+		if json.Unmarshal(e.Data, &d) == nil && strings.HasPrefix(d.State, "killed") {
+			p.blocks = append(p.blocks, block{kind: blockInfo, text: "⚑ " + d.State})
+		}
 	case event.TypeTurnFinished, event.TypeError:
 		if !p.done {
 			p.done = true
