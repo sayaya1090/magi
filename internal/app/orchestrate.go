@@ -16,6 +16,7 @@ import (
 // session and wakes the parent loop when any completes or the user steers.
 type bgGroup struct {
 	outstanding int
+	dispatched  int             // cumulative background dispatches this turn — surfaced to the agent so it can self-limit before over-spawning fragments the context
 	wake        chan struct{}   // buffered(1); a signal means "re-read, something changed"
 	inflight    map[string]bool // (agent+prompt) keys currently running, for re-dispatch dedup
 	completed   map[string]bool // (agent+prompt) keys that have already finished, for serial re-dispatch dedup
@@ -141,6 +142,8 @@ func (a *App) dispatch(ctx context.Context, parent session.Session, depth int, r
 	}
 	g.inflight[key] = true
 	g.outstanding++
+	g.dispatched++
+	dispatched := g.dispatched
 	a.wg.Add(1)
 	a.mu.Unlock()
 
@@ -181,7 +184,35 @@ func (a *App) dispatch(ctx context.Context, parent session.Session, depth int, r
 		// dispatch more — multi-wave delegation works, and the loop guard backs it.
 		a.bgWake(parent.ID)
 	}()
-	return ""
+	return dispatchBudgetNote(dispatched, a.cfg.MaxAgents)
+}
+
+// dispatchBudgetNote is the immediate reply to a successful background dispatch: it tells the agent
+// how many workers it has launched this turn against the run's cap, so it can SELF-LIMIT. Delegation
+// is needed to exceed a single agent's context ceiling, but OVER-delegation fragments the context
+// across many workers and rarely rescues a stuck task — so past a soft budget the note turns into a
+// firm "do the rest yourself". Empty (no note) when the budget signal is disabled.
+func dispatchBudgetNote(dispatched, maxAgents int) string {
+	if envOff("MAGI_SPAWN_BUDGET") {
+		return ""
+	}
+	base := fmt.Sprintf("Dispatched (background worker #%d this turn", dispatched)
+	if maxAgents > 0 {
+		base += fmt.Sprintf(" of up to %d", maxAgents)
+	}
+	base += "). Its result will arrive as a message — wait for it, don't re-dispatch the same work."
+	// Soft budget: a quarter of the hard cap (min 4). Past it, more workers are usually churn, not
+	// progress — steer back to solo. A magic constant is avoided: the threshold tracks MaxAgents.
+	soft := maxAgents / 4
+	if soft < 4 {
+		soft = 4
+	}
+	if dispatched >= soft {
+		base += fmt.Sprintf(" You have now launched %d workers this turn — that is a lot. Extra workers "+
+			"SPLIT the context and seldom rescue a stuck task; prefer finishing the remaining work "+
+			"YOURSELF over delegating again.", dispatched)
+	}
+	return base
 }
 
 // escalate lets a running subagent ask its orchestrator (parent) for something

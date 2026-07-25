@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -62,8 +63,8 @@ func TestDispatchDedupsCompleted(t *testing.T) {
 
 	parent := session.Session{ID: "s_parent", Workdir: t.TempDir(), Agent: "default"}
 
-	if note := a.dispatch(ctx, parent, 0, port.SpawnRequest{Agent: "coder", Prompt: "hi"}); note != "" {
-		t.Fatalf("first dispatch should be accepted, got note %q", note)
+	if note := a.dispatch(ctx, parent, 0, port.SpawnRequest{Agent: "coder", Prompt: "hi"}); strings.Contains(note, "already") {
+		t.Fatalf("first dispatch should be accepted, got refusal %q", note)
 	}
 	// Wait for the coder to finish and its result to be injected (outstanding→0).
 	deadline := time.Now().Add(5 * time.Second)
@@ -80,8 +81,8 @@ func TestDispatchDedupsCompleted(t *testing.T) {
 		t.Error("identical re-dispatch after completion should be refused (livelock guard)")
 	}
 	// A genuinely different task to the same agent is still allowed.
-	if note := a.dispatch(ctx, parent, 0, port.SpawnRequest{Agent: "coder", Prompt: "review the explorer's findings"}); note != "" {
-		t.Errorf("different prompt to same agent should be accepted, got note %q", note)
+	if note := a.dispatch(ctx, parent, 0, port.SpawnRequest{Agent: "coder", Prompt: "review the explorer's findings"}); strings.Contains(note, "already") {
+		t.Errorf("different prompt to same agent should be accepted, got refusal %q", note)
 	}
 }
 
@@ -107,14 +108,14 @@ func TestDispatchDedupsInflight(t *testing.T) {
 
 	parent := session.Session{ID: "s_parent", Workdir: t.TempDir(), Agent: "default"}
 
-	if note := a.dispatch(ctx, parent, 0, port.SpawnRequest{Agent: "worker", Prompt: "X"}); note != "" {
-		t.Fatalf("first dispatch should be accepted, got note %q", note)
+	if note := a.dispatch(ctx, parent, 0, port.SpawnRequest{Agent: "worker", Prompt: "X"}); strings.Contains(note, "already") {
+		t.Fatalf("first dispatch should be accepted, got refusal %q", note)
 	}
 	if note := a.dispatch(ctx, parent, 0, port.SpawnRequest{Agent: "worker", Prompt: "X"}); note == "" {
 		t.Error("identical re-dispatch should be refused while in-flight")
 	}
-	if note := a.dispatch(ctx, parent, 0, port.SpawnRequest{Agent: "worker", Prompt: "Y"}); note != "" {
-		t.Errorf("different prompt to same agent should be accepted, got note %q", note)
+	if note := a.dispatch(ctx, parent, 0, port.SpawnRequest{Agent: "worker", Prompt: "Y"}); strings.Contains(note, "already") {
+		t.Errorf("different prompt to same agent should be accepted, got refusal %q", note)
 	}
 	if n := a.bgOutstanding(parent.ID); n != 2 {
 		t.Errorf("expected 2 outstanding (X and Y), got %d", n)
