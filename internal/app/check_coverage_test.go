@@ -72,6 +72,28 @@ func TestEnsureCoverageFillsGap(t *testing.T) {
 	}
 }
 
+// A check carrying an out-of-range step label ("99" in a 3-step plan) attaches to no plan step, so it
+// must NOT count as coverage. Previously the distinct-label count was inflated by such a label to ==
+// plan-step count, wrongly concluding full coverage and suppressing the gap-fill for a step that
+// genuinely had no check. Coverage is now counted by real 1-based step number, so the gap is filled.
+func TestEnsureCoverageIgnoresOutOfRangeStepLabel(t *testing.T) {
+	t.Setenv("MAGI_CHECK_COVERAGE", "1")
+	filled := `[{"step":"1","command":"a"},{"step":"2","command":"b"},{"step":"3","command":"c"}]`
+	a := newOrchApp(t, &gateLLM{text: filled}, Config{Permission: "allow", MaxAgents: 10})
+	s := parentSession(t.TempDir())
+	// steps 1 and 2 covered, step 3 has NO check; the bogus "99" label must not mask that gap.
+	in := []council.DeliverableCheck{{Step: "1", Command: "a"}, {Step: "2", Command: "b"}, {Step: "99", Command: "bogus"}}
+	steps := []planStep{{Title: "one"}, {Title: "two"}, {Title: "three"}}
+	out := a.ensureStepCoverage(context.Background(), s, "task", steps, in)
+	covered := map[int]bool{}
+	for _, c := range out {
+		covered[leadingInt(c.Step)] = true
+	}
+	if !covered[3] {
+		t.Fatalf("an out-of-range label must not suppress the gap-fill for the real uncovered step 3, got %+v", out)
+	}
+}
+
 // A reply that is NOT a coverage-increasing superset (it drops an authored check, or adds no distinct
 // step) is rejected — the authored contract is kept rather than weakened. Two sub-cases.
 func TestEnsureCoverageRejectsNonSuperset(t *testing.T) {

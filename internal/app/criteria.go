@@ -160,10 +160,20 @@ func (a *App) ensureStepCoverage(ctx context.Context, s session.Session, prompt 
 	if !checkCoverageEnabled() || len(steps) == 0 {
 		return checks
 	}
-	covered := map[string]bool{}
-	for _, c := range checks {
-		covered[strings.TrimSpace(c.Step)] = true
+	// Count coverage by the check's REAL plan-step number (1-based, as matchStepChecks resolves it),
+	// not its raw label: a check carrying an out-of-range label ("99") or a non-numeric one ("setup")
+	// does not attach to any plan step, so counting it as distinct coverage would wrongly conclude the
+	// plan is fully covered and suppress the gap-fill for a step that genuinely has no check.
+	coveredSteps := func(cs []council.DeliverableCheck) map[int]bool {
+		m := map[int]bool{}
+		for _, c := range cs {
+			if n := leadingInt(c.Step); n >= 1 && n <= len(steps) {
+				m[n] = true
+			}
+		}
+		return m
 	}
+	covered := coveredSteps(checks)
 	if len(covered) >= len(steps) { // every step already has (at least) a check → no gap
 		return checks
 	}
@@ -186,11 +196,8 @@ func (a *App) ensureStepCoverage(ctx context.Context, s session.Session, prompt 
 	if !ok || len(out) < len(checks) { // unusable / dropped existing checks → keep the authored set
 		return checks
 	}
-	newCovered := map[string]bool{}
-	for _, c := range out {
-		newCovered[strings.TrimSpace(c.Step)] = true
-	}
-	if len(newCovered) <= len(covered) { // reply added no distinct-step coverage → nothing gained
+	newCovered := coveredSteps(out)
+	if len(newCovered) <= len(covered) { // reply added no distinct (valid) step coverage → nothing gained
 		return checks
 	}
 	a.emitToolProgress(s.ID, plannerActor, "", "check-coverage",
