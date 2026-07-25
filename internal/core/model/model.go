@@ -47,6 +47,20 @@ func (r *Registry) Register(m Info) {
 	r.models[m.ID] = m
 }
 
+// RegisterIfAbsent registers m only when its exact ID is not already known, and reports whether it
+// did. The check-and-set is atomic under the registry lock, so a background context-window probe can
+// register its result WITHOUT clobbering a value a concurrent manual override (Register) already set:
+// the probe defers, the override wins, with no check-then-act race between them.
+func (r *Registry) RegisterIfAbsent(m Info) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.models[m.ID]; ok {
+		return false
+	}
+	r.models[m.ID] = m
+	return true
+}
+
 // Has reports whether id is known.
 func (r *Registry) Has(id string) bool {
 	r.mu.RLock()

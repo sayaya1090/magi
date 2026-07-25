@@ -107,11 +107,15 @@ func (a *App) contextWindow(id string) int {
 // probeContextWindow asks the backend for id's real window and registers it, so
 // subsequent contextWindow calls (Has == true) return the accurate value. A
 // failed probe leaves id marked in probingWindows so we don't hammer the backend.
+// It uses RegisterIfAbsent, not Register: an in-flight probe must NOT clobber a
+// manual /context override that SetContextWindow set while the probe was running
+// (marking probingWindows only blocks a FUTURE probe, not this one) — so if the id
+// already has a value by the time the probe lands, the probe defers to it.
 func (a *App) probeContextWindow(id string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
 	if w, ok := a.cfg.ContextWindowProber(ctx, id); ok && w > 0 {
-		a.cfg.Models.Register(model.Info{ID: id, ContextWindow: w, MaxOutput: w / 4, Tools: true})
+		a.cfg.Models.RegisterIfAbsent(model.Info{ID: id, ContextWindow: w, MaxOutput: w / 4, Tools: true})
 	}
 }
 

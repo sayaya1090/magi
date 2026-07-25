@@ -65,3 +65,23 @@ func TestRegister(t *testing.T) {
 		t.Errorf("custom window wrong")
 	}
 }
+
+// RegisterIfAbsent registers only when the exact ID is absent, so a background probe can never clobber
+// a value a concurrent manual override already set.
+func TestRegisterIfAbsent(t *testing.T) {
+	r := NewRegistry()
+	if !r.RegisterIfAbsent(Info{ID: "m", ContextWindow: 1000}) {
+		t.Fatal("first RegisterIfAbsent on an absent id must register")
+	}
+	if r.RegisterIfAbsent(Info{ID: "m", ContextWindow: 9999}) {
+		t.Error("RegisterIfAbsent on a present id must NOT overwrite")
+	}
+	if got := r.Get("m").ContextWindow; got != 1000 {
+		t.Errorf("present value must be preserved, got %d", got)
+	}
+	// Unconditional Register (the manual override) still wins over a prior value.
+	r.Register(Info{ID: "m", ContextWindow: 5000})
+	if got := r.Get("m").ContextWindow; got != 5000 {
+		t.Errorf("Register must overwrite (manual override wins), got %d", got)
+	}
+}
