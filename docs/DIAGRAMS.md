@@ -182,6 +182,7 @@ runVerifyCmd 타임아웃**에서 각각 바운드된다 — 어느 것도 턴 �
 | `MAGI_CHECK_VALIDATE` · `MAGI_CHECK_COVERAGE` | ON | 체크 감사(수리/폐기) · 스텝 커버리지 갭 채우기 |
 | `MAGI_CHECK_CHURN_CAP` | 4 | 비수렴 자기체크 N회 FAIL → 작업물 세워둔 채 UNVERIFIED 착지(`0`=off) |
 | `MAGI_STUCK_DECOMPOSE` | ON | repeat-차단 시 TODO 분해 회복 |
+| `MAGI_SPAWN_BUDGET` | ON | 스폰 예산 인지(soft=`MaxAgents/4`): dispatch note + 초과 시 `forceDelegateSteps` solo→delegate 재작성 중단(과-위임 컨텍스트 파편화 방지) |
 | `MAGI_RECOVERY_RUNCAP` | OFF | 런 트리당 회복실행 1회 제한 |
 | `MAGI_ORIENT` | ON | explore-first 그라운딩 |
 | `MAGI_SPEC_FIDELITY` | ON | 스펙 축어성 보존 노트 (카운슬 렌즈와 별개 기능) |
