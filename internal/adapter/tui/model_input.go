@@ -654,6 +654,13 @@ func (m *Model) handleSlash(text string) (tea.Cmd, bool) {
 		m.quitting = true
 		return tea.Quit, true
 	case "/clear":
+		// Backstop the central safeWhileRunning gate: clearing the transcript mid-stream
+		// would wipe the live turn's output from view. Consistent with the other
+		// session-changing commands (rewind/fork/replay/compact), which reject while running.
+		if m.running {
+			out = m.snack("cannot clear while running")
+			break
+		}
 		m.blocks = nil
 		m.cache = m.cache[:0]
 		m.liveText = ""
@@ -742,6 +749,13 @@ func (m *Model) handleSlash(text string) (tea.Cmd, bool) {
 		}
 		return m.submitAs("/ultra: "+task, ultraPreamble+"\n\nTask: "+task), true
 	case "/compact":
+		// Backstop the central safeWhileRunning gate: Compact mutates the event store
+		// (appends a compaction snapshot, truncating folded events), which must not race a
+		// turn that is actively appending events. Mirrors rewind/fork/replay's guard.
+		if m.running {
+			out = m.snack("cannot compact while running")
+			break
+		}
 		sid := m.sid
 		out = m.snack("compacting context…")
 		go func() { _ = m.app.Compact(m.ctx, command.Compact{SessionID: sid}) }()
