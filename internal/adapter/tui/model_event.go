@@ -440,6 +440,18 @@ func councilPhaseLabel(phase string) (label, verb string) {
 // onCouncilConvened records a newly-opened council round as a transcript
 // milestone (when it carries round-specific signals or a plan procedure) and
 // arms the header chip. (D14 — the consensus termination gate.)
+// coloredMembers renders each council member's name in its OWN hue (councilColor),
+// bold, joined with muted ", " separators — so the convened/round milestone lines
+// (contract gate, plan audit, termination) carry the same per-member color language
+// as the verdict block and the splash nameplates, instead of one flat string.
+func (m *Model) coloredMembers(members []string) string {
+	segs := make([]string, len(members))
+	for i, name := range members {
+		segs[i] = lipgloss.NewStyle().Foreground(m.councilColor(name)).Bold(true).Render(name)
+	}
+	return strings.Join(segs, ", ")
+}
+
 func (m *Model) onCouncilConvened(d event.CouncilConvenedData) {
 	m.councilRound = d.Round
 	m.councilPhase = d.Phase                            // drives the footer "판정 대기 중" line while the round is open
@@ -451,7 +463,7 @@ func (m *Model) onCouncilConvened(d event.CouncilConvenedData) {
 	// carries something round-specific: deterministic SIGNALS (fabrication
 	// self-check, verify commands), a plan-audit's procedure, or a contract round.
 	showLine := len(d.Signals) > 0 || d.Phase == "plan" || d.Phase == "contract"
-	line := fmt.Sprintf("⚖ %s round %d — %s %s (%s)", label, d.Round, strings.Join(d.Members, ", "), verb, d.Rule)
+	line := fmt.Sprintf("⚖ %s round %d — %s %s (%s)", label, d.Round, m.coloredMembers(d.Members), verb, d.Rule)
 	if len(d.Signals) > 0 {
 		line += " · " + strings.Join(d.Signals, ", ")
 	}

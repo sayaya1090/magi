@@ -429,3 +429,34 @@ func TestCollapsePreReviewReport(t *testing.T) {
 		}
 	})
 }
+
+// The convened milestone line (contract gate / plan audit / termination round) shows each council
+// member's name in ITS OWN hue, not one flat string — coloredMembers embeds per-member ANSI while the
+// stripped text stays the plain "A, B, C" (so widths/hit-tests are unaffected).
+func TestCouncilRoundMembersColored(t *testing.T) {
+	mm := newTestModel(t)
+	m := &mm
+	members := []string{"Melchior", "Balthasar", "Casper"}
+
+	colored := m.coloredMembers(members)
+	if got := ansi.Strip(colored); got != "Melchior, Balthasar, Casper" {
+		t.Fatalf("stripped coloredMembers = %q, want the plain join", got)
+	}
+	if !strings.Contains(colored, "\x1b[") {
+		t.Error("coloredMembers must embed ANSI color, unlike a flat strings.Join")
+	}
+
+	// The plan-phase convened event emits a milestone line, and it carries the colored members.
+	before := len(m.blocks)
+	m.onCouncilConvened(event.CouncilConvenedData{Round: 1, Phase: "plan", Members: members, Rule: "majority"})
+	if len(m.blocks) == before {
+		t.Fatal("a plan-phase convened round must add a milestone line")
+	}
+	line := m.blocks[len(m.blocks)-1].text
+	if !strings.Contains(line, "\x1b[") {
+		t.Error("the council round milestone line must render members in color")
+	}
+	if s := ansi.Strip(line); !strings.Contains(s, "Melchior") || !strings.Contains(s, "plan audit round 1") {
+		t.Errorf("milestone line lost its content: %q", s)
+	}
+}
