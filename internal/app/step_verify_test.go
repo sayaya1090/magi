@@ -155,6 +155,40 @@ func TestRunStepGateMultipleDeliverablesPerStep(t *testing.T) {
 // path-agnostic panel fill so scout/refine steps (which never run verifyStepChecks) no longer wait
 // for the terminal gate to record every ✓ at once. A later step's check stays untouched until its
 // own step completes.
+
+// A check that exits 127 — its OWN command is unexecutable here (missing tool / wrong path) — is
+// NEITHER a deliverable failure NOR a pass: runStepGate skips it. So a step with a 127 check plus a
+// passing sibling is still checked off (127 must not veto real progress), while a step whose ONLY
+// check is 127 earns no fabricated ✓. With no real failure the gate defers to the council.
+func TestRunStepGateUnexecutableCheckSkipped(t *testing.T) {
+	t.Setenv("MAGI_STEP_VERIFY", "1")
+	// Check order: step1-a =127 (skip), step1-b =0 (pass), step2 =127 (skip, its sole check).
+	plat := &scriptPlatform{codes: []int{127, 0, 127}}
+	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow"})
+	a.putTodos(context.Background(), sid, plannerActor, []session.Todo{
+		{Content: "step one", Status: "in_progress"},
+		{Content: "step two", Status: "in_progress"},
+	})
+	setChecks(a, sid, []council.DeliverableCheck{
+		{Step: "1", Deliverable: "a", Command: "ra", Expect: "verify"},
+		{Step: "1", Deliverable: "b", Command: "rb", Expect: "verify"},
+		{Step: "2", Deliverable: "c", Command: "rc", Expect: "verify"},
+	})
+
+	ts := &turnState{}
+	// No REAL failure (only 127-skips and one pass) → the gate does not decide; hand off to the council.
+	if got, _ := a.runStepGate(context.Background(), a.sessionInfo(context.Background(), sid), ts); got != gateInactive {
+		t.Fatalf("only 127-skips + a pass → want gateInactive, got %v", got)
+	}
+	td := a.Todos(sid)
+	if td[0].Status != "completed" { // 127 sibling skipped, real check b passed → step done
+		t.Errorf("step 1 (127 skipped, sibling passed) must be completed, got %q", td[0].Status)
+	}
+	if td[1].Status == "completed" { // sole check unexecutable → no fabricated pass
+		t.Error("step 2 (only check is 127/unexecutable) must NOT be falsely completed")
+	}
+}
+
 func TestCompleteThroughRecordsStepChecksPerStep(t *testing.T) {
 	t.Setenv("MAGI_STEP_VERIFY", "1")
 	ctx := context.Background()
