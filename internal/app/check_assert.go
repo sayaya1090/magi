@@ -41,9 +41,12 @@ import (
 // FABRICATED result — is not closed here but by the provenance audit, which reads magi's own record
 // of the tool calls that produced the file.
 
-// typedChecksEnabled gates the typed check runner (default ON; MAGI_TYPED_CHECKS=0 makes a typed
-// check fall through to its Command, which is the pre-typed baseline for an A/B).
-func typedChecksEnabled() bool { return !envOff("MAGI_TYPED_CHECKS") }
+// checkUnrunnable reports whether an exit code means the CHECK itself could not run, as opposed to
+// the deliverable failing. 127 is "command not found" (a missing tool or a wrong path); 126 is "found
+// but not executable", and is also what the runner below returns for a check it cannot evaluate — an
+// assertion it does not know, or no assertion at all. Both say nothing about the artifact, so every
+// gate skips them rather than reworking correct code.
+func checkUnrunnable(code int) bool { return code == 127 || code == 126 }
 
 // typedReadCap bounds how much of a source file is pulled back for matching. A recorded build log
 // can be tens of megabytes and the whole of it would be held in memory and scanned per gate cycle;
@@ -91,20 +94,30 @@ func parseAssertion(s string) (assertion, bool) {
 	return assertion{}, false
 }
 
-// runCheck is the single entry point every gate uses to obtain a check's (output, exit code). A
-// typed check is evaluated by the runner below; anything else keeps the model-authored command path
-// through the read-only shell. Callers are unchanged otherwise — they still layer their own
-// checkUnrunnable/-1 policy and their own Passes call on the result.
+// runCheck is the single entry point every gate uses to obtain a check's (output, exit code), and the
+// ONLY way a check is ever evaluated: every check goes through the typed runner below. Callers are
+// unchanged otherwise — they still layer their own checkUnrunnable/-1 policy and their own Passes call
+// on the result.
+//
+// A check with no `assert` is not run as a command — there is no command path left. It is reported and
+// yields no verdict (126), the same landing an unknown verb gets, because a check that names nothing
+// to assert proves nothing either way. The authoring prompts emit `source`/`assert`, and the check
+// audit converts a stray command-shaped check into that form before it is ever stored; this is the
+// floor under both, and it is deliberately visible in the log rather than silent.
 func (a *App) runCheck(ctx context.Context, sid session.SessionID, workdir string, c council.DeliverableCheck) (string, int) {
-	if typedChecksEnabled() && strings.TrimSpace(c.Assert) != "" {
-		return a.runTypedCheck(ctx, sid, workdir, c)
+	if strings.TrimSpace(c.Assert) == "" {
+		a.emitToolProgress(sid, plannerActor, "", "check-typed",
+			fmt.Sprintf("check-typed: the check for %q carries no `assert` (%s) — nothing to evaluate, so this step "+
+				"lands ungated rather than failed", clipLine(strings.TrimSpace(c.Deliverable), 80),
+				strings.Join(typedVerbs(), ", ")))
+		return "the check carries no assertion", 126
 	}
-	return a.runCheckCmd(ctx, sid, workdir, c.Command)
+	return a.runTypedCheck(ctx, sid, workdir, c)
 }
 
 // runTypedCheck evaluates one typed check and returns it in the (output, exit code) shape the gates
 // already speak: 0 passed, 1 failed, 126 the check itself could not run (an unknown verb, or a
-// missing subject — no verdict, exactly as a refused command yields none), -1 no platform.
+// missing subject — no verdict, so the step lands ungated rather than failed), -1 no platform.
 //
 // A source file that is ABSENT is a FAILURE, not an unrunnable check. The step was supposed to
 // record it; that it is not there is a fact about the deliverable and the gate should hear it. This

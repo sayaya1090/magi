@@ -86,10 +86,10 @@ func (a *App) runStepGate(ctx context.Context, s session.Session, ts *turnState)
 		if code == -1 { // platform vanished mid-run: can't verify → don't decide
 			return gateInactive, ""
 		}
-		// The CHECK could not run — not found (127), or not executable / refused by the read-only
-		// guard (126). Either way this says nothing about the deliverable, so don't count it as a
-		// failure that reworks correct work — skip it; the agent/worker's equivalent-substitution
-		// evidence and the council settle the goal instead of churning on a broken check.
+		// The CHECK could not run — its reader was not found (127), or the runner could not evaluate it
+		// at all (126: no assertion, or a verb it does not know). Either way this says nothing about the
+		// deliverable, so don't count it as a failure that reworks correct work — skip it; the agent's
+		// substitution and the council settle the goal instead of churning on a broken check.
 		if checkUnrunnable(code) {
 			continue
 		}
@@ -307,9 +307,9 @@ func (a *App) recordCheckResult(sid session.SessionID, c council.DeliverableChec
 // applyCheckSubs rewrites the stored deliverable checks from a worker's review-approved substitutions,
 // so the FIX PERSISTS for the rest of the run: every later gate — including the terminal one — runs the
 // command that actually works here instead of skipping the broken original. For each sub it finds the
-// step's check whose command matches the sub's Original (exact match when a step has several checks),
-// rewrites its Command/Expect to the working equivalent, and falls back to the step's sole check or a
-// new appended check when Original does not match. The worker already ran the equivalent and its review
+// step's check whose identity matches the sub's Original (exact match when a step has several checks),
+// rewrites its Source/Assert to the working pair, and falls back to the step's sole check or a
+// new appended check when Original does not match. The worker already produced what it names and its review
 // council approved it, so the rewritten check is recorded ✓ without re-running (trusted) — the terminal
 // trust-green gate then honors it rather than re-litigating an already-agreed substitution.
 func (a *App) applyCheckSubs(ctx context.Context, sid session.SessionID, subs []port.CheckSub) {
@@ -325,14 +325,17 @@ func (a *App) applyCheckSubs(ctx context.Context, sid session.SessionID, subs []
 	checks := append([]council.DeliverableCheck(nil), st.deliverableChecks...)
 	var rewritten []council.DeliverableCheck
 	for _, sub := range subs {
-		cmd := strings.TrimSpace(sub.Command)
-		if cmd == "" {
-			continue
+		as := strings.TrimSpace(sub.Assert)
+		if as == "" {
+			continue // an empty assertion would replace a check with no check
 		}
 		step := strings.TrimSpace(sub.Step)
 		orig := strings.TrimSpace(sub.Original)
-		expect := strings.TrimSpace(sub.Expect)
-		// Prefer an exact (step, original-command) match; else the step's sole check; else append.
+		src := strings.TrimSpace(sub.Source)
+		// Prefer an exact (step, original) match; else the step's sole check; else append. `original` is
+		// matched against BOTH the check's identity and its command text: the worker is quoting the item
+		// as it read it in the brief, which for a typed check is the assert/source pair and for a leftover
+		// command-shaped one is the command.
 		target := -1
 		var stepIdxs []int
 		for i := range checks {
@@ -340,7 +343,8 @@ func (a *App) applyCheckSubs(ctx context.Context, sid session.SessionID, subs []
 				continue
 			}
 			stepIdxs = append(stepIdxs, i)
-			if orig != "" && strings.TrimSpace(checks[i].Command) == orig {
+			if orig != "" && (checkIdent(checks[i]) == orig || strings.TrimSpace(checks[i].Command) == orig ||
+				strings.TrimSpace(checks[i].Assert) == orig) {
 				target = i
 			}
 		}
@@ -348,11 +352,11 @@ func (a *App) applyCheckSubs(ctx context.Context, sid session.SessionID, subs []
 			target = stepIdxs[0]
 		}
 		if target >= 0 {
-			checks[target].Command = cmd
-			checks[target].Expect = expect
+			checks[target].Source = src
+			checks[target].Assert = as
 			rewritten = append(rewritten, checks[target])
 		} else {
-			nc := council.DeliverableCheck{Step: step, Deliverable: "substituted check", Command: cmd, Expect: expect}
+			nc := council.DeliverableCheck{Step: step, Deliverable: "substituted check", Source: src, Assert: as}
 			checks = append(checks, nc)
 			rewritten = append(rewritten, nc)
 		}

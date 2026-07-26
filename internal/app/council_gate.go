@@ -262,7 +262,9 @@ func (a *App) councilSignals(ctx context.Context, s session.Session, evs []event
 			if name == "" {
 				name = "check"
 			}
-			out, code := a.runCheckCmd(ctx, s.ID, s.Workdir, sp.Command)
+			// The operator's own configured signal, not a model-authored check: it runs verbatim,
+			// through the shell, exactly as the workflow verify command does.
+			out, code := a.runVerifyCmd(ctx, s.Workdir, sp.Command)
 			status := "pass"
 			if code != 0 {
 				status = "fail"

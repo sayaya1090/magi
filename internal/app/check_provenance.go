@@ -228,7 +228,7 @@ func authoredBy(name string, args json.RawMessage, p string) (authoredContent, b
 var composedProducers = map[string]bool{"echo": true, "printf": true, "cat": true, "true": true, ":": true}
 
 // composedRedirectTo reports whether cmd redirects composed text into p. It walks the same
-// quote-aware segmentation the read-only guard uses, so a `>` inside a quoted argument is data.
+// quote-aware segmentation in check_shell.go, so a `>` inside a quoted argument is data.
 func composedRedirectTo(cmd, p string) bool {
 	for _, seg := range shellCommandSegments(cmd) {
 		fields := strings.Fields(seg)

@@ -159,9 +159,10 @@ func TestRunTypedCheckPortOpen(t *testing.T) {
 	}
 }
 
-// runCheck is the single entry point the gates call; it must route on the SHAPE of the check, and
-// MAGI_TYPED_CHECKS=0 must put a typed check back on its Command so the flag is a real A/B.
-func TestRunCheckRoutesOnShape(t *testing.T) {
+// runCheck is the single entry point the gates call, and there is no command path behind it any more:
+// a leftover `command` is inert data, and a check that carries no assertion is reported and yields no
+// verdict (126) rather than being executed.
+func TestRunCheckIsTypedOnly(t *testing.T) {
 	skipOnWindows(t)
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "r.log"), []byte("done\n"), 0o644); err != nil {
@@ -170,14 +171,20 @@ func TestRunCheckRoutesOnShape(t *testing.T) {
 	app := newShellApp(t, &shellPlatform{})
 	typed := council.DeliverableCheck{
 		Source: filepath.Join(dir, "r.log"), Assert: "matches done",
-		Command: "exit 3", // present but must be ignored while the typed path is on
+		Command: "exit 3", // present but inert — nothing executes a model-authored command
 	}
 	if out, code := app.runCheck(context.Background(), session.SessionID("s1"), dir, typed); code != 0 {
 		t.Fatalf("typed: code = %d, want 0 (out: %s)", code, out)
 	}
-	t.Setenv("MAGI_TYPED_CHECKS", "0")
-	if _, code := app.runCheck(context.Background(), session.SessionID("s1"), dir, typed); code != 3 {
-		t.Fatalf("flag off: code = %d, want the Command's 3", code)
+	// No assertion: the runner has nothing to evaluate. It must NOT fall back to the command — that
+	// would put the whole authored-shell surface back — and must not fail the deliverable either.
+	untyped := council.DeliverableCheck{Deliverable: "the suite passes", Command: "exit 3"}
+	out, code := app.runCheck(context.Background(), session.SessionID("s1"), dir, untyped)
+	if code != 126 {
+		t.Fatalf("no assertion: code = %d, want 126 (no verdict), out: %s", code, out)
+	}
+	if !strings.Contains(out, "no assertion") {
+		t.Errorf("the reason must say the check asserts nothing, got %q", out)
 	}
 }
 
