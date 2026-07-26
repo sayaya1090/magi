@@ -2,6 +2,7 @@ package jsonx
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -165,4 +166,81 @@ func parses(t *testing.T, s string) bool {
 		}
 	}
 	return false
+}
+
+// A parse failure is only actionable if the log says WHY. Excerpt keeps the head and the tail, so a
+// defect in the middle — where the long prose fields live — is precisely what it hides; Diagnose
+// names the defect class, the offset, and a window around it.
+func TestDiagnose(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want []string // substrings that must appear
+	}{
+		{
+			name: "prose with no JSON at all",
+			in:   "I think the task is done because the build passed.",
+			want: []string{"no JSON object or array"},
+		},
+		{
+			name: "unescaped inner quote in the middle",
+			in:   `{"decision":"continue","rationale":"the check ""make test" passes" is wrong","confidence":0.9}`,
+			want: []string{"syntax error at offset", "⟪HERE⟫"},
+		},
+		{
+			name: "valid JSON that simply is not the expected shape",
+			in:   `{"verdict":"done","why":"it builds"}`,
+			want: []string{"the mismatch is the SCHEMA", "keys: [verdict why]"},
+		},
+		{
+			name: "JSON embedded in prose is diagnosed, not dismissed",
+			in:   "Here is my verdict:\n```json\n{\"decision\":\"done\",\"confidence\":1}\n```\nThanks!",
+			want: []string{"the mismatch is the SCHEMA", "decision"},
+		},
+		{
+			name: "a trailing comma names its own offset",
+			in:   `{"a":1,"b":2,}`,
+			want: []string{"syntax error at offset"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Diagnose(tc.in)
+			for _, w := range tc.want {
+				if !strings.Contains(got, w) {
+					t.Errorf("Diagnose(%q) = %q, missing %q", tc.in, got, w)
+				}
+			}
+		})
+	}
+}
+
+// The window must actually contain the defect — that is the whole point of the offset.
+func TestDiagnoseWindowShowsTheDefect(t *testing.T) {
+	// The bad quote sits in the MIDDLE — past where the excerpt's head ends and before its tail.
+	filler := strings.Repeat("a description of the work that was carried out. ", 12)
+	js := `{"decision":"continue","rationale":"` + filler + `the SENTINEL is wrong: "` + filler +
+		`","confidence":0.9}`
+	got := Diagnose(js)
+	if !strings.Contains(got, "⟪HERE⟫") {
+		t.Fatalf("no window: %s", got)
+	}
+	if !strings.Contains(got, "SENTINEL") {
+		t.Errorf("window does not show the defect: %s", got)
+	}
+	// And the excerpt alone would NOT have shown it — which is why Diagnose exists.
+	if strings.Contains(Excerpt(js), "SENTINEL") {
+		t.Errorf("excerpt already showed the defect; the test no longer covers the blind spot")
+	}
+}
+
+// Report is the one rendering every failing call site uses: content AND reason.
+func TestReportCarriesBothHalves(t *testing.T) {
+	got := Report(`{"a":1,}`)
+	if !strings.Contains(got, `{"a":1,}`) {
+		t.Errorf("Report lost the content: %s", got)
+	}
+	if !strings.Contains(got, "syntax error") {
+		t.Errorf("Report lost the reason: %s", got)
+	}
 }

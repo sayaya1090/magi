@@ -8,8 +8,10 @@ package jsonx
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -436,6 +438,80 @@ func QuoteBareValues(s string) string {
 		return sub[1] + `"` + sub[2] + `"` + sub[3]
 	})
 }
+
+// Diagnose names WHY a model reply could not be read, in one line. An excerpt alone is not enough:
+// it keeps the head and the tail, so a defect in the middle of a long reply — the common case, since
+// the middle is where the multi-line prose fields live — is exactly what it hides. Observed: a
+// 905-byte verdict whose head and tail were both well-formed.
+//
+// It reports one of three outcomes, which is the distinction the reader actually needs:
+//   - no JSON at all (the model answered in prose)
+//   - a SYNTAX defect: Go's own message, the byte offset, and a window around it, so the defect
+//     class is named without guessing (an invalid escape and an unescaped quote read alike in an
+//     excerpt)
+//   - it PARSES: the failure was the schema, not the syntax — so the keys it did carry are listed,
+//     which is what tells a renamed field from a wrong type
+//
+// Diagnose is for logs only; it never changes what a caller parses.
+func Diagnose(js string) string {
+	span := strings.TrimSpace(js)
+	if !strings.HasPrefix(span, "{") && !strings.HasPrefix(span, "[") {
+		// The JSON is embedded in prose: diagnose the largest balanced span, which is the one a
+		// lenient reader would have tried.
+		cands := append(BalancedObjects(js), BalancedArrays(js)...)
+		span = ""
+		for _, c := range cands {
+			if len(c) > len(span) {
+				span = c
+			}
+		}
+		if span == "" {
+			return "no JSON object or array in the reply (the model answered in prose)"
+		}
+	}
+	var probe any
+	err := json.Unmarshal([]byte(span), &probe)
+	if err == nil {
+		if m, ok := probe.(map[string]any); ok {
+			keys := make([]string, 0, len(m))
+			for k := range m {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			return "the JSON parses — the mismatch is the SCHEMA, not the syntax; keys: [" + strings.Join(keys, " ") + "]"
+		}
+		return "the JSON parses — the mismatch is the SCHEMA, not the syntax"
+	}
+	off := -1
+	var se *json.SyntaxError
+	var ute *json.UnmarshalTypeError
+	switch {
+	case errors.As(err, &se):
+		off = int(se.Offset)
+	case errors.As(err, &ute):
+		off = int(ute.Offset)
+	}
+	if off < 0 || off > len(span) {
+		return "syntax error: " + err.Error()
+	}
+	// Offsets point just PAST the offending byte, so bias the window to keep it in view.
+	const w = 70
+	lo, hi := off-w, off+w
+	if lo < 0 {
+		lo = 0
+	}
+	if hi > len(span) {
+		hi = len(span)
+	}
+	around := strings.Join(strings.Fields(span[lo:off]), " ") + " ⟪HERE⟫ " + strings.Join(strings.Fields(span[off:hi]), " ")
+	return fmt.Sprintf("syntax error at offset %d of %d (%v): …%s…", off, len(span), err, around)
+}
+
+// Report renders a FAILED parse the one way every call site should render it: the bounded excerpt
+// (what the model said) followed by the named reason (why it could not be read). Either half alone
+// leaves the failure untraceable — the excerpt hides a defect in the middle, and the reason alone
+// loses the content — and two sites rendering the same failure differently look like two failures.
+func Report(text string) string { return Excerpt(text) + "  ⟨" + Diagnose(text) + "⟩" }
 
 // Excerpt renders a model reply as one bounded line, keeping the HEAD and the TAIL. Both ends
 // matter when diagnosing: the head shows what shape the model chose, the tail shows whether it was
