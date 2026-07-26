@@ -439,3 +439,41 @@ func TestCoverageFillPromptRejectsACommandThatMerelySucceeded(t *testing.T) {
 		}
 	}
 }
+
+// A review that keeps a command byte-for-byte but returns it without its `expect` turns the check
+// into "whatever that command's exit status is". For a pipeline that is exit 0 in every world state,
+// including the one where the deliverable was never produced — a silent pass. restoreDroppedExpects
+// puts the assertion back, and ONLY for a command the review left untouched.
+func TestRestoreDroppedExpects(t *testing.T) {
+	a := newTestApp(t)
+	before := []council.DeliverableCheck{
+		{Step: "1", Command: "grep -n 'PATTERN' ./out.c | head -1", Expect: "PATTERN"},
+		{Step: "2", Command: "test -f ./out.c", Expect: "OK"},
+		{Step: "3", Command: "./run --check", Expect: "done"},
+		{Step: "4", Command: "ls ./built"}, // authored with no expect: nothing to restore
+	}
+	after := []council.DeliverableCheck{
+		{Step: "1", Command: "grep -n 'PATTERN' ./out.c | head -1"},        // identical, expect dropped → restore
+		{Step: "2", Command: "test -f ./out.c && echo OK", Expect: ""},     // command rewritten → leave alone
+		{Step: "3", Command: "./run --check", Expect: "all checks passed"}, // expect repaired → leave alone
+		{Step: "4", Command: "ls ./built"},                                 // never had one
+	}
+	got := a.restoreDroppedExpects("s1", before, after)
+	if got[0].Expect != "PATTERN" {
+		t.Errorf("an unchanged command whose expect was dropped must get it back, got %q", got[0].Expect)
+	}
+	if got[1].Expect != "" {
+		t.Errorf("a REWRITTEN command redefines how it is judged; expect must stay empty, got %q", got[1].Expect)
+	}
+	if got[2].Expect != "all checks passed" {
+		t.Errorf("a repaired expect must survive, got %q", got[2].Expect)
+	}
+	if got[3].Expect != "" {
+		t.Errorf("a check authored with no expect must stay that way, got %q", got[3].Expect)
+	}
+	// No authored expects at all: nothing to restore, and the input is returned untouched.
+	plain := []council.DeliverableCheck{{Step: "1", Command: "true"}}
+	if out := a.restoreDroppedExpects("s1", plain, plain); len(out) != 1 || out[0].Expect != "" {
+		t.Errorf("with no prior expects the audit result must pass through unchanged, got %+v", out)
+	}
+}

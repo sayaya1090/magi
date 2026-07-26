@@ -2,109 +2,91 @@ package app
 
 import (
 	"context"
-	"os"
-	"path/filepath"
-	"strings"
+	"encoding/json"
 	"testing"
+
+	"github.com/sayaya1090/magi/internal/core/event"
+	"github.com/sayaya1090/magi/internal/core/session"
 )
 
-// nonEmptyWorkdir returns a temp dir with one file, so exploreSpecMine's empty-repo skip does not
-// short-circuit (a greenfield/empty tree has nothing to explore).
-func nonEmptyWorkdir(t *testing.T) string {
-	t.Helper()
-	wd := t.TempDir()
-	if err := os.WriteFile(filepath.Join(wd, "server.py"), []byte("x = 1\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return wd
-}
-
-// The plan-based exploration is default ON; MAGI_SPECMINE_EXPLORE=0 restores the prompt-analysis-only flow.
-func TestSpecMineExploreEnabledGate(t *testing.T) {
-	t.Setenv("MAGI_SPECMINE_EXPLORE", "")
-	if !specMineExploreEnabled() {
-		t.Fatal("plan-based spec exploration must default ON")
-	}
-	t.Setenv("MAGI_SPECMINE_EXPLORE", "0")
-	if specMineExploreEnabled() {
-		t.Fatal("MAGI_SPECMINE_EXPLORE=0 must disable it")
+// A read-only spec cannot write, edit, or run anything, so the "you produced no deliverable — act
+// now" nudge names an action its tools forbid. specCanAct is what keeps the nudge off it.
+func TestSpecCanAct(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		tools []string
+		want  bool
+	}{
+		{"unrestricted (nil allowlist = all tools)", nil, true},
+		{"the read-only repository explorer", []string{"read", "grep", "glob", "list", "findcontext"}, false},
+		{"read-only plus a writer", []string{"read", "grep", "write"}, true},
+		{"read-only plus a shell", []string{"read", "grep", "bash"}, true},
+		{"edit only", []string{"edit"}, true},
+		{"multiedit only", []string{"multiedit"}, true},
+	} {
+		if got := specCanAct(AgentSpec{Name: "x", Tools: tc.tools}); got != tc.want {
+			t.Errorf("%s: specCanAct = %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }
 
-// A read-only exploration's findings are folded into the mined note the check-author and termination
-// council read — grounding the plan in the REAL repository (which must be non-empty to be worth it).
-func TestExploreSpecMineInjectsFindings(t *testing.T) {
-	t.Setenv("MAGI_SPECMINE_EXPLORE", "1")
-	a := newOrchApp(t, &gateLLM{text: "/app/server.py — class Server(dict) already defined"},
-		Config{Permission: "allow", MaxAgents: 10, MaxDepth: 4})
-	s := parentSession(nonEmptyWorkdir(t))
-	a.mu.Lock()
-	a.stateLocked(s.ID).meta = s
-	a.mu.Unlock()
-
-	a.exploreSpecMine(context.Background(), s, "build a KV server", []planStep{{Title: "impl", Strategy: "solo"}}, 0)
-
-	note := a.cachedSpecMine(s.ID)
-	if !strings.Contains(note, "Repository findings") || !strings.Contains(note, "server.py") {
-		t.Fatalf("exploration findings must be folded into the mined note, got:\n%s", note)
+// The explorer's contract is `path — fact` lines, so findings that name no file are empty for this
+// pass and earn one re-ask. The detector has to survive prose: the live failure's note was several
+// hundred chars of code commentary with `//` comments and line numbers, and named no file at all.
+func TestMentionsFilePath(t *testing.T) {
+	for _, tc := range []struct {
+		name, text string
+		want       bool
+	}{
+		{"a real path", "runtime/major_gc.c — the sweep loop lives here", true},
+		{"a bare filename", "the entry point is server.py", true},
+		{"a nested path with a dash", "src/some-pkg/parse_input.go — takes an io.Reader", true},
+		{"analysis prose with no file", "Looking at the code more carefully:\n" +
+			"```c\nif (FREE_HD(hd)) {\n    // ... merge logic ...\n    p += wh * Wosize_hd(hd);\n}\n```\n" +
+			"The problem is at line 644. The fix: change it to include the current block. Let me make this fix:", false},
+		{"an abbreviation is not a path", "report the facts, e.g. the ones you read", false},
+		{"a version is not a path", "the installed dependency is at 1.73.0", false},
+		{"empty", "", false},
+	} {
+		if got := mentionsFilePath(tc.text); got != tc.want {
+			t.Errorf("%s: mentionsFilePath = %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }
 
-// A greenfield / empty workspace has nothing to explore, so the exploration is skipped entirely — no
-// spawn overhead just to discover "the repository is empty". Observed on the empty-repo bench tasks.
-func TestExploreSpecMineSkipsEmptyRepo(t *testing.T) {
-	t.Setenv("MAGI_SPECMINE_EXPLORE", "1")
-	a := newOrchApp(t, &gateLLM{text: "must not be spawned for an empty repo"}, Config{Permission: "allow", MaxAgents: 10, MaxDepth: 4})
-	s := parentSession(t.TempDir()) // empty workdir
-	a.mu.Lock()
-	a.stateLocked(s.ID).meta = s
-	a.mu.Unlock()
-
-	a.exploreSpecMine(context.Background(), s, "build it", []planStep{{Title: "impl", Strategy: "solo"}}, 0)
-	if got := a.cachedSpecMine(s.ID); got != "" {
-		t.Errorf("an empty repo must skip the exploration (no spawn, no note), got %q", got)
-	}
-}
-
-// Every guard short-circuits with no injection: disabled flag, a delegated worker (depth>0), and an
-// empty plan. (Its own repository-exploration spawn never runs in these cases.)
-func TestExploreSpecMineNoOps(t *testing.T) {
-	a := newOrchApp(t, &gateLLM{text: "should not be used"}, Config{Permission: "allow", MaxAgents: 10, MaxDepth: 4})
-	s := parentSession(nonEmptyWorkdir(t)) // non-empty so only the intended guards short-circuit
-	a.mu.Lock()
-	a.stateLocked(s.ID).meta = s
-	a.mu.Unlock()
+// A guard stop leaves an error event in the child's log but does NOT set SpawnResult.Err, so without
+// spawnStoppedBy a cut-off mid-analysis fragment is indistinguishable from a finished answer.
+func TestSpawnStoppedBy(t *testing.T) {
+	a := newTestApp(t)
 	ctx := context.Background()
-	steps := []planStep{{Title: "impl", Strategy: "solo"}}
-
-	t.Setenv("MAGI_SPECMINE_EXPLORE", "1")
-	a.exploreSpecMine(ctx, s, "t", steps, 1) // depth>0 (worker)
-	a.exploreSpecMine(ctx, s, "t", nil, 0)   // empty plan
-	if got := a.cachedSpecMine(s.ID); got != "" {
-		t.Errorf("depth>0 / empty-plan must not inject, got %q", got)
+	wd := t.TempDir()
+	mk := func(t *testing.T, code, msg string) session.SessionID {
+		t.Helper()
+		sid := startSession(t, a, wd)
+		if code != "" {
+			d, _ := json.Marshal(event.ErrorData{Message: msg, Code: code})
+			if _, err := a.store.Append(ctx, sid, event.Event{
+				SessionID: sid, Type: event.TypeError,
+				Actor: event.Actor{Kind: event.ActorSystem, ID: "loop"}, Data: d,
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return sid
 	}
-	t.Setenv("MAGI_SPECMINE_EXPLORE", "0")
-	a.exploreSpecMine(ctx, s, "t", steps, 0) // flag off
-	if got := a.cachedSpecMine(s.ID); got != "" {
-		t.Errorf("disabled flag must not inject, got %q", got)
-	}
-}
-
-// The exploration prompt enforces accuracy over volume: report only what was actually read, never
-// invent contents, and check that field sizes sum to a measured record length — the fix for the
-// observed errors (a record size off by arithmetic, an invented sample row) that "use verbatim" then
-// pushed the worker to trust. And the injected note softens "verbatim" for DERIVED facts (sizes/
-// contents), telling the worker to trust its own read of the file over the pass's reading.
-func TestSpecMineExploreAccuracyDiscipline(t *testing.T) {
-	for _, want := range []string{"ACCURACY over volume", "actually READ", "MUST sum to the record length", "did not open"} {
-		if !strings.Contains(specMineExploreSystem, want) {
-			t.Errorf("exploration prompt must enforce read-grounded accuracy (missing %q)", want)
+	for _, tc := range []struct{ code, want string }{
+		{"loop_guard", "loop guard"},
+		{"stall_guard", "stall guard"},
+		{"spin_guard", "spin guard"},
+		{"", ""},           // ended on its own
+		{"tool_error", ""}, // an ordinary error is not a guard stop
+	} {
+		sid := mk(t, tc.code, "stopped: ...; recovery: plan-ineligible")
+		if got := a.spawnStoppedBy(ctx, sid); got != tc.want {
+			t.Errorf("code %q: spawnStoppedBy = %q, want %q", tc.code, got, tc.want)
 		}
 	}
-	// Task-agnostic — no eval-set identifiers baked into the prompt.
-	for _, banned := range []string{"ACCOUNTS.DAT", "program.cbl", "cobol"} {
-		if strings.Contains(strings.ToLower(specMineExploreSystem), strings.ToLower(banned)) {
-			t.Errorf("exploration prompt leaks an eval-set token %q", banned)
-		}
+	if got := a.spawnStoppedBy(ctx, ""); got != "" {
+		t.Errorf("empty session id: want \"\", got %q", got)
 	}
 }
