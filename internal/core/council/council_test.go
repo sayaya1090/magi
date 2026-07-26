@@ -1,6 +1,7 @@
 package council
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -342,5 +343,36 @@ func TestDeliverableCheckPasses(t *testing.T) {
 		if got := tc.c.Passes(tc.out, tc.code); got != tc.want {
 			t.Errorf("%s: Passes = %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+// The authoring prompt tells members to "set `step` to that step's 1-based number", so a compliant
+// model emits 5, not "5". A strict string field rejected the whole array over it — every check in
+// the reply discarded while the model did exactly as instructed, which is how a run reached
+// execution with no executable contract at all.
+func TestDeliverableCheckStepAcceptsNumberOrString(t *testing.T) {
+	var cs []DeliverableCheck
+	raw := `[{"step":5,"deliverable":"rebuilt","command":"make world"},
+	         {"step":"2","deliverable":"proto","command":"test -s a.proto"},
+	         {"deliverable":"no step","command":"true"}]`
+	if err := json.Unmarshal([]byte(raw), &cs); err != nil {
+		t.Fatalf("a numeric step must not fail the array: %v", err)
+	}
+	if len(cs) != 3 {
+		t.Fatalf("want 3 checks, got %d", len(cs))
+	}
+	if cs[0].Step != "5" || cs[0].Command != "make world" {
+		t.Errorf("numeric step: %+v", cs[0])
+	}
+	if cs[1].Step != "2" {
+		t.Errorf("string step must be unchanged: %+v", cs[1])
+	}
+	if cs[2].Step != "" || cs[2].Command != "true" {
+		t.Errorf("a missing step is fine and must not lose the check: %+v", cs[2])
+	}
+	// An unusable step shape leaves Step empty rather than losing the check.
+	var one []DeliverableCheck
+	if err := json.Unmarshal([]byte(`[{"step":{"a":1},"command":"x"}]`), &one); err != nil || len(one) != 1 || one[0].Command != "x" {
+		t.Errorf("an object-valued step must degrade to empty, not fail: err=%v %+v", err, one)
 	}
 }

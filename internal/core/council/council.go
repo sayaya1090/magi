@@ -14,6 +14,7 @@
 package council
 
 import (
+	"encoding/json"
 	"regexp"
 	"strconv"
 	"strings"
@@ -81,6 +82,37 @@ type DeliverableCheck struct {
 	Deliverable string `json:"deliverable,omitempty"`
 	Command     string `json:"command"`
 	Expect      string `json:"expect,omitempty"`
+}
+
+// UnmarshalJSON reads `step` as either a string or a NUMBER. The authoring prompt asks members to
+// "set `step` to that step's 1-based number", so a model that complies emits 5, not "5" — and a
+// strict string field then rejected the whole array, discarding every check in the reply. That is
+// how a run ends up with no executable contract at all while the model did exactly as instructed.
+func (c *DeliverableCheck) UnmarshalJSON(b []byte) error {
+	// A shadow type is required: naming DeliverableCheck here would recurse into this method.
+	var raw struct {
+		Step        json.RawMessage `json:"step,omitempty"`
+		Deliverable string          `json:"deliverable,omitempty"`
+		Command     string          `json:"command"`
+		Expect      string          `json:"expect,omitempty"`
+	}
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	*c = DeliverableCheck{Deliverable: raw.Deliverable, Command: raw.Command, Expect: raw.Expect}
+	if len(raw.Step) == 0 {
+		return nil
+	}
+	var asString string
+	if json.Unmarshal(raw.Step, &asString) == nil {
+		c.Step = asString
+		return nil
+	}
+	var asNumber json.Number
+	if json.Unmarshal(raw.Step, &asNumber) == nil {
+		c.Step = asNumber.String()
+	}
+	return nil // any other shape leaves Step empty rather than losing the check
 }
 
 // Passes reports whether a completed check's command output satisfies the check.
