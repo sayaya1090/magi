@@ -265,6 +265,15 @@ func (a *App) specMineCallMsgs(ctx context.Context, spec AgentSpec, sid session.
 		Model:    model,
 		System:   system,
 		Messages: msgs,
+		// Pin the sampling temperature the way the council pins its member polls. These side
+		// calls do not converse: each one distills a fixed input into a STRUCTURED document
+		// (the spec-mine note, the coverage fill's checks array, the check audit's repairs),
+		// where sampling buys nothing and costs reproducibility. Measured on the local backend
+		// with the coverage fill: at temperature 0 two runs authored the identical 3 checks,
+		// while the provider default authored 3, then 0, then a reply carrying a raw control
+		// character — and the 0 draw is what leaves a plan's steps with no executable contract
+		// at all, indistinguishable in the log from a plan that needed no checks.
+		Params: map[string]any{"temperature": 0.0},
 	})
 	if err != nil {
 		return ""
