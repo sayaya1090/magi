@@ -88,11 +88,35 @@ internal/
                             model_view.go (render). Transcript, subagent panes, /route editor
                             (session-model suggest box = profiles ∪ `App.ListModels` gateway catalog).
   httpx/                    shared static+dynamic HTTP header set (MCP + LLM client)
+  jsonx/                    the one reader for model-produced JSON: balanced-span extraction,
+                            the repair ladder, tolerant field types, and parse-failure diagnosis
   config/                   TOML config loader + comment-preserving editor (SetKey)
   eval/                     quantitative task-suite harness (success/steps/tokens)
   update/                   GitHub-release self-update (`-update`)
   version/                  build version stamping
 ```
+
+**Reading model JSON (`internal/jsonx`).** Plans, contracts, deliverable checks, council
+verdicts, curator packets, mined execution notes and tool-call arguments are all JSON a MODEL
+wrote, and they fail in the same handful of ways. One package owns that, so a defect fixed once
+is fixed for all of them:
+- **Extraction** — `BalancedObjects`/`BalancedArrays` pull candidate spans out of a reply that
+  wrapped its JSON in prose or a code fence.
+- **Repair ladder** (`RepairCandidates` → `Unmarshal`) — the ORIGINAL is always candidate 0, so a
+  clean reply is never rewritten. Then light repairs (a trailing comma, a raw control character in
+  a string — the common defects in fields carrying multi-line prose or shell commands), then
+  structural ones (an unescaped inner quote, single-quoted strings, bare identifier values). Each
+  structural repair acts only on text that is ALREADY invalid JSON, so it cannot corrupt a
+  well-formed document.
+- **Tolerant field types** (`Text`, `Texts`, `Number`) — Go's decoder aborts the WHOLE document on
+  the first type mismatch, so one field answered in an unexpected shape (a list where the schema
+  says string, a quoted `"0.9"`, a number where prose was asked for) discarded every sibling field
+  and every element beside it. Model-facing structs read their free-text fields through these
+  instead, and validate by VALUE afterwards.
+- **Diagnosis** (`Diagnose`, `Report`) — what every parse-failure log renders: the bounded excerpt
+  plus the named reason (no JSON at all / a syntax defect with its byte offset and a window around
+  it / it parses and the mismatch is the schema). An excerpt alone keeps only the head and tail,
+  which is where the defect usually is not.
 
 ---
 
