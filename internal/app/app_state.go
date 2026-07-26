@@ -74,6 +74,7 @@ type sessionState struct {
 	contractFrozen    bool                       // a contract-first council gate authored this turn's criteria — plan-audit must not overwrite them (D-contract)
 	contractText      string                     // the frozen contract (criteria/goals) rendered for the planner, so contractForPlanner is a straight read
 	passedChecks      map[string]bool            // checkKey → latest verify result (true=pass); drives the panel's ✓ glyph
+	provAudited       map[string]bool            // source\x00pattern already put through the provenance audit — it re-reads every session event, and its finding ("this call wrote this string") stays true once made, so once per run is enough
 	estSteps          int                        // planner's advisory step estimate this turn
 	stepLedger        []ledgerEntry              // shared artifact ledger: each completed step's produced paths/interfaces (handoff), passed VERBATIM to every later worker and shown in every right panel
 	interjectSeen     map[string]bool            // interjection MessageIDs detected this turn (masked from turnTask/council)
@@ -191,6 +192,7 @@ func (a *App) resetForNewTopLevel(sid session.SessionID) {
 	st.contractFrozen = false  // …and the contract-first freeze (a new top-level re-derives the contract)
 	st.contractText = ""       // …and its rendered planner contract
 	st.passedChecks = nil      // …and the previous task's per-check pass/fail glyph state
+	st.provAudited = nil       // …and which sources it had already audited for provenance
 	st.estSteps = 0            // …and the previous task's advisory step estimate
 	st.stepLedger = nil        // …and the previous task's shared artifact ledger
 	// Reset the interjection mask, but KEEP masking anything still WAITING in the

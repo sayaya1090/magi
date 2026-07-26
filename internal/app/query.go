@@ -57,6 +57,7 @@ func (a *App) Rewind(ctx context.Context, sid session.SessionID, n int) (int64, 
 		st.minedNote = ""
 		st.deliverableChecks = nil
 		st.passedChecks = nil
+		st.provAudited = nil
 		st.contractFrozen = false
 		st.contractText = ""
 		st.stepLedger = nil

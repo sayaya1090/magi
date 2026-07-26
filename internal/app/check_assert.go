@@ -1,0 +1,273 @@
+package app
+
+import (
+	"context"
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/sayaya1090/magi/internal/core/council"
+	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
+)
+
+// A deliverable check written as model-authored shell can go wrong in ways no review reliably
+// catches, and one live run produced three of them at once:
+//
+//	grep -rn P src/*.c > /tmp/analysis.txt && test -s /tmp/analysis.txt   the check CREATES the
+//	                                                                      evidence it then asserts —
+//	                                                                      it passes with nothing done
+//	grep -q E /tmp/build.log && exit 1 || true; test $? -ne 0             `$?` after `|| true` is 0,
+//	                                                                      so it exits 1 in EVERY world
+//	                                                                      state — a permanent false fail
+//	cd src && make world opt | grep -q '^Done\.$'                         the check re-does the step's
+//	                                                                      work each gate cycle
+//
+// Guarding this by reading the command text does not hold: a name denylist is bypassed by `/bin/rm`,
+// a redirect scan by `sh wrapper.sh`, and each new pattern is one indirection away from useless. The
+// property that cannot be wrapped is structural — take away the place to put shell in.
+//
+// So a typed check carries DATA, not a command: `source` names a path, `assert` picks a verb from
+// the closed vocabulary below, and THIS FILE builds the invocation. Arguments are passed as an argv
+// array with no shell anywhere in the path, so a metacharacter in a model-supplied path or pattern
+// is an ordinary byte of an argument — there is no command line for it to break out of. None of the
+// three defects above is expressible: nothing here redirects, nothing here runs a model-named
+// program, and the verdict is computed in Go from the content rather than from a chain of exit codes.
+//
+// What this deliberately gives up: the check can no longer execute the deliverable. That belongs to
+// the STEP now — it performs the run and records the real output — and the check reads what was
+// recorded. The contract of [check sufficiency] is unchanged (the behaviour is still driven and its
+// real result still asserted); only the actor moves. The gap it opens — a step that records a
+// FABRICATED result — is not closed here but by the provenance audit, which reads magi's own record
+// of the tool calls that produced the file.
+
+// typedChecksEnabled gates the typed check runner (default ON; MAGI_TYPED_CHECKS=0 makes a typed
+// check fall through to its Command, which is the pre-typed baseline for an A/B).
+func typedChecksEnabled() bool { return !envOff("MAGI_TYPED_CHECKS") }
+
+// typedReadCap bounds how much of a source file is pulled back for matching. A recorded build log
+// can be tens of megabytes and the whole of it would be held in memory and scanned per gate cycle;
+// the assertions are about whether a pattern occurs, which a bounded prefix answers for anything a
+// step is expected to record. Truncation is reported so a miss on a huge file is never silent.
+const typedReadCap = 512 << 10
+
+// typedProbeTimeoutSec bounds the network/liveness probes below, in the probe's own terms. The outer
+// per-command deadline (checkCmdTimeout) still applies; this keeps a connect to a black-holed port
+// from sitting there for the whole of it.
+const typedProbeTimeoutSec = 3
+
+// assertion is one parsed entry of the closed vocabulary: a verb plus its single argument.
+type assertion struct {
+	verb string
+	arg  string
+}
+
+// parseAssertion reads `assert` as "verb" or "verb argument". The argument is taken as the REST of
+// the string, unsplit, because a regular expression contains spaces far more often than not — the
+// one place a Fields-based parse would silently truncate the contract.
+//
+// An unknown verb is a parse failure rather than a guess: guessing would run some other assertion
+// than the one authored, and the caller reports it as "the check could not run" (no verdict), which
+// is the honest answer and the same landing an unrunnable command already gets.
+func parseAssertion(s string) (assertion, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return assertion{}, false
+	}
+	verb, arg := s, ""
+	if i := strings.IndexAny(s, " \t"); i >= 0 {
+		verb, arg = s[:i], strings.TrimSpace(s[i+1:])
+	}
+	verb = strings.ToLower(verb)
+	switch verb {
+	case "nonempty", "process_alive":
+		return assertion{verb: verb}, true // subject is `source`; no argument
+	case "matches", "absent", "equals", "port_open":
+		if arg == "" {
+			return assertion{}, false // these are meaningless without their argument
+		}
+		return assertion{verb: verb, arg: arg}, true
+	}
+	return assertion{}, false
+}
+
+// runCheck is the single entry point every gate uses to obtain a check's (output, exit code). A
+// typed check is evaluated by the runner below; anything else keeps the model-authored command path
+// through the read-only shell. Callers are unchanged otherwise — they still layer their own
+// checkUnrunnable/-1 policy and their own Passes call on the result.
+func (a *App) runCheck(ctx context.Context, sid session.SessionID, workdir string, c council.DeliverableCheck) (string, int) {
+	if typedChecksEnabled() && strings.TrimSpace(c.Assert) != "" {
+		return a.runTypedCheck(ctx, sid, workdir, c)
+	}
+	return a.runCheckCmd(ctx, sid, workdir, c.Command)
+}
+
+// runTypedCheck evaluates one typed check and returns it in the (output, exit code) shape the gates
+// already speak: 0 passed, 1 failed, 126 the check itself could not run (an unknown verb, or a
+// missing subject — no verdict, exactly as a refused command yields none), -1 no platform.
+//
+// A source file that is ABSENT is a FAILURE, not an unrunnable check. The step was supposed to
+// record it; that it is not there is a fact about the deliverable and the gate should hear it. This
+// is the one place the typed shape reports more than the shell one did — `test -s missing` and
+// `cat missing` were indistinguishable from a broken check before.
+func (a *App) runTypedCheck(ctx context.Context, sid session.SessionID, workdir string, c council.DeliverableCheck) (string, int) {
+	if a.plat == nil {
+		return "no platform to run verification", -1
+	}
+	as, ok := parseAssertion(c.Assert)
+	if !ok {
+		a.emitToolProgress(sid, plannerActor, "", "check-typed",
+			fmt.Sprintf("check-typed: %q is not an assertion this runner knows (%s) — no verdict for this check",
+				clipLine(strings.TrimSpace(c.Assert), 80), strings.Join(typedVerbs(), ", ")))
+		return fmt.Sprintf("unknown assertion %q", strings.TrimSpace(c.Assert)), 126
+	}
+	src := strings.TrimSpace(c.Source)
+
+	switch as.verb {
+	case "port_open":
+		n, err := strconv.Atoi(strings.Fields(as.arg)[0])
+		if err != nil || n < 1 || n > 65535 {
+			return fmt.Sprintf("port_open needs a port number, got %q", as.arg), 126
+		}
+		return a.runTypedProbe(ctx, workdir, portOpenProbe, strconv.Itoa(n), strconv.Itoa(typedProbeTimeoutSec))
+	case "process_alive":
+		if src == "" {
+			return "process_alive needs `source` set to a pid file", 126
+		}
+		return a.runTypedProbe(ctx, workdir, processAliveProbe, src)
+	}
+
+	// Everything left is an assertion ABOUT A FILE the step recorded.
+	if src == "" {
+		return fmt.Sprintf("%s needs `source` set to the path the step recorded", as.verb), 126
+	}
+	body, out, code := a.readForCheck(ctx, workdir, src)
+	if code != 0 {
+		return out, code
+	}
+	switch as.verb {
+	case "nonempty":
+		if strings.TrimSpace(body) == "" {
+			return fmt.Sprintf("%s is empty", src), 1
+		}
+		return fmt.Sprintf("%s: %d bytes", src, len(body)), 0
+	case "matches", "absent":
+		// Reuse the check's own matcher so a typed pattern behaves EXACTLY as a command check's
+		// `expect` does — including the line-wise retry that keeps an anchored pattern from being a
+		// permanent false failure against output that ends in a newline.
+		hit := council.DeliverableCheck{Expect: as.arg}.Passes(body, 0)
+		if as.verb == "absent" {
+			if hit {
+				return fmt.Sprintf("%s contains %q, which must be absent", src, clipLine(as.arg, 80)), 1
+			}
+			return fmt.Sprintf("%s does not contain %q", src, clipLine(as.arg, 80)), 0
+		}
+		if !hit {
+			return fmt.Sprintf("%s does not match %q — content: %s", src, clipLine(as.arg, 80),
+				clipLine(strings.TrimSpace(body), 200)), 1
+		}
+		ok := fmt.Sprintf("%s matches %q", src, clipLine(as.arg, 80))
+		// It matched — so this is the moment to ask WHERE the matching text came from. A pass is the
+		// only outcome the provenance question changes: a check that already failed cannot have been
+		// fooled by a fabricated record.
+		if note := a.auditSourceProvenance(ctx, sid, src, as); note != "" {
+			a.emitToolProgress(sid, plannerActor, "", "check-provenance", "check-provenance: "+note)
+			ok += " — " + note
+		}
+		return ok, 0
+	case "equals":
+		other, oout, ocode := a.readForCheck(ctx, workdir, as.arg)
+		if ocode != 0 {
+			return oout, ocode
+		}
+		if strings.TrimSpace(body) != strings.TrimSpace(other) {
+			return fmt.Sprintf("%s differs from %s", src, as.arg), 1
+		}
+		return fmt.Sprintf("%s equals %s", src, as.arg), 0
+	}
+	return fmt.Sprintf("unhandled assertion %q", as.verb), 126 // unreachable: parseAssertion gates the set
+}
+
+// typedVerbs is the vocabulary, for the message a bad `assert` gets back. Fixed order so the note
+// reads the same every run.
+func typedVerbs() []string {
+	return []string{"nonempty", "matches <regexp>", "absent <regexp>", "equals <path>", "port_open <port>", "process_alive"}
+}
+
+// readForCheck pulls a source file back through the platform WITHOUT a shell: `cat` is invoked with
+// the path as an argv element, so a path containing a space, a quote or a `;` is just a path. It
+// returns (contents, diagnostic, code) where code 0 means read, 1 means the file is not readable
+// (the deliverable's problem), and 126 means `cat` itself could not be launched (the check's).
+func (a *App) readForCheck(ctx context.Context, workdir, path string) (string, string, int) {
+	res, err := a.plat.Exec(ctx, port.Cmd{Path: "cat", Args: []string{path}, Dir: workdir, MaxOutput: typedReadCap})
+	if err != nil && res.ExitCode == 0 {
+		// Could not even start the reader — no `cat`, or the platform refused. That says nothing about
+		// the artifact, so it must not be reported as a failing deliverable.
+		return "", fmt.Sprintf("cannot read %s: %v", path, err), 126
+	}
+	if res.ExitCode != 0 {
+		msg := strings.TrimSpace(string(res.Stderr))
+		if msg == "" {
+			msg = "unreadable"
+		}
+		return "", fmt.Sprintf("%s: %s — the step was to record it here", path, clipLine(msg, 160)), 1
+	}
+	body := string(res.Stdout)
+	if len(body) >= typedReadCap {
+		// Say so: a pattern that occurs past the cap would otherwise look like a genuine miss.
+		body += fmt.Sprintf("\n[read capped at %d bytes]", typedReadCap)
+	}
+	return body, "", 0
+}
+
+// runTypedProbe runs one of the fixed probe scripts below through python3, passing its subject as an
+// ARGUMENT rather than interpolating it into the source. The scripts are constants in this file, so
+// what executes is fully determined here; the model contributes a port number or a path and nothing
+// else. python3 is the one interpreter [deliverable-check-missing-tool] established as present where
+// `ss`/`netstat`/`lsof` are not.
+func (a *App) runTypedProbe(ctx context.Context, workdir, script string, args ...string) (string, int) {
+	res, err := a.plat.Exec(ctx, port.Cmd{
+		Path: "python3", Args: append([]string{"-c", script}, args...), Dir: workdir, MaxOutput: 8 << 10,
+	})
+	out := strings.TrimSpace(string(res.Stdout) + "\n" + string(res.Stderr))
+	if err != nil && res.ExitCode == 0 {
+		return "cannot run the probe: " + err.Error(), 126
+	}
+	if res.ExitCode != 0 {
+		return out, 1
+	}
+	return out, 0
+}
+
+// portOpenProbe reports whether something accepts a TCP connection on the port. Liveness is the one
+// contract a recorded artifact cannot prove — a log saying the server started is equally consistent
+// with a server that has since died, or with a stale one from an earlier attempt still holding the
+// port — so it is asserted live, here, by a probe magi owns.
+const portOpenProbe = `import socket, sys
+s = socket.socket()
+s.settimeout(float(sys.argv[2]))
+try:
+    s.connect(("127.0.0.1", int(sys.argv[1])))
+    print("port %s open" % sys.argv[1])
+except Exception as e:
+    print("port %s not open: %s" % (sys.argv[1], e))
+    sys.exit(1)
+finally:
+    s.close()
+`
+
+// processAliveProbe reports whether the pid recorded in a file is still running. signal 0 performs
+// the permission/existence check without delivering anything.
+const processAliveProbe = `import os, sys
+try:
+    pid = int(open(sys.argv[1]).read().strip())
+except Exception as e:
+    print("no pid in %s: %s" % (sys.argv[1], e))
+    sys.exit(1)
+try:
+    os.kill(pid, 0)
+    print("pid %d alive" % pid)
+except Exception as e:
+    print("pid %d not alive: %s" % (pid, e))
+    sys.exit(1)
+`
