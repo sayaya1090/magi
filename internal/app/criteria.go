@@ -443,7 +443,13 @@ const validateChecksSystem = "You review the executable deliverable `checks` a p
 	"(`test ! -f a.tgz`) MUST keep its own step label; never merge it onto the same step as an existence check " +
 	"(`test -s a.tgz`) for the same artifact — they are verified at different steps, and co-locating them makes a " +
 	"jointly-unsatisfiable checklist. Keep `expect` ONLY when it reliably matches correct output; " +
-	"otherwise drop `expect` and rely on the exit code.\n" +
+	"otherwise drop `expect` and rely on the exit code — but ONLY when the command's exit code can actually " +
+	"FAIL. A pipeline reports its LAST stage's status, so anything ending in a filter (`| head`, `| tail`, " +
+	"`| tee`, `| cat`, `| sort`) exits 0 whatever the predicate found — even when the file it read does not " +
+	"exist. Dropping `expect` there does not simplify the check, it makes it unfalsifiable: it will pass on " +
+	"a broken deliverable and on no deliverable at all. Restructure the command so failure is its exit " +
+	"status (`grep -q PATTERN FILE`, `test`, or `CMD && echo <marker>` with `expect` on the marker) instead " +
+	"of leaving a check that cannot fail.\n" +
 	"- SCOPE (repair, do not retarget): only repair HOW each check proves its OWN stated deliverable.\n" +
 	"  · strengthening a proxy into the real behavioral assertion of that SAME deliverable — a config into the effect " +
 	"it causes, a single sample into the whole reference — is the repair intended here, NOT a forbidden change.\n" +
@@ -479,8 +485,52 @@ func (a *App) validateChecks(ctx context.Context, agent AgentSpec, s session.Ses
 	if !ok || len(out) == 0 {
 		return checks
 	}
+	out = a.restoreDroppedExpects(s.ID, checks, out)
 	a.recordCheckAudit(ctx, s.ID, checks, out)
 	return out
+}
+
+// restoreDroppedExpects puts back an `expect` the review removed from a command it left UNCHANGED.
+//
+// The review is allowed to drop an expect that cannot reliably match, and it should: Passes then
+// judges on the exit code alone. But dropping it while keeping the command turns the check into
+// whatever that command's exit status happens to be — and a shell pipeline reports only its last
+// stage. Observed: `grep -n 'PATTERN' ./FILE | head -1` had an expect naming the matched line; the
+// review kept the command byte-for-byte and returned it with no expect. `head` exits 0 whether grep
+// matched, found nothing, or could not open the file at all, so the check went from a real assertion
+// to one that passes in every world state — including the one where the deliverable does not exist.
+// That is the mirror of the permanent false failure the review exists to catch, and it is silent:
+// the gate reports a pass.
+//
+// The rule is narrow on purpose. Only an IDENTICAL command with a newly-empty expect is restored: a
+// review that rewrote the command earned the right to redefine how it is judged, and a review that
+// changed the expect was repairing it, not removing it.
+func (a *App) restoreDroppedExpects(sid session.SessionID, before, after []council.DeliverableCheck) []council.DeliverableCheck {
+	prior := make(map[string]string, len(before))
+	for _, c := range before {
+		if e := strings.TrimSpace(c.Expect); e != "" {
+			prior[strings.TrimSpace(c.Command)] = e
+		}
+	}
+	if len(prior) == 0 {
+		return after
+	}
+	restored := 0
+	for i := range after {
+		if strings.TrimSpace(after[i].Expect) != "" {
+			continue
+		}
+		if e, ok := prior[strings.TrimSpace(after[i].Command)]; ok {
+			after[i].Expect = e
+			restored++
+		}
+	}
+	if restored > 0 {
+		a.emitToolProgress(sid, plannerActor, "", "check-audit",
+			fmt.Sprintf("check-audit: restored `expect` on %d check(s) the review left with the same command — "+
+				"an unchanged command judged on its exit code alone can pass with nothing produced", restored))
+	}
+	return after
 }
 
 // retryCheckAudit re-asks the review ONCE when the first reply yielded no usable check set, and
