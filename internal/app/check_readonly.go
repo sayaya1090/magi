@@ -244,14 +244,65 @@ func refusedCommandsIn(cmd string) []string {
 // shellCommandSegments splits cmd at the operators that start a new command position. Every separator
 // is treated alike because the question here is only "does a command word sit here", not what the
 // control flow means. Substitutions are split on too, so `$(make x)` exposes its inner command.
+// The split must be QUOTE-AWARE: a metacharacter inside a quoted argument is data, not a command
+// boundary. A read-only `grep -q 'build\|make world\|x' f` splits, on a quote-blind scan, into a
+// segment beginning `make` and is predicted refused — a false positive that costs a needless re-ask
+// and, worse, marks a perfectly good check as refused in the worker's brief (observed live).
 func shellCommandSegments(cmd string) []string {
-	return strings.FieldsFunc(cmd, func(r rune) bool {
-		switch r {
-		case '|', '&', ';', '\n', '(', ')', '{', '}', '`':
-			return true
+	var segs []string
+	var cur strings.Builder
+	flush := func() {
+		if s := strings.TrimSpace(cur.String()); s != "" {
+			segs = append(segs, s)
 		}
-		return false
-	})
+		cur.Reset()
+	}
+	var quote byte // 0, '\'' or '"'
+	for i := 0; i < len(cmd); i++ {
+		c := cmd[i]
+		switch {
+		case quote == '\'':
+			if c == '\'' {
+				quote = 0
+			}
+			cur.WriteByte(c)
+		case quote == '"':
+			if c == '\\' && i+1 < len(cmd) {
+				cur.WriteByte(c)
+				i++
+				cur.WriteByte(cmd[i])
+				continue
+			}
+			// Double quotes do NOT suspend command substitution: `"$(make -s x)"` really runs make,
+			// so a substitution's boundaries still split. Single quotes suspend it, and are handled
+			// above as pure data.
+			if c == '`' || c == ')' || (c == '$' && i+1 < len(cmd) && cmd[i+1] == '(') {
+				if c == '$' {
+					i++
+				}
+				flush()
+				continue
+			}
+			if c == '"' {
+				quote = 0
+			}
+			cur.WriteByte(c)
+		case c == '\'' || c == '"':
+			quote = c
+			cur.WriteByte(c)
+		case c == '\\' && i+1 < len(cmd):
+			// An escaped metacharacter is data too (`grep -q a\|b`), so carry both bytes across.
+			cur.WriteByte(c)
+			i++
+			cur.WriteByte(cmd[i])
+		case c == '|' || c == '&' || c == ';' || c == '\n' || c == '(' || c == ')' || c == '{' || c == '}' || c == '`':
+			flush()
+		default:
+			cur.WriteByte(c)
+		}
+	}
+	flush()
+	return segs
 }
 
 // isEnvAssignment reports whether f is a leading NAME=value prefix rather than the command word.

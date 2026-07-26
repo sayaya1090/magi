@@ -329,6 +329,10 @@ func TestRefusedCommandsInMatchesTheShell(t *testing.T) {
 		"git status --porcelain",
 		"echo 'rm -rf /'",
 		"tar -tf /tmp/magi-does-not-exist.tgz",
+		// Quoted metacharacters are data (both of these run for real); an unquoted one is a boundary.
+		`grep -q 'a\|make world\|b' /etc/passwd`,
+		`grep -qE "make|cmake" /etc/passwd`,
+		`test -n "$(make -s nosuchtarget 2>/dev/null)"`,
 	} {
 		out, code := a.runCheckCmd(context.Background(), "s_test", t.TempDir(), cmd)
 		actual := blockedCommandIn(out) != ""
@@ -367,5 +371,38 @@ func TestRefusalSurvivesATrailingFallback(t *testing.T) {
 	// A check with no blocked command keeps its real exit code — the forcing must not swallow verdicts.
 	if _, code := a.runCheckCmd(context.Background(), "s_test", t.TempDir(), "test -f /nonexistent-magi"); code == 126 {
 		t.Error("an ordinary failing check must keep its own exit code, not be reported as unrunnable")
+	}
+}
+
+// The predictor must read the command the way the SHELL does: a metacharacter inside a quoted
+// argument is data. A quote-blind split turned the read-only check
+//
+//	grep -q 'build process\|make world\|bootstrap' HACKING.adoc
+//
+// into a segment starting with `make` and predicted a refusal — observed live, where it cost a
+// needless check-audit re-ask and would have marked a good check as refused in the worker's brief.
+func TestRefusedCommandsInIsQuoteAware(t *testing.T) {
+	readOnly := []string{
+		`grep -q 'build process\|make world\|bootstrap' ocaml/HACKING.adoc`,
+		`grep -qE "make|cmake" notes.txt`,
+		`grep -q 'rm -rf' script.sh`,
+		`test -s out.txt && grep -c 'make install' log.txt`,
+		`python3 -c "print('make world')"`,
+		`grep -q a\|b file`,
+	}
+	for _, cmd := range readOnly {
+		if got := refusedCommandsIn(cmd); len(got) > 0 {
+			t.Errorf("quoted/escaped text is data, not a command: %q predicted refused %v", cmd, got)
+		}
+	}
+	// The real boundaries still split — quoting must not become a way to hide a mutation.
+	for _, cmd := range []string{
+		`cd ocaml && make world opt 2>&1 | grep -q '^Done\.$'`,
+		`grep -q 'x' f; rm -f f`,
+		`( make test )`,
+	} {
+		if got := refusedCommandsIn(cmd); len(got) == 0 {
+			t.Errorf("an unquoted mutating command must still be predicted refused: %q", cmd)
+		}
 	}
 }
