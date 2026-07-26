@@ -247,6 +247,26 @@ func (a *App) runVerifyCmd(ctx context.Context, workdir, cmd string) (string, in
 	return out, res.ExitCode
 }
 
+// runCheckCmd is runVerifyCmd for a DELIVERABLE CHECK: the same execution, but through the read-only
+// shell (wrapReadOnly), so a check that tries to build/install/delete is refused rather than re-doing
+// the step's work every gate cycle. Exit 126 from a refusal reads as "the check could not run"
+// (checkUnrunnable), never as a failing deliverable.
+//
+// The user-configured workflow verify command deliberately keeps calling runVerifyCmd directly: that
+// one is the operator's own `make test`-style command, not a model-authored check, and it is supposed
+// to be able to build.
+// A refusal is REPORTED, not just returned: the check then yields no verdict, and without a line
+// naming the command the log is indistinguishable from a step that simply had no check to run.
+func (a *App) runCheckCmd(ctx context.Context, sid session.SessionID, workdir, cmd string) (string, int) {
+	out, code := a.runVerifyCmd(ctx, workdir, wrapReadOnly(cmd))
+	if blocked := blockedCommandIn(out); blocked != "" {
+		a.emitToolProgress(sid, plannerActor, "", "check-readonly",
+			fmt.Sprintf("check-readonly: refused `%s` — a check must verify the artifact, not re-do the step's work "+
+				"(`%s`); no verdict for this check", blocked, clipLine(strings.TrimSpace(cmd), 120)))
+	}
+	return out, code
+}
+
 func wfShell(cmd string) (string, []string) {
 	if runtime.GOOS == "windows" {
 		return "powershell", []string{"-NoProfile", "-Command", cmd}
