@@ -132,7 +132,10 @@ const coverageFillSystem = "You author executable deliverable `checks` that veri
 	"value, transform an input, produce an output), invoke that behavior through the same interface its consumer uses " +
 	"and assert on the RESULT (call the endpoint and assert the returned value, run the program on an input and compare " +
 	"its output), choosing the weakest input that still forces the real code path so a stub that merely exists or opens " +
-	"the port FAILS.\n" +
+	"the port FAILS. A command that SUCCEEDED is the same kind of precondition — a configure/build/install exiting 0 " +
+	"with a flag on its command line proves the flag was ACCEPTED, not that it took EFFECT — so when the step's " +
+	"deliverable is the effect a setting is supposed to cause, run whatever consumes the setting and assert the " +
+	"resulting artifact appears AT THE LOCATION the task names, never that the setting or the command is in place.\n" +
 	"- PORTABLE: depend ONLY on what the TARGET ENVIRONMENT guarantees — base OS (coreutils, grep/test), the task's " +
 	"language runtime (python3), and the task's own toolchain. A dependency it does NOT guarantee — of ANY kind: an " +
 	"external shell tool, a language library/module, a runtime, a service, a file — false-fails a correct deliverable " +

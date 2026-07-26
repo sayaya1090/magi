@@ -906,7 +906,13 @@ func planMemberSystem(m council.Member, lens string, keep bool) string {
 			"whenever the deliverable must BEHAVE or produce a correct result, because a non-functional stub passes every "+
 			"one of those. You MUST author a check that INVOKES the behavior through the same interface its consumer uses "+
 			"and asserts the OUTCOME, choosing the weakest input that still forces the real code path so a stub that "+
-			"merely exists or opens the port FAILS. Asserting the artifact is "+
+			"merely exists or opens the port FAILS. A COMMAND THAT SUCCEEDED is the same kind of precondition: a "+
+			"configure/build/install step exiting 0 with a flag on its command line proves the flag was ACCEPTED, not "+
+			"that it took EFFECT. So when the deliverable is the effect a setting is supposed to cause, check the "+
+			"EFFECT — run whatever consumes the setting and assert the resulting artifact appears, with the content the "+
+			"task requires, AT THE LOCATION the task names — never that the setting or the command is in place: a "+
+			"setting that silently did nothing, or one whose output landed somewhere the task does not look, passes the "+
+			"command check and fails the real one. Asserting the artifact is "+
 			"present while never exercising it is the single biggest reason a broken solution gets approved: a program that "+
 			"builds but computes the wrong answer, a `gates.txt` that exists but simulates to the wrong value, a server "+
 			"file that never actually listens, a cleanup handler that never fires. So beyond any existence check, run it, "+

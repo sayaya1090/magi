@@ -1266,3 +1266,16 @@ func TestRetryReminderNamesTheDefectThatOccurred(t *testing.T) {
 		t.Errorf("prose must still get the JSON-only reminder:\n%s", prose)
 	}
 }
+
+// Same floor on the prompt that AUTHORS the checks in the first place: an exit-0 configure/build with
+// the right flag on its command line proves the flag was accepted, not that it took effect, and an
+// effect that landed somewhere the task does not look is not the deliverable either.
+func TestPlanMemberPromptRejectsACommandThatMerelySucceeded(t *testing.T) {
+	m := council.Member{Name: "x", Lens: "correctness"}
+	p := memberSystem(m, "plan", "build something with a compiler flag", false, false)
+	for _, want := range []string{"COMMAND THAT SUCCEEDED", "ACCEPTED, not", "took EFFECT", "AT THE LOCATION the task names"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("plan check-authoring prompt must reject a command-exit-code proxy for an effect (missing %q)", want)
+		}
+	}
+}

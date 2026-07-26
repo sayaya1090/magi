@@ -383,3 +383,16 @@ func TestCheckAuditRetryFailureKeepsAuthoredChecksAndReports(t *testing.T) {
 		t.Errorf("the terminal note must say the checks went unreviewed and quote the retry's reply, got:\n%s", n)
 	}
 }
+
+// The effect-vs-cause floor belongs on the AUTHORING prompts too, not only on the audit that reviews
+// them. A check is repaired far more reliably by never being written that way: the observed shape was
+// a build configured with a coverage flag, checked by "configure exits 0" and "make exits 0" — both
+// passed, while the artifact the flag was supposed to produce never appeared where the task looked
+// for it, so the gate approved a deliverable the grader rejected.
+func TestCoverageFillPromptRejectsACommandThatMerelySucceeded(t *testing.T) {
+	for _, want := range []string{"command that SUCCEEDED", "ACCEPTED, not that it took EFFECT", "AT THE LOCATION the task names"} {
+		if !strings.Contains(coverageFillSystem, want) {
+			t.Errorf("coverageFillSystem must reject a command-exit-code proxy for an effect (missing %q)", want)
+		}
+	}
+}
