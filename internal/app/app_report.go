@@ -34,6 +34,31 @@ func reportStatusWord(line string) string {
 	return ""
 }
 
+// reportStatusClaim is the TOLERANT reader, used only to decide whether a worker reported TROUBLE.
+// reportStatusWord stays strict because its other caller (stripReportStatus) must not mistake a
+// legitimate work-item beginning "STATUS:" for our frame; here the trade runs the other way. A
+// worker that writes `STATUS: FAILED — could not install`, `**STATUS: FAILED**`, or `STATUS:FAILED`
+// has plainly reported failure, and reading those as anything else lands the costliest mistake
+// available: a blocked worker treated as done. Extra text after the word is ignored rather than
+// disqualifying the line, and only BLOCKED/FAILED can be gained — a fuzzy DONE changes nothing.
+func reportStatusClaim(line string) string {
+	t := strings.TrimSpace(line)
+	t = strings.Trim(t, "*_`# 	") // markdown emphasis or a heading marker around the frame
+	const kw = "status"
+	if len(t) < len(kw) || !strings.EqualFold(t[:len(kw)], kw) {
+		return ""
+	}
+	rest := strings.TrimLeft(t[len(kw):], " 	")
+	if !strings.HasPrefix(rest, ":") { // STATUS_OK and friends are not the frame
+		return ""
+	}
+	f := strings.Fields(strings.Trim(rest[1:], "*_`# 	"))
+	if len(f) == 0 {
+		return ""
+	}
+	return strings.ToUpper(strings.Trim(f[0], "*_`.,;:"))
+}
+
 // fileReport records a subagent's final report once; later calls in the same
 // turn are rejected so a model can't spam it. (output side of the contract)
 func (a *App) fileReport(sid session.SessionID, in port.ReportInput) error {

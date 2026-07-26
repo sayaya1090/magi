@@ -689,7 +689,7 @@ func (a *App) runRefineStep(ctx context.Context, s session.Session, st planStep,
 // own "no viable approach" verdict, used to backtrack early.
 func refineReportsFailure(text string) bool {
 	line, _, _ := strings.Cut(strings.TrimLeft(text, "\n"), "\n")
-	return reportStatusWord(line) == "FAILED"
+	return reportStatusClaim(line) == "FAILED"
 }
 
 // delegateNotDone reports whether a delegate attempt did NOT finish its sub-task: a spawn error, an
@@ -701,7 +701,7 @@ func delegateNotDone(r port.SpawnResult, text string) bool {
 		return true
 	}
 	line, _, _ := strings.Cut(strings.TrimLeft(text, "\n"), "\n")
-	switch reportStatusWord(line) {
+	switch reportStatusClaim(line) {
 	case "BLOCKED", "FAILED":
 		return true
 	}
