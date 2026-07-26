@@ -2193,14 +2193,19 @@ func TestPlanParseFailureKind(t *testing.T) {
 // A nested group or a stray brace (no title / unknown strategy) is never mistaken for a step.
 func TestSalvageStepsFromTruncatedPlan(t *testing.T) {
 	// Outer plan object is cut off mid-third-step; steps 1 and 2 are complete, a groups object and a
-	// stray brace are present. parsePlan must recover exactly the two real steps.
+	// stray brace are present. The two complete steps are recovered whole, and the third keeps the
+	// title that DID arrive — dropping it would leave a plan that claims to be finished after the
+	// scan, which is a worse misreading of the model than a step running on its default strategy.
 	truncated := `{"reason":"do it","steps":[` +
 		`{"title":"install deps","strategy":"solo"},` +
 		`{"title":"scan","strategy":"parallel","groups":[{"agent":"explore","focus":"x"}]},` +
 		`{"title":"impl","strategy":"sol`
 	p := parsePlan(truncated)
-	if len(p.Steps) != 2 || p.Steps[0].Title != "install deps" || p.Steps[1].Title != "scan" {
-		t.Fatalf("salvage should recover the 2 complete steps, got %+v", p.Steps)
+	if len(p.Steps) != 3 || p.Steps[0].Title != "install deps" || p.Steps[1].Title != "scan" {
+		t.Fatalf("salvage should recover the 2 complete steps and the cut one's title, got %+v", p.Steps)
+	}
+	if p.Steps[2].Title != "impl" || p.Steps[2].Strategy != "" {
+		t.Errorf("the cut-off step must carry only the field that arrived, got %+v", p.Steps[2])
 	}
 	if p.Steps[1].Strategy != "parallel" || len(p.Steps[1].Groups) != 1 {
 		t.Errorf("a recovered step must keep its nested fields, got %+v", p.Steps[1])
@@ -2232,8 +2237,9 @@ func TestSalvageStepsAppliesLenientRepairs(t *testing.T) {
 	if steps[1].Title != "verify output" {
 		t.Errorf("second step not recovered: %+v", steps[1])
 	}
-	// A step object that is malformed beyond the known repairs is still skipped (no false salvage).
-	if s := salvageSteps(`{"title":"x","strategy":"solo",,,}`); len(s) != 0 {
+	// Salvage never INVENTS a step: an object whose keys and values were never separated carries no
+	// recoverable pair, so nothing is returned rather than a step with empty fields.
+	if s := salvageSteps(`{"title" "x" "strategy" "solo"}`); len(s) != 0 {
 		t.Errorf("irreparable object must not salvage, got %+v", s)
 	}
 }
@@ -2269,10 +2275,15 @@ func TestParsePlanOrSalvageFlag(t *testing.T) {
 	if _, salv := parsePlanOrSalvage(`{"steps":[{"title":"a","strategy":"solo"}],"reason":"x"}`); salv {
 		t.Error("a clean full plan must NOT be reported as salvaged")
 	}
-	// Truncated plan (outer {} never closes) → recovered via salvage, salvaged=true.
+	// Truncated plan (outer {} never closes) → recovered, and still flagged salvaged: closing off a
+	// damaged reply must not erase the fact that it WAS damaged. The step whose strategy was cut off
+	// keeps the field that did arrive; the half-written one is dropped.
 	r, salv := parsePlanOrSalvage(`{"reason":"x","steps":[{"title":"a","strategy":"solo"},{"title":"b","strategy":"sol`)
-	if !salv || len(r.Steps) != 1 || r.Steps[0].Title != "a" {
+	if !salv || len(r.Steps) != 2 || r.Steps[0].Title != "a" || r.Steps[0].Strategy != "solo" {
 		t.Fatalf("a truncated plan must be recovered AND flagged salvaged, got salv=%v steps=%+v", salv, r.Steps)
+	}
+	if r.Steps[1].Title != "b" || r.Steps[1].Strategy != "" {
+		t.Fatalf("the cut-off step must keep only what arrived, got %+v", r.Steps[1])
 	}
 }
 

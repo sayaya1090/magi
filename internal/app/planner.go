@@ -716,13 +716,21 @@ func parsePlan(text string) planResult { r, _ := parsePlanOrSalvage(text); retur
 // clean first-try parse in the run.
 func parsePlanOrSalvage(text string) (planResult, bool) {
 	var firstValid *planResult
+	// Which spans the reply yielded WITHOUT repair: a plan recovered from a damaged reply (truncated,
+	// or carrying a stray token that cost the span) is still reported as salvaged, because the run
+	// treats a rescued partial plan differently from one the model wrote whole — and a repair that
+	// silently erased that distinction would be worse than the truncation it fixed.
+	intact := map[string]bool{}
+	for _, js := range jsonx.BalancedObjects(text) {
+		intact[js] = true
+	}
 	for _, js := range balancedObjects(text) {
 		p, ok := unmarshalPlanLenient(js)
 		if !ok {
 			continue // not JSON, or not the plan shape — try the next object
 		}
 		if len(p.Steps) > 0 {
-			return p, false // a real plan wins immediately (clean parse)
+			return p, !intact[js] // a real plan wins immediately
 		}
 		if firstValid == nil {
 			pp := p
@@ -797,7 +805,10 @@ func planParseFailureKind(text string) string {
 	if strings.IndexByte(text, '{') < 0 {
 		return "no-json-object" // pure prose, or the JSON never started
 	}
-	objs := balancedObjects(text)
+	// The INTACT spans, not the recovered ones: this names why the reply was damaged, and a classifier
+	// that reported a truncated reply as merely "no steps" would describe the repair instead of the
+	// defect — the reader recovers what it can, the diagnosis still says what went wrong.
+	objs := jsonx.BalancedObjects(text)
 	if len(objs) == 0 {
 		return "unbalanced-or-truncated" // a '{' opened but never closed
 	}

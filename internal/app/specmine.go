@@ -323,7 +323,11 @@ func parseSpecMine(text string) (specMineResult, bool) {
 			firstValid = &rr
 		}
 	}
-	if firstValid != nil {
+	// An EMPTY result is not a success. It matters now that a truncated reply can be closed off and
+	// read: `{"lines":[` recovers as a well-formed document carrying nothing, and reporting that as a
+	// mined distillation would turn a visible parse failure into a silent empty one — the exact trade
+	// the recovery exists to avoid.
+	if firstValid != nil && (len(firstValid.Lines) > 0 || strings.TrimSpace(string(firstValid.Final)) != "") {
 		return *firstValid, true
 	}
 	return specMineResult{}, false

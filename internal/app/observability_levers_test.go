@@ -182,8 +182,9 @@ func TestLenientReadersAcrossPayloads(t *testing.T) {
 	if !ok || !strings.Contains(string(pkt.Task), "then Y") {
 		t.Fatalf("curate packet with a newline + trailing comma must parse: ok=%v %+v", ok, pkt)
 	}
-	// A genuinely malformed document still fails — leniency is not "accept anything".
-	if _, ok := parseChecksArray(`[{"command":"x",,,}]`); ok {
+	// A genuinely malformed document still fails — leniency is not "accept anything". (A stray comma
+	// run IS repaired now: the pair before it arrived complete. This one has no pair at all.)
+	if _, ok := parseChecksArray(`[{"command" "x"}]`); ok {
 		t.Error("an irreparable array must not parse")
 	}
 }
