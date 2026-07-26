@@ -1296,3 +1296,28 @@ func TestPlanMemberPromptRejectsACommandThatMerelySucceeded(t *testing.T) {
 		}
 	}
 }
+
+// RECORD AND READ is the DEFAULT shape a check must take, not a fallback for expensive runs: the
+// STEP performs whatever has to be run and saves its real output, and the check READS that file.
+// It is what makes a check un-refusable by the read-only shell, non-repeating across gate cycles,
+// and honest in its exit status — so the authoring prompt must state it as the default and must
+// still forbid hand-writing the file it reads.
+func TestPlanMemberPromptMakesRecordAndReadTheDefault(t *testing.T) {
+	m := council.Member{Name: "x", Lens: "correctness"}
+	p := memberSystem(m, "plan", "build the project and run its test suite", false, false)
+	for _, want := range []string{
+		"RECORD AND READ",
+		"THE STEP RUNS, THE CHECK READS",
+		"saves the REAL output to a result file",
+		"never hand-written",
+	} {
+		if !strings.Contains(p, want) {
+			t.Errorf("check-authoring prompt must make record-and-read the default (missing %q)", want)
+		}
+	}
+	// The behavioural floor must survive the shift: moving the RUN onto the step may not weaken
+	// WHAT is asserted down to an existence probe.
+	if !strings.Contains(p, "never weaken it to a mere existence probe") {
+		t.Errorf("moving the run onto the step must not license a weaker assertion:\n%s", p)
+	}
+}

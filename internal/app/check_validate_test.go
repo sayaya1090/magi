@@ -625,3 +625,35 @@ func TestCheckAuditDoesNotReaskWhenTheReadOnlyGuardIsOff(t *testing.T) {
 		t.Errorf("want the single review call with the guard off, got %d", len(calls))
 	}
 }
+
+// The three prompts that AUTHOR, FILL and REVIEW checks must all carry the same default shape —
+// the step runs and saves its real output, the check reads that file — rather than offering it as
+// an exception for expensive runs. A check that only reads a file cannot be refused by the
+// read-only shell, cannot re-do the step's work on every gate cycle, and fails honestly through
+// grep's exit status; the earlier "only when the run is expensive" framing left every other
+// executing check free to hit all three problems.
+func TestCheckPromptsMakeRecordAndReadTheDefault(t *testing.T) {
+	for name, prompt := range map[string]string{
+		"coverage-fill": coverageFillSystem,
+		"check-audit":   validateChecksSystem,
+		"readonly-reask": readOnlyRepairReminder([]string{
+			"step 2 `make test` (refused: make)",
+		}),
+	} {
+		if !strings.Contains(prompt, "RECORD AND READ") {
+			t.Errorf("%s prompt must name the record-and-read rule:\n%s", name, prompt)
+		}
+		if !strings.Contains(prompt, "the STEP runs, the CHECK reads") &&
+			!strings.Contains(prompt, "the STEP runs, the CHECK reads.") {
+			t.Errorf("%s prompt must state the default direction (step runs, check reads)", name)
+		}
+		if !strings.Contains(prompt, "result file") {
+			t.Errorf("%s prompt must point at the saved result file", name)
+		}
+	}
+	// The reviewer must not be told the rule applies only to expensive runs — that framing is what
+	// left ordinary executing checks in place.
+	if strings.Contains(validateChecksSystem, "expensive run, assert on the result file") {
+		t.Error("check-audit prompt still conditions record-and-read on the run being expensive")
+	}
+}

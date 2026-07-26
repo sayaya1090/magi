@@ -180,3 +180,39 @@ func TestCouncilContract(t *testing.T) {
 		t.Errorf("unknown session must yield empty contract, got %q %+v", crit, checks)
 	}
 }
+
+// A check the read-only gate shell will REFUSE runs fine in the worker's own bash — the worker
+// executes it, sees it pass, and reports done, while at gate time the same command exits 126 and
+// records NO verdict, leaving the step neither proven nor failed. The worker cannot observe that
+// from inside its own session, so the brief must predict it: mark the offending item and tell the
+// worker to run the command as its own work, save the output, and substitute a READ of that file.
+func TestWorkerChecklistMarksChecksTheGateWillRefuse(t *testing.T) {
+	t.Setenv("MAGI_CHECK_READONLY", "")
+	checks := []council.DeliverableCheck{
+		{Step: "1", Deliverable: "suite passes", Command: "cd build && make test"},
+		{Step: "1", Deliverable: "binary runs", Command: "./out --version"},
+	}
+	got := workerChecklist(checks, 0)
+	if !strings.Contains(got, "[REFUSED BY THE CHECK SHELL: make]") {
+		t.Errorf("the refused item must be marked with what the shell blocks:\n%s", got)
+	}
+	if strings.Count(got, "[REFUSED BY THE CHECK SHELL:") != 1 {
+		t.Errorf("only the refused item may be marked (the read-only probe is fine):\n%s", got)
+	}
+	for _, want := range []string{"records NO verdict", "substitute_check", "save its REAL output"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the refusal paragraph must state the consequence and the repair (missing %q):\n%s", want, got)
+		}
+	}
+
+	// No refused item → no paragraph: an ordinary checklist must not carry the warning.
+	clean := workerChecklist([]council.DeliverableCheck{
+		{Step: "1", Deliverable: "output recorded", Command: "grep -q PASS /tmp/suite.log"},
+	}, 0)
+	if strings.Contains(clean, "REFUSED BY THE CHECK SHELL") {
+		t.Errorf("a read-only checklist must not carry the refusal paragraph:\n%s", clean)
+	}
+	if !strings.Contains(clean, "CHECKS READ, YOU RUN") {
+		t.Errorf("every checklist must state that the result file is the worker's own work:\n%s", clean)
+	}
+}
