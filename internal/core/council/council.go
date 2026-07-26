@@ -77,11 +77,21 @@ type Verdict struct {
 // it belongs to (title or ordinal), used to map a passing check back to its todo; a
 // step may carry several checks (several deliverables), and its todo completes only
 // when all of them pass. Authored at plan time.
+//
+// Source+Assert are the TYPED shape, and where Command is model-authored shell, these two are DATA:
+// the model names a path and picks an assertion from a closed vocabulary, and the runner builds the
+// invocation itself (see runTypedCheck). Every defect a model-authored command can carry needs a
+// place to put shell in — a `>` that makes the check create the evidence it then asserts, a `sh
+// wrapper.sh` that hides the work, a `|| true; test $? -ne 0` that can never pass — and the typed
+// shape has no such place. Command stays for the checks already authored that way; a check carrying
+// Assert ignores it.
 type DeliverableCheck struct {
 	Step        string `json:"step,omitempty"`
 	Deliverable string `json:"deliverable,omitempty"`
 	Command     string `json:"command"`
 	Expect      string `json:"expect,omitempty"`
+	Source      string `json:"source,omitempty"`
+	Assert      string `json:"assert,omitempty"`
 }
 
 // flexText is a check's free-text field, tolerant of the shapes a model actually emits where the
@@ -133,6 +143,8 @@ func (c *DeliverableCheck) UnmarshalJSON(b []byte) error {
 		Deliverable flexText        `json:"deliverable,omitempty"`
 		Command     flexText        `json:"command"`
 		Expect      flexText        `json:"expect,omitempty"`
+		Source      flexText        `json:"source,omitempty"`
+		Assert      flexText        `json:"assert,omitempty"`
 	}
 	if err := json.Unmarshal(b, &raw); err != nil {
 		// A check that arrived as a bare string is the model writing a LINE instead of an object —
@@ -149,7 +161,8 @@ func (c *DeliverableCheck) UnmarshalJSON(b []byte) error {
 		}
 		return err
 	}
-	*c = DeliverableCheck{Deliverable: string(raw.Deliverable), Command: string(raw.Command), Expect: string(raw.Expect)}
+	*c = DeliverableCheck{Deliverable: string(raw.Deliverable), Command: string(raw.Command), Expect: string(raw.Expect),
+		Source: string(raw.Source), Assert: string(raw.Assert)}
 	if len(raw.Step) == 0 {
 		return nil
 	}
@@ -182,6 +195,13 @@ func (c *DeliverableCheck) UnmarshalJSON(b []byte) error {
 func (c DeliverableCheck) Passes(out string, code int) bool {
 	if code != 0 {
 		return false
+	}
+	// A typed check is already decided: its verdict IS the runner's exit status, because the runner
+	// applied the assertion itself. Expect belongs to the shell shape and must not be re-applied here —
+	// a leftover pattern from a converted check would be matched against the runner's own diagnostic
+	// text and could only ever fail work that the assertion just passed.
+	if strings.TrimSpace(c.Assert) != "" {
+		return true
 	}
 	if c.Expect == "" {
 		return true
@@ -327,11 +347,13 @@ func MergeCriteria(vs []Verdict) []string {
 }
 
 // MergeChecks synthesizes the members' proposed per-step deliverable checks into one
-// deduped, bounded list (plan-audit phase). A check with no Command carries nothing
-// executable and is dropped. Deduplication keys on the command plus its expected
-// pattern (case-insensitive), so two members proposing the same verification collapse
-// to one while distinct deliverables of the same step are all kept. Fields are trimmed
-// and length-bounded; order is stable. Pure, no I/O.
+// deduped, bounded list (plan-audit phase). A check carrying NEITHER a Command nor an
+// Assert has nothing to run and is dropped — a typed check legitimately has no command,
+// so "no Command" alone must not decide it. Deduplication keys on whatever the check runs
+// (case-insensitive): the command plus its expected pattern, or the assertion plus its
+// source. Two members proposing the same verification collapse to one while distinct
+// deliverables of the same step are all kept. Fields are trimmed and length-bounded;
+// order is stable. Pure, no I/O.
 func MergeChecks(vs []Verdict) []DeliverableCheck {
 	const maxItems, maxRunes = 16, 300
 	clip := func(s string) string {
@@ -349,10 +371,12 @@ func MergeChecks(vs []Verdict) []DeliverableCheck {
 			c.Deliverable = clip(c.Deliverable)
 			c.Command = clip(c.Command)
 			c.Expect = clip(c.Expect)
-			if c.Command == "" {
+			c.Source = clip(c.Source)
+			c.Assert = clip(c.Assert)
+			if c.Command == "" && c.Assert == "" {
 				continue
 			}
-			key := strings.ToLower(c.Command + "\x00" + c.Expect)
+			key := strings.ToLower(c.Command + "\x00" + c.Expect + "\x00" + c.Assert + "\x00" + c.Source)
 			if seen[key] {
 				continue
 			}

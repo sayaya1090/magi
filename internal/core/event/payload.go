@@ -255,6 +255,11 @@ type StepCheckData struct {
 	// Expect is the pattern the output was matched against, carried beside it for the same reason —
 	// the pair is what makes a verdict re-derivable after the fact.
 	Expect string `json:"expect,omitempty"`
+	// Source+Assert record a TYPED check, which has no command: the runner read Source and applied
+	// Assert to it itself. They are the re-derivability pair for that shape — without them the fact
+	// says a step was checked but not what was asserted, and Command/Expect would both be blank.
+	Source string `json:"source,omitempty"`
+	Assert string `json:"assert,omitempty"`
 }
 
 // CouncilDeliberatingData — TypeCouncilDeliberating (transient, live panel).
