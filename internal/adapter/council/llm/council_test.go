@@ -109,6 +109,54 @@ func TestJudgeRevision(t *testing.T) {
 	}
 }
 
+// A verdict spelled as a quoted word is still a verdict. A strict bool rejected the whole object
+// over that one field, and because this call fails open the reply then landed as the OPPOSITE of
+// what the judge said — with its reason, which named exactly what the revision had omitted,
+// discarded along with it. Observed live on a fully delivered 280-byte reply.
+func TestJudgeRevisionReadsAQuotedVerdict(t *testing.T) {
+	ctx := context.Background()
+	req := port.RevisionJudgeRequest{Critique: "size A1", PriorPlan: "1. compute", RevisedPlan: "1. compute"}
+
+	for _, tc := range []struct {
+		reply      string
+		wantYes    bool
+		wantReason string
+	}{
+		{`{"addressed": "false", "reason": "omits the required test step"}`, false, "omits the required test step"},
+		{`{"addressed": "true", "reason": "adds it"}`, true, "adds it"},
+		{`{"addressed": "no", "reason": "same steps"}`, false, "same steps"},
+		{`{"addressed": "yes", "reason": "reordered"}`, true, "reordered"},
+	} {
+		c := New(only(fakeLLM{reply: func(port.ChatRequest) string { return tc.reply }}), "m")
+		v, err := c.JudgeRevision(ctx, req)
+		if err != nil {
+			t.Fatalf("%s: err=%v", tc.reply, err)
+		}
+		if v.Addressed != tc.wantYes || v.Reason != tc.wantReason {
+			t.Errorf("%s → %+v, want addressed=%v reason=%q", tc.reply, v, tc.wantYes, tc.wantReason)
+		}
+	}
+}
+
+// An object that parses but carries no readable verdict still fails open — a judge that answers
+// in a shape this code cannot read must not cut a productive loop. It is reported as its own case,
+// because calling a whole, well-formed reply "unparseable" sends the next reader after the stream.
+func TestJudgeRevisionFailsOpenOnAnUnreadableVerdict(t *testing.T) {
+	ctx := context.Background()
+	req := port.RevisionJudgeRequest{Critique: "size A1", PriorPlan: "1. compute", RevisedPlan: "1. compute"}
+
+	for _, reply := range []string{
+		`{"addressed": "probably", "reason": "hard to say"}`,
+		`{"reason": "no verdict field at all"}`,
+	} {
+		c := New(only(fakeLLM{reply: func(port.ChatRequest) string { return reply }}), "m")
+		v, _ := c.JudgeRevision(ctx, req)
+		if !v.Addressed || !strings.Contains(v.Reason, "no readable verdict") {
+			t.Errorf("%s → %+v, want fail-open with a 'no readable verdict' reason", reply, v)
+		}
+	}
+}
+
 func TestEvidenceBudgetNote(t *testing.T) {
 	// Low remaining budget → a note telling members to prefer DONE over unactionable rounds.
 	low := evidence(port.DeliberationRequest{Task: "x", Report: "y", StepsLeft: 3})

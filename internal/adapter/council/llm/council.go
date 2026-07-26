@@ -187,8 +187,35 @@ func peerDigest(vs []council.Verdict, self string) string {
 
 // judgeReply is the JSON shape the revision judge is asked to return.
 type judgeReply struct {
-	Addressed bool   `json:"addressed"`
-	Reason    string `json:"reason"`
+	Addressed judgeBool `json:"addressed"`
+	Reason    string    `json:"reason"`
+}
+
+// judgeBool reads the boolean shapes a model actually emits for the verdict field — bare
+// true/false, the same word quoted, yes/no. A strict bool rejects the whole object over that
+// one field, and since this call fails OPEN the reply then lands as the OPPOSITE of what the
+// judge said, with its reason discarded too. Observed: a syntactically valid, fully delivered
+// {"addressed": "false", "reason": "<names the step the revision omitted>"} recorded as
+// "unparseable" and reported as addressed=true.
+//
+// `known` separates "the judge said no" from "no verdict arrived": an unreadable value must keep
+// failing open (a flaky judge must never cut a productive re-plan loop), while a readable false
+// is a real verdict and has to survive as one.
+type judgeBool struct {
+	val   bool
+	known bool
+}
+
+func (v *judgeBool) UnmarshalJSON(b []byte) error {
+	switch strings.ToLower(strings.TrimSpace(strings.Trim(string(b), `"`))) {
+	case "true", "yes", "y", "1":
+		*v = judgeBool{val: true, known: true}
+	case "false", "no", "n", "0":
+		*v = judgeBool{val: false, known: true}
+	default:
+		*v = judgeBool{val: true, known: false} // unreadable → fail open, same as no reply at all
+	}
+	return nil
 }
 
 // JudgeRevision asks a single model whether the revised procedure engages the council's
@@ -240,11 +267,17 @@ func (c *Council) JudgeRevision(ctx context.Context, req port.RevisionJudgeReque
 		noteUnparsed("a revision-judge reply", b.String())
 		return port.RevisionVerdict{Addressed: true, Reason: "unparseable revision-judge reply"}, nil
 	}
+	if !r.Addressed.known {
+		// The object parsed but its verdict field did not (or was absent). Fail open, and say
+		// which of the two it was — "unparseable reply" would misdescribe a reply that arrived
+		// whole and was merely mis-typed, and that wording sent an earlier hunt after the stream.
+		return port.RevisionVerdict{Addressed: true, Reason: "the revision judge gave no readable verdict"}, nil
+	}
 	reason := strings.TrimSpace(r.Reason)
 	if reason == "" {
 		reason = "no reason given"
 	}
-	return port.RevisionVerdict{Addressed: r.Addressed, Reason: reason}, nil
+	return port.RevisionVerdict{Addressed: r.Addressed.val, Reason: reason}, nil
 }
 
 // poll asks one member and returns its verdict.
