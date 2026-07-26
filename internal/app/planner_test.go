@@ -2351,3 +2351,74 @@ func TestPlanStepToleratesListValuedTextFields(t *testing.T) {
 		t.Errorf("an object-valued title must fall back to empty, got %q", p2.Steps[0].Title)
 	}
 }
+
+// A reply whose plan object never parsed is read by scavenging whatever step objects survived
+// OUTSIDE the damaged span — which silently DROPS every step the defect swallowed, and the survivors
+// look exactly like a complete plan to the audit, the checks, and the workers. Observed live: a stray
+// `},}` after the first step closed the outer object early, so that step lived inside the unparseable
+// span and the run proceeded on the remaining two. readPlan must name that read PARTIAL, and must not
+// conflate it with a reply that merely needed a repair (whose steps array is intact).
+func TestReadPlanDistinguishesAPartialReadFromARepairedOne(t *testing.T) {
+	whole := `{"reason":"x","steps":[{"title":"a","strategy":"solo"}]}`
+	if r, k := readPlan(whole); k != planWhole || len(r.Steps) != 1 {
+		t.Fatalf("a clean plan must read whole, got kind=%v steps=%d", k, len(r.Steps))
+	}
+
+	// Truncated at the very end: recovery closes the outer object and the steps array survives whole,
+	// so every step the model got out is present — re-asking would waste a generation.
+	repaired := `{"reason":"x","steps":[{"title":"a","strategy":"solo"},{"title":"b","strategy":"solo"}]`
+	r, k := readPlan(repaired)
+	if k != planRepaired {
+		t.Fatalf("a repaired reply whose plan object parsed must be planRepaired, got %v", k)
+	}
+	if len(r.Steps) != 2 {
+		t.Fatalf("a repair must not lose steps, got %d", len(r.Steps))
+	}
+
+	// The live shape: an extra `}` closes the outer object early. The first step is inside that
+	// unparseable span and is unrecoverable; the two after it are scavenged.
+	partial := `{"reason":"x","steps":[{"title":"strip carriage returns","strategy":"solo"},},` +
+		`{"title":"b","strategy":"solo"},{"title":"c","strategy":"solo"}]}`
+	r, k = readPlan(partial)
+	if k != planPartial {
+		t.Fatalf("a reply read only by scavenging steps must be planPartial, got %v", k)
+	}
+	if len(r.Steps) != 2 || r.Steps[0].Title != "b" {
+		t.Fatalf("expected the two steps after the defect, got %+v", r.Steps)
+	}
+	if !k.salvaged() || !planRepaired.salvaged() || planWhole.salvaged() {
+		t.Error("salvaged() must be true for both recovery kinds and false only for a whole read")
+	}
+	// The compatibility wrapper keeps reporting both recoveries as salvaged.
+	if _, salv := parsePlanOrSalvage(partial); !salv {
+		t.Error("parsePlanOrSalvage must still report a partial read as salvaged")
+	}
+}
+
+// The retry reminder must name the defect that actually happened. A model that already sent a bare
+// object and mis-nested one container is told, by the single prose-stripping reminder, to remove
+// prose it never wrote — so it re-sends the same malformation. The partial branch additionally has
+// to say that steps were LOST, because "reply in JSON" is advice the model already followed.
+func TestPlannerRetryReminderNamesTheDefect(t *testing.T) {
+	partial := `{"steps":[{"title":"a","strategy":"solo"},},{"title":"b","strategy":"solo"}]}`
+	got := plannerRetryReminder(partial, true)
+	for _, want := range []string{"DROPPED", "syntax error at offset", "⟪HERE⟫", "COMPLETE plan"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the partial-read reminder must contain %q, got:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "could not be parsed as JSON") {
+		t.Error("the partial-read reminder must not claim the reply was not JSON — it was")
+	}
+
+	// Same object shape, but nothing was recovered: still a syntax defect, still not a prose problem.
+	syn := plannerRetryReminder(`{"steps":[{"title":"a","strategy":"solo"},}`, false)
+	if !strings.Contains(syn, "not prose around it") {
+		t.Errorf("a syntax defect must be named as such, got:\n%s", syn)
+	}
+
+	// Prose with no JSON at all: the original advice IS the right advice.
+	if got := plannerRetryReminder("Here is my plan: first we should look at the files.", false); got != planJSONOnlyReminder {
+		t.Errorf("a prose reply must still get the JSON-only reminder, got:\n%s", got)
+	}
+}

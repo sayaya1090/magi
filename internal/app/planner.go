@@ -593,11 +593,36 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 	if err != nil {
 		return planResult{}
 	}
-	res, salvaged := parsePlanOrSalvage(text)
-	if salvaged {
+	res, kind := readPlan(text)
+	if kind.salvaged() {
 		a.emitToolProgress(s.ID, plannerActor, "", "planner",
 			fmt.Sprintf("%s: recovered %d step(s) from an unparseable plan via salvage (%d chars) :: %s",
 				tag, len(res.Steps), len(text), planParseExcerpt(text)))
+	}
+	// A PARTIAL read is not a rescue, it is a silent edit: the steps that survived look like a complete
+	// plan, and every downstream stage — the audit, the checks, the workers — judges only what survived.
+	// The steps the defect swallowed are unrecoverable from this reply, so ask ONCE for the whole plan;
+	// the salvaged one is kept unless the retry comes back strictly better (read whole, or carrying more
+	// steps), which keeps a worse second answer from displacing a usable first one.
+	if kind == planPartial && len(res.Steps) > 0 {
+		a.emitToolProgress(s.ID, plannerActor, "", "planner",
+			fmt.Sprintf("%s: the salvage read only PART of the reply — %d step(s) survived, any step inside the "+
+				"damaged span is lost; re-asking for the whole plan", tag, len(res.Steps)))
+		a.recordPlanParseFailure(ctx, s.ID, tag+"-partial", text) // the raw reply is the only record of what was dropped
+		retry := req
+		retry.System = sys + "\n\n" + plannerRetryReminder(text, true)
+		if text2, err2 := a.drainText(ctx, spec, retry); err2 == nil {
+			r2, k2 := readPlan(text2)
+			if len(r2.Steps) > 0 && (k2 != planPartial || len(r2.Steps) > len(res.Steps)) {
+				a.emitToolProgress(s.ID, plannerActor, "", "planner",
+					fmt.Sprintf("%s: re-ask returned %d step(s) (%s) — using it instead of the %d salvaged",
+						tag, len(r2.Steps), kindLabel(k2), len(res.Steps)))
+				return r2
+			}
+			a.emitToolProgress(s.ID, plannerActor, "", "planner",
+				fmt.Sprintf("%s: re-ask did not improve on the salvage (%d step(s), %s) — keeping the salvaged plan :: %s",
+					tag, len(r2.Steps), kindLabel(k2), planParseExcerpt(text2)))
+		}
 	}
 	if len(res.Steps) == 0 {
 		// Weak models often bury the JSON under pages of reasoning, or ramble until the output
@@ -609,7 +634,7 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 			fmt.Sprintf("%s: no parseable plan (%d chars) — retrying JSON-only :: %s", tag, len(text), planParseExcerpt(text)))
 		a.recordPlanParseFailure(ctx, s.ID, tag, text) // persist the raw reply so the failure is diagnosable
 		retry := req
-		retry.System = sys + "\n\n" + planJSONOnlyReminder
+		retry.System = sys + "\n\n" + plannerRetryReminder(text, false)
 		if text2, err2 := a.drainText(ctx, spec, retry); err2 == nil {
 			if r2, salv2 := parsePlanOrSalvage(text2); len(r2.Steps) > 0 {
 				if salv2 {
@@ -635,6 +660,47 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 const planJSONOnlyReminder = "CRITICAL: your previous reply could not be parsed as JSON. Reply with " +
 	"ONLY the JSON object specified above — no reasoning, no explanation, no markdown fence, nothing " +
 	"before the opening `{` or after the closing `}`. Begin your reply with `{` and end it with `}`."
+
+// plannerRetryReminder names the defect that ACTUALLY occurred. The single prose-stripping reminder
+// above is right for a reply that buried the object in reasoning and wrong for every other shape: a
+// model that already sent a bare object and merely mis-nested one container is told to remove prose
+// it never wrote, so it re-sends the same malformation. jsonx.Diagnose already computes the offset
+// and the ⟪HERE⟫ window for the log — give it to the only party that can act on it. `partial` marks
+// the case where steps WERE recovered: the ask is not "reply in JSON" (it did) but "send the plan
+// whole", and it must say what was lost or the model has no reason to change anything.
+func plannerRetryReminder(text string, partial bool) string {
+	d := jsonx.Diagnose(text)
+	var b strings.Builder
+	b.WriteString("CRITICAL: your previous reply could not be read as a whole plan. ")
+	if partial {
+		b.WriteString("It DID contain JSON, and some step objects were recovered from it — but the object as a " +
+			"whole is malformed, so any step inside the damaged region was DROPPED and the plan now being " +
+			"considered is missing work you wrote:\n")
+	} else if strings.HasPrefix(d, "syntax error") {
+		b.WriteString("It DID contain a JSON object, so the problem is not prose around it — the JSON itself is " +
+			"malformed:\n")
+	} else {
+		return planJSONOnlyReminder // prose-wrapped, truncated, or schema-shaped: the original advice is the right one
+	}
+	b.WriteString(d)
+	b.WriteString("\nSend the COMPLETE plan again as ONE well-formed JSON object with every step present. " +
+		"Every `[` must be closed by `]` before the next key begins, every `{` by exactly one `}` (a stray " +
+		"closing brace ends the object early and silently truncates the plan), and every string by its " +
+		"closing quote. No reasoning, no markdown fence — begin with `{` and end with `}`.")
+	return b.String()
+}
+
+// kindLabel renders a planReadKind for the run log, so a re-ask that was taken (or rejected) says why.
+func kindLabel(k planReadKind) string {
+	switch k {
+	case planWhole:
+		return "read whole"
+	case planRepaired:
+		return "repaired, steps intact"
+	default:
+		return "partial salvage"
+	}
+}
 
 // recentTranscript renders a compact, bounded tail of the conversation as plain text
 // — for grounding the plan-audit council, which otherwise judges the plan against the
@@ -710,11 +776,35 @@ func msgLen(m session.Message) int {
 // legitimately-empty plan); else empty.
 func parsePlan(text string) planResult { r, _ := parsePlanOrSalvage(text); return r }
 
+// planReadKind says HOW a plan was read, because "salvaged" covers two cases the caller must treat
+// differently. A repaired reply still yielded the plan object itself, so its steps array is whole and
+// nothing was dropped. A step-salvaged reply did NOT: the outer object never parsed, so the steps are
+// whatever balanced step objects happened to survive OUTSIDE the damaged span — and any step the
+// defect swallowed is simply gone, with the recovered ones looking exactly like a complete plan.
+// (Observed: a stray `},}` after the first step made the outer object balance early, so that first
+// step lived inside the unparseable span and the run proceeded on the remaining two as if the model
+// had planned two. The plan audit caught it, but only by chance of judging the content.)
+type planReadKind int
+
+const (
+	planWhole    planReadKind = iota // parsed as written
+	planRepaired                     // needed a repair, but the plan object itself parsed: steps intact
+	planPartial                      // steps scavenged from a reply whose plan object never parsed: LOSSY
+)
+
+func (k planReadKind) salvaged() bool { return k != planWhole }
+
 // parsePlanOrSalvage is parsePlan plus a `salvaged` flag: true when the plan's steps were recovered
 // from an unparseable (truncated/malformed) reply rather than a clean parse, so the caller can log
 // that the salvage path did the work — otherwise a rescued truncation is indistinguishable from a
 // clean first-try parse in the run.
 func parsePlanOrSalvage(text string) (planResult, bool) {
+	r, kind := readPlan(text)
+	return r, kind.salvaged()
+}
+
+// readPlan is parsePlanOrSalvage reporting WHICH salvage path ran (see planReadKind).
+func readPlan(text string) (planResult, planReadKind) {
 	var firstValid *planResult
 	// Which spans the reply yielded WITHOUT repair: a plan recovered from a damaged reply (truncated,
 	// or carrying a stray token that cost the span) is still reported as salvaged, because the run
@@ -730,7 +820,10 @@ func parsePlanOrSalvage(text string) (planResult, bool) {
 			continue // not JSON, or not the plan shape — try the next object
 		}
 		if len(p.Steps) > 0 {
-			return p, !intact[js] // a real plan wins immediately
+			if intact[js] {
+				return p, planWhole // a real plan wins immediately
+			}
+			return p, planRepaired
 		}
 		if firstValid == nil {
 			pp := p
@@ -743,12 +836,12 @@ func parsePlanOrSalvage(text string) (planResult, bool) {
 	// unmarshals as a stepless planResult (JSON tolerates the missing "steps" field), so firstValid can
 	// be a spurious empty plan captured from the first recovered step. Recovered steps win.
 	if steps := salvageSteps(text); len(steps) > 0 {
-		return planResult{Steps: steps}, true
+		return planResult{Steps: steps}, planPartial
 	}
 	if firstValid != nil {
-		return *firstValid, false
+		return *firstValid, planWhole
 	}
-	return planResult{}, false
+	return planResult{}, planWhole
 }
 
 // planStrategies is the set of recognized step strategies — used to tell a real plan step object from
