@@ -55,8 +55,8 @@ func checkUnrunnable(code int) bool { return code == 127 || code == 126 }
 const typedReadCap = 512 << 10
 
 // typedProbeTimeoutSec bounds the network/liveness probes below, in the probe's own terms. The outer
-// per-command deadline (checkCmdTimeout) still applies; this keeps a connect to a black-holed port
-// from sitting there for the whole of it.
+// per-check deadline (checkCmdTimeout, applied in runTypedCheck) still applies; this keeps a connect
+// to a black-holed port from sitting there for the whole of it.
 const typedProbeTimeoutSec = 3
 
 // assertion is one parsed entry of the closed vocabulary: a verb plus its single argument.
@@ -126,6 +126,17 @@ func (a *App) runCheck(ctx context.Context, sid session.SessionID, workdir strin
 func (a *App) runTypedCheck(ctx context.Context, sid session.SessionID, workdir string, c council.DeliverableCheck) (string, int) {
 	if a.plat == nil {
 		return "no platform to run verification", -1
+	}
+	// Per-check deadline. The shell path bounded each check run in runVerifyCmd; the typed path
+	// reaches the platform directly, so the bound has to be re-applied here or a check that BLOCKS
+	// strands the turn until its wall clock. It is still reachable: `cat` on a fifo or a device file
+	// never returns, and process_alive's probe reads its pid file the same way. A deadline kill
+	// surfaces as "could not start/finish" (126) rather than a failing deliverable, which is the
+	// honest verdict — a check that never answered says nothing about the artifact.
+	if d := checkCmdTimeout(); d > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, d)
+		defer cancel()
 	}
 	as, ok := parseAssertion(c.Assert)
 	if !ok {
@@ -213,6 +224,12 @@ func typedVerbs() []string {
 // (the deliverable's problem), and 126 means `cat` itself could not be launched (the check's).
 func (a *App) readForCheck(ctx context.Context, workdir, path string) (string, string, int) {
 	res, err := a.plat.Exec(ctx, port.Cmd{Path: "cat", Args: []string{path}, Dir: workdir, MaxOutput: typedReadCap})
+	if cerr := ctx.Err(); cerr != nil {
+		// The deadline (or the turn) ended the read. A killed process reports a signal exit, which is
+		// indistinguishable from an unreadable file by exit code alone — so ask the context, or a
+		// blocking source would be reported as a failing deliverable.
+		return "", fmt.Sprintf("reading %s did not finish: %v", path, cerr), 126
+	}
 	if err != nil && res.ExitCode == 0 {
 		// Could not even start the reader — no `cat`, or the platform refused. That says nothing about
 		// the artifact, so it must not be reported as a failing deliverable.
@@ -243,6 +260,11 @@ func (a *App) runTypedProbe(ctx context.Context, workdir, script string, args ..
 		Path: "python3", Args: append([]string{"-c", script}, args...), Dir: workdir, MaxOutput: 8 << 10,
 	})
 	out := strings.TrimSpace(string(res.Stdout) + "\n" + string(res.Stderr))
+	if cerr := ctx.Err(); cerr != nil {
+		// Same reasoning as readForCheck: a probe killed by the deadline exits by signal, and that
+		// must read as "no verdict" rather than as the port being shut or the process dead.
+		return "the probe did not finish: " + cerr.Error(), 126
+	}
 	if err != nil && res.ExitCode == 0 {
 		return "cannot run the probe: " + err.Error(), 126
 	}

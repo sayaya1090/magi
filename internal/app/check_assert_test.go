@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -244,5 +246,42 @@ func TestTypedChecksSurviveUnionAndParse(t *testing.T) {
 	got, ok := parseChecksArray(`[{"step":"1","deliverable":"d","source":"/tmp/a.log","assert":"matches ^Done$"}]`)
 	if !ok || len(got) != 1 || got[0].Assert != "matches ^Done$" || got[0].Source != "/tmp/a.log" {
 		t.Fatalf("parseChecksArray = %+v ok=%v", got, ok)
+	}
+}
+
+// A source that never yields — a fifo nobody writes to, a device file — used to be bounded because
+// every check ran through runVerifyCmd's per-command deadline. The typed runner reaches the platform
+// directly, so it has to carry that bound itself; without it one ill-authored check strands the turn
+// until its wall clock. And the kill must land as "no verdict" (126): a killed reader exits by
+// signal, which by exit code alone is indistinguishable from an unreadable file, so a deadline would
+// otherwise be reported as the deliverable failing.
+func TestRunTypedCheckBoundsABlockingSource(t *testing.T) {
+	skipOnWindows(t)
+	dir := t.TempDir()
+	fifo := filepath.Join(dir, "build.log")
+	if err := syscall.Mkfifo(fifo, 0o644); err != nil {
+		t.Skipf("no fifo here: %v", err)
+	}
+	t.Setenv("MAGI_CHECK_TIMEOUT", "1")
+
+	app := newShellApp(t, &shellPlatform{})
+	done := make(chan struct{})
+	var out string
+	var code int
+	go func() {
+		defer close(done)
+		out, code = app.runTypedCheck(context.Background(), session.SessionID("s1"), dir,
+			council.DeliverableCheck{Source: fifo, Assert: "matches passed"})
+	}()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("a blocking source ran past the per-check deadline — the bound is not applied")
+	}
+	if code != 126 {
+		t.Fatalf("code = %d, want 126 (a check that never answered says nothing about the artifact); out: %s", code, out)
+	}
+	if !strings.Contains(out, "did not finish") {
+		t.Errorf("out = %q, want it to say the read did not finish", out)
 	}
 }
