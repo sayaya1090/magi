@@ -372,3 +372,17 @@ func QuoteBareValues(s string) string {
 		return sub[1] + `"` + sub[2] + `"` + sub[3]
 	})
 }
+
+// Excerpt renders a model reply as one bounded line, keeping the HEAD and the TAIL. Both ends
+// matter when diagnosing: the head shows what shape the model chose, the tail shows whether it was
+// cut off. Whitespace is collapsed so the excerpt stays on one log line. Callers differ in where
+// they report it — an event, stderr — but the rendering must not, or two reports of the same
+// failure look like two different failures.
+func Excerpt(s string) string {
+	t := strings.Join(strings.Fields(s), " ")
+	const n = 200
+	if len(t) <= 2*n {
+		return t
+	}
+	return fmt.Sprintf("%s …[%d chars omitted]… %s", t[:n], len(t)-2*n, t[len(t)-n:])
+}

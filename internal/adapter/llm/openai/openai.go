@@ -606,17 +606,6 @@ func repairArgs(raw json.RawMessage) json.RawMessage {
 	// here — from the tool's error alone it is impossible to tell a malformed payload from a
 	// genuinely wrong argument.
 	fmt.Fprintf(os.Stderr, "magi: tool arguments are not valid JSON and could not be repaired (%d bytes): %s\n",
-		len(raw), clipForLog(string(raw)))
+		len(raw), jsonx.Excerpt(string(raw)))
 	return raw
-}
-
-// clipForLog bounds a payload echoed to stderr, keeping the head and tail so both the shape and the
-// truncation point stay visible.
-func clipForLog(s string) string {
-	s = strings.Join(strings.Fields(s), " ")
-	const n = 160
-	if len(s) <= 2*n {
-		return s
-	}
-	return s[:n] + " …[" + fmt.Sprint(len(s)-2*n) + " omitted]… " + s[len(s)-n:]
 }

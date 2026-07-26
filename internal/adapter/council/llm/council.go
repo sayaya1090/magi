@@ -1128,12 +1128,7 @@ func decisionOf(s string) council.Decision {
 // the revision judge fails OPEN and waves a rewrite through — so without a line on stderr there is
 // no way to tell a model that answered in prose from one whose JSON we mishandled.
 func noteUnparsed(what, text string) {
-	t := strings.Join(strings.Fields(text), " ")
-	const n = 200
-	if len(t) > 2*n {
-		t = t[:n] + " …[" + fmt.Sprint(len(t)-2*n) + " omitted]… " + t[len(t)-n:]
-	}
-	fmt.Fprintf(os.Stderr, "magi: %s could not be parsed (%d bytes): %s\n", what, len(text), t)
+	fmt.Fprintf(os.Stderr, "magi: %s could not be parsed (%d bytes): %s\n", what, len(text), jsonx.Excerpt(text))
 }
 
 func parseReply(text string) (memberReply, bool) {

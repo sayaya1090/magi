@@ -9,6 +9,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/jsonx"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
@@ -42,6 +43,12 @@ func (a *App) elicitContractDraft(ctx context.Context, spec AgentSpec, sid sessi
 			return d.Criteria
 		}
 	}
+	// The gate proceeds with an EMPTY draft and the members author from scratch, which is a very
+	// different run from one that started with a draft — and the two were indistinguishable in the
+	// log because this returned nil without a word.
+	a.emitToolProgress(sid, plannerActor, "", "contract-draft",
+		fmt.Sprintf("contract-draft: no criteria recovered (%d chars) — the members will author from scratch :: %s",
+			len(raw), jsonx.Excerpt(raw)))
 	return nil
 }
 
@@ -221,6 +228,12 @@ func (a *App) consolidateContract(ctx context.Context, spec AgentSpec, sid sessi
 			return d.Criteria, true
 		}
 	}
+	// Consolidation is how the council's feedback is APPLIED to the contract; when it yields
+	// nothing the round's feedback is carried as prose instead, so the contract silently stops
+	// converging. Say which happened.
+	a.emitToolProgress(sid, plannerActor, "", "contract-consolidate",
+		fmt.Sprintf("contract-consolidate: no revised criteria recovered (%d chars) — carrying the feedback as prose instead :: %s",
+			len(raw), jsonx.Excerpt(raw)))
 	return nil, false
 }
 

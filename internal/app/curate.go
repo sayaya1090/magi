@@ -127,6 +127,11 @@ func (a *App) curateDelegate(ctx context.Context, agent AgentSpec, s session.Ses
 	raw := a.specMineCall(ctx, agent, s.ID, "curator", model, curateSystem, b.String()) // reuse the tool-free elicitation
 	pkt, ok := parseCuratePacket(raw)
 	if !ok {
+		// Falling back to the mechanical brief loses exactly what the packet exists to carry — the
+		// verbatim identifiers a grader matches — so this must not be silent.
+		a.emitToolProgress(s.ID, event.Actor{Kind: event.ActorAgent, ID: "curator"}, "", "curator",
+			fmt.Sprintf("curator: packet unusable (%d chars) — falling back to the mechanical brief :: %s",
+				len(raw), jsonx.Excerpt(raw)))
 		return "", nil
 	}
 	brief := renderCurateBrief(pkt)

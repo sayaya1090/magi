@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/jsonx"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
@@ -184,7 +185,8 @@ func (a *App) elicitSpecMine(ctx context.Context, agent AgentSpec, s session.Ses
 		res, ok = parseSpecMine(distilled)
 	}
 	if !ok {
-		return empty(fmt.Sprintf("the distill pass did not parse, twice (%d chars, analysis was %d)", len(distilled), len(analysis)))
+		return empty(fmt.Sprintf("the distill pass did not parse, twice (%d chars, analysis was %d) :: %s",
+			len(distilled), len(analysis), jsonx.Excerpt(distilled)))
 	}
 	if len(res.Lines) == 0 && strings.TrimSpace(res.Final) == "" {
 		return empty("the distill pass parsed but carried no lines")

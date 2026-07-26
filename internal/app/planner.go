@@ -743,14 +743,7 @@ func unmarshalStepLenient(js string) (planStep, bool) {
 
 // planParseExcerpt renders a short single-line head+tail of an unparseable planner reply, so the run
 // log shows the actual failure mode (truncation, prose, wrong JSON shape) instead of only its length.
-func planParseExcerpt(text string) string {
-	t := strings.Join(strings.Fields(text), " ") // collapse all whitespace to one line
-	const n = 200
-	if len(t) <= 2*n {
-		return t
-	}
-	return fmt.Sprintf("%s …[%d chars omitted]… %s", t[:n], len(t)-2*n, t[len(t)-n:])
-}
+func planParseExcerpt(text string) string { return jsonx.Excerpt(text) }
 
 // planParseFailureKind classifies WHY a reply yielded no parseable plan, so an intermittent failure
 // is diagnosable from the persisted record rather than guessed at. It re-walks the reply the way

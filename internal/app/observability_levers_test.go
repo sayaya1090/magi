@@ -185,3 +185,37 @@ func TestLenientReadersAcrossPayloads(t *testing.T) {
 		t.Error("an irreparable array must not parse")
 	}
 }
+
+// Every reader of a model reply must SAY when it recovered nothing. Each of these silently
+// degraded the run into a different, worse mode while the log looked identical to the good path:
+// the curator fell back to the mechanical brief that loses the verbatim identifiers, and the
+// contract gate proceeded with an empty draft as if none had been asked for.
+func TestModelReplyFailuresAreReported(t *testing.T) {
+	prose := "I cannot produce that structure for this task."
+
+	t.Run("curator packet", func(t *testing.T) {
+		a := newOrchApp(t, &gateLLM{text: prose}, Config{Permission: "allow", MaxAgents: 10})
+		s := parentSession(t.TempDir())
+		sub := watchProgress(t, a, s.ID)
+		brief, tools := a.curateDelegate(context.Background(), AgentSpec{Name: "worker"}, s,
+			planStep{Title: "do it", Task: "do the thing"}, "context")
+		if brief != "" || tools != nil {
+			t.Fatalf("an unusable packet must fall back, got brief=%q tools=%v", brief, tools)
+		}
+		if n := sub.notes("curator"); !strings.Contains(n, "mechanical brief") || !strings.Contains(n, "cannot produce") {
+			t.Errorf("the fallback must be reported with the reply:\n%s", n)
+		}
+	})
+
+	t.Run("contract draft", func(t *testing.T) {
+		a := newOrchApp(t, &gateLLM{text: prose}, Config{Permission: "allow", MaxAgents: 10})
+		s := parentSession(t.TempDir())
+		sub := watchProgress(t, a, s.ID)
+		if got := a.elicitContractDraft(context.Background(), AgentSpec{Name: "planner"}, s.ID, "m", "task"); got != nil {
+			t.Fatalf("prose must yield no criteria, got %v", got)
+		}
+		if n := sub.notes("contract-draft"); !strings.Contains(n, "author from scratch") || !strings.Contains(n, "cannot produce") {
+			t.Errorf("an empty draft must be reported with the reply:\n%s", n)
+		}
+	})
+}
