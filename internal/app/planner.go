@@ -681,11 +681,9 @@ func salvageSteps(text string) []planStep {
 // salvage exists for. Parsing it strictly here silently discarded every complete step before the
 // cutoff and sent an otherwise-recoverable revision to the JSON-only retry.
 func unmarshalStepLenient(js string) (planStep, bool) {
-	for _, c := range jsonRepairCandidates(js) {
-		var st planStep
-		if json.Unmarshal([]byte(c), &st) == nil {
-			return st, true
-		}
+	var st planStep
+	if unmarshalLenient(js, &st) {
+		return st, true
 	}
 	return planStep{}, false
 }
@@ -763,13 +761,25 @@ func (a *App) recordPlanParseFailure(ctx context.Context, sid session.SessionID,
 // closing } or ] — a very common weak-model JSON error that json.Unmarshal rejects outright, and one
 // that otherwise dumps an entire valid-but-for-one-comma plan into the solo fallback.
 func unmarshalPlanLenient(js string) (planResult, bool) {
-	for _, c := range jsonRepairCandidates(js) {
-		var p planResult
-		if json.Unmarshal([]byte(c), &p) == nil {
-			return p, true
-		}
+	var p planResult
+	if unmarshalLenient(js, &p) {
+		return p, true
 	}
 	return planResult{}, false
+}
+
+// unmarshalLenient parses js into v, retrying with the shared weak-model repairs before failing.
+// Every reader of model-produced JSON needs it for the same reason: the payloads carry multi-line
+// prose (a reason, a task, a criterion) or shell commands, so an unescaped control character is the
+// normal shape of the data rather than an edge case — and rejecting the document over one discards
+// content that was otherwise complete.
+func unmarshalLenient(js string, v any) bool {
+	for _, c := range jsonRepairCandidates(js) {
+		if json.Unmarshal([]byte(c), v) == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // jsonRepairCandidates returns js followed by the weak-model repair variants a failed unmarshal

@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -224,7 +223,7 @@ func parseCuratePacket(raw string) (curatePacket, bool) {
 	var firstValid *curatePacket
 	for _, js := range balancedObjects(raw) {
 		var p curatePacket
-		if json.Unmarshal([]byte(js), &p) != nil {
+		if !unmarshalLenient(js, &p) {
 			continue // not JSON, or not the packet shape — try the next object
 		}
 		if p.hasContent() {

@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -292,7 +291,7 @@ func parseSpecMine(text string) (specMineResult, bool) {
 	var firstValid *specMineResult
 	for _, js := range balancedObjects(text) {
 		var res specMineResult
-		if json.Unmarshal([]byte(js), &res) != nil {
+		if !unmarshalLenient(js, &res) {
 			continue // not JSON, or not the result shape — try the next object
 		}
 		if len(res.Lines) > 0 {

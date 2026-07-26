@@ -373,8 +373,13 @@ func parseChecksArray(raw string) ([]council.DeliverableCheck, bool) {
 	// unmarshals at all (a legitimately empty list); else none.
 	sawValid := false
 	for _, js := range balancedArrays(raw) {
-		var cs []council.DeliverableCheck
-		if json.Unmarshal([]byte(js), &cs) != nil {
+		// Apply the same weak-model repairs the plan object and the salvaged steps get: a check's
+		// `command` is a SHELL command, so a raw newline or tab inside that string is the likeliest
+		// defect of all — and rejecting the array over it discards every check in the reply, which
+		// leaves the plan with no executable contract at all (observed: a coverage fill's 380-char
+		// reply thrown away whole, and the run proceeded with zero checks for five steps).
+		cs, ok := unmarshalChecksLenient(js)
+		if !ok {
 			continue // not JSON, or not the checks shape — try the next array
 		}
 		sawValid = true
@@ -517,4 +522,16 @@ func (a *App) elicitCriteria(ctx context.Context, agent AgentSpec, s session.Ses
 		}
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// unmarshalChecksLenient parses one candidate array of deliverable checks, retrying with the shared
+// weak-model repairs (jsonRepairCandidates) before giving up. It exists for the same reason the plan
+// and step readers are lenient — the difference here is that the payload is shell commands, so an
+// unescaped control character is not an edge case but the normal shape of the data.
+func unmarshalChecksLenient(js string) ([]council.DeliverableCheck, bool) {
+	var cs []council.DeliverableCheck
+	if unmarshalLenient(js, &cs) {
+		return cs, true
+	}
+	return nil, false
 }

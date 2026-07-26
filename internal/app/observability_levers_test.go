@@ -163,3 +163,25 @@ func TestGuardArgsCollapsesRelabelledBash(t *testing.T) {
 		t.Error("a command with no echo tail must fingerprint exactly as before")
 	}
 }
+
+// Every reader of model-produced JSON must survive the defects those payloads normally carry —
+// a raw newline inside a multi-line string, a trailing comma — because rejecting the document over
+// one discards content that was otherwise complete. Observed: a coverage fill's whole reply thrown
+// away, leaving a five-step plan with no executable check at all.
+func TestLenientReadersAcrossPayloads(t *testing.T) {
+	// checks array: `command` is a shell command, so an embedded newline is normal.
+	arr := "[{\"step\":\"1\",\"deliverable\":\"it builds\",\"command\":\"make all\nmake test\",\"expect\":\"ok\"}]"
+	cs, ok := parseChecksArray(arr)
+	if !ok || len(cs) != 1 || !strings.Contains(cs[0].Command, "make test") {
+		t.Fatalf("checks array with a raw newline must parse: ok=%v %+v", ok, cs)
+	}
+	// curator packet: task/goal are multi-line prose.
+	pkt, ok := parseCuratePacket("{\"task\":\"do X\nthen Y\",\"literals\":[\"value\"],}")
+	if !ok || !strings.Contains(pkt.Task, "then Y") {
+		t.Fatalf("curate packet with a newline + trailing comma must parse: ok=%v %+v", ok, pkt)
+	}
+	// A genuinely malformed document still fails — leniency is not "accept anything".
+	if _, ok := parseChecksArray(`[{"command":"x",,,}]`); ok {
+		t.Error("an irreparable array must not parse")
+	}
+}

@@ -38,7 +38,7 @@ func (a *App) elicitContractDraft(ctx context.Context, spec AgentSpec, sid sessi
 		var d struct {
 			Criteria []string `json:"criteria"`
 		}
-		if json.Unmarshal([]byte(js), &d) == nil && len(d.Criteria) > 0 {
+		if unmarshalLenient(js, &d) && len(d.Criteria) > 0 {
 			return d.Criteria
 		}
 	}
@@ -217,7 +217,7 @@ func (a *App) consolidateContract(ctx context.Context, spec AgentSpec, sid sessi
 		var d struct {
 			Criteria []string `json:"criteria"`
 		}
-		if json.Unmarshal([]byte(js), &d) == nil && len(d.Criteria) > 0 {
+		if unmarshalLenient(js, &d) && len(d.Criteria) > 0 {
 			return d.Criteria, true
 		}
 	}
