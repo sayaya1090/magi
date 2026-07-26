@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -26,6 +28,19 @@ import (
 
 const codematePluginDir = "../../../../plugins/codemate"
 
+// requireCodematePlugin skips when the plugin tree is not on disk. codemate is untracked on
+// purpose — it carries internal-network URLs and credentials — so a clean checkout (CI, or any
+// machine that has not been handed a copy) simply has no plugins/codemate. These tests assert what
+// the *shipped* plugin does; with no plugin there is nothing to assert, and failing would report an
+// absent file as a broken plugin. The cost is that CI cannot cover them, which is the price of
+// keeping the plugin out of the repository.
+func requireCodematePlugin(t *testing.T) {
+	t.Helper()
+	if _, err := os.Stat(filepath.Join(codematePluginDir, "plugin.toml")); err != nil {
+		t.Skipf("codemate plugin not present, skipping: %v", err)
+	}
+}
+
 // makeJWT builds a structurally valid header.payload.signature token whose
 // payload carries the given exp (unix seconds). base64url, no padding — exactly
 // what jwt_struct_ok / jwt_exp parse.
@@ -41,6 +56,7 @@ func makeJWT(exp int64) string {
 // and (optional) data dir, wiring a fakeLLMReg so the header callback is captured.
 func loadCodemate(t *testing.T, section map[string]any, dataDir string) (*Host, *fakeLLMReg) {
 	t.Helper()
+	requireCodematePlugin(t)
 	llm := &fakeLLMReg{}
 	cfg := HostConfig{
 		ToolSink: builtin.NewRegistry(),

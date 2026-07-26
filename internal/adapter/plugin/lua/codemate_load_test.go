@@ -11,6 +11,7 @@ import (
 // every capability/permission it uses declared, and the Lua compiles and runs its
 // top level (set_base_url, header fn, commands, doctor probes).
 func TestCodemateLoads(t *testing.T) {
+	requireCodematePlugin(t)
 	llm := &fakeLLMReg{}
 	h := NewHostWithConfig(HostConfig{
 		ToolSink: builtin.NewRegistry(),
@@ -18,7 +19,7 @@ func TestCodemateLoads(t *testing.T) {
 		Runtime:  RuntimeInfo{Workdir: t.TempDir()},
 		Logf:     func(string) {},
 	})
-	if _, err := h.Load(context.Background(), "../../../../plugins/codemate"); err != nil {
+	if _, err := h.Load(context.Background(), codematePluginDir); err != nil {
 		t.Fatalf("codemate load: %v", err)
 	}
 	if len(llm.fns) != 1 {
