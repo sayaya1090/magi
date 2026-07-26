@@ -60,7 +60,14 @@ func grepGlobMatch(globs, workdir, path, base string) bool {
 			continue
 		}
 		if strings.ContainsRune(g, '/') {
-			if matchGlob(g, rel) {
+			// Same anchoring as the glob tool: a path-shaped filter given absolutely can never
+			// match `rel`, and the failure is silent — every file gets filtered out and the
+			// search reports no hits, which reads as "the pattern is not in this tree".
+			ag, wasAbs, inside := anchorPattern(workdir, g)
+			if wasAbs && !inside {
+				continue // outside the searched tree: this filter can legitimately match nothing
+			}
+			if matchGlob(ag, rel) {
 				return true
 			}
 			continue

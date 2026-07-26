@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io/fs"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -46,12 +47,25 @@ func (Glob) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 			return errResult("", "invalid glob pattern: "+err.Error()), nil
 		}
 	}
-	// A pattern that explicitly names a dotted segment (".github/…") opts into
-	// otherwise-hidden paths; a plain pattern keeps skipping dot dirs/files as noise.
-	wantHidden := patternWantsHidden(a.Pattern)
-
 	out := []string{}
 	root := filepath.Clean(env.Workdir)
+	// Every other path-taking tool (read, list, bash) accepts an absolute path, so a model
+	// that just ran `list /app/src` writes the glob the same way. Matching happens against
+	// workspace-RELATIVE paths, so an absolute pattern cannot match anything — and the reply
+	// came back as an empty list, which reads as the FACT "there are no such files" rather
+	// than as a mistake in the call. Observed: `/app/<dir>/*.c` answered `[]` one line before
+	// an `ls` of that same directory listed dozens of them; the agent then did every later
+	// file lookup through bash. Re-anchor it, and when it points outside the workspace say so
+	// instead of answering with a false emptiness.
+	pattern, wasAbs, inside := anchorPattern(root, a.Pattern)
+	if wasAbs && !inside {
+		return errResult("", "pattern is outside the workspace ("+filepath.ToSlash(root)+"): "+
+			a.Pattern+" — glob searches the workspace, so give a path relative to it"), nil
+	}
+	// A pattern that explicitly names a dotted segment (".github/…") opts into
+	// otherwise-hidden paths; a plain pattern keeps skipping dot dirs/files as noise.
+	wantHidden := patternWantsHidden(pattern)
+
 	walkErr := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -67,7 +81,7 @@ func (Glob) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		}
 		rel, _ := filepath.Rel(root, p)
 		rel = filepath.ToSlash(rel)
-		if matchGlob(a.Pattern, rel) {
+		if matchGlob(pattern, rel) {
 			out = append(out, rel)
 		}
 		return nil
@@ -81,6 +95,30 @@ func (Glob) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 
 // patternWantsHidden reports whether any pattern segment explicitly starts with a
 // dot (so the caller is deliberately targeting hidden paths like ".github/...").
+// anchorPattern re-expresses an ABSOLUTE glob pattern as one relative to root, since matching
+// runs against workspace-relative paths. It reports whether the pattern was absolute and, if so,
+// whether it names something inside root — the two are separate answers because an absolute
+// pattern pointing elsewhere is a mistake worth naming, while a relative one is simply used as is.
+//
+// Patterns are slash-separated on every platform, so a leading "/" counts as absolute even where
+// filepath.IsAbs would say otherwise; filepath.IsAbs still catches a Windows "C:\…" spelling.
+func anchorPattern(root, pattern string) (rel string, abs bool, inside bool) {
+	if !strings.HasPrefix(pattern, "/") && !filepath.IsAbs(pattern) {
+		return pattern, false, true
+	}
+	r := filepath.ToSlash(filepath.Clean(root))
+	p := path.Clean(filepath.ToSlash(pattern)) // Clean leaves *, ?, [..] and ** alone
+	switch {
+	case p == r:
+		return ".", true, true
+	case r == "/": // a root workspace: everything absolute is inside it
+		return strings.TrimPrefix(p, "/"), true, true
+	case strings.HasPrefix(p, r+"/"):
+		return strings.TrimPrefix(p, r+"/"), true, true
+	}
+	return pattern, true, false
+}
+
 func patternWantsHidden(pattern string) bool {
 	for _, seg := range strings.Split(pattern, "/") {
 		if strings.HasPrefix(seg, ".") && seg != "." && seg != ".." {
