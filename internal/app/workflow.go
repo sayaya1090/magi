@@ -257,12 +257,27 @@ func (a *App) runVerifyCmd(ctx context.Context, workdir, cmd string) (string, in
 // to be able to build.
 // A refusal is REPORTED, not just returned: the check then yields no verdict, and without a line
 // naming the command the log is indistinguishable from a step that simply had no check to run.
+//
+// The refusal's exit code is FORCED, because the check's own shell can destroy it. "Exit 126 reads as
+// unrunnable" only holds while 126 survives to the caller, and the shape checks are actually authored
+// in swallows it — observed live:
+//
+//	cd t && make one DIR=x >/dev/null 2>&1 && echo passed || echo failed   expect (passed|OK)
+//
+// The refusal exits 126, the `&&` therefore fails, `|| echo failed` runs, and the check returns exit 0
+// with the word "failed". checkUnrunnable(0) is false, so every gate treats it as a check that RAN —
+// and its expect does not match, so a check that could never execute lands as the deliverable FAILING.
+// That is the exact outcome the guard was built to prevent, reintroduced through the trailing fallback,
+// and it re-plans work that is fine. The marker is proof the refusal happened whatever the status says,
+// so it decides. Forcing it can only cost a verdict on a check that mentions a blocked command
+// incidentally — no verdict is the honest answer there too.
 func (a *App) runCheckCmd(ctx context.Context, sid session.SessionID, workdir, cmd string) (string, int) {
 	out, code := a.runVerifyCmd(ctx, workdir, wrapReadOnly(cmd))
 	if blocked := blockedCommandIn(out); blocked != "" {
 		a.emitToolProgress(sid, plannerActor, "", "check-readonly",
 			fmt.Sprintf("check-readonly: refused `%s` — a check must verify the artifact, not re-do the step's work "+
 				"(`%s`); no verdict for this check", blocked, clipLine(strings.TrimSpace(cmd), 120)))
+		return out, 126
 	}
 	return out, code
 }

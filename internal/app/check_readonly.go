@@ -82,7 +82,16 @@ var blockedSubcommands = map[string][]string{
 // subcommand is allowed through.
 func readOnlyPreamble() string {
 	var b strings.Builder
-	b.WriteString("__magi_ro_block() { printf '%s%s\\n' '" + readOnlyBlockMarker + "' \"$1\" >&2; return 126; }\n")
+	// The refusal is recorded in a FILE as well as on stderr, because stderr does not survive the check
+	// itself: `make … >/dev/null 2>&1 && echo passed || echo failed` discards the message and then
+	// replaces the 126 with exit 0, so the refusal reached nobody and the check landed as a deliverable
+	// FAILURE. A file is outside the command's redirections; the trailer reads it back after the command
+	// has finished and its own redirections no longer apply. If the flag file cannot be created (a
+	// read-only filesystem), everything degrades to the stderr marker alone — the previous behavior.
+	b.WriteString("__magi_ro_flags=\"${TMPDIR:-/tmp}/.magi-ro-$$\"\n")
+	b.WriteString(": > \"$__magi_ro_flags\" 2>/dev/null\n")
+	b.WriteString("__magi_ro_block() { printf '%s%s\\n' '" + readOnlyBlockMarker + "' \"$1\" >&2; " +
+		"printf '%s\\n' \"$1\" >> \"$__magi_ro_flags\" 2>/dev/null; return 126; }\n")
 	for _, c := range blockedAlways {
 		if !shellFuncName(c) {
 			continue // not expressible as a shell function name (g++, c++, clang++) — see below
@@ -139,7 +148,19 @@ func wrapReadOnly(cmd string) string {
 	if !readOnlyChecksEnabled() || strings.TrimSpace(cmd) == "" || runtime.GOOS == "windows" {
 		return cmd
 	}
-	return readOnlyPreamble() + cmd
+	return readOnlyPreamble() + cmd + "\n" + readOnlyTrailer()
+}
+
+// readOnlyTrailer runs after the check's own command and republishes any refusal on STDOUT, where no
+// redirection inside the check can have reached it, and restores the 126 the check may have overwritten.
+// Without it the guard is only as reliable as the command's own error handling, which is exactly the
+// thing a broken check gets wrong. `command rm` is required: rm is shadowed by the preamble above.
+func readOnlyTrailer() string {
+	return "__magi_ro_rc=$?\n" +
+		"if [ -s \"$__magi_ro_flags\" ]; then printf '%s%s\\n' '" + readOnlyBlockMarker +
+		"' \"$(head -n 1 \"$__magi_ro_flags\")\"; __magi_ro_rc=126; fi\n" +
+		"command rm -f \"$__magi_ro_flags\" 2>/dev/null\n" +
+		"exit $__magi_ro_rc\n"
 }
 
 // checkUnrunnable reports whether an exit code means the CHECK itself could not run, as opposed to
