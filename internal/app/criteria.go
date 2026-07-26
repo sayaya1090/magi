@@ -158,10 +158,11 @@ const coverageFillSystem = "You author executable deliverable `checks` that veri
 // many-step plan, and runStepGate only verifies steps that appear in the check set, so the rest land
 // unverified. When the authored checks cover fewer distinct steps than the plan has, a single gap-fill
 // pass authors checks for the uncovered producing steps (read-only steps are told to be skipped, so an
-// unfillable gap simply returns the same set — one extra call, never a loop). The 0-step solo path
-// passes a single synthetic step, so it gets one check for its objective the same way. Best-effort: a
-// disabled flag, no gap, a transport failure, or a reply that adds no distinct step coverage returns
-// the input UNCHANGED. A reply that DOES add coverage is merged with the authored set rather than
+// unfillable gap simply returns the same set). A fill that comes back unparseable or adds no coverage
+// is re-asked ONCE with a reminder naming what went wrong — at most two calls, never a loop. The 0-step
+// solo path passes a single synthetic step, so it gets one check for its objective the same way.
+// Best-effort: a disabled flag, no gap, a transport failure, or a second reply that still adds no
+// distinct step coverage returns the input UNCHANGED. A reply that DOES add coverage is merged with the authored set rather than
 // replacing it (unionChecks), so the fill can only ever add — it never weakens or blocks the contract
 // it was called to complete.
 func (a *App) ensureStepCoverage(ctx context.Context, s session.Session, prompt string, steps []planStep, checks []council.DeliverableCheck) []council.DeliverableCheck {
@@ -208,55 +209,134 @@ func (a *App) ensureStepCoverage(ctx context.Context, s session.Session, prompt 
 		task = task[:2000]
 	}
 	input := "# Plan steps\n" + renderSteps(steps) + "\n\n# Task\n" + task + "\n\n# Checks authored so far (JSON)\n" + string(in)
-	raw := a.specMineCall(ctx, agent, s.ID, "check-coverage", model, coverageFillSystem, input)
-	out, ok := parseChecksArray(raw)
-	if !ok {
-		// Show the reply, not just its length. This failure was observed three runs running and
-		// could not be diagnosed from the log: the side call leaves no session record, so the
-		// only way to tell "the model answered with prose" from "it wrapped the array in an
-		// object" from "an element had the wrong shape" is to print what came back.
-		shortfall(fmt.Sprintf("the fill reply did not parse as a checks array (%d chars) :: %s",
-			len(raw), planParseExcerpt(raw)))
-		return checks
+
+	// An attempt is the side call PLUS the merge and coverage judgment it lives or dies by — the two
+	// are inseparable here, since "the reply parsed" says nothing about whether the gap closed. The raw
+	// reply travels with it because every failure note has to be able to show what actually came back.
+	type fillAttempt struct {
+		raw      string
+		out      []council.DeliverableCheck
+		parsed   bool
+		merged   []council.DeliverableCheck
+		newCov   map[int]bool
+		restored int
 	}
-	// Restore whatever the reply lost instead of discarding the reply over it. The fill is told to
-	// return the authored checks unchanged plus new ones, but a weak model rewrites the set from
-	// scratch and comes back with fewer — and the old guard (`len(out) < len(checks)`) threw the whole
-	// reply away on that count alone, judging a gap-FILLING pass by size rather than by coverage.
-	// Observed: 4 authored checks all attached to step 1 of a 4-step plan, the fill returned 3 spread
-	// across the plan, and the count guard preferred the 4 (`gap NOT filled (1/4 step(s) covered by 4
-	// check(s))`). Merging keeps the authored contract a subset of the result by construction, so the
-	// one thing that guard protected is now structural and acceptance turns purely on coverage.
-	merged, restored := unionChecks(out, checks)
-	newCovered := coveredSteps(merged)
-	if len(newCovered) <= len(covered) { // reply added no distinct (valid) step coverage → nothing gained
+	run := func(system string) fillAttempt {
+		f := fillAttempt{}
+		f.raw = a.specMineCall(ctx, agent, s.ID, "check-coverage", model, system, input)
+		f.out, f.parsed = parseChecksArray(f.raw)
+		if f.parsed {
+			// Restore whatever the reply lost instead of discarding the reply over it. The fill is told
+			// to return the authored checks unchanged plus new ones, but a weak model rewrites the set
+			// from scratch and comes back with fewer — and the old guard (`len(out) < len(checks)`) threw
+			// the whole reply away on that count alone, judging a gap-FILLING pass by size rather than by
+			// coverage. Observed: 4 authored checks all attached to step 1 of a 4-step plan, the fill
+			// returned 3 spread across the plan, and the count guard preferred the 4 (`gap NOT filled
+			// (1/4 step(s) covered by 4 check(s))`). Merging keeps the authored contract a subset of the
+			// result by construction, so the one thing that guard protected is now structural and
+			// acceptance turns purely on coverage.
+			f.merged, f.restored = unionChecks(f.out, checks)
+			f.newCov = coveredSteps(f.merged)
+		}
+		return f
+	}
+	gained := func(f fillAttempt) bool { return f.parsed && len(f.newCov) > len(covered) }
+	// describe names WHICH of the two failures an attempt was, in the terms they actually differ by.
+	// The retry note and the final shortfall both need it and must agree, so it is written once.
+	describe := func(f fillAttempt) string {
+		if !f.parsed {
+			// Show the reply, not just its length. This failure was observed three runs running and
+			// could not be diagnosed from the log: the side call leaves no session record, so the
+			// only way to tell "the model answered with prose" from "it wrapped the array in an
+			// object" from "an element had the wrong shape" is to print what came back.
+			return fmt.Sprintf("the fill reply did not parse as a checks array (%d chars) :: %s",
+				len(f.raw), planParseExcerpt(f.raw))
+		}
 		// Name the step labels it DID carry. "Added nothing that attaches" has two very different
 		// causes — the fill returned nothing at all, or it returned checks whose step labels fall
 		// outside 1..len(steps) or are not numeric — and only the labels distinguish them.
-		labels := make([]string, 0, len(out))
-		for _, c := range out {
+		labels := make([]string, 0, len(f.out))
+		for _, c := range f.out {
 			labels = append(labels, fmt.Sprintf("%q", strings.TrimSpace(c.Step)))
 		}
 		why := fmt.Sprintf("the fill returned %d check(s) but none attach to an uncovered step; their step labels were [%s] and the plan has %d step(s)",
-			len(out), strings.Join(labels, " "), len(steps))
-		if len(out) == 0 {
+			len(f.out), strings.Join(labels, " "), len(steps))
+		if len(f.out) == 0 {
 			// With no checks there are no labels, so the message above degenerates to "returned
 			// 0, labels []" — accurate and useless. Three very different events land here and
 			// only the reply tells them apart: the model answered with an empty array, or it
 			// authored checks with an empty `command` (parsed, then dropped as unrunnable), or
 			// it answered with prose that happened to contain a bare `[]`.
-			why += " :: " + planParseExcerpt(raw)
+			why += " :: " + planParseExcerpt(f.raw)
 		}
-		shortfall(why)
-		return checks
+		return why
+	}
+
+	f := run(coverageFillSystem)
+	if !gained(f) {
+		// Re-ask ONCE. A confirmed gap that the fill did not close leaves plan steps with no gate at
+		// all, and until now a single degraded reply ended the pass — the same defect the check-audit
+		// retry fixed in the review pass, in the pass that FEEDS it. Both shapes get the reminder that
+		// names what went wrong; neither retries again, so this is bounded at two calls.
+		reminder := coverageJSONOnlyReminder
+		if f.parsed {
+			reminder = coverageAttachReminder(uncoveredStepNums(covered, len(steps)), len(steps))
+		}
+		a.emitToolProgress(s.ID, plannerActor, "", "check-coverage",
+			fmt.Sprintf("check-coverage: %s — re-asking once", describe(f)))
+		retry := run(coverageFillSystem + "\n\n" + reminder)
+		if !gained(retry) {
+			// Honest about the ambiguity: after a re-ask that listed the uncovered steps by number, a
+			// second empty answer is as likely to mean "those steps produce nothing checkable" (the
+			// prompt tells it to skip pure investigation steps) as it is to mean the fill failed. Either
+			// way those steps land unverified, which is what the note reports.
+			shortfall(describe(retry) + " — and this was the re-ask, which listed the uncovered step(s) by " +
+				"number; either they produce nothing checkable or the fill could not do it")
+			return checks
+		}
+		f = retry
 	}
 	note := fmt.Sprintf("check-coverage: %d→%d checks, %d→%d step(s) covered (%d plan step(s))",
-		len(checks), len(merged), len(covered), len(newCovered), len(steps))
-	if restored > 0 { // the fill dropped authored checks and they were put back — say so, it is not a no-op
-		note += fmt.Sprintf("; restored %d authored check(s) the fill had dropped", restored)
+		len(checks), len(f.merged), len(covered), len(f.newCov), len(steps))
+	if f.restored > 0 { // the fill dropped authored checks and they were put back — say so, it is not a no-op
+		note += fmt.Sprintf("; restored %d authored check(s) the fill had dropped", f.restored)
 	}
 	a.emitToolProgress(s.ID, plannerActor, "", "check-coverage", note)
-	return merged
+	return f.merged
+}
+
+// uncoveredStepNums lists the 1-based plan steps that no check attaches to, in plan order.
+func uncoveredStepNums(covered map[int]bool, total int) []string {
+	out := make([]string, 0, total)
+	for i := 1; i <= total; i++ {
+		if !covered[i] {
+			out = append(out, fmt.Sprint(i))
+		}
+	}
+	return out
+}
+
+// coverageJSONOnlyReminder is appended to the fill system prompt after a reply that carried no
+// parseable checks array — the same "strip all prose" nudge the planner and the check review use.
+const coverageJSONOnlyReminder = "YOUR PREVIOUS REPLY COULD NOT BE PARSED. It carried no JSON array of checks — " +
+	"prose, a wrapping object, or an unterminated array. Reply with the JSON array ONLY: nothing before the `[`, " +
+	"nothing after the `]`, no explanation and no code fence."
+
+// coverageAttachReminder is appended after a reply that parsed but closed no gap. That has one cause
+// worth stating plainly: a check gates a step only through its `step` field, so checks with labels
+// outside the plan's range, non-numeric labels, or labels repeating an already-covered step are
+// authored work that gates nothing. Naming the uncovered steps by number turns an abstract instruction
+// ("cover every producing step") into a list to answer. The escape hatch is kept open on purpose —
+// inventing a check for a step that writes nothing is worse than leaving it uncovered.
+func coverageAttachReminder(uncovered []string, total int) string {
+	n := fmt.Sprint(total)
+	return "YOUR PREVIOUS REPLY ADDED NO COVERAGE. These plan steps still have NO check: " +
+		strings.Join(uncovered, ", ") + " — step numbers are 1-based positions in the plan order, and this plan has " +
+		n + " step(s). A check gates a step ONLY through its `step` field: a label outside 1.." + n + ", a " +
+		"non-numeric label, or a label repeating an already-covered step attaches to nothing, however good the " +
+		"command is. Return the existing checks UNCHANGED plus one NEW check for EACH listed step that PRODUCES an " +
+		"artifact, with `step` set to that step's number. If a listed step is pure investigation and writes nothing, " +
+		"it genuinely needs no check — leave it out rather than inventing one."
 }
 
 // unionChecks returns fill with every authored check it lost appended back, and how many that was.
