@@ -177,7 +177,7 @@ func TestLenientReadersAcrossPayloads(t *testing.T) {
 	}
 	// curator packet: task/goal are multi-line prose.
 	pkt, ok := parseCuratePacket("{\"task\":\"do X\nthen Y\",\"literals\":[\"value\"],}")
-	if !ok || !strings.Contains(pkt.Task, "then Y") {
+	if !ok || !strings.Contains(string(pkt.Task), "then Y") {
 		t.Fatalf("curate packet with a newline + trailing comma must parse: ok=%v %+v", ok, pkt)
 	}
 	// A genuinely malformed document still fails — leniency is not "accept anything".

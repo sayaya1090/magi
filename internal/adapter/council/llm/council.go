@@ -323,10 +323,10 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 		}
 	}
 	v.Decision = decisionOf(r.Decision)
-	v.Confidence = r.Confidence
-	v.Rationale = r.Rationale
-	v.Feedback = r.Feedback
-	v.Keep = r.Keep
+	v.Confidence = float64(r.Confidence)
+	v.Rationale = string(r.Rationale)
+	v.Feedback = string(r.Feedback)
+	v.Keep = string(r.Keep)
 	v.Severity = r.Severity // plan-audit phase only; gates blocking vs advisory
 	v.Criteria = r.Criteria // plan-audit phase only; empty otherwise
 	v.Checks = r.Checks     // plan-audit phase only; per-step executable deliverable checks
@@ -379,10 +379,10 @@ func (c *Council) pollRebut(ctx context.Context, req port.DeliberationRequest, m
 	}
 	v := council.Verdict{Member: m.Name, Lens: m.Lens, Weight: m.Weight}
 	v.Decision = decisionOf(r.Decision)
-	v.Confidence = r.Confidence
-	v.Rationale = r.Rationale
-	v.Feedback = r.Feedback
-	v.Keep = r.Keep
+	v.Confidence = float64(r.Confidence)
+	v.Rationale = string(r.Rationale)
+	v.Feedback = string(r.Feedback)
+	v.Keep = string(r.Keep)
 	v.Severity = r.Severity
 	v.Criteria = r.Criteria
 	v.Checks = r.Checks
@@ -427,13 +427,13 @@ func (c *Council) devilAdvocate(ctx context.Context, req port.DeliberationReques
 		return v
 	}
 	// The devil never carries a done: only a continue with a real, specific defect counts.
-	if decisionOf(r.Decision) != council.Continue || strings.TrimSpace(r.Feedback) == "" {
+	if decisionOf(r.Decision) != council.Continue || strings.TrimSpace(string(r.Feedback)) == "" {
 		return v
 	}
 	v.Decision = council.Continue
-	v.Confidence = r.Confidence
-	v.Rationale = r.Rationale
-	v.Feedback = r.Feedback
+	v.Confidence = float64(r.Confidence)
+	v.Rationale = string(r.Rationale)
+	v.Feedback = string(r.Feedback)
 	return v
 }
 
@@ -513,10 +513,10 @@ func (c *Council) pollDevilReview(ctx context.Context, req port.DeliberationRequ
 	}
 	v := council.Verdict{Member: m.Name, Lens: m.Lens, Weight: m.Weight}
 	v.Decision = decisionOf(r.Decision)
-	v.Confidence = r.Confidence
-	v.Rationale = r.Rationale
-	v.Feedback = r.Feedback
-	v.Keep = r.Keep
+	v.Confidence = float64(r.Confidence)
+	v.Rationale = string(r.Rationale)
+	v.Feedback = string(r.Feedback)
+	v.Keep = string(r.Keep)
 	return v
 }
 
@@ -550,13 +550,17 @@ const devilSystem = "You are the council's devil's advocate. The other members a
 
 // memberReply is the JSON shape each member is asked to return.
 type memberReply struct {
-	Decision   string   `json:"decision"`
-	Confidence float64  `json:"confidence"`
-	Rationale  string   `json:"rationale"`
-	Feedback   string   `json:"feedback"`
-	Keep       string   `json:"keep"`     // advisory: what's already correct (only when asked; MAGI_COUNCIL_KEEP)
-	Severity   string   `json:"severity"` // plan-audit phase: critical|warn|info for a revise vote
-	Criteria   []string `json:"criteria"` // plan-audit phase: proposed completion criteria
+	Decision string `json:"decision"`
+	// Confidence and Criteria are read through the tolerant types because Go aborts the whole
+	// document on the first type mismatch — and here that costs the member's VOTE, recorded as an
+	// abstain the tally cannot tell from "no opinion". A quoted "0.9" or a single criterion given
+	// as a bare string is not worth losing a verdict over.
+	Confidence jsonx.Number `json:"confidence"`
+	Rationale  jsonx.Text   `json:"rationale"`
+	Feedback   jsonx.Text   `json:"feedback"`
+	Keep       jsonx.Text   `json:"keep"`     // advisory: what's already correct (only when asked; MAGI_COUNCIL_KEEP)
+	Severity   string       `json:"severity"` // plan-audit phase: critical|warn|info for a revise vote
+	Criteria   jsonx.Texts  `json:"criteria"` // plan-audit phase: proposed completion criteria
 	// Checks are plan-audit per-step executable deliverable checks (empty otherwise).
 	Checks []council.DeliverableCheck `json:"checks"`
 }

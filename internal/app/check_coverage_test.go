@@ -20,7 +20,7 @@ import (
 func TestCoverageFillPromptCarriesContract(t *testing.T) {
 	for _, want := range []string{
 		"FILLING GAPS", "existing checks UNCHANGED", "one NEW check for EACH producing step",
-		"1-based number", "IDEMPOTENT", "read-only step", "Do NOT alter or drop the existing checks",
+		"1-based position", "IDEMPOTENT", "read-only step", "Do NOT alter or drop the existing checks",
 	} {
 		if !strings.Contains(coverageFillSystem, want) {
 			t.Errorf("coverageFillSystem must state the coverage contract (missing %q)", want)

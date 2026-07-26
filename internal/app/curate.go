@@ -8,6 +8,7 @@ import (
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/jsonx"
 )
 
 // The context curator (MAGI_CURATE): before a delegate worker is spawned, it prepares the worker's
@@ -53,14 +54,17 @@ const curateSystem = "You prepare a work packet for a worker sub-agent that carr
 	"always available and must NOT be listed.\n" +
 	"Include only what THIS sub-task needs; keep each field tight."
 
+// The list fields are read tolerantly: a model that answers "literals" with a single bare string
+// instead of a one-element list would otherwise fail the WHOLE packet, and the worker then falls
+// back to the mechanical brief that loses exactly the verbatim identifiers this field carries.
 type curatePacket struct {
-	Goal        string   `json:"goal"`        // why the work exists / the final objective
-	Progress    string   `json:"progress"`    // what earlier steps already produced
-	Task        string   `json:"task"`        // the RESULT wanted (outcome, not method)
-	Literals    []string `json:"literals"`    // verbatim strings that must not change
-	Constraints []string `json:"constraints"` // boundaries: what not to change / non-goals
-	Deliverable string   `json:"deliverable"` // acceptance test for done-ness
-	Tools       []string `json:"tools"`
+	Goal        jsonx.Text  `json:"goal"`        // why the work exists / the final objective
+	Progress    jsonx.Text  `json:"progress"`    // what earlier steps already produced
+	Task        jsonx.Text  `json:"task"`        // the RESULT wanted (outcome, not method)
+	Literals    jsonx.Texts `json:"literals"`    // verbatim strings that must not change
+	Constraints jsonx.Texts `json:"constraints"` // boundaries: what not to change / non-goals
+	Deliverable jsonx.Text  `json:"deliverable"` // acceptance test for done-ness
+	Tools       jsonx.Texts `json:"tools"`
 }
 
 // renderCurateBrief formats a packet into the weighted, sectioned CONTEXT a worker reads around its
@@ -87,11 +91,11 @@ func renderCurateBrief(p curatePacket) string {
 		}
 		return strings.Join(out, "\n")
 	}
-	section("Goal (why this exists)", p.Goal)
-	section("Progress so far (build on this — do NOT redo it)", p.Progress)
+	section("Goal (why this exists)", string(p.Goal))
+	section("Progress so far (build on this — do NOT redo it)", string(p.Progress))
 	section("Preserve these EXACTLY (verbatim — never rename, shorten, or normalize)", bullets(p.Literals))
 	section("Boundaries (do NOT cross)", bullets(p.Constraints))
-	section("Done when", p.Deliverable)
+	section("Done when", string(p.Deliverable))
 	return strings.TrimSpace(b.String())
 }
 
@@ -208,8 +212,8 @@ func (a *App) resolveCuratedTools(selected []string) []string {
 // non-packet object (e.g. a code fragment `{...}` in the curator's reasoning) in favor of the
 // real packet that follows.
 func (p curatePacket) hasContent() bool {
-	return strings.TrimSpace(p.Goal) != "" || strings.TrimSpace(p.Progress) != "" ||
-		strings.TrimSpace(p.Task) != "" || strings.TrimSpace(p.Deliverable) != "" ||
+	return strings.TrimSpace(string(p.Goal)) != "" || strings.TrimSpace(string(p.Progress)) != "" ||
+		strings.TrimSpace(string(p.Task)) != "" || strings.TrimSpace(string(p.Deliverable)) != "" ||
 		len(p.Literals) > 0 || len(p.Constraints) > 0 || len(p.Tools) > 0
 }
 

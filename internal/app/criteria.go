@@ -124,7 +124,8 @@ const coverageFillSystem = "You author executable deliverable `checks` that veri
 	"existing checks UNCHANGED, PLUS one NEW check for EACH producing step that lacks one. A check is " +
 	"{step, deliverable, command, expect}: `command` runs and, if `expect` is set, its output must MATCH that regular " +
 	"expression; no `expect` = exit-code-only. For every NEW check:\n" +
-	"- SCOPE by step: set `step` to that step's 1-based number (matching the plan order) so it gates only that step.\n" +
+	"- SCOPE by step: set `step` to that step's 1-based position in the plan order (\"3\"), so it gates only that " +
+	"step. The other authoring prompt shows `step` as a string; either shape is read, but keep them consistent.\n" +
 	"- EXERCISE the deliverable (precondition is not proof): reaching the artifact — a file exists, a port accepts a " +
 	"connection, a module imports, a build succeeds, a process is alive — is a precondition, NOT proof of the contract; " +
 	"a non-functional stub passes all of them. When the step's artifact must DO something (answer a request, return a " +

@@ -9,6 +9,7 @@ package jsonx
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -215,4 +216,77 @@ func Unmarshal(js string, v any) bool {
 		}
 	}
 	return false
+}
+
+// Text is a free-text field that also accepts the shapes a model emits when it ignores the schema's
+// type: a LIST (it enumerates instead of writing prose — joined, since each element is part of what
+// the field says) or a NUMBER. Go's decoder aborts the whole document on the first type mismatch,
+// so without this one such field costs every sibling field and every element beside it.
+type Text string
+
+func (v *Text) UnmarshalJSON(b []byte) error {
+	var s string
+	if json.Unmarshal(b, &s) == nil {
+		*v = Text(s)
+		return nil
+	}
+	var list []string
+	if json.Unmarshal(b, &list) == nil {
+		*v = Text(strings.Join(list, "; "))
+		return nil
+	}
+	var n json.Number
+	if json.Unmarshal(b, &n) == nil {
+		*v = Text(n.String())
+		return nil
+	}
+	*v = ""
+	return nil
+}
+
+// Texts is a list-of-strings field that also accepts a SINGLE string (the model answers with one
+// item instead of a one-element list) and drops elements it cannot render as text.
+type Texts []string
+
+func (v *Texts) UnmarshalJSON(b []byte) error {
+	var list []Text
+	if json.Unmarshal(b, &list) == nil {
+		out := make([]string, 0, len(list))
+		for _, t := range list {
+			if s := strings.TrimSpace(string(t)); s != "" {
+				out = append(out, s)
+			}
+		}
+		*v = out
+		return nil
+	}
+	var one Text
+	if json.Unmarshal(b, &one) == nil && strings.TrimSpace(string(one)) != "" {
+		*v = Texts{strings.TrimSpace(string(one))}
+		return nil
+	}
+	*v = nil
+	return nil
+}
+
+// Number is a numeric field that also accepts a QUOTED number ("0.9"), which a model routinely
+// emits where the schema says a float. A strict float64 rejected the whole reply over it — for a
+// council verdict that means the member is recorded as abstaining and a vote that was cast is lost.
+type Number float64
+
+func (v *Number) UnmarshalJSON(b []byte) error {
+	var f float64
+	if json.Unmarshal(b, &f) == nil {
+		*v = Number(f)
+		return nil
+	}
+	var s string
+	if json.Unmarshal(b, &s) == nil {
+		if f, err := strconv.ParseFloat(strings.TrimSpace(s), 64); err == nil {
+			*v = Number(f)
+			return nil
+		}
+	}
+	*v = 0
+	return nil
 }
