@@ -437,7 +437,7 @@ Weak models routinely miscount rows or fabricate a total when asked to "count/su
 | `task` | delegate to subagents (single/parallel); backgrounded as sidecars at top level | — |
 | `report` | (subagent) end the turn and hand the result back to the orchestrator with a status (done/blocked/failed) | — |
 | `ask` | (subagent) ask the orchestrator — which holds the full context — to unblock you; blocks then resumes on the answer | — |
-| `substitute_check` | register an acceptance check whose command can't run here, replaced by an equivalent you ran; a strict review council vets it and, once approved, it rewrites the stored check for the rest of the run | — |
+| `substitute_check` | register an acceptance check that cannot be evaluated here (it names a path nothing produces, or an assertion this setup has no subject for), replaced by an equivalent `source`/`assert` pair that proves the same goal; a strict review council vets it and, once approved, it rewrites the stored check for the rest of the run | — |
 | `cancel_dispatch` | (orchestrator) cancel still-running background subagents once an intermediate result made their work moot — reclaim the budget instead of waiting | — |
 | `resolveconcern` | (orchestrator) retire a structural concern from the durable ledger **after** it is genuinely resolved (see §3, concern ledger) | — |
 | `route_interjection` | (top level) decide how to handle a **new user request that arrived mid-task** — `redirect` (switch now) · `append` (satisfy both) · `queue` (defer). The safe default is to not call it and let the request run as its own turn | — |

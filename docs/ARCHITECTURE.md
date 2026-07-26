@@ -459,9 +459,25 @@ mode) does NOT finish immediately: it convenes a **council** that votes done-vs-
   cannot overwrite the reviewed contract, and the whole contract is injected into the planner as the
   target the plan must satisfy — so the plan is built around a reviewed contract rather than the
   contract being a byproduct of whatever plan the planner emitted.
-- **Executable deliverable checks (`MAGI_STEP_VERIFY`)**: the plan-audit council also proposes
-  per-step shell checks (`{deliverable, command, expect}`); these are RUN, and a failing check is a
-  hard `deliverable-check` signal the vote can't wave through. They double as a delegated worker's
+- **Typed deliverable checks (`MAGI_STEP_VERIFY`)**: the plan-audit council also proposes per-step
+  checks as DATA, not as shell — `{deliverable, source, assert}`, where `source` is the path the step
+  recorded its real output to and `assert` picks a verb from a closed vocabulary magi owns
+  (`nonempty` · `matches <regexp>` · `absent <regexp>` · `equals <path>` · `port_open <port>` ·
+  `process_alive`). `app/check_assert.go` builds the invocation as an argv array with no shell
+  anywhere in the path, so a check cannot redirect, cannot run a model-named program, and cannot
+  re-do the step's work; a metacharacter in a model-supplied path is an ordinary byte of an argument.
+  The three defects observed live — a check that CREATES the evidence it asserts, `|| true; test $?`
+  that fails in every world state, and a check that rebuilds the project each gate cycle — are all
+  *inexpressible* rather than forbidden, which is what makes the guard un-wrappable. These are RUN,
+  and a failing check is a hard `deliverable-check` signal the vote can't wave through. The exit
+  codes the gates speak: `0` passed, `1` the deliverable failed (including a `source` the step never
+  recorded), `126` the CHECK could not be evaluated (unknown verb, no assertion, missing subject, or
+  a per-check deadline kill — no verdict, the step lands ungated), `-1` no platform. What this gives
+  up is the check executing the deliverable: that now belongs to the STEP, which performs the run and
+  records its real output, and the check reads what was recorded. The gap that opens — a step that
+  records a FABRICATED result — is closed by the **provenance audit**, which reads magi's own record
+  of the worker's executed tool calls (`app/check_shell.go` segments those commands to see what
+  produced the file; it executes nothing) and reports when a source has no producing run behind it. They double as a delegated worker's
   **acceptance checklist** (§5) and surface in the TUI's council/subagent detail views. The
   **stuck-recovery re-plan** (`driveStuckTodos`, `MAGI_STEP_CONTRACT`) gets the same treatment — it
   authors per-step checks for its fresh plan, hands each recovery unit its checklist, and verifies
@@ -477,15 +493,17 @@ mode) does NOT finish immediately: it convenes a **council** that votes done-vs-
   check would just fail every turn). The terminal `runStepGate` then TRUSTS an already-✓ check
   instead of re-running it — a reconciliation of what is not yet verified, not a batched re-verify.
   The three paths share one `runCheckRecord` primitive (run → skip unexecutable → emit).
-- **Check substitution (`substitute_check`, `MAGI_SUBST_REVIEW`)**: when an acceptance check's command
-  cannot run in the environment (missing tool, wrong path, no permission, different setup — not the
-  deliverable being wrong), any agent runs an EQUIVALENT that verifies the same goal and registers it
-  with the `substitute_check` tool (granted to every worker via `curateBaseTools`). At the finish
+- **Check substitution (`substitute_check`, `MAGI_SUBST_REVIEW`)**: when an acceptance check cannot be
+  evaluated in the environment (the source is somewhere else, the assertion names something this setup
+  does not have — not the deliverable being wrong), any agent produces an EQUIVALENT that verifies the
+  same goal and registers it with the `substitute_check` tool (`{step, original, source, assert,
+  reason}` — the replacement is typed data too, so a substitution cannot smuggle back the shell the
+  check schema removed; granted to every worker via `curateBaseTools`). At the finish
   boundary a STRICT review council (`Phase=="substitution"`, `reviewSubstitutions` — from
   `handleReport` for a worker, `runTerminationGate` for a solo agent) judges whether the equivalent
   is adequate (rejecting a weaker proxy, but demanding no more than the original check); a critical
   concern loops the agent to correct and re-declare until the council agrees (bounded by the round
-  cap). An approved substitution then REWRITES the stored check to the working command
+  cap). An approved substitution then REWRITES the stored check's `source`/`assert` to the working pair
   (`applyCheckSubs`) so the fix persists for the run — a worker's approved subs ride
   `SpawnResult.CheckSubs` up to the parent whose session owns the checks.
 - **Per-item acceptance (`MAGI_CRITERIA_PERITEM`)**: the termination gate renders the acceptance
@@ -622,7 +640,10 @@ The orchestrator (top-level session, `Parent==""`) delegates via the **`task`** 
   worker). The worker returns a **structured accountability report** (`STATUS:` + evidence · deviations ·
   handoff — the output side of the contract); a `STATUS: BLOCKED/FAILED` leading line (`delegateNotDone`)
   drives an early re-plan. The step's **acceptance checklist** (its plan-audit deliverable checks) is
-  handed to the worker to RUN before reporting done. Each flag is default on with an `=off` A/B knob.
+  handed to the worker as the definition of done — but as *"you run, the check reads"*: the worker
+  never runs the items (the gate reads the named file itself, with no shell), so what each item
+  obliges the worker to do is produce that file as the REAL output of the work, and an item naming a
+  path nothing produces is repaired through `substitute_check` rather than left silently unmet. Each flag is default on with an `=off` A/B knob.
 
 - **Plan-tree hierarchy (normalized B-variant)**: when a delegate/refine step's child forms its own
   sub-plan at depth+1, the TUI plan panel renders the child's sub-todos **indented under the parent

@@ -152,9 +152,9 @@ flowchart TD
   RT --> CS
   SN --> STEP
   STEP --> TG["runGuard (L3): repeat·stall·bannerSpin"]
-  STEP --> CK["체크 명령 실행<br/>runVerifyCmd"]
-  CK --> CTO{"per-command 타임아웃<br/>기본 120s (MAGI_CHECK_TIMEOUT)"}
-  CTO -- "초과" --> KILL["kill → exit -1 (검증불가, 거짓실패 아님)"]
+  STEP --> CK["체크 실행<br/>runTypedCheck (argv, 셸 없음)<br/>· runVerifyCmd (워크플로 verify)"]
+  CK --> CTO{"per-check 타임아웃<br/>기본 120s (MAGI_CHECK_TIMEOUT)"}
+  CTO -- "초과" --> KILL["kill → 126 / -1 (검증불가, 거짓실패 아님)"]
 ```
 
 계층별 요약:
@@ -167,7 +167,7 @@ flowchart TD
 | `consumeStream` (stall) | 메인 generate 첫토큰 전 침묵 | 유휴 | `streamStall` 120s, `MAGI_STREAM_STALL` | 같은 요청 재발행(×2), 소진 시 에러 |
 | `consumeStream` (reasoningSpin) | 메인 generate reasoning만 무한 | 툴콜 0 + 바이트 | `spinCap` 400KB (`[limits] max_output_tokens` 설정 시 이 넛지는 토큰캡에 위임=off, guardedProvider 800KB 백스톱은 유지) | 넛지("행동하라") |
 | `runGuard` (L3) | 툴콜 반복·정체·배너스핀 | 지문·무변이 스텝 | `guard.go` 상수 | 넛지→차단→회복→강제종료 |
-| `runVerifyCmd` 타임아웃 | 행/블로킹 **체크 명령**(워커-제공 substitution original 포함) | per-command 경과 | 기본 120s, `MAGI_CHECK_TIMEOUT`(0=off) | kill, exit -1=검증불가(거짓실패 아님) |
+| 체크 타임아웃(`runTypedCheck`·`runVerifyCmd`) | 끝나지 않는 `source`(fifo·디바이스 파일)·블로킹 워크플로 verify 명령 | per-check 경과 | 기본 120s, `MAGI_CHECK_TIMEOUT`(0=off) | kill → 타입드 126 / 워크플로 -1 = 검증불가(거짓실패 아님) |
 
 핵심: **모델 hang/spin/반복은 guardedProvider 단일 지점**에서, **셸 명령 hang은 bash 툴(120/600s)과
 runVerifyCmd 타임아웃**에서 각각 바운드된다 — 어느 것도 턴 벽시계까지 매달리지 않는다.
@@ -176,8 +176,8 @@ runVerifyCmd 타임아웃**에서 각각 바운드된다 — 어느 것도 턴 �
 
 | 플래그 | 기본 | 제어 대상 |
 |---|---|---|
-| `MAGI_STEP_VERIFY` | ON | 스텝별 실행 deliverable-check(게이트+워커 체크리스트); 스텝 완료마다 per-step 기록, 종료는 이미-✓ trust-green |
-| `MAGI_SUBST_REVIEW` | ON | `substitute_check` 대체를 엄격 카운슬(`Phase=substitution`)이 검토·정정루프 + **necessity 가드**(원본 실행해 정당성 3분기 판정), 승인 시 저장 체크 재작성 |
+| `MAGI_STEP_VERIFY` | ON | 스텝별 타입드 deliverable-check(`source`+`assert` 데이터를 argv로 실행, 셸 없음; 게이트+워커 체크리스트); 스텝 완료마다 per-step 기록, 종료는 이미-✓ trust-green |
+| `MAGI_SUBST_REVIEW` | ON | `substitute_check` 대체(타입드 `source`/`assert`)를 엄격 카운슬(`Phase=substitution`)이 검토·정정루프 + **necessity 가드**(원본 평가해 정당성 3분기 판정), 승인 시 저장 체크 재작성 |
 | `MAGI_CONTRACT_FIRST` · `MAGI_STEP_CONTRACT` · `MAGI_CRITERIA_PERITEM` | ON | 계약-선행(요청→계약→플랜) · 재플랜 per-step 계약 · 종료 항목별 판정 |
 | `MAGI_CHECK_VALIDATE` · `MAGI_CHECK_COVERAGE` | ON | 체크 감사(수리/폐기) · 스텝 커버리지 갭 채우기 |
 | `MAGI_CHECK_CHURN_CAP` | 4 | 비수렴 자기체크 N회 FAIL → 작업물 세워둔 채 UNVERIFIED 착지(`0`=off) |
@@ -197,5 +197,5 @@ runVerifyCmd 타임아웃**에서 각각 바운드된다 — 어느 것도 턴 �
 | `MAGI_SOLO_AUDIT` · `MAGI_CHECKPOINT_FIRST` · `MAGI_STEP_CONTEXT` · `MAGI_ASYNC_EXPLORERS` | ON | 솔로 감사 · 체크포인트 우선 · 스텝 컨텍스트 · 비동기 탐색 |
 | `MAGI_EXITCODE_BODYSCAN` | ON | bash exit-0 크래시/마스킹 주석 (`tool/builtin`) |
 | `MAGI_REPEAT_CAP` | ON | degenerate 반복(같은 문장/단어 무한) 안전망 (`provider_guard`) |
-| `MAGI_STREAM_STALL` · `MAGI_CHECK_TIMEOUT` | 120s | generate 첫토큰 stall 워치독 · 체크 명령 per-command 타임아웃(0=off) |
+| `MAGI_STREAM_STALL` · `MAGI_CHECK_TIMEOUT` | 120s | generate 첫토큰 stall 워치독 · 체크 per-check 타임아웃(0=off) |
 | `MAGI_SPIN_CAP` | 400KB | reasoning-only spin 상한(guardedProvider는 2×) |
