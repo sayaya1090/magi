@@ -45,3 +45,47 @@ func TestTolerantTypes(t *testing.T) {
 		t.Errorf("want zero values, got %q %+v %v", v.A, v.B, v.C)
 	}
 }
+
+// Both defects below are ALREADY invalid JSON, so repairing them cannot corrupt a well-formed
+// document — and both were observed in one run, where they cost the plan twice: the first reply and
+// its JSON-only retry each failed, leaving the turn with no plan at all.
+func TestStructuralRepairs(t *testing.T) {
+	// A bare identifier value — observed as {"agent":explore,…}.
+	bare := `{"steps":[{"agent":explore,"focus":"caml/","question":"read the sweep fn"}]}`
+	if !parses(t, bare) {
+		t.Errorf("a bare value must be repaired: %s", bare)
+	}
+	// Python-style single quotes, mixed in AFTER a double-quoted prefix (what the model actually did).
+	mixed := `{"reason":"ok","steps":[{"title":"a"},{'title': 'Verify crash is fixed', 'strategy': 'solo'}]}`
+	if !parses(t, mixed) {
+		t.Errorf("single-quoted objects must be repaired: %s", mixed)
+	}
+	// A legal bare value must NOT be quoted.
+	for _, legal := range []string{`{"a":true}`, `{"a":false}`, `{"a":null}`, `{"a":12}`, `{"a":-1.5}`} {
+		got := QuoteBareValues(legal)
+		if got != legal {
+			t.Errorf("a legal document must be untouched: %s → %s", legal, got)
+		}
+	}
+	// An apostrophe INSIDE a double-quoted string is not a delimiter and must survive.
+	apos := `{"note":"don't touch this"}`
+	if SingleToDoubleQuotes(apos) != apos {
+		t.Errorf("an apostrophe inside a string must be left alone: %s", SingleToDoubleQuotes(apos))
+	}
+	// Repairs are additive, never destructive: a clean document yields itself first.
+	clean := `{"a":"b"}`
+	if c := RepairCandidates(clean); c[0] != clean {
+		t.Errorf("the original must be tried first, got %q", c[0])
+	}
+}
+
+func parses(t *testing.T, s string) bool {
+	t.Helper()
+	for _, c := range RepairCandidates(s) {
+		var v any
+		if json.Unmarshal([]byte(c), &v) == nil {
+			return true
+		}
+	}
+	return false
+}

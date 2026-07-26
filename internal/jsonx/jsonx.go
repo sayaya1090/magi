@@ -9,6 +9,7 @@ package jsonx
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -190,17 +191,26 @@ func EscapeControlCharsInStrings(s string) string {
 func RepairCandidates(js string) []string {
 	out := []string{js}
 	seen := map[string]bool{js: true}
-	for _, fixed := range []string{
-		StripTrailingCommas(js),
-		EscapeControlCharsInStrings(js),
-		EscapeControlCharsInStrings(StripTrailingCommas(js)),
-	} {
-		if seen[fixed] {
-			continue
+	add := func(s string) {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
 		}
-		seen[fixed] = true
-		out = append(out, fixed)
 	}
+	// Light repairs first: a trailing comma and a raw control character are the common defects and
+	// the cheapest to undo.
+	light := EscapeControlCharsInStrings(StripTrailingCommas(js))
+	add(StripTrailingCommas(js))
+	add(EscapeControlCharsInStrings(js))
+	add(light)
+	// Structural repairs on top: a single-quoted string and a bare identifier value are BOTH
+	// already-invalid JSON, so these can only act on a document that was going to be rejected —
+	// but they rewrite more than whitespace, so they come after the light ones and the caller
+	// always tries the original first.
+	quoted := SingleToDoubleQuotes(light)
+	add(quoted)
+	add(QuoteBareValues(quoted))
+	add(QuoteBareValues(light))
 	return out
 }
 
@@ -289,4 +299,76 @@ func (v *Number) UnmarshalJSON(b []byte) error {
 	}
 	*v = 0
 	return nil
+}
+
+// SingleToDoubleQuotes rewrites Python-style '...' strings into JSON "..." strings. A quote
+// character outside a string is ALREADY invalid JSON, so this can only ever act on a document that
+// was going to be rejected anyway — it cannot corrupt a well-formed one. Observed live: a planner
+// reply that opened with double quotes and switched to single quotes partway through its array,
+// which cost the entire plan.
+func SingleToDoubleQuotes(s string) string {
+	if !strings.ContainsRune(s, '\'') {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s) + 8)
+	inDouble, inSingle, esc := false, false, false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case esc:
+			esc = false
+			b.WriteByte(c)
+		case c == '\\':
+			esc = true
+			b.WriteByte(c)
+		case inDouble:
+			if c == '"' {
+				inDouble = false
+			}
+			b.WriteByte(c)
+		case inSingle:
+			switch c {
+			case '\'':
+				inSingle = false
+				b.WriteByte('"')
+			case '"':
+				b.WriteString(`\"`) // a double quote inside the converted string must be escaped
+			default:
+				b.WriteByte(c)
+			}
+		case c == '"':
+			inDouble = true
+			b.WriteByte(c)
+		case c == '\'':
+			inSingle = true
+			b.WriteByte('"')
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
+}
+
+// bareValueRe matches a colon followed by a BARE identifier value — `"agent":explore` — up to the
+// next structural character. JSON has exactly four unquoted values (true, false, null, a number),
+// so anything else there is already a syntax error; the alternation below excludes those four so a
+// legal document is never touched.
+var bareValueRe = regexp.MustCompile(`(:\s*)([A-Za-z_][A-Za-z0-9_./-]*)(\s*[,}\]])`)
+
+// QuoteBareValues quotes an unquoted string value. Like SingleToDoubleQuotes it only fires on text
+// that is already invalid JSON. Observed live: `{"agent":explore,"focus":"caml/"}` in a planner
+// reply — one bare token discarding the whole plan.
+func QuoteBareValues(s string) string {
+	if !strings.Contains(s, ":") {
+		return s
+	}
+	return bareValueRe.ReplaceAllStringFunc(s, func(m string) string {
+		sub := bareValueRe.FindStringSubmatch(m)
+		switch strings.ToLower(sub[2]) {
+		case "true", "false", "null": // legal bare values — leave them alone
+			return m
+		}
+		return sub[1] + `"` + sub[2] + `"` + sub[3]
+	})
 }
