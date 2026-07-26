@@ -230,7 +230,7 @@ func (c *Council) JudgeRevision(ctx context.Context, req port.RevisionJudgeReque
 	}
 	var r judgeReply
 	parsed := false
-	for _, js := range jsonx.BalancedObjects(b.String()) {
+	for _, js := range jsonx.Objects(b.String()) {
 		if jsonx.Unmarshal(js, &r) {
 			parsed = true
 			break
@@ -1185,7 +1185,7 @@ func parseReply(text string) (memberReply, bool) {
 	// in the tally from "my lens has nothing to add". A stray brace in the reasoning ahead of the
 	// real object, or a raw newline inside the multi-line `rationale`/`feedback` prose, silently
 	// removed a vote that had in fact been cast.
-	for _, js := range jsonx.BalancedObjects(text) {
+	for _, js := range jsonx.Objects(text) {
 		var r memberReply
 		if !jsonx.Unmarshal(js, &r) || strings.TrimSpace(string(r.Decision)) == "" {
 			continue

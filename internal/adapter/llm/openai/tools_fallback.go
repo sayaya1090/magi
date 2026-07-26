@@ -37,7 +37,7 @@ func parseFallbackToolCall(text string, known map[string]bool) (*session.ToolCal
 	// erases it, and the text is then shown as ordinary prose with no sign anything was lost.
 	var probe callProbe
 	parsed := false
-	for _, js := range jsonx.BalancedObjects(s) {
+	for _, js := range jsonx.Objects(s) {
 		var p callProbe
 		if jsonx.Unmarshal(js, &p) && (p.Name != "" || p.Tool != "") {
 			probe, parsed = p, true

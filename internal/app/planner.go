@@ -893,14 +893,14 @@ func stripTrailingCommas(s string) string { return jsonx.StripTrailingCommas(s) 
 // plan's step objects) stay inside their parent — only depth-0 spans are returned — so the
 // caller can try each candidate independently and skip a stray brace that precedes the real
 // object.
-func balancedObjects(s string) []string { return jsonx.BalancedObjects(s) }
+func balancedObjects(s string) []string { return jsonx.Objects(s) }
 
 // balancedArrays is balancedObjects for [...] arrays — every TOP-LEVEL balanced array in s, in
 // order, respecting strings and escapes. A JSON-array reply (e.g. a check-audit's list) that is
 // wrapped in prose or trailed by reasoning containing a stray ] is recovered by trying each
 // candidate, instead of a naive first-[/last-] span that mis-captures on any bracket outside the
 // real array.
-func balancedArrays(s string) []string { return jsonx.BalancedArrays(s) }
+func balancedArrays(s string) []string { return jsonx.Arrays(s) }
 
 // firstBalancedObject returns the first balanced {...} object in s, respecting
 // strings and escapes (braces inside string values don't confuse it), or "".
