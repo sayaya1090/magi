@@ -97,3 +97,41 @@ func TestMergeChecksDropsBareStringCheck(t *testing.T) {
 		t.Fatalf("merged = %+v, want only the runnable check", merged)
 	}
 }
+
+// A typed check carries no `command` — the runner builds the invocation from `source`+`assert`. Every
+// place that used "no command" as shorthand for "nothing to run" would drop the entire typed set, so
+// the merge must decide on what the check VERIFIES, not on which field happens to be filled.
+func TestMergeChecksKeepsTypedChecks(t *testing.T) {
+	var checks []DeliverableCheck
+	raw := `[{"step":"1","deliverable":"build log","source":"/app/build.log","assert":"matches ^Done\\.$"},
+	         {"step":"1","deliverable":"no errors","source":"/app/build.log","assert":"absent error"},
+	         {"step":"2","deliverable":"tests","command":"make test"},
+	         {"deliverable":"nothing to run"}]`
+	if err := json.Unmarshal([]byte(raw), &checks); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	merged := MergeChecks([]Verdict{{Checks: checks}})
+	if len(merged) != 3 {
+		t.Fatalf("merged %d checks (%+v), want the 2 typed + 1 command and not the empty one", len(merged), merged)
+	}
+	// Two typed checks over the SAME source differ only by their assertion: dedupe keyed on the
+	// command alone would collapse them into one and silently halve the contract.
+	if merged[0].Assert == merged[1].Assert {
+		t.Fatalf("the two typed checks collapsed: %+v", merged)
+	}
+	if merged[0].Source != "/app/build.log" || merged[0].Assert != `matches ^Done\.$` {
+		t.Fatalf("typed fields lost in the merge: %+v", merged[0])
+	}
+}
+
+// The typed fields go through the same tolerant unmarshal as the rest of the shape, so a weak model
+// that sends a number or a one-element array where a string belongs still yields a runnable check.
+func TestDeliverableCheckTypedFieldTolerance(t *testing.T) {
+	var c DeliverableCheck
+	if err := json.Unmarshal([]byte(`{"source":["/app/out.log"],"assert":"nonempty"}`), &c); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if c.Source != "/app/out.log" || c.Assert != "nonempty" {
+		t.Fatalf("got %+v", c)
+	}
+}

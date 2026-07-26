@@ -1,0 +1,241 @@
+package app
+
+import (
+	"context"
+	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/sayaya1090/magi/internal/core/council"
+	"github.com/sayaya1090/magi/internal/core/session"
+)
+
+func TestParseAssertion(t *testing.T) {
+	cases := []struct {
+		in       string
+		wantVerb string
+		wantArg  string
+		wantOK   bool
+	}{
+		{"nonempty", "nonempty", "", true},
+		{"NONEMPTY", "nonempty", "", true},
+		{"  nonempty  ", "nonempty", "", true},
+		{"process_alive", "process_alive", "", true},
+		// The argument is the REST of the string: a regexp with spaces in it is the common case, and a
+		// Fields-based parse would silently keep only its first word.
+		{"matches ^All 12 tests passed$", "matches", "^All 12 tests passed$", true},
+		{"absent  Traceback (most recent call last)", "absent", "Traceback (most recent call last)", true},
+		{"equals /tmp/expected out.txt", "equals", "/tmp/expected out.txt", true},
+		{"port_open 5328", "port_open", "5328", true},
+		// Verbs that mean nothing without their argument, and anything outside the vocabulary, are a
+		// parse failure — never a guess at some other assertion.
+		{"matches", "", "", false},
+		{"equals", "", "", false},
+		{"port_open", "", "", false},
+		{"", "", "", false},
+		{"exists /tmp/x", "", "", false},
+		{"test -f /tmp/x", "", "", false},
+	}
+	for _, tc := range cases {
+		got, ok := parseAssertion(tc.in)
+		if ok != tc.wantOK || got.verb != tc.wantVerb || got.arg != tc.wantArg {
+			t.Errorf("parseAssertion(%q) = {%q %q} %v, want {%q %q} %v",
+				tc.in, got.verb, got.arg, ok, tc.wantVerb, tc.wantArg, tc.wantOK)
+		}
+	}
+}
+
+// runTypedCheck must speak the exit-code language the gates already layer policy on: 0 passed,
+// 1 the deliverable failed, 126 the CHECK could not run (checkUnrunnable → no verdict, step lands
+// ungated). Getting 1 and 126 the wrong way round would either fail correct work or wave broken
+// work through, so each is pinned.
+func TestRunTypedCheckVerdicts(t *testing.T) {
+	skipOnWindows(t)
+	dir := t.TempDir()
+	write := func(name, body string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	log := write("build.log", "compiling\nAll 12 tests passed\n")
+	write("copy.log", "compiling\nAll 12 tests passed\n")
+	write("empty.log", "   \n")
+
+	app := newShellApp(t, &shellPlatform{})
+	cases := []struct {
+		name   string
+		check  council.DeliverableCheck
+		want   int
+		inText string // substring the diagnostic must carry
+	}{
+		{"nonempty pass", council.DeliverableCheck{Source: log, Assert: "nonempty"}, 0, "bytes"},
+		{"nonempty fail on whitespace", council.DeliverableCheck{Source: filepath.Join(dir, "empty.log"), Assert: "nonempty"}, 1, "is empty"},
+		{"matches pass", council.DeliverableCheck{Source: log, Assert: "matches All 12 tests passed"}, 0, "matches"},
+		{"matches fail", council.DeliverableCheck{Source: log, Assert: "matches All 13 tests passed"}, 1, "does not match"},
+		// An anchored pattern against a file ending in a newline is the permanent-false-failure shape
+		// the shared matcher was fixed for; the typed path must inherit that fix, not re-earn it.
+		{"matches anchored despite trailing newline", council.DeliverableCheck{Source: log, Assert: "matches ^All 12 tests passed$"}, 0, "matches"},
+		{"absent pass", council.DeliverableCheck{Source: log, Assert: "absent Traceback"}, 0, "does not contain"},
+		{"absent fail", council.DeliverableCheck{Source: log, Assert: "absent compiling"}, 1, "must be absent"},
+		{"equals pass", council.DeliverableCheck{Source: log, Assert: "equals " + filepath.Join(dir, "copy.log")}, 0, "equals"},
+		{"equals fail", council.DeliverableCheck{Source: log, Assert: "equals " + filepath.Join(dir, "empty.log")}, 1, "differs"},
+		// A source the step never recorded is the DELIVERABLE failing, not a broken check: the step was
+		// supposed to put it there. Reporting 126 would silently un-gate the step.
+		{"missing source fails", council.DeliverableCheck{Source: filepath.Join(dir, "nope.log"), Assert: "nonempty"}, 1, "record it here"},
+		{"missing equals target fails", council.DeliverableCheck{Source: log, Assert: "equals " + filepath.Join(dir, "nope.log")}, 1, "record it here"},
+		// The check itself is unusable → 126, no verdict.
+		{"unknown verb is unrunnable", council.DeliverableCheck{Source: log, Assert: "exists"}, 126, "unknown assertion"},
+		{"file assertion with no source is unrunnable", council.DeliverableCheck{Assert: "nonempty"}, 126, "needs `source`"},
+		{"port_open with a non-port is unrunnable", council.DeliverableCheck{Assert: "port_open http"}, 126, "needs a port number"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, code := app.runTypedCheck(context.Background(), session.SessionID("s1"), dir, tc.check)
+			if code != tc.want {
+				t.Fatalf("code = %d, want %d (out: %s)", code, tc.want, out)
+			}
+			if !strings.Contains(out, tc.inText) {
+				t.Fatalf("out = %q, want it to mention %q", out, tc.inText)
+			}
+		})
+	}
+}
+
+// A path with a shell metacharacter in it is an ordinary argv element, not a command line: the whole
+// point of building the invocation here is that there is nothing for it to break out of.
+func TestRunTypedCheckPathWithMetacharacters(t *testing.T) {
+	skipOnWindows(t)
+	dir := t.TempDir()
+	name := "out; rm -rf $(pwd) & '.log"
+	if err := os.WriteFile(filepath.Join(dir, name), []byte("ok\n"), 0o644); err != nil {
+		t.Skipf("filesystem will not hold this name: %v", err)
+	}
+	app := newShellApp(t, &shellPlatform{})
+	out, code := app.runTypedCheck(context.Background(), session.SessionID("s1"), dir,
+		council.DeliverableCheck{Source: filepath.Join(dir, name), Assert: "matches ok"})
+	if code != 0 {
+		t.Fatalf("code = %d, want 0 (out: %s)", code, out)
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("workdir gone — the path was interpreted rather than passed: %v", err)
+	}
+}
+
+func TestRunTypedCheckPortOpen(t *testing.T) {
+	skipOnWindows(t)
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("no python3 to run the probe")
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	openPort := ln.Addr().(*net.TCPAddr).Port
+
+	closed, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	closedPort := closed.Addr().(*net.TCPAddr).Port
+	closed.Close()
+
+	app := newShellApp(t, &shellPlatform{})
+	if out, code := app.runTypedCheck(context.Background(), session.SessionID("s1"), t.TempDir(),
+		council.DeliverableCheck{Assert: "port_open " + strconv.Itoa(openPort)}); code != 0 {
+		t.Fatalf("open port: code = %d, want 0 (out: %s)", code, out)
+	}
+	// Liveness is the one contract a recorded artifact cannot prove, so this must actually probe:
+	// a closed port has to come back failing, not merely "no verdict".
+	if out, code := app.runTypedCheck(context.Background(), session.SessionID("s1"), t.TempDir(),
+		council.DeliverableCheck{Assert: "port_open " + strconv.Itoa(closedPort)}); code != 1 {
+		t.Fatalf("closed port: code = %d, want 1 (out: %s)", code, out)
+	}
+}
+
+// runCheck is the single entry point the gates call; it must route on the SHAPE of the check, and
+// MAGI_TYPED_CHECKS=0 must put a typed check back on its Command so the flag is a real A/B.
+func TestRunCheckRoutesOnShape(t *testing.T) {
+	skipOnWindows(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "r.log"), []byte("done\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := newShellApp(t, &shellPlatform{})
+	typed := council.DeliverableCheck{
+		Source: filepath.Join(dir, "r.log"), Assert: "matches done",
+		Command: "exit 3", // present but must be ignored while the typed path is on
+	}
+	if out, code := app.runCheck(context.Background(), session.SessionID("s1"), dir, typed); code != 0 {
+		t.Fatalf("typed: code = %d, want 0 (out: %s)", code, out)
+	}
+	t.Setenv("MAGI_TYPED_CHECKS", "0")
+	if _, code := app.runCheck(context.Background(), session.SessionID("s1"), dir, typed); code != 3 {
+		t.Fatalf("flag off: code = %d, want the Command's 3", code)
+	}
+}
+
+// A typed check's verdict IS the runner's exit status — the runner applied the assertion itself. A
+// stale `expect` left on a converted check must not be re-applied on top, or a pattern meant for some
+// other command's output would fail work the assertion just passed.
+func TestPassesIgnoresExpectOnTypedCheck(t *testing.T) {
+	c := council.DeliverableCheck{Source: "/tmp/x", Assert: "nonempty", Expect: "a pattern from the old command"}
+	if !c.Passes("/tmp/x: 41 bytes", 0) {
+		t.Fatal("a typed check that exited 0 must pass regardless of a leftover expect")
+	}
+	if c.Passes("whatever", 1) {
+		t.Fatal("a non-zero exit must still fail")
+	}
+}
+
+// Every map in the run that identifies a check used to key on the command text. A typed check has
+// none, so keying on it alone collapses a step's typed checks onto one entry — and the first to pass
+// marks the rest green.
+func TestCheckIdentDistinguishesTypedChecks(t *testing.T) {
+	a := council.DeliverableCheck{Step: "2", Source: "/tmp/build.log", Assert: "matches ^Done"}
+	b := council.DeliverableCheck{Step: "2", Source: "/tmp/build.log", Assert: "absent error"}
+	c := council.DeliverableCheck{Step: "2", Source: "/tmp/test.log", Assert: "matches ^Done"}
+	if checkKey(a) == checkKey(b) || checkKey(a) == checkKey(c) {
+		t.Fatalf("typed checks collided: %q %q %q", checkKey(a), checkKey(b), checkKey(c))
+	}
+	if checkIdent(council.DeliverableCheck{}) != "" {
+		t.Fatal("a check that verifies nothing must have no identity, so callers drop it")
+	}
+	// A command check keeps its old identity exactly, so nothing that was stable before moves.
+	if got := checkIdent(council.DeliverableCheck{Command: " make test "}); got != "make test" {
+		t.Fatalf("command identity = %q", got)
+	}
+}
+
+func TestCheckWhatDescribesTypedCheck(t *testing.T) {
+	if got := checkWhat(council.DeliverableCheck{Source: "/tmp/b.log", Assert: "matches ^Done"}); got != "/tmp/b.log: matches ^Done" {
+		t.Fatalf("checkWhat = %q", got)
+	}
+	if got := checkWhat(council.DeliverableCheck{Command: "make test"}); got != "make test" {
+		t.Fatalf("checkWhat = %q", got)
+	}
+}
+
+// unionChecks and parseChecksArray both used "no command" to mean "nothing to run". A typed check
+// satisfies that test while being perfectly runnable, and either one dropping it silently would
+// leave the plan with fewer gates than it authored.
+func TestTypedChecksSurviveUnionAndParse(t *testing.T) {
+	authored := []council.DeliverableCheck{{Step: "1", Source: "/tmp/a.log", Assert: "nonempty"}}
+	out, restored := unionChecks(nil, authored)
+	if restored != 1 || len(out) != 1 {
+		t.Fatalf("unionChecks restored %d, out %+v — a typed check was dropped", restored, out)
+	}
+	if _, again := unionChecks(out, authored); again != 0 {
+		t.Fatal("the same typed check was restored twice — its identity is not stable")
+	}
+	got, ok := parseChecksArray(`[{"step":"1","deliverable":"d","source":"/tmp/a.log","assert":"matches ^Done$"}]`)
+	if !ok || len(got) != 1 || got[0].Assert != "matches ^Done$" || got[0].Source != "/tmp/a.log" {
+		t.Fatalf("parseChecksArray = %+v ok=%v", got, ok)
+	}
+}
