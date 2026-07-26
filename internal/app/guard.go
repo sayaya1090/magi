@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -1164,17 +1165,63 @@ func canonicalArgs(raw json.RawMessage) string {
 // one fingerprint so the block engages. Genuine paging advances `offset` (a
 // different head), which is kept, so real forward reads are unaffected.
 func guardArgs(name string, raw json.RawMessage) string {
-	if name != "read" {
+	var key string
+	switch name {
+	case "read":
+		key = "limit"
+	case "bash":
+		// A trailing `&& echo "…"` changes no state — it only labels the result — so two commands
+		// that differ ONLY there do identical work. Keeping the label in the fingerprint made each
+		// one FIRST-SEEN, and a first-seen exercising command is credited as forward motion
+		// (noteBashExec → progressSinceNudge), so re-running the same verification under a new
+		// label read as progress and held the stall watchdog off indefinitely. Observed: 23 runs of
+		// one self-comparing verification, differing only in the echo text and a -q/-s flag, until
+		// the wall clock ended the turn. Strip the label for the fingerprint only; the command still
+		// runs exactly as written.
+		var ba struct {
+			Command string `json:"command"`
+		}
+		if json.Unmarshal(raw, &ba) != nil {
+			return canonicalArgs(raw)
+		}
+		stripped := stripEchoTail(ba.Command)
+		if stripped == ba.Command {
+			return canonicalArgs(raw)
+		}
+		b, err := json.Marshal(map[string]any{"command": stripped})
+		if err != nil {
+			return canonicalArgs(raw)
+		}
+		return string(b)
+	default:
 		return canonicalArgs(raw)
 	}
 	var m map[string]any
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return canonicalArgs(raw) // not an object (or malformed) — fall back
 	}
-	delete(m, "limit")
+	delete(m, key)
 	b, err := json.Marshal(m) // sorted keys
 	if err != nil {
 		return canonicalArgs(raw)
 	}
 	return string(b)
+}
+
+// echoTailRe matches ONE trailing `&& echo <literal>` (or `;`/`||`-joined) at the very end of a
+// command. Only a literal argument is stripped: `echo $(…)`/`echo "$x"` can carry a substitution
+// whose evaluation differs run to run, so those stay in the fingerprint.
+var echoTailRe = regexp.MustCompile(`\s*(&&|\|\||;)\s*echo\s+(?:-[neE]+\s+)?(?:"[^"$` + "`" + `\\]*"|'[^']*'|[A-Za-z0-9_.,:/=+-]*)\s*$`)
+
+// stripEchoTail removes trailing echo labels from a command for fingerprinting. Repeated so a
+// `… && echo A && echo B` chain collapses too. Returns the input unchanged when there is no tail.
+func stripEchoTail(cmd string) string {
+	out := strings.TrimSpace(cmd)
+	for {
+		next := strings.TrimSpace(echoTailRe.ReplaceAllString(out, ""))
+		if next == out || next == "" { // no tail left, or the command was ONLY an echo — keep it
+			return out
+		}
+		out = next
+	}
 }

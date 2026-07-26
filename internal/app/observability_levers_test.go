@@ -114,3 +114,52 @@ func TestNearestToolName(t *testing.T) {
 		}
 	}
 }
+
+// A trailing `&& echo "…"` labels a result; it changes nothing. Two commands differing only there
+// do identical work, yet the full-command fingerprint made each one FIRST-SEEN — and a first-seen
+// exercising command is credited as forward motion, so relabelled repeats of one verification kept
+// the stall watchdog from ever engaging. The label is stripped for fingerprinting only.
+func TestStripEchoTail(t *testing.T) {
+	cases := []struct{ in, want string }{
+		// the observed shape: same work, different label
+		{`node x.js > out && diff -q a out && echo "PASS"`, `node x.js > out && diff -q a out`},
+		{`node x.js > out && diff -q a out && echo "VERIFIED: Complete"`, `node x.js > out && diff -q a out`},
+		{`make && echo done`, `make`},
+		{`make ; echo done`, `make`},
+		{`make || echo failed`, `make`},
+		{`make && echo -n 'ok'`, `make`},
+		{`a && echo one && echo two`, `a`}, // chained labels collapse
+		// left alone: no tail, a substitution that can differ per run, and a bare echo
+		{`make`, `make`},
+		{"a && echo \"$RESULT\"", "a && echo \"$RESULT\""},
+		{"a && echo $(date)", "a && echo $(date)"},
+		{`echo hello`, `echo hello`}, // the command IS the echo — keep it
+	}
+	for _, c := range cases {
+		if got := stripEchoTail(c.in); got != c.want {
+			t.Errorf("stripEchoTail(%q)\n  = %q\n want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// guardArgs must therefore give two relabelled runs of the same verification ONE fingerprint, while
+// keeping genuinely different work apart.
+func TestGuardArgsCollapsesRelabelledBash(t *testing.T) {
+	fp := func(cmd string) string {
+		b, _ := json.Marshal(map[string]string{"command": cmd})
+		return guardArgs("bash", b)
+	}
+	a := fp(`node x.js > out && diff -q ref out && echo "PASS"`)
+	b := fp(`node x.js > out && diff -q ref out && echo "VERIFIED"`)
+	if a != b {
+		t.Errorf("relabelled repeats must share a fingerprint:\n a=%s\n b=%s", a, b)
+	}
+	if c := fp(`node y.js > out && diff -q ref out && echo "PASS"`); c == a {
+		t.Error("a different command must NOT collapse onto the same fingerprint")
+	}
+	// A tail-less command is untouched (identical to the plain canonical form).
+	plain, _ := json.Marshal(map[string]string{"command": "make test"})
+	if fp("make test") != canonicalArgs(plain) {
+		t.Error("a command with no echo tail must fingerprint exactly as before")
+	}
+}
