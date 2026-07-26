@@ -895,105 +895,72 @@ func planMemberSystem(m council.Member, lens string, keep bool) string {
 			"criterion still requires the concrete artifact to exist and its check to pass; do not soften that.) These are "+
 			"NOT steps the plan must contain, and their absence from the plan is NEVER a reason to revise. Keep each item "+
 			"one short line; omit if your lens adds nothing.\n\n"+
-			"ALSO, where a step's deliverable is MACHINE-CHECKABLE, propose one or more executable `checks`. Each check "+
-			"names the plan `step` it belongs to as its INTEGER STEP NUMBER (\"3\", not the step's title — the gate matches "+
-			"by number, so a title label matches NO step and gets flattened onto the wrong worker), the expected "+
-			"`deliverable` in one short phrase, a "+
-			"shell `command` that verifies it from the task's working directory, and an optional `expect` REGULAR "+
-			"EXPRESSION the command's output must match (omit `expect` for an exit-code-only check). A check that only "+
-			"confirms the deliverable can be REACHED — a file exists or is non-empty, a port accepts a connection, a "+
-			"module imports, a build succeeds, a process is alive — is a PRECONDITION, not proof, and is INSUFFICIENT "+
-			"whenever the deliverable must BEHAVE or produce a correct result, because a non-functional stub passes every "+
-			"one of those. You MUST author a check that INVOKES the behavior through the same interface its consumer uses "+
-			"and asserts the OUTCOME, choosing the weakest input that still forces the real code path so a stub that "+
-			"merely exists or opens the port FAILS. WHERE that exercise runs is fixed by RECORD AND READ below — the "+
-			"STEP performs it and saves its real output, the check asserts on that saved output — but the OUTCOME "+
-			"being asserted is the same either way, so never weaken it to a mere existence probe. A COMMAND THAT "+
-			"SUCCEEDED is the same kind of precondition: a "+
-			"configure/build/install step exiting 0 with a flag on its command line proves the flag was ACCEPTED, not "+
-			"that it took EFFECT. So when the deliverable is the effect a setting is supposed to cause, check the "+
-			"EFFECT — run whatever consumes the setting and assert the resulting artifact appears, with the content the "+
-			"task requires, AT THE LOCATION the task names — never that the setting or the command is in place: a "+
-			"setting that silently did nothing, or one whose output landed somewhere the task does not look, passes the "+
-			"command check and fails the real one. Asserting the artifact is "+
-			"present while never exercising it is the single biggest reason a broken solution gets approved: a program that "+
-			"builds but computes the wrong answer, a `gates.txt` that exists but simulates to the wrong value, a server "+
-			"file that never actually listens, a cleanup handler that never fires. So beyond any existence check, run it, "+
-			"grep its contents, or exercise its behavior (`test -s out.txt`, not bare `test -f`) so a stale, empty, or "+
-			"WRONG leftover cannot pass. The deliverable may be a file (`test -s out.txt`), a build/test result "+
-			"(`go build ./...`), or PROGRAM OUTPUT ON SCREEN — for output, run the program and match its stdout with "+
-			"`expect` (e.g. command `./run --demo`, expect `^total: [0-9]+$`). HIGHEST-PRIORITY CHECK: if the task shows "+
-			"ANY concrete example — a literal command line, an input→output mapping, or a numeric threshold — your FIRST "+
-			"check MUST run that EXACT input and assert that EXACT output, verbatim, never a paraphrase or a value you "+
-			"invented; this one check catches a wrong-but-present artifact that every file-existence check misses. The hidden grader enforces the TASK'S own "+
-			"contract, so a self-substituted command or expected output passes your check but fails the grader: if the "+
-			"task quotes an exact command line, run THAT line unchanged; if it gives an example input→output mapping, "+
-			"assert exactly that mapping — never a value you invented. CONVERSELY do NOT demand MORE than the task states: "+
-			"never pin a version, build id, exact path, or incidental attribute the task did not itself specify — "+
-			"over-specification false-fails correct work and never converges. Assert the minimal condition that proves the "+
-			"stated objective. When the task's acceptance involves an EXTERNAL event — a signal "+
-			"(Ctrl-C/SIGINT), a kill, a disconnect — author a check that DELIVERS the event for real: launch the "+
-			"artifact as a background process, send the actual signal, and match the required output (e.g. command "+
-			"`python3 app.py & p=$!; sleep 1; kill -INT $p; wait $p 2>/dev/null; ...`, expect the cleanup marker). "+
-			"An in-process simulation (raising the exception by hand) verifies the wrong delivery path. A "+
-			"step may have SEVERAL checks (several deliverables). PORTABLE PROBES: the `command` may use ONLY tools "+
-			"guaranteed to exist in the task's runtime — coreutils, `grep`/`test`, `python3`, and the task's own "+
-			"toolchain. A check that fails merely because its TOOL is absent is a false negative that can NEVER pass, "+
-			"trapping the run in a re-verify loop until timeout. In particular, to test that a server LISTENS on a port, "+
-			"do NOT use `ss`/`netstat`/`lsof` (routinely missing in minimal images) — use a dependency-free connect, e.g. "+
-			"command `python3 -c \"import socket,sys; sys.exit(0 if socket.socket().connect_ex(('localhost',PORT))==0 else 1)\"` "+
-			"(or `curl -sf http://localhost:PORT/...` for HTTP). WORK AND CHECK ARE SEPARATE — the verifying command "+
-			"must be IDEMPOTENT and cause NO state change: it may be run any number of times with the same result and "+
-			"no side effects, because it VERIFIES the deliverable, it never PERFORMS, re-performs, or substitutes for the "+
-			"step's own work. A command that PRODUCES or MUTATES the artifact — compress, download, build, generate, move, "+
-			"delete (`tar -czf`, `scp`/`rsync`, `rm`, `mv`, a `>` redirect that writes the deliverable, `git commit`) — IS "+
-			"the work, NOT a check: running it as the check re-does the step every gate cycle and false-fails on any "+
-			"transient error, trapping the run in a redo loop (observed: a download step whose 'check' was "+
-			"`ssh host 'tar -czf /tmp/b.tgz DIR'` re-compressed the remote tree, exited non-zero, and re-ran the download "+
-			"forever). Instead probe the ALREADY-produced artifact at its FINAL location read-only: to verify a downloaded "+
-			"archive use `test -s ./out.tgz` or `tar -tzf ./out.tgz >/dev/null` (LIST, never CREATE); to verify a build, "+
-			"RUN the built binary — never re-invoke the build as the check. Verify the step's OWN stated deliverable, not "+
-			"an intermediate. THE CHECK SHELL IS READ-ONLY AND ENFORCES THIS: mutating commands are BLOCKED when the "+
-			"check runs — build drivers and compilers (`make`, `cmake`, `ninja`, `gcc`, `cargo build`, `go build`), "+
-			"package installers, `rm`/`mv`, archive create/extract, and `git` write subcommands. A blocked check "+
-			"produces NO verdict, so its step lands UNVERIFIED — authoring one costs you the very gate you were "+
-			"writing. RECORD AND READ — THE DEFAULT SHAPE OF A CHECK IS: THE STEP RUNS, THE CHECK READS. Whenever "+
-			"proving the deliverable means RUNNING something — a build, a test command the task names, the produced "+
-			"program on its input, a server round-trip — that run belongs to the STEP, not to the check: write the "+
-			"step's `task` so it performs the run ONCE and saves the REAL output to a result file at a fixed path in "+
-			"the workspace, and make the check a read-only READ of that file (`grep -q '<expected outcome>' <result "+
-			"file>`, or a `python3` parse of it). Name the SAME path in the step's task and in its check, so what the "+
-			"step writes is what the check reads. This keeps the behavioural proof intact — the run still happens and "+
-			"its ACTUAL output is what gets asserted — while the check itself stays a file read: it cannot be refused "+
-			"by the read-only shell, it cannot re-do the work on every gate cycle, and `grep` reports failure honestly "+
-			"through its exit status. Say IN THE DELIVERABLE TEXT that the step must save that file, and require the "+
-			"file to be the command's own redirected output — never hand-written, and never a marker typed in by hand. "+
-			"Reserve DIRECT execution inside a check for probes that only INSPECT what already exists and change "+
-			"nothing (`test -s f`, `grep -q pat f`, `tar -tzf f.tgz`). Propose checks ONLY when they are concrete and would "+
-			"genuinely pass for correct work — commands must be non-destructive and deterministic. SMOKE CHECK when "+
-			"full correctness is UNVERIFIABLE: a step that PRODUCES a runnable artifact (a program, script, generated "+
-			"file) must ALWAYS get at least a SMOKE check even when you cannot check the exact answer because the "+
-			"reference/expected output is hidden — assert the artifact RUNS without error and emits output in the "+
-			"expected SHAPE (exists, non-empty, valid JSON/CSV, right column/field count, plausible row count). Skipping "+
-			"such a step leaves the run with NO done-signal, so the agent second-guesses a working solution and refines "+
-			"it until the wall clock. Example, for a step that writes a script emitting JSON: run the script on its input "+
-			"and assert the output PARSES and is non-empty — command `<script> <input> > /tmp/o.json && python3 -c "+
-			"\"import json,sys; sys.exit(0 if json.load(open('/tmp/o.json')) else 1)\"` (runs + non-empty) — shape only, "+
-			"never the hidden exact values. For a "+
-			"read/review/analyze/answer step there is usually nothing to execute: emit NO check for it (the prose "+
-			"`criteria` already cover it). CHECKLIST-DRIVEN, JOINTLY SATISFIABLE: author each step together with its "+
-			"own done-condition — a step that produces a runnable/inspectable artifact should carry at least one check "+
-			"that DEFINES 'done' for it, so the checklist drives the step, not the reverse. A check belongs ONLY to the "+
-			"step whose work creates or changes that state and is verified AT that step (label it with that step's "+
-			"number); never re-assert it under a later step. The checks, read in plan order, must be JOINTLY "+
-			"SATISFIABLE: do NOT require the SAME artifact PRESENT under one step and ABSENT under another as if both "+
-			"held at once — a teardown/cleanup step's absence-check (`test ! -f a.tgz`) belongs to THAT step alone and is "+
-			"verified right after it, while an earlier step's existence-check (`test -s a.tgz`) already passed at its own "+
-			"earlier step; putting both into one step's list makes a checklist no state can satisfy. "+
+			"ALSO, where a step's deliverable is MACHINE-CHECKABLE, propose one or more `checks`. A CHECK IS DATA, "+
+			"NOT A COMMAND: you never write a shell command and the gate never runs one. Each check names the plan "+
+			"`step` it belongs to as its INTEGER STEP NUMBER (\"3\", not the step's title — the gate matches by number, "+
+			"so a title label matches NO step and gets flattened onto the wrong worker), the expected `deliverable` in "+
+			"one short phrase, a `source` (the path holding what is to be judged), and an `assert` drawn from this "+
+			"FIXED vocabulary — no other wording is understood:\n"+
+			"  nonempty          — `source` exists and is not blank\n"+
+			"  matches <regexp>  — the content of `source` matches this regular expression\n"+
+			"  absent <regexp>   — the content of `source` does NOT match it (a marker that must NOT appear)\n"+
+			"  equals <path>     — `source` has the same content as that other file (an expected-output fixture)\n"+
+			"  port_open <port>  — something is listening on that port right now (`source` unused)\n"+
+			"  process_alive     — the pid written in `source` is running right now\n"+
+			"The gate reads `source` and applies `assert` itself, with no shell in the path. A check therefore CANNOT "+
+			"re-do the step's work, CANNOT mutate anything, and CANNOT fail merely because the image lacks some tool. "+
+			"Those three failure modes are gone by construction — spend your judgement entirely on WHAT is asserted.\n\n"+
+			"RECORD AND READ IS THE ONLY SHAPE. Whenever proving the deliverable means RUNNING something — a build, a "+
+			"test command the task names, the produced program on its input, a server round-trip — that run belongs to "+
+			"the STEP: write the step's `task` so it performs the run ONCE and REDIRECTS its real output to a fixed "+
+			"path in the workspace, then point the check's `source` at that SAME path. Name the identical path in the "+
+			"step's task text and in the check, and say IN THE DELIVERABLE TEXT that the step must save that file and "+
+			"that the file must be the command's own redirected output — never hand-written, never a marker typed in "+
+			"by hand. To judge a command's SUCCESS rather than its text, have the step append its status (`<cmd> > "+
+			"out.log 2>&1; echo \"exit=$?\" >> out.log`) and assert `matches ^exit=0$`.\n\n"+
+			"EXERCISE, DO NOT MERELY REACH. A check that only confirms the deliverable can be REACHED — a file exists "+
+			"or is non-empty, a port accepts a connection, a module imports, a build succeeded, a process is alive — is "+
+			"a PRECONDITION, not proof, and is INSUFFICIENT whenever the deliverable must BEHAVE or produce a correct "+
+			"result, because a non-functional stub passes every one of them. Have the STEP invoke the behaviour through "+
+			"the same interface its consumer uses, record the result, and assert the OUTCOME — choosing the weakest "+
+			"input that still forces the real code path, so a stub that merely exists or opens the port FAILS. A "+
+			"COMMAND THAT SUCCEEDED is the same kind of precondition: a configure/build/install exiting 0 with a flag "+
+			"on its command line proves the flag was ACCEPTED, not that it took EFFECT. When the deliverable is the "+
+			"effect a setting is supposed to cause, have the step run whatever CONSUMES the setting and assert the "+
+			"resulting artifact appears, with the content the task requires, AT THE LOCATION the task names. Asserting "+
+			"an artifact is present while never exercising it is the single biggest reason a broken solution gets "+
+			"approved: a program that builds but computes the wrong answer, a generated file that exists but holds the "+
+			"wrong value, a server file that never actually listens, a cleanup handler that never fires.\n\n"+
+			"HIGHEST-PRIORITY CHECK: if the task shows ANY concrete example — a literal command line, an input-to-output "+
+			"mapping, a numeric threshold — your FIRST check must have the step run THAT EXACT input and must assert "+
+			"THAT EXACT output, verbatim, never a paraphrase and never a value you invented. The hidden grader enforces "+
+			"the TASK'S own contract, so a self-substituted input or expected value passes your check and fails the "+
+			"grader.\n\n"+
+			"NECESSITY — do NOT demand MORE than the task states: never pin a version, build id, exact path, timestamp "+
+			"or incidental attribute the task did not itself specify. Over-specification false-fails CORRECT work and "+
+			"never converges. Assert the minimal condition that proves the stated objective.\n\n"+
+			"EXTERNAL EVENTS: when acceptance involves a real event — a signal (Ctrl-C/SIGINT), a kill, a disconnect — "+
+			"the STEP must DELIVER it for real (launch the artifact as a background process, send the actual signal, "+
+			"redirect its output to a file) and the check asserts the required marker in that file. An in-process "+
+			"simulation, raising the exception by hand, verifies the wrong delivery path.\n\n"+
+			"SMOKE CHECK when full correctness is UNVERIFIABLE: a step that produces a runnable artifact must ALWAYS "+
+			"get at least a smoke check, even when the expected output is hidden — have the step run it on its input, "+
+			"record the output, and assert the SHAPE (`nonempty`, or a structural `matches` for valid JSON/CSV or the "+
+			"right field count), never the hidden exact values. Skipping such a step leaves the run with NO done-signal, "+
+			"so the agent second-guesses a working solution and refines it until the wall clock.\n\n"+
+			"For a read/review/analyze/answer step there is usually nothing to record: emit NO check for it (the prose "+
+			"`criteria` already cover it).\n\n"+
+			"CHECKLIST-DRIVEN, JOINTLY SATISFIABLE: author each step together with its own done-condition, so the "+
+			"checklist drives the step rather than the reverse. A check belongs ONLY to the step whose work creates or "+
+			"changes that state and is verified AT that step (label it with that step's number); never re-assert it "+
+			"under a later step. Read in plan order, the checks must be JOINTLY SATISFIABLE: do NOT require the SAME "+
+			"artifact PRESENT under one step and ABSENT under another as if both held at once — a teardown step's "+
+			"absence-check belongs to THAT step alone, while an earlier step's existence-check already passed at its "+
+			"own earlier step. A step may have SEVERAL checks (several deliverables). "+
 			"Omit `checks` entirely if your lens has none.\n\n"+
 			"%s"+
 			"Respond with ONLY a JSON object, no prose, no code fence:\n"+
-			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific fix (only if continue)","severity":"critical|warn|info (only if continue)","criteria":["..."],"checks":[{"step":"...","deliverable":"...","command":"...","expect":"..."}]`+keepField+`}`,
+			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific fix (only if continue)","severity":"critical|warn|info (only if continue)","criteria":["..."],"checks":[{"step":"...","deliverable":"...","source":"...","assert":"..."}]`+keepField+`}`,
 		m.Name, m.Lens, lens, keepClause)
 }
 

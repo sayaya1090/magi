@@ -118,50 +118,38 @@ func (a *App) storeCoveredChecks(ctx context.Context, s session.Session, prompt 
 // an A/B baseline that uses the authored checks as-is).
 func checkValidateEnabled() bool { return !envOff("MAGI_CHECK_VALIDATE") }
 
-const coverageFillSystem = "You author executable deliverable `checks` that verify a plan's per-step outputs, FILLING GAPS. " +
+const coverageFillSystem = "You author deliverable `checks` that verify a plan's per-step outputs, FILLING GAPS. " +
 	"You are given the plan STEPS (numbered in order), the TASK, and the checks authored SO FAR. Some steps that " +
 	"PRODUCE a deliverable currently have NO check, so the completion gate cannot verify them. Return a JSON array = the " +
-	"existing checks UNCHANGED, PLUS one NEW check for EACH producing step that lacks one. A check is " +
-	"{step, deliverable, command, expect}: `command` runs and, if `expect` is set, its output must MATCH that regular " +
-	"expression; no `expect` = exit-code-only. For every NEW check:\n" +
+	"existing checks UNCHANGED, PLUS one NEW check for EACH producing step that lacks one.\n" +
+	"A CHECK IS DATA, NOT A COMMAND: it is {step, deliverable, source, assert}, and the gate READS `source` and " +
+	"applies `assert` to it itself, with no shell in the path — so a check can never re-do the step's work, mutate " +
+	"anything, or fail because a tool is missing. `assert` must be drawn from this FIXED vocabulary:\n" +
+	"  nonempty          — `source` exists and is not blank\n" +
+	"  matches <regexp>  — the content of `source` matches this regular expression\n" +
+	"  absent <regexp>   — the content of `source` does NOT match it\n" +
+	"  equals <path>     — `source` has the same content as that other file\n" +
+	"  port_open <port>  — something is listening on that port right now (`source` unused)\n" +
+	"  process_alive     — the pid written in `source` is running right now\n" +
+	"For every NEW check:\n" +
 	"- SCOPE by step: set `step` to that step's 1-based position in the plan order (\"3\"), so it gates only that " +
 	"step. The other authoring prompt shows `step` as a string; either shape is read, but keep them consistent.\n" +
+	"- RECORD AND READ: whenever proving the deliverable needs something RUN — a build, a test command the task " +
+	"names, the produced program on its input, a server round-trip — that run belongs to the STEP, which performs it " +
+	"ONCE and redirects its REAL output to a fixed path in the workspace; the check's `source` is that SAME path. Say " +
+	"in the `deliverable` text that the step must save that file and that it must be the command's own redirected " +
+	"output, never hand-written, and name the identical path in both.\n" +
 	"- EXERCISE the deliverable (precondition is not proof): reaching the artifact — a file exists, a port accepts a " +
 	"connection, a module imports, a build succeeds, a process is alive — is a precondition, NOT proof of the contract; " +
 	"a non-functional stub passes all of them. When the step's artifact must DO something (answer a request, return a " +
-	"value, transform an input, produce an output), invoke that behavior through the same interface its consumer uses " +
-	"and assert on the RESULT (call the endpoint and assert the returned value, run the program on an input and compare " +
-	"its output), choosing the weakest input that still forces the real code path so a stub that merely exists or opens " +
-	"the port FAILS. WHERE that invocation runs is fixed by RECORD AND READ below — the step runs it and saves the " +
-	"output, the check asserts on the saved output — but never weaken WHAT is asserted to a mere existence probe. " +
-	"A command that SUCCEEDED is the same kind of precondition — a configure/build/install exiting 0 " +
-	"with a flag on its command line proves the flag was ACCEPTED, not that it took EFFECT — so when the step's " +
-	"deliverable is the effect a setting is supposed to cause, run whatever consumes the setting and assert the " +
-	"resulting artifact appears AT THE LOCATION the task names, never that the setting or the command is in place.\n" +
-	"- PORTABLE: depend ONLY on what the TARGET ENVIRONMENT guarantees — base OS (coreutils, grep/test), the task's " +
-	"language runtime (python3), and the task's own toolchain. A dependency it does NOT guarantee — of ANY kind: an " +
-	"external shell tool, a language library/module, a runtime, a service, a file — false-fails a correct deliverable " +
-	"forever, since the check errors on the missing dependency instead of judging the artifact. Two instances of the " +
-	"ONE rule: (a) an EXTERNAL shell tool outside the base set (`ss`, `netstat`, `lsof`, `pgrep`, `pidof`, `ps`, " +
-	"`fuser`, `jq`, ... examples, not an exhaustive list) exits 127 — do the check with a python3 primitive: a port " +
-	"via a dependency-free socket connect, process liveness via `os.kill(pid, 0)` or reading `/proc`, JSON via " +
-	"python's `json`. (b) a NON-stdlib language module is absent just the same — do NOT use `pkg_resources` (removed " +
-	"from modern setuptools); read a version with `importlib.metadata.version('pkg')` or the module's `__version__`, " +
-	"or just assert the import works.\n" +
-	"- IDEMPOTENT, NO STATE CHANGE (work≠check): verify the already-produced artifact READ-ONLY; NEVER create/build/" +
-	"download/move/delete it (a check that re-does the work traps the run in a redo loop). The check runs in a " +
-	"READ-ONLY SHELL that BLOCKS mutating commands (build drivers and compilers, package installers, `rm`/`mv`, " +
-	"archive create/extract, `git` write subcommands), and a blocked check yields NO verdict — its step lands " +
-	"unverified anyway.\n" +
-	"- RECORD AND READ (the default shape): the STEP runs, the CHECK reads. Whenever proving the deliverable means " +
-	"RUNNING something — a build, a test command, the produced program on an input, a server round-trip — that run " +
-	"is the STEP's work: the step performs it once and saves the REAL output to a result file at a fixed path, and " +
-	"the check READS that file (`grep -q '<expected outcome>' <result file>`, or a python3 parse of it). Say in the " +
-	"`deliverable` text that the step must save that file, and name the SAME path in both. The behaviour is still " +
-	"proven — the run happened and its actual output is what you assert — but the check cannot be refused by the " +
-	"read-only shell, cannot re-do the work each gate cycle, and fails honestly through `grep`'s exit status. Run a " +
-	"command DIRECTLY in a check only to INSPECT what already exists without changing it (`test -s f`, `grep -q pat " +
-	"f`, `tar -tzf f.tgz`).\n" +
+	"value, transform an input, produce an output), have the step invoke that behavior through the same interface its " +
+	"consumer uses, record the result, and assert on THAT — choosing the weakest input that still forces the real code " +
+	"path so a stub that merely exists or opens the port FAILS. A command that SUCCEEDED is the same kind of " +
+	"precondition — a configure/build/install exiting 0 with a flag on its command line proves the flag was ACCEPTED, " +
+	"not that it took EFFECT — so when the step's deliverable is the effect a setting is supposed to cause, have the " +
+	"step run whatever consumes the setting and assert the resulting artifact appears AT THE LOCATION the task names.\n" +
+	"- NECESSITY: assert only what the task itself states. Never pin a version, path, timestamp or incidental " +
+	"attribute the task did not specify — over-specification false-fails correct work and never converges.\n" +
 	"- A pure investigation/read-only step (it writes no artifact) needs NO check — do NOT invent one for it.\n" +
 	"Do NOT alter or drop the existing checks, and do NOT change what any check verifies. JSON array only, no prose, no code fence."
 
@@ -372,100 +360,74 @@ func unionChecks(fill, authored []council.DeliverableCheck) (out []council.Deliv
 	return out, restored
 }
 
-const validateChecksSystem = "You review the executable deliverable `checks` a planning council authored, BEFORE " +
-	"they are used to gate a task. Each check is {step, deliverable, command, expect}: the `command` runs and, if " +
-	"`expect` is present, the command's output must MATCH that regular expression (no `expect` = exit-code-only). " +
+const validateChecksSystem = "You review the deliverable `checks` a planning council authored, BEFORE they are " +
+	"used to gate a task. A CHECK IS DATA, NOT A COMMAND: it is {step, deliverable, source, assert}, and the gate " +
+	"READS `source` and applies `assert` to it itself, with no shell in the path. `assert` must be drawn from this " +
+	"FIXED vocabulary — any other wording is not understood and the check then yields NO verdict at all:\n" +
+	"  nonempty          — `source` exists and is not blank\n" +
+	"  matches <regexp>  — the content of `source` matches this regular expression\n" +
+	"  absent <regexp>   — the content of `source` does NOT match it\n" +
+	"  equals <path>     — `source` has the same content as that other file\n" +
+	"  port_open <port>  — something is listening on that port right now (`source` unused)\n" +
+	"  process_alive     — the pid written in `source` is running right now\n" +
 	"Return ONLY a JSON array of the checks, REPAIRED where flawed and DROPPING any that cannot be made valid. Apply:\n" +
-	"- SELF-CONSISTENCY (most important): the command's output must be ABLE to match its `expect`. A transform that " +
-	"reshapes the output away from `expect` is a bug that false-fails forever — e.g. a pipeline ending in `sort -u` " +
-	"collapses two identical lines into ONE, so an `expect` written for TWO can NEVER match; a `head -1` keeps only the " +
-	"first line while `expect` names a later one. FIX by removing the offending transform, or BETTER convert to an " +
-	"EXIT-CODE check (drop `expect`): assert each condition directly by chaining `&&` with `grep -q`.\n" +
+	"- CONVERT (do this FIRST): a check still written as a shell `command`, with or without an `expect`, gates " +
+	"NOTHING — commands are no longer executed. Rewrite it into {source, assert} and omit `command`/`expect` from " +
+	"the object you return. The run the command performed belongs to the STEP: say in the `deliverable` text that " +
+	"the step must perform that run ONCE and redirect its REAL output to a fixed path, set `source` to that path, " +
+	"and move the old `expect` — or the pattern the command grepped for — into `matches`. `test -s f` or `test -f " +
+	"f` becomes source `f`, assert `nonempty`. A socket/curl port probe becomes `port_open <port>`. A diff against " +
+	"a reference file becomes `equals <path>`. An exit-status-only command becomes a step that appends its status " +
+	"(`<cmd> > out.log 2>&1; echo \"exit=$?\" >> out.log`) and assert `matches ^exit=0$`. Keep WHAT was proven — " +
+	"change only how it is expressed.\n" +
 	"- NECESSITY (no over-demand): assert ONLY what the task's own contract requires. NEVER pin a value the task did " +
 	"not itself state — a specific version, build id, exact path, timestamp, or incidental attribute — and never " +
 	"demand more than the stated outcome. Over-specification false-fails a CORRECT deliverable and can never converge " +
 	"on an environment that differs in that incidental. Narrow each check to the minimal condition that proves the " +
 	"objective: for an installed dependency assert it is importable/usable, not an exact version, UNLESS the task pins " +
 	"one; drop or loosen any pinned specific the task did not require.\n" +
-	"- PORTABLE: a check may depend ONLY on what the TARGET ENVIRONMENT guarantees — the base OS (coreutils, " +
-	"grep/test), the language runtime the task uses (python3), and the task's OWN declared toolchain. A dependency it " +
-	"does NOT guarantee — of ANY kind: an external shell tool, a language library/module, a runtime version, a " +
-	"service, a file — false-fails a correct deliverable forever, because the check errors on the missing dependency " +
-	"instead of judging the artifact. Two common instances of the ONE rule: (a) an EXTERNAL shell tool outside the " +
-	"base set (`ss`, `netstat`, `lsof`, `pgrep`, `pidof`, `ps`, `fuser`, `jq`, ... examples, not an exhaustive list) " +
-	"exits 127 — do the check with a python3 primitive: a port via a dependency-free socket connect, process liveness " +
-	"via `os.kill(pid, 0)` or reading `/proc`, JSON via python's `json`. (b) a NON-stdlib language module is absent " +
-	"just the same — `pkg_resources` (removed from modern setuptools) is the common trap, so read a version with " +
-	"`importlib.metadata.version('pkg')` or the module's `__version__`, or just assert the import, never a " +
-	"distribution lookup. Invoke a tool by its BARE name so PATH resolves it (`pip3`, or `python3 -m pip`); NEVER " +
-	"hardcode an absolute install path like `/usr/bin/pip3` — the same tool lives at `/usr/local/bin/pip3` or a " +
-	"venv/pyenv shim on another image, so strip any leading `/usr/bin/`, `/usr/local/bin/` from a tool the PATH " +
-	"already resolves.\n" +
-	"- TOOL-DERIVED NAMES: when a check greps for or stats a file a code generator EMITS, use the name the tool " +
+	"- MATCHABLE: a `matches`/`absent` pattern must be one the recorded output CAN actually contain. A pattern " +
+	"written for text the step never records — or for a shape the run does not produce — false-fails forever. Prefer " +
+	"the smallest distinctive fragment of the real outcome over a long transcribed line, and do not anchor to a " +
+	"position in the file you cannot know.\n" +
+	"- TOOL-DERIVED NAMES: when a check reads or matches a file a code generator EMITS, use the name the tool " +
 	"ACTUALLY produces, not the request's raw spelling. A generator whose target language forbids a character in the " +
 	"source name substitutes a legal one, so the emitted file is NOT spelled like its input — and a check demanding the " +
-	"input's spelling can NEVER pass and fights the toolchain (the agent renames to satisfy the grep, which breaks " +
+	"input's spelling can NEVER pass and fights the toolchain (the agent renames to satisfy it, which breaks " +
 	"the import, then renames back: an unwinnable loop). Rewrite the check to the generator's real output name.\n" +
-	"- SEMANTICS, not source spelling (verify meaning by effect; never grep the task's prose back into the source): " +
+	"- SEMANTICS, not source spelling (verify meaning by effect; never match the task's prose back against the source): " +
 	"a structure or behavior the task states in PROSE — a message/record with named typed fields, a function returning " +
 	"a typed value, a format it must accept — is a SEMANTIC to satisfy, NOT a literal string the source file must " +
-	"contain. Verify it by EXERCISING the built artifact (compile/generate and inspect the produced type, run it and " +
-	"assert the typed result), never by grepping the SOURCE for the task's wording or an INVENTED notation of it — a " +
-	"pseudo-syntax like `<field: type>`, a `^service X$` that forces the name alone on a line, a required brace " +
-	"position. The task fixes IDENTIFIERS and VALUES verbatim (a message/service/RPC/function NAME, a port, a " +
-	"filename, a pinned version) and those a check MAY assert literally; but a field's declaration syntax, a type's " +
-	"spelling, and source layout are the author's to choose, so pinning them false-fails a correct artifact and forces " +
-	"the agent to contort valid code toward a fabricated pattern (often one no real compiler accepts). Rewrite such a " +
-	"check to assert the EFFECT — the artifact builds and the generated/runtime type has that named field — not the surface.\n" +
+	"contain. Verify it by having the step EXERCISE the built artifact and recording the result (compile/generate and " +
+	"inspect the produced type, run it and capture the typed result), never by matching the SOURCE against the task's " +
+	"wording or an INVENTED notation of it — a pseudo-syntax like `<field: type>`, a `^service X$` that forces the name " +
+	"alone on a line, a required brace position. The task fixes IDENTIFIERS and VALUES verbatim (a message/service/RPC/" +
+	"function NAME, a port, a filename, a pinned version) and those a check MAY assert literally; but a field's " +
+	"declaration syntax, a type's spelling, and source layout are the author's to choose, so pinning them false-fails a " +
+	"correct artifact and forces the agent to contort valid code toward a fabricated pattern (often one no real " +
+	"compiler accepts). Rewrite such a check to assert the EFFECT — the artifact builds and the generated/runtime type " +
+	"has that named field — not the surface.\n" +
 	"- EXERCISES the deliverable (precondition is not proof): a check that only confirms the deliverable can be " +
-	"REACHED — a file exists or is non-empty, a port accepts a connection, a module imports, a build succeeds, a " +
+	"REACHED — a file exists or is non-empty, a port accepts a connection, a module imports, a build succeeded, a " +
 	"process is alive, or a SETTING merely SUPPOSED to produce the deliverable is in place (a build flag configured, " +
 	"an env var exported, a config value written) — is too weak, because a non-functional stub, or a configuration " +
 	"that never took effect, passes every one of those. When the task states the deliverable must DO something " +
-	"(answer a request, return a value, transform an input, produce an output), the check must INVOKE that named " +
-	"behavior through the same interface its consumer uses and assert on the RESULT — call the endpoint and assert the " +
-	"returned value, run the program on an input and compare its output to the task's stated mapping — choosing the " +
+	"(answer a request, return a value, transform an input, produce an output), the STEP must INVOKE that named " +
+	"behavior through the same interface its consumer uses and RECORD the result, and the check must assert on that " +
+	"result — the endpoint's returned value, the program's output compared to the task's stated mapping — choosing the " +
 	"weakest input that still forces the real code path so a stub that merely exists or opens the port FAILS.\n" +
 	"  · EFFECT, not its cause: when the deliverable is the EFFECT a configuration is supposed to cause, assert the " +
-	"effect after RUNNING the step that consumes the setting (the artifact the configured build emits appears from a " +
+	"effect recorded after RUNNING what consumes the setting (the artifact the configured build emits appears from a " +
 	"fresh run), NOT that the setting is present — a flag that never took effect passes the config check and fails the " +
 	"real one.\n" +
 	"  · WHOLE standard, not a spot-check: when the task supplies a reference output, an expected dataset, or a " +
-	"threshold to meet, assert against that WHOLE standard (the full output matches the reference, or the count/" +
-	"fraction clears the task's stated bar), never a single hand-picked sample — one row that happens to match passes " +
+	"threshold to meet, assert against that WHOLE standard (`equals` the reference file, or a `matches` on the count/" +
+	"fraction clearing the task's stated bar), never a single hand-picked sample — one row that happens to match passes " +
 	"a deliverable that is wrong on all the rest.\n" +
 	"Do not DROP such a check for being weak; STRENGTHEN it into one that exercises the contract.\n" +
-	"- IDEMPOTENT, NO STATE CHANGE (work≠check): a check must VERIFY the deliverable read-only, never PERFORM the " +
-	"step's work. DROP or repair any command that CREATES/MUTATES the artifact — compress/download/build/generate/" +
-	"move/delete (`tar -czf`, `scp`/`rsync`, `rm`, `mv`, a `>` redirect that writes the deliverable, `git commit`): " +
-	"re-doing the work as its own check re-runs the step every gate cycle and false-fails on any transient error, " +
-	"trapping the run in a redo loop. Replace with an idempotent read-only probe of the already-produced artifact at " +
-	"its final path (`tar -tzf f.tgz` LIST not `-czf` CREATE, `test -s f`, run the built binary not re-build it). " +
-	"Verify the step's stated deliverable, not an intermediate. This is ENFORCED, not advisory: the check shell " +
-	"BLOCKS mutating commands at run time (build drivers and compilers, package installers, `rm`/`mv`, archive " +
-	"create/extract, `git` write subcommands), and a blocked check returns NO verdict — so leaving one in place " +
-	"does not merely waste time, it silently removes the gate.\n" +
-	"- RECORD AND READ (the shape to repair TOWARD): the STEP runs, the CHECK reads. Whenever the proof needs " +
-	"something RUN — a build, a test command, the produced program on an input, a server round-trip — that run is " +
-	"the STEP's work: it performs the run once and saves the REAL output to a result file at a fixed path, and the " +
-	"check READS that file (`grep -q '<expected outcome>' <result file>`, or a python3 parse of it). Rewrite an " +
-	"executing check into that shape and say in its `deliverable` text that the step must save the file, naming the " +
-	"SAME path in both. What is asserted does not change — the run still happens and its actual output is judged — " +
-	"but the check can no longer be refused by the read-only shell, cannot re-do the work each gate cycle, and fails " +
-	"honestly through `grep`'s exit status. Leave a command running DIRECTLY in a check only when it merely INSPECTS " +
-	"what already exists and changes nothing (`test -s f`, `grep -q pat f`, `tar -tzf f.tgz`). Keep the " +
-	"deliverable's meaning; change only how it is proven.\n" +
-	"- Preserve each check's `step` label exactly — it scopes the check to its step. A cleanup/absence check " +
-	"(`test ! -f a.tgz`) MUST keep its own step label; never merge it onto the same step as an existence check " +
-	"(`test -s a.tgz`) for the same artifact — they are verified at different steps, and co-locating them makes a " +
-	"jointly-unsatisfiable checklist. Keep `expect` ONLY when it reliably matches correct output; " +
-	"otherwise drop `expect` and rely on the exit code — but ONLY when the command's exit code can actually " +
-	"FAIL. A pipeline reports its LAST stage's status, so anything ending in a filter (`| head`, `| tail`, " +
-	"`| tee`, `| cat`, `| sort`) exits 0 whatever the predicate found — even when the file it read does not " +
-	"exist. Dropping `expect` there does not simplify the check, it makes it unfalsifiable: it will pass on " +
-	"a broken deliverable and on no deliverable at all. Restructure the command so failure is its exit " +
-	"status (`grep -q PATTERN FILE`, `test`, or `CMD && echo <marker>` with `expect` on the marker) instead " +
-	"of leaving a check that cannot fail.\n" +
+	"- Preserve each check's `step` label exactly — it scopes the check to its step. A cleanup/absence check MUST keep " +
+	"its own step label; never merge it onto the same step as an existence check for the same artifact — they are " +
+	"verified at different steps, and co-locating them makes a jointly-unsatisfiable checklist.\n" +
 	"- SCOPE (repair, do not retarget): only repair HOW each check proves its OWN stated deliverable.\n" +
 	"  · strengthening a proxy into the real behavioral assertion of that SAME deliverable — a config into the effect " +
 	"it causes, a single sample into the whole reference — is the repair intended here, NOT a forbidden change.\n" +
@@ -502,225 +464,114 @@ func (a *App) validateChecks(ctx context.Context, agent AgentSpec, s session.Ses
 		return checks
 	}
 	out = a.ensureRunnableChecks(ctx, agent, s, model, string(in), out)
-	out = a.restoreDroppedExpects(s.ID, checks, out)
 	a.recordCheckAudit(ctx, s.ID, checks, out)
 	return out
 }
 
-// ensureRunnableChecks re-asks ONCE when the reviewed set still contains a check the read-only check
-// shell will refuse.
+// ensureRunnableChecks re-asks ONCE when the reviewed set still contains a check with no `assert`.
 //
-// The review prompt already forbids a check that performs the step's work, and the shell already
-// refuses one at run time. Both were in place and a check that runs a build still survived a live
-// review — and the two layers combine into the worst outcome rather than a safety net: the refusal
-// exits 126, which every gate reads as "no verdict" (checkUnrunnable), so the step is neither failed
-// nor proven. Nothing tells the agent, either — the refusal is a transient progress line, and the
-// agent's OWN shell is unwrapped, so it runs the same command, watches it succeed, and has no reason
-// to call substitute_check. A step ends the run ungated while the log looks like a clean review.
+// A check is DATA now — a `source` to read and an assertion from a closed vocabulary — and the runner
+// evaluates nothing else. So a check that came back still shaped as a shell command is not a weaker
+// check, it is NO check: the runner reports it and returns 126, which every gate reads as "no verdict"
+// (checkUnrunnable), and the step lands neither proven nor failed. Nothing in the log looks wrong.
 //
-// So the prediction is made deterministically (refusedCommandsIn) at the one moment the checks are
-// still cheap to change, and the re-ask NAMES the offending commands — the same shape as the coverage
-// re-ask: an abstract rule the model already ignored once becomes a specific list to answer. Bounded
-// at one extra call, and the result is taken only if it actually reduces the blocked count, with the
-// unblocked checks unioned back so a retry cannot quietly shrink the contract.
+// The review prompt already opens with the conversion rule, and one live review is still enough to
+// leave a command behind. So the miss is detected deterministically at the one moment the checks are
+// still cheap to change, and the re-ask NAMES the offenders — the same shape as the coverage re-ask: an
+// abstract rule the model already passed over once becomes a specific list to answer. Bounded at one
+// extra call, and the result is taken only if it actually reduces the unasserted count, with the
+// already-typed checks unioned back so a retry cannot quietly shrink the contract.
 func (a *App) ensureRunnableChecks(ctx context.Context, agent AgentSpec, s session.Session, model, in string,
 	out []council.DeliverableCheck) []council.DeliverableCheck {
-	if !readOnlyChecksEnabled() || len(out) == 0 {
-		return out // guard off → the command is not refused, so there is nothing to predict
+	if len(out) == 0 {
+		return out
 	}
-	blocked := blockedCheckDescs(out)
+	blocked := untypedCheckDescs(out)
 	if len(blocked) == 0 {
 		return out
 	}
 	a.emitToolProgress(s.ID, plannerActor, "", "check-audit",
-		fmt.Sprintf("check-audit: %d check(s) still run a command the check shell refuses (%s) — each returns NO "+
-			"verdict, leaving its step ungated rather than failed; re-asking once", len(blocked), strings.Join(blocked, "; ")))
+		fmt.Sprintf("check-audit: %d check(s) came back with no `assert` (%s) — a check is data now, so each of these "+
+			"evaluates to NO verdict, leaving its step ungated rather than failed; re-asking once", len(blocked),
+			strings.Join(blocked, "; ")))
 	raw := a.specMineCall(ctx, agent, s.ID, "check-audit", model,
-		validateChecksSystem+"\n\n"+readOnlyRepairReminder(blocked), in)
+		validateChecksSystem+"\n\n"+typedRepairReminder(blocked), in)
 	retry, ok := parseChecksArray(raw)
 	if !ok || len(retry) == 0 {
 		a.emitToolProgress(s.ID, plannerActor, "", "check-audit",
-			"check-audit: the re-ask returned no usable checks — keeping the reviewed set, and the blocked check(s) "+
+			"check-audit: the re-ask returned no usable checks — keeping the reviewed set, and the unasserted check(s) "+
 				"will yield no verdict")
 		return out
 	}
-	// Union the retry with the checks that were NOT blocked: the reply is told to return everything, but
+	// Union the retry with the checks that were ALREADY typed: the reply is told to return everything, but
 	// a model answering "repair these" by returning only those would drop every working check otherwise.
-	// The blocked ones are deliberately excluded from the restore — their repaired forms are the point.
+	// The unasserted ones are deliberately excluded from the restore — their converted forms are the point.
 	var kept []council.DeliverableCheck
 	for _, c := range out {
-		if len(refusedCommandsIn(c.Command)) == 0 {
+		if strings.TrimSpace(c.Assert) != "" {
 			kept = append(kept, c)
 		}
 	}
 	merged, _ := unionChecks(retry, kept)
-	still := blockedCheckDescs(merged)
+	still := untypedCheckDescs(merged)
 	if len(still) >= len(blocked) {
 		a.emitToolProgress(s.ID, plannerActor, "", "check-audit",
-			fmt.Sprintf("check-audit: the re-ask did not reduce the refused check(s) (%d → %d) — keeping the reviewed "+
+			fmt.Sprintf("check-audit: the re-ask did not reduce the unasserted check(s) (%d → %d) — keeping the reviewed "+
 				"set; those step(s) land ungated", len(blocked), len(still)))
 		return out
 	}
-	note := fmt.Sprintf("check-audit: repaired %d of %d check(s) the check shell would refuse", len(blocked)-len(still), len(blocked))
+	note := fmt.Sprintf("check-audit: converted %d of %d check(s) that carried no assertion", len(blocked)-len(still), len(blocked))
 	if len(still) > 0 {
-		note += " — still refused: " + strings.Join(still, "; ")
+		note += " — still unasserted: " + strings.Join(still, "; ")
 	}
 	a.emitToolProgress(s.ID, plannerActor, "", "check-audit", note)
 	return merged
 }
 
-// blockedCheckDescs names each check whose command the read-only shell would refuse, as
-// "step N `command` (refused: name)" — the step label and the command are both needed for the reply to
-// know which check to repair, and the refused name is what makes the verdict arguable rather than a
-// bare assertion.
-func blockedCheckDescs(checks []council.DeliverableCheck) []string {
+// untypedCheckDescs names each check the runner cannot evaluate, as "step N <deliverable> (`command`)".
+// The step label and the deliverable are what the reply needs to know which check to convert; the
+// leftover command is included because it is the material the conversion is made FROM — it says what
+// the check was trying to prove.
+func untypedCheckDescs(checks []council.DeliverableCheck) []string {
 	var out []string
 	for _, c := range checks {
-		names := refusedCommandsIn(c.Command)
-		if len(names) == 0 {
+		if strings.TrimSpace(c.Assert) != "" {
 			continue
 		}
 		step := strings.TrimSpace(c.Step)
 		if step == "" {
 			step = "?"
 		}
-		out = append(out, fmt.Sprintf("step %s `%s` (refused: %s)", step,
-			clipLine(strings.TrimSpace(c.Command), 90), strings.Join(names, ", ")))
+		d := clipLine(strings.TrimSpace(c.Deliverable), 60)
+		if cmd := strings.TrimSpace(c.Command); cmd != "" {
+			d += fmt.Sprintf(" (`%s`)", clipLine(cmd, 90))
+		}
+		out = append(out, "step "+step+" "+d)
 	}
 	return out
 }
 
-// readOnlyRepairReminder is appended to the review prompt for the single re-ask. It states the
-// consequence the model cannot observe (a refused check is skipped, not failed), lists the offenders,
-// and names the one repair that always applies: the run belongs to the STEP, which saves its real
-// output, and the check reads what it saved.
-func readOnlyRepairReminder(blocked []string) string {
-	return "YOUR PREVIOUS REPLY LEFT " + fmt.Sprint(len(blocked)) + " CHECK(S) THAT THE CHECK SHELL REFUSES TO RUN:\n" +
+// typedRepairReminder is appended to the review prompt for the single re-ask. It states the consequence
+// the model cannot observe (an unasserted check is skipped, not failed), lists the offenders, and names
+// the one conversion that always applies: the run belongs to the STEP, which saves its real output, and
+// the check reads what it saved.
+func typedRepairReminder(blocked []string) string {
+	return "YOUR PREVIOUS REPLY LEFT " + fmt.Sprint(len(blocked)) + " CHECK(S) WITH NO `assert`:\n" +
 		"- " + strings.Join(blocked, "\n- ") + "\n" +
-		"This is not a style preference. The shell that executes checks shadows the commands that build, install, " +
-		"fetch, move or delete, so each of those checks exits 126 and the gate records NO verdict for it — the step " +
-		"lands neither proven nor failed, and nothing in the log looks wrong. Return EVERY check again, each refused " +
-		"one repaired into the shape that always works — RECORD AND READ: the STEP runs, the CHECK reads.\n" +
-		"  · The run you put in the check is the STEP's work: say in that check's `deliverable` text that the step " +
-		"must perform it once and save the REAL output to a result file at a fixed path, and make the `command` a " +
-		"READ of that file (`grep -q '<expected outcome>' <result file>`, or a python3 parse of it). Name the SAME " +
-		"path in the deliverable text and in the command.\n" +
-		"  · What you assert does not change — the run still happens and its actual output is judged. Only the check " +
-		"stops re-doing it.\n" +
-		"  · If the proof needs nothing run at all, read the artifact directly instead (`test -s`, `grep -q`, list an " +
-		"archive rather than extracting it).\n" +
+		"This is not a style preference. Checks are DATA — the gate reads a `source` file and applies an `assert` " +
+		"itself, and it runs no commands at all. A check with no `assert` therefore gates NOTHING: it records no " +
+		"verdict, its step lands neither proven nor failed, and nothing in the log looks wrong. Return EVERY check " +
+		"again, each of those converted — RECORD AND READ: the STEP runs, the CHECK reads.\n" +
+		"  · The run that was in the check is the STEP's work: say in that check's `deliverable` text that the step " +
+		"must perform it once and save the REAL output to a result file at a fixed path, set `source` to that path, " +
+		"and put what proves success into `assert` (`matches <regexp>` for the expected outcome in that output, " +
+		"`nonempty` when the file existing with content is the proof, `equals <path>` against a reference file).\n" +
+		"  · For a check that only ever tested reachability: a port probe becomes `port_open <port>`, a pid check " +
+		"becomes `process_alive` with `source` set to the pid file.\n" +
+		"  · What you assert does not change — the run still happens and its actual output is judged. Only the " +
+		"check stops being a command.\n" +
 		"Do NOT drop a check to satisfy this — dropping leaves the step ungated, which is exactly the outcome being " +
 		"repaired. Leave every other check unchanged. JSON array only, no prose, no code fence."
-}
-
-// restoreDroppedExpects puts back an `expect` the review removed from a command whose EXIT STATUS
-// cannot report failure — and only then.
-//
-// The review is allowed to drop an expect that cannot reliably match, and it should: Passes then
-// judges on the exit code alone. That is a genuine repair whenever the exit code is a real signal.
-// It is not one when the command's last stage succeeds no matter what it read: `grep -n P ./F |
-// head -1` and `cmd > log; echo $?` both exit 0 whether the deliverable is right, wrong, or absent.
-// Dropping the expect there does not simplify the check, it makes it unfalsifiable — the silent
-// mirror of the permanent false failure the review exists to catch, since the gate reports a pass.
-//
-// Restoring on the command being byte-identical instead — the first cut of this — was wrong in both
-// directions, and the live run showed both within one check set:
-//
-//	test -f X && test -s X          expect `.+`   the review dropped it; `test` prints NOTHING, so
-//	                                              `.+` can never match. The drop was the repair, and
-//	                                              putting it back re-armed a permanent false failure.
-//	find … -exec grep -l … | head   expect `.+`   the review REWROTE the command and dropped it,
-//	                                              leaving exit 0 in every world state — untouched by
-//	                                              an identical-command rule, and the exact defect
-//	                                              this function exists for.
-//
-// So the test is exitCodeMasked, not sameness. A rewritten command still gets its prior expect back
-// when it is masked, matched on step+deliverable — but only an UNANCHORED one: `^…$` against shell
-// output that ends in a newline is the documented never-matches shape, and guessing it onto a
-// command whose text changed would trade a check that cannot fail for one that cannot pass.
-func (a *App) restoreDroppedExpects(sid session.SessionID, before, after []council.DeliverableCheck) []council.DeliverableCheck {
-	byCmd := make(map[string]string, len(before))
-	byLabel := make(map[string]string, len(before))
-	for _, c := range before {
-		e := strings.TrimSpace(c.Expect)
-		if e == "" {
-			continue
-		}
-		byCmd[checkIdent(c)] = e
-		if !strings.ContainsAny(e, "^$") {
-			byLabel[checkLabelKey(c)] = e
-		}
-	}
-	if len(byCmd) == 0 {
-		return after
-	}
-	restored := 0
-	for i := range after {
-		// A typed check never reaches here: its verdict is the runner's own assertion, not an exit
-		// code that could be masked, and Expect is not consulted for it at all (Passes short-circuits).
-		// Copying a pattern onto one would be dead weight at best and misleading in the audit at worst.
-		if strings.TrimSpace(after[i].Assert) != "" ||
-			strings.TrimSpace(after[i].Expect) != "" || !exitCodeMasked(after[i].Command) {
-			continue
-		}
-		e, ok := byCmd[checkIdent(after[i])]
-		if !ok {
-			e, ok = byLabel[checkLabelKey(after[i])]
-		}
-		if ok {
-			after[i].Expect = e
-			restored++
-		}
-	}
-	if restored > 0 {
-		a.emitToolProgress(sid, plannerActor, "", "check-audit",
-			fmt.Sprintf("check-audit: restored `expect` on %d check(s) whose command cannot report failure "+
-				"through its exit code — judged on that alone they would pass with nothing produced", restored))
-	}
-	return after
-}
-
-// checkLabelKey identifies the check a review rewrote the command of: same step, same deliverable.
-func checkLabelKey(c council.DeliverableCheck) string {
-	return strings.TrimSpace(c.Step) + "\x00" + strings.ToLower(strings.TrimSpace(c.Deliverable))
-}
-
-// maskingStageCmds are commands that succeed on whatever they are handed. As a pipeline's last
-// stage or a list's last statement they overwrite the status of everything before them, so the
-// check's exit code stops carrying any information about the deliverable.
-var maskingStageCmds = map[string]bool{
-	"head": true, "tail": true, "cat": true, "tee": true, "sort": true, "uniq": true,
-	"wc": true, "cut": true, "tr": true, "rev": true, "nl": true, "sed": true, "awk": true,
-	"echo": true, "printf": true, "true": true, ":": true,
-}
-
-// exitCodeMasked reports whether a shell command's exit status has stopped being a failure signal.
-//
-// A pipeline reports its LAST stage and a list its LAST statement, so only the trailing command
-// matters: `grep -q P F` and `test -f F` fail honestly, `… | head -1` and `…; echo $?` do not.
-// Deliberately naive about quoting and substitution — it decides whether to put an expect back, so
-// a wrong "masked" costs one restored assertion and a wrong "faithful" leaves today's behavior.
-func exitCodeMasked(cmd string) bool {
-	c := strings.TrimRight(strings.TrimSpace(cmd), ";& \t\n")
-	// The trailing command is whatever follows the last separator: | || && ; newline.
-	last := c
-	for _, sep := range []string{"||", "&&", "|", ";", "\n"} {
-		if i := strings.LastIndex(last, sep); i >= 0 {
-			if t := strings.TrimSpace(last[i+len(sep):]); t != "" {
-				last = t
-			}
-		}
-	}
-	fields := strings.Fields(last)
-	if len(fields) == 0 {
-		return false
-	}
-	// Strip a leading env assignment or `command`/`exec` wrapper, then take the bare name.
-	name := fields[0]
-	if i := strings.LastIndex(name, "/"); i >= 0 {
-		name = name[i+1:]
-	}
-	return maskingStageCmds[name]
 }
 
 // retryCheckAudit re-asks the review ONCE when the first reply yielded no usable check set, and
@@ -780,8 +631,8 @@ const checkAuditJSONOnlyReminder = "YOUR PREVIOUS REPLY COULD NOT BE PARSED. It 
 const checkAuditKeepSomeReminder = "YOUR PREVIOUS REPLY DROPPED EVERY CHECK, and that is not an available answer. " +
 	"These checks are the only executable gate on this plan: returning none does not remove a bad gate, it removes " +
 	"the gate, and the plan then lands with nothing verified. REPAIR them instead — strengthen a check that is too " +
-	"weak into one that exercises the contract; turn a check that re-does the step's work into a read-only read of " +
-	"what that work produced; replace a missing tool with a portable equivalent. Drop an entry only when its " +
+	"weak into one that exercises the contract; turn a check that re-does the step's work into a read of what that " +
+	"work recorded; give a check that carries no `assert` the assertion that proves its deliverable. Drop an entry only when its " +
 	"DELIVERABLE is not something this plan produces at all. If that were true of every entry there would have been " +
 	"nothing to review, so an empty array will be ignored a second time and the unrepaired checks will be used as-is."
 

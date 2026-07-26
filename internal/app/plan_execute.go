@@ -407,9 +407,9 @@ func (a *App) verifyStepChecks(ctx context.Context, s session.Session, stepIdx i
 		if code == -1 { // platform vanished mid-run: can't verify → don't block the step
 			return true, ""
 		}
-		// The CHECK could not run — not found (127), or not executable / refused by the read-only
-		// guard (126) — which is not the deliverable failing. Do NOT churn the work on it: skip it here
-		// (the worker reports an equivalent substitution and the termination council judges the goal on
+		// The CHECK could not be evaluated — its reader was not found (127), or the runner has no
+		// assertion to apply (126) — which is not the deliverable failing. Do NOT churn the work on it:
+		// skip it here (the worker files a substitution and the termination council judges the goal on
 		// that evidence). Only a check that actually RAN and failed gates the step.
 		if checkUnrunnable(code) {
 			continue
@@ -449,7 +449,7 @@ func (a *App) partitionStepChecks(ctx context.Context, s session.Session, stepId
 		if code == -1 { // platform vanished mid-run: cannot judge → let the caller fall back
 			return nil, nil, false
 		}
-		// The CHECK could not run (127 not found, or 126 not executable / read-only refusal), which is
+		// The CHECK could not be evaluated (127 reader not found, or 126 nothing to assert), which is
 		// NOT the deliverable failing — mirror verifyStepChecks and SKIP it, rather than counting it as
 		// "still unmet" (which would steer the retry at a non-problem) and emitting a false ✗.
 		if checkUnrunnable(code) {
@@ -568,67 +568,41 @@ func workerChecklist(checks []council.DeliverableCheck, stepIdx int) string {
 	if len(mine) == 0 {
 		return ""
 	}
-	// The gate runs each item in a read-only shell, but the worker's own bash is NOT wrapped: it runs the
-	// mutating command successfully and never sees the refusal, which is emitted only at gate time. So
-	// predict it here and mark the item in the brief — otherwise the worker has no way to learn that this
-	// item will yield no verdict and its step will land ungated.
-	refused := make([]string, len(mine))
-	anyRefused := false
-	if readOnlyChecksEnabled() {
-		for i, c := range mine {
-			if names := refusedCommandsIn(c.Command); len(names) > 0 {
-				refused[i] = strings.Join(names, ", ")
-				anyRefused = true
-			}
-		}
-	}
 	var b strings.Builder
-	b.WriteString("Acceptance checklist — before you report done, RUN each of these and confirm it passes; " +
-		"do NOT report done while any of them is failing.\n" +
-		"CHECKS READ, YOU RUN. An item that READS A RESULT FILE (a log, a saved output) is the normal shape: that " +
-		"file is part of YOUR work — produce it by ACTUALLY RUNNING the command it summarizes and redirecting the " +
-		"real output into it, at exactly the path the item reads. Never hand-write the file, and never write the " +
-		"marker the check greps for — a check reading a fabricated file passes while the deliverable is broken, and " +
-		"the grader is not fooled.\n")
-	if anyRefused {
-		b.WriteString("AN ITEM MARKED [REFUSED BY THE CHECK SHELL] runs fine for YOU but not at the gate: the gate " +
-			"executes checks in a read-only shell that blocks the commands that build, install, fetch, move or delete, " +
-			"so that item exits 126 and records NO verdict — the step lands neither proven nor failed, and nothing looks " +
-			"wrong in the log. Your deliverable is not the problem; the check is asking to re-do YOUR work. Repair it: " +
-			"run that command yourself as part of the step, save its REAL output to a file, then call substitute_check " +
-			"for that item with a READ of the file (original = the exact refused command; command = `grep -q " +
-			"'<expected outcome>' <result file>`; reason = refused by the read-only check shell).\n")
-	}
-	b.WriteString(
-		"IF AN ITEM'S GIVEN COMMAND CANNOT RUN HERE — it errors with \"not found\" / \"no such command\" / exit " +
-			"127, or needs a missing tool, a wrong path, or a permission you lack (the CHECK is broken, NOT the " +
-			"deliverable) — do this, do NOT just quietly run a different command and move on:\n" +
-			"  1) run an EQUIVALENT command that verifies the SAME goal, then\n" +
-			"  2) you MUST call the substitute_check tool (step; original = the exact command that could not run; " +
-			"command = the equivalent you ran; expect; reason).\n" +
-			"A silent workaround is LOST — it leaves the broken check in place. substitute_check is what makes the " +
-			"fix reviewed by the council and PERSISTED for the rest of the run. Only if an item's goal genuinely " +
-			"CANNOT be met (a real blocker, not a bug you can fix) do you stop retrying and report status " +
-			"blocked/failed with WHICH item is unmet and WHY, so it can be re-planned rather than silently dropped:")
+	b.WriteString("Acceptance checklist — these are the assertions the gate will make about YOUR step before it " +
+		"counts as done. Read them as the definition of done, and do not report done while any of them would fail.\n" +
+		"YOU RUN, THE CHECK READS. You never run these items — the gate reads the named file itself and applies the " +
+		"assertion, with no shell involved. What each item obliges YOU to do is produce that file as the REAL output " +
+		"of the work: actually run the command, actually start the server, and redirect the genuine output to exactly " +
+		"the path the item names. Never hand-write the file, and never write in the text the assertion looks for — a " +
+		"check reading a fabricated record passes while the deliverable is broken, and whoever uses it is not fooled.\n" +
+		"IF AN ITEM NAMES THE WRONG PATH — you recorded the real output somewhere else, or the file it names is one " +
+		"nothing in this task produces (the CHECK is wrong, NOT the deliverable) — do not quietly leave it unmet: " +
+		"call the substitute_check tool (step; original = the item as given; source = the path you actually recorded " +
+		"the real output to; assert = the assertion that proves the same goal; reason = why the given one cannot be " +
+		"met). A silent workaround is LOST — substitute_check is what gets the fix reviewed by the council and kept " +
+		"for the rest of the run. Only if an item's GOAL genuinely cannot be met (a real blocker, not a check you can " +
+		"repair) do you stop and report status blocked/failed, naming WHICH item is unmet and WHY, so it can be " +
+		"re-planned rather than silently dropped:")
 	for i, c := range mine {
 		fmt.Fprintf(&b, "\n%d. ", i+1)
 		if d := strings.TrimSpace(c.Deliverable); d != "" {
 			b.WriteString(d + " — ")
 		}
-		// A typed item is not yours to run: the gate reads that file itself and applies the assertion.
-		// Telling you to "run" it would invite you to satisfy it by writing the file, which is exactly
-		// the fabrication the shape exists to prevent — your job is to make the file be the real output.
-		if as := strings.TrimSpace(c.Assert); as != "" {
-			b.WriteString("the gate will read " + strings.TrimSpace(c.Source) + " and require: " + as)
+		as := strings.TrimSpace(c.Assert)
+		if as == "" {
+			// No assertion: the gate can evaluate nothing, so the step lands ungated. Say so plainly
+			// rather than print an empty obligation — an item the worker cannot act on is worse than
+			// none, and knowing it gates nothing is what lets the worker substitute a real one.
+			b.WriteString("this item carries no assertion, so the gate cannot verify it — if it matters, " +
+				"call substitute_check with a source path and an assertion that proves it")
 			continue
 		}
-		b.WriteString("run: " + strings.TrimSpace(c.Command))
-		if e := strings.TrimSpace(c.Expect); e != "" {
-			b.WriteString("  (expect: " + e + ")")
+		if src := strings.TrimSpace(c.Source); src != "" {
+			b.WriteString("the gate will read " + src + " and require: " + as)
+			continue
 		}
-		if refused[i] != "" {
-			b.WriteString("  [REFUSED BY THE CHECK SHELL: " + refused[i] + "]")
-		}
+		b.WriteString("the gate will require: " + as)
 	}
 	return b.String()
 }
