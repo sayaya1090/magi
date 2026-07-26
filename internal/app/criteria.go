@@ -212,7 +212,11 @@ func (a *App) ensureStepCoverage(ctx context.Context, s session.Session, prompt 
 			shortfall(fmt.Sprintf("the fill reply did not parse as a checks array (%d chars) :: %s",
 				len(raw), planParseExcerpt(raw)))
 		} else {
-			shortfall(fmt.Sprintf("the fill dropped existing checks (%d→%d), so it was discarded", len(checks), len(out)))
+			why := fmt.Sprintf("the fill dropped existing checks (%d→%d), so it was discarded", len(checks), len(out))
+			if len(out) == 0 { // nothing came back to describe — show the reply instead (see below)
+				why += " :: " + planParseExcerpt(raw)
+			}
+			shortfall(why)
 		}
 		return checks
 	}
@@ -225,8 +229,17 @@ func (a *App) ensureStepCoverage(ctx context.Context, s session.Session, prompt 
 		for _, c := range out {
 			labels = append(labels, fmt.Sprintf("%q", strings.TrimSpace(c.Step)))
 		}
-		shortfall(fmt.Sprintf("the fill returned %d check(s) but none attach to an uncovered step; their step labels were [%s] and the plan has %d step(s)",
-			len(out), strings.Join(labels, " "), len(steps)))
+		why := fmt.Sprintf("the fill returned %d check(s) but none attach to an uncovered step; their step labels were [%s] and the plan has %d step(s)",
+			len(out), strings.Join(labels, " "), len(steps))
+		if len(out) == 0 {
+			// With no checks there are no labels, so the message above degenerates to "returned
+			// 0, labels []" — accurate and useless. Three very different events land here and
+			// only the reply tells them apart: the model answered with an empty array, or it
+			// authored checks with an empty `command` (parsed, then dropped as unrunnable), or
+			// it answered with prose that happened to contain a bare `[]`.
+			why += " :: " + planParseExcerpt(raw)
+		}
+		shortfall(why)
 		return checks
 	}
 	a.emitToolProgress(s.ID, plannerActor, "", "check-coverage",

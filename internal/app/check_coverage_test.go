@@ -276,3 +276,43 @@ func TestCoverageShortfallNamesTheStepLabels(t *testing.T) {
 		t.Errorf("the note must quantify both sides:\n%s", note)
 	}
 }
+
+// The empty fill is the case the run actually hit, and it is the one the note above cannot
+// describe: with zero checks there are no step labels to print, so the message degenerated to
+// "returned 0 check(s) ... labels were []" — true, and useless. Three different events land here
+// (an empty array, checks whose `command` was empty and were dropped as unrunnable, prose that
+// merely contained a bare `[]`) and only the reply distinguishes them, so the reply must be shown.
+func TestEnsureCoverageShowsTheReplyWhenTheFillIsEmpty(t *testing.T) {
+	t.Setenv("MAGI_CHECK_COVERAGE", "1")
+	steps := []planStep{{Title: "one"}, {Title: "two"}, {Title: "three"}}
+
+	// Both seeds matter and they take DIFFERENT branches: with checks already authored an empty fill
+	// reads as "dropped them all", with none authored it reads as "added no coverage". The observed
+	// run was the second — a 6-step plan with zero checks — and neither branch could say what came
+	// back, so the two were indistinguishable in the log.
+	cases := []struct {
+		name, reply, want string
+		in                []council.DeliverableCheck
+	}{
+		{name: "empty array, nothing authored", reply: `[]`, want: "[]"},
+		{name: "commandless checks, nothing authored", reply: `[{"step":"2","deliverable":"the binary runs"}]`, want: "the binary runs"},
+		{name: "empty array over authored checks", reply: `[]`, want: "[]", in: []council.DeliverableCheck{{Step: "1", Command: "a"}}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			a := newOrchApp(t, &gateLLM{text: c.reply}, Config{Permission: "allow", MaxAgents: 10})
+			s := parentSession(t.TempDir())
+			sub := watchProgress(t, a, s.ID)
+			if out := a.ensureStepCoverage(context.Background(), s, "task", steps, c.in); len(out) != len(c.in) {
+				t.Fatalf("an empty fill must leave the authored checks alone, got %+v", out)
+			}
+			note := sub.notes("check-coverage")
+			if !strings.Contains(note, "gap NOT filled") {
+				t.Fatalf("want a shortfall note, got:\n%s", note)
+			}
+			if !strings.Contains(note, c.want) {
+				t.Errorf("the note must quote the reply (%q), got:\n%s", c.want, note)
+			}
+		})
+	}
+}
