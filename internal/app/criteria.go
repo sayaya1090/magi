@@ -485,9 +485,113 @@ func (a *App) validateChecks(ctx context.Context, agent AgentSpec, s session.Ses
 	if !ok || len(out) == 0 {
 		return checks
 	}
+	out = a.ensureRunnableChecks(ctx, agent, s, model, string(in), out)
 	out = a.restoreDroppedExpects(s.ID, checks, out)
 	a.recordCheckAudit(ctx, s.ID, checks, out)
 	return out
+}
+
+// ensureRunnableChecks re-asks ONCE when the reviewed set still contains a check the read-only check
+// shell will refuse.
+//
+// The review prompt already forbids a check that performs the step's work, and the shell already
+// refuses one at run time. Both were in place and a check that runs a build still survived a live
+// review — and the two layers combine into the worst outcome rather than a safety net: the refusal
+// exits 126, which every gate reads as "no verdict" (checkUnrunnable), so the step is neither failed
+// nor proven. Nothing tells the agent, either — the refusal is a transient progress line, and the
+// agent's OWN shell is unwrapped, so it runs the same command, watches it succeed, and has no reason
+// to call substitute_check. A step ends the run ungated while the log looks like a clean review.
+//
+// So the prediction is made deterministically (refusedCommandsIn) at the one moment the checks are
+// still cheap to change, and the re-ask NAMES the offending commands — the same shape as the coverage
+// re-ask: an abstract rule the model already ignored once becomes a specific list to answer. Bounded
+// at one extra call, and the result is taken only if it actually reduces the blocked count, with the
+// unblocked checks unioned back so a retry cannot quietly shrink the contract.
+func (a *App) ensureRunnableChecks(ctx context.Context, agent AgentSpec, s session.Session, model, in string,
+	out []council.DeliverableCheck) []council.DeliverableCheck {
+	if !readOnlyChecksEnabled() || len(out) == 0 {
+		return out // guard off → the command is not refused, so there is nothing to predict
+	}
+	blocked := blockedCheckDescs(out)
+	if len(blocked) == 0 {
+		return out
+	}
+	a.emitToolProgress(s.ID, plannerActor, "", "check-audit",
+		fmt.Sprintf("check-audit: %d check(s) still run a command the check shell refuses (%s) — each returns NO "+
+			"verdict, leaving its step ungated rather than failed; re-asking once", len(blocked), strings.Join(blocked, "; ")))
+	raw := a.specMineCall(ctx, agent, s.ID, "check-audit", model,
+		validateChecksSystem+"\n\n"+readOnlyRepairReminder(blocked), in)
+	retry, ok := parseChecksArray(raw)
+	if !ok || len(retry) == 0 {
+		a.emitToolProgress(s.ID, plannerActor, "", "check-audit",
+			"check-audit: the re-ask returned no usable checks — keeping the reviewed set, and the blocked check(s) "+
+				"will yield no verdict")
+		return out
+	}
+	// Union the retry with the checks that were NOT blocked: the reply is told to return everything, but
+	// a model answering "repair these" by returning only those would drop every working check otherwise.
+	// The blocked ones are deliberately excluded from the restore — their repaired forms are the point.
+	var kept []council.DeliverableCheck
+	for _, c := range out {
+		if len(refusedCommandsIn(c.Command)) == 0 {
+			kept = append(kept, c)
+		}
+	}
+	merged, _ := unionChecks(retry, kept)
+	still := blockedCheckDescs(merged)
+	if len(still) >= len(blocked) {
+		a.emitToolProgress(s.ID, plannerActor, "", "check-audit",
+			fmt.Sprintf("check-audit: the re-ask did not reduce the refused check(s) (%d → %d) — keeping the reviewed "+
+				"set; those step(s) land ungated", len(blocked), len(still)))
+		return out
+	}
+	note := fmt.Sprintf("check-audit: repaired %d of %d check(s) the check shell would refuse", len(blocked)-len(still), len(blocked))
+	if len(still) > 0 {
+		note += " — still refused: " + strings.Join(still, "; ")
+	}
+	a.emitToolProgress(s.ID, plannerActor, "", "check-audit", note)
+	return merged
+}
+
+// blockedCheckDescs names each check whose command the read-only shell would refuse, as
+// "step N `command` (refused: name)" — the step label and the command are both needed for the reply to
+// know which check to repair, and the refused name is what makes the verdict arguable rather than a
+// bare assertion.
+func blockedCheckDescs(checks []council.DeliverableCheck) []string {
+	var out []string
+	for _, c := range checks {
+		names := refusedCommandsIn(c.Command)
+		if len(names) == 0 {
+			continue
+		}
+		step := strings.TrimSpace(c.Step)
+		if step == "" {
+			step = "?"
+		}
+		out = append(out, fmt.Sprintf("step %s `%s` (refused: %s)", step,
+			clipLine(strings.TrimSpace(c.Command), 90), strings.Join(names, ", ")))
+	}
+	return out
+}
+
+// readOnlyRepairReminder is appended to the review prompt for the single re-ask. It states the
+// consequence the model cannot observe (a refused check is skipped, not failed), lists the offenders,
+// and gives both legal repairs — including the one that keeps an expensive verification: let the STEP
+// do the run and have the check read what it saved.
+func readOnlyRepairReminder(blocked []string) string {
+	return "YOUR PREVIOUS REPLY LEFT " + fmt.Sprint(len(blocked)) + " CHECK(S) THAT THE CHECK SHELL REFUSES TO RUN:\n" +
+		"- " + strings.Join(blocked, "\n- ") + "\n" +
+		"This is not a style preference. The shell that executes checks shadows the commands that build, install, " +
+		"fetch, move or delete, so each of those checks exits 126 and the gate records NO verdict for it — the step " +
+		"lands neither proven nor failed, and nothing in the log looks wrong. Return EVERY check again, with those " +
+		"repaired one of the two ways that keep the deliverable's meaning:\n" +
+		"  1) Prove what the run ALREADY produced, read-only: run the produced program and assert its output, read " +
+		"the generated file, list an archive rather than extracting it. Never re-do the producing to find out.\n" +
+		"  2) When the proof genuinely needs an expensive or mutating run (a full suite, a rebuild), that run is the " +
+		"STEP's work and not the check's: assert on the result file the step saved its output into (`grep -q " +
+		"'<marker>' <result file>`), and say in the deliverable text that the step must save it.\n" +
+		"Do NOT drop a check to satisfy this — dropping leaves the step ungated, which is exactly the outcome being " +
+		"repaired. Leave every other check unchanged. JSON array only, no prose, no code fence."
 }
 
 // restoreDroppedExpects puts back an `expect` the review removed from a command whose EXIT STATUS
