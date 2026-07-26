@@ -28,7 +28,10 @@ type ChatRequest struct {
 	System   string
 	Messages []session.Message
 	Tools    []ToolSpec
-	Params   map[string]any // temperature, maxTokens, ...
+	// Params carries per-call sampling overrides. Only "temperature" is honoured today (the
+	// openai adapter reads it in temperatureOf); an unrecognised key is ignored, not an error.
+	// The output cap is NOT here — it is provider config, applied by the adapter itself.
+	Params map[string]any
 }
 
 // ToolSpec describes a tool to the model (name, description, JSON schema).
