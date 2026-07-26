@@ -521,3 +521,107 @@ func TestRestoreDroppedExpects(t *testing.T) {
 		t.Errorf("with no prior expects the audit result must pass through unchanged, got %+v", out)
 	}
 }
+
+// A check the read-only shell will refuse is the WORST outcome available: exit 126 reads as "no
+// verdict", so the step lands neither proven nor failed, and nothing reaches the agent (the refusal is
+// a transient line, and the agent's own shell is unwrapped, so it watches the same command succeed).
+// The review prompt already forbids it and a live review still let one through — so the refusal is
+// predicted deterministically and re-asked ONCE, naming the offender.
+func TestCheckAuditReasksWhenAReviewedCheckWouldBeRefused(t *testing.T) {
+	t.Setenv("MAGI_CHECK_VALIDATE", "1")
+	t.Setenv("MAGI_CHECK_READONLY", "1")
+	reviewed := `[{"step":"1","deliverable":"the suite passes","command":"make -C testsuite one DIR=t"},
+	              {"step":"2","deliverable":"binary runs","command":"./bin/app --version | grep -q 1.2"}]`
+	repaired := `[{"step":"1","deliverable":"the suite passes (step saves suite.log)","command":"grep -q '^All tests passed' suite.log"},
+	              {"step":"2","deliverable":"binary runs","command":"./bin/app --version | grep -q 1.2"}]`
+	llm := &auditLLM{replies: []string{reviewed, repaired}}
+	a := newOrchApp(t, llm, Config{Permission: "allow", MaxAgents: 10})
+	s := parentSession(t.TempDir())
+	sub := watchProgress(t, a, s.ID)
+	in := []council.DeliverableCheck{{Step: "1", Deliverable: "the suite passes", Command: "make world"}}
+
+	out := a.validateChecks(context.Background(), a.agentFor(s), s, in)
+
+	for _, c := range out {
+		if n := refusedCommandsIn(c.Command); len(n) > 0 {
+			t.Errorf("the repaired set must carry no refused command, got %q (%v)", c.Command, n)
+		}
+	}
+	if len(out) != 2 {
+		t.Fatalf("both checks must survive the repair, got %d: %+v", len(out), out)
+	}
+	calls := llm.calls()
+	if len(calls) != 2 {
+		t.Fatalf("want exactly one re-ask (bounded), got %d call(s)", len(calls))
+	}
+	// The re-ask must name the offending check and the consequence — an abstract rule is what the
+	// first pass already ignored.
+	if !strings.Contains(calls[1], "make -C testsuite") || !strings.Contains(calls[1], "126") {
+		t.Errorf("the re-ask must name the refused command and what it costs, got %q", clipLine(calls[1], 400))
+	}
+	if note := sub.notes("check-audit"); !strings.Contains(note, "refuses") {
+		t.Errorf("the refusal must be reported, got %q", note)
+	}
+}
+
+// The re-ask is told to return everything; a model that answers "repair these" with only the repaired
+// check must not thereby delete the checks that were fine.
+func TestCheckAuditReaskCannotShrinkTheContract(t *testing.T) {
+	t.Setenv("MAGI_CHECK_VALIDATE", "1")
+	t.Setenv("MAGI_CHECK_READONLY", "1")
+	reviewed := `[{"step":"1","deliverable":"built","command":"make all"},
+	              {"step":"2","deliverable":"binary runs","command":"./bin/app --version | grep -q 1.2"}]`
+	onlyRepaired := `[{"step":"1","deliverable":"built","command":"test -x ./bin/app"}]`
+	llm := &auditLLM{replies: []string{reviewed, onlyRepaired}}
+	a := newOrchApp(t, llm, Config{Permission: "allow", MaxAgents: 10})
+	s := parentSession(t.TempDir())
+	in := []council.DeliverableCheck{{Step: "1", Deliverable: "built", Command: "make all"}}
+
+	out := a.validateChecks(context.Background(), a.agentFor(s), s, in)
+	if len(out) != 2 {
+		t.Fatalf("the unblocked check must be unioned back, got %d: %+v", len(out), out)
+	}
+	var cmds []string
+	for _, c := range out {
+		cmds = append(cmds, c.Command)
+	}
+	if !strings.Contains(strings.Join(cmds, "|"), "--version") {
+		t.Errorf("the check that was never refused must survive, got %v", cmds)
+	}
+}
+
+// A re-ask that repairs nothing must leave the reviewed set alone rather than adopt a degraded reply,
+// and must say the step lands ungated — the failure mode here is silence, not a wrong verdict.
+func TestCheckAuditKeepsReviewedSetWhenTheReaskDoesNotHelp(t *testing.T) {
+	t.Setenv("MAGI_CHECK_VALIDATE", "1")
+	t.Setenv("MAGI_CHECK_READONLY", "1")
+	reviewed := `[{"step":"1","deliverable":"built","command":"make all"}]`
+	llm := &auditLLM{replies: []string{reviewed, `[{"step":"1","deliverable":"built","command":"cmake --build ."}]`}}
+	a := newOrchApp(t, llm, Config{Permission: "allow", MaxAgents: 10})
+	s := parentSession(t.TempDir())
+	sub := watchProgress(t, a, s.ID)
+	in := []council.DeliverableCheck{{Step: "1", Deliverable: "built", Command: "make all"}}
+
+	out := a.validateChecks(context.Background(), a.agentFor(s), s, in)
+	if len(out) != 1 || out[0].Command != "make all" {
+		t.Fatalf("the reviewed set must be kept when the re-ask does not reduce the refusals, got %+v", out)
+	}
+	if note := sub.notes("check-audit"); !strings.Contains(note, "ungated") {
+		t.Errorf("an unrepaired refusal must be reported as an ungated step, got %q", note)
+	}
+}
+
+// With the guard off the command is not refused, so predicting a refusal would spend a side call on a
+// non-problem.
+func TestCheckAuditDoesNotReaskWhenTheReadOnlyGuardIsOff(t *testing.T) {
+	t.Setenv("MAGI_CHECK_VALIDATE", "1")
+	t.Setenv("MAGI_CHECK_READONLY", "0")
+	llm := &auditLLM{replies: []string{`[{"step":"1","deliverable":"built","command":"make all"}]`}}
+	a := newOrchApp(t, llm, Config{Permission: "allow", MaxAgents: 10})
+	s := parentSession(t.TempDir())
+	a.validateChecks(context.Background(), a.agentFor(s), s,
+		[]council.DeliverableCheck{{Step: "1", Deliverable: "built", Command: "make all"}})
+	if calls := llm.calls(); len(calls) != 1 {
+		t.Errorf("want the single review call with the guard off, got %d", len(calls))
+	}
+}

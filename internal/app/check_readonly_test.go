@@ -259,3 +259,85 @@ func TestWorkflowVerifyCommandIsNotSandboxed(t *testing.T) {
 		t.Error("runVerifyCmd must stay unwrapped — it runs the operator's configured build/test command")
 	}
 }
+
+// refusedCommandsIn is a PREDICTION of what the shell will refuse, and its only justification is that
+// it agrees with the shell. So the table is checked twice: once for the names it reports, and once
+// against the real prelude — a mismatch in either direction is the bug this exists to avoid (a missed
+// refusal wastes a re-ask; an invented one sends the review chasing a check that runs fine).
+func TestRefusedCommandsIn(t *testing.T) {
+	cases := []struct {
+		cmd  string
+		want []string
+	}{
+		// the authoring mistake this exists for: a check that re-does the step's build
+		{"cd ocaml && make world opt", []string{"make"}},
+		{"make -C testsuite one DIR=tests/basic", []string{"make"}},
+		{"./configure && make && ./run", []string{"make"}},
+		// a path invocation is not shadowed by the shell, but it still builds — report it
+		{"/usr/bin/make all", []string{"make"}},
+		// env assignments precede the command word
+		{"CC=gcc make lib", []string{"make"}},
+		// dual-use commands turn on the FIRST ARGUMENT, exactly as the preamble's `case "${1:-}"` does
+		{"git commit -m x", []string{"git commit"}},
+		{"git log -1 --oneline", nil},
+		{"git -C repo commit -m x", nil}, // $1 is "-C": the preamble lets this through, so must this
+		{"pip install requests", []string{"pip install"}},
+		{"pip show requests", nil},
+		// tar has a genuinely read-only mode
+		{"tar -tzf dist.tgz", nil},
+		{"tar -czf dist.tgz build/", []string{"tar (create/extract)"}},
+		{"tar cf dist.tar build/", []string{"tar (create/extract)"}},
+		// several command positions, reported once each in order
+		{"rm -f out.log; make build; make build", []string{"rm", "make"}},
+		// a substitution hides a command position
+		{"test -n \"$(make -s print-version)\"", []string{"make"}},
+		// genuine read-only probes: the common shapes a check should have
+		{"grep -q PATTERN out.log", nil},
+		{"test -f bin/app && test -s bin/app", nil},
+		{"./bin/app --version | grep -q 1.2.3", nil},
+		{"python3 -c \"import socket; socket.create_connection(('127.0.0.1',5328))\"", nil},
+		// a blocked NAME inside a quoted argument is not an invocation
+		{"grep -q 'rm -rf' script.sh", nil},
+		{"echo \"make world\"", nil},
+		// unnameable in sh (see shellFuncName): not shadowed, so not predicted
+		{"g++ -o app main.cc", nil},
+		{"", nil},
+	}
+	for _, c := range cases {
+		got := refusedCommandsIn(c.cmd)
+		if strings.Join(got, ",") != strings.Join(c.want, ",") {
+			t.Errorf("refusedCommandsIn(%q) = %v, want %v", c.cmd, got, c.want)
+		}
+	}
+}
+
+// The prediction must match the prelude it mirrors. Run each command through the real shell and
+// compare "predicted refused" with "actually refused" — the assertion the table alone cannot make.
+// Only commands that are safe to actually execute here are listed: the refused ones never run their
+// real binary (that is the point), and the allowed ones are read-only probes.
+func TestRefusedCommandsInMatchesTheShell(t *testing.T) {
+	skipOnWindows(t)
+	a := newShellApp(t, &shellPlatform{})
+	for _, cmd := range []string{
+		"cd /tmp && make world",
+		"git commit -m x",
+		"tar -czf /tmp/magi-test.tgz .",
+		"cmake --build .",
+		"NOPE=1 rm -rf /tmp/magi-does-not-exist",
+		"grep -q root /etc/passwd",
+		"test -f go.mod",
+		"git status --porcelain",
+		"echo 'rm -rf /'",
+		"tar -tf /tmp/magi-does-not-exist.tgz",
+	} {
+		out, code := a.runCheckCmd(context.Background(), "s_test", t.TempDir(), cmd)
+		actual := blockedCommandIn(out) != ""
+		if predicted := len(refusedCommandsIn(cmd)) > 0; predicted != actual {
+			t.Errorf("%q: predicted refused=%v but the shell refused=%v (exit %d, out %q)",
+				cmd, predicted, actual, code, strings.TrimSpace(out))
+		}
+		if actual && code != 126 {
+			t.Errorf("%q: a refusal must exit 126 so the gates read it as unrunnable, got %d", cmd, code)
+		}
+	}
+}
