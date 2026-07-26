@@ -403,7 +403,7 @@ func (a *App) verifyStepChecks(ctx context.Context, s session.Session, stepIdx i
 	}
 	var fails []string
 	for _, c := range mine {
-		out, code := a.runCheckCmd(ctx, s.ID, s.Workdir, c.Command)
+		out, code := a.runCheck(ctx, s.ID, s.Workdir, c)
 		if code == -1 { // platform vanished mid-run: can't verify → don't block the step
 			return true, ""
 		}
@@ -419,9 +419,9 @@ func (a *App) verifyStepChecks(ctx context.Context, s session.Session, stepIdx i
 		if !pass {
 			d := strings.TrimSpace(c.Deliverable)
 			if d == "" {
-				d = strings.TrimSpace(c.Command)
+				d = checkWhat(c)
 			}
-			fails = append(fails, fmt.Sprintf("- %s — `%s` → %s", d, strings.TrimSpace(c.Command), clipLine(strings.TrimSpace(out), 200)))
+			fails = append(fails, fmt.Sprintf("- %s — `%s` → %s", d, checkWhat(c), clipLine(strings.TrimSpace(out), 200)))
 		}
 	}
 	if len(fails) == 0 {
@@ -445,7 +445,7 @@ func (a *App) partitionStepChecks(ctx context.Context, s session.Session, stepId
 		return nil, nil, false
 	}
 	for _, c := range mine {
-		out, code := a.runCheckCmd(ctx, s.ID, s.Workdir, c.Command)
+		out, code := a.runCheck(ctx, s.ID, s.Workdir, c)
 		if code == -1 { // platform vanished mid-run: cannot judge → let the caller fall back
 			return nil, nil, false
 		}
@@ -459,12 +459,12 @@ func (a *App) partitionStepChecks(ctx context.Context, s session.Session, stepId
 		a.emitStepCheck(ctx, s.ID, c, code, pass, out)
 		d := strings.TrimSpace(c.Deliverable)
 		if d == "" {
-			d = strings.TrimSpace(c.Command)
+			d = checkWhat(c)
 		}
 		if pass {
 			passed = append(passed, d)
 		} else {
-			fails = append(fails, fmt.Sprintf("- %s — `%s` → %s", d, strings.TrimSpace(c.Command), clipLine(strings.TrimSpace(out), 200)))
+			fails = append(fails, fmt.Sprintf("- %s — `%s` → %s", d, checkWhat(c), clipLine(strings.TrimSpace(out), 200)))
 		}
 	}
 	// Every matched check was unrunnable (127/126) → nothing was actually verified, so there is no split to
@@ -614,6 +614,13 @@ func workerChecklist(checks []council.DeliverableCheck, stepIdx int) string {
 		fmt.Fprintf(&b, "\n%d. ", i+1)
 		if d := strings.TrimSpace(c.Deliverable); d != "" {
 			b.WriteString(d + " — ")
+		}
+		// A typed item is not yours to run: the gate reads that file itself and applies the assertion.
+		// Telling you to "run" it would invite you to satisfy it by writing the file, which is exactly
+		// the fabrication the shape exists to prevent — your job is to make the file be the real output.
+		if as := strings.TrimSpace(c.Assert); as != "" {
+			b.WriteString("the gate will read " + strings.TrimSpace(c.Source) + " and require: " + as)
+			continue
 		}
 		b.WriteString("run: " + strings.TrimSpace(c.Command))
 		if e := strings.TrimSpace(c.Expect); e != "" {

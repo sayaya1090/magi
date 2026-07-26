@@ -124,7 +124,7 @@ func (a *App) runStepGate(ctx context.Context, s session.Session, ts *turnState)
 		if r.pass {
 			continue
 		}
-		fmt.Fprintf(&ledger, "\n- step %q — %s: `%s`", r.check.Step, r.check.Deliverable, r.check.Command)
+		fmt.Fprintf(&ledger, "\n- step %q — %s: `%s`", r.check.Step, r.check.Deliverable, checkWhat(r.check))
 		if r.check.Expect != "" {
 			fmt.Fprintf(&ledger, " expected %q", r.check.Expect)
 		}
@@ -142,7 +142,7 @@ func (a *App) runStepGate(ctx context.Context, s session.Session, ts *turnState)
 		if r.pass {
 			continue
 		}
-		fmt.Fprintf(&b, "\n• step %q — %s\n  command: %s\n", r.check.Step, r.check.Deliverable, r.check.Command)
+		fmt.Fprintf(&b, "\n• step %q — %s\n  checked: %s\n", r.check.Step, r.check.Deliverable, checkWhat(r.check))
 		if r.check.Expect != "" {
 			fmt.Fprintf(&b, "  expected output to match: %s\n", r.check.Expect)
 		}
@@ -182,14 +182,46 @@ func (a *App) emitStepCheck(ctx context.Context, sid session.SessionID, c counci
 		Pass:        pass,
 		Output:      clipCheckOutput(out),
 		Expect:      strings.TrimSpace(c.Expect),
+		Source:      strings.TrimSpace(c.Source),
+		Assert:      strings.TrimSpace(c.Assert),
 	})
 	a.appendFact(ctx, sid, event.TypeStepCheck, event.Actor{Kind: event.ActorSystem, ID: "council"}, dd)
 }
 
-// checkKey identifies a deliverable check by its step label + command, stable across the run
-// (the same check runs the same command each gate cycle). Keys the per-check pass state.
+// checkIdent identifies WHAT a check verifies, independent of which step it hangs off: the command
+// text for a shell check, and the assertion+source pair for a typed one. Every map in the run that
+// used to key on the bare command needs this, because a typed check HAS no command — keyed on the
+// empty string, every typed check in a set collapses onto one entry, and whatever that entry
+// decides (already green, survived the audit, has an `expect` to restore) is silently applied to
+// all the others. Returns "" for a check that says nothing at all; callers drop those.
+func checkIdent(c council.DeliverableCheck) string {
+	if cmd := strings.TrimSpace(c.Command); cmd != "" {
+		return cmd
+	}
+	if as := strings.TrimSpace(c.Assert); as != "" {
+		return as + "\x00" + strings.TrimSpace(c.Source)
+	}
+	return ""
+}
+
+// checkKey identifies a deliverable check by its step label + what it actually verifies, stable
+// across the run (the same check runs the same thing each gate cycle). Keys the per-check pass state.
 func checkKey(c council.DeliverableCheck) string {
-	return strings.TrimSpace(c.Step) + "\x00" + strings.TrimSpace(c.Command)
+	return strings.TrimSpace(c.Step) + "\x00" + checkIdent(c)
+}
+
+// checkWhat renders what a check actually RUNS, for the ledger lines and for the description a
+// check with no `deliverable` falls back to. A typed check has no command to print, and a bare
+// "step 3 failed" with an empty backtick pair told a re-plan nothing about what was unmet.
+func checkWhat(c council.DeliverableCheck) string {
+	as := strings.TrimSpace(c.Assert)
+	if as == "" {
+		return strings.TrimSpace(c.Command)
+	}
+	if src := strings.TrimSpace(c.Source); src != "" {
+		return src + ": " + as
+	}
+	return as
 }
 
 // checkAlreadyGreen reports whether a check has already been recorded ✓ this run — used to make
@@ -212,7 +244,7 @@ func (a *App) checkAlreadyGreen(sid session.SessionID, c council.DeliverableChec
 // trust-green skip and -1/127 policy around it — centralizing the run+Passes+emit body keeps that
 // contract identical across the per-step recorders and the terminal gate.
 func (a *App) runCheckRecord(ctx context.Context, sid session.SessionID, workdir string, c council.DeliverableCheck) (pass bool, code int, out string) {
-	out, code = a.runCheckCmd(ctx, sid, workdir, c.Command)
+	out, code = a.runCheck(ctx, sid, workdir, c)
 	if code == -1 || checkUnrunnable(code) {
 		return false, code, out
 	}
@@ -518,11 +550,11 @@ func (a *App) frozenContractClause(checks []council.DeliverableCheck) string {
 		deliv := strings.TrimSpace(c.Deliverable)
 		switch {
 		case step != "" && deliv != "":
-			fmt.Fprintf(&b, "• step %s — %s (verify: %s)\n", step, deliv, c.Command)
+			fmt.Fprintf(&b, "• step %s — %s (verify: %s)\n", step, deliv, checkWhat(c))
 		case deliv != "":
-			fmt.Fprintf(&b, "• %s (verify: %s)\n", deliv, c.Command)
+			fmt.Fprintf(&b, "• %s (verify: %s)\n", deliv, checkWhat(c))
 		default:
-			fmt.Fprintf(&b, "• verify: %s\n", c.Command)
+			fmt.Fprintf(&b, "• verify: %s\n", checkWhat(c))
 		}
 	}
 	return b.String()

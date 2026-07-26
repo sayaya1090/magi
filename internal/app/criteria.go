@@ -352,18 +352,18 @@ func coverageAttachReminder(uncovered []string, total int) string {
 }
 
 // unionChecks returns fill with every authored check it lost appended back, and how many that was.
-// Identity is the trimmed command — the text that actually runs — because the fill is instructed to
-// return the existing checks UNCHANGED, so a command absent from its reply was dropped rather than
-// rewritten (repairing a flawed check is validateChecks' job, a separate pass). A commandless
-// authored check is skipped: there is nothing to run, and every one of them would collide on "".
+// Identity is what the check verifies (checkIdent: the command text, or a typed check's
+// assertion+source) because the fill is instructed to return the existing checks UNCHANGED, so an
+// identity absent from its reply was dropped rather than rewritten (repairing a flawed check is
+// validateChecks' job, a separate pass). A check that verifies nothing at all is skipped.
 func unionChecks(fill, authored []council.DeliverableCheck) (out []council.DeliverableCheck, restored int) {
 	out = append(make([]council.DeliverableCheck, 0, len(fill)+len(authored)), fill...)
 	have := make(map[string]bool, len(out))
 	for _, c := range out {
-		have[strings.TrimSpace(c.Command)] = true
+		have[checkIdent(c)] = true
 	}
 	for _, c := range authored {
-		k := strings.TrimSpace(c.Command)
+		k := checkIdent(c)
 		if k == "" || have[k] {
 			continue
 		}
@@ -646,7 +646,7 @@ func (a *App) restoreDroppedExpects(sid session.SessionID, before, after []counc
 		if e == "" {
 			continue
 		}
-		byCmd[strings.TrimSpace(c.Command)] = e
+		byCmd[checkIdent(c)] = e
 		if !strings.ContainsAny(e, "^$") {
 			byLabel[checkLabelKey(c)] = e
 		}
@@ -656,10 +656,14 @@ func (a *App) restoreDroppedExpects(sid session.SessionID, before, after []counc
 	}
 	restored := 0
 	for i := range after {
-		if strings.TrimSpace(after[i].Expect) != "" || !exitCodeMasked(after[i].Command) {
+		// A typed check never reaches here: its verdict is the runner's own assertion, not an exit
+		// code that could be masked, and Expect is not consulted for it at all (Passes short-circuits).
+		// Copying a pattern onto one would be dead weight at best and misleading in the audit at worst.
+		if strings.TrimSpace(after[i].Assert) != "" ||
+			strings.TrimSpace(after[i].Expect) != "" || !exitCodeMasked(after[i].Command) {
 			continue
 		}
-		e, ok := byCmd[strings.TrimSpace(after[i].Command)]
+		e, ok := byCmd[checkIdent(after[i])]
 		if !ok {
 			e, ok = byLabel[checkLabelKey(after[i])]
 		}
@@ -790,16 +794,16 @@ const checkAuditKeepSomeReminder = "YOUR PREVIOUS REPLY DROPPED EVERY CHECK, and
 func (a *App) recordCheckAudit(ctx context.Context, sid session.SessionID, before, after []council.DeliverableCheck) {
 	afterCmd := make(map[string]bool, len(after))
 	for _, c := range after {
-		afterCmd[strings.TrimSpace(c.Command)] = true
+		afterCmd[checkIdent(c)] = true
 	}
 	var changed []string
 	for _, c := range before {
-		if afterCmd[strings.TrimSpace(c.Command)] {
+		if afterCmd[checkIdent(c)] {
 			continue // survived verbatim → kept
 		}
 		d := strings.TrimSpace(c.Deliverable)
 		if d == "" {
-			d = clipLine(strings.TrimSpace(c.Command), 60)
+			d = clipLine(checkWhat(c), 60)
 		}
 		changed = append(changed, d)
 	}
@@ -819,7 +823,8 @@ func (a *App) recordCheckAudit(ctx context.Context, sid session.SessionID, befor
 }
 
 // parseChecksArray extracts the first balanced JSON array from a review reply and unmarshals it into
-// deliverable checks. A check with no command is dropped (nothing to run).
+// deliverable checks. A check that verifies nothing — neither a command nor an assertion — is
+// dropped (there is nothing to run).
 func parseChecksArray(raw string) ([]council.DeliverableCheck, bool) {
 	// Scan every top-level balanced [...] (respecting strings), not a naive first-[/last-] span: a
 	// reply that wraps the array in prose or trails reasoning with a stray ] would otherwise mis-span
@@ -839,7 +844,7 @@ func parseChecksArray(raw string) ([]council.DeliverableCheck, bool) {
 		sawValid = true
 		var out []council.DeliverableCheck
 		for _, c := range cs {
-			if strings.TrimSpace(c.Command) != "" {
+			if checkIdent(c) != "" {
 				out = append(out, c)
 			}
 		}

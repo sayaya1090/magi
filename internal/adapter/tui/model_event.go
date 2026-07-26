@@ -489,7 +489,10 @@ func (m *Model) onCouncilConvened(d event.CouncilConvenedData) {
 func (m *Model) onStepCheck(d event.StepCheckData) {
 	what := strings.TrimSpace(d.Deliverable)
 	if what == "" {
-		what = strings.TrimSpace(d.Command)
+		// A typed check has no command; its source+assertion is what it ran.
+		if what = strings.TrimSpace(d.Command); what == "" {
+			what = strings.TrimSpace(strings.TrimPrefix(d.Source+": "+d.Assert, ": "))
+		}
 	}
 	if step := strings.TrimSpace(d.Step); step != "" {
 		what = "[" + step + "] " + what
