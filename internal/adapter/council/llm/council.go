@@ -906,7 +906,10 @@ func planMemberSystem(m council.Member, lens string, keep bool) string {
 			"whenever the deliverable must BEHAVE or produce a correct result, because a non-functional stub passes every "+
 			"one of those. You MUST author a check that INVOKES the behavior through the same interface its consumer uses "+
 			"and asserts the OUTCOME, choosing the weakest input that still forces the real code path so a stub that "+
-			"merely exists or opens the port FAILS. A COMMAND THAT SUCCEEDED is the same kind of precondition: a "+
+			"merely exists or opens the port FAILS. WHERE that exercise runs is fixed by RECORD AND READ below — the "+
+			"STEP performs it and saves its real output, the check asserts on that saved output — but the OUTCOME "+
+			"being asserted is the same either way, so never weaken it to a mere existence probe. A COMMAND THAT "+
+			"SUCCEEDED is the same kind of precondition: a "+
 			"configure/build/install step exiting 0 with a flag on its command line proves the flag was ACCEPTED, not "+
 			"that it took EFFECT. So when the deliverable is the effect a setting is supposed to cause, check the "+
 			"EFFECT — run whatever consumes the setting and assert the resulting artifact appears, with the content the "+
@@ -954,11 +957,19 @@ func planMemberSystem(m council.Member, lens string, keep bool) string {
 			"check runs — build drivers and compilers (`make`, `cmake`, `ninja`, `gcc`, `cargo build`, `go build`), "+
 			"package installers, `rm`/`mv`, archive create/extract, and `git` write subcommands. A blocked check "+
 			"produces NO verdict, so its step lands UNVERIFIED — authoring one costs you the very gate you were "+
-			"writing. WHEN VERIFICATION GENUINELY NEEDS AN EXPENSIVE OR MUTATING RUN (a full build, or a test command "+
-			"the task itself names), that run belongs to the STEP, not to the check: write the step's `task` so it "+
-			"runs the command ONCE and saves the output to a result file at a fixed path in the workspace, then make "+
-			"the check a read-only READ of that file (`grep -q '<success marker>' <result file>`). Name the same file "+
-			"path in both the step and its check, so what the step writes is what the check reads. Propose checks ONLY when they are concrete and would "+
+			"writing. RECORD AND READ — THE DEFAULT SHAPE OF A CHECK IS: THE STEP RUNS, THE CHECK READS. Whenever "+
+			"proving the deliverable means RUNNING something — a build, a test command the task names, the produced "+
+			"program on its input, a server round-trip — that run belongs to the STEP, not to the check: write the "+
+			"step's `task` so it performs the run ONCE and saves the REAL output to a result file at a fixed path in "+
+			"the workspace, and make the check a read-only READ of that file (`grep -q '<expected outcome>' <result "+
+			"file>`, or a `python3` parse of it). Name the SAME path in the step's task and in its check, so what the "+
+			"step writes is what the check reads. This keeps the behavioural proof intact — the run still happens and "+
+			"its ACTUAL output is what gets asserted — while the check itself stays a file read: it cannot be refused "+
+			"by the read-only shell, it cannot re-do the work on every gate cycle, and `grep` reports failure honestly "+
+			"through its exit status. Say IN THE DELIVERABLE TEXT that the step must save that file, and require the "+
+			"file to be the command's own redirected output — never hand-written, and never a marker typed in by hand. "+
+			"Reserve DIRECT execution inside a check for probes that only INSPECT what already exists and change "+
+			"nothing (`test -s f`, `grep -q pat f`, `tar -tzf f.tgz`). Propose checks ONLY when they are concrete and would "+
 			"genuinely pass for correct work — commands must be non-destructive and deterministic. SMOKE CHECK when "+
 			"full correctness is UNVERIFIABLE: a step that PRODUCES a runnable artifact (a program, script, generated "+
 			"file) must ALWAYS get at least a SMOKE check even when you cannot check the exact answer because the "+

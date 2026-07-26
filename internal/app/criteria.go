@@ -132,7 +132,9 @@ const coverageFillSystem = "You author executable deliverable `checks` that veri
 	"value, transform an input, produce an output), invoke that behavior through the same interface its consumer uses " +
 	"and assert on the RESULT (call the endpoint and assert the returned value, run the program on an input and compare " +
 	"its output), choosing the weakest input that still forces the real code path so a stub that merely exists or opens " +
-	"the port FAILS. A command that SUCCEEDED is the same kind of precondition — a configure/build/install exiting 0 " +
+	"the port FAILS. WHERE that invocation runs is fixed by RECORD AND READ below — the step runs it and saves the " +
+	"output, the check asserts on the saved output — but never weaken WHAT is asserted to a mere existence probe. " +
+	"A command that SUCCEEDED is the same kind of precondition — a configure/build/install exiting 0 " +
 	"with a flag on its command line proves the flag was ACCEPTED, not that it took EFFECT — so when the step's " +
 	"deliverable is the effect a setting is supposed to cause, run whatever consumes the setting and assert the " +
 	"resulting artifact appears AT THE LOCATION the task names, never that the setting or the command is in place.\n" +
@@ -150,9 +152,16 @@ const coverageFillSystem = "You author executable deliverable `checks` that veri
 	"download/move/delete it (a check that re-does the work traps the run in a redo loop). The check runs in a " +
 	"READ-ONLY SHELL that BLOCKS mutating commands (build drivers and compilers, package installers, `rm`/`mv`, " +
 	"archive create/extract, `git` write subcommands), and a blocked check yields NO verdict — its step lands " +
-	"unverified anyway. When proving a step genuinely needs an expensive or mutating run, that run belongs to the " +
-	"STEP: check by READING the result file the step saved its output to (`grep -q '<marker>' <result file>`), " +
-	"never by re-running the command yourself.\n" +
+	"unverified anyway.\n" +
+	"- RECORD AND READ (the default shape): the STEP runs, the CHECK reads. Whenever proving the deliverable means " +
+	"RUNNING something — a build, a test command, the produced program on an input, a server round-trip — that run " +
+	"is the STEP's work: the step performs it once and saves the REAL output to a result file at a fixed path, and " +
+	"the check READS that file (`grep -q '<expected outcome>' <result file>`, or a python3 parse of it). Say in the " +
+	"`deliverable` text that the step must save that file, and name the SAME path in both. The behaviour is still " +
+	"proven — the run happened and its actual output is what you assert — but the check cannot be refused by the " +
+	"read-only shell, cannot re-do the work each gate cycle, and fails honestly through `grep`'s exit status. Run a " +
+	"command DIRECTLY in a check only to INSPECT what already exists without changing it (`test -s f`, `grep -q pat " +
+	"f`, `tar -tzf f.tgz`).\n" +
 	"- A pure investigation/read-only step (it writes no artifact) needs NO check — do NOT invent one for it.\n" +
 	"Do NOT alter or drop the existing checks, and do NOT change what any check verifies. JSON array only, no prose, no code fence."
 
@@ -435,10 +444,17 @@ const validateChecksSystem = "You review the executable deliverable `checks` a p
 	"Verify the step's stated deliverable, not an intermediate. This is ENFORCED, not advisory: the check shell " +
 	"BLOCKS mutating commands at run time (build drivers and compilers, package installers, `rm`/`mv`, archive " +
 	"create/extract, `git` write subcommands), and a blocked check returns NO verdict — so leaving one in place " +
-	"does not merely waste time, it silently removes the gate. Repair such a check into a read-only READ of what " +
-	"the run already produced: for a build, run the produced binary; for a test suite or any other expensive run, " +
-	"assert on the result file the step saved its output to (`grep -q '<marker>' <result file>`) rather than " +
-	"re-running it. Keep the deliverable's meaning; change only how it is proven.\n" +
+	"does not merely waste time, it silently removes the gate.\n" +
+	"- RECORD AND READ (the shape to repair TOWARD): the STEP runs, the CHECK reads. Whenever the proof needs " +
+	"something RUN — a build, a test command, the produced program on an input, a server round-trip — that run is " +
+	"the STEP's work: it performs the run once and saves the REAL output to a result file at a fixed path, and the " +
+	"check READS that file (`grep -q '<expected outcome>' <result file>`, or a python3 parse of it). Rewrite an " +
+	"executing check into that shape and say in its `deliverable` text that the step must save the file, naming the " +
+	"SAME path in both. What is asserted does not change — the run still happens and its actual output is judged — " +
+	"but the check can no longer be refused by the read-only shell, cannot re-do the work each gate cycle, and fails " +
+	"honestly through `grep`'s exit status. Leave a command running DIRECTLY in a check only when it merely INSPECTS " +
+	"what already exists and changes nothing (`test -s f`, `grep -q pat f`, `tar -tzf f.tgz`). Keep the " +
+	"deliverable's meaning; change only how it is proven.\n" +
 	"- Preserve each check's `step` label exactly — it scopes the check to its step. A cleanup/absence check " +
 	"(`test ! -f a.tgz`) MUST keep its own step label; never merge it onto the same step as an existence check " +
 	"(`test -s a.tgz`) for the same artifact — they are verified at different steps, and co-locating them makes a " +
@@ -576,20 +592,23 @@ func blockedCheckDescs(checks []council.DeliverableCheck) []string {
 
 // readOnlyRepairReminder is appended to the review prompt for the single re-ask. It states the
 // consequence the model cannot observe (a refused check is skipped, not failed), lists the offenders,
-// and gives both legal repairs — including the one that keeps an expensive verification: let the STEP
-// do the run and have the check read what it saved.
+// and names the one repair that always applies: the run belongs to the STEP, which saves its real
+// output, and the check reads what it saved.
 func readOnlyRepairReminder(blocked []string) string {
 	return "YOUR PREVIOUS REPLY LEFT " + fmt.Sprint(len(blocked)) + " CHECK(S) THAT THE CHECK SHELL REFUSES TO RUN:\n" +
 		"- " + strings.Join(blocked, "\n- ") + "\n" +
 		"This is not a style preference. The shell that executes checks shadows the commands that build, install, " +
 		"fetch, move or delete, so each of those checks exits 126 and the gate records NO verdict for it — the step " +
-		"lands neither proven nor failed, and nothing in the log looks wrong. Return EVERY check again, with those " +
-		"repaired one of the two ways that keep the deliverable's meaning:\n" +
-		"  1) Prove what the run ALREADY produced, read-only: run the produced program and assert its output, read " +
-		"the generated file, list an archive rather than extracting it. Never re-do the producing to find out.\n" +
-		"  2) When the proof genuinely needs an expensive or mutating run (a full suite, a rebuild), that run is the " +
-		"STEP's work and not the check's: assert on the result file the step saved its output into (`grep -q " +
-		"'<marker>' <result file>`), and say in the deliverable text that the step must save it.\n" +
+		"lands neither proven nor failed, and nothing in the log looks wrong. Return EVERY check again, each refused " +
+		"one repaired into the shape that always works — RECORD AND READ: the STEP runs, the CHECK reads.\n" +
+		"  · The run you put in the check is the STEP's work: say in that check's `deliverable` text that the step " +
+		"must perform it once and save the REAL output to a result file at a fixed path, and make the `command` a " +
+		"READ of that file (`grep -q '<expected outcome>' <result file>`, or a python3 parse of it). Name the SAME " +
+		"path in the deliverable text and in the command.\n" +
+		"  · What you assert does not change — the run still happens and its actual output is judged. Only the check " +
+		"stops re-doing it.\n" +
+		"  · If the proof needs nothing run at all, read the artifact directly instead (`test -s`, `grep -q`, list an " +
+		"archive rather than extracting it).\n" +
 		"Do NOT drop a check to satisfy this — dropping leaves the step ungated, which is exactly the outcome being " +
 		"repaired. Leave every other check unchanged. JSON array only, no prose, no code fence."
 }
