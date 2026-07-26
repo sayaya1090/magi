@@ -54,43 +54,61 @@ func checkCommandUnrunnable(out string, code int) bool {
 		strings.Contains(low, "executable file not found")
 }
 
-// filterSubsByNecessity runs each substitution's ORIGINAL check command and classifies whether the
-// substitution is warranted: justified = the original genuinely cannot run here (a real substitution
-// case → the council reviews it); ranFailed = the original RAN and FAILED (a real deliverable failure,
-// NOT a broken check — must not be substituted away). A substitution whose original RAN and PASSED is
-// dropped (unneeded — the check works, keep it). Platform-gone (-1) or a missing original is treated as
+// filterSubsByNecessity RUNS the original check and classifies whether the substitution is warranted:
+// justified = the original genuinely cannot be satisfied here (a real substitution case → the council
+// reviews it); ranFailed = the original RAN and FAILED (a real deliverable failure, NOT a broken check
+// — must not be substituted away). A substitution whose original PASSED is dropped (unneeded — the
+// check works, keep it). Platform-gone (-1) or an original that matches no stored check is treated as
 // justified so the council still judges rather than the guard silently dropping it.
+//
+// The original is run as the STORED CHECK, not as a command string: a check is data now, so "run the
+// original" means asking the typed runner for its verdict on the check the gate would apply. A check
+// the runner cannot evaluate at all (no assertion, an unknown verb — checkUnrunnable) is exactly the
+// case a substitution exists for.
 func (a *App) filterSubsByNecessity(ctx context.Context, s session.Session, subs []port.CheckSub) (justified, ranFailed []port.CheckSub) {
 	if a.plat == nil {
 		return subs, nil
 	}
 	checks := a.cachedChecks(s.ID)
 	for _, sub := range subs {
-		orig := strings.TrimSpace(sub.Original)
-		if orig == "" {
+		orig, ok := matchOriginalCheck(checks, sub)
+		if !ok {
 			justified = append(justified, sub)
 			continue
 		}
-		out, code := a.runCheckCmd(ctx, s.ID, s.Workdir, orig)
+		out, code := a.runCheck(ctx, s.ID, s.Workdir, orig)
 		if code == -1 || checkCommandUnrunnable(out, code) {
 			justified = append(justified, sub)
 			continue
 		}
-		// The original RAN. Judge pass by the matching stored check's own test (its Expect matters) when
-		// we can find it, else exit 0. A pass means the substitution is unneeded (dropped); a fail means a
-		// real deliverable failure the agent must fix, not substitute.
-		pass := code == 0
-		for _, c := range checks {
-			if strings.TrimSpace(c.Step) == strings.TrimSpace(sub.Step) && strings.TrimSpace(c.Command) == orig {
-				pass = c.Passes(out, code)
-				break
-			}
-		}
-		if !pass {
+		if !orig.Passes(out, code) {
 			ranFailed = append(ranFailed, sub)
 		}
 	}
 	return justified, ranFailed
+}
+
+// matchOriginalCheck finds the stored check a substitution replaces: same step, and — when the step
+// holds several — the one whose identity, assertion or command text is what the agent quoted back as
+// `original`. A step with exactly one check needs no quote to be unambiguous.
+func matchOriginalCheck(checks []council.DeliverableCheck, sub port.CheckSub) (council.DeliverableCheck, bool) {
+	step := strings.TrimSpace(sub.Step)
+	orig := strings.TrimSpace(sub.Original)
+	var inStep []council.DeliverableCheck
+	for _, c := range checks {
+		if strings.TrimSpace(c.Step) != step {
+			continue
+		}
+		inStep = append(inStep, c)
+		if orig != "" && (checkIdent(c) == orig || strings.TrimSpace(c.Assert) == orig ||
+			strings.TrimSpace(c.Command) == orig) {
+			return c, true
+		}
+	}
+	if len(inStep) == 1 {
+		return inStep[0], true
+	}
+	return council.DeliverableCheck{}, false
 }
 
 func (a *App) reviewSubstitutions(ctx context.Context, tc turnCtx, rounds *int, critique *string) (loopAction, bool) {
@@ -127,7 +145,8 @@ func (a *App) reviewSubstitutions(ctx context.Context, tc turnCtx, rounds *int, 
 		msg := "Do NOT substitute these acceptance checks — their ORIGINAL command RAN here and FAILED, which is a " +
 			"real failure of the DELIVERABLE, not a check that could not run:\n" + renderSubs(ranFailed) +
 			"\nFix the deliverable so the original check passes, or report status blocked/failed with why. " +
-			"substitute_check is ONLY for a check whose command cannot RUN at all (not found / exit 127) or is refused by the read-only check shell (exit 126)."
+			"substitute_check is ONLY for a check that cannot be satisfied AS WRITTEN — it reads a path nothing here " +
+			"produces, or its assertion cannot prove the goal — never for one whose assertion is right and simply does not hold."
 		pd, _ := json.Marshal(event.PromptSubmittedData{MessageID: "m_" + newID(), Parts: []session.Part{{Kind: session.PartText, Text: msg}}})
 		a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "council"}, pd)
 		return loopContinue, true
@@ -173,9 +192,10 @@ func (a *App) reviewSubstitutions(ctx context.Context, tc turnCtx, rounds *int, 
 	*critique = fb // the next round must judge whether THIS objection was met
 	a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{Round: round, Phase: "substitution", Decision: string(council.Continue), Tally: delib.Breakdown, Feedback: fb})
 	msg := "The council reviewed your acceptance-check substitution(s) and asks you to correct them before finishing:\n" + fb +
-		"\n\nRun a better equivalent that verifies the SAME goal as the original check, then declare it again with " +
-		"substitute_check (same step/original). If no valid equivalent exists, report status \"blocked\" and say which " +
-		"check and why — do not pass off a weak proxy as done."
+		"\n\nSupply a better source/assert pair that proves the SAME goal as the original check — recording the real " +
+		"output first if that is what is missing — then declare it again with substitute_check (same step/original). " +
+		"If no valid replacement exists, report status \"blocked\" and say which check and why — do not pass off a " +
+		"weak proxy as done."
 	pd, _ := json.Marshal(event.PromptSubmittedData{
 		MessageID: "m_" + newID(),
 		Parts:     []session.Part{{Kind: session.PartText, Text: msg}},
@@ -201,10 +221,12 @@ func (a *App) approveSubs(ctx context.Context, tc turnCtx, subs []port.CheckSub)
 // command it replaces, plus the strict-equivalence instruction.
 func substReviewTask(subs []port.CheckSub) string {
 	var b strings.Builder
-	b.WriteString("Acceptance-check substitution review. For each step below an agent's given check command could not run " +
-		"in this environment and it substituted an equivalent that passed. Judge STRICTLY whether each equivalent verifies " +
-		"the SAME goal as the original check — reject a weaker proxy (mere existence/reachability when the original exercised " +
-		"behavior). The deliverable is already built, so do NOT be lenient as at plan time; but do not demand more than the " +
+	b.WriteString("Acceptance-check substitution review. For each step below an agent's given check could not be satisfied " +
+		"as written — the path it reads is not where the real output was recorded, or its assertion cannot prove the goal — " +
+		"and it supplied a replacement source/assert pair. Judge STRICTLY whether each replacement proves the SAME goal as " +
+		"the original check — reject a weaker proxy (mere existence/reachability when the original asserted behavior), and " +
+		"reject one whose source is a file the agent could have written by hand rather than the recorded output of a real " +
+		"run. The deliverable is already built, so do NOT be lenient as at plan time; but do not demand more than the " +
 		"original check itself required.")
 	for _, cs := range subs {
 		fmt.Fprintf(&b, "\n- step %s: original check `%s`", strings.TrimSpace(cs.Step), strings.TrimSpace(cs.Original))
@@ -219,12 +241,12 @@ func renderSubs(subs []port.CheckSub) string {
 		if b.Len() > 0 {
 			b.WriteString("\n")
 		}
-		fmt.Fprintf(&b, "- step %s: ran `%s`", strings.TrimSpace(cs.Step), strings.TrimSpace(cs.Command))
-		if e := strings.TrimSpace(cs.Expect); e != "" {
-			fmt.Fprintf(&b, " (expect %s)", e)
+		fmt.Fprintf(&b, "- step %s: assert `%s`", strings.TrimSpace(cs.Step), strings.TrimSpace(cs.Assert))
+		if src := strings.TrimSpace(cs.Source); src != "" {
+			fmt.Fprintf(&b, " on %s", src)
 		}
 		if why := strings.TrimSpace(cs.Reason); why != "" {
-			fmt.Fprintf(&b, " — original `%s` could not run: %s", strings.TrimSpace(cs.Original), why)
+			fmt.Fprintf(&b, " — original `%s` cannot be satisfied: %s", strings.TrimSpace(cs.Original), why)
 		}
 	}
 	return b.String()

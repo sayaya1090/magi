@@ -244,16 +244,17 @@ type ReportInput struct {
 	Substitutions string
 }
 
-// CheckSub is one acceptance-check substitution: for a check whose given command could not run here,
-// the equivalent command the worker ran instead (which passed) plus why the original failed. Carried
-// worker→parent so the worker-internal review council can judge it and, once approved, the parent can
-// rewrite the stored check to the working command.
+// CheckSub is one acceptance-check substitution: for a check the agent cannot satisfy AS WRITTEN —
+// the path it reads is not where the real output was recorded, or its assertion cannot prove the goal
+// — the agent supplies the source/assert pair that does, with the reason the given one fails. It is
+// reviewed by a council at the turn's finish boundary and, once approved, rewrites the stored check so
+// the fix persists for the rest of the run.
 type CheckSub struct {
 	Step     string `json:"step"`     // the plan step whose check this replaces (matches DeliverableCheck.Step)
-	Original string `json:"original"` // the original check command being replaced (to match the exact check when a step has several)
-	Command  string `json:"command"`  // the equivalent command the worker ran (the new check command)
-	Expect   string `json:"expect"`   // optional expected-output substring/regex for the new command
-	Reason   string `json:"reason"`   // why the original command could not run in this environment
+	Original string `json:"original"` // the original check being replaced (to match the exact check when a step has several)
+	Source   string `json:"source"`   // the path holding what should be judged instead
+	Assert   string `json:"assert"`   // the assertion to apply to it, from the runner's closed vocabulary
+	Reason   string `json:"reason"`   // why the original check cannot be satisfied as written
 }
 
 // ToolEnv carries per-execution context and capabilities granted to a tool.

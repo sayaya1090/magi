@@ -10,22 +10,24 @@ import (
 )
 
 // applyCheckSubs rewrites the stored deliverable check to the working equivalent (matched by the
-// original command) and records it ✓, so every later gate runs the command that actually works here.
+// original identity) and records it ✓, so every later gate reads the source that actually exists.
 func TestApplyCheckSubsRewritesCheck(t *testing.T) {
 	t.Setenv("MAGI_STEP_VERIFY", "1")
 	ctx := context.Background()
 	plat := &scriptPlatform{codes: []int{0}}
 	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow"})
 	setChecks(a, sid, []council.DeliverableCheck{
-		{Step: "1", Deliverable: "server on port", Command: "ss -tlnp"}, // the broken original
+		// The broken original: it names no source, so the runner can evaluate nothing.
+		{Step: "1", Deliverable: "server on port", Assert: "matches listening"},
 	})
 
 	a.applyCheckSubs(ctx, sid, []port.CheckSub{
-		{Step: "1", Original: "ss -tlnp", Command: "python3 -c connect", Expect: "ok", Reason: "ss absent"},
+		{Step: "1", Original: "matches listening", Source: "server.log", Assert: "matches ^listening on",
+			Reason: "the check named no source; the step records server.log"},
 	})
 
 	checks := a.cachedChecks(sid)
-	if len(checks) != 1 || checks[0].Command != "python3 -c connect" || checks[0].Expect != "ok" {
+	if len(checks) != 1 || checks[0].Source != "server.log" || checks[0].Assert != "matches ^listening on" {
 		t.Fatalf("check not rewritten to the equivalent: %+v", checks)
 	}
 	// And recorded ✓ (trusted — the review approved it, not re-run here).
@@ -35,36 +37,39 @@ func TestApplyCheckSubsRewritesCheck(t *testing.T) {
 	}
 }
 
-// When a step has SEVERAL checks, applyCheckSubs rewrites only the one whose command matches the sub's
+// When a step has SEVERAL checks, applyCheckSubs rewrites only the one whose identity matches the sub's
 // Original — the other checks for that step are left untouched (no clobber, no accidental append).
 func TestApplyCheckSubsMultipleChecksPerStep(t *testing.T) {
 	ctx := context.Background()
 	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow"})
 	setChecks(a, sid, []council.DeliverableCheck{
-		{Step: "1", Command: "ss -tlnp"},   // the broken one, to be replaced
-		{Step: "1", Command: "pgrep serv"}, // a sibling check on the same step — must be preserved
+		{Step: "1", Source: "wrong.log", Assert: "nonempty"}, // the broken one, to be replaced
+		{Step: "1", Source: "pid", Assert: "process_alive"},  // a sibling check on the same step
 	})
-	a.applyCheckSubs(ctx, sid, []port.CheckSub{{Step: "1", Original: "ss -tlnp", Command: "python3 socket"}})
+	a.applyCheckSubs(ctx, sid, []port.CheckSub{
+		{Step: "1", Original: checkIdent(council.DeliverableCheck{Source: "wrong.log", Assert: "nonempty"}),
+			Source: "server.log", Assert: "nonempty"},
+	})
 	checks := a.cachedChecks(sid)
 	if len(checks) != 2 {
 		t.Fatalf("must rewrite in place, not append: %+v", checks)
 	}
-	if checks[0].Command != "python3 socket" {
-		t.Fatalf("the matching check must be rewritten, got %q", checks[0].Command)
+	if checks[0].Source != "server.log" {
+		t.Fatalf("the matching check must be rewritten, got %q", checks[0].Source)
 	}
-	if checks[1].Command != "pgrep serv" {
-		t.Fatalf("the sibling check must be untouched, got %q", checks[1].Command)
+	if checks[1].Assert != "process_alive" || checks[1].Source != "pid" {
+		t.Fatalf("the sibling check must be untouched, got %+v", checks[1])
 	}
 }
 
-// An unmatched substitution (no check with that original) is appended as a new check for its step.
+// An unmatched substitution (no check on that step) is appended as a new check for its step.
 func TestApplyCheckSubsAppendsWhenUnmatched(t *testing.T) {
 	ctx := context.Background()
 	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow"})
-	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Command: "orig"}})
-	a.applyCheckSubs(ctx, sid, []port.CheckSub{{Step: "2", Original: "nope", Command: "equiv"}})
+	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Source: "a.log", Assert: "nonempty"}})
+	a.applyCheckSubs(ctx, sid, []port.CheckSub{{Step: "2", Original: "nope", Source: "b.log", Assert: "nonempty"}})
 	checks := a.cachedChecks(sid)
-	if len(checks) != 2 || checks[1].Step != "2" || checks[1].Command != "equiv" {
+	if len(checks) != 2 || checks[1].Step != "2" || checks[1].Source != "b.log" {
 		t.Fatalf("unmatched sub should append a new check: %+v", checks)
 	}
 }
@@ -75,29 +80,29 @@ func TestApplyCheckSubsAppendsWhenUnmatched(t *testing.T) {
 func TestApplyCheckSubsSoleCheckFallback(t *testing.T) {
 	ctx := context.Background()
 	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow"})
-	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Command: "orig-broken"}})
-	// Original is blank (the worker did not echo the exact original command), but the step has a single
-	// check, so the sub still lands on it rather than appending a second check for the same step.
-	a.applyCheckSubs(ctx, sid, []port.CheckSub{{Step: "1", Command: "equiv", Expect: "ok"}})
+	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Source: "orig.log", Assert: "nonempty"}})
+	// Original is blank (the worker did not echo the exact original), but the step has a single check,
+	// so the sub still lands on it rather than appending a second check for the same step.
+	a.applyCheckSubs(ctx, sid, []port.CheckSub{{Step: "1", Source: "real.log", Assert: "matches ^OK"}})
 	checks := a.cachedChecks(sid)
 	if len(checks) != 1 {
 		t.Fatalf("sole-check fallback must rewrite in place, not append: %+v", checks)
 	}
-	if checks[0].Command != "equiv" || checks[0].Expect != "ok" {
+	if checks[0].Source != "real.log" || checks[0].Assert != "matches ^OK" {
 		t.Fatalf("the step's sole check must be rewritten to the equivalent, got %+v", checks[0])
 	}
 }
 
-// A substitution with an empty Command is ignored — no rewrite, no append. A worker that reports a
-// blank replacement must not blank out or duplicate a stored check.
-func TestApplyCheckSubsSkipsEmptyCommand(t *testing.T) {
+// A substitution with an empty assertion is ignored — no rewrite, no append. Substituting no check for
+// a check is exactly the outcome the review is there to prevent.
+func TestApplyCheckSubsSkipsEmptyAssertion(t *testing.T) {
 	ctx := context.Background()
 	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow"})
-	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Command: "orig"}})
-	a.applyCheckSubs(ctx, sid, []port.CheckSub{{Step: "1", Original: "orig", Command: "   "}})
+	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Source: "orig.log", Assert: "nonempty"}})
+	a.applyCheckSubs(ctx, sid, []port.CheckSub{{Step: "1", Original: "nonempty", Source: "x", Assert: "   "}})
 	checks := a.cachedChecks(sid)
-	if len(checks) != 1 || checks[0].Command != "orig" {
-		t.Fatalf("empty-command sub must be a no-op, got %+v", checks)
+	if len(checks) != 1 || checks[0].Source != "orig.log" || checks[0].Assert != "nonempty" {
+		t.Fatalf("empty-assertion sub must be a no-op, got %+v", checks)
 	}
 }
 
@@ -107,9 +112,10 @@ func TestReviewSubstitutionsApproveSolo(t *testing.T) {
 	t.Setenv("MAGI_SUBST_REVIEW", "1")
 	ctx := context.Background()
 	fc := &fakeCouncil{delibs: []council.Deliberation{{Decision: council.Done, Verdicts: []council.Verdict{{Decision: council.Done}}}}}
-	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{codes: []int{127}}, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
-	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Command: "ss -tlnp"}})
-	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "ss -tlnp", Command: "python3 probe", Reason: "ss absent"})
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
+	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Assert: "matches listening"}}) // no source → no verdict
+	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "matches listening", Source: "server.log",
+		Assert: "matches ^listening on", Reason: "the check named no source"})
 
 	s := a.sessionInfo(ctx, sid)
 	tc := turnCtx{s: s, guard: newRunGuard(), depth: 0, maxSteps: 50}
@@ -118,8 +124,8 @@ func TestReviewSubstitutionsApproveSolo(t *testing.T) {
 	if looped {
 		t.Fatalf("an approved substitution must not loop, got act=%v", act)
 	}
-	if got := a.cachedChecks(sid); got[0].Command != "python3 probe" {
-		t.Fatalf("approved solo substitution should rewrite the check, got %q", got[0].Command)
+	if got := a.cachedChecks(sid); got[0].Source != "server.log" {
+		t.Fatalf("approved solo substitution should rewrite the check, got %+v", got[0])
 	}
 	if len(a.pendingSubsOf(sid)) != 0 {
 		t.Fatal("pending substitutions should be cleared after approval")
@@ -135,9 +141,9 @@ func TestReviewSubstitutionsCorrectionLoops(t *testing.T) {
 		Decision: council.Continue,
 		Verdicts: []council.Verdict{{Decision: council.Continue, Severity: council.SeverityCritical, Feedback: "weak proxy — exercise the RPC"}},
 	}}}
-	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{codes: []int{127}}, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
-	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Command: "ss -tlnp"}})
-	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "ss -tlnp", Command: "test -f x"})
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
+	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Assert: "matches listening"}})
+	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "matches listening", Source: "x.txt", Assert: "nonempty"})
 
 	s := a.sessionInfo(ctx, sid)
 	tc := turnCtx{s: s, guard: newRunGuard(), depth: 0, maxSteps: 50}
@@ -149,8 +155,8 @@ func TestReviewSubstitutionsCorrectionLoops(t *testing.T) {
 	if rounds != 1 {
 		t.Fatalf("a correction round should be counted, rounds=%d", rounds)
 	}
-	if got := a.cachedChecks(sid); got[0].Command != "ss -tlnp" {
-		t.Fatalf("a rejected substitution must NOT rewrite the check yet, got %q", got[0].Command)
+	if got := a.cachedChecks(sid); got[0].Assert != "matches listening" || got[0].Source != "" {
+		t.Fatalf("a rejected substitution must NOT rewrite the check yet, got %+v", got[0])
 	}
 	if len(a.pendingSubsOf(sid)) != 1 {
 		t.Fatal("pending substitution should be kept for the corrected re-declaration")
@@ -163,8 +169,8 @@ func TestReviewSubstitutionsApproveWorkerStashes(t *testing.T) {
 	t.Setenv("MAGI_SUBST_REVIEW", "1")
 	ctx := context.Background()
 	fc := &fakeCouncil{delibs: []council.Deliberation{{Decision: council.Done, Verdicts: []council.Verdict{{Decision: council.Done}}}}}
-	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{codes: []int{127}}, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
-	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "ss -tlnp", Command: "python3 probe"})
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
+	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "matches listening", Source: "server.log", Assert: "nonempty"})
 
 	s := a.sessionInfo(ctx, sid)
 	tc := turnCtx{s: s, guard: newRunGuard(), depth: 1, maxSteps: 50} // depth>0 = worker
@@ -173,20 +179,22 @@ func TestReviewSubstitutionsApproveWorkerStashes(t *testing.T) {
 		t.Fatal("approved worker substitution must not loop")
 	}
 	got := a.takeApprovedSubs(sid)
-	if len(got) != 1 || got[0].Command != "python3 probe" {
+	if len(got) != 1 || got[0].Source != "server.log" || got[0].Assert != "nonempty" {
 		t.Fatalf("approved worker substitution should be stashed for the parent, got %+v", got)
 	}
 }
 
-// Necessity guard: when the ORIGINAL check command actually RUNS and PASSES here, the substitution is
+// Necessity guard: when the ORIGINAL check actually evaluates and PASSES here, the substitution is
 // unneeded — it is dropped without convening the council, and the working original is kept unchanged.
 func TestReviewSubstitutionsDropsUnneeded(t *testing.T) {
 	t.Setenv("MAGI_SUBST_REVIEW", "1")
 	ctx := context.Background()
 	fc := &fakeCouncil{delibs: []council.Deliberation{{Decision: council.Done, Verdicts: []council.Verdict{{Decision: council.Done}}}}}
+	// scriptPlatform reads back "verify output" with exit 0, so the original's assertion holds.
 	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{codes: []int{0}}, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
-	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Command: "ss -tlnp"}}) // original RUNS (exit 0) here
-	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "ss -tlnp", Command: "python3 probe", Reason: "works correctly"})
+	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Source: "out.log", Assert: "matches verify"}})
+	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "matches verify", Source: "other.log",
+		Assert: "nonempty", Reason: "works correctly"})
 
 	s := a.sessionInfo(ctx, sid)
 	if act, looped := a.reviewSubstitutions(ctx, turnCtx{s: s, guard: newRunGuard(), depth: 0, maxSteps: 50}, new(int), new(string)); looped {
@@ -195,24 +203,26 @@ func TestReviewSubstitutionsDropsUnneeded(t *testing.T) {
 	if fc.calls != 0 {
 		t.Fatalf("an unneeded substitution must NOT convene the review council, calls=%d", fc.calls)
 	}
-	if got := a.cachedChecks(sid); got[0].Command != "ss -tlnp" {
-		t.Fatalf("the working original must be kept, not rewritten, got %q", got[0].Command)
+	if got := a.cachedChecks(sid); got[0].Source != "out.log" {
+		t.Fatalf("the working original must be kept, not rewritten, got %+v", got[0])
 	}
 	if len(a.pendingSubsOf(sid)) != 0 {
 		t.Fatal("the unneeded substitution should be dropped")
 	}
 }
 
-// Necessity guard: when the ORIGINAL check command RUNS and FAILS, that is a real deliverable failure,
-// not a broken check — the substitution is refused (not applied, council not convened) and the agent is
+// Necessity guard: when the ORIGINAL check evaluates and FAILS, that is a real deliverable failure, not
+// a broken check — the substitution is refused (not applied, council not convened) and the agent is
 // looped to reconsider (fix the deliverable) instead of substituting the failure away.
 func TestReviewSubstitutionsRefusesRanFailed(t *testing.T) {
 	t.Setenv("MAGI_SUBST_REVIEW", "1")
 	ctx := context.Background()
 	fc := &fakeCouncil{delibs: []council.Deliberation{{Decision: council.Done, Verdicts: []council.Verdict{{Decision: council.Done}}}}}
-	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{codes: []int{1}}, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
-	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Command: "test -s out"}}) // original RUNS and FAILS (exit 1)
-	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "test -s out", Command: "true", Reason: "dodging"})
+	// The source reads back fine (exit 0) but does not carry what the assertion requires → a real failure.
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{codes: []int{0}}, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
+	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Source: "out.log", Assert: "matches MUST_APPEAR"}})
+	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "matches MUST_APPEAR", Source: "out.log",
+		Assert: "nonempty", Reason: "dodging"})
 
 	s := a.sessionInfo(ctx, sid)
 	act, looped := a.reviewSubstitutions(ctx, turnCtx{s: s, guard: newRunGuard(), depth: 0, maxSteps: 50}, new(int), new(string))
@@ -222,53 +232,48 @@ func TestReviewSubstitutionsRefusesRanFailed(t *testing.T) {
 	if fc.calls != 0 {
 		t.Fatalf("a real failure must NOT convene the substitution council, calls=%d", fc.calls)
 	}
-	if got := a.cachedChecks(sid); got[0].Command != "test -s out" {
-		t.Fatalf("a failing original must NOT be substituted away, got %q", got[0].Command)
+	if got := a.cachedChecks(sid); got[0].Assert != "matches MUST_APPEAR" {
+		t.Fatalf("a failing original must NOT be substituted away, got %+v", got[0])
 	}
 }
 
-// A substitution whose ORIGINAL check RAN with exit 0 but whose Expect assertion did NOT match the
-// output is a real deliverable failure (the check ran, its assertion failed) — NOT a broken check — so
-// it must be refused like any ran-and-failed original, not substituted away. Locks the Passes(Expect)
-// branch of the necessity guard, distinct from the non-zero-exit path the other ranFailed test covers.
-func TestReviewSubstitutionsRefusesExitZeroExpectMismatch(t *testing.T) {
+// The other failure direction: the source the step was supposed to record is NOT THERE. That is the
+// deliverable's problem, not the check's — an absent source is exit 1, so the substitution is refused
+// like any other real failure rather than treated as an unrunnable check to be swapped out.
+func TestReviewSubstitutionsRefusesMissingSource(t *testing.T) {
 	t.Setenv("MAGI_SUBST_REVIEW", "1")
 	ctx := context.Background()
 	fc := &fakeCouncil{delibs: []council.Deliberation{{Decision: council.Done, Verdicts: []council.Verdict{{Decision: council.Done}}}}}
-	// scriptPlatform returns exit 0 with stdout "verify output"; the check's Expect cannot match it.
-	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{codes: []int{0}}, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
-	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Command: "grep foo out", Expect: "MUST_APPEAR"}})
-	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "grep foo out", Command: "true", Reason: "dodging the assertion"})
+	// cat exits non-zero: the recorded file is absent.
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{codes: []int{1}}, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
+	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Source: "out.log", Assert: "nonempty"}})
+	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "nonempty", Source: "somewhere-else.log", Assert: "nonempty"})
 
 	s := a.sessionInfo(ctx, sid)
 	act, looped := a.reviewSubstitutions(ctx, turnCtx{s: s, guard: newRunGuard(), depth: 0, maxSteps: 50}, new(int), new(string))
 	if !looped || act != loopContinue {
-		t.Fatalf("an exit-0-but-Expect-mismatch original must loop the agent (real assertion failure), got act=%v looped=%v", act, looped)
+		t.Fatalf("an absent recorded source must loop the agent, got act=%v looped=%v", act, looped)
 	}
-	if fc.calls != 0 {
-		t.Fatalf("an assertion failure (not a broken check) must NOT convene the substitution council, calls=%d", fc.calls)
-	}
-	if got := a.cachedChecks(sid); got[0].Command != "grep foo out" {
-		t.Fatalf("the failing original must NOT be substituted away, got %q", got[0].Command)
+	if got := a.cachedChecks(sid); got[0].Source != "out.log" {
+		t.Fatalf("the original must NOT be redirected at another file, got %+v", got[0])
 	}
 }
 
-// A mixed report — one substitution whose original is genuinely unrunnable (justified) and one whose
-// original ran and FAILED (must be refused) — loops the agent for the failure but KEEPS the justified
-// substitution pending, so it is not lost.
+// A mixed report — one substitution whose original cannot be evaluated at all (justified) and one whose
+// original evaluated and FAILED (must be refused) — loops the agent for the failure but KEEPS the
+// justified substitution pending, so it is not lost.
 func TestReviewSubstitutionsMixedKeepsJustified(t *testing.T) {
 	t.Setenv("MAGI_SUBST_REVIEW", "1")
 	ctx := context.Background()
 	fc := &fakeCouncil{delibs: []council.Deliberation{{Decision: council.Done, Verdicts: []council.Verdict{{Decision: council.Done}}}}}
-	// Original for step 1 → exit 127 (unrunnable, justified); original for step 2 → exit 1 (ran & failed).
-	plat := &scriptPlatform{codes: []int{127, 1}}
-	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
+	// Step 1's original names no source → 126 (no verdict, justified). Step 2's reads back and fails.
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{codes: []int{0}}, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
 	setChecks(a, sid, []council.DeliverableCheck{
-		{Step: "1", Command: "ss -tlnp"},
-		{Step: "2", Command: "test -s out"},
+		{Step: "1", Assert: "matches listening"},
+		{Step: "2", Source: "out.log", Assert: "matches MUST_APPEAR"},
 	})
-	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "ss -tlnp", Command: "python3 probe"})
-	a.addPendingSub(sid, port.CheckSub{Step: "2", Original: "test -s out", Command: "true"})
+	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "matches listening", Source: "server.log", Assert: "nonempty"})
+	a.addPendingSub(sid, port.CheckSub{Step: "2", Original: "matches MUST_APPEAR", Source: "out.log", Assert: "nonempty"})
 
 	s := a.sessionInfo(ctx, sid)
 	act, looped := a.reviewSubstitutions(ctx, turnCtx{s: s, guard: newRunGuard(), depth: 0, maxSteps: 50}, new(int), new(string))
@@ -281,6 +286,43 @@ func TestReviewSubstitutionsMixedKeepsJustified(t *testing.T) {
 	}
 }
 
+// matchOriginalCheck resolves which STORED check a substitution is about. The worker quotes the item as
+// it read it in the brief — which for a typed check is its assertion — so every handle must land on the
+// same check, and a step whose checks are ambiguous with nothing quoted must NOT be guessed at.
+func TestMatchOriginalCheck(t *testing.T) {
+	checks := []council.DeliverableCheck{
+		{Step: "1", Source: "a.log", Assert: "nonempty"},
+		{Step: "1", Source: "b.log", Assert: "matches ^OK"},
+		{Step: "2", Source: "c.log", Assert: "matches ^DONE"},
+	}
+	for _, tc := range []struct {
+		name string
+		sub  port.CheckSub
+		want string // source of the check that must be selected; "" = no match expected
+	}{
+		{"by identity", port.CheckSub{Step: "1", Original: checkIdent(checks[1])}, "b.log"},
+		{"by assertion", port.CheckSub{Step: "1", Original: "nonempty"}, "a.log"},
+		{"sole check in step", port.CheckSub{Step: "2"}, "c.log"},
+		{"ambiguous, nothing quoted", port.CheckSub{Step: "1"}, ""},
+		{"no such step", port.CheckSub{Step: "9", Original: "nonempty"}, ""},
+	} {
+		got, ok := matchOriginalCheck(checks, tc.sub)
+		if tc.want == "" {
+			if ok {
+				t.Errorf("%s: want no match, got %+v", tc.name, got)
+			}
+			continue
+		}
+		if !ok {
+			t.Errorf("%s: want a match", tc.name)
+			continue
+		}
+		if got.Source != tc.want {
+			t.Errorf("%s: matched the wrong check, got source %q want %q", tc.name, got.Source, tc.want)
+		}
+	}
+}
+
 func TestCheckCommandUnrunnable(t *testing.T) {
 	cases := []struct {
 		out  string
@@ -288,7 +330,7 @@ func TestCheckCommandUnrunnable(t *testing.T) {
 		want bool
 	}{
 		{"", 127, true}, // command not found
-		{"", 126, true}, // found but not executable
+		{"", 126, true}, // the check itself could not be evaluated
 		{"/bin/sh: 1: port_owner: not found", 1, true}, // sh not-found under a non-127 code
 		{"bash: foo: command not found", 2, true},
 		{"verify output", 0, false},                      // ran and passed
@@ -313,9 +355,9 @@ func TestReviewSubstitutionsBudgetExhaustionProceeds(t *testing.T) {
 	// A council that would keep rejecting — proving the BOUND, not the verdict, is what stops the loop.
 	fc := &fakeCouncil{delibs: []council.Deliberation{{Decision: council.Continue,
 		Verdicts: []council.Verdict{{Decision: council.Continue, Severity: council.SeverityCritical, Feedback: "still weak"}}}}}
-	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{codes: []int{127}}, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
-	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Command: "ss -tlnp"}})
-	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "ss -tlnp", Command: "test -f x"})
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
+	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Assert: "matches listening"}})
+	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "matches listening", Source: "x", Assert: "nonempty"})
 
 	s := a.sessionInfo(ctx, sid)
 	tc := turnCtx{s: s, guard: newRunGuard(), depth: 0, maxSteps: 50}
@@ -341,11 +383,12 @@ func TestReviewSubstitutionsCarriesPriorCritique(t *testing.T) {
 		}},
 		{Decision: council.Done, Verdicts: []council.Verdict{{Decision: council.Done}}},
 	}}
-	// The original must stay unrunnable across BOTH rounds, or the second review would find the
+	// The original must stay unevaluable across BOTH rounds, or the second review would find the
 	// substitution unjustified and never convene.
-	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{codes: []int{127, 127, 127, 127}}, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
-	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Command: "ss -tlnp"}})
-	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "ss -tlnp", Command: "python3 probe", Reason: "ss absent"})
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
+	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Assert: "matches listening"}})
+	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "matches listening", Source: "server.log",
+		Assert: "port_open 8080", Reason: "the check named no source"})
 
 	s := a.sessionInfo(ctx, sid)
 	tc := turnCtx{s: s, guard: newRunGuard(), depth: 0, maxSteps: 50}
@@ -362,7 +405,8 @@ func TestReviewSubstitutionsCarriesPriorCritique(t *testing.T) {
 	}
 
 	// Round two: same pending sub re-declared; the council must now SEE its own prior objection.
-	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "ss -tlnp", Command: "python3 roundtrip", Reason: "ss absent"})
+	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "matches listening", Source: "roundtrip.log",
+		Assert: "matches ^ROUNDTRIP OK", Reason: "the check named no source"})
 	if _, looped := a.reviewSubstitutions(ctx, tc, &rounds, &critique); looped {
 		t.Fatal("an approved correction must not loop again")
 	}

@@ -85,9 +85,9 @@ func (a *App) takeReport(sid session.SessionID) *subReport {
 
 // addPendingSub registers (or upserts) a declared check substitution awaiting review. It upserts by
 // (step, original) so a worker CORRECTING a rejected substitution replaces its prior entry rather than
-// stacking a second one. Empty command is ignored.
+// stacking a second one. An empty assertion is ignored — it would substitute a check for no check.
 func (a *App) addPendingSub(sid session.SessionID, sub port.CheckSub) {
-	if strings.TrimSpace(sub.Command) == "" {
+	if strings.TrimSpace(sub.Assert) == "" {
 		return
 	}
 	a.mu.Lock()
