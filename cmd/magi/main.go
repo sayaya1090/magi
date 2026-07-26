@@ -961,6 +961,16 @@ func renderText(out, errw io.Writer, e event.Event) {
 				line += " → continue"
 			}
 			fmt.Fprintln(out, line)
+			// The objection ITSELF, not just the tally. It used to reach the log only through the
+			// injected prompt, which renders as a 200-char note — and the advisory keep-list is
+			// prepended ABOVE the feedback there, so the 200 chars were spent on the advisory and
+			// the demand that held the turn open never appeared anywhere (observed: three rounds
+			// of continue whose subject was only recoverable from the model's paraphrase of it).
+			// Its own case, bounded like the PlanRevised diff above, since a run with no record of
+			// WHY the council refused cannot be diagnosed afterward at all.
+			for _, ln := range councilFeedbackLines(d.Feedback) {
+				fmt.Fprintln(out, "    "+ln)
+			}
 		}
 	case event.TypePlanRevised:
 		// A plan-audit re-plan round: show the critique, the before→after step diff, and
@@ -1058,6 +1068,26 @@ func truncate(s string, n int) string {
 		n--
 	}
 	return s[:n] + "…"
+}
+
+// councilFeedbackLines renders a council rejection's feedback for the run log: the non-blank lines,
+// each truncated, and the whole capped — enough to name every demand that is holding the turn open
+// without letting one verbose member's reasoning bury the rest of the transcript. Empty feedback
+// (an approval, or a forced finish whose reason is already in the note) renders nothing.
+func councilFeedbackLines(fb string) []string {
+	const maxLines, maxWidth = 12, 200
+	var out []string
+	for _, ln := range strings.Split(strings.TrimSpace(fb), "\n") {
+		ln = strings.TrimRight(ln, " \t")
+		if strings.TrimSpace(ln) == "" {
+			continue
+		}
+		if len(out) == maxLines {
+			return append(out, fmt.Sprintf("… (feedback continues; %d line(s) shown)", maxLines))
+		}
+		out = append(out, truncate(ln, maxWidth))
+	}
+	return out
 }
 
 // councilSignals builds the council's deterministic signal list: the `verify`

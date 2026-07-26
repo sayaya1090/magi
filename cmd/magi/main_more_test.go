@@ -159,3 +159,40 @@ func TestRenderText(t *testing.T) {
 		t.Errorf("error must not go to stdout: %q", out)
 	}
 }
+
+// A council rejection's feedback used to reach the run log only through the injected prompt, which
+// renders as a 200-char note — and the advisory keep-list is prepended ABOVE the feedback there, so
+// those 200 chars were spent on the advisory and the demand that held the turn open appeared nowhere.
+// A run whose council refused three rounds in a row cannot be diagnosed afterward if no record says
+// what it refused over.
+func TestCouncilFeedbackLinesKeepTheObjectionAndStayBounded(t *testing.T) {
+	if got := councilFeedbackLines("   \n\n  "); len(got) != 0 {
+		t.Errorf("blank feedback must render nothing, got %q", got)
+	}
+	got := councilFeedbackLines("The council did not agree:\n\n- Melchior (correctness): the output is not compared\n")
+	if len(got) != 2 || got[0] != "The council did not agree:" {
+		t.Fatalf("blank lines must be dropped and the rest kept, got %q", got)
+	}
+	if !strings.Contains(got[1], "Melchior") {
+		t.Errorf("every member's objection must survive, got %q", got[1])
+	}
+
+	// One verbose member must not be able to bury the transcript: lines are capped and truncated,
+	// and the cut is announced rather than silent.
+	var many []string
+	for i := 0; i < 40; i++ {
+		many = append(many, strings.Repeat("x", 500))
+	}
+	out := councilFeedbackLines(strings.Join(many, "\n"))
+	if len(out) != 13 {
+		t.Fatalf("expected 12 lines plus the truncation notice, got %d", len(out))
+	}
+	if !strings.Contains(out[12], "feedback continues") {
+		t.Errorf("the cut must be announced, got %q", out[12])
+	}
+	for _, ln := range out[:12] {
+		if len([]rune(ln)) > 201 {
+			t.Errorf("a single line must be truncated, got %d runes", len([]rune(ln)))
+		}
+	}
+}
