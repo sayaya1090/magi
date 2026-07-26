@@ -99,18 +99,18 @@ func TestEnsureCoverageIgnoresOutOfRangeStepLabel(t *testing.T) {
 	}
 }
 
-// A reply that is NOT a coverage-increasing superset (it drops an authored check, or adds no distinct
-// step) is rejected — the authored contract is kept rather than weakened. Two sub-cases.
+// A reply that adds no distinct step coverage is rejected — the authored contract is kept rather than
+// weakened. Two sub-cases.
 func TestEnsureCoverageRejectsNonSuperset(t *testing.T) {
 	t.Setenv("MAGI_CHECK_COVERAGE", "1")
 	s := parentSession(t.TempDir())
 	in := []council.DeliverableCheck{{Step: "1", Command: "a"}}
 	steps := []planStep{{Title: "one"}, {Title: "two"}}
 
-	// (a) reply drops the existing check (fewer than authored) → keep authored.
+	// (a) reply is empty: nothing to merge, so coverage is unchanged → keep authored.
 	a := newOrchApp(t, &gateLLM{text: `[]`}, Config{Permission: "allow", MaxAgents: 10})
 	if out := a.ensureStepCoverage(context.Background(), s, "task", steps, in); len(out) != 1 {
-		t.Errorf("a reply dropping checks must keep the authored set, got %+v", out)
+		t.Errorf("an empty reply must keep the authored set, got %+v", out)
 	}
 
 	// (b) reply is bigger but adds no NEW distinct step (both checks on step 1) → no coverage gained.
@@ -146,7 +146,7 @@ func TestEnsureCoverageReportsUnfilledGap(t *testing.T) {
 		name, reply, want string
 	}{
 		{"unparseable fill", "not a checks array at all", "did not parse"},
-		{"fill drops existing checks", `[]`, "dropped existing checks"},
+		{"fill returns nothing", `[]`, "none attach to an uncovered step"},
 		{"fill adds no new step coverage", `[{"step":"1","command":"a"},{"step":"1","command":"a2"}]`, "none attach to an uncovered step"},
 	}
 	for _, c := range cases {
@@ -166,6 +166,48 @@ func TestEnsureCoverageReportsUnfilledGap(t *testing.T) {
 				t.Errorf("the note must quantify the gap, got:\n%s", note)
 			}
 		})
+	}
+}
+
+// The shape a live run actually hit: 4 authored checks ALL attached to step 1 of a 4-step plan, and a
+// fill that answers with 3 checks spread across steps 1-3. The old guard compared counts (3 < 4) and
+// discarded the fill, so a gap-FILLING pass rejected the only reply that filled the gap and the run
+// landed 3 of 4 steps ungated. Coverage decides now, and the authored checks survive the merge.
+func TestEnsureCoverageAcceptsAFillWithFewerButBroaderChecks(t *testing.T) {
+	t.Setenv("MAGI_CHECK_COVERAGE", "1")
+	steps := []planStep{{Title: "one"}, {Title: "two"}, {Title: "three"}, {Title: "four"}}
+	in := []council.DeliverableCheck{
+		{Step: "1", Command: "a1"}, {Step: "1", Command: "a2"},
+		{Step: "1", Command: "a3"}, {Step: "1", Command: "a4"},
+	}
+	a := newOrchApp(t, &gateLLM{text: `[{"step":"1","command":"a1"},{"step":"2","command":"b"},{"step":"3","command":"c"}]`},
+		Config{Permission: "allow", MaxAgents: 10})
+	s := parentSession(t.TempDir())
+	sub := watchProgress(t, a, s.ID)
+	out := a.ensureStepCoverage(context.Background(), s, "task", steps, in)
+
+	covered := map[int]bool{}
+	cmds := map[string]bool{}
+	for _, c := range out {
+		covered[leadingInt(c.Step)] = true
+		cmds[c.Command] = true
+	}
+	for _, step := range []int{1, 2, 3} {
+		if !covered[step] {
+			t.Errorf("step %d must be covered after the fill, got %+v", step, out)
+		}
+	}
+	// Merged, not replaced: the three authored commands the fill omitted are still in the contract.
+	for _, cmd := range []string{"a1", "a2", "a3", "a4"} {
+		if !cmds[cmd] {
+			t.Errorf("authored check %q must survive the merge, got %+v", cmd, out)
+		}
+	}
+	if len(out) != 6 { // 3 from the fill + 3 authored it dropped (a1 is shared)
+		t.Errorf("want the union of both sets (6 checks), got %d: %+v", len(out), out)
+	}
+	if note := sub.notes("check-coverage"); !strings.Contains(note, "restored 3 authored check(s)") {
+		t.Errorf("the note must say authored checks were put back, got:\n%s", note)
 	}
 }
 
