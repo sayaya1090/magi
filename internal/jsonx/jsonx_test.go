@@ -244,3 +244,129 @@ func TestReportCarriesBothHalves(t *testing.T) {
 		t.Errorf("Report lost the reason: %s", got)
 	}
 }
+
+// The four shapes below all cost a whole council reply in one run of one task, and none of them was
+// a bad FIELD — each is a stray token that destroys the SPAN, so the extractor returned no candidate
+// and the tolerant parse behind it never ran on anything. Each is also already-invalid JSON, so
+// repairing it cannot corrupt a document that was going to parse.
+func TestRecoversDamagedSpans(t *testing.T) {
+	cases := []struct {
+		name     string
+		in       string
+		wantDec  string
+		wantCrit int
+	}{
+		{
+			// Cut off by an output budget: the closing brace never arrives. Costs the vote, which
+			// was the reply's FIRST field.
+			name:    "truncated mid-document",
+			in:      `{"decision":"continue","confidence":0.85,"criteria":["the compiler bootstraps","the suite passes"]`,
+			wantDec: "continue", wantCrit: 2,
+		},
+		{
+			// A stray quote after the closed array swallows the rest, so the final } is read as
+			// string content and the span never closes.
+			name:    "stray quote after a closed array",
+			in:      `{"decision":"done","criteria":["make test completes with no unexpected failures."]" }`,
+			wantDec: "done", wantCrit: 1,
+		},
+		{
+			name:    "the element's own brace written twice",
+			in:      `{"decision":"done","criteria":["a","b"]}}`,
+			wantDec: "done", wantCrit: 2,
+		},
+		{
+			name:    "a trailing fragment that is not a pair",
+			in:      `{"decision":"done","criteria":["a"], ""}`,
+			wantDec: "done", wantCrit: 1,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cands := Objects(tc.in)
+			if len(cands) == 0 {
+				t.Fatalf("no candidate recovered — the reply is lost: %s", Diagnose(tc.in))
+			}
+			var got struct {
+				Decision string   `json:"decision"`
+				Criteria []string `json:"criteria"`
+			}
+			ok := false
+			for _, c := range cands {
+				if Unmarshal(c, &got) && got.Decision != "" {
+					ok = true
+					break
+				}
+			}
+			if !ok {
+				t.Fatalf("candidates parsed to nothing: %q", cands)
+			}
+			if got.Decision != tc.wantDec || len(got.Criteria) != tc.wantCrit {
+				t.Errorf("got decision=%q criteria=%d, want %q / %d", got.Decision, len(got.Criteria), tc.wantDec, tc.wantCrit)
+			}
+		})
+	}
+}
+
+// What arrived complete is kept; the fragment the model was in the middle of writing is dropped
+// rather than closed over, so no field ever carries a value that was only half transmitted.
+func TestCloseTruncatedKeepsWhatArrivedComplete(t *testing.T) {
+	in := `{"steps":[{"title":"build","strategy":"solo"},{"title":"verify","strat`
+	got, ok := CloseTruncated(in)
+	if !ok {
+		t.Fatal("a truncated document must be recognised")
+	}
+	var plan struct {
+		Steps []struct {
+			Title    string `json:"title"`
+			Strategy string `json:"strategy"`
+		} `json:"steps"`
+	}
+	if err := json.Unmarshal([]byte(got), &plan); err != nil {
+		t.Fatalf("recovered document must parse: %v (%s)", err, got)
+	}
+	if len(plan.Steps) != 2 || plan.Steps[0].Title != "build" || plan.Steps[0].Strategy != "solo" {
+		t.Fatalf("the completed step must survive intact, got %+v (%s)", plan.Steps, got)
+	}
+	// The second step's title arrived; the key it was cut in the middle of did not, and no half of
+	// it is carried forward.
+	if plan.Steps[1].Title != "verify" || plan.Steps[1].Strategy != "" {
+		t.Fatalf("want the completed fields only, got %+v (%s)", plan.Steps[1], got)
+	}
+}
+
+// Every one of these repairs must be identity on documents that were going to parse — they run on
+// replies that already failed, but they must never be the reason one starts failing.
+func TestDamageRepairsAreIdentityOnLegalJSON(t *testing.T) {
+	legal := []string{
+		`{"a":"b"}`,
+		`{"a":["x","y"],"b":{"c":1}}`,
+		`[{"step":1,"command":"make && ./run"},{"step":2,"command":"echo }] done"}]`,
+		`{"note":"a closing brace } and bracket ] inside a string"}`,
+		`{"url":"http://x/y","n":-1.5,"ok":true,"z":null}`,
+		`{"nested":{"deep":{"deeper":[1,2,3]}}}`,
+		`"top-level string"`,
+		`[]`,
+		`{}`,
+	}
+	for _, s := range legal {
+		for name, f := range map[string]func(string) string{
+			"DropStrayQuoteAfterContainer": DropStrayQuoteAfterContainer,
+			"DropUnmatchedClosers":         DropUnmatchedClosers,
+			"DropDanglingPair":             DropDanglingPair,
+		} {
+			if got := f(s); got != s {
+				t.Errorf("%s changed a legal document:\n in: %s\nout: %s", name, s, got)
+			}
+		}
+		if got, ok := CloseTruncated(s); ok {
+			t.Errorf("CloseTruncated reported a whole document as truncated: %s → %s", s, got)
+		}
+		// And the recovered-candidate list still leads with the document's own span.
+		if strings.HasPrefix(s, "{") {
+			if c := Objects(s); len(c) == 0 || c[0] != s {
+				t.Errorf("Objects must offer the original span first: %s → %q", s, c)
+			}
+		}
+	}
+}

@@ -30,6 +30,50 @@ func BalancedObjects(s string) []string { return balancedSpans(s, '{', '}') }
 // real array.
 func BalancedArrays(s string) []string { return balancedSpans(s, '[', ']') }
 
+// Objects is BalancedObjects plus the candidates a DAMAGED reply still yields, and it is what a
+// reader of model output should call. The distinction matters because the two defects seen most
+// often in practice both destroy the SPAN, not just the parse: a reply cut off by an output budget
+// never closes its brace, and a stray quote after a closed container swallows the rest of the text —
+// in both cases BalancedObjects returns an empty list, so the tolerant parse behind it never runs on
+// anything. Repaired candidates come last, so a clean reply is still read from its own first span.
+func Objects(s string) []string { return spansWithRecovery(s, '{', '}') }
+
+// Arrays is Objects for [...] replies (a check list, a criteria list), damaged the same ways.
+func Arrays(s string) []string { return spansWithRecovery(s, '[', ']') }
+
+func spansWithRecovery(s string, open, close byte) []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(c string) {
+		if c == "" || seen[c] {
+			return
+		}
+		seen[c] = true
+		out = append(out, c)
+	}
+	for _, c := range balancedSpans(s, open, close) {
+		add(c)
+	}
+	// Each of these removes a token that only ever appears in a document json.Unmarshal was going to
+	// reject, and each of them — not just the parse — destroys the SPAN: the extractor either runs off
+	// the end or stops early, so without this the tolerant parse behind it is handed nothing to read.
+	cleaned := DropDanglingPair(DropUnmatchedClosers(DropStrayQuoteAfterContainer(s)))
+	if cleaned != s {
+		for _, c := range balancedSpans(cleaned, open, close) {
+			add(c)
+		}
+	}
+	for _, src := range []string{s, cleaned} {
+		// An EMPTY recovery carries nothing, and offering it would be the worst outcome of all: the
+		// caller stops reporting that it could not read the reply and silently proceeds as if the model
+		// had answered with nothing to say. Prose that merely contains a stray bracket recovers to `[]`.
+		if c, ok := CloseTruncated(src); ok && c[0] == open && strings.TrimSpace(c[1:len(c)-1]) != "" {
+			add(c)
+		}
+	}
+	return out
+}
+
 // balancedSpans returns every TOP-LEVEL balanced open..close span in s, in order, respecting string
 // literals and escapes so a bracket inside a quoted value never shifts the boundary. An open that
 // never closes (a stray bracket in prose/reasoning — weak models emit these: a code fragment, a set
@@ -133,6 +177,236 @@ func StripTrailingCommas(s string) string {
 	return b.String()
 }
 
+// DropStrayQuoteAfterContainer removes a `"` that stands where JSON permits no value to begin: on
+// the heels of a closed ] or } (whitespace skipped), where only a comma, another closer, or the end
+// of the document is legal. Such a quote is not merely unparseable, it is CONTAGIOUS — the scanner
+// enters a string literal and swallows the rest of the reply, so the closing brace never registers
+// and the extractor returns no candidate at all. Observed live: a verdict ending `…failures."]" }`,
+// where the whole vote was lost to one character. A legal document never reaches this shape, so the
+// repair is identity on anything that was going to parse.
+func DropStrayQuoteAfterContainer(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	inStr, esc := false, false
+	prev := byte(0) // last non-space byte written, outside strings
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if inStr {
+			b.WriteByte(c)
+			switch {
+			case esc:
+				esc = false
+			case c == '\\':
+				esc = true
+			case c == '"':
+				inStr = false
+				prev = c
+			}
+			continue
+		}
+		if c == '"' {
+			if prev == ']' || prev == '}' {
+				continue // stray: drop it and stay outside the string
+			}
+			inStr = true
+			b.WriteByte(c)
+			prev = c
+			continue
+		}
+		b.WriteByte(c)
+		if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
+			prev = c
+		}
+	}
+	return b.String()
+}
+
+// DropUnmatchedClosers removes a } or ] that closes nothing — one that arrives with no container
+// open, or that does not match the container it would close. Observed live: a check list ending
+// `…"expect":"passed"}} ]`, where the element's own brace was written twice. Like a stray quote this
+// costs the whole reply rather than the one element, because the extra closer drives the extractor's
+// depth to zero early and the span it returns stops mid-document. A well-formed document has no such
+// token, so this is identity on anything that was going to parse.
+func DropUnmatchedClosers(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	var want []byte // the closer each open container is waiting for
+	inStr, esc := false, false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if inStr {
+			b.WriteByte(c)
+			switch {
+			case esc:
+				esc = false
+			case c == '\\':
+				esc = true
+			case c == '"':
+				inStr = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			if len(want) > 0 { // a quote outside every container is prose
+				inStr = true
+			}
+			b.WriteByte(c)
+		case '{':
+			want = append(want, '}')
+			b.WriteByte(c)
+		case '[':
+			want = append(want, ']')
+			b.WriteByte(c)
+		case '}', ']':
+			if len(want) == 0 || want[len(want)-1] != c {
+				continue // closes nothing: drop it
+			}
+			want = want[:len(want)-1]
+			b.WriteByte(c)
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
+}
+
+// DropDanglingPair removes a trailing fragment inside an object that is not a key:value pair at all —
+// everything from the last comma up to the closing brace, when no colon was written after that comma.
+// Observed live: a check ending `…"command":"make all && make opt", ""}`, where a bare "" stands where
+// a pair belongs. An object's final element always carries a colon of its own, so a document that was
+// going to parse is returned unchanged; only the fragment that made it unreadable is dropped, and the
+// pairs written before it survive.
+func DropDanglingPair(s string) string {
+	type frame struct {
+		obj        bool
+		lastComma  int
+		colonSince bool
+	}
+	var stack []frame
+	type span struct{ from, to int }
+	var cuts []span
+	inStr, esc := false, false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case esc:
+			esc = false
+		case inStr && c == '\\':
+			esc = true
+		case c == '"':
+			if inStr || len(stack) > 0 {
+				inStr = !inStr
+			}
+		case inStr:
+		case c == '{' || c == '[':
+			stack = append(stack, frame{obj: c == '{', lastComma: -1})
+		case c == '}' || c == ']':
+			if len(stack) == 0 {
+				continue
+			}
+			f := stack[len(stack)-1]
+			if f.obj && c == '}' && f.lastComma >= 0 && !f.colonSince {
+				cuts = append(cuts, span{f.lastComma, i})
+			}
+			stack = stack[:len(stack)-1]
+		case c == ',':
+			if len(stack) > 0 {
+				stack[len(stack)-1].lastComma = i
+				stack[len(stack)-1].colonSince = false
+			}
+		case c == ':':
+			if len(stack) > 0 {
+				stack[len(stack)-1].colonSince = true
+			}
+		}
+	}
+	if len(cuts) == 0 {
+		return s
+	}
+	// Objects close innermost-first, so the cuts arrive out of order and an outer one can contain an
+	// inner one; ordering them lets the writer below skip what it has already dropped.
+	sort.Slice(cuts, func(i, j int) bool { return cuts[i].from < cuts[j].from })
+	var b strings.Builder
+	b.Grow(len(s))
+	prev := 0
+	for _, cut := range cuts {
+		if cut.from < prev { // a cut inside an already-dropped span
+			continue
+		}
+		b.WriteString(s[prev:cut.from])
+		prev = cut.to
+	}
+	b.WriteString(s[prev:])
+	return b.String()
+}
+
+// CloseTruncated completes a document the model stopped writing partway through, and reports whether
+// there was anything to complete. A reply cut off by an output budget is the single most costly shape
+// here, because the extractor skips an opening brace that never closes: the caller is handed NOTHING,
+// so a verdict whose decision was the very first field is recorded as an abstain, and a contract draft
+// that carried nine of ten criteria is treated as no draft at all.
+//
+// The guarantee is that everything which arrived COMPLETE is kept and the fragment after it is not:
+// the tail is cut back to the last comma of the innermost container — the signal that what precedes
+// it finished — and the open containers are then closed. So a truncated criteria list yields the
+// criteria that fully arrived, and a plan cut mid-step yields that step's completed fields and drops
+// the half-written one it was in the middle of.
+func CloseTruncated(s string) (string, bool) {
+	type frame struct {
+		close    byte
+		lastGood int // index just past the last complete element in this container
+	}
+	var stack []frame
+	start := -1
+	inStr, esc := false, false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case esc:
+			esc = false
+		case inStr && c == '\\':
+			esc = true
+		case c == '"':
+			// A quote outside every container is prose around the JSON, not a string delimiter.
+			if inStr || len(stack) > 0 {
+				inStr = !inStr
+			}
+		case inStr:
+		case c == '{' || c == '[':
+			cl := byte('}')
+			if c == '[' {
+				cl = ']'
+			}
+			if len(stack) == 0 {
+				start = i
+			}
+			stack = append(stack, frame{close: cl, lastGood: i + 1})
+		case c == '}' || c == ']':
+			if len(stack) == 0 {
+				continue // a stray closer in the prose
+			}
+			stack = stack[:len(stack)-1]
+			if len(stack) > 0 {
+				stack[len(stack)-1].lastGood = i + 1
+			}
+		case c == ',':
+			if len(stack) > 0 {
+				stack[len(stack)-1].lastGood = i // cut BEFORE the comma
+			}
+		}
+	}
+	if len(stack) == 0 || start < 0 {
+		return "", false // nothing was left open: the document is whole, or there is no JSON in it
+	}
+	var b strings.Builder
+	b.WriteString(s[start:stack[len(stack)-1].lastGood])
+	for i := len(stack) - 1; i >= 0; i-- {
+		b.WriteByte(stack[i].close)
+	}
+	return b.String(), true
+}
+
 // EscapeControlCharsInStrings rewrites raw control characters (< 0x20) that appear INSIDE a JSON
 // string literal into their valid JSON escape (a literal newline/tab a weak model puts inside a
 // "reason"/"task" value becomes \n/\t), which json.Unmarshal otherwise rejects with "invalid
@@ -211,6 +485,8 @@ func RepairCandidates(js string) []string {
 	// ones and the caller always tries the original first.
 	add(EscapeStrayQuotes(js))
 	add(EscapeStrayQuotes(light))
+	add(DropStrayQuoteAfterContainer(light))
+	add(DropDanglingPair(DropUnmatchedClosers(DropStrayQuoteAfterContainer(light))))
 	quoted := SingleToDoubleQuotes(light)
 	add(quoted)
 	add(QuoteBareValues(quoted))
