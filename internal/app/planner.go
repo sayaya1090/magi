@@ -37,6 +37,34 @@ type planGroup struct {
 	Question string `json:"question"` // what this explorer should find out
 }
 
+// flexString is a free-text plan field that tolerates the shapes a model actually emits where the
+// schema says string: a plain string, a LIST of strings (it enumerates instead of writing prose),
+// or a number. A strict string rejected the WHOLE plan over one field — observed live: a 2271-char,
+// otherwise-valid six-step plan discarded because `discover` arrived as an array, costing a full
+// re-generation round trip. Same rationale as the tools' flexInt/flexBool. A list is joined rather
+// than truncated, because each element is part of what the field says.
+type flexString string
+
+func (v *flexString) UnmarshalJSON(b []byte) error {
+	var s string
+	if json.Unmarshal(b, &s) == nil {
+		*v = flexString(s)
+		return nil
+	}
+	var list []string
+	if json.Unmarshal(b, &list) == nil {
+		*v = flexString(strings.Join(list, "; "))
+		return nil
+	}
+	var n json.Number
+	if json.Unmarshal(b, &n) == nil {
+		*v = flexString(n.String())
+		return nil
+	}
+	*v = "" // anything else → unset, never a rejected plan
+	return nil
+}
+
 // planStep is one ordered step of the procedure plus HOW to execute it (D17).
 type planStep struct {
 	Title    string      `json:"title"`            // human-facing step (becomes a todo)
@@ -61,6 +89,30 @@ type planStep struct {
 	// on failure the failure is recorded back into the parent context and the node is
 	// re-planned locally, escalating to the parent only when local retries are exhausted.
 	Task string `json:"task,omitempty"`
+}
+
+// UnmarshalJSON reads a step through flexString for its free-text fields, so a model that answers
+// a prose field with a LIST (or a number) does not cost the whole plan. Go's decoder aborts the
+// entire document on the first type mismatch, so one such field discarded every step alongside it.
+func (p *planStep) UnmarshalJSON(b []byte) error {
+	// A shadow type is required: naming planStep here would recurse into this method.
+	var s struct {
+		Title    flexString  `json:"title"`
+		Strategy string      `json:"strategy"`
+		Groups   []planGroup `json:"groups,omitempty"`
+		Agent    string      `json:"agent,omitempty"`
+		Discover flexString  `json:"discover,omitempty"`
+		Each     flexString  `json:"each,omitempty"`
+		Task     flexString  `json:"task,omitempty"`
+	}
+	if err := json.Unmarshal(b, &s); err != nil {
+		return err
+	}
+	*p = planStep{
+		Title: string(s.Title), Strategy: s.Strategy, Groups: s.Groups, Agent: s.Agent,
+		Discover: string(s.Discover), Each: string(s.Each), Task: string(s.Task),
+	}
+	return nil
 }
 
 // planResult is the planner's procedure: an ordered list of steps.

@@ -2309,3 +2309,34 @@ func TestPlanAuditTaskCarriesFrozenContract(t *testing.T) {
 		t.Errorf("the contract must be framed as what the authored checks verify:\n%s", fc2.lastReq.Task)
 	}
 }
+
+// Go's decoder aborts the whole document on the first type mismatch, so a model that answers one
+// prose field with a LIST used to cost every step alongside it. Observed live: a 2271-char,
+// otherwise-valid six-step plan discarded because `discover` arrived as an array, paying for a
+// full re-generation round trip on a slow model.
+func TestPlanStepToleratesListValuedTextFields(t *testing.T) {
+	raw := `{"reason":"x","steps":[
+	  {"title":"survey","strategy":"scout","discover":["the docs","the tests"],"each":"what it covers"},
+	  {"title":["build","and test"],"strategy":"solo","task":42}
+	]}`
+	p := parsePlan(raw)
+	if len(p.Steps) != 2 {
+		t.Fatalf("both steps must survive a list-valued field, got %d: %+v", len(p.Steps), p.Steps)
+	}
+	if p.Steps[0].Discover != "the docs; the tests" {
+		t.Errorf("a list must be joined, not dropped: %q", p.Steps[0].Discover)
+	}
+	if p.Steps[0].Each != "what it covers" {
+		t.Errorf("a plain string is unchanged: %q", p.Steps[0].Each)
+	}
+	if p.Steps[1].Title != "build; and test" {
+		t.Errorf("a list title must join: %q", p.Steps[1].Title)
+	}
+	if p.Steps[1].Task != "42" {
+		t.Errorf("a number must render as text: %q", p.Steps[1].Task)
+	}
+	// A structurally wrong step (an object where a string list cannot apply) still degrades safely.
+	if p2 := parsePlan(`{"steps":[{"title":{"a":1},"strategy":"solo"}]}`); len(p2.Steps) == 1 && p2.Steps[0].Title != "" {
+		t.Errorf("an object-valued title must fall back to empty, got %q", p2.Steps[0].Title)
+	}
+}
