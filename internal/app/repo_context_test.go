@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,6 +52,55 @@ func TestRepoContextTwoLevelAndAnchorExcerpt(t *testing.T) {
 	}
 	if !strings.Contains(got, "Makefile (excerpt)") || !strings.Contains(got, "CFLAGS = -O2") {
 		t.Errorf("anchor excerpt must include Makefile opening lines:\n%s", got)
+	}
+}
+
+// A source root's long tail is docs and build-variant files, and their names often sort ahead of
+// every subdirectory. Under one shared alphabetical cap those files spend the whole budget and the
+// tree lands with ZERO directories — the planner then has no structure to navigate and invents
+// paths, which flow into the plan, the authored checks and the scout's seed. Directories must get
+// their own cap and be listed first, so a late-sorting one still appears.
+func TestRepoContextShowsDirectoriesFilesCannotCrowdOut(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "proj")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// 20 files whose names all sort before any directory below.
+	for i := 0; i < 20; i++ {
+		p := filepath.Join(root, fmt.Sprintf("Aaa%02d.txt", i))
+		if err := os.WriteFile(p, []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// 25 directories; the one that matters sorts last of all.
+	for i := 0; i < 24; i++ {
+		if err := os.MkdirAll(filepath.Join(root, fmt.Sprintf("mid%02d", i)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(root, "zzz-target"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got := repoContext(dir)
+
+	if !strings.Contains(got, "zzz-target/") {
+		t.Errorf("a late-sorting directory must survive the cut — files must not crowd out the tree:\n%s", got)
+	}
+	if !strings.Contains(got, "mid00/") || !strings.Contains(got, "mid23/") {
+		t.Errorf("every directory within the directory cap must be listed:\n%s", got)
+	}
+	// Files stay tight: the file cap still bites, and its truncation is marked.
+	if n := strings.Count(got, "Aaa"); n > 12 {
+		t.Errorf("plain files must stay under their own cap, got %d:\n%s", n, got)
+	}
+	if !strings.Contains(got, "  …") {
+		t.Errorf("a truncated class must be marked with an ellipsis:\n%s", got)
+	}
+	// Directories come before files so the file cap can never displace them.
+	if di, fi := strings.Index(got, "mid00/"), strings.Index(got, "Aaa"); di < 0 || fi < 0 || di > fi {
+		t.Errorf("directories must be listed before plain files (dir@%d file@%d):\n%s", di, fi, got)
 	}
 }
 

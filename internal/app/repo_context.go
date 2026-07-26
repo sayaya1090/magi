@@ -71,7 +71,16 @@ func repoContext(workdir string) string {
 	}
 	sort.Slice(ents, func(i, j int) bool { return ents[i].Name() < ents[j].Name() })
 	var b strings.Builder
-	const maxTopEntries, maxChildEntries = 40, 12
+	// Directories and plain files get SEPARATE caps, and directories are listed first. One shared
+	// alphabetical cap makes the cut arbitrary, and the long tail of a source root is docs and
+	// build-variant files whose names sort early — so a wide tree can spend the whole budget on
+	// them and show ZERO subdirectories, which is the one thing grounding cannot do without: the
+	// planner then has no navigable structure and invents plausible paths that do not exist, and
+	// those invented paths reach the plan, the authored checks, and the scout's seed (observed
+	// live — 12 files listed, 28 directories cut, every later path reference fabricated).
+	// Directory names are cheap (a short line each), so their cap is generous while files stay
+	// tight; maxEntries still bounds the whole tree so a huge workspace cannot balloon context.
+	const maxEntries, maxChildDirs, maxChildFiles = 100, 40, 12
 	top := 0
 	var anchors []string
 	for _, e := range ents {
@@ -79,7 +88,7 @@ func repoContext(workdir string) string {
 		if strings.HasPrefix(n, ".") {
 			continue
 		}
-		if top >= maxTopEntries {
+		if top >= maxEntries {
 			b.WriteString("…\n")
 			break
 		}
@@ -94,24 +103,35 @@ func repoContext(workdir string) string {
 				continue
 			}
 			sort.Slice(children, func(i, j int) bool { return children[i].Name() < children[j].Name() })
-			shown := 0
-			for _, c := range children {
-				cn := c.Name()
-				if strings.HasPrefix(cn, ".") {
-					continue
+			dirs, files := 0, 0
+			for _, pass := range []bool{true, false} { // directories first, then plain files
+				truncated := false
+				for _, c := range children {
+					cn := c.Name()
+					if strings.HasPrefix(cn, ".") || c.IsDir() != pass {
+						continue
+					}
+					limit := maxChildFiles
+					shown := &files
+					if pass {
+						limit, shown = maxChildDirs, &dirs
+					}
+					if *shown >= limit || top >= maxEntries {
+						truncated = true
+						break
+					}
+					if pass {
+						cn += "/"
+					} else if repoAnchorFile(cn) {
+						anchors = append(anchors, filepath.Join(n, cn))
+					}
+					b.WriteString("  " + cn + "\n")
+					*shown++
+					top++
 				}
-				if shown >= maxChildEntries {
+				if truncated {
 					b.WriteString("  …\n")
-					break
 				}
-				if c.IsDir() {
-					cn += "/"
-				} else if repoAnchorFile(cn) {
-					anchors = append(anchors, filepath.Join(n, cn))
-				}
-				b.WriteString("  " + cn + "\n")
-				shown++
-				top++
 			}
 			continue
 		}
