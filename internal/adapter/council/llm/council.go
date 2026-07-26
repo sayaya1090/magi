@@ -7,6 +7,7 @@ package llm
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 
@@ -235,6 +236,7 @@ func (c *Council) JudgeRevision(ctx context.Context, req port.RevisionJudgeReque
 		}
 	}
 	if !parsed {
+		noteUnparsed("a revision-judge reply", b.String())
 		return port.RevisionVerdict{Addressed: true, Reason: "unparseable revision-judge reply"}, nil
 	}
 	reason := strings.TrimSpace(r.Reason)
@@ -296,6 +298,9 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 			}
 		}
 		r, ok := parseReply(b.String())
+		if !ok {
+			noteUnparsed("a council member's verdict (recorded as an abstain)", b.String())
+		}
 		return r, ok, nil
 	}
 
@@ -375,6 +380,7 @@ func (c *Council) pollRebut(ctx context.Context, req port.DeliberationRequest, m
 	}
 	r, ok := parseReply(b.String())
 	if !ok {
+		noteUnparsed("a council member's re-round verdict (keeping the prior one)", b.String())
 		return prior
 	}
 	v := council.Verdict{Member: m.Name, Lens: m.Lens, Weight: m.Weight}
@@ -1117,6 +1123,19 @@ func decisionOf(s string) council.Decision {
 
 // parseReply extracts the first balanced JSON object from the text (tolerating
 // surrounding prose or code fences that weak models emit) and unmarshals it.
+// noteUnparsed reports a model reply this package could not read. Every such failure here is
+// SILENT by construction — a member becomes an abstain the tally cannot tell from "no opinion", and
+// the revision judge fails OPEN and waves a rewrite through — so without a line on stderr there is
+// no way to tell a model that answered in prose from one whose JSON we mishandled.
+func noteUnparsed(what, text string) {
+	t := strings.Join(strings.Fields(text), " ")
+	const n = 200
+	if len(t) > 2*n {
+		t = t[:n] + " …[" + fmt.Sprint(len(t)-2*n) + " omitted]… " + t[len(t)-n:]
+	}
+	fmt.Fprintf(os.Stderr, "magi: %s could not be parsed (%d bytes): %s\n", what, len(text), t)
+}
+
 func parseReply(text string) (memberReply, bool) {
 	// Try EVERY balanced object and repair the weak-model defects, because an unparsed verdict is
 	// not a neutral outcome here — the member is recorded as ABSTAINING, which is indistinguishable
