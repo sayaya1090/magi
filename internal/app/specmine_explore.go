@@ -2,6 +2,9 @@ package app
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -71,6 +74,38 @@ func (a *App) exploreSpecMine(ctx context.Context, s session.Session, task strin
 	if r.Err != "" || findings == "" {
 		return
 	}
+	// An exploration a guard STOPPED did not finish mining: r.Text is then whatever the model happened
+	// to be saying when it was cut off, mid-analysis. Promoting that to "Repository findings" is worse
+	// than injecting nothing, because the note's own header tells every later reader to reuse what it
+	// contains VERBATIM. Observed: a guard-stopped explorer's last words were a fix proposal for a file
+	// it had already moved on from; the note carried no path at all, and the plan and all six of its
+	// checks went to the wrong file — none of them could ever pass. Drop it and let the planner ground
+	// itself with its own tools, which is strictly what it does when mining is off.
+	if why := a.spawnStoppedBy(ctx, r.SessionID); why != "" {
+		a.emitToolProgress(s.ID, plannerActor, "", "specmine",
+			fmt.Sprintf("spec-mine: exploration was stopped by the %s after %d chars — discarding the partial "+
+				"findings rather than passing a mid-analysis fragment off as repository facts", why, len(findings)))
+		return
+	}
+	// The explorer's whole contract is `path — fact` lines: findings that name no file are, for this
+	// pass, empty. Re-ask ONCE naming the defect (the same shape as the plan re-ask and the coverage
+	// re-ask) rather than letting the planner invent a path — which is exactly what it does, since the
+	// note it is handed reads as authoritative. If the retry names none either, keep what we have: a
+	// bounded miss beats an unbounded loop.
+	if !mentionsFilePath(findings) {
+		a.emitToolProgress(s.ID, plannerActor, "", "specmine",
+			fmt.Sprintf("spec-mine: the exploration named no file path in %d chars — re-asking once for "+
+				"`path — fact` lines", len(findings)))
+		r2 := a.spawnResolved(ctx, s, depth, spec, port.SpawnRequest{Agent: "specmine",
+			Prompt: brief + "\n\n" + specMineNoPathReminder})
+		if f2 := strings.TrimSpace(stripReportStatus(r2.Text)); r2.Err == "" && f2 != "" &&
+			a.spawnStoppedBy(ctx, r2.SessionID) == "" && mentionsFilePath(f2) {
+			findings = f2
+		} else {
+			a.emitToolProgress(s.ID, plannerActor, "", "specmine",
+				"spec-mine: the re-ask named no path either — keeping the first findings as-is")
+		}
+	}
 	note := "# Repository findings (from a read-only exploration of the plan) — the existing signatures/paths/" +
 		"interfaces the steps should match. Reuse a FIXED identifier or path from here verbatim (do not invent " +
 		"an alternative name); but a DERIVED value below (a record/field byte size, a file's sample contents) " +
@@ -84,4 +119,64 @@ func (a *App) exploreSpecMine(ctx context.Context, s session.Session, task strin
 		a.storeSpecMine(s.ID, note)
 	}
 	_ = a.appendPromptText(ctx, s.ID, event.Actor{Kind: event.ActorSystem, ID: "specmine"}, note)
+}
+
+// specMineNoPathReminder is appended to the explorer's brief after a reply that named no file. It
+// states the consequence, which the model cannot know: without a real path the planner writes one
+// from memory, and every check built on it asserts against a file that is not there.
+const specMineNoPathReminder = "YOUR PREVIOUS REPLY NAMED NO FILE. Findings without a path cannot be reused: the " +
+	"steps that read this note will write a plausible-looking path from memory, and every check built on it then " +
+	"asserts against a file that does not exist and can never pass. Reply with `path — fact` lines ONLY, each path " +
+	"one you actually opened, written the way it appears in the repository (the directories included, not the bare " +
+	"file name). Report where things ARE; do not propose, draft, or explain a change."
+
+// spawnStoppedBy names the guard that force-stopped a child session ("loop guard", "stall guard",
+// "spin guard"), or "" when the child ended on its own. A guard stop leaves an error event in the
+// child's log but does NOT set SpawnResult.Err — the partial text is returned like any other result —
+// so a caller that treats the reply as a finished answer cannot otherwise tell the two apart.
+// Best-effort: an unreadable session reads as a normal ending, keeping today's behavior.
+func (a *App) spawnStoppedBy(ctx context.Context, sid session.SessionID) string {
+	if sid == "" {
+		return ""
+	}
+	evs, err := a.store.Read(ctx, sid, 0)
+	if err != nil {
+		return ""
+	}
+	for _, e := range evs {
+		if e.Type != event.TypeError {
+			continue
+		}
+		var d event.ErrorData
+		if json.Unmarshal(e.Data, &d) != nil {
+			continue
+		}
+		switch d.Code {
+		case "loop_guard":
+			return "loop guard"
+		case "stall_guard":
+			return "stall guard"
+		case "spin_guard":
+			return "spin guard"
+		}
+	}
+	return ""
+}
+
+// filePathRe matches a token that reads as a file: an optional directory prefix, then a name with a
+// letter-initial extension. Requiring the extension keeps prose out — "e.g." and a version like
+// "1.73.0" both fail it, the first on length and the second because a digit cannot open an extension.
+// It is a trigger for ONE re-ask, not a gate, so a miss costs one generation and a false hit costs
+// nothing.
+var filePathRe = regexp.MustCompile(`[A-Za-z0-9_./-]*[A-Za-z0-9_-]\.[A-Za-z][A-Za-z0-9]{0,7}\b`)
+
+// mentionsFilePath reports whether text names at least one file. Used to tell a repository
+// exploration that reported facts from one that reported none.
+func mentionsFilePath(text string) bool {
+	for _, m := range filePathRe.FindAllString(text, -1) {
+		if len(m) >= 5 {
+			return true
+		}
+	}
+	return false
 }
