@@ -374,6 +374,7 @@ headless-4: LLM error                      ⇒ message to stderr, exit != 0
   - **Stage 1**(`MAGI_CONTRACT_FIRST`): 플래너가 요청을 분해하기 **전에** 전용 카운슬 라운드(`Phase=="contract"`)가 태스크 자체의 **계약**(criteria+check)을 저술·심의. 계약 멤버 프롬프트가 양방향 브래킷 — **하한**(sufficiency: 소비자 인터페이스로 행동 구동, 태스크 예제 verbatim 재현, 외부 이벤트 실전달, 스텁 존재만으론 불충분) + **상한**(necessity: 태스크가 명시한 것만). 승인 criteria는 저장·**프로즌**(plan-audit 덮어쓰기 가드), 계약 전체를 플래너에 주입 → 플랜이 **심의된 계약을 충족하도록** 세워짐. trivial·workflow·이미 프로즌이면 스킵. 카운슬 라운드 이벤트 방출은 plan-audit과 공유(`emitCouncilConvened`/`emitCouncilVerdicts`/`emitCouncilDecided`).
   - **Stage 2**(`MAGI_STEP_CONTRACT`): stuck-recovery 재플랜(`driveStuckTodos`)도 per-step 계약을 받음 — solo-REPLACE 경로(외부플랜 미진행 + 플랫폼 존재)에서 `storeCoveredChecks`로 스텝 체크 저술 + 각 유닛에 checklist 주입 + `verifyStepChecks`로 완료 전 검증(체크 실패 유닛은 pending 유지, 다음 유닛 재클론). 워커 완료/미완 핸드오프(미완분만 이어받기)는 기존 `verifyStepChecks`+`retryContinuation`(ALREADY SATISFIED/STILL UNMET 분할)이 커버. "리플랜시에도 항상 스텝 계약 정의" 봉합.
   - **Stage 3**(`MAGI_CRITERIA_PERITEM`): 종료 게이트가 criteria를 **통째 블록** 대신 **열거 체크리스트**(`renderCriteriaChecklist`)로 렌더 + 종료-멤버 프롬프트의 항목별 판정 절(NUMBERED 체크리스트면 각 항목 SATISFIED/UNSATISFIED 개별 판정, **전 항목 satisfied라야 done**, 미충족 항목 번호를 feedback에) → 홀리스틱 물타기 제거. 프롬프트 절은 비-열거 시 inert이라 무조건 실려도 안전.
+- R14 **위원 응답 읽기 — 기권은 중립 결과가 아니다**(`parseReply`, `jsonx.SalvagePrefix`, `councilRetryReminder`): 위원 응답이 안 읽히면 그 위원은 **기권**으로 기록되고, tally는 그것을 "내 렌즈로는 할 말 없음"과 **구별하지 못한다** — 즉 던져진 표가 조용히 사라지고 남은 소수가 판정을 대신한다. 그래서 읽기 실패는 세 겹으로 막는다. ①**관용 파싱**(모든 균형 객체 × `jsonx` 복구 후보 × 필드별 관용 타입) — Go는 첫 타입 불일치에서 문서 전체를 포기하므로 한 필드의 모양 하나가 표를 삼킨다. ②**접두 salvage**(`jsonx.SalvagePrefix`): 모델의 구조 실수는 문서 전체에 균일하지 않고 **한 컨테이너에 국한**된다 — 실측(11/11 동일 모양): `criteria` 배열을 `]` 없이 다음 키로 닫아 567바이트 중 563에서 깨지는데, 12바이트에 완결된 `decision`(한 번은 `critical` continue)까지 함께 버려졌다. 구문 오류 지점 **앞까지**를 남기고(복구 후보를 먼저 적용해 다중행 문자열의 raw newline을 절단점으로 오인하지 않음, 마지막 **완성된** 원소까지 되감아 반쪽 객체는 버림) 열린 컨테이너를 닫는다. `decision`이 결함 뒤에 있으면 **살릴 표가 없으므로 기권**(없는 표를 지어내지 않음). 이 복구는 **lossy**라 `jsonx.Unmarshal`/`RepairCandidates`(공유 경로)에 배선하지 **않는다** — 세 번째 스텝에서 잘린 플랜이 "2스텝 플랜"으로 조용히 성공하기 때문(`CloseTruncated`가 span 추출기에만 배선된 것과 같은 선). 손실은 stderr에 **결함 진단과 함께** 명시(성공이지만 criteria/checks가 비었을 수 있음). ③**1회 재폴 리마인더는 모양별**(`councilRetryReminder`): 단일 리마인더가 모든 실패를 "산문으로 감쌌다"로 가정하던 것이 결함이었다 — 맨 객체를 보냈지만 배열이 어긋난 모델에게 *쓰지도 않은 산문을 걷어내라*고 요구했고, 실측에서 재시도는 동일 malformation을 내고 표를 잃었다. 이제 magi가 **이미 로그용으로 계산하던** `jsonx.Diagnose`(오프셋 + `⟪HERE⟫` 창)를 그 결함에 대해 뭘 할 수 있는 유일한 당사자인 모델에게 되먹인다: 구문 오류=위치와 "다음 키 전에 `[`를 닫아라", 스키마(파싱은 되는데 `decision` 없음)=필수 필드 명시, 그 외=기존 JSON-only.
 
 ```
 council-tally-unanimous-1: rule=unanimous, [done,done,continue]      ⇒ continue
@@ -405,6 +406,10 @@ council-check-coverage-1:  covered<steps(11스텝·1체크) ⇒ 갭채우기 1�
 council-check-coverage-solo-1: 0-스텝 solo ⇒ 목적=단일 합성스텝 ⇒ 최소 1체크 저술(원장 공백 봉합)   (R12⑤)
 council-check-audit-retry-1: 감사 응답 파싱불가/`[]` ⇒ 모양별 리마인더로 1회 재요청(2콜, 루프 아님) (R12①)
 council-check-coverage-retry-1: 필 파싱불가/커버리지 0증가 ⇒ 미커버 스텝 번호 대고 1회 재요청       (R12⑤)
+council-salvage-prefix-1:  구문오류 뒤만 손상 + decision 온전 ⇒ 접두 salvage로 표 보존(로그에 손실 명시) (R14)
+council-salvage-nodecision-1: decision이 결함 뒤 ⇒ salvage 거부, 기권(없는 표 지어내지 않음)         (R14)
+council-salvage-notshared-1: SalvagePrefix ∉ jsonx.Unmarshal/RepairCandidates (lossy, 플랜 조용한 절단 방지) (R14)
+council-retry-shape-1:     재폴 리마인더 = 구문/스키마/산문 3분기(Diagnose 되먹임), 단일 산문가정 금지  (R14)
 council-check-union-1:     채택된 필 = unionChecks 병합 ⇒ authored ⊆ result (판정은 스텝 커버리지) (R12⑤)
 ```
 
