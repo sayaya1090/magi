@@ -218,7 +218,15 @@ func (a *App) ensureStepCoverage(ctx context.Context, s session.Session, prompt 
 	}
 	newCovered := coveredSteps(out)
 	if len(newCovered) <= len(covered) { // reply added no distinct (valid) step coverage → nothing gained
-		shortfall("the fill added no check that attaches to an uncovered step")
+		// Name the step labels it DID carry. "Added nothing that attaches" has two very different
+		// causes — the fill returned nothing at all, or it returned checks whose step labels fall
+		// outside 1..len(steps) or are not numeric — and only the labels distinguish them.
+		labels := make([]string, 0, len(out))
+		for _, c := range out {
+			labels = append(labels, fmt.Sprintf("%q", strings.TrimSpace(c.Step)))
+		}
+		shortfall(fmt.Sprintf("the fill returned %d check(s) but none attach to an uncovered step; their step labels were [%s] and the plan has %d step(s)",
+			len(out), strings.Join(labels, " "), len(steps)))
 		return checks
 	}
 	a.emitToolProgress(s.ID, plannerActor, "", "check-coverage",

@@ -147,7 +147,7 @@ func TestEnsureCoverageReportsUnfilledGap(t *testing.T) {
 	}{
 		{"unparseable fill", "not a checks array at all", "did not parse"},
 		{"fill drops existing checks", `[]`, "dropped existing checks"},
-		{"fill adds no new step coverage", `[{"step":"1","command":"a"},{"step":"1","command":"a2"}]`, "no check that attaches"},
+		{"fill adds no new step coverage", `[{"step":"1","command":"a"},{"step":"1","command":"a2"}]`, "none attach to an uncovered step"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -252,5 +252,27 @@ func TestCoverageAndAuditParseFailuresShowTheReply(t *testing.T) {
 	}
 	if n := sub2.notes("check-audit"); !strings.Contains(n, "unreviewed") || !strings.Contains(n, "exploratory") {
 		t.Errorf("the audit failure must say the checks went unreviewed and quote the reply:\n%s", n)
+	}
+}
+
+// "Added nothing that attaches" has two very different causes — the fill returned nothing at all,
+// or it returned checks whose step labels fall outside the plan — and only the labels tell them
+// apart. The note must therefore carry them.
+func TestCoverageShortfallNamesTheStepLabels(t *testing.T) {
+	t.Setenv("MAGI_CHECK_COVERAGE", "1")
+	steps := []planStep{{Title: "one"}, {Title: "two"}}
+	in := []council.DeliverableCheck{{Step: "1", Command: "a"}}
+	// The fill answers with a check scoped to a step that does not exist.
+	a := newOrchApp(t, &gateLLM{text: `[{"step":"1","command":"a"},{"step":"99","command":"b"}]`},
+		Config{Permission: "allow", MaxAgents: 10})
+	s := parentSession(t.TempDir())
+	sub := watchProgress(t, a, s.ID)
+	a.ensureStepCoverage(context.Background(), s, "task", steps, in)
+	note := sub.notes("check-coverage")
+	if !strings.Contains(note, `"99"`) {
+		t.Errorf("the note must name the step labels the fill carried:\n%s", note)
+	}
+	if !strings.Contains(note, "returned 2 check(s)") || !strings.Contains(note, "plan has 2 step(s)") {
+		t.Errorf("the note must quantify both sides:\n%s", note)
 	}
 }
