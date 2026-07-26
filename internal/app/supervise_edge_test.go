@@ -95,12 +95,34 @@ func TestSubagentTimeoutRestarted(t *testing.T) {
 type countingDeadLLM struct {
 	mu    sync.Mutex
 	calls int
+	// first closes when the first request arrives, so a test can wait for the attempt to be
+	// genuinely underway instead of guessing at a sleep. Under -race on a loaded runner the
+	// spawn goroutine can take far longer than any fixed nap to reach the provider, and the
+	// assertion "exactly one attempt" then read zero and failed for a reason that had nothing
+	// to do with the behavior under test.
+	first     chan struct{}
+	firstOnce sync.Once
+}
+
+// started returns the channel closed when the provider has been called at least once.
+func (f *countingDeadLLM) started() <-chan struct{} {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.first == nil {
+		f.first = make(chan struct{})
+	}
+	return f.first
 }
 
 func (f *countingDeadLLM) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan port.ProviderEvent, error) {
 	f.mu.Lock()
 	f.calls++
+	if f.first == nil {
+		f.first = make(chan struct{})
+	}
+	c := f.first
 	f.mu.Unlock()
+	f.firstOnce.Do(func() { close(c) })
 	ch := make(chan port.ProviderEvent)
 	go func() {
 		defer close(ch)
@@ -140,7 +162,14 @@ func TestParentCancelSubagentNoRestart(t *testing.T) {
 		done <- a.spawn(ctx, parent, 0, port.SpawnRequest{Agent: "worker", Prompt: "go"})
 	}()
 
-	time.Sleep(100 * time.Millisecond) // let the attempt get underway
+	// Wait for the attempt to actually reach the provider before cancelling — the point of the
+	// test is that a cancel DURING an attempt does not trigger a restart, which says nothing if
+	// the cancel lands before the attempt begins.
+	select {
+	case <-llm.started():
+	case <-time.After(5 * time.Second):
+		t.Fatal("the subagent never reached the provider")
+	}
 	cancel()
 
 	select {
