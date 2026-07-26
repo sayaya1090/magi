@@ -244,9 +244,14 @@ func watchProgress(t *testing.T, a *App, sid session.SessionID) *progressWatcher
 	return w
 }
 
-// notes returns every note published under the given tool name, joined. It polls briefly because the
-// publish and the collecting goroutine are concurrent.
+// notes returns every note published under the given tool name, joined. It polls because the publish
+// and the collecting goroutine are concurrent — and it waits for the count to STOP GROWING, not merely
+// to become non-zero: a pass that emits several notes (a failure, its retry, the outcome) would
+// otherwise return whichever ones happened to have landed, so an assertion over the whole sequence
+// passed or failed by timing.
 func (w *progressWatcher) notes(name string) string {
+	var last []string
+	stable := 0
 	for i := 0; i < 200; i++ {
 		w.mu.Lock()
 		var hit []string
@@ -256,12 +261,17 @@ func (w *progressWatcher) notes(name string) string {
 			}
 		}
 		w.mu.Unlock()
-		if len(hit) > 0 {
-			return strings.Join(hit, "\n")
+		if len(hit) > 0 && len(hit) == len(last) {
+			if stable++; stable >= 4 { // ~20ms with no new note → the pass is done publishing
+				return strings.Join(hit, "\n")
+			}
+		} else {
+			stable = 0
 		}
+		last = hit
 		time.Sleep(5 * time.Millisecond)
 	}
-	return ""
+	return strings.Join(last, "\n")
 }
 
 // A parse failure must print the REPLY, not only its length. The side calls leave no session

@@ -3,9 +3,11 @@ package app
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/core/council"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 // parseChecksArray must pull a JSON array of checks out of a review reply and drop any check with no
@@ -264,5 +266,120 @@ func TestValidateChecksRepairsMutatingCheck(t *testing.T) {
 	}
 	if strings.Contains(out[0].Command, "tar -czf") || strings.Contains(out[0].Command, "ssh ") {
 		t.Errorf("the mutating authored check must be replaced by the read-only probe, got %q", out[0].Command)
+	}
+}
+
+// auditLLM answers the check-audit side call with a scripted sequence and records the System prompt
+// of every call, so a test can assert BOTH what came back and what was asked the second time.
+type auditLLM struct {
+	mu      sync.Mutex
+	replies []string
+	systems []string
+}
+
+func (f *auditLLM) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan port.ProviderEvent, error) {
+	f.mu.Lock()
+	n := len(f.systems)
+	f.systems = append(f.systems, r.System)
+	text := "done"
+	if n < len(f.replies) {
+		text = f.replies[n]
+	}
+	f.mu.Unlock()
+	ch := make(chan port.ProviderEvent, 4)
+	ch <- port.ProviderEvent{Type: port.ProviderText, Text: text}
+	ch <- port.ProviderEvent{Type: port.ProviderFinish}
+	close(ch)
+	return ch, nil
+}
+
+func (f *auditLLM) calls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.systems...)
+}
+
+// An `[]` reply is well-formed JSON that asks to drop every check — and honoring it would leave the
+// plan with NO executable gate (storePlanChecks stores nothing for an empty set). A single such reply
+// used to end the pass silently-in-effect: the authored checks were kept unreviewed, which is how four
+// checks that each rebuilt an entire compiler reached the gate. Re-ask once, telling the model what an
+// empty answer actually costs.
+func TestCheckAuditEmptyReplyIsRetriedWithTheConsequence(t *testing.T) {
+	t.Setenv("MAGI_CHECK_VALIDATE", "1")
+	repaired := `[{"step":"1","deliverable":"the compiler builds","command":"grep -q '^PASS' build.log"}]`
+	llm := &auditLLM{replies: []string{"[]", repaired}}
+	a := newOrchApp(t, llm, Config{Permission: "allow", MaxAgents: 10})
+	s := parentSession(t.TempDir())
+	sub := watchProgress(t, a, s.ID)
+	in := []council.DeliverableCheck{{Step: "1", Deliverable: "the compiler builds", Command: "make world opt"}}
+
+	out := a.validateChecks(context.Background(), a.agentFor(s), s, in)
+	if len(out) != 1 || !strings.Contains(out[0].Command, "grep -q") {
+		t.Fatalf("the retry's repair must be used, got %+v", out)
+	}
+	sys := llm.calls()
+	if len(sys) != 2 {
+		t.Fatalf("want exactly one retry (2 calls), got %d", len(sys))
+	}
+	if strings.Contains(sys[0], "DROPPED EVERY CHECK") {
+		t.Error("the first call must carry the plain review prompt")
+	}
+	if !strings.Contains(sys[1], "DROPPED EVERY CHECK") || !strings.Contains(sys[1], "it removes the gate") {
+		t.Error("the retry must tell the model that an empty answer removes the gate rather than a bad gate")
+	}
+	// The log has to distinguish this from an unparseable reply: `[]` parsed fine and said something.
+	if n := sub.notes("check-audit"); !strings.Contains(n, "drop all 1 check") {
+		t.Errorf("the note must say the review asked to drop every check, got:\n%s", n)
+	}
+}
+
+// The other failure shape: no checks array in the reply at all. Same retry, different ask — strip the
+// prose, exactly as the planner does after an unparseable plan.
+func TestCheckAuditUnparseableReplyIsRetriedJSONOnly(t *testing.T) {
+	t.Setenv("MAGI_CHECK_VALIDATE", "1")
+	repaired := `[{"step":"1","deliverable":"deps","command":"pip show grpcio | grep -q Version"}]`
+	llm := &auditLLM{replies: []string{"I reviewed the checks and they look fine to me.", repaired}}
+	a := newOrchApp(t, llm, Config{Permission: "allow", MaxAgents: 10})
+	s := parentSession(t.TempDir())
+	sub := watchProgress(t, a, s.ID)
+	in := []council.DeliverableCheck{{Step: "1", Deliverable: "deps", Command: "test -f /usr/bin/pip3"}}
+
+	out := a.validateChecks(context.Background(), a.agentFor(s), s, in)
+	if len(out) != 1 || !strings.Contains(out[0].Command, "pip show") {
+		t.Fatalf("the retry's repair must be used, got %+v", out)
+	}
+	sys := llm.calls()
+	if len(sys) != 2 {
+		t.Fatalf("want exactly one retry (2 calls), got %d", len(sys))
+	}
+	if !strings.Contains(sys[1], "COULD NOT BE PARSED") {
+		t.Error("the retry must ask for the bare JSON array")
+	}
+	if n := sub.notes("check-audit"); !strings.Contains(n, "not a checks array") || !strings.Contains(n, "look fine to me") {
+		t.Errorf("the note must name the shape and quote the reply, got:\n%s", n)
+	}
+}
+
+// The retry is ONE retry. When it fails too, the authored checks are kept — dropping them would
+// remove the contract on the word of a call that just failed twice — and the terminal note carries
+// the second reply, since nothing is printed after it.
+func TestCheckAuditRetryFailureKeepsAuthoredChecksAndReports(t *testing.T) {
+	t.Setenv("MAGI_CHECK_VALIDATE", "1")
+	llm := &auditLLM{replies: []string{"[]", "still nothing worth keeping honestly"}}
+	a := newOrchApp(t, llm, Config{Permission: "allow", MaxAgents: 10})
+	s := parentSession(t.TempDir())
+	sub := watchProgress(t, a, s.ID)
+	in := []council.DeliverableCheck{{Step: "1", Deliverable: "the compiler builds", Command: "make world opt"}}
+
+	out := a.validateChecks(context.Background(), a.agentFor(s), s, in)
+	if len(out) != 1 || out[0].Command != "make world opt" {
+		t.Fatalf("a twice-failed review must keep the authored checks verbatim, got %+v", out)
+	}
+	if n := len(llm.calls()); n != 2 {
+		t.Fatalf("the retry must not loop: want 2 calls, got %d", n)
+	}
+	n := sub.notes("check-audit")
+	if !strings.Contains(n, "unreviewed") || !strings.Contains(n, "worth keeping honestly") {
+		t.Errorf("the terminal note must say the checks went unreviewed and quote the retry's reply, got:\n%s", n)
 	}
 }
