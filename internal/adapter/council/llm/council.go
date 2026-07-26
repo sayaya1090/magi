@@ -923,7 +923,15 @@ func planMemberSystem(m council.Member, lens string, keep bool) string {
 			"forever). Instead probe the ALREADY-produced artifact at its FINAL location read-only: to verify a downloaded "+
 			"archive use `test -s ./out.tgz` or `tar -tzf ./out.tgz >/dev/null` (LIST, never CREATE); to verify a build, "+
 			"RUN the built binary — never re-invoke the build as the check. Verify the step's OWN stated deliverable, not "+
-			"an intermediate. Propose checks ONLY when they are concrete and would "+
+			"an intermediate. THE CHECK SHELL IS READ-ONLY AND ENFORCES THIS: mutating commands are BLOCKED when the "+
+			"check runs — build drivers and compilers (`make`, `cmake`, `ninja`, `gcc`, `cargo build`, `go build`), "+
+			"package installers, `rm`/`mv`, archive create/extract, and `git` write subcommands. A blocked check "+
+			"produces NO verdict, so its step lands UNVERIFIED — authoring one costs you the very gate you were "+
+			"writing. WHEN VERIFICATION GENUINELY NEEDS AN EXPENSIVE OR MUTATING RUN (a full build, or a test command "+
+			"the task itself names), that run belongs to the STEP, not to the check: write the step's `task` so it "+
+			"runs the command ONCE and saves the output to a result file at a fixed path in the workspace, then make "+
+			"the check a read-only READ of that file (`grep -q '<success marker>' <result file>`). Name the same file "+
+			"path in both the step and its check, so what the step writes is what the check reads. Propose checks ONLY when they are concrete and would "+
 			"genuinely pass for correct work — commands must be non-destructive and deterministic. SMOKE CHECK when "+
 			"full correctness is UNVERIFIABLE: a step that PRODUCES a runnable artifact (a program, script, generated "+
 			"file) must ALWAYS get at least a SMOKE check even when you cannot check the exact answer because the "+

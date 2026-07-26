@@ -571,6 +571,10 @@ func workerChecklist(checks []council.DeliverableCheck, stepIdx int) string {
 	var b strings.Builder
 	b.WriteString("Acceptance checklist — before you report done, RUN each of these and confirm it passes; " +
 		"do NOT report done while any of them is failing.\n" +
+		"IF AN ITEM READS A RESULT FILE (a log, a saved output) rather than exercising the artifact directly, that " +
+		"file is part of YOUR work: produce it by ACTUALLY RUNNING the command it summarizes and redirecting the real " +
+		"output into it. Never hand-write the file, and never write the marker the check greps for — a check reading " +
+		"a fabricated file passes while the deliverable is broken, and the grader is not fooled.\n" +
 		"IF AN ITEM'S GIVEN COMMAND CANNOT RUN HERE — it errors with \"not found\" / \"no such command\" / exit " +
 		"127, or needs a missing tool, a wrong path, or a permission you lack (the CHECK is broken, NOT the " +
 		"deliverable) — do this, do NOT just quietly run a different command and move on:\n" +

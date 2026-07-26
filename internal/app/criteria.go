@@ -144,7 +144,12 @@ const coverageFillSystem = "You author executable deliverable `checks` that veri
 	"from modern setuptools); read a version with `importlib.metadata.version('pkg')` or the module's `__version__`, " +
 	"or just assert the import works.\n" +
 	"- IDEMPOTENT, NO STATE CHANGE (work≠check): verify the already-produced artifact READ-ONLY; NEVER create/build/" +
-	"download/move/delete it (a check that re-does the work traps the run in a redo loop).\n" +
+	"download/move/delete it (a check that re-does the work traps the run in a redo loop). The check runs in a " +
+	"READ-ONLY SHELL that BLOCKS mutating commands (build drivers and compilers, package installers, `rm`/`mv`, " +
+	"archive create/extract, `git` write subcommands), and a blocked check yields NO verdict — its step lands " +
+	"unverified anyway. When proving a step genuinely needs an expensive or mutating run, that run belongs to the " +
+	"STEP: check by READING the result file the step saved its output to (`grep -q '<marker>' <result file>`), " +
+	"never by re-running the command yourself.\n" +
 	"- A pure investigation/read-only step (it writes no artifact) needs NO check — do NOT invent one for it.\n" +
 	"Do NOT alter or drop the existing checks, and do NOT change what any check verifies. JSON array only, no prose, no code fence."
 
@@ -344,7 +349,13 @@ const validateChecksSystem = "You review the executable deliverable `checks` a p
 	"re-doing the work as its own check re-runs the step every gate cycle and false-fails on any transient error, " +
 	"trapping the run in a redo loop. Replace with an idempotent read-only probe of the already-produced artifact at " +
 	"its final path (`tar -tzf f.tgz` LIST not `-czf` CREATE, `test -s f`, run the built binary not re-build it). " +
-	"Verify the step's stated deliverable, not an intermediate.\n" +
+	"Verify the step's stated deliverable, not an intermediate. This is ENFORCED, not advisory: the check shell " +
+	"BLOCKS mutating commands at run time (build drivers and compilers, package installers, `rm`/`mv`, archive " +
+	"create/extract, `git` write subcommands), and a blocked check returns NO verdict — so leaving one in place " +
+	"does not merely waste time, it silently removes the gate. Repair such a check into a read-only READ of what " +
+	"the run already produced: for a build, run the produced binary; for a test suite or any other expensive run, " +
+	"assert on the result file the step saved its output to (`grep -q '<marker>' <result file>`) rather than " +
+	"re-running it. Keep the deliverable's meaning; change only how it is proven.\n" +
 	"- Preserve each check's `step` label exactly — it scopes the check to its step. A cleanup/absence check " +
 	"(`test ! -f a.tgz`) MUST keep its own step label; never merge it onto the same step as an existence check " +
 	"(`test -s a.tgz`) for the same artifact — they are verified at different steps, and co-locating them makes a " +
