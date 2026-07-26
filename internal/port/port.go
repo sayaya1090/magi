@@ -28,9 +28,10 @@ type ChatRequest struct {
 	System   string
 	Messages []session.Message
 	Tools    []ToolSpec
-	// Params carries per-call sampling overrides. Only "temperature" is honoured today (the
-	// openai adapter reads it in temperatureOf); an unrecognised key is ignored, not an error.
-	// The output cap is NOT here — it is provider config, applied by the adapter itself.
+	// Params carries per-call sampling pins: "temperature", "top_p", "top_k". A pin outranks the
+	// configured default ([sampling]) for that field only; an unrecognised or unusable key is
+	// ignored, not an error. The output cap is NOT here — it is provider config, applied by the
+	// adapter itself.
 	Params map[string]any
 }
 

@@ -24,11 +24,34 @@ type chatRequest struct {
 	// MaxTokens caps the output tokens per response ([limits] max_output_tokens); 0 =
 	// omit → provider default.
 	MaxTokens int `json:"max_tokens,omitempty"`
-	// Temperature is the caller's sampling pin (port.ChatRequest.Params["temperature"]).
-	// A POINTER because 0 is the value callers most want to send: with a plain float64 the
-	// `omitempty` that keeps "unset" out of the body would also delete an explicit 0, which is
-	// exactly the pin a structured-JSON call makes. nil = omit → provider default.
+	// Temperature/TopP/TopK are the sampling settings: a per-request pin from
+	// port.ChatRequest.Params, else the configured default ([sampling] in config.toml).
+	//
+	// All three are POINTERS because 0 is a value callers genuinely send — temperature 0 is
+	// the reproducibility pin a structured-JSON call makes — and with a plain numeric the
+	// `omitempty` that keeps "unset" out of the body would delete exactly that. nil = omit →
+	// the provider's own default stands.
 	Temperature *float64 `json:"temperature,omitempty"`
+	TopP        *float64 `json:"top_p,omitempty"`
+	// TopK is NOT part of the OpenAI Chat Completions schema; it is an extension some
+	// backends accept and others reject. It is therefore only ever sent when explicitly
+	// configured, never by default. Measured against Ollama's /v1 endpoint: top_k is
+	// accepted (HTTP 200) but IGNORED — top_k=1 at temperature 1.6 still sampled freely,
+	// while the same request to the native /api/chat came back greedy. Configure it only
+	// against a backend known to honor it.
+	TopK *int `json:"top_k,omitempty"`
+}
+
+// Sampling carries the configured sampling defaults ([sampling] in config.toml, or the
+// MAGI_TEMPERATURE/MAGI_TOP_P/MAGI_TOP_K env overrides). A nil field is "not configured": the
+// field is omitted from the request and the provider's default stands. A caller's per-request
+// pin in port.ChatRequest.Params outranks all of these — the council pins temperature 0 on its
+// member polls because those calls distill structured documents, and no config default should
+// quietly un-pin them.
+type Sampling struct {
+	Temperature *float64
+	TopP        *float64
+	TopK        *int
 }
 
 // streamOptions asks the server to emit a final usage chunk while streaming.
@@ -124,9 +147,20 @@ type wireUsage struct {
 // cache is set, it attaches cache_control breakpoints to the (large, stable)
 // system prompt and tool list so an Anthropic model behind LiteLLM caches that
 // prefix instead of re-billing it every turn.
-func buildRequest(r port.ChatRequest, stream, cache bool, reasoningEffort string, maxTokens int) chatRequest {
+func buildRequest(r port.ChatRequest, stream, cache bool, reasoningEffort string, maxTokens int, samp Sampling) chatRequest {
 	out := chatRequest{Model: r.Model, Stream: stream, ReasoningEffort: reasoningEffort, MaxTokens: maxTokens}
-	out.Temperature = temperatureOf(r.Params)
+	out.Temperature, out.TopP, out.TopK = samp.Temperature, samp.TopP, samp.TopK
+	// A per-request pin overrides the configured default, field by field: a call that pins only
+	// the temperature keeps the configured top_p rather than reverting it to the provider's.
+	if v := floatParam(r.Params, "temperature"); v != nil {
+		out.Temperature = v
+	}
+	if v := floatParam(r.Params, "top_p"); v != nil {
+		out.TopP = v
+	}
+	if v := intParam(r.Params, "top_k"); v != nil {
+		out.TopK = v
+	}
 	if stream {
 		out.StreamOptions = &streamOptions{IncludeUsage: true}
 	}
@@ -159,9 +193,9 @@ func buildRequest(r port.ChatRequest, stream, cache bool, reasoningEffort string
 	return out
 }
 
-// temperatureOf reads the caller's sampling pin out of port.ChatRequest.Params.
+// floatParam reads one of the caller's sampling pins out of port.ChatRequest.Params.
 //
-// port documents Params as carrying "temperature, maxTokens, ...", and the council sets
+// port documents Params as carrying sampling overrides, and the council sets
 // {"temperature": 0.0} on every member poll — but nothing here ever read the map, so that pin
 // was dropped on the floor and every deliberation ran at the provider's default sampling. The
 // cost is invisible in a single run and severe across runs: the same plan, audited twice, yields
@@ -172,8 +206,8 @@ func buildRequest(r port.ChatRequest, stream, cache bool, reasoningEffort string
 // Numeric JSON shapes are all accepted because a param map can arrive from config as well as
 // from Go code. An unusable value is ignored rather than defaulted, so a typo cannot silently
 // re-pin the model to something the caller never asked for.
-func temperatureOf(params map[string]any) *float64 {
-	v, ok := params["temperature"]
+func floatParam(params map[string]any, key string) *float64 {
+	v, ok := params[key]
 	if !ok {
 		return nil
 	}
@@ -196,10 +230,25 @@ func temperatureOf(params map[string]any) *float64 {
 	default:
 		return nil
 	}
-	if f < 0 { // a negative temperature is not a sampling setting any backend accepts
+	if f < 0 { // negative is not a sampling setting any backend accepts
 		return nil
 	}
 	return &f
+}
+
+// intParam is floatParam for top_k, which is a count rather than a probability. A fractional
+// value is rejected rather than truncated: 0.5 is not somebody asking for "top 0", it is a
+// mistake, and truncating it would silently forbid every token.
+func intParam(params map[string]any, key string) *int {
+	f := floatParam(params, key)
+	if f == nil {
+		return nil
+	}
+	n := int(*f)
+	if float64(n) != *f {
+		return nil
+	}
+	return &n
 }
 
 // repairToolOrdering makes the message sequence valid for strict OpenAI-compatible

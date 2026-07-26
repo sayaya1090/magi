@@ -34,8 +34,9 @@ type Client struct {
 	cache    bool        // attach cache_control breakpoints (Anthropic via LiteLLM)
 	cacheOff atomic.Bool // set after a backend rejects the cache shape (sticky fallback)
 
-	reasoningEffort string // OpenAI-compat reasoning_effort (e.g. "none" to disable thinking); "" = omit
-	maxTokens       int    // per-request output cap ([limits] max_output_tokens); 0 = provider default
+	reasoningEffort string   // OpenAI-compat reasoning_effort (e.g. "none" to disable thinking); "" = omit
+	maxTokens       int      // per-request output cap ([limits] max_output_tokens); 0 = provider default
+	sampling        Sampling // configured sampling defaults ([sampling]); nil fields = provider default
 
 	headers *httpx.Headers // static (config) + dynamic (plugin) custom headers
 }
@@ -156,6 +157,23 @@ func WithMaxTokens(n int) Option {
 	}
 }
 
+// WithSampling sets the sampling defaults sent with every request ([sampling] in config.toml).
+// Only the non-nil fields are applied, so a caller can set the temperature without also
+// declaring a top_p. A per-request pin in port.ChatRequest.Params still wins.
+func WithSampling(s Sampling) Option {
+	return func(c *Client) {
+		if s.Temperature != nil {
+			c.sampling.Temperature = s.Temperature
+		}
+		if s.TopP != nil {
+			c.sampling.TopP = s.TopP
+		}
+		if s.TopK != nil {
+			c.sampling.TopK = s.TopK
+		}
+	}
+}
+
 // WithResponseHeaderTimeout bounds how long to wait for the response headers
 // after sending a request. Headers arrive before any token, so this catches a
 // gateway/model that never starts responding WITHOUT cutting a slow token stream
@@ -184,7 +202,41 @@ func New(baseURL, apiKey string, opts ...Option) *Client {
 	for _, o := range opts {
 		o(c)
 	}
+	// Env LAST so it outranks config: a bench arm varying only the sampling should not need a
+	// second config file. An unparseable value is ignored (and named on stderr, since a silently
+	// dropped sampling override would make an A/B look like a null result).
+	envSampling(&c.sampling)
 	return c
+}
+
+// envSampling applies the MAGI_TEMPERATURE / MAGI_TOP_P / MAGI_TOP_K overrides in place.
+func envSampling(s *Sampling) {
+	readFloat := func(name string) *float64 {
+		raw := strings.TrimSpace(os.Getenv(name))
+		if raw == "" {
+			return nil
+		}
+		f, err := strconv.ParseFloat(raw, 64)
+		if err != nil || f < 0 {
+			fmt.Fprintf(os.Stderr, "magi: ignoring %s=%q (want a number >= 0)\n", name, raw)
+			return nil
+		}
+		return &f
+	}
+	if v := readFloat("MAGI_TEMPERATURE"); v != nil {
+		s.Temperature = v
+	}
+	if v := readFloat("MAGI_TOP_P"); v != nil {
+		s.TopP = v
+	}
+	if raw := strings.TrimSpace(os.Getenv("MAGI_TOP_K")); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 {
+			fmt.Fprintf(os.Stderr, "magi: ignoring MAGI_TOP_K=%q (want a whole number >= 0)\n", raw)
+		} else {
+			s.TopK = &n
+		}
+	}
 }
 
 // StreamChat sends a streaming chat completion request and returns a channel of
@@ -204,7 +256,7 @@ func (c *Client) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan por
 	triedNoTools := false
 	var lastRoleDiag string // role sequence of the most recent request, for 400/422 diagnostics
 	for {
-		br := buildRequest(r, true, useCache, c.reasoningEffort, c.maxTokens)
+		br := buildRequest(r, true, useCache, c.reasoningEffort, c.maxTokens, c.sampling)
 		lastRoleDiag = wireRoleDiag(br.Messages)
 		body, merr := json.Marshal(br)
 		if merr != nil {
