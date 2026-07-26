@@ -37,6 +37,7 @@ type Config struct {
 	Theme         ThemeConfig         `toml:"theme"`         // TUI color overrides (dark/light)
 	Council       CouncilConfig       `toml:"council"`       // consensus termination gate (D14)
 	Limits        LimitsConfig        `toml:"limits"`        // token caps (per-request output, context budget)
+	Sampling      SamplingConfig      `toml:"sampling"`      // temperature / top_p / top_k sent with every request
 
 	// Plugins holds free-form per-plugin settings: [plugins.<name>] tables a
 	// plugin reads via magi.store_get. The host passes each plugin only its
@@ -51,6 +52,30 @@ type Config struct {
 type LimitsConfig struct {
 	MaxOutputTokens int `toml:"max_output_tokens"`
 	ContextTokens   int `toml:"context_tokens"`
+}
+
+// SamplingConfig sets the sampling parameters sent with every request ([sampling]):
+//
+//	[sampling]
+//	temperature = 0.2
+//	top_p       = 0.8
+//
+// Every field is a POINTER so "absent" and "zero" stay distinguishable: temperature 0 is a
+// meaningful setting (greedy decoding), and a plain float would make it indistinguishable from
+// not configuring one at all. An absent field leaves the provider's own default in force —
+// which is the model's, not the server's: qwen3-coder-next ships temperature 1 / top_p 0.95 /
+// top_k 40 in its Modelfile, and that is what a magi run used before this section existed.
+//
+// TopK is an extension, not part of the OpenAI schema, so it is sent only when set. Measured
+// against Ollama's /v1 endpoint it is accepted and then ignored (the native /api/chat honors
+// it), so treat it as backend-dependent.
+//
+// Deliberate per-call pins outrank this: the council polls its members at temperature 0 so a
+// deliberation is reproducible, and configuring a temperature here does not un-pin them.
+type SamplingConfig struct {
+	Temperature *float64 `toml:"temperature"`
+	TopP        *float64 `toml:"top_p"`
+	TopK        *int     `toml:"top_k"`
 }
 
 // LLMConfig tunes the LLM backend connection. Headers are custom HTTP headers
@@ -263,6 +288,17 @@ const defaultConfigTemplate = `# magi configuration. Everything here is optional
 # # model    = "qwen3-coder:30b"   # optional; defaults to the session model
 # # provider = "fast"              # optional [llm.profiles.*] backend (mix cheap+strong)
 # # weight   = 1
+
+# --- Sampling sent with every request. Omit a key to keep the provider's default —
+# which is really the MODEL's: an Ollama model carries temperature/top_p/top_k in its
+# own Modelfile, and that is what runs when this section is absent. Deliberate per-call
+# pins outrank these (the council polls its members at temperature 0 for reproducibility,
+# and setting a temperature here does not un-pin them). Env MAGI_TEMPERATURE /
+# MAGI_TOP_P / MAGI_TOP_K override, which is the convenient lever for an A/B run. ---
+# [sampling]
+# temperature = 0.2
+# top_p       = 0.8
+# top_k       = 20          # not an OpenAI field; sent only when set, and Ollama's /v1 ignores it
 
 # --- Color theme (TUI). Override any Material Design 3 role per mode; an
 # unspecified role keeps the built-in NERV/MAGI default. Roles: primary, accent,
