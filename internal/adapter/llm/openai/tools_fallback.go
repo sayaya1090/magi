@@ -2,10 +2,13 @@ package openai
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
 	"regexp"
 	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/jsonx"
 )
 
 // parseFallbackToolCall attempts to recover a tool call from assistant text for
@@ -23,13 +26,26 @@ func parseFallbackToolCall(text string, known map[string]bool) (*session.ToolCal
 		return nil, false
 	}
 
-	var probe struct {
+	type callProbe struct {
 		Name      string          `json:"name"`
 		Tool      string          `json:"tool"` // alias some models use
 		Arguments json.RawMessage `json:"arguments"`
 		Params    json.RawMessage `json:"parameters"` // alias
 	}
-	if err := json.Unmarshal([]byte(s), &probe); err != nil {
+	// Scan every balanced object and apply the shared repairs: for a model without native tool
+	// calling this reply IS the action, so failing to parse it does not degrade the call — it
+	// erases it, and the text is then shown as ordinary prose with no sign anything was lost.
+	var probe callProbe
+	parsed := false
+	for _, js := range jsonx.BalancedObjects(s) {
+		var p callProbe
+		if jsonx.Unmarshal(js, &p) && (p.Name != "" || p.Tool != "") {
+			probe, parsed = p, true
+			break
+		}
+	}
+	if !parsed {
+		fmt.Fprintf(os.Stderr, "magi: a reply that looks like a tool call did not parse (%d bytes); treating it as text\n", len(s))
 		return nil, false
 	}
 	name := probe.Name

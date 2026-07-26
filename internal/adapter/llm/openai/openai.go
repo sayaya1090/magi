@@ -20,6 +20,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/httpx"
+	"github.com/sayaya1090/magi/internal/jsonx"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
@@ -571,7 +572,7 @@ func (a *toolAccumulator) finish() []*session.ToolCall {
 		if len(tc.Args) == 0 {
 			tc.Args = json.RawMessage("{}")
 		} else {
-			tc.Args = firstJSONValue(tc.Args)
+			tc.Args = repairArgs(firstJSONValue(tc.Args))
 		}
 		if tc.CallID == "" {
 			tc.CallID = fmt.Sprintf("call_%d_%d", idx, time.Now().UnixNano())
@@ -582,4 +583,40 @@ func (a *toolAccumulator) finish() []*session.ToolCall {
 	a.order = nil
 	a.calls = make(map[int]*session.ToolCall)
 	return out
+}
+
+// repairArgs makes a tool call's argument payload parseable when the model left a defect JSON
+// forbids — most often a RAW newline or tab inside a string, which is what a multi-line `content`
+// or `command` argument turns into when the model does not escape it. Every tool then fails to
+// unmarshal its own arguments and the call is lost, so the repair belongs HERE, at the one place a
+// call is finalized, rather than in each of the forty tools that would otherwise need it. Args that
+// already parse are returned untouched, and an irreparable payload is left exactly as it came so
+// the tool still reports the real error.
+func repairArgs(raw json.RawMessage) json.RawMessage {
+	var probe any
+	if json.Unmarshal(raw, &probe) == nil {
+		return raw
+	}
+	for _, c := range jsonx.RepairCandidates(string(raw)) {
+		if json.Unmarshal([]byte(c), &probe) == nil {
+			return json.RawMessage(c)
+		}
+	}
+	// Irreparable: the tool below will reject its own arguments and the call is lost, so say so
+	// here — from the tool's error alone it is impossible to tell a malformed payload from a
+	// genuinely wrong argument.
+	fmt.Fprintf(os.Stderr, "magi: tool arguments are not valid JSON and could not be repaired (%d bytes): %s\n",
+		len(raw), clipForLog(string(raw)))
+	return raw
+}
+
+// clipForLog bounds a payload echoed to stderr, keeping the head and tail so both the shape and the
+// truncation point stay visible.
+func clipForLog(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	const n = 160
+	if len(s) <= 2*n {
+		return s
+	}
+	return s[:n] + " …[" + fmt.Sprint(len(s)-2*n) + " omitted]… " + s[len(s)-n:]
 }

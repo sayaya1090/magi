@@ -134,3 +134,52 @@ func TestParseXMLToolCallBracketVariantAndArrays(t *testing.T) {
 		t.Errorf("content truncated:\n got=%q\nwant=%q", args["content"], content)
 	}
 }
+
+// A model without native tool calling expresses the action AS this reply, so a parse failure does
+// not degrade the call — it erases it, and the text is shown as prose with no sign anything was
+// lost. The recovery must therefore survive what model output normally carries.
+func TestParseFallbackToolCallSurvivesModelJSONDefects(t *testing.T) {
+	known := map[string]bool{"write": true, "bash": true}
+	cases := []struct{ name, text, wantName string }{
+		{"clean", `{"name":"bash","arguments":{"command":"ls"}}`, "bash"},
+		{"raw newline in an argument",
+			"{\"name\":\"write\",\"arguments\":{\"content\":\"line1\nline2\"}}", "write"},
+		{"trailing comma", `{"name":"bash","arguments":{"command":"ls"},}`, "bash"},
+		{"fenced", "```json\n{\"name\":\"bash\",\"arguments\":{\"command\":\"ls\"}}\n```", "bash"},
+	}
+	for _, c := range cases {
+		tc, ok := parseFallbackToolCall(c.text, known)
+		if !ok || tc.Name != c.wantName {
+			t.Errorf("%s: ok=%v name=%q, want %q", c.name, ok, func() string {
+				if tc == nil {
+					return ""
+				}
+				return tc.Name
+			}(), c.wantName)
+		}
+	}
+	// An unknown tool or a non-object reply is still not a call.
+	for _, bad := range []string{`{"name":"nope","arguments":{}}`, "just prose", `{"arguments":{}}`} {
+		if _, ok := parseFallbackToolCall(bad, known); ok {
+			t.Errorf("parseFallbackToolCall(%q) must not produce a call", bad)
+		}
+	}
+}
+
+// repairArgs fixes the argument payload once, where a call is finalized, so the forty tools that
+// unmarshal their own arguments do not each need the same tolerance.
+func TestRepairArgs(t *testing.T) {
+	clean := json.RawMessage(`{"command":"ls"}`)
+	if got := repairArgs(clean); string(got) != string(clean) {
+		t.Errorf("valid args must be untouched, got %s", got)
+	}
+	fixed := repairArgs(json.RawMessage("{\"content\":\"a\nb\"}"))
+	var m map[string]string
+	if json.Unmarshal(fixed, &m) != nil || m["content"] != "a\nb" {
+		t.Errorf("a raw newline must be repaired into the same text, got %s", fixed)
+	}
+	bad := json.RawMessage(`{"a":,}`)
+	if got := repairArgs(bad); string(got) != string(bad) {
+		t.Errorf("an irreparable payload must be left as-is so the tool reports the real error, got %s", got)
+	}
+}
