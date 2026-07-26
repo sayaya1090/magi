@@ -37,7 +37,7 @@ func substReviewEnabled() bool { return !envOff("MAGI_SUBST_REVIEW") }
 // surface under a different code. Deliberately narrow — a command that RAN and returned a normal failure
 // (exit 1, an assertion, an expect mismatch) is NOT unrunnable; that is a real deliverable failure.
 func checkCommandUnrunnable(out string, code int) bool {
-	if code == 127 || code == 126 {
+	if checkUnrunnable(code) {
 		return true
 	}
 	if code == 0 {
@@ -71,7 +71,7 @@ func (a *App) filterSubsByNecessity(ctx context.Context, s session.Session, subs
 			justified = append(justified, sub)
 			continue
 		}
-		out, code := a.runVerifyCmd(ctx, s.Workdir, orig)
+		out, code := a.runCheckCmd(ctx, s.ID, s.Workdir, orig)
 		if code == -1 || checkCommandUnrunnable(out, code) {
 			justified = append(justified, sub)
 			continue

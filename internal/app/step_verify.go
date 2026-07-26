@@ -86,11 +86,11 @@ func (a *App) runStepGate(ctx context.Context, s session.Session, ts *turnState)
 		if code == -1 { // platform vanished mid-run: can't verify → don't decide
 			return gateInactive, ""
 		}
-		// Exit 127 = the check's OWN command is not found (missing tool / wrong path): the CHECK is
-		// unexecutable here, NOT the deliverable failing. Don't count it as a failure that reworks the
-		// deliverable — skip it; the agent/worker's equivalent-substitution evidence and the council
-		// settle the goal instead of churning on a broken check.
-		if code == 127 {
+		// The CHECK could not run — not found (127), or not executable / refused by the read-only
+		// guard (126). Either way this says nothing about the deliverable, so don't count it as a
+		// failure that reworks correct work — skip it; the agent/worker's equivalent-substitution
+		// evidence and the council settle the goal instead of churning on a broken check.
+		if checkUnrunnable(code) {
 			continue
 		}
 		results = append(results, result{check: c, out: out, pass: ok})
@@ -212,8 +212,8 @@ func (a *App) checkAlreadyGreen(sid session.SessionID, c council.DeliverableChec
 // trust-green skip and -1/127 policy around it — centralizing the run+Passes+emit body keeps that
 // contract identical across the per-step recorders and the terminal gate.
 func (a *App) runCheckRecord(ctx context.Context, sid session.SessionID, workdir string, c council.DeliverableCheck) (pass bool, code int, out string) {
-	out, code = a.runVerifyCmd(ctx, workdir, c.Command)
-	if code == -1 || code == 127 {
+	out, code = a.runCheckCmd(ctx, sid, workdir, c.Command)
+	if code == -1 || checkUnrunnable(code) {
 		return false, code, out
 	}
 	pass = c.Passes(out, code)
@@ -368,7 +368,7 @@ func (a *App) recordPendingStepChecks(ctx context.Context, sid session.SessionID
 		if !pass {
 			var code int
 			pass, code, _ = a.runCheckRecord(ctx, sid, s.Workdir, c)
-			if code == -1 || code == 127 {
+			if code == -1 || checkUnrunnable(code) {
 				continue // unverifiable (platform gone) or unexecutable check — skip, like runStepGate
 			}
 		}

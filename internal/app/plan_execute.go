@@ -403,15 +403,15 @@ func (a *App) verifyStepChecks(ctx context.Context, s session.Session, stepIdx i
 	}
 	var fails []string
 	for _, c := range mine {
-		out, code := a.runVerifyCmd(ctx, s.Workdir, c.Command)
+		out, code := a.runCheckCmd(ctx, s.ID, s.Workdir, c.Command)
 		if code == -1 { // platform vanished mid-run: can't verify → don't block the step
 			return true, ""
 		}
-		// Exit 127 = the check's OWN command is not found (a missing tool / wrong path) — the CHECK is
-		// unexecutable in this environment, not the deliverable failing. Do NOT churn the work on it:
-		// skip it here (the worker reports an equivalent substitution and the termination council judges
-		// the goal on that evidence). Only a check that actually RAN and failed gates the step.
-		if code == 127 {
+		// The CHECK could not run — not found (127), or not executable / refused by the read-only
+		// guard (126) — which is not the deliverable failing. Do NOT churn the work on it: skip it here
+		// (the worker reports an equivalent substitution and the termination council judges the goal on
+		// that evidence). Only a check that actually RAN and failed gates the step.
+		if checkUnrunnable(code) {
 			continue
 		}
 		pass := c.Passes(out, code)
@@ -445,14 +445,14 @@ func (a *App) partitionStepChecks(ctx context.Context, s session.Session, stepId
 		return nil, nil, false
 	}
 	for _, c := range mine {
-		out, code := a.runVerifyCmd(ctx, s.Workdir, c.Command)
+		out, code := a.runCheckCmd(ctx, s.ID, s.Workdir, c.Command)
 		if code == -1 { // platform vanished mid-run: cannot judge → let the caller fall back
 			return nil, nil, false
 		}
-		// Exit 127 = the check's OWN command is unexecutable here (missing tool / wrong path), NOT the
-		// deliverable failing — mirror verifyStepChecks and SKIP it, rather than counting it as "still
-		// unmet" (which would steer the retry at a non-problem) and emitting a false ✗ for the panel.
-		if code == 127 {
+		// The CHECK could not run (127 not found, or 126 not executable / read-only refusal), which is
+		// NOT the deliverable failing — mirror verifyStepChecks and SKIP it, rather than counting it as
+		// "still unmet" (which would steer the retry at a non-problem) and emitting a false ✗.
+		if checkUnrunnable(code) {
 			continue
 		}
 		pass := c.Passes(out, code)
@@ -467,7 +467,7 @@ func (a *App) partitionStepChecks(ctx context.Context, s session.Session, stepId
 			fails = append(fails, fmt.Sprintf("- %s — `%s` → %s", d, strings.TrimSpace(c.Command), clipLine(strings.TrimSpace(out), 200)))
 		}
 	}
-	// Every matched check was unexecutable (127) → nothing was actually verified, so there is no split to
+	// Every matched check was unrunnable (127/126) → nothing was actually verified, so there is no split to
 	// give; signal inactive so the caller falls back to the generic pivot instead of an empty "re-checked" block.
 	if len(passed) == 0 && len(fails) == 0 {
 		return nil, nil, false
