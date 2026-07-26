@@ -70,7 +70,8 @@ const elicitSpecMineSystem = "You read a coding request and work out, BEFORE any
 	"asserts it literally or by behavior: a FIXED identifier or value the request names (a message/service/" +
 	"function NAME, a port, a filename, a pinned version) is HARD — match it verbatim; a SAMPLE it gives (an " +
 	"input→output pair) is an EXAMPLE — reproduce that behavior, and capture the ACTUAL input and expected " +
-	"output VERBATIM in the requirement (e.g. `input 208 → output 377`) so it can be reproduced and checked " +
+	"output VERBATIM in the requirement (e.g. `input <the sample the task shows> → output <what it says that " +
+	"yields>`) so it can be reproduced and checked " +
 	"exactly; a structure, type, or behavior it only DESCRIBES in prose (a field of some type, a return " +
 	"value, a format) is SEMANTIC — satisfy the meaning and verify it by EFFECT (build/run/inspect), never by " +
 	"demanding a particular source spelling of the prose. Also call out what the request LEAVES FREE — an " +
@@ -91,8 +92,8 @@ const elicitSpecMineSystem = "You read a coding request and work out, BEFORE any
 	"format is UNCONSTRAINED, so do NOT promote the whole string to a verbatim literal.\n" +
 	"CRITICAL — do NOT treat a name that a compiler, code generator, or language convention DERIVES from " +
 	"the request as a fixed literal to preserve. A generated module/file name, or an identifier a tool " +
-	"sanitizes (a hyphenated `.proto` filename yields an UNDERSCORED Python module; `protoc`/`grpc_tools` " +
-	"emit `foo_bar_pb2.py`, never `foo-bar_pb2.py`), takes whatever form the tool ACTUALLY emits — forcing " +
+	"sanitizes (a generator whose target language forbids a character in the source name substitutes a legal " +
+	"one, so the emitted identifier is NOT the input's spelling), takes whatever form the tool ACTUALLY emits — forcing " +
 	"the request's raw spelling onto it breaks the build. For such a name, the requirement is 'use the " +
 	"generator's real output', and the construct is the tool that produces it; never 'match the raw " +
 	"filename/spelling'.\n" +
@@ -109,8 +110,8 @@ const distillSpecMineSystem = "You distill a working analysis into its final con
 	"says HOW its requirement must be honored: `hard` = a FIXED identifier or value the grader checks " +
 	"literally (a message/service/RPC/function NAME, a port, a filename, a pinned version) — match it " +
 	"verbatim; `example` = a SAMPLE the task gives (an input→output pair, a reference row) — reproduce that " +
-	"exact behavior, and put the ACTUAL input and expected output VERBATIM in `requirement` (e.g. `208 → " +
-	"377`); `semantic` = a structure/type/behavior DESCRIBED in prose (a field of some type, a format, what " +
+	"exact behavior, and put the ACTUAL input and expected output VERBATIM in `requirement` (the sample's own " +
+	"two sides, copied); `semantic` = a structure/type/behavior DESCRIBED in prose (a field of some type, a format, what " +
 	"a call returns) — satisfy its MEANING and verify by EFFECT (build/run/inspect the produced artifact), " +
 	"NOT by any particular source spelling; `unconstrained` = an aspect the task does NOT pin (source layout, " +
 	"an internal name, the declaration syntax, the algorithm) — record it so nothing downstream asserts it. " +
@@ -375,8 +376,8 @@ func specMineNote(mined string) string {
 		"Prefer the named " +
 		"standard construct over hand-rolling; and CHECK each prerequisite below is actually present, " +
 		"provisioning what is missing BEFORE you rely on it. A name a tool or language DERIVES (a generated " +
-		"module/file, a sanitized identifier — e.g. a hyphenated `.proto` filename becomes an UNDERSCORED " +
-		"Python module) follows the tool's ACTUAL output; never force the request's raw spelling onto a " +
+		"module/file, an identifier sanitized into what the target language permits) follows the tool's " +
+		"ACTUAL output; never force the request's raw spelling onto a " +
 		"generated name, and don't fault one for not matching it:\n" +
 		mined
 }

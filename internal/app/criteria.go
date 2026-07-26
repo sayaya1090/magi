@@ -393,9 +393,9 @@ const validateChecksSystem = "You review the executable deliverable `checks` a p
 	"venv/pyenv shim on another image, so strip any leading `/usr/bin/`, `/usr/local/bin/` from a tool the PATH " +
 	"already resolves.\n" +
 	"- TOOL-DERIVED NAMES: when a check greps for or stats a file a code generator EMITS, use the name the tool " +
-	"ACTUALLY produces, not the request's raw spelling. `protoc`/`grpc_tools` sanitize a hyphenated `.proto` into an " +
-	"UNDERSCORED module — a `data-feed.proto` yields `data_feed_pb2.py`, never `data-feed_pb2.py` — so a check demanding " +
-	"the hyphenated form can NEVER pass and fights the toolchain (the agent renames to satisfy the grep, which breaks " +
+	"ACTUALLY produces, not the request's raw spelling. A generator whose target language forbids a character in the " +
+	"source name substitutes a legal one, so the emitted file is NOT spelled like its input — and a check demanding the " +
+	"input's spelling can NEVER pass and fights the toolchain (the agent renames to satisfy the grep, which breaks " +
 	"the import, then renames back: an unwinnable loop). Rewrite the check to the generator's real output name.\n" +
 	"- SEMANTICS, not source spelling (verify meaning by effect; never grep the task's prose back into the source): " +
 	"a structure or behavior the task states in PROSE — a message/record with named typed fields, a function returning " +

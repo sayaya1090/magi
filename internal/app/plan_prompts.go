@@ -93,10 +93,11 @@ const checkpointFirstRule = "\n\nCHECKPOINT FIRST:\n" +
 const implicitAcceptRule = "\n\nEDGE-CASE RIGOR — plan for the real contract, not just the sentence. A correct solution " +
 	"must survive careful scrutiny, not only the happy path the prose spells out. Before finalizing, ask what a careful " +
 	"reviewer would ALSO require and make the relevant steps deliver it:\n" +
-	"- EXACT output — if the task shows or implies a specific format, token, or message, produce it verbatim (a literal " +
-	"like `Cleaned up.` or `Results: X Y Z`, exact counts/casing), not a paraphrase.\n" +
-	"- STANDARD SEMANTICS the prose assumes but does not spell out — a task whose jobs must clean up on cancellation " +
-	"implies interrupt/cancellation actually runs their cleanup; a headless build implies no display-library linkage.\n" +
+	"- EXACT output — if the task shows or implies a specific format, token, or message, produce it verbatim (the " +
+	"literal the task itself writes, down to counts, punctuation and casing), not a paraphrase.\n" +
+	"- STANDARD SEMANTICS the prose assumes but does not spell out — a stated behavior implies the mechanism that " +
+	"actually delivers it under the conditions the task names, not merely a code path that would deliver it on the " +
+	"happy path; and a stated constraint on HOW the artifact must run rules out whatever silently violates it.\n" +
 	"- EDGE CASES the task implies but never lists — malformed, empty, or boundary inputs, error paths, and concurrency " +
 	"— handled rather than assumed away.\n" +
 	"- IDIOMATIC over hacky — use the mechanism the domain expects.\n" +
