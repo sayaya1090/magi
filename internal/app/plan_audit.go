@@ -36,6 +36,15 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 			auditTask = "# Recent conversation (for context)\n" + cx + "\n\n# Current request to plan for\n" + prompt
 		}
 	}
+	// Show the members the contract THEY already agreed on. Authoring the per-step `checks` is part
+	// of this gate's job, and those checks exist to verify exactly the done-conditions the contract
+	// settled — yet the contract reached the planner and the termination gate and not this council,
+	// so members re-derived the goals here or, seeing nothing to anchor on, omitted checks entirely
+	// (observed: a six-step plan audited with zero checks authored by any of the three lenses).
+	if contract := a.contractForPlanner(sid); contract != "" {
+		auditTask += "\n\n# Acceptance contract already agreed by this council (author the per-step `checks` that VERIFY these)\n" +
+			clipSpec(contract, 1500)
+	}
 
 	pendingContest := ""  // the re-planner's rebuttal of the prior round's concern, re-judged this round
 	pendingRevision := "" // how the plan changed since the prior round, so a re-round can spot a regression

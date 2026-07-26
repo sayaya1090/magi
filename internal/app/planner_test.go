@@ -2275,3 +2275,37 @@ func TestParsePlanOrSalvageFlag(t *testing.T) {
 		t.Fatalf("a truncated plan must be recovered AND flagged salvaged, got salv=%v steps=%+v", salv, r.Steps)
 	}
 }
+
+// The plan audit AUTHORS the per-step executable checks, and those checks exist to verify the
+// done-conditions the contract gate already settled — but the frozen contract reached the planner
+// and the termination gate and not this council. Members therefore had nothing to anchor a check
+// on (observed: a six-step plan audited with zero checks from all three lenses). The audit task
+// must carry the agreed contract.
+func TestPlanAuditTaskCarriesFrozenContract(t *testing.T) {
+	fc := &fakeCouncil{delibs: []council.Deliberation{{Round: 1, Decision: council.Done}}}
+	a, wd := newApp(t, &fakeLLM{}, Config{Council: fc, Agents: map[string]AgentSpec{plannerAgent: {Name: "planner"}}})
+	s, steps := planAuditFixture(t, a, wd)
+
+	// No contract frozen yet → nothing appended.
+	a.runPlanAuditGate(context.Background(), s, a.cfg.Agents[plannerAgent], "do the thing", steps, 0, 120)
+	if strings.Contains(fc.lastReq.Task, "Acceptance contract") {
+		t.Errorf("with no frozen contract the audit task must not claim one:\n%s", fc.lastReq.Task)
+	}
+
+	// Freeze one, then re-audit: it must reach the members, framed as what the checks verify.
+	a.mu.Lock()
+	st := a.stateLocked(s.ID)
+	st.contractFrozen = true
+	st.contractText = "- the compiler builds without crashing\n- the basic testsuite passes"
+	a.mu.Unlock()
+
+	fc2 := &fakeCouncil{delibs: []council.Deliberation{{Round: 1, Decision: council.Done}}}
+	a.cfg.Council = fc2
+	a.runPlanAuditGate(context.Background(), s, a.cfg.Agents[plannerAgent], "do the thing", steps, 0, 120)
+	if !strings.Contains(fc2.lastReq.Task, "the basic testsuite passes") {
+		t.Errorf("the frozen contract must reach the plan audit:\n%s", fc2.lastReq.Task)
+	}
+	if !strings.Contains(fc2.lastReq.Task, "author the per-step `checks` that VERIFY these") {
+		t.Errorf("the contract must be framed as what the authored checks verify:\n%s", fc2.lastReq.Task)
+	}
+}
