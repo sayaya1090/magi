@@ -37,7 +37,10 @@ func (a *App) elicitContractDraft(ctx context.Context, spec AgentSpec, sid sessi
 	raw := a.specMineCall(ctx, spec, sid, "contract-draft", model, contractDraftSystem, task)
 	for _, js := range balancedObjects(raw) {
 		var d struct {
-			Criteria []string `json:"criteria"`
+			// jsonx.Texts, not []string: a draft that enumerates one criterion as a bare string
+			// (or slips an object into the list) would otherwise abort the whole document and
+			// lose EVERY criterion beside it — the gate then runs with no draft at all.
+			Criteria jsonx.Texts `json:"criteria"`
 		}
 		if unmarshalLenient(js, &d) && len(d.Criteria) > 0 {
 			return d.Criteria
@@ -222,7 +225,7 @@ func (a *App) consolidateContract(ctx context.Context, spec AgentSpec, sid sessi
 	raw := a.specMineCall(ctx, spec, sid, "contract-consolidate", model, consolidateContractSystem, input)
 	for _, js := range balancedObjects(raw) {
 		var d struct {
-			Criteria []string `json:"criteria"`
+			Criteria jsonx.Texts `json:"criteria"` // tolerant for the same reason as the draft
 		}
 		if unmarshalLenient(js, &d) && len(d.Criteria) > 0 {
 			return d.Criteria, true

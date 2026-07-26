@@ -6,6 +6,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -327,14 +328,14 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 			return v
 		}
 	}
-	v.Decision = decisionOf(r.Decision)
+	v.Decision = decisionOf(string(r.Decision))
 	v.Confidence = float64(r.Confidence)
 	v.Rationale = string(r.Rationale)
 	v.Feedback = string(r.Feedback)
 	v.Keep = string(r.Keep)
-	v.Severity = r.Severity // plan-audit phase only; gates blocking vs advisory
-	v.Criteria = r.Criteria // plan-audit phase only; empty otherwise
-	v.Checks = r.Checks     // plan-audit phase only; per-step executable deliverable checks
+	v.Severity = string(r.Severity) // plan-audit phase only; gates blocking vs advisory
+	v.Criteria = r.Criteria         // plan-audit phase only; empty otherwise
+	v.Checks = r.Checks             // plan-audit phase only; per-step executable deliverable checks
 	return v
 }
 
@@ -384,12 +385,12 @@ func (c *Council) pollRebut(ctx context.Context, req port.DeliberationRequest, m
 		return prior
 	}
 	v := council.Verdict{Member: m.Name, Lens: m.Lens, Weight: m.Weight}
-	v.Decision = decisionOf(r.Decision)
+	v.Decision = decisionOf(string(r.Decision))
 	v.Confidence = float64(r.Confidence)
 	v.Rationale = string(r.Rationale)
 	v.Feedback = string(r.Feedback)
 	v.Keep = string(r.Keep)
-	v.Severity = r.Severity
+	v.Severity = string(r.Severity)
 	v.Criteria = r.Criteria
 	v.Checks = r.Checks
 	return v
@@ -433,7 +434,7 @@ func (c *Council) devilAdvocate(ctx context.Context, req port.DeliberationReques
 		return v
 	}
 	// The devil never carries a done: only a continue with a real, specific defect counts.
-	if decisionOf(r.Decision) != council.Continue || strings.TrimSpace(string(r.Feedback)) == "" {
+	if decisionOf(string(r.Decision)) != council.Continue || strings.TrimSpace(string(r.Feedback)) == "" {
 		return v
 	}
 	v.Decision = council.Continue
@@ -518,7 +519,7 @@ func (c *Council) pollDevilReview(ctx context.Context, req port.DeliberationRequ
 		return prior
 	}
 	v := council.Verdict{Member: m.Name, Lens: m.Lens, Weight: m.Weight}
-	v.Decision = decisionOf(r.Decision)
+	v.Decision = decisionOf(string(r.Decision))
 	v.Confidence = float64(r.Confidence)
 	v.Rationale = string(r.Rationale)
 	v.Feedback = string(r.Feedback)
@@ -555,20 +556,47 @@ const devilSystem = "You are the council's devil's advocate. The other members a
 	`{"decision":"continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific defect and next step (required for continue)"}`
 
 // memberReply is the JSON shape each member is asked to return.
+// EVERY field is read through a tolerant type, because Go aborts the whole document on the first
+// type mismatch — and here that costs the member's VOTE, recorded as an abstain the tally cannot
+// tell from "no opinion". A quoted "0.9", a single criterion given as a bare string, or a decision
+// wrapped in a one-element list is not worth losing a verdict over. Decision and Severity are
+// validated by VALUE further down (decisionOf / the severity tiers), so widening their accepted
+// SHAPE cannot let a bad value through — it only stops a well-formed vote from vanishing.
 type memberReply struct {
-	Decision string `json:"decision"`
-	// Confidence and Criteria are read through the tolerant types because Go aborts the whole
-	// document on the first type mismatch — and here that costs the member's VOTE, recorded as an
-	// abstain the tally cannot tell from "no opinion". A quoted "0.9" or a single criterion given
-	// as a bare string is not worth losing a verdict over.
+	Decision   jsonx.Text   `json:"decision"`
 	Confidence jsonx.Number `json:"confidence"`
 	Rationale  jsonx.Text   `json:"rationale"`
 	Feedback   jsonx.Text   `json:"feedback"`
 	Keep       jsonx.Text   `json:"keep"`     // advisory: what's already correct (only when asked; MAGI_COUNCIL_KEEP)
-	Severity   string       `json:"severity"` // plan-audit phase: critical|warn|info for a revise vote
+	Severity   jsonx.Text   `json:"severity"` // plan-audit phase: critical|warn|info for a revise vote
 	Criteria   jsonx.Texts  `json:"criteria"` // plan-audit phase: proposed completion criteria
 	// Checks are plan-audit per-step executable deliverable checks (empty otherwise).
-	Checks []council.DeliverableCheck `json:"checks"`
+	Checks checkList `json:"checks"`
+}
+
+// checkList tolerates a `checks` field given as a SINGLE object — what a model emits when it
+// proposes exactly one check — instead of a one-element array. Strictly typed, that single object
+// aborted the reply and the member's whole verdict with it.
+type checkList []council.DeliverableCheck
+
+func (l *checkList) UnmarshalJSON(b []byte) error {
+	var list []council.DeliverableCheck
+	if json.Unmarshal(b, &list) == nil {
+		*l = list
+		return nil
+	}
+	// Only an OBJECT is read as a lone check. A `checks` field given as a bare string is the model
+	// saying there are none ("none", "n/a"), and reading that as a command would invent a check
+	// that later gets EXECUTED — worse than having no check at all.
+	if strings.HasPrefix(strings.TrimSpace(string(b)), "{") {
+		var one council.DeliverableCheck
+		if json.Unmarshal(b, &one) == nil && strings.TrimSpace(one.Command) != "" {
+			*l = checkList{one}
+			return nil
+		}
+	}
+	*l = nil // unreadable checks cost the checks, never the vote
+	return nil
 }
 
 // memberSystem builds the system prompt for one member: its identity (the theme
@@ -1159,7 +1187,7 @@ func parseReply(text string) (memberReply, bool) {
 	// removed a vote that had in fact been cast.
 	for _, js := range jsonx.BalancedObjects(text) {
 		var r memberReply
-		if !jsonx.Unmarshal(js, &r) || r.Decision == "" {
+		if !jsonx.Unmarshal(js, &r) || strings.TrimSpace(string(r.Decision)) == "" {
 			continue
 		}
 		return r, true

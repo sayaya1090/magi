@@ -84,22 +84,72 @@ type DeliverableCheck struct {
 	Expect      string `json:"expect,omitempty"`
 }
 
+// flexText is a check's free-text field, tolerant of the shapes a model actually emits where the
+// schema says string: a plain string, a NUMBER, or a LIST of either. Go's decoder aborts the whole
+// document on the first type mismatch, so one such field discarded every OTHER check in the array
+// — leaving a run with no executable contract at all while the model had authored a usable one.
+// (This package stays stdlib-only, so the shared repair ladder in internal/jsonx is not imported
+// here; the tolerance is the same, applied at the domain boundary.)
+type flexText string
+
+func (v *flexText) UnmarshalJSON(b []byte) error {
+	var s string
+	if json.Unmarshal(b, &s) == nil {
+		*v = flexText(s)
+		return nil
+	}
+	var n json.Number
+	if json.Unmarshal(b, &n) == nil {
+		*v = flexText(n.String())
+		return nil
+	}
+	var list []flexText
+	if json.Unmarshal(b, &list) == nil {
+		parts := make([]string, 0, len(list))
+		for _, e := range list {
+			if t := strings.TrimSpace(string(e)); t != "" {
+				parts = append(parts, t)
+			}
+		}
+		*v = flexText(strings.Join(parts, "; "))
+		return nil
+	}
+	*v = "" // anything else → unset, never a discarded check
+	return nil
+}
+
 // UnmarshalJSON reads `step` as either a string or a NUMBER. The authoring prompt asks members to
 // "set `step` to that step's 1-based number", so a model that complies emits 5, not "5" — and a
 // strict string field then rejected the whole array, discarding every check in the reply. That is
 // how a run ends up with no executable contract at all while the model did exactly as instructed.
 func (c *DeliverableCheck) UnmarshalJSON(b []byte) error {
 	// A shadow type is required: naming DeliverableCheck here would recurse into this method.
+	// The text fields are tolerant for the same reason `step` is: `expect` is where a model most
+	// often answers with a NUMBER ("expect": 0 for an exit code), and `command` with a LIST (it
+	// enumerates the pipeline as separate elements). Either one strictly typed rejected the whole
+	// array and discarded every OTHER check with it.
 	var raw struct {
 		Step        json.RawMessage `json:"step,omitempty"`
-		Deliverable string          `json:"deliverable,omitempty"`
-		Command     string          `json:"command"`
-		Expect      string          `json:"expect,omitempty"`
+		Deliverable flexText        `json:"deliverable,omitempty"`
+		Command     flexText        `json:"command"`
+		Expect      flexText        `json:"expect,omitempty"`
 	}
 	if err := json.Unmarshal(b, &raw); err != nil {
+		// A check that arrived as a bare string is the model writing a LINE instead of an object —
+		// and there is no telling a runnable command ("make test") from a prose deliverable ("the
+		// server answers on 5328"). It is read as the DELIVERABLE, never the command: an invented
+		// command would be EXECUTED and could fail forever against work that is actually correct,
+		// which is worse than no check. With no command it is inert and MergeChecks drops it — but
+		// returning the error here would abort the enclosing array and discard every WELL-FORMED
+		// check beside it, which is the failure this tolerates.
+		var line string
+		if json.Unmarshal(b, &line) == nil && strings.TrimSpace(line) != "" {
+			*c = DeliverableCheck{Deliverable: strings.TrimSpace(line)}
+			return nil
+		}
 		return err
 	}
-	*c = DeliverableCheck{Deliverable: raw.Deliverable, Command: raw.Command, Expect: raw.Expect}
+	*c = DeliverableCheck{Deliverable: string(raw.Deliverable), Command: string(raw.Command), Expect: string(raw.Expect)}
 	if len(raw.Step) == 0 {
 		return nil
 	}

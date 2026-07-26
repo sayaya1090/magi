@@ -87,7 +87,7 @@ func TestParseSpecMineKind(t *testing.T) {
 	}
 	// A line with no kind still parses; the renderer/specKind default it to semantic.
 	res2, ok := parseSpecMine(`{"lines":[{"surface":"s","requirement":"r","construct":"c"}],"final":""}`)
-	if !ok || specKind(res2.Lines[0].Kind) != "semantic" {
+	if !ok || specKind(string(res2.Lines[0].Kind)) != "semantic" {
 		t.Fatalf("missing kind must default to semantic, got %q", res2.Lines[0].Kind)
 	}
 }

@@ -106,6 +106,14 @@ func (p *planStep) UnmarshalJSON(b []byte) error {
 		Task     flexString  `json:"task,omitempty"`
 	}
 	if err := json.Unmarshal(b, &s); err != nil {
+		// A step that arrived as a bare string ("build the parser") is the model writing the plan
+		// as a list of titles. Keeping it as a titled step preserves the plan; returning the error
+		// would abort the enclosing array and discard every WELL-FORMED step beside it.
+		var title string
+		if json.Unmarshal(b, &title) == nil && strings.TrimSpace(title) != "" {
+			*p = planStep{Title: strings.TrimSpace(title)}
+			return nil
+		}
 		return err
 	}
 	*p = planStep{
@@ -129,6 +137,38 @@ type planResult struct {
 	// weak models misestimate effort routinely, and a wrong hard cap would cut
 	// off genuinely progressing work (the top measured bench failure).
 	EstimatedSteps int `json:"estimated_steps"`
+}
+
+// UnmarshalJSON reads a plan tolerantly for the same reason planStep does: the decoder aborts the
+// WHOLE document on the first type mismatch, so a `reason` answered with a list, or an
+// `estimated_steps` quoted as "8", discarded every STEP in the plan alongside it — and the planner
+// then pays a full re-generation round trip for a plan it had already written correctly.
+// `steps` also accepts a single object, which a model emits when its plan has exactly one step.
+func (p *planResult) UnmarshalJSON(b []byte) error {
+	// A shadow type is required: naming planResult here would recurse into this method.
+	var s struct {
+		Steps          json.RawMessage `json:"steps"`
+		Reason         flexString      `json:"reason"`
+		Contest        flexString      `json:"contest,omitempty"`
+		EstimatedSteps jsonx.Number    `json:"estimated_steps"`
+	}
+	if err := json.Unmarshal(b, &s); err != nil {
+		return err
+	}
+	*p = planResult{
+		Reason: string(s.Reason), Contest: string(s.Contest), EstimatedSteps: int(s.EstimatedSteps),
+	}
+	if len(s.Steps) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(s.Steps, &p.Steps); err == nil {
+		return nil
+	}
+	var one planStep
+	if json.Unmarshal(s.Steps, &one) == nil && strings.TrimSpace(one.Title) != "" {
+		p.Steps = []planStep{one}
+	}
+	return nil // an unreadable `steps` leaves the plan empty; the caller already treats that as no plan
 }
 
 // readOnlyExplorers are the only agents the planner may fan out — investigation

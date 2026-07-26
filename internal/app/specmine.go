@@ -128,17 +128,21 @@ const distillSpecMineSystem = "You distill a working analysis into its final con
 
 // specMineResult is the distilled pass-2 shape.
 type specMineResult struct {
+	// Every field is tolerant (jsonx.Text): the decoder aborts the WHOLE document on the first
+	// type mismatch, so one line that answers `requirement` with a list would discard every OTHER
+	// mined line too — and the note then reads "carried no lines", indistinguishable from a model
+	// that mined nothing.
 	Lines []struct {
-		Surface     string `json:"surface"`
-		Requirement string `json:"requirement"`
-		Construct   string `json:"construct"`
+		Surface     jsonx.Text `json:"surface"`
+		Requirement jsonx.Text `json:"requirement"`
+		Construct   jsonx.Text `json:"construct"`
 		// Kind classifies HOW the requirement must be honored — hard (a fixed identifier/value:
 		// match verbatim), example (a sample input→output: reproduce the behavior), or semantic
 		// (a described structure/type/behavior: satisfy the meaning, verify by effect). Absent /
 		// unknown normalizes to semantic (specKind), the safe default that never over-asserts source form.
-		Kind string `json:"kind"`
+		Kind jsonx.Text `json:"kind"`
 	} `json:"lines"`
-	Final string `json:"final"`
+	Final jsonx.Text `json:"final"`
 }
 
 // specMineSpec picks the elicitation's agent spec: the dedicated "specmine" agent
@@ -196,15 +200,15 @@ func (a *App) elicitSpecMine(ctx context.Context, agent AgentSpec, s session.Ses
 		if i >= 5 { // the cap is code-enforced, not trusted to the model
 			break
 		}
-		sfc, req, con := strings.TrimSpace(ln.Surface), strings.TrimSpace(ln.Requirement), strings.TrimSpace(ln.Construct)
+		sfc, req, con := strings.TrimSpace(string(ln.Surface)), strings.TrimSpace(string(ln.Requirement)), strings.TrimSpace(string(ln.Construct))
 		if sfc == "" && req == "" && con == "" {
 			continue
 		}
 		// Tag each line by HOW to honor it so the executor and the check-author treat a fixed
 		// identifier (verbatim) differently from a described behavior (verify by effect).
-		b.WriteString("- ⟨" + specKind(ln.Kind) + "⟩ " + sfc + " → " + req + " → " + con + "\n")
+		b.WriteString("- ⟨" + specKind(string(ln.Kind)) + "⟩ " + sfc + " → " + req + " → " + con + "\n")
 	}
-	if f := strings.TrimSpace(res.Final); f != "" {
+	if f := strings.TrimSpace(string(res.Final)); f != "" {
 		b.WriteString("USE: " + f + "\n")
 	}
 	return strings.TrimSpace(b.String())

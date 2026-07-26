@@ -823,7 +823,7 @@ func TestParseReplyRequiresDecision(t *testing.T) {
 	if _, ok := parseReply(`{"rationale":"no decision field"}`); ok {
 		t.Fatal("reply without a decision should not parse")
 	}
-	if r, ok := parseReply(`{"decision":"DONE"}`); !ok || decisionOf(r.Decision) != council.Done {
+	if r, ok := parseReply(`{"decision":"DONE"}`); !ok || decisionOf(string(r.Decision)) != council.Done {
 		t.Fatalf("uppercase DONE should parse to done, got ok=%v r=%+v", ok, r)
 	}
 }
@@ -1152,4 +1152,45 @@ func TestParseReplySurvivesModelJSONDefects(t *testing.T) {
 			t.Errorf("parseReply(%q) must not produce a vote", bad)
 		}
 	}
+}
+
+// A member's verdict is one document: any field typed strictly cost the whole VOTE, recorded as an
+// abstain the tally cannot tell from "no opinion". These lock the shapes a model actually emits.
+func TestParseReplyTolerantShapes(t *testing.T) {
+	t.Run("checks as a single object", func(t *testing.T) {
+		r, ok := parseReply(`{"decision":"continue","rationale":"needs a check","checks":{"step":1,"deliverable":"d","command":"make"}}`)
+		if !ok {
+			t.Fatal("verdict lost over a single check object")
+		}
+		if len(r.Checks) != 1 || r.Checks[0].Command != "make" {
+			t.Fatalf("checks = %+v", r.Checks)
+		}
+		if decisionOf(string(r.Decision)) != council.Continue {
+			t.Fatalf("decision = %q", r.Decision)
+		}
+	})
+	t.Run("decision wrapped in a list", func(t *testing.T) {
+		r, ok := parseReply(`{"decision":["done"],"confidence":"0.9","rationale":"it builds"}`)
+		if !ok || decisionOf(string(r.Decision)) != council.Done {
+			t.Fatalf("ok=%v decision=%q", ok, r.Decision)
+		}
+		if float64(r.Confidence) != 0.9 {
+			t.Fatalf("confidence = %v", r.Confidence)
+		}
+	})
+	t.Run("severity as a list still tiers the vote", func(t *testing.T) {
+		r, ok := parseReply(`{"decision":"continue","severity":["critical"],"feedback":"add the build step"}`)
+		if !ok || string(r.Severity) != "critical" {
+			t.Fatalf("ok=%v severity=%q", ok, r.Severity)
+		}
+	})
+	t.Run("an unreadable checks field costs the checks, not the vote", func(t *testing.T) {
+		r, ok := parseReply(`{"decision":"done","rationale":"fine","checks":"none"}`)
+		if !ok || decisionOf(string(r.Decision)) != council.Done {
+			t.Fatalf("vote lost: ok=%v r=%+v", ok, r)
+		}
+		if len(r.Checks) != 0 {
+			t.Fatalf("checks = %+v, want none", r.Checks)
+		}
+	})
 }
