@@ -385,18 +385,82 @@ func (a *App) validateChecks(ctx context.Context, agent AgentSpec, s session.Ses
 	}
 	raw := a.specMineCall(ctx, agent, s.ID, "check-audit", model, validateChecksSystem, string(in))
 	out, ok := parseChecksArray(raw)
-	if !ok || len(out) == 0 { // unusable review → keep the authored checks rather than drop the contract
-		// Say so, with the reply. Silence here means the authored checks were never actually
-		// reviewed while the log looked exactly like a review that found nothing to repair —
-		// and the side call leaves no session record to check afterwards.
-		a.emitToolProgress(s.ID, plannerActor, "", "check-audit",
-			fmt.Sprintf("check-audit: review unusable (%d chars) — keeping the %d authored check(s) unreviewed :: %s",
-				len(raw), len(checks), planParseExcerpt(raw)))
+	if !ok || len(out) == 0 {
+		out, ok = a.retryCheckAudit(ctx, agent, s, model, string(in), raw, ok, len(checks))
+	}
+	// Still unusable → keep the authored checks rather than drop the contract. retryCheckAudit has
+	// already reported both attempts (each with its reply), so this path stays silent; the one thing
+	// that must never happen here is silence overall — the authored checks would then be gated on
+	// unreviewed, while the log looked exactly like a review that found nothing to repair, and the
+	// side call leaves no session record to check afterwards.
+	if !ok || len(out) == 0 {
 		return checks
 	}
 	a.recordCheckAudit(ctx, s.ID, checks, out)
 	return out
 }
+
+// retryCheckAudit re-asks the review ONCE when the first reply yielded no usable check set, and
+// returns what the second attempt produced (nil,false when it fails too).
+//
+// A single unusable reply used to end the review silently-in-effect: the authored checks were kept
+// UNREVIEWED, which is safe but means the pass simply did not happen. That is how four checks that
+// each rebuilt an entire compiler reached the gate — the audit answered `[]`, the run kept them, and
+// every gate cycle re-ran the build. One retry is cheap (a bounded side call, only on the failure
+// path) against a pass whose whole job is to catch exactly that.
+//
+// The two failure shapes are NOT the same defect and get different reminders. Conflating them also
+// made the log lie: an `[]` reply was reported as "unusable (2 chars)" when it parsed perfectly well
+// and said something specific.
+//   - Unparseable: no checks array in the reply (prose, a wrapping object, a cut-off stream). Ask for
+//     the bare array, exactly as the planner does after an unparseable plan.
+//   - Every check dropped: valid JSON that asks to keep nothing. Honoring it would store no checks at
+//     all (storePlanChecks returns early on an empty set), so the plan would land with NO executable
+//     gate — strictly worse than the flawed checks the review was meant to repair. Say that, and ask
+//     for repairs instead.
+func (a *App) retryCheckAudit(ctx context.Context, agent AgentSpec, s session.Session, model, in, raw string, parsed bool, authored int) ([]council.DeliverableCheck, bool) {
+	reminder := checkAuditJSONOnlyReminder
+	why := fmt.Sprintf("reply is not a checks array (%d chars) — retrying JSON-only", len(raw))
+	if parsed {
+		reminder = checkAuditKeepSomeReminder
+		why = fmt.Sprintf("review asked to drop all %d check(s) — retrying: dropping every check removes the gate "+
+			"instead of repairing it", authored)
+	}
+	a.emitToolProgress(s.ID, plannerActor, "", "check-audit",
+		fmt.Sprintf("check-audit: %s :: %s", why, planParseExcerpt(raw)))
+
+	raw2 := a.specMineCall(ctx, agent, s.ID, "check-audit", model, validateChecksSystem+"\n\n"+reminder, in)
+	out, ok := parseChecksArray(raw2)
+	if !ok || len(out) == 0 {
+		// Terminal line for this pass, and it carries the retry's reply: the caller stays silent after
+		// this, so everything needed to tell the two shapes apart has to be here.
+		a.emitToolProgress(s.ID, plannerActor, "", "check-audit",
+			fmt.Sprintf("check-audit: retry also unusable (%d chars, parsed=%t) — keeping the %d authored check(s) "+
+				"unreviewed :: %s", len(raw2), ok, authored, planParseExcerpt(raw2)))
+		return nil, false
+	}
+	a.emitToolProgress(s.ID, plannerActor, "", "check-audit",
+		fmt.Sprintf("check-audit: retry returned %d check(s)", len(out)))
+	return out, true
+}
+
+// checkAuditJSONOnlyReminder is appended to the review system prompt after a reply that carried no
+// parseable checks array — the same "strip all prose" nudge the planner uses, for the same reason:
+// weak models bury the array under reasoning, or ramble until the output budget truncates it.
+const checkAuditJSONOnlyReminder = "YOUR PREVIOUS REPLY COULD NOT BE PARSED. It carried no JSON array of checks — " +
+	"prose, a wrapping object, or an unterminated array. Reply with the JSON array ONLY: nothing before the `[`, " +
+	"nothing after the `]`, no explanation and no code fence."
+
+// checkAuditKeepSomeReminder is appended after a reply that dropped every check. It states the
+// consequence, because the model has no way to know it: these checks are the only executable gate,
+// so an empty answer does not remove a bad gate, it removes the gate.
+const checkAuditKeepSomeReminder = "YOUR PREVIOUS REPLY DROPPED EVERY CHECK, and that is not an available answer. " +
+	"These checks are the only executable gate on this plan: returning none does not remove a bad gate, it removes " +
+	"the gate, and the plan then lands with nothing verified. REPAIR them instead — strengthen a check that is too " +
+	"weak into one that exercises the contract; turn a check that re-does the step's work into a read-only read of " +
+	"what that work produced; replace a missing tool with a portable equivalent. Drop an entry only when its " +
+	"DELIVERABLE is not something this plan produces at all. If that were true of every entry there would have been " +
+	"nothing to review, so an empty array will be ignored a second time and the unrepaired checks will be used as-is."
 
 // recordCheckAudit persists what the check review changed — not just a count — so a rejected or
 // repaired check is inspectable after the fact (why a step gated the way it did). It emits a
