@@ -173,13 +173,17 @@ func (a *App) judgeLease(ctx context.Context, parent session.Session, child sess
 		}
 		return 0, "judge call failed: " + err.Error()
 	}
-	var reply strings.Builder
-	for ev := range stream {
-		if ev.Type == port.ProviderText {
-			reply.WriteString(ev.Text)
+	text, cut := drainStream(stream)
+	if cut != nil {
+		// A cut stream is INABILITY TO JUDGE, not a verdict. Falling through would leave a partial
+		// word ("EXT") that is neither EXTEND nor empty, so the deterministic kill would fire and
+		// end a subagent that was working — the same misreading the empty-reply case already guards.
+		if subagentWaitLeaseEnabled() {
+			return a.leaseExtension(), fmt.Sprintf("judge reply cut off after %d chars (%v) — extending, backstop caps it", len(text), cut)
 		}
+		return 0, fmt.Sprintf("judge reply cut off after %d chars: %v", len(text), cut)
 	}
-	raw := strings.TrimSpace(reply.String())
+	raw := strings.TrimSpace(text)
 	verdict := strings.ToUpper(raw)
 	// Fail safe: only an unambiguous EXTEND extends; an actual KILL/ambiguous/garbage verdict keeps
 	// the deterministic kill. But an EMPTY reply is the judge TIMING OUT — inability to judge, not a

@@ -3,11 +3,13 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 // clipCheckOutput keeps the head of a check's output and bounds it: the verdict-deciding line is at
@@ -218,4 +220,34 @@ func TestModelReplyFailuresAreReported(t *testing.T) {
 			t.Errorf("an empty draft must be reported with the reply:\n%s", n)
 		}
 	})
+}
+
+// A stream that ERRORS midway leaves a PARTIAL reply. Returning it unmarked made a cut-off document
+// indistinguishable from a badly-formed one, so every caller reported "unparseable" and pointed the
+// diagnosis at the model's JSON when the real event was a broken stream. The partial text must
+// still be returned — salvage wants it — but the cut must be reported.
+func TestSideCallReportsATruncatedStream(t *testing.T) {
+	a := newOrchApp(t, &cutOffLLM{text: `{"criteria":["the build passes","the tests `},
+		Config{Permission: "allow", MaxAgents: 10})
+	s := parentSession(t.TempDir())
+	sub := watchProgress(t, a, s.ID)
+	got := a.specMineCall(context.Background(), AgentSpec{Name: "planner"}, s.ID, "contract-draft", "m", "sys", "user")
+	if !strings.Contains(got, "the build passes") {
+		t.Fatalf("the partial text must still be returned for salvage, got %q", got)
+	}
+	note := sub.notes("contract-draft")
+	if !strings.Contains(note, "CUT OFF") || !strings.Contains(note, "boom") {
+		t.Errorf("the cut must be reported with its cause:\n%s", note)
+	}
+}
+
+// cutOffLLM streams some text and then an error, the shape of a deadline firing mid-generation.
+type cutOffLLM struct{ text string }
+
+func (c *cutOffLLM) StreamChat(context.Context, port.ChatRequest) (<-chan port.ProviderEvent, error) {
+	ch := make(chan port.ProviderEvent, 3)
+	ch <- port.ProviderEvent{Type: port.ProviderText, Text: c.text}
+	ch <- port.ProviderEvent{Type: port.ProviderError, Err: errors.New("boom")}
+	close(ch)
+	return ch, nil
 }

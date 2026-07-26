@@ -266,12 +266,22 @@ func (a *App) specMineCallMsgs(ctx context.Context, spec AgentSpec, sid session.
 		return ""
 	}
 	var b strings.Builder
+	var streamErr string
 	start := time.Now()
 	lastBeat := start
 	for ev := range stream {
 		switch ev.Type {
 		case port.ProviderText:
 			b.WriteString(ev.Text)
+		case port.ProviderError:
+			// A stream that ERRORS midway leaves a PARTIAL reply here, and returning it unmarked
+			// made a cut-off document indistinguishable from a badly-formed one: every caller then
+			// reported "unparseable", pointing the diagnosis at the model's JSON when the real
+			// event was a broken stream. Keep the partial text — salvage still wants it — but say
+			// what happened.
+			if ev.Err != nil {
+				streamErr = ev.Err.Error()
+			}
 		case port.ProviderReasoning:
 			if sid != "" && time.Since(lastBeat) >= specMineBeatInterval {
 				a.emitToolProgress(sid, plannerActor, "", label, fmt.Sprintf("%s: thinking… (%ds)", label, int(time.Since(start).Seconds())))
@@ -279,7 +289,12 @@ func (a *App) specMineCallMsgs(ctx context.Context, spec AgentSpec, sid session.
 			}
 		}
 	}
-	return strings.TrimSpace(b.String())
+	out := strings.TrimSpace(b.String())
+	if streamErr != "" && sid != "" {
+		a.emitToolProgress(sid, plannerActor, "", label,
+			fmt.Sprintf("%s: the reply was CUT OFF after %d chars — %s (what follows is a partial document)", label, len(out), streamErr))
+	}
+	return out
 }
 
 // parseSpecMine extracts the first balanced {...} JSON object and unmarshals it.

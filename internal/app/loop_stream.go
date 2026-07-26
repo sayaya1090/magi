@@ -53,6 +53,26 @@ var maxStreamStallRetries = 2
 // rather than looping.
 var maxCtxCompactRetries = 3
 
+// drainStream accumulates a text-only provider stream and reports whether it was CUT OFF midway.
+// Every side call in this package used to drop the error event on the floor and return whatever had
+// arrived, so a broken stream was indistinguishable from a complete reply — a half-written summary
+// became the session's compacted memory, a half-written verdict killed a working subagent, and a
+// half-written document was reported as the model writing bad JSON. The partial text is still
+// returned, because salvage wants it; the caller decides what a cut means for its own use.
+func drainStream(stream <-chan port.ProviderEvent) (string, error) {
+	var b strings.Builder
+	var cut error
+	for ev := range stream {
+		switch ev.Type {
+		case port.ProviderText:
+			b.WriteString(ev.Text)
+		case port.ProviderError:
+			cut = ev.Err
+		}
+	}
+	return b.String(), cut
+}
+
 // drainText consumes a TEXT-ONLY provider stream (the planner and other tool-free side calls that only
 // accumulate the reply, unlike consumeStream which also publishes deltas). It carries NO hang watchdog
 // of its own: the provider is wrapped by guardedProvider (GuardProvider), which aborts a silent or
@@ -64,13 +84,13 @@ func (a *App) drainText(ctx context.Context, spec AgentSpec, req port.ChatReques
 	if err != nil {
 		return "", err
 	}
-	var b strings.Builder
-	for ev := range stream {
-		if ev.Type == port.ProviderText {
-			b.WriteString(ev.Text)
-		}
+	text, cut := drainStream(stream)
+	if cut != nil {
+		// The partial text is still returned — the planner's salvage path wants it — but a stream
+		// cut midway must not read as a model that wrote bad JSON.
+		fmt.Fprintf(os.Stderr, "magi: a planner stream was cut off after %d chars: %v\n", len(text), cut)
 	}
-	return b.String(), nil
+	return text, nil
 }
 
 // reasoningSpinCap is the max output bytes a single model response may stream WITHOUT ever emitting

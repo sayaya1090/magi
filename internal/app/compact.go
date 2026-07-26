@@ -241,13 +241,15 @@ func (a *App) summarizeViaLLM(ctx context.Context, agent AgentSpec, s session.Se
 	if err != nil {
 		return ""
 	}
-	var b strings.Builder
-	for ev := range stream {
-		if ev.Type == port.ProviderText {
-			b.WriteString(ev.Text)
-		}
+	text, cut := drainStream(stream)
+	if cut != nil {
+		// This summary BECOMES the session's memory of everything it replaces, so a half-written
+		// one silently discards conversation. Report it; the caller still uses what arrived rather
+		// than losing the region entirely.
+		a.emitToolProgress(s.ID, event.Actor{Kind: event.ActorSystem, ID: "compact"}, "", "compact",
+			fmt.Sprintf("compact: the summary was CUT OFF after %d chars — %v (the compacted region is summarized incompletely)", len(text), cut))
 	}
-	return strings.TrimSpace(b.String())
+	return strings.TrimSpace(text)
 }
 
 // contextTokens reports the context size: the provider's real prompt_tokens from

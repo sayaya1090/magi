@@ -222,10 +222,10 @@ func (c *Council) JudgeRevision(ctx context.Context, req port.RevisionJudgeReque
 		return port.RevisionVerdict{Addressed: true, Reason: "revision judge unavailable: " + err.Error()}, nil
 	}
 	var b strings.Builder
-	for ev := range stream {
-		if ev.Type == port.ProviderText {
-			b.WriteString(ev.Text)
-		}
+	text, cut := drain(stream)
+	b.WriteString(text)
+	if cut != nil {
+		fmt.Fprintf(os.Stderr, "magi: a council reply was cut off after %d chars: %v\n", len(text), cut)
 	}
 	var r judgeReply
 	parsed := false
@@ -292,10 +292,10 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 			return memberReply{}, false, err
 		}
 		var b strings.Builder
-		for ev := range stream {
-			if ev.Type == port.ProviderText {
-				b.WriteString(ev.Text)
-			}
+		text, cut := drain(stream)
+		b.WriteString(text)
+		if cut != nil {
+			fmt.Fprintf(os.Stderr, "magi: a council reply was cut off after %d chars: %v\n", len(text), cut)
 		}
 		r, ok := parseReply(b.String())
 		if !ok {
@@ -373,10 +373,10 @@ func (c *Council) pollRebut(ctx context.Context, req port.DeliberationRequest, m
 		return prior
 	}
 	var b strings.Builder
-	for ev := range stream {
-		if ev.Type == port.ProviderText {
-			b.WriteString(ev.Text)
-		}
+	text, cut := drain(stream)
+	b.WriteString(text)
+	if cut != nil {
+		fmt.Fprintf(os.Stderr, "magi: a council reply was cut off after %d chars: %v\n", len(text), cut)
 	}
 	r, ok := parseReply(b.String())
 	if !ok {
@@ -423,10 +423,10 @@ func (c *Council) devilAdvocate(ctx context.Context, req port.DeliberationReques
 		return v
 	}
 	var b strings.Builder
-	for ev := range stream {
-		if ev.Type == port.ProviderText {
-			b.WriteString(ev.Text)
-		}
+	text, cut := drain(stream)
+	b.WriteString(text)
+	if cut != nil {
+		fmt.Fprintf(os.Stderr, "magi: a council reply was cut off after %d chars: %v\n", len(text), cut)
 	}
 	r, ok := parseReply(b.String())
 	if !ok {
@@ -508,10 +508,10 @@ func (c *Council) pollDevilReview(ctx context.Context, req port.DeliberationRequ
 		return prior
 	}
 	var b strings.Builder
-	for ev := range stream {
-		if ev.Type == port.ProviderText {
-			b.WriteString(ev.Text)
-		}
+	text, cut := drain(stream)
+	b.WriteString(text)
+	if cut != nil {
+		fmt.Fprintf(os.Stderr, "magi: a council reply was cut off after %d chars: %v\n", len(text), cut)
 	}
 	r, ok := parseReply(b.String())
 	if !ok {
@@ -1127,6 +1127,26 @@ func decisionOf(s string) council.Decision {
 // SILENT by construction — a member becomes an abstain the tally cannot tell from "no opinion", and
 // the revision judge fails OPEN and waves a rewrite through — so without a line on stderr there is
 // no way to tell a model that answered in prose from one whose JSON we mishandled.
+
+// drain accumulates a member/judge reply and reports whether the stream was CUT OFF midway. Every
+// reader here used to drop the error event, so a truncated reply arrived as a complete one: the
+// member became an abstain the tally cannot tell from "no opinion", and the revision judge — which
+// fails OPEN — waved a rewrite through. The partial text is still returned so a lenient parse can
+// still succeed on it; the cut is reported separately.
+func drain(stream <-chan port.ProviderEvent) (string, error) {
+	var b strings.Builder
+	var cut error
+	for ev := range stream {
+		switch ev.Type {
+		case port.ProviderText:
+			b.WriteString(ev.Text)
+		case port.ProviderError:
+			cut = ev.Err
+		}
+	}
+	return b.String(), cut
+}
+
 func noteUnparsed(what, text string) {
 	fmt.Fprintf(os.Stderr, "magi: %s could not be parsed (%d bytes): %s\n", what, len(text), jsonx.Excerpt(text))
 }

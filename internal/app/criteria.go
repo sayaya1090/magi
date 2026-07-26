@@ -535,13 +535,12 @@ func (a *App) elicitCriteria(ctx context.Context, agent AgentSpec, s session.Ses
 	if err != nil {
 		return ""
 	}
-	var b strings.Builder
-	for ev := range stream {
-		if ev.Type == port.ProviderText {
-			b.WriteString(ev.Text)
-		}
+	text, cut := drainStream(stream)
+	if cut != nil {
+		a.emitToolProgress(s.ID, plannerActor, "", "criteria",
+			fmt.Sprintf("criteria: the reply was CUT OFF after %d chars — %v (the contract may be incomplete)", len(text), cut))
 	}
-	return strings.TrimSpace(b.String())
+	return strings.TrimSpace(text)
 }
 
 // unmarshalChecksLenient parses one candidate array of deliverable checks, retrying with the shared
