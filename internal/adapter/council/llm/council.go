@@ -282,7 +282,9 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 	// and parse outcome are surfaced separately so the caller can distinguish "unavailable"
 	// (abstain) from "unparseable" (retry once with a JSON-only reminder).
 	sys := memberSystem(m, req.Phase, req.Task, req.Keep, req.Constraints)
-	ask := func(userMsg string) (memberReply, bool, error) {
+	// The raw reply travels back with the parse outcome: the retry has to be able to name WHICH way
+	// the previous one failed, and that is only knowable from the text it failed on.
+	ask := func(userMsg string) (memberReply, string, bool, error) {
 		stream, err := provider.StreamChat(ctx, port.ChatRequest{
 			Model:    model,
 			System:   sys,
@@ -290,7 +292,7 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 			Params:   map[string]any{"temperature": 0.0},
 		})
 		if err != nil {
-			return memberReply{}, false, err
+			return memberReply{}, "", false, err
 		}
 		var b strings.Builder
 		text, cut := drain(stream)
@@ -302,21 +304,21 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 		if !ok {
 			noteUnparsed("a council member's verdict (recorded as an abstain)", b.String())
 		}
-		return r, ok, nil
+		return r, b.String(), ok, nil
 	}
 
-	r, ok, err := ask(user)
+	r, raw, ok, err := ask(user)
 	if err != nil {
 		v.Decision = council.Abstain
 		v.Rationale = "council member unavailable: " + err.Error()
 		return v
 	}
 	if !ok {
-		// A verbose model can wrap the required JSON in prose and fail parsing, which would
-		// silently drop this member's vote from quorum and skew the tally with the remaining
-		// minority. Give it one focused retry demanding JSON only before abstaining — the same
-		// remedy the planner already applies to its own JSON replies.
-		r, ok, err = ask(user + councilJSONReminder)
+		// An unreadable reply would silently drop this member's vote from quorum and skew the tally
+		// with the remaining minority. Give it one focused retry — naming the actual defect, since
+		// "strip the prose" is useless advice to a model whose object was bare but malformed — before
+		// abstaining. The same remedy the planner already applies to its own JSON replies.
+		r, _, ok, err = ask(user + councilRetryReminder(raw))
 		if err != nil {
 			v.Decision = council.Abstain
 			v.Rationale = "council member unavailable: " + err.Error()
@@ -527,11 +529,30 @@ func (c *Council) pollDevilReview(ctx context.Context, req port.DeliberationRequ
 	return v
 }
 
-// councilJSONReminder is appended to a member's user message for a single re-poll when its first
-// reply could not be parsed as the required JSON — a verbose model wrapping the object in prose is
-// the common cause, and abstaining outright would drop the vote from quorum.
-const councilJSONReminder = "\n\n# Reply format\nYour previous reply could not be parsed as the required " +
-	"JSON. Reply with ONLY the JSON object — no prose, explanation, or markdown fences before or after it."
+// councilRetryReminder is appended to a member's user message for a single re-poll when its first
+// reply could not be read, and it names WHICH failure occurred. The single reminder used to assume
+// prose wrapping in every case, which is one of three unrelated defects and not the one seen most:
+// a model that emitted a bare object with a mis-nested array was told to strip prose it had never
+// written, produced the identical malformation on the retry, and lost its vote anyway. So the
+// diagnosis magi already computes for the log is fed back to the model instead of being kept from
+// the only party that can act on it.
+func councilRetryReminder(text string) string {
+	const head = "\n\n# Reply format\nYour previous reply could not be read. "
+	d := jsonx.Diagnose(text)
+	switch {
+	case strings.HasPrefix(d, "syntax error"):
+		return head + "It DID contain a JSON object, so the problem is not prose around it — the JSON " +
+			"itself is malformed:\n" + d + "\nSend the SAME verdict again as one well-formed JSON object. " +
+			"Every `[` must be closed by `]` BEFORE the next key begins, every `{` by `}`, and every string " +
+			"by its closing quote."
+	case strings.HasPrefix(d, "the JSON parses"):
+		return head + "The JSON is well-formed but does not carry a verdict: " + d + "\nThe `decision` " +
+			"field is required and must be exactly \"done\" or \"continue\". Send the object again with it."
+	default:
+		return head + "Reply with ONLY the JSON object — no prose, explanation, or markdown fences " +
+			"before or after it."
+	}
+}
 
 // devilSystem is the adversarial member's contract: argue against done, but only on a REAL defect.
 const devilSystem = "You are the council's devil's advocate. The other members are ready to rule this AI " +
@@ -1200,7 +1221,34 @@ func parseReply(text string) (memberReply, bool) {
 		}
 		return r, true
 	}
+	// Nothing parsed whole. Before giving up, keep whatever arrived BEFORE the defect — because the
+	// alternative here is not "a slightly worse verdict", it is NO verdict, and the fields are ordered
+	// with the decision first. Observed repeatedly from one model: a criteria array left unclosed
+	// before the `checks` key, at byte 563 of 567, discarding a `continue` (once a `critical` one)
+	// that had been stated in full at byte 12. The loss is real and one-directional, so it is logged
+	// with the defect that forced it rather than folded into a silent success.
+	for _, js := range jsonx.Objects(text) {
+		cut, ok := jsonx.SalvagePrefix(js)
+		if !ok {
+			continue
+		}
+		var r memberReply
+		if !jsonx.Unmarshal(cut, &r) || strings.TrimSpace(string(r.Decision)) == "" {
+			continue // the decision itself was behind the defect: there is no vote to keep
+		}
+		noteSalvaged(js, cut)
+		return r, true
+	}
 	return memberReply{}, false
+}
+
+// noteSalvaged reports a verdict that was read only by discarding the tail of its own reply. It is a
+// SUCCESS with a cost — later fields (criteria, checks) may be missing — so it is reported even
+// though nothing failed, and it names the syntax defect so a recurring model-side shape is visible
+// as such rather than as an unexplained gap in a member's criteria.
+func noteSalvaged(orig, kept string) {
+	fmt.Fprintf(os.Stderr, "magi: a council reply was malformed and only its prefix could be read "+
+		"(%d of %d bytes kept; fields after the defect are missing): %s\n", len(kept), len(orig), jsonx.Diagnose(orig))
 }
 
 // firstJSONObject returns the first balanced {...} object in s, respecting

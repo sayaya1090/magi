@@ -1194,3 +1194,75 @@ func TestParseReplyTolerantShapes(t *testing.T) {
 		}
 	})
 }
+
+// A member states its decision in the FIRST field and then malforms a later array. Losing the whole
+// verdict over that turns a stated vote into an abstain the tally cannot tell from "no opinion" —
+// and when the vote was a critical continue, it silently disables the veto it was cast to trigger.
+func TestMalformedVerdictKeepsTheDecisionItStated(t *testing.T) {
+	const bad = `{"decision":"continue","confidence":0.9,"rationale":"verification is missing",` +
+		`"severity":"critical","criteria":["the change is exercised, not just compiled","checks":[]]}`
+	r, ok := parseReply(bad)
+	if !ok {
+		t.Fatalf("the verdict was discarded: %s", bad)
+	}
+	if decisionOf(string(r.Decision)) != council.Continue {
+		t.Errorf("decision = %q, want continue", r.Decision)
+	}
+	if string(r.Severity) != "critical" {
+		t.Errorf("severity = %q, want critical (it gates blocking vs advisory)", r.Severity)
+	}
+	if len(r.Criteria) != 1 {
+		t.Errorf("criteria = %q, want the one that arrived whole", r.Criteria)
+	}
+}
+
+// The salvage is bounded by what it can honestly claim: with the decision itself behind the defect
+// there is no vote to keep, and inventing one would be worse than the abstain.
+func TestMalformedVerdictWithNoReadableDecisionStillAbstains(t *testing.T) {
+	if _, ok := parseReply(`{"rationale":"the plan is fine","criteria":["a","checks":[]]}`); ok {
+		t.Error("a reply with no decision must not be read as a verdict")
+	}
+	if _, ok := parseReply("I think it is probably fine, hard to say."); ok {
+		t.Error("prose must not be read as a verdict")
+	}
+}
+
+// A salvaged verdict must survive the whole Deliberate path, not just parseReply.
+func TestDeliberateReadsAMalformedVerdict(t *testing.T) {
+	c := New(only(fakeLLM{reply: func(port.ChatRequest) string {
+		return `{"decision":"done","confidence":0.9,"rationale":"all deliverables exist and ran",` +
+			`"criteria":["the output matches the requested format","checks":[]]}`
+	}}), "m")
+	d, _ := c.Deliberate(context.Background(), port.DeliberationRequest{Round: 1, Task: "do x"})
+	if d.Decision != council.Done {
+		t.Fatalf("decision = %q, want done (the members voted done in readable prefixes)", d.Decision)
+	}
+	for _, v := range d.Verdicts {
+		if v.Decision != council.Done {
+			t.Errorf("member %s = %q, want done", v.Member, v.Decision)
+		}
+	}
+}
+
+// The retry reminder has to name the defect that actually occurred. Telling a model that emitted a
+// bare-but-malformed object to "strip the prose" is advice about a different failure, and the
+// observed result is the identical malformation on the retry and the vote lost anyway.
+func TestRetryReminderNamesTheDefectThatOccurred(t *testing.T) {
+	syntax := councilRetryReminder(`{"decision":"continue","criteria":["a","checks":[]]}`)
+	if strings.Contains(syntax, "no prose") || !strings.Contains(syntax, "malformed") {
+		t.Errorf("a syntax defect was reported as prose wrapping:\n%s", syntax)
+	}
+	if !strings.Contains(syntax, "syntax error at offset") || !strings.Contains(syntax, "⟪HERE⟫") {
+		t.Errorf("the reminder withholds the location magi already computed:\n%s", syntax)
+	}
+
+	schema := councilRetryReminder(`{"verdict":"done","why":"looks fine"}`)
+	if !strings.Contains(schema, "`decision` ") || !strings.Contains(schema, "well-formed") {
+		t.Errorf("a well-formed reply missing the decision was not named as such:\n%s", schema)
+	}
+
+	prose := councilRetryReminder("I think it is probably fine, hard to say.")
+	if !strings.Contains(prose, "ONLY the JSON object") {
+		t.Errorf("prose must still get the JSON-only reminder:\n%s", prose)
+	}
+}
