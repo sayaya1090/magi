@@ -120,6 +120,9 @@ Flags / environment variables (precedence: flag > env > default):
 | `--no-update-check` | `MAGI_NO_UPDATE_CHECK` | (off) | disable the interactive startup update check |
 | `--api-key` | `MAGI_API_KEY` | (none) | key for the backend (also config `api_key`, `${ENV}`-expanded; falls back to `OPENAI_API_KEY`). A CLI value is visible in the process list, so env/config are the safer default. Not needed for Ollama |
 | — | `MAGI_REASONING_EFFORT` | (backend default) | passed to the backend as `reasoning_effort` for reasoning models — e.g. `none` to disable thinking, or `low`\|`medium`\|`high`; empty = omit the field |
+| — | `MAGI_TEMPERATURE` | (config `[sampling]`, else model default) | sampling temperature sent with every request; overrides `[sampling] temperature` |
+| — | `MAGI_TOP_P` | (config `[sampling]`, else model default) | nucleus sampling cutoff; overrides `[sampling] top_p` |
+| — | `MAGI_TOP_K` | (config `[sampling]`, else model default) | top-k cutoff — a non-OpenAI extension, sent only when set and honored only by backends that implement it (Ollama's `/v1` ignores it) |
 | — | `MAGI_EMOJI_WIDTH` | (auto-probe) | force emoji cell width: `narrow`\|`1` (one cell) or `wide`\|`2` (two cells). If unset, a startup probe measures it |
 | — | `MAGI_WIDTH_PROBE` | (on) | `0` skips the startup terminal-width probes (ambiguous · decor · emoji) = no correction (library default widths) |
 | — | `MAGI_AMBIGUOUS_WIDTH` | `auto` | `wide`\|`narrow`\|`auto` — force East-Asian ambiguous-char cell width (see below) |
@@ -150,6 +153,15 @@ api_key  = "${FAST_KEY}"
 model    = "gpt-oss:20b"
 [llm.profiles.fast.headers]
 X-CLIENT-API-KEY = "${FAST_CLIENT_KEY}"
+
+[sampling]                 # sampling sent with EVERY request; omit a key to keep the provider's own default
+temperature = 0.2          # the "provider default" is the MODEL's: qwen3-coder-next ships temperature 1 /
+top_p       = 0.8          # top_p 0.95 / top_k 40 in its Modelfile, and that is what runs when this is absent
+# top_k     = 20           # NOT an OpenAI field — an extension; sent only when set. Measured: Ollama's /v1
+                           # accepts and IGNORES it (its native /api/chat honors it), so it is backend-dependent.
+                           # Deliberate per-call pins outrank this: the council polls its members at temperature 0
+                           # so a deliberation is reproducible, and setting a temperature here does not un-pin them.
+                           # Env MAGI_TEMPERATURE / MAGI_TOP_P / MAGI_TOP_K override (handy for A/B runs).
 
 [orchestration]            # pre-flight procedure planner (on by default): decomposes a request into an
 planner = true             # ordered procedure → a strategy per step (solo|parallel|scout|delegate|refine); scout

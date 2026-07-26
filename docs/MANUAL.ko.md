@@ -106,6 +106,9 @@ git remote가 없는 플러그인은 보고 후 **건너뜀 — 강제로 덮지
 | `--no-update-check` | `MAGI_NO_UPDATE_CHECK` | (꺼짐) | 인터랙티브 기동 시 업데이트 체크 비활성화 |
 | `--api-key` | `MAGI_API_KEY` | (없음) | 백엔드 키 (config `api_key`도 가능, `${ENV}` 확장; `OPENAI_API_KEY`로 폴백). CLI 값은 프로세스 목록에 노출되니 env/config가 더 안전. Ollama 불필요 |
 | — | `MAGI_REASONING_EFFORT` | (백엔드 기본) | reasoning 모델용 `reasoning_effort`로 백엔드에 전달 — 예: `none`으로 thinking 비활성, 또는 `low`\|`medium`\|`high`; 비우면 필드 생략 |
+| — | `MAGI_TEMPERATURE` | (설정 `[sampling]`, 없으면 모델 기본) | 모든 요청에 실리는 샘플링 temperature; `[sampling] temperature`보다 우선 |
+| — | `MAGI_TOP_P` | (설정 `[sampling]`, 없으면 모델 기본) | nucleus 샘플링 컷오프; `[sampling] top_p`보다 우선 |
+| — | `MAGI_TOP_K` | (설정 `[sampling]`, 없으면 모델 기본) | top-k 컷오프 — OpenAI 비표준 확장이라 설정했을 때만 전송되고, 구현한 백엔드에서만 반영된다(Ollama `/v1`은 무시) |
 | — | `MAGI_EMOJI_WIDTH` | (자동 프로브) | 이모지 셀 폭을 강제: `narrow`\|`1`(1칸) 또는 `wide`\|`2`(2칸). 미지정 시 기동 프로브가 실측 |
 | — | `MAGI_WIDTH_PROBE` | (켜짐) | `0`이면 기동 시 터미널 폭 프로브(ambiguous·데코·이모지)를 건너뜀 = 무보정(라이브러리 기본폭 사용) |
 | — | `MAGI_AMBIGUOUS_WIDTH` | `auto` | `wide`\|`narrow`\|`auto` — 동아시아 ambiguous 문자 셀 폭 강제(아래 참고) |
@@ -136,6 +139,15 @@ api_key  = "${FAST_KEY}"
 model    = "gpt-oss:20b"
 [llm.profiles.fast.headers]
 X-CLIENT-API-KEY = "${FAST_CLIENT_KEY}"
+
+[sampling]                 # 모든 요청에 함께 실리는 샘플링 값; 키를 빼면 프로바이더 기본값 유지
+temperature = 0.2          # 여기서 "프로바이더 기본"은 사실 모델 기본이다: qwen3-coder-next는 Modelfile에
+top_p       = 0.8          # temperature 1 / top_p 0.95 / top_k 40을 박아두며, 이 항목이 없으면 그 값으로 돈다
+# top_k     = 20           # OpenAI 스키마에 없는 확장 필드 — 설정했을 때만 전송. 실측: Ollama /v1은 받아들이고
+                           # 무시한다(네이티브 /api/chat은 반영), 즉 백엔드마다 다르다.
+                           # 의도적 per-call 핀이 이보다 우선한다: 카운슬은 심의 재현성을 위해 멤버를
+                           # temperature 0으로 폴하며, 여기에 값을 넣어도 그 핀은 풀리지 않는다.
+                           # 환경변수 MAGI_TEMPERATURE / MAGI_TOP_P / MAGI_TOP_K가 우선(A/B 실행용).
 
 [orchestration]            # 선제 절차 플래너(기본 on): 요청을 순서 절차로 분해 → step별 전략
 planner = true             # (solo|parallel|scout|delegate|refine); scout는 목록 확보 후 각 항목 병렬,
