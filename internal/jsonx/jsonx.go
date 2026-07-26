@@ -407,6 +407,53 @@ func CloseTruncated(s string) (string, bool) {
 	return b.String(), true
 }
 
+// SalvagePrefix keeps the fields that arrived BEFORE a document's syntax error and reports whether
+// anything was left to keep. It exists because a model's structural slip is almost never uniform
+// across the reply: the defect lands in ONE container — an array left unclosed before the next key,
+// a string that swallowed a brace — while everything ahead of it is well-formed. Rejecting the whole
+// document then charges the caller for fields that arrived intact, and the first field is usually
+// the one that mattered most (a verdict's `decision`, a report's `status`).
+//
+// It is deliberately NOT part of RepairCandidates or Unmarshal, for the same reason CloseTruncated
+// is wired only into the span extractor: this recovery is LOSSY. Everything after the defect is
+// discarded, so a plan cut in its third step would parse "successfully" as a two-step plan and lose
+// the rest silently. Only a caller that has weighed that loss against its own alternative — for a
+// council member, an abstain the tally cannot tell from "no opinion" — should reach for it, and it
+// must say in its log that it did.
+//
+// The repairs are tried first, so a raw newline mid-prose is FIXED rather than treated as the cut
+// point, and the longest surviving prefix across them wins. The result is re-parsed before it is
+// returned, and a salvage that recovered no field at all is reported as nothing to salvage.
+func SalvagePrefix(js string) (string, bool) {
+	best := ""
+	for _, c := range RepairCandidates(strings.TrimSpace(js)) {
+		var probe any
+		err := json.Unmarshal([]byte(c), &probe)
+		if err == nil {
+			return "", false // whole: the caller's failure was the schema, and a prefix cannot help that
+		}
+		var se *json.SyntaxError
+		if !errors.As(err, &se) {
+			continue
+		}
+		off := int(se.Offset)
+		if off <= 0 || off > len(c) {
+			continue
+		}
+		cut, ok := CloseTruncated(c[:off])
+		if !ok || len(cut) < 2 || strings.TrimSpace(cut[1:len(cut)-1]) == "" {
+			continue // nothing but the closers survived
+		}
+		if json.Unmarshal([]byte(cut), &probe) != nil {
+			continue
+		}
+		if len(cut) > len(best) {
+			best = cut
+		}
+	}
+	return best, best != ""
+}
+
 // EscapeControlCharsInStrings rewrites raw control characters (< 0x20) that appear INSIDE a JSON
 // string literal into their valid JSON escape (a literal newline/tab a weak model puts inside a
 // "reason"/"task" value becomes \n/\t), which json.Unmarshal otherwise rejects with "invalid

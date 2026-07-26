@@ -370,3 +370,90 @@ func TestDamageRepairsAreIdentityOnLegalJSON(t *testing.T) {
 		}
 	}
 }
+
+// The defect that motivated SalvagePrefix: a model closes an array with the NEXT key instead of a
+// `]`, so the document is invalid from that byte on while everything ahead of it — including the
+// first field, which is the one the caller usually needs — arrived intact.
+func TestSalvagePrefixKeepsTheFieldsBeforeAMisNestedArray(t *testing.T) {
+	const bad = `{"decision":"continue","confidence":0.9,"rationale":"the plan skips verification",` +
+		`"severity":"critical","criteria":["the fix is confirmed by running it","checks":[]]}`
+	if json.Unmarshal([]byte(bad), new(map[string]any)) == nil {
+		t.Fatal("the fixture is supposed to be invalid JSON")
+	}
+	cut, ok := SalvagePrefix(bad)
+	if !ok {
+		t.Fatalf("nothing salvaged from a reply whose first four fields were whole: %s", bad)
+	}
+	var got struct {
+		Decision string   `json:"decision"`
+		Severity string   `json:"severity"`
+		Criteria []string `json:"criteria"`
+		Checks   []any    `json:"checks"`
+	}
+	if err := json.Unmarshal([]byte(cut), &got); err != nil {
+		t.Fatalf("the salvaged prefix does not parse: %v\n%s", err, cut)
+	}
+	if got.Decision != "continue" || got.Severity != "critical" {
+		t.Errorf("the fields before the defect were lost: %+v", got)
+	}
+	// The criterion that had fully arrived is kept; the key that broke the array is not smuggled in.
+	if len(got.Criteria) != 1 || got.Criteria[0] != "the fix is confirmed by running it" {
+		t.Errorf("criteria = %q, want the one complete element", got.Criteria)
+	}
+	if got.Checks != nil {
+		t.Errorf("the salvage must not invent content after the defect: checks = %v", got.Checks)
+	}
+}
+
+// A raw newline inside a string is REPAIRABLE, so it must not be mistaken for the cut point — that
+// would throw away every field after the first multi-line prose value, which is most of them.
+func TestSalvagePrefixRepairsBeforeChoosingTheCutPoint(t *testing.T) {
+	bad := "{\"decision\":\"done\",\"rationale\":\"line one\nline two\",\"criteria\":[\"kept\",\"checks\":[]]}"
+	cut, ok := SalvagePrefix(bad)
+	if !ok {
+		t.Fatalf("nothing salvaged: %s", bad)
+	}
+	var got struct {
+		Decision  string   `json:"decision"`
+		Rationale string   `json:"rationale"`
+		Criteria  []string `json:"criteria"`
+	}
+	if err := json.Unmarshal([]byte(cut), &got); err != nil {
+		t.Fatalf("the salvaged prefix does not parse: %v\n%s", err, cut)
+	}
+	if got.Decision != "done" || !strings.Contains(got.Rationale, "line two") {
+		t.Errorf("the raw newline was treated as the cut point instead of being repaired: %+v", got)
+	}
+	if len(got.Criteria) != 1 {
+		t.Errorf("criteria = %q, want the element that arrived before the defect", got.Criteria)
+	}
+}
+
+func TestSalvagePrefixDeclinesWhenThereIsNothingToSalvage(t *testing.T) {
+	for _, s := range []string{
+		`{"decision":"done","criteria":["a","b"]}`, // whole: a prefix cannot improve on it
+		`{"criteria":["a","b"]}`,                   // whole but missing a field — a SCHEMA gap, not syntax
+		`not json at all`,
+		``,
+		`{`, // only the opener arrived: no field survived
+	} {
+		if cut, ok := SalvagePrefix(s); ok {
+			t.Errorf("SalvagePrefix(%q) salvaged %q, want nothing", s, cut)
+		}
+	}
+}
+
+// SalvagePrefix is lossy, so it must stay OUT of the shared repair path: a caller that did not ask
+// for it must still see a malformed document fail, or a truncated plan silently becomes a short one.
+func TestSalvagePrefixIsNotWiredIntoTheSharedRepairs(t *testing.T) {
+	const bad = `{"decision":"continue","criteria":["a","checks":[]]}`
+	var v map[string]any
+	if Unmarshal(bad, &v) {
+		t.Errorf("Unmarshal accepted a malformed document: %v", v)
+	}
+	for _, c := range RepairCandidates(bad) {
+		if json.Unmarshal([]byte(c), new(map[string]any)) == nil {
+			t.Errorf("a repair candidate parsed the malformed document: %s", c)
+		}
+	}
+}
