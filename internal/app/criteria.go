@@ -155,8 +155,10 @@ const coverageFillSystem = "You author executable deliverable `checks` that veri
 // pass authors checks for the uncovered producing steps (read-only steps are told to be skipped, so an
 // unfillable gap simply returns the same set — one extra call, never a loop). The 0-step solo path
 // passes a single synthetic step, so it gets one check for its objective the same way. Best-effort: a
-// disabled flag, no gap, a transport failure, or a reply that is not a coverage-increasing superset
-// returns the input UNCHANGED, so the fill never weakens or blocks the authored contract.
+// disabled flag, no gap, a transport failure, or a reply that adds no distinct step coverage returns
+// the input UNCHANGED. A reply that DOES add coverage is merged with the authored set rather than
+// replacing it (unionChecks), so the fill can only ever add — it never weakens or blocks the contract
+// it was called to complete.
 func (a *App) ensureStepCoverage(ctx context.Context, s session.Session, prompt string, steps []planStep, checks []council.DeliverableCheck) []council.DeliverableCheck {
 	if !checkCoverageEnabled() || len(steps) == 0 {
 		return checks
@@ -203,24 +205,25 @@ func (a *App) ensureStepCoverage(ctx context.Context, s session.Session, prompt 
 	input := "# Plan steps\n" + renderSteps(steps) + "\n\n# Task\n" + task + "\n\n# Checks authored so far (JSON)\n" + string(in)
 	raw := a.specMineCall(ctx, agent, s.ID, "check-coverage", model, coverageFillSystem, input)
 	out, ok := parseChecksArray(raw)
-	if !ok || len(out) < len(checks) { // unusable / dropped existing checks → keep the authored set
-		if !ok {
-			// Show the reply, not just its length. This failure was observed three runs running and
-			// could not be diagnosed from the log: the side call leaves no session record, so the
-			// only way to tell "the model answered with prose" from "it wrapped the array in an
-			// object" from "an element had the wrong shape" is to print what came back.
-			shortfall(fmt.Sprintf("the fill reply did not parse as a checks array (%d chars) :: %s",
-				len(raw), planParseExcerpt(raw)))
-		} else {
-			why := fmt.Sprintf("the fill dropped existing checks (%d→%d), so it was discarded", len(checks), len(out))
-			if len(out) == 0 { // nothing came back to describe — show the reply instead (see below)
-				why += " :: " + planParseExcerpt(raw)
-			}
-			shortfall(why)
-		}
+	if !ok {
+		// Show the reply, not just its length. This failure was observed three runs running and
+		// could not be diagnosed from the log: the side call leaves no session record, so the
+		// only way to tell "the model answered with prose" from "it wrapped the array in an
+		// object" from "an element had the wrong shape" is to print what came back.
+		shortfall(fmt.Sprintf("the fill reply did not parse as a checks array (%d chars) :: %s",
+			len(raw), planParseExcerpt(raw)))
 		return checks
 	}
-	newCovered := coveredSteps(out)
+	// Restore whatever the reply lost instead of discarding the reply over it. The fill is told to
+	// return the authored checks unchanged plus new ones, but a weak model rewrites the set from
+	// scratch and comes back with fewer — and the old guard (`len(out) < len(checks)`) threw the whole
+	// reply away on that count alone, judging a gap-FILLING pass by size rather than by coverage.
+	// Observed: 4 authored checks all attached to step 1 of a 4-step plan, the fill returned 3 spread
+	// across the plan, and the count guard preferred the 4 (`gap NOT filled (1/4 step(s) covered by 4
+	// check(s))`). Merging keeps the authored contract a subset of the result by construction, so the
+	// one thing that guard protected is now structural and acceptance turns purely on coverage.
+	merged, restored := unionChecks(out, checks)
+	newCovered := coveredSteps(merged)
 	if len(newCovered) <= len(covered) { // reply added no distinct (valid) step coverage → nothing gained
 		// Name the step labels it DID carry. "Added nothing that attaches" has two very different
 		// causes — the fill returned nothing at all, or it returned checks whose step labels fall
@@ -242,10 +245,34 @@ func (a *App) ensureStepCoverage(ctx context.Context, s session.Session, prompt 
 		shortfall(why)
 		return checks
 	}
-	a.emitToolProgress(s.ID, plannerActor, "", "check-coverage",
-		fmt.Sprintf("check-coverage: %d→%d checks, %d→%d step(s) covered (%d plan step(s))",
-			len(checks), len(out), len(covered), len(newCovered), len(steps)))
-	return out
+	note := fmt.Sprintf("check-coverage: %d→%d checks, %d→%d step(s) covered (%d plan step(s))",
+		len(checks), len(merged), len(covered), len(newCovered), len(steps))
+	if restored > 0 { // the fill dropped authored checks and they were put back — say so, it is not a no-op
+		note += fmt.Sprintf("; restored %d authored check(s) the fill had dropped", restored)
+	}
+	a.emitToolProgress(s.ID, plannerActor, "", "check-coverage", note)
+	return merged
+}
+
+// unionChecks returns fill with every authored check it lost appended back, and how many that was.
+// Identity is the trimmed command — the text that actually runs — because the fill is instructed to
+// return the existing checks UNCHANGED, so a command absent from its reply was dropped rather than
+// rewritten (repairing a flawed check is validateChecks' job, a separate pass). A commandless
+// authored check is skipped: there is nothing to run, and every one of them would collide on "".
+func unionChecks(fill, authored []council.DeliverableCheck) (out []council.DeliverableCheck, restored int) {
+	out = append(make([]council.DeliverableCheck, 0, len(fill)+len(authored)), fill...)
+	have := make(map[string]bool, len(out))
+	for _, c := range out {
+		have[strings.TrimSpace(c.Command)] = true
+	}
+	for _, c := range authored {
+		k := strings.TrimSpace(c.Command)
+		if k == "" || have[k] {
+			continue
+		}
+		out, have[k], restored = append(out, c), true, restored+1
+	}
+	return out, restored
 }
 
 const validateChecksSystem = "You review the executable deliverable `checks` a planning council authored, BEFORE " +
