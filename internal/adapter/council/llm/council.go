@@ -6,7 +6,6 @@ package llm
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -14,6 +13,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/lang"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/jsonx"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
@@ -226,12 +226,15 @@ func (c *Council) JudgeRevision(ctx context.Context, req port.RevisionJudgeReque
 			b.WriteString(ev.Text)
 		}
 	}
-	js := firstJSONObject(b.String())
-	if js == "" {
-		return port.RevisionVerdict{Addressed: true, Reason: "unparseable revision-judge reply"}, nil
-	}
 	var r judgeReply
-	if err := json.Unmarshal([]byte(js), &r); err != nil {
+	parsed := false
+	for _, js := range jsonx.BalancedObjects(b.String()) {
+		if jsonx.Unmarshal(js, &r) {
+			parsed = true
+			break
+		}
+	}
+	if !parsed {
 		return port.RevisionVerdict{Addressed: true, Reason: "unparseable revision-judge reply"}, nil
 	}
 	reason := strings.TrimSpace(r.Reason)
@@ -1111,18 +1114,19 @@ func decisionOf(s string) council.Decision {
 // parseReply extracts the first balanced JSON object from the text (tolerating
 // surrounding prose or code fences that weak models emit) and unmarshals it.
 func parseReply(text string) (memberReply, bool) {
-	js := firstJSONObject(text)
-	if js == "" {
-		return memberReply{}, false
+	// Try EVERY balanced object and repair the weak-model defects, because an unparsed verdict is
+	// not a neutral outcome here — the member is recorded as ABSTAINING, which is indistinguishable
+	// in the tally from "my lens has nothing to add". A stray brace in the reasoning ahead of the
+	// real object, or a raw newline inside the multi-line `rationale`/`feedback` prose, silently
+	// removed a vote that had in fact been cast.
+	for _, js := range jsonx.BalancedObjects(text) {
+		var r memberReply
+		if !jsonx.Unmarshal(js, &r) || r.Decision == "" {
+			continue
+		}
+		return r, true
 	}
-	var r memberReply
-	if err := json.Unmarshal([]byte(js), &r); err != nil {
-		return memberReply{}, false
-	}
-	if r.Decision == "" {
-		return memberReply{}, false
-	}
-	return r, true
+	return memberReply{}, false
 }
 
 // firstJSONObject returns the first balanced {...} object in s, respecting

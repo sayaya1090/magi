@@ -10,6 +10,7 @@ import (
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/jsonx"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
@@ -773,14 +774,7 @@ func unmarshalPlanLenient(js string) (planResult, bool) {
 // prose (a reason, a task, a criterion) or shell commands, so an unescaped control character is the
 // normal shape of the data rather than an edge case — and rejecting the document over one discards
 // content that was otherwise complete.
-func unmarshalLenient(js string, v any) bool {
-	for _, c := range jsonRepairCandidates(js) {
-		if json.Unmarshal([]byte(c), v) == nil {
-			return true
-		}
-	}
-	return false
-}
+func unmarshalLenient(js string, v any) bool { return jsonx.Unmarshal(js, v) }
 
 // jsonRepairCandidates returns js followed by the weak-model repair variants a failed unmarshal
 // should be retried with: a trailing comma before }/] , a RAW control character (literal
@@ -792,22 +786,7 @@ func unmarshalLenient(js string, v any) bool {
 // It is shared by every lenient JSON reader (the plan object AND the salvaged step objects): a
 // repair the clean path applies but the salvage path does not is worse than useless, since the
 // truncation that forces salvage is produced by exactly the rambling that emits these defects.
-func jsonRepairCandidates(js string) []string {
-	out := []string{js}
-	seen := map[string]bool{js: true}
-	for _, fixed := range []string{
-		stripTrailingCommas(js),
-		escapeControlCharsInStrings(js),
-		escapeControlCharsInStrings(stripTrailingCommas(js)),
-	} {
-		if seen[fixed] {
-			continue
-		}
-		seen[fixed] = true
-		out = append(out, fixed)
-	}
-	return out
-}
+func jsonRepairCandidates(js string) []string { return jsonx.RepairCandidates(js) }
 
 // escapeControlCharsInStrings rewrites raw control characters (< 0x20) that appear INSIDE a JSON
 // string literal into their valid JSON escape (a literal newline/tab a weak model puts inside a
@@ -815,149 +794,26 @@ func jsonRepairCandidates(js string) []string {
 // character ... in string literal" and stripTrailingCommas does not touch. Control characters
 // OUTSIDE strings — the whitespace between tokens — are left exactly as they are, so only the illegal
 // in-string ones are repaired. Respects escapes, so an already-escaped sequence is never doubled.
-func escapeControlCharsInStrings(s string) string {
-	if strings.IndexFunc(s, func(r rune) bool { return r < 0x20 }) < 0 {
-		return s // no control chars anywhere → nothing to repair
-	}
-	var b strings.Builder
-	b.Grow(len(s) + 16)
-	inStr, esc := false, false
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if !inStr {
-			if c == '"' {
-				inStr = true
-			}
-			b.WriteByte(c)
-			continue
-		}
-		switch {
-		case esc:
-			esc = false
-			b.WriteByte(c)
-		case c == '\\':
-			esc = true
-			b.WriteByte(c)
-		case c == '"':
-			inStr = false
-			b.WriteByte(c)
-		case c == '\n':
-			b.WriteString(`\n`)
-		case c == '\t':
-			b.WriteString(`\t`)
-		case c == '\r':
-			b.WriteString(`\r`)
-		case c < 0x20:
-			fmt.Fprintf(&b, `\u%04x`, c)
-		default:
-			b.WriteByte(c)
-		}
-	}
-	return b.String()
-}
+func escapeControlCharsInStrings(s string) string { return jsonx.EscapeControlCharsInStrings(s) }
 
 // stripTrailingCommas removes a comma that immediately precedes a closing } or ] (ignoring
 // intervening whitespace). It respects string literals — a comma inside a quoted value is untouched —
 // so it only repairs the structural trailing comma JSON forbids but weak models routinely emit.
-func stripTrailingCommas(s string) string {
-	var b strings.Builder
-	b.Grow(len(s))
-	inStr, esc := false, false
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if inStr {
-			b.WriteByte(c)
-			switch {
-			case esc:
-				esc = false
-			case c == '\\':
-				esc = true
-			case c == '"':
-				inStr = false
-			}
-			continue
-		}
-		if c == '"' {
-			inStr = true
-			b.WriteByte(c)
-			continue
-		}
-		if c == ',' {
-			j := i + 1
-			for j < len(s) && (s[j] == ' ' || s[j] == '\t' || s[j] == '\n' || s[j] == '\r') {
-				j++
-			}
-			if j < len(s) && (s[j] == '}' || s[j] == ']') {
-				continue // drop the trailing comma
-			}
-		}
-		b.WriteByte(c)
-	}
-	return b.String()
-}
+func stripTrailingCommas(s string) string { return jsonx.StripTrailingCommas(s) }
 
 // balancedObjects returns every TOP-LEVEL balanced {...} object in s, in order, respecting
 // strings and escapes (braces inside string values don't confuse it). Nested objects (a
 // plan's step objects) stay inside their parent — only depth-0 spans are returned — so the
 // caller can try each candidate independently and skip a stray brace that precedes the real
 // object.
-func balancedObjects(s string) []string { return balancedSpans(s, '{', '}') }
+func balancedObjects(s string) []string { return jsonx.BalancedObjects(s) }
 
 // balancedArrays is balancedObjects for [...] arrays — every TOP-LEVEL balanced array in s, in
 // order, respecting strings and escapes. A JSON-array reply (e.g. a check-audit's list) that is
 // wrapped in prose or trailed by reasoning containing a stray ] is recovered by trying each
 // candidate, instead of a naive first-[/last-] span that mis-captures on any bracket outside the
 // real array.
-func balancedArrays(s string) []string { return balancedSpans(s, '[', ']') }
-
-// balancedSpans returns every TOP-LEVEL balanced open..close span in s, in order, respecting string
-// literals and escapes so a bracket inside a quoted value never shifts the boundary. An open that
-// never closes (a stray bracket in prose/reasoning — weak models emit these: a code fragment, a set
-// literal, an unclosed example) is skipped so a real balanced span that follows it is still found,
-// rather than letting one unclosed stray swallow the rest (observed: a multi-KB reply parsed to
-// nothing). It backs both balancedObjects and balancedArrays.
-func balancedSpans(s string, open, close byte) []string {
-	var out []string
-	i := 0
-	for i < len(s) {
-		start := strings.IndexByte(s[i:], open)
-		if start < 0 {
-			break
-		}
-		start += i
-		depth, inStr, esc, end := 0, false, false, -1
-		for j := start; j < len(s); j++ {
-			ch := s[j]
-			switch {
-			case esc:
-				esc = false
-			case ch == '\\' && inStr:
-				esc = true
-			case ch == '"':
-				inStr = !inStr
-			case inStr:
-				// inside a string literal — ignore structural chars
-			case ch == open:
-				depth++
-			case ch == close:
-				depth--
-				if depth == 0 {
-					end = j
-				}
-			}
-			if end >= 0 {
-				break
-			}
-		}
-		if end < 0 {
-			i = start + 1 // an unclosed stray; skip just it and keep scanning
-			continue
-		}
-		out = append(out, s[start:end+1])
-		i = end + 1
-	}
-	return out
-}
+func balancedArrays(s string) []string { return jsonx.BalancedArrays(s) }
 
 // firstBalancedObject returns the first balanced {...} object in s, respecting
 // strings and escapes (braces inside string values don't confuse it), or "".

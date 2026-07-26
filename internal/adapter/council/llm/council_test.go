@@ -1125,3 +1125,31 @@ func TestSubstitutionEvidenceCarriesPriorObjection(t *testing.T) {
 		t.Errorf("a first substitution round must carry no prior-objection section:\n%s", first)
 	}
 }
+
+// An unparsed verdict is NOT a neutral outcome: the member is recorded as abstaining, which the
+// tally cannot tell apart from "my lens has nothing to add". So the reply must survive what model
+// output normally carries — a stray brace in the reasoning ahead of the real object, and a raw
+// newline inside the multi-line rationale/feedback prose.
+func TestParseReplySurvivesModelJSONDefects(t *testing.T) {
+	cases := []struct{ name, text, wantDecision string }{
+		{"clean", `{"decision":"done","rationale":"looks right"}`, "done"},
+		{"stray brace before the verdict",
+			"I considered `{a, b}` first.\n{\"decision\":\"continue\",\"rationale\":\"missing a step\"}", "continue"},
+		{"raw newline inside rationale",
+			"{\"decision\":\"continue\",\"rationale\":\"first point\nsecond point\",\"severity\":\"warn\"}", "continue"},
+		{"trailing comma", `{"decision":"abstain","rationale":"nothing to add",}`, "abstain"},
+		{"fenced", "```json\n{\"decision\":\"done\",\"rationale\":\"ok\"}\n```", "done"},
+	}
+	for _, c := range cases {
+		r, ok := parseReply(c.text)
+		if !ok || string(r.Decision) != c.wantDecision {
+			t.Errorf("%s: parseReply → ok=%v decision=%q, want %q", c.name, ok, r.Decision, c.wantDecision)
+		}
+	}
+	// Genuinely unusable replies still fail — leniency must not manufacture a vote.
+	for _, bad := range []string{"", "I think it looks fine.", `{"rationale":"no decision field"}`} {
+		if _, ok := parseReply(bad); ok {
+			t.Errorf("parseReply(%q) must not produce a vote", bad)
+		}
+	}
+}
