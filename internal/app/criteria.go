@@ -177,8 +177,17 @@ func (a *App) ensureStepCoverage(ctx context.Context, s session.Session, prompt 
 	if len(covered) >= len(steps) { // every step already has (at least) a check → no gap
 		return checks
 	}
+	// From here a gap is CONFIRMED, so every exit below leaves plan steps ungated. Report which one
+	// happened: silence used to be indistinguishable from "fully covered", and a run that landed a
+	// 5-step plan behind a single check read exactly like a run that needed no fill at all.
+	gap := fmt.Sprintf("%d/%d step(s) covered by %d check(s)", len(covered), len(steps), len(checks))
+	shortfall := func(why string) {
+		a.emitToolProgress(s.ID, plannerActor, "", "check-coverage",
+			fmt.Sprintf("check-coverage: gap NOT filled (%s) — %s; those steps land unverified", gap, why))
+	}
 	in, err := json.Marshal(checks)
 	if err != nil {
+		shortfall("the authored checks could not be encoded")
 		return checks
 	}
 	agent := a.agentFor(s)
@@ -194,10 +203,16 @@ func (a *App) ensureStepCoverage(ctx context.Context, s session.Session, prompt 
 	raw := a.specMineCall(ctx, agent, s.ID, "check-coverage", model, coverageFillSystem, input)
 	out, ok := parseChecksArray(raw)
 	if !ok || len(out) < len(checks) { // unusable / dropped existing checks → keep the authored set
+		if !ok {
+			shortfall(fmt.Sprintf("the fill reply did not parse as a checks array (%d chars)", len(raw)))
+		} else {
+			shortfall(fmt.Sprintf("the fill dropped existing checks (%d→%d), so it was discarded", len(checks), len(out)))
+		}
 		return checks
 	}
 	newCovered := coveredSteps(out)
 	if len(newCovered) <= len(covered) { // reply added no distinct (valid) step coverage → nothing gained
+		shortfall("the fill added no check that attaches to an uncovered step")
 		return checks
 	}
 	a.emitToolProgress(s.ID, plannerActor, "", "check-coverage",

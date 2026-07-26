@@ -2,10 +2,15 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/core/council"
+	"github.com/sayaya1090/magi/internal/core/event"
+	"github.com/sayaya1090/magi/internal/core/session"
 )
 
 // The coverage-fill prompt must carry the coverage contract: fill gaps with a SUPERSET (existing
@@ -126,4 +131,93 @@ func TestEnsureCoverageSoloObjective(t *testing.T) {
 	if len(out) != 1 || strings.TrimSpace(out[0].Command) == "" {
 		t.Fatalf("solo objective must get one authored check, got %+v", out)
 	}
+}
+
+// A CONFIRMED gap that the fill fails to close must SAY SO. Silence used to be indistinguishable
+// from "fully covered", so a plan that landed with most of its steps ungated read exactly like a
+// plan that needed no fill — the gate then had almost no executable evidence and nobody could tell
+// from the log. Each failure mode names itself.
+func TestEnsureCoverageReportsUnfilledGap(t *testing.T) {
+	t.Setenv("MAGI_CHECK_COVERAGE", "1")
+	steps := []planStep{{Title: "one"}, {Title: "two"}, {Title: "three"}, {Title: "four"}, {Title: "five"}}
+	in := []council.DeliverableCheck{{Step: "1", Command: "a"}}
+
+	cases := []struct {
+		name, reply, want string
+	}{
+		{"unparseable fill", "not a checks array at all", "did not parse"},
+		{"fill drops existing checks", `[]`, "dropped existing checks"},
+		{"fill adds no new step coverage", `[{"step":"1","command":"a"},{"step":"1","command":"a2"}]`, "no check that attaches"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			a := newOrchApp(t, &gateLLM{text: c.reply}, Config{Permission: "allow", MaxAgents: 10})
+			s := parentSession(t.TempDir())
+			sub := watchProgress(t, a, s.ID)
+			out := a.ensureStepCoverage(context.Background(), s, "task", steps, in)
+			if len(out) != 1 || out[0].Command != "a" {
+				t.Fatalf("an unusable fill must leave the authored checks alone, got %+v", out)
+			}
+			note := sub.notes("check-coverage")
+			if !strings.Contains(note, "gap NOT filled") || !strings.Contains(note, c.want) {
+				t.Errorf("want a shortfall note naming %q, got:\n%s", c.want, note)
+			}
+			if !strings.Contains(note, "1/5 step(s) covered") {
+				t.Errorf("the note must quantify the gap, got:\n%s", note)
+			}
+		})
+	}
+}
+
+// progressWatcher collects the transient tool-progress notes a session publishes. They go to the bus
+// rather than the store, so a test that asserts on one has to be listening before the call.
+type progressWatcher struct {
+	mu   sync.Mutex
+	seen []string
+	stop func()
+}
+
+func watchProgress(t *testing.T, a *App, sid session.SessionID) *progressWatcher {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	ch, unsub := a.bus.Subscribe(ctx, sid)
+	w := &progressWatcher{stop: func() { unsub(); cancel() }}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for e := range ch {
+			if e.Type != event.TypeToolProgress {
+				continue
+			}
+			var d event.ToolProgressData
+			if json.Unmarshal(e.Data, &d) != nil {
+				continue
+			}
+			w.mu.Lock()
+			w.seen = append(w.seen, d.Name+": "+d.Text)
+			w.mu.Unlock()
+		}
+	}()
+	t.Cleanup(func() { w.stop(); <-done })
+	return w
+}
+
+// notes returns every note published under the given tool name, joined. It polls briefly because the
+// publish and the collecting goroutine are concurrent.
+func (w *progressWatcher) notes(name string) string {
+	for i := 0; i < 200; i++ {
+		w.mu.Lock()
+		var hit []string
+		for _, s := range w.seen {
+			if strings.HasPrefix(s, name+": ") {
+				hit = append(hit, s)
+			}
+		}
+		w.mu.Unlock()
+		if len(hit) > 0 {
+			return strings.Join(hit, "\n")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return ""
 }
