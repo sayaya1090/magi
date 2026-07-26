@@ -24,6 +24,11 @@ type chatRequest struct {
 	// MaxTokens caps the output tokens per response ([limits] max_output_tokens); 0 =
 	// omit → provider default.
 	MaxTokens int `json:"max_tokens,omitempty"`
+	// Temperature is the caller's sampling pin (port.ChatRequest.Params["temperature"]).
+	// A POINTER because 0 is the value callers most want to send: with a plain float64 the
+	// `omitempty` that keeps "unset" out of the body would also delete an explicit 0, which is
+	// exactly the pin a structured-JSON call makes. nil = omit → provider default.
+	Temperature *float64 `json:"temperature,omitempty"`
 }
 
 // streamOptions asks the server to emit a final usage chunk while streaming.
@@ -121,6 +126,7 @@ type wireUsage struct {
 // prefix instead of re-billing it every turn.
 func buildRequest(r port.ChatRequest, stream, cache bool, reasoningEffort string, maxTokens int) chatRequest {
 	out := chatRequest{Model: r.Model, Stream: stream, ReasoningEffort: reasoningEffort, MaxTokens: maxTokens}
+	out.Temperature = temperatureOf(r.Params)
 	if stream {
 		out.StreamOptions = &streamOptions{IncludeUsage: true}
 	}
@@ -151,6 +157,49 @@ func buildRequest(r port.ChatRequest, stream, cache bool, reasoningEffort string
 		out.Tools[len(out.Tools)-1].CacheControl = ephemeral()
 	}
 	return out
+}
+
+// temperatureOf reads the caller's sampling pin out of port.ChatRequest.Params.
+//
+// port documents Params as carrying "temperature, maxTokens, ...", and the council sets
+// {"temperature": 0.0} on every member poll — but nothing here ever read the map, so that pin
+// was dropped on the floor and every deliberation ran at the provider's default sampling. The
+// cost is invisible in a single run and severe across runs: the same plan, audited twice, yields
+// a different set of executable checks, and one draw in three yields NONE (measured on the local
+// backend: two temperature-0 fills authored the same 3 checks, while three default-temperature
+// fills authored 3, 0, and a reply with a raw control character in it).
+//
+// Numeric JSON shapes are all accepted because a param map can arrive from config as well as
+// from Go code. An unusable value is ignored rather than defaulted, so a typo cannot silently
+// re-pin the model to something the caller never asked for.
+func temperatureOf(params map[string]any) *float64 {
+	v, ok := params["temperature"]
+	if !ok {
+		return nil
+	}
+	var f float64
+	switch n := v.(type) {
+	case float64:
+		f = n
+	case float32:
+		f = float64(n)
+	case int:
+		f = float64(n)
+	case int64:
+		f = float64(n)
+	case json.Number:
+		parsed, err := n.Float64()
+		if err != nil {
+			return nil
+		}
+		f = parsed
+	default:
+		return nil
+	}
+	if f < 0 { // a negative temperature is not a sampling setting any backend accepts
+		return nil
+	}
+	return &f
 }
 
 // repairToolOrdering makes the message sequence valid for strict OpenAI-compatible
