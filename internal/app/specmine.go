@@ -163,10 +163,20 @@ func (a *App) elicitSpecMine(ctx context.Context, agent AgentSpec, s session.Ses
 	// request's identifiers/types in what the repo actually contains (e.g. an existing file the task
 	// refers to) instead of reasoning from the prose alone. Only pass 1 (the analysis) needs it; pass 2
 	// distills pass-1 output. repoMap is a cheap top-level listing, already bounded.
+	// Mining is best-effort, but a SILENT empty note is indistinguishable in the log from a task that
+	// genuinely had nothing to mine — and the note is the run's only record of the literals the grader
+	// checks verbatim. Say which pass came up empty so a missing note is diagnosable.
+	empty := func(why string) string {
+		a.emitToolProgress(s.ID, plannerActor, "", "spec-mine", "spec-mine: no execution note — "+why)
+		return ""
+	}
 	elicitSys := elicitSpecMineSystem + "\n\n# Repository (top level)\n" + repoMap(s.Workdir)
 	analysis := a.specMineCall(ctx, spec, s.ID, "spec-mine", model, elicitSys, task)
-	if analysis == "" || (len(analysis) < 8 && strings.Contains(strings.ToUpper(analysis), "NONE")) {
-		return ""
+	if analysis == "" {
+		return empty("the analysis pass returned nothing (backend error or empty reply)")
+	}
+	if len(analysis) < 8 && strings.Contains(strings.ToUpper(analysis), "NONE") {
+		return empty("the analysis pass found nothing to mine in this request")
 	}
 	distilled := a.specMineCall(ctx, spec, s.ID, "spec-mine", model, distillSpecMineSystem, analysis)
 	res, ok := parseSpecMine(distilled)
@@ -174,8 +184,11 @@ func (a *App) elicitSpecMine(ctx context.Context, agent AgentSpec, s session.Ses
 		distilled = a.specMineCall(ctx, spec, s.ID, "spec-mine", model, distillSpecMineSystem, analysis)
 		res, ok = parseSpecMine(distilled)
 	}
-	if !ok || (len(res.Lines) == 0 && strings.TrimSpace(res.Final) == "") {
-		return ""
+	if !ok {
+		return empty(fmt.Sprintf("the distill pass did not parse, twice (%d chars, analysis was %d)", len(distilled), len(analysis)))
+	}
+	if len(res.Lines) == 0 && strings.TrimSpace(res.Final) == "" {
+		return empty("the distill pass parsed but carried no lines")
 	}
 	var b strings.Builder
 	for i, ln := range res.Lines {
