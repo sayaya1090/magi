@@ -368,3 +368,115 @@ func TestEnsureCoverageShowsTheReplyWhenTheFillIsEmpty(t *testing.T) {
 		})
 	}
 }
+
+// A CONFIRMED gap that the fill did not close leaves plan steps with no gate at all, and one degraded
+// reply used to end the pass there. That is the same defect the check-audit retry fixed, in the pass
+// that FEEDS it: the fill is the only thing standing between a sparse authored set and an unverified
+// landing, so it gets one re-ask too. Unparseable → ask for the bare array.
+func TestCoverageFillUnparseableIsRetriedJSONOnly(t *testing.T) {
+	t.Setenv("MAGI_CHECK_COVERAGE", "1")
+	good := `[{"step":"1","command":"a"},{"step":"2","command":"b"},{"step":"3","command":"c"}]`
+	llm := &auditLLM{replies: []string{"Here are the checks I would write: ...", good}}
+	a := newOrchApp(t, llm, Config{Permission: "allow", MaxAgents: 10})
+	s := parentSession(t.TempDir())
+	sub := watchProgress(t, a, s.ID)
+	steps := []planStep{{Title: "one"}, {Title: "two"}, {Title: "three"}}
+
+	out := a.ensureStepCoverage(context.Background(), s, "task", steps, []council.DeliverableCheck{{Step: "1", Command: "a"}})
+
+	covered := map[int]bool{}
+	for _, c := range out {
+		covered[leadingInt(c.Step)] = true
+	}
+	if !covered[2] || !covered[3] {
+		t.Fatalf("the retry's fill must be accepted, got %+v", out)
+	}
+	calls := llm.calls()
+	if len(calls) != 2 {
+		t.Fatalf("want exactly one retry (2 calls), got %d", len(calls))
+	}
+	if strings.Contains(calls[0], coverageJSONOnlyReminder) {
+		t.Error("the first call must not carry the reminder")
+	}
+	if !strings.Contains(calls[1], coverageJSONOnlyReminder) {
+		t.Errorf("the retry must ask for the bare array, got system:\n%s", calls[1])
+	}
+	if note := sub.notes("check-coverage"); !strings.Contains(note, "re-asking once") || !strings.Contains(note, "did not parse") {
+		t.Errorf("the retry must be reported with its cause, got:\n%s", note)
+	}
+}
+
+// The other shape: the reply parses but gates nothing, because its `step` labels fall outside the plan
+// (or repeat an already-covered step). Abstract instruction ("cover every producing step") did not
+// work, so the re-ask NAMES the uncovered steps by number — that is the whole content of the fix, and
+// the reminder is worthless if the numbers are missing or wrong.
+func TestCoverageFillThatAttachesToNothingIsRetriedWithTheUncoveredSteps(t *testing.T) {
+	t.Setenv("MAGI_CHECK_COVERAGE", "1")
+	good := `[{"step":"1","command":"a"},{"step":"2","command":"b"},{"step":"3","command":"c"}]`
+	llm := &auditLLM{replies: []string{`[{"step":"1","command":"a"},{"step":"99","command":"b"}]`, good}}
+	a := newOrchApp(t, llm, Config{Permission: "allow", MaxAgents: 10})
+	s := parentSession(t.TempDir())
+	steps := []planStep{{Title: "one"}, {Title: "two"}, {Title: "three"}}
+
+	out := a.ensureStepCoverage(context.Background(), s, "task", steps, []council.DeliverableCheck{{Step: "1", Command: "a"}})
+	if len(out) < 3 {
+		t.Fatalf("the retry's fill must be accepted, got %+v", out)
+	}
+	calls := llm.calls()
+	if len(calls) != 2 {
+		t.Fatalf("want exactly one retry (2 calls), got %d", len(calls))
+	}
+	retry := calls[1]
+	if !strings.Contains(retry, "ADDED NO COVERAGE") {
+		t.Errorf("the retry must name the failure, got system:\n%s", retry)
+	}
+	// Steps 2 and 3 are the uncovered ones; step 1 already has a check and must not be listed as a gap.
+	if !strings.Contains(retry, "NO check: 2, 3") {
+		t.Errorf("the retry must list the uncovered step numbers, got system:\n%s", retry)
+	}
+	// The escape hatch stays open: inventing a check for a step that writes nothing is worse than
+	// leaving it uncovered, so the reminder must not read as "cover them all, no exceptions".
+	if !strings.Contains(retry, "pure investigation") {
+		t.Errorf("the retry must keep the read-only-step exemption, got system:\n%s", retry)
+	}
+}
+
+// When the re-ask fails too the authored checks are kept — the fill can only ever add — but the note
+// must be honest about what is now unknown: after a reminder that listed the uncovered steps by
+// number, a second empty answer is as likely to mean "those steps produce nothing checkable" as it is
+// to mean the fill failed, and the log is the only place that ambiguity can be recorded.
+func TestCoverageRetryFailureKeepsAuthoredAndSaysTheGapStands(t *testing.T) {
+	t.Setenv("MAGI_CHECK_COVERAGE", "1")
+	llm := &auditLLM{replies: []string{"prose", "still prose"}}
+	a := newOrchApp(t, llm, Config{Permission: "allow", MaxAgents: 10})
+	s := parentSession(t.TempDir())
+	sub := watchProgress(t, a, s.ID)
+	in := []council.DeliverableCheck{{Step: "1", Command: "a"}}
+	steps := []planStep{{Title: "one"}, {Title: "two"}, {Title: "three"}}
+
+	out := a.ensureStepCoverage(context.Background(), s, "task", steps, in)
+	if len(out) != 1 || out[0].Command != "a" {
+		t.Fatalf("a failed retry must leave the authored checks alone, got %+v", out)
+	}
+	if calls := llm.calls(); len(calls) != 2 {
+		t.Fatalf("the retry must not loop: want 2 calls, got %d", len(calls))
+	}
+	note := sub.notes("check-coverage")
+	for _, want := range []string{"gap NOT filled", "1/3 step(s) covered", "this was the re-ask", "land unverified"} {
+		if !strings.Contains(note, want) {
+			t.Errorf("the shortfall must say %q, got:\n%s", want, note)
+		}
+	}
+}
+
+// uncoveredStepNums drives the reminder's list, so an off-by-one here silently sends the model after
+// the wrong steps. 1-based, in plan order, and only the gaps.
+func TestUncoveredStepNums(t *testing.T) {
+	got := strings.Join(uncoveredStepNums(map[int]bool{1: true, 3: true}, 4), ",")
+	if got != "2,4" {
+		t.Errorf("want 2,4 got %q", got)
+	}
+	if n := uncoveredStepNums(map[int]bool{1: true}, 1); len(n) != 0 {
+		t.Errorf("a fully covered plan has no gaps, got %v", n)
+	}
+}
