@@ -91,3 +91,26 @@ func TestSpecMineReportsWhyTheNoteIsEmpty(t *testing.T) {
 		})
 	}
 }
+
+// A tool name that differs from a REGISTERED one only in separators/case must be named back, and
+// the reply must never deny a tool the same reply lists. It used to append "there is no todo/plan
+// tool" unconditionally while todowrite was registered and listed — the model was told, in one
+// message, both that the tool exists and that it does not.
+func TestNearestToolName(t *testing.T) {
+	names := []string{"bash", "todowrite", "bash_output", "report"}
+	cases := []struct{ called, want string }{
+		{"todo_write", "todowrite"},   // the observed miss
+		{"TodoWrite", "todowrite"},    // case only
+		{"todo-write", "todowrite"},   // another separator
+		{"bashOutput", "bash_output"}, // camel vs snake
+		{"bash", ""},                  // exact hit is not a suggestion
+		{"run", ""},                   // NOT fuzzy: never guess a tool the model didn't ask for
+		{"finish", ""},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := nearestToolName(c.called, names); got != c.want {
+			t.Errorf("nearestToolName(%q) = %q, want %q", c.called, got, c.want)
+		}
+	}
+}

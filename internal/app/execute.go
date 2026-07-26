@@ -187,15 +187,22 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 
 	tool, ok := a.tools.Get(tc.Name)
 	if !ok {
-		// A bare "unknown tool" reply gets retried verbatim: models carry other
-		// harnesses' tool names as priors (todo_write, run) and, told only that the
-		// name is unknown, guess the same name again — observed 4 identical
-		// todo_write calls in one run, each a full round trip on a slow model.
-		// Name the actual roster (and the todo special case) so one rejection
-		// converts to a correct next call instead of another guess.
-		a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID,
-			"unknown tool: "+tc.Name+". Available tools: "+strings.Join(a.ToolNames(), ", ")+
-				". There is no todo/plan tool — the plan is tracked automatically; just do the work.", true)
+		// A bare "unknown tool" reply gets retried verbatim: models carry other harnesses' tool
+		// names as priors and, told only that the name is unknown, guess the same name again —
+		// observed 4 identical todo_write calls in one run, each a full round trip on a slow model.
+		// Name the roster, and when the guess differs from a REGISTERED tool only in separators,
+		// say which one it meant: that converts the rejection into a correct next call.
+		//
+		// The message used to append "there is no todo/plan tool" unconditionally, which was false
+		// whenever todowrite was registered — and it was, so the same reply both listed todowrite
+		// and denied it existed. Derive everything from the roster instead of asserting it.
+		names := a.ToolNames()
+		msg := "unknown tool: " + tc.Name + "."
+		if near := nearestToolName(tc.Name, names); near != "" {
+			msg += " Did you mean `" + near + "`? (that is the exact registered name)"
+		}
+		msg += " Available tools: " + strings.Join(names, ", ")
+		a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID, msg, true)
 		return
 	}
 	// For a file edit, snapshot the file's content BEFORE the tool runs so the council can
@@ -405,4 +412,34 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	a.appendPart(ctx, sid, actor, toolMsgID, session.RoleTool, session.Part{
 		ID: "p_" + newID(), Kind: session.PartToolResult, ToolResult: &res,
 	})
+}
+
+// nearestToolName returns the registered tool a called name differs from only in SEPARATORS or
+// case — `todo_write` for `todowrite`, `bashOutput` for `bash_output`. Models carry other
+// harnesses' spellings as priors, and a rejection that only says "unknown" gets the same spelling
+// back; naming the exact registered form ends that loop in one round trip.
+//
+// Deliberately NOT fuzzy: only a separator/case difference counts. A guess like `run` for `bash`
+// would put a tool the model never asked for into its mouth, and a wrong suggestion costs more
+// than none — the full roster is always listed anyway.
+func nearestToolName(called string, names []string) string {
+	norm := func(s string) string {
+		var b strings.Builder
+		for _, r := range strings.ToLower(strings.TrimSpace(s)) {
+			if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+				b.WriteRune(r)
+			}
+		}
+		return b.String()
+	}
+	want := norm(called)
+	if want == "" {
+		return ""
+	}
+	for _, n := range names {
+		if n != called && norm(n) == want {
+			return n
+		}
+	}
+	return ""
 }
