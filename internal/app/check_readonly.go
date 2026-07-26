@@ -150,6 +150,122 @@ func wrapReadOnly(cmd string) string {
 // check hit a non-executable file. subst_review already paired the two, and this makes the gates agree.
 func checkUnrunnable(code int) bool { return code == 127 || code == 126 }
 
+// refusedCommandsIn predicts, WITHOUT running anything, which commands in cmd the read-only preamble
+// would refuse. The runtime refusal is correct but arrives too late to help: it is reported as a
+// transient progress line, which no model ever reads, and the agent's own shell is unwrapped — so it
+// runs the very same command successfully, sees nothing wrong, and never substitutes. The check then
+// yields no verdict for the whole run: not a false failure, but a silently missing gate. Predicting the
+// refusal at AUTHORING time is what lets the check be repaired while repairing it is still cheap.
+//
+// It mirrors readOnlyPreamble deliberately, including its limits: names are matched as the shell
+// resolves them (first word of each command position, path stripped), dual-use commands on their first
+// ARGUMENT exactly as the `case "${1:-}"` does, so `git -C d commit` is not flagged — because it is not
+// blocked either. Quoting is approximated: a blocked name inside a quoted string can be missed. Missing
+// one costs a re-ask that would not have helped; claiming one that does not happen would send the review
+// chasing a check that runs fine, so the bias is deliberately toward silence.
+func refusedCommandsIn(cmd string) []string {
+	if strings.TrimSpace(cmd) == "" {
+		return nil
+	}
+	always := make(map[string]bool, len(blockedAlways))
+	for _, c := range blockedAlways {
+		if shellFuncName(c) { // the unnameable ones (g++, c++) are not shadowed, so not refused
+			always[c] = true
+		}
+	}
+	var out []string
+	seen := make(map[string]bool)
+	add := func(name string) {
+		if !seen[name] {
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+	for _, seg := range shellCommandSegments(cmd) {
+		fields := strings.Fields(seg)
+		// Step over what precedes the command word: env assignments (NAME=value) and the wrappers that
+		// take a command as their argument. `command X` reaches the real binary by design — the preamble
+		// uses it itself — so it is a skip, not a bypass to flag.
+		i := 0
+		for i < len(fields) && (isEnvAssignment(fields[i]) || fields[i] == "!" || fields[i] == "time" ||
+			fields[i] == "exec" || fields[i] == "command" || fields[i] == "nohup" || fields[i] == "sudo") {
+			i++
+		}
+		if i >= len(fields) {
+			continue
+		}
+		name := shellWord(fields[i])
+		if s := strings.LastIndexByte(name, '/'); s >= 0 {
+			name = name[s+1:] // a path invocation is NOT shadowed, but flag it: /usr/bin/make still builds
+		}
+		args := fields[i+1:]
+		switch {
+		case always[name]:
+			add(name)
+		case name == "tar" && tarWrites(args):
+			add("tar (create/extract)")
+		default:
+			subs, dual := blockedSubcommands[name]
+			if !dual || len(args) == 0 {
+				continue
+			}
+			for _, s := range subs {
+				if args[0] == s {
+					add(name + " " + s)
+					break
+				}
+			}
+		}
+	}
+	return out
+}
+
+// shellCommandSegments splits cmd at the operators that start a new command position. Every separator
+// is treated alike because the question here is only "does a command word sit here", not what the
+// control flow means. Substitutions are split on too, so `$(make x)` exposes its inner command.
+func shellCommandSegments(cmd string) []string {
+	return strings.FieldsFunc(cmd, func(r rune) bool {
+		switch r {
+		case '|', '&', ';', '\n', '(', ')', '{', '}', '`':
+			return true
+		}
+		return false
+	})
+}
+
+// isEnvAssignment reports whether f is a leading NAME=value prefix rather than the command word.
+func isEnvAssignment(f string) bool {
+	i := strings.IndexByte(f, '=')
+	if i <= 0 {
+		return false
+	}
+	return shellFuncName(f[:i]) // same identifier rule the shell applies to a variable name
+}
+
+// shellWord strips a wrapping quote pair from a command word. Only a FULLY wrapped word is unquoted:
+// a fragment left over from splitting inside a quoted string (`rm"`) must stay unrecognized, or a
+// blocked name mentioned in a string argument would be reported as an invocation.
+func shellWord(f string) string {
+	if len(f) >= 2 && (f[0] == '"' || f[0] == '\'') && f[len(f)-1] == f[0] {
+		return f[1 : len(f)-1]
+	}
+	return f
+}
+
+// tarWrites mirrors the preamble's tar case: create and extract write, list and everything else read.
+func tarWrites(args []string) bool {
+	if len(args) > 0 && (strings.HasPrefix(args[0], "c") || strings.HasPrefix(args[0], "x")) {
+		return true // old-style bundled flags without a dash
+	}
+	joined := " " + strings.Join(args, " ")
+	for _, f := range []string{" -c", " --create", " -x", " --extract"} {
+		if strings.Contains(joined, f) {
+			return true
+		}
+	}
+	return false
+}
+
 // blockedCommandIn returns the command a refusal named, or "" when the output carries no refusal.
 // Used to report WHICH command was blocked: the exit code says only that something was.
 func blockedCommandIn(out string) string {
