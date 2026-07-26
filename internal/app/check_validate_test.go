@@ -230,8 +230,11 @@ func TestPromptsCarryNoEvalSetSpecifics(t *testing.T) {
 		"qemu", "fasttext", "sparql", "mteb", "pystan", "metacircular", "codegolf", "zork", "pdp11",
 		// one task's toolchain or artifacts, named by product
 		"grpc", "_pb2", ".proto", "gcov", "gcda", "opam", "valgrind", "ccomp", "sqlite",
-		// a sample I/O pair and a grader's expected output, copied verbatim
+		// a sample I/O pair and an expected output string, copied verbatim
 		"208", "377", "Cleaned up",
+		// harness framing: magi is not told there is a scorer, so a prompt must not assert one —
+		// off-bench there is none, and inventing one licenses guessing at what it wants
+		"grader", "benchmark", "leaderboard", "reward",
 	}
 	for _, p := range []struct {
 		name, text string

@@ -497,7 +497,7 @@ func (c *Council) pollDevilReview(ctx context.Context, req port.DeliberationRequ
 	user := evidence(req) + "\n\n# Devil's-advocate challenge — judge it CRITICALLY\n" +
 		"A devil's advocate, tasked with finding ANY reason this turn is not done, argues:\n" + concern +
 		"\n\nThe devil deliberately hunts for problems and may OVERREACH — raising a concern the task does not " +
-		"actually require, or demanding a stricter form than the grader checks. Judge it on its merits through " +
+		"actually require, or demanding a stricter form than the task requires. Judge it on its merits through " +
 		"YOUR lens: vote continue ONLY if it names a REAL, task-required defect that genuinely leaves the work " +
 		"unfinished; if the work satisfies the task despite the concern, HOLD done. Do not defer to the devil, " +
 		"and do not raise a brand-new objection of your own. Reply in the SAME JSON shape."
@@ -688,12 +688,12 @@ func memberSystem(m council.Member, phase, task string, keep, constraints bool) 
 			"the agent's OWN CLAIM — do NOT accept it as proof; judge only the executed check results, tool outputs, and diff. "+
 			"When a `deliverable-check` signal is present and FAILED, the plan's own executable contract is objectively unmet: "+
 			"vote continue no matter how confidently the report asserts success. "+
-			"But passing checks are NECESSARY, not sufficient: those checks are the council's own approximation of a HIDDEN "+
-			"grader that may be stricter, and a self-authored 'checkpoint' test the agent wrote is weaker still. Where the "+
+			"But passing checks are NECESSARY, not sufficient: those checks are the council's own approximation of an acceptance "+
+			"that may be stricter, and a self-authored 'checkpoint' test the agent wrote is weaker still. Where the "+
 			"TASK states an exact contract — a literal command line, a concrete input→output example, a numeric threshold — "+
 			"do not vote done unless the evidence SHOWS that EXACT command was run and its output matched the stated value; a "+
 			"substitute that merely looks equivalent, or the agent's own test standing in for the task's stated one, is a "+
-			"common false done (Council 3-0 done, grader 0). "+
+			"common false done: unanimous here, rejected where it counts. "+
 			"Otherwise — a read, "+
 			"review, analyze, explain, or answer "+
 			"task — the deliverable IS the answer or review in the REPORT itself: judge its substance, and never demand a "+
@@ -734,7 +734,7 @@ func memberSystem(m council.Member, phase, task string, keep, constraints bool) 
 			"deliverable through the same interface its consumer uses and showed the behavior holding — likewise counts "+
 			"as that run: do NOT dismiss it as \"mere simulation\" in order to demand a HARDER real-world reproduction the "+
 			"TASK never asked for (a real external signal, live hardware, a network peer, a production deployment, manual "+
-			"operation). The hidden grader may be stricter about whether the CONTRACTED behavior actually works — that is "+
+			"operation). Acceptance may be stricter about whether the CONTRACTED behavior actually works — that is "+
 			"NOT licence to invent a stricter ACCEPTANCE METHOD than the task implies. (This never rescues a behavior only "+
 			"CLAIMED, faked, or never actually run — that stays continue; it forbids only piling a heavier proof ceremony "+
 			"onto a behavior already shown working.) (This does not relax a literal contract the TASK itself stated — that "+
@@ -933,9 +933,9 @@ func planMemberSystem(m council.Member, lens string, keep bool) string {
 			"wrong value, a server file that never actually listens, a cleanup handler that never fires.\n\n"+
 			"HIGHEST-PRIORITY CHECK: if the task shows ANY concrete example — a literal command line, an input-to-output "+
 			"mapping, a numeric threshold — your FIRST check must have the step run THAT EXACT input and must assert "+
-			"THAT EXACT output, verbatim, never a paraphrase and never a value you invented. The hidden grader enforces "+
+			"THAT EXACT output, verbatim, never a paraphrase and never a value you invented. The work is judged against "+
 			"the TASK'S own contract, so a self-substituted input or expected value passes your check and fails the "+
-			"grader.\n\n"+
+			"real requirement.\n\n"+
 			"NECESSITY — do NOT demand MORE than the task states: never pin a version, build id, exact path, timestamp "+
 			"or incidental attribute the task did not itself specify. Over-specification false-fails CORRECT work and "+
 			"never converges. Assert the minimal condition that proves the stated objective.\n\n"+

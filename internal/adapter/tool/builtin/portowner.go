@@ -127,7 +127,7 @@ func (PortOwner) Execute(ctx context.Context, raw json.RawMessage, env port.Tool
 	}
 	owners, supported := findPortOwners(p)
 	if !supported {
-		return errResult("", "port_owner reads /proc and is only available on Linux (bench containers) — not on this platform"), nil
+		return errResult("", "port_owner reads /proc and is only available on Linux — not on this platform"), nil
 	}
 	if len(owners) == 0 {
 		// Not an error: an empty result means the port is FREE — a useful fact

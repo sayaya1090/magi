@@ -1326,3 +1326,27 @@ func TestPlanMemberPromptMakesRecordAndReadTheDefault(t *testing.T) {
 		t.Errorf("moving the run onto the step must not license a weaker assertion:\n%s", p)
 	}
 }
+
+// magi is never told that a scorer exists — nothing in a live run supplies one, and a benchmark's
+// grader is information the harness deliberately withholds. A prompt that asserts one anyway teaches
+// the council to reason about what an imagined judge wants instead of what the TASK states, which is
+// exactly the over-fit that produced spurious demands. Every council prompt must therefore be free of
+// harness framing; the force those clauses carried is kept in task-relative wording ("acceptance",
+// "the task requires").
+func TestCouncilPromptsCarryNoHarnessFraming(t *testing.T) {
+	m := council.Member{Name: "x", Lens: "correctness"}
+	prompts := map[string]string{
+		"devil":    devilSystem,
+		"plan":     memberSystem(m, "plan", "build a service and run its tests", false, false),
+		"contract": memberSystem(m, "contract", "build a service and run its tests", false, false),
+		"subst":    memberSystem(m, "substitution", "build a service and run its tests", false, false),
+		"finish":   memberSystem(m, "", "build a service and run its tests", true, true),
+	}
+	for name, p := range prompts {
+		for _, banned := range []string{"grader", "benchmark", "leaderboard", "reward", "eval set"} {
+			if strings.Contains(strings.ToLower(p), banned) {
+				t.Errorf("%s prompt asserts a harness artifact %q — keep acceptance task-relative", name, banned)
+			}
+		}
+	}
+}

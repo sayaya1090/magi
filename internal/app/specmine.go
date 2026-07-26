@@ -55,7 +55,7 @@ const elicitSpecMineSystem = "You read a coding request and work out, BEFORE any
 	"two correct implementations would emit byte-identical output; a vague 'parse it and output the values' " +
 	"is the failure, not the finding.\n" +
 	"FOURTH, its explicit CONSTRAINTS — the MUST / MUST-NOT conditions the request STATES that are not the main " +
-	"deliverable but bound HOW it is reached, and that an implementation tends to forget mid-work while a grader " +
+	"deliverable but bound HOW it is reached, and that an implementation tends to forget mid-work while acceptance " +
 	"still checks them: a SCOPE limit (only a named file/area may change, or one is off-limits — 'only modify X', " +
 	"'do not touch Y', 'leave Z unchanged'), a STRUCTURAL requirement the output MUST satisfy (it must contain, " +
 	"start with, or end with a specific element — a required marker, directive, or terminator), or a FORBIDDEN " +
@@ -79,13 +79,13 @@ const elicitSpecMineSystem = "You read a coding request and work out, BEFORE any
 	"algorithm) is UNCONSTRAINED: note it so nothing downstream invents a constraint the task never stated. " +
 	"Treating a SEMANTIC description or an UNCONSTRAINED aspect as if it were a HARD literal (asserting the " +
 	"prose's exact wording in the source) forces correct code into a fabricated shape. HARD is NARROW and " +
-	"the MINORITY: use it ONLY for a literal string a grader matches character-for-character — a filename, a " +
+	"the MINORITY: use it ONLY for a literal string something outside your control matches character-for-character — a filename, a " +
 	"function/message/RPC NAME, a port number, a pinned version, or an exact output token the task quotes. A " +
 	"described BEHAVIOR, ALGORITHM, FORMAT, or STRUCTURE is SEMANTIC even when it is required or important — " +
 	"importance does NOT make it hard: 'parse the file header', 'output JSON with these fields', 'sort the " +
 	"results', 'return an int' are all SEMANTIC (satisfied by the running artifact, not by matching source " +
 	"text). Default to SEMANTIC; reach for HARD only when you can point to the exact literal the task wrote " +
-	"and a grader will compare byte-for-byte, and mark a genuinely open aspect UNCONSTRAINED. And when a " +
+	"that will be compared byte-for-byte, and mark a genuinely open aspect UNCONSTRAINED. And when a " +
 	"fixed value sits INSIDE a larger string whose shape the task did NOT dictate — a port inside a bind " +
 	"address (the interface part, `[::]` vs `0.0.0.0` vs a hostname, is the implementer's choice), a name " +
 	"inside a URL, a value inside a connection string — only the value the task fixed is HARD; the enclosing " +
@@ -107,7 +107,7 @@ const distillSpecMineSystem = "You distill a working analysis into its final con
 	"given, keep ONLY the highest-stakes findings and output ONLY a JSON object, no prose, no code fence:\n" +
 	`{"lines":[{"surface":"...","requirement":"...","construct":"...","kind":"hard|example|semantic|unconstrained"}],"final":"..."}` + "\n" +
 	"Rules: at most 5 lines. Each construct names a concrete language/stdlib construct. Each line's `kind` " +
-	"says HOW its requirement must be honored: `hard` = a FIXED identifier or value the grader checks " +
+	"says HOW its requirement must be honored: `hard` = a FIXED identifier or value the task's consumer checks " +
 	"literally (a message/service/RPC/function NAME, a port, a filename, a pinned version) — match it " +
 	"verbatim; `example` = a SAMPLE the task gives (an input→output pair, a reference row) — reproduce that " +
 	"exact behavior, and put the ACTUAL input and expected output VERBATIM in `requirement` (the sample's own " +
@@ -115,7 +115,7 @@ const distillSpecMineSystem = "You distill a working analysis into its final con
 	"a call returns) — satisfy its MEANING and verify by EFFECT (build/run/inspect the produced artifact), " +
 	"NOT by any particular source spelling; `unconstrained` = an aspect the task does NOT pin (source layout, " +
 	"an internal name, the declaration syntax, the algorithm) — record it so nothing downstream asserts it. " +
-	"`hard` is the MINORITY — reserve it for a literal a grader matches byte-for-byte (a name/port/filename/" +
+	"`hard` is the MINORITY — reserve it for a literal something outside your control matches byte-for-byte (a name/port/filename/" +
 	"pinned version/quoted output token); a described behavior, algorithm, format, or structure is `semantic` " +
 	"even when required (importance does not make it hard). Default to `semantic` (the safe choice that never " +
 	"forces a made-up surface form onto correct code). For a TRANSFORM/reproduction finding (output derived " +
