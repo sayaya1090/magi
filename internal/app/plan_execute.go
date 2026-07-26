@@ -568,23 +568,48 @@ func workerChecklist(checks []council.DeliverableCheck, stepIdx int) string {
 	if len(mine) == 0 {
 		return ""
 	}
+	// The gate runs each item in a read-only shell, but the worker's own bash is NOT wrapped: it runs the
+	// mutating command successfully and never sees the refusal, which is emitted only at gate time. So
+	// predict it here and mark the item in the brief — otherwise the worker has no way to learn that this
+	// item will yield no verdict and its step will land ungated.
+	refused := make([]string, len(mine))
+	anyRefused := false
+	if readOnlyChecksEnabled() {
+		for i, c := range mine {
+			if names := refusedCommandsIn(c.Command); len(names) > 0 {
+				refused[i] = strings.Join(names, ", ")
+				anyRefused = true
+			}
+		}
+	}
 	var b strings.Builder
 	b.WriteString("Acceptance checklist — before you report done, RUN each of these and confirm it passes; " +
 		"do NOT report done while any of them is failing.\n" +
-		"IF AN ITEM READS A RESULT FILE (a log, a saved output) rather than exercising the artifact directly, that " +
-		"file is part of YOUR work: produce it by ACTUALLY RUNNING the command it summarizes and redirecting the real " +
-		"output into it. Never hand-write the file, and never write the marker the check greps for — a check reading " +
-		"a fabricated file passes while the deliverable is broken, and the grader is not fooled.\n" +
+		"CHECKS READ, YOU RUN. An item that READS A RESULT FILE (a log, a saved output) is the normal shape: that " +
+		"file is part of YOUR work — produce it by ACTUALLY RUNNING the command it summarizes and redirecting the " +
+		"real output into it, at exactly the path the item reads. Never hand-write the file, and never write the " +
+		"marker the check greps for — a check reading a fabricated file passes while the deliverable is broken, and " +
+		"the grader is not fooled.\n")
+	if anyRefused {
+		b.WriteString("AN ITEM MARKED [REFUSED BY THE CHECK SHELL] runs fine for YOU but not at the gate: the gate " +
+			"executes checks in a read-only shell that blocks the commands that build, install, fetch, move or delete, " +
+			"so that item exits 126 and records NO verdict — the step lands neither proven nor failed, and nothing looks " +
+			"wrong in the log. Your deliverable is not the problem; the check is asking to re-do YOUR work. Repair it: " +
+			"run that command yourself as part of the step, save its REAL output to a file, then call substitute_check " +
+			"for that item with a READ of the file (original = the exact refused command; command = `grep -q " +
+			"'<expected outcome>' <result file>`; reason = refused by the read-only check shell).\n")
+	}
+	b.WriteString(
 		"IF AN ITEM'S GIVEN COMMAND CANNOT RUN HERE — it errors with \"not found\" / \"no such command\" / exit " +
-		"127, or needs a missing tool, a wrong path, or a permission you lack (the CHECK is broken, NOT the " +
-		"deliverable) — do this, do NOT just quietly run a different command and move on:\n" +
-		"  1) run an EQUIVALENT command that verifies the SAME goal, then\n" +
-		"  2) you MUST call the substitute_check tool (step; original = the exact command that could not run; " +
-		"command = the equivalent you ran; expect; reason).\n" +
-		"A silent workaround is LOST — it leaves the broken check in place. substitute_check is what makes the " +
-		"fix reviewed by the council and PERSISTED for the rest of the run. Only if an item's goal genuinely " +
-		"CANNOT be met (a real blocker, not a bug you can fix) do you stop retrying and report status " +
-		"blocked/failed with WHICH item is unmet and WHY, so it can be re-planned rather than silently dropped:")
+			"127, or needs a missing tool, a wrong path, or a permission you lack (the CHECK is broken, NOT the " +
+			"deliverable) — do this, do NOT just quietly run a different command and move on:\n" +
+			"  1) run an EQUIVALENT command that verifies the SAME goal, then\n" +
+			"  2) you MUST call the substitute_check tool (step; original = the exact command that could not run; " +
+			"command = the equivalent you ran; expect; reason).\n" +
+			"A silent workaround is LOST — it leaves the broken check in place. substitute_check is what makes the " +
+			"fix reviewed by the council and PERSISTED for the rest of the run. Only if an item's goal genuinely " +
+			"CANNOT be met (a real blocker, not a bug you can fix) do you stop retrying and report status " +
+			"blocked/failed with WHICH item is unmet and WHY, so it can be re-planned rather than silently dropped:")
 	for i, c := range mine {
 		fmt.Fprintf(&b, "\n%d. ", i+1)
 		if d := strings.TrimSpace(c.Deliverable); d != "" {
@@ -593,6 +618,9 @@ func workerChecklist(checks []council.DeliverableCheck, stepIdx int) string {
 		b.WriteString("run: " + strings.TrimSpace(c.Command))
 		if e := strings.TrimSpace(c.Expect); e != "" {
 			b.WriteString("  (expect: " + e + ")")
+		}
+		if refused[i] != "" {
+			b.WriteString("  [REFUSED BY THE CHECK SHELL: " + refused[i] + "]")
 		}
 	}
 	return b.String()

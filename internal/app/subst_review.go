@@ -127,7 +127,7 @@ func (a *App) reviewSubstitutions(ctx context.Context, tc turnCtx, rounds *int, 
 		msg := "Do NOT substitute these acceptance checks — their ORIGINAL command RAN here and FAILED, which is a " +
 			"real failure of the DELIVERABLE, not a check that could not run:\n" + renderSubs(ranFailed) +
 			"\nFix the deliverable so the original check passes, or report status blocked/failed with why. " +
-			"substitute_check is ONLY for a check whose command cannot RUN at all (not found / exit 127)."
+			"substitute_check is ONLY for a check whose command cannot RUN at all (not found / exit 127) or is refused by the read-only check shell (exit 126)."
 		pd, _ := json.Marshal(event.PromptSubmittedData{MessageID: "m_" + newID(), Parts: []session.Part{{Kind: session.PartText, Text: msg}}})
 		a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "council"}, pd)
 		return loopContinue, true

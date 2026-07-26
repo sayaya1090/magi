@@ -29,7 +29,9 @@ func (SubstituteCheck) Name() string { return "substitute_check" }
 func (SubstituteCheck) Description() string {
 	return "Substitute an acceptance check whose given COMMAND cannot run HERE — it errors with \"not found\" / " +
 		"\"no such command\" / exit 127, or needs a missing tool, a wrong path, or a permission you lack (the CHECK " +
-		"is broken, NOT the deliverable). When that happens do NOT just quietly run a different command and move on — " +
+		"is broken, NOT the deliverable) — or that the read-only check shell REFUSES to run because it would re-do " +
+		"your work (it prints \"magi-check-readonly: blocked <cmd>\" or exits 126; that check records NO verdict, so " +
+		"its step lands ungated). When that happens do NOT just quietly run a different command and move on — " +
 		"that leaves the broken check in place. Instead: first RUN an equivalent command that verifies the SAME goal " +
 		"and confirm it passes, THEN call this to register it: step (the plan step), original (the exact command that " +
 		"could not run), command (the working equivalent you ran), expect (optional expected output), reason (why the " +
