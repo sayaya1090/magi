@@ -204,7 +204,12 @@ func (a *App) ensureStepCoverage(ctx context.Context, s session.Session, prompt 
 	out, ok := parseChecksArray(raw)
 	if !ok || len(out) < len(checks) { // unusable / dropped existing checks → keep the authored set
 		if !ok {
-			shortfall(fmt.Sprintf("the fill reply did not parse as a checks array (%d chars)", len(raw)))
+			// Show the reply, not just its length. This failure was observed three runs running and
+			// could not be diagnosed from the log: the side call leaves no session record, so the
+			// only way to tell "the model answered with prose" from "it wrapped the array in an
+			// object" from "an element had the wrong shape" is to print what came back.
+			shortfall(fmt.Sprintf("the fill reply did not parse as a checks array (%d chars) :: %s",
+				len(raw), planParseExcerpt(raw)))
 		} else {
 			shortfall(fmt.Sprintf("the fill dropped existing checks (%d→%d), so it was discarded", len(checks), len(out)))
 		}
@@ -321,6 +326,12 @@ func (a *App) validateChecks(ctx context.Context, agent AgentSpec, s session.Ses
 	raw := a.specMineCall(ctx, agent, s.ID, "check-audit", model, validateChecksSystem, string(in))
 	out, ok := parseChecksArray(raw)
 	if !ok || len(out) == 0 { // unusable review → keep the authored checks rather than drop the contract
+		// Say so, with the reply. Silence here means the authored checks were never actually
+		// reviewed while the log looked exactly like a review that found nothing to repair —
+		// and the side call leaves no session record to check afterwards.
+		a.emitToolProgress(s.ID, plannerActor, "", "check-audit",
+			fmt.Sprintf("check-audit: review unusable (%d chars) — keeping the %d authored check(s) unreviewed :: %s",
+				len(raw), len(checks), planParseExcerpt(raw)))
 		return checks
 	}
 	a.recordCheckAudit(ctx, s.ID, checks, out)

@@ -221,3 +221,36 @@ func (w *progressWatcher) notes(name string) string {
 	}
 	return ""
 }
+
+// A parse failure must print the REPLY, not only its length. The side calls leave no session
+// record, so an excerpt is the only way to tell "the model answered with prose" from "it wrapped
+// the array in an object" from "an element had the wrong shape" — a distinction that blocked
+// diagnosis for three consecutive runs.
+func TestCoverageAndAuditParseFailuresShowTheReply(t *testing.T) {
+	t.Setenv("MAGI_CHECK_COVERAGE", "1")
+	t.Setenv("MAGI_CHECK_VALIDATE", "1")
+	reply := "I could not produce checks for these steps because the plan is exploratory."
+
+	// coverage fill
+	a := newOrchApp(t, &gateLLM{text: reply}, Config{Permission: "allow", MaxAgents: 10})
+	s := parentSession(t.TempDir())
+	sub := watchProgress(t, a, s.ID)
+	a.ensureStepCoverage(context.Background(), s, "task",
+		[]planStep{{Title: "one"}, {Title: "two"}}, []council.DeliverableCheck{{Step: "1", Command: "a"}})
+	note := sub.notes("check-coverage")
+	if !strings.Contains(note, "did not parse") || !strings.Contains(note, "exploratory") {
+		t.Errorf("the coverage failure must quote the reply:\n%s", note)
+	}
+
+	// check audit
+	a2 := newOrchApp(t, &gateLLM{text: reply}, Config{Permission: "allow", MaxAgents: 10})
+	s2 := parentSession(t.TempDir())
+	sub2 := watchProgress(t, a2, s2.ID)
+	in := []council.DeliverableCheck{{Step: "1", Command: "a"}}
+	if got := a2.validateChecks(context.Background(), a2.agentFor(s2), s2, in); len(got) != 1 {
+		t.Fatalf("an unusable review must keep the authored checks, got %+v", got)
+	}
+	if n := sub2.notes("check-audit"); !strings.Contains(n, "unreviewed") || !strings.Contains(n, "exploratory") {
+		t.Errorf("the audit failure must say the checks went unreviewed and quote the reply:\n%s", n)
+	}
+}
