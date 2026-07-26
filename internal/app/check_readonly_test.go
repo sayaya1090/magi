@@ -341,3 +341,31 @@ func TestRefusedCommandsInMatchesTheShell(t *testing.T) {
 		}
 	}
 }
+
+// "126 means unrunnable" only holds while 126 reaches the caller, and the shape checks are really
+// authored in destroys it: a trailing `|| echo failed` turns the refusal into exit 0 with the word
+// "failed", which every gate then reads as the DELIVERABLE failing — a check that could not run
+// re-planning work that is fine. Observed live, so it is locked here against the real shell.
+func TestRefusalSurvivesATrailingFallback(t *testing.T) {
+	skipOnWindows(t)
+	a := newShellApp(t, &shellPlatform{})
+	cmd := "cd /tmp && make one DIR=tests/basic >/dev/null 2>&1 && echo passed || echo failed"
+	out, code := a.runCheckCmd(context.Background(), "s_test", t.TempDir(), cmd)
+	if code != 126 {
+		t.Fatalf("a refused check must report unrunnable however the command ends, got exit %d (out %q)",
+			code, strings.TrimSpace(out))
+	}
+	if !checkUnrunnable(code) {
+		t.Error("the forced code must be one the gates read as unrunnable")
+	}
+	// And the false verdict it used to produce must be unreachable: judged as a normal result, this
+	// check FAILS, because the fallback printed the failure word.
+	c := council.DeliverableCheck{Step: "1", Command: cmd, Expect: "(passed|OK)"}
+	if c.Passes(out, 0) {
+		t.Fatal("test premise wrong: the fallback output was supposed to miss the expect")
+	}
+	// A check with no blocked command keeps its real exit code — the forcing must not swallow verdicts.
+	if _, code := a.runCheckCmd(context.Background(), "s_test", t.TempDir(), "test -f /nonexistent-magi"); code == 126 {
+		t.Error("an ordinary failing check must keep its own exit code, not be reported as unrunnable")
+	}
+}
