@@ -152,9 +152,20 @@ class MagiAgent(BaseInstalledAgent):
         # coder→coder whose timeout is misreported as the run's own deadline — the A/B knob for
         # whether suppressing that futile recovery beats the unconditional respawn. All are
         # forwarded so the arms share one prebuilt binary.
+        #
+        # MAGI_TEMPERATURE/TOP_P/TOP_K are not A/B knobs but a correction: Ollama's OpenAI-compat
+        # layer substitutes its OWN defaults for a field the request omits — openai/openai.go
+        # writes options["top_p"] = 1.0 when top_p is nil, and server/routes.go applies the request
+        # options AFTER the Modelfile's, so an omitted top_p silently overrides the model's own
+        # packaged value (0.95 for qwen3-coder-next) with 1.0, disabling nucleus truncation. Sending
+        # it explicitly is the only way to get the model's recommended sampling. top_k has no field
+        # in that layer at all, so it is never overridden and must NOT be sent.
         for key in (
             "MAGI_BASE_URL",
             "MAGI_API_KEY",
+            "MAGI_TEMPERATURE",
+            "MAGI_TOP_P",
+            "MAGI_TOP_K",
             "MAGI_MAX_PLAN_DEPTH",
             "MAGI_REFINE",
             "MAGI_STEP_CONTEXT",
