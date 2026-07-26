@@ -248,7 +248,16 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		guard.noteStep()              // step-based rabbit-hole counter (turnProgressCheckEnabled)
 		// One-shot nudge before the "idle" stuck recovery: an agent reasoning for many steps with
 		// no deliverable is pushed to ACT (write/run/verify) — often all a reasoning loop needs.
-		if guard.idleNudgeDue() {
+		//
+		// Never to an agent that CANNOT act: a read-only spec (no write/edit/bash in its allowlist)
+		// produces nothing by contract, so "no deliverable" describes its normal operation, and the
+		// nudge orders it to do the one thing its tools forbid. Observed on the read-only repository
+		// explorer: it had just located the right source file, took the nudge, and spent the next four
+		// minutes writing a fix proposal it could not apply — re-reading one region seven times until
+		// the loop guard stopped it. Its findings never named a path, and the plan built on them
+		// targeted the wrong file. specCanAct is checked FIRST because idleNudgeDue consumes the
+		// one-shot budget as a side effect.
+		if specCanAct(agent) && guard.idleNudgeDue() {
 			nd, _ := json.Marshal(event.PromptSubmittedData{
 				MessageID: "m_" + newID(),
 				Parts: []session.Part{{Kind: session.PartText, Text: "You have taken many steps of analysis " +

@@ -20,6 +20,26 @@ type AgentSpec struct {
 	Provider string // named LLM profile (different endpoint/key); empty = default backend
 }
 
+// specCanAct reports whether a spec's tool allowlist lets it produce or change anything —
+// write/edit a file, or run a command. An empty allowlist means "all tools", so it can.
+//
+// It exists so guidance that presumes an agent can act is not aimed at one that cannot. A read-only
+// spec (the repository explorer, a scout) is defined by producing nothing: pushing it to "write the
+// file, run the build" describes an impossible action and pushes it off its own contract, which is
+// how a read-only explorer ended up drafting a fix instead of reporting the path it had just found.
+func specCanAct(a AgentSpec) bool {
+	if len(a.Tools) == 0 {
+		return true
+	}
+	for _, t := range a.Tools {
+		switch t {
+		case "write", "edit", "multiedit", "bash", "notebook_edit", "apply_patch":
+			return true
+		}
+	}
+	return false
+}
+
 // AgentRoute is an agent's current effective backend routing, for display and
 // interactive editing (the /route menu).
 type AgentRoute struct {
