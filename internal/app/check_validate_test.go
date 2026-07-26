@@ -71,13 +71,35 @@ func TestValidateChecksFlagOffPassthrough(t *testing.T) {
 	}
 }
 
-// The validation prompt must carry the work≠check principle so the review can turn a mutating,
-// non-idempotent "check" (which re-does the step's work and traps the run in a redo loop) into a
-// read-only probe. Guards the criteria.go prompt against a silent regression.
-func TestValidateChecksPromptForbidsMutatingChecks(t *testing.T) {
-	for _, want := range []string{"IDEMPOTENT", "work≠check", "tar -czf"} {
+// Both check-authoring prompts must state the shape the runner can actually evaluate: a check is DATA
+// ({source, assert}), the gate reads the file and applies the assertion itself with no shell, and
+// `assert` comes from a closed vocabulary. This is what replaced the old work≠check/idempotence rules —
+// a check that cannot name a command cannot re-do the step's work or mutate anything — so a prompt that
+// drifted back to describing commands would be asking for checks that gate nothing.
+func TestCheckPromptsStateTheTypedShape(t *testing.T) {
+	for name, prompt := range map[string]string{
+		"check-audit":   validateChecksSystem,
+		"coverage-fill": coverageFillSystem,
+	} {
+		for _, want := range []string{
+			"A CHECK IS DATA, NOT A COMMAND", "no shell in the path",
+			"nonempty", "matches <regexp>", "absent <regexp>", "equals <path>", "port_open <port>", "process_alive",
+		} {
+			if !strings.Contains(prompt, want) {
+				t.Errorf("%s must state the typed shape (missing %q)", name, want)
+			}
+		}
+	}
+}
+
+// The review's FIRST job is conversion: a check that arrives shaped as a shell command gates nothing,
+// because nothing executes it. The prompt must say so and must say where the run goes instead — to the
+// step, which records its real output — or the reviewer will keep returning commands it believes run.
+func TestValidateChecksPromptConvertsCommandChecks(t *testing.T) {
+	for _, want := range []string{"CONVERT (do this FIRST)", "gates NOTHING", "commands are no longer executed",
+		"belongs to the STEP", "Keep WHAT was proven"} {
 		if !strings.Contains(validateChecksSystem, want) {
-			t.Errorf("validateChecksSystem must state the work≠check rule (missing %q)", want)
+			t.Errorf("validateChecksSystem must convert command-shaped checks (missing %q)", want)
 		}
 	}
 }
@@ -89,17 +111,6 @@ func TestValidateChecksPromptKeepsStepScoping(t *testing.T) {
 	for _, want := range []string{"scopes the check to its step", "jointly-unsatisfiable"} {
 		if !strings.Contains(validateChecksSystem, want) {
 			t.Errorf("validateChecksSystem must keep checks step-scoped (missing %q)", want)
-		}
-	}
-}
-
-// The validation prompt must forbid hardcoded absolute tool paths: a check that pins `/usr/bin/pip3`
-// false-fails on an image where the tool lives at `/usr/local/bin/pip3` or a venv shim. Guards the
-// PORTABLE clause against the kv-store-grpc regression (an absolute pip path the container did not have).
-func TestValidateChecksPromptForbidsAbsoluteToolPaths(t *testing.T) {
-	for _, want := range []string{"/usr/bin/pip3", "BARE name", "PATH resolves"} {
-		if !strings.Contains(validateChecksSystem, want) {
-			t.Errorf("validateChecksSystem must forbid hardcoded absolute tool paths (missing %q)", want)
 		}
 	}
 }
@@ -138,51 +149,20 @@ func TestValidateChecksPromptForbidsSourceNotationAssertion(t *testing.T) {
 	}
 }
 
-// A python check must treat a non-stdlib MODULE as it treats a missing shell tool: pkg_resources
-// (removed from modern setuptools, absent on minimal images) false-fails a correctly installed
-// package. Both check-authoring prompts must steer version checks to importlib.metadata / __version__.
-// Observed: a magi-authored "grpcio installed at 1.73.0" check used pkg_resources and false-failed
-// (internal UNVERIFIED) though the external verifier passed. Task-agnostic (pkg_resources is a general
-// Python trap, not an eval-set token).
-func TestPortableClauseCoversPythonModules(t *testing.T) {
-	for _, sys := range []struct{ name, text string }{
-		{"validateChecksSystem", validateChecksSystem},
-		{"coverageFillSystem", coverageFillSystem},
+// The whole PORTABLE family of rules — absolute tool paths, absent shell utilities, non-stdlib python
+// modules, the pgrep/os.kill liveness workaround — is gone from both prompts, and must stay gone. Those
+// clauses existed because a check was a command that could name a tool the image does not have and exit
+// 127. A typed check names no program: the only executables in the path are magi's own `cat` and the two
+// probes it owns. Re-adding that guidance would ask the model for commands the runner cannot run.
+func TestCheckPromptsDropTheMissingToolGuidance(t *testing.T) {
+	for name, prompt := range map[string]string{
+		"check-audit":   validateChecksSystem,
+		"coverage-fill": coverageFillSystem,
 	} {
-		for _, want := range []string{"pkg_resources", "importlib.metadata"} {
-			if !strings.Contains(sys.text, want) {
-				t.Errorf("%s PORTABLE clause must cover absent python modules (missing %q)", sys.name, want)
-			}
-		}
-		for _, banned := range []string{"grpcio", "kv-store", "1.73.0"} {
-			if strings.Contains(sys.text, banned) {
-				t.Errorf("%s leaks an eval-set token %q — keep the example task-agnostic", sys.name, banned)
-			}
-		}
-	}
-}
-
-// The PORTABLE clause must be stated as a PRINCIPLE, not an enumeration: any tool outside the
-// guaranteed set may be absent and exit 127, and process-liveness must be checked with a python3
-// primitive (os.kill / /proc), not a process utility. Guards against the pgrep-127 regression
-// where an authored check shelled to a process tool the target image did not have — and against
-// regressing to a fixed ss/netstat/lsof blocklist that leaves the next absent tool uncovered.
-func TestPortableClauseIsPrincipledNotEnumerated(t *testing.T) {
-	for _, sys := range []struct {
-		name string
-		text string
-	}{{"coverageFillSystem", coverageFillSystem}, {"validateChecksSystem", validateChecksSystem}} {
-		for _, want := range []string{"127", "os.kill(pid, 0)", "not an exhaustive list", "pgrep"} {
-			if !strings.Contains(sys.text, want) {
-				t.Errorf("%s PORTABLE clause must state the 127/liveness principle (missing %q)", sys.name, want)
-			}
-		}
-		// The clause must lead with the ONE general rule (any un-guaranteed dependency false-fails),
-		// with shell tools and language modules as instances — not two parallel enumerations that
-		// leave the next dependency kind (a service, a runtime, a file) uncovered.
-		for _, want := range []string{"of ANY kind", "ONE rule"} {
-			if !strings.Contains(sys.text, want) {
-				t.Errorf("%s PORTABLE clause must generalize to any un-guaranteed dependency (missing %q)", sys.name, want)
+		for _, gone := range []string{"pkg_resources", "importlib.metadata", "pgrep", "os.kill(pid, 0)",
+			"/usr/bin/pip3", "exhaustive list"} {
+			if strings.Contains(prompt, gone) {
+				t.Errorf("%s still carries missing-tool guidance %q, which a typed check cannot act on", name, gone)
 			}
 		}
 	}
@@ -293,22 +273,22 @@ func TestPromptsCarryNoEvalSetSpecifics(t *testing.T) {
 	}
 }
 
-// With the flag on, validateChecks replaces a mutating check with the review's read-only repair:
-// the authored `ssh host 'tar -czf ...'` (which re-compresses the remote tree every gate cycle) must
-// not survive verbatim — the reviewed idempotent probe is used instead.
+// validateChecks takes the review's REPLACEMENT for a check the runner cannot evaluate: the authored
+// command-shaped check gates nothing (no `assert`), and the reviewed typed check that reads what the
+// step recorded is what gets stored for the rest of the run.
 func TestValidateChecksRepairsMutatingCheck(t *testing.T) {
 	t.Setenv("MAGI_CHECK_VALIDATE", "1")
-	repaired := `[{"step":"2","deliverable":"downloaded archive","command":"tar -tzf ./bench.tgz >/dev/null"}]`
+	repaired := `[{"step":"2","deliverable":"downloaded archive (step saves listing.txt)","source":"listing.txt","assert":"matches payload/"}]`
 	a := newOrchApp(t, &gateLLM{text: repaired}, Config{Permission: "allow", MaxAgents: 10})
 	s := parentSession(t.TempDir())
 	in := []council.DeliverableCheck{{Step: "2", Deliverable: "downloaded archive",
-		Command: "ssh host 'tar -czf /tmp/bench.tgz /remote/dir' && echo OK"}}
+		Command: "ssh host 'tar -czf /tmp/archive.tgz /remote/dir' && echo OK"}}
 	out := a.validateChecks(context.Background(), a.agentFor(s), s, in)
 	if len(out) != 1 {
 		t.Fatalf("want 1 reviewed check, got %d", len(out))
 	}
-	if strings.Contains(out[0].Command, "tar -czf") || strings.Contains(out[0].Command, "ssh ") {
-		t.Errorf("the mutating authored check must be replaced by the read-only probe, got %q", out[0].Command)
+	if out[0].Source != "listing.txt" || out[0].Assert != "matches payload/" {
+		t.Errorf("the reviewed typed check must replace the unevaluable authored one, got %+v", out[0])
 	}
 }
 
@@ -349,7 +329,7 @@ func (f *auditLLM) calls() []string {
 // empty answer actually costs.
 func TestCheckAuditEmptyReplyIsRetriedWithTheConsequence(t *testing.T) {
 	t.Setenv("MAGI_CHECK_VALIDATE", "1")
-	repaired := `[{"step":"1","deliverable":"the compiler builds","command":"grep -q '^PASS' build.log"}]`
+	repaired := `[{"step":"1","deliverable":"the compiler builds (step saves build.log)","source":"build.log","assert":"matches ^PASS"}]`
 	llm := &auditLLM{replies: []string{"[]", repaired}}
 	a := newOrchApp(t, llm, Config{Permission: "allow", MaxAgents: 10})
 	s := parentSession(t.TempDir())
@@ -357,7 +337,7 @@ func TestCheckAuditEmptyReplyIsRetriedWithTheConsequence(t *testing.T) {
 	in := []council.DeliverableCheck{{Step: "1", Deliverable: "the compiler builds", Command: "make world opt"}}
 
 	out := a.validateChecks(context.Background(), a.agentFor(s), s, in)
-	if len(out) != 1 || !strings.Contains(out[0].Command, "grep -q") {
+	if len(out) != 1 || out[0].Assert != "matches ^PASS" {
 		t.Fatalf("the retry's repair must be used, got %+v", out)
 	}
 	sys := llm.calls()
@@ -380,7 +360,7 @@ func TestCheckAuditEmptyReplyIsRetriedWithTheConsequence(t *testing.T) {
 // prose, exactly as the planner does after an unparseable plan.
 func TestCheckAuditUnparseableReplyIsRetriedJSONOnly(t *testing.T) {
 	t.Setenv("MAGI_CHECK_VALIDATE", "1")
-	repaired := `[{"step":"1","deliverable":"deps","command":"pip show grpcio | grep -q Version"}]`
+	repaired := `[{"step":"1","deliverable":"deps (step saves deps.txt)","source":"deps.txt","assert":"matches Version"}]`
 	llm := &auditLLM{replies: []string{"I reviewed the checks and they look fine to me.", repaired}}
 	a := newOrchApp(t, llm, Config{Permission: "allow", MaxAgents: 10})
 	s := parentSession(t.TempDir())
@@ -388,7 +368,7 @@ func TestCheckAuditUnparseableReplyIsRetriedJSONOnly(t *testing.T) {
 	in := []council.DeliverableCheck{{Step: "1", Deliverable: "deps", Command: "test -f /usr/bin/pip3"}}
 
 	out := a.validateChecks(context.Background(), a.agentFor(s), s, in)
-	if len(out) != 1 || !strings.Contains(out[0].Command, "pip show") {
+	if len(out) != 1 || out[0].Assert != "matches Version" {
 		t.Fatalf("the retry's repair must be used, got %+v", out)
 	}
 	sys := llm.calls()
@@ -440,100 +420,17 @@ func TestCoverageFillPromptRejectsACommandThatMerelySucceeded(t *testing.T) {
 	}
 }
 
-// A check's exit code is a failure signal only when its trailing command can fail. exitCodeMasked
-// is what tells the two apart, and every case here was taken off a real check set.
-func TestExitCodeMasked(t *testing.T) {
-	for _, tc := range []struct {
-		cmd  string
-		want bool
-	}{
-		// faithful: the deliverable being wrong or absent shows up in the status
-		{"test -f /tmp/a.txt && test -s /tmp/a.txt", false},
-		{"grep -q PATTERN ./out.c", false},
-		{"./run --check", false},
-		{"make -C testsuite one DIR=tests/basic 2>&1 | grep -q 'passed'", false},
-		{"cd src && ./build.sh", false},
-		// masked: the last stage succeeds on whatever it was handed
-		{"grep -n 'PATTERN' ./out.c | head -1", true},
-		{"find . -name '*.c' -exec grep -l X {} \\; | head -n 1", true},
-		{"cd src && make world > /tmp/b.log 2>&1; echo $?", true},
-		{"./run --check | tee /tmp/out.log", true},
-		{"ls -1 build/ | wc -l", true},
-		{"cat /etc/hosts | sort", true},
-		{"", false},
-	} {
-		if got := exitCodeMasked(tc.cmd); got != tc.want {
-			t.Errorf("exitCodeMasked(%q) = %v, want %v", tc.cmd, got, tc.want)
-		}
-	}
-}
-
-// A review that returns a command without its `expect` has either repaired the check or gutted it,
-// and which one depends entirely on whether that command's exit code can fail. Both directions were
-// observed in a single live check set, which is what these cases are.
-func TestRestoreDroppedExpects(t *testing.T) {
-	a := newTestApp(t)
-	before := []council.DeliverableCheck{
-		{Step: "1", Deliverable: "sweep files", Command: "find . -name '*.c' | xargs grep -l X | head -20", Expect: ".+"},
-		{Step: "2", Deliverable: "analysis report", Command: "test -f /tmp/rep.txt && test -s /tmp/rep.txt", Expect: ".+"},
-		{Step: "3", Deliverable: "bootstrap", Command: "cd src && make world > /tmp/b.log 2>&1; echo $?", Expect: "^0$"},
-		{Step: "4", Deliverable: "checker", Command: "./run --check", Expect: "done"},
-		{Step: "5", Deliverable: "built tree", Command: "ls ./built"}, // authored with no expect
-	}
-	after := []council.DeliverableCheck{
-		// rewritten AND masked: the review left a check that exits 0 in every world state — the prior
-		// unanchored expect comes back on step+deliverable
-		{Step: "1", Deliverable: "sweep files", Command: "find . -type f -name '*.c' -exec grep -l X {} \\; | head -n 1"},
-		// unchanged but the exit code is honest, and `test` prints nothing so `.+` never matched:
-		// the drop was the repair and must stand
-		{Step: "2", Deliverable: "analysis report", Command: "test -f /tmp/rep.txt && test -s /tmp/rep.txt"},
-		// unchanged and masked by the trailing echo: without the expect it always passes
-		{Step: "3", Deliverable: "bootstrap", Command: "cd src && make world > /tmp/b.log 2>&1; echo $?"},
-		{Step: "4", Deliverable: "checker", Command: "./run --check", Expect: "all checks passed"}, // repaired
-		{Step: "5", Deliverable: "built tree", Command: "ls ./built"},                              // never had one
-	}
-	got := a.restoreDroppedExpects("s1", before, after)
-	if got[0].Expect != ".+" {
-		t.Errorf("a rewritten command that still cannot fail must get its unanchored expect back, got %q", got[0].Expect)
-	}
-	if got[1].Expect != "" {
-		t.Errorf("dropping an expect from a command with an honest exit code is a REPAIR; got %q", got[1].Expect)
-	}
-	if got[2].Expect != "^0$" {
-		t.Errorf("an unchanged masked command must get its expect back, got %q", got[2].Expect)
-	}
-	if got[3].Expect != "all checks passed" {
-		t.Errorf("a repaired expect must survive, got %q", got[3].Expect)
-	}
-	if got[4].Expect != "" {
-		t.Errorf("a check authored with no expect must stay that way, got %q", got[4].Expect)
-	}
-	// An ANCHORED prior expect is not guessed onto a command whose text changed: `^…$` against
-	// output that ends in a newline is the documented never-matches shape.
-	an := []council.DeliverableCheck{{Step: "1", Deliverable: "version", Command: "pip show x | grep Version", Expect: "^1\\.2\\.3$"}}
-	rw := []council.DeliverableCheck{{Step: "1", Deliverable: "version", Command: "pip show x | head -3"}}
-	if out := a.restoreDroppedExpects("s1", an, rw); out[0].Expect != "" {
-		t.Errorf("an anchored expect must not be moved onto a rewritten command, got %q", out[0].Expect)
-	}
-	// No authored expects at all: nothing to restore, and the input is returned untouched.
-	plain := []council.DeliverableCheck{{Step: "1", Command: "ls | head -1"}}
-	if out := a.restoreDroppedExpects("s1", plain, plain); len(out) != 1 || out[0].Expect != "" {
-		t.Errorf("with no prior expects the audit result must pass through unchanged, got %+v", out)
-	}
-}
-
-// A check the read-only shell will refuse is the WORST outcome available: exit 126 reads as "no
-// verdict", so the step lands neither proven nor failed, and nothing reaches the agent (the refusal is
-// a transient line, and the agent's own shell is unwrapped, so it watches the same command succeed).
-// The review prompt already forbids it and a live review still let one through — so the refusal is
-// predicted deterministically and re-asked ONCE, naming the offender.
-func TestCheckAuditReasksWhenAReviewedCheckWouldBeRefused(t *testing.T) {
+// A check that comes back with no `assert` is the WORST outcome available: the runner evaluates only
+// `source`/`assert`, so it returns 126, which every gate reads as "no verdict" — the step lands neither
+// proven nor failed, and nothing in the log looks wrong. The review prompt already carries the
+// conversion rule and one live review is still enough to leave a command behind, so the miss is
+// detected deterministically and re-asked ONCE, naming the offender.
+func TestCheckAuditReasksWhenAReviewedCheckCarriesNoAssertion(t *testing.T) {
 	t.Setenv("MAGI_CHECK_VALIDATE", "1")
-	t.Setenv("MAGI_CHECK_READONLY", "1")
 	reviewed := `[{"step":"1","deliverable":"the suite passes","command":"make -C testsuite one DIR=t"},
-	              {"step":"2","deliverable":"binary runs","command":"./bin/app --version | grep -q 1.2"}]`
-	repaired := `[{"step":"1","deliverable":"the suite passes (step saves suite.log)","command":"grep -q '^All tests passed' suite.log"},
-	              {"step":"2","deliverable":"binary runs","command":"./bin/app --version | grep -q 1.2"}]`
+	              {"step":"2","deliverable":"binary runs","source":"version.txt","assert":"matches 1\\.2"}]`
+	repaired := `[{"step":"1","deliverable":"the suite passes (step saves suite.log)","source":"suite.log","assert":"matches ^All tests passed"},
+	              {"step":"2","deliverable":"binary runs","source":"version.txt","assert":"matches 1\\.2"}]`
 	llm := &auditLLM{replies: []string{reviewed, repaired}}
 	a := newOrchApp(t, llm, Config{Permission: "allow", MaxAgents: 10})
 	s := parentSession(t.TempDir())
@@ -543,8 +440,8 @@ func TestCheckAuditReasksWhenAReviewedCheckWouldBeRefused(t *testing.T) {
 	out := a.validateChecks(context.Background(), a.agentFor(s), s, in)
 
 	for _, c := range out {
-		if n := refusedCommandsIn(c.Command); len(n) > 0 {
-			t.Errorf("the repaired set must carry no refused command, got %q (%v)", c.Command, n)
+		if strings.TrimSpace(c.Assert) == "" {
+			t.Errorf("the repaired set must carry an assertion on every check, got %+v", c)
 		}
 	}
 	if len(out) != 2 {
@@ -556,11 +453,11 @@ func TestCheckAuditReasksWhenAReviewedCheckWouldBeRefused(t *testing.T) {
 	}
 	// The re-ask must name the offending check and the consequence — an abstract rule is what the
 	// first pass already ignored.
-	if !strings.Contains(calls[1], "make -C testsuite") || !strings.Contains(calls[1], "126") {
-		t.Errorf("the re-ask must name the refused command and what it costs, got %q", clipLine(calls[1], 400))
+	if !strings.Contains(calls[1], "make -C testsuite") || !strings.Contains(calls[1], "NO `assert`") {
+		t.Errorf("the re-ask must name the unasserted check and what it costs, got %q", clipLine(calls[1], 400))
 	}
-	if note := sub.notes("check-audit"); !strings.Contains(note, "refuses") {
-		t.Errorf("the refusal must be reported, got %q", note)
+	if note := sub.notes("check-audit"); !strings.Contains(note, "no `assert`") {
+		t.Errorf("the missing assertion must be reported, got %q", note)
 	}
 }
 
@@ -568,10 +465,9 @@ func TestCheckAuditReasksWhenAReviewedCheckWouldBeRefused(t *testing.T) {
 // check must not thereby delete the checks that were fine.
 func TestCheckAuditReaskCannotShrinkTheContract(t *testing.T) {
 	t.Setenv("MAGI_CHECK_VALIDATE", "1")
-	t.Setenv("MAGI_CHECK_READONLY", "1")
 	reviewed := `[{"step":"1","deliverable":"built","command":"make all"},
-	              {"step":"2","deliverable":"binary runs","command":"./bin/app --version | grep -q 1.2"}]`
-	onlyRepaired := `[{"step":"1","deliverable":"built","command":"test -x ./bin/app"}]`
+	              {"step":"2","deliverable":"binary runs","source":"version.txt","assert":"matches 1\\.2"}]`
+	onlyRepaired := `[{"step":"1","deliverable":"built","source":"build.log","assert":"matches ^BUILD OK"}]`
 	llm := &auditLLM{replies: []string{reviewed, onlyRepaired}}
 	a := newOrchApp(t, llm, Config{Permission: "allow", MaxAgents: 10})
 	s := parentSession(t.TempDir())
@@ -579,14 +475,14 @@ func TestCheckAuditReaskCannotShrinkTheContract(t *testing.T) {
 
 	out := a.validateChecks(context.Background(), a.agentFor(s), s, in)
 	if len(out) != 2 {
-		t.Fatalf("the unblocked check must be unioned back, got %d: %+v", len(out), out)
+		t.Fatalf("the already-typed check must be unioned back, got %d: %+v", len(out), out)
 	}
-	var cmds []string
+	var asserts []string
 	for _, c := range out {
-		cmds = append(cmds, c.Command)
+		asserts = append(asserts, c.Assert)
 	}
-	if !strings.Contains(strings.Join(cmds, "|"), "--version") {
-		t.Errorf("the check that was never refused must survive, got %v", cmds)
+	if !strings.Contains(strings.Join(asserts, "|"), "1\\.2") {
+		t.Errorf("the check that was already typed must survive, got %v", asserts)
 	}
 }
 
@@ -594,7 +490,6 @@ func TestCheckAuditReaskCannotShrinkTheContract(t *testing.T) {
 // and must say the step lands ungated — the failure mode here is silence, not a wrong verdict.
 func TestCheckAuditKeepsReviewedSetWhenTheReaskDoesNotHelp(t *testing.T) {
 	t.Setenv("MAGI_CHECK_VALIDATE", "1")
-	t.Setenv("MAGI_CHECK_READONLY", "1")
 	reviewed := `[{"step":"1","deliverable":"built","command":"make all"}]`
 	llm := &auditLLM{replies: []string{reviewed, `[{"step":"1","deliverable":"built","command":"cmake --build ."}]`}}
 	a := newOrchApp(t, llm, Config{Permission: "allow", MaxAgents: 10})
@@ -604,51 +499,48 @@ func TestCheckAuditKeepsReviewedSetWhenTheReaskDoesNotHelp(t *testing.T) {
 
 	out := a.validateChecks(context.Background(), a.agentFor(s), s, in)
 	if len(out) != 1 || out[0].Command != "make all" {
-		t.Fatalf("the reviewed set must be kept when the re-ask does not reduce the refusals, got %+v", out)
+		t.Fatalf("the reviewed set must be kept when the re-ask does not convert anything, got %+v", out)
 	}
 	if note := sub.notes("check-audit"); !strings.Contains(note, "ungated") {
-		t.Errorf("an unrepaired refusal must be reported as an ungated step, got %q", note)
+		t.Errorf("an unconverted check must be reported as an ungated step, got %q", note)
 	}
 }
 
-// With the guard off the command is not refused, so predicting a refusal would spend a side call on a
-// non-problem.
-func TestCheckAuditDoesNotReaskWhenTheReadOnlyGuardIsOff(t *testing.T) {
+// A reviewed set where every check already carries an assertion has nothing to repair, so predicting
+// one would spend a side call on a non-problem.
+func TestCheckAuditDoesNotReaskWhenEveryCheckIsTyped(t *testing.T) {
 	t.Setenv("MAGI_CHECK_VALIDATE", "1")
-	t.Setenv("MAGI_CHECK_READONLY", "0")
-	llm := &auditLLM{replies: []string{`[{"step":"1","deliverable":"built","command":"make all"}]`}}
+	llm := &auditLLM{replies: []string{`[{"step":"1","deliverable":"built","source":"build.log","assert":"matches ^BUILD OK"}]`}}
 	a := newOrchApp(t, llm, Config{Permission: "allow", MaxAgents: 10})
 	s := parentSession(t.TempDir())
 	a.validateChecks(context.Background(), a.agentFor(s), s,
 		[]council.DeliverableCheck{{Step: "1", Deliverable: "built", Command: "make all"}})
 	if calls := llm.calls(); len(calls) != 1 {
-		t.Errorf("want the single review call with the guard off, got %d", len(calls))
+		t.Errorf("want the single review call when the reply is fully typed, got %d", len(calls))
 	}
 }
 
-// The three prompts that AUTHOR, FILL and REVIEW checks must all carry the same default shape —
-// the step runs and saves its real output, the check reads that file — rather than offering it as
-// an exception for expensive runs. A check that only reads a file cannot be refused by the
-// read-only shell, cannot re-do the step's work on every gate cycle, and fails honestly through
-// grep's exit status; the earlier "only when the run is expensive" framing left every other
-// executing check free to hit all three problems.
+// The three prompts that AUTHOR, FILL and REVIEW checks must all carry the same shape — the STEP
+// performs the run and redirects its REAL output to a fixed path, and the check reads that path. It is
+// now the ONLY shape the runner can evaluate, so a prompt that dropped it would be asking for checks
+// that gate nothing; and "the REAL output" is the clause that separates a recorded run from a
+// hand-written file that says the run went well.
 func TestCheckPromptsMakeRecordAndReadTheDefault(t *testing.T) {
 	for name, prompt := range map[string]string{
 		"coverage-fill": coverageFillSystem,
 		"check-audit":   validateChecksSystem,
-		"readonly-reask": readOnlyRepairReminder([]string{
-			"step 2 `make test` (refused: make)",
+		"typed-reask": typedRepairReminder([]string{
+			"step 2 the suite passes (`make test`)",
 		}),
 	} {
-		if !strings.Contains(prompt, "RECORD AND READ") {
-			t.Errorf("%s prompt must name the record-and-read rule:\n%s", name, prompt)
+		if !strings.Contains(prompt, "the STEP") {
+			t.Errorf("%s prompt must put the run on the step:\n%s", name, prompt)
 		}
-		if !strings.Contains(prompt, "the STEP runs, the CHECK reads") &&
-			!strings.Contains(prompt, "the STEP runs, the CHECK reads.") {
-			t.Errorf("%s prompt must state the default direction (step runs, check reads)", name)
+		if !strings.Contains(prompt, "REAL output") {
+			t.Errorf("%s prompt must require the recorded file to be the run's real output", name)
 		}
-		if !strings.Contains(prompt, "result file") {
-			t.Errorf("%s prompt must point at the saved result file", name)
+		if !strings.Contains(prompt, "fixed path") {
+			t.Errorf("%s prompt must point at a fixed recorded path", name)
 		}
 	}
 	// The reviewer must not be told the rule applies only to expensive runs — that framing is what

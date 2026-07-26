@@ -20,7 +20,7 @@ func TestTerminationGateChurnLands(t *testing.T) {
 	plat := &scriptPlatform{codes: []int{1, 1, 1, 1}} // the deliverable check fails every run
 	fc := &fakeCouncil{}                              // must be non-nil for the gate to apply; never reached (we land first)
 	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
-	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Deliverable: "server", Command: "probe"}})
+	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Deliverable: "server", Source: "probe.log", Assert: "nonempty"}})
 
 	guard := newRunGuard()
 	s := a.sessionInfo(ctx, sid)
@@ -60,7 +60,7 @@ func TestTerminationGateChurnResetsOnPass(t *testing.T) {
 	plat := &scriptPlatform{codes: []int{1, 0}}
 	fc := &fakeCouncil{delibs: []council.Deliberation{{Decision: council.Done}}}
 	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
-	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Deliverable: "server", Command: "probe"}})
+	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Deliverable: "server", Source: "probe.log", Assert: "nonempty"}})
 
 	guard := newRunGuard()
 	s := a.sessionInfo(ctx, sid)
@@ -101,7 +101,7 @@ func TestTerminationGateCouncilChurnLands(t *testing.T) {
 		{Round: 3, Decision: council.Continue, Feedback: "still unmet C"},
 	}}
 	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 5})
-	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Deliverable: "server", Command: "probe"}})
+	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Deliverable: "server", Source: "probe.log", Assert: "nonempty"}})
 
 	guard := newRunGuard()
 	s := a.sessionInfo(ctx, sid)

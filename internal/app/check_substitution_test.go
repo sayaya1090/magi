@@ -8,19 +8,22 @@ import (
 	"github.com/sayaya1090/magi/internal/core/council"
 )
 
-// A check whose OWN command is not found (exit 127) is unexecutable in this environment — a broken
-// check, not a failed deliverable — so the step gate must NOT fail the step on it (which would churn
-// the work). The worker's equivalent substitution and the council settle the goal instead.
+// A check that cannot be EVALUATED (126 — here an assertion with no `source` for it to be about) is a
+// broken check, not a failed deliverable — so the step gate must NOT fail the step on it (which would
+// churn the work). The worker's equivalent substitution and the council settle the goal instead.
 func TestVerifyStepChecksUnexecutableDefers(t *testing.T) {
 	t.Setenv("MAGI_STEP_VERIFY", "1")
 	ctx := context.Background()
-	plat := &scriptPlatform{codes: []int{127}} // the check's command → command not found
+	plat := &scriptPlatform{codes: []int{0}} // never reached: the check names nothing to read
 	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow"})
-	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Deliverable: "server on port", Command: "ss -tlnp"}})
+	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Deliverable: "server on port", Assert: "matches LISTEN"}})
 
 	pass, fails := a.verifyStepChecks(ctx, a.sessionInfo(ctx, sid), 0)
 	if !pass {
-		t.Fatalf("an exit-127 (unexecutable) check must NOT fail the step, got fails=%q", fails)
+		t.Fatalf("an unevaluable check must NOT fail the step, got fails=%q", fails)
+	}
+	if plat.calls != 0 {
+		t.Errorf("a check with no source must not reach the platform, calls=%d", plat.calls)
 	}
 }
 
@@ -28,9 +31,9 @@ func TestVerifyStepChecksUnexecutableDefers(t *testing.T) {
 func TestVerifyStepChecksRealFailStillGates(t *testing.T) {
 	t.Setenv("MAGI_STEP_VERIFY", "1")
 	ctx := context.Background()
-	plat := &scriptPlatform{codes: []int{1}} // ran and failed
+	plat := &scriptPlatform{codes: []int{1}} // the source is not readable → the deliverable failed
 	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow"})
-	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Deliverable: "out.txt", Command: "test -s out.txt"}})
+	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Deliverable: "out.txt", Source: "out.txt", Assert: "nonempty"}})
 
 	pass, _ := a.verifyStepChecks(ctx, a.sessionInfo(ctx, sid), 0)
 	if pass {

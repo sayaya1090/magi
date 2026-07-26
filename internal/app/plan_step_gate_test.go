@@ -18,7 +18,7 @@ func TestVerifyStepChecks(t *testing.T) {
 		t.Setenv("MAGI_STEP_VERIFY", "1")
 		plat := &scriptPlatform{codes: []int{0}}
 		a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow"})
-		setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Deliverable: "out.txt", Command: "run"}})
+		setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Deliverable: "out.txt", Source: "out.txt", Assert: "nonempty"}})
 		if pass, fails := a.verifyStepChecks(ctx, a.sessionInfo(ctx, sid), 0); !pass || fails != "" {
 			t.Fatalf("passing check → (%v, %q); want (true, \"\")", pass, fails)
 		}
@@ -26,9 +26,9 @@ func TestVerifyStepChecks(t *testing.T) {
 
 	t.Run("fail rejects and explains", func(t *testing.T) {
 		t.Setenv("MAGI_STEP_VERIFY", "1")
-		plat := &scriptPlatform{codes: []int{1}} // check command exits non-zero
+		plat := &scriptPlatform{codes: []int{1}} // the recorded source is not readable
 		a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow"})
-		setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Deliverable: "out.txt", Command: "run"}})
+		setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Deliverable: "out.txt", Source: "out.txt", Assert: "nonempty"}})
 		pass, fails := a.verifyStepChecks(ctx, a.sessionInfo(ctx, sid), 0)
 		if pass {
 			t.Fatal("a failing check must NOT let the step pass (a false 'done' would advance)")
@@ -44,7 +44,7 @@ func TestVerifyStepChecks(t *testing.T) {
 		a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow"})
 		// A check that belongs to step 4 ("server on port 5328") must NOT gate step 0 ("install deps"):
 		// it cannot pass until a later step, and gating step 0 on it would falsely re-plan.
-		setChecks(a, sid, []council.DeliverableCheck{{Step: "4", Deliverable: "server on port 5328", Command: "probe"}})
+		setChecks(a, sid, []council.DeliverableCheck{{Step: "4", Deliverable: "server on port 5328", Source: "probe.log", Assert: "nonempty"}})
 		pass, _ := a.verifyStepChecks(ctx, a.sessionInfo(ctx, sid), 0)
 		if !pass {
 			t.Fatal("step 0 must not be gated on a step-4 check (strict match); this was the false-reject bug")
@@ -58,12 +58,12 @@ func TestVerifyStepChecks(t *testing.T) {
 		t.Setenv("MAGI_STEP_VERIFY", "0")
 		plat := &scriptPlatform{codes: []int{1}}
 		a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow"})
-		setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Command: "run"}})
+		setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Source: "out.txt", Assert: "nonempty"}})
 		if pass, _ := a.verifyStepChecks(ctx, a.sessionInfo(ctx, sid), 0); !pass {
 			t.Error("with the flag off the gate must not block (returns pass)")
 		}
 		if plat.calls != 0 {
-			t.Errorf("flag off must run no check command, ran %d", plat.calls)
+			t.Errorf("flag off must run no check, ran %d", plat.calls)
 		}
 	})
 }

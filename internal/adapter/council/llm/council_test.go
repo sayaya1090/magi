@@ -196,16 +196,21 @@ func TestPlanMemberPromptKeepGated(t *testing.T) {
 	}
 }
 
-// The plan-audit member authors executable checks, so its prompt must state that a check is SEPARATE
-// from the work: idempotent, no state change, never re-performing the step's own producing action. A
-// mutating "check" (tar -czf, scp, rm) re-does the step every gate cycle and traps the run in a redo
-// loop — this guards the authoring guidance against a silent regression.
+// The plan-audit member authors checks as DATA, so its prompt must say what that shape buys: the
+// runner reads `source` and applies `assert` with no shell, so a check cannot re-do the step's work,
+// cannot mutate anything, and cannot false-fail on a missing tool. Those three used to be prose
+// warnings a model could ignore; the prompt must now state that they are gone by construction, and
+// must spell out the closed vocabulary the runner actually understands.
 func TestPlanMemberPromptSeparatesWorkFromCheck(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "correctness"}
 	p := memberSystem(m, "plan", "download and analyze the results", false, false)
-	for _, want := range []string{"WORK AND CHECK ARE SEPARATE", "IDEMPOTENT", "tar -czf"} {
+	for _, want := range []string{
+		"no shell in the path", "CANNOT re-do the step's work", "CANNOT mutate anything",
+		"RECORD AND READ IS THE ONLY SHAPE", "belongs to", "nonempty", "matches <regexp>",
+		"absent <regexp>", "equals <path>", "port_open <port>", "process_alive",
+	} {
 		if !strings.Contains(p, want) {
-			t.Errorf("plan check-authoring prompt must forbid mutating checks (missing %q)", want)
+			t.Errorf("plan check-authoring prompt must state the typed shape (missing %q)", want)
 		}
 	}
 }
@@ -392,7 +397,7 @@ func TestDevilPromptGroundsDemandsInTask(t *testing.T) {
 func TestPlanMemberPromptForbidsOverDemand(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "correctness"}
 	p := memberSystem(m, "plan", "install a dependency and run a server", false, false)
-	for _, want := range []string{"do NOT demand MORE than the task states", "over-specification", "minimal condition"} {
+	for _, want := range []string{"do NOT demand MORE than the task states", "Over-specification", "minimal condition"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("plan check-authoring prompt must forbid over-demand (missing %q)", want)
 		}
@@ -1306,9 +1311,9 @@ func TestPlanMemberPromptMakesRecordAndReadTheDefault(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "correctness"}
 	p := memberSystem(m, "plan", "build the project and run its test suite", false, false)
 	for _, want := range []string{
-		"RECORD AND READ",
-		"THE STEP RUNS, THE CHECK READS",
-		"saves the REAL output to a result file",
+		"RECORD AND READ IS THE ONLY SHAPE",
+		"that run belongs to the STEP",
+		"REDIRECTS its real output to a fixed path",
 		"never hand-written",
 	} {
 		if !strings.Contains(p, want) {
@@ -1317,7 +1322,7 @@ func TestPlanMemberPromptMakesRecordAndReadTheDefault(t *testing.T) {
 	}
 	// The behavioural floor must survive the shift: moving the RUN onto the step may not weaken
 	// WHAT is asserted down to an existence probe.
-	if !strings.Contains(p, "never weaken it to a mere existence probe") {
+	if !strings.Contains(p, "EXERCISE, DO NOT MERELY REACH") || !strings.Contains(p, "is a PRECONDITION, not proof") {
 		t.Errorf("moving the run onto the step must not license a weaker assertion:\n%s", p)
 	}
 }

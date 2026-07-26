@@ -17,8 +17,8 @@ func TestPartitionStepChecksSplits(t *testing.T) {
 	plat := &scriptPlatform{codes: []int{0, 1}} // check-a passes, check-b fails
 	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow"})
 	setChecks(a, sid, []council.DeliverableCheck{
-		{Step: "1", Deliverable: "server responds", Command: "probe-a"},
-		{Step: "1", Deliverable: "cleanup done", Command: "probe-b"},
+		{Step: "1", Deliverable: "server responds", Source: "probe-a.log", Assert: "nonempty"},
+		{Step: "1", Deliverable: "cleanup done", Source: "probe-b.log", Assert: "nonempty"},
 	})
 	s := a.sessionInfo(context.Background(), sid)
 
@@ -50,16 +50,16 @@ func TestPartitionStepChecksInactiveNoChecks(t *testing.T) {
 	}
 }
 
-// A step check that exits 127 (its OWN command is unexecutable — a missing tool like ss/netstat) must be
-// SKIPPED by the split, not counted as "still unmet" — mirroring verifyStepChecks. Here a 127 check sits
-// beside a passing one, so the split is one passed / zero fails and active stays true.
+// A step check that cannot be EVALUATED (126 — here an assertion with no `source` to be about) must be
+// SKIPPED by the split, not counted as "still unmet" — mirroring verifyStepChecks. Here such a check
+// sits beside a passing one, so the split is one passed / zero fails and active stays true.
 func TestPartitionStepChecksSkips127(t *testing.T) {
 	t.Setenv("MAGI_STEP_VERIFY", "1")
-	plat := &scriptPlatform{codes: []int{127, 0}} // check-a unexecutable (127), check-b passes
+	plat := &scriptPlatform{codes: []int{0}} // only the evaluable check reaches the platform
 	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow"})
 	setChecks(a, sid, []council.DeliverableCheck{
-		{Step: "1", Deliverable: "port via ss", Command: "ss -tlnp"},
-		{Step: "1", Deliverable: "file present", Command: "test -s out"},
+		{Step: "1", Deliverable: "port is open", Assert: "matches LISTEN"},
+		{Step: "1", Deliverable: "file present", Source: "out", Assert: "nonempty"},
 	})
 	s := a.sessionInfo(context.Background(), sid)
 
@@ -68,28 +68,28 @@ func TestPartitionStepChecksSkips127(t *testing.T) {
 		t.Fatal("a real (passing) check present → active")
 	}
 	if len(fails) != 0 {
-		t.Errorf("a 127 (unexecutable) check must NOT be counted as still-unmet, got fails=%v", fails)
+		t.Errorf("an unevaluable check must NOT be counted as still-unmet, got fails=%v", fails)
 	}
 	if len(passed) != 1 || passed[0] != "file present" {
 		t.Errorf("passed = %v, want [file present]", passed)
 	}
 }
 
-// When EVERY matched check is unexecutable (127), nothing was actually verified — there is no split to
+// When EVERY matched check is unevaluable, nothing was actually verified — there is no split to
 // give, so partitionStepChecks reports inactive and the caller falls back to the generic pivot rather
 // than an empty "re-checked" block.
 func TestPartitionStepChecksAll127Inactive(t *testing.T) {
 	t.Setenv("MAGI_STEP_VERIFY", "1")
-	plat := &scriptPlatform{codes: []int{127, 127}}
+	plat := &scriptPlatform{codes: []int{0, 0}} // never reached: neither check can be evaluated
 	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow"})
 	setChecks(a, sid, []council.DeliverableCheck{
-		{Step: "1", Deliverable: "a", Command: "ss -tlnp"},
-		{Step: "1", Deliverable: "b", Command: "netstat -an"},
+		{Step: "1", Deliverable: "a", Assert: "matches LISTEN"},
+		{Step: "1", Deliverable: "b", Assert: "port_open not-a-port"},
 	})
 	s := a.sessionInfo(context.Background(), sid)
 
 	if _, _, active := a.partitionStepChecks(context.Background(), s, 0); active {
-		t.Error("all-127 (nothing verifiable) → inactive so the caller falls back to the pivot")
+		t.Error("nothing verifiable → inactive so the caller falls back to the pivot")
 	}
 }
 
@@ -101,8 +101,8 @@ func TestRetryContinuationSplitBlock(t *testing.T) {
 	plat := &scriptPlatform{codes: []int{0, 1}}
 	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow"})
 	setChecks(a, sid, []council.DeliverableCheck{
-		{Step: "1", Deliverable: "server responds", Command: "probe-a"},
-		{Step: "1", Deliverable: "cleanup done", Command: "probe-b"},
+		{Step: "1", Deliverable: "server responds", Source: "probe-a.log", Assert: "nonempty"},
+		{Step: "1", Deliverable: "cleanup done", Source: "probe-b.log", Assert: "nonempty"},
 	})
 	s := a.sessionInfo(context.Background(), sid)
 

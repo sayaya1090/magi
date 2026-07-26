@@ -14,13 +14,14 @@ import (
 )
 
 // The coverage-fill prompt must carry the coverage contract: fill gaps with a SUPERSET (existing
-// unchanged + one new check per uncovered producing step), scope each new check by step number, keep
-// checks portable + idempotent, and skip read-only steps. Guards the criteria.go prompt against a
-// silent regression that would let the fill drop checks or invent work-doing "checks".
+// unchanged + one new check per uncovered producing step), scope each new check by step number, and
+// skip read-only steps. Guards the criteria.go prompt against a silent regression that would let the
+// fill drop checks. (Idempotence is no longer asked for — a check is data the gate reads, so it has no
+// way to re-do the step's work.)
 func TestCoverageFillPromptCarriesContract(t *testing.T) {
 	for _, want := range []string{
 		"FILLING GAPS", "existing checks UNCHANGED", "one NEW check for EACH producing step",
-		"1-based position", "IDEMPOTENT", "read-only step", "Do NOT alter or drop the existing checks",
+		"1-based position", "read-only step", "Do NOT alter or drop the existing checks",
 	} {
 		if !strings.Contains(coverageFillSystem, want) {
 			t.Errorf("coverageFillSystem must state the coverage contract (missing %q)", want)

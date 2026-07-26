@@ -34,7 +34,7 @@ func TestDriveStuckTodosRecoveryGatesUnitChecks(t *testing.T) {
 	plan := `{"steps":[
 		{"title":"unit A","strategy":"solo","task":"do A"},
 		{"title":"unit B","strategy":"solo","task":"do B"}]}`
-	checksJSON := `[{"step":"1","deliverable":"A out","command":"checkA"},{"step":"2","deliverable":"B out","command":"checkB"}]`
+	checksJSON := `[{"step":"1","deliverable":"A out","source":"a.log","assert":"nonempty"},{"step":"2","deliverable":"B out","source":"b.log","assert":"nonempty"}]`
 	llm := &recLLM{reply: func(req string) string {
 		switch {
 		case strings.Contains(req, "decompose THIS exact task"):

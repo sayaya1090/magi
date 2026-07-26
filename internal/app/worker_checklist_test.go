@@ -10,21 +10,22 @@ import (
 
 func TestWorkerChecklist(t *testing.T) {
 	checks := []council.DeliverableCheck{
-		{Step: "1", Deliverable: "proto exists", Command: "test -f kv.proto"},
-		{Step: "2. [solo] gen", Deliverable: "stubs", Command: "test -f kv_pb2.py"},
-		{Step: "3", Command: "python server.py"},
+		{Step: "1", Deliverable: "proto exists", Source: "kv.proto", Assert: "matches service KV"},
+		{Step: "2. [solo] gen", Deliverable: "stubs", Source: "kv_pb2.py", Assert: "nonempty"},
+		{Step: "3", Deliverable: "server up", Assert: "port_open 5328"},
 	}
 
-	// Step 1 (idx 0): only its own check, framed as a must-run acceptance checklist.
+	// Step 1 (idx 0): only its own check, rendered as what the GATE will do — read this path, apply
+	// this assertion — because the worker's obligation is to produce the file, not to run the check.
 	got := workerChecklist(checks, 0)
-	if !strings.Contains(got, "test -f kv.proto") {
-		t.Error("step 1's own check must be included")
+	if !strings.Contains(got, "the gate will read kv.proto and require: matches service KV") {
+		t.Errorf("step 1's own check must be rendered as a read + assertion:\n%s", got)
 	}
-	if strings.Contains(got, "server.py") || strings.Contains(got, "kv_pb2.py") {
+	if strings.Contains(got, "5328") || strings.Contains(got, "kv_pb2.py") {
 		t.Errorf("other steps' checks must not leak into step 1:\n%s", got)
 	}
-	if !strings.Contains(got, "before you report done") {
-		t.Error("must carry the run-and-verify instruction")
+	if !strings.Contains(got, "do not report done while any of them would fail") {
+		t.Error("must carry the definition-of-done instruction")
 	}
 
 	// Step 2 (idx 1) matches "2. [solo] gen".
@@ -32,9 +33,16 @@ func TestWorkerChecklist(t *testing.T) {
 		t.Error("step 2's check must match the '2. …' step tag")
 	}
 
+	// A check with an assertion but no source is a live probe, not a file read: it must render as a
+	// bare requirement rather than claim the gate reads something.
+	if got := workerChecklist(checks, 2); !strings.Contains(got, "the gate will require: port_open 5328") ||
+		strings.Contains(got, "will read ") {
+		t.Errorf("a sourceless assertion must render as a bare requirement:\n%s", got)
+	}
+
 	// The set IS step-labeled, but no check targets this step → empty, NOT the union of every
 	// step's checks: flattening temporally-separate steps onto one worker yields a
-	// jointly-unsatisfiable checklist (plexus #224). The worker sees only its own step's checks.
+	// jointly-unsatisfiable checklist (#224). The worker sees only its own step's checks.
 	if got := workerChecklist(checks, 9); got != "" {
 		t.Errorf("labeled set with no check for this step must give an empty checklist, got:\n%s", got)
 	}
@@ -42,11 +50,11 @@ func TestWorkerChecklist(t *testing.T) {
 	// A wholly UNLABELED set keeps the lenient fallback: step attribution is impossible, so
 	// over-inform the worker with all checks rather than drop a requirement.
 	unlabeled := []council.DeliverableCheck{
-		{Command: "test -f a"},
-		{Command: "test -f b"},
+		{Source: "a.log", Assert: "nonempty"},
+		{Source: "b.log", Assert: "nonempty"},
 	}
 	all := workerChecklist(unlabeled, 3)
-	for _, c := range []string{"test -f a", "test -f b"} {
+	for _, c := range []string{"a.log", "b.log"} {
 		if !strings.Contains(all, c) {
 			t.Errorf("unlabeled set should fall back to all checks; missing %q", c)
 		}
@@ -181,38 +189,37 @@ func TestCouncilContract(t *testing.T) {
 	}
 }
 
-// A check the read-only gate shell will REFUSE runs fine in the worker's own bash — the worker
-// executes it, sees it pass, and reports done, while at gate time the same command exits 126 and
-// records NO verdict, leaving the step neither proven nor failed. The worker cannot observe that
-// from inside its own session, so the brief must predict it: mark the offending item and tell the
-// worker to run the command as its own work, save the output, and substitute a READ of that file.
+// The two things a worker cannot learn from inside its own session: that an item with no assertion
+// gates NOTHING (so leaving it be silently drops the requirement), and that a wrong path is repairable
+// rather than a reason to fail. The checklist has to say both, and name the tool that does the repair.
 func TestWorkerChecklistMarksChecksTheGateWillRefuse(t *testing.T) {
-	t.Setenv("MAGI_CHECK_READONLY", "")
-	checks := []council.DeliverableCheck{
-		{Step: "1", Deliverable: "suite passes", Command: "cd build && make test"},
-		{Step: "1", Deliverable: "binary runs", Command: "./out --version"},
+	got := workerChecklist([]council.DeliverableCheck{
+		{Step: "1", Deliverable: "suite passes", Source: "suite.log", Assert: "matches ^All tests passed"},
+		{Step: "1", Deliverable: "binary runs"}, // authored with nothing to assert
+	}, 0)
+	if !strings.Contains(got, "this item carries no assertion, so the gate cannot verify it") {
+		t.Errorf("an item with no assertion must be marked as verifying nothing:\n%s", got)
 	}
-	got := workerChecklist(checks, 0)
-	if !strings.Contains(got, "[REFUSED BY THE CHECK SHELL: make]") {
-		t.Errorf("the refused item must be marked with what the shell blocks:\n%s", got)
+	if strings.Count(got, "carries no assertion") != 1 {
+		t.Errorf("only the unasserted item may be marked:\n%s", got)
 	}
-	if strings.Count(got, "[REFUSED BY THE CHECK SHELL:") != 1 {
-		t.Errorf("only the refused item may be marked (the read-only probe is fine):\n%s", got)
-	}
-	for _, want := range []string{"records NO verdict", "substitute_check", "save its REAL output"} {
+	for _, want := range []string{"substitute_check", "A silent workaround is LOST"} {
 		if !strings.Contains(got, want) {
-			t.Errorf("the refusal paragraph must state the consequence and the repair (missing %q):\n%s", want, got)
+			t.Errorf("the checklist must name the repair path (missing %q):\n%s", want, got)
 		}
 	}
 
-	// No refused item → no paragraph: an ordinary checklist must not carry the warning.
+	// Every checklist — including one where nothing is wrong — must state the direction: the worker
+	// performs the run and records its real output, the gate only reads.
 	clean := workerChecklist([]council.DeliverableCheck{
-		{Step: "1", Deliverable: "output recorded", Command: "grep -q PASS /tmp/suite.log"},
+		{Step: "1", Deliverable: "output recorded", Source: "/tmp/suite.log", Assert: "matches PASS"},
 	}, 0)
-	if strings.Contains(clean, "REFUSED BY THE CHECK SHELL") {
-		t.Errorf("a read-only checklist must not carry the refusal paragraph:\n%s", clean)
+	if strings.Contains(clean, "carries no assertion") {
+		t.Errorf("a fully typed checklist must not carry the unasserted warning:\n%s", clean)
 	}
-	if !strings.Contains(clean, "CHECKS READ, YOU RUN") {
-		t.Errorf("every checklist must state that the result file is the worker's own work:\n%s", clean)
+	for _, want := range []string{"YOU RUN, THE CHECK READS", "REAL output", "Never hand-write the file"} {
+		if !strings.Contains(clean, want) {
+			t.Errorf("every checklist must state that the recorded file is the worker's own real output (missing %q):\n%s", want, clean)
+		}
 	}
 }

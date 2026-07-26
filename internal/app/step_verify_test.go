@@ -71,7 +71,7 @@ func TestRunStepGateInactiveWhenFlagOff(t *testing.T) {
 	t.Setenv("MAGI_STEP_VERIFY", "0") // default is on; this arm turns it off
 	plat := &scriptPlatform{codes: []int{0}}
 	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow"})
-	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Command: "true"}})
+	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Source: "a.log", Assert: "nonempty"}})
 	ts := &turnState{}
 	if got, _ := a.runStepGate(context.Background(), a.sessionInfo(context.Background(), sid), ts); got != gateInactive {
 		t.Fatalf("flag off → %v, want gateInactive", got)
@@ -88,7 +88,7 @@ func TestRunStepGateAllPass(t *testing.T) {
 	plat := &scriptPlatform{codes: []int{0}} // Exec → stdout "verify output", exit 0
 	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow"})
 	a.putTodos(context.Background(), sid, plannerActor, []session.Todo{{Content: "do it", Status: "in_progress"}})
-	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Command: "run", Expect: "verify"}})
+	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Source: "un.log", Assert: "matches verify"}})
 
 	ts := &turnState{}
 	if got, _ := a.runStepGate(context.Background(), a.sessionInfo(context.Background(), sid), ts); got != gateInactive {
@@ -106,7 +106,7 @@ func TestRunStepGateFailInjectsOnceThenFallsBack(t *testing.T) {
 	t.Setenv("MAGI_STEP_VERIFY", "1")
 	plat := &scriptPlatform{codes: []int{1, 1}} // both calls fail
 	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow"})
-	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Deliverable: "out.txt", Command: "run"}})
+	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Deliverable: "out.txt", Source: "out.txt", Assert: "nonempty"}})
 
 	ts := &turnState{}
 	s := a.sessionInfo(context.Background(), sid)
@@ -133,9 +133,9 @@ func TestRunStepGateMultipleDeliverablesPerStep(t *testing.T) {
 		{Content: "step two", Status: "pending"},
 	})
 	setChecks(a, sid, []council.DeliverableCheck{
-		{Step: "1", Deliverable: "a", Command: "ra", Expect: "verify"},
-		{Step: "1", Deliverable: "b", Command: "rb", Expect: "verify"}, // fails via exit code
-		{Step: "2", Deliverable: "c", Command: "rc", Expect: "verify"},
+		{Step: "1", Deliverable: "a", Source: "a.log", Assert: "matches verify"},
+		{Step: "1", Deliverable: "b", Source: "b.log", Assert: "matches verify"}, // fails via exit code
+		{Step: "2", Deliverable: "c", Source: "c.log", Assert: "matches verify"},
 	})
 
 	ts := &turnState{}
@@ -156,36 +156,40 @@ func TestRunStepGateMultipleDeliverablesPerStep(t *testing.T) {
 // for the terminal gate to record every ✓ at once. A later step's check stays untouched until its
 // own step completes.
 
-// A check that exits 127 — its OWN command is unexecutable here (missing tool / wrong path) — is
-// NEITHER a deliverable failure NOR a pass: runStepGate skips it. So a step with a 127 check plus a
-// passing sibling is still checked off (127 must not veto real progress), while a step whose ONLY
-// check is 127 earns no fabricated ✓. With no real failure the gate defers to the council.
+// A check that cannot be EVALUATED — here one that names an assertion but no `source` for it to be
+// about — is NEITHER a deliverable failure NOR a pass: runStepGate skips it (126, like the 127 a
+// missing tool used to produce). So a step with such a check plus a passing sibling is still checked
+// off (an unevaluable check must not veto real progress), while a step whose ONLY check is
+// unevaluable earns no fabricated ✓. With no real failure the gate defers to the council.
 func TestRunStepGateUnexecutableCheckSkipped(t *testing.T) {
 	t.Setenv("MAGI_STEP_VERIFY", "1")
-	// Check order: step1-a =127 (skip), step1-b =0 (pass), step2 =127 (skip, its sole check).
-	plat := &scriptPlatform{codes: []int{127, 0, 127}}
+	// Only the one evaluable check reaches the platform; the other two are refused before that.
+	plat := &scriptPlatform{codes: []int{0}}
 	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow"})
 	a.putTodos(context.Background(), sid, plannerActor, []session.Todo{
 		{Content: "step one", Status: "in_progress"},
 		{Content: "step two", Status: "in_progress"},
 	})
 	setChecks(a, sid, []council.DeliverableCheck{
-		{Step: "1", Deliverable: "a", Command: "ra", Expect: "verify"},
-		{Step: "1", Deliverable: "b", Command: "rb", Expect: "verify"},
-		{Step: "2", Deliverable: "c", Command: "rc", Expect: "verify"},
+		{Step: "1", Deliverable: "a", Assert: "matches verify"}, // no source → no verdict
+		{Step: "1", Deliverable: "b", Source: "b.log", Assert: "matches verify"},
+		{Step: "2", Deliverable: "c", Assert: "matches verify"}, // step 2's sole check, unevaluable
 	})
 
 	ts := &turnState{}
-	// No REAL failure (only 127-skips and one pass) → the gate does not decide; hand off to the council.
+	// No REAL failure (only skips and one pass) → the gate does not decide; hand off to the council.
 	if got, _ := a.runStepGate(context.Background(), a.sessionInfo(context.Background(), sid), ts); got != gateInactive {
-		t.Fatalf("only 127-skips + a pass → want gateInactive, got %v", got)
+		t.Fatalf("only skips + a pass → want gateInactive, got %v", got)
+	}
+	if plat.calls != 1 {
+		t.Errorf("an unevaluable check must not reach the platform, calls=%d want 1", plat.calls)
 	}
 	td := a.Todos(sid)
-	if td[0].Status != "completed" { // 127 sibling skipped, real check b passed → step done
-		t.Errorf("step 1 (127 skipped, sibling passed) must be completed, got %q", td[0].Status)
+	if td[0].Status != "completed" { // unevaluable sibling skipped, real check b passed → step done
+		t.Errorf("step 1 (skip + passing sibling) must be completed, got %q", td[0].Status)
 	}
-	if td[1].Status == "completed" { // sole check unexecutable → no fabricated pass
-		t.Error("step 2 (only check is 127/unexecutable) must NOT be falsely completed")
+	if td[1].Status == "completed" { // sole check unevaluable → no fabricated pass
+		t.Error("step 2 (only check is unevaluable) must NOT be falsely completed")
 	}
 }
 
@@ -199,8 +203,8 @@ func TestRunStepGateGreenSiblingDoesNotLaunderFailure(t *testing.T) {
 	plat := &scriptPlatform{codes: []int{1}} // only the non-green sibling runs here, and it fails
 	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow"})
 	a.putTodos(ctx, sid, plannerActor, []session.Todo{{Content: "step one", Status: "in_progress"}})
-	green := council.DeliverableCheck{Step: "1", Deliverable: "a", Command: "ra", Expect: "verify"}
-	failing := council.DeliverableCheck{Step: "1", Deliverable: "b", Command: "rb", Expect: "verify"}
+	green := council.DeliverableCheck{Step: "1", Deliverable: "a", Source: "a.log", Assert: "matches verify"}
+	failing := council.DeliverableCheck{Step: "1", Deliverable: "b", Source: "b.log", Assert: "matches verify"}
 	setChecks(a, sid, []council.DeliverableCheck{green, failing}) // green first: it marks the step seen+passing
 	a.recordCheckResult(sid, green, true)                         // trusted ✓ — the gate must skip (not re-run) it
 
@@ -226,8 +230,8 @@ func TestCompleteThroughRecordsStepChecksPerStep(t *testing.T) {
 		{Content: "step two", Status: "pending"},
 	})
 	setChecks(a, sid, []council.DeliverableCheck{
-		{Step: "1", Deliverable: "a", Command: "ra", Expect: "verify"},
-		{Step: "2", Deliverable: "b", Command: "rb", Expect: "verify"},
+		{Step: "1", Deliverable: "a", Source: "a.log", Assert: "matches verify"},
+		{Step: "2", Deliverable: "b", Source: "b.log", Assert: "matches verify"},
 	})
 
 	// Step 1 lands → its check runs and records ✓; step 2's is not run yet.
@@ -261,7 +265,7 @@ func TestCompleteThroughSkipsAlreadyGreen(t *testing.T) {
 	plat := &scriptPlatform{codes: []int{0}}
 	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow"})
 	a.putTodos(ctx, sid, plannerActor, []session.Todo{{Content: "step one", Status: "in_progress"}})
-	c := council.DeliverableCheck{Step: "1", Deliverable: "a", Command: "ra", Expect: "verify"}
+	c := council.DeliverableCheck{Step: "1", Deliverable: "a", Source: "a.log", Assert: "matches verify"}
 	setChecks(a, sid, []council.DeliverableCheck{c})
 	a.recordCheckResult(sid, c, true) // the step gate already passed it
 
@@ -284,8 +288,8 @@ func TestRecordPendingStepChecksIncremental(t *testing.T) {
 		{Content: "step two", Status: "in_progress"},
 	})
 	setChecks(a, sid, []council.DeliverableCheck{
-		{Step: "1", Deliverable: "a", Command: "ra", Expect: "verify"},
-		{Step: "2", Deliverable: "b", Command: "rb", Expect: "verify"},
+		{Step: "1", Deliverable: "a", Source: "a.log", Assert: "matches verify"},
+		{Step: "2", Deliverable: "b", Source: "b.log", Assert: "matches verify"},
 	})
 
 	// First pass: step 1 passes → ✓ + checked off; step 2 fails → left.
@@ -323,7 +327,7 @@ func TestRecordPendingStepChecksRecordsPendingSoloStep(t *testing.T) {
 	plat := &scriptPlatform{codes: []int{0}} // the check passes when run
 	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow"})
 	a.putTodos(ctx, sid, plannerActor, []session.Todo{{Content: "solo objective", Status: "pending"}})
-	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Deliverable: "a", Command: "ra", Expect: "verify"}})
+	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Deliverable: "a", Source: "a.log", Assert: "matches verify"}})
 
 	a.recordPendingStepChecks(ctx, sid)
 	if plat.calls != 1 {
