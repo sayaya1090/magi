@@ -155,12 +155,24 @@ func (a *App) runStepGate(ctx context.Context, s session.Session, ts *turnState)
 	return gateFailRetry, ledger.String()
 }
 
+// stepCheckRecordCap bounds the command output persisted with a check result. Enough to see what
+// the command actually printed (the pair output+expect is what makes a verdict re-derivable), far
+// short of a build log — the fact is written on every check of every gate cycle.
+const stepCheckRecordCap = 600
+
+// clipCheckOutput trims and bounds a check's captured output for persistence, keeping the HEAD:
+// a check's verdict is decided by what the command printed, and the discriminating line is at the
+// start for the short outputs checks are supposed to produce.
+func clipCheckOutput(out string) string {
+	return clipLine(strings.TrimSpace(out), stepCheckRecordCap)
+}
+
 // emitStepCheck records one check's deterministic result as its own reviewable fact, so the
 // contract's execution is observable (parity with the plan-audit criteria artifact). It is a
 // TypeStepCheck, NOT a council decision: a single check has no round or tally, and rendering it
 // as a council-round outcome ("round 0: finished (no consensus) — 0 done / 0 continue") was
 // misleading. The UI renders it as a clean ✓/✗ line from the structured fields.
-func (a *App) emitStepCheck(ctx context.Context, sid session.SessionID, c council.DeliverableCheck, code int, pass bool) {
+func (a *App) emitStepCheck(ctx context.Context, sid session.SessionID, c council.DeliverableCheck, code int, pass bool, out string) {
 	a.recordCheckResult(sid, c, pass)
 	dd, _ := json.Marshal(event.StepCheckData{
 		Step:        strings.TrimSpace(c.Step),
@@ -168,6 +180,8 @@ func (a *App) emitStepCheck(ctx context.Context, sid session.SessionID, c counci
 		Command:     strings.TrimSpace(c.Command),
 		Code:        code,
 		Pass:        pass,
+		Output:      clipCheckOutput(out),
+		Expect:      strings.TrimSpace(c.Expect),
 	})
 	a.appendFact(ctx, sid, event.TypeStepCheck, event.Actor{Kind: event.ActorSystem, ID: "council"}, dd)
 }
@@ -203,7 +217,7 @@ func (a *App) runCheckRecord(ctx context.Context, sid session.SessionID, workdir
 		return false, code, out
 	}
 	pass = c.Passes(out, code)
-	a.emitStepCheck(ctx, sid, c, code, pass)
+	a.emitStepCheck(ctx, sid, c, code, pass, out)
 	return pass, code, out
 }
 
@@ -316,7 +330,9 @@ func (a *App) applyCheckSubs(ctx context.Context, sid session.SessionID, subs []
 	// Record each rewritten check ✓ (the worker verified it and the review council approved it — trust
 	// without re-running) and emit its event so the panel shows the substituted check as green.
 	for _, c := range rewritten {
-		a.emitStepCheck(ctx, sid, c, 0, true)
+		// Approved substitution: the worker ran it and the review council accepted its evidence, so
+		// there is no local output to carry — the verdict's provenance is the review, not a re-run.
+		a.emitStepCheck(ctx, sid, c, 0, true, "")
 	}
 }
 

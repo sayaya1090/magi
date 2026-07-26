@@ -247,6 +247,14 @@ type StepCheckData struct {
 	Command     string `json:"command,omitempty"`     // the command that was run
 	Code        int    `json:"code"`                  // its exit code
 	Pass        bool   `json:"pass"`                  // whether it satisfied the check
+	// Output is a clipped capture of what the command actually printed. Without it a recorded
+	// failure cannot be told apart from a check that was simply wrong: the step, command and
+	// verdict alone never show whether the world was in the wrong state or the pattern could not
+	// match what the command prints. Clipped because a check may print a whole build log.
+	Output string `json:"output,omitempty"`
+	// Expect is the pattern the output was matched against, carried beside it for the same reason —
+	// the pair is what makes a verdict re-derivable after the fact.
+	Expect string `json:"expect,omitempty"`
 }
 
 // CouncilDeliberatingData — TypeCouncilDeliberating (transient, live panel).

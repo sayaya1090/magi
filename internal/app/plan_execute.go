@@ -415,7 +415,7 @@ func (a *App) verifyStepChecks(ctx context.Context, s session.Session, stepIdx i
 			continue
 		}
 		pass := c.Passes(out, code)
-		a.emitStepCheck(ctx, s.ID, c, code, pass)
+		a.emitStepCheck(ctx, s.ID, c, code, pass, out)
 		if !pass {
 			d := strings.TrimSpace(c.Deliverable)
 			if d == "" {
@@ -456,7 +456,7 @@ func (a *App) partitionStepChecks(ctx context.Context, s session.Session, stepId
 			continue
 		}
 		pass := c.Passes(out, code)
-		a.emitStepCheck(ctx, s.ID, c, code, pass)
+		a.emitStepCheck(ctx, s.ID, c, code, pass, out)
 		d := strings.TrimSpace(c.Deliverable)
 		if d == "" {
 			d = strings.TrimSpace(c.Command)
