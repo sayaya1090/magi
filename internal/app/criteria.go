@@ -490,47 +490,110 @@ func (a *App) validateChecks(ctx context.Context, agent AgentSpec, s session.Ses
 	return out
 }
 
-// restoreDroppedExpects puts back an `expect` the review removed from a command it left UNCHANGED.
+// restoreDroppedExpects puts back an `expect` the review removed from a command whose EXIT STATUS
+// cannot report failure — and only then.
 //
 // The review is allowed to drop an expect that cannot reliably match, and it should: Passes then
-// judges on the exit code alone. But dropping it while keeping the command turns the check into
-// whatever that command's exit status happens to be — and a shell pipeline reports only its last
-// stage. Observed: `grep -n 'PATTERN' ./FILE | head -1` had an expect naming the matched line; the
-// review kept the command byte-for-byte and returned it with no expect. `head` exits 0 whether grep
-// matched, found nothing, or could not open the file at all, so the check went from a real assertion
-// to one that passes in every world state — including the one where the deliverable does not exist.
-// That is the mirror of the permanent false failure the review exists to catch, and it is silent:
-// the gate reports a pass.
+// judges on the exit code alone. That is a genuine repair whenever the exit code is a real signal.
+// It is not one when the command's last stage succeeds no matter what it read: `grep -n P ./F |
+// head -1` and `cmd > log; echo $?` both exit 0 whether the deliverable is right, wrong, or absent.
+// Dropping the expect there does not simplify the check, it makes it unfalsifiable — the silent
+// mirror of the permanent false failure the review exists to catch, since the gate reports a pass.
 //
-// The rule is narrow on purpose. Only an IDENTICAL command with a newly-empty expect is restored: a
-// review that rewrote the command earned the right to redefine how it is judged, and a review that
-// changed the expect was repairing it, not removing it.
+// Restoring on the command being byte-identical instead — the first cut of this — was wrong in both
+// directions, and the live run showed both within one check set:
+//
+//	test -f X && test -s X          expect `.+`   the review dropped it; `test` prints NOTHING, so
+//	                                              `.+` can never match. The drop was the repair, and
+//	                                              putting it back re-armed a permanent false failure.
+//	find … -exec grep -l … | head   expect `.+`   the review REWROTE the command and dropped it,
+//	                                              leaving exit 0 in every world state — untouched by
+//	                                              an identical-command rule, and the exact defect
+//	                                              this function exists for.
+//
+// So the test is exitCodeMasked, not sameness. A rewritten command still gets its prior expect back
+// when it is masked, matched on step+deliverable — but only an UNANCHORED one: `^…$` against shell
+// output that ends in a newline is the documented never-matches shape, and guessing it onto a
+// command whose text changed would trade a check that cannot fail for one that cannot pass.
 func (a *App) restoreDroppedExpects(sid session.SessionID, before, after []council.DeliverableCheck) []council.DeliverableCheck {
-	prior := make(map[string]string, len(before))
+	byCmd := make(map[string]string, len(before))
+	byLabel := make(map[string]string, len(before))
 	for _, c := range before {
-		if e := strings.TrimSpace(c.Expect); e != "" {
-			prior[strings.TrimSpace(c.Command)] = e
+		e := strings.TrimSpace(c.Expect)
+		if e == "" {
+			continue
+		}
+		byCmd[strings.TrimSpace(c.Command)] = e
+		if !strings.ContainsAny(e, "^$") {
+			byLabel[checkLabelKey(c)] = e
 		}
 	}
-	if len(prior) == 0 {
+	if len(byCmd) == 0 {
 		return after
 	}
 	restored := 0
 	for i := range after {
-		if strings.TrimSpace(after[i].Expect) != "" {
+		if strings.TrimSpace(after[i].Expect) != "" || !exitCodeMasked(after[i].Command) {
 			continue
 		}
-		if e, ok := prior[strings.TrimSpace(after[i].Command)]; ok {
+		e, ok := byCmd[strings.TrimSpace(after[i].Command)]
+		if !ok {
+			e, ok = byLabel[checkLabelKey(after[i])]
+		}
+		if ok {
 			after[i].Expect = e
 			restored++
 		}
 	}
 	if restored > 0 {
 		a.emitToolProgress(sid, plannerActor, "", "check-audit",
-			fmt.Sprintf("check-audit: restored `expect` on %d check(s) the review left with the same command — "+
-				"an unchanged command judged on its exit code alone can pass with nothing produced", restored))
+			fmt.Sprintf("check-audit: restored `expect` on %d check(s) whose command cannot report failure "+
+				"through its exit code — judged on that alone they would pass with nothing produced", restored))
 	}
 	return after
+}
+
+// checkLabelKey identifies the check a review rewrote the command of: same step, same deliverable.
+func checkLabelKey(c council.DeliverableCheck) string {
+	return strings.TrimSpace(c.Step) + "\x00" + strings.ToLower(strings.TrimSpace(c.Deliverable))
+}
+
+// maskingStageCmds are commands that succeed on whatever they are handed. As a pipeline's last
+// stage or a list's last statement they overwrite the status of everything before them, so the
+// check's exit code stops carrying any information about the deliverable.
+var maskingStageCmds = map[string]bool{
+	"head": true, "tail": true, "cat": true, "tee": true, "sort": true, "uniq": true,
+	"wc": true, "cut": true, "tr": true, "rev": true, "nl": true, "sed": true, "awk": true,
+	"echo": true, "printf": true, "true": true, ":": true,
+}
+
+// exitCodeMasked reports whether a shell command's exit status has stopped being a failure signal.
+//
+// A pipeline reports its LAST stage and a list its LAST statement, so only the trailing command
+// matters: `grep -q P F` and `test -f F` fail honestly, `… | head -1` and `…; echo $?` do not.
+// Deliberately naive about quoting and substitution — it decides whether to put an expect back, so
+// a wrong "masked" costs one restored assertion and a wrong "faithful" leaves today's behavior.
+func exitCodeMasked(cmd string) bool {
+	c := strings.TrimRight(strings.TrimSpace(cmd), ";& \t\n")
+	// The trailing command is whatever follows the last separator: | || && ; newline.
+	last := c
+	for _, sep := range []string{"||", "&&", "|", ";", "\n"} {
+		if i := strings.LastIndex(last, sep); i >= 0 {
+			if t := strings.TrimSpace(last[i+len(sep):]); t != "" {
+				last = t
+			}
+		}
+	}
+	fields := strings.Fields(last)
+	if len(fields) == 0 {
+		return false
+	}
+	// Strip a leading env assignment or `command`/`exec` wrapper, then take the bare name.
+	name := fields[0]
+	if i := strings.LastIndex(name, "/"); i >= 0 {
+		name = name[i+1:]
+	}
+	return maskingStageCmds[name]
 }
 
 // retryCheckAudit re-asks the review ONCE when the first reply yielded no usable check set, and
