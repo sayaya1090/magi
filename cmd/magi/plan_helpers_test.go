@@ -2,6 +2,7 @@ package main
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/app"
@@ -76,5 +77,21 @@ func TestProfileDefs(t *testing.T) {
 	want := app.ProfileDef{Name: "fast", BaseURL: "https://fast/v1", APIKey: "k", Model: "m", Headers: map[string]string{"X": "1"}}
 	if got := profileDefs(in); !reflect.DeepEqual(got["fast"], want) {
 		t.Errorf("profileDefs[fast] = %+v, want %+v", got["fast"], want)
+	}
+}
+
+// Guard against benchmark overfitting: the top-level agent system prompt is the one prompt every
+// run sees, so an eval-set identifier here would steer every task. Task-agnostic examples only.
+func TestSystemPromptCarriesNoEvalSetSpecifics(t *testing.T) {
+	banned := []string{
+		"grpcio", "kv-store", "kv_store", "pmars", "flashpaper", "rave.red", "extract-elf", "extract.js",
+		"ocaml", "cobol", "compcert", "corewars", "caffe", "cifar", "qemu", "fasttext", "sparql",
+		"grpc", "_pb2", ".proto", "gcov", "opam", "valgrind", "sqlite",
+		"208", "377", "Cleaned up",
+	}
+	for _, b := range banned {
+		if strings.Contains(systemPrompt, b) {
+			t.Errorf("systemPrompt leaks eval-set-specific token %q — use a task-agnostic example", b)
+		}
 	}
 }

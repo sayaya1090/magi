@@ -413,14 +413,31 @@ func TestPlanMemberPromptDemandsContractExercise(t *testing.T) {
 	}
 }
 
-// Guard against benchmark overfitting: the check-authoring prompt's examples must be task-agnostic —
-// no eval-set task's exact command, filename, or value may be baked into a prompt the model sees.
+// Guard against benchmark overfitting: no eval-set task's exact command, filename, or value may be
+// baked into a prompt the model sees. Every phase and lens is swept, not just the check-authoring
+// one: an audit found leaks in three prompts that no guard read, while the two that were guarded
+// stayed clean — a prompt no test reads is a prompt that drifts back toward the eval set.
 func TestPlanMemberPromptNoEvalSetSpecifics(t *testing.T) {
-	m := council.Member{Name: "x", Lens: "correctness"}
-	p := memberSystem(m, "plan", "build the thing", false, false)
-	for _, banned := range []string{"pmars", "flashpaper", "rave.red", "extract-elf", "extract.js", "a.out", "grpcio", "kv-store"} {
-		if strings.Contains(p, banned) {
-			t.Errorf("check-authoring prompt leaks eval-set-specific token %q — use a task-agnostic example", banned)
+	banned := []string{
+		"pmars", "flashpaper", "rave.red", "extract-elf", "extract.js", "a.out", "grpcio", "kv-store",
+		"ocaml", "cobol", "compcert", "corewars", "caffe", "cifar", "qemu", "fasttext", "sparql",
+		"grpc", "_pb2", ".proto", "gcov", "opam", "valgrind", "sqlite",
+		"208", "377", "Cleaned up",
+	}
+	for _, phase := range []string{"", "plan", "contract", "substitution", "terminate"} {
+		for _, lens := range []string{"correctness", "verification", "completeness"} {
+			m := council.Member{Name: "x", Lens: lens}
+			for _, keep := range []bool{false, true} {
+				for _, cons := range []bool{false, true} {
+					p := memberSystem(m, phase, "build the thing", keep, cons)
+					for _, b := range banned {
+						if strings.Contains(p, b) {
+							t.Errorf("phase=%q lens=%q keep=%v cons=%v leaks eval-set-specific token %q — use a task-agnostic example",
+								phase, lens, keep, cons, b)
+						}
+					}
+				}
+			}
 		}
 	}
 }

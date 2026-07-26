@@ -105,11 +105,13 @@ func TestValidateChecksPromptForbidsAbsoluteToolPaths(t *testing.T) {
 }
 
 // The validation prompt must require a check that greps a generated file to use the name the tool
-// actually emits: `grpc_tools` sanitizes a hyphenated `.proto` to an UNDERSCORED module, so a check
-// demanding the hyphenated form fights the toolchain in an unwinnable rename loop. Guards the
-// TOOL-DERIVED NAMES clause with a task-agnostic example (no eval-set filename).
+// actually emits: a generator whose target language forbids a character in the source name
+// substitutes a legal one, so a check demanding the input's spelling fights the toolchain in an
+// unwinnable rename loop. The clause is stated in that general form on purpose — the concrete
+// generator it was derived from is an eval-set toolchain, and naming it here would teach the model
+// one benchmark's filename convention instead of the rule ([[prompt-necessity-and-deoverfit]]).
 func TestValidateChecksPromptRespectsToolDerivedNames(t *testing.T) {
-	for _, want := range []string{"TOOL-DERIVED NAMES", "data_feed_pb2.py", "UNDERSCORED"} {
+	for _, want := range []string{"TOOL-DERIVED NAMES", "substitutes a legal one", "unwinnable loop"} {
 		if !strings.Contains(validateChecksSystem, want) {
 			t.Errorf("validateChecksSystem must respect tool-derived filenames (missing %q)", want)
 		}
@@ -235,12 +237,53 @@ func TestValidateChecksPromptForbidsConfigProxyAndSpotCheck(t *testing.T) {
 // Guard against benchmark overfitting: prompt examples must be task-agnostic. No eval-set task's exact
 // identifiers (a pinned dependency version, a specific task filename) may be baked into a prompt the
 // model sees — an example lifted verbatim from the test set tunes the prompt to the benchmark.
+// The list covers EVERY model-facing prompt in this package, not a sample: an audit found the
+// leaks in the three prompts nobody had wired into a guard (a sample I/O pair copied off one task,
+// a grader's literal output string, and one task's code-generator named by product), while the two
+// that were guarded stayed clean. A prompt that no test reads is a prompt that drifts.
 func TestPromptsCarryNoEvalSetSpecifics(t *testing.T) {
-	banned := []string{"grpcio", "1.73", "kv-store", "kv_store", "pmars", "flashpaper", "rave.red", "extract-elf", "extract.js"}
+	banned := []string{
+		// dependency pins and identifiers lifted off a task
+		"grpcio", "1.73", "kv-store", "kv_store", "flashpaper", "rave.red", "extract.js",
+		// eval-set task names
+		"pmars", "extract-elf", "ocaml", "cobol", "compcert", "corewars", "caffe", "cifar",
+		"qemu", "fasttext", "sparql", "mteb", "pystan", "metacircular", "codegolf", "zork", "pdp11",
+		// one task's toolchain or artifacts, named by product
+		"grpc", "_pb2", ".proto", "gcov", "gcda", "opam", "valgrind", "ccomp", "sqlite",
+		// a sample I/O pair and a grader's expected output, copied verbatim
+		"208", "377", "Cleaned up",
+	}
 	for _, p := range []struct {
 		name, text string
 	}{
 		{"validateChecksSystem", validateChecksSystem},
+		{"coverageFillSystem", coverageFillSystem},
+		{"coverageJSONOnlyReminder", coverageJSONOnlyReminder},
+		{"checkAuditJSONOnlyReminder", checkAuditJSONOnlyReminder},
+		{"checkAuditKeepSomeReminder", checkAuditKeepSomeReminder},
+		{"elicitCriteriaSystem", elicitCriteriaSystem},
+		{"elicitSpecMineSystem", elicitSpecMineSystem},
+		{"distillSpecMineSystem", distillSpecMineSystem},
+		{"specMineExploreSystem", specMineExploreSystem},
+		{"contractDraftSystem", contractDraftSystem},
+		{"consolidateContractSystem", consolidateContractSystem},
+		{"curateSystem", curateSystem},
+		{"plannerContract", plannerContract},
+		{"literalRule", literalRule},
+		{"checkpointFirstRule", checkpointFirstRule},
+		{"implicitAcceptRule", implicitAcceptRule},
+		{"verifyContract", verifyContract},
+		{"divergeClause", divergeClause},
+		{"planJSONOnlyReminder", planJSONOnlyReminder},
+		{"councilKeepWork", councilKeepWork},
+		{"councilCompletionAudit", councilCompletionAudit},
+		{"councilContestAffordance", councilContestAffordance},
+		{"asideHandlerSystem", asideHandlerSystem},
+		{"queuedTriageSystem", queuedTriageSystem},
+		{"reasoningSpinNudge", reasoningSpinNudge},
+		{"subagentGuide", subagentGuide},
+		{"outputFormatGuide", outputFormatGuide},
+		{"securityGuide", securityGuide},
 	} {
 		for _, b := range banned {
 			if strings.Contains(p.text, b) {
