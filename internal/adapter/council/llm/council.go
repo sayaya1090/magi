@@ -1016,6 +1016,8 @@ func evidence(req port.DeliberationRequest) string {
 		// adequately verify the same goals as the original acceptance checks it could not run.
 		section("What the substitutes must verify (the original checks & why they could not run)", req.Task)
 		section("The substitutions to review (the equivalent commands the agent ran)", req.Plan)
+		section("What the PREVIOUS round objected to — judge whether THIS declaration meets it; do not "+
+			"substitute a fresh objection for one already answered", req.Revision)
 		if b.Len() == 0 {
 			return "No substitution was provided; abstain."
 		}
@@ -1027,6 +1029,9 @@ func evidence(req port.DeliberationRequest) string {
 		// contract from a prior round, when present, is carried in Plan for refinement.
 		section("Task (the goal)", req.Task)
 		section("Draft contract so far (refine it)", req.Plan)
+		section("How this draft was REVISED — it ALREADY incorporates the council's own feedback below. Do NOT re-introduce "+
+			"a criterion a prior round removed, and do not re-litigate wording that was already settled; raise something "+
+			"only if the TASK itself requires it", req.Revision)
 		section("A prior concern was CONTESTED as unjustified — re-judge whether the TASK requires it; drop it if not", req.Contest)
 		if b.Len() == 0 {
 			return "No task was provided; with nothing to contract for, abstain."

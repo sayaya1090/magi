@@ -1072,3 +1072,56 @@ func TestPollBothUnparseableAbstains(t *testing.T) {
 		t.Fatalf("expected exactly 2 poll attempts (initial + one retry), got %d", n)
 	}
 }
+
+// A contract re-round must be told that the draft it is looking at is one the council itself just
+// rewrote. Judged cold, a member cannot tell a criterion the council deliberately dropped from one
+// the author forgot, so it re-raises the settled item — observed live: three members agreed to drop
+// a criterion in round 1, one re-added it in round 2, and round 3 spent itself removing it again.
+func TestContractEvidenceCarriesRevision(t *testing.T) {
+	rev := "The council's own feedback that produced this revision:\nRemove the performance criterion — out of scope\n" +
+		"The contract as it stood BEFORE this revision:\n- builds clean\n- performance preserved"
+	e := evidence(port.DeliberationRequest{Phase: "contract", Task: "fix the crash", Plan: "- builds clean", Revision: rev})
+	if !strings.Contains(e, "REVISED") {
+		t.Errorf("contract evidence must label the revision section:\n%s", e)
+	}
+	if !strings.Contains(e, "Do NOT re-introduce") {
+		t.Errorf("the section must forbid re-raising a removed criterion:\n%s", e)
+	}
+	if !strings.Contains(e, "out of scope") {
+		t.Errorf("the council's own prior feedback must reach the members:\n%s", e)
+	}
+	// A first round has no history and must not be told about a revision that never happened.
+	if first := evidence(port.DeliberationRequest{Phase: "contract", Task: "fix the crash", Plan: "- builds clean"}); strings.Contains(first, "REVISED") {
+		t.Errorf("a first-round contract must carry no revision section:\n%s", first)
+	}
+	for _, banned := range []string{"grpcio", "kv-store", "cobol", "1.73"} {
+		if strings.Contains(e, banned) {
+			t.Errorf("contract revision section leaks eval-set token %q", banned)
+		}
+	}
+}
+
+// A substitution RE-round must be shown the objection the previous round raised. The agent is
+// handed that critique to act on, but the council was re-convened knowing nothing about it, so a
+// member could not check whether its own concern had been met and was free to raise a different
+// one each round — the same amnesia the contract and plan re-rounds had.
+func TestSubstitutionEvidenceCarriesPriorObjection(t *testing.T) {
+	e := evidence(port.DeliberationRequest{
+		Phase: "substitution", Task: "the port check could not run",
+		Plan:     "curl the port instead",
+		Revision: "The previous round REJECTED the substitution with this objection:\nreaching the port is not the same as serving a request",
+	})
+	if !strings.Contains(e, "PREVIOUS round objected") {
+		t.Errorf("substitution evidence must label the prior objection:\n%s", e)
+	}
+	if !strings.Contains(e, "not the same as serving a request") {
+		t.Errorf("the prior objection's text must reach the members:\n%s", e)
+	}
+	if !strings.Contains(e, "already answered") {
+		t.Errorf("members must be told not to swap in a fresh objection:\n%s", e)
+	}
+	// First round: nothing to remember, so no section.
+	if first := evidence(port.DeliberationRequest{Phase: "substitution", Task: "t", Plan: "p"}); strings.Contains(first, "PREVIOUS round") {
+		t.Errorf("a first substitution round must carry no prior-objection section:\n%s", first)
+	}
+}

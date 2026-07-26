@@ -97,6 +97,12 @@ func (a *App) runContractGate(ctx context.Context, s session.Session, prompt str
 	// Best-effort: on failure the draft is empty and the council authors from scratch as before.
 	criteria := a.elicitContractDraft(ctx, agent, sid, model, task)
 	draft := renderContract(criteria)
+	// What the council itself changed last round, carried into the next one. Without it each round
+	// judges the rewritten draft blind to its own history, and a criterion a round REMOVED comes
+	// back in the next one — observed live: all three members agreed to drop a performance
+	// criterion in round 1, a member re-added it in round 2, and round 3 spent itself removing it
+	// again. That is not strictness; it is amnesia, and it burns the whole round budget.
+	pendingRevision := ""
 
 	for round := 1; round <= maxRounds; round++ {
 		if ctx.Err() != nil {
@@ -108,9 +114,11 @@ func (a *App) runContractGate(ctx context.Context, s session.Session, prompt str
 
 		delib, err := a.cfg.Council.Deliberate(ctx, port.DeliberationRequest{
 			Round: round, Phase: "contract", Task: task, Plan: draft,
-			Members: members, Rule: rule, Debate: councilDebateEnabled(), DefaultModel: s.Model.Model,
+			Revision: pendingRevision,
+			Members:  members, Rule: rule, Debate: councilDebateEnabled(), DefaultModel: s.Model.Model,
 		})
-		if err != nil { // a gate failure must never block the turn → proceed with whatever we have
+		pendingRevision = "" // consumed; set again below if this round rewrites the draft
+		if err != nil {      // a gate failure must never block the turn → proceed with whatever we have
 			a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{Round: round, Phase: "contract", Decision: string(council.Done), Note: "contract council unavailable: " + err.Error(), Forced: true})
 			break
 		}
@@ -152,9 +160,11 @@ func (a *App) runContractGate(ctx context.Context, s session.Session, prompt str
 		// APPLY the feedback to the current contract by CONSOLIDATION (a REPLACE, not a union): the
 		// revised contract is a RESULT of the feedback, so "reduce to 4" reduces. Best-effort — a failed
 		// consolidation keeps the current contract and carries the feedback in the draft as a fallback.
+		prevDraft := draft
 		if nc, ok := a.consolidateContract(ctx, agent, sid, model, task, criteria, fb); ok {
 			criteria = nc
 			draft = renderContract(criteria)
+			pendingRevision = contractRevisionContext(fb, prevDraft)
 		} else {
 			draft = strings.TrimSpace(renderContract(criteria) + "\n\n# Council feedback to incorporate:\n" + fb)
 		}
@@ -242,4 +252,24 @@ func (a *App) contractForPlanner(sid session.SessionID) string {
 		return ""
 	}
 	return st.contractText
+}
+
+// contractRevisionContext tells the next contract round what it is looking at: a draft the council
+// itself just rewrote, and the feedback that rewrote it. A member judging the new text cold cannot
+// tell an item the council deliberately dropped from one the author forgot, so it re-raises the
+// settled one and the round budget goes to re-litigating instead of converging. Each part is
+// clipped so the history cannot crowd out the contract being judged.
+func contractRevisionContext(critique, priorDraft string) string {
+	var b strings.Builder
+	add := func(label, body string) {
+		if s := strings.TrimSpace(body); s != "" {
+			if b.Len() > 0 {
+				b.WriteString("\n")
+			}
+			b.WriteString(label + ":\n" + s + "\n")
+		}
+	}
+	add("The council's own feedback that produced this revision", clipSpec(critique, 1200))
+	add("The contract as it stood BEFORE this revision", clipSpec(priorDraft, 1500))
+	return strings.TrimSpace(b.String())
 }
