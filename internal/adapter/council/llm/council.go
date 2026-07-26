@@ -1148,7 +1148,7 @@ func drain(stream <-chan port.ProviderEvent) (string, error) {
 }
 
 func noteUnparsed(what, text string) {
-	fmt.Fprintf(os.Stderr, "magi: %s could not be parsed (%d bytes): %s\n", what, len(text), jsonx.Excerpt(text))
+	fmt.Fprintf(os.Stderr, "magi: %s could not be parsed (%d bytes): %s\n", what, len(text), jsonx.Report(text))
 }
 
 func parseReply(text string) (memberReply, bool) {

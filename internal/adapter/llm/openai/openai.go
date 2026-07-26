@@ -606,6 +606,6 @@ func repairArgs(raw json.RawMessage) json.RawMessage {
 	// here — from the tool's error alone it is impossible to tell a malformed payload from a
 	// genuinely wrong argument.
 	fmt.Fprintf(os.Stderr, "magi: tool arguments are not valid JSON and could not be repaired (%d bytes): %s\n",
-		len(raw), jsonx.Excerpt(string(raw)))
+		len(raw), jsonx.Report(string(raw)))
 	return raw
 }

@@ -741,9 +741,11 @@ func unmarshalStepLenient(js string) (planStep, bool) {
 	return planStep{}, false
 }
 
-// planParseExcerpt renders a short single-line head+tail of an unparseable planner reply, so the run
-// log shows the actual failure mode (truncation, prose, wrong JSON shape) instead of only its length.
-func planParseExcerpt(text string) string { return jsonx.Excerpt(text) }
+// planParseExcerpt renders an unparseable planner reply for the run log: a single-line head+tail
+// AND the named reason it could not be read, so the failure mode (truncation, prose, a syntax defect
+// in the MIDDLE that the head+tail hides, or a schema mismatch) is readable from the record instead
+// of only its length.
+func planParseExcerpt(text string) string { return jsonx.Report(text) }
 
 // planParseFailureKind classifies WHY a reply yielded no parseable plan, so an intermittent failure
 // is diagnosable from the persisted record rather than guessed at. It re-walks the reply the way

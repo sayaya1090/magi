@@ -186,9 +186,9 @@ func (a *App) elicitSpecMine(ctx context.Context, agent AgentSpec, s session.Ses
 	}
 	if !ok {
 		return empty(fmt.Sprintf("the distill pass did not parse, twice (%d chars, analysis was %d) :: %s",
-			len(distilled), len(analysis), jsonx.Excerpt(distilled)))
+			len(distilled), len(analysis), jsonx.Report(distilled)))
 	}
-	if len(res.Lines) == 0 && strings.TrimSpace(res.Final) == "" {
+	if len(res.Lines) == 0 && strings.TrimSpace(string(res.Final)) == "" {
 		return empty("the distill pass parsed but carried no lines")
 	}
 	var b strings.Builder

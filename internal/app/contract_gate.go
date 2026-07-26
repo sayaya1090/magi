@@ -48,7 +48,7 @@ func (a *App) elicitContractDraft(ctx context.Context, spec AgentSpec, sid sessi
 	// log because this returned nil without a word.
 	a.emitToolProgress(sid, plannerActor, "", "contract-draft",
 		fmt.Sprintf("contract-draft: no criteria recovered (%d chars) — the members will author from scratch :: %s",
-			len(raw), jsonx.Excerpt(raw)))
+			len(raw), jsonx.Report(raw)))
 	return nil
 }
 
@@ -233,7 +233,7 @@ func (a *App) consolidateContract(ctx context.Context, spec AgentSpec, sid sessi
 	// converging. Say which happened.
 	a.emitToolProgress(sid, plannerActor, "", "contract-consolidate",
 		fmt.Sprintf("contract-consolidate: no revised criteria recovered (%d chars) — carrying the feedback as prose instead :: %s",
-			len(raw), jsonx.Excerpt(raw)))
+			len(raw), jsonx.Report(raw)))
 	return nil, false
 }
 

@@ -131,7 +131,7 @@ func (a *App) curateDelegate(ctx context.Context, agent AgentSpec, s session.Ses
 		// verbatim identifiers a grader matches — so this must not be silent.
 		a.emitToolProgress(s.ID, event.Actor{Kind: event.ActorAgent, ID: "curator"}, "", "curator",
 			fmt.Sprintf("curator: packet unusable (%d chars) — falling back to the mechanical brief :: %s",
-				len(raw), jsonx.Excerpt(raw)))
+				len(raw), jsonx.Report(raw)))
 		return "", nil
 	}
 	brief := renderCurateBrief(pkt)
