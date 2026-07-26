@@ -121,6 +121,12 @@ func parseXMLToolCall(text string, known map[string]bool) (*session.ToolCall, bo
 
 // normalizeArgs ensures args is a JSON object. Some models emit arguments as a
 // JSON-encoded string; unwrap that. Empty becomes "{}".
+//
+// The unwrapped payload gets the same repairs the native path applies at finish(): it is a SECOND,
+// independently authored JSON document that the outer parse never validated, so a defect inside it
+// (an unescaped quote in a `command`, a raw newline in `content`) survives an outer object that
+// parsed perfectly — and here, where the reply IS the action, that erases the call rather than
+// degrading it.
 func normalizeArgs(args json.RawMessage) json.RawMessage {
 	trimmed := strings.TrimSpace(string(args))
 	if trimmed == "" || trimmed == "null" {
@@ -130,7 +136,7 @@ func normalizeArgs(args json.RawMessage) json.RawMessage {
 		var inner string
 		if err := json.Unmarshal(args, &inner); err == nil {
 			if strings.HasPrefix(strings.TrimSpace(inner), "{") {
-				return json.RawMessage(inner)
+				return repairArgs(json.RawMessage(inner))
 			}
 		}
 	}
