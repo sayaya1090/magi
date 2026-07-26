@@ -203,10 +203,12 @@ func RepairCandidates(js string) []string {
 	add(StripTrailingCommas(js))
 	add(EscapeControlCharsInStrings(js))
 	add(light)
-	// Structural repairs on top: a single-quoted string and a bare identifier value are BOTH
-	// already-invalid JSON, so these can only act on a document that was going to be rejected —
-	// but they rewrite more than whitespace, so they come after the light ones and the caller
-	// always tries the original first.
+	// Structural repairs on top: an unescaped inner quote, a single-quoted string and a bare
+	// identifier value are ALL already-invalid JSON, so these can only act on a document that was
+	// going to be rejected — but they rewrite more than whitespace, so they come after the light
+	// ones and the caller always tries the original first.
+	add(EscapeStrayQuotes(js))
+	add(EscapeStrayQuotes(light))
 	quoted := SingleToDoubleQuotes(light)
 	add(quoted)
 	add(QuoteBareValues(quoted))
@@ -343,6 +345,68 @@ func SingleToDoubleQuotes(s string) string {
 		case c == '\'':
 			inSingle = true
 			b.WriteByte('"')
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
+}
+
+// EscapeStrayQuotes escapes a double quote that appears INSIDE a string value without being
+// escaped. In valid JSON the quote that closes a string is always followed — after whitespace — by
+// one of `,` `}` `]` `:` or the end of the document, so a quote followed by anything else cannot be
+// a terminator and must have been meant as literal text. Escaping it recovers the value the model
+// meant to write; on a well-formed document every quote passes the lookahead test, so this is the
+// identity.
+//
+// Observed live: a council member quoting a command inside its own criterion —
+// `"criteria":["",""make -C x" passes without failure."]` — which cost the member's ENTIRE verdict
+// (recorded as an abstain) and skewed the tally. Quoting a command or an identifier inside a prose
+// field is exactly what these fields invite, so this is a structural defect of the data rather than
+// an edge case.
+func EscapeStrayQuotes(s string) string {
+	if !strings.Contains(s, `"`) {
+		return s
+	}
+	terminates := func(i int) bool { // is the quote at i the one that closes the string?
+		for j := i + 1; j < len(s); j++ {
+			switch s[j] {
+			case ' ', '\t', '\n', '\r':
+				continue
+			case ',', '}', ']', ':':
+				return true
+			default:
+				return false
+			}
+		}
+		return true // end of document
+	}
+	var b strings.Builder
+	b.Grow(len(s) + 16)
+	inStr, esc := false, false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !inStr {
+			if c == '"' {
+				inStr = true
+			}
+			b.WriteByte(c)
+			continue
+		}
+		switch {
+		case esc:
+			esc = false
+			b.WriteByte(c)
+		case c == '\\':
+			esc = true
+			b.WriteByte(c)
+		case c == '"':
+			if terminates(i) {
+				inStr = false
+				b.WriteByte(c)
+			} else {
+				b.WriteString(`\"`)
+			}
 		default:
 			b.WriteByte(c)
 		}

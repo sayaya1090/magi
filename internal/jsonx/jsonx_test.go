@@ -79,6 +79,83 @@ func TestStructuralRepairs(t *testing.T) {
 	}
 }
 
+// An unescaped quote inside a string value: the model quotes a command or an identifier in a prose
+// field and never escapes it. Observed live in three council verdicts of one round, each of which
+// was recorded as an abstain — the decision AND the rationale were lost, not just the field.
+func TestEscapeStrayQuotes(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   string
+		want string // the value the repair must recover, "" to only require that it parses
+	}{
+		{
+			name: "quoted command inside a prose value",
+			in:   `{"note":""run the suite" passes without failure."}`,
+			want: `"run the suite" passes without failure.`,
+		},
+		{
+			name: "quote opening a value, closed only at the end",
+			in:   `{"note":""The suite passes cleanly under the documented target."}`,
+			want: `"The suite passes cleanly under the documented target.`,
+		},
+		{
+			name: "stray quote mid-sentence",
+			in:   `{"note":"the flag is named "strict" here"}`,
+			want: `the flag is named "strict" here`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var v struct {
+				Note string `json:"note"`
+			}
+			if !Unmarshal(tc.in, &v) {
+				t.Fatalf("must be repaired: %s", tc.in)
+			}
+			if v.Note != tc.want {
+				t.Errorf("value not recovered:\n got %q\nwant %q", v.Note, tc.want)
+			}
+		})
+	}
+
+	// A stray quote must not cost the SIBLING fields either — the decision is what the tally reads.
+	verdict := `{"decision":"continue","confidence":0.9,"criteria":["it builds",""make check" runs cleanly."],"checks":null}`
+	var v struct {
+		Decision   string   `json:"decision"`
+		Confidence float64  `json:"confidence"`
+		Criteria   []string `json:"criteria"`
+	}
+	if !Unmarshal(verdict, &v) {
+		t.Fatalf("must be repaired: %s", verdict)
+	}
+	if v.Decision != "continue" || v.Confidence != 0.9 || len(v.Criteria) != 2 {
+		t.Errorf("sibling fields lost: %+v", v)
+	}
+	if v.Criteria[1] != `"make check" runs cleanly.` {
+		t.Errorf("criterion not recovered: %q", v.Criteria[1])
+	}
+
+	// Identity on well-formed documents: every legal closing quote passes the lookahead test,
+	// including an empty string, a nested object and whitespace before the structural character.
+	for _, legal := range []string{
+		`{"a":"b"}`,
+		`{"a":""}`,
+		`["", "a", ""]`,
+		`{"a": {"b": ["c"]} , "d": "e"}`,
+		"{\n  \"a\"  :  \"b\"\n}",
+		`{"a":"he said \"hi\""}`,
+		`"top-level string"`,
+	} {
+		if got := EscapeStrayQuotes(legal); got != legal {
+			t.Errorf("a legal document must be untouched:\n%s\n%s", legal, got)
+		}
+	}
+
+	// The original is still tried first, so a clean document never reaches this repair.
+	if c := RepairCandidates(`{"a":"b"}`); c[0] != `{"a":"b"}` {
+		t.Errorf("the original must be tried first, got %q", c[0])
+	}
+}
+
 func parses(t *testing.T, s string) bool {
 	t.Helper()
 	for _, c := range RepairCandidates(s) {
