@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/core/council"
@@ -113,7 +114,7 @@ func TestReviewSubstitutionsApproveSolo(t *testing.T) {
 	s := a.sessionInfo(ctx, sid)
 	tc := turnCtx{s: s, guard: newRunGuard(), depth: 0, maxSteps: 50}
 	rounds := 0
-	act, looped := a.reviewSubstitutions(ctx, tc, &rounds)
+	act, looped := a.reviewSubstitutions(ctx, tc, &rounds, new(string))
 	if looped {
 		t.Fatalf("an approved substitution must not loop, got act=%v", act)
 	}
@@ -141,7 +142,7 @@ func TestReviewSubstitutionsCorrectionLoops(t *testing.T) {
 	s := a.sessionInfo(ctx, sid)
 	tc := turnCtx{s: s, guard: newRunGuard(), depth: 0, maxSteps: 50}
 	rounds := 0
-	act, looped := a.reviewSubstitutions(ctx, tc, &rounds)
+	act, looped := a.reviewSubstitutions(ctx, tc, &rounds, new(string))
 	if !looped || act != loopContinue {
 		t.Fatalf("a critical concern must loop the agent, got act=%v looped=%v", act, looped)
 	}
@@ -168,7 +169,7 @@ func TestReviewSubstitutionsApproveWorkerStashes(t *testing.T) {
 	s := a.sessionInfo(ctx, sid)
 	tc := turnCtx{s: s, guard: newRunGuard(), depth: 1, maxSteps: 50} // depth>0 = worker
 	rounds := 0
-	if _, looped := a.reviewSubstitutions(ctx, tc, &rounds); looped {
+	if _, looped := a.reviewSubstitutions(ctx, tc, &rounds, new(string)); looped {
 		t.Fatal("approved worker substitution must not loop")
 	}
 	got := a.takeApprovedSubs(sid)
@@ -188,7 +189,7 @@ func TestReviewSubstitutionsDropsUnneeded(t *testing.T) {
 	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "ss -tlnp", Command: "python3 probe", Reason: "works correctly"})
 
 	s := a.sessionInfo(ctx, sid)
-	if act, looped := a.reviewSubstitutions(ctx, turnCtx{s: s, guard: newRunGuard(), depth: 0, maxSteps: 50}, new(int)); looped {
+	if act, looped := a.reviewSubstitutions(ctx, turnCtx{s: s, guard: newRunGuard(), depth: 0, maxSteps: 50}, new(int), new(string)); looped {
 		t.Fatalf("an unneeded substitution must not loop, got act=%v", act)
 	}
 	if fc.calls != 0 {
@@ -214,7 +215,7 @@ func TestReviewSubstitutionsRefusesRanFailed(t *testing.T) {
 	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "test -s out", Command: "true", Reason: "dodging"})
 
 	s := a.sessionInfo(ctx, sid)
-	act, looped := a.reviewSubstitutions(ctx, turnCtx{s: s, guard: newRunGuard(), depth: 0, maxSteps: 50}, new(int))
+	act, looped := a.reviewSubstitutions(ctx, turnCtx{s: s, guard: newRunGuard(), depth: 0, maxSteps: 50}, new(int), new(string))
 	if !looped || act != loopContinue {
 		t.Fatalf("a ran-and-failed original must loop the agent to reconsider, got act=%v looped=%v", act, looped)
 	}
@@ -240,7 +241,7 @@ func TestReviewSubstitutionsRefusesExitZeroExpectMismatch(t *testing.T) {
 	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "grep foo out", Command: "true", Reason: "dodging the assertion"})
 
 	s := a.sessionInfo(ctx, sid)
-	act, looped := a.reviewSubstitutions(ctx, turnCtx{s: s, guard: newRunGuard(), depth: 0, maxSteps: 50}, new(int))
+	act, looped := a.reviewSubstitutions(ctx, turnCtx{s: s, guard: newRunGuard(), depth: 0, maxSteps: 50}, new(int), new(string))
 	if !looped || act != loopContinue {
 		t.Fatalf("an exit-0-but-Expect-mismatch original must loop the agent (real assertion failure), got act=%v looped=%v", act, looped)
 	}
@@ -270,7 +271,7 @@ func TestReviewSubstitutionsMixedKeepsJustified(t *testing.T) {
 	a.addPendingSub(sid, port.CheckSub{Step: "2", Original: "test -s out", Command: "true"})
 
 	s := a.sessionInfo(ctx, sid)
-	act, looped := a.reviewSubstitutions(ctx, turnCtx{s: s, guard: newRunGuard(), depth: 0, maxSteps: 50}, new(int))
+	act, looped := a.reviewSubstitutions(ctx, turnCtx{s: s, guard: newRunGuard(), depth: 0, maxSteps: 50}, new(int), new(string))
 	if !looped || act != loopContinue {
 		t.Fatalf("the ran-and-failed sub must loop the agent, got act=%v looped=%v", act, looped)
 	}
@@ -319,11 +320,56 @@ func TestReviewSubstitutionsBudgetExhaustionProceeds(t *testing.T) {
 	s := a.sessionInfo(ctx, sid)
 	tc := turnCtx{s: s, guard: newRunGuard(), depth: 0, maxSteps: 50}
 	rounds := 3 // budget already spent
-	act, looped := a.reviewSubstitutions(ctx, tc, &rounds)
+	act, looped := a.reviewSubstitutions(ctx, tc, &rounds, new(string))
 	if looped || act != 0 {
 		t.Fatalf("a spent budget must proceed (no further loop), got act=%v looped=%v", act, looped)
 	}
 	if len(a.pendingSubsOf(sid)) != 0 {
 		t.Error("a budget-exhausted review must drop the unapproved pending substitutions")
+	}
+}
+
+// A rejection is remembered: the critique is stored, and the NEXT review round is convened with it
+// so a member judges whether its own objection was met. Previously the agent got the critique and
+// the council did not, leaving each round free to raise a different objection.
+func TestReviewSubstitutionsCarriesPriorCritique(t *testing.T) {
+	t.Setenv("MAGI_SUBST_REVIEW", "1")
+	ctx := context.Background()
+	fc := &fakeCouncil{delibs: []council.Deliberation{
+		{Decision: council.Continue, Verdicts: []council.Verdict{
+			{Decision: council.Continue, Severity: council.SeverityCritical, Feedback: "reaching the port is not serving a request"},
+		}},
+		{Decision: council.Done, Verdicts: []council.Verdict{{Decision: council.Done}}},
+	}}
+	// The original must stay unrunnable across BOTH rounds, or the second review would find the
+	// substitution unjustified and never convene.
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{codes: []int{127, 127, 127, 127}}, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
+	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Command: "ss -tlnp"}})
+	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "ss -tlnp", Command: "python3 probe", Reason: "ss absent"})
+
+	s := a.sessionInfo(ctx, sid)
+	tc := turnCtx{s: s, guard: newRunGuard(), depth: 0, maxSteps: 50}
+	rounds, critique := 0, ""
+
+	if _, looped := a.reviewSubstitutions(ctx, tc, &rounds, &critique); !looped {
+		t.Fatal("a critical objection must loop the agent for a correction")
+	}
+	if !strings.Contains(critique, "not serving a request") {
+		t.Fatalf("the rejection must be stored for the next round, got %q", critique)
+	}
+	if fc.reqs[0].Revision != "" {
+		t.Errorf("the first round has no prior objection to carry, got %q", fc.reqs[0].Revision)
+	}
+
+	// Round two: same pending sub re-declared; the council must now SEE its own prior objection.
+	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "ss -tlnp", Command: "python3 roundtrip", Reason: "ss absent"})
+	if _, looped := a.reviewSubstitutions(ctx, tc, &rounds, &critique); looped {
+		t.Fatal("an approved correction must not loop again")
+	}
+	if len(fc.reqs) < 2 {
+		t.Fatalf("want a second deliberation, got %d", len(fc.reqs))
+	}
+	if !strings.Contains(fc.reqs[1].Revision, "not serving a request") {
+		t.Errorf("the re-round must carry the prior objection:\n%s", fc.reqs[1].Revision)
 	}
 }

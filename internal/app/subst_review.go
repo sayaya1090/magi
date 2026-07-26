@@ -93,7 +93,7 @@ func (a *App) filterSubsByNecessity(ctx context.Context, s session.Session, subs
 	return justified, ranFailed
 }
 
-func (a *App) reviewSubstitutions(ctx context.Context, tc turnCtx, rounds *int) (loopAction, bool) {
+func (a *App) reviewSubstitutions(ctx context.Context, tc turnCtx, rounds *int, critique *string) (loopAction, bool) {
 	if !substReviewEnabled() || a.cfg.Council == nil {
 		return 0, false
 	}
@@ -150,7 +150,8 @@ func (a *App) reviewSubstitutions(ctx context.Context, tc turnCtx, rounds *int) 
 
 	delib, err := a.cfg.Council.Deliberate(ctx, port.DeliberationRequest{
 		Round: round, Phase: "substitution", Task: task, Plan: subsText, Report: subsText,
-		Members: members, Rule: rule, Debate: councilDebateEnabled(), DefaultModel: s.Model.Model,
+		Revision: substRevisionContext(*critique),
+		Members:  members, Rule: rule, Debate: councilDebateEnabled(), DefaultModel: s.Model.Model,
 	})
 	if err != nil { // a gate failure must never block the agent → approve and proceed
 		a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{Round: round, Phase: "substitution", Decision: string(council.Done), Note: "substitution council unavailable: " + err.Error(), Forced: true})
@@ -169,6 +170,7 @@ func (a *App) reviewSubstitutions(ctx context.Context, tc turnCtx, rounds *int) 
 	}
 	fb := strings.TrimSpace(council.CriticalFeedback(delib.Verdicts))
 	*rounds = round
+	*critique = fb // the next round must judge whether THIS objection was met
 	a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{Round: round, Phase: "substitution", Decision: string(council.Continue), Tally: delib.Breakdown, Feedback: fb})
 	msg := "The council reviewed your acceptance-check substitution(s) and asks you to correct them before finishing:\n" + fb +
 		"\n\nRun a better equivalent that verifies the SAME goal as the original check, then declare it again with " +
@@ -226,4 +228,15 @@ func renderSubs(subs []port.CheckSub) string {
 		}
 	}
 	return b.String()
+}
+
+// substRevisionContext hands the next substitution round the objection the PREVIOUS round raised,
+// so a member judges whether its own concern was met instead of reviewing a re-declared
+// substitution cold. Empty on the first round, which has nothing to remember.
+func substRevisionContext(prior string) string {
+	prior = strings.TrimSpace(prior)
+	if prior == "" {
+		return ""
+	}
+	return "The previous round REJECTED the substitution with this objection:\n" + clipSpec(prior, 1200)
 }

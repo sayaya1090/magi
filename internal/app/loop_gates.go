@@ -367,7 +367,7 @@ func (a *App) runTerminationGate(ctx context.Context, tc turnCtx, step int, turn
 	// (substitute_check) are vetted HERE at the finish boundary — same strict review a delegated worker
 	// gets at its report. A rejected substitution loops the agent to correct; an approved one rewrites
 	// this session's stored checks (below) so the step gate then verifies the working command.
-	if act, looped := a.reviewSubstitutions(ctx, tc, &ts.substRounds); looped {
+	if act, looped := a.reviewSubstitutions(ctx, tc, &ts.substRounds, &ts.substCritique); looped {
 		return act, true
 	}
 	stepGate, checkLedger := a.runStepGate(ctx, s, ts)

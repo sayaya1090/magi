@@ -82,19 +82,24 @@ const (
 // round accounting. reground zeroes the turn-scoped fields; council.spent survives
 // (it is the turn's cumulative deliberation clock — see reground).
 type turnState struct {
-	stopChecked      bool        // stop hooks enforced at most once per turn
-	nudgedEmpty      bool        // empty-subagent "call report" nudge fired at most once
-	execNudged       bool        // authored-but-never-executed nudge fired at most once (exec-evidence)
-	prevFinishText   string      // the answer the council rejected last round
-	prevFinishCalls  int         // guard.callCount() at that rejection (-1 = none yet)
-	unverifiedReason string      // non-empty when the turn finishes WITHOUT council approval
-	recovered        bool        // stuck-recovery redecompose fired at most once (shared with the stall path)
-	stepNudged       bool        // deliverable-check failure nudge injected at most once (MAGI_STEP_VERIFY)
-	lastCheckEpoch   int         // mutation epoch at the last incremental step-check pass (skip read-only turns)
-	lastCheckExec    int         // guard.execActivity() at that pass — also fire on a runtime action (server up, pkg installed)
-	lastChecksVer    int         // checksVersion() at that pass — also fire when a re-plan derives new checks mid-run
-	substRounds      int         // substitution-review correction rounds spent this turn (solo path)
-	council          councilTurn // consensus gate rounds/feedback/spent/deadlock (D14)
+	stopChecked      bool   // stop hooks enforced at most once per turn
+	nudgedEmpty      bool   // empty-subagent "call report" nudge fired at most once
+	execNudged       bool   // authored-but-never-executed nudge fired at most once (exec-evidence)
+	prevFinishText   string // the answer the council rejected last round
+	prevFinishCalls  int    // guard.callCount() at that rejection (-1 = none yet)
+	unverifiedReason string // non-empty when the turn finishes WITHOUT council approval
+	recovered        bool   // stuck-recovery redecompose fired at most once (shared with the stall path)
+	stepNudged       bool   // deliverable-check failure nudge injected at most once (MAGI_STEP_VERIFY)
+	lastCheckEpoch   int    // mutation epoch at the last incremental step-check pass (skip read-only turns)
+	lastCheckExec    int    // guard.execActivity() at that pass — also fire on a runtime action (server up, pkg installed)
+	lastChecksVer    int    // checksVersion() at that pass — also fire when a re-plan derives new checks mid-run
+	substRounds      int    // substitution-review correction rounds spent this turn (solo path)
+	// substCritique carries the LAST substitution-review rejection into the next review round. The
+	// agent is handed the critique to act on, but the council was re-convened knowing nothing about
+	// it — so a member could not check whether its own objection had been met and was free to raise
+	// a different one each round. Same amnesia the contract and plan re-rounds had.
+	substCritique string
+	council       councilTurn // consensus gate rounds/feedback/spent/deadlock (D14)
 }
 
 // turnCtx bundles the values that are fixed for the whole turn — the session, the
@@ -765,7 +770,7 @@ func (a *App) handleReport(ctx context.Context, tc turnCtx, lastText string, u e
 	// substitutions are stashed for the parent to apply to its stored checks. Runs before the finish
 	// path so a rejected substitution loops the worker instead of landing.
 	if rep.status == "done" {
-		if act, looped := a.reviewSubstitutions(ctx, tc, &ts.substRounds); looped {
+		if act, looped := a.reviewSubstitutions(ctx, tc, &ts.substRounds, &ts.substCritique); looped {
 			// Re-file the report intent so the corrected re-report is not lost, then loop.
 			return act, "", true
 		}
