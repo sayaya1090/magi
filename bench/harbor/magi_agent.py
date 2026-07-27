@@ -201,6 +201,27 @@ class MagiAgent(BaseInstalledAgent):
             if val:
                 env[key] = val
 
+        # Write magi's session store where harbor collects artifacts, so the child
+        # sessions survive the trial.
+        #
+        # magi-stdout.txt is the parent's view only: a delegated step runs in its own
+        # session, so the brief the worker was handed, the prompts a re-spawned explorer
+        # got, and every note body (stdout clips those to one line) exist ONLY in
+        # <data>/projects/<workdir>/s_*.jsonl inside the container — and harbor deletes
+        # the container the moment the trial ends. That made the single most useful
+        # post-hoc question, "what did the subagent actually receive", answerable for
+        # the RUNNING task and for no other, ever.
+        #
+        # The task's environment already declares /logs/artifacts as its collected
+        # directory (trial.log: "Collecting main service artifacts"), so pointing the
+        # data dir inside it needs no new plumbing and no timing: collection happens
+        # after the agent phase, including the phase that ended in the timeout kill.
+        # This changes where magi writes, never what it does — the store is the same
+        # store. NOTE it also relocates <data>/plugin-data/<name>.json, where a plugin
+        # would cache a token; bench containers install no plugins, but do not enable
+        # this for an environment that does.
+        env.setdefault("MAGI_DATA_DIR", "/logs/artifacts/magi")
+
         # gemma is a "thinking" model: it reasons with no internal cap, and magi
         # sends neither a reasoning_effort nor a max_tokens bound. On a large agentic
         # step a single generation can spend tens of thousands of reasoning tokens
