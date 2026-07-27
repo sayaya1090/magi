@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -70,6 +71,19 @@ func TestRunTypedCheckVerdicts(t *testing.T) {
 	write("empty.log", "   \n")
 
 	app := newShellApp(t, &shellPlatform{})
+	// The verbs are exercised against a file the RUN produced, because that is the only shape the
+	// check contract asks for ("produce that file as the REAL output of the work"). `absent` reads
+	// its subject's history as well as its contents — a pattern missing from a file nothing touched
+	// is a fact about the file, not about the step — so the record has to say the run wrote it or
+	// this table would be testing a case the contract forbids.
+	sid, cerr := app.CreateSession(context.Background(), command.CreateSession{Workdir: dir})
+	if cerr != nil {
+		t.Fatal(cerr)
+	}
+	if _, err := app.store.Append(context.Background(), sid,
+		toolCallEvent("bash", `{"command":"make world > `+filepath.ToSlash(log)+` 2>&1"}`)); err != nil {
+		t.Fatal(err)
+	}
 	cases := []struct {
 		name   string
 		check  council.DeliverableCheck
@@ -98,7 +112,7 @@ func TestRunTypedCheckVerdicts(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			out, code := app.runTypedCheck(context.Background(), session.SessionID("s1"), dir, tc.check)
+			out, code := app.runTypedCheck(context.Background(), sid, dir, tc.check)
 			if code != tc.want {
 				t.Fatalf("code = %d, want %d (out: %s)", code, tc.want, out)
 			}

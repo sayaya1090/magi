@@ -216,6 +216,17 @@ func (a *App) runTypedCheck(ctx context.Context, sid session.SessionID, workdir 
 			if hit {
 				return fmt.Sprintf("%s contains %q, which must be absent", src, clipLine(as.arg, 80)), 1
 			}
+			// `absent` is satisfied by a file being left alone, so a pass on a file NOTHING in this
+			// run touched is about the file's history and not about the step — it would have read the
+			// same before the run started. No verdict rather than a pass; ungated, not failed.
+			if untouchedGateEnabled() && !a.pathTouched(ctx, sid, src) {
+				a.emitToolProgress(sid, plannerActor, "", "check-untouched", fmt.Sprintf(
+					"check-untouched: %s does not contain %q, but nothing in this run wrote to that file — "+
+						"`absent` is satisfied by leaving a file alone, so this says nothing about the work. "+
+						"No verdict for this check.", src, clipLine(as.arg, 60)))
+				return fmt.Sprintf("%s does not contain %q, but nothing in this run touched it — "+
+					"`absent` proves nothing here", src, clipLine(as.arg, 80)), 126
+			}
 			// A worker that composed the file makes `absent` pass by writing something else — the
 			// pattern is missing because nothing real was ever recorded here.
 			return a.withProvenance(ctx, sid, src, as,
