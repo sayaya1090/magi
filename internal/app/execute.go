@@ -29,12 +29,12 @@ func rawTruthy(raw json.RawMessage) bool {
 
 // exerciseConverged reports whether a bash call that came back exit 0 is real evidence that the
 // build/test it ran converged — i.e. whether that exit code is the command's OWN. It is false when
-// the command text proves the exit belongs to something else (a `|| true` mask, or, on a call the
-// model declared a verification, a `| tail` pipe or a `;`-sequenced `echo`/`tail` tail). Only a
-// true here clears the command's check-churn count; a masked exit leaves the count alone rather
-// than climbing it, because the command text proves the exit says nothing — not that it failed.
-func exerciseConverged(command string, verify json.RawMessage) bool {
-	return !builtin.ExitCodeMasked(command, rawTruthy(verify))
+// the command text proves the exit belongs to something else (a `|| true` mask, a `| tail` pipe, a
+// `;`-sequenced `echo`/`tail` tail). Only a true here clears the command's check-churn count; a
+// masked exit leaves the count alone rather than climbing it, because the command text proves the
+// exit says nothing — not that it failed.
+func exerciseConverged(command string) bool {
+	return !builtin.ExitCodeMasked(command)
 }
 
 // gateAllowlist blocks a tool the agent isn't permitted to call. Returns true to stop.
@@ -420,8 +420,8 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		// unverifiedDeliverable signal that replaced the fabrication phrase scan.
 		if !res.IsError && tc.Name == "bash" {
 			var ba struct {
-				Command string          `json:"command"`
-				Verify  json.RawMessage `json:"verify"`
+				Command    string          `json:"command"`
+				Background json.RawMessage `json:"background"`
 			}
 			if json.Unmarshal(tc.Args, &ba) == nil {
 				_, bashReset := guard.noteBashWrite(ba.Command) // authored a file → epoch bump
@@ -451,12 +451,39 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 				// This exit 0 clears the command's check-churn count only if it is really the
 				// command's own: an exit that structurally belongs to a trailing `echo`/`tail`/
 				// `|| true` is not evidence the build converged, and reading it as a pass is how
-				// a build failing 12 times in a row kept resetting the counter that exists to
-				// catch exactly that (fix-ocaml-gc: every `make world > log 2>&1; echo "exit=$?"
-				// >> log` landed here as a PASS). Leave the count untouched rather than climbing
-				// it — the command text proves the exit says nothing, not that the build failed.
-				if exerciseConverged(ba.Command, ba.Verify) {
+				// a build failing over and over kept resetting the counter that exists to catch
+				// exactly that. Leave the count untouched rather than climbing it — the command
+				// text proves the exit says nothing, not that the build failed.
+				//
+				// A BACKGROUND start records nothing at all. Its success means one thing only:
+				// a process now exists. The command has not run, so there is no outcome yet to
+				// read as a pass — booking one here credits a build with converging before it
+				// has compiled a single file. The real exit arrives later, through bash_output.
+				if !rawTruthy(ba.Background) && exerciseConverged(ba.Command) {
 					guard.noteExerciseResult(ba.Command, false)
+				}
+			}
+		}
+		// …and here is where that later exit is read. A background job's outcome reaches the
+		// agent through bash_output as `[bg_N exited K]`, and nothing was recording it, so a
+		// build that ran in the background was invisible to the churn counter in BOTH
+		// directions: never a pass, never a failure, however many times it was re-run. The
+		// claim is one-shot per job, so polling a finished job repeatedly cannot inflate the
+		// count, and a killed job reports nothing (the agent stopped it — its exit judges
+		// nothing). A non-zero exit is that command failing against the current deliverable;
+		// an exit 0 clears it only when the command text does not prove the code belongs to
+		// something else, exactly as on the foreground path.
+		if !res.IsError && tc.Name == "bash_output" {
+			var oa struct {
+				ID string `json:"id"`
+			}
+			if json.Unmarshal(tc.Args, &oa) == nil && oa.ID != "" {
+				if cmd, exit, ok := builtin.ClaimBackgroundOutcome(oa.ID); ok {
+					if exit != 0 {
+						guard.noteExerciseResult(cmd, true)
+					} else if exerciseConverged(cmd) {
+						guard.noteExerciseResult(cmd, false)
+					}
 				}
 			}
 		}

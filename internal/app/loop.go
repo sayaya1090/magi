@@ -265,10 +265,15 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			if steer := waitSteer(agent); steer != "" {
 				waiting = "If you are waiting on a long external operation, " + steer + "; otherwise, act."
 			}
+			// State the window as it actually was. What the counter measures is "no deliverable
+			// changed since"; whether a command ran in that window is a separate fact, and
+			// asserting it unmeasured got it wrong — a run that had started two builds was told
+			// no command had been run. Where commands DID run, the point stands and sharpens:
+			// they did not change anything.
 			nd, _ := json.Marshal(event.PromptSubmittedData{
 				MessageID: "m_" + newID(),
-				Parts: []session.Part{{Kind: session.PartText, Text: "You have taken many steps of analysis " +
-					"without producing or changing any deliverable (no file written, no command run to build/verify). " +
+				Parts: []session.Part{{Kind: session.PartText, Text: "You have taken many steps " +
+					"without producing or changing any deliverable" + idleWindowFacts(guard) + ". " +
 					"Reasoning alone does not finish the task. STOP analyzing and take the concrete next action NOW: " +
 					"write the file, run the build/test, or execute the program — then verify its output. " + waiting}},
 			})
