@@ -565,7 +565,7 @@ func TestNoteEditRegressedFlagAndIdempotent(t *testing.T) {
 func TestBashWriteCountsAsProgress(t *testing.T) {
 	g := newRunGuard()
 	g.sinceProgress = noProgressNudge - 1
-	if !g.noteBashWrite("echo hi > out.txt") {
+	if authored, _ := g.noteBashWrite("echo hi > out.txt"); !authored {
 		t.Fatal("a redirect write should be recorded")
 	}
 	if g.sinceProgress != 0 {
@@ -578,7 +578,7 @@ func TestBashWriteCountsAsProgress(t *testing.T) {
 		t.Fatalf("an identical rewrite must not count as progress, got sinceProgress=%d", g.sinceProgress)
 	}
 	// A read-only command is neither recorded nor progress.
-	if g.noteBashWrite("grep foo src/") {
+	if authored, _ := g.noteBashWrite("grep foo src/"); authored {
 		t.Fatal("read-only commands must not be recorded as writes")
 	}
 }

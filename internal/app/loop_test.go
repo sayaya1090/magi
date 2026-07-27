@@ -232,7 +232,7 @@ func TestUnverifiedDeliverable(t *testing.T) {
 		g.mutated("sol.py", "v1")
 		// `pytest 2>&1` is a run that redirects stderr — NOT a deliverable write, so it must
 		// count as execution and clear the flag, not re-mark the deliverable as unverified.
-		if g.noteBashWrite("pytest 2>&1") {
+		if authored, _ := g.noteBashWrite("pytest 2>&1"); authored {
 			t.Fatal("2>&1 is fd-duplication, not a file write")
 		}
 		g.noteBashExec("pytest 2>&1", true)
@@ -252,7 +252,7 @@ func TestUnverifiedDeliverable(t *testing.T) {
 	t.Run("a bash write is production, not verification", func(t *testing.T) {
 		g := newRunGuard()
 		g.mutated("sol.py", "v1")
-		if !g.noteBashWrite("echo data > out.txt") { // authors a file → epoch bump
+		if authored, _ := g.noteBashWrite("echo data > out.txt"); !authored { // authors a file → epoch bump
 			t.Fatal("echo … > out.txt authors a file")
 		}
 		g.noteBashExec("echo data > out.txt", true) // echo is inspect-only → must NOT count as execution

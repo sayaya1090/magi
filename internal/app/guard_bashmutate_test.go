@@ -106,7 +106,7 @@ func TestBashFixCycleNotBlocked(t *testing.T) {
 	// A detected mutation still resets the window (stall accuracy), fingerprints re-key.
 	g4 := newRunGuard()
 	g4.check("bash", build)
-	if !g4.noteBashWrite("sed -i 's/a/b/' main.go") {
+	if authored, _ := g4.noteBashWrite("sed -i 's/a/b/' main.go"); !authored {
 		t.Fatal("sed -i must register as a file mutation")
 	}
 	if g4.sinceProgress != 0 {
@@ -130,10 +130,10 @@ func TestExecExemptOff(t *testing.T) {
 	if block, _, _ := g.check("bash", build); !block {
 		t.Error("with the exemption off, an identical exec repeat must hard-block")
 	}
-	if g.noteBashWrite("sed -i 's/a/b/' f.go") {
+	if authored, _ := g.noteBashWrite("sed -i 's/a/b/' f.go"); authored {
 		t.Error("with the exemption off, a redirect-less mutation must not bump the epoch")
 	}
-	if !g.noteBashWrite("echo hi > f.txt") {
+	if authored, _ := g.noteBashWrite("echo hi > f.txt"); !authored {
 		t.Error("redirect writes must still bump the epoch (pre-exemption baseline)")
 	}
 }

@@ -280,6 +280,21 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 			changeBefore = readForChange(workdir, changePath)
 		}
 	}
+	// The same snapshot for a bash mutation, whose destination has to be read out of the command
+	// text (bashWritePaths) because bash carries no path argument. It gives the bash path the
+	// content-level self-revert check that write/edit already have — see the retraction below.
+	type bashChange struct{ path, before string }
+	var bashChanges []bashChange
+	if guard != nil && tc.Name == "bash" {
+		var ba struct {
+			Command string `json:"command"`
+		}
+		if json.Unmarshal(tc.Args, &ba) == nil {
+			for _, p := range bashWritePaths(ba.Command) {
+				bashChanges = append(bashChanges, bashChange{p, readForChange(workdir, p)})
+			}
+		}
+	}
 	// Mark a tool as in flight so the stall watchdog does not kill a child that is
 	// legitimately blocked in a long, silent tool (e.g. a multi-minute bash). Held
 	// through the rest of executeTool (result append / council eval), which is short.
@@ -409,8 +424,30 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 				Verify  json.RawMessage `json:"verify"`
 			}
 			if json.Unmarshal(tc.Args, &ba) == nil {
-				guard.noteBashWrite(ba.Command)            // authored a file → epoch bump
-				guard.noteBashExec(ba.Command, guardNovel) // ran a program → execution evidence (independent of any redirect)
+				_, bashReset := guard.noteBashWrite(ba.Command) // authored a file → epoch bump
+				guard.noteBashExec(ba.Command, guardNovel)      // ran a program → execution evidence (independent of any redirect)
+				// The write/edit path's self-revert check, now on the bash path too: a mutation whose
+				// net effect returns a file to a state it already held this turn is churn, not a new
+				// deliverable version. mutated() cannot see it — every bash mutation shares one slot
+				// and is compared by COMMAND TEXT, so `sed -i …` and the `cp f.bak f` that undoes it
+				// always look like two different changes. Observed cost of the gap: each swing zeroed
+				// stepsSinceMut and sinceProgress and re-armed the act-now nudge, so after the nudge
+				// fired once neither it nor the "idle" force-stop could reach its threshold again and
+				// the run oscillated until the wall clock. Retract once per call — one bump was made.
+				if bashReset {
+					regressed := false
+					for _, bc := range bashChanges {
+						rel := relForChange(workdir, bc.path)
+						warn, reverted := guard.noteEdit(rel, bc.before, readForChange(workdir, bc.path))
+						if warn != "" {
+							res.Content = appendToContent(res.Content, "\n\n[self-edit check] "+warn)
+						}
+						regressed = regressed || reverted
+					}
+					if regressed {
+						guard.retractProgress()
+					}
+				}
 				// This exit 0 clears the command's check-churn count only if it is really the
 				// command's own: an exit that structurally belongs to a trailing `echo`/`tail`/
 				// `|| true` is not evidence the build converged, and reading it as a pass is how
