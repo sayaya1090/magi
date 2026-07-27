@@ -321,7 +321,7 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth, 
 		a.runContractGate(ctx, s, prompt)
 	}
 
-	plan := a.runPlanner(ctx, spec, s, prompt, "", depth, maxSteps, strings.TrimSpace(taskOverride))
+	plan := a.runPlanner(ctx, spec, s, prompt, "", replanContext{}, depth, maxSteps, strings.TrimSpace(taskOverride))
 	a.storeStepEstimate(s.ID, plan.EstimatedSteps) // advisory pacing reference, solo or not
 	steps := guardExpansion(sanitizeSteps(plan), depth, a.cfg.MaxPlanDepth)
 	if len(steps) == 0 {
@@ -492,15 +492,29 @@ func (a *App) injectAsyncExplorerNote(ctx context.Context, sid session.SessionID
 	_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "planner"}, text)
 }
 
+// replanContext is what a RE-plan needs beyond the fresh critique: the plan the planner itself
+// produced last round, and the convergence judge's ruling on the rewrite before this one. Neither
+// is recoverable from the conversation — a plan lives inside a council event, and reconstruct
+// turns only prompts and appended parts into messages, so a side call like runPlanner sees no
+// trace of its own prior output. Without them the instruction header ("your previous plan") names
+// something absent from the window and the re-planner rewrites from the critique alone: it cannot
+// tell a step it deliberately dropped from one it forgot, and it re-submits the same rewrite a
+// judge already ruled unresponsive. The zero value is a first plan — nothing to remember yet.
+type replanContext struct {
+	priorPlan string // rendered steps of the plan the critique is about
+	judge     string // why the LAST rewrite was ruled not to engage the concern ("" on the first revision)
+}
+
 // runPlanner does a single tool-free LLM call on the planner's own provider and
 // parses the procedure from the reply. revise is non-empty on a re-plan after a
-// council plan-audit asked for changes. Returns a zero planResult on any error.
+// council plan-audit asked for changes, and rc then carries what that re-plan is
+// revising (see replanContext). Returns a zero planResult on any error.
 // anchor, when non-empty, is the exact task the plan must decompose — appended as a final
 // instruction so it survives even when the conversation window (plannerWindow's byte budget)
 // drops the original prompt. Used on a re-plan after route_interjection: a long turn's explorer
 // results can push the original goal out of the window, leaving only the steer, so the adopted
 // turnTask (original goal + the steer's constraint) is re-anchored here explicitly.
-func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session, prompt, revise string, depth, maxSteps int, anchor string) planResult {
+func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session, prompt, revise string, rc replanContext, depth, maxSteps int, anchor string) planResult {
 	repoBlock := "# Repository (top level)\n" + repoMap(s.Workdir)
 	sys := spec.System + "\n\n" + repoBlock + "\n\n" + plannerContract + planEnvelope(depth, a.cfg.MaxPlanDepth, maxSteps)
 	// Diverge only on RE-plans: an audit revision (revise != "") or a stuck-recovery
@@ -541,18 +555,34 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 	msgs := plannerWindow(reconstruct(evs))
 	if strings.TrimSpace(revise) != "" {
 		// Re-plan: append the council's revise feedback as a final instruction.
-		instr := "# Council review of your previous plan (address this and re-plan):\n" + revise
+		var b strings.Builder
+		// The plan being revised comes FIRST, because the critique below is meaningless without it.
+		// It is not in the window (see replanContext), so a re-planner without it treats the review
+		// as a fresh request and rewrites from scratch: whatever the critique did not happen to
+		// mention gets silently dropped, including work an earlier round of the same audit gained.
+		if p := strings.TrimSpace(rc.priorPlan); p != "" {
+			b.WriteString("# Your previous plan — the one the review below is about (it is NOT in the conversation above)\n" +
+				clipSpec(p, 1500) + "\n\nRevise THIS plan. Everything the review does not object to stays as it is.\n\n")
+		}
+		b.WriteString("# Council review of your previous plan (address this and re-plan):\n" + revise)
+		// A rewrite the judge already ruled unresponsive is the one rewrite worth naming: without
+		// it the planner meets the same critique with the same non-answer, and the audit spends its
+		// remaining rounds re-deciding a question it has already decided.
+		if j := strings.TrimSpace(rc.judge); j != "" {
+			b.WriteString("\n\n# Your LAST rewrite was judged NOT to engage this same concern\n" + clipSpec(j, 600) +
+				"\nDo not repeat it. Change what the concern actually names — or, if you believe the concern is wrong, contest it.")
+		}
 		// CONTEST channel: if the concern is genuinely NOT required by the task (or already satisfied),
 		// the planner may reject it instead of complying — keep the plan and give a task-grounded
 		// rebuttal in `contest` for the council to re-judge, rather than churn on a phantom demand.
 		if planContestEnabled() {
-			instr += "\n\nIf you judge this concern is UNJUSTIFIED — the TASK as written does not require what it " +
+			b.WriteString("\n\nIf you judge this concern is UNJUSTIFIED — the TASK as written does not require what it " +
 				"demands, or your plan already satisfies it — do NOT distort the plan to comply. Instead KEEP your plan " +
 				"and set the top-level \"contest\" field to a one-sentence rebuttal that cites the TASK's own words (e.g. " +
 				"\"the task never asks for X; step N already produces Y\"). The council re-judges it: a real concern is " +
-				"upheld, an over-demand is dropped. Only contest when you can ground it in the task — otherwise revise."
+				"upheld, an over-demand is dropped. Only contest when you can ground it in the task — otherwise revise.")
 		}
-		msgs = append(msgs, session.Message{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: instr}}})
+		msgs = append(msgs, session.Message{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: b.String()}}})
 	}
 	if len(msgs) == 0 { // defensive: never call with an empty conversation
 		msgs = []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: prompt}}}}

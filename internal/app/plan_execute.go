@@ -840,7 +840,7 @@ func (a *App) driveStuckTodos(ctx context.Context, s session.Session, agent Agen
 	if !ok {
 		return false, false // no planner configured → cannot decompose
 	}
-	plan := a.runPlanner(ctx, spec, s, task, "", depth, a.cfg.MaxSteps, task)
+	plan := a.runPlanner(ctx, spec, s, task, "", replanContext{}, depth, a.cfg.MaxSteps, task)
 	steps := guardExpansion(sanitizeSteps(plan), depth, a.cfg.MaxPlanDepth)
 	if len(steps) < 2 {
 		return false, false // nothing gained from decomposing into a single unit

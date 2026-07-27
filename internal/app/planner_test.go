@@ -155,7 +155,7 @@ func TestRunPlannerJSONOnlyRetry(t *testing.T) {
 		return "Let me reason at length about the approach… (no JSON object here)"
 	}}
 	a := newOrchApp(t, llm, cfg)
-	res := a.runPlanner(context.Background(), spec, parentSession(t.TempDir()), "build a thing", "", 0, 30, "")
+	res := a.runPlanner(context.Background(), spec, parentSession(t.TempDir()), "build a thing", "", replanContext{}, 0, 30, "")
 	if len(res.Steps) != 1 || res.Steps[0].Title != "do it" {
 		t.Fatalf("JSON-only retry should recover a plan, got %+v", res.Steps)
 	}
@@ -163,7 +163,7 @@ func TestRunPlannerJSONOnlyRetry(t *testing.T) {
 	// A parseable first reply must NOT trigger a retry (one planner call only).
 	llm2 := &recLLM{reply: func(string) string { return `{"steps":[{"title":"x","strategy":"solo"}]}` }}
 	a2 := newOrchApp(t, llm2, cfg)
-	a2.runPlanner(context.Background(), spec, parentSession(t.TempDir()), "p", "", 0, 30, "")
+	a2.runPlanner(context.Background(), spec, parentSession(t.TempDir()), "p", "", replanContext{}, 0, 30, "")
 	if n := len(llm2.prompts); n != 1 {
 		t.Errorf("a parseable first reply must not trigger a retry, got %d planner call(s)", n)
 	}
