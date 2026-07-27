@@ -165,18 +165,25 @@ func (a *App) forceDelegateSteps(steps []planStep) []planStep {
 }
 
 // executeSteps runs each step by its strategy, accumulating explorer findings.
-// A per-turn explorer budget caps total dispatch; a step that can't dispatch
-// (solo, or a scout/parallel that yields nothing) degrades to "the main agent
-// handles it" without aborting the procedure. Solo→delegate routing is already
-// applied up front (forceDelegateSteps), so a "solo" step here means force-delegate
-// is off or no worker exists — the main agent handles it inline.
+// Two per-turn budgets cap dispatch — one for read-only exploration, one for write
+// steps (see maxPlanWriteSteps) — so a wide fan-out cannot starve the plan's own
+// execution. A step that can't dispatch (solo, or a scout/parallel that yields
+// nothing) degrades to "the main agent handles it" without aborting the procedure.
+// Solo→delegate routing is already applied up front (forceDelegateSteps), so a
+// "solo" step here means force-delegate is off or no worker exists — the main agent
+// handles it inline.
 func (a *App) executeSteps(ctx context.Context, s session.Session, goal string, steps []planStep, depth int) (findings string, delegated bool) {
-	budget := maxPlanExplorers
+	explore := maxPlanExplorers
+	write := maxPlanWriteSteps
+	wb := &write
+	if !splitBudgetEnabled() {
+		wb = &explore // A/B baseline: one shared pool, where read-only fan-out can consume the write steps' capacity
+	}
 	stepCtx := !stepContextDisabled() // A/B: off → delegate/fan-out run context-free (pre-brief baseline)
 	var rshare refineShare            // shared-session state carried across this plan's refine phases
 	var out []string
 	for i, st := range steps {
-		if budget <= 0 || ctx.Err() != nil {
+		if ctx.Err() != nil {
 			break
 		}
 		// Write-capable steps (delegate, refine) are dispatched by the same caller glue — both
@@ -186,11 +193,18 @@ func (a *App) executeSteps(ctx context.Context, s session.Session, goal string, 
 		// sub-task context-free; refine works an in-context sub-goal with the parent CLONED in.
 		// The strategy selects the runner; the record-finding/OR-delegated glue is shared.
 		if run := a.writeStepRunner(st.Strategy); run != nil {
+			// Out of write budget: the rest of the plan is about to be executed by NOBODY. Say so
+			// in the findings instead of breaking silently — the main agent inherits this work and
+			// until it is told, the plan's tail simply disappears from the record.
+			if *wb <= 0 {
+				out = append(out, undispatchedFinding(steps[i:]))
+				break
+			}
 			brief := ""
 			if st.Strategy == "delegate" && stepCtx {
 				brief = delegateBrief(goal, steps, i, out) // refine ignores this (it clones context)
 			}
-			if f, done := run(ctx, s, st, brief, i, depth, &budget, &rshare); f != "" {
+			if f, done := run(ctx, s, st, brief, i, depth, wb, &rshare); f != "" {
 				out = append(out, f)
 				delegated = delegated || done
 				// Record what this step produced on the SHARED ledger, so the next worker gets its exact
@@ -217,9 +231,9 @@ func (a *App) executeSteps(ctx context.Context, s session.Session, goal string, 
 		var groups []planGroup
 		switch st.Strategy {
 		case "parallel":
-			groups = capGroups(st.Groups, &budget)
+			groups = capGroups(st.Groups, &explore)
 		case "scout":
-			groups = a.scoutGroups(ctx, s, st, &budget, depth)
+			groups = a.scoutGroups(ctx, s, st, &explore, depth)
 		default: // solo → main agent does it; nothing to dispatch
 			continue
 		}
@@ -239,6 +253,22 @@ func (a *App) executeSteps(ctx context.Context, s session.Session, goal string, 
 		}
 	}
 	return strings.Join(out, "\n\n"), delegated
+}
+
+// undispatchedFinding names the plan steps the turn ran out of write budget for. Every other
+// way a step fails to dispatch leaves a trace — a degraded step keeps its todo pending, a failed
+// one records a FAILED finding — but budget exhaustion used to just break the loop: the findings
+// block stopped mid-plan, nothing said why, and the work belonged to no one. rest must be the
+// steps from the undispatched one onward.
+func undispatchedFinding(rest []planStep) string {
+	var b strings.Builder
+	for _, st := range rest {
+		b.WriteString("\n• " + st.Title)
+	}
+	return stepFinding("Steps not dispatched", "this turn's sub-agent dispatch budget ran out",
+		"NO sub-agent was asked to do these, and none is working on them now — nothing has been done "+
+			"for them:"+b.String()+"\n\nThey are YOURS. Carry them out yourself in this session, in order, "+
+			"and satisfy the acceptance checks labeled for those steps as you go.")
 }
 
 // stepFinding formats a step's recorded finding as a "### Title (status)" header followed by
@@ -292,8 +322,8 @@ func (a *App) writeStepRunner(strategy string) writeStepFn {
 }
 
 // runDelegateStep dispatches one delegate step: hand its self-contained sub-task to a
-// write-capable executor that re-plans at depth+1. It charges *budget per dispatch (like
-// an explorer) and returns the finding to record plus done=true when the write actually
+// write-capable executor that re-plans at depth+1. It charges the write budget per dispatch
+// and returns the finding to record plus done=true when the write actually
 // landed — the caller ORs that into its delegated flag. An empty finding means the step
 // degraded to solo (no valid executor); the caller records nothing and the main agent
 // handles that work. Sequential by construction (never fanned out), so the writes can't
@@ -303,7 +333,7 @@ func (a *App) runDelegateStep(ctx context.Context, s session.Session, st planSte
 	if !ok {
 		return "", false // no valid executor → degrade to solo (the main agent does it)
 	}
-	*budget-- // count against the per-turn dispatch budget like an explorer
+	*budget-- // count against the per-turn WRITE dispatch budget (maxPlanWriteSteps)
 	a.advanceTo(ctx, s.ID, plannerActor, i)
 	// Context curator (MAGI_CURATE): distill a focused, literal-preserving brief and a task-scoped
 	// tool allowlist for this worker. Best-effort — an empty brief leaves the mechanical brief and
@@ -612,7 +642,7 @@ func (a *App) runRefineStep(ctx context.Context, s session.Session, st planStep,
 	}
 	fail := ""
 	for attempt := 0; attempt < retries && *budget > 0; attempt++ {
-		*budget-- // count each attempt against the per-turn dispatch budget, like an explorer
+		*budget-- // count each attempt against the per-turn WRITE dispatch budget (maxPlanWriteSteps)
 		req := port.SpawnRequest{Agent: agentName, Prompt: refinePrompt(st, fail), CloneContext: true, PlanStepIndex: &i}
 		if shared && rs.sid != "" {
 			// Reuse the shared child instead of re-cloning the parent: this phase (or retry)
