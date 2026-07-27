@@ -121,6 +121,58 @@ func TestChecklistRidesWithTheAssignment(t *testing.T) {
 	}
 }
 
+// TestExplorerIsToldWhatToComeBackWith: the explorer prompt said what to look into and never what
+// to come back with — the only read-only hand-off with no output contract. Its text becomes the
+// step's output verbatim (runExplorers → stepFinding → produced), reaching later workers under
+// "Already produced by earlier steps — build on these", so a helpful guess arrives downstream as
+// established fact.
+func TestExplorerIsToldWhatToComeBackWith(t *testing.T) {
+	g := planGroup{Agent: "explore", Focus: "the retry path", Question: "how are retries bounded?"}
+	got := explorerPrompt("harden the HTTP client", g)
+
+	// Orientation, assignment, contract — in that order: the contract must not displace the
+	// question it constrains.
+	gi, qi, ci := strings.Index(got, "harden the HTTP client"), strings.Index(got, "how are retries bounded?"), strings.Index(got, "path — fact")
+	if gi < 0 || qi < 0 || ci < 0 {
+		t.Fatalf("explorer prompt lost goal/question/contract:\n%s", got)
+	}
+	if !(gi < qi && qi < ci) {
+		t.Errorf("goal → question → output contract is the order:\n%s", got)
+	}
+	// The three things the contract exists to force: anchored facts, absence reported as absence,
+	// and no design work (the planner contract forbids explorers reasoning, but only told the planner).
+	for _, want := range []string{"a file you really opened", "is NOT there, say so", "do not include a design"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the output contract must say %q:\n%s", want, got)
+		}
+	}
+	// Both fan-out paths (sync runExplorers, background dispatchExplorerSteps) share this builder,
+	// so an un-oriented call must still carry the contract.
+	if !strings.Contains(explorerPrompt("", g), "path — fact") {
+		t.Error("the contract must not depend on the goal being present")
+	}
+}
+
+// TestDelegationClauseSaysTheChildStartsBlank: a task-tool child is a fresh session that sees only
+// the model-written prompt — no curated brief, no ledger, no checklist, none of what the plan-driven
+// hand-offs assemble. The clause that teaches delegation covered pasting files and never said that.
+func TestDelegationClauseSaysTheChildStartsBlank(t *testing.T) {
+	a := &App{cfg: Config{Agents: map[string]AgentSpec{"coder": {Name: "coder", System: "writes code"}}}}
+	got := a.systemFor(AgentSpec{Tools: []string{"task"}}, t.TempDir(), false)
+	if !strings.Contains(got, "task tool") {
+		t.Fatalf("precondition: a task-capable agent must be told it can delegate:\n%s", got)
+	}
+	for _, want := range []string{"starts FRESH", "does not see this conversation", "how you will judge that it is done"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the delegation clause must say %q:\n%s", want, got)
+		}
+	}
+	// Unchanged: an agent without the task tool is never told to delegate at all.
+	if bare := a.systemFor(AgentSpec{Tools: []string{"read"}}, t.TempDir(), false); strings.Contains(bare, "starts FRESH") {
+		t.Errorf("a non-delegating agent must not get the delegation clause:\n%s", bare)
+	}
+}
+
 // TestStepBudgetMatchesWhatTheAgentCanDo: the budget block's stop condition and landing move
 // are the two places it tells an agent what "done" looks like, and both were written for an
 // agent that writes code — "the primary deliverable is done and verified", "land the smallest
