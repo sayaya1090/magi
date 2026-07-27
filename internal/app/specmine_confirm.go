@@ -200,13 +200,13 @@ func suggestedFor(reply, name string) string {
 // missed names, the spawn was refused or budget-exhausted, the child never searched. A confirmation
 // that did not happen must read as "no new information", never as a verdict.
 func (a *App) confirmContradictions(ctx context.Context, s session.Session, depth int, spec AgentSpec,
-	claim string, ms []searchMiss) (string, map[string]bool) {
+	claim string, ms []searchMiss) (string, map[string]bool, []string) {
 	if !specMineConfirmEnabled() {
-		return "", nil
+		return "", nil, nil
 	}
 	doubted := contradictedNames(claim, ms)
 	if len(doubted) == 0 {
-		return "", nil
+		return "", nil, nil
 	}
 	names := make([]string, len(doubted))
 	for i, m := range doubted {
@@ -222,7 +222,7 @@ func (a *App) confirmContradictions(ctx context.Context, s session.Session, dept
 		a.emitToolProgress(s.ID, plannerActor, "", "specmine",
 			"spec-mine: the confirming search could not run ("+clipLine(r.Err, 120)+") — leaving the earlier "+
 				"absences as they stand")
-		return "", nil
+		return "", nil, nil
 	}
 	// The verdict comes from the child's OWN record, not its reply: a stopped or rambling child still
 	// leaves a truthful trail of what it searched and what came back. Its prose is read only for the
@@ -235,7 +235,7 @@ func (a *App) confirmContradictions(ctx context.Context, s session.Session, dept
 	reply := stripReportStatus(r.Text)
 
 	retracted := map[string]bool{}
-	var confirmed, kept []string
+	var confirmed, kept, absent []string
 	for _, m := range doubted {
 		switch {
 		case childHit[m.pattern]:
@@ -249,6 +249,7 @@ func (a *App) confirmContradictions(ctx context.Context, s session.Session, dept
 					"verified fact; open it and check before you depend on it."
 			}
 			confirmed = append(confirmed, line)
+			absent = append(absent, m.pattern)
 		default:
 			kept = append(kept, m.pattern) // never searched → the earlier miss stands, unwidened
 		}
@@ -279,7 +280,57 @@ func (a *App) confirmContradictions(ctx context.Context, s session.Session, dept
 		b.WriteString("# Correction — a name reported above as not found DOES exist: " + strings.Join(back, ", ") +
 			". The earlier search had looked under too narrow a path. Use it normally.")
 	}
-	return strings.TrimSpace(b.String()), retracted
+	return strings.TrimSpace(b.String()), retracted, absent
+}
+
+// correctMinedAbsences rewrites the stored mined contract so a line that uses a name a second search
+// CONFIRMED ABSENT says so where it is read, instead of only being contradicted by a block appended
+// below it.
+//
+// Observed in one worker's brief: the mined contract read
+//
+//	⟨semantic⟩ Run-length compression … → caml_fl_sweep / free_list maintenance
+//	USE: Fix the free-list traversal bug in caml_fl_sweep …
+//
+// and eleven lines further down, under its own header, "`caml_fl_sweep` — CONFIRMED ABSENT". Two
+// authority blocks in one window telling the worker opposite things, which is worse than either one
+// alone: it has to guess which is current, and the instruction to act ("USE: Fix …") is the one that
+// reads like a directive. Appending the settlement was never enough — it has to reach the line.
+func (a *App) correctMinedAbsences(sid session.SessionID, absent []string) {
+	if len(absent) == 0 {
+		return
+	}
+	mined := a.cachedSpecMine(sid)
+	if strings.TrimSpace(mined) == "" {
+		return
+	}
+	if out := annotateAbsent(mined, absent); out != mined {
+		a.storeSpecMine(sid, out)
+	}
+}
+
+// annotateAbsent marks every line that uses one of the absent names. The line is kept: it carries
+// the REQUEST's own intent, which is still what the work has to satisfy — only the name it reaches
+// for is wrong, and the settlement note below says what to use instead.
+func annotateAbsent(mined string, absent []string) string {
+	lines := strings.Split(mined, "\n")
+	for i, ln := range lines {
+		if strings.Contains(ln, "CONFIRMED ABSENT") || strings.Contains(ln, "does not exist") {
+			continue // the settlement's own lines
+		}
+		var hit []string
+		for _, n := range absent {
+			if n != "" && strings.Contains(ln, n) {
+				hit = append(hit, "`"+n+"`")
+			}
+		}
+		if len(hit) > 0 {
+			lines[i] = ln + "  ⟪" + strings.Join(hit, ", ") + " DOES NOT EXIST — a second read-only search of " +
+				"the whole workspace confirmed it. This line's INTENT stands; the name does not. Use the real " +
+				"one named in the settlement below, or make a step CREATE it.⟫"
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // dropRetracted removes the misses a confirming search disproved, so the absence note never carries
