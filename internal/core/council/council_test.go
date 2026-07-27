@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // v builds a verdict with a member name and decision; weight defaults to 1.
@@ -188,6 +189,36 @@ func TestAggregateKeep(t *testing.T) {
 	// No keep supplied → empty (the MAGI_COUNCIL_KEEP-off case: no member was asked).
 	if AggregateKeep([]Verdict{v("a", Continue), v("b", Done)}) != "" {
 		t.Fatalf("expected empty keep when none supplied")
+	}
+}
+
+// A keep points at work the writer is already holding, so a member that transcribes the artifact
+// instead of naming it spends the room the critique needs — and, by marking everything as settled,
+// says no more than naming nothing would. The cap is per member so one verbose lens cannot crowd
+// out the others, and it announces the cut rather than ending mid-sentence.
+func TestAggregateKeepCapsOneVerboseMember(t *testing.T) {
+	long := strings.Repeat("step one restated at length. ", 60)
+	got := AggregateKeep([]Verdict{
+		{Member: "Melchior", Lens: "correctness", Decision: Done, Keep: long},
+		{Member: "Balthasar", Lens: "verification", Decision: Done, Keep: "step 4 — the round-trip check"},
+	})
+	if len(got) > 2*keepPerMember {
+		t.Errorf("one member's keep was not capped: %d bytes", len(got))
+	}
+	if !strings.Contains(got, "keep truncated") {
+		t.Errorf("a truncated keep must say so, or a cut sentence reads as the whole thought:\n%s", got)
+	}
+	// The cap is per member: a neighbour's short, useful keep survives intact.
+	if !strings.Contains(got, "step 4 — the round-trip check") {
+		t.Errorf("a verbose member crowded out a concise one:\n%s", got)
+	}
+}
+
+// The cut lands on a rune boundary — a keep in a non-ASCII language must not arrive as mojibake.
+func TestAggregateKeepClipsOnRuneBoundary(t *testing.T) {
+	got := AggregateKeep([]Verdict{{Member: "M", Decision: Done, Keep: strings.Repeat("검증 단계", 200)}})
+	if !utf8.ValidString(got) {
+		t.Errorf("clipped keep is not valid UTF-8:\n%q", got)
 	}
 }
 

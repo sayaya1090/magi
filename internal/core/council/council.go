@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // Decision is a member's vote and, in the aggregate, the council's outcome.
@@ -485,12 +486,33 @@ func AggregateKeep(vs []Verdict) string {
 		if v.Lens != "" {
 			label += " (" + v.Lens + ")"
 		}
-		parts = append(parts, "- "+label+": "+k)
+		parts = append(parts, "- "+label+": "+clipKeep(k, keepPerMember))
 	}
 	if len(parts) == 0 {
 		return ""
 	}
 	return "Already correct — keep this, do NOT redo or revert it:\n" + strings.Join(parts, "\n")
+}
+
+// A keep is a POINTER at work that already exists, not a copy of it: the writer reading this block
+// is holding the artifact the keep refers to, so restating it buys nothing and costs the budget the
+// critique itself needs. An unbounded keep is also self-defeating — a member that transcribes the
+// whole plan makes every step look equally settled, which is the same as naming none. The cap is
+// per member so one verbose lens cannot silence the others, and generous enough that a normal
+// "step 3 and the build check" is never touched.
+const keepPerMember = 400
+
+// clipKeep truncates on a rune boundary and says it was truncated, so a writer never treats a cut
+// mid-sentence as the member's whole thought.
+func clipKeep(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return strings.TrimSpace(s[:cut]) + " […keep truncated]"
 }
 
 // severityOf normalizes a verdict's plan-audit severity. An ABSENT severity (empty —
