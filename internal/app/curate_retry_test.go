@@ -32,7 +32,7 @@ func TestCurateRetryReminderNamesTheActualDefect(t *testing.T) {
 	if strings.Contains(got, "closed by `]`") {
 		t.Errorf("a well-formed reply was told to fix its brackets:\n%s", got)
 	}
-	if !strings.Contains(got, "goal, progress, task") {
+	if !strings.Contains(got, "goal, progress, missing, task") {
 		t.Errorf("the schema branch must name the fields:\n%s", got)
 	}
 

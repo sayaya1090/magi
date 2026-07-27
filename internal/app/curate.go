@@ -36,6 +36,9 @@ const curateSystem = "You prepare a work packet for a worker sub-agent that carr
 	"worker understands where its part fits.\n" +
 	"- progress: what earlier steps ALREADY produced (files created, decisions made, interfaces defined) so " +
 	"the worker BUILDS ON it and does not redo or contradict it. Omit if this is the first step.\n" +
+	"- missing: what earlier steps attempted but did NOT finish — outputs that do NOT exist. Never put " +
+	"these under progress: a worker told to build on something that was never produced builds on nothing. " +
+	"Say plainly that it is absent, and why if the input says so. Omit if nothing failed.\n" +
 	"- task: the RESULT this worker must achieve, stated concretely — what must be TRUE when it is done. " +
 	"Delegate the outcome, not the keystrokes: leave HOW to the worker unless one specific method is " +
 	"required, and only then name it.\n" +
@@ -74,7 +77,7 @@ func curateRetryReminder(text string) string {
 			"elements or between two keys."
 	case strings.HasPrefix(d, "the JSON parses"):
 		return head + "The JSON is well-formed but carries none of the packet's content: " + d + "\nSend the " +
-			"object again using the field names above (goal, progress, task, literals, constraints, deliverable, " +
+			"object again using the field names above (goal, progress, missing, task, literals, constraints, deliverable, " +
 			"tools), with the context the worker needs actually filled in."
 	default:
 		return head + "Reply with ONLY the JSON object — no prose, explanation, or markdown fence before or " +
@@ -88,6 +91,7 @@ func curateRetryReminder(text string) string {
 type curatePacket struct {
 	Goal        jsonx.Text  `json:"goal"`        // why the work exists / the final objective
 	Progress    jsonx.Text  `json:"progress"`    // what earlier steps already produced
+	Missing     jsonx.Text  `json:"missing"`     // what earlier steps did NOT produce (kept out of Progress on purpose)
 	Task        jsonx.Text  `json:"task"`        // the RESULT wanted (outcome, not method)
 	Literals    jsonx.Texts `json:"literals"`    // verbatim strings that must not change
 	Constraints jsonx.Texts `json:"constraints"` // boundaries: what not to change / non-goals
@@ -121,6 +125,10 @@ func renderCurateBrief(p curatePacket) string {
 	}
 	section("Goal (why this exists)", string(p.Goal))
 	section("Progress so far (build on this — do NOT redo it)", string(p.Progress))
+	// Its own section, never folded into progress: an earlier step's failure is information the
+	// worker needs, but under the progress label it reads as a finished input to build on.
+	section("NOT done — these outputs do NOT exist (do not build on them; produce what you need yourself, "+
+		"or report that you are blocked)", string(p.Missing))
 	section("Preserve these EXACTLY (verbatim — never rename, shorten, or normalize)", bullets(p.Literals))
 	section("Boundaries (do NOT cross)", bullets(p.Constraints))
 	section("Done when", string(p.Deliverable))
@@ -266,6 +274,7 @@ func (a *App) resolveCuratedTools(selected []string) []string {
 // real packet that follows.
 func (p curatePacket) hasContent() bool {
 	return strings.TrimSpace(string(p.Goal)) != "" || strings.TrimSpace(string(p.Progress)) != "" ||
+		strings.TrimSpace(string(p.Missing)) != "" ||
 		strings.TrimSpace(string(p.Task)) != "" || strings.TrimSpace(string(p.Deliverable)) != "" ||
 		len(p.Literals) > 0 || len(p.Constraints) > 0 || len(p.Tools) > 0
 }
