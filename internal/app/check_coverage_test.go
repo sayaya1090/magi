@@ -160,7 +160,7 @@ func TestEnsureCoverageReportsUnfilledGap(t *testing.T) {
 				t.Fatalf("an unusable fill must leave the authored checks alone, got %+v", out)
 			}
 			note := sub.notes("check-coverage")
-			if !strings.Contains(note, "gap NOT filled") || !strings.Contains(note, c.want) {
+			if !strings.Contains(note, "gap NOT closed") || !strings.Contains(note, c.want) {
 				t.Errorf("want a shortfall note naming %q, got:\n%s", c.want, note)
 			}
 			if !strings.Contains(note, "1/5 step(s) covered") {
@@ -360,7 +360,7 @@ func TestEnsureCoverageShowsTheReplyWhenTheFillIsEmpty(t *testing.T) {
 				t.Fatalf("an empty fill must leave the authored checks alone, got %+v", out)
 			}
 			note := sub.notes("check-coverage")
-			if !strings.Contains(note, "gap NOT filled") {
+			if !strings.Contains(note, "gap NOT closed") {
 				t.Fatalf("want a shortfall note, got:\n%s", note)
 			}
 			if !strings.Contains(note, c.want) {
@@ -428,7 +428,7 @@ func TestCoverageFillThatAttachesToNothingIsRetriedWithTheUncoveredSteps(t *test
 		t.Fatalf("want exactly one retry (2 calls), got %d", len(calls))
 	}
 	retry := calls[1]
-	if !strings.Contains(retry, "ADDED NO COVERAGE") {
+	if !strings.Contains(retry, "LEFT PLAN STEPS UNGATED") {
 		t.Errorf("the retry must name the failure, got system:\n%s", retry)
 	}
 	// Steps 2 and 3 are the uncovered ones; step 1 already has a check and must not be listed as a gap.
@@ -463,7 +463,7 @@ func TestCoverageRetryFailureKeepsAuthoredAndSaysTheGapStands(t *testing.T) {
 		t.Fatalf("the retry must not loop: want 2 calls, got %d", len(calls))
 	}
 	note := sub.notes("check-coverage")
-	for _, want := range []string{"gap NOT filled", "1/3 step(s) covered", "this was the re-ask", "land unverified"} {
+	for _, want := range []string{"gap NOT closed", "1/3 step(s) covered", "this was the re-ask", "land unverified"} {
 		if !strings.Contains(note, want) {
 			t.Errorf("the shortfall must say %q, got:\n%s", want, note)
 		}
@@ -479,5 +479,88 @@ func TestUncoveredStepNums(t *testing.T) {
 	}
 	if n := uncoveredStepNums(map[int]bool{1: true}, 1); len(n) != 0 {
 		t.Errorf("a fully covered plan has no gaps, got %v", n)
+	}
+}
+
+// partialFillSeed is the live shape this pass used to call a success: a 6-step plan whose 2 authored
+// checks gate steps 2 and 3, and a fill that answers with 2 checks on steps 5 and 6 — dropping the
+// authored pair, which the merge puts back. Coverage GREW (2→4 of 6) and that was the whole acceptance
+// test, so the pass ended, printed `2→4 checks, 2→4 step(s) covered (6 plan step(s))`, and steps 1 and
+// 4 went to a worker that was never told what it owed for them.
+func partialFillSeed() ([]planStep, []council.DeliverableCheck, string) {
+	return []planStep{{Title: "one"}, {Title: "two"}, {Title: "three"}, {Title: "four"}, {Title: "five"}, {Title: "six"}},
+		[]council.DeliverableCheck{{Step: "2", Command: "a"}, {Step: "3", Command: "b"}},
+		`[{"step":"5","command":"c"},{"step":"6","command":"d"}]`
+}
+
+// A gap that is only PARTLY closed is not closed. It must cost the re-ask — the one the pass already
+// has — and the re-ask must ask for what is STILL missing, not re-list steps the first reply gated.
+func TestCoveragePartialFillIsRetriedForTheResidue(t *testing.T) {
+	t.Setenv("MAGI_CHECK_COVERAGE", "1")
+	steps, in, partial := partialFillSeed()
+	full := `[{"step":"1","command":"e"},{"step":"4","command":"f"},{"step":"5","command":"c"},{"step":"6","command":"d"}]`
+	llm := &auditLLM{replies: []string{partial, full}}
+	a := newOrchApp(t, llm, Config{Permission: "allow", MaxAgents: 10})
+	s := parentSession(t.TempDir())
+	sub := watchProgress(t, a, s.ID)
+
+	out := a.ensureStepCoverage(context.Background(), s, "task", steps, in)
+
+	covered := map[int]bool{}
+	for _, c := range out {
+		covered[leadingInt(c.Step)] = true
+	}
+	for step := 1; step <= 6; step++ {
+		if !covered[step] {
+			t.Errorf("step %d must be gated once the re-ask closes the gap, got %+v", step, out)
+		}
+	}
+	calls := llm.calls()
+	if len(calls) != 2 {
+		t.Fatalf("a partial fill must cost exactly one re-ask (2 calls), got %d", len(calls))
+	}
+	// The residue, not the original gap: steps 5 and 6 were covered by the first reply, so asking for
+	// them again spends the one retry on work that is already done.
+	if !strings.Contains(calls[1], "NO check: 1, 4") {
+		t.Errorf("the re-ask must list the steps STILL uncovered, got system:\n%s", calls[1])
+	}
+	if note := sub.notes("check-coverage"); strings.Contains(note, "land unverified") {
+		t.Errorf("a closed gap must not report anything landing unverified, got:\n%s", note)
+	}
+}
+
+// …and when the re-ask does not close it either, the coverage that WAS won is kept — this pass can
+// only add — while the outcome line names the steps that still have no check. Growth alone printing
+// the success line is what made a half-filled gap unreadable in the log.
+func TestCoveragePartialFillKeepsItsGainAndNamesTheUngatedSteps(t *testing.T) {
+	t.Setenv("MAGI_CHECK_COVERAGE", "1")
+	steps, in, partial := partialFillSeed()
+	llm := &auditLLM{replies: []string{partial, partial}}
+	a := newOrchApp(t, llm, Config{Permission: "allow", MaxAgents: 10})
+	s := parentSession(t.TempDir())
+	sub := watchProgress(t, a, s.ID)
+
+	out := a.ensureStepCoverage(context.Background(), s, "task", steps, in)
+
+	// Kept, not reverted: reverting to the authored pair would strip gates a usable reply had authored.
+	cmds := map[string]bool{}
+	for _, c := range out {
+		cmds[c.Command] = true
+	}
+	for _, cmd := range []string{"a", "b", "c", "d"} {
+		if !cmds[cmd] {
+			t.Errorf("check %q must survive a partial fill, got %+v", cmd, out)
+		}
+	}
+	if calls := llm.calls(); len(calls) != 2 {
+		t.Fatalf("want exactly one re-ask (2 calls), got %d", len(calls))
+	}
+	note := sub.notes("check-coverage")
+	// The exact live line, plus the part it was missing.
+	if !strings.Contains(note, "2→4 checks, 2→4 step(s) covered (6 plan step(s))") {
+		t.Errorf("the outcome line must still quantify the fill, got:\n%s", note)
+	}
+	if !strings.Contains(note, "step(s) 1, 4 still have NO check and land unverified") {
+		t.Errorf("a partial fill must name the steps it left ungated, got:\n%s", note)
 	}
 }
