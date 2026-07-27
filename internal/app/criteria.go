@@ -158,13 +158,15 @@ const coverageFillSystem = "You author deliverable `checks` that verify a plan's
 // many-step plan, and runStepGate only verifies steps that appear in the check set, so the rest land
 // unverified. When the authored checks cover fewer distinct steps than the plan has, a single gap-fill
 // pass authors checks for the uncovered producing steps (read-only steps are told to be skipped, so an
-// unfillable gap simply returns the same set). A fill that comes back unparseable or adds no coverage
-// is re-asked ONCE with a reminder naming what went wrong — at most two calls, never a loop. The 0-step
-// solo path passes a single synthetic step, so it gets one check for its objective the same way.
+// unfillable gap simply returns the same set). A fill that comes back unparseable, or that leaves ANY
+// step still uncovered, is re-asked ONCE with a reminder naming what went wrong — at most two calls,
+// never a loop. The 0-step solo path passes a single synthetic step, so it gets one check for its
+// objective the same way.
 // Best-effort: a disabled flag, no gap, a transport failure, or a second reply that still adds no
 // distinct step coverage returns the input UNCHANGED. A reply that DOES add coverage is merged with the authored set rather than
 // replacing it (unionChecks), so the fill can only ever add — it never weakens or blocks the contract
-// it was called to complete.
+// it was called to complete. What it cannot do is call a PARTLY closed gap done: coverage that merely
+// GREW is kept, but it is re-asked for first and then reported with the still-ungated steps named.
 func (a *App) ensureStepCoverage(ctx context.Context, s session.Session, prompt string, steps []planStep, checks []council.DeliverableCheck) []council.DeliverableCheck {
 	if !checkCoverageEnabled() || len(steps) == 0 {
 		return checks
@@ -192,7 +194,7 @@ func (a *App) ensureStepCoverage(ctx context.Context, s session.Session, prompt 
 	gap := fmt.Sprintf("%d/%d step(s) covered by %d check(s)", len(covered), len(steps), len(checks))
 	shortfall := func(why string) {
 		a.emitToolProgress(s.ID, plannerActor, "", "check-coverage",
-			fmt.Sprintf("check-coverage: gap NOT filled (%s) — %s; those steps land unverified", gap, why))
+			fmt.Sprintf("check-coverage: gap NOT closed (%s) — %s; those steps land unverified", gap, why))
 	}
 	in, err := json.Marshal(checks)
 	if err != nil {
@@ -240,7 +242,20 @@ func (a *App) ensureStepCoverage(ctx context.Context, s session.Session, prompt 
 		}
 		return f
 	}
+	// Two different questions, and conflating them is what let a half-filled gap read as a success.
+	// gained asks whether an attempt is worth KEEPING (the merge only ever adds, so any growth beats
+	// the input). closed asks whether the pass is DONE — every step gated — which is the only thing
+	// that should end it without a second try.
 	gained := func(f fillAttempt) bool { return f.parsed && len(f.newCov) > len(covered) }
+	closed := func(f fillAttempt) bool { return f.parsed && len(f.newCov) >= len(steps) }
+	// covOf is what an attempt LEFT covered, so the re-ask reminder asks for the steps still missing
+	// rather than re-listing ones the first reply already gated.
+	covOf := func(f fillAttempt) map[int]bool {
+		if !f.parsed {
+			return covered
+		}
+		return f.newCov
+	}
 	// describe names WHICH of the two failures an attempt was, in the terms they actually differ by.
 	// The retry note and the final shortfall both need it and must agree, so it is written once.
 	describe := func(f fillAttempt) string {
@@ -251,6 +266,15 @@ func (a *App) ensureStepCoverage(ctx context.Context, s session.Session, prompt 
 			// shape". The re-ask now appends that report and persists the reply verbatim, so this says
 			// what the failure WAS and lets the record carry the evidence.
 			return fmt.Sprintf("the fill reply did not parse as a checks array (%d chars)", len(f.raw))
+		}
+		if gained(f) {
+			// It attached SOMETHING and still did not finish. That is a third failure, and the two
+			// messages below would both be false about it — a note saying "none attach" reads as a
+			// broken reply when the reply was half right, and asks the model to fix what it did not
+			// do. Name the residue instead, which is also all the re-ask still wants.
+			return fmt.Sprintf("the fill covered %d→%d of %d step(s); step(s) %s still have none",
+				len(covered), len(f.newCov), len(steps),
+				strings.Join(uncoveredStepNums(f.newCov, len(steps)), ", "))
 		}
 		// Name the step labels it DID carry. "Added nothing that attaches" has two very different
 		// causes — the fill returned nothing at all, or it returned checks whose step labels fall
@@ -272,20 +296,29 @@ func (a *App) ensureStepCoverage(ctx context.Context, s session.Session, prompt 
 		return why
 	}
 
-	f := run(coverageFillSystem)
+	first := run(coverageFillSystem)
+	// best is the widest attempt seen. On a double failure reask hands back the FIRST reply, but
+	// coverage that WAS gained must not be thrown away over the part that was not — the merge only
+	// ever adds, so the widest attempt is strictly better than the input, whichever attempt it was.
+	best := first
 	// Re-ask ONCE. A confirmed gap that the fill did not close leaves plan steps with no gate at all,
 	// and a single degraded reply used to end the pass. Note what is judged here: not "did the reply
-	// parse" but "did coverage GROW" — a fill that parses perfectly and attaches nothing new has
-	// failed at the only thing it was for.
+	// parse", and not "did coverage GROW" either — but "is every step gated". Growth was the old
+	// criterion and it is satisfied by one check on a six-step plan: observed live as
+	// `2→4 checks, 2→4 step(s) covered (6 plan step(s))`, which ended the pass, read exactly like a
+	// complete fill, and left two steps with no definition of done for the worker that ran them.
 	f, ok := reask[fillAttempt]{
 		pass:  "check-coverage",
 		actor: plannerActor,
 		ask: func(system string) (fillAttempt, string, bool) {
 			r := run(system)
+			if r.parsed && len(r.newCov) > len(best.newCov) {
+				best = r
+			}
 			return r, r.raw, r.parsed
 		},
 		defect: func(r fillAttempt, _ bool, _ string) string {
-			if gained(r) {
+			if closed(r) {
 				return ""
 			}
 			return describe(r)
@@ -295,7 +328,8 @@ func (a *App) ensureStepCoverage(ctx context.Context, s session.Session, prompt 
 		// while a reply that parsed and attached nothing needs the uncovered steps BY NUMBER.
 		reminder: func(_ string, parsed bool) string {
 			if parsed {
-				return coverageFillSystem + "\n\n" + coverageAttachReminder(uncoveredStepNums(covered, len(steps)), len(steps))
+				return coverageFillSystem + "\n\n" +
+					coverageAttachReminder(uncoveredStepNums(covOf(first), len(steps)), len(steps))
 			}
 			return coverageFillSystem + "\n\n" + coverageJSONOnlyReminder
 		},
@@ -304,17 +338,31 @@ func (a *App) ensureStepCoverage(ctx context.Context, s session.Session, prompt 
 		// empty answer is as likely to mean "those steps produce nothing checkable" (the prompt tells it
 		// to skip pure investigation steps) as it is to mean the fill failed. Either way those steps
 		// land unverified, which is what this reports.
-		fallback: fmt.Sprintf("gap NOT filled (%s), and this was the re-ask, which listed the uncovered "+
-			"step(s) by number — either they produce nothing checkable or the fill could not do it, and "+
-			"those steps land unverified", gap),
-	}.run(ctx, a, s.ID, f, f.raw, f.parsed)
+		fallback: fmt.Sprintf("gap NOT closed (%s at the start), and this was the re-ask, which listed the "+
+			"uncovered step(s) by number — either they produce nothing checkable or the fill could not do "+
+			"it; whatever coverage the replies DID add is kept, and the outcome line names the step(s) "+
+			"that land unverified", gap),
+	}.run(ctx, a, s.ID, first, first.raw, first.parsed)
 	if !ok {
-		return checks
+		// Neither attempt gated every step. Keep the coverage that WAS won — reverting to the authored
+		// set would leave steps ungated that a usable reply had just covered, and this pass can only
+		// add. The note below is then the honest one: partly filled, and here is what is still open.
+		f = best
+		if !gained(f) {
+			return checks
+		}
 	}
 	note := fmt.Sprintf("check-coverage: %d→%d checks, %d→%d step(s) covered (%d plan step(s))",
 		len(checks), len(f.merged), len(covered), len(f.newCov), len(steps))
 	if f.restored > 0 { // the fill dropped authored checks and they were put back — say so, it is not a no-op
 		note += fmt.Sprintf("; restored %d authored check(s) the fill had dropped", f.restored)
+	}
+	// A partial fill must never read like a complete one. Growth alone used to end the pass and print
+	// this line, so the reader had to subtract two numbers to notice that steps were landing with no
+	// definition of done — and nothing named WHICH. The gate that skips them is silent by design
+	// (runStepGate only verifies steps a check attaches to), so this line is the only place it shows.
+	if left := uncoveredStepNums(f.newCov, len(steps)); len(left) > 0 {
+		note += fmt.Sprintf("; step(s) %s still have NO check and land unverified", strings.Join(left, ", "))
 	}
 	a.emitToolProgress(s.ID, plannerActor, "", "check-coverage", note)
 	return f.merged
@@ -337,15 +385,17 @@ const coverageJSONOnlyReminder = "YOUR PREVIOUS REPLY COULD NOT BE PARSED. It ca
 	"prose, a wrapping object, or an unterminated array. Reply with the JSON array ONLY: nothing before the `[`, " +
 	"nothing after the `]`, no explanation and no code fence."
 
-// coverageAttachReminder is appended after a reply that parsed but closed no gap. That has one cause
-// worth stating plainly: a check gates a step only through its `step` field, so checks with labels
-// outside the plan's range, non-numeric labels, or labels repeating an already-covered step are
+// coverageAttachReminder is appended after a reply that parsed and still left steps ungated — whether
+// it attached nothing or only some. It opens on the RESIDUE rather than on "you added nothing", which
+// would be false for a half-filled gap and would ask the model to fix something it did not do. One
+// cause is worth stating plainly: a check gates a step only through its `step` field, so checks with
+// labels outside the plan's range, non-numeric labels, or labels repeating an already-covered step are
 // authored work that gates nothing. Naming the uncovered steps by number turns an abstract instruction
 // ("cover every producing step") into a list to answer. The escape hatch is kept open on purpose —
 // inventing a check for a step that writes nothing is worse than leaving it uncovered.
 func coverageAttachReminder(uncovered []string, total int) string {
 	n := fmt.Sprint(total)
-	return "YOUR PREVIOUS REPLY ADDED NO COVERAGE. These plan steps still have NO check: " +
+	return "YOUR PREVIOUS REPLY LEFT PLAN STEPS UNGATED. These plan steps still have NO check: " +
 		strings.Join(uncovered, ", ") + " — step numbers are 1-based positions in the plan order, and this plan has " +
 		n + " step(s). A check gates a step ONLY through its `step` field: a label outside 1.." + n + ", a " +
 		"non-numeric label, or a label repeating an already-covered step attaches to nothing, however good the " +
