@@ -81,10 +81,24 @@ func (a *App) exploreSpecMine(ctx context.Context, s session.Session, task strin
 	// it had already moved on from; the note carried no path at all, and the plan and all six of its
 	// checks went to the wrong file — none of them could ever pass. Drop it and let the planner ground
 	// itself with its own tools, which is strictly what it does when mining is off.
+	//
+	// What the model was SAYING is unusable; what it SEARCHED FOR is not. A grep that matched nothing
+	// is a fact magi recorded itself, from the call's own arguments and result — no prose passes
+	// through it, so a mid-analysis hallucination cannot ride along. And the direction is fail-safe:
+	// a negative can only stop a later step from building on a name that is not there, never make it
+	// adopt a wrong one. Observed in the run that motivated this: the explorer had already
+	// established "<identifier> is not found with grep", the guard stop threw that away with
+	// everything else, and the plan was then built on that identifier through three revisions —
+	// every check with it, none of them able to pass.
 	if why := a.spawnStoppedBy(ctx, r.SessionID); why != "" {
+		neg := a.searchedNotFound(ctx, r.SessionID)
 		a.emitToolProgress(s.ID, plannerActor, "", "specmine",
 			fmt.Sprintf("spec-mine: exploration was stopped by the %s after %d chars — discarding the partial "+
-				"findings rather than passing a mid-analysis fragment off as repository facts", why, len(findings)))
+				"findings rather than passing a mid-analysis fragment off as repository facts; keeping %d "+
+				"searched-and-not-found fact(s) from magi's own record of its searches", why, len(findings), len(neg)))
+		if len(neg) > 0 {
+			a.injectSpecMineNote(ctx, s.ID, renderSearchMisses(neg))
+		}
 		return
 	}
 	// The explorer's whole contract is `path — fact` lines: findings that name no file are, for this
@@ -106,19 +120,26 @@ func (a *App) exploreSpecMine(ctx context.Context, s session.Session, task strin
 				"spec-mine: the re-ask named no path either — keeping the first findings as-is")
 		}
 	}
-	note := "# Repository findings (from a read-only exploration of the plan) — the existing signatures/paths/" +
-		"interfaces the steps should match. Reuse a FIXED identifier or path from here verbatim (do not invent " +
-		"an alternative name); but a DERIVED value below (a record/field byte size, a file's sample contents) " +
-		"is a read-only pass's reading, not ground truth — if your own read of the file disagrees, TRUST THE " +
-		"FILE, and confirm sizes/offsets against the real bytes before you depend on them:\n" + findings
-	// Fold into the mined contract the termination council reads (cachedSpecMine), and inject into the
-	// session so the plan-audit check-author and the executor read it too.
-	if prev := strings.TrimSpace(a.cachedSpecMine(s.ID)); prev != "" {
-		a.storeSpecMine(s.ID, prev+"\n\n"+note)
-	} else {
-		a.storeSpecMine(s.ID, note)
+	a.injectSpecMineNote(ctx, s.ID, "# Repository findings (from a read-only exploration of the plan) — the existing signatures/paths/"+
+		"interfaces the steps should match. Reuse a FIXED identifier or path from here verbatim (do not invent "+
+		"an alternative name); but a DERIVED value below (a record/field byte size, a file's sample contents) "+
+		"is a read-only pass's reading, not ground truth — if your own read of the file disagrees, TRUST THE "+
+		"FILE, and confirm sizes/offsets against the real bytes before you depend on them:\n"+findings)
+}
+
+// injectSpecMineNote folds a note into the mined contract the termination council reads
+// (cachedSpecMine) and appends it to the session, so the plan-audit check-author and the executor
+// read it too.
+func (a *App) injectSpecMineNote(ctx context.Context, sid session.SessionID, note string) {
+	if strings.TrimSpace(note) == "" {
+		return
 	}
-	_ = a.appendPromptText(ctx, s.ID, event.Actor{Kind: event.ActorSystem, ID: "specmine"}, note)
+	if prev := strings.TrimSpace(a.cachedSpecMine(sid)); prev != "" {
+		a.storeSpecMine(sid, prev+"\n\n"+note)
+	} else {
+		a.storeSpecMine(sid, note)
+	}
+	_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "specmine"}, note)
 }
 
 // specMineNoPathReminder is appended to the explorer's brief after a reply that named no file. It
