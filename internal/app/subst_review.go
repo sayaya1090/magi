@@ -170,7 +170,10 @@ func (a *App) reviewSubstitutions(ctx context.Context, tc turnCtx, rounds *int, 
 	delib, err := a.cfg.Council.Deliberate(ctx, port.DeliberationRequest{
 		Round: round, Phase: "substitution", Task: task, Plan: subsText, Report: subsText,
 		Revision: substRevisionContext(*critique),
-		Members:  members, Rule: rule, Debate: councilDebateEnabled(), DefaultModel: s.Model.Model,
+		// One inadequate substitute sends ALL of them back to be re-declared, so ask which ones a
+		// lens already accepted and tell the agent not to withdraw those.
+		Keep:    councilKeepEnabled(),
+		Members: members, Rule: rule, Debate: councilDebateEnabled(), DefaultModel: s.Model.Model,
 	})
 	if err != nil { // a gate failure must never block the agent → approve and proceed
 		a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{Round: round, Phase: "substitution", Decision: string(council.Done), Note: "substitution council unavailable: " + err.Error(), Forced: true})
@@ -191,11 +194,11 @@ func (a *App) reviewSubstitutions(ctx context.Context, tc turnCtx, rounds *int, 
 	*rounds = round
 	*critique = fb // the next round must judge whether THIS objection was met
 	a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{Round: round, Phase: "substitution", Decision: string(council.Continue), Tally: delib.Breakdown, Feedback: fb})
-	msg := "The council reviewed your acceptance-check substitution(s) and asks you to correct them before finishing:\n" + fb +
-		"\n\nSupply a better source/assert pair that proves the SAME goal as the original check — recording the real " +
-		"output first if that is what is missing — then declare it again with substitute_check (same step/original). " +
-		"If no valid replacement exists, report status \"blocked\" and say which check and why — do not pass off a " +
-		"weak proxy as done."
+	msg := withKeepAdvice("The council reviewed your acceptance-check substitution(s) and asks you to correct them before finishing:\n"+fb+
+		"\n\nSupply a better source/assert pair that proves the SAME goal as the original check — recording the real "+
+		"output first if that is what is missing — then declare it again with substitute_check (same step/original). "+
+		"If no valid replacement exists, report status \"blocked\" and say which check and why — do not pass off a "+
+		"weak proxy as done.", delib.Verdicts)
 	pd, _ := json.Marshal(event.PromptSubmittedData{
 		MessageID: "m_" + newID(),
 		Parts:     []session.Part{{Kind: session.PartText, Text: msg}},

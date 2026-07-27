@@ -125,7 +125,10 @@ func (a *App) runContractGate(ctx context.Context, s session.Session, prompt str
 		delib, err := a.cfg.Council.Deliberate(ctx, port.DeliberationRequest{
 			Round: round, Phase: "contract", Task: task, Plan: draft,
 			Revision: pendingRevision,
-			Members:  members, Rule: rule, Debate: councilDebateEnabled(), DefaultModel: s.Model.Model,
+			// Consolidation REPLACES the criteria list, so one member's fix can drop a condition
+			// another lens blessed — ask for `keep` and carry it into the rewrite below.
+			Keep:    councilKeepEnabled(),
+			Members: members, Rule: rule, Debate: councilDebateEnabled(), DefaultModel: s.Model.Model,
 		})
 		pendingRevision = "" // consumed; set again below if this round rewrites the draft
 		if err != nil {      // a gate failure must never block the turn → proceed with whatever we have
@@ -171,12 +174,15 @@ func (a *App) runContractGate(ctx context.Context, s session.Session, prompt str
 		// revised contract is a RESULT of the feedback, so "reduce to 4" reduces. Best-effort — a failed
 		// consolidation keeps the current contract and carries the feedback in the draft as a fallback.
 		prevDraft := draft
-		if nc, ok := a.consolidateContract(ctx, agent, sid, model, task, criteria, fb); ok {
+		// The recorded/emitted feedback stays the RAW fix text (unchanged decisions and repeat
+		// detection); only what the rewriter reads carries the keep.
+		apply := withKeepAdvice(fb, delib.Verdicts)
+		if nc, ok := a.consolidateContract(ctx, agent, sid, model, task, criteria, apply); ok {
 			criteria = nc
 			draft = renderContract(criteria)
 			pendingRevision = contractRevisionContext(fb, prevDraft)
 		} else {
-			draft = strings.TrimSpace(renderContract(criteria) + "\n\n# Council feedback to incorporate:\n" + fb)
+			draft = strings.TrimSpace(renderContract(criteria) + "\n\n# Council feedback to incorporate:\n" + apply)
 		}
 	}
 

@@ -98,6 +98,10 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 			a.storePlanCriteria(ctx, s, delib.Criteria) // the contract for the termination gate (plan-independent goals)
 			note := ""
 			if advice != "" {
+				// The keep rides with the advice on this path too: an approved plan still gets
+				// REWRITTEN when absorb is on, and the executor heeding a note is exactly when it
+				// might redo a part some lens had already settled.
+				advice = withKeepAdvice(advice, delib.Verdicts)
 				a.injectCouncilAdvice(ctx, s.ID, advice, true) // accepted: the executor heeds it
 				note = "plan approved with advisory notes (non-blocking)"
 				if a.cfg.CouncilPlanAbsorb { // option B: fold the advice into the plan now
@@ -125,7 +129,7 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 			// Proceeding PAST an unresolved critical: hand the executor that critical
 			// concern (plus any advice) so it can still try to address it — don't bury it
 			// in a note only.
-			if carry := strings.TrimSpace(fb + "\n\n" + advice); carry != "" {
+			if carry := withKeepAdvice(fb+"\n\n"+advice, delib.Verdicts); carry != "" {
 				a.injectCouncilAdvice(ctx, s.ID, carry, false)
 			}
 			a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{
@@ -142,13 +146,7 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		// triggered by one member's critical flaw doesn't discard the parts the others approved.
 		// Advisory, never a constraint: if fixing the flaw genuinely requires changing a kept
 		// step, the re-planner is free to.
-		revise := fb
-		if councilKeepEnabled() {
-			if keep := strings.TrimSpace(council.AggregateKeep(delib.Verdicts)); keep != "" {
-				revise = fb + "\n\nAlready sound through some lens — PREFER to preserve these, but this is " +
-					"advice, not a rule: change them if the fix truly requires it.\n" + keep
-			}
-		}
+		revise := withKeepAdvice(fb, delib.Verdicts)
 		a.setStage(sid, stagePlan)
 		replanned := a.runPlanner(ctx, spec, s, prompt, revise, depth, maxSteps, "")
 		next := sanitizeSteps(replanned)
