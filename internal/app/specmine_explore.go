@@ -96,8 +96,13 @@ func (a *App) exploreSpecMine(ctx context.Context, s session.Session, task strin
 			fmt.Sprintf("spec-mine: exploration was stopped by the %s after %d chars — discarding the partial "+
 				"findings rather than passing a mid-analysis fragment off as repository facts; keeping %d "+
 				"searched-and-not-found fact(s) from magi's own record of its searches", why, len(findings), len(neg)))
-		if len(neg) > 0 {
-			a.injectSpecMineNote(ctx, s.ID, renderSearchMisses(neg))
+		// The absence and the plan that uses the name anyway both end up in the planner's window, and
+		// leaving them there is what produced the run this was written for. Settle them here instead
+		// (specmine_confirm.go); a retracted absence is dropped BEFORE rendering, so the injection never
+		// asserts and corrects the same name.
+		conf, retracted := a.confirmContradictions(ctx, s, depth, spec, planText(steps), neg)
+		if note := renderSearchMisses(dropRetracted(neg, retracted)); note != "" || conf != "" {
+			a.injectSpecMineNote(ctx, s.ID, strings.TrimSpace(note+"\n\n"+conf))
 		}
 		return
 	}
@@ -106,6 +111,7 @@ func (a *App) exploreSpecMine(ctx context.Context, s session.Session, task strin
 	// re-ask) rather than letting the planner invent a path — which is exactly what it does, since the
 	// note it is handed reads as authoritative. If the retry names none either, keep what we have: a
 	// bounded miss beats an unbounded loop.
+	exploreSID := r.SessionID // whose search record the contradiction check reads, below
 	if !mentionsFilePath(findings) {
 		a.emitToolProgress(s.ID, plannerActor, "", "specmine",
 			fmt.Sprintf("spec-mine: the exploration named no file path in %d chars — re-asking once for "+
@@ -114,7 +120,7 @@ func (a *App) exploreSpecMine(ctx context.Context, s session.Session, task strin
 			Prompt: brief + "\n\n" + specMineNoPathReminder})
 		if f2 := strings.TrimSpace(stripReportStatus(r2.Text)); r2.Err == "" && f2 != "" &&
 			a.spawnStoppedBy(ctx, r2.SessionID) == "" && mentionsFilePath(f2) {
-			findings = f2
+			findings, exploreSID = f2, r2.SessionID
 		} else {
 			a.emitToolProgress(s.ID, plannerActor, "", "specmine",
 				"spec-mine: the re-ask named no path either — keeping the first findings as-is")
@@ -125,6 +131,14 @@ func (a *App) exploreSpecMine(ctx context.Context, s session.Session, task strin
 		"an alternative name); but a DERIVED value below (a record/field byte size, a file's sample contents) "+
 		"is a read-only pass's reading, not ground truth — if your own read of the file disagrees, TRUST THE "+
 		"FILE, and confirm sizes/offsets against the real bytes before you depend on them:\n"+findings)
+	// A finished exploration reports what it FOUND; it is under no obligation to mention that the plan
+	// leans on something it searched for and did not find. That contradiction is the same one the
+	// stopped path salvages, so it is settled here too — only the wholesale absence list stays
+	// exclusive to the stopped path, where the prose it would have replaced is gone.
+	if conf, _ := a.confirmContradictions(ctx, s, depth, spec, planText(steps),
+		a.searchedNotFound(ctx, exploreSID)); conf != "" {
+		a.injectSpecMineNote(ctx, s.ID, conf)
+	}
 }
 
 // injectSpecMineNote folds a note into the mined contract the termination council reads
