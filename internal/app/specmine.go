@@ -127,6 +127,35 @@ const distillSpecMineSystem = "You distill a working analysis into its final con
 	"restate what the original request's prose already says. If the analysis concluded nothing beyond the " +
 	"prose, output exactly {\"lines\":[],\"final\":\"\"}."
 
+// distillRetryReminder names what the first distill reply actually got wrong. A retry that re-sends
+// a byte-identical prompt asks the same model the same question and mostly receives the same answer;
+// the diagnosis is already computed for the failure log, so the retry may as well carry it. The
+// branches matter more than the wording: "reply with only JSON" is useless to a model whose object
+// WAS bare and merely malformed, and it is the wrong correction to a model that returned
+// well-formed JSON with the wrong keys. The stakes are stated too — a lost note is not a neutral
+// outcome, it is the run's only record of the literals downstream work must match verbatim.
+func distillRetryReminder(text string) string {
+	const head = "\n\n# Your previous reply could not be used\nThat is not neutral: without this object the " +
+		"analysis is discarded and the run proceeds with no record of the literals it must match. "
+	d := jsonx.Diagnose(text)
+	switch {
+	case strings.HasPrefix(d, "syntax error"):
+		return head + "The reply DID contain a JSON object, so the problem is not prose around it — the JSON " +
+			"itself is malformed:\n" + d + "\nSend the SAME findings again as one well-formed object. Every `[` " +
+			"must be closed by `]` BEFORE the next key begins, every `{` by `}`, and every string by its closing " +
+			"quote. Commentary belongs INSIDE a quoted string; it can never sit between two array elements or " +
+			"between two keys."
+	case strings.HasPrefix(d, "the JSON parses"):
+		return head + "The JSON is well-formed but carries none of the expected content: " + d + "\nSend it " +
+			"again using exactly the keys above — `lines` (each with surface, requirement, construct, kind) and " +
+			"`final`. If the analysis truly concluded nothing beyond the request's own prose, the answer is " +
+			"{\"lines\":[],\"final\":\"\"}, not a differently-shaped object."
+	default:
+		return head + "Reply with ONLY the JSON object — no prose, explanation, or markdown fence before or " +
+			"after it."
+	}
+}
+
 // specMineResult is the distilled pass-2 shape.
 type specMineResult struct {
 	// Every field is tolerant (jsonx.Text): the decoder aborts the WHOLE document on the first
@@ -185,8 +214,12 @@ func (a *App) elicitSpecMine(ctx context.Context, agent AgentSpec, s session.Ses
 	}
 	distilled := a.specMineCall(ctx, spec, s.ID, "spec-mine", model, distillSpecMineSystem, analysis)
 	res, ok := parseSpecMine(distilled)
-	if !ok { // local models are flaky — one retry
-		distilled = a.specMineCall(ctx, spec, s.ID, "spec-mine", model, distillSpecMineSystem, analysis)
+	if !ok { // local models are flaky — one retry, told what was wrong with the first
+		a.emitToolProgress(s.ID, plannerActor, "", "spec-mine",
+			fmt.Sprintf("spec-mine: the distill pass did not parse (%d chars) — retrying once :: %s",
+				len(distilled), jsonx.Report(distilled)))
+		distilled = a.specMineCall(ctx, spec, s.ID, "spec-mine", model,
+			distillSpecMineSystem+distillRetryReminder(distilled), analysis)
 		res, ok = parseSpecMine(distilled)
 	}
 	if !ok {

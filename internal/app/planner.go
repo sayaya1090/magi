@@ -503,6 +503,10 @@ func (a *App) injectAsyncExplorerNote(ctx context.Context, sid session.SessionID
 type replanContext struct {
 	priorPlan string // rendered steps of the plan the critique is about
 	judge     string // why the LAST rewrite was ruled not to engage the concern ("" on the first revision)
+	// emptyReply, when set, marks this call as the retry of a re-plan that came back unusable, and
+	// says how. A retry that re-sends the identical prompt asks the same question and mostly gets
+	// the same answer back.
+	emptyReply string
 }
 
 // runPlanner does a single tool-free LLM call on the planner's own provider and
@@ -571,6 +575,11 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 		if j := strings.TrimSpace(rc.judge); j != "" {
 			b.WriteString("\n\n# Your LAST rewrite was judged NOT to engage this same concern\n" + clipSpec(j, 600) +
 				"\nDo not repeat it. Change what the concern actually names — or, if you believe the concern is wrong, contest it.")
+		}
+		// Last, so it is the final thing read on a retry: this is the one instruction that is about
+		// the REPLY rather than the plan.
+		if e := strings.TrimSpace(rc.emptyReply); e != "" {
+			b.WriteString("\n\n# This is a RETRY — your previous reply was unusable\n" + e)
 		}
 		// CONTEST channel: if the concern is genuinely NOT required by the task (or already satisfied),
 		// the planner may reject it instead of complying — keep the plan and give a task-grounded

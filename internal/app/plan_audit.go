@@ -161,7 +161,19 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		replanned := a.runPlanner(ctx, spec, s, prompt, revise, rc, depth, maxSteps, "")
 		next := sanitizeSteps(replanned)
 		if len(next) == 0 {
-			replanned = a.runPlanner(ctx, spec, s, prompt, revise, rc, depth, maxSteps, "")
+			// The retry exists because local models are flaky, but re-asking the same question the
+			// same way mostly gets the same non-answer. Say what came back instead — an empty reply
+			// and a plan of zero usable steps are different failures with different corrections,
+			// and only the model can tell which one it just produced.
+			a.emitToolProgress(sid, actor, "", "council",
+				fmt.Sprintf("the re-plan produced no usable steps (%d char reason) — retrying once", len(replanned.Reason)))
+			retry := rc
+			retry.emptyReply = "Your last reply produced no usable plan: every step was missing a title or a " +
+				"strategy, or the reply carried no `steps` array at all. Send the revised plan again as one JSON " +
+				"object whose `steps` is a non-empty array, each entry with a concrete `title` and a `strategy`. " +
+				"If you meant to contest the concern rather than revise, you must STILL return the plan you are " +
+				"keeping — a contest with no steps is read as a failed re-plan and the prior plan proceeds unrevised."
+			replanned = a.runPlanner(ctx, spec, s, prompt, revise, retry, depth, maxSteps, "")
 			next = sanitizeSteps(replanned)
 		}
 		// CONTEST: the re-planner may have rejected the concern as unjustified (kept its plan, set a
