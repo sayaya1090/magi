@@ -21,6 +21,13 @@ import (
 // and the agent's escape hatch for builds/tests/git. (F-TOOL bash)
 type Bash struct{}
 
+// Foreground command deadline: applied when the caller gives no `timeout`, and the ceiling
+// its argument is clamped to. Named because timedOutNote reports both back to the caller.
+const (
+	defaultBashTimeout = 120
+	maxBashTimeout     = 600
+)
+
 type bashArgs struct {
 	Command    string   `json:"command"`
 	Timeout    flexInt  `json:"timeout"`    // seconds (default 120, max 600); tolerant parse (flexInt)
@@ -82,10 +89,10 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	}
 	timeout := int(a.Timeout)
 	if timeout <= 0 {
-		timeout = 120
+		timeout = defaultBashTimeout
 	}
-	if timeout > 600 {
-		timeout = 600
+	if timeout > maxBashTimeout {
+		timeout = maxBashTimeout
 	}
 
 	cctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
@@ -138,7 +145,7 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	bashDebugf("exec done: elapsed=%s exit=%d ctxErr=%v runErr=%v", time.Since(started).Round(time.Millisecond), exit, cctx.Err(), err)
 	body := string(out)
 	if cctx.Err() == context.DeadlineExceeded {
-		body += fmt.Sprintf("\n[timed out after %ds]", timeout)
+		body += "\n" + timedOutNote(timeout, int(a.Timeout))
 		return errResult("", truncateOut(body)), nil
 	}
 	if err != nil && exit == 0 {
@@ -173,6 +180,13 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 			// truncation can hide the verdict line. Fires only on the model's own verify flag,
 			// not a command guess. The fix-ocaml-gc bench arc: `make world 2>&1 | tail -100`
 			// reported exit 0, the model couldn't tell if its fix built, and reverted a good edit.
+			disp = note + "\n" + disp
+		} else if note := sequencedTailNote(exit, a.Command, bool(a.Verify)); note != "" {
+			// Same trap as the pipe above, reached with `;` instead: the exit belongs to the
+			// trailing `echo`/`tail`, not the build. This is the form a model writes when it
+			// wants a captured log AND the exit code (`make … > log 2>&1; echo "exit=$?" >> log`),
+			// and it produces the most convincing false success there is — exit 0 with an
+			// empty body (fix-ocaml-gc L105: "The build succeeded!" off exactly that).
 			disp = note + "\n" + disp
 		} else if note := ephemeralEnvNote(exit, a.Command, env.SessionID); note != "" {
 			// First export/source of the session: teach that shell state does not

@@ -7,6 +7,7 @@ package builtin
 // blocks a call. Gated by MAGI_EXITCODE_BODYSCAN (see bodyscanEnabled).
 
 import (
+	"fmt"
 	"os"
 	"regexp"
 	"strings"
@@ -166,6 +167,67 @@ func swallowingPipeNote(exit int, command string, verify bool) string {
 		return ""
 	}
 	return "[note: this exit 0 is the `tail`/`head` at the end of the pipe, NOT the build/test before it — a failed build/test would still show exit 0 here, and the truncation can hide the final error/status line. You do not need to pipe to tail/head: this tool already returns large output capped to its head AND tail with the real exit code. Re-run without the pipe to see the true status.]"
+}
+
+// sequencedTail matches a command whose FINAL `;`-sequenced segment cannot fail: a reporter
+// (`echo`/`printf`/`true`/`:`) or a truncator (`tail`/`head`/`cat`). A `;` list reports only its
+// LAST command's status, so such a tail masks the primary command exactly as `| tail` does — the
+// pipe form's sibling, and the one a model reaches for when it wants BOTH a captured log and the
+// exit code: `make world > log 2>&1; echo "exit=$?" >> log; tail -30 log`. `&&` is deliberately
+// NOT matched: there the tail runs only if the primary SUCCEEDED, so a failure still surfaces its
+// own non-zero exit. The segment must hold no further `;`/`|`/`&` so a real command after the
+// reporter keeps it unmatched (under-firing on redirections like `2>&1` is fine — advisory only).
+var sequencedTail = regexp.MustCompile(`;\s*(?:(?:tail|head|cat|echo|printf|true)\b[^;|&]*|:\s*)$`)
+
+// sequencedTailNote flags an exit-0 result whose command ends in such a segment, on a call the
+// model itself declared a verification (verify=true) — the same intent gate swallowingPipeNote
+// uses, which keeps it silent on the countless benign `make x; echo done` calls. The live arc it
+// answers (fix-ocaml-gc): every one of 12 builds ran as `make world > log 2>&1; echo "exit=$?" >>
+// log`, so the tool returned the ECHO's exit 0 with an empty body, the model read "The build
+// succeeded!" off it, and — because that exit 0 also told magi's own churn counter the build had
+// converged — nothing ever registered that the same build kept failing. The note points at where
+// the real status actually is: the `exit=` line the model appended INSIDE the log.
+func sequencedTailNote(exit int, command string, verify bool) string {
+	if !verify || exit != 0 || !sequencedTail.MatchString(strings.TrimSpace(command)) {
+		return ""
+	}
+	return "[note: this exit 0 is the LAST `;` segment (the `echo`/`tail`/`true` at the end), NOT the build/test before it — a `;` list reports only its final command's status, and that segment cannot fail, so a build that FAILED still shows exit 0 here. If you appended the real status to a log (`echo \"exit=$?\" >> …`), that line is the verdict — read it. Otherwise re-run with the build/test as the LAST thing in the command: this tool already returns large output capped to its head AND tail with the real exit code.]"
+}
+
+// ExitCodeMasked reports whether a bash result's exit code is provably NOT the primary command's,
+// judged from the command text alone (a masking `|| …` tail, or — on a call the model declared a
+// verification — a `| tail`/`| head` pipe or a `;`-sequenced reporter/truncator tail). It is the
+// same structural judgement the notes above surface to the MODEL, exported so magi's own guards can
+// refuse to read such an exit 0 as evidence: an exit code that belongs to an `echo` says nothing
+// about whether the build converged, and must not clear a churn counter that exists to detect a
+// build failing over and over. Conservative by construction — it reports only what the command text
+// proves, so a false "masked" verdict is not possible from a plain `make world`.
+func ExitCodeMasked(command string, verify bool) bool {
+	c := strings.TrimSpace(command)
+	if maskingTail.MatchString(c) {
+		return true
+	}
+	return verify && (swallowingPipe.MatchString(c) || sequencedTail.MatchString(c))
+}
+
+// timedOutNote is the body line appended when a foreground command hits its deadline. The bare
+// "[timed out after Ns]" it replaces stated a number without saying whose it was, and a model that
+// had set the limit ITSELF read the kill as a verdict on the work: cancel-async-tasks ran its own
+// test script under `timeout:10` while the script slept 10s, got the bare line, concluded "I've
+// been working too long on this", and shipped code it never once executed. The limit is a tool
+// argument the caller chose and can raise (`effective` is what actually applied — the 120s default
+// when none was given, or the 600s cap when the request exceeded it), so the note names its origin,
+// says the command was KILLED rather than judged, and points at both ways to get more time.
+func timedOutNote(effective, requested int) string {
+	origin := "the default limit (no `timeout` given)"
+	switch {
+	case requested > maxBashTimeout:
+		origin = fmt.Sprintf("your `timeout` of %ds capped at the %ds maximum", requested, maxBashTimeout)
+	case requested > 0:
+		origin = "your own `timeout` argument"
+	}
+	return fmt.Sprintf("[timed out after %ds — %s, not a system deadline. The command was KILLED at that mark, so this is NOT evidence it failed or that it was going to: whatever it was doing simply had not finished. If it needs longer, re-run it with a bigger `timeout` (up to %ds), or with background:true and poll it with bash_output.]",
+		effective, origin, maxBashTimeout)
 }
 
 // ptyGated matches a command that needs a controlling terminal to interact with: ssh /
