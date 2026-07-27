@@ -162,8 +162,11 @@ func (a *App) exploreSpecMine(ctx context.Context, s session.Session, task strin
 	// leans on something it searched for and did not find. That contradiction is the same one the
 	// stopped path salvages, so it is settled here too — only the wholesale absence list stays
 	// exclusive to the stopped path, where the prose it would have replaced is gone.
-	if conf, _ := a.confirmContradictions(ctx, s, depth, spec, planText(steps),
+	// This is the path the observed specimen took — the exploration FINISHED, so the correction has to
+	// reach the contract's lines here as well, not only on the salvage path.
+	if conf, _, absent := a.confirmContradictions(ctx, s, depth, spec, planText(steps),
 		a.searchedNotFound(ctx, exploreSID)); conf != "" {
+		a.correctMinedAbsences(s.ID, absent)
 		a.injectSpecMineNote(ctx, s.ID, conf)
 	}
 }
@@ -186,7 +189,10 @@ func (a *App) salvageSearches(ctx context.Context, s session.Session, depth int,
 	// leaving them there is what produced the run this was written for. Settle them here instead
 	// (specmine_confirm.go); a retracted absence is dropped BEFORE rendering, so the injection never
 	// asserts and corrects the same name.
-	conf, retracted := a.confirmContradictions(ctx, s, depth, spec, planText(steps), neg)
+	conf, retracted, absent := a.confirmContradictions(ctx, s, depth, spec, planText(steps), neg)
+	// Reach the lines that use the name BEFORE appending the settlement, so the contract and its
+	// correction cannot be read as two live instructions.
+	a.correctMinedAbsences(s.ID, absent)
 	if note := renderSearchMisses(dropRetracted(neg, retracted)); note != "" || conf != "" {
 		a.injectSpecMineNote(ctx, s.ID, strings.TrimSpace(note+"\n\n"+conf))
 	}
@@ -220,6 +226,32 @@ func (a *App) injectSpecMineNote(ctx context.Context, sid session.SessionID, not
 // once can be misread, so confirm it — but it is a demotion against the FILE, never against a line
 // that never opened the file.
 func specMineFindingsNote(findings string) string {
+	// An exploration that ENDS NORMALLY can still return a thought rather than a finding, and that
+	// case had no defense: the guard-stop path above catches a report that was cut off, but a model
+	// which simply narrates its reasoning to completion passes every test here. Observed live, in a
+	// 7,553-character worker brief, roughly 1,400 characters of this block read:
+	//
+	//	Let me trace through the logic more carefully to understand the bug… The bug: after merging
+	//	blocks at lines 624-627, we need to also update `last_free_block`… Actually wait - looking
+	//	more carefully: … Let me check what happens after the merge…
+	//
+	// — a hypothesis, contradicted by its own next sentence, trailing off unfinished. Under a header
+	// that says to reuse what follows VERBATIM, and that it outranks the mined contract because "this
+	// pass opened the file and that note did not".
+	//
+	// The content is not dropped: a deliberation can still contain a real reading, and this pass has
+	// no way to separate the two. What is dropped is the AUTHORITY — the verbatim-reuse instruction
+	// and the precedence clause — replaced by what the text actually is. A worker that reads a
+	// speculation labelled as a speculation can weigh it; one that reads it labelled as repository
+	// fact cannot.
+	if deliberative(findings) {
+		return "# What a read-only exploration was WORKING THROUGH (not a findings list — it reads as " +
+			"reasoning in progress, and it may contradict itself or break off mid-thought). Treat every " +
+			"claim below as a LEAD TO CHECK, not as a fact about this repository: open the file and read " +
+			"it before you depend on anything here, and do NOT reuse an identifier from it that you have " +
+			"not seen in the file yourself. Where it disagrees with anything else you were given, the " +
+			"FILE decides:\n" + findings
+	}
 	return "# Repository findings (from a read-only exploration of the plan) — the existing signatures/paths/" +
 		"interfaces the steps should match. Reuse a FIXED identifier or path from here verbatim (do not invent " +
 		"an alternative name); but a DERIVED value below (a record/field byte size, a file's sample contents) " +
@@ -287,4 +319,42 @@ func mentionsFilePath(text string) bool {
 		}
 	}
 	return false
+}
+
+// deliberative reports whether an explorer's reply reads as reasoning in progress rather than as the
+// `path — fact` list its brief asks for.
+//
+// Two signals, and BOTH are required, because either alone is common in a legitimate report: a
+// finding may open with "Looking at shared_heap.c:620" and a careful one may say "I need to confirm
+// the size". What marks a thought is that it announces its own next step ("Let me …") or reverses
+// itself ("Actually wait"), AND never lands — the last non-empty line is another such move rather
+// than a conclusion. A report that deliberates and then states what it found is a finding.
+func deliberative(findings string) bool {
+	lines := strings.Split(strings.TrimSpace(findings), "\n")
+	last := ""
+	moves := 0
+	for _, ln := range lines {
+		t := strings.TrimSpace(ln)
+		if t == "" {
+			continue
+		}
+		if isDeliberativeMove(t) {
+			moves++
+		}
+		last = t
+	}
+	return moves >= 2 && isDeliberativeMove(last)
+}
+
+// isDeliberativeMove reports whether one line announces a next step or reverses an earlier one,
+// rather than stating something read out of a file.
+func isDeliberativeMove(line string) bool {
+	l := strings.ToLower(line)
+	for _, p := range []string{"let me ", "let's ", "actually wait", "actually, ", "wait -", "wait,",
+		"i need to ", "i should ", "now let", "hmm", "but wait"} {
+		if strings.HasPrefix(l, p) || strings.Contains(l, " "+p) {
+			return true
+		}
+	}
+	return strings.HasSuffix(line, "...") || strings.HasSuffix(line, "…")
 }
