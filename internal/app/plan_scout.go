@@ -13,6 +13,25 @@ import (
 	"github.com/sayaya1090/magi/internal/port"
 )
 
+// scoutListPrompt builds the discovery explorer's work-list request, led by the overall goal.
+// That lead line is the fix for the one explorer that got no orientation at all: every per-item
+// explorer is handed the goal (explorerPrompt), while the agent deciding WHICH items exist saw
+// only the planner's "discover" phrase — and that phrase is written to be scoped BY the task
+// ("the source files in scope"), so without the task it is scoped by nothing. This list is not
+// one investigation among many; it IS the step — everything the fan-out will look at, and
+// everything it never will. goal is empty when step context is off (the A/B baseline).
+func scoutListPrompt(goal, discover string) string {
+	var p strings.Builder
+	if g := strings.TrimSpace(goal); g != "" {
+		p.WriteString("Overall goal (what the list is FOR — judge each candidate's relevance against it): " +
+			clipLine(g, 400) + "\n\n")
+	}
+	fmt.Fprintf(&p, "List %s. Output ONLY the items, one per line — no prose, no numbering, no bullets, "+
+		"no markdown. The FIRST line must already be an item: no title, header, preamble (\"Here are…\", "+
+		"\"List of…:\"), or closing remark.", discover)
+	return p.String()
+}
+
 // capGroups trims a parallel step's groups to the remaining per-turn budget.
 func capGroups(groups []planGroup, budget *int) []planGroup {
 	if *budget <= 0 {
@@ -28,7 +47,14 @@ func capGroups(groups []planGroup, budget *int) []planGroup {
 // scoutGroups runs the scout: one read-only explorer produces a work-list, then
 // each item becomes a parallel investigation. This is the adaptive scout→fanout —
 // the fan-out targets are discovered at runtime, not pre-planned.
-func (a *App) scoutGroups(ctx context.Context, s session.Session, st planStep, budget *int, depth int) []planGroup {
+//
+// goal orients the discovery explorer, which is the ONE explorer that used to get none: every
+// per-item explorer is handed the overall goal (explorerPrompt), while the agent that decides
+// WHICH items exist saw only the planner's "discover" phrase. That phrase is written to be
+// scoped by the task ("the source files in scope"), so without the task it is scoped by nothing
+// — and this list is not one investigation among many, it IS the step: everything the fan-out
+// looks at, and everything it never will. Passed empty when step context is off (the A/B baseline).
+func (a *App) scoutGroups(ctx context.Context, s session.Session, goal string, st planStep, budget *int, depth int) []planGroup {
 	agent := st.Agent
 	if !readOnlyExplorers[agent] {
 		agent = "explore"
@@ -36,8 +62,7 @@ func (a *App) scoutGroups(ctx context.Context, s session.Session, st planStep, b
 	if *budget <= 0 {
 		return nil
 	}
-	listPrompt := fmt.Sprintf("List %s. Output ONLY the items, one per line — no prose, no numbering, no bullets, no markdown. The FIRST line must already be an item: no title, header, preamble (\"Here are…\", \"List of…:\"), or closing remark.", st.Discover)
-	r := a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agent, Prompt: listPrompt})
+	r := a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agent, Prompt: scoutListPrompt(goal, st.Discover)})
 	*budget-- // the scout itself counts
 	if r.Err != "" {
 		return nil

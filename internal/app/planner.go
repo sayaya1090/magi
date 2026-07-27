@@ -454,7 +454,7 @@ func (a *App) dispatchExplorerSteps(ctx context.Context, s session.Session, goal
 		case "parallel":
 			groups = capGroups(st.Groups, &budget)
 		case "scout":
-			groups = a.scoutGroups(ctx, s, st, &budget, depth)
+			groups = a.scoutGroups(ctx, s, fanGoal, st, &budget, depth)
 		default: // solo → main agent does it; nothing to dispatch
 			continue
 		}
