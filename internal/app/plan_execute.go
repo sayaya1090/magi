@@ -377,12 +377,11 @@ func (a *App) runDelegateStep(ctx context.Context, s session.Session, st planSte
 			curTools = ct
 		}
 	}
-	// Hand the worker its acceptance checklist (the plan-audit's executable deliverable checks for
-	// this step): it must RUN each and confirm it passes before reporting done, so a delegated part
-	// isn't left with a requirement silently skipped (caught only later at the orchestrator gate).
-	if cl := workerChecklist(a.cachedChecks(s.ID), i); cl != "" {
-		brief = strings.TrimSpace(brief + "\n\n" + cl)
-	}
+	// The worker's acceptance checklist (the plan-audit's deliverable checks for this step) goes to
+	// delegatePrompt as its own argument, NOT into the brief: the brief is rendered under a header
+	// that calls itself reference-only and NOT a to-do list, which is the wrong thing to say about
+	// the block that defines when this part is done. It rides with YOUR PART instead.
+	checklist := workerChecklist(a.cachedChecks(s.ID), i)
 	// Shared artifact ledger: append the exact paths/interfaces earlier steps produced, VERBATIM and
 	// AFTER curation, so the curator's paraphrase can't drop a file location the next step needs.
 	if lg := renderLedger(a.ledgerOf(s.ID)); lg != "" {
@@ -393,7 +392,7 @@ func (a *App) runDelegateStep(ctx context.Context, s session.Session, st planSte
 	if cb := concernBrief(a.cachedConcern(s.ID)); cb != "" {
 		brief = strings.TrimSpace(brief + "\n\n" + cb)
 	}
-	r := a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agentName, Prompt: delegatePrompt(st, brief), Tools: curTools, PlanStepIndex: &i})
+	r := a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agentName, Prompt: delegatePrompt(st, brief, checklist), Tools: curTools, PlanStepIndex: &i})
 	text := strings.TrimSpace(r.Text)
 	// ADaPT failure branch (reactive, as-needed decomposition): a hard failure (spawn error
 	// or empty result), while we're still below the plan-depth cap and have budget, gets ONE
@@ -411,7 +410,7 @@ func (a *App) runDelegateStep(ctx context.Context, s session.Session, st planSte
 		if cont := a.retryContinuation(ctx, s, i, r); cont != "" {
 			retryBrief = strings.TrimSpace(brief + "\n\n" + cont)
 		}
-		r = a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agentName, Prompt: redecomposePrompt(st, retryBrief), Tools: curTools, PlanStepIndex: &i})
+		r = a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agentName, Prompt: redecomposePrompt(st, retryBrief, checklist), Tools: curTools, PlanStepIndex: &i})
 		text = strings.TrimSpace(r.Text)
 	}
 	if delegateNotDone(r, text) {
@@ -631,21 +630,19 @@ func matchStepChecks(checks []council.DeliverableCheck, stepIdx int) []council.D
 // the shared per-turn dispatch budget and the depth cap.
 const refineLocalRetries = 2
 
-// refineContext appends the VERBATIM blocks a refine child cannot inherit, in the same order
-// and position a delegate worker gets them (after the hand-off, post-curation). Being CLONED is
-// not the same as being told: the clone carries the parent's goal and the siblings' actual work,
-// and none of these three rides in it, yet this step is judged by all three.
-//   - checklist: built from the PARENT's stored checks, and it reaches an agent only through a
-//     brief (delegate, recovery unit) or through the volatile context — which is ephemeral and
-//     rebuilt from the CHILD's own check set, empty until the child's own plan audit fills it
-//     with checks for its own sub-plan. Meanwhile runStepGate still judges this step against the
-//     parent's checks, so a refine phase could only ever satisfy that contract by accident.
-//     Delegate got the checklist; so did recovery units; refine was the one left out.
+// refineContext appends the VERBATIM reference blocks a refine child cannot inherit, in the same
+// order and position a delegate worker gets them (after the hand-off, post-curation). Being CLONED
+// is not the same as being told: the clone carries the parent's goal and the siblings' actual work,
+// and neither of these rides in it, yet this step is judged against both.
 //   - ledger: the exact paths survive a clone only until the shared refine session stops
 //     re-cloning (ReuseSession, the default) — a delegate step landing between phase 1 and
 //     phase 2 writes a ledger entry the shared child will never see.
 //   - concern: injected as an ActorSystem message, and cloneConversation drops ActorSystem
 //     prompts outright, so it does not inherit even on the phase that DOES clone.
+//
+// The acceptance checklist is NOT one of these: it is the definition of done for this step, not
+// reference, so it is stated inside the sub-goal itself (refinePrompt/assignmentChecklist) rather
+// than appended here below the prompt's closing "before reporting done" clause.
 //
 // Each block already carries its own header and is empty when it has nothing to say.
 func refineContext(blocks ...string) string {
@@ -705,12 +702,16 @@ func (a *App) runRefineStep(ctx context.Context, s session.Session, st planStep,
 	if adaptDisabled() {
 		retries = 1
 	}
-	ctxBlocks := refineContext(workerChecklist(a.cachedChecks(s.ID), i), renderLedger(a.ledgerOf(s.ID)),
-		concernBrief(a.cachedConcern(s.ID)))
+	// The checklist is stated INSIDE the sub-goal (refinePrompt), not trailed after the prompt's
+	// closing "before reporting done" clause where it used to land — what the step must satisfy
+	// belongs with the statement of the step. The ledger and the concern really are reference and
+	// stay where they were, appended verbatim after it.
+	checklist := workerChecklist(a.cachedChecks(s.ID), i)
+	ctxBlocks := refineContext(renderLedger(a.ledgerOf(s.ID)), concernBrief(a.cachedConcern(s.ID)))
 	fail := ""
 	for attempt := 0; attempt < retries && *budget > 0; attempt++ {
 		*budget-- // count each attempt against the per-turn WRITE dispatch budget (maxPlanWriteSteps)
-		req := port.SpawnRequest{Agent: agentName, Prompt: refinePrompt(st, fail) + ctxBlocks, CloneContext: true, PlanStepIndex: &i}
+		req := port.SpawnRequest{Agent: agentName, Prompt: refinePrompt(st, fail, checklist) + ctxBlocks, CloneContext: true, PlanStepIndex: &i}
 		if shared && rs.sid != "" {
 			// Reuse the shared child instead of re-cloning the parent: this phase (or retry)
 			// runs on top of its predecessors' ACTUAL conversation, not a spawn-time snapshot.
@@ -942,14 +943,14 @@ func (a *App) driveStuckTodos(ctx context.Context, s session.Session, agent Agen
 		// failed unit "done". Here each unit owns its status independently so a stalled one stays
 		// visibly not-done while the rest advance.
 		a.markTodoActive(ctx, s.ID, plannerActor, base+i) // this unit running ◐
-		prompt := stuckUnitPrompt(st, blockReason)
-		// Hand the recovery unit its own acceptance checklist so it RUNS each check before reporting
-		// done — the same discipline a normal delegated step gets (workerChecklist above).
+		// Hand the recovery unit its own acceptance checklist, stated with the unit itself rather than
+		// appended below the prompt's closing clauses — the same discipline, and the same placement, a
+		// normal delegated step gets (workerChecklist / assignmentChecklist).
+		unitChecks := ""
 		if gateRecovery {
-			if cl := workerChecklist(a.cachedChecks(s.ID), i); cl != "" {
-				prompt = strings.TrimSpace(prompt + "\n\n" + cl)
-			}
+			unitChecks = workerChecklist(a.cachedChecks(s.ID), i)
 		}
+		prompt := stuckUnitPrompt(st, blockReason, unitChecks)
 		req := port.SpawnRequest{
 			Agent:    agent.Name,
 			Prompt:   prompt,

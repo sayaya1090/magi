@@ -130,19 +130,45 @@ func planEnvelope(depth, maxPlanDepth, maxSteps int) string {
 	return b.String()
 }
 
+// assignmentChecklist attaches the acceptance checklist to the ASSIGNMENT — the block naming what
+// this child must do — rather than trailing it somewhere after. Empty checklist → empty string.
+//
+// Where it sits decides whether it is followed. The checks are the definition of done, but they used
+// to arrive as just more appended text: on the delegate path inside the brief, which delegatePrompt
+// files under "CONTEXT — reference only; how your part fits, NOT a to-do list" — so the one block
+// stating what the worker must produce was introduced as something it must NOT work from, and the
+// worker did the task text and skipped the checks. On refine and the recovery unit it trailed after
+// verifyContract instead: not contradicted, but arriving after the prompt's closing "before
+// reporting done" instructions, as if the assignment were already over.
+//
+// So every hand-off states it in the same place — immediately under the task, inside the block the
+// child reads as its instructions — with a lead line that says the two are one obligation. The
+// checklist's own text (workerChecklist) still carries the rules; this only anchors it.
+func assignmentChecklist(checklist string) string {
+	cl := strings.TrimSpace(checklist)
+	if cl == "" {
+		return ""
+	}
+	return "\nThis is not done until ALL of the following holds — it is part of the assignment above, " +
+		"not background reading:\n" + cl + "\n"
+}
+
 // refinePrompt frames a refine step as an in-context sub-goal. On a local retry it leads
 // with the prior failure so the next attempt changes approach (the failure is also in the
 // cloned context, but stating it explicitly steadies a weak model). Itemized (개조식) so a
 // weak model reads discrete obligations instead of parsing one long sentence.
-func refinePrompt(st planStep, fail string) string {
+// checklist is this step's acceptance checklist, stated as part of the sub-goal (see
+// assignmentChecklist); empty when the plan authored no checks for it.
+func refinePrompt(st planStep, fail, checklist string) string {
 	var p strings.Builder
 	if f := strings.TrimSpace(fail); f != "" {
 		p.WriteString("A previous attempt at this sub-goal did NOT succeed: " + f + "\n")
 		p.WriteString("Take a DIFFERENT approach this time.\n\n")
 	}
 	p.WriteString("SUB-GOAL — one part of a larger plan; you continue from the conversation so far:\n")
-	p.WriteString(strings.TrimSpace(st.Task) + "\n\n")
-	p.WriteString("How to proceed:\n")
+	p.WriteString(strings.TrimSpace(st.Task) + "\n")
+	p.WriteString(assignmentChecklist(checklist))
+	p.WriteString("\nHow to proceed:\n")
 	p.WriteString("- Break it into concrete steps as needed and complete it fully.\n")
 	p.WriteString("- If after real effort it genuinely cannot be done, report status \"failed\" and say " +
 		"plainly what blocked you — never report unfinished work as done.\n\n")
@@ -204,7 +230,7 @@ func stuckRedecomposePrompt(task, blockReason string) string {
 // acting, so the unit prompt hands the model the context it kept looping to rebuild and a small,
 // concrete next action. blockReason (the wall the previous attempt hit) rides on EVERY unit — the
 // unit that actually touches the fixation point may be any of them, and one warning line is cheap.
-func stuckUnitPrompt(st planStep, blockReason string) string {
+func stuckUnitPrompt(st planStep, blockReason, checklist string) string {
 	unit := strings.TrimSpace(st.Task)
 	if unit == "" {
 		unit = strings.TrimSpace(st.Title)
@@ -215,6 +241,7 @@ func stuckUnitPrompt(st planStep, blockReason string) string {
 	p.WriteString("- a previous attempt on the larger task got stuck; it has been broken into small units.\n\n")
 	p.WriteString("Now carry out ONLY THIS ONE unit, then stop:\n")
 	p.WriteString(unit + "\n")
+	p.WriteString(assignmentChecklist(checklist))
 	if r := strings.TrimSpace(blockReason); r != "" {
 		p.WriteString("\nWHAT BLOCKED THE PREVIOUS ATTEMPT (do not repeat it):\n" + r + "\n")
 	}
@@ -226,14 +253,21 @@ func stuckUnitPrompt(st planStep, blockReason string) string {
 
 // delegatePrompt frames a delegate step for a worker, with a CRISP separation between the worker's
 // own scope and the surrounding context so the two are never confused: the task leads under a
-// "YOUR PART" header (do exactly this, nothing more), and the brief (overall goal, what's already
-// done, literals/boundaries, the acceptance checklist — see delegateBrief/the curated brief) follows
-// under a "CONTEXT" header labelled reference-only, NOT a to-do list. The task is stated once here;
-// the curated brief no longer restates it (renderCurateBrief), so there is no duplicate instruction.
-func delegatePrompt(st planStep, brief string) string {
+// "YOUR PART" header (do exactly this, nothing more) TOGETHER WITH the acceptance checklist that
+// defines when that part is done, and the brief (overall goal, what's already done,
+// literals/boundaries — see delegateBrief/the curated brief) follows under a "CONTEXT" header
+// labelled reference-only, NOT a to-do list. The task is stated once here; the curated brief no
+// longer restates it (renderCurateBrief), so there is no duplicate instruction.
+//
+// The checklist is a SEPARATE argument for exactly that reason. It used to be appended to the brief
+// by the caller, which put the one block naming what the worker must produce under the header that
+// says "reference only … NOT a to-do list": the prompt introduced its own definition of done as
+// something not to work from, and the worker did the task text and left the checks unmet.
+func delegatePrompt(st planStep, brief, checklist string) string {
 	var p strings.Builder
 	p.WriteString("YOUR PART — do EXACTLY this one part of a larger plan, nothing more:\n")
 	p.WriteString(strings.TrimSpace(st.Task) + "\n")
+	p.WriteString(assignmentChecklist(checklist))
 	if b := strings.TrimSpace(brief); b != "" {
 		p.WriteString("\nCONTEXT — reference only; how your part fits, NOT a to-do list (do not do the whole request yourself):\n")
 		p.WriteString(b + "\n")
@@ -309,8 +343,8 @@ const decomposePrefix = "A direct attempt at the task below did NOT complete. Ap
 // redecomposePrompt frames the ADaPT failure-branch retry as the delegate instruction with
 // the decompose prefix — it reuses delegatePrompt's self-contained framing, so the two
 // share their trailing contract instead of duplicating it.
-func redecomposePrompt(st planStep, brief string) string {
-	return decomposePrefix + delegatePrompt(st, brief)
+func redecomposePrompt(st planStep, brief, checklist string) string {
+	return decomposePrefix + delegatePrompt(st, brief, checklist)
 }
 
 // runExplorers dispatches the groups as read-only subagents concurrently and
