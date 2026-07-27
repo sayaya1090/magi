@@ -179,11 +179,21 @@ var ptyGated = regexp.MustCompile(`(?:^|[;&|(]\s*)(?:ssh|telnet|minicom)\s|qemu-
 // when pty is NOT already set: an ssh password prompt / serial getty login cannot be driven
 // over a pipe, so without a pty the model waits out the whole timeout on a prompt it can
 // never answer — the qemu-alpine-ssh failure. Advisory; the caller decides where to surface it.
+//
+// The steer is platform-aware, because pty:true is REJECTED where ptySupported is false
+// (bgproc.go) — telling the model to re-launch that way there is an instruction it can only be
+// refused for following, and it is delivered at the moment the model is already blocked. Where
+// there is no pty the obligation is the same (do not sit on a prompt nothing can answer) but the
+// route is to make the command non-interactive instead.
 func ptyNeededNote(command string, usePTY bool) string {
 	if usePTY || !ptyGated.MatchString(strings.TrimSpace(command)) {
 		return ""
 	}
-	return "[note: this command needs a controlling terminal — ssh reads its password from /dev/tty (not stdin), and a serial/getty login expects a tty; a plain pipe cannot drive them. Re-launch with background:true AND pty:true, then answer prompts with bash_input and read with bash_output. (Key-based auth or `sshpass` avoids the prompt entirely.)]"
+	const why = "[note: this command needs a controlling terminal — ssh reads its password from /dev/tty (not stdin), and a serial/getty login expects a tty; a plain pipe cannot drive them. "
+	if !ptySupported {
+		return why + "This platform has NO pty, so an interactive prompt cannot be answered here at all — make the command non-interactive instead: key-based auth, `sshpass`, or `-o BatchMode=yes -o StrictHostKeyChecking=accept-new` so it fails immediately rather than stalling on a prompt.]"
+	}
+	return why + "Re-launch with background:true AND pty:true, then answer prompts with bash_input and read with bash_output. (Key-based auth or `sshpass` avoids the prompt entirely.)]"
 }
 
 // ephemeralShellState matches a command that mutates shell state with the intent
