@@ -125,6 +125,24 @@ func renderLedger(entries []ledgerEntry) string {
 	return b.String()
 }
 
+// concernBrief formats the plan council's UNRESOLVED critical concern as a VERBATIM block for a
+// worker's prompt. The council raises these about a plan whose steps are then handed to workers, but
+// injectCouncilAdvice appends the notes only to the session it reviewed — so the agent that actually
+// carries out the step never hears what the council could not resolve about it. Framing matters as
+// much as delivery here: a worker owns ONE step, and a concern about the plan as a whole must not
+// read as an instruction to go do the other steps' work.
+func concernBrief(concern string) string {
+	concern = strings.TrimSpace(concern)
+	if concern == "" || !workerConcernEnabled() {
+		return ""
+	}
+	return "── PLAN REVIEW — UNRESOLVED CONCERN (the review council raised this about the plan and could " +
+		"not resolve it; execution proceeded anyway) ──\n" + clipLine(concern, 1200) +
+		"\n\nApply this to YOUR part only. If it bears on the step you were given, satisfy it as you do that " +
+		"step. If it bears on someone else's step, it is not yours to carry out — do not widen your scope; " +
+		"say so in your report instead."
+}
+
 // forceDelegateSteps rewrites every "solo" step into a "delegate" step routed to a worker, ONCE and
 // up front (before the todos are registered and before executeSteps runs) rather than per-step at
 // dispatch. This keeps the plan the user SEES honest: previously the rewrite happened inside
@@ -355,6 +373,11 @@ func (a *App) runDelegateStep(ctx context.Context, s session.Session, st planSte
 	// AFTER curation, so the curator's paraphrase can't drop a file location the next step needs.
 	if lg := renderLedger(a.ledgerOf(s.ID)); lg != "" {
 		brief = strings.TrimSpace(brief + "\n\n" + lg)
+	}
+	// Same VERBATIM, post-curation position for the plan council's unresolved concern: the council
+	// deliberated over this plan, then the steps went to workers who never saw the review.
+	if cb := concernBrief(a.cachedConcern(s.ID)); cb != "" {
+		brief = strings.TrimSpace(brief + "\n\n" + cb)
 	}
 	r := a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agentName, Prompt: delegatePrompt(st, brief), Tools: curTools, PlanStepIndex: &i})
 	text := strings.TrimSpace(r.Text)

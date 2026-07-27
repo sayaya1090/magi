@@ -535,6 +535,17 @@ func checkContextEnabled() bool { return !envOff("MAGI_CHECK_CONTEXT") }
 // budget names the undispatched steps either way.
 func splitBudgetEnabled() bool { return !envOff("MAGI_SPLIT_BUDGET") }
 
+// workerConcernEnabled gates carrying the plan council's UNRESOLVED concern into every delegate
+// worker's brief. The council deliberates over the plan and, when it cannot resolve a critical
+// concern within the round cap, proceeds anyway and appends its notes to the session it reviewed —
+// but the steps of that plan are then executed by WORKERS in fresh sessions, which never see the
+// parent's messages. So the council could spend three rounds establishing what the plan gets wrong
+// about a step, and the agent that runs that step is the one participant who never hears it. Only
+// the unresolved kind is carried (approved advice is advisory by construction, and forwarding all
+// of it would bury each worker's own part), verbatim and after curation, scoped to the worker's own
+// step. Default ON; MAGI_WORKER_CONCERN=0 restores the main-session-only baseline for A/B.
+func workerConcernEnabled() bool { return !envOff("MAGI_WORKER_CONCERN") }
+
 // stallNoveltyEnabled gates counting a NOVEL inspect-only command (a first-seen
 // fingerprint — a new grep pattern, a new file listed) as "the agent responded to the
 // stalled nudge", so the D18a convergence only collapses the nudge budget when the
