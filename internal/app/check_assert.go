@@ -105,6 +105,21 @@ func parseAssertion(s string) (assertion, bool) {
 // audit converts a stray command-shaped check into that form before it is ever stored; this is the
 // floor under both, and it is deliberately visible in the log rather than silent.
 func (a *App) runCheck(ctx context.Context, sid session.SessionID, workdir string, c council.DeliverableCheck) (string, int) {
+	// A check may not read the turn's scratch. The scratch is removed when the turn ends, so a check
+	// that points into it can pass exactly once and can never be re-run — the next gate, the next
+	// turn, and anyone reproducing the result all find nothing there. That is worse than an
+	// unrunnable check, because it passes first and disappears afterwards.
+	//
+	// This sits at the floor rather than at authoring so it covers every way a check arrives: the
+	// plan audit, the coverage fill, and a worker's substitute_check, which is the likeliest source
+	// now that agents write their working files there. 126, not a failure: the DELIVERABLE is not
+	// what is wrong, the check is, so the step lands ungated rather than falsely failed.
+	if why := a.scratchSourceRefusal(sid, c.Source); why != "" {
+		a.emitToolProgress(sid, plannerActor, "", "check-typed",
+			fmt.Sprintf("check-typed: the check for %q %s — no verdict for this check",
+				clipLine(strings.TrimSpace(c.Deliverable), 80), why))
+		return "the check reads a temporary path: " + why, 126
+	}
 	if strings.TrimSpace(c.Assert) == "" {
 		a.emitToolProgress(sid, plannerActor, "", "check-typed",
 			fmt.Sprintf("check-typed: the check for %q carries no `assert` (%s) — nothing to evaluate, so this step "+

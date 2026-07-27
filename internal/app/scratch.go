@@ -120,3 +120,38 @@ func (a *App) setScratch(sid session.SessionID, s *turnScratch) {
 	a.stateLocked(sid).scratch = s
 	a.mu.Unlock()
 }
+
+// scratchSourceRefusal reports why a check may not read this path, or "" when it may.
+//
+// Two ways a path is temporary. It is under THIS turn's scratch — the common case now that TMPDIR
+// points there, so a worker recording its real output lands in it naturally and then names it as
+// the check's source. Or it carries magi's own turn-directory name from some other turn, which no
+// longer exists at all; a check authored against one of those can never pass again, and reporting
+// it as a failing deliverable would send the run chasing a defect that is not in the code.
+//
+// A path outside both is none of magi's business: an agent may legitimately record output to /tmp
+// itself, and that file lives as long as the machine keeps it.
+func (a *App) scratchSourceRefusal(sid session.SessionID, source string) string {
+	src := strings.TrimSpace(source)
+	if src == "" {
+		return ""
+	}
+	if sc := a.scratchFor(sid); sc != nil && underDir(src, sc.root) {
+		return "reads " + src + ", inside this turn's scratch directory — that is removed when the turn ends, " +
+			"so the check could pass once and never be re-run. Record the real output somewhere in the workspace and assert on that"
+	}
+	if strings.Contains(src, "magi-turn-") {
+		return "reads " + src + ", a scratch directory from a turn that is over — nothing is there to read"
+	}
+	return ""
+}
+
+// underDir reports whether path is dir itself or lives inside it, comparing cleaned paths so
+// `/tmp/magi-turn-x/../elsewhere` cannot slip through on spelling.
+func underDir(path, dir string) bool {
+	if dir == "" {
+		return false
+	}
+	p, d := filepath.Clean(path), filepath.Clean(dir)
+	return p == d || strings.HasPrefix(p, d+string(filepath.Separator))
+}
