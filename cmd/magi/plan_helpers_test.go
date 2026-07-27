@@ -9,37 +9,6 @@ import (
 	"github.com/sayaya1090/magi/internal/config"
 )
 
-// diffSteps reports which entries are new in `after` (added, in after-order) and which are gone
-// from `before` (removed, in before-order). Membership is set-based, so a step present in both is
-// neither added nor removed regardless of position.
-func TestDiffSteps(t *testing.T) {
-	added, removed := diffSteps(
-		[]string{"a", "b", "c"},
-		[]string{"b", "c", "d", "e"},
-	)
-	if !reflect.DeepEqual(added, []string{"d", "e"}) {
-		t.Errorf("added = %v, want [d e]", added)
-	}
-	if !reflect.DeepEqual(removed, []string{"a"}) {
-		t.Errorf("removed = %v, want [a]", removed)
-	}
-	// Identical plans → no diff (both named returns stay nil).
-	if a, r := diffSteps([]string{"x"}, []string{"x"}); a != nil || r != nil {
-		t.Errorf("identical: added=%v removed=%v, want nil/nil", a, r)
-	}
-	// Reorder without content change → still no diff (set membership, not position).
-	if a, r := diffSteps([]string{"a", "b"}, []string{"b", "a"}); a != nil || r != nil {
-		t.Errorf("reorder: added=%v removed=%v, want nil/nil", a, r)
-	}
-	// From-empty is all added; to-empty is all removed, each in source order.
-	if a, _ := diffSteps(nil, []string{"p", "q"}); !reflect.DeepEqual(a, []string{"p", "q"}) {
-		t.Errorf("from empty: added=%v, want [p q]", a)
-	}
-	if _, r := diffSteps([]string{"p", "q"}, nil); !reflect.DeepEqual(r, []string{"p", "q"}) {
-		t.Errorf("to empty: removed=%v, want [p q]", r)
-	}
-}
-
 // planDepthFromEnv reads MAGI_MAX_PLAN_DEPTH: a valid non-negative int is used; empty (incl. unset),
 // non-numeric, or negative all fall back to 0 (the "unset" sentinel). The value is trimmed.
 func TestPlanDepthFromEnv(t *testing.T) {

@@ -1,6 +1,10 @@
 package event
 
 import (
+	"fmt"
+	"strings"
+	"unicode/utf8"
+
 	"github.com/sayaya1090/magi/internal/core/artifact"
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -248,6 +252,43 @@ type CouncilDecidedData struct {
 	Criteria []string `json:"criteria,omitempty"`
 }
 
+// FeedbackLines renders a rejection's feedback for a human surface: the non-blank lines, each
+// truncated, and the whole capped — enough to name every demand holding the turn open without
+// letting one verbose member's reasoning bury the transcript. Empty feedback (an approval, or a
+// forced finish whose reason is already in the note) renders nothing.
+//
+// It lives on the payload because BOTH surfaces need it and neither may show less than the other:
+// the injected feedback reaches the transcript only as a system note clipped to its first line,
+// with the advisory keep-list prepended above it — so the clip is spent on the advisory and the
+// objection that actually held the turn open appears nowhere.
+func (d CouncilDecidedData) FeedbackLines() []string {
+	const maxLines, maxWidth = 12, 200
+	var out []string
+	for _, ln := range strings.Split(strings.TrimSpace(d.Feedback), "\n") {
+		ln = strings.TrimRight(ln, " \t")
+		if strings.TrimSpace(ln) == "" {
+			continue
+		}
+		if len(out) == maxLines {
+			return append(out, fmt.Sprintf("… (feedback continues; %d line(s) shown)", maxLines))
+		}
+		out = append(out, truncRunes(ln, maxWidth))
+	}
+	return out
+}
+
+// truncRunes cuts s to at most n bytes on a rune boundary (never splitting a multibyte
+// character) and marks the cut.
+func truncRunes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n] + "…"
+}
+
 // StepCheckData — TypeStepCheck (one deterministic deliverable-check execution).
 // It carries the pieces separately so the UI can render a clean glyph line
 // (✓/✗ + step + deliverable) instead of parsing a formatted note.
@@ -295,6 +336,32 @@ type PlanRevisedData struct {
 	After     []string `json:"after,omitempty"`
 	Addressed *bool    `json:"addressed,omitempty"`
 	Reason    string   `json:"reason,omitempty"`
+}
+
+// Diff reports what this revision changed: added = step summaries in After but not Before (in
+// after-order), removed = in Before but not After (in before-order). Membership is set-based, so
+// a step present in both is neither added nor removed regardless of where it moved to. Shared by
+// every surface that renders the revision, so none of them can describe the same fact differently.
+func (d PlanRevisedData) Diff() (added, removed []string) {
+	inBefore := make(map[string]bool, len(d.Before))
+	for _, s := range d.Before {
+		inBefore[s] = true
+	}
+	inAfter := make(map[string]bool, len(d.After))
+	for _, s := range d.After {
+		inAfter[s] = true
+	}
+	for _, s := range d.After {
+		if !inBefore[s] {
+			added = append(added, s)
+		}
+	}
+	for _, s := range d.Before {
+		if !inAfter[s] {
+			removed = append(removed, s)
+		}
+	}
+	return added, removed
 }
 
 // --- Concern ledger ---

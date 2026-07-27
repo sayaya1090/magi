@@ -968,7 +968,7 @@ func renderText(out, errw io.Writer, e event.Event) {
 			// of continue whose subject was only recoverable from the model's paraphrase of it).
 			// Its own case, bounded like the PlanRevised diff above, since a run with no record of
 			// WHY the council refused cannot be diagnosed afterward at all.
-			for _, ln := range councilFeedbackLines(d.Feedback) {
+			for _, ln := range d.FeedbackLines() {
 				fmt.Fprintln(out, "    "+ln)
 			}
 		}
@@ -980,7 +980,7 @@ func renderText(out, errw io.Writer, e event.Event) {
 		if json.Unmarshal(e.Data, &d) == nil {
 			crit := strings.ReplaceAll(truncate(strings.TrimSpace(d.Critique), 200), "\n", " ")
 			fmt.Fprintf(out, "⟳ council plan-revised (round %d): %s\n", d.Round, crit)
-			added, removed := diffSteps(d.Before, d.After)
+			added, removed := d.Diff()
 			for _, s := range removed {
 				fmt.Fprintf(out, "    − %s\n", truncate(s, 120))
 			}
@@ -1033,31 +1033,6 @@ func renderText(out, errw io.Writer, e event.Event) {
 	}
 }
 
-// diffSteps computes the step-summary set difference between two plan revisions:
-// added = in after but not before, removed = in before but not after. Order follows the
-// respective slice; duplicate summaries collapse (a plan rarely has identical step lines).
-func diffSteps(before, after []string) (added, removed []string) {
-	inBefore := make(map[string]bool, len(before))
-	for _, s := range before {
-		inBefore[s] = true
-	}
-	inAfter := make(map[string]bool, len(after))
-	for _, s := range after {
-		inAfter[s] = true
-	}
-	for _, s := range after {
-		if !inBefore[s] {
-			added = append(added, s)
-		}
-	}
-	for _, s := range before {
-		if !inAfter[s] {
-			removed = append(removed, s)
-		}
-	}
-	return added, removed
-}
-
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
@@ -1068,26 +1043,6 @@ func truncate(s string, n int) string {
 		n--
 	}
 	return s[:n] + "…"
-}
-
-// councilFeedbackLines renders a council rejection's feedback for the run log: the non-blank lines,
-// each truncated, and the whole capped — enough to name every demand that is holding the turn open
-// without letting one verbose member's reasoning bury the rest of the transcript. Empty feedback
-// (an approval, or a forced finish whose reason is already in the note) renders nothing.
-func councilFeedbackLines(fb string) []string {
-	const maxLines, maxWidth = 12, 200
-	var out []string
-	for _, ln := range strings.Split(strings.TrimSpace(fb), "\n") {
-		ln = strings.TrimRight(ln, " \t")
-		if strings.TrimSpace(ln) == "" {
-			continue
-		}
-		if len(out) == maxLines {
-			return append(out, fmt.Sprintf("… (feedback continues; %d line(s) shown)", maxLines))
-		}
-		out = append(out, truncate(ln, maxWidth))
-	}
-	return out
 }
 
 // councilSignals builds the council's deterministic signal list: the `verify`
