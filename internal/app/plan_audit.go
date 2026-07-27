@@ -62,7 +62,12 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		delib, err := a.cfg.Council.Deliberate(ctx, port.DeliberationRequest{
 			Round: round, Phase: "plan", Task: auditTask, Plan: renderSteps(steps), Contest: pendingContest,
 			Revision: pendingRevision,
-			Members:  members, Rule: rule, Debate: councilDebateEnabled(), DefaultModel: s.Model.Model,
+			// Keep is what makes the preserve-across-revisions branch below reachable: without it the
+			// member prompt omits the `keep` clause and its schema field, so no verdict can carry one
+			// and AggregateKeep is always empty. The clause was written FOR this phase — one member's
+			// critical flaw re-plans the WHOLE plan — so the plan audit has to ask for it.
+			Keep:    councilKeepEnabled(),
+			Members: members, Rule: rule, Debate: councilDebateEnabled(), DefaultModel: s.Model.Model,
 		})
 		pendingContest = ""  // consumed this round; a fresh re-plan below may set a new one
 		pendingRevision = "" // ditto — only the round right after a rewrite carries it
