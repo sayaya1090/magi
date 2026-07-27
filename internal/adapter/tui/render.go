@@ -59,6 +59,13 @@ type block struct {
 	// spinner. Cleared when the message is answered inline (moveUserBlockBefore), resurfaces as
 	// its own turn (moveUserBlockToEnd), or the turn finishes and the queue drains.
 	queued bool
+	// abandoned marks a blockUser that no turn will ever answer: the prompt was cancelled, or it
+	// was coalesced into a later request that carries its text. The bubble itself is otherwise
+	// untouched — onTurnFinished clears the queued glyph off every waiting bubble at turn end —
+	// so a request that was silently dropped comes to rest looking exactly like one that got a
+	// reply, on screen and again on every resume. The fact is recorded (TypePromptAbandoned) and
+	// consumed by seedPromptIdx; this is the only place it is shown.
+	abandoned bool
 	// councilVerdicts carries a round's member votes for a blockCouncilVerdict block:
 	// they render compact on ONE line, and a click opens the full-screen detail for
 	// the member under the cursor. evidence is the pre-formatted "what the members saw
@@ -315,10 +322,19 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 		case blk.queued:
 			lbl = styleQueuedBar.Render(queuedGlyph+" ") + styleUserLabel.Render(who)
 		}
+		// State, not decoration: this request is never getting an answer of its own, and the
+		// event says only that — cancelled and coalesced write the same marker — so the note
+		// names both rather than picking one. It trails the copy chip because copyBlockAt
+		// derives the chip's click column from label+timestamp width alone (model_blocks.go);
+		// anything inserted ahead of the chip would slide the copy button out from under it.
+		var note string
+		if blk.abandoned {
+			note = styleFooter.Render("  (not answered — cancelled or merged)")
+		}
 		// B-layout: label · HH:MM · copy chip — the timestamp sits BETWEEN the label and
 		// the chip so the chip stays the last thing on the line and copyBlockAt's hit-test
 		// geometry (label width + space + 3-cell chip) is unchanged.
-		return lbl + tsChip(blk.ts) + copyChip() + "\n" + indent(body)
+		return lbl + tsChip(blk.ts) + copyChip() + note + "\n" + indent(body)
 	case blockAssistant:
 		return label(asstStyle, asstName) + tsChip(blk.ts) + copyChip() + "\n" + m.markdown(blk.text)
 	case blockToolCall:

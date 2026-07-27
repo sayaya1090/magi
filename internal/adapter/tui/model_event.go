@@ -353,6 +353,23 @@ func (m *Model) applyEvent(e event.Event) {
 			}
 		}
 
+	case event.TypePromptAbandoned:
+		// This request will never be answered: its turn was cancelled, or it was coalesced into a
+		// later one that carries its text. Nothing said so, so the bubble kept its queued glyph —
+		// on screen now and again on every resume — and a dropped request looked exactly like one
+		// still waiting its turn. Mark the bubble instead of adding a line: the fact is about that
+		// message, and a separate notice would be read as being about the newest one.
+		var d event.PromptAbandonedData
+		if json.Unmarshal(e.Data, &d) == nil && d.MsgID != "" {
+			for i := range m.blocks {
+				if m.blocks[i].kind == blockUser && m.blocks[i].reqID == d.MsgID {
+					m.blocks[i].queued, m.blocks[i].abandoned = false, true
+					m.cache = m.cache[:min(i, len(m.cache))] // re-render it (the cache is append-only)
+					break
+				}
+			}
+		}
+
 	case event.TypeConcernRaised:
 		// The concern ledger's only surface was the council detail modal — reachable solely by
 		// clicking a member of a round that produced verdicts. Announce the open where it happens.
