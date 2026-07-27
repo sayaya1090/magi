@@ -419,6 +419,22 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 		// otherwise only visible by clicking the member. done/abstain add no line, so
 		// the row stays compact when the council agrees (or merely abstains).
 		var reasons []string
+		// Wrap one member's note under the row with a hanging indent aligned under the text
+		// (continuation lines line up past the prefix), instead of cutting it off with an ellipsis.
+		note := func(member, prefix, body string) {
+			hue := m.councilColor(member)
+			pw := lipgloss.Width(prefix) // display width (CJK/wide member names count as 2)
+			pad := strings.Repeat(" ", pw)
+			wrapped := wrapLines(oneLine(body, 100000), max(20, m.bodyWidth()-2-pw))
+			label := lipgloss.NewStyle().Foreground(hue).Render(prefix)
+			for k, ln := range wrapped {
+				if k == 0 {
+					reasons = append(reasons, indent(label+styleToolResult.Render(ln)))
+				} else {
+					reasons = append(reasons, indent(pad+styleToolResult.Render(ln)))
+				}
+			}
+		}
 		for _, v := range blk.councilVerdicts {
 			if v.Decision != "continue" {
 				continue
@@ -430,21 +446,16 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 			if reason == "" {
 				continue
 			}
-			hue := m.councilColor(v.Member)
-			prefix := "  → " + v.Member + ": "
-			pw := lipgloss.Width(prefix) // display width (CJK/wide member names count as 2)
-			pad := strings.Repeat(" ", pw)
-			// Wrap the reason to the transcript width with a hanging indent aligned under
-			// the text (continuation lines line up past "→ Member: "), instead of cutting
-			// it off with an ellipsis.
-			wrapped := wrapLines(oneLine(reason, 100000), max(20, m.bodyWidth()-2-pw))
-			label := lipgloss.NewStyle().Foreground(hue).Render(prefix)
-			for k, ln := range wrapped {
-				if k == 0 {
-					reasons = append(reasons, indent(label+styleToolResult.Render(ln)))
-				} else {
-					reasons = append(reasons, indent(pad+styleToolResult.Render(ln)))
-				}
+			note(v.Member, "  → "+v.Member+": ", reason)
+		}
+		// Then what each member said must SURVIVE the revision (its advisory keep). Unlike the
+		// reasons above this is not gated on the vote: an approving member's keep is exactly the
+		// part a rewrite forced by another member's objection would drop. It reaches the model
+		// (prepended to the injected feedback) and had no on-screen path at all, so the only
+		// instruction protecting work already done was the one nobody could read.
+		for _, v := range blk.councilVerdicts {
+			if k := strings.TrimSpace(v.Keep); k != "" {
+				note(v.Member, "  ⊙ "+v.Member+" keep: ", k)
 			}
 		}
 		if len(reasons) > 0 {

@@ -299,6 +299,14 @@ func (m *Model) renderCouncilDetail(width int) string {
 	if v.Feedback != "" {
 		b.WriteString("\n" + styleFooter.Render("next step") + "\n" + wrap.Render(v.Feedback) + "\n")
 	}
+	// The member's advisory "keep": what a revision must NOT lose. It is produced, persisted per
+	// member, and prepended to the feedback injected into the model — but it had no rendering path
+	// at all, so the one instruction protecting work already done was the only part of a verdict
+	// the user could not read. It belongs directly under "next step": the two are read together —
+	// what to change, and what changing it must not break.
+	if k := strings.TrimSpace(v.Keep); k != "" {
+		b.WriteString("\n" + styleFooter.Render("keep — the revision must not lose this") + "\n" + wrap.Render(k) + "\n")
+	}
 	// Ledger: the contract this council judges the turn against — the acceptance criteria and the
 	// executable deliverable checks it verifies. Shown so the detail view reveals not just one
 	// member's vote but WHAT the whole council is checking for.
@@ -353,6 +361,12 @@ func formatCouncilEvidence(d event.CouncilConvenedData) string {
 	add("Changes", colorizeChanges(d.Changes))
 	if d.NoChanges {
 		b.WriteString("(no files changed — a read-only / answer turn)\n")
+	}
+	// Whether the round ASKED for a keep. Without it a verdict with no keep section is ambiguous —
+	// nobody was asked, or everyone was asked and none answered — and a gate that silently stops
+	// asking looks exactly like one that asks and gets nothing back.
+	if d.Keep {
+		b.WriteString("(members were asked what a revision must preserve — each verdict's \"keep\")\n")
 	}
 	return strings.TrimSpace(b.String())
 }
