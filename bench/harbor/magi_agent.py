@@ -185,6 +185,7 @@ class MagiAgent(BaseInstalledAgent):
             "MAGI_REASONING_EFFORT",
             "MAGI_CRITERIA_CONTEXT",
             "MAGI_CHECK_CONTEXT",
+            "MAGI_SPLIT_BUDGET",
             "MAGI_SPEC_MINE",
             "MAGI_EXEC_EVIDENCE",
             "MAGI_COUNCIL_DEBATE",
