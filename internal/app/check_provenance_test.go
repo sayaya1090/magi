@@ -1,10 +1,15 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/sayaya1090/magi/internal/core/command"
+	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -228,5 +233,54 @@ func TestProvAuditDoneMemoizes(t *testing.T) {
 	}
 	if app.provAuditDone(sid, "/app/a.log", "failed") {
 		t.Fatal("a different pattern is a different question")
+	}
+}
+
+// `nonempty` is where the provenance answer decides the VERDICT rather than annotating it. An
+// assertion that only requires "something is here", on a file whose something came out of the
+// reply, is a check that proves nothing either way — the documented meaning of 126. Observed live
+// one second apart: `echo "Bootstrap completed successfully - no crash in build" > /app/crash.log`,
+// then that check flipping to pass on a step whose deliverable was "bootstrap crash reproduced".
+//
+// Ungated rather than FAILED is what keeps the legitimate case whole: when the deliverable is the
+// file the worker wrote, this refuses to credit it and refuses to reject it.
+func TestNonemptyOnAComposedFileYieldsNoVerdict(t *testing.T) {
+	skipOnWindows(t)
+	wd := t.TempDir()
+	if werr := os.WriteFile(filepath.Join(wd, "test.log"), []byte("All tests passed\n"), 0o644); werr != nil {
+		t.Fatal(werr)
+	}
+	app := newShellApp(t, &shellPlatform{})
+	sid, err := app.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Absolute, because the check runner reaches the platform directly and the test platform runs
+	// commands without a working directory. samePath still matches the relative spelling the tool
+	// call used.
+	c := council.DeliverableCheck{Step: "1", Deliverable: "tests run",
+		Source: filepath.Join(wd, "test.log"), Assert: "nonempty"}
+
+	// A file no tool authored: an ordinary pass.
+	out, code := app.runCheck(context.Background(), sid, wd, c)
+	if code != 0 {
+		t.Fatalf("an unauthored file must pass: %d %s", code, out)
+	}
+
+	// The same file, now with the worker's own composing call in the session's record → no verdict.
+	app.mu.Lock()
+	app.states[sid].provAudited = nil // the audit is asked once per (source, pattern)
+	app.mu.Unlock()
+	if _, err := app.store.Append(context.Background(), sid,
+		toolCallEvent("bash", `{"command":"echo 'All tests passed' > test.log"}`)); err != nil {
+		t.Fatal(err)
+	}
+	out, code = app.runCheck(context.Background(), sid, wd, c)
+	if code != 126 {
+		t.Fatalf("a composed file gives `nonempty` nothing to prove: code=%d out=%s", code, out)
+	}
+	if !strings.Contains(out, "came out of the reply") {
+		t.Errorf("the verdict must carry the reason: %s", out)
 	}
 }

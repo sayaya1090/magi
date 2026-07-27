@@ -189,8 +189,24 @@ func (a *App) runTypedCheck(ctx context.Context, sid session.SessionID, workdir 
 			return fmt.Sprintf("%s is empty", src), 1
 		}
 		// `nonempty` is the cheapest assertion to satisfy — any text at all does it — so a pass is
-		// exactly where to ask where the bytes came from.
-		return a.withProvenance(ctx, sid, src, as, fmt.Sprintf("%s: %d bytes", src, len(body))), 0
+		// exactly where to ask where the bytes came from. And here, unlike the verbs that carry a
+		// pattern, the answer decides the VERDICT rather than annotating it: an assertion that only
+		// requires "something is here", on a file whose something came out of the reply, is a check
+		// that proves nothing either way. That is the documented meaning of 126 — no verdict, the
+		// step lands ungated rather than failed — and it is the honest reading, because there is
+		// nothing in a composed file that could distinguish a real recording from a typed one.
+		//
+		// Observed live, one second apart: `echo "Bootstrap completed successfully - no crash in
+		// build" > /app/crash.log`, then this check flipping to pass on a step whose deliverable was
+		// "bootstrap crash reproduced", while the build was segfaulting.
+		//
+		// Ungated rather than failed is what keeps the legitimate case whole: when the deliverable
+		// IS the file the worker wrote, this refuses to CREDIT it, and refuses to reject it too.
+		if note := a.auditSourceProvenance(ctx, sid, src, as); note != "" {
+			a.emitToolProgress(sid, plannerActor, "", "check-provenance", "check-provenance: "+note)
+			return fmt.Sprintf("%s: %d bytes — %s", src, len(body), note), 126
+		}
+		return fmt.Sprintf("%s: %d bytes", src, len(body)), 0
 	case "matches", "absent":
 		// Reuse the check's own matcher so a typed pattern behaves EXACTLY as a command check's
 		// `expect` does — including the line-wise retry that keeps an anchored pattern from being a
