@@ -54,6 +54,33 @@ const curateSystem = "You prepare a work packet for a worker sub-agent that carr
 	"always available and must NOT be listed.\n" +
 	"Include only what THIS sub-task needs; keep each field tight."
 
+// curateRetryReminder names the defect the previous reply actually had. "Reply with only JSON" is
+// useless advice to a model whose object WAS bare and merely malformed, and it is the shape observed
+// live — prose written between two array elements, unquoted — so the syntax branch says which
+// bracket rule was broken instead of restating the format. The stakes are stated too: the model
+// cannot know that an unreadable packet is not a neutral outcome for the worker downstream.
+func curateRetryReminder(text string) string {
+	const head = "\n\n# Your previous reply could not be used\nThat is not a neutral outcome: without a " +
+		"packet the worker is handed a mechanical brief that loses the verbatim identifiers this packet " +
+		"exists to carry, and it renames them. "
+	d := jsonx.Diagnose(text)
+	switch {
+	case strings.HasPrefix(d, "syntax error"):
+		return head + "The reply DID contain a JSON object, so the problem is not prose around it — the JSON " +
+			"itself is malformed:\n" + d + "\nSend the SAME packet again as one well-formed JSON object. Every " +
+			"`[` must be closed by `]` BEFORE the next key begins, every `{` by `}`, and every string by its " +
+			"closing quote. Explanatory text belongs INSIDE a quoted string; it can never sit between two array " +
+			"elements or between two keys."
+	case strings.HasPrefix(d, "the JSON parses"):
+		return head + "The JSON is well-formed but carries none of the packet's content: " + d + "\nSend the " +
+			"object again using the field names above (goal, progress, task, literals, constraints, deliverable, " +
+			"tools), with the context the worker needs actually filled in."
+	default:
+		return head + "Reply with ONLY the JSON object — no prose, explanation, or markdown fence before or " +
+			"after it."
+	}
+}
+
 // The list fields are read tolerantly: a model that answers "literals" with a single bare string
 // instead of a one-element list would otherwise fail the WHOLE packet, and the worker then falls
 // back to the mechanical brief that loses exactly the verbatim identifiers this field carries.
@@ -126,17 +153,38 @@ func (a *App) curateDelegate(ctx context.Context, agent AgentSpec, s session.Ses
 	b.WriteString("Sub-task:\n" + clipSpec(task, 1500) + "\n\nSpecialized tools available: " + strings.Join(specialized, ", "))
 	raw := a.specMineCall(ctx, agent, s.ID, "curator", model, curateSystem, b.String()) // reuse the tool-free elicitation
 	pkt, ok := parseCuratePacket(raw)
-	if !ok {
-		// Falling back to the mechanical brief loses exactly what the packet exists to carry — the
-		// verbatim identifiers a grader matches — so this must not be silent.
-		a.emitToolProgress(s.ID, event.Actor{Kind: event.ActorAgent, ID: "curator"}, "", "curator",
-			fmt.Sprintf("curator: packet unusable (%d chars) — falling back to the mechanical brief :: %s",
-				len(raw), jsonx.Report(raw)))
-		return "", nil
+	brief := ""
+	if ok {
+		brief = renderCurateBrief(pkt)
 	}
-	brief := renderCurateBrief(pkt)
-	if brief == "" { // nothing usable produced → fall back to the mechanical brief
-		return "", nil
+	// Falling back to the mechanical brief loses exactly what the packet exists to carry — the
+	// verbatim identifiers the acceptance depends on — so an unreadable reply must not end the pass
+	// silently-in-effect. Every other side call that parses model JSON already re-asks once naming
+	// the actual defect (the planner, the check audit, each council member); the curator was the one
+	// that did not, and it fails the same way: observed live, a 1490-char packet lost to one unquoted
+	// stretch of prose inside an array, which the model can fix in a second attempt and cannot fix
+	// without being told. One bounded call, only on the failure path.
+	//
+	// An empty BRIEF is the same loss by a different route — the object parsed but carries no context
+	// worth handing over — so it takes the same retry rather than returning quietly.
+	if brief == "" {
+		a.emitToolProgress(s.ID, event.Actor{Kind: event.ActorAgent, ID: "curator"}, "", "curator",
+			fmt.Sprintf("curator: packet unusable (%d chars, parsed=%t) — retrying once :: %s",
+				len(raw), ok, jsonx.Report(raw)))
+		raw2 := a.specMineCall(ctx, agent, s.ID, "curator", model, curateSystem+curateRetryReminder(raw), b.String())
+		if pkt2, ok2 := parseCuratePacket(raw2); ok2 {
+			if b2 := renderCurateBrief(pkt2); b2 != "" {
+				pkt, brief = pkt2, b2
+			}
+		}
+		if brief == "" {
+			// Terminal line for this pass: the caller stays silent after this, so the reason the worker
+			// is about to get a mechanical brief has to be here.
+			a.emitToolProgress(s.ID, event.Actor{Kind: event.ActorAgent, ID: "curator"}, "", "curator",
+				fmt.Sprintf("curator: the retry was unusable too (%d chars) — falling back to the mechanical "+
+					"brief :: %s", len(raw2), jsonx.Report(raw2)))
+			return "", nil
+		}
 	}
 	tools := a.resolveCuratedTools(pkt.Tools)
 	// Transparency: surface what the curator produced so a run is interpretable (which specialized
