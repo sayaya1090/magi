@@ -184,6 +184,7 @@ class MagiAgent(BaseInstalledAgent):
             "MAGI_STREAM_DIAG",
             "MAGI_REASONING_EFFORT",
             "MAGI_CRITERIA_CONTEXT",
+            "MAGI_CHECK_CONTEXT",
             "MAGI_SPEC_MINE",
             "MAGI_EXEC_EVIDENCE",
             "MAGI_COUNCIL_DEBATE",
