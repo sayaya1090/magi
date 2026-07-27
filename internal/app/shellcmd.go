@@ -295,6 +295,13 @@ func redirectsToFile(cmd string) bool {
 			return true
 		}
 	}
+	return len(redirectTargets(cmd)) > 0
+}
+
+// redirectTargets returns the file paths a command's `>`/`>>` operators write to, in order,
+// applying redirectsToFile's exclusions (fd duplications, /dev sinks, a bare `>`).
+func redirectTargets(cmd string) []string {
+	var out []string
 	for i := 0; i < len(cmd); i++ {
 		if cmd[i] != '>' {
 			continue
@@ -319,9 +326,115 @@ func redirectsToFile(cmd string) bool {
 		if target == "" || strings.HasPrefix(target, "/dev/") {
 			continue // bare `>` with no visible target, or a /dev sink
 		}
-		return true
+		out = append(out, target)
 	}
-	return false
+	return out
+}
+
+// bashWriteCap bounds how many destinations one bash call contributes, so a wide `rm`/`tee`
+// cannot flood the per-turn content history the self-revert check keeps.
+const bashWriteCap = 8
+
+// bashWritePaths names the files a mutating bash command writes, so a bash mutation can go
+// through the SAME content-level self-revert check (noteEdit) that write/edit already do.
+// It is deliberately NARROWER than redirectsToFile/mutatesFiles, which only have to answer
+// "did this author something": here a wrong path compares the wrong file's content, so a
+// destination that is not unambiguous from the command text yields nothing and the command
+// keeps its epoch bump with no revert check. Skipped for that reason: globs and anything
+// needing shell expansion, directory targets, multi-source `cp`/`mv`, recursive copies, and
+// `patch`/`git apply`/archive extraction (their destinations live inside the payload).
+// Missing a revert is the safe direction — inventing one would retract real progress.
+func bashWritePaths(cmd string) []string {
+	var out []string
+	add := func(p string) {
+		p = strings.Trim(p, `"'`)
+		if p == "" || len(out) >= bashWriteCap {
+			return
+		}
+		if strings.HasPrefix(p, "/dev/") || strings.HasSuffix(p, "/") {
+			return // a sink, or a directory target whose real destination we cannot name
+		}
+		if strings.ContainsAny(p, "*?[]{}$`~") {
+			return // needs a shell to resolve; guessing would read the wrong file
+		}
+		for _, seen := range out {
+			if seen == p {
+				return
+			}
+		}
+		out = append(out, p)
+	}
+	for _, t := range redirectTargets(cmd) {
+		add(t)
+	}
+	for _, seg := range splitShellSegments(stripHeredocs(cmd)) {
+		fields := strings.Fields(seg)
+		if len(fields) < 2 {
+			continue
+		}
+		switch leadingVerb(seg) {
+		case "tee":
+			for _, f := range fields[1:] {
+				if !strings.HasPrefix(f, "-") {
+					add(f)
+				}
+			}
+		case "sed", "perl":
+			// Only `-i` rewrites in place; without it the command prints and changes nothing.
+			// Operands are the trailing files — the first is the script UNLESS `-e`/`-f` supplied it.
+			inPlace, scripted := false, false
+			var operands []string
+			for i := 1; i < len(fields); i++ {
+				f := fields[i]
+				if f == "-i" || strings.HasPrefix(f, "-i.") || strings.HasPrefix(f, "-i'") {
+					inPlace = true
+					continue
+				}
+				if f == "-e" || f == "-f" {
+					scripted, i = true, i+1 // the script is the NEXT token, not a file
+					continue
+				}
+				if strings.HasPrefix(f, "-") {
+					continue
+				}
+				operands = append(operands, f)
+			}
+			if !inPlace {
+				continue
+			}
+			if !scripted && len(operands) > 0 {
+				operands = operands[1:] // the leading operand was the script
+			}
+			for _, f := range operands {
+				add(f)
+			}
+		case "cp", "mv":
+			// Exactly one source and one destination, no recursion: anything else targets a
+			// directory whose per-file destinations we would have to guess.
+			var operands []string
+			recursive := false
+			for _, f := range fields[1:] {
+				if strings.HasPrefix(f, "-") {
+					if strings.ContainsAny(strings.TrimPrefix(f, "-"), "rRa") {
+						recursive = true
+					}
+					continue
+				}
+				operands = append(operands, f)
+			}
+			if !recursive && len(operands) == 2 {
+				add(operands[1])
+			}
+		case "rm", "touch":
+			// A delete is a real content state (""), so create→rm→create is a revert like any other.
+			for _, f := range fields[1:] {
+				if !strings.HasPrefix(f, "-") {
+					add(f)
+				}
+			}
+		}
+	}
+	return out
 }
 
 // stripHeredocs removes heredoc bodies (and their terminator lines) so that content fed via
