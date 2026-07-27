@@ -41,13 +41,33 @@ func (a *App) searchedNotFound(ctx context.Context, sid session.SessionID) []sea
 	return searchMissesIn(a.readEventsBestEffort(ctx, sid))
 }
 
-// searchMissesIn scans one session's tool log, pairing each grep CALL with ITS OWN result by call
+// searchMissesIn returns the absences one session's searches established, deduplicated and capped.
+func searchMissesIn(evs []event.Event) []searchMiss {
+	out, hit := searchOutcomesIn(evs)
+	// A pattern can miss under a narrow path and then hit across the tree. The hit is the stronger
+	// fact and it may arrive after the miss, so the filter runs at the end, not inline.
+	kept := out[:0]
+	for _, m := range out {
+		if hit[m.pattern] || len(kept) >= exploreNegCap {
+			continue
+		}
+		kept = append(kept, m)
+	}
+	return kept
+}
+
+// searchOutcomesIn scans one session's tool log, pairing each grep CALL with ITS OWN result by call
 // id. The pairing is the whole point: the pattern lives in the arguments and the outcome in the
 // result, and a fact that spans the two cannot be forged by either side alone.
-func searchMissesIn(evs []event.Event) []searchMiss {
+//
+// Both halves are returned because both are load-bearing. The misses are what a later reader must
+// not build on; the hits are what RETRACTS a miss — and a caller re-checking a doubted name needs to
+// tell "searched again and found it" from "never got around to searching it", which the miss list
+// alone cannot say (both read as absent from it).
+func searchOutcomesIn(evs []event.Event) (misses []searchMiss, hit map[string]bool) {
 	type query struct{ pattern, scope string }
 	pending := map[string]query{}
-	hit := map[string]bool{}  // matched SOMEWHERE in this session — never report it as absent
+	hit = map[string]bool{}   // matched SOMEWHERE in this session — never report it as absent
 	seen := map[string]bool{} // one line per pattern, however many times it was searched
 	var out []searchMiss
 	for _, e := range evs {
@@ -96,16 +116,7 @@ func searchMissesIn(evs []event.Event) []searchMiss {
 			}
 		}
 	}
-	// A pattern can miss under a narrow path and then hit across the tree. The hit is the stronger
-	// fact and it may arrive after the miss, so the filter runs at the end, not inline.
-	kept := out[:0]
-	for _, m := range out {
-		if hit[m.pattern] || len(kept) >= exploreNegCap {
-			continue
-		}
-		kept = append(kept, m)
-	}
-	return kept
+	return out, hit
 }
 
 // searchScope names what a grep actually covered, in the words the note will show.
