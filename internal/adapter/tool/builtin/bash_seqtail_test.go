@@ -16,45 +16,45 @@ import (
 // primary succeeded, so a failure still surfaces its own exit code.
 func TestSequencedTailNote(t *testing.T) {
 	for _, tc := range []struct {
-		name   string
-		exit   int
-		cmd    string
-		verify bool
-		want   bool
+		name string
+		exit int
+		cmd  string
+		want bool
 	}{
 		// The live form: log capture + exit capture, both swallowed by the final segment.
-		{"verify build ; echo exit", 0, `make world > /tmp/build.log 2>&1; echo "exit=$?" >> /tmp/build.log`, true, true},
-		{"verify build ; echo ; tail", 0, `make world > /tmp/b.log 2>&1; echo "exit=$?" >> /tmp/b.log; tail -30 /tmp/b.log`, true, true},
-		{"verify test ; cat log", 0, "pytest > /tmp/t.log 2>&1; cat /tmp/t.log", true, true},
-		{"verify build ; true", 0, "make world; true", true, true},
-		{"verify build ; :", 0, "make world; :", true, true},
-		{"verify build ; head", 0, "cargo build 2> /tmp/e.log; head -20 /tmp/e.log", true, true},
+		{"build ; echo exit", 0, `make world > /tmp/build.log 2>&1; echo "exit=$?" >> /tmp/build.log`, true},
+		{"build ; echo ; tail", 0, `make world > /tmp/b.log 2>&1; echo "exit=$?" >> /tmp/b.log; tail -30 /tmp/b.log`, true},
+		{"test ; cat log", 0, "pytest > /tmp/t.log 2>&1; cat /tmp/t.log", true},
+		{"build ; true", 0, "make world; true", true},
+		{"build ; :", 0, "make world; :", true},
+		{"build ; head", 0, "cargo build 2> /tmp/e.log; head -20 /tmp/e.log", true},
+		// Ungated, so the shape is what decides — including on a command nobody called a check.
+		{"cd ; echo", 0, "cd /app; echo hi", true},
 		// && is control flow, not masking — a failed primary short-circuits and keeps its exit.
-		{"verify build && echo ok", 0, "make world && echo ok", true, false},
+		{"build && echo ok", 0, "make world && echo ok", false},
 		// A real command after the reporter means the exit is that command's, not the reporter's.
-		{"verify echo then real cmd", 0, "make world; echo done; ./run-tests", true, false},
-		// Same intent gate as swallowingPipeNote: silent on everything the model didn't call a check.
-		{"not verify: build ; echo", 0, `make world > /tmp/b.log 2>&1; echo "exit=$?" >> /tmp/b.log`, false, false},
-		{"not verify: cd ; ls", 0, "cd /app; ls -la", false, false},
+		{"echo then real cmd", 0, "make world; echo done; ./run-tests", false},
 		// Nothing to mask, or the exit already speaks.
-		{"verify plain build", 0, "make world", true, false},
-		{"verify non-zero exit", 2, `make world > /tmp/b.log 2>&1; echo "exit=$?" >> /tmp/b.log`, true, false},
+		{"plain build", 0, "make world", false},
+		{"non-zero exit", 2, `make world > /tmp/b.log 2>&1; echo "exit=$?" >> /tmp/b.log`, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := sequencedTailNote(tc.exit, tc.cmd, tc.verify) != ""
-			if got != tc.want {
-				t.Errorf("sequencedTailNote(%d, %q, verify=%v) fired=%v, want %v", tc.exit, tc.cmd, tc.verify, got, tc.want)
+			note := sequencedTailNote(tc.exit, tc.cmd)
+			if (note != "") != tc.want {
+				t.Errorf("sequencedTailNote(%d, %q) fired=%v, want %v", tc.exit, tc.cmd, note != "", tc.want)
+			}
+			if tc.want && !strings.Contains(note, "the last `;` segment") {
+				t.Errorf("the note must say whose exit code this is: %s", note)
 			}
 		})
 	}
 }
 
-// ExitCodeMasked is the guard-facing form of the same judgement, and it reads the COMMAND ONLY.
-// The notes above are advice and stay gated on the model's declared intent, which is what keeps
-// them off the countless benign `mkdir x; echo done` calls; this one feeds magi's own churn
-// accounting, where the question is not what the caller meant but whose exit code it is. Gating it
-// on verify meant one optional field could switch the accounting off — observed live as a build
-// sent with verify=false whose trailing echo's exit 0 was booked as the build converging.
+// ExitCodeMasked is the guard-facing form of the same judgement, reading the COMMAND ONLY. It and
+// the notes now agree on everything, which is the point: whose exit code this is does not depend on
+// what the caller said the command was for. Gating it on verify once meant one optional field could
+// switch magi's churn accounting off — observed as a build sent with verify=false whose trailing
+// echo's exit 0 was booked as the build converging.
 func TestExitCodeMasked(t *testing.T) {
 	for _, tc := range []struct {
 		cmd  string
@@ -99,7 +99,7 @@ func TestBashExecuteAnnotatesSequencedTail(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("expected the trailing echo's exit 0, got an error result: %s", res.Content)
 	}
-	if !strings.Contains(string(res.Content), "this exit 0 is the LAST `;` segment") {
+	if !strings.Contains(string(res.Content), "the last `;` segment") {
 		t.Errorf("masked `;` verification was not annotated: %s", res.Content)
 	}
 }

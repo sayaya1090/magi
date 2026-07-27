@@ -102,36 +102,41 @@ func TestMaskingTailNote(t *testing.T) {
 	}
 }
 
-// swallowingPipeNote fires ONLY when the model declared verify=true (this is a build/test/run
-// check) AND the command ends in a `| tail`/`| head` truncator that masks the exit code. It
-// never fires on verify=false — the model's own intent replaces the old brittle command
-// guess, which can't classify an arbitrary `./run.sh` and cried wolf on benign `ls | head`.
+// swallowingPipeNote names WHOSE exit code the result carries when the command ends in a
+// `| tail`/`| head` truncator. It used to be a paragraph, which is why it was gated on the model's
+// own verify flag — a paragraph on every benign `ls | head` cries wolf. A label does not: it is one
+// clause, true either way, and it scolds nobody, so the gate is gone and with it the case that
+// motivated all of this (a build piped to tail with verify unset, read as clean three seconds in).
 func TestSwallowingPipeNote(t *testing.T) {
 	for _, tc := range []struct {
-		name   string
-		exit   int
-		cmd    string
-		verify bool
-		want   bool
+		name string
+		exit int
+		cmd  string
+		want bool
 	}{
-		{"verify make | tail", 0, "make world 2>&1 | tail -100", true, true},
-		{"verify test | head", 0, "cargo test 2>&1 | head -50", true, true},
-		{"verify script | tail", 0, "./run.sh | tail", true, true}, // arbitrary script — a guess couldn't classify it
-		{"verify pipe upstream", 0, "make 2>&1 | grep -i error | tail -20", true, true},
-		// verify=false → never fires, whatever the command (this is the false-positive fix).
-		{"not verify: make | tail", 0, "make world 2>&1 | tail -100", false, false},
-		{"not verify: ls | head", 0, "ls -la boot/ | head -20", false, false},
-		{"not verify: git diff | head", 0, "cd /app && git diff | head -200", false, false},
-		// verify but not a masking truncator, or non-zero exit → no note.
-		{"verify grep filter (no truncator)", 0, "make 2>&1 | grep error", true, false},
-		{"verify no pipe", 0, "make world", true, false},
-		{"verify || not pipe", 0, "make || tail log", true, false},
-		{"verify non-zero exit", 2, "make world 2>&1 | tail -100", true, false},
+		{"make | tail", 0, "make world 2>&1 | tail -100", true},
+		{"test | head", 0, "cargo test 2>&1 | head -50", true},
+		{"script | tail", 0, "./run.sh | tail", true},
+		{"pipe upstream", 0, "make 2>&1 | grep -i error | tail -20", true},
+		// The label is ungated now: it is one clause naming whose exit code this is, true on a
+		// build and on an `ls` alike, so it no longer has to be silenced everywhere it was not
+		// asked for — which is how it came to be silent on the build that mattered.
+		{"make | tail (no verify flag)", 0, "make world 2>&1 | tail -100", true},
+		{"ls | head", 0, "ls -la boot/ | head -20", true},
+		{"git diff | head", 0, "cd /app && git diff | head -200", true},
+		// Not a truncating tail, or the exit already speaks.
+		{"grep filter (no truncator)", 0, "make 2>&1 | grep error", false},
+		{"no pipe", 0, "make world", false},
+		{"|| not pipe", 0, "make || tail log", false},
+		{"non-zero exit", 2, "make world 2>&1 | tail -100", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := swallowingPipeNote(tc.exit, tc.cmd, tc.verify) != ""
-			if got != tc.want {
-				t.Errorf("swallowingPipeNote(%d, %q, verify=%v) fired=%v, want %v", tc.exit, tc.cmd, tc.verify, got, tc.want)
+			note := swallowingPipeNote(tc.exit, tc.cmd)
+			if (note != "") != tc.want {
+				t.Errorf("swallowingPipeNote(%d, %q) fired=%v, want %v", tc.exit, tc.cmd, note != "", tc.want)
+			}
+			if tc.want && !strings.Contains(note, "not the command before the pipe") {
+				t.Errorf("the note must say whose exit code this is: %s", note)
 			}
 		})
 	}
@@ -259,7 +264,7 @@ func TestBashExecuteAnnotatesMaskedFailure(t *testing.T) {
 	// masking-tail note — the command string alone proves the exit is uninformative.
 	r, _ = Bash{}.Execute(context.Background(), json.RawMessage(`{"command":"false || true"}`), env)
 	out = resultText(t, r)
-	if r.IsError || !strings.Contains(out, "masks the primary command's exit code") {
+	if r.IsError || !strings.Contains(out, "this exit 0 is the `|| …` tail's") {
 		t.Errorf("silent `|| true` mask must be annotated, got IsError=%v %q", r.IsError, out)
 	}
 
