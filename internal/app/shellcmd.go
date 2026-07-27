@@ -335,6 +335,28 @@ func redirectTargets(cmd string) []string {
 // cannot flood the per-turn content history the self-revert check keeps.
 const bashWriteCap = 8
 
+// dropRedirects removes a segment's redirection tokens so what remains is the command's own
+// operands. Without this a redirect is counted as an argument, and both ways that lands wrong:
+// `cp a.bak a.c 2>/dev/null` reads as THREE operands and is skipped as a directory copy (the
+// silenced restore is the commonest revert shape there is), while `rm f 2>/dev/null` adopts
+// `2>/dev/null` itself as a written file. The destinations are not lost — redirectTargets reads
+// them straight off the command text.
+func dropRedirects(fields []string) []string {
+	out := fields[:0:0]
+	for i := 0; i < len(fields); i++ {
+		f := fields[i]
+		if !strings.ContainsAny(f, "<>") {
+			out = append(out, f)
+			continue
+		}
+		// `> f` / `2>> f`: the operator stands alone and its target is the next token.
+		if strings.HasSuffix(f, ">") || strings.HasSuffix(f, "<") {
+			i++
+		}
+	}
+	return out
+}
+
 // bashWritePaths names the files a mutating bash command writes, so a bash mutation can go
 // through the SAME content-level self-revert check (noteEdit) that write/edit already do.
 // It is deliberately NARROWER than redirectsToFile/mutatesFiles, which only have to answer
@@ -354,8 +376,8 @@ func bashWritePaths(cmd string) []string {
 		if strings.HasPrefix(p, "/dev/") || strings.HasSuffix(p, "/") {
 			return // a sink, or a directory target whose real destination we cannot name
 		}
-		if strings.ContainsAny(p, "*?[]{}$`~") {
-			return // needs a shell to resolve; guessing would read the wrong file
+		if strings.ContainsAny(p, "*?[]{}$`~<>") {
+			return // needs a shell to resolve, or is a redirect fragment: either reads the wrong file
 		}
 		for _, seen := range out {
 			if seen == p {
@@ -368,7 +390,7 @@ func bashWritePaths(cmd string) []string {
 		add(t)
 	}
 	for _, seg := range splitShellSegments(stripHeredocs(cmd)) {
-		fields := strings.Fields(seg)
+		fields := dropRedirects(strings.Fields(seg))
 		if len(fields) < 2 {
 			continue
 		}
