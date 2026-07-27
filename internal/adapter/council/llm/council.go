@@ -858,7 +858,7 @@ func planMemberSystem(m council.Member, lens string, keep bool) string {
 		keepClause = "Also, through YOUR lens, note in `keep` the plan steps that are ALREADY sound and must survive " +
 			"if the plan is revised — do this EVEN WHEN YOU APPROVE, because another member's flaw sends the WHOLE plan " +
 			"back to be re-planned, and without this the revision can drop the correct parts your lens already blessed. " +
-			"IDENTIFY them by step number and a few words (e.g. \"steps 2 and 5 — the protoc generation and the " +
+			"IDENTIFY them by step number and a few words (e.g. \"steps 2 and 5 — the schema generation and the " +
 			"round-trip check\"); the re-planner is given the plan itself, so restating a step wastes the room its " +
 			"critique needs. Advisory: it never changes your vote; omit if nothing through your lens is clearly " +
 			"settled.\n\n"
