@@ -472,6 +472,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.applyPaneEvent(p, msg.ev)
 				m.dirty = true
 				cmds = append(cmds, waitEvent(p.ch, p.sid, p.sub))
+				// A pane's own child gets a pane too. openPane used to be reachable only from the
+				// PRIMARY session's subscription, so a subagent that delegated further left no trace:
+				// its pane fell silent for as long as the grandchild worked, and there was nothing to
+				// open to see why. Measured on a nested re-plan — the delegating session's last event
+				// was `council.decided plan done`, then 828 seconds of nothing while its worker ran 26
+				// tool calls one level down, and then the lease killed it.
+				//
+				// The events were already published (spawn/status go to the PARENT session, whichever
+				// that is); only this call site was missing. openPane is session-agnostic and refuses a
+				// duplicate, so it is safe on any depth.
+				if msg.ev.Type == event.TypeAgentSpawned {
+					if cmd := m.openPane(msg.ev); cmd != nil {
+						cmds = append(cmds, cmd)
+					}
+				}
 			}
 			// A subagent's permission/question request BLOCKS the child until answered, and the
 			// pane transcript can't collect a decision — surface it in the shared modal, tagged
