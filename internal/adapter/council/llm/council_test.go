@@ -173,8 +173,6 @@ func TestEvidenceBudgetNote(t *testing.T) {
 	}
 }
 
-// A report that rationalizes incompletion ("impossible, so this is full completion",
-// "nothing needed fixing") must be treated as an admission, not a done — the clause
 // The keep clause + schema field appear ONLY when keep is requested (MAGI_COUNCIL_KEEP),
 // so the baseline prompt is byte-for-byte unchanged when it is off.
 func TestMemberPromptKeepGated(t *testing.T) {
@@ -241,6 +239,34 @@ func TestPlanMemberPromptKeepGated(t *testing.T) {
 	}
 	if !strings.Contains(on, "never changes your vote") {
 		t.Error("plan keep clause must state it is advisory")
+	}
+}
+
+// The other two rewrite-driving phases must ask for keep on the same terms. Both revise by
+// REPLACEMENT — consolidation rewrites the whole criteria list, a correction re-declares every
+// substitution — so a member who votes done still has to name what its lens has settled, or that
+// item is lost to a rewrite triggered by someone else's objection.
+func TestContractAndSubstMemberPromptKeepGated(t *testing.T) {
+	for _, phase := range []string{"contract", "substitution"} {
+		m := council.Member{Name: "x", Lens: "correctness"}
+		off := memberSystem(m, phase, "build a server", false, false)
+		if strings.Contains(off, "\"keep\"") || strings.Contains(off, "EVEN WHEN YOU APPROVE") {
+			t.Errorf("phase=%q: keep clause/schema must be absent when keep is off", phase)
+		}
+		on := memberSystem(m, phase, "build a server", true, false)
+		if !strings.Contains(on, "EVEN WHEN YOU APPROVE") {
+			t.Errorf("phase=%q: keep clause must ask to preserve even on approve", phase)
+		}
+		if !strings.Contains(on, "\"keep\"") {
+			t.Errorf("phase=%q: keep schema field missing when keep is on", phase)
+		}
+		if !strings.Contains(on, "never changes your vote") {
+			t.Errorf("phase=%q: keep clause must state it is advisory", phase)
+		}
+		// The clause has to say WHY an approving member should bother — the rewrite is whole-set.
+		if !strings.Contains(on, "REWRITES the whole") && !strings.Contains(on, "ALL of them") {
+			t.Errorf("phase=%q: keep clause must name the whole-set rewrite that loses the item:\n%s", phase, on)
+		}
 	}
 }
 
@@ -495,6 +521,8 @@ func TestPlanMemberPromptNoEvalSetSpecifics(t *testing.T) {
 	}
 }
 
+// A report that rationalizes incompletion ("impossible, so this is full completion",
+// "nothing needed fixing") must be treated as an admission, not a done — the clause
 // that closes the reval3 play-zork / run-pdp11 / fasttext class of false approvals.
 func TestMemberPromptRationalizedDone(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "verification"}
