@@ -91,3 +91,22 @@ func (a *App) forgetStepAttemptsFor(parent session.SessionID) {
 		return true
 	})
 }
+
+// stepLadderSpent reports whether a whole retry ladder has already been spent on this exact step,
+// and how many attempts that came to.
+//
+// One ladder is the experiment: an attempt fails, and the retry gets the failure reason and the
+// previous attempt's tool trail so it can take a different route. When that is exhausted, starting
+// a second ladder runs the same experiment again at full price — observed as one plan step handed
+// to six workers over twenty-eight minutes, none of which reported.
+//
+// A re-planned step whose task text differs keys to a fresh ladder and dispatches normally, so this
+// only bites when the same part is re-emitted verbatim. MAGI_STEP_LADDER_CAP=0 restores the
+// unbounded re-dispatch for A/B.
+func (a *App) stepLadderSpent(parent session.SessionID, agent string, req port.SpawnRequest) (int, bool) {
+	if envOff("MAGI_STEP_LADDER_CAP") {
+		return 0, false
+	}
+	_, n := a.priorStepAttempt(stepAttemptKey(parent, agent, req))
+	return n, n >= a.cfg.SubagentMaxRestarts+1
+}

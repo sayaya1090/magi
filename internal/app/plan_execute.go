@@ -387,7 +387,29 @@ func (a *App) runDelegateStep(ctx context.Context, s session.Session, st planSte
 	// file location or an identifier the next step needs. One list, shared with refine
 	// (workerContextBlocks), because assembling it per hand-off is how the two drifted apart.
 	brief = a.withWorkerContext(s.ID, brief)
-	r := a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agentName, Prompt: delegatePrompt(st, brief, checklist), Tools: curTools, PlanStepIndex: &i})
+	req := port.SpawnRequest{Agent: agentName, Prompt: delegatePrompt(st, brief, checklist), Tools: curTools, PlanStepIndex: &i}
+	// A whole retry ladder already spent on THIS step is the answer, not a reason to start another
+	// one. The ladder exists to give a failing attempt a different route — the failure reason and
+	// the previous attempt's tool trail — so a second ladder is that same experiment repeated, and
+	// the run pays another full attempt budget to learn what it already knows. Observed: one plan
+	// step handed to six workers over twenty-eight minutes, every one of them ending before it
+	// could report, and the step no closer to done than after the first.
+	//
+	// So say so instead of spawning. The finding lands as a FAILED step exactly as a spent ladder
+	// would have, and carries what the planner needs to do something DIFFERENT: this part is too
+	// big for one attempt, split it or run it here. A re-planned step whose task text changes keys
+	// to a fresh ladder and is dispatched normally — the cap only bites on re-emitting the same
+	// part verbatim.
+	if n, spent := a.stepLadderSpent(s.ID, agentName, req); spent {
+		a.setTodoStatusIf(ctx, s.ID, plannerActor, i, "in_progress", "pending")
+		a.emitToolProgress(s.ID, plannerActor, "", agentName, fmt.Sprintf(
+			"not re-dispatching this step: %d attempt(s) have already been spent on it, none reported", n))
+		return stepFinding(st.Title, "delegate NOT re-dispatched — the spent attempts ARE the finding",
+			fmt.Sprintf("(this sub-task has already cost %d worker attempt(s), none of which reported a "+
+				"result; handing the same part to another worker repeats that experiment. Split it into "+
+				"smaller parts that each finish on their own, or do this part here yourself.)", n)), false
+	}
+	r := a.spawn(ctx, s, depth, req)
 	text := strings.TrimSpace(r.Text)
 	// ADaPT failure branch (reactive, as-needed decomposition): a hard failure (spawn error
 	// or empty result), while we're still below the plan-depth cap and have budget, gets ONE
