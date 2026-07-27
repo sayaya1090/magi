@@ -625,6 +625,11 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 		msgs = append(msgs, session.Message{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText,
 			Text: "# Acceptance contract to satisfy (council-reviewed — plan so that EVERY item below is achieved by some step):\n" + contract}}})
 	}
+	// The budget is only enforceable if the thing that has to live within it is told what it is.
+	// Steps past the cap were dropped silently, so a plan the model considered complete arrived
+	// truncated and neither the planner nor the council that had asked for the extra step could tell.
+	msgs = append(msgs, session.Message{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText,
+		Text: stepBudgetNote()}}})
 	model := s.Model.Model
 	if spec.Model != (session.ModelRef{}) {
 		model = spec.Model.Model
@@ -1388,4 +1393,22 @@ func joinPartText(parts []session.Part) string {
 		}
 	}
 	return b.String()
+}
+
+// stepBudgetNote states the per-level step budget and the way out of it.
+//
+// The cap bounds ONE level, not the run: a delegate/refine step re-plans at depth+1 with a budget of
+// its own, so a plan that genuinely needs twelve actions expresses that as steps that decompose
+// further — not as twelve top-level steps, of which the last four are dropped without a word.
+//
+// Both readers need it. The planner, so it spends the budget instead of overrunning it; and the
+// audit council, which repeatedly asked for one more step on a plan that had no room for one, and
+// whose demand was then satisfied by folding two actions into an existing step — a merge that reads
+// like compliance and is not.
+func stepBudgetNote() string {
+	return fmt.Sprintf("# Step budget (hard)\n"+
+		"This plan may have at most %d ordered steps, and steps past that are DROPPED. The cap is per "+
+		"LEVEL, not per run: a `delegate` or `refine` step re-plans at the next level with a fresh budget "+
+		"of its own. So work that does not fit belongs INSIDE such a step, not as an extra top-level one — "+
+		"and never fold two distinct actions into one step to fit, which hides one of them.", maxPlanSteps)
 }

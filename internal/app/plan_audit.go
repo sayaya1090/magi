@@ -46,6 +46,11 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 			clipSpec(contract, 1500)
 	}
 
+	// Members kept demanding an extra step on a plan that had no room for one; the revision then
+	// satisfied them by folding two actions into an existing step, which reads like compliance. They
+	// have to know the budget they are spending, and that a step can decompose instead of multiply.
+	auditTask += "\n\n" + stepBudgetNote()
+
 	pendingContest := ""  // the re-planner's rebuttal of the prior round's concern, re-judged this round
 	pendingRevision := "" // how the plan changed since the prior round, so a re-round can spot a regression
 	pendingJudge := ""    // why the last rewrite was ruled unresponsive, so the re-planner doesn't repeat it

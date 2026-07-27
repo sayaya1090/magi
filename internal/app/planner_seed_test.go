@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -123,5 +124,21 @@ func TestNoVoteApprovalSaysSo(t *testing.T) {
 	}
 	if both := withNoVoteNote("plan approved with advisory notes (non-blocking)", none); !strings.Contains(both, "advisory") || !strings.Contains(both, "no member voted") {
 		t.Errorf("both facts must survive together, got %q", both)
+	}
+}
+
+// The cap bounds ONE level and drops what overruns it. Both the planner that spends the budget and
+// the council that demands another step have to be told — live, members repeatedly asked for an
+// extra step on a plan with no room for one, and the revision "complied" by folding two actions
+// into an existing step.
+func TestStepBudgetIsStated(t *testing.T) {
+	note := stepBudgetNote()
+	if !strings.Contains(note, fmt.Sprintf("at most %d ordered steps", maxPlanSteps)) {
+		t.Errorf("the note must state the real cap (%d), got %q", maxPlanSteps, note)
+	}
+	for _, want := range []string{"DROPPED", "per LEVEL", "fresh budget", "never fold two distinct actions"} {
+		if !strings.Contains(note, want) {
+			t.Errorf("the way out of the cap must be stated: %q missing from %q", want, note)
+		}
 	}
 }
