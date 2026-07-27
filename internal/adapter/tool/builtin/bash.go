@@ -275,6 +275,10 @@ func dbgClip(s string) string {
 // drain), so `server &` no longer blocks on WaitDelay. On temp-file failure it falls
 // back to the in-memory CombinedOutput path so the tool never breaks outright.
 func runCapture(cmd *exec.Cmd) ([]byte, error) {
+	// The child inherits our console where the platform gives us no way to detach it (Windows), so
+	// an interactive program can reconfigure the terminal the UI is drawn on and — killed on
+	// timeout — never put it back. Snapshot around the whole run, including the fallback path.
+	defer guardConsole()()
 	f, err := os.CreateTemp("", "magi-bash-*.log")
 	if err != nil {
 		return cmd.CombinedOutput()
