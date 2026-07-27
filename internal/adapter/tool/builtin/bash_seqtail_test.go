@@ -49,28 +49,34 @@ func TestSequencedTailNote(t *testing.T) {
 	}
 }
 
-// ExitCodeMasked is the guard-facing form of the same judgement: it must agree with whichever
-// note would fire, so magi's churn accounting and the model see one story about the exit code.
+// ExitCodeMasked is the guard-facing form of the same judgement, and it reads the COMMAND ONLY.
+// The notes above are advice and stay gated on the model's declared intent, which is what keeps
+// them off the countless benign `mkdir x; echo done` calls; this one feeds magi's own churn
+// accounting, where the question is not what the caller meant but whose exit code it is. Gating it
+// on verify meant one optional field could switch the accounting off — observed live as a build
+// sent with verify=false whose trailing echo's exit 0 was booked as the build converging.
 func TestExitCodeMasked(t *testing.T) {
 	for _, tc := range []struct {
-		cmd    string
-		verify bool
-		want   bool
+		cmd  string
+		want bool
 	}{
-		{"make world || true", false, true}, // `|| …` masks regardless of declared intent
-		{"make world || echo failed", false, true},
-		{"make world 2>&1 | tail -50", true, true},
-		{`make world > /tmp/b.log 2>&1; echo "exit=$?" >> /tmp/b.log`, true, true},
-		// Without the verification flag the pipe/`;` forms stay unjudged (same gate as the notes).
-		{"make world 2>&1 | tail -50", false, false},
-		{`make world > /tmp/b.log 2>&1; echo "exit=$?" >> /tmp/b.log`, false, false},
-		// A plain build's exit is its own — this must never be called masked, at any verify.
-		{"make world", true, false},
-		{"cd /app && make world", true, false},
-		{"pytest -q", true, false},
+		{"make world || true", true},
+		{"make world || echo failed", true},
+		{"make world 2>&1 | tail -50", true},
+		{`make world > /tmp/b.log 2>&1; echo "exit=$?" >> /tmp/b.log`, true},
+		// The live specimen: the same masked build, submitted as NOT a verification.
+		{`make -j 4 > /tmp/build1.log 2>&1; echo "build exit=$?" >> /tmp/build1.log`, true},
+		// A plain build's exit is its own — this must never be called masked.
+		{"make world", false},
+		{"cd /app && make world", false},
+		{"pytest -q", false},
+		{"go test ./... > /tmp/t.log 2>&1", false},
+		// `&&` is not a mask: the tail runs only if the primary succeeded, so a failure still
+		// surfaces its own non-zero exit.
+		{"make world && echo done", false},
 	} {
-		if got := ExitCodeMasked(tc.cmd, tc.verify); got != tc.want {
-			t.Errorf("ExitCodeMasked(%q, verify=%v) = %v, want %v", tc.cmd, tc.verify, got, tc.want)
+		if got := ExitCodeMasked(tc.cmd); got != tc.want {
+			t.Errorf("ExitCodeMasked(%q) = %v, want %v", tc.cmd, got, tc.want)
 		}
 	}
 }
