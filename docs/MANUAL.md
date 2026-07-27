@@ -171,6 +171,12 @@ planner = true             # ordered procedure → a strategy per step (solo|par
                            # accepted as non-blocking advice (injected for the executor). It also derives completion
                            # criteria (deliverables · test guidance) as that turn's termination contract.
                            # plan_absorb = true → fold the advice into the plan via one extra planner pass (default off)
+workers = true             # register the write-capable "worker" sub-agent the planner can DELEGATE to (on by
+                           # default). workers = false keeps the roster read-only: delegation has no target, so
+                           # every write step degrades to the SOLO path and the main agent does the work inline —
+                           # with the whole session as context (request, notes, contract, plan, ledger) instead of
+                           # a curated brief. Trades the curator's context savings and step parallelism for no
+                           # brief paraphrase and no hand-off loss. Env MAGI_WORKERS overrides, both directions.
 subagent_timeout = "5m"    # base per-attempt subagent hard cap; the effective cap flexes with observed
                            # model speed (base/2–base×3). Env MAGI_SUBAGENT_TIMEOUT overrides; /subagent adjusts live.
 
