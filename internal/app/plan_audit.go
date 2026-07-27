@@ -121,7 +121,7 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 			a.storeCoveredChecks(ctx, s, prompt, steps, delib.Checks)
 			a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{
 				Round: round, Phase: "plan", Decision: string(council.Done),
-				Tally: delib.Breakdown, Note: note, Criteria: delib.Criteria,
+				Tally: delib.Breakdown, Note: withNoVoteNote(note, delib.Breakdown), Criteria: delib.Criteria,
 			})
 			return steps
 		}
@@ -283,4 +283,34 @@ func revisionContext(critique string, prior []planStep, planReason string, addre
 		add("Convergence judge", clipSpec(verdict+" — "+judgeReason, 600))
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// withNoVoteNote marks a decision that no member actually voted for.
+//
+// The gate is severity-gated on purpose: anything short of a critical revision approves, so the
+// plan can start instead of looping a slow model through rounds. An audit where every member
+// ABSTAINED takes that same path — nobody raised a critical flaw, because nobody judged the plan at
+// all — and it was recorded as a plain `done`, tallied 0/0/3 with no voters and an empty note. On
+// screen that is indistinguishable from a unanimous approval, and it was read as one.
+//
+// Observed: a nested re-plan whose three members each abstained saying some version of "there is no
+// stated goal or task at the end of this conversation" (they had been handed the inherited-context
+// banner as the request), decided `done`, and dispatched a worker against checks those same members
+// had written with nothing to anchor them.
+//
+// The decision is left alone — forcing a continue here would loop exactly the case that cannot
+// converge. What changes is that the record says which one it was.
+func withNoVoteNote(note string, b council.Breakdown) string {
+	// Abstain > 0, not just Voters == 0: an all-zero breakdown carries no tally at all (nothing was
+	// counted) and says nothing about agreement, so annotating it would put a claim on the record
+	// that the record does not support. Members who abstained ARE data — they judged and declined.
+	if b.Voters > 0 || b.Abstain == 0 {
+		return note
+	}
+	no := fmt.Sprintf("no member voted on this plan (%d abstained) — approved because nothing was "+
+		"raised, which is not the same as agreement", b.Abstain)
+	if strings.TrimSpace(note) == "" {
+		return no
+	}
+	return note + "; " + no
 }
