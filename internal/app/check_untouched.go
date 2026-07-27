@@ -86,3 +86,55 @@ func mutatedBy(name string, args json.RawMessage, p string) bool {
 	}
 	return false
 }
+
+// writtenPaths lists the files a session and everything under it actually wrote, newest last, in the
+// spelling the tool call used. It reads the same record pathTouched does and answers the other half
+// of the question: not "was this one file changed" but "what did this worker produce".
+func (a *App) writtenPaths(ctx context.Context, sid session.SessionID, cap int) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(evs []event.Event) {
+		for _, p := range writesIn(evs) {
+			if seen[p] || len(out) >= cap {
+				continue
+			}
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	add(a.readEventsBestEffort(ctx, sid))
+	for _, k := range a.descendantsOf(sid) {
+		add(a.readEventsBestEffort(ctx, k))
+	}
+	return out
+}
+
+// writesIn pulls every path one session's tool calls wrote to, in call order.
+func writesIn(evs []event.Event) []string {
+	if len(evs) > provenanceScanCap {
+		evs = evs[len(evs)-provenanceScanCap:]
+	}
+	var out []string
+	for _, e := range evs {
+		if e.Type != event.TypePartAppended {
+			continue
+		}
+		var d event.PartAppendedData
+		if json.Unmarshal(e.Data, &d) != nil || d.Part.Kind != session.PartToolCall || d.Part.ToolCall == nil {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(d.Part.ToolCall.Name)) {
+		case "write", "edit", "multiedit":
+			var a struct{ Path string }
+			if json.Unmarshal(d.Part.ToolCall.Args, &a) == nil && strings.TrimSpace(a.Path) != "" {
+				out = append(out, strings.TrimSpace(a.Path))
+			}
+		case "bash":
+			var a struct{ Command string }
+			if json.Unmarshal(d.Part.ToolCall.Args, &a) == nil {
+				out = append(out, bashWritePaths(a.Command)...)
+			}
+		}
+	}
+	return out
+}

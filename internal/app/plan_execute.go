@@ -465,8 +465,42 @@ func (a *App) runDelegateStep(ctx context.Context, s session.Session, st planSte
 			"(the worker reported done but its deliverable checks FAILED:\n"+fails+"\nthis sub-task is NOT done)"), false
 	}
 	a.completeThrough(ctx, s.ID, plannerActor, i)
-	return stepFinding(st.Title, "delegated to "+agentName, text), true
+	return stepFinding(st.Title, "delegated to "+agentName, withObservedHandoff(ctx, a, r.SessionID, text)), true
 }
+
+// withObservedHandoff appends a HANDOFF section built from what the worker ACTUALLY WROTE, when it
+// filed none itself.
+//
+// The ledger's header promises "exact paths/interfaces earlier steps ALREADY produced — reuse these
+// VERBATIM", and its fallback when a worker files no HANDOFF is the first 200 characters of the
+// report. For a model that narrates, those 200 characters are the narration: observed live as
+//
+//   - Read HACKING.adoc …: STATUS: DONE
+//     I have read the HACKING.adoc file at `/app/ocaml/HACKING.adoc`. Now I will create the summary of the…
+//
+// — a sentence about what the worker was ABOUT to do, cut mid-word, under a header claiming to list
+// produced paths. The summary it then wrote to /app/docs/hacking_summary.txt never reached the next
+// worker at all, which had to find or redo it.
+//
+// magi does not have to ask for this: it granted every tool call, so the files the worker produced
+// are in its own record. A path it observed is a fact; the report's opening sentence is not. The
+// worker's own HANDOFF still wins when it filed one — it can say what a path MEANS, which a list
+// cannot.
+func withObservedHandoff(ctx context.Context, a *App, child session.SessionID, text string) string {
+	if child == "" || strings.TrimSpace(handoffFacts(text)) != "" {
+		return text
+	}
+	paths := a.writtenPaths(ctx, child, ledgerPathCap)
+	if len(paths) == 0 {
+		return text // it produced no files; the report is all there is to carry
+	}
+	return strings.TrimRight(text, "\n") + "\nHANDOFF: " + strings.Join(paths, ", ")
+}
+
+// ledgerPathCap bounds how many produced paths one step contributes. A step that wrote more files
+// than this has not produced a handoff, it has produced a tree, and naming the first few is more
+// use to the next worker than a wall of them.
+const ledgerPathCap = 12
 
 // verifyStepChecks runs the plan-audit deliverable checks that belong to step stepIdx and reports
 // whether they ALL pass, plus a ledger of the failing ones (deliverable — command → actual output).
