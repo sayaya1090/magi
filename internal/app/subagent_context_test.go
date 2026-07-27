@@ -1,10 +1,12 @@
 package app
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/core/council"
+	"github.com/sayaya1090/magi/internal/core/session"
 )
 
 // Every per-item explorer is handed the overall goal; the scout's DISCOVERY explorer — the one
@@ -75,5 +77,85 @@ func TestRefineChildGetsWhatTheCloneCannotCarry(t *testing.T) {
 	}
 	if refineContext() != "" {
 		t.Error("no blocks at all must append nothing")
+	}
+}
+
+// TestStepBudgetMatchesWhatTheAgentCanDo: the budget block's stop condition and landing move
+// are the two places it tells an agent what "done" looks like, and both were written for an
+// agent that writes code — "the primary deliverable is done and verified", "land the smallest
+// change". A read-only spec cannot land a change, so that instruction cannot be obeyed, only
+// worked around: it is the same push that had the repository explorer drafting a fix instead of
+// reporting the path it had found. The ceiling and the anti-padding rule are shared; the verbs
+// are not.
+func TestStepBudgetMatchesWhatTheAgentCanDo(t *testing.T) {
+	a := &App{}
+	s := session.Session{ID: "s1"}
+	readOnly := AgentSpec{Name: "specmine", Tools: specMineExploreTools}
+	if specCanAct(readOnly) {
+		t.Fatal("fixture is not read-only — the spec-mine allowlist must grant no write/edit/bash")
+	}
+	ro := a.volatileContext(context.Background(), s, readOnly, true, nil, nil, 6, 40, 0)
+	acting := a.volatileContext(context.Background(), s, AgentSpec{Tools: []string{"read", "write", "bash"}}, true, nil, nil, 6, 40, 0)
+
+	// Shared: both are paced by the same ceiling, and neither may pad to it.
+	for _, out := range []string{ro, acting} {
+		for _, want := range []string{"# Step budget", "step 7 of at most 40", "hard ceiling", "not a target", "only narrates"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("every agent's budget block should carry %q, got %q", want, out)
+			}
+		}
+	}
+	// The read-only block must not name an action its allowlist refuses.
+	for _, unwanted := range []string{"land the smallest change", "actions that change or genuinely verify", "done and verified"} {
+		if strings.Contains(ro, unwanted) {
+			t.Errorf("a read-only agent was told to %q — it has no tool that can: %q", unwanted, ro)
+		}
+	}
+	// …and it must still be told when to stop and how to land, in terms it can reach.
+	for _, want := range []string{"facts you were asked to report", "report what you have already found", "a fact you do not have yet"} {
+		if !strings.Contains(ro, want) {
+			t.Errorf("a read-only agent's budget block should say %q, got %q", want, ro)
+		}
+	}
+	// An acting agent is unchanged (this is a role split, not a rewrite for everyone).
+	for _, want := range []string{"land the smallest change that satisfies the core requirement", "the task's primary deliverable is done and verified"} {
+		if !strings.Contains(acting, want) {
+			t.Errorf("an acting agent's budget block should still say %q, got %q", want, acting)
+		}
+	}
+}
+
+// TestSpecMineBriefKeepsTheRequestSomebodyElses: the explorer is handed the user's request so it
+// knows what to look for, and a request is written in imperatives. Under a bare "TASK" header
+// that reads as its own assignment — the plan below it was disclaimed, the request never was —
+// and the agent goes to work on the request instead of mining facts for it.
+func TestSpecMineBriefKeepsTheRequestSomebodyElses(t *testing.T) {
+	brief := specMineBrief("make the parser accept negative numbers", "1. edit the lexer", "cmd/\ninternal/")
+
+	// The request is present verbatim (it is what the explorer looks up), but disclaimed.
+	if !strings.Contains(brief, "make the parser accept negative numbers") {
+		t.Fatal("the request must reach the explorer verbatim — it is what the search is for")
+	}
+	if strings.Contains(brief, "── TASK\n") {
+		t.Errorf("the request must not be headed as this agent's task: %q", brief)
+	}
+	req := strings.Index(brief, "── THE REQUEST")
+	if req < 0 || !strings.Contains(brief[req:strings.Index(brief, "make the parser")], "SOMEONE ELSE") {
+		t.Errorf("the request's own header must say whose it is: %q", brief)
+	}
+	if !strings.Contains(brief, "do NOT carry it out") {
+		t.Errorf("the plan must keep its disclaimer: %q", brief)
+	}
+	// The instruction the model acts on comes last, and it names a deliverable this agent can
+	// actually produce with read tools.
+	job := strings.Index(brief, "── YOUR JOB")
+	if job < 0 || job < strings.Index(brief, "── THEIR PLAN") {
+		t.Fatalf("the job must come after the context it is about: %q", brief)
+	}
+	if !strings.Contains(brief[job:], "IS your deliverable") || !strings.Contains(brief[job:], "not a fix") {
+		t.Errorf("the job must name its deliverable and rule out doing the work: %q", brief[job:])
+	}
+	if !strings.Contains(brief, "1. edit the lexer") || !strings.Contains(brief, "internal/") {
+		t.Errorf("plan and repo map must survive: %q", brief)
 	}
 }
