@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/council"
@@ -282,5 +283,55 @@ func TestNonemptyOnAComposedFileYieldsNoVerdict(t *testing.T) {
 	}
 	if !strings.Contains(out, "came out of the reply") {
 		t.Errorf("the verdict must carry the reason: %s", out)
+	}
+}
+
+// A worker spawns workers: a step that decomposes, or a delegate that delegates, puts the write two
+// levels down while the gate runs at the top. Observed live — a worker's own child wrote
+// /app/bug_analysis.md, the file a step-4 check reads, while the check ran in the main session. A
+// one-level walk sees the parent and not the writer, so a record composed only in a grandchild would
+// have looked like a program's real output.
+func TestDescendantsReachEveryDepth(t *testing.T) {
+	a := &App{states: map[session.SessionID]*sessionState{}}
+	add := func(id, parent session.SessionID) {
+		a.states[id] = &sessionState{meta: session.Session{ID: id, Parent: parent}}
+	}
+	add("main", "")
+	add("w1", "main")
+	add("w2", "w1")  // the grandchild that does the writing
+	add("w3", "w2")  // …and one deeper still
+	add("other", "") // a sibling tree that must not be swept in
+	add("otherkid", "other")
+
+	got := map[session.SessionID]bool{}
+	for _, s := range a.descendantsOf("main") {
+		got[s] = true
+	}
+	for _, want := range []session.SessionID{"w1", "w2", "w3"} {
+		if !got[want] {
+			t.Errorf("%s is under main and must be walked", want)
+		}
+	}
+	for _, no := range []session.SessionID{"main", "other", "otherkid"} {
+		if got[no] {
+			t.Errorf("%s is not under main", no)
+		}
+	}
+	if n := len(a.descendantsOf("w2")); n != 1 {
+		t.Errorf("descendantsOf must be relative to its root, got %d for w2", n)
+	}
+	if n := len(a.descendantsOf("w3")); n != 0 {
+		t.Errorf("a leaf has no descendants, got %d", n)
+	}
+
+	// Nothing enforces acyclicity in the recorded metadata, and a hang inside a check audit would be
+	// an expensive way to learn that.
+	a.states["w1"].meta.Parent = "w3"
+	done := make(chan int, 1)
+	go func() { done <- len(a.descendantsOf("main")) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a cycle in the parent chain must not spin the walk")
 	}
 }

@@ -147,23 +147,54 @@ func (a *App) provAuditDone(sid session.SessionID, src, pat string) bool {
 	return false
 }
 
-// pathAuthors returns every recent tool call, in the gating session AND in the workers it spawned,
-// that put model-composed text into path. Worker sessions are included because a delegated step's
-// tool calls happen there, and that is precisely where the recording was supposed to be made.
+// pathAuthors returns every recent tool call, in the gating session and in every session BENEATH it
+// at any depth, that put model-composed text into path. The descendants are included because a
+// delegated step's tool calls happen there, and that is precisely where the recording was supposed
+// to be made.
+//
+// At ANY depth, because a worker spawns workers: a step that decomposes, or a delegate that
+// delegates, puts the write two levels down while the gate runs at the top. Observed live — a
+// worker's own child wrote /app/bug_analysis.md, the file a step-4 check reads, while the check ran
+// in the main session. A one-level walk sees the parent and not the writer, so a record composed
+// only in a grandchild would have looked like a program's real output.
+//
 // Best-effort throughout: an unreadable session yields no authors rather than an error, because a
 // missing record must never be reported as a fabrication.
 func (a *App) pathAuthors(ctx context.Context, sid session.SessionID, p string) []authoredContent {
 	out := authorsIn(a.readEventsBestEffort(ctx, sid), p)
+	for _, k := range a.descendantsOf(sid) {
+		out = append(out, authorsIn(a.readEventsBestEffort(ctx, k), p)...)
+	}
+	return out
+}
+
+// descendantsOf returns every session under sid, at any depth, in breadth-first order. The
+// parent->children index is built once under the lock and walked outside it, so a deep tree does not
+// hold the mutex for the length of the walk. The visited set is what keeps a corrupt parent chain (a
+// cycle) from spinning here — nothing enforces acyclicity in the recorded metadata, and a hang
+// inside a check audit would be a very expensive way to learn that.
+func (a *App) descendantsOf(sid session.SessionID) []session.SessionID {
 	a.mu.Lock()
-	var kids []session.SessionID
+	kids := make(map[session.SessionID][]session.SessionID, len(a.states))
 	for _, st := range a.states {
-		if st.meta.Parent == sid {
-			kids = append(kids, st.meta.ID)
+		if p := st.meta.Parent; p != "" {
+			kids[p] = append(kids[p], st.meta.ID)
 		}
 	}
 	a.mu.Unlock()
-	for _, k := range kids {
-		out = append(out, authorsIn(a.readEventsBestEffort(ctx, k), p)...)
+
+	seen := map[session.SessionID]bool{sid: true}
+	queue := append([]session.SessionID{}, kids[sid]...)
+	var out []session.SessionID
+	for len(queue) > 0 {
+		s := queue[0]
+		queue = queue[1:]
+		if seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+		queue = append(queue, kids[s]...)
 	}
 	return out
 }
