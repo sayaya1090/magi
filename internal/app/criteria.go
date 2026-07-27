@@ -245,12 +245,12 @@ func (a *App) ensureStepCoverage(ctx context.Context, s session.Session, prompt 
 	// The retry note and the final shortfall both need it and must agree, so it is written once.
 	describe := func(f fillAttempt) string {
 		if !f.parsed {
-			// Show the reply, not just its length. This failure was observed three runs running and
-			// could not be diagnosed from the log: the side call leaves no session record, so the
-			// only way to tell "the model answered with prose" from "it wrapped the array in an
-			// object" from "an element had the wrong shape" is to print what came back.
-			return fmt.Sprintf("the fill reply did not parse as a checks array (%d chars) :: %s",
-				len(f.raw), planParseExcerpt(f.raw))
+			// The reply itself, not just its length: this failure was observed three runs running and
+			// could not be diagnosed from the log, since only what came back tells "the model answered
+			// with prose" from "it wrapped the array in an object" from "an element had the wrong
+			// shape". The re-ask now appends that report and persists the reply verbatim, so this says
+			// what the failure WAS and lets the record carry the evidence.
+			return fmt.Sprintf("the fill reply did not parse as a checks array (%d chars)", len(f.raw))
 		}
 		// Name the step labels it DID carry. "Added nothing that attaches" has two very different
 		// causes — the fill returned nothing at all, or it returned checks whose step labels fall
@@ -273,28 +273,43 @@ func (a *App) ensureStepCoverage(ctx context.Context, s session.Session, prompt 
 	}
 
 	f := run(coverageFillSystem)
-	if !gained(f) {
-		// Re-ask ONCE. A confirmed gap that the fill did not close leaves plan steps with no gate at
-		// all, and until now a single degraded reply ended the pass — the same defect the check-audit
-		// retry fixed in the review pass, in the pass that FEEDS it. Both shapes get the reminder that
-		// names what went wrong; neither retries again, so this is bounded at two calls.
-		reminder := coverageJSONOnlyReminder
-		if f.parsed {
-			reminder = coverageAttachReminder(uncoveredStepNums(covered, len(steps)), len(steps))
-		}
-		a.emitToolProgress(s.ID, plannerActor, "", "check-coverage",
-			fmt.Sprintf("check-coverage: %s — re-asking once", describe(f)))
-		retry := run(coverageFillSystem + "\n\n" + reminder)
-		if !gained(retry) {
-			// Honest about the ambiguity: after a re-ask that listed the uncovered steps by number, a
-			// second empty answer is as likely to mean "those steps produce nothing checkable" (the
-			// prompt tells it to skip pure investigation steps) as it is to mean the fill failed. Either
-			// way those steps land unverified, which is what the note reports.
-			shortfall(describe(retry) + " — and this was the re-ask, which listed the uncovered step(s) by " +
-				"number; either they produce nothing checkable or the fill could not do it")
-			return checks
-		}
-		f = retry
+	// Re-ask ONCE. A confirmed gap that the fill did not close leaves plan steps with no gate at all,
+	// and a single degraded reply used to end the pass. Note what is judged here: not "did the reply
+	// parse" but "did coverage GROW" — a fill that parses perfectly and attaches nothing new has
+	// failed at the only thing it was for.
+	f, ok := reask[fillAttempt]{
+		pass:  "check-coverage",
+		actor: plannerActor,
+		ask: func(system string) (fillAttempt, string, bool) {
+			r := run(system)
+			return r, r.raw, r.parsed
+		},
+		defect: func(r fillAttempt, _ bool, _ string) string {
+			if gained(r) {
+				return ""
+			}
+			return describe(r)
+		},
+		// The two failures are different defects, and a reminder that names the wrong one asks the
+		// model to fix something it did not do: an unparsed reply needs to be told to answer in JSON,
+		// while a reply that parsed and attached nothing needs the uncovered steps BY NUMBER.
+		reminder: func(_ string, parsed bool) string {
+			if parsed {
+				return coverageFillSystem + "\n\n" + coverageAttachReminder(uncoveredStepNums(covered, len(steps)), len(steps))
+			}
+			return coverageFillSystem + "\n\n" + coverageJSONOnlyReminder
+		},
+		probe: func(b []byte) error { var cs []council.DeliverableCheck; return json.Unmarshal(b, &cs) },
+		// Honest about the ambiguity: after a re-ask that listed the uncovered steps by number, a second
+		// empty answer is as likely to mean "those steps produce nothing checkable" (the prompt tells it
+		// to skip pure investigation steps) as it is to mean the fill failed. Either way those steps
+		// land unverified, which is what this reports.
+		fallback: fmt.Sprintf("gap NOT filled (%s), and this was the re-ask, which listed the uncovered "+
+			"step(s) by number — either they produce nothing checkable or the fill could not do it, and "+
+			"those steps land unverified", gap),
+	}.run(ctx, a, s.ID, f, f.raw, f.parsed)
+	if !ok {
+		return checks
 	}
 	note := fmt.Sprintf("check-coverage: %d→%d checks, %d→%d step(s) covered (%d plan step(s))",
 		len(checks), len(f.merged), len(covered), len(f.newCov), len(steps))
@@ -593,28 +608,38 @@ func typedRepairReminder(blocked []string) string {
 //     gate — strictly worse than the flawed checks the review was meant to repair. Say that, and ask
 //     for repairs instead.
 func (a *App) retryCheckAudit(ctx context.Context, agent AgentSpec, s session.Session, model, in, raw string, parsed bool, authored int) ([]council.DeliverableCheck, bool) {
-	reminder := checkAuditJSONOnlyReminder
-	why := fmt.Sprintf("reply is not a checks array (%d chars) — retrying JSON-only", len(raw))
-	if parsed {
-		reminder = checkAuditKeepSomeReminder
-		why = fmt.Sprintf("review asked to drop all %d check(s) — retrying: dropping every check removes the gate "+
-			"instead of repairing it", authored)
-	}
-	a.emitToolProgress(s.ID, plannerActor, "", "check-audit",
-		fmt.Sprintf("check-audit: %s :: %s", why, planParseExcerpt(raw)))
-
-	raw2 := a.specMineCall(ctx, agent, s.ID, "check-audit", model, validateChecksSystem+"\n\n"+reminder, in)
-	out, ok := parseChecksArray(raw2)
-	if !ok || len(out) == 0 {
-		// Terminal line for this pass, and it carries the retry's reply: the caller stays silent after
-		// this, so everything needed to tell the two shapes apart has to be here.
-		a.emitToolProgress(s.ID, plannerActor, "", "check-audit",
-			fmt.Sprintf("check-audit: retry also unusable (%d chars, parsed=%t) — keeping the %d authored check(s) "+
-				"unreviewed :: %s", len(raw2), ok, authored, planParseExcerpt(raw2)))
+	out, ok := reask[[]council.DeliverableCheck]{
+		pass:  "check-audit",
+		actor: plannerActor,
+		ask: func(system string) ([]council.DeliverableCheck, string, bool) {
+			r := a.specMineCall(ctx, agent, s.ID, "check-audit", model, system, in)
+			cs, parsed := parseChecksArray(r)
+			return cs, r, parsed
+		},
+		defect: func(cs []council.DeliverableCheck, parsed bool, raw string) string {
+			switch {
+			case !parsed:
+				return fmt.Sprintf("reply is not a checks array (%d chars)", len(raw))
+			case len(cs) == 0:
+				return fmt.Sprintf("review asked to drop all %d check(s), which removes the gate instead of "+
+					"repairing it", authored)
+			}
+			return ""
+		},
+		reminder: func(_ string, parsed bool) string {
+			if parsed {
+				return validateChecksSystem + "\n\n" + checkAuditKeepSomeReminder
+			}
+			return validateChecksSystem + "\n\n" + checkAuditJSONOnlyReminder
+		},
+		probe:    func(b []byte) error { var cs []council.DeliverableCheck; return json.Unmarshal(b, &cs) },
+		fallback: fmt.Sprintf("keeping the %d authored check(s) unreviewed", authored),
+	}.run(ctx, a, s.ID, nil, raw, parsed)
+	if !ok {
 		return nil, false
 	}
 	a.emitToolProgress(s.ID, plannerActor, "", "check-audit",
-		fmt.Sprintf("check-audit: retry returned %d check(s)", len(out)))
+		fmt.Sprintf("check-audit: the re-ask returned %d check(s)", len(out)))
 	return out, true
 }
 

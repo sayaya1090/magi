@@ -647,7 +647,7 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 		a.emitToolProgress(s.ID, plannerActor, "", "planner",
 			fmt.Sprintf("%s: the salvage read only PART of the reply — %d step(s) survived, any step inside the "+
 				"damaged span is lost; re-asking for the whole plan", tag, len(res.Steps)))
-		a.recordPlanParseFailure(ctx, s.ID, tag+"-partial", text) // the raw reply is the only record of what was dropped
+		a.recordParseFailure(ctx, s.ID, "planner", tag+"-partial", text, planProbe) // the raw reply is the only record of what was dropped
 		retry := req
 		retry.System = sys + "\n\n" + plannerRetryReminder(text, true)
 		if text2, err2 := a.drainText(ctx, spec, retry); err2 == nil {
@@ -668,27 +668,40 @@ func (a *App) runPlanner(ctx context.Context, spec AgentSpec, s session.Session,
 		// budget cuts the object off mid-string — both leave no balanced plan object to parse
 		// (fix-ocaml-gc died this way: a 4247-char reply, then a 1841-char re-plan, both
 		// unparseable → no plan → the solo fallback flailed into the loop guard). Give ONE focused
-		// retry that forbids all prose, so the bare object is emitted (and fits the budget).
-		a.emitToolProgress(s.ID, plannerActor, "", "planner",
-			fmt.Sprintf("%s: no parseable plan (%d chars) — retrying JSON-only :: %s", tag, len(text), planParseExcerpt(text)))
-		a.recordPlanParseFailure(ctx, s.ID, tag, text) // persist the raw reply so the failure is diagnosable
-		retry := req
-		retry.System = sys + "\n\n" + plannerRetryReminder(text, false)
-		if text2, err2 := a.drainText(ctx, spec, retry); err2 == nil {
-			if r2, salv2 := parsePlanOrSalvage(text2); len(r2.Steps) > 0 {
-				if salv2 {
-					a.emitToolProgress(s.ID, plannerActor, "", "planner",
-						fmt.Sprintf("%s: JSON-only retry recovered %d step(s) via salvage", tag, len(r2.Steps)))
+		// re-ask that forbids all prose, so the bare object is emitted (and fits the budget).
+		r2, ok2 := reask[planResult]{
+			pass:  "planner",
+			label: tag,
+			actor: plannerActor,
+			ask: func(system string) (planResult, string, bool) {
+				retry := req
+				retry.System = system
+				text2, err2 := a.drainText(ctx, spec, retry) // same stall-watchdog drain as the first ask
+				if err2 != nil {
+					return planResult{}, "", false
 				}
-				return r2
-			} else {
-				a.emitToolProgress(s.ID, plannerActor, "", "planner",
-					fmt.Sprintf("%s: JSON-only retry also unparseable (%d chars) :: %s", tag, len(text2), planParseExcerpt(text2)))
-				a.recordPlanParseFailure(ctx, s.ID, tag+"-retry", text2)
-			}
+				r, salvaged := parsePlanOrSalvage(text2)
+				if salvaged && len(r.Steps) > 0 {
+					// A recovered plan is usable but NOT the same event as one that simply parsed, and
+					// the difference is the model's, not the run's — say which one happened.
+					a.emitToolProgress(s.ID, plannerActor, "", "planner",
+						fmt.Sprintf("%s: the JSON-only re-ask recovered %d step(s) via salvage", tag, len(r.Steps)))
+				}
+				return r, text2, len(r.Steps) > 0
+			},
+			defect: func(p planResult, _ bool, raw string) string {
+				if len(p.Steps) > 0 {
+					return ""
+				}
+				return fmt.Sprintf("no parseable plan (%d chars)", len(raw))
+			},
+			reminder: func(raw string, _ bool) string { return sys + "\n\n" + plannerRetryReminder(raw, false) },
+			probe:    planProbe,
+			fallback: "still no plan, and this phase will proceed without one",
+		}.run(ctx, a, s.ID, res, text, false)
+		if ok2 {
+			return r2
 		}
-		a.emitToolProgress(s.ID, plannerActor, "", "planner",
-			fmt.Sprintf("%s: still no parseable plan after JSON-only retry", tag))
 	}
 	return res
 }
@@ -927,66 +940,10 @@ func unmarshalStepLenient(js string) (planStep, bool) {
 // of only its length.
 func planParseExcerpt(text string) string { return jsonx.Report(text) }
 
-// planParseFailureKind classifies WHY a reply yielded no parseable plan, so an intermittent failure
-// is diagnosable from the persisted record rather than guessed at. It re-walks the reply the way
-// parsePlanOrSalvage did and reports the first discriminating cause: no JSON object at all; an
-// opening brace that never balances (truncated by the output budget); a control character inside a
-// string value (the repair-resistant case a multi-line "reason"/"task" string produces); some other
-// invalid JSON syntax; or a well-formed object that simply carried no steps.
-func planParseFailureKind(text string) string {
-	if strings.IndexByte(text, '{') < 0 {
-		return "no-json-object" // pure prose, or the JSON never started
-	}
-	// The INTACT spans, not the recovered ones: this names why the reply was damaged, and a classifier
-	// that reported a truncated reply as merely "no steps" would describe the repair instead of the
-	// defect — the reader recovers what it can, the diagnosis still says what went wrong.
-	objs := jsonx.BalancedObjects(text)
-	if len(objs) == 0 {
-		return "unbalanced-or-truncated" // a '{' opened but never closed
-	}
-	var firstErr error
-	for _, js := range objs {
-		var p planResult
-		err := json.Unmarshal([]byte(js), &p)
-		if err == nil {
-			continue // valid JSON but (on this path) no usable steps — keep looking for the real defect
-		}
-		if firstErr == nil {
-			firstErr = err
-		}
-	}
-	if firstErr == nil {
-		return "no-steps-in-object" // every object parsed; none carried steps
-	}
-	msg := firstErr.Error()
-	switch {
-	case strings.Contains(msg, "in string literal"):
-		return "control-char-in-string" // a raw newline/tab/control char inside a value
-	case strings.Contains(msg, "invalid character"):
-		return "invalid-json-syntax"
-	default:
-		return "unmarshal-error"
-	}
-}
-
-// recordPlanParseFailure persists the raw planner reply and a failure-kind classification as a
-// diagnostic fact, so an intermittent parse failure can be inspected after the fact — the transient
-// tool.progress log is bus-only and whitespace-collapsed, losing exactly the control characters that
-// most often cause the failure. Best-effort and bounded (the raw is clipped); a failed write is a
-// no-op. detail keeps the raw text at full fidelity (NOT collapsed) up to the clip.
-func (a *App) recordPlanParseFailure(ctx context.Context, sid session.SessionID, tag, text string) {
-	const clip = 8192
-	raw := text
-	if len(raw) > clip {
-		raw = raw[:clip] + fmt.Sprintf("\n…[%d more chars]", len(text)-clip)
-	}
-	d, _ := json.Marshal(event.DiagnosticData{
-		Source: "planner:" + tag,
-		Kind:   planParseFailureKind(text),
-		Detail: raw,
-	})
-	_ = a.appendFact(ctx, sid, event.TypeDiagnostic, plannerActor, d)
-}
+// planProbe reads a candidate JSON object as a plan. It is the planner's contribution to the shared
+// parse-failure classifier: unmarshalling into the plan TYPE is what separates "valid JSON" from
+// "valid JSON of the wrong shape", which a probe into a bare any cannot see.
+func planProbe(b []byte) error { var p planResult; return json.Unmarshal(b, &p) }
 
 // unmarshalPlanLenient parses one candidate object as a plan, tolerating a trailing comma before a
 // closing } or ] — a very common weak-model JSON error that json.Unmarshal rejects outright, and one

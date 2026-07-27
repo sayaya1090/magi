@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -153,39 +154,38 @@ func (a *App) curateDelegate(ctx context.Context, agent AgentSpec, s session.Ses
 	b.WriteString("Sub-task:\n" + clipSpec(task, 1500) + "\n\nSpecialized tools available: " + strings.Join(specialized, ", "))
 	raw := a.specMineCall(ctx, agent, s.ID, "curator", model, curateSystem, b.String()) // reuse the tool-free elicitation
 	pkt, ok := parseCuratePacket(raw)
-	brief := ""
-	if ok {
-		brief = renderCurateBrief(pkt)
-	}
 	// Falling back to the mechanical brief loses exactly what the packet exists to carry — the
 	// verbatim identifiers the acceptance depends on — so an unreadable reply must not end the pass
-	// silently-in-effect. Every other side call that parses model JSON already re-asks once naming
-	// the actual defect (the planner, the check audit, each council member); the curator was the one
-	// that did not, and it fails the same way: observed live, a 1490-char packet lost to one unquoted
-	// stretch of prose inside an array, which the model can fix in a second attempt and cannot fix
-	// without being told. One bounded call, only on the failure path.
+	// silently-in-effect. Observed live: a 1490-char packet lost to one unquoted stretch of prose
+	// inside an array, which the model can fix in a second attempt and cannot fix without being told.
 	//
 	// An empty BRIEF is the same loss by a different route — the object parsed but carries no context
-	// worth handing over — so it takes the same retry rather than returning quietly.
-	if brief == "" {
-		a.emitToolProgress(s.ID, event.Actor{Kind: event.ActorAgent, ID: "curator"}, "", "curator",
-			fmt.Sprintf("curator: packet unusable (%d chars, parsed=%t) — retrying once :: %s",
-				len(raw), ok, jsonx.Report(raw)))
-		raw2 := a.specMineCall(ctx, agent, s.ID, "curator", model, curateSystem+curateRetryReminder(raw), b.String())
-		if pkt2, ok2 := parseCuratePacket(raw2); ok2 {
-			if b2 := renderCurateBrief(pkt2); b2 != "" {
-				pkt, brief = pkt2, b2
+	// worth handing over — so it takes the same re-ask rather than returning quietly.
+	pkt, ok = reask[curatePacket]{
+		pass:  "curator",
+		actor: event.Actor{Kind: event.ActorAgent, ID: "curator"},
+		ask: func(system string) (curatePacket, string, bool) {
+			raw := a.specMineCall(ctx, agent, s.ID, "curator", model, system, b.String())
+			p, ok := parseCuratePacket(raw)
+			return p, raw, ok
+		},
+		defect: func(p curatePacket, parsed bool, raw string) string {
+			switch {
+			case !parsed:
+				return fmt.Sprintf("packet unusable (%d chars, unparsed)", len(raw))
+			case renderCurateBrief(p) == "":
+				return fmt.Sprintf("packet parsed (%d chars) but carries no brief", len(raw))
 			}
-		}
-		if brief == "" {
-			// Terminal line for this pass: the caller stays silent after this, so the reason the worker
-			// is about to get a mechanical brief has to be here.
-			a.emitToolProgress(s.ID, event.Actor{Kind: event.ActorAgent, ID: "curator"}, "", "curator",
-				fmt.Sprintf("curator: the retry was unusable too (%d chars) — falling back to the mechanical "+
-					"brief :: %s", len(raw2), jsonx.Report(raw2)))
-			return "", nil
-		}
+			return ""
+		},
+		reminder: func(raw string, _ bool) string { return curateSystem + curateRetryReminder(raw) },
+		probe:    func(b []byte) error { var p curatePacket; return json.Unmarshal(b, &p) },
+		fallback: "falling back to the mechanical brief",
+	}.run(ctx, a, s.ID, pkt, raw, ok)
+	if !ok {
+		return "", nil
 	}
+	brief := renderCurateBrief(pkt)
 	tools := a.resolveCuratedTools(pkt.Tools)
 	// Transparency: surface what the curator produced so a run is interpretable (which specialized
 	// tools it added over the base, and the brief size) — the delegate hand-off is otherwise opaque.

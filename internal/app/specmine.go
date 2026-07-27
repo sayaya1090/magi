@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -214,17 +215,29 @@ func (a *App) elicitSpecMine(ctx context.Context, agent AgentSpec, s session.Ses
 	}
 	distilled := a.specMineCall(ctx, spec, s.ID, "spec-mine", model, distillSpecMineSystem, analysis)
 	res, ok := parseSpecMine(distilled)
-	if !ok { // local models are flaky — one retry, told what was wrong with the first
-		a.emitToolProgress(s.ID, plannerActor, "", "spec-mine",
-			fmt.Sprintf("spec-mine: the distill pass did not parse (%d chars) — retrying once :: %s",
-				len(distilled), jsonx.Report(distilled)))
-		distilled = a.specMineCall(ctx, spec, s.ID, "spec-mine", model,
-			distillSpecMineSystem+distillRetryReminder(distilled), analysis)
-		res, ok = parseSpecMine(distilled)
-	}
+	// Local models are flaky — one re-ask, told what was wrong with the first. Only the PARSE is
+	// judged here: a distillation that parses and carries nothing is a model that found nothing to
+	// mine, which asking again does not change, and it is reported below on its own terms.
+	res, ok = reask[specMineResult]{
+		pass:  "spec-mine",
+		actor: plannerActor,
+		ask: func(system string) (specMineResult, string, bool) {
+			raw := a.specMineCall(ctx, spec, s.ID, "spec-mine", model, system, analysis)
+			r, ok := parseSpecMine(raw)
+			return r, raw, ok
+		},
+		defect: func(_ specMineResult, parsed bool, raw string) string {
+			if parsed {
+				return ""
+			}
+			return fmt.Sprintf("the distill pass did not parse (%d chars, analysis was %d)", len(raw), len(analysis))
+		},
+		reminder: func(raw string, _ bool) string { return distillSpecMineSystem + distillRetryReminder(raw) },
+		probe:    func(b []byte) error { var r specMineResult; return json.Unmarshal(b, &r) },
+		fallback: "no execution note",
+	}.run(ctx, a, s.ID, res, distilled, ok)
 	if !ok {
-		return empty(fmt.Sprintf("the distill pass did not parse, twice (%d chars, analysis was %d) :: %s",
-			len(distilled), len(analysis), jsonx.Report(distilled)))
+		return "" // the re-ask already reported the failure and named the fallback
 	}
 	if len(res.Lines) == 0 && strings.TrimSpace(string(res.Final)) == "" {
 		return empty("the distill pass parsed but carried no lines")
