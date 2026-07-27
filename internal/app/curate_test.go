@@ -106,6 +106,42 @@ func TestRenderCurateBrief(t *testing.T) {
 	}
 }
 
+// briefShape is what makes a hand-off reviewable from a run's stdout: the brief body itself is only
+// in the CHILD session's event log, so a run that ships stdout alone leaves "was the worker told
+// enough, and told it clearly" unanswerable — a char count answers neither. Two failures have to be
+// visible here: a brief with no done-when (a worker never told what finishing means) and a literals
+// list missing an identifier the acceptance depends on (the paraphrase spec-loss this packet exists
+// to prevent, so the literals are quoted verbatim rather than counted).
+func TestBriefShapeNamesWhatTheHandOffCarried(t *testing.T) {
+	full := briefShape(curatePacket{
+		Goal: "ship a KV store", Progress: "skeleton exists", Missing: "no persistence yet",
+		Literals: []string{"GetResponse", "kv.proto"}, Constraints: []string{"do not change the proto"},
+		Deliverable: "grpcurl Get returns value",
+	})
+	for _, want := range []string{"goal", "progress", "missing", "boundaries", "done-when",
+		"verbatim: GetResponse, kv.proto"} {
+		if !strings.Contains(full, want) {
+			t.Errorf("briefShape must report %q, got %q", want, full)
+		}
+	}
+	// The absences are the point: a hand-off with no done-when and no literals must READ as one.
+	thin := briefShape(curatePacket{Goal: "ship a KV store"})
+	if strings.Contains(thin, "done-when") || strings.Contains(thin, "verbatim") {
+		t.Errorf("an absent section must not be reported as present, got %q", thin)
+	}
+	if !strings.Contains(thin, "[goal]") {
+		t.Errorf("what WAS carried must still be named, got %q", thin)
+	}
+	if got := briefShape(curatePacket{}); !strings.Contains(got, "none") {
+		t.Errorf("an empty packet must say so, got %q", got)
+	}
+	// A wide literals list is a legitimate answer; it must not push the section list off the line.
+	wide := briefShape(curatePacket{Deliverable: "d", Literals: []string{strings.Repeat("x", 900)}})
+	if !strings.HasPrefix(wide, "[done-when]") || len(wide) > 400 {
+		t.Errorf("the literals must be clipped LAST and bounded, got %d chars: %q", len(wide), wide)
+	}
+}
+
 // The worker always keeps the base toolset; the curator can only ADD registered specialized tools,
 // and an invented name is dropped.
 func TestResolveCuratedTools(t *testing.T) {
