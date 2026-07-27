@@ -201,6 +201,11 @@ type CouncilConvenedData struct {
 	Report    string `json:"report,omitempty"`    // the agent's claim (termination phase)
 	Changes   string `json:"changes,omitempty"`   // this turn's edits, reconstructed from the agent's tools (capped)
 	NoChanges bool   `json:"noChanges,omitempty"` // pure read-only turn (no edits/signals)
+	// Keep records that this round ASKED members for their advisory "keep" (MAGI_COUNCIL_KEEP).
+	// Without it an empty CouncilVerdictData.Keep is ambiguous — nobody was asked, or everyone was
+	// asked and none answered — and a gate that silently stops asking looks identical to one that
+	// asks and gets nothing. That ambiguity is exactly what hid the unwired plan phase for five days.
+	Keep bool `json:"keep,omitempty"`
 }
 
 // CouncilVerdictData — TypeCouncilVerdict (one member's vote).
@@ -214,6 +219,11 @@ type CouncilVerdictData struct {
 	Rationale  string  `json:"rationale,omitempty"`
 	Feedback   string  `json:"feedback,omitempty"`
 	Severity   string  `json:"severity,omitempty"` // plan audit: critical|warn|info on a revise — what gated the decision
+	// Keep is this member's advisory "what a revision must preserve", recorded per member rather
+	// than only in aggregate so a run shows WHICH lens blessed WHICH part. Emitted regardless of
+	// Decision: an approving member's keep is precisely what a rewrite forced by another member's
+	// objection would otherwise drop.
+	Keep string `json:"keep,omitempty"`
 }
 
 // CouncilDecidedData — TypeCouncilDecided (the tallied outcome). Feedback is set
