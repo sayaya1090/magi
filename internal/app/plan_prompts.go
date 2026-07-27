@@ -266,7 +266,7 @@ func stuckUnitPrompt(st planStep, blockReason, checklist string) string {
 func delegatePrompt(st planStep, brief, checklist string) string {
 	var p strings.Builder
 	p.WriteString("YOUR PART — do EXACTLY this one part of a larger plan, nothing more:\n")
-	p.WriteString(strings.TrimSpace(st.Task) + "\n")
+	p.WriteString(stepAssignment(st) + "\n")
 	p.WriteString(assignmentChecklist(checklist))
 	if b := strings.TrimSpace(brief); b != "" {
 		p.WriteString("\nCONTEXT — reference only; how your part fits, NOT a to-do list (do not do the whole request yourself):\n")
@@ -275,6 +275,22 @@ func delegatePrompt(st planStep, brief, checklist string) string {
 	p.WriteString("\nComplete just YOUR PART fully.\n\n")
 	p.WriteString(verifyContract)
 	return p.String()
+}
+
+// stepAssignment is the sentence under YOUR PART: the step's task, or its title when there is no
+// task. A planner writes `task` for a step it means to hand off and leaves it empty for one it
+// expects the main agent to do inline — and force-delegate hands those to a worker anyway, which
+// put an EMPTY line under the header that is supposed to say what the worker is for.
+//
+// Observed live: two workers whose prompt read "YOUR PART — do EXACTLY this one part of a larger
+// plan, nothing more:" followed by a blank line and then the reference-only context. The title is
+// what the plan itself calls that step, so it is the honest fallback — thinner than a task, and
+// still the difference between an assignment and none.
+func stepAssignment(st planStep) string {
+	if t := strings.TrimSpace(st.Task); t != "" {
+		return t
+	}
+	return strings.TrimSpace(st.Title)
 }
 
 // delegateBrief builds the compact context a delegate child gets IN ADDITION to its
