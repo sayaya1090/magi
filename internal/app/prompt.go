@@ -94,6 +94,12 @@ func (a *App) systemFor(agent AgentSpec, workdir string, isSub bool) string {
 		g := subagentGuide
 		if _, ok := a.tools.Get("report"); ok && agent.allows("report") {
 			g += subagentReportClause
+			// Escalation is a SEPARATE tool, so it needs its own check: an allowlist may carry
+			// report without ask, and telling that agent to escalate first sends it into a refusal
+			// at the one moment it is already stuck.
+			if _, ok := a.tools.Get("ask"); ok && agent.allows("ask") {
+				g += subagentAskClause
+			}
 		} else {
 			g += subagentFinishClause
 		}
@@ -197,15 +203,25 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 	}
 	// Compacted-context RAG (push half): topics an earlier compaction shed that look
 	// lexically relevant to the current task, as one-line pointers into recall_context.
-	b.WriteString(shardHints(evs, currentTaskText(evs)))
+	//
+	// Only for an agent that may actually CALL it. A pointer at a tool the allowlist refuses is
+	// not merely wasted context: it is an instruction the agent cannot carry out, and a model
+	// told to call something reads that as available and calls it — then gets a refusal, and
+	// repeats, because nothing in its window says the tool is gone. See gateAllowlist.
+	if agent.allows("recall_context") {
+		b.WriteString(shardHints(evs, currentTaskText(evs)))
+	}
 	// Both retrieval hooks below key on the last user prompt, which is constant across a
 	// turn; the per-turn caches absorb the (identical) lookups the remaining steps repeat.
 	retrievalQ := lastUserText(raw)
 	// Shared experience (D13): advertise only how many team memories/skills match the
 	// current request — a one-line pointer, not the entries themselves. The agent pulls
 	// the detail on demand with recall_memory, so relevant knowledge stays reachable
-	// without spending context on it every turn.
-	if a.cfg.Experience != nil && retrievalQ != "" {
+	// without spending context on it every turn — which is only true for an agent whose
+	// allowlist HAS recall_memory. A restricted agent (the read-only spec-mine explorer, a
+	// workflow phase, a delegate with a narrowed set) was being handed the pointer anyway and
+	// then refused when it followed it.
+	if a.cfg.Experience != nil && retrievalQ != "" && agent.allows("recall_memory") {
 		if p := a.experiencePointerCached(ctx, s.ID, retrievalQ); p != "" {
 			b.WriteString("\n\n# Shared experience\n" + p)
 		}
@@ -416,8 +432,13 @@ const subagentGuide = "\n\n# How you work (input/output contract)\n" +
 // subagentReportClause is appended when the report tool is available.
 const subagentReportClause = " When done, call the 'report' tool to finish: status (\"done\", or \"blocked\"/" +
 	"\"failed\" with what went wrong); optionally summary/details only if you did NOT already write the answer as your " +
-	"message. Calling 'report' ENDS your turn and hands your result to the orchestrator. If you're blocked on " +
-	"something only the orchestrator can provide, use the 'ask' tool first; if truly unresolvable, report \"blocked\"."
+	"message. Calling 'report' ENDS your turn and hands your result to the orchestrator. If you're blocked and " +
+	"cannot resolve it, report \"blocked\" with what you needed."
+
+// subagentAskClause is appended when the escalation tool is available too, replacing the
+// straight-to-blocked ending above with the escalation that precedes it.
+const subagentAskClause = " Before reporting \"blocked\", if what you need is something only the orchestrator " +
+	"can provide, use the 'ask' tool first."
 
 // subagentFinishClause is the fallback when no report tool exists.
 const subagentFinishClause = " When the task is done, write your answer as your final message and stop."
