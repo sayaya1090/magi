@@ -677,10 +677,11 @@ func memberSystem(m council.Member, phase, task string, keep, constraints bool) 
 	keepClause, schema := "", `{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific gap (only if continue)"}`
 	if keep {
 		keepClause = "Also, through YOUR lens ONLY, note in `keep` what the report ALREADY gets right that the agent " +
-			"must NOT redo or revert — a brief phrase (e.g. \"the parser change is correct and tested\"). This is purely " +
+			"must NOT redo or revert. NAME it in one short line — the file, function or behavior (e.g. \"the parser " +
+			"change in lexer.c, already tested\"); the agent is holding the work, so do not restate it. This is purely " +
 			"advisory: it NEVER changes your decision, and you still name any real defect in `feedback`. Leave `keep` " +
 			"empty if nothing is clearly settled through your lens; never affirm something you cannot verify.\n"
-		schema = `{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific gap (only if continue)","keep":"what's already correct through your lens — advisory, optional"}`
+		schema = `{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific gap (only if continue)","keep":"what's already correct through your lens — name it, don't restate it; advisory, optional"}`
 	}
 	// Scope/boundary verification (MAGI_CONSTRAINT_GATE, default off): OPT-IN because it adds a
 	// rejection criterion to a council that already tends to over-reject correct work — measured on an
@@ -857,8 +858,11 @@ func planMemberSystem(m council.Member, lens string, keep bool) string {
 		keepClause = "Also, through YOUR lens, note in `keep` the plan steps that are ALREADY sound and must survive " +
 			"if the plan is revised — do this EVEN WHEN YOU APPROVE, because another member's flaw sends the WHOLE plan " +
 			"back to be re-planned, and without this the revision can drop the correct parts your lens already blessed. " +
-			"Advisory: it never changes your vote; omit if nothing through your lens is clearly settled.\n\n"
-		keepField = `,"keep":"plan steps already sound through your lens that a revision must preserve — advisory, optional"`
+			"IDENTIFY them by step number and a few words (e.g. \"steps 2 and 5 — the protoc generation and the " +
+			"round-trip check\"); the re-planner is given the plan itself, so restating a step wastes the room its " +
+			"critique needs. Advisory: it never changes your vote; omit if nothing through your lens is clearly " +
+			"settled.\n\n"
+		keepField = `,"keep":"plan steps already sound through your lens that a revision must preserve — by step number and a few words; advisory, optional"`
 	}
 	return fmt.Sprintf(
 		"You are %s, a member of a council that audits an AI coding agent's PROPOSED PROCEDURE before it runs. "+
@@ -1014,9 +1018,10 @@ func contractMemberSystem(m council.Member, lens string, keep bool) string {
 	if keep {
 		keepClause = "Also, through YOUR lens, note in `keep` the criteria that are ALREADY sound and must survive if " +
 			"the contract is revised — do this EVEN WHEN YOU APPROVE, because another member's fix REWRITES the whole " +
-			"contract, and without this the rewrite can drop a condition your lens already blessed. Advisory: it never " +
-			"changes your vote; omit if nothing through your lens is clearly settled.\n\n"
-		keepField = `,"keep":"criteria already sound through your lens that a revision must preserve — advisory, optional"`
+			"contract, and without this the rewrite can drop a condition your lens already blessed. IDENTIFY each in a " +
+			"few words rather than copying it out; the writer is holding the contract. Advisory: it never changes your " +
+			"vote; omit if nothing through your lens is clearly settled.\n\n"
+		keepField = `,"keep":"criteria already sound through your lens that a revision must preserve — named, not restated; advisory, optional"`
 	}
 	// The contract phase judges a DIFFERENT thing than the termination gate (a goal definition, not a
 	// finished result), so the members wear contract-fit lenses rather than their verify-a-result ones.
@@ -1077,8 +1082,9 @@ func substMemberSystem(m council.Member, lens string, keep bool) string {
 	if keep {
 		keepClause = "Also, through YOUR lens, note in `keep` the substitution(s) that are ALREADY adequate and must " +
 			"survive a correction — do this EVEN WHEN YOU APPROVE, because one inadequate substitute sends ALL of them " +
-			"back to be re-declared. Advisory: it never changes your vote; omit if nothing is clearly settled.\n\n"
-		keepField = `,"keep":"substitutions already adequate through your lens that a correction must preserve — advisory, optional"`
+			"back to be re-declared. NAME each by the check it replaces, in a few words; do not re-copy the command. " +
+			"Advisory: it never changes your vote; omit if nothing is clearly settled.\n\n"
+		keepField = `,"keep":"substitutions already adequate through your lens that a correction must preserve — named by the check they replace; advisory, optional"`
 	}
 	switch m.Lens {
 	case "correctness":
