@@ -110,7 +110,7 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 					// gets the same memory as the revise path — otherwise absorbing a one-line note
 					// can cost steps the note never mentioned.
 					rc := replanContext{priorPlan: renderSteps(steps)}
-					if next := sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, advice, rc, depth, maxSteps, "")); len(next) > 0 {
+					if next := a.sanitizeReported(s.ID, plannerActor, a.runPlanner(ctx, spec, s, prompt, advice, rc, depth, maxSteps, "")); len(next) > 0 {
 						steps = next
 					}
 				}
@@ -159,7 +159,7 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		rc := replanContext{priorPlan: renderSteps(steps), judge: pendingJudge}
 		a.setStage(sid, stagePlan)
 		replanned := a.runPlanner(ctx, spec, s, prompt, revise, rc, depth, maxSteps, "")
-		next := sanitizeSteps(replanned)
+		next := a.sanitizeReported(sid, actor, replanned)
 		if len(next) == 0 {
 			// The retry exists because local models are flaky, but re-asking the same question the
 			// same way mostly gets the same non-answer. Say what came back instead — an empty reply
@@ -174,7 +174,7 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 				"If you meant to contest the concern rather than revise, you must STILL return the plan you are " +
 				"keeping — a contest with no steps is read as a failed re-plan and the prior plan proceeds unrevised."
 			replanned = a.runPlanner(ctx, spec, s, prompt, revise, retry, depth, maxSteps, "")
-			next = sanitizeSteps(replanned)
+			next = a.sanitizeReported(sid, actor, replanned)
 		}
 		// CONTEST: the re-planner may have rejected the concern as unjustified (kept its plan, set a
 		// task-grounded rebuttal) instead of complying — carry it into the next round so the council

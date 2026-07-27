@@ -20,19 +20,27 @@ import (
 const plannerAgent = "planner"
 
 const (
-	maxPlanGroups    = 5 // explorers per single parallel/scout fan-out
-	maxPlanSteps     = 6 // ordered steps the planner may propose
+	maxPlanGroups = 5 // explorers per single parallel/scout fan-out
+	// maxPlanSteps caps the ordered steps ONE level may propose. It is per level, not per run: a
+	// delegate/refine step re-plans at depth+1, so the tree can be wider than this.
+	//
+	// Raised from 6 because 6 was observably binding. The plan audit on a fix-and-verify task asked
+	// for a separate bootstrap-verification step AND a testsuite step, and the revision folded both
+	// into an existing step instead of appending them — with six steps already used there was
+	// nowhere to append. A cap that forces a council-demanded step to be merged into another one is
+	// shaping the plan rather than bounding it.
+	maxPlanSteps     = 8
 	maxPlanExplorers = 8 // per-turn READ-ONLY explorer spawns (a per-turn budget, not the lifetime MaxAgents)
 
 	// maxPlanWriteSteps is the per-turn budget for WRITE dispatches — every delegate/refine
 	// spawn plus their ADaPT retries. It is deliberately SEPARATE from maxPlanExplorers:
 	// investigating and executing must not draw on one counter, or a scout that fans out wide
 	// leaves the council-approved write steps with nothing to spend, and the tail of the plan
-	// silently drops onto the main agent. Sized so a maximum plan (maxPlanSteps) can dispatch
-	// every step and still afford a few retries. It is a per-turn shape control, not the real
-	// ceiling on spawning: MaxAgents (lifetime) and the spawn soft budget in forceDelegateSteps
-	// still bound how much this turn may spawn in total.
-	maxPlanWriteSteps = 10
+	// silently drops onto the main agent. Sized so a maximum plan (maxPlanSteps) can dispatch every
+	// step and still afford a few retries — raised with maxPlanSteps to keep that headroom. It is a
+	// per-turn shape control, not the real ceiling on spawning: MaxAgents (lifetime) and the spawn
+	// soft budget in forceDelegateSteps still bound how much this turn may spawn in total.
+	maxPlanWriteSteps = 12
 
 	// explorerTimeout caps each read-only planner explorer well under the 5m subagent
 	// hard cap, so a single explorer chasing a bad target can't stall the step (which
@@ -333,7 +341,7 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth, 
 
 	plan := a.runPlanner(ctx, spec, s, prompt, "", replanContext{}, depth, maxSteps, strings.TrimSpace(taskOverride))
 	a.storeStepEstimate(s.ID, plan.EstimatedSteps) // advisory pacing reference, solo or not
-	steps := guardExpansion(sanitizeSteps(plan), depth, a.cfg.MaxPlanDepth)
+	steps := guardExpansion(a.sanitizeReported(s.ID, plannerActor, plan), depth, a.cfg.MaxPlanDepth)
 	if len(steps) == 0 {
 		a.emitPhase(s.ID, "plan", "solo", strings.TrimSpace(plan.Reason)) // ran, judged single-area
 		// Solo bypasses the plan audit entirely, so it authors NO deliverable checks and the
@@ -1061,11 +1069,34 @@ func stripStrategyTag(title string) string {
 	return title
 }
 
+// sanitizeReported is sanitizeSteps plus the one thing the cap owed anyone: saying what it cut.
+//
+// The council audits the plan that SURVIVED, so a step it demanded and the cap removed looks like a
+// step the planner ignored — and the next round asks for it again. Observed as exactly that loop:
+// the audit asks for a verification step and a testsuite step, the revision appends them, the
+// append is cut, the audit asks again.
+func (a *App) sanitizeReported(sid session.SessionID, actor event.Actor, p planResult) []planStep {
+	out, overCap := sanitizeSteps(p)
+	if overCap > 0 {
+		a.emitToolProgress(sid, actor, "", "plan", fmt.Sprintf(
+			"plan: %d step(s) proposed, %d kept — %d beyond the %d-step limit for ONE level were dropped. "+
+				"A step that has to exist can be a delegate/refine step: it re-plans at the next level, "+
+				"where it gets its own budget.",
+			len(out)+overCap, len(out), overCap, maxPlanSteps))
+	}
+	return out
+}
+
 // sanitizeSteps enforces guardrails: valid strategies, read-only explorers, a
 // usable shape per strategy, and a capped step count. A "solo" step is kept (it
 // structures the procedure / todos) even though it dispatches nothing.
-func sanitizeSteps(p planResult) []planStep {
-	var out []planStep
+//
+// overCap counts the steps that were WELL-FORMED and lost to the cap alone. It exists because that
+// loss used to be invisible: the sanitizer stopped at the limit and nothing said so, so the plan
+// audit reviewed a plan two steps shorter than the one written and could not know. Observed as a
+// loop — the council asks for a verification step and a testsuite step, the revision appends them,
+// the append is cut, and the next round asks for the same two again.
+func sanitizeSteps(p planResult) (out []planStep, overCap int) {
 	for _, st := range p.Steps {
 		st.Strategy = strings.ToLower(strings.TrimSpace(st.Strategy))
 		st.Title = stripStrategyTag(strings.TrimSpace(st.Title))
@@ -1117,12 +1148,13 @@ func sanitizeSteps(p planResult) []planStep {
 		if st.Title == "" {
 			st.Title = st.Strategy + " step"
 		}
-		out = append(out, st)
 		if len(out) == maxPlanSteps {
-			break
+			overCap++ // count it rather than stop: what the cap costs has to be sayable
+			continue
 		}
+		out = append(out, st)
 	}
-	return out
+	return out, overCap
 }
 
 // guardExpansion enforces the recursion policy on a freshly sanitized procedure, keyed on

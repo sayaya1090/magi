@@ -170,7 +170,7 @@ func TestRunPlannerJSONOnlyRetry(t *testing.T) {
 }
 
 func TestSanitizeSteps(t *testing.T) {
-	got := sanitizeSteps(planResult{Steps: []planStep{
+	got, _ := sanitizeSteps(planResult{Steps: []planStep{
 		{Title: "a", Strategy: "solo"}, // kept (structures the procedure)
 		{Title: "b", Strategy: "parallel", Groups: []planGroup{
 			{Agent: "coder", Focus: "x", Question: "find X"}, // coder → explore
@@ -191,13 +191,24 @@ func TestSanitizeSteps(t *testing.T) {
 		t.Errorf("scout: non-explorer agent should be coerced to explore: %+v", got[2])
 	}
 
-	// Step count caps at maxPlanSteps.
+	// Step count caps at maxPlanSteps — and the cap SAYS what it cost. That count is the whole
+	// point: the council audits the plan that survived, so a step it demanded and the cap removed
+	// reads as a step the planner ignored, and the next round asks for it again.
 	many := planResult{}
 	for i := 0; i < maxPlanSteps+3; i++ {
 		many.Steps = append(many.Steps, planStep{Title: "s", Strategy: "solo"})
 	}
-	if g := sanitizeSteps(many); len(g) != maxPlanSteps {
-		t.Errorf("steps should cap at %d, got %d", maxPlanSteps, len(g))
+	g, over := sanitizeSteps(many)
+	if len(g) != maxPlanSteps || over != 3 {
+		t.Errorf("steps should cap at %d and report 3 dropped, got %d kept / %d over", maxPlanSteps, len(g), over)
+	}
+	// A plan inside the limit reports nothing to say.
+	if _, over := sanitizeSteps(planResult{Steps: []planStep{{Title: "s", Strategy: "solo"}}}); over != 0 {
+		t.Errorf("a plan under the cap must report no drop, got %d", over)
+	}
+	// Malformed steps are dropped by SHAPE, not by the cap, and must not be counted as its cost.
+	if _, over := sanitizeSteps(planResult{Steps: []planStep{{Title: "s", Strategy: "delegate"}}}); over != 0 {
+		t.Errorf("a step dropped for being unusable is not a step the cap cut, got %d", over)
 	}
 }
 
@@ -273,7 +284,7 @@ func TestStripStrategyTag(t *testing.T) {
 		}
 	}
 	// End-to-end: a step whose title echoes its strategy renders without duplication.
-	steps := sanitizeSteps(planResult{Steps: []planStep{{Title: "[scout] find docs", Strategy: "scout", Discover: "doc files"}}})
+	steps, _ := sanitizeSteps(planResult{Steps: []planStep{{Title: "[scout] find docs", Strategy: "scout", Discover: "doc files"}}})
 	if len(steps) != 1 {
 		t.Fatalf("want 1 step, got %d", len(steps))
 	}
@@ -281,7 +292,7 @@ func TestStripStrategyTag(t *testing.T) {
 		t.Errorf("strategy tag duplicated: %q", r)
 	}
 	// A title that is nothing but the tag → emptied, then backfilled to "<strategy> step".
-	bare := sanitizeSteps(planResult{Steps: []planStep{{Title: "[scout]", Strategy: "scout", Discover: "x"}}})
+	bare, _ := sanitizeSteps(planResult{Steps: []planStep{{Title: "[scout]", Strategy: "scout", Discover: "x"}}})
 	if len(bare) != 1 || bare[0].Title != "scout step" {
 		t.Errorf("bare tag title should backfill to %q, got %+v", "scout step", bare)
 	}
@@ -327,7 +338,7 @@ func TestExecuteStepsMarksExecutedTodos(t *testing.T) {
 // A delegate step needs a work instruction; heterogeneous strategies coexist in one
 // plan (a single tree carries solo/parallel/scout/delegate branches side by side).
 func TestSanitizeStepsDelegate(t *testing.T) {
-	got := sanitizeSteps(planResult{Steps: []planStep{
+	got, _ := sanitizeSteps(planResult{Steps: []planStep{
 		{Title: "solo it", Strategy: "solo"},
 		{Title: "survey", Strategy: "parallel", Groups: []planGroup{{Agent: "explore", Focus: "f", Question: "q"}}},
 		{Title: "scout docs", Strategy: "scout", Discover: "docs/*.md", Each: "read"},
@@ -667,7 +678,7 @@ func TestExecuteStepsDelegateFailureRecursion(t *testing.T) {
 // sanitizeSteps keeps a refine step iff it carries a sub-goal (Task); like delegate, a
 // refine with no work is dropped. Agent is optional (refine runs in-session via clone).
 func TestSanitizeStepsRefine(t *testing.T) {
-	got := sanitizeSteps(planResult{Steps: []planStep{
+	got, _ := sanitizeSteps(planResult{Steps: []planStep{
 		{Title: "build a small language", Strategy: "refine", Task: "lexer→parser→eval→REPL"}, // kept
 		{Title: "empty refine", Strategy: "refine", Task: "  "},                               // dropped (no sub-goal)
 	}})
