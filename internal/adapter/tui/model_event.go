@@ -316,7 +316,59 @@ func (m *Model) applyEvent(e event.Event) {
 	case event.TypeStepCheck:
 		var d event.StepCheckData
 		if json.Unmarshal(e.Data, &d) == nil {
-			m.onStepCheck(d)
+			m.blocks = append(m.blocks, block{kind: blockInfo, text: stepCheckLine(d)})
+		}
+
+	case event.TypePlanRevised:
+		// A plan-audit re-plan round. The headless printer shows the critique and the
+		// before→after step diff; the TUI showed nothing at all, so the richer surface
+		// showed LESS — the plan changed under the user between rounds with no record of
+		// what the council objected to, what moved, or whether the rewrite engaged it.
+		var d event.PlanRevisedData
+		if json.Unmarshal(e.Data, &d) == nil {
+			m.blocks = append(m.blocks, block{kind: blockInfo, text: planRevisedLine(d)})
+		}
+
+	case event.TypeArtifactEmitted:
+		// A reviewable output the run fixed at this point (acceptance criteria, deliverable
+		// checks, a check audit). Its CONTENT has other surfaces (the panel, the council
+		// detail ledger); what had none is WHEN it was fixed — so this is a one-line
+		// milestone, not a dump.
+		var d event.ArtifactEmittedData
+		if json.Unmarshal(e.Data, &d) == nil {
+			if line := artifactLine(d); line != "" {
+				m.blocks = append(m.blocks, block{kind: blockInfo, text: line})
+			}
+		}
+
+	case event.TypeDiagnostic:
+		// A reply the run could not use and recovered from (a planner/council pass whose JSON
+		// was malformed). It is persisted at full fidelity precisely because it is otherwise
+		// lost — but nothing rendered it, so on screen a discarded pass was indistinguishable
+		// from one that never ran. One line: who produced it and how it failed.
+		var d event.DiagnosticData
+		if json.Unmarshal(e.Data, &d) == nil {
+			if line := diagnosticLine(d); line != "" {
+				m.blocks = append(m.blocks, block{kind: blockInfo, text: line})
+			}
+		}
+
+	case event.TypeConcernRaised:
+		// The concern ledger's only surface was the council detail modal — reachable solely by
+		// clicking a member of a round that produced verdicts. Announce the open where it happens.
+		var d event.ConcernRaisedData
+		if json.Unmarshal(e.Data, &d) == nil {
+			if line := concernRaisedLine(d); line != "" {
+				m.blocks = append(m.blocks, block{kind: blockInfo, text: line})
+			}
+		}
+
+	case event.TypeConcernResolved:
+		var d event.ConcernResolvedData
+		if json.Unmarshal(e.Data, &d) == nil {
+			if line := concernResolvedLine(d); line != "" {
+				m.blocks = append(m.blocks, block{kind: blockInfo, text: line})
+			}
 		}
 
 	case event.TypeTurnFinished:
@@ -481,32 +533,6 @@ func (m *Model) onCouncilConvened(d event.CouncilConvenedData) {
 	}
 }
 
-// onStepCheck renders one deterministic deliverable-check result as a clean, readable line —
-// a green ✓ or red ✗, the step label, and what it verifies — instead of the council-round
-// wrapper these facts used to be shoved through ("round 0: finished (no consensus) — 0 done /
-// 0 continue (check [1] …)"). A single executed check has no round or tally; this shows just
-// the result.
-func (m *Model) onStepCheck(d event.StepCheckData) {
-	what := strings.TrimSpace(d.Deliverable)
-	if what == "" {
-		// A typed check has no command; its source+assertion is what it ran.
-		if what = strings.TrimSpace(d.Command); what == "" {
-			what = strings.TrimSpace(strings.TrimPrefix(d.Source+": "+d.Assert, ": "))
-		}
-	}
-	if step := strings.TrimSpace(d.Step); step != "" {
-		what = "[" + step + "] " + what
-	}
-	glyph, tail := "✓", ""
-	color := colSuccess
-	if !d.Pass {
-		glyph, color = "✗", colError
-		tail = fmt.Sprintf(" — exit %d", d.Code)
-	}
-	line := lipgloss.NewStyle().Foreground(color).Render(glyph+" check ") + what + tail
-	m.blocks = append(m.blocks, block{kind: blockInfo, text: line})
-}
-
 // onCouncilDecided renders a round's outcome + tally line. The caller clears the
 // live council chip before invoking this (a decision ends the open round).
 func (m *Model) onCouncilDecided(d event.CouncilDecidedData) {
@@ -546,6 +572,17 @@ func (m *Model) onCouncilDecided(d event.CouncilDecidedData) {
 		line += " (" + d.Note + ")"
 	} else if d.Feedback != "" {
 		line += " → feedback injected"
+	}
+	// A round that reused a standing rejection WITHOUT deliberating (no new tool actions since the
+	// last one) emits no verdicts, so nothing on screen says what it is still holding the turn open
+	// over — only "→ feedback injected", while the injected text itself lands in the transcript as a
+	// system note clipped to its first line. Print the demand under the decision in exactly that
+	// case: when this round did deliberate, each member's own reason already renders under its
+	// verdict row and repeating the aggregate would just say it twice.
+	if len(m.roundVerdicts(d.Round)) == 0 {
+		for _, ln := range d.FeedbackLines() {
+			line += "\n    " + ln
+		}
 	}
 	m.blocks = append(m.blocks, block{kind: blockInfo, text: line})
 	// A review round (non-plan) that votes "continue" re-prompts the model for a

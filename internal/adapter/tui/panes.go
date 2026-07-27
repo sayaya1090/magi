@@ -412,6 +412,13 @@ func (m *Model) applyPaneEvent(p *agentPane, e event.Event) {
 			if fb := strings.TrimSpace(d.Feedback); fb != "" {
 				line += "\n    ↳ " + fb
 			}
+			// …and what this member says the revision must NOT lose. In the main transcript the
+			// keep is one click away in the detail modal; the pane has no modal, so without this
+			// line the worker's own review shows every demand to change something and nothing
+			// about what changing it must preserve.
+			if k := strings.TrimSpace(d.Keep); k != "" {
+				line += "\n    ⊙ keep: " + k
+			}
 			p.blocks = append(p.blocks, block{kind: blockInfo, text: line})
 		}
 	case event.TypeCouncilDecided:
@@ -423,6 +430,47 @@ func (m *Model) applyPaneEvent(p *agentPane, e event.Event) {
 				line += " (" + d.Note + ")"
 			}
 			p.blocks = append(p.blocks, block{kind: blockInfo, text: line})
+		}
+	case event.TypeStepCheck:
+		// A worker verifies its OWN step (the per-step check gate), and that result lands on the
+		// worker's session — so the pane showed the edits and then a bare done/blocked, with the
+		// verification that decided between them nowhere on screen.
+		var d event.StepCheckData
+		if json.Unmarshal(e.Data, &d) == nil {
+			p.blocks = append(p.blocks, block{kind: blockInfo, text: stepCheckLine(d)})
+		}
+	case event.TypePlanRevised:
+		// A worker that decomposes its sub-task runs its own plan audit, and a re-plan round
+		// emits here. Same reason as the main transcript: without it the worker's steps change
+		// under the reader with no record of what was objected to.
+		var d event.PlanRevisedData
+		if json.Unmarshal(e.Data, &d) == nil {
+			p.blocks = append(p.blocks, block{kind: blockInfo, text: planRevisedLine(d)})
+		}
+	case event.TypeDiagnostic:
+		// A worker's own side-pass (planner/curator) that produced an unusable reply. Silent
+		// retries are exactly what makes a pane look stalled when it is in fact re-asking.
+		var d event.DiagnosticData
+		if json.Unmarshal(e.Data, &d) == nil {
+			if line := diagnosticLine(d); line != "" {
+				p.blocks = append(p.blocks, block{kind: blockInfo, text: line})
+			}
+		}
+	case event.TypeConcernRaised:
+		// A worker's own termination gate raises concerns on the WORKER's session (they bubble to
+		// the parent only at the spawn boundary), and the pane has no detail modal to hide them in.
+		var d event.ConcernRaisedData
+		if json.Unmarshal(e.Data, &d) == nil {
+			if line := concernRaisedLine(d); line != "" {
+				p.blocks = append(p.blocks, block{kind: blockInfo, text: line})
+			}
+		}
+	case event.TypeConcernResolved:
+		var d event.ConcernResolvedData
+		if json.Unmarshal(e.Data, &d) == nil {
+			if line := concernResolvedLine(d); line != "" {
+				p.blocks = append(p.blocks, block{kind: blockInfo, text: line})
+			}
 		}
 	case event.TypeAgentStatus:
 		// The orchestrator posts a "killed — <why>" status onto the CHILD's own session when it
