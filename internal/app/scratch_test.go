@@ -112,12 +112,13 @@ func TestSweepReclaimsOnlyOrphans(t *testing.T) {
 	}
 }
 
-// A check may not read the turn's scratch. It is removed when the turn ends, so such a check passes
-// exactly once and can never be re-run — the next gate, the next turn, and anyone reproducing the
-// result all find nothing there. That is worse than an unrunnable check, because it passes first
-// and disappears afterwards, and it became likely the moment TMPDIR started pointing there: a
-// worker recording its real output lands in the scratch naturally and then names it as the source.
-func TestCheckMayNotReadTheScratch(t *testing.T) {
+// A check MAY read this turn's scratch, and the rule that said otherwise was backwards. It reasoned
+// that a scratch file cannot be re-run in a later turn — but a check cannot either: deliverableChecks
+// is cleared at every new top-level turn, so the two have exactly the same lifetime. And the check
+// contract obliges the worker to redirect the genuine output to the path the item names, so a
+// scratch it may not name leaves one place for that file: the workspace, which is the deliverable.
+// The rule would have used magi's own contract to push evidence into the tree being graded.
+func TestCheckMayReadThisTurnsScratchButNotADeadOne(t *testing.T) {
 	a := &App{states: map[session.SessionID]*sessionState{}}
 	sc := newTurnScratch()
 	if sc == nil {
@@ -127,33 +128,29 @@ func TestCheckMayNotReadTheScratch(t *testing.T) {
 	const sid = session.SessionID("s_main")
 	a.setScratch(sid, sc)
 
+	// This turn's scratch is exactly where check evidence belongs.
 	for _, src := range []string{
 		filepath.Join(sc.tmpDir(), "result.txt"),
 		filepath.Join(sc.logsDir(), "magi-bash-1.log"),
-		sc.root,
-		filepath.Join(sc.root, "a", "..", "b.txt"), // spelling must not get around it
+		filepath.Join(sc.root, "a", "..", "b.txt"),
 	} {
-		if why := a.scratchSourceRefusal(sid, src); why == "" {
-			t.Errorf("a check reading %s must be refused", src)
-		} else if !strings.Contains(why, "removed when the turn ends") {
-			t.Errorf("the refusal must say why: %s", why)
+		if why := a.scratchSourceRefusal(sid, src); why != "" {
+			t.Errorf("a check reading %s must be allowed, got %q", src, why)
 		}
 	}
-
-	// Another turn's scratch is worse still — that directory is already gone.
+	// A turn that is over took its directory with it: nothing there to read, ever.
 	if why := a.scratchSourceRefusal(sid, "/tmp/magi-turn-999/logs/x.log"); !strings.Contains(why, "a turn that is over") {
 		t.Errorf("a dead turn's scratch must be refused by name, got %q", why)
 	}
-
-	// Everything else is none of magi's business: the workspace obviously, and a /tmp file the
-	// agent chose itself, which lives as long as the machine keeps it.
+	// With no live scratch at all, any turn directory is a dead one.
+	if why := a.scratchSourceRefusal("s_other", filepath.Join(sc.tmpDir(), "x")); why == "" {
+		t.Error("a session with no scratch cannot be reading a live one")
+	}
+	// Everything else is none of magi's business: the workspace, and a /tmp file the agent chose
+	// itself, which lives as long as the machine keeps it.
 	for _, src := range []string{"/app/build.log", "build/out.txt", "/tmp/my-own-run.log", ""} {
 		if why := a.scratchSourceRefusal(sid, src); why != "" {
 			t.Errorf("%q must be allowed, got %q", src, why)
 		}
-	}
-	// A session with no scratch still refuses a dead turn's path and nothing else.
-	if why := a.scratchSourceRefusal("s_other", filepath.Join(sc.tmpDir(), "x")); !strings.Contains(why, "magi-turn") {
-		t.Errorf("the pattern rule must stand without a live scratch, got %q", why)
 	}
 }

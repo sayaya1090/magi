@@ -123,27 +123,27 @@ func (a *App) setScratch(sid session.SessionID, s *turnScratch) {
 
 // scratchSourceRefusal reports why a check may not read this path, or "" when it may.
 //
-// Two ways a path is temporary. It is under THIS turn's scratch — the common case now that TMPDIR
-// points there, so a worker recording its real output lands in it naturally and then names it as
-// the check's source. Or it carries magi's own turn-directory name from some other turn, which no
-// longer exists at all; a check authored against one of those can never pass again, and reporting
-// it as a failing deliverable would send the run chasing a defect that is not in the code.
+// A check MAY read this turn's scratch, and pushing it out was a mistake worth recording. The
+// reasoning was that a scratch file cannot be re-run in a later turn — but a check cannot either:
+// deliverableChecks is cleared at every new top-level turn, so a check and the scratch have exactly
+// the same lifetime. And the check contract obliges the worker to "redirect the genuine output to
+// exactly the path the item names", so a scratch it may not name leaves one place for that file:
+// the workspace, which is the deliverable, which is the pollution the scratch exists to prevent.
+// The rule would have used magi's own contract to push evidence back into the tree being graded.
 //
-// A path outside both is none of magi's business: an agent may legitimately record output to /tmp
-// itself, and that file lives as long as the machine keeps it.
+// What is still refused is a path from a turn that is OVER. That directory was removed with its
+// turn, so the check can never read anything there, and reporting the absence as a failing
+// deliverable would send the run chasing a defect that is not in the code.
 func (a *App) scratchSourceRefusal(sid session.SessionID, source string) string {
 	src := strings.TrimSpace(source)
-	if src == "" {
-		return ""
+	if src == "" || !strings.Contains(src, "magi-turn-") {
+		return "" // not a turn scratch at all — where an agent records its own output is its business
 	}
 	if sc := a.scratchFor(sid); sc != nil && underDir(src, sc.root) {
-		return "reads " + src + ", inside this turn's scratch directory — that is removed when the turn ends, " +
-			"so the check could pass once and never be re-run. Record the real output somewhere in the workspace and assert on that"
+		return "" // THIS turn's scratch: same lifetime as the check, and the right place for it
 	}
-	if strings.Contains(src, "magi-turn-") {
-		return "reads " + src + ", a scratch directory from a turn that is over — nothing is there to read"
-	}
-	return ""
+	return "reads " + src + ", a scratch directory from a turn that is over — that directory was " +
+		"removed with its turn, so there is nothing there to read. Point the check at output this turn produced"
 }
 
 // underDir reports whether path is dir itself or lives inside it, comparing cleaned paths so
