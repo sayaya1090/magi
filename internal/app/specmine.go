@@ -411,8 +411,12 @@ func (a *App) cachedSpecMine(sid session.SessionID) string {
 // mirrors the other execution notes so the executor reads it as system guidance.
 func specMineNote(mined string) string {
 	return "# Execution note — what this task needs (its identifiers, types, and prerequisites)\n" +
-		"Worked out from the request's own names, type signatures, and stated dependencies (not its prose). " +
-		"Each line is tagged by HOW to honor it: ⟨hard⟩ = a fixed identifier/value — match it verbatim; " +
+		"Worked out from the request's own names, type signatures, and stated dependencies (not its prose), " +
+		"and written BEFORE any file in this workspace was opened. So a line here that says what a file " +
+		"already CONTAINS is a prediction to verify, never a value to match: nothing had read that file when " +
+		"it was written, and a later reading of the real bytes overrides it. " +
+		"Each line is tagged by HOW to honor it: ⟨hard⟩ = a fixed identifier/value the REQUEST itself pins — " +
+		"match it verbatim; " +
 		"⟨example⟩ = a sample input→output — reproduce that behavior exactly (the literal I/O is in the line); " +
 		"⟨semantic⟩ = a described structure/type/behavior — satisfy its MEANING and verify by EFFECT (build/" +
 		"run/inspect), NEVER by forcing a particular source spelling (a ⟨semantic⟩ 'field key of type string' " +

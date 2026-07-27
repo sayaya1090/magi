@@ -157,11 +157,7 @@ func (a *App) exploreSpecMine(ctx context.Context, s session.Session, task strin
 				"spec-mine: the re-ask named no path either — keeping the first findings as-is")
 		}
 	}
-	a.injectSpecMineNote(ctx, s.ID, "# Repository findings (from a read-only exploration of the plan) — the existing signatures/paths/"+
-		"interfaces the steps should match. Reuse a FIXED identifier or path from here verbatim (do not invent "+
-		"an alternative name); but a DERIVED value below (a record/field byte size, a file's sample contents) "+
-		"is a read-only pass's reading, not ground truth — if your own read of the file disagrees, TRUST THE "+
-		"FILE, and confirm sizes/offsets against the real bytes before you depend on them:\n"+findings)
+	a.injectSpecMineNote(ctx, s.ID, specMineFindingsNote(findings))
 	// A finished exploration reports what it FOUND; it is under no obligation to mention that the plan
 	// leans on something it searched for and did not find. That contradiction is the same one the
 	// stopped path salvages, so it is settled here too — only the wholesale absence list stays
@@ -209,6 +205,28 @@ func (a *App) injectSpecMineNote(ctx context.Context, sid session.SessionID, not
 		a.storeSpecMine(sid, note)
 	}
 	_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "specmine"}, note)
+}
+
+// specMineFindingsNote heads what a read-only pass read out of the real files.
+//
+// The last clause is the one that had to be added. This note and the execution note land in the same
+// window, and the execution note is written BEFORE anything here is opened — so when the two describe
+// the same file differently, one of them is a prediction and the other is a reading, and nothing said
+// which. Worse, the labels ran the wrong way: the execution note's ⟨hard⟩ lines read as "match this
+// verbatim" while this note called its own contents "not ground truth". Observed live on a data
+// transformation task: three ⟨hard⟩ lines predicting one shape of the input sat above this pass's
+// reading of the actual bytes describing a different one, and the guess was the authoritative-looking
+// half. The demotion inside this note is still right for what it was for — a sample or an offset read
+// once can be misread, so confirm it — but it is a demotion against the FILE, never against a line
+// that never opened the file.
+func specMineFindingsNote(findings string) string {
+	return "# Repository findings (from a read-only exploration of the plan) — the existing signatures/paths/" +
+		"interfaces the steps should match. Reuse a FIXED identifier or path from here verbatim (do not invent " +
+		"an alternative name); but a DERIVED value below (a record/field byte size, a file's sample contents) " +
+		"is a read-only pass's reading, not ground truth — if your own read of the file disagrees, TRUST THE " +
+		"FILE, and confirm sizes/offsets against the real bytes before you depend on them. Where a line here " +
+		"disagrees with the execution note above about what a file CONTAINS, this pass opened the file and that " +
+		"note did not — so this one stands and the note's guess does not:\n" + findings
 }
 
 // specMineNoPathReminder is appended to the explorer's brief after a reply that named no file. It

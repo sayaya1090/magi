@@ -76,14 +76,31 @@ func (a *App) withWorkerContext(sid session.SessionID, brief string) string {
 //
 // Clipped generously rather than summarized: the block's value is the exact spelling of a name, and
 // clipSpec cuts with a marker so a truncated tail cannot be mistaken for the whole of it.
+//
+// The block carries TWO provenances and used to present them as one. A ⟨tagged⟩ line is distilled
+// from the request's text before anything in the workspace has been opened; the rest was read out of
+// the real files. Under a single header, and a closing clause that demoted only "a file's sample
+// contents", the pre-observation guess read as the fixed part and the observation read as the soft
+// part — the authority exactly inverted. Observed live: three ⟨hard⟩ lines predicting one
+// transformation of a data file sat directly above a read-only pass's reading of the actual bytes
+// describing a completely different one, and the guess was the line labelled "match it verbatim".
+// The tag legend made it worse by being absent: it is written into the note the PARENT session gets,
+// so a worker saw `⟨hard⟩` with nothing anywhere in its window defining it.
 func specMineWorkerBrief(mined string) string {
 	mined = strings.TrimSpace(mined)
 	if mined == "" || !workerSpecMineEnabled() {
 		return ""
 	}
-	return "── MINED CONTRACT (the request's identifiers/types, and the signatures/paths a read-only pass " +
-		"found in THIS repository) ──\n" + clipSpec(mined, 4000) +
-		"\n\nUse a FIXED identifier or path from above verbatim — do not invent an alternative spelling for " +
-		"one that is named here. A DERIVED value (a byte size, an offset, a file's sample contents) is that " +
-		"pass's reading, not ground truth: if your own read of the file disagrees, TRUST THE FILE."
+	return "── MINED CONTRACT ──\nTwo kinds of line below, and they do NOT carry the same weight.\n" +
+		"A ⟨tagged⟩ line was distilled from the REQUEST's own text, before any file here was opened: " +
+		"⟨hard⟩ = a value the request itself pins — match it verbatim; ⟨example⟩ = a sample input→output — " +
+		"reproduce that behavior; ⟨semantic⟩ = a described behavior — satisfy its MEANING, not a spelling; " +
+		"⟨unconstrained⟩ = the request does NOT pin this, so choose freely and assert nothing about it. " +
+		"What such a line says about what a file already CONTAINS is a prediction — nothing had read that " +
+		"file when it was written.\n" +
+		"Every other line was read out of THIS repository by a read-only pass. Reuse a path or identifier " +
+		"from it verbatim; do not invent an alternative spelling for one that is named.\n" +
+		"Where the two disagree about a file's actual content, the pass that OPENED the file wins over the " +
+		"line that predicted it — and if your own read disagrees with both, TRUST THE FILE.\n\n" +
+		clipSpec(mined, 4000)
 }
