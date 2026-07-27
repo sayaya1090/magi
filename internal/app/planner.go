@@ -22,7 +22,17 @@ const plannerAgent = "planner"
 const (
 	maxPlanGroups    = 5 // explorers per single parallel/scout fan-out
 	maxPlanSteps     = 6 // ordered steps the planner may propose
-	maxPlanExplorers = 8 // per-turn TOTAL explorer spawns (a per-turn budget, not the lifetime MaxAgents)
+	maxPlanExplorers = 8 // per-turn READ-ONLY explorer spawns (a per-turn budget, not the lifetime MaxAgents)
+
+	// maxPlanWriteSteps is the per-turn budget for WRITE dispatches — every delegate/refine
+	// spawn plus their ADaPT retries. It is deliberately SEPARATE from maxPlanExplorers:
+	// investigating and executing must not draw on one counter, or a scout that fans out wide
+	// leaves the council-approved write steps with nothing to spend, and the tail of the plan
+	// silently drops onto the main agent. Sized so a maximum plan (maxPlanSteps) can dispatch
+	// every step and still afford a few retries. It is a per-turn shape control, not the real
+	// ceiling on spawning: MaxAgents (lifetime) and the spawn soft budget in forceDelegateSteps
+	// still bound how much this turn may spawn in total.
+	maxPlanWriteSteps = 10
 
 	// explorerTimeout caps each read-only planner explorer well under the 5m subagent
 	// hard cap, so a single explorer chasing a bad target can't stall the step (which

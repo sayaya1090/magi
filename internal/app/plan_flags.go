@@ -516,12 +516,24 @@ func criteriaContextEnabled() bool { return !envOff("MAGI_CRITERIA_CONTEXT") }
 // checkContextEnabled gates showing the plan-audit's EXECUTABLE deliverable checks to the working
 // agent in every step's volatile context — the executable half of what criteriaContextEnabled does
 // for the prose criteria. Only the delegated worker ever saw them (workerChecklist, in its brief);
-// the solo path, which is the default, saw nothing, so a check whose source is a log file demanded
+// every OTHER path to executing a step (a solo step, or a plan tail the main agent inherits) saw
+// nothing, so a check whose source is a log file demanded
 // an artifact nobody had told the agent to produce: it never wrote the file, the check failed on a
 // missing source, and the step advanced with the box unticked. Self-derived wiring — the checks are
 // magi's own, authored from the task. Default ON; MAGI_CHECK_CONTEXT=0 restores the brief-only
 // baseline for A/B.
 func checkContextEnabled() bool { return !envOff("MAGI_CHECK_CONTEXT") }
+
+// splitBudgetEnabled gates giving write steps (delegate/refine) their OWN per-turn dispatch
+// budget instead of sharing the read-only explorers' one. Sharing made investigation and
+// execution compete: a scout that discovers a handful of items spends the discovery spawn plus
+// one per item, and the delegate steps the council approved then hit a budget of zero — the loop
+// broke, and the rest of the plan fell to the main agent with no record that it ever had a plan
+// (observed: 3 workers spawned, then every remaining tool call on the main agent). The counters
+// bound different things and should not be one number. Default ON; MAGI_SPLIT_BUDGET=0 restores
+// the single shared pool for A/B. Off does NOT restore the silent drop — an exhausted write
+// budget names the undispatched steps either way.
+func splitBudgetEnabled() bool { return !envOff("MAGI_SPLIT_BUDGET") }
 
 // stallNoveltyEnabled gates counting a NOVEL inspect-only command (a first-seen
 // fingerprint — a new grep pattern, a new file listed) as "the agent responded to the
