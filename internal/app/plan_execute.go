@@ -255,12 +255,18 @@ func (a *App) executeSteps(ctx context.Context, s session.Session, goal string, 
 			}
 			continue
 		}
+		// Hoisted above the dispatch: the scout's DISCOVERY explorer needs the same orientation
+		// its per-item explorers get — it decides which items exist at all.
+		fanGoal := ""
+		if stepCtx {
+			fanGoal = goal // orient read-only explorers with the overall goal (no sibling outputs — they produce none)
+		}
 		var groups []planGroup
 		switch st.Strategy {
 		case "parallel":
 			groups = capGroups(st.Groups, &explore)
 		case "scout":
-			groups = a.scoutGroups(ctx, s, st, &explore, depth)
+			groups = a.scoutGroups(ctx, s, fanGoal, st, &explore, depth)
 		default: // solo → main agent does it; nothing to dispatch
 			continue
 		}
@@ -268,10 +274,6 @@ func (a *App) executeSteps(ctx context.Context, s session.Session, goal string, 
 			continue // per-step degrade
 		}
 		a.advanceTo(ctx, s.ID, plannerActor, i) // moved on to step i: earlier steps ✓, step i running ◐
-		fanGoal := ""
-		if stepCtx {
-			fanGoal = goal // orient read-only explorers with the overall goal (no sibling outputs — they produce none)
-		}
 		if f := strings.TrimSpace(a.runExplorers(ctx, s, groups, fanGoal, depth)); f != "" {
 			ef := stepFinding(st.Title, "", f)
 			out = append(out, ef)
@@ -629,6 +631,33 @@ func matchStepChecks(checks []council.DeliverableCheck, stepIdx int) []council.D
 // the shared per-turn dispatch budget and the depth cap.
 const refineLocalRetries = 2
 
+// refineContext appends the VERBATIM blocks a refine child cannot inherit, in the same order
+// and position a delegate worker gets them (after the hand-off, post-curation). Being CLONED is
+// not the same as being told: the clone carries the parent's goal and the siblings' actual work,
+// and none of these three rides in it, yet this step is judged by all three.
+//   - checklist: built from the PARENT's stored checks, and it reaches an agent only through a
+//     brief (delegate, recovery unit) or through the volatile context — which is ephemeral and
+//     rebuilt from the CHILD's own check set, empty until the child's own plan audit fills it
+//     with checks for its own sub-plan. Meanwhile runStepGate still judges this step against the
+//     parent's checks, so a refine phase could only ever satisfy that contract by accident.
+//     Delegate got the checklist; so did recovery units; refine was the one left out.
+//   - ledger: the exact paths survive a clone only until the shared refine session stops
+//     re-cloning (ReuseSession, the default) — a delegate step landing between phase 1 and
+//     phase 2 writes a ledger entry the shared child will never see.
+//   - concern: injected as an ActorSystem message, and cloneConversation drops ActorSystem
+//     prompts outright, so it does not inherit even on the phase that DOES clone.
+//
+// Each block already carries its own header and is empty when it has nothing to say.
+func refineContext(blocks ...string) string {
+	var b strings.Builder
+	for _, blk := range blocks {
+		if blk = strings.TrimSpace(blk); blk != "" {
+			b.WriteString("\n\n" + blk)
+		}
+	}
+	return b.String()
+}
+
 // runRefineStep executes one hierarchical refine step: a large, NON-independent sub-goal
 // worked out IN-CONTEXT. Unlike delegate's context-free hand-off, the sub-goal is re-planned at
 // depth+1 with the full context carried forward. By default (sharedRefineEnabled) a plan's
@@ -652,9 +681,10 @@ const refineLocalRetries = 2
 // The executor is the step's own agent if it named one, else any delegatable agent; refine
 // degrades to solo (the main agent works it out in-context) only when NONE is available.
 func (a *App) runRefineStep(ctx context.Context, s session.Session, st planStep, _ string, i, depth int, budget *int, rs *refineShare) (finding string, done bool) {
-	// The brief arg is ignored: refine spawns a CLONED-context child (CloneContext below), so
-	// the parent goal, prior refine seeds (recordRefineSuccess), and sibling notes already ride
-	// in the cloned conversation — no separate brief is needed or wanted.
+	// The mechanical brief arg is ignored: refine spawns a CLONED-context child (CloneContext
+	// below), so the parent goal, prior refine seeds (recordRefineSuccess), and sibling notes
+	// already ride in the cloned conversation. What does NOT ride in it is appended explicitly
+	// below (ctxBlocks) — being cloned is not the same as being told everything.
 	// A refine step usually names NO executor (its "agent" is optional — see resolveWriteExecutor),
 	// so fall back to any delegatable agent; the CLONED context, not the executor identity, carries
 	// the sub-goal. Degrade to solo only when no delegatable agent exists at all.
@@ -675,10 +705,12 @@ func (a *App) runRefineStep(ctx context.Context, s session.Session, st planStep,
 	if adaptDisabled() {
 		retries = 1
 	}
+	ctxBlocks := refineContext(workerChecklist(a.cachedChecks(s.ID), i), renderLedger(a.ledgerOf(s.ID)),
+		concernBrief(a.cachedConcern(s.ID)))
 	fail := ""
 	for attempt := 0; attempt < retries && *budget > 0; attempt++ {
 		*budget-- // count each attempt against the per-turn WRITE dispatch budget (maxPlanWriteSteps)
-		req := port.SpawnRequest{Agent: agentName, Prompt: refinePrompt(st, fail), CloneContext: true, PlanStepIndex: &i}
+		req := port.SpawnRequest{Agent: agentName, Prompt: refinePrompt(st, fail) + ctxBlocks, CloneContext: true, PlanStepIndex: &i}
 		if shared && rs.sid != "" {
 			// Reuse the shared child instead of re-cloning the parent: this phase (or retry)
 			// runs on top of its predecessors' ACTUAL conversation, not a spawn-time snapshot.
@@ -923,6 +955,15 @@ func (a *App) driveStuckTodos(ctx context.Context, s session.Session, agent Agen
 			Prompt:   prompt,
 			MaxSteps: stuckUnitBudget(a.cfg.MaxSteps),
 			Recovery: recoveryRunCapEnabled(),
+		}
+		if gateRecovery {
+			// Name the step this unit serves, so its pane shows the acceptance checklist it was
+			// actually handed (SubagentChecklist keys on ParentStep). Only under gateRecovery:
+			// there the recovery checks wholly own the ledger and unit i IS step i, whereas on the
+			// outerPlan APPEND path the stored checks belong to the OUTER plan, and claiming step i
+			// would show this unit a checklist written for somebody else's step.
+			step := i
+			req.PlanStepIndex = &step
 		}
 		if chain != "" {
 			req.ReuseSession = chain
