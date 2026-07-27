@@ -96,6 +96,12 @@ type LLMConfig struct {
 // parallel read-only explorers; nil means default (on), set false to disable.
 type OrchestrationConfig struct {
 	Planner *bool `toml:"planner"`
+	// Workers registers the write-capable "worker" sub-agent the planner can DELEGATE a
+	// self-contained sub-task to. nil = on (like planner); set false to keep the roster
+	// read-only, which makes delegation unavailable so every write step degrades to the
+	// solo path — the main agent does the work inline, with the whole session as context
+	// instead of a curated brief. MAGI_WORKERS still overrides this either way.
+	Workers *bool `toml:"workers"`
 	// SubagentTimeout is the BASE per-attempt hard cap for subagents, as a Go
 	// duration string ("5m", "90s"). The effective cap flexes elastically with
 	// observed model speed around this base. Empty = built-in default (5m).

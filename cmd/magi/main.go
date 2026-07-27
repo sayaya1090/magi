@@ -453,7 +453,7 @@ func run() int {
 	// Multi-agent: register the task tool and a default set of subagents (D9 —
 	// the bundled orchestration policy; replaceable later by a plugin).
 	registerOrchestrationTools(reg, headless)
-	agents := defaultAgents()
+	agents := defaultAgents(cfg.Orchestration.Workers)
 	applyAgentModels(agents, cfg.Routing, cfg.LLM.Profiles) // per-agent model + endpoint routing (M6)
 
 	// Shared experience (D13): two tiers. The global tier defaults to
@@ -1159,7 +1159,9 @@ func envDur(key string, def time.Duration) time.Duration {
 // agent does all authoring itself (the solo path), so delegation degrades to solo
 // and the planner only fans out read-only exploration. Each leaves Model empty to
 // inherit the session model; per-agent routing can be set in config (model routing, M6).
-func defaultAgents() map[string]app.AgentSpec {
+// workers, when non-nil, is orchestration.workers from config: the committable form of the same
+// switch MAGI_WORKERS carries. The env var still wins, so a one-off A/B does not need a config edit.
+func defaultAgents(workers *bool) map[string]app.AgentSpec {
 	// read-only search + ask(escalate)/report(deliver) + pure-Go aggregation (tabulate/
 	// countmatches/countlines/groupby) so a read-only agent can REDUCE data — sum a
 	// column, count matches, tally groups — without a shell.
@@ -1206,7 +1208,7 @@ func defaultAgents() map[string]app.AgentSpec {
 	// (part of the curated-worker architecture); MAGI_WORKERS=0 removes it so the roster stays
 	// read-only (delegate unavailable → solo path, the delegate-off baseline). nil Tools = full
 	// toolset (write-capable ⇒ delegatable); the curator scopes it per task.
-	if v := strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_WORKERS"))); v != "0" && v != "off" && v != "false" && v != "no" {
+	if workersEnabled(workers) {
 		agents["worker"] = app.AgentSpec{
 			Name: "worker",
 			System: "You are a worker sub-agent. Carry out the ONE delegated sub-task end to end — read what " +
@@ -1217,6 +1219,18 @@ func defaultAgents() map[string]app.AgentSpec {
 		}
 	}
 	return agents
+}
+
+// workersEnabled decides whether the write-capable worker joins the roster.
+//
+// Order: the environment wins when it is set at all (a one-off A/B must not need a config edit),
+// then config, then on. Both spellings mean the same thing — without a delegatable agent every
+// write step degrades to solo, which is the whole point of the switch.
+func workersEnabled(cfg *bool) bool {
+	if v := strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_WORKERS"))); v != "" {
+		return v != "0" && v != "off" && v != "false" && v != "no"
+	}
+	return cfg == nil || *cfg
 }
 
 // profileDefs converts config profiles into app.ProfileDef (raw values; ${ENV}
