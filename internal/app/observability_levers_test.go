@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/port"
@@ -199,6 +200,13 @@ func TestModelReplyFailuresAreReported(t *testing.T) {
 	t.Run("curator packet", func(t *testing.T) {
 		a := newOrchApp(t, &gateLLM{text: prose}, Config{Permission: "allow", MaxAgents: 10})
 		s := parentSession(t.TempDir())
+		// A real session, not just the struct: the diagnostic record asserted below is written to the
+		// store, and a session that was never created can only ever report having kept nothing.
+		sid, err := a.CreateSession(context.Background(), command.CreateSession{Workdir: s.Workdir})
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.ID = sid
 		sub := watchProgress(t, a, s.ID)
 		brief, tools := a.curateDelegate(context.Background(), AgentSpec{Name: "worker"}, s,
 			planStep{Title: "do it", Task: "do the thing"}, "context")
@@ -207,6 +215,12 @@ func TestModelReplyFailuresAreReported(t *testing.T) {
 		}
 		if n := sub.notes("curator"); !strings.Contains(n, "mechanical brief") || !strings.Contains(n, "cannot produce") {
 			t.Errorf("the fallback must be reported with the reply:\n%s", n)
+		}
+		// The progress line above is bus-only and whitespace-collapsed, so it is not a record. Until the
+		// re-ask was shared, only the planner persisted the reply it could not read — this pass, which
+		// falls back to a brief that loses the verbatim identifiers, kept nothing at all.
+		if ds := diagnostics(t, a, s.ID); len(ds) != 2 {
+			t.Errorf("both unusable curator replies must be persisted as diagnostics, got %+v", ds)
 		}
 	})
 

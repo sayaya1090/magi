@@ -2140,14 +2140,14 @@ func TestParsePlanToleratesControlCharsInStrings(t *testing.T) {
 	}
 }
 
-// recordPlanParseFailure persists the raw reply as a diagnostic FACT (survives in the store) carrying
-// the failure kind and the raw text at full fidelity — the transient tool.progress log could not, so
-// an intermittent parse failure is now inspectable after the fact.
+// recordParseFailure persists the raw reply as a diagnostic FACT (survives in the store) carrying the
+// failure kind and the raw text at full fidelity — the transient tool.progress log could not, so an
+// intermittent parse failure is now inspectable after the fact.
 func TestRecordPlanParseFailurePersists(t *testing.T) {
 	ctx := context.Background()
 	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow"})
 	raw := "{\"reason\":\"analyze\nthen build\",\"steps\":[]}" // a raw newline in the reason value
-	a.recordPlanParseFailure(ctx, sid, "plan", raw)
+	a.recordParseFailure(ctx, sid, "planner", "plan", raw, planProbe)
 
 	evs, err := a.store.Read(ctx, sid, 0)
 	if err != nil {
@@ -2173,17 +2173,18 @@ func TestRecordPlanParseFailurePersists(t *testing.T) {
 	}
 }
 
-// planParseFailureKind classifies WHY a reply did not yield a plan, for the persisted diagnostic.
+// parseFailureKind classifies WHY a reply could not be read, for the persisted diagnostic. The plan
+// probe is what makes the last case a SHAPE failure rather than a syntax one.
 func TestPlanParseFailureKind(t *testing.T) {
 	cases := []struct{ name, text, want string }{
-		{"prose only", "I will now write the plan for you.", "no-json-object"},
+		{"prose only", "I will now write the plan for you.", "no-json"},
 		{"truncated", `{"steps":[{"title":"a","strategy":"sol`, "unbalanced-or-truncated"},
 		{"control char in string", "{\"reason\":\"line one\nline two\",\"steps\":[]}", "control-char-in-string"},
-		{"valid but no steps", `{"reason":"none","steps":[]}`, "no-steps-in-object"},
+		{"valid but no steps", `{"reason":"none","steps":[]}`, "parsed-but-empty"},
 	}
 	for _, c := range cases {
-		if got := planParseFailureKind(c.text); got != c.want {
-			t.Errorf("%s: planParseFailureKind=%q, want %q", c.name, got, c.want)
+		if got := parseFailureKind(c.text, planProbe); got != c.want {
+			t.Errorf("%s: parseFailureKind=%q, want %q", c.name, got, c.want)
 		}
 	}
 }
