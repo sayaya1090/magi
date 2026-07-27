@@ -44,6 +44,10 @@ type App struct {
 
 	lastActivity sync.Map // session.SessionID -> time.Time (liveness for the sidecar health check)
 	toolsRunning sync.Map // session.SessionID -> *atomic.Int64 (tools in flight; suppresses the stall watchdog)
+	genRunning   sync.Map // session.SessionID -> *atomic.Int64 (model generations in flight; a lease may not kill mid-sentence)
+	genLastToken sync.Map // session.SessionID -> time.Time (last streamed token; separates mid-sentence from a wedged backend)
+	productive   sync.Map // session.SessionID -> *atomic.Int64 (mutations + first-seen exercising commands; the lease's progress signal)
+	stepAttempts sync.Map // step key -> stepAttempt (a spent retry ladder, so the next dispatch of that step continues it)
 	sessionProcs sync.Map // session.SessionID -> *procSet (live background-job pids; lets the lease judge see off-tool CPU work)
 
 	memMu         sync.Mutex

@@ -378,8 +378,13 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			// intact. stepStart is reset each attempt so a stalled retry doesn't bias the latency meter.
 			stepStart = time.Now()
 			streamCtx, streamCancel := context.WithCancel(ctx)
+			// Mark the generation in flight for the whole call, error paths included: the lease
+			// supervisor reads this to know the child is working through a silence that emits no
+			// events (see enterGen).
+			a.enterGen(sid)
 			stream, err := a.providerFor(agent).StreamChat(streamCtx, req)
 			if err != nil {
+				a.leaveGen(sid)
 				streamCancel()
 				// Context-overflow is recoverable: the backend rejected the request purely for
 				// size, so fold older history into a summary and re-issue rather than ending the
@@ -404,6 +409,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			reasonPartID = "p_" + newID()
 			var serr error
 			res, serr = a.consumeStream(streamCtx, sid, agentActor, stream, msgID, textPartID, reasonPartID, streamCancel)
+			a.leaveGen(sid)
 			streamCancel()
 			if serr != nil {
 				return lastText, serr

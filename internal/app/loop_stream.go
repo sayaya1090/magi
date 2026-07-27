@@ -161,6 +161,9 @@ loop:
 			}
 			ev = e
 			last = time.Now()
+			// Tokens are arriving: this generation is producing, which is what lets the lease
+			// supervisor tell "mid-sentence" from "wedged backend" (see genFresh).
+			a.noteGenToken(sid)
 		case now := <-idleC:
 			gap := now.Sub(last)
 			// Silent past the bound → abort so a wedged backend can't hold the turn to the wall clock.
