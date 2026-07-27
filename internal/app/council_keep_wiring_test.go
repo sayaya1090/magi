@@ -2,10 +2,12 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/core/council"
+	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
@@ -146,5 +148,44 @@ func TestPlanAuditAdvisoryNoteCarriesKeep(t *testing.T) {
 	}
 	if !strings.Contains(txt, "step 2 already locates the right source") {
 		t.Errorf("an approving round dropped the keep — the executor is told what to add but not what to leave alone:\n%s", txt)
+	}
+}
+
+// The reason this whole mechanism could sit dead for five days is that the run log was byte-identical
+// whether keep fired or not. Both halves have to be on the record: what the round ASKED for (else an
+// empty keep is ambiguous between "nobody was asked" and "asked, none answered") and what each member
+// ANSWERED. A gate that quietly stops asking must become visible in the artifact, not just in a test.
+func TestCouncilFactsRecordKeepAskedAndAnswered(t *testing.T) {
+	fc := &fakeCouncil{delibs: []council.Deliberation{{
+		Round: 1, Decision: council.Done,
+		Verdicts: []council.Verdict{
+			{Member: "Melchior", Lens: "correctness", Decision: council.Done,
+				Keep: "step 2 already locates the right source"},
+		},
+	}}}
+	a, wd := newApp(t, &fakeLLM{}, Config{Council: fc, Agents: map[string]AgentSpec{plannerAgent: {Name: "planner"}}})
+	s, steps := planAuditFixture(t, a, wd)
+	a.runPlanAuditGate(context.Background(), s, a.cfg.Agents[plannerAgent], "do A and B", steps, 0, 120)
+
+	var asked, answered bool
+	for _, e := range mustRead(t, a, s.ID) {
+		switch e.Type {
+		case event.TypeCouncilConvened:
+			var d event.CouncilConvenedData
+			if json.Unmarshal(e.Data, &d) == nil && d.Keep {
+				asked = true
+			}
+		case event.TypeCouncilVerdict:
+			var d event.CouncilVerdictData
+			if json.Unmarshal(e.Data, &d) == nil && d.Keep == "step 2 already locates the right source" {
+				answered = true
+			}
+		}
+	}
+	if !asked {
+		t.Error("the convened fact must record that the round asked for keep — otherwise an empty keep is ambiguous")
+	}
+	if !answered {
+		t.Error("the verdict fact must record the member's keep — otherwise the run log cannot show the mechanism fired")
 	}
 }
