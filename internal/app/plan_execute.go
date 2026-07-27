@@ -382,16 +382,11 @@ func (a *App) runDelegateStep(ctx context.Context, s session.Session, st planSte
 	// that calls itself reference-only and NOT a to-do list, which is the wrong thing to say about
 	// the block that defines when this part is done. It rides with YOUR PART instead.
 	checklist := workerChecklist(a.cachedChecks(s.ID), i)
-	// Shared artifact ledger: append the exact paths/interfaces earlier steps produced, VERBATIM and
-	// AFTER curation, so the curator's paraphrase can't drop a file location the next step needs.
-	if lg := renderLedger(a.ledgerOf(s.ID)); lg != "" {
-		brief = strings.TrimSpace(brief + "\n\n" + lg)
-	}
-	// Same VERBATIM, post-curation position for the plan council's unresolved concern: the council
-	// deliberated over this plan, then the steps went to workers who never saw the review.
-	if cb := concernBrief(a.cachedConcern(s.ID)); cb != "" {
-		brief = strings.TrimSpace(brief + "\n\n" + cb)
-	}
+	// The parent's context blocks — the shared artifact ledger, the mined contract, the council's
+	// unresolved concern — VERBATIM and AFTER curation, so the curator's paraphrase can't drop a
+	// file location or an identifier the next step needs. One list, shared with refine
+	// (workerContextBlocks), because assembling it per hand-off is how the two drifted apart.
+	brief = a.withWorkerContext(s.ID, brief)
 	r := a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agentName, Prompt: delegatePrompt(st, brief, checklist), Tools: curTools, PlanStepIndex: &i})
 	text := strings.TrimSpace(r.Text)
 	// ADaPT failure branch (reactive, as-needed decomposition): a hard failure (spawn error
@@ -707,7 +702,7 @@ func (a *App) runRefineStep(ctx context.Context, s session.Session, st planStep,
 	// belongs with the statement of the step. The ledger and the concern really are reference and
 	// stay where they were, appended verbatim after it.
 	checklist := workerChecklist(a.cachedChecks(s.ID), i)
-	ctxBlocks := refineContext(renderLedger(a.ledgerOf(s.ID)), concernBrief(a.cachedConcern(s.ID)))
+	ctxBlocks := refineContext(a.workerContext(s.ID))
 	fail := ""
 	for attempt := 0; attempt < retries && *budget > 0; attempt++ {
 		*budget-- // count each attempt against the per-turn WRITE dispatch budget (maxPlanWriteSteps)

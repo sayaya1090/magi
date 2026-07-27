@@ -546,6 +546,16 @@ func splitBudgetEnabled() bool { return !envOff("MAGI_SPLIT_BUDGET") }
 // step. Default ON; MAGI_WORKER_CONCERN=0 restores the main-session-only baseline for A/B.
 func workerConcernEnabled() bool { return !envOff("MAGI_WORKER_CONCERN") }
 
+// workerSpecMineEnabled gates carrying the mined contract — the request's identifiers/types plus
+// the real signatures and paths a read-only exploration found in the repository — into a worker's
+// brief. The mining exists to stop a later step from inventing a name, and everything downstream of
+// the parent session already reads it: the planner, the check-author, the termination council, and
+// a step executed INLINE. A DELEGATED step is the exception, and not by design — its worker is a
+// fresh session, its brief is assembled from the plan, and the curator that builds that brief is
+// handed the mechanical brief rather than the session, so it cannot forward a note it never sees.
+// Default ON; MAGI_WORKER_SPECMINE=0 restores the parent-session-only baseline for A/B.
+func workerSpecMineEnabled() bool { return !envOff("MAGI_WORKER_SPECMINE") }
+
 // stallNoveltyEnabled gates counting a NOVEL inspect-only command (a first-seen
 // fingerprint — a new grep pattern, a new file listed) as "the agent responded to the
 // stalled nudge", so the D18a convergence only collapses the nudge budget when the
