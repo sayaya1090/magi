@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -205,9 +206,47 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 			disp = note + "\n" + disp
 		}
 	}
+	appendRunIndex(env.ScratchLogs, exit, a.Command, logPath)
 	res := okText("", fmt.Sprintf("exit %d\n%s%s", exit, outputLine(logPath), disp))
 	res.IsError = exit != 0
 	return res, nil
+}
+
+// appendRunIndex records one finished command in the turn's index: when, what came back, where the
+// full output is, and what ran. It is what makes the scratch legible — `ls` shows a pile of logs,
+// and this says which is which without opening any of them.
+//
+// It is also the turn's execution history in a form that survives context compaction, which the
+// conversation does not: the transcript is folded as the turn grows, and after that neither the
+// agent nor a post-mortem can answer "was this already run, and what happened" from anything but
+// the index.
+//
+// One short line, opened O_APPEND per call, because children of the same turn write here
+// concurrently. Best-effort throughout: a failure here must never be the reason a command's result
+// is lost.
+func appendRunIndex(logsDir string, exit int, command, logPath string) {
+	if logsDir == "" {
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(logsDir, "index.tsv"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	// Tabs separate the fields, so the command — the only field that can contain anything — goes
+	// last and is flattened: a newline inside it would otherwise start a row that is not one.
+	flat := strings.Join(strings.Fields(command), " ")
+	fmt.Fprintf(f, "%s\t%d\t%s\t%s\n", time.Now().UTC().Format(time.RFC3339), exit,
+		filepath.Base(logPath), clipRunes(flat, 400))
+}
+
+// clipRunes bounds a field to n runes, cutting on a rune boundary so the row stays valid UTF-8.
+func clipRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
 }
 
 // stripBackgroundArtifacts removes a trailing `&` and a leading `nohup` from a background-launched
