@@ -96,10 +96,9 @@ func runTask(llm port.LLMProvider, model string, plat port.Platform, task Task) 
 		return r, err
 	}
 	reg := builtin.Default()
-	reg.Register(builtin.Task{})
-	reg.Register(builtin.Ask{})
-	reg.Register(builtin.Report{})
-	reg.Register(builtin.ResolveConcern{})
+	// Headless: no one is here to answer a prompt. This used to enumerate the tools by hand and had
+	// fallen two behind the binary's set, so the suite was scoring a smaller agent than it shipped.
+	builtin.RegisterOrchestration(reg, true)
 	ref := session.ModelRef{Provider: "openai", Model: model}
 	a := app.New(store, llm, reg, bus.New(), plat, app.Config{
 		Model:      ref,

@@ -86,3 +86,47 @@ func Default() *Registry {
 	r.Register(SubstituteCheck{})
 	return r
 }
+
+// RegisterOrchestration adds the multi-agent orchestration tools.
+//
+// Human-in-the-loop tools are omitted in a headless run: with no one to answer a multiple-choice
+// question (ask_user) or send a mid-turn interjection (route_interjection), they can never fire and
+// only add weight to the model's tool list — which a weak model pays for on every request. The
+// orchestrator-internal tools function without a human and are always registered.
+//
+// It lives here, beside Default, because every caller that builds a working registry needs the same
+// set and a second copy drifts silently: a list maintained by hand cannot fail a build when a tool
+// is added to one copy and not the other, and one of these copies had already fallen two tools
+// behind before this function existed.
+func RegisterOrchestration(r *Registry, headless bool) {
+	r.Register(Task{})           // parent → subagent delegation
+	r.Register(Ask{})            // subagent → orchestrator escalation (input)
+	r.Register(Report{})         // subagent → orchestrator final result (output)
+	r.Register(ResolveConcern{}) // orchestrator-only: retire a handled ledger concern
+	r.Register(CancelDispatch{}) // orchestrator-only: cancel remaining parallel subagents
+	r.Register(Replan{})         // plan-eligible: declare the current plan unworkable and re-plan
+	if !headless {
+		r.Register(AskUser{})           // multiple-choice question to the human user
+		r.Register(RouteInterjection{}) // route a mid-turn user interjection
+	}
+}
+
+// KnownNames returns every name a built-in tool answers to, headless-only tools included.
+//
+// Policy code elsewhere decides what to do about a tool by writing its name as a literal — which
+// tools count as acting, which are dangerous, which fetch an external fact. Those literals are
+// unverifiable on their own: a name that no tool answers to reads exactly like one that does, and a
+// tool renamed or removed leaves the literal behind as vocabulary nothing can ever match. This is
+// what lets a test say which of those literals are real.
+//
+// Only built-ins are listed. Plugin and MCP tools register at runtime under names this package
+// cannot know, so absence here means "not a built-in", not "not a tool".
+func KnownNames() map[string]bool {
+	r := Default()
+	RegisterOrchestration(r, false)
+	out := map[string]bool{}
+	for _, t := range r.List() {
+		out[t.Name()] = true
+	}
+	return out
+}
