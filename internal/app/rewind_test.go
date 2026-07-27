@@ -9,6 +9,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/bus"
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/council"
+	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -59,6 +60,14 @@ func countUser(msgs []session.Message) int {
 
 // submitSync submits a prompt and waits for that turn to finish (subscribing
 // from the current end so it only sees the new turn's events).
+//
+// The Actor is not decoration. Every production caller of Submit stamps ActorUser (tui, cli, eval),
+// and the loop's finish-boundary recovery is built on that: hasUnansweredPrompt and userPromptEntries
+// both count ONLY ActorUser prompts. A prompt submitted without one is invisible to them — so when
+// startRun refuses it (st.cancel is still set while the previous turn's goroutine retires), nothing
+// downstream ever picks it up and the turn simply never runs. That was a real 1-in-N hang here: the
+// log ended `seq=4 turn.finished / seq=5 prompt.submitted` with nothing after, and the test waited
+// forever on a turn.finished that had no goroutine left to emit it.
 func submitSync(t *testing.T, a *App, sid session.SessionID, text string) {
 	t.Helper()
 	_, lastSeq, _ := a.SessionState(context.Background(), sid)
@@ -67,7 +76,8 @@ func submitSync(t *testing.T, a *App, sid session.SessionID, text string) {
 		t.Fatal(err)
 	}
 	defer cancel()
-	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: text}}})
+	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: text}},
+		Actor: event.Actor{Kind: event.ActorUser, ID: "test"}})
 	for e := range ch {
 		if e.Type == "turn.finished" || e.Type == "error" {
 			return
