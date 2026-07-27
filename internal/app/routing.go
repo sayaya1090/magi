@@ -48,6 +48,26 @@ func (a *App) agentFor(s session.Session) AgentSpec {
 	return spec
 }
 
+// effectiveSpec is the spec a named agent will actually run under for ONE dispatch: its configured
+// spec, with a per-spawn tool allowlist (the curator's selection, SpawnRequest.Tools) substituted
+// when there is one. It exists so a caller that must reason about what the child can DO — whether
+// guidance naming an action is guidance it can follow, see specCanAct — asks about the allowlist
+// the child is actually given, not the one its config would have granted.
+//
+// An unknown name yields a spec with an EMPTY allowlist, which reads as "all tools". That is the
+// same fallback agentFor takes, and it is the safe direction here: the alternative would report a
+// real executor as unable to act.
+func (a *App) effectiveSpec(name string, tools []string) AgentSpec {
+	spec, ok := a.resolveAgentSpec(name)
+	if !ok {
+		spec = AgentSpec{Name: name}
+	}
+	if len(tools) > 0 {
+		spec.Tools = append([]string(nil), tools...)
+	}
+	return spec
+}
+
 // resolveAgentSpec looks up an agent's configured spec and applies any runtime
 // routing override (from the /route menu). Used by both agentFor (top-level) and
 // spawn (subagents) so overrides take effect everywhere.

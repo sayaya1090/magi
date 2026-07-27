@@ -643,7 +643,7 @@ func (a *App) spawnResolved(ctx context.Context, parent session.Session, depth i
 			// same path into the same wall (the "self-clone retry loop" field report).
 			// Tell the retry what happened — the failure reason plus a digest of the
 			// previous attempt's tool trail — and require a DIFFERENT route.
-			attemptReq.Prompt = req.Prompt + retryPivotNote(ctx, a, last, attempt)
+			attemptReq.Prompt = req.Prompt + retryPivotNote(ctx, a, spec, last, attempt)
 		}
 		res, retry := a.runAttempt(ctx, parent, depth, spec, attemptReq)
 		if !retry {
@@ -950,20 +950,44 @@ func (a *App) seedPromptOf(sid session.SessionID) string {
 // a different route — retrying the identical plan against the same wall is how a
 // timeout loop burns every restart. Best-effort: with no readable trail it still
 // names the failure and demands a pivot.
-func retryPivotNote(ctx context.Context, a *App, last port.SpawnResult, attempt int) string {
+//
+// The pivot itself is split by what the agent can DO. "A faster variant, a prebuilt artifact, a
+// workaround flag, a smaller first deliverable" are all things only a write-capable executor can
+// reach; handed to a read-only explorer they name actions its allowlist forbids, and an agent told
+// to do the impossible detours rather than stops. The trail's framing inverts too: for an executor
+// a repeated path is a wall to route around, but for an explorer the files it already opened are
+// not a dead end — they are the findings it was killed before it could report, and telling it to
+// avoid them forbids the one route that was working. Observed on a lease-killed repository
+// explorer, which re-walked its predecessor's exact search order under this very note.
+func retryPivotNote(ctx context.Context, a *App, spec AgentSpec, last port.SpawnResult, attempt int) string {
+	canAct := specCanAct(spec)
 	var b strings.Builder
 	fmt.Fprintf(&b, "\n\n# Retry %d — previous attempt failed: %s\n", attempt, strings.TrimSpace(last.Err))
 	if last.SessionID != "" {
 		if evs, err := a.store.Read(ctx, last.SessionID, 0); err == nil {
 			if d := childToolDigest(evs, 12); d != "" {
-				b.WriteString("Its tool trail (what has ALREADY been tried — do not walk this path again):\n" + d + "\n")
+				lead := "Its tool trail (what has ALREADY been tried — do not walk this path again):\n"
+				if !canAct {
+					lead = "Its tool trail — ground you have ALREADY covered, so do not re-run these searches or " +
+						"re-open these files; what they established is yours to REPORT, not to rediscover:\n"
+				}
+				b.WriteString(lead + d + "\n")
 			}
 		}
 	}
-	b.WriteString("Take a DIFFERENT route this time: change the approach, not just the parameters " +
-		"(a faster variant, a prebuilt artifact, a workaround flag, or a smaller first deliverable). " +
-		"If a single step needs longer than this attempt's whole budget, do the smallest useful part " +
-		"first and report what remains — do NOT restart the same long-running path.")
+	if canAct {
+		b.WriteString("Take a DIFFERENT route this time: change the approach, not just the parameters " +
+			"(a faster variant, a prebuilt artifact, a workaround flag, or a smaller first deliverable). " +
+			"If a single step needs longer than this attempt's whole budget, do the smallest useful part " +
+			"first and report what remains — do NOT restart the same long-running path.")
+		return b.String()
+	}
+	b.WriteString("You produce FINDINGS, not changes, so the pivot is in WHAT YOU REPORT, not in how you " +
+		"build: write down what the trail above already settled — including any name you searched for and " +
+		"did NOT find, which is a finding in its own right — and spend this attempt only on what is still " +
+		"unknown. The previous attempt was cut off before it reported anything, so its work reached nobody. " +
+		"Report early and report partial: a short list of facts you are sure of is worth far more than a " +
+		"more thorough sweep that gets cut off again.")
 	return b.String()
 }
 

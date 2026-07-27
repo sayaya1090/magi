@@ -106,7 +106,7 @@ func TestRetryContinuationSplitBlock(t *testing.T) {
 	})
 	s := a.sessionInfo(context.Background(), sid)
 
-	got := a.retryContinuation(context.Background(), s, 0, port.SpawnResult{})
+	got := a.retryContinuation(context.Background(), s, AgentSpec{}, 0, port.SpawnResult{})
 	for _, want := range []string{"do NOT restart", "ALREADY SATISFIED", "server responds", "STILL UNMET", "cleanup done"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("continuation missing %q\n---\n%s", want, got)
@@ -123,7 +123,7 @@ func TestRetryContinuationFlagOffFallsBackToPivot(t *testing.T) {
 	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Deliverable: "x", Command: "probe"}})
 	s := a.sessionInfo(context.Background(), sid)
 
-	got := a.retryContinuation(context.Background(), s, 0, port.SpawnResult{Err: "worker crashed"})
+	got := a.retryContinuation(context.Background(), s, AgentSpec{}, 0, port.SpawnResult{Err: "worker crashed"})
 	if strings.Contains(got, "ALREADY SATISFIED") {
 		t.Error("flag off must NOT produce the check split")
 	}
@@ -140,7 +140,7 @@ func TestRetryContinuationNoChecksFallsBackToPivot(t *testing.T) {
 	a, sid, _ := newWorkflowApp(t, nil, plat, Config{Permission: "allow"})
 	s := a.sessionInfo(context.Background(), sid)
 
-	got := a.retryContinuation(context.Background(), s, 0, port.SpawnResult{Err: "empty result"})
+	got := a.retryContinuation(context.Background(), s, AgentSpec{}, 0, port.SpawnResult{Err: "empty result"})
 	if !strings.Contains(got, "DIFFERENT route") {
 		t.Errorf("no-check fallback must be the pivot digest:\n%s", got)
 	}

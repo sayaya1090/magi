@@ -402,7 +402,7 @@ func (a *App) runDelegateStep(ctx context.Context, s session.Session, st planSte
 		// first attempt already satisfied (skip) vs what still fails (continue), so the retry picks up
 		// mid-task rather than re-deriving. Falls back to a generic pivot digest when no checks exist.
 		retryBrief := brief
-		if cont := a.retryContinuation(ctx, s, i, r); cont != "" {
+		if cont := a.retryContinuation(ctx, s, a.effectiveSpec(agentName, curTools), i, r); cont != "" {
 			retryBrief = strings.TrimSpace(brief + "\n\n" + cont)
 		}
 		r = a.spawn(ctx, s, depth, port.SpawnRequest{Agent: agentName, Prompt: redecomposePrompt(st, retryBrief, checklist), Tools: curTools, PlanStepIndex: &i})
@@ -545,7 +545,8 @@ func (a *App) partitionStepChecks(ctx context.Context, s session.Session, stepId
 // work not covered by a check is still the worker's own. With no checks to run (or the split flag
 // off), it falls back to retryPivotNote's generic tool-trail digest + pivot directive, which is still
 // better than re-handing the identical brief. Returns "" only if even the fallback yields nothing.
-func (a *App) retryContinuation(ctx context.Context, s session.Session, stepIdx int, last port.SpawnResult) string {
+// spec is the retrying agent's own, so the fallback pivot is phrased for what it can reach.
+func (a *App) retryContinuation(ctx context.Context, s session.Session, spec AgentSpec, stepIdx int, last port.SpawnResult) string {
 	if retrySplitEnabled() {
 		if passed, fails, active := a.partitionStepChecks(ctx, s, stepIdx); active {
 			var b strings.Builder
@@ -563,7 +564,7 @@ func (a *App) retryContinuation(ctx context.Context, s session.Session, stepIdx 
 			return strings.TrimSpace(b.String())
 		}
 	}
-	return strings.TrimSpace(retryPivotNote(ctx, a, last, 1))
+	return strings.TrimSpace(retryPivotNote(ctx, a, spec, last, 1))
 }
 
 // stepChecks selects the deliverable checks that belong to plan step stepIdx (0-based),
