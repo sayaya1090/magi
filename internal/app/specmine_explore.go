@@ -98,7 +98,21 @@ func (a *App) exploreSpecMine(ctx context.Context, s session.Session, task strin
 	a.emitToolProgress(s.ID, plannerActor, "", "specmine", "exploring the repo for the plan's real signatures/paths…")
 	r := a.spawnResolved(ctx, s, depth, spec, port.SpawnRequest{Agent: "specmine", Prompt: brief})
 	findings := strings.TrimSpace(stripReportStatus(r.Text))
-	if r.Err != "" || findings == "" {
+	// An exploration that ERRORED — every attempt stalled, timed out, or had its lease judged KILL —
+	// comes back with no findings, and that has always meant "inject nothing". But it is a STOPPED
+	// exploration too, and the searches it ran are salvageable for the same reason the guard-stop
+	// path below salvages them: they are magi's own record, from each call's arguments and result,
+	// with no model prose in the path. The two kinds of stop got opposite treatment only because a
+	// guard stop deliberately leaves Err empty while an expired lease sets it, so the salvage sat
+	// behind a door this case never opens. Observed: a plan built on an invented identifier sent
+	// three explorer attempts after it, each one establishing with its own greps that the name is
+	// nowhere in the tree, all three killed on the lease — and the planner was handed a bare error.
+	if r.Err != "" {
+		a.salvageSearches(ctx, s, depth, spec, steps, r.SessionID,
+			"the exploration never reported ("+clipLine(r.Err, 160)+")")
+		return
+	}
+	if findings == "" {
 		return
 	}
 	// An exploration a guard STOPPED did not finish mining: r.Text is then whatever the model happened
@@ -118,19 +132,9 @@ func (a *App) exploreSpecMine(ctx context.Context, s session.Session, task strin
 	// everything else, and the plan was then built on that identifier through three revisions —
 	// every check with it, none of them able to pass.
 	if why := a.spawnStoppedBy(ctx, r.SessionID); why != "" {
-		neg := a.searchedNotFound(ctx, r.SessionID)
-		a.emitToolProgress(s.ID, plannerActor, "", "specmine",
-			fmt.Sprintf("spec-mine: exploration was stopped by the %s after %d chars — discarding the partial "+
-				"findings rather than passing a mid-analysis fragment off as repository facts; keeping %d "+
-				"searched-and-not-found fact(s) from magi's own record of its searches", why, len(findings), len(neg)))
-		// The absence and the plan that uses the name anyway both end up in the planner's window, and
-		// leaving them there is what produced the run this was written for. Settle them here instead
-		// (specmine_confirm.go); a retracted absence is dropped BEFORE rendering, so the injection never
-		// asserts and corrects the same name.
-		conf, retracted := a.confirmContradictions(ctx, s, depth, spec, planText(steps), neg)
-		if note := renderSearchMisses(dropRetracted(neg, retracted)); note != "" || conf != "" {
-			a.injectSpecMineNote(ctx, s.ID, strings.TrimSpace(note+"\n\n"+conf))
-		}
+		a.salvageSearches(ctx, s, depth, spec, steps, r.SessionID,
+			fmt.Sprintf("exploration was stopped by the %s after %d chars — discarding the partial "+
+				"findings rather than passing a mid-analysis fragment off as repository facts", why, len(findings)))
 		return
 	}
 	// The explorer's whole contract is `path — fact` lines: findings that name no file are, for this
@@ -165,6 +169,30 @@ func (a *App) exploreSpecMine(ctx context.Context, s session.Session, task strin
 	if conf, _ := a.confirmContradictions(ctx, s, depth, spec, planText(steps),
 		a.searchedNotFound(ctx, exploreSID)); conf != "" {
 		a.injectSpecMineNote(ctx, s.ID, conf)
+	}
+}
+
+// salvageSearches injects what an exploration that never reported still established: the patterns
+// it searched for and did not find, read out of magi's own record of the calls rather than out of
+// the model's prose. lead names WHY there is no report, and is rendered ahead of the count.
+//
+// Shared by both ways an exploration can end without one — a guard force-stop and an errored spawn
+// (a stall, a hard timeout, or a lease the judge ruled KILL). Keeping it in one place is the point:
+// the salvage was written for the first and reachable only from it, which is how the second kind of
+// stop came to throw away the identical evidence.
+func (a *App) salvageSearches(ctx context.Context, s session.Session, depth int, spec AgentSpec,
+	steps []planStep, sid session.SessionID, lead string) {
+	neg := a.searchedNotFound(ctx, sid)
+	a.emitToolProgress(s.ID, plannerActor, "", "specmine",
+		fmt.Sprintf("spec-mine: %s; keeping %d searched-and-not-found fact(s) from magi's own record of its searches",
+			lead, len(neg)))
+	// The absence and the plan that uses the name anyway both end up in the planner's window, and
+	// leaving them there is what produced the run this was written for. Settle them here instead
+	// (specmine_confirm.go); a retracted absence is dropped BEFORE rendering, so the injection never
+	// asserts and corrects the same name.
+	conf, retracted := a.confirmContradictions(ctx, s, depth, spec, planText(steps), neg)
+	if note := renderSearchMisses(dropRetracted(neg, retracted)); note != "" || conf != "" {
+		a.injectSpecMineNote(ctx, s.ID, strings.TrimSpace(note+"\n\n"+conf))
 	}
 }
 
