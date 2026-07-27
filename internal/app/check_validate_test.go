@@ -242,7 +242,8 @@ func TestPromptsCarryNoEvalSetSpecifics(t *testing.T) {
 		{"validateChecksSystem", validateChecksSystem},
 		{"coverageFillSystem", coverageFillSystem},
 		{"coverageJSONOnlyReminder", coverageJSONOnlyReminder},
-		{"checkAuditJSONOnlyReminder", checkAuditJSONOnlyReminder},
+		{"checksArrayRetryReminder/syntax", checksArrayRetryReminder(`[{"step":"1","assert":"nonempty}]`)},
+		{"checksArrayRetryReminder/schema", checksArrayRetryReminder(`{"checks":[]}`)},
 		{"checkAuditKeepSomeReminder", checkAuditKeepSomeReminder},
 		{"elicitCriteriaSystem", elicitCriteriaSystem},
 		{"elicitSpecMineSystem", elicitSpecMineSystem},
@@ -383,6 +384,125 @@ func TestCheckAuditUnparseableReplyIsRetriedJSONOnly(t *testing.T) {
 	}
 	if n := sub.notes("check-audit"); !strings.Contains(n, "not a checks array") || !strings.Contains(n, "look fine to me") {
 		t.Errorf("the note must name the shape and quote the reply, got:\n%s", n)
+	}
+}
+
+// The live shape, and the one the flat "you carried no JSON array" answer was worst for: the reply IS
+// a bare checks array, and ONE element is missing the closing quote of its `assert`. Telling that
+// model its reply "carried no JSON array of checks — prose, a wrapping object, or an unterminated
+// array" describes a reply it did not send, so it has nothing to correct; observed live, the re-ask
+// came back byte-identical and the pass kept the authored checks unreviewed, losing the two exit-code
+// gates that array carried. The retry must name the real defect and ask for the SAME checks back.
+func TestCheckAuditSyntaxDefectIsRetriedWithTheDiagnosis(t *testing.T) {
+	t.Setenv("MAGI_CHECK_VALIDATE", "1")
+	// One missing `"`, mid-array, exactly as observed: it breaks the ELEMENT boundary, so the reply
+	// recovers to its first check alone and the second — the crash-log exit-code gate — is gone.
+	broken := `[{"step":"1","deliverable":"build log","source":"build.log","assert":"matches ^exit=0$"},` +
+		`{"step":"2","deliverable":"crash log" source":"crash.log","assert":"nonempty"}]`
+	repaired := `[{"step":"1","deliverable":"build log","source":"build.log","assert":"matches ^exit=0$"},` +
+		`{"step":"2","deliverable":"crash log","source":"crash.log","assert":"nonempty"}]`
+	llm := &auditLLM{replies: []string{broken, repaired}}
+	a := newOrchApp(t, llm, Config{Permission: "allow", MaxAgents: 10})
+	s := parentSession(t.TempDir())
+	in := []council.DeliverableCheck{{Step: "1", Deliverable: "build log", Command: "test -f build.log"}}
+
+	out := a.validateChecks(context.Background(), a.agentFor(s), s, in)
+	if len(out) != 2 {
+		t.Fatalf("the repaired array must be used, got %+v", out)
+	}
+	sys := llm.calls()
+	if len(sys) != 2 {
+		t.Fatalf("want exactly one retry (2 calls), got %d", len(sys))
+	}
+	retry := sys[1]
+	// The defect BY NAME and BY POSITION — the model cannot fix a byte it is not told about.
+	for _, want := range []string{"SYNTAX DEFECT", "syntax error at offset", "⟪HERE⟫", "SAME checks"} {
+		if !strings.Contains(retry, want) {
+			t.Errorf("the retry must diagnose the syntax defect (missing %q), got system:\n%s", want, retry)
+		}
+	}
+	// …and NOT the claim that was false about this reply.
+	if strings.Contains(retry, "carried no JSON array of checks") {
+		t.Errorf("the retry must not describe a reply the model did not send, got system:\n%s", retry)
+	}
+	// Working around the defect by dropping the element is the one repair that loses a gate.
+	if !strings.Contains(retry, "Do NOT drop a check") {
+		t.Errorf("the retry must forbid dropping a check to route around the error, got system:\n%s", retry)
+	}
+}
+
+// A reply whose array structure broke mid-way recovers to a PREFIX, and the two outcomes — "here are
+// the checks" and "here are the checks the model wrote before it broke" — are indistinguishable to
+// every caller downstream. parseChecksArraySalvage is what separates them, and the separation must
+// not fire on a reply that merely needed a lenient repair (a trailing comma loses no check).
+func TestParseChecksArraySalvageSeparatesAPrefixFromACompleteReply(t *testing.T) {
+	clean := `[{"step":"1","source":"a.log","assert":"nonempty"},{"step":"2","source":"b.log","assert":"nonempty"}]`
+	if cs, ok, salvaged := parseChecksArraySalvage(clean); !ok || len(cs) != 2 || salvaged {
+		t.Errorf("a complete reply must not report a salvage: %d check(s) ok=%v salvaged=%v", len(cs), ok, salvaged)
+	}
+	// Bracket-balanced, one trailing comma: the repair is inside the span, so nothing was lost.
+	repairable := `[{"step":"1","source":"a.log","assert":"nonempty"},{"step":"2","source":"b.log","assert":"nonempty"},]`
+	if cs, ok, salvaged := parseChecksArraySalvage(repairable); !ok || len(cs) != 2 || salvaged {
+		t.Errorf("a lenient repair is not a salvage: %d check(s) ok=%v salvaged=%v", len(cs), ok, salvaged)
+	}
+	// One missing quote mid-array leaves every later quote paired the wrong way round, so the array's
+	// own `]` ends up inside a string literal: the second check is unrecoverable.
+	broken := `[{"step":"1","source":"a.log","assert":"nonempty"},{"step":"2" source":"b.log","assert":"nonempty"}]`
+	cs, ok, salvaged := parseChecksArraySalvage(broken)
+	if !ok || !salvaged {
+		t.Fatalf("a damaged array must report its recovery: ok=%v salvaged=%v", ok, salvaged)
+	}
+	if len(cs) != 1 || cs[0].Step != "1" {
+		t.Errorf("the recovery must carry what preceded the break, got %+v", cs)
+	}
+	// An empty review is a valid answer, not a damaged one.
+	if cs, ok, salvaged := parseChecksArraySalvage(`[]`); !ok || len(cs) != 0 || salvaged {
+		t.Errorf("`[]` is valid and empty, not salvaged: %d check(s) ok=%v salvaged=%v", len(cs), ok, salvaged)
+	}
+	// Prose carries nothing at all — neither parsed nor salvaged.
+	if cs, ok, salvaged := parseChecksArraySalvage("they look fine to me"); ok || len(cs) != 0 || salvaged {
+		t.Errorf("prose must not parse: %d check(s) ok=%v salvaged=%v", len(cs), ok, salvaged)
+	}
+}
+
+// …and the recovery has to be REPORTED as a loss. Accepting the prefix silently is how the checks a
+// model wrote last — the ones a plan council spent its rounds demanding — leave no trace of ever
+// having been sent.
+func TestCheckAuditReportsARecoveredPrefixAsALoss(t *testing.T) {
+	t.Setenv("MAGI_CHECK_VALIDATE", "1")
+	broken := `[{"step":"1","deliverable":"build log","source":"build.log","assert":"matches ^exit=0$"},` +
+		`{"step":"2","deliverable":"crash log" source":"crash.log","assert":"nonempty"}]`
+	llm := &auditLLM{replies: []string{broken, "still prose, sorry"}}
+	a := newOrchApp(t, llm, Config{Permission: "allow", MaxAgents: 10})
+	s := parentSession(t.TempDir())
+	sub := watchProgress(t, a, s.ID)
+	in := []council.DeliverableCheck{{Step: "1", Deliverable: "build log", Command: "test -f build.log"}}
+
+	out := a.validateChecks(context.Background(), a.agentFor(s), s, in)
+	notes := sub.notes("check-audit")
+	// The break is named, with what survived it — a bare "unusable reply" would be false here, since
+	// one check WAS readable.
+	for _, want := range []string{"broke mid-reply", "only the 1 check(s)", "every check after it is gone"} {
+		if !strings.Contains(notes, want) {
+			t.Errorf("the recovered prefix must be reported (missing %q), got:\n%s", want, notes)
+		}
+	}
+	// Both attempts failed, so the authored checks are kept — the prefix must NOT become the review.
+	if len(out) != 1 || out[0].Command != "test -f build.log" {
+		t.Errorf("a prefix must not be adopted as the review, got %+v", out)
+	}
+}
+
+// The wrapping-object shape gets its own answer: valid JSON, wrong schema. "It could not be parsed"
+// is false there too — it parsed fine, under a key.
+func TestChecksArrayRetryReminderNamesTheWrongShape(t *testing.T) {
+	got := checksArrayRetryReminder(`{"checks":[{"step":"1"}]}`)
+	if !strings.Contains(got, "WRONG SHAPE") || !strings.Contains(got, "checks") {
+		t.Errorf("a wrapped array must be named as a schema mismatch, got:\n%s", got)
+	}
+	// Prose keeps the original strip-the-prose ask, which IS true of a prose reply.
+	if got := checksArrayRetryReminder("I reviewed them and they look fine."); got != coverageJSONOnlyReminder {
+		t.Errorf("a prose reply must keep the strip-the-prose ask, got:\n%s", got)
 	}
 }
 
