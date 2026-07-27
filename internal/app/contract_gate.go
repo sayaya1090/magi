@@ -35,16 +35,28 @@ func (a *App) elicitContractDraft(ctx context.Context, spec AgentSpec, sid sessi
 		return nil
 	}
 	raw := a.specMineCall(ctx, spec, sid, "contract-draft", model, contractDraftSystem, task)
-	for _, js := range balancedObjects(raw) {
-		var d struct {
-			// jsonx.Texts, not []string: a draft that enumerates one criterion as a bare string
-			// (or slips an object into the list) would otherwise abort the whole document and
-			// lose EVERY criterion beside it — the gate then runs with no draft at all.
-			Criteria jsonx.Texts `json:"criteria"`
+	if cs, damaged := readCriteria(raw); len(cs) > 0 {
+		if damaged == "" {
+			return cs
 		}
-		if unmarshalLenient(js, &d) && len(d.Criteria) > 0 {
-			return d.Criteria
+		// A criteria list is the one document where a silently short read is worst: the contract is
+		// what every later judgement is measured against, so a criterion lost to a truncation is a
+		// condition the run is never asked to meet, and nothing downstream can tell it was ever
+		// written. Ask once for the whole list; keep the partial one if the retry is no better.
+		a.emitToolProgress(sid, plannerActor, "", "contract-draft",
+			fmt.Sprintf("contract-draft: %s — re-asking once for the whole list :: %s", damaged, jsonx.Report(raw)))
+		a.recordParseFailure(ctx, sid, "contract-draft", "damaged", raw, nil)
+		raw2 := a.specMineCall(ctx, spec, sid, "contract-draft", model,
+			contractDraftSystem+"\n\n"+criteriaRetryReminder(raw), task)
+		if cs2, damaged2 := readCriteria(raw2); len(cs2) > 0 && (damaged2 == "" || len(cs2) > len(cs)) {
+			a.emitToolProgress(sid, plannerActor, "", "contract-draft",
+				fmt.Sprintf("contract-draft: the re-ask returned %d criteria (was %d) — using it", len(cs2), len(cs)))
+			return cs2
 		}
+		a.emitToolProgress(sid, plannerActor, "", "contract-draft",
+			fmt.Sprintf("contract-draft: the re-ask did not improve on the %d recovered criteria — drafting the gate "+
+				"from a PARTIAL contract", len(cs)))
+		return cs
 	}
 	// The gate proceeds with an EMPTY draft and the members author from scratch, which is a very
 	// different run from one that started with a draft — and the two were indistinguishable in the
@@ -229,13 +241,30 @@ func (a *App) consolidateContract(ctx context.Context, spec AgentSpec, sid sessi
 	}
 	input := "# Task\n" + task + "\n\n# Current contract\n" + string(cur) + "\n\n# Council feedback to APPLY (and nothing more)\n" + fb
 	raw := a.specMineCall(ctx, spec, sid, "contract-consolidate", model, consolidateContractSystem, input)
-	for _, js := range balancedObjects(raw) {
-		var d struct {
-			Criteria jsonx.Texts `json:"criteria"` // tolerant for the same reason as the draft
+	if cs, damaged := readCriteria(raw); len(cs) > 0 {
+		if damaged == "" {
+			return cs, true
 		}
-		if unmarshalLenient(js, &d) && len(d.Criteria) > 0 {
-			return d.Criteria, true
+		// Same loss as the draft, with one difference that makes it harder to see: consolidation is
+		// ALLOWED to shorten the contract (the council asked for a criterion to go), so a short read is
+		// indistinguishable from an applied instruction. It cannot be judged by length — only by
+		// whether the reply arrived intact.
+		a.emitToolProgress(sid, plannerActor, "", "contract-consolidate",
+			fmt.Sprintf("contract-consolidate: %s — a shortened contract here reads exactly like applied feedback, "+
+				"so re-asking once :: %s", damaged, jsonx.Report(raw)))
+		a.recordParseFailure(ctx, sid, "contract-consolidate", "damaged", raw, nil)
+		raw2 := a.specMineCall(ctx, spec, sid, "contract-consolidate", model,
+			consolidateContractSystem+"\n\n"+criteriaRetryReminder(raw), input)
+		if cs2, damaged2 := readCriteria(raw2); len(cs2) > 0 && damaged2 == "" {
+			a.emitToolProgress(sid, plannerActor, "", "contract-consolidate",
+				fmt.Sprintf("contract-consolidate: the re-ask arrived intact with %d criteria (the damaged reply "+
+					"yielded %d) — using it", len(cs2), len(cs)))
+			return cs2, true
 		}
+		a.emitToolProgress(sid, plannerActor, "", "contract-consolidate",
+			fmt.Sprintf("contract-consolidate: the re-ask was damaged too — keeping the CURRENT contract rather than "+
+				"replacing it with %d criteria recovered from a broken reply", len(cs)))
+		return nil, false
 	}
 	// Consolidation is how the council's feedback is APPLIED to the contract; when it yields
 	// nothing the round's feedback is carried as prose instead, so the contract silently stops
@@ -244,6 +273,74 @@ func (a *App) consolidateContract(ctx context.Context, spec AgentSpec, sid sessi
 		fmt.Sprintf("contract-consolidate: no revised criteria recovered (%d chars) — carrying the feedback as prose instead :: %s",
 			len(raw), jsonx.Report(raw)))
 	return nil, false
+}
+
+// readCriteria reads a `{"criteria":[…]}` reply and returns the criteria plus a description of what
+// the read LOST, empty when nothing was lost.
+//
+// Two different losses, both of which produce a shorter contract that looks like a complete one:
+//
+//   - The reply was damaged (truncated by the output budget, or a stray quote swallowed the rest) and
+//     the span had to be reconstructed to be read at all. What is missing is the tail — the criteria
+//     the model wrote LAST. Measured: `{"criteria":["the server starts","Get returns the stored value"`
+//     reads back as a single-criterion contract, reported as a clean parse.
+//   - The list arrived whole but an ELEMENT could not be rendered as text (an object where a string
+//     was asked for). jsonx.Texts drops it — which is right, since aborting the document would lose
+//     every criterion beside it — but the drop is invisible to the caller, so the element count is
+//     compared against what the list actually held.
+func readCriteria(raw string) ([]string, string) {
+	intact := map[string]bool{}
+	for _, js := range jsonx.BalancedObjects(raw) {
+		intact[js] = true
+	}
+	for _, js := range balancedObjects(raw) {
+		var d struct {
+			// jsonx.Texts, not []string: a draft that enumerates one criterion as a bare string
+			// (or slips an object into the list) would otherwise abort the whole document and
+			// lose EVERY criterion beside it — the gate then runs with no draft at all.
+			Criteria jsonx.Texts `json:"criteria"`
+		}
+		if !unmarshalLenient(js, &d) || len(d.Criteria) == 0 {
+			continue
+		}
+		switch {
+		case !intact[js]:
+			return d.Criteria, fmt.Sprintf("the reply was DAMAGED and only %d criterion/criteria could be "+
+				"recovered from it; the ones written after the damage are gone", len(d.Criteria))
+		case listElems(js, "criteria") > len(d.Criteria):
+			return d.Criteria, fmt.Sprintf("the list held %d entries but only %d could be read as text — the rest "+
+				"were not strings and were dropped", listElems(js, "criteria"), len(d.Criteria))
+		}
+		return d.Criteria, ""
+	}
+	return nil, ""
+}
+
+// listElems counts the ELEMENTS a JSON object's array field carried, whatever their type, so a
+// tolerant reader that drops the ones it cannot use can be compared against what was actually sent.
+// Returns -1 when the field is absent or is not an array.
+func listElems(js, field string) int {
+	var obj map[string]json.RawMessage
+	if !unmarshalLenient(js, &obj) {
+		return -1
+	}
+	var elems []json.RawMessage
+	if json.Unmarshal(obj[field], &elems) != nil {
+		return -1
+	}
+	return len(elems)
+}
+
+// criteriaRetryReminder asks for the same criteria again, naming the defect the reply ACTUALLY had
+// (jsonx.Diagnose: the offset and the window for a syntax error, the keys for a wrong shape). The
+// instruction that matters is the one about NOT shortening: a model told only "that did not parse"
+// will helpfully answer with fewer, shorter criteria, which is the loss being repaired.
+func criteriaRetryReminder(raw string) string {
+	return "YOUR PREVIOUS REPLY COULD NOT BE READ IN FULL: " + jsonx.Diagnose(raw) + "\nSend the SAME criteria " +
+		"again as ONE JSON object — `{\"criteria\":[\"…\",\"…\"]}` — with only that defect fixed. Every criterion is a " +
+		"plain quoted STRING, and every string is closed by its own `\"` before the next `,` or `]`. Do NOT drop a " +
+		"criterion, shorten one, or merge two to make the reply smaller: a criterion that is missing here is a " +
+		"condition nothing later in the run is ever asked to meet. No prose, no code fence, no other keys."
 }
 
 // renderContract renders the criteria (the contract is GOALS ONLY) as a compact, human/model-readable

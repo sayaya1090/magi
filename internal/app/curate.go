@@ -161,37 +161,54 @@ func (a *App) curateDelegate(ctx context.Context, agent AgentSpec, s session.Ses
 	}
 	b.WriteString("Sub-task:\n" + clipSpec(task, 1500) + "\n\nSpecialized tools available: " + strings.Join(specialized, ", "))
 	raw := a.specMineCall(ctx, agent, s.ID, "curator", model, curateSystem, b.String()) // reuse the tool-free elicitation
-	pkt, ok := parseCuratePacket(raw)
+	p0, ok0, salv0 := parseCuratePacketSalvage(raw)
+	first := curateAttempt{pkt: p0, raw: raw, parsed: ok0, salvaged: salv0}
 	// Falling back to the mechanical brief loses exactly what the packet exists to carry — the
 	// verbatim identifiers the acceptance depends on — so an unreadable reply must not end the pass
 	// silently-in-effect. Observed live: a 1490-char packet lost to one unquoted stretch of prose
 	// inside an array, which the model can fix in a second attempt and cannot fix without being told.
 	//
 	// An empty BRIEF is the same loss by a different route — the object parsed but carries no context
-	// worth handing over — so it takes the same re-ask rather than returning quietly.
-	pkt, ok = reask[curatePacket]{
+	// worth handing over — so it takes the same re-ask rather than returning quietly. So is a packet
+	// RECOVERED from a damaged reply: it renders a brief that reads complete while the fields the
+	// truncation ate — the literals, the boundaries, the done-when — are simply absent.
+	att, ok := reask[curateAttempt]{
 		pass:  "curator",
 		actor: event.Actor{Kind: event.ActorAgent, ID: "curator"},
-		ask: func(system string) (curatePacket, string, bool) {
+		ask: func(system string) (curateAttempt, string, bool) {
 			raw := a.specMineCall(ctx, agent, s.ID, "curator", model, system, b.String())
-			p, ok := parseCuratePacket(raw)
-			return p, raw, ok
+			p, ok, salvaged := parseCuratePacketSalvage(raw)
+			at := curateAttempt{pkt: p, raw: raw, parsed: ok, salvaged: salvaged}
+			return at, raw, at.parsed && !at.salvaged
 		},
-		defect: func(p curatePacket, parsed bool, raw string) string {
+		defect: func(at curateAttempt, _ bool, _ string) string {
 			switch {
-			case !parsed:
-				return fmt.Sprintf("packet unusable (%d chars, unparsed)", len(raw))
-			case renderCurateBrief(p) == "":
-				return fmt.Sprintf("packet parsed (%d chars) but carries no brief", len(raw))
+			case !at.parsed:
+				return fmt.Sprintf("packet unusable (%d chars, unparsed)", len(at.raw))
+			case at.salvaged:
+				return fmt.Sprintf("packet recovered from a DAMAGED reply (%d chars) — it carries %s, and "+
+					"whatever the damage ate is missing from it", len(at.raw), briefShape(at.pkt))
+			case renderCurateBrief(at.pkt) == "":
+				return fmt.Sprintf("packet parsed (%d chars) but carries no brief", len(at.raw))
 			}
 			return ""
 		},
 		reminder: func(raw string, _ bool) string { return curateSystem + curateRetryReminder(raw) },
 		probe:    func(b []byte) error { var p curatePacket; return json.Unmarshal(b, &p) },
 		fallback: "falling back to the mechanical brief",
-	}.run(ctx, a, s.ID, pkt, raw, ok)
+	}.run(ctx, a, s.ID, first, raw, first.parsed && !first.salvaged)
+	pkt := att.pkt
 	if !ok {
-		return "", nil
+		// A partial packet still carries more of the task's own words than the mechanical brief does,
+		// so a damaged reply that the re-ask could not repair is landed rather than discarded — but it
+		// is landed as what it is, with the sections it actually has named.
+		if !first.salvaged || renderCurateBrief(first.pkt) == "" {
+			return "", nil
+		}
+		pkt = first.pkt
+		a.emitToolProgress(s.ID, event.Actor{Kind: event.ActorAgent, ID: "curator"}, "", "curator",
+			"curator: using the packet recovered from the damaged reply — it is more of the task's own words than the "+
+				"mechanical brief, but it is PARTIAL: "+briefShape(pkt))
 	}
 	brief := renderCurateBrief(pkt)
 	tools := a.resolveCuratedTools(pkt.Tools)
@@ -202,6 +219,16 @@ func (a *App) curateDelegate(ctx context.Context, agent AgentSpec, s session.Ses
 		fmt.Sprintf("curated worker context — brief %d chars %s, +%d specialized tool(s) [%s]",
 			len(brief), briefShape(pkt), len(added), strings.Join(added, ", ")))
 	return brief, tools
+}
+
+// curateAttempt is one curator reply and what could be read out of it. salvaged separates a packet
+// the model wrote whole from one the recovery reconstructed out of a damaged reply — the two are
+// indistinguishable once the brief is rendered, and only one of them is complete.
+type curateAttempt struct {
+	pkt      curatePacket
+	raw      string
+	parsed   bool
+	salvaged bool
 }
 
 // briefShape names WHAT the curated brief carried: which sections it filled, and the verbatim
@@ -318,22 +345,45 @@ func (p curatePacket) hasContent() bool {
 // balanced object (like parsePlan) and take the first that unmarshals into a packet with content;
 // else the first that unmarshals at all; else none.
 func parseCuratePacket(raw string) (curatePacket, bool) {
+	p, ok, _ := parseCuratePacketSalvage(raw)
+	return p, ok
+}
+
+// parseCuratePacketSalvage is parseCuratePacket plus whether the packet came from a span that had to
+// be REPAIRED to be read at all — a reply cut off by the output budget, or one a stray quote
+// swallowed — rather than one whose braces closed on their own.
+//
+// The distinction is not cosmetic here. What a truncated packet loses is its TAIL, and the tail is
+// where the fields that matter most sit: the literals, the boundaries, the done-when. A packet that
+// lost half its literals renders a brief that looks complete and hands the worker an acceptance it
+// cannot meet, because the identifier it had to preserve verbatim is simply not in it — the exact
+// spec-loss this packet exists to prevent. Measured: `{"task":"…","literals":["GetResponse","kv.proto"`
+// recovers as a valid packet carrying `GetResponse` alone, reported as a clean parse.
+func parseCuratePacketSalvage(raw string) (curatePacket, bool, bool) {
+	// The spans the reply yielded WITHOUT repair, so an accepted span can be told apart from one the
+	// recovery reconstructed (same idiom as readPlan).
+	intact := map[string]bool{}
+	for _, js := range jsonx.BalancedObjects(raw) {
+		intact[js] = true
+	}
 	var firstValid *curatePacket
+	var firstValidIntact bool
 	for _, js := range balancedObjects(raw) {
 		var p curatePacket
 		if !unmarshalLenient(js, &p) {
 			continue // not JSON, or not the packet shape — try the next object
 		}
 		if p.hasContent() {
-			return p, true
+			return p, true, !intact[js]
 		}
 		if firstValid == nil {
 			pp := p
 			firstValid = &pp
+			firstValidIntact = intact[js]
 		}
 	}
 	if firstValid != nil {
-		return *firstValid, true
+		return *firstValid, true, !firstValidIntact
 	}
-	return curatePacket{}, false
+	return curatePacket{}, false, false
 }

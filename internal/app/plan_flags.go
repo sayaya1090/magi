@@ -180,9 +180,9 @@ func workdirCheckpointEnabled() bool { return envOn("MAGI_WORKDIR_CHECKPOINT") }
 // tool-free side call distills a focused, literal-preserving brief AND selects the SPECIALIZED
 // tools the sub-task actually needs, so the worker runs on a lean, task-scoped context instead of
 // the full tool list + a mechanical brief. The worker always keeps a base toolset (read/write/edit/
-// bash/…), so a mis-selection can only ADD, never starve it. Default OFF — it adds an LLM call per
-// delegate and reintroduces delegation. Default ON (for the curated-worker architecture A/B on the
-// weak-model bench); MAGI_CURATE=0 restores the mechanical brief + full toolset baseline.
+// bash/…), so a mis-selection can only ADD, never starve it. Default ON (for the curated-worker
+// architecture A/B on the weak-model bench), at the cost of one LLM call per delegate;
+// MAGI_CURATE=0 restores the mechanical brief + full toolset baseline.
 func curateEnabled() bool { return !envOff("MAGI_CURATE") }
 
 // forceDelegateEnabled rewrites every "solo" plan step into a "delegate" step routed to a worker,
