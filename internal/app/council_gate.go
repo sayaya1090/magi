@@ -493,6 +493,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	cd, _ := json.Marshal(event.CouncilConvenedData{
 		Round: ct.rounds, Members: labels, Rule: string(rule), Signals: signalSummaries,
 		Task: task, Plan: plan, Report: in.lastText, Changes: changes, NoChanges: noChanges,
+		Keep: councilKeepEnabled(),
 	})
 	a.appendFact(ctx, sid, event.TypeCouncilConvened, councilActor, cd)
 	// Live panel: announce which members are deliberating this round.
@@ -539,13 +540,10 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		return false, ""
 	}
 
-	for _, v := range delib.Verdicts {
-		vd, _ := json.Marshal(event.CouncilVerdictData{
-			Round: ct.rounds, Member: v.Member, Lens: v.Lens, Decision: string(v.Decision),
-			Confidence: v.Confidence, Rationale: v.Rationale, Feedback: v.Feedback,
-		})
-		a.appendFact(ctx, sid, event.TypeCouncilVerdict, councilActor, vd)
-	}
+	// Through the shared emitter, not a private copy: a second verdict-marshalling site is how the
+	// terminate phase came to be the only one recording no severity, and it would just as silently
+	// have become the only one recording no keep.
+	a.emitCouncilVerdicts(ctx, sid, councilActor, ct.rounds, "", delib.Verdicts)
 	emitDecided := func(decision council.Decision, feedback, note string, forced bool) {
 		dd, _ := json.Marshal(event.CouncilDecidedData{
 			Round: ct.rounds, Decision: string(decision), Tally: delib.Breakdown, Feedback: feedback, Note: note, Forced: forced,

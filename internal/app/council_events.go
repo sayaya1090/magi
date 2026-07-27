@@ -36,13 +36,15 @@ func (a *App) councilParams() ([]council.Member, council.Rule, int) {
 // the shared preamble of every council gate round (plan audit, contract gate), extracted so the
 // gate bodies carry only their own decision logic. Member labels are derived here, so callers no
 // longer maintain a parallel labels slice.
-func (a *App) emitCouncilConvened(ctx context.Context, sid session.SessionID, actor event.Actor, round int, phase string, members []council.Member, rule council.Rule, task, plan string) {
+// keep records what this round ASKED for, so the log distinguishes "not asked" from "asked, none
+// answered" — callers pass what they put on the request, never a re-derived guess.
+func (a *App) emitCouncilConvened(ctx context.Context, sid session.SessionID, actor event.Actor, round int, phase string, members []council.Member, rule council.Rule, task, plan string, keep bool) {
 	labels := make([]string, len(members))
 	for i, m := range members {
 		labels[i] = m.Name
 	}
 	cd, _ := json.Marshal(event.CouncilConvenedData{
-		Round: round, Phase: phase, Members: labels, Rule: string(rule), Task: task, Plan: plan,
+		Round: round, Phase: phase, Members: labels, Rule: string(rule), Task: task, Plan: plan, Keep: keep,
 	})
 	a.appendFact(ctx, sid, event.TypeCouncilConvened, actor, cd)
 	for _, m := range members {
@@ -58,6 +60,7 @@ func (a *App) emitCouncilVerdicts(ctx context.Context, sid session.SessionID, ac
 		vd, _ := json.Marshal(event.CouncilVerdictData{
 			Round: round, Phase: phase, Member: v.Member, Lens: v.Lens, Decision: string(v.Decision),
 			Confidence: v.Confidence, Rationale: v.Rationale, Feedback: v.Feedback, Severity: v.Severity,
+			Keep: v.Keep,
 		})
 		a.appendFact(ctx, sid, event.TypeCouncilVerdict, actor, vd)
 	}

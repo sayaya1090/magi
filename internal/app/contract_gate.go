@@ -118,7 +118,7 @@ func (a *App) runContractGate(ctx context.Context, s session.Session, prompt str
 		if ctx.Err() != nil {
 			break
 		}
-		a.emitCouncilConvened(ctx, sid, actor, round, "contract", members, rule, task, draft)
+		a.emitCouncilConvened(ctx, sid, actor, round, "contract", members, rule, task, draft, councilKeepEnabled())
 		a.emitToolProgress(sid, actor, "", "council",
 			fmt.Sprintf("contract gate round %d/%d: %d member(s) deliberating…", round, maxRounds, len(members)))
 

@@ -163,7 +163,7 @@ func (a *App) reviewSubstitutions(ctx context.Context, tc turnCtx, rounds *int, 
 	subsText := renderSubs(pending)
 	round := *rounds + 1
 
-	a.emitCouncilConvened(ctx, sid, actor, round, "substitution", members, rule, task, subsText)
+	a.emitCouncilConvened(ctx, sid, actor, round, "substitution", members, rule, task, subsText, councilKeepEnabled())
 	a.emitToolProgress(sid, actor, "", "council",
 		fmt.Sprintf("substitution review round %d/%d: %d member(s) deliberating…", round, maxRounds, len(members)))
 

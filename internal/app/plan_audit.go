@@ -52,7 +52,7 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		if ctx.Err() != nil {
 			return steps
 		}
-		a.emitCouncilConvened(ctx, sid, actor, round, "plan", members, rule, auditTask, renderSteps(steps))
+		a.emitCouncilConvened(ctx, sid, actor, round, "plan", members, rule, auditTask, renderSteps(steps), councilKeepEnabled())
 
 		// Council deliberation is len(members) sequential side LLM calls with no
 		// stream events; on a slow model a round is minutes of silence. Same
