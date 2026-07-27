@@ -663,13 +663,13 @@ func memberSystem(m council.Member, phase, task string, keep, constraints bool) 
 		lens = "Judge whether the task is genuinely complete."
 	}
 	if phase == "contract" {
-		return withLangNote(contractMemberSystem(m, lens), task)
+		return withLangNote(contractMemberSystem(m, lens, keep), task)
 	}
 	if phase == "plan" {
 		return withLangNote(planMemberSystem(m, lens, keep), task)
 	}
 	if phase == "substitution" {
-		return withLangNote(substMemberSystem(m, lens), task)
+		return withLangNote(substMemberSystem(m, lens, keep), task)
 	}
 	// Optional advisory (MAGI_COUNCIL_KEEP): each member also names what the report already
 	// gets right through ITS lens, so the agent doesn't revert a correct part or re-verify a
@@ -1006,7 +1006,18 @@ func planMemberSystem(m council.Member, lens string, keep bool) string {
 // exercise the contracted behavior, never accept mere existence/reachability of a stub). This
 // is the same criteria/checks calibration the plan-audit member applies, applied here first and
 // on its own so the plan is later built to satisfy a reviewed contract.
-func contractMemberSystem(m council.Member, lens string) string {
+func contractMemberSystem(m council.Member, lens string, keep bool) string {
+	// The contract is revised by CONSOLIDATION — a REPLACE, not a union — so one member's fix rewrites
+	// the WHOLE criteria list, and a criterion another lens had blessed can vanish in the rewrite. That
+	// is the same exposure the plan phase has, so the same advisory `keep` applies here.
+	keepClause, keepField := "", ""
+	if keep {
+		keepClause = "Also, through YOUR lens, note in `keep` the criteria that are ALREADY sound and must survive if " +
+			"the contract is revised — do this EVEN WHEN YOU APPROVE, because another member's fix REWRITES the whole " +
+			"contract, and without this the rewrite can drop a condition your lens already blessed. Advisory: it never " +
+			"changes your vote; omit if nothing through your lens is clearly settled.\n\n"
+		keepField = `,"keep":"criteria already sound through your lens that a revision must preserve — advisory, optional"`
+	}
 	// The contract phase judges a DIFFERENT thing than the termination gate (a goal definition, not a
 	// finished result), so the members wear contract-fit lenses rather than their verify-a-result ones.
 	switch m.Lens {
@@ -1047,9 +1058,10 @@ func contractMemberSystem(m council.Member, lens string) string {
 			"NOT pad; if the draft is already sufficient, APPROVE rather than add more. When the draft carries prior "+
 			"feedback, APPLY it (reduce/drop/fix as asked); and DROP any carried concern the task does not actually "+
 			"require rather than encode an over-demand.\n\n"+
+			"%s"+
 			"Respond with ONLY a JSON object, no prose, no code fence:\n"+
-			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific fix (only if continue)","severity":"critical|warn|info (only if continue)","criteria":["..."]}`,
-		m.Name, m.Lens, lens)
+			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific fix (only if continue)","severity":"critical|warn|info (only if continue)","criteria":["..."]%s}`,
+		m.Name, m.Lens, lens, keepClause, keepField)
 }
 
 // substMemberSystem builds the system prompt for the SUBSTITUTION review (Phase=="substitution"): an
@@ -1057,7 +1069,17 @@ func contractMemberSystem(m council.Member, lens string) string {
 // the same goal. The members judge whether each substitute is an adequate, honest equivalent. Unlike
 // the plan/contract phase this is STRICT — the deliverable is already built, so a weak proxy is
 // rejected — but it must not demand more than the original check itself required.
-func substMemberSystem(m council.Member, lens string) string {
+func substMemberSystem(m council.Member, lens string, keep bool) string {
+	// A correction round sends the agent back to re-declare its substitutions, and it can withdraw a
+	// sound one along with the objected-to one. `keep` names the substitutes a lens already accepted so
+	// the correction is narrowed to what was actually wrong.
+	keepClause, keepField := "", ""
+	if keep {
+		keepClause = "Also, through YOUR lens, note in `keep` the substitution(s) that are ALREADY adequate and must " +
+			"survive a correction — do this EVEN WHEN YOU APPROVE, because one inadequate substitute sends ALL of them " +
+			"back to be re-declared. Advisory: it never changes your vote; omit if nothing is clearly settled.\n\n"
+		keepField = `,"keep":"substitutions already adequate through your lens that a correction must preserve — advisory, optional"`
+	}
 	switch m.Lens {
 	case "correctness":
 		lens = "equivalence — does the substitute verify the SAME goal as the original check, not a weaker proxy?"
@@ -1082,9 +1104,10 @@ func substMemberSystem(m council.Member, lens string) string {
 			"original could plausibly have run (unjustified substitution). Set severity \"critical\" and put the specific "+
 			"fix in `feedback` (what the substitute must instead verify).\n"+
 			"- \"abstain\": your lens adds nothing.\n\n"+
+			"%s"+
 			"Respond with ONLY a JSON object, no prose, no code fence:\n"+
-			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific fix (only if continue)","severity":"critical|warn|info (only if continue)"}`,
-		m.Name, m.Lens, lens)
+			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific fix (only if continue)","severity":"critical|warn|info (only if continue)"%s}`,
+		m.Name, m.Lens, lens, keepClause, keepField)
 }
 
 // evidence renders the deliberation request into the user message the members see.
