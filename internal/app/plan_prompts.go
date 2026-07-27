@@ -245,13 +245,20 @@ func delegatePrompt(st planStep, brief string) string {
 
 // delegateBrief builds the compact context a delegate child gets IN ADDITION to its
 // self-contained task: the overall goal (so its choices align with the whole task, not just
-// its slice), the OTHER step titles (boundaries — what it must NOT redo), and what earlier
-// steps ALREADY produced (interfaces/outputs to build on rather than reinvent). It carries
-// NO parent conversation or reasoning — that is refine's job (a full context clone); a
-// delegate child stays a clean-room worker that just knows where its slice fits. Every part
-// is clipped so the brief can't blow up as siblings accumulate. Returns "" when there is
-// nothing worth briefing (e.g. a lone first step with no goal text).
-func delegateBrief(goal string, steps []planStep, i int, prior []string) string {
+// its slice), the OTHER step titles (boundaries — what it must NOT redo), what earlier
+// steps ALREADY produced (interfaces/outputs to build on rather than reinvent), and what
+// earlier steps FAILED to produce. It carries NO parent conversation or reasoning — that is
+// refine's job (a full context clone); a delegate child stays a clean-room worker that just
+// knows where its slice fits. Every part is clipped so the brief can't blow up as siblings
+// accumulate. Returns "" when there is nothing worth briefing (e.g. a lone first step with no
+// goal text).
+//
+// produced and failed are kept APART on purpose. They used to arrive as one list under
+// "Already produced by earlier steps — build on these, don't rebuild", so a step that failed
+// was announced to the next worker as a finished input it should build on and must not
+// redo — the exact opposite of what happened. A failure is information the next worker
+// needs, but only under a label that says the work is NOT there.
+func delegateBrief(goal string, steps []planStep, i int, produced, failed []string) string {
 	var b strings.Builder
 	if g := strings.TrimSpace(goal); g != "" {
 		// Part C: the delegate child is context-free — it never sees the raw request, so a
@@ -278,8 +285,16 @@ func delegateBrief(goal string, steps []planStep, i int, prior []string) string 
 	if len(others) > 0 {
 		b.WriteString("Other steps handled separately (do NOT redo these): " + clipLine(strings.Join(others, "; "), 400) + "\n")
 	}
-	if p := strings.TrimSpace(strings.Join(prior, "\n")); p != "" {
-		b.WriteString("Already produced by earlier steps — build on these, don't rebuild:\n" + clipLine(p, 800) + "\n")
+	// Both blocks clip from the FRONT (clipTail): these lists are append-ordered, so the entry a
+	// worker most needs — the step that just ran, immediately before it — is the last one, and
+	// head-clipping dropped precisely that one first.
+	if p := strings.TrimSpace(strings.Join(produced, "\n")); p != "" {
+		b.WriteString("Already produced by earlier steps — build on these, don't rebuild:\n" + clipTail(p, 800) + "\n")
+	}
+	if f := strings.TrimSpace(strings.Join(failed, "\n")); f != "" {
+		b.WriteString("Earlier steps that did NOT finish — their outputs do NOT exist, so do not build on them " +
+			"or assume they are done. If your part needs something from one of these, produce it yourself or " +
+			"report that you are blocked on it:\n" + clipTail(f, 800) + "\n")
 	}
 	return strings.TrimSpace(b.String())
 }

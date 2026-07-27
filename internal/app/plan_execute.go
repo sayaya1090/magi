@@ -200,6 +200,10 @@ func (a *App) executeSteps(ctx context.Context, s session.Session, goal string, 
 	stepCtx := !stepContextDisabled() // A/B: off → delegate/fan-out run context-free (pre-brief baseline)
 	var rshare refineShare            // shared-session state carried across this plan's refine phases
 	var out []string
+	// The next worker's brief needs these two APART: a finding it can build on reads very
+	// differently from one whose step produced nothing. Split by the runner's own done flag rather
+	// than by sniffing the finding text, so the two can never disagree about what landed.
+	var produced, failed []string
 	for i, st := range steps {
 		if ctx.Err() != nil {
 			break
@@ -220,10 +224,15 @@ func (a *App) executeSteps(ctx context.Context, s session.Session, goal string, 
 			}
 			brief := ""
 			if st.Strategy == "delegate" && stepCtx {
-				brief = delegateBrief(goal, steps, i, out) // refine ignores this (it clones context)
+				brief = delegateBrief(goal, steps, i, produced, failed) // refine ignores this (it clones context)
 			}
 			if f, done := run(ctx, s, st, brief, i, depth, wb, &rshare); f != "" {
 				out = append(out, f)
+				if done {
+					produced = append(produced, f)
+				} else {
+					failed = append(failed, f)
+				}
 				delegated = delegated || done
 				// Record what this step produced on the SHARED ledger, so the next worker gets its exact
 				// paths/interfaces verbatim (below) instead of the curator's paraphrase. Prefer the
@@ -264,7 +273,10 @@ func (a *App) executeSteps(ctx context.Context, s session.Session, goal string, 
 			fanGoal = goal // orient read-only explorers with the overall goal (no sibling outputs — they produce none)
 		}
 		if f := strings.TrimSpace(a.runExplorers(ctx, s, groups, fanGoal, depth)); f != "" {
-			out = append(out, stepFinding(st.Title, "", f))
+			ef := stepFinding(st.Title, "", f)
+			out = append(out, ef)
+			produced = append(produced, ef) // a read-only step's finding IS its output
+
 			a.completeThrough(ctx, s.ID, plannerActor, i) // step i done
 		} else {
 			a.setTodoStatusIf(ctx, s.ID, plannerActor, i, "in_progress", "pending") // degraded → don't leave a stuck ◐

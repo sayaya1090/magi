@@ -269,6 +269,22 @@ func clipLine(s string, n int) string {
 	return s[:cut] + "…"
 }
 
+// clipTail is clipLine for an APPEND-ORDERED list, where the last entry is the newest and the
+// first is the most stale. clipLine keeps the head, so in such a list it drops exactly the entry
+// the reader most needs — the step that just ran. Keep the tail instead, marking the cut at the
+// front so the reader knows earlier entries existed rather than reading a mid-sentence start as
+// the beginning of the record.
+func clipTail(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	cut := len(s) - n
+	for cut < len(s) && !utf8.RuneStart(s[cut]) {
+		cut++
+	}
+	return "…(earlier entries omitted)\n" + s[cut:]
+}
+
 // clipSpec bounds an authoritative "follow VERBATIM" spec at n bytes (rune-safe).
 // Unlike clipLine it does NOT append a bare "…": a delegate told to reproduce exact
 // identifiers can otherwise copy the dangling ellipsis into an edit old-string (or an
