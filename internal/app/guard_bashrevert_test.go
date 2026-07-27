@@ -72,6 +72,46 @@ func TestBashWritePathsNamesOnlyWhatItCanName(t *testing.T) {
 	}
 }
 
+// TestBashWritePathsReadsPastTheRedirections: a silenced restore is the commonest revert shape
+// there is — an agent that is unsure whether its edit helped writes `cp f.bak f 2>/dev/null` — and
+// counting `2>/dev/null` as an argument made it read as a three-operand directory copy, so the one
+// command the content check most needed to see was the one it skipped. The same miscount let `rm`
+// and `touch` adopt the redirect itself as a written file, which compares a path that cannot exist.
+func TestBashWritePathsReadsPastTheRedirections(t *testing.T) {
+	named := map[string][]string{
+		// The observed shape: silenced restore, tolerated failure, then a look at the result.
+		"cp runtime/shared_heap.c.bak runtime/shared_heap.c 2>/dev/null || true; sed -n '1,5p' x": {
+			"runtime/shared_heap.c",
+		},
+		"cp a.bak a.c 2>/dev/null":        {"a.c"},
+		"cp a.bak a.c > /dev/null 2>&1":   {"a.c"},
+		"mv -f a.c.bak a.c 2>/dev/null":   {"a.c"},
+		"rm -f out.txt 2>/dev/null":       {"out.txt"},
+		"touch marker 2>/dev/null":        {"marker"},
+		"sed -i 's/a/b/' f.c 2>/dev/null": {"f.c"},
+		// A redirect whose operator stands alone takes the next token with it, and the destination
+		// still arrives through redirectTargets rather than as an operand.
+		"cp a.bak a.c 2> /dev/null": {"a.c"},
+		"cp a.bak a.c > log 2>&1":   {"log", "a.c"},
+	}
+	for cmd, want := range named {
+		if got := bashWritePaths(cmd); strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Errorf("bashWritePaths(%q) = %v, want %v", cmd, got, want)
+		}
+	}
+	// What the redirections hid must stay hidden: reading past them may not turn an unnameable
+	// destination into a named one.
+	for _, cmd := range []string{
+		"cp a.c b.c dstdir/ 2>/dev/null", // still a directory target
+		"cp -r src/ dst/ 2>/dev/null",    // still a tree
+		"mv *.c src/ 2>/dev/null",        // still a glob
+	} {
+		if got := bashWritePaths(cmd); len(got) != 0 {
+			t.Errorf("bashWritePaths(%q) must name nothing, got %v", cmd, got)
+		}
+	}
+}
+
 // TestBashRevertIsNotANewDeliverableVersion: mutated() keys EVERY bash mutation under one slot and
 // compares COMMAND TEXT, so a `sed -i` and the `cp f.bak f` that undoes it always read as two
 // different changes — the loop is invisible to it no matter how many times it swings. Each swing
