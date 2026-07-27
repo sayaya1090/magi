@@ -115,7 +115,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		guardFP = fp
 		guardNovel = n == 1
 		if block {
-			msg := loopGuardBlockMsg(tc.Name, n)
+			msg := loopGuardBlockMsg(agent, tc.Name, n)
 			if last := guard.lastResult(fp); last != "" {
 				msg += "\n\nThe earlier result (unchanged) was:\n" + last
 			}

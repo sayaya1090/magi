@@ -256,6 +256,40 @@ func formatTodos(td []session.Todo) string {
 	return b.String()
 }
 
+// waitSteer names the ways THIS agent can wait on a long-running job, for the nudges that
+// steer a polling loop toward blocking. Empty when it holds neither tool.
+//
+// The nudges exist to redirect an agent that is already stuck, which is the worst possible
+// moment to name a tool its allowlist refuses: the redirect becomes a refused call, and the
+// agent is stuck in a second way. The default read-only agents (explore/locator) have neither
+// of these, and the curated worker's set has bash_output but not wait_for — so a steer written
+// as if every agent could do both was wrong for every one of them.
+func waitSteer(agent AgentSpec) string {
+	switch block, poll := agent.allows("wait_for"), agent.allows("bash_output"); {
+	case block && poll:
+		return "poll bash_output, or better, block on wait_for so a single call covers the whole wait"
+	case block:
+		return "block on wait_for so a single call covers the whole wait"
+	case poll:
+		return "poll bash_output"
+	}
+	return ""
+}
+
+// backgroundWaitAdvice is the stall nudge's "don't restart a long job" clause, ending in a
+// space so it splices into the sentence run. It is empty for an agent that cannot run a
+// background job in the first place — the default read-only agents were being told to start
+// one with bash, poll it with bash_output, and block on wait_for, and they hold none of the
+// three, so the whole clause was three instructions that could only be refused.
+func backgroundWaitAdvice(agent AgentSpec) string {
+	steer := waitSteer(agent)
+	if !agent.allows("bash") || steer == "" {
+		return ""
+	}
+	return "If you are WAITING on a long-running install or build: do NOT restart it or launch another " +
+		"copy — start it once (bash with background=true), then " + steer + " until it actually finishes. "
+}
+
 // loopGuardBlockMsg builds the message shown when the loop guard blocks an identical
 // tool call repeated past the limit. Most tools get the generic "take a different step",
 // but two fixation loops get a tool-specific steer toward the RIGHT alternative, which a
@@ -266,25 +300,32 @@ func formatTodos(td []session.Todo) string {
 //     compile-compcert stall, where the agent polled `apt-get install` and never started the
 //     actual build. Steer to wait_for (one blocking call until the job completes) AND to
 //     independent work that does not depend on the job.
-func loopGuardBlockMsg(toolName string, n int) string {
+//
+// Both steers name a tool, so both are conditional on the agent HOLDING it — see waitSteer.
+func loopGuardBlockMsg(agent AgentSpec, toolName string, n int) string {
 	switch toolName {
 	case "read":
-		return fmt.Sprintf(
+		msg := fmt.Sprintf(
 			"Loop guard: you have already read this %d times and its contents (below) have not changed — "+
 				"reading it again cannot make progress. Do NOT read it again. Take the next real action: make "+
 				"the edit/write you were about to make, inspect a DIFFERENT file or region, or finish and "+
-				"summarize. If you are waiting for this file to change, do not poll it with read — use the "+
-				"wait_for tool (if available) to block until it actually changes.",
+				"summarize.",
 			n)
+		if agent.allows("wait_for") {
+			msg += " If you are waiting for this file to change, do not poll it with read — use the wait_for " +
+				"tool to block until it actually changes."
+		}
+		return msg
 	case "bash_output":
-		return fmt.Sprintf(
+		msg := fmt.Sprintf(
 			"Loop guard: you have polled this background job %d times and it is still running — "+
-				"re-polling cannot make it finish faster. Do NOT poll it again. Instead: use the wait_for "+
-				"tool (if available) to BLOCK until it completes in ONE call (e.g. a condition that checks the "+
-				"job's result — a built file exists, a package is installed), then continue. Meanwhile, do any "+
-				"work that does NOT depend on this job (download sources, write config, prepare the next step) — "+
-				"do not let one background wait stall the whole task.",
-			n)
+				"re-polling cannot make it finish faster. Do NOT poll it again.", n)
+		if agent.allows("wait_for") {
+			msg += " Instead: use the wait_for tool to BLOCK until it completes in ONE call (e.g. a condition " +
+				"that checks the job's result — a built file exists, a package is installed), then continue."
+		}
+		return msg + " Meanwhile, do any work that does NOT depend on this job (download sources, write " +
+			"config, prepare the next step) — do not let one background wait stall the whole task."
 	default:
 		return fmt.Sprintf(
 			"Loop guard: you have already made this exact %q call %d times with nothing changed since. "+

@@ -258,13 +258,19 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// targeted the wrong file. specCanAct is checked FIRST because idleNudgeDue consumes the
 		// one-shot budget as a side effect.
 		if specCanAct(agent) && guard.idleNudgeDue() {
+			// specCanAct only proves the agent can WRITE or run a command; waiting is a separate
+			// vocabulary, and the curated worker's set has bash without wait_for. Name a way to wait
+			// only when there is one, or the nudge ends by sending the agent into a refusal.
+			waiting := "If you are waiting on a long external operation, say what you are waiting for; otherwise, act."
+			if steer := waitSteer(agent); steer != "" {
+				waiting = "If you are waiting on a long external operation, " + steer + "; otherwise, act."
+			}
 			nd, _ := json.Marshal(event.PromptSubmittedData{
 				MessageID: "m_" + newID(),
 				Parts: []session.Part{{Kind: session.PartText, Text: "You have taken many steps of analysis " +
 					"without producing or changing any deliverable (no file written, no command run to build/verify). " +
 					"Reasoning alone does not finish the task. STOP analyzing and take the concrete next action NOW: " +
-					"write the file, run the build/test, or execute the program — then verify its output. If you are " +
-					"waiting on a long external operation, poll it or use wait_for; otherwise, act."}},
+					"write the file, run the build/test, or execute the program — then verify its output. " + waiting}},
 			})
 			a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "orchestrator"}, nd)
 		}
