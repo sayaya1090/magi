@@ -177,19 +177,17 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 			// (`false || true` fails silently). Static on the command string, so it
 			// also catches failures that print nothing.
 			disp = note + "\n" + disp
-		} else if note := swallowingPipeNote(exit, a.Command, bool(a.Verify)); note != "" {
-			// A verify=true call (build/test/run check) ends in `| tail`/`| head`: the exit 0
-			// is the truncator's, not the check's (a crashed make still shows exit 0), and the
-			// truncation can hide the verdict line. Fires only on the model's own verify flag,
-			// not a command guess. The fix-ocaml-gc bench arc: `make world 2>&1 | tail -100`
-			// reported exit 0, the model couldn't tell if its fix built, and reverted a good edit.
+		} else if note := swallowingPipeNote(exit, a.Command); note != "" {
+			// The command ends in `| tail`/`| head`: the exit 0 is the truncator's, not the
+			// command before the pipe. A label, not advice — it says whose the number is and
+			// stops, so it needs no gate and cries on nobody. What it used to argue (stop
+			// piping, the tool already caps output) the result now demonstrates: the `output:`
+			// line names the file holding the whole, untruncated thing.
 			disp = note + "\n" + disp
-		} else if note := sequencedTailNote(exit, a.Command, bool(a.Verify)); note != "" {
-			// Same trap as the pipe above, reached with `;` instead: the exit belongs to the
-			// trailing `echo`/`tail`, not the build. This is the form a model writes when it
-			// wants a captured log AND the exit code (`make … > log 2>&1; echo "exit=$?" >> log`),
-			// and it produces the most convincing false success there is — exit 0 with an
-			// empty body (fix-ocaml-gc L105: "The build succeeded!" off exactly that).
+		} else if note := sequencedTailNote(exit, a.Command); note != "" {
+			// Same label for the `;` form, which is what a model writes when it wants a captured
+			// log AND the exit code — the shape that produced the most convincing false success
+			// there is (exit 0 with an empty body, read as "the build succeeded").
 			disp = note + "\n" + disp
 		} else if note := ephemeralEnvNote(exit, a.Command, env.SessionID); note != "" {
 			// First export/source of the session: teach that shell state does not

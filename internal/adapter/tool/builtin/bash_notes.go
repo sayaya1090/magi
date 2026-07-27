@@ -139,7 +139,7 @@ func maskingTailNote(exit int, command string) string {
 	if exit != 0 || !maskingTail.MatchString(strings.TrimSpace(command)) {
 		return ""
 	}
-	return "[note: this command ends in a `|| …` tail that masks the primary command's exit code — this exit 0 is NOT evidence the primary command succeeded. Re-run without the tail if you need its true status.]"
+	return "[note: this exit 0 is the `|| …` tail's, not the command before it — that command's own status is not reported here.]"
 }
 
 // swallowingPipe matches a command whose FINAL stage is a pure output truncator —
@@ -151,6 +151,18 @@ func maskingTailNote(exit int, command string) string {
 // deliberately excluded: their exit code and filtered output are frequently the point.
 var swallowingPipe = regexp.MustCompile(`(^|[^|])\|\s*(?:tail|head)\b[^|]*$`)
 
+// swallowingPipeNote NAMES whose exit code the result carries, which is the whole of what the
+// reader is missing. It used to be a paragraph — the trap explained, plus advice to stop piping
+// because the tool already caps output — and that paragraph is why it was gated on the model's own
+// verify flag: cried on every benign `ls | head`, so it was silenced everywhere it was not asked
+// for, and then it was silent on the build that mattered (observed: `make world 2>&1 | tail -100`
+// with verify unset, read as a clean build three seconds in).
+//
+// A label needs no gate. It is one clause, it is true on `ls | head` as much as on a build, and it
+// scolds nobody — so it fires always, and the advice it used to carry is now demonstrated instead
+// of asserted: the result's own `output:` line names the file holding the full, untruncated output.
+//
+// (previous doc)
 // swallowingPipeNote flags an exit-0 result whose command ends in a `| tail`/`| head` output
 // truncator WHEN the model declared this call a build/test verification (verify=true). A
 // pipeline's exit status is its LAST stage's, and tail/head almost always exit 0, so a
@@ -162,11 +174,15 @@ var swallowingPipe = regexp.MustCompile(`(^|[^|])\|\s*(?:tail|head)\b[^|]*$`)
 // `git diff … | head`, crying wolf on the case that matters). A verification does not need the
 // pipe anyway — the bash tool already returns large output capped to its head AND tail with the
 // real exit code.
-func swallowingPipeNote(exit int, command string, verify bool) string {
-	if !verify || exit != 0 || !swallowingPipe.MatchString(strings.TrimSpace(command)) {
+func swallowingPipeNote(exit int, command string) string {
+	if exit != 0 {
 		return ""
 	}
-	return "[note: this exit 0 is the `tail`/`head` at the end of the pipe, NOT the build/test before it — a failed build/test would still show exit 0 here, and the truncation can hide the final error/status line. You do not need to pipe to tail/head: this tool already returns large output capped to its head AND tail with the real exit code. Re-run without the pipe to see the true status.]"
+	stage := strings.TrimSpace(swallowingPipe.FindString(strings.TrimSpace(command)))
+	if stage == "" {
+		return ""
+	}
+	return "[note: this exit 0 is `" + strings.TrimPrefix(stage, "|") + "`'s, not the command before the pipe — that command's own status is not reported here.]"
 }
 
 // sequencedTail matches a command whose FINAL `;`-sequenced segment cannot fail: a reporter
@@ -179,6 +195,9 @@ func swallowingPipeNote(exit int, command string, verify bool) string {
 // reporter keeps it unmatched (under-firing on redirections like `2>&1` is fine — advisory only).
 var sequencedTail = regexp.MustCompile(`;\s*(?:(?:tail|head|cat|echo|printf|true)\b[^;|&]*|:\s*)$`)
 
+// sequencedTailNote is the same label for the `;` form, and ungated for the same reason.
+//
+// (previous doc)
 // sequencedTailNote flags an exit-0 result whose command ends in such a segment, on a call the
 // model itself declared a verification (verify=true) — the same intent gate swallowingPipeNote
 // uses, which keeps it silent on the countless benign `make x; echo done` calls. The live arc it
@@ -187,11 +206,15 @@ var sequencedTail = regexp.MustCompile(`;\s*(?:(?:tail|head|cat|echo|printf|true
 // succeeded!" off it, and — because that exit 0 also told magi's own churn counter the build had
 // converged — nothing ever registered that the same build kept failing. The note points at where
 // the real status actually is: the `exit=` line the model appended INSIDE the log.
-func sequencedTailNote(exit int, command string, verify bool) string {
-	if !verify || exit != 0 || !sequencedTail.MatchString(strings.TrimSpace(command)) {
+func sequencedTailNote(exit int, command string) string {
+	if exit != 0 {
 		return ""
 	}
-	return "[note: this exit 0 is the LAST `;` segment (the `echo`/`tail`/`true` at the end), NOT the build/test before it — a `;` list reports only its final command's status, and that segment cannot fail, so a build that FAILED still shows exit 0 here. If you appended the real status to a log (`echo \"exit=$?\" >> …`), that line is the verdict — read it. Otherwise re-run with the build/test as the LAST thing in the command: this tool already returns large output capped to its head AND tail with the real exit code.]"
+	seg := strings.TrimSpace(sequencedTail.FindString(strings.TrimSpace(command)))
+	if seg == "" {
+		return ""
+	}
+	return "[note: this exit 0 is `" + strings.TrimSpace(strings.TrimPrefix(seg, ";")) + "`'s, the last `;` segment — not the command before it.]"
 }
 
 // ExitCodeMasked reports whether a bash result's exit code is provably NOT the primary command's,
