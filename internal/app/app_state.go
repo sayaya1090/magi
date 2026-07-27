@@ -75,7 +75,7 @@ type sessionState struct {
 	contractFrozen    bool                       // a contract-first council gate authored this turn's criteria — plan-audit must not overwrite them (D-contract)
 	contractText      string                     // the frozen contract (criteria/goals) rendered for the planner, so contractForPlanner is a straight read
 	passedChecks      map[string]bool            // checkKey → latest verify result (true=pass); drives the panel's ✓ glyph
-	provAudited       map[string]bool            // source\x00pattern already put through the provenance audit — it re-reads every session event, and its finding ("this call wrote this string") stays true once made, so once per run is enough
+	provAudited       map[string]string          // source\x00pattern already put through the provenance audit — it re-reads every session event, and its finding ("this call wrote this string") stays true once made, so once per run is enough
 	estSteps          int                        // planner's advisory step estimate this turn
 	stepLedger        []ledgerEntry              // shared artifact ledger: each completed step's produced paths/interfaces (handoff), passed VERBATIM to every later worker and shown in every right panel
 	planConcern       string                     // the plan council's UNRESOLVED critical concern this turn (only set when the gate proceeded past it), carried into every worker brief — see concernBrief

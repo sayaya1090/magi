@@ -85,10 +85,12 @@ func (a *App) auditSourceProvenance(ctx context.Context, sid session.SessionID, 
 	if as.verb == "matches" && pat == "" {
 		return "" // a pattern with no literal core (`.*`, `^$`) cannot be looked for in typed text
 	}
-	if a.provAuditDone(sid, src, pat) {
-		return "" // asked already this run; the scan reads every event of every session
+	if f, asked := a.provAudit(sid, src, pat); asked {
+		return f // asked already this run; the scan reads every event of every session
 	}
-	return auditFinding(a.pathAuthors(ctx, sid, src), src, as)
+	f := auditFinding(a.pathAuthors(ctx, sid, src), src, as)
+	a.rememberProvAudit(sid, src, pat, f)
+	return f
 }
 
 // auditFinding is the decision itself, over the authors already gathered. Separated from the
@@ -126,25 +128,35 @@ func auditFinding(authors []authoredContent, src string, as assertion) string {
 		"into this path.", src, w.tool, as.verb)
 }
 
-// provAuditDone marks a (source, pattern) pair audited and reports whether it already was. The audit
-// re-reads every event of the session and of every worker under it, and a step's checks run at each
-// gate cycle — without this the cost is paid over and over for an answer that does not move.
-func (a *App) provAuditDone(sid session.SessionID, src, pat string) bool {
+// provAudit returns what a previous ask about this (source, pattern) found, and whether it was ever
+// asked. rememberProvAudit records the answer.
+//
+// The memo exists because the scan re-reads every event of the gating session and of every session
+// beneath it, and a step's checks run at each gate cycle — the cost is paid over and over for an
+// answer that does not move. What it must NOT do is hide that answer: the FINDING is cached, not
+// merely the fact of having asked. A check is evaluated more than once by design (the delegate step
+// gate runs it, then the incremental recorder runs it again), and each of those records its own
+// event, so a memo that returned "" the second time would leave whichever record someone actually
+// reads with no finding on it.
+func (a *App) provAudit(sid session.SessionID, src, pat string) (string, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	st, ok := a.stateIf(sid)
 	if !ok {
-		return false
+		return "", false
 	}
+	f, asked := st.provAudited[src+"\x00"+pat]
+	return f, asked
+}
+
+func (a *App) rememberProvAudit(sid session.SessionID, src, pat, finding string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st := a.stateLocked(sid)
 	if st.provAudited == nil {
-		st.provAudited = map[string]bool{}
+		st.provAudited = map[string]string{}
 	}
-	k := src + "\x00" + pat
-	if st.provAudited[k] {
-		return true
-	}
-	st.provAudited[k] = true
-	return false
+	st.provAudited[src+"\x00"+pat] = finding
 }
 
 // pathAuthors returns every recent tool call, in the gating session and in every session BENEATH it

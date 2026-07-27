@@ -215,25 +215,35 @@ func TestAuditSourceProvenance(t *testing.T) {
 }
 
 // The audit reads every event of every session under the gate, so it must be asked once per
-// (source, pattern) rather than once per gate cycle.
-func TestProvAuditDoneMemoizes(t *testing.T) {
+// (source, pattern) rather than once per gate cycle — and the memo must hand back the FINDING, not
+// merely the fact of having asked. A check is evaluated more than once by design (the delegate step
+// gate runs it, then the incremental recorder runs it again) and each evaluation records its own
+// event, so a memo that answered "" the second time would leave whichever record someone actually
+// reads with no finding on it.
+func TestProvAuditMemoizesTheFinding(t *testing.T) {
 	app := newShellApp(t, &shellPlatform{})
 	sid := session.SessionID("s-memo")
 	app.mu.Lock()
 	app.states[sid] = &sessionState{meta: session.Session{ID: sid}}
 	app.mu.Unlock()
 
-	if app.provAuditDone(sid, "/app/a.log", "passed") {
+	if _, asked := app.provAudit(sid, "/app/a.log", "passed"); asked {
 		t.Fatal("first ask must run")
 	}
-	if !app.provAuditDone(sid, "/app/a.log", "passed") {
-		t.Fatal("second ask must be memoized")
+	app.rememberProvAudit(sid, "/app/a.log", "passed", "PROVENANCE: …")
+	f, asked := app.provAudit(sid, "/app/a.log", "passed")
+	if !asked || f != "PROVENANCE: …" {
+		t.Fatalf("the finding must survive the memo, got %q asked=%v", f, asked)
 	}
-	if app.provAuditDone(sid, "/app/b.log", "passed") {
-		t.Fatal("a different source is a different question")
+	// "asked and found nothing" is an answer too, and it must not read as "never asked".
+	app.rememberProvAudit(sid, "/app/clean.log", "passed", "")
+	if f, asked := app.provAudit(sid, "/app/clean.log", "passed"); !asked || f != "" {
+		t.Fatalf("a clean answer must be remembered as one, got %q asked=%v", f, asked)
 	}
-	if app.provAuditDone(sid, "/app/a.log", "failed") {
-		t.Fatal("a different pattern is a different question")
+	for _, k := range [][2]string{{"/app/b.log", "passed"}, {"/app/a.log", "failed"}} {
+		if _, asked := app.provAudit(sid, k[0], k[1]); asked {
+			t.Errorf("%v is a different question", k)
+		}
 	}
 }
 
@@ -333,5 +343,103 @@ func TestDescendantsReachEveryDepth(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("a cycle in the parent chain must not spin the walk")
+	}
+}
+
+// The audit's whole point is a DELEGATED step: the worker runs in its own session and the gate runs
+// in the parent's, so the write it must find is never in the session it is asked about. That walk
+// had no test — `authorsIn` was tested directly and the end-to-end test put the write in the gating
+// session — and a live run then showed a worker's `write` of a file, a `nonempty` check on that
+// file passing thirty-one seconds later, and no finding attached.
+func TestPathAuthorsSeesAWriteInAChildAndAGrandchild(t *testing.T) {
+	app := newShellApp(t, &shellPlatform{})
+	ctx := context.Background()
+	wd := t.TempDir()
+	main, err := app.CreateSession(ctx, command.CreateSession{Workdir: wd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Register a session the way spawnResolved does: meta with Parent, then its created fact.
+	spawn := func(id, parent session.SessionID) {
+		t.Helper()
+		app.mu.Lock()
+		app.stateLocked(id).meta = session.Session{ID: id, Workdir: wd, Agent: "worker", Parent: parent}
+		app.mu.Unlock()
+		cd, _ := json.Marshal(event.SessionCreatedData{Workdir: wd, Agent: "worker", Parent: string(parent)})
+		if aerr := app.appendFact(ctx, id, event.TypeSessionCreated, event.Actor{Kind: event.ActorAgent, ID: "worker"}, cd); aerr != nil {
+			t.Fatal(aerr)
+		}
+	}
+	const kid, grandkid = session.SessionID("s_kid"), session.SessionID("s_grandkid")
+	spawn(kid, main)
+	spawn(grandkid, kid)
+
+	// The live shape: the check names a workspace-relative path, the tool call an absolute one.
+	if _, aerr := app.store.Append(ctx, kid,
+		toolCallEvent("write", `{"path":"/app/docs/summary.txt","content":"Build Process Summary\n"}`)); aerr != nil {
+		t.Fatal(aerr)
+	}
+	if _, aerr := app.store.Append(ctx, grandkid,
+		toolCallEvent("bash", `{"command":"echo 'All tests passed' > /app/logs/test.log"}`)); aerr != nil {
+		t.Fatal(aerr)
+	}
+
+	got := app.pathAuthors(ctx, main, "docs/summary.txt")
+	if len(got) != 1 || got[0].tool != "write" {
+		t.Fatalf("a child's write must be visible from the gating session, got %+v", got)
+	}
+	if deep := app.pathAuthors(ctx, main, "logs/test.log"); len(deep) != 1 || deep[0].tool != "bash" {
+		t.Fatalf("a grandchild's composed redirect must be visible too, got %+v", deep)
+	}
+	// A path nobody wrote stays clean — the audit must not report on a real recording.
+	if none := app.pathAuthors(ctx, main, "logs/build.log"); len(none) != 0 {
+		t.Errorf("an unauthored path must yield no authors, got %+v", none)
+	}
+	// Asked about the child itself, the parent's siblings are irrelevant.
+	if own := app.pathAuthors(ctx, kid, "logs/test.log"); len(own) != 1 {
+		t.Errorf("a session's own subtree is what it sees, got %+v", own)
+	}
+}
+
+// End to end, in the shape a delegated step actually has: the worker writes the file in ITS session,
+// the gate runs the check in the PARENT's. Live evidence said a `nonempty` check passed on such a
+// file with no finding attached, and neither the audit's unit tests nor its end-to-end one covered
+// this arrangement — they put the write in the gating session.
+func TestNonemptyOnAChildsComposedFileYieldsNoVerdict(t *testing.T) {
+	skipOnWindows(t)
+	app := newShellApp(t, &shellPlatform{})
+	ctx := context.Background()
+	wd := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(wd, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wd, "docs", "summary.txt"), []byte("Build Process Summary\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	main, err := app.CreateSession(ctx, command.CreateSession{Workdir: wd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const kid = session.SessionID("s_worker")
+	app.mu.Lock()
+	app.stateLocked(kid).meta = session.Session{ID: kid, Workdir: wd, Agent: "worker", Parent: main}
+	app.mu.Unlock()
+	cd, _ := json.Marshal(event.SessionCreatedData{Workdir: wd, Agent: "worker", Parent: string(main)})
+	if aerr := app.appendFact(ctx, kid, event.TypeSessionCreated, event.Actor{Kind: event.ActorAgent, ID: "worker"}, cd); aerr != nil {
+		t.Fatal(aerr)
+	}
+	if _, aerr := app.store.Append(ctx, kid, toolCallEvent("write",
+		`{"path":"`+filepath.ToSlash(filepath.Join(wd, "docs", "summary.txt"))+`","content":"Build Process Summary\n"}`)); aerr != nil {
+		t.Fatal(aerr)
+	}
+
+	c := council.DeliverableCheck{Step: "1", Deliverable: "build process summarized",
+		Source: "docs/summary.txt", Assert: "nonempty"}
+	out, code := app.runCheck(ctx, main, wd, c)
+	if code != 126 {
+		t.Fatalf("a file the WORKER composed gives `nonempty` nothing to prove: code=%d out=%s", code, out)
+	}
+	if !strings.Contains(out, "came out of the reply") {
+		t.Errorf("the verdict must carry the reason: %s", out)
 	}
 }

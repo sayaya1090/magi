@@ -27,7 +27,12 @@ func (p *shellPlatform) Exec(ctx context.Context, c port.Cmd) (port.ExecResult, 
 	p.mu.Lock()
 	p.cmds = append(p.cmds, strings.Join(c.Args, " "))
 	p.mu.Unlock()
-	out, err := exec.CommandContext(ctx, c.Path, c.Args...).CombinedOutput()
+	// Honor Dir: readForCheck passes the workspace there, and a double that drops it makes every
+	// relative-path check read as unreadable — a check that works in production failing in tests, or
+	// worse, a test passing because it exercised nothing.
+	cmd := exec.CommandContext(ctx, c.Path, c.Args...)
+	cmd.Dir = c.Dir
+	out, err := cmd.CombinedOutput()
 	code := 0
 	if ee, ok := err.(*exec.ExitError); ok {
 		code = ee.ExitCode()
