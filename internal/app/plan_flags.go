@@ -513,6 +513,16 @@ func stallConvergeEnabled() bool { return !envOff("MAGI_STALL_CONVERGE") }
 // restores the judge-only baseline for A/B.
 func criteriaContextEnabled() bool { return !envOff("MAGI_CRITERIA_CONTEXT") }
 
+// checkContextEnabled gates showing the plan-audit's EXECUTABLE deliverable checks to the working
+// agent in every step's volatile context — the executable half of what criteriaContextEnabled does
+// for the prose criteria. Only the delegated worker ever saw them (workerChecklist, in its brief);
+// the solo path, which is the default, saw nothing, so a check whose source is a log file demanded
+// an artifact nobody had told the agent to produce: it never wrote the file, the check failed on a
+// missing source, and the step advanced with the box unticked. Self-derived wiring — the checks are
+// magi's own, authored from the task. Default ON; MAGI_CHECK_CONTEXT=0 restores the brief-only
+// baseline for A/B.
+func checkContextEnabled() bool { return !envOff("MAGI_CHECK_CONTEXT") }
+
 // stallNoveltyEnabled gates counting a NOVEL inspect-only command (a first-seen
 // fingerprint — a new grep pattern, a new file listed) as "the agent responded to the
 // stalled nudge", so the D18a convergence only collapses the nudge budget when the
