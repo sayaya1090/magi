@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io/fs"
+	"os"
 	"path"
 	"path/filepath"
 	"sort"
@@ -20,12 +21,15 @@ type Glob struct{}
 
 type globArgs struct {
 	Pattern string `json:"pattern"`
+	Path    string `json:"path"` // optional subdir to search (default workdir), like grep's
 }
 
-func (Glob) Name() string        { return "glob" }
-func (Glob) Description() string { return "List files matching a glob pattern (supports **)." }
+func (Glob) Name() string { return "glob" }
+func (Glob) Description() string {
+	return "List files matching a glob pattern (supports **), optionally under a subdirectory."
+}
 func (Glob) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"pattern":{"type":"string"}},"required":["pattern"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"pattern":{"type":"string"},"path":{"type":"string"}},"required":["pattern"]}`)
 }
 
 func (Glob) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
@@ -49,29 +53,60 @@ func (Glob) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	}
 	out := []string{}
 	root := filepath.Clean(env.Workdir)
+	// `path` scopes the search the way grep's does. It was NOT in this tool's schema, and an
+	// unknown field is silently dropped by encoding/json — so a scoped call searched the whole
+	// workspace and said nothing about it. Both halves of that answer are wrong in the same
+	// undetectable way: results appear from OUTSIDE the named directory, and a pattern written
+	// for the scoped root ("*.h", meaning the files directly in it) matches nothing at all,
+	// because it is tested against a workspace-relative path that still has directories in it.
+	// Observed in one exploration: `{path: <dir>/caml, pattern: "*.h"}` answered `[]` while that
+	// directory held 62 .h files, and `{path: <dir>, pattern: "**/*.c"}` returned files from two
+	// sibling trees. glob was the only tree-walking tool in the registry without `path` — read,
+	// write, edit, list, lsp, grep and astgrep all take one — so a model that had just scoped a
+	// grep wrote the glob the same way, five times out of five.
+	scope := root
+	if strings.TrimSpace(a.Path) != "" {
+		var err error
+		if scope, err = resolvePath(env.Workdir, a.Path); err != nil {
+			return errResult("", err.Error()), nil
+		}
+		// A path that is not a readable directory must SAY so: WalkDir hands the error to the
+		// walk function, which skips unreadable entries, so a typo'd directory would otherwise
+		// walk nothing and return the same `[]` that means "searched, found nothing".
+		if fi, err := os.Stat(scope); err != nil || !fi.IsDir() {
+			return errResult("", "path is not a directory: "+a.Path), nil
+		}
+	}
 	// Every other path-taking tool (read, list, bash) accepts an absolute path, so a model
 	// that just ran `list /app/src` writes the glob the same way. Matching happens against
-	// workspace-RELATIVE paths, so an absolute pattern cannot match anything — and the reply
-	// came back as an empty list, which reads as the FACT "there are no such files" rather
-	// than as a mistake in the call. Observed: `/app/<dir>/*.c` answered `[]` one line before
-	// an `ls` of that same directory listed dozens of them; the agent then did every later
-	// file lookup through bash. Re-anchor it, and when it points outside the workspace say so
-	// instead of answering with a false emptiness.
-	pattern, wasAbs, inside := anchorPattern(root, a.Pattern)
+	// paths RELATIVE to the searched root, so an absolute pattern cannot match anything — and
+	// the reply came back as an empty list, which reads as the FACT "there are no such files"
+	// rather than as a mistake in the call. Observed: `/app/<dir>/*.c` answered `[]` one line
+	// before an `ls` of that same directory listed dozens of them; the agent then did every
+	// later file lookup through bash. Re-anchor it, and when it points outside the searched
+	// root say so instead of answering with a false emptiness.
+	pattern, wasAbs, inside := anchorPattern(scope, a.Pattern)
 	if wasAbs && !inside {
-		return errResult("", "pattern is outside the workspace ("+filepath.ToSlash(root)+"): "+
-			a.Pattern+" — glob searches the workspace, so give a path relative to it"), nil
+		where := "outside the workspace"
+		if scope != root {
+			where = "outside the searched directory"
+		}
+		return errResult("", "pattern is "+where+" ("+filepath.ToSlash(scope)+"): "+
+			a.Pattern+" — give a pattern relative to it"), nil
 	}
 	// A pattern that explicitly names a dotted segment (".github/…") opts into
 	// otherwise-hidden paths; a plain pattern keeps skipping dot dirs/files as noise.
 	wantHidden := patternWantsHidden(pattern)
 
-	walkErr := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+	// The walk is scoped, the MATCH is against the path relative to that scope (so "*.h" means
+	// the files directly in the named directory, which is what it says), and the RESULT stays
+	// workspace-relative so every path printed can be handed to another tool unchanged.
+	walkErr := filepath.WalkDir(scope, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 		if d.IsDir() {
-			if strings.HasPrefix(d.Name(), ".") && p != root && !wantHidden {
+			if strings.HasPrefix(d.Name(), ".") && p != scope && !wantHidden {
 				return fs.SkipDir
 			}
 			return nil
@@ -79,11 +114,15 @@ func (Glob) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		if strings.HasPrefix(d.Name(), ".") && !wantHidden {
 			return nil
 		}
-		rel, _ := filepath.Rel(root, p)
-		rel = filepath.ToSlash(rel)
-		if matchGlob(pattern, rel) {
-			out = append(out, rel)
+		rel, _ := filepath.Rel(scope, p)
+		if !matchGlob(pattern, filepath.ToSlash(rel)) {
+			return nil
 		}
+		outRel, err := filepath.Rel(root, p)
+		if err != nil {
+			outRel = rel
+		}
+		out = append(out, filepath.ToSlash(outRel))
 		return nil
 	})
 	if walkErr != nil {
