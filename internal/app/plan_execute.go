@@ -505,11 +505,6 @@ func (a *App) retryContinuation(ctx context.Context, s session.Session, stepIdx 
 	return strings.TrimSpace(retryPivotNote(ctx, a, last, 1))
 }
 
-// workerChecklist renders the plan-audit's executable deliverable checks as an explicit acceptance
-// checklist the delegated worker must satisfy before reporting done — each with the command to run
-// and the expected result. Checks tagged for THIS step (by leading step number) are preferred; when
-// none are tagged, all of the turn's checks are shown, since over-informing beats letting the
-// worker silently skip a requirement. Empty when no checks were derived.
 // stepChecks selects the deliverable checks that belong to plan step stepIdx (0-based),
 // matching the council's 1-based Step label ("3", "3.", "3) …"). The lenient "show ALL when
 // none match" fallback fires ONLY when the WHOLE set is unlabeled (no check carries a numeric
@@ -561,50 +556,6 @@ func matchStepChecks(checks []council.DeliverableCheck, stepIdx int) []council.D
 		}
 	}
 	return mine
-}
-
-func workerChecklist(checks []council.DeliverableCheck, stepIdx int) string {
-	mine := stepChecks(checks, stepIdx)
-	if len(mine) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString("Acceptance checklist — these are the assertions the gate will make about YOUR step before it " +
-		"counts as done. Read them as the definition of done, and do not report done while any of them would fail.\n" +
-		"YOU RUN, THE CHECK READS. You never run these items — the gate reads the named file itself and applies the " +
-		"assertion, with no shell involved. What each item obliges YOU to do is produce that file as the REAL output " +
-		"of the work: actually run the command, actually start the server, and redirect the genuine output to exactly " +
-		"the path the item names. Never hand-write the file, and never write in the text the assertion looks for — a " +
-		"check reading a fabricated record passes while the deliverable is broken, and whoever uses it is not fooled.\n" +
-		"IF AN ITEM NAMES THE WRONG PATH — you recorded the real output somewhere else, or the file it names is one " +
-		"nothing in this task produces (the CHECK is wrong, NOT the deliverable) — do not quietly leave it unmet: " +
-		"call the substitute_check tool (step; original = the item as given; source = the path you actually recorded " +
-		"the real output to; assert = the assertion that proves the same goal; reason = why the given one cannot be " +
-		"met). A silent workaround is LOST — substitute_check is what gets the fix reviewed by the council and kept " +
-		"for the rest of the run. Only if an item's GOAL genuinely cannot be met (a real blocker, not a check you can " +
-		"repair) do you stop and report status blocked/failed, naming WHICH item is unmet and WHY, so it can be " +
-		"re-planned rather than silently dropped:")
-	for i, c := range mine {
-		fmt.Fprintf(&b, "\n%d. ", i+1)
-		if d := strings.TrimSpace(c.Deliverable); d != "" {
-			b.WriteString(d + " — ")
-		}
-		as := strings.TrimSpace(c.Assert)
-		if as == "" {
-			// No assertion: the gate can evaluate nothing, so the step lands ungated. Say so plainly
-			// rather than print an empty obligation — an item the worker cannot act on is worse than
-			// none, and knowing it gates nothing is what lets the worker substitute a real one.
-			b.WriteString("this item carries no assertion, so the gate cannot verify it — if it matters, " +
-				"call substitute_check with a source path and an assertion that proves it")
-			continue
-		}
-		if src := strings.TrimSpace(c.Source); src != "" {
-			b.WriteString("the gate will read " + src + " and require: " + as)
-			continue
-		}
-		b.WriteString("the gate will require: " + as)
-	}
-	return b.String()
 }
 
 // refineLocalRetries bounds how many INFORMED local attempts a refine node gets before it
