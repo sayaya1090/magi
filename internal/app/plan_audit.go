@@ -48,6 +48,7 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 
 	pendingContest := ""  // the re-planner's rebuttal of the prior round's concern, re-judged this round
 	pendingRevision := "" // how the plan changed since the prior round, so a re-round can spot a regression
+	pendingJudge := ""    // why the last rewrite was ruled unresponsive, so the re-planner doesn't repeat it
 	for round := 1; round <= maxRounds; round++ {
 		if ctx.Err() != nil {
 			return steps
@@ -105,7 +106,11 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 				a.injectCouncilAdvice(ctx, s.ID, advice, true) // accepted: the executor heeds it
 				note = "plan approved with advisory notes (non-blocking)"
 				if a.cfg.CouncilPlanAbsorb { // option B: fold the advice into the plan now
-					if next := sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, advice, depth, maxSteps, "")); len(next) > 0 {
+					// Folding advice IN is still a rewrite of a plan the planner cannot see, so it
+					// gets the same memory as the revise path — otherwise absorbing a one-line note
+					// can cost steps the note never mentioned.
+					rc := replanContext{priorPlan: renderSteps(steps)}
+					if next := sanitizeSteps(a.runPlanner(ctx, spec, s, prompt, advice, rc, depth, maxSteps, "")); len(next) > 0 {
 						steps = next
 					}
 				}
@@ -147,11 +152,16 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		// Advisory, never a constraint: if fixing the flaw genuinely requires changing a kept
 		// step, the re-planner is free to.
 		revise := withKeepAdvice(fb, delib.Verdicts)
+		// The re-planner is a side call: it has no session history, so its own previous plan and
+		// the judge's ruling on its last rewrite reach it only if handed over explicitly. The
+		// council already gets both (pendingRevision below); handing them to only the judging half
+		// of the loop leaves the producing half answering a critique about a plan it cannot see.
+		rc := replanContext{priorPlan: renderSteps(steps), judge: pendingJudge}
 		a.setStage(sid, stagePlan)
-		replanned := a.runPlanner(ctx, spec, s, prompt, revise, depth, maxSteps, "")
+		replanned := a.runPlanner(ctx, spec, s, prompt, revise, rc, depth, maxSteps, "")
 		next := sanitizeSteps(replanned)
 		if len(next) == 0 {
-			replanned = a.runPlanner(ctx, spec, s, prompt, revise, depth, maxSteps, "")
+			replanned = a.runPlanner(ctx, spec, s, prompt, revise, rc, depth, maxSteps, "")
 			next = sanitizeSteps(replanned)
 		}
 		// CONTEST: the re-planner may have rejected the concern as unjustified (kept its plan, set a
@@ -222,6 +232,13 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		// (the `round >= maxRounds` exit above proceeds with criteria + checks stored), so this
 		// costs at most the remaining rounds, never an unbounded loop.
 		pendingRevision = revisionContext(fb, steps, replanned.Reason, addressed, reason)
+		// Only an UNRESPONSIVE ruling is worth carrying to the producer: "you engaged the concern"
+		// tells the next rewrite nothing it can act on, while "you did not" is the one thing that
+		// stops it from submitting the same non-answer again.
+		pendingJudge = ""
+		if addressed != nil && !*addressed {
+			pendingJudge = strings.TrimSpace(reason)
+		}
 		steps = next
 	}
 	return steps
