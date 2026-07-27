@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/artifact"
@@ -205,6 +206,29 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID, msg, true)
 		return
 	}
+	// An argument the tool does not declare is dropped by encoding/json without a word, so the
+	// tool answers a DIFFERENT question than the one asked and returns it in the ordinary shape
+	// of an answer — neither the model nor magi can tell. This is the same defect as the unknown
+	// tool name handled above, one level down, and it is not hypothetical: across the recorded
+	// runs 387 of 25291 calls carried a key the tool never declared, and almost all of them were
+	// a real loss (`ignore_case` on a search, a todo list written EMPTY because the key arrived
+	// as `.todos`, another harness's `file_path` on a write).
+	//
+	// The two shapes need different answers, so they are separated by the same normalization the
+	// unknown-tool path uses. A key that is a DECLARED key up to case and separators is a
+	// misspelling: the model meant to pass it, so running without it silently discards an
+	// argument it is relying on — refuse and name the real key. A key that matches nothing is a
+	// capability the tool does not have; refusing those would break calls that work today (the
+	// single largest group is a harmless `description` on bash), so let the call run and say
+	// plainly what was ignored.
+	misspelled, ignored, declared := unknownToolArgs(tool.Schema(), tc.Args)
+	if len(misspelled) > 0 {
+		a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID,
+			"not run — "+tc.Name+" has no argument "+quoteJoin(argKeys(misspelled))+". "+
+				renamesFor(misspelled)+" Nothing was dropped silently: re-issue the call with the "+
+				"correct name(s). "+tc.Name+" accepts: "+strings.Join(declared, ", "), true)
+		return
+	}
 	// For a file edit, snapshot the file's content BEFORE the tool runs so the council can
 	// be shown the agent's actual before→after change (reconstructed from its own tools).
 	var changeBefore, changePath string
@@ -294,6 +318,15 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// that landed but fails gofmt/a hook still changed the file, and the council must see
 	// that (broken) change — so change capture keys off this, not the post-diagnostics flag.
 	toolOK := !res.IsError
+
+	// An unrecognized argument that is not a misspelling ran anyway (see the dispatch check), so
+	// the result answers a narrower question than the model asked. Say which part of the call was
+	// not honored, on the same result, so the correction arrives with the evidence it explains.
+	if len(ignored) > 0 {
+		res.Content = appendToContent(res.Content, "\n\n[ignored arguments] "+tc.Name+" does not take "+
+			quoteJoin(ignored)+" — the call ran WITHOUT it, so this result does not reflect it. "+
+			tc.Name+" accepts: "+strings.Join(declared, ", "))
+	}
 
 	// Post-edit diagnostics + PostToolUse hooks: feed problems back so the agent
 	// self-corrects (built-in autoformat runs here too).
@@ -422,6 +455,86 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 // Deliberately NOT fuzzy: only a separator/case difference counts. A guess like `run` for `bash`
 // would put a tool the model never asked for into its mouth, and a wrong suggestion costs more
 // than none — the full roster is always listed anyway.
+// unknownToolArgs compares the argument keys a model actually sent against the ones the tool
+// declares, splitting the strays in two: `misspelled` maps a sent key to the declared key it is a
+// case/separator variant of (the model meant that argument), and `ignored` lists the rest (the
+// tool has no such capability). `declared` is the accepted set, for the message.
+//
+// A schema without a usable `properties` object yields nothing: the check must never invent a
+// complaint about a tool whose argument surface it could not read.
+func unknownToolArgs(schema, args json.RawMessage) (misspelled map[string]string, ignored, declared []string) {
+	var sch struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if json.Unmarshal(schema, &sch) != nil || len(sch.Properties) == 0 {
+		return nil, nil, nil
+	}
+	var sent map[string]json.RawMessage
+	if json.Unmarshal(args, &sent) != nil || len(sent) == 0 {
+		return nil, nil, nil
+	}
+	byNorm := make(map[string]string, len(sch.Properties))
+	for p := range sch.Properties {
+		declared = append(declared, p)
+		byNorm[normArgKey(p)] = p
+	}
+	sort.Strings(declared)
+	for k := range sent {
+		if _, ok := sch.Properties[k]; ok {
+			continue
+		}
+		if real, ok := byNorm[normArgKey(k)]; ok {
+			if misspelled == nil {
+				misspelled = map[string]string{}
+			}
+			misspelled[k] = real
+			continue
+		}
+		ignored = append(ignored, k)
+	}
+	sort.Strings(ignored)
+	return misspelled, ignored, declared
+}
+
+// normArgKey folds an argument name to letters and digits, so `.todos`, ` todos` and `Todos` all
+// read as the declared `todos` — the same normalization nearestToolName applies to tool names.
+func normArgKey(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(strings.TrimSpace(s)) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func argKeys(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// renamesFor spells out each correction ("`.todos` is `todos`"), so the fix does not depend on the
+// model spotting the difference between two nearly identical spellings on its own.
+func renamesFor(m map[string]string) string {
+	parts := make([]string, 0, len(m))
+	for _, k := range argKeys(m) {
+		parts = append(parts, "`"+k+"` is `"+m[k]+"`")
+	}
+	return strings.Join(parts, "; ") + "."
+}
+
+func quoteJoin(ss []string) string {
+	out := make([]string, 0, len(ss))
+	for _, s := range ss {
+		out = append(out, "`"+s+"`")
+	}
+	return strings.Join(out, ", ")
+}
+
 func nearestToolName(called string, names []string) string {
 	norm := func(s string) string {
 		var b strings.Builder
