@@ -113,10 +113,20 @@ func (a *App) systemFor(agent AgentSpec, workdir string, isSub bool) string {
 	}
 	var b strings.Builder
 	b.WriteString(sys)
-	b.WriteString("\n\nYou can delegate to subagents with the task tool. When the work is about specific files, " +
-		"pass the file PATHS in the prompt and tell the subagent to read them directly — do NOT paste file contents " +
-		"or long excerpts into the prompt. Pasted content may be truncated and it wastes context; the subagent has its " +
-		"own read tools and must see the real, current file. Available agents:")
+	// A task-tool child is a FRESH session: it inherits nothing of this conversation and sees only
+	// the prompt written for it (the plan-driven hand-offs get a curated brief, an artifact ledger
+	// and an acceptance checklist assembled for them; this path assembles nothing). So the prompt
+	// is the child's entire world, and the two things it most often lacks are the ones nobody
+	// notices are missing until the result comes back wrong: what "done" is, and enough of the
+	// surrounding goal to make a choice the same way. Said here rather than in the tool description
+	// because it governs how the prompt is WRITTEN, which happens before the call is composed.
+	b.WriteString("\n\nYou can delegate to subagents with the task tool. A subagent starts FRESH — it does not see " +
+		"this conversation, only the prompt you write — so that prompt must stand on its own: state the goal it " +
+		"serves, the concrete deliverable it owes you, and how you will judge that it is done (the check to run, the " +
+		"behavior to demonstrate). Anything you leave implicit, it will decide for itself. When the work is about " +
+		"specific files, pass the file PATHS in the prompt and tell the subagent to read them directly — do NOT paste " +
+		"file contents or long excerpts into the prompt. Pasted content may be truncated and it wastes context; the " +
+		"subagent has its own read tools and must see the real, current file. Available agents:")
 	// Render in a STABLE (sorted) order: a.cfg.Agents is a map, and Go randomizes map
 	// iteration, so an unsorted range would reorder this block every step — mutating the
 	// system prompt byte-for-byte and defeating the backend's prefix (KV) cache for exactly

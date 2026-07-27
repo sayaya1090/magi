@@ -359,5 +359,29 @@ func explorerPrompt(goal string, g planGroup) string {
 	}
 	p.WriteString("INVESTIGATE (read-only) — " + strings.TrimSpace(g.Focus) + ":\n")
 	p.WriteString(strings.TrimSpace(g.Question))
+	p.WriteString(explorerOutputContract)
 	return p.String()
 }
+
+// explorerOutputContract states what an explorer's answer must BE. The prompt above it says what
+// to look into (focus/question, both authored by the planner) but never said what to come back
+// with, and this was the only read-only hand-off with nothing of the kind — the scout's list has a
+// strict one-item-per-line contract, the spec-mine explorer owes `path — fact` lines, the
+// contradiction check is given its exact reply format.
+//
+// Silence there is not neutral, because of where the answer goes: an explorer step's text IS that
+// step's output (runExplorers → stepFinding → produced), so it is handed to every later worker
+// under "Already produced by earlier steps — build on these, don't rebuild" and into the planner's
+// window. Anything the explorer wrote to be helpful — a likely-looking path it did not open, a
+// guess at how something probably works, a suggested fix — arrives downstream stripped of its
+// hedging and indistinguishable from a fact somebody verified. So the contract is: anchored to a
+// file actually read, absence reported as absence (the most valuable answer a search has, and the
+// one a model most wants to paper over), and no design work — which the planner contract already
+// forbids ("explorers LOCATE/GATHER only, never REASON or ANALYZE") but only ever told the planner,
+// never the explorer being asked.
+const explorerOutputContract = "\n\nReport back ONLY what you actually found, as `path — fact` lines (add `:line` when it " +
+	"pins the fact): each one anchored to a file you really opened, quoting the real name/signature/value rather " +
+	"than describing it. If something you looked for is NOT there, say so explicitly — a confirmed absence is a " +
+	"finding, and inventing a plausible path or behavior in its place is worse than reporting nothing. Your findings " +
+	"are handed to whoever does the work as established fact, so do not include a design, a proposed change, or an " +
+	"opinion on what should be done: locating and naming what EXISTS is the whole of your job."
