@@ -184,3 +184,52 @@ func TestDecidedShowsTheDemandOnlyWhenNoVerdictsWereRendered(t *testing.T) {
 func artifactOf(title, kind string) artifact.Artifact {
 	return artifact.Artifact{Title: title, Kind: artifact.Kind(kind)}
 }
+
+// A cancelled prompt, and each interjection coalesced into a later one, is recorded as
+// abandoned and read back by seedPromptIdx so it never seeds a turn — but nothing showed it.
+// onTurnFinished clears the queued glyph off every waiting bubble at turn end, so the dropped
+// request came to rest looking exactly like one that had been answered, on screen and again on
+// every resume.
+func TestAbandonedPromptSaysSoOnItsBubble(t *testing.T) {
+	mm := newTestModel(t)
+	m := &mm
+	m.width = 100
+	m.blocks = []block{
+		{kind: blockUser, reqID: "m_1", text: "first ask", queued: true},
+		{kind: blockAssistant, text: "working"},
+		{kind: blockUser, reqID: "m_2", text: "second ask"},
+	}
+	m.cache = []string{"c0", "c1", "c2"}
+
+	m.applyEvent(ev(t, event.TypePromptAbandoned, event.PromptAbandonedData{MsgID: "m_1"}))
+
+	if !m.blocks[0].abandoned || m.blocks[0].queued {
+		t.Fatalf("the abandoned bubble must be marked and stop claiming it is still waiting: %+v", m.blocks[0])
+	}
+	if m.blocks[2].abandoned {
+		t.Errorf("only the named request was abandoned, not the whole transcript")
+	}
+	if len(m.cache) != 0 {
+		t.Errorf("the cache must be dropped from that bubble's index so it re-renders, got %v", m.cache)
+	}
+
+	row := ansi.Strip(m.renderBlock(m.blocks[0]))
+	if !strings.Contains(row, "not answered") {
+		t.Errorf("the bubble must say it will never be answered:\n%s", row)
+	}
+	// The copy chip's click column is derived from label+timestamp width alone, so the note
+	// must trail the chip — otherwise the copy button slides out from under its hit-test.
+	if i, j := strings.Index(row, "⧉"), strings.Index(row, "not answered"); i < 0 || i > j {
+		t.Errorf("the note must come after the copy chip, not shift it right:\n%s", row)
+	}
+	// An answered request gets no note.
+	if got := ansi.Strip(m.renderBlock(m.blocks[2])); strings.Contains(got, "not answered") {
+		t.Errorf("a live request must not be labelled abandoned:\n%s", got)
+	}
+	// An unknown id is a no-op, not a panic or a mislabelled neighbour.
+	m.applyEvent(ev(t, event.TypePromptAbandoned, event.PromptAbandonedData{MsgID: "m_absent"}))
+	m.applyEvent(ev(t, event.TypePromptAbandoned, event.PromptAbandonedData{}))
+	if m.blocks[2].abandoned {
+		t.Errorf("an unmatched abandon marker must touch nothing")
+	}
+}
