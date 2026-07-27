@@ -94,6 +94,11 @@ func (a *App) storePlanChecks(ctx context.Context, s session.Session, checks []c
 	if len(checks) == 0 {
 		return
 	}
+	// …and settle the paths before they become the gate. A check that names an existing file by the
+	// wrong path fails forever, and that failure reads as a broken deliverable rather than a broken
+	// check — the run then re-plans a step that has nothing wrong with it. magi has the filesystem,
+	// so this is a lookup rather than a judgement (see check_source.go).
+	checks = a.repairCheckSources(ctx, s, checks)
 	a.mu.Lock()
 	st := a.stateLocked(s.ID)
 	st.deliverableChecks = checks
