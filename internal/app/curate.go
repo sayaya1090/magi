@@ -199,9 +199,41 @@ func (a *App) curateDelegate(ctx context.Context, agent AgentSpec, s session.Ses
 	// tools it added over the base, and the brief size) — the delegate hand-off is otherwise opaque.
 	added := selectedSpecialized(tools)
 	a.emitToolProgress(s.ID, event.Actor{Kind: event.ActorAgent, ID: "curator"}, "", "curator",
-		fmt.Sprintf("curated worker context — brief %d chars, +%d specialized tool(s) [%s]",
-			len(brief), len(added), strings.Join(added, ", ")))
+		fmt.Sprintf("curated worker context — brief %d chars %s, +%d specialized tool(s) [%s]",
+			len(brief), briefShape(pkt), len(added), strings.Join(added, ", ")))
 	return brief, tools
+}
+
+// briefShape names WHAT the curated brief carried: which sections it filled, and the verbatim
+// literals it preserved. The size alone cannot answer the only question worth asking of a hand-off
+// — was the worker told enough, and told it clearly — and the brief body itself lives in the CHILD
+// session's event log, which a run that ships only its stdout does not carry. Two failures show up
+// here and nowhere else: a brief with no `done-when`, which is a worker that was never told what
+// finishing means, and a literals list that lost an identifier the acceptance depends on, which is
+// the paraphrase spec-loss this packet exists to prevent — so the literals go in verbatim.
+func briefShape(p curatePacket) string {
+	var have []string
+	for _, sec := range []struct {
+		name string
+		body string
+	}{
+		{"goal", string(p.Goal)}, {"progress", string(p.Progress)}, {"missing", string(p.Missing)},
+		{"boundaries", strings.Join(p.Constraints, " ")}, {"done-when", string(p.Deliverable)},
+	} {
+		if strings.TrimSpace(sec.body) != "" {
+			have = append(have, sec.name)
+		}
+	}
+	if len(have) == 0 {
+		have = append(have, "none")
+	}
+	out := "[" + strings.Join(have, " ") + "]"
+	// Clipped, because a wide literals list is a legitimate answer and must not push the rest of the
+	// line out of a terminal — but clipped LAST, so the section list is never the part that is lost.
+	if lits := strings.Join(p.Literals, ", "); strings.TrimSpace(lits) != "" {
+		out += " verbatim: " + clipLine(lits, 300)
+	}
+	return out
 }
 
 // selectedSpecialized returns the non-base tools in a curated allowlist — the ones the curator
