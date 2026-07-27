@@ -1181,7 +1181,7 @@ func TestDelegateBriefSpecSurvivesLongGoal(t *testing.T) {
 	if len(goal) <= 2000 {
 		t.Fatalf("test setup: goal must exceed the old cap; got %d", len(goal))
 	}
-	brief := delegateBrief(goal, []planStep{{Title: "impl", Task: "do it"}}, 0, nil)
+	brief := delegateBrief(goal, []planStep{{Title: "impl", Task: "do it"}}, 0, nil, nil)
 	if !strings.Contains(brief, "SPEC (authoritative") {
 		t.Fatal("spec fidelity should be on by default")
 	}
@@ -1197,7 +1197,7 @@ func TestDelegateBriefSpecSurvivesLongGoal(t *testing.T) {
 // marker the child can recognize — not a bare "…" it would reproduce verbatim.
 func TestDelegateBriefSpecTruncationIsExplicit(t *testing.T) {
 	goal := strings.Repeat("x", 9000) // past the 8000B cap
-	brief := delegateBrief(goal, []planStep{{Title: "impl", Task: "do it"}}, 0, nil)
+	brief := delegateBrief(goal, []planStep{{Title: "impl", Task: "do it"}}, 0, nil, nil)
 	if !strings.Contains(brief, "spec truncated here") {
 		t.Errorf("over-cap spec should carry an explicit truncation marker:\n%s", brief[:min(len(brief), 400)])
 	}
