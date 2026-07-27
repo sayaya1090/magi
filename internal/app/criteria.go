@@ -224,7 +224,18 @@ func (a *App) ensureStepCoverage(ctx context.Context, s session.Session, prompt 
 		newCov   map[int]bool
 		restored int
 	}
-	run := func(system string) fillAttempt {
+	// base is what an attempt's reply is merged INTO. It starts as the authored checks and becomes
+	// the widest set seen so far, so a second attempt ADDS to what the first one gated instead of
+	// being judged as if the first had never run.
+	//
+	// Observed live, and it is the whole reason this is a parameter: a 6-step plan with 2 steps
+	// gated, the fill returned checks for steps 4,5,6 (`covered 2→4 … step(s) 1, 3 still have
+	// none`), the re-ask was told the missing numbers and returned exactly steps 1 and 3 — and the
+	// run landed with `step(s) 1, 3 still have NO check and land unverified`. Merging each attempt
+	// against the ORIGINAL set made the two complementary answers alternatives rather than parts:
+	// the re-ask's merge came to 4 covered as well, `len(newCov) > len(best.newCov)` was false, and
+	// the checks it had been asked for were dropped. Their union covers all six.
+	run := func(system string, base []council.DeliverableCheck) fillAttempt {
 		f := fillAttempt{}
 		f.raw = a.specMineCall(ctx, agent, s.ID, "check-coverage", model, system, input)
 		f.out, f.parsed = parseChecksArray(f.raw)
@@ -238,7 +249,7 @@ func (a *App) ensureStepCoverage(ctx context.Context, s session.Session, prompt 
 			// (1/4 step(s) covered by 4 check(s))`). Merging keeps the authored contract a subset of the
 			// result by construction, so the one thing that guard protected is now structural and
 			// acceptance turns purely on coverage.
-			f.merged, f.restored = unionChecks(f.out, checks)
+			f.merged, f.restored = unionChecks(f.out, base)
 			f.newCov = coveredSteps(f.merged)
 		}
 		return f
@@ -297,7 +308,7 @@ func (a *App) ensureStepCoverage(ctx context.Context, s session.Session, prompt 
 		return why
 	}
 
-	first := run(coverageFillSystem)
+	first := run(coverageFillSystem, checks)
 	// best is the widest attempt seen. On a double failure reask hands back the FIRST reply, but
 	// coverage that WAS gained must not be thrown away over the part that was not — the merge only
 	// ever adds, so the widest attempt is strictly better than the input, whichever attempt it was.
@@ -312,7 +323,13 @@ func (a *App) ensureStepCoverage(ctx context.Context, s session.Session, prompt 
 		pass:  "check-coverage",
 		actor: plannerActor,
 		ask: func(system string) (fillAttempt, string, bool) {
-			r := run(system)
+			// Merge into the widest set so far, not into the authored one: the re-ask is asked for
+			// the steps still missing, so its answer is a PART of the fill and not a replacement.
+			base := checks
+			if best.parsed {
+				base = best.merged
+			}
+			r := run(system, base)
 			if r.parsed && len(r.newCov) > len(best.newCov) {
 				best = r
 			}
