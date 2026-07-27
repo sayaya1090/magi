@@ -188,7 +188,9 @@ func (a *App) runTypedCheck(ctx context.Context, sid session.SessionID, workdir 
 		if strings.TrimSpace(body) == "" {
 			return fmt.Sprintf("%s is empty", src), 1
 		}
-		return fmt.Sprintf("%s: %d bytes", src, len(body)), 0
+		// `nonempty` is the cheapest assertion to satisfy — any text at all does it — so a pass is
+		// exactly where to ask where the bytes came from.
+		return a.withProvenance(ctx, sid, src, as, fmt.Sprintf("%s: %d bytes", src, len(body))), 0
 	case "matches", "absent":
 		// Reuse the check's own matcher so a typed pattern behaves EXACTLY as a command check's
 		// `expect` does — including the line-wise retry that keeps an anchored pattern from being a
@@ -198,21 +200,20 @@ func (a *App) runTypedCheck(ctx context.Context, sid session.SessionID, workdir 
 			if hit {
 				return fmt.Sprintf("%s contains %q, which must be absent", src, clipLine(as.arg, 80)), 1
 			}
-			return fmt.Sprintf("%s does not contain %q", src, clipLine(as.arg, 80)), 0
+			// A worker that composed the file makes `absent` pass by writing something else — the
+			// pattern is missing because nothing real was ever recorded here.
+			return a.withProvenance(ctx, sid, src, as,
+				fmt.Sprintf("%s does not contain %q", src, clipLine(as.arg, 80))), 0
 		}
 		if !hit {
 			return fmt.Sprintf("%s does not match %q — content: %s", src, clipLine(as.arg, 80),
 				clipLine(strings.TrimSpace(body), 200)), 1
 		}
-		ok := fmt.Sprintf("%s matches %q", src, clipLine(as.arg, 80))
 		// It matched — so this is the moment to ask WHERE the matching text came from. A pass is the
 		// only outcome the provenance question changes: a check that already failed cannot have been
 		// fooled by a fabricated record.
-		if note := a.auditSourceProvenance(ctx, sid, src, as); note != "" {
-			a.emitToolProgress(sid, plannerActor, "", "check-provenance", "check-provenance: "+note)
-			ok += " — " + note
-		}
-		return ok, 0
+		return a.withProvenance(ctx, sid, src, as,
+			fmt.Sprintf("%s matches %q", src, clipLine(as.arg, 80))), 0
 	case "equals":
 		other, oout, ocode := a.readForCheck(ctx, workdir, as.arg)
 		if ocode != 0 {
@@ -221,7 +222,7 @@ func (a *App) runTypedCheck(ctx context.Context, sid session.SessionID, workdir 
 		if strings.TrimSpace(body) != strings.TrimSpace(other) {
 			return fmt.Sprintf("%s differs from %s", src, as.arg), 1
 		}
-		return fmt.Sprintf("%s equals %s", src, as.arg), 0
+		return a.withProvenance(ctx, sid, src, as, fmt.Sprintf("%s equals %s", src, as.arg)), 0
 	}
 	return fmt.Sprintf("unhandled assertion %q", as.verb), 126 // unreachable: parseAssertion gates the set
 }
@@ -320,3 +321,15 @@ except Exception as e:
     print("pid %d not alive: %s" % (pid, e))
     sys.exit(1)
 `
+
+// withProvenance appends the provenance finding, if any, to a PASSING check's recorded output and
+// announces it on the progress stream. A pass is the only outcome the question changes: a check that
+// already failed cannot have been fooled by a composed record.
+func (a *App) withProvenance(ctx context.Context, sid session.SessionID, src string, as assertion, ok string) string {
+	note := a.auditSourceProvenance(ctx, sid, src, as)
+	if note == "" {
+		return ok
+	}
+	a.emitToolProgress(sid, plannerActor, "", "check-provenance", "check-provenance: "+note)
+	return ok + " — " + note
+}

@@ -25,10 +25,10 @@ import (
 // model composed. That record is not something the model can edit — it is written by the runtime as
 // a side effect of granting the call.
 //
-// So the audit reads it, and reports the one shape that is not arguable: THE ASSERTED PATTERN APPEARS
-// VERBATIM IN WHAT THE WORKER TYPED. A worker that wrote `All tests passed` into the file whose check
-// greps for `All tests passed` has proved nothing about the deliverable, whatever else it may have
-// done.
+// So the audit reads it. Where the assertion carries a pattern it reports the shape that is not
+// arguable — THE ASSERTED PATTERN APPEARS VERBATIM IN WHAT THE WORKER TYPED. Where it carries none
+// (`nonempty`, `absent`, `equals`) the authorship alone is the report, because a check that passes
+// on a file whose bytes came out of the reply is evidence about the reply.
 //
 // It reports rather than fails, deliberately. A file the worker authors is not always a fabrication —
 // when the deliverable IS the file (a config, a generated source), authoring it is the work, and a
@@ -54,20 +54,35 @@ type authoredContent struct {
 	text string
 }
 
-// auditSourceProvenance reports whether the pattern a typed check asserts was itself typed by the
-// worker into the file the check reads. Returns "" when there is nothing to say — the audit is off,
-// the assertion has no pattern, no tool call authored that path, or the pattern is absent from what
-// was authored (the normal case: the file holds a program's real output).
+// auditSourceProvenance reports when a check's source file was composed by the worker rather than
+// produced by a program. Returns "" when there is nothing to say — the audit is off, the assertion
+// does not read a file, or no tool call authored that path (the normal case).
 //
-// Only `matches` is auditable this way. `nonempty` has no pattern to look for, `absent` passes by the
-// pattern NOT being there (typing it in could only make the check fail, which is not a cheat), and
-// the liveness probes read the world rather than a file.
+// The question has two sharpnesses. For `matches` the pattern itself can be looked for in what was
+// typed, and finding it names the cheat exactly: the worker wrote the very string the check greps
+// for. For the other file-reading verbs there is no pattern, and the authorship alone is the
+// finding — which is enough, because a check that passes on a file whose bytes came out of the
+// reply is evidence about the reply and not about the work.
+//
+// That second half was missing, and it is the half that mattered: `nonempty` is satisfied by ANY
+// text, so it is the cheapest assertion to fake and the one an audit keyed on patterns can never
+// see. Observed live, one second apart — `echo "Bootstrap completed successfully - no crash in
+// build" > /app/crash.log`, then `crash.log nonempty` flipping to pass, on a step whose deliverable
+// was "bootstrap crash reproduced" and whose real build was segfaulting.
+//
+// The liveness probes (port_open, process_alive) read the world rather than a file, so there is no
+// authorship to ask about.
 func (a *App) auditSourceProvenance(ctx context.Context, sid session.SessionID, src string, as assertion) string {
-	if !provenanceEnabled() || as.verb != "matches" || strings.TrimSpace(src) == "" {
+	if !provenanceEnabled() || strings.TrimSpace(src) == "" {
 		return ""
 	}
-	pat := literalOf(as.arg)
-	if pat == "" {
+	switch as.verb {
+	case "matches", "nonempty", "absent", "equals":
+	default:
+		return ""
+	}
+	pat := literalOf(as.arg) // "" for the verbs with no pattern — the authorship question stands
+	if as.verb == "matches" && pat == "" {
 		return "" // a pattern with no literal core (`.*`, `^$`) cannot be looked for in typed text
 	}
 	if a.provAuditDone(sid, src, pat) {
@@ -76,28 +91,39 @@ func (a *App) auditSourceProvenance(ctx context.Context, sid session.SessionID, 
 	return auditFinding(a.pathAuthors(ctx, sid, src), src, as)
 }
 
-// auditFinding is the decision itself, over the authors already gathered: the finding exists exactly
-// when one of them composed the asserted pattern verbatim. Separated from the gathering because this
-// is the part that must be right — the gathering can over-collect harmlessly, but a finding names a
-// specific call as having faked a result.
+// auditFinding is the decision itself, over the authors already gathered. Separated from the
+// gathering because this is the part that must be right — the gathering can over-collect harmlessly,
+// but a finding names a specific call as having faked a result.
 func auditFinding(authors []authoredContent, src string, as assertion) string {
-	if as.verb != "matches" {
+	if len(authors) == 0 {
 		return ""
 	}
-	pat := literalOf(as.arg)
-	if pat == "" {
-		return ""
+	switch as.verb {
+	case "matches", "nonempty", "absent", "equals":
+	default:
+		return "" // reads the world, not a file — there is no authorship to report
 	}
-	for _, w := range authors {
-		if !strings.Contains(w.text, pat) {
-			continue
+	if as.verb == "matches" {
+		pat := literalOf(as.arg)
+		if pat == "" {
+			return ""
 		}
-		return fmt.Sprintf("PROVENANCE: %s was written by the worker's own `%s` call, and the text it wrote "+
-			"contains %q — the very string this check looks for. Nothing here shows the work was done: a recorded "+
-			"result must be the REAL output of the command it summarizes, redirected into this path.",
-			src, w.tool, clipLine(pat, 80))
+		for _, w := range authors {
+			if !strings.Contains(w.text, pat) {
+				continue
+			}
+			return fmt.Sprintf("PROVENANCE: %s was written by the worker's own `%s` call, and the text it wrote "+
+				"contains %q — the very string this check looks for. Nothing here shows the work was done: a recorded "+
+				"result must be the REAL output of the command it summarizes, redirected into this path.",
+				src, w.tool, clipLine(pat, 80))
+		}
+		return ""
 	}
-	return ""
+	w := authors[0]
+	return fmt.Sprintf("PROVENANCE: %s was written by the worker's own `%s` call — its contents came out of the "+
+		"reply, not out of a program. `%s` passing on a file the worker composed is evidence about what was typed, "+
+		"not about the work: a recorded result must be the REAL output of the command it summarizes, redirected "+
+		"into this path.", src, w.tool, as.verb)
 }
 
 // provAuditDone marks a (source, pattern) pair audited and reports whether it already was. The audit

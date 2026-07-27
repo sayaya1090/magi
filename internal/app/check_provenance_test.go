@@ -173,14 +173,37 @@ func TestAuditSourceProvenance(t *testing.T) {
 	if n := auditFinding(authorsIn(other, "/app/test.log"), "/app/test.log", as); n != "" {
 		t.Fatalf("an unrelated authorship was flagged: %q", n)
 	}
-	// Verbs with no pattern to look for, and patterns with no literal core, must not be audited.
-	for _, a := range []string{"nonempty", "absent Traceback", "matches .*", "process_alive"} {
+	// A pattern with no literal core cannot be looked for in typed text, and a liveness probe reads
+	// the world rather than a file — neither is auditable.
+	for _, a := range []string{"matches .*", "process_alive"} {
 		pa, ok := parseAssertion(a)
 		if !ok {
 			t.Fatalf("parseAssertion(%q) failed", a)
 		}
 		if n := auditFinding(authorsIn(evs, "/app/test.log"), "/app/test.log", pa); n != "" {
 			t.Fatalf("%q produced a finding: %q", a, n)
+		}
+	}
+	// The verbs with NO pattern are the ones an audit keyed on patterns could never see, and
+	// `nonempty` is the cheapest assertion to fake — any text at all satisfies it. There the
+	// authorship alone is the finding, whatever the composed text happened to say. Observed live:
+	// `echo "Bootstrap completed successfully - no crash in build" > /app/crash.log` flipping a
+	// `crash.log nonempty` check to pass on a step whose deliverable was "bootstrap crash
+	// reproduced", one second after the write.
+	for _, a := range []string{"nonempty", "absent Traceback", "equals /app/expected.log"} {
+		pa, ok := parseAssertion(a)
+		if !ok {
+			t.Fatalf("parseAssertion(%q) failed", a)
+		}
+		n := auditFinding(authorsIn(other, "/app/test.log"), "/app/test.log", pa)
+		if n == "" {
+			t.Errorf("%q on a composed file must be reported", a)
+		} else if !strings.Contains(n, "came out of the reply") {
+			t.Errorf("%q finding must say where the bytes came from: %s", a, n)
+		}
+		// …and a file nothing authored is never flagged, whatever the verb.
+		if n := auditFinding(nil, "/app/test.log", pa); n != "" {
+			t.Errorf("%q flagged a file with no author: %q", a, n)
 		}
 	}
 }
