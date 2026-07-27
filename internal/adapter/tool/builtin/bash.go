@@ -108,6 +108,7 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	}
 	cmd := exec.CommandContext(cctx, name, args...)
 	cmd.Dir = env.Workdir
+	cmd.Env = scratchEnv(env.ScratchTmp)
 	// On timeout the default context-cancel kills only the launched shell; a child it spawned
 	// (a build, ssh, ping) can survive holding the inherited output handle, which on Windows
 	// wedges cmd.Wait forever so the tool hangs past its timeout for ANY command. armCancel
@@ -125,7 +126,7 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	cmd.SysProcAttr = detachTTY(sboxAttr)
 	started := time.Now()
 	bashDebugf("exec start: timeout=%ds shell=%s cmd=%q", timeout, name, dbgClip(a.Command))
-	out, err := runCapture(cmd)
+	out, logPath, err := runCapture(cmd, env.ScratchLogs)
 	// Safety net: if a token-confined launch (Windows) fails to START (process never
 	// ran), retry unconfined so confinement can never break the bash tool outright.
 	// Keyed on the sandbox token specifically — tty detachment is kept on the retry
@@ -135,7 +136,7 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		cmd.Dir = env.Workdir
 		armCancel(cmd)
 		cmd.SysProcAttr = detachTTY(nil)
-		out, err = runCapture(cmd)
+		out, logPath, err = runCapture(cmd, env.ScratchLogs)
 	}
 
 	exit := 0
@@ -145,8 +146,9 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	bashDebugf("exec done: elapsed=%s exit=%d ctxErr=%v runErr=%v", time.Since(started).Round(time.Millisecond), exit, cctx.Err(), err)
 	body := string(out)
 	if cctx.Err() == context.DeadlineExceeded {
+		// The partial log is the most useful thing a killed build leaves, so name it here too.
 		body += "\n" + timedOutNote(timeout, int(a.Timeout))
-		return errResult("", truncateOut(body)), nil
+		return errResult("", outputLine(logPath)+truncateOut(body)), nil
 	}
 	if err != nil && exit == 0 {
 		// Launch failure (command not found, etc.) rather than non-zero exit.
@@ -203,7 +205,7 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 			disp = note + "\n" + disp
 		}
 	}
-	res := okText("", fmt.Sprintf("exit %d\n%s", exit, disp))
+	res := okText("", fmt.Sprintf("exit %d\n%s%s", exit, outputLine(logPath), disp))
 	res.IsError = exit != 0
 	return res, nil
 }
@@ -288,22 +290,38 @@ func dbgClip(s string) string {
 // instead of dying by SIGPIPE. sh exiting also returns Wait immediately (no pipe to
 // drain), so `server &` no longer blocks on WaitDelay. On temp-file failure it falls
 // back to the in-memory CombinedOutput path so the tool never breaks outright.
-func runCapture(cmd *exec.Cmd) ([]byte, error) {
+func runCapture(cmd *exec.Cmd, logsDir string) ([]byte, string, error) {
 	// The child inherits our console where the platform gives us no way to detach it (Windows), so
 	// an interactive program can reconfigure the terminal the UI is drawn on and — killed on
 	// timeout — never put it back. Snapshot around the whole run, including the fallback path.
 	defer guardConsole()()
-	f, err := os.CreateTemp("", "magi-bash-*.log")
+	// With a turn scratch, the capture file is KEPT and named back to the caller: the output then
+	// outlives the call, so the elided middle is still on disk and a later step can grep the part
+	// it needs. Without one, it is a temp file deleted on return, exactly as before. CreateTemp is
+	// what makes the name unique with no shared counter — children of the same turn write here
+	// concurrently.
+	dir, keep := logsDir, logsDir != ""
+	f, err := os.CreateTemp(dir, "magi-bash-*.log")
 	if err != nil {
-		return cmd.CombinedOutput()
+		if keep { // the scratch went away under us — fall back to a temp file rather than lose the run
+			if f, err = os.CreateTemp("", "magi-bash-*.log"); err == nil {
+				keep = false
+			}
+		}
+		if err != nil {
+			out, werr := cmd.CombinedOutput()
+			return out, "", werr
+		}
 	}
 	name := f.Name()
-	defer os.Remove(name)
+	if !keep {
+		defer os.Remove(name)
+	}
 	defer f.Close()
 	cmd.Stdout, cmd.Stderr = f, f
 	if err := cmd.Start(); err != nil {
 		bashDebugf("start failed: %v", err)
-		return nil, err
+		return nil, "", err
 	}
 	bashDebugf("started pid=%d — waiting", cmd.Process.Pid)
 	werr := cmd.Wait()
@@ -314,7 +332,10 @@ func runCapture(cmd *exec.Cmd) ([]byte, error) {
 	// are) and elide the middle. A surviving `&` child keeps writing to its own fd on the
 	// (now unlinked) inode; that later output is intentionally not captured here. (I1)
 	data := readHeadTail(name, captureCap)
-	return data, werr
+	if !keep {
+		name = ""
+	}
+	return data, name, werr
 }
 
 // captureCap bounds how much of a command's output runCapture retains in memory. It sits
@@ -383,4 +404,42 @@ func truncateOut(s string) string {
 		tail++
 	}
 	return s[:head] + fmt.Sprintf("\n…(%d bytes omitted)…\n", tail-head) + s[tail:]
+}
+
+// scratchEnv points the command's TMPDIR at the turn's scratch, so everything that ASKS for a temp
+// path — mktemp, python's tempfile, a compiler's intermediates — writes outside the deliverable
+// tree with no model awareness at all. Observed without it: an agent copying its own working files
+// into the workspace it was being graded on (`cp /app/input.csv /app/test_input.csv`), left behind
+// after the run. Returns nil (inherit magi's environment, the previous behavior) when there is no
+// scratch, so this can never be the reason a command fails to start.
+func scratchEnv(tmp string) []string {
+	if tmp == "" {
+		return nil
+	}
+	out := make([]string, 0, len(os.Environ())+3)
+	for _, kv := range os.Environ() {
+		switch {
+		case strings.HasPrefix(kv, "TMPDIR="), strings.HasPrefix(kv, "TMP="), strings.HasPrefix(kv, "TEMP="):
+		default:
+			out = append(out, kv)
+		}
+	}
+	return append(out, "TMPDIR="+tmp, "TMP="+tmp, "TEMP="+tmp)
+}
+
+// outputLine names the file the command's full output was captured to, when the turn kept one. The
+// message body is head+tail of a bounded read; the file is everything, so a later step greps the
+// part it needs instead of re-running the command with a bigger tail.
+func outputLine(path string) string {
+	if path == "" {
+		return ""
+	}
+	size := int64(-1)
+	if fi, err := os.Stat(path); err == nil {
+		size = fi.Size()
+	}
+	if size < 0 {
+		return "output: " + path + "\n"
+	}
+	return fmt.Sprintf("output: %s (%d bytes — the full output; this message shows the head and tail)\n", path, size)
 }

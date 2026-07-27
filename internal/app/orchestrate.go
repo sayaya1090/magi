@@ -772,6 +772,11 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 	if len(req.Tools) > 0 {
 		a.stateLocked(child.ID).curatedTools = req.Tools // per-spawn tool allowlist override (curator)
 	}
+	// The child works inside the TURN's scratch, not one of its own: its build log is something the
+	// parent and its siblings read (that is what the shared ledger keeps trying to hand across), and
+	// a per-child directory would delete that at the child's exit. Inherited as a pointer, removed
+	// only by the turn that created it.
+	a.stateLocked(child.ID).scratch = a.stateLocked(parent.ID).scratch
 	a.mu.Unlock()
 	a.touch(child.ID) // seed liveness so the watchdog doesn't fire immediately
 

@@ -67,6 +67,7 @@ type sessionState struct {
 	// Turn-scoped (zeroed by resetForNewTopLevel).
 	criteria          string                     // elicited acceptance criteria this turn
 	minedNote         string                     // specmine result this turn (soft contract; shown to the termination council)
+	scratch           *turnScratch               // the turn's scratch directory (created at depth 0, inherited by every child of that turn)
 	seedPrompt        string                     // subagent: the spawn/unit prompt THIS child was seeded with (see seedTurnTask)
 	curatedTools      []string                   // subagent: per-spawn tool allowlist override (SpawnRequest.Tools); nil = the agent's own allowlist
 	deliverableChecks []council.DeliverableCheck // plan-audit per-step executable checks this turn

@@ -148,7 +148,7 @@ func waitForProbe(ctx context.Context, env port.ToolEnv, condition string, deadl
 	cmd.WaitDelay = 2 * time.Second
 	sboxAttr := sandboxProcAttr(env.Sandbox)
 	cmd.SysProcAttr = detachTTY(sboxAttr)
-	out, err := runCapture(cmd)
+	out, _, err := runCapture(cmd, "")
 	// Token-confined launch (Windows) that never started: retry unconfined so
 	// confinement can't turn every probe into a false negative.
 	if err != nil && cmd.ProcessState == nil && sboxAttr != nil {
@@ -156,7 +156,7 @@ func waitForProbe(ctx context.Context, env port.ToolEnv, condition string, deadl
 		cmd.Dir = env.Workdir
 		cmd.WaitDelay = 2 * time.Second
 		cmd.SysProcAttr = detachTTY(nil)
-		out, err = runCapture(cmd)
+		out, _, err = runCapture(cmd, "")
 	}
 
 	exit := 0

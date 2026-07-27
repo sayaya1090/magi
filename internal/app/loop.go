@@ -136,6 +136,18 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	guard.stallConverge = stallConvergeEnabled() // D18a: collapse the stalled-nudge re-arm when a redirect produced no forward motion
 	ts := turnState{prevFinishCalls: -1}         // per-turn mutable bookkeeping (finish guards, council accounting, stuck-recovery); zeroed field-wise on reground
 	tc := turnCtx{s: s, agent: agent, depth: depth, maxSteps: maxSteps, actor: agentActor, runStart: runStart, guard: guard}
+	// The turn's scratch directory: captured command output, and the TMPDIR every command runs
+	// under. Created HERE because the turn is its lifetime — a child inherits the pointer at spawn
+	// and never removes it, or the first child to finish would take its siblings' output with it.
+	if depth == 0 {
+		if sc := newTurnScratch(); sc != nil {
+			a.setScratch(sid, sc)
+			defer func() {
+				a.setScratch(sid, nil)
+				sc.remove()
+			}()
+		}
+	}
 	// Run-tree recovery cap: a child spawned by the stuck-recovery lifeline starts already
 	// flagged as recovered, so it cannot fire its OWN redecomposeStuck. reground does NOT clear
 	// this field, so the cap holds across the child's whole run — exactly one recovery executor

@@ -299,9 +299,12 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// through the rest of executeTool (result append / council eval), which is short.
 	a.enterTool(sid)
 	defer a.leaveTool(sid)
+	scratch := a.scratchFor(sid)
 	res, err := tool.Execute(ctx, tc.Args, port.ToolEnv{
 		SessionID:    sid,
 		Workdir:      workdir,
+		ScratchLogs:  scratch.logsDir(),
+		ScratchTmp:   scratch.tmpDir(),
 		Platform:     a.plat,
 		EmitArtifact: func(art artifact.Artifact) { a.emitArtifact(ctx, sid, actor, art) },
 		EmitProgress: func(text string) { a.emitToolProgress(sid, actor, tc.CallID, tc.Name, text) },

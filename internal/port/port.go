@@ -261,6 +261,17 @@ type CheckSub struct {
 type ToolEnv struct {
 	SessionID session.SessionID
 	Workdir   string
+	// ScratchLogs is the TURN's directory for captured command output. A tool that runs a command
+	// writes the combined stdout/stderr there and names the file in its result, so the output
+	// outlives the call: the elided middle of a large capture is still on disk, and a later step
+	// can grep the part it needs instead of re-running with a bigger tail. Empty = capture to a
+	// temp file and delete it when the call returns (the pre-scratch behavior).
+	ScratchLogs string
+	// ScratchTmp is the TURN's temp directory, exported to the command as TMPDIR. Everything that
+	// ASKS for a temp path — mktemp, python's tempfile, a compiler's intermediates — then writes
+	// outside the deliverable tree without the model knowing anything about it. Removed whole when
+	// the turn ends. Empty = the process's own TMPDIR.
+	ScratchTmp string
 	// AskPermission gates dangerous operations; returns true if allowed.
 	AskPermission func(callID, name string, args json.RawMessage) (bool, error)
 	// EmitArtifact lets a tool publish a reviewable artifact (D11).
