@@ -126,3 +126,39 @@ func TestStepAttemptLadderContinuesAcrossDispatches(t *testing.T) {
 		t.Error("another session's ladder must survive")
 	}
 }
+
+// A spent ladder is the finding. One ladder already gave the step a retry that knew why the last
+// attempt failed and what it had tried; a second ladder repeats that experiment at full price. The
+// observed run paid it — six workers on one step, twenty-eight minutes, none reporting — so the
+// second dispatch must state what the attempts established instead of spending more of them.
+func TestStepLadderCapRefusesTheSecondFullLadder(t *testing.T) {
+	a := &App{cfg: Config{SubagentMaxRestarts: 2}} // 3 attempts to a ladder
+	const parent = session.SessionID("s_parent")
+	req := port.SpawnRequest{Agent: "worker",
+		Prompt: "context\n\n" + workerPartHeader + "design exactly three macros\ntail"}
+
+	if n, spent := a.stepLadderSpent(parent, "worker", req); spent {
+		t.Fatalf("a step with no history must dispatch normally, got spent at %d", n)
+	}
+	// Part-way through the first ladder is not spent either — those retries are the point.
+	a.rememberStepAttempt(stepAttemptKey(parent, "worker", req), port.SpawnResult{Err: "lease expired"}, 2)
+	if _, spent := a.stepLadderSpent(parent, "worker", req); spent {
+		t.Error("an unfinished ladder must keep its remaining attempts")
+	}
+	a.rememberStepAttempt(stepAttemptKey(parent, "worker", req), port.SpawnResult{Err: "lease expired"}, 3)
+	n, spent := a.stepLadderSpent(parent, "worker", req)
+	if !spent || n != 3 {
+		t.Fatalf("a full ladder must stop the next dispatch, got spent=%v n=%d", spent, n)
+	}
+	// A re-planned step is a different part: it keys to its own ladder and dispatches normally.
+	other := port.SpawnRequest{Agent: "worker",
+		Prompt: "context\n\n" + workerPartHeader + "write macro a only, and test it on five lines\ntail"}
+	if _, spent := a.stepLadderSpent(parent, "worker", other); spent {
+		t.Error("a step that was split into a smaller part must not inherit the cap")
+	}
+	// The A/B baseline restores unbounded re-dispatch.
+	t.Setenv("MAGI_STEP_LADDER_CAP", "0")
+	if _, spent := a.stepLadderSpent(parent, "worker", req); spent {
+		t.Error("MAGI_STEP_LADDER_CAP=0 must restore the unbounded re-dispatch")
+	}
+}
