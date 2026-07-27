@@ -1327,9 +1327,51 @@ func (a *App) lastUserPrompt(ctx context.Context, sid session.SessionID) string 
 	for i := len(evs) - 1; i >= 0; i-- {
 		if evs[i].Type == event.TypePromptSubmitted && evs[i].Actor.Kind == event.ActorUser {
 			var d event.PromptSubmittedData
-			if json.Unmarshal(evs[i].Data, &d) == nil {
-				return joinPartText(d.Parts)
+			if json.Unmarshal(evs[i].Data, &d) != nil {
+				continue
 			}
+			if t := joinPartText(d.Parts); strings.TrimSpace(t) != inheritedContextHeader {
+				return t
+			}
+			// The one user prompt this child has is the reframed banner, which says in so many
+			// words that it is NOT the task. Its real instruction is the seed appended after it.
+			return seedInstruction(evs[i+1:])
+		}
+	}
+	return ""
+}
+
+// seedInstruction returns the unit a dispatched child was actually told to carry out: the FIRST
+// prompt after the inherited-context banner that is not the banner itself.
+//
+// A cloned child's only ActorUser prompt is that banner — reframeInheritedPrompt replaced the
+// parent's request with it precisely so a weak child would not restart the parent's task — and its
+// own assignment arrives as the seed prompt, stamped by the dispatching agent rather than by a
+// user. Anything that asked "what is this session's request" through the ActorUser filter therefore
+// got the banner. Observed in a nested re-plan: the audit council was convened with
+//
+//	# Current request to plan for
+//	[Inherited context — … Shown for background only; do NOT answer or restart it. Your task is the
+//	 most recent instruction at the end of this conversation.]
+//
+// and all three members abstained, each saying some version of "there is no stated goal or task at
+// the end of this conversation" — they were quoting the text back. The gate then approved the plan
+// on zero votes, and the session dispatched a worker against checks written by a council that had
+// said it could not see the task.
+//
+// FIRST, not last: later prompts on a child are the loop's own injections (investigation findings,
+// council feedback), which are about the work rather than the assignment.
+func seedInstruction(after []event.Event) string {
+	for _, e := range after {
+		if e.Type != event.TypePromptSubmitted {
+			continue
+		}
+		var d event.PromptSubmittedData
+		if json.Unmarshal(e.Data, &d) != nil {
+			continue
+		}
+		if t := joinPartText(d.Parts); strings.TrimSpace(t) != "" && strings.TrimSpace(t) != inheritedContextHeader {
+			return t
 		}
 	}
 	return ""

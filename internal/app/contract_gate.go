@@ -367,10 +367,20 @@ func (a *App) contractForPlanner(sid session.SessionID) string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	st := a.stateLocked(sid)
-	if !st.contractFrozen {
-		return ""
+	if st.contractFrozen {
+		return st.contractText
 	}
-	return st.contractText
+	// A dispatched child re-planning its unit has no contract of its own — the gate runs top-level
+	// only, deliberately (its silent side-calls read as a wedged worker to the lease). But the
+	// contract belongs to the RUN, not to the session that happens to hold it, and the audit council
+	// convened inside a child was authoring per-step checks with nothing to anchor them: one such
+	// round produced `source: "_build/default/src/ocamlc.exe"` for a tree that builds with make.
+	if st.meta.Parent != "" {
+		if pst, ok := a.stateIf(st.meta.Parent); ok && pst.contractFrozen {
+			return pst.contractText
+		}
+	}
+	return ""
 }
 
 // contractRevisionContext tells the next contract round what it is looking at: a draft the council
