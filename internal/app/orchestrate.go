@@ -651,7 +651,16 @@ func (a *App) spawnResolved(ctx context.Context, parent session.Session, depth i
 		}
 		last = res
 	}
-	return port.SpawnResult{Err: fmt.Sprintf("%s (failed after %d attempts)", last.Err, a.cfg.SubagentMaxRestarts+1)}
+	// The exhausted result keeps the LAST attempt's session id. A failed attempt still leaves
+	// magi's own record of what the child searched and read, and a caller that can salvage
+	// something from it — the negatives an exploration established before its lease was judged
+	// KILL — has no other way to ask for it. Dropping the id here made that record unreachable at
+	// exactly the moment it was the only thing left: three attempts each proved a planned-for
+	// identifier absent, all three died on the lease, and the caller received a bare error.
+	return port.SpawnResult{
+		Err:       fmt.Sprintf("%s (failed after %d attempts)", last.Err, a.cfg.SubagentMaxRestarts+1),
+		SessionID: last.SessionID,
+	}
 }
 
 // runAttempt runs a single supervised subagent attempt. retry is true when the

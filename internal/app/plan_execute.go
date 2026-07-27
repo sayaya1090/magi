@@ -719,7 +719,10 @@ func (a *App) runRefineStep(ctx context.Context, s session.Session, st planStep,
 			req.CloneContext = false
 		}
 		r := a.spawn(ctx, s, depth, req)
-		if shared && r.SessionID != "" {
+		// r.Err is checked because an EXHAUSTED spawn now carries its last attempt's session id
+		// (for the salvage callers), and a spawn that failed outright is not the session later
+		// phases should be built on — that id is a forensic record, not a working thread.
+		if shared && r.Err == "" && r.SessionID != "" {
 			// Pin the shared session + its executor for later phases. Assigned every attempt so a
 			// reuse miss (fresh id returned) self-heals onto the new session; on a normal reuse
 			// r.SessionID is the same id, so this is a no-op.
