@@ -853,6 +853,15 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 	// killing it throws that work away and starts over from nothing. So the tick compares against
 	// the count at the previous tick: producing keeps the child alive, spinning does not.
 	lastProd := a.productiveCount(child.ID)
+	// Attempt time spent demonstrably blocked on an external process, credited back to the backstop
+	// (see leaseExternalCreditEnabled). lastTick bounds the window each credit covers, so a child
+	// that is waiting at every tick earns exactly the time it waited and no more.
+	credited := time.Duration(0)
+	lastTick := attemptStart
+	ceiling := a.subagentBackstopCeiling()
+	backstopLeft := func() time.Duration {
+		return backstopRemaining(backstop, credited, ceiling, time.Since(attemptStart))
+	}
 	for {
 		select {
 		case o := <-done:
@@ -871,15 +880,24 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 			// and a spent backstop skips the judge entirely — no verdict can add
 			// time that doesn't exist. The child keeps running while the judge
 			// deliberates; a kill verdict cancels it exactly like the old hard cap.
+			// Credit BEFORE the verdict reads the remaining backstop: the ladder short-circuits on a
+			// spent backstop, so a window this child spent waiting on a build has to be off the
+			// clock by the time that test runs, or the arm written for exactly this case never runs.
+			if now := time.Now(); leaseExternalCreditEnabled() && a.externalWait(child.ID) {
+				credited += now.Sub(lastTick)
+				lastTick = now
+			} else {
+				lastTick = now
+			}
 			var ext time.Duration
 			var verdictNote string
 			ext, verdictNote, lastProd = a.leaseVerdict(ctx, parent, child, req.Prompt,
-				backstop-time.Since(attemptStart), time.Since(attemptStart), lastProd)
+				backstopLeft(), time.Since(attemptStart), lastProd)
 			// Clamp AFTER the judge call: the verdict can take up to judgeCallTimeout,
 			// and the extension clock only starts at the Reset below, so a pre-call
 			// remainder would let each judged extension overshoot the backstop by the
 			// judge's own latency.
-			if rem := backstop - time.Since(attemptStart); ext > rem {
+			if rem := backstopLeft(); ext > rem {
 				ext = rem
 			}
 			if ext <= 0 {

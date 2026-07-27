@@ -588,3 +588,24 @@ func stallNoveltyEnabled() bool { return !envOff("MAGI_STALL_NOVELTY") }
 // prompt text, so the bench (not intent) decides whether it stays; default ON,
 // MAGI_DIVERGE=0 restores the baseline planner contract.
 func divergeEnabled() bool { return !envOff("MAGI_DIVERGE") }
+
+// leaseExternalCreditEnabled stops the per-attempt BACKSTOP from charging a child for time it spent
+// blocked on an external process.
+//
+// The backstop is an absolute wall on one attempt (3 × SubagentTimeout = 15m by default), and
+// lease_verdict short-circuits the whole ladder once it is spent — so the arm that exists for
+// "legitimately blocked on a long operation it cannot speed up" is unreachable exactly when it
+// matters most. Observed live: three consecutive sub-planners were handed the identical unit
+// ("build the compiler following HACKING.adoc") at 15:00 intervals, each cancelled mid-build by the
+// backstop, each starting over from nothing — and one of them ran `make clean` first, so the carry
+// was negative. A build that takes longer than fifteen minutes was not reachable through delegation
+// at all, and restarting it could not make it any faster.
+//
+// So the backstop measures UNPRODUCTIVE attempt time instead of elapsed attempt time, the same
+// correction the lease itself already got. A window in which magi could SEE an external process
+// running (a tool call in flight, or an owned background pid burning CPU) is credited back.
+// Model-side silence is NOT credited, and subagentBackstopCeiling caps the attempt regardless, so a
+// wedged build cannot hold a slot forever.
+//
+// Default ON; MAGI_LEASE_EXTERNAL_CREDIT=0 restores the elapsed-time backstop for A/B.
+func leaseExternalCreditEnabled() bool { return !envOff("MAGI_LEASE_EXTERNAL_CREDIT") }

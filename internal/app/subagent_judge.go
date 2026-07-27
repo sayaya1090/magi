@@ -51,6 +51,31 @@ func (a *App) subagentBackstop() time.Duration {
 	return time.Duration(subagentCapMaxFactor) * a.cfg.SubagentTimeout
 }
 
+// externalWait reports whether the child is blocked on something magi can SEE running and cannot
+// make go faster: a foreground tool call in flight, or a background job of its own burning CPU.
+//
+// It is the same pair of deterministic tests the lease ladder already trusts, asked for a different
+// purpose. The ladder uses them to grant an EXTENSION; this asks whether the window that just
+// elapsed should be charged to the backstop at all. Deliberately NOT the model-side arms
+// (generating, deliberating, produced): those can spin indefinitely and are exactly what an
+// absolute ceiling exists to stop. Only a real external process gets its time credited back.
+func (a *App) externalWait(sid session.SessionID) bool {
+	return a.toolInFlight(sid) || (subagentProcLeaseEnabled() && a.childProcActive(sid))
+}
+
+// subagentBackstopCeiling is the hard wall that survives every credit: an attempt may never run
+// longer than this, however busy the thing it is waiting on looks. A build that is still going
+// after this long is no longer distinguishable from one that is wedged, and the attempt is better
+// retried than held.
+func (a *App) subagentBackstopCeiling() time.Duration {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return time.Duration(subagentBackstopCeilingFactor) * a.cfg.SubagentTimeout
+}
+
+// subagentBackstopCeilingFactor is that wall in units of the configured base (5m → 60m).
+const subagentBackstopCeilingFactor = 12
+
 // leaseExtension is one extension grant: half the configured base per verdict.
 // childWaitMajority reports whether the child's recent tool calls are DOMINATED by waiting on
 // the environment — a sleep/poll bash idiom (isWaitCommand) or a background-job / block-until
@@ -245,4 +270,18 @@ func childToolDigest(evs []event.Event, k int) string {
 		fmt.Fprintf(&b, "  (previous call repeated %d more times)\n", repeats)
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// backstopRemaining is how much of the per-attempt backstop is left, given the time credited back
+// for windows the child spent blocked on an external process.
+//
+// Two bounds, and the tighter one wins: the backstop itself, which the credit pushes out, and the
+// ceiling, which nothing does. Written as a function so the arithmetic can be read and tested apart
+// from the supervisor loop's timers.
+func backstopRemaining(backstop, credited, ceiling, elapsed time.Duration) time.Duration {
+	left := backstop + credited - elapsed
+	if ceil := ceiling - elapsed; ceil < left {
+		left = ceil
+	}
+	return left
 }
