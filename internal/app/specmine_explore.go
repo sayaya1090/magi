@@ -40,6 +40,29 @@ const specMineExploreSystem = "You are a READ-ONLY repository explorer running b
 	"If you are unsure of a value, say it is unverified rather than assert it. If the repository has nothing " +
 	"relevant (e.g. a greenfield task with an empty tree), say so in one line."
 
+// specMineBrief builds the exploration's prompt: whose request this is, whose plan, the repo map,
+// and — last, where the instruction the model acts on belongs — this agent's own job.
+//
+// Whose task is it? The plan block always said "do NOT carry it out"; the request above it was
+// headed "── TASK" and left to speak for itself. A request is written in imperatives ("make X pass",
+// "implement Y"), so under that header it read as this agent's own assignment, and the system
+// prompt's "do not propose changes" — seven lines into a paragraph — loses to a heading. So the
+// request is labelled for what it is: someone else's, quoted only so this agent knows what to look
+// FOR. The per-item explorers already draw that line ("Overall goal (context for your
+// investigation)" then "INVESTIGATE (read-only) — …", explorerPrompt); this one did not, and it is
+// the one handed the raw request. The job names its deliverable in terms the allowlist can reach,
+// so "done" is something this agent can actually be.
+func specMineBrief(task, plan, repo string) string {
+	return "── THE REQUEST (context only — SOMEONE ELSE will carry this out, not you; it is quoted so you " +
+		"know what to look FOR)\n" + strings.TrimSpace(task) +
+		"\n\n── THEIR PLAN (do NOT carry it out — just find what it will build on)\n" + plan +
+		"\n\n# Repository (top level)\n" + repo +
+		"\n\n── YOUR JOB (the only thing you produce)\nExplore read-only and report the concrete EXISTING facts " +
+		"(paths, signatures, interfaces) the steps must honor, as `path — fact` lines. Finding and naming those " +
+		"facts IS your deliverable — you are done when you have them. Not a design, not a fix, not an opinion on " +
+		"whether the plan is any good, and nothing about how the request should be carried out."
+}
+
 // exploreSpecMine spawns a SYNCHRONOUS read-only subagent that grounds the plan in the real repository —
 // mining the actual signatures, paths, and interfaces the steps must match — and injects its findings as
 // a note the plan-audit check-author, the executor, and the termination council all read. This is the
@@ -71,10 +94,7 @@ func (a *App) exploreSpecMine(ctx context.Context, s session.Session, task strin
 		Model:    base.Model,
 		Provider: base.Provider,
 	}
-	brief := "── TASK\n" + strings.TrimSpace(task) +
-		"\n\n── PLAN (do NOT carry it out — just find what it will build on)\n" + renderSteps(steps) +
-		"\n\n# Repository (top level)\n" + repo +
-		"\n\nExplore read-only and report the concrete EXISTING facts (paths, signatures, interfaces) the steps must honor."
+	brief := specMineBrief(task, renderSteps(steps), repo)
 	a.emitToolProgress(s.ID, plannerActor, "", "specmine", "exploring the repo for the plan's real signatures/paths…")
 	r := a.spawnResolved(ctx, s, depth, spec, port.SpawnRequest{Agent: "specmine", Prompt: brief})
 	findings := strings.TrimSpace(stripReportStatus(r.Text))
