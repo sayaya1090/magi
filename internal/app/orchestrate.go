@@ -818,6 +818,11 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 		t, e := a.runLoop(attemptCtx, child, spec, depth+1, req.MaxSteps, false)
 		done <- outcome{t, e}
 	}()
+	// A child's liveness record is in-flight state only — what it is doing right now — and nothing
+	// reads it once the attempt is over (the salvage paths read the STORE, which outlives this).
+	// Nothing used to drop it, so a run left one record per subagent attempt behind for the life of
+	// the process. Deferred here so it fires down every exit: clean finish, lease kill, cancel.
+	defer a.forgetLiveness(child.ID)
 
 	announceDone := func() {
 		d, _ := json.Marshal(event.AgentStatusData{
@@ -861,53 +866,10 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 			// and a spent backstop skips the judge entirely — no verdict can add
 			// time that doesn't exist. The child keeps running while the judge
 			// deliberates; a kill verdict cancels it exactly like the old hard cap.
-			ext, verdictNote := time.Duration(0), "backstop spent"
-			if backstop > time.Since(attemptStart) {
-				// A tool executing right now is active work, not churn: a foreground build
-				// (`make`, a long test run) emits no events and is not a poll/wait verb, so the
-				// judge — and the deterministic wait-check — can misread a mid-build child as
-				// wedged and KILL it exactly when it is legitimately busy. Extend deterministically
-				// while a tool is in flight, the lease-side mirror of the stall watchdog's own
-				// tool-in-flight suppression. The tool's own timeout (≤10m) bounds the call and the
-				// backstop still caps the attempt, so this cannot extend a real runaway.
-				if a.toolInFlight(child.ID) {
-					ext, verdictNote = a.leaseExtension(), "tool in flight (active work, not churn)"
-				} else if a.generating(child.ID) && a.genFresh(child.ID) {
-					// The child is mid-generation: no tool in flight, no events until the first
-					// token, and on a slow model this is where most of its wall time goes — so the
-					// lease timer lands here often, and every deterministic test below it was
-					// false. Observed cost: four subagents whose last recorded event is the
-					// provider's own `context canceled`, one three seconds after a successful
-					// write, and one step that burned six consecutive attempts this way. The
-					// stall watchdog already re-issues a silent stream and the backstop still caps
-					// the attempt, so a runaway cannot hide in here.
-					ext, verdictNote = a.leaseExtension(), "generating (mid-response, not churn)"
-				} else if a.deliberating(child.ID) {
-					// The child is inside its own council/planner gate — silent side-LLM calls that
-					// emit no stream and hold no tool, but ARE active work. Extend like a tool in
-					// flight so a legitimate deliberation is never killed for the between-round silence;
-					// the round cap and the backstop still bound a stuck gate.
-					ext, verdictNote = a.leaseExtension(), "deliberating (council/plan side-calls, not churn)"
-				} else if prod := a.productiveCount(child.ID); leaseProgressEnabled() && prod > lastProd {
-					// It produced new work inside this lease window. Restarting cannot get that work
-					// done faster — it discards it and re-derives it from nothing, which is what the
-					// observed run did ten times across two steps, keeping one report out of ten.
-					// The window advances with the count, so a child that produces once and then
-					// spins gets exactly one extension for it, not an open lease.
-					lastProd = prod
-					ext, verdictNote = a.leaseExtension(), "produced new work since the last lease tick"
-				} else if subagentProcLeaseEnabled() && a.childProcActive(child.ID) {
-					// Off-tool background work: a bash{background:true} job (a long transfer/build the
-					// model launched and stopped polling) is invisible to toolInFlight and to the
-					// wait-majority check, so the judge would read it as churn and KILL — the #224
-					// remote-download spin. Sample the owned pids' CPU: if a live job is actively
-					// burning CPU, a restart cannot finish it faster, so extend. Idle/wedged jobs
-					// (flat CPU) fall through to the judge; the backstop still caps the attempt.
-					ext, verdictNote = a.leaseExtension(), "background process actively using CPU (not churn)"
-				} else {
-					ext, verdictNote = a.judgeLease(ctx, parent, child, req.Prompt, time.Since(attemptStart))
-				}
-			}
+			var ext time.Duration
+			var verdictNote string
+			ext, verdictNote, lastProd = a.leaseVerdict(ctx, parent, child, req.Prompt,
+				backstop-time.Since(attemptStart), time.Since(attemptStart), lastProd)
 			// Clamp AFTER the judge call: the verdict can take up to judgeCallTimeout,
 			// and the extension clock only starts at the Reset below, so a pre-call
 			// remainder would let each judged extension overshoot the backstop by the

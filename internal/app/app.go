@@ -42,11 +42,7 @@ type App struct {
 	sem        chan struct{} // concurrency limiter for subagents (D7)
 	spawnCount atomic.Int64  // cumulative subagents spawned (runaway backstop)
 
-	lastActivity sync.Map // session.SessionID -> time.Time (liveness for the sidecar health check)
-	toolsRunning sync.Map // session.SessionID -> *atomic.Int64 (tools in flight; suppresses the stall watchdog)
-	genRunning   sync.Map // session.SessionID -> *atomic.Int64 (model generations in flight; a lease may not kill mid-sentence)
-	genLastToken sync.Map // session.SessionID -> time.Time (last streamed token; separates mid-sentence from a wedged backend)
-	productive   sync.Map // session.SessionID -> *atomic.Int64 (mutations + first-seen exercising commands; the lease's progress signal)
+	liveness     sync.Map // session.SessionID -> *sessionLiveness (what the lease and the stall watchdog ask about a running session)
 	stepAttempts sync.Map // step key -> stepAttempt (a spent retry ladder, so the next dispatch of that step continues it)
 	sessionProcs sync.Map // session.SessionID -> *procSet (live background-job pids; lets the lease judge see off-tool CPU work)
 
