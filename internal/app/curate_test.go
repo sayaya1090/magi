@@ -32,7 +32,7 @@ func toSet(xs []string) map[string]bool {
 	return m
 }
 
-func TestCurateEnabledDefaultOff(t *testing.T) {
+func TestCurateEnabledDefaultOn(t *testing.T) {
 	if !curateEnabled() {
 		t.Fatal("default must be ON")
 	}
@@ -139,6 +139,32 @@ func TestBriefShapeNamesWhatTheHandOffCarried(t *testing.T) {
 	wide := briefShape(curatePacket{Deliverable: "d", Literals: []string{strings.Repeat("x", 900)}})
 	if !strings.HasPrefix(wide, "[done-when]") || len(wide) > 400 {
 		t.Errorf("the literals must be clipped LAST and bounded, got %d chars: %q", len(wide), wide)
+	}
+}
+
+// A curator reply the recovery had to reconstruct is a PARTIAL packet: what a truncation eats is the
+// tail, and the tail is where the literals and the done-when sit. It must not read as a clean parse —
+// the rendered brief looks complete either way.
+func TestCuratePacketSalvageIsDistinguishedFromACleanParse(t *testing.T) {
+	whole := `{"task":"implement Get","literals":["GetResponse","kv.proto"],"deliverable":"grpcurl Get returns value"}`
+	if p, ok, salvaged := parseCuratePacketSalvage(whole); !ok || salvaged || len(p.Literals) != 2 {
+		t.Errorf("a whole packet must not report a salvage: ok=%v salvaged=%v literals=%v", ok, salvaged, p.Literals)
+	}
+	// Prose around the packet is not damage — the braces still close on their own.
+	if _, ok, salvaged := parseCuratePacketSalvage("here you go:\n" + whole + "\nhope that helps"); !ok || salvaged {
+		t.Errorf("prose around an intact packet is not a salvage: ok=%v salvaged=%v", ok, salvaged)
+	}
+	// Cut off mid-literals: the packet parses, and `kv.proto` is simply gone.
+	cut := `{"task":"implement Get","literals":["GetResponse","kv.proto"`
+	p, ok, salvaged := parseCuratePacketSalvage(cut)
+	if !ok || !salvaged {
+		t.Fatalf("a truncated packet must report its recovery: ok=%v salvaged=%v", ok, salvaged)
+	}
+	if len(p.Literals) != 1 || p.Literals[0] != "GetResponse" {
+		t.Errorf("the recovery carries what preceded the cut, got %v", p.Literals)
+	}
+	if _, ok, salvaged := parseCuratePacketSalvage("no packet here"); ok || salvaged {
+		t.Errorf("prose alone is neither parsed nor salvaged: ok=%v salvaged=%v", ok, salvaged)
 	}
 }
 

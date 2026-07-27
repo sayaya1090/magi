@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -50,6 +51,49 @@ func TestCurateRetryReminderNamesTheActualDefect(t *testing.T) {
 	if r := curateRetryReminder(""); !strings.Contains(r, "ONLY the JSON object") {
 		t.Errorf("an empty reply produced: %q", r)
 	}
+}
+
+// A packet the recovery had to reconstruct renders a brief that reads complete, so it takes the same
+// re-ask as an unreadable one. And when the re-ask cannot repair it either, the partial packet is
+// still more of the task's own words than the mechanical brief — so it LANDS, named as partial,
+// rather than being discarded into the fallback that loses every literal.
+func TestCuratorReAsksOnADamagedPacketAndLandsThePartial(t *testing.T) {
+	cut := `{"goal":"ship a KV store","task":"implement Get","literals":["GetResponse","kv.proto"`
+	whole := `{"goal":"ship a KV store","task":"implement Get","literals":["GetResponse","kv.proto"],` +
+		`"deliverable":"grpcurl Get returns the stored value"}`
+
+	t.Run("repaired", func(t *testing.T) {
+		llm := &auditLLM{replies: []string{cut, whole}}
+		a := newOrchApp(t, llm, Config{Permission: "allow", MaxAgents: 10})
+		s := parentSession(t.TempDir())
+		sub := watchProgress(t, a, s.ID)
+		brief, _ := a.curateDelegate(context.Background(), AgentSpec{Name: "worker"}, s,
+			planStep{Title: "do it", Task: "implement Get"}, "context")
+		if !strings.Contains(brief, "kv.proto") || !strings.Contains(brief, "grpcurl Get") {
+			t.Errorf("the repaired packet must be used, got brief:\n%s", brief)
+		}
+		if n := len(llm.calls()); n != 2 {
+			t.Fatalf("a damaged packet must cost exactly one re-ask (2 calls), got %d", n)
+		}
+		if n := sub.notes("curator"); !strings.Contains(n, "DAMAGED reply") {
+			t.Errorf("the damage must be reported:\n%s", n)
+		}
+	})
+
+	t.Run("still damaged", func(t *testing.T) {
+		llm := &auditLLM{replies: []string{cut, cut}}
+		a := newOrchApp(t, llm, Config{Permission: "allow", MaxAgents: 10})
+		s := parentSession(t.TempDir())
+		sub := watchProgress(t, a, s.ID)
+		brief, _ := a.curateDelegate(context.Background(), AgentSpec{Name: "worker"}, s,
+			planStep{Title: "do it", Task: "implement Get"}, "context")
+		if !strings.Contains(brief, "GetResponse") {
+			t.Errorf("a partial packet must still land — the mechanical brief keeps no literal at all:\n%s", brief)
+		}
+		if n := sub.notes("curator"); !strings.Contains(n, "PARTIAL") {
+			t.Errorf("what landed must be named as partial:\n%s", n)
+		}
+	})
 }
 
 // The retry exists because the first reply is recoverable, so the second attempt has to be judged by
