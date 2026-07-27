@@ -195,19 +195,25 @@ func sequencedTailNote(exit int, command string, verify bool) string {
 }
 
 // ExitCodeMasked reports whether a bash result's exit code is provably NOT the primary command's,
-// judged from the command text alone (a masking `|| …` tail, or — on a call the model declared a
-// verification — a `| tail`/`| head` pipe or a `;`-sequenced reporter/truncator tail). It is the
-// same structural judgement the notes above surface to the MODEL, exported so magi's own guards can
-// refuse to read such an exit 0 as evidence: an exit code that belongs to an `echo` says nothing
-// about whether the build converged, and must not clear a churn counter that exists to detect a
-// build failing over and over. Conservative by construction — it reports only what the command text
-// proves, so a false "masked" verdict is not possible from a plain `make world`.
-func ExitCodeMasked(command string, verify bool) bool {
+// judged from the command text alone: a masking `|| …` tail, a `| tail`/`| head` pipe, or a
+// `;`-sequenced reporter/truncator tail. It is the same structural reading the notes above surface
+// to the MODEL, exported so magi's own guards can refuse to take such an exit 0 as evidence — an
+// exit code that belongs to an `echo` says nothing about whether the build converged, and must not
+// clear a churn counter that exists to detect a build failing over and over. Conservative by
+// construction: it reports only what the command text proves, so a plain `make world` can never be
+// called masked.
+//
+// Deliberately NOT gated on verify, unlike the notes. Those are advice, and advice is worth gating
+// on the model's own declared intent — it is what keeps them silent on the countless benign
+// `mkdir x; echo done` calls rather than crying wolf. This is not advice: whether an exit code
+// belongs to the trailing `echo` is a fact about the command text and does not change with what the
+// caller says the command was for. Observed cost of gating it: a build submitted as
+// `make … > log 2>&1; echo "exit=$?" >> log` with verify=false had its echo's exit 0 booked as the
+// build converging, so one field of the model's own choosing switched off the counter that exists
+// to catch that build failing over and over.
+func ExitCodeMasked(command string) bool {
 	c := strings.TrimSpace(command)
-	if maskingTail.MatchString(c) {
-		return true
-	}
-	return verify && (swallowingPipe.MatchString(c) || sequencedTail.MatchString(c))
+	return maskingTail.MatchString(c) || swallowingPipe.MatchString(c) || sequencedTail.MatchString(c)
 }
 
 // timedOutNote is the body line appended when a foreground command hits its deadline. The bare

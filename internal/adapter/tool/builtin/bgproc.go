@@ -93,12 +93,13 @@ type bgProc struct {
 
 	pty bool // process was started on a pseudo-terminal (stdin is the PTY master)
 
-	mu     sync.Mutex
-	stdin  io.WriteCloser // stdin sink for bash_input: a pipe, or the PTY master when pty; closed on exit
-	read   int            // absolute offset the agent has consumed up to
-	done   bool
-	killed bool // bash_kill was issued; status reads "killed" until the reaper sets done
-	exit   int
+	mu      sync.Mutex
+	stdin   io.WriteCloser // stdin sink for bash_input: a pipe, or the PTY master when pty; closed on exit
+	read    int            // absolute offset the agent has consumed up to
+	done    bool
+	killed  bool // bash_kill was issued; status reads "killed" until the reaper sets done
+	exit    int
+	claimed bool // this job's finished outcome has already been handed to ClaimBackgroundOutcome
 }
 
 // bgManager is the process-global registry of background commands. Tools are
@@ -277,6 +278,32 @@ func (m *bgManager) get(id string) *bgProc {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.procs[id]
+}
+
+// ClaimBackgroundOutcome hands back a finished background job's own command text and exit code,
+// exactly once per job, so the orchestrator can record what that command actually did.
+//
+// It exists because a background job's START and its RESULT arrive as two different tool calls. The
+// start returns "started background command bg_N" — a success that says only that a process now
+// exists — and everything that judges whether a build/test converged was reading THAT as the
+// command's outcome, so a build was booked as a pass before it had run a single rule, while its
+// real exit arrived later through bash_output and was recorded nowhere at all. The one-shot claim is
+// what keeps a repeated poll of the same finished job from counting its failure again and again.
+//
+// A KILLED job reports nothing: the agent stopped it, so its exit says nothing about the work. A job
+// the agent never polls after it exits is likewise never claimed — silence is the safe direction.
+func ClaimBackgroundOutcome(id string) (command string, exit int, ok bool) {
+	p := bg.get(id)
+	if p == nil {
+		return "", 0, false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.done || p.killed || p.claimed {
+		return "", 0, false
+	}
+	p.claimed = true
+	return p.command, p.exit, true
 }
 
 // KillAll terminates every still-running background command and its process group.
