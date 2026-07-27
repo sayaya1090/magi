@@ -1228,9 +1228,28 @@ func (a *App) injectCouncilAdvice(ctx context.Context, sid session.SessionID, ad
 	if !approved {
 		tail = "The plan council could not fully resolve the concerns above within the round cap, but is " +
 			"proceeding. Address them as you carry out the plan."
+		// The concern is about a plan whose steps are mostly executed by WORKERS, and this
+		// system message reaches only the session it is appended to. Keep it where the workers'
+		// briefs can pick it up (concernBrief) — otherwise the council spends three rounds
+		// establishing that a step must capture its build output, and the agent that actually
+		// runs that step never hears it. Only the UNRESOLVED kind is carried: approved advice is
+		// advisory by construction, and forwarding all of it would bury each worker's own part.
+		a.mu.Lock()
+		a.stateLocked(sid).planConcern = strings.TrimSpace(advice)
+		a.mu.Unlock()
 	}
 	text := "# Plan review — notes for execution\n\n" + advice + "\n\n---\n" + tail
 	_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "council"}, text)
+}
+
+// cachedConcern returns the plan council's unresolved critical concern for this turn, or "".
+func (a *App) cachedConcern(sid session.SessionID) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if st, ok := a.stateIf(sid); ok {
+		return st.planConcern
+	}
+	return ""
 }
 
 // injectSteerConstraint folds a mid-turn "append" steer into the RUNNING turn as a
