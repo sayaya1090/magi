@@ -162,3 +162,36 @@ func TestStepLadderCapRefusesTheSecondFullLadder(t *testing.T) {
 		t.Error("MAGI_STEP_LADDER_CAP=0 must restore the unbounded re-dispatch")
 	}
 }
+
+// The liveness record is in-flight state: a finished session has none, and every reader must read
+// that absence as "not busy" rather than as a missing key it has to special-case. Nothing used to
+// drop these, so a run left one record per subagent attempt behind for the life of the process.
+func TestLivenessIsDroppedWhenTheSessionEnds(t *testing.T) {
+	a := &App{}
+	const sid = session.SessionID("s_child")
+
+	a.enterTool(sid)
+	a.enterGen(sid)
+	a.noteGenToken(sid)
+	a.bumpProductive(sid)
+	a.touch(sid)
+	if !a.toolInFlight(sid) || !a.generating(sid) || !a.genFresh(sid) || a.productiveCount(sid) != 1 {
+		t.Fatal("precondition: the record holds every signal")
+	}
+
+	a.forgetLiveness(sid)
+	if a.toolInFlight(sid) || a.generating(sid) || a.genFresh(sid) {
+		t.Error("a dropped record must read as not busy, not as busy-by-default")
+	}
+	if n := a.productiveCount(sid); n != 0 {
+		t.Errorf("a dropped record has produced nothing, got %d", n)
+	}
+	if d := a.idleFor(sid); d != 0 {
+		t.Errorf("a session nothing has happened in has not been idle, got %v", d)
+	}
+	// Reading a dropped record must not resurrect stale numbers: the fresh one starts at zero.
+	a.enterTool(sid)
+	if !a.toolInFlight(sid) || a.productiveCount(sid) != 0 {
+		t.Error("a re-created record starts clean")
+	}
+}
