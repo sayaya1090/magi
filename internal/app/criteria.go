@@ -11,6 +11,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/jsonx"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
@@ -326,12 +327,12 @@ func (a *App) ensureStepCoverage(ctx context.Context, s session.Session, prompt 
 		// The two failures are different defects, and a reminder that names the wrong one asks the
 		// model to fix something it did not do: an unparsed reply needs to be told to answer in JSON,
 		// while a reply that parsed and attached nothing needs the uncovered steps BY NUMBER.
-		reminder: func(_ string, parsed bool) string {
+		reminder: func(raw string, parsed bool) string {
 			if parsed {
 				return coverageFillSystem + "\n\n" +
 					coverageAttachReminder(uncoveredStepNums(covOf(first), len(steps)), len(steps))
 			}
-			return coverageFillSystem + "\n\n" + coverageJSONOnlyReminder
+			return coverageFillSystem + "\n\n" + checksArrayRetryReminder(raw)
 		},
 		probe: func(b []byte) error { var cs []council.DeliverableCheck; return json.Unmarshal(b, &cs) },
 		// Honest about the ambiguity: after a re-ask that listed the uncovered steps by number, a second
@@ -384,6 +385,35 @@ func uncoveredStepNums(covered map[int]bool, total int) []string {
 const coverageJSONOnlyReminder = "YOUR PREVIOUS REPLY COULD NOT BE PARSED. It carried no JSON array of checks — " +
 	"prose, a wrapping object, or an unterminated array. Reply with the JSON array ONLY: nothing before the `[`, " +
 	"nothing after the `]`, no explanation and no code fence."
+
+// checksArrayRetryReminder names the defect a checks reply ACTUALLY had, rather than asserting the
+// shape these replies usually have. Both passes that read a checks array used to answer every
+// unparseable reply with "it carried no JSON array of checks — prose, a wrapping object, or an
+// unterminated array", and telling a model to fix something it did not do is not a correction.
+//
+// Observed live: check-audit answered with a bare 531-char array whose third element was missing the
+// closing quote of its `assert` value — one byte, at offset 304. The retry got that text, had nothing
+// to correct, and returned the identical reply; the pass then kept the authored checks unreviewed and
+// the two exit-code gates that array carried (`build.log` matching `^exit=0$`, `crash.log` matching a
+// non-zero exit) were lost with it — the very evidence the plan council had spent its rounds
+// demanding. The diagnosis was already computed for the LOG line; this puts it where it can act.
+func checksArrayRetryReminder(raw string) string {
+	d := jsonx.Diagnose(raw)
+	switch {
+	case strings.HasPrefix(d, "syntax error"):
+		return "YOUR PREVIOUS REPLY WAS A CHECKS ARRAY WITH A SYNTAX DEFECT. The checks themselves were " +
+			"readable; the JSON was not:\n" + d + "\nSend the SAME checks again with only that defect fixed — same " +
+			"checks, same steps, same sources, same assertions. Every string must be closed by its own `\"` BEFORE " +
+			"the next `,`, `}` or `]`; a regexp lives INSIDE the quoted string, so each of its backslashes must be " +
+			"escaped (`\\\\s`, `\\\\.`). Do NOT drop a check or rewrite one to route around the error: the checks are " +
+			"the only executable gate on this plan, and losing one loses what it proved."
+	case strings.HasPrefix(d, "the JSON parses"):
+		return "YOUR PREVIOUS REPLY WAS VALID JSON OF THE WRONG SHAPE: " + d + "\nThe top level must be the ARRAY " +
+			"itself — `[{…},{…}]` — not an object wrapping it under a key, and each element is one check object. " +
+			"Send the same checks again, unwrapped."
+	}
+	return coverageJSONOnlyReminder
+}
 
 // coverageAttachReminder is appended after a reply that parsed and still left steps ungated — whether
 // it attached nothing or only some. It opens on the RESIDUE rather than on "you added nothing", which
@@ -516,9 +546,14 @@ func (a *App) validateChecks(ctx context.Context, agent AgentSpec, s session.Ses
 		model = agent.Model.Model
 	}
 	raw := a.specMineCall(ctx, agent, s.ID, "check-audit", model, validateChecksSystem, string(in))
-	out, ok := parseChecksArray(raw)
-	if !ok || len(out) == 0 {
-		out, ok = a.retryCheckAudit(ctx, agent, s, model, string(in), raw, ok, len(checks))
+	cs, parsed, salvaged := parseChecksArraySalvage(raw)
+	first := auditAttempt{checks: cs, raw: raw, parsed: parsed, salvaged: salvaged}
+	out, ok := first.checks, first.parsed
+	// A recovered PREFIX is retried like an unusable reply, not accepted like a complete one: the
+	// checks past the break are missing, and taking the prefix would gate the plan on a review that
+	// silently ended early.
+	if !first.usable() {
+		out, ok = a.retryCheckAudit(ctx, agent, s, model, string(in), first, len(checks))
 	}
 	// Still unusable → keep the authored checks rather than drop the contract. retryCheckAudit has
 	// already reported both attempts (each with its reply), so this path stays silent; the one thing
@@ -657,48 +692,65 @@ func typedRepairReminder(blocked []string) string {
 //     all (storePlanChecks returns early on an empty set), so the plan would land with NO executable
 //     gate — strictly worse than the flawed checks the review was meant to repair. Say that, and ask
 //     for repairs instead.
-func (a *App) retryCheckAudit(ctx context.Context, agent AgentSpec, s session.Session, model, in, raw string, parsed bool, authored int) ([]council.DeliverableCheck, bool) {
-	out, ok := reask[[]council.DeliverableCheck]{
+//   - Recovered prefix: the array's own structure was destroyed mid-reply, so what parsed is
+//     whatever preceded the break. Nothing distinguishes that from a complete review downstream, and
+//     the missing part is exactly the checks the model wrote LAST — so it is retried with the syntax
+//     diagnosis, and the prefix is not adopted.
+func (a *App) retryCheckAudit(ctx context.Context, agent AgentSpec, s session.Session, model, in string,
+	first auditAttempt, authored int) ([]council.DeliverableCheck, bool) {
+	out, ok := reask[auditAttempt]{
 		pass:  "check-audit",
 		actor: plannerActor,
-		ask: func(system string) ([]council.DeliverableCheck, string, bool) {
+		ask: func(system string) (auditAttempt, string, bool) {
 			r := a.specMineCall(ctx, agent, s.ID, "check-audit", model, system, in)
-			cs, parsed := parseChecksArray(r)
-			return cs, r, parsed
+			cs, parsed, salvaged := parseChecksArraySalvage(r)
+			at := auditAttempt{checks: cs, raw: r, parsed: parsed, salvaged: salvaged}
+			// The flag the reminder branches on is "the JSON was READABLE", so a recovered prefix
+			// reports false: it needs the syntax diagnosis, not the keep-some ask.
+			return at, r, at.parsed && !at.salvaged
 		},
-		defect: func(cs []council.DeliverableCheck, parsed bool, raw string) string {
+		defect: func(at auditAttempt, _ bool, _ string) string {
 			switch {
-			case !parsed:
-				return fmt.Sprintf("reply is not a checks array (%d chars)", len(raw))
-			case len(cs) == 0:
+			case at.salvaged:
+				return fmt.Sprintf("the reply's JSON array broke mid-reply — only the %d check(s) before the "+
+					"break could be read, and every check after it is gone", len(at.checks))
+			case !at.parsed:
+				return fmt.Sprintf("reply is not a checks array (%d chars)", len(at.raw))
+			case len(at.checks) == 0:
 				return fmt.Sprintf("review asked to drop all %d check(s), which removes the gate instead of "+
 					"repairing it", authored)
 			}
 			return ""
 		},
-		reminder: func(_ string, parsed bool) string {
-			if parsed {
+		reminder: func(raw string, readable bool) string {
+			if readable {
 				return validateChecksSystem + "\n\n" + checkAuditKeepSomeReminder
 			}
-			return validateChecksSystem + "\n\n" + checkAuditJSONOnlyReminder
+			return validateChecksSystem + "\n\n" + checksArrayRetryReminder(raw)
 		},
 		probe:    func(b []byte) error { var cs []council.DeliverableCheck; return json.Unmarshal(b, &cs) },
 		fallback: fmt.Sprintf("keeping the %d authored check(s) unreviewed", authored),
-	}.run(ctx, a, s.ID, nil, raw, parsed)
+	}.run(ctx, a, s.ID, first, first.raw, first.parsed && !first.salvaged)
 	if !ok {
 		return nil, false
 	}
 	a.emitToolProgress(s.ID, plannerActor, "", "check-audit",
-		fmt.Sprintf("check-audit: the re-ask returned %d check(s)", len(out)))
-	return out, true
+		fmt.Sprintf("check-audit: the re-ask returned %d check(s)", len(out.checks)))
+	return out.checks, true
 }
 
-// checkAuditJSONOnlyReminder is appended to the review system prompt after a reply that carried no
-// parseable checks array — the same "strip all prose" nudge the planner uses, for the same reason:
-// weak models bury the array under reasoning, or ramble until the output budget truncates it.
-const checkAuditJSONOnlyReminder = "YOUR PREVIOUS REPLY COULD NOT BE PARSED. It carried no JSON array of checks — " +
-	"prose, a wrapping object, or an unterminated array. Reply with the JSON array ONLY: nothing before the `[`, " +
-	"nothing after the `]`, no explanation and no code fence."
+// auditAttempt is one check-review reply and what could be read out of it. salvaged separates the two
+// outcomes that look identical downstream: a complete array, and a prefix recovered from a damaged
+// one. usable is the acceptance test — a reply is taken as the review only when it parsed intact and
+// kept at least one check.
+type auditAttempt struct {
+	checks   []council.DeliverableCheck
+	raw      string
+	parsed   bool
+	salvaged bool
+}
+
+func (at auditAttempt) usable() bool { return at.parsed && !at.salvaged && len(at.checks) > 0 }
 
 // checkAuditKeepSomeReminder is appended after a reply that dropped every check. It states the
 // consequence, because the model has no way to know it: these checks are the only executable gate,
@@ -752,12 +804,41 @@ func (a *App) recordCheckAudit(ctx context.Context, sid session.SessionID, befor
 // deliverable checks. A check that verifies nothing — neither a command nor an assertion — is
 // dropped (there is nothing to run).
 func parseChecksArray(raw string) ([]council.DeliverableCheck, bool) {
-	// Scan every top-level balanced [...] (respecting strings), not a naive first-[/last-] span: a
-	// reply that wraps the array in prose or trails reasoning with a stray ] would otherwise mis-span
-	// and lose the whole audit. Take the first array that yields runnable checks; else the first that
-	// unmarshals at all (a legitimately empty list); else none.
+	cs, ok, _ := parseChecksArraySalvage(raw)
+	return cs, ok
+}
+
+// parseChecksArraySalvage is parseChecksArray plus the one thing the caller cannot infer from the
+// checks it gets back: whether the reply's array STRUCTURE survived, or whether what came back is a
+// recovered prefix of it.
+//
+// The recovery is worth having — a reply cut off by an output budget, or one a stray quote swallowed,
+// still carries real checks up to the damage, and dropping the whole array over the tail is how a
+// plan lands with no gate at all. But recovering silently is a different failure: the caller reads
+// "N checks, ok" and reviews nothing further, while every check AFTER the break is simply gone, and
+// the log shows a review that succeeded. Observed live: a 531-char audit reply whose regexp assertion
+// broke the element boundaries mid-array; the checks it carried past that point — the exit-code gates
+// the plan council had spent its rounds demanding — never reached the plan, and nothing said so.
+//
+// So: try the bracket-balanced spans FIRST. A reply whose brackets balance lost nothing, whatever
+// else the lenient repairs had to fix inside it (a trailing comma, a raw newline in a command), and
+// reports salvaged=false. Only when no balanced span carries checks does the damaged-span recovery
+// run, and then salvaged=true says what it is — a prefix, missing an unknown number of checks.
+func parseChecksArraySalvage(raw string) ([]council.DeliverableCheck, bool, bool) {
+	if cs, sawValid := checksFromSpans(jsonx.BalancedArrays(raw)); len(cs) > 0 || sawValid {
+		return cs, sawValid, false
+	}
+	cs, sawValid := checksFromSpans(balancedArrays(raw))
+	return cs, sawValid, len(cs) > 0
+}
+
+// checksFromSpans returns the checks from the first of spans that yields runnable ones, and whether
+// any span unmarshalled at all (a legitimately empty list is valid and carries no checks). Spans are
+// tried in order rather than by a naive first-[/last-] span: a reply that wraps the array in prose or
+// trails reasoning with a stray ] would otherwise mis-span and lose the whole audit.
+func checksFromSpans(spans []string) ([]council.DeliverableCheck, bool) {
 	sawValid := false
-	for _, js := range balancedArrays(raw) {
+	for _, js := range spans {
 		// Apply the same weak-model repairs the plan object and the salvaged steps get: a check's
 		// `command` is a SHELL command, so a raw newline or tab inside that string is the likeliest
 		// defect of all — and rejecting the array over it discards every check in the reply, which
