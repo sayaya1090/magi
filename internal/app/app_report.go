@@ -15,6 +15,7 @@ type subReport struct {
 	summary, status, details      string
 	evidence, deviations, handoff string
 	substitutions                 string
+	provenance                    string // what magi observed about the files the evidence cites
 }
 
 // reportStatusPrefix leads every report frame subReport.result emits: a single
@@ -177,6 +178,8 @@ func (r *subReport) result(answer string) string {
 	}
 	section("DETAILS", r.details)
 	section("EVIDENCE", r.evidence)
+	// Immediately after the evidence it qualifies, so the two are never read apart.
+	section("PROVENANCE", r.provenance)
 	section("DEVIATIONS", r.deviations)
 	section("CHECK-SUBSTITUTION", r.substitutions)
 	section("HANDOFF", r.handoff)

@@ -793,6 +793,10 @@ func (a *App) handleReport(ctx context.Context, tc turnCtx, lastText string, u e
 			a.clearPendingSubs(sid)
 		}
 	}
+	// The evidence is audited on the way OUT, where the paths it cites can still be traced to the
+	// calls that wrote them. A worker citing a file it composed is not refused — the note rides with
+	// the claim so the planner and the council read them together.
+	rep.provenance = a.auditReportEvidence(ctx, sid, rep.evidence)
 	d, _ := json.Marshal(event.TurnFinishedData{Usage: u})
 	a.appendFact(ctx, sid, event.TypeTurnFinished, tc.actor, d)
 	return loopFinish, rep.result(answer), true
