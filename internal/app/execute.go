@@ -14,11 +14,29 @@ import (
 )
 
 // gateAllowlist blocks a tool the agent isn't permitted to call. Returns true to stop.
-func (a *App) gateAllowlist(ctx context.Context, sid session.SessionID, actor event.Actor, agent AgentSpec, tc *session.ToolCall, toolMsgID string) bool {
+//
+// The refusal NAMES what the agent may call instead, from the same toolSpecs that built the
+// offer it was given — so the list cannot drift from the one the model saw. A bare "not
+// permitted" is a dead end: it says the call failed and nothing about what would not, so the
+// model's only move is to try again. Observed repeatedly — a read-only explorer calls a tool
+// outside its set, is refused with no alternative, retries the identical call four times, and
+// the loop guard kills the turn. The last sentence exists for the case the list cannot help
+// with: an agent that genuinely has no way to do the thing should SAY so, not keep asking.
+func (a *App) gateAllowlist(ctx context.Context, s session.Session, agent AgentSpec, depth int, actor event.Actor, tc *session.ToolCall, toolMsgID string) bool {
 	if agent.allows(tc.Name) {
 		return false
 	}
-	a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID, "tool not permitted for agent "+agent.Name, true)
+	msg := "tool not permitted for agent " + agent.Name + " — this call did nothing."
+	var names []string
+	for _, spec := range a.toolSpecs(agent, s.Parent != "", depth) {
+		names = append(names, spec.Name)
+	}
+	if len(names) > 0 {
+		msg += " " + agent.Name + " may call: " + strings.Join(names, ", ") + "."
+	}
+	msg += " Retrying " + tc.Name + " will be refused the same way. Use one of the tools above, or " +
+		"if none of them can do this, say so in your reply and continue with what you can."
+	a.appendToolResult(ctx, s.ID, actor, toolMsgID, tc.CallID, msg, true)
 	return true
 }
 
@@ -108,7 +126,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 
 	// Pre-execution gates, run in order — the first that blocks emits its own tool result
 	// and stops the call (allowlist → guardrail policy/permission prompt → PreToolUse hooks).
-	if a.gateAllowlist(ctx, sid, actor, agent, tc, toolMsgID) ||
+	if a.gateAllowlist(ctx, s, agent, depth, actor, tc, toolMsgID) ||
 		a.gatePermission(ctx, sid, actor, tc, toolMsgID) ||
 		a.gatePreHooks(ctx, s, actor, tc, toolMsgID) {
 		return
