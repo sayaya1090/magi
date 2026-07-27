@@ -863,17 +863,23 @@ func (g *runGuard) noteStep() {
 }
 
 // idleWindow reports what the run actually did inside the current no-mutation window: how many
-// EXERCISING commands ran (inspections excluded — noteBashExec keeps them out of execSinceMut),
-// and whether any deliverable has been authored at all this run.
+// tool calls it made, how many of those EXERCISED a deliverable (a build/test/program run —
+// inspections are excluded, noteBashExec keeps them out of execSinceMut), and whether any
+// deliverable has been authored at all this run.
 //
-// The nudge that reads this used to state both facts as a fixed parenthetical, and a fixed
+// The nudge that reads this used to state its facts as a fixed parenthetical, and a fixed
 // parenthetical is a claim nothing checked: a run that had already started two builds inside the
 // window was told "no command run to build/verify". An agent that is told a false thing about its
 // own last few steps has no reason to trust the true part of the same sentence.
-func (g *runGuard) idleWindow() (exercises int, authored bool) {
+//
+// Both numbers are returned because ONE of them cannot say what happened. A window with five
+// `cat`/`ls`/`grep` calls and no build has exercises=0, and reporting that as "no command run" is
+// the same false claim in a new place — observed live, five inspections into an eighteen-minute
+// stretch. The pair separates "you did nothing" from "nothing you did was a build".
+func (g *runGuard) idleWindow() (calls, exercises int, authored bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return g.execSinceMut, g.epoch > 0
+	return g.sinceProgress, g.execSinceMut, g.epoch > 0
 }
 
 // idleWindowFacts renders the parenthetical the idle nudge carries, from what the window actually
@@ -885,19 +891,18 @@ func idleWindowFacts(g *runGuard) string {
 	if g == nil {
 		return ""
 	}
-	exercises, authored := g.idleWindow()
+	calls, exercises, authored := g.idleWindow()
 	since := "since your last change"
 	if !authored {
 		since = "so far this turn"
 	}
+	out := " (" + plural(calls, "tool call") + " " + since
 	if exercises == 0 {
-		return " (no file written, and no command run " + since + ")"
+		// Says what is actually true of a window full of `cat`/`ls`/`grep`: things ran, none of
+		// them exercised anything. "No command run" would be the false version of this.
+		return out + ", none of them a build, test, or program run)"
 	}
-	cmds := "1 command"
-	if exercises > 1 {
-		cmds = strconv.Itoa(exercises) + " commands"
-	}
-	return " (you have run " + cmds + " " + since + ", but none of them produced or changed one)"
+	return out + ", including " + plural(exercises, "build/test run") + ", and still nothing produced or changed)"
 }
 
 // idleNudgeDue reports whether the one-shot "you've analyzed for many steps without producing
