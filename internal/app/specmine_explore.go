@@ -16,6 +16,11 @@ import (
 // ON). Off restores the prompt-analysis-only flow, with no read-only exploration subagent.
 func specMineExploreEnabled() bool { return !envOff("MAGI_SPECMINE_EXPLORE") }
 
+// specMineExploreTools is the allowlist that makes the exploration read-only. Enforcement is the
+// vocabulary itself: no write, edit, or bash is reachable, so mutation is not something the child
+// can express rather than something it is asked not to do.
+var specMineExploreTools = []string{"read", "grep", "glob", "list", "findcontext"}
+
 // specMineExploreSystem instructs the read-only exploration subagent: BEFORE any code is written,
 // ground the plan in what the repository ACTUALLY contains.
 const specMineExploreSystem = "You are a READ-ONLY repository explorer running before any code is " +
@@ -57,10 +62,12 @@ func (a *App) exploreSpecMine(ctx context.Context, s session.Session, task strin
 	base := a.agentFor(s)
 	// A read-only spec built on the fly (no config dependency, like the recovery lifeline): the tool
 	// allowlist alone makes it read-only — no write/edit/bash — so it cannot mutate the workspace.
+	// specMineExploreTools is a named set because a misspelling here is silent: an allowlist entry no
+	// tool answers to grants nothing and reads exactly like one that grants something.
 	spec := AgentSpec{
 		Name:     "specmine",
 		System:   specMineExploreSystem,
-		Tools:    []string{"read", "grep", "glob", "list", "findcontext"},
+		Tools:    specMineExploreTools,
 		Model:    base.Model,
 		Provider: base.Provider,
 	}

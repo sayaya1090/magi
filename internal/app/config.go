@@ -20,6 +20,15 @@ type AgentSpec struct {
 	Provider string // named LLM profile (different endpoint/key); empty = default backend
 }
 
+// actingTools are the tools that let an agent produce or change something: put content in a file,
+// or run a command. It is deliberately narrower than "mutates anything" — killing a process or
+// rewriting a check changes state without moving the work forward, and the guidance this set gates
+// asks for a deliverable, not for any side effect.
+//
+// A named set rather than a switch so a test can hold it against the tool registry: a literal that
+// no tool answers to is unreachable vocabulary, and nothing in a switch would ever say so.
+var actingTools = map[string]bool{"write": true, "edit": true, "multiedit": true, "bash": true}
+
 // specCanAct reports whether a spec's tool allowlist lets it produce or change anything —
 // write/edit a file, or run a command. An empty allowlist means "all tools", so it can.
 //
@@ -32,8 +41,7 @@ func specCanAct(a AgentSpec) bool {
 		return true
 	}
 	for _, t := range a.Tools {
-		switch t {
-		case "write", "edit", "multiedit", "bash", "notebook_edit", "apply_patch":
+		if actingTools[t] {
 			return true
 		}
 	}

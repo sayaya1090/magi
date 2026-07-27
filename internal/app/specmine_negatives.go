@@ -25,6 +25,20 @@ import (
 // out the planner's own grounding.
 const exploreNegCap = 12
 
+// absenceSearchTool is the only tool whose empty answer is read as evidence that something is not
+// in the tree, and the restriction is not a shortcut.
+//
+// grep walks the tree and reports the lines it read, so nothing matching means nothing is there. A
+// glob's empty answer is about FILENAMES and is far easier to write wrongly — a pattern shape that
+// can never match reads exactly like an empty directory. findcontext ranks files by relevance to a
+// natural-language query, so an empty result means "nothing scored", which is not the same claim at
+// all. Widening this to another tool means first showing that ITS empty answer means absence.
+//
+// Named rather than inlined so a test can check it is a tool that exists and one the read-only
+// explorer can actually call: a walk waiting for a call the child cannot make would establish
+// nothing, quietly and forever.
+const absenceSearchTool = "grep"
+
 // searchMiss is one pattern the explorer searched for and did not find, with the scope it searched
 // — a miss under one directory says far less than a miss across the tree, so the scope travels with
 // it rather than being flattened into a bare "not found".
@@ -80,10 +94,7 @@ func searchOutcomesIn(evs []event.Event) (misses []searchMiss, hit map[string]bo
 		}
 		switch {
 		case d.Part.Kind == session.PartToolCall && d.Part.ToolCall != nil:
-			// grep only. A glob's empty answer is about FILENAMES and is far easier to write wrongly
-			// (a pattern shape that can never match reads exactly like an empty directory), so it is
-			// not evidence of absence; grep walks the tree and reports the lines it read.
-			if !strings.EqualFold(strings.TrimSpace(d.Part.ToolCall.Name), "grep") {
+			if !strings.EqualFold(strings.TrimSpace(d.Part.ToolCall.Name), absenceSearchTool) {
 				continue
 			}
 			var g struct{ Pattern, Glob, Path string }
