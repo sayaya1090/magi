@@ -413,6 +413,9 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		guard.record(guardFP, string(res.Content))
 		if !res.IsError && fileModifiers[tc.Name] {
 			mutatedReset = guard.mutated(pathArg(tc.Args), canonicalArgs(tc.Args))
+			if mutatedReset {
+				a.bumpProductive(sid) // a real new version — the lease's evidence this child is producing
+			}
 		}
 		// A successful bash write bumps the epoch (the tool-agnostic twin of an edit); a
 		// successful non-write, non-inspect command (python/pytest/./run …) is execution
@@ -426,6 +429,12 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 			if json.Unmarshal(tc.Args, &ba) == nil {
 				_, bashReset := guard.noteBashWrite(ba.Command) // authored a file → epoch bump
 				guard.noteBashExec(ba.Command, guardNovel)      // ran a program → execution evidence (independent of any redirect)
+				// Same productivity signal as a file mutation: a command that AUTHORS something, or
+				// an exercising command run for the first time this epoch, is work a later step can
+				// build on. A repeat of a command already run this epoch is not.
+				if bashReset || (guardNovel && !isInspectOnly(ba.Command)) {
+					a.bumpProductive(sid)
+				}
 				// The write/edit path's self-revert check, now on the bash path too: a mutation whose
 				// net effect returns a file to a state it already held this turn is churn, not a new
 				// deliverable version. mutated() cannot see it — every bash mutation shares one slot

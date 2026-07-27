@@ -262,6 +262,20 @@ func subagentWaitLeaseEnabled() bool { return !envOff("MAGI_SUBAGENT_WAIT_LEASE"
 // restores the judge-everything baseline for A/B.
 func subagentProcLeaseEnabled() bool { return !envOff("MAGI_SUBAGENT_PROC_LEASE") }
 
+// leaseProgressEnabled renews a subagent's lease on PRODUCTIVITY rather than only on elapsed time:
+// a child that changed a file or ran a first-seen exercising command inside the lease window gets a
+// deterministic extension instead of a judged verdict.
+//
+// The lease exists to bound unproductive time, and measuring elapsed time is only a proxy for that
+// — one that charges a working child and an idle one identically. Measured on a live run: ten
+// workers across two steps, each given 2.5-3 minutes and 11-15 tool calls, killed while producing;
+// one of the ten ever reported, and the step took twenty-eight minutes to not finish. The extension
+// is per-tick and the counter must ADVANCE to earn the next one, so a child that produces once and
+// then spins is judged normally, and the backstop still caps the attempt.
+//
+// Default ON; MAGI_LEASE_PROGRESS=0 restores the elapsed-time-only lease for A/B.
+func leaseProgressEnabled() bool { return !envOff("MAGI_LEASE_PROGRESS") }
+
 // turnProgressCheckEnabled adds a STEP-based no-deliverable-progress check to the top-level
 // turn. The stall/loop guards count TOOL CALLS since the last mutation, so they miss a reasoning
 // loop: an agent that streams thinking for hours issuing few/no tool calls and producing nothing

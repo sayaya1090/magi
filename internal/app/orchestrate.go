@@ -621,17 +621,29 @@ func (a *App) spawnResolved(ctx context.Context, parent session.Session, depth i
 		defer cp.cleanup()
 	}
 
-	var last port.SpawnResult
+	// The retry ladder belongs to the STEP, not to this dispatch. When the ladder is spent the
+	// caller re-dispatches the same step, and everything the exhausted attempts established used
+	// to be dropped at that boundary: the counter went back to "Retry 1" and the trail went back to
+	// empty, so attempt four re-walked the ground attempts one through three had already covered.
+	// Observed: ten workers across two steps, R0→R1→R2 then R0/trail0 again, with one report
+	// surviving out of ten. Carrying the last exhausted attempt's session forward is what makes
+	// the next dispatch a CONTINUATION — the same trail digest, and a retry number that has not
+	// lied about how many attempts this step has actually cost.
+	stepKey := stepAttemptKey(parent.ID, spec.Name, req)
+	last, priorN := a.priorStepAttempt(stepKey)
 	for attempt := 0; attempt <= a.cfg.SubagentMaxRestarts; attempt++ {
 		if ctx.Err() != nil {
 			return port.SpawnResult{Err: ctx.Err().Error()}
 		}
 		attemptReq := req
-		if attempt > 0 {
-			a.emitAgentRestart(parent.ID, spec.Name, attempt, last.Err)
+		if n := attempt + priorN; n > 0 {
+			a.emitAgentRestart(parent.ID, spec.Name, n, last.Err)
 			// Roll the work-tree back to the pre-attempt checkpoint (if any) so the retry starts
 			// from the same clean state the first attempt did, not the debris it left behind.
-			if cp != nil {
+			// `attempt > 0`, not `n > 0`: a rollback belongs to a retry INSIDE this dispatch. On a
+			// continuation's FIRST attempt what it would erase is whatever the previous dispatch's
+			// attempts left in the tree — the only part of their work that outlived them.
+			if cp != nil && attempt > 0 {
 				if err := cp.restore(); err == nil {
 					a.emitToolProgress(parent.ID, event.Actor{Kind: event.ActorAgent, ID: orDefault(parent.Agent, "default")},
 						"", spec.Name, "rolled the work tree back to the pre-attempt checkpoint")
@@ -643,14 +655,16 @@ func (a *App) spawnResolved(ctx context.Context, parent session.Session, depth i
 			// same path into the same wall (the "self-clone retry loop" field report).
 			// Tell the retry what happened — the failure reason plus a digest of the
 			// previous attempt's tool trail — and require a DIFFERENT route.
-			attemptReq.Prompt = req.Prompt + retryPivotNote(ctx, a, spec, last, attempt)
+			attemptReq.Prompt = req.Prompt + retryPivotNote(ctx, a, spec, last, n)
 		}
 		res, retry := a.runAttempt(ctx, parent, depth, spec, attemptReq)
 		if !retry {
+			a.forgetStepAttempt(stepKey) // the step got an answer; the ladder starts clean next time
 			return res
 		}
 		last = res
 	}
+	a.rememberStepAttempt(stepKey, last, priorN+a.cfg.SubagentMaxRestarts+1)
 	// The exhausted result keeps the LAST attempt's session id. A failed attempt still leaves
 	// magi's own record of what the child searched and read, and a caller that can salvage
 	// something from it — the negatives an exploration established before its lease was judged
@@ -658,7 +672,7 @@ func (a *App) spawnResolved(ctx context.Context, parent session.Session, depth i
 	// exactly the moment it was the only thing left: three attempts each proved a planned-for
 	// identifier absent, all three died on the lease, and the caller received a bare error.
 	return port.SpawnResult{
-		Err:       fmt.Sprintf("%s (failed after %d attempts)", last.Err, a.cfg.SubagentMaxRestarts+1),
+		Err:       fmt.Sprintf("%s (failed after %d attempts)", last.Err, priorN+a.cfg.SubagentMaxRestarts+1),
 		SessionID: last.SessionID,
 	}
 }
@@ -823,6 +837,12 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 
 	ticker := time.NewTicker(maxDur(a.cfg.SubagentStall/3, time.Second))
 	defer ticker.Stop()
+	// What the lease is really trying to bound is UNPRODUCTIVE time, and it was measuring elapsed
+	// time instead. A child that has produced something new since the last lease tick — a file it
+	// changed, a command it ran for the first time — is not the thing the cap exists to stop, and
+	// killing it throws that work away and starts over from nothing. So the tick compares against
+	// the count at the previous tick: producing keeps the child alive, spinning does not.
+	lastProd := a.productiveCount(child.ID)
 	for {
 		select {
 		case o := <-done:
@@ -852,12 +872,30 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 				// backstop still caps the attempt, so this cannot extend a real runaway.
 				if a.toolInFlight(child.ID) {
 					ext, verdictNote = a.leaseExtension(), "tool in flight (active work, not churn)"
+				} else if a.generating(child.ID) && a.genFresh(child.ID) {
+					// The child is mid-generation: no tool in flight, no events until the first
+					// token, and on a slow model this is where most of its wall time goes — so the
+					// lease timer lands here often, and every deterministic test below it was
+					// false. Observed cost: four subagents whose last recorded event is the
+					// provider's own `context canceled`, one three seconds after a successful
+					// write, and one step that burned six consecutive attempts this way. The
+					// stall watchdog already re-issues a silent stream and the backstop still caps
+					// the attempt, so a runaway cannot hide in here.
+					ext, verdictNote = a.leaseExtension(), "generating (mid-response, not churn)"
 				} else if a.deliberating(child.ID) {
 					// The child is inside its own council/planner gate — silent side-LLM calls that
 					// emit no stream and hold no tool, but ARE active work. Extend like a tool in
 					// flight so a legitimate deliberation is never killed for the between-round silence;
 					// the round cap and the backstop still bound a stuck gate.
 					ext, verdictNote = a.leaseExtension(), "deliberating (council/plan side-calls, not churn)"
+				} else if prod := a.productiveCount(child.ID); leaseProgressEnabled() && prod > lastProd {
+					// It produced new work inside this lease window. Restarting cannot get that work
+					// done faster — it discards it and re-derives it from nothing, which is what the
+					// observed run did ten times across two steps, keeping one report out of ten.
+					// The window advances with the count, so a child that produces once and then
+					// spins gets exactly one extension for it, not an open lease.
+					lastProd = prod
+					ext, verdictNote = a.leaseExtension(), "produced new work since the last lease tick"
 				} else if subagentProcLeaseEnabled() && a.childProcActive(child.ID) {
 					// Off-tool background work: a bash{background:true} job (a long transfer/build the
 					// model launched and stopped polling) is invisible to toolInFlight and to the
