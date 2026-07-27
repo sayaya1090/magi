@@ -155,15 +155,30 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 	// each step, never persisted) so the number is always current; skipped for tiny phase
 	// budgets (e.g. summarize=3) where pacing is meaningless.
 	if maxSteps >= 8 {
+		// The stop condition and the landing move must name a deliverable the agent can actually
+		// produce. For a READ-ONLY spec (the repository explorer, a scout) "the task's primary
+		// deliverable is done and verified" and "land the smallest change" name the one thing its
+		// allowlist forbids — and an agent told to do what it cannot do does not stop early, it works
+		// around: this is the same push that had a read-only explorer drafting a fix instead of
+		// reporting the path it had just found (see specCanAct, and the idle-nudge exemption in
+		// runLoop that was the first half of this fix). Same ceiling and the same anti-padding rule;
+		// only the verbs change, so a reporting agent measures itself by its report.
+		done, land, spend := "the task's primary deliverable is done and verified",
+			"stop exploring and land the smallest change that satisfies the core requirement rather than being stopped with nothing",
+			"spend steps only on actions that change or genuinely verify something"
+		if !specCanAct(agent) {
+			done, land, spend = "you have the facts you were asked to report",
+				"stop searching and report what you have already found rather than being stopped with nothing",
+				"spend steps only on a read or search that can add a fact you do not have yet"
+		}
 		b.WriteString(fmt.Sprintf("\n\n# Step budget\nYou are on step %d of at most %d. The %d is a hard ceiling, "+
-			"not a target or quota — using fewer steps is better, not worse. As soon as the task's primary "+
-			"deliverable is done and verified, STOP; do not keep re-checking, polishing, or exploring to 'use up' "+
-			"the budget. The count is shown only so you don't get cut off mid-task: if you near %d, stop exploring "+
-			"and land the smallest change that satisfies the core requirement rather than being stopped with nothing. "+
+			"not a target or quota — using fewer steps is better, not worse. As soon as %s, STOP; do not keep "+
+			"re-checking, polishing, or exploring to 'use up' the budget. The count is shown only so you don't get "+
+			"cut off mid-task: if you near %d, %s. "+
 			"Every tool call costs a step: never spend one on a command that only narrates — an echo of a status, "+
 			"summary, or \"task completed\" message proves nothing and buys nothing. Say it in your reply text "+
-			"instead; spend steps only on actions that change or genuinely verify something.",
-			step+1, maxSteps, maxSteps, maxSteps))
+			"instead; %s.",
+			step+1, maxSteps, maxSteps, done, maxSteps, land, spend))
 		// Self-measured wall clock: our own stopwatch, no external information. Lets
 		// the model notice a slow grind (ten compile retries) and change approach.
 		if elapsed >= time.Minute {
