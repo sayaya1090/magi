@@ -15,7 +15,6 @@ package council
 
 import (
 	"encoding/json"
-	"regexp"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -58,41 +57,53 @@ type Verdict struct {
 	// present-but-UNRECOGNIZED value is treated as "critical" (fail-safe — block rather
 	// than wave through an unknown tier). Unused in the termination phase.
 	Severity string `json:"severity,omitempty"`
-	// Criteria is a member's proposed completion criteria (expected deliverables /
-	// verification guidance), set only in the plan-audit phase where the council
-	// derives the contract the turn is later judged against. Empty otherwise.
-	Criteria []string `json:"criteria,omitempty"`
-	// Checks is a member's proposed per-step executable deliverable checks, set only
-	// in the plan-audit phase. Each pairs an expected deliverable with a shell command
-	// (and optional expected output substring) that verifies it deterministically —
-	// so the contract can be settled by execution at plan time rather than re-litigated
-	// by a vote after the work. Empty otherwise.
-	Checks []DeliverableCheck `json:"checks,omitempty"`
 }
 
-// DeliverableCheck is one plan step's expected deliverable paired with an executable
-// verification. Command is run in the task workdir; the deliverable may be a file, a
-// build/test result, or program output on screen (stdout/stderr). The check passes
-// when the command exits 0 and — if Expect is non-empty — its output MATCHES Expect
-// as a regular expression (Expect == "" means exit-code-only). Step is the plan step
-// it belongs to (title or ordinal), used to map a passing check back to its todo; a
-// step may carry several checks (several deliverables), and its todo completes only
-// when all of them pass. Authored at plan time.
-//
-// Source+Assert are the TYPED shape, and where Command is model-authored shell, these two are DATA:
-// the model names a path and picks an assertion from a closed vocabulary, and the runner builds the
-// invocation itself (see runTypedCheck). Every defect a model-authored command can carry needs a
-// place to put shell in — a `>` that makes the check create the evidence it then asserts, a `sh
-// wrapper.sh` that hides the work, a `|| true; test $? -ne 0` that can never pass — and the typed
-// shape has no such place. Command stays for the checks already authored that way; a check carrying
-// Assert ignores it.
-type DeliverableCheck struct {
-	Step        string `json:"step,omitempty"`
-	Deliverable string `json:"deliverable,omitempty"`
-	Command     string `json:"command"`
-	Expect      string `json:"expect,omitempty"`
-	Source      string `json:"source,omitempty"`
-	Assert      string `json:"assert,omitempty"`
+// Severity tiers a member may put on its verdict. Nothing gates on them any more — the plan audit
+// that did is gone — so they are what the member said, carried through to the transcript for a
+// reader to weigh.
+const (
+	SeverityCritical = "critical"
+	SeverityWarn     = "warn"
+	SeverityInfo     = "info"
+)
+
+// Breakdown is the counted result of a tally — kept on the Deliberation so the
+// outcome is observable and replayable.
+type Breakdown struct {
+	Done       int     `json:"done"`
+	Continue   int     `json:"continue"`
+	Abstain    int     `json:"abstain"`
+	DoneWeight float64 `json:"doneWeight"`
+	ContWeight float64 `json:"contWeight"`
+	Voters     int     `json:"voters"` // non-abstaining members (the denominator)
+	Rule       Rule    `json:"rule"`
+}
+
+// Deliberation is the record of one council round: the verdicts, the rule applied,
+// the decision, its breakdown, and (on Continue) the merged feedback.
+type Deliberation struct {
+	Round     int       `json:"round"`
+	Verdicts  []Verdict `json:"verdicts"`
+	Decision  Decision  `json:"decision"`
+	Breakdown Breakdown `json:"breakdown"`
+	Feedback  string    `json:"feedback,omitempty"`
+	// Keep is the merged advisory "what's already correct — don't redo/revert" from the
+	// members (MAGI_COUNCIL_KEEP). Purely informational: it never affects the decision or
+	// tally, and is surfaced ABOVE the feedback when the turn continues.
+	Keep string `json:"keep,omitempty"`
+	// Debate records a disagreement-triggered rebuttal round: nil when it did not run
+	// (unanimous vote, or debate disabled), non-nil with the before→after decisions
+	// when it did — so the otherwise-internal rebuttal is observable in the transcript.
+	Debate *DebateOutcome `json:"debate,omitempty"`
+}
+
+// DebateOutcome summarizes one rebuttal round for observability: the pre-debate and
+// post-debate decisions, plus how many members changed their vote.
+type DebateOutcome struct {
+	Before  Decision `json:"before"`  // council decision on the independent vote
+	After   Decision `json:"after"`   // council decision after the rebuttal
+	Changed int      `json:"changed"` // members whose vote flipped in the rebuttal
 }
 
 // flexText is a check's free-text field, tolerant of the shapes a model actually emits where the
@@ -127,155 +138,6 @@ func (v *flexText) UnmarshalJSON(b []byte) error {
 	}
 	*v = "" // anything else → unset, never a discarded check
 	return nil
-}
-
-// UnmarshalJSON reads `step` as either a string or a NUMBER. The authoring prompt asks members to
-// "set `step` to that step's 1-based number", so a model that complies emits 5, not "5" — and a
-// strict string field then rejected the whole array, discarding every check in the reply. That is
-// how a run ends up with no executable contract at all while the model did exactly as instructed.
-func (c *DeliverableCheck) UnmarshalJSON(b []byte) error {
-	// A shadow type is required: naming DeliverableCheck here would recurse into this method.
-	// The text fields are tolerant for the same reason `step` is: `expect` is where a model most
-	// often answers with a NUMBER ("expect": 0 for an exit code), and `command` with a LIST (it
-	// enumerates the pipeline as separate elements). Either one strictly typed rejected the whole
-	// array and discarded every OTHER check with it.
-	var raw struct {
-		Step        json.RawMessage `json:"step,omitempty"`
-		Deliverable flexText        `json:"deliverable,omitempty"`
-		Command     flexText        `json:"command"`
-		Expect      flexText        `json:"expect,omitempty"`
-		Source      flexText        `json:"source,omitempty"`
-		Assert      flexText        `json:"assert,omitempty"`
-	}
-	if err := json.Unmarshal(b, &raw); err != nil {
-		// A check that arrived as a bare string is the model writing a LINE instead of an object —
-		// and there is no telling a runnable command ("make test") from a prose deliverable ("the
-		// server answers on 5328"). It is read as the DELIVERABLE, never the command: an invented
-		// command would be EXECUTED and could fail forever against work that is actually correct,
-		// which is worse than no check. With no command it is inert and MergeChecks drops it — but
-		// returning the error here would abort the enclosing array and discard every WELL-FORMED
-		// check beside it, which is the failure this tolerates.
-		var line string
-		if json.Unmarshal(b, &line) == nil && strings.TrimSpace(line) != "" {
-			*c = DeliverableCheck{Deliverable: strings.TrimSpace(line)}
-			return nil
-		}
-		return err
-	}
-	*c = DeliverableCheck{Deliverable: string(raw.Deliverable), Command: string(raw.Command), Expect: string(raw.Expect),
-		Source: string(raw.Source), Assert: string(raw.Assert)}
-	if len(raw.Step) == 0 {
-		return nil
-	}
-	var asString string
-	if json.Unmarshal(raw.Step, &asString) == nil {
-		c.Step = asString
-		return nil
-	}
-	var asNumber json.Number
-	if json.Unmarshal(raw.Step, &asNumber) == nil {
-		c.Step = asNumber.String()
-	}
-	return nil // any other shape leaves Step empty rather than losing the check
-}
-
-// Passes reports whether a completed check's command output satisfies the check.
-// A non-zero exit always fails. With no Expect it is exit-code-only. Otherwise Expect
-// is matched as a regular expression against out; if Expect is not a valid regexp we
-// fall back to a literal substring test rather than fail the whole run on a malformed
-// pattern (fail-safe: a bad pattern shouldn't strand a genuinely-done step). Pure.
-//
-// The output is matched TRIMMED, and an anchored pattern is retried line-wise, because
-// out is raw command output while Expect is written by an author describing what the
-// command PRINTS. Go anchors `^`/`$` to the whole text unless (?m), and shell output
-// essentially always ends in a newline — so an anchored pattern like `^9\.8\.7$` against
-// "9.8.7\n" never matched and the check could not pass in ANY world state. That is worse
-// than a wrong verdict: it is a permanent false failure that re-runs the step forever.
-// Observed live: a package-install step whose packages WERE at the pinned version failed
-// its own check six consecutive times, forcing re-plans that burned the wall clock.
-func (c DeliverableCheck) Passes(out string, code int) bool {
-	if code != 0 {
-		return false
-	}
-	// A typed check is already decided: its verdict IS the runner's exit status, because the runner
-	// applied the assertion itself. Expect belongs to the shell shape and must not be re-applied here —
-	// a leftover pattern from a converted check would be matched against the runner's own diagnostic
-	// text and could only ever fail work that the assertion just passed.
-	if strings.TrimSpace(c.Assert) != "" {
-		return true
-	}
-	if c.Expect == "" {
-		return true
-	}
-	out = strings.TrimSpace(out)
-	re, err := regexp.Compile(c.Expect)
-	if err != nil {
-		return strings.Contains(out, c.Expect)
-	}
-	if re.MatchString(out) {
-		return true
-	}
-	// Line-wise retry: with multi-line output an anchored pattern describes ONE line
-	// ("a line reading exactly this"), which whole-text anchoring can never satisfy.
-	// Only anchored patterns can gain a match here, so an unanchored pattern is
-	// unaffected and this cannot loosen a check that already had a verdict.
-	if mre, merr := regexp.Compile("(?m)" + c.Expect); merr == nil {
-		return mre.MatchString(out)
-	}
-	return false
-}
-
-// Plan-audit severity tiers. Only SeverityCritical blocks the plan gate; warn/info
-// are advisory. A missing/unknown severity normalizes to SeverityWarn.
-const (
-	SeverityCritical = "critical"
-	SeverityWarn     = "warn"
-	SeverityInfo     = "info"
-)
-
-// Breakdown is the counted result of a tally — kept on the Deliberation so the
-// outcome is observable and replayable (loop pains #2/#5).
-type Breakdown struct {
-	Done       int     `json:"done"`
-	Continue   int     `json:"continue"`
-	Abstain    int     `json:"abstain"`
-	DoneWeight float64 `json:"doneWeight"`
-	ContWeight float64 `json:"contWeight"`
-	Voters     int     `json:"voters"` // non-abstaining members (the denominator)
-	Rule       Rule    `json:"rule"`
-}
-
-// Deliberation is the record of one council round: the verdicts, the rule applied,
-// the decision, its breakdown, and (on Continue) the merged feedback.
-type Deliberation struct {
-	Round     int       `json:"round"`
-	Verdicts  []Verdict `json:"verdicts"`
-	Decision  Decision  `json:"decision"`
-	Breakdown Breakdown `json:"breakdown"`
-	Feedback  string    `json:"feedback,omitempty"`
-	// Keep is the merged advisory "what's already correct — don't redo/revert" from the
-	// members (MAGI_COUNCIL_KEEP). Purely informational: it never affects the decision or
-	// tally, and is surfaced ABOVE the feedback when the turn continues.
-	Keep string `json:"keep,omitempty"`
-	// Criteria is the synthesized completion criteria from a plan-audit round
-	// (merged from the members' proposals). Empty in the termination phase.
-	Criteria []string `json:"criteria,omitempty"`
-	// Checks is the synthesized per-step executable deliverable checks from a
-	// plan-audit round (merged from the members' proposals). Empty in the
-	// termination phase. A step may carry several checks (several deliverables).
-	Checks []DeliverableCheck `json:"checks,omitempty"`
-	// Debate records a disagreement-triggered rebuttal round: nil when it did not run
-	// (unanimous vote, or debate disabled), non-nil with the before→after decisions
-	// when it did — so the otherwise-internal rebuttal is observable in the transcript.
-	Debate *DebateOutcome `json:"debate,omitempty"`
-}
-
-// DebateOutcome summarizes one rebuttal round for observability: the pre-debate and
-// post-debate decisions, plus how many members changed their vote.
-type DebateOutcome struct {
-	Before  Decision `json:"before"`  // council decision on the independent vote
-	After   Decision `json:"after"`   // council decision after the rebuttal
-	Changed int      `json:"changed"` // members whose vote flipped in the rebuttal
 }
 
 // DefaultMembers returns the three default council members — the MAGI. The theme
@@ -314,81 +176,6 @@ func Deliberate(round int, vs []Verdict, rule Rule) Deliberation {
 		d.Keep = AggregateKeep(vs) // advisory; empty unless MAGI_COUNCIL_KEEP asked for it
 	}
 	return d
-}
-
-// MergeCriteria synthesizes the members' proposed completion criteria into one
-// deduped, bounded list (used in the plan-audit phase to derive the contract the
-// turn is later judged against). Pure and order-stable: items are trimmed,
-// case-insensitive duplicates are dropped, and the list is capped. No I/O.
-func MergeCriteria(vs []Verdict) []string {
-	const maxItems, maxRunes = 8, 160
-	seen := make(map[string]bool)
-	var out []string
-	for _, v := range vs {
-		for _, c := range v.Criteria {
-			c = strings.TrimSpace(c)
-			if c == "" {
-				continue
-			}
-			if r := []rune(c); len(r) > maxRunes { // truncate (rune-safe), don't drop
-				c = strings.TrimSpace(string(r[:maxRunes]))
-			}
-			key := strings.ToLower(c)
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			out = append(out, c)
-			if len(out) == maxItems {
-				return out
-			}
-		}
-	}
-	return out
-}
-
-// MergeChecks synthesizes the members' proposed per-step deliverable checks into one
-// deduped, bounded list (plan-audit phase). A check carrying NEITHER a Command nor an
-// Assert has nothing to run and is dropped — a typed check legitimately has no command,
-// so "no Command" alone must not decide it. Deduplication keys on whatever the check runs
-// (case-insensitive): the command plus its expected pattern, or the assertion plus its
-// source. Two members proposing the same verification collapse to one while distinct
-// deliverables of the same step are all kept. Fields are trimmed and length-bounded;
-// order is stable. Pure, no I/O.
-func MergeChecks(vs []Verdict) []DeliverableCheck {
-	const maxItems, maxRunes = 16, 300
-	clip := func(s string) string {
-		s = strings.TrimSpace(s)
-		if r := []rune(s); len(r) > maxRunes {
-			s = strings.TrimSpace(string(r[:maxRunes]))
-		}
-		return s
-	}
-	seen := make(map[string]bool)
-	var out []DeliverableCheck
-	for _, v := range vs {
-		for _, c := range v.Checks {
-			c.Step = clip(c.Step)
-			c.Deliverable = clip(c.Deliverable)
-			c.Command = clip(c.Command)
-			c.Expect = clip(c.Expect)
-			c.Source = clip(c.Source)
-			c.Assert = clip(c.Assert)
-			if c.Command == "" && c.Assert == "" {
-				continue
-			}
-			key := strings.ToLower(c.Command + "\x00" + c.Expect + "\x00" + c.Assert + "\x00" + c.Source)
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			out = append(out, c)
-			if len(out) == maxItems {
-				return out
-			}
-		}
-	}
-	return out
 }
 
 // Tally applies a consensus rule to the verdicts and returns the council decision
@@ -513,52 +300,6 @@ func clipKeep(s string, n int) string {
 		cut--
 	}
 	return strings.TrimSpace(s[:cut]) + " […keep truncated]"
-}
-
-// severityOf normalizes a verdict's plan-audit severity. An ABSENT severity (empty —
-// the common weak-model omission) → warn, so a bare continue doesn't burn budget. But a
-// PRESENT-yet-unrecognized token (e.g. "blocker", "high") → critical: the member tried to
-// signal urgency in non-canonical words, so fail safe toward blocking rather than ignore it.
-func severityOf(v Verdict) string {
-	switch strings.ToLower(strings.TrimSpace(v.Severity)) {
-	case SeverityCritical:
-		return SeverityCritical
-	case SeverityWarn, "": // empty/absent → warn (permissive: don't block on an omitted field)
-		return SeverityWarn
-	case SeverityInfo:
-		return SeverityInfo
-	default:
-		return SeverityCritical // present but unrecognized → block (fail safe)
-	}
-}
-
-// HasCriticalRevision reports whether any member raised a BLOCKING concern at the
-// plan gate — a continue vote at critical severity. Only these block; warn/info
-// revisions are advisory. (A single critical vetoes, so a real plan flaw one member
-// catches still stops the agent.)
-func HasCriticalRevision(vs []Verdict) bool {
-	for _, v := range vs {
-		if v.Decision == Continue && severityOf(v) == SeverityCritical {
-			return true
-		}
-	}
-	return false
-}
-
-// CriticalFeedback merges the feedback of the members that raised a critical,
-// blocking concern (what a re-plan must fix). "" if none.
-func CriticalFeedback(vs []Verdict) string {
-	return mergeFeedback(vs,
-		func(v Verdict) bool { return v.Decision == Continue && severityOf(v) == SeverityCritical },
-		"The plan has a blocking flaw. Revise it to address:")
-}
-
-// AdvisoryFeedback merges the non-blocking (warn/info) revise feedback into one
-// advisory note the agent should heed during execution. "" if none.
-func AdvisoryFeedback(vs []Verdict) string {
-	return mergeFeedback(vs,
-		func(v Verdict) bool { return v.Decision == Continue && severityOf(v) != SeverityCritical },
-		"Non-blocking review advice — incorporate where it improves the work:")
 }
 
 // mergeFeedback joins the feedback of the verdicts matching keep into a bulleted,

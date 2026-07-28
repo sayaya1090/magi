@@ -157,22 +157,6 @@ func TestJudgeRevisionFailsOpenOnAnUnreadableVerdict(t *testing.T) {
 	}
 }
 
-func TestEvidenceBudgetNote(t *testing.T) {
-	// Low remaining budget → a note telling members to prefer DONE over unactionable rounds.
-	low := evidence(port.DeliberationRequest{Task: "x", Report: "y", StepsLeft: 3})
-	if !strings.Contains(low, "# Budget") || !strings.Contains(low, "3 step") || !strings.Contains(low, "prefer DONE") {
-		t.Errorf("low budget should render the budget note:\n%s", low)
-	}
-	// Ample budget → no note (don't rush the council when there's room).
-	if e := evidence(port.DeliberationRequest{Task: "x", Report: "y", StepsLeft: 40}); strings.Contains(e, "# Budget") {
-		t.Errorf("ample budget should not render a budget note:\n%s", e)
-	}
-	// Plan-audit phase never carries a budget note (there's no execution budget to spend yet).
-	if e := evidence(port.DeliberationRequest{Phase: "plan", Task: "x", Plan: "p", StepsLeft: 1}); strings.Contains(e, "# Budget") {
-		t.Errorf("plan phase should not render a budget note:\n%s", e)
-	}
-}
-
 // The keep clause + schema field appear ONLY when keep is requested (MAGI_COUNCIL_KEEP),
 // so the baseline prompt is byte-for-byte unchanged when it is off.
 func TestMemberPromptKeepGated(t *testing.T) {
@@ -191,114 +175,6 @@ func TestMemberPromptKeepGated(t *testing.T) {
 	// Advisory framing: it must say it does not change the vote.
 	if !strings.Contains(on, "NEVER changes your decision") {
 		t.Error("keep clause must state it is advisory (never changes the decision)")
-	}
-}
-
-// Plan-phase keep is gated the same way and, crucially, asks each member to note what to preserve
-// EVEN WHEN APPROVING — so a revision forced by another member's flaw doesn't drop the good steps.
-// A re-audited plan carries its revision history in the evidence so a member can judge the
-// DELTA (a rewrite that dropped prior work is a regression). The section must appear only when
-// there is a revision to describe, and — like every other prompt surface — must stay
-// task-agnostic: the framing is ours, the specifics come from the run.
-func TestPlanEvidenceCarriesRevision(t *testing.T) {
-	rev := "The concern that forced this revision: add a step that produces the artifact\n" +
-		"The plan BEFORE the revision: 1. survey the inputs\nConvergence judge: the revision did NOT engage the concern"
-	e := evidence(port.DeliberationRequest{Phase: "plan", Task: "build a server", Plan: "1. survey", Revision: rev})
-	if !strings.Contains(e, "REVISED") {
-		t.Errorf("plan evidence must label the revision section:\n%s", e)
-	}
-	if !strings.Contains(e, "DROPPED or WEAKENED") {
-		t.Errorf("the revision section must tell members a regression counts, not just a step-count change:\n%s", e)
-	}
-	if !strings.Contains(e, "the revision did NOT engage the concern") {
-		t.Errorf("the judge verdict must reach the members:\n%s", e)
-	}
-	// No revision → no section (a first-round audit must not be told about a rewrite that never happened).
-	if plain := evidence(port.DeliberationRequest{Phase: "plan", Task: "build a server", Plan: "1. survey"}); strings.Contains(plain, "REVISED") {
-		t.Errorf("first-round plan evidence must not carry a revision section:\n%s", plain)
-	}
-	for _, banned := range []string{"grpcio", "kv-store", "cobol", "1.73", "extract.js"} {
-		if strings.Contains(e, banned) {
-			t.Errorf("revision section leaks eval-set token %q", banned)
-		}
-	}
-}
-
-func TestPlanMemberPromptKeepGated(t *testing.T) {
-	m := council.Member{Name: "x", Lens: "completeness"}
-	off := memberSystem(m, "plan", "build a server", false, false)
-	if strings.Contains(off, "\"keep\"") || strings.Contains(off, "EVEN WHEN YOU APPROVE") {
-		t.Error("plan keep clause/schema must be absent when keep is off")
-	}
-	on := memberSystem(m, "plan", "build a server", true, false)
-	if !strings.Contains(on, "EVEN WHEN YOU APPROVE") {
-		t.Error("plan keep clause must ask to preserve even on approve")
-	}
-	if !strings.Contains(on, "\"keep\"") {
-		t.Error("plan keep schema field missing when keep is on")
-	}
-	if !strings.Contains(on, "never changes your vote") {
-		t.Error("plan keep clause must state it is advisory")
-	}
-}
-
-// The other two rewrite-driving phases must ask for keep on the same terms. Both revise by
-// REPLACEMENT — consolidation rewrites the whole criteria list, a correction re-declares every
-// substitution — so a member who votes done still has to name what its lens has settled, or that
-// item is lost to a rewrite triggered by someone else's objection.
-func TestContractAndSubstMemberPromptKeepGated(t *testing.T) {
-	for _, phase := range []string{"contract", "substitution"} {
-		m := council.Member{Name: "x", Lens: "correctness"}
-		off := memberSystem(m, phase, "build a server", false, false)
-		if strings.Contains(off, "\"keep\"") || strings.Contains(off, "EVEN WHEN YOU APPROVE") {
-			t.Errorf("phase=%q: keep clause/schema must be absent when keep is off", phase)
-		}
-		on := memberSystem(m, phase, "build a server", true, false)
-		if !strings.Contains(on, "EVEN WHEN YOU APPROVE") {
-			t.Errorf("phase=%q: keep clause must ask to preserve even on approve", phase)
-		}
-		if !strings.Contains(on, "\"keep\"") {
-			t.Errorf("phase=%q: keep schema field missing when keep is on", phase)
-		}
-		if !strings.Contains(on, "never changes your vote") {
-			t.Errorf("phase=%q: keep clause must state it is advisory", phase)
-		}
-		// The clause has to say WHY an approving member should bother — the rewrite is whole-set.
-		if !strings.Contains(on, "REWRITES the whole") && !strings.Contains(on, "ALL of them") {
-			t.Errorf("phase=%q: keep clause must name the whole-set rewrite that loses the item:\n%s", phase, on)
-		}
-	}
-}
-
-// The plan-audit member authors checks as DATA, so its prompt must say what that shape buys: the
-// runner reads `source` and applies `assert` with no shell, so a check cannot re-do the step's work,
-// cannot mutate anything, and cannot false-fail on a missing tool. Those three used to be prose
-// warnings a model could ignore; the prompt must now state that they are gone by construction, and
-// must spell out the closed vocabulary the runner actually understands.
-func TestPlanMemberPromptSeparatesWorkFromCheck(t *testing.T) {
-	m := council.Member{Name: "x", Lens: "correctness"}
-	p := memberSystem(m, "plan", "download and analyze the results", false, false)
-	for _, want := range []string{
-		"no shell in the path", "CANNOT re-do the step's work", "CANNOT mutate anything",
-		"RECORD AND READ IS THE ONLY SHAPE", "belongs to", "nonempty", "matches <regexp>",
-		"absent <regexp>", "equals <path>", "port_open <port>", "process_alive",
-	} {
-		if !strings.Contains(p, want) {
-			t.Errorf("plan check-authoring prompt must state the typed shape (missing %q)", want)
-		}
-	}
-}
-
-// The check-authoring prompt must require an INTEGER step label (so the numeric gate matches
-// instead of falling back to a flattened union) and state that the per-step checks be jointly
-// satisfiable and checklist-driven — the guard against the plexus #224 contradictory checklist.
-func TestPlanMemberPromptScopesChecksToSteps(t *testing.T) {
-	m := council.Member{Name: "x", Lens: "correctness"}
-	p := memberSystem(m, "plan", "compress, extract, analyze, then clean up", false, false)
-	for _, want := range []string{"INTEGER STEP NUMBER", "JOINTLY", "CHECKLIST-DRIVEN"} {
-		if !strings.Contains(p, want) {
-			t.Errorf("plan check-authoring prompt must scope checks to steps (missing %q)", want)
-		}
 	}
 }
 
@@ -325,58 +201,6 @@ func TestTerminateMemberPromptScopeBoundary(t *testing.T) {
 		if strings.Contains(p, banned) {
 			t.Errorf("terminate prompt leaks an eval-set token %q", banned)
 		}
-	}
-}
-
-// The plan member prompt must carry the CONTEST clause (re-judge a contested concern against the
-// task, drop an over-demand), and evidence must render the author's contest for the plan phase.
-func TestPlanMemberPromptContest(t *testing.T) {
-	m := council.Member{Name: "x", Lens: "correctness"}
-	p := memberSystem(m, "plan", "build a thing", false, false)
-	for _, want := range []string{"CONTEST", "OVER-DEMAND", "ground in the task"} {
-		if !strings.Contains(p, want) {
-			t.Errorf("plan prompt missing contest fragment %q", want)
-		}
-	}
-	e := evidence(port.DeliberationRequest{Phase: "plan", Task: "t", Plan: "1. do it", Contest: "the task never asks for retries"})
-	if !strings.Contains(e, "CONTESTED") || !strings.Contains(e, "never asks for retries") {
-		t.Errorf("plan evidence must render the contest: %q", e)
-	}
-}
-
-// The contract-gate member prompt (Phase=="contract") bounds the acceptance contract on BOTH
-// sides: a LOWER bound (sufficiency — exercise the behavior, not mere existence of a stub) and an
-// The contract member prompt agrees GOAL-level criteria only (no executable checks at contract time),
-// is bounded by necessity + sufficiency, and is LENIENT — it must not demand what only doing reveals.
-// memberSystem must route the contract phase to it, and it must stay task-agnostic (no eval-set tokens).
-func TestContractMemberPromptBounds(t *testing.T) {
-	m := council.Member{Name: "x", Lens: "correctness"}
-	p := memberSystem(m, "contract", "implement the interface", false, false)
-	for _, want := range []string{"ACCEPTANCE CONTRACT", "NECESSITY", "SUFFICIENCY", "LENIENT", "GOAL", "APPROVE"} {
-		if !strings.Contains(p, want) {
-			t.Errorf("contract member prompt missing %q", want)
-		}
-	}
-	// Goals only — the contract phase must NOT solicit executable checks/commands.
-	if strings.Contains(p, `"checks"`) || strings.Contains(p, "shell `command`") {
-		t.Errorf("contract prompt must not author executable checks at contract time:\n%s", p)
-	}
-	for _, banned := range []string{"grpcio", "kv-store", "headless"} {
-		if strings.Contains(p, banned) {
-			t.Errorf("contract prompt leaks eval-set token %q", banned)
-		}
-	}
-}
-
-// The contract phase renders only the task (and any draft to refine) — no plan-audit "procedure"
-// framing, since no plan exists yet.
-func TestContractEvidenceRendersTaskAndDraft(t *testing.T) {
-	e := evidence(port.DeliberationRequest{Phase: "contract", Task: "build the widget", Plan: "draft: it must run"})
-	if !strings.Contains(e, "build the widget") || !strings.Contains(e, "draft: it must run") {
-		t.Errorf("contract evidence must render task and draft: %q", e)
-	}
-	if strings.Contains(e, "procedure") {
-		t.Errorf("contract evidence must not use the plan-audit procedure framing: %q", e)
 	}
 }
 
@@ -456,30 +280,6 @@ func TestDevilPromptGroundsDemandsInTask(t *testing.T) {
 	}
 }
 
-func TestPlanMemberPromptForbidsOverDemand(t *testing.T) {
-	m := council.Member{Name: "x", Lens: "correctness"}
-	p := memberSystem(m, "plan", "install a dependency and run a server", false, false)
-	for _, want := range []string{"do NOT demand MORE than the task states", "Over-specification", "minimal condition"} {
-		if !strings.Contains(p, want) {
-			t.Errorf("plan check-authoring prompt must forbid over-demand (missing %q)", want)
-		}
-	}
-}
-
-// The sufficiency floor: the check-authoring prompt must reject proxy-only checks. Reaching the artifact
-// (exists, port accepts a connection, module imports, build succeeds, process alive) is a precondition a
-// non-functional stub also passes; the prompt must demand the check invoke the stated behavior and assert
-// the result, choosing the weakest input that forces the real code path.
-func TestPlanMemberPromptDemandsContractExercise(t *testing.T) {
-	m := council.Member{Name: "x", Lens: "correctness"}
-	p := memberSystem(m, "plan", "install a dependency and run a server", false, false)
-	for _, want := range []string{"PRECONDITION, not proof", "non-functional stub", "weakest input", "real code path"} {
-		if !strings.Contains(p, want) {
-			t.Errorf("plan check-authoring prompt must reject proxy-only (too-weak) checks (missing %q)", want)
-		}
-	}
-}
-
 // Guard against benchmark overfitting: no eval-set task's exact command, filename, or value may be
 // baked into a prompt the model sees. Every phase and lens is swept, not just the check-authoring
 // one: an audit found leaks in three prompts that no guard read, while the two that were guarded
@@ -530,10 +330,6 @@ func TestMemberPromptRationalizedDone(t *testing.T) {
 	// 3:0 on unexercised artifacts, then failed the task tests).
 	if !strings.Contains(s, "Existence is not correctness") {
 		t.Error("terminate prompt missing the verification-run clause")
-	}
-	// Plan phase judges a procedure before any report exists — the clause must not leak.
-	if p := memberSystem(m, "plan", "beat the game", false, false); strings.Contains(p, "RATIONALIZES incompletion") {
-		t.Error("rationalized-done clause leaked into the plan-audit prompt")
 	}
 }
 
@@ -594,10 +390,6 @@ func TestMemberPromptContestAdjudication(t *testing.T) {
 	if !strings.Contains(s, "disregard it and keep the demand") {
 		t.Error("a contest with no concrete evidence must be disregarded")
 	}
-	// Plan phase judges a procedure with no report — the terminate-only clause must not leak.
-	if p := memberSystem(m, "plan", "run a server", false, false); strings.Contains(p, "do NOT reissue it") {
-		t.Error("contest-adjudication clause leaked into the plan-audit prompt")
-	}
 }
 
 func TestMemberPromptArtifactGrounding(t *testing.T) {
@@ -631,23 +423,6 @@ func TestMemberPromptArtifactGrounding(t *testing.T) {
 	// A "write a summary" step is satisfied by the report (handles "summary not written").
 	if !strings.Contains(s, "write/produce a summary") {
 		t.Error("summary-step-satisfied-by-report clause missing")
-	}
-	// terminate-only: the plan-audit prompt must NOT demand artifacts pre-flight, nor
-	// carry the terminate-phase artifact framing.
-	p := memberSystem(m, "plan", "build a CLI tool", false, false)
-	if strings.Contains(p, "is NOT itself the artifact") {
-		t.Error("artifact clause leaked into the plan-audit prompt")
-	}
-	if strings.Contains(p, "USER'S TASK") || strings.Contains(p, "INPUTS") {
-		t.Error("terminate-phase artifact framing leaked into the plan-audit prompt")
-	}
-	// The plan-audit criteria instruction must steer review tasks away from inventing a
-	// file deliverable (the second channel that injected the false artifact).
-	if !strings.Contains(p, "never a new file") {
-		t.Error("plan criteria instruction missing the review-task carve-out")
-	}
-	if strings.Contains(s, "never a new file") {
-		t.Error("plan-only criteria carve-out leaked into the terminate prompt")
 	}
 }
 
@@ -687,50 +462,6 @@ func TestMemberPromptProportionality(t *testing.T) {
 		t.Error("the rationalized-incompletion anchor is gone")
 	}
 
-	// plan phase: criteria must be achievable/proportionate — no "all N with exact
-	// lines" done-condition; the old exhaustive "every doc is covered" example is gone.
-	p := memberSystem(m, "plan", "find refactoring candidates", false, false)
-	if !strings.Contains(p, "ACHIEVABLE and PROPORTIONATE") {
-		t.Error("plan criteria instruction missing the proportionality guidance")
-	}
-	if !strings.Contains(p, "EXHAUSTIVE enumeration") {
-		t.Error("plan criteria instruction missing the no-exhaustive-enumeration steer")
-	}
-	if strings.Contains(p, "every doc is covered") {
-		t.Error("stale exhaustive 'every doc is covered' example still present")
-	}
-	// Guard the plan-side carve-out too: the criteria relaxation must keep requiring
-	// a concrete artifact + check for a CREATE/BUILD/RUN/FIX task (reviewer Finding 2).
-	if !strings.Contains(p, "CREATE/BUILD/RUN/FIX") {
-		t.Error("plan criteria carve-out for concrete-deliverable tasks is gone")
-	}
-	// terminate-only proportionality framing must not leak into the plan prompt, and
-	// vice-versa — each phase keeps its own wording.
-	if strings.Contains(p, "reasonably and representatively") {
-		t.Error("terminate-phase proportionality framing leaked into the plan prompt")
-	}
-}
-
-// The plan-audit lens must guide, not reject, an intentionally abstract refine step
-// (abstractness is expanded at execution time) WITHOUT waving through an absurd plan —
-// a genuinely unsound abstract plan is still critical. This is the ①/② balance the whole
-// refine strategy leans on; it lives in the plan prompt only.
-func TestMemberPromptRefine(t *testing.T) {
-	m := council.Member{Name: "x", Lens: "completeness"}
-	p := memberSystem(m, "plan", "build a small interpreted language", false, false)
-
-	// Abstractness alone is never a critical revision.
-	if !strings.Contains(p, "NEVER critical-revise a refine step for abstractness") {
-		t.Error("plan prompt missing the refine 'abstractness is not a flaw' carve-out")
-	}
-	// …but the carve-out is not a pass for a bad plan: an unsound abstract plan stays critical.
-	if !strings.Contains(p, "STILL critical") || !strings.Contains(p, "Reject the absurd, approve the merely abstract") {
-		t.Error("plan prompt missing the 'absurd abstract plan is still critical' balance")
-	}
-	// The refine guidance is plan-audit only — it must not leak into the terminate prompt.
-	if s := memberSystem(m, "terminate", "build a small interpreted language", false, false); strings.Contains(s, "critical-revise a refine step") {
-		t.Error("refine plan-audit guidance leaked into the terminate prompt")
-	}
 }
 
 func TestDeliberateAllDone(t *testing.T) {
@@ -1139,59 +870,6 @@ func TestPollBothUnparseableAbstains(t *testing.T) {
 	}
 }
 
-// A contract re-round must be told that the draft it is looking at is one the council itself just
-// rewrote. Judged cold, a member cannot tell a criterion the council deliberately dropped from one
-// the author forgot, so it re-raises the settled item — observed live: three members agreed to drop
-// a criterion in round 1, one re-added it in round 2, and round 3 spent itself removing it again.
-func TestContractEvidenceCarriesRevision(t *testing.T) {
-	rev := "The council's own feedback that produced this revision:\nRemove the performance criterion — out of scope\n" +
-		"The contract as it stood BEFORE this revision:\n- builds clean\n- performance preserved"
-	e := evidence(port.DeliberationRequest{Phase: "contract", Task: "fix the crash", Plan: "- builds clean", Revision: rev})
-	if !strings.Contains(e, "REVISED") {
-		t.Errorf("contract evidence must label the revision section:\n%s", e)
-	}
-	if !strings.Contains(e, "Do NOT re-introduce") {
-		t.Errorf("the section must forbid re-raising a removed criterion:\n%s", e)
-	}
-	if !strings.Contains(e, "out of scope") {
-		t.Errorf("the council's own prior feedback must reach the members:\n%s", e)
-	}
-	// A first round has no history and must not be told about a revision that never happened.
-	if first := evidence(port.DeliberationRequest{Phase: "contract", Task: "fix the crash", Plan: "- builds clean"}); strings.Contains(first, "REVISED") {
-		t.Errorf("a first-round contract must carry no revision section:\n%s", first)
-	}
-	for _, banned := range []string{"grpcio", "kv-store", "cobol", "1.73"} {
-		if strings.Contains(e, banned) {
-			t.Errorf("contract revision section leaks eval-set token %q", banned)
-		}
-	}
-}
-
-// A substitution RE-round must be shown the objection the previous round raised. The agent is
-// handed that critique to act on, but the council was re-convened knowing nothing about it, so a
-// member could not check whether its own concern had been met and was free to raise a different
-// one each round — the same amnesia the contract and plan re-rounds had.
-func TestSubstitutionEvidenceCarriesPriorObjection(t *testing.T) {
-	e := evidence(port.DeliberationRequest{
-		Phase: "substitution", Task: "the port check could not run",
-		Plan:     "curl the port instead",
-		Revision: "The previous round REJECTED the substitution with this objection:\nreaching the port is not the same as serving a request",
-	})
-	if !strings.Contains(e, "PREVIOUS round objected") {
-		t.Errorf("substitution evidence must label the prior objection:\n%s", e)
-	}
-	if !strings.Contains(e, "not the same as serving a request") {
-		t.Errorf("the prior objection's text must reach the members:\n%s", e)
-	}
-	if !strings.Contains(e, "already answered") {
-		t.Errorf("members must be told not to swap in a fresh objection:\n%s", e)
-	}
-	// First round: nothing to remember, so no section.
-	if first := evidence(port.DeliberationRequest{Phase: "substitution", Task: "t", Plan: "p"}); strings.Contains(first, "PREVIOUS round") {
-		t.Errorf("a first substitution round must carry no prior-objection section:\n%s", first)
-	}
-}
-
 // An unparsed verdict is NOT a neutral outcome: the member is recorded as abstaining, which the
 // tally cannot tell apart from "my lens has nothing to add". So the reply must survive what model
 // output normally carries — a stray brace in the reasoning ahead of the real object, and a raw
@@ -1217,68 +895,6 @@ func TestParseReplySurvivesModelJSONDefects(t *testing.T) {
 		if _, ok := parseReply(bad); ok {
 			t.Errorf("parseReply(%q) must not produce a vote", bad)
 		}
-	}
-}
-
-// A member's verdict is one document: any field typed strictly cost the whole VOTE, recorded as an
-// abstain the tally cannot tell from "no opinion". These lock the shapes a model actually emits.
-func TestParseReplyTolerantShapes(t *testing.T) {
-	t.Run("checks as a single object", func(t *testing.T) {
-		r, ok := parseReply(`{"decision":"continue","rationale":"needs a check","checks":{"step":1,"deliverable":"d","command":"make"}}`)
-		if !ok {
-			t.Fatal("verdict lost over a single check object")
-		}
-		if len(r.Checks) != 1 || r.Checks[0].Command != "make" {
-			t.Fatalf("checks = %+v", r.Checks)
-		}
-		if decisionOf(string(r.Decision)) != council.Continue {
-			t.Fatalf("decision = %q", r.Decision)
-		}
-	})
-	t.Run("decision wrapped in a list", func(t *testing.T) {
-		r, ok := parseReply(`{"decision":["done"],"confidence":"0.9","rationale":"it builds"}`)
-		if !ok || decisionOf(string(r.Decision)) != council.Done {
-			t.Fatalf("ok=%v decision=%q", ok, r.Decision)
-		}
-		if float64(r.Confidence) != 0.9 {
-			t.Fatalf("confidence = %v", r.Confidence)
-		}
-	})
-	t.Run("severity as a list still tiers the vote", func(t *testing.T) {
-		r, ok := parseReply(`{"decision":"continue","severity":["critical"],"feedback":"add the build step"}`)
-		if !ok || string(r.Severity) != "critical" {
-			t.Fatalf("ok=%v severity=%q", ok, r.Severity)
-		}
-	})
-	t.Run("an unreadable checks field costs the checks, not the vote", func(t *testing.T) {
-		r, ok := parseReply(`{"decision":"done","rationale":"fine","checks":"none"}`)
-		if !ok || decisionOf(string(r.Decision)) != council.Done {
-			t.Fatalf("vote lost: ok=%v r=%+v", ok, r)
-		}
-		if len(r.Checks) != 0 {
-			t.Fatalf("checks = %+v, want none", r.Checks)
-		}
-	})
-}
-
-// A member states its decision in the FIRST field and then malforms a later array. Losing the whole
-// verdict over that turns a stated vote into an abstain the tally cannot tell from "no opinion" —
-// and when the vote was a critical continue, it silently disables the veto it was cast to trigger.
-func TestMalformedVerdictKeepsTheDecisionItStated(t *testing.T) {
-	const bad = `{"decision":"continue","confidence":0.9,"rationale":"verification is missing",` +
-		`"severity":"critical","criteria":["the change is exercised, not just compiled","checks":[]]}`
-	r, ok := parseReply(bad)
-	if !ok {
-		t.Fatalf("the verdict was discarded: %s", bad)
-	}
-	if decisionOf(string(r.Decision)) != council.Continue {
-		t.Errorf("decision = %q, want continue", r.Decision)
-	}
-	if string(r.Severity) != "critical" {
-		t.Errorf("severity = %q, want critical (it gates blocking vs advisory)", r.Severity)
-	}
-	if len(r.Criteria) != 1 {
-		t.Errorf("criteria = %q, want the one that arrived whole", r.Criteria)
 	}
 }
 
@@ -1330,44 +946,6 @@ func TestRetryReminderNamesTheDefectThatOccurred(t *testing.T) {
 	prose := councilRetryReminder("I think it is probably fine, hard to say.")
 	if !strings.Contains(prose, "ONLY the JSON object") {
 		t.Errorf("prose must still get the JSON-only reminder:\n%s", prose)
-	}
-}
-
-// Same floor on the prompt that AUTHORS the checks in the first place: an exit-0 configure/build with
-// the right flag on its command line proves the flag was accepted, not that it took effect, and an
-// effect that landed somewhere the task does not look is not the deliverable either.
-func TestPlanMemberPromptRejectsACommandThatMerelySucceeded(t *testing.T) {
-	m := council.Member{Name: "x", Lens: "correctness"}
-	p := memberSystem(m, "plan", "build something with a compiler flag", false, false)
-	for _, want := range []string{"COMMAND THAT SUCCEEDED", "ACCEPTED, not", "took EFFECT", "AT THE LOCATION the task names"} {
-		if !strings.Contains(p, want) {
-			t.Errorf("plan check-authoring prompt must reject a command-exit-code proxy for an effect (missing %q)", want)
-		}
-	}
-}
-
-// RECORD AND READ is the DEFAULT shape a check must take, not a fallback for expensive runs: the
-// STEP performs whatever has to be run and saves its real output, and the check READS that file.
-// It is what makes a check un-refusable by the read-only shell, non-repeating across gate cycles,
-// and honest in its exit status — so the authoring prompt must state it as the default and must
-// still forbid hand-writing the file it reads.
-func TestPlanMemberPromptMakesRecordAndReadTheDefault(t *testing.T) {
-	m := council.Member{Name: "x", Lens: "correctness"}
-	p := memberSystem(m, "plan", "build the project and run its test suite", false, false)
-	for _, want := range []string{
-		"RECORD AND READ IS THE ONLY SHAPE",
-		"that run belongs to the STEP",
-		"REDIRECTS its real output to a fixed path",
-		"never hand-written",
-	} {
-		if !strings.Contains(p, want) {
-			t.Errorf("check-authoring prompt must make record-and-read the default (missing %q)", want)
-		}
-	}
-	// The behavioural floor must survive the shift: moving the RUN onto the step may not weaken
-	// WHAT is asserted down to an existence probe.
-	if !strings.Contains(p, "EXERCISE, DO NOT MERELY REACH") || !strings.Contains(p, "is a PRECONDITION, not proof") {
-		t.Errorf("moving the run onto the step must not license a weaker assertion:\n%s", p)
 	}
 }
 

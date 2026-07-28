@@ -6,7 +6,6 @@ package llm
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -98,8 +97,8 @@ func (c *Council) Deliberate(ctx context.Context, req port.DeliberationRequest) 
 	// demand what the task never required) and their re-tally — not the devil — decides. A real
 	// defect the members missed flips them to continue; a spurious devil concern is rejected and
 	// the done stands. The devil never gets a binding vote. Skipped on the focused re-round and in
-	// plan audit (no "done" to challenge yet).
-	if req.Devil && !req.DeltaRound && req.Phase != "plan" && req.Phase != "contract" {
+	// the focused re-round (no fresh "done" to challenge there).
+	if req.Devil && !req.DeltaRound {
 		if dec, _ := council.Tally(verdicts, rule); dec == council.Done && !splitVerdicts(verdicts) {
 			if concern := c.devilConcern(ctx, req); concern != "" {
 				verdicts = c.reviewDevil(ctx, req, members, verdicts, concern)
@@ -114,15 +113,6 @@ func (c *Council) Deliberate(ctx context.Context, req port.DeliberationRequest) 
 
 	d := council.Deliberate(req.Round, verdicts, rule)
 	d.Debate = debate
-	if req.Phase == "plan" || req.Phase == "contract" {
-		// Plan audit / contract gate: synthesize the members' proposed completion criteria
-		// into the contract the turn will later be judged against, plus any executable
-		// deliverable checks (settled by execution at plan time, not re-voted later). In the
-		// contract phase this IS the primary artifact (authored before the plan); in the plan
-		// phase it is derived alongside the plan review.
-		d.Criteria = council.MergeCriteria(verdicts)
-		d.Checks = council.MergeChecks(verdicts)
-	}
 	return d, nil
 }
 
@@ -369,8 +359,6 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 	v.Feedback = string(r.Feedback)
 	v.Keep = string(r.Keep)
 	v.Severity = string(r.Severity) // plan-audit phase only; gates blocking vs advisory
-	v.Criteria = r.Criteria         // plan-audit phase only; empty otherwise
-	v.Checks = r.Checks             // plan-audit phase only; per-step executable deliverable checks
 	return v
 }
 
@@ -426,8 +414,6 @@ func (c *Council) pollRebut(ctx context.Context, req port.DeliberationRequest, m
 	v.Feedback = string(r.Feedback)
 	v.Keep = string(r.Keep)
 	v.Severity = string(r.Severity)
-	v.Criteria = r.Criteria
-	v.Checks = r.Checks
 	return v
 }
 
@@ -623,53 +609,19 @@ type memberReply struct {
 	Feedback   jsonx.Text   `json:"feedback"`
 	Keep       jsonx.Text   `json:"keep"`     // advisory: what's already correct (only when asked; MAGI_COUNCIL_KEEP)
 	Severity   jsonx.Text   `json:"severity"` // plan-audit phase: critical|warn|info for a revise vote
-	Criteria   jsonx.Texts  `json:"criteria"` // plan-audit phase: proposed completion criteria
-	// Checks are plan-audit per-step executable deliverable checks (empty otherwise).
-	Checks checkList `json:"checks"`
 }
 
-// checkList tolerates a `checks` field given as a SINGLE object — what a model emits when it
-// proposes exactly one check — instead of a one-element array. Strictly typed, that single object
-// aborted the reply and the member's whole verdict with it.
-type checkList []council.DeliverableCheck
-
-func (l *checkList) UnmarshalJSON(b []byte) error {
-	var list []council.DeliverableCheck
-	if json.Unmarshal(b, &list) == nil {
-		*l = list
-		return nil
-	}
-	// Only an OBJECT is read as a lone check. A `checks` field given as a bare string is the model
-	// saying there are none ("none", "n/a"), and reading that as a command would invent a check
-	// that later gets EXECUTED — worse than having no check at all.
-	if strings.HasPrefix(strings.TrimSpace(string(b)), "{") {
-		var one council.DeliverableCheck
-		if json.Unmarshal(b, &one) == nil && strings.TrimSpace(one.Command) != "" {
-			*l = checkList{one}
-			return nil
-		}
-	}
-	*l = nil // unreadable checks cost the checks, never the vote
-	return nil
-}
-
-// memberSystem builds the system prompt for one member: its identity (the theme
-// label) and its judging lens (the attribute), plus the strict output contract.
-// The phase selects whether the member judges a finished turn ("terminate") or a
-// proposed procedure ("plan").
+// memberSystem builds the system prompt for one member: its identity (the theme label) and its
+// judging lens (the attribute), plus the strict output contract.
+//
+// There used to be four of these, one per phase — a plan audit, a contract gate, a substitution
+// review, and this. The other three judged something magi authored BEFORE the work existed, and
+// went with it. What a member judges now is a finished turn against the task, which is the only
+// phase that was ever asked about the work itself.
 func memberSystem(m council.Member, phase, task string, keep, constraints bool) string {
 	lens := council.Lenses[m.Lens]
 	if lens == "" {
 		lens = "Judge whether the task is genuinely complete."
-	}
-	if phase == "contract" {
-		return withLangNote(contractMemberSystem(m, lens, keep), task)
-	}
-	if phase == "plan" {
-		return withLangNote(planMemberSystem(m, lens, keep), task)
-	}
-	if phase == "substitution" {
-		return withLangNote(substMemberSystem(m, lens, keep), task)
 	}
 	// Optional advisory (MAGI_COUNCIL_KEEP): each member also names what the report already
 	// gets right through ITS lens, so the agent doesn't revert a correct part or re-verify a
@@ -842,273 +794,6 @@ func withLangNote(prompt, task string) string {
 		" (the user's language), not English. Keep the JSON keys and the \"decision\" value in English."
 }
 
-// planMemberSystem builds the prompt for the pre-flight plan audit: the member
-// judges whether the PROPOSED PROCEDURE is a sound way to accomplish the task,
-// through its lens — there is no report/diff/signals yet.
-func planMemberSystem(m council.Member, lens string, keep bool) string {
-	keepClause, keepField := "", ""
-	if keep {
-		keepClause = "Also, through YOUR lens, note in `keep` the plan steps that are ALREADY sound and must survive " +
-			"if the plan is revised — do this EVEN WHEN YOU APPROVE, because another member's flaw sends the WHOLE plan " +
-			"back to be re-planned, and without this the revision can drop the correct parts your lens already blessed. " +
-			"IDENTIFY them by step number and a few words (e.g. \"steps 2 and 5 — the schema generation and the " +
-			"round-trip check\"); the re-planner is given the plan itself, so restating a step wastes the room its " +
-			"critique needs. Advisory: it never changes your vote; omit if nothing through your lens is clearly " +
-			"settled.\n\n"
-		keepField = `,"keep":"plan steps already sound through your lens that a revision must preserve — by step number and a few words; advisory, optional"`
-	}
-	return fmt.Sprintf(
-		"You are %s, a member of a council that audits an AI coding agent's PROPOSED PROCEDURE before it runs. "+
-			"Your lens is %q: %s\n\n"+
-			"Judge ONLY whether the PROCEDURE (the ordered steps) is a sound, sufficient way to accomplish the TASK "+
-			"through your lens. The DEFAULT is to APPROVE: a plan that would plausibly get the task done is sound, even "+
-			"if terse. Choose exactly one vote:\n"+
-			"- \"done\" (approve): the steps would accomplish the task. MOST plans are this — especially for simple "+
-			"read / review / answer tasks.\n"+
-			"- \"continue\" (revise): ONLY if you can name a CONCRETE flaw in the STEPS THEMSELVES — a step that is "+
-			"wrong, a necessary ACTION that is missing, a redundant step, or a wrong order. Put the concrete fix in "+
-			"`feedback`, and set `severity`:\n"+
-			"    • \"critical\" — the plan as written will FAIL or produce a WRONG/unsafe result without this fix "+
-			"(a necessary action is missing, a step is incorrect, destructive, or in an order that breaks the task). "+
-			"ONLY critical blocks the agent from starting — reserve it for real defects.\n"+
-			"    • \"warn\" — the plan would still accomplish the task, but this would meaningfully improve it.\n"+
-			"    • \"info\" — a minor nit. When unsure, use \"warn\"; do NOT inflate to critical.\n"+
-			"- \"abstain\": your lens cannot judge these steps. The VERIFICATION lens has nothing to verify before the "+
-			"work exists — it MUST abstain, never revise. Abstaining is excluded from the tally.\n\n"+
-			"Lens notes at PLAN time:\n"+
-			"- COMPLETENESS judges ONLY whether the steps as a set COVER the task's scope — NOT whether every detail, "+
-			"sub-check, or edge case is enumerated. A plan whose steps touch each part of the request IS complete → "+
-			"approve. Revise ONLY if a whole REQUIRED part of the task has no step addressing it at all (name the missing "+
-			"part). A broad step like \"review the docs\" already covers its details — do not revise to enumerate them.\n"+
-			"- CORRECTNESS judges whether the APPROACH is sound and no necessary ACTION is missing — not whether the plan "+
-			"adds checks/validation.\n\n"+
-			"NEVER revise for any of the following — these are NOT flaws in a plan:\n"+
-			"- the plan doesn't spell out verification criteria, acceptance criteria, success metrics, tests, or a "+
-			"checklist (those belong to execution and to the `criteria` field below — NOT to the plan's steps);\n"+
-			"- the plan has no explicit 'verify' / 'validate' step, or could be 'more thorough', 'more detailed', or "+
-			"'more rigorous';\n"+
-			"- you would simply have planned it differently, or you are merely uncertain;\n"+
-			"- a step marked [refine] is INTENTIONALLY high-level: it is expanded into concrete sub-steps AT EXECUTION "+
-			"TIME with the current context, so 'it doesn't spell out its internal actions', 'it is too abstract', or 'it "+
-			"needs more concrete steps' is NOT a flaw in it. NEVER critical-revise a refine step for abstractness alone; if "+
-			"you genuinely see a better decomposition, that is a \"warn\" at most (advisory, non-blocking). This is NOT a pass "+
-			"for a bad plan, though: if a refine-bearing plan is genuinely UNSOUND — the approach is wrong, a REQUIRED part "+
-			"of the task has no step at all, or the plan simply would not achieve the task — that is STILL critical, abstract "+
-			"or not. Reject the absurd, approve the merely abstract.\n"+
-			"A SIMPLE task needs only a SIMPLE plan. Never invent a flaw. If you cannot name a concrete defect in the "+
-			"steps, you APPROVE (or abstain).\n"+
-			"BE LENIENT — the work has NOT run yet: what will and won't work (which paths exist, which tools are "+
-			"present, the exact outputs) can only be learned by DOING. Do NOT demand those execution-dependent "+
-			"specifics at plan time, and do NOT reject a plan for not spelling them out — they are discovered and "+
-			"handled during execution. Judge only whether the APPROACH is sound.\n\n"+
-			"CALIBRATION — match this bar. Task: \"review the project's dev docs\"; Plan: \"1.[scout] find the docs  "+
-			"2.[parallel] read each  3.[solo] summarize\". The CORRECT verdicts are: correctness → done (discover→read→"+
-			"synthesize is a sound approach with no necessary action missing); completeness → done (the steps cover the "+
-			"whole request); verification → abstain (nothing to verify yet). Revising this plan — to add acceptance "+
-			"criteria, a verify step, or more detail — would be WRONG. Hold real plans to exactly this bar.\n\n"+
-			"CONTEST: when a prior concern is shown as CONTESTED — the plan author argues the TASK does not "+
-			"require what it demanded, or the plan already satisfies it — re-judge that concern against the "+
-			"TASK's literal words. If the task genuinely does not demand it, the concern was an OVER-DEMAND: "+
-			"DROP it (approve, or name a DIFFERENT, real flaw) and do NOT re-raise it. Uphold it ONLY if you "+
-			"can point to the task words that require it. A contested concern you cannot ground in the task is "+
-			"not a valid reason to revise — re-issuing it is exactly the churn to avoid.\n\n"+
-			"SEPARATELY, through your lens, propose this task's COMPLETION CRITERIA in `criteria`: a short list (1-3) of "+
-			"concrete done-conditions used to judge the FINISHED work later (e.g. a file/output that must exist, a check "+
-			"that must pass). Each criterion MUST be ACHIEVABLE and PROPORTIONATE to the task's size: for an analysis, "+
-			"survey, or investigation over a LARGE set (many files/items), do NOT write a done-condition that demands "+
-			"EXHAUSTIVE enumeration of every item or atom-level precision (\"list ALL N files with EXACT line numbers\") "+
-			"— that is impractical and will be enforced as an impossible contract. Phrase such a criterion as the QUALITY "+
-			"of a representative, priority-ranked coverage instead (e.g. \"the main refactoring candidates are identified "+
-			"with their file and rough location\"), never \"every X\" or \"all N with exact lines\". For a "+
-			"read / review / analyze / answer task, a criterion is a quality of the ANSWER, never a new file or document "+
-			"to create. (This proportionality applies to analysis/survey scope ONLY — for a CREATE/BUILD/RUN/FIX task the "+
-			"criterion still requires the concrete artifact to exist and its check to pass; do not soften that.) These are "+
-			"NOT steps the plan must contain, and their absence from the plan is NEVER a reason to revise. Keep each item "+
-			"one short line; omit if your lens adds nothing.\n\n"+
-			"ALSO, where a step's deliverable is MACHINE-CHECKABLE, propose one or more `checks`. A CHECK IS DATA, "+
-			"NOT A COMMAND: you never write a shell command and the gate never runs one. Each check names the plan "+
-			"`step` it belongs to as its INTEGER STEP NUMBER (\"3\", not the step's title — the gate matches by number, "+
-			"so a title label matches NO step and gets flattened onto the wrong worker), the expected `deliverable` in "+
-			"one short phrase, a `source` (the path holding what is to be judged), and an `assert` drawn from this "+
-			"FIXED vocabulary — no other wording is understood:\n"+
-			"  nonempty          — `source` exists and is not blank\n"+
-			"  matches <regexp>  — the content of `source` matches this regular expression\n"+
-			"  absent <regexp>   — the content of `source` does NOT match it (a marker that must NOT appear)\n"+
-			"  equals <path>     — `source` has the same content as that other file (an expected-output fixture)\n"+
-			"  port_open <port>  — something is listening on that port right now (`source` unused)\n"+
-			"  process_alive     — the pid written in `source` is running right now\n"+
-			"The gate reads `source` and applies `assert` itself, with no shell in the path. A check therefore CANNOT "+
-			"re-do the step's work, CANNOT mutate anything, and CANNOT fail merely because the image lacks some tool. "+
-			"Those three failure modes are gone by construction — spend your judgement entirely on WHAT is asserted.\n\n"+
-			"RECORD AND READ IS THE ONLY SHAPE. Whenever proving the deliverable means RUNNING something — a build, a "+
-			"test command the task names, the produced program on its input, a server round-trip — that run belongs to "+
-			"the STEP: write the step's `task` so it performs the run ONCE and REDIRECTS its real output to a fixed "+
-			"path in the workspace, then point the check's `source` at that SAME path. Name the identical path in the "+
-			"step's task text and in the check, and say IN THE DELIVERABLE TEXT that the step must save that file and "+
-			"that the file must be the command's own redirected output — never hand-written, never a marker typed in "+
-			"by hand. To judge a command's SUCCESS rather than its text, have the step append its status (`<cmd> > "+
-			"out.log 2>&1; echo \"exit=$?\" >> out.log`) and assert `matches ^exit=0$`.\n\n"+
-			"EXERCISE, DO NOT MERELY REACH. A check that only confirms the deliverable can be REACHED — a file exists "+
-			"or is non-empty, a port accepts a connection, a module imports, a build succeeded, a process is alive — is "+
-			"a PRECONDITION, not proof, and is INSUFFICIENT whenever the deliverable must BEHAVE or produce a correct "+
-			"result, because a non-functional stub passes every one of them. Have the STEP invoke the behaviour through "+
-			"the same interface its consumer uses, record the result, and assert the OUTCOME — choosing the weakest "+
-			"input that still forces the real code path, so a stub that merely exists or opens the port FAILS. A "+
-			"COMMAND THAT SUCCEEDED is the same kind of precondition: a configure/build/install exiting 0 with a flag "+
-			"on its command line proves the flag was ACCEPTED, not that it took EFFECT. When the deliverable is the "+
-			"effect a setting is supposed to cause, have the step run whatever CONSUMES the setting and assert the "+
-			"resulting artifact appears, with the content the task requires, AT THE LOCATION the task names. Asserting "+
-			"an artifact is present while never exercising it is the single biggest reason a broken solution gets "+
-			"approved: a program that builds but computes the wrong answer, a generated file that exists but holds the "+
-			"wrong value, a server file that never actually listens, a cleanup handler that never fires.\n\n"+
-			"HIGHEST-PRIORITY CHECK: if the task shows ANY concrete example — a literal command line, an input-to-output "+
-			"mapping, a numeric threshold — your FIRST check must have the step run THAT EXACT input and must assert "+
-			"THAT EXACT output, verbatim, never a paraphrase and never a value you invented. The work is judged against "+
-			"the TASK'S own contract, so a self-substituted input or expected value passes your check and fails the "+
-			"real requirement.\n\n"+
-			"NECESSITY — do NOT demand MORE than the task states: never pin a version, build id, exact path, timestamp "+
-			"or incidental attribute the task did not itself specify. Over-specification false-fails CORRECT work and "+
-			"never converges. Assert the minimal condition that proves the stated objective.\n\n"+
-			"EXTERNAL EVENTS: when acceptance involves a real event — a signal (Ctrl-C/SIGINT), a kill, a disconnect — "+
-			"the STEP must DELIVER it for real (launch the artifact as a background process, send the actual signal, "+
-			"redirect its output to a file) and the check asserts the required marker in that file. An in-process "+
-			"simulation, raising the exception by hand, verifies the wrong delivery path.\n\n"+
-			"SMOKE CHECK when full correctness is UNVERIFIABLE: a step that produces a runnable artifact must ALWAYS "+
-			"get at least a smoke check, even when the expected output is hidden — have the step run it on its input, "+
-			"record the output, and assert the SHAPE (`nonempty`, or a structural `matches` for valid JSON/CSV or the "+
-			"right field count), never the hidden exact values. Skipping such a step leaves the run with NO done-signal, "+
-			"so the agent second-guesses a working solution and refines it until the wall clock.\n\n"+
-			"For a read/review/analyze/answer step there is usually nothing to record: emit NO check for it (the prose "+
-			"`criteria` already cover it).\n\n"+
-			"CHECKLIST-DRIVEN, JOINTLY SATISFIABLE: author each step together with its own done-condition, so the "+
-			"checklist drives the step rather than the reverse. A check belongs ONLY to the step whose work creates or "+
-			"changes that state and is verified AT that step (label it with that step's number); never re-assert it "+
-			"under a later step. Read in plan order, the checks must be JOINTLY SATISFIABLE: do NOT require the SAME "+
-			"artifact PRESENT under one step and ABSENT under another as if both held at once — a teardown step's "+
-			"absence-check belongs to THAT step alone, while an earlier step's existence-check already passed at its "+
-			"own earlier step. A step may have SEVERAL checks (several deliverables). "+
-			"Omit `checks` entirely if your lens has none.\n\n"+
-			"%s"+
-			"Respond with ONLY a JSON object, no prose, no code fence:\n"+
-			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific fix (only if continue)","severity":"critical|warn|info (only if continue)","criteria":["..."],"checks":[{"step":"...","deliverable":"...","source":"...","assert":"..."}]`+keepField+`}`,
-		m.Name, m.Lens, lens, keepClause)
-}
-
-// contractMemberSystem builds the system prompt for the CONTRACT gate (Phase=="contract"),
-// which runs BEFORE the planner. The members author and agree on the turn's acceptance
-// contract — completion `criteria` (prose done-conditions the finished work is judged against)
-// and executable `checks` (deterministic verifications) — derived from the TASK itself, not
-// from any plan. The contract is bounded on BOTH sides: an UPPER bound (necessity — assert only
-// what the task states, never an invented version/path/value) and a LOWER bound (sufficiency —
-// exercise the contracted behavior, never accept mere existence/reachability of a stub). This
-// is the same criteria/checks calibration the plan-audit member applies, applied here first and
-// on its own so the plan is later built to satisfy a reviewed contract.
-func contractMemberSystem(m council.Member, lens string, keep bool) string {
-	// The contract is revised by CONSOLIDATION — a REPLACE, not a union — so one member's fix rewrites
-	// the WHOLE criteria list, and a criterion another lens had blessed can vanish in the rewrite. That
-	// is the same exposure the plan phase has, so the same advisory `keep` applies here.
-	keepClause, keepField := "", ""
-	if keep {
-		keepClause = "Also, through YOUR lens, note in `keep` the criteria that are ALREADY sound and must survive if " +
-			"the contract is revised — do this EVEN WHEN YOU APPROVE, because another member's fix REWRITES the whole " +
-			"contract, and without this the rewrite can drop a condition your lens already blessed. IDENTIFY each in a " +
-			"few words rather than copying it out; the writer is holding the contract. Advisory: it never changes your " +
-			"vote; omit if nothing through your lens is clearly settled.\n\n"
-		keepField = `,"keep":"criteria already sound through your lens that a revision must preserve — named, not restated; advisory, optional"`
-	}
-	// The contract phase judges a DIFFERENT thing than the termination gate (a goal definition, not a
-	// finished result), so the members wear contract-fit lenses rather than their verify-a-result ones.
-	switch m.Lens {
-	case "correctness":
-		lens = "requirements fidelity — does the contract capture the task's REAL objective, not a proxy or a detail?"
-	case "verification":
-		lens = "achievability — is each condition realistic and knowable NOW, not something only doing the work can reveal?"
-	case "completeness":
-		lens = "necessity & size — nothing over-demanded or prematurely method-pinned; the contract is minimal and goal-level."
-	}
-	return fmt.Sprintf(
-		"You are %s, a member of a council that agrees an AI coding agent's ACCEPTANCE CONTRACT for a TASK "+
-			"BEFORE any plan or work exists. Your lens is %q: %s\n\n"+
-			"The contract is a SHORT list of `criteria`: goal-level DONE-CONDITIONS — what must be TRUE for the "+
-			"task to count as finished. A criterion states the GOAL (the outcome), NEVER the method or how to "+
-			"verify it: no commands, paths, filenames, tools, or step counts — the work does not exist yet, so any "+
-			"concrete detail is a guess that may be wrong at run time. Leave HOW, and how to check, to the worker "+
-			"and the later plan.\n\n"+
-			"Propose your `criteria` and vote:\n"+
-			"- \"done\": through your lens the contract captures the task's real objective — nothing REQUIRED is "+
-			"missing and nothing is over-demanded. This is the DEFAULT: a reasonable goal-level contract is done.\n"+
-			"- \"continue\": ONLY for a concrete flaw — a required objective missing, an over-demand, or a criterion "+
-			"that pins a METHOD/DETAIL. Set `severity` (\"critical\" only if the contract would accept a WRONG result "+
-			"or reject a CORRECT one) and put the fix in `feedback`.\n"+
-			"- \"abstain\": your lens adds nothing.\n\n"+
-			"BE LENIENT — DO NOT DEMAND WHAT ONLY DOING CAN TELL: at contract time nothing is built, so you cannot "+
-			"know which paths exist, which tools are present, or the exact outputs — and neither can the agent yet. "+
-			"Do NOT require any of that now, and do NOT reject a contract for lacking execution detail; that is "+
-			"discovered during the work and verified later. Judge only the GOAL — is the right outcome captured, at "+
-			"the right scope, without over-demand? When in doubt, APPROVE.\n\n"+
-			"NECESSITY (upper bound): assert ONLY what the task itself states — never a version, path, value, or "+
-			"incidental the task did not require. For an analysis/answer task a criterion is a quality of the ANSWER "+
-			"(a representative, priority-ranked coverage), never \"every X\" or \"all N\".\n\n"+
-			"SUFFICIENCY (lower bound, goal-level): a criterion that only says the deliverable EXISTS/imports/builds "+
-			"is too weak when the task needs it to DO something — state the criterion as the BEHAVIOUR/outcome (it "+
-			"answers the request, returns the value, persists the state), still as a GOAL, never a verify command.\n\n"+
-			"KEEP IT SMALL and APPLY FEEDBACK: a few essential, high-value conditions BEAT an exhaustive list — do "+
-			"NOT pad; if the draft is already sufficient, APPROVE rather than add more. When the draft carries prior "+
-			"feedback, APPLY it (reduce/drop/fix as asked); and DROP any carried concern the task does not actually "+
-			"require rather than encode an over-demand.\n\n"+
-			"%s"+
-			"Respond with ONLY a JSON object, no prose, no code fence:\n"+
-			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific fix (only if continue)","severity":"critical|warn|info (only if continue)","criteria":["..."]%s}`,
-		m.Name, m.Lens, lens, keepClause, keepField)
-}
-
-// substMemberSystem builds the system prompt for the SUBSTITUTION review (Phase=="substitution"): an
-// acceptance check's given command could not run here and the agent ran an EQUIVALENT it says verifies
-// the same goal. The members judge whether each substitute is an adequate, honest equivalent. Unlike
-// the plan/contract phase this is STRICT — the deliverable is already built, so a weak proxy is
-// rejected — but it must not demand more than the original check itself required.
-func substMemberSystem(m council.Member, lens string, keep bool) string {
-	// A correction round sends the agent back to re-declare its substitutions, and it can withdraw a
-	// sound one along with the objected-to one. `keep` names the substitutes a lens already accepted so
-	// the correction is narrowed to what was actually wrong.
-	keepClause, keepField := "", ""
-	if keep {
-		keepClause = "Also, through YOUR lens, note in `keep` the substitution(s) that are ALREADY adequate and must " +
-			"survive a correction — do this EVEN WHEN YOU APPROVE, because one inadequate substitute sends ALL of them " +
-			"back to be re-declared. NAME each by the check it replaces, in a few words; do not re-copy the command. " +
-			"Advisory: it never changes your vote; omit if nothing is clearly settled.\n\n"
-		keepField = `,"keep":"substitutions already adequate through your lens that a correction must preserve — named by the check they replace; advisory, optional"`
-	}
-	switch m.Lens {
-	case "correctness":
-		lens = "equivalence — does the substitute verify the SAME goal as the original check, not a weaker proxy?"
-	case "verification":
-		lens = "adequacy — does the substitute actually EXERCISE the behaviour the original checked (not mere existence/reachability)?"
-	case "completeness":
-		lens = "necessity — is the substitution justified (the original truly could not run here) and neither over- nor under-reaching?"
-	}
-	return fmt.Sprintf(
-		"You are %s, a member of a council reviewing an AI coding agent's ACCEPTANCE-CHECK SUBSTITUTION. Your lens is "+
-			"%q: %s\n\n"+
-			"An acceptance check's given command could not run in this environment, so the agent ran an EQUIVALENT command "+
-			"it says verifies the SAME goal. Judge whether each substitute is an ADEQUATE, HONEST equivalent of the "+
-			"original check.\n\n"+
-			"The deliverable is already BUILT, so do NOT be lenient as at plan time — a weak proxy (checking mere "+
-			"existence/reachability when the original exercised behaviour, or a command that cannot actually fail) is NOT "+
-			"acceptable. But do NOT demand MORE than the original check itself required.\n\n"+
-			"Vote:\n"+
-			"- \"done\": the substitute reasonably verifies the same goal as the original — the DEFAULT when the "+
-			"equivalence is sound.\n"+
-			"- \"continue\": the substitute is inadequate — a weaker proxy, does not exercise the behaviour, or the "+
-			"original could plausibly have run (unjustified substitution). Set severity \"critical\" and put the specific "+
-			"fix in `feedback` (what the substitute must instead verify).\n"+
-			"- \"abstain\": your lens adds nothing.\n\n"+
-			"%s"+
-			"Respond with ONLY a JSON object, no prose, no code fence:\n"+
-			`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific fix (only if continue)","severity":"critical|warn|info (only if continue)"%s}`,
-		m.Name, m.Lens, lens, keepClause, keepField)
-}
-
 // evidence renders the deliberation request into the user message the members see.
 func evidence(req port.DeliberationRequest) string {
 	var b strings.Builder
@@ -1119,44 +804,6 @@ func evidence(req port.DeliberationRequest) string {
 		b.WriteString("# " + title + "\n")
 		b.WriteString(strings.TrimSpace(body))
 		b.WriteString("\n\n")
-	}
-	if req.Phase == "substitution" {
-		// Substitution review: the members judge whether the equivalent commands the agent ran
-		// adequately verify the same goals as the original acceptance checks it could not run.
-		section("What the substitutes must verify (the original checks & why they could not run)", req.Task)
-		section("The substitutions to review (the equivalent commands the agent ran)", req.Plan)
-		section("What the PREVIOUS round objected to — judge whether THIS declaration meets it; do not "+
-			"substitute a fresh objection for one already answered", req.Revision)
-		if b.Len() == 0 {
-			return "No substitution was provided; abstain."
-		}
-		return strings.TrimSpace(b.String())
-	}
-	if req.Phase == "contract" {
-		// Contract gate: only the task exists yet — no plan, no report. Members author and
-		// review the acceptance contract (criteria + checks) for the task itself. A draft
-		// contract from a prior round, when present, is carried in Plan for refinement.
-		section("Task (the goal)", req.Task)
-		section("Draft contract so far (refine it)", req.Plan)
-		section("How this draft was REVISED — it ALREADY incorporates the council's own feedback below. Do NOT re-introduce "+
-			"a criterion a prior round removed, and do not re-litigate wording that was already settled; raise something "+
-			"only if the TASK itself requires it", req.Revision)
-		section("A prior concern was CONTESTED as unjustified — re-judge whether the TASK requires it; drop it if not", req.Contest)
-		if b.Len() == 0 {
-			return "No task was provided; with nothing to contract for, abstain."
-		}
-		return strings.TrimSpace(b.String())
-	}
-	if req.Phase == "plan" {
-		// Plan audit: only the task and the proposed procedure exist yet.
-		section("Task (the goal)", req.Task)
-		section("The plan author CONTESTED your prior concern as unjustified — re-judge it against the TASK; if the task truly does not require it, do NOT re-raise it", req.Contest)
-		section("How this plan was REVISED (judge the revision on its content — a rewrite that DROPPED or WEAKENED work the prior plan had is a regression, however many steps it now has)", req.Revision)
-		section("Proposed procedure (the plan to audit)", req.Plan)
-		if b.Len() == 0 {
-			return "No task or procedure was provided; with nothing to judge, abstain."
-		}
-		return strings.TrimSpace(b.String())
 	}
 	section("Task (the goal)", req.Task)
 	section("Plan / acceptance criteria (the contract)", req.Plan)
@@ -1191,7 +838,7 @@ func evidence(req port.DeliberationRequest) string {
 	// a "continue" verdict it cannot act on just burns the remaining steps and ends the turn
 	// with nothing landed. Tell members to prefer accepting a reasonable result over demanding
 	// work that won't fit — without lowering the bar for a genuine, fixable defect.
-	if req.Phase != "plan" && req.Phase != "contract" && req.StepsLeft > 0 && req.StepsLeft <= 5 {
+	if req.StepsLeft > 0 && req.StepsLeft <= 5 {
 		b.WriteString(fmt.Sprintf("# Budget\nThe agent has only about %d step(s) left before it is force-stopped. "+
 			"If the report is a reasonable, working result, prefer DONE — a continue verdict it has no budget to act "+
 			"on wastes the remaining steps and ends the turn with nothing landed. Ask for another round only for a "+

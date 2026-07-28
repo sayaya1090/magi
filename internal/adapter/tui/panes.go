@@ -10,7 +10,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -789,32 +788,6 @@ func (m *Model) renderZoom(width int) string {
 	}
 	if s := strings.TrimSpace(p.live); s != "" {
 		b.WriteString("\n" + label(cstyle.Bold(true), p.label()) + "\n" + indent(lipgloss.NewStyle().Width(max(20, width-4)).Render(s)))
-	}
-	return b.String()
-}
-
-// title: each item's deliverable with its verifying command beneath. Shared by a subagent's
-// acceptance checklist and the council detail's verification ledger. Empty for no checks.
-func renderChecklist(title string, checks []council.DeliverableCheck, cstyle lipgloss.Style, width int) string {
-	if len(checks) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString(label(cstyle.Bold(true), title))
-	wrap := lipgloss.NewStyle().Width(max(20, width-6))
-	for i, c := range checks {
-		head := strings.TrimSpace(c.Deliverable)
-		if head == "" {
-			head = strings.TrimSpace(c.Command)
-		}
-		b.WriteString(fmt.Sprintf("\n%s %s", styleFooter.Render(fmt.Sprintf("%d.", i+1)), wrap.Render(head)))
-		if cmd := strings.TrimSpace(c.Command); cmd != "" && cmd != head {
-			line := "run: " + cmd
-			if e := strings.TrimSpace(c.Expect); e != "" {
-				line += "  (expect: " + e + ")"
-			}
-			b.WriteString("\n   " + styleFooter.Render(line))
-		}
 	}
 	return b.String()
 }
