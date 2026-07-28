@@ -19,6 +19,11 @@ import (
 // deadlock recorded an UNVERIFIED council note but emitted a clean turn.finished
 // (Unverified=false), so the UI painted an abandoned task as a confident "done".
 func TestDeadlockFinishMarkedUnverified(t *testing.T) {
+	// The VOTING gate: rounds, the round cap, the no-progress stop, the deadlock landing. The
+	// termination council now ADVISES by default, so this pins the behaviour behind
+	// MAGI_COUNCIL_ADVISORY=0 — which keeps both the incident history these cases encode and a
+	// genuinely exercised rollback path.
+	t.Setenv("MAGI_COUNCIL_ADVISORY", "0")
 	// Council that always says "keep working" → it never approves.
 	fc := &fakeCouncil{delibs: []council.Deliberation{
 		{Decision: council.Continue, Feedback: "the review is not complete yet"},

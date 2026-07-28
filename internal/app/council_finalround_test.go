@@ -15,6 +15,11 @@ import (
 // which a completion-looping model never produces (it burns the wall clock and
 // the timeout kill takes running deliverable processes down with it).
 func TestCouncilGateFinalRoundRejectionLandsImmediately(t *testing.T) {
+	// The VOTING gate: rounds, the round cap, the no-progress stop, the deadlock landing. The
+	// termination council now ADVISES by default, so this pins the behaviour behind
+	// MAGI_COUNCIL_ADVISORY=0 — which keeps both the incident history these cases encode and a
+	// genuinely exercised rollback path.
+	t.Setenv("MAGI_COUNCIL_ADVISORY", "0")
 	fc := &fakeCouncil{delibs: []council.Deliberation{
 		{Round: 1, Decision: council.Continue, Feedback: "still unmet A"},
 		{Round: 2, Decision: council.Continue, Feedback: "still unmet B"},

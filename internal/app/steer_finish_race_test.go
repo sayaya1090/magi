@@ -311,6 +311,11 @@ func TestSteerAfterAssistantTextRunsExactlyOnce(t *testing.T) {
 // caught by the normal top-of-loop scan when the gate loops, so it runs as its own turn.
 // Guards that the finish-boundary re-scan didn't disturb the working continue path.
 func TestSteerDuringCouncilContinueRoundRuns(t *testing.T) {
+	// The VOTING gate: rounds, the round cap, the no-progress stop, the deadlock landing. The
+	// termination council now ADVISES by default, so this pins the behaviour behind
+	// MAGI_COUNCIL_ADVISORY=0 — which keeps both the incident history these cases encode and a
+	// genuinely exercised rollback path.
+	t.Setenv("MAGI_COUNCIL_ADVISORY", "0")
 	bc := &blockingCouncil{
 		started: make(chan struct{}),
 		release: make(chan struct{}),

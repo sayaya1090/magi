@@ -82,6 +82,11 @@ func submitAndDrain(t *testing.T, a *App, workdir string) []event.Event {
 // The council gate holds the loop open until the council votes done: a "continue"
 // round injects feedback and the loop runs again.
 func TestCouncilGateContinuesThenFinishes(t *testing.T) {
+	// The VOTING gate: rounds, the round cap, the no-progress stop, the deadlock landing. The
+	// termination council now ADVISES by default, so this pins the behaviour behind
+	// MAGI_COUNCIL_ADVISORY=0 — which keeps both the incident history these cases encode and a
+	// genuinely exercised rollback path.
+	t.Setenv("MAGI_COUNCIL_ADVISORY", "0")
 	fc := &fakeCouncil{delibs: []council.Deliberation{
 		{Round: 1, Decision: council.Continue, Feedback: "the tests are missing — add them"},
 		{Round: 2, Decision: council.Done},
@@ -261,6 +266,11 @@ func TestCouncilGateCostCapAllowsFirstRound(t *testing.T) {
 // set, so the round count alone cannot tell them apart; the gate must flag the genuine deadlock
 // explicitly. Driving the gate to completion exercises exactly the discrimination hook B relies on.
 func TestCouncilGateDeadlockSignal(t *testing.T) {
+	// The VOTING gate: rounds, the round cap, the no-progress stop, the deadlock landing. The
+	// termination council now ADVISES by default, so this pins the behaviour behind
+	// MAGI_COUNCIL_ADVISORY=0 — which keeps both the incident history these cases encode and a
+	// genuinely exercised rollback path.
+	t.Setenv("MAGI_COUNCIL_ADVISORY", "0")
 	// run drives the gate repeatedly (as the loop does) until it finishes, returning the
 	// deadlock flag it reported on the finishing call and the final round count.
 	run := func(t *testing.T, delibs []council.Deliberation) (bool, int) {
@@ -390,6 +400,11 @@ func TestCouncilNoChangesTurn(t *testing.T) {
 
 // A council that always says continue is bounded by max_rounds, then finishes.
 func TestCouncilMaxRoundsStops(t *testing.T) {
+	// The VOTING gate: rounds, the round cap, the no-progress stop, the deadlock landing. The
+	// termination council now ADVISES by default, so this pins the behaviour behind
+	// MAGI_COUNCIL_ADVISORY=0 — which keeps both the incident history these cases encode and a
+	// genuinely exercised rollback path.
+	t.Setenv("MAGI_COUNCIL_ADVISORY", "0")
 	fc := &fakeCouncil{delibs: []council.Deliberation{
 		// Distinct feedback each round so the no-progress guard doesn't fire first;
 		// the round cap is what must stop it.
@@ -423,6 +438,11 @@ func TestCouncilMaxRoundsStops(t *testing.T) {
 // tool gets NO second deliberation: the round would re-judge identical evidence
 // and print the same (often long) answer twice. One convene, then a skip note.
 func TestCouncilSkipsRedeliberationOnUnchangedResubmission(t *testing.T) {
+	// The VOTING gate: rounds, the round cap, the no-progress stop, the deadlock landing. The
+	// termination council now ADVISES by default, so this pins the behaviour behind
+	// MAGI_COUNCIL_ADVISORY=0 — which keeps both the incident history these cases encode and a
+	// genuinely exercised rollback path.
+	t.Setenv("MAGI_COUNCIL_ADVISORY", "0")
 	fc := &fakeCouncil{delibs: []council.Deliberation{
 		{Round: 1, Decision: council.Continue, Feedback: "do more"},
 		{Round: 2, Decision: council.Continue, Feedback: "even more"},
@@ -446,6 +466,11 @@ func TestCouncilSkipsRedeliberationOnUnchangedResubmission(t *testing.T) {
 
 // Repeated feedback (no progress) stops the gate before max_rounds.
 func TestCouncilNoProgressStops(t *testing.T) {
+	// The VOTING gate: rounds, the round cap, the no-progress stop, the deadlock landing. The
+	// termination council now ADVISES by default, so this pins the behaviour behind
+	// MAGI_COUNCIL_ADVISORY=0 — which keeps both the incident history these cases encode and a
+	// genuinely exercised rollback path.
+	t.Setenv("MAGI_COUNCIL_ADVISORY", "0")
 	fc := &fakeCouncil{delibs: []council.Deliberation{
 		{Round: 1, Decision: council.Continue, Feedback: "same thing"},
 		{Round: 2, Decision: council.Continue, Feedback: "same thing"},
@@ -719,4 +744,43 @@ func hasDecidedNote(evs []event.Event, sub string) bool {
 		}
 	}
 	return false
+}
+
+// Advisory (the default): the members' reading is recorded and handed to the agent, and the turn
+// ends. A tally decided this before, and every mechanism that made that verdict trustworthy — the
+// rule, the rounds, the convergence judgment, the rebuttal, the devil — existed for it. A gate that
+// keeps a turn open cannot tell a wrong result from an unfinished one; magi's own record can say
+// which commands ran and which succeeded, and that is what the guard is made of now.
+//
+// The dissent must not vanish: it is injected for the agent and carried in the unverified reason.
+func TestCouncilAdvisoryRecordsDissentAndFinishes(t *testing.T) {
+	a := newOrchApp(t, &gateLLM{text: "x"}, Config{Permission: "allow", MaxAgents: 10})
+	s := parentSession(t.TempDir())
+	a.mu.Lock()
+	a.stateLocked(s.ID).meta = s
+	a.mu.Unlock()
+	a.cfg.Council = &fakeCouncil{delibs: []council.Deliberation{{
+		Decision: council.Continue,
+		Feedback: "the test suite was never run against the change",
+		Verdicts: []council.Verdict{{Member: "Balthasar", Lens: "verification", Decision: council.Continue}},
+	}}}
+	ct := &councilTurn{}
+	keep, unv := a.runCouncilGate(context.Background(), s, AgentSpec{Name: "default"},
+		councilInput{turnTask: "fix it", lastText: "done", stepsLeft: 5}, ct)
+	if keep {
+		t.Fatal("advisory must not hold the turn open")
+	}
+	if !strings.Contains(unv, "the test suite was never run") {
+		t.Errorf("the dissent must reach the unverified reason, got %q", unv)
+	}
+	if ct.rounds != 1 {
+		t.Errorf("advisory deliberates once, got %d rounds", ct.rounds)
+	}
+
+	// A council that accepts the result says nothing and leaves no unverified reason.
+	a.cfg.Council = &fakeCouncil{delibs: []council.Deliberation{{Decision: council.Done}}}
+	if keep, unv := a.runCouncilGate(context.Background(), s, AgentSpec{Name: "default"},
+		councilInput{turnTask: "fix it", lastText: "done", stepsLeft: 5}, &councilTurn{}); keep || unv != "" {
+		t.Errorf("an accepted result finishes clean, got keep=%v unv=%q", keep, unv)
+	}
 }

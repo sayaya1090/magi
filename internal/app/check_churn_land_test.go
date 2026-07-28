@@ -86,6 +86,11 @@ func TestTerminationGateChurnResetsOnPass(t *testing.T) {
 // passed; it accrues on each council rejection that followed an edit, and lands UNVERIFIED at the cap
 // so the external verifier judges the live deliverable instead of an external hard-kill tearing it down.
 func TestTerminationGateCouncilChurnLands(t *testing.T) {
+	// The VOTING gate: rounds, the round cap, the no-progress stop, the deadlock landing. The
+	// termination council now ADVISES by default, so this pins the behaviour behind
+	// MAGI_COUNCIL_ADVISORY=0 — which keeps both the incident history these cases encode and a
+	// genuinely exercised rollback path.
+	t.Setenv("MAGI_COUNCIL_ADVISORY", "0")
 	t.Setenv("MAGI_STEP_VERIFY", "1")
 	t.Setenv("MAGI_EXEC_EVIDENCE", "0") // isolate the council path (no authored-but-unrun nudge in front)
 	t.Setenv("MAGI_CHECK_CHURN_CAP", "2")

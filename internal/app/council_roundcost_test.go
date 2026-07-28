@@ -30,6 +30,11 @@ func appendToolCall(t *testing.T, a *App, sid session.SessionID, name string) {
 // standing verdict without deliberating; the reused rounds still count, so the
 // round cap lands (UNVERIFIED) without further council cost.
 func TestCouncilNoProgressDeltaGateSkipsDeliberation(t *testing.T) {
+	// The VOTING gate: rounds, the round cap, the no-progress stop, the deadlock landing. The
+	// termination council now ADVISES by default, so this pins the behaviour behind
+	// MAGI_COUNCIL_ADVISORY=0 — which keeps both the incident history these cases encode and a
+	// genuinely exercised rollback path.
+	t.Setenv("MAGI_COUNCIL_ADVISORY", "0")
 	fc := &fakeCouncil{delibs: []council.Deliberation{
 		{Round: 1, Decision: council.Continue, Feedback: "run the real test", Verdicts: []council.Verdict{
 			{Member: "Melchior", Decision: council.Continue, Feedback: "run the real test"},
@@ -77,6 +82,11 @@ func TestCouncilNoProgressDeltaGateSkipsDeliberation(t *testing.T) {
 // A council that votes CONTINUE but hands back NO actionable feedback cannot drive progress — the
 // gate must land a forced UNVERIFIED finish instead of injecting an empty prompt and looping forever.
 func TestCouncilContinueWithoutFeedbackLandsUnverified(t *testing.T) {
+	// The VOTING gate: rounds, the round cap, the no-progress stop, the deadlock landing. The
+	// termination council now ADVISES by default, so this pins the behaviour behind
+	// MAGI_COUNCIL_ADVISORY=0 — which keeps both the incident history these cases encode and a
+	// genuinely exercised rollback path.
+	t.Setenv("MAGI_COUNCIL_ADVISORY", "0")
 	fc := &fakeCouncil{delibs: []council.Deliberation{
 		{Round: 1, Decision: council.Continue, Feedback: "", Verdicts: []council.Verdict{
 			{Member: "Melchior", Decision: council.Continue},
@@ -101,6 +111,11 @@ func TestCouncilContinueWithoutFeedbackLandsUnverified(t *testing.T) {
 // A re-finish WITH new actions re-polls only the dissenting member: prior done
 // votes are carried, the request is a delta round focused on the standing concern.
 func TestCouncilFocusedReRound(t *testing.T) {
+	// The VOTING gate: rounds, the round cap, the no-progress stop, the deadlock landing. The
+	// termination council now ADVISES by default, so this pins the behaviour behind
+	// MAGI_COUNCIL_ADVISORY=0 — which keeps both the incident history these cases encode and a
+	// genuinely exercised rollback path.
+	t.Setenv("MAGI_COUNCIL_ADVISORY", "0")
 	fc := &fakeCouncil{delibs: []council.Deliberation{
 		{Round: 1, Decision: council.Continue, Feedback: "server is not proven running", Verdicts: []council.Verdict{
 			{Member: "Melchior", Decision: council.Continue, Feedback: "server is not proven running"},

@@ -621,3 +621,19 @@ func leaseExternalCreditEnabled() bool { return !envOff("MAGI_LEASE_EXTERNAL_CRE
 //
 // Default ON; MAGI_REQUEST_LITERALS=0 restores the model-only list for A/B.
 func requestLiteralsEnabled() bool { return !envOff("MAGI_REQUEST_LITERALS") }
+
+// councilAdvisoryEnabled makes the termination council ADVISE instead of decide.
+//
+// A tally decided the turn before, and everything that turned opinions into a verdict — the rule,
+// the rounds, the convergence judgment, the rebuttal round, the devil pass — existed to make that
+// verdict trustworthy. A gate that keeps a turn open cannot tell a wrong result from an unfinished
+// one, so it held correct work open and let a plausible report through. magi's own record already
+// says which commands ran and which succeeded, and that is what a guard should be made of: an
+// observation cannot be wrong about what it observed.
+//
+// The dissent is not lost — it is injected for the agent, recorded on the turn, and carried in the
+// unverified reason. What still forces another step is deterministic: Stop hooks, the exercise
+// ledger, the fabrication signal.
+//
+// Default ON; MAGI_COUNCIL_ADVISORY=0 restores the voting gate for A/B.
+func councilAdvisoryEnabled() bool { return !envOff("MAGI_COUNCIL_ADVISORY") }

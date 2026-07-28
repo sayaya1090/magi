@@ -570,6 +570,32 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		return false, "" // the council agrees the turn may finish — a genuine, verified done
 	}
 
+	// ADVISORY: the members' reading is recorded and handed to the agent, and the turn ends.
+	//
+	// A tally decided this before, and every mechanism that turned opinions into a verdict — the
+	// rule, the rounds, the convergence judgment, the rebuttal round, the devil pass — existed to
+	// make that verdict trustworthy. The trade never paid: a gate that keeps a turn open cannot tell
+	// a wrong result from an unfinished one, so it held correct work open and let a plausible report
+	// through, while magi's own record already said which commands ran and which of them succeeded.
+	// That record is now at the head of the evidence (stopRecord), and it is what a guard should be
+	// made of — an observation cannot be wrong about what it observed.
+	//
+	// So the council advises and the agent judges. What still forces another step is deterministic
+	// and unchanged: the workspace's Stop hooks, the exercise ledger's authored-but-never-run check,
+	// and the fabrication signal. The dissent is not lost — it is injected, recorded on the turn, and
+	// carried in the unverified reason, so a reader sees exactly what the members did not accept.
+	if councilAdvisoryEnabled() {
+		fb := strings.TrimSpace(delib.Feedback)
+		if fb != "" {
+			a.injectCouncilAdvice(ctx, sid, fb, true)
+		}
+		emitDecided(council.Done, fb, "advisory: the members' reading is recorded, not a verdict — the agent judges", false)
+		if fb == "" {
+			return false, ""
+		}
+		return false, "the council did not accept this result: " + clipLine(fb, 200)
+	}
+
 	// No-progress guard: empty or repeated feedback means another round would just
 	// spin, so finish instead — recorded as a forced "done", not an error.
 	fb := strings.TrimSpace(delib.Feedback)
