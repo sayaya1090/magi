@@ -61,7 +61,6 @@ func (a *App) generateStep(ctx context.Context, tc turnCtx, agent AgentSpec, age
 					a.emitToolProgress(sid, agentActor, "", agent.Name, "context too large for the model — compacting and retrying")
 					evs, _ = a.store.Read(ctx, sid, 0)
 					req, evs = a.buildStepRequest(ctx, tc, evs, step, cumOut)
-					guard.noteStep()
 					continue
 				}
 			}
@@ -85,7 +84,6 @@ func (a *App) generateStep(ctx context.Context, tc turnCtx, agent AgentSpec, age
 		// silent backend still trips the step budget instead of looping.
 		if res.stalled && sAttempt < maxStreamStallRetries && ctx.Err() == nil {
 			a.emitToolProgress(sid, agentActor, "", agent.Name, fmt.Sprintf("no response for %s — retrying the request", streamStallTimeout))
-			guard.noteStep()
 			continue
 		}
 		if res.stalled {

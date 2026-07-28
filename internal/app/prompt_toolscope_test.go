@@ -20,7 +20,7 @@ func TestToolSpecsDataToolsBashScoped(t *testing.T) {
 
 	names := func(agent AgentSpec) map[string]bool {
 		m := map[string]bool{}
-		for _, s := range a.toolSpecs(agent, false, 0) {
+		for _, s := range a.toolSpecs(agent) {
 			m[s.Name] = true
 		}
 		return m

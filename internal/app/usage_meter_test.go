@@ -63,60 +63,25 @@ func TestUsageTotalCountsEveryRequest(t *testing.T) {
 	}
 }
 
-// A delegated step's tokens belong to the run that delegated it. Counting only the parent's own
-// session reports near-zero for exactly the turns that cost the most.
-func TestUsageRollsUpFromChildren(t *testing.T) {
-	a := newShellApp(t, &shellPlatform{})
-	wd := t.TempDir()
-	spawn := func(id, parent session.SessionID) {
-		a.mu.Lock()
-		a.stateLocked(id).meta = session.Session{ID: id, Workdir: wd, Parent: parent}
-		a.mu.Unlock()
-	}
-	spawn("s_main", "")
-	spawn("s_kid", "s_main")
-	spawn("s_grand", "s_kid")
-
-	a.recordUsage("s_main", "m", event.Usage{In: 10, Out: 1})
-	a.recordUsage("s_kid", "m", event.Usage{In: 100, Out: 20})
-	a.recordUsage("s_grand", "m", event.Usage{In: 1000, Out: 300})
-
-	got := a.UsageFor("s_main")
-	if got.In != 1110 || got.Out != 321 {
-		t.Errorf("UsageFor(main) = in %d / out %d; want 1110/321 (self + child + grandchild)", got.In, got.Out)
-	}
-	if own := a.UsageFor("s_grand"); own.In != 1000 {
-		t.Errorf("a leaf reports only itself, got %d", own.In)
-	}
-	if tot := a.UsageTotal(); tot.In != 1110 {
-		t.Errorf("the grand total must match, got %d", tot.In)
-	}
-}
-
-// A finished turn must report the BILL — every request under it, subagents included — not the
-// agent's own stream with In holding only the last prompt.
+// A finished turn must report the BILL — every request under it, side calls and council polls
+// included — not the agent's own stream with In holding only the last prompt.
 func TestTurnUsageReportsTheBill(t *testing.T) {
 	a := newShellApp(t, &shellPlatform{})
 	wd := t.TempDir()
-	spawn := func(id, parent session.SessionID) {
-		a.mu.Lock()
-		a.stateLocked(id).meta = session.Session{ID: id, Workdir: wd, Parent: parent}
-		a.mu.Unlock()
-	}
-	spawn("s_root", "")
-	spawn("s_kid", "s_root")
+	a.mu.Lock()
+	a.stateLocked("s_root").meta = session.Session{ID: "s_root", Workdir: wd}
+	a.mu.Unlock()
 
 	start := a.UsageFor("s_root")
-	// Two steps of the agent's own stream, a council poll, and a subagent's work.
+	// Two steps of the agent's own stream, plus a council poll on the same session.
 	a.recordUsage("s_root", "m", event.Usage{In: 500, Out: 50})
 	a.recordUsage("s_root", "m", event.Usage{In: 900, Out: 40})
 	a.recordUsage("s_root", "m", event.Usage{In: 300, Out: 20}) // council/side call, same session
-	a.recordUsage("s_kid", "m", event.Usage{In: 2000, Out: 700})
 
 	// The old accounting would have said In=900 (last prompt) / Out=90 (own stream only).
 	u := turnUsage(a, "s_root", start, 900, 90, 0)
-	if u.In != 3700 || u.Out != 810 {
-		t.Errorf("turn usage = in %d / out %d; want 3700/810 (every request, subagent included)", u.In, u.Out)
+	if u.In != 1700 || u.Out != 110 {
+		t.Errorf("turn usage = in %d / out %d; want 1700/110 (every request under the turn)", u.In, u.Out)
 	}
 
 	// A backend that reports no usage at all must not turn into a zero: the stream totals stand in.

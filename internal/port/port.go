@@ -270,25 +270,6 @@ type ToolEnv struct {
 	// extended rather than killed as churn. nil when the host doesn't track (the
 	// interject aside path has no execution tools); a tool must nil-check it.
 	TrackProc func(pid int, running bool)
-	// Spawn runs a subagent and returns its final output. It is set by the
-	// application for the task tool; nil when subagents are unavailable. The
-	// application enforces bounded recursion (D7). (F-AGENT-MULTI)
-	Spawn func(ctx context.Context, req SpawnRequest) SpawnResult
-	// Dispatch runs a subagent in the BACKGROUND (sidecar): it returns
-	// immediately and the result is injected into the parent session when ready,
-	// keeping the orchestrator responsive. nil when subagents are unavailable.
-	// It returns "" when the subagent was dispatched, or a non-empty note when it
-	// was NOT (e.g. an identical task is already running) so the caller can tell
-	// the model instead of silently duplicating work.
-	Dispatch func(req SpawnRequest) string
-	// CancelDispatch cancels the orchestrator's still-running BACKGROUND subagents
-	// when an intermediate result made the rest unnecessary. agent=="" cancels all
-	// remaining; otherwise only that role. It returns the number cancelled, or an
-	// error when cancel isn't allowed yet (no intermediate result has arrived) or no
-	// reason was given. Nothing is auto-rolled back: each cancelled subagent's result
-	// carries a manifest of what it did so the orchestrator can compensate. Set only
-	// for the top-level orchestrator (depth 0); nil for subagents.
-	CancelDispatch func(agent, reason string) (int, error)
 	// Ask lets a running subagent request something from its orchestrator
 	// mid-task (escalation); it blocks until the orchestrator replies. Set only
 	// for subagents; nil for the top-level agent.
@@ -356,68 +337,6 @@ type SandboxSpec struct {
 // Confined reports whether the spec requests actual confinement.
 func (s SandboxSpec) Confined() bool {
 	return s.Mode == "read-only" || s.Mode == "workspace-write"
-}
-
-// SpawnRequest asks the application to run a named subagent on a prompt.
-type SpawnRequest struct {
-	Agent  string
-	Prompt string
-	// Tools, when non-empty, overrides the child's tool allowlist for this spawn only:
-	// the worker sees exactly these tools (further narrowed by the role/env gates in
-	// toolSpecs) instead of its agent's configured set. Used by the context curator to
-	// hand a worker a task-scoped toolset. Empty = the agent's own allowlist (default).
-	Tools []string
-	// Background marks an asynchronously dispatched subagent (the task tool / sidecar):
-	// the orchestrator stays in its loop and can answer the subagent's `ask`
-	// escalations. Synchronous spawns (planner explorers, nested spawns) leave it
-	// false — the parent is blocked awaiting the child, so escalation can't be answered.
-	Background bool
-	// CloneContext seeds the child session with a copy of the parent's conversation
-	// before its prompt, so the child re-plans WITH the full context carried forward.
-	// Used by the hierarchical `refine` strategy (in-context recursion), which — unlike
-	// delegate's context-free hand-off — needs the parent's history to work out a
-	// non-independent sub-goal.
-	CloneContext bool
-	// ReuseSession runs the prompt in an EXISTING session instead of creating a fresh one:
-	// the session-creation, SessionCreated event, and CloneContext seeding are all skipped,
-	// and the prompt is appended to the named session's accumulated conversation. Used by the
-	// hierarchical `refine` strategy to run sequentially-dependent phases in ONE shared child
-	// session, so each phase sees its predecessors' actual work (not just a spawn-time clone).
-	// Empty = current behavior (new session). Takes precedence over CloneContext when set.
-	ReuseSession session.SessionID
-	// Timeout, when non-zero, bounds the ENTIRE background spawn (all restart attempts
-	// included) from dispatch time. Used by the planner's async explorer fan-out: a
-	// churning explorer stays event-active (the stall watchdog never fires) and a
-	// per-attempt timeout alone still multiplies by the restart budget, so without an
-	// overall bound one bad explorer can outlive the parent's whole wall-clock budget.
-	// Expiry cancels via the parent-ctx path, which spawn treats as terminal (no retry).
-	Timeout time.Duration
-	// PlanStepIndex is the parent plan-step index this child carries out (delegate/refine
-	// write-step). Recorded on the child session (and its SessionCreated fact) so the plan
-	// tree can be reconstructed and the child's todos render indented under the step. nil
-	// for spawns not tied to a plan step (council, scout list, stuck re-decompose). Ignored
-	// on the ReuseSession path — a shared child keeps its first phase's step.
-	PlanStepIndex *int
-	// Recovery marks a child spawned by the stuck-recovery lifeline (redecomposeStuck). Such a
-	// child starts already flagged as recovered, so it cannot trigger its OWN stuck-recovery —
-	// capping re-decomposition to one executor per run tree instead of one per depth level (the
-	// depth-cascade fix, gated by recoveryRunCapEnabled). Ignored when the cap is off.
-	Recovery bool
-	// MaxSteps, when >0, caps each attempt's agent-loop steps for this child instead of the
-	// configured default. Used for children whose task is deliberately small (a stuck-recovery
-	// unit): a scoped unit that re-fixates should fail fast and yield to the next unit, not
-	// burn the full whole-task step budget times the restart count.
-	MaxSteps int
-}
-
-// SpawnResult is a subagent's outcome.
-type SpawnResult struct {
-	Text string
-	Err  string // non-empty on failure (e.g. recursion limit)
-	// SessionID is the child session this attempt ran in (created, or reused via
-	// ReuseSession). The caller can pass it back as a later spawn's ReuseSession to continue
-	// in the same session. Set on both success and failure.
-	SessionID session.SessionID
 }
 
 // ToolRegistry holds the set of available tools by name.

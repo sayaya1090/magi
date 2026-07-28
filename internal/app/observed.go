@@ -35,7 +35,7 @@ type observedCmd struct {
 	exec    bool // it ran something (not only inspection verbs)
 }
 
-// observedRun is the record over a session and everything dispatched beneath it.
+// observedRun is the record over a session.
 type observedRun struct {
 	cmds    []observedCmd
 	changed []string // paths a tool call in this run wrote to
@@ -50,7 +50,7 @@ const observedScanCap = provenanceScanCap
 func (a *App) observe(ctx context.Context, sid session.SessionID) observedRun {
 	var out observedRun
 	seen := map[string]bool{}
-	for _, s := range append([]session.SessionID{sid}, a.descendantsOf(sid)...) {
+	for _, s := range []session.SessionID{sid} {
 		evs := a.readEventsBestEffort(ctx, s)
 		if len(evs) > observedScanCap {
 			evs = evs[len(evs)-observedScanCap:]
@@ -232,9 +232,6 @@ func (a *App) writtenPaths(ctx context.Context, sid session.SessionID, cap int) 
 		}
 	}
 	add(a.readEventsBestEffort(ctx, sid))
-	for _, k := range a.descendantsOf(sid) {
-		add(a.readEventsBestEffort(ctx, k))
-	}
 	return out
 }
 

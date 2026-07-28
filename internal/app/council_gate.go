@@ -439,17 +439,6 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		}
 	}
 
-	// Delegated work lives in child sessions the council's own evidence scan cannot see.
-	// Fold in this turn's subagent tool evidence so a delegating orchestrator is judged on
-	// what its subagents actually did, not just on its synthesis of them.
-	if sub := a.subagentTurnEvidence(ctx, sid, evs); sub != "" {
-		if actions == "" {
-			actions = sub
-		} else {
-			actions = actions + "\n" + sub
-		}
-	}
-
 	// What magi ITSELF observed, at the head of the evidence. The members have judged a claim against
 	// reconstructed edits and a tool-evidence digest; neither says whether a command magi ran actually
 	// SUCCEEDED, and a build piped through `| tail` reports exit 0 either way — observed four times in

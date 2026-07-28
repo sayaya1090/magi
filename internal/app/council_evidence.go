@@ -1,10 +1,8 @@
 package app
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -410,59 +408,6 @@ func lastUserPromptTS(evs []event.Event) time.Time {
 		}
 	}
 	return time.Time{}
-}
-
-// subagentTurnEvidence renders the tool evidence of the subagents this orchestrator (parent)
-// dispatched DURING THE CURRENT TURN. A delegating orchestrator runs few or no tools itself
-// and injects each subagent's result as a prose PROMPT — which turnToolEvidence both excludes
-// (it is model text, not a tool result) and treats as a turn boundary (it resets the window).
-// So without this the council judges delegated work on the orchestrator's synthesis alone,
-// blind to what the subagents actually did. This restores the raw child tool evidence, labeled
-// per subagent, so the council sees the real actions. Scoped by creation time to the current
-// turn (children from a prior turn linger in a.states and must not leak in). Best-effort: an
-// unreadable child is skipped, never an error.
-func (a *App) subagentTurnEvidence(ctx context.Context, parent session.SessionID, parentEvs []event.Event) string {
-	turnStart := lastUserPromptTS(parentEvs)
-	a.mu.Lock()
-	var kids []session.Session
-	for _, st := range a.states {
-		s := st.meta
-		if s.Parent != parent {
-			continue
-		}
-		if !turnStart.IsZero() && s.Created.Before(turnStart) {
-			continue // a child from a previous turn of this session
-		}
-		kids = append(kids, s)
-	}
-	a.mu.Unlock()
-	if len(kids) == 0 {
-		return ""
-	}
-	sort.Slice(kids, func(i, j int) bool {
-		if !kids[i].Created.Equal(kids[j].Created) {
-			return kids[i].Created.Before(kids[j].Created)
-		}
-		return kids[i].ID < kids[j].ID
-	})
-	if len(kids) > maxSubagentsShown { // keep the most recent wave when many were dispatched
-		kids = kids[len(kids)-maxSubagentsShown:]
-	}
-	var blocks []string
-	for _, k := range kids {
-		cevs, err := a.store.Read(ctx, k.ID, 0)
-		if err != nil {
-			continue
-		}
-		if m := turnToolEvidence(cevs, subagentActionsCap); m != "" {
-			label := k.Agent
-			if label == "" {
-				label = "subagent"
-			}
-			blocks = append(blocks, "subagent "+label+":\n"+m)
-		}
-	}
-	return strings.Join(blocks, "\n")
 }
 
 // clipEach returns at most n entries, with a marker when more were dropped.

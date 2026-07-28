@@ -35,18 +35,14 @@ func (a *App) run(ctx context.Context, sid session.SessionID) error {
 // level only), and the static list of available skills. Kept byte-stable within
 // a turn so the backend's prefix (KV) cache survives across steps — per-step
 // volatile context (plan/experience/RAG) is injected separately, never here.
-func (a *App) buildStepSystem(agent AgentSpec, workdir string, isSub bool, evs []event.Event) string {
-	sys := a.systemFor(agent, workdir, isSub)
-	// Language lock: weak models ignore a "reply in the user's language" rule
-	// buried in a long prompt, so detect the user's script and put a short,
-	// forceful directive FIRST (primacy). Top-level only — subagents report to
-	// the orchestrator, not the user. Lock to the genuine user's language, NOT the
-	// latest user-role message — council/hook/auto feedback is injected as a
-	// user-role prompt (often English), which would let a weak model drift.
-	if !isSub {
-		if dir := langDirective(lastUserPromptText(evs)); dir != "" {
-			sys = dir + "\n\n" + sys
-		}
+func (a *App) buildStepSystem(agent AgentSpec, workdir string, evs []event.Event) string {
+	sys := a.systemFor(agent, workdir)
+	// Language lock: weak models ignore a "reply in the user's language" rule buried in a long
+	// prompt, so detect the user's script and put a short, forceful directive FIRST (primacy). Lock
+	// to the genuine user's language, NOT the latest user-role message — council/hook/auto feedback
+	// is injected as a user-role prompt (often English), which would let a weak model drift.
+	if dir := langDirective(lastUserPromptText(evs)); dir != "" {
+		sys = dir + "\n\n" + sys
 	}
 	// Available skills (model loads one via the skill tool when relevant).
 	if sk := a.loadSkills(workdir); len(sk) > 0 {
@@ -250,41 +246,6 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			return lastText, ctx.Err()
 		}
 		a.setStage(sid, stageExecute) // tag this iteration's events as execute (D15)
-		guard.noteStep()              // step-based rabbit-hole counter (turnProgressCheckEnabled)
-		// One-shot nudge before the "idle" stuck recovery: an agent reasoning for many steps with
-		// no deliverable is pushed to ACT (write/run/verify) — often all a reasoning loop needs.
-		//
-		// Never to an agent that CANNOT act: a read-only spec (no write/edit/bash in its allowlist)
-		// produces nothing by contract, so "no deliverable" describes its normal operation, and the
-		// nudge orders it to do the one thing its tools forbid. Observed on the read-only repository
-		// explorer: it had just located the right source file, took the nudge, and spent the next four
-		// minutes writing a fix proposal it could not apply — re-reading one region seven times until
-		// the loop guard stopped it. Its findings never named a path, and the plan built on them
-		// targeted the wrong file. specCanAct is checked FIRST because idleNudgeDue consumes the
-		// one-shot budget as a side effect.
-		if specCanAct(agent) && guard.idleNudgeDue() {
-			// specCanAct only proves the agent can WRITE or run a command; waiting is a separate
-			// vocabulary, and the curated worker's set has bash without wait_for. Name a way to wait
-			// only when there is one, or the nudge ends by sending the agent into a refusal.
-			waiting := "If you are waiting on a long external operation, say what you are waiting for; otherwise, act."
-			if steer := waitSteer(agent); steer != "" {
-				waiting = "If you are waiting on a long external operation, " + steer + "; otherwise, act."
-			}
-			// State the window as it actually was. What the counter measures is "no deliverable
-			// changed since"; whether a command ran in that window is a separate fact, and
-			// asserting it unmeasured got it wrong — a run that had started two builds was told
-			// no command had been run. Where commands DID run, the point stands and sharpens:
-			// they did not change anything.
-			nd, _ := json.Marshal(event.PromptSubmittedData{
-				MessageID: "m_" + newID(),
-				Parts: []session.Part{{Kind: session.PartText, Text: "You have taken many steps " +
-					"without producing or changing any deliverable" + idleWindowFacts(guard) + ". " +
-					"Reasoning alone does not finish the task. STOP analyzing and take the concrete next action NOW: " +
-					"write the file, run the build/test, or execute the program — then verify its output. " + waiting}},
-			})
-			a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "orchestrator"}, nd)
-		}
-
 		evs, err := a.store.Read(ctx, sid, 0)
 		if err != nil {
 			a.emitError(ctx, sid, agentActor, err.Error())
@@ -339,7 +300,6 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// guards never see a response that never finishes, so this is the only place to break it.
 		if res.reasoningSpun {
 			a.emitToolProgress(sid, agentActor, "", agent.Name, "cancelled a reasoning-only spin — take a concrete action")
-			guard.noteStep()
 			_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, reasoningSpinNudge)
 			continue
 		}
@@ -577,8 +537,7 @@ func (a *App) detectInterjections(ctx context.Context, tc turnCtx, evs []event.E
 func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Event, step, cumOut int) (port.ChatRequest, []event.Event) {
 	s, agent, agentActor := tc.s, tc.agent, tc.actor
 	sid := s.ID
-	isSub := s.Parent != ""
-	sys := a.buildStepSystem(agent, s.Workdir, isSub, evs)
+	sys := a.buildStepSystem(agent, s.Workdir, evs)
 
 	// Unfiltered reconstruction of the whole log, built ONCE per step and shared by the
 	// volatile-context retrieval query and the compaction sizing check below — reconstruct
@@ -605,7 +564,7 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 		}
 		return v + "\n\n" + note
 	}
-	vol := withNote(a.volatileContext(ctx, s, agent, isSub, evs, raw, step, tc.maxSteps, time.Since(tc.runStart)))
+	vol := withNote(a.volatileContext(ctx, s, agent, evs, raw, step, tc.maxSteps, time.Since(tc.runStart)))
 
 	// Context-aware auto-compaction (M6): if the assembled context exceeds the model's
 	// window budget, summarize older turns and re-read. Measure against sys+vol so the
@@ -613,7 +572,7 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 	if a.maybeCompact(ctx, s, agent, agentActor, evs, raw, sys+"\n\n"+vol) {
 		evs, _ = a.store.Read(ctx, sid, 0)
 		raw = reconstruct(evs) // refresh after compaction
-		vol = withNote(a.volatileContext(ctx, s, agent, isSub, evs, raw, step, tc.maxSteps, time.Since(tc.runStart)))
+		vol = withNote(a.volatileContext(ctx, s, agent, evs, raw, step, tc.maxSteps, time.Since(tc.runStart)))
 	}
 
 	msgs := reconstruct(a.liveEvents(sid, evs))
@@ -624,7 +583,7 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 			evs = evs2
 			msgs = reconstruct(a.liveEvents(sid, evs))
 			raw = reconstruct(evs)
-			vol = withNote(a.volatileContext(ctx, s, agent, isSub, evs, raw, step, tc.maxSteps, time.Since(tc.runStart)))
+			vol = withNote(a.volatileContext(ctx, s, agent, evs, raw, step, tc.maxSteps, time.Since(tc.runStart)))
 		}
 	}
 	// Append the volatile context as an ephemeral trailing user message (not persisted, so
@@ -645,7 +604,7 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 		Model:    s.Model.Model,
 		System:   sys,
 		Messages: msgs,
-		Tools:    a.toolSpecs(agent, isSub, tc.depth),
+		Tools:    a.toolSpecs(agent),
 	}, evs
 }
 

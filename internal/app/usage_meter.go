@@ -159,20 +159,9 @@ func (a *App) UsageTotal() event.Usage {
 	return a.usageTotal
 }
 
-// UsageFor reports what one session cost INCLUDING everything dispatched beneath it — a delegated
-// step's tokens belong to the run that delegated it, not to a child nobody looks at afterwards.
+// UsageFor reports what one session cost.
 func (a *App) UsageFor(sid session.SessionID) event.Usage {
-	kids := a.descendantsOf(sid) // takes a.mu; must not be held while usageMu is
 	a.usageMu.Lock()
 	defer a.usageMu.Unlock()
-	total := a.usageBySession[sid]
-	for _, k := range kids {
-		u := a.usageBySession[k]
-		total.In += u.In
-		total.Out += u.Out
-		total.Cost += u.Cost
-		total.Cached += u.Cached
-		total.Reasoning += u.Reasoning
-	}
-	return total
+	return a.usageBySession[sid]
 }

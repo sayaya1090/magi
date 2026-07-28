@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/council"
@@ -113,34 +112,6 @@ func (a *App) OpenConcerns(ctx context.Context, sid session.SessionID) []port.Si
 	return out
 }
 
-// PlanChildren returns the child sessions spawned to carry out the given plan step
-// of parent, in creation order. It joins the parent link (session.Parent) with the
-// per-child ParentStep edge recorded at spawn — the pair reconstructs the plan tree
-// so a child's own todos can render indented under this step. Empty when the step was
-// solo or its delegate/refine child never registered a sub-plan.
-func (a *App) PlanChildren(parent session.SessionID, step int) []session.SessionID {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	var kids []session.Session
-	for _, st := range a.states {
-		s := st.meta
-		if s.Parent == parent && s.ParentStep != nil && *s.ParentStep == step {
-			kids = append(kids, s)
-		}
-	}
-	sort.Slice(kids, func(i, j int) bool {
-		if !kids[i].Created.Equal(kids[j].Created) {
-			return kids[i].Created.Before(kids[j].Created)
-		}
-		return kids[i].ID < kids[j].ID // stable tie-break for same-instant spawns
-	})
-	out := make([]session.SessionID, len(kids))
-	for i, s := range kids {
-		out[i] = s.ID
-	}
-	return out
-}
-
 // GitDiff returns the complete working-tree diff for workdir (empty if no
 // changes), INCLUDING the content of new untracked files. A plain `git diff`
 // omits untracked files, which hides exactly the new files an agent most often
@@ -219,30 +190,4 @@ func (a *App) RunShell(ctx context.Context, workdir, cmd string) (out string, ex
 // ListSessions returns session metadata for a workdir.
 func (a *App) ListSessions(ctx context.Context, workdir string) ([]session.SessionMeta, error) {
 	return a.store.ListSessions(ctx, workdir)
-}
-
-// ChildView is a finished subagent's restored transcript (for resuming a parent
-// session's subagent panes).
-type ChildView struct {
-	ID       session.SessionID
-	Role     string
-	Messages []session.Message
-}
-
-// ChildSessions returns the subagent sessions spawned by parent, each with its
-// reconstructed transcript, so a UI can restore them as (done) panes on resume.
-func (a *App) ChildSessions(ctx context.Context, workdir string, parent session.SessionID) ([]ChildView, error) {
-	metas, err := a.store.ChildSessions(ctx, workdir, string(parent))
-	if err != nil {
-		return nil, err
-	}
-	out := make([]ChildView, 0, len(metas))
-	for _, m := range metas {
-		msgs, _, err := a.SessionState(ctx, m.ID)
-		if err != nil {
-			continue
-		}
-		out = append(out, ChildView{ID: m.ID, Role: m.Agent, Messages: msgs})
-	}
-	return out, nil
 }

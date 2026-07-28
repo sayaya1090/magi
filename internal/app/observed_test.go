@@ -124,40 +124,6 @@ func TestThinRecord(t *testing.T) {
 	}
 }
 
-// A delegated step's work happens in a child session; the record has to reach across it or a
-// delegate-heavy turn reads as empty — the same shape that made the parent's token totals look
-// like nothing while the run cost the most.
-func TestObserveReachesChildren(t *testing.T) {
-	app := newShellApp(t, &shellPlatform{})
-	ctx := context.Background()
-	wd := t.TempDir()
-	parent, err := app.CreateSession(ctx, command.CreateSession{Workdir: wd})
-	if err != nil {
-		t.Fatal(err)
-	}
-	const kid = session.SessionID("s_kid")
-	app.mu.Lock()
-	app.stateLocked(kid).meta = session.Session{ID: kid, Workdir: wd, Agent: "worker", Parent: parent}
-	app.mu.Unlock()
-	cd, _ := json.Marshal(event.SessionCreatedData{Workdir: wd, Agent: "worker", Parent: string(parent)})
-	if e := app.appendFact(ctx, kid, event.TypeSessionCreated, event.Actor{Kind: event.ActorAgent, ID: "worker"}, cd); e != nil {
-		t.Fatal(e)
-	}
-	c, r := bashPair("c1", "go test ./...", "exit 0\n")
-	if _, e := app.store.Append(ctx, kid, c); e != nil {
-		t.Fatal(e)
-	}
-	if _, e := app.store.Append(ctx, kid, r); e != nil {
-		t.Fatal(e)
-	}
-	if app.observe(ctx, parent).thin() {
-		t.Error("a child's work is the parent's record too")
-	}
-	if !app.observe(ctx, parent).succeeded() {
-		t.Error("the child's clean run must be visible from the parent")
-	}
-}
-
 // The finish seam is where the built-in record and the workspace's configured Stop hooks meet: both
 // answer "is there a reason not to end here", one from magi's own record, one from team procedure.
 // The record carries what nothing else at that seam does — which commands magi could not determine

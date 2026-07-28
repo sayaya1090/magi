@@ -124,7 +124,7 @@ func TestBashRevertIsNotANewDeliverableVersion(t *testing.T) {
 	const path = "shared_heap.c"
 
 	// v0 → v1: a real new version. It is progress, so the counters restart and the nudge re-arms.
-	g.stepsSinceMut, g.sinceProgress, g.idleNudged = progressNudgeSteps+3, noProgressNudge, true
+	g.sinceProgress = noProgressNudge
 	_, reset := g.noteBashWrite("sed -i 's/old/new/' " + path)
 	if !reset {
 		t.Fatal("a redirect-less mutation must bump the epoch and reset the counters")
@@ -132,20 +132,19 @@ func TestBashRevertIsNotANewDeliverableVersion(t *testing.T) {
 	if warn, regressed := g.noteEdit(path, "v0", "v1"); regressed || warn != "" {
 		t.Fatalf("a first, forward change is not a revert (warn=%q)", warn)
 	}
-	if g.stepsSinceMut != 0 || g.idleNudged {
-		t.Fatal("a real new version restarts the idle window and re-arms the nudge")
+	if g.sinceProgress != 0 {
+		t.Fatal("a real new version restarts the progress window")
 	}
 
 	// …then the restore. The command text differs from the last one, so mutated() resets again —
 	// and the content check must hand every one of those resets back.
-	g.stepsSinceMut, g.sinceProgress = progressNudgeSteps+4, noProgressNudge+2
-	g.idleNudged = true
+	g.sinceProgress = noProgressNudge + 2
 	_, reset = g.noteBashWrite("cp " + path + ".bak " + path)
 	if !reset {
 		t.Fatal("the restore is a different command, so mutated() cannot see it is a revert")
 	}
-	if g.stepsSinceMut != 0 || g.idleNudged {
-		t.Fatal("precondition: the bump zeroed the window and re-armed the nudge")
+	if g.sinceProgress != 0 {
+		t.Fatal("precondition: the bump zeroed the window")
 	}
 	warn, regressed := g.noteEdit(path, "v1", "v0")
 	if !regressed {
@@ -156,25 +155,8 @@ func TestBashRevertIsNotANewDeliverableVersion(t *testing.T) {
 	}
 	g.retractProgress()
 
-	if g.stepsSinceMut != progressNudgeSteps+4 {
-		t.Errorf("the idle window must keep climbing across the swing, got %d", g.stepsSinceMut)
-	}
 	if g.sinceProgress != noProgressNudge+2 {
-		t.Errorf("the stall window must keep climbing across the swing, got %d", g.sinceProgress)
-	}
-	// The one-shot budget was already spent before the swing: a revert must not buy a second nudge.
-	// Otherwise every swing past the threshold re-emits the same "act now" text, and a repeated
-	// nudge is what pushes a weak model to keep thrashing.
-	if !g.idleNudged {
-		t.Error("a revert must NOT re-arm the one-shot act-now nudge")
-	}
-	if g.idleNudgeDue() {
-		t.Error("…so no second nudge is due")
-	}
-	// Both windows keep climbing across the oscillation, which is the whole point: the counters
-	// that feed the nudge are not zeroed by a revert.
-	if g.stepsSinceMut == 0 || g.sinceProgress == 0 {
-		t.Error("a revert must leave both windows standing")
+		t.Errorf("the progress window must keep climbing across the swing, got %d", g.sinceProgress)
 	}
 }
 
@@ -185,7 +167,7 @@ func TestBashRewriteToANewStateKeepsItsProgress(t *testing.T) {
 	g := newRunGuard()
 	const path = "main.go"
 	g.noteEdit(path, "v0", "v1")
-	g.stepsSinceMut, g.sinceProgress, g.idleNudged = progressNudgeSteps+2, noProgressNudge, true
+	g.sinceProgress = noProgressNudge
 
 	_, reset := g.noteBashWrite("sed -i 's/v1/v2/' " + path)
 	if !reset {
@@ -194,10 +176,7 @@ func TestBashRewriteToANewStateKeepsItsProgress(t *testing.T) {
 	if _, regressed := g.noteEdit(path, "v1", "v2"); regressed {
 		t.Fatal("a state this file has never held is forward progress, not a revert")
 	}
-	if g.stepsSinceMut != 0 || g.sinceProgress != 0 {
+	if g.sinceProgress != 0 {
 		t.Error("forward progress keeps its counter reset")
-	}
-	if g.idleNudged {
-		t.Error("a real new version re-arms the act-now nudge")
 	}
 }

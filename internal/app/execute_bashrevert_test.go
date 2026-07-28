@@ -16,12 +16,12 @@ import (
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
-// TestBashRestoreLoopReachesTheStuckLadder drives REAL bash commands through executeTool, because
-// the guard machinery this fix relies on was already correct and merely unreachable from the bash
-// path — a unit test on the guard alone would have passed before the fix too. The shape is the one
-// observed live: back up, edit, restore, edit, restore. The net effect of each restore is a file
-// state the turn already held, so it must not buy the run a fresh progress window.
-func TestBashRestoreLoopReachesTheStuckLadder(t *testing.T) {
+// TestBashRestoreLoopKeepsTheProgressWindowClimbing drives REAL bash commands through executeTool,
+// because the guard machinery this relies on was already correct and merely unreachable from the
+// bash path — a unit test on the guard alone would have passed before the fix too. The shape is the
+// one observed live: back up, edit, restore, edit, restore. The net effect of each restore is a
+// file state the turn already held, so it must not buy the run a fresh progress window.
+func TestBashRestoreLoopKeepsTheProgressWindowClimbing(t *testing.T) {
 	store, err := jsonl.New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -53,10 +53,10 @@ func TestBashRestoreLoopReachesTheStuckLadder(t *testing.T) {
 	// window. That is the baseline the loop then has to climb away from.
 	run("sed -i.tmp 's/original/patched/' heap.c && rm -f heap.c.tmp")
 	guard.mu.Lock()
-	steps := guard.stepsSinceMut
+	since0 := guard.sinceProgress
 	guard.mu.Unlock()
-	if steps != 0 {
-		t.Fatalf("precondition: a genuinely new version restarts the idle window, got %d", steps)
+	if since0 != 0 {
+		t.Fatalf("precondition: a genuinely new version restarts the progress window, got %d", since0)
 	}
 
 	// Now the loop: restore→re-patch, over and over. Every command differs from the one before it,
@@ -64,40 +64,25 @@ func TestBashRestoreLoopReachesTheStuckLadder(t *testing.T) {
 	// a brand-new deliverable version and zeroed both windows, which is how the run stayed one step
 	// from the threshold forever and burned its whole budget here. The content read is what sees it,
 	// so the windows must now CLIMB straight through the loop.
-	nudges := 0
-	for i := 0; i < progressStallSteps; i++ {
+	for i := 0; i < 18; i++ {
 		run("cp heap.c.bak heap.c")
 		run("sed -i.tmp 's/original/patched/' heap.c && rm -f heap.c.tmp")
-		guard.noteStep()
-		if guard.idleNudgeDue() {
-			nudges++
-		}
 	}
 
 	guard.mu.Lock()
-	steps, since := guard.stepsSinceMut, guard.sinceProgress
+	since := guard.sinceProgress
 	guard.mu.Unlock()
-	if steps < progressStallSteps {
-		t.Errorf("the idle window must climb across a restore loop, got stepsSinceMut=%d (want >= %d)", steps, progressStallSteps)
-	}
 	if since == 0 {
-		t.Error("the stall window must climb across a restore loop, got sinceProgress=0")
+		t.Error("the progress window must climb across a restore loop, got sinceProgress=0")
 	}
-	// Exactly one act-now nudge for the whole loop: the re-arm belongs to a real new version, and a
-	// nudge repeated on every swing is what pushes a weak model to keep thrashing.
-	if nudges != 1 {
-		t.Errorf("the act-now nudge fired %d times across the loop, want exactly 1", nudges)
-	}
-	// The windows are what matter now: they climb, so the nudge that reads them fires. Nothing
-	// force-stops on them any more.
 
 	// The control, in the same run: a bash edit to a state the file has never held IS progress and
-	// clears the ladder, so the fix cannot be mistaken for "bash mutations stopped counting".
+	// restarts the window, so this cannot be mistaken for "bash mutations stopped counting".
 	run("sed -i.tmp 's/patched/brand-new/' heap.c && rm -f heap.c.tmp")
 	guard.mu.Lock()
-	steps = guard.stepsSinceMut
+	since = guard.sinceProgress
 	guard.mu.Unlock()
-	if steps != 0 {
-		t.Errorf("a genuinely new version must restart the window, got stepsSinceMut=%d", steps)
+	if since != 0 {
+		t.Errorf("a genuinely new version must restart the window, got sinceProgress=%d", since)
 	}
 }

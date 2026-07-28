@@ -139,11 +139,7 @@ func (m *Model) statusPanel(panelTop int) string {
 		}
 		sep()
 		lines = append(lines, panelHead(fmt.Sprintf("Plan  %d/%d", done, len(todos))))
-		// Render the plan as a tree: after each step, the todos of any child session
-		// spawned for that step (delegate/refine re-plan) render one level deeper. Each
-		// node's status comes from its own session (single source of truth); the parent
-		// step ↔ child session edge (PlanChildren) supplies only the structure.
-		lines = m.appendPlanTree(lines, m.panelSID(), inner, 0)
+		lines = m.appendPlanSteps(lines, m.panelSID(), inner)
 	}
 
 	// What magi OBSERVED: its own record of this run — the paths its tools wrote and how the
@@ -227,7 +223,7 @@ func (m *Model) workerPanel(p *agentPane) string {
 		}
 		sep()
 		lines = append(lines, panelHead(fmt.Sprintf("Plan  %d/%d", done, len(todos))))
-		lines = m.appendPlanTree(lines, p.sid, inner, 0)
+		lines = m.appendPlanSteps(lines, p.sid, inner)
 	}
 	if len(lines) <= 1 {
 		return "" // just the label — nothing worth a box
@@ -317,28 +313,15 @@ func panelHead(s string) string {
 	return lipgloss.NewStyle().Foreground(colPrimary).Bold(true).Render(s)
 }
 
-// appendPlanTree renders sid's todos at the given depth and recurses into each
-// step's child sessions (PlanChildren), so a delegate/refine child's own sub-plan
-// appears indented beneath the parent step it serves. The session tree is acyclic
-// by construction (a child's Parent is an already-created session); planTreeMaxDepth
-// is a defensive bound so pathological nesting can't run indentation off the panel.
-func (m *Model) appendPlanTree(lines []string, sid session.SessionID, inner, depth int) []string {
-	if depth > planTreeMaxDepth {
-		return lines
-	}
-	todos := m.app.Todos(sid)
-	for i, t := range todos {
-		lines = append(lines, todoLine(t, inner, depth))
-		for _, kid := range m.app.PlanChildren(sid, i) {
-			lines = m.appendPlanTree(lines, kid, inner, depth+1)
-		}
+// appendPlanSteps renders sid's todos. It used to recurse into each step's child sessions, which
+// is how a delegated sub-plan appeared indented beneath the step it served; there are no child
+// sessions now, so the plan is the one the agent keeps for itself.
+func (m *Model) appendPlanSteps(lines []string, sid session.SessionID, inner int) []string {
+	for _, t := range m.app.Todos(sid) {
+		lines = append(lines, todoLine(t, inner, 0))
 	}
 	return lines
 }
-
-// planTreeMaxDepth caps plan-tree nesting depth in the panel. Recursive planning is
-// itself bounded (MaxPlanDepth), so this only guards against unexpected deep chains.
-const planTreeMaxDepth = 6
 
 // todoLine renders one plan item with a status glyph. depth indents nested plan
 // nodes (a child session's todos rendered under the parent step they serve), two

@@ -18,7 +18,7 @@ func TestVolatileContextHoldsPlan(t *testing.T) {
 		"s1": {todos: []session.Todo{{Content: "implement X", Status: "in_progress"}}},
 	}}
 	s := session.Session{ID: "s1"}
-	out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, nil, 0, 0, 0)
+	out := a.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 0, 0, 0)
 	if !strings.Contains(out, "# Current plan (TODOs)") || !strings.Contains(out, "implement X") {
 		t.Fatalf("volatileContext should carry the plan, got %q", out)
 	}
@@ -30,11 +30,11 @@ func TestVolatileContextElapsed(t *testing.T) {
 	a := &App{}
 	s := session.Session{ID: "s1"}
 	// Under a minute: nothing.
-	if out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, nil, 6, 40, 30*time.Second); strings.Contains(out, "wall-clock") {
+	if out := a.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 6, 40, 30*time.Second); strings.Contains(out, "wall-clock") {
 		t.Fatalf("sub-minute elapsed should not be shown, got %q", out)
 	}
 	// Over a minute: shown.
-	out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, nil, 6, 40, 11*time.Minute)
+	out := a.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 6, 40, 11*time.Minute)
 	if !strings.Contains(out, "working for 11m") || !strings.Contains(out, "wall-clock") {
 		t.Fatalf("elapsed line should report self-measured wall clock, got %q", out)
 	}
@@ -45,14 +45,14 @@ func TestVolatileContextElapsed(t *testing.T) {
 func TestVolatileContextTimeBudget(t *testing.T) {
 	s := session.Session{ID: "s1"}
 	off := &App{}
-	if out := off.volatileContext(context.Background(), s, AgentSpec{}, false, nil, nil, 6, 40, 5*time.Minute); strings.Contains(out, "asked for this to finish") {
+	if out := off.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 6, 40, 5*time.Minute); strings.Contains(out, "asked for this to finish") {
 		t.Fatalf("time budget off by default should emit no budget line, got %q", out)
 	}
 	on := &App{cfg: Config{TimeBudget: 30 * time.Minute}}
-	if out := on.volatileContext(context.Background(), s, AgentSpec{}, false, nil, nil, 6, 40, 10*time.Minute); !strings.Contains(out, "within 30m") || !strings.Contains(out, "remaining") {
+	if out := on.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 6, 40, 10*time.Minute); !strings.Contains(out, "within 30m") || !strings.Contains(out, "remaining") {
 		t.Fatalf("time budget should state remaining, got %q", out)
 	}
-	if out := on.volatileContext(context.Background(), s, AgentSpec{}, false, nil, nil, 6, 40, 40*time.Minute); !strings.Contains(out, "EXCEEDED") {
+	if out := on.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 6, 40, 40*time.Minute); !strings.Contains(out, "EXCEEDED") {
 		t.Fatalf("elapsed past the budget should read EXCEEDED, got %q", out)
 	}
 }
@@ -62,7 +62,7 @@ func TestVolatileContextTimeBudget(t *testing.T) {
 func TestVolatileContextEmpty(t *testing.T) {
 	a := &App{}
 	s := session.Session{ID: "s1"}
-	if out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, nil, 0, 0, 0); out != "" {
+	if out := a.volatileContext(context.Background(), s, AgentSpec{}, nil, nil, 0, 0, 0); out != "" {
 		t.Fatalf("expected empty volatile context, got %q", out)
 	}
 }
@@ -76,9 +76,9 @@ func TestSystemForIsByteStableAcrossSteps(t *testing.T) {
 		"zeta": {System: "z"}, "alpha": {System: "a"}, "mid": {System: "m"},
 	}}}
 	dir := t.TempDir()
-	first := a.systemFor(AgentSpec{System: "base"}, dir, false)
+	first := a.systemFor(AgentSpec{System: "base"}, dir)
 	for i := 0; i < 30; i++ { // many iterations to surface map-order randomization
-		if got := a.systemFor(AgentSpec{System: "base"}, dir, false); got != first {
+		if got := a.systemFor(AgentSpec{System: "base"}, dir); got != first {
 			t.Fatalf("systemFor not stable across calls:\n--- first ---\n%s\n--- got ---\n%s", first, got)
 		}
 	}
@@ -97,11 +97,9 @@ func TestSystemForIsByteStableAcrossSteps(t *testing.T) {
 func TestSystemForCarriesOutputFormatGuide(t *testing.T) {
 	a := newOrchApp(t, &recLLM{reply: func(string) string { return "" }}, Config{})
 	dir := t.TempDir()
-	for _, isSub := range []bool{false, true} {
-		got := a.systemFor(AgentSpec{System: "base"}, dir, isSub)
-		if !strings.Contains(got, "markdown table") || !strings.Contains(got, "Do NOT hand-align") {
-			t.Errorf("systemFor(isSub=%v) missing the output-formatting guide:\n%s", isSub, got)
-		}
+	got := a.systemFor(AgentSpec{System: "base"}, dir)
+	if !strings.Contains(got, "markdown table") || !strings.Contains(got, "Do NOT hand-align") {
+		t.Errorf("systemFor missing the output-formatting guide:\n%s", got)
 	}
 }
 

@@ -18,10 +18,8 @@ import (
 
 // ---- helpers ----
 
-// toolSpecs returns the tools available to an agent (honoring its allowlist). depth
-// is the orchestration nesting level, used to hide tools whose eligibility is
-// depth-dynamic (replan is offered only to a plan-eligible agent).
-func (a *App) toolSpecs(agent AgentSpec, isSub bool, depth int) []port.ToolSpec {
+// toolSpecs returns the tools available to an agent, honoring its allowlist.
+func (a *App) toolSpecs(agent AgentSpec) []port.ToolSpec {
 	var specs []port.ToolSpec
 	for _, t := range a.tools.List() {
 		name := t.Name()
@@ -50,7 +48,7 @@ func (a *App) toolSpecs(agent AgentSpec, isSub bool, depth int) []port.ToolSpec 
 
 // systemFor builds the system prompt for an agent: durable project memory (AGENTS.md) + the
 // agent's own prompt + what the runtime environment is.
-func (a *App) systemFor(agent AgentSpec, workdir string, isSub bool) string {
+func (a *App) systemFor(agent AgentSpec, workdir string) string {
 	sys := agent.System
 	if mem := a.projectMemory(workdir); mem != "" {
 		sys = "# Project memory\n" + mem + "\n\n" + sys
@@ -73,7 +71,7 @@ func (a *App) systemFor(agent AgentSpec, workdir string, isSub bool) string {
 // raw is reconstruct(evs) computed by the caller — the step loop already needs it for
 // compaction sizing, and reconstruct is O(events), so it is built once per step and
 // shared rather than re-derived here for the retrieval query.
-func (a *App) volatileContext(ctx context.Context, s session.Session, agent AgentSpec, isSub bool, evs []event.Event, raw []session.Message, step, maxSteps int, elapsed time.Duration) string {
+func (a *App) volatileContext(ctx context.Context, s session.Session, agent AgentSpec, evs []event.Event, raw []session.Message, step, maxSteps int, elapsed time.Duration) string {
 	var b strings.Builder
 	// There is no step ceiling any more, so there is no budget to report. What is left is the one
 	// number that was always magi's own and always true: how long this has been running. A model
@@ -121,13 +119,10 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 			b.WriteString("\n\n# Shared experience\n" + p)
 		}
 	}
-	// Plugin-registered context providers (RAG): top-level only — subagents run focused
-	// prompts and are skipped to avoid re-querying per delegation.
-	if !isSub {
-		if q := retrievalQ; q != "" {
-			if c := a.gatherContextCached(ctx, s, q); c != "" {
-				b.WriteString("\n\n# Retrieved context\n" + c)
-			}
+	// Plugin-registered context providers (RAG).
+	if q := retrievalQ; q != "" {
+		if c := a.gatherContextCached(ctx, s, q); c != "" {
+			b.WriteString("\n\n# Retrieved context\n" + c)
 		}
 	}
 	return strings.TrimSpace(b.String())
@@ -315,28 +310,6 @@ func pmInstallHint(pm string) string {
 	}
 	return pm + " install <pkg>"
 }
-
-// subagentGuide is appended to every subagent's system prompt. It defines how a
-// subagent reports and terminates, which weak local models get wrong.
-const subagentGuide = "\n\n# How you work (input/output contract)\n" +
-	"You are a subagent doing ONE focused task. Your INPUT is the task prompt above. WRITE your answer/findings as " +
-	"your normal message — it streams to the user live, so do this rather than holding it back. Use tools only to " +
-	"gather information or make the requested change; NEVER use bash, echo, or cat to print or \"finalize\" your " +
-	"conclusion. Don't repeat yourself, re-run checks you've already done, or keep working after you have the answer."
-
-// subagentReportClause is appended when the report tool is available.
-const subagentReportClause = " When done, call the 'report' tool to finish: status (\"done\", or \"blocked\"/" +
-	"\"failed\" with what went wrong); optionally summary/details only if you did NOT already write the answer as your " +
-	"message. Calling 'report' ENDS your turn and hands your result to the orchestrator. If you're blocked and " +
-	"cannot resolve it, report \"blocked\" with what you needed."
-
-// subagentAskClause is appended when the escalation tool is available too, replacing the
-// straight-to-blocked ending above with the escalation that precedes it.
-const subagentAskClause = " Before reporting \"blocked\", if what you need is something only the orchestrator " +
-	"can provide, use the 'ask' tool first."
-
-// subagentFinishClause is the fallback when no report tool exists.
-const subagentFinishClause = " When the task is done, write your answer as your final message and stop."
 
 // outputFormatGuide steers tabular output toward markdown tables. Replies render as
 // markdown (glamour), which lays out `| a | b |` tables and measures DISPLAY width — so

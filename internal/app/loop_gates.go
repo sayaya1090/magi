@@ -197,34 +197,21 @@ func (a *App) enforceStopHooks(ctx context.Context, tc turnCtx, ts *turnState) (
 	return loopContinue, true
 }
 
-// nudgeEmptyResult fires the once-per-turn "you ended without a result" nudge and loops.
-// A turn that produced no tool call this step must still deliver something:
-//   - Subagent: if report is available it has NOT filed one (report terminates the run
-//     earlier), so nudge it to call report; when report is unavailable, only an EMPTY
-//     result warrants the nudge.
-//   - Top level: empty answer text delivered nothing the user can read — a reasoning-only
-//     stop, common with harmony-format weak models. This holds whether the turn ran no
-//     tool at all or ran tools then went silent, so the user never gets a silent finish.
+// nudgeEmptyResult fires the once-per-turn "you ended without a result" nudge and loops. An empty
+// answer delivered nothing the user can read — a reasoning-only stop, common with harmony-format
+// weak models — and it holds whether the turn ran no tool at all or ran tools and then went silent,
+// so a turn never finishes in silence.
 //
 // Fires once (ts.nudgedEmpty), so a still-empty retry then finishes normally.
 func (a *App) nudgeEmptyResult(ctx context.Context, tc turnCtx, lastText string, ts *turnState) (loopAction, bool) {
 	if ts.nudgedEmpty {
 		return 0, false
 	}
-	isSub := tc.s.Parent != ""
-	_, hasReport := a.tools.Get("report")
-	reportAvail := isSub && hasReport && tc.agent.allows("report")
-	emptyResult := strings.TrimSpace(lastText) == ""
-	if !((isSub && (reportAvail || emptyResult)) || (!isSub && emptyResult)) {
+	if strings.TrimSpace(lastText) != "" {
 		return 0, false
 	}
 	ts.nudgedEmpty = true
-	msg := "You are ending your turn without delivering a result. Call the 'report' tool NOW with " +
-		"your actual findings/answer and a status (done/blocked/failed). Do not stop with a partial " +
-		"thought; if the task isn't finished, continue it first."
-	if !reportAvail {
-		msg = "You ended without giving a result. Write your findings/answer for the task now as your message."
-	}
+	msg := "You ended without giving a result. Write your findings/answer for the task now as your message."
 	pd, _ := json.Marshal(event.PromptSubmittedData{
 		MessageID: "m_" + newID(),
 		Parts:     []session.Part{{Kind: session.PartText, Text: msg}},

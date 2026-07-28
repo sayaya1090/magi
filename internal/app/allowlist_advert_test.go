@@ -40,7 +40,7 @@ func lastToolResultText(t *testing.T, a *App, sid session.SessionID) string {
 // the refusal cannot drift from the list the model was shown.
 func TestAllowlistRefusalNamesWhatTheAgentMayCallInstead(t *testing.T) {
 	a, sid, wd := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow"})
-	s := session.Session{ID: sid, Workdir: wd, Parent: "s_parent"}
+	s := session.Session{ID: sid, Workdir: wd}
 	agent := AgentSpec{Name: "explorer", Tools: []string{"read", "grep", "glob", "list", "findcontext"}}
 
 	if !a.gateAllowlist(context.Background(), s, agent, 1, event.Actor{Kind: event.ActorAgent, ID: "explorer"},
@@ -75,7 +75,7 @@ func TestExperiencePointerOnlyForAgentsThatMayCallRecallMemory(t *testing.T) {
 	readOnlyTools := []string{"read", "grep", "glob", "list", "findcontext"}
 	exp := &countingExperience{}
 	a, sid, wd := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow", Experience: exp})
-	s := session.Session{ID: sid, Workdir: wd, Parent: "s_parent"}
+	s := session.Session{ID: sid, Workdir: wd}
 	raw := []session.Message{{ID: "m1", Role: session.RoleUser,
 		Parts: []session.Part{{Kind: session.PartText, Text: "explore the repository"}}}}
 
@@ -90,7 +90,7 @@ func TestExperiencePointerOnlyForAgentsThatMayCallRecallMemory(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			vol := a.volatileContext(context.Background(), s, AgentSpec{Name: "a", Tools: c.tools},
-				true, nil, raw, 1, 30, 0)
+				nil, raw, 1, 30, 0)
 			if got := strings.Contains(vol, "recall_memory"); got != c.want {
 				t.Errorf("advertises recall_memory=%t, want %t — the prompt must promise only what "+
 					"the allowlist permits\n%s", got, c.want, vol)
