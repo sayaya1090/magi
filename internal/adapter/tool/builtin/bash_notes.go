@@ -418,16 +418,127 @@ const sigPipeExit = 141
 // false one, since magi holds the status and it says the command was mid-write when the reader
 // left. The suppression exists precisely so an agent is not sent to re-run a command without its
 // pipe to learn what it was already told.
-func stagesClean(stages []int) bool {
+func stagesClean(command string, stages []int) bool {
 	if len(stages) < 2 {
 		return false // not a pipeline: nothing was resolved, so nothing may be claimed resolved
 	}
-	for _, st := range stages {
-		if st != 0 && st != sigPipeExit {
+	verbs := lastPipelineVerbs(command)
+	if len(verbs) != len(stages) {
+		verbs = nil // the parse and the statuses disagree — claim nothing about which verb is which
+	}
+	for i, st := range stages {
+		if st == 0 {
+			continue
+		}
+		verb := ""
+		if verbs != nil {
+			verb = verbs[i]
+		}
+		if !stageAnswered(verb, st) {
 			return false
 		}
 	}
 	return true
+}
+
+// answersWithExitOne are commands whose exit 1 is an ANSWER, not a failure: grep found no match,
+// diff found a difference. Their 2 (and anything else) is a real error and stays one. This is the
+// documented, universal contract of these tools, not a guess about intent — magi is not deciding
+// whether the agent WANTED matches, only refusing to call "no" a breakage.
+var answersWithExitOne = map[string]bool{
+	"grep": true, "egrep": true, "fgrep": true, "zgrep": true,
+	"rg": true, "ag": true, "ack": true,
+	"diff": true, "cmp": true,
+}
+
+// stageAnswered reports whether a stage's non-zero status is that command answering rather than
+// breaking. SIGPIPE for any verb — the reader closed the pipe, which is what `| head -50` is for.
+func stageAnswered(verb string, st int) bool {
+	if st == sigPipeExit {
+		return true
+	}
+	return st == 1 && answersWithExitOne[verb]
+}
+
+// lastPipelineVerbs returns the leading verb of each stage of the command's LAST pipeline — the one
+// whose per-stage statuses PIPESTATUS captured. Returns nil when it cannot say confidently; every
+// caller treats nil as "no verb known" and falls back to the status alone.
+//
+// Quote-aware, because an operator inside quotes is data: `grep -n "a|b" f | head` is two stages,
+// not three, and a splitter that miscounts hands the caller verbs that belong to other statuses.
+// The length check at the call site is the backstop for everything this scanner gets wrong.
+func lastPipelineVerbs(command string) []string {
+	// The last top-level segment: control operators end the pipeline before them.
+	seg, quote := strings.Builder{}, byte(0)
+	last := ""
+	flush := func() {
+		if s := strings.TrimSpace(seg.String()); s != "" {
+			last = s
+		}
+		seg.Reset()
+	}
+	for i := 0; i < len(command); i++ {
+		c := command[i]
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+			seg.WriteByte(c)
+		case c == '\'' || c == '"':
+			quote = c
+			seg.WriteByte(c)
+		case c == ';':
+			flush()
+		case c == '|' && i+1 < len(command) && command[i+1] == '|':
+			flush()
+			i++
+		case c == '&' && i+1 < len(command) && command[i+1] == '&':
+			flush()
+			i++
+		case c == '&' && (i == 0 || (command[i-1] != '>' && command[i-1] != '&')) &&
+			(i+1 >= len(command) || command[i+1] != '>'):
+			flush()
+		default:
+			seg.WriteByte(c)
+		}
+	}
+	flush()
+	if last == "" {
+		return nil
+	}
+	// That segment's `|`-separated stages, same quote rule.
+	var out []string
+	stage := strings.Builder{}
+	quote = 0
+	push := func() {
+		f := strings.Fields(stage.String())
+		if len(f) == 0 {
+			out = append(out, "")
+		} else {
+			out = append(out, strings.TrimPrefix(f[0], "\\")) // `\grep` bypasses an alias; same tool
+		}
+		stage.Reset()
+	}
+	for i := 0; i < len(last); i++ {
+		c := last[i]
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+			stage.WriteByte(c)
+		case c == '\'' || c == '"':
+			quote = c
+			stage.WriteByte(c)
+		case c == '|':
+			push()
+		default:
+			stage.WriteByte(c)
+		}
+	}
+	push()
+	return out
 }
 
 // pipeStageNote states what the pipeline's stages really did, when the status the caller sees hides
@@ -440,11 +551,11 @@ func stagesClean(stages []int) bool {
 // very command asked to truncate it. A record that asserts a failure that did not happen is worse
 // than one that says nothing: the agent has no way to tell it from a real one, and the next thing
 // it does is chase a bug that is not there.
-func pipeStageNote(exit int, stages []int) string {
+func pipeStageNote(command string, exit int, stages []int) string {
 	if exit != 0 || len(stages) < 2 {
 		return ""
 	}
-	if stagesClean(stages) {
+	if stagesClean(command, stages) {
 		return ""
 	}
 	parts := make([]string, len(stages))

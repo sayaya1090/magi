@@ -180,8 +180,8 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	// head-clip and the model both see it. Flag-gated for A/B isolation.
 	// Every stage's status known and none of them a failure: the head's status is not a mystery.
 	// The notes that exist to say "this exit is not the head's" must stay quiet in that case.
-	allStagesClean := stagesClean(stages)
-	if note := pipeStageNote(exit, stages); note != "" {
+	allStagesClean := stagesClean(a.Command, stages)
+	if note := pipeStageNote(a.Command, exit, stages); note != "" {
 		disp = note + "\n" + disp
 	}
 	// The annotators, in precedence order, FIRST match wins: each says one thing about how this
