@@ -50,14 +50,6 @@ func (a *App) toolSpecs(agent AgentSpec, isSub bool, depth int) []port.ToolSpec 
 			if isSub || !a.cfg.Interactive {
 				continue
 			}
-		case "replan":
-			// Re-planning is meaningful only to a plan-eligible agent (write-capable,
-			// below the plan-depth cap, planner on). Offering it to a read-only or
-			// max-depth agent advertises a dead tool env.Replan would reject anyway —
-			// this mirrors that nil-gating so weak models don't waste a call on it.
-			if !a.planEligible(agent, depth) {
-				continue
-			}
 		case "tabulate", "countmatches", "countlines", "groupby":
 			// Aggregation helpers exist for agents that CANNOT shell out; an agent with
 			// bash does the same with awk/sort/uniq/wc/grep -c, so carrying them is pure
@@ -207,21 +199,6 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 		// Advisory pacing reference from the planner (soft budget). Deliberately NOT
 		// a limit: estimates from weak models are routinely wrong, and a wrong hard
 		// cap cuts off real work — the ceiling above stays the only stop.
-		if est := a.stepEstimate(s.ID); est > 0 {
-			b.WriteString(fmt.Sprintf(" This task was estimated at roughly %d step(s) — a pacing reference, not a "+
-				"limit. If you are far beyond it, something about the approach is probably wrong: stop and reassess "+
-				"before continuing.", est))
-		}
-	}
-	// Completion criteria (D15/D17): the plan council derives these from the task and
-	// the TERMINATION council judges the finished work against them — show the same
-	// contract to the working agent, so a long run iterates toward the actual
-	// done-conditions instead of a cheap proxy (a build that compiles is not a test
-	// that passes). Cached per session → byte-stable within a turn (KV-cache friendly).
-	if criteriaContextEnabled() {
-		if crit := a.cachedCriteria(s.ID); crit != "" {
-			b.WriteString("\n\n# Completion criteria\nThe finished work will be judged against these — verify against them directly, not a weaker proxy:\n" + crit)
-		}
 	}
 	if td := a.Todos(s.ID); len(td) > 0 {
 		b.WriteString("\n\n# Current plan (TODOs)\n" + formatTodos(td))

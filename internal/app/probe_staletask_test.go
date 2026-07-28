@@ -94,68 +94,6 @@ func TestProbeStaleTaskAnchoring(t *testing.T) {
 	}
 }
 
-// A turn that starts WITHOUT passing through Submit (Steer after the previous
-// turn ended — also the resurfaced-interjection and exit-window re-run paths)
-// must still get a fresh per-turn contract: leftover todos/criteria from the
-// previous task otherwise haunt the new turn (council, planner, and nudges keep
-// citing the old request).
-func TestSteerStartedTurnResetsContract(t *testing.T) {
-	llm := &captureLLM{}
-	a, wd := newApp(t, llm, Config{Permission: "allow"})
-	ctx := context.Background()
-	sid, err := a.CreateSession(ctx, command.CreateSession{Workdir: wd})
-	if err != nil {
-		t.Fatal(err)
-	}
-	submitAndWait := func(text string, via func(context.Context, command.SubmitPrompt) error) {
-		if err := via(ctx, command.SubmitPrompt{
-			SessionID: sid,
-			Parts:     []session.Part{{Kind: session.PartText, Text: text}},
-			Actor:     event.Actor{Kind: event.ActorUser, ID: "u"},
-		}); err != nil {
-			t.Fatal(err)
-		}
-		deadline := time.Now().Add(10 * time.Second)
-		for time.Now().Before(deadline) {
-			a.mu.Lock()
-			running := a.stateLocked(sid).cancel != nil
-			a.mu.Unlock()
-			evs, _ := a.store.Read(ctx, sid, 0)
-			done := false
-			for _, e := range evs {
-				if e.Type == event.TypeTurnFinished {
-					done = true
-				}
-			}
-			if done && !running {
-				return
-			}
-			time.Sleep(20 * time.Millisecond)
-		}
-		t.Fatalf("turn %q never finished", text)
-	}
-
-	submitAndWait("만들어둔 작업을 커밋해줘", a.Submit)
-	// Simulate the previous task's leftover contract.
-	a.SetTodos(sid, []session.Todo{{Content: "커밋 수행", Status: "pending"}})
-	a.mu.Lock()
-	a.stateLocked(sid).criteria = "커밋이 완료되어야 한다"
-	a.mu.Unlock()
-
-	// Steer with no turn running behaves like Submit but historically skipped the reset.
-	submitAndWait("이제 README 구조를 분석해줘", a.Steer)
-
-	if td := a.Todos(sid); len(td) != 0 {
-		t.Errorf("steer-started turn must not inherit the previous task's todos: %+v", td)
-	}
-	a.mu.Lock()
-	crit := a.stateLocked(sid).criteria
-	a.mu.Unlock()
-	if crit != "" {
-		t.Errorf("steer-started turn must not inherit the previous task's criteria: %q", crit)
-	}
-}
-
 func partsToText(ps []session.Part) string {
 	var b strings.Builder
 	for _, p := range ps {

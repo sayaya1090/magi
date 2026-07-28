@@ -20,7 +20,7 @@ func todosChangedCount(t *testing.T, a *App, sid session.SessionID) int {
 // putTodos records a TodosChanged fact only when the plan actually changes, so the
 // progression is logged/replayable without spamming no-op events.
 func TestPutTodosEmitsFactAndDedup(t *testing.T) {
-	a, sid := newPlannerApp(t, Config{})
+	a, sid := newTodoApp(t, Config{})
 	actor := event.Actor{Kind: event.ActorAgent, ID: "planner"}
 	td := []session.Todo{{Content: "a", Status: "pending"}, {Content: "b", Status: "pending"}}
 
@@ -47,7 +47,7 @@ func TestPutTodosEmitsFactAndDedup(t *testing.T) {
 // exactly the steps currently marked "completed" — never in_progress/pending/cancelled. If it
 // fails to climb across repeated replans, the re-decomposition is finishing nothing.
 func TestCompletedStepCount(t *testing.T) {
-	a, sid := newPlannerApp(t, Config{})
+	a, sid := newTodoApp(t, Config{})
 	actor := event.Actor{Kind: event.ActorAgent, ID: "p"}
 	if got := a.completedStepCount(sid); got != 0 {
 		t.Fatalf("empty plan: want 0, got %d", got)
@@ -95,7 +95,7 @@ func TestTodosEqual(t *testing.T) {
 // so a step before a fan-out is done when the fan-out STARTS — not a beat later when it
 // finishes (the "한 타임 늦게" lag). This is the key intermediate-ordering guarantee.
 func TestAdvanceTo(t *testing.T) {
-	a, sid := newPlannerApp(t, Config{})
+	a, sid := newTodoApp(t, Config{})
 	actor := event.Actor{Kind: event.ActorAgent, ID: "p"}
 	a.putTodos(context.Background(), sid, actor,
 		[]session.Todo{{Content: "locate", Status: "pending"}, {Content: "list", Status: "pending"}, {Content: "summarize", Status: "pending"}})
@@ -118,7 +118,7 @@ func TestAdvanceTo(t *testing.T) {
 // sequential, so finishing step i implies the ones before it). It records exactly one
 // fact; a repeat call with nothing new to complete is a no-op.
 func TestCompleteThrough(t *testing.T) {
-	a, sid := newPlannerApp(t, Config{})
+	a, sid := newTodoApp(t, Config{})
 	actor := event.Actor{Kind: event.ActorAgent, ID: "p"}
 	a.putTodos(context.Background(), sid, actor,
 		[]session.Todo{{Content: "a", Status: "pending"}, {Content: "b", Status: "pending"}, {Content: "c", Status: "pending"}})
@@ -145,7 +145,7 @@ func TestCompleteThrough(t *testing.T) {
 // completeThrough back-fills pending/in_progress steps but must NEVER resurrect a CANCELLED step to
 // completed — a cancelled step was explicitly retired and flipping it would misreport it as done.
 func TestCompleteThroughSkipsCancelled(t *testing.T) {
-	a, sid := newPlannerApp(t, Config{})
+	a, sid := newTodoApp(t, Config{})
 	actor := event.Actor{Kind: event.ActorAgent, ID: "p"}
 	a.putTodos(context.Background(), sid, actor, []session.Todo{
 		{Content: "a", Status: "cancelled"}, // explicitly retired
@@ -166,7 +166,7 @@ func TestCompleteThroughSkipsCancelled(t *testing.T) {
 // step — it never moves a completed/cancelled one back. markFirstPendingActive picks
 // the first still-pending step (so it skips ones pre-flight already checked off).
 func TestMarkTodoActive(t *testing.T) {
-	a, sid := newPlannerApp(t, Config{})
+	a, sid := newTodoApp(t, Config{})
 	actor := event.Actor{Kind: event.ActorAgent, ID: "p"}
 	a.putTodos(context.Background(), sid, actor,
 		[]session.Todo{{Content: "a", Status: "completed"}, {Content: "b", Status: "pending"}, {Content: "c", Status: "pending"}})
@@ -206,7 +206,7 @@ func TestMarkTodoActive(t *testing.T) {
 // On a genuine finish every unfinished todo becomes completed (the council judged the
 // task done), and exactly one fact records it.
 func TestFinalizeTodosCompleted(t *testing.T) {
-	a, sid := newPlannerApp(t, Config{})
+	a, sid := newTodoApp(t, Config{})
 	a.putTodos(context.Background(), sid, event.Actor{Kind: event.ActorAgent, ID: "p"},
 		[]session.Todo{{Content: "a", Status: "completed"}, {Content: "b", Status: "in_progress"}, {Content: "c", Status: "pending"}})
 	base := todosChangedCount(t, a, sid)
@@ -225,7 +225,7 @@ func TestFinalizeTodosCompleted(t *testing.T) {
 // On an abort/incomplete stop, unfinished todos become cancelled (✗) while already
 // completed ones are preserved.
 func TestFinalizeTodosCancelled(t *testing.T) {
-	a, sid := newPlannerApp(t, Config{})
+	a, sid := newTodoApp(t, Config{})
 	a.putTodos(context.Background(), sid, event.Actor{Kind: event.ActorAgent, ID: "p"},
 		[]session.Todo{{Content: "done", Status: "completed"}, {Content: "mid", Status: "in_progress"}, {Content: "todo", Status: "pending"}})
 
@@ -242,7 +242,7 @@ func TestFinalizeTodosCancelled(t *testing.T) {
 // A step cancelled mid-turn must NOT be relabelled "completed" on a genuine finish — cancelled is
 // never resurrected (mirrors advanceTo); pending/in_progress still complete.
 func TestFinalizeTodosPreservesCancelledOnFinish(t *testing.T) {
-	a, sid := newPlannerApp(t, Config{})
+	a, sid := newTodoApp(t, Config{})
 	a.putTodos(context.Background(), sid, event.Actor{Kind: event.ActorAgent, ID: "p"},
 		[]session.Todo{{Content: "done", Status: "completed"}, {Content: "cx", Status: "cancelled"}, {Content: "p", Status: "pending"}})
 
@@ -258,7 +258,7 @@ func TestFinalizeTodosPreservesCancelledOnFinish(t *testing.T) {
 
 // Nothing to finalize → no event (empty plan, or already all-completed).
 func TestFinalizeTodosNoOp(t *testing.T) {
-	a, sid := newPlannerApp(t, Config{})
+	a, sid := newTodoApp(t, Config{})
 	a.finalizeTodos(context.Background(), sid, true) // no plan
 	if n := todosChangedCount(t, a, sid); n != 0 {
 		t.Errorf("empty plan should emit nothing, got %d", n)

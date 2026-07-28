@@ -38,7 +38,7 @@ func TestReaskAsksAtMostOnceMore(t *testing.T) {
 	calls := 0
 	_, ok := reask[string]{
 		pass:   "probe-pass",
-		actor:  plannerActor,
+		actor:  reaskTestActor,
 		ask:    func(string) (string, string, bool) { calls++; return "", "still bad", false },
 		defect: func(v string, _ bool, _ string) string { return "never usable" },
 		reminder: func(string, bool) string {
@@ -66,7 +66,7 @@ func TestReaskPersistsBothUnusableRepliesAtFullFidelity(t *testing.T) {
 	_, _ = reask[string]{
 		pass:     "probe-pass",
 		label:    "round-2",
-		actor:    plannerActor,
+		actor:    reaskTestActor,
 		ask:      func(string) (string, string, bool) { return "", second, false },
 		defect:   func(string, bool, string) string { return "unusable" },
 		reminder: func(string, bool) string { return "fix it" },
@@ -97,7 +97,7 @@ func TestReaskDoesNotFileAnEmptyReplyAsAParseFailure(t *testing.T) {
 	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow"})
 	_, _ = reask[string]{
 		pass:     "probe-pass",
-		actor:    plannerActor,
+		actor:    reaskTestActor,
 		ask:      func(string) (string, string, bool) { return "", "", false }, // backend error
 		defect:   func(string, bool, string) string { return "unusable" },
 		reminder: func(string, bool) string { return "fix it" },
@@ -125,7 +125,7 @@ func TestReaskRemindersSeeWhichFailureItWas(t *testing.T) {
 			var got string
 			_, _ = reask[string]{
 				pass:   "probe-pass",
-				actor:  plannerActor,
+				actor:  reaskTestActor,
 				ask:    func(system string) (string, string, bool) { got = system; return "", "bad", false },
 				defect: func(string, bool, string) string { return "unusable" },
 				reminder: func(_ string, parsed bool) string {
@@ -150,7 +150,7 @@ func TestReaskKeepsTheFirstWhenTheReAskIsNotBetter(t *testing.T) {
 	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow"})
 	got, ok := reask[int]{
 		pass:  "probe-pass",
-		actor: plannerActor,
+		actor: reaskTestActor,
 		ask:   func(string) (int, string, bool) { return 1, "{\"steps\":1}", true },
 		defect: func(v int, _ bool, _ string) string {
 			if v >= 2 {
@@ -201,3 +201,6 @@ func TestParseFailureKindNamesTheDefectAndNotTheScan(t *testing.T) {
 		}
 	}
 }
+
+// reaskTestActor stands in for whatever side call is doing the re-asking.
+var reaskTestActor = event.Actor{Kind: event.ActorSystem, ID: "reask"}

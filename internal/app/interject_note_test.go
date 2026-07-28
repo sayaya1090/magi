@@ -16,7 +16,7 @@ import (
 // and it vanishes the moment the interjection resolves — so a later turn (or a
 // reload) can no longer see a stale "queued" notice for an already-handled input.
 func TestInterjectNoteEphemeralLifecycle(t *testing.T) {
-	a, s := stuckDriverApp(t, `{"steps":[]}`, func(string) string { return "" })
+	a, s := stuckDriverApp(t)
 	sid := s.ID
 	ctx := context.Background()
 
@@ -59,7 +59,7 @@ func TestInterjectNoteEphemeralLifecycle(t *testing.T) {
 // The dispatch-case nudge ("you may answer briefly now") is one-shot: consumed by
 // the step that serves it, so it cannot echo into later steps or turns.
 func TestAsideNoteOnceConsumed(t *testing.T) {
-	a, s := stuckDriverApp(t, `{"steps":[]}`, func(string) string { return "" })
+	a, s := stuckDriverApp(t)
 	sid := s.ID
 
 	a.noteInterjection(sid, "current task", "m_y1", "quick question?", true)
@@ -76,7 +76,7 @@ func TestAsideNoteOnceConsumed(t *testing.T) {
 // not carry the instruction twice: liveEvents drops the stranded origin, keeping only
 // the resurfaced copy that seeds the turn.
 func TestLiveEventsDropsResurfacedOrigins(t *testing.T) {
-	a, _ := stuckDriverApp(t, `{"steps":[]}`, func(string) string { return "" })
+	a, _ := stuckDriverApp(t)
 	ctx := context.Background()
 	// A store-registered session (the fabricated s_parent has no jsonl path).
 	sid, err := a.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir()})
@@ -108,4 +108,21 @@ func TestLiveEventsDropsResurfacedOrigins(t *testing.T) {
 	if n != 1 {
 		t.Errorf("instruction appears %d times in the model context, want exactly 1 (the resurfaced copy)", n)
 	}
+}
+
+// stuckDriverApp is an orchestrator App with a coder on the roster and a parent session, for tests
+// that exercise the interjection surfaces rather than any particular agent's work.
+func stuckDriverApp(t *testing.T) (*App, session.Session) {
+	t.Helper()
+	a := newOrchApp(t, &recLLM{reply: func(string) string { return "" }}, Config{
+		Permission: "allow", MaxAgents: 100, MaxDepth: 5, MaxSteps: 120,
+		Agents: map[string]AgentSpec{
+			"coder": {Name: "coder", System: "code", Tools: []string{"read", "write", "edit", "bash"}},
+		},
+	})
+	s := parentSession(t.TempDir())
+	a.mu.Lock()
+	a.stateLocked(s.ID).meta = s
+	a.mu.Unlock()
+	return a, s
 }

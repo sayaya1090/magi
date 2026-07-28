@@ -307,14 +307,6 @@ func (m *Model) renderCouncilDetail(width int) string {
 	if k := strings.TrimSpace(v.Keep); k != "" {
 		b.WriteString("\n" + styleFooter.Render("keep — the revision must not lose this") + "\n" + wrap.Render(k) + "\n")
 	}
-	// Ledger: the acceptance criteria this council judges the turn against. Shown so the detail
-	// view reveals not just one member's vote but WHAT the council is weighing.
-	if m.app != nil {
-		if crit := m.app.AcceptanceCriteria(m.sid); len(crit) > 0 {
-			b.WriteString("\n" + styleFooter.Render("— ledger: acceptance criteria —") + "\n" +
-				wrap.Render(strings.Join(crit, "\n")) + "\n")
-		}
-	}
 	// Open structural concerns: what the council raised and still has OUTSTANDING (re-raised until
 	// resolved). Loaded once when the detail opened (m.councilDetailConcerns).
 	if len(m.councilDetailConcerns) > 0 {

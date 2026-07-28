@@ -160,7 +160,6 @@ type arm struct {
 	name     string
 	delegate bool   // register the task tool + subagents
 	forced   bool   // explicitly instruct delegation in the prompt
-	planner  bool   // enable the pre-flight planner (fan out read-only explorers)
 	system   string // top-level system prompt
 }
 
@@ -307,10 +306,6 @@ func runReview(t *testing.T, llm port.LLMProvider, model string, plat port.Platf
 	if am.delegate {
 		reg.Register(builtin.Task{})
 		cfg.Agents = evalAgents()
-	}
-	if am.planner {
-		cfg.Planner = true
-		cfg.Agents = plannerEvalAgents()
 	}
 	task := prompt
 	if am.forced {

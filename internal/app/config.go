@@ -173,12 +173,6 @@ type Config struct {
 	MaxDepth    int // max subagent nesting depth
 	MaxAgents   int // cumulative spawn cap (runaway backstop)
 	Concurrency int // max concurrently running subagents
-	// MaxPlanDepth caps how deep the pre-flight planner may recurse: a delegated
-	// sub-task re-plans at its own level (heterogeneous recursion — each fanned-out
-	// node independently picks solo/parallel/scout/delegate), but only while its
-	// orchestration depth is below this. Kept TIGHTER than MaxDepth so a weak model's
-	// plan can't explode into a deep decomposition tree; most work stays 1 level.
-	MaxPlanDepth int
 
 	// TimeBudget, when > 0, is a USER-declared wall-clock target for a turn,
 	// surfaced in the budget line as guidance (never a hard stop). Off by
@@ -246,11 +240,6 @@ type Config struct {
 	// survive restarts (best-effort; a write failure never blocks the edit).
 	RoutePersister RoutePersister
 
-	// Planner enables the pre-flight planner: before a top-level turn it judges
-	// whether the task splits into independent areas and, if so, fans out parallel
-	// read-only explorers and injects their findings before the main agent runs.
-	Planner bool
-
 	// Delegation is roster-gated, not a separate flag: an agent is offered as a
 	// delegate/refine executor iff it is configured AND write-capable (producesFiles).
 	// The default roster is read-only explorers only, so nothing is delegatable and
@@ -272,15 +261,6 @@ type Config struct {
 	// to the members as evidence (D16) — so the council judges on proof (tests,
 	// lint, typecheck) rather than the agent's claim. Opt-in (empty = no signals).
 	CouncilSignals []CouncilSignalSpec
-	// CouncilCriteria, when true, elicits explicit acceptance criteria once per
-	// turn (one extra LLM call) and gives them to the council as its contract
-	// (D15). Opt-in.
-	CouncilCriteria bool
-	// CouncilPlanAbsorb, when true, makes the plan-audit gate run one extra planner
-	// pass to fold the council's non-blocking (warn/info) advice into the plan before
-	// execution (Mechanism B). Off by default: the advice is otherwise injected for the
-	// executor to heed without the extra LLM call.
-	CouncilPlanAbsorb bool
 	// ContextWindowProber, when set, asks the LLM backend for a model's real context
 	// window the first time an unseeded model is used (e.g. after a runtime /route
 	// switch). Injected by the wiring layer (openai.Client.ProbeContextWindow) so the
@@ -318,9 +298,6 @@ func (c Config) withDefaults() Config {
 	}
 	if c.MaxAgents == 0 {
 		c.MaxAgents = 50
-	}
-	if c.MaxPlanDepth == 0 {
-		c.MaxPlanDepth = 2
 	}
 	if c.Concurrency == 0 {
 		c.Concurrency = 8

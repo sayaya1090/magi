@@ -546,23 +546,3 @@ type fakeProbe struct{ name, status, detail string }
 
 func (f fakeProbe) Name() string                         { return f.name }
 func (f fakeProbe) Run(context.Context) (string, string) { return f.status, f.detail }
-
-// The planner phase is the single biggest piece of imposed structure, and it was config-only —
-// out of reach of a one-off A/B. Environment wins when set at all, in both directions, so a run
-// can drop the whole pre-flight without editing a config inside a container image.
-func TestPlannerEnabled(t *testing.T) {
-	if !plannerEnabled(nil) {
-		t.Error("unset config must default the planner ON")
-	}
-	if plannerEnabled(boolPtr(false)) {
-		t.Error("[orchestration] planner=false must turn it off")
-	}
-	t.Setenv("MAGI_PLANNER", "0")
-	if plannerEnabled(nil) || plannerEnabled(boolPtr(true)) {
-		t.Error("MAGI_PLANNER=0 must win over config in both cases")
-	}
-	t.Setenv("MAGI_PLANNER", "1")
-	if !plannerEnabled(boolPtr(false)) {
-		t.Error("MAGI_PLANNER=1 must re-enable a config that pinned it off")
-	}
-}

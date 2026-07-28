@@ -96,6 +96,8 @@ func TestCapToolResult(t *testing.T) {
 // so it must NOT bump the epoch — otherwise a write-the-same-thing loop would reset its
 // own counts forever and never be blocked. Nor may a mutation of some OTHER path reset them:
 // a file-modifying call's fingerprint tracks the last mutation of ITS OWN path, so a scratch
+// redirect between two identical writes no longer hands the second a fresh count. Nor may a mutation of some OTHER path reset them:
+// a file-modifying call's fingerprint tracks the last mutation of ITS OWN path, so a scratch
 // redirect between two identical writes no longer hands the second a fresh count.
 func TestRunGuardIdempotentMutationStillBlocks(t *testing.T) {
 	g := newRunGuard()
@@ -228,25 +230,6 @@ func TestShortAndOrDash(t *testing.T) {
 	}
 	if got := orDash("x"); got != "x" {
 		t.Errorf("orDash(x) = %q", got)
-	}
-}
-
-// firstBalancedObject extracts the first brace-balanced JSON object, ignoring
-// braces inside string literals and respecting escapes.
-func TestFirstBalancedObject(t *testing.T) {
-	if got := firstBalancedObject(`prefix {"a":{"b":1}} suffix`); got != `{"a":{"b":1}}` {
-		t.Errorf("nested = %q", got)
-	}
-	// A brace inside a string literal must not unbalance the scan.
-	if got := firstBalancedObject(`{"s":"has } brace"}`); got != `{"s":"has } brace"}` {
-		t.Errorf("string brace = %q", got)
-	}
-	// An escaped quote inside a string keeps the parser in-string.
-	if got := firstBalancedObject(`{"s":"a\"}b"}`); got != `{"s":"a\"}b"}` {
-		t.Errorf("escaped quote = %q", got)
-	}
-	if got := firstBalancedObject("no object here"); got != "" {
-		t.Errorf("none → %q, want empty", got)
 	}
 }
 

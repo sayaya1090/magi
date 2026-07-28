@@ -41,9 +41,9 @@ func lastToolResultText(t *testing.T, a *App, sid session.SessionID) string {
 func TestAllowlistRefusalNamesWhatTheAgentMayCallInstead(t *testing.T) {
 	a, sid, wd := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow"})
 	s := session.Session{ID: sid, Workdir: wd, Parent: "s_parent"}
-	agent := AgentSpec{Name: "specmine", Tools: specMineExploreTools}
+	agent := AgentSpec{Name: "explorer", Tools: []string{"read", "grep", "glob", "list", "findcontext"}}
 
-	if !a.gateAllowlist(context.Background(), s, agent, 1, plannerActor,
+	if !a.gateAllowlist(context.Background(), s, agent, 1, event.Actor{Kind: event.ActorAgent, ID: "explorer"},
 		&session.ToolCall{Name: "recall_memory", CallID: "c1"}, "m1") {
 		t.Fatal("a tool outside the allowlist must be blocked")
 	}
@@ -59,7 +59,7 @@ func TestAllowlistRefusalNamesWhatTheAgentMayCallInstead(t *testing.T) {
 		t.Errorf("refusal must say the identical retry is refused the same way: %s", got)
 	}
 	// A tool the agent DOES have is not blocked, and writes no result of its own.
-	if a.gateAllowlist(context.Background(), s, agent, 1, plannerActor,
+	if a.gateAllowlist(context.Background(), s, agent, 1, event.Actor{Kind: event.ActorAgent, ID: "explorer"},
 		&session.ToolCall{Name: "grep", CallID: "c2"}, "m2") {
 		t.Error("an allowed tool must pass the gate")
 	}
@@ -72,6 +72,7 @@ func TestAllowlistRefusalNamesWhatTheAgentMayCallInstead(t *testing.T) {
 // sixth: the experience store is always configured, so the pointer was appended to every
 // agent's context regardless of what that agent could reach.
 func TestExperiencePointerOnlyForAgentsThatMayCallRecallMemory(t *testing.T) {
+	readOnlyTools := []string{"read", "grep", "glob", "list", "findcontext"}
 	exp := &countingExperience{}
 	a, sid, wd := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow", Experience: exp})
 	s := session.Session{ID: sid, Workdir: wd, Parent: "s_parent"}
@@ -83,9 +84,9 @@ func TestExperiencePointerOnlyForAgentsThatMayCallRecallMemory(t *testing.T) {
 		tools []string
 		want  bool
 	}{
-		{"read-only explorer", specMineExploreTools, false},
+		{"read-only explorer", readOnlyTools, false},
 		{"unrestricted agent", nil, true},
-		{"restricted but holds it", append(append([]string{}, specMineExploreTools...), "recall_memory"), true},
+		{"restricted but holds it", append(append([]string{}, readOnlyTools...), "recall_memory"), true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			vol := a.volatileContext(context.Background(), s, AgentSpec{Name: "a", Tools: c.tools},

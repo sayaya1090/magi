@@ -13,7 +13,6 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -555,14 +554,11 @@ func run() int {
 		NewProvider:         newProvider,
 		RoutePersister:      routePersister{path: filepath.Join(plat.ConfigDir(), "config.toml")},
 		PermissionPersister: permPersister{path: filepath.Join(wd, ".magi", "config.toml")},
-		Planner:             plannerEnabled(cfg.Orchestration.Planner), // default on; MAGI_PLANNER=0 or [orchestration] planner=false
-		MaxPlanDepth:        planDepthFromEnv(),                        // 0 → app defaults to 2; MAGI_MAX_PLAN_DEPTH overrides (bench A/B knob)
 		Council:             councilPort,
 		CouncilRule:         corecouncil.Rule(cfg.Council.Rule),
 		CouncilMaxRounds:    councilMaxRounds(cfg.Council),
 		CouncilMembers:      councilMembers(cfg.Council, cfg.LLM.Profiles),
 		CouncilSignals:      councilSignals(cfg.Council),
-		CouncilCriteria:     cfg.Council.Criteria,
 		TimeBudget:          *timeBudget,
 		SubagentTimeout:     subagentTimeoutFrom(cfg.Orchestration), // 0 → app default (5m); env overrides config
 		Observer:            obs,
@@ -1240,21 +1236,6 @@ func defaultAgents(workers *bool) map[string]app.AgentSpec {
 	return agents
 }
 
-// plannerEnabled decides whether the pre-flight planner phase runs at all.
-//
-// It was config-only, which put the single biggest piece of imposed structure — orient, spec-mine,
-// the contract gate, the planner, the plan audit and the check authoring that hangs off it — out of
-// reach of a one-off A/B. The bench passes MAGI_* through to the agent, so an env knob is what makes
-// "let the model drive" measurable without editing a config inside a container image.
-//
-// Same order as the worker switch: environment wins when set at all, then config, then on.
-func plannerEnabled(cfg *bool) bool {
-	if v := strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_PLANNER"))); v != "" {
-		return v != "0" && v != "off" && v != "false" && v != "no"
-	}
-	return cfg == nil || *cfg
-}
-
 // workersEnabled decides whether the write-capable worker joins the roster.
 //
 // Order: the environment wins when it is set at all (a one-off A/B must not need a config edit),
@@ -1375,18 +1356,6 @@ func subagentTimeoutFrom(o config.OrchestrationConfig) time.Duration {
 		}
 	}
 	return 0
-}
-
-func planDepthFromEnv() int {
-	v := strings.TrimSpace(os.Getenv("MAGI_MAX_PLAN_DEPTH"))
-	if v == "" {
-		return 0
-	}
-	n, err := strconv.Atoi(v)
-	if err != nil || n < 0 {
-		return 0
-	}
-	return n
 }
 
 // applyAgentModels overlays per-agent routing from config onto the agents. A

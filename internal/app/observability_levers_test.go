@@ -7,36 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/port"
 )
-
-// An EMPTY execution note must say which pass came up empty. Mining is best-effort, but the note is
-// the run's only record of the literals a grader checks verbatim, so silence made "nothing to mine"
-// and "the distill never parsed" identical in the log — on the one task where record formats
-// mattered most, the note was simply absent with no trace of why.
-func TestSpecMineReportsWhyTheNoteIsEmpty(t *testing.T) {
-	cases := []struct {
-		name, reply, want string
-	}{
-		{"analysis empty", "", "analysis pass returned nothing"},
-		{"nothing to mine", "NONE", "found nothing to mine"},
-		{"distill unparseable", "a real analysis with content", "distill pass did not parse"},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			a := newOrchApp(t, &gateLLM{text: c.reply}, Config{Permission: "allow", MaxAgents: 10})
-			s := parentSession(t.TempDir())
-			sub := watchProgress(t, a, s.ID)
-			if note := a.elicitSpecMine(context.Background(), AgentSpec{Name: "planner"}, s, "do the thing"); note != "" {
-				t.Fatalf("this reply must not produce a note, got %q", note)
-			}
-			if got := sub.notes("spec-mine"); !strings.Contains(got, "no execution note") || !strings.Contains(got, c.want) {
-				t.Errorf("want a reason naming %q, got:\n%s", c.want, got)
-			}
-		})
-	}
-}
 
 // A tool name that differs from a REGISTERED one only in separators/case must be named back, and
 // the reply must never deny a tool the same reply lists. It used to append "there is no todo/plan
@@ -110,85 +82,22 @@ func TestGuardArgsCollapsesRelabelledBash(t *testing.T) {
 	}
 }
 
-// Every reader of model-produced JSON must survive the defects those payloads normally carry —
-// a raw newline inside a multi-line string, a trailing comma — because rejecting the document over
-// one discards content that was otherwise complete. Observed: a coverage fill's whole reply thrown
-// away, leaving a five-step plan with no executable check at all.
-func TestLenientReadersAcrossPayloads(t *testing.T) {
-	// curator packet: task/goal are multi-line prose.
-	pkt, ok := parseCuratePacket("{\"task\":\"do X\nthen Y\",\"literals\":[\"value\"],}")
-	if !ok || !strings.Contains(string(pkt.Task), "then Y") {
-		t.Fatalf("curate packet with a newline + trailing comma must parse: ok=%v %+v", ok, pkt)
-	}
-	// A genuinely malformed document still fails — leniency is not "accept anything".
-	if _, ok := parseCuratePacket(`{"task" "x"}`); ok {
-		t.Error("an irreparable packet must not parse")
-	}
-}
-
-// Every reader of a model reply must SAY when it recovered nothing. Each of these silently
-// degraded the run into a different, worse mode while the log looked identical to the good path:
-// the curator fell back to the mechanical brief that loses the verbatim identifiers, and the
-// contract gate proceeded with an empty draft as if none had been asked for.
-func TestModelReplyFailuresAreReported(t *testing.T) {
-	prose := "I cannot produce that structure for this task."
-
-	t.Run("curator packet", func(t *testing.T) {
-		a := newOrchApp(t, &gateLLM{text: prose}, Config{Permission: "allow", MaxAgents: 10})
-		s := parentSession(t.TempDir())
-		// A real session, not just the struct: the diagnostic record asserted below is written to the
-		// store, and a session that was never created can only ever report having kept nothing.
-		sid, err := a.CreateSession(context.Background(), command.CreateSession{Workdir: s.Workdir})
-		if err != nil {
-			t.Fatal(err)
-		}
-		s.ID = sid
-		sub := watchProgress(t, a, s.ID)
-		brief, tools := a.curateDelegate(context.Background(), AgentSpec{Name: "worker"}, s,
-			planStep{Title: "do it", Task: "do the thing"}, "context")
-		if brief != "" || tools != nil {
-			t.Fatalf("an unusable packet must fall back, got brief=%q tools=%v", brief, tools)
-		}
-		if n := sub.notes("curator"); !strings.Contains(n, "mechanical brief") || !strings.Contains(n, "cannot produce") {
-			t.Errorf("the fallback must be reported with the reply:\n%s", n)
-		}
-		// The progress line above is bus-only and whitespace-collapsed, so it is not a record. Until the
-		// re-ask was shared, only the planner persisted the reply it could not read — this pass, which
-		// falls back to a brief that loses the verbatim identifiers, kept nothing at all.
-		if ds := diagnostics(t, a, s.ID); len(ds) != 2 {
-			t.Errorf("both unusable curator replies must be persisted as diagnostics, got %+v", ds)
-		}
-	})
-
-	t.Run("contract draft", func(t *testing.T) {
-		a := newOrchApp(t, &gateLLM{text: prose}, Config{Permission: "allow", MaxAgents: 10})
-		s := parentSession(t.TempDir())
-		sub := watchProgress(t, a, s.ID)
-		if got := a.elicitContractDraft(context.Background(), AgentSpec{Name: "planner"}, s.ID, "m", "task"); got != nil {
-			t.Fatalf("prose must yield no criteria, got %v", got)
-		}
-		if n := sub.notes("contract-draft"); !strings.Contains(n, "author from scratch") || !strings.Contains(n, "cannot produce") {
-			t.Errorf("an empty draft must be reported with the reply:\n%s", n)
-		}
-	})
-}
-
 // A stream that ERRORS midway leaves a PARTIAL reply. Returning it unmarked made a cut-off document
 // indistinguishable from a badly-formed one, so every caller reported "unparseable" and pointed the
 // diagnosis at the model's JSON when the real event was a broken stream. The partial text must
-// still be returned — salvage wants it — but the cut must be reported.
-func TestSideCallReportsATruncatedStream(t *testing.T) {
-	a := newOrchApp(t, &cutOffLLM{text: `{"criteria":["the build passes","the tests `},
-		Config{Permission: "allow", MaxAgents: 10})
-	s := parentSession(t.TempDir())
-	sub := watchProgress(t, a, s.ID)
-	got := a.specMineCall(context.Background(), AgentSpec{Name: "planner"}, s.ID, "contract-draft", "m", "sys", "user")
-	if !strings.Contains(got, "the build passes") {
-		t.Fatalf("the partial text must still be returned for salvage, got %q", got)
+// still be returned — salvage wants it — but the cut must come back with it.
+func TestDrainStreamReturnsThePartialAndTheCut(t *testing.T) {
+	llm := &cutOffLLM{text: `{"criteria":["the build passes","the tests `}
+	stream, err := llm.StreamChat(context.Background(), port.ChatRequest{})
+	if err != nil {
+		t.Fatal(err)
 	}
-	note := sub.notes("contract-draft")
-	if !strings.Contains(note, "CUT OFF") || !strings.Contains(note, "boom") {
-		t.Errorf("the cut must be reported with its cause:\n%s", note)
+	text, cut := drainStream(stream)
+	if !strings.Contains(text, "the build passes") {
+		t.Fatalf("the partial text must still be returned for salvage, got %q", text)
+	}
+	if cut == nil || !strings.Contains(cut.Error(), "boom") {
+		t.Errorf("the cut must be reported with its cause, got %v", cut)
 	}
 }
 

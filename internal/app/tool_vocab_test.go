@@ -25,9 +25,7 @@ func TestPolicyToolNamesAreRealTools(t *testing.T) {
 	}
 
 	sets := map[string][]string{
-		"actingTools":          toolNamesIn(actingTools),
-		"curateBaseTools":      curateBaseTools,
-		"specMineExploreTools": specMineExploreTools,
+		"actingTools": toolNamesIn(actingTools),
 		"DangerTools (config default)": toolNamesIn(
 			Config{}.withDefaults().DangerTools),
 	}
@@ -65,22 +63,6 @@ func TestKnowledgeLookupNamesTheBuiltinsCorrectly(t *testing.T) {
 		t.Errorf("knowledgeLookupTools matches %d built-in tool(s), want the built-in web tools among "+
 			"them — the rest are plugin/MCP aliases and cannot carry the set on their own", builtins)
 	}
-}
-
-// The tools that establish an absence are read by name in the event walk, and the one that does it
-// has to be one the read-only explorer can actually call — otherwise the walk waits for a call that
-// this child can never make.
-func TestAbsenceEvidenceToolIsOneTheExplorerHas(t *testing.T) {
-	if !builtin.KnownNames()[absenceSearchTool] {
-		t.Fatalf("%q names no tool — no search would ever be paired", absenceSearchTool)
-	}
-	for _, tool := range specMineExploreTools {
-		if tool == absenceSearchTool {
-			return
-		}
-	}
-	t.Errorf("the explorer's allowlist %v cannot call %q, so it can never establish an absence",
-		specMineExploreTools, absenceSearchTool)
 }
 
 func toolNamesIn(m map[string]bool) []string {

@@ -130,76 +130,13 @@ func (a *App) handleStuckGuard(ctx context.Context, tc turnCtx, turnTask string,
 	if kind == "" {
 		return false, false
 	}
-	s, agent, guard, depth := tc.s, tc.agent, tc.guard, tc.depth
+	s, guard := tc.s, tc.guard
 	sid := s.ID
-	// Last-resort structural recovery: a stall the agent kept ignoring after every nudge means
-	// it is genuinely stuck, not just slow. Before force-stopping, hand the remaining work to a
-	// fresh child that re-plans from scratch (redecomposeStuck), ONCE, for a plan-eligible
-	// (write-capable, below the depth cap) agent. planEligible (not a depth==0 guard) is
-	// intentional: a stuck solo SUBAGENT below the plan-depth cap can recover the same way; the
-	// child is depth+1 so its own planEligible bounds further recursion. On success, reset the
-	// stall window and keep looping so the parent integrates and verifies the child's result; on
-	// failure fall through to the stop. recovered is set only on a successful spawn, so a
-	// transient child failure does not permanently disable the (still fire-at-most-once) hook.
-	// …UNLESS the stall is really an environment wait (a window dominated by sleep/ping/poll
-	// commands): a fresh coder cannot speed an external wait, and with no delegatable executor the recovery
-	// cascades coder→coder whose timeout is misreported as the run's own context-deadline.
-	// waitGuardEnabled suppresses only the spawn; the honest stall stop below still lands.
-	// The decomposing recovery (stuckDecomposeEnabled) also rescues a "repeat" stall — a
-	// loop-guard block spiral (the read-loop fixation) that the old whole-task re-hand-off
-	// could never help, since handing the monolith back just re-fixates. It is gated on the
-	// flag precisely because only the decomposing recovery (small scoped units) breaks that
-	// spiral; with the flag off, "repeat" keeps its baseline behavior (force-stop below).
-	// The step-based "idle" kind (turnProgressCheckEnabled) is a reasoning rabbit hole — hours of
-	// thinking with no deliverable — and routes to the SAME recovery. It carries an EXTRA wait
-	// guard: besides the tool-call wait ratio (stallIsWait), childWaitMajority on the recent calls
-	// suppresses it when the agent is polling a background job (a booting VM, a running build), so
-	// a legitimate wait is never mistaken for a rabbit hole and cut.
-	recoverable := kind == "stall" || (kind == "repeat" && stuckDecomposeEnabled()) ||
-		(kind == "idle" && turnProgressCheckEnabled())
-	waitBlocked := waitGuardEnabled() && (guard.stallIsWait() ||
-		(kind == "idle" && childWaitMajority(evs, judgeDigestCalls)))
-	// recoveryOutcome names why the run is stopping WITHOUT a successful recovery, and is
-	// carried into the stop message: a force-stopped run whose recovery silently declined
-	// (spawn cap, planner failure, wait-stall, already used) was otherwise undiagnosable
-	// from the transcript — the forensics had to guess. One word each, greppable.
-	recoveryOutcome := "not-attempted"
-	switch {
-	case !recoverable:
-		recoveryOutcome = "repeat-not-recoverable (MAGI_STUCK_DECOMPOSE off)"
-	case ts.recovered:
-		recoveryOutcome = "already-used-this-run"
-	case !a.planEligible(agent, depth):
-		recoveryOutcome = "plan-ineligible"
-	case waitBlocked:
-		recoveryOutcome = "wait-stall (a fresh child cannot speed an external wait)"
-	}
-	if recoverable && !ts.recovered && a.planEligible(agent, depth) && !waitBlocked {
-		task := a.turnTaskOr(turnTask, sid, evs)
-		blockReason := "repeated no-progress: the previous attempt could not advance the task"
-		if kind == "repeat" {
-			blockReason = "loop guard blocked repeated identical actions: the previous attempt kept " +
-				"retrying the same call instead of taking the next real step"
-		} else if kind == "idle" {
-			blockReason = "many steps of analysis produced NO deliverable (no file written/changed): the " +
-				"previous attempt reasoned in circles instead of writing, running, and verifying the artifact"
-		}
-		// Name the CONCRETE walls (failed commands, timeouts, missing files) rather than only the generic
-		// label, so recovery attacks the real obstacle instead of re-emitting the same plan — the
-		// leadership move: specific reality + what to do differently beats "you went in circles" (which
-		// produced the same plan 16x on fix-ocaml-gc).
-		blockReason += stuckEvidence(evs, 4)
-		if a.redecomposeStuck(ctx, s, agent, task, blockReason, depth) {
-			ts.recovered = true
-			if kind == "repeat" {
-				guard.resetRepeat() // clear the blocked counter too, else stuck() re-halts immediately
-			} else {
-				guard.resetStall()
-			}
-			return false, false // recovered → keep looping
-		}
-		recoveryOutcome = "attempted-but-failed (planner or child spawn declined)"
-	}
+	// The stuck ladder used to have a recovery rung here: hand the remaining work to a fresh child
+	// that re-plans it from scratch. There is no planner to re-plan with, and the evidence for that
+	// rung was never good — the same task handed back produced the same plan sixteen times on one
+	// run. What the guard could always see stands on its own: the run stopped making progress, and
+	// that is reported rather than routed into a rebuild.
 	if guard.mutationEpoch() > 0 {
 		// Delivered-but-spinning: finish cleanly (TurnFinished → exit 0) with the work as-is.
 		// The repeated no-progress steps already stand in the transcript, so no error event is
@@ -216,7 +153,6 @@ func (a *App) handleStuckGuard(ctx context.Context, tc turnCtx, turnTask string,
 	if kind == "spin" {
 		msg, code = "stopped: repeated completion-banner spin without ending the turn (spin guard)", "spin_guard"
 	}
-	msg += "; recovery: " + recoveryOutcome
 	d, _ := json.Marshal(event.ErrorData{Message: msg, Code: code})
 	a.appendFact(ctx, sid, event.TypeError, event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)
 	return true, false
@@ -360,7 +296,7 @@ func (a *App) runTerminationGate(ctx context.Context, tc turnCtx, step int, turn
 	if !(tc.depth == 0 && a.cfg.Council != nil && !a.cfg.Workflow && usedTools) {
 		return 0, false
 	}
-	s, agent, guard, depth, maxSteps := tc.s, tc.agent, tc.guard, tc.depth, tc.maxSteps
+	s, agent, guard, maxSteps := tc.s, tc.agent, tc.guard, tc.maxSteps
 	sid := s.ID
 	// Non-converging self-check landing (internal signal only — no external wall clock): if the
 	// agent's OWN build/test keeps failing across repeated edit cycles (observedCheckChurn, counted
@@ -380,24 +316,6 @@ func (a *App) runTerminationGate(ctx context.Context, tc turnCtx, step int, turn
 	// having run NO tool and changed (almost) nothing — re-deliberating burns a round and prints
 	// the same answer twice. Finish instead, marked UNVERIFIED.
 	if ts.prevFinishCalls >= 0 && guard.callCount() == ts.prevFinishCalls && normEq(lastText, ts.prevFinishText) {
-		// Before finishing UNVERIFIED, hand the task plus the concern it failed to act on to a
-		// fresh write-capable child that re-plans and breaks it down (ADaPT solo-stuck branch) —
-		// the same lifeline the stall/deadlock branches use, so the dominant idle-resubmit failure
-		// gets one real recovery attempt. Fires once (ts.recovered); on success reset the stall
-		// window AND the finish latch so the next round re-deliberates the child's integrated work.
-		if !ts.recovered && a.planEligible(agent, depth) {
-			task := a.turnTaskOr(turnTask, sid, evs)
-			reason := strings.TrimSpace(ts.council.feedback)
-			if reason == "" {
-				reason = "the same answer was resubmitted unchanged after council feedback"
-			}
-			if a.redecomposeStuck(ctx, s, agent, task, reason, depth) {
-				ts.recovered = true
-				guard.resetStall()
-				ts.prevFinishText, ts.prevFinishCalls = "", -1
-				return loopContinue, true
-			}
-		}
 		dd, _ := json.Marshal(event.CouncilDecidedData{
 			Round: ts.council.rounds + 1, Decision: string(council.Done),
 			Note:   "answer resubmitted unchanged after council feedback — finishing without re-deliberation; treat as UNVERIFIED",
@@ -473,20 +391,6 @@ func (a *App) runTerminationGate(ctx context.Context, tc turnCtx, step int, turn
 	ts.unverifiedReason = unv
 	if unv == "" {
 		guard.resetCheckChurn() // genuine council approval → verification converged; clear the churn count
-	}
-	if !ts.recovered && ts.council.deadlocked &&
-		strings.TrimSpace(ts.council.feedback) != "" && a.planEligible(agent, depth) {
-		// Council deadlock: the members used every round and never approved, still holding an unmet
-		// concern (ts.council.deadlocked — a DONE vote on the last allowed round does NOT reach here).
-		// Before finishing UNVERIFIED, hand the task plus that exact concern to a fresh child that
-		// re-plans and breaks it down (ADaPT failure-recursion). Fires once; on success reset the
-		// stall window and loop so the parent integrates and verifies the child's work.
-		task := a.turnTaskOr(turnTask, sid, evs)
-		if a.redecomposeStuck(ctx, s, agent, task, ts.council.feedback, depth) {
-			ts.recovered = true
-			guard.resetStall()
-			return loopContinue, true
-		}
 	}
 	return 0, false
 }

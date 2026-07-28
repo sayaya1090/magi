@@ -32,11 +32,8 @@ func (m *Model) hasPanel() bool {
 		return false
 	}
 	sid := m.panelSID()
-	// Show the panel as soon as the contract-first gate has agreed the completion conditions —
-	// before the plan produces any todos — so the reviewed contract appears the moment it is frozen
-	// (the contract→plan order). Also whenever there are todos, live panes, or finished ones.
-	return len(m.app.Todos(sid)) > 0 || len(m.panes) > 0 || len(m.doneRoster) > 0 ||
-		len(m.app.AcceptanceCriteria(sid)) > 0
+	// The plan the AGENT keeps (todowrite), the live worker panes, and the finished roster.
+	return len(m.app.Todos(sid)) > 0 || len(m.panes) > 0 || len(m.doneRoster) > 0
 }
 
 // panelCols is the horizontal space the panel RESERVES in the layout. The panel is a
@@ -128,27 +125,6 @@ func (m *Model) statusPanel(panelTop int) string {
 		if len(lines) > 0 {
 			lines = append(lines, "")
 		}
-	}
-
-	// Completion conditions = acceptance criteria (prose) + completion checks (executable). When a
-	// contract-first gate froze them BEFORE planning (D-contract), show them ABOVE the plan so the
-	// panel reflects the contract→plan order the run actually followed; otherwise the checks keep
-	// their legacy position below the plan and no criteria block is shown.
-	frozen := m.app.ContractFrozen(m.panelSID())
-	appendCriteria := func() {
-		if crit := m.app.AcceptanceCriteria(m.panelSID()); len(crit) > 0 {
-			sep()
-			lines = append(lines, panelHead("Completion criteria"))
-			for _, c := range crit {
-				// A bullet, NOT a checkbox: a criterion is prose the council judges collectively at the
-				// end, with no per-item exec signal to ever tick it — a checkbox would imply a per-item
-				// state that never arrives. (Executable per-step checks below get the ☐/spinner/✓.)
-				lines = append(lines, wrapPanel(lipgloss.NewStyle().Foreground(colMuted).Render("• ")+c, inner)...)
-			}
-		}
-	}
-	if frozen { // contract-first: completion conditions come before the plan
-		appendCriteria()
 	}
 
 	if todos := m.app.Todos(m.panelSID()); len(todos) > 0 {

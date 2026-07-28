@@ -193,20 +193,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 			return nil
 		}
 	}
-	// Agent-initiated replan for a plan-eligible agent (write-capable, below the plan-
-	// depth cap). Records the signal; the loop enforces the per-turn budget and rebuild.
 	var replanFn func(reason string) error
-	if a.planEligible(agent, depth) {
-		replanFn = func(reason string) error {
-			a.signalTurnControl(sid, func(tc *turnControl) {
-				tc.replan = true
-				if reason != "" {
-					tc.reason = reason
-				}
-			})
-			return nil
-		}
-	}
 	var askFn func(string) (string, error)
 	var reportFn func(port.ReportInput) error
 	if s.Parent != "" {

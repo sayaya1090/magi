@@ -94,12 +94,11 @@ func TestRewindClearsDerivedCaches(t *testing.T) {
 	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: t.TempDir()})
 	submitSync(t, a, sid, "do the thing")
 
-	// Seed the turn-derived caches as a completed plan-audit turn would.
+	// Seed the turn-derived state a finished turn leaves behind.
 	a.mu.Lock()
 	st := a.stateLocked(sid)
-	st.contractFrozen = true
-	st.contractText = "contract"
-	st.minedNote = "note"
+	st.todos = []session.Todo{{Content: "step one", Status: "completed"}}
+	st.stage = "execute"
 	a.mu.Unlock()
 
 	if _, err := a.Rewind(context.Background(), sid, 1); err != nil {
@@ -108,9 +107,9 @@ func TestRewindClearsDerivedCaches(t *testing.T) {
 
 	a.mu.Lock()
 	st = a.stateLocked(sid)
-	bad := st.contractFrozen || st.contractText != "" || st.minedNote != ""
+	bad := st.todos != nil || st.stage != ""
 	a.mu.Unlock()
 	if bad {
-		t.Error("Rewind must clear contractFrozen/contractText/minedNote")
+		t.Error("Rewind must clear the turn-derived state the rewound prompt produced")
 	}
 }

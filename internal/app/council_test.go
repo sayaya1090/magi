@@ -694,33 +694,6 @@ func (c *countLLM) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan p
 	return ch, nil
 }
 
-// With criteria on, the council's contract includes elicited acceptance criteria,
-// elicited once per turn (cached across rounds).
-func TestCouncilCriteriaElicitedOncePerTurn(t *testing.T) {
-	fc := &fakeCouncil{delibs: []council.Deliberation{
-		{Round: 1, Decision: council.Continue, Feedback: "do more"},
-		{Round: 2, Decision: council.Done},
-	}}
-	llm := &countLLM{}
-	a, wd := newApp(t, llm, Config{Council: fc, CouncilCriteria: true})
-	submitAndDrain(t, a, wd)
-
-	llm.mu.Lock()
-	n := llm.criteriaCalls
-	llm.mu.Unlock()
-	if n != 1 {
-		t.Fatalf("acceptance criteria should be elicited once per turn, got %d calls", n)
-	}
-	fc.mu.Lock()
-	plan := fc.lastReq.Plan
-	fc.mu.Unlock()
-	// Per-item rendering (MAGI_CRITERIA_PERITEM, default ON) presents the criteria as an
-	// enumerated checklist, so the contract carries the header and the numbered elicited item.
-	if !strings.Contains(plan, "Acceptance criteria") || !strings.Contains(plan, "1. done") {
-		t.Fatalf("council contract should include the enumerated acceptance criteria, got %q", plan)
-	}
-}
-
 // Criteria is off by default — no extra elicitation, no criteria in the contract.
 func TestCouncilNoCriteriaWhenOff(t *testing.T) {
 	fc := &fakeCouncil{delibs: []council.Deliberation{{Round: 1, Decision: council.Done}}}

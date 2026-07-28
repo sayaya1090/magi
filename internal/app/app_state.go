@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -45,18 +44,9 @@ type sessionState struct {
 	// clear them (the abandonment is a whole-session fact, not a per-turn one).
 	deferredAbandoned map[string]bool
 	deferredHydrated  bool
-	// recoverySeed marks a child session spawned by the stuck-recovery lifeline: runLoop seeds
-	// its turnState as already-recovered so the child cannot fire its OWN redecomposeStuck,
-	// capping recovery to one executor per run tree (recoveryRunCapEnabled). Set once at spawn
-	// time; not turn-scoped (a recovery child never re-enters resetForNewTopLevel — it runs at
-	// depth>0).
+	// recoverySeed marks a child session spawned as a recovery executor: runLoop seeds its
+	// turnState as already-recovered so a recovery cannot recurse into another one.
 	recoverySeed bool
-	// grounded marks that the explore-first orient pass (maybeOrient) has run for this session,
-	// so its deterministic environment grounding is injected exactly ONCE — at the first cold,
-	// write-capable top-level turn. Session-scoped (a whole-session fact, like the two above):
-	// resetForNewTopLevel does NOT clear it, since later turns already carry the environment in
-	// context and re-scanning would burn budget for no new signal. See orientEnabled.
-	grounded bool
 	// activeSeedMsgID is the MessageID of the user prompt that SEEDS the currently
 	// running top-level turn (set at step 0, loop.go). If that turn is cancelled before
 	// answering, the cancel path marks this prompt abandoned (TypePromptAbandoned) so it
@@ -65,22 +55,11 @@ type sessionState struct {
 	// it is safe outside the turn-scoped reset block.
 	activeSeedMsgID string
 	// Turn-scoped (zeroed by resetForNewTopLevel).
-	criteria          string                     // elicited acceptance criteria this turn
-	minedNote         string                     // specmine result this turn (soft contract; shown to the termination council)
-	scratch           *turnScratch               // the turn's scratch directory (created at depth 0, inherited by every child of that turn)
-	seedPrompt        string                     // subagent: the spawn/unit prompt THIS child was seeded with (see seedTurnTask)
-	curatedTools      []string                   // subagent: per-spawn tool allowlist override (SpawnRequest.Tools); nil = the agent's own allowlist
-	deliverableChecks []council.DeliverableCheck // plan-audit per-step executable checks this turn
-	checksVer         int                        // bumped whenever deliverableChecks is (re)stored — a re-plan adding checks mid-run must trigger the incremental recorder even without a new mutation/exec
-	contractFrozen    bool                       // a contract-first council gate authored this turn's criteria — plan-audit must not overwrite them (D-contract)
-	contractText      string                     // the frozen contract (criteria/goals) rendered for the planner, so contractForPlanner is a straight read
-	passedChecks      map[string]bool            // checkKey → latest verify result (true=pass); drives the panel's ✓ glyph
-	provAudited       map[string]string          // source\x00pattern already put through the provenance audit — it re-reads every session event, and its finding ("this call wrote this string") stays true once made, so once per run is enough
-	estSteps          int                        // planner's advisory step estimate this turn
-	planConcern       string                     // the plan council's UNRESOLVED critical concern this turn (only set when the gate proceeded past it), carried into every worker brief — see concernBrief
-	interjectSeen     map[string]bool            // interjection MessageIDs detected this turn (masked from turnTask/council)
-	awaitExplorers    bool                       // planner dispatched read-only explorers as this turn's primary work
-	autoOrchestrate   bool                       // whether auto-orchestration has been triggered this session
+	scratch         *turnScratch    // the turn's scratch directory (created at depth 0, inherited by every child of that turn)
+	seedPrompt      string          // subagent: the spawn/unit prompt THIS child was seeded with (see seedTurnTask)
+	curatedTools    []string        // subagent: per-spawn tool allowlist override (SpawnRequest.Tools); nil = the agent's own allowlist
+	interjectSeen   map[string]bool // interjection MessageIDs detected this turn (masked from turnTask/council)
+	autoOrchestrate bool            // whether auto-orchestration has been triggered this session
 	// Per-turn retrieval memoization. Both lookups key on the last user prompt, which is
 	// constant across a turn — without this every loop step re-scans the whole experience
 	// store and re-queries every plugin context provider (each with a 5s timeout) for an
@@ -187,15 +166,6 @@ func (a *App) resetForNewTopLevel(sid session.SessionID) {
 	a.SetTodos(sid, nil) // takes a.mu itself
 	a.mu.Lock()
 	st := a.stateLocked(sid)
-	st.criteria = ""             // drop cached criteria; re-elicited at the next gate (D15)
-	st.minedNote = ""            // …and the previous task's mined identifier/type requirements
-	st.deliverableChecks = nil   // …and the previous task's plan-audit executable checks
-	st.contractFrozen = false    // …and the contract-first freeze (a new top-level re-derives the contract)
-	st.contractText = ""         // …and its rendered planner contract
-	st.passedChecks = nil        // …and the previous task's per-check pass/fail glyph state
-	st.provAudited = nil         // …and which sources it had already audited for provenance
-	st.estSteps = 0              // …and the previous task's advisory step estimate
-	st.planConcern = ""          // …and the concern the previous task's plan council could not resolve
 	a.forgetStepAttemptsFor(sid) // …and the spent retry ladders of the previous task's steps
 	// Reset the interjection mask, but KEEP masking anything still WAITING in the
 	// queue: a queued interjection's original PromptSubmitted must stay hidden
@@ -209,7 +179,6 @@ func (a *App) resetForNewTopLevel(sid session.SessionID) {
 		keep[it.MsgID] = true
 	}
 	st.interjectSeen = keep
-	st.awaitExplorers = false // the async-explorer wait is per-turn; the next turn starts clean
 	st.expPtrQ, st.expPtr = "", ""
 	st.ragQ, st.ragText = "", "" // retrieval caches are turn-scoped even when the prompt text repeats
 	a.mu.Unlock()
@@ -220,26 +189,6 @@ func (a *App) resetForNewTopLevel(sid session.SessionID) {
 	// per-turn window loses none of the protection. Process-wide (spawnCount is App-level):
 	// concurrent top-level sessions share the window, which still bounds any single runaway.
 	a.spawnCount.Store(0)
-}
-
-// setAwaitExplorers marks (or clears) that the planner dispatched read-only explorers as
-// this turn's primary work, so the loop's pre-model park engages until they report.
-func (a *App) setAwaitExplorers(sid session.SessionID, v bool) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.stateLocked(sid).awaitExplorers = v
-}
-
-// awaitingExplorers reports whether this turn is parked waiting for planner-dispatched
-// read-only explorers. Distinguishes the async-explorer scenario (park pre-model, no
-// findings-less review) from ordinary background delegation (interleave own work).
-func (a *App) awaitingExplorers(sid session.SessionID) bool {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if st, ok := a.stateIf(sid); ok {
-		return st.awaitExplorers
-	}
-	return false
 }
 
 // setActiveSeed records the MessageID of the prompt seeding the current top-level turn,

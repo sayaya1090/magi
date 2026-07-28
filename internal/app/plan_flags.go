@@ -46,11 +46,10 @@ func envOn(name string) bool {
 	return false
 }
 
-// defaultCheckChurnCap is how many finish attempts whose deliverable self-check keeps FAILING
-// while the agent edits the deliverable (mutation epoch advancing) are allowed before the run
-// lands gracefully UNVERIFIED with work standing. Generous on purpose: a CONVERGING check passes
-// and resets the counter (resetCheckChurn), so only a non-converging (inverted/impossible) check
-// ever reaches the cap — the value only bounds how long that pathological churn runs.
+// defaultCheckChurnCap is how many finish attempts whose own build/test keeps FAILING while the
+// agent edits the deliverable (mutation epoch advancing) are allowed before the run lands
+// gracefully UNVERIFIED with work standing. Generous on purpose: a CONVERGING check passes and
+// resets the counter, so only a non-converging loop ever reaches the cap.
 const defaultCheckChurnCap = 4
 
 // checkChurnCap returns the effective cap. MAGI_CHECK_CHURN_CAP overrides it: a positive integer
@@ -121,53 +120,6 @@ func sterileReplanCap() int {
 
 func sterileReplanLandEnabled() bool { return sterileReplanCap() > 0 }
 
-// refineDisabled is a bench A/B knob (mirrors MAGI_MAX_PLAN_DEPTH): MAGI_REFINE=0 downgrades
-// refine steps to solo, reproducing the pre-refine baseline (every sub-goal flattened inline)
-// so a paired refine-ON/OFF comparison can run on the same task. Default on.
-func refineDisabled() bool { return envOff("MAGI_REFINE") }
-
-// stepContextDisabled is a bench A/B knob (mirrors MAGI_REFINE): MAGI_STEP_CONTEXT=0 turns
-// OFF the compact context brief injected into delegate hand-offs and read-only fan-out — the
-// children then run fully context-free (the pre-brief baseline), so a paired ON/OFF run can
-// measure whether the brief helps. Default on. It gates ONLY the brief; it never copies the
-// parent conversation (that stays refine's job) — so even ON, delegate/fan-out get an
-// overall-goal line plus sibling boundaries/outputs, not the parent's reasoning history.
-func stepContextDisabled() bool { return envOff("MAGI_STEP_CONTEXT") }
-
-// adaptDisabled turns OFF the REACTIVE (as-needed) failure re-decomposition — the ADaPT
-// mechanism where a step that fails is retried by decomposing it further. MAGI_ADAPT=0 leaves
-// only PLANNED decomposition (the up-front hierarchical plan) plus the stall safety net
-// (redecomposeStuck): a failed delegate/refine node backtracks after one shot instead of
-// spawning informed retries / re-decomposition. This is the recursion-policy A/B knob — with it
-// off, magi is closer to HTN-style hierarchical planning with just-in-time sub-planning than to
-// ADaPT proper. Default on (=current reactive behavior) so the flag flips the arm, not the base.
-func adaptDisabled() bool { return envOff("MAGI_ADAPT") }
-
-// specFidelityEnabled keeps a plan faithful to the request's LITERAL contract — exact field/
-// message/function names, output formats, thresholds, literal strings. Deep planning paraphrases
-// the instruction, and the executor then normalizes a literal (kv-store-grpc: the request's
-// `value` field became `val`, failing a grader that checks verbatim); a shallow/solo run reads the
-// raw instruction directly and keeps the literal. This flag turns on three defenses (a planner
-// "preserve literals" rule, a plan-time spec-fidelity note, and a verbatim SPEC anchor for the
-// context-free delegate child). Default ON; MAGI_SPEC_FIDELITY=0 restores the paraphrase-only
-// baseline (the A/B knob).
-func specFidelityEnabled() bool { return !envOff("MAGI_SPEC_FIDELITY") }
-
-// specMineEnabled gates the DEDICATED signature-mining side call (specmine.go): a
-// tool-free elicitation that extracts, from the request's identifiers and type
-// signatures, the requirements the prose leaves unsaid plus the standard idiom for
-// that situation — injected as a finished note the executor consumes.
-//
-// Default ON (MAGI_SPEC_MINE=off opts out). The kv-store-grpc regression that once justified
-// turning it off — the note pushing "honor kv-store verbatim", which made the council reject the
-// correct underscore `kv_store_pb2.py` and drive a rename to the hyphenated form (a Python
-// SyntaxError) — is addressed at the source: the mining prompt and the injected note now carry a
-// tool-derived-name guard (a name a compiler/generator/language DERIVES follows the tool's real
-// output, never the request's raw spelling — see specmine.go). That caveat rides the note into the
-// termination council too, so both the executor and the reviewers stop treating a generated name as
-// a fixed literal. The mine's TRUTH is still bounded by the eliciting model, so it stays A/B-gated.
-func specMineEnabled() bool { return !envOff("MAGI_SPEC_MINE") }
-
 // workdirCheckpointEnabled gates the opt-in work-tree rollback (checkpoint.go): before a subagent's
 // first attempt the work-tree is snapshotted into a PRIVATE scratch git-dir (never the user's own
 // .git/stash/HEAD), and each retry restores that snapshot so it re-runs on a clean tree instead of
@@ -175,24 +127,6 @@ func specMineEnabled() bool { return !envOff("MAGI_SPEC_MINE") }
 // is a destructive clean, so it stays opt-in and bench-scoped until A/B-validated.
 // MAGI_WORKDIR_CHECKPOINT=1 enables it.
 func workdirCheckpointEnabled() bool { return envOn("MAGI_WORKDIR_CHECKPOINT") }
-
-// curateEnabled gates the context curator (curate.go): before a delegate worker is spawned, a
-// tool-free side call distills a focused, literal-preserving brief AND selects the SPECIALIZED
-// tools the sub-task actually needs, so the worker runs on a lean, task-scoped context instead of
-// the full tool list + a mechanical brief. The worker always keeps a base toolset (read/write/edit/
-// bash/…), so a mis-selection can only ADD, never starve it. Default ON (for the curated-worker
-// architecture A/B on the weak-model bench), at the cost of one LLM call per delegate;
-// MAGI_CURATE=0 restores the mechanical brief + full toolset baseline.
-func curateEnabled() bool { return !envOff("MAGI_CURATE") }
-
-// forceDelegateEnabled rewrites every "solo" plan step into a "delegate" step routed to a worker,
-// so execution runs in worker sub-agents instead of the main agent inline. The planner leaves most
-// write-work as solo even when a worker is available and told to prefer delegating, so this is the
-// deterministic lever that actually moves execution onto workers — and the only way to exercise the
-// context curator (which hooks the delegate path). Requires a delegatable agent (MAGI_WORKERS).
-// Default ON (so the curated-worker architecture actually engages on the weak-model bench);
-// MAGI_FORCE_DELEGATE=0 restores the solo baseline (execution inline in the main agent).
-func forceDelegateEnabled() bool { return !envOff("MAGI_FORCE_DELEGATE") }
 
 // execEvidenceEnabled gates the exec-evidence layers: the deterministic per-artifact
 // exercise ledger's pre-council nudge ("you never ran what you wrote") plus the
@@ -287,48 +221,6 @@ func leaseProgressEnabled() bool { return !envOff("MAGI_LEASE_PROGRESS") }
 // so a VM boot / build / install is never cut. Default ON; MAGI_TURN_PROGRESS_CHECK=0 restores the baseline (A/B).
 func turnProgressCheckEnabled() bool { return !envOff("MAGI_TURN_PROGRESS_CHECK") }
 
-// checkpointFirstEnabled turns on test-first ordering: when a task states HOW its
-// completion is checked (a snippet, command, function call, or I/O contract), the
-// agent is told to FIRST materialize that as a runnable checkpoint in the workdir —
-// synthesizing inputs from the spec, including any counter-example it names — and
-// then implement until the checkpoint passes, rather than reasoning about a
-// verifiable artifact symbolically and never running it (regex-log: a regex rewritten
-// 7× with re.findall never once executed). A behavioral nudge on top of the existing
-// end-of-turn unverifiedDeliverable backstop, not a replacement. It self-limits to tasks
-// that actually state an executable check and steps aside for prose-only conditions, so a
-// clean run is not misdirected. Default ON; MAGI_CHECKPOINT_FIRST=off restores the baseline
-// that never orders/injects the checkpoint (the A/B knob).
-func checkpointFirstEnabled() bool { return !envOff("MAGI_CHECKPOINT_FIRST") }
-
-// contractFirstEnabled turns on the contract-first order (D-contract): BEFORE the planner
-// decomposes the request, the council authors and reviews the turn's acceptance CONTRACT
-// (completion criteria + executable deliverable checks) for the TASK itself — bounded above
-// by necessity (assert only what the task states) and below by sufficiency (exercise the
-// behavior, not just its existence). The approved contract is frozen and injected into the
-// planner so the plan is built to satisfy a reviewed contract, rather than the contract being
-// a byproduct of whatever plan the planner happened to emit. Off restores the plan-first
-// baseline where the plan-audit council derives criteria/checks after the plan (the A/B knob).
-// Default ON.
-func contractFirstEnabled() bool { return !envOff("MAGI_CONTRACT_FIRST") }
-
-// criteriaPerItemEnabled renders the turn's acceptance criteria to the termination council as an
-// ENUMERATED per-item checklist rather than one prose block, so the council judges EACH criterion
-// individually (SATISFIED/UNSATISFIED with evidence) and can only land "done" when EVERY item is
-// satisfied — closing the holistic-judgment gap where a weak model waves a partly-met contract to
-// "done" (the headless-terminal false-done path). The termination member prompt always carries the
-// matching per-item clause; it stays inert when the criteria are not enumerated (flag off). Default
-// ON; MAGI_CRITERIA_PERITEM=0 restores the single-block rendering for A/B.
-func criteriaPerItemEnabled() bool { return !envOff("MAGI_CRITERIA_PERITEM") }
-
-// planContestEnabled lets the plan/contract definition phase REJECT an unjust council concern
-// rather than only comply with it — the CONTEST channel the termination gate already has, brought
-// forward. In the plan audit, the re-planner may keep its plan and return a task-grounded rebuttal
-// (planResult.Contest) instead of distorting the plan to satisfy a demand the TASK never made; the
-// next audit round is shown the contest and re-judges it (uphold a real concern, drop an over-
-// demand). In the contract gate, the member prompt tells members to re-judge whether a carried
-// concern is task-grounded and drop it if not. Default ON; MAGI_PLAN_CONTEST=0 restores comply-only.
-func planContestEnabled() bool { return !envOff("MAGI_PLAN_CONTEST") }
-
 // ctxCompactRetryEnabled controls the reactive-compaction safety net. On (the default), when the
 // provider rejects a generate request as too long (isContextOverflow), the loop force-compacts and
 // re-issues instead of dying with a terminal error — recovering runs whose context outgrew the
@@ -344,109 +236,6 @@ func ctxCompactRetryEnabled() bool { return !envOff("MAGI_CTX_COMPACT_RETRY") }
 // re-arms its own lifeline, bounded by MaxPlanDepth. Set MAGI_RECOVERY_RUNCAP=on to restore
 // the one-executor-per-run-tree cap.
 func recoveryRunCapEnabled() bool { return envOn("MAGI_RECOVERY_RUNCAP") }
-
-// stuckDecomposeEnabled changes what stuck-recovery (redecomposeStuck) DOES when an agent is
-// force-stopped stuck: instead of re-handing the WHOLE task to one fresh child, it decomposes the
-// task into an explicit multi-unit TODO list and drives the units ONE AT A TIME — each unit handed
-// to a fresh child seeded with the FULL parent context (CloneContext) but scoped to just that one
-// unit, its result integrated, and the todo checked off before the next unit starts. This forces
-// incremental forward progress: a small scoped unit re-fixates far less than the monolith, and
-// units that already landed persist even if a later one stalls. It ALSO widens the recovery gate to
-// the "repeat" stall kind (a loop-guard block spiral), which the whole-task re-hand-off could not
-// help (it would just re-fixate).
-//
-// Default ON (2026-07-21): the decomposing recovery is what rescues a pure search/read
-// loop — the fix-ocaml-gc and custom-memory-heap-crash bench failures were both an agent
-// spiralling on grep/read with zero edits, exactly the fixation the whole-task re-hand-off
-// cannot break. It was OFF (2026-07-16 regression bisect) because a "repeat" block during a
-// legitimate long wait (compile-compcert: make in background, bash_output polls hard-blocked)
-// triggered a full re-plan plus per-unit child spawns MID-BUILD, burning the run's wall clock.
-// That regression is now closed at the source: isPollTool (guard.check) counts bash_output /
-// wait_for polls toward the environment-wait ratio EVEN WHEN hard-blocked, so a build-poll
-// spiral reads as a wait (stallIsWait true) and the existing wait-guard suppresses the recovery
-// for the "repeat" kind too — while a genuine fixation (no polls, just re-reads) still recovers.
-// MAGI_STUCK_DECOMPOSE=off restores the whole-task re-hand-off (A/B baseline).
-func stuckDecomposeEnabled() bool { return !envOff("MAGI_STUCK_DECOMPOSE") }
-
-// implicitAcceptEnabled tells the planner that a task's real acceptance conditions are usually
-// stricter than the instruction prose: the exact output tokens/formats the prose only gestures at,
-// the standard domain semantics it never spells out (cleanup must still run on cancellation; a
-// headless build must not link display libraries), and the edge cases it implies but never lists
-// (malformed/empty/boundary inputs, error paths). When on, the planner is asked to surface those
-// unstated-but-conventional conditions and fold them into the relevant steps' deliverables, so the
-// plan targets the real contract rather than the literal sentence. Complements the orient grounding
-// (files present) with domain convention, and pairs with checkpoint-first (the surfaced edge cases
-// become the checkpoint's cases). Framed as general edge-case rigor, not a hidden benchmark grader,
-// so it applies identically off-bench. Default ON; MAGI_IMPLICIT_ACCEPT=off restores the
-// literal-sentence baseline (the A/B knob).
-func implicitAcceptEnabled() bool { return !envOff("MAGI_IMPLICIT_ACCEPT") }
-
-// orientEnabled turns on the explore-first grounding pass (maybeOrient): once per session, at the
-// first cold write-capable top-level turn, the deterministic build/verify anchors and layout of
-// the workspace (repoContext) are landed in the MAIN agent's context BEFORE the planner runs, so
-// both the executor and the planner (which reads the session window) start grounded in the real
-// environment instead of the instruction prose alone. The facts land in the conversation the
-// executor keeps — not just the planner prompt — matching the "reason with full context"
-// principle. Facts, not speculative instructions (contrast the reverted attempt ledger), so a
-// clean run is not misdirected. Default ON; MAGI_ORIENT=off restores the un-grounded baseline
-// (the A/B knob).
-func orientEnabled() bool { return !envOff("MAGI_ORIENT") }
-
-// asyncExplorersEnabled routes a top-level, read-only-only plan's explorer fan-out through the
-// BACKGROUND dispatch path (a.dispatch) instead of the synchronous runExplorers, so the
-// orchestrator loop parks in its bg-wait — staying responsive to user interjections — while the
-// ~85s exploration runs, rather than blocking the whole turn before the loop even starts. Only a
-// plan with NO write step (delegate/refine) is eligible; a mixed plan keeps the synchronous
-// executeSteps path so a write step still sees prior explorer findings in its brief (ordering
-// dependency). Default ON; MAGI_ASYNC_EXPLORERS=off restores the fully-synchronous preflight (the
-// A/B knob).
-func asyncExplorersEnabled() bool { return !envOff("MAGI_ASYNC_EXPLORERS") }
-
-// sharedRefineEnabled runs a plan's sequentially-dependent refine phases in ONE shared child
-// session (the first phase creates it via clone; later phases REUSE it, so each sees its
-// predecessors' actual work) rather than giving each phase its own spawn-time clone of the
-// parent — the fix for tightly-coupled phases missing each other's outputs. Default ON;
-// MAGI_REFINE_SHARED=0 restores the legacy per-phase clone-at-spawn baseline (the A/B knob).
-func sharedRefineEnabled() bool { return !envOff("MAGI_REFINE_SHARED") }
-
-// planConvergeEnabled gates the plan-audit convergence judgment (D17): when the council
-// rejects a plan and the planner re-plans, judge whether the revision actually addressed
-// the concern and stop the loop early on an unproductive (ignored-the-concern) revision,
-// rather than bounding purely on the round count. Default ON; MAGI_PLAN_CONVERGE=0 restores
-// the round-count-only behavior (the PlanRevised diff is still emitted, but with no verdict).
-func planConvergeEnabled() bool { return !envOff("MAGI_PLAN_CONVERGE") }
-
-// planConvergeStopEnabled restores the legacy early-stop: when the convergence judge rules that a
-// revision did not engage the council's concern, END the audit and adopt that revision unreviewed.
-// It is OFF by default because adopting an unjudged rewrite is the failure it was meant to avoid —
-// a revision can be WORSE than what it replaced (observed: a rewrite that dropped the plan's only
-// concrete producing step was adopted because the judge had already called it unproductive). By
-// default the rewrite goes back to the full council instead; the round cap still bounds the cost.
-func planConvergeStopEnabled() bool { return envOn("MAGI_PLAN_CONVERGE_STOP") }
-
-// soloAuditEnabled extends the plan-audit council — and the per-step deliverable criteria
-// and executable checks it authors (storePlanCriteria/storePlanChecks) — to a SINGLE-step
-// plan. Normally the audit is gated to a >=2-step procedure (maybePlanPreflight): a 1-step
-// plan skips it entirely, so it authors NO criteria and NO checks. The completion gate then
-// has no plan-time contract to verify and falls back to the termination council's plausibility
-// vote over clipped happy-path tool evidence — which is not a literal-spec or edge-case checker
-// (cancel-async-tasks: a lone "create run.py" step was voted done with the cancellation cleanup
-// path never exercised). With this on, a 1-step plan gets the same audit and deliverable
-// contract a multi-step one does; the async-explorer path and note injections already run for a
-// 1-step plan, so this only adds the missing audit+contract. Default ON; MAGI_SOLO_AUDIT=off
-// restores the >=2-step-only audit (the A/B knob).
-func soloAuditEnabled() bool { return !envOff("MAGI_SOLO_AUDIT") }
-
-// waitGuardEnabled gates the environment-wait recovery suppression: when a stall force-stop is
-// reached but the no-progress window is dominated by waiting/polling (guard.stallIsWait — sleep,
-// ping, nc, an `until … do sleep … done` readiness loop), the stuck-recovery coder spawn at the
-// loop.go stall gate is suppressed. A coder cannot speed an external wait (a rebooting VM, a
-// service starting), so redecomposing it is futile AND harmful: with no delegatable executor it spawns
-// coder→coder whose child timeout is misreported as the whole run's context-deadline. Suppressing
-// only the spawn leaves the honest stall stop intact (delivered→clean finish, or stall_guard), so
-// an endless wait is still capped. Default ON; MAGI_WAIT_GUARD=off restores the unconditional
-// recovery spawn (the A/B knob).
-func waitGuardEnabled() bool { return !envOff("MAGI_WAIT_GUARD") }
 
 // execExemptEnabled gates the loop guard's exec-repeat exemption AND the
 // redirect-less bash-mutation epoch bump (both landed together in f3d1fbc): when on
@@ -471,60 +260,6 @@ func execExemptEnabled() bool { return !envOff("MAGI_GUARD_EXEC_EXEMPT") }
 // ON; MAGI_STALL_CONVERGE=0 restores the fixed maxStallNudges re-arm.
 func stallConvergeEnabled() bool { return !envOff("MAGI_STALL_CONVERGE") }
 
-// criteriaContextEnabled gates showing the session's completion criteria to the WORKING
-// agent in every step's volatile context. The criteria already exist — the plan council
-// derives them from the task and stores them (storePlanCriteria) — but their only consumer
-// was the termination council, which judges the FINISHED work against them. The worker
-// never saw the contract it would be judged by, so a long run could optimize a cheap
-// proxy the whole way (observed: 20 `make`s and ONE testsuite run in a 3-hour turn whose
-// grading criterion was the testsuite). Showing the judge's own contract to the worker is
-// self-derived wiring, not external information. Default ON; MAGI_CRITERIA_CONTEXT=0
-// restores the judge-only baseline for A/B.
-func criteriaContextEnabled() bool { return !envOff("MAGI_CRITERIA_CONTEXT") }
-
-// checkContextEnabled gates showing the plan-audit's EXECUTABLE deliverable checks to the working
-// agent in every step's volatile context — the executable half of what criteriaContextEnabled does
-// for the prose criteria. Only the delegated worker ever saw them (workerChecklist, in its brief);
-// every OTHER path to executing a step (a solo step, or a plan tail the main agent inherits) saw
-// nothing, so a check whose source is a log file demanded
-// an artifact nobody had told the agent to produce: it never wrote the file, the check failed on a
-// missing source, and the step advanced with the box unticked. Self-derived wiring — the checks are
-// magi's own, authored from the task. Default ON; MAGI_CHECK_CONTEXT=0 restores the brief-only
-// baseline for A/B.
-func checkContextEnabled() bool { return !envOff("MAGI_CHECK_CONTEXT") }
-
-// splitBudgetEnabled gates giving write steps (delegate/refine) their OWN per-turn dispatch
-// budget instead of sharing the read-only explorers' one. Sharing made investigation and
-// execution compete: a scout that discovers a handful of items spends the discovery spawn plus
-// one per item, and the delegate steps the council approved then hit a budget of zero — the loop
-// broke, and the rest of the plan fell to the main agent with no record that it ever had a plan
-// (observed: 3 workers spawned, then every remaining tool call on the main agent). The counters
-// bound different things and should not be one number. Default ON; MAGI_SPLIT_BUDGET=0 restores
-// the single shared pool for A/B. Off does NOT restore the silent drop — an exhausted write
-// budget names the undispatched steps either way.
-func splitBudgetEnabled() bool { return !envOff("MAGI_SPLIT_BUDGET") }
-
-// workerConcernEnabled gates carrying the plan council's UNRESOLVED concern into every delegate
-// worker's brief. The council deliberates over the plan and, when it cannot resolve a critical
-// concern within the round cap, proceeds anyway and appends its notes to the session it reviewed —
-// but the steps of that plan are then executed by WORKERS in fresh sessions, which never see the
-// parent's messages. So the council could spend three rounds establishing what the plan gets wrong
-// about a step, and the agent that runs that step is the one participant who never hears it. Only
-// the unresolved kind is carried (approved advice is advisory by construction, and forwarding all
-// of it would bury each worker's own part), verbatim and after curation, scoped to the worker's own
-// step. Default ON; MAGI_WORKER_CONCERN=0 restores the main-session-only baseline for A/B.
-func workerConcernEnabled() bool { return !envOff("MAGI_WORKER_CONCERN") }
-
-// workerSpecMineEnabled gates carrying the mined contract — the request's identifiers/types plus
-// the real signatures and paths a read-only exploration found in the repository — into a worker's
-// brief. The mining exists to stop a later step from inventing a name, and everything downstream of
-// the parent session already reads it: the planner, the check-author, the termination council, and
-// a step executed INLINE. A DELEGATED step is the exception, and not by design — its worker is a
-// fresh session, its brief is assembled from the plan, and the curator that builds that brief is
-// handed the mechanical brief rather than the session, so it cannot forward a note it never sees.
-// Default ON; MAGI_WORKER_SPECMINE=0 restores the parent-session-only baseline for A/B.
-func workerSpecMineEnabled() bool { return !envOff("MAGI_WORKER_SPECMINE") }
-
 // stallNoveltyEnabled gates counting a NOVEL inspect-only command (a first-seen
 // fingerprint — a new grep pattern, a new file listed) as "the agent responded to the
 // stalled nudge", so the D18a convergence only collapses the nudge budget when the
@@ -536,13 +271,6 @@ func workerSpecMineEnabled() bool { return !envOff("MAGI_WORKER_SPECMINE") }
 // lands the honest stall. Default ON; MAGI_STALL_NOVELTY=0 restores the
 // exercising-only baseline.
 func stallNoveltyEnabled() bool { return !envOff("MAGI_STALL_NOVELTY") }
-
-// divergeEnabled gates the planner's diverge→triage→commit clause (divergeClause in
-// plan_prompts.go): under uncertainty, enumerate distinct hypotheses and kill them with
-// cheap probes before committing the budget — breadth first, then depth. Model-facing
-// prompt text, so the bench (not intent) decides whether it stays; default ON,
-// MAGI_DIVERGE=0 restores the baseline planner contract.
-func divergeEnabled() bool { return !envOff("MAGI_DIVERGE") }
 
 // leaseExternalCreditEnabled stops the per-attempt BACKSTOP from charging a child for time it spent
 // blocked on an external process.
@@ -564,18 +292,6 @@ func divergeEnabled() bool { return !envOff("MAGI_DIVERGE") }
 //
 // Default ON; MAGI_LEASE_EXTERNAL_CREDIT=0 restores the elapsed-time backstop for A/B.
 func leaseExternalCreditEnabled() bool { return !envOff("MAGI_LEASE_EXTERNAL_CREDIT") }
-
-// requestLiteralsEnabled puts a DETERMINISTIC floor under the curator's `literals`.
-//
-// Everything that keeps a request's exact words alive on the way to a worker — the spec-mine ⟨hard⟩
-// lines, the curator's literals, the planner's step task — is a field a model fills in, so one weak
-// reply drops an identifier and nothing downstream can tell it was ever there. A brief was observed
-// with no `verbatim:` clause at all on a task whose acceptance turned on specific names. Reading
-// fenced blocks, backticked spans, quoted strings and paths out of the request is lexical, not
-// judgement, so magi does it itself and appends what the curator missed.
-//
-// Default ON; MAGI_REQUEST_LITERALS=0 restores the model-only list for A/B.
-func requestLiteralsEnabled() bool { return !envOff("MAGI_REQUEST_LITERALS") }
 
 // councilAdvisoryEnabled makes the termination council ADVISE instead of decide.
 //

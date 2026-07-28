@@ -110,38 +110,6 @@ func TestInterjectQueue(t *testing.T) {
 	}
 }
 
-// replan is offered only to a plan-eligible agent (planner on, write-capable, below the
-// plan-depth cap) — mirroring the env.Replan nil-gating so a read-only or max-depth agent
-// isn't advertised a dead tool. This gate is depth-dynamic, so toolSpecs takes depth.
-func TestReplanGatedToPlanEligible(t *testing.T) {
-	store, err := jsonl.New(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	reg := builtin.Default()
-	reg.Register(builtin.Replan{})
-	a := New(store, completingLLM{}, reg, bus.New(), nil, Config{Permission: "allow", Planner: true, MaxPlanDepth: 2})
-	t.Cleanup(func() { _ = a.Close(context.Background()) })
-
-	writer := AgentSpec{Name: "default"}                           // allow-all → produces files
-	reader := AgentSpec{Name: "readonly", Tools: []string{"read"}} // cannot write
-
-	// Plan-eligible: write-capable, below the depth cap.
-	if !hasSpec(a.toolSpecs(writer, false, 0), "replan") {
-		t.Error("a plan-eligible orchestrator should be offered replan")
-	}
-	if !hasSpec(a.toolSpecs(writer, true, 1), "replan") {
-		t.Error("a plan-eligible subagent (depth<cap) should be offered replan")
-	}
-	// Not eligible: at/over the depth cap, or read-only.
-	if hasSpec(a.toolSpecs(writer, true, 2), "replan") {
-		t.Error("an agent at the plan-depth cap must NOT be offered replan")
-	}
-	if hasSpec(a.toolSpecs(reader, false, 0), "replan") {
-		t.Error("a read-only agent must NOT be offered replan")
-	}
-}
-
 // Regression for the run-goroutine post-loop deadlock: that block runs while a.mu is held,
 // so it must inspect the pending-interject queue INLINE. The self-locking queue helpers
 // (hasPendingInterject/drain) would re-lock a.mu and wedge the

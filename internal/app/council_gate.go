@@ -383,42 +383,6 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	if td := a.Todos(sid); len(td) > 0 {
 		plan = formatTodos(td)
 	}
-	// Acceptance criteria as the contract (D15/D17). The plan-audit council may have
-	// already derived them this turn — those are ALWAYS used (plan turns). Otherwise,
-	// only when opted in (`[council] criteria`), elicit them from the task. Prepended
-	// so the council judges "done" against the contract.
-	crit := a.cachedCriteria(s.ID)
-	if crit == "" && a.cfg.CouncilCriteria {
-		crit = a.acceptanceCriteria(ctx, agent, s, task)
-	}
-	if crit != "" {
-		header := "Acceptance criteria:\n" + crit
-		// Per-item (D-contract Stage 3): present the criteria as an enumerated checklist and tell the
-		// council to judge EACH one, so a partly-met contract cannot be waved to "done" as a block.
-		if criteriaPerItemEnabled() {
-			header = renderCriteriaChecklist(crit)
-		}
-		if plan != "" {
-			plan = header + "\n\nPlan (todos):\n" + plan
-		} else {
-			plan = header
-		}
-	}
-	// The mined identifier/type requirements (specmine) are a soft contract the
-	// executor received before implementing. Show them to the members too: without
-	// this, an implementation that ignores the note's recommended standard construct
-	// and hand-rolls the mechanism (observed: the note named the construct, the code
-	// re-cancelled tasks mid-cleanup) presents no visible deviation for the council
-	// to question — the judges never saw the recommendation the executor got.
-	if mined := a.cachedSpecMine(s.ID); mined != "" {
-		sec := "Requirements mined from the request's identifiers/types (the executor was shown these; " +
-			"if the implementation deviates from the recommended construct, check the deviation is justified):\n" + mined
-		if plan != "" {
-			plan = sec + "\n\n" + plan
-		} else {
-			plan = sec
-		}
-	}
 
 	signals, signalSummaries := a.councilSignals(ctx, s, evs, in.fabrication, in.checkLedger, councilActor)
 	// Cancellation during verify: unwind rather than persist a misleading convened fact or

@@ -205,20 +205,6 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	if depth == 0 && !a.cfg.Workflow && !seedWork {
 		a.resetForNewTopLevel(sid)
 	}
-	// Explore-first grounding (opt-in): on the first cold, write-capable top-level turn, land the
-	// workspace's build/verify anchors and layout into the main context BEFORE planning, so both
-	// the executor and the planner (which reads the session window) start grounded in the real
-	// environment. Once per session (maybeOrient's grounded flag), deterministic, hard-bounded.
-	if orientEnabled() && depth == 0 && !a.cfg.Workflow && a.planEligible(agent, depth) {
-		a.maybeOrient(ctx, s)
-	}
-	if a.planEligible(agent, depth) {
-		// The planner running is NOT itself work: it decides solo-vs-fan-out and may
-		// register todos, but authors nothing. Only real tool execution (below) seeds
-		// usedTools, so the termination council convenes on turns that actually did
-		// something — not on every turn merely because the planner preflight fired.
-		a.maybePlanPreflight(ctx, s, depth, maxSteps, "")
-	}
 	// Show the agent working the next step (◐) for the rest of the turn — a deterministic
 	// in_progress signal, since a weak model rarely calls todowrite (no-op if no todos).
 	// Skipped in workflow mode, where the deterministic engine owns the plan panel.
@@ -254,12 +240,6 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		ts.prevFinishText = ""
 		ts.prevFinishCalls = -1
 		ts.stepNudged = false // a re-grounded task gets a fresh deliverable-check nudge budget
-		if rebuildPlan && a.planEligible(agent, depth) {
-			// Re-plan against the ADOPTED task (turnTask), not the bare last user prompt:
-			// after a route_interjection "append" the last prompt is only the steer's
-			// constraint, which alone would lose the original goal in the re-decomposition.
-			a.maybePlanPreflight(ctx, s, depth, maxSteps, turnTask)
-		}
 	}
 
 	for step := 0; step < maxSteps; step++ {
@@ -302,8 +282,6 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "orchestrator"}, nd)
 		}
 
-		answerInterjectNow := false // set when this step detects a visible interjection to reply to now
-
 		evs, err := a.store.Read(ctx, sid, 0)
 		if err != nil {
 			a.emitError(ctx, sid, agentActor, err.Error())
@@ -340,52 +318,9 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					}
 				}
 			}
-			handledUserPrompts, answerInterjectNow = a.detectInterjections(ctx, tc, evs, turnTask, handledUserPrompts)
-		}
-
-		// Async explorer preflight: when the planner dispatched its read-only explorers to the
-		// background (a pure-investigation plan), the orchestrator has nothing to synthesize until
-		// they report. Park here — BEFORE running the model — rather than answering with no findings.
-		// The park releases the moment a user interjects (needsOrchestratorTurn → lastIsUserSteer),
-		// so the loop falls through and answers it inline (dispatching=true above); or when the
-		// explorers finish (bgOutstanding hits 0), so it wakes to synthesize. Top level only;
-		// consumes no step budget. Mirrors the post-step bg-wait (below the no-tool-call branch).
-		// Gated on awaitingExplorers so ordinary background delegation still interleaves the
-		// orchestrator's OWN work (it never sets the flag) instead of parking here.
-		if depth == 0 && a.awaitingExplorers(sid) && !answerInterjectNow && a.bgOutstanding(sid) > 0 && !a.needsOrchestratorTurn(ctx, sid) {
-			// Flush asides that were queued earlier (e.g. during planning) BEFORE we park —
-			// otherwise they starve until turn-end (the pendingInterject drain fires only then),
-			// which for a long/council-looping turn is minutes. Handle each already-queued item
-			// through the same focused handler; if one acts on the work, break the park so the
-			// route/cancel takes effect instead of waiting on the explorers.
-			if queued := a.pendingInterjectItems(sid); len(queued) > 0 {
-				for _, it := range queued {
-					if a.handleAside(ctx, agent, s, depth, turnTask, it.MsgID, it.Text) {
-						answerInterjectNow = true
-					}
-				}
-				if answerInterjectNow {
-					step-- // re-evaluate: skip the park and run a normal step to apply the route
-					continue
-				}
-			}
-			for a.bgOutstanding(sid) > 0 && ctx.Err() == nil && !a.needsOrchestratorTurn(ctx, sid) {
-				select {
-				case <-a.bgWaitChan(sid):
-				case <-ctx.Done():
-				}
-			}
-			if ctx.Err() != nil {
-				return lastText, ctx.Err()
-			}
-			if a.bgOutstanding(sid) == 0 {
-				a.setAwaitExplorers(sid, false) // all explorers reported → normal synthesis/interleave from here
-			}
-			if a.needsOrchestratorTurn(ctx, sid) {
-				a.bgConsume(sid) // don't re-wake for the same results (re-armed when new ones inject)
-			}
-			step-- // re-evaluate without spending this step's budget
-			continue
+			// The second return said "reply to this interjection instead of parking"; there is no
+			// park left to skip, so only the handled count is carried.
+			handledUserPrompts, _ = a.detectInterjections(ctx, tc, evs, turnTask, handledUserPrompts)
 		}
 
 		// One model response for this step, with the two recoveries that belong to getting it:
@@ -618,7 +553,7 @@ func (a *App) detectInterjections(ctx context.Context, tc turnCtx, evs []event.E
 	}
 	answerNow := false
 	dispatching := a.bgOutstanding(sid) > 0
-	idleWaiting := dispatching && a.awaitingExplorers(sid) // parked with no work to interleave
+	idleWaiting := false // the planner's explorer park is gone; background work always interleaves
 	// Handle EVERY user prompt that appeared since the last check, not just the newest: two
 	// messages steered in during one long step would otherwise advance the counter past the
 	// earlier one, dropping it silently.
@@ -817,12 +752,6 @@ func (a *App) publishContextUsage(sid session.SessionID, actor event.Actor, mode
 func (a *App) checkAutoOrchestration(ctx context.Context, sid session.SessionID, depth int, modelID, sys string, msgs []session.Message) bool {
 	if depth != 0 {
 		return false // only top-level orchestrator
-	}
-	if a.cfg.Planner {
-		// The pre-flight planner is the primary (calmer, framed-as-data) orchestration
-		// mechanism. Stacking the reactive directive on top is redundant and its
-		// alarming tone reads as a prompt injection — let the planner own this.
-		return false
 	}
 	if a.cfg.AutoOrchestrate < 0 {
 		return false // explicitly disabled

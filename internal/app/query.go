@@ -48,18 +48,6 @@ func (a *App) Rewind(ctx context.Context, sid session.SessionID, n int) (int64, 
 		st.lastPromptTokens = 0
 		st.todos = nil
 		st.stage = ""
-		st.estSteps = 0
-		// Clear every turn-derived cache that feeds the plan/council panels, not just a subset:
-		// the rewound prompt is exactly what produced these, so leaving them behind renders a
-		// truncated turn's checks/ledger/frozen-contract over the restored (older) state. Mirror
-		// resetForNewTopLevel's derived-cache set (the next prompt re-derives them all anyway).
-		st.criteria = ""
-		st.minedNote = ""
-		st.deliverableChecks = nil
-		st.passedChecks = nil
-		st.provAudited = nil
-		st.contractFrozen = false
-		st.contractText = ""
 	}
 	a.mu.Unlock()
 	return boundary, nil
@@ -115,34 +103,6 @@ func (a *App) Todos(sid session.SessionID) []session.Todo {
 // worker was actually asked to do. Empty for a session that was not seeded (the top-level turn).
 func (a *App) SubagentRequest(sid session.SessionID) string {
 	return a.seedPromptOf(sid)
-}
-
-// AcceptanceCriteria returns this turn's acceptance criteria — the prose completion conditions the
-// finished work is judged against — one item per line, for the plan panel. Paired with
-// CompletionChecks (the executable half), these are the "completion conditions". Empty when none.
-func (a *App) AcceptanceCriteria(sid session.SessionID) []string {
-	crit := a.cachedCriteria(sid)
-	if strings.TrimSpace(crit) == "" {
-		return nil
-	}
-	var out []string
-	for _, ln := range strings.Split(crit, "\n") {
-		ln = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(ln), "-"))
-		if ln != "" {
-			out = append(out, ln)
-		}
-	}
-	return out
-}
-
-// ContractFrozen reports whether a contract-first gate authored+froze this turn's completion
-// contract BEFORE planning (D-contract). The plan panel shows the completion conditions ABOVE the
-// plan when so, reflecting the contract-first order.
-func (a *App) ContractFrozen(sid session.SessionID) bool {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	st, ok := a.stateIf(sid)
-	return ok && st.contractFrozen
 }
 
 // OpenConcerns folds the session's event log into its live structural-concern ledger and returns

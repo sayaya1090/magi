@@ -139,7 +139,7 @@ func (a *App) recordParseFailure(ctx context.Context, sid session.SessionID, pas
 		Kind:   parseFailureKind(text, probe),
 		Detail: raw,
 	})
-	_ = a.appendFact(ctx, sid, event.TypeDiagnostic, plannerActor, d)
+	_ = a.appendFact(ctx, sid, event.TypeDiagnostic, event.Actor{Kind: event.ActorSystem, ID: "reask"}, d)
 }
 
 // parseFailureKind classifies WHY a reply could not be read, as a short token the record can be
