@@ -20,14 +20,14 @@ func TestPublishPreservesMustDeliverUnderBackpressure(t *testing.T) {
 		b.Publish(event.Event{SessionID: "s1", Type: event.TypePartDelta})
 	}
 	// A critical transition arrives while the buffer is full.
-	b.Publish(event.Event{SessionID: "s1", Type: event.TypeAgentStatus})
+	b.Publish(event.Event{SessionID: "s1", Type: event.TypeToolStarted})
 
-	// Drain non-blockingly; the agent.status must be in there (displaced a delta).
+	// Drain non-blockingly; the tool.started must be in there (displaced a delta).
 	found := false
 	for {
 		select {
 		case e := <-ch:
-			if e.Type == event.TypeAgentStatus {
+			if e.Type == event.TypeToolStarted {
 				found = true
 			}
 			continue
@@ -36,7 +36,7 @@ func TestPublishPreservesMustDeliverUnderBackpressure(t *testing.T) {
 		break
 	}
 	if !found {
-		t.Fatal("must-deliver agent.status was dropped under backpressure (stuck-pane bug)")
+		t.Fatal("must-deliver tool.started was dropped under backpressure (stuck-UI bug)")
 	}
 }
 

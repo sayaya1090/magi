@@ -42,9 +42,6 @@ type sessionState struct {
 	// clear them (the abandonment is a whole-session fact, not a per-turn one).
 	deferredAbandoned map[string]bool
 	deferredHydrated  bool
-	// recoverySeed marks a child session spawned as a recovery executor: runLoop seeds its
-	// turnState as already-recovered so a recovery cannot recurse into another one.
-	recoverySeed bool
 	// activeSeedMsgID is the MessageID of the user prompt that SEEDS the currently
 	// running top-level turn (set at step 0, loop.go). If that turn is cancelled before
 	// answering, the cancel path marks this prompt abandoned (TypePromptAbandoned) so it

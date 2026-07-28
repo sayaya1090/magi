@@ -1,6 +1,6 @@
 // Package eval is a small quantitative harness: it runs a fixed task suite
 // through the real magi app layer against any OpenAI-compatible backend and
-// reports success rate, steps, tool calls, subagent spawns, tokens, and wall
+// reports success rate, steps, tool calls, tokens, and wall
 // time. The harness is held constant so results compare MODELS (e.g. a local
 // qwen vs Gemini vs Claude), turning "performance" from a feature checklist into
 // numbers. See eval_test.go for the runner entry point.
@@ -41,28 +41,16 @@ type Result struct {
 	Task                string
 	Finished, Success   bool
 	AsstMsgs, ToolCalls int
-	Spawns              int
 	TokIn, TokOut       int
 	Dur                 time.Duration
 	Note                string
 }
 
-// orchestratorSystem is a representative top-level prompt (the app layer adds the
-// language lock, subagent contract, and guardrails automatically). Held constant
-// across models so differences reflect the model, not the prompt.
-const orchestratorSystem = "You are magi, a terminal coding agent. Use tools (read/write/edit/grep/glob/list/bash) " +
-	"to do the user's task in the working directory; never ask the user to paste files. For work that splits into " +
-	"independent pieces, delegate to subagents with the task tool — dispatch independent pieces together as " +
-	"tasks:[...] so they run in parallel — then synthesize their results once they arrive and finish. Keep replies concise."
-
-func evalAgents() map[string]app.AgentSpec {
-	ro := []string{"read", "grep", "glob", "list", "ask", "report"}
-	return map[string]app.AgentSpec{
-		"coder":    {Name: "coder", System: "Review or implement from a coding perspective. Be concise.", Tools: append(append([]string{}, ro...), "write", "edit", "multiedit", "bash")},
-		"tester":   {Name: "tester", System: "Review from a testing/verification perspective. Be concise.", Tools: append(append([]string{}, ro...), "bash")},
-		"reviewer": {Name: "reviewer", System: "Review the given files and report concrete issues. Be concise.", Tools: ro},
-	}
-}
+// agentSystem is a representative top-level prompt (the app layer adds the language lock and
+// guardrails automatically). Held constant across models so differences reflect the model, not
+// the prompt.
+const agentSystem = "You are magi, a terminal coding agent. Use tools (read/write/edit/grep/glob/list/bash) " +
+	"to do the user's task in the working directory; never ask the user to paste files. Keep replies concise."
 
 // Run executes the suite against one backend and returns per-task results.
 func Run(llm port.LLMProvider, model string, plat port.Platform, tasks []Task) ([]Result, error) {
@@ -102,10 +90,9 @@ func runTask(llm port.LLMProvider, model string, plat port.Platform, task Task) 
 	ref := session.ModelRef{Provider: "openai", Model: model}
 	a := app.New(store, llm, reg, bus.New(), plat, app.Config{
 		Model:      ref,
-		System:     orchestratorSystem,
+		System:     agentSystem,
 		Permission: "allow",
 		MaxSteps:   30,
-		Agents:     evalAgents(),
 	})
 
 	timeout := task.Timeout
@@ -140,8 +127,6 @@ func runTask(llm port.LLMProvider, model string, plat port.Platform, task Task) 
 				break
 			}
 			switch e.Type {
-			case event.TypeAgentSpawned:
-				r.Spawns++
 			case event.TypePartAppended:
 				var d event.PartAppendedData
 				if json.Unmarshal(e.Data, &d) == nil && d.Role == session.RoleAssistant {
@@ -207,10 +192,9 @@ func isKorean(s string) bool {
 	return n >= 2
 }
 
-// DefaultSuite is the fixed scored task set. It deliberately mixes single-agent
-// mechanics with the multi-agent orchestration that is magi's fragile spot.
+// DefaultSuite is the fixed scored task set: the mechanics one agent has to get right —
+// reading, writing, editing, locating, and answering in the user's language.
 func DefaultSuite() []Task {
-	design := "# magi Design\n\nHexagonal core, event-sourced JSONL store, OpenAI-compatible LLM port. Subagents via a task tool.\n"
 	return []Task{
 		{
 			Name:    "read-comprehend",
@@ -258,30 +242,6 @@ func DefaultSuite() []Task {
 				return false, "replied non-Korean"
 			},
 		},
-		{
-			Name:    "delegate-synthesize",
-			Seed:    map[string]string{"DESIGN.md": design},
-			Prompt:  "Have the coder and tester subagents review DESIGN.md, then give me one combined synthesis.",
-			Timeout: 5 * time.Minute,
-			Check: func(_, reply string, r Result) (bool, string) {
-				if !r.Finished {
-					return false, "did not finish"
-				}
-				if r.Spawns < 1 {
-					return false, "never delegated"
-				}
-				if strings.TrimSpace(reply) == "" {
-					return false, "empty synthesis"
-				}
-				note := ""
-				if r.Spawns == 2 {
-					note = "parallel-2"
-				} else if r.Spawns > 2 {
-					note = fmt.Sprintf("re-dispatch x%d", r.Spawns)
-				}
-				return true, note
-			},
-		},
 	}
 }
 
@@ -289,7 +249,7 @@ func DefaultSuite() []Task {
 func Report(model string, rs []Result) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "\n=== eval: %s ===\n", model)
-	fmt.Fprintf(&b, "%-22s %-5s %-5s %5s %5s %6s %6s %8s  %s\n", "task", "fin", "ok", "asst", "tool", "spawn", "tok-in", "dur", "note")
+	fmt.Fprintf(&b, "%-22s %-5s %-5s %5s %5s %6s %8s  %s\n", "task", "fin", "ok", "asst", "tool", "tok-in", "dur", "note")
 	pass, totIn, totOut := 0, 0, 0
 	var totDur time.Duration
 	for _, r := range rs {
@@ -299,8 +259,8 @@ func Report(model string, rs []Result) string {
 		totIn += r.TokIn
 		totOut += r.TokOut
 		totDur += r.Dur
-		fmt.Fprintf(&b, "%-22s %-5v %-5v %5d %5d %6d %6d %7.0fs  %s\n",
-			r.Task, r.Finished, r.Success, r.AsstMsgs, r.ToolCalls, r.Spawns, r.TokIn, r.Dur.Seconds(), r.Note)
+		fmt.Fprintf(&b, "%-22s %-5v %-5v %5d %5d %6d %7.0fs  %s\n",
+			r.Task, r.Finished, r.Success, r.AsstMsgs, r.ToolCalls, r.TokIn, r.Dur.Seconds(), r.Note)
 	}
 	rate := 0.0
 	if len(rs) > 0 {

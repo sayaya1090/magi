@@ -976,29 +976,6 @@ func renderText(out, errw io.Writer, e event.Event) {
 				fmt.Fprintln(out, "    "+ln)
 			}
 		}
-	case event.TypePlanRevised:
-		// A plan-audit re-plan round: show the critique, the before→after step diff, and
-		// (when the convergence judge ran) whether the revision addressed the concern. Its
-		// own case avoids the 200-char note truncation and renders the diff line-by-line.
-		var d event.PlanRevisedData
-		if json.Unmarshal(e.Data, &d) == nil {
-			crit := strings.ReplaceAll(truncate(strings.TrimSpace(d.Critique), 200), "\n", " ")
-			fmt.Fprintf(out, "⟳ council plan-revised (round %d): %s\n", d.Round, crit)
-			added, removed := d.Diff()
-			for _, s := range removed {
-				fmt.Fprintf(out, "    − %s\n", truncate(s, 120))
-			}
-			for _, s := range added {
-				fmt.Fprintf(out, "    + %s\n", truncate(s, 120))
-			}
-			if d.Addressed != nil {
-				mark := "no"
-				if *d.Addressed {
-					mark = "yes"
-				}
-				fmt.Fprintf(out, "    → addressed=%s: %s\n", mark, truncate(strings.TrimSpace(d.Reason), 200))
-			}
-		}
 	case event.TypeCompaction:
 		// Context compaction collapses older history into a summary; surface it so
 		// headless runs (scripts, CI, benchmarks) can see when — and how much —

@@ -85,7 +85,6 @@ type turnState struct {
 	prevFinishText   string // the answer the council rejected last round
 	prevFinishCalls  int    // guard.callCount() at that rejection (-1 = none yet)
 	unverifiedReason string // non-empty when the turn finishes WITHOUT council approval
-	recovered        bool   // stuck-recovery redecompose fired at most once (shared with the stall path)
 	stepNudged       bool   // deliverable-check failure nudge injected at most once (MAGI_STEP_VERIFY)
 	lastCheckEpoch   int    // mutation epoch at the last incremental step-check pass (skip read-only turns)
 	lastCheckExec    int    // guard.execActivity() at that pass — also fire on a runtime action (server up, pkg installed)
@@ -151,17 +150,6 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 				sc.remove()
 			}()
 		}
-	}
-	// Run-tree recovery cap: a child spawned by the stuck-recovery lifeline starts already
-	// flagged as recovered, so it cannot fire its OWN redecomposeStuck. reground does NOT clear
-	// this field, so the cap holds across the child's whole run — exactly one recovery executor
-	// per run tree rather than one per depth level. Gated so flag-off is the unchanged baseline.
-	if recoveryRunCapEnabled() {
-		a.mu.Lock()
-		if st, ok := a.stateIf(sid); ok && st.recoverySeed {
-			ts.recovered = true
-		}
-		a.mu.Unlock()
 	}
 	turnTask := "" // the user instruction THIS turn answers, snapshotted at step 0. A
 	// steer that lands mid-turn is QUEUED by default (runs as its own follow-up turn), so

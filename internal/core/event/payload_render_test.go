@@ -1,41 +1,9 @@
 package event
 
 import (
-	"reflect"
 	"strings"
 	"testing"
 )
-
-// Diff reports which entries are new in After (added, in after-order) and which are gone from
-// Before (removed, in before-order). Membership is set-based, so a step present in both is neither
-// added nor removed regardless of position.
-func TestPlanRevisedDiff(t *testing.T) {
-	added, removed := PlanRevisedData{
-		Before: []string{"a", "b", "c"},
-		After:  []string{"b", "c", "d", "e"},
-	}.Diff()
-	if !reflect.DeepEqual(added, []string{"d", "e"}) {
-		t.Errorf("added = %v, want [d e]", added)
-	}
-	if !reflect.DeepEqual(removed, []string{"a"}) {
-		t.Errorf("removed = %v, want [a]", removed)
-	}
-	// Identical plans → no diff (both named returns stay nil).
-	if a, r := (PlanRevisedData{Before: []string{"x"}, After: []string{"x"}}).Diff(); a != nil || r != nil {
-		t.Errorf("identical: added=%v removed=%v, want nil/nil", a, r)
-	}
-	// Reorder without content change → still no diff (set membership, not position).
-	if a, r := (PlanRevisedData{Before: []string{"a", "b"}, After: []string{"b", "a"}}).Diff(); a != nil || r != nil {
-		t.Errorf("reorder: added=%v removed=%v, want nil/nil", a, r)
-	}
-	// From-empty is all added; to-empty is all removed, each in source order.
-	if a, _ := (PlanRevisedData{After: []string{"p", "q"}}).Diff(); !reflect.DeepEqual(a, []string{"p", "q"}) {
-		t.Errorf("from empty: added=%v, want [p q]", a)
-	}
-	if _, r := (PlanRevisedData{Before: []string{"p", "q"}}).Diff(); !reflect.DeepEqual(r, []string{"p", "q"}) {
-		t.Errorf("to empty: removed=%v, want [p q]", r)
-	}
-}
 
 // A council rejection's feedback used to reach the run log only through the injected prompt, which
 // renders as a 200-char note — and the advisory keep-list is prepended ABOVE the feedback there, so

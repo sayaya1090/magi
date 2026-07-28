@@ -170,24 +170,6 @@ func (m *Model) applyEvent(e event.Event) {
 		}
 		m.onPartAppended(d, e.TS)
 
-	case event.TypeAgentSpawned:
-		var d event.AgentStatusData
-		if json.Unmarshal(e.Data, &d) == nil {
-			m.activeAgents = append(m.activeAgents, orDefaultStr(d.Role, d.AgentID))
-		}
-
-	case event.TypeAgentStatus:
-		var d event.AgentStatusData
-		if json.Unmarshal(e.Data, &d) == nil && d.State == "done" {
-			m.activeAgents = removeFirst(m.activeAgents, orDefaultStr(d.Role, d.AgentID))
-			p := m.paneBySID(session.SessionID(d.AgentID))
-			fadeDbg("main: AgentStatus done agentID=%s paneFound=%v", shortSID(session.SessionID(d.AgentID)), p != nil)
-			if p != nil && !p.done {
-				p.done = true
-				p.doneAt = time.Now() // start this pane's own fade clock
-			}
-		}
-
 	case event.TypePermissionRequested:
 		var d event.PermissionRequestedData
 		if json.Unmarshal(e.Data, &d) == nil {
@@ -313,22 +295,6 @@ func (m *Model) applyEvent(e event.Event) {
 			m.onCouncilDecided(d)
 		}
 
-	case event.TypeStepCheck:
-		var d event.StepCheckData
-		if json.Unmarshal(e.Data, &d) == nil {
-			m.blocks = append(m.blocks, block{kind: blockInfo, text: stepCheckLine(d)})
-		}
-
-	case event.TypePlanRevised:
-		// A plan-audit re-plan round. The headless printer shows the critique and the
-		// before→after step diff; the TUI showed nothing at all, so the richer surface
-		// showed LESS — the plan changed under the user between rounds with no record of
-		// what the council objected to, what moved, or whether the rewrite engaged it.
-		var d event.PlanRevisedData
-		if json.Unmarshal(e.Data, &d) == nil {
-			m.blocks = append(m.blocks, block{kind: blockInfo, text: planRevisedLine(d)})
-		}
-
 	case event.TypeArtifactEmitted:
 		// A reviewable output the run fixed at this point (acceptance criteria, deliverable
 		// checks, a check audit). Its CONTENT has other surfaces (the panel, the council
@@ -367,24 +333,6 @@ func (m *Model) applyEvent(e event.Event) {
 					m.cache = m.cache[:min(i, len(m.cache))] // re-render it (the cache is append-only)
 					break
 				}
-			}
-		}
-
-	case event.TypeConcernRaised:
-		// The concern ledger's only surface was the council detail modal — reachable solely by
-		// clicking a member of a round that produced verdicts. Announce the open where it happens.
-		var d event.ConcernRaisedData
-		if json.Unmarshal(e.Data, &d) == nil {
-			if line := concernRaisedLine(d); line != "" {
-				m.blocks = append(m.blocks, block{kind: blockInfo, text: line})
-			}
-		}
-
-	case event.TypeConcernResolved:
-		var d event.ConcernResolvedData
-		if json.Unmarshal(e.Data, &d) == nil {
-			if line := concernResolvedLine(d); line != "" {
-				m.blocks = append(m.blocks, block{kind: blockInfo, text: line})
 			}
 		}
 

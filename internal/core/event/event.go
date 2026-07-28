@@ -51,23 +51,11 @@ const (
 	// vote (no round, no tally): it is the executed contract, persisted so the check's
 	// result is auditable and rendered as its own line rather than masquerading as a
 	// council round outcome.
-	TypeStepCheck Type = "step.check"
 
 	// Plan-audit convergence (D17): when the council rejects a plan and the planner
 	// re-plans, this fact records the round's plan revision (before→after) plus the
 	// judged verdict of whether the revision actually addressed the council's concern.
 	// Persisted so "was the revision productive" is auditable from the log/trace.
-	TypePlanRevised Type = "plan.revised"
-
-	// Concern ledger: a durable, role-scoped structural signal (fabrication,
-	// unverified-premise, a subagent's un-recovered concern). Raised deterministically
-	// and folded back into the council's evidence, so a signal survives across turns and
-	// across the subagent→parent boundary instead of being recomputed-and-discarded each
-	// council round. Resolved (tombstone) on deterministic recovery or a guarded
-	// orchestrator reset. A later Raised for the same Key reopens it — the property that
-	// makes reset safe: a still-true fact re-surfaces on the next fold.
-	TypeConcernRaised   Type = "concern.raised"
-	TypeConcernResolved Type = "concern.resolved"
 
 	// Interjection deferral ledger (F5): a durable record that a user prompt was queued
 	// as a mid-turn interjection (Resolved:false at enqueue) and, later, that it left the
@@ -96,8 +84,6 @@ const (
 	TypeToolProgress        Type = "tool.progress"
 	TypePermissionRequested Type = "permission.requested"
 	TypeQuestionRequested   Type = "question.requested" // agent asks the USER a multiple-choice question
-	TypeAgentSpawned        Type = "agent.spawned"
-	TypeAgentStatus         Type = "agent.status"
 	TypeContextUsage        Type = "context.usage"
 	TypeWorkflowPhase       Type = "workflow.phase"
 	TypeCouncilDeliberating Type = "council.deliberating" // a member is being polled (live panel)
@@ -112,8 +98,6 @@ var transientTypes = map[Type]bool{
 	TypeToolProgress:        true,
 	TypePermissionRequested: true,
 	TypeQuestionRequested:   true,
-	TypeAgentSpawned:        true,
-	TypeAgentStatus:         true,
 	TypeContextUsage:        true,
 	TypeWorkflowPhase:       true,
 	TypeCouncilDeliberating: true,
@@ -124,9 +108,9 @@ func (t Type) IsTransient() bool { return transientTypes[t] }
 
 // droppableTypes are HIGH-VOLUME, best-effort live events the bus may drop under
 // backpressure (streaming deltas, progress/usage ticks, live council polling).
-// Low-volume state transitions (agent.spawned/status, tool.started, …) and all
-// facts are NOT droppable — silently losing one desyncs the UI permanently (e.g. a
-// subagent pane stuck "running" because its agent.status:"done" was dropped).
+// Low-volume state transitions (tool.started, permission/question requests, …) and all
+// facts are NOT droppable — silently losing one desyncs the UI permanently (e.g. a tool
+// row stuck "running" because the result that closed it was dropped).
 var droppableTypes = map[Type]bool{
 	TypePartDelta:           true,
 	TypeToolProgress:        true,

@@ -299,30 +299,6 @@ func truncRunes(s string, n int) string {
 	return s[:n] + "…"
 }
 
-// StepCheckData — TypeStepCheck (one deterministic deliverable-check execution).
-// It carries the pieces separately so the UI can render a clean glyph line
-// (✓/✗ + step + deliverable) instead of parsing a formatted note.
-type StepCheckData struct {
-	Step        string `json:"step,omitempty"`        // the plan step the check belongs to (its label)
-	Deliverable string `json:"deliverable,omitempty"` // what the check verifies (human phrase)
-	Command     string `json:"command,omitempty"`     // the command that was run
-	Code        int    `json:"code"`                  // its exit code
-	Pass        bool   `json:"pass"`                  // whether it satisfied the check
-	// Output is a clipped capture of what the command actually printed. Without it a recorded
-	// failure cannot be told apart from a check that was simply wrong: the step, command and
-	// verdict alone never show whether the world was in the wrong state or the pattern could not
-	// match what the command prints. Clipped because a check may print a whole build log.
-	Output string `json:"output,omitempty"`
-	// Expect is the pattern the output was matched against, carried beside it for the same reason —
-	// the pair is what makes a verdict re-derivable after the fact.
-	Expect string `json:"expect,omitempty"`
-	// Source+Assert record a TYPED check, which has no command: the runner read Source and applied
-	// Assert to it itself. They are the re-derivability pair for that shape — without them the fact
-	// says a step was checked but not what was asserted, and Command/Expect would both be blank.
-	Source string `json:"source,omitempty"`
-	Assert string `json:"assert,omitempty"`
-}
-
 // CouncilDeliberatingData — TypeCouncilDeliberating (transient, live panel).
 // Only "asking" is currently produced (one per member when a round opens); a
 // panel infers the "voted" state from the persisted council.verdict facts.
@@ -330,48 +306,6 @@ type CouncilDeliberatingData struct {
 	Round  int    `json:"round"`
 	Member string `json:"member"`
 	State  string `json:"state"` // "asking" (emitted) — "voted" inferred from council.verdict
-}
-
-// PlanRevisedData — TypePlanRevised (plan-audit convergence). Emitted once per re-plan
-// round, right after the planner produces a revised procedure in response to a critical
-// council concern. Before/After are the step summaries ("[strategy] title") of the plan
-// heading into and coming out of this revision, so a reader can see WHAT changed. Critique
-// is the concern the revision was meant to address. Addressed is the judged verdict of
-// whether the revision actually engaged that concern — nil when the convergence judge did
-// not run (MAGI_PLAN_CONVERGE off), so observability stands alone from the gating.
-type PlanRevisedData struct {
-	Round     int      `json:"round"`
-	Critique  string   `json:"critique,omitempty"`
-	Before    []string `json:"before,omitempty"`
-	After     []string `json:"after,omitempty"`
-	Addressed *bool    `json:"addressed,omitempty"`
-	Reason    string   `json:"reason,omitempty"`
-}
-
-// Diff reports what this revision changed: added = step summaries in After but not Before (in
-// after-order), removed = in Before but not After (in before-order). Membership is set-based, so
-// a step present in both is neither added nor removed regardless of where it moved to. Shared by
-// every surface that renders the revision, so none of them can describe the same fact differently.
-func (d PlanRevisedData) Diff() (added, removed []string) {
-	inBefore := make(map[string]bool, len(d.Before))
-	for _, s := range d.Before {
-		inBefore[s] = true
-	}
-	inAfter := make(map[string]bool, len(d.After))
-	for _, s := range d.After {
-		inAfter[s] = true
-	}
-	for _, s := range d.After {
-		if !inBefore[s] {
-			added = append(added, s)
-		}
-	}
-	for _, s := range d.Before {
-		if !inAfter[s] {
-			removed = append(removed, s)
-		}
-	}
-	return added, removed
 }
 
 // --- Concern ledger ---
@@ -449,14 +383,6 @@ type QuestionRequestedData struct {
 	Options  []string `json:"options,omitempty"`
 	Index    int      `json:"index"` // 1-based position within the call
 	Total    int      `json:"total"`
-}
-
-// AgentStatusData — TypeAgentSpawned / TypeAgentStatus (multi-agent live view).
-type AgentStatusData struct {
-	AgentID string `json:"agentId"`
-	Parent  string `json:"parent,omitempty"`
-	Role    string `json:"role,omitempty"`
-	State   string `json:"state"`
 }
 
 // ContextUsageData — TypeContextUsage (live context meter). Tokens is the current

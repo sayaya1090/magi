@@ -65,41 +65,6 @@ func TestCouncilKeepReachesTheScreen(t *testing.T) {
 	}
 }
 
-// A plan-audit re-plan round reached the headless printer but nothing at all in the TUI — the
-// richer surface showed LESS: the plan changed under the reader with no record of what the council
-// objected to, what moved, or whether the rewrite engaged the objection.
-func TestPlanRevisedRendersTheCritiqueAndDiff(t *testing.T) {
-	yes := true
-	got := ansi.Strip(planRevisedLine(event.PlanRevisedData{
-		Round:     2,
-		Critique:  "nothing captures the build output",
-		Before:    []string{"[write] build it", "[read] look around"},
-		After:     []string{"[read] look around", "[write] build it and tee the log"},
-		Addressed: &yes,
-		Reason:    "the new step captures the log",
-	}))
-	for _, want := range []string{"round 2", "nothing captures the build output",
-		"− [write] build it", "+ [write] build it and tee the log", "addressed=yes", "captures the log"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("plan-revised line missing %q:\n%s", want, got)
-		}
-	}
-	// A step present in both is neither added nor removed — a moved step is not a change.
-	if strings.Contains(got, "look around\n") && strings.Contains(got, "− [read] look around") {
-		t.Errorf("a merely reordered step was reported as removed:\n%s", got)
-	}
-
-	// A revision that changed nothing is a diagnosis, not an empty block.
-	same := ansi.Strip(planRevisedLine(event.PlanRevisedData{Round: 3, Before: []string{"a"}, After: []string{"a"}}))
-	if !strings.Contains(same, "no steps changed") {
-		t.Errorf("an empty revision must say so:\n%s", same)
-	}
-	// The convergence judge is optional (MAGI_PLAN_CONVERGE off) — no verdict must be invented.
-	if strings.Contains(same, "addressed") {
-		t.Errorf("no judge ran, so no addressed verdict may appear:\n%s", same)
-	}
-}
-
 // Facts that were produced, persisted, and consumed by prompts while having no on-screen path:
 // a discarded side-pass looked identical to one that never ran, a contract fixed mid-run left no
 // mark, and a structural concern was reachable only by clicking a council member — so a concern
@@ -121,29 +86,6 @@ func TestPreviouslyUnrenderedFactsGetALine(t *testing.T) {
 	}
 	if got := artifactLine(event.ArtifactEmittedData{}); got != "" {
 		t.Errorf("an empty artifact renders nothing, got %q", got)
-	}
-
-	raised := ansi.Strip(concernRaisedLine(event.ConcernRaisedData{
-		Key: "self-check/unverified-premise", Source: "self-check", Kind: "unverified-premise",
-		Status: "fail", Detail: "the lookup tool failed and the premise was never verified",
-	}))
-	for _, want := range []string{"self-check/unverified-premise", "fail", "never verified"} {
-		if !strings.Contains(raised, want) {
-			t.Errorf("a raised concern must carry its tag, status and detail (%q): %s", want, raised)
-		}
-	}
-	// The ledger dedups by Key, so a close that renders nothing is never announced again either —
-	// to anyone watching, the concern would stay open forever.
-	resolved := ansi.Strip(concernResolvedLine(event.ConcernResolvedData{
-		Key: "self-check/unverified-premise", By: "auto", Reason: "a knowledge lookup succeeded this turn",
-	}))
-	for _, want := range []string{"self-check/unverified-premise", "auto", "lookup succeeded"} {
-		if !strings.Contains(resolved, want) {
-			t.Errorf("a resolved concern must say what closed it (%q): %s", want, resolved)
-		}
-	}
-	if got := concernResolvedLine(event.ConcernResolvedData{}); got != "" {
-		t.Errorf("a keyless tombstone renders nothing, got %q", got)
 	}
 }
 

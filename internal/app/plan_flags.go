@@ -82,17 +82,6 @@ func exerciseChurnLandEnabled() bool { return exerciseChurnCap() > 0 }
 // MAGI_COUNCIL_DEBATE=0 restores the independent-vote-only tally (A/B knob).
 func councilDebateEnabled() bool { return !envOff("MAGI_COUNCIL_DEBATE") }
 
-// subagentProcLeaseEnabled makes the subagent lease judge extend when the child owns a
-// magi-managed background process (a bash{background:true} job) that is ACTIVELY using CPU at
-// lease expiry. Foreground work is already covered by toolInFlight, but an off-tool background
-// transfer/build (a long scp/tar/make the model launched as a job and stopped polling) emits no
-// events and is not a poll verb, so the judge misreads it as churn and KILLs it every lease —
-// the plexus #224 remote-download spin. Sampling real CPU (not the command name) is robust to a
-// worker wrapping its work in a self-written script. Idle/wedged processes (CPU ~flat) do NOT
-// extend, and the backstop still caps the attempt. Default ON; MAGI_SUBAGENT_PROC_LEASE=0
-// restores the judge-everything baseline for A/B.
-func subagentProcLeaseEnabled() bool { return !envOff("MAGI_SUBAGENT_PROC_LEASE") }
-
 // ctxCompactRetryEnabled controls the reactive-compaction safety net. On (the default), when the
 // provider rejects a generate request as too long (isContextOverflow), the loop force-compacts and
 // re-issues instead of dying with a terminal error — recovering runs whose context outgrew the
@@ -100,14 +89,6 @@ func subagentProcLeaseEnabled() bool { return !envOff("MAGI_SUBAGENT_PROC_LEASE"
 // delegate rounds). MAGI_CTX_COMPACT_RETRY=0 restores the old fail-fast for A/B. Inert unless the
 // backend actually returns a context-length error.
 func ctxCompactRetryEnabled() bool { return !envOff("MAGI_CTX_COMPACT_RETRY") }
-
-// recoveryRunCapEnabled caps stuck-recovery re-decomposition to fire at most once per RUN
-// TREE rather than once per depth level: a recovery child is seeded as already-recovered, so
-// it cannot trigger its OWN redecomposeStuck (no coder→coder cascade down the depth levels).
-// Off (the default), multiple recovery executors are allowed per run tree — each stuck level
-// re-arms its own lifeline, bounded by MaxPlanDepth. Set MAGI_RECOVERY_RUNCAP=on to restore
-// the one-executor-per-run-tree cap.
-func recoveryRunCapEnabled() bool { return envOn("MAGI_RECOVERY_RUNCAP") }
 
 // execExemptEnabled gates the loop guard's exec-repeat exemption AND the
 // redirect-less bash-mutation epoch bump (both landed together in f3d1fbc): when on
