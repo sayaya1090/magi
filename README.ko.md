@@ -26,26 +26,30 @@
 
 에이전트 루프에는 어려운 질문이 하나 있다. **턴은 언제 진짜로 끝나는가?**
 
-그 판단을 작업한 모델에게 맡기면 누구나 본 적 있는 두 가지 실패가 나온다 — diff에 버그를 남긴 채
-승리를 선언하거나, 일은 끝났는데 "혹시 모르니" 계속 맴돈다. magi는 *루프 그 자체*를 엔지니어링 대상으로
-삼는다. 프롬프트만 손보는 게 아니라.
+그걸 암묵에 맡기면 — 모델이 툴 호출을 멈추면 턴이 끝나는 방식 — 생각하다 만 턴과 정말로 끝난 턴이
+구별되지 않는다. magi는 종료를 **행위**로 만든다. 에이전트가 끝났다고 선언하고, 카운슬이 *실제로
+무슨 일이 있었는지*를 읽은 다음에야 턴이 닫힌다.
 
 ```text
 you ▸ deploy 명령에 --dry-run 플래그 추가해줘
 
-  ◈ planner   3단계 — 플래그 파서 찾기 · 플래그 추가 · 가드 연결
-  ✓ explore   deploy 명령 & 플래그 파싱 → cmd/deploy.go가 pflag 사용
-  … 에이전트가 cmd/deploy.go 편집, go build 실행 …
+  … 에이전트가 cmd/deploy.go를 읽고 편집, go build 실행 …
 
-  ⚖ council · round 1
-     ● Melchior   [correctness]   done    · 88%
-     ● Balthasar  [verification]  reject  · 91%   → --dry-run을 덮는 테스트 없음
-     ● Casper     [completeness]  done    · 80%
-     → reject  (1 done / 2 continue)   피드백 주입, 루프 계속
+  ⚙ council {complete: true}          에이전트가 끝났다고 선언
 
-  … 에이전트가 테스트 추가, go test 재실행 …
+  ⚖ 카운슬이 기록을 읽는다
+     ── WHAT MAGI OBSERVED
+        changed: cmd/deploy.go
+        ran clean: go build ./...
+     ── THE WORKSPACE RIGHT NOW (기록이 아니라 방금 읽은 것)
+        cmd/deploy.go — 4,102 bytes, 12초 전 수정
 
-  ⚖ council · round 2  →  done  (3 / 0)   ✓ 턴 완료
+     ● Balthasar [verification]  새 플래그를 돌려본 게 없다 — `go test ./cmd`가 실행된 적 없음
+     → 아직 수락 아님; 에이전트가 계속 작업
+
+  … 에이전트가 테스트 추가, go test 실행 …
+
+  ⚙ council {complete: true}   →   수락   ✓ 턴 종료
 ```
 
 멈출지 말지의 결정을 단일 모델에서 빼앗아 **합의 카운슬**에게 넘긴다. 이 한 가지 변화가 프로젝트의
@@ -109,33 +113,35 @@ lens = "correctness"
 
 ---
 
-## 절차 플래너 (The Procedure Planner)
+## 턴은 어떻게 끝나는가
 
-본 에이전트가 돌기 전에, 툴 없는 플래너가 요청을 **순서 있는 절차**로 분해하고 **단계별 전략**을
-고른다 — 그리고 다단계 계획이면, 파일 하나 건드리기 전에 *카운슬이 그 계획 자체를 감사*한다.
+턴은 조용해져서 끝나지 않는다. 에이전트가 작업이 끝났다고 판단하면 그렇게 말하고 —
+`council{complete: true}` — 세 멤버가 **기록을 읽은 뒤에야** 턴이 닫힌다. 무슨 명령이 실제로 돌았고
+어떻게 끝났는지, 워크스페이스가 **지금** 무엇을 담고 있는지, 에이전트 자신이 뭐라고 했는지. 수락하면
+턴이 끝나고, 아니면 무엇이 아직 안 됐는지를 짚어 돌려보내고 에이전트는 계속 일한다.
 
-| 전략 | 하는 일 |
-|---|---|
-| `solo` | 본 에이전트가 직접 처리 (쓰기·편집 등 전체 컨텍스트가 필요한 일) |
-| `parallel` | 이미 관련 있다고 아는 독립 읽기전용 조사를 동시 실행 |
-| `scout` | **적응형** 발견 → 팬아웃: explorer 하나가 목록을 만들고, 각 항목이 다시 병렬 조사가 됨 |
+핵심은 그 기록이다. magi는 모든 툴 호출을 자기가 허가하므로 어떤 명령이 돌았는지, 진짜 exit이
+무엇이었는지(보고된 exit이 감추는 **파이프라인 중간 단계의 실패**까지), 어떤 경로에 썼는지를 안다.
+선언이 들어오면 워크스페이스를 **그 자리에서 새로 읽는다** — 작업 시작 이후 수정된 파일, 아직 살아있는
+백그라운드 명령, 기록은 썼다는데 디스크에 없는 경로. 미리 작성된 체크는 작업에 대해 틀릴 수 있지만,
+허가한 것의 기록은 허가한 것에 대해 틀릴 수 없다. 불완전한 부분은 불완전하다고 말한다.
 
-`scout`가 핵심이다. *"설계 문서 다 읽어와"*가 → 문서 목록을 만드는 explorer 하나, 그다음 문서당 병렬
-리더 하나로 — 팬아웃 대상을 미리 추측하지 않고 런타임에 발견한다.
+같은 기록이 매 스텝 다시 렌더돼 실린다 — 에이전트가 기억에만 의존해 일하지 않도록.
 
-각 단계는 체크되는 걸 지켜볼 수 있는 **todo**로 등록된다. 플랜 감사 카운슬은 승인(`approve`)하거나
-수정을 위해 되돌리며(`revise`), 멤버들이 도출한 기준은 종료 게이트가 완성된 작업을 판단할 **완료
-계약**이 된다. 조사 결과는 본 에이전트 컨텍스트로 종합되어 — 전부 다시 읽지 않고 계획을 이어간다.
-
-```toml
-[orchestration]
-planner = true            # 기본 on; false면 평범한 단일 에이전트 루프
-
-[routing]
-planner = "fast"          # 플래너를 더 싸고 빠른 백엔드로
-```
+묻는 것과 선언하는 것은 다르다. `council{question}`은 확신이 안 서는 것에 대한 읽기를 받아오고,
+아무것도 끝내지 않는다.
 
 ---
+
+## 에이전트는 하나다
+
+magi는 한때 서브에이전트를 띄우고, 작업을 스텝으로 계획하고, 스텝마다 실행 가능한 체크를 저술하고,
+카운슬이 그 체크가 충족됐다고 투표할 때까지 턴을 붙들었다. 전부 걷어냈다.
+
+이유는 로그에 있다. 그 단계들은 **작업이 존재하기 전에** 무언가를 결정했고, 가장 비쌌던 결함은 정확히
+한 종류였다 — magi가 실제로 벌어진 일의 기록보다 미리 내린 자기 판단을 믿은 것. 서버가 죽었을 때만
+통과하는 프로브, 생성기는 언더스코어를 쓰는데 하이픈을 요구하는 grep, 채점 식별자가 사라질 때까지
+패러프레이즈된 브리프. 남은 것은 루프, 툴, 기록, 그리고 에이전트가 원할 때 부르는 카운슬이다.
 
 ## 루프 엔지니어링 도구
 
@@ -248,30 +254,26 @@ model    = "gpt-oss:20b"
 
 ---
 
-## 에이전트 & 도구
-
-**번들 서브에이전트** — `task` 툴로 위임하는 일곱 전문가. 팬아웃이 폭주하지 않도록 bounded
-recursion(깊이/동시성/누적 상한):
-
-`explore` · `locator` · `analyst` · `architect` · `coder` · `reviewer` · `tester`
-
-(여기에 `planner` — 위의 선제 절차 플래너로, `task`로 위임되는 게 아니라 매 턴 자동 실행된다.)
+## 도구
 
 **빌트인 도구:**
 
 `read` · `write` · `edit` · `multiedit`(원자적 멀티헝크) · `grep` · `glob` · `list` ·
-`bash`(타임아웃 · exit코드 · 장시간 명령용 `background`) · `bash_output` · `bash_kill` ·
-`astgrep` · `findcontext` · `lsp_diagnostics` · `lsp_definition` · `lsp_references` · `lsp_symbols`
-(Go는 gopls, TS/JS·Python·Rust·C/C++는 각 언어서버) ·
+`bash`(타임아웃 · exit코드 · 장시간 명령용 `background`) · `bash_output` · `bash_input` ·
+`bash_kill` · `wait_for` · `port_owner` ·
+`astgrep` · `findcontext` · `recall_context` · `recall_memory` ·
+`lsp_diagnostics` · `lsp`(definition / references / symbols를 kind로 선택 — Go는 gopls,
+TS/JS·Python·Rust·C/C++는 각 언어서버) ·
 `webfetch` · `websearch`(DuckDuckGo, 또는 Brave/Tavily 키 사용) ·
-`todowrite` · `remember`(공유 메모리) · `skill`
+`todowrite` · `council`(읽기를 청하거나, 작업 종료를 선언) · `remember`(공유 메모리) · `skill` ·
+`replan` · `ask_user`·`route_interjection`(대화형 실행에서만)
 
 편집 후 **진단 피드백**(gofmt / go vet / py_compile / LSP)이 되돌아와 에이전트가 자가수정한다.
 읽기전용 툴은 턴 안에서 병렬 실행.
 
 **슬래시 커맨드** — `/` 입력 시 자동완성 팔레트(별칭도 접두사 검색):
 
-`/help` `/route`(`/model`·`/agents`) `/tools` `/sessions` `/resume` `/rewind` `/image` `/diff`
+`/help` `/route`(`/model`) `/tools` `/sessions` `/resume` `/rewind` `/image` `/diff`
 `/loop` `/context` `/fork` `/replay` `/loopdiff` `/init` `/ultra` `/permission` `/compact` `/clear`
 `/quit`
 

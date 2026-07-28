@@ -26,26 +26,30 @@ every turn and only let the loop end when they agree.
 
 An agent loop has one hard question: **when is the turn actually finished?**
 
-Leave that to the same model that did the work and you get the two failure modes everyone has seen —
-it declares victory with a bug still in the diff, or it loops "just to be safe" long after the task
-was done. magi treats *the loop itself* as the thing to engineer, not just the prompt.
+Leave it implicit — the turn ends when the model stops calling tools — and a turn that trailed off
+mid-thought is indistinguishable from one that is actually done. magi makes ending an **act**: the
+agent declares it, and a council reads what actually happened before the turn is allowed to close.
 
 ```text
 you ▸ add a --dry-run flag to the deploy command
 
-  ◈ planner   3 steps — locate the flag parser · add the flag · wire the guard
-  ✓ explore   deploy command & flag parsing → cmd/deploy.go uses pflag
-  … agent edits cmd/deploy.go, runs go build …
+  … agent reads cmd/deploy.go, edits it, runs go build …
 
-  ⚖ council · round 1
-     ● Melchior   [correctness]   done    · 88%
-     ● Balthasar  [verification]  reject  · 91%   → no test covers --dry-run
-     ● Casper     [completeness]  done    · 80%
-     → reject  (1 done / 2 continue)   feedback injected, loop continues
+  ⚙ council {complete: true}          the agent says it is finished
 
-  … agent adds a test, reruns go test …
+  ⚖ the council reads the record
+     ── WHAT MAGI OBSERVED
+        changed: cmd/deploy.go
+        ran clean: go build ./...
+     ── THE WORKSPACE RIGHT NOW (read just now, not from the record)
+        cmd/deploy.go — 4,102 bytes, modified 12s ago
 
-  ⚖ council · round 2  →  done  (3 / 0)   ✓ turn complete
+     ● Balthasar [verification]  nothing runs the new flag — `go test ./cmd` was never run
+     → not accepted yet; the agent keeps working
+
+  … agent adds a test, runs go test …
+
+  ⚙ council {complete: true}   →   accepted   ✓ turn over
 ```
 
 The decision to stop is taken away from any single model and given to a **consensus council**. That
@@ -114,35 +118,39 @@ lens = "correctness"
 
 ---
 
-## The Procedure Planner
+## How a turn ends
 
-Before the main agent runs, a tool-free planner decomposes your request into an **ordered procedure**
-and picks a **strategy per step** — then, for multi-step plans, the *council audits the plan itself*
-before a single file is touched.
+A turn does not end by going quiet. When the agent believes the work is finished it says so —
+`council{complete: true}` — and three members read the record before the turn is allowed to close:
+what commands actually ran and how they ended, what the workspace holds *right now*, what the agent
+itself said. They either accept, and the turn is over, or they name what is still undone and the
+agent keeps working.
 
-| Strategy | What it does |
-|---|---|
-| `solo` | the main agent handles it directly (writes, edits, anything needing full context) |
-| `parallel` | independent read-only investigations you already know are relevant, run concurrently |
-| `scout` | **adaptive** discover → fan-out: one explorer lists what exists, then each item becomes its own parallel investigation |
+That record is the point. magi grants every tool call, so it knows which commands ran, what their
+real exit was (including which stage of a pipeline failed, which the reported exit hides), and
+which paths they wrote. On a declaration it also takes a fresh read of the workspace — files
+modified since the task began, background commands still alive, and any path the record claims was
+written that is not on disk. A check written in advance can be wrong about the work; a record of
+what was granted cannot be wrong about what was granted, and where it is incomplete it says so.
 
-`scout` is the interesting one: *"read every design doc"* becomes one explorer that lists the docs,
-then one parallel reader per doc — fan-out targets discovered at runtime, not guessed up front.
+The same record rides every step, re-rendered, so the agent is never working from memory alone.
 
-Steps register as **todos** you can watch tick off. The plan-audit council approves (`approve`) or
-sends it back for revision (`revise`), and the criteria the members derive become the **completion
-contract** the termination gate later judges the finished work against. Findings are synthesized into
-the main agent's context — it continues the plan rather than re-reading everything.
-
-```toml
-[orchestration]
-planner = true            # default on; set false for a plain single-agent loop
-
-[routing]
-planner = "fast"          # run the planner on a cheaper/faster backend
-```
+Asking is separate from declaring: `council{question}` gets their reading on something you are
+unsure of, and it ends nothing.
 
 ---
+
+## One agent
+
+magi used to spawn subagents, plan the work into steps, author executable checks for each step,
+and hold the turn open until a council voted the checks satisfied. All of it is gone.
+
+The reason is in the logs. Every one of those stages decided something *before* the work existed,
+and the defects that cost the most were of exactly one kind: magi believing a judgement it had made
+in advance over the record of what actually happened — a probe that passed only when the server was
+down, a grep demanding a hyphen where the generator writes an underscore, a brief paraphrased until
+the graded identifier was gone. What is left is the loop, the tools, the record, and a council the
+agent calls when it wants one.
 
 ## Loop Engineering Toolkit
 
@@ -258,33 +266,26 @@ model    = "gpt-oss:20b"
 
 ---
 
-## Agents & Tools
-
-**Bundled subagents** — delegated via the `task` tool, with bounded recursion
-(depth/concurrency/total caps) so fan-out can't run away:
-
-read-only `explore` · `locator` (investigators) · a write-capable `worker` (the curated-delegate
-executor, enabled by default via `MAGI_WORKERS`)
-
-(plus `planner` — the pre-flight procedure planner above, run automatically each turn rather than
-delegated via `task`. The earlier solo-era roster of analyst/architect/coder/reviewer/tester was
-consolidated into the single curated worker.)
+## Tools
 
 **Built-in tools:**
 
 `read` · `write` · `edit` · `multiedit` (atomic multi-hunk) · `grep` · `glob` · `list` ·
-`bash` (timeout · exit code · `background` for long-running commands) · `bash_output` · `bash_kill` ·
-`astgrep` · `findcontext` · `lsp_diagnostics` · `lsp_definition` · `lsp_references` · `lsp_symbols`
-(gopls for Go; TS/JS, Python, Rust, C/C++ via their language servers) ·
+`bash` (timeout · exit code · `background` for long-running commands) · `bash_output` ·
+`bash_input` · `bash_kill` · `wait_for` · `port_owner` ·
+`astgrep` · `findcontext` · `recall_context` · `recall_memory` ·
+`lsp_diagnostics` · `lsp` (definition / references / symbols, kind-selected — gopls for Go; TS/JS,
+Python, Rust, C/C++ via their language servers) ·
 `webfetch` · `websearch` (DuckDuckGo, or Brave/Tavily with an API key) ·
-`todowrite` · `remember` (shared memory) · `skill`
+`todowrite` · `council` (ask for a reading, or declare the task finished) · `remember` (shared
+memory) · `skill` · `replan` · `ask_user` and `route_interjection` (interactive runs only)
 
 After an edit, **diagnostic feedback** (gofmt / go vet / py_compile / LSP) flows back so the agent
 self-corrects. Read-only tools run in parallel within a turn.
 
 **Slash commands** — type `/` for an autocompleting palette (aliases search by prefix):
 
-`/help` `/route` (`/model`, `/agents`) `/tools` `/sessions` `/resume` `/rewind` `/image` `/diff`
+`/help` `/route` (`/model`) `/tools` `/sessions` `/resume` `/rewind` `/image` `/diff`
 `/loop` `/context` `/fork` `/replay` `/loopdiff` `/init` `/ultra` `/permission` `/compact` `/clear`
 `/quit`
 

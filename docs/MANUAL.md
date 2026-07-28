@@ -37,7 +37,7 @@ echo "explain main.go" | ./magi -p -                   # stdin
 Headless output contract (stable — scripts, CI, and the bench adapters key off it):
 
 - **Exit codes**: `0` = the turn finished · `1` = the turn ended on an agent-level
-  error (`loop_guard`, `stall_guard`, `max_steps`, provider failure) · `2` = magi
+  error (`loop_guard`, `stall_guard`, provider failure) · `2` = magi
   itself could not run the prompt (setup/submit failure).
 - **stdout** = the transcript: the model's text (the final answer), tool call/result
   lines, council/compaction notes. With `--output json`, one fact event per line
@@ -142,10 +142,9 @@ base_url = "http://localhost:11434/v1"
 permission = "ask"
 experience_dir = "/path/to/team/experience"   # shared brain (a git repo → shared with the team)
 
-[routing]                  # per-agent routing (profile name or model name)
-explore = "fast"           # → [llm.profiles.fast] (different endpoint/key)
-planner = "fast"
-coder   = "qwen3-coder:30b"  # just the model, on the default backend
+[routing]                  # per-agent routing (profile name or model name); an "agent" here is a
+Melchior = "fast"          # named council member or a workflow phase → [llm.profiles.fast]
+Balthasar = "qwen3-coder:30b"   # just the model, on the default backend
 
 [llm.profiles.fast]        # named backend (endpoint/key/model/headers, ${ENV} expansion)
 base_url = "https://fast.gateway/v1"
@@ -163,23 +162,6 @@ top_p       = 0.8          # top_p 0.95 / top_k 40 in its Modelfile, and that is
                            # so a deliberation is reproducible, and setting a temperature here does not un-pin them.
                            # Env MAGI_TEMPERATURE / MAGI_TOP_P / MAGI_TOP_K override (handy for A/B runs).
 
-[orchestration]            # pre-flight procedure planner (on by default): decomposes a request into an
-planner = true             # ordered procedure → a strategy per step (solo|parallel|scout|delegate|refine); scout
-                           # obtains a list then runs each item in parallel; delegate hands off an independent write
-                           # sub-task; refine recurses on a dependent sub-goal in-context. For multi-step plans, before execution
-                           # the council audits the plan: only a CRITICAL flaw blocks (re-plan); warn/info notes are
-                           # accepted as non-blocking advice (injected for the executor). It also derives completion
-                           # criteria (deliverables · test guidance) as that turn's termination contract.
-                           # plan_absorb = true → fold the advice into the plan via one extra planner pass (default off)
-workers = true             # register the write-capable "worker" sub-agent the planner can DELEGATE to (on by
-                           # default). workers = false keeps the roster read-only: delegation has no target, so
-                           # every write step degrades to the SOLO path and the main agent does the work inline —
-                           # with the whole session as context (request, notes, contract, plan, ledger) instead of
-                           # a curated brief. Trades the curator's context savings and step parallelism for no
-                           # brief paraphrase and no hand-off loss. Env MAGI_WORKERS overrides, both directions.
-subagent_timeout = "5m"    # base per-attempt subagent hard cap; the effective cap flexes with observed
-                           # model speed (base/2–base×3). Env MAGI_SUBAGENT_TIMEOUT overrides; /subagent adjusts live.
-
 [mcp.filesystem]           # MCP server (stdio, or HTTP via url=)
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-filesystem", "."]
@@ -188,13 +170,13 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "."]
 event = "Stop"             # just before turn ends
 command = "go test ./... >/dev/null || echo 'tests failing' >&2"
 
-[council]                  # consensus termination gate (D14): off → the model just stops when it halts (default). On → council votes done/continue
-enabled    = true
+[council]                  # the council the agent reaches through the `council` tool (on by default).
+enabled    = true          # false removes the tool — and with it the finish declaration (§6)
 rule       = "majority"    # unanimous | majority | quorum:2 | weighted:0.6 | veto:Balthasar
-max_rounds = 3             # round cap (with no-progress/cancel safeguards, prevents infinite loops)
+max_rounds = 3             # round cap per call (with no-progress safeguards, prevents infinite loops)
 preset     = "full"        # "light" = 1 verification member · 1 round (interactive latency; explicit member/max_rounds override)
 # [[council.member]]       # if omitted, the default 3 MAGI members are used
-# name = "Melchior"; lens = "correctness"  # lens: correctness|verification|completeness (alternate: spec-fidelity)
+# name = "Melchior"; lens = "correctness"  # lens: correctness|verification|completeness
 
 [theme.dark]               # color theme overrides (per mode). Unspecified roles keep NERV/MAGI defaults
 primary = "#FF7A1A"        # role: primary·accent·muted·outline·error·success·
@@ -203,29 +185,24 @@ accent  = "#5CD8E6"        #       surface·primaryContainer·outlineVariant·wa
 primary = "#B45309"
 ```
 > The `[routing]` / `[llm.profiles.*]` / `model` above can **also be edited via the `/route` editor** and are saved to this file.
-> **Consensus council (D14, the signature feature · on by default)**: when the model is about to end a turn, instead of terminating immediately a **3-member council (Melchior · Balthasar · Casper)** looks at the task (goal) · agent report · tool results · **the agent's own edits this turn** and votes done/continue. (The edits are reconstructed from the agent's write/edit tools — a per-file before→after diff, git-independent and correctly attributed, so a human/external/bash change is never credited to the agent; large changes collapse to a one-line summary. The detail modal renders them as `◆ path` headers with colored +/- lines.) A member votes continue only when its lens identifies a **concrete defect**, done when satisfied, and **abstains** when there's no evidence to judge by (it does not reflexively continue just because it's uncertain). A **pure conversational turn that used no tools (greetings · questions) does not convene the council**. On continue, the merged feedback is injected and the loop carries on = "the termination decision is taken away from any single model." Re-rounds are cost-reduced two ways: a re-finish with **zero new tool actions** since the last rejection reuses the standing verdict without convening (the reused round still counts toward the cap), and from round 2 a **focused re-round** re-polls only the dissenting members against the delta of actions since their rejection — done votes carry, which also stops fresh-nitpick churn. Rejected feedback carries a **means recipe** (how to actually satisfy the objection — keep a process alive, produce real evidence) from the first rejection (`MAGI_COUNCIL_MEANS=off` restores plain objections). Every rejection inject ends with a **keep-work directive** — what is missing is *evidence*, not a rebuild: do not delete or recreate existing work; take the smallest action that produces the requested evidence against the current state (this blocks the start-over reflex that destroys a finished deliverable after a rejection). `rule` sets the consensus method, `max_rounds` the round cap (with no-progress/cancel safeguards); a rejection on the FINAL allowed round lands the turn immediately as a forced **UNVERIFIED** finish rather than injecting one more feedback phase — files and running processes are left standing for verification instead of burning the remaining wall clock. With `criteria=true`, **completion criteria are derived once per turn** from the task (one extra LLM call) and used as the council's contract, making the verdict sharper. It is **on by default** and adds an LLM round at each termination point, so to turn it off set `[council] enabled=false`. It is inactive in workflow mode (the pipeline uses its own verify gate). Give each `[[council.member]]` a `provider` (= an `[llm.profiles.*]` backend) and `model` so **each member can deliberate on a different model (a mix of cheap + strong)** (defaults to the session model / default backend if unspecified). In the TUI, deliberation is shown live as a **header chip** (`⚖ council rN: <member>`) and **transcript lines** (convene / per-member **compact one-liner** (member-colored `●` + name + verdict icon — termination: ✓done · ✗reject · ∅abstain; plan audit tiers by severity: ✓approve · ✎advise(warn) · ·note(info) · ↻revise(critical,blocking) · ∅abstain) / verdict · tally). **Clicking a member line opens a detail modal** (lens · rationale · feedback · confidence) so you can see why each member voted as it did (close with esc/click). Per-member colors can be changed via the theme (`[theme.dark] melchior/balthasar/casper`). Giving `verify = "<command>"` (shorthand) or `[[council.signal]]` (name/command, e.g. test · lint · typecheck — **multiple allowed**) makes magi (opt-in) run those commands each round and feed **the results as council evidence** (judging on evidence, not vibes = blocks false success).
+> **The council (the MAGI: Melchior · Balthasar · Casper · on by default)**: three members the agent reaches through the `council` tool. `question` gets their reading on something it is unsure of and ends nothing; `complete: true` **declares the task finished** and is answered — accepted (the turn ends) or handed back with what is still undone (§6). What they read is magi's own record: every command it granted and how that command really ended (a pipeline whose failure hid behind a zero exit is filed as failed), the paths its tools wrote, **the agent's own edits this turn** as a per-file before→after diff (reconstructed from the write/edit calls, git-independent, so a human or external change is never credited to the agent), and — on a declaration — a **fresh read of the workspace**: files modified since the task began, background commands still alive, and any path the record claims was written that is not on disk. A member objects only when its lens identifies a **concrete defect**, accepts when satisfied, and **abstains** when there is no evidence to judge by. `rule` sets the consensus method and `max_rounds` the round cap. Give each `[[council.member]]` a `provider` (an `[llm.profiles.*]` backend) and `model` so **each member can deliberate on a different model** (a mix of cheap + strong); unset, they use the session model. In the TUI, deliberation is shown live as a **header chip** (`⚖ council rN: <member>`) and transcript lines (convene · per-member one-liner: member-colored `●` + name + verdict icon · tally). **Clicking a member line opens a detail modal** (lens · rationale · feedback · confidence). Per-member colors are themable (`[theme.dark] melchior/balthasar/casper`). `verify = "<command>"` (shorthand) or `[[council.signal]]` (name/command — multiple allowed) makes magi run those commands each round and feed **the results as evidence**. The council is inactive in workflow mode (the pipeline uses its own verify gate).
 > Color themes can be defined externally per role in `[theme.dark]` / `[theme.light]` (default = NERV/MAGI). Pick the mode (auto/dark/light) with `--theme`.
 > On first run a commented default `config.toml` is generated automatically (left untouched if it already exists).
 > **Malformed config is never silently ignored**: if the global `config.toml` fails to parse (e.g. a duplicate top-level key), magi prints the parse error and refuses to start rather than falling back to an empty config that would drop your model, plugins, and every other setting. A malformed **project** `.magi/config.toml` warns and is skipped (the valid global config still applies). An unknown *key* (a typo) is only a warning — it never blocks startup.
 
-> **Loop & execution safety guards (deterministic, always on)**: beyond the council, a few cheap deterministic guards catch failure modes a weak model walks into on its own. **Self-regression check** — magi tracks each file's content states within a turn; if an edit returns a file to a state it already had this turn (the silent "fix it, then quietly undo the fix" trap), a neutral note is appended to that tool result so the agent re-checks (advisory, never blocks; once per file). **Tabu list** — a higher-precision complement: when a command that *exercises* the deliverable (a test/program run, not an inspect-only builtin) fails, the whole authored file set's content signature is recorded as "already tried, does not work"; a later edit that returns every file to that same failing state is flagged with the prior failure so the agent tries a different fix instead of re-running the proven-bad loop (advisory, once per state). **Non-interactive command execution** — every `bash` command runs with no controlling terminal and stdin closed, so a command that tries to prompt (git credentials, `ssh` host-key confirmation, `apt`, a pager) **fails fast instead of hanging** until the timeout. **Loop guard** — an identical no-progress tool call repeated past a small limit is refused (the earlier result is echoed back); when the agent keeps thrashing it first gets **one corrective re-grounding** (re-read the original task, change approach) — and the nudge carries a **completion escape hatch**: if the work is genuinely complete, end the turn by replying with **no tool call at all** (that is what triggers verification; another confirmation command is not progress), and **never delete or rebuild finished work just to produce visible activity**. Only if it persists is the run stopped gracefully rather than burning the whole step budget. **Stall force-stop** — when the agent makes no progress across several steps even after the corrective nudge, the run is stopped gracefully (`stall_guard`) instead of grinding to the ceiling; a `bash` write counts as progress so a legitimately slow build isn't misread as a stall. **Empty-finish nudge** — a turn that ends with **no answer text** delivered nothing the user can read. This happens when a harmony-format weak model emits only its analysis channel and stops (a "reasoning-only stop"), or when it runs tools and then goes silent on the final step — in which case the council gate, seeing the tool work, could otherwise vote it "done" and finish with no deliverable and no UNVERIFIED flag. The turn is nudged **once** to actually write the result (the same nudge subagents get to call `report`), regardless of whether tools were used; a still-empty retry then finishes normally, so it can't loop. **Masked-failure annotation** — a `bash` result with **exit 0** whose output carries a real crash signature (a Python traceback, a JVM thread exception, a Go panic with a goroutine dump), or whose command ends in a pure exit-code-masking tail (`|| true`, `|| echo …`), gets a one-line advisory note right after the status line: that exit 0 is not evidence the command succeeded. Annotate-only — the result's ok/error classification and control flow are unchanged (`MAGI_EXITCODE_BODYSCAN=0` disables).
+> **Loop & execution safety guards (deterministic, always on)**: beyond the council, a few cheap deterministic guards catch failure modes a weak model walks into on its own. **Self-regression check** — magi tracks each file's content states within a turn; if an edit returns a file to a state it already had this turn (the silent "fix it, then quietly undo the fix" trap), a neutral note is appended to that tool result so the agent re-checks (advisory, never blocks; once per file). **Tabu list** — a higher-precision complement: when a command that *exercises* the deliverable (a test/program run, not an inspect-only builtin) fails, the whole authored file set's content signature is recorded as "already tried, does not work"; a later edit that returns every file to that same failing state is flagged with the prior failure so the agent tries a different fix instead of re-running the proven-bad loop (advisory, once per state). **Non-interactive command execution** — every `bash` command runs with no controlling terminal and stdin closed, so a command that tries to prompt (git credentials, `ssh` host-key confirmation, `apt`, a pager) **fails fast instead of hanging** until the timeout. **Loop guard** — an identical no-progress tool call repeated past a small limit is refused (the earlier result is echoed back); when the agent keeps thrashing it first gets **one corrective re-grounding** (re-read the original task, change approach) — and the nudge carries a **completion escape hatch**: if the work is genuinely complete, say so with `council{complete: true}` (§6) — another confirmation command is not progress, and **never delete or rebuild finished work just to produce visible activity**. Only if it persists is the run stopped gracefully. **Stall force-stop** — when the agent makes no progress across several steps even after the corrective nudge, the run is stopped gracefully (`stall_guard`) instead of grinding on; a `bash` write counts as progress so a legitimately slow build isn't misread as a stall. **Empty-finish nudge** — a turn that ends with **no answer text** delivered nothing the user can read. This happens when a harmony-format weak model emits only its analysis channel and stops (a "reasoning-only stop"), or when it runs tools and then goes silent on the final step — leaving a turn that did the work and reported none of it. The turn is nudged **once** to actually write the result, regardless of whether tools were used; a still-empty retry then finishes normally, so it can't loop. **Masked-failure annotation** — a `bash` result with **exit 0** whose output carries a real crash signature (a Python traceback, a JVM thread exception, a Go panic with a goroutine dump), or whose command ends in a pure exit-code-masking tail (`|| true`, `|| echo …`), gets a one-line advisory note right after the status line: that exit 0 is not evidence the command succeeded. Annotate-only — the result's ok/error classification and control flow are unchanged (`MAGI_EXITCODE_BODYSCAN=0` disables).
 
-> **Concern ledger & checkpoint-first planning (multi-step work).** A structural concern the council raises early — "the auth change has no test", "this migration is irreversible" — must not be forgotten three turns later when the model is deep in unrelated edits. magi keeps a **durable ledger** of such concerns that persists across turns and is re-surfaced to the planner; a **checkpoint-first gate** makes the plan address open concerns before it declares completion, rather than letting a turn end "done" with a known unresolved risk on the table. Because only the orchestrator holds the full context (original request · whole plan · every subagent's result), **only the orchestrator can retire a concern**, via the `resolveconcern` tool, and only after it is genuinely resolved — the executor can't quietly wave its own risk away.
+> **Anti-fabrication under pressure.** The failure mode these guards target is a weak model, cornered by a shrinking step/time budget or a dead end, **inventing** a plausible result (a file's contents, a test outcome, a computed total) rather than admitting it's stuck. The system prompt explicitly forbids fabricating results or evidence under stuck/budget pressure and tells the model to report the honest partial state instead; and the council judges on **what magi observed and what the workspace actually holds** (§6), not on the model's assertion that it finished — so a confident but unbacked "done" is caught, while an honest "I could not do X because Y" is accepted. An honest failure is a correct outcome; a fabricated success is the bug.
 
-> **Signature mining (specmine · on by default).** At the FRONT of pre-flight planning — before the contract gate and the planner decompose the task, so the classification informs both them and the plan-audit check-author — magi runs a small two-pass side elicitation over the request itself: pass 1 asks, with one goal — *where would an implementation written from the prose alone go wrong?* — what the request's own **names and type signatures** imply beyond its prose (a type constrains what its values and their lifecycles can do; a name like `max_*` states an exact bound), and **classifies each requirement by how to honor it** — ⟨hard⟩ (a fixed identifier/value: match verbatim), ⟨example⟩ (a sample input→output: reproduce), or ⟨semantic⟩ (a described structure/behavior: satisfy the meaning and verify by effect, never a source spelling); pass 2 **distills** that analysis into at most five `surface → unsaid requirement → standard construct` lines (each carrying its kind) plus one unconditional `USE:` recommendation naming the language/stdlib construct built for the job (strict JSON, line cap and single-winner rule re-enforced in code — a weak model follows "restrain yourself" poorly but compresses given text reliably). The result is injected as a finished execution note the working agent consumes, and the **termination council is shown the same note as a soft contract** — an implementation that deviates from the recommended construct gets its deviation questioned, not forbidden. Strictly best-effort: an empty, `NONE`, or unparseable elicitation injects nothing. `MAGI_SPEC_MINE=0` disables; defining an agent named `specmine` (with its own `provider`/`model`) routes the elicitation to different weights — useful because the note's *truth* is bounded by the eliciting model's own beliefs.
+### Time budget
 
-> **Anti-fabrication under pressure.** The failure mode these guards target is a weak model, cornered by a shrinking step/time budget or a dead end, **inventing** a plausible result (a file's contents, a test outcome, a computed total) rather than admitting it's stuck. The system prompt explicitly forbids fabricating results or evidence under stuck/budget pressure and tells the model to report the honest partial state instead; the deterministic **data tools** (§5) give it a real way to compute tallies so it never has to guess; and the council judges on **fresh execution evidence and signal-command results** (below), not on the model's assertion that it finished — so a confident but unbacked "done" is caught, while an honest "I could not do X because Y" is accepted. An honest failure is a correct outcome; a fabricated success is the bug.
+There is **no step ceiling**. A turn ends when the model stops calling tools, when the agent declares completion and the council accepts, when the context is cancelled, or when whoever launched magi stops waiting. A cap was a fifth ending, and the only one that stopped a run on magi's own arithmetic rather than on something that happened — measured over the bench, runs that reached the wall clock produced 76 passes out of 396, and runs the ceiling stopped produced 0 out of 28. (A workflow **phase** is the exception: it declares its own budget as part of the pipeline's shape.)
 
-### Time & step budget
+What magi still tells the agent each step is appended as an **ephemeral line** (never to the cached system prompt, so the prefix stays cache-stable):
 
-Every step, magi appends an ephemeral **budget line** to the agent's context (never to the cached system prompt, so the prefix stays cache-stable) so the model paces itself:
-
-- **Step budget** — `You are on step N of at most M`. The ceiling `M` (default **240**, `MaxSteps`) is framed as a **hard ceiling, not a quota**: finishing early is better, and spending a step on a command that only *narrates* (an echo of "done", a status summary) is explicitly forbidden — say it in reply text instead. Tiny phase budgets (e.g. an internal summarize=3) skip the line entirely.
-- **Soft planner estimate** — when the planner ran, it emits an `estimated_steps` count shown as *"estimated at roughly K steps — a pacing reference, not a limit"*. It is deliberately **advisory only**: a weak model's estimate is routinely wrong, and a wrong hard cap would cut off real work, so the 240 ceiling stays the only stop. If the agent runs far past the estimate, the line tells it to stop and reassess.
-- **Self-measured elapsed** — once a turn crosses a minute, the line adds *"You have been working for 11m of wall-clock time so far"*. This is magi's **own stopwatch** (measured from the turn start), not external scorer information, so it is fair to use everywhere and lets the model notice a slow grind (ten compile retries) and change approach.
-- **`--time-budget` (off by default)** — a user-stated soft deadline (e.g. `--time-budget 20m`). When set, the line states the budget and the remaining time, flipping to *"budget EXCEEDED — land the smallest honest result immediately"* once elapsed passes it. It is **guidance, never a hard stop**, and is kept **off for leaderboard/comparison runs** so results stay apples-to-apples.
-
-**Council cost cap** — the council also watches its own wall clock. Once deliberation has consumed a disproportionate share of the turn (at least 60s **and** at least a quarter of the turn's elapsed time), further rounds cost more than they return, so round 2+ is skipped and the turn finishes marked **UNVERIFIED** rather than paying for another 3-member round. The first round always runs.
+- **Self-measured elapsed** — once a turn crosses a minute, *"You have been working for 11m of wall-clock time so far"*. This is magi's **own stopwatch**, started when the turn started — no external information is in it — and it lets a model notice a slow grind (ten compile retries) and change approach.
+- **`--time-budget` (off by default)** — a user-stated soft deadline (e.g. `--time-budget 20m`). The line states the budget and the time remaining, flipping to *"budget EXCEEDED — land the smallest honest result immediately"* once elapsed passes it. **Guidance, never a hard stop**, and kept off for leaderboard/comparison runs so results stay apples-to-apples.
+- **The state of the run** — magi's record, re-rendered every step: the commands it granted and how they ended, the paths written, the background commands still alive. A screen-driven agent re-reads its terminal before every decision; this is the same refresh over the store magi actually keeps, so the agent is never working from memory alone.
 
 ### Harness (on by default)
 
@@ -260,12 +237,11 @@ Hook commands run in a shell and receive the `MAGI_TOOL`/`MAGI_PATH` environment
 | `/diff` | working-tree git diff |
 | `/loop` | **Loop map** — projects turns · steps · tool activity · council rounds as structure (visualizes the *shape* of the loop) |
 | `/context` | **context window** visualization — usage / window size · message count · compaction history (tokens before→after) · **every model in use and its window**. Edit a window: `/context <tokens>` (session model) or `/context <model> <tokens>` (e.g. `/context qwen3-coder:30b 128k`; `unlimited`/`0` clears it) |
-| `/subagent` | **subagent timeout** — bare: show the base cap and the current elastic effective cap (from observed model speed); `/subagent <duration>` sets the base at runtime (e.g. `/subagent 10m`) |
 | `/fork` | **branch** the current session to explore an alternative attempt (original preserved). Switches to the branch |
 | `/replay` | **re-run the previous turn on the branch** (reproduce the same input). Compare with `/loopdiff` |
 | `/loopdiff` | **structurally compare the current branch against the fork origin** (turns · steps · tools · council · tokens) |
 | `/init` | analyze the project then write AGENTS.md |
-| `/ultra <task>` | **ultra work mode** — orchestrate specialist subagents to carry out the task |
+| `/ultra <task>` | **ultra work mode** — work the task through thoroughly and verify by running it |
 | `/permission` | cycle permission mode (ask→auto→allow→deny) |
 | `/compact` | summarize/shrink the context (re-hydratable — see below) |
 | `/clear` | clear the screen |
@@ -278,14 +254,14 @@ Hook commands run in a shell and receive the `MAGI_TOOL`/`MAGI_PATH` environment
 |---|---|
 | Enter | send (**if a turn is running, inject the message into the in-progress turn = steering**) |
 | ↑ / ↓ | input history (recall previous prompts — includes prior turns when resuming a session) |
-| Tab | autocomplete the input prefix from history (shared with slash / subagent focus) |
+| Tab | autocomplete the input prefix from history (shared with slash / job-pane focus) |
 | PgUp/PgDn · Ctrl+U/Ctrl+D · Shift+↑/↓ | scroll (page / half-page / one line) |
-| Tab | cycle subagent panel focus (when panels are present) |
-| Ctrl+O | zoom in/out on the focused subagent panel |
+| Tab | cycle job-pane focus (when panes are present) |
+| Ctrl+O | zoom in/out on the focused job pane |
 | Esc | release zoom → release focus → interrupt the running work |
 | mouse wheel | scroll the transcript (even while dragging) |
 | mouse drag | select text → copy to clipboard on release |
-| mouse click | focus a subagent panel |
+| mouse click | focus a job pane |
 | Ctrl+F | search the transcript (type to narrow · enter/↓ next · ↑ prev · esc close) |
 | Ctrl+L | clear the screen |
 | Shift+Tab | switch permission mode |
@@ -317,32 +293,31 @@ Wheel scroll · drag select · click focus all work **without any mode switch** 
 - **Pre-review report folding**: a "review this" request flows report → council review → revised report; when a review round votes continue, the original (pre-review) report is folded to a one-line stub (`≡ (검수 전 보고서 — 접힘, 아래 최종본 참고)`) **the moment the revision actually lands**, leaving only the final result. The fold is deferred to the revision's arrival, so an interrupted or errored review leaves the original intact; an identical revision leaves the original untouched (no blink-out-and-reappear).
 
 ### Status panel (post-it)
-When there are plans (todos) · subagents · context, a **rounded-outline box (post-it) appears at the top-right** (hidden if none). The transcript uses the full width and the box is drawn overlaid on top of it (bottom-aligned, so it usually floats over empty space); **dragging the box's left edge adjusts its width**. Click a subagent line to zoom into that agent. The box border is assembled from the terminal's real cell widths, so a todo/subagent line carrying an emoji like 🚀 keeps the right `│` aligned whether the terminal draws it one cell or two — the emoji width is probed once at startup, and can be forced with `MAGI_EMOJI_WIDTH` or disabled with `MAGI_WIDTH_PROBE=0`.
+When there are plans (todos) · background jobs · context, a **rounded-outline box (post-it) appears at the top-right** (hidden if none). The transcript uses the full width and the box is drawn overlaid on top of it (bottom-aligned, so it usually floats over empty space); **dragging the box's left edge adjusts its width**. Click a job line to zoom into that job. The box border is assembled from the terminal's real cell widths, so a todo/job line carrying an emoji like 🚀 keeps the right `│` aligned whether the terminal draws it one cell or two — the emoji width is probed once at startup, and can be forced with `MAGI_EMOJI_WIDTH` or disabled with `MAGI_WIDTH_PROBE=0`.
 
 ### Theme
 At startup it detects dark/light from the terminal background color, and **if you change the OS theme while running it follows within a few seconds** (it re-queries the background color periodically). Force `auto`/`dark`/`light` with `--theme` (or `MAGI_THEME`).
 
 ### Steering (interrupting mid-work)
 Input stays alive even while work (a turn) is running — you can keep typing (including inline Korean IME composition), and pressing Enter **injects the message immediately into the in-progress turn**. The main agent sees and reflects that message **at the next step** — it isn't queued to surface only after the turn fully ends; you're steering the running agent in place. The message appears in the transcript right away.
-The main agent **runs subagents delegated via `task` in the background (as sidecars) and returns immediately**, so it isn't blocked — it reacts to steer messages right away.
-Even when the main agent has *nothing to do but wait* for its background subagents to report, a message you send is handled right there — it doesn't sit until they finish. Small talk gets a brief reply; a steer actually changes the running work: "only look under `docs/`" cancels the now-irrelevant readers and switches course, "after that, also write a README" folds the extra step in, and an ambiguous steer prompts a quick clarifying question before it acts. (The main only *signals* the change while waiting; it carries it out — re-planning and re-dispatching — on its next step.) When a steer actually lands, the transcript records a durable "Steer applied …" audit line so you can see the redirect/cancel fired — the agent doesn't just verbally agree and move on. On a redirect/append the re-plan re-decomposes the *adopted* task (for "append", the original goal folded with the steer's constraint), not the bare steer text.
+Even when the agent has *nothing to do but wait* on a long background command, a message you send is handled right there — it doesn't sit until the command finishes. Small talk gets a brief reply; a steer actually changes the running work: "only look under `docs/`" switches course, "after that, also write a README" folds the extra step in, and an ambiguous steer prompts a quick clarifying question before it acts. When a steer lands, the transcript records a durable "Steer applied …" audit line so you can see the redirect fired — the agent doesn't just verbally agree and move on.
 A message that can only be answered after the current work finishes is queued and **stays visible where you typed it**; when its answer is ready the query is **pulled down to just above the answer** so the two render as a pair (and on reopening the session there's no duplicate — the pairing is preserved).
-Slash commands during work: read-only/UI-only ones (`/help` · `/route` (=`/model`=`/agents`) · `/tools` · `/sessions` · `/diff` · `/permission` · `/loop` · `/loopdiff` · `/context` · `/subagent`) execute, while ones that change the session (`/resume` · `/rewind` · `/fork` · `/replay` · `/clear` · `/init` · `/ultra` · `/compact`) are rejected during work.
+Slash commands during work: read-only/UI-only ones (`/help` · `/route` (=`/model`) · `/tools` · `/sessions` · `/diff` · `/permission` · `/loop` · `/loopdiff` · `/context`) execute, while ones that change the session (`/resume` · `/rewind` · `/fork` · `/replay` · `/clear` · `/init` · `/ultra` · `/compact`) are rejected during work.
 
-### Multi-agent live view (split-pane)
-While subagents are alive, **a live panel for each subagent** is tiled below the main transcript (subscribing to each child session in real time). Each subagent is assigned a **unique color** (M3 tonal palette) applied consistently to its panel border · header badge · the `⚙ task → <name>` highlight in the transcript.
+### Background job panes (split-pane)
+
+A background command (`bash background=true`) used to be a single line saying a process started, and then nothing — while the agent polled it with `bash_output` and acted on what it read. So the pane strip that once showed subagents shows **those** instead: while a job is alive, **a live panel per job** is tiled below the main transcript, each with a **unique color** (M3 tonal palette) on its border and header badge.
+
 - Move focus with `Tab` (or by clicking a panel) → the focused panel gets a **focus ring** in its color.
-- `Ctrl+O` (or clicking the focused panel again) **zooms in** → observe that subagent's full transcript in detail. On entering zoom it jumps to the bottom (latest/conclusion). **Clicking** the top **breadcrumb `‹ back  ✦ magi › locator`** (or `Esc`) returns. In the detail view, assistant lines are shown under **the agent's name (in color)** rather than `magi`.
-- **Color is the identifier**: if the main agent gives several jobs to the same kind of agent, **each job (session) gets its own panel**. The same role shares the **same hue** (matching the transcript's `task → locator` highlight); the **2nd and 3rd are distinguished by brightness**.
-- **Panels are managed by role**: even if the same role (e.g. locator) is restarted/re-delegated, **the existing window is reused rather than a new one created**.
-- **Lifecycle**: large tiles while working, **collapsing to a one-line compact when the turn ends** (still openable with `Ctrl+O`). They disappear when you send the next message, and are later restored via `/resume`.
+- `Ctrl+O` (or clicking the focused panel again) **zooms in** → the job's full output. On entering zoom it jumps to the bottom (latest). **Clicking** the top breadcrumb (or `Esc`) returns.
+- The pane shows a **tail**, refreshed a few times a second and read from the file's end. **Watching consumes nothing**: the read never advances the offset `bash_output` uses, so what the agent reads is exactly what it would have read unwatched.
+- **Lifecycle**: large tiles while running; when the job exits, the pane is marked done and fades out of the strip into the panel's record. They disappear when you send the next message.
 
 ### Right-side status panel
 When there are plans / progress, a **status panel** appears on the right (hidden if none). **Drag its left edge with the mouse** to adjust the width (default 44 columns). Sections:
-- **Plan** — the current todo checklist + progress (`done/total`): completed ✓, in-progress ◐, pending ☐, and **cancelled ✗** (a step left unfinished when the turn is aborted/stopped). Progress is driven by deterministic signals (the planner checks off steps it runs, and the turn resolves the rest on finish), so it updates even when the model doesn't call `todowrite`. Updates in real time.
-- **Subagents** — list of active subagents (color · status · totals `elapsed · ↑↓ tokens`). **Click an item → zoom into that subagent's detail** (same as clicking the pane).
+- **Plan** — the current todo checklist + progress (`done/total`): completed ✓, in-progress ◐, pending ☐, and **cancelled ✗** (a step left unfinished when the turn is aborted/stopped). Progress is driven by deterministic signals too, so it updates even when the model doesn't call `todowrite`. Updates in real time.
+- **Jobs** — the background commands running now (color · status · elapsed). **Click an item → zoom into that job's output** (same as clicking the pane).
 - **Context** — context token usage bar.
-It also appears with the same layout in the subagent zoom (detail) view, where Plan shows **that subagent's todos**.
 
 ### Paste folding
 Multi-line (or over-200-char) pastes are folded into a `[#N pasted L lines]` chip **only in the input box** (since the input box is narrow). On send, the **full content is shown as-is in the transcript (main)** and the full content is passed to the agent too. (↑ history recall brings it back as a chip so it doesn't clutter the input box.)
@@ -351,40 +326,37 @@ Multi-line (or over-200-char) pastes are folded into a `[#N pasted L lines]` chi
 Put `@path/file` in a message and that file's contents are attached to the agent context.
 
 ### Header display
-`model <id> · ctx <%>` + **permission chip (color-coded)** + a `⛐ N: explore, locator×2` badge (name · color) while subagents are running.
+`model <id> · ctx <%>` + **permission chip (color-coded)**, plus a badge naming the background jobs still running.
 - Permission chip colors: `ask` = amber (safe) · `auto` = cyan (edits auto) · `allow` = yellow (caution) · `deny` = red (blocked).
-- While a multi-step plan is executing, the header also surfaces the **active plan step** (the current item of the procedure planner's checklist), so what the agent is working on right now is visible without opening the status panel.
+- While a todo checklist is being worked through, the header also surfaces the **active step**, so what the agent is working on right now is visible without opening the status panel.
 
 ### Session resume (`/resume`)
 `/resume` (no arg) → **interactive picker**: shows each session's time + first-message summary, select with `↑/↓`, resume with `Enter`, cancel with `Esc`. You can also switch directly with `/resume N`.
-- The list shows **only user sessions** (child sessions created by subagents are hidden).
-- Resuming a parent session **restores that session's subagents as completed panels**, so you can inspect them again with `Tab`/`Ctrl+O` (live spawn events are ephemeral, so they're restored from the child sessions on disk).
+- The list shows **only user sessions**.
 
 ### TUI behavior checklist (screenshots)
 A collection of interaction behaviors under verification — organized so screenshots can be attached under each item.
 
 1. **Input during work + Korean IME** — you can type/compose inline in the input box even while a turn is running (cursor at the input position).
-2. **Steering (interrupting mid-work)** — a message sent with Enter during work is injected immediately into the in-progress turn, and the main agent reflects it at the next step. The main reacts right away even while subagents are running.
-3. **Multi-agent split-pane** — a live panel per subagent, tiled, with **a unique color per agent**. `⚙ task → <name>` is in the same color.
+2. **Steering (interrupting mid-work)** — a message sent with Enter during work is injected immediately into the in-progress turn, and the agent reflects it at the next step.
+3. **Background-job split-pane** — a live panel per running background command, tiled, with **a unique color per job**.
 4. **Focus / zoom** — move focus with `Tab` (or by clicking a panel when the mouse is ON) (color focus ring), full-screen detail with `Ctrl+O` (breadcrumb · divider · left bar in that color), return with `Esc`.
-5. **Per-subagent interrupt** — focus a running subagent then `Esc` → interrupt only that subagent (the rest · the main continue).
-6. **Supervisor (sidecar)** — auto-restart on no-response/stall (`restarting…` in the header), inject an ERROR result on timeout/exhausted restarts. The system doesn't halt even if one dies.
-7. **Paste folding** — multi-line paste → a `[#N pasted L lines]` chip in the input box, full content in the main on send.
-8. **Scroll position retained** — if at the bottom, stays at the bottom after streaming / panel add-remove / **terminal resize**; if scrolled up reading, it isn't dragged along.
+5. **Paste folding** — multi-line paste → a `[#N pasted L lines]` chip in the input box, full content in the main on send.
+6. **Scroll position retained** — if at the bottom, stays at the bottom after streaming / panel add-remove / **terminal resize**; if scrolled up reading, it isn't dragged along.
 9. **Input history** — recall previous prompts with `↑/↓` (includes prior turns when resuming a session), autocomplete the prefix with `Tab`.
 10. **Mouse/copy (no modes)** — wheel scroll · drag select+copy · click focus all work without a mode switch (the app handles selection itself). Wheel scrolling during a drag works too.
 11. **Screen cleanup on startup** — clears the terminal once on launch and starts from a clean screen.
 
 ## 5. Tools (built-in)
 
-The tool set a given agent sees is gated by its **role** (read-only agents get no write/bash) and by **depth** (some orchestration tools are top-level only) — the tables below are the full catalog. The `Permission` column is the approval axis the tool trips (`ask` = confirmed under `ask`/`auto`; `—` = read-only, never prompts).
+One agent sees all of them. (The only exception is **workflow mode**, §2, where a phase may narrow the set to fit its goal.) The `Permission` column is the approval axis a tool trips (`ask` = confirmed under `ask`/`auto`; `—` = read-only, never prompts).
 
 ### File & search
 | Tool | Description | Permission |
 |---|---|---|
 | `read` | read a file (line numbers, offset/limit) | — |
 | `write` | create/overwrite a file | ask |
-| `edit` | exact string replacement (unique match) — ambiguous matches list each occurrence's line anchor (`N#hh`); `at`/`to` mode replaces an anchored line safely using read's line refs | ask |
+| `edit` | exact string replacement (unique match) — ambiguous matches list each occurrence's line anchor; `at`/`to` mode replaces an anchored line safely using read's line refs | ask |
 | `multiedit` | apply multiple hunks to one file atomically (all-or-nothing) | ask |
 | `grep` | regex content search | — |
 | `glob` | filename glob (`**` supported) | — |
@@ -392,30 +364,21 @@ The tool set a given agent sees is gated by its **role** (read-only agents get n
 | `findcontext` | rank the files most relevant to a natural-language query, **prioritizing files that DEFINE the named symbols** (funcs/classes/types) — cheaper and more precise than reading broadly | — |
 | `astgrep` | structural (AST) code search (`ast-grep`) — matches code shape, not text, so a rename/reformat doesn't fool it | — |
 
-### Data & aggregation (deterministic — don't hand-count)
-Weak models routinely miscount rows or fabricate a total when asked to "count/sum" over a large file. These tools do the arithmetic **in Go, deterministically**, so the answer is real evidence rather than a guess, and a huge file never has to enter the context to be tallied.
-| Tool | Description | Permission |
-|---|---|---|
-| `countlines` | line/word/byte counts (pure-Go `wc`) over a file or glob — LOC & size tallies without reading whole files | — |
-| `countmatches` | count regex/fixed-string occurrences across a file or glob → total + how many files matched | — |
-| `groupby` | group delimited rows by a column value (or a regex capture) → per-group count or `sum(value_column)`, sorted | — |
-| `tabulate` | aggregate one numeric column of a delimited file (`sum`\|`count`\|`avg`\|`min`\|`max`) over rows passing an optional numeric filter | — |
-
 ### Execution
 | Tool | Description | Permission |
 |---|---|---|
-| `bash` | shell execution (timeout · exit code; `background=true` for long-running commands). Runs with **no controlling terminal and stdin closed** so a command that tries to prompt fails fast instead of hanging | ask |
+| `bash` | shell execution (timeout · exit code; `background=true` for long-running commands). Runs with **no controlling terminal and stdin closed** so a command that tries to prompt fails fast instead of hanging. Under `/bin/bash` when present, which lets magi read `PIPESTATUS` out of band: a pipeline whose reported exit is 0 because the last stage succeeded is still recorded as FAILED if an earlier stage died | ask |
 | `bash_output` | fetch new output from a background command since the last read | — |
 | `bash_input` | send a line to the **stdin of a background command** — drives a REPL/line-debugger (`python3`, `psql`, `gdb`); `eof=true` closes stdin. A pipe, not a TTY (curses/password prompts won't work) | — |
 | `bash_kill` | terminate a background command | — |
+| `wait_for` | block until a condition holds (a file appears, a port answers, a background job exits) instead of spinning on `sleep` + re-check | — |
+| `port_owner` | what is listening on a port, and which process owns it — portable, where `ss`/`lsof`/`netstat` may not be installed | — |
 
 ### Code navigation (LSP)
 | Tool | Description | Permission |
 |---|---|---|
 | `lsp_diagnostics` | `gopls` diagnostics (types/unused etc.) — Go | — |
-| `lsp_definition` | symbol definition location (Go via `gopls`; ~30 langs via LSP) | — |
-| `lsp_references` | all references to a symbol (semantic, multi-language) | — |
-| `lsp_symbols` | file symbol outline (multi-language) | — |
+| `lsp` | one semantic-navigation tool, `kind`-selected: `definition` · `references` · `symbols` (Go via `gopls`; ~30 languages via LSP). They share one server backend and the same position arguments, so they are one tool with a mode rather than three | — |
 
 ### Web
 | Tool | Description | Permission |
@@ -423,11 +386,16 @@ Weak models routinely miscount rows or fabricate a total when asked to "count/su
 | `webfetch` | URL → text | ask |
 | `websearch` | web search (DuckDuckGo, or Brave/Tavily key) | ask |
 
-### Planning & self-control
+### The council
+| Tool | Description | Permission |
+|---|---|---|
+| `council` | `question` gets the three members' reading on something the agent is unsure of, and ends nothing. `complete: true` **declares the task finished** — the members read what actually ran, what the workspace holds right now, and what the agent said, then either accept (the turn ends) or hand back what is still undone. See §6 | — |
+
+### Self-control
 | Tool | Description | Permission |
 |---|---|---|
 | `todowrite` | record/update a plan (checklist). The status panel is driven by deterministic signals too, so progress updates even without this call | — |
-| `replan` | declare the **current plan is unworkable** given what execution has actually shown (a premise broke) and get a fresh decomposition — instead of grinding the dead plan to the step ceiling. Plan-eligible agents only | — |
+| `replan` | declare the **current approach unworkable** given what execution has actually shown (a premise broke) and start over, instead of grinding a dead approach | — |
 | `recall_context` | re-hydrate detail an earlier compaction shed, **verbatim**, by topic (a file path works well) | — |
 
 ### Memory
@@ -437,46 +405,45 @@ Weak models routinely miscount rows or fabricate a total when asked to "count/su
 | `remember` | contribute a lesson to shared memory (lands in `pending/` for review) | — |
 | `skill` | load a named skill's body to follow it | — |
 
-### Subagents & orchestration
+### User interaction (interactive runs only)
 | Tool | Description | Permission |
 |---|---|---|
-| `task` | delegate to subagents (single/parallel); backgrounded as sidecars at top level | — |
-| `report` | (subagent) end the turn and hand the result back to the orchestrator with a status (done/blocked/failed) | — |
-| `ask` | (subagent) ask the orchestrator — which holds the full context — to unblock you; blocks then resumes on the answer | — |
-| `substitute_check` | register an acceptance check that cannot be evaluated here (it names a path nothing produces, or an assertion this setup has no subject for), replaced by an equivalent `source`/`assert` pair that proves the same goal; a strict review council vets it and, once approved, it rewrites the stored check for the rest of the run | — |
-| `cancel_dispatch` | (orchestrator) cancel still-running background subagents once an intermediate result made their work moot — reclaim the budget instead of waiting | — |
-| `resolveconcern` | (orchestrator) retire a structural concern from the durable ledger **after** it is genuinely resolved (see §3, concern ledger) | — |
-| `route_interjection` | (top level) decide how to handle a **new user request that arrived mid-task** — `redirect` (switch now) · `append` (satisfy both) · `queue` (defer). The safe default is to not call it and let the request run as its own turn | — |
+| `ask_user` | multiple-choice question **to the user** (selection modal) | — |
+| `route_interjection` | decide how to handle a **new user request that arrived mid-task** — `redirect` (switch now) · `append` (satisfy both) · `queue` (defer). The safe default is to not call it and let the request run as its own turn | — |
 
-### User interaction
-| Tool | Description | Permission |
-|---|---|---|
-| `ask_user` | multiple-choice question **to the user** (selection modal; top-level interactive only — NOT registered in a headless/bench run, so it is never offered there, not merely declined) | — |
+Neither is registered in a headless/bench run: with nobody to answer, they can never fire, and an unusable tool still costs the model weight on every request.
 
 - All file tools **deny access outside the working directory** (a jail) — a `../../etc/hosts` read is refused, not served.
 - Read-only tools run **in parallel** within a step; writes are serialized.
 - After a file modification, **diagnostic feedback** (Go: gofmt/`go vet`, Python: `py_compile`) is fed back so the agent self-corrects (the harness, §3).
 
-## 6. Multi-agent
+### What is deliberately absent
 
-Delegate to subagents with the `task` tool. The bundled roster is read-only investigators only — there is no write-capable subagent, so the main agent does all authoring itself (the solo path). Default agents:
-- **explore** — read-only code exploration
-- **locator** — file/symbol/usage search (read-only)
+There is no `task` tool, and no subagents to delegate to. There are no aggregation tools (`countlines`, `countmatches`, `groupby`, `tabulate`) — over 457 recorded bash calls they were invoked **zero** times, while 59% of those calls contained a pipe: the model reaches for `wc -l`, not for a tool that reimplements it. A tool that is never called is not free; it is weight on every request.
 
-Limits (D7): depth 3 · concurrency 8 · cumulative 50. Assign per-agent models with `[routing]`.
+## 6. Finishing a turn
 
-### Sidecar execution model (main = the UI thread)
-When the top-level orchestrator delegates with `task`, the subagent runs as a **background sidecar** and `task` returns immediately. The main agent isn't blocked (= idle like a UI thread) and **reacts to user input right away**, while each subagent result is injected into the main session **as it finishes** and processed **incrementally**. Injected results come with **the number of subagents still running**, so the orchestrator decides for itself whether to wait for the rest (rather than re-delegating) · to **delegate a new follow-up** based on results · or to synthesize. It delegates heavy work and handles light work inline.
+A turn does not end by going quiet. Going quiet is not a decision — a turn that trailed off mid-thought and a turn that was actually finished used to end identically, and neither was ever asked which one it was.
 
-Each sidecar has a **supervisor** doing health checks. The orchestrator can't know in advance how long a delegated task will take, so the two watchdogs are deliberately asymmetric — a tight liveness check plus a *generous* wall-clock backstop:
-- **Stall detection** (`SubagentStall`, default 4 min of no activity) — the primary liveness guard, catching a truly wedged child (no events at all). It stays **activity-based**: any event, including streaming reasoning/text deltas, re-arms it, so a slow single generation is never false-killed. It is **suppressed while a tool is in flight** — a silent long-running tool (e.g. a multi-minute `bash` build) emits nothing until it returns, and is bounded by its own timeout rather than mistaken for a hang.
-- **Hard timeout** (`[orchestration] subagent_timeout`, default 5 min/attempt as the **base**) — the only bound on a subagent that stays event-active while making no progress (hallucinated targets, Q&A ping-pong with the parent): such churn never trips the stall watchdog, and at a generous cap one bad explorer can outlive the parent's whole wall-clock budget. The effective cap is **elastic**: magi tracks each model's recent LLM round-trip time and budgets the attempt for ~6 round trips, clamped to base/2–base×3 — so a slow model isn't cut mid-legitimate-generation and a fast one doesn't get slack to churn in. Set the base in config (`subagent_timeout = "5m"`), override per run with `MAGI_SUBAGENT_TIMEOUT`, or adjust live with **`/subagent <duration>`** (bare `/subagent` shows base + current effective cap). Expiry is a **judgment lease**, not an unconditional kill: the orchestrator's model reviews a deterministic digest of the child's recent tool calls (consecutive duplicates collapsed with repeat counts) and votes EXTEND (real progress → +base/2 more) or KILL (churn → restart policy applies). The judgment is bounded on every axis — it fires only at expiry (zero cost for the common under-cap attempt), the verdict call is time-capped, any error or ambiguous reply fails safe to KILL, and an absolute **backstop of base×3** ends the attempt regardless of verdicts, so a fooled judge costs at most the backstop. `MAGI_SUBAGENT_JUDGE=off` disables judging (expiry kills immediately, the pure elastic-cap behavior). Legitimate focused subagent work fits well under 5 minutes; a genuinely long delegated task should be split, not stretched. The planner's background explorers get an even tighter **spawn-wide** bound (3 min, restarts included): expiry is terminal rather than retried, so a churning explorer's failure result reaches the parked parent within minutes instead of holding it for the full cap × restart budget.
-- **Auto-restart** (`SubagentMaxRestarts`, default 2) — retry on stall/timeout/transient error (reusing the same role panel), inject an ERROR result when exhausted. The rest · the main continue even if one dies.
+So ending is an act. The agent calls `council{complete: true}`, and the members read the record before the turn is allowed to close:
 
-(Nested subagents work via synchronous delegation — background is top-level only.)
+- **What magi observed** — every command it granted, whether it exercised anything or only inspected, and how it ended. A pipeline whose real failure was hidden behind a zero exit is filed as failed, not clean.
+- **The workspace right now** — read fresh at the declaration, not from memory: files modified since the task began (directories with many files collapsed to a count), background commands still alive, and **any path the record claims was written that is not on disk**.
+- **What the agent said** — its own account of the work, judged against the two above.
 
-### Escalation (subagent → orchestrator `ask`)
-If a subagent gets stuck during execution, it **asks the orchestrator via the `ask` tool and gets an answer on the spot** (blocks then resumes). The orchestrator holds the **full context** (the user's original request · the whole plan · other subagents' results), so it can: clarify/decide intent, provide a path/constraint, **relay a follow-up question to the user**, and **coordinate with other subagents** (peer questions also go through the orchestrator — so context stays in one place). The `ask` tool's description spells out "what the orchestrator can do for you" so the subagent knows what to request. Only one ask is handled at a time (serialized), with a 2-minute timeout.
+They accept, and the turn is over; or they name what is still undone, and the agent keeps working. Asking is separate: `council{question}` gets a reading and ends nothing.
+
+If the agent never declares, magi reminds it — up to three times — and then lands the work as it stands, recorded as ending undeclared rather than as finished. `MAGI_DECLARE_FINISH=0` restores the old passive finish (the turn ends when the model stops calling tools) for an A/B.
+
+Set `[council] enabled = false` to remove the tool entirely; with nobody to declare to, the requirement cannot apply and the loop finishes passively.
+
+### There is one agent
+
+magi used to spawn subagents, plan the work into steps, author executable checks for each step, and hold the turn open until a council voted the checks satisfied. All of it is gone.
+
+The reason is in the logs. Every one of those stages decided something *before* the work existed, and the costliest defects were of exactly one kind: magi believing a judgement it had made in advance over the record of what actually happened — a port probe that passed only while the server was down, a grep demanding a hyphen where the generator writes an underscore, a brief paraphrased until the graded identifier was gone. A check written in advance can be wrong about the work; a record of what magi granted cannot be wrong about what it granted, and where the record is incomplete it says so.
+
+What is left is the loop, the tools, the record, and a council the agent calls when it wants one. Long-running work goes to `bash background=true` and is watched with `bash_output`/`wait_for` — visible in its own pane (§4), with its real exit read when it lands.
 
 ## 7. Memory & Context
 
@@ -501,7 +468,7 @@ Capabilities: `tool`, `command` (slash commands like `/login`), `context-provide
 Sandboxed (dangerous stdlib blocked) + manifest permissions (`fs:read`, `net`, `exec`) enforced.
 Example: `plugins/examples/wordcount`.
 
-**Observer plugins.** Beyond the lifecycle events (`startup`/`shutdown`/`session_start`), `magi.on` accepts two **observation events** carrying a payload table: `user_message` (`{session, text}` — a genuine user prompt was submitted) and `turn_finished` (`{session, text, outcome, reason, skills}` — a top-level turn ended with that final assistant answer; `skills` = comma-joined skill names the agent loaded this turn, for usage metering). `outcome` is the turn's **structural verdict**, so an observer never has to guess success from phrasing: `verified` (the council itself voted done), `unverified` (landed without council approval — deadlock/cost/round cap), `guard` (loop/stall guard force-stop), `error`, `ungated` (the turn used tools but no council ran — council disabled, workflow mode, or a sub-depth finish — so the completion is unconfirmed and must not be booked as a success without user confirmation), or `done` (a plain conversational finish that used no tools); `reason` carries the cause when there is one. They fire **asynchronously off the turn path** (a bounded queue + one worker), so a slow handler never delays the conversation; overflow drops events (observation is best-effort). Paired with **`magi.analyze{system=, text=, model=?}`** — a one-shot, **tool-free sidecar LLM call** (capability `analyze`, since it spends tokens; time-capped; model defaults to the session model) — and **`magi.json_decode(s)`**, a plugin can watch the conversation, extract structured knowledge (lessons, summaries), and persist it with `magi.write_file`, then feed it back via `magi.register_context_provider`. The bundled **`plugins/engram`** self-improvement plugin (auto lesson/skill extraction gated on the structural outcome) is the reference user of this trio — see its README.
+**Observer plugins.** Beyond the lifecycle events (`startup`/`shutdown`/`session_start`), `magi.on` accepts two **observation events** carrying a payload table: `user_message` (`{session, text}` — a genuine user prompt was submitted) and `turn_finished` (`{session, text, outcome, reason, skills}` — a top-level turn ended with that final assistant answer; `skills` = comma-joined skill names the agent loaded this turn, for usage metering). `outcome` is the turn's **structural verdict**, so an observer never has to guess success from phrasing: `verified` (the council accepted the finish declaration), `unverified` (landed without that acceptance — never declared, or declared and not accepted within the round cap), `guard` (loop/stall guard force-stop), `error`, `ungated` (the turn used tools but no council ran — council disabled, or workflow mode — so the completion is unconfirmed and must not be booked as a success without user confirmation), or `done` (a plain conversational finish that used no tools); `reason` carries the cause when there is one. They fire **asynchronously off the turn path** (a bounded queue + one worker), so a slow handler never delays the conversation; overflow drops events (observation is best-effort). Paired with **`magi.analyze{system=, text=, model=?}`** — a one-shot, **tool-free sidecar LLM call** (capability `analyze`, since it spends tokens; time-capped; model defaults to the session model) — and **`magi.json_decode(s)`**, a plugin can watch the conversation, extract structured knowledge (lessons, summaries), and persist it with `magi.write_file`, then feed it back via `magi.register_context_provider`. The bundled **`plugins/engram`** self-improvement plugin (auto lesson/skill extraction gated on the structural outcome) is the reference user of this trio — see its README.
 
 ```toml
 # plugin.toml
@@ -551,7 +518,7 @@ auto-registered. When the server shuts down, those tools are removed.
 
 ## 12. Status & scope
 
-The **loop-engineering track is shipped**, not planned — it is the signature of the tool and is described throughout this manual: the **consensus council** that takes the termination decision away from any single model (Melchior · Balthasar · Casper, §3), the **Loop map** (`/loop`), the live deliberation panel, **rewind/fork/session-diff** (`/rewind` · `/fork` · `/loopdiff`, §4), the **concern ledger** (§3), and **re-hydratable compaction** (§4). Likewise already implemented: the **OS sandbox** (`--profile`/`sandbox`, §3), **LSP navigation** (`lsp_*`, §5), **web search** (`websearch`), and **prompt caching** (`cache_control`, on by default with automatic fallback). The feature/milestone spec with test examples lives in [`SPEC.md`](SPEC.md); the internals in [`ARCHITECTURE.md`](ARCHITECTURE.md).
+The **loop-engineering track is shipped**, not planned — it is the signature of the tool and is described throughout this manual: the **council** the agent declares completion to (Melchior · Balthasar · Casper, §3 · §6), the **Loop map** (`/loop`), the live deliberation panel, **rewind/fork/session-diff** (`/rewind` · `/fork` · `/loopdiff`, §4), and **re-hydratable compaction** (§4). Likewise already implemented: the **OS sandbox** (`--profile`/`sandbox`, §3), **LSP navigation** (`lsp`/`lsp_diagnostics`, §5), **web search** (`websearch`), and **prompt caching** (`cache_control`, on by default with automatic fallback). The feature/milestone spec with test examples lives in [`SPEC.md`](SPEC.md); the internals in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 **Genuinely out of scope (today).** No web UI or hosted remote sharing — magi is a terminal client (sharing is via a git-backed experience store, §7, not a server). Automatic context *ranking* is deliberately lexical/deterministic (BM25-lite, §4), not embedding-based, so there is no vector-DB dependency. These are scope choices, not gaps to be silently filled.
 
