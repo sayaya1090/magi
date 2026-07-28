@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"image/color"
 	"sort"
 	"strings"
 
@@ -25,15 +26,17 @@ func (m *Model) panelSID() session.SessionID {
 	return m.sid
 }
 
-// hasPanel reports whether the status panel has anything worth showing (a plan
-// or active subagents). Hidden otherwise, per "없을 때 숨김".
+// hasPanel reports whether the status panel has anything worth showing (a plan, live panes, or a
+// record of what this run has done). Hidden otherwise, per "없을 때 숨김".
 func (m *Model) hasPanel() bool {
 	if m.app == nil {
 		return false
 	}
 	sid := m.panelSID()
-	// The plan the AGENT keeps (todowrite), the live worker panes, and the finished roster.
-	return len(m.app.Todos(sid)) > 0 || len(m.panes) > 0 || len(m.doneRoster) > 0
+	// The plan the AGENT keeps (todowrite), the live panes, the finished roster, and magi's own
+	// record of the run.
+	return len(m.app.Todos(sid)) > 0 || len(m.panes) > 0 || len(m.doneRoster) > 0 ||
+		!m.app.Observation(m.ctx, sid).Empty()
 }
 
 // panelCols is the horizontal space the panel RESERVES in the layout. The panel is a
@@ -141,6 +144,24 @@ func (m *Model) statusPanel(panelTop int) string {
 		// node's status comes from its own session (single source of truth); the parent
 		// step ↔ child session edge (PlanChildren) supplies only the structure.
 		lines = m.appendPlanTree(lines, m.panelSID(), inner, 0)
+	}
+
+	// What magi OBSERVED: its own record of this run — the paths its tools wrote and how the
+	// commands it granted actually ended. Not a verdict and not a contract; a check written before
+	// the work could be wrong about the work, and this cannot be wrong about what it recorded.
+	if obs := m.app.Observation(m.ctx, m.panelSID()); !obs.Empty() {
+		sep()
+		lines = append(lines, panelHead("Observed"))
+		row := func(glyph string, c color.Color, items []string) {
+			for _, it := range items {
+				lines = append(lines, wrapPanel(
+					lipgloss.NewStyle().Foreground(c).Render(glyph+" ")+clipLine(it, inner), inner)...)
+			}
+		}
+		row("±", colAccent, obs.Changed)
+		row("✓", colSuccess, obs.RanClean)
+		row("✗", colError, obs.Failed)
+		row("?", colMuted, obs.Unknown)
 	}
 
 	if len(m.panes) > 0 || len(m.doneRoster) > 0 {
