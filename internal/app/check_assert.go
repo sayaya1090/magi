@@ -246,6 +246,17 @@ func (a *App) runTypedCheck(ctx context.Context, sid session.SessionID, workdir 
 				return fmt.Sprintf("%s does not contain %q, but nothing in this run touched it — "+
 					"`absent` proves nothing here", src, clipLine(as.arg, 80)), 126
 			}
+			// The file WAS produced by this run — but by a command magi never saw finish. Then the
+			// pattern's absence is about how far the log got, not about the work (check_unfinished.go).
+			if untouchedGateEnabled() {
+				if why := a.unfinishedRunNote(ctx, sid, src); why != "" {
+					a.emitToolProgress(sid, plannerActor, "", "check-unfinished", fmt.Sprintf(
+						"check-unfinished: %s does not contain %q, but %s. A pattern that has not been "+
+							"reached yet is not a pattern that is absent. No verdict for this check.",
+						src, clipLine(as.arg, 60), why))
+					return fmt.Sprintf("%s does not contain %q, but %s", src, clipLine(as.arg, 80), why), 126
+				}
+			}
 			// A worker that composed the file makes `absent` pass by writing something else — the
 			// pattern is missing because nothing real was ever recorded here.
 			return a.withProvenance(ctx, sid, src, as,
