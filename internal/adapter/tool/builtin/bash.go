@@ -35,15 +35,22 @@ type bashArgs struct {
 	Timeout    flexInt  `json:"timeout"`    // seconds (default 120, max 600); tolerant parse (flexInt)
 	Background flexBool `json:"background"` // run detached; returns an id to poll/kill
 	Pty        flexBool `json:"pty"`        // with background: attach a real terminal (ssh/serial/curses)
-	Verify     flexBool `json:"verify"`     // model declares this a build/test/run check — its exit code IS the verdict
 }
+
+// There was a `verify` flag here, which the description told the model to set when a command was
+// its build/test check. Nothing read it. It had gated magi's own masked-exit accounting once, which
+// was the defect that unwired it — a field the model fills in must never switch off what magi
+// observed — but the field and the instruction to set it stayed behind, so every request carried
+// the schema for it and the model kept spending a token on `"verify": false`. The advice inside it
+// was worth keeping and is now plain prose: run the check directly, do not pipe it through
+// tail/head, because then the exit you get back is the pager's.
 
 func (Bash) Name() string { return "bash" }
 func (Bash) Description() string {
-	return "Run a shell command in the working directory; returns combined stdout/stderr and the exit code (a non-zero exit is normal output — never mask it with `|| true`). Each call is a FRESH shell. To keep a process (e.g. a server) alive across steps set background=true — it returns an id: poll with bash_output, stop with bash_kill, send input with bash_input. START a process and VERIFY it in SEPARATE calls: start it with background=true, then check it (netstat/pgrep/curl) in a foreground call so you see the result. Add pty=true (with background) for programs needing a real terminal (ssh password prompt, serial login, curses UI). Set verify=true when THIS command is your build/test/run check — run it directly, don't pipe through tail/head (hides the exit code)."
+	return "Run a shell command in the working directory; returns combined stdout/stderr and the exit code (a non-zero exit is normal output — never mask it with `|| true`). Each call is a FRESH shell. To keep a process (e.g. a server) alive across steps set background=true — it returns an id: poll with bash_output, stop with bash_kill, send input with bash_input. START a process and VERIFY it in SEPARATE calls: start it with background=true, then check it (netstat/pgrep/curl) in a foreground call so you see the result. Add pty=true (with background) for programs needing a real terminal (ssh password prompt, serial login, curses UI). When a command IS your build/test check, run it directly — piping it through tail/head gives you the pager's exit code, not the check's."
 }
 func (Bash) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"timeout":{"type":"integer","description":"seconds (default 120, max 600)"},"background":{"type":"boolean","description":"run detached; returns an id for bash_output/bash_input/bash_kill"},"pty":{"type":"boolean","description":"with background: real terminal for ssh/serial/curses programs"},"verify":{"type":"boolean","description":"this command is your build/test check — don't pipe it through tail/head"}},"required":["command"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"timeout":{"type":"integer","description":"seconds (default 120, max 600)"},"background":{"type":"boolean","description":"run detached; returns an id for bash_output/bash_input/bash_kill"},"pty":{"type":"boolean","description":"with background: real terminal for ssh/serial/curses programs"}},"required":["command"]}`)
 }
 
 func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
