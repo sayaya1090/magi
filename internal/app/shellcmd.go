@@ -313,6 +313,19 @@ var mutatingSubcommands = map[string]map[string]bool{
 	"dnf": {"install": true, "remove": true}, "brew": {"install": true, "uninstall": true},
 }
 
+// queryingSubcommands are the read-only forms of a subcommand that otherwise mutates: the third
+// token turns the command back into a question. `git stash` stashes the worktree; `git stash list`
+// prints what is stashed and writes nothing.
+//
+// The distinction is not cosmetic. mutatesFiles feeds the epoch bump, and a bump RESTARTS the
+// no-progress window — so a pure query counted as a mutation hands a circling agent a fresh window
+// for asking a question. Observed live: an agent looking for edits it could not find ran
+// `git stash list 2>&1 || echo "not a git repo"` in a container with no `.git`; the command changed
+// nothing, could change nothing, and reset the counter anyway.
+var queryingSubcommands = map[string]map[string]bool{
+	"git": {"stash list": true, "stash show": true},
+}
+
 // mutatesFiles reports whether any segment of cmd runs a redirect-less file-mutating
 // command: a fileMutateVerbs coreutil, an in-place `sed -i`/`perl -i`, a mutating
 // tool subcommand (git apply, go mod, pip install, …), or a tar with a
@@ -341,9 +354,15 @@ func mutatesFiles(cmd string) bool {
 				}
 			}
 		default:
-			if subs := mutatingSubcommands[verb]; subs != nil && len(fields) > 1 && subs[fields[1]] {
-				return true
+			subs := mutatingSubcommands[verb]
+			if subs == nil || len(fields) < 2 || !subs[fields[1]] {
+				continue
 			}
+			// …unless a third token names the read-only form of that subcommand.
+			if len(fields) > 2 && queryingSubcommands[verb][fields[1]+" "+fields[2]] {
+				continue
+			}
+			return true
 		}
 	}
 	return false
