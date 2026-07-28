@@ -422,10 +422,7 @@ func stagesClean(command string, stages []int) bool {
 	if len(stages) < 2 {
 		return false // not a pipeline: nothing was resolved, so nothing may be claimed resolved
 	}
-	verbs := lastPipelineVerbs(command)
-	if len(verbs) != len(stages) {
-		verbs = nil // the parse and the statuses disagree — claim nothing about which verb is which
-	}
+	verbs := pipelineVerbsFor(command, len(stages))
 	for i, st := range stages {
 		if st == 0 {
 			continue
@@ -460,20 +457,30 @@ func stageAnswered(verb string, st int) bool {
 	return st == 1 && answersWithExitOne[verb]
 }
 
-// lastPipelineVerbs returns the leading verb of each stage of the command's LAST pipeline — the one
-// whose per-stage statuses PIPESTATUS captured. Returns nil when it cannot say confidently; every
-// caller treats nil as "no verb known" and falls back to the status alone.
+// pipelineVerbsFor returns the leading verb of each stage of the pipeline whose per-stage statuses
+// PIPESTATUS captured, given how many statuses it captured. Returns nil when it cannot say
+// confidently; every caller treats nil as "no verb known" and falls back to the status alone.
+//
+// It is keyed on the count because the captured pipeline is the last one EXECUTED, which is not the
+// last one written: in `a | b || c | d` the tail runs only when the head fails, so either could be
+// the one PIPESTATUS holds. Observed live:
+// `diff -u /dev/null f.c | grep -A10 "wosize" | head -80 || cat f.c | sed -n '640,655p'` — three
+// statuses captured, and the lexically last pipeline has two stages. So: every top-level segment is
+// split, and a verb sequence is returned only when the segments matching that stage count all agree
+// on it. Two different candidates of the same length is an ambiguity, and an ambiguity resolved by
+// guessing would hand one stage's verb to another stage's status.
 //
 // Quote-aware, because an operator inside quotes is data: `grep -n "a|b" f | head` is two stages,
-// not three, and a splitter that miscounts hands the caller verbs that belong to other statuses.
-// The length check at the call site is the backstop for everything this scanner gets wrong.
-func lastPipelineVerbs(command string) []string {
-	// The last top-level segment: control operators end the pipeline before them.
+// not three.
+func pipelineVerbsFor(command string, n int) []string {
+	if n < 2 {
+		return nil
+	}
+	var segs []string
 	seg, quote := strings.Builder{}, byte(0)
-	last := ""
 	flush := func() {
 		if s := strings.TrimSpace(seg.String()); s != "" {
-			last = s
+			segs = append(segs, s)
 		}
 		seg.Reset()
 	}
@@ -504,13 +511,25 @@ func lastPipelineVerbs(command string) []string {
 		}
 	}
 	flush()
-	if last == "" {
-		return nil
+
+	var found []string
+	for _, sg := range segs {
+		v := stageVerbs(sg)
+		if len(v) != n {
+			continue
+		}
+		if found != nil && !sameVerbs(found, v) {
+			return nil // two different pipelines of this length — magi cannot tell which one ran
+		}
+		found = v
 	}
-	// That segment's `|`-separated stages, same quote rule.
+	return found
+}
+
+// stageVerbs splits one top-level segment into its `|` stages and names each one's leading verb.
+func stageVerbs(segment string) []string {
 	var out []string
-	stage := strings.Builder{}
-	quote = 0
+	stage, quote := strings.Builder{}, byte(0)
 	push := func() {
 		f := strings.Fields(stage.String())
 		if len(f) == 0 {
@@ -520,8 +539,8 @@ func lastPipelineVerbs(command string) []string {
 		}
 		stage.Reset()
 	}
-	for i := 0; i < len(last); i++ {
-		c := last[i]
+	for i := 0; i < len(segment); i++ {
+		c := segment[i]
 		switch {
 		case quote != 0:
 			if c == quote {
@@ -539,6 +558,18 @@ func lastPipelineVerbs(command string) []string {
 	}
 	push()
 	return out
+}
+
+func sameVerbs(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // pipeStageNote states what the pipeline's stages really did, when the status the caller sees hides
