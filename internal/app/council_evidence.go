@@ -417,3 +417,58 @@ func clipEach(xs []string, n int) []string {
 	}
 	return append(append([]string{}, xs[:n]...), fmt.Sprintf("…and %d more", len(xs)-n))
 }
+
+// priorCouncilObjections returns, verbatim, what THIS council already told the agent this turn and
+// did not accept — most recent first, one line per member per round.
+//
+// The council's own words used to reach it only the way any other tool result did: through
+// turnToolEvidence, which keeps the most recent councilActionsCap results and drops the rest.
+// Measured on a run that failed: five deliberations, and each one could see at most the single
+// round immediately before it — c2 raised the exact defect the verifier later failed on (a task
+// cancelled while waiting on the semaphore never reaches its `finally`), and c3, c4 and c5 never
+// saw that sentence again. c5 accepted on evidence that never exercised the case, and the graded
+// test found 0 cleanups where it required 2.
+//
+// So this reads the FACTS magi recorded rather than the transcript it clips: council.verdict
+// carries every member's feedback, and it is a first-class fact precisely because it is worth more
+// than one line of scrollback. It states what was said and nothing about whether it was answered —
+// magi cannot know that, and a member told "this was ignored" would be judging an accusation
+// instead of the work.
+func priorCouncilObjections(evs []event.Event, maxItems, perItemCap int) string {
+	var lines []string
+	seen := map[string]bool{}
+	for _, e := range evs {
+		if e.Type == event.TypePromptSubmitted { // a new turn — earlier rounds judged other work
+			lines, seen = nil, map[string]bool{}
+			continue
+		}
+		if e.Type != event.TypeCouncilVerdict {
+			continue
+		}
+		var v event.CouncilVerdictData
+		if json.Unmarshal(e.Data, &v) != nil || v.Phase != "" {
+			continue // a plan-audit verdict judged a plan, not this deliverable
+		}
+		fb := strings.TrimSpace(v.Feedback)
+		if !strings.EqualFold(v.Decision, "continue") || fb == "" || seen[fb] {
+			continue
+		}
+		seen[fb] = true
+		who := v.Member
+		if v.Lens != "" {
+			who += " (" + v.Lens + ")"
+		}
+		lines = append(lines, who+": "+clipLine(fb, perItemCap))
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	for i, j := 0, len(lines)-1; i < j; i, j = i+1, j-1 { // most recent first
+		lines[i], lines[j] = lines[j], lines[i]
+	}
+	if len(lines) > maxItems {
+		lines = lines[:maxItems]
+	}
+	return "── WHAT THIS COUNCIL SAID EARLIER THIS TURN, WHEN IT DID NOT ACCEPT ──\n- " +
+		strings.Join(lines, "\n- ")
+}
