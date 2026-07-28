@@ -67,6 +67,7 @@ func TestE2EFullLoop(t *testing.T) {
 	if err := a.Submit(ctx, command.SubmitPrompt{
 		SessionID: sid,
 		Parts:     []session.Part{{Kind: session.PartText, Text: "Create a file named hello.txt containing the text: magi works"}},
+		Actor:     event.Actor{Kind: event.ActorUser, ID: "test"},
 	}); err != nil {
 		t.Fatal(err)
 	}

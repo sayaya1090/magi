@@ -68,6 +68,7 @@ func TestE2ESteerDuringSubagent(t *testing.T) {
 	if err := a.Submit(ctx, command.SubmitPrompt{
 		SessionID: sid,
 		Parts:     []session.Part{{Kind: session.PartText, Text: "Have the worker subagent write a long 400-word essay about the ocean."}},
+		Actor:     event.Actor{Kind: event.ActorUser, ID: "test"},
 	}); err != nil {
 		t.Fatal(err)
 	}

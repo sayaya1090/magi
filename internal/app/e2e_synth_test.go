@@ -75,6 +75,7 @@ func TestE2EReviewSynthesizeTerminates(t *testing.T) {
 	a.Submit(ctx, command.SubmitPrompt{
 		SessionID: sid,
 		Parts:     []session.Part{{Kind: session.PartText, Text: "Have the coder and tester subagents review DESIGN.md, then synthesize their feedback."}},
+		Actor:     event.Actor{Kind: event.ActorUser, ID: "test"},
 	})
 
 	var spawns, toolCalls int

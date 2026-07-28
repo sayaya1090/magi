@@ -39,7 +39,8 @@ func TestAskUserRoundTrip(t *testing.T) {
 	defer cancel()
 	ch, cancelSub, _ := a.Subscribe(ctx, sid, 0)
 	defer cancelSub()
-	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "pick"}}})
+	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "pick"}},
+		Actor: event.Actor{Kind: event.ActorUser, ID: "test"}})
 
 	answered := false
 	var toolOut string
@@ -90,7 +91,8 @@ func TestAskUserHeadlessDegrades(t *testing.T) {
 		_ = a.Close(ctx)
 	})
 	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: t.TempDir()})
-	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "pick"}}})
+	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "pick"}},
+		Actor: event.Actor{Kind: event.ActorUser, ID: "test"}})
 	got := waitForTerminal(t, a, sid)
 	if countType(got, event.TypeTurnFinished) != 1 {
 		t.Fatalf("headless ask_user must not hang the turn: %v", typesOf(got))

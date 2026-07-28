@@ -34,7 +34,8 @@ func runOneToolCall(t *testing.T, tool, args string) string {
 	defer cancel()
 	ch, cancelSub, _ := a.Subscribe(ctx, sid, 0)
 	defer cancelSub()
-	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "go"}}})
+	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "go"}},
+		Actor: event.Actor{Kind: event.ActorUser, ID: "test"}})
 
 	var out string
 	for e := range ch {

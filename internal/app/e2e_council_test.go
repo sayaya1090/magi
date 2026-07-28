@@ -163,6 +163,7 @@ func TestE2ECouncilGate(t *testing.T) {
 		if err := a.Submit(ctx, command.SubmitPrompt{
 			SessionID: sid,
 			Parts:     []session.Part{{Kind: session.PartText, Text: prompt}},
+			Actor:     event.Actor{Kind: event.ActorUser, ID: "test"},
 		}); err != nil {
 			t.Fatal(err)
 		}

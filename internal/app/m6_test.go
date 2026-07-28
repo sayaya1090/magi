@@ -165,7 +165,8 @@ func runToTerminal(t *testing.T, a *App, sid session.SessionID) []event.Event {
 		t.Fatal(err)
 	}
 	defer cancelSub()
-	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "hi"}}})
+	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "hi"}},
+		Actor: event.Actor{Kind: event.ActorUser, ID: "test"}})
 	var got []event.Event
 	for e := range ch {
 		got = append(got, e)

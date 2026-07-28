@@ -168,7 +168,8 @@ func TestLoopStopTextOnly(t *testing.T) {
 	llm := &fakeLLM{steps: [][]port.ProviderEvent{textStep("안녕")}}
 	a, wd := newApp(t, llm, Config{Permission: "allow"})
 	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
-	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "hi"}}})
+	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "hi"}},
+		Actor: event.Actor{Kind: event.ActorUser, ID: "test"}})
 
 	got := waitForTerminal(t, a, sid)
 	if countType(got, event.TypeTurnFinished) != 1 {
@@ -187,7 +188,8 @@ func TestLoopToolThenFinish(t *testing.T) {
 	}}
 	a, wd := newApp(t, llm, Config{Permission: "allow"})
 	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
-	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "make a file"}}})
+	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "make a file"}},
+		Actor: event.Actor{Kind: event.ActorUser, ID: "test"}})
 
 	got := waitForTerminal(t, a, sid)
 	if countType(got, event.TypeTurnFinished) != 1 {
@@ -303,7 +305,8 @@ func TestLoopMaxSteps(t *testing.T) {
 	llm := &fakeLLM{steps: steps}
 	a, wd := newApp(t, llm, Config{Permission: "allow", MaxSteps: 3})
 	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
-	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "loop"}}})
+	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "loop"}},
+		Actor: event.Actor{Kind: event.ActorUser, ID: "test"}})
 
 	got := waitForTerminal(t, a, sid)
 	last := got[len(got)-1]
@@ -327,7 +330,8 @@ func TestLoopGuardStopsRepetition(t *testing.T) {
 	llm := &fakeLLM{steps: steps}
 	a, wd := newApp(t, llm, Config{Permission: "allow", MaxSteps: 40})
 	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
-	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "loop"}}})
+	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "loop"}},
+		Actor: event.Actor{Kind: event.ActorUser, ID: "test"}})
 
 	got := waitForTerminal(t, a, sid)
 	last := got[len(got)-1]
@@ -361,7 +365,8 @@ func TestLoopGuardGracefulFinishAfterDeliverable(t *testing.T) {
 	llm := &fakeLLM{steps: steps}
 	a, wd := newApp(t, llm, Config{Permission: "allow", MaxSteps: 40})
 	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
-	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "churn"}}})
+	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "churn"}},
+		Actor: event.Actor{Kind: event.ActorUser, ID: "test"}})
 
 	got := waitForTerminal(t, a, sid)
 	last := got[len(got)-1]
@@ -388,7 +393,8 @@ func TestLoopGuardAllowsDistinctCalls(t *testing.T) {
 	}}
 	a, wd := newApp(t, llm, Config{Permission: "allow", MaxSteps: 40})
 	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
-	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "read three"}}})
+	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "read three"}},
+		Actor: event.Actor{Kind: event.ActorUser, ID: "test"}})
 
 	got := waitForTerminal(t, a, sid)
 	if countType(got, event.TypeTurnFinished) != 1 {
@@ -404,7 +410,8 @@ func TestPermissionDeny(t *testing.T) {
 	}}
 	a, wd := newApp(t, llm, Config{Permission: "deny"})
 	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
-	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "write"}}})
+	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "write"}},
+		Actor: event.Actor{Kind: event.ActorUser, ID: "test"}})
 
 	got := waitForTerminal(t, a, sid)
 	if countType(got, event.TypeTurnFinished) != 1 {
@@ -435,7 +442,8 @@ func TestPermissionAskAlways(t *testing.T) {
 	ch, cancelSub, _ := a.Subscribe(ctx, sid, 0)
 	defer cancelSub()
 
-	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "write two"}}})
+	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "write two"}},
+		Actor: event.Actor{Kind: event.ActorUser, ID: "test"}})
 
 	requested := 0
 	for e := range ch {
@@ -469,7 +477,8 @@ func TestPermissionAutoApprovesEdits(t *testing.T) {
 	}}
 	a, wd := newApp(t, llm, Config{Permission: "auto"})
 	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
-	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "write"}}})
+	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "write"}},
+		Actor: event.Actor{Kind: event.ActorUser, ID: "test"}})
 
 	got := waitForTerminal(t, a, sid)
 	if n := countType(got, event.TypePermissionRequested); n != 0 {
@@ -494,7 +503,8 @@ func TestPermissionAutoConfirmsCommands(t *testing.T) {
 	ch, cancelSub, _ := a.Subscribe(ctx, sid, 0)
 	defer cancelSub()
 
-	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "run"}}})
+	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "run"}},
+		Actor: event.Actor{Kind: event.ActorUser, ID: "test"}})
 
 	requested := 0
 	for e := range ch {
@@ -554,7 +564,8 @@ func TestPermissionPersistDecision(t *testing.T) {
 	defer cancel()
 	ch, cancelSub, _ := a.Subscribe(ctx, sid, 0)
 	defer cancelSub()
-	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "write two"}}})
+	a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: "write two"}},
+		Actor: event.Actor{Kind: event.ActorUser, ID: "test"}})
 
 	requested := 0
 	for e := range ch {
