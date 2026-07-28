@@ -159,6 +159,10 @@ type runGuard struct {
 	// already held this turn means the agent is undoing its own earlier change (the silent
 	// self-revert that no other guard catches).
 	contentHist map[string][]uint64
+	// execHist mirrors contentHist entry for entry: the exercise count (execRuns) when each of
+	// those states was recorded. It is what lets the swing note say whether anything RAN between
+	// two writes instead of asserting it — see hasUnexercisedSwing.
+	execHist map[string][]int
 	// regressCount counts, per file, how many times a write returned it to a content state it
 	// already held this turn. It is a COUNT rather than a flag because the report is the only
 	// channel left: the guard no longer stops anything, so a swing that goes unmentioned is a
@@ -180,7 +184,7 @@ func newRunGuard() *runGuard {
 		seen:    map[string]int{},
 		lastMut: map[string]string{}, changed: map[string]*fileChange{},
 		exercisedFile: map[string]bool{}, readSpans: map[string][]lineSpan{},
-		recalled: map[string]bool{}, contentHist: map[string][]uint64{},
+		recalled: map[string]bool{}, contentHist: map[string][]uint64{}, execHist: map[string][]int{},
 		regressCount: map[string]int{},
 	}
 }
@@ -212,8 +216,10 @@ func (g *runGuard) noteEdit(path, before, after string) (warn string, regressed 
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	hist, ok := g.contentHist[path]
+	execAt := g.execHist[path]
 	if !ok {
 		hist = []uint64{hashContent(before)} // index 0 = pre-turn baseline
+		execAt = []int{g.execRuns}
 	}
 	h := hashContent(after)
 	if h == hist[len(hist)-1] {
@@ -223,7 +229,7 @@ func (g *runGuard) noteEdit(path, before, after string) (warn string, regressed 
 		// times over five minutes, then the same 225 bytes eight more times over thirteen, and
 		// magi never said a word. So say the one thing it knows and nothing more; the reading of
 		// it — deliberate re-assert, or an edit that did not take — is the agent's.
-		g.contentHist[path] = hist // materialize the baseline for a file first seen here
+		g.contentHist[path], g.execHist[path] = hist, execAt // materialize a file first seen here
 		return "this write left the file byte-for-byte as it already was — nothing changed.", false
 	}
 	// Scan states strictly before the latest: a match means the file returned to a state it
@@ -234,7 +240,7 @@ func (g *runGuard) noteEdit(path, before, after string) (warn string, regressed 
 			break
 		}
 	}
-	g.contentHist[path] = append(hist, h)
+	g.contentHist[path], g.execHist[path] = append(hist, h), append(execAt, g.execRuns)
 	if !regressed {
 		return "", false // forward progress
 	}
@@ -245,13 +251,40 @@ func (g *runGuard) noteEdit(path, before, after string) (warn string, regressed 
 	// edit — the guard reports, and what to do about it is the agent's call.
 	g.regressCount[path]++
 	if n := g.regressCount[path]; n > 1 {
+		// "no command ran between some of those writes" used to be part of the sentence, asserted
+		// every time. It is a claim about the run's own history and nothing measured it. Observed
+		// live: a scratch test file written, RUN, deleted, written again, RUN again (exit 130),
+		// deleted — and the note told the agent nothing had run between its writes, while magi's
+		// own exercise counter had advanced across every pair. A false accusation costs more than
+		// a missed warning: the warning says "look again", the accusation asserts something the
+		// agent can see is untrue and spends a cycle answering it. So the clause is earned now,
+		// from the counter, or it is not said.
+		swing := ""
+		if hasUnexercisedSwing(g.execHist[path]) {
+			swing = " — no command ran between some of those writes"
+		}
 		return fmt.Sprintf("note: this file has now returned to a content state it already held "+
-			"%d times this turn, moving among %d distinct versions — no command ran between some of "+
-			"those writes. If cycling between versions is not getting you there, the next thing to "+
-			"change is probably not this file.", n, distinctStates(g.contentHist[path])), true
+			"%d times this turn, moving among %d distinct versions%s. If cycling between versions "+
+			"is not getting you there, the next thing to change is probably not this file.",
+			n, distinctStates(g.contentHist[path]), swing), true
 	}
 	return "note: this edit restored a content state this file already had earlier this turn — " +
 		"if reverting your own earlier change was intentional, ignore this.", true
+}
+
+// hasUnexercisedSwing reports whether the file went from one written state to the next with no
+// exercising command in between — the thing the swing note claims. execAt[i] is the exercise count
+// when state i was recorded, so commands ran between states i and i+1 exactly when the count grew.
+//
+// It starts at index 1 on purpose: index 0 is the file's pre-turn state, and "nothing ran between
+// the file's contents before the turn and your first write" is not a statement about writes.
+func hasUnexercisedSwing(execAt []int) bool {
+	for i := 1; i+1 < len(execAt); i++ {
+		if execAt[i] == execAt[i+1] {
+			return true
+		}
+	}
+	return false
 }
 
 // distinctStates counts how many different content states a file has held this turn, so a swing
