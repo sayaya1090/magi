@@ -189,3 +189,46 @@ func TestUsageIsAttributedThroughAGuardedProvider(t *testing.T) {
 }
 
 func jsonOf(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
+
+// A pipeline's exit belongs to its last stage, so `make … | tail` used to be filed as a status magi
+// could not determine — and 59% of recorded bash calls are pipelines, so most of what it could not
+// determine was this. The shell now reports every stage, and when the note says the head of the
+// pipe failed, the record must say FAILED rather than shrug.
+func TestAPipelineWhoseHeadFailedIsRecordedAsFailed(t *testing.T) {
+	app := newShellApp(t, &shellPlatform{})
+	ctx := context.Background()
+	sid, err := app.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	add := func(a, b event.Event) {
+		t.Helper()
+		for _, e := range []event.Event{a, b} {
+			if _, err := app.store.Append(ctx, sid, e); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	// The shape the tool produces: the pipeline's own exit 0, with the stage note beside it.
+	add(bashPair("c1", "make world opt 2>&1 | tee build.log | tail -50",
+		"exit 0\n[note: this exit 0 is the LAST stage's. The pipeline's stages exited 2 → 0 → 0 "+
+			"(left to right), so the work at the head of the pipe FAILED even though the pipeline "+
+			"reported success.]\nbuilding…"))
+	// A pipeline magi has no stage report for stays unknown — silence is not a verdict.
+	add(bashPair("c2", "go build ./... | tail -5", "exit 0\n"))
+
+	o := app.observe(ctx, sid)
+	if len(o.ran()) != 1 {
+		t.Fatalf("the pipeline with a stage report is now readable, the other is not: %+v", o.cmds)
+	}
+	if o.succeeded() {
+		t.Error("a build that died at its first stage is not a success")
+	}
+	r := o.render()
+	if !strings.Contains(r, "ran and FAILED") || !strings.Contains(r, "make world opt") {
+		t.Errorf("the failed pipeline must be named as failed:\n%s", r)
+	}
+	if !strings.Contains(r, "status unknown") || !strings.Contains(r, "go build") {
+		t.Errorf("the pipeline with no stage report must stay unknown:\n%s", r)
+	}
+}

@@ -133,7 +133,11 @@ type turnControl struct {
 	route   string // "", "queue", "redirect", or "append"
 	routeID string // the request id the route targets (route_interjection request_id); "" = oldest queued
 	replan  bool
-	reason  string
+	// finish is set when the agent declared the task complete (the council tool) and the council
+	// accepted. The loop ends the turn at its next step — a turn ends because someone decided to
+	// end it, not because the model happened to stop calling tools.
+	finish bool
+	reason string
 }
 
 // realPromptTokens returns the actual prompt token count from the last turn (0

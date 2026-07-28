@@ -1,0 +1,178 @@
+package app
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/sayaya1090/magi/internal/core/council"
+	"github.com/sayaya1090/magi/internal/core/event"
+	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
+)
+
+// The council convened by itself at the finish boundary. That placement decided two things it had
+// no way to get right: WHEN it was asked — at the one moment the agent had already made up its
+// mind — and whether its answer would ever be read, which in a headless run it was not, because
+// the advice was injected into a session that was ending in the same tick.
+//
+// As a tool it is asked when the agent wants it, and the answer returns where every other tool
+// result does. What the members see is unchanged: the same record, one lens each.
+
+// councilAdvice runs one deliberation for the council tool and renders the members' readings. The
+// question, when the agent supplies one, rides as the task the members weigh — otherwise they weigh
+// the turn's own task. Errors come back as errors: an agent told "the council had nothing to add"
+// when the backend actually failed would read silence as agreement.
+//
+// complete marks the call as the agent DECLARING the task finished, which is how a turn ends. The
+// council reads the same record as a finish and either accepts — the loop is signalled and the turn
+// is over — or hands back what is not done, and the agent keeps working. Ending was a passive event
+// before this: the agent stopped calling tools and the turn simply stopped, with nothing asked and
+// nothing shown. Now it is an act, and the act is answered.
+func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges []fileChange, question string, complete bool) (string, error) {
+	if a.cfg.Council == nil {
+		return "", fmt.Errorf("no council is configured for this run")
+	}
+	sid := s.ID
+	councilActor := event.Actor{Kind: event.ActorSystem, ID: "council"}
+	members, rule, _ := a.councilParams()
+
+	evs, _ := a.store.Read(ctx, sid, 0)
+	evs = a.taskEvents(sid, evs)
+	task := lastUserPromptText(evs)
+	if q := strings.TrimSpace(question); q != "" {
+		// The agent's question leads, with the turn's task behind it: a member asked only the
+		// narrow question cannot tell whether the answer serves the work.
+		task = "The agent asks specifically: " + q + "\n\nThe task it is working on: " + task
+	}
+
+	// The same evidence the finish gate assembled, in the same order. magi's own record first,
+	// because it is the part nobody wrote: which commands ran, how they really ended, and which
+	// of them it could not determine.
+	actions := turnToolEvidence(evs, councilActionsCap)
+	if rec := a.stopRecord(ctx, sid); rec != "" {
+		if strings.TrimSpace(actions) == "" {
+			actions = rec
+		} else {
+			actions = rec + "\n\n" + actions
+		}
+	}
+	// A fresh read of the world, taken now — not a replay of the record. This is the part that can
+	// contradict both the agent's claim and magi's own log: a file the record says was written and
+	// is not there, a file nothing in the record wrote, a server still running, a build that exited
+	// nonzero after the last tool call.
+	if snap := worldSnapshot(s.Workdir, lastUserPromptTS(evs)); snap != "" {
+		actions = snap + "\n\n" + actions
+	}
+	if jobs := a.liveJobsNow(a.jobsStartedBy(ctx, sid)); jobs != "" {
+		actions = jobs + "\n\n" + actions
+	}
+	if gone := missingFromWorld(s.Workdir, a.observe(ctx, sid).changed); len(gone) > 0 {
+		actions = "── RECORDED AS WRITTEN, NOT ON DISK NOW ──\n" + strings.Join(clipEach(gone, 8), ", ") +
+			"\n\n" + actions
+	}
+	plan := ""
+	if td := a.Todos(sid); len(td) > 0 {
+		plan = formatTodos(td)
+	}
+	changes := truncateForCouncil(buildCouncilChanges(guardChanges), councilDiffCap)
+	lastText := lastTurnAssistantText(evs)
+
+	labels := make([]string, len(members))
+	for i, m := range members {
+		labels[i] = m.Name
+	}
+	cd, _ := json.Marshal(event.CouncilConvenedData{
+		Round: 1, Members: labels, Rule: string(rule), Task: task, Plan: plan,
+		Report: lastText, Changes: changes, NoChanges: strings.TrimSpace(changes) == "",
+	})
+	a.appendFact(ctx, sid, event.TypeCouncilConvened, councilActor, cd)
+	for _, m := range members {
+		ld, _ := json.Marshal(event.CouncilDeliberatingData{Round: 1, Member: m.Name, State: "asking"})
+		a.publishTransient(sid, event.TypeCouncilDeliberating, councilActor, ld)
+	}
+
+	delib, err := a.cfg.Council.Deliberate(ctx, port.DeliberationRequest{
+		Round: 1, Task: task, Plan: plan, Report: lastText, Actions: actions, Changes: changes,
+		NoChanges:    strings.TrimSpace(changes) == "",
+		Members:      members,
+		Rule:         rule,
+		DefaultModel: s.Model.Model,
+		Debate:       councilDebateEnabled(),
+	})
+	if err != nil {
+		return "", fmt.Errorf("the council could not be reached: %w", err)
+	}
+	a.emitCouncilVerdicts(ctx, sid, councilActor, 1, "", delib.Verdicts)
+	if !complete {
+		return renderCouncilAdvice(delib), nil
+	}
+
+	accepted := delib.Decision == council.Done
+	dd, _ := json.Marshal(event.CouncilDecidedData{
+		Round: 1, Decision: string(delib.Decision), Feedback: delib.Feedback,
+		Note: map[bool]string{
+			true:  "the agent declared the task finished and the council accepts — the turn ends",
+			false: "the agent declared the task finished; the council does not accept it yet",
+		}[accepted],
+	})
+	a.appendFact(ctx, sid, event.TypeCouncilDecided, councilActor, dd)
+	if accepted {
+		// The loop reads this at its next step and ends the turn. Signalled rather than returned
+		// because the tool result must still reach the transcript: the agent's last word should be
+		// its own, not a truncated call.
+		a.signalTurnControl(sid, func(tc *turnControl) { tc.finish = true })
+		return "The council accepts that the task is finished. Your turn ends here — write your final " +
+			"answer for whoever asked, and stop.\n\n" + renderCouncilAdvice(delib), nil
+	}
+	return "The council does NOT accept this as finished yet. Address what follows and declare " +
+		"completion again when you believe it is done.\n\n" + renderCouncilAdvice(delib), nil
+}
+
+// renderCouncilAdvice turns the members' verdicts into what the agent reads: one block per member,
+// named by its lens, in its own words. The tally is not rendered — counting votes is what the gate
+// did, and a count invites the agent to read a majority as an instruction. Where a member had
+// nothing to say beyond agreement, it says so rather than disappearing, so a quiet member is not
+// mistaken for one that never answered.
+func renderCouncilAdvice(d council.Deliberation) string {
+	var b strings.Builder
+	b.WriteString("The council read your work. This is their reading, not a decision — weigh it and judge for yourself.\n")
+	for _, v := range d.Verdicts {
+		who := strings.TrimSpace(v.Member)
+		if lens := strings.TrimSpace(v.Lens); lens != "" {
+			who += " (" + lens + ")"
+		}
+		say := strings.TrimSpace(v.Feedback)
+		if say == "" {
+			say = strings.TrimSpace(v.Rationale)
+		}
+		if say == "" {
+			say = "nothing to add."
+		}
+		b.WriteString("\n── " + who + "\n" + say + "\n")
+	}
+	if keep := strings.TrimSpace(d.Keep); keep != "" {
+		b.WriteString("\n── already correct through some lens (they suggest not redoing these)\n" + keep + "\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// lastTurnAssistantText is the agent's most recent message — its claim, in its own words, which the
+// members read beside the record of what actually ran.
+func lastTurnAssistantText(evs []event.Event) string {
+	out := ""
+	for _, e := range evs {
+		if e.Type != event.TypePartAppended {
+			continue
+		}
+		var d event.PartAppendedData
+		if json.Unmarshal(e.Data, &d) != nil || d.Role != session.RoleAssistant {
+			continue
+		}
+		if d.Part.Kind == session.PartText && strings.TrimSpace(d.Part.Text) != "" {
+			out = d.Part.Text
+		}
+	}
+	return out
+}

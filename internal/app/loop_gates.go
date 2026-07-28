@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
-	"time"
 
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -93,7 +92,7 @@ func (a *App) handleStuckGuard(ctx context.Context, tc turnCtx, turnTask string,
 		ts.unverifiedReason = "the agent's own build/test kept failing across repeated edits without " +
 			"converging — landing with work standing so the external verifier judges the live deliverable"
 		dd, _ := json.Marshal(event.CouncilDecidedData{
-			Round: ts.council.rounds + 1, Decision: string(council.Done),
+			Decision: string(council.Done),
 			Note: "the agent's own build/test kept failing across repeated edits without converging — " +
 				"landing with work standing so the external verifier judges the live deliverable; treat as UNVERIFIED",
 			Forced: true,
@@ -115,7 +114,7 @@ func (a *App) handleStuckGuard(ctx context.Context, tc turnCtx, turnTask string,
 		ts.unverifiedReason = "repeated re-planning finished no new step (the completed-step high-water " +
 			"never advanced) — landing with work standing so the external verifier judges the live deliverable"
 		dd, _ := json.Marshal(event.CouncilDecidedData{
-			Round: ts.council.rounds + 1, Decision: string(council.Done),
+			Decision: string(council.Done),
 			Note: "repeated re-planning finished no new step (the completed-step high-water never advanced) — " +
 				"landing with work standing so the external verifier judges the live deliverable; treat as UNVERIFIED",
 			Forced: true,
@@ -153,7 +152,7 @@ func (a *App) finishTurn(ctx context.Context, tc turnCtx, step int, turnTask, la
 	if act, done := a.nudgeEmptyResult(ctx, tc, lastText, ts); done {
 		return act
 	}
-	if act, done := a.runTerminationGate(ctx, tc, step, turnTask, lastText, evs, usedTools, ts); done {
+	if act, done := a.requireFinishDeclaration(ctx, tc, usedTools, ts); done {
 		return act
 	}
 	// A user steer can land AFTER this step's top-of-loop interjection scan but
@@ -220,112 +219,58 @@ func (a *App) nudgeEmptyResult(ctx context.Context, tc turnCtx, lastText string,
 	return loopContinue, true
 }
 
-// runTerminationGate is the consensus council's finish decision (D14): top level only, not
-// in workflow mode, and only for turns that did real work (a purely conversational reply has
-// nothing to verify). The deterministic per-step deliverable gate (MAGI_STEP_VERIFY) runs
-// first — all-pass finishes VERIFIED and SKIPS the open-ended council; a real failure injects
-// the failing output and loops. Otherwise the termination council votes, with the idle-resubmit
-// and deadlock stuck-recovery lifelines attached. Returns (action, true) to keep looping;
-// (0, false) lets the finish proceed (carrying any UNVERIFIED reason the gate set on ts).
-func (a *App) runTerminationGate(ctx context.Context, tc turnCtx, step int, turnTask, lastText string, evs []event.Event, usedTools bool, ts *turnState) (loopAction, bool) {
-	if !(tc.depth == 0 && a.cfg.Council != nil && !a.cfg.Workflow && usedTools) {
+// requireFinishDeclaration keeps a working turn open until the agent SAYS it is finished and the
+// council accepts. Ending was previously the absence of an action — the model stopped calling tools
+// and the turn stopped with it, so a turn that trailed off mid-thought and a turn that was actually
+// done ended identically, and neither was ever asked.
+//
+// Only for a turn that did work: a conversational reply has nothing to declare, and demanding a
+// declaration for "hello" would be a loop with no exit. Only when a council exists to answer, since
+// the declaration is made to it. And it does not fire once and give up — going quiet is not a way to
+// finish, or the requirement would be a formality any silence could step around.
+func (a *App) requireFinishDeclaration(ctx context.Context, tc turnCtx, usedTools bool, ts *turnState) (loopAction, bool) {
+	if ts.declared {
+		return 0, false // it declared, and the council accepted — that IS the finish
+	}
+	if !declareFinishEnabled() || !usedTools || a.cfg.Council == nil || a.cfg.Workflow {
 		return 0, false
 	}
-	s, agent, guard, maxSteps := tc.s, tc.agent, tc.guard, tc.maxSteps
-	sid := s.ID
-	// Non-converging self-check landing (internal signal only — no external wall clock): if the
-	// agent's OWN build/test keeps failing across repeated edit cycles (observedCheckChurn, counted
-	// where the calls actually run), verification is not converging. Churning edits to an external
-	// hard-kill tears the live deliverable down; the council branch below lands UNVERIFIED with work
-	// standing instead, so the external verifier judges the running result.
-	// No all-pass council skip: the ledger (checkLedger) is EVIDENCE fed to the council below, not
-	// a fast-path to done — the council always judges, so trivial passing checks can't false-done.
-	// Structural fabrication evidence for the council: if the agent changed a deliverable this
-	// turn but ran no command exercising the current version, that is a hard, language-agnostic
-	// fact a text-only vote can't wave through.
-	fab := ""
-	if guard.unverifiedDeliverable() {
-		fab = "the agent changed a deliverable this turn but ran no command exercising the current version — it is unverified by execution"
-	}
-	// Idle resubmission short-circuit: the council rejected this answer, and the agent came back
-	// having run NO tool and changed (almost) nothing — re-deliberating burns a round and prints
-	// the same answer twice. Finish instead, marked UNVERIFIED.
-	if ts.prevFinishCalls >= 0 && guard.callCount() == ts.prevFinishCalls && normEq(lastText, ts.prevFinishText) {
-		dd, _ := json.Marshal(event.CouncilDecidedData{
-			Round: ts.council.rounds + 1, Decision: string(council.Done),
-			Note:   "answer resubmitted unchanged after council feedback — finishing without re-deliberation; treat as UNVERIFIED",
-			Forced: true,
-		})
-		a.appendFact(ctx, sid, event.TypeCouncilDecided, event.Actor{Kind: event.ActorSystem, ID: "council"}, dd)
-		ts.unverifiedReason = "the same answer was resubmitted unchanged after council feedback, without re-deliberation"
+	if _, ok := a.tools.Get("council"); !ok || !tc.agent.allows("council") {
 		return 0, false
 	}
-	// Exec-evidence layer 1 (deterministic, pre-council): the turn authored runnable
-	// files that NO exercising command ever named — the exact signature of the
-	// "written, never run, council approved anyway" regressions (headless-terminal
-	// 2/7, large-scale 3/5; field-confirmed cross-model). One nudge before spending
-	// a council round is cheaper than a rejection round, and non-blocking: a second
-	// finish proceeds to the gate with the fact in the council's evidence instead.
-	if execEvidenceEnabled() && !ts.execNudged {
-		if un := guard.unexercisedArtifacts(); len(un) > 0 {
-			ts.execNudged = true
-			_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "guard"},
-				"magi's record of this turn has no executed command naming what you wrote: "+
-					strings.Join(un, ", ")+". That is what it can see, not a verdict on your work — a "+
-					"compile or a syntax check is not an invocation either. Run the smallest REAL "+
-					"invocation of each (its primary scenario) and check the output before finishing; "+
-					"if one already ran under a name this record cannot match, or is not meant to be "+
-					"executed directly, say so and finish.")
-			return loopContinue, true
-		}
+	// Bounded, because the alternative is a turn that never ends. Asking is worth doing when the
+	// agent simply forgot the form; it is worth nothing against an agent that cannot produce it, and
+	// that one would hold the session open until the wall clock while looking busy — each reminder
+	// answered with a tool call, so "is it still working" says yes forever. After declareAskCap the
+	// work lands as it stands, with the reason recorded: the turn ends undeclared, which is a
+	// different thing from ending declared and is written down as such.
+	if ts.declareAsks >= declareAskCap {
+		ts.unverifiedReason = "the agent never declared the task finished, so no council read it — " +
+			"the work stands as it was left"
+		return 0, false
 	}
-	changes := buildCouncilChanges(guard.changeSet())
-	if execEvidenceEnabled() {
-		if un := guard.unexercisedArtifacts(); len(un) > 0 {
-			changes += "\n\n### authored but never executed this turn (no command ever invoked them)\n- " +
-				strings.Join(un, "\n- ")
-		}
-	}
-	keepWorking, unv := a.runCouncilGate(ctx, s, agent, councilInput{
-		turnTask:    turnTask,
-		lastText:    lastText,
-		changes:     changes,
-		fabrication: fab,
-		stepsLeft:   maxSteps - step,
-		turnElapsed: time.Since(tc.runStart),
-	}, &ts.council)
-	if keepWorking {
-		// Council-path non-convergence landing (internal signal only — no external wall clock, the
-		// same honest signal the step-gate branch uses). The council rejected this finish. If the agent
-		// has EDITED the deliverable (mutation epoch advancing — noteCheckFail's epoch guard) across
-		// checkChurnCap such rejected finishes without the council ever approving, verification is not
-		// converging: a contradictory/impossible deliverable check the agent can't satisfy (kv-store-grpc
-		// demanded stub files named with a hyphen that grpc_tools MUST spell with an underscore, so
-		// satisfying the grep broke the import and vice-versa — an unwinnable edit loop). Churning edits
-		// to the external hard-kill tears the live deliverable down (reward 0); land UNVERIFIED with work
-		// standing so the external verifier judges the running result. Counted only on an epoch-advancing
-		// edit (an idle re-finish is the idle-resubmit path above); a converging task resets on approval.
-		if checkChurnLandEnabled() && guard.noteCheckFail() >= checkChurnCap() {
-			dd, _ := json.Marshal(event.CouncilDecidedData{
-				Round: ts.council.rounds + 1, Decision: string(council.Done),
-				Note: "council kept rejecting across repeated edit cycles without converging — landing with " +
-					"work standing so the external verifier judges the live deliverable; treat as UNVERIFIED",
-				Forced: true,
-			})
-			a.appendFact(ctx, sid, event.TypeCouncilDecided, event.Actor{Kind: event.ActorSystem, ID: "council"}, dd)
-			ts.unverifiedReason = "the council kept rejecting across repeated edit cycles without converging — " +
-				"landing with work standing so the external verifier judges the live deliverable"
-			return 0, false
-		}
-		ts.prevFinishText, ts.prevFinishCalls = lastText, guard.callCount()
-		return loopContinue, true
-	}
-	// The gate is letting the turn finish. A non-empty reason means it did so WITHOUT approving
-	// (deadlock/cost-cap/no-feedback/unavailable) — carry that into turn.finished so the UI shows
-	// UNVERIFIED, not a confident done.
-	ts.unverifiedReason = unv
-	if unv == "" {
-		guard.resetCheckChurn() // genuine council approval → verification converged; clear the churn count
-	}
-	return 0, false
+	ts.declareAsks++
+	pd, _ := json.Marshal(event.PromptSubmittedData{
+		MessageID: "m_" + newID(),
+		Parts: []session.Part{{Kind: session.PartText, Text: "You stopped without saying you are finished. " +
+			"A turn ends by declaring it: call the `council` tool with `complete: true`, and the council reads " +
+			"the record — what actually ran, how it ended, what is on disk now — and either accepts (the turn " +
+			"is over) or tells you what is still undone. If the work is finished, declare it now. If it is not, " +
+			"keep working."}},
+	})
+	a.appendFact(ctx, tc.s.ID, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "orchestrator"}, pd)
+	return loopContinue, true
+}
+
+// finishDeclared reports (and consumes) the signal the council tool leaves when the agent declared
+// the task finished and the members accepted. It is read where the loop decides whether the step
+// produced work, so a declared finish takes the same path a silent one does — the difference is
+// that this one was decided.
+func (a *App) finishDeclared(sid session.SessionID) bool {
+	declared := false
+	a.signalTurnControl(sid, func(tc *turnControl) {
+		declared = tc.finish
+		tc.finish = false
+	})
+	return declared
 }

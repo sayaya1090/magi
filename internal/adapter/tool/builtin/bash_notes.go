@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -320,4 +321,87 @@ func ephemeralEnvNote(exit int, command string, sid session.SessionID) string {
 		return ""
 	}
 	return "[note: shell state set in this call (export/source/cd) does NOT outlive it — every bash call starts a fresh shell, and other processes never see it. If something must stay available afterwards (a PATH entry, an env var, an activated environment), persist it in the filesystem — install or symlink the binary, write the config — and re-verify WITHOUT the in-call setup.]"
+}
+
+// A pipeline reports its LAST stage's status, so `make world 2>&1 | tee build.log | tail -50`
+// answers 0 for a build that died at rule one. magi could see the shape of the command and say it
+// did not know; bash can say what actually happened, because PIPESTATUS holds every stage.
+//
+// It is read out of band — written to a file the command never touches — for two reasons. The
+// output must stay exactly what the command printed, or a grep over it starts matching magi's
+// bookkeeping. And the exit status must stay the shell's own: turning on `pipefail` would make the
+// same command report failure where it used to report success, which is the shell lying to an agent
+// that reads that number to decide what to do next. So nothing changes except that magi now knows.
+
+// withPipeStatus wraps a shell invocation so the LAST pipeline's per-stage statuses are written to a
+// side file. Returns the (possibly rewritten) invocation and the file path, or an empty path when
+// the shell cannot report them — dash has no PIPESTATUS, and Windows has no pipeline array at all.
+func withPipeStatus(name string, args []string, tmpDir string) (string, []string, string) {
+	if !strings.HasSuffix(name, "bash") || len(args) != 2 || args[0] != "-c" {
+		return name, args, ""
+	}
+	f, err := os.CreateTemp(tmpDir, "magi-pipestatus-*")
+	if err != nil {
+		return name, args, ""
+	}
+	path := f.Name()
+	_ = f.Close()
+	// PIPESTATUS must be read by the very next command, so it is captured before anything else —
+	// including the status assignment, which would otherwise overwrite it with its own success. The
+	// pipeline's own exit is the array's last element, so re-exiting with it changes nothing.
+	// PIPESTATUS can be EMPTY — a command ending in `&` completes no foreground pipeline — so the
+	// trailer must survive that rather than index into nothing. Observed: `cmd &` produced
+	// "bad array subscript" and exit 255, turning a working background start into a tool error.
+	wrapped := args[1] + "\n__magi_ps=(\"${PIPESTATUS[@]}\")\n__magi_n=${#__magi_ps[@]}\n" +
+		"if [ \"$__magi_n\" -gt 0 ]; then printf '%s ' \"${__magi_ps[@]}\" > " + shellQuote(path) +
+		"; exit \"${__magi_ps[$((__magi_n-1))]}\"; fi\nexit 0\n"
+	return name, []string{"-c", wrapped}, path
+}
+
+// shellQuote wraps s in single quotes for safe inclusion in a shell command.
+func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
+// readPipeStatus reads the per-stage statuses back, or nil when none were captured.
+func readPipeStatus(path string) []int {
+	if path == "" {
+		return nil
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var out []int
+	for _, f := range strings.Fields(string(b)) {
+		n, err := strconv.Atoi(f)
+		if err != nil {
+			return nil // a partial or garbled capture says nothing; do not guess from it
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
+// pipeStageNote states what the pipeline's stages really did, when the status the caller sees hides
+// it: the command reports success while an earlier stage failed. Silent otherwise — a pipeline whose
+// stages all agree with its exit has nothing to add, and a note on every pipe would be noise.
+func pipeStageNote(exit int, stages []int) string {
+	if exit != 0 || len(stages) < 2 {
+		return ""
+	}
+	bad := false
+	for _, st := range stages[:len(stages)-1] {
+		if st != 0 {
+			bad = true
+		}
+	}
+	if !bad {
+		return ""
+	}
+	parts := make([]string, len(stages))
+	for i, st := range stages {
+		parts[i] = strconv.Itoa(st)
+	}
+	return "[note: this exit 0 is the LAST stage's. The pipeline's stages exited " +
+		strings.Join(parts, " → ") + " (left to right), so the work at the head of the pipe FAILED " +
+		"even though the pipeline reported success.]"
 }

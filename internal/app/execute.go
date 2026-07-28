@@ -269,14 +269,17 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	defer a.leaveTool(sid)
 	scratch := a.scratchFor(sid)
 	res, err := tool.Execute(ctx, tc.Args, port.ToolEnv{
-		SessionID:         sid,
-		Workdir:           workdir,
-		ScratchLogs:       scratch.logsDir(),
-		ScratchTmp:        scratch.tmpDir(),
-		Platform:          a.plat,
-		EmitArtifact:      func(art artifact.Artifact) { a.emitArtifact(ctx, sid, actor, art) },
-		EmitProgress:      func(text string) { a.emitToolProgress(sid, actor, tc.CallID, tc.Name, text) },
-		TrackProc:         a.procTracker(sid),
+		SessionID:    sid,
+		Workdir:      workdir,
+		ScratchLogs:  scratch.logsDir(),
+		ScratchTmp:   scratch.tmpDir(),
+		Platform:     a.plat,
+		EmitArtifact: func(art artifact.Artifact) { a.emitArtifact(ctx, sid, actor, art) },
+		EmitProgress: func(text string) { a.emitToolProgress(sid, actor, tc.CallID, tc.Name, text) },
+		TrackProc:    a.procTracker(sid),
+		Council: func(cctx context.Context, question string, complete bool) (string, error) {
+			return a.councilAdvice(cctx, s, guardChanges(guard), question, complete)
+		},
 		ResolveConcern:    resolveConcernFn,
 		RouteInterjection: routeInterjectionFn,
 		Replan:            replanFn,

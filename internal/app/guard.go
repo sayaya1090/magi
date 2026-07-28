@@ -1227,3 +1227,12 @@ func stripEchoTail(cmd string) string {
 		out = next
 	}
 }
+
+// guardChanges is the guard's change set, or nothing when there is no guard — the council tool can
+// be called from a path that has none, and a nil guard must render an empty diff rather than panic.
+func guardChanges(g *runGuard) []fileChange {
+	if g == nil {
+		return nil
+	}
+	return g.changeSet()
+}

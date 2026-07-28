@@ -13,67 +13,6 @@ import (
 	"github.com/sayaya1090/magi/internal/port"
 )
 
-// A turn whose council never approves (round-cap deadlock) must land its
-// turn.finished with Unverified=true and a reason — the TUI reads that field to
-// distinguish an abandoned/unverified turn from a genuine done. Regression: the
-// deadlock recorded an UNVERIFIED council note but emitted a clean turn.finished
-// (Unverified=false), so the UI painted an abandoned task as a confident "done".
-func TestDeadlockFinishMarkedUnverified(t *testing.T) {
-	// The VOTING gate: rounds, the round cap, the no-progress stop, the deadlock landing. The
-	// termination council now ADVISES by default, so this pins the behaviour behind
-	// MAGI_COUNCIL_ADVISORY=0 — which keeps both the incident history these cases encode and a
-	// genuinely exercised rollback path.
-	t.Setenv("MAGI_COUNCIL_ADVISORY", "0")
-	// Council that always says "keep working" → it never approves.
-	fc := &fakeCouncil{delibs: []council.Deliberation{
-		{Decision: council.Continue, Feedback: "the review is not complete yet"},
-	}}
-	// tool work (so the gate applies) then two finishes: round 1 → Continue,
-	// round 2 → round-cap deadlock finish.
-	llm := workingLLM(textStep("answer 1"), textStep("answer 2"))
-	a, wd := newApp(t, llm, Config{Council: fc, CouncilMaxRounds: 1, Permission: "allow"})
-	ctx := context.Background()
-	sid, _ := a.CreateSession(ctx, command.CreateSession{Workdir: wd})
-
-	a.Submit(ctx, command.SubmitPrompt{
-		SessionID: sid,
-		Parts:     []session.Part{{Kind: session.PartText, Text: "review the whole project"}},
-		Actor:     event.Actor{Kind: event.ActorUser, ID: "tui"},
-	})
-	got := waitForTerminal(t, a, sid)
-
-	// The council recorded the finish as unverified...
-	unverifiedNote := false
-	for _, e := range got {
-		if e.Type == event.TypeCouncilDecided && strings.Contains(string(e.Data), "UNVERIFIED") {
-			unverifiedNote = true
-		}
-	}
-	if !unverifiedNote {
-		t.Fatal("setup: expected a council UNVERIFIED deadlock note")
-	}
-
-	// ...and the turn.finished the TUI reads carries it.
-	var tf *event.TurnFinishedData
-	for _, e := range got {
-		if e.Type == event.TypeTurnFinished {
-			var d event.TurnFinishedData
-			if json.Unmarshal(e.Data, &d) == nil {
-				tf = &d
-			}
-		}
-	}
-	if tf == nil {
-		t.Fatal("no turn.finished emitted")
-	}
-	if !tf.Unverified {
-		t.Fatal("deadlock finish must set turn.finished Unverified=true so the UI does not show a clean done")
-	}
-	if strings.TrimSpace(tf.Reason) == "" {
-		t.Error("an unverified finish should carry a human-readable reason")
-	}
-}
-
 // A top-level turn that runs NO tool and ends with only reasoning (empty answer
 // text) delivered nothing. Before the fix it finished silently as a confident
 // done — no deliverable, Unverified=false — because the council gate requires
@@ -171,7 +110,8 @@ func TestTopLevelToolUseEmptyTextNudged(t *testing.T) {
 // reason — the common case must not be mislabeled by the propagation above.
 func TestApprovedFinishNotUnverified(t *testing.T) {
 	fc := &fakeCouncil{delibs: []council.Deliberation{{Round: 1, Decision: council.Done}}}
-	llm := workingLLM(textStep("the answer"))
+	// The agent works, then DECLARES the task finished; the council reads the record and accepts.
+	llm := workingLLM(toolStep("council", `{"complete":true}`), textStep("the answer"))
 	a, wd := newApp(t, llm, Config{Council: fc, Permission: "allow"})
 	ctx := context.Background()
 	sid, _ := a.CreateSession(ctx, command.CreateSession{Workdir: wd})

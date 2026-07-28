@@ -91,11 +91,17 @@ func TestQueuedInterjectionGetsFreshTaskContract(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	req := fc.lastReq // the LAST deliberation = turn 2 (the drained interjection)
-	if !strings.Contains(req.Task, "UNRELATED-QUESTION") {
-		t.Fatalf("turn 2 council should judge the interjection, got Task=%q", req.Task)
+	// The fresh contract is observable on the session itself: the drain runs resetForNewTopLevel,
+	// so the finished task's leftover plan does not carry into the turn that answers the
+	// interjection. (This used to be asserted through the termination council's request; the
+	// council no longer convenes on its own, so the property is read where it actually lives.)
+	for _, td := range a.Todos(sid) {
+		if strings.Contains(td.Content, "TASK1-LEFTOVER-STEP") {
+			t.Fatalf("the queued interjection inherited the previous task's plan: %+v", a.Todos(sid))
+		}
 	}
-	if strings.Contains(req.Plan, "TASK1-LEFTOVER-STEP") {
-		t.Fatalf("queued interjection was judged against the previous task's plan: Plan=%q", req.Plan)
+	txt := sessionText(t, a, sid)
+	if !strings.Contains(txt, "UNRELATED-QUESTION") {
+		t.Fatalf("the interjection never ran as its own turn:\n%s", txt)
 	}
 }

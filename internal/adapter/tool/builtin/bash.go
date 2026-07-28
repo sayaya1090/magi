@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -107,6 +108,13 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	if argv, wrapped := sandboxArgv(env.Sandbox, a.Command); wrapped {
 		name, args = argv[0], argv[1:]
 	}
+	// The exit a pipeline reports is its LAST stage's, so `make … | tail` says 0 for a build that
+	// died. bash knows better — PIPESTATUS holds every stage — so ask for it out of band: written to
+	// a side file, never into the output, and the command's own status is passed through untouched.
+	name, args, psPath := withPipeStatus(name, args, env.ScratchTmp)
+	if psPath != "" {
+		defer os.Remove(psPath)
+	}
 	cmd := exec.CommandContext(cctx, name, args...)
 	cmd.Dir = env.Workdir
 	cmd.Env = scratchEnv(env.ScratchTmp)
@@ -128,6 +136,7 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	started := time.Now()
 	bashDebugf("exec start: timeout=%ds shell=%s cmd=%q", timeout, name, dbgClip(a.Command))
 	out, logPath, err := runCapture(cmd, env.ScratchLogs)
+	stages := readPipeStatus(psPath)
 	// Safety net: if a token-confined launch (Windows) fails to START (process never
 	// ran), retry unconfined so confinement can never break the bash tool outright.
 	// Keyed on the sandbox token specifically — tty detachment is kept on the retry
@@ -162,6 +171,9 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	// this result marked [ok]) would otherwise rubber-stamp it. Annotate — never reclassify
 	// — right after the status line so the note sits at the head, where the council's
 	// head-clip and the model both see it. Flag-gated for A/B isolation.
+	if note := pipeStageNote(exit, stages); note != "" {
+		disp = note + "\n" + disp
+	}
 	if bodyscanEnabled() {
 		if note := maskedFailureNote(exit, disp); note != "" {
 			disp = note + "\n" + disp
@@ -416,12 +428,34 @@ func readHeadTail(path string, cap int64) []byte {
 }
 
 // shell returns the platform shell invocation for a command string.
+//
+// bash when the machine has it, /bin/sh otherwise. On Debian and Ubuntu — which is what the
+// containers are — /bin/sh is dash, and a model writing the bash it writes everywhere else gets a
+// syntax error for `[[ ]]`, `source`, arrays, or `${var,,}`: a failure that belongs to the shell
+// choice, not to the work. dash also has no PIPESTATUS, which is the only way to learn what the
+// left side of `make … | tail` actually exited with.
+//
+// Nothing else changes: no `pipefail`, no `errexit`. A command's exit status is what it always was,
+// because the agent reads that number and a shell that quietly redefines it would be lying to it.
 func shell(command string) (string, []string) {
 	if runtime.GOOS == "windows" {
 		return "powershell", []string{"-NoProfile", "-Command", command}
 	}
-	return "/bin/sh", []string{"-c", command}
+	return unixShell(), []string{"-c", command}
 }
+
+// unixShellPath is resolved once: the lookup is a stat, and the answer cannot change under a
+// running process in any way that matters.
+var unixShellPath = sync.OnceValue(func() string {
+	for _, p := range []string{"/bin/bash", "/usr/bin/bash"} {
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+			return p
+		}
+	}
+	return "/bin/sh"
+})
+
+func unixShell() string { return unixShellPath() }
 
 // truncateOut caps very large command output for display, keeping the head AND the tail
 // (¾ / ¼) with the middle elided — a build/test failure's actual error and final status

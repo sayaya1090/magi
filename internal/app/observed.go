@@ -48,10 +48,16 @@ const observedScanCap = provenanceScanCap
 // observe reads what happened under sid. Best-effort: an unreadable session contributes nothing
 // rather than a guess, because a missing record must never be reported as an absence of work.
 func (a *App) observe(ctx context.Context, sid session.SessionID) observedRun {
+	return observeEvents(a.readEventsBestEffort(ctx, sid))
+}
+
+// observeEvents is observe over events already in hand. The per-step state block has just read the
+// session to build the request; reading it again there turns a cheap block into the loop's dominant
+// cost, which is how a block meant to be free stops being worth having.
+func observeEvents(all []event.Event) observedRun {
 	var out observedRun
 	seen := map[string]bool{}
-	for _, s := range []session.SessionID{sid} {
-		evs := a.readEventsBestEffort(ctx, s)
+	for _, evs := range [][]event.Event{all} {
 		if len(evs) > observedScanCap {
 			evs = evs[len(evs)-observedScanCap:]
 		}
@@ -97,13 +103,19 @@ func (a *App) observe(ctx context.Context, sid session.SessionID) observedRun {
 				}
 				res := results[tc.CallID]
 				exit, known := exitOfBashResult(res)
+				// A pipeline's exit is its last stage's, so `make … | tail` used to land in "status
+				// unknown" — magi could see the shape and not the outcome. bash reports every stage
+				// now, and when the note says the head of the pipe failed, that is not a shrug: the
+				// record says FAILED.
+				hiddenFail := strings.Contains(res, "the work at the head of the pipe FAILED")
 				out.cmds = append(out.cmds, observedCmd{
 					cmd:  args.Command,
-					exit: exit,
+					exit: exitOrFailed(exit, hiddenFail),
 					// Unclear covers both shapes of "magi did not learn this command's status": a
 					// tail that owns the reported exit, and a result carrying no exit at all (a
-					// background start, a kill). Neither is a failure and neither is a success.
-					unclear: !known || builtin.ExitCodeMasked(args.Command),
+					// background start, a kill). Neither is a failure and neither is a success —
+					// unless the stages told us, in which case it is no longer unknown.
+					unclear: (!known || builtin.ExitCodeMasked(args.Command)) && !hiddenFail,
 					exec:    !isInspectOnly(args.Command),
 				})
 			}
@@ -263,4 +275,15 @@ func writesIn(evs []event.Event) []string {
 		}
 	}
 	return out
+}
+
+// exitOrFailed is the status the record keeps for a pipeline whose reported exit hid a failed
+// stage: the reported 0 says nothing, and keeping it would put a dead build in the "ran clean"
+// column. The stage's own code is not carried — what matters to a reader is that it failed, and
+// inventing a number to stand for "some stage, some code" would be a claim magi cannot support.
+func exitOrFailed(exit int, hiddenFail bool) int {
+	if hiddenFail && exit == 0 {
+		return 1
+	}
+	return exit
 }

@@ -32,14 +32,6 @@ func (a *App) toolSpecs(agent AgentSpec) []port.ToolSpec {
 			if !a.cfg.Interactive {
 				continue
 			}
-		case "tabulate", "countmatches", "countlines", "groupby":
-			// Aggregation helpers exist for agents that CANNOT shell out; an agent with
-			// bash does the same with awk/sort/uniq/wc/grep -c, so carrying them is pure
-			// per-request weight in a bash-capable tool list. Drop them there; a read-only
-			// explorer (no bash) keeps them as its only way to REDUCE data without a shell.
-			if agent.allows("bash") {
-				continue
-			}
 		}
 		specs = append(specs, port.ToolSpec{Name: name, Description: t.Description(), Schema: t.Schema()})
 	}
@@ -93,6 +85,15 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 	}
 	if td := a.Todos(s.ID); len(td) > 0 {
 		b.WriteString("\n\n# Current plan (TODOs)\n" + formatTodos(td))
+	}
+	// The state of the run, re-rendered every step from magi's own record — the calls it granted,
+	// how they really ended, the paths they wrote, and the background commands still alive. A
+	// screen-driven agent re-reads its terminal before every decision, so its view of the world is
+	// never older than the last thing it did; magi's data was all recorded and none of it was ever
+	// handed back, so the agent's picture of what it had done was whatever it remembered saying.
+	// This is the same refresh, over the store magi actually keeps.
+	if st := a.runState(evs); st != "" {
+		b.WriteString("\n\n" + st)
 	}
 	// Compacted-context RAG (push half): topics an earlier compaction shed that look
 	// lexically relevant to the current task, as one-line pointers into recall_context.

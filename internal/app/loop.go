@@ -78,8 +78,10 @@ const (
 // round accounting. reground zeroes the turn-scoped fields; council.spent survives
 // (it is the turn's cumulative deliberation clock — see reground).
 type turnState struct {
-	stopChecked      bool   // stop hooks enforced at most once per turn
-	nudgedEmpty      bool   // empty-subagent "call report" nudge fired at most once
+	stopChecked      bool // stop hooks enforced at most once per turn
+	nudgedEmpty      bool
+	declareAsks      int    // how many times this turn was told to declare completion (declareAskCap)
+	declared         bool   // the agent declared the task finished and the council accepted
 	execNudged       bool   // authored-but-never-executed nudge fired at most once (exec-evidence)
 	prevFinishText   string // the answer the council rejected last round
 	prevFinishCalls  int    // guard.callCount() at that rejection (-1 = none yet)
@@ -95,7 +97,6 @@ type turnState struct {
 	// it — so a member could not check whether its own objection had been met and was free to raise
 	// a different one each round. Same amnesia the contract and plan re-rounds had.
 	substCritique string
-	council       councilTurn // consensus gate rounds/feedback/spent/deadlock (D14)
 }
 
 // turnCtx bundles the values that are fixed for the whole turn — the session, the
@@ -227,11 +228,6 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	// and re-dispatch the explorers.
 	reground := func(rebuildPlan bool) {
 		guard.resetStall()
-		// Field-wise reset (not ts.council = councilTurn{}): council.spent is the turn's
-		// cumulative deliberation clock for the cost cap and must survive a re-ground.
-		ts.council.rounds = 0
-		ts.council.feedback = ""
-		ts.council.deadlocked = false
 		ts.prevFinishText = ""
 		ts.prevFinishCalls = -1
 		ts.stepNudged = false // a re-grounded task gets a fresh deliverable-check nudge budget
@@ -241,7 +237,12 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	// cancelled, or when whatever is running magi decides it has waited long enough — the three
 	// endings that were always real. The step cap was a fourth, and the only one that ended a run
 	// on magi's own arithmetic rather than on something that happened.
-	for step := 0; ; step++ {
+	// A turn has no step ceiling: it ends when the model stops, when the agent declares completion,
+	// or when whoever launched magi stops waiting — that is what removing MaxSteps decided. A
+	// workflow PHASE is the exception, because it declares its own budget as part of the pipeline's
+	// shape (localize gets 14 steps, summarize gets 3), and a phase that ignores its budget is a
+	// phase without a boundary. maxSteps<=0 means the caller set none.
+	for step := 0; maxSteps <= 0 || step < maxSteps; step++ {
 		if ctx.Err() != nil {
 			return lastText, ctx.Err()
 		}
@@ -257,7 +258,13 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		} else {
 			// Drain any control signal a tool left last step (route an interjection, or an
 			// agent-initiated replan), applying the reground the loop owns but the tool can't.
-			if tc := a.takeTurnControl(sid); tc.route != "" || tc.replan {
+			ctrl := a.takeTurnControl(sid)
+			// The drain empties every control field, so the declaration signal has to be caught
+			// HERE or it is thrown away before the finish check ever sees it.
+			if ctrl.finish {
+				ts.declared = true
+			}
+			if tc := ctrl; tc.route != "" || tc.replan {
 				// Absorb a routed interjection now, so it isn't also re-surfaced as its own
 				// turn. The route binds to a SPECIFIC queued request (resolveRouteTarget: the
 				// id the model named, else the oldest queued), not to lastUserPromptText — so
@@ -339,6 +346,14 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 
 		// No tool calls → the turn wants to finish. Stop hooks enforce checks
 		// (e.g. tests must pass); a failure pushes the agent to keep working.
+		// The agent declared the task finished and the council accepted, so this turn is over — but
+		// it ends the way every other turn ends. Returning from here directly would skip the finish
+		// path itself: no turn.finished, no finalize stage, and a steer that landed during the
+		// declaration left stranded instead of picked up as its own turn.
+		if ts.declared || a.finishDeclared(sid) {
+			ts.declared = true
+			toolCalls = nil
+		}
 		if len(toolCalls) == 0 {
 			// Turn-cumulative usage (§8.1): out/cost summed across steps, in = last.
 			u := turnUsage(a, sid, usageAtStart, lastIn, cumOut, cumCost)
@@ -424,7 +439,9 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			return lastText, nil
 		}
 	}
-
+	// Only a workflow phase reaches here: it spent the budget its own pipeline gave it. The work
+	// stands; the phase simply stops, and the engine moves on to the next one.
+	return lastText, nil
 }
 
 // seedTurnTask snapshots the turn's task at step 0 and returns it with the baseline user-

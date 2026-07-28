@@ -308,3 +308,14 @@ func leaseExternalCreditEnabled() bool { return !envOff("MAGI_LEASE_EXTERNAL_CRE
 //
 // Default ON; MAGI_COUNCIL_ADVISORY=0 restores the voting gate for A/B.
 func councilAdvisoryEnabled() bool { return !envOff("MAGI_COUNCIL_ADVISORY") }
+
+// declareFinishEnabled requires a working turn to END BY DECLARATION — the agent calls the council
+// tool with complete:true and the council accepts — rather than by falling silent. Default ON;
+// MAGI_DECLARE_FINISH=0 restores the passive finish, where a turn ends whenever a step produces no
+// tool call, for A/B.
+func declareFinishEnabled() bool { return !envOff("MAGI_DECLARE_FINISH") }
+
+// declareAskCap bounds how many times one turn is told to declare completion. Small on purpose: the
+// ask exists for an agent that forgot the form, and repeating it at one that cannot produce it only
+// spends the session's remaining time looking busy.
+const declareAskCap = 3

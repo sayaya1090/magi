@@ -282,6 +282,12 @@ type ToolEnv struct {
 	// status is "done" | "blocked" | "failed". Set only for subagents. Returns an
 	// error if called by a non-subagent or after a report was already filed.
 	Report func(ReportInput) error
+	// Council asks the configured council for a reading of the work so far and returns their
+	// answers as text. complete marks the call as a DECLARATION that the task is finished: the
+	// council reads the record as a finish, and if it accepts, the application ends the turn.
+	// Set for any session with a council configured; nil leaves the tool reporting that there is
+	// none rather than pretending to have asked.
+	Council func(ctx context.Context, question string, complete bool) (string, error)
 	// ResolveConcern retires a structural concern from the durable ledger by key.
 	// Set ONLY for the top-level orchestrator (depth 0); nil for subagents. It is
 	// advisory-only: a concern that is still true is re-raised deterministically on
