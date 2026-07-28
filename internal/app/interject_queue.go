@@ -218,23 +218,6 @@ func shortReqID(msgID string) string {
 	return msgID[len(msgID)-8:]
 }
 
-// takePendingInterject pops the oldest queued interjection (FIFO), or "" if none.
-func (a *App) takePendingInterject(sid session.SessionID) string {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	q := a.stateLocked(sid).pendingInterject
-	if len(q) == 0 {
-		return ""
-	}
-	text := q[0].Text
-	if len(q) == 1 {
-		a.stateLocked(sid).pendingInterject = nil
-	} else {
-		a.stateLocked(sid).pendingInterject = q[1:]
-	}
-	return text
-}
-
 // hasPendingInterject reports whether any interjection is queued for a session.
 func (a *App) hasPendingInterject(sid session.SessionID) bool {
 	a.mu.Lock()

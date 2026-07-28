@@ -96,24 +96,17 @@ func TestInterjectQueue(t *testing.T) {
 	if ids := a.deferredInterjectIDs(sid); !ids["m_first"] || !ids["m_second"] {
 		t.Fatalf("both queued interjection ids should be masked, got %v", ids)
 	}
-	// FIFO, trimmed.
-	if got := a.takePendingInterject(sid); got != "first" {
-		t.Fatalf("FIFO pop should return the trimmed first entry, got %q", got)
-	}
-	// Popping the first unmasks it (it will run as its own turn now).
+	// consume removes a specific entry (the redirect/append absorb path), and unmasks it.
+	a.consumeInterject(context.Background(), sid, " first ")
 	if ids := a.deferredInterjectIDs(sid); ids["m_first"] {
-		t.Fatalf("popped interjection must no longer be masked, got %v", ids)
+		t.Fatalf("a consumed interjection must no longer be masked, got %v", ids)
 	}
-	// consume removes a specific entry (the redirect/append absorb path).
 	a.consumeInterject(context.Background(), sid, "second")
 	if a.hasPendingInterject(sid) {
-		t.Fatal("consume should have removed the only remaining interjection")
+		t.Fatal("consume should have removed the remaining interjection")
 	}
 	if ids := a.deferredInterjectIDs(sid); len(ids) != 0 {
 		t.Fatalf("empty queue should mask nothing, got %v", ids)
-	}
-	if got := a.takePendingInterject(sid); got != "" {
-		t.Fatalf("empty queue should pop \"\", got %q", got)
 	}
 }
 
@@ -151,7 +144,7 @@ func TestReplanGatedToPlanEligible(t *testing.T) {
 
 // Regression for the run-goroutine post-loop deadlock: that block runs while a.mu is held,
 // so it must inspect the pending-interject queue INLINE. The self-locking queue helpers
-// (hasPendingInterject/takePendingInterject/drain) would re-lock a.mu and wedge the
+// (hasPendingInterject/drain) would re-lock a.mu and wedge the
 // goroutine — silently, since turn.finished is already emitted, so only a POST-loop effect
 // exposes it. A queued interjection on a clean turn must re-surface as its own user prompt;
 // a deadlocked goroutine never gets there. We poll the store (not a.mu-guarded) so a

@@ -883,26 +883,6 @@ func TestDeliberateDefaultModel(t *testing.T) {
 	}
 }
 
-func TestFirstJSONObject(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{`{"a":1}`, `{"a":1}`},
-		{"prose before {\"a\":1} and after", `{"a":1}`},
-		{"```json\n{\"a\":{\"b\":2}}\n```", `{"a":{"b":2}}`},
-		{`{"s":"has } brace"}`, `{"s":"has } brace"}`},
-		// Escaped quotes inside a string: the \" must NOT end the string, so the } that
-		// follows stays string-interior and is not counted — exercises the esc state path.
-		{`{"s":"he said \"hi\" }"}`, `{"s":"he said \"hi\" }"}`},
-		// Unbalanced: an object that never closes yields "" (no balanced match).
-		{`{"a":1`, ""},
-		{"no json here", ""},
-	}
-	for _, tc := range cases {
-		if got := firstJSONObject(tc.in); got != tc.want {
-			t.Errorf("firstJSONObject(%q) = %q, want %q", tc.in, got, tc.want)
-		}
-	}
-}
-
 func TestEvidenceRendersSignals(t *testing.T) {
 	got := evidence(port.DeliberationRequest{
 		Task:    "fix the bug",
