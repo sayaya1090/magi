@@ -1,7 +1,9 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"os"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -127,5 +129,37 @@ func TestTurnUsageReportsTheBill(t *testing.T) {
 	a.recordUsage("s_root", "m", event.Usage{In: 7, Out: 3})
 	if u2 := turnUsage(a, "s_root", mid, 0, 0, 0); u2.In != 7 || u2.Out != 3 {
 		t.Errorf("second turn = in %d / out %d; want 7/3", u2.In, u2.Out)
+	}
+}
+
+// A turn can finish two ways — the model stops calling tools, or it files a report — and each built
+// its own usage. The report path kept the agent's-stream-only accounting, so a turn that ended that
+// way published the LAST prompt where the bill was. Measured on a headless run:
+//
+//	magi: tokens in 1721335 / out 4880
+//	turn.finished {"usage":{"in":48519,"out":4880}}
+//
+// The outputs agree and the inputs are thirty-five fold apart, which is that construction exactly.
+func TestBothFinishPathsUseTheSameAccounting(t *testing.T) {
+	src, err := os.ReadFile("loop.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The old shape, spelled out. It has exactly one legitimate home: turnUsage's fallback, for a
+	// backend that reports no usage at all. Anywhere BEFORE that function is a finish path keeping
+	// its own books.
+	const oldShape = "event.Usage{In: lastIn, Out: cumOut, Cost: cumCost}"
+	decl := bytes.Index(src, []byte("func turnUsage("))
+	if decl < 0 {
+		t.Fatal("turnUsage is gone — the accounting moved and this guard needs to move with it")
+	}
+	if n := bytes.Count(src, []byte(oldShape)); n != 1 {
+		t.Errorf("the stream-locals accounting must exist once (turnUsage's fallback), found %d", n)
+	}
+	if bytes.Contains(src[:decl], []byte(oldShape)) {
+		t.Error("a finish path is building its own usage from the stream locals — turnUsage is the one accounting")
+	}
+	if n := bytes.Count(src, []byte("turnUsage(a, sid, usageAtStart")); n != 2 {
+		t.Errorf("both finish paths must go through turnUsage, found %d call(s)", n)
 	}
 }

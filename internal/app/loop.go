@@ -514,7 +514,12 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// result and its turn ends now — no more steps, no bash-echo looping. handleReport may
 		// refuse an unverified "done" once (loopContinue) or finish the turn (loopFinish, with
 		// the result string to return).
-		u := event.Usage{In: lastIn, Out: cumOut, Cost: cumCost}
+		// The SAME accounting the other finish path uses. This built its own from the agent's stream
+		// alone, so a turn that ended by filing a report published the last prompt where the bill was
+		// — measured on a headless run that printed `tokens in 1721335` beside a turn.finished
+		// carrying `"in":48519`, the two outputs agreeing and the inputs thirty-five fold apart.
+		// Two finish paths must not have two accountings.
+		u := turnUsage(a, sid, usageAtStart, lastIn, cumOut, cumCost)
 		if act, result, handled := a.handleReport(ctx, tc, lastText, u, &reportRefused, &ts); handled {
 			switch act {
 			case loopContinue:

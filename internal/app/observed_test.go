@@ -9,6 +9,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 func bashPair(id, cmd, result string) (event.Event, event.Event) {
@@ -184,5 +185,39 @@ func TestStopRecordNamesWhatMagiCouldNotDetermine(t *testing.T) {
 	}
 	if strings.Contains(rec, "ran clean") {
 		t.Errorf("an exit that is not the command's own must never read as a clean run:\n%s", rec)
+	}
+}
+
+// Live evidence that the turn's usage was NOT what it reported: a headless run printed
+//
+//	magi: tokens in 1721335 / out 4880     (UsageTotal — every request)
+//	turn.finished {"usage":{"in":48519,"out":4880}}
+//
+// The outputs agree and the inputs differ 35-fold, which is the signature of turnUsage falling back
+// to the old accounting: 48,519 is the LAST prompt, not the sum. The fallback fires when the meter
+// attributed nothing to the session, so this pins the attribution itself under the wiring production
+// actually uses — the provider is guarded before the App wraps it.
+func TestUsageIsAttributedThroughAGuardedProvider(t *testing.T) {
+	a := newShellApp(t, &shellPlatform{})
+	a.mu.Lock()
+	a.llm = GuardProvider(&meterLLM{in: 1000, out: 10})
+	a.mu.Unlock()
+
+	ctx := ctxWithUsageSID(context.Background(), "s_main")
+	for i := 0; i < 3; i++ {
+		ch, err := a.providerFor(AgentSpec{}).StreamChat(ctx, port.ChatRequest{Model: "m"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for range ch {
+		}
+	}
+	total, mine := a.UsageTotal(), a.UsageFor("s_main")
+	if total.In != 3000 {
+		t.Fatalf("the grand total must count every request, got %d", total.In)
+	}
+	if mine.In != total.In {
+		t.Errorf("a session's own requests must be attributed to it: session %d vs total %d "+
+			"— an unattributed request makes turn.finished fall back to the last prompt", mine.In, total.In)
 	}
 }
