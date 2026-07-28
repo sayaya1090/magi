@@ -33,10 +33,7 @@ func (Report) Description() string {
 		"evidence (for \"done\": the command you RAN and its real output that proves the deliverable passes — a " +
 		"claim without evidence is not done); deviations (assumptions you made, workarounds, any boundary you " +
 		"could not hold — omit if none); handoff (facts the next step needs: interfaces/identifiers/paths you " +
-		"produced — omit if none); substitutions (if an acceptance check cannot be satisfied AS WRITTEN — it reads a " +
-		"path nothing here produces, or you recorded the real output elsewhere — do NOT fail: report the original " +
-		"check, why it cannot be met, and the path plus assertion that prove the same goal — omit if none; to make " +
-		"the fix PERSIST use the substitute_check tool); details (optional). " +
+		"produced — omit if none); details (optional). " +
 		"After reporting you stop — do NOT use bash/echo to present results."
 }
 func (Report) Schema() json.RawMessage {

@@ -302,18 +302,6 @@ func TestPlanMemberPromptScopesChecksToSteps(t *testing.T) {
 	}
 }
 
-// The terminate member prompt must judge a CHECK-SUBSTITUTION: accept an equivalent that reasonably
-// verifies the goal, reject an inadequate one.
-func TestTerminateMemberPromptCheckSubstitution(t *testing.T) {
-	m := council.Member{Name: "x", Lens: "verification"}
-	p := memberSystem(m, "terminate", "stand up a service", false, false)
-	for _, want := range []string{"CHECK-SUBSTITUTION", "EQUIVALENT", "REASONABLY verifies", "INADEQUATE"} {
-		if !strings.Contains(p, want) {
-			t.Errorf("terminate prompt missing check-substitution fragment %q", want)
-		}
-	}
-}
-
 // The scope/boundary clause is GATED by MAGI_CONSTRAINT_GATE (the constraints arg): OFF by default so
 // it does not add a rejection criterion to an already over-strict council, ON only for the A/B arm.
 // When ON it verifies stated scope/boundary constraints against the diff/artifact — an off-limits file

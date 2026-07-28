@@ -14,7 +14,6 @@ import (
 type subReport struct {
 	summary, status, details      string
 	evidence, deviations, handoff string
-	substitutions                 string
 	provenance                    string // what magi observed about the files the evidence cites
 }
 
@@ -102,7 +101,6 @@ func (r *subReport) result(answer string) string {
 	// Immediately after the evidence it qualifies, so the two are never read apart.
 	section("PROVENANCE", r.provenance)
 	section("DEVIATIONS", r.deviations)
-	section("CHECK-SUBSTITUTION", r.substitutions)
 	section("HANDOFF", r.handoff)
 	return out
 }
