@@ -97,9 +97,8 @@ internal/
   version/                  build version stamping
 ```
 
-**Reading model JSON (`internal/jsonx`).** Plans, contracts, deliverable checks, council
-verdicts, curator packets, mined execution notes and tool-call arguments are all JSON a MODEL
-wrote, and they fail in the same handful of ways. One package owns that, so a defect fixed once
+**Reading model JSON (`internal/jsonx`).** Council verdicts and tool-call arguments are JSON a
+MODEL wrote, and they fail in the same handful of ways. One package owns that, so a defect fixed once
 is fixed for all of them:
 - **Extraction** — `BalancedObjects`/`BalancedArrays` pull candidate spans out of a reply that
   wrapped its JSON in prose or a code fence.
@@ -162,7 +161,6 @@ replay, deduped by seq (race-safe late-joiner).
     EmitArtifact  func(Artifact)
     Council  func(ctx, question string, complete bool) (string, error) // council tool; complete=declare
     SetTodos func([]Todo)                             // todowrite
-    ResolveConcern func(key, reason string) error    // retire a concern from the ledger
     RouteInterjection / AskUser                       // interactive runs only
     Propose  func(Contribution) error                // shared experience (D13)
     LoadSkill func(name) (string, bool)              // skill tool
