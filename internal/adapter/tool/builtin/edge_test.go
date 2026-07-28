@@ -98,18 +98,3 @@ func TestToolsWithoutEnvCaps(t *testing.T) {
 		}
 	}
 }
-
-func TestFindContext(t *testing.T) {
-	got, isErr := runJSON(t, FindContext{}, findCtxArgs{Query: "authentication login token"}, func(d string) {
-		writeFile(d, "auth/login.go", "func Login(token string) {}")
-		writeFile(d, "readme.md", "unrelated docs")
-		writeFile(d, "util/token.go", "var token = 1")
-	})
-	if isErr || len(got) == 0 {
-		t.Fatalf("findcontext: got %v err=%v", got, isErr)
-	}
-	top := got[0].(map[string]any)["path"].(string)
-	if top != "auth/login.go" {
-		t.Errorf("top result=%q want auth/login.go", top)
-	}
-}

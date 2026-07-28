@@ -41,14 +41,14 @@ func lastToolResultText(t *testing.T, a *App, sid session.SessionID) string {
 func TestAllowlistRefusalNamesWhatTheAgentMayCallInstead(t *testing.T) {
 	a, sid, wd := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow"})
 	s := session.Session{ID: sid, Workdir: wd}
-	agent := AgentSpec{Name: "explorer", Tools: []string{"read", "grep", "glob", "list", "findcontext"}}
+	agent := AgentSpec{Name: "explorer", Tools: []string{"read", "grep", "glob", "list"}}
 
 	if !a.gateAllowlist(context.Background(), s, agent, 1, event.Actor{Kind: event.ActorAgent, ID: "explorer"},
 		&session.ToolCall{Name: "recall_memory", CallID: "c1"}, "m1") {
 		t.Fatal("a tool outside the allowlist must be blocked")
 	}
 	got := lastToolResultText(t, a, sid)
-	for _, want := range []string{"not permitted", "may call", "read", "grep", "findcontext"} {
+	for _, want := range []string{"not permitted", "may call", "read", "grep", "glob"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("refusal is missing %q: %s", want, got)
 		}
@@ -72,7 +72,7 @@ func TestAllowlistRefusalNamesWhatTheAgentMayCallInstead(t *testing.T) {
 // sixth: the experience store is always configured, so the pointer was appended to every
 // agent's context regardless of what that agent could reach.
 func TestExperiencePointerOnlyForAgentsThatMayCallRecallMemory(t *testing.T) {
-	readOnlyTools := []string{"read", "grep", "glob", "list", "findcontext"}
+	readOnlyTools := []string{"read", "grep", "glob", "list"}
 	exp := &countingExperience{}
 	a, sid, wd := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow", Experience: exp})
 	s := session.Session{ID: sid, Workdir: wd}

@@ -86,8 +86,7 @@ func doctorChecks(ctx context.Context, d doctorDeps, extra ...doctorCheck) []doc
 	// Optional tool binaries: absent = graceful degradation, but say so once here
 	// instead of the tool discovering it mid-task.
 	optional := []struct{ bin, gives string }{
-		{"gopls", "lsp_diagnostics/definition/references for Go"},
-		{"ast-grep", "structural (AST) search via astgrep"},
+		{"gopls", "post-edit diagnostics for Go"},
 		{"rg", "fast grep backend"},
 	}
 	for _, o := range optional {

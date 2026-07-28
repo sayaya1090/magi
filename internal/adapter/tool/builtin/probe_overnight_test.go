@@ -294,23 +294,6 @@ func TestOvernightProbe(t *testing.T) {
 		}
 	})
 
-	// ---------- Family I: findcontext ----------
-	t.Run("I_findctx", func(t *testing.T) {
-		dir := t.TempDir()
-		writeFile(dir, "parser.go", "package p\nfunc ParseConfig() {}\ntype Config struct{}\n")
-		writeFile(dir, "util.go", "package p\n// config helpers\nfunc helper() {}\n")
-		writeFile(dir, "readme.md", "the config is parsed here\n")
-		for _, q := range []string{"parseconfig", "config", "", "   ", "the and for", "нет", "ParseConfig struct", strings.Repeat("x", 500)} {
-			got, isErr := exProbe(dir, FindContext{}, findCtxArgs{Query: q})
-			t.Logf("[I fctx ] q=%-14q isErr=%-5v :: %s", oneline(q), isErr, oneline(got))
-		}
-		// negative / zero limit
-		for _, lim := range []int{-1, 0, 1, 999} {
-			got, _ := exProbe(dir, FindContext{}, findCtxArgs{Query: "config", Limit: flexInt(lim)})
-			t.Logf("[I fctx ] limit=%-4d :: %s", lim, oneline(got))
-		}
-	})
-
 	// ---------- Family J: todowrite ----------
 	t.Run("J_todo", func(t *testing.T) {
 		dir := t.TempDir()
@@ -362,13 +345,6 @@ func TestOvernightProbe(t *testing.T) {
 		gotL, _ := exProbe(dir, Grep{}, map[string]any{"pattern": "parse config"})
 		t.Logf("[K grep ] latin-control match=%-5v :: %s", strings.Contains(gotL, "eng.go"), oneline(gotL))
 
-		// findcontext: NFC query against the NFD file (content-score path).
-		fc, fcErr := exProbe(dir, FindContext{}, map[string]any{"query": nfc})
-		fcMiss := fcErr || !strings.Contains(fc, "kor.go")
-		t.Logf("[K fctx ] nfc-query-vs-nfd-file isErr=%-5v miss=%-5v :: %s", fcErr, fcMiss, oneline(fc))
-		if fcMiss {
-			t.Logf("[K fctx ] SUSPECT: findcontext under-ranked/omitted an NFD file for an NFC query (P3 class)")
-		}
 	})
 
 	// ---------- Wave 12: NFC class — FILENAME matching (glob tool + grep --glob) ----------
@@ -404,38 +380,4 @@ func TestOvernightProbe(t *testing.T) {
 		}
 	})
 
-	// ---------- Wave 14: astgrep live edge cases (external CLI) ----------
-	t.Run("M_astgrep", func(t *testing.T) {
-		if _, ok := astGrepBin(); !ok {
-			t.Skip("ast-grep not installed")
-		}
-		dir := t.TempDir()
-		writeFile(dir, "a.go", "package a\nfunc F(p *int) bool {\n\tif p == nil {\n\t\treturn true\n\t}\n\treturn false\n}\n")
-		writeFile(dir, "b.py", "def g(x):\n    if x == None:\n        return 1\n    return 0\n")
-		// 60 nil comparisons across files to exercise the 50-match cap.
-		var many strings.Builder
-		many.WriteString("package m\n")
-		for i := 0; i < 60; i++ {
-			many.WriteString("var _ = func(p *int) bool { return p == nil }\n")
-		}
-		writeFile(dir, "many.go", many.String())
-
-		cases := []struct {
-			name string
-			a    astGrepArgs
-		}{
-			{"go-explicit-lang", astGrepArgs{Pattern: "$A == nil", Lang: "go", Path: "a.go"}},
-			{"go-inferred-lang", astGrepArgs{Pattern: "$A == nil", Path: "a.go"}}, // no lang → inference
-			{"py-explicit", astGrepArgs{Pattern: "$A == None", Lang: "python", Path: "b.py"}},
-			{"no-match", astGrepArgs{Pattern: "$A + $B + $C + $D", Lang: "go", Path: "a.go"}},
-			{"bad-lang", astGrepArgs{Pattern: "$A == nil", Lang: "klingon", Path: "a.go"}},
-			{"malformed-pattern", astGrepArgs{Pattern: "func $F($$$ {", Lang: "go", Path: "a.go"}}, // unbalanced
-			{"empty-metavar-only", astGrepArgs{Pattern: "$$$", Lang: "go", Path: "a.go"}},
-			{"cap-truncation", astGrepArgs{Pattern: "$A == nil", Lang: "go", Path: "many.go"}},
-		}
-		for _, c := range cases {
-			got, isErr := exProbe(dir, AstGrep{}, c.a)
-			t.Logf("[M ast  ] %-20s isErr=%-5v :: %s", c.name, isErr, oneline(got))
-		}
-	})
 }

@@ -56,29 +56,6 @@ func TestGrepASCIIPatternUnaffected(t *testing.T) {
 	}
 }
 
-// findcontext ranks by fuzzy relevance; an NFD file must surface for the NFC query the
-// model types. Before the fix, strings.Contains missed it and the file scored 0.
-func TestFindContextMatchesNFDFileWithNFCQuery(t *testing.T) {
-	nfc := "함수 정의"
-	nfd := norm.NFD.String(nfc)
-	if nfc == nfd {
-		t.Fatal("setup: NFC and NFD forms are identical")
-	}
-	got, isErr := runJSON(t, FindContext{}, findCtxArgs{Query: nfc}, func(d string) {
-		writeFile(d, "kor.go", "package x\n// "+nfd+"\nfunc F() {}\n")
-		writeFile(d, "util/math.go", "package util\n\nfunc Add(a, b int) int { return a + b }\n")
-	})
-	if isErr {
-		t.Fatalf("findcontext should not error: %v", got)
-	}
-	if len(got) == 0 {
-		t.Fatal("NFC query should locate the NFD file mentioning 함수 정의")
-	}
-	if top := got[0].(map[string]any)["path"].(string); top != "kor.go" {
-		t.Errorf("NFD-content file should rank first; got %q", top)
-	}
-}
-
 // glob matches by filename; an NFD-named file on disk must match the NFC pattern the
 // model types. Before the fix, filepath.Match compared unequal bytes and listed nothing.
 func TestGlobMatchesNFDNameWithNFCPattern(t *testing.T) {

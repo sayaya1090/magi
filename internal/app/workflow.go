@@ -33,8 +33,8 @@ type wfPhase struct {
 }
 
 var (
-	wfReadOnly = []string{"read", "grep", "glob", "list", "findcontext"}
-	wfEdit     = []string{"read", "grep", "glob", "list", "findcontext", "write", "edit", "multiedit"}
+	wfReadOnly = []string{"read", "grep", "glob", "list"}
+	wfEdit     = []string{"read", "grep", "glob", "list", "write", "edit", "multiedit"}
 	wfVerify   = []string{"read", "grep", "glob", "list", "bash"}
 )
 
@@ -43,7 +43,7 @@ const wfPhaseSteps = 14
 func codingPhases() (localize, implement, verify, review, summarize wfPhase) {
 	localize = wfPhase{name: "localize", tools: wfReadOnly, maxSteps: wfPhaseSteps,
 		goal: "PHASE: LOCALIZE. Understand the task and find the EXACT file(s) and function(s) that must change. " +
-			"Use findcontext/grep/glob/read — read the relevant code. Do NOT edit anything yet (you have no edit " +
+			"Use grep/glob/read — read the relevant code. Do NOT edit anything yet (you have no edit " +
 			"tools this phase). Finish with a short list of the target files (path:line) and a one-line plan."}
 	implement = wfPhase{name: "implement", tools: wfEdit, maxSteps: wfPhaseSteps,
 		goal: "PHASE: IMPLEMENT. BEFORE editing, verify readiness: (a) Do I understand the requirement and edge cases? " +

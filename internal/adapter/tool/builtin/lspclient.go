@@ -289,118 +289,12 @@ func lspQuery(ctx context.Context, workdir, absPath, method string, line, char i
 	return c.call(method, params)
 }
 
-// lspLocation is one LSP Location (also covers LocationLink via targetUri/range).
-type lspLocation struct {
-	URI         string  `json:"uri"`
-	TargetURI   string  `json:"targetUri"`
-	Range       lspRng  `json:"range"`
-	TargetRange *lspRng `json:"targetRange"`
-}
+// lspRng / lspPos are the position shapes the diagnostics decoder reads out of a
+// publishDiagnostics notification.
 type lspRng struct {
 	Start lspPos `json:"start"`
 }
 type lspPos struct {
 	Line int `json:"line"`
 	Char int `json:"character"`
-}
-
-// formatLocations renders an LSP definition/references result as workspace-relative
-// "file:line:col" lines (1-based).
-func formatLocations(result json.RawMessage, workdir string) string {
-	if len(result) == 0 || string(result) == "null" {
-		return ""
-	}
-	var locs []lspLocation
-	if json.Unmarshal(result, &locs) != nil {
-		var one lspLocation // a single Location, not an array
-		if json.Unmarshal(result, &one) != nil {
-			return ""
-		}
-		locs = []lspLocation{one}
-	}
-	var lines []string
-	for _, l := range locs {
-		uri, rng := l.URI, l.Range
-		if uri == "" {
-			uri = l.TargetURI
-		}
-		if l.TargetRange != nil {
-			rng = *l.TargetRange
-		}
-		path := strings.TrimPrefix(uri, "file://")
-		if rel, err := filepath.Rel(workdir, path); err == nil && !strings.HasPrefix(rel, "..") {
-			path = rel
-		}
-		lines = append(lines, fmt.Sprintf("%s:%d:%d", path, rng.Start.Line+1, rng.Start.Char+1))
-	}
-	return strings.Join(lines, "\n")
-}
-
-// formatSymbols renders an LSP documentSymbol result (hierarchical DocumentSymbol[]
-// or flat SymbolInformation[]) as a simple "name (kind) :line" outline.
-func formatSymbols(result json.RawMessage) string {
-	if len(result) == 0 || string(result) == "null" {
-		return ""
-	}
-	type docSym struct {
-		Name     string          `json:"name"`
-		Kind     int             `json:"kind"`
-		Range    lspRng          `json:"range"`
-		Location *lspLocation    `json:"location"` // SymbolInformation form
-		Children json.RawMessage `json:"children"`
-	}
-	var syms []docSym
-	if json.Unmarshal(result, &syms) != nil {
-		return ""
-	}
-	var lines []string
-	var walk func(s docSym, depth int)
-	walk = func(s docSym, depth int) {
-		line := s.Range.Start.Line + 1
-		if s.Location != nil {
-			line = s.Location.Range.Start.Line + 1
-		}
-		lines = append(lines, fmt.Sprintf("%s%s (%s) :%d", strings.Repeat("  ", depth), s.Name, symbolKind(s.Kind), line))
-		if len(s.Children) > 0 {
-			var kids []docSym
-			if json.Unmarshal(s.Children, &kids) == nil {
-				for _, k := range kids {
-					walk(k, depth+1)
-				}
-			}
-		}
-	}
-	for _, s := range syms {
-		walk(s, 0)
-	}
-	return strings.Join(lines, "\n")
-}
-
-// symbolKind maps the LSP SymbolKind enum to a short label.
-func symbolKind(k int) string {
-	names := []string{"", "file", "module", "namespace", "package", "class", "method",
-		"property", "field", "constructor", "enum", "interface", "function", "variable",
-		"constant", "string", "number", "boolean", "array", "object", "key", "null",
-		"enum-member", "struct", "event", "operator", "type-param"}
-	if k >= 0 && k < len(names) && names[k] != "" {
-		return names[k]
-	}
-	return "symbol"
-}
-
-// utf16Col converts a byte index within lineText to a 0-based UTF-16 column (the LSP
-// position encoding).
-func utf16Col(lineText string, byteIdx int) int {
-	if byteIdx > len(lineText) {
-		byteIdx = len(lineText)
-	}
-	n := 0
-	for _, r := range lineText[:byteIdx] {
-		if r > 0xffff {
-			n += 2
-		} else {
-			n++
-		}
-	}
-	return n
 }
