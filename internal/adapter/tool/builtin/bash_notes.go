@@ -28,24 +28,43 @@ func bodyscanEnabled() bool {
 	return true
 }
 
-// maskedFailureNote returns a one-line advisory when exit==0 but the output holds a
-// high-precision crash/traceback signature — the fingerprint of a failure whose exit
-// code was masked. It never fires on a non-zero exit (the ✗/[error] already speaks) and
-// requires the Go signatures to be paired with a goroutine dump, so a command that merely
-// prints "panic:"/"fatal error:" as data is not flagged. Advisory only: the result stays
-// classified by its exit code; this just makes the discrepancy visible.
+// crashSignatures are lines whose presence in a body is worth hoisting to the head of the result.
+// High-precision on purpose: the Go ones must be paired with a goroutine dump, so a command that
+// merely prints "panic:" as data is not quoted back at anyone.
+var crashSignatures = []string{
+	"Traceback (most recent call last):", // Python
+	"Exception in thread ",               // JVM
+	"panic: ",                            // Go — paired below
+	"fatal error: ",                      // Go runtime — paired below
+}
+
+// maskedFailureNote QUOTES a crash signature found in the body of an exit-0 result, at the head
+// where it cannot be clipped away.
+//
+// It used to add what that means — "a failing command may have had its exit code masked … Do not
+// treat this as success without an independent check" — and that part is gone. The model can read a
+// traceback; being told what to conclude from one is the same overreach as calling a SIGPIPE'd stage
+// a failure. What magi contributes is PLACEMENT, not reading: the body is clipped for the council
+// and long for the model, and a signature four hundred lines down is a fact neither of them
+// reliably sees. So it is repeated at the top, verbatim, with nothing added.
+//
+// Never on a non-zero exit — the status already says something happened, and the note exists for
+// the case where it does not.
 func maskedFailureNote(exit int, body string) string {
 	if exit != 0 {
 		return ""
 	}
-	crash := strings.Contains(body, "Traceback (most recent call last):") || // Python
-		strings.Contains(body, "Exception in thread ") || // JVM
-		(strings.Contains(body, "panic: ") && strings.Contains(body, "\ngoroutine ")) || // Go panic
-		(strings.Contains(body, "fatal error: ") && strings.Contains(body, "\ngoroutine ")) // Go runtime
-	if !crash {
-		return ""
+	goDump := strings.Contains(body, "\ngoroutine ")
+	for _, sig := range crashSignatures {
+		if !strings.Contains(body, sig) {
+			continue
+		}
+		if (sig == "panic: " || sig == "fatal error: ") && !goDump {
+			continue
+		}
+		return "[note: the status above is 0, and the output contains `" + strings.TrimSpace(sig) + "`.]"
 	}
-	return "[note: exit 0 but the output contains a crash/traceback — a failing command may have had its exit code masked (e.g. `|| echo`, `|| true`). Do not treat this as success without an independent check.]"
+	return ""
 }
 
 // backgroundTail matches a command whose last character is a lone `&` — the whole

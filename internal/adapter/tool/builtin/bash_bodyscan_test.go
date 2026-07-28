@@ -65,8 +65,16 @@ func TestBodyscanEnabledDefault(t *testing.T) {
 // see why a clean-looking exit 0 is suspect.
 func TestMaskedFailureNoteContent(t *testing.T) {
 	note := maskedFailureNote(0, "Traceback (most recent call last):")
-	if !strings.Contains(note, "exit 0") || !strings.Contains(note, "masked") {
-		t.Errorf("note should explain the masked exit code, got %q", note)
+	// It quotes what it found and stops. Telling the model what a traceback means is the same
+	// overreach as calling a SIGPIPE'd stage a failure; what magi adds is PLACEMENT — the head of
+	// the result, where a clip cannot take it.
+	if !strings.Contains(note, "Traceback (most recent call last):") {
+		t.Errorf("the signature itself is what gets hoisted, got %q", note)
+	}
+	for _, verdict := range []string{"masked", "failing", "Do not treat"} {
+		if strings.Contains(note, verdict) {
+			t.Errorf("the note reads the body instead of quoting it (%q): %q", verdict, note)
+		}
 	}
 }
 
@@ -256,7 +264,7 @@ func TestBashExecuteAnnotatesMaskedFailure(t *testing.T) {
 	if r.IsError {
 		t.Fatalf("annotation must not reclassify: %s", out)
 	}
-	if !strings.HasPrefix(out, "exit 0\n[note: exit 0") {
+	if !strings.HasPrefix(out, "exit 0\n[note: the status above is 0") {
 		t.Errorf("note must sit right after the status line, got %q", out[:min(len(out), 120)])
 	}
 
