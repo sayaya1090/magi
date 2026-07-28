@@ -321,3 +321,16 @@ func ephemeralEnvNote(exit int, command string, sid session.SessionID) string {
 	}
 	return "[note: shell state set in this call (export/source/cd) does NOT outlive it — every bash call starts a fresh shell, and other processes never see it. If something must stay available afterwards (a PATH entry, an env var, an activated environment), persist it in the filesystem — install or symlink the binary, write the config — and re-verify WITHOUT the in-call setup.]"
 }
+
+// ExitStatusMasked reports whether a reported exit belongs to something OTHER than the command the
+// caller cares about: a `|| …` tail, a `| tail`/`| head` truncator, or a `;`-sequenced reporter.
+//
+// The three notes above each say this in prose to the model. A supervisor needs the same fact as a
+// predicate — a check that reads a file some command produced cannot mean anything if magi never
+// learned whether that command finished — and it must be the SAME rule, not a second copy of these
+// regexes that drifts from them.
+func ExitStatusMasked(exit int, command string) bool {
+	return maskingTailNote(exit, command) != "" ||
+		swallowingPipeNote(exit, command) != "" ||
+		sequencedTailNote(exit, command) != ""
+}
