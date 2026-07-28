@@ -197,7 +197,7 @@ func TestHonorReplanBudget(t *testing.T) {
 
 	count, atCalls := 0, -1
 	regrounds := 0
-	reground := func(bool) { regrounds++ }
+	reground := func() { regrounds++ }
 
 	// guard.callCount() counts every tool call INCLUDING the replan call itself, so a
 	// back-to-back replan-only step advances curCalls by exactly 1 over the last snapshot;

@@ -81,7 +81,7 @@ func TestApplyInterjectRouteIsIdempotentAcrossPiledInterjections(t *testing.T) {
 	a.enqueueInterject(context.Background(), sid, id2, "refactor")
 
 	var regroundCalls int
-	reground := func(bool) { regroundCalls++ }
+	reground := func() { regroundCalls++ }
 
 	// Step 1: model routes append with no id → oldest ("docs").
 	mid, it := a.resolveRouteTarget(sid, "")

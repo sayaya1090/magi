@@ -37,10 +37,10 @@ func applyRoute(action, turnTask, interject string) (newTask string, changed boo
 // applies the reground the loop owns. It returns the (possibly re-anchored) turnTask and
 // whether it changed. The reground COST differs by route, and that difference is the whole
 // point of the fix:
-//   - "redirect": the goal itself changed, so reground(true) — a fresh decomposition and a
+//   - "redirect": the goal itself changed, so reground() — the stall accounting starts over and a
 //     new plan audit are warranted.
 //   - "append": the approved plan is FROZEN for the turn. The steer is injected as a
-//     constraint on the in-progress work (injectSteerConstraint) and reground(false) resets
+//     constraint on the in-progress work (injectSteerConstraint) and reground() resets
 //     only the stall/council accounting — NO re-plan, NO re-audit, NO explorer re-dispatch.
 //     The steer is still enforced at completion because turnTask now folds it in, so the
 //     termination council judges against original+steer.
@@ -48,17 +48,17 @@ func applyRoute(action, turnTask, interject string) (newTask string, changed boo
 //
 // msgID identifies the specific queued interjection being absorbed; it is consumed by id so
 // re-draining the same signal is a no-op (idempotency) even when two interjections share text.
-func (a *App) applyInterjectRoute(ctx context.Context, sid session.SessionID, route, turnTask, msgID, interject string, reground func(bool)) (newTask string, changed bool) {
+func (a *App) applyInterjectRoute(ctx context.Context, sid session.SessionID, route, turnTask, msgID, interject string, reground func()) (newTask string, changed bool) {
 	nt, changed := applyRoute(route, turnTask, interject)
 	if !changed {
 		return turnTask, false
 	}
 	a.consumeInterjectByID(ctx, sid, msgID)
 	if route == "redirect" {
-		reground(true)
+		reground()
 	} else {
 		a.injectSteerConstraint(ctx, sid, interject)
-		reground(false)
+		reground()
 	}
 	return nt, true
 }
@@ -461,12 +461,13 @@ const maxReplansPerTurn = 2
 
 // honorReplan applies an agent-initiated replan under an anti-abuse budget: at most
 // maxReplansPerTurn per turn, and only when real tool work happened since the previous
-// replan (back-to-back replans without action are churn). When honored it rebuilds the
-// plan and resets the stall/council accounting (reground); when refused it injects
-// guidance and leaves the stall guard intact.
-// It returns true when the replan was actually honored (plan rebuilt, accounting reset), so the
-// caller can record the replan against the sterile-replan convergence counter.
-func (a *App) honorReplan(ctx context.Context, sid session.SessionID, reason string, count, atCalls *int, curCalls int, reground func(bool)) bool {
+// replan (back-to-back replans without action are churn).
+//
+// Nobody replans on the agent's behalf. Honoring it resets the stall accounting (reground) and
+// says so; the fresh approach is the agent's to choose. When refused it injects guidance and
+// leaves the stall guard intact. It returns true when the replan was honored, so the caller can
+// record it against the sterile-replan convergence counter.
+func (a *App) honorReplan(ctx context.Context, sid session.SessionID, reason string, count, atCalls *int, curCalls int, reground func()) bool {
 	inject := func(msg string) {
 		pd, _ := json.Marshal(event.PromptSubmittedData{
 			MessageID: "m_" + newID(),
@@ -475,9 +476,9 @@ func (a *App) honorReplan(ctx context.Context, sid session.SessionID, reason str
 		_ = a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
 	}
 	if *count >= maxReplansPerTurn {
-		inject(fmt.Sprintf("Replan refused: you have already replanned %d times this turn. Do not replan again — make "+
-			"concrete progress on the current plan, or if you are truly blocked, report status \"failed\" and state exactly "+
-			"what stopped you.", *count))
+		inject(fmt.Sprintf("Replan refused: you have already declared your approach unworkable %d times this turn. "+
+			"Do not do it again — make concrete progress on the approach you have, or if you are truly blocked, say "+
+			"plainly what stopped you and what you tried, then declare the turn finished so the council reads it.", *count))
 		return false
 	}
 	// Require real tool work between replans. guard.callCount() counts EVERY tool call,
@@ -486,19 +487,20 @@ func (a *App) honorReplan(ctx context.Context, sid session.SessionID, reason str
 	// snapshot. Anything at-or-below that +1 means nothing but the replan itself happened —
 	// churn — so refuse; genuine work (bash/edit/read) lands curCalls at atCalls+2 or more.
 	if *atCalls >= 0 && curCalls <= *atCalls+1 {
-		inject("Replan refused: you replanned again without taking any real action since the last replan. Actually " +
-			"attempt the current plan (run a command, edit a file, inspect why it failed) before deciding it is unworkable.")
+		inject("Replan refused: you declared the approach unworkable again without taking any real action since the " +
+			"last time. Actually attempt it (run a command, edit a file, inspect why it failed) before deciding it " +
+			"cannot work.")
 		return false
 	}
 	*count++
 	*atCalls = curCalls
-	note := "Replanning at your request"
+	note := "Starting over at your request"
 	if r := strings.TrimSpace(reason); r != "" {
 		note += ": " + clipLine(r, 200)
 	}
 	note += ". The no-progress window has been reset — take a fresh approach and proceed."
 	inject(note)
-	reground(true)
+	reground()
 	return true
 }
 

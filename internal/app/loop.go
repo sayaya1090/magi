@@ -218,14 +218,15 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	}
 
 	// reground resets the turn's termination/stall accounting so a freshly-adopted task
-	// (redirect/append) or plan (replan) isn't instantly force-stopped by the previous
-	// approach's accumulated no-progress count. rebuildPlan additionally re-runs the
-	// pre-flight planner for a fresh decomposition — used ONLY when the goal changes
-	// (redirect) or the agent explicitly replans (honorReplan). An "append" steer does
-	// NOT rebuild: the approved plan is frozen for the turn and the steer is injected as
-	// a constraint instead, so a mid-turn add-on can't reopen the plan audit or cancel
-	// and re-dispatch the explorers.
-	reground := func(rebuildPlan bool) {
+	// (a redirect steer) or a freshly-adopted approach (replan) is not instantly
+	// force-stopped by the previous one's accumulated no-progress count.
+	//
+	// It took a rebuildPlan flag, because a redirect or a replan additionally re-ran the
+	// pre-flight planner for a fresh decomposition while an "append" steer left the
+	// approved plan frozen. There is no planner and no plan to rebuild: NOBODY replans.
+	// The agent declares its approach unworkable and picks another one itself, and all
+	// magi does is stop holding the last approach's stall count against it.
+	reground := func() {
 		guard.resetStall()
 		ts.prevFinishText = ""
 		ts.prevFinishCalls = -1

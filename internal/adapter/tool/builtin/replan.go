@@ -24,10 +24,11 @@ type replanArgs struct {
 func (Replan) Name() string { return "replan" }
 func (Replan) Description() string {
 	return "Declare that your current approach CANNOT proceed given what the work has shown (a premise broke, " +
-		"the approach is invalidated) and start over from a new one. Resets the no-progress window so the fresh " +
-		"attempt isn't instantly force-stopped. Use sparingly, only for a genuine dead end — NOT a transient " +
-		"error you can retry. Budget-capped per turn and refused if you call it again without taking real " +
-		"action in between. Give a one-line reason."
+		"the approach is invalidated). Nothing decides a new approach for you — YOU pick it; what this does is " +
+		"clear the no-progress count the old approach ran up, so the fresh attempt isn't instantly force-stopped " +
+		"for the last one's spinning. Use sparingly, only for a genuine dead end — NOT a transient error you can " +
+		"retry. Budget-capped per turn and refused if you call it again without taking real action in between. " +
+		"Give a one-line reason."
 }
 func (Replan) Schema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"reason":{"type":"string","description":"one line: why the current plan cannot proceed"}},"required":["reason"]}`)
