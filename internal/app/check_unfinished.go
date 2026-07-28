@@ -46,6 +46,9 @@ func (a *App) unfinishedRunNote(ctx context.Context, sid session.SessionID, p st
 		return "" // nothing in this run redirected output here; other gates own that case
 	}
 	exit, hasExit := exitOfBashResult(res)
+	// ExitCodeMasked reads the COMMAND only, which is all that is left to ask here: a non-zero exit
+	// and a timeout are already answered above, so what remains is an exit 0 that may not be the
+	// command's own.
 	switch {
 	case strings.Contains(decodeResultText(res), "[timed out"):
 		return fmt.Sprintf("the command that wrote it (`%s`) TIMED OUT — the log stops where the "+
@@ -53,16 +56,28 @@ func (a *App) unfinishedRunNote(ctx context.Context, sid session.SessionID, p st
 	case hasExit && exit != 0:
 		return fmt.Sprintf("the command that wrote it (`%s`) exited %d — the log is of a run that "+
 			"did not succeed", clipLine(cmd, 90), exit)
-	case builtin.ExitStatusMasked(exit, cmd):
+	case builtin.ExitCodeMasked(cmd):
 		return fmt.Sprintf("the exit reported for the command that wrote it (`%s`) belongs to its "+
 			"tail, not to the command — magi never learned whether that command finished", clipLine(cmd, 90))
 	}
 	return ""
 }
 
-// lastBashProducing finds the most recent bash call in this run — the gating session or anything
-// beneath it — that redirected output into p, and returns its command and result text.
+// lastBashProducing finds the most recent bash call in this run that redirected output into p.
 func (a *App) lastBashProducing(ctx context.Context, sid session.SessionID, p string) (string, string, bool) {
+	return a.lastBashWhere(ctx, sid, func(cmd string) bool {
+		for _, w := range bashWritePaths(cmd) {
+			if samePath(w, p) {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+// lastBashWhere finds the most recent bash call in this run — the gating session or anything beneath
+// it — whose command satisfies want, and returns that command and its result text.
+func (a *App) lastBashWhere(ctx context.Context, sid session.SessionID, want func(cmd string) bool) (string, string, bool) {
 	sessions := append([]session.SessionID{sid}, a.descendantsOf(sid)...)
 	var bestTS time.Time
 	bestCmd, bestRes, found := "", "", false
@@ -99,14 +114,7 @@ func (a *App) lastBashProducing(ctx context.Context, sid session.SessionID, p st
 			if json.Unmarshal(d.Part.ToolCall.Args, &args) != nil {
 				continue
 			}
-			hit := false
-			for _, w := range bashWritePaths(args.Command) {
-				if samePath(w, p) {
-					hit = true
-					break
-				}
-			}
-			if !hit {
+			if !want(args.Command) {
 				continue
 			}
 			// Newest wins: a later run of the same build replaces the log the check will read.

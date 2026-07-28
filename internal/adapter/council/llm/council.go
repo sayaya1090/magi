@@ -1296,36 +1296,3 @@ func noteSalvaged(orig, kept string) {
 	fmt.Fprintf(os.Stderr, "magi: a council reply was malformed and only its prefix could be read "+
 		"(%d of %d bytes kept; fields after the defect are missing): %s\n", len(kept), len(orig), jsonx.Diagnose(orig))
 }
-
-// firstJSONObject returns the first balanced {...} object in s, respecting
-// strings and escapes, or "" if none.
-func firstJSONObject(s string) string {
-	start := strings.IndexByte(s, '{')
-	if start < 0 {
-		return ""
-	}
-	depth := 0
-	inStr := false
-	esc := false
-	for i := start; i < len(s); i++ {
-		ch := s[i]
-		switch {
-		case esc:
-			esc = false
-		case ch == '\\' && inStr:
-			esc = true
-		case ch == '"':
-			inStr = !inStr
-		case inStr:
-			// skip
-		case ch == '{':
-			depth++
-		case ch == '}':
-			depth--
-			if depth == 0 {
-				return s[start : i+1]
-			}
-		}
-	}
-	return ""
-}
