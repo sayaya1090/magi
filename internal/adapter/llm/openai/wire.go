@@ -138,9 +138,67 @@ func (d streamDelta) reasoningText() string {
 	return d.ReasoningContent
 }
 
+// wireUsage reads a usage block under EITHER spelling.
+//
+// `prompt_tokens`/`completion_tokens` is the chat-completions wording; `input_tokens`/
+// `output_tokens` is what the Responses API, Anthropic's native API, and gateways that pass either
+// through use; `in`/`out` is what a thin proxy emits. A backend on any spelling but the first parsed
+// as ZERO here — no error, no warning, just a run whose token totals were silently empty and a cost
+// of $0.00 next to real spend.
+//
+// The details are captured but do NOT change the cost arithmetic: pricing a cache hit differently
+// needs a per-model cached rate, which the registry does not carry. They are recorded so the number
+// is inspectable — a run whose input is mostly `cached` is being over-charged by a flat rate, and
+// that is worth being able to SEE before it is worth acting on.
 type wireUsage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
+	InputTokens      int `json:"input_tokens"`
+	OutputTokens     int `json:"output_tokens"`
+	// The bare spelling, as a thin proxy or a gateway that normalises to magi's own event shape
+	// emits it. Cheap to accept and indistinguishable in meaning from the other two.
+	BareIn  int `json:"in"`
+	BareOut int `json:"out"`
+
+	PromptDetails *struct {
+		CachedTokens int `json:"cached_tokens"`
+	} `json:"prompt_tokens_details"`
+	CompletionDetails *struct {
+		ReasoningTokens int `json:"reasoning_tokens"`
+	} `json:"completion_tokens_details"`
+}
+
+// In and Out prefer whichever spelling actually carried a number, so a payload that sends both (or
+// sends one as an explicit zero) reads the same either way.
+func (u wireUsage) In() int  { return firstNonZero(u.PromptTokens, u.InputTokens, u.BareIn) }
+func (u wireUsage) Out() int { return firstNonZero(u.CompletionTokens, u.OutputTokens, u.BareOut) }
+
+// firstNonZero picks the spelling that actually carried a number. Order is preference, not
+// precedence over truth: a payload that sends one spelling as an explicit 0 and another with the
+// real count reads the real count, which is the only useful reading of a usage block.
+func firstNonZero(vs ...int) int {
+	for _, v := range vs {
+		if v > 0 {
+			return v
+		}
+	}
+	return 0
+}
+
+// Cached is the part of the input the backend served from its prompt cache; Reasoning is the part
+// of the output spent thinking. Both are zero when the backend does not report them.
+func (u wireUsage) Cached() int {
+	if u.PromptDetails == nil {
+		return 0
+	}
+	return u.PromptDetails.CachedTokens
+}
+
+func (u wireUsage) Reasoning() int {
+	if u.CompletionDetails == nil {
+		return 0
+	}
+	return u.CompletionDetails.ReasoningTokens
 }
 
 // buildRequest converts a port.ChatRequest into the wire request body. When

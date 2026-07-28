@@ -164,10 +164,26 @@ type UserLabelData struct {
 }
 
 // Usage captures token/cost accounting for a turn.
+// Usage on a turn.finished is what the turn COST: every request made under it — each step's prompt,
+// every council poll, every side call, and everything its subagents spent. A parent's numbers
+// therefore INCLUDE its children's, so summing these across a session tree would double-count; each
+// event is self-describing about its own subtree.
+//
+// It used to be the agent's own stream alone, with In holding the LAST request's prompt rather than
+// a sum — so a twenty-step turn reported one prompt where twenty were paid for, a delegate-heavy
+// turn reported almost nothing, and the council's several polls per gate appeared nowhere. The
+// context meter still wants that last-prompt number and gets it from its own path (setPromptTokens),
+// which is why this one is free to mean the bill.
 type Usage struct {
 	In   int     `json:"in"`
 	Out  int     `json:"out"`
 	Cost float64 `json:"cost,omitempty"`
+	// Cached is the part of In the backend served from its prompt cache, and Reasoning the part of
+	// Out spent thinking — reported only by backends that break them out. Neither changes Cost:
+	// pricing a cache hit differently needs a per-model cached rate the registry does not carry.
+	// They are here so an input that is mostly cache, billed at the flat rate, is visible as such.
+	Cached    int `json:"cached,omitempty"`
+	Reasoning int `json:"reasoning,omitempty"`
 }
 
 // ErrorData — TypeError.

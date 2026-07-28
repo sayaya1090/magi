@@ -458,8 +458,11 @@ func (c *Client) consume(ctx context.Context, cancel context.CancelFunc, body io
 		if chunk.Usage != nil {
 			sawUsage = true
 			emit(ctx, ch, port.ProviderEvent{
-				Type:  port.ProviderUsage,
-				Usage: &event.Usage{In: chunk.Usage.PromptTokens, Out: chunk.Usage.CompletionTokens},
+				Type: port.ProviderUsage,
+				Usage: &event.Usage{
+					In: chunk.Usage.In(), Out: chunk.Usage.Out(),
+					Cached: chunk.Usage.Cached(), Reasoning: chunk.Usage.Reasoning(),
+				},
 			})
 		}
 		for _, choice := range chunk.Choices {
