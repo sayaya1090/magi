@@ -407,6 +407,29 @@ func readPipeStatus(path string) []int {
 // write side gets SIGPIPE, and that is head doing its job, not the build failing.
 const sigPipeExit = 141
 
+// stagesClean reports whether magi knows every stage's status and none of them means failure.
+//
+// One predicate, because two of them drifted. pipeStageNote exempted SIGPIPE — `… | head -50` makes
+// the head stage 141 every time and that is head doing its job — while the caller computing
+// "all stages clean" for the annotators did not. So a truncated pipeline got silence from the note
+// that reads stages and, from the note beside it, "that command's own status is not reported here":
+// one 141, read two ways, in the same result. Observed on the most common shape there is —
+// `grep … | head -50`, twice in the first five minutes of a run — and the second reading is the
+// false one, since magi holds the status and it says the command was mid-write when the reader
+// left. The suppression exists precisely so an agent is not sent to re-run a command without its
+// pipe to learn what it was already told.
+func stagesClean(stages []int) bool {
+	if len(stages) < 2 {
+		return false // not a pipeline: nothing was resolved, so nothing may be claimed resolved
+	}
+	for _, st := range stages {
+		if st != 0 && st != sigPipeExit {
+			return false
+		}
+	}
+	return true
+}
+
 // pipeStageNote states what the pipeline's stages really did, when the status the caller sees hides
 // it: the command reports success while an earlier stage failed. Silent otherwise — a pipeline whose
 // stages all agree with its exit has nothing to add, and a note on every pipe would be noise.
@@ -421,13 +444,7 @@ func pipeStageNote(exit int, stages []int) string {
 	if exit != 0 || len(stages) < 2 {
 		return ""
 	}
-	bad := false
-	for _, st := range stages[:len(stages)-1] {
-		if st != 0 && st != sigPipeExit {
-			bad = true
-		}
-	}
-	if !bad {
+	if stagesClean(stages) {
 		return ""
 	}
 	parts := make([]string, len(stages))

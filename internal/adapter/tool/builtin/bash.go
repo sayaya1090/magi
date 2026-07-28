@@ -178,14 +178,9 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	// this result marked [ok]) would otherwise rubber-stamp it. Annotate — never reclassify
 	// — right after the status line so the note sits at the head, where the council's
 	// head-clip and the model both see it. Flag-gated for A/B isolation.
-	// Every stage known and every one of them zero: the head's status is not a mystery, it is 0.
+	// Every stage's status known and none of them a failure: the head's status is not a mystery.
 	// The notes that exist to say "this exit is not the head's" must stay quiet in that case.
-	allStagesClean := len(stages) > 1
-	for _, st := range stages {
-		if st != 0 {
-			allStagesClean = false
-		}
-	}
+	allStagesClean := stagesClean(stages)
 	if note := pipeStageNote(exit, stages); note != "" {
 		disp = note + "\n" + disp
 	}
