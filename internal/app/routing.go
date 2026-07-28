@@ -32,10 +32,7 @@ func (a *App) SetPermission(p string) {
 // agentFor returns the AgentSpec for a session, falling back to a default built
 // from the global system prompt with access to all tools.
 func (a *App) agentFor(s session.Session) AgentSpec {
-	spec, ok := a.resolveAgentSpec(s.Agent)
-	if !ok {
-		spec = AgentSpec{Name: orDefault(s.Agent, "default"), System: a.cfg.System}
-	}
+	spec := AgentSpec{Name: orDefault(s.Agent, "default"), System: a.cfg.System}
 	// Per-spawn tool allowlist override (SpawnRequest.Tools → curatedTools): a curated worker
 	// sees exactly the tools chosen for its task (still narrowed by toolSpecs' role/env gates),
 	// not its agent's full configured set. nil = the agent's own allowlist.
@@ -46,70 +43,6 @@ func (a *App) agentFor(s session.Session) AgentSpec {
 		spec.Tools = append([]string(nil), ct...)
 	}
 	return spec
-}
-
-// effectiveSpec is the spec a named agent will actually run under for ONE dispatch: its configured
-// spec, with a per-spawn tool allowlist (the curator's selection, SpawnRequest.Tools) substituted
-// when there is one. It exists so a caller that must reason about what the child can DO — whether
-// guidance naming an action is guidance it can follow, see specCanAct — asks about the allowlist
-// the child is actually given, not the one its config would have granted.
-//
-// An unknown name yields a spec with an EMPTY allowlist, which reads as "all tools". That is the
-// same fallback agentFor takes, and it is the safe direction here: the alternative would report a
-// real executor as unable to act.
-func (a *App) effectiveSpec(name string, tools []string) AgentSpec {
-	spec, ok := a.resolveAgentSpec(name)
-	if !ok {
-		spec = AgentSpec{Name: name}
-	}
-	if len(tools) > 0 {
-		spec.Tools = append([]string(nil), tools...)
-	}
-	return spec
-}
-
-// resolveAgentSpec looks up an agent's configured spec and applies any runtime
-// routing override (from the /route menu). Used by both agentFor (top-level) and
-// spawn (subagents) so overrides take effect everywhere.
-func (a *App) resolveAgentSpec(name string) (AgentSpec, bool) {
-	spec, ok := a.cfg.Agents[name]
-	if !ok {
-		return AgentSpec{}, false
-	}
-	a.mu.Lock()
-	ov, has := a.routeOverrides[name]
-	a.mu.Unlock()
-	if has {
-		if ov.model != "" {
-			spec.Model = session.ModelRef{Provider: "openai", Model: ov.model}
-		}
-		spec.Provider = ov.provider
-	}
-	return spec, true
-}
-
-// AgentRoutes returns each configured agent's current effective routing (model +
-// profile), for the /route editor. Sorted by name. Unrouted agents inherit the
-// SESSION's live model (the single source of truth that SetModel updates), not the
-// static config default — so a runtime model change is reflected here too.
-func (a *App) AgentRoutes(sid session.SessionID) []AgentRoute {
-	names := a.AgentNames()
-	a.mu.Lock()
-	sessModel := a.cfg.Model.Model
-	if s, ok := a.metaLocked(sid); ok && s.Model.Model != "" {
-		sessModel = s.Model.Model
-	}
-	a.mu.Unlock()
-	out := make([]AgentRoute, 0, len(names))
-	for _, n := range names {
-		spec, _ := a.resolveAgentSpec(n)
-		m := spec.Model.Model
-		if m == "" {
-			m = sessModel // unrouted agents inherit the session's current model
-		}
-		out = append(out, AgentRoute{Name: n, Model: m, Provider: spec.Provider})
-	}
-	return out
 }
 
 // SetModel changes a session's active (default) model at runtime. Session-scoped:
@@ -196,26 +129,6 @@ func (a *App) ListModels(ctx context.Context) ([]string, error) {
 		return nil, nil
 	}
 	return lister.ListModels(ctx)
-}
-
-// SetAgentRoute applies a runtime routing edit for an agent. A value naming a
-// configured profile routes the agent to that backend (provider+model); any
-// other value is a bare model on the default backend; empty clears the override.
-func (a *App) SetAgentRoute(name, value string) {
-	value = strings.TrimSpace(value)
-	a.mu.Lock()
-	if value == "" {
-		delete(a.routeOverrides, name)
-	} else if mdl, isProfile := a.cfg.ProfileModels[value]; isProfile {
-		a.routeOverrides[name] = routeOverride{model: mdl, provider: value}
-	} else {
-		a.routeOverrides[name] = routeOverride{model: value}
-	}
-	p := a.cfg.RoutePersister
-	a.mu.Unlock()
-	if p != nil {
-		_ = p.PersistRoute(name, value) // best-effort
-	}
 }
 
 // Profiles returns the defined LLM profiles, sorted by name, for the editor.

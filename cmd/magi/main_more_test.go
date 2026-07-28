@@ -7,62 +7,11 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/config"
 	corecouncil "github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
-
-// applyAgentModels: a route naming a profile routes that agent to the profile's
-// backend AND model; any other value is a bare model on the default backend; an
-// unknown agent or empty value is ignored.
-func TestApplyAgentModels(t *testing.T) {
-	agents := map[string]app.AgentSpec{
-		"coder":   {Name: "coder"},
-		"explore": {Name: "explore"},
-		"writer":  {Name: "writer"},
-	}
-	profiles := map[string]config.LLMProfile{"fast": {Model: "qwen3-coder:30b"}}
-	routes := map[string]string{
-		"coder":   "fast",     // profile route
-		"explore": "gpt-4o",   // bare model
-		"writer":  "",         // empty → skip
-		"ghost":   "anything", // unknown agent → skip
-	}
-	applyAgentModels(agents, routes, profiles)
-
-	// The routing contract: a profile route sets the agent's Provider to the profile
-	// name and its model to the profile's model. (The ModelRef.Provider adapter tag is
-	// an incidental constant, not asserted here.)
-	if a := agents["coder"]; a.Provider != "fast" || a.Model.Model != "qwen3-coder:30b" {
-		t.Errorf("coder routed wrong: provider=%q model=%+v", a.Provider, a.Model)
-	}
-	if a := agents["explore"]; a.Provider != "" || a.Model.Model != "gpt-4o" {
-		t.Errorf("explore bare model wrong: provider=%q model=%+v", a.Provider, a.Model)
-	}
-	if a := agents["writer"]; a.Model.Model != "" || a.Provider != "" {
-		t.Errorf("empty route should not change writer: %+v", a)
-	}
-	if _, ok := agents["ghost"]; ok {
-		t.Error("unknown agent must not be created")
-	}
-}
-
-// A profile route with no model pins only the provider (the agent keeps inheriting
-// the session model for that backend).
-func TestApplyAgentModelsProfileNoModel(t *testing.T) {
-	agents := map[string]app.AgentSpec{"coder": {Name: "coder"}}
-	profiles := map[string]config.LLMProfile{"local": {BaseURL: "http://x"}} // no Model
-	applyAgentModels(agents, map[string]string{"coder": "local"}, profiles)
-	a := agents["coder"]
-	if a.Provider != "local" {
-		t.Errorf("provider should be set to the profile, got %q", a.Provider)
-	}
-	if a.Model.Model != "" {
-		t.Errorf("no profile model → agent model should stay empty, got %q", a.Model.Model)
-	}
-}
 
 func TestProfileModels(t *testing.T) {
 	got := profileModels(map[string]config.LLMProfile{

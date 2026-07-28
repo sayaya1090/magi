@@ -57,32 +57,3 @@ func TestSetModelBroadcastsEvent(t *testing.T) {
 		}
 	}
 }
-
-// AgentRoutes must inherit the SESSION's live model for unrouted agents, so a
-// runtime SetModel is reflected — not the static config default (the old split
-// source of truth that never updated).
-func TestAgentRoutesInheritsSessionModel(t *testing.T) {
-	store, _ := jsonl.New(t.TempDir())
-	a := New(store, &fakeLLM{}, builtin.Default(), bus.New(), nil, Config{
-		Model:  session.ModelRef{Provider: "openai", Model: "base-model"},
-		Agents: map[string]AgentSpec{"coder": {Name: "coder"}}, // unrouted (no Model)
-	})
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = a.Close(ctx)
-	})
-	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: t.TempDir()})
-
-	if m := routesByName(a.AgentRoutes(sid), "coder").Model; m != "base-model" {
-		t.Fatalf("unrouted coder before change = %q, want base-model", m)
-	}
-	a.SetModel(sid, "new-model")
-	if m := routesByName(a.AgentRoutes(sid), "coder").Model; m != "new-model" {
-		t.Fatalf("unrouted coder after SetModel = %q, want new-model (session SSOT)", m)
-	}
-	// An unknown session still falls back to the config default (no session model).
-	if m := routesByName(a.AgentRoutes(session.SessionID("nope")), "coder").Model; m != "base-model" {
-		t.Fatalf("unknown session coder = %q, want base-model fallback", m)
-	}
-}

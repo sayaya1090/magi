@@ -28,25 +28,10 @@ func (a *App) toolSpecs(agent AgentSpec, isSub bool, depth int) []port.ToolSpec 
 		if !agent.allows(name) {
 			continue
 		}
-		// Role-scoped tools: ask/report are how a SUBAGENT talks to its
-		// orchestrator; task is how the ORCHESTRATOR delegates. Offering the wrong
-		// set (e.g. an allow-all agent with nil Tools) makes the orchestrator behave
-		// like a subagent (calling report) or a subagent try to orchestrate.
 		switch name {
-		case "ask", "report":
-			if !isSub {
-				continue
-			}
-		case "task", "resolveconcern", "route_interjection":
-			// Delegation, concern-reset, and interjection-routing are the orchestrator's
-			// alone; a leaf subagent has neither the whole-task view nor the user steer.
-			if isSub {
-				continue
-			}
 		case "ask_user":
-			// Only the top-level interactive session has a human to ask; a
-			// subagent escalates via ask, headless has no one to block on.
-			if isSub || !a.cfg.Interactive {
+			// Only an interactive session has a human to ask; headless has no one to block on.
+			if !a.cfg.Interactive {
 				continue
 			}
 		case "tabulate", "countmatches", "countlines", "groupby":
@@ -63,39 +48,19 @@ func (a *App) toolSpecs(agent AgentSpec, isSub bool, depth int) []port.ToolSpec 
 	return specs
 }
 
-// systemFor builds the system prompt for an agent: durable project memory
-// (AGENTS.md) + the agent's own prompt + a hint listing available subagents.
+// systemFor builds the system prompt for an agent: durable project memory (AGENTS.md) + the
+// agent's own prompt + what the runtime environment is.
 func (a *App) systemFor(agent AgentSpec, workdir string, isSub bool) string {
 	sys := agent.System
 	if mem := a.projectMemory(workdir); mem != "" {
 		sys = "# Project memory\n" + mem + "\n\n" + sys
 	}
 	// Tell the agent its runtime environment so it picks correct shell commands (GNU vs
-	// BSD flags, package manager, path style) instead of guessing — both the orchestrator
-	// and subagents run bash, so both need it.
+	// BSD flags, package manager, path style) instead of guessing.
 	sys += "\n\n" + envInfo(workdir)
 	// Static, so it doesn't perturb the prefix (KV) cache across steps. Applies to every
 	// agent: markdown tables render/align well everywhere and never hurt in raw text.
 	sys += outputFormatGuide
-	// Subagents don't see the conversation and report back by RETURNING their
-	// final message. Weak models otherwise "present" conclusions via bash/echo and
-	// never terminate — so spell out how to finish. The role is decided by whether
-	// the session has a parent, not by the tool allowlist (an allow-all agent).
-	if isSub {
-		g := subagentGuide
-		if _, ok := a.tools.Get("report"); ok && agent.allows("report") {
-			g += subagentReportClause
-			// Escalation is a SEPARATE tool, so it needs its own check: an allowlist may carry
-			// report without ask, and telling that agent to escalate first sends it into a refusal
-			// at the one moment it is already stuck.
-			if _, ok := a.tools.Get("ask"); ok && agent.allows("ask") {
-				g += subagentAskClause
-			}
-		} else {
-			g += subagentFinishClause
-		}
-		return sys + securityGuide + g
-	}
 	return sys
 }
 

@@ -86,7 +86,6 @@ type routeRowKind int
 
 const (
 	rowSession routeRowKind = iota
-	rowAgent
 	rowProfile
 	rowAddProfile
 )
@@ -131,13 +130,6 @@ func (m *Model) openRouteEditor() tea.Cmd {
 
 func (m *Model) refreshRouteList() {
 	rows := []routeRow{{kind: rowSession, name: sessionRouteRow, value: m.model}}
-	for _, r := range m.app.AgentRoutes(m.sid) {
-		v := r.Model
-		if r.Provider != "" {
-			v += "  @" + r.Provider
-		}
-		rows = append(rows, routeRow{kind: rowAgent, name: r.Name, value: v})
-	}
 	for _, p := range m.app.Profiles() {
 		ep := p.BaseURL
 		if ep == "" {
@@ -162,10 +154,9 @@ func (m *Model) handleRouteKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		editingSession := m.routeList[m.routeSel].kind == rowSession
 		switch msg.String() {
 		case "enter":
-			row := m.routeList[m.routeSel]
 			val := strings.TrimSpace(m.routeBuf)
-			// On the session row a highlighted suggestion wins over the typed
-			// buffer, so ↑/↓+enter applies a real catalog model directly.
+			// A highlighted suggestion wins over the typed buffer, so ↑/↓+enter applies a real
+			// catalog model directly.
 			if editingSession {
 				if sugs := m.modelSuggestions(); m.modelSugSel >= 0 && m.modelSugSel < len(sugs) {
 					val = sugs[m.modelSugSel]
@@ -174,8 +165,6 @@ func (m *Model) handleRouteKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 					m.app.SetModel(m.sid, val)
 					m.model = val
 				}
-			} else {
-				m.app.SetAgentRoute(row.name, val)
 			}
 			m.refreshRouteList()
 			m.routeEditing = false
@@ -187,8 +176,7 @@ func (m *Model) handleRouteKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			return nil, true
 		case "up", "down":
 			// Session row only: circular move through the suggest box. Entering
-			// navigation from free text (-1) lands on an end. Other rows keep
-			// arrow keys inert (agents use ←/→ for profiles).
+			// navigation from free text (-1) lands on an end.
 			if editingSession {
 				if sugs := m.modelSuggestions(); len(sugs) > 0 {
 					n := len(sugs)
@@ -232,18 +220,6 @@ func (m *Model) handleRouteKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			m.modelSugSel = -1  // re-filter from the typed buffer
 			m.refresh()
 			return nil, true
-		case "left":
-			if m.routeList[m.routeSel].kind == rowAgent {
-				m.cycleProfilePick(-1)
-			}
-			m.refresh()
-			return nil, true
-		case "right":
-			if m.routeList[m.routeSel].kind == rowAgent {
-				m.cycleProfilePick(+1)
-			}
-			m.refresh()
-			return nil, true
 		}
 		if t := msg.Key().Text; t != "" {
 			m.routeBuf += t
@@ -264,7 +240,7 @@ func (m *Model) handleRouteKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		}
 	case "enter":
 		switch row := m.routeList[m.routeSel]; row.kind {
-		case rowSession, rowAgent:
+		case rowSession:
 			m.routeEditing = true
 			m.routeBuf = ""
 			m.routePickIdx = -1
@@ -279,23 +255,6 @@ func (m *Model) handleRouteKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	}
 	m.refresh()
 	return nil, true
-}
-
-// cycleProfilePick steps the agent-row edit buffer through the defined profiles
-// (←/→), so a profile can be picked instead of typed. Wraps around.
-func (m *Model) cycleProfilePick(dir int) {
-	profs := m.app.Profiles()
-	if len(profs) == 0 {
-		return
-	}
-	m.routePickIdx += dir
-	n := len(profs)
-	if m.routePickIdx < 0 {
-		m.routePickIdx = n - 1
-	} else if m.routePickIdx >= n {
-		m.routePickIdx = 0
-	}
-	m.routeBuf = profs[m.routePickIdx].Name
 }
 
 // openProfileForm opens the profile sub-editor for an existing profile (name set)

@@ -41,57 +41,6 @@ func TestProviderFor(t *testing.T) {
 	}
 }
 
-func TestSetAgentRoute(t *testing.T) {
-	a := &App{
-		routeOverrides: map[string]routeOverride{},
-		cfg: Config{
-			Model:         session.ModelRef{Provider: "openai", Model: "base-model"},
-			Agents:        map[string]AgentSpec{"explore": {Name: "explore"}, "coder": {Name: "coder"}},
-			ProfileModels: map[string]string{"fast": "gpt-oss:20b"},
-		},
-	}
-
-	// Bare model → default backend, model overridden.
-	a.SetAgentRoute("coder", "qwen3-coder:30b")
-	if spec, _ := a.resolveAgentSpec("coder"); spec.Model.Model != "qwen3-coder:30b" || spec.Provider != "" {
-		t.Errorf("bare model route = %+v", spec)
-	}
-
-	// Profile name → provider set AND model taken from the profile.
-	a.SetAgentRoute("explore", "fast")
-	spec, _ := a.resolveAgentSpec("explore")
-	if spec.Provider != "fast" || spec.Model.Model != "gpt-oss:20b" {
-		t.Errorf("profile route should set provider+model, got %+v", spec)
-	}
-
-	// AgentRoutes reflects the edits; unrouted shows the default model.
-	routes := map[string]AgentRoute{}
-	for _, r := range a.AgentRoutes("") {
-		routes[r.Name] = r
-	}
-	if routes["explore"].Provider != "fast" || routes["explore"].Model != "gpt-oss:20b" {
-		t.Errorf("AgentRoutes explore = %+v", routes["explore"])
-	}
-
-	// Empty value clears the override → back to config default (inherits).
-	a.SetAgentRoute("coder", "")
-	if spec, _ := a.resolveAgentSpec("coder"); spec.Model.Model != "" {
-		t.Errorf("clearing should drop the override, got %+v", spec)
-	}
-	if routes := a.AgentRoutes(""); routesByName(routes, "coder").Model != "base-model" {
-		t.Errorf("cleared coder should inherit default model, got %q", routesByName(routes, "coder").Model)
-	}
-}
-
-func routesByName(rs []AgentRoute, name string) AgentRoute {
-	for _, r := range rs {
-		if r.Name == name {
-			return r
-		}
-	}
-	return AgentRoute{}
-}
-
 type recordPersister struct {
 	routes   map[string]string
 	model    string
@@ -114,7 +63,7 @@ func (r *recordPersister) PersistProfile(p ProfileDef) error {
 	return nil
 }
 
-// Edits persist through the RoutePersister so they survive restarts.
+// A model change persists through the RoutePersister so it survives a restart.
 func TestRoutePersisted(t *testing.T) {
 	p := &recordPersister{}
 	a := &App{
@@ -124,10 +73,6 @@ func TestRoutePersisted(t *testing.T) {
 			Agents:         map[string]AgentSpec{"coder": {Name: "coder"}},
 			RoutePersister: p,
 		},
-	}
-	a.SetAgentRoute("coder", "qwen3")
-	if p.routes["coder"] != "qwen3" {
-		t.Errorf("route not persisted: %v", p.routes)
 	}
 	a.SetModel("s1", "big-model")
 	if p.model != "big-model" {
@@ -162,72 +107,18 @@ func TestSetProfileRuntime(t *testing.T) {
 	if p.profiles["fast"].Model != "gpt-oss:20b" {
 		t.Errorf("profile not persisted: %+v", p.profiles)
 	}
-	// Routable now: an agent routed to "fast" uses its provider + model.
-	a.SetAgentRoute("explore", "fast")
-	if spec, _ := a.resolveAgentSpec("explore"); spec.Provider != "fast" || spec.Model.Model != "gpt-oss:20b" {
-		t.Errorf("new profile not routable: %+v", spec)
-	}
 	if unwrapProvider(a.providerFor(AgentSpec{Provider: "fast"})) != port.LLMProvider(namedLLM{"fast"}) {
 		t.Errorf("provider for new profile not registered")
 	}
 }
 
-// SetAgentRoute → resolveAgentSpec: a route naming a PROFILE sets both the override model and the
-// profile provider (providerFor then routes to that backend); a route naming a BARE model sets only
-// the model, leaving the provider empty (= default backend); clearing the route restores the agent's
-// configured spec. This locks the profile-vs-bare distinction that drives per-agent routing.
-func TestAgentRouteBareVsProfileAndClear(t *testing.T) {
-	a := &App{
-		routeOverrides: map[string]routeOverride{},
-		providers:      map[string]port.LLMProvider{},
-		profileDefs:    map[string]ProfileDef{},
-		cfg: Config{
-			ProfileModels: map[string]string{"fast": "fast-model"},
-			Agents: map[string]AgentSpec{
-				"coder": {Name: "coder", Model: session.ModelRef{Provider: "openai", Model: "cfg-model"}, Provider: "cfgprov"},
-			},
-		},
-	}
-
-	// Baseline: no override → the configured spec verbatim.
-	if spec, ok := a.resolveAgentSpec("coder"); !ok || spec.Model.Model != "cfg-model" || spec.Provider != "cfgprov" {
-		t.Fatalf("baseline: model=%q provider=%q ok=%v, want cfg-model/cfgprov/true", spec.Model.Model, spec.Provider, ok)
-	}
-
-	// Profile route: model AND provider both come from the profile.
-	a.SetAgentRoute("coder", "fast")
-	if spec, _ := a.resolveAgentSpec("coder"); spec.Model.Model != "fast-model" || spec.Provider != "fast" {
-		t.Fatalf("profile route: model=%q provider=%q, want fast-model/fast", spec.Model.Model, spec.Provider)
-	}
-
-	// Bare-model route: model overridden, provider CLEARED to empty (default backend) — it must NOT
-	// retain the configured "cfgprov", or a bare-model edit would keep routing to the old profile.
-	a.SetAgentRoute("coder", "other-model")
-	if spec, _ := a.resolveAgentSpec("coder"); spec.Model.Model != "other-model" || spec.Provider != "" {
-		t.Fatalf("bare route: model=%q provider=%q, want other-model/empty", spec.Model.Model, spec.Provider)
-	}
-
-	// Clearing the route restores the configured spec.
-	a.SetAgentRoute("coder", "")
-	if spec, _ := a.resolveAgentSpec("coder"); spec.Model.Model != "cfg-model" || spec.Provider != "cfgprov" {
-		t.Fatalf("cleared: model=%q provider=%q, want cfg-model/cfgprov", spec.Model.Model, spec.Provider)
-	}
-}
-
-// New() clones cfg.ProfileModels and initializes routeOverrides to NON-NIL maps, so a runtime profile
-// or route edit on an app built from a MINIMAL Config (no maps supplied) must not panic on a nil-map
-// write. Guards against a regression in the New()/cloneStringMap init leaving those maps nil.
+// New() clones cfg.ProfileModels to a NON-NIL map, so a runtime profile edit on an app built from a
+// MINIMAL Config (no maps supplied) must not panic on a nil-map write.
 func TestSetProfileOnFreshAppNoNilMapPanic(t *testing.T) {
 	store, _ := jsonl.New(t.TempDir())
 	a := New(store, namedLLM{"d"}, builtin.Default(), bus.New(), nil, Config{Permission: "allow"})
 	a.SetProfile(ProfileDef{Name: "p", Model: "m"}) // writes a.cfg.ProfileModels[...] — nil map would panic
-	a.SetAgentRoute("agent", "p")                   // writes a.routeOverrides[...] — nil map would panic
 	if got := a.Profiles(); len(got) != 1 || got[0].Name != "p" {
 		t.Fatalf("profile not recorded on a fresh app: %+v", got)
-	}
-	if spec, _ := a.resolveAgentSpec("agent"); spec.Model.Model != "m" {
-		// resolveAgentSpec only resolves configured agents; "agent" isn't one, so it returns !ok — the
-		// route write itself not panicking is what this test locks.
-		_ = spec
 	}
 }

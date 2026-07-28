@@ -71,37 +71,6 @@ func typeStr(m *Model, s string) {
 	}
 }
 
-// The editor: open (session row + agents), navigate to an agent, edit its model
-// inline, apply, and confirm the change reaches the app.
-func TestRouteEditorAppliesEdit(t *testing.T) {
-	m := routedTestModel(t)
-	m.openRouteEditor()
-
-	// rows: (session)(0), coder(1), explore(2), + add profile(3).
-	if len(m.routeList) != 4 || m.routeList[0].kind != rowSession {
-		t.Fatalf("rows = %+v", m.routeList)
-	}
-	m.handleRouteKey(keyPress("down"))
-	m.handleRouteKey(keyPress("down"))
-	if m.routeList[m.routeSel].name != "explore" {
-		t.Fatalf("expected explore selected, got %q", m.routeList[m.routeSel].name)
-	}
-	m.handleRouteKey(keyPress("enter"))
-	typeStr(&m, "fast")
-	if m.routeBuf != "fast" {
-		t.Fatalf("typed buffer = %q, want fast", m.routeBuf)
-	}
-	m.handleRouteKey(keyPress("enter"))
-	if m.routeEditing {
-		t.Error("enter should apply and exit editing")
-	}
-	for _, r := range m.app.AgentRoutes(m.sid) {
-		if r.Name == "explore" && (r.Provider != "fast" || r.Model != "gpt-oss:20b") {
-			t.Errorf("explore route after edit = %+v", r)
-		}
-	}
-}
-
 // Editing the (session) row sets the session default model.
 func TestRouteEditorSessionModel(t *testing.T) {
 	m := routedTestModel(t)
@@ -188,39 +157,11 @@ func TestProfileFormTabSaves(t *testing.T) {
 	}
 }
 
-// While editing an agent row, ←/→ cycles through defined profiles into the buffer
-// and applying routes the agent to the picked profile.
-func TestRouteEditorProfilePicker(t *testing.T) {
-	m := routedTestModel(t)
-	// Define two profiles so there's something to cycle.
-	m.app.SetProfile(app.ProfileDef{Name: "fast", Model: "gpt-oss:20b"})
-	m.app.SetProfile(app.ProfileDef{Name: "strong", Model: "qwen3-coder:30b"})
-	m.openRouteEditor()
-	// Select an agent row (coder = row 1).
-	m.handleRouteKey(keyPress("down"))
-	if m.routeList[m.routeSel].kind != rowAgent {
-		t.Fatalf("expected an agent row, got %v", m.routeList[m.routeSel].kind)
-	}
-	m.handleRouteKey(keyPress("enter")) // begin editing
-	m.handleRouteKey(keyPress("right")) // pick first profile
-	if m.routeBuf != "fast" && m.routeBuf != "strong" {
-		t.Fatalf("→ should fill a profile name, got %q", m.routeBuf)
-	}
-	picked := m.routeBuf
-	m.handleRouteKey(keyPress("enter")) // apply
-	for _, r := range m.app.AgentRoutes(m.sid) {
-		if r.Name == "coder" && r.Provider != picked {
-			t.Errorf("coder should be routed to picked profile %q, got %+v", picked, r)
-		}
-	}
-}
-
 // Backspace edits the buffer; esc cancels editing without applying.
 func TestRouteEditorBackspaceAndCancel(t *testing.T) {
 	m := routedTestModel(t)
 	m.openRouteEditor()
-	m.handleRouteKey(keyPress("down")) // → coder (row 1)
-	m.handleRouteKey(keyPress("enter"))
+	m.handleRouteKey(keyPress("enter")) // edit the (session) row
 	typeStr(&m, "abc")
 	m.handleRouteKey(keyPress("backspace"))
 	if m.routeBuf != "ab" {
@@ -233,9 +174,7 @@ func TestRouteEditorBackspaceAndCancel(t *testing.T) {
 	if !m.routing {
 		t.Error("esc from editing should keep the editor open (cancel edit, not close)")
 	}
-	for _, r := range m.app.AgentRoutes(m.sid) {
-		if r.Name == "coder" && r.Model != "base" {
-			t.Errorf("cancel must not apply, coder model = %q", r.Model)
-		}
+	if m.model == "ab" {
+		t.Error("cancel must not apply the typed model")
 	}
 }

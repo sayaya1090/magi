@@ -90,16 +90,6 @@ func New(store port.Store, llm port.LLMProvider, tools port.ToolRegistry, b *bus
 	}
 }
 
-// AgentNames returns the configured subagent names, sorted.
-func (a *App) AgentNames() []string {
-	names := make([]string, 0, len(a.cfg.Agents))
-	for n := range a.cfg.Agents {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	return names
-}
-
 // ToolNames returns the names of all registered tools, sorted.
 func (a *App) ToolNames() []string {
 	tools := a.tools.List()

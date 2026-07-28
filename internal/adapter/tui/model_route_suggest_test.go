@@ -215,31 +215,6 @@ func TestRouteSuggestFallbackNoCatalog(t *testing.T) {
 	}
 }
 
-// The suggest box must not hijack agent rows: while editing an agent row ↑/↓ stay
-// inert (no modelSugSel movement) and ←/→ still cycles profiles, even with a
-// catalog loaded.
-func TestRouteSuggestLeavesAgentRowUnchanged(t *testing.T) {
-	m := routedTestModel(t)
-	m.app.SetProfile(app.ProfileDef{Name: "fast", Model: "gpt-oss:20b"})
-	m.openRouteEditor()
-	m.modelCatalog = []string{"m0", "m1", "m2"} // a catalog exists, but this is an agent row
-	m.catalogLoaded = true
-	m.handleRouteKey(keyPress("down")) // → an agent row (row 1)
-	if m.routeList[m.routeSel].kind != rowAgent {
-		t.Fatalf("expected an agent row, got %v", m.routeList[m.routeSel].kind)
-	}
-	m.handleRouteKey(keyPress("enter")) // begin editing the agent row
-	m.handleRouteKey(keyPress("up"))
-	m.handleRouteKey(keyPress("down"))
-	if m.modelSugSel != -1 {
-		t.Fatalf("arrows must not drive the suggest box on an agent row, sel = %d", m.modelSugSel)
-	}
-	m.handleRouteKey(keyPress("right")) // profile picker still works
-	if m.routeBuf != "fast" {
-		t.Fatalf("→ should still cycle profiles on an agent row, buf = %q", m.routeBuf)
-	}
-}
-
 // Before the catalog loads, the box shows a single "loading…" line and the editor
 // height reserves exactly that one extra row.
 func TestModelSuggestBoxLoading(t *testing.T) {

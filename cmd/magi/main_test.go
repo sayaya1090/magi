@@ -376,13 +376,6 @@ func TestSystemPromptPersistence(t *testing.T) {
 	if !strings.Contains(p, "brew") {
 		t.Error("systemPrompt should mention brew so macOS is covered (not Linux-only)")
 	}
-
-	// (c) read-only subagents (no bash) must NOT carry install-tool guidance
-	for _, name := range []string{"explore", "locator", "analyst", "architect", "reviewer", "planner"} {
-		if strings.Contains(strings.ToLower(defaultAgents(nil)[name].System), "install") {
-			t.Errorf("read-only agent %q should not have install-tool guidance", name)
-		}
-	}
 }
 
 func TestEnvDur(t *testing.T) {
