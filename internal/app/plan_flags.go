@@ -609,3 +609,15 @@ func divergeEnabled() bool { return !envOff("MAGI_DIVERGE") }
 //
 // Default ON; MAGI_LEASE_EXTERNAL_CREDIT=0 restores the elapsed-time backstop for A/B.
 func leaseExternalCreditEnabled() bool { return !envOff("MAGI_LEASE_EXTERNAL_CREDIT") }
+
+// requestLiteralsEnabled puts a DETERMINISTIC floor under the curator's `literals`.
+//
+// Everything that keeps a request's exact words alive on the way to a worker — the spec-mine ⟨hard⟩
+// lines, the curator's literals, the planner's step task — is a field a model fills in, so one weak
+// reply drops an identifier and nothing downstream can tell it was ever there. A brief was observed
+// with no `verbatim:` clause at all on a task whose acceptance turned on specific names. Reading
+// fenced blocks, backticked spans, quoted strings and paths out of the request is lexical, not
+// judgement, so magi does it itself and appends what the curator missed.
+//
+// Default ON; MAGI_REQUEST_LITERALS=0 restores the model-only list for A/B.
+func requestLiteralsEnabled() bool { return !envOff("MAGI_REQUEST_LITERALS") }

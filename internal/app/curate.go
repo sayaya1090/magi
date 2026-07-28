@@ -210,6 +210,12 @@ func (a *App) curateDelegate(ctx context.Context, agent AgentSpec, s session.Ses
 			"curator: using the packet recovered from the damaged reply — it is more of the task's own words than the "+
 				"mechanical brief, but it is PARTIAL: "+briefShape(pkt))
 	}
+	// The floor goes on before the brief is rendered: what the REQUEST itself pins reaches the
+	// "Preserve these EXACTLY" section whether or not the curator listed it. The step's own task is a
+	// source too — a planner writes the literal it was given into the task text.
+	if requestLiteralsEnabled() {
+		pkt.Literals = withRequestLiterals(pkt.Literals, a.lastUserPrompt(ctx, s.ID), task, contextBrief)
+	}
 	brief := renderCurateBrief(pkt)
 	tools := a.resolveCuratedTools(pkt.Tools)
 	// Transparency: surface what the curator produced so a run is interpretable (which specialized
