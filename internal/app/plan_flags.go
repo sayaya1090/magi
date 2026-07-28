@@ -120,24 +120,6 @@ func sterileReplanCap() int {
 
 func sterileReplanLandEnabled() bool { return sterileReplanCap() > 0 }
 
-// workdirCheckpointEnabled gates the opt-in work-tree rollback (checkpoint.go): before a subagent's
-// first attempt the work-tree is snapshotted into a PRIVATE scratch git-dir (never the user's own
-// .git/stash/HEAD), and each retry restores that snapshot so it re-runs on a clean tree instead of
-// the failed attempt's debris (the compile-compcert self-clone retry loop). Default OFF — restore
-// is a destructive clean, so it stays opt-in and bench-scoped until A/B-validated.
-// MAGI_WORKDIR_CHECKPOINT=1 enables it.
-func workdirCheckpointEnabled() bool { return envOn("MAGI_WORKDIR_CHECKPOINT") }
-
-// execEvidenceEnabled gates the exec-evidence layers: the deterministic per-artifact
-// exercise ledger's pre-council nudge ("you never ran what you wrote") plus the
-// council-evidence trailer listing authored-but-never-executed files. Targets the
-// regression signature where a syntactically complete but never-run deliverable is
-// approved (headless-terminal, large-scale; cross-confirmed on another model).
-// Non-blocking by design: one nudge, then the fact rides as evidence — the earlier
-// BLOCKING evidence gates were removed for bench regression, and this deliberately
-// is not one. Default ON; MAGI_EXEC_EVIDENCE=0 restores the baseline (A/B knob).
-func execEvidenceEnabled() bool { return !envOff("MAGI_EXEC_EVIDENCE") }
-
 // councilDebateEnabled gates the disagreement-triggered rebuttal round: after the
 // members vote independently, a SPLIT (both done and continue) triggers one round
 // where each sees the others' rationales and may hold or revise, then a re-tally.
@@ -147,43 +129,6 @@ func execEvidenceEnabled() bool { return !envOff("MAGI_EXEC_EVIDENCE") }
 // others miss. Unanimous votes skip it (no extra call). Default ON;
 // MAGI_COUNCIL_DEBATE=0 restores the independent-vote-only tally (A/B knob).
 func councilDebateEnabled() bool { return !envOff("MAGI_COUNCIL_DEBATE") }
-
-// councilDevilEnabled gates the devil's-advocate pass. The rebuttal round only fires on a SPLIT,
-// so a unanimous (no-split) DONE sails through with nobody having argued against it — the premature
-// consensus a devil exists to stress-test. When on, an otherwise-unchallenged done has one
-// adversarial member argue the strongest case against it; its concern is then RE-JUDGED by the
-// members CRITICALLY (a spurious concern the task never required is rejected; a real missed defect
-// flips them to continue) and their re-tally decides — the devil casts no binding vote. Default ON;
-// MAGI_COUNCIL_DEVIL=0 restores the no-devil baseline (A/B knob).
-func councilDevilEnabled() bool { return !envOff("MAGI_COUNCIL_DEVIL") }
-
-// councilKeepEnabled asks each council member to ALSO report what the report already gets
-// right through its lens — advisory "keep this, don't redo/revert it" surfaced above the fix
-// feedback when the turn continues. It never affects the decision or tally. It targets two
-// observed weak-model failures: reverting a correct edit because nothing affirmed it (the
-// ocaml merge-check fix), and re-verifying already-working parts to exhaustion because nothing
-// said they were settled (the kv-store finish spin). Default ON; MAGI_COUNCIL_KEEP=0 restores the
-// baseline (no keep clause, byte-identical prompt) for A/B.
-func councilKeepEnabled() bool { return !envOff("MAGI_COUNCIL_KEEP") }
-
-// constraintGateEnabled turns ON the termination council's scope/boundary REJECTION clause — verify the
-// diff/artifact against the task's stated scope limits, structural requirements, and forbidden actions,
-// voting continue on a violation. Default OFF: it ADDS a rejection criterion to a council the corrected
-// bench forensics showed is already prone to OVER-rejecting correct work (a task that passed the grader
-// while the council never approved). So it ships opt-in and is measured on an A/B arm before it becomes
-// default — shipping an unvalidated rejection-adder to an over-strict council can worsen false rejects.
-// The specMine constraints EXTRACTION stays on regardless: it is preventive (surfacing a boundary so the
-// executor does not cross it), not a new reason for the council to reject.
-func constraintGateEnabled() bool { return envOn("MAGI_CONSTRAINT_GATE") }
-
-// subagentWaitLeaseEnabled makes the subagent lease judge treat WAITING on a long external
-// operation — a VM booting, a build compiling, a package installing, a service coming up — as a
-// legitimate wait, not churn. Without it, a subagent blocked on such an operation polls with no
-// deliverable motion, the judge reads that as churning, and KILLs it every lease (~2.5 min) —
-// the qemu-alpine-ssh stall, where an Alpine boot never got enough runway. The subagent-lease
-// counterpart of stallIsWait. Default ON (a conservative safety fix, bounded by the backstop);
-// MAGI_SUBAGENT_WAIT_LEASE=0 restores the judge-everything baseline for A/B.
-func subagentWaitLeaseEnabled() bool { return !envOff("MAGI_SUBAGENT_WAIT_LEASE") }
 
 // subagentProcLeaseEnabled makes the subagent lease judge extend when the child owns a
 // magi-managed background process (a bash{background:true} job) that is ACTIVELY using CPU at
@@ -195,31 +140,6 @@ func subagentWaitLeaseEnabled() bool { return !envOff("MAGI_SUBAGENT_WAIT_LEASE"
 // extend, and the backstop still caps the attempt. Default ON; MAGI_SUBAGENT_PROC_LEASE=0
 // restores the judge-everything baseline for A/B.
 func subagentProcLeaseEnabled() bool { return !envOff("MAGI_SUBAGENT_PROC_LEASE") }
-
-// leaseProgressEnabled renews a subagent's lease on PRODUCTIVITY rather than only on elapsed time:
-// a child that changed a file or ran a first-seen exercising command inside the lease window gets a
-// deterministic extension instead of a judged verdict.
-//
-// The lease exists to bound unproductive time, and measuring elapsed time is only a proxy for that
-// — one that charges a working child and an idle one identically. Measured on a live run: ten
-// workers across two steps, each given 2.5-3 minutes and 11-15 tool calls, killed while producing;
-// one of the ten ever reported, and the step took twenty-eight minutes to not finish. The extension
-// is per-tick and the counter must ADVANCE to earn the next one, so a child that produces once and
-// then spins is judged normally, and the backstop still caps the attempt.
-//
-// Default ON; MAGI_LEASE_PROGRESS=0 restores the elapsed-time-only lease for A/B.
-func leaseProgressEnabled() bool { return !envOff("MAGI_LEASE_PROGRESS") }
-
-// turnProgressCheckEnabled adds a STEP-based no-deliverable-progress check to the top-level
-// turn. The stall/loop guards count TOOL CALLS since the last mutation, so they miss a reasoning
-// loop: an agent that streams thinking for hours issuing few/no tool calls and producing nothing
-// (path-tracing-reverse burned ~4h on hand-disassembly; circuit-fibsqrt wrote 131MB of algorithm
-// reasoning and never emitted gates.txt). Counting STEPS since the last mutation catches the
-// rabbit hole regardless of tool-call volume, then routes it to the same nudge → stuck-recovery →
-// honest-stop ladder. Waiting on a long external op is explicitly NOT a rabbit hole — the "idle"
-// kind is suppressed by the same wait guards as stall recovery (stallIsWait + childWaitMajority),
-// so a VM boot / build / install is never cut. Default ON; MAGI_TURN_PROGRESS_CHECK=0 restores the baseline (A/B).
-func turnProgressCheckEnabled() bool { return !envOff("MAGI_TURN_PROGRESS_CHECK") }
 
 // ctxCompactRetryEnabled controls the reactive-compaction safety net. On (the default), when the
 // provider rejects a generate request as too long (isContextOverflow), the loop force-compacts and
@@ -271,43 +191,6 @@ func stallConvergeEnabled() bool { return !envOff("MAGI_STALL_CONVERGE") }
 // lands the honest stall. Default ON; MAGI_STALL_NOVELTY=0 restores the
 // exercising-only baseline.
 func stallNoveltyEnabled() bool { return !envOff("MAGI_STALL_NOVELTY") }
-
-// leaseExternalCreditEnabled stops the per-attempt BACKSTOP from charging a child for time it spent
-// blocked on an external process.
-//
-// The backstop is an absolute wall on one attempt (3 × SubagentTimeout = 15m by default), and
-// lease_verdict short-circuits the whole ladder once it is spent — so the arm that exists for
-// "legitimately blocked on a long operation it cannot speed up" is unreachable exactly when it
-// matters most. Observed live: three consecutive sub-planners were handed the identical unit
-// ("build the compiler following HACKING.adoc") at 15:00 intervals, each cancelled mid-build by the
-// backstop, each starting over from nothing — and one of them ran `make clean` first, so the carry
-// was negative. A build that takes longer than fifteen minutes was not reachable through delegation
-// at all, and restarting it could not make it any faster.
-//
-// So the backstop measures UNPRODUCTIVE attempt time instead of elapsed attempt time, the same
-// correction the lease itself already got. A window in which magi could SEE an external process
-// running (a tool call in flight, or an owned background pid burning CPU) is credited back.
-// Model-side silence is NOT credited, and subagentBackstopCeiling caps the attempt regardless, so a
-// wedged build cannot hold a slot forever.
-//
-// Default ON; MAGI_LEASE_EXTERNAL_CREDIT=0 restores the elapsed-time backstop for A/B.
-func leaseExternalCreditEnabled() bool { return !envOff("MAGI_LEASE_EXTERNAL_CREDIT") }
-
-// councilAdvisoryEnabled makes the termination council ADVISE instead of decide.
-//
-// A tally decided the turn before, and everything that turned opinions into a verdict — the rule,
-// the rounds, the convergence judgment, the rebuttal round, the devil pass — existed to make that
-// verdict trustworthy. A gate that keeps a turn open cannot tell a wrong result from an unfinished
-// one, so it held correct work open and let a plausible report through. magi's own record already
-// says which commands ran and which succeeded, and that is what a guard should be made of: an
-// observation cannot be wrong about what it observed.
-//
-// The dissent is not lost — it is injected for the agent, recorded on the turn, and carried in the
-// unverified reason. What still forces another step is deterministic: Stop hooks, the exercise
-// ledger, the fabrication signal.
-//
-// Default ON; MAGI_COUNCIL_ADVISORY=0 restores the voting gate for A/B.
-func councilAdvisoryEnabled() bool { return !envOff("MAGI_COUNCIL_ADVISORY") }
 
 // declareFinishEnabled requires a working turn to END BY DECLARATION — the agent calls the council
 // tool with complete:true and the council accepts — rather than by falling silent. Default ON;

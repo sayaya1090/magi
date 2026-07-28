@@ -123,15 +123,13 @@ func TestMergeProjectConfig_Council(t *testing.T) {
 		Signals:   []config.CouncilSignalConfig{{Name: "g"}},
 	}}
 	proj := config.Config{Council: config.CouncilConfig{
-		Enabled:    &enabled,
-		Rule:       "unanimous",
-		MaxRounds:  5,
-		Preset:     "light",
-		Verify:     "go test ./...",
-		Members:    []config.CouncilMember{{}, {}},
-		Signals:    []config.CouncilSignalConfig{{Name: "p"}},
-		Criteria:   true,
-		PlanAbsorb: true,
+		Enabled:   &enabled,
+		Rule:      "unanimous",
+		MaxRounds: 5,
+		Preset:    "light",
+		Verify:    "go test ./...",
+		Members:   []config.CouncilMember{{}, {}},
+		Signals:   []config.CouncilSignalConfig{{Name: "p"}},
 	}}
 	got := mergeProjectConfig(base, proj)
 	c := got.Council
@@ -146,9 +144,6 @@ func TestMergeProjectConfig_Council(t *testing.T) {
 	}
 	if len(c.Signals) != 2 || c.Signals[0].Name != "g" || c.Signals[1].Name != "p" {
 		t.Errorf("Signals should append global+project: %+v", c.Signals)
-	}
-	if !c.Criteria || !c.PlanAbsorb {
-		t.Errorf("Criteria/PlanAbsorb bools not OR'd in: %+v", c)
 	}
 
 	// An empty project council must not clobber global council settings.

@@ -32,12 +32,11 @@ type Config struct {
 	Deny         []string `toml:"deny"`
 	AllowDomains []string `toml:"allow_domains"`
 
-	LLM           LLMConfig           `toml:"llm"`           // LLM backend tuning (custom headers, …)
-	Orchestration OrchestrationConfig `toml:"orchestration"` // multi-agent behavior toggles
-	Theme         ThemeConfig         `toml:"theme"`         // TUI color overrides (dark/light)
-	Council       CouncilConfig       `toml:"council"`       // consensus termination gate (D14)
-	Limits        LimitsConfig        `toml:"limits"`        // token caps (per-request output, context budget)
-	Sampling      SamplingConfig      `toml:"sampling"`      // temperature / top_p / top_k sent with every request
+	LLM      LLMConfig      `toml:"llm"`      // LLM backend tuning (custom headers, …)
+	Theme    ThemeConfig    `toml:"theme"`    // TUI color overrides (dark/light)
+	Council  CouncilConfig  `toml:"council"`  // consensus termination gate (D14)
+	Limits   LimitsConfig   `toml:"limits"`   // token caps (per-request output, context budget)
+	Sampling SamplingConfig `toml:"sampling"` // temperature / top_p / top_k sent with every request
 
 	// Plugins holds free-form per-plugin settings: [plugins.<name>] tables a
 	// plugin reads via magi.store_get. The host passes each plugin only its
@@ -91,19 +90,6 @@ type LLMConfig struct {
 	Profiles map[string]LLMProfile `toml:"profiles"`
 }
 
-// OrchestrationConfig toggles multi-agent behaviors. Planner enables the
-// pre-flight planner that decides whether to investigate solo or fan out to
-// parallel read-only explorers; nil means default (on), set false to disable.
-type OrchestrationConfig struct {
-	Planner *bool `toml:"planner"`
-	// Workers registers the write-capable "worker" sub-agent the planner can DELEGATE a
-	// self-contained sub-task to. nil = on (like planner); set false to keep the roster
-	// read-only, which makes delegation unavailable so every write step degrades to the
-	// solo path — the main agent does the work inline, with the whole session as context
-	// instead of a curated brief. MAGI_WORKERS still overrides this either way.
-	Workers *bool `toml:"workers"`
-}
-
 // ThemeConfig overrides TUI colors per mode. Keys are Material Design 3 color
 // roles: primary, accent, muted, outline, error, success, surface,
 // primaryContainer, outlineVariant, warn. Any subset overrides the built-in
@@ -113,23 +99,22 @@ type ThemeConfig struct {
 	Light map[string]string `toml:"light"`
 }
 
-// CouncilConfig configures the consensus termination gate (D14). When Enabled,
-// the agent loop, instead of finishing when the model stops, convenes a council
-// that votes done/continue; a "continue" injects the members' feedback and the
-// loop keeps going. Disabled by default (it adds an LLM round at each would-be
-// finish). Members default to the MAGI (Melchior/Balthasar/Casper) when empty.
+// CouncilConfig configures the council the agent calls through the `council` tool — for a reading on
+// something it is unsure of, or to declare the task finished, which the members either accept or
+// hand back with what is still undone. Members default to the MAGI (Melchior/Balthasar/Casper)
+// when empty.
 type CouncilConfig struct {
-	// Enabled toggles the consensus termination gate. nil = on by default; set
-	// false to disable. (Pointer so "unset" is distinguishable from explicit false,
-	// like orchestration.planner.)
+	// Enabled toggles the council. nil = on by default; set false to disable, which
+	// also removes the `council` tool and with it the finish declaration. (Pointer so
+	// "unset" is distinguishable from an explicit false.)
 	Enabled   *bool           `toml:"enabled"`
 	Rule      string          `toml:"rule"`       // unanimous|majority|quorum:k|weighted:θ|veto:Name (default majority)
 	MaxRounds int             `toml:"max_rounds"` // cap rounds per turn (default 3)
 	Members   []CouncilMember `toml:"member"`     // [[council.member]] tables; empty = the MAGI
-	// Preset trades gate strength for interactive latency: "full" (default) is the
+	// Preset trades reading depth for interactive latency: "full" (default) is the
 	// 3-member MAGI; "light" is a single verification member with a 1-round cap —
-	// one cheap LLM call per finish instead of 3×rounds, for everyday chat-speed
-	// use. Explicit member/max_rounds settings override the preset's defaults.
+	// one cheap LLM call per council call instead of 3×rounds, for everyday
+	// chat-speed use. Explicit member/max_rounds settings override the preset.
 	Preset string `toml:"preset"` // "" | "full" | "light"
 	// Verify is a shorthand for a single deterministic signal named "verify" the
 	// council runs each round as evidence (D16). Signals adds more named checks
@@ -137,15 +122,6 @@ type CouncilConfig struct {
 	// evidence, not just the agent's claim.
 	Verify  string                `toml:"verify"`
 	Signals []CouncilSignalConfig `toml:"signal"`
-	// Criteria, when true, elicits explicit acceptance criteria from the task once
-	// per turn (one extra LLM call) and gives them to the council as the contract,
-	// so it judges "done" against concrete conditions. Opt-in (default off).
-	Criteria bool `toml:"criteria"`
-	// PlanAbsorb, when true, makes the plan-audit gate run one extra planner pass to
-	// fold the council's non-blocking (warn/info) advice into the plan before execution.
-	// Off by default: the advice is otherwise injected for the executor to heed without
-	// the extra LLM call.
-	PlanAbsorb bool `toml:"plan_absorb"`
 }
 
 // CouncilSignalConfig is a named deterministic check the council runs for evidence.
@@ -254,32 +230,19 @@ const defaultConfigTemplate = `# magi configuration. Everything here is optional
 # [mcp.remote.headers]
 # Authorization = "Bearer ${MCP_TOKEN}"
 
-# --- Orchestration ---
-# [orchestration]
-# planner = true   # pre-flight planner: before a turn, decide solo vs parallel
-#                  # read-only exploration. Default on; set false to disable.
-#                  # Route it to a cheap backend with [routing] planner = "fast".
-# delegate = true  # hand write-capable sub-tasks to an executor subagent
-#                  # (delegate/refine). Default off — all file authoring stays on the
-#                  # main agent; set true to allow it. Read-only explorers fan out either way.
-# subagent_timeout = "5m"  # base per-attempt subagent hard cap; the effective cap
-#                          # flexes with observed model speed (slow model → longer).
-#                          # Adjustable at runtime with /subagent.
-
 # --- Plugin settings: a [plugins.<name>] table is readable by that plugin via
 # magi.store_get("key"). Plugins persist their own values with store_set. ---
 # [plugins.my-plugin]
 # endpoint = "https://config.corp.example/v1"
 
-# --- Consensus council (D14): the loop's termination gate. ON BY DEFAULT — instead
-# of finishing when the model stops, a council (the MAGI: Melchior/Balthasar/Casper)
-# votes done/continue; a "continue" injects feedback and the loop keeps going. It
-# adds an LLM round at each would-be finish; set enabled = false to turn it off. ---
+# --- The council (the MAGI: Melchior/Balthasar/Casper). ON BY DEFAULT. The agent
+# reaches it through the council tool: to ask for a reading, or to declare the task
+# finished — a declaration the members either accept, ending the turn, or hand back
+# with what is still undone. Set enabled = false to remove the tool entirely. ---
 # [council]
-# enabled    = false        # the gate is on by default; uncomment to disable
+# enabled    = false        # the council is on by default; uncomment to disable
 # rule       = "majority"   # unanimous | majority | quorum:2 | weighted:0.6 | veto:Balthasar
 # max_rounds = 3
-# criteria   = true         # elicit explicit acceptance criteria (1 extra LLM call/turn) as the council's contract
 # verify     = "go test ./..."   # opt-in: run each round, fed to the council as evidence
 # [[council.signal]]             # more named checks (test/lint/typecheck), all fed as evidence
 # name = "lint"

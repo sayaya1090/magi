@@ -788,12 +788,6 @@ func mergeProjectConfig(cfg, proj config.Config) config.Config {
 		cfg.Council.Verify = proj.Council.Verify
 	}
 	cfg.Council.Signals = append(cfg.Council.Signals, proj.Council.Signals...)
-	if proj.Council.Criteria {
-		cfg.Council.Criteria = true
-	}
-	if proj.Council.PlanAbsorb {
-		cfg.Council.PlanAbsorb = true
-	}
 	return cfg
 }
 
@@ -831,7 +825,7 @@ type headlessApp interface {
 //
 //	0 — the turn finished (turn.finished reached).
 //	1 — the turn ended on an agent-level error event (loop_guard, stall_guard,
-//	    max_steps, provider failure); the code and message are printed to stderr
+//	    provider failure); the code and message are printed to stderr
 //	    as "error[<code>]: <message>".
 //	2 — magi itself could not run the prompt (subscribe/submit failure).
 func runHeadless(ctx context.Context, a headlessApp, sid session.SessionID, promptText string, jsonOut bool, out, errw io.Writer) int {

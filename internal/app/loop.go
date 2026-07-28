@@ -232,15 +232,14 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		ts.stepNudged = false // a re-grounded task gets a fresh deliverable-check nudge budget
 	}
 
-	// No ceiling. The turn ends when the model stops calling tools, when the caller's context is
-	// cancelled, or when whatever is running magi decides it has waited long enough — the three
-	// endings that were always real. The step cap was a fourth, and the only one that ended a run
-	// on magi's own arithmetic rather than on something that happened.
-	// A turn has no step ceiling: it ends when the model stops, when the agent declares completion,
-	// or when whoever launched magi stops waiting — that is what removing MaxSteps decided. A
-	// workflow PHASE is the exception, because it declares its own budget as part of the pipeline's
-	// shape (localize gets 14 steps, summarize gets 3), and a phase that ignores its budget is a
-	// phase without a boundary. maxSteps<=0 means the caller set none.
+	// No ceiling. A turn ends when the model stops calling tools, when the agent declares completion
+	// and the council accepts it, when the caller's context is cancelled, or when whoever launched
+	// magi stops waiting — the endings that were always real. The step cap was one more, and the
+	// only one that ended a run on magi's own arithmetic rather than on something that happened.
+	//
+	// A workflow PHASE is the exception, because it declares its own budget as part of the
+	// pipeline's shape (localize gets 14 steps, summarize gets 3), and a phase that ignores its
+	// budget is a phase without a boundary. maxSteps<=0 means the caller set none.
 	for step := 0; maxSteps <= 0 || step < maxSteps; step++ {
 		if ctx.Err() != nil {
 			return lastText, ctx.Err()
