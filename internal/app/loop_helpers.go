@@ -290,51 +290,6 @@ func backgroundWaitAdvice(agent AgentSpec) string {
 		"copy — start it once (bash with background=true), then " + steer + " until it actually finishes. "
 }
 
-// loopGuardBlockMsg builds the message shown when the loop guard blocks an identical
-// tool call repeated past the limit. Most tools get the generic "take a different step",
-// but two fixation loops get a tool-specific steer toward the RIGHT alternative, which a
-// weak model rarely finds on its own:
-//   - read: re-reading an unchanged file — steer off another read (edit, inspect elsewhere,
-//     or wait_for if waiting on a change).
-//   - bash_output: re-polling a still-running background job to see if it finished — the
-//     compile-compcert stall, where the agent polled `apt-get install` and never started the
-//     actual build. Steer to wait_for (one blocking call until the job completes) AND to
-//     independent work that does not depend on the job.
-//
-// Both steers name a tool, so both are conditional on the agent HOLDING it — see waitSteer.
-func loopGuardBlockMsg(agent AgentSpec, toolName string, n int) string {
-	switch toolName {
-	case "read":
-		msg := fmt.Sprintf(
-			"Loop guard: you have already read this %d times and its contents (below) have not changed — "+
-				"reading it again cannot make progress. Do NOT read it again. Take the next real action: make "+
-				"the edit/write you were about to make, inspect a DIFFERENT file or region, or finish and "+
-				"summarize.",
-			n)
-		if agent.allows("wait_for") {
-			msg += " If you are waiting for this file to change, do not poll it with read — use the wait_for " +
-				"tool to block until it actually changes."
-		}
-		return msg
-	case "bash_output":
-		msg := fmt.Sprintf(
-			"Loop guard: you have polled this background job %d times and it is still running — "+
-				"re-polling cannot make it finish faster. Do NOT poll it again.", n)
-		if agent.allows("wait_for") {
-			msg += " Instead: use the wait_for tool to BLOCK until it completes in ONE call (e.g. a condition " +
-				"that checks the job's result — a built file exists, a package is installed), then continue."
-		}
-		return msg + " Meanwhile, do any work that does NOT depend on this job (download sources, write " +
-			"config, prepare the next step) — do not let one background wait stall the whole task."
-	default:
-		return fmt.Sprintf(
-			"Loop guard: you have already made this exact %q call %d times with nothing changed since. "+
-				"Stop repeating it — take a different step, or finish and summarize. (Edit a file and the same "+
-				"command is allowed again, since that's real progress.)",
-			toolName, n)
-	}
-}
-
 // coalesceInterjectionText merges a batch of queued interjections into one prompt text: the
 // distinct non-empty texts in arrival order, de-duplicated (a re-typed identical question
 // collapses to one) and joined by newlines. Merging rather than picking one loses no content —

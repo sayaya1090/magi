@@ -17,17 +17,16 @@ import (
 	"github.com/sayaya1090/magi/internal/core/change"
 )
 
-// Loop-guard thresholds. They catch an agent (orchestrator or subagent) that
-// repeats the SAME action without progress long before MaxSteps would, so a
-// stuck weak model fails fast instead of grinding for minutes.
+// Thresholds for NOTICING that an agent is repeating itself without progress. They used to
+// refuse the call and then end the run; now they only decide when to SAY so. The counting is
+// unchanged — what changed is that the answer is a sentence to the agent rather than a verdict
+// about it.
 const (
-	repeatLimit = 4 // identical tool calls allowed before the next is blocked (raised from 2:
-	//                   a legitimate check→act→re-check→act rhythm hit the block too eagerly; a real
-	//                   loop still trips it, and blockedBudget/stall layers below catch persistence)
-	blockedBudget = 6 // total blocked repeats in a run before forcing a stop
-	// nudgeThreshold sits below blockedBudget: when blocked repeats reach it, the agent
-	// is clearly thrashing, so before force-stopping we inject ONE corrective re-grounding
-	// (re-read the task, change approach) — a stuck weak model often just needs redirecting.
+	repeatLimit = 4 // identical tool calls before the repeat is worth remarking on (raised from 2:
+	//                   a legitimate check→act→re-check→act rhythm tripped it too eagerly)
+	// nudgeThreshold: at this many counted repeats the agent is clearly circling, so ONE corrective
+	// re-grounding is injected (re-read the task, change approach). It fires once — repeating the
+	// same nudge at a model that is already thrashing tends to deepen the thrash.
 	nudgeThreshold = 3
 	// noProgressNudge catches the OTHER stall the repeat guard misses: an agent that runs
 	// many DIFFERENT commands (so no fingerprint repeats and `blocked` stays 0) yet changes
@@ -78,7 +77,6 @@ const (
 type runGuard struct {
 	mu      sync.Mutex
 	seen    map[string]int
-	results map[string]string // last result content per fingerprint, for echo on block
 	lastMut map[string]string // path → last mutation signature, to ignore idempotent rewrites
 	epoch   int               // bumped on each real file mutation; part of the fingerprint
 	blocked int
@@ -248,7 +246,7 @@ type fileChange struct {
 
 func newRunGuard() *runGuard {
 	return &runGuard{
-		seen: map[string]int{}, results: map[string]string{},
+		seen:    map[string]int{},
 		lastMut: map[string]string{}, changed: map[string]*fileChange{},
 		exercisedFile: map[string]bool{},
 		recalled:      map[string]bool{}, contentHist: map[string][]uint64{},
@@ -568,52 +566,6 @@ func (g *runGuard) resetStall() {
 	g.idleNudged = false
 }
 
-// resetRepeat clears the blocked-repeat counter (and the stall window) after a "repeat"-kind
-// stuck recovery lands. resetStall alone is not enough here: stuck() returns "repeat" the instant
-// blocked >= blockedBudget, so without zeroing blocked the very next guard check would re-halt the
-// parent before it can integrate and verify the recovery child's work. Zeroing blocked gives the
-// parent a fresh window to continue — the same fresh window resetStall grants a stall recovery.
-func (g *runGuard) resetRepeat() {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.blocked = 0
-	g.sinceProgress = 0
-	g.lastStallAt = 0
-	g.stallNudges = 0
-	g.progressSinceNudge = false
-	// Match resetStall's FULL fresh window (this is meant to be "resetStall + blocked=0"): also clear
-	// the step-based rabbit-hole counter. Without it, a repeat spiral that ran many mutation-free steps
-	// leaves stepsSinceMut high, so the instant the parent resumes after a successful repeat recovery
-	// stuck() returns "idle" and force-stops — the recovery child's mutations landed in ITS session, not
-	// this guard, so mutated() never zeroed it here.
-	g.stepsSinceMut = 0
-	g.idleNudged = false
-}
-
-const guardResultEcho = 4 << 10 // cap on the cached result echoed back on a block
-
-// record stores a call's result content (capped) so a later blocked repeat can be
-// handed the earlier output instead of a bare refusal.
-func (g *runGuard) record(fp, content string) {
-	if len(content) > guardResultEcho {
-		cut := guardResultEcho
-		for cut > 0 && !utf8.RuneStart(content[cut]) { // don't slice mid-rune
-			cut--
-		}
-		content = content[:cut] + "\n…(truncated)"
-	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.results[fp] = content
-}
-
-// lastResult returns the previously recorded result for fp, if any.
-func (g *runGuard) lastResult(fp string) string {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.results[fp]
-}
-
 // recordChange captures a file's before/after content around an agent edit. The FIRST
 // before for a path is kept (its pre-turn state); after is updated to the latest, so
 // multiple edits to one file collapse to a single net before→after.
@@ -881,37 +833,6 @@ func (g *runGuard) unverifiedDeliverable() bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.epoch > 0 && g.execSinceMut == 0
-}
-
-// stuck reports why the run should be force-stopped: "repeat" (the same action
-// blocked past blockedBudget), "stall" (all stall nudges spent AND another full
-// no-progress window elapsed with still no mutation — the agent is ignoring
-// redirection and would otherwise wander to MaxSteps, which at the 240 default
-// means ~200 unguarded steps), or "" to keep going. A real mutation resets
-// sinceProgress and lastStallAt (see mutated), so productive work never trips it.
-func (g *runGuard) stuck() string {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.blocked >= blockedBudget {
-		return "repeat"
-	}
-	// Ordered before "stall" on purpose: a spin force-stop must SKIP the redecompose recovery
-	// (which is gated on kind=="stall" in loop.go) — handing a spinning agent to a fresh child
-	// only risks the same banner spin in the child. Returning "spin" here lands the run directly.
-	if g.bannerSpin >= bannerSpinStop {
-		return "spin"
-	}
-	if g.stallNudges >= maxStallNudges && g.sinceProgress-g.lastStallAt >= noProgressNudge {
-		return "stall"
-	}
-	// Step-based rabbit hole: the counters above are per TOOL CALL, so a reasoning loop that
-	// streams thinking with few/no tool calls and produces no mutation slips past them (path-
-	// tracing-reverse, circuit-fibsqrt). stepsSinceMut rises per STEP, so this catches it. Distinct
-	// "idle" kind so the caller can apply the wait guards (a VM boot / build wait must NOT be cut).
-	if turnProgressCheckEnabled() && g.stepsSinceMut >= progressStallSteps {
-		return "idle"
-	}
-	return ""
 }
 
 // noteStep advances the step-based rabbit-hole counter once per run-loop iteration. Called from

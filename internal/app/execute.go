@@ -129,23 +129,17 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	workdir := s.Workdir
 	toolMsgID := "m_" + newID()
 
-	// Loop guard: refuse an identical tool call repeated past the limit, telling
-	// the model to stop repeating. This breaks re-read / re-dispatch / echo loops
-	// for every agent (orchestrator and subagents alike) without killing the turn.
+	// The call is RECORDED, not judged. This used to refuse an identical call repeated past a
+	// limit, on the theory that a repeat whose outcome cannot change is a loop worth breaking. The
+	// theory did not survive being measured: across the recorded runs, the trials magi force-stopped
+	// itself produced not one pass, while the trials that ran to the external deadline produced 76.
+	// A repeat the model can see in its own context is the model's to break.
 	var guardFP string
-	var guardNovel bool // this call's first occurrence this epoch (check n==1) — for D18a exercise novelty
+	var guardNovel bool // this call's first occurrence this epoch (check n==1) — exercise novelty
 	if guard != nil {
-		block, n, fp := guard.check(tc.Name, tc.Args)
+		_, n, fp := guard.check(tc.Name, tc.Args)
 		guardFP = fp
 		guardNovel = n == 1
-		if block {
-			msg := loopGuardBlockMsg(agent, tc.Name, n)
-			if last := guard.lastResult(fp); last != "" {
-				msg += "\n\nThe earlier result (unchanged) was:\n" + last
-			}
-			a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID, msg, true)
-			return
-		}
 	}
 
 	// Pre-execution gates, run in order — the first that blocks emits its own tool result

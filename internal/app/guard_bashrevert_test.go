@@ -171,11 +171,10 @@ func TestBashRevertIsNotANewDeliverableVersion(t *testing.T) {
 	if g.idleNudgeDue() {
 		t.Error("…so no second nudge is due")
 	}
-	// With both windows still climbing, the honest ladder is reachable again: the run lands on
-	// "idle" instead of oscillating to the wall clock.
-	g.stepsSinceMut = progressStallSteps
-	if got := g.stuck(); got != "idle" {
-		t.Errorf("stuck() = %q, want idle once the restored window reaches the stall step", got)
+	// Both windows keep climbing across the oscillation, which is the whole point: the counters
+	// that feed the nudge are not zeroed by a revert.
+	if g.stepsSinceMut == 0 || g.sinceProgress == 0 {
+		t.Error("a revert must leave both windows standing")
 	}
 }
 
@@ -200,8 +199,5 @@ func TestBashRewriteToANewStateKeepsItsProgress(t *testing.T) {
 	}
 	if g.idleNudged {
 		t.Error("a real new version re-arms the act-now nudge")
-	}
-	if g.stuck() != "" {
-		t.Error("an agent producing new versions is not stuck")
 	}
 }

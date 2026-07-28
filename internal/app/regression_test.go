@@ -24,30 +24,6 @@ func TestVolatileContextHoldsPlan(t *testing.T) {
 	}
 }
 
-// TestVolatileContextStepBudget: with a real budget (maxSteps>=8) the ephemeral context
-// carries the current step / ceiling and frames the ceiling as a limit, not a quota — so
-// the model paces itself without padding to the max.
-func TestVolatileContextStepBudget(t *testing.T) {
-	a := &App{}
-	s := session.Session{ID: "s1"}
-	out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, nil, 6, 40, 0)
-	if !strings.Contains(out, "# Step budget") || !strings.Contains(out, "step 7 of at most 40") {
-		t.Fatalf("budget block should show the current step and ceiling, got %q", out)
-	}
-	if !strings.Contains(out, "hard ceiling") || !strings.Contains(out, "not a target") {
-		t.Fatalf("budget block should frame the ceiling as a limit, not a quota, got %q", out)
-	}
-	// Narration is free, steps are not: the block must forbid spending a step on a
-	// status-echo (measured waste: prove-plus-comm burned its last steps on them).
-	if !strings.Contains(out, "only narrates") {
-		t.Fatalf("budget block should forbid narration-only tool calls, got %q", out)
-	}
-	// Tiny phase budgets (e.g. summarize=3) skip the block entirely.
-	if out := a.volatileContext(context.Background(), s, AgentSpec{}, false, nil, nil, 0, 3, 0); strings.Contains(out, "# Step budget") {
-		t.Fatalf("tiny budgets should not emit a step-budget block, got %q", out)
-	}
-}
-
 // TestVolatileContextElapsed: the self-measured wall clock appears only once it crosses a
 // minute (sub-minute is noise), and it is stated as our own stopwatch — no external info.
 func TestVolatileContextElapsed(t *testing.T) {
@@ -236,7 +212,7 @@ func TestShouldNudge(t *testing.T) {
 	if g.shouldNudge() != "blocked" {
 		t.Fatal("should nudge (blocked) at threshold")
 	}
-	g.blocked = blockedBudget // still past threshold
+	g.blocked = nudgeThreshold * 3 // still past threshold
 	if g.shouldNudge() != "" {
 		t.Fatal("nudge must fire at most once per run")
 	}
@@ -295,9 +271,6 @@ func TestStallConvergeCollapsesIgnoredReArm(t *testing.T) {
 	if g.shouldNudge() != "stalled" {
 		t.Fatal("first stalled nudge should fire")
 	}
-	if g.stuck() != "" {
-		t.Fatal("must not force-stop after only the first nudge")
-	}
 	// A full further window with NO forward motion since that nudge (no mutation, no novel
 	// exercise) → the redirect was ignored. The re-arm collapses: shouldNudge stays quiet and
 	// the budget jumps to the cap.
@@ -310,10 +283,6 @@ func TestStallConvergeCollapsesIgnoredReArm(t *testing.T) {
 	}
 	if g.stallNudges != maxStallNudges {
 		t.Fatalf("collapse must exhaust the nudge budget, stallNudges=%d want %d", g.stallNudges, maxStallNudges)
-	}
-	// …and the force-stop lands THIS check (same loop iteration), not a window later.
-	if g.stuck() != "stall" {
-		t.Fatal("collapsed budget + climbed window must force-stop as stall now")
 	}
 }
 
@@ -441,45 +410,11 @@ func TestResetStall(t *testing.T) {
 		t.Errorf("resetStall must zero the stall accounting, got since=%d lastAt=%d nudges=%d",
 			g.sinceProgress, g.lastStallAt, g.stallNudges)
 	}
-	if g.stuck() != "" {
-		t.Error("after resetStall the parent must not be force-stopped for the prior stall")
-	}
 	if g.epoch != 5 {
 		t.Errorf("resetStall must not touch the mutation epoch, got %d", g.epoch)
 	}
 	if cs := g.changeSet(); len(cs) != 1 || cs[0].path != "out.txt" {
 		t.Errorf("resetStall must preserve the captured changeSet, got %+v", cs)
-	}
-}
-
-// TestStallForceStop: once every stall nudge is spent AND another full no-progress
-// window passes with still no mutation, stuck() reports "stall" — the backstop that
-// keeps an agent ignoring all redirection from wandering to the (now 240) ceiling.
-// A real mutation at any point resets the window and disarms it.
-func TestStallForceStop(t *testing.T) {
-	g := newRunGuard()
-	for i := 1; i <= maxStallNudges; i++ {
-		g.sinceProgress = noProgressNudge * i
-		if g.shouldNudge() != "stalled" {
-			t.Fatalf("stall nudge %d should fire", i)
-		}
-		if g.stuck() != "" {
-			t.Fatalf("must not force-stop while nudges are still being tried (after nudge %d)", i)
-		}
-	}
-	// Nudges exhausted, but not yet a further full window → still not stopped.
-	g.sinceProgress = noProgressNudge*maxStallNudges + 1
-	if g.stuck() != "" {
-		t.Fatal("force-stop needs a full ignored window after the last nudge")
-	}
-	g.sinceProgress = noProgressNudge * (maxStallNudges + 1)
-	if g.stuck() != "stall" {
-		t.Fatal("expected the stall force-stop after the post-nudge window elapsed")
-	}
-	// Real progress disarms it.
-	g.mutated("out.txt", "sig")
-	if g.stuck() != "" {
-		t.Fatal("a real mutation must disarm the stall stop")
 	}
 }
 

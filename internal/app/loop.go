@@ -242,7 +242,11 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		ts.stepNudged = false // a re-grounded task gets a fresh deliverable-check nudge budget
 	}
 
-	for step := 0; step < maxSteps; step++ {
+	// No ceiling. The turn ends when the model stops calling tools, when the caller's context is
+	// cancelled, or when whatever is running magi decides it has waited long enough — the three
+	// endings that were always real. The step cap was a fourth, and the only one that ended a run
+	// on magi's own arithmetic rather than on something that happened.
+	for step := 0; ; step++ {
 		if ctx.Err() != nil {
 			return lastText, ctx.Err()
 		}
@@ -480,10 +484,6 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		}
 	}
 
-	// Max steps reached: stop gracefully.
-	d, _ := json.Marshal(event.ErrorData{Message: "max steps reached", Code: "max_steps"})
-	a.appendFact(ctx, sid, event.TypeError, event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)
-	return lastText, nil
 }
 
 // seedTurnTask snapshots the turn's task at step 0 and returns it with the baseline user-

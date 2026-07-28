@@ -126,36 +126,16 @@ func (a *App) handleStuckGuard(ctx context.Context, tc turnCtx, turnTask string,
 		a.appendFact(ctx, sid, event.TypeTurnFinished, tc.actor, fd)
 		return true, true
 	}
-	kind := tc.guard.stuck()
-	if kind == "" {
-		return false, false
-	}
-	s, guard := tc.s, tc.guard
-	sid := s.ID
-	// The stuck ladder used to have a recovery rung here: hand the remaining work to a fresh child
-	// that re-plans it from scratch. There is no planner to re-plan with, and the evidence for that
-	// rung was never good — the same task handed back produced the same plan sixteen times on one
-	// run. What the guard could always see stands on its own: the run stopped making progress, and
-	// that is reported rather than routed into a rebuild.
-	if guard.mutationEpoch() > 0 {
-		// Delivered-but-spinning: finish cleanly (TurnFinished → exit 0) with the work as-is.
-		// The repeated no-progress steps already stand in the transcript, so no error event is
-		// needed to explain the stop.
-		a.setStage(sid, stageFinalize)
-		fd, _ := json.Marshal(event.TurnFinishedData{Usage: u})
-		a.appendFact(ctx, sid, event.TypeTurnFinished, tc.actor, fd)
-		return true, true
-	}
-	msg, code := "stopped: the agent repeated the same action without progress (loop guard)", "loop_guard"
-	if kind == "stall" {
-		msg, code = "stopped: no real progress after repeated redirection (stall guard)", "stall_guard"
-	}
-	if kind == "spin" {
-		msg, code = "stopped: repeated completion-banner spin without ending the turn (spin guard)", "spin_guard"
-	}
-	d, _ := json.Marshal(event.ErrorData{Message: msg, Code: code})
-	a.appendFact(ctx, sid, event.TypeError, event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)
-	return true, false
+	// What used to stand here was the force-stop: a repeat/stall/idle/spin kind from the guard
+	// ended the run, with a visible error when nothing had been produced. Measured across every
+	// recorded trial, that stop bought nothing — 396 runs that instead reached the external
+	// deadline were still verified and 76 of them PASSED, while 28 runs magi stopped itself
+	// produced no pass at all and 8 were never scored, because a nonzero exit reads to the caller
+	// as "the agent failed to run" rather than "the agent decided to stop".
+	//
+	// The signals it read are still collected and still SAID — the stuck nudge above fires from the
+	// same counters. What is gone is magi ending the run on its own reading of them.
+	return false, false
 }
 
 // finishTurn runs the no-tool-call finish path for a single step: stop-hook enforcement,

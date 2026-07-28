@@ -42,7 +42,6 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 	// commands (e.g. re-running the test) are no longer treated as a no-progress repeat.
 	mutatedReset := false // did mutated() reset the progress counters THIS call?
 	if guard != nil && guardFP != "" {
-		guard.record(guardFP, string(res.Content))
 		if !res.IsError && fileModifiers[tc.Name] {
 			mutatedReset = guard.mutated(pathArg(tc.Args), canonicalArgs(tc.Args))
 			if mutatedReset {

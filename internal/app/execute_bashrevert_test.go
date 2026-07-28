@@ -88,9 +88,8 @@ func TestBashRestoreLoopReachesTheStuckLadder(t *testing.T) {
 	if nudges != 1 {
 		t.Errorf("the act-now nudge fired %d times across the loop, want exactly 1", nudges)
 	}
-	if got := guard.stuck(); got != "idle" {
-		t.Errorf("stuck() = %q, want idle — a restore loop must reach the honest ladder", got)
-	}
+	// The windows are what matter now: they climb, so the nudge that reads them fires. Nothing
+	// force-stops on them any more.
 
 	// The control, in the same run: a bash edit to a state the file has never held IS progress and
 	// clears the ladder, so the fix cannot be mistaken for "bash mutations stopped counting".
@@ -100,8 +99,5 @@ func TestBashRestoreLoopReachesTheStuckLadder(t *testing.T) {
 	guard.mu.Unlock()
 	if steps != 0 {
 		t.Errorf("a genuinely new version must restart the window, got stepsSinceMut=%d", steps)
-	}
-	if got := guard.stuck(); got != "" {
-		t.Errorf("stuck() = %q after real progress, want empty", got)
 	}
 }

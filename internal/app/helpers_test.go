@@ -47,27 +47,6 @@ func TestRunGuard(t *testing.T) {
 	if block, n, _ := g.check("bash", args); block || n != 1 {
 		t.Errorf("after a mutation the repeated call should be allowed afresh: block=%v n=%d", block, n)
 	}
-	// The cached result of a call is echoed back when a later repeat is blocked.
-	g2 := newRunGuard()
-	a2 := json.RawMessage(`{"cmd":"go test"}`)
-	_, _, fp := g2.check("bash", a2) // 1st
-	g2.record(fp, "FAIL: 1 test failed")
-	for i := 2; i <= repeatLimit; i++ {
-		g2.check("bash", a2) // 2nd..repeatLimit-th (still allowed)
-	}
-	if block, _, fp3 := g2.check("bash", a2); !block || g2.lastResult(fp3) != "FAIL: 1 test failed" {
-		t.Errorf("blocked repeat should expose the cached earlier result, got block=%v last=%q", block, g2.lastResult(fp3))
-	}
-	// Not stuck yet; force enough blocked repeats to cross blockedBudget.
-	if g.stuck() != "" {
-		t.Error("should not be stuck after a single block")
-	}
-	for g.blocked < blockedBudget {
-		g.check("bash", args)
-	}
-	if g.stuck() != "repeat" {
-		t.Error("should be stuck (repeat) once blockedBudget is reached")
-	}
 }
 
 // capToolResult bounds a single result so one giant output can't overflow the context,
@@ -93,8 +72,8 @@ func TestCapToolResult(t *testing.T) {
 }
 
 // An IDEMPOTENT mutation (writing identical content to the same path) is not progress,
-// so it must NOT bump the epoch — otherwise a write-the-same-thing loop would reset its
-// own counts forever and never be blocked. Nor may a mutation of some OTHER path reset them:
+// so it must NOT bump the epoch. Nor may a mutation of some OTHER path reset the count: a
+// file-modifying call's fingerprint tracks the last mutation of ITS OWN path. Nor may a mutation of some OTHER path reset them:
 // a file-modifying call's fingerprint tracks the last mutation of ITS OWN path, so a scratch
 // redirect between two identical writes no longer hands the second a fresh count. Nor may a mutation of some OTHER path reset them:
 // a file-modifying call's fingerprint tracks the last mutation of ITS OWN path, so a scratch
