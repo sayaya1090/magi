@@ -45,7 +45,6 @@ type App struct {
 
 	liveness     sync.Map // session.SessionID -> *sessionLiveness (what the lease and the stall watchdog ask about a running session)
 	stepAttempts sync.Map // step key -> stepAttempt (a spent retry ladder, so the next dispatch of that step continues it)
-	sessionProcs sync.Map // session.SessionID -> *procSet (live background-job pids; lets the lease judge see off-tool CPU work)
 
 	memMu         sync.Mutex
 	memCache      map[string]string       // workdir -> durable AGENTS.md memory

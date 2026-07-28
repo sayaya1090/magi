@@ -263,13 +263,6 @@ type ToolEnv struct {
 	// gap. Transient and droppable; always set by the application, but a tool
 	// should still nil-check it (a bare ToolEnv has no observer).
 	EmitProgress func(text string)
-	// TrackProc reports a magi-managed background OS process's lifecycle to the
-	// orchestrator: running=true when a bash{background:true} job starts, false when
-	// it exits. It lets the subagent-lease judge see a live worker process even when
-	// no tool is in flight (off-tool background work), so a long transfer/build is
-	// extended rather than killed as churn. nil when the host doesn't track (the
-	// interject aside path has no execution tools); a tool must nil-check it.
-	TrackProc func(pid int, running bool)
 	// Ask lets a running subagent request something from its orchestrator
 	// mid-task (escalation); it blocks until the orchestrator replies. Set only
 	// for subagents; nil for the top-level agent.

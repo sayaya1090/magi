@@ -2,6 +2,9 @@ package app
 
 import "testing"
 
+// sig is a distinct content signature per edit, so each call to mutated advances the epoch.
+func sig(n int) string { return "v" + string(rune('a'+n%26)) + string(rune('0'+n%10)) }
+
 // noteExerciseResult counts a FAILING exercising command only when the mutation epoch has advanced
 // since that command's last counted failure — the agent edited the deliverable and the SAME build/
 // test still fails. A pass of a command clears its own count; a passing SIBLING command must not
