@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -39,6 +41,50 @@ type observedCmd struct {
 type observedRun struct {
 	cmds    []observedCmd
 	changed []string // paths a tool call in this run wrote to
+	// looked counts, per path, how many times this run went and LOOKED at it — the read tool, a
+	// search rooted there, or an inspect-only command naming it. lookOrder keeps first-seen order
+	// so the rendering is stable across steps rather than reshuffling with map iteration.
+	looked    map[string]int
+	lookOrder []string
+}
+
+// noteLook records one look at a path.
+func (o *observedRun) noteLook(p string) {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return
+	}
+	if o.looked == nil {
+		o.looked = map[string]int{}
+	}
+	if o.looked[p] == 0 {
+		o.lookOrder = append(o.lookOrder, p)
+	}
+	o.looked[p]++
+}
+
+// noteLookedAgain credits a look to a path magi ALREADY knows this run opened, when an inspect-only
+// command names it. It never introduces a path: a token in a shell command that happens to look
+// like a filename may be a glob, a redirect artifact, or an argument, and a record that guesses is
+// a record that can be wrong about what it observed. Matching an existing entry — by full path or
+// by base name, which is how the same file gets named from inside its own directory — only counts
+// again something the read tool already established was there.
+func (o *observedRun) noteLookedAgain(cmd string) {
+	if len(o.looked) == 0 {
+		return
+	}
+	for _, tok := range strings.Fields(cmd) {
+		tok = strings.Trim(tok, "'\"")
+		if tok == "" {
+			continue
+		}
+		for _, p := range o.lookOrder {
+			if p == tok || (path.Base(p) == tok && tok != "") {
+				o.looked[p]++
+				break
+			}
+		}
+	}
 }
 
 // observedScanCap bounds the walk: a session longer than this is read from its tail, where the
@@ -96,6 +142,11 @@ func observeEvents(all []event.Event) observedRun {
 			}
 			name := strings.ToLower(strings.TrimSpace(tc.Name))
 			switch name {
+			case "read", "grep", "glob", "list":
+				var args struct{ Path string }
+				if json.Unmarshal(tc.Args, &args) == nil {
+					out.noteLook(args.Path)
+				}
 			case "write", "edit", "multiedit":
 				var args struct{ Path string }
 				if json.Unmarshal(tc.Args, &args) == nil && strings.TrimSpace(args.Path) != "" {
@@ -114,6 +165,9 @@ func observeEvents(all []event.Event) observedRun {
 						seen[p] = true
 						out.changed = append(out.changed, p)
 					}
+				}
+				if isInspectOnly(args.Command) {
+					out.noteLookedAgain(args.Command)
 				}
 				res := results[tc.CallID]
 				exit, known := exitOfBashResult(res)
@@ -168,6 +222,45 @@ func (o observedRun) succeeded() bool {
 // the record is the council's job, and the council reads this.
 func (o observedRun) thin() bool { return len(o.changed) == 0 && len(o.ran()) == 0 }
 
+// reread lists the paths this run opened more than once, most-repeated first, as "path ×N".
+//
+// Everything magi grants is in the record, and until now the part it handed back was writes and
+// command outcomes — nothing about what the agent had already looked at. Observed live: one run
+// read the same eighty lines of shared_heap.c thirteen times through four different mechanisms (the
+// read tool at two offsets, `sed -n`, `cat | sed`, `cat -n | sed`), each call carrying a slightly
+// different window so no two shared a fingerprint and the repeat guard never fired. Every one of
+// those calls is inspect-only, so the record filed it as neither ran-clean nor failed — the agent's
+// picture of what it had already seen was whatever it remembered seeing.
+//
+// A screen-driven agent gets this for free: its scrollback shows the file it opened four screens
+// ago. This is the same fact, from the store magi already keeps. It is stated, not enforced —
+// re-reading is sometimes exactly right (a file changed since, a window that genuinely needed
+// widening), so nothing here blocks or nudges. Only repeats are listed, because a path read once is
+// not information.
+func (o observedRun) reread() []string {
+	var out []string
+	for _, p := range o.lookOrder {
+		if n := o.looked[p]; n > 1 {
+			out = append(out, fmt.Sprintf("%s ×%d", clipLine(p, 70), n))
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return countOf(out[i]) > countOf(out[j]) })
+	return out
+}
+
+// countOf reads back the ×N reread rendered above, for ordering. An unparseable tail sorts last.
+func countOf(s string) int {
+	i := strings.LastIndex(s, " ×")
+	if i < 0 {
+		return 0
+	}
+	n, err := strconv.Atoi(s[i+len(" ×"):])
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
 // render describes the record in the words a reader needs, or "" when there is nothing to say.
 // Ordered facts first: what changed, what ran, and last what magi could NOT determine — a reader
 // that stops early still has the part that is settled.
@@ -182,6 +275,9 @@ func (o observedRun) render() string {
 		b.WriteString("\nchanged: " + strings.Join(clipEach(o.changed, 8), ", "))
 	} else {
 		b.WriteString("\nchanged: nothing")
+	}
+	if again := o.reread(); len(again) > 0 {
+		b.WriteString("\nalready looked at more than once: " + strings.Join(clipEach(again, 6), " · "))
 	}
 	var ok, failed, unclear []string
 	for _, c := range o.cmds {

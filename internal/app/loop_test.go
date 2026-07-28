@@ -275,6 +275,11 @@ func TestIsInspectOnly(t *testing.T) {
 		"echo 'print(1)' > sol.py", "cat > sol.py <<'EOF'\nx\nEOF", // authoring content, not running it
 		"echo x | tee sol.sh", "test -f sol.py", // tee authors; test is the conditional builtin
 		"echo done 2>&1", "ls foo 2>&1", "echo x >&2", // fd-dups must not read as a `1`/`2` command
+		// Filters that print what they read. None can exercise a deliverable, and all of them are
+		// what an agent reaches for to LOOK at a file — counting a `sed -n` as a clean run is the
+		// churn this classification exists to see through.
+		"grep -n foo src.py", "sed -n '570,652p' shared_heap.c", "cat -n f.c | sed -n '1,5p'",
+		"cd /app/runtime && sed -n '1,20p' heap.c", "sort f.txt | uniq -c", "diff a.txt b.txt",
 	}
 	for _, c := range inspect {
 		if !isInspectOnly(c) {
@@ -284,7 +289,9 @@ func TestIsInspectOnly(t *testing.T) {
 	exec := []string{
 		"python sol.py", "pytest -q", "go test ./...", "./run.sh", "make test",
 		"python -c \"import torch\"", "ls && python sol.py", "/usr/bin/python3 x.py",
-		"npm test", "grep -n foo src.py", // grep processes content → treated as execution
+		"npm test",
+		"sed -i 's/a/b/' f.c", "sed -i.bak 's/a/b/' f.c", // -i rewrites the file in place
+		"awk '{print}' f.c", "find . -name x -exec rm {} ;", // can run a program; stay execution
 		"pytest 2>&1", "python sol.py > out.log", // a run that redirects is still execution
 		"./test", "bin/run", // path-qualified: a binary named `test` is not the builtin
 	}

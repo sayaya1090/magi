@@ -22,6 +22,35 @@ var inspectOnlyCmds = map[string]bool{
 	"wc": true, "stat": true, "file": true, "which": true, "type": true, "test": true,
 	"[": true, "[[": true, "sleep": true, "clear": true, "dirname": true, "basename": true,
 	"realpath": true, "readlink": true, "tee": true, // tee authors content, it does not run a program
+	// Filters and reporters: they read their input and print. None can run a program-under-test,
+	// and every one of them is what an agent reaches for to LOOK at a file — which is exactly the
+	// churn this classification exists to see through. Observed live: one run printed the same
+	// eighty lines through `sed -n`, `cat | sed`, and `cat -n | sed`, and the record credited each
+	// as a command that had exercised something and ended clean.
+	"sed": true, "grep": true, "egrep": true, "fgrep": true, "rgrep": true,
+	"sort": true, "uniq": true, "cut": true, "tr": true, "nl": true, "rev": true, "column": true,
+	"od": true, "xxd": true, "hexdump": true, "strings": true, "cmp": true, "diff": true,
+	"date": true, "uname": true, "id": true, "whoami": true, "hostname": true,
+	"du": true, "df": true, "less": true, "more": true,
+	// Deliberately NOT here: awk (can system()), find (-exec), env (env FOO=1 cmd runs cmd),
+	// xargs, git (log inspects, checkout mutates). The bias stays toward calling it execution.
+}
+
+// sedInPlace reports whether a sed/perl argument list carries the in-place flag — `-i`, or `-i.bak`
+// / `-i'.bak'` with a backup suffix glued on. sed prints its input until `-i`, at which point it
+// rewrites the file: the same binary on both sides of the line this classification draws, so the
+// verb alone cannot answer. Written once and read from all three places that ask (the inspect-only
+// classification, the mutation predicate, and the write-path extractor), because three copies of a
+// flag test drift and none of them can fail a build when they do.
+func sedInPlace(args []string) bool {
+	for _, f := range args {
+		if f == "-i" || f == "--in-place" ||
+			strings.HasPrefix(f, "-i.") || strings.HasPrefix(f, "-i'") ||
+			strings.HasPrefix(f, "--in-place=") {
+			return true
+		}
+	}
+	return false
 }
 
 // isInspectOnly reports whether EVERY segment of cmd (split on the shell operators &&, ||,
@@ -30,7 +59,8 @@ var inspectOnlyCmds = map[string]bool{
 // (contains `/`, e.g. `./test`, `/usr/bin/foo`, `bin/run`) — a path always runs a program,
 // never a shell inspection builtin, so this is checked before the builtin-name lookup and
 // keeps a binary that happens to be named `test`/`sleep` from reading as the builtin.
-// Otherwise the bare name is looked up in inspectOnlyCmds. This is a heuristic tokenizer that
+// Otherwise the bare name is looked up in inspectOnlyCmds, and a verb that some flag turns into a
+// writer (`sed -i`) is execution despite the name. This is a heuristic tokenizer that
 // does not honor quoting, which is fine: it only feeds the advisory unverifiedDeliverable
 // signal. An empty command counts as inspect-only (it ran nothing).
 func isInspectOnly(cmd string) bool {
@@ -52,6 +82,9 @@ func isInspectOnly(cmd string) bool {
 		}
 		if !inspectOnlyCmds[tok] {
 			return false
+		}
+		if (tok == "sed" || tok == "perl") && sedInPlace(fields[1:]) {
+			return false // -i rewrites the file; without it the same command only prints
 		}
 	}
 	return true
@@ -258,10 +291,8 @@ func mutatesFiles(cmd string) bool {
 		}
 		switch verb {
 		case "sed", "perl":
-			for _, f := range fields[1:] {
-				if f == "-i" || strings.HasPrefix(f, "-i.") || strings.HasPrefix(f, "-i'") {
-					return true
-				}
+			if sedInPlace(fields[1:]) {
+				return true
 			}
 		case "tar":
 			if len(fields) > 1 {
@@ -404,12 +435,11 @@ func bashWritePaths(cmd string) []string {
 		case "sed", "perl":
 			// Only `-i` rewrites in place; without it the command prints and changes nothing.
 			// Operands are the trailing files — the first is the script UNLESS `-e`/`-f` supplied it.
-			inPlace, scripted := false, false
+			inPlace, scripted := sedInPlace(fields[1:]), false
 			var operands []string
 			for i := 1; i < len(fields); i++ {
 				f := fields[i]
-				if f == "-i" || strings.HasPrefix(f, "-i.") || strings.HasPrefix(f, "-i'") {
-					inPlace = true
+				if sedInPlace([]string{f}) {
 					continue
 				}
 				if f == "-e" || f == "-f" {
