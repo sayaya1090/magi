@@ -174,38 +174,17 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	if note := pipeStageNote(exit, stages); note != "" {
 		disp = note + "\n" + disp
 	}
+	// The annotators, in precedence order, FIRST match wins: each says one thing about how this
+	// command's status should be read, and stacking several on one result would bury the sharpest
+	// under the vaguest. It is a list rather than an if/else ladder because the order IS the policy
+	// — reading it should not mean reading eight nested branches — and because each entry can then
+	// be exercised on its own.
 	if bodyscanEnabled() {
-		if note := maskedFailureNote(exit, disp); note != "" {
-			disp = note + "\n" + disp
-		} else if note := backgroundTailNote(exit, a.Command, env.SessionID); note != "" {
-			// The command ends in a shell `&`: exit 0 only means the child STARTED.
-			// A weak model reads the instant clean exit as progress, abandons the
-			// in-flight install/build, and relaunches it — the compile-compcert
-			// failure arc (7 competing opam switch creations, none awaited).
-			disp = note + "\n" + disp
-		} else if note := maskingTailNote(exit, a.Command); note != "" {
-			// No crash text, but the COMMAND ends in a pure masking idiom — the
-			// exit 0 is structurally uninformative even when the output looks clean
-			// (`false || true` fails silently). Static on the command string, so it
-			// also catches failures that print nothing.
-			disp = note + "\n" + disp
-		} else if note := swallowingPipeNote(exit, a.Command); note != "" {
-			// The command ends in `| tail`/`| head`: the exit 0 is the truncator's, not the
-			// command before the pipe. A label, not advice — it says whose the number is and
-			// stops, so it needs no gate and cries on nobody. What it used to argue (stop
-			// piping, the tool already caps output) the result now demonstrates: the `output:`
-			// line names the file holding the whole, untruncated thing.
-			disp = note + "\n" + disp
-		} else if note := sequencedTailNote(exit, a.Command); note != "" {
-			// Same label for the `;` form, which is what a model writes when it wants a captured
-			// log AND the exit code — the shape that produced the most convincing false success
-			// there is (exit 0 with an empty body, read as "the build succeeded").
-			disp = note + "\n" + disp
-		} else if note := ephemeralEnvNote(exit, a.Command, env.SessionID); note != "" {
-			// First export/source of the session: teach that shell state does not
-			// outlive the call, before an ephemeral setup gets mistaken for a
-			// persistent deliverable (the PATH-export near-miss).
-			disp = note + "\n" + disp
+		for _, annotate := range statusAnnotators {
+			if note := annotate(exit, a.Command, disp, env.SessionID); note != "" {
+				disp = note + "\n" + disp
+				break
+			}
 		}
 	}
 	// A tty-gated command (ssh, serial console) run in the foreground gets no controlling

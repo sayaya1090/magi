@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"sync"
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -116,40 +117,63 @@ func (m *meteredProvider) StreamChat(ctx context.Context, r port.ChatRequest) (<
 // session's line. Cost is priced per REQUEST — which is what a backend charges — so it sums the
 // prompt of every call rather than the last one's.
 func (a *App) recordUsage(sid session.SessionID, model string, r event.Usage) {
+	r.Cost = a.cfg.Models.Get(model).Cost(r.In, r.Out)
+	a.usage.record(sid, r)
+}
+
+// usageLedger is every token this process has spent, by session and in total. It owns its own lock
+// because recordUsage runs on every model goroutine and must never queue behind the state lock —
+// which is also why it is a type rather than three more fields on App: the invariant "these three
+// are read and written together, under THIS mutex" is stated once here instead of being a rule
+// every future call site has to remember.
+type usageLedger struct {
+	mu        sync.Mutex
+	total     event.Usage
+	bySession map[session.SessionID]event.Usage
+}
+
+func addUsage(dst *event.Usage, r event.Usage) {
+	dst.In += r.In
+	dst.Out += r.Out
+	dst.Cost += r.Cost
+}
+
+// record adds one request to the grand total and, when the context named one, to that session's
+// line. The total is unconditional: a call made on a context nobody tagged still belongs on the
+// bill this exists to produce.
+func (l *usageLedger) record(sid session.SessionID, r event.Usage) {
 	if r.In <= 0 && r.Out <= 0 {
 		return
 	}
-	r.Cost = a.cfg.Models.Get(model).Cost(r.In, r.Out)
-	add := func(dst *event.Usage) {
-		dst.In += r.In
-		dst.Out += r.Out
-		dst.Cost += r.Cost
-	}
-	a.usageMu.Lock()
-	defer a.usageMu.Unlock()
-	add(&a.usageTotal)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	addUsage(&l.total, r)
 	if sid == "" {
 		return
 	}
-	if a.usageBySession == nil {
-		a.usageBySession = map[session.SessionID]event.Usage{}
+	if l.bySession == nil {
+		l.bySession = map[session.SessionID]event.Usage{}
 	}
-	u := a.usageBySession[sid]
-	add(&u)
-	a.usageBySession[sid] = u
+	u := l.bySession[sid]
+	addUsage(&u, r)
+	l.bySession[sid] = u
+}
+
+func (l *usageLedger) grandTotal() event.Usage {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.total
+}
+
+func (l *usageLedger) forSession(sid session.SessionID) event.Usage {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.bySession[sid]
 }
 
 // UsageTotal reports every token this process has spent, on any session or none. This is the
 // billing number: it counts each request's prompt, not the last one's.
-func (a *App) UsageTotal() event.Usage {
-	a.usageMu.Lock()
-	defer a.usageMu.Unlock()
-	return a.usageTotal
-}
+func (a *App) UsageTotal() event.Usage { return a.usage.grandTotal() }
 
 // UsageFor reports what one session cost.
-func (a *App) UsageFor(sid session.SessionID) event.Usage {
-	a.usageMu.Lock()
-	defer a.usageMu.Unlock()
-	return a.usageBySession[sid]
-}
+func (a *App) UsageFor(sid session.SessionID) event.Usage { return a.usage.forSession(sid) }

@@ -161,11 +161,11 @@ func TestJudgeRevisionFailsOpenOnAnUnreadableVerdict(t *testing.T) {
 // so the baseline prompt is byte-for-byte unchanged when it is off.
 func TestMemberPromptKeepGated(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "correctness"}
-	off := memberSystem(m, "terminate", "fix the bug", false, false)
+	off := memberSystem(m, "fix the bug", false, false)
 	if strings.Contains(off, "\"keep\"") || strings.Contains(off, "must NOT redo or revert") {
 		t.Error("keep clause/schema must be absent when keep is off")
 	}
-	on := memberSystem(m, "terminate", "fix the bug", true, false)
+	on := memberSystem(m, "fix the bug", true, false)
 	if !strings.Contains(on, "must NOT redo or revert") {
 		t.Error("keep clause missing when keep is on")
 	}
@@ -187,11 +187,11 @@ func TestMemberPromptKeepGated(t *testing.T) {
 func TestTerminateMemberPromptScopeBoundary(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "completeness"}
 	// OFF (default): the clause is absent — byte-identical baseline, no added rejection criterion.
-	if off := memberSystem(m, "terminate", "fix the crash without touching the shared files", false, false); strings.Contains(off, "SCOPE and BOUNDARY") {
+	if off := memberSystem(m, "fix the crash without touching the shared files", false, false); strings.Contains(off, "SCOPE and BOUNDARY") {
 		t.Error("scope/boundary clause must be ABSENT when the constraint gate is off (default)")
 	}
 	// ON (A/B arm): the clause is present with its guards.
-	p := memberSystem(m, "terminate", "fix the crash without touching the shared files", false, true)
+	p := memberSystem(m, "fix the crash without touching the shared files", false, true)
 	for _, want := range []string{"SCOPE and BOUNDARY", "OFF-LIMITS", "out-of-scope edit", "violating constraint", "invent a limit the task never stated"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("terminate prompt missing scope/boundary fragment %q", want)
@@ -208,7 +208,7 @@ func TestTerminateMemberPromptScopeBoundary(t *testing.T) {
 // enumerated checklist, judge each item and land done only if EVERY item is satisfied.
 func TestTerminateMemberPromptPerItem(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "completeness"}
-	p := memberSystem(m, "terminate", "stand up a service", false, false)
+	p := memberSystem(m, "stand up a service", false, false)
 	for _, want := range []string{"PER-ITEM ACCEPTANCE", "NUMBERED checklist", "EVERY item", "UNSATISFIED"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("terminate prompt missing per-item clause fragment %q", want)
@@ -225,7 +225,7 @@ func TestTerminateMemberPromptPerItem(t *testing.T) {
 // wall clock (kv-store: a council int64 demand the grader never checked, cost an AgentTimeout).
 func TestMemberPromptGroundsDemandsInTask(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "correctness"}
-	p := memberSystem(m, "terminate", "stand up a service", false, false)
+	p := memberSystem(m, "stand up a service", false, false)
 	for _, want := range []string{"GROUND every continue demand in the TASK", "where the TASK", "phantom requirement"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("terminate member prompt must require continue demands be grounded in the task (missing %q)", want)
@@ -246,7 +246,7 @@ func TestMemberPromptGroundsDemandsInTask(t *testing.T) {
 // or never actually run. Task-agnostic (no SIGINT/cancel tokens).
 func TestMemberPromptForbidsEvidenceMethodOverDemand(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "correctness"}
-	p := memberSystem(m, "terminate", "make the handler resilient", false, false)
+	p := memberSystem(m, "make the handler resilient", false, false)
 	for _, want := range []string{"mere simulation", "real-world reproduction", "ACCEPTANCE METHOD", "already shown working"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("terminate prompt must forbid evidence-method over-demand (missing %q)", want)
@@ -291,16 +291,16 @@ func TestPlanMemberPromptNoEvalSetSpecifics(t *testing.T) {
 		"grpc", "_pb2", ".proto", "gcov", "opam", "valgrind", "sqlite",
 		"208", "377", "Cleaned up",
 	}
-	for _, phase := range []string{"", "plan", "contract", "substitution", "terminate"} {
-		for _, lens := range []string{"correctness", "verification", "completeness"} {
-			m := council.Member{Name: "x", Lens: lens}
-			for _, keep := range []bool{false, true} {
-				for _, cons := range []bool{false, true} {
-					p := memberSystem(m, phase, "build the thing", keep, cons)
+	for _, lens := range []string{"correctness", "verification", "completeness"} {
+		m := council.Member{Name: "x", Lens: lens}
+		for _, keep := range []bool{false, true} {
+			for _, cons := range []bool{false, true} {
+				{
+					p := memberSystem(m, "build the thing", keep, cons)
 					for _, b := range banned {
 						if strings.Contains(p, b) {
-							t.Errorf("phase=%q lens=%q keep=%v cons=%v leaks eval-set-specific token %q — use a task-agnostic example",
-								phase, lens, keep, cons, b)
+							t.Errorf("lens=%q keep=%v cons=%v leaks eval-set-specific token %q — use a task-agnostic example",
+								lens, keep, cons, b)
 						}
 					}
 				}
@@ -314,7 +314,7 @@ func TestPlanMemberPromptNoEvalSetSpecifics(t *testing.T) {
 // that closes the reval3 play-zork / run-pdp11 / fasttext class of false approvals.
 func TestMemberPromptRationalizedDone(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "verification"}
-	s := memberSystem(m, "terminate", "beat the game", false, false)
+	s := memberSystem(m, "beat the game", false, false)
 	if !strings.Contains(s, "RATIONALIZES incompletion") {
 		t.Error("terminate prompt missing the rationalized-done clause")
 	}
@@ -340,7 +340,7 @@ func TestMemberPromptRationalizedDone(t *testing.T) {
 // process listing instead of crediting the successful client round-trip).
 func TestMemberPromptObjectiveNotMethod(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "correctness"}
-	s := memberSystem(m, "terminate", "run a server on port 5328", false, false)
+	s := memberSystem(m, "run a server on port 5328", false, false)
 
 	// The old wording prescribed the method; it must be gone.
 	if strings.Contains(s, "name the exact check to run") {
@@ -373,7 +373,7 @@ func TestMemberPromptObjectiveNotMethod(t *testing.T) {
 // and a contest with no concrete evidence is disregarded (false-done guard).
 func TestMemberPromptContestAdjudication(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "correctness"}
-	s := memberSystem(m, "terminate", "run a server on port 5328", false, false)
+	s := memberSystem(m, "run a server on port 5328", false, false)
 
 	if !strings.Contains(s, "CONTEST") {
 		t.Error("terminate prompt must instruct the member how to judge a CONTEST")
@@ -394,7 +394,7 @@ func TestMemberPromptContestAdjudication(t *testing.T) {
 
 func TestMemberPromptArtifactGrounding(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "completeness"}
-	s := memberSystem(m, "terminate", "build a CLI tool", false, false)
+	s := memberSystem(m, "build a CLI tool", false, false)
 	if !strings.Contains(s, "is NOT itself the artifact") {
 		t.Error("terminate prompt missing artifact-grounding clause")
 	}
@@ -435,7 +435,7 @@ func TestMemberPromptProportionality(t *testing.T) {
 
 	// terminate phase: representative coverage of a large set is done; demanding
 	// exhaustive enumeration / atom-level precision is churn, not a defect.
-	s := memberSystem(m, "terminate", "find refactoring candidates", false, false)
+	s := memberSystem(m, "find refactoring candidates", false, false)
 	if !strings.Contains(s, "EXHAUSTIVE enumeration") {
 		t.Error("terminate prompt missing the proportional-completeness clause")
 	}
@@ -959,10 +959,10 @@ func TestCouncilPromptsCarryNoHarnessFraming(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "correctness"}
 	prompts := map[string]string{
 		"devil":    devilSystem,
-		"plan":     memberSystem(m, "plan", "build a service and run its tests", false, false),
-		"contract": memberSystem(m, "contract", "build a service and run its tests", false, false),
-		"subst":    memberSystem(m, "substitution", "build a service and run its tests", false, false),
-		"finish":   memberSystem(m, "", "build a service and run its tests", true, true),
+		"plan":     memberSystem(m, "build a service and run its tests", false, false),
+		"contract": memberSystem(m, "build a service and run its tests", false, false),
+		"subst":    memberSystem(m, "build a service and run its tests", false, false),
+		"finish":   memberSystem(m, "build a service and run its tests", true, true),
 	}
 	for name, p := range prompts {
 		for _, banned := range []string{"grader", "benchmark", "leaderboard", "reward", "eval set"} {

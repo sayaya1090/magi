@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -35,25 +34,24 @@ func (o Observation) Empty() bool {
 // panel and turns a redraw storm into one read.
 const observationTTL = time.Second
 
+// observationEntry is one session's memoized view and when it was taken. It lives on the session's
+// own state, not in a package map: a map keyed by session id and never swept grows for the life of
+// the process, and a second App in the same process would silently share it.
 type observationEntry struct {
 	obs Observation
 	at  time.Time
 }
 
-var (
-	observationMu    sync.Mutex
-	observationCache = map[session.SessionID]observationEntry{}
-)
-
 // Observation returns the display form of magi's record for a session, memoized for observationTTL
 // so a redrawing panel does not re-read the log on every frame.
 func (a *App) Observation(ctx context.Context, sid session.SessionID) Observation {
-	observationMu.Lock()
-	if e, ok := observationCache[sid]; ok && time.Since(e.at) < observationTTL {
-		observationMu.Unlock()
-		return e.obs
+	a.mu.Lock()
+	if st, ok := a.stateIf(sid); ok && st.observed != nil && time.Since(st.observed.at) < observationTTL {
+		obs := st.observed.obs
+		a.mu.Unlock()
+		return obs
 	}
-	observationMu.Unlock()
+	a.mu.Unlock()
 
 	o := a.observe(ctx, sid)
 	var out Observation
@@ -71,8 +69,8 @@ func (a *App) Observation(ctx context.Context, sid session.SessionID) Observatio
 			out.Failed = append(out.Failed, fmt.Sprintf("%s (exit %d)", c.cmd, c.exit))
 		}
 	}
-	observationMu.Lock()
-	observationCache[sid] = observationEntry{obs: out, at: time.Now()}
-	observationMu.Unlock()
+	a.mu.Lock()
+	a.stateLocked(sid).observed = &observationEntry{obs: out, at: time.Now()}
+	a.mu.Unlock()
 	return out
 }

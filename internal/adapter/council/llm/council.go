@@ -304,7 +304,7 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 	// ask streams one member turn for userMsg and parses its reply. Errors (backend down)
 	// and parse outcome are surfaced separately so the caller can distinguish "unavailable"
 	// (abstain) from "unparseable" (retry once with a JSON-only reminder).
-	sys := memberSystem(m, req.Phase, req.Task, req.Keep, req.Constraints)
+	sys := memberSystem(m, req.Task, req.Keep, req.Constraints)
 	// The raw reply travels back with the parse outcome: the retry has to be able to name WHICH way
 	// the previous one failed, and that is only knowable from the text it failed on.
 	ask := func(userMsg string) (memberReply, string, bool, error) {
@@ -389,7 +389,7 @@ func (c *Council) pollRebut(ctx context.Context, req port.DeliberationRequest, m
 		"already on the table. Reply in the SAME JSON shape."
 	stream, err := provider.StreamChat(ctx, port.ChatRequest{
 		Model:    model,
-		System:   memberSystem(m, req.Phase, req.Task, req.Keep, req.Constraints),
+		System:   memberSystem(m, req.Task, req.Keep, req.Constraints),
 		Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: user}}}},
 		Params:   map[string]any{"temperature": 0.0},
 	})
@@ -522,7 +522,7 @@ func (c *Council) pollDevilReview(ctx context.Context, req port.DeliberationRequ
 		"and do not raise a brand-new objection of your own. Reply in the SAME JSON shape."
 	stream, err := provider.StreamChat(ctx, port.ChatRequest{
 		Model:    model,
-		System:   memberSystem(m, req.Phase, req.Task, req.Keep, req.Constraints),
+		System:   memberSystem(m, req.Task, req.Keep, req.Constraints),
 		Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: user}}}},
 		Params:   map[string]any{"temperature": 0.0},
 	})
@@ -618,7 +618,7 @@ type memberReply struct {
 // review, and this. The other three judged something magi authored BEFORE the work existed, and
 // went with it. What a member judges now is a finished turn against the task, which is the only
 // phase that was ever asked about the work itself.
-func memberSystem(m council.Member, phase, task string, keep, constraints bool) string {
+func memberSystem(m council.Member, task string, keep, constraints bool) string {
 	lens := council.Lenses[m.Lens]
 	if lens == "" {
 		lens = "Judge whether the task is genuinely complete."
@@ -672,10 +672,8 @@ func memberSystem(m council.Member, phase, task string, keep, constraints bool) 
 			"that does not reveal the artifact proves nothing, and the agent's own narration is a claim, never evidence. "+
 			"In particular a statement that the task is \"done\", \"complete\", \"verified\", or that \"all tests passed\" is "+
 			"the agent's OWN CLAIM — do NOT accept it as proof; judge only the executed check results, tool outputs, and diff. "+
-			"When a `deliverable-check` signal is present and FAILED, the plan's own executable contract is objectively unmet: "+
-			"vote continue no matter how confidently the report asserts success. "+
-			"But passing checks are NECESSARY, not sufficient: those checks are the council's own approximation of an acceptance "+
-			"that may be stricter, and a self-authored 'checkpoint' test the agent wrote is weaker still. Where the "+
+			"A test the agent wrote for itself is the weakest evidence there is: it shows the code does what its author "+
+			"expected, which is the thing in doubt. Where the "+
 			"TASK states an exact contract — a literal command line, a concrete input→output example, a numeric threshold — "+
 			"do not vote done unless the evidence SHOWS that EXACT command was run and its output matched the stated value; a "+
 			"substitute that merely looks equivalent, or the agent's own test standing in for the task's stated one, is a "+
@@ -806,7 +804,7 @@ func evidence(req port.DeliberationRequest) string {
 		b.WriteString("\n\n")
 	}
 	section("Task (the goal)", req.Task)
-	section("Plan / acceptance criteria (the contract)", req.Plan)
+	section("The agent’s own plan (its todo list, not a contract anyone else authored)", req.Plan)
 	section("Agent's report (the claim)", req.Report)
 	if len(req.Signals) > 0 {
 		b.WriteString("# Signals (the evidence)\n")

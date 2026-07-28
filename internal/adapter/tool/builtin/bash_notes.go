@@ -405,3 +405,36 @@ func pipeStageNote(exit int, stages []int) string {
 		strings.Join(parts, " → ") + " (left to right), so the work at the head of the pipe FAILED " +
 		"even though the pipeline reported success.]"
 }
+
+// statusAnnotator says one thing about how a command's reported status should be read, or "" when
+// it has nothing to say about this one. Every annotator gets the same four facts — the exit the
+// shell reported, the command as written, the output as it will be displayed, and the session —
+// so the list can be reordered without rewriting call sites.
+type statusAnnotator func(exit int, command, out string, sid session.SessionID) string
+
+// statusAnnotators is the precedence order, first match wins. Highest first: a crash in the body is
+// the most specific thing that can be said about an exit 0, and "the shell state does not persist"
+// is the most general. Stacking several would bury the sharpest note under the vaguest.
+var statusAnnotators = []statusAnnotator{
+	// The output carries a real crash/traceback while the status says success — almost always a
+	// failing code swallowed by a `|| echo`/`|| true` tail.
+	func(exit int, _, out string, _ session.SessionID) string { return maskedFailureNote(exit, out) },
+	// The command ends in a shell `&`: exit 0 only means the child STARTED. A weak model reads the
+	// instant clean exit as progress, abandons the in-flight install/build, and relaunches it.
+	func(exit int, cmd, _ string, sid session.SessionID) string {
+		return backgroundTailNote(exit, cmd, sid)
+	},
+	// No crash text, but the COMMAND ends in a pure masking idiom — the exit 0 is structurally
+	// uninformative even when the output looks clean (`false || true` fails silently).
+	func(exit int, cmd, _ string, _ session.SessionID) string { return maskingTailNote(exit, cmd) },
+	// It ends in `| tail`/`| head`: the exit belongs to the truncator, not to the work.
+	func(exit int, cmd, _ string, _ session.SessionID) string { return swallowingPipeNote(exit, cmd) },
+	// The `;` form of the same thing — what a model writes when it wants a captured log AND the
+	// exit code, and the shape that produced the most convincing false success there is.
+	func(exit int, cmd, _ string, _ session.SessionID) string { return sequencedTailNote(exit, cmd) },
+	// First export/source of the session: shell state does not outlive the call, said before an
+	// ephemeral setup gets mistaken for a persistent deliverable.
+	func(exit int, cmd, _ string, sid session.SessionID) string {
+		return ephemeralEnvNote(exit, cmd, sid)
+	},
+}
