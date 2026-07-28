@@ -273,9 +273,7 @@ model    = "gpt-oss:20b"
 `read` · `write` · `edit` · `multiedit` (atomic multi-hunk) · `grep` · `glob` · `list` ·
 `bash` (timeout · exit code · `background` for long-running commands) · `bash_output` ·
 `bash_input` · `bash_kill` · `wait_for` · `port_owner` ·
-`astgrep` · `findcontext` · `recall_context` · `recall_memory` ·
-`lsp_diagnostics` · `lsp` (definition / references / symbols, kind-selected — gopls for Go; TS/JS,
-Python, Rust, C/C++ via their language servers) ·
+`recall_context` · `recall_memory` ·
 `webfetch` · `websearch` (DuckDuckGo, or Brave/Tavily with an API key) ·
 `todowrite` · `council` (ask for a reading, or declare the task finished) · `remember` (shared
 memory) · `skill` · `replan` · `ask_user` and `route_interjection` (interactive runs only)

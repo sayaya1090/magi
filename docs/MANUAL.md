@@ -57,7 +57,7 @@ first when a fresh machine misbehaves. It checks, and prints an `ok` / `warn` /
 
 - **LLM endpoint** — reachability of `--base-url` and whether the configured
   `--model` is present on it (for Ollama, whether you are signed in for cloud models).
-- **Optional external tools** — `gopls`, `ast-grep`, `rg` (ripgrep): present ones
+- **Optional external tools** — `gopls`, `rg` (ripgrep): present ones
   sharpen search/refactor; missing ones only degrade gracefully (warn, never fail).
 - **Sandbox backend** — which command isolation is available (e.g. `sandbox-exec`
   on macOS, `bwrap` on Linux) and whether bash will run confined.
@@ -361,8 +361,6 @@ One agent sees all of them. (The only exception is **workflow mode**, §2, where
 | `grep` | regex content search | — |
 | `glob` | filename glob (`**` supported) | — |
 | `list` | directory listing | — |
-| `findcontext` | rank the files most relevant to a natural-language query, **prioritizing files that DEFINE the named symbols** (funcs/classes/types) — cheaper and more precise than reading broadly | — |
-| `astgrep` | structural (AST) code search (`ast-grep`) — matches code shape, not text, so a rename/reformat doesn't fool it | — |
 
 ### Execution
 | Tool | Description | Permission |
@@ -373,12 +371,6 @@ One agent sees all of them. (The only exception is **workflow mode**, §2, where
 | `bash_kill` | terminate a background command | — |
 | `wait_for` | block until a condition holds (a file appears, a port answers, a background job exits) instead of spinning on `sleep` + re-check | — |
 | `port_owner` | what is listening on a port, and which process owns it — portable, where `ss`/`lsof`/`netstat` may not be installed | — |
-
-### Code navigation (LSP)
-| Tool | Description | Permission |
-|---|---|---|
-| `lsp_diagnostics` | `gopls` diagnostics (types/unused etc.) — Go | — |
-| `lsp` | one semantic-navigation tool, `kind`-selected: `definition` · `references` · `symbols` (Go via `gopls`; ~30 languages via LSP). They share one server backend and the same position arguments, so they are one tool with a mode rather than three | — |
 
 ### Web
 | Tool | Description | Permission |
@@ -415,11 +407,15 @@ Neither is registered in a headless/bench run: with nobody to answer, they can n
 
 - All file tools **deny access outside the working directory** (a jail) — a `../../etc/hosts` read is refused, not served.
 - Read-only tools run **in parallel** within a step; writes are serialized.
-- After a file modification, **diagnostic feedback** (Go: gofmt/`go vet`, Python: `py_compile`) is fed back so the agent self-corrects (the harness, §3).
+- After a file modification, **diagnostic feedback** (Go: gofmt/`go vet`, Python: `py_compile`, everything else via its language server) is fed back so the agent self-corrects (the harness, §3).
 
 ### What is deliberately absent
 
-There is no `task` tool, and no subagents to delegate to. There are no aggregation tools (`countlines`, `countmatches`, `groupby`, `tabulate`) — over 457 recorded bash calls they were invoked **zero** times, while 59% of those calls contained a pipe: the model reaches for `wc -l`, not for a tool that reimplements it. A tool that is never called is not free; it is weight on every request.
+There is no `task` tool, and no subagents to delegate to.
+
+There are also no aggregation tools (`countlines`, `countmatches`, `groupby`, `tabulate`), no `findcontext`, no `astgrep`, and no LSP navigation tools. Counted across every recorded bench run, the first six were called **zero** times and `astgrep` twice, while 59% of bash calls contained a pipe: the model reaches for `wc -l` and `grep`, not for a tool that reimplements them. A tool that is never called is not free — it is weight on every request, for every step, forever.
+
+magi still runs the language servers. **Diagnostics after an edit** (gofmt / `go vet` / `py_compile` / LSP) fire without the model asking, which is the half of that machinery the record shows actually landing.
 
 ## 6. Finishing a turn
 
@@ -518,7 +514,7 @@ auto-registered. When the server shuts down, those tools are removed.
 
 ## 12. Status & scope
 
-The **loop-engineering track is shipped**, not planned — it is the signature of the tool and is described throughout this manual: the **council** the agent declares completion to (Melchior · Balthasar · Casper, §3 · §6), the **Loop map** (`/loop`), the live deliberation panel, **rewind/fork/session-diff** (`/rewind` · `/fork` · `/loopdiff`, §4), and **re-hydratable compaction** (§4). Likewise already implemented: the **OS sandbox** (`--profile`/`sandbox`, §3), **LSP navigation** (`lsp`/`lsp_diagnostics`, §5), **web search** (`websearch`), and **prompt caching** (`cache_control`, on by default with automatic fallback). The feature/milestone spec with test examples lives in [`SPEC.md`](SPEC.md); the internals in [`ARCHITECTURE.md`](ARCHITECTURE.md).
+The **loop-engineering track is shipped**, not planned — it is the signature of the tool and is described throughout this manual: the **council** the agent declares completion to (Melchior · Balthasar · Casper, §3 · §6), the **Loop map** (`/loop`), the live deliberation panel, **rewind/fork/session-diff** (`/rewind` · `/fork` · `/loopdiff`, §4), and **re-hydratable compaction** (§4). Likewise already implemented: the **OS sandbox** (`--profile`/`sandbox`, §3), **post-edit LSP diagnostics** (§5), **web search** (`websearch`), and **prompt caching** (`cache_control`, on by default with automatic fallback). The feature/milestone spec with test examples lives in [`SPEC.md`](SPEC.md); the internals in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 **Genuinely out of scope (today).** No web UI or hosted remote sharing — magi is a terminal client (sharing is via a git-backed experience store, §7, not a server). Automatic context *ranking* is deliberately lexical/deterministic (BM25-lite, §4), not embedding-based, so there is no vector-DB dependency. These are scope choices, not gaps to be silently filled.
 

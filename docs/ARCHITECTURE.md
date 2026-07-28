@@ -313,24 +313,36 @@ implement↔verify up to `WorkflowMaxLoops`. Emits `workflow.phase` events.
 
 Built-ins (`builtin.Default()`): `read`, `write`, `edit`, `multiedit`, `grep`, `glob`, `list`,
 `bash`, `bash_output`, `bash_kill`, `bash_input`, `wait_for`, `port_owner`, `todowrite`,
-`council`, `webfetch`, `websearch`, `remember`, `skill`, `findcontext`, `recall_context`,
-`recall_memory`, `astgrep`, `lsp_diagnostics`, `lsp`. Registered by `main.go`: `replan`, and —
-interactive runs only — `ask_user`, `route_interjection`.
+`council`, `webfetch`, `websearch`, `remember`, `skill`, `recall_context`, `recall_memory`.
+Registered by `main.go`: `replan`, and — interactive runs only — `ask_user`, `route_interjection`.
 
 A tool earns its place only when it gives magi something bash cannot, or gives the model something
-bash cannot. Four aggregation helpers (`tabulate`, `countmatches`, `countlines`, `groupby`) failed
-both and came out: across every recorded run they were called zero times, and they had already
-been hidden from any agent holding bash. `write`/`edit`/`multiedit` stay because the change
-tracking, the self-revert check and the council's evidence hang off them; `read` stays for its
-line gutter, paging and non-text formats. 59% of recorded bash calls contain a pipe, so a tool that
-merely competes with a pipe loses.
+bash cannot. Counted across every recorded bench run, the tools that failed both came out:
+
+| removed | calls in the record | what the model reached for instead |
+|---|---|---|
+| `tabulate` `countmatches` `countlines` `groupby` | 0 | `wc -l`, `grep -c`, `sort \| uniq -c` |
+| `findcontext` | 0 | `grep`, `glob` |
+| `lsp`, `lsp_diagnostics` | 0 | `grep`, and the compiler |
+| `astgrep` | 2 | `grep` |
+
+59% of recorded bash calls contain a pipe, so a tool that merely competes with a pipe loses. What
+stayed and why: `write`/`edit`/`multiedit` because the change tracking, the self-revert check and
+the council's evidence hang off them; `read` for its line gutter, paging and non-text formats;
+`bash_input` because nothing else can write to a running process's stdin; `wait_for` and
+`port_owner` because they answer where `sleep`-polling and `ss`/`lsof` are absent or guard-tripping;
+`replan` because it resets magi's own no-progress window, which no command can.
+
+The **LSP pool stays** even though both LSP tools went. It is what runs the automatic post-edit
+diagnostics (`app/diagnose.go` → `builtin.AutoDiagnose`), which fire without the model asking.
 
 Background commands: `bash` with `background=true` starts a detached process
 (registry in `bgproc.go`) and returns an id; `bash_output` polls new output, `bash_kill`
 stops it. **`port_owner`** (`portowner.go`) finds which process is bound to a TCP port by
 scanning `/proc/net/tcp{,6}` + `/proc/<pid>/fd` and can kill it — a portable way to free a
 port squatted by a stale/leftover server when `pkill`/`lsof`/`ss`/`fuser` are absent
-(exit 127) in a stripped container (Linux only; a stub reports unsupported elsewhere). LSP navigation uses the gopls CLI for Go and a minimal stdio JSON-RPC client
+(exit 127) in a stripped container (Linux only; a stub reports unsupported elsewhere).
+Post-edit diagnostics use the gopls CLI for Go and a minimal stdio JSON-RPC client
 (`lspclient.go`) for other languages (typescript-language-server, pyright,
 rust-analyzer, clangd), degrading gracefully when a server is absent. `websearch`
 uses DuckDuckGo by default, or Brave/Tavily when `BRAVE_API_KEY`/`TAVILY_API_KEY` is set.
@@ -348,15 +360,11 @@ moved or changed underneath a stale read. `write`/`edit`/`multiedit` additionall
 append a **non-blocking advisory** when freshly added comments read like
 change-narration ("// I've updated the loop …") or placeholders/elisions
 ("// rest of the code unchanged", "// …") — comments should capture non-obvious
-intent, not narrate the diff; the edit still applies. `findcontext` ranks by symbol
-definition + path + content coverage; `astgrep` is structural (AST) search via the
-external `ast-grep` CLI (shells out, no CGO) and degrades to a "use grep/findcontext"
-message when the binary is absent; `lsp_diagnostics` reports LSP diagnostics (type
-errors, unused/undefined symbols, …) for a file in **any supported language** — Go
-through the gopls CLI, every other language (Python, Rust, TypeScript/JS, C/C++, and
-the long tail `serverFor` knows) by opening the file in its language server and
-reading the pushed `textDocument/publishDiagnostics` — errors and warnings only,
-degrading to a "build/run the project" suggestion when no server is installed.
+intent, not narrate the diff; the edit still applies. After a file modification magi runs
+**diagnostics itself** and feeds the result back: gofmt/`go vet` for Go, `py_compile` for Python,
+and for every other language the file is opened in its language server and the pushed
+`textDocument/publishDiagnostics` is read — errors and warnings only, degrading to a "build/run the
+project" suggestion when no server is installed.
 
 **bash is bash.** `/bin/sh` is dash on Debian/Ubuntu images, where the bash a model writes
 everywhere else — `[[ ]]`, `source`, arrays — is a syntax error that belongs to the shell choice

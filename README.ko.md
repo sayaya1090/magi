@@ -261,9 +261,7 @@ model    = "gpt-oss:20b"
 `read` · `write` · `edit` · `multiedit`(원자적 멀티헝크) · `grep` · `glob` · `list` ·
 `bash`(타임아웃 · exit코드 · 장시간 명령용 `background`) · `bash_output` · `bash_input` ·
 `bash_kill` · `wait_for` · `port_owner` ·
-`astgrep` · `findcontext` · `recall_context` · `recall_memory` ·
-`lsp_diagnostics` · `lsp`(definition / references / symbols를 kind로 선택 — Go는 gopls,
-TS/JS·Python·Rust·C/C++는 각 언어서버) ·
+`recall_context` · `recall_memory` ·
 `webfetch` · `websearch`(DuckDuckGo, 또는 Brave/Tavily 키 사용) ·
 `todowrite` · `council`(읽기를 청하거나, 작업 종료를 선언) · `remember`(공유 메모리) · `skill` ·
 `replan` · `ask_user`·`route_interjection`(대화형 실행에서만)
