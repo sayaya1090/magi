@@ -63,8 +63,8 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 		// unverifiedDeliverable signal that replaced the fabrication phrase scan.
 		if !res.IsError && tc.Name == "bash" {
 			var ba struct {
-				Command    string          `json:"command"`
-				Background json.RawMessage `json:"background"`
+				Command    string           `json:"command"`
+				Background builtin.FlexBool `json:"background"`
 			}
 			if json.Unmarshal(tc.Args, &ba) == nil {
 				_, bashReset := guard.noteBashWrite(ba.Command) // authored a file → epoch bump
@@ -83,7 +83,16 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 				// stepsSinceMut and sinceProgress and re-armed the act-now nudge, so after the nudge
 				// fired once neither it nor the "idle" force-stop could reach its threshold again and
 				// the run oscillated until the wall clock. Retract once per call — one bump was made.
-				if bashReset {
+				// NOT for a backgrounded command. The comparison reads the destination back the
+				// moment executeTool returns, and for a background job that is the moment it was
+				// LAUNCHED — the command has not run yet, so the read returns what was there
+				// before and the two sides match by construction. Observed live:
+				// `rm /app/run_test_interrupt.py && python3 run.py &` came back carrying "this
+				// write left the file byte-for-byte as it already was — nothing changed" about a
+				// command whose first act was to delete that file. It did delete it, a moment
+				// later. A false "nothing changed" is worse than silence: the agent can act on it.
+				// Background was already parsed here and read by nobody; this is what it is for.
+				if bashReset && !bool(ba.Background) {
 					regressed := false
 					for _, bc := range bashChanges {
 						rel := relForChange(workdir, bc.path)
