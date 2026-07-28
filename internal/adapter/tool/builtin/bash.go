@@ -178,10 +178,10 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	// this result marked [ok]) would otherwise rubber-stamp it. Annotate — never reclassify
 	// — right after the status line so the note sits at the head, where the council's
 	// head-clip and the model both see it. Flag-gated for A/B isolation.
-	// Every stage's status known and none of them a failure: the head's status is not a mystery.
-	// The notes that exist to say "this exit is not the head's" must stay quiet in that case.
-	allStagesClean := stagesClean(a.Command, stages)
-	if note := pipeStageNote(a.Command, exit, stages); note != "" {
+	// magi captured the per-stage statuses: the notes that exist to say "this exit may not be the
+	// head's" have nothing left to add, because the statuses themselves are about to be stated.
+	stagesKnown := len(stages) > 1
+	if note := pipeStageNote(exit, stages); note != "" {
 		disp = note + "\n" + disp
 	}
 	// The annotators, in precedence order, FIRST match wins: each says one thing about how this
@@ -191,7 +191,7 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	// be exercised on its own.
 	if bodyscanEnabled() {
 		for _, annotate := range statusAnnotators {
-			if note := annotate(exit, a.Command, disp, env.SessionID, allStagesClean); note != "" {
+			if note := annotate(exit, a.Command, disp, env.SessionID, stagesKnown); note != "" {
 				disp = note + "\n" + disp
 				break
 			}

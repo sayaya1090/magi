@@ -385,7 +385,7 @@ func (p *bgProc) status() string {
 		h := fmt.Sprintf("[%s exited %d]", p.id, p.exit)
 		// A pipeline reports its LAST stage's exit, so `make … | tail` says 0 for a build that
 		// died. Say which stage really failed, in the header the model reads first.
-		if note := pipeStageNote(p.command, p.exit, p.stages); note != "" {
+		if note := pipeStageNote(p.exit, p.stages); note != "" {
 			h += " " + note
 		}
 		return h

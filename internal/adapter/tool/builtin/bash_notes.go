@@ -144,10 +144,11 @@ var maskingTail = regexp.MustCompile(`\|\|\s*(?:true|:|exit\s+0|echo\b[^|&;` + "
 // the body and no trace of the echo — ls had succeeded — and the agent, checking whether the
 // bootstrap compiler it needed was still there, was told that answer could not be trusted.
 //
-// allStagesClean is the one case magi CAN resolve: with every pipeline stage known to be 0 the
-// command before the tail succeeded, so there is nothing to warn about.
-func maskingTailNote(exit int, command string, allStagesClean bool) string {
-	if exit != 0 || allStagesClean || !maskingTail.MatchString(strings.TrimSpace(command)) {
+// stagesKnown is the one case magi does not need to warn about: it captured the per-stage statuses
+// and pipeStageNote already put them in front of the model, so the ambiguity is resolved by a fact
+// rather than by this sentence.
+func maskingTailNote(exit int, command string, stagesKnown bool) string {
+	if exit != 0 || stagesKnown || !maskingTail.MatchString(strings.TrimSpace(command)) {
 		return ""
 	}
 	return "[note: a `|| …` tail runs only when the command before it FAILS, so this exit 0 is " +
@@ -187,17 +188,16 @@ var swallowingPipe = regexp.MustCompile(`(^|[^|])\|\s*(?:tail|head)\b[^|]*$`)
 // `git diff … | head`, crying wolf on the case that matters). A verification does not need the
 // pipe anyway — the bash tool already returns large output capped to its head AND tail with the
 // real exit code.
-func swallowingPipeNote(exit int, command string, allStagesClean bool) string {
+func swallowingPipeNote(exit int, command string, stagesKnown bool) string {
 	if exit != 0 {
 		return ""
 	}
-	// Suppressed when PIPESTATUS answered the question: with every stage known to be 0, the head's
-	// own status IS reported — it is zero — and saying otherwise sends the agent to re-run the
-	// command without the pipe to learn what it was already told. Observed live: four of five bash
-	// calls in one stretch carried "that command's own status is not reported here" while magi held
-	// the stages for all of them. When a stage did fail, pipeStageNote says so and this note is
-	// redundant beside it.
-	if allStagesClean {
+	// This note says one thing: the status you are looking at belongs to the truncator. When magi
+	// captured the stages that is simply false — every stage's status is reported, right above, as
+	// numbers. Saying otherwise sends the agent to re-run the command without its pipe to learn
+	// what it was already told. Observed live: four of five bash calls in one stretch carried "that
+	// command's own status is not reported here" while magi held the stages for all of them.
+	if stagesKnown {
 		return ""
 	}
 	stage := strings.TrimSpace(swallowingPipe.FindString(strings.TrimSpace(command)))
@@ -402,207 +402,48 @@ func readPipeStatus(path string) []int {
 	return out
 }
 
-// sigPipeExit is what a stage reports when a downstream reader closed the pipe on it: 128+SIGPIPE.
-// `make … | head -50` produces it every time and always will — head exits after fifty lines, the
-// write side gets SIGPIPE, and that is head doing its job, not the build failing.
-const sigPipeExit = 141
-
-// stagesClean reports whether magi knows every stage's status and none of them means failure.
+// pipeStageNote reports the per-stage statuses of a pipeline whose reported exit cannot show them:
+// the shell hands back the LAST stage's status, so `make world | tail -50` says 0 for a build that
+// died. It states the numbers and stops.
 //
-// One predicate, because two of them drifted. pipeStageNote exempted SIGPIPE — `… | head -50` makes
-// the head stage 141 every time and that is head doing its job — while the caller computing
-// "all stages clean" for the annotators did not. So a truncated pipeline got silence from the note
-// that reads stages and, from the note beside it, "that command's own status is not reported here":
-// one 141, read two ways, in the same result. Observed on the most common shape there is —
-// `grep … | head -50`, twice in the first five minutes of a run — and the second reading is the
-// false one, since magi holds the status and it says the command was mid-write when the reader
-// left. The suppression exists precisely so an agent is not sent to re-run a command without its
-// pipe to learn what it was already told.
-func stagesClean(command string, stages []int) bool {
-	if len(stages) < 2 {
-		return false // not a pipeline: nothing was resolved, so nothing may be claimed resolved
-	}
-	verbs := pipelineVerbsFor(command, len(stages))
-	for i, st := range stages {
-		if st == 0 {
-			continue
-		}
-		verb := ""
-		if verbs != nil {
-			verb = verbs[i]
-		}
-		if !stageAnswered(verb, st) {
-			return false
-		}
-	}
-	return true
-}
-
-// answersWithExitOne are commands whose exit 1 is an ANSWER, not a failure: grep found no match,
-// diff found a difference. Their 2 (and anything else) is a real error and stays one. This is the
-// documented, universal contract of these tools, not a guess about intent — magi is not deciding
-// whether the agent WANTED matches, only refusing to call "no" a breakage.
-var answersWithExitOne = map[string]bool{
-	"grep": true, "egrep": true, "fgrep": true, "zgrep": true,
-	"rg": true, "ag": true, "ack": true,
-	"diff": true, "cmp": true,
-}
-
-// stageAnswered reports whether a stage's non-zero status is that command answering rather than
-// breaking. SIGPIPE for any verb — the reader closed the pipe, which is what `| head -50` is for.
-func stageAnswered(verb string, st int) bool {
-	if st == sigPipeExit {
-		return true
-	}
-	return st == 1 && answersWithExitOne[verb]
-}
-
-// pipelineVerbsFor returns the leading verb of each stage of the pipeline whose per-stage statuses
-// PIPESTATUS captured, given how many statuses it captured. Returns nil when it cannot say
-// confidently; every caller treats nil as "no verb known" and falls back to the status alone.
+// It used to read them, and that reading was the bug — three times in one hour. A stage killed by
+// SIGPIPE (`… | head -50` produces 141 every time, because head exited after fifty lines) was
+// called a failure. grep exiting 1 because nothing matched was called a failure. Then the exemption
+// list that fixed those two needed to know WHICH verb produced which status, which meant parsing
+// the command into stages, which meant deciding which pipeline PIPESTATUS had captured — and that
+// question has no answer in `a | b || c | d`, where the tail runs only when the head fails.
 //
-// It is keyed on the count because the captured pipeline is the last one EXECUTED, which is not the
-// last one written: in `a | b || c | d` the tail runs only when the head fails, so either could be
-// the one PIPESTATUS holds. Observed live:
-// `diff -u /dev/null f.c | grep -A10 "wosize" | head -80 || cat f.c | sed -n '640,655p'` — three
-// statuses captured, and the lexically last pipeline has two stages. So: every top-level segment is
-// split, and a verb sequence is returned only when the segments matching that stage count all agree
-// on it. Two different candidates of the same length is an ambiguity, and an ambiguity resolved by
-// guessing would hand one stage's verb to another stage's status.
-//
-// Quote-aware, because an operator inside quotes is data: `grep -n "a|b" f | head` is two stages,
-// not three.
-func pipelineVerbsFor(command string, n int) []string {
-	if n < 2 {
-		return nil
-	}
-	var segs []string
-	seg, quote := strings.Builder{}, byte(0)
-	flush := func() {
-		if s := strings.TrimSpace(seg.String()); s != "" {
-			segs = append(segs, s)
-		}
-		seg.Reset()
-	}
-	for i := 0; i < len(command); i++ {
-		c := command[i]
-		switch {
-		case quote != 0:
-			if c == quote {
-				quote = 0
-			}
-			seg.WriteByte(c)
-		case c == '\'' || c == '"':
-			quote = c
-			seg.WriteByte(c)
-		case c == ';':
-			flush()
-		case c == '|' && i+1 < len(command) && command[i+1] == '|':
-			flush()
-			i++
-		case c == '&' && i+1 < len(command) && command[i+1] == '&':
-			flush()
-			i++
-		case c == '&' && (i == 0 || (command[i-1] != '>' && command[i-1] != '&')) &&
-			(i+1 >= len(command) || command[i+1] != '>'):
-			flush()
-		default:
-			seg.WriteByte(c)
-		}
-	}
-	flush()
-
-	var found []string
-	for _, sg := range segs {
-		v := stageVerbs(sg)
-		if len(v) != n {
-			continue
-		}
-		if found != nil && !sameVerbs(found, v) {
-			return nil // two different pipelines of this length — magi cannot tell which one ran
-		}
-		found = v
-	}
-	return found
-}
-
-// stageVerbs splits one top-level segment into its `|` stages and names each one's leading verb.
-func stageVerbs(segment string) []string {
-	var out []string
-	stage, quote := strings.Builder{}, byte(0)
-	push := func() {
-		f := strings.Fields(stage.String())
-		if len(f) == 0 {
-			out = append(out, "")
-		} else {
-			out = append(out, strings.TrimPrefix(f[0], "\\")) // `\grep` bypasses an alias; same tool
-		}
-		stage.Reset()
-	}
-	for i := 0; i < len(segment); i++ {
-		c := segment[i]
-		switch {
-		case quote != 0:
-			if c == quote {
-				quote = 0
-			}
-			stage.WriteByte(c)
-		case c == '\'' || c == '"':
-			quote = c
-			stage.WriteByte(c)
-		case c == '|':
-			push()
-		default:
-			stage.WriteByte(c)
-		}
-	}
-	push()
-	return out
-}
-
-func sameVerbs(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-// pipeStageNote states what the pipeline's stages really did, when the status the caller sees hides
-// it: the command reports success while an earlier stage failed. Silent otherwise — a pipeline whose
-// stages all agree with its exit has nothing to add, and a note on every pipe would be noise.
-//
-// A stage killed by SIGPIPE is NOT a failure and must never be reported as one. Observed live: an
-// agent ran `make -j4 world 2>&1 | head -50` to glance at the start of a build, and was told "the
-// work at the head of the pipe FAILED" — the build had not failed, it had been truncated by the
-// very command asked to truncate it. A record that asserts a failure that did not happen is worse
-// than one that says nothing: the agent has no way to tell it from a real one, and the next thing
-// it does is chase a bug that is not there.
-func pipeStageNote(command string, exit int, stages []int) string {
+// Every one of those defects existed because magi was interpreting. The model reads shell output
+// for a living; it knows what `grep` returns when nothing matches, and it can see the output. What
+// it CANNOT see is the status the shell threw away. So magi hands it that, as a fact, and does not
+// say what it means.
+func pipeStageNote(exit int, stages []int) string {
 	if exit != 0 || len(stages) < 2 {
-		return ""
+		return "" // the reported status is the whole story, or magi captured no stages
 	}
-	if stagesClean(command, stages) {
-		return ""
+	same := true
+	for _, st := range stages {
+		if st != 0 {
+			same = false
+		}
+	}
+	if same {
+		return "" // every stage agrees with the exit — nothing was hidden, and a note on every pipe is noise
 	}
 	parts := make([]string, len(stages))
 	for i, st := range stages {
 		parts[i] = strconv.Itoa(st)
 	}
-	return "[note: this exit 0 is the LAST stage's. The pipeline's stages exited " +
-		strings.Join(parts, " → ") + " (left to right), so the work at the head of the pipe FAILED " +
-		"even though the pipeline reported success.]"
+	return "[note: the status above is the pipeline's LAST stage. Its stages exited " +
+		strings.Join(parts, " → ") + " (left to right).]"
 }
 
 // statusAnnotator says one thing about how a command's reported status should be read, or "" when
 // it has nothing to say about this one. Every annotator gets the same facts — the exit the shell
 // reported, the command as written, the output as it will be displayed, the session, and whether
-// PIPESTATUS showed every stage clean — so the list can be reordered without rewriting call sites.
-type statusAnnotator func(exit int, command, out string, sid session.SessionID, allStagesClean bool) string
+// magi captured the pipeline's per-stage statuses — so the list can be reordered without rewriting
+// call sites.
+type statusAnnotator func(exit int, command, out string, sid session.SessionID, stagesKnown bool) string
 
 // statusAnnotators is the precedence order, first match wins. Highest first: a crash in the body is
 // the most specific thing that can be said about an exit 0, and "the shell state does not persist"
