@@ -54,11 +54,20 @@ func TestUnknownToolArgsClassifiesRecordedStrays(t *testing.T) {
 		wantIgnored:  []string{"-i", "-n"},
 		whyItWasSeen: "shell flags verbatim",
 	}, {
-		// write declares path/content; another harness's names match neither, so the write runs with
-		// no content at all.
+		// write declares path/content and REQUIRES both. Another harness qualifies those names, and
+		// letting the call run was measured live in one turn twice: `file_path` cost a refusal on the
+		// tool's own "path is required" and the file was never written, and `{"path":…, "file_content":…}`
+		// created a ZERO-BYTE file reported as "wrote 0 bytes" — which the agent then ran three times
+		// for a meaningless exit 0. A required key the call omitted makes the qualified name readable
+		// as the rename it is: the call is dead either way, so naming the real key costs nothing.
 		tool: "write", args: `{"file_path":"/a","file_text":"x"}`,
-		wantIgnored:  []string{"file_path", "file_text"},
+		wantMisspell: map[string]string{"file_path": "path"},
+		wantIgnored:  []string{"file_text"},
 		whyItWasSeen: "another harness's argument names",
+	}, {
+		tool: "write", args: `{"path":"/a","file_content":"x"}`,
+		wantMisspell: map[string]string{"file_content": "content"},
+		whyItWasSeen: "another harness's argument names, with the write left empty",
 	}, {
 		tool: "write", args: `{"Path":"/a","content":"x"}`,
 		wantMisspell: map[string]string{"Path": "path"},

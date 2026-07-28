@@ -433,6 +433,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 func unknownToolArgs(schema, args json.RawMessage) (misspelled map[string]string, ignored, declared []string) {
 	var sch struct {
 		Properties map[string]json.RawMessage `json:"properties"`
+		Required   []string                   `json:"required"`
 	}
 	if json.Unmarshal(schema, &sch) != nil || len(sch.Properties) == 0 {
 		return nil, nil, nil
@@ -447,6 +448,14 @@ func unknownToolArgs(schema, args json.RawMessage) (misspelled map[string]string
 		byNorm[normArgKey(p)] = p
 	}
 	sort.Strings(declared)
+	// A REQUIRED key the call did not send is what makes an undeclared key readable as a rename
+	// rather than as an extra: the tool cannot run without it, so the call is already lost.
+	var missing []string
+	for _, r := range sch.Required {
+		if _, sentIt := sent[r]; !sentIt {
+			missing = append(missing, r)
+		}
+	}
 	for k := range sent {
 		if _, ok := sch.Properties[k]; ok {
 			continue
@@ -458,10 +467,45 @@ func unknownToolArgs(schema, args json.RawMessage) (misspelled map[string]string
 			misspelled[k] = real
 			continue
 		}
+		if real := qualifiedName(k, missing); real != "" {
+			if misspelled == nil {
+				misspelled = map[string]string{}
+			}
+			misspelled[k] = real
+			continue
+		}
 		ignored = append(ignored, k)
 	}
 	sort.Strings(ignored)
 	return misspelled, ignored, declared
+}
+
+// qualifiedName reads an undeclared key as a QUALIFIED spelling of a required key the call left
+// out: another harness names a write's destination `file_path` where this one declares `path`, and
+// case/separator folding alone cannot see that — `filepath` is not `path`. Splitting the sent key on
+// its separators can: `path` is one of its components, and `path` is required and absent, so the
+// model meant to pass it and the call is dead either way. Naming the real key beats letting the tool
+// answer "path is required" about an argument the call plainly carried.
+//
+// Only REQUIRED-and-missing keys qualify. An optional key would make this greedy — `max_lines` would
+// be read as a rename of an unrelated `lines` the call had every right to omit.
+func qualifiedName(sent string, missing []string) string {
+	parts := strings.FieldsFunc(strings.ToLower(sent), func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9')
+	})
+	best := ""
+	for _, want := range missing {
+		w := normArgKey(want)
+		if w == "" {
+			continue
+		}
+		for _, p := range parts {
+			if p == w && len(want) > len(best) {
+				best = want
+			}
+		}
+	}
+	return best
 }
 
 // normArgKey folds an argument name to letters and digits, so `.todos`, ` todos` and `Todos` all
