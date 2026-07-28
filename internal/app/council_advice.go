@@ -72,6 +72,15 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 		actions = "── RECORDED AS WRITTEN, NOT ON DISK NOW ──\n" + strings.Join(clipEach(gone, 8), ", ") +
 			"\n\n" + actions
 	}
+	// First of all: what this council already said and did not accept. It reached the members only
+	// through turnToolEvidence before, which keeps the most recent results and drops the rest — so
+	// an objection aged out of the council's own evidence after a handful of tool calls, and the
+	// round that finally accepted had no way to know it had ever been raised. These are facts magi
+	// recorded; handing them back costs nothing and is the difference between judging the work and
+	// judging the last few minutes of it.
+	if prior := priorCouncilObjections(evs, priorObjectionsCap, councilActionCap); prior != "" {
+		actions = prior + "\n\n" + actions
+	}
 	plan := ""
 	if td := a.Todos(sid); len(td) > 0 {
 		plan = formatTodos(td)
