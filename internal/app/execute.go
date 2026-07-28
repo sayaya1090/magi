@@ -153,13 +153,6 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// Tool-env callbacks. A concern may be retired only by the agent that holds the whole-task
 	// view, and only advisorily: a still-true concern is re-raised next turn (self-healing), so
 	// this cannot launder a fact away, only clear stale advisory memory.
-	var resolveConcernFn func(key, reason string) error
-	if depth == 0 {
-		resolveConcernFn = func(key, reason string) error {
-			return a.appendConcernResolved(context.WithoutCancel(ctx), sid,
-				event.Actor{Kind: event.ActorAgent, ID: "orchestrator"}, key, "orchestrator", reason)
-		}
-	}
 	// Route a mid-turn user interjection (top-level only — subagents aren't steered by
 	// the user). The tool has already validated action ∈ {queue,redirect,append}; we
 	// record the signal for the loop to drain and apply at its next step.
@@ -265,7 +258,6 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		Council: func(cctx context.Context, question string, complete bool) (string, error) {
 			return a.councilAdvice(cctx, s, guardChanges(guard), question, complete)
 		},
-		ResolveConcern:    resolveConcernFn,
 		RouteInterjection: routeInterjectionFn,
 		AskUser:           a.askUserFn(ctx, s, depth, tc),
 		SetTodos:          func(td []session.Todo) { a.putTodos(ctx, sid, actor, td) },

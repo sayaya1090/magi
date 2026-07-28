@@ -270,12 +270,6 @@ type ToolEnv struct {
 	// Set for any session with a council configured; nil leaves the tool reporting that there is
 	// none rather than pretending to have asked.
 	Council func(ctx context.Context, question string, complete bool) (string, error)
-	// ResolveConcern retires a structural concern from the durable ledger by key.
-	// Set ONLY for the top-level orchestrator (depth 0); nil for subagents. It is
-	// advisory-only: a concern that is still true is re-raised deterministically on
-	// the next turn (the ledger self-heals), so a reset can clear accumulated memory
-	// but never launder away a fact that remains true.
-	ResolveConcern func(key, reason string) error
 	// RouteInterjection routes a user request that arrived mid-turn: action is
 	// "queue" (default — run it after the current task), "redirect" (switch to it
 	// now), or "append" (fold it into the current task). requestID names which pending

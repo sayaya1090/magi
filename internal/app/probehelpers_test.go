@@ -48,12 +48,6 @@ func asideCall(name, args string) []port.ProviderEvent {
 	}
 }
 
-// concernOpen re-reads the durable log and folds it, mirroring how a reader observes the live ledger.
-func concernOpen(a *App, ctx context.Context, sid session.SessionID, key string) bool {
-	evs, _ := a.store.Read(ctx, sid, 0)
-	return hasKey(sessionConcerns(evs), key)
-}
-
 // newAsideApp builds an interactive App with the tools the idle-park handler offers. Production
 // registers the human-facing pair in cmd/magi, so mirror that here (they are not in Default()).
 func newAsideApp(t *testing.T, llm port.LLMProvider) (*App, session.Session) {

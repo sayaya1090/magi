@@ -96,22 +96,6 @@ func (a *App) Todos(sid session.SessionID) []session.Todo {
 	return nil
 }
 
-// OpenConcerns folds the session's event log into its live structural-concern ledger and returns
-// the still-open concerns as signals — the outstanding items the council keeps re-raising until
-// resolved. It reads the store, so the TUI calls it ONCE when the council detail opens, not per
-// render (concerns are not cached in state). Empty on a read error or a clean ledger.
-func (a *App) OpenConcerns(ctx context.Context, sid session.SessionID) []port.Signal {
-	evs, err := a.store.Read(ctx, sid, 0)
-	if err != nil {
-		return nil
-	}
-	var out []port.Signal
-	for _, c := range sessionConcerns(evs) {
-		out = append(out, c.Signal())
-	}
-	return out
-}
-
 // GitDiff returns the complete working-tree diff for workdir (empty if no
 // changes), INCLUDING the content of new untracked files. A plain `git diff`
 // omits untracked files, which hides exactly the new files an agent most often

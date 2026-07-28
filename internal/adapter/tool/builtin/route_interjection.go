@@ -56,8 +56,8 @@ func (RouteInterjection) Execute(ctx context.Context, raw json.RawMessage, env p
 	}
 	msg := map[string]string{
 		"queue":    "Interjection kept queued — it will run as its own turn after the current task. Continue the current task now.",
-		"redirect": "Redirecting: the queued request becomes your task now and the previous task is set aside. Your plan and no-progress window are reset next step — plan and proceed on the new request.",
-		"append":   "Appended: the queued request is folded into your current task — satisfy both before finishing. Your no-progress window is reset next step.",
+		"redirect": "Redirecting: the queued request becomes your task now and the previous task is set aside. The no-progress count the old task ran up is cleared next step, so start on the new request without carrying it.",
+		"append":   "Appended: the queued request is folded into your current task — satisfy both before you declare it finished. The no-progress count is cleared next step.",
 	}[action]
 	return okText("", msg), nil
 }
