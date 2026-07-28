@@ -17,9 +17,8 @@ import (
 // process, so instead of a separate socket daemon we keep each server warm here,
 // keyed by (workdir, server binary): the cold start — spawn + initialize — is paid
 // once, then every later diagnose on that project/language reuses the running
-// server via didOpen/didChange. This backs both the manual lsp_diagnostics tool
-// and the automatic post-edit diagnostics hook, where cold-starting per edit would
-// be untenable. A dead server is transparently restarted; idle ones are reaped;
+// server via didOpen/didChange. This backs the automatic post-edit diagnostics
+// hook, where cold-starting a server on every edit would be untenable. A dead server is transparently restarted; idle ones are reaped;
 // all are killed on process exit (CloseLSPPool).
 
 // Test seams: overridable so the pool logic can be driven by an in-process fake

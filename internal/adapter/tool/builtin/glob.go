@@ -62,7 +62,7 @@ func (Glob) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	// Observed in one exploration: `{path: <dir>/caml, pattern: "*.h"}` answered `[]` while that
 	// directory held 62 .h files, and `{path: <dir>, pattern: "**/*.c"}` returned files from two
 	// sibling trees. glob was the only tree-walking tool in the registry without `path` — read,
-	// write, edit, list, lsp, grep and astgrep all take one — so a model that had just scoped a
+	// write, edit, list and grep all take one — so a model that had just scoped a
 	// grep wrote the glob the same way, five times out of five.
 	scope := root
 	if strings.TrimSpace(a.Path) != "" {

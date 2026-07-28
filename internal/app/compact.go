@@ -199,7 +199,7 @@ func actionTrail(names []string) string {
 
 // shardPath extracts the file a tool call targeted and returns it relative to workdir;
 // "" when the call references no file (e.g. bash, web tools). It reads "path" (most file
-// tools) or "file" (astgrep / LSP nav), so those land on the right topic, not "discussion".
+// tools) or "file", so those land on the right topic, not "discussion".
 func shardPath(workdir string, args json.RawMessage) string {
 	var a struct {
 		Path string `json:"path"`

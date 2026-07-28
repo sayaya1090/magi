@@ -145,7 +145,9 @@ func composeInstallAdvice(server, goos string, prereqMissing bool) string {
 		return ""
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "'%s' language server isn't installed. Install it, then re-run lsp_diagnostics:\n", server)
+	// Addressed to whoever is reading the diagnostic, not to the model: there is no tool to
+	// re-run. The server is what the post-edit diagnostics use, so installing it turns them on.
+	fmt.Fprintf(&b, "'%s' language server isn't installed; diagnostics for this file are off until it is:\n", server)
 	if h.prereq != "" && prereqMissing {
 		if boot, ok := prereqBootstrap[h.prereq]; ok {
 			if bc := boot.forOS(goos); bc != "" {
