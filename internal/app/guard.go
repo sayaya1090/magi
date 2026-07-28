@@ -696,11 +696,42 @@ func (g *runGuard) noteBashExec(cmd string, novel bool) {
 		if g.exercisedFile[path] {
 			continue
 		}
-		if base := filepath.Base(path); base != "" && cmdMentionsFile(cmd, base) {
+		if base := filepath.Base(path); base != "" && cmdNamesFile(cmd, base) {
 			g.exercisedFile[path] = true
 		}
 	}
 	g.mu.Unlock()
+}
+
+// cmdNamesFile reports whether cmd refers to the file named `base` — either by that name, or, for a
+// source file a language loads by MODULE name, by its stem.
+//
+// The stem form is not a nicety. A task whose whole point is that the file be importable
+// (`from run import run_tasks`) is exercised by exactly the command that never contains "run.py",
+// so the per-artifact ledger stayed empty through six real invocations and the finish nudge then
+// told the agent it had never run what it wrote — a statement contradicted by magi's own record.
+// A false accusation costs more than a missed warning: the warning only says "look again", while
+// the accusation asserts something the agent can see is untrue and spends a cycle answering it.
+//
+// Only extensions whose language loads a file by its stem qualify, so this stays a fact about how
+// source files are referenced rather than a guess about a particular command.
+func cmdNamesFile(cmd, base string) bool {
+	if cmdMentionsFile(cmd, base) {
+		return true
+	}
+	ext := strings.ToLower(filepath.Ext(base))
+	if !importedByStem[ext] {
+		return false
+	}
+	stem := strings.TrimSuffix(base, filepath.Ext(base))
+	return len(stem) >= 3 && cmdMentionsFile(cmd, stem)
+}
+
+// importedByStem lists the extensions whose language names a source file by its stem when loading
+// it — `import run`, `require("./run")`. A compiled language that builds by path or package
+// directory is absent: there the file's own name is what a command carries.
+var importedByStem = map[string]bool{
+	".py": true, ".rb": true, ".js": true, ".mjs": true, ".ts": true,
 }
 
 // cmdMentionsFile reports whether cmd names the file with basename `base` as a whole path

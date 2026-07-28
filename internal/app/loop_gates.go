@@ -417,11 +417,12 @@ func (a *App) runTerminationGate(ctx context.Context, tc turnCtx, step int, turn
 		if un := guard.unexercisedArtifacts(); len(un) > 0 {
 			ts.execNudged = true
 			_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "guard"},
-				"You are finishing without ever RUNNING what you wrote: "+strings.Join(un, ", ")+
-					" — no executed command has invoked these. Importing or compiling is not running. "+
-					"Execute the smallest REAL invocation of each (the program's primary scenario) and "+
-					"check its output before finishing; if one is genuinely not meant to be executed "+
-					"directly, say so in your report.")
+				"magi's record of this turn has no executed command naming what you wrote: "+
+					strings.Join(un, ", ")+". That is what it can see, not a verdict on your work — a "+
+					"compile or a syntax check is not an invocation either. Run the smallest REAL "+
+					"invocation of each (its primary scenario) and check the output before finishing; "+
+					"if one already ran under a name this record cannot match, or is not meant to be "+
+					"executed directly, say so and finish.")
 			return loopContinue, true
 		}
 	}
