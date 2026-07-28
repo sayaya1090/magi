@@ -171,17 +171,6 @@ type DeliberationRequest struct {
 	// is surfaced above the feedback when the turn continues. It never affects the decision
 	// or tally. Off → members are not asked and no keep is produced (MAGI_COUNCIL_KEEP).
 	Keep bool
-	// Constraints turns on the termination lens's scope/boundary verification: check the diff/
-	// artifact against the task's stated scope limits, structural requirements, and forbidden
-	// actions, voting continue on a violation. Off → the clause is omitted (MAGI_CONSTRAINT_GATE,
-	// default off — it adds a rejection criterion, measured on an A/B arm before shipping default).
-	Constraints bool
-	// StepsLeft is how many steps the agent has before it is force-stopped at its
-	// budget ceiling (0 = unknown/not applicable). When it is low, members should
-	// prefer accepting a reasonable working result over demanding another round of
-	// work that cannot fit — a continue verdict the agent has no budget to act on
-	// just wastes the remaining steps and ends the turn with nothing landed.
-	StepsLeft int
 }
 
 // Signal is a piece of deterministic evidence the council weighs (D16): the

@@ -304,7 +304,7 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 	// ask streams one member turn for userMsg and parses its reply. Errors (backend down)
 	// and parse outcome are surfaced separately so the caller can distinguish "unavailable"
 	// (abstain) from "unparseable" (retry once with a JSON-only reminder).
-	sys := memberSystem(m, req.Task, req.Keep, req.Constraints)
+	sys := memberSystem(m, req.Task, req.Keep)
 	// The raw reply travels back with the parse outcome: the retry has to be able to name WHICH way
 	// the previous one failed, and that is only knowable from the text it failed on.
 	ask := func(userMsg string) (memberReply, string, bool, error) {
@@ -389,7 +389,7 @@ func (c *Council) pollRebut(ctx context.Context, req port.DeliberationRequest, m
 		"already on the table. Reply in the SAME JSON shape."
 	stream, err := provider.StreamChat(ctx, port.ChatRequest{
 		Model:    model,
-		System:   memberSystem(m, req.Task, req.Keep, req.Constraints),
+		System:   memberSystem(m, req.Task, req.Keep),
 		Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: user}}}},
 		Params:   map[string]any{"temperature": 0.0},
 	})
@@ -522,7 +522,7 @@ func (c *Council) pollDevilReview(ctx context.Context, req port.DeliberationRequ
 		"and do not raise a brand-new objection of your own. Reply in the SAME JSON shape."
 	stream, err := provider.StreamChat(ctx, port.ChatRequest{
 		Model:    model,
-		System:   memberSystem(m, req.Task, req.Keep, req.Constraints),
+		System:   memberSystem(m, req.Task, req.Keep),
 		Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: user}}}},
 		Params:   map[string]any{"temperature": 0.0},
 	})
@@ -618,7 +618,7 @@ type memberReply struct {
 // review, and this. The other three judged something magi authored BEFORE the work existed, and
 // went with it. What a member judges now is a finished turn against the task, which is the only
 // phase that was ever asked about the work itself.
-func memberSystem(m council.Member, task string, keep, constraints bool) string {
+func memberSystem(m council.Member, task string, keep bool) string {
 	lens := council.Lenses[m.Lens]
 	if lens == "" {
 		lens = "Judge whether the task is genuinely complete."
@@ -634,23 +634,6 @@ func memberSystem(m council.Member, task string, keep, constraints bool) string 
 			"advisory: it NEVER changes your decision, and you still name any real defect in `feedback`. Leave `keep` " +
 			"empty if nothing is clearly settled through your lens; never affirm something you cannot verify.\n"
 		schema = `{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific gap (only if continue)","keep":"what's already correct through your lens — name it, don't restate it; advisory, optional"}`
-	}
-	// Scope/boundary verification (MAGI_CONSTRAINT_GATE, default off): OPT-IN because it adds a
-	// rejection criterion to a council that already tends to over-reject correct work — measured on an
-	// A/B arm before it becomes default. Empty when off (byte-identical baseline prompt).
-	scopeClause := ""
-	if constraints {
-		scopeClause = "SCOPE and BOUNDARY constraints are part of the contract, verified against the DIFF and the produced " +
-			"artifact — not just the report's prose. When the task fixes WHAT may change (\"only modify FILE\", \"do " +
-			"not touch AREA\", \"leave X unchanged\"), a diff that edits anything the task placed OFF-LIMITS is a " +
-			"defect EVEN IF the functional change is correct: vote continue and name the out-of-scope edit. The " +
-			"agent's own note that it \"had to\" cross the boundary — or a diff that quietly changes a protected file — " +
-			"does NOT license it (this is a common self-acknowledged violation: the reasoning admits \"violating " +
-			"constraint\" while the edit stands). Likewise, when the task requires the OUTPUT to contain a specific " +
-			"element or end a certain way (a required directive/marker/terminator the deliverable MUST include), or " +
-			"forbids a specific action, check the ACTUAL artifact for it — a required structural element the output " +
-			"LACKS, or a forbidden action taken, is a concrete defect. Do NOT invent a limit the task never stated — " +
-			"assert only a boundary the task itself set.\n"
 	}
 	return withLangNote(fmt.Sprintf(
 		"You are %s, a member of the council that decides whether an AI coding agent's turn is truly finished. "+
@@ -702,7 +685,6 @@ func memberSystem(m council.Member, task string, keep, constraints bool) string 
 			"it, a placeholder, a wrong field, or the right shape with the wrong value — is a concrete defect: vote "+
 			"continue and name the mismatch in feedback. Re-read the task wording literally; the agent's own paraphrase "+
 			"of what it did is a claim, never proof the content is right.\n"+
-			"%s"+
 			"Existence is not correctness: when the task implies a CHECKABLE behavior — a password that must unlock "+
 			"something, a service that must respond, a command that must produce a required output, a build that must "+
 			"compile — \"done\" requires that the turn actually RAN that check and its REAL output is visible in the "+
@@ -777,7 +759,7 @@ func memberSystem(m council.Member, task string, keep, constraints bool) string 
 			"%s"+
 			"Respond with ONLY a JSON object, no prose, no code fence:\n"+
 			"%s",
-		m.Name, m.Lens, lens, scopeClause, keepClause, schema), task)
+		m.Name, m.Lens, lens, keepClause, schema), task)
 }
 
 // withLangNote appends, when the task is in a non-English language, an instruction to
@@ -836,12 +818,6 @@ func evidence(req port.DeliberationRequest) string {
 	// a "continue" verdict it cannot act on just burns the remaining steps and ends the turn
 	// with nothing landed. Tell members to prefer accepting a reasonable result over demanding
 	// work that won't fit — without lowering the bar for a genuine, fixable defect.
-	if req.StepsLeft > 0 && req.StepsLeft <= 5 {
-		b.WriteString(fmt.Sprintf("# Budget\nThe agent has only about %d step(s) left before it is force-stopped. "+
-			"If the report is a reasonable, working result, prefer DONE — a continue verdict it has no budget to act "+
-			"on wastes the remaining steps and ends the turn with nothing landed. Ask for another round only for a "+
-			"real, fixable defect that fits in the remaining budget.\n\n", req.StepsLeft))
-	}
 	if b.Len() == 0 {
 		return "No task, report, or evidence was provided. With nothing to judge through your lens, abstain."
 	}
