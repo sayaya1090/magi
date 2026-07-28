@@ -31,18 +31,20 @@ func (a *App) injectStuckNudge(ctx context.Context, tc turnCtx, turnTask string,
 		clipSpec(task, 1500)
 	if kind == "spin" {
 		msg = "You've run a no-op command (echo/printf/true) several times in a row — a \"done\" banner is " +
-			"not a step and does not finish the task. If the work is genuinely COMPLETE: end your turn now by " +
-			"replying with NO tool call at all — that is what triggers verification and completion; do NOT run " +
-			"another command. If it is NOT complete: stop announcing success and take a real action — run the " +
+			"not a step and does not finish the task. If the work is genuinely COMPLETE: say so — call the " +
+			"`council` tool with `complete: true`, and the members read the record and either accept or tell " +
+			"you what is undone. Going quiet does not finish anything. If it is NOT complete: stop announcing " +
+			"success and take a real action — run the " +
 			"actual program/test against the deliverable, or fix what's failing. Re-read the original task:\n" +
 			clipSpec(task, 1500)
 	}
 	if kind == "stalled" {
 		msg = "You've run many steps without changing anything or making concrete progress — you may be " +
 			"re-running checks or restating the same conclusion instead of advancing the task. If the work is " +
-			"genuinely COMPLETE: end your turn now by replying with NO tool call at all — that is what triggers " +
-			"verification and completion; another confirmation command does not, and never delete or rebuild " +
-			"finished work just to produce visible activity. If it is NOT complete: stop and take a DIFFERENT " +
+			"genuinely COMPLETE: say so — call the `council` tool with `complete: true`, and the members read " +
+			"the record and either accept or tell you what is undone. Going quiet does not finish anything, " +
+			"another confirmation command is not progress, and never delete or rebuild finished work just to " +
+			"produce visible activity. If it is NOT complete: stop and take a DIFFERENT " +
 			"concrete action toward the deliverable; if something is blocking you, state exactly what it is and " +
 			"why before continuing. " + backgroundWaitAdvice(tc.agent) +
 			"Guess only when necessary: if a value is unknown but " +

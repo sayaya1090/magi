@@ -476,19 +476,13 @@ func (a *App) seedTurnTask(ctx context.Context, tc turnCtx, evs []event.Event) (
 // since we last absorbed one), returning the updated handled-prompt count and whether a visible
 // interjection must be answered now (break any park). Top level only — subagents aren't steered
 // by the user. Every interjection is masked from turnTask/council derivation (markInterjectSeen)
-// so it can't swap what the council judges against. How it is handled depends on what the
-// orchestrator is doing:
-//   - idle-parked waiting on its own explorers (awaitingExplorers): it has no work to interleave,
-//     so a soft "MAY answer" directive starves the reply (observed: asides dropped for the whole
-//     delegated task). Run handleAside — a focused tool-capable turn that replies to chitchat OR
-//     signals a steer (route_interjection to redirect/append/queue, cancel_dispatch to stop
-//     now-irrelevant subagents, ask_user to clarify). If it acts on the work we break the park so
-//     the next normal step applies the route and re-dispatches with the full toolset.
-//   - ordinary background delegation (dispatching but not parked): the orchestrator keeps running
-//     its own turns, so let the next working turn answer via the soft directive (answering in a
-//     separate turn here would double-reply, and the aside is left visible so it can route it).
-//   - otherwise idle: queue it to run as its own turn and tell the agent it is deferred so it
-//     stops oscillating (it may still call route_interjection to redirect/append).
+// so it can't swap what the council judges against.
+//
+// There is one handling now: queue it to run as its own turn, and tell the agent it is deferred so
+// it stops oscillating (it may still call route_interjection to redirect or append). The two other
+// branches this used to have both existed because the agent could be waiting on subagents — one
+// for an orchestrator idle-parked on its own explorers, one for ordinary background delegation.
+// Nothing dispatches, so nothing parks, and a single path is what is left.
 func (a *App) detectInterjections(ctx context.Context, tc turnCtx, evs []event.Event, turnTask string, handledUserPrompts int) (int, bool) {
 	if tc.depth != 0 || a.cfg.Workflow {
 		return handledUserPrompts, false
