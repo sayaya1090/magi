@@ -128,6 +128,12 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		maxSteps = a.cfg.MaxSteps
 	}
 	sid := s.ID
+	// Tag the context ONCE so every request made under this run — the agent's stream, the council's
+	// polls, every side call — is attributed to this session without its own plumbing.
+	ctx = ctxWithUsageSID(ctx, sid)
+	// Baseline for the turn's BILLED totals: the meter is cumulative for the process, so what this
+	// turn cost is the delta across it (this session and everything dispatched beneath it).
+	usageAtStart := a.UsageFor(sid)
 	runStart := time.Now() // self-measured wall clock (budget line + council cost control)
 	agentActor := event.Actor{Kind: event.ActorAgent, ID: orDefault(agent.Name, "default")}
 	lastText := ""
@@ -170,8 +176,9 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	replanCount := 0        // agent-initiated replans honored this turn (budget-capped so replan can't indefinitely reset the stall guard)
 	replanAtCalls := -1     // guard.callCount() at the last honored replan (require real work between replans)
 	seeded := false         // step-0 turnTask seed ran once; a park-and-retry (step--) must not re-seed/re-enqueue
-	// Turn usage accumulation (§8.1): output tokens and cost sum across steps; input
-	// is the last step's (the current context size, not a sum).
+	// Fallback usage accumulation: the agent's OWN stream only. The reported numbers come from the
+	// meter (turnUsage); these stand in when it saw nothing — a backend that reports no usage block,
+	// or a test double that streams events directly.
 	var cumOut, lastIn int
 	var cumCost float64
 
@@ -442,7 +449,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// (e.g. tests must pass); a failure pushes the agent to keep working.
 		if len(toolCalls) == 0 {
 			// Turn-cumulative usage (§8.1): out/cost summed across steps, in = last.
-			u := event.Usage{In: lastIn, Out: cumOut, Cost: cumCost}
+			u := turnUsage(a, sid, usageAtStart, lastIn, cumOut, cumCost)
 			switch a.finishTurn(ctx, tc, step, turnTask, lastText, evs, usedTools, handledUserPrompts, u, &ts) {
 			case loopRetryStep:
 				step-- // re-woken by a background subagent result: re-enter WITHOUT spending a step
@@ -921,4 +928,29 @@ func (a *App) allParallelSafe(calls []*session.ToolCall) bool {
 		}
 	}
 	return true
+}
+
+// turnUsage is what a finished turn reports: the BILL, measured as the meter's delta across the turn
+// for this session and everything dispatched beneath it.
+//
+// The fallback matters. The meter only sees what a backend actually reports, so a provider that
+// sends no usage block leaves it empty — and reporting zero where the old accounting had a number
+// would be a regression dressed as a fix. When the meter saw nothing, the agent's own stream totals
+// stand in, which is exactly what was reported before.
+func turnUsage(a *App, sid session.SessionID, start event.Usage, lastIn, cumOut int, cumCost float64) event.Usage {
+	now := a.UsageFor(sid)
+	u := event.Usage{
+		In:        now.In - start.In,
+		Out:       now.Out - start.Out,
+		Cost:      now.Cost - start.Cost,
+		Cached:    now.Cached - start.Cached,
+		Reasoning: now.Reasoning - start.Reasoning,
+	}
+	if u.In <= 0 && u.Out <= 0 {
+		return event.Usage{In: lastIn, Out: cumOut, Cost: cumCost}
+	}
+	if u.Cost <= 0 {
+		u.Cost = cumCost
+	}
+	return u
 }

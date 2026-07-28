@@ -9,8 +9,11 @@ import (
 	"github.com/sayaya1090/magi/internal/port"
 )
 
-// turn.finished carries the turn-cumulative usage: output summed across steps,
-// input = the last step's (current context), not a sum (§8.1).
+// turn.finished carries what the turn COST: every request made under it, input and output both
+// summed. Input used to be the LAST step's prompt — the current context size — which meant a
+// multi-step turn reported one prompt where several were paid for, and the council's polls and the
+// subagents' work appeared nowhere at all. The context meter still needs that last-prompt number
+// and gets it from its own path (setPromptTokens), so this one means the bill.
 func TestTurnUsageCumulative(t *testing.T) {
 	llm := &fakeLLM{steps: [][]port.ProviderEvent{
 		{ // step 1: a tool call + this step's usage
@@ -44,7 +47,7 @@ func TestTurnUsageCumulative(t *testing.T) {
 	if u.Out != 12 {
 		t.Errorf("cumulative output = %d, want 12 (5+7)", u.Out)
 	}
-	if u.In != 150 {
-		t.Errorf("input = %d, want 150 (last step, not summed)", u.In)
+	if u.In != 250 {
+		t.Errorf("input = %d, want 250 (100+150 — every request is paid for, not just the last)", u.In)
 	}
 }
