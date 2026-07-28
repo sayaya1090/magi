@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/adapter/platform"
@@ -84,5 +85,60 @@ func TestBashRestoreLoopKeepsTheProgressWindowClimbing(t *testing.T) {
 	guard.mu.Unlock()
 	if since != 0 {
 		t.Errorf("a genuinely new version must restart the window, got sinceProgress=%d", since)
+	}
+}
+
+// Driven through executeTool for the same reason as the test above: the defect is at the seam, and
+// a unit test on noteEdit alone passes either way. Observed live on the restarted fix-ocaml-gc:
+// `rm -rf _build && make world … || true` — _build never existed, so the before and after reads both
+// came back empty and the result carried "[self-edit check] this write left the file byte-for-byte
+// as it already was" about a command that neither wrote nor deleted a thing.
+func TestRemovingAPathThatNeverExistedSaysNothing(t *testing.T) {
+	store, err := jsonl.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := New(store, nil, builtin.Default(), bus.New(), platform.New(), Config{Permission: "allow"})
+	wd := t.TempDir()
+	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
+	ctx := context.Background()
+	s := a.sessionInfo(ctx, sid)
+	actor := event.Actor{Kind: event.ActorAgent, ID: "coder"}
+	guard := newRunGuard()
+	run := func(cmd string) string {
+		t.Helper()
+		args, _ := json.Marshal(map[string]string{"command": cmd})
+		a.executeTool(ctx, s, AgentSpec{Name: "coder"}, 0, actor, &session.ToolCall{
+			CallID: "c_" + newID(), Name: "bash", Args: args,
+		}, guard)
+		evs, err := a.store.Read(ctx, sid, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var last string
+		for _, e := range evs {
+			var d event.PartAppendedData
+			if e.Type != event.TypePartAppended || json.Unmarshal(e.Data, &d) != nil {
+				continue
+			}
+			if d.Part.Kind == session.PartToolResult && d.Part.ToolResult != nil {
+				last = string(d.Part.ToolResult.Content)
+			}
+		}
+		return last
+	}
+
+	// A real file must still register, so the epoch is armed exactly as it was live.
+	run("echo hi > kept.txt")
+	if out := run("rm -rf _build"); strings.Contains(out, "self-edit check") {
+		t.Errorf("removing a path that never existed is not a rewrite of anything:\n%s", out)
+	}
+	// The check still fires for what it exists to catch: a mutation whose net effect returns a file
+	// to a state this turn already held. (An IDENTICAL command text is not a new mutation at all, so
+	// it never reaches the content comparison — the swing has to be written two different ways.)
+	run("printf 'A\\n' > f.txt")
+	run("sed -i.tmp 's/A/B/' f.txt && rm -f f.txt.tmp")
+	if out := run("sed -i.bak 's/B/A/' f.txt && rm -f f.txt.bak"); !strings.Contains(out, "self-edit check") {
+		t.Errorf("a mutation that restores a state the turn already held must be reported:\n%s", out)
 	}
 }

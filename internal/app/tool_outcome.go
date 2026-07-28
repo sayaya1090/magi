@@ -87,6 +87,15 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 						if !bc.readable || !ok {
 							continue // no content to compare — say nothing rather than something false
 						}
+						// Nothing on either side is not a rewrite of anything. Observed live:
+						// `rm -rf _build && make world … || true` — _build never existed, both reads
+						// came back empty, and the result carried "this write left the file
+						// byte-for-byte as it already was" about a command that neither wrote nor
+						// deleted a thing. The check exists to catch re-authoring identical content;
+						// a path with no content on either side has no history to re-author.
+						if bc.before == "" && after == "" {
+							continue
+						}
 						warn, reverted := guard.noteEdit(rel, bc.before, after)
 						if warn != "" {
 							res.Content = appendToContent(res.Content, "\n\n[self-edit check] "+warn)
