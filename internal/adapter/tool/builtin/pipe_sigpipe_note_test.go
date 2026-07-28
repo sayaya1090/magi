@@ -61,7 +61,7 @@ func TestNoPipelineResolvesNothing(t *testing.T) {
 // returned 0 bytes — nothing matched — and carried "the work at the head of the pipe FAILED".
 func TestGrepFindingNothingIsAnAnswerNotAFailure(t *testing.T) {
 	const cmd = `cd /app/ocaml/runtime && grep -n "free_list\|Free_block" *.c | grep -v "test" | head -50`
-	if got := lastPipelineVerbs(cmd); len(got) != 3 || got[0] != "grep" || got[2] != "head" {
+	if got := pipelineVerbsFor(cmd, 3); len(got) != 3 || got[0] != "grep" || got[2] != "head" {
 		t.Fatalf("the last pipeline is grep | grep -v | head, got %q", got)
 	}
 	if !stagesClean(cmd, []int{1, 1, 0}) {
@@ -83,17 +83,57 @@ func TestGrepFindingNothingIsAnAnswerNotAFailure(t *testing.T) {
 // An operator inside quotes is data. A splitter that miscounts hands stage 0's verb to stage 1's
 // status, so the count is checked and a mismatch means no verb is claimed at all.
 func TestPipelineSplitHonorsQuotes(t *testing.T) {
-	if got := lastPipelineVerbs(`grep -n "a|b" f.c | head`); len(got) != 2 || got[0] != "grep" {
+	if got := pipelineVerbsFor(`grep -n "a|b" f.c | head`, 2); len(got) != 2 || got[0] != "grep" {
 		t.Errorf("the alternation is inside the pattern: %q", got)
 	}
-	if got := lastPipelineVerbs(`a && b; c | d`); len(got) != 2 || got[0] != "c" || got[1] != "d" {
+	if got := pipelineVerbsFor(`a && b; c | d`, 2); len(got) != 2 || got[0] != "c" || got[1] != "d" {
 		t.Errorf("only the LAST pipeline has captured statuses: %q", got)
 	}
-	if got := lastPipelineVerbs(`make 2>&1 | tail -5`); len(got) != 2 || got[0] != "make" {
+	if got := pipelineVerbsFor(`make 2>&1 | tail -5`, 2); len(got) != 2 || got[0] != "make" {
 		t.Errorf("2>&1 is a redirection, not a background operator: %q", got)
 	}
 	// A parse that disagrees with the statuses claims nothing: two verbs, three statuses.
 	if stagesClean(`grep x f | head`, []int{1, 1, 0}) {
 		t.Error("with the count mismatched no verb may excuse a status")
+	}
+}
+
+// PIPESTATUS holds the last pipeline EXECUTED, which is not the last one written: in `a | b || c`
+// the tail runs only when the head fails. Observed live — three statuses captured while the
+// lexically last pipeline had two stages, so keying on "last" found `cat | sed` and handed its
+// verbs to `diff | grep | head`'s statuses. The count decides instead.
+func TestTheCapturedPipelineIsNotAlwaysTheLastOneWritten(t *testing.T) {
+	const cmd = `cd /app/ocaml && diff -u /dev/null runtime/shared_heap.c | grep -A10 -B2 "wosize" | head -80 || cat runtime/shared_heap.c | sed -n '640,655p'`
+	got := pipelineVerbsFor(cmd, 3)
+	if len(got) != 3 || got[0] != "diff" || got[1] != "grep" || got[2] != "head" {
+		t.Fatalf("three statuses belong to the three-stage pipeline, got %q", got)
+	}
+	// diff says the files differ, grep is cut off by head: nothing here failed.
+	if !stagesClean(cmd, []int{1, sigPipeExit, 0}) {
+		t.Error("a difference found and a pipe closed are two answers")
+	}
+	if note := pipeStageNote(cmd, 0, []int{1, sigPipeExit, 0}); note != "" {
+		t.Errorf("nothing failed:\n%s", note)
+	}
+	// The two-stage tail is still findable when IT is what ran.
+	if got := pipelineVerbsFor(cmd, 2); len(got) != 2 || got[0] != "cat" {
+		t.Errorf("two statuses belong to the two-stage pipeline, got %q", got)
+	}
+}
+
+// Two candidate pipelines of the same length, different verbs: magi cannot tell which one ran, and
+// a guess would hand one stage's verb to another stage's status.
+func TestAnAmbiguousLengthClaimsNoVerb(t *testing.T) {
+	const cmd = `grep x f | head -5 || make world | tail -5`
+	if got := pipelineVerbsFor(cmd, 2); got != nil {
+		t.Errorf("both branches have two stages and disagree — no verb may be claimed, got %q", got)
+	}
+	// …so the status alone decides, and make's 1 stays a failure.
+	if stagesClean(cmd, []int{1, 0}) {
+		t.Error("with no verb known, a non-zero stage is not excused")
+	}
+	// Identical verb sequences are not ambiguous: whichever ran, the answer is the same.
+	if got := pipelineVerbsFor(`grep x a | head -5 || grep x b | head -5`, 2); len(got) != 2 || got[0] != "grep" {
+		t.Errorf("both candidates agree, so the verbs are known: %q", got)
 	}
 }
