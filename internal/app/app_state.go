@@ -1,6 +1,8 @@
 package app
 
 import (
+	"time"
+
 	"context"
 	"encoding/json"
 	"fmt"
@@ -25,6 +27,7 @@ type sessionState struct {
 	todos            []session.Todo         // per-session plan
 	stage            string                 // current loop stage for event tagging
 	lastPromptTokens int                    // real prompt_tokens from the last turn
+	turnStart        time.Time              // when the current turn began (check_untouched.go: "did this predate the run")
 	observedEvents   int                    // event high-water mark of the last turn_finished observation (stale-answer guard)
 	pendingInterject []pendingInterjection  // interjections queued to run as their own turn
 	turnControl      turnControl            // pending mid-turn routing/replan signal

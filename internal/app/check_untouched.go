@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -137,4 +139,46 @@ func writesIn(evs []event.Event) []string {
 		}
 	}
 	return out
+}
+
+// `nonempty` and `equals` needed a different question than `absent` did, and the first attempt at
+// them got it wrong in a way worth recording.
+//
+// `absent` is satisfied by leaving a file alone, so "no tool call touched it" answers it exactly.
+// `nonempty` is not: a build produces its artifact as a SIDE EFFECT, with no redirect and no write
+// call naming the path, so pathTouched reports untouched for a file the run genuinely just made.
+// Gating on that alone refused to credit real deliverables — caught by the existing tests, not by
+// reasoning.
+//
+// The question these two verbs actually ask is whether the assertion was ALREADY TRUE before the
+// step ran, and the filesystem answers it: a file whose mtime predates the turn is one the turn did
+// not produce. Both signals are used, and only their conjunction is meaningless — no tool named it
+// AND it is older than the run. Either one alone leaves the check standing.
+
+// predatesRun reports whether p existed before this turn started. Unknown (no recorded start, an
+// unreadable path, a clock that cannot answer) reads as "not older", so a check is only ever
+// DOWNGRADED on positive evidence that it predates the work.
+func (a *App) predatesRun(sid session.SessionID, workdir, p string) bool {
+	a.mu.Lock()
+	start := a.stateLocked(sid).turnStart
+	a.mu.Unlock()
+	if start.IsZero() {
+		return false
+	}
+	fp := filepath.FromSlash(p)
+	if !filepath.IsAbs(fp) {
+		fp = filepath.Join(workdir, fp)
+	}
+	fi, err := os.Stat(fp)
+	if err != nil {
+		return false
+	}
+	return fi.ModTime().Before(start)
+}
+
+// staleEvidence is the conjunction the two verbs gate on: nothing in this run named the path, and
+// the file is older than the run. Then the assertion was true before the step and says nothing
+// about it.
+func (a *App) staleEvidence(ctx context.Context, sid session.SessionID, workdir, p string) bool {
+	return untouchedGateEnabled() && !a.pathTouched(ctx, sid, p) && a.predatesRun(sid, workdir, p)
 }

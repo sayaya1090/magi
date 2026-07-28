@@ -135,6 +135,9 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	// turn cost is the delta across it (this session and everything dispatched beneath it).
 	usageAtStart := a.UsageFor(sid)
 	runStart := time.Now() // self-measured wall clock (budget line + council cost control)
+	a.mu.Lock()
+	a.stateLocked(sid).turnStart = runStart // what a check means by "before the step ran"
+	a.mu.Unlock()
 	agentActor := event.Actor{Kind: event.ActorAgent, ID: orDefault(agent.Name, "default")}
 	lastText := ""
 	reportRefused := false // a subagent's unverified "done" report was refused once this run

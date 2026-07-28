@@ -188,6 +188,25 @@ func (a *App) runTypedCheck(ctx context.Context, sid session.SessionID, workdir 
 		if strings.TrimSpace(body) == "" {
 			return fmt.Sprintf("%s is empty", src), 1
 		}
+		// BEFORE the provenance question, because provenance cannot answer this one: it asks who in
+		// THIS run wrote these bytes, and on a file the run never opened the answer is "nobody" —
+		// which it reads as nothing to report, and passes. That is the exact hole this closes.
+		//
+		// A file that was already there and already non-empty makes `nonempty` true before the run
+		// starts. Observed live: a step whose deliverable was "Fixed free-list sweep implementation
+		// saved" checked `nonempty` on ocaml/runtime/finalise.c — a file that ships with the
+		// repository, and not even the one the sweep code is in. It passed one second after a read,
+		// with zero writes anywhere in the run, and the step was recorded complete; the actual fix
+		// landed in shared_heap.c thirty-eight minutes later.
+		if a.staleEvidence(ctx, sid, workdir, src) {
+			a.emitToolProgress(sid, plannerActor, "", "check-untouched", fmt.Sprintf(
+				"check-untouched: %s is not empty, but nothing in this run wrote to it and it is older "+
+					"than the run — it was already "+
+					"there, so `nonempty` was true before the step ran and says nothing about the work. "+
+					"No verdict for this check.", src))
+			return fmt.Sprintf("%s is not empty, but nothing in this run touched it — "+
+				"`nonempty` was already true before the step ran", src), 126
+		}
 		// `nonempty` is the cheapest assertion to satisfy — any text at all does it — so a pass is
 		// exactly where to ask where the bytes came from. And here, unlike the verbs that carry a
 		// pattern, the answer decides the VERDICT rather than annotating it: an assertion that only
@@ -248,6 +267,17 @@ func (a *App) runTypedCheck(ctx context.Context, sid session.SessionID, workdir 
 		}
 		if strings.TrimSpace(body) != strings.TrimSpace(other) {
 			return fmt.Sprintf("%s differs from %s", src, as.arg), 1
+		}
+		// Same reading as `nonempty` above, needing BOTH sides: two files the run never touched were
+		// equal before it started, and an equality that predates the work is not evidence of it. One
+		// side changed is enough to make the comparison about this run.
+		if a.staleEvidence(ctx, sid, workdir, src) && a.staleEvidence(ctx, sid, workdir, as.arg) {
+			a.emitToolProgress(sid, plannerActor, "", "check-untouched", fmt.Sprintf(
+				"check-untouched: %s equals %s, but nothing in this run wrote to either and both are older "+
+					"than the run — they were "+
+					"already equal before the step ran. No verdict for this check.", src, as.arg))
+			return fmt.Sprintf("%s equals %s, but nothing in this run touched either — "+
+				"they were already equal before the step ran", src, as.arg), 126
 		}
 		return a.withProvenance(ctx, sid, src, as, fmt.Sprintf("%s equals %s", src, as.arg)), 0
 	}
