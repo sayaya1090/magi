@@ -187,14 +187,20 @@ func TestNoteEditForwardProgress(t *testing.T) {
 	}
 }
 
-// TestNoteEditIdempotent: writing identical content (no change since last state) is the
-// loop guard's domain, not a regression — it must not warn.
+// TestNoteEditIdempotent: writing identical content is not a REGRESSION — nothing moved either
+// way. It is still reported: this deferred to "the loop guard's domain", and the loop guard could
+// not reach it (its fingerprint carried a shared epoch that any other mutation reset), so 17 of one
+// turn's 24 writes changed nothing and the agent was never told.
 func TestNoteEditIdempotent(t *testing.T) {
 	g := newRunGuard()
 	const path = "a.go"
 	g.noteEdit(path, "orig", "fixed")
-	if w, _ := g.noteEdit(path, "fixed", "fixed"); w != "" {
-		t.Fatalf("idempotent rewrite should not warn, got %q", w)
+	w, regressed := g.noteEdit(path, "fixed", "fixed")
+	if regressed {
+		t.Fatal("an idempotent rewrite is not a regression")
+	}
+	if w == "" {
+		t.Fatal("an idempotent rewrite must still be reported as changing nothing")
 	}
 }
 
@@ -547,9 +553,10 @@ func TestNoteEditRegressedFlagAndIdempotent(t *testing.T) {
 	if w, reg := g.noteEdit(path, "orig", "stub"); w != "" || !reg {
 		t.Fatalf("second swing: warn=%q regressed=%v; want \"\", true", w, reg)
 	}
-	// Idempotent rewrite (after == current state): neither a regression nor a warning.
-	if w, reg := g.noteEdit(path, "stub", "stub"); w != "" || reg {
-		t.Fatalf("idempotent rewrite: warn=%q regressed=%v; want \"\", false", w, reg)
+	// Idempotent rewrite (after == current state): not a regression, but reported — it is the one
+	// thing the agent cannot see from "wrote N bytes".
+	if w, reg := g.noteEdit(path, "stub", "stub"); w == "" || reg {
+		t.Fatalf("idempotent rewrite: warn=%q regressed=%v; want non-empty, false", w, reg)
 	}
 	// A DIFFERENT file gets its own one-shot warning (regressWarned is per-path).
 	const other = "util.go"

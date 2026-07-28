@@ -290,7 +290,14 @@ func (g *runGuard) noteEdit(path, before, after string) (warn string, regressed 
 	}
 	h := hashContent(after)
 	if h == hist[len(hist)-1] {
-		return "", false // no real change since the last state → idempotent, not a regression
+		// Byte-identical to what the file already held. Not a regression — nothing moved either
+		// way — but the agent has no way to see that: the tool answers "wrote 215 bytes", which
+		// reads as a change. Measured: one turn wrote the same 215 bytes to the same path nine
+		// times over five minutes, then the same 225 bytes eight more times over thirteen, and
+		// magi never said a word. So say the one thing it knows and nothing more; the reading of
+		// it — deliberate re-assert, or an edit that did not take — is the agent's.
+		g.contentHist[path] = hist // materialize the baseline for a file first seen here
+		return "this write left the file byte-for-byte as it already was — nothing changed.", false
 	}
 	// Scan states strictly before the latest: a match means the file returned to a state it
 	// already held this turn (original→fix→original, or fix1→fix2→fix1 oscillation).
@@ -413,6 +420,29 @@ func (g *runGuard) allowRecall(topic string) (bool, string) {
 // how many times this exact call has been seen at the current epoch, and the
 // fingerprint (so the caller can record/echo its result).
 //
+// repeatEpoch is the fingerprint's "the world may have moved, ask again" term. For most tools it is
+// the mutation epoch: an identical `go test` after an edit is a new question, so it must not be
+// counted as a repeat of the one before it.
+//
+// For a file-modifying call the epoch is the wrong term, in both directions. It is too COARSE —
+// every other mutation bumps it, including a scratch redirect the agent makes between two writes,
+// which hands the next identical write a fresh count of 1. Measured: the same 215 bytes written to
+// one path nine times in five minutes, then the same 225 bytes eight more times, each pair separated
+// by a `… > /tmp/…`; the repeat block never came within reach of a loop check's own contract names
+// ("replaying the identical write"). And it is too BLUNT — a write is not outcome-independent in
+// general: after the file has been changed to something else, writing the original bytes back does
+// change it, and must be asked afresh.
+//
+// What the term should track is the one thing that decides both: whether THAT PATH has changed since.
+// lastMut holds exactly that — the args of the last mutation recorded for the path — so an identical
+// write accumulates while the file stands still, and starts over the moment it does not.
+func (g *runGuard) repeatEpoch(name string, args json.RawMessage) string {
+	if fileModifiers[name] {
+		return g.lastMut[pathArg(args)]
+	}
+	return strconv.Itoa(g.epoch)
+}
+
 // The hard block applies only to repeats whose outcome provably cannot change: re-reading
 // an unchanged file, re-running an inspect-only banner, replaying the identical write. An
 // EXEC bash command (build/test/run — anything not inspect-only) is exempt: its outcome
@@ -424,7 +454,7 @@ func (g *runGuard) allowRecall(topic string) (bool, string) {
 func (g *runGuard) check(name string, args json.RawMessage) (block bool, n int, fp string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	fp = name + "\x00" + strconv.Itoa(g.epoch) + "\x00" + guardArgs(name, args)
+	fp = name + "\x00" + g.repeatEpoch(name, args) + "\x00" + guardArgs(name, args)
 	g.calls++
 	g.sinceProgress++ // reset only by a real mutation (mutated); rises across varied calls
 	// A background-job poll (bash_output) or an explicit block-until (wait_for) is waiting on

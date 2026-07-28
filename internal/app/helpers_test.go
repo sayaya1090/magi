@@ -94,7 +94,9 @@ func TestCapToolResult(t *testing.T) {
 
 // An IDEMPOTENT mutation (writing identical content to the same path) is not progress,
 // so it must NOT bump the epoch — otherwise a write-the-same-thing loop would reset its
-// own counts forever and never be blocked.
+// own counts forever and never be blocked. Nor may a mutation of some OTHER path reset them:
+// a file-modifying call's fingerprint tracks the last mutation of ITS OWN path, so a scratch
+// redirect between two identical writes no longer hands the second a fresh count.
 func TestRunGuardIdempotentMutationStillBlocks(t *testing.T) {
 	g := newRunGuard()
 	w := json.RawMessage(`{"path":"a.txt","content":"same"}`)
@@ -102,15 +104,14 @@ func TestRunGuardIdempotentMutationStillBlocks(t *testing.T) {
 	// The first write to the path is a real change → bumps the epoch (file created/modified).
 	g.check("write", w)
 	g.mutated("a.txt", sig)
-	// Further identical writes do NOT bump the epoch, so they accumulate at one epoch.
+	// Further identical writes do NOT bump the epoch, and accumulate on the first one's count.
 	for i := 1; i <= repeatLimit; i++ {
 		if block, _, _ := g.check("write", w); block {
-			t.Fatalf("identical write %d at the stable epoch should still be allowed", i)
+			t.Fatalf("identical write %d should still be allowed (repeatLimit=%d)", i, repeatLimit)
 		}
 		g.mutated("a.txt", sig) // identical content → no real change → no bump
 	}
-	// The next identical write exceeds repeatLimit at that stable epoch → blocked, despite
-	// all the (no-op) mutations.
+	// The next identical write exceeds repeatLimit → blocked, despite all the (no-op) mutations.
 	if block, _, _ := g.check("write", w); !block {
 		t.Error("idempotent rewrite loop should still be blocked by the guard")
 	}
