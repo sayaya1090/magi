@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -97,45 +96,7 @@ func (a *App) systemFor(agent AgentSpec, workdir string, isSub bool) string {
 		}
 		return sys + securityGuide + g
 	}
-	// Only advertise delegation to an agent that can actually delegate (has the
-	// task tool). Workflow phases run with restricted toolsets and must not be
-	// told to delegate.
-	if len(a.cfg.Agents) == 0 || !agent.allows("task") {
-		return sys
-	}
-	var b strings.Builder
-	b.WriteString(sys)
-	// A task-tool child is a FRESH session: it inherits nothing of this conversation and sees only
-	// the prompt written for it (the plan-driven hand-offs get a curated brief, an artifact ledger
-	// and an acceptance checklist assembled for them; this path assembles nothing). So the prompt
-	// is the child's entire world, and the two things it most often lacks are the ones nobody
-	// notices are missing until the result comes back wrong: what "done" is, and enough of the
-	// surrounding goal to make a choice the same way. Said here rather than in the tool description
-	// because it governs how the prompt is WRITTEN, which happens before the call is composed.
-	b.WriteString("\n\nYou can delegate to subagents with the task tool. A subagent starts FRESH — it does not see " +
-		"this conversation, only the prompt you write — so that prompt must stand on its own: state the goal it " +
-		"serves, the concrete deliverable it owes you, and how you will judge that it is done (the check to run, the " +
-		"behavior to demonstrate). Anything you leave implicit, it will decide for itself. When the work is about " +
-		"specific files, pass the file PATHS in the prompt and tell the subagent to read them directly — do NOT paste " +
-		"file contents or long excerpts into the prompt. Pasted content may be truncated and it wastes context; the " +
-		"subagent has its own read tools and must see the real, current file. Available agents:")
-	// Render in a STABLE (sorted) order: a.cfg.Agents is a map, and Go randomizes map
-	// iteration, so an unsorted range would reorder this block every step — mutating the
-	// system prompt byte-for-byte and defeating the backend's prefix (KV) cache for exactly
-	// the orchestrator configs that benefit most from it.
-	names := make([]string, 0, len(a.cfg.Agents))
-	for name := range a.cfg.Agents {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		desc := a.cfg.Agents[name].System
-		if len(desc) > 80 {
-			desc = desc[:80]
-		}
-		b.WriteString("\n- " + name + ": " + oneLineHint(desc))
-	}
-	return b.String()
+	return sys
 }
 
 // volatileContext builds the per-step changing context — the current plan (TODOs), shared

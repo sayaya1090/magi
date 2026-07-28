@@ -102,10 +102,6 @@ type OrchestrationConfig struct {
 	// solo path — the main agent does the work inline, with the whole session as context
 	// instead of a curated brief. MAGI_WORKERS still overrides this either way.
 	Workers *bool `toml:"workers"`
-	// SubagentTimeout is the BASE per-attempt hard cap for subagents, as a Go
-	// duration string ("5m", "90s"). The effective cap flexes elastically with
-	// observed model speed around this base. Empty = built-in default (5m).
-	SubagentTimeout string `toml:"subagent_timeout"`
 }
 
 // ThemeConfig overrides TUI colors per mode. Keys are Material Design 3 color

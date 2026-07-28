@@ -102,7 +102,7 @@ func TestGuardProviderForwardsNormalReply(t *testing.T) {
 
 // drainText (now guard-free) accumulates the reply's text via the guarded provider.
 func TestDrainTextAccumulates(t *testing.T) {
-	a := newOrchApp(t, &gateLLM{text: "the plan JSON"}, Config{Permission: "allow", MaxAgents: 10})
+	a := newOrchApp(t, &gateLLM{text: "the plan JSON"}, Config{Permission: "allow"})
 	text, err := a.drainText(context.Background(), AgentSpec{}, port.ChatRequest{})
 	if err != nil || text != "the plan JSON" {
 		t.Fatalf("drainText = %q, %v; want \"the plan JSON\", nil", text, err)
@@ -127,7 +127,7 @@ func (errAfterTextLLM) StreamChat(ctx context.Context, r port.ChatRequest) (<-ch
 // its own parse-failure/abstain recovery rather than a hard error, and a ProviderError event never
 // panics the drain. Locks that graceful-degradation contract.
 func TestDrainTextSwallowsProviderError(t *testing.T) {
-	a := newOrchApp(t, errAfterTextLLM{}, Config{Permission: "allow", MaxAgents: 10})
+	a := newOrchApp(t, errAfterTextLLM{}, Config{Permission: "allow"})
 	text, err := a.drainText(context.Background(), AgentSpec{}, port.ChatRequest{})
 	if err != nil {
 		t.Fatalf("drainText must swallow a mid-stream ProviderError (nil err), got %v", err)

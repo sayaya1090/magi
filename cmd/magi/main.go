@@ -560,7 +560,6 @@ func run() int {
 		CouncilMembers:      councilMembers(cfg.Council, cfg.LLM.Profiles),
 		CouncilSignals:      councilSignals(cfg.Council),
 		TimeBudget:          *timeBudget,
-		SubagentTimeout:     subagentTimeoutFrom(cfg.Orchestration), // 0 → app default (5m); env overrides config
 		Observer:            obs,
 	})
 
@@ -1340,22 +1339,6 @@ func (s sidecarAnalyzer) Analyze(ctx context.Context, system, text, model string
 		return "", streamErr
 	}
 	return b.String(), nil
-}
-
-// subagentTimeoutFrom resolves the base subagent hard cap: the
-// MAGI_SUBAGENT_TIMEOUT env (bench A/B knob) wins over the config file's
-// [orchestration] subagent_timeout; both are Go duration strings. 0 = unset,
-// letting the app apply its built-in default.
-func subagentTimeoutFrom(o config.OrchestrationConfig) time.Duration {
-	for _, s := range []string{os.Getenv("MAGI_SUBAGENT_TIMEOUT"), o.SubagentTimeout} {
-		if s = strings.TrimSpace(s); s == "" {
-			continue
-		}
-		if d, err := time.ParseDuration(s); err == nil && d > 0 {
-			return d
-		}
-	}
-	return 0
 }
 
 // applyAgentModels overlays per-agent routing from config onto the agents. A

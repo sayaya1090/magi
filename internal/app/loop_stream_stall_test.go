@@ -15,7 +15,7 @@ import (
 // streamStallTimeout — not held until the turn's wall clock — and, since no token arrived, marked
 // stalled so the caller can retry. This is the cobol-modernization 45-minute hang in miniature.
 func TestConsumeStreamAbortsSilentStream(t *testing.T) {
-	a := newOrchApp(t, &gateLLM{text: "x"}, Config{Permission: "allow", MaxAgents: 10})
+	a := newOrchApp(t, &gateLLM{text: "x"}, Config{Permission: "allow"})
 	old := streamStallTimeout
 	streamStallTimeout = 40 * time.Millisecond
 	defer func() { streamStallTimeout = old }()
@@ -46,7 +46,7 @@ func TestConsumeStreamAbortsSilentStream(t *testing.T) {
 // but it is NOT marked stalled: output was already committed, so re-issuing the request would
 // double-generate. The caller finishes with the partial output instead of retrying.
 func TestConsumeStreamMidGenerationFreezeNotRetryable(t *testing.T) {
-	a := newOrchApp(t, &gateLLM{text: "x"}, Config{Permission: "allow", MaxAgents: 10})
+	a := newOrchApp(t, &gateLLM{text: "x"}, Config{Permission: "allow"})
 	old := streamStallTimeout
 	streamStallTimeout = 40 * time.Millisecond
 	defer func() { streamStallTimeout = old }()

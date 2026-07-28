@@ -163,7 +163,6 @@ func (a *App) resetForNewTopLevel(sid session.SessionID) {
 	a.SetTodos(sid, nil) // takes a.mu itself
 	a.mu.Lock()
 	st := a.stateLocked(sid)
-	a.forgetStepAttemptsFor(sid) // …and the spent retry ladders of the previous task's steps
 	// Reset the interjection mask, but KEEP masking anything still WAITING in the
 	// queue: a queued interjection's original PromptSubmitted must stay hidden
 	// until it runs as its own turn — dropping its mask here would leak it into

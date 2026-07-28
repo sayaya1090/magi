@@ -727,7 +727,7 @@ func hasDecidedNote(evs []event.Event, sub string) bool {
 //
 // The dissent must not vanish: it is injected for the agent and carried in the unverified reason.
 func TestCouncilAdvisoryRecordsDissentAndFinishes(t *testing.T) {
-	a := newOrchApp(t, &gateLLM{text: "x"}, Config{Permission: "allow", MaxAgents: 10})
+	a := newOrchApp(t, &gateLLM{text: "x"}, Config{Permission: "allow"})
 	s := parentSession(t.TempDir())
 	a.mu.Lock()
 	a.stateLocked(s.ID).meta = s

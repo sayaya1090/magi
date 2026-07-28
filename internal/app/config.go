@@ -170,8 +170,6 @@ type Config struct {
 	// Agents are named subagents spawnable via the task tool.
 	Agents map[string]AgentSpec
 	// Bounded recursion limits (D7).
-	MaxDepth    int // max subagent nesting depth
-	MaxAgents   int // cumulative spawn cap (runaway backstop)
 	Concurrency int // max concurrently running subagents
 
 	// TimeBudget, when > 0, is a USER-declared wall-clock target for a turn,
@@ -206,12 +204,6 @@ type Config struct {
 	Workflow         bool
 	VerifyCmd        string
 	WorkflowMaxLoops int
-
-	// Subagent supervision (sidecar): each background subagent is watched for
-	// liveness and restarted on stall/timeout/transient error.
-	SubagentTimeout     time.Duration // BASE hard cap per attempt (default 5m); the effective cap flexes with observed model speed (subagent_cap.go)
-	SubagentStall       time.Duration // no-activity → considered stalled (default 4m), suppressed while a tool runs
-	SubagentMaxRestarts int           // restarts on stall/timeout/error (default 2)
 
 	// AutoOrchestrate triggers automatic orchestration mode when context usage
 	// exceeds the threshold. -1 = disabled (user can toggle off), 0 = use default (0.6),
@@ -293,12 +285,6 @@ func (c Config) withDefaults() Config {
 	if c.DangerTools == nil {
 		c.DangerTools = map[string]bool{"write": true, "edit": true, "multiedit": true, "bash": true, "wait_for": true, "webfetch": true, "websearch": true, "port_owner": true}
 	}
-	if c.MaxDepth == 0 {
-		c.MaxDepth = 3
-	}
-	if c.MaxAgents == 0 {
-		c.MaxAgents = 50
-	}
 	if c.Concurrency == 0 {
 		c.Concurrency = 8
 	}
@@ -307,25 +293,6 @@ func (c Config) withDefaults() Config {
 	}
 	if c.CompactRatio == 0 {
 		c.CompactRatio = 0.8
-	}
-	if c.SubagentTimeout == 0 {
-		// Tight per-attempt cap: a churning subagent (hallucinated targets, Q&A
-		// ping-pong with the parent) stays event-active, so neither the stall
-		// watchdog nor the tool-in-flight guard ever cuts it — the hard cap is the
-		// only bound. At 30m one bad explorer outlived a whole bench task budget
-		// (log-summary regression, 2026-07-10); 5m keeps a churner from eating the
-		// parent's wall clock while legitimate focused subagent work fits well under.
-		c.SubagentTimeout = 5 * time.Minute
-	}
-	if c.SubagentStall == 0 {
-		// No-activity liveness: catches a truly wedged child (no events at all).
-		// Stays ACTIVITY-based (any event, including streaming deltas) so a slow
-		// single generation is not false-killed, and is suppressed entirely while a
-		// tool is in flight (a silent long bash emits no events until it returns).
-		c.SubagentStall = 4 * time.Minute
-	}
-	if c.SubagentMaxRestarts == 0 {
-		c.SubagentMaxRestarts = 2
 	}
 	if c.WorkflowMaxLoops == 0 {
 		c.WorkflowMaxLoops = 3

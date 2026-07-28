@@ -67,10 +67,11 @@ func TestVolatileContextEmpty(t *testing.T) {
 	}
 }
 
-// TestSystemForStableAgentOrder: the "Available agents" block must render in a stable
-// (sorted) order so the system prompt is byte-identical across steps — otherwise Go's
-// randomized map iteration would mutate it every step and defeat the backend prefix cache.
-func TestSystemForStableAgentOrder(t *testing.T) {
+// TestSystemForIsByteStableAcrossSteps: the system prompt must be byte-identical from one step to
+// the next, or the backend's prefix (KV) cache is defeated on every request. It used to be at risk
+// from Go's randomized map iteration, which reordered the roster block rendered into it; that block
+// is gone with delegation, and the property it protected is what this holds.
+func TestSystemForIsByteStableAcrossSteps(t *testing.T) {
 	a := &App{cfg: Config{Agents: map[string]AgentSpec{
 		"zeta": {System: "z"}, "alpha": {System: "a"}, "mid": {System: "m"},
 	}}}
@@ -81,9 +82,12 @@ func TestSystemForStableAgentOrder(t *testing.T) {
 			t.Fatalf("systemFor not stable across calls:\n--- first ---\n%s\n--- got ---\n%s", first, got)
 		}
 	}
-	ai, mi, zi := strings.Index(first, "\n- alpha:"), strings.Index(first, "\n- mid:"), strings.Index(first, "\n- zeta:")
-	if !(ai >= 0 && ai < mi && mi < zi) {
-		t.Fatalf("agents not in sorted order (alpha<mid<zeta): %d %d %d", ai, mi, zi)
+	// A configured roster reaches no prompt: nothing can be delegated to, so naming agents would
+	// advertise a capability the model does not have.
+	for _, name := range []string{"alpha", "mid", "zeta"} {
+		if strings.Contains(first, "\n- "+name+":") {
+			t.Errorf("the system prompt still advertises agent %q:\n%s", name, first)
+		}
 	}
 }
 

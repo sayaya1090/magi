@@ -115,7 +115,7 @@ func TestLiveEventsDropsResurfacedOrigins(t *testing.T) {
 func stuckDriverApp(t *testing.T) (*App, session.Session) {
 	t.Helper()
 	a := newOrchApp(t, &recLLM{reply: func(string) string { return "" }}, Config{
-		Permission: "allow", MaxAgents: 100, MaxDepth: 5, MaxSteps: 120,
+		Permission: "allow", MaxSteps: 120,
 		Agents: map[string]AgentSpec{
 			"coder": {Name: "coder", System: "code", Tools: []string{"read", "write", "edit", "bash"}},
 		},
