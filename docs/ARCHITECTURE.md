@@ -6,10 +6,16 @@ D1–D13); where they disagree with this file, **this file wins**.
 Visual companion: [DIAGRAMS.md](DIAGRAMS.md) — top-level container, turn lifecycle,
 component map, and the harness-intervention (nudge/gate) flowcharts, in mermaid.
 
-magi is an extensible terminal AI coding agent: a Go core, a Bubble Tea TUI,
-Lua plugins, OpenAI-compatible LLM access (Ollama/LiteLLM/etc.), multi-agent
-orchestration, an event-sourced store, guardrails, and a deterministic workflow
-engine. Single static binary (`CGO_ENABLED=0`), cross-platform.
+magi is an extensible terminal AI coding agent: a Go core, a Bubble Tea TUI, Lua plugins,
+OpenAI-compatible LLM access (Ollama/LiteLLM/etc.), an event-sourced store, guardrails, an
+advisory council the agent calls as a tool, and an opt-in deterministic workflow engine. Single
+static binary (`CGO_ENABLED=0`), cross-platform.
+
+**One agent.** magi used to spawn subagents and hand them slices of the work through a curated
+brief. Nothing in the recorded runs shows that making a result better, and the defect log is
+largely made of it — a brief paraphrased until the graded identifier was gone, a worker that never
+received the checklist assembled for it, a killed explorer whose session id was dropped so its work
+could not be salvaged. It is gone, along with the planner that decided when to use it.
 
 ---
 
@@ -31,48 +37,43 @@ internal/
     agent/ plugin/ tool/    (placeholder dirs — types live in app/ and adapter/)
   port/                     interfaces the core depends on (port.go): LLMProvider, Store,
                             Tool/ToolEnv, ExperienceStore, PluginHost, Platform, Scheduler…
-  app/                      application service + agent loop + orchestration + guardrails + workflow
+  app/                      application service + the agent loop + guardrails + workflow
     app.go                  App (the Application): commands in → events out; session/turn state
-    routing.go query.go     app.go's split siblings: agent/model/profile routing + permission
-                            config (routing.go), and the read-only session/workspace query
-                            surface — transcript, plan, child sessions, git-diff/shell (query.go)
-    config.go               Config/AgentSpec/route+profile types, withDefaults, applyProfile
-    todos.go                plan/TODO state machine (SetTodos, advanceTo, finalizeTodos)
-    loop.go                 runLoop: the agent loop; buildStepSystem (cacheable prompt); the
+    routing.go query.go     model/profile routing and permission config (routing.go); the
+                            read-only query surface the TUI reads — transcript, plan, observation,
+                            git-diff/shell (query.go)
+    config.go               Config/AgentSpec/profile types, withDefaults, applyProfile
+    todos.go                the plan the AGENT keeps (todowrite) and its finalize-at-turn-end
+    loop.go                 runLoop: the agent loop; buildStepSystem (the cacheable prompt); the
                             per-step stream/persist/finish flow
-    interject.go            loop.go's split sibling: mid-turn steer/interjection machinery —
-                            routing (applyRoute), the idle-park/finish triage mini-turns
-                            (handleAside/triageQueued/interjectTurn), agent-initiated replan
-                            (honorReplan), and the interjection/turnControl state accessors
-    guard.go shellcmd.go council_gate.go criteria.go execute.go permission.go prompt.go
-                            loop.go's split siblings: runGuard (stall/loop/regression) and its
-                            stateless shell-command classifier (shellcmd.go), the consensus gate,
-                            acceptance criteria, tool execution, permission prompting, and
-                            prompt/system assembly
-    orchestrate.go          subagent dispatch/spawn/supervisor; escalate (ask); bgGroup
-    planner.go plan_flags.go plan_prompts.go
-                            recursive pre-flight planner: solo/parallel/scout/delegate/refine;
-                            planEnvelope budget/depth hint, guardExpansion depth-cap guard,
-                            MAGI_ADAPT-gated reactive retry + escalate, MAGI_REFINE_SHARED
-                            shared-session refine phases, MAGI_SPEC_FIDELITY literal-preservation
-                            (planner rule + plan-time note + verbatim delegate SPEC anchor); the
-                            MAGI_* A/B env knobs (plan_flags.go) and prompt/contract builders
-                            (plan_prompts.go) are split into siblings
-    specmine.go             prompt analysis (MAGI_SPEC_MINE, default on): a two-pass side
-                            elicitation run at the FRONT of pre-flight planning — before the
-                            contract gate and the planner — so the classification informs both
-                            them and the plan-audit check-author. Free-form analysis of what the
-                            request's names/type signatures imply beyond its prose, then a
-                            strict-JSON distillation (≤5 lines, each tagged kind=hard|example|
-                            semantic for HOW to honor it, + one USE recommendation; cap and
-                            single-winner re-enforced in code) — injected as a finished execution
-                            note (lines tagged ⟨hard⟩/⟨example⟩/⟨semantic⟩) and shown to the
-                            termination gate as a soft contract (cachedSpecMine); optional
-                            "specmine" agent reroutes the elicitation to different weights
-    workflow.go             deterministic phase pipeline (localize→implement→verify→review→summarize)
+    loop_gates.go           the finish path: Stop hooks, the empty-result nudge, the
+                            authored-but-never-run nudge, and the finish declaration
+    interject.go interject_queue.go
+                            mid-turn steer machinery: routing (applyInterjectRoute), the
+                            finish-boundary triage mini-turn, agent-initiated replan, and the
+                            queue that survives a reload
+    guard.go shellcmd.go shellparse.go
+                            runGuard — what magi NOTICES about a run (repeats, stalls,
+                            self-reverts, no-change writes, exercise churn) and the stateless
+                            shell classifier it reads commands with. It reports; it does not
+                            decide (see §4)
+    observed.go observed_view.go world_snapshot.go
+                            magi's own record: which calls it granted, how they really ended,
+                            what they wrote (observed.go); the panel's view of it
+                            (observed_view.go); and the fresh read of the workspace and the live
+                            background jobs taken when a finish is declared (world_snapshot.go)
+    council_advice.go council_events.go council_evidence.go
+                            the council as a TOOL — one deliberation, three lenses over the same
+                            record, rendered back to the agent; the events the TUI folds; and the
+                            evidence assembly they read
+    execute.go permission.go prompt.go
+                            tool execution (including the unknown-argument check), permission
+                            prompting, and prompt/system assembly
+    hooks.go                lifecycle hooks (PreToolUse/PostToolUse/Stop) + the built-in harness
+    workflow.go             the opt-in deterministic phase pipeline (-workflow, §6)
     policy.go               guardrail policy engine (rules, secret-deny, bash scan, egress)
-    hooks.go                lifecycle hooks (PreToolUse/PostToolUse/Stop) + built-in harness
-    context.go diagnose.go compact.go …
+    background.go           the background-command registry as an observer sees it (§7)
+    compact.go recall.go reconstruct.go scratch.go …
   adapter/
     llm/openai/             OpenAI-compatible client (native + prompt-fallback tool calls,
                             prompt caching, error mapping, custom headers, retries)
@@ -85,7 +86,7 @@ internal/
     tui/                    Bubble Tea UI, split by concern: model.go (Model + Update),
                             model_input.go (mouse/key/slash), model_event.go (event folding),
                             model_route.go (route/profile forms), model_layout.go (resize/panes),
-                            model_view.go (render). Transcript, subagent panes, /route editor
+                            model_view.go (render). Transcript, background-job panes, /route editor
                             (session-model suggest box = profiles ∪ `App.ListModels` gateway catalog).
   httpx/                    shared static+dynamic HTTP header set (MCP + LLM client)
   jsonx/                    the one reader for model-produced JSON: balanced-span extraction,
@@ -159,11 +160,11 @@ replay, deduped by seq (race-safe late-joiner).
     SessionID; Workdir; Platform
     AskPermission func(callID, name, args) (bool, error)
     EmitArtifact  func(Artifact)
-    Spawn    func(ctx, SpawnRequest) SpawnResult     // task tool: run a subagent (blocking)
-    Dispatch func(SpawnRequest) string               // task tool: background subagent; "" ok, else a note
-    Ask      func(question) (string, error)          // subagent → orchestrator escalation (blocks; bg-dispatched only, else fast-fails)
-    Report   func(summary, status, details) error    // subagent → final result; ends the turn
+    Council  func(ctx, question string, complete bool) (string, error) // council tool; complete=declare
     SetTodos func([]Todo)                             // todowrite
+    Replan   func(reason string) error               // replan tool
+    ResolveConcern func(key, reason string) error    // retire a concern from the ledger
+    RouteInterjection / AskUser                       // interactive runs only
     Propose  func(Contribution) error                // shared experience (D13)
     LoadSkill func(name) (string, bool)              // skill tool
     Sandbox  SandboxSpec                             // OS confinement for bash (read-only|workspace-write|full)
@@ -176,504 +177,106 @@ replay, deduped by seq (race-safe late-joiner).
 
 ## 4. The agent loop (`app/loop.go`)
 
-`Submit` appends `prompt.submitted` and starts a single run goroutine (`startRun`);
-`run` either drives the free-form loop (`runLoop`) or, when `Config.Workflow`, the
-workflow engine (§6). `runLoop(ctx, session, agent, depth, maxSteps)`:
+`Submit` appends `prompt.submitted` and starts one run goroutine (`startRun`); `run` drives
+either the free-form loop (`runLoop`) or, under `Config.Workflow`, the phase engine (§6).
 
-1. Assemble context (history since last compaction + project memory/AGENTS.md +
-   skills + shared experience), publish `context.usage`, maybe auto-compact.
-   A per-step **volatileContext** (ephemeral trailing message, never in the cached
-   system prompt) carries the step budget, a self-measured **elapsed** line once a
-   turn passes 1m (`time.Since(runStart)` — magi's own stopwatch, not scorer info),
-   an optional `--time-budget` remaining/EXCEEDED block (`Config.TimeBudget`, default
-   off, kept off for leaderboard runs), the live todo list, and **push-side shard
-   hints** (`shardHints` in `recall.go`) — the compacted-away topics that lexically
-   match the current task, **BM25-lite IDF-ranked** so a rare token pinning one region
-   ("heap.go") outweighs a generic one across all shards, requiring ≥2 distinct token
-   matches; a weak model that never calls `recall_context` is still pointed at what it
-   lost, and still pulls the verbatim originals through that tool.
-2. `StreamChat`; stream text (`part.delta`) / reasoning / tool calls; on finish
-   persist the assistant `part.appended`.
-3. No tool calls → finish branch (see §5/§6 gates), else execute tools (read-only
-   tools run concurrently; writes/permissioned/task run sequentially) and loop.
+The loop is deliberately small. It used to be a pipeline of stages magi imposed — orient,
+spec-mine, a contract council, a planner, a plan audit, check authoring, coverage fill,
+delegation to subagents, a termination vote. Every one of those decided something *before* the
+work existed, and every recorded defect of that period was of one kind: magi believing a
+judgement it had made in advance over the record of what actually happened. They are gone.
 
-Guards that make weak models safe (in `guard.go`/`orchestrate.go`; the loop body
-in `loop.go` calls into them each step):
-- **runGuard**: an identical `(tool,args)` call is hard-blocked past `repeatLimit` **only
-  when its outcome provably cannot change**: `read`s (whose fingerprint drops the `limit`
-  arg, so re-reading the same head with limit jitter collapses onto one counter while
-  genuine paging via `offset` doesn't), inspect-only bash (the closed `echo`/`cat`/`ls`
-  verb set), and identical write replays. **Exec bash — build, test, any script — is
-  exempt**: its outcome can change through state the guard can't see, and build/test can
-  be invoked too many ways to enumerate, so exec is defined by exclusion from the closed
-  inspect set; a genuine exec spin still climbs the no-progress window and is terminated
-  by the stall layer. `blockedBudget` blocked repeats → the `repeat` stuck kind (recovered
-  below, else `loop_guard` stop). A successful file write/edit with *changed* content bumps
-  a mutation epoch that resets the counts — and so does a bash command that authors or
-  mutates files, whether by redirect/heredoc/`tee` (`noteBashWrite`) or by a redirect-less
-  mutating verb (`mutatesFiles`: `sed -i`, `patch`, `cp`/`mv`/`rm`, `git apply/checkout/…`,
-  `go mod`, `pip`/`npm install`, `tar x`, …) — so a bash-driven fix cycle re-keys its
-  build/test fingerprints the same way an edit-tool fix does. A blocked repeat echoes the
-  earlier result.
-- **decomposing stuck recovery** (`redecomposeStuck` → `driveStuckTodos`,
-  `MAGI_STUCK_DECOMPOSE`, default OFF — a remote-bench bisect showed the mid-build
-  re-plan burning the wall clock; set =1 to re-enable): when a plan-eligible turn is force-stopped stuck
-  (`stall`, or `repeat` when the flag is on), recovery re-plans the stuck task into an
-  explicit TODO list and drives the units ONE AT A TIME — each unit in a child seeded with
-  the **full parent conversation** (`CloneContext`, so it continues from what was already
-  read instead of re-deriving context and re-fixating) but scoped by prompt to just that
-  unit, on a quarter of the whole-task step budget (floor 8) so a re-fixating unit fails
-  fast. A landed unit's session is **reused** for the next unit (the refine shared-session
-  pattern); a failed unit reverts its todo to pending, resets the chain to a fresh parent
-  clone, and the driver moves on — units already landed survive. Recovery units are
-  *appended* below any existing plan todos. When decomposition wasn't possible (<2 units)
-  the old whole-task re-spawn runs as fallback (now also `CloneContext`); when it ran and
-  every unit failed, the fallback is skipped. On a landed `repeat` recovery the blocked
-  counter is cleared too (`resetRepeat` — `resetStall` alone would re-halt immediately).
-- **corrective re-grounding nudge**: before a force-stop, a re-grounding message (re-read
-  the task, change approach) is injected. It fires on either stall the guard can see —
-  `blocked` past `nudgeThreshold` (the *same* action repeated, once per run), OR
-  `sinceProgress` past `noProgressNudge` (many *varied* tool calls with no real mutation),
-  which re-arms per window up to `maxStallNudges`. A successful **bash write** counts as a
-  mutation too (`noteBashWrite` → epoch bump), so bash-heavy work isn't misread as a stall.
-  **Regressive edits don't count as progress**: `noteEdit` hashes each touched file's
-  content across the turn, and an edit that returns a file to a state already seen this
-  turn is churn, not progress — `retractProgress` restores the pre-write stall epoch so an
-  implement↔revert oscillation keeps climbing toward a stall stop instead of resetting it
-  every swing (without this, a model that writes a stub, reverts it, and re-tries forever
-  never trips any guard and burns the whole budget).
-  **Tabu list** (`failedStates`/`checkTabu`): the higher-precision complement to the
-  self-revert check. When a command that *exercises* the deliverable fails (`noteExerciseFail`,
-  gated by the same `isInspectOnly` verb set as the execution-evidence signal), the whole
-  authored file set's content signature (`deliverableSigLocked` over `changeSet` after-states)
-  is recorded with a snippet of the failure. A later edit whose signature matches a recorded
-  failing state gets a one-shot advisory citing that failure — so an agent circling back to a
-  proven-bad state is told so, where the self-revert check only knows a state *repeated*, not
-  that it was known to fail. Advisory, once per signature, never a block.
-  After the stall nudges are exhausted, one further ignored window force-stops the run as
-  `stall_guard` — the backstop that keeps an unresponsive agent from wandering to the
-  (240-step default) ceiling. **Stalled-nudge convergence** (`stallConverge`,
-  `MAGI_STALL_CONVERGE`, default on): a re-arm whose window produced *no forward motion since
-  the last nudge* — neither a real mutation nor a first-seen non-inspect exercising command
-  (`progressSinceNudge` stays false) — means the redirect was ignored, so the remaining nudge
-  budget collapses and the `stall_guard` lands *this* window instead of firing up to
-  `maxStallNudges` more. It only accelerates the identical terminal landing (epoch>0 → clean
-  finish, else `stall_guard`); a mutation sets `progressSinceNudge` and restarts the window, so
-  an agent that edits in response to a nudge always re-arms normally — convergence never cuts a
-  productive redirect. The planner also emits an advisory `estimated_steps` that the
-  per-step budget line cites as a pacing reference (never a limit).
-- **pre-finish landing**: a top-level turn that changed files finishes as soon as the model
-  stops calling tools and the consensus council (when configured) votes done — there is no
-  separate delegated review gate or self-verify self-prompt. The `tester`/`reviewer` agents
-  remain in the registry as manual `task`-tool delegation targets; they are no longer
-  auto-dispatched. The advisory `guard.unverifiedDeliverable()` signal (below) still feeds
-  the council so a changed-but-never-run deliverable is a hard fact a text vote can't wave
-  through.
-- **churn graceful-finish**: when the loop guard force-stops a spinning turn (`guard.stuck()`
-  repeat/stall), the outcome depends on whether the run produced a deliverable. Epoch > 0
-  (real output already written, now only re-confirming) → finish cleanly (`turn.finished`,
-  exit 0) with the work as-is, so a completed task is not misreported as an agent-level
-  failure. Epoch 0 (pure thrash, nothing produced) → keep the `loop_guard`/`stall_guard`
-  error abort so the failure stays visible.
-- **fabrication defense — behavioral, structural, no phrase matching**: the signal is
-  **structural, not lexical**: `guard.unverifiedDeliverable()`
-  is true when the turn produced/changed a deliverable this epoch (`mutationEpoch() > 0`) but
-  ran **no command that exercises the current version** (`execSinceMut == 0`). Execution is
-  counted by leading verb: a small closed set of POSIX inspection verbs (`ls`/`cat`/`echo`/
-  `exit`/`true`/… — see `inspectOnlyCmds`) does NOT count; anything else (a program, its
-  tests, `./run`, `make`) does. A bash file-write is deliverable *production*, not exercise,
-  so it bumps the epoch and resets the counter — writing then declaring done without running
-  trips the flag. This replaced the former English-only confession-phrase scan
-  (`core/selfcheck`, now deleted): it is language-agnostic (it reads behavior, not wording),
-  catches confident-but-false "verified" claims (there is no execution to point to), and needs
-  no ever-growing phrase list. It is deliberately biased toward NOT flagging (unknown verbs
-  read as execution) to keep false positives low. The flag feeds two advisory paths, neither a
-  hard block: the council as a deterministic `self-check: unverified` signal; and the subagent
-  take-report branch, which refuses a "done" report once when the subagent *could* have run its
-  work (`agent.allows("bash")`) but didn't — a read/write-only agent that cannot execute is
-  never refused.
-- **no retry storm**: a terminal provider error ends the turn; `startRun` does NOT
-  re-run a failed turn (only re-runs to pick up a user *steer*).
-- **mid-turn interjection routing**: `turnTask` (what the nudge and council anchor on) is
-  snapshotted once at step 0, so a 2nd user request that lands *mid-turn* used to be ignored
-  by both — the agent thrashed, re-running the already-done first task. Now the loop detects a
-  new genuine (`ActorUser`) prompt at step>0 and, by default, **queues** it: it stays anchored
-  on the current task, an **ephemeral notice** tells the agent the request is deferred (so it
-  stops oscillating), and the queued text goes on the wait queue (`pendingInterject`, drained in
-  `startRun`). The notice rides the per-step volatile context — never persisted — keyed by the
-  interjection's MessageID and pruned the moment it resolves (routed/drained/resurfaced), so a
-  handled interjection can't echo a stale "queued" note into later turns or reload views; the
-  dispatch-case "answer briefly now" nudge is one-shot. Once a queued interjection re-runs as
-  its own turn, `liveEvents` also drops its stranded ORIGINAL prompt from the model context
-  (`dropResurfacedOrigins`, previously display-only) so the instruction never appears twice. The orchestrator may override with the **`route_interjection`** tool — `redirect`
-  (re-anchor `turnTask` on the interjection now) or `append` (fold it in) — which re-snapshots the
-  task and `reground`s the stall/council accounting. A tool's Execute callback can't touch
-  loop-local state, so it records a per-session `turnControl` signal the loop drains at the top of
-  each step. Depth-0/orchestrator only — subagents aren't user-steered.
-- **finish-boundary triage of the wait queue**: at turn end the `startRun` drain pops each queued
-  interjection one at a time and runs the shared triage mini-turn (`triageQueued` → `interjectTurn`
-  in `modeQueued`, §idle-park below): the model either **answers** a question/chitchat inline from
-  the session's own recent transcript (no fresh-slate reset, so a follow-up like "how many files
-  did you change?" keeps the task context) and the item is consumed, or it **routes** (calls
-  `route_interjection` — any action, since there is no running turn to re-anchor) to signal *real
-  work*, which **escalates** the item to its own fresh top-level turn. The safe default is escalate:
-  a triage that produces no usable reply runs the steer as its own turn rather than risk dropping
-  it. Each pop is atomic under `a.mu` but the triage model call runs unlocked; the teardown re-checks
-  both the trailing-message safety net (`hasUnansweredUserPrompt`) and the queue under the *same*
-  lock as the `cancels` delete, so a steer landing during triage (`Steer` also takes `a.mu`) is
-  never stranded — it is either caught and re-run or seen by `Steer` as a retired goroutine it
-  restarts. On a terminal error/cancel the drain skips triage and persists any still-queued
-  interjection back to the log as an unanswered prompt rather than stranding it in memory, but does
-  not re-run it (preserving the no-retry-storm guarantee). An escalated (or persisted) prompt carries a
-  `ResurfacedFrom` link to the original prompt's MessageID so the display layer pairs the query
-  with its answer: `SessionState`→`dropResurfacedOrigins` drops the stranded original on replay,
-  and the TUI's `applyEvent` pulls the still-visible live bubble down to just above the incoming
-  answer (`moveUserBlockToEnd`) — display-only, turn logic is unchanged (it uses `reconstruct` directly).
-- **idle-park aside handler** (`handleAside`): the routing above assumes the orchestrator is
-  running its own steps, which the soft directive rides on. But when the planner's only work
-  this turn is background explorers, the loop *idle-parks* (§5, `awaitingExplorers`) and runs
-  no step — so a soft "you MAY answer" directive starves: an interjection there got a verbal
-  ack at best and never fired the wired steer tools. The idle-park path instead runs a
-  **bounded, tool-capable mini-loop** in isolated context (just the aside + a clip of the task
-  for reference — never the whole transcript, which would let synthesis pressure bury the
-  reply). This is the same `interjectTurn` primitive the finish-boundary drain triage uses; the
-  two share the stream/persist/effect-trace machinery and differ only by `triageMode` — `modeAside`
-  (here) wires `route_interjection` to signal the running turn's `turnControl`, while `modeQueued`
-  (drain) marks `escalate` since the turn has already ended. It offers EXACTLY three
-  *signal/interaction* tools — `route_interjection`,
-  `cancel_dispatch`, `ask_user` — and NO execution tools (read/bash/write/`task`): those would
-  re-create the starvation/duplication bug by doing the delegated work in this isolated turn.
-  So the aside turn only SIGNALS (reply to chitchat, or route ± cancel ± clarify); the real
-  re-plan/re-dispatch happens in the next normal step with the full toolset restored. The
-  aside is enqueued *before* the mini-loop (so `route_interjection`'s pending-interjection
-  requirement is met); a routed redirect/append is left queued for the `turnControl` drain to
-  apply, while a resolved chitchat reply or a bare cancel is consumed there so it doesn't also
-  re-run as its own turn. A "switch now" redirect is expected to pair with `cancel_dispatch`
-  (the prompt says so) — a bare redirect is no-loss but only re-anchors what gets synthesized
-  once the still-running explorers report. Asides that piled up *before* the park (e.g. during
-  planning) are flushed through the same handler on park entry (`pendingInterjectTexts`
-  snapshot) instead of starving until turn end. Because the mini-loop's raw tool call/result
-  stay isolated (to keep the delegated task's log clean), a routed/cancelled steer would leave
-  no trace in the transcript — so its *effect* (`asideEffect`: which `route_interjection` action
-  fired, how many subagents `cancel_dispatch` stopped, the reason) is persisted as a durable
-  **system-actor `steer`** prompt. That actor is deliberately not `ActorUser`, so every
-  interjection/turn-detection path (all `ActorUser`-filtered) ignores it — it audits, it never
-  becomes a new "last user prompt" or `turnTask`. The prompt itself is also stiffened: a text
-  ack ("got it, I'll focus on X") changes nothing, so anything that touches the work (narrows/
-  widens scope, changes files/targets, adds/drops a constraint, reorders, switches goal) MUST
-  route rather than merely reply.
-- **deferral ledger survives a hard kill** (`interjection.deferred`): the interjection mask —
-  which queued follow-ups the running turn must *not* fold into its model context — lives only in
-  the in-memory queue (`pendingInterject`/`interjectSeen`). A graceful teardown resurfaces every
-  still-queued item (above), but a hard kill drops the queue while the original `PromptSubmitted`
-  facts stay on disk, so a reload would re-see them as fresh pending prompts and mix an abandoned
-  interjection into the next request. An append-only ledger of `TypeInterjectionDeferred{MessageID,
-  Resolved}` facts records each queue transition: enqueue writes `Resolved:false`, an absorbed-inline/
-  by-route removal writes `Resolved:true` (`recordDeferral`), and a drain-to-own-turn needs no mark
-  (already recorded by the resurfaced prompt's `ResurfacedFrom`). On load `abandonedDeferrals` =
-  deferred(false) − Resolved:true − `ResurfacedFrom` origins; `ensureDeferredHydrated` seeds it once
-  per session into `SessionState.deferredAbandoned` (read outside `a.mu`, double-checked flag, never
-  cleared by `resetForNewTopLevel`). Both mask accessors (`deferredInterjectIDs` for live context,
-  `interjectSeenIDs` for turnTask/council) union that set, so an abandoned orphan stays masked from
-  the model while remaining grey in the transcript (raw `reconstruct` is untouched — history, not
-  turn logic). The ledger writes are inert extra facts no control-flow predicate reads, so the
-  graceful path is byte-identical.
-- **re-plan anchors on the adopted task**: when a route (`redirect`/`append`) `reground`s with a
-  fresh decomposition, the re-plan must decompose `turnTask` (the *adopted* task — for `append`,
-  the original goal folded with the steer's constraint), not the bare last user prompt (which is
-  only the steer). `maybePlanPreflight` takes the adopted task as `taskOverride`; since the
-  planner decomposes a *window* of conversation (`plannerWindow`'s byte budget), a long turn's
-  explorer results can push the original goal out of that window, so `runPlanner` appends the
-  adopted task as a final anchor message that survives the trim. Normal pre-flight and plan-audit
-  re-plans pass no override, so their input is byte-identical.
-- **agent-initiated replan** (`replan` tool, plan-eligible agents): when the work itself proves
-  the current plan unworkable (a premise broke), the agent requests a fresh decomposition +
-  reset no-progress window instead of thrashing into the stall guard. It is advertised only to a
-  plan-eligible agent (`toolSpecs` hides it via `planEligible(agent, depth)`, mirroring the
-  `env.Replan` nil-gating) so a read-only or max-depth subagent never sees a dead tool. Anti-abuse:
-  `honorReplan` caps it at `maxReplansPerTurn` (2) and refuses a back-to-back replan with no tool
-  work in between (`guard.callCount()` unchanged) — so replan can't indefinitely reset the stall
-  guard; a refused replan leaves the guard intact and injects guidance.
-- **language lock** (`langDirective`): the user's script (Hangul/Kana/…) is detected
-  and a "reply in X" directive is prepended to the system prompt (top-level only).
+What runs now, per step:
 
-**Consensus council gate (D14, the signature — `runCouncilGate`).** When `Config.Council`
-is set (ON by default; disable with `[council] enabled=false`), the finish branch (no tool calls, `depth==0`, not workflow
-mode) does NOT finish immediately: it convenes a **council** that votes done-vs-continue.
-- 3 default members (the MAGI): Melchior/correctness, Balthasar/verification,
-  Casper/completeness — theme-name labels, lens attributes, configurable via `[council]`.
-- Consensus is pure `core/council.Tally` (unanimous|majority|quorum:k|weighted:θ|veto);
-  a tie/unmet-quorum/abstain-all/degenerate-param all resolve to **continue** (never
-  finish unless affirmatively satisfied). Member fan-out is `adapter/council/llm` over an
-  `LLMProvider`; a member that errors or returns unparseable output abstains.
-- On **continue**, the aggregated feedback is injected as a `prompt.submitted`
-  (reusing the Stop-hook injection path) and the loop runs again. The injection
-  (`continuationText`) re-anchors the **verbatim objective** — so a long turn can't
-  lose the exact spec to a paraphrase — followed by a short **completion-audit rubric**
-  (`councilCompletionAudit`: treat "done" as UNPROVEN until the current state shows it,
-  uncertain ⇒ not done), which re-grounds a weak model resuming after a continue vote
-  on the letter of the task. On **done** (or the
-  safety stops below) the turn finishes.
-- Safety so the gate can't trap the loop: `CouncilMaxRounds` cap (default 3), a
-  no-progress guard (empty/repeated feedback finishes), a **cost-efficiency cap**
-  (deliberation self-times via `councilSpent`; once it has run ≥1 round AND consumed
-  ≥60s AND ≥¼ of the turn's wall-clock, further rounds cost more than they're worth,
-  so it finishes UNVERIFIED rather than convening another 3-member round), and a
-  ctx-cancel early-out. Forced finishes are recorded as a `council.decided` whose
-  `note` states the council never approved (treat as UNVERIFIED) and carries the last
-  outstanding feedback.
-- Member prompts additionally refuse a "done" that RATIONALIZES incompletion ("impossible,
-  so this is full completion") and require, for checkable deliverables, that the turn
-  actually RAN the check with real output visible — existence is not correctness.
-  `[council] preset="light"` trades the 3-member gate for one verification member and a
-  1-round cap (interactive latency).
-- Members also check the deliverable against the **letter of the task**: when the task
-  dictates exact content/value/format/name/location, a deliverable that exists but whose
-  content doesn't match (a placeholder, a filename where the content was asked for, the
-  right shape with the wrong value) is a concrete defect → continue. The agent's own
-  paraphrase of what it did is a claim, never proof the content is right.
-- Evidence judged = Task (the original goal) + Report (the agent's final message) + tool
-  results + **the agent's own edits this turn** (size-capped). Those edits are reconstructed
-  from the agent's write/edit/multiedit tool calls — the run guard captures each touched
-  file's before→after content and `buildCouncilChanges`/`core/change.LineDiff` renders a
-  per-file diff (line-capped to a summary past 1000 lines so it can't OOM). This is
-  git-independent and correctly attributed — a human/external/bash change is never credited
-  to the agent. (`GitDiff` remains, but only for the `/diff` command, not the council.)
-- **Beyond the independent vote**, three mechanisms harden the gate (each flag-gated, default on):
-  a **rebuttal round** (`MAGI_COUNCIL_DEBATE`) re-polls members once when they SPLIT on a would-be
-  done, so a real defect one member caught isn't overruled by a coin-flip majority; a **devil's
-  advocate** (`MAGI_COUNCIL_DEVIL`) argues the strongest case against an *unchallenged* (no-split)
-  done, and its concern is then RE-JUDGED CRITICALLY by the members — a real missed defect flips them
-  to continue, a spurious one (an overreach the task never required) is rejected, and the devil casts
-  no binding vote; and advisory **`keep`** (`MAGI_COUNCIL_KEEP`) has each member name what is already
-  correct, folded into the continue feedback so the agent doesn't revert a settled part. The same
-  `keep` rides into the **plan-audit** revision so a fix forced by one member's flaw doesn't drop
-  steps the others approved.
-- **Contract-first gate (`MAGI_CONTRACT_FIRST`, `app/contract_gate.go`)**: BEFORE the planner
-  decomposes a request, a dedicated council round (`Phase=="contract"`) authors and reviews the
-  turn's acceptance **contract** — completion criteria plus executable checks — for the TASK itself.
-  The contract member prompt bounds it on both sides: a **lower bound** (sufficiency — exercise the
-  behavior through the consumer's interface, replay the task's own example verbatim, deliver real
-  external events; never accept a stub's mere existence) and an **upper bound** (necessity — assert
-  only what the task states). The approved criteria are stored and **frozen** so the later plan-audit
-  cannot overwrite the reviewed contract, and the whole contract is injected into the planner as the
-  target the plan must satisfy — so the plan is built around a reviewed contract rather than the
-  contract being a byproduct of whatever plan the planner emitted.
-- **Typed deliverable checks (`MAGI_STEP_VERIFY`)**: the plan-audit council also proposes per-step
-  checks as DATA, not as shell — `{deliverable, source, assert}`, where `source` is the path the step
-  recorded its real output to and `assert` picks a verb from a closed vocabulary magi owns
-  (`nonempty` · `matches <regexp>` · `absent <regexp>` · `equals <path>` · `port_open <port>` ·
-  `process_alive`). `app/check_assert.go` builds the invocation as an argv array with no shell
-  anywhere in the path, so a check cannot redirect, cannot run a model-named program, and cannot
-  re-do the step's work; a metacharacter in a model-supplied path is an ordinary byte of an argument.
-  The three defects observed live — a check that CREATES the evidence it asserts, `|| true; test $?`
-  that fails in every world state, and a check that rebuilds the project each gate cycle — are all
-  *inexpressible* rather than forbidden, which is what makes the guard un-wrappable. These are RUN,
-  and a failing check is a hard `deliverable-check` signal the vote can't wave through. The exit
-  codes the gates speak: `0` passed, `1` the deliverable failed (including a `source` the step never
-  recorded), `126` the CHECK could not be evaluated (unknown verb, no assertion, missing subject, or
-  a per-check deadline kill — no verdict, the step lands ungated), `-1` no platform. What this gives
-  up is the check executing the deliverable: that now belongs to the STEP, which performs the run and
-  records its real output, and the check reads what was recorded. The gap that opens — a step that
-  records a FABRICATED result — is closed by the **provenance audit**, which reads magi's own record
-  of the worker's executed tool calls (`app/check_shell.go` segments those commands to see what
-  produced the file; it executes nothing) and reports when a source has no producing run behind it. They double as a delegated worker's
-  **acceptance checklist** (§5) and surface in the TUI's council/subagent detail views. The
-  **stuck-recovery re-plan** (`driveStuckTodos`, `MAGI_STEP_CONTRACT`) gets the same treatment — it
-  authors per-step checks for its fresh plan, hands each recovery unit its checklist, and verifies
-  the unit's checks before completing it, so a re-plan cannot false-complete a unit that returned
-  text without meeting its contract.
-- **Per-step recording (completion hook + turn-boundary + trust-green)**: a step's checks are
-  RECORDED the moment that step lands, not batched at the finish. `completeThrough` (the shared
-  delegate/scout/refine completion hook) runs the newly-completed step's checks via `recordStepChecks`
-  (idempotent — a check the delegate gate already greened is skipped, so the two never double-run).
-  A mixed plan's SOLO steps run in the main agent's own turns (`executeSteps` skips them), so
-  `recordPendingStepChecks` records at each main-turn boundary, gated on the mutation epoch advancing
-  (a read-only turn runs nothing) and scoped to the execution frontier (a not-yet-started step's
-  check would just fail every turn). The terminal `runStepGate` then TRUSTS an already-✓ check
-  instead of re-running it — a reconciliation of what is not yet verified, not a batched re-verify.
-  The three paths share one `runCheckRecord` primitive (run → skip unexecutable → emit).
-- **Check substitution (`substitute_check`, `MAGI_SUBST_REVIEW`)**: when an acceptance check cannot be
-  evaluated in the environment (the source is somewhere else, the assertion names something this setup
-  does not have — not the deliverable being wrong), any agent produces an EQUIVALENT that verifies the
-  same goal and registers it with the `substitute_check` tool (`{step, original, source, assert,
-  reason}` — the replacement is typed data too, so a substitution cannot smuggle back the shell the
-  check schema removed; granted to every worker via `curateBaseTools`). At the finish
-  boundary a STRICT review council (`Phase=="substitution"`, `reviewSubstitutions` — from
-  `handleReport` for a worker, `runTerminationGate` for a solo agent) judges whether the equivalent
-  is adequate (rejecting a weaker proxy, but demanding no more than the original check); a critical
-  concern loops the agent to correct and re-declare until the council agrees (bounded by the round
-  cap). An approved substitution then REWRITES the stored check's `source`/`assert` to the working pair
-  (`applyCheckSubs`) so the fix persists for the run — a worker's approved subs ride
-  `SpawnResult.CheckSubs` up to the parent whose session owns the checks.
-- **Per-item acceptance (`MAGI_CRITERIA_PERITEM`)**: the termination gate renders the acceptance
-  criteria as a NUMBERED checklist and the member prompt requires each item be judged
-  SATISFIED/UNSATISFIED individually — done lands only when EVERY item is satisfied, closing the
-  holistic-judgment gap where a weak model waves a partly-met contract to done.
-- Events: `council.convened`/`council.verdict`/`council.decided` (fact) +
-  `council.deliberating` (transient). See PLAN §4.2, DESIGN §5/§6, SPEC F-COUNCIL.
+1. **Assemble** the request: history since the last compaction, project memory (AGENTS.md),
+   skills, shared experience. Then an ephemeral **volatileContext** — never part of the cached
+   system prompt — carrying the agent's own todo list, a self-measured elapsed line once a turn
+   passes a minute, an optional `--time-budget` remainder, push-side recall hints for topics a
+   compaction shed, and **the run state**: magi's own record, re-rendered every step (`runState`
+   in `world_snapshot.go`) — which commands it granted, how they really ended, which paths they
+   wrote, and which background commands are still alive. A screen-driven agent re-reads its
+   terminal before every decision; this is the same refresh over the store magi actually keeps.
+2. **Stream** one model response: text (`part.delta`), reasoning, tool calls; persist the
+   assistant message. Two recoveries belong to getting it — a context too large to send, and a
+   backend that goes silent (`generate_step.go`).
+3. **Tool calls** → execute (read-only concurrently; writes and permissioned calls sequentially)
+   and loop. **No tool calls** → the finish path (§5).
 
----
+There is **no step ceiling**. A turn ends when the agent declares it finished and the council
+accepts, when the model stops and the finish path lets it, when the context is cancelled, or when
+whoever launched magi stops waiting. The ceiling came out on measurement: across every recorded
+trial, runs that reached the external deadline were still scored and 76 of 396 passed, while 28
+runs magi stopped itself produced no pass at all — and 8 were never scored, because a nonzero exit
+reads to the caller as "the agent failed to run" rather than "the agent decided to stop". A
+workflow PHASE is the exception: it declares its own budget as part of the pipeline's shape.
 
-## 5. Multi-agent orchestration (`app/orchestrate.go`)
+### What the guard does now (`guard.go`)
 
-The orchestrator (top-level session, `Parent==""`) delegates via the **`task`** tool:
-- **Background dispatch (sidecar)**: `Dispatch` spawns a subagent goroutine and
-  returns immediately; its result is injected into the parent session when ready.
-  The orchestrator stays responsive (can steer / interleave its own work).
-- **`needsOrchestratorTurn`**: the orchestrator is re-invoked ONLY when there is
-  something to act on — all subagents done, a user steer, or a subagent `ask` —
-  NOT per individual subagent result. (This killed weak-model fabrication / re-dispatch.)
-- **Re-dispatch dedup**: an identical `(agent+prompt)` already in flight is refused.
-- **I/O contract**: input = the task prompt; **`ask`** = mid-task escalation routed
-  through the orchestrator (blocks the subagent); **`report(summary,status,details)`**
-  = the subagent's final result + status (done|blocked|failed), which ends its turn.
-  A subagent that trails off without reporting gets one nudge to report.
-- **`ask` requires an answerable parent**: escalation only works for **background-
-  dispatched** subagents — the orchestrator stays in its loop and answers via
-  `needsOrchestratorTurn`. A **synchronously-spawned** child (planner scout/parallel
-  explorers, or a nested subagent's own `task` delegation) has a parent *blocked
-  awaiting it*, so no one can answer. Such children are marked `Escalatable=false`
-  (`SpawnRequest.Background` flows to `Session.Escalatable`); their `ask` **fails
-  fast** with guidance ("proceed with your best assumption and note any ambiguity")
-  instead of blocking until the 2-minute escalation timeout.
-- **Supervisor**: activity-based stall watchdog (primary liveness; suppressed while a
-  tool is in flight so a silent long tool isn't mistaken for a hang), a generous
-  per-attempt hard timeout as a pathological backstop, and bounded auto-restart.
-- **Auto-orchestration** (`Config.AutoOrchestrate`): when context usage exceeds the
-  threshold (default 60%, -1 to disable), the system injects a directive forcing the
-  top-level agent into orchestration mode — decompose work and delegate to subagents.
-  Fires once per session to prevent context overflow on complex tasks (SWE-bench style).
-- **Pre-flight planner** (`Config.Planner`, `app/planner.go`, default on,
-  `[orchestration] planner=false` to disable): before a turn, a tool-free call to the
-  `planner` agent judges whether the task splits into independent steps and assigns each a
-  strategy — `solo` (the main agent does it), `parallel`/`scout` (read-only explorers fanned
-  out via `spawn`), **`delegate`** (a self-contained, *independent* write sub-task handed
-  context-free to a producing agent), or **`refine`** (a large *non-independent* sub-goal worked
-  out in-context — see the hierarchical-refine bullet below).
-  Explorers are proactive parallel *investigation* (the complement to reactive
-  auto-orchestration); delegate steps are dispatched **inline/sequentially** so their writes
-  can't race the council's change capture. Combined findings are injected before the main loop
-  runs; the main agent is told to **verify and integrate** delegated work (marked
-  `(delegated to …)`), not redo it. Degrades to solo on any failure. The decision is
-  observable: it emits a `plan` phase (`workflow.phase` event) carrying the mode + reason,
-  which the TUI shows as a header chip and a transcript line.
-- **Recursive planning** (`planEligible` in `app/planner.go`): the preflight lives inside
-  `runLoop`, so a `delegate`d child re-plans at its own level — one tree can mix solo,
-  parallel, scout, and further delegate branches (*heterogeneous* decomposition). It is
-  double-bounded: a dedicated `Config.MaxPlanDepth` (default 2, tighter than `MaxDepth`) caps
-  planner recursion, and it fires only for producing agents (`producesFiles` = allows
-  `write`/`edit`, **not** bash — a run-only tester/verifier never re-plans), off the
-  interactive path, and not in workflow mode. The consensus council runs at **depth 0 only**:
-  a parent that merely delegated verifies the *merged* working tree — leaves don't each re-run
-  the full council; the parent verifies the aggregate.
-- **Recursion policy** (planned decomposition first; `guardExpansion` + `planEnvelope` in
-  `app/planner.go`): the default is *up-front* hierarchical decomposition with just-in-time
-  sub-planning, not ADaPT's *as-needed* (reactive) re-decomposition. Two deterministic guardrails
-  (always on, they only downgrade `refine`→`solo`) run in `maybePlanPreflight` after sanitize and
-  after the audit gate: **(1) depth cap** — at `depth+1 >= MaxPlanDepth` a `refine` step could never
-  be expanded (a child re-plans only while `depth < MaxPlanDepth`), so it is downgraded to inline
-  work; **(2) no pure re-deferral** — a `depth >= 1` plan (itself a refine expansion) that is all
-  `refine` with no concrete work step (`solo`/`delegate`) is downgraded, so every expansion makes
-  real progress. The planner is *told* these constraints up front via `planEnvelope`, which injects
-  its step budget (`maxSteps`) and depth/cap into the planner system prompt so it right-sizes the
-  plan (and omits `refine` at the cap).
-- **Reactive failure re-decomposition** (ADaPT, `executeSteps`/`runRefineStep`, gated by the
-  `MAGI_ADAPT` env knob — default *on*): when a delegate returns an error or empty result and we're
-  still below the plan-depth cap (with budget left), it is retried **once** with a
-  decomposition-framed prompt telling the same executor to break the sub-task into smaller
-  independent steps (the child re-plans smaller — the natural decomposition point); refine gets
-  `refineLocalRetries` informed retries the same way. With `MAGI_ADAPT=0` both collapse to a single
-  shot — a failed node backtracks instead of re-decomposing, leaving only planned decomposition and
-  the stall net (`redecomposeStuck`). Either way, if a delegate ultimately fails the step's todo
-  stays `pending` and is recorded as `(delegate FAILED — do this yourself)` so the redo-prevention
-  directive can't suppress it.
-- **Hierarchical refine** (`runRefineStep`, ADaPT/HTN backtracking): where `delegate` partitions
-  *independent* chunks to context-free children, `refine` recurses on a large sub-goal whose
-  pieces **depend on each other**. By default (`sharedRefineEnabled`) a plan's sequential refine
-  phases run in **one shared child session**: the first phase seeds it by **cloning** the parent
-  (`SpawnRequest.CloneContext` → `cloneConversation`); later phases and local retries **reuse** it
-  (`SpawnRequest.ReuseSession`, threaded via `SpawnResult.SessionID` and the `refineShare` state),
-  so each re-plans at depth+1 on top of its predecessors' **actual conversation** (tool calls,
-  outputs, code) rather than a spawn-time snapshot. `MAGI_REFINE_SHARED=0` restores the legacy
-  per-phase clone-at-spawn. Session sharing is accounting-neutral (each phase is still one
-  `spawn`/`runAttempt`: depth+1, budget, supervisor) and council-safe (change capture is per
-  `runLoop` invocation via `newRunGuard`, not per session). It drives a local re-plan → escalate
-  loop: **success** completes the todo and flags `delegated` (the depth-0 council verifies
-  the merged tree); **failure** records the reason into the *parent* context (`recordRefineFailure`)
-  and retries locally up to `refineLocalRetries` — the failure reason is prefixed onto the retry
-  prompt so the attempt is *informed* ("a previous attempt failed because X"), and under the shared
-  session the retry also runs on top of the failed attempt's conversation; **exhaustion** (or an
-  explicit child `STATUS: FAILED`, which backtracks early) leaves the todo `pending` and returns a
-  FAILED finding, so the parent — itself possibly a refine node — re-approaches with the accumulated
-  failures in view ("no more to try → backtrack up"). A refine step's `agent` is *optional* (it
-  states a goal, not who runs it): `resolveWriteExecutor` falls back to any delegatable agent
-  (pinned on the first phase for a consistent shared session), and refine degrades to solo only when
-  none exists. **Sibling visibility**: sequential phases see each other's real work *structurally*
-  through the shared session; each success additionally seeds a compact result note into the parent
-  (`recordRefineSuccess`, the mirror of the failure record) as the summary the parent reads (and the
-  visibility fallback when `MAGI_REFINE_SHARED=0`). The plan council must not reject a `refine` plan merely for being abstract
-  (that is the point of hierarchical decomposition), but still rejects genuinely unsound plans by
-  member-lens judgment.
+The guard **reports**; it does not decide. It used to force-stop a run on its own reading of a
+repeat/stall/idle/spin counter, and that stop bought nothing (the measurement above). Every signal
+it collected is still collected, and still SAID — to the agent, as a nudge it can act on or
+ignore:
 
-- **Spec fidelity** (`specFidelityEnabled`, `MAGI_SPEC_FIDELITY`, default on): deep planning
-  paraphrases the instruction, and the executor then normalizes a *literal* the grader checks
-  verbatim — the request's `value` field became `val`, failing kv-store-grpc, where a shallow/solo
-  run that reads the raw instruction directly keeps `value`. Three defenses fire together: a planner
-  **literal-preservation rule** (`literalRule`, appended to the planner system prompt — copy exact
-  identifiers/formats/thresholds into the step title/task verbatim); a **plan-time note**
-  (`specFidelityNote`, injected into the main session right after `registerPlanTodos` and *before*
-  `executeSteps`, so refine clones and the findings-synthesis path inherit it via the parent context,
-  and an all-solo plan is covered too); and a **verbatim SPEC anchor** for the context-free delegate
-  child (`delegateBrief` carries the goal as an authoritative SPEC, generously clipped, since the
-  child never sees the raw request). `MAGI_SPEC_FIDELITY=0` restores the paraphrase-only baseline.
+- **Repeat**: an identical `(tool,args)` call is counted — reads (fingerprint drops `limit`, so
+  head re-reads collapse while genuine paging by `offset` does not), inspect-only bash, identical
+  write replays. Exec bash is exempt: its outcome can change through state the guard cannot see.
+- **Self-revert** (`noteEdit`): each touched file's content is hashed across the turn. A write that
+  returns a file to a state it already held this turn is churn, not progress — progress is
+  retracted, and **every swing is reported**, the later ones carrying how many there have been and
+  how many versions the file is cycling among. A write that changes nothing at all says so: the
+  tool answers "wrote N bytes", which reads as a change.
+- **Tabu** (`failedStates`/`checkTabu`): when a command that EXERCISES the deliverable fails, the
+  authored file set's content signature is recorded with a snippet of the failure. An edit that
+  reproduces a known-bad signature gets a one-shot advisory citing it. Advisory, once, never a
+  block.
+- **Exercise ledger**: an exercising command that NAMES an authored file marks it exercised — by
+  filename, or by module stem for the languages that load a source file that way (`from run import
+  …` is a real invocation of `run.py`). What it cannot match, it says it cannot match: the finish
+  path's nudge states that no command *naming* the file ran, which is what the record holds, not a
+  verdict on the work.
+- **Exercise churn / sterile replan**: when the agent's OWN build or test keeps failing across
+  repeated edits without converging, or repeated replans finish no new step, the turn lands
+  UNVERIFIED with the work standing rather than churning to an external kill that tears a live
+  deliverable down. Both read only magi's own signals — no external clock.
 
-- **Curated worker (context management — the recent central direction, default on)**: keep the
-  *weak model's* working context lean by running write work as a delegated sub-agent that starts
-  context-free, fed only a distilled brief. Three coupled flags: `MAGI_WORKERS` adds a write-capable
-  **worker** to the roster; `MAGI_FORCE_DELEGATE` deterministically re-routes a plan's SOLO write steps
-  to it (the planner leaves write-work as solo even when a worker exists); `MAGI_CURATE` runs the
-  **context curator** (`app/curate.go`, a tool-free LLM elicitation) which, before the worker spawns,
-  builds a **structured brief** — goal · progress · task (the *result* wanted, not keystrokes) · verbatim
-  `literals` · constraints · deliverable — plus a **task-scoped tool allowlist** (the worker always keeps
-  the base file/shell/report tools; the curator only ADDS specialized ones, so it can never starve the
-  worker). The worker returns a **structured accountability report** (`STATUS:` + evidence · deviations ·
-  handoff — the output side of the contract); a `STATUS: BLOCKED/FAILED` leading line (`delegateNotDone`)
-  drives an early re-plan. The step's **acceptance checklist** (its plan-audit deliverable checks) is
-  handed to the worker as the definition of done — but as *"you run, the check reads"*: the worker
-  never runs the items (the gate reads the named file itself, with no shell), so what each item
-  obliges the worker to do is produce that file as the REAL output of the work, and an item naming a
-  path nothing produces is repaired through `substitute_check` rather than left silently unmet. Each flag is default on with an `=off` A/B knob.
+## 5. Finishing a turn (`app/loop_gates.go`, `app/council_advice.go`)
 
-- **Plan-tree hierarchy (normalized B-variant)**: when a delegate/refine step's child forms its own
-  sub-plan at depth+1, the TUI plan panel renders the child's sub-todos **indented under the parent
-  step**. Structure is a one-time immutable fact — the child's `SessionCreated` event carries
-  `ParentStep *int` (the parent plan-step index it was spawned from; nil = not a plan-step child, e.g.
-  council/scout-list/stuck-redecompose), threaded `PlanStepIndex` through `SpawnRequest` →
-  `runAttempt` → `Session.ParentStep`. `SpawnRequest.MaxSteps` (>0) caps a child's per-attempt
-  loop steps below the configured default — used by the stuck-recovery units, whose task is
-  deliberately a small slice of the whole. State stays **single-source**: each session owns its own todos
-  (no mirroring into the parent), so failure backtracking needs no cross-tree resync. `App.PlanChildren(parent, step)`
-  joins children by `Parent==parent && *ParentStep==step` in creation order; `renderPlan(sid, depth)`
-  recurses, depth naturally bounded by `MaxPlanDepth`. Purely additive: with no child sub-todos the
-  panel renders exactly as before, so no A/B flag. (Shared-session refine keeps the first phase's
-  step — a reused child is not re-attributed.)
+A turn ends because someone decided to end it. Going quiet is not a decision: a turn that trailed
+off mid-thought and one that was actually finished used to end identically, and neither was ever
+asked which it was.
 
-Default subagents (`cmd/magi/main.go:defaultAgents`): read-only **explore** and **locator**
-(investigators), the pre-flight **planner**, and — when `MAGI_WORKERS != off` (default) — a
-write-capable **worker** for the curated-delegate path; each with a restricted toolset (+ ask/report).
-(The older solo-era roster of analyst/architect/coder/tester/reviewer was dropped as delegation moved
-to the single curated worker; an optional **specmine** agent runs signature mining when configured.)
+The finish path, in order:
 
-**Per-agent backend routing (M6+)**: `[routing] <agent>` selects a model on the
-default backend, or names an `[llm.profiles.<name>]` (endpoint/key/model/headers) to
-run that agent on a different backend. `App.providerFor(spec)` resolves the agent's
-provider (the two `StreamChat` sites — the loop and compaction — use it); a runtime
-override map (the `/route` editor) applies over config via `resolveAgentSpec`, used by
-both `agentFor` (top-level) and `spawn` (subagents). Edits persist to `config.toml`
-via `config.SetKey` (comment-preserving) through a `RoutePersister`.
+1. **Stop hooks** (`hooks.go`) — the workspace's own procedure. A failing hook pushes the agent
+   back to work with the hook's output.
+2. **Empty result** — an answer with no text delivered nothing a reader can use; nudged once.
+3. **Authored but never run** — the turn wrote something runnable and magi's record holds no
+   command naming it. Deterministic, no model call, once per turn.
+4. **The declaration** — a working turn that stopped without declaring is told how to: call the
+   `council` tool with `complete: true`. Bounded at three asks; past that the work lands and the
+   turn is recorded as ending *undeclared*, which is a different claim from ending declared.
 
----
+### The council is a tool
+
+It used to convene by itself at the finish boundary, which decided two things it could not get
+right: WHEN it was asked — at the one moment the agent had already made up its mind — and whether
+its answer would be read at all. In a headless run it was not: the advice was injected and
+`turn.finished` was written in the same tick.
+
+- **`council{question}`** — three members read the SAME record through different lenses
+  (correctness, verification, completeness) and answer in their own words. The tally is not
+  rendered: counting votes is what the gate did, and a count invites reading a majority as an
+  order. Advice; the agent may disagree.
+- **`council{complete: true}`** — the agent DECLARES the task finished. The members read the
+  record as a finish and either accept (the loop is signalled, the turn ends through the same
+  finish path as any other) or hand back what is undone, and the agent keeps working.
+
+What the members see on a declaration is a **fresh read, not a replay**. magi's record answers
+"what happened" and cannot answer "what is there now" — a build's own output, a shell redirect it
+could not parse, a file a later command removed. So the declaration carries the workspace as it
+stands (files modified since the task began, directories that churned collapsed to a count), the
+background commands still alive, and the one contradiction a record can never surface on its own:
+paths the record says were written that are not on disk.
 
 ## 6. Guardrails & workflow
 
@@ -708,11 +311,19 @@ implement↔verify up to `WorkflowMaxLoops`. Emits `workflow.phase` events.
 
 ## 7. Tools (`adapter/tool/builtin`)
 
-Built-ins (registered in `builtin.Default()`): `read`, `write`, `edit`, `multiedit`,
-`grep`, `glob`, `list`, `bash`, `bash_output`, `bash_kill`, `port_owner`, `todowrite`,
-`webfetch`, `websearch`, `remember`, `skill`, `findcontext`, `astgrep`, `lsp_diagnostics`,
-`lsp_definition`, `lsp_references`, `lsp_symbols`. Orchestration tools (registered in
-`main.go`): `task`, `ask`, `report`.
+Built-ins (`builtin.Default()`): `read`, `write`, `edit`, `multiedit`, `grep`, `glob`, `list`,
+`bash`, `bash_output`, `bash_kill`, `bash_input`, `wait_for`, `port_owner`, `todowrite`,
+`council`, `webfetch`, `websearch`, `remember`, `skill`, `findcontext`, `recall_context`,
+`recall_memory`, `astgrep`, `lsp_diagnostics`, `lsp`. Registered by `main.go`: `replan`, and —
+interactive runs only — `ask_user`, `route_interjection`.
+
+A tool earns its place only when it gives magi something bash cannot, or gives the model something
+bash cannot. Four aggregation helpers (`tabulate`, `countmatches`, `countlines`, `groupby`) failed
+both and came out: across every recorded run they were called zero times, and they had already
+been hidden from any agent holding bash. `write`/`edit`/`multiedit` stay because the change
+tracking, the self-revert check and the council's evidence hang off them; `read` stays for its
+line gutter, paging and non-text formats. 59% of recorded bash calls contain a pipe, so a tool that
+merely competes with a pipe loses.
 
 Background commands: `bash` with `background=true` starts a detached process
 (registry in `bgproc.go`) and returns an id; `bash_output` polls new output, `bash_kill`
@@ -747,9 +358,17 @@ the long tail `serverFor` knows) by opening the file in its language server and
 reading the pushed `textDocument/publishDiagnostics` — errors and warnings only,
 degrading to a "build/run the project" suggestion when no server is installed.
 
-**Add a tool**: implement `port.Tool`, register it in `builtin.Default()` (or via a
-plugin/MCP). For role-scoped tools, `toolSpecs` filters `ask`/`report` to subagents
-and `task` to the orchestrator.
+**bash is bash.** `/bin/sh` is dash on Debian/Ubuntu images, where the bash a model writes
+everywhere else — `[[ ]]`, `source`, arrays — is a syntax error that belongs to the shell choice
+rather than to the work. magi runs `/bin/bash` when the machine has it. Nothing else changes: no
+`pipefail`, no `errexit`, because the agent reads the exit status to decide what to do next and a
+shell that quietly redefines it would be lying. What magi does instead is read **PIPESTATUS out of
+band** — written to a side file the command never touches — so `make … | tail` reporting 0 comes
+back annotated with which stage actually failed, and the observation record files it as FAILED
+rather than as a status it could not determine.
+
+**Add a tool**: implement `port.Tool` and register it in `builtin.Default()` (or ship it from a
+plugin/MCP).
 
 ---
 
@@ -819,8 +438,8 @@ fake-LLM tests for regression coverage; use real-model E2E for gated confirmatio
 - **MCP** (`adapter/mcp`, `config.toml [mcp]`): external tool servers over stdio.
 - **Hooks** (`config.toml [[hooks]]`): PreToolUse/PostToolUse/Stop shell commands
   (POSIX shell; not available on Windows).
-- **Orchestration policy**: the primitives (task/ask/report/supervisor) are in core;
-  a multi-role orchestration choreography is intended to be a swappable policy (the
-  bundled default agents are the current policy).
+- **The council**: `port.Council` is the seam. The bundled implementation polls three members
+  over one OpenAI-compatible backend each; a different one only has to answer
+  `Deliberate(DeliberationRequest) (Deliberation, error)`.
 - **Auth** (planned): custom auth (OIDC/mTLS/rotating tokens) belongs at the Go
   `http.RoundTripper` seam (`openai.WithHTTPClient`), not in Lua.
