@@ -57,32 +57,25 @@ func TestANoOpWriteOnAFileNotYetSeenStillRegistersItsBaseline(t *testing.T) {
 
 // The live loop this came from: identical writes separated by a scratch redirect. Each redirect is
 // a genuine bash mutation and bumps the SHARED epoch, which used to hand the next identical write a
-// fresh repeat count — so nine of them in five minutes never approached the block that check's own
-// documentation promises for "replaying the identical write".
+// fresh repeat count — so nine replays in five minutes read as nine first-time writes and the
+// repeat was invisible to everything downstream.
 func TestAScratchRedirectDoesNotRearmAnIdenticalWrite(t *testing.T) {
 	g := newRunGuard()
 	w := jsonRaw(`{"path":"apply.vim","content":"call setreg('a', \"dd\")"}`)
 	sig := canonicalArgs(w)
 
-	blockedAt := 0
+	n := 0
 	for i := 1; i <= repeatLimit+4; i++ {
-		block, _, _ := g.check("write", w)
-		if block && blockedAt == 0 {
-			blockedAt = i
-			break
-		}
+		_, n, _ = g.check("write", w)
 		g.mutated("apply.vim", sig) // identical content → no real change
 		// …and between two writes, the agent stages a scratch file. A real mutation, a real epoch
 		// bump, and nothing whatever to do with apply.vim.
 		g.noteBashWrite("head -1 /app/input.csv > /tmp/i" + string(rune('0'+i)) + ".txt")
 	}
-	if blockedAt == 0 {
-		t.Fatalf("an identical write repeated %d times was never blocked", repeatLimit+4)
-	}
-	// One real write, then repeatLimit replays of it, then the block: the first call carries the
-	// path's pre-mutation state and so counts on its own, which is right — it was a real change.
-	if blockedAt != repeatLimit+2 {
-		t.Errorf("blocked at call %d; want %d (1 real write + %d replays)", blockedAt, repeatLimit+2, repeatLimit)
+	// Every replay after the first lands on one counter: the first call carries the path's
+	// pre-mutation state and so counts on its own, which is right — it was a real change.
+	if n != repeatLimit+3 {
+		t.Errorf("identical replays must share one counter; got n=%d after %d writes", n, repeatLimit+4)
 	}
 }
 

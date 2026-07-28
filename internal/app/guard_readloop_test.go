@@ -6,26 +6,24 @@ import (
 	"testing"
 )
 
-// A read loop that nudges only `limit` (same file, same offset) must NOT pace past
-// the exact-repeat guard: limit is dropped from the read fingerprint, so 60/65/70
-// collapse onto one counter and the block engages on schedule (repeatLimit=2 → the
-// 3rd same-region read blocks), just as a byte-identical repeat would.
-func TestReadLoopLimitJitterBlocks(t *testing.T) {
+// A read loop that nudges only `limit` (same file, same offset) must not pace past the repeat
+// counter: limit is dropped from the read fingerprint, so 60/65/70 collapse onto one count just as
+// a byte-identical repeat would.
+func TestReadLoopLimitJitterSharesOneCounter(t *testing.T) {
 	g := newRunGuard()
-	read := func(limit int) bool {
+	n := 0
+	read := func(limit int) {
 		raw := json.RawMessage(`{"path":"init.lua","offset":456,"limit":` + strconv.Itoa(limit) + `}`)
-		block, _, _ := g.check("read", raw)
-		return block
+		_, n, _ = g.check("read", raw)
 	}
-	// repeatLimit same-region reads (limit jittered each time) are allowed — limit is dropped from
-	// the fingerprint, so they collapse onto one counter; the next one blocks on schedule.
-	for i := 0; i < repeatLimit; i++ {
-		if read(60 + i*5) {
-			t.Fatalf("same-region read #%d must be allowed under repeatLimit=%d", i+1, repeatLimit)
-		}
+	// Jittering the limit must not create a fresh counter: limit is dropped from the fingerprint,
+	// so same-region reads collapse onto ONE count however the limit moves. Nothing is refused —
+	// what the count feeds is the advisory nudge.
+	for i := 0; i < 5; i++ {
+		read(60 + i*5)
 	}
-	if !read(60 + repeatLimit*5) {
-		t.Fatal("the read past repeatLimit (limit jittered) must be blocked — the fingerprint must ignore limit")
+	if n != 5 {
+		t.Fatalf("jittered same-region reads must share one counter, got n=%d", n)
 	}
 }
 

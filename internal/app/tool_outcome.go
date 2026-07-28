@@ -3,7 +3,6 @@ package app
 import (
 	"encoding/json"
 
-	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -88,43 +87,6 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 						guard.retractProgress()
 					}
 				}
-				// This exit 0 clears the command's check-churn count only if it is really the
-				// command's own: an exit that structurally belongs to a trailing `echo`/`tail`/
-				// `|| true` is not evidence the build converged, and reading it as a pass is how
-				// a build failing over and over kept resetting the counter that exists to catch
-				// exactly that. Leave the count untouched rather than climbing it — the command
-				// text proves the exit says nothing, not that the build failed.
-				//
-				// A BACKGROUND start records nothing at all. Its success means one thing only:
-				// a process now exists. The command has not run, so there is no outcome yet to
-				// read as a pass — booking one here credits a build with converging before it
-				// has compiled a single file. The real exit arrives later, through bash_output.
-				if !rawTruthy(ba.Background) && exerciseConverged(ba.Command) {
-					guard.noteExerciseResult(ba.Command, false)
-				}
-			}
-		}
-		// …and here is where that later exit is read. A background job's outcome reaches the
-		// agent through bash_output as `[bg_N exited K]`, and nothing was recording it, so a
-		// build that ran in the background was invisible to the churn counter in BOTH
-		// directions: never a pass, never a failure, however many times it was re-run. The
-		// claim is one-shot per job, so polling a finished job repeatedly cannot inflate the
-		// count, and a killed job reports nothing (the agent stopped it — its exit judges
-		// nothing). A non-zero exit is that command failing against the current deliverable;
-		// an exit 0 clears it only when the command text does not prove the code belongs to
-		// something else, exactly as on the foreground path.
-		if !res.IsError && tc.Name == "bash_output" {
-			var oa struct {
-				ID string `json:"id"`
-			}
-			if json.Unmarshal(tc.Args, &oa) == nil && oa.ID != "" {
-				if cmd, exit, ok := builtin.ClaimBackgroundOutcome(oa.ID); ok {
-					if exit != 0 {
-						guard.noteExerciseResult(cmd, true)
-					} else if exerciseConverged(cmd) {
-						guard.noteExerciseResult(cmd, false)
-					}
-				}
 			}
 		}
 		// A successful NON-bash read-only inspection (read/grep/glob/list/…) that is
@@ -134,19 +96,6 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 		// its own path. Everything else here is inspection.
 		if !res.IsError && tc.Name != "bash" && !fileModifiers[tc.Name] && tc.Name != "task" {
 			guard.noteInspectProgress(guardNovel)
-		}
-		// A FAILED exercising command tabus the deliverable's current state: "this exact set
-		// of file contents was tried and its test failed", so a later edit that circles back
-		// to it is flagged (see checkTabu). Inspect-only failures (a bad `ls`/`grep`) are not
-		// deliverable evidence and are skipped inside noteExerciseFail.
-		if res.IsError && tc.Name == "bash" {
-			var ba struct {
-				Command string `json:"command"`
-			}
-			if json.Unmarshal(tc.Args, &ba) == nil {
-				guard.noteExerciseFail(ba.Command, string(res.Content))
-				guard.noteExerciseResult(ba.Command, true) // this build/test FAILED against the current edit → climb its check-churn count
-			}
 		}
 		// Completion-banner spin: count consecutive pure no-op banners (echo/printf/true/:) an
 		// agent spams to keep the turn alive after declaring done; ANY real action resets it. It
@@ -190,11 +139,6 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 			if regressed && mutatedReset {
 				guard.retractProgress()
 			}
-		}
-		// Tabu check: this edit may have returned the deliverable to a state whose test already
-		// failed this turn (a proven-bad approach the agent is circling back to). Advisory only.
-		if tabu := guard.checkTabu(); tabu != "" {
-			res.Content = appendToContent(res.Content, "\n\n[tabu] "+tabu)
 		}
 	}
 }

@@ -162,35 +162,6 @@ type runGuard struct {
 	// went L→M→L→M→L over five more writes in silence while the byte-identical branch beside it
 	// spoke every time, so the weaker signal repeated and the stronger one did not.
 	regressCount map[string]int
-
-	// failedStates is the tabu list: a deliverable content-signature (deliverableSigLocked over
-	// the agent's own edits this turn) maps to a short snippet of the exercise error observed at
-	// that exact state. It is populated when an EXERCISING command (a test/program run, not an
-	// inspect-only builtin) FAILS — recording "this precise set of file contents was already
-	// tried and did not work". noteEdit catches a byte-revert to ANY earlier state; the tabu list
-	// is the higher-precision complement: it fires only when an edit reproduces a state whose
-	// test is known to fail, so an agent circling back to a proven-bad approach is told so
-	// instead of re-running the same failing loop. tabuWarned makes the warning once-per-signature
-	// (a repeated nudge could itself push a weak model to keep thrashing).
-	failedStates map[uint64]string
-	tabuWarned   map[uint64]bool
-
-	// exerciseFail is keyed by a normalized exercising command (a build/test the agent itself ran)
-	// and counts how many times that SAME command has FAILED across distinct edits without ever
-	// passing — "the same build/test, N edits later, still the same failure". It needs no finish
-	// attempt and no extra execution: it reads the agent's OWN bash results, so a run that churns
-	// novel edits and never declares completion is still caught (custom-memory-heap-crash: 3/3
-	// AgentTimeout, self-revert 0, idle 0 — every novel edit resets the stall/idle windows). Keyed by COMMAND (not
-	// deliverable state) on purpose — a passing sibling (a debug build that runs clean) must not reset
-	// a failing one (the release build that crashes). A command's PASS clears its entry (converged); a
-	// FAIL bumps its count only when the mutation epoch advanced since that command's last counted fail
-	// (a pure repeat with no new edit is the stall path's job). When any command's count crosses
-	// exerciseChurnCap the solo run lands UNVERIFIED with work standing (handleStuckGuard) instead of
-	// churning to the wall clock. exerciseFailEpoch is the epoch at each command's last counted fail.
-	// Limitation (bench-tunable, errs toward NOT landing): trivial arg variance (`tail -3` vs `tail -5`)
-	// splits the key, so recurrence is only counted for byte-identical-modulo-whitespace commands.
-	exerciseFail      map[string]int
-	exerciseFailEpoch map[string]int
 }
 
 // fileChange is one file's before/after content captured around an agent edit this turn.
@@ -207,8 +178,6 @@ func newRunGuard() *runGuard {
 		exercisedFile: map[string]bool{},
 		recalled:      map[string]bool{}, contentHist: map[string][]uint64{},
 		regressCount: map[string]int{},
-		failedStates: map[uint64]string{}, tabuWarned: map[uint64]bool{},
-		exerciseFail: map[string]int{}, exerciseFailEpoch: map[string]int{},
 	}
 }
 
@@ -292,10 +261,6 @@ func distinctStates(hist []uint64) int {
 	return len(seen)
 }
 
-// tabuSnippetCap bounds the stored error snippet so the tabu list stays small and the
-// warning fed back to the model is a hint, not a re-dump of the whole failure.
-const tabuSnippetCap = 200
-
 // deliverableSigLocked returns a 64-bit signature over the CURRENT net contents of every
 // file the agent has edited this turn (path + hashContent(after), in stable path order). It
 // identifies "the deliverable in exactly this state" independent of the path order edits
@@ -314,56 +279,6 @@ func (g *runGuard) deliverableSigLocked() uint64 {
 		_, _ = h.Write([]byte{0})
 	}
 	return h.Sum64()
-}
-
-// noteExerciseFail records the CURRENT deliverable state as tabu after an exercising command
-// (a test/program run — not an inspect-only builtin) failed against it, keyed by the state's
-// content-signature with a short snippet of what failed. Idempotent per signature (the first
-// failure's snippet is kept). A no-op when the command was inspect-only or the agent has not
-// authored a deliverable yet. errText is the failing tool's result content.
-func (g *runGuard) noteExerciseFail(cmd, errText string) {
-	if isInspectOnly(cmd) {
-		return // inspecting state is not exercising the deliverable → not a tabu-worthy failure
-	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	sig := g.deliverableSigLocked()
-	if sig == 0 {
-		return
-	}
-	if _, seen := g.failedStates[sig]; seen {
-		return
-	}
-	snip := strings.TrimSpace(errText)
-	if len(snip) > tabuSnippetCap {
-		snip = snip[:tabuSnippetCap] + "…"
-	}
-	snip = strings.ReplaceAll(snip, "\n", " ")
-	g.failedStates[sig] = snip
-}
-
-// checkTabu reports whether the deliverable's CURRENT state (after the latest edit) matches a
-// state whose exercise already failed this turn — i.e. the agent has circled back to a
-// proven-bad approach. Returns a one-shot advisory (once per signature) citing the prior
-// failure, or "" when the state is new, clean, or already warned. Advisory only: it never
-// blocks the edit.
-func (g *runGuard) checkTabu() string {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	sig := g.deliverableSigLocked()
-	if sig == 0 || g.tabuWarned[sig] {
-		return ""
-	}
-	snip, bad := g.failedStates[sig]
-	if !bad {
-		return ""
-	}
-	g.tabuWarned[sig] = true
-	w := "note: this edit reproduces a deliverable state whose test already failed earlier this turn"
-	if snip != "" {
-		w += " (prior failure: " + snip + ")"
-	}
-	return w + " — that approach is on the tabu list; try a different fix, not this one again."
 }
 
 // recallBudget caps re-hydrations per turn (distinct topics bypass the identical-call
@@ -444,16 +359,7 @@ func (g *runGuard) check(name string, args json.RawMessage) (block bool, n int, 
 	g.seen[fp]++
 	n = g.seen[fp]
 	if n > repeatLimit {
-		if name == "bash" && execExemptEnabled() {
-			var ba struct {
-				Command string `json:"command"`
-			}
-			if json.Unmarshal(args, &ba) == nil && !isInspectOnly(ba.Command) {
-				return false, n, fp // exec repeat — outcome may change; stall layer owns this
-			}
-		}
 		g.blocked++
-		return true, n, fp
 	}
 	return false, n, fp
 }
@@ -556,17 +462,17 @@ func (g *runGuard) changeSet() []fileChange {
 // `/dev/*` sinks (`>/dev/null`), which capture or discard a command's output rather than
 // produce a deliverable (see redirectsToFile); read-only commands (a bare `grep`/`cat`)
 // also return false and do not bump. Without the mutatesFiles arm, a bash-driven fix
-// cycle (sed -i → build → test, repeat) registers no progress and the loop guard blocks
-// the re-run build/test as an identical no-progress repeat. It returns whether the
-// command authored a file, and whether that bump reset the progress counters.
+// cycle (sed -i → build → test, repeat) registers no progress while genuinely producing
+// files. It returns whether the command authored a file, and whether that bump reset the
+// progress counters.
 func (g *runGuard) noteBashWrite(cmd string) (authored, reset bool) {
-	if !redirectsToFile(cmd) && !(execExemptEnabled() && mutatesFiles(cmd)) {
+	if !redirectsToFile(cmd) && !mutatesFiles(cmd) {
 		return false, false
 	}
 	// A bash command that writes a file IS real progress — the tool-agnostic twin of
 	// write/edit's epoch bump. Without this, bash-heavy tasks (most Terminal-Bench
 	// work) climb sinceProgress while genuinely producing files, misfiring stall
-	// nudges and, post-nudge-exhaustion, the stall force-stop. mutated() keys on the
+	// nudges. mutated() keys on the
 	// command text itself, so re-running the IDENTICAL write is still not progress.
 	//
 	// reset says whether that bump actually restarted the progress counters, so the caller can
@@ -797,54 +703,6 @@ func (g *runGuard) callCount() int {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.calls
-}
-
-// noteExerciseResult records the outcome of one exercising bash command (a test/program run — not
-// an inspect-only builtin) the agent ran against the current deliverable, and returns the running
-// cross-edit fail count for THAT command. A PASS clears the command's count (it converged); a FAIL
-// bumps it only when a new edit (mutation epoch) has landed since the command's last counted fail,
-// so head-banging the SAME command with no intervening edit does not inflate it (that is the stall
-// path's job). Inspect-only commands and pre-deliverable calls (epoch 0) are ignored. This is the
-// observed, finish-independent counterpart of noteCheckFail: it needs no finish attempt and runs no
-// extra command — it only reads what the agent already executed.
-func (g *runGuard) noteExerciseResult(cmd string, failed bool) int {
-	if isInspectOnly(cmd) {
-		return 0
-	}
-	key := normalizeExerciseCmd(cmd)
-	if key == "" {
-		return 0
-	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if !failed {
-		delete(g.exerciseFail, key)
-		delete(g.exerciseFailEpoch, key)
-		return 0
-	}
-	if g.epoch == 0 {
-		return 0 // no deliverable authored yet — a failure is not deliverable churn
-	}
-	if g.epoch > g.exerciseFailEpoch[key] {
-		g.exerciseFail[key]++
-		g.exerciseFailEpoch[key] = g.epoch
-	}
-	return g.exerciseFail[key]
-}
-
-// exerciseChurnMax returns the highest cross-edit fail count over all exercising commands — the
-// signal that some build/test the agent runs has stayed failing across that many edits without ever
-// passing. handleStuckGuard lands the run UNVERIFIED once it crosses exerciseChurnCap.
-func (g *runGuard) exerciseChurnMax() int {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	max := 0
-	for _, n := range g.exerciseFail {
-		if n > max {
-			max = n
-		}
-	}
-	return max
 }
 
 // normalizeExerciseCmd collapses whitespace runs to single spaces and trims, so a command counts as

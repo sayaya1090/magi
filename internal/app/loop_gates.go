@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -88,23 +87,6 @@ func (a *App) handleStuckGuard(ctx context.Context, tc turnCtx, turnTask string,
 	// failing build would otherwise burn to the external wall clock with reward 0. Land gracefully
 	// UNVERIFIED with the work standing so the external verifier judges the live deliverable — using
 	// ONLY the agent's own executed results, no external clock. Checked before stuck() so it fires on
-	// a run that never trips a stall/idle window (the solo gap this closes).
-	if exerciseChurnLandEnabled() && tc.guard.exerciseChurnMax() >= exerciseChurnCap() {
-		sid := tc.s.ID
-		ts.unverifiedReason = "the agent's own build/test kept failing across repeated edits without " +
-			"converging — landing with work standing so the external verifier judges the live deliverable"
-		dd, _ := json.Marshal(event.CouncilDecidedData{
-			Decision: string(council.Done),
-			Note: "the agent's own build/test kept failing across repeated edits without converging — " +
-				"landing with work standing so the external verifier judges the live deliverable; treat as UNVERIFIED",
-			Forced: true,
-		})
-		a.appendFact(ctx, sid, event.TypeCouncilDecided, event.Actor{Kind: event.ActorSystem, ID: "council"}, dd)
-		a.setStage(sid, stageFinalize)
-		fd, _ := json.Marshal(event.TurnFinishedData{Usage: u, Unverified: true, Reason: ts.unverifiedReason})
-		a.appendFact(ctx, sid, event.TypeTurnFinished, tc.actor, fd)
-		return true, true
-	}
 	// What used to stand here was the force-stop: a repeat/stall/idle/spin kind from the guard
 	// ended the run, with a visible error when nothing had been produced. Measured across every
 	// recorded trial, that stop bought nothing — 396 runs that instead reached the external

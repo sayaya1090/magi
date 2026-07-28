@@ -56,51 +56,36 @@ func TestMutatesFiles(t *testing.T) {
 	}
 }
 
-// The reported failure mode: a bash-driven fix cycle (sed -i → build → test, repeat) had
-// every fix invisible to the guard, so the third identical build/test call was hard-blocked
-// as a no-progress repeat mid-progress. Exec bash commands are now exempt from the hard
-// block ENTIRELY — build/test can be run in arbitrarily many ways, so exec is defined as
-// "anything not in the closed inspect-only set", never an enumeration of build tools. The
-// stall layer still owns genuine exec spins (sinceProgress keeps climbing).
-func TestBashFixCycleNotBlocked(t *testing.T) {
+// The guard counts; it does not refuse. A repeated call the model can see in its own context is
+// the model's to break, and measuring said so: the trials magi force-stopped produced no pass while
+// the ones that ran to the external deadline produced 76. check() never returns a block — what a
+// repeat past the limit still does is climb a counter that fires ONE advisory nudge.
+func TestGuardCountsRepeatsButNeverRefuses(t *testing.T) {
 	g := newRunGuard()
 	build := json.RawMessage(`{"command":"go build ./..."}`)
-	custom := json.RawMessage(`{"command":"./run_checks.sh --fast"}`) // arbitrary runner, no whitelist entry
+	insp := json.RawMessage(`{"command":"cat main.go"}`)
+	rd := json.RawMessage(`{"file":"main.go"}`)
 
 	for i := 0; i < 6; i++ { // way past repeatLimit, NO mutation registered at all
-		if block, n, _ := g.check("bash", build); block {
-			t.Fatalf("iteration %d: exec repeat (build) must never hard-block, n=%d", i, n)
-		}
-		if block, n, _ := g.check("bash", custom); block {
-			t.Fatalf("iteration %d: exec repeat (custom runner) must never hard-block, n=%d", i, n)
+		for _, c := range []struct {
+			name string
+			args json.RawMessage
+		}{{"bash", build}, {"bash", insp}, {"read", rd}} {
+			if block, n, _ := g.check(c.name, c.args); block {
+				t.Fatalf("iteration %d: %s must never be refused, n=%d", i, c.name, n)
+			}
 		}
 	}
-	if g.blocked != 0 {
-		t.Errorf("exec repeats must not accrue blocked count, got %d", g.blocked)
+	// The repeat is still SEEN — that is what the advisory nudge reads.
+	if g.blocked == 0 {
+		t.Error("a repeat past the limit must still be counted for the nudge")
 	}
-	// …but they still count as no-progress, so the stall layer can terminate a real spin.
+	if g.shouldNudge() != "blocked" {
+		t.Error("a repeated no-progress action must still earn one advisory nudge")
+	}
+	// …and it still counts as no-progress for the stall window.
 	if g.sinceProgress == 0 {
-		t.Error("exec repeats must still climb sinceProgress for the stall layer")
-	}
-
-	// Control 1: an inspect-only bash repeat (outcome cannot change) still hard-blocks.
-	g2 := newRunGuard()
-	insp := json.RawMessage(`{"command":"cat main.go"}`)
-	for i := 0; i < repeatLimit; i++ {
-		g2.check("bash", insp)
-	}
-	if block, _, _ := g2.check("bash", insp); !block {
-		t.Error("an inspect-only repeat must still be blocked")
-	}
-
-	// Control 2: non-bash repeats (read, etc.) keep the block untouched.
-	g3 := newRunGuard()
-	rd := json.RawMessage(`{"file":"main.go"}`)
-	for i := 0; i < repeatLimit; i++ {
-		g3.check("read", rd)
-	}
-	if block, _, _ := g3.check("read", rd); !block {
-		t.Error("a read repeat must still be blocked")
+		t.Error("repeats must still climb sinceProgress")
 	}
 
 	// A detected mutation still resets the window (stall accuracy), fingerprints re-key.
@@ -117,23 +102,18 @@ func TestBashFixCycleNotBlocked(t *testing.T) {
 	}
 }
 
-// MAGI_GUARD_EXEC_EXEMPT=off restores the pre-exemption baseline for A/B isolation:
-// identical exec repeats hard-block again, and redirect-less mutations stop bumping
-// the epoch.
-func TestExecExemptOff(t *testing.T) {
-	t.Setenv("MAGI_GUARD_EXEC_EXEMPT", "off")
+// A redirect-less mutation (sed -i, patch, cp) bumps the epoch just like a redirect write: a
+// bash-driven fix cycle produces files, and a guard that cannot see them reads real progress as
+// a stall.
+func TestBashMutationBumpsTheEpoch(t *testing.T) {
 	g := newRunGuard()
-	build := []byte(`{"command":"go build ./..."}`)
-	for i := 0; i < repeatLimit; i++ {
-		g.check("bash", build)
-	}
-	if block, _, _ := g.check("bash", build); !block {
-		t.Error("with the exemption off, an identical exec repeat must hard-block")
-	}
-	if authored, _ := g.noteBashWrite("sed -i 's/a/b/' f.go"); authored {
-		t.Error("with the exemption off, a redirect-less mutation must not bump the epoch")
+	if authored, _ := g.noteBashWrite("sed -i 's/a/b/' f.go"); !authored {
+		t.Error("a redirect-less mutation must bump the epoch")
 	}
 	if authored, _ := g.noteBashWrite("echo hi > f.txt"); !authored {
-		t.Error("redirect writes must still bump the epoch (pre-exemption baseline)")
+		t.Error("a redirect write must bump the epoch")
+	}
+	if authored, _ := g.noteBashWrite("grep -n x f.go"); authored {
+		t.Error("a read-only command must not bump the epoch")
 	}
 }

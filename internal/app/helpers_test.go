@@ -28,18 +28,16 @@ func TestCanonicalArgs(t *testing.T) {
 func TestRunGuard(t *testing.T) {
 	g := newRunGuard()
 	args := json.RawMessage(`{"x":1}`)
-	// First repeatLimit identical calls are allowed; the next is blocked.
-	for i := 1; i <= repeatLimit; i++ {
+	// Identical calls climb one counter and are NEVER refused — the count is what the advisory
+	// nudge reads.
+	for i := 1; i <= repeatLimit+1; i++ {
 		if block, n, _ := g.check("bash", args); block || n != i {
-			t.Fatalf("call %d: block=%v n=%d, want allowed", i, block, n)
+			t.Fatalf("call %d: block=%v n=%d, want allowed with n=%d", i, block, n, i)
 		}
 	}
-	if block, n, _ := g.check("bash", args); !block || n != repeatLimit+1 {
-		t.Fatalf("over-limit call: block=%v n=%d, want blocked", block, n)
-	}
 	// A different fingerprint has its own independent counter.
-	if block, _, _ := g.check("bash", json.RawMessage(`{"x":2}`)); block {
-		t.Error("distinct args should not be blocked")
+	if _, n, _ := g.check("bash", json.RawMessage(`{"x":2}`)); n != 1 {
+		t.Errorf("distinct args need their own counter, got n=%d", n)
 	}
 	// A real file mutation bumps the epoch, resetting repeat counts: the same call that
 	// was just blocked is allowed again, since something changed (real progress).
@@ -85,16 +83,14 @@ func TestRunGuardIdempotentMutationStillBlocks(t *testing.T) {
 	// The first write to the path is a real change → bumps the epoch (file created/modified).
 	g.check("write", w)
 	g.mutated("a.txt", sig)
-	// Further identical writes do NOT bump the epoch, and accumulate on the first one's count.
+	// Further identical writes do NOT bump the epoch, so they accumulate on the first one's count
+	// instead of each starting fresh — an idempotent rewrite loop stays visible as one repeat.
 	for i := 1; i <= repeatLimit; i++ {
-		if block, _, _ := g.check("write", w); block {
-			t.Fatalf("identical write %d should still be allowed (repeatLimit=%d)", i, repeatLimit)
-		}
+		g.check("write", w)
 		g.mutated("a.txt", sig) // identical content → no real change → no bump
 	}
-	// The next identical write exceeds repeatLimit → blocked, despite all the (no-op) mutations.
-	if block, _, _ := g.check("write", w); !block {
-		t.Error("idempotent rewrite loop should still be blocked by the guard")
+	if _, n, _ := g.check("write", w); n <= repeatLimit {
+		t.Errorf("idempotent rewrites must keep climbing one counter, got n=%d", n)
 	}
 	// A write with DIFFERENT content is real progress → bumps the epoch → allowed afresh.
 	w2 := json.RawMessage(`{"path":"a.txt","content":"different"}`)

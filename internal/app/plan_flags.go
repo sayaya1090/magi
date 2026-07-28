@@ -46,32 +46,6 @@ func envOn(name string) bool {
 	return false
 }
 
-// defaultExerciseChurnCap is how many times the SAME build/test the agent itself runs may FAIL
-// across distinct edits — without that command ever passing — before a solo run lands gracefully
-// UNVERIFIED with work standing (see runGuard.exerciseFail / handleStuckGuard). More generous than
-// the check-churn cap: this is the agent's own iterative debugging, so a legitimately hard fix that
-// takes several edit→test cycles must not be cut — only a genuinely non-converging command (still
-// the same failure many edits later, never a pass) reaches it. Keyed per command, so a passing
-// sibling resets nothing here — the failing command must itself keep failing.
-const defaultExerciseChurnCap = 6
-
-// exerciseChurnCap returns the effective cap. MAGI_EXERCISE_CHURN_CAP overrides it: a positive
-// integer sets the cap, "0" (or a non-positive/garbage value) disables the landing entirely, and
-// unset uses the default. exerciseChurnLandEnabled reports whether the landing is active.
-func exerciseChurnCap() int {
-	v := strings.TrimSpace(os.Getenv("MAGI_EXERCISE_CHURN_CAP"))
-	if v == "" {
-		return defaultExerciseChurnCap
-	}
-	n, err := strconv.Atoi(v)
-	if err != nil || n <= 0 {
-		return 0
-	}
-	return n
-}
-
-func exerciseChurnLandEnabled() bool { return exerciseChurnCap() > 0 }
-
 // councilDebateEnabled gates the disagreement-triggered rebuttal round: after the
 // members vote independently, a SPLIT (both done and continue) triggers one round
 // where each sees the others' rationales and may hold or revise, then a re-tally.
@@ -89,17 +63,6 @@ func councilDebateEnabled() bool { return !envOff("MAGI_COUNCIL_DEBATE") }
 // delegate rounds). MAGI_CTX_COMPACT_RETRY=0 restores the old fail-fast for A/B. Inert unless the
 // backend actually returns a context-length error.
 func ctxCompactRetryEnabled() bool { return !envOff("MAGI_CTX_COMPACT_RETRY") }
-
-// execExemptEnabled gates the loop guard's exec-repeat exemption AND the
-// redirect-less bash-mutation epoch bump (both landed together in f3d1fbc): when on
-// (default), an identical exec bash call (build/test/any script) is never
-// hard-blocked — its outcome can change through state the guard cannot see, and the
-// stall layer owns genuine spins — and `sed -i`/`patch`/install-style commands count
-// as mutations that re-key the repeat fingerprints. MAGI_GUARD_EXEC_EXEMPT=off
-// restores the pre-f3d1fbc baseline (every identical call blocked past repeatLimit,
-// only redirect/heredoc/tee bash counted as mutation) — the A/B knob for whether the
-// exemption's longer fix-cycles help or hurt.
-func execExemptEnabled() bool { return !envOff("MAGI_GUARD_EXEC_EXEMPT") }
 
 // stallConvergeEnabled gates the stalled-nudge convergence (D18a): the no-progress "stalled"
 // nudge re-arms up to maxStallNudges times keyed purely on the sinceProgress count, without
