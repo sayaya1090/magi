@@ -3,10 +3,8 @@ package app
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"time"
 
-	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -48,22 +46,6 @@ func (a *App) publishTransient(sid session.SessionID, typ event.Type, actor even
 	a.bus.Publish(event.Event{SessionID: sid, Type: typ, Actor: actor, TS: time.Now(), Stage: a.currentStage(sid), Data: data})
 }
 
-// emitDebate surfaces a disagreement-triggered rebuttal round (council debate) as a
-// transient progress note, so the otherwise-internal rebuttal is observable in the
-// TUI and headless stream. No-op when debate did not run (unanimous vote or disabled).
-func (a *App) emitDebate(sid session.SessionID, actor event.Actor, phase string, round int, d *council.DebateOutcome) {
-	if d == nil {
-		return
-	}
-	verb := "held"
-	if d.Before != d.After {
-		verb = "flipped " + string(d.Before) + "→" + string(d.After)
-	}
-	a.emitToolProgress(sid, actor, "", "council",
-		fmt.Sprintf("%s round %d debate: split → rebuttal, %d member(s) changed, %s",
-			phase, round, d.Changed, verb))
-}
-
 // emitToolProgress publishes a long-running tool's live progress note as a
 // transient (bus-only, droppable) event so the TUI and headless stream can show
 // what is being waited on. No-op when the bus is absent.
@@ -88,16 +70,4 @@ func (a *App) currentStage(sid session.SessionID) string {
 		return st.stage
 	}
 	return stageExecute
-}
-
-// deliberating reports whether the session is currently inside a side-LLM gate — the council
-// (plan audit / contract / termination) or the planner — rather than executing tools. Those gates
-// make sequential member/planner LLM calls that stream nothing and hold no tool in flight, so to
-// the subagent lease they look idle even though they are ACTIVE work. The lease treats this like a
-// tool in flight (a legitimately long, silent operation) and does not kill mid-gate; the council
-// round cap and the attempt backstop still bound a genuinely stuck gate. This is what lets a worker
-// run its own plan-audit without being killed for the silence between council rounds.
-func (a *App) deliberating(sid session.SessionID) bool {
-	s := a.currentStage(sid)
-	return s == stageCouncil || s == stagePlan
 }

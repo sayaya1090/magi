@@ -21,7 +21,7 @@ func TestInterjectNoteEphemeralLifecycle(t *testing.T) {
 	ctx := context.Background()
 
 	a.enqueueInterject(ctx, sid, "m_x1", "please also fix the docs")
-	a.noteInterjection(sid, "current task", "m_x1", "please also fix the docs", false)
+	a.noteInterjection(sid, "current task", "m_x1", "please also fix the docs")
 
 	// Not persisted: no PromptSubmitted fact carries the runtime note.
 	evs, _ := a.store.Read(ctx, sid, 0)
@@ -53,22 +53,6 @@ func TestInterjectNoteEphemeralLifecycle(t *testing.T) {
 	a.consumeInterjectByID(ctx, sid, "m_x1")
 	if left := a.takeInterjectNotes(sid); left != "" {
 		t.Errorf("resolved interjection's note must vanish, got %q", left)
-	}
-}
-
-// The dispatch-case nudge ("you may answer briefly now") is one-shot: consumed by
-// the step that serves it, so it cannot echo into later steps or turns.
-func TestAsideNoteOnceConsumed(t *testing.T) {
-	a, s := stuckDriverApp(t)
-	sid := s.ID
-
-	a.noteInterjection(sid, "current task", "m_y1", "quick question?", true)
-	first := a.takeInterjectNotes(sid)
-	if !strings.Contains(first, "quick question?") {
-		t.Fatalf("dispatch nudge missing: %q", first)
-	}
-	if second := a.takeInterjectNotes(sid); second != "" {
-		t.Errorf("dispatch nudge must be one-shot, got %q", second)
 	}
 }
 

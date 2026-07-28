@@ -77,26 +77,13 @@ func (a *App) applyInterjectRoute(ctx context.Context, sid session.SessionID, ro
 // interjection could influence the next request. The queued-case note is keyed by the
 // origin MessageID and vanishes the moment the interjection resolves; the dispatch-case
 // nudge is one-shot (consumed by the next step's request).
-func (a *App) noteInterjection(sid session.SessionID, turnTask, msgID, interject string, dispatching bool) {
+func (a *App) noteInterjection(sid session.SessionID, turnTask, msgID, interject string) {
 	reqLine := ""
 	if h := shortReqID(msgID); h != "" {
 		reqLine = "\n\nThis request's id is [req: " + h + "] — pass it as route_interjection request_id to route THIS one."
 	}
 	var text string
-	if dispatching {
-		// The orchestrator is otherwise idle while background subagents work, so it is free
-		// to be responsive. Let it answer a short interjection inline WITHOUT abandoning or
-		// folding it into the delegated task (which would corrupt that deliverable).
-		text = "magi runtime note (not user input): a new user message arrived while the background subagents " +
-			"you dispatched are still running:\n" + clipSpec(interject, 800) + "\n\n" +
-			"You are otherwise idle until they report, so you MAY answer this briefly right now (e.g. a question or " +
-			"a greeting). Do NOT abandon the delegated task, and do NOT fold this into its deliverable:\n" +
-			clipSpec(turnTask, 800) + "\n\n" +
-			"Answer only this aside — do NOT start reading/grepping or investigating the task yourself while the " +
-			"subagents run; they own that work and duplicating it wastes turns. " +
-			"If it is actually a new substantive task, say you will take it up after the current one finishes, then " +
-			"keep coordinating the subagents."
-	} else {
+	{
 		text = "magi runtime note (not user input): a new user request arrived while you are mid-task:\n" +
 			clipSpec(interject, 800) + "\n\n" +
 			"It has been QUEUED and will run as its own turn after you finish the current task:\n" +
@@ -108,14 +95,10 @@ func (a *App) noteInterjection(sid session.SessionID, turnTask, msgID, interject
 	text += reqLine
 	a.mu.Lock()
 	st := a.stateLocked(sid)
-	if dispatching {
-		st.asideNoteOnce = text
-	} else {
-		if st.interjectNotes == nil {
-			st.interjectNotes = map[string]string{}
-		}
-		st.interjectNotes[msgID] = text
+	if st.interjectNotes == nil {
+		st.interjectNotes = map[string]string{}
 	}
+	st.interjectNotes[msgID] = text
 	a.mu.Unlock()
 }
 

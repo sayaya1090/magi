@@ -74,26 +74,6 @@ func collectPortInodes(path string, port int, out map[string]string) {
 	}
 }
 
-// readCmdline returns a process's command line (NUL-separated in /proc), collapsed
-// to spaces and bounded, falling back to /proc/<pid>/comm. Best-effort — an empty
-// string just omits the annotation. Off Linux the /proc reads simply fail (empty).
-func readCmdline(pid int) string {
-	if data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cmdline"); err == nil && len(data) > 0 {
-		s := strings.Join(strings.Split(strings.TrimRight(string(data), "\x00"), "\x00"), " ")
-		s = strings.TrimSpace(s)
-		if len(s) > 200 {
-			s = s[:200] + "…"
-		}
-		if s != "" {
-			return s
-		}
-	}
-	if c, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/comm"); err == nil {
-		return strings.TrimSpace(string(c))
-	}
-	return ""
-}
-
 // portOwner is one process holding a TCP port.
 type portOwner struct {
 	pid   int
@@ -182,4 +162,24 @@ func (PortOwner) Execute(ctx context.Context, raw json.RawMessage, env port.Tool
 	res := okText("", b.String())
 	res.IsError = failed > 0
 	return res, nil
+}
+
+// readCmdline returns a process's command line (NUL-separated in /proc), collapsed to spaces and
+// bounded, falling back to /proc/<pid>/comm. Best-effort — an empty string just omits the
+// annotation. Used by the Linux port-owner probe; off Linux the /proc reads simply fail.
+func readCmdline(pid int) string {
+	if data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cmdline"); err == nil && len(data) > 0 {
+		s := strings.Join(strings.Split(strings.TrimRight(string(data), "\x00"), "\x00"), " ")
+		s = strings.TrimSpace(s)
+		if len(s) > 200 {
+			s = s[:200] + "…"
+		}
+		if s != "" {
+			return s
+		}
+	}
+	if c, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/comm"); err == nil {
+		return strings.TrimSpace(string(c))
+	}
+	return ""
 }

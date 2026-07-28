@@ -1162,18 +1162,6 @@ func envDur(key string, def time.Duration) time.Duration {
 	return def
 }
 
-// workersEnabled decides whether the write-capable worker joins the roster.
-//
-// Order: the environment wins when it is set at all (a one-off A/B must not need a config edit),
-// then config, then on. Both spellings mean the same thing — without a delegatable agent every
-// write step degrades to solo, which is the whole point of the switch.
-func workersEnabled(cfg *bool) bool {
-	if v := strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_WORKERS"))); v != "" {
-		return v != "0" && v != "off" && v != "false" && v != "no"
-	}
-	return cfg == nil || *cfg
-}
-
 // profileDefs converts config profiles into app.ProfileDef (raw values; ${ENV}
 // is expanded when the provider is built).
 func profileDefs(profiles map[string]config.LLMProfile) map[string]app.ProfileDef {

@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -495,15 +494,11 @@ func (a *App) detectInterjections(ctx context.Context, tc turnCtx, evs []event.E
 	if tc.depth != 0 || a.cfg.Workflow {
 		return handledUserPrompts, false
 	}
-	s, agent, depth := tc.s, tc.agent, tc.depth
-	sid := s.ID
+	sid := tc.s.ID
 	prompts := userPromptEntries(evs)
 	if len(prompts) <= handledUserPrompts {
 		return handledUserPrompts, false
 	}
-	answerNow := false
-	dispatching := false
-	idleWaiting := false // the planner's explorer park is gone; background work always interleaves
 	// Handle EVERY user prompt that appeared since the last check, not just the newest: two
 	// messages steered in during one long step would otherwise advance the counter past the
 	// earlier one, dropping it silently.
@@ -511,36 +506,15 @@ func (a *App) detectInterjections(ctx context.Context, tc turnCtx, evs []event.E
 	for _, it := range prompts[handledUserPrompts:] {
 		if txt := strings.TrimSpace(it.Text); txt != "" && txt != strings.TrimSpace(turnTask) {
 			a.markInterjectSeen(sid, it.MsgID)
-			switch {
-			case idleWaiting:
-				// Enqueue-first so route_interjection (which requires a pending interjection) can
-				// fire, then run the focused handler. It consumes a resolved chitchat reply / bare
-				// cancel itself and leaves a routed redirect/append queued for the drain to apply.
-				a.enqueueInterject(ctx, sid, it.MsgID, txt)
-				if a.handleAside(ctx, agent, s, depth, turnTask, it.MsgID, txt) {
-					answerNow = true // break the park so the route/cancel takes effect next step
-				}
-			case !dispatching:
-				// Defer: queue it (masked from the live model context too) to run as its own turn.
-				a.enqueueInterject(ctx, sid, it.MsgID, txt)
-			}
-			// Ordinary dispatch (dispatching && !idleWaiting): left visible for the interleaving
-			// working turn to answer via the soft directive below.
+			// Defer: queue it (masked from the live model context too) to run as its own turn.
+			a.enqueueInterject(ctx, sid, it.MsgID, txt)
 			newest, newestID = txt, it.MsgID
 		}
 	}
-	// idle-park is fully owned by handleAside above. The directive is only for the other cases
-	// (non-dispatch queue notice, ordinary-dispatch soft answer).
-	if newest != "" && !idleWaiting {
-		a.noteInterjection(sid, turnTask, newestID, newest, dispatching)
-		if dispatching {
-			// The directive we just appended is the last event, so lastIsUserSteer/
-			// needsOrchestratorTurn would read false and the early park below would re-swallow
-			// it; skip the park this iteration so the model runs and replies.
-			answerNow = true
-		}
+	if newest != "" {
+		a.noteInterjection(sid, turnTask, newestID, newest)
 	}
-	return len(prompts), answerNow
+	return len(prompts), false
 }
 
 // buildStepRequest assembles one step's model request: the byte-stable system prompt
@@ -593,16 +567,6 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 	}
 
 	msgs := reconstruct(a.liveEvents(sid, evs))
-	// If auto-orchestration fires, it injects a directive as a new event; re-read
-	// and rebuild msgs so the directive reaches the model in THIS turn, not the next.
-	if a.checkAutoOrchestration(ctx, sid, tc.depth, s.Model.Model, sys, msgs) {
-		if evs2, err := a.store.Read(ctx, sid, 0); err == nil {
-			evs = evs2
-			msgs = reconstruct(a.liveEvents(sid, evs))
-			raw = reconstruct(evs)
-			vol = withNote(a.volatileContext(ctx, s, agent, evs, raw, step, tc.maxSteps, time.Since(tc.runStart)))
-		}
-	}
 	// Append the volatile context as an ephemeral trailing user message (not persisted, so
 	// it never enters the event log, the language lock, or the council's task snapshot).
 	// Placed last for recency and so the entire real prefix stays cacheable. A trailing
@@ -636,58 +600,6 @@ func (a *App) publishContextUsage(sid session.SessionID, actor event.Actor, mode
 	}
 	d, _ := json.Marshal(event.ContextUsageData{Tokens: tokens, Window: window, Percent: pct, OutTokens: outTokens})
 	a.publishTransient(sid, event.TypeContextUsage, actor, d)
-}
-
-// checkAutoOrchestration triggers auto-orchestration mode when context usage
-// exceeds the configured threshold. Only fires once per session, only at depth 0.
-// Returns true if it injected the orchestration directive this call, so the caller
-// can re-read events and rebuild msgs to include the directive in the SAME turn.
-func (a *App) checkAutoOrchestration(ctx context.Context, sid session.SessionID, depth int, modelID, sys string, msgs []session.Message) bool {
-	if depth != 0 {
-		return false // only top-level orchestrator
-	}
-	if a.cfg.AutoOrchestrate < 0 {
-		return false // explicitly disabled
-	}
-	a.mu.Lock()
-	if st, ok := a.stateIf(sid); ok && st.autoOrchestrate {
-		a.mu.Unlock()
-		return false // already triggered
-	}
-	a.mu.Unlock()
-
-	window := a.contextWindow(modelID)
-	if window == 0 {
-		return false
-	}
-	tokens := a.contextTokens(sid, sys, msgs)
-	ratio := float64(tokens) / float64(window)
-
-	if ratio > a.cfg.AutoOrchestrate {
-		a.mu.Lock()
-		a.stateLocked(sid).autoOrchestrate = true
-		a.mu.Unlock()
-
-		a.injectOrchestrationDirective(ctx, sid, ratio)
-		return true
-	}
-	return false
-}
-
-// injectOrchestrationDirective injects a system message forcing the agent into
-// orchestration mode — decompose work and delegate to subagents.
-func (a *App) injectOrchestrationDirective(ctx context.Context, sid session.SessionID, ratio float64) {
-	text := fmt.Sprintf("magi runtime note (not user input): the context window is about %.0f%% full. "+
-		"To keep things efficient on this larger task, prefer delegating the remaining INDEPENDENT pieces to "+
-		"subagents via the task tool (in parallel where they don't depend on each other), then synthesize their "+
-		"results, instead of doing everything inline. Skip this if the work isn't easily separable.", ratio*100)
-
-	pd, _ := json.Marshal(event.PromptSubmittedData{
-		MessageID: "m_" + newID(),
-		Parts:     []session.Part{{Kind: session.PartText, Text: text}},
-	})
-	_ = a.appendFact(ctx, sid, event.TypePromptSubmitted,
-		event.Actor{Kind: event.ActorSystem, ID: "auto-orchestrate"}, pd)
 }
 
 // emitArtifact persists an artifact emitted by a tool/subagent (D11).

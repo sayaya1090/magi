@@ -41,9 +41,23 @@ type observedRun struct {
 	changed []string // paths a tool call in this run wrote to
 }
 
-// observedScanCap bounds the walk, matching the provenance audit's: a session longer than this is
-// read from its tail, where the current turn's work is.
-const observedScanCap = provenanceScanCap
+// observedScanCap bounds the walk: a session longer than this is read from its tail, where the
+// current turn's work is. Scanning an entire long run on every step would cost more than the block
+// is worth.
+const observedScanCap = 400
+
+// readEventsBestEffort reads a session's events, returning nil on any failure — a missing record
+// must never be reported as an absence of work.
+func (a *App) readEventsBestEffort(ctx context.Context, sid session.SessionID) []event.Event {
+	if a.store == nil {
+		return nil
+	}
+	evs, err := a.store.Read(ctx, sid, 0)
+	if err != nil {
+		return nil
+	}
+	return evs
+}
 
 // observe reads what happened under sid. Best-effort: an unreadable session contributes nothing
 // rather than a guess, because a missing record must never be reported as an absence of work.
@@ -226,55 +240,6 @@ func decodeResultText(res string) string {
 		return s
 	}
 	return res
-}
-
-// writtenPaths lists the files a session and everything under it actually wrote, newest last, in the
-// spelling the tool call used. It reads the same record pathTouched does and answers the other half
-// of the question: not "was this one file changed" but "what did this worker produce".
-func (a *App) writtenPaths(ctx context.Context, sid session.SessionID, cap int) []string {
-	seen := map[string]bool{}
-	var out []string
-	add := func(evs []event.Event) {
-		for _, p := range writesIn(evs) {
-			if seen[p] || len(out) >= cap {
-				continue
-			}
-			seen[p] = true
-			out = append(out, p)
-		}
-	}
-	add(a.readEventsBestEffort(ctx, sid))
-	return out
-}
-
-// writesIn pulls every path one session's tool calls wrote to, in call order.
-func writesIn(evs []event.Event) []string {
-	if len(evs) > provenanceScanCap {
-		evs = evs[len(evs)-provenanceScanCap:]
-	}
-	var out []string
-	for _, e := range evs {
-		if e.Type != event.TypePartAppended {
-			continue
-		}
-		var d event.PartAppendedData
-		if json.Unmarshal(e.Data, &d) != nil || d.Part.Kind != session.PartToolCall || d.Part.ToolCall == nil {
-			continue
-		}
-		switch strings.ToLower(strings.TrimSpace(d.Part.ToolCall.Name)) {
-		case "write", "edit", "multiedit":
-			var a struct{ Path string }
-			if json.Unmarshal(d.Part.ToolCall.Args, &a) == nil && strings.TrimSpace(a.Path) != "" {
-				out = append(out, strings.TrimSpace(a.Path))
-			}
-		case "bash":
-			var a struct{ Command string }
-			if json.Unmarshal(d.Part.ToolCall.Args, &a) == nil {
-				out = append(out, bashWritePaths(a.Command)...)
-			}
-		}
-	}
-	return out
 }
 
 // exitOrFailed is the status the record keeps for a pipeline whose reported exit hid a failed

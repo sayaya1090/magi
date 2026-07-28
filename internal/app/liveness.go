@@ -47,23 +47,8 @@ func (a *App) live(sid session.SessionID) *sessionLiveness {
 	return v.(*sessionLiveness)
 }
 
-// forgetLiveness drops a finished session's record. In-flight state has no meaning once the session
-// is over — every reader treats absent as "not busy" — so this frees the entry rather than leaving
-// one per subagent attempt for the life of the process.
-func (a *App) forgetLiveness(sid session.SessionID) { a.liveness.Delete(sid) }
-
 // touch records activity for a session (used by the sidecar liveness check).
 func (a *App) touch(sid session.SessionID) { a.live(sid).lastEvent.Store(time.Now().UnixNano()) }
-
-// idleFor returns how long a session has had no event activity. A session nothing has happened in
-// reads as 0 — it has not been idle, it has not started.
-func (a *App) idleFor(sid session.SessionID) time.Duration {
-	ns := a.live(sid).lastEvent.Load()
-	if ns == 0 {
-		return 0
-	}
-	return time.Since(time.Unix(0, ns))
-}
 
 // enterTool / leaveTool bracket a single tool execution for a session, and toolInFlight reports
 // whether any tool is currently running. The stall watchdog consults toolInFlight so a legitimately
@@ -72,8 +57,6 @@ func (a *App) idleFor(sid session.SessionID) time.Duration {
 // cap.
 func (a *App) enterTool(sid session.SessionID) { a.live(sid).tools.Add(1) }
 func (a *App) leaveTool(sid session.SessionID) { a.live(sid).tools.Add(-1) }
-
-func (a *App) toolInFlight(sid session.SessionID) bool { return a.live(sid).tools.Load() > 0 }
 
 // enterGen / leaveGen bracket one model generation for a session, and generating reports whether the
 // session is inside one. It is the third silence, and the one nothing was watching.
@@ -88,8 +71,6 @@ func (a *App) toolInFlight(sid session.SessionID) bool { return a.live(sid).tool
 func (a *App) enterGen(sid session.SessionID) { a.live(sid).gens.Add(1) }
 func (a *App) leaveGen(sid session.SessionID) { a.live(sid).gens.Add(-1) }
 
-func (a *App) generating(sid session.SessionID) bool { return a.live(sid).gens.Load() > 0 }
-
 // noteGenToken records that this session's current generation just produced output, and genFresh
 // reports whether it did so recently enough to still count as producing.
 //
@@ -102,23 +83,8 @@ func (a *App) noteGenToken(sid session.SessionID) {
 	a.live(sid).lastToken.Store(time.Now().UnixNano())
 }
 
-func (a *App) genFresh(sid session.SessionID) bool {
-	ns := a.live(sid).lastToken.Load()
-	if ns == 0 {
-		return false // nothing has ever arrived on this session's stream
-	}
-	window := streamStallTimeout
-	if window <= 0 {
-		window = 2 * time.Minute
-	}
-	return time.Since(time.Unix(0, ns)) < window
-}
-
 // bumpProductive records that this session just produced something a later step can build on: a
 // file mutation, or an exercising command run for the first time this epoch. It is the lease's
 // measure of PRODUCTIVITY, kept here because the guard that knows these facts lives inside the
 // child's own run loop while the lease supervisor runs in the parent.
 func (a *App) bumpProductive(sid session.SessionID) { a.live(sid).produced.Add(1) }
-
-// productiveCount returns the running count for a session (0 when it has produced nothing).
-func (a *App) productiveCount(sid session.SessionID) int64 { return a.live(sid).produced.Load() }
