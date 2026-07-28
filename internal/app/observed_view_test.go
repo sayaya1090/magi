@@ -46,8 +46,8 @@ func TestObservationSplitsTheRecordTheWayThePanelShowsIt(t *testing.T) {
 	if len(obs.Changed) != 1 || obs.Changed[0] != "/app/run.py" {
 		t.Errorf("changed = %v, want the written path", obs.Changed)
 	}
-	if len(obs.RanClean) != 1 || !strings.Contains(obs.RanClean[0], "python3") {
-		t.Errorf("ran clean = %v, want only the real invocation", obs.RanClean)
+	if len(obs.Clean) != 2 {
+		t.Errorf("every clean command belongs on the panel, got %v", obs.Clean)
 	}
 	if len(obs.Failed) != 1 || !strings.Contains(obs.Failed[0], "exit 1") {
 		t.Errorf("failed = %v, want the failing command carrying its status", obs.Failed)
@@ -55,13 +55,17 @@ func TestObservationSplitsTheRecordTheWayThePanelShowsIt(t *testing.T) {
 	if len(obs.Unknown) != 1 || !strings.Contains(obs.Unknown[0], "make build") {
 		t.Errorf("unknown = %v, want the command whose exit belonged to a tail", obs.Unknown)
 	}
-	// `cat` printed state; it exercised nothing, so it belongs to no bucket.
-	for _, bucket := range [][]string{obs.RanClean, obs.Failed, obs.Unknown} {
-		for _, line := range bucket {
-			if strings.HasPrefix(line, "cat ") {
-				t.Errorf("inspecting a file must not count as running it: %q", line)
-			}
+	// `cat` printed state rather than exercising anything — and it is still a command magi granted,
+	// so the panel shows it with its exit. Sorting it out was a reading, and a wrong one often
+	// enough: `sed -n` and `grep` read as program runs until the verb list was fixed.
+	var found bool
+	for _, line := range obs.Clean {
+		if strings.HasPrefix(line, "cat ") {
+			found = true
 		}
+	}
+	if !found {
+		t.Errorf("an inspection is a command magi granted and belongs on the panel: %v", obs.Clean)
 	}
 }
 

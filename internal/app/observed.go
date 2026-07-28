@@ -232,36 +232,6 @@ func observeEvents(all []event.Event) observedRun {
 	return out
 }
 
-// ran reports the commands that EXERCISED something and ended in a status magi could read.
-func (o observedRun) ran() []observedCmd {
-	var out []observedCmd
-	for _, c := range o.cmds {
-		if c.exec && !c.unclear {
-			out = append(out, c)
-		}
-	}
-	return out
-}
-
-// succeeded reports whether anything exercising a deliverable finished cleanly.
-func (o observedRun) succeeded() bool {
-	for _, c := range o.ran() {
-		if c.exit == 0 {
-			return true
-		}
-	}
-	return false
-}
-
-// thin reports that the record holds nothing worth calling work: nothing was changed, and nothing
-// that exercises anything ran to a status magi could read.
-//
-// This is the question a termination hook asks. It is deliberately weak — it separates "something
-// happened" from "nothing happened", not "right" from "wrong". Judging right from wrong against a
-// contract written before the work is what produced today's false completions; judging it against
-// the record is the council's job, and the council reads this.
-func (o observedRun) thin() bool { return len(o.changed) == 0 && len(o.ran()) == 0 }
-
 // reread lists the paths this run opened more than once, most-repeated first, as "path ×N".
 //
 // Everything magi grants is in the record, and until now the part it handed back was writes and
@@ -324,8 +294,8 @@ func (o observedRun) render() string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("── WHAT MAGI OBSERVED (its own record of this run: the calls it granted, their real " +
-		"exit status, and the paths they wrote — not a report anyone wrote) ──")
+	b.WriteString("── WHAT MAGI OBSERVED (its own record of this run: the calls it granted, the paths " +
+		"they wrote, and which of them it saw end badly — not a report anyone wrote) ──")
 	if len(o.changed) > 0 {
 		b.WriteString("\nchanged: " + strings.Join(clipEach(o.changed, 8), ", "))
 	} else {
@@ -337,30 +307,40 @@ func (o observedRun) render() string {
 	if again := o.repeatedCommands(); len(again) > 0 {
 		b.WriteString("\nissued more than once, exactly as written: " + strings.Join(clipEach(again, 6), " · "))
 	}
-	var ok, failed, unclear []string
+	// Every command, with the exit magi actually learned. It used to sort them first — inspections
+	// dropped entirely, the rest split into "ran clean" and "ran and FAILED" — and that sorting was
+	// a reading, in the one place whose whole point is not to do the reading. It was also wrong
+	// repeatedly: `sed -n` and `grep` read as program runs until the verb list was fixed, a quoted
+	// `|` split a grep into a fragment no verb matched, and `find` and `git log` still read as runs.
+	// An exit is a fact and a command's text is a fact; which of them exercised anything is for
+	// whoever reads this. What the sorting existed to catch — the same check re-run forever — the
+	// two repeat lines above now state outright.
+	// One entry per DISTINCT command, in the order first issued. The repeat line above already
+	// carries the counts, so printing the same string three times here would be the noise this
+	// block exists to cut through. When a command ran more than once its LAST status is the one
+	// shown — that is the current state of the thing it did.
+	//
+	// Only a non-zero exit magi actually learned is appended. A zero is what the reader assumes,
+	// and "unknown" on a `cat … | head` says nothing about what to do next; both are already in the
+	// tool result sitting beside this block. What survives compaction, and so has to live here, is
+	// WHICH commands ran and which of them ended badly.
+	var ran []string
+	at := map[string]int{}
 	for _, c := range o.cmds {
-		switch {
-		case c.unclear:
-			unclear = append(unclear, clipLine(c.cmd, 70))
-		case !c.exec:
-			// Inspection only — it printed state, it did not exercise anything. Not listed as a
-			// run, because counting `ls` as verification is the churn this exists to see through.
-		case c.exit == 0:
-			ok = append(ok, clipLine(c.cmd, 70))
-		default:
-			failed = append(failed, fmt.Sprintf("%s (exit %d)", clipLine(c.cmd, 70), c.exit))
+		line := clipLine(c.cmd, 70)
+		if !c.unclear && c.exit != 0 {
+			line += fmt.Sprintf(" → exit %d", c.exit)
 		}
-	}
-	line := func(label string, xs []string) {
-		if len(xs) > 0 {
-			b.WriteString("\n" + label + ": " + strings.Join(clipEach(xs, 6), " · "))
+		key := strings.Join(strings.Fields(c.cmd), " ")
+		if i, seen := at[key]; seen {
+			ran[i] = line
+			continue
 		}
+		at[key] = len(ran)
+		ran = append(ran, line)
 	}
-	line("ran clean", ok)
-	line("ran and FAILED", failed)
-	line("status unknown (the reported exit was a tail's, or none came back)", unclear)
-	if len(ok) == 0 && len(failed) == 0 {
-		b.WriteString("\nnothing that exercises a deliverable ran to a status magi could read")
+	if len(ran) > 0 {
+		b.WriteString("\ncommands: " + strings.Join(clipEach(ran, 12), " · "))
 	}
 	return b.String()
 }

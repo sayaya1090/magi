@@ -14,19 +14,23 @@ import (
 // can be wrong about the work; a record of the calls magi granted cannot be wrong about what it
 // granted. So the panel shows facts and leaves the reading to whoever is watching.
 
-// Observation is what magi's record says about a run, split for display: files its tools wrote,
-// commands that exercised something and ended clean, ones that ended in a failing status, and ones
-// whose status it could not read (a masked exit, or none at all).
+// Observation is what magi's record says about a run, split for display: files its tools wrote, and
+// every command it granted with the exit it actually learned — clean, failing, or unreadable (a
+// masked exit, or none at all).
+//
+// It does NOT drop inspections. The panel used to show only commands classified as exercising
+// something, which meant a run of thirty `ls` calls looked like a run of none, and the
+// classification behind it was wrong often enough to be a liability of its own.
 type Observation struct {
-	Changed  []string
-	RanClean []string
-	Failed   []string
-	Unknown  []string
+	Changed []string
+	Clean   []string
+	Failed  []string
+	Unknown []string
 }
 
 // Empty reports that there is nothing to show — no writes and no commands.
 func (o Observation) Empty() bool {
-	return len(o.Changed) == 0 && len(o.RanClean) == 0 && len(o.Failed) == 0 && len(o.Unknown) == 0
+	return len(o.Changed) == 0 && len(o.Clean) == 0 && len(o.Failed) == 0 && len(o.Unknown) == 0
 }
 
 // observationTTL bounds how stale the panel's copy can be. The underlying read walks the session
@@ -60,11 +64,8 @@ func (a *App) Observation(ctx context.Context, sid session.SessionID) Observatio
 		switch {
 		case c.unclear:
 			out.Unknown = append(out.Unknown, c.cmd)
-		case !c.exec:
-			// Inspection only — it printed state, it did not exercise anything. Counting `ls` as a
-			// run is the churn this exists to see through, so it is not listed as one.
 		case c.exit == 0:
-			out.RanClean = append(out.RanClean, c.cmd)
+			out.Clean = append(out.Clean, c.cmd)
 		default:
 			out.Failed = append(out.Failed, fmt.Sprintf("%s (exit %d)", c.cmd, c.exit))
 		}

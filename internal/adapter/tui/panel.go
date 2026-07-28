@@ -155,7 +155,7 @@ func (m *Model) statusPanel(panelTop int) string {
 			}
 		}
 		row("±", colAccent, obs.Changed)
-		row("✓", colSuccess, obs.RanClean)
+		row("✓", colSuccess, obs.Clean)
 		row("✗", colError, obs.Failed)
 		row("?", colMuted, obs.Unknown)
 	}

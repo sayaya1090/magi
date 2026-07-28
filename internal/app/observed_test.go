@@ -27,9 +27,11 @@ func bashPair(id, cmd, result string) (event.Event, event.Event) {
 		event.Event{Type: event.TypePartAppended, Data: rd}
 }
 
-// The record separates four things a contract could not: work that ran clean, work that ran and
-// failed, work whose status magi never learned, and inspection that exercised nothing at all.
-func TestObserveSeparatesWorkFromInspection(t *testing.T) {
+// The record lists EVERY command with the exit magi learned, and sorts none of them. It used to
+// drop inspections and split the rest into "ran clean"/"ran and FAILED" — a reading, in the one
+// place whose point is not to read, and one that was wrong repeatedly (`sed -n` and `grep` as
+// program runs, a quoted `|` splitting a grep, `find` and `git log` still counted as runs).
+func TestRecordListsEveryCommandWithItsExit(t *testing.T) {
 	app := newShellApp(t, &shellPlatform{})
 	ctx := context.Background()
 	sid, err := app.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir()})
@@ -53,15 +55,6 @@ func TestObserveSeparatesWorkFromInspection(t *testing.T) {
 	add(bashPair("c6", "cd /app && ./sim 208 > out.txt", "started background command bg_1")) // no exit
 
 	o := app.observe(ctx, sid)
-	if n := len(o.ran()); n != 2 {
-		t.Fatalf("ran() must hold only the exercising commands with a readable status, got %d: %+v", n, o.ran())
-	}
-	if !o.succeeded() {
-		t.Error("a clean `make world opt` is a success magi observed")
-	}
-	if o.thin() {
-		t.Error("a run with real commands and a written path is not thin")
-	}
 	// The tee target and the redirect are both paths this run wrote.
 	if got := strings.Join(o.changed, ","); !strings.Contains(got, "build.log") || !strings.Contains(got, "out.txt") {
 		t.Errorf("changed must hold what the commands wrote, got %q", got)
@@ -70,56 +63,25 @@ func TestObserveSeparatesWorkFromInspection(t *testing.T) {
 	r := o.render()
 	for _, want := range []string{
 		"WHAT MAGI OBSERVED",
-		"ran clean: make world opt",
-		"ran and FAILED",
-		"exit 2",
-		"status unknown",
+		"make world opt",
+		"make -C testsuite one DIR=tests/basic → exit 2", // the one status that changes what to do next
+		"ls -la /app", // an inspection is a command magi granted, and it says so
+		"cat build.log | head -20",
+		"cd /app && ./sim 208 > out.txt",
 	} {
 		if !strings.Contains(r, want) {
 			t.Errorf("render missing %q:\n%s", want, r)
 		}
 	}
-	if strings.Contains(r, "ls -la /app") {
-		t.Errorf("inspection must not be listed as a run:\n%s", r)
+	// A zero and an unreadable status are both clutter: they are in the tool result beside this
+	// block and neither changes what to do next.
+	if strings.Contains(r, "exit 0") || strings.Contains(r, "exit unknown") {
+		t.Errorf("only a non-zero exit magi learned belongs here:\n%s", r)
 	}
-}
-
-// The question a termination hook asks: is there anything here worth calling work? Inspection and
-// an unreadable status are not — counting `ls` as verification is the churn this exists to see
-// through.
-func TestThinRecord(t *testing.T) {
-	app := newShellApp(t, &shellPlatform{})
-	ctx := context.Background()
-	sid, err := app.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !app.observe(ctx, sid).thin() {
-		t.Error("a session with no calls at all is thin")
-	}
-	for _, tc := range []struct {
-		name, cmd, res string
-		thin           bool
-	}{
-		{"inspection only", "ls -la && cat README", "exit 0\n", true},
-		{"masked status", "make test 2>&1 | tail -5", "exit 0\n", true},
-		{"failed but real", "pytest -q", "exit 1\n", false},
-		{"clean and real", "pytest -q", "exit 0\n", false},
-	} {
-		a2 := newShellApp(t, &shellPlatform{})
-		s2, err := a2.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir()})
-		if err != nil {
-			t.Fatal(err)
-		}
-		c, r := bashPair("c", tc.cmd, tc.res)
-		if _, e := a2.store.Append(ctx, s2, c); e != nil {
-			t.Fatal(e)
-		}
-		if _, e := a2.store.Append(ctx, s2, r); e != nil {
-			t.Fatal(e)
-		}
-		if got := a2.observe(ctx, s2).thin(); got != tc.thin {
-			t.Errorf("%s: thin() = %v, want %v", tc.name, got, tc.thin)
+	// No verdict words: which command exercised anything is the reader's call.
+	for _, banned := range []string{"ran clean", "ran and FAILED", "nothing that exercises"} {
+		if strings.Contains(r, banned) {
+			t.Errorf("the record must not sort commands for the reader (%q):\n%s", banned, r)
 		}
 	}
 }
@@ -146,11 +108,12 @@ func TestStopRecordNamesWhatMagiCouldNotDetermine(t *testing.T) {
 		t.Fatal(e)
 	}
 	rec := app.stopRecord(ctx, sid)
-	if !strings.Contains(rec, "status unknown") || !strings.Contains(rec, "tee build.log") {
-		t.Errorf("a build whose exit belongs to its tail must be reported as undetermined, not clean:\n%s", rec)
+	if !strings.Contains(rec, "make world opt 2>&1 | tee build.log") {
+		t.Errorf("the command must be in the record:\n%s", rec)
 	}
-	if strings.Contains(rec, "ran clean") {
-		t.Errorf("an exit that is not the command's own must never read as a clean run:\n%s", rec)
+	// The exit belonged to the tail, so magi never learned this command's — and must not print one.
+	if strings.Contains(rec, "exit 0") {
+		t.Errorf("an exit that is not the command's own must never be printed as the command's:\n%s", rec)
 	}
 }
 
@@ -217,18 +180,13 @@ func TestAPipelineWhoseHeadFailedIsRecordedAsFailed(t *testing.T) {
 	// A pipeline magi has no stage report for stays unknown — silence is not a verdict.
 	add(bashPair("c2", "go build ./... | tail -5", "exit 0\n"))
 
-	o := app.observe(ctx, sid)
-	if len(o.ran()) != 1 {
-		t.Fatalf("the pipeline with a stage report is now readable, the other is not: %+v", o.cmds)
+	r := app.observe(ctx, sid).render()
+	// The stage report makes the failure readable, so the real status is stated.
+	if !strings.Contains(r, "make world opt 2>&1 | tee build.log | tail -50 → exit 1") {
+		t.Errorf("a pipeline whose head failed must carry a failing exit:\n%s", r)
 	}
-	if o.succeeded() {
-		t.Error("a build that died at its first stage is not a success")
-	}
-	r := o.render()
-	if !strings.Contains(r, "ran and FAILED") || !strings.Contains(r, "make world opt") {
-		t.Errorf("the failed pipeline must be named as failed:\n%s", r)
-	}
-	if !strings.Contains(r, "status unknown") || !strings.Contains(r, "go build") {
-		t.Errorf("the pipeline with no stage report must stay unknown:\n%s", r)
+	// Without a stage report magi never learned the status, so it claims none — silence, not zero.
+	if !strings.Contains(r, "go build ./... | tail -5") || strings.Contains(r, "go build ./... | tail -5 → exit") {
+		t.Errorf("the pipeline with no stage report must carry no exit at all:\n%s", r)
 	}
 }
