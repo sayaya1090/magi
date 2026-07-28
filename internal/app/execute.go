@@ -513,5 +513,26 @@ func nearestToolName(called string, names []string) string {
 			return n
 		}
 	}
-	return ""
+	// A PREFIX, when exactly one registered name has it. The separator rule above catches
+	// `todo_write` → `todowrite` but not `todo`, and a truncated name is the same prior wearing a
+	// shorter coat: observed live, three identical `todo` calls in one run, each answered with the
+	// roster and each followed by the same guess. Uniqueness is what keeps this from guessing —
+	// `recall` matches recall_context AND recall_memory, `web` matches webfetch AND websearch, so
+	// neither earns a suggestion and the roster does the work instead.
+	for _, n := range names {
+		if n == called {
+			return "" // it IS a tool; there is nothing to suggest
+		}
+	}
+	var only string
+	for _, n := range names {
+		if !strings.HasPrefix(norm(n), want) {
+			continue
+		}
+		if only != "" {
+			return "" // ambiguous — naming one of them would be a guess
+		}
+		only = n
+	}
+	return only
 }

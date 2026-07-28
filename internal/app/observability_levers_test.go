@@ -15,7 +15,7 @@ import (
 // tool" unconditionally while todowrite was registered and listed — the model was told, in one
 // message, both that the tool exists and that it does not.
 func TestNearestToolName(t *testing.T) {
-	names := []string{"bash", "todowrite", "bash_output", "report"}
+	names := []string{"bash", "todowrite", "bash_output", "report", "recall_context", "recall_memory"}
 	cases := []struct{ called, want string }{
 		{"todo_write", "todowrite"},   // the observed miss
 		{"TodoWrite", "todowrite"},    // case only
@@ -25,6 +25,12 @@ func TestNearestToolName(t *testing.T) {
 		{"run", ""},                   // NOT fuzzy: never guess a tool the model didn't ask for
 		{"finish", ""},
 		{"", ""},
+		// A truncated name is the same prior wearing a shorter coat: observed live, three identical
+		// `todo` calls in one run, each answered with the roster and each followed by the same guess.
+		{"todo", "todowrite"},
+		// …but only when ONE name has it. Two candidates means naming either would be a guess, and
+		// the roster does the work instead.
+		{"recall", ""},
 	}
 	for _, c := range cases {
 		if got := nearestToolName(c.called, names); got != c.want {
