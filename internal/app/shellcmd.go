@@ -209,18 +209,57 @@ func isRedirectFragment(tok string) bool {
 
 // splitShellSegments breaks a command line into its pipeline/list segments on the shell
 // control operators, so each can be classified independently ("ls && python x" is NOT
-// inspect-only). Two-char operators are replaced before their one-char prefixes.
+// inspect-only). Two-char operators are recognized before their one-char prefixes.
+//
+// QUOTES ARE HONORED, because an operator inside them is data, not a separator. Observed live:
+// `grep -r "run.*length\|rle\|POOL_FREE_HEADER" --include="*.c" | head -100` was split at the
+// alternations INSIDE the pattern, leaving a fragment whose first token was `rle\` — a name no
+// inspect verb matches, so a plain grep was classified as a program run and reported to the
+// council as a command that had exercised the deliverable and ended clean. Any regex alternation,
+// any `find … -o …` predicate, any path with a semicolon does the same.
 func splitShellSegments(cmd string) []string {
-	repl := cmd
-	for _, op := range []string{"&&", "||", ";", "|", "\n", "&"} {
-		repl = strings.ReplaceAll(repl, op, "\x00")
-	}
 	var out []string
-	for _, p := range strings.Split(repl, "\x00") {
-		if strings.TrimSpace(p) != "" {
-			out = append(out, p)
+	seg := strings.Builder{}
+	var quote byte // 0, '\'' or '"'
+	flush := func() {
+		if strings.TrimSpace(seg.String()) != "" {
+			out = append(out, seg.String())
+		}
+		seg.Reset()
+	}
+	for i := 0; i < len(cmd); i++ {
+		c := cmd[i]
+		if quote != 0 {
+			// Inside single quotes nothing is special. Inside double quotes a backslash escapes
+			// the next byte, so an escaped quote does not close the run.
+			if quote == '"' && c == '\\' && i+1 < len(cmd) {
+				seg.WriteByte(c)
+				i++
+				seg.WriteByte(cmd[i])
+				continue
+			}
+			if c == quote {
+				quote = 0
+			}
+			seg.WriteByte(c)
+			continue
+		}
+		switch c {
+		case '\'', '"':
+			quote = c
+			seg.WriteByte(c)
+		case '&', '|':
+			if i+1 < len(cmd) && cmd[i+1] == c { // && or ||
+				i++
+			}
+			flush()
+		case ';', '\n':
+			flush()
+		default:
+			seg.WriteByte(c)
 		}
 	}
+	flush()
 	return out
 }
 

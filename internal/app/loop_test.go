@@ -508,3 +508,35 @@ func TestPermissionPersistDecision(t *testing.T) {
 		t.Errorf("persisted rules = %v, want [write(**)]", pp.rules)
 	}
 }
+
+// An operator inside quotes is data, not a separator. Observed live on fix-ocaml-gc: three greps
+// whose patterns carried `\|` alternations were split at those alternations, leaving fragments
+// whose first token was `rle\` — a name no inspect verb matches — so a plain grep was classified as
+// a program run and reported to the council as a command that had exercised the deliverable and
+// ended clean.
+func TestShellSegmentsHonorQuotes(t *testing.T) {
+	for _, c := range []string{
+		`grep -E "a|b" f.c`,
+		`grep -r "run.*length\|rle\|POOL_FREE_HEADER" --include="*.c" | head -100`,
+		`grep -n 'x;y' f.c`,
+		`echo "a && b"`,
+	} {
+		if !isInspectOnly(c) {
+			t.Errorf("an operator inside quotes must not split the command: %q", c)
+		}
+	}
+	// The real operators still split, including right after a quoted argument.
+	for _, c := range []string{
+		`grep -E "a|b" f.c && python run.py`,
+		`echo "hi" ; ./run`,
+		`cat f | ./filter`,
+	} {
+		if isInspectOnly(c) {
+			t.Errorf("a real operator must still split the command: %q", c)
+		}
+	}
+	// An escaped quote inside a double-quoted run does not close it.
+	if got := splitShellSegments(`echo "a \" | b" && ls`); len(got) != 2 {
+		t.Errorf("escaped quote handling: got %d segments %q, want 2", len(got), got)
+	}
+}
