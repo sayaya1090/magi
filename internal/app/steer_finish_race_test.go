@@ -49,10 +49,6 @@ func (c *blockingCouncil) Deliberate(ctx context.Context, req port.DeliberationR
 	return c.delibs[len(c.delibs)-1], nil
 }
 
-func (c *blockingCouncil) JudgeRevision(ctx context.Context, req port.RevisionJudgeRequest) (port.RevisionVerdict, error) {
-	return port.RevisionVerdict{Addressed: true, Reason: "test: addressed"}, nil
-}
-
 // blockStreamLLM blocks inside StreamChat on a chosen call index (before emitting any
 // event), so a test can land a steer AFTER that step's top-of-loop interjection scan has
 // run but BEFORE the assistant's text for the step is persisted — the exact sub-step race.

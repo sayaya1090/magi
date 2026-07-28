@@ -75,30 +75,6 @@ type ProviderEvent struct {
 // this port supplies the I/O (asking each member, parsing their verdict).
 type Council interface {
 	Deliberate(ctx context.Context, req DeliberationRequest) (council.Deliberation, error)
-	// JudgeRevision judges whether a re-planned procedure actually addresses a specific
-	// council concern (plan-audit convergence): a quality signal distinct from the vote
-	// tally. Used to bound re-plan looping on productivity rather than round count alone —
-	// a revision that ignores the concern is unproductive and should stop the loop, while
-	// one that engages it earns another round. Implementations should fail open (Addressed
-	// true) on any I/O or parse error so a flaky judge never falsely cuts a productive loop.
-	JudgeRevision(ctx context.Context, req RevisionJudgeRequest) (RevisionVerdict, error)
-}
-
-// RevisionJudgeRequest asks whether RevisedPlan addresses Critique, given the PriorPlan it
-// was revised from. Plans are rendered procedures (step summaries), Critique is the council's
-// critical feedback that drove the re-plan.
-type RevisionJudgeRequest struct {
-	Critique     string
-	PriorPlan    string
-	RevisedPlan  string
-	DefaultModel string // model to judge with (typically the session's current model)
-}
-
-// RevisionVerdict is the judge's answer: whether the revision engaged the concern, plus a
-// one-line reason for the log/trace.
-type RevisionVerdict struct {
-	Addressed bool
-	Reason    string
 }
 
 // DeliberationRequest is the evidence the council judges: the agent's CLAIM
@@ -117,18 +93,7 @@ type DeliberationRequest struct {
 	NoChanges bool
 	Task      string // the user's original goal/request
 	Plan      string // acceptance criteria / contract, or the proposed procedure when Phase=="plan"
-	// Contest is the plan author's task-grounded rebuttal of the PRIOR round's critical concern
-	// (planContestEnabled): set on a plan/contract re-round when the re-planner rejected the concern
-	// as unjustified instead of complying. The members re-judge it — uphold a real concern, drop an
-	// over-demand. Empty when there is nothing contested.
-	Contest string
-	// Revision is the change history for a plan that is being RE-audited: the concern the prior
-	// round raised, the plan as it stood then, the planner's own stated reason for the rewrite, and
-	// the convergence judge's verdict. Without it a re-round judges the new plan blind — it cannot
-	// see that a rewrite dropped or weakened work the previous plan had, which no step-count proxy
-	// detects (a revision can regress at the same length). Empty on a first-round audit.
-	Revision string
-	Report   string // the agent's self-reported result / claim (optional)
+	Report    string // the agent's self-reported result / claim (optional)
 	// Actions is a summary of this turn's tool RESULTS (e.g. write "wrote 13 bytes to
 	// hello.txt", bash `cat` output) — real, git-independent evidence so the council can
 	// judge a create/write turn in a non-git workdir on what happened, not on an absent
@@ -139,16 +104,6 @@ type DeliberationRequest struct {
 	Changes string           // this turn's file edits, reconstructed from the agent's write/edit tools (optional)
 	Members []council.Member // who votes (defaults to the MAGI when empty)
 	Rule    council.Rule     // how votes are tallied (defaults to majority)
-	// Focused re-round (round ≥2 cost reduction): DeltaRound marks a deliberation
-	// where only the previously-dissenting members are re-polled. CarriedDone are
-	// the prior round's done votes, folded back in before the rule is applied —
-	// a satisfied member is not asked to re-review the whole turn. PriorConcern
-	// maps a re-polled member to the concern it raised last round, so it judges
-	// whether the DELTA (Actions holds only what happened since the rejection)
-	// resolves ITS objection instead of re-auditing from scratch.
-	DeltaRound   bool
-	CarriedDone  []council.Verdict
-	PriorConcern map[string]string
 	// DefaultModel is used for members that don't pin their own Model (typically
 	// the session's current model, so the council follows model switches).
 	DefaultModel string
@@ -159,13 +114,6 @@ type DeliberationRequest struct {
 	// result. Consensus → one outcome; still split → the ordinary rule decides.
 	// No extra call when the independent vote is unanimous (the common case).
 	Debate bool
-	// Devil enables the devil's-advocate pass: when the independent tally is DONE with NO
-	// split (so the rebuttal round never fires), one adversarial member argues the strongest
-	// case the turn is NOT finished. Its concern is a critically-reviewed INPUT, not a vote —
-	// the members RE-JUDGE it (rejecting a devil concern the task does not require, honoring a
-	// real defect they missed) and their re-tally decides. Stress-tests a premature unanimous
-	// consensus without letting a spurious devil argument, by itself, block a done.
-	Devil bool
 	// Keep asks each member to ALSO report, alongside its fix feedback, what the report
 	// already gets right through its lens — advisory "keep this, don't redo/revert it" that
 	// is surfaced above the feedback when the turn continues. It never affects the decision

@@ -20,12 +20,6 @@ type fakeCouncil struct {
 	calls   int
 	lastReq port.DeliberationRequest
 	reqs    []port.DeliberationRequest // every request in order, so a re-round's carried context is assertable
-	// judge scripts the revision-addressed verdict; nil means "always addressed" (the
-	// default, so existing multi-round plan-audit fixtures still loop to the round cap).
-	// judgeCalls counts how many times JudgeRevision ran (0 proves the flag gated it off).
-	judge      func(port.RevisionJudgeRequest) port.RevisionVerdict
-	judgeCalls int
-	judgeReqs  []port.RevisionJudgeRequest
 }
 
 func (f *fakeCouncil) Deliberate(ctx context.Context, req port.DeliberationRequest) (council.Deliberation, error) {
@@ -39,17 +33,6 @@ func (f *fakeCouncil) Deliberate(ctx context.Context, req port.DeliberationReque
 		return f.delibs[i], nil
 	}
 	return f.delibs[len(f.delibs)-1], nil
-}
-
-func (f *fakeCouncil) JudgeRevision(ctx context.Context, req port.RevisionJudgeRequest) (port.RevisionVerdict, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.judgeCalls++
-	f.judgeReqs = append(f.judgeReqs, req)
-	if f.judge != nil {
-		return f.judge(req), nil
-	}
-	return port.RevisionVerdict{Addressed: true, Reason: "fake: addressed"}, nil
 }
 
 // submitAndDrain creates a session, submits a prompt, and returns the events.

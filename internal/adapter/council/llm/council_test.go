@@ -74,89 +74,6 @@ func TestEvidenceActions(t *testing.T) {
 	}
 }
 
-// JudgeRevision parses the model's {addressed,reason} verdict, and fails OPEN
-// (Addressed=true) on a backend error or an unparseable reply so a flaky judge never
-// falsely cuts a productive re-plan loop.
-func TestJudgeRevision(t *testing.T) {
-	ctx := context.Background()
-	req := port.RevisionJudgeRequest{Critique: "size A1", PriorPlan: "1. compute", RevisedPlan: "1. size A1\n2. compute"}
-
-	// Parsed true, with surrounding prose + a code fence (weak-model tolerance).
-	c := New(only(fakeLLM{reply: func(port.ChatRequest) string {
-		return "Sure:\n```json\n{\"addressed\": true, \"reason\": \"adds a sizing step\"}\n```"
-	}}), "m")
-	v, err := c.JudgeRevision(ctx, req)
-	if err != nil || !v.Addressed || v.Reason != "adds a sizing step" {
-		t.Fatalf("parsed-true: got %+v err=%v", v, err)
-	}
-
-	// Parsed false is honored (this is what triggers early convergence stop).
-	c = New(only(fakeLLM{reply: func(port.ChatRequest) string { return `{"addressed": false, "reason": "same steps"}` }}), "m")
-	if v, _ := c.JudgeRevision(ctx, req); v.Addressed || v.Reason != "same steps" {
-		t.Fatalf("parsed-false: got %+v", v)
-	}
-
-	// Unparseable reply → fail open.
-	c = New(only(fakeLLM{reply: func(port.ChatRequest) string { return "I think it's fine, no JSON here" }}), "m")
-	if v, _ := c.JudgeRevision(ctx, req); !v.Addressed || !strings.Contains(v.Reason, "unparseable") {
-		t.Fatalf("unparseable should fail open: got %+v", v)
-	}
-
-	// Backend error → fail open.
-	c = New(only(fakeLLM{err: errors.New("boom")}), "m")
-	if v, _ := c.JudgeRevision(ctx, req); !v.Addressed || !strings.Contains(v.Reason, "unavailable") {
-		t.Fatalf("backend error should fail open: got %+v", v)
-	}
-}
-
-// A verdict spelled as a quoted word is still a verdict. A strict bool rejected the whole object
-// over that one field, and because this call fails open the reply then landed as the OPPOSITE of
-// what the judge said — with its reason, which named exactly what the revision had omitted,
-// discarded along with it. Observed live on a fully delivered 280-byte reply.
-func TestJudgeRevisionReadsAQuotedVerdict(t *testing.T) {
-	ctx := context.Background()
-	req := port.RevisionJudgeRequest{Critique: "size A1", PriorPlan: "1. compute", RevisedPlan: "1. compute"}
-
-	for _, tc := range []struct {
-		reply      string
-		wantYes    bool
-		wantReason string
-	}{
-		{`{"addressed": "false", "reason": "omits the required test step"}`, false, "omits the required test step"},
-		{`{"addressed": "true", "reason": "adds it"}`, true, "adds it"},
-		{`{"addressed": "no", "reason": "same steps"}`, false, "same steps"},
-		{`{"addressed": "yes", "reason": "reordered"}`, true, "reordered"},
-	} {
-		c := New(only(fakeLLM{reply: func(port.ChatRequest) string { return tc.reply }}), "m")
-		v, err := c.JudgeRevision(ctx, req)
-		if err != nil {
-			t.Fatalf("%s: err=%v", tc.reply, err)
-		}
-		if v.Addressed != tc.wantYes || v.Reason != tc.wantReason {
-			t.Errorf("%s → %+v, want addressed=%v reason=%q", tc.reply, v, tc.wantYes, tc.wantReason)
-		}
-	}
-}
-
-// An object that parses but carries no readable verdict still fails open — a judge that answers
-// in a shape this code cannot read must not cut a productive loop. It is reported as its own case,
-// because calling a whole, well-formed reply "unparseable" sends the next reader after the stream.
-func TestJudgeRevisionFailsOpenOnAnUnreadableVerdict(t *testing.T) {
-	ctx := context.Background()
-	req := port.RevisionJudgeRequest{Critique: "size A1", PriorPlan: "1. compute", RevisedPlan: "1. compute"}
-
-	for _, reply := range []string{
-		`{"addressed": "probably", "reason": "hard to say"}`,
-		`{"reason": "no verdict field at all"}`,
-	} {
-		c := New(only(fakeLLM{reply: func(port.ChatRequest) string { return reply }}), "m")
-		v, _ := c.JudgeRevision(ctx, req)
-		if !v.Addressed || !strings.Contains(v.Reason, "no readable verdict") {
-			t.Errorf("%s → %+v, want fail-open with a 'no readable verdict' reason", reply, v)
-		}
-	}
-}
-
 // The keep clause + schema field appear ONLY when keep is requested (MAGI_COUNCIL_KEEP),
 // so the baseline prompt is byte-for-byte unchanged when it is off.
 func TestMemberPromptKeepGated(t *testing.T) {
@@ -234,22 +151,6 @@ func TestMemberPromptForbidsEvidenceMethodOverDemand(t *testing.T) {
 	for _, banned := range []string{"SIGINT", "cancel-async", "Ctrl-C", "KeyboardInterrupt"} {
 		if strings.Contains(p, banned) {
 			t.Errorf("prompt leaks eval-set token %q — keep it task-agnostic", banned)
-		}
-	}
-}
-
-// The devil advocate hunts for a reason the turn is not done, so it too can manufacture a
-// task-unspecified specific (the reviewDevil round catches spurious ones downstream, but the
-// concern should be grounded at the source, consistent with the members' obligation).
-func TestDevilPromptGroundsDemandsInTask(t *testing.T) {
-	for _, want := range []string{"When that defect is itself a SPECIFIC", "where the TASK ITSELF states it", "manufactured doubt"} {
-		if !strings.Contains(devilSystem, want) {
-			t.Errorf("devil prompt must require a specific defect be grounded in the task (missing %q)", want)
-		}
-	}
-	for _, banned := range []string{"grpcio", "kv-store", "int64", "int32"} {
-		if strings.Contains(devilSystem, banned) {
-			t.Errorf("devil prompt leaks eval-set-specific token %q — keep the example task-agnostic", banned)
 		}
 	}
 }
@@ -334,31 +235,6 @@ func TestMemberPromptObjectiveNotMethod(t *testing.T) {
 	// The task-specified literal-contract requirement must remain intact.
 	if !strings.Contains(s, "EXACT command was run") {
 		t.Error("literal task-contract requirement was lost")
-	}
-}
-
-// When the report contests a prior demand, the member must adjudicate the cited evidence:
-// if it shows the requirement met or the method impossible-as-stated, drop the demand (do
-// not reissue); but a contest only removes that one point and is never itself proof of done,
-// and a contest with no concrete evidence is disregarded (false-done guard).
-func TestMemberPromptContestAdjudication(t *testing.T) {
-	m := council.Member{Name: "x", Lens: "correctness"}
-	s := memberSystem(m, "run a server on port 5328", false)
-
-	if !strings.Contains(s, "CONTEST") {
-		t.Error("terminate prompt must instruct the member how to judge a CONTEST")
-	}
-	// Valid contest -> do not reissue the demand.
-	if !strings.Contains(s, "do NOT reissue it") {
-		t.Error("a valid contest must stop the member from reissuing the demand")
-	}
-	// Removal-only: never itself proof of done.
-	if !strings.Contains(s, "NEVER "+"itself evidence the whole task is done") {
-		t.Error("contest must be removal-only, never itself proof of done")
-	}
-	// Evidence bar: a no-evidence contest is disregarded (keeps the false-done guard).
-	if !strings.Contains(s, "disregard it and keep the demand") {
-		t.Error("a contest with no concrete evidence must be disregarded")
 	}
 }
 
@@ -680,109 +556,6 @@ func TestDeliberateSkipDebateOnContinueMajority(t *testing.T) {
 	}
 }
 
-func isDevil(r port.ChatRequest) bool { return strings.Contains(r.System, "devil's advocate") }
-func isDevilReview(r port.ChatRequest) bool {
-	return strings.Contains(textOf(r), "judge it CRITICALLY")
-}
-
-// Devil as a critically-reviewed input: on a UNANIMOUS done the devil raises a concern, the
-// members RE-JUDGE it, and if a member AGREES the concern is a real defect the turn continues.
-func TestDeliberateDevilConcernUpheld(t *testing.T) {
-	c := New(only(fakeLLM{reply: func(r port.ChatRequest) string {
-		if isDevil(r) {
-			return `{"decision":"continue","rationale":"server never started","feedback":"run the server and show it binds :5328"}`
-		}
-		if isDevilReview(r) { // members review the concern and agree it's real
-			return `{"decision":"continue","rationale":"right, no run shown","feedback":"actually run it"}`
-		}
-		return `{"decision":"done","rationale":"looks complete"}`
-	}}), "m")
-	d, _ := c.Deliberate(context.Background(), port.DeliberationRequest{
-		Round: 1, Task: "do x", Rule: council.RuleMajority, Devil: true,
-	})
-	if d.Decision != council.Continue {
-		t.Fatalf("decision = %q, want continue (members upheld the devil's real concern)", d.Decision)
-	}
-}
-
-// The key regression fix: a SPURIOUS devil concern (int32→int64 that the grader does not require)
-// is REJECTED on critical review — the members hold done, so a working solution is not overturned.
-func TestDeliberateDevilConcernRejected(t *testing.T) {
-	c := New(only(fakeLLM{reply: func(r port.ChatRequest) string {
-		if isDevil(r) {
-			return `{"decision":"continue","rationale":"could be int64","feedback":"change int32 to int64"}`
-		}
-		if isDevilReview(r) { // members judge critically: int32 satisfies the task → hold done
-			return `{"decision":"done","rationale":"int32 meets the spec; the devil overreaches"}`
-		}
-		return `{"decision":"done","rationale":"works"}`
-	}}), "m")
-	d, _ := c.Deliberate(context.Background(), port.DeliberationRequest{
-		Round: 1, Task: "do x", Rule: council.RuleMajority, Devil: true,
-	})
-	if d.Decision != council.Done {
-		t.Fatalf("decision = %q, want done (spurious devil concern rejected on review)", d.Decision)
-	}
-}
-
-// A devil that finds no real defect abstains → no review round → the unanimous done stands.
-func TestDeliberateDevilAbstainKeepsDone(t *testing.T) {
-	var reviews int64
-	c := New(only(fakeLLM{reply: func(r port.ChatRequest) string {
-		if isDevilReview(r) {
-			atomic.AddInt64(&reviews, 1)
-		}
-		if isDevil(r) {
-			return `{"decision":"abstain","rationale":"tried to break it, deliverable is genuinely met"}`
-		}
-		return `{"decision":"done","rationale":"complete"}`
-	}}), "m")
-	d, _ := c.Deliberate(context.Background(), port.DeliberationRequest{
-		Round: 1, Task: "do x", Rule: council.RuleMajority, Devil: true,
-	})
-	if d.Decision != council.Done {
-		t.Errorf("decision = %q, want done (devil abstained)", d.Decision)
-	}
-	if n := atomic.LoadInt64(&reviews); n != 0 {
-		t.Errorf("no review round should run when the devil abstains, got %d", n)
-	}
-}
-
-// The devil never runs when disabled, and never on a SPLIT (that is the rebuttal's territory):
-// a 2-done/1-continue majority-done stays done with no devil poll.
-func TestDeliberateDevilSkippedOffAndOnSplit(t *testing.T) {
-	var devilCalls int64
-	reply := func(r port.ChatRequest) string {
-		if isDevil(r) {
-			atomic.AddInt64(&devilCalls, 1)
-			return `{"decision":"continue","rationale":"x","feedback":"y"}`
-		}
-		if memberIn(r, "Melchior") {
-			return `{"decision":"continue","rationale":"incomplete","feedback":"more"}`
-		}
-		return `{"decision":"done","rationale":"ok"}`
-	}
-	// Devil OFF: even the unanimous-done path must not poll a devil.
-	cOff := New(only(fakeLLM{reply: func(r port.ChatRequest) string {
-		if isDevil(r) {
-			atomic.AddInt64(&devilCalls, 1)
-		}
-		return `{"decision":"done","rationale":"ok"}`
-	}}), "m")
-	if d, _ := cOff.Deliberate(context.Background(), port.DeliberationRequest{Round: 1, Task: "x", Rule: council.RuleMajority, Devil: false}); d.Decision != council.Done {
-		t.Fatalf("devil-off decision = %q, want done", d.Decision)
-	}
-	// Devil ON but a SPLIT (2 done / 1 continue → majority done): devil must NOT fire.
-	cSplit := New(only(fakeLLM{reply: reply}), "m")
-	d, _ := cSplit.Deliberate(context.Background(), port.DeliberationRequest{Round: 1, Task: "x", Rule: council.RuleMajority, Devil: true})
-	if d.Decision != council.Done {
-		t.Errorf("split majority-done decision = %q, want done (devil skipped on split)", d.Decision)
-	}
-	if n := atomic.LoadInt64(&devilCalls); n != 0 {
-		t.Errorf("devil must not be polled when off or on a split, got %d call(s)", n)
-	}
-}
-
 // A member whose first reply cannot be parsed as JSON (a verbose model wrapping the
 // object in prose) must be re-polled once with a JSON-only reminder before abstaining —
 // otherwise its vote silently drops from quorum and skews the tally. On a valid retry the
@@ -928,11 +701,8 @@ func TestRetryReminderNamesTheDefectThatOccurred(t *testing.T) {
 func TestCouncilPromptsCarryNoHarnessFraming(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "correctness"}
 	prompts := map[string]string{
-		"devil":    devilSystem,
-		"plan":     memberSystem(m, "build a service and run its tests", false),
-		"contract": memberSystem(m, "build a service and run its tests", false),
-		"subst":    memberSystem(m, "build a service and run its tests", false),
-		"finish":   memberSystem(m, "build a service and run its tests", true),
+		"member":      memberSystem(m, "build a service and run its tests", false),
+		"member-keep": memberSystem(m, "build a service and run its tests", true),
 	}
 	for name, p := range prompts {
 		for _, banned := range []string{"grader", "benchmark", "leaderboard", "reward", "eval set"} {

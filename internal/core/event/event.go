@@ -46,17 +46,6 @@ const (
 	TypeCouncilVerdict  Type = "council.verdict"
 	TypeCouncilDecided  Type = "council.decided"
 
-	// TypeStepCheck records one deterministic deliverable-check execution — its step,
-	// what it verifies, the command, exit code, and pass/fail. This is NOT a council
-	// vote (no round, no tally): it is the executed contract, persisted so the check's
-	// result is auditable and rendered as its own line rather than masquerading as a
-	// council round outcome.
-
-	// Plan-audit convergence (D17): when the council rejects a plan and the planner
-	// re-plans, this fact records the round's plan revision (before→after) plus the
-	// judged verdict of whether the revision actually addressed the council's concern.
-	// Persisted so "was the revision productive" is auditable from the log/trace.
-
 	// Interjection deferral ledger (F5): a durable record that a user prompt was queued
 	// as a mid-turn interjection (Resolved:false at enqueue) and, later, that it left the
 	// queue by being absorbed inline/by a route (Resolved:true). Drain-to-own-turn is

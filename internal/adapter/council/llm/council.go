@@ -67,10 +67,9 @@ func (c *Council) Deliberate(ctx context.Context, req port.DeliberationRequest) 
 	// the tally is already Continue, debate is skipped: the dissent cannot change the
 	// outcome (the turn continues regardless), and it must NOT be used to talk a
 	// hesitant council INTO done — debate may only make finishing HARDER, never
-	// easier, so it can't manufacture a coin-flip approval. Also skipped on unanimity
-	// (no split) and the focused re-round (already a targeted re-poll).
+	// easier, so it can't manufacture a coin-flip approval. Also skipped on unanimity (no split).
 	var debate *council.DebateOutcome
-	if indepDec, _ := council.Tally(verdicts, rule); req.Debate && !req.DeltaRound &&
+	if indepDec, _ := council.Tally(verdicts, rule); req.Debate &&
 		splitVerdicts(verdicts) && indepDec == council.Done {
 		before, _ := council.Tally(verdicts, rule)
 		revised := c.rebut(ctx, req, members, verdicts)
@@ -88,28 +87,6 @@ func (c *Council) Deliberate(ctx context.Context, req port.DeliberationRequest) 
 		debate = &council.DebateOutcome{Before: before, After: after, Changed: changed}
 		verdicts = revised
 	}
-
-	// Devil's advocate as a critically-reviewed INPUT, not a veto: the rebuttal above only fires
-	// on a SPLIT, so a unanimous (no-split) DONE sails through unchallenged — the premature
-	// consensus a devil exists to stress-test. Appoint one adversarial member to argue the
-	// strongest case the turn is NOT done; if it raises a concrete concern, the council RE-JUDGES
-	// that concern CRITICALLY (the devil deliberately hunts for problems and may overreach or
-	// demand what the task never required) and their re-tally — not the devil — decides. A real
-	// defect the members missed flips them to continue; a spurious devil concern is rejected and
-	// the done stands. The devil never gets a binding vote. Skipped on the focused re-round and in
-	// the focused re-round (no fresh "done" to challenge there).
-	if req.Devil && !req.DeltaRound {
-		if dec, _ := council.Tally(verdicts, rule); dec == council.Done && !splitVerdicts(verdicts) {
-			if concern := c.devilConcern(ctx, req); concern != "" {
-				verdicts = c.reviewDevil(ctx, req, members, verdicts, concern)
-			}
-		}
-	}
-
-	// Focused re-round: fold the prior round's done votes back in before the rule
-	// runs, so the tally still spans the full council even though only the
-	// dissenting members were re-polled.
-	verdicts = append(verdicts, req.CarriedDone...)
 
 	d := council.Deliberate(req.Round, verdicts, rule)
 	d.Debate = debate
@@ -208,68 +185,6 @@ func (v *judgeBool) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// JudgeRevision asks a single model whether the revised procedure engages the council's
-// concern. It fails OPEN (Addressed=true) on any backend or parse error so a flaky judge
-// never falsely cuts a productive re-plan loop; the reason records why.
-func (c *Council) JudgeRevision(ctx context.Context, req port.RevisionJudgeRequest) (port.RevisionVerdict, error) {
-	model := req.DefaultModel
-	if model == "" {
-		model = c.model
-	}
-	provider := c.resolve("")
-	if provider == nil { // defensive: no backend → don't block, assume engaged
-		return port.RevisionVerdict{Addressed: true, Reason: "no council backend resolved"}, nil
-	}
-	system := "You check whether a REVISED plan actually engages a specific CONCERN raised about the PRIOR plan. " +
-		"You are NOT judging whether the revised plan is perfect or complete — only whether it made a genuine, relevant " +
-		"change directed at the concern (added/changed/reordered a step that targets it). A revision that ignores the " +
-		"concern, or only rephrases the same steps, does NOT address it. " +
-		"Reply with ONLY a JSON object: {\"addressed\": <true|false>, \"reason\": \"<one short sentence>\"}."
-	user := "CONCERN raised about the prior plan:\n" + req.Critique +
-		"\n\nPRIOR plan:\n" + req.PriorPlan +
-		"\n\nREVISED plan:\n" + req.RevisedPlan +
-		"\n\nDid the REVISED plan make a genuine change directed at the CONCERN?"
-
-	stream, err := provider.StreamChat(ctx, port.ChatRequest{
-		Model:    model,
-		System:   system,
-		Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: user}}}},
-		Params:   map[string]any{"temperature": 0.0},
-	})
-	if err != nil {
-		return port.RevisionVerdict{Addressed: true, Reason: "revision judge unavailable: " + err.Error()}, nil
-	}
-	var b strings.Builder
-	text, cut := drain(stream)
-	b.WriteString(text)
-	if cut != nil {
-		fmt.Fprintf(os.Stderr, "magi: a council reply was cut off after %d chars: %v\n", len(text), cut)
-	}
-	var r judgeReply
-	parsed := false
-	for _, js := range jsonx.Objects(b.String()) {
-		if jsonx.Unmarshal(js, &r) {
-			parsed = true
-			break
-		}
-	}
-	if !parsed {
-		noteUnparsed("a revision-judge reply", b.String())
-		return port.RevisionVerdict{Addressed: true, Reason: "unparseable revision-judge reply"}, nil
-	}
-	if !r.Addressed.known {
-		// The object parsed but its verdict field did not (or was absent). Fail open, and say
-		// which of the two it was — "unparseable reply" would misdescribe a reply that arrived
-		// whole and was merely mis-typed, and that wording sent an earlier hunt after the stream.
-		return port.RevisionVerdict{Addressed: true, Reason: "the revision judge gave no readable verdict"}, nil
-	}
-	reason := strings.TrimSpace(r.Reason)
-	if reason == "" {
-		reason = "no reason given"
-	}
-	return port.RevisionVerdict{Addressed: r.Addressed.val, Reason: reason}, nil
-}
-
 // poll asks one member and returns its verdict.
 func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m council.Member) council.Verdict {
 	v := council.Verdict{Member: m.Name, Lens: m.Lens, Weight: m.Weight}
@@ -290,17 +205,6 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 		return v
 	}
 	user := evidence(req)
-	if req.DeltaRound {
-		if concern := strings.TrimSpace(req.PriorConcern[m.Name]); concern != "" {
-			// Focused re-round: the member re-judges ITS OWN standing objection
-			// against the delta, instead of re-auditing the whole turn (which is
-			// both slower and how fresh nitpicks appear round after round).
-			user += "\n\n# Focused re-round\nYou previously voted continue with this concern:\n" + concern +
-				"\n\nThe Actions section above contains ONLY what the agent did since that rejection (the delta). " +
-				"Judge whether the delta resolves YOUR concern: vote done if it does; if not, state precisely " +
-				"what is still missing — do not raise new, unrelated objections."
-		}
-	}
 	// ask streams one member turn for userMsg and parses its reply. Errors (backend down)
 	// and parse outcome are surfaced separately so the caller can distinguish "unavailable"
 	// (abstain) from "unparseable" (retry once with a JSON-only reminder).
@@ -417,137 +321,6 @@ func (c *Council) pollRebut(ctx context.Context, req port.DeliberationRequest, m
 	return v
 }
 
-// devilAdvocate polls one adversarial member against a would-be DONE. It reads the same evidence
-// but under an adversarial system prompt: find the single most likely REAL reason the turn is not
-// finished. It returns Continue ONLY with a concrete defect, else Abstain — it never returns Done,
-// so it can only make finishing harder. Any error or unparseable/soft reply yields Abstain, so a
-// flaky devil call can never, by itself, block a done.
-func (c *Council) devilAdvocate(ctx context.Context, req port.DeliberationRequest) council.Verdict {
-	v := council.Verdict{Member: "Devil", Lens: "adversary", Decision: council.Abstain}
-	model := req.DefaultModel
-	if model == "" {
-		model = c.model
-	}
-	provider := c.resolve("")
-	if provider == nil {
-		return v
-	}
-	user := evidence(req) + "\n\n# Your charge\nThe council is about to rule this turn DONE. Make the " +
-		"strongest case it is NOT — find the single most likely REAL way the deliverable is unmet, unverified, " +
-		"or wrong, grounded in the task, report, and signals above."
-	stream, err := provider.StreamChat(ctx, port.ChatRequest{
-		Model:    model,
-		System:   withLangNote(devilSystem, req.Task),
-		Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: user}}}},
-		Params:   map[string]any{"temperature": 0.0},
-	})
-	if err != nil {
-		return v
-	}
-	var b strings.Builder
-	text, cut := drain(stream)
-	b.WriteString(text)
-	if cut != nil {
-		fmt.Fprintf(os.Stderr, "magi: a council reply was cut off after %d chars: %v\n", len(text), cut)
-	}
-	r, ok := parseReply(b.String())
-	if !ok {
-		return v
-	}
-	// The devil never carries a done: only a continue with a real, specific defect counts.
-	if decisionOf(string(r.Decision)) != council.Continue || strings.TrimSpace(string(r.Feedback)) == "" {
-		return v
-	}
-	v.Decision = council.Continue
-	v.Confidence = float64(r.Confidence)
-	v.Rationale = string(r.Rationale)
-	v.Feedback = string(r.Feedback)
-	return v
-}
-
-// devilConcern runs the devil and returns its single strongest concern, or "" when it found no
-// real defect. The concern is fed BACK to the council as a critically-reviewed input (reviewDevil),
-// never a vote — so a spurious devil argument cannot, by itself, block a done.
-func (c *Council) devilConcern(ctx context.Context, req port.DeliberationRequest) string {
-	dv := c.devilAdvocate(ctx, req)
-	if dv.Decision != council.Continue {
-		return ""
-	}
-	return strings.TrimSpace(dv.Feedback)
-}
-
-// reviewDevil re-polls each member with the devil's concern attached, asking them to judge it
-// CRITICALLY — the devil deliberately hunts for problems, so a plausible concern the task does not
-// actually require must be rejected, not deferred to. Members re-poll in parallel, each keeping its
-// lens; a failed/unparseable re-poll keeps that member's prior verdict (fail-safe, never lost). The
-// members' re-tally decides — the devil casts no binding vote.
-func (c *Council) reviewDevil(ctx context.Context, req port.DeliberationRequest, members []council.Member, prior []council.Verdict, concern string) []council.Verdict {
-	byName := map[string]council.Verdict{}
-	for _, v := range prior {
-		byName[v.Member] = v
-	}
-	out := make([]council.Verdict, len(members))
-	var wg sync.WaitGroup
-	for i, m := range members {
-		wg.Add(1)
-		go func(i int, m council.Member) {
-			defer wg.Done()
-			out[i] = c.pollDevilReview(ctx, req, m, byName[m.Name], concern)
-		}(i, m)
-	}
-	wg.Wait()
-	return out
-}
-
-// pollDevilReview re-polls one member to weigh the devil's concern critically. Same lens/prompt as
-// poll; on any error or unparseable reply it returns the member's prior verdict unchanged.
-func (c *Council) pollDevilReview(ctx context.Context, req port.DeliberationRequest, m council.Member, prior council.Verdict, concern string) council.Verdict {
-	model := m.Model
-	if model == "" {
-		model = req.DefaultModel
-	}
-	if model == "" {
-		model = c.model
-	}
-	provider := c.resolve(m.Provider)
-	if provider == nil {
-		return prior
-	}
-	user := evidence(req) + "\n\n# Devil's-advocate challenge — judge it CRITICALLY\n" +
-		"A devil's advocate, tasked with finding ANY reason this turn is not done, argues:\n" + concern +
-		"\n\nThe devil deliberately hunts for problems and may OVERREACH — raising a concern the task does not " +
-		"actually require, or demanding a stricter form than the task requires. Judge it on its merits through " +
-		"YOUR lens: vote continue ONLY if it names a REAL, task-required defect that genuinely leaves the work " +
-		"unfinished; if the work satisfies the task despite the concern, HOLD done. Do not defer to the devil, " +
-		"and do not raise a brand-new objection of your own. Reply in the SAME JSON shape."
-	stream, err := provider.StreamChat(ctx, port.ChatRequest{
-		Model:    model,
-		System:   memberSystem(m, req.Task, req.Keep),
-		Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: user}}}},
-		Params:   map[string]any{"temperature": 0.0},
-	})
-	if err != nil {
-		return prior
-	}
-	var b strings.Builder
-	text, cut := drain(stream)
-	b.WriteString(text)
-	if cut != nil {
-		fmt.Fprintf(os.Stderr, "magi: a council reply was cut off after %d chars: %v\n", len(text), cut)
-	}
-	r, ok := parseReply(b.String())
-	if !ok {
-		return prior
-	}
-	v := council.Verdict{Member: m.Name, Lens: m.Lens, Weight: m.Weight}
-	v.Decision = decisionOf(string(r.Decision))
-	v.Confidence = float64(r.Confidence)
-	v.Rationale = string(r.Rationale)
-	v.Feedback = string(r.Feedback)
-	v.Keep = string(r.Keep)
-	return v
-}
-
 // councilRetryReminder is appended to a member's user message for a single re-poll when its first
 // reply could not be read, and it names WHICH failure occurred. The single reminder used to assume
 // prose wrapping in every case, which is one of three unrelated defects and not the one seen most:
@@ -572,28 +345,6 @@ func councilRetryReminder(text string) string {
 			"before or after it."
 	}
 }
-
-// devilSystem is the adversarial member's contract: argue against done, but only on a REAL defect.
-const devilSystem = "You are the council's devil's advocate. The other members are ready to rule this AI " +
-	"coding agent's turn DONE, and nobody has argued the other side. Your job is to stress-test that " +
-	"consensus: assume it is premature and hunt for the single most likely REAL reason the turn is not " +
-	"actually finished — a required deliverable that does not exist, exists but was never run/verified, or " +
-	"whose content/value/name/format does not match what the TASK literally asked; a checkable behavior never " +
-	"exercised; a premise assumed rather than confirmed; a stated part the report itself admits is skipped or " +
-	"rationalized away. The agent's own narration (\"done\", \"verified\", \"all tests pass\") is a CLAIM, never " +
-	"proof — judge only the shown tool results, signals, and diff.\n" +
-	"Vote \"continue\" ONLY if you can name a SPECIFIC, concrete defect and put the exact next step in " +
-	"`feedback`. That concern is not a verdict — the council will REVIEW it critically and decide — so raise it " +
-	"only if it is real. When that defect is itself a SPECIFIC (an exact value, a numeric type or integer " +
-	"width, a version pin, a field or identifier's exact spelling or capitalization, a format, or a threshold), " +
-	"you must be able to point to where the TASK ITSELF states it: a specific the task never stated is not a " +
-	"real defect but manufactured doubt, so abstain rather than demand it. If, after genuinely trying to break " +
-	"it, you find no real defect and would only be " +
-	"manufacturing doubt or demanding evidence the task never required, vote \"abstain\". You must NEVER vote " +
-	"\"done\": finding nothing is an abstain, not an endorsement. Do not invent defects and do not nitpick breadth " +
-	"on an analysis/review answer that already covers the task representatively.\n" +
-	"Respond with ONLY a JSON object, no prose, no code fence:\n" +
-	`{"decision":"continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific defect and next step (required for continue)"}`
 
 // memberReply is the JSON shape each member is asked to return.
 // EVERY field is read through a tolerant type, because Go aborts the whole document on the first

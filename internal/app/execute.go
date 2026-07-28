@@ -150,12 +150,10 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		return
 	}
 
-	// Tool-env callbacks. A concern may be retired only by the agent that holds the whole-task
-	// view, and only advisorily: a still-true concern is re-raised next turn (self-healing), so
-	// this cannot launder a fact away, only clear stale advisory memory.
-	// Route a mid-turn user interjection (top-level only — subagents aren't steered by
-	// the user). The tool has already validated action ∈ {queue,redirect,append}; we
-	// record the signal for the loop to drain and apply at its next step.
+	// Tool-env callbacks. Route a mid-turn user interjection — top level only, since the user
+	// steers the agent they are talking to. The tool has already validated
+	// action ∈ {queue,redirect,append}; this records the signal for the loop to drain and apply
+	// at its next step.
 	var routeInterjectionFn func(action, reason, requestID string) error
 	if depth == 0 {
 		routeInterjectionFn = func(action, reason, requestID string) error {

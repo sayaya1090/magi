@@ -19,11 +19,6 @@ const (
 	subagentActionsCap = 6 // most recent tool results per subagent shown to the council
 )
 
-// concernPremiseKey is the stable ledger Key for the N14 unverified-premise concern. It
-// equals the fresh signal's "source/kind", so the ledger merge dedups a concern that
-// already fired this turn against the one carried from an earlier turn.
-const concernPremiseKey = "self-check/unverified-premise"
-
 // fmtElapsed renders a duration coarsely (seconds under a minute, else Xm or XhYm)
 // — a pacing signal, not a stopwatch display.
 func fmtElapsed(d time.Duration) string {
