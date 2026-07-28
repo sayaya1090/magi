@@ -1,11 +1,8 @@
 package tui
 
 import (
-	"encoding/json"
-	"strings"
 	"testing"
 
-	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -47,20 +44,6 @@ func TestSameRolePanesDifferByBrightness(t *testing.T) {
 	}
 }
 
-// taskAgents extracts both the single-agent and parallel-tasks forms.
-func TestTaskAgents(t *testing.T) {
-	if got := taskAgents(`{"agent":"explore","prompt":"x"}`); len(got) != 1 || got[0] != "explore" {
-		t.Fatalf("single form: %v", got)
-	}
-	got := taskAgents(`{"tasks":[{"agent":"explore"},{"agent":"coder"}]}`)
-	if len(got) != 2 || got[0] != "explore" || got[1] != "coder" {
-		t.Fatalf("tasks form: %v", got)
-	}
-	if got := taskAgents(`not json`); got != nil {
-		t.Fatalf("bad json should yield nil, got %v", got)
-	}
-}
-
 // cyclePaneFocus walks main → panes → wrap.
 func TestCyclePaneFocus(t *testing.T) {
 	m := newPaneModel()
@@ -79,55 +62,6 @@ func TestCyclePaneFocus(t *testing.T) {
 	m.cyclePaneFocus(1)
 	if m.focusPane != -1 {
 		t.Fatalf("after 3 should wrap to main: %d want -1", m.focusPane)
-	}
-}
-
-// applyPaneEvent folds part events and marks done on turn finish.
-func TestApplyPaneEvent(t *testing.T) {
-	m := newPaneModel()
-	p := &agentPane{role: "explore"}
-
-	delta, _ := json.Marshal(event.PartDeltaData{Kind: session.PartText, Text: "hi"})
-	m.applyPaneEvent(p, event.Event{Type: event.TypePartDelta, Data: delta})
-	if p.live != "hi" {
-		t.Fatalf("live = %q want hi", p.live)
-	}
-
-	app, _ := json.Marshal(event.PartAppendedData{Part: session.Part{Kind: session.PartText, Text: "done text"}})
-	m.applyPaneEvent(p, event.Event{Type: event.TypePartAppended, Data: app})
-	if p.live != "" || len(p.blocks) != 1 {
-		t.Fatalf("append: live=%q blocks=%d", p.live, len(p.blocks))
-	}
-
-	m.applyPaneEvent(p, event.Event{Type: event.TypeTurnFinished})
-	if !p.done {
-		t.Fatal("pane should be done after turn finished")
-	}
-}
-
-// applyPaneEvent renders a worker's OWN council verdicts (a substitution review at its finish
-// boundary, a plan audit when it decomposes) in the worker detail — each member's judgment plus
-// rationale and any correction feedback — not just the convened header and the final tally.
-// Regression: the pane switch handled Convened+Decided but not CouncilVerdict, so the judgment
-// content ("워커말만 나오네") never appeared.
-func TestApplyPaneEventRendersCouncilVerdict(t *testing.T) {
-	m := newPaneModel()
-	p := &agentPane{role: "worker"}
-
-	vd, _ := json.Marshal(event.CouncilVerdictData{
-		Round: 1, Phase: "substitution", Member: "Melchior", Lens: "equivalence",
-		Decision: "continue", Rationale: "the substitute only checks existence",
-		Feedback: "assert the returned value instead",
-	})
-	m.applyPaneEvent(p, event.Event{Type: event.TypeCouncilVerdict, Data: vd})
-	if len(p.blocks) != 1 {
-		t.Fatalf("a verdict should produce one block, got %d", len(p.blocks))
-	}
-	txt := p.blocks[0].text
-	for _, want := range []string{"Melchior", "the substitute only checks existence", "assert the returned value instead"} {
-		if !strings.Contains(txt, want) {
-			t.Errorf("worker pane verdict block missing %q; got:\n%s", want, txt)
-		}
 	}
 }
 
@@ -163,33 +97,5 @@ func TestPaneLookup(t *testing.T) {
 	}
 	if m.paneBySID("nope") != nil || m.paneBySub(99) != nil {
 		t.Fatal("lookups should miss")
-	}
-}
-
-// When the orchestrator kills a child, it posts a "killed — <why>" AgentStatus onto the child's own
-// session; applyPaneEvent must render that as a visible line at the end of the pane (the child's
-// detail view). Non-kill AgentStatus states (done / lease-extended parent chrome) add no pane line.
-func TestPaneShowsKillReason(t *testing.T) {
-	m := newPaneModel()
-	p := &agentPane{sid: session.SessionID("s_child"), role: "worker"}
-
-	status := func(state string) event.Event {
-		d, _ := json.Marshal(event.AgentStatusData{AgentID: "s_child", State: state})
-		return event.Event{Type: event.TypeAgentStatus, Data: d}
-	}
-
-	// A non-kill status is parent-side chrome — no pane line.
-	m.applyPaneEvent(p, status("lease extended +2m (judged in progress)"))
-	if len(p.blocks) != 0 {
-		t.Fatalf("non-kill AgentStatus must not add a pane line, got %d", len(p.blocks))
-	}
-
-	// The kill notice lands as a visible line carrying the reason.
-	m.applyPaneEvent(p, status("killed — lease expired (churn, no progress)"))
-	if len(p.blocks) != 1 {
-		t.Fatalf("kill notice must add exactly one pane line, got %d", len(p.blocks))
-	}
-	if got := p.blocks[0].text; !strings.Contains(got, "killed") || !strings.Contains(got, "lease expired") {
-		t.Errorf("pane kill line lost its reason: %q", got)
 	}
 }

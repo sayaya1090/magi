@@ -348,17 +348,6 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 				glyph = styleToolErr.Render("✗")
 			}
 		}
-		// The task tool delegates to subagents — surface the target agent name(s)
-		// in each agent's assigned color so the transcript ties to the live panes.
-		if blk.name == "task" {
-			if agents := taskAgents(blk.args); len(agents) > 0 {
-				colored := make([]string, len(agents))
-				for i, a := range agents {
-					colored[i] = lipgloss.NewStyle().Foreground(m.paneColor(a)).Bold(true).Render(a)
-				}
-				return indent(glyph + styleToolName.Render(" task → ") + strings.Join(colored, ", "))
-			}
-		}
 		head := glyph + " " + styleToolName.Render(blk.name)
 		// For an edit/write, show the actual change as a colorized diff beneath the
 		// line (unless the call failed) — far clearer than a flattened arg preview.

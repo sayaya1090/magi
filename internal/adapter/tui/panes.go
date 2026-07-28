@@ -1,13 +1,11 @@
 package tui
 
 import (
-	"encoding/json"
 	"fmt"
 	"image/color"
 	"strings"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -179,29 +177,6 @@ func (m *Model) paneStatusPlain(p *agentPane) string {
 	return g
 }
 
-// openPane starts a live pane for a spawned subagent — one pane PER child
-// session (so a re-dispatch or follow-up gets its own window). Each is labelled
-// role + a short id (paneLabel) to tell concurrent same-role agents apart.
-func (m *Model) openPane(ev event.Event) tea.Cmd {
-	var d event.AgentStatusData
-	if json.Unmarshal(ev.Data, &d) != nil || d.AgentID == "" {
-		return nil
-	}
-	cid := session.SessionID(d.AgentID)
-	if m.paneBySID(cid) != nil {
-		return nil // already open for this exact session
-	}
-	ch, cancel, err := m.app.Subscribe(m.ctx, cid, 0)
-	if err != nil {
-		return nil
-	}
-	m.subID++
-	p := &agentPane{sid: cid, role: orDefaultStr(d.Role, d.AgentID), ch: ch, cancel: cancel, sub: m.subID}
-	m.panes = append(m.panes, p)
-	fadeDbg("openPane sid=%s role=%s sub=%d (panes=%d)", shortSID(cid), p.role, p.sub, len(m.panes))
-	return waitEvent(ch, cid, p.sub)
-}
-
 // label is the assistant attribution used inside a subagent's own transcript.
 func (p *agentPane) label() string { return p.role }
 
@@ -221,57 +196,6 @@ func (p *agentPane) desc(width int) string {
 		limit = w
 	}
 	return p.role + " · " + oneLine(t, max(8, limit))
-}
-
-// taskAgents extracts the target agent name(s) from a task tool call's args,
-// supporting both {agent} and {tasks:[{agent},…]}.
-func taskAgents(args string) []string {
-	var d struct {
-		Agent string `json:"agent"`
-		Tasks []struct {
-			Agent string `json:"agent"`
-		} `json:"tasks"`
-	}
-	if json.Unmarshal([]byte(args), &d) != nil {
-		return nil
-	}
-	var out []string
-	if d.Agent != "" {
-		out = append(out, d.Agent)
-	}
-	for _, t := range d.Tasks {
-		if t.Agent != "" {
-			out = append(out, t.Agent)
-		}
-	}
-	return out
-}
-
-// restoreChildPanes rebuilds finished subagent panes for a resumed session, so
-// the parent's subagents come back as inspectable (done) panes — their live
-// spawn events were transient and aren't replayed.
-func (m *Model) restoreChildPanes(parent session.SessionID) {
-	m.closePanes()
-	children, err := m.app.ChildSessions(m.ctx, m.workdir, parent)
-	if err != nil || len(children) == 0 {
-		return
-	}
-	for _, c := range children {
-		task := ""
-		for _, msg := range c.Messages {
-			if msg.Role == session.RoleUser {
-				task = strings.TrimSpace(joinTextParts(msg.Parts))
-				break
-			}
-		}
-		m.panes = append(m.panes, &agentPane{
-			sid:    c.ID,
-			role:   orDefaultStr(c.Role, string(c.ID)),
-			task:   task,
-			blocks: rebuildBlocks(c.Messages),
-			done:   true,
-		})
-	}
 }
 
 // anyPaneRunning reports whether any subagent pane is still working.
@@ -331,189 +255,6 @@ func (m *Model) ensureFocusVisible() {
 		m.paneScroll = m.focusPane
 	case m.focusPane >= m.paneScroll+nShown:
 		m.paneScroll = m.focusPane - nShown + 1
-	}
-}
-
-// applyPaneEvent folds a child-session event into its pane's transcript.
-func (m *Model) applyPaneEvent(p *agentPane, e event.Event) {
-	p.evCount++
-	p.lastEv = string(e.Type)
-	if p.started.IsZero() {
-		p.started = time.Now() // first event marks the subagent's start (§8.1)
-	}
-	switch e.Type {
-	case event.TypeContextUsage:
-		var d event.ContextUsageData
-		if json.Unmarshal(e.Data, &d) == nil {
-			p.in, p.out = d.Tokens, d.OutTokens
-		}
-	case event.TypePromptSubmitted:
-		// The subagent's first prompt IS its task — capture a summary for the label.
-		if p.task == "" {
-			var d event.PromptSubmittedData
-			if json.Unmarshal(e.Data, &d) == nil {
-				p.task = strings.TrimSpace(joinTextParts(d.Parts))
-			}
-		}
-	case event.TypePartDelta:
-		var d event.PartDeltaData
-		if json.Unmarshal(e.Data, &d) == nil {
-			switch d.Kind {
-			case session.PartText:
-				p.live += d.Text
-			case session.PartReasoning:
-				p.liveThink += d.Text
-			}
-		}
-	case event.TypePartAppended:
-		var d event.PartAppendedData
-		if json.Unmarshal(e.Data, &d) != nil {
-			return
-		}
-		switch d.Part.Kind {
-		case session.PartReasoning:
-			p.liveThink = ""
-			p.blocks = append(p.blocks, block{kind: blockReasoning, text: d.Part.Text})
-		case session.PartText:
-			p.live = ""
-			p.blocks = append(p.blocks, block{kind: blockAssistant, text: d.Part.Text})
-		case session.PartToolCall:
-			if d.Part.ToolCall != nil {
-				p.live = ""
-				p.blocks = append(p.blocks, block{
-					kind:   blockToolCall,
-					name:   d.Part.ToolCall.Name,
-					args:   string(d.Part.ToolCall.Args),
-					callID: d.Part.ToolCall.CallID,
-				})
-			}
-		case session.PartToolResult:
-			if d.Part.ToolResult != nil {
-				p.blocks = foldToolResultInto(p.blocks, d.Part.ToolResult.CallID, toolResultText(d.Part.ToolResult), !d.Part.ToolResult.IsError)
-			}
-		}
-	case event.TypeCouncilConvened:
-		// A worker runs its OWN council (plan audit) / planner when it decomposes a sub-task; those
-		// rounds emit to the worker's session, so render them in the worker's pane/detail too — the
-		// silent side-LLM work is now visible, not a blank gap (it is also counted as liveness).
-		var d event.CouncilConvenedData
-		if json.Unmarshal(e.Data, &d) == nil {
-			label, verb := councilPhaseLabel(d.Phase)
-			line := fmt.Sprintf("⚖ %s round %d — %s", label, d.Round, verb)
-			if plan := strings.TrimSpace(d.Plan); plan != "" && (d.Phase == "plan" || d.Phase == "contract") {
-				for _, pl := range strings.Split(plan, "\n") {
-					line += "\n    " + pl
-				}
-			}
-			p.blocks = append(p.blocks, block{kind: blockInfo, text: line})
-		}
-	case event.TypeCouncilVerdict:
-		// A worker runs its OWN council (a substitution review at its finish boundary, a plan audit
-		// when it decomposes); those verdicts emit to the worker's session. Render each member's
-		// judgment in the worker detail too, or it shows only the convened header and the final tally
-		// with no WHAT/WHY between them. The pane has no drill-in modal (unlike the main transcript),
-		// so the rationale and any correction feedback ride inline — that inline text IS the judgment
-		// content the review produced.
-		var d event.CouncilVerdictData
-		if json.Unmarshal(e.Data, &d) == nil {
-			line := councilMemberPlain(d)
-			if r := strings.TrimSpace(d.Rationale); r != "" {
-				line += "\n    " + r
-			}
-			if fb := strings.TrimSpace(d.Feedback); fb != "" {
-				line += "\n    ↳ " + fb
-			}
-			// …and what this member says the revision must NOT lose. In the main transcript the
-			// keep is one click away in the detail modal; the pane has no modal, so without this
-			// line the worker's own review shows every demand to change something and nothing
-			// about what changing it must preserve.
-			if k := strings.TrimSpace(d.Keep); k != "" {
-				line += "\n    ⊙ keep: " + k
-			}
-			p.blocks = append(p.blocks, block{kind: blockInfo, text: line})
-		}
-	case event.TypeCouncilDecided:
-		var d event.CouncilDecidedData
-		if json.Unmarshal(e.Data, &d) == nil {
-			label, _ := councilPhaseLabel(d.Phase)
-			line := fmt.Sprintf("⚖ %s round %d: %s — %d done / %d continue", label, d.Round, d.Decision, d.Tally.Done, d.Tally.Continue)
-			if d.Note != "" {
-				line += " (" + d.Note + ")"
-			}
-			p.blocks = append(p.blocks, block{kind: blockInfo, text: line})
-		}
-	case event.TypeStepCheck:
-		// A worker verifies its OWN step (the per-step check gate), and that result lands on the
-		// worker's session — so the pane showed the edits and then a bare done/blocked, with the
-		// verification that decided between them nowhere on screen.
-		var d event.StepCheckData
-		if json.Unmarshal(e.Data, &d) == nil {
-			p.blocks = append(p.blocks, block{kind: blockInfo, text: stepCheckLine(d)})
-		}
-	case event.TypePlanRevised:
-		// A worker that decomposes its sub-task runs its own plan audit, and a re-plan round
-		// emits here. Same reason as the main transcript: without it the worker's steps change
-		// under the reader with no record of what was objected to.
-		var d event.PlanRevisedData
-		if json.Unmarshal(e.Data, &d) == nil {
-			p.blocks = append(p.blocks, block{kind: blockInfo, text: planRevisedLine(d)})
-		}
-	case event.TypeDiagnostic:
-		// A worker's own side-pass (planner/curator) that produced an unusable reply. Silent
-		// retries are exactly what makes a pane look stalled when it is in fact re-asking.
-		var d event.DiagnosticData
-		if json.Unmarshal(e.Data, &d) == nil {
-			if line := diagnosticLine(d); line != "" {
-				p.blocks = append(p.blocks, block{kind: blockInfo, text: line})
-			}
-		}
-	case event.TypeConcernRaised:
-		// A worker's own termination gate raises concerns on the WORKER's session (they bubble to
-		// the parent only at the spawn boundary), and the pane has no detail modal to hide them in.
-		var d event.ConcernRaisedData
-		if json.Unmarshal(e.Data, &d) == nil {
-			if line := concernRaisedLine(d); line != "" {
-				p.blocks = append(p.blocks, block{kind: blockInfo, text: line})
-			}
-		}
-	case event.TypeConcernResolved:
-		var d event.ConcernResolvedData
-		if json.Unmarshal(e.Data, &d) == nil {
-			if line := concernResolvedLine(d); line != "" {
-				p.blocks = append(p.blocks, block{kind: blockInfo, text: line})
-			}
-		}
-	case event.TypeAgentStatus:
-		// The orchestrator posts a "killed — <why>" status onto the CHILD's own session when it
-		// ends the child early (lease expired, or cancel_dispatch). Render it as a visible line so
-		// the reason sits at the END of the child's detail view — not only in the parent log. Other
-		// AgentStatus states (done/lease-extended) are parent-side chrome, so only kills show here.
-		var d event.AgentStatusData
-		if json.Unmarshal(e.Data, &d) == nil && strings.HasPrefix(d.State, "killed") {
-			p.blocks = append(p.blocks, block{kind: blockInfo, text: "⚑ " + d.State})
-		}
-	case event.TypeTurnFinished, event.TypeError:
-		if !p.done {
-			p.done = true
-			p.doneAt = time.Now() // start THIS pane's own fade clock
-		}
-		fadeDbg("pane %s DONE via child %s", shortSID(p.sid), e.Type)
-		p.live = ""
-		p.liveThink = ""
-		if !p.started.IsZero() {
-			p.dur = time.Since(p.started)
-		}
-		if e.Type == event.TypeTurnFinished {
-			var fd event.TurnFinishedData
-			if json.Unmarshal(e.Data, &fd) == nil {
-				if fd.Usage.In > 0 {
-					p.in = fd.Usage.In
-				}
-				if fd.Usage.Out > 0 {
-					p.out = fd.Usage.Out
-				}
-			}
-		}
 	}
 }
 

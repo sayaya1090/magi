@@ -473,44 +473,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil // channel closed (cancelled/switched); stop reading
 
 	case eventMsg:
-		// Route to a subagent pane when the event belongs to a child session.
 		if msg.sid != m.sid {
-			p := m.paneBySub(msg.sub)
-			fadeDbg("child ev sid=%s sub=%d type=%s paneFound=%v", shortSID(msg.sid), msg.sub, msg.ev.Type, p != nil)
-			if p != nil {
-				m.applyPaneEvent(p, msg.ev)
-				m.dirty = true
-				cmds = append(cmds, waitEvent(p.ch, p.sid, p.sub))
-				// A pane's own child gets a pane too. openPane used to be reachable only from the
-				// PRIMARY session's subscription, so a subagent that delegated further left no trace:
-				// its pane fell silent for as long as the grandchild worked, and there was nothing to
-				// open to see why. Measured on a nested re-plan — the delegating session's last event
-				// was `council.decided plan done`, then 828 seconds of nothing while its worker ran 26
-				// tool calls one level down, and then the lease killed it.
-				//
-				// The events were already published (spawn/status go to the PARENT session, whichever
-				// that is); only this call site was missing. openPane is session-agnostic and refuses a
-				// duplicate, so it is safe on any depth.
-				if msg.ev.Type == event.TypeAgentSpawned {
-					if cmd := m.openPane(msg.ev); cmd != nil {
-						cmds = append(cmds, cmd)
-					}
-				}
-			}
-			// A subagent's permission/question request BLOCKS the child until answered, and the
-			// pane transcript can't collect a decision — surface it in the shared modal, tagged
-			// with the CHILD sid so respond() routes the reply back to the child's waiting call.
-			m.surfaceChildPrompt(msg.sid, msg.ev)
-			return m, tea.Batch(cmds...)
+			return m, nil // an event for a session this view is not showing
 		}
 		if msg.sub != m.mainSub {
 			return m, nil // event from a switched-away primary session
-		}
-		// A spawned subagent opens a live pane subscribed to its child session.
-		if msg.ev.Type == event.TypeAgentSpawned {
-			if cmd := m.openPane(msg.ev); cmd != nil {
-				cmds = append(cmds, cmd)
-			}
 		}
 		m.applyEvent(msg.ev)
 		// Coalesce repaints: mark dirty and let the render tick refresh, so a
@@ -604,10 +571,7 @@ func (m *Model) switchSession(sid session.SessionID) tea.Cmd {
 	m.cache = m.cache[:0]
 	m.liveText, m.liveThink, m.liveProgress, m.running, m.activeAgents = "", "", "", false, nil
 	// Subscribe from lastSeq so we stream only new events (transcript already shown).
-	// startSub calls closePanes (retiring the old session's panes), so restore the
-	// resumed session's subagent panes AFTER it — otherwise they're wiped immediately.
 	cmd := m.startSub(sid, lastSeq)
-	m.restoreChildPanes(sid) // bring this session's subagents back as inspectable panes
 	m.refresh()
 	return tea.Batch(cmd, m.snack("resumed "+string(sid)))
 }
