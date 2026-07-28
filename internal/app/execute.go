@@ -234,7 +234,17 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 			Command string `json:"command"`
 		}
 		if json.Unmarshal(tc.Args, &ba) == nil {
+			// One entry per DESTINATION, not per redirect. A command that writes the same path
+			// twice (`printf … > f && printf … >> f`, or a heredoc re-run in one line) produced two
+			// entries, and the self-revert check below appended its note once per entry — observed
+			// live: "this write left the file byte-for-byte as it already was" printed twice in a
+			// single tool result. The second copy says nothing the first did not.
+			seen := map[string]bool{}
 			for _, p := range bashWritePaths(ba.Command) {
+				if seen[p] {
+					continue
+				}
+				seen[p] = true
 				bashChanges = append(bashChanges, bashChange{p, readForChange(workdir, p)})
 			}
 		}

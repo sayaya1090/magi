@@ -150,3 +150,29 @@ func TestRepeatedBuildIsARepeatNotALook(t *testing.T) {
 		t.Errorf("but it IS a repeat and must be stated, got %v", got)
 	}
 }
+
+// `changed: <path>` names each path once — the right shape for "what exists now", the wrong one for
+// "how many times you rewrote it". Observed live on large-scale-text-editing: one file authored 14
+// times, the same 152 bytes on six of them. The per-call self-edit note said so twenty times, but it
+// lives in the tool result, which compaction takes away; this block is what survives.
+func TestRewritingOneFileIsCounted(t *testing.T) {
+	evs := []event.Event{
+		toolCallEv("1", "write", `{"path":"/app/apply_macros.vim","content":"a"}`),
+		toolCallEv("2", "write", `{"path":"/app/apply_macros.vim","content":"b"}`),
+		toolCallEv("3", "edit", `{"path":"/app/apply_macros.vim"}`),
+		toolCallEv("4", "write", `{"path":"/app/other.txt","content":"x"}`),
+	}
+	o := observeEvents(evs)
+	got := o.rewritten()
+	if len(got) != 1 || !strings.Contains(got[0], "apply_macros.vim") || !strings.HasSuffix(got[0], "×3") {
+		t.Fatalf("only the repeatedly-authored path is worth stating, got %v", got)
+	}
+	txt := o.render()
+	if !strings.Contains(txt, "authored more than once") {
+		t.Errorf("the rewrite count must reach the record:\n%s", txt)
+	}
+	// changed still names each path once — the two lines say different things.
+	if strings.Count(txt, "/app/apply_macros.vim") < 2 || !strings.Contains(txt, "/app/other.txt") {
+		t.Errorf("changed must still list every path once:\n%s", txt)
+	}
+}

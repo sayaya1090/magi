@@ -56,6 +56,13 @@ type observedRun struct {
 	// it is exactly what magi granted, and issuing the same one again is a fact either way.
 	reran      map[string]int
 	rerunOrder []string
+	// wrote counts write/edit/multiedit calls per path. `changed` names each path once, which is
+	// the right shape for "what exists now" and the wrong one for "how many times you rewrote it".
+	// Observed live on large-scale-text-editing: one file authored 14 times, the same 152 bytes six
+	// of those, and the record said only that the path had changed. The per-call self-edit note DID
+	// say so — twenty times — but it lives in the tool result, which compaction takes away, and
+	// this block is what survives.
+	wrote map[string]int
 }
 
 // noteRerun records one bash command, keyed by its own whitespace-normalized text.
@@ -189,10 +196,15 @@ func observeEvents(all []event.Event) observedRun {
 			case "write", "edit", "multiedit":
 				var args struct{ Path string }
 				if json.Unmarshal(tc.Args, &args) == nil && strings.TrimSpace(args.Path) != "" {
-					if p := strings.TrimSpace(args.Path); !seen[p] {
+					p := strings.TrimSpace(args.Path)
+					if !seen[p] {
 						seen[p] = true
 						out.changed = append(out.changed, p)
 					}
+					if out.wrote == nil {
+						out.wrote = map[string]int{}
+					}
+					out.wrote[p]++
 				}
 			case "bash":
 				var args struct{ Command string }
@@ -273,6 +285,19 @@ func (o observedRun) repeatedCommands() []string {
 	return out
 }
 
+// rewritten lists the paths authored more than once this run, busiest first, as "path ×N". How many
+// times a file was rewritten is a fact about the run that "changed: <path>" cannot carry.
+func (o observedRun) rewritten() []string {
+	var out []string
+	for _, p := range o.changed {
+		if n := o.wrote[p]; n > 1 {
+			out = append(out, fmt.Sprintf("%s ×%d", clipLine(p, 70), n))
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return countOf(out[i]) > countOf(out[j]) })
+	return out
+}
+
 // countOf reads back the ×N rendered above, for ordering. An unparseable tail sorts last.
 func countOf(s string) int {
 	i := strings.LastIndex(s, " ×")
@@ -306,6 +331,9 @@ func (o observedRun) render() string {
 	}
 	if again := o.repeatedCommands(); len(again) > 0 {
 		b.WriteString("\nissued more than once, exactly as written: " + strings.Join(clipEach(again, 6), " · "))
+	}
+	if again := o.rewritten(); len(again) > 0 {
+		b.WriteString("\nauthored more than once: " + strings.Join(clipEach(again, 6), " · "))
 	}
 	// Every command, with the exit magi actually learned. It used to sort them first — inspections
 	// dropped entirely, the rest split into "ran clean" and "ran and FAILED" — and that sorting was
