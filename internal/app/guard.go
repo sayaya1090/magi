@@ -76,26 +76,12 @@ type runGuard struct {
 	// powers the no-progress nudge: unlike `blocked` (which needs an EXACT repeat), it rises
 	// even when the agent varies its commands, catching a stall that changes nothing.
 	sinceProgress int
-	// execSinceMut counts bash commands that actually EXERCISE the deliverable (run a program
-	// or test — anything whose leading verb is not an inspect-only builtin; see isInspectOnly)
-	// SINCE the last real file mutation. Like a tester PASS, execution evidence is version-
-	// stamped: a mutation resets it to 0, so "did you run anything against the CURRENT
-	// deliverable" is answerable structurally. epoch>0 with execSinceMut==0 is the language-
-	// agnostic "produced/changed a deliverable then declared done without running it" signal
-	// (see unverifiedDeliverable) that replaced the English-only fabrication phrase scan.
-	execSinceMut int
 	// execRuns is a MONOTONIC count of exercising (non-inspect) bash commands this run — unlike
 	// execSinceMut it never resets. The incremental step-check recorder keys on it so a check that
 	// newly-passes through a RUNTIME action rather than a file write (a started server now listening,
 	// a just-installed package now importable) is recorded the moment its turn ends, instead of only
 	// at the terminal gate: those actions bump no mutation epoch, so an epoch-only trigger misses them.
 	execRuns int
-	// waitSinceMut counts bash commands that only WAITED or POLLED (isWaitCommand — a delay or an
-	// external-readiness probe, ANY exit code) SINCE the last real mutation. It powers stallIsWait:
-	// a no-progress window dominated by these is an agent blocked on the environment, not thrashing
-	// the task, so the stuck-recovery coder spawn is suppressed for it (a coder cannot speed an
-	// external wait). Like sinceProgress/execSinceMut it is version-scoped: a real mutation resets it.
-	waitSinceMut int
 	// prevSince/prevStallAt snapshot sinceProgress/lastStallAt just before mutated() zeroes them,
 	// so retractProgress can restore the climb when a later content check reveals that "mutation"
 	// was a self-revert (churn, not forward progress) — otherwise an implement↔revert oscillation
@@ -379,20 +365,6 @@ func (g *runGuard) check(name string, args json.RawMessage) (block bool, n int, 
 	fp = name + "\x00" + g.repeatEpoch(name, args) + "\x00" + guardArgs(name, args)
 	g.calls++
 	g.sinceProgress++ // reset only by a real mutation (mutated); rises across varied calls
-	// A background-job poll (bash_output) or an explicit block-until (wait_for) is waiting on
-	// the ENVIRONMENT, exactly like a sleep/poll bash idiom (noteBashWait): it advances no
-	// deliverable. Count it toward the wait ratio HERE — in check(), which runs for EVERY call
-	// before the block decision — rather than at the post-execute noteBashWait, because a poll
-	// spiral hard-blocks (n>repeatLimit) and a blocked call returns early, never reaching the
-	// post-execute path. Without counting the blocked polls, waitSinceMut froze at 2 while
-	// sinceProgress climbed to the "repeat" force-stop, so stallIsWait() read false and the
-	// decomposing recovery fired MID-BUILD — the compile-compcert regression that forced
-	// MAGI_STUCK_DECOMPOSE off. Bumping both counters per poll keeps the ratio balanced, so a
-	// pure poll window reads as a wait and suppresses the futile recovery, while a mixed window
-	// (real work between polls) correctly does not.
-	if isPollTool(name) {
-		g.waitSinceMut++
-	}
 	g.seen[fp]++
 	n = g.seen[fp]
 	if n > repeatLimit {
@@ -420,8 +392,6 @@ func (g *runGuard) mutated(path, sig string) (reset bool) {
 	g.prevStallAt = g.lastStallAt
 	g.sinceProgress = 0         // a real change is progress → restart the no-progress count
 	g.lastStallAt = 0           // …and the stall-nudge window, so a fresh stall re-arms cleanly
-	g.execSinceMut = 0          // a new deliverable version is unverified until something exercises IT
-	g.waitSinceMut = 0          // a real change is progress → the environment-wait ratio restarts too
 	g.progressSinceNudge = true // a real mutation IS forward motion → protects the re-arm from collapse
 	return true
 }
@@ -530,7 +500,6 @@ func (g *runGuard) noteBashWrite(cmd string) (authored, reset bool) {
 // for this same call) marks a first-seen exercise this epoch: only a NEW exercising command is
 // forward motion for the stalled-nudge convergence (re-running an already-run test on an
 // unchanged deliverable is not), so it sets progressSinceNudge; execSinceMut counts every
-// exercise as before (its unverifiedDeliverable semantics are unchanged).
 // noteInspectProgress credits a NOVEL read-only inspection (a first-seen read/grep/glob/
 // list — a DIFFERENT file or query) as forward motion for the stall window: gathering
 // new information is real progress, not the "restating the same conclusion" loop the
@@ -641,7 +610,6 @@ func (g *runGuard) noteBashExec(cmd string, novel bool) {
 		// (a new grep pattern, a new file). Counting it keeps the D18a collapse for
 		// true head-banging (only already-seen fingerprints after the nudge) while a
 		// genuine pivot keeps its full nudge budget. execSinceMut is deliberately NOT
-		// bumped — inspection remains non-exercise for unverifiedDeliverable.
 		if novel && stallNoveltyEnabled() {
 			g.mu.Lock()
 			g.progressSinceNudge = true
@@ -650,7 +618,6 @@ func (g *runGuard) noteBashExec(cmd string, novel bool) {
 		return
 	}
 	g.mu.Lock()
-	g.execSinceMut++
 	g.execRuns++ // monotonic: drives the incremental check recorder for runtime-satisfied checks
 	if novel {
 		g.progressSinceNudge = true // a first-seen exercising command is forward motion
@@ -764,34 +731,6 @@ func (g *runGuard) unexercisedArtifacts() []string {
 	return out
 }
 
-// noteBashWait records that a bash command only WAITED or POLLED (isWaitCommand) — a delay or an
-// external-readiness probe — since the last mutation. It is called for EVERY bash call regardless
-// of exit code: a poll to a not-yet-ready endpoint FAILS (a down host, a refused connection) and
-// that failing poll is exactly the wait we must count, so gating on success would miss the common
-// case. It bumps no epoch and resets no progress counter — waiting is not progress — so the stall
-// force-stop still eventually caps an endless wait; it only feeds stallIsWait's recovery-suppression.
-func (g *runGuard) noteBashWait(cmd string) {
-	if !isWaitCommand(cmd) {
-		return
-	}
-	g.mu.Lock()
-	g.waitSinceMut++
-	g.mu.Unlock()
-}
-
-// stallIsWait reports whether the current no-progress window is dominated by waiting/polling — at
-// least half of the sinceProgress calls since the last mutation were wait commands. It gates the
-// stuck-recovery coder spawn (loop.go): a coder cannot speed an external wait, so a wait-dominated
-// stall must NOT trigger the redecompose cascade, which with no delegatable executor spawns coder→coder and
-// whose child timeout gets misreported as the whole run's context-deadline. Suppressing recovery
-// still lets the honest stall stop land (delivered→clean finish, or stall_guard), so an unbounded
-// wait remains capped — this removes only the futile, harmful recovery, not the backstop.
-func (g *runGuard) stallIsWait() bool {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.sinceProgress > 0 && g.waitSinceMut*2 >= g.sinceProgress
-}
-
 // noteSpin updates the consecutive completion-banner counter for one executed tool call. A
 // bash call whose command is a pure no-op banner (isNoOpBanner) increments bannerSpin; ANY
 // other tool call — a non-banner bash, a write/edit, a read, todowrite, … — is a real action
@@ -805,19 +744,6 @@ func (g *runGuard) noteSpin(name, cmd string) {
 		g.bannerSpin = 0
 	}
 	g.mu.Unlock()
-}
-
-// unverifiedDeliverable reports the structural, language-agnostic fabrication signal that
-// replaced the English-only phrase scan: the agent produced or changed a deliverable this
-// turn (epoch>0) yet has run NO command exercising the CURRENT version (execSinceMut==0).
-// That is exactly "wrote/edited a result, then declared done without ever running it" —
-// whether the artifact confesses in prose (any language) or not. It is ADVISORY: a task
-// with genuinely nothing to run (write one config file) also matches, so callers feed it to
-// the council and a one-shot nudge, never a hard block.
-func (g *runGuard) unverifiedDeliverable() bool {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.epoch > 0 && g.execSinceMut == 0
 }
 
 // callCount returns the total tool calls recorded this run.
@@ -844,16 +770,6 @@ func (g *runGuard) mutationEpoch() int {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.epoch
-}
-
-// execActivity returns the monotonic count of exercising (non-inspect) bash commands this run.
-// The incremental step-check recorder fires when this OR the mutation epoch advances, so a check
-// satisfied by a runtime action (a started server, an installed package) that bumps no mutation
-// epoch is still recorded at its own turn boundary rather than deferred to the terminal gate.
-func (g *runGuard) execActivity() int {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.execRuns
 }
 
 // shouldNudge reports whether the run has stalled enough to warrant a corrective

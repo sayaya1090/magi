@@ -16,7 +16,7 @@ import (
 
 // rawTruthy reads a boolean tool argument straight off the wire, tolerating the shapes weak
 // models actually send for one (`true`, `"true"`, `1`) instead of failing the whole decode on
-// a quoted bool — the same tolerance flexBool gives the tool itself (see [[tool-arg-tolerance]]).
+// a quoted bool — the same tolerance FlexBool gives the tool itself (see [[tool-arg-tolerance]]).
 // Absent or unrecognized is false.
 func rawTruthy(raw json.RawMessage) bool {
 	s := strings.Trim(strings.TrimSpace(string(raw)), `"`)

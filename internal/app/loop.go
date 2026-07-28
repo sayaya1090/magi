@@ -86,8 +86,6 @@ type turnState struct {
 	prevFinishCalls  int    // guard.callCount() at that rejection (-1 = none yet)
 	unverifiedReason string // non-empty when the turn finishes WITHOUT council approval
 	stepNudged       bool   // deliverable-check failure nudge injected at most once (MAGI_STEP_VERIFY)
-	lastCheckEpoch   int    // mutation epoch at the last incremental step-check pass (skip read-only turns)
-	lastCheckExec    int    // guard.execActivity() at that pass — also fire on a runtime action (server up, pkg installed)
 	lastChecksVer    int    // checksVersion() at that pass — also fire when a re-plan derives new checks mid-run
 	substRounds      int    // substitution-review correction rounds spent this turn (solo path)
 	// substCritique carries the LAST substitution-review rejection into the next review round. The
@@ -359,25 +357,6 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					return lastText, ctx.Err()
 				}
 				a.executeTool(ctx, s, agent, depth, agentActor, tc, guard)
-			}
-		}
-
-		// Incremental per-step check recording: the main agent (depth 0) does a mixed plan's SOLO
-		// steps in its own turns — executeSteps skipped them, so completeThrough never fired for
-		// them. Record any newly-passing step's checks here so the panel fills as the agent works,
-		// instead of the terminal gate recording them all at once. Gated on the mutation epoch having
-		// advanced since the last pass: a check can only newly-pass if this turn changed state, so a
-		// read-only turn runs nothing. Recording only — the termination gate still owns finish/nudge.
-		if depth == 0 {
-			// Fire on a mutation OR an exercising run OR a change to the check SET itself: a check can
-			// newly-pass not only when a file changed but when a RUNTIME action took effect (a server
-			// now listening, a package now importable — those bump execActivity, not the mutation
-			// epoch), and a mid-run re-plan can DERIVE a new check for work already done (that bumps
-			// neither, only checksVer). An epoch-only trigger deferred all three to the terminal gate —
-			// the "checklist items don't tick off as I work" batch.
-			ep, ex := guard.mutationEpoch(), guard.execActivity()
-			if ep != ts.lastCheckEpoch || ex != ts.lastCheckExec {
-				ts.lastCheckEpoch, ts.lastCheckExec = ep, ex
 			}
 		}
 

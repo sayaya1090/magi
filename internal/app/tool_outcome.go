@@ -170,11 +170,6 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 				spinCmd = ba.Command
 			}
 		}
-		// Environment-wait signal: count a bash call that only waits/polls (any exit code — a
-		// poll to a not-yet-ready endpoint FAILS while it waits) so stallIsWait can suppress the
-		// futile stuck-recovery coder spawn on a stall that is really an external wait. Runs here
-		// (not the success-only block above) precisely because failing polls must be counted.
-		guard.noteBashWait(spinCmd)
 		guard.noteSpin(tc.Name, spinCmd)
 	}
 	// Record the agent's before→after change for the council. Gate on the tool's own success

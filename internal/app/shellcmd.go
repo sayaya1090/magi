@@ -5,8 +5,7 @@ import "strings"
 // Shell-command classification helpers for the run guard: a heuristic (quoting-agnostic)
 // tokenizer that decides whether a bash command only INSPECTS state or actually EXECUTES /
 // writes something, plus heredoc and redirect parsing. Pure functions over the command
-// string, split out of guard.go; they feed the advisory unverifiedDeliverable signal and
-// hold no runGuard state. Behavior unchanged.
+// string, split out of guard.go; they hold no runGuard state.
 
 // inspectOnlyCmds are shell builtins/coreutils whose job is to PRINT or INSPECT state,
 // never to run a program-under-test. A bash command built only from these cannot verify a
@@ -61,8 +60,8 @@ func sedInPlace(args []string) bool {
 // keeps a binary that happens to be named `test`/`sleep` from reading as the builtin.
 // Otherwise the bare name is looked up in inspectOnlyCmds, and a verb that some flag turns into a
 // writer (`sed -i`) is execution despite the name. This is a heuristic tokenizer that
-// does not honor quoting, which is fine: it only feeds the advisory unverifiedDeliverable
-// signal. An empty command counts as inspect-only (it ran nothing).
+// does not honor quoting, which is fine: nothing it feeds asserts anything to the model.
+// An empty command counts as inspect-only (it ran nothing).
 func isInspectOnly(cmd string) bool {
 	segs := splitShellSegments(stripHeredocs(cmd))
 	if len(segs) == 0 {
@@ -88,70 +87,6 @@ func isInspectOnly(cmd string) bool {
 		}
 	}
 	return true
-}
-
-// waitVerbs are commands whose whole job is to BLOCK on time or PROBE an external endpoint's
-// readiness — a delay or a connectivity poll, never work that advances a deliverable. A "stall"
-// built from these is an agent waiting on the ENVIRONMENT (a rebooting VM, a service coming up),
-// not thrashing on the task; handing that to a fresh recovery coder cannot speed an external wait
-// (see stallIsWait and the loop.go stuck-recovery gate). The set is deliberately small and CLOSED
-// — unambiguous wait/probe verbs — so anything that also does real work (curl fetching a body,
-// `timeout` wrapping a test) is NOT counted here and still reads as execution.
-var waitVerbs = map[string]bool{
-	"sleep": true, "ping": true, "ping6": true, "wait": true,
-	"nc": true, "ncat": true, "netcat": true, "telnet": true,
-}
-
-// loopKeywords are the shell loop/conditional words (and the `!` negation) a poll idiom wraps its
-// real verb in (`until nc -z host port; do sleep 5; done`, `while ! nc -z db 5432; do sleep; done`).
-// isWaitCommand skips a leading run of them so the poll body classifies by its real command
-// (nc/sleep) rather than by the `until`/`while`/`!` prefix.
-var loopKeywords = map[string]bool{
-	"until": true, "while": true, "do": true, "done": true, "if": true,
-	"then": true, "else": true, "elif": true, "fi": true, "for": true, "in": true, "!": true,
-}
-
-// isPollTool reports whether a tool call (by name) is an environment wait rather than work on a
-// deliverable: bash_output polls a background job's new output, wait_for blocks until a condition
-// holds. Both are the tool-level equivalent of a sleep/poll bash idiom (isWaitCommand) — the guard
-// counts them toward the environment-wait ratio so a poll spiral (background build + repeated
-// bash_output) reads as a wait and does not trigger the futile stuck-recovery spawn. bash_input
-// (sends stdin) is deliberately excluded — it drives a program, it does not merely wait.
-func isPollTool(name string) bool {
-	return name == "bash_output" || name == "wait_for"
-}
-
-// isWaitCommand reports whether cmd does nothing but wait/poll: every segment (after skipping
-// leading loop/conditional keywords and redirect fragments) is either a wait verb (waitVerbs)
-// or an inspect-only builtin, AND at least one segment is a genuine wait verb. A path-qualified
-// first token runs a program and disqualifies the whole command (same rule as isInspectOnly).
-// Mirrors the isInspectOnly tokenizer — heuristic, quoting-agnostic, advisory. An empty command
-// is not a wait (it waited on nothing).
-func isWaitCommand(cmd string) bool {
-	sawWait := false
-	for _, s := range splitShellSegments(stripHeredocs(cmd)) {
-		fields := strings.Fields(s)
-		i := 0
-		for i < len(fields) && (loopKeywords[fields[i]] || isRedirectFragment(fields[i])) {
-			i++ // skip loop keywords and split redirect artifacts to reach the real verb
-		}
-		if i >= len(fields) {
-			continue // keyword-only segment (e.g. a trailing `done`) — neutral
-		}
-		tok := fields[i]
-		if strings.ContainsRune(tok, '/') {
-			return false // a path-qualified command runs a program — not a pure wait
-		}
-		switch {
-		case waitVerbs[tok]:
-			sawWait = true
-		case inspectOnlyCmds[tok]:
-			// neutral: a poll condition/banner (test, [, echo) is allowed but is not itself a wait
-		default:
-			return false // a real command (pytest, make, ./run, …) → not a pure wait
-		}
-	}
-	return sawWait
 }
 
 // isNoOpBanner reports whether cmd is a pure "completion banner": a command that only prints
