@@ -27,12 +27,18 @@ func TestAnnotatorPrecedenceThroughTheTool(t *testing.T) {
 	}
 	for _, tc := range []struct{ name, cmd, want string }{
 		{"masking tail", `false || true`, "|| "},
-		{"swallowing pipe", `echo hi | tail -1`, "tail"},
+		{"swallowing pipe", `sh -c 'exit 3' | tail -1`, "tail"},
 		{"sequenced tail", `echo hi; echo "exit=$?"`, ";"},
 	} {
 		if out := run(tc.cmd); !strings.Contains(out, "[note:") {
 			t.Errorf("%s: expected an annotation for %q, got:\n%s", tc.name, tc.cmd, out)
 		}
+	}
+	// …but a pipeline whose stages are ALL known clean gets no "status not reported here" note:
+	// PIPESTATUS answered that question, and the answer is zero. Saying otherwise sends the agent
+	// to re-run the command without the pipe to learn what it was already told.
+	if out := run(`echo hi | tail -1`); strings.Contains(out, "not reported here") {
+		t.Errorf("a clean pipeline's head status IS known and must not be called unknown:\n%s", out)
 	}
 	// Precedence: a body that carries a crash outranks the shape of the command, and only ONE
 	// note is attached — stacking would bury the sharpest under the vaguest.

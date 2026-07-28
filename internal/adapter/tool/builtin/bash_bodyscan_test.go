@@ -131,7 +131,7 @@ func TestSwallowingPipeNote(t *testing.T) {
 		{"non-zero exit", 2, "make world 2>&1 | tail -100", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			note := swallowingPipeNote(tc.exit, tc.cmd)
+			note := swallowingPipeNote(tc.exit, tc.cmd, false)
 			if (note != "") != tc.want {
 				t.Errorf("swallowingPipeNote(%d, %q) fired=%v, want %v", tc.exit, tc.cmd, note != "", tc.want)
 			}
@@ -310,5 +310,19 @@ func TestEphemeralEnvNote(t *testing.T) {
 	}
 	if n := ephemeralEnvNote(0, `source venv/bin/activate && pytest`, session.SessionID("eph-src")); !strings.Contains(n, "fresh shell") {
 		t.Errorf("source must be noted, got %q", n)
+	}
+}
+
+// PIPESTATUS answers the very question this note asks. With every stage known clean the head's own
+// status IS reported — it is zero — and repeating "not reported here" sends the agent to re-run the
+// command without the pipe to learn what it was already told. Observed live: four of five bash calls
+// in one stretch carried the note while magi held all their stages.
+func TestSwallowingPipeNoteQuietWhenStagesAreKnownClean(t *testing.T) {
+	const cmd = `grep -n sweep memory.c | head -30`
+	if swallowingPipeNote(0, cmd, false) == "" {
+		t.Fatal("without stage information the note must still fire")
+	}
+	if got := swallowingPipeNote(0, cmd, true); got != "" {
+		t.Errorf("with every stage known clean the note says nothing true: %q", got)
 	}
 }
