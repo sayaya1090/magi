@@ -132,15 +132,27 @@ func bgProgram(command string) string {
 var maskingTail = regexp.MustCompile(`\|\|\s*(?:true|:|exit\s+0|echo\b[^|&;` + "`" + `]*)\s*$`)
 
 // maskingTailNote flags an exit-0 result whose command text ends in a pure masking
-// idiom: the reported exit says nothing about the primary command — with or without
+// idiom: the reported exit MAY say nothing about the primary command — with or without
 // crash text in the output (`false || true` fails with clean output and exit 0). It is
 // the deterministic complement to maskedFailureNote's output scan, and never fires on a
 // non-zero exit (the mask evidently didn't engage, or didn't matter).
-func maskingTailNote(exit int, command string) string {
-	if exit != 0 || !maskingTail.MatchString(strings.TrimSpace(command)) {
+//
+// It states the ambiguity rather than resolving it, because a `||` tail runs ONLY when the command
+// before it failed: a zero can mean the command succeeded and the tail never ran, or that it failed
+// and the tail succeeded. It used to assert the second. Observed live:
+// `ls boot/ocamlrun 2>&1 || echo "boot/ocamlrun not found"` returned exit 0 with `boot/ocamlrun` in
+// the body and no trace of the echo — ls had succeeded — and the agent, checking whether the
+// bootstrap compiler it needed was still there, was told that answer could not be trusted.
+//
+// allStagesClean is the one case magi CAN resolve: with every pipeline stage known to be 0 the
+// command before the tail succeeded, so there is nothing to warn about.
+func maskingTailNote(exit int, command string, allStagesClean bool) string {
+	if exit != 0 || allStagesClean || !maskingTail.MatchString(strings.TrimSpace(command)) {
 		return ""
 	}
-	return "[note: this exit 0 is the `|| …` tail's, not the command before it — that command's own status is not reported here.]"
+	return "[note: a `|| …` tail runs only when the command before it FAILS, so this exit 0 is " +
+		"either that command's (it succeeded and the tail never ran) or the tail's. magi cannot tell " +
+		"which from the status alone — read the output to see which one produced it.]"
 }
 
 // swallowingPipe matches a command whose FINAL stage is a pure output truncator —
@@ -447,7 +459,9 @@ var statusAnnotators = []statusAnnotator{
 	},
 	// No crash text, but the COMMAND ends in a pure masking idiom — the exit 0 is structurally
 	// uninformative even when the output looks clean (`false || true` fails silently).
-	func(exit int, cmd, _ string, _ session.SessionID, _ bool) string { return maskingTailNote(exit, cmd) },
+	func(exit int, cmd, _ string, _ session.SessionID, clean bool) string {
+		return maskingTailNote(exit, cmd, clean)
+	},
 	// It ends in `| tail`/`| head`: the exit belongs to the truncator, not to the work.
 	func(exit int, cmd, _ string, _ session.SessionID, clean bool) string {
 		return swallowingPipeNote(exit, cmd, clean)

@@ -94,7 +94,7 @@ func TestMaskingTailNote(t *testing.T) {
 		{"non-zero exit", 3, "python3 test.py || true", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := maskingTailNote(tc.exit, tc.cmd) != ""
+			got := maskingTailNote(tc.exit, tc.cmd, false) != ""
 			if got != tc.want {
 				t.Errorf("maskingTailNote(%d, %q) fired=%v, want %v", tc.exit, tc.cmd, got, tc.want)
 			}
@@ -260,11 +260,12 @@ func TestBashExecuteAnnotatesMaskedFailure(t *testing.T) {
 		t.Errorf("note must sit right after the status line, got %q", out[:min(len(out), 120)])
 	}
 
-	// A silent masked failure (no crash text at all) still gets the structural
-	// masking-tail note — the command string alone proves the exit is uninformative.
+	// A silent masked failure (no crash text at all) still gets the structural masking-tail note —
+	// the command string alone proves the exit MIGHT not be the primary command's. It states that
+	// ambiguity rather than resolving it: a `||` tail runs only when the command before it fails.
 	r, _ = Bash{}.Execute(context.Background(), json.RawMessage(`{"command":"false || true"}`), env)
 	out = resultText(t, r)
-	if r.IsError || !strings.Contains(out, "this exit 0 is the `|| …` tail's") {
+	if r.IsError || !strings.Contains(out, "a `|| …` tail runs only when the command before it FAILS") {
 		t.Errorf("silent `|| true` mask must be annotated, got IsError=%v %q", r.IsError, out)
 	}
 
@@ -324,5 +325,32 @@ func TestSwallowingPipeNoteQuietWhenStagesAreKnownClean(t *testing.T) {
 	}
 	if got := swallowingPipeNote(0, cmd, true); got != "" {
 		t.Errorf("with every stage known clean the note says nothing true: %q", got)
+	}
+}
+
+// A `||` tail runs ONLY when the command before it fails, so an exit 0 is ambiguous: the command
+// succeeded and the tail never ran, or it failed and the tail did. The note used to assert the
+// second. Observed live: `ls boot/ocamlrun 2>&1 || echo "boot/ocamlrun not found"` returned exit 0
+// with `boot/ocamlrun` in the body and no trace of the echo — ls had succeeded — and the agent,
+// checking whether the bootstrap compiler it needed was still there, was told the answer could not
+// be trusted.
+func TestMaskingTailNoteStatesTheAmbiguity(t *testing.T) {
+	const cmd = `ls boot/ocamlrun 2>&1 || echo "not found"`
+	note := maskingTailNote(0, cmd, false)
+	if note == "" {
+		t.Fatal("a masking tail on exit 0 must still be flagged")
+	}
+	for _, want := range []string{"either", "cannot tell"} {
+		if !strings.Contains(note, want) {
+			t.Errorf("the note must state the ambiguity, not resolve it (%q): %s", want, note)
+		}
+	}
+	if strings.Contains(note, "is the `|| …` tail's, not the command before it") {
+		t.Errorf("the note must not assert which one produced the exit: %s", note)
+	}
+	// The one case magi CAN resolve: every pipeline stage known clean means the command before the
+	// tail succeeded, so there is nothing to warn about.
+	if got := maskingTailNote(0, `make world | tail -5 || true`, true); got != "" {
+		t.Errorf("with every stage known clean the tail cannot have run: %q", got)
 	}
 }
