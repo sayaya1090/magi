@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -368,8 +369,12 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 	go func() {
 		defer a.wg.Done()
 		defer cancel()
+		// lastErr is how the most recent turn ENDED, which is what decides whether the teardown
+		// below owes a terminal event. A cancelled context is not that answer: see the emit.
+		var lastErr error
 		for {
 			err := a.run(runCtx, sid)
+			lastErr = err
 			a.observeTurnFinished(runCtx, sid)
 			// Do NOT re-run or triage after a terminal error (e.g. a provider 429/5xx) or a
 			// cancel: the prompt is still "unanswered", and re-running would hammer a failing
@@ -517,10 +522,18 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 			}
 			break
 		}
-		// On interruption the loop returns without a terminal event; emit one (on a
-		// detached context, since runCtx is cancelled) so observers like the TUI
-		// stop showing "working" instead of hanging forever.
-		if runCtx.Err() != nil {
+		// On interruption the loop returns without a terminal event; emit one (on a detached
+		// context, since runCtx is cancelled) so observers like the TUI stop showing "working"
+		// instead of hanging forever.
+		//
+		// The condition is how the RUN ended, not whether the context is alive. It used to ask
+		// runCtx.Err(), and a context cancelled after a normal finish — which is what a headless
+		// one-shot does on its way out — made this fire on top of the terminal event the loop had
+		// just written. Measured: every recorded session carries two turn.finished, the second with
+		// `{"in":0,"out":0}`, so anything reading the LAST one (the fork boundary, the meter) reads
+		// a turn that spent nothing. A run that ended any other way already ended it: a clean finish
+		// writes turn.finished itself, and a provider error writes an error event.
+		if errors.Is(lastErr, context.Canceled) || errors.Is(lastErr, context.DeadlineExceeded) {
 			// Mark the cancelled turn's seed prompt abandoned so an unrelated next request
 			// isn't anchored onto it (and a follow-up that augments it still seeds on itself).
 			a.abandonSeedOnCancel(context.WithoutCancel(runCtx), sid)
