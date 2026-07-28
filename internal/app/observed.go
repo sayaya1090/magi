@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -33,8 +34,8 @@ import (
 type observedCmd struct {
 	cmd     string
 	exit    int
-	unclear bool // the reported exit belongs to a pipe/`;` tail, not to this command
-	exec    bool // it ran something (not only inspection verbs)
+	unclear bool  // the reported exit belongs to a pipe/`;` tail, not to this command
+	stages  []int // per-stage statuses when the pipeline reported them, left to right
 }
 
 // observedRun is the record over a session.
@@ -227,16 +228,20 @@ func observeEvents(all []event.Event) observedRun {
 				// unknown" — magi could see the shape and not the outcome. bash reports every stage
 				// now, and when the note says the head of the pipe failed, that is not a shrug: the
 				// record says FAILED.
-				hiddenFail := strings.Contains(res, "the work at the head of the pipe FAILED")
+				// The per-stage statuses, when the result carried them. They used to be read out of
+				// the note's prose as one bit — "did the head fail" — and turned into a synthetic
+				// exit 1. That bit was a reading, and it broke silently the moment the note stopped
+				// making it. The numbers are the fact; the record carries them and adds nothing.
+				stages := stagesOfBashResult(res)
 				out.cmds = append(out.cmds, observedCmd{
-					cmd:  args.Command,
-					exit: exitOrFailed(exit, hiddenFail),
+					cmd:    args.Command,
+					exit:   exit,
+					stages: stages,
 					// Unclear covers both shapes of "magi did not learn this command's status": a
 					// tail that owns the reported exit, and a result carrying no exit at all (a
 					// background start, a kill). Neither is a failure and neither is a success —
 					// unless the stages told us, in which case it is no longer unknown.
-					unclear: (!known || builtin.ExitCodeMasked(args.Command)) && !hiddenFail,
-					exec:    !isInspectOnly(args.Command),
+					unclear: (!known || builtin.ExitCodeMasked(args.Command)) && len(stages) == 0,
 				})
 			}
 		}
@@ -356,7 +361,16 @@ func (o observedRun) render() string {
 	at := map[string]int{}
 	for _, c := range o.cmds {
 		line := clipLine(c.cmd, 70)
-		if !c.unclear && c.exit != 0 {
+		switch {
+		case len(c.stages) > 1:
+			// The pipeline's own statuses, which the reported exit cannot show. Stated, not read:
+			// which of them matters is the reader's call.
+			parts := make([]string, len(c.stages))
+			for i, st := range c.stages {
+				parts[i] = strconv.Itoa(st)
+			}
+			line += " → stages " + strings.Join(parts, " ")
+		case !c.unclear && c.exit != 0:
 			line += fmt.Sprintf(" → exit %d", c.exit)
 		}
 		key := strings.Join(strings.Fields(c.cmd), " ")
@@ -404,13 +418,27 @@ func decodeResultText(res string) string {
 	return res
 }
 
-// exitOrFailed is the status the record keeps for a pipeline whose reported exit hid a failed
-// stage: the reported 0 says nothing, and keeping it would put a dead build in the "ran clean"
-// column. The stage's own code is not carried — what matters to a reader is that it failed, and
-// inventing a number to stand for "some stage, some code" would be a claim magi cannot support.
-func exitOrFailed(exit int, hiddenFail bool) int {
-	if hiddenFail && exit == 0 {
-		return 1
+// stagesOfBashResult pulls the per-stage statuses out of a bash result's stage note. The note
+// states them as "Its stages exited 2 → 0 (left to right)"; nothing else in a result looks like that,
+// and a result without the note yields nothing.
+//
+// It replaced a scan for the sentence "the work at the head of the pipe FAILED" — a verdict the
+// note no longer makes. Reading prose for a bit is how that broke without a test noticing; reading
+// it for numbers at least fails loudly, and the numbers are what the record wanted.
+func stagesOfBashResult(res string) []int {
+	m := stagesNoteRe.FindStringSubmatch(res)
+	if m == nil {
+		return nil
 	}
-	return exit
+	var out []int
+	for _, f := range strings.Split(m[1], "→") {
+		n, err := strconv.Atoi(strings.TrimSpace(f))
+		if err != nil {
+			return nil // a shape magi does not recognize is one it must not report numbers from
+		}
+		out = append(out, n)
+	}
+	return out
 }
+
+var stagesNoteRe = regexp.MustCompile(`Its stages exited ([0-9\s\x{2192}]+) \(left to right\)`)

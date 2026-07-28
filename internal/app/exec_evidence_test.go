@@ -56,32 +56,30 @@ func TestExerciseLedgerWholeTokenMatch(t *testing.T) {
 	}
 }
 
-// execActivity is the monotonic exercising-command count the incremental check recorder fires on,
-// so a check satisfied by a RUNTIME action (a started server, an installed package) that bumps no
-// mutation epoch is still recorded at its turn boundary instead of batched at the terminal gate. It
-// must rise on a real run, ignore inspect-only commands, and — unlike execSinceMut — NOT reset on a
-// mutation.
-func TestExecActivityMonotonic(t *testing.T) {
+// execRuns is the monotonic count of exercising commands. Its one reader is the swing note, which
+// says whether anything RAN between two writes of a file — so it must rise on a real run, ignore
+// inspect-only commands, and never reset, including on a mutation.
+func TestExecRunsMonotonic(t *testing.T) {
 	g := newRunGuard()
-	if g.execActivity() != 0 {
-		t.Fatalf("starts at 0, got %d", g.execActivity())
+	if g.execRuns != 0 {
+		t.Fatalf("starts at 0, got %d", g.execRuns)
 	}
 	g.noteBashExec("cat run.py", false) // inspect-only → no bump
-	if g.execActivity() != 0 {
-		t.Errorf("inspect-only must not count, got %d", g.execActivity())
+	if g.execRuns != 0 {
+		t.Errorf("inspect-only must not count, got %d", g.execRuns)
 	}
 	g.noteBashExec("python server.py", true) // a running program (server up)
 	g.noteBashExec("pip install grpcio", false)
-	if g.execActivity() != 2 {
-		t.Errorf("two exercising runs → 2, got %d", g.execActivity())
+	if g.execRuns != 2 {
+		t.Errorf("two exercising runs → 2, got %d", g.execRuns)
 	}
-	g.mutated("x.py", "sig") // resets execSinceMut but NOT execActivity
-	if g.execActivity() != 2 {
-		t.Errorf("a mutation must not reset execActivity, got %d", g.execActivity())
+	g.mutated("x.py", "sig") // resets the progress counters but never this one
+	if g.execRuns != 2 {
+		t.Errorf("a mutation must not reset execRuns, got %d", g.execRuns)
 	}
 	g.noteBashExec("./run", true)
-	if g.execActivity() != 3 {
-		t.Errorf("continues after mutation → 3, got %d", g.execActivity())
+	if g.execRuns != 3 {
+		t.Errorf("continues after mutation → 3, got %d", g.execRuns)
 	}
 }
 

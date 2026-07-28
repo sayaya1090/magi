@@ -155,9 +155,13 @@ func jsonOf(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
 
 // A pipeline's exit belongs to its last stage, so `make … | tail` used to be filed as a status magi
 // could not determine — and 59% of recorded bash calls are pipelines, so most of what it could not
-// determine was this. The shell now reports every stage, and when the note says the head of the
-// pipe failed, the record must say FAILED rather than shrug.
-func TestAPipelineWhoseHeadFailedIsRecordedAsFailed(t *testing.T) {
+// determine was this. The shell reports every stage now, and the record carries those numbers.
+//
+// It used to carry a reading of them instead: scan the note for "the work at the head of the pipe
+// FAILED" and file a synthetic exit 1. The note stopped making that claim and the scan went quiet —
+// the record simply stopped saying anything, and no test noticed. Numbers do not have that failure
+// mode, and which of them matters is the reader's call anyway.
+func TestAPipelineCarriesItsStageStatuses(t *testing.T) {
 	app := newShellApp(t, &shellPlatform{})
 	ctx := context.Background()
 	sid, err := app.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir()})
@@ -174,16 +178,15 @@ func TestAPipelineWhoseHeadFailedIsRecordedAsFailed(t *testing.T) {
 	}
 	// The shape the tool produces: the pipeline's own exit 0, with the stage note beside it.
 	add(bashPair("c1", "make world opt 2>&1 | tee build.log | tail -50",
-		"exit 0\n[note: this exit 0 is the LAST stage's. The pipeline's stages exited 2 → 0 → 0 "+
-			"(left to right), so the work at the head of the pipe FAILED even though the pipeline "+
-			"reported success.]\nbuilding…"))
+		"exit 0\n[note: the status above is the pipeline's LAST stage. Its stages exited 2 → 0 → 0 "+
+			"(left to right).]\nbuilding…"))
 	// A pipeline magi has no stage report for stays unknown — silence is not a verdict.
 	add(bashPair("c2", "go build ./... | tail -5", "exit 0\n"))
 
 	r := app.observe(ctx, sid).render()
-	// The stage report makes the failure readable, so the real status is stated.
-	if !strings.Contains(r, "make world opt 2>&1 | tee build.log | tail -50 → exit 1") {
-		t.Errorf("a pipeline whose head failed must carry a failing exit:\n%s", r)
+	// The stage report is what the reported exit cannot show, so the record states it.
+	if !strings.Contains(r, "make world opt 2>&1 | tee build.log | tail -50 → stages 2 0 0") {
+		t.Errorf("a pipeline's stage statuses must reach the record:\n%s", r)
 	}
 	// Without a stage report magi never learned the status, so it claims none — silence, not zero.
 	if !strings.Contains(r, "go build ./... | tail -5") || strings.Contains(r, "go build ./... | tail -5 → exit") {

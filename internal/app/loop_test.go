@@ -201,69 +201,6 @@ func TestLoopToolThenFinish(t *testing.T) {
 	}
 }
 
-// unverifiedDeliverable is the structural, language-agnostic replacement for the fabrication
-// phrase scan: producing/changing a deliverable (epoch>0) with no command exercising the
-// CURRENT version (execSinceMut==0) is "declared done without running it", regardless of the
-// prose (or its language). These cases pin the epoch/exec interplay the signal relies on.
-func TestUnverifiedDeliverable(t *testing.T) {
-	t.Run("no deliverable is not flagged", func(t *testing.T) {
-		g := newRunGuard()
-		if g.unverifiedDeliverable() {
-			t.Fatal("a turn that changed nothing has no unverified deliverable")
-		}
-	})
-	t.Run("wrote then only inspected is flagged", func(t *testing.T) {
-		g := newRunGuard()
-		g.noteBashWrite("cat > sol.py <<'EOF'\nprint(1)\nEOF") // deliverable via bash → epoch>0
-		g.noteBashExec("ls -la sol.py && echo done", true)     // inspect-only → not execution
-		g.noteBashExec("exit 0", true)
-		if !g.unverifiedDeliverable() {
-			t.Fatal("wrote a deliverable then only ran inspect/echo churn — must be flagged")
-		}
-	})
-	t.Run("running the deliverable clears the flag", func(t *testing.T) {
-		g := newRunGuard()
-		g.mutated("sol.py", "v1") // an edit produced the deliverable
-		g.noteBashExec("python sol.py", true)
-		if g.unverifiedDeliverable() {
-			t.Fatal("a real execution of the current version is verification — must not be flagged")
-		}
-	})
-	t.Run("running with a redirect still counts as execution", func(t *testing.T) {
-		g := newRunGuard()
-		g.mutated("sol.py", "v1")
-		// `pytest 2>&1` is a run that redirects stderr — NOT a deliverable write, so it must
-		// count as execution and clear the flag, not re-mark the deliverable as unverified.
-		if authored, _ := g.noteBashWrite("pytest 2>&1"); authored {
-			t.Fatal("2>&1 is fd-duplication, not a file write")
-		}
-		g.noteBashExec("pytest 2>&1", true)
-		if g.unverifiedDeliverable() {
-			t.Fatal("running the tests (even with 2>&1) is verification — must not be flagged")
-		}
-	})
-	t.Run("a later edit makes prior execution stale", func(t *testing.T) {
-		g := newRunGuard()
-		g.mutated("sol.py", "v1")
-		g.noteBashExec("pytest", true) // verified v1
-		g.mutated("sol.py", "v2")      // …then changed it: v2 is unverified
-		if !g.unverifiedDeliverable() {
-			t.Fatal("execution evidence is version-stamped; a new mutation must re-flag")
-		}
-	})
-	t.Run("a bash write is production, not verification", func(t *testing.T) {
-		g := newRunGuard()
-		g.mutated("sol.py", "v1")
-		if authored, _ := g.noteBashWrite("echo data > out.txt"); !authored { // authors a file → epoch bump
-			t.Fatal("echo … > out.txt authors a file")
-		}
-		g.noteBashExec("echo data > out.txt", true) // echo is inspect-only → must NOT count as execution
-		if !g.unverifiedDeliverable() {
-			t.Fatal("writing another file is not exercising the deliverable — still unverified")
-		}
-	})
-}
-
 // isInspectOnly classifies a bash command as pure inspection (no program-under-test run) so
 // the exec counter ignores the ls/echo/exit churn a fabricating agent emits, while counting
 // any real runner. The bias is toward execution: an unlisted verb is NOT inspect-only, and a
