@@ -79,19 +79,17 @@ func Default() *Registry {
 	return r
 }
 
-// RegisterOrchestration adds the multi-agent orchestration tools.
+// RegisterOrchestration adds the tools that only exist when a human is on the other end.
 //
-// Human-in-the-loop tools are omitted in a headless run: with no one to answer a multiple-choice
-// question (ask_user) or send a mid-turn interjection (route_interjection), they can never fire and
-// only add weight to the model's tool list — which a weak model pays for on every request. The
-// orchestrator-internal tools function without a human and are always registered.
+// They are omitted in a headless run: with no one to answer a multiple-choice question (ask_user)
+// or send a mid-turn interjection (route_interjection), they can never fire and only add weight to
+// the model's tool list — which a weak model pays for on every request.
 //
 // It lives here, beside Default, because every caller that builds a working registry needs the same
 // set and a second copy drifts silently: a list maintained by hand cannot fail a build when a tool
 // is added to one copy and not the other, and one of these copies had already fallen two tools
 // behind before this function existed.
 func RegisterOrchestration(r *Registry, headless bool) {
-	r.Register(Replan{}) // declare the current approach unworkable and start over
 	if !headless {
 		r.Register(AskUser{})           // multiple-choice question to the human user
 		r.Register(RouteInterjection{}) // route a mid-turn user interjection

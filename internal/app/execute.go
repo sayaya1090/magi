@@ -179,20 +179,6 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 			return nil
 		}
 	}
-	// Any agent may declare its current approach unworkable. It used to be offered only to a
-	// "plan-eligible" agent, because honoring it re-ran the pre-flight planner; now it resets the
-	// turn's no-progress accounting and tells the agent to start over, which is something any
-	// agent that can act needs — and the sterile-replan counter still watches for a run that keeps
-	// declaring itself stuck without ever finishing a step.
-	replanFn := func(reason string) error {
-		a.signalTurnControl(sid, func(tc *turnControl) {
-			tc.replan = true
-			if reason != "" {
-				tc.reason = reason
-			}
-		})
-		return nil
-	}
 	st, _ := json.Marshal(event.ToolStartedData{CallID: tc.CallID, Name: tc.Name})
 	a.publishTransient(sid, event.TypeToolStarted, actor, st)
 
@@ -281,7 +267,6 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		},
 		ResolveConcern:    resolveConcernFn,
 		RouteInterjection: routeInterjectionFn,
-		Replan:            replanFn,
 		AskUser:           a.askUserFn(ctx, s, depth, tc),
 		SetTodos:          func(td []session.Todo) { a.putTodos(ctx, sid, actor, td) },
 		Propose: func(c port.Contribution) error {

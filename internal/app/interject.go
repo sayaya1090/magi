@@ -15,7 +15,7 @@ import (
 // Mid-turn interjection / steer machinery, split out of loop.go: routing a user
 // message that arrives while a turn runs (applyRoute / noteInterjection), the
 // idle-park and finish-boundary triage mini-turns (handleAside / triageQueued /
-// interjectTurn / execAsideTool), agent-initiated replan (honorReplan), and late-steer
+// interjectTurn / execAsideTool) and late-steer
 // enqueue at the finish boundary. Behavior unchanged; runLoop/finishTurn stay in loop.go.
 
 // applyRoute computes the turnTask after routing a mid-turn interjection. "redirect"
@@ -452,56 +452,6 @@ func (a *App) execAsideTool(ctx context.Context, s session.Session, depth int, c
 	}
 	res.CallID = c.CallID
 	return res
-}
-
-// maxReplansPerTurn caps agent-initiated replans so replan cannot indefinitely reset
-// the stall guard (the abuse vector: replan→reset→thrash→replan). Past the cap the
-// stall guard is left intact and genuine thrash force-stops normally.
-const maxReplansPerTurn = 2
-
-// honorReplan applies an agent-initiated replan under an anti-abuse budget: at most
-// maxReplansPerTurn per turn, and only when real tool work happened since the previous
-// replan (back-to-back replans without action are churn).
-//
-// Nobody replans on the agent's behalf. Honoring it resets the stall accounting (reground) and
-// says so; the fresh approach is the agent's to choose. When refused it injects guidance and
-// leaves the stall guard intact. It returns true when the replan was honored, so the caller can
-// record it against the sterile-replan convergence counter.
-func (a *App) honorReplan(ctx context.Context, sid session.SessionID, reason string, count, atCalls *int, curCalls int, reground func()) bool {
-	inject := func(msg string) {
-		pd, _ := json.Marshal(event.PromptSubmittedData{
-			MessageID: "m_" + newID(),
-			Parts:     []session.Part{{Kind: session.PartText, Text: msg}},
-		})
-		_ = a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
-	}
-	if *count >= maxReplansPerTurn {
-		inject(fmt.Sprintf("Replan refused: you have already declared your approach unworkable %d times this turn. "+
-			"Do not do it again — make concrete progress on the approach you have, or if you are truly blocked, say "+
-			"plainly what stopped you and what you tried, then declare the turn finished so the council reads it.", *count))
-		return false
-	}
-	// Require real tool work between replans. guard.callCount() counts EVERY tool call,
-	// including the replan call that raised this signal, so a back-to-back replan-only step
-	// still advances curCalls by exactly 1 (its own call) over the last honored replan's
-	// snapshot. Anything at-or-below that +1 means nothing but the replan itself happened —
-	// churn — so refuse; genuine work (bash/edit/read) lands curCalls at atCalls+2 or more.
-	if *atCalls >= 0 && curCalls <= *atCalls+1 {
-		inject("Replan refused: you declared the approach unworkable again without taking any real action since the " +
-			"last time. Actually attempt it (run a command, edit a file, inspect why it failed) before deciding it " +
-			"cannot work.")
-		return false
-	}
-	*count++
-	*atCalls = curCalls
-	note := "Starting over at your request"
-	if r := strings.TrimSpace(reason); r != "" {
-		note += ": " + clipLine(r, 200)
-	}
-	note += ". The no-progress window has been reset — take a fresh approach and proceed."
-	inject(note)
-	reground()
-	return true
 }
 
 // ---- interjection / steer state accessors (moved from app.go) ----

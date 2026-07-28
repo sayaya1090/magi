@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -163,84 +162,20 @@ func TestQueuedInterjectionResurfacedNoDeadlock(t *testing.T) {
 // excludes these untracked probes, can compile the tests that share it.
 
 // A tool's Execute callback can't touch loop-local state, so it records a turnControl
-// signal the loop drains next step. signalTurnControl must MERGE (a route and a replan
-// can be set independently) and takeTurnControl must clear it.
+// signal the loop drains next step. signalTurnControl must MERGE (a route and a finish
+// declaration can be set independently) and takeTurnControl must clear it.
 func TestTurnControlSignalMergeAndDrain(t *testing.T) {
 	a := newTestApp(t)
 	const sid session.SessionID = "s_test"
 
 	a.signalTurnControl(sid, func(tc *turnControl) { tc.route = "redirect"; tc.reason = "user changed course" })
-	a.signalTurnControl(sid, func(tc *turnControl) { tc.replan = true })
+	a.signalTurnControl(sid, func(tc *turnControl) { tc.finish = true })
 
 	tc := a.takeTurnControl(sid)
-	if tc.route != "redirect" || !tc.replan || tc.reason != "user changed course" {
+	if tc.route != "redirect" || !tc.finish || tc.reason != "user changed course" {
 		t.Fatalf("merged signal mismatch: %+v", tc)
 	}
-	if got := a.takeTurnControl(sid); got.route != "" || got.replan {
+	if got := a.takeTurnControl(sid); got.route != "" || got.finish {
 		t.Fatalf("take should clear the signal, got %+v", got)
-	}
-}
-
-// honorReplan enforces the anti-abuse budget so replan can't be used to indefinitely
-// reset the stall guard: it honors at most maxReplansPerTurn, refuses a back-to-back
-// replan with no work in between, and only calls reground on an honored replan.
-func TestHonorReplanBudget(t *testing.T) {
-	a := newTestApp(t)
-	ctx := context.Background()
-	const sid session.SessionID = "s_test"
-
-	// The store requires a session.created before any other append.
-	scd, _ := json.Marshal(event.SessionCreatedData{Workdir: t.TempDir(), Agent: "default"})
-	if err := a.appendFact(ctx, sid, event.TypeSessionCreated, event.Actor{Kind: event.ActorSystem, ID: "test"}, scd); err != nil {
-		t.Fatal(err)
-	}
-
-	count, atCalls := 0, -1
-	regrounds := 0
-	reground := func() { regrounds++ }
-
-	// guard.callCount() counts every tool call INCLUDING the replan call itself, so a
-	// back-to-back replan-only step advances curCalls by exactly 1 over the last snapshot;
-	// only that +1 must be refused, and real work (+2 or more) honored.
-
-	// 1st replan at callCount 5: honored (first ever), records the call count.
-	a.honorReplan(ctx, sid, "premise broke", &count, &atCalls, 5, reground)
-	if count != 1 || atCalls != 5 || regrounds != 1 {
-		t.Fatalf("first replan should be honored: count=%d atCalls=%d regrounds=%d", count, atCalls, regrounds)
-	}
-
-	// 2nd replan with NO work since — the next step held only the replan call, so curCalls
-	// advanced by just 1 (to 6). Must be refused, nothing changes.
-	a.honorReplan(ctx, sid, "again", &count, &atCalls, 6, reground)
-	if count != 1 || regrounds != 1 {
-		t.Fatalf("back-to-back replan without work should be refused: count=%d regrounds=%d", count, regrounds)
-	}
-
-	// 2nd replan AFTER real work (curCalls jumped to 9 — bash/edit between): honored, hits cap.
-	a.honorReplan(ctx, sid, "real dead end", &count, &atCalls, 9, reground)
-	if count != maxReplansPerTurn || atCalls != 9 || regrounds != 2 {
-		t.Fatalf("replan after work should be honored to the cap: count=%d atCalls=%d regrounds=%d", count, atCalls, regrounds)
-	}
-
-	// 3rd replan (past the cap) even with more work: refused, stall guard left intact.
-	a.honorReplan(ctx, sid, "still stuck", &count, &atCalls, 20, reground)
-	if count != maxReplansPerTurn || regrounds != 2 {
-		t.Fatalf("replan past the cap must be refused: count=%d regrounds=%d", count, regrounds)
-	}
-
-	// Every call injects a system note (honored or refused) so the agent always learns
-	// the outcome — 4 calls → 4 loop-actor prompts on the log.
-	evs, err := a.store.Read(ctx, sid, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	notes := 0
-	for _, e := range evs {
-		if e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorSystem && e.Actor.ID == "loop" {
-			notes++
-		}
-	}
-	if notes != 4 {
-		t.Fatalf("expected 4 injected replan notes (2 honored + 2 refused), got %d", notes)
 	}
 }

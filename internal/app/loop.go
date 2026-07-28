@@ -166,13 +166,10 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	turnTask := "" // the user instruction THIS turn answers, snapshotted at step 0. A
 	// steer that lands mid-turn is QUEUED by default (runs as its own follow-up turn), so
 	// it can't silently hijack what the council judges against — unless the agent explicitly
-	// routes it. A "redirect" re-snapshots turnTask and rebuilds the plan (the goal changed);
-	// an "append" folds the steer into turnTask (so the termination gate still enforces it)
-	// but FREEZES the plan — the steer is injected as a constraint, not re-decomposed.
-	usedTools := seedWork   // did this turn do real work? (planner investigation seeds it; council skips pure conversational turns)
+	// routes it. A "redirect" re-snapshots turnTask (the goal changed); an "append" folds the
+	// steer into turnTask, so what the council reads at the finish still carries it.
+	usedTools := seedWork   // did this turn do real work? (the council skips pure conversational turns)
 	handledUserPrompts := 0 // genuine (ActorUser) prompts already absorbed into turnTask; a rise past this at step>0 is a mid-turn interjection
-	replanCount := 0        // agent-initiated replans honored this turn (budget-capped so replan can't indefinitely reset the stall guard)
-	replanAtCalls := -1     // guard.callCount() at the last honored replan (require real work between replans)
 	seeded := false         // step-0 turnTask seed ran once; a park-and-retry (step--) must not re-seed/re-enqueue
 	// Fallback usage accumulation: the agent's OWN stream only. The reported numbers come from the
 	// meter (turnUsage); these stand in when it saw nothing — a backend that reports no usage block,
@@ -218,14 +215,8 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	}
 
 	// reground resets the turn's termination/stall accounting so a freshly-adopted task
-	// (a redirect steer) or a freshly-adopted approach (replan) is not instantly
-	// force-stopped by the previous one's accumulated no-progress count.
-	//
-	// It took a rebuildPlan flag, because a redirect or a replan additionally re-ran the
-	// pre-flight planner for a fresh decomposition while an "append" steer left the
-	// approved plan frozen. There is no planner and no plan to rebuild: NOBODY replans.
-	// The agent declares its approach unworkable and picks another one itself, and all
-	// magi does is stop holding the last approach's stall count against it.
+	// (a redirect steer) is not instantly force-stopped by the previous goal's
+	// accumulated no-progress count.
 	reground := func() {
 		guard.resetStall()
 		ts.prevFinishText = ""
@@ -255,36 +246,26 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			seeded = true // guard: a park-and-retry (step--) re-enters at step 0 but must not re-seed
 			turnTask, handledUserPrompts = a.seedTurnTask(ctx, tc, evs)
 		} else {
-			// Drain any control signal a tool left last step (route an interjection, or an
-			// agent-initiated replan), applying the reground the loop owns but the tool can't.
+			// Drain any control signal a tool left last step — a routed interjection, or the
+			// council tool's finish declaration — applying the reground the loop owns but the
+			// tool cannot.
 			ctrl := a.takeTurnControl(sid)
 			// The drain empties every control field, so the declaration signal has to be caught
 			// HERE or it is thrown away before the finish check ever sees it.
 			if ctrl.finish {
 				ts.declared = true
 			}
-			if tc := ctrl; tc.route != "" || tc.replan {
+			if tc := ctrl; tc.route != "" {
 				// Absorb a routed interjection now, so it isn't also re-surfaced as its own
 				// turn. The route binds to a SPECIFIC queued request (resolveRouteTarget: the
 				// id the model named, else the oldest queued), not to lastUserPromptText — so
 				// with several interjections piled up none is re-absorbed or cross-applied.
-				// redirect re-anchors turnTask and rebuilds the plan; append folds the steer in
-				// but FREEZES the plan (constraint injection only) — see applyInterjectRoute.
-				// "queue"/"" leaves turnTask untouched; an empty resolve means it was already
-				// absorbed, so the route is a no-op.
-				if tc.route != "" {
-					if mid, it := a.resolveRouteTarget(sid, tc.routeID); it != "" {
-						if nt, changed := a.applyInterjectRoute(ctx, sid, tc.route, turnTask, mid, it, reground); changed {
-							turnTask = nt
-						}
-					}
-				}
-				if tc.replan {
-					if a.honorReplan(ctx, sid, tc.reason, &replanCount, &replanAtCalls, guard.callCount(), reground) {
-						// Record the honored replan against the sterile-replan convergence counter:
-						// if the completed-step high-water has not advanced across repeated replans,
-						// handleStuckGuard lands the run UNVERIFIED rather than re-decomposing forever.
-						guard.noteReplan(a.completedStepCount(sid))
+				// "redirect" re-anchors turnTask; "append" folds the steer in as a constraint
+				// on the work already under way; "queue"/"" leaves turnTask untouched, and an
+				// empty resolve means it was already absorbed, so the route is a no-op.
+				if mid, it := a.resolveRouteTarget(sid, tc.routeID); it != "" {
+					if nt, changed := a.applyInterjectRoute(ctx, sid, tc.route, turnTask, mid, it, reground); changed {
+						turnTask = nt
 					}
 				}
 			}

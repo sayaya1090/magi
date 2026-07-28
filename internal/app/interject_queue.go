@@ -42,9 +42,9 @@ func (a *App) enqueueLateInterjections(ctx context.Context, sid session.SessionI
 	}
 }
 
-// signalTurnControl records a mid-turn routing/replan signal from a tool for the
+// signalTurnControl records a mid-turn routing/finish signal from a tool for the
 // running loop to drain at its next step. It merges into any existing signal so a
-// route and a later replan in the same step window both survive.
+// route and a later finish declaration in the same step window both survive.
 func (a *App) signalTurnControl(sid session.SessionID, mut func(*turnControl)) {
 	a.mu.Lock()
 	defer a.mu.Unlock()

@@ -43,32 +43,6 @@ func TestPutTodosEmitsFactAndDedup(t *testing.T) {
 	}
 }
 
-// completedStepCount is the convergence signal noteReplan re-baselines against: it counts
-// exactly the steps currently marked "completed" — never in_progress/pending/cancelled. If it
-// fails to climb across repeated replans, the re-decomposition is finishing nothing.
-func TestCompletedStepCount(t *testing.T) {
-	a, sid := newTodoApp(t, Config{})
-	actor := event.Actor{Kind: event.ActorAgent, ID: "p"}
-	if got := a.completedStepCount(sid); got != 0 {
-		t.Fatalf("empty plan: want 0, got %d", got)
-	}
-	a.putTodos(context.Background(), sid, actor, []session.Todo{
-		{Content: "a", Status: "completed"},
-		{Content: "b", Status: "in_progress"},
-		{Content: "c", Status: "pending"},
-		{Content: "d", Status: "cancelled"},
-	})
-	// Only "completed" counts — not in_progress, pending, or cancelled.
-	if got := a.completedStepCount(sid); got != 1 {
-		t.Fatalf("mixed plan: want 1 completed, got %d", got)
-	}
-	// Finishing more steps makes the signal climb; the cancelled step is never resurrected/counted.
-	a.completeThrough(context.Background(), sid, actor, 2) // a,b,c → completed; d stays cancelled
-	if got := a.completedStepCount(sid); got != 3 {
-		t.Fatalf("after completeThrough(2): want 3, got %d", got)
-	}
-}
-
 // todosEqual underpins putTodos's no-op dedup: true only for same-length plans with identical
 // Content AND Status at every index. session.Todo is all-string (comparable), so the struct !=
 // is safe; this locks the predicate directly (nil and empty both being length 0 → equal).

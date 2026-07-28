@@ -6,32 +6,29 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 )
 
-// Headless runs omit the human-in-the-loop tools — nothing can answer them — while the tools any
-// run needs are registered either way.
+// Headless runs omit the human-in-the-loop tools — nothing can answer them, and an unusable tool
+// still costs the model weight on every request.
 func TestRegisterOrchestrationToolsHeadless(t *testing.T) {
 	has := func(reg *builtin.Registry, name string) bool {
 		_, ok := reg.Get(name)
 		return ok
 	}
-	always := []string{"replan"}
 	interactiveOnly := []string{"ask_user", "route_interjection"}
 
 	headlessReg := builtin.NewRegistry()
 	registerOrchestrationTools(headlessReg, true)
-	for _, n := range always {
-		if !has(headlessReg, n) {
-			t.Errorf("headless must still register %q", n)
-		}
-	}
 	for _, n := range interactiveOnly {
 		if has(headlessReg, n) {
 			t.Errorf("headless must omit human-in-the-loop tool %q", n)
 		}
 	}
+	if n := len(headlessReg.List()); n != 0 {
+		t.Errorf("every tool this registers needs a human; headless should get none, got %d", n)
+	}
 
 	interactiveReg := builtin.NewRegistry()
 	registerOrchestrationTools(interactiveReg, false)
-	for _, n := range append(always, interactiveOnly...) {
+	for _, n := range interactiveOnly {
 		if !has(interactiveReg, n) {
 			t.Errorf("interactive must register %q", n)
 		}

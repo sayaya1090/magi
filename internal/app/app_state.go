@@ -28,7 +28,7 @@ type sessionState struct {
 	turnStart        time.Time              // when the current turn began (check_untouched.go: "did this predate the run")
 	observedEvents   int                    // event high-water mark of the last turn_finished observation (stale-answer guard)
 	pendingInterject []pendingInterjection  // interjections queued to run as their own turn
-	turnControl      turnControl            // pending mid-turn routing/replan signal
+	turnControl      turnControl            // pending mid-turn routing / finish signal
 	perms            map[string]chan string // pending permission decisions by call id
 	questions        map[string]chan string // pending ask_user picks by call id
 	grants           map[string]bool        // "always" grants per tool
@@ -129,11 +129,10 @@ type pendingInterjection struct {
 // drain at its next step. The loop owns turnTask/councilTurn/guard (stack-local),
 // so a tool cannot mutate them directly; it leaves this signal instead and the loop
 // applies the reground. route routes a queued user interjection (queue|redirect|
-// append); replan is the agent's own "this plan is unworkable" declaration.
+// append); finish is the agent's accepted completion declaration.
 type turnControl struct {
 	route   string // "", "queue", "redirect", or "append"
 	routeID string // the request id the route targets (route_interjection request_id); "" = oldest queued
-	replan  bool
 	// finish is set when the agent declared the task complete (the council tool) and the council
 	// accepted. The loop ends the turn at its next step — a turn ends because someone decided to
 	// end it, not because the model happened to stop calling tools.
