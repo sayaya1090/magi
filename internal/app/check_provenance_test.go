@@ -3,41 +3,14 @@ package app
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/core/command"
-	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
-
-// literalOf decides what the audit can even look for. Too eager and a two-character run matches
-// everywhere (every authored file "contains" it, and every pass gets flagged); too shy and the real
-// marker is never found.
-func TestLiteralOf(t *testing.T) {
-	cases := []struct{ pat, want string }{
-		{"^All tests passed$", "All tests passed"},
-		{"All 12 tests passed", "All 12 tests passed"},
-		{"(error|Segmentation fault)", "Segmentation fault"}, // longest ordinary run wins
-		{"Done\\.", "Done"},
-		{"^ok$", ""},   // too short to be about this contract
-		{".*", ""},     // no literal core at all
-		{"\\d+", ""},   //
-		{"^$", ""},     //
-		{"a|b|c", ""},  // every run is one character
-		{"", ""},       //
-		{"  ok  ", ""}, // trimmed, then too short
-	}
-	for _, tc := range cases {
-		if got := literalOf(tc.pat); got != tc.want {
-			t.Errorf("literalOf(%q) = %q, want %q", tc.pat, got, tc.want)
-		}
-	}
-}
 
 func TestSamePath(t *testing.T) {
 	cases := []struct {
@@ -157,145 +130,6 @@ func TestAuthorsIn(t *testing.T) {
 	}
 }
 
-// The audit reports one shape and only one: the asserted pattern appears verbatim in text the worker
-// composed into the file the check reads. Everything else stays silent, because a wrong accusation
-// costs more than a missed one at this stage.
-func TestAuditSourceProvenance(t *testing.T) {
-	evs := []event.Event{toolCallEvent("write", `{"path":"/app/test.log","content":"All 12 tests passed\n"}`)}
-	as, _ := parseAssertion("matches ^All 12 tests passed$")
-
-	note := auditFinding(authorsIn(evs, "/app/test.log"), "/app/test.log", as)
-	if !strings.Contains(note, "PROVENANCE") || !strings.Contains(note, "write") {
-		t.Fatalf("note = %q, want it to name the authoring call", note)
-	}
-
-	// A recorded output: same file, same pattern, but the bytes came from a program.
-	rec := []event.Event{toolCallEvent("bash", `{"command":"make test > /app/test.log 2>&1"}`)}
-	if n := auditFinding(authorsIn(rec, "/app/test.log"), "/app/test.log", as); n != "" {
-		t.Fatalf("a genuine recording was flagged: %q", n)
-	}
-	// Authored, but not the asserted string — the worker wrote the file for some other reason.
-	other := []event.Event{toolCallEvent("write", `{"path":"/app/test.log","content":"placeholder\n"}`)}
-	if n := auditFinding(authorsIn(other, "/app/test.log"), "/app/test.log", as); n != "" {
-		t.Fatalf("an unrelated authorship was flagged: %q", n)
-	}
-	// A pattern with no literal core cannot be looked for in typed text, and a liveness probe reads
-	// the world rather than a file — neither is auditable.
-	for _, a := range []string{"matches .*", "process_alive"} {
-		pa, ok := parseAssertion(a)
-		if !ok {
-			t.Fatalf("parseAssertion(%q) failed", a)
-		}
-		if n := auditFinding(authorsIn(evs, "/app/test.log"), "/app/test.log", pa); n != "" {
-			t.Fatalf("%q produced a finding: %q", a, n)
-		}
-	}
-	// The verbs with NO pattern are the ones an audit keyed on patterns could never see, and
-	// `nonempty` is the cheapest assertion to fake — any text at all satisfies it. There the
-	// authorship alone is the finding, whatever the composed text happened to say. Observed live:
-	// `echo "Bootstrap completed successfully - no crash in build" > /app/crash.log` flipping a
-	// `crash.log nonempty` check to pass on a step whose deliverable was "bootstrap crash
-	// reproduced", one second after the write.
-	for _, a := range []string{"nonempty", "absent Traceback", "equals /app/expected.log"} {
-		pa, ok := parseAssertion(a)
-		if !ok {
-			t.Fatalf("parseAssertion(%q) failed", a)
-		}
-		n := auditFinding(authorsIn(other, "/app/test.log"), "/app/test.log", pa)
-		if n == "" {
-			t.Errorf("%q on a composed file must be reported", a)
-		} else if !strings.Contains(n, "came out of the reply") {
-			t.Errorf("%q finding must say where the bytes came from: %s", a, n)
-		}
-		// …and a file nothing authored is never flagged, whatever the verb.
-		if n := auditFinding(nil, "/app/test.log", pa); n != "" {
-			t.Errorf("%q flagged a file with no author: %q", a, n)
-		}
-	}
-}
-
-// The audit reads every event of every session under the gate, so it must be asked once per
-// (source, pattern) rather than once per gate cycle — and the memo must hand back the FINDING, not
-// merely the fact of having asked. A check is evaluated more than once by design (the delegate step
-// gate runs it, then the incremental recorder runs it again) and each evaluation records its own
-// event, so a memo that answered "" the second time would leave whichever record someone actually
-// reads with no finding on it.
-func TestProvAuditMemoizesTheFinding(t *testing.T) {
-	app := newShellApp(t, &shellPlatform{})
-	sid := session.SessionID("s-memo")
-	app.mu.Lock()
-	app.states[sid] = &sessionState{meta: session.Session{ID: sid}}
-	app.mu.Unlock()
-
-	if _, asked := app.provAudit(sid, "/app/a.log", "passed"); asked {
-		t.Fatal("first ask must run")
-	}
-	app.rememberProvAudit(sid, "/app/a.log", "passed", "PROVENANCE: …")
-	f, asked := app.provAudit(sid, "/app/a.log", "passed")
-	if !asked || f != "PROVENANCE: …" {
-		t.Fatalf("the finding must survive the memo, got %q asked=%v", f, asked)
-	}
-	// "asked and found nothing" is an answer too, and it must not read as "never asked".
-	app.rememberProvAudit(sid, "/app/clean.log", "passed", "")
-	if f, asked := app.provAudit(sid, "/app/clean.log", "passed"); !asked || f != "" {
-		t.Fatalf("a clean answer must be remembered as one, got %q asked=%v", f, asked)
-	}
-	for _, k := range [][2]string{{"/app/b.log", "passed"}, {"/app/a.log", "failed"}} {
-		if _, asked := app.provAudit(sid, k[0], k[1]); asked {
-			t.Errorf("%v is a different question", k)
-		}
-	}
-}
-
-// `nonempty` is where the provenance answer decides the VERDICT rather than annotating it. An
-// assertion that only requires "something is here", on a file whose something came out of the
-// reply, is a check that proves nothing either way — the documented meaning of 126. Observed live
-// one second apart: `echo "Bootstrap completed successfully - no crash in build" > /app/crash.log`,
-// then that check flipping to pass on a step whose deliverable was "bootstrap crash reproduced".
-//
-// Ungated rather than FAILED is what keeps the legitimate case whole: when the deliverable is the
-// file the worker wrote, this refuses to credit it and refuses to reject it.
-func TestNonemptyOnAComposedFileYieldsNoVerdict(t *testing.T) {
-	skipOnWindows(t)
-	wd := t.TempDir()
-	if werr := os.WriteFile(filepath.Join(wd, "test.log"), []byte("All tests passed\n"), 0o644); werr != nil {
-		t.Fatal(werr)
-	}
-	app := newShellApp(t, &shellPlatform{})
-	sid, err := app.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Absolute, because the check runner reaches the platform directly and the test platform runs
-	// commands without a working directory. samePath still matches the relative spelling the tool
-	// call used.
-	c := council.DeliverableCheck{Step: "1", Deliverable: "tests run",
-		Source: filepath.Join(wd, "test.log"), Assert: "nonempty"}
-
-	// A file no tool authored: an ordinary pass.
-	out, code := app.runCheck(context.Background(), sid, wd, c)
-	if code != 0 {
-		t.Fatalf("an unauthored file must pass: %d %s", code, out)
-	}
-
-	// The same file, now with the worker's own composing call in the session's record → no verdict.
-	app.mu.Lock()
-	app.states[sid].provAudited = nil // the audit is asked once per (source, pattern)
-	app.mu.Unlock()
-	if _, err := app.store.Append(context.Background(), sid,
-		toolCallEvent("bash", `{"command":"echo 'All tests passed' > test.log"}`)); err != nil {
-		t.Fatal(err)
-	}
-	out, code = app.runCheck(context.Background(), sid, wd, c)
-	if code != 126 {
-		t.Fatalf("a composed file gives `nonempty` nothing to prove: code=%d out=%s", code, out)
-	}
-	if !strings.Contains(out, "came out of the reply") {
-		t.Errorf("the verdict must carry the reason: %s", out)
-	}
-}
-
 // A worker spawns workers: a step that decomposes, or a delegate that delegates, puts the write two
 // levels down while the gate runs at the top. Observed live — a worker's own child wrote
 // /app/bug_analysis.md, the file a step-4 check reads, while the check ran in the main session. A
@@ -398,48 +232,5 @@ func TestPathAuthorsSeesAWriteInAChildAndAGrandchild(t *testing.T) {
 	// Asked about the child itself, the parent's siblings are irrelevant.
 	if own := app.pathAuthors(ctx, kid, "logs/test.log"); len(own) != 1 {
 		t.Errorf("a session's own subtree is what it sees, got %+v", own)
-	}
-}
-
-// End to end, in the shape a delegated step actually has: the worker writes the file in ITS session,
-// the gate runs the check in the PARENT's. Live evidence said a `nonempty` check passed on such a
-// file with no finding attached, and neither the audit's unit tests nor its end-to-end one covered
-// this arrangement — they put the write in the gating session.
-func TestNonemptyOnAChildsComposedFileYieldsNoVerdict(t *testing.T) {
-	skipOnWindows(t)
-	app := newShellApp(t, &shellPlatform{})
-	ctx := context.Background()
-	wd := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(wd, "docs"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(wd, "docs", "summary.txt"), []byte("Build Process Summary\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	main, err := app.CreateSession(ctx, command.CreateSession{Workdir: wd})
-	if err != nil {
-		t.Fatal(err)
-	}
-	const kid = session.SessionID("s_worker")
-	app.mu.Lock()
-	app.stateLocked(kid).meta = session.Session{ID: kid, Workdir: wd, Agent: "worker", Parent: main}
-	app.mu.Unlock()
-	cd, _ := json.Marshal(event.SessionCreatedData{Workdir: wd, Agent: "worker", Parent: string(main)})
-	if aerr := app.appendFact(ctx, kid, event.TypeSessionCreated, event.Actor{Kind: event.ActorAgent, ID: "worker"}, cd); aerr != nil {
-		t.Fatal(aerr)
-	}
-	if _, aerr := app.store.Append(ctx, kid, toolCallEvent("write",
-		`{"path":"`+filepath.ToSlash(filepath.Join(wd, "docs", "summary.txt"))+`","content":"Build Process Summary\n"}`)); aerr != nil {
-		t.Fatal(aerr)
-	}
-
-	c := council.DeliverableCheck{Step: "1", Deliverable: "build process summarized",
-		Source: "docs/summary.txt", Assert: "nonempty"}
-	out, code := app.runCheck(ctx, main, wd, c)
-	if code != 126 {
-		t.Fatalf("a file the WORKER composed gives `nonempty` nothing to prove: code=%d out=%s", code, out)
-	}
-	if !strings.Contains(out, "came out of the reply") {
-		t.Errorf("the verdict must carry the reason: %s", out)
 	}
 }

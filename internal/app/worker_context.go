@@ -35,7 +35,6 @@ type workerContextBlock struct {
 // really contains, then the caveat the council left open. Facts first, warnings last — a worker that
 // stops reading early should still have the identifiers it must not invent.
 var workerContextBlocks = []workerContextBlock{
-	{"ledger", func(a *App, sid session.SessionID) string { return renderLedger(a.ledgerOf(sid)) }},
 	{"specmine", func(a *App, sid session.SessionID) string { return specMineWorkerBrief(a.cachedSpecMine(sid)) }},
 	{"concern", func(a *App, sid session.SessionID) string { return concernBrief(a.cachedConcern(sid)) }},
 }

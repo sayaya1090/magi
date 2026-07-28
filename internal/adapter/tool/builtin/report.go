@@ -16,13 +16,12 @@ import (
 type Report struct{}
 
 type reportArgs struct {
-	Summary       string `json:"summary"`
-	Status        string `json:"status"`
-	Details       string `json:"details"`
-	Evidence      string `json:"evidence"`
-	Deviations    string `json:"deviations"`
-	Handoff       string `json:"handoff"`
-	Substitutions string `json:"substitutions"`
+	Summary    string `json:"summary"`
+	Status     string `json:"status"`
+	Details    string `json:"details"`
+	Evidence   string `json:"evidence"`
+	Deviations string `json:"deviations"`
+	Handoff    string `json:"handoff"`
 }
 
 func (Report) Name() string { return "report" }
@@ -41,7 +40,7 @@ func (Report) Description() string {
 		"After reporting you stop — do NOT use bash/echo to present results."
 }
 func (Report) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"status":{"type":"string","enum":["done","blocked","failed"]},"summary":{"type":"string"},"evidence":{"type":"string"},"deviations":{"type":"string"},"handoff":{"type":"string"},"substitutions":{"type":"string"},"details":{"type":"string"}},"required":["status"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"status":{"type":"string","enum":["done","blocked","failed"]},"summary":{"type":"string"},"evidence":{"type":"string"},"deviations":{"type":"string"},"handoff":{"type":"string"},"details":{"type":"string"}},"required":["status"]}`)
 }
 
 func (Report) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
@@ -69,7 +68,7 @@ func (Report) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv
 	// "blocked"/"failed" remain honest outcomes that always pass through.
 	if err := env.Report(port.ReportInput{
 		Summary: a.Summary, Status: status, Details: a.Details,
-		Evidence: a.Evidence, Deviations: a.Deviations, Handoff: a.Handoff, Substitutions: a.Substitutions,
+		Evidence: a.Evidence, Deviations: a.Deviations, Handoff: a.Handoff,
 	}); err != nil {
 		return errResult("", err.Error()), nil
 	}

@@ -355,7 +355,6 @@ func (a *App) maybePlanPreflight(ctx context.Context, s session.Session, depth, 
 			// planner that couldn't emit a parseable plan (the weak model was already struggling, so it
 			// most needs the real signatures/paths). The empty-repo skip makes this free on greenfield.
 			a.exploreSpecMine(ctx, s, prompt, solo, depth)
-			a.storeCoveredChecks(ctx, s, prompt, solo, nil)
 		}
 		return false, false // solo — the default, cheap path
 	}

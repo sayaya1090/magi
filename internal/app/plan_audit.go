@@ -120,10 +120,6 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 					}
 				}
 			}
-			// Coverage-fill the checks against the FINAL plan — AFTER a CouncilPlanAbsorb re-plan may
-			// have replaced steps — so per-step check coverage matches the plan actually executed, not
-			// the pre-absorb one. (With absorb off, steps is unchanged, so this is behavior-preserving.)
-			a.storeCoveredChecks(ctx, s, prompt, steps, delib.Checks)
 			a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{
 				Round: round, Phase: "plan", Decision: string(council.Done),
 				Tally: delib.Breakdown, Note: withNoVoteNote(note, delib.Breakdown), Criteria: delib.Criteria,
@@ -135,7 +131,6 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 		fb := strings.TrimSpace(council.CriticalFeedback(delib.Verdicts))
 		if round >= maxRounds || fb == "" {
 			a.storePlanCriteria(ctx, s, delib.Criteria) // proceeding with this plan → keep its criteria
-			a.storeCoveredChecks(ctx, s, prompt, steps, delib.Checks)
 			// Proceeding PAST an unresolved critical: hand the executor that critical
 			// concern (plus any advice) so it can still try to address it — don't bury it
 			// in a note only.
@@ -192,7 +187,6 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 			// Re-plan failed → proceed with the prior plan, but say so (don't silently
 			// run a plan the council just rejected). Keep this round's criteria.
 			a.storePlanCriteria(ctx, s, delib.Criteria)
-			a.storeCoveredChecks(ctx, s, prompt, steps, delib.Checks)
 			a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{
 				Round: round, Phase: "plan", Decision: string(council.Done), Tally: delib.Breakdown,
 				Note: "re-plan failed — proceeding with the prior plan", Criteria: delib.Criteria, Forced: true,
@@ -234,7 +228,6 @@ func (a *App) runPlanAuditGate(ctx context.Context, s session.Session, spec Agen
 			// wall clock, but it ADOPTS a rewrite no council ever judged — observed replacing a
 			// plan with one that had dropped its only concrete producing step.
 			a.storePlanCriteria(ctx, s, delib.Criteria)
-			a.storeCoveredChecks(ctx, s, prompt, next, delib.Checks)
 			a.injectCouncilAdvice(ctx, s.ID, fb, false)
 			a.emitCouncilDecided(ctx, sid, actor, event.CouncilDecidedData{
 				Round: round, Phase: "plan", Decision: string(council.Done), Tally: delib.Breakdown,

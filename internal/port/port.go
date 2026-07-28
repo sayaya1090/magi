@@ -236,25 +236,6 @@ type ReportInput struct {
 	Evidence   string
 	Deviations string
 	Handoff    string
-	// Substitutions carries, for any acceptance-check whose given command could not run in this
-	// environment (a missing tool, a wrong path, no permission, a different setup), the EQUIVALENT
-	// command the worker ran instead and its actual output — so a broken CHECK does not fail the WORK.
-	// The step gate trusts it (does not re-run the original); the council judges whether the
-	// substitute reasonably verifies the goal, and may ask for a better one.
-	Substitutions string
-}
-
-// CheckSub is one acceptance-check substitution: for a check the agent cannot satisfy AS WRITTEN —
-// the path it reads is not where the real output was recorded, or its assertion cannot prove the goal
-// — the agent supplies the source/assert pair that does, with the reason the given one fails. It is
-// reviewed by a council at the turn's finish boundary and, once approved, rewrites the stored check so
-// the fix persists for the rest of the run.
-type CheckSub struct {
-	Step     string `json:"step"`     // the plan step whose check this replaces (matches DeliverableCheck.Step)
-	Original string `json:"original"` // the original check being replaced (to match the exact check when a step has several)
-	Source   string `json:"source"`   // the path holding what should be judged instead
-	Assert   string `json:"assert"`   // the assertion to apply to it, from the runner's closed vocabulary
-	Reason   string `json:"reason"`   // why the original check cannot be satisfied as written
 }
 
 // ToolEnv carries per-execution context and capabilities granted to a tool.
@@ -320,11 +301,6 @@ type ToolEnv struct {
 	// status is "done" | "blocked" | "failed". Set only for subagents. Returns an
 	// error if called by a non-subagent or after a report was already filed.
 	Report func(ReportInput) error
-	// SubstituteCheck registers a check substitution (for any agent, solo or worker) when an
-	// acceptance check's given command cannot run here: the equivalent the agent ran instead. It is
-	// reviewed by the council at the turn's finish boundary and, once approved, rewrites the stored
-	// check to the working command. Always set.
-	SubstituteCheck func(CheckSub) error
 	// ResolveConcern retires a structural concern from the durable ledger by key.
 	// Set ONLY for the top-level orchestrator (depth 0); nil for subagents. It is
 	// advisory-only: a concern that is still true is re-raised deterministically on
@@ -442,10 +418,6 @@ type SpawnResult struct {
 	// ReuseSession). The caller can pass it back as a later spawn's ReuseSession to continue
 	// in the same session. Set on both success and failure.
 	SessionID session.SessionID
-	// CheckSubs are the acceptance-check substitutions the worker filed and its review council
-	// approved — carried up so the parent can rewrite the matching stored deliverable checks to the
-	// working commands (the fix persists for the run). Empty when the worker substituted nothing.
-	CheckSubs []CheckSub
 }
 
 // ToolRegistry holds the set of available tools by name.

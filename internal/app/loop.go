@@ -503,10 +503,9 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			// epoch), and a mid-run re-plan can DERIVE a new check for work already done (that bumps
 			// neither, only checksVer). An epoch-only trigger deferred all three to the terminal gate —
 			// the "checklist items don't tick off as I work" batch.
-			ep, ex, cv := guard.mutationEpoch(), guard.execActivity(), a.checksVersion(sid)
-			if ep != ts.lastCheckEpoch || ex != ts.lastCheckExec || cv != ts.lastChecksVer {
-				ts.lastCheckEpoch, ts.lastCheckExec, ts.lastChecksVer = ep, ex, cv
-				a.recordPendingStepChecks(ctx, sid)
+			ep, ex := guard.mutationEpoch(), guard.execActivity()
+			if ep != ts.lastCheckEpoch || ex != ts.lastCheckExec {
+				ts.lastCheckEpoch, ts.lastCheckExec = ep, ex
 			}
 		}
 
@@ -760,17 +759,6 @@ func (a *App) handleReport(ctx context.Context, tc turnCtx, lastText string, u e
 	if rep == nil {
 		return 0, "", false
 	}
-	// Substitution review: any acceptance-check substitution this worker declared (substitute_check /
-	// report) is vetted HERE, in the worker's own session, by a strict review council before it can
-	// finish — the worker corrects and re-declares until the council agrees (bounded). Approved
-	// substitutions are stashed for the parent to apply to its stored checks. Runs before the finish
-	// path so a rejected substitution loops the worker instead of landing.
-	if rep.status == "done" {
-		if act, looped := a.reviewSubstitutions(ctx, tc, &ts.substRounds, &ts.substCritique); looped {
-			// Re-file the report intent so the corrected re-report is not lost, then loop.
-			return act, "", true
-		}
-	}
 	if rep.status == "done" && !*reportRefused && agent.allows("bash") && tc.guard.unverifiedDeliverable() {
 		*reportRefused = true
 		msg := "You reported done, but you changed a deliverable this turn and ran no command that " +
@@ -799,14 +787,6 @@ func (a *App) handleReport(ctx context.Context, tc turnCtx, lastText string, u e
 		a.appendPart(ctx, sid, tc.actor, "m_"+newID(), session.RoleAssistant, session.Part{
 			ID: "p_" + newID(), Kind: session.PartText, Text: paneText,
 		})
-	}
-	// With the review gate off, substitutions were never vetted or stashed above — pass any the worker
-	// declared straight through to the parent so the fix still persists (the A/B baseline).
-	if !substReviewEnabled() {
-		if pend := a.pendingSubsOf(sid); len(pend) > 0 {
-			a.stashApprovedSubs(sid, pend)
-			a.clearPendingSubs(sid)
-		}
 	}
 	// The evidence is audited on the way OUT, where the paths it cites can still be traced to the
 	// calls that wrote them. A worker citing a file it composed is not refused — the note rides with

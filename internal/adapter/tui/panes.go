@@ -773,15 +773,6 @@ func (m *Model) renderZoom(width int) string {
 	// can be mapped back to a pane block (e.g. to expand a thinking block).
 	m.paneLineStart = m.paneLineStart[:0]
 	nl := 0
-	// Acceptance checklist: the contract this subagent must satisfy (the plan-audit deliverable
-	// checks for its step), shown at the top of its detail view like the plan panel on the main
-	// screen. Prepended before the transcript; nl advances so block click hit-testing stays aligned.
-	if m.app != nil {
-		if cl := renderChecklist("acceptance checklist", m.app.SubagentChecklist(p.sid), cstyle, width); cl != "" {
-			b.WriteString(cl + "\n")
-			nl += strings.Count(cl, "\n") + 1
-		}
-	}
 	for i, blk := range p.blocks {
 		if i > 0 {
 			b.WriteString("\n")
@@ -802,7 +793,6 @@ func (m *Model) renderZoom(width int) string {
 	return b.String()
 }
 
-// renderChecklist renders a list of deliverable checks as a compact panel under the given
 // title: each item's deliverable with its verifying command beneath. Shared by a subagent's
 // acceptance checklist and the council detail's verification ledger. Empty for no checks.
 func renderChecklist(title string, checks []council.DeliverableCheck, cstyle lipgloss.Style, width int) string {

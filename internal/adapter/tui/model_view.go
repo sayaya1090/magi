@@ -307,16 +307,12 @@ func (m *Model) renderCouncilDetail(width int) string {
 	if k := strings.TrimSpace(v.Keep); k != "" {
 		b.WriteString("\n" + styleFooter.Render("keep — the revision must not lose this") + "\n" + wrap.Render(k) + "\n")
 	}
-	// Ledger: the contract this council judges the turn against — the acceptance criteria and the
-	// executable deliverable checks it verifies. Shown so the detail view reveals not just one
-	// member's vote but WHAT the whole council is checking for.
+	// Ledger: the acceptance criteria this council judges the turn against. Shown so the detail
+	// view reveals not just one member's vote but WHAT the council is weighing.
 	if m.app != nil {
-		crit, checks := m.app.CouncilContract(m.sid)
-		if crit = strings.TrimSpace(crit); crit != "" {
-			b.WriteString("\n" + styleFooter.Render("— ledger: acceptance criteria —") + "\n" + wrap.Render(crit) + "\n")
-		}
-		if cl := renderChecklist("deliverable checks (verified by the council)", checks, lipgloss.NewStyle().Foreground(hue), width); cl != "" {
-			b.WriteString("\n" + cl + "\n")
+		if crit := m.app.AcceptanceCriteria(m.sid); len(crit) > 0 {
+			b.WriteString("\n" + styleFooter.Render("— ledger: acceptance criteria —") + "\n" +
+				wrap.Render(strings.Join(crit, "\n")) + "\n")
 		}
 	}
 	// Open structural concerns: what the council raised and still has OUTSTANDING (re-raised until

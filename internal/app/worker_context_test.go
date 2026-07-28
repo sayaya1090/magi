@@ -16,22 +16,20 @@ func TestWorkerContextIsOneListForEveryHandoff(t *testing.T) {
 	a.stateLocked(s.ID).meta = s
 	a.stateLocked(s.ID).planConcern = "nothing captures the build output"
 	a.mu.Unlock()
-	a.appendLedger(s.ID, "write the parser", "internal/parse/lex.go")
 	a.storeSpecMine(s.ID, "⟨hard⟩ caml_shared_heap_sweep — the entry point named in the request")
 
 	ctx := a.workerContext(s.ID)
-	for _, want := range []string{"internal/parse/lex.go", "caml_shared_heap_sweep", "nothing captures the build output"} {
+	for _, want := range []string{"caml_shared_heap_sweep", "nothing captures the build output"} {
 		if !strings.Contains(ctx, want) {
 			t.Errorf("worker context missing %q:\n%s", want, ctx)
 		}
 	}
 	// Facts first, warnings last: a worker that stops reading early still has the identifiers it
 	// must not invent.
-	li := strings.Index(ctx, "internal/parse/lex.go")
 	mi := strings.Index(ctx, "caml_shared_heap_sweep")
 	ci := strings.Index(ctx, "nothing captures the build output")
-	if !(li < mi && mi < ci) {
-		t.Errorf("block order must be ledger→specmine→concern:\n%s", ctx)
+	if !(mi < ci) {
+		t.Errorf("block order must be specmine→concern:\n%s", ctx)
 	}
 
 	// The delegate hand-off appends the whole list after the brief, verbatim.
@@ -56,7 +54,7 @@ func TestWorkerContextIsOneListForEveryHandoff(t *testing.T) {
 
 	// Every registered block must be silent-when-empty and self-heading; the names exist so this
 	// list can be read against the hand-offs in a diff.
-	if len(workerContextBlocks) != 3 {
+	if len(workerContextBlocks) != 2 {
 		t.Fatalf("registry changed to %d blocks — hold the new one against both hand-offs", len(workerContextBlocks))
 	}
 	for _, blk := range workerContextBlocks {

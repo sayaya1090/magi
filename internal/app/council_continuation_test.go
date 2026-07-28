@@ -3,8 +3,6 @@ package app
 import (
 	"strings"
 	"testing"
-
-	"github.com/sayaya1090/magi/internal/core/council"
 )
 
 // The CONTINUE injection must re-anchor the agent on the verbatim objective and carry
@@ -69,26 +67,5 @@ func TestContinuationTextSkipsEmptyObjective(t *testing.T) {
 	}
 	if !strings.Contains(got, "Completion audit") {
 		t.Errorf("audit must still ride when the objective is blank; got:\n%s", got)
-	}
-}
-
-// When the plan-audit froze deliverable checks, the CONTINUE injection carries them as
-// a closed acceptance contract — binding the fallback council to the frozen scope so it
-// cannot invent new demands (§3). An empty contract leaves the injection untouched.
-func TestContinuationTextBindsFrozenContract(t *testing.T) {
-	a := &App{}
-	contract := a.frozenContractClause([]council.DeliverableCheck{
-		{Step: "1", Deliverable: "parser.go", Command: "go build ./..."},
-		{Step: "2", Deliverable: "tests green", Command: "go test ./..."},
-	})
-	got := continuationText("fix it", "objective", contract)
-	for _, want := range []string{"Acceptance contract", "must NOT add new", "parser.go", "go test ./..."} {
-		if !strings.Contains(got, want) {
-			t.Errorf("continuation must carry frozen contract clause %q; got:\n%s", want, got)
-		}
-	}
-	// No frozen checks → no contract block (baseline untouched).
-	if strings.Contains(continuationText("fix it", "objective", ""), "Acceptance contract") {
-		t.Error("empty contract must not emit the acceptance-contract block")
 	}
 }

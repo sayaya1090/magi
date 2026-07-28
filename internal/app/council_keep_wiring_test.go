@@ -8,7 +8,6 @@ import (
 
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
-	"github.com/sayaya1090/magi/internal/port"
 )
 
 // keep is produced by the MEMBER and consumed by whatever REWRITES afterwards, so a phase that
@@ -84,44 +83,6 @@ func TestContractGateAsksForKeepAndCarriesItIntoConsolidation(t *testing.T) {
 	}
 	if !strings.Contains(applied, "the round-trip condition is already right") {
 		t.Errorf("the consolidator was told what to fix but not what to preserve:\n%s", applied)
-	}
-}
-
-// A critical substitution concern sends the agent back to re-declare — ALL of them, including the
-// ones a lens already accepted. The correction message must name those so they are not withdrawn
-// along with the objected-to one.
-func TestSubstReviewAsksForKeepAndCarriesItIntoTheCorrection(t *testing.T) {
-	t.Setenv("MAGI_SUBST_REVIEW", "1")
-	ctx := context.Background()
-	fc := &fakeCouncil{delibs: []council.Deliberation{{
-		Decision: council.Continue,
-		Verdicts: []council.Verdict{
-			{Member: "Melchior", Decision: council.Continue, Severity: council.SeverityCritical,
-				Feedback: "weak proxy — exercise the RPC"},
-			{Member: "Balthasar", Decision: council.Done, Keep: "the step-2 substitute reads the real output"},
-		},
-	}}}
-	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow", Council: fc, CouncilMaxRounds: 3})
-	setChecks(a, sid, []council.DeliverableCheck{{Step: "1", Assert: "matches listening"}})
-	a.addPendingSub(sid, port.CheckSub{Step: "1", Original: "matches listening", Source: "x.txt", Assert: "nonempty"})
-
-	tc := turnCtx{s: a.sessionInfo(ctx, sid), guard: newRunGuard(), depth: 0, maxSteps: 50}
-	rounds := 0
-	if _, looped := a.reviewSubstitutions(ctx, tc, &rounds, new(string)); !looped {
-		t.Fatal("a critical concern must loop the agent to correct")
-	}
-	if len(fc.reqs) == 0 {
-		t.Fatal("the substitution review did not deliberate")
-	}
-	if !fc.reqs[0].Keep {
-		t.Error("the substitution review must ask members for `keep` — one bad substitute re-declares all of them")
-	}
-	txt := sessionText(t, a, sid)
-	if !strings.Contains(txt, "weak proxy") {
-		t.Fatalf("the correction message never reached the agent:\n%s", txt)
-	}
-	if !strings.Contains(txt, "the step-2 substitute reads the real output") {
-		t.Errorf("the correction told the agent what to fix but not what to keep:\n%s", txt)
 	}
 }
 

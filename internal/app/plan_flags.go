@@ -300,30 +300,6 @@ func turnProgressCheckEnabled() bool { return !envOff("MAGI_TURN_PROGRESS_CHECK"
 // that never orders/injects the checkpoint (the A/B knob).
 func checkpointFirstEnabled() bool { return !envOff("MAGI_CHECKPOINT_FIRST") }
 
-// stepVerifyEnabled turns on the per-step deliverable contract: the plan-audit council
-// authors executable checks for each step's expected deliverable at PLAN time, the solo
-// loop runs them deterministically at its finish boundary (runVerifyCmd + regex/exit
-// predicate), a passing check deterministically checks off its todo, and when every check
-// passes the termination council's open-ended continue path is skipped (the contract was
-// settled at planning — no new demands after). A real check FAILURE injects the failing
-// command's output as a one-shot continuation nudge; a clean run injects nothing.
-//
-// Default ON. It was OFF (2026-07-16 regression bisect) for one reason: an all-pass then SKIPPED
-// the termination council, so a weak plan-audit's TRIVIAL checks ("file exists") all passed and a
-// false done landed (cancel-async council-skip). That skip is now removed — runStepGate never
-// finishes the turn; it RUNS each check and feeds the results to the council as a hard
-// `deliverable-check` signal (real command output, not the agent's "I'm done" narration), so a
-// failing check blocks done while trivial passes still face the council's completeness lens.
-// MAGI_STEP_VERIFY=0 restores the no-ledger baseline for A/B.
-func stepVerifyEnabled() bool { return !envOff("MAGI_STEP_VERIFY") }
-
-// retrySplitEnabled controls how a delegate FAIL retry is briefed. On (the default), the retry
-// RE-RUNS the step's deliverable checks and hands the second attempt a "what's proven done / what
-// remains" split — so it continues from the first attempt's partial work instead of restarting the
-// whole part from the identical directive. With no executable checks to run it falls back to the
-// generic tool-trail pivot; MAGI_RETRY_SPLIT=0 forces that fallback everywhere for A/B.
-func retrySplitEnabled() bool { return !envOff("MAGI_RETRY_SPLIT") }
-
 // contractFirstEnabled turns on the contract-first order (D-contract): BEFORE the planner
 // decomposes the request, the council authors and reviews the turn's acceptance CONTRACT
 // (completion criteria + executable deliverable checks) for the TASK itself — bounded above
@@ -334,17 +310,6 @@ func retrySplitEnabled() bool { return !envOff("MAGI_RETRY_SPLIT") }
 // baseline where the plan-audit council derives criteria/checks after the plan (the A/B knob).
 // Default ON.
 func contractFirstEnabled() bool { return !envOff("MAGI_CONTRACT_FIRST") }
-
-// stepContractEnabled extends the per-step deliverable contract to the STUCK-RECOVERY re-plan
-// (driveStuckTodos). The normal plan path already authors per-step checks and gates each step on
-// them (verifyStepChecks) with an unmet-only handoff on retry (retryContinuation); the recovery
-// re-plan bypassed all of that — it spawned each recovery unit and marked it completed on any
-// non-empty result, with NO deliverable checks. With this on, the solo-replace recovery authors
-// per-step checks for its fresh plan, hands each unit its checklist, and verifies the unit's checks
-// before marking it done — so a recovery re-plan gets the same contract every other plan does, and
-// the user's "on re-plan too, always define and check the step's criteria/checklist" holds. Default
-// ON; MAGI_STEP_CONTRACT=0 restores the unchecked recovery baseline for A/B.
-func stepContractEnabled() bool { return !envOff("MAGI_STEP_CONTRACT") }
 
 // criteriaPerItemEnabled renders the turn's acceptance criteria to the termination council as an
 // ENUMERATED per-item checklist rather than one prose block, so the council judges EACH criterion
@@ -471,16 +436,6 @@ func planConvergeStopEnabled() bool { return envOn("MAGI_PLAN_CONVERGE_STOP") }
 // 1-step plan, so this only adds the missing audit+contract. Default ON; MAGI_SOLO_AUDIT=off
 // restores the >=2-step-only audit (the A/B knob).
 func soloAuditEnabled() bool { return !envOff("MAGI_SOLO_AUDIT") }
-
-// checkCoverageEnabled gates the per-step deliverable-check coverage fill (ensureStepCoverage).
-// The plan audit authors delib.Checks with NO coverage guarantee — the count is whatever the model
-// happened to emit, decoupled from the plan structure — so a weak model writes one check for an
-// 11-step plan and the termination gate (which only verifies steps that appear in the check set)
-// waves the other ten through unverified. With this on, when the authored checks cover fewer distinct
-// steps than the plan has, a single gap-fill pass authors checks for the uncovered producing steps;
-// it also gives the 0-step solo path — which never reaches the plan audit — one check for its
-// objective. Default ON; MAGI_CHECK_COVERAGE=off is the A/B baseline (author-only checks).
-func checkCoverageEnabled() bool { return !envOff("MAGI_CHECK_COVERAGE") }
 
 // waitGuardEnabled gates the environment-wait recovery suppression: when a stall force-stop is
 // reached but the no-progress window is dominated by waiting/polling (guard.stallIsWait — sleep,

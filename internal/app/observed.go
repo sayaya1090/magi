@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
@@ -182,4 +183,87 @@ func (o observedRun) render() string {
 		b.WriteString("\nnothing that exercises a deliverable ran to a status magi could read")
 	}
 	return b.String()
+}
+
+// exitOfBashResult reads the `exit N` the bash tool puts at the head of its result. Returns
+// (0, false) when the result carries none — a background start, or a shape this does not know —
+// so an unreadable result is never mistaken for a clean exit.
+func exitOfBashResult(res string) (int, bool) {
+	s := strings.TrimSpace(decodeResultText(res))
+	if !strings.HasPrefix(s, "exit ") {
+		return 0, false
+	}
+	f := strings.Fields(s)
+	if len(f) < 2 {
+		return 0, false
+	}
+	n, err := strconv.Atoi(f[1])
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+// decodeResultText unwraps a tool result's stored form. Content is a json.RawMessage, so a bash
+// result arrives as a JSON STRING — quoted, with its newlines escaped — and reading it as raw text
+// leaves `exit 0\noutput: …` glued into one token. Anything that is not a JSON string (a structured
+// result from another tool) is returned unchanged.
+func decodeResultText(res string) string {
+	var s string
+	if json.Unmarshal([]byte(res), &s) == nil {
+		return s
+	}
+	return res
+}
+
+// writtenPaths lists the files a session and everything under it actually wrote, newest last, in the
+// spelling the tool call used. It reads the same record pathTouched does and answers the other half
+// of the question: not "was this one file changed" but "what did this worker produce".
+func (a *App) writtenPaths(ctx context.Context, sid session.SessionID, cap int) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(evs []event.Event) {
+		for _, p := range writesIn(evs) {
+			if seen[p] || len(out) >= cap {
+				continue
+			}
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	add(a.readEventsBestEffort(ctx, sid))
+	for _, k := range a.descendantsOf(sid) {
+		add(a.readEventsBestEffort(ctx, k))
+	}
+	return out
+}
+
+// writesIn pulls every path one session's tool calls wrote to, in call order.
+func writesIn(evs []event.Event) []string {
+	if len(evs) > provenanceScanCap {
+		evs = evs[len(evs)-provenanceScanCap:]
+	}
+	var out []string
+	for _, e := range evs {
+		if e.Type != event.TypePartAppended {
+			continue
+		}
+		var d event.PartAppendedData
+		if json.Unmarshal(e.Data, &d) != nil || d.Part.Kind != session.PartToolCall || d.Part.ToolCall == nil {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(d.Part.ToolCall.Name)) {
+		case "write", "edit", "multiedit":
+			var a struct{ Path string }
+			if json.Unmarshal(d.Part.ToolCall.Args, &a) == nil && strings.TrimSpace(a.Path) != "" {
+				out = append(out, strings.TrimSpace(a.Path))
+			}
+		case "bash":
+			var a struct{ Command string }
+			if json.Unmarshal(d.Part.ToolCall.Args, &a) == nil {
+				out = append(out, bashWritePaths(a.Command)...)
+			}
+		}
+	}
+	return out
 }

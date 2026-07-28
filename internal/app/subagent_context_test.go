@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -40,16 +39,13 @@ func TestScoutDiscoveryExplorerIsOriented(t *testing.T) {
 	}
 }
 
-// A refine child is CLONED from the parent, which is not the same as being told: the ledger's exact
-// paths stop arriving once the shared refine session stops re-cloning, and the council's unresolved
-// concern is an ActorSystem message — which cloneConversation drops outright. runStepGate judges the
-// step against both. (The acceptance checklist is not appended here; it belongs inside the sub-goal
-// — see TestChecklistRidesWithTheAssignment.)
+// A refine child is CLONED from the parent, which is not the same as being told: the mined spec and
+// the council's unresolved concern are ActorSystem messages — which cloneConversation drops outright.
 func TestRefineChildGetsWhatTheCloneCannotCarry(t *testing.T) {
-	ledger := renderLedger([]ledgerEntry{{Step: "write the parser", Facts: "internal/parse/lex.go"}})
+	mined := specMineWorkerBrief("internal/parse/lex.go is the lexer")
 	concern := concernBrief("nothing captures the build output")
 
-	got := refineContext(ledger, concern)
+	got := refineContext(mined, concern)
 	for _, want := range []string{"internal/parse/lex.go", "nothing captures the build output"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("refine context missing %q:\n%s", want, got)
@@ -58,7 +54,7 @@ func TestRefineChildGetsWhatTheCloneCannotCarry(t *testing.T) {
 	// Order matches the delegate worker's, so the two hand-offs cannot drift into describing the
 	// same step differently.
 	if li, ni := strings.Index(got, "internal/parse/lex.go"), strings.Index(got, "nothing captures"); li > ni {
-		t.Errorf("blocks must keep the delegate order ledger→concern:\n%s", got)
+		t.Errorf("blocks must keep the delegate order specmine→concern:\n%s", got)
 	}
 	// It appends to a prompt, so it must lead with its own separation and add nothing when
 	// there is nothing to add — a bare refine hand-off must stay byte-identical.
@@ -70,54 +66,6 @@ func TestRefineChildGetsWhatTheCloneCannotCarry(t *testing.T) {
 	}
 	if refineContext() != "" {
 		t.Error("no blocks at all must append nothing")
-	}
-}
-
-// TestChecklistRidesWithTheAssignment: the acceptance checklist is the definition of done, and it
-// used to arrive as trailing text — on the delegate path appended into the brief, which the prompt
-// files under "CONTEXT — reference only … NOT a to-do list", so the one block naming what the worker
-// must produce was introduced as something not to work from; on refine and the recovery unit it
-// landed after the closing "before reporting done" clause, as if the assignment were already over.
-// Every hand-off now states it in the same place: inside the block the child reads as its orders.
-func TestChecklistRidesWithTheAssignment(t *testing.T) {
-	checklist := workerChecklist([]council.DeliverableCheck{
-		{Step: "2", Deliverable: "the log file", Source: "build.log", Assert: "non-empty"},
-	}, 1)
-	if checklist == "" {
-		t.Fatal("precondition: step 2's check must render a checklist")
-	}
-	st := planStep{Title: "capture the build", Task: "run the build and keep its output"}
-
-	for _, tc := range []struct {
-		name, got, assignment, after string
-	}{
-		{"delegate", delegatePrompt(st, "the overall goal is X", checklist), "YOUR PART", "CONTEXT — reference only"},
-		{"redecompose", redecomposePrompt(st, "the overall goal is X", checklist), "YOUR PART", "CONTEXT — reference only"},
-		{"refine", refinePrompt(st, "", checklist), "SUB-GOAL", "How to proceed:"},
-		{"stuck unit", stuckUnitPrompt(st, "the port was already bound", checklist), "ONLY THIS ONE unit", "WHAT BLOCKED"},
-	} {
-		task, cl := strings.Index(tc.got, st.Task), strings.Index(tc.got, "build.log")
-		head, after := strings.Index(tc.got, tc.assignment), strings.Index(tc.got, tc.after)
-		if cl < 0 {
-			t.Errorf("%s: the checklist never reached the worker:\n%s", tc.name, tc.got)
-			continue
-		}
-		if !(head < task && task < cl && cl < after) {
-			t.Errorf("%s: the checklist must sit under the assignment header and before %q:\n%s", tc.name, tc.after, tc.got)
-		}
-		// The lead line has to say the two are one obligation — a bare list after the task reads
-		// as more background.
-		if !strings.Contains(tc.got, "part of the assignment above") {
-			t.Errorf("%s: the checklist must be claimed as part of the assignment:\n%s", tc.name, tc.got)
-		}
-	}
-	// No checks authored for this step → the hand-off is byte-identical to one with no checklist
-	// argument at all, so a plan without checks is not handed an empty obligation.
-	if delegatePrompt(st, "b", "") != delegatePrompt(st, "b", "   ") {
-		t.Error("a blank checklist must be treated as no checklist")
-	}
-	if strings.Contains(delegatePrompt(st, "b", ""), "part of the assignment above") {
-		t.Error("no checks must add no checklist lead-in")
 	}
 }
 

@@ -60,7 +60,6 @@ func (a *App) Rewind(ctx context.Context, sid session.SessionID, n int) (int64, 
 		st.provAudited = nil
 		st.contractFrozen = false
 		st.contractText = ""
-		st.stepLedger = nil
 	}
 	a.mu.Unlock()
 	return boundary, nil
@@ -118,91 +117,6 @@ func (a *App) SubagentRequest(sid session.SessionID) string {
 	return a.seedPromptOf(sid)
 }
 
-// SubagentChecklist returns the acceptance checklist a delegated subagent must satisfy: the
-// plan-audit deliverable checks for the parent plan step this child carries out, the same
-// contract handed to it in its brief (workerChecklist). Empty for a child not tied to a plan
-// step, or when the plan produced no checks. Read by the TUI to show that checklist in a
-// subagent's detail view, mirroring the main plan panel.
-func (a *App) SubagentChecklist(childSID session.SessionID) []council.DeliverableCheck {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	st, ok := a.stateIf(childSID)
-	if !ok || st.meta.Parent == "" || st.meta.ParentStep == nil {
-		return nil
-	}
-	pst, ok := a.stateIf(st.meta.Parent)
-	if !ok {
-		return nil
-	}
-	return stepChecks(pst.deliverableChecks, *st.meta.ParentStep)
-}
-
-// CouncilContract returns what the termination council judges the turn against: the prose
-// acceptance criteria and the plan-audit's executable per-step deliverable checks — the ledger
-// the council verifies. Read by the TUI to show that ledger in the council detail view. Either
-// may be empty (a turn with no council-derived contract).
-func (a *App) CouncilContract(sid session.SessionID) (string, []council.DeliverableCheck) {
-	return a.cachedCriteria(sid), a.cachedChecks(sid)
-}
-
-// CheckState is the display state of one completion check in the plan panel.
-type CheckState int
-
-const (
-	CheckPending CheckState = iota // not yet verified passing, and not the current step
-	CheckActive                    // belongs to the step currently in progress (render a spinner)
-	CheckPassed                    // its OWN verify command ran green (render a ✓)
-)
-
-// CheckStatus pairs a completion check with its current display state.
-type CheckStatus struct {
-	Check council.DeliverableCheck
-	State CheckState
-}
-
-// CompletionChecks returns the turn's completion checks annotated with display state for the
-// plan panel: CheckPassed once the check's OWN verify command has run green, CheckActive while the
-// check's step is the one in progress (so the panel can spin it), else CheckPending. A green run
-// wins over active. A merely-completed step does NOT flip its check to ✓ — that step-done ✓ lives
-// in the plan tree above; the completion-check ✓ is reserved for the check's own executed evidence,
-// so the two panel blocks never double-mark the same completed step. Empty when no checks derived.
-func (a *App) CompletionChecks(sid session.SessionID) []CheckStatus {
-	checks := a.cachedChecks(sid)
-	if len(checks) == 0 {
-		return nil
-	}
-	todos := a.Todos(sid)
-
-	a.mu.Lock()
-	passed := map[string]bool{}
-	if st, ok := a.stateIf(sid); ok {
-		for k, v := range st.passedChecks {
-			passed[k] = v
-		}
-	}
-	a.mu.Unlock()
-
-	out := make([]CheckStatus, len(checks))
-	for i, c := range checks {
-		state := CheckPending
-		// The step being in progress spins its check. A step that is merely "completed" does NOT
-		// flip the check to ✓ here — the plan tree already shows that step-done ✓ one block up, and
-		// mirroring it would double-mark the same completed step. The completion-check ✓ is earned
-		// only by the check's own green run (below).
-		if idx := matchTodoIndex(todos, c.Step); idx >= 0 && todos[idx].Status == "in_progress" {
-			state = CheckActive // its step is running → spinner
-		}
-		// The check's OWN executed result is authoritative: a green run shows ✓ (outranking the
-		// spinner); a FAILED run stays a plain bullet — it cannot claim ✓ over its contradicting
-		// evidence, and unlike an in-progress step it is not "running".
-		if result, ran := passed[checkKey(c)]; ran && result {
-			state = CheckPassed
-		}
-		out[i] = CheckStatus{Check: c, State: state}
-	}
-	return out
-}
-
 // AcceptanceCriteria returns this turn's acceptance criteria — the prose completion conditions the
 // finished work is judged against — one item per line, for the plan panel. Paired with
 // CompletionChecks (the executable half), these are the "completion conditions". Empty when none.
@@ -229,29 +143,6 @@ func (a *App) ContractFrozen(sid session.SessionID) bool {
 	defer a.mu.Unlock()
 	st, ok := a.stateIf(sid)
 	return ok && st.contractFrozen
-}
-
-// LedgerRow is one shared artifact-ledger row for the TUI: a plan step and the concrete
-// deliverables (file paths, interfaces) it produced for later steps to reuse.
-type LedgerRow struct {
-	Step  string
-	Facts string
-}
-
-// SharedLedger returns the shared artifact ledger to show in a right panel — the exact
-// paths/interfaces the plan's steps have produced so far. A delegate child sees its PARENT plan's
-// ledger (what its sibling steps produced, the shared context it was handed); a top-level session
-// sees its own. Empty when nothing has been recorded yet.
-func (a *App) SharedLedger(sid session.SessionID) []LedgerRow {
-	entries := a.sharedLedger(sid)
-	if len(entries) == 0 {
-		return nil
-	}
-	out := make([]LedgerRow, len(entries))
-	for i, e := range entries {
-		out[i] = LedgerRow{Step: e.Step, Facts: e.Facts}
-	}
-	return out
 }
 
 // OpenConcerns folds the session's event log into its live structural-concern ledger and returns

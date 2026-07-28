@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"path"
 	"strings"
 
@@ -52,111 +51,6 @@ const provenanceScanCap = 400
 type authoredContent struct {
 	tool string
 	text string
-}
-
-// auditSourceProvenance reports when a check's source file was composed by the worker rather than
-// produced by a program. Returns "" when there is nothing to say — the audit is off, the assertion
-// does not read a file, or no tool call authored that path (the normal case).
-//
-// The question has two sharpnesses. For `matches` the pattern itself can be looked for in what was
-// typed, and finding it names the cheat exactly: the worker wrote the very string the check greps
-// for. For the other file-reading verbs there is no pattern, and the authorship alone is the
-// finding — which is enough, because a check that passes on a file whose bytes came out of the
-// reply is evidence about the reply and not about the work.
-//
-// That second half was missing, and it is the half that mattered: `nonempty` is satisfied by ANY
-// text, so it is the cheapest assertion to fake and the one an audit keyed on patterns can never
-// see. Observed live, one second apart — `echo "Bootstrap completed successfully - no crash in
-// build" > /app/crash.log`, then `crash.log nonempty` flipping to pass, on a step whose deliverable
-// was "bootstrap crash reproduced" and whose real build was segfaulting.
-//
-// The liveness probes (port_open, process_alive) read the world rather than a file, so there is no
-// authorship to ask about.
-func (a *App) auditSourceProvenance(ctx context.Context, sid session.SessionID, src string, as assertion) string {
-	if !provenanceEnabled() || strings.TrimSpace(src) == "" {
-		return ""
-	}
-	switch as.verb {
-	case "matches", "nonempty", "absent", "equals":
-	default:
-		return ""
-	}
-	pat := literalOf(as.arg) // "" for the verbs with no pattern — the authorship question stands
-	if as.verb == "matches" && pat == "" {
-		return "" // a pattern with no literal core (`.*`, `^$`) cannot be looked for in typed text
-	}
-	if f, asked := a.provAudit(sid, src, pat); asked {
-		return f // asked already this run; the scan reads every event of every session
-	}
-	f := auditFinding(a.pathAuthors(ctx, sid, src), src, as)
-	a.rememberProvAudit(sid, src, pat, f)
-	return f
-}
-
-// auditFinding is the decision itself, over the authors already gathered. Separated from the
-// gathering because this is the part that must be right — the gathering can over-collect harmlessly,
-// but a finding names a specific call as having faked a result.
-func auditFinding(authors []authoredContent, src string, as assertion) string {
-	if len(authors) == 0 {
-		return ""
-	}
-	switch as.verb {
-	case "matches", "nonempty", "absent", "equals":
-	default:
-		return "" // reads the world, not a file — there is no authorship to report
-	}
-	if as.verb == "matches" {
-		pat := literalOf(as.arg)
-		if pat == "" {
-			return ""
-		}
-		for _, w := range authors {
-			if !strings.Contains(w.text, pat) {
-				continue
-			}
-			return fmt.Sprintf("PROVENANCE: %s was written by the worker's own `%s` call, and the text it wrote "+
-				"contains %q — the very string this check looks for. Nothing here shows the work was done: a recorded "+
-				"result must be the REAL output of the command it summarizes, redirected into this path.",
-				src, w.tool, clipLine(pat, 80))
-		}
-		return ""
-	}
-	w := authors[0]
-	return fmt.Sprintf("PROVENANCE: %s was written by the worker's own `%s` call — its contents came out of the "+
-		"reply, not out of a program. `%s` passing on a file the worker composed is evidence about what was typed, "+
-		"not about the work: a recorded result must be the REAL output of the command it summarizes, redirected "+
-		"into this path.", src, w.tool, as.verb)
-}
-
-// provAudit returns what a previous ask about this (source, pattern) found, and whether it was ever
-// asked. rememberProvAudit records the answer.
-//
-// The memo exists because the scan re-reads every event of the gating session and of every session
-// beneath it, and a step's checks run at each gate cycle — the cost is paid over and over for an
-// answer that does not move. What it must NOT do is hide that answer: the FINDING is cached, not
-// merely the fact of having asked. A check is evaluated more than once by design (the delegate step
-// gate runs it, then the incremental recorder runs it again), and each of those records its own
-// event, so a memo that returned "" the second time would leave whichever record someone actually
-// reads with no finding on it.
-func (a *App) provAudit(sid session.SessionID, src, pat string) (string, bool) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	st, ok := a.stateIf(sid)
-	if !ok {
-		return "", false
-	}
-	f, asked := st.provAudited[src+"\x00"+pat]
-	return f, asked
-}
-
-func (a *App) rememberProvAudit(sid session.SessionID, src, pat, finding string) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	st := a.stateLocked(sid)
-	if st.provAudited == nil {
-		st.provAudited = map[string]string{}
-	}
-	st.provAudited[src+"\x00"+pat] = finding
 }
 
 // pathAuthors returns every recent tool call, in the gating session and in every session BENEATH it
@@ -349,38 +243,4 @@ func samePath(a, b string) bool {
 		return true
 	}
 	return strings.HasSuffix(x, "/"+y) || strings.HasSuffix(y, "/"+x)
-}
-
-// literalOf extracts the longest run of ordinary characters from a regular expression — the part that
-// must appear verbatim in the subject for the pattern to match at all. `All tests passed` out of
-// `^All tests passed$`, `error` out of `(error|fail)`. Returns "" when the pattern has no such run
-// (`.*`, `\d+`), which means it cannot be looked for in composed text and the audit stays silent.
-func literalOf(pat string) string {
-	best, cur := "", strings.Builder{}
-	flush := func() {
-		if cur.Len() > len(best) {
-			best = cur.String()
-		}
-		cur.Reset()
-	}
-	for i := 0; i < len(pat); i++ {
-		c := pat[i]
-		if c == '\\' { // an escaped metacharacter is a literal, but skip the pair rather than guess
-			i++
-			flush()
-			continue
-		}
-		if strings.IndexByte(`^$.*+?()[]{}|`, c) >= 0 {
-			flush()
-			continue
-		}
-		cur.WriteByte(c)
-	}
-	flush()
-	// A one- or two-character run is noise (a stray `a` between metacharacters) and would match text
-	// everywhere; require enough to be about this contract.
-	if best = strings.TrimSpace(best); len(best) < 4 {
-		return ""
-	}
-	return best
 }

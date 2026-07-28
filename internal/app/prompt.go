@@ -226,14 +226,6 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 	if td := a.Todos(s.ID); len(td) > 0 {
 		b.WriteString("\n\n# Current plan (TODOs)\n" + formatTodos(td))
 	}
-	// The executable half of the same contract, right under the plan its items are labeled
-	// against. A delegated worker gets this in its brief (workerChecklist); an agent working the
-	// plan ITSELF has no brief, and until this block it was never told that a check would read a
-	// file — so it did not produce the file, and the check failed on a missing source. Cached per
-	// session and only rewritten by a re-plan → byte-stable within a turn.
-	if checkContextEnabled() {
-		b.WriteString(soloCheckContract(a.cachedChecks(s.ID), agent))
-	}
 	// Compacted-context RAG (push half): topics an earlier compaction shed that look
 	// lexically relevant to the current task, as one-line pointers into recall_context.
 	//

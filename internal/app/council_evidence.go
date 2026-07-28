@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -462,4 +463,12 @@ func (a *App) subagentTurnEvidence(ctx context.Context, parent session.SessionID
 		}
 	}
 	return strings.Join(blocks, "\n")
+}
+
+// clipEach returns at most n entries, with a marker when more were dropped.
+func clipEach(xs []string, n int) []string {
+	if len(xs) <= n {
+		return xs
+	}
+	return append(append([]string{}, xs[:n]...), fmt.Sprintf("…and %d more", len(xs)-n))
 }

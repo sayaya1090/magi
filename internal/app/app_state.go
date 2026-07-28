@@ -10,7 +10,6 @@ import (
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
-	"github.com/sayaya1090/magi/internal/port"
 )
 
 // sessionState holds all per-session state for one session, consolidating what used to
@@ -37,8 +36,6 @@ type sessionState struct {
 	pendingAsk       chan string            // channel for a subagent's pending ask answer (parent)
 	bg               *bgGroup               // background subagent tracking (parent)
 	report           *subReport             // filed final report (subagent session)
-	pendingSubs      []port.CheckSub        // check substitutions declared this turn (substitute_check tool / report), awaiting review
-	approvedSubs     []port.CheckSub        // review-approved check substitutions, picked up into SpawnResult (subagent session)
 	userLabel        string                 // display name for the user in the transcript (plugin set_user_label); "" = "you"
 	// deferredAbandoned is the set of interjection origin MessageIDs that were queued in a
 	// PRIOR process (F5 ledger) and never resolved — reconstructed once from the log on the
@@ -80,7 +77,6 @@ type sessionState struct {
 	passedChecks      map[string]bool            // checkKey → latest verify result (true=pass); drives the panel's ✓ glyph
 	provAudited       map[string]string          // source\x00pattern already put through the provenance audit — it re-reads every session event, and its finding ("this call wrote this string") stays true once made, so once per run is enough
 	estSteps          int                        // planner's advisory step estimate this turn
-	stepLedger        []ledgerEntry              // shared artifact ledger: each completed step's produced paths/interfaces (handoff), passed VERBATIM to every later worker and shown in every right panel
 	planConcern       string                     // the plan council's UNRESOLVED critical concern this turn (only set when the gate proceeded past it), carried into every worker brief — see concernBrief
 	interjectSeen     map[string]bool            // interjection MessageIDs detected this turn (masked from turnTask/council)
 	awaitExplorers    bool                       // planner dispatched read-only explorers as this turn's primary work
@@ -199,7 +195,6 @@ func (a *App) resetForNewTopLevel(sid session.SessionID) {
 	st.passedChecks = nil        // …and the previous task's per-check pass/fail glyph state
 	st.provAudited = nil         // …and which sources it had already audited for provenance
 	st.estSteps = 0              // …and the previous task's advisory step estimate
-	st.stepLedger = nil          // …and the previous task's shared artifact ledger
 	st.planConcern = ""          // …and the concern the previous task's plan council could not resolve
 	a.forgetStepAttemptsFor(sid) // …and the spent retry ladders of the previous task's steps
 	// Reset the interjection mask, but KEEP masking anything still WAITING in the

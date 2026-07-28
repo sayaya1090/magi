@@ -872,7 +872,7 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 				timedOut := capExpired && ctx.Err() == nil
 				return port.SpawnResult{Err: o.err.Error(), SessionID: child.ID}, timedOut
 			}
-			return port.SpawnResult{Text: o.text, SessionID: child.ID, CheckSubs: a.takeApprovedSubs(child.ID)}, false
+			return port.SpawnResult{Text: o.text, SessionID: child.ID}, false
 
 		case <-capTimer.C:
 			// Lease expiry. Judge (or, with judging disabled, kill outright): an
@@ -910,7 +910,7 @@ func (a *App) runAttempt(ctx context.Context, parent session.Session, depth int,
 					if o.err != nil {
 						return port.SpawnResult{Err: o.err.Error(), SessionID: child.ID}, false
 					}
-					return port.SpawnResult{Text: o.text, SessionID: child.ID, CheckSubs: a.takeApprovedSubs(child.ID)}, false
+					return port.SpawnResult{Text: o.text, SessionID: child.ID}, false
 				default:
 				}
 				// Transparency: WHY the lease ended (v11 forensics had kills with no

@@ -7,7 +7,6 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -37,7 +36,7 @@ func (m *Model) hasPanel() bool {
 	// before the plan produces any todos — so the reviewed contract appears the moment it is frozen
 	// (the contract→plan order). Also whenever there are todos, live panes, or finished ones.
 	return len(m.app.Todos(sid)) > 0 || len(m.panes) > 0 || len(m.doneRoster) > 0 ||
-		len(m.app.AcceptanceCriteria(sid)) > 0 || len(m.app.CompletionChecks(sid)) > 0
+		len(m.app.AcceptanceCriteria(sid)) > 0
 }
 
 // panelCols is the horizontal space the panel RESERVES in the layout. The panel is a
@@ -148,28 +147,8 @@ func (m *Model) statusPanel(panelTop int) string {
 			}
 		}
 	}
-	// Completion checklist: the per-step executable deliverable checks — what counts as each step DONE
-	// and the command that verifies it. Shown at the plan level (not only in a worker or council
-	// drill-down) so the completion contract the run is judged against is always visible.
-	appendChecks := func() {
-		if checks := m.app.CompletionChecks(m.panelSID()); len(checks) > 0 {
-			sep()
-			passed := 0
-			for _, cs := range checks {
-				if cs.State == app.CheckPassed {
-					passed++
-				}
-			}
-			lines = append(lines, panelHead(fmt.Sprintf("Completion checks  %d/%d", passed, len(checks))))
-			for _, cs := range checks {
-				lines = append(lines, wrapPanel(m.checkLine(cs), inner)...)
-			}
-		}
-	}
-
 	if frozen { // contract-first: completion conditions come before the plan
 		appendCriteria()
-		appendChecks()
 	}
 
 	if todos := m.app.Todos(m.panelSID()); len(todos) > 0 {
@@ -186,20 +165,6 @@ func (m *Model) statusPanel(panelTop int) string {
 		// node's status comes from its own session (single source of truth); the parent
 		// step ↔ child session edge (PlanChildren) supplies only the structure.
 		lines = m.appendPlanTree(lines, m.panelSID(), inner, 0)
-	}
-
-	if !frozen { // legacy order: checks below the plan
-		appendChecks()
-	}
-
-	// Shared artifact ledger: the exact paths/interfaces the plan's steps have produced — shown here
-	// (and in every worker panel) because it is shared by everyone working the plan.
-	if led := m.app.SharedLedger(m.panelSID()); len(led) > 0 {
-		sep()
-		lines = append(lines, panelHead("Shared ledger"))
-		for _, e := range led {
-			lines = append(lines, wrapPanel(ledgerLine(e), inner)...)
-		}
 	}
 
 	if len(m.panes) > 0 || len(m.doneRoster) > 0 {
@@ -261,24 +226,6 @@ func (m *Model) workerPanel(p *agentPane) string {
 		lines = append(lines, panelHead("Request"))
 		lines = append(lines, wrapPanel(req, inner)...)
 	}
-	if checks := m.app.SubagentChecklist(p.sid); len(checks) > 0 {
-		sep()
-		lines = append(lines, panelHead("Checklist"))
-		for i, c := range checks {
-			item := strings.TrimSpace(c.Deliverable)
-			if item == "" {
-				item = strings.TrimSpace(c.Command)
-			}
-			lines = append(lines, wrapPanel(fmt.Sprintf("%d. %s", i+1, item), inner)...)
-		}
-	}
-	if led := m.app.SharedLedger(p.sid); len(led) > 0 {
-		sep()
-		lines = append(lines, panelHead("Shared ledger"))
-		for _, e := range led {
-			lines = append(lines, wrapPanel(ledgerLine(e), inner)...)
-		}
-	}
 	if todos := m.app.Todos(p.sid); len(todos) > 0 {
 		done := 0
 		for _, t := range todos {
@@ -298,40 +245,6 @@ func (m *Model) workerPanel(p *agentPane) string {
 		lines = lines[:maxRows]
 	}
 	return roundedBox(strings.Join(lines, "\n"), content)
-}
-
-// checkLine formats one completion check for the plan panel with a state glyph: a green ✓ for a
-// check whose verify command has passed, an animated spinner for a check whose step is currently in
-// progress, else a muted bullet. The label is the deliverable phrase alone (the "run: cmd" tail is
-// dropped — the right panel is too narrow for it), falling back to the command itself only when no
-// phrase was authored. A passed line is dimmed and struck through — done, out of the way — mirroring
-// the plan tree's completed-todo styling.
-func (m *Model) checkLine(cs app.CheckStatus) string {
-	label := strings.TrimSpace(cs.Check.Deliverable)
-	if label == "" {
-		label = strings.TrimSpace(cs.Check.Command) // no phrase authored → show the command itself
-	}
-	switch cs.State {
-	case app.CheckPassed:
-		return lipgloss.NewStyle().Foreground(colSuccess).Render("✓ ") +
-			lipgloss.NewStyle().Foreground(colMuted).Strikethrough(true).Render(label)
-	case app.CheckActive:
-		return m.sp.View() + " " + lipgloss.NewStyle().Bold(true).Render(label)
-	default:
-		// Empty checkbox, matching the plan tree's pending glyph (todoLine) — one checkbox
-		// language across the panel instead of a separate bullet for checks.
-		return lipgloss.NewStyle().Foreground(colMuted).Render("☐ " + label)
-	}
-}
-
-// ledgerLine formats one shared-ledger row for a panel: "• step — facts", or "• facts" when the
-// producing step is unlabelled. The facts are shown verbatim (the exact paths workers must reuse).
-func ledgerLine(e app.LedgerRow) string {
-	// A ledger row is only recorded when its step COMPLETED (appendLedger), so it is always done:
-	// a green ✓ (matching the plan tree's completed glyph) instead of a neutral bullet. The panel is
-	// narrow, so show only the FACTS (the handoff paths/interfaces) — the step title is dropped.
-	check := lipgloss.NewStyle().Foreground(colSuccess).Render("✓ ")
-	return check + strings.TrimSpace(e.Facts)
 }
 
 // wrapPanel word-wraps s to width cells and returns its lines, so a long request/checklist entry

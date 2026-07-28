@@ -36,7 +36,7 @@ func TestStuckDecomposeEnabledDefault(t *testing.T) {
 // touches the fixation point.
 func TestStuckUnitPrompt(t *testing.T) {
 	st := planStep{Title: "edit init.lua", Task: "replace the hardcoded window with the API value"}
-	p := stuckUnitPrompt(st, "kept re-reading the same file", "")
+	p := stuckUnitPrompt(st, "kept re-reading the same file")
 	if !strings.Contains(p, "replace the hardcoded window") {
 		t.Error("must contain the unit task")
 	}
@@ -47,7 +47,7 @@ func TestStuckUnitPrompt(t *testing.T) {
 		t.Error("every unit must carry the block reason")
 	}
 	// Falls back to the title when a unit carries no explicit task text.
-	if got := stuckUnitPrompt(planStep{Title: "just a title"}, "", ""); !strings.Contains(got, "just a title") {
+	if got := stuckUnitPrompt(planStep{Title: "just a title"}, ""); !strings.Contains(got, "just a title") {
 		t.Errorf("empty-task unit should fall back to the title: %q", got)
 	}
 }

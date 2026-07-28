@@ -664,7 +664,7 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 	ct.prevVerdicts = merged
 	pd, _ := json.Marshal(event.PromptSubmittedData{
 		MessageID: "m_" + newID(),
-		Parts:     []session.Part{{Kind: session.PartText, Text: continuationText(inject, task, a.frozenContractClause(a.cachedChecks(sid)))}},
+		Parts:     []session.Part{{Kind: session.PartText, Text: continuationText(inject, task, "")}},
 	})
 	a.appendFact(ctx, sid, event.TypePromptSubmitted, councilActor, pd)
 	return true, ""

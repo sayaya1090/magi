@@ -60,7 +60,6 @@ func (a *App) completeThrough(ctx context.Context, sid session.SessionID, actor 
 	}
 	cp := append([]session.Todo(nil), td...)
 	changed := false
-	var newlyDone []int
 	for j := 0; j <= i; j++ {
 		// Back-fill pending/in_progress steps to completed, but NEVER resurrect a cancelled step: a
 		// cancelled step was explicitly retired (finalizeTodos), and flipping it to completed would
@@ -68,7 +67,6 @@ func (a *App) completeThrough(ctx context.Context, sid session.SessionID, actor 
 		if cp[j].Status != "completed" && cp[j].Status != "cancelled" {
 			cp[j].Status = "completed"
 			changed = true
-			newlyDone = append(newlyDone, j)
 		}
 	}
 	if !changed {
@@ -79,13 +77,6 @@ func (a *App) completeThrough(ctx context.Context, sid session.SessionID, actor 
 	a.mu.Unlock()
 	d, _ := json.Marshal(event.TodosChangedData{Todos: cp})
 	_ = a.appendFact(ctx, sid, event.TypeTodosChanged, actor, d)
-	// Per-step completion checks: the moment a step lands, run and record ITS deliverable checks so
-	// the panel fills incrementally on every path (delegate/scout/refine), instead of the terminal
-	// gate recording them all at once. Idempotent — a check the delegate step gate already passed is
-	// skipped. Runs outside the lock (shell commands); a no-op when step-verify is off or no checks.
-	for _, j := range newlyDone {
-		a.recordStepChecks(ctx, sid, j)
-	}
 }
 
 // setTodoStatusIf moves the i-th todo from one status to another, but only when it is

@@ -8,7 +8,6 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 	"github.com/sayaya1090/magi/internal/core/bus"
 	"github.com/sayaya1090/magi/internal/core/command"
-	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -98,12 +97,9 @@ func TestRewindClearsDerivedCaches(t *testing.T) {
 	// Seed the turn-derived caches as a completed plan-audit turn would.
 	a.mu.Lock()
 	st := a.stateLocked(sid)
-	st.deliverableChecks = []council.DeliverableCheck{{Step: "1", Command: "true"}}
-	st.passedChecks = map[string]bool{"k": true}
 	st.contractFrozen = true
 	st.contractText = "contract"
 	st.minedNote = "note"
-	st.stepLedger = []ledgerEntry{{Step: "1", Facts: "x"}}
 	a.mu.Unlock()
 
 	if _, err := a.Rewind(context.Background(), sid, 1); err != nil {
@@ -112,10 +108,9 @@ func TestRewindClearsDerivedCaches(t *testing.T) {
 
 	a.mu.Lock()
 	st = a.stateLocked(sid)
-	bad := st.deliverableChecks != nil || st.passedChecks != nil || st.contractFrozen ||
-		st.contractText != "" || st.minedNote != "" || st.stepLedger != nil
+	bad := st.contractFrozen || st.contractText != "" || st.minedNote != ""
 	a.mu.Unlock()
 	if bad {
-		t.Error("Rewind must clear deliverableChecks/passedChecks/contractFrozen/contractText/minedNote/stepLedger")
+		t.Error("Rewind must clear contractFrozen/contractText/minedNote")
 	}
 }

@@ -362,50 +362,11 @@ func (a *App) runTerminationGate(ctx context.Context, tc turnCtx, step int, turn
 	}
 	s, agent, guard, depth, maxSteps := tc.s, tc.agent, tc.guard, tc.depth, tc.maxSteps
 	sid := s.ID
-	// Substitution review (solo/top-level): a solo agent has no report tool, so its check substitutions
-	// (substitute_check) are vetted HERE at the finish boundary — same strict review a delegated worker
-	// gets at its report. A rejected substitution loops the agent to correct; an approved one rewrites
-	// this session's stored checks (below) so the step gate then verifies the working command.
-	if act, looped := a.reviewSubstitutions(ctx, tc, &ts.substRounds, &ts.substCritique); looped {
-		return act, true
-	}
-	stepGate, checkLedger := a.runStepGate(ctx, s, ts)
-	// Non-converging self-check landing (internal signal only — no external wall clock): a
-	// non-empty ledger means a deliverable check FAILED this attempt. If the agent has edited the
-	// deliverable (mutation epoch advancing) across checkChurnCap such attempts and the SAME check
-	// still fails, the check is not converging (an inverted/impossible plan-audit check, e.g.
-	// kv-store-grpc's `exit(connect_ex(...)==0)` that passes only when the server is DOWN). Rather
-	// than churn edits — each of which refills the stall window via mutated — to an external
-	// hard-kill that tears the live deliverable down (reward 0), land gracefully UNVERIFIED with
-	// work standing so the external verifier judges the running result. A converging check resets
-	// the counter (resetCheckChurn below), so this never fires on a task whose check eventually passes.
-	// countedChurn guards against double-counting a churn cycle: when the step gate hands up a
-	// failing ledger we count it here, and the council below (which still sees that ledger as
-	// evidence) must NOT count the same finish attempt again.
-	countedChurn := false
-	if checkLedger != "" {
-		countedChurn = true
-		if checkChurnLandEnabled() && guard.noteCheckFail() >= checkChurnCap() {
-			dd, _ := json.Marshal(event.CouncilDecidedData{
-				Round: ts.council.rounds + 1, Decision: string(council.Done),
-				Note: "deliverable self-check failed across repeated edit cycles without converging — " +
-					"landing with work standing so the external verifier judges the live deliverable; treat as UNVERIFIED",
-				Forced: true,
-			})
-			a.appendFact(ctx, sid, event.TypeCouncilDecided, event.Actor{Kind: event.ActorSystem, ID: "council"}, dd)
-			ts.unverifiedReason = "deliverable self-check kept failing across repeated edit cycles without " +
-				"converging — landing with work standing so the external verifier judges the live deliverable"
-			return 0, false
-		}
-	}
-	// NOTE: the churn counter is NOT reset merely because the step gate passed. A task whose
-	// per-step checks pass but whose COUNCIL keeps rejecting (kv-store-grpc: the step files exist,
-	// but a contradictory deliverable check the agent can't satisfy holds the council unmet) would
-	// otherwise have its run-scoped counter zeroed every turn, masking the non-convergence. The
-	// counter is reset ONLY on a genuine council approval (below), where verification truly converged.
-	if stepGate == gateFailRetry {
-		return loopContinue, true
-	}
+	// Non-converging self-check landing (internal signal only — no external wall clock): if the
+	// agent's OWN build/test keeps failing across repeated edit cycles (observedCheckChurn, counted
+	// where the calls actually run), verification is not converging. Churning edits to an external
+	// hard-kill tears the live deliverable down; the council branch below lands UNVERIFIED with work
+	// standing instead, so the external verifier judges the running result.
 	// No all-pass council skip: the ledger (checkLedger) is EVIDENCE fed to the council below, not
 	// a fast-path to done — the council always judges, so trivial passing checks can't false-done.
 	// Structural fabrication evidence for the council: if the agent changed a deliverable this
@@ -476,7 +437,6 @@ func (a *App) runTerminationGate(ctx context.Context, tc turnCtx, step int, turn
 		lastText:    lastText,
 		changes:     changes,
 		fabrication: fab,
-		checkLedger: checkLedger,
 		stepsLeft:   maxSteps - step,
 		turnElapsed: time.Since(tc.runStart),
 	}, &ts.council)
@@ -489,10 +449,9 @@ func (a *App) runTerminationGate(ctx context.Context, tc turnCtx, step int, turn
 		// demanded stub files named with a hyphen that grpc_tools MUST spell with an underscore, so
 		// satisfying the grep broke the import and vice-versa — an unwinnable edit loop). Churning edits
 		// to the external hard-kill tears the live deliverable down (reward 0); land UNVERIFIED with work
-		// standing so the external verifier judges the running result. Counted only when checkLedger was
-		// empty this turn (else the step-gate branch already counted it) and only on an epoch-advancing
+		// standing so the external verifier judges the running result. Counted only on an epoch-advancing
 		// edit (an idle re-finish is the idle-resubmit path above); a converging task resets on approval.
-		if !countedChurn && checkChurnLandEnabled() && guard.noteCheckFail() >= checkChurnCap() {
+		if checkChurnLandEnabled() && guard.noteCheckFail() >= checkChurnCap() {
 			dd, _ := json.Marshal(event.CouncilDecidedData{
 				Round: ts.council.rounds + 1, Decision: string(council.Done),
 				Note: "council kept rejecting across repeated edit cycles without converging — landing with " +

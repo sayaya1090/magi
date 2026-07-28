@@ -221,3 +221,5 @@ func TestUsageIsAttributedThroughAGuardedProvider(t *testing.T) {
 			"— an unattributed request makes turn.finished fall back to the last prompt", mine.In, total.In)
 	}
 }
+
+func jsonOf(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
