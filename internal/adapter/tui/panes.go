@@ -18,9 +18,15 @@ import (
 // view B). Each pane subscribes to its child session and renders that agent's
 // transcript independently, so several subagents can be watched at once.
 type agentPane struct {
-	sid       session.SessionID
-	role      string // agent name (explore, coder, …)
-	task      string // short summary of the request dispatched to this subagent
+	sid session.SessionID
+	// job is the background command this pane follows (bg_1, …). Set for every pane the strip
+	// opens today; the session fields stay for a pane restored from a stored transcript.
+	job       string
+	exit      int    // the job's exit status, once it has one
+	exited    bool   // it ended on its own (as opposed to still running, or killed)
+	killed    bool   // it was stopped, so its exit says nothing about the work
+	role      string // display name
+	task      string // the command this pane runs
 	blocks    []block
 	live      string // streaming text for the current step
 	liveThink string
@@ -156,6 +162,12 @@ func (m *Model) paneStatusPlain(p *agentPane) string {
 	g := "•"
 	if p.done {
 		g = "✓"
+		if p.job != "" && (p.killed || p.exit != 0) {
+			g = "✗"
+		}
+	}
+	if p.job != "" {
+		return g + " " + jobStatus(p)
 	}
 	elapsed := p.dur
 	if elapsed == 0 && !p.started.IsZero() {
@@ -635,6 +647,14 @@ func (m *Model) paneStatus(p *agentPane) string {
 	glyph := styleToolName.Render(m.sp.View())
 	if p.done {
 		glyph = styleToolOK.Render("✓")
+		// A job that ended badly must not wear the same ✓ as one that ended clean: the strip is
+		// where a failing build should be visible without opening it.
+		if p.job != "" && (p.killed || p.exit != 0) {
+			glyph = styleToolErr.Render("✗")
+		}
+	}
+	if p.job != "" {
+		return glyph + " " + styleFooter.Render(jobStatus(p))
 	}
 	elapsed := p.dur
 	if elapsed == 0 && !p.started.IsZero() {

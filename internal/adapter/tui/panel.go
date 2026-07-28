@@ -166,7 +166,7 @@ func (m *Model) statusPanel(panelTop int) string {
 
 	if len(m.panes) > 0 || len(m.doneRoster) > 0 {
 		sep()
-		lines = append(lines, panelHead("Subagents"))
+		lines = append(lines, panelHead("Background"))
 		paneRow := func(p *agentPane) {
 			p.panelY = panelTop + len(lines) // screen Y for click→zoom (active and finished)
 			c := m.paneColorOf(p)
@@ -180,10 +180,10 @@ func (m *Model) statusPanel(panelTop int) string {
 			lines = append(lines, lipgloss.NewStyle().Foreground(c).Render("● ")+
 				oneLine(p.label(), labelW)+" "+status)
 		}
-		// List active panes AND faded-out ones (doneRoster) together in their original
-		// SPAWN order (by sub), so a subagent keeps its position after it finishes
-		// instead of jumping to the bottom. Both stay click-to-zoomable — a finished
-		// pane opens via zoomPane since it's no longer in m.panes.
+		// List running panes AND faded-out ones (doneRoster) together in their original
+		// START order (by sub), so a job keeps its position after it exits instead of
+		// jumping to the bottom. Both stay click-to-zoomable — a finished pane opens via
+		// zoomPane since it's no longer in m.panes.
 		rows := make([]*agentPane, 0, len(m.panes)+len(m.doneRoster))
 		rows = append(rows, m.panes...)
 		rows = append(rows, m.doneRoster...)

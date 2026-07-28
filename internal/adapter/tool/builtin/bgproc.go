@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -526,4 +527,100 @@ func (BashInput) Execute(ctx context.Context, raw json.RawMessage, env port.Tool
 		return errResult("", "write to "+a.ID+": "+err.Error()), nil
 	}
 	return okText("", "sent input to "+a.ID), nil
+}
+
+// A background job is the one thing magi runs that nobody could watch. The agent polls it with
+// bash_output; the person at the terminal saw a line saying a process had started and nothing after
+// that — not its output, not when it ended, not whether it ended badly. The pane machinery that used
+// to show subagents is exactly the shape this needs, so these expose the registry to a viewer.
+//
+// A viewer must not consume: bash_output advances p.read, and anything that shares that offset would
+// take output the agent has not seen yet. TailBackgroundJob reads the file's own tail and touches no
+// offset at all, so watching changes nothing about what the agent reads.
+
+// BackgroundJob is one background command as an observer sees it.
+type BackgroundJob struct {
+	ID      string
+	Command string
+	Running bool
+	Killed  bool
+	Exit    int
+	Started time.Time
+}
+
+// ListBackgroundJobs returns every background job this process still holds, oldest first. The
+// registry is process-global (processes are), so this is not scoped to a session.
+func ListBackgroundJobs() []BackgroundJob {
+	bg.mu.Lock()
+	procs := make([]*bgProc, 0, len(bg.procs))
+	for _, p := range bg.procs {
+		procs = append(procs, p)
+	}
+	bg.mu.Unlock()
+
+	out := make([]BackgroundJob, 0, len(procs))
+	for _, p := range procs {
+		p.mu.Lock()
+		out = append(out, BackgroundJob{
+			ID: p.id, Command: p.command, Running: !p.done, Killed: p.killed,
+			Exit: p.exit, Started: p.started,
+		})
+		p.mu.Unlock()
+	}
+	sort.Slice(out, func(i, j int) bool {
+		var a, b int
+		fmt.Sscanf(out[i].ID, "bg_%d", &a)
+		fmt.Sscanf(out[j].ID, "bg_%d", &b)
+		return a < b
+	})
+	return out
+}
+
+// TailBackgroundJob returns the last max bytes of a job's log, for display. It never advances the
+// agent's read offset — a viewer that consumed output would take it from the agent.
+func TailBackgroundJob(id string, max int) string {
+	p := bg.get(id)
+	if p == nil || max <= 0 {
+		return ""
+	}
+	f, err := os.Open(p.logPath)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return ""
+	}
+	at := int64(0)
+	if fi.Size() > int64(max) {
+		at = fi.Size() - int64(max)
+	}
+	if _, err := f.Seek(at, io.SeekStart); err != nil {
+		return ""
+	}
+	b, _ := io.ReadAll(io.LimitReader(f, int64(max)))
+	s := string(b)
+	if at > 0 { // started mid-line: drop the partial first line rather than show a fragment
+		if i := strings.IndexByte(s, '\n'); i >= 0 {
+			s = s[i+1:]
+		}
+	}
+	return s
+}
+
+// KillBackgroundJob stops a job by id, the same way bash_kill does: mark it killed synchronously so
+// the next status read says so, kill the whole process group (workers the command forked), then
+// cancel the context so exec releases the leader. Reports whether a job with that id existed.
+func KillBackgroundJob(id string) bool {
+	p := bg.get(id)
+	if p == nil {
+		return false
+	}
+	p.mu.Lock()
+	p.killed = true
+	p.mu.Unlock()
+	_ = killGroup(p.pid)
+	p.cancel()
+	return true
 }

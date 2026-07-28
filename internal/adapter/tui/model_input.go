@@ -510,10 +510,17 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 			m.refresh()
 			return nil, true
 		}
-		// Focused on a still-running subagent → interrupt just that one (stays
-		// focused so you see it stop). Press esc again to leave the view.
+		// Focused on a still-running job → stop just that one (stays focused so you see it stop).
+		// Press esc again to leave the view. This is the same stop bash_kill performs, so the agent
+		// polling it reads a killed status rather than losing the job silently.
 		if m.focusPane >= 0 && m.focusPane < len(m.panes) && !m.panes[m.focusPane].done {
 			p := m.panes[m.focusPane]
+			if p.job != "" {
+				if m.app.KillBackgroundJob(p.job) {
+					return m.snack("stopping " + p.job), true
+				}
+				return m.snack(p.job + " is already gone"), true
+			}
 			_ = m.app.Interrupt(m.ctx, command.Interrupt{SessionID: p.sid})
 			return m.snack("interrupting " + p.role), true
 		}

@@ -420,7 +420,7 @@ func (m Model) Init() tea.Cmd {
 	// Clear the screen on startup so magi opens on a clean canvas rather than
 	// visually continuing the terminal's prior scrollback.
 	// Subscribe via a message so the mutation lands on the running model.
-	return tea.Batch(tea.ClearScreen, textarea.Blink, renderTick(), tea.RequestBackgroundColor, bgPoll(), func() tea.Msg {
+	return tea.Batch(tea.ClearScreen, textarea.Blink, renderTick(), tea.RequestBackgroundColor, bgPoll(), jobPoll(), func() tea.Msg {
 		return subscribeMsg{sid: m.sid, fromSeq: 0}
 	})
 }
@@ -433,6 +433,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resize(msg.Width, msg.Height)
 		m.refresh()
 		return m, nil
+
+	case jobPollMsg:
+		// The strip follows the background jobs; a detached process writes to a file, so this is a
+		// poll rather than a subscription. Re-arms itself unconditionally, so the strip keeps
+		// following jobs started later in the session.
+		if m.syncJobPanes() {
+			m.dirty = true
+		}
+		return m, jobPoll()
 
 	case bgPollMsg:
 		// Re-query the terminal's background color, then reschedule — a BackgroundColorMsg
