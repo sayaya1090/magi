@@ -264,7 +264,7 @@ model    = "gpt-oss:20b"
 `recall_context` · `recall_memory` ·
 `webfetch` · `websearch`(DuckDuckGo, 또는 Brave/Tavily 키 사용) ·
 `todowrite` · `council`(읽기를 청하거나, 작업 종료를 선언) · `remember`(공유 메모리) · `skill` ·
-`replan` · `ask_user`·`route_interjection`(대화형 실행에서만)
+`ask_user`·`route_interjection`(대화형 실행에서만)
 
 편집 후 **진단 피드백**(gofmt / go vet / py_compile / LSP)이 되돌아와 에이전트가 자가수정한다.
 읽기전용 툴은 턴 안에서 병렬 실행.

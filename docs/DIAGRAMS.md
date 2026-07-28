@@ -179,7 +179,6 @@ runVerifyCmd 타임아웃**에서 각각 바운드된다 — 어느 것도 턴 �
 | `MAGI_DECLARE_FINISH` | ON | 종료를 **선언 행위**로 요구(`council{complete:true}`); off면 모델이 툴 호출을 멈추는 수동적 종료로 복귀 |
 | `MAGI_COUNCIL_DEBATE` | ON | 불일치 시 1회 반박 라운드; off면 독립 투표 집계만 |
 | `MAGI_EXERCISE_CHURN_CAP` | 4 | 같은 build/test가 N번의 서로 다른 편집을 거쳐도 계속 같은 실패 → 작업물 세워둔 채 UNVERIFIED 착지(`0`=off) |
-| `MAGI_REPLAN_CAP` | 3 | 완료 스텝 최고치를 못 올린 채 반복되는 자기 재계획 N회 → UNVERIFIED 착지(`0`=off) |
 | `MAGI_STALL_NOVELTY` | ON | 정체 넛지 재장전을 "이미 본 지문 반복"일 때만 붕괴(새 시도로 피벗 중이면 살려둠) |
 | `MAGI_STALL_CONVERGE` | ON | 재장전식 정체 넛지의 수렴 판정 |
 | `MAGI_RECOVERY_RUNCAP` | OFF | 런 트리당 회복실행 1회 제한 |

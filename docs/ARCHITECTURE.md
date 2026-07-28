@@ -50,8 +50,8 @@ internal/
                             authored-but-never-run nudge, and the finish declaration
     interject.go interject_queue.go
                             mid-turn steer machinery: routing (applyInterjectRoute), the
-                            finish-boundary triage mini-turn, agent-initiated replan, and the
-                            queue that survives a reload
+                            finish-boundary triage mini-turn, and the queue that survives
+                            a reload
     guard.go shellcmd.go shellparse.go
                             runGuard — what magi NOTICES about a run (repeats, stalls,
                             self-reverts, no-change writes, exercise churn) and the stateless
@@ -162,7 +162,6 @@ replay, deduped by seq (race-safe late-joiner).
     EmitArtifact  func(Artifact)
     Council  func(ctx, question string, complete bool) (string, error) // council tool; complete=declare
     SetTodos func([]Todo)                             // todowrite
-    Replan   func(reason string) error               // replan tool
     ResolveConcern func(key, reason string) error    // retire a concern from the ledger
     RouteInterjection / AskUser                       // interactive runs only
     Propose  func(Contribution) error                // shared experience (D13)
@@ -234,10 +233,10 @@ ignore:
   …` is a real invocation of `run.py`). What it cannot match, it says it cannot match: the finish
   path's nudge states that no command *naming* the file ran, which is what the record holds, not a
   verdict on the work.
-- **Exercise churn / sterile replan**: when the agent's OWN build or test keeps failing across
-  repeated edits without converging, or repeated replans finish no new step, the turn lands
-  UNVERIFIED with the work standing rather than churning to an external kill that tears a live
-  deliverable down. Both read only magi's own signals — no external clock.
+- **Exercise churn**: when the agent's OWN build or test keeps failing across repeated edits
+  without converging, the turn lands UNVERIFIED with the work standing rather than churning to an
+  external kill that tears a live deliverable down. It reads only magi's own signals — no external
+  clock.
 
 ## 5. Finishing a turn (`app/loop_gates.go`, `app/council_advice.go`)
 
@@ -314,7 +313,7 @@ implement↔verify up to `WorkflowMaxLoops`. Emits `workflow.phase` events.
 Built-ins (`builtin.Default()`): `read`, `write`, `edit`, `multiedit`, `grep`, `glob`, `list`,
 `bash`, `bash_output`, `bash_kill`, `bash_input`, `wait_for`, `port_owner`, `todowrite`,
 `council`, `webfetch`, `websearch`, `remember`, `skill`, `recall_context`, `recall_memory`.
-Registered by `main.go`: `replan`, and — interactive runs only — `ask_user`, `route_interjection`.
+Registered by `main.go`, interactive runs only: `ask_user`, `route_interjection`.
 
 A tool earns its place only when it gives magi something bash cannot, or gives the model something
 bash cannot. Counted across every recorded bench run, the tools that failed both came out:
@@ -325,13 +324,21 @@ bash cannot. Counted across every recorded bench run, the tools that failed both
 | `findcontext` | 0 | `grep`, `glob` |
 | `lsp`, `lsp_diagnostics` | 0 | `grep`, and the compiler |
 | `astgrep` | 2 | `grep` |
+| `replan` | 1 | nothing — see below |
 
 59% of recorded bash calls contain a pipe, so a tool that merely competes with a pipe loses. What
 stayed and why: `write`/`edit`/`multiedit` because the change tracking, the self-revert check and
 the council's evidence hang off them; `read` for its line gutter, paging and non-text formats;
 `bash_input` because nothing else can write to a running process's stdin; `wait_for` and
-`port_owner` because they answer where `sleep`-polling and `ss`/`lsof` are absent or guard-tripping;
-`replan` because it resets magi's own no-progress window, which no command can.
+`port_owner` because they answer where `sleep`-polling and `ss`/`lsof` are absent or guard-tripping.
+
+`replan` was the hard case, because it did do something bash cannot: it cleared the stall guard's
+no-progress count so an agent that had deliberately changed course was not force-stopped for the
+abandoned approach's spinning. It came out anyway. The guard already treats a **novel exercising
+command or a mutation** as forward motion, so an agent that genuinely pivots re-arms it by acting —
+deterministically, without having to know a tool exists. What the tool added on top was a name
+promising something nobody does (a re-plan), an anti-abuse budget policing a tool called once, and
+a whole sterile-replan landing path fed only by that budget.
 
 The **LSP pool stays** even though both LSP tools went. It is what runs the automatic post-edit
 diagnostics (`app/diagnose.go` → `builtin.AutoDiagnose`), which fire without the model asking.

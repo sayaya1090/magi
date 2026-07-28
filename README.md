@@ -276,7 +276,7 @@ model    = "gpt-oss:20b"
 `recall_context` · `recall_memory` ·
 `webfetch` · `websearch` (DuckDuckGo, or Brave/Tavily with an API key) ·
 `todowrite` · `council` (ask for a reading, or declare the task finished) · `remember` (shared
-memory) · `skill` · `replan` · `ask_user` and `route_interjection` (interactive runs only)
+memory) · `skill` · `ask_user` and `route_interjection` (interactive runs only)
 
 After an edit, **diagnostic feedback** (gofmt / go vet / py_compile / LSP) flows back so the agent
 self-corrects. Read-only tools run in parallel within a turn.

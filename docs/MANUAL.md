@@ -387,7 +387,6 @@ One agent sees all of them. (The only exception is **workflow mode**, §2, where
 | Tool | Description | Permission |
 |---|---|---|
 | `todowrite` | record/update a plan (checklist). The status panel is driven by deterministic signals too, so progress updates even without this call | — |
-| `replan` | declare the **current approach unworkable** given what execution has actually shown (a premise broke) and start over, instead of grinding a dead approach | — |
 | `recall_context` | re-hydrate detail an earlier compaction shed, **verbatim**, by topic (a file path works well) | — |
 
 ### Memory
@@ -413,7 +412,7 @@ Neither is registered in a headless/bench run: with nobody to answer, they can n
 
 There is no `task` tool, and no subagents to delegate to.
 
-There are also no aggregation tools (`countlines`, `countmatches`, `groupby`, `tabulate`), no `findcontext`, no `astgrep`, and no LSP navigation tools. Counted across every recorded bench run, the first six were called **zero** times and `astgrep` twice, while 59% of bash calls contained a pipe: the model reaches for `wc -l` and `grep`, not for a tool that reimplements them. A tool that is never called is not free — it is weight on every request, for every step, forever.
+There are also no aggregation tools (`countlines`, `countmatches`, `groupby`, `tabulate`), no `findcontext`, no `astgrep`, no LSP navigation tools, and no `replan`. Counted across every recorded bench run, the first six were called **zero** times and `astgrep` twice, while 59% of bash calls contained a pipe: the model reaches for `wc -l` and `grep`, not for a tool that reimplements them. A tool that is never called is not free — it is weight on every request, for every step, forever.
 
 magi still runs the language servers. **Diagnostics after an edit** (gofmt / `go vet` / `py_compile` / LSP) fire without the model asking, which is the half of that machinery the record shows actually landing.
 
