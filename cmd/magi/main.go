@@ -517,6 +517,7 @@ func run() int {
 		}
 		councilPort = councilllm.New(resolve, modelID)
 	}
+	applyCouncilAvailability(reg, councilPort != nil)
 
 	// Observer plugins (user_message/turn_finished): the host doesn't exist yet
 	// when the app is constructed, so a late-bound forwarder bridges the two —

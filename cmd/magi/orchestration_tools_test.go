@@ -37,3 +37,24 @@ func TestRegisterOrchestrationToolsHeadless(t *testing.T) {
 		}
 	}
 }
+
+// A run with no council must not be offered the council tool: every call it could make would come
+// back as "no council is configured", which costs a step to learn and teaches nothing.
+func TestCouncilToolWithdrawnWithoutACouncil(t *testing.T) {
+	reg := builtin.Default()
+	if _, ok := reg.Get("council"); !ok {
+		t.Fatal("setup: the default registry should carry the council tool")
+	}
+	applyCouncilAvailability(reg, true)
+	if _, ok := reg.Get("council"); !ok {
+		t.Error("a configured council must keep the tool")
+	}
+	applyCouncilAvailability(reg, false)
+	if _, ok := reg.Get("council"); ok {
+		t.Error("with no council the tool must not be offered")
+	}
+	// The name is still vocabulary policy code recognises, whether or not it is offered.
+	if !builtin.KnownNames()["council"] {
+		t.Error("withdrawing the tool must not remove the name from KnownNames")
+	}
+}
