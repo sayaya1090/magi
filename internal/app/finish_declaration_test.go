@@ -2,10 +2,12 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/core/council"
+	"github.com/sayaya1090/magi/internal/core/event"
 )
 
 // A turn ends because someone decided to end it. Going quiet is not a decision: a turn that trailed
@@ -127,5 +129,46 @@ func TestAskingAdviceDoesNotEndTheTurn(t *testing.T) {
 	}
 	if len(fc.reqs) == 0 || !strings.Contains(fc.reqs[0].Task, "is the empty input handled?") {
 		t.Error("the agent's question must reach the members")
+	}
+}
+
+// The decided FACT carries the tally even though what the agent reads deliberately does not: three
+// surfaces render it — the headless transcript, the TUI verdict line, the loop map — and with it
+// left zero they all printed "0 done / 0 continue" under a decision three members had voted on.
+func TestAcceptedDeclarationRecordsTheTally(t *testing.T) {
+	fc := &fakeCouncil{delibs: []council.Deliberation{{
+		Round: 1, Decision: council.Done,
+		Breakdown: council.Breakdown{Done: 3, Voters: 3, Rule: council.RuleMajority},
+		Verdicts: []council.Verdict{
+			{Member: "Melchior", Lens: "correctness", Decision: council.Done},
+			{Member: "Balthasar", Lens: "verification", Decision: council.Done},
+			{Member: "Casper", Lens: "completeness", Decision: council.Done},
+		},
+	}}}
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow", Council: fc})
+	ctx := context.Background()
+	if _, err := a.councilAdvice(ctx, a.sessionInfo(ctx, sid), nil, "", true); err != nil {
+		t.Fatalf("declaring completion: %v", err)
+	}
+	evs, err := a.store.Read(ctx, sid, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, e := range evs {
+		if e.Type != event.TypeCouncilDecided {
+			continue
+		}
+		var d event.CouncilDecidedData
+		if json.Unmarshal(e.Data, &d) != nil {
+			continue
+		}
+		found = true
+		if d.Tally.Done != 3 || d.Tally.Voters != 3 {
+			t.Errorf("the decided fact must carry the real tally, got %+v", d.Tally)
+		}
+	}
+	if !found {
+		t.Fatal("no council.decided fact was recorded")
 	}
 }

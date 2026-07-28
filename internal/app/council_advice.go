@@ -110,8 +110,12 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	}
 
 	accepted := delib.Decision == council.Done
+	// The tally rides the FACT even though it is deliberately kept out of what the agent reads:
+	// three surfaces render it (the headless transcript, the TUI verdict line, the loop map) and
+	// with it left zero they all printed "0 done / 0 continue" under a decision that had three
+	// votes behind it — observed live on a run whose three members all voted done.
 	dd, _ := json.Marshal(event.CouncilDecidedData{
-		Round: 1, Decision: string(delib.Decision), Feedback: delib.Feedback,
+		Round: 1, Decision: string(delib.Decision), Tally: delib.Breakdown, Feedback: delib.Feedback,
 		Note: map[bool]string{
 			true:  "the agent declared the task finished and the council accepts — the turn ends",
 			false: "the agent declared the task finished; the council does not accept it yet",
