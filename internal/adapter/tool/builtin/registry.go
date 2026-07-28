@@ -103,7 +103,7 @@ func RegisterOrchestration(r *Registry, headless bool) {
 	r.Register(Report{})         // subagent → orchestrator final result (output)
 	r.Register(ResolveConcern{}) // orchestrator-only: retire a handled ledger concern
 	r.Register(CancelDispatch{}) // orchestrator-only: cancel remaining parallel subagents
-	r.Register(Replan{})         // plan-eligible: declare the current plan unworkable and re-plan
+	r.Register(Replan{})         // declare the current approach unworkable and start over
 	if !headless {
 		r.Register(AskUser{})           // multiple-choice question to the human user
 		r.Register(RouteInterjection{}) // route a mid-turn user interjection

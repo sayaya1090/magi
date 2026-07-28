@@ -524,7 +524,7 @@ func (a *App) honorReplan(ctx context.Context, sid session.SessionID, reason str
 	if r := strings.TrimSpace(reason); r != "" {
 		note += ": " + clipLine(r, 200)
 	}
-	note += ". The plan and the no-progress window have been reset — decompose a fresh approach and proceed."
+	note += ". The no-progress window has been reset — take a fresh approach and proceed."
 	inject(note)
 	reground(true)
 	return true
