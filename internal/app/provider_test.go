@@ -25,16 +25,18 @@ func TestProviderFor(t *testing.T) {
 		providers: map[string]port.LLMProvider{"fast": fast},
 	}
 
+	// providerFor returns the routed backend behind a metering wrapper (usage_meter.go); routing is
+	// what this test is about, so unwrap to compare the backend itself.
 	// No profile → default provider.
-	if got := a.providerFor(AgentSpec{Name: "coder"}); got != port.LLMProvider(def) {
+	if got := unwrapProvider(a.providerFor(AgentSpec{Name: "coder"})); got != port.LLMProvider(def) {
 		t.Errorf("unrouted agent should use default provider, got %v", got)
 	}
 	// Routed to a known profile → that provider.
-	if got := a.providerFor(AgentSpec{Name: "explore", Provider: "fast"}); got != port.LLMProvider(fast) {
+	if got := unwrapProvider(a.providerFor(AgentSpec{Name: "explore", Provider: "fast"})); got != port.LLMProvider(fast) {
 		t.Errorf("agent routed to 'fast' should use the fast provider, got %v", got)
 	}
 	// Routed to an unknown profile → falls back to default (never nil).
-	if got := a.providerFor(AgentSpec{Name: "x", Provider: "missing"}); got != port.LLMProvider(def) {
+	if got := unwrapProvider(a.providerFor(AgentSpec{Name: "x", Provider: "missing"})); got != port.LLMProvider(def) {
 		t.Errorf("unknown profile should fall back to default, got %v", got)
 	}
 }
@@ -165,7 +167,7 @@ func TestSetProfileRuntime(t *testing.T) {
 	if spec, _ := a.resolveAgentSpec("explore"); spec.Provider != "fast" || spec.Model.Model != "gpt-oss:20b" {
 		t.Errorf("new profile not routable: %+v", spec)
 	}
-	if a.providerFor(AgentSpec{Provider: "fast"}) != port.LLMProvider(namedLLM{"fast"}) {
+	if unwrapProvider(a.providerFor(AgentSpec{Provider: "fast"})) != port.LLMProvider(namedLLM{"fast"}) {
 		t.Errorf("provider for new profile not registered")
 	}
 }

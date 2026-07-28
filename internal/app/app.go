@@ -60,6 +60,13 @@ type App struct {
 
 	llmLat llmLatencies // recent LLM round-trip durations per model (elastic subagent cap input)
 
+	// Token ledger (usage_meter.go): every request the metered provider serves, whether it came
+	// from the agent's own stream, a council poll, or any side call. Its own mutex — recordUsage
+	// runs on every model goroutine and must never queue behind the state lock.
+	usageMu        sync.Mutex
+	usageTotal     event.Usage
+	usageBySession map[session.SessionID]event.Usage
+
 	states map[session.SessionID]*sessionState // per-session state, consolidating the maps above (guarded by mu); migrated group-by-group
 }
 

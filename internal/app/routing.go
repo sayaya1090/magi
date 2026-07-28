@@ -294,10 +294,14 @@ func (a *App) providerFor(spec AgentSpec) port.LLMProvider {
 	// this call, never holding a.mu, so locking here can't deadlock.
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	// Metered HERE, not at construction: a.llm and a.providers stay the raw values so the optional
+	// capabilities callers type-assert for (ListModels, and the doubles tests reach through) are not
+	// hidden behind a wrapper that does not implement them. Every model request goes through this
+	// accessor — the agent's stream and every side call alike — so one wrap here counts them all.
 	if spec.Provider != "" {
 		if p := a.providers[spec.Provider]; p != nil {
-			return p
+			return a.meter(p)
 		}
 	}
-	return a.llm
+	return a.meter(a.llm)
 }
