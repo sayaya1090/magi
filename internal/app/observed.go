@@ -1,0 +1,185 @@
+package app
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
+	"github.com/sayaya1090/magi/internal/core/event"
+	"github.com/sayaya1090/magi/internal/core/session"
+)
+
+// What magi's own record says happened — as opposed to what the model said, or what a check
+// authored in advance was told to look for.
+//
+// Everything here was already being collected for one purpose or another: the exit code a bash
+// result carries, the detector that knows when that exit belongs to a `| tail` rather than to the
+// command, the tokenizer that separates running a program from printing a file, and the write paths
+// read out of a command. What was missing is the one place that asks them together, so a supervisor
+// can answer "did anything actually happen" without a contract to compare against.
+//
+// It is deliberately NOT a verdict. It reports; the reading is someone else's — a termination hook
+// deciding whether to intervene, a council member judging against the record instead of the prose,
+// or the agent itself. That separation is the point: a check authored before the work could be
+// wrong about the work, and today's defects were all of that kind. An observation cannot be wrong
+// about what it observed; it can only be incomplete, and it says so.
+
+// observedCmd is one command magi ran and what it learned about how it ended.
+type observedCmd struct {
+	cmd     string
+	exit    int
+	unclear bool // the reported exit belongs to a pipe/`;` tail, not to this command
+	exec    bool // it ran something (not only inspection verbs)
+}
+
+// observedRun is the record over a session and everything dispatched beneath it.
+type observedRun struct {
+	cmds    []observedCmd
+	changed []string // paths a tool call in this run wrote to
+}
+
+// observedScanCap bounds the walk, matching the provenance audit's: a session longer than this is
+// read from its tail, where the current turn's work is.
+const observedScanCap = provenanceScanCap
+
+// observe reads what happened under sid. Best-effort: an unreadable session contributes nothing
+// rather than a guess, because a missing record must never be reported as an absence of work.
+func (a *App) observe(ctx context.Context, sid session.SessionID) observedRun {
+	var out observedRun
+	seen := map[string]bool{}
+	for _, s := range append([]session.SessionID{sid}, a.descendantsOf(sid)...) {
+		evs := a.readEventsBestEffort(ctx, s)
+		if len(evs) > observedScanCap {
+			evs = evs[len(evs)-observedScanCap:]
+		}
+		results := map[string]string{}
+		for _, e := range evs {
+			var d event.PartAppendedData
+			if e.Type != event.TypePartAppended || json.Unmarshal(e.Data, &d) != nil {
+				continue
+			}
+			if d.Part.Kind == session.PartToolResult && d.Part.ToolResult != nil {
+				results[d.Part.ToolResult.CallID] = string(d.Part.ToolResult.Content)
+			}
+		}
+		for _, e := range evs {
+			var d event.PartAppendedData
+			if e.Type != event.TypePartAppended || json.Unmarshal(e.Data, &d) != nil {
+				continue
+			}
+			tc := d.Part.ToolCall
+			if d.Part.Kind != session.PartToolCall || tc == nil {
+				continue
+			}
+			name := strings.ToLower(strings.TrimSpace(tc.Name))
+			switch name {
+			case "write", "edit", "multiedit":
+				var args struct{ Path string }
+				if json.Unmarshal(tc.Args, &args) == nil && strings.TrimSpace(args.Path) != "" {
+					if p := strings.TrimSpace(args.Path); !seen[p] {
+						seen[p] = true
+						out.changed = append(out.changed, p)
+					}
+				}
+			case "bash":
+				var args struct{ Command string }
+				if json.Unmarshal(tc.Args, &args) != nil {
+					continue
+				}
+				for _, p := range bashWritePaths(args.Command) {
+					if !seen[p] {
+						seen[p] = true
+						out.changed = append(out.changed, p)
+					}
+				}
+				res := results[tc.CallID]
+				exit, known := exitOfBashResult(res)
+				out.cmds = append(out.cmds, observedCmd{
+					cmd:  args.Command,
+					exit: exit,
+					// Unclear covers both shapes of "magi did not learn this command's status": a
+					// tail that owns the reported exit, and a result carrying no exit at all (a
+					// background start, a kill). Neither is a failure and neither is a success.
+					unclear: !known || builtin.ExitCodeMasked(args.Command),
+					exec:    !isInspectOnly(args.Command),
+				})
+			}
+		}
+	}
+	return out
+}
+
+// ran reports the commands that EXERCISED something and ended in a status magi could read.
+func (o observedRun) ran() []observedCmd {
+	var out []observedCmd
+	for _, c := range o.cmds {
+		if c.exec && !c.unclear {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// succeeded reports whether anything exercising a deliverable finished cleanly.
+func (o observedRun) succeeded() bool {
+	for _, c := range o.ran() {
+		if c.exit == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// thin reports that the record holds nothing worth calling work: nothing was changed, and nothing
+// that exercises anything ran to a status magi could read.
+//
+// This is the question a termination hook asks. It is deliberately weak — it separates "something
+// happened" from "nothing happened", not "right" from "wrong". Judging right from wrong against a
+// contract written before the work is what produced today's false completions; judging it against
+// the record is the council's job, and the council reads this.
+func (o observedRun) thin() bool { return len(o.changed) == 0 && len(o.ran()) == 0 }
+
+// render describes the record in the words a reader needs, or "" when there is nothing to say.
+// Ordered facts first: what changed, what ran, and last what magi could NOT determine — a reader
+// that stops early still has the part that is settled.
+func (o observedRun) render() string {
+	if len(o.cmds) == 0 && len(o.changed) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("── WHAT MAGI OBSERVED (its own record of this run: the calls it granted, their real " +
+		"exit status, and the paths they wrote — not a report anyone wrote) ──")
+	if len(o.changed) > 0 {
+		b.WriteString("\nchanged: " + strings.Join(clipEach(o.changed, 8), ", "))
+	} else {
+		b.WriteString("\nchanged: nothing")
+	}
+	var ok, failed, unclear []string
+	for _, c := range o.cmds {
+		switch {
+		case c.unclear:
+			unclear = append(unclear, clipLine(c.cmd, 70))
+		case !c.exec:
+			// Inspection only — it printed state, it did not exercise anything. Not listed as a
+			// run, because counting `ls` as verification is the churn this exists to see through.
+		case c.exit == 0:
+			ok = append(ok, clipLine(c.cmd, 70))
+		default:
+			failed = append(failed, fmt.Sprintf("%s (exit %d)", clipLine(c.cmd, 70), c.exit))
+		}
+	}
+	line := func(label string, xs []string) {
+		if len(xs) > 0 {
+			b.WriteString("\n" + label + ": " + strings.Join(clipEach(xs, 6), " · "))
+		}
+	}
+	line("ran clean", ok)
+	line("ran and FAILED", failed)
+	line("status unknown (the reported exit was a tail's, or none came back)", unclear)
+	if len(ok) == 0 && len(failed) == 0 {
+		b.WriteString("\nnothing that exercises a deliverable ran to a status magi could read")
+	}
+	return b.String()
+}
