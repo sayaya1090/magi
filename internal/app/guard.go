@@ -1166,22 +1166,66 @@ func (g *runGuard) shouldNudge() string {
 // file) can't overflow the context window past what compaction can recover.
 const toolResultCap = 64 << 10
 
-// capToolResult truncates an oversized tool result on a rune boundary, appending a note
-// that tells the agent to narrow its read/command rather than silently losing data.
+// capToolResult truncates an oversized tool result, appending a note that tells the agent to narrow
+// its read/command rather than silently losing data.
+//
+// A tool result's content is a JSON DOCUMENT — a tool builds it with json.Marshal — and cutting a
+// JSON document's bytes does not leave a JSON document. Cutting the text payload `"line\nline\n…"`
+// at a byte offset leaves an unterminated string literal, which the event marshaller then refuses,
+// and the refusal was discarded (see appendPart): the tool call was recorded with a null payload and
+// the agent received NO result at all — not an error, not a truncation, nothing.
+//
+// Measured: two reads, of the two files the task was about, of 64KB+ each.
+//
+//	03:04:58  read /app/ocaml/runtime/major_gc.c     → part.appended, data: null
+//	03:06:18  read /app/ocaml/runtime/shared_heap.c  → part.appended, data: null
+//
+// The agent's next message each time moved on to something else, and it never found the bug.
+//
+// So the cut happens INSIDE the payload, and the result is re-encoded. A structured payload cannot
+// be cut at all — half an object is not an object — so it is replaced by a note saying so, which is
+// a true statement the agent can act on. Content that is not JSON (a plugin returning raw bytes)
+// keeps the byte-wise cut it always had.
 func capToolResult(b []byte) []byte {
 	if len(b) <= toolResultCap {
 		return b
+	}
+	marker := func(shown int) string {
+		return fmt.Sprintf(
+			"\n\n…[output truncated: showing %d of %d bytes — re-run with a narrower range or filter "+
+				"(read offset/limit, grep, head/tail) to see the rest]", shown, len(b))
+	}
+	var text string
+	if json.Unmarshal(b, &text) == nil {
+		cut := toolResultCap
+		if cut > len(text) {
+			cut = len(text)
+		}
+		for cut > 0 && !utf8.RuneStart(text[cut]) {
+			cut--
+		}
+		out, err := json.Marshal(text[:cut] + marker(cut))
+		if err == nil {
+			return out
+		}
+	}
+	if json.Valid(b) {
+		// Structured output (a JSON object/array). There is no prefix of it that is still itself, so
+		// say what happened instead of handing back something that cannot be parsed.
+		out, err := json.Marshal(fmt.Sprintf("[result omitted: %d bytes of structured output exceeded "+
+			"the %d-byte result cap — re-run with a narrower query so the answer fits]", len(b), toolResultCap))
+		if err == nil {
+			return out
+		}
 	}
 	cut := toolResultCap
 	for cut > 0 && !utf8.RuneStart(b[cut]) { // don't split a multibyte rune
 		cut--
 	}
-	marker := fmt.Sprintf(
-		"\n\n…[output truncated: showing %d of %d bytes — re-run with a narrower range or filter "+
-			"(read offset/limit, grep, head/tail) to see the rest]", cut, len(b))
-	out := make([]byte, 0, cut+len(marker))
+	m := marker(cut)
+	out := make([]byte, 0, cut+len(m))
 	out = append(out, b[:cut]...)
-	return append(out, marker...)
+	return append(out, m...)
 }
 
 // changeReadCap bounds how much of a file we read to reconstruct a before/after change.

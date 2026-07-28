@@ -803,9 +803,39 @@ func (a *App) emitArtifact(ctx context.Context, sid session.SessionID, actor eve
 	a.appendFact(ctx, sid, event.TypeArtifactEmitted, actor, d)
 }
 
+// appendPart records one part of a message. A part that cannot be marshalled is recorded as the
+// FAILURE, never as nothing: `d, _ := json.Marshal(…)` leaves d nil on error, and appending that
+// wrote an event with a null payload — which reconstructs to no part at all. Measured: two `read`
+// calls whose oversized content left invalid JSON (see capToolResult) produced exactly that, so the
+// agent saw two tool calls with no answer of any kind and moved on without the files it asked for.
+//
+// A tool result keeps its call id in the fallback, because a result that cannot be paired with its
+// call is not much better than none: the agent has to be able to see WHICH call this answers.
 func (a *App) appendPart(ctx context.Context, sid session.SessionID, actor event.Actor, msgID string, role session.Role, part session.Part) {
-	d, _ := json.Marshal(event.PartAppendedData{MessageID: msgID, Role: role, Part: part})
+	d, err := json.Marshal(event.PartAppendedData{MessageID: msgID, Role: role, Part: part})
+	if err != nil {
+		d = unrecordablePart(msgID, role, part, err)
+	}
 	a.appendFact(ctx, sid, event.TypePartAppended, actor, d)
+}
+
+// unrecordablePart builds the payload that stands in for a part the store could not carry. It says
+// what happened in the part's own kind, so the agent reads it where it was looking for the answer.
+func unrecordablePart(msgID string, role session.Role, part session.Part, cause error) []byte {
+	msg := "this result could not be recorded (" + cause.Error() + "). The call ran; its output is " +
+		"not readable here. Re-run it in a narrower form — a smaller range, a filter, fewer results."
+	sub := session.Part{ID: part.ID, Kind: session.PartText, Text: msg}
+	if part.Kind == session.PartToolResult && part.ToolResult != nil {
+		c, _ := json.Marshal(msg)
+		sub = session.Part{ID: part.ID, Kind: session.PartToolResult, ToolResult: &session.ToolResult{
+			CallID: part.ToolResult.CallID, Content: c, IsError: true,
+		}}
+	}
+	d, err := json.Marshal(event.PartAppendedData{MessageID: msgID, Role: role, Part: sub})
+	if err != nil { // the fallback holds only strings this package built; unreachable in practice
+		return []byte(`{"messageId":"","role":"tool","part":{"kind":"text","text":"a part could not be recorded"}}`)
+	}
+	return d
 }
 
 // appendReplyPart is appendPart for an inline interjection answer: it tags the part with
