@@ -156,3 +156,33 @@ func TestObserveReachesChildren(t *testing.T) {
 		t.Error("the child's clean run must be visible from the parent")
 	}
 }
+
+// The finish seam is where the built-in record and the workspace's configured Stop hooks meet: both
+// answer "is there a reason not to end here", one from magi's own record, one from team procedure.
+// The record carries what nothing else at that seam does — which commands magi could not determine
+// the status of.
+func TestStopRecordNamesWhatMagiCouldNotDetermine(t *testing.T) {
+	app := newShellApp(t, &shellPlatform{})
+	ctx := context.Background()
+	sid, err := app.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec := app.stopRecord(ctx, sid); rec != "" {
+		t.Errorf("a session with no record says nothing, got %q", rec)
+	}
+	c, r := bashPair("c1", "make world opt 2>&1 | tee build.log | tail -50", "exit 0\n")
+	if _, e := app.store.Append(ctx, sid, c); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := app.store.Append(ctx, sid, r); e != nil {
+		t.Fatal(e)
+	}
+	rec := app.stopRecord(ctx, sid)
+	if !strings.Contains(rec, "status unknown") || !strings.Contains(rec, "tee build.log") {
+		t.Errorf("a build whose exit belongs to its tail must be reported as undetermined, not clean:\n%s", rec)
+	}
+	if strings.Contains(rec, "ran clean") {
+		t.Errorf("an exit that is not the command's own must never read as a clean run:\n%s", rec)
+	}
+}

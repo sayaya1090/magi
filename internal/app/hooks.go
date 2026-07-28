@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
@@ -91,6 +92,24 @@ func (a *App) runPostToolHooks(ctx context.Context, workdir, tool, path string) 
 		}
 	}
 	return strings.Join(fb, "\n")
+}
+
+// stopRecord is what magi ITSELF observed by the time a turn wants to finish, rendered for whatever
+// judges the finish. It sits beside the configured Stop hooks on purpose: both answer the same
+// question at the same seam — "is there a reason not to end here" — one from the workspace's own
+// procedure, one from magi's record of what it granted and what came back.
+//
+// It carries something no other input at this seam does: which commands magi could NOT determine the
+// status of. A build piped through `| tail` reports exit 0, and every reader downstream — the
+// council, the report, the agent itself — has been taking that as a clean build. Observed four times
+// in one run, each time with magi's own note beside it saying the exit was the tail's.
+//
+// Informational by construction. It does not block: the two shapes worth blocking on are already
+// handled — a turn that changed nothing is deliberately excused (noChanges tells the council to
+// judge the report on its merits), and code authored but never run is caught by the exercise ledger
+// before this point. Adding a third rule here without a run that shows it firing would be guessing.
+func (a *App) stopRecord(ctx context.Context, sid session.SessionID) string {
+	return a.observe(ctx, sid).render()
 }
 
 // runStopHooks runs Stop hooks before a turn finishes; non-empty result means a

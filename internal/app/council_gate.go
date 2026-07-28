@@ -486,6 +486,20 @@ func (a *App) runCouncilGate(ctx context.Context, s session.Session, agent Agent
 		}
 	}
 
+	// What magi ITSELF observed, at the head of the evidence. The members have judged a claim against
+	// reconstructed edits and a tool-evidence digest; neither says whether a command magi ran actually
+	// SUCCEEDED, and a build piped through `| tail` reports exit 0 either way — observed four times in
+	// one run, each with magi's own note beside it saying the exit was the tail's. This states the
+	// real status and names the commands whose status magi never learned. First, because it is the
+	// part no one wrote.
+	if rec := a.stopRecord(ctx, sid); rec != "" {
+		if strings.TrimSpace(actions) == "" {
+			actions = rec
+		} else {
+			actions = rec + "\n\n" + actions
+		}
+	}
+
 	labels := make([]string, len(pollMembers))
 	for i, m := range pollMembers {
 		labels[i] = m.Name
