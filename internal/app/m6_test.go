@@ -94,32 +94,6 @@ func TestAutoCompactionTriggers(t *testing.T) {
 	}
 }
 
-// Per-agent model routing: a spawned agent's child session uses its routed model.
-func TestModelRouting(t *testing.T) {
-	llm := &usageLLM{text: "done"}
-	store, _ := jsonl.New(t.TempDir())
-	a := New(store, llm, builtin.Default(), bus.New(), nil, Config{
-		Permission: "allow",
-		Agents: map[string]AgentSpec{
-			"fast": {Name: "fast", System: "fast", Model: session.ModelRef{Provider: "openai", Model: "gpt-oss:20b"}},
-		},
-	})
-	parent := session.Session{ID: "s_p", Workdir: t.TempDir(), Agent: "default", Model: session.ModelRef{Model: "qwen3-coder:30b"}}
-	a.mu.Lock()
-	a.stateLocked(parent.ID).meta = parent
-	a.mu.Unlock()
-
-	res := a.spawn(context.Background(), parent, 0, port.SpawnRequest{Agent: "fast", Prompt: "go"})
-	if res.Err != "" {
-		t.Fatalf("spawn: %s", res.Err)
-	}
-	// Only the child runs here (the parent session is registered but never run), so the
-	// last model the fake provider saw IS the child's — it must be the routed model.
-	if usedModel(llm) != "gpt-oss:20b" {
-		t.Errorf("child used model %q, want gpt-oss:20b (routing)", usedModel(llm))
-	}
-}
-
 // ---- helpers ----
 
 // usageLLM returns a fixed text turn and records the last requested model and a

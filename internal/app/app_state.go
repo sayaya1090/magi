@@ -32,9 +32,6 @@ type sessionState struct {
 	perms            map[string]chan string // pending permission decisions by call id
 	questions        map[string]chan string // pending ask_user picks by call id
 	grants           map[string]bool        // "always" grants per tool
-	pendingAsk       chan string            // channel for a subagent's pending ask answer (parent)
-	bg               *bgGroup               // background subagent tracking (parent)
-	report           *subReport             // filed final report (subagent session)
 	userLabel        string                 // display name for the user in the transcript (plugin set_user_label); "" = "you"
 	// deferredAbandoned is the set of interjection origin MessageIDs that were queued in a
 	// PRIOR process (F5 ledger) and never resolved — reconstructed once from the log on the

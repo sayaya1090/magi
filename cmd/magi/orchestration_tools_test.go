@@ -6,14 +6,14 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 )
 
-// Headless runs omit the human-in-the-loop tools (nothing can answer them) but keep the
-// orchestrator-internal ones; an interactive run registers everything.
+// Headless runs omit the human-in-the-loop tools — nothing can answer them — while the tools any
+// run needs are registered either way.
 func TestRegisterOrchestrationToolsHeadless(t *testing.T) {
 	has := func(reg *builtin.Registry, name string) bool {
 		_, ok := reg.Get(name)
 		return ok
 	}
-	always := []string{"task", "ask", "report", "resolveconcern", "cancel_dispatch", "replan"}
+	always := []string{"replan"}
 	interactiveOnly := []string{"ask_user", "route_interjection"}
 
 	headlessReg := builtin.NewRegistry()

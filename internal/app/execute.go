@@ -150,19 +150,11 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		return
 	}
 
-	// Tool-env callbacks: background dispatch for the top-level orchestrator; escalation
-	// (ask) + report for subagents, routed THROUGH the parent so full context is kept.
-	var dispatchFn func(port.SpawnRequest) string
-	var cancelDispatchFn func(agent, reason string) (int, error)
+	// Tool-env callbacks. A concern may be retired only by the agent that holds the whole-task
+	// view, and only advisorily: a still-true concern is re-raised next turn (self-healing), so
+	// this cannot launder a fact away, only clear stale advisory memory.
 	var resolveConcernFn func(key, reason string) error
 	if depth == 0 {
-		dispatchFn = func(req port.SpawnRequest) string { return a.dispatch(ctx, s, depth, req) }
-		cancelDispatchFn = func(agent, reason string) (int, error) {
-			return a.cancelDispatched(ctx, s.ID, agent, reason)
-		}
-		// Only the orchestrator, which holds the whole-task view, may retire a concern —
-		// and only advisorily: a still-true concern is re-raised next turn (self-healing),
-		// so this cannot launder a fact away, only clear stale advisory memory.
 		resolveConcernFn = func(key, reason string) error {
 			return a.appendConcernResolved(context.WithoutCancel(ctx), sid,
 				event.Actor{Kind: event.ActorAgent, ID: "orchestrator"}, key, "orchestrator", reason)
@@ -201,24 +193,6 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		})
 		return nil
 	}
-	var askFn func(string) (string, error)
-	var reportFn func(port.ReportInput) error
-	if s.Parent != "" {
-		reportFn = func(in port.ReportInput) error { return a.fileReport(sid, in) }
-		if s.Escalatable {
-			// Background-dispatched: the orchestrator stays in its loop and answers asks.
-			askFn = func(q string) (string, error) { return a.escalate(ctx, s.Parent, agent.Name, q) }
-		} else {
-			// Synchronous spawn (planner explorer / nested subagent): the parent is blocked
-			// awaiting THIS child, so nothing can answer — fail fast with guidance instead of
-			// blocking until the 2-minute escalation timeout.
-			askFn = func(string) (string, error) {
-				return "", fmt.Errorf("no orchestrator is available to answer while you investigate — " +
-					"proceed with your best assumption and note any ambiguity in your final report")
-			}
-		}
-	}
-
 	st, _ := json.Marshal(event.ToolStartedData{CallID: tc.CallID, Name: tc.Name})
 	a.publishTransient(sid, event.TypeToolStarted, actor, st)
 
@@ -295,27 +269,18 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	defer a.leaveTool(sid)
 	scratch := a.scratchFor(sid)
 	res, err := tool.Execute(ctx, tc.Args, port.ToolEnv{
-		SessionID:    sid,
-		Workdir:      workdir,
-		ScratchLogs:  scratch.logsDir(),
-		ScratchTmp:   scratch.tmpDir(),
-		Platform:     a.plat,
-		EmitArtifact: func(art artifact.Artifact) { a.emitArtifact(ctx, sid, actor, art) },
-		EmitProgress: func(text string) { a.emitToolProgress(sid, actor, tc.CallID, tc.Name, text) },
-		TrackProc:    a.procTracker(sid),
-		Spawn: func(sctx context.Context, req port.SpawnRequest) port.SpawnResult {
-			return a.spawn(sctx, s, depth, req)
-		},
-		// Background dispatch is offered only to the top-level orchestrator; nested
-		// subagents delegate synchronously (they have no UI thread to keep free).
-		Dispatch:          dispatchFn,
-		CancelDispatch:    cancelDispatchFn,
+		SessionID:         sid,
+		Workdir:           workdir,
+		ScratchLogs:       scratch.logsDir(),
+		ScratchTmp:        scratch.tmpDir(),
+		Platform:          a.plat,
+		EmitArtifact:      func(art artifact.Artifact) { a.emitArtifact(ctx, sid, actor, art) },
+		EmitProgress:      func(text string) { a.emitToolProgress(sid, actor, tc.CallID, tc.Name, text) },
+		TrackProc:         a.procTracker(sid),
 		ResolveConcern:    resolveConcernFn,
 		RouteInterjection: routeInterjectionFn,
 		Replan:            replanFn,
-		Ask:               askFn,
 		AskUser:           a.askUserFn(ctx, s, depth, tc),
-		Report:            reportFn,
 		SetTodos:          func(td []session.Todo) { a.putTodos(ctx, sid, actor, td) },
 		Propose: func(c port.Contribution) error {
 			if a.cfg.Experience == nil {

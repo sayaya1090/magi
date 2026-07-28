@@ -68,7 +68,7 @@ func TestEnterWhileRunningSteers(t *testing.T) {
 // mutating command mid-turn, so the whole set is enumerated, not a subset.
 func TestSafeWhileRunning(t *testing.T) {
 	safe := []string{"/help", "/model", "/agents", "/route", "/tools", "/sessions", "/diff",
-		"/loop", "/loopdiff", "/context", "/subagent", "/permission"}
+		"/loop", "/loopdiff", "/context", "/permission"}
 	for _, c := range safe {
 		if !safeWhileRunning(c) {
 			t.Errorf("%s should be safe while running", c)

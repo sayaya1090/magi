@@ -8,11 +8,10 @@ import (
 	"github.com/sayaya1090/magi/internal/port"
 )
 
-// Every tool (default registry + the orchestration tools) must expose a unique
-// non-empty name, a non-empty description, and a schema that is valid JSON.
+// Every tool must expose a unique non-empty name, a non-empty description, and a schema that is
+// valid JSON.
 func TestToolMetadata(t *testing.T) {
 	tools := append([]port.Tool{}, Default().List()...)
-	tools = append(tools, Ask{}, Report{}, Task{})
 
 	seen := map[string]bool{}
 	for _, tl := range tools {
@@ -31,11 +30,6 @@ func TestToolMetadata(t *testing.T) {
 		var js any
 		if err := json.Unmarshal(tl.Schema(), &js); err != nil {
 			t.Errorf("%s: schema is not valid JSON: %v", name, err)
-		}
-	}
-	for _, want := range []string{"ask", "report", "task"} {
-		if !seen[want] {
-			t.Errorf("orchestration tool %q missing from the set", want)
 		}
 	}
 }

@@ -58,8 +58,6 @@ type App struct {
 
 	pendingUserLabel string // user label set before any session existed (SSO startup login); applied at CreateSession (guarded by mu)
 
-	llmLat llmLatencies // recent LLM round-trip durations per model (elastic subagent cap input)
-
 	// Token ledger (usage_meter.go): every request the metered provider serves, whether it came
 	// from the agent's own stream, a council poll, or any side call. Its own mutex — recordUsage
 	// runs on every model goroutine and must never queue behind the state lock.
@@ -174,9 +172,6 @@ func (a *App) Steer(ctx context.Context, c command.SubmitPrompt) error {
 	if err := a.appendPrompt(ctx, c); err != nil {
 		return err
 	}
-	// Wake a loop parked in the background-subagent wait so it picks up this
-	// steer immediately (otherwise it would sleep until a subagent finished).
-	a.bgWake(c.SessionID)
 	a.mu.Lock()
 	st, ok := a.stateIf(c.SessionID)
 	running := ok && st.cancel != nil

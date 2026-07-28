@@ -97,14 +97,6 @@ func (a *App) Todos(sid session.SessionID) []session.Todo {
 	return nil
 }
 
-// SubagentRequest returns the request a subagent was dispatched with — its seed prompt, which for
-// a curated delegate is the structured brief (goal, task, verbatim literals, constraints,
-// deliverable) plus its acceptance checklist. Read by the TUI to show, in the right panel, what the
-// worker was actually asked to do. Empty for a session that was not seeded (the top-level turn).
-func (a *App) SubagentRequest(sid session.SessionID) string {
-	return a.seedPromptOf(sid)
-}
-
 // OpenConcerns folds the session's event log into its live structural-concern ledger and returns
 // the still-open concerns as signals — the outstanding items the council keeps re-raising until
 // resolved. It reads the store, so the TUI calls it ONCE when the council detail opens, not per

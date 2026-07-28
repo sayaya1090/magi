@@ -140,7 +140,6 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	a.mu.Unlock()
 	agentActor := event.Actor{Kind: event.ActorAgent, ID: orDefault(agent.Name, "default")}
 	lastText := ""
-	reportRefused := false // a subagent's unverified "done" report was refused once this run
 	guard := newRunGuard()
 	guard.stallConverge = stallConvergeEnabled() // D18a: collapse the stalled-nudge re-arm when a redirect produced no forward motion
 	ts := turnState{prevFinishCalls: -1}         // per-turn mutable bookkeeping (finish guards, council accounting, stuck-recovery); zeroed field-wise on reground
@@ -334,7 +333,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			return lastText, gerr
 		}
 		res, evs := sr.res, sr.evs
-		stepStart, msgID, textPartID, reasonPartID := sr.start, sr.msgID, sr.textPartID, sr.reasonPartID
+		msgID, textPartID, reasonPartID := sr.msgID, sr.textPartID, sr.reasonPartID
 		// Reasoning-only spin: the response was cancelled after streaming huge output with no tool
 		// call. Discard it (it's garbage), nudge the agent to ACT, and move on — the step/stall
 		// guards never see a response that never finishes, so this is the only place to break it.
@@ -360,12 +359,6 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		if ctx.Err() != nil {
 			return lastText, ctx.Err()
 		}
-		// Feed the elastic subagent cap: one full model round trip (request → stream
-		// fully consumed) is the speed signal it budgets attempts against. Recorded
-		// only for an intact stream — a timeout/interrupt-censored duration is not a
-		// round trip and would bias the cap (timeouts stretch it, Esc shrinks it).
-		a.llmLat.record(s.Model.Model, time.Since(stepStart))
-
 		// Persist the assistant message: reasoning (if any), then text, then tool calls.
 		if reasoning != "" {
 			a.appendPart(ctx, sid, agentActor, msgID, session.RoleAssistant, session.Part{
@@ -377,9 +370,6 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			a.appendPart(ctx, sid, agentActor, msgID, session.RoleAssistant, session.Part{
 				ID: textPartID, Kind: session.PartText, Text: text,
 			})
-			// If a subagent is blocked waiting on this orchestrator, its reply IS
-			// the answer — route it back so the subagent resumes.
-			a.answerPendingAsk(sid, text)
 		}
 		for _, tc := range toolCalls {
 			a.appendPart(ctx, sid, agentActor, msgID, session.RoleAssistant, session.Part{
@@ -451,22 +441,13 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// Explicit output contract: a subagent that filed a report has delivered its final
 		// result and its turn ends now — no more steps, no bash-echo looping. handleReport may
 		// refuse an unverified "done" once (loopContinue) or finish the turn (loopFinish, with
-		// the result string to return).
 		// The SAME accounting the other finish path uses. This built its own from the agent's stream
-		// alone, so a turn that ended by filing a report published the last prompt where the bill was
-		// — measured on a headless run that printed `tokens in 1721335` beside a turn.finished
-		// carrying `"in":48519`, the two outputs agreeing and the inputs thirty-five fold apart.
-		// Two finish paths must not have two accountings.
+		// alone, so a turn that ended here published the last prompt where the bill was — measured on
+		// a headless run that printed `tokens in 1721335` beside a turn.finished carrying `"in":48519`,
+		// the two outputs agreeing and the inputs thirty-five fold apart. Two finish paths must not
+		// have two accountings.
 		u := turnUsage(a, sid, usageAtStart, lastIn, cumOut, cumCost)
-		if act, result, handled := a.handleReport(ctx, tc, lastText, u, &reportRefused, &ts); handled {
-			switch act {
-			case loopContinue:
-				continue // refused an unverified "done" — pushed back to actually run it
-			case loopFinish:
-				finished = true // report filed → turn delivered its result
-				return result, nil
-			}
-		}
+		_ = u
 
 		// Corrective re-grounding: before any force-stop, give a thrashing agent ONE nudge to
 		// re-read the task and change approach — far cheaper than burning the rest of the budget.
@@ -511,15 +492,7 @@ func (a *App) seedTurnTask(ctx context.Context, tc turnCtx, evs []event.Event) (
 			turnTask = lastUserPromptText(evs)
 		}
 	} else {
-		// Subagent (and workflow) turns: prefer the recorded spawn/unit seed. A
-		// CloneContext child's log carries the parent's original user prompts
-		// (actors preserved), so the last-ActorUser fallback would anchor the
-		// child on a STALE parent request instead of its spawn task.
-		if sp := a.seedPromptOf(sid); sp != "" {
-			turnTask = sp
-		} else {
-			turnTask = lastUserPromptText(evs) // the prompt that drove this turn
-		}
+		turnTask = lastUserPromptText(evs) // the prompt that drove this turn
 	}
 	return turnTask, len(entries) // baseline; a later rise is a mid-turn interjection
 }
@@ -552,7 +525,7 @@ func (a *App) detectInterjections(ctx context.Context, tc turnCtx, evs []event.E
 		return handledUserPrompts, false
 	}
 	answerNow := false
-	dispatching := a.bgOutstanding(sid) > 0
+	dispatching := false
 	idleWaiting := false // the planner's explorer park is gone; background work always interleaves
 	// Handle EVERY user prompt that appeared since the last check, not just the newest: two
 	// messages steered in during one long step would otherwise advance the counter past the
@@ -674,62 +647,6 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 		Messages: msgs,
 		Tools:    a.toolSpecs(agent, isSub, tc.depth),
 	}, evs
-}
-
-// handleReport applies a subagent's filed report (the explicit output contract). It returns
-// (action, result, handled): handled=false when no report was filed (fall through to the
-// guards). A "done" report whose deliverable was changed but never exercised this turn
-// (unverifiedDeliverable, keyed off this subagent's own tool log) is the language-agnostic
-// replacement for the report tool's former English confession-phrase scan — refused ONCE
-// (loopContinue) so the agent actually runs its work. Gated on the subagent HAVING a way to
-// run it (bash): a read/write-only agent cannot execute anything, so blocking it for "not
-// running it" would be a false positive — that case defers to the parent's review-gate tester,
-// which runs the merged deliverable for real. Otherwise the turn finishes (loopFinish) with the
-// report's result. This short-circuits the top-level-only pre-finish gates, so the delegated
-// path carries its own verification here.
-func (a *App) handleReport(ctx context.Context, tc turnCtx, lastText string, u event.Usage, reportRefused *bool, ts *turnState) (loopAction, string, bool) {
-	s, agent := tc.s, tc.agent
-	sid := s.ID
-	rep := a.takeReport(sid)
-	if rep == nil {
-		return 0, "", false
-	}
-	if rep.status == "done" && !*reportRefused && agent.allows("bash") && tc.guard.unverifiedDeliverable() {
-		*reportRefused = true
-		msg := "You reported done, but you changed a deliverable this turn and ran no command that " +
-			"exercises the current version, so its behavior is unverified. Actually run the required " +
-			"program/command against your result and confirm the REAL output, then report. If you truly " +
-			"cannot run it here, report status \"failed\" and say plainly what stopped you — do not report " +
-			"unverified work as done."
-		pd, _ := json.Marshal(event.PromptSubmittedData{
-			MessageID: "m_" + newID(),
-			Parts:     []session.Part{{Kind: session.PartText, Text: msg}},
-		})
-		a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
-		return loopContinue, "", true
-	}
-	// Prefer the answer the model already wrote as its message (it streamed live to the pane).
-	// Only when the model put the answer in report.summary do we append it as the final
-	// assistant message so the pane shows it.
-	answer := strings.TrimSpace(rep.summary)
-	if answer == "" {
-		answer = lastText
-	} else {
-		paneText := answer
-		if strings.TrimSpace(rep.details) != "" {
-			paneText += "\n\n" + rep.details
-		}
-		a.appendPart(ctx, sid, tc.actor, "m_"+newID(), session.RoleAssistant, session.Part{
-			ID: "p_" + newID(), Kind: session.PartText, Text: paneText,
-		})
-	}
-	// The evidence is audited on the way OUT, where the paths it cites can still be traced to the
-	// calls that wrote them. A worker citing a file it composed is not refused — the note rides with
-	// the claim so the planner and the council read them together.
-	rep.provenance = a.auditReportEvidence(ctx, sid, rep.evidence)
-	d, _ := json.Marshal(event.TurnFinishedData{Usage: u})
-	a.appendFact(ctx, sid, event.TypeTurnFinished, tc.actor, d)
-	return loopFinish, rep.result(answer), true
 }
 
 // publishContextUsage emits a live context meter for the UI (M6/context mgmt).

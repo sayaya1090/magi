@@ -455,17 +455,6 @@ func (a *App) execAsideTool(ctx context.Context, s session.Session, depth int, c
 			}
 			return nil
 		},
-		CancelDispatch: func(agent, reason string) (int, error) {
-			n, err := a.cancelDispatched(ctx, s.ID, agent, reason)
-			if err == nil {
-				eff.didCancel = true
-				eff.cancelled += n
-				if reason != "" && eff.reason == "" {
-					eff.reason = reason
-				}
-			}
-			return n, err
-		},
 		AskUser: a.askUserFn(ctx, s, depth, c),
 	}
 	tool, ok := a.tools.Get(c.Name)

@@ -153,9 +153,6 @@ func (a *App) finishTurn(ctx context.Context, tc turnCtx, step int, turnTask, la
 	if act, done := a.nudgeEmptyResult(ctx, tc, lastText, ts); done {
 		return act
 	}
-	if act, done := a.parkForBackground(ctx, tc); done {
-		return act
-	}
 	if act, done := a.runTerminationGate(ctx, tc, step, turnTask, lastText, evs, usedTools, ts); done {
 		return act
 	}
@@ -234,35 +231,6 @@ func (a *App) nudgeEmptyResult(ctx context.Context, tc turnCtx, lastText string,
 	})
 	a.appendFact(ctx, tc.s.ID, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "orchestrator"}, pd)
 	return loopContinue, true
-}
-
-// parkForBackground is the sidecar wait (top level only): the orchestrator stays alive
-// while background subagents run but is re-woken ONLY when there is something to act on —
-// all subagents done (synthesize), a real user steer, or a subagent asking (escalation),
-// NOT per individual result (those accumulate silently). Waiting does not consume the step
-// budget. Returns loopRetryStep when there is work to act on, loopAbort on cancellation
-// (so a cancelled park does not fall through and emit a second, "successful" turn.finished).
-func (a *App) parkForBackground(ctx context.Context, tc turnCtx) (loopAction, bool) {
-	if tc.depth != 0 {
-		return 0, false
-	}
-	sid := tc.s.ID
-	for a.bgOutstanding(sid) > 0 && ctx.Err() == nil && !a.needsOrchestratorTurn(ctx, sid) {
-		select {
-		case <-a.bgWaitChan(sid):
-		case <-ctx.Done():
-		}
-	}
-	if ctx.Err() == nil && a.needsOrchestratorTurn(ctx, sid) {
-		// Mark current results consumed so we don't re-wake for them again
-		// (multi-wave delegation re-arms this when new results are injected).
-		a.bgConsume(sid)
-		return loopRetryStep, true
-	}
-	if ctx.Err() != nil {
-		return loopAbort, true
-	}
-	return 0, false
 }
 
 // runTerminationGate is the consensus council's finish decision (D14): top level only, not

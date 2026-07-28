@@ -197,11 +197,6 @@ func (m *Model) workerPanel(p *agentPane) string {
 	}
 
 	lines = append(lines, panelHead(p.label()))
-	if req := strings.TrimSpace(m.app.SubagentRequest(p.sid)); req != "" {
-		sep()
-		lines = append(lines, panelHead("Request"))
-		lines = append(lines, wrapPanel(req, inner)...)
-	}
 	if todos := m.app.Todos(p.sid); len(todos) > 0 {
 		done := 0
 		for _, t := range todos {

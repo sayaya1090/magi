@@ -84,7 +84,6 @@ func TestToolsWithoutEnvCaps(t *testing.T) {
 		tool port.Tool
 		args any
 	}{
-		{Task{}, taskArgs{Agent: "x", Prompt: "y"}},
 		{TodoWrite{}, todoWriteArgs{Todos: nil}},
 		{Remember{}, rememberArgs{Text: "x"}},
 		{Skill{}, skillArgs{Name: "x"}},
