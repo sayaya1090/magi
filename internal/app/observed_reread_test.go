@@ -19,36 +19,37 @@ func toolCallEv(id, name, args string) event.Event {
 	return event.Event{Type: event.TypePartAppended, Data: b}
 }
 
-// The record used to hold every read magi granted and hand back none of them. Observed live: the
-// same region of one file opened thirteen times through four mechanisms, each call carrying a
-// different window so no two shared a fingerprint — and every one of them inspect-only, so the
-// record filed it as neither ran-clean nor failed.
+// The record counts what magi SERVED: a path the read tool opened. It used to also credit a bash
+// command as a look when a verb table called that command inspect-only — so `cat`, `sed -n` and
+// `grep` were looks and `make` was not, decided by a hand-maintained list. The repeats those
+// commands make are already a fact under their own line ("issued more than once, exactly as
+// written"), so the guess bought nothing and could be wrong.
 func TestRecordSaysWhatWasReadTwice(t *testing.T) {
 	const p = "/app/ocaml/runtime/shared_heap.c"
 	evs := []event.Event{
 		toolCallEv("1", "read", `{"path":"`+p+`","offset":540}`),
 		toolCallEv("2", "read", `{"path":"`+p+`","offset":640}`),
-		// Named from inside its own directory, by a command that only prints it.
+		// A shell command naming the same file is NOT counted: magi did not serve that read.
 		toolCallEv("3", "bash", `{"command":"cd /app/ocaml/runtime && sed -n '570,652p' shared_heap.c"}`),
 		toolCallEv("4", "read", `{"path":"/app/ocaml/HACKING.adoc"}`),
 	}
 	o := observeEvents(evs)
-	if got := o.looked[p]; got != 3 {
-		t.Fatalf("three looks at the same file must count three, got %d", got)
+	if got := o.looked[p]; got != 2 {
+		t.Fatalf("two reads magi served count two, got %d", got)
 	}
 	again := o.reread()
-	if len(again) != 1 || !strings.Contains(again[0], p) || !strings.HasSuffix(again[0], "×3") {
+	if len(again) != 1 || !strings.Contains(again[0], p) || !strings.HasSuffix(again[0], "×2") {
 		t.Fatalf("only the repeated path is worth stating, got %v", again)
 	}
 	if txt := o.render(); !strings.Contains(txt, "already looked at more than once") ||
-		!strings.Contains(txt, "×3") || strings.Contains(txt, "HACKING") {
+		!strings.Contains(txt, "×2") || strings.Contains(txt, "HACKING") {
 		t.Errorf("the record must state the repeat and nothing read once:\n%s", txt)
 	}
 }
 
-// A shell token that merely looks like a filename is not evidence the agent read it: it may be a
-// glob, a redirect artifact, or an argument. Only a path the read tool already established gets
-// counted again, so the record can be incomplete but never wrong about what it observed.
+// A shell token that merely looks like a filename is not evidence of anything: it may be a glob, a
+// redirect artifact, or an argument. The record counts reads magi performed, so it can be
+// incomplete but never wrong about what it observed.
 func TestRereadNeverInventsAPath(t *testing.T) {
 	o := observeEvents([]event.Event{
 		toolCallEv("1", "bash", `{"command":"cat notes.txt && grep -n foo *.c"}`),
@@ -56,13 +57,17 @@ func TestRereadNeverInventsAPath(t *testing.T) {
 	if len(o.reread()) != 0 || len(o.looked) != 0 {
 		t.Fatalf("a bare command must not put paths into the record, got %v", o.looked)
 	}
-	// Reading it first is what makes the later mention countable.
+	// Nor does mentioning it after a real read: the second look never happened through magi.
 	o = observeEvents([]event.Event{
 		toolCallEv("1", "read", `{"path":"notes.txt"}`),
 		toolCallEv("2", "bash", `{"command":"cat notes.txt"}`),
 	})
-	if got := o.looked["notes.txt"]; got != 2 {
-		t.Errorf("a read then a cat of the same file is two looks, got %d", got)
+	if got := o.looked["notes.txt"]; got != 1 {
+		t.Errorf("one read is one look; the cat is its own line, got %d", got)
+	}
+	// …and that cat still reaches the record as the command it was.
+	if txt := o.render(); !strings.Contains(txt, "cat notes.txt") {
+		t.Errorf("the command itself is a fact and must be listed:\n%s", txt)
 	}
 }
 
@@ -92,19 +97,23 @@ func TestRereadOrdersByHowOftenItWasOpened(t *testing.T) {
 	}
 }
 
-// `cd runtime && sed -n '1,80p' heap.c` is one look at heap.c and none at the directory: stepping
-// into a directory is how the agent got somewhere, not a read of what is in it.
-func TestChangingDirectoryIsNotALook(t *testing.T) {
+// Tool calls are looks; shell commands are commands. `list` opened the directory and `read` opened
+// the file — one each — and the `cd … && sed -n` that follows adds to neither, because magi served
+// no read for it.
+func TestOnlyServedReadsAreLooks(t *testing.T) {
 	o := observeEvents([]event.Event{
 		toolCallEv("1", "list", `{"path":"/app/runtime"}`),
 		toolCallEv("2", "read", `{"path":"/app/runtime/heap.c"}`),
 		toolCallEv("3", "bash", `{"command":"cd /app/runtime && sed -n '1,80p' heap.c"}`),
 	})
 	if got := o.looked["/app/runtime"]; got != 1 {
-		t.Errorf("cd must not count as looking at the directory, got %d", got)
+		t.Errorf("the directory was listed once, got %d", got)
 	}
-	if got := o.looked["/app/runtime/heap.c"]; got != 2 {
-		t.Errorf("the sed is the second look at the file, got %d", got)
+	if got := o.looked["/app/runtime/heap.c"]; got != 1 {
+		t.Errorf("the file was read once; the sed is not a read magi performed, got %d", got)
+	}
+	if len(o.reread()) != 0 {
+		t.Errorf("nothing was opened twice, got %v", o.reread())
 	}
 }
 

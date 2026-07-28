@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path"
 	"regexp"
 	"sort"
 	"strconv"
@@ -101,39 +100,6 @@ func (o *observedRun) noteLook(p string) {
 // that is not true — the record may be incomplete, never wrong.
 var navVerbs = map[string]bool{"cd": true, "pwd": true, "exit": true, "true": true, "false": true}
 
-// noteLookedAgain credits a look to a path magi ALREADY knows this run opened, when an inspect-only
-// command names it. It never introduces a path: a token in a shell command that happens to look
-// like a filename may be a glob, a redirect artifact, or an argument, and a record that guesses is
-// a record that can be wrong about what it observed. Matching an existing entry — by full path or
-// by base name, which is how the same file gets named from inside its own directory — only counts
-// again something a read already established was there.
-//
-// Scanned per shell segment, so `cd runtime && sed -n '1,80p' heap.c` credits heap.c and not the
-// directory it stepped into.
-func (o *observedRun) noteLookedAgain(cmd string) {
-	if len(o.looked) == 0 {
-		return
-	}
-	for _, seg := range splitShellSegments(stripHeredocs(cmd)) {
-		fields := strings.Fields(seg)
-		if len(fields) == 0 || navVerbs[leadingVerb(seg)] {
-			continue
-		}
-		for _, tok := range fields[1:] {
-			tok = strings.Trim(tok, "'\"")
-			if tok == "" {
-				continue
-			}
-			for _, p := range o.lookOrder {
-				if p == tok || path.Base(p) == tok {
-					o.looked[p]++
-					break
-				}
-			}
-		}
-	}
-}
-
 // observedScanCap bounds the walk: a session longer than this is read from its tail, where the
 // current turn's work is. Scanning an entire long run on every step would cost more than the block
 // is worth.
@@ -219,9 +185,6 @@ func observeEvents(all []event.Event) observedRun {
 					}
 				}
 				out.noteRerun(args.Command)
-				if isInspectOnly(args.Command) {
-					out.noteLookedAgain(args.Command)
-				}
 				res := results[tc.CallID]
 				exit, known := exitOfBashResult(res)
 				// A pipeline's exit is its last stage's, so `make … | tail` used to land in "status

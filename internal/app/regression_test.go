@@ -364,34 +364,29 @@ func TestStallConvergeOffKeepsFixedReArm(t *testing.T) {
 }
 
 // TestNoteBashExecNovelty (D18a): a NOVEL (first-seen) non-inspect exercising command sets the
-// progressSinceNudge motion flag; a repeat (novel=false) and any inspect-only command never set
-// it, while execRuns still counts every exercise.
+// progressSinceNudge motion flag; a repeat (novel=false) and any inspect-only command never set it.
 func TestNoteBashExecNovelty(t *testing.T) {
 	g := newRunGuard()
 	g.noteBashExec("python x.py", true) // novel exercise → motion
-	if !g.progressSinceNudge || g.execRuns != 1 {
-		t.Fatalf("novel exercise: progress=%v exec=%d want true/1", g.progressSinceNudge, g.execRuns)
+	if !g.progressSinceNudge {
+		t.Fatal("a novel exercise is motion")
 	}
-	// A repeat exercise (not novel) after clearing the flag must NOT re-set motion, but must
-	// still count toward execRuns.
+	// A repeat exercise (not novel) after clearing the flag must NOT re-set motion.
 	g.progressSinceNudge = false
 	g.noteBashExec("python x.py", false)
 	if g.progressSinceNudge {
 		t.Fatal("a repeat (non-novel) exercise must not set the motion flag")
 	}
-	if g.execRuns != 2 {
-		t.Fatalf("execRuns must still count every exercise, got %d", g.execRuns)
-	}
 	// A NOVEL inspection now counts as responding to the redirect (MAGI_STALL_NOVELTY,
 	// default ON) but is still not an exercise; a repeated inspection moves neither.
 	g.noteBashExec("ls -la", true)
-	if !g.progressSinceNudge || g.execRuns != 2 {
-		t.Fatalf("novel inspect-only: progress=%v exec=%d want true/2", g.progressSinceNudge, g.execRuns)
+	if !g.progressSinceNudge {
+		t.Fatal("a novel inspection answers the redirect and counts as motion")
 	}
 	g.progressSinceNudge = false
 	g.noteBashExec("ls -la", false)
-	if g.progressSinceNudge || g.execRuns != 2 {
-		t.Fatalf("repeated inspect-only must move neither, progress=%v exec=%d", g.progressSinceNudge, g.execRuns)
+	if g.progressSinceNudge {
+		t.Fatal("a repeated inspection is not motion")
 	}
 }
 

@@ -29,15 +29,6 @@ func (a *App) injectStuckNudge(ctx context.Context, tc turnCtx, turnTask string,
 		"step, or inspect WHY the last attempts failed (read the error, check paths/state) before " +
 		"retrying. Re-read the original task:\n" +
 		clipSpec(task, 1500)
-	if kind == "spin" {
-		msg = "You've run a no-op command (echo/printf/true) several times in a row — a \"done\" banner is " +
-			"not a step and does not finish the task. If the work is genuinely COMPLETE: say so — call the " +
-			"`council` tool with `complete: true`, and the members read the record and either accept or tell " +
-			"you what is undone. Going quiet does not finish anything. If it is NOT complete: stop announcing " +
-			"success and take a real action — run the " +
-			"actual program/test against the deliverable, or fix what's failing. Re-read the original task:\n" +
-			clipSpec(task, 1500)
-	}
 	if kind == "stalled" {
 		msg = "You've run many steps without changing anything or making concrete progress — you may be " +
 			"re-running checks or restating the same conclusion instead of advancing the task. If the work is " +
@@ -113,9 +104,6 @@ func (a *App) finishTurn(ctx context.Context, tc turnCtx, step int, turnTask, la
 		return act
 	}
 	if act, done := a.nudgeEmptyResult(ctx, tc, lastText, ts); done {
-		return act
-	}
-	if act, done := a.nudgeUnexercised(ctx, tc, ts); done {
 		return act
 	}
 	if act, done := a.requireFinishDeclaration(ctx, tc, usedTools, ts); done {
@@ -239,32 +227,4 @@ func (a *App) finishDeclared(sid session.SessionID) bool {
 		tc.finish = false
 	})
 	return declared
-}
-
-// nudgeUnexercised says, once per turn, that the turn authored something runnable and magi's record
-// holds no command naming it. Deterministic and cheap: it needs no model call and it is the one
-// question that separates "written" from "works" without reading a line of the file.
-//
-// It is a report, not a verdict — magi can establish that no command NAMED the file, which is not
-// the same as "it never ran": a module loaded by stem (`from run import …`) is a real invocation the
-// ledger now matches, and there are others it cannot. So the wording says what the record holds and
-// leaves the reading to the agent, which is also why one nudge is enough. It rode inside the council
-// gate before, and went out with it.
-func (a *App) nudgeUnexercised(ctx context.Context, tc turnCtx, ts *turnState) (loopAction, bool) {
-	if ts.execNudged || tc.guard == nil {
-		return 0, false
-	}
-	un := tc.guard.unexercisedArtifacts()
-	if len(un) == 0 {
-		return 0, false
-	}
-	ts.execNudged = true
-	_ = a.appendPromptText(ctx, tc.s.ID, event.Actor{Kind: event.ActorSystem, ID: "guard"},
-		"magi's record of this turn has no executed command naming what you wrote: "+
-			strings.Join(un, ", ")+". That is what it can see, not a verdict on your work — a "+
-			"compile or a syntax check is not an invocation either. Run the smallest REAL "+
-			"invocation of each (its primary scenario) and check the output before you declare "+
-			"the task finished; if one already ran under a name this record cannot match, or is "+
-			"not meant to be executed directly, say so and declare it.")
-	return loopContinue, true
 }

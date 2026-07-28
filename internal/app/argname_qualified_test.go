@@ -47,32 +47,3 @@ func TestQualifiedArgNameOnlyClaimsARequiredKeyTheCallOmitted(t *testing.T) {
 		t.Errorf("a longer word containing the key is not a rename of it: %v", m)
 	}
 }
-
-// A source file a language loads by MODULE name is exercised by a command that never contains its
-// filename. Observed live (cancel-async-tasks): six `python3 -c "from run import run_tasks …"`
-// invocations, all real, and the per-artifact ledger still listed /app/run.py as never run — after
-// which the finish nudge told the agent it had never run what it wrote.
-func TestAModuleImportCountsAsRunningTheFileItLoads(t *testing.T) {
-	cmd := `python3 -c "
-import asyncio
-from run import run_tasks
-asyncio.run(run_tasks([], 2))"`
-	if !cmdNamesFile(cmd, "run.py") {
-		t.Error("importing a module by its stem must count as naming the file it loads")
-	}
-	// The plain form still works, and the whole-token rule still holds: `arun` is not `run`.
-	if !cmdNamesFile("python3 /app/run.py", "run.py") {
-		t.Error("a command naming the file outright must still match")
-	}
-	if cmdNamesFile("python3 -c 'import arunner'", "run.py") {
-		t.Error("a longer identifier containing the stem must not match")
-	}
-	// Only languages that load by stem: a Go file is named by path, so its stem proves nothing.
-	if cmdNamesFile("go test ./cmd", "cmd.go") {
-		t.Error("a stem match must not apply to a language that does not import by stem")
-	}
-	// A two-letter stem is too small to carry meaning in a shell command.
-	if cmdNamesFile("cd /app && ls", "ls.py") {
-		t.Error("a very short stem must not be matched")
-	}
-}

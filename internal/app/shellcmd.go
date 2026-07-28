@@ -89,38 +89,6 @@ func isInspectOnly(cmd string) bool {
 	return true
 }
 
-// isNoOpBanner reports whether cmd is a pure "completion banner": a command that only prints
-// or trivially succeeds, writing to no file and running no program-under-test. It is exactly
-// the keep-alive an agent spams every turn to dodge the len(toolCalls)==0 finish gate after
-// declaring the task done. It is DELIBERATELY NARROWER than isInspectOnly: it excludes
-// ls/cat/exit/false and rejects any redirect or pipe, because those either read real state or
-// author/feed a file (a legitimate `cat`/`ls`/`grep` exploration or an `echo … > f` write must
-// NOT read as a spin). The verb set is exactly {echo, printf, true, :} (a leading `cd` is
-// tolerated as a no-op prefix). This set MUST stay in lockstep with the offline calibration
-// classifier that measured the passing-run banner-streak ceiling (=8); widening it (e.g. adding
-// exit/false) raised that ceiling to 11 in the data and would invalidate bannerSpinStop.
-func isNoOpBanner(cmd string) bool {
-	if strings.ContainsAny(cmd, ">|") || strings.Contains(cmd, "tee ") {
-		return false // authors/feeds a file or pipes into another program — not a no-op
-	}
-	saw := false
-	for _, seg := range strings.Split(strings.ReplaceAll(cmd, "&&", ";"), ";") {
-		fields := strings.Fields(seg)
-		if len(fields) == 0 {
-			continue // empty segment (e.g. a trailing operator) — nothing ran here
-		}
-		switch fields[0] {
-		case "cd":
-			continue // a no-op prefix (`cd /app && echo …`); does not itself disqualify
-		case "echo", "printf", "true", ":":
-			saw = true
-		default:
-			return false
-		}
-	}
-	return saw
-}
-
 // isRedirectFragment reports whether tok is a leftover piece of a redirect, not a command
 // name — because splitShellSegments cuts on `&`, an fd-duplication like `2>&1` or `>&2` is
 // torn into a segment whose first token is the redirect tail (`1`, `2`) or a redirect operator

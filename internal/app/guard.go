@@ -43,19 +43,6 @@ const (
 	// that ignored the first one or two, few enough that a genuinely read-heavy turn is not
 	// spammed. A real file mutation re-arms the window (see mutated).
 	maxStallNudges = 3
-	// bannerSpinNudge/bannerSpinStop catch the "completion-banner spin": a weak model that has
-	// declared the task done keeps emitting a no-op banner (`echo "TASK COMPLETED"`, `true`, …)
-	// as a TOOL CALL every turn, so len(toolCalls) is never 0 and the run never reaches the
-	// finish/council gate — it churns to the harbor wall clock and returns reward=None (ungraded
-	// waste). bannerSpin counts CONSECUTIVE pure no-op banners (see isNoOpBanner/noteSpin); any
-	// real action resets it. Thresholds are calibrated on 216 reward-graded Terminal-Bench runs:
-	// passing runs (reward=1) peaked at a banner streak of 8, so a force-stop at 9 STRICTLY
-	// exceeds every observed pass streak — zero false-positive by construction — while catching
-	// the 9 failing runs that spun 9..23 banners to the wall clock. The nudge fires earlier (5)
-	// as a one-shot teach-the-end-turn hint; it only messages, so a pass run that briefly spins
-	// is unharmed.
-	bannerSpinNudge = 5
-	bannerSpinStop  = 9
 )
 
 // runGuard detects no-progress loops within a single run by fingerprinting each
@@ -76,12 +63,6 @@ type runGuard struct {
 	// powers the no-progress nudge: unlike `blocked` (which needs an EXACT repeat), it rises
 	// even when the agent varies its commands, catching a stall that changes nothing.
 	sinceProgress int
-	// execRuns is a MONOTONIC count of exercising (non-inspect) bash commands this run — unlike
-	// execSinceMut it never resets. The incremental step-check recorder keys on it so a check that
-	// newly-passes through a RUNTIME action rather than a file write (a started server now listening,
-	// a just-installed package now importable) is recorded the moment its turn ends, instead of only
-	// at the terminal gate: those actions bump no mutation epoch, so an epoch-only trigger misses them.
-	execRuns int
 	// prevSince/prevStallAt snapshot sinceProgress/lastStallAt just before mutated() zeroes them,
 	// so retractProgress can restore the climb when a later content check reveals that "mutation"
 	// was a self-revert (churn, not forward progress) — otherwise an implement↔revert oscillation
@@ -115,20 +96,11 @@ type runGuard struct {
 	stallConverge      bool
 	progressSinceNudge bool
 
-	// bannerSpin counts CONSECUTIVE pure no-op completion banners (isNoOpBanner) since the last
-	// real action. It is ORTHOGONAL to epoch/sinceProgress: a fabricating agent that interleaves
-	// deliverable rewrites bumps the epoch (resetting the stall counter) but a rewrite is not a
-	// banner, so it also resets bannerSpin to 0 — the spin only survives an UNBROKEN banner run,
-	// which is exactly the keep-alive dodge. nudgedSpin fires the one-shot re-grounding once.
-	bannerSpin int
-	nudgedSpin bool
-
 	// changed records this turn's file edits (before/after content) as the council's
 	// evidence of what the AGENT actually changed — reconstructed from its own write/edit
 	// tools, not git, so a human/external/bash change is never mis-attributed to the agent.
-	changed       map[string]*fileChange
-	changeOrder   []string        // first-seen order, for stable rendering
-	exercisedFile map[string]bool // authored files an EXERCISING command has named (exec-evidence)
+	changed     map[string]*fileChange
+	changeOrder []string // first-seen order, for stable rendering
 	// readSpans is which lines of each path magi has already handed over, so re-opening a window
 	// it already delivered is not mistaken for gathering new information (noteReadCoverage).
 	readSpans map[string][]lineSpan
@@ -145,10 +117,6 @@ type runGuard struct {
 	// already held this turn means the agent is undoing its own earlier change (the silent
 	// self-revert that no other guard catches).
 	contentHist map[string][]uint64
-	// execHist mirrors contentHist entry for entry: the exercise count (execRuns) when each of
-	// those states was recorded. It is what lets the swing note say whether anything RAN between
-	// two writes instead of asserting it — see hasUnexercisedSwing.
-	execHist map[string][]int
 	// regressCount counts, per file, how many times a write returned it to a content state it
 	// already held this turn. It is a COUNT rather than a flag because the report is the only
 	// channel left: the guard no longer stops anything, so a swing that goes unmentioned is a
@@ -169,8 +137,8 @@ func newRunGuard() *runGuard {
 	return &runGuard{
 		seen:    map[string]int{},
 		lastMut: map[string]string{}, changed: map[string]*fileChange{},
-		exercisedFile: map[string]bool{}, readSpans: map[string][]lineSpan{},
-		recalled: map[string]bool{}, contentHist: map[string][]uint64{}, execHist: map[string][]int{},
+		readSpans: map[string][]lineSpan{},
+		recalled:  map[string]bool{}, contentHist: map[string][]uint64{},
 		regressCount: map[string]int{},
 	}
 }
@@ -202,10 +170,8 @@ func (g *runGuard) noteEdit(path, before, after string) (warn string, regressed 
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	hist, ok := g.contentHist[path]
-	execAt := g.execHist[path]
 	if !ok {
 		hist = []uint64{hashContent(before)} // index 0 = pre-turn baseline
-		execAt = []int{g.execRuns}
 	}
 	h := hashContent(after)
 	if h == hist[len(hist)-1] {
@@ -215,7 +181,7 @@ func (g *runGuard) noteEdit(path, before, after string) (warn string, regressed 
 		// times over five minutes, then the same 225 bytes eight more times over thirteen, and
 		// magi never said a word. So say the one thing it knows and nothing more; the reading of
 		// it — deliberate re-assert, or an edit that did not take — is the agent's.
-		g.contentHist[path], g.execHist[path] = hist, execAt // materialize a file first seen here
+		g.contentHist[path] = hist // materialize the baseline for a file first seen here
 		return "this write left the file byte-for-byte as it already was — nothing changed.", false
 	}
 	// Scan states strictly before the latest: a match means the file returned to a state it
@@ -226,7 +192,7 @@ func (g *runGuard) noteEdit(path, before, after string) (warn string, regressed 
 			break
 		}
 	}
-	g.contentHist[path], g.execHist[path] = append(hist, h), append(execAt, g.execRuns)
+	g.contentHist[path] = append(hist, h)
 	if !regressed {
 		return "", false // forward progress
 	}
@@ -237,40 +203,18 @@ func (g *runGuard) noteEdit(path, before, after string) (warn string, regressed 
 	// edit — the guard reports, and what to do about it is the agent's call.
 	g.regressCount[path]++
 	if n := g.regressCount[path]; n > 1 {
-		// "no command ran between some of those writes" used to be part of the sentence, asserted
-		// every time. It is a claim about the run's own history and nothing measured it. Observed
-		// live: a scratch test file written, RUN, deleted, written again, RUN again (exit 130),
-		// deleted — and the note told the agent nothing had run between its writes, while magi's
-		// own exercise counter had advanced across every pair. A false accusation costs more than
-		// a missed warning: the warning says "look again", the accusation asserts something the
-		// agent can see is untrue and spends a cycle answering it. So the clause is earned now,
-		// from the counter, or it is not said.
-		swing := ""
-		if hasUnexercisedSwing(g.execHist[path]) {
-			swing = " — no command ran between some of those writes"
-		}
+		// It used to end in "no command ran between some of those writes". That clause was first
+		// asserted unconditionally, then measured from an exercise counter — and the counter was
+		// fed by a verb table deciding which commands "run" something. A sentence whose truth rests
+		// on a hand-maintained list of verbs is a guess wearing a measurement's clothes, and this
+		// one was an accusation. What is left is counted: how often, and how many versions.
 		return fmt.Sprintf("note: this file has now returned to a content state it already held "+
-			"%d times this turn, moving among %d distinct versions%s. If cycling between versions "+
+			"%d times this turn, moving among %d distinct versions. If cycling between versions "+
 			"is not getting you there, the next thing to change is probably not this file.",
-			n, distinctStates(g.contentHist[path]), swing), true
+			n, distinctStates(g.contentHist[path])), true
 	}
 	return "note: this edit restored a content state this file already had earlier this turn — " +
 		"if reverting your own earlier change was intentional, ignore this.", true
-}
-
-// hasUnexercisedSwing reports whether the file went from one written state to the next with no
-// exercising command in between — the thing the swing note claims. execAt[i] is the exercise count
-// when state i was recorded, so commands ran between states i and i+1 exactly when the count grew.
-//
-// It starts at index 1 on purpose: index 0 is the file's pre-turn state, and "nothing ran between
-// the file's contents before the turn and your first write" is not a statement about writes.
-func hasUnexercisedSwing(execAt []int) bool {
-	for i := 1; i+1 < len(execAt); i++ {
-		if execAt[i] == execAt[i+1] {
-			return true
-		}
-	}
-	return false
 }
 
 // distinctStates counts how many different content states a file has held this turn, so a swing
@@ -618,47 +562,10 @@ func (g *runGuard) noteBashExec(cmd string, novel bool) {
 		return
 	}
 	g.mu.Lock()
-	g.execRuns++ // monotonic: drives the incremental check recorder for runtime-satisfied checks
 	if novel {
 		g.progressSinceNudge = true // a first-seen exercising command is forward motion
 	}
-	// Per-artifact exercise ledger (exec-evidence layer 1): an EXERCISING command that
-	// names an authored file marks that file as having actually been run/loaded at
-	// least once. Inspection commands returned above never reach here, so `cat x.py`
-	// does not count as running x.py.
-	for path := range g.changed {
-		if g.exercisedFile[path] {
-			continue
-		}
-		if base := filepath.Base(path); base != "" && cmdNamesFile(cmd, base) {
-			g.exercisedFile[path] = true
-		}
-	}
 	g.mu.Unlock()
-}
-
-// cmdNamesFile reports whether cmd refers to the file named `base` — either by that name, or, for a
-// source file a language loads by MODULE name, by its stem.
-//
-// The stem form is not a nicety. A task whose whole point is that the file be importable
-// (`from run import run_tasks`) is exercised by exactly the command that never contains "run.py",
-// so the per-artifact ledger stayed empty through six real invocations and the finish nudge then
-// told the agent it had never run what it wrote — a statement contradicted by magi's own record.
-// A false accusation costs more than a missed warning: the warning only says "look again", while
-// the accusation asserts something the agent can see is untrue and spends a cycle answering it.
-//
-// Only extensions whose language loads a file by its stem qualify, so this stays a fact about how
-// source files are referenced rather than a guess about a particular command.
-func cmdNamesFile(cmd, base string) bool {
-	if cmdMentionsFile(cmd, base) {
-		return true
-	}
-	ext := strings.ToLower(filepath.Ext(base))
-	if !importedByStem[ext] {
-		return false
-	}
-	stem := strings.TrimSuffix(base, filepath.Ext(base))
-	return len(stem) >= 3 && cmdMentionsFile(cmd, stem)
 }
 
 // importedByStem lists the extensions whose language names a source file by its stem when loading
@@ -706,46 +613,6 @@ var runnableExt = map[string]bool{
 	".java": true, ".mjs": true,
 }
 
-// unexercisedArtifacts returns this turn's authored runnable files that no
-// exercising command ever named — the deterministic "written but never run" fact
-// the exec-evidence nudge and the council evidence trailer are built on. A file
-// can also become exercised retroactively (written after an earlier mention is
-// impossible — mentions are only recorded for already-authored files — so a late
-// write followed by no run stays listed, which is exactly the failure mode).
-func (g *runGuard) unexercisedArtifacts() []string {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	var out []string
-	for _, p := range g.changeOrder {
-		c := g.changed[p]
-		if c == nil || strings.TrimSpace(c.after) == "" {
-			continue // deletion/emptied — nothing to run
-		}
-		if !runnableExt[strings.ToLower(filepath.Ext(p))] {
-			continue
-		}
-		if !g.exercisedFile[p] {
-			out = append(out, p)
-		}
-	}
-	return out
-}
-
-// noteSpin updates the consecutive completion-banner counter for one executed tool call. A
-// bash call whose command is a pure no-op banner (isNoOpBanner) increments bannerSpin; ANY
-// other tool call — a non-banner bash, a write/edit, a read, todowrite, … — is a real action
-// and resets it to 0. It is called once per executed call from execute.go (blocked calls
-// return before that point, so they never count). cmd is "" for non-bash tools.
-func (g *runGuard) noteSpin(name, cmd string) {
-	g.mu.Lock()
-	if name == "bash" && isNoOpBanner(cmd) {
-		g.bannerSpin++
-	} else {
-		g.bannerSpin = 0
-	}
-	g.mu.Unlock()
-}
-
 // callCount returns the total tool calls recorded this run.
 func (g *runGuard) callCount() int {
 	g.mu.Lock()
@@ -786,12 +653,6 @@ func (g *runGuard) shouldNudge() string {
 	if g.blocked >= nudgeThreshold && !g.nudgedBlocked {
 		g.nudgedBlocked = true
 		return "blocked"
-	}
-	// Spin is more specific than the stalled re-arm below (a run of pure completion banners),
-	// so it takes precedence: a one-shot hint to end the turn instead of echoing "done" again.
-	if g.bannerSpin >= bannerSpinNudge && !g.nudgedSpin {
-		g.nudgedSpin = true
-		return "spin"
 	}
 	if g.stallNudges < maxStallNudges && g.sinceProgress-g.lastStallAt >= noProgressNudge {
 		// D18a convergence: a re-arm (>=1 nudge already fired) whose window produced NO

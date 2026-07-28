@@ -81,7 +81,6 @@ type turnState struct {
 	nudgedEmpty      bool
 	declareAsks      int    // how many times this turn was told to declare completion (declareAskCap)
 	declared         bool   // the agent declared the task finished and the council accepted
-	execNudged       bool   // authored-but-never-executed nudge fired at most once (exec-evidence)
 	prevFinishText   string // the answer the council rejected last round
 	prevFinishCalls  int    // guard.callCount() at that rejection (-1 = none yet)
 	unverifiedReason string // non-empty when the turn finishes WITHOUT council approval
