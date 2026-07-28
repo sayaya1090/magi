@@ -555,8 +555,8 @@ func run() int {
 		NewProvider:         newProvider,
 		RoutePersister:      routePersister{path: filepath.Join(plat.ConfigDir(), "config.toml")},
 		PermissionPersister: permPersister{path: filepath.Join(wd, ".magi", "config.toml")},
-		Planner:             cfg.Orchestration.Planner == nil || *cfg.Orchestration.Planner, // default on; kill switch
-		MaxPlanDepth:        planDepthFromEnv(),                                             // 0 → app defaults to 2; MAGI_MAX_PLAN_DEPTH overrides (bench A/B knob)
+		Planner:             plannerEnabled(cfg.Orchestration.Planner), // default on; MAGI_PLANNER=0 or [orchestration] planner=false
+		MaxPlanDepth:        planDepthFromEnv(),                        // 0 → app defaults to 2; MAGI_MAX_PLAN_DEPTH overrides (bench A/B knob)
 		Council:             councilPort,
 		CouncilRule:         corecouncil.Rule(cfg.Council.Rule),
 		CouncilMaxRounds:    councilMaxRounds(cfg.Council),
@@ -1238,6 +1238,21 @@ func defaultAgents(workers *bool) map[string]app.AgentSpec {
 		}
 	}
 	return agents
+}
+
+// plannerEnabled decides whether the pre-flight planner phase runs at all.
+//
+// It was config-only, which put the single biggest piece of imposed structure — orient, spec-mine,
+// the contract gate, the planner, the plan audit and the check authoring that hangs off it — out of
+// reach of a one-off A/B. The bench passes MAGI_* through to the agent, so an env knob is what makes
+// "let the model drive" measurable without editing a config inside a container image.
+//
+// Same order as the worker switch: environment wins when set at all, then config, then on.
+func plannerEnabled(cfg *bool) bool {
+	if v := strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_PLANNER"))); v != "" {
+		return v != "0" && v != "off" && v != "false" && v != "no"
+	}
+	return cfg == nil || *cfg
 }
 
 // workersEnabled decides whether the write-capable worker joins the roster.
