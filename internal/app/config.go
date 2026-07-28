@@ -167,7 +167,7 @@ type Config struct {
 	// the guard defers to it. 0 = provider default → the spin guard stays the backstop.
 	MaxOutputTokens int
 
-	// Agents are named subagents spawnable via the task tool.
+	// Agents carry per-agent model routing. Nothing spawns them — the roster is what /route edits.
 	Agents map[string]AgentSpec
 	// Bounded recursion limits (D7).
 	Concurrency int // max concurrently running subagents

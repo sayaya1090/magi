@@ -340,7 +340,7 @@ func formatCouncilEvidence(d event.CouncilConvenedData) string {
 	if d.Phase == "plan" {
 		add("Proposed plan", d.Plan)
 	} else {
-		add("Plan / acceptance criteria", d.Plan)
+		add("The agent's own plan", d.Plan)
 		add("Agent report (the claim)", d.Report)
 	}
 	if len(d.Signals) > 0 {

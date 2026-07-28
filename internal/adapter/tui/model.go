@@ -312,7 +312,7 @@ type cmdInfo struct{ name, desc string }
 // slashCommands is the single source of truth for available commands.
 var slashCommands = []cmdInfo{
 	{"/help", "show help"},
-	{"/route", "models & routing editor (aliases: /model, /agents)"},
+	{"/route", "models & routing editor (alias: /model)"},
 	{"/tools", "list available tools"},
 	{"/sessions", "list sessions in this directory"},
 	{"/resume", "resume a session (/resume to list, /resume N to switch)"},
@@ -326,7 +326,7 @@ var slashCommands = []cmdInfo{
 	{"/replay", "re-run the last turn on a branch (compare with /loopdiff)"},
 	{"/loopdiff", "compare this branch with its fork origin"},
 	{"/init", "analyze the project and write AGENTS.md"},
-	{"/ultra", "ultra work mode: orchestrate specialists (/ultra <task>)"},
+	{"/ultra", "ultra work mode: work it thoroughly and verify (/ultra <task>)"},
 	{"/permission", "cycle permission mode"},
 	{"/compact", "summarize & shrink the context"},
 	{"/clear", "clear the transcript"},
@@ -738,7 +738,6 @@ func joinOr(xs []string, empty string) string {
 const helpText = "commands:\n" +
 	"  /help         show this help\n" +
 	"  /model        show the active model\n" +
-	"  /agents       list subagents (delegate via the task tool)\n" +
 	"  /tools        list available tools\n" +
 	"  /sessions     list sessions in this directory\n" +
 	"  /diff         show the working-tree git diff\n" +
@@ -760,13 +759,15 @@ const initPrompt = "Analyze this project and create an AGENTS.md file at the rep
 	"Include: a one-paragraph overview, the directory structure, key conventions, and the build/test/run commands. " +
 	"Inspect the project first (list, read, glob, grep) before writing. Keep it concise and accurate."
 
-// ultraPreamble turns the agent into an orchestrator (Ultra Work Mode):
-// plan → delegate to specialists (in parallel) → implement → verify → self-correct.
-const ultraPreamble = "You are operating in ULTRA WORK MODE as an orchestrator. Work autonomously and thoroughly:\n" +
-	"1. Make a plan with the todowrite tool.\n" +
-	"2. Gather context by delegating to subagents via the task tool — run independent investigations IN PARALLEL " +
-	"(one task call with a tasks array): explore (map the area), librarian (find exact locations), oracle (hard reasoning).\n" +
-	"3. Implement changes by delegating to the coder subagent.\n" +
-	"4. Verify with the tester subagent; if it fails, self-correct (delegate fixes) and re-verify.\n" +
-	"5. Have the reviewer subagent check the result.\n" +
-	"6. Keep todo statuses updated and finish with a concise summary of what changed and how it was verified."
+// ultraPreamble asks for a thorough, self-driven pass. It used to describe an orchestrator handing
+// work to named specialists — explore, librarian, coder, tester, reviewer — none of which exist:
+// the roster and the task tool are gone, so every step of that recipe was an instruction the agent
+// could not follow. What is left is the part that never depended on them.
+const ultraPreamble = "Work autonomously and thoroughly on this:\n" +
+	"1. Lay out the steps with the todowrite tool and keep their statuses current.\n" +
+	"2. Read before you write: find the exact files and lines, don't guess.\n" +
+	"3. Make the smallest change that does the job.\n" +
+	"4. VERIFY by running it — the build, the tests, the program itself — and read the real output.\n" +
+	"5. If it fails, fix and re-run until it passes; never leave the code broken.\n" +
+	"6. Ask the council (the `council` tool) when you want another reading, and declare completion " +
+	"with `council{complete: true}` when you believe it is done."
