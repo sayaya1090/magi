@@ -81,19 +81,19 @@ func TestPipelineExitIsPassedThroughUnchanged(t *testing.T) {
 
 // pipeStageNote decides on the statuses alone, so its rule is pinned without a shell.
 func TestPipeStageNoteRule(t *testing.T) {
-	if n := pipeStageNote(0, []int{2, 0, 0}); !strings.Contains(n, "2 → 0 → 0") {
+	if n := pipeStageNote("make | tee log | head", 0, []int{2, 0, 0}); !strings.Contains(n, "2 → 0 → 0") {
 		t.Errorf("a hidden failure must be named, got %q", n)
 	}
-	if n := pipeStageNote(0, []int{0, 0}); n != "" {
+	if n := pipeStageNote("ls | head", 0, []int{0, 0}); n != "" {
 		t.Errorf("all-clean needs no note, got %q", n)
 	}
-	if n := pipeStageNote(1, []int{2, 1}); n != "" {
+	if n := pipeStageNote("make | head", 1, []int{2, 1}); n != "" {
 		t.Errorf("a pipeline that already reports failure hides nothing, got %q", n)
 	}
-	if n := pipeStageNote(0, []int{0}); n != "" {
+	if n := pipeStageNote("ls", 0, []int{0}); n != "" {
 		t.Errorf("a single command is not a pipeline, got %q", n)
 	}
-	if n := pipeStageNote(0, nil); n != "" {
+	if n := pipeStageNote("ls | head", 0, nil); n != "" {
 		t.Errorf("no capture means no claim, got %q", n)
 	}
 }
@@ -104,17 +104,17 @@ func TestPipeStageNoteRule(t *testing.T) {
 // pipe FAILED", and the build had not failed at all. A record that asserts a failure that did not
 // happen is worse than one that says nothing.
 func TestSigpipeIsNotAPipelineFailure(t *testing.T) {
-	if got := pipeStageNote(0, []int{141, 0}); got != "" {
+	if got := pipeStageNote("make | head -50", 0, []int{141, 0}); got != "" {
 		t.Errorf("a SIGPIPE'd stage must not be reported as a failure, got %q", got)
 	}
 	// A real failure upstream still says so, including when a later stage was SIGPIPE'd.
-	if pipeStageNote(0, []int{2, 0}) == "" {
+	if pipeStageNote("make | head", 0, []int{2, 0}) == "" {
 		t.Error("a genuinely failing stage must still be reported")
 	}
-	if pipeStageNote(0, []int{2, 141, 0}) == "" {
+	if pipeStageNote("make | tee log | head", 0, []int{2, 141, 0}) == "" {
 		t.Error("a real failure must be reported even when a later stage was SIGPIPE'd")
 	}
-	if got := pipeStageNote(0, []int{0, 0}); got != "" {
+	if got := pipeStageNote("ls | head", 0, []int{0, 0}); got != "" {
 		t.Errorf("a clean pipeline has nothing to add, got %q", got)
 	}
 }
