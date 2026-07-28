@@ -501,18 +501,24 @@ func run() int {
 	// with [council] enabled=false). Each member can run on its own backend — resolve maps a
 	// member's provider name to a named profile (or the default backend) — so
 	// cheap and strong models can be mixed across the MAGI.
+	// Late-bound: the council's resolver is built before the App exists but is only CALLED once a
+	// deliberation runs, by which time this is set. It is what meters the council's requests.
+	var a *app.App
 	var councilPort port.Council
 	if cfg.Council.IsEnabled() {
 		// Resolver over the startup profiles snapshot; an unknown/empty name (incl. a
 		// profile added later via /route) falls back to the default backend, so
 		// council member providers should be defined in config at startup.
 		resolve := func(name string) port.LLMProvider {
+			// Metered: the council is several requests per round per gate, and until this wrapper
+			// existed none of them appeared in any total. The App's own providers are metered at
+			// construction; these are the raw ones built here, so they are wrapped at the seam.
 			if name != "" {
 				if p := providers[name]; p != nil {
-					return p // already guarded by the factory
+					return a.MeterProvider(p) // already guarded by the factory
 				}
 			}
-			return app.GuardProvider(llm) // universal hang guard on the council's default backend too
+			return a.MeterProvider(app.GuardProvider(llm)) // universal hang guard on the council's default backend too
 		}
 		councilPort = councilllm.New(resolve, modelID)
 	}
@@ -524,7 +530,7 @@ func run() int {
 	obs := &pluginObserver{}
 	experienceStore := explayered.New(expProjectDir, expDir)
 
-	a := app.New(store, app.GuardProvider(llm), reg, bus.New(), plat, app.Config{
+	a = app.New(store, app.GuardProvider(llm), reg, bus.New(), plat, app.Config{
 		Model:               session.ModelRef{Provider: "openai", Model: modelID},
 		System:              systemPrompt,
 		Permission:          perm,
@@ -821,6 +827,8 @@ func resolvePrompt(flagVal string, stdin io.Reader) (string, error) {
 type headlessApp interface {
 	Subscribe(ctx context.Context, sid session.SessionID, fromSeq int64) (<-chan event.Event, func(), error)
 	Submit(ctx context.Context, c command.SubmitPrompt) error
+	// UsageTotal is every request this process served, so a scripted run can report what it cost.
+	UsageTotal() event.Usage
 }
 
 // runHeadless executes a one-shot prompt and streams the resulting fact events to
@@ -890,6 +898,17 @@ func runHeadless(ctx context.Context, a headlessApp, sid session.SessionID, prom
 			exit = 1
 			break
 		}
+	}
+	// What the run actually spent, on stderr so stdout stays a clean transcript. The per-turn usage
+	// in the transcript is the agent's own stream and its LAST prompt; this is every request —
+	// council polls, side calls, and everything the subagents spent — which is the number a bill is
+	// computed from.
+	if u := a.UsageTotal(); u.In > 0 || u.Out > 0 {
+		line := fmt.Sprintf("magi: tokens in %d / out %d", u.In, u.Out)
+		if u.Cost > 0 {
+			line += fmt.Sprintf(" · cost $%.4f", u.Cost)
+		}
+		fmt.Fprintln(errw, line)
 	}
 	return exit
 }

@@ -28,7 +28,10 @@ type fakeHeadless struct {
 	subErr    error
 	submitErr error
 	submitted *command.SubmitPrompt
+	usage     event.Usage
 }
+
+func (f *fakeHeadless) UsageTotal() event.Usage { return f.usage }
 
 func (f *fakeHeadless) Subscribe(_ context.Context, _ session.SessionID, _ int64) (<-chan event.Event, func(), error) {
 	if f.subErr != nil {

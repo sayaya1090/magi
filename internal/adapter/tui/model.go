@@ -322,6 +322,7 @@ var slashCommands = []cmdInfo{
 	{"/loop", "show the loop map (turns · steps · council)"},
 	{"/context", "context window usage; /context <tokens> sets the model's window (e.g. 128k, unlimited)"},
 	{"/subagent", "subagent timeout: show base + elastic cap; /subagent <dur> sets the base (e.g. 5m, 90s)"},
+	{"/cost", "tokens and cost: this session incl. its subagents, and the whole process (council + side calls included)"},
 	{"/fork", "branch this session to explore an alternative (origin kept)"},
 	{"/replay", "re-run the last turn on a branch (compare with /loopdiff)"},
 	{"/loopdiff", "compare this branch with its fork origin"},

@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/sayaya1090/magi/internal/core/command"
+	"github.com/sayaya1090/magi/internal/core/event"
 )
 
 // mouseDebug (MAGI_MOUSE_DEBUG) surfaces the click→cell mapping as a toast, for
@@ -693,6 +694,8 @@ func (m *Model) handleSlash(text string) (tea.Cmd, bool) {
 		out = m.cmdContext(fields)
 	case "/subagent":
 		out = m.cmdSubagent(fields)
+	case "/cost":
+		out = m.cmdCost()
 	case "/fork":
 		if m.running {
 			out = m.snack("cannot fork while running")
@@ -854,6 +857,35 @@ func (m *Model) cmdSubagent(fields []string) tea.Cmd {
 		return m.snack("subagent: " + err.Error())
 	}
 	return m.snack("subagent timeout base set to " + d.String())
+}
+
+// cmdCost reports what has actually been spent.
+//
+// It is not the number on the status line: that one is the CURRENT CONTEXT SIZE (the last request's
+// prompt), which is what a context meter needs and is not what a bill is. This sums every request —
+// each step's prompt, every council poll, every side call, and everything the subagents spent — for
+// this session's subtree and for the process.
+func (m *Model) cmdCost() tea.Cmd {
+	ses, all := m.app.UsageFor(m.sid), m.app.UsageTotal()
+	line := func(label string, u event.Usage) string {
+		s := fmt.Sprintf("%s in %s · out %s", label, humanCount(u.In), humanCount(u.Out))
+		if u.Cost > 0 {
+			s += fmt.Sprintf(" · $%.4f", u.Cost)
+		}
+		return s
+	}
+	return m.snack(line("session (incl. subagents):", ses) + "   |   " + line("process:", all))
+}
+
+// humanCount renders a token count compactly (12345 → 12.3k).
+func humanCount(n int) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.2fM", float64(n)/1e6)
+	case n >= 1_000:
+		return fmt.Sprintf("%.1fk", float64(n)/1e3)
+	}
+	return strconv.Itoa(n)
 }
 
 // parseTokenCount parses a context-window size like "128000", "128k", "1m", or
