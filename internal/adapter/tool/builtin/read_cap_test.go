@@ -15,12 +15,12 @@ import (
 )
 
 // TestReadDefaultLineCap: a bare read (no limit) of a file longer than
-// defaultReadLines returns exactly that many numbered lines plus a "more lines"
+// DefaultReadLines returns exactly that many numbered lines plus a "more lines"
 // footer pointing at where to resume — not the whole file (O5).
 func TestReadDefaultLineCap(t *testing.T) {
 	dir := t.TempDir()
 	var b strings.Builder
-	total := defaultReadLines + 500
+	total := DefaultReadLines + 500
 	for i := 1; i <= total; i++ {
 		fmt.Fprintf(&b, "line %d\n", i)
 	}
@@ -32,18 +32,18 @@ func TestReadDefaultLineCap(t *testing.T) {
 		t.Fatalf("read errored: %v %s", err, res.Content)
 	}
 	out := string(res.Content)
-	// The window ends at defaultReadLines; the next line must NOT appear.
-	if !strings.Contains(out, fmt.Sprintf("line %d", defaultReadLines)) {
-		t.Errorf("expected last shown line %d present", defaultReadLines)
+	// The window ends at DefaultReadLines; the next line must NOT appear.
+	if !strings.Contains(out, fmt.Sprintf("line %d", DefaultReadLines)) {
+		t.Errorf("expected last shown line %d present", DefaultReadLines)
 	}
-	if strings.Contains(out, fmt.Sprintf("line %d\n", defaultReadLines+1)) {
+	if strings.Contains(out, fmt.Sprintf("line %d\n", DefaultReadLines+1)) {
 		t.Error("line past the default cap should not be shown")
 	}
 	if !strings.Contains(out, fmt.Sprintf("%d more lines", 500)) {
 		t.Errorf("expected a '500 more lines' footer, got tail: %q", tail(out, 120))
 	}
-	if !strings.Contains(out, fmt.Sprintf("offset=%d", defaultReadLines+1)) {
-		t.Errorf("footer should point at offset=%d to resume", defaultReadLines+1)
+	if !strings.Contains(out, fmt.Sprintf("offset=%d", DefaultReadLines+1)) {
+		t.Errorf("footer should point at offset=%d to resume", DefaultReadLines+1)
 	}
 }
 

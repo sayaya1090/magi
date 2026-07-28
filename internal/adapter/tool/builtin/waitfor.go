@@ -25,8 +25,8 @@ type WaitFor struct{}
 
 type waitForArgs struct {
 	Condition string  `json:"condition"`
-	Timeout   flexInt `json:"timeout"`  // seconds (default 300; max 1800); tolerant parse (flexInt)
-	Interval  flexInt `json:"interval"` // seconds between checks (default 5; max 60); tolerant parse (flexInt)
+	Timeout   FlexInt `json:"timeout"`  // seconds (default 300; max 1800); tolerant parse (FlexInt)
+	Interval  FlexInt `json:"interval"` // seconds between checks (default 5; max 60); tolerant parse (FlexInt)
 }
 
 func (WaitFor) Name() string { return "wait_for" }

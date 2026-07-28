@@ -32,7 +32,7 @@ const (
 
 type bashArgs struct {
 	Command    string   `json:"command"`
-	Timeout    flexInt  `json:"timeout"`    // seconds (default 120, max 600); tolerant parse (flexInt)
+	Timeout    FlexInt  `json:"timeout"`    // seconds (default 120, max 600); tolerant parse (FlexInt)
 	Background flexBool `json:"background"` // run detached; returns an id to poll/kill
 	Pty        flexBool `json:"pty"`        // with background: attach a real terminal (ssh/serial/curses)
 }

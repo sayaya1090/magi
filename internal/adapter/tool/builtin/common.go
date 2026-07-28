@@ -8,7 +8,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
-// flexInt is an integer tool argument that tolerates the shapes weak models
+// FlexInt is an integer tool argument that tolerates the shapes weak models
 // actually emit: 300, 300.0, "300", "300.000000", "300s". Strict int fields
 // rejected the WHOLE tool call over a field's type ("cannot unmarshal string
 // into … type int") — observed live: the model then abandoned the action
@@ -16,10 +16,14 @@ import (
 // correcting the type. An unparseable value falls back to 0 (= the field's
 // unset/default semantics) rather than failing the call: these fields are
 // bounds and positions, never the point of the call.
-type flexInt int
+//
+// Exported so anything that re-reads a tool's own arguments — the loop guard reads a read's
+// offset/limit — parses them the way the tool did. A strict re-parse would reject "540.0" and
+// silently see an unset field where the tool saw line 540.
+type FlexInt int
 
 // flexBool is a boolean tool argument with the same tolerance rationale as
-// flexInt: weak models emit "true"/"false" (and occasionally 1/0) where the
+// FlexInt: weak models emit "true"/"false" (and occasionally 1/0) where the
 // schema says boolean, and a strict bool rejected the whole call over it.
 // Junk falls back to false (= the field's unset/default semantics).
 type flexBool bool
@@ -34,7 +38,7 @@ func (v *flexBool) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-func (v *flexInt) UnmarshalJSON(b []byte) error {
+func (v *FlexInt) UnmarshalJSON(b []byte) error {
 	s := strings.TrimSpace(strings.Trim(string(b), `"`))
 	s = strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(s, "sec"), "s"))
 	if f, err := strconv.ParseFloat(s, 64); err == nil {
@@ -48,7 +52,7 @@ func (v *flexInt) UnmarshalJSON(b []byte) error {
 		} else if f < -lim {
 			f = -lim
 		}
-		*v = flexInt(int(f))
+		*v = FlexInt(int(f))
 	} else {
 		*v = 0 // unparseable → unset/default, never a rejected call
 	}

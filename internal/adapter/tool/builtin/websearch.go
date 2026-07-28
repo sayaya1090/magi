@@ -28,7 +28,7 @@ type WebSearch struct {
 
 type webSearchArgs struct {
 	Query string  `json:"query"`
-	Count flexInt `json:"count"` // max results (default 5, max 10)
+	Count FlexInt `json:"count"` // max results (default 5, max 10)
 }
 
 func (WebSearch) Name() string { return "websearch" }

@@ -17,19 +17,23 @@ import (
 // model context. Beyond it, only the first maxReadBytes are read, with a note.
 const maxReadBytes = 10 << 20 // 10 MiB
 
-// defaultReadLines caps a read that supplies no explicit limit, so a bare
+// DefaultReadLines caps a read that supplies no explicit limit, so a bare
 // read{path} of a large text file returns a navigable window instead of the whole
 // file. The agent pages further with offset/limit. Matches the convention of
 // mainstream agent read tools.
-const defaultReadLines = 2000
+//
+// Exported because the loop guard has to know how many lines a read WITHOUT a limit
+// actually delivered, to tell paging through a file apart from re-opening the same
+// window. A second copy of the number would let the two drift silently.
+const DefaultReadLines = 2000
 
 // Read returns the contents of a file, optionally a line range. (F-TOOL-READ)
 type Read struct{}
 
 type readArgs struct {
 	Path   string  `json:"path"`
-	Offset flexInt `json:"offset"` // 1-based start line (optional); tolerant parse (flexInt)
-	Limit  flexInt `json:"limit"`  // max lines (optional); tolerant parse (flexInt)
+	Offset FlexInt `json:"offset"` // 1-based start line (optional); tolerant parse (FlexInt)
+	Limit  FlexInt `json:"limit"`  // max lines (optional); tolerant parse (FlexInt)
 }
 
 func (Read) Name() string        { return "read" }
@@ -91,7 +95,7 @@ func (Read) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	// read of a large file returns a navigable page instead of dumping everything.
 	limit, defaulted := int(a.Limit), false
 	if limit <= 0 {
-		limit, defaulted = defaultReadLines, true
+		limit, defaulted = DefaultReadLines, true
 	}
 	full := string(data)
 	content := sliceLines(full, int(a.Offset), limit)

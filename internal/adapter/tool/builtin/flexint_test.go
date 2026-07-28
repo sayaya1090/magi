@@ -10,7 +10,7 @@ import (
 	"github.com/sayaya1090/magi/internal/port"
 )
 
-// flexInt accepts every integer shape weak models actually emit; junk falls back
+// FlexInt accepts every integer shape weak models actually emit; junk falls back
 // to 0 (unset/default) instead of failing the whole tool call.
 func TestFlexIntShapes(t *testing.T) {
 	for _, tc := range []struct {
@@ -37,12 +37,12 @@ func TestFlexIntShapes(t *testing.T) {
 		{`[300]`, 0},
 		{`{}`, 0},
 	} {
-		var v flexInt
+		var v FlexInt
 		if err := json.Unmarshal([]byte(tc.in), &v); err != nil {
-			t.Fatalf("flexInt(%s) must never error, got %v", tc.in, err)
+			t.Fatalf("FlexInt(%s) must never error, got %v", tc.in, err)
 		}
 		if int(v) != tc.want {
-			t.Errorf("flexInt(%s) = %d, want %d", tc.in, v, tc.want)
+			t.Errorf("FlexInt(%s) = %d, want %d", tc.in, v, tc.want)
 		}
 	}
 }
