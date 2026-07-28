@@ -28,7 +28,7 @@ type editArgs struct {
 	New        string   `json:"new"`
 	At         string   `json:"at"`
 	To         string   `json:"to"`
-	ReplaceAll flexBool `json:"replaceAll"`
+	ReplaceAll FlexBool `json:"replaceAll"`
 }
 
 func (Edit) Name() string { return "edit" }

@@ -47,7 +47,7 @@ func TestFlexIntShapes(t *testing.T) {
 	}
 }
 
-// flexBool accepts the boolean shapes weak models emit; junk means "not set".
+// FlexBool accepts the boolean shapes weak models emit; junk means "not set".
 func TestFlexBoolShapes(t *testing.T) {
 	for _, tc := range []struct {
 		in   string
@@ -58,12 +58,12 @@ func TestFlexBoolShapes(t *testing.T) {
 		{`false`, false}, {`"false"`, false}, {`0`, false}, {`"0"`, false},
 		{`null`, false}, {`"garbage"`, false}, {`""`, false},
 	} {
-		var v flexBool
+		var v FlexBool
 		if err := json.Unmarshal([]byte(tc.in), &v); err != nil {
-			t.Fatalf("flexBool(%s) must never error, got %v", tc.in, err)
+			t.Fatalf("FlexBool(%s) must never error, got %v", tc.in, err)
 		}
 		if bool(v) != tc.want {
-			t.Errorf("flexBool(%s) = %v, want %v", tc.in, v, tc.want)
+			t.Errorf("FlexBool(%s) = %v, want %v", tc.in, v, tc.want)
 		}
 	}
 }

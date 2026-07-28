@@ -33,8 +33,8 @@ const (
 type bashArgs struct {
 	Command    string   `json:"command"`
 	Timeout    FlexInt  `json:"timeout"`    // seconds (default 120, max 600); tolerant parse (FlexInt)
-	Background flexBool `json:"background"` // run detached; returns an id to poll/kill
-	Pty        flexBool `json:"pty"`        // with background: attach a real terminal (ssh/serial/curses)
+	Background FlexBool `json:"background"` // run detached; returns an id to poll/kill
+	Pty        FlexBool `json:"pty"`        // with background: attach a real terminal (ssh/serial/curses)
 }
 
 // There was a `verify` flag here, which the description told the model to set when a command was

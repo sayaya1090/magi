@@ -509,7 +509,7 @@ func (BashInput) Execute(ctx context.Context, raw json.RawMessage, env port.Tool
 		ID      string   `json:"id"`
 		Input   string   `json:"input"`
 		Newline *bool    `json:"newline"`
-		EOF     flexBool `json:"eof"`
+		EOF     FlexBool `json:"eof"`
 	}
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return errResult("", "invalid arguments: "+err.Error()), nil

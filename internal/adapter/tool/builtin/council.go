@@ -21,7 +21,7 @@ type Council struct{}
 
 type councilArgs struct {
 	Question string   `json:"question"`
-	Complete flexBool `json:"complete"`
+	Complete FlexBool `json:"complete"`
 }
 
 func (Council) Name() string { return "council" }

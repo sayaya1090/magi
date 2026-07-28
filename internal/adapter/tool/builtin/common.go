@@ -22,13 +22,13 @@ import (
 // silently see an unset field where the tool saw line 540.
 type FlexInt int
 
-// flexBool is a boolean tool argument with the same tolerance rationale as
+// FlexBool is a boolean tool argument with the same tolerance rationale as
 // FlexInt: weak models emit "true"/"false" (and occasionally 1/0) where the
 // schema says boolean, and a strict bool rejected the whole call over it.
 // Junk falls back to false (= the field's unset/default semantics).
-type flexBool bool
+type FlexBool bool
 
-func (v *flexBool) UnmarshalJSON(b []byte) error {
+func (v *FlexBool) UnmarshalJSON(b []byte) error {
 	switch strings.ToLower(strings.TrimSpace(strings.Trim(string(b), `"`))) {
 	case "true", "yes", "on", "1":
 		*v = true

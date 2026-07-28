@@ -95,7 +95,7 @@ func (PortOwner) Schema() json.RawMessage {
 func (PortOwner) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
 	var a struct {
 		Port   FlexInt  `json:"port"`
-		Kill   flexBool `json:"kill"`
+		Kill   FlexBool `json:"kill"`
 		Signal string   `json:"signal"`
 	}
 	if err := json.Unmarshal(raw, &a); err != nil {

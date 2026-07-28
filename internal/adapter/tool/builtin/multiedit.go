@@ -24,7 +24,7 @@ type multiEditArgs struct {
 type editHunk struct {
 	Old        string   `json:"old"`
 	New        string   `json:"new"`
-	ReplaceAll flexBool `json:"replaceAll"`
+	ReplaceAll FlexBool `json:"replaceAll"`
 }
 
 func (MultiEdit) Name() string { return "multiedit" }
