@@ -302,8 +302,8 @@ func (a *App) nudgeUnexercised(ctx context.Context, tc turnCtx, ts *turnState) (
 		"magi's record of this turn has no executed command naming what you wrote: "+
 			strings.Join(un, ", ")+". That is what it can see, not a verdict on your work — a "+
 			"compile or a syntax check is not an invocation either. Run the smallest REAL "+
-			"invocation of each (its primary scenario) and check the output before finishing; "+
-			"if one already ran under a name this record cannot match, or is not meant to be "+
-			"executed directly, say so and finish.")
+			"invocation of each (its primary scenario) and check the output before you declare "+
+			"the task finished; if one already ran under a name this record cannot match, or is "+
+			"not meant to be executed directly, say so and declare it.")
 	return loopContinue, true
 }
