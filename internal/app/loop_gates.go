@@ -152,6 +152,9 @@ func (a *App) finishTurn(ctx context.Context, tc turnCtx, step int, turnTask, la
 	if act, done := a.nudgeEmptyResult(ctx, tc, lastText, ts); done {
 		return act
 	}
+	if act, done := a.nudgeUnexercised(ctx, tc, ts); done {
+		return act
+	}
 	if act, done := a.requireFinishDeclaration(ctx, tc, usedTools, ts); done {
 		return act
 	}
@@ -273,4 +276,32 @@ func (a *App) finishDeclared(sid session.SessionID) bool {
 		tc.finish = false
 	})
 	return declared
+}
+
+// nudgeUnexercised says, once per turn, that the turn authored something runnable and magi's record
+// holds no command naming it. Deterministic and cheap: it needs no model call and it is the one
+// question that separates "written" from "works" without reading a line of the file.
+//
+// It is a report, not a verdict — magi can establish that no command NAMED the file, which is not
+// the same as "it never ran": a module loaded by stem (`from run import …`) is a real invocation the
+// ledger now matches, and there are others it cannot. So the wording says what the record holds and
+// leaves the reading to the agent, which is also why one nudge is enough. It rode inside the council
+// gate before, and went out with it.
+func (a *App) nudgeUnexercised(ctx context.Context, tc turnCtx, ts *turnState) (loopAction, bool) {
+	if ts.execNudged || tc.guard == nil {
+		return 0, false
+	}
+	un := tc.guard.unexercisedArtifacts()
+	if len(un) == 0 {
+		return 0, false
+	}
+	ts.execNudged = true
+	_ = a.appendPromptText(ctx, tc.s.ID, event.Actor{Kind: event.ActorSystem, ID: "guard"},
+		"magi's record of this turn has no executed command naming what you wrote: "+
+			strings.Join(un, ", ")+". That is what it can see, not a verdict on your work — a "+
+			"compile or a syntax check is not an invocation either. Run the smallest REAL "+
+			"invocation of each (its primary scenario) and check the output before finishing; "+
+			"if one already ran under a name this record cannot match, or is not meant to be "+
+			"executed directly, say so and finish.")
+	return loopContinue, true
 }
