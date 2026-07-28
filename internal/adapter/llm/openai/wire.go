@@ -146,10 +146,10 @@ func (d streamDelta) reasoningText() string {
 // as ZERO here — no error, no warning, just a run whose token totals were silently empty and a cost
 // of $0.00 next to real spend.
 //
-// The details are captured but do NOT change the cost arithmetic: pricing a cache hit differently
-// needs a per-model cached rate, which the registry does not carry. They are recorded so the number
-// is inspectable — a run whose input is mostly `cached` is being over-charged by a flat rate, and
-// that is worth being able to SEE before it is worth acting on.
+// prompt_tokens_details.cached_tokens and completion_tokens_details.reasoning_tokens are
+// deliberately NOT read. Pricing a cache hit differently needs a per-model cached rate the registry
+// does not carry, so capturing them changed no number and nothing displayed them — three layers of
+// plumbing for a field nobody read. When there is a rate to apply, they come back in one commit.
 type wireUsage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
@@ -159,13 +159,6 @@ type wireUsage struct {
 	// emits it. Cheap to accept and indistinguishable in meaning from the other two.
 	BareIn  int `json:"in"`
 	BareOut int `json:"out"`
-
-	PromptDetails *struct {
-		CachedTokens int `json:"cached_tokens"`
-	} `json:"prompt_tokens_details"`
-	CompletionDetails *struct {
-		ReasoningTokens int `json:"reasoning_tokens"`
-	} `json:"completion_tokens_details"`
 }
 
 // In and Out prefer whichever spelling actually carried a number, so a payload that sends both (or
@@ -183,22 +176,6 @@ func firstNonZero(vs ...int) int {
 		}
 	}
 	return 0
-}
-
-// Cached is the part of the input the backend served from its prompt cache; Reasoning is the part
-// of the output spent thinking. Both are zero when the backend does not report them.
-func (u wireUsage) Cached() int {
-	if u.PromptDetails == nil {
-		return 0
-	}
-	return u.PromptDetails.CachedTokens
-}
-
-func (u wireUsage) Reasoning() int {
-	if u.CompletionDetails == nil {
-		return 0
-	}
-	return u.CompletionDetails.ReasoningTokens
 }
 
 // buildRequest converts a port.ChatRequest into the wire request body. When

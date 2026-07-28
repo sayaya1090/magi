@@ -213,8 +213,8 @@ func (a *App) providerFor(spec AgentSpec) port.LLMProvider {
 	// accessor — the agent's stream and every side call alike — so one wrap here counts them all.
 	if spec.Provider != "" {
 		if p := a.providers[spec.Provider]; p != nil {
-			return a.meter(p)
+			return a.MeterProvider(p)
 		}
 	}
-	return a.meter(a.llm)
+	return a.MeterProvider(a.llm)
 }

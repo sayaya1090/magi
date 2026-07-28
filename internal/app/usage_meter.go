@@ -50,18 +50,8 @@ func usageSIDFrom(ctx context.Context) session.SessionID {
 //
 // Exported for the one provider the App does not own: the council resolves its own backends, and
 // until they were wrapped its polls — several per round, per gate — appeared in no total at all.
+// Takes no lock, so providerFor can call it while holding a.mu.
 func (a *App) MeterProvider(p port.LLMProvider) port.LLMProvider {
-	if p == nil {
-		return nil
-	}
-	if _, done := p.(*meteredProvider); done {
-		return p
-	}
-	return &meteredProvider{inner: p, a: a}
-}
-
-// meter is MeterProvider under a.mu (providerFor already holds it).
-func (a *App) meter(p port.LLMProvider) port.LLMProvider {
 	if p == nil {
 		return nil
 	}
@@ -134,8 +124,6 @@ func (a *App) recordUsage(sid session.SessionID, model string, r event.Usage) {
 		dst.In += r.In
 		dst.Out += r.Out
 		dst.Cost += r.Cost
-		dst.Cached += r.Cached
-		dst.Reasoning += r.Reasoning
 	}
 	a.usageMu.Lock()
 	defer a.usageMu.Unlock()

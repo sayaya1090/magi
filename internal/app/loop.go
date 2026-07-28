@@ -763,11 +763,9 @@ func (a *App) allParallelSafe(calls []*session.ToolCall) bool {
 func turnUsage(a *App, sid session.SessionID, start event.Usage, lastIn, cumOut int, cumCost float64) event.Usage {
 	now := a.UsageFor(sid)
 	u := event.Usage{
-		In:        now.In - start.In,
-		Out:       now.Out - start.Out,
-		Cost:      now.Cost - start.Cost,
-		Cached:    now.Cached - start.Cached,
-		Reasoning: now.Reasoning - start.Reasoning,
+		In:   now.In - start.In,
+		Out:  now.Out - start.Out,
+		Cost: now.Cost - start.Cost,
 	}
 	if u.In <= 0 && u.Out <= 0 {
 		return event.Usage{In: lastIn, Out: cumOut, Cost: cumCost}

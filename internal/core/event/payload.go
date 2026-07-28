@@ -178,12 +178,6 @@ type Usage struct {
 	In   int     `json:"in"`
 	Out  int     `json:"out"`
 	Cost float64 `json:"cost,omitempty"`
-	// Cached is the part of In the backend served from its prompt cache, and Reasoning the part of
-	// Out spent thinking — reported only by backends that break them out. Neither changes Cost:
-	// pricing a cache hit differently needs a per-model cached rate the registry does not carry.
-	// They are here so an input that is mostly cache, billed at the flat rate, is visible as such.
-	Cached    int `json:"cached,omitempty"`
-	Reasoning int `json:"reasoning,omitempty"`
 }
 
 // ErrorData — TypeError.
