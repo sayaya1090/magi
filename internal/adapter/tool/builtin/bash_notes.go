@@ -381,16 +381,28 @@ func readPipeStatus(path string) []int {
 	return out
 }
 
+// sigPipeExit is what a stage reports when a downstream reader closed the pipe on it: 128+SIGPIPE.
+// `make … | head -50` produces it every time and always will — head exits after fifty lines, the
+// write side gets SIGPIPE, and that is head doing its job, not the build failing.
+const sigPipeExit = 141
+
 // pipeStageNote states what the pipeline's stages really did, when the status the caller sees hides
 // it: the command reports success while an earlier stage failed. Silent otherwise — a pipeline whose
 // stages all agree with its exit has nothing to add, and a note on every pipe would be noise.
+//
+// A stage killed by SIGPIPE is NOT a failure and must never be reported as one. Observed live: an
+// agent ran `make -j4 world 2>&1 | head -50` to glance at the start of a build, and was told "the
+// work at the head of the pipe FAILED" — the build had not failed, it had been truncated by the
+// very command asked to truncate it. A record that asserts a failure that did not happen is worse
+// than one that says nothing: the agent has no way to tell it from a real one, and the next thing
+// it does is chase a bug that is not there.
 func pipeStageNote(exit int, stages []int) string {
 	if exit != 0 || len(stages) < 2 {
 		return ""
 	}
 	bad := false
 	for _, st := range stages[:len(stages)-1] {
-		if st != 0 {
+		if st != 0 && st != sigPipeExit {
 			bad = true
 		}
 	}

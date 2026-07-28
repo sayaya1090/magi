@@ -97,3 +97,24 @@ func TestPipeStageNoteRule(t *testing.T) {
 		t.Errorf("no capture means no claim, got %q", n)
 	}
 }
+
+// A stage killed by SIGPIPE did not fail: `make … | head -50` puts exit 141 on the write side every
+// time, because head exited after fifty lines — head doing exactly what it was asked to do.
+// Observed live: an agent glancing at the start of a build was told "the work at the head of the
+// pipe FAILED", and the build had not failed at all. A record that asserts a failure that did not
+// happen is worse than one that says nothing.
+func TestSigpipeIsNotAPipelineFailure(t *testing.T) {
+	if got := pipeStageNote(0, []int{141, 0}); got != "" {
+		t.Errorf("a SIGPIPE'd stage must not be reported as a failure, got %q", got)
+	}
+	// A real failure upstream still says so, including when a later stage was SIGPIPE'd.
+	if pipeStageNote(0, []int{2, 0}) == "" {
+		t.Error("a genuinely failing stage must still be reported")
+	}
+	if pipeStageNote(0, []int{2, 141, 0}) == "" {
+		t.Error("a real failure must be reported even when a later stage was SIGPIPE'd")
+	}
+	if got := pipeStageNote(0, []int{0, 0}); got != "" {
+		t.Errorf("a clean pipeline has nothing to add, got %q", got)
+	}
+}
