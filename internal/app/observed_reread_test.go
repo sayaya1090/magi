@@ -91,3 +91,19 @@ func TestRereadOrdersByHowOftenItWasOpened(t *testing.T) {
 		t.Errorf("most-opened first, got %v", got)
 	}
 }
+
+// `cd runtime && sed -n '1,80p' heap.c` is one look at heap.c and none at the directory: stepping
+// into a directory is how the agent got somewhere, not a read of what is in it.
+func TestChangingDirectoryIsNotALook(t *testing.T) {
+	o := observeEvents([]event.Event{
+		toolCallEv("1", "list", `{"path":"/app/runtime"}`),
+		toolCallEv("2", "read", `{"path":"/app/runtime/heap.c"}`),
+		toolCallEv("3", "bash", `{"command":"cd /app/runtime && sed -n '1,80p' heap.c"}`),
+	})
+	if got := o.looked["/app/runtime"]; got != 1 {
+		t.Errorf("cd must not count as looking at the directory, got %d", got)
+	}
+	if got := o.looked["/app/runtime/heap.c"]; got != 2 {
+		t.Errorf("the sed is the second look at the file, got %d", got)
+	}
+}
