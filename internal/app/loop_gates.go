@@ -24,9 +24,10 @@ func (a *App) injectStuckNudge(ctx context.Context, tc turnCtx, turnTask string,
 	// mirroring the council gate's defensive fallback. Otherwise the re-grounding
 	// would no-op exactly where weak models thrash most (narrow tool-driven subtasks).
 	task := a.turnTaskOr(turnTask, sid, evs)
-	msg := "You've repeated the same no-progress action several times and are getting blocked. " +
-		"Stop and change approach: try a different tool or a smaller step, or inspect WHY the last " +
-		"attempts failed (read the error, check paths/state) before retrying. Re-read the original task:\n" +
+	msg := "You've made the same call several times with nothing changing in between — magi is not " +
+		"refusing it, it is telling you it is a repeat. Change approach: a different tool or a smaller " +
+		"step, or inspect WHY the last attempts failed (read the error, check paths/state) before " +
+		"retrying. Re-read the original task:\n" +
 		clipSpec(task, 1500)
 	if kind == "spin" {
 		msg = "You've run a no-op command (echo/printf/true) several times in a row — a \"done\" banner is " +

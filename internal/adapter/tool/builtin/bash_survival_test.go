@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -45,4 +47,40 @@ func TestBashBackgroundChildSurvives(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("background child died with the bash call: marker never created")
+}
+
+// A background job reports the PIPELINE's exit, which is its last stage's — so `make … | tail`
+// says 0 for a build that died. Observed live: a three-hour run polled a backgrounded build and was
+// told `[bg_1 exited 0]` while the output carried `make: *** Error 2`. The foreground path has said
+// which stage really failed since PIPESTATUS went in; the status header says it too now.
+func TestBackgroundStatusNamesTheFailingStage(t *testing.T) {
+	dir := t.TempDir()
+	env := port.ToolEnv{Workdir: dir, ScratchTmp: dir}
+
+	r, _ := Bash{}.Execute(context.Background(),
+		json.RawMessage(`{"command":"sh -c 'echo boom; exit 2' | tail -1","background":true}`), env)
+	if r.IsError {
+		t.Fatalf("start errored: %s", resultText(t, r))
+	}
+	id := regexp.MustCompile(`bg_\d+`).FindString(resultText(t, r))
+	if id == "" {
+		t.Fatalf("no background id in start result: %s", resultText(t, r))
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		out, _ := BashOutput{}.Execute(context.Background(),
+			json.RawMessage(`{"id":"`+id+`"}`), env)
+		txt := resultText(t, out)
+		if strings.Contains(txt, "exited") {
+			if !strings.Contains(txt, "2 → 0") || !strings.Contains(txt, "FAILED") {
+				t.Fatalf("a background pipeline whose head failed must say so in its status: %s", txt)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("background job never finished: %s", txt)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }

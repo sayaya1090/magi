@@ -94,12 +94,17 @@ type bgProc struct {
 
 	pty bool // process was started on a pseudo-terminal (stdin is the PTY master)
 
-	mu      sync.Mutex
-	stdin   io.WriteCloser // stdin sink for bash_input: a pipe, or the PTY master when pty; closed on exit
-	read    int            // absolute offset the agent has consumed up to
-	done    bool
-	killed  bool // bash_kill was issued; status reads "killed" until the reaper sets done
-	exit    int
+	mu     sync.Mutex
+	stdin  io.WriteCloser // stdin sink for bash_input: a pipe, or the PTY master when pty; closed on exit
+	read   int            // absolute offset the agent has consumed up to
+	done   bool
+	killed bool // bash_kill was issued; status reads "killed" until the reaper sets done
+	exit   int
+	// psPath is where the wrapped shell writes the last pipeline's per-stage statuses, and
+	// stages is what it held once the job finished — so the status line can say which stage
+	// really failed instead of reporting the pipeline's last exit alone.
+	psPath  string
+	stages  []int
 	claimed bool // this job's finished outcome has already been handed to ClaimBackgroundOutcome
 }
 
@@ -113,11 +118,18 @@ type bgManager struct {
 
 var bg = &bgManager{procs: map[string]*bgProc{}}
 
-func (m *bgManager) start(workdir string, sb port.SandboxSpec, command string, usePTY bool) (*bgProc, error) {
+func (m *bgManager) start(workdir, tmpDir string, sb port.SandboxSpec, command string, usePTY bool) (*bgProc, error) {
 	name, args := shell(command)
 	if argv, wrapped := sandboxArgv(sb, command); wrapped {
 		name, args = argv[0], argv[1:]
 	}
+	// The exit a pipeline reports is its LAST stage's, and a background job reports that exit
+	// with nothing beside it — `[bg_1 exited 0]` for a `make … | tail` whose build died. Observed
+	// live: a three-hour run polled a backgrounded build, was told it exited 0, and the failure
+	// (`make: *** Error 2`) sat in the output the model had to read past the header to find. The
+	// foreground path has said which stage really failed since PIPESTATUS went in; ask for the
+	// same thing here.
+	name, args, psPath := withPipeStatus(name, args, tmpDir)
 	// Combined stdout+stderr go to a real file so the process is not tethered to an
 	// os.Pipe that would close (and SIGPIPE the child) when magi exits. The file is
 	// opened O_APPEND so that when rotateIfHuge truncates it to bound disk, the
@@ -196,7 +208,7 @@ func (m *bgManager) start(workdir string, sb port.SandboxSpec, command string, u
 
 	m.mu.Lock()
 	m.seq++
-	p := &bgProc{id: fmt.Sprintf("bg_%d", m.seq), command: command, logPath: logPath, stdin: stdin, cancel: cancel, started: time.Now(), pid: cmd.Process.Pid, pty: usePTY}
+	p := &bgProc{id: fmt.Sprintf("bg_%d", m.seq), command: command, logPath: logPath, stdin: stdin, cancel: cancel, started: time.Now(), pid: cmd.Process.Pid, pty: usePTY, psPath: psPath}
 	m.procs[p.id] = p
 	m.pruneLocked()
 	m.mu.Unlock()
@@ -209,8 +221,15 @@ func (m *bgManager) start(workdir string, sb port.SandboxSpec, command string, u
 		} else if err != nil {
 			exit = -1
 		}
+		// Read the per-stage statuses BEFORE marking done, so a poll that sees `done` always sees
+		// them too — otherwise the first poll after exit could report the pipeline's exit alone.
+		var stages []int
+		if psPath != "" {
+			stages = readPipeStatus(psPath)
+			_ = os.Remove(psPath)
+		}
 		p.mu.Lock()
-		p.done, p.exit = true, exit
+		p.done, p.exit, p.stages = true, exit, stages
 		p.stdin = nil // no more input accepted once exited
 		p.mu.Unlock()
 		// Pipe mode: release the stdin pipe here. PTY mode: the copy goroutine closes the
@@ -363,7 +382,13 @@ func (p *bgProc) status() string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.done {
-		return fmt.Sprintf("[%s exited %d]", p.id, p.exit)
+		h := fmt.Sprintf("[%s exited %d]", p.id, p.exit)
+		// A pipeline reports its LAST stage's exit, so `make … | tail` says 0 for a build that
+		// died. Say which stage really failed, in the header the model reads first.
+		if note := pipeStageNote(p.exit, p.stages); note != "" {
+			h += " " + note
+		}
+		return h
 	}
 	if p.killed {
 		// Reflect the kill immediately; the reaper goroutine flips done shortly after.
