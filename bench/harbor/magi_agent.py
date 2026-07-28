@@ -160,42 +160,17 @@ class MagiAgent(BaseInstalledAgent):
         # packaged value (0.95 for qwen3-coder-next) with 1.0, disabling nucleus truncation. Sending
         # it explicitly is the only way to get the model's recommended sampling. top_k has no field
         # in that layer at all, so it is never overridden and must NOT be sent.
+        # Every MAGI_* the launcher set, forwarded as-is. This used to be a hand-written list of
+        # names, and a switch added after it silently did nothing inside the container — caught
+        # live: a run launched to drop the pre-flight exported MAGI_PLANNER=0, the list did not
+        # carry it, and the agent came up with the pipeline the run existed to remove. Checking
+        # this needs the agent's own /proc/<pid>/environ; `docker exec env` shows the exec's.
+        #
+        # MAGI_BENCH_* stays behind: those configure this adapter (where the binaries are), not
+        # magi. Everything else is magi's own surface — the backend, the sampling pins, and the A/B
+        # switches a run is FOR.
         for key in (
-            "MAGI_BASE_URL",
-            "MAGI_API_KEY",
-            "MAGI_TEMPERATURE",
-            "MAGI_TOP_P",
-            "MAGI_TOP_K",
-            "MAGI_MAX_PLAN_DEPTH",
-            "MAGI_REFINE",
-            "MAGI_STEP_CONTEXT",
-            "MAGI_ADAPT",
-            "MAGI_REFINE_SHARED",
-            "MAGI_SPEC_FIDELITY",
-            "MAGI_PLAN_CONVERGE",
-            "MAGI_STALL_CONVERGE",
-            "MAGI_STEP_VERIFY",
-            "MAGI_RECOVERY_RUNCAP",
-            "MAGI_ORIENT",
-            "MAGI_IMPLICIT_ACCEPT",
-            "MAGI_CHECKPOINT_FIRST",
-            "MAGI_SOLO_AUDIT",
-            "MAGI_WAIT_GUARD",
-            "MAGI_STREAM_DIAG",
-            "MAGI_REASONING_EFFORT",
-            "MAGI_CRITERIA_CONTEXT",
-            "MAGI_CHECK_CONTEXT",
-            "MAGI_SPLIT_BUDGET",
-            "MAGI_WORKER_CONCERN",
-            "MAGI_SPEC_MINE",
-            "MAGI_EXEC_EVIDENCE",
-            "MAGI_COUNCIL_DEBATE",
-            "MAGI_DIVERGE",
-            "MAGI_STALL_NOVELTY",
-            "MAGI_EXITCODE_BODYSCAN",
-            "MAGI_WORKERS",
-            "MAGI_CURATE",
-            "MAGI_FORCE_DELEGATE",
+            k for k in os.environ if k.startswith("MAGI_") and not k.startswith("MAGI_BENCH_")
         ):
             val = os.environ.get(key)
             if val:
