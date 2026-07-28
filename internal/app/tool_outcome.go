@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 
+	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -50,6 +51,9 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 		if !res.IsError && fileModifiers[tc.Name] {
 			mutatedReset = guard.mutated(pathArg(tc.Args), canonicalArgs(tc.Args))
 			if mutatedReset {
+				// The file's contents are new, so what magi has already shown of it no longer
+				// describes it: reading it again is gathering information, not circling.
+				guard.dropReadCoverage(relForChange(workdir, pathArg(tc.Args)))
 				a.bumpProductive(sid) // a real new version — the lease's evidence this child is producing
 			}
 		}
@@ -96,6 +100,13 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 						if bc.before == "" && after == "" {
 							continue
 						}
+						if after != bc.before {
+							// The bash mutation path shares one synthetic slot in mutated(), so the
+							// read-coverage drop there never names a real file. Here the destination
+							// IS known and the content demonstrably differs: what magi handed over
+							// of this path no longer describes it.
+							guard.dropReadCoverage(rel)
+						}
 						warn, reverted := guard.noteEdit(rel, bc.before, after)
 						if warn != "" {
 							res.Content = appendToContent(res.Content, "\n\n[self-edit check] "+warn)
@@ -114,7 +125,26 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 		// File modifiers go through mutated(); bash is handled above; a spawn/report is
 		// its own path. Everything else here is inspection.
 		if !res.IsError && tc.Name != "bash" && !fileModifiers[tc.Name] && tc.Name != "task" {
-			guard.noteInspectProgress(guardNovel)
+			novel := guardNovel
+			// A read's fingerprint carries its offset, so shifting the window two lines makes a
+			// re-read first-seen. Ask what the read actually DELIVERED instead: coverage magi has
+			// already handed over is not new information, whatever offset asked for it.
+			if tc.Name == "read" {
+				// The tool's own arg types: the model sends "540.0" as often as 540, and a strict
+				// re-parse would fail the whole struct and see an unset offset where the read saw
+				// line 540 — reporting fresh coverage for a window already delivered.
+				var ra struct {
+					Path   string          `json:"path"`
+					Offset builtin.FlexInt `json:"offset"`
+					Limit  builtin.FlexInt `json:"limit"`
+				}
+				if json.Unmarshal(tc.Args, &ra) == nil && ra.Path != "" {
+					// Keyed the same way the bash mutation path drops coverage, so `read
+					// {/app/x/y.c}` and a `sed -i` naming `x/y.c` reach the same entry.
+					novel = guard.noteReadCoverage(relForChange(workdir, ra.Path), int(ra.Offset), int(ra.Limit))
+				}
+			}
+			guard.noteInspectProgress(novel)
 		}
 		// Completion-banner spin: count consecutive pure no-op banners (echo/printf/true/:) an
 		// agent spams to keep the turn alive after declaring done; ANY real action resets it. It

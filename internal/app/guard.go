@@ -14,6 +14,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 	"github.com/sayaya1090/magi/internal/core/change"
 )
 
@@ -142,6 +143,9 @@ type runGuard struct {
 	changed       map[string]*fileChange
 	changeOrder   []string        // first-seen order, for stable rendering
 	exercisedFile map[string]bool // authored files an EXERCISING command has named (exec-evidence)
+	// readSpans is which lines of each path magi has already handed over, so re-opening a window
+	// it already delivered is not mistaken for gathering new information (noteReadCoverage).
+	readSpans map[string][]lineSpan
 
 	// recalled bounds recall_context: re-hydrating compacted detail re-inflates context
 	// (which can re-trigger compaction), so a turn may recall each topic once and only up
@@ -175,8 +179,8 @@ func newRunGuard() *runGuard {
 	return &runGuard{
 		seen:    map[string]int{},
 		lastMut: map[string]string{}, changed: map[string]*fileChange{},
-		exercisedFile: map[string]bool{},
-		recalled:      map[string]bool{}, contentHist: map[string][]uint64{},
+		exercisedFile: map[string]bool{}, readSpans: map[string][]lineSpan{},
+		recalled: map[string]bool{}, contentHist: map[string][]uint64{},
 		regressCount: map[string]int{},
 	}
 }
@@ -510,6 +514,91 @@ func (g *runGuard) noteInspectProgress(novel bool) {
 	g.lastStallAt = g.sinceProgress // window measured from here → this novel inspect reset it
 	g.progressSinceNudge = true
 	g.mu.Unlock()
+}
+
+// lineSpan is a half-open range of file lines [lo, hi) magi has already handed to the agent.
+type lineSpan struct{ lo, hi int }
+
+// noteReadCoverage records the line window a read delivered and reports whether MOST of that
+// window was content the agent had not been shown before.
+//
+// It exists because "novel" for a read is decided by the call's fingerprint, and a read's
+// fingerprint carries its offset. Nudging the offset by two lines therefore produced a first-seen
+// call — which noteInspectProgress credits as gathering new information, resetting the stall
+// window. Observed live (fix-ocaml-gc, 49 minutes, no edit and one build): reads of ONE file at
+// offsets 642, 640, 640, 642 — every window already delivered several times over — bought eight
+// window resets, so the stall nudge never fired once in 88 minutes. magi's own record was saying
+// `already looked at more than once: shared_heap.c ×25` the whole time; the two halves of magi
+// disagreed, and the half wired to the counter was the one that was wrong.
+//
+// MOST, not any: a window that starts two lines earlier than one already read is a re-read no
+// matter where it starts, but a window with a couple of lines of overlap at its edge is the normal
+// shape of paging forward through a file. Half is the point where "mostly already seen" stops
+// being a judgement call. Paging a large file in sequence stays fully credited — each page is new
+// — which is the false stall this credit was introduced to avoid.
+//
+// offset is the read tool's 1-based start (0 = from the top) and limit its line count (0 = the
+// tool's own default). Both come from the model's own call; the guard invents nothing.
+func (g *runGuard) noteReadCoverage(path string, offset, limit int) bool {
+	if path == "" {
+		return true // nothing to key coverage on — leave the call's own novelty alone
+	}
+	lo := offset
+	if lo < 1 {
+		lo = 1
+	}
+	if limit <= 0 {
+		limit = builtin.DefaultReadLines
+	}
+	hi := lo + limit
+
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.readSpans == nil {
+		g.readSpans = map[string][]lineSpan{}
+	}
+	seen := 0
+	for _, s := range g.readSpans[path] {
+		a, b := max(lo, s.lo), min(hi, s.hi)
+		if b > a {
+			seen += b - a
+		}
+	}
+	g.readSpans[path] = mergeSpans(append(g.readSpans[path], lineSpan{lo, hi}))
+	// seen can exceed the window only if the stored spans overlapped each other, which mergeSpans
+	// prevents; the comparison is on fresh lines against half the window either way.
+	return (limit-seen)*2 > limit
+}
+
+// dropReadCoverage forgets what magi has shown of one path, for a caller that knows the file's
+// contents changed. mutated() does this for the write/edit path; bash mutations share a single
+// synthetic slot there and have to name their destination here.
+func (g *runGuard) dropReadCoverage(path string) {
+	if path == "" {
+		return
+	}
+	g.mu.Lock()
+	delete(g.readSpans, path)
+	g.mu.Unlock()
+}
+
+// mergeSpans normalizes a span list into disjoint, ascending ranges so coverage stays O(regions)
+// rather than O(reads) — a run that pages a file a hundred times keeps one span, not a hundred.
+func mergeSpans(in []lineSpan) []lineSpan {
+	if len(in) < 2 {
+		return in
+	}
+	sort.Slice(in, func(i, j int) bool { return in[i].lo < in[j].lo })
+	out := in[:1]
+	for _, s := range in[1:] {
+		last := &out[len(out)-1]
+		if s.lo <= last.hi { // touching counts as contiguous: [1,10) and [10,20) are one region
+			last.hi = max(last.hi, s.hi)
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 func (g *runGuard) noteBashExec(cmd string, novel bool) {
