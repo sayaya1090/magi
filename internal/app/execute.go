@@ -222,7 +222,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	if guard != nil && fileModifiers[tc.Name] {
 		changePath = pathArg(tc.Args)
 		if changePath != "" {
-			changeBefore = readForChange(workdir, changePath)
+			changeBefore, _ = readForChange(workdir, changePath)
 		}
 	}
 	// The same snapshot for a bash mutation, whose destination has to be read out of the command
@@ -245,7 +245,8 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 					continue
 				}
 				seen[p] = true
-				bashChanges = append(bashChanges, bashChange{p, readForChange(workdir, p)})
+				before, ok := readForChange(workdir, p)
+				bashChanges = append(bashChanges, bashChange{path: p, before: before, readable: ok})
 			}
 		}
 	}

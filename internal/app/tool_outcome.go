@@ -7,7 +7,13 @@ import (
 )
 
 // bashChange is a file a bash command was about to write, and its content just before it ran.
-type bashChange struct{ path, before string }
+// bashChange is a destination a bash command was about to write, with its content beforehand.
+// readable says whether magi could actually read that content: a directory, or a path it could not
+// open, has no content to compare, and a comparison it cannot make is one it must not report.
+type bashChange struct {
+	path, before string
+	readable     bool
+}
 
 // toolOutcome is one finished tool call, as the loop guard needs to see it: what was called, what
 // came back, and the before-snapshots taken while the call was still ahead of us.
@@ -77,7 +83,11 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 					regressed := false
 					for _, bc := range bashChanges {
 						rel := relForChange(workdir, bc.path)
-						warn, reverted := guard.noteEdit(rel, bc.before, readForChange(workdir, bc.path))
+						after, ok := readForChange(workdir, bc.path)
+						if !bc.readable || !ok {
+							continue // no content to compare — say nothing rather than something false
+						}
+						warn, reverted := guard.noteEdit(rel, bc.before, after)
 						if warn != "" {
 							res.Content = appendToContent(res.Content, "\n\n[self-edit check] "+warn)
 						}
@@ -124,7 +134,7 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 	// broken change the council should scrutinize, and must not read as a no-op turn.
 	if guard != nil && changePath != "" && toolOK && fileModifiers[tc.Name] {
 		rel := relForChange(workdir, changePath)
-		after := readForChange(workdir, changePath)
+		after, _ := readForChange(workdir, changePath)
 		guard.recordChange(rel, changeBefore, after)
 		// Self-regression check: warn (don't block) when this edit undoes the agent's own
 		// earlier change by returning the file to a state it already held this turn. A revert is

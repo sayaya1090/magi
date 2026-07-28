@@ -852,19 +852,40 @@ const changeReadCap = 256 << 10
 
 // readForChange reads (a capped prefix of) the file at a tool-supplied path, relative to
 // workdir, for before/after change capture. "" on any error (e.g. a new or deleted file).
-func readForChange(workdir, path string) string {
+func readForChange(workdir, path string) (string, bool) {
 	abs := path
 	if !filepath.IsAbs(abs) {
 		abs = filepath.Join(workdir, path)
 	}
+	// A DIRECTORY is not readable content, and os.Open opens one happily — the read then yields
+	// nothing and the path compares equal to itself before and after. Observed live:
+	// `rm -rf boot …` had `boot` extracted as its destination, both reads came back empty, and the
+	// result carried "this write left the file byte-for-byte as it already was" about a command
+	// that had just deleted a directory tree. A path magi cannot read the content of is one it
+	// cannot say anything true about, so it says nothing.
+	st, err := os.Stat(abs)
+	switch {
+	case err == nil && st.IsDir():
+		return "", false
+	case err != nil && !os.IsNotExist(err):
+		return "", false
+	}
 	f, err := os.Open(abs)
 	if err != nil {
-		return ""
+		// Absent is a real state: a file that does not exist yet, or one just deleted. The empty
+		// string IS its content, and comparing it is how a delete reads as a change.
+		if os.IsNotExist(err) {
+			return "", true
+		}
+		return "", false
 	}
 	defer f.Close()
 	b := make([]byte, changeReadCap)
-	n, _ := io.ReadFull(f, b)
-	return string(b[:n])
+	n, err := io.ReadFull(f, b)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		return "", false
+	}
+	return string(b[:n]), true
 }
 
 // relForChange maps a tool path to a workdir-relative display path for change headers.

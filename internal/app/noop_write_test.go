@@ -2,6 +2,8 @@ package app
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -80,3 +82,29 @@ func TestAScratchRedirectDoesNotRearmAnIdenticalWrite(t *testing.T) {
 }
 
 func jsonRaw(s string) json.RawMessage { return json.RawMessage(s) }
+
+// A path magi cannot read the content of is one it cannot say anything true about. Observed live on
+// fix-ocaml-gc: `rm -rf boot stdlib/*.cmi …; ./configure … | tail -3` had `boot` extracted as its
+// destination; boot is a DIRECTORY, os.Open succeeds on one and the read yields nothing, so the
+// before and after compared equal and the result carried "this write left the file byte-for-byte as
+// it already was" about a command that had just deleted a directory tree.
+func TestUnreadablePathIsNotReportedAsUnchanged(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "boot"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := readForChange(dir, "boot"); ok {
+		t.Error("a directory has no content to compare and must report itself unreadable")
+	}
+	// A file that does not exist DOES have a comparable state — the empty one — so a delete still
+	// reads as a change rather than as an unreadable path.
+	if got, ok := readForChange(dir, "gone.txt"); !ok || got != "" {
+		t.Errorf("an absent file is empty and readable, got %q ok=%v", got, ok)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("hi"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := readForChange(dir, "f.txt"); !ok || got != "hi" {
+		t.Errorf("a regular file reads its content, got %q ok=%v", got, ok)
+	}
+}
