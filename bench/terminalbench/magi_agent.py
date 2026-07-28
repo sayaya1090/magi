@@ -68,13 +68,18 @@ class MagiAgent(AbstractInstalledAgent):
 
     @property
     def _env(self) -> dict[str, str]:
-        # Pass through only what's set, so keyless backends (local Ollama) work too.
-        env: dict[str, str] = {}
-        for key in ("MAGI_BASE_URL", "MAGI_API_KEY"):
-            val = os.environ.get(key)
-            if val:
-                env[key] = val
-        return env
+        # Every MAGI_* the launcher set, passed through as-is. These are magi's own knobs — the
+        # backend, the sampling pins, and the A/B switches a run is FOR — and naming them one at a
+        # time meant a new switch silently did nothing in the container: MAGI_PLANNER=0 was exported
+        # by the chain and never reached the agent, so a run meant to drop the pre-flight ran with
+        # it on. Only what is actually set is forwarded, so keyless backends (local Ollama) work.
+        #
+        # MAGI_BENCH_* is excluded: those configure this adapter (where the binaries are), not magi.
+        return {
+            k: v
+            for k, v in os.environ.items()
+            if k.startswith("MAGI_") and not k.startswith("MAGI_BENCH_") and v
+        }
 
     @property
     def _install_agent_script_path(self) -> Path:
