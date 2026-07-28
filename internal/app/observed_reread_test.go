@@ -107,3 +107,46 @@ func TestChangingDirectoryIsNotALook(t *testing.T) {
 		t.Errorf("the sed is the second look at the file, got %d", got)
 	}
 }
+
+// A run that never touches the read tool got nothing from the path counter, because that counter
+// only credits a shell command against a path a read already opened. Observed live on
+// sqlite-with-gcov: 52 bash calls, ZERO reads, and one `ls … && nm … | grep __gcov | wc -l` issued
+// five times byte-for-byte while the record said nothing at all.
+func TestRepeatedInspectCommandsAreCounted(t *testing.T) {
+	// The live command, JSON-escaped exactly as the model sends it.
+	const probe = `{"command":"ls -la /app/sqlite/sqlite3 && nm /app/sqlite/libsqlite3.so | grep \"__gcov\" | wc -l"}`
+	evs := []event.Event{
+		toolCallEv("1", "bash", probe),
+		// Same command, different whitespace — one repeat, not two commands.
+		toolCallEv("2", "bash", `{"command":"  ls -la /app/sqlite/sqlite3   &&  nm /app/sqlite/libsqlite3.so | grep \"__gcov\" | wc -l "}`),
+		toolCallEv("3", "bash", probe),
+		toolCallEv("4", "bash", `{"command":"ls /tmp"}`),
+	}
+	o := observeEvents(evs)
+	again := o.repeatedCommands()
+	if len(again) != 1 {
+		t.Fatalf("only the repeated command is worth stating, got %v", again)
+	}
+	if !strings.Contains(again[0], "libsqlite3.so") || !strings.HasSuffix(again[0], "×3") {
+		t.Errorf("whitespace must not split one command into three, got %q", again[0])
+	}
+	if txt := o.render(); !strings.Contains(txt, "issued more than once, exactly as written") {
+		t.Errorf("the repeat must reach the record:\n%s", txt)
+	}
+}
+
+// A repeated build is reported as a repeat but never as a LOOK: the two lines say different things
+// and neither may claim the other's meaning.
+func TestRepeatedBuildIsARepeatNotALook(t *testing.T) {
+	o := observeEvents([]event.Event{
+		toolCallEv("1", "bash", `{"command":"make -j4 world"}`),
+		toolCallEv("2", "bash", `{"command":"make -j4 world"}`),
+		toolCallEv("3", "bash", `{"command":"make -j4 world"}`),
+	})
+	if got := o.reread(); len(got) != 0 {
+		t.Errorf("re-running a build is not re-reading it, got %v", got)
+	}
+	if got := o.repeatedCommands(); len(got) != 1 || !strings.HasSuffix(got[0], "×3") {
+		t.Errorf("but it IS a repeat and must be stated, got %v", got)
+	}
+}

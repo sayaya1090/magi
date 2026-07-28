@@ -46,6 +46,31 @@ type observedRun struct {
 	// so the rendering is stable across steps rather than reshuffling with map iteration.
 	looked    map[string]int
 	lookOrder []string
+	// reran counts bash COMMANDS by their own text — every command, with no judgement about
+	// whether it looked or ran. The path counter above credits a shell command only against a path
+	// the read tool already opened, so a run that never touches read gets nothing from it, and that
+	// is the run most worth telling: observed live on sqlite-with-gcov, 52 bash calls, zero reads,
+	// and one `ls … && nm … | grep __gcov | wc -l` issued five times byte-for-byte while the record
+	// said nothing. Classifying first is what would make this wrong (`nm` is not in the inspect
+	// verb list, so that very command reads as a program run); a command's own text is not a guess,
+	// it is exactly what magi granted, and issuing the same one again is a fact either way.
+	reran      map[string]int
+	rerunOrder []string
+}
+
+// noteRerun records one bash command, keyed by its own whitespace-normalized text.
+func (o *observedRun) noteRerun(cmd string) {
+	key := strings.Join(strings.Fields(cmd), " ")
+	if key == "" {
+		return
+	}
+	if o.reran == nil {
+		o.reran = map[string]int{}
+	}
+	if o.reran[key] == 0 {
+		o.rerunOrder = append(o.rerunOrder, key)
+	}
+	o.reran[key]++
 }
 
 // noteLook records one look at a path.
@@ -180,6 +205,7 @@ func observeEvents(all []event.Event) observedRun {
 						out.changed = append(out.changed, p)
 					}
 				}
+				out.noteRerun(args.Command)
 				if isInspectOnly(args.Command) {
 					out.noteLookedAgain(args.Command)
 				}
@@ -258,11 +284,26 @@ func (o observedRun) reread() []string {
 			out = append(out, fmt.Sprintf("%s ×%d", clipLine(p, 70), n))
 		}
 	}
+
 	sort.SliceStable(out, func(i, j int) bool { return countOf(out[i]) > countOf(out[j]) })
 	return out
 }
 
-// countOf reads back the ×N reread rendered above, for ordering. An unparseable tail sorts last.
+// repeatedCommands lists the bash commands issued more than once this run, busiest first, as
+// "`cmd` ×N". No classification: re-running a build with nothing changed in between and re-printing
+// the same file are different acts, and both are worth knowing. The reader decides which it is.
+func (o observedRun) repeatedCommands() []string {
+	var out []string
+	for _, c := range o.rerunOrder {
+		if n := o.reran[c]; n > 1 {
+			out = append(out, fmt.Sprintf("`%s` ×%d", clipLine(c, 70), n))
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return countOf(out[i]) > countOf(out[j]) })
+	return out
+}
+
+// countOf reads back the ×N rendered above, for ordering. An unparseable tail sorts last.
 func countOf(s string) int {
 	i := strings.LastIndex(s, " ×")
 	if i < 0 {
@@ -292,6 +333,9 @@ func (o observedRun) render() string {
 	}
 	if again := o.reread(); len(again) > 0 {
 		b.WriteString("\nalready looked at more than once: " + strings.Join(clipEach(again, 6), " · "))
+	}
+	if again := o.repeatedCommands(); len(again) > 0 {
+		b.WriteString("\nissued more than once, exactly as written: " + strings.Join(clipEach(again, 6), " · "))
 	}
 	var ok, failed, unclear []string
 	for _, c := range o.cmds {
