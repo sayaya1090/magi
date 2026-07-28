@@ -175,10 +175,13 @@ type runGuard struct {
 	// already held this turn means the agent is undoing its own earlier change (the silent
 	// self-revert that no other guard catches).
 	contentHist map[string][]uint64
-	// regressWarned marks files already flagged for self-regression this turn, so an
-	// oscillating agent (A→B→A→B…) is warned once per file, not on every swing — a repeated
-	// nudge could itself push a weak model to keep thrashing.
-	regressWarned map[string]bool
+	// regressCount counts, per file, how many times a write returned it to a content state it
+	// already held this turn. It is a COUNT rather than a flag because the report is the only
+	// channel left: the guard no longer stops anything, so a swing that goes unmentioned is a
+	// swing the agent never learns about. Observed live — after the first note was spent, a file
+	// went L→M→L→M→L over five more writes in silence while the byte-identical branch beside it
+	// spoke every time, so the weaker signal repeated and the stronger one did not.
+	regressCount map[string]int
 
 	// failedStates is the tabu list: a deliverable content-signature (deliverableSigLocked over
 	// the agent's own edits this turn) maps to a short snippet of the exercise error observed at
@@ -250,8 +253,8 @@ func newRunGuard() *runGuard {
 		lastMut: map[string]string{}, changed: map[string]*fileChange{},
 		exercisedFile: map[string]bool{},
 		recalled:      map[string]bool{}, contentHist: map[string][]uint64{},
-		regressWarned: map[string]bool{},
-		failedStates:  map[uint64]string{}, tabuWarned: map[uint64]bool{},
+		regressCount: map[string]int{},
+		failedStates: map[uint64]string{}, tabuWarned: map[uint64]bool{},
 		exerciseFail: map[string]int{}, exerciseFailEpoch: map[string]int{},
 	}
 }
@@ -310,14 +313,30 @@ func (g *runGuard) noteEdit(path, before, after string) (warn string, regressed 
 		return "", false // forward progress
 	}
 	// A revert is churn, so report regressed=true on EVERY swing (the caller withholds progress
-	// credit each time). The human-facing warning, though, fires at most once per file: a repeated
-	// nudge can itself push a weak model to keep thrashing.
-	if g.regressWarned[path] {
-		return "", true
+	// credit each time), and say so every time as well. The first note reads as an aside a
+	// deliberate revert can ignore; a later one states the pattern and how big it has grown,
+	// because by then "I meant to do that" no longer explains it. Neither asks for a particular
+	// edit — the guard reports, and what to do about it is the agent's call.
+	g.regressCount[path]++
+	if n := g.regressCount[path]; n > 1 {
+		return fmt.Sprintf("note: this file has now returned to a content state it already held "+
+			"%d times this turn, moving among %d distinct versions — no command ran between some of "+
+			"those writes. If cycling between versions is not getting you there, the next thing to "+
+			"change is probably not this file.", n, distinctStates(g.contentHist[path])), true
 	}
-	g.regressWarned[path] = true
 	return "note: this edit restored a content state this file already had earlier this turn — " +
 		"if reverting your own earlier change was intentional, ignore this.", true
+}
+
+// distinctStates counts how many different content states a file has held this turn, so a swing
+// report can say how wide the cycle is rather than only that one happened. The pre-turn baseline
+// counts as a state: returning to it is the original→fix→original shape.
+func distinctStates(hist []uint64) int {
+	seen := make(map[uint64]bool, len(hist))
+	for _, h := range hist {
+		seen[h] = true
+	}
+	return len(seen)
 }
 
 // tabuSnippetCap bounds the stored error snippet so the tabu list stays small and the

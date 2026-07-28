@@ -128,23 +128,28 @@ func TestNoteEditOscillation(t *testing.T) {
 	}
 }
 
-// TestNoteEditWarnsOncePerFileButRegressesEverySwing: the human-facing warning fires at most once per
-// file (a repeated nudge can itself push a weak model to keep thrashing), but the regressed SIGNAL must
-// stay true on EVERY swing so the caller keeps withholding progress credit and an implement↔revert
-// oscillation cannot dodge the stall force-stop by silently stopping to be flagged.
-func TestNoteEditWarnsOncePerFileButRegressesEverySwing(t *testing.T) {
+// TestNoteEditReportsAndRegressesEverySwing: the regressed SIGNAL stays true on EVERY swing so the
+// caller keeps withholding progress credit, and so does the human-facing report. The warning used to
+// fire once per file, on the reasoning that a repeated nudge pushes a weak model to keep thrashing —
+// but that was written while the guard could still stop the turn. It cannot, so a swing nobody
+// mentions is one the agent never learns about (see TestEverySwingIsReportedNotJustTheFirst).
+func TestNoteEditReportsAndRegressesEverySwing(t *testing.T) {
 	g := newRunGuard()
 	const path = "a.go"
 	if w, r := g.noteEdit(path, "orig", "A"); w != "" || r {
 		t.Fatalf("forward edit: want (\"\", false), got (%q, %v)", w, r)
 	}
-	// First revert (back to the baseline): warns AND regresses.
+	// First revert (back to the baseline): reports AND regresses.
 	if w, r := g.noteEdit(path, "A", "orig"); w == "" || !r {
 		t.Fatalf("first revert: want a warning + regressed=true, got (%q, %v)", w, r)
 	}
-	// Swing back to a state already seen: the warning is now suppressed, but it is STILL a regression.
-	if w, r := g.noteEdit(path, "orig", "A"); w != "" || !r {
-		t.Fatalf("second swing: want (\"\", true) — warn once, regress every swing — got (%q, %v)", w, r)
+	// Swing back to a state already seen: still a regression, and still reported — now with the count.
+	w, r := g.noteEdit(path, "orig", "A")
+	if !r || w == "" {
+		t.Fatalf("second swing: want a report + regressed=true, got (%q, %v)", w, r)
+	}
+	if !strings.Contains(w, "2 times") {
+		t.Errorf("a later swing must carry how many there have been, got %q", w)
 	}
 }
 
@@ -180,20 +185,24 @@ func TestNoteEditIdempotent(t *testing.T) {
 	}
 }
 
-// TestNoteEditWarnsOncePerFile: an oscillating agent is warned at most once per file
-// per turn, so a repeated nudge can't itself drive more thrashing.
-func TestNoteEditWarnsOncePerFile(t *testing.T) {
+// TestNoteEditEscalatesAcrossOscillation: the first swing reads as an aside a deliberate revert can
+// ignore; each later one states the pattern and how big it has grown, because by then "I meant to do
+// that" no longer explains it.
+func TestNoteEditEscalatesAcrossOscillation(t *testing.T) {
 	g := newRunGuard()
 	const path = "a.go"
 	g.noteEdit(path, "orig", "fixed")
-	if w, _ := g.noteEdit(path, "fixed", "orig"); w == "" {
-		t.Fatal("first revert should warn")
+	first, _ := g.noteEdit(path, "fixed", "orig")
+	if !strings.Contains(first, "restored a content state") {
+		t.Fatalf("first revert keeps the neutral aside, got %q", first)
 	}
-	if w, _ := g.noteEdit(path, "orig", "fixed"); w != "" {
-		t.Fatalf("second oscillation should NOT warn again, got %q", w)
+	second, _ := g.noteEdit(path, "orig", "fixed")
+	if !strings.Contains(second, "2 times") {
+		t.Fatalf("second oscillation must be reported with its count, got %q", second)
 	}
-	if w, _ := g.noteEdit(path, "fixed", "orig"); w != "" {
-		t.Fatalf("third oscillation should NOT warn again, got %q", w)
+	third, _ := g.noteEdit(path, "fixed", "orig")
+	if !strings.Contains(third, "3 times") {
+		t.Fatalf("third oscillation must keep counting, got %q", third)
 	}
 }
 
@@ -468,9 +477,9 @@ func TestRegressiveEditWithholdsProgress(t *testing.T) {
 
 // TestNoteEditRegressedFlagAndIdempotent complements TestNoteEditWarnsOncePerFile (which
 // asserts only the warning string) by locking the `regressed` bool and the two edges it
-// leaves untested: a self-revert is regressed on EVERY swing even after the warning is
-// suppressed (so the caller keeps withholding progress); an idempotent rewrite is neither;
-// and regressWarned is per-PATH, so a different file still gets its own one-shot warning.
+// leaves untested: a self-revert is regressed on EVERY swing (so the caller keeps withholding
+// progress); an idempotent rewrite is neither; and the count is per-PATH, so a different file
+// starts its own.
 func TestNoteEditRegressedFlagAndIdempotent(t *testing.T) {
 	g := newRunGuard()
 	const path = "calc.go"
@@ -483,17 +492,17 @@ func TestNoteEditRegressedFlagAndIdempotent(t *testing.T) {
 	if w, reg := g.noteEdit(path, "stub", "orig"); w == "" || !reg {
 		t.Fatalf("first self-revert: warn=%q regressed=%v; want non-empty, true", w, reg)
 	}
-	// Swing orig→stub again: still regressed (caller keeps withholding progress), but the
-	// warning is suppressed the second time on the same file.
-	if w, reg := g.noteEdit(path, "orig", "stub"); w != "" || !reg {
-		t.Fatalf("second swing: warn=%q regressed=%v; want \"\", true", w, reg)
+	// Swing orig→stub again: still regressed (caller keeps withholding progress), and still
+	// reported — the second report carries the count instead of repeating the first wording.
+	if w, reg := g.noteEdit(path, "orig", "stub"); !reg || !strings.Contains(w, "2 times") {
+		t.Fatalf("second swing: warn=%q regressed=%v; want the counted report, true", w, reg)
 	}
 	// Idempotent rewrite (after == current state): not a regression, but reported — it is the one
 	// thing the agent cannot see from "wrote N bytes".
 	if w, reg := g.noteEdit(path, "stub", "stub"); w == "" || reg {
 		t.Fatalf("idempotent rewrite: warn=%q regressed=%v; want non-empty, false", w, reg)
 	}
-	// A DIFFERENT file gets its own one-shot warning (regressWarned is per-path).
+	// A DIFFERENT file starts its own count, so it gets the first-time wording (per-path).
 	const other = "util.go"
 	g.noteEdit(other, "A", "B")
 	if w, reg := g.noteEdit(other, "B", "A"); w == "" || !reg {
