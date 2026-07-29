@@ -43,9 +43,10 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 	guardFP, guardNovel, toolOK := o.fp, o.novel, o.toolOK
 	changePath, changeBefore, bashChanges := o.changePath, o.changeBefore, o.bashChanges
 
-	// Loop guard bookkeeping: cache this call's result (so a later blocked repeat can be
-	// handed it) and, on a successful file mutation, bump the epoch so identical follow-up
-	// commands (e.g. re-running the test) are no longer treated as a no-progress repeat.
+	// Loop guard bookkeeping. It used to say results were cached here "so a later blocked repeat
+	// can be handed it" — nothing has cached a result since blocking came out, and no repeat is
+	// ever handed anything. What is left: on a successful file mutation, bump the epoch so
+	// identical follow-up commands (e.g. re-running the test) are no longer read as a repeat.
 	mutatedReset := false // did mutated() reset the progress counters THIS call?
 	if guard != nil && guardFP != "" {
 		if !res.IsError && fileModifiers[tc.Name] {
