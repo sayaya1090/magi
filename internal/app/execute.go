@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime/debug"
 	"sort"
 	"strings"
 
@@ -128,6 +129,38 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	sid := s.ID
 	workdir := s.Workdir
 	toolMsgID := "m_" + newID()
+
+	// A panic anywhere under one tool call used to end the whole run. Observed live: an off-by-one
+	// in the result-truncation path panicked on a bare read, magi exited 2 eight calls into a
+	// three-hour task, harbor recorded NonZeroAgentExitCodeError, and the task scored 0 with nothing
+	// attempted. One call's bug cost every call that would have followed it.
+	//
+	// So a crash under a tool becomes that TOOL's failure, not the run's. Two things this must not
+	// do. It must not leave the call unanswered — the loop waits on a result, and a call recorded
+	// with no result is the same silent nothing that oversized results used to return — so the
+	// deferred emit fires only when the normal path did not get that far (resultEmitted). And it
+	// must not hide the crash: the agent is handed the panic value verbatim, the top frames go to
+	// the run's error stream where the operator sees them, and neither is softened into "the tool
+	// failed". A recovered panic is a magi bug that still needs fixing; this only stops it from
+	// taking the run's remaining hours with it.
+	resultEmitted := false
+	defer func() {
+		r := recover()
+		if r == nil {
+			return
+		}
+		stack := string(debug.Stack())
+		a.emitError(ctx, sid, actor, fmt.Sprintf("magi panicked while running tool %q: %v\n%s",
+			tc.Name, r, firstFrames(stack, 8)))
+		if !resultEmitted {
+			a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID, fmt.Sprintf(
+				"magi crashed while running this call and could not complete it: %v\n\n"+
+					"This is a defect in magi, not in what you asked for. The call did not run to "+
+					"completion, so nothing here says whether its work happened — check the state "+
+					"yourself before assuming either way. A different shape of the same request "+
+					"(a narrower range, a smaller batch) may get through.", r), true)
+		}
+	}()
 
 	// The call is RECORDED, not judged. This used to refuse an identical call repeated past a
 	// limit, on the theory that a repeat whose outcome cannot change is a loop worth breaking. The
@@ -308,6 +341,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		Sandbox: port.SandboxSpec{Mode: a.cfg.Sandbox, Workdir: workdir, AllowNet: a.cfg.Permission == "allow"},
 	})
 	if err != nil {
+		resultEmitted = true
 		a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID, string(capToolResult([]byte(err.Error()))), true)
 		return
 	}
@@ -358,6 +392,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		changePath: changePath, changeBefore: changeBefore, bashChanges: bashChanges,
 	})
 
+	resultEmitted = true
 	a.appendPart(ctx, sid, actor, toolMsgID, session.RoleTool, session.Part{
 		ID: "p_" + newID(), Kind: session.PartToolResult, ToolResult: &res,
 	})
@@ -536,4 +571,15 @@ func nearestToolName(called string, names []string) string {
 		only = n
 	}
 	return only
+}
+
+// firstFrames keeps the top n frames of a stack trace: enough to name where a panic came from,
+// short enough that it does not bury the message it is attached to. A goroutine's stack has two
+// lines per frame (function, then file:line).
+func firstFrames(stack string, n int) string {
+	lines := strings.Split(stack, "\n")
+	if len(lines) > 1+2*n {
+		lines = append(lines[:1+2*n:1+2*n], "\t… stack truncated")
+	}
+	return strings.Join(lines, "\n")
 }
