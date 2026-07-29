@@ -2,6 +2,8 @@ package app
 
 import (
 	"encoding/json"
+	"strconv"
+	"strings"
 
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -181,9 +183,21 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 					Limit  builtin.FlexInt `json:"limit"`
 				}
 				if json.Unmarshal(tc.Args, &ra) == nil && ra.Path != "" {
+					// The window the call ASKED for is not always the one it got: an oversized
+					// result is truncated (capToolResult, already applied by here) and the read
+					// tool has its own caps, so a `read{path}` of a large file can request 2000
+					// lines and be handed 1239. Recording the request marks the 761 lines magi
+					// never showed as shown, and the next read of that region — genuinely new
+					// content — is refused credit as a re-read. The gutter numbers in the result
+					// are what magi actually delivered, so it counts those and falls back to the
+					// request only when there are none to count.
+					off, lim := int(ra.Offset), int(ra.Limit)
+					if lo, n, ok := deliveredLineWindow(res.Content); ok {
+						off, lim = lo, n
+					}
 					// Keyed the same way the bash mutation path drops coverage, so `read
 					// {/app/x/y.c}` and a `sed -i` naming `x/y.c` reach the same entry.
-					novel = guard.noteReadCoverage(relForChange(workdir, ra.Path), int(ra.Offset), int(ra.Limit))
+					novel = guard.noteReadCoverage(relForChange(workdir, ra.Path), off, lim)
 				}
 			}
 			guard.noteInspectProgress(novel)
@@ -211,4 +225,42 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 			}
 		}
 	}
+}
+
+// deliveredLineWindow reports the first line number a read result carries and how many numbered
+// lines it carries, by counting the gutter the read tool writes ("N\tcontent", one per line).
+//
+// It exists because the coverage record is a claim about what the agent was SHOWN, and the call's
+// own offset/limit is a claim about what it asked for. Those agree until something truncates:
+// capToolResult cuts an oversized result to fit the 64 KiB cap, and the read tool caps what it
+// takes off disk. Observed live (fix-ocaml-gc, 2026-07-30): `read{path: runtime/major_gc.c}` with
+// no window asked for the default 2000 lines and was handed 49152 bytes of them, so every line
+// past the cut was recorded as delivered without ever being sent.
+//
+// ok is false when there is no gutter to count — an empty file, or a result that is not a read's
+// numbered body — and the caller keeps the requested window rather than inventing a narrower one.
+func deliveredLineWindow(content json.RawMessage) (offset, count int, ok bool) {
+	var s string
+	if json.Unmarshal(content, &s) != nil {
+		return 0, 0, false
+	}
+	first, n := 0, 0
+	for _, line := range strings.Split(s, "\n") {
+		tab := strings.IndexByte(line, '\t')
+		if tab <= 0 {
+			continue
+		}
+		num, err := strconv.Atoi(line[:tab])
+		if err != nil || num <= 0 {
+			continue
+		}
+		if n == 0 {
+			first = num
+		}
+		n++
+	}
+	if n == 0 {
+		return 0, 0, false
+	}
+	return first, n, true
 }
