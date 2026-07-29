@@ -198,7 +198,14 @@ func TestBackgroundTailNote(t *testing.T) {
 		{"detach after cd", 0, "cd /tmp && make -j4 &", true},
 		{"list operator not a detach", 0, "make && echo done", false},
 		{"double ampersand terminal", 0, "make &&", false},
-		{"mid-command detach only", 0, "server & curl localhost", false},
+		// A detach mid-command counts too. This case asserted false and gave no reason; the reason
+		// it cannot have is that magi knows the foreground exit is the one worth reporting — that
+		// is a guess about what the agent meant. What the note now states is magi's own limit:
+		// whatever was detached has no job entry, no exit and no per-stage status anywhere in the
+		// record, which is true whether the probe after it was deliberate or not. Observed live:
+		// `make world 2>&1 &` on one line, `sleep 60 && ps aux | grep make` on the next, and the
+		// exit 0 the agent was handed belonged to the grep.
+		{"mid-command detach", 0, "server & curl localhost", true},
 		{"no detach", 0, "opam install coq -y", false},
 		{"non-zero exit", 1, "opam install coq -y &", false},
 	} {
