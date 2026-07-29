@@ -67,11 +67,56 @@ func maskedFailureNote(exit int, body string) string {
 	return ""
 }
 
-// backgroundTail matches a command whose last character is a lone `&` — the whole
-// command (or its final segment) was detached into the background, so the shell's
-// exit 0 arrived before the child did anything. `&&` is a list operator, not a
-// detach, and must not match.
-var backgroundTail = regexp.MustCompile(`(^|[^&])&\s*$`)
+// detachIndex reports where a command detaches something with `&`, or -1. The shell's exit for a
+// detached job arrives before the child has done anything, so this is what makes an exit 0 mean
+// "started" rather than "finished".
+//
+// It used to require the `&` to be the command's LAST character. Observed live:
+//
+//	cd /app/ocaml && make world 2>&1 &
+//	sleep 60 && ps aux | grep "make"
+//
+// The build is detached on the first line and the reported exit 0 belongs to the grep on the
+// second, so the one command whose outcome the agent cared about had no status anywhere — and the
+// note that exists to say exactly that never fired, because the `&` was not last.
+//
+// Tokenizing, not reading: a `&` detaches when it is outside quotes, is not half of `&&`, and is
+// not the target side of an fd redirect (`2>&1`, `>&2`). Nothing here asks what the command means.
+func detachIndex(command string) int {
+	var quote byte
+	for i := 0; i < len(command); i++ {
+		c := command[i]
+		if quote != 0 {
+			if quote == '"' && c == '\\' && i+1 < len(command) {
+				i++
+				continue
+			}
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch {
+		case c == '\'' || c == '"':
+			quote = c
+		case c == '&':
+			if i+1 < len(command) && command[i+1] == '&' {
+				i++ // list operator, not a detach
+				continue
+			}
+			// `2>&1` / `>&2` / `<&0`: the & names a file descriptor, not a job.
+			j := i - 1
+			for j >= 0 && (command[j] == ' ' || command[j] == '\t') {
+				j--
+			}
+			if j >= 0 && (command[j] == '>' || command[j] == '<') {
+				continue
+			}
+			return i
+		}
+	}
+	return -1
+}
 
 // bgLaunched tracks, per session, the program names already detached with a shell
 // `&` tail, so a relaunch of the same program gets a stronger warning: the agent is
@@ -88,10 +133,13 @@ var bgLaunched = struct {
 // points at the tool's REAL affordances for long commands (background=true +
 // bash_output, or wait_for) so the model has a concrete alternative to relaunching.
 func backgroundTailNote(exit int, command string, sid session.SessionID) string {
-	if exit != 0 || !backgroundTail.MatchString(strings.TrimSpace(command)) {
+	at := detachIndex(command)
+	if exit != 0 || at < 0 {
 		return ""
 	}
-	prog := bgProgram(command)
+	// The program is the one BEFORE the `&`, which is the piece that got detached — not whatever
+	// the agent went on to run in the foreground afterwards.
+	prog := bgProgram(command[:at])
 	dup := false
 	if prog != "" {
 		bgLaunched.mu.Lock()
@@ -107,7 +155,7 @@ func backgroundTailNote(exit int, command string, sid session.SessionID) string 
 	if dup {
 		return "[note: `" + prog + "` was ALREADY started in the background with `&` earlier in this run and its completion was never confirmed — launching another copy races the in-flight one (lock contention, a duplicate server that squats the port so callers hit the STALE copy). Don't stack another: for a server, free the port first with port_owner{port:N,kill:true} then start ONE with background=true (poll bash_output); for a one-shot job, wait for the first with wait_for.]"
 	}
-	return "[note: this command was detached with a trailing `&` — exit 0 only means it STARTED; it is not evidence of completion or success. Poll it (background=true + bash_output) or wait for it (wait_for) instead of assuming it finished or launching it again.]"
+	return "[note: this command detached work with `&` — the exit above belongs to whatever ran in the FOREGROUND, so it says nothing about the detached part, which magi has no job entry, exit, or per-stage status for. Poll it (background=true + bash_output) or wait for it (wait_for) instead of assuming it finished or launching it again.]"
 }
 
 // bgProgram extracts the meaningful program name from an `&`-detached command for
