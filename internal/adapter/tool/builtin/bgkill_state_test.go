@@ -37,7 +37,12 @@ func TestBashKillSaysWhatItActuallyDid(t *testing.T) {
 	if got := kill(p.id); !strings.Contains(got, "killed "+p.id) {
 		t.Fatalf("a running job is killed and reported as killed: %s", got)
 	}
-	// The same call again has nothing left to do, and must not claim it did.
+	// The same call again has nothing left to do, and must not claim it did. Waited out first:
+	// the reaper sets done on a KILLED job too, so this is the state a real second call meets —
+	// killed and done at once. Answering from done says "exited on its own" about a process magi
+	// stopped, which is the trap this ordering exists to avoid, and a fast second call would skip
+	// straight past it.
+	waitDone(t, p)
 	got := kill(p.id)
 	if strings.Contains(got, "killed "+p.id) && !strings.Contains(got, "already") {
 		t.Errorf("the second kill performed no act and must not report one: %s", got)
@@ -45,21 +50,16 @@ func TestBashKillSaysWhatItActuallyDid(t *testing.T) {
 	if !strings.Contains(got, "already killed") {
 		t.Errorf("say which case it is, so the agent knows the first one took: %s", got)
 	}
+	if strings.Contains(got, "on its own") {
+		t.Errorf("magi stopped this process; it did not exit on its own: %s", got)
+	}
 
 	// A job that ended on its own before the agent got to it: the exit is the news, not the kill.
 	q, err := bg.start(env.Workdir, t.TempDir(), port.SandboxSpec{}, "exit 3", false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 200; i++ {
-		q.mu.Lock()
-		done := q.done
-		q.mu.Unlock()
-		if done {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	waitDone(t, q)
 	got = kill(q.id)
 	if strings.Contains(got, "killed "+q.id) && !strings.Contains(got, "already") {
 		t.Errorf("nothing was killed — the process had already exited: %s", got)
@@ -75,4 +75,20 @@ func TestBashKillSaysWhatItActuallyDid(t *testing.T) {
 	if !res.IsError {
 		t.Errorf("an unknown id is an error: %s", res.Content)
 	}
+}
+
+// waitDone blocks until the reaper has recorded the process as finished, so a test meets the same
+// state a real second call would rather than racing ahead of it.
+func waitDone(t *testing.T, p *bgProc) {
+	t.Helper()
+	for i := 0; i < 300; i++ {
+		p.mu.Lock()
+		done := p.done
+		p.mu.Unlock()
+		if done {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("%s never finished", p.id)
 }
