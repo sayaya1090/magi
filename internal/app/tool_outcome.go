@@ -95,6 +95,10 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 				// Background was already parsed here and read by nobody; this is what it is for.
 				if bashReset && !bool(ba.Background) {
 					regressed := false
+					// compared counts the destinations magi could actually read on both sides;
+					// unchanged, how many of those held the same bytes afterwards. See the
+					// retraction below.
+					compared, unchanged := 0, 0
 					for _, bc := range bashChanges {
 						rel := relForChange(workdir, bc.path)
 						after, ok := readForChange(workdir, bc.path)
@@ -109,6 +113,10 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 						// a path with no content on either side has no history to re-author.
 						if bc.before == "" && after == "" {
 							continue
+						}
+						compared++
+						if after == bc.before {
+							unchanged++
 						}
 						if after != bc.before {
 							// The bash mutation path shares one synthetic slot in mutated(), so the
@@ -130,7 +138,24 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 						}
 						regressed = regressed || reverted
 					}
-					if regressed {
+					// A mutation whose every readable destination came back holding the bytes it
+					// already held moved nothing, and the stall window must keep climbing across
+					// it. mutated() has this rule — an idempotent rewrite returns reset=false —
+					// but the signature it compares on the bash path is the COMMAND TEXT, and a
+					// command that differs by one character is a different signature no matter
+					// what it wrote. Observed live (extract-elf, 2026-07-29): eleven runs of
+					// `node extract.js > out.json && python3 -c "…"` over ten minutes, each with
+					// a slightly different one-liner, each regenerating out.json byte for byte,
+					// each resetting the no-progress counter — while the same call's result
+					// carried "this write left the file byte-for-byte as it already was" eleven
+					// times over. The content comparison is the better evidence and magi had
+					// already done it; this is only routing it to the counter.
+					//
+					// All of them, not any: one destination that really changed is real work, and
+					// cancelling it because a sibling path was rewritten identically would be the
+					// false stall this guard exists to avoid. compared>0 keeps a command magi
+					// could not read either side of out of it entirely — unknown is not unchanged.
+					if regressed || (compared > 0 && unchanged == compared) {
 						guard.retractProgress()
 					}
 				}
