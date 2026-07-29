@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
@@ -59,7 +58,6 @@ func (MultiEdit) Execute(ctx context.Context, raw json.RawMessage, env port.Tool
 	}
 
 	content := string(data)
-	var addedAll, priorAll strings.Builder
 	skipped := 0
 	// Apply all hunks in memory first; fail fast without writing. Delegate each hunk to
 	// applyEdit so multiedit inherits the same tolerant matching as edit (line endings,
@@ -80,8 +78,6 @@ func (MultiEdit) Execute(ctx context.Context, raw json.RawMessage, env port.Tool
 			return errResult("", fmt.Sprintf("edit %d: %s", i+1, eerr.Error())), nil
 		}
 		content = updated
-		addedAll.WriteString(h.New + "\n")
-		priorAll.WriteString(h.Old + "\n")
 	}
 	applied := len(a.Edits) - skipped
 	if applied == 0 {
@@ -95,6 +91,5 @@ func (MultiEdit) Execute(ctx context.Context, raw json.RawMessage, env port.Tool
 	if skipped > 0 {
 		msg += fmt.Sprintf(" (skipped %d no-op hunk(s) whose old == new)", skipped)
 	}
-	msg += commentNoiseAdvisory(addedAll.String(), priorAll.String())
 	return okText("", msg), nil
 }

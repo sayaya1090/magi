@@ -48,7 +48,6 @@ func (Write) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv)
 		return errResult("", relPathErr(err, env.Workdir)), nil
 	}
 	msg := fmt.Sprintf("wrote %d bytes to %s", len(a.Content), a.Path)
-	msg += commentNoiseAdvisory(a.Content, "")
 	return okText("", msg), nil
 }
 

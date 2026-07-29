@@ -93,7 +93,6 @@ func (Edit) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	if idx := strings.Index(string(data), a.Old); idx >= 0 {
 		msg += fmt.Sprintf(" @%d", 1+strings.Count(string(data)[:idx], "\n"))
 	}
-	msg += commentNoiseAdvisory(a.New, a.Old)
 	return okText("", msg), nil
 }
 
@@ -127,7 +126,7 @@ func applyAnchoredEdit(content string, a editArgs, abs string) session.ToolResul
 	if to != from {
 		span = fmt.Sprintf(" @%d-%d", from, to)
 	}
-	return okText("", "edited "+a.Path+span+commentNoiseAdvisory(a.New, content))
+	return okText("", "edited "+a.Path+span)
 }
 
 // notUniqueErr builds the ambiguous-match error. It names the line anchors of every
