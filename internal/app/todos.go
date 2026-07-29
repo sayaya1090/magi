@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -199,4 +200,52 @@ func todosEqual(a, b []session.Todo) bool {
 		}
 	}
 	return true
+}
+
+// noteForTurn records, verbatim, one thing the agent asked to be reminded of before this turn ends
+// (remember{scope:"turn"}). magi stores the string and nothing else: it does not read it, rank it,
+// or decide when it is relevant — the agent said it mattered, and that is the whole of what magi
+// knows about it.
+//
+// The push is the point. The session already has four ways to keep something (remember,
+// recall_memory, recall_context, todowrite) and across seven graded tasks the first three were
+// called zero times, because each of them requires the agent to think of asking. Measured on those
+// runs: one agent worked out a field mapping and spent the next fifty minutes deriving it again;
+// another proved a pointer bug with a standalone program and cycled for sixty-five minutes without
+// landing the fix. Nothing was missing from the record — the conclusion was, and only the agent
+// knew it was a conclusion.
+func (a *App) noteForTurn(sid session.SessionID, text string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st := a.stateLocked(sid)
+	for _, n := range st.turnNotes {
+		if n == text {
+			return // the same note twice is one note
+		}
+	}
+	if len(st.turnNotes) >= turnNotesCap {
+		return
+	}
+	st.turnNotes = append(st.turnNotes, text)
+}
+
+// turnNotesCap bounds what one turn can queue for itself. High enough that a working agent never
+// meets it, low enough that a spinning one cannot fill the finish seam with its own text.
+const turnNotesCap = 20
+
+// turnNotesBlock renders the agent's own notes for the finish seams, or "" when it left none.
+// Verbatim and in the order they were written — magi is a courier here, not a reader.
+func (a *App) turnNotesBlock(sid session.SessionID) string {
+	a.mu.Lock()
+	notes := append([]string(nil), a.stateLocked(sid).turnNotes...)
+	a.mu.Unlock()
+	if len(notes) == 0 {
+		return ""
+	}
+	return "── WHAT YOU ASKED TO BE REMINDED OF BEFORE THIS TURN ENDS ──\n- " +
+		strings.Join(notes, "\n- ")
 }

@@ -20,9 +20,14 @@ import (
 // the rest live for the whole session.
 type sessionState struct {
 	// Whole-session lifetime.
-	cancel           context.CancelFunc     // in-flight run's cancel (Interrupt); nil = not running
-	meta             session.Session        // session metadata cache
-	todos            []session.Todo         // per-session plan
+	cancel context.CancelFunc // in-flight run's cancel (Interrupt); nil = not running
+	meta   session.Session    // session metadata cache
+	todos  []session.Todo     // per-session plan
+	// turnNotes are what the AGENT itself asked to be reminded of before this turn ends
+	// (remember{scope:"turn"}). magi stores them verbatim and hands them back at the finish
+	// seams — it never reads, summarises, or ranks them. Turn-scoped: a new top-level request
+	// is new work, and last turn's reminders would be answering a question nobody asked.
+	turnNotes        []string
 	stage            string                 // current loop stage for event tagging
 	lastPromptTokens int                    // real prompt_tokens from the last turn
 	turnStart        time.Time              // when the current turn began (check_untouched.go: "did this predate the run")
@@ -177,6 +182,7 @@ func (a *App) resetForNewTopLevel(sid session.SessionID) {
 	}
 	st.interjectSeen = keep
 	st.expPtrQ, st.expPtr = "", ""
+	st.turnNotes = nil
 	st.ragQ, st.ragText = "", "" // retrieval caches are turn-scoped even when the prompt text repeats
 	a.mu.Unlock()
 	// The subagent budget is a RUNAWAY backstop (one turn spawning without bound), not a

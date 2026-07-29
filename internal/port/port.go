@@ -227,6 +227,9 @@ type ToolEnv struct {
 	RouteInterjection func(action, reason, requestID string) error
 	// SetTodos replaces the session's plan (TodoWrite); nil when unavailable.
 	SetTodos func(todos []session.Todo)
+	// NoteForTurn stores one thing the agent asked to be reminded of before this turn ends
+	// (remember{scope:"turn"}). Verbatim in, verbatim out; nil when unavailable.
+	NoteForTurn func(text string)
 	// Propose contributes a memory/skill to the shared experience store (D13);
 	// nil when unavailable.
 	Propose func(c Contribution) error
