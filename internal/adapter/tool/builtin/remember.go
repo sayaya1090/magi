@@ -24,10 +24,12 @@ func (Remember) Name() string { return "remember" }
 func (Remember) Description() string {
 	return "Save something worth keeping. Provide concise 'text' and optional 'tags'. " +
 		"'scope' selects WHERE and for HOW LONG:\n" +
-		"  \"turn\"    — a note to yourself for THIS task: magi hands it back to you, word for word, " +
-		"before the turn can end. Use it the moment you establish something you must not have to " +
-		"work out twice (a value you measured, a cause you proved, a dead end). You do not have to " +
-		"ask for it back.\n" +
+		"  \"turn\"    — a note to yourself for THIS task, handed back word for word before the turn " +
+		"can end. A long task is compacted as it runs: what you worked out in its first minutes may " +
+		"not be in front of you at its last, and working it out again costs what it cost the first " +
+		"time. This costs one call, and you never have to ask for it back. Use it the moment you " +
+		"establish something you must not derive twice — a value you measured, a cause you proved, " +
+		"a dead end you ruled out, a constraint of the task your current step does not touch.\n" +
 		"  \"project\" (default) — a durable workspace learning, recallable in later sessions via recall_memory.\n" +
 		"  \"global\"  — knowledge useful across all projects.\n" +
 		"Do not include secrets."
