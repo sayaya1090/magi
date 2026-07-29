@@ -112,7 +112,10 @@ func TestReadHeadTailBounds(t *testing.T) {
 	if err := os.WriteFile(big, make([]byte, 4<<20), 0o644); err != nil { // 4 MiB of NULs
 		t.Fatal(err)
 	}
-	got := readHeadTail(big, captureCap)
+	got, whole := readHeadTail(big, captureCap)
+	if whole {
+		t.Error("a 4 MiB file does not come back whole under a 256 KiB cap")
+	}
 	if int64(len(got)) > captureCap+128 { // +marker slack
 		t.Errorf("readHeadTail returned %d bytes, want <= ~cap %d (memory not bounded)", len(got), captureCap)
 	}
@@ -123,8 +126,8 @@ func TestReadHeadTailBounds(t *testing.T) {
 	if err := os.WriteFile(small, []byte("hello"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := readHeadTail(small, captureCap); string(got) != "hello" {
-		t.Errorf("small file = %q, want whole content", got)
+	if got, whole := readHeadTail(small, captureCap); string(got) != "hello" || !whole {
+		t.Errorf("small file = %q whole=%v, want whole content", got, whole)
 	}
 }
 

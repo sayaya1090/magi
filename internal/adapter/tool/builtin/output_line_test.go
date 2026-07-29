@@ -90,10 +90,15 @@ func TestClippingIsMeasuredNotAssumed(t *testing.T) {
 	if err := os.WriteFile(p, []byte(small), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if b := readHeadTail(p, 8192); len(b) != len(small) {
-		t.Errorf("a capture under the cap is the whole file: %d != %d", len(b), len(small))
+	// The capture reports whether it returned the file whole; the caller does not re-stat, so a
+	// log a detached child grows afterwards cannot be mistaken for something having been elided.
+	if b, whole := readHeadTail(p, 8192); !whole || len(b) != len(small) {
+		t.Errorf("a capture under the cap is the whole file: %d bytes, whole=%v", len(b), whole)
 	}
-	if b := readHeadTail(p, 256); int64(len(b)) == int64(len(small)) {
-		t.Error("a capture over the cap is shorter than the file, which is how the caller knows")
+	if b, whole := readHeadTail(p, 256); whole || int64(len(b)) == int64(len(small)) {
+		t.Errorf("a capture over the cap is a view of it: %d bytes, whole=%v", len(b), whole)
+	}
+	if b, whole := readHeadTail(filepath.Join(t.TempDir(), "absent.log"), 8192); whole || b != nil {
+		t.Error("a file that could not be read is not a whole capture")
 	}
 }
