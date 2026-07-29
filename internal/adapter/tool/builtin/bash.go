@@ -162,16 +162,27 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	}
 	bashDebugf("exec done: elapsed=%s exit=%d ctxErr=%v runErr=%v", time.Since(started).Round(time.Millisecond), exit, cctx.Err(), err)
 	body := string(out)
+	// Whether the message will carry the output entire or a clipped view of it — measured, not
+	// assumed. Two stages can clip: readHeadTail at capture (the file keeps everything) and
+	// truncateOut for the message, each inserting its own omission marker. An unclipped capture is
+	// exactly as long as the file it was read from.
+	logSize := int64(-1)
+	if fi, err := os.Stat(logPath); err == nil {
+		logSize = fi.Size()
+	}
+	captureClipped := logSize >= 0 && int64(len(body)) != logSize
 	if cctx.Err() == context.DeadlineExceeded {
 		// The partial log is the most useful thing a killed build leaves, so name it here too.
 		body += "\n" + timedOutNote(timeout, int(a.Timeout))
-		return errResult("", outputLine(logPath)+truncateOut(body)), nil
+		shown := truncateOut(body)
+		return errResult("", outputLine(logPath, captureClipped || len(shown) != len(body))+shown), nil
 	}
 	if err != nil && exit == 0 {
 		// Launch failure (command not found, etc.) rather than non-zero exit.
 		return errResult("", err.Error()+"\n"+truncateOut(body)), nil
 	}
 	disp := truncateOut(body)
+	dispClipped := captureClipped || len(disp) != len(body)
 	// A command that returns exit 0 while its output carries a real crash/traceback is
 	// almost always one whose failing exit code was swallowed by a `|| echo`/`|| true`
 	// tail. Both the model (which read the "exit 0" as a pass) and the council (which sees
@@ -206,7 +217,7 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		}
 	}
 	appendRunIndex(env.ScratchLogs, exit, a.Command, logPath)
-	res := okText("", fmt.Sprintf("exit %d\n%s%s", exit, outputLine(logPath), disp))
+	res := okText("", fmt.Sprintf("exit %d\n%s%s", exit, outputLine(logPath, dispClipped), disp))
 	res.IsError = exit != 0
 	return res, nil
 }
@@ -487,10 +498,18 @@ func scratchEnv(tmp string) []string {
 	return append(out, "TMPDIR="+tmp, "TMP="+tmp, "TEMP="+tmp)
 }
 
-// outputLine names the file the command's full output was captured to, when the turn kept one. The
-// message body is head+tail of a bounded read; the file is everything, so a later step greps the
-// part it needs instead of re-running the command with a bigger tail.
-func outputLine(path string) string {
+// outputLine names the file the command's full output was captured to, when the turn kept one, and
+// says whether the message above it is that output entire or a clipped view of it. The file is
+// always everything, so a later step greps the part it needs instead of re-running the command.
+//
+// It used to say "this message shows the head and tail" on every result, including the ones it had
+// shown whole. Observed live (fix-ocaml-gc, 2026-07-30): two `grep -n "^#define Make_header" …`
+// runs, both exit 1, both answered "0 bytes — the full output; this message shows the head and
+// tail" — a head-and-tail presentation of nothing, announcing an elision that had not happened. An
+// agent told the middle was withheld has reason to go looking for what is not there; the second of
+// those two calls was the same command again. Clipping is measured by the caller and marked in the
+// body where it occurs, so this states what that measurement found.
+func outputLine(path string, omitted bool) string {
 	if path == "" {
 		return ""
 	}
@@ -498,8 +517,13 @@ func outputLine(path string) string {
 	if fi, err := os.Stat(path); err == nil {
 		size = fi.Size()
 	}
-	if size < 0 {
+	switch {
+	case size < 0:
 		return "output: " + path + "\n"
+	case size == 0:
+		return fmt.Sprintf("output: %s (the command wrote nothing — the file is empty)\n", path)
+	case omitted:
+		return fmt.Sprintf("output: %s (%d bytes — the head and tail are above, the file has all of it)\n", path, size)
 	}
-	return fmt.Sprintf("output: %s (%d bytes — the full output; this message shows the head and tail)\n", path, size)
+	return fmt.Sprintf("output: %s (%d bytes — all of it is above)\n", path, size)
 }
