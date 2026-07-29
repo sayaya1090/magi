@@ -142,7 +142,7 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	cmd.SysProcAttr = detachTTY(sboxAttr)
 	started := time.Now()
 	bashDebugf("exec start: timeout=%ds shell=%s cmd=%q", timeout, name, dbgClip(a.Command))
-	out, logPath, err := runCapture(cmd, env.ScratchLogs)
+	out, logPath, whole, err := runCapture(cmd, env.ScratchLogs)
 	stages := readPipeStatus(psPath)
 	// Safety net: if a token-confined launch (Windows) fails to START (process never
 	// ran), retry unconfined so confinement can never break the bash tool outright.
@@ -153,7 +153,7 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		cmd.Dir = env.Workdir
 		armCancel(cmd)
 		cmd.SysProcAttr = detachTTY(nil)
-		out, logPath, err = runCapture(cmd, env.ScratchLogs)
+		out, logPath, whole, err = runCapture(cmd, env.ScratchLogs)
 	}
 
 	exit := 0
@@ -164,13 +164,10 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	body := string(out)
 	// Whether the message will carry the output entire or a clipped view of it — measured, not
 	// assumed. Two stages can clip: readHeadTail at capture (the file keeps everything) and
-	// truncateOut for the message, each inserting its own omission marker. An unclipped capture is
-	// exactly as long as the file it was read from.
-	logSize := int64(-1)
-	if fi, err := os.Stat(logPath); err == nil {
-		logSize = fi.Size()
-	}
-	captureClipped := logSize >= 0 && int64(len(body)) != logSize
+	// truncateOut for the message, each inserting its own omission marker. The capture reports its
+	// own answer rather than being re-derived from a second stat, because a detached child can grow
+	// the log after it was read and a bigger file is not evidence anything was elided.
+	captureClipped := logPath != "" && !whole
 	if cctx.Err() == context.DeadlineExceeded {
 		// The partial log is the most useful thing a killed build leaves, so name it here too.
 		body += "\n" + timedOutNote(timeout, int(a.Timeout))
@@ -339,7 +336,7 @@ func dbgClip(s string) string {
 // instead of dying by SIGPIPE. sh exiting also returns Wait immediately (no pipe to
 // drain), so `server &` no longer blocks on WaitDelay. On temp-file failure it falls
 // back to the in-memory CombinedOutput path so the tool never breaks outright.
-func runCapture(cmd *exec.Cmd, logsDir string) ([]byte, string, error) {
+func runCapture(cmd *exec.Cmd, logsDir string) (out []byte, logPath string, whole bool, err error) {
 	// The child inherits our console where the platform gives us no way to detach it (Windows), so
 	// an interactive program can reconfigure the terminal the UI is drawn on and — killed on
 	// timeout — never put it back. Snapshot around the whole run, including the fallback path.
@@ -359,7 +356,9 @@ func runCapture(cmd *exec.Cmd, logsDir string) ([]byte, string, error) {
 		}
 		if err != nil {
 			out, werr := cmd.CombinedOutput()
-			return out, "", werr
+			// Unbounded, so it is everything the command wrote — and with no capture file there
+			// is no line to say so on.
+			return out, "", true, werr
 		}
 	}
 	name := f.Name()
@@ -370,7 +369,7 @@ func runCapture(cmd *exec.Cmd, logsDir string) ([]byte, string, error) {
 	cmd.Stdout, cmd.Stderr = f, f
 	if err := cmd.Start(); err != nil {
 		bashDebugf("start failed: %v", err)
-		return nil, "", err
+		return nil, "", false, err
 	}
 	bashDebugf("started pid=%d — waiting", cmd.Process.Pid)
 	werr := cmd.Wait()
@@ -380,11 +379,11 @@ func runCapture(cmd *exec.Cmd, logsDir string) ([]byte, string, error) {
 	// into memory — we keep the head and the tail (where errors and final status usually
 	// are) and elide the middle. A surviving `&` child keeps writing to its own fd on the
 	// (now unlinked) inode; that later output is intentionally not captured here. (I1)
-	data := readHeadTail(name, captureCap)
+	data, whole := readHeadTail(name, captureCap)
 	if !keep {
 		name = ""
 	}
-	return data, name, werr
+	return data, name, whole, werr
 }
 
 // captureCap bounds how much of a command's output runCapture retains in memory. It sits
@@ -396,19 +395,23 @@ const captureCap = 256 << 10
 // cap/2 bytes joined by an elision marker. Bounds memory for pathologically large output
 // while preserving the tail — a truncated build log's error is almost always at the end, so
 // head-only capture would drop exactly the useful part.
-func readHeadTail(path string, cap int64) []byte {
+// whole reports that the returned bytes ARE the file, not a view of it — measured against the same
+// stat the read was decided by. The caller cannot re-derive this afterwards: a `&` child that
+// outlives the shell keeps writing to the log (see I1), so a later stat can be larger than what was
+// read here with nothing having been elided.
+func readHeadTail(path string, cap int64) (data []byte, whole bool) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil
+		return nil, false
 	}
 	defer f.Close()
 	fi, err := f.Stat()
 	if err != nil {
-		return nil
+		return nil, false
 	}
 	if fi.Size() <= cap {
 		b, _ := io.ReadAll(f)
-		return b
+		return b, true
 	}
 	half := cap / 2
 	head := make([]byte, half)
@@ -424,7 +427,7 @@ func readHeadTail(path string, cap int64) []byte {
 	out := make([]byte, 0, int64(n1)+int64(len(marker))+int64(len(tail)))
 	out = append(out, head[:n1]...)
 	out = append(out, marker...)
-	return append(out, tail...)
+	return append(out, tail...), false
 }
 
 // shell returns the platform shell invocation for a command string.
