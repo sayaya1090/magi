@@ -80,25 +80,60 @@ func maskedFailureNote(exit int, body string) string {
 // second, so the one command whose outcome the agent cared about had no status anywhere — and the
 // note that exists to say exactly that never fired, because the `&` was not last.
 //
-// Tokenizing, not reading: a `&` detaches when it is outside quotes, is not half of `&&`, and is
-// not the target side of an fd redirect (`2>&1`, `>&2`). Nothing here asks what the command means.
+// Tokenizing, not reading: a `&` detaches when it is outside quotes, is not inside a heredoc body,
+// is not half of `&&`, and is not the target side of an fd redirect (`2>&1`, `>&2`). Nothing here
+// asks what the command means.
+//
+// The heredoc half was missing when this shipped and cost a live false positive within the hour:
+// `cat > /tmp/debug_crash.cpp << 'EOF'` followed by C++ containing `&` was called a detach four
+// times, and the relaunch warning went on to name the program `}` — a closing brace read out of the
+// source as if it were a command. A heredoc body is data the shell hands to a program verbatim,
+// exactly like a quoted run, and neither is shell text.
 func detachIndex(command string) int {
 	var quote byte
+	off := 0
+	lines := strings.Split(command, "\n")
+	for li := 0; li < len(lines); li++ {
+		line := lines[li]
+		if at := detachInLine(line, &quote); at >= 0 {
+			return off + at
+		}
+		off += len(line) + 1 // +1 for the newline Split removed
+		// A `<<TAG` opened outside quotes swallows every following line up to its terminator.
+		if quote == 0 {
+			if d := heredocDelim(line); d != "" {
+				for li+1 < len(lines) && strings.TrimSpace(lines[li+1]) != d {
+					li++
+					off += len(lines[li]) + 1
+				}
+				if li+1 < len(lines) {
+					li++
+					off += len(lines[li]) + 1
+				}
+			}
+		}
+	}
+	return -1
+}
+
+// detachInLine scans one line for a detaching `&`, carrying the quote state in and out so a run
+// opened on one line and closed on another is still one quoted region.
+func detachInLine(command string, quote *byte) int {
 	for i := 0; i < len(command); i++ {
 		c := command[i]
-		if quote != 0 {
-			if quote == '"' && c == '\\' && i+1 < len(command) {
+		if *quote != 0 {
+			if *quote == '"' && c == '\\' && i+1 < len(command) {
 				i++
 				continue
 			}
-			if c == quote {
-				quote = 0
+			if c == *quote {
+				*quote = 0
 			}
 			continue
 		}
 		switch {
 		case c == '\'' || c == '"':
-			quote = c
+			*quote = c
 		case c == '&':
 			if i+1 < len(command) && command[i+1] == '&' {
 				i++ // list operator, not a detach
@@ -116,6 +151,30 @@ func detachIndex(command string) int {
 		}
 	}
 	return -1
+}
+
+// heredocDelim returns the terminator word a line's `<<TAG` opens, or "" when the line opens no
+// heredoc. A `<<` whose next token is not a word is an arithmetic left-shift (`$((1<<2))`), not a
+// heredoc intro.
+func heredocDelim(line string) string {
+	idx := strings.Index(line, "<<")
+	if idx < 0 {
+		return ""
+	}
+	s := strings.TrimLeft(line[idx+2:], "-<") // <<- and any run of extra <
+	s = strings.TrimLeft(s, " \t")            // optional space before the word
+	f := strings.Fields(s)
+	if len(f) == 0 {
+		return ""
+	}
+	word := strings.Trim(f[0], "'\"")
+	if word == "" {
+		return ""
+	}
+	if c := word[0]; c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
+		return word
+	}
+	return ""
 }
 
 // bgLaunched tracks, per session, the program names already detached with a shell
