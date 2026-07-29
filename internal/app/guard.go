@@ -713,16 +713,32 @@ func capToolResult(b []byte) []byte {
 	}
 	var text string
 	if json.Unmarshal(b, &text) == nil {
-		cut := toolResultCap
-		if cut > len(text) {
-			cut = len(text)
+		// The cap is on the ENCODED bytes, and encoding expands: each \n, \t and " in the payload
+		// becomes two bytes. So a decoded string comfortably under the cap can encode over it —
+		// which is exactly the case the old code got wrong. It clamped cut to len(text) and then
+		// read text[cut], one past the end, and the panic took the whole run down with it: observed
+		// live on a bare read of a 62 KiB source file whose JSON form was past 64 KiB, eight tool
+		// calls into a three-hour task that then reported exit 2 and scored 0.
+		//
+		// So cut the decoded text, re-encode, and shrink until the encoded form fits. The expansion
+		// ratio is bounded, so this converges in a handful of passes.
+		cut := len(text)
+		if cut > toolResultCap {
+			cut = toolResultCap
 		}
-		for cut > 0 && !utf8.RuneStart(text[cut]) {
-			cut--
-		}
-		out, err := json.Marshal(text[:cut] + marker(cut))
-		if err == nil {
-			return out
+		for {
+			// Never index at len(text) — the end of a string is already a rune boundary.
+			for cut > 0 && cut < len(text) && !utf8.RuneStart(text[cut]) {
+				cut--
+			}
+			out, err := json.Marshal(text[:cut] + marker(cut))
+			if err != nil {
+				break
+			}
+			if len(out) <= toolResultCap || cut == 0 {
+				return out
+			}
+			cut = cut * 3 / 4
 		}
 	}
 	if json.Valid(b) {
