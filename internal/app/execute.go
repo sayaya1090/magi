@@ -270,6 +270,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		RouteInterjection: routeInterjectionFn,
 		AskUser:           a.askUserFn(ctx, s, depth, tc),
 		SetTodos:          func(td []session.Todo) { a.putTodos(ctx, sid, actor, td) },
+		NoteForTurn:       func(t string) { a.noteForTurn(sid, t) },
 		Propose: func(c port.Contribution) error {
 			if a.cfg.Experience == nil {
 				return fmt.Errorf("shared experience not configured")

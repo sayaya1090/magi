@@ -137,10 +137,12 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 		// its own, not a truncated call.
 		a.signalTurnControl(sid, func(tc *turnControl) { tc.finish = true })
 		return "The council accepts that the task is finished. Your turn ends here — write your final " +
-			"answer for whoever asked, and stop.\n\n" + renderCouncilAdvice(delib), nil
+			"answer for whoever asked, and stop." + notesTail(a.turnNotesBlock(sid)) + "\n\n" +
+			renderCouncilAdvice(delib), nil
 	}
 	return "The council does NOT accept this as finished yet. Address what follows and declare " +
-		"completion again when you believe it is done.\n\n" + renderCouncilAdvice(delib), nil
+		"completion again when you believe it is done." + notesTail(a.turnNotesBlock(sid)) + "\n\n" +
+		renderCouncilAdvice(delib), nil
 }
 
 // renderCouncilAdvice turns the members' verdicts into what the agent reads: one block per member,

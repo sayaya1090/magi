@@ -213,10 +213,19 @@ func (a *App) requireFinishDeclaration(ctx context.Context, tc turnCtx, usedTool
 			"A turn ends by declaring it: call the `council` tool with `complete: true`, and the council reads " +
 			"the record — what actually ran, how it ended, what is on disk now — and either accepts (the turn " +
 			"is over) or tells you what is still undone. If the work is finished, declare it now. If it is not, " +
-			"keep working."}},
+			"keep working." + notesTail(a.turnNotesBlock(tc.s.ID))}},
 	})
 	a.appendFact(ctx, tc.s.ID, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "orchestrator"}, pd)
 	return loopContinue, true
+}
+
+// notesTail appends the agent's own turn notes to a finish-seam message, or nothing when it left
+// none. Separated so both seams render them identically and neither can quietly drop them.
+func notesTail(block string) string {
+	if block == "" {
+		return ""
+	}
+	return "\n\n" + block
 }
 
 // finishDeclared reports (and consumes) the signal the council tool leaves when the agent declared
