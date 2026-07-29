@@ -41,9 +41,11 @@ type observedCmd struct {
 type observedRun struct {
 	cmds    []observedCmd
 	changed []string // paths a tool call in this run wrote to
-	// looked counts, per path, how many times this run went and LOOKED at it — the read tool, a
-	// search rooted there, or an inspect-only command naming it. lookOrder keeps first-seen order
-	// so the rendering is stable across steps rather than reshuffling with map iteration.
+	// looked counts, per path, how many times this run went and LOOKED at it: the read tool, or a
+	// search rooted there. A shell command naming the path is NOT one of them — deciding that `od
+	// f` looks at f while `cobc f` runs it takes a verb table, and the table is the guess. Those
+	// repeats are already a fact under reran, by the command's own text. lookOrder keeps first-seen
+	// order so the rendering is stable across steps rather than reshuffling with map iteration.
 	looked    map[string]int
 	lookOrder []string
 	// reran counts bash COMMANDS by their own text — every command, with no judgement about
@@ -94,11 +96,6 @@ func (o *observedRun) noteLook(p string) {
 	}
 	o.looked[p]++
 }
-
-// navVerbs name their operand without looking at its contents. `cd runtime` is how the agent gets
-// somewhere, not a read of anything there, and counting it as one would put a fact in the record
-// that is not true — the record may be incomplete, never wrong.
-var navVerbs = map[string]bool{"cd": true, "pwd": true, "exit": true, "true": true, "false": true}
 
 // observedScanCap bounds the walk: a session longer than this is read from its tail, where the
 // current turn's work is. Scanning an entire long run on every step would cost more than the block
