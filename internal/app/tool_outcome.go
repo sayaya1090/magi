@@ -119,7 +119,14 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 						}
 						warn, reverted := guard.noteEdit(rel, bc.before, after)
 						if warn != "" {
-							res.Content = appendToContent(res.Content, "\n\n[self-edit check] "+warn)
+							// Named here and not on the write/edit path: those results describe the
+							// one path their own call carried, and the reader already has it. A
+							// bash command has as many destinations as it has, and the sentence
+							// noteEdit returns names none of them. Observed live:
+							// `cp a.bak a && cp b.bak b && cp c.bak c && ./program` came back with
+							// the same path-less sentence three times over, which reads as one
+							// finding rendered thrice rather than three files each left alone.
+							res.Content = appendToContent(res.Content, "\n\n[self-edit check] "+rel+": "+warn)
 						}
 						regressed = regressed || reverted
 					}
