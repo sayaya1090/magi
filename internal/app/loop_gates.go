@@ -9,10 +9,15 @@ import (
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
-// injectStuckNudge gives a thrashing agent ONE corrective nudge before the force-stop:
-// re-read the task and change approach. Fires only when the run guard flags a nudge-worthy
-// pattern (repeat / no-op spin / stall), with a message tailored to which. A stuck weak
-// model often just needs redirecting, and this is far cheaper than burning the budget.
+// injectStuckNudge tells a circling agent what magi's counters say, once per pattern: an exact
+// repeat ("blocked") or many varied calls with nothing changing ("stalled"). There is no
+// force-stop behind it any more — it says the thing and the turn continues.
+//
+// The stalled message names BOTH forms of the council tool. It used to name only
+// `complete: true`, so an agent told "take a different action" was never told that asking is
+// one: measured across three tasks in one session, `council` was called to declare completion
+// and never once to ask a question, while the only task that passed did so because the council
+// spoke and was disagreed with.
 func (a *App) injectStuckNudge(ctx context.Context, tc turnCtx, turnTask string, evs []event.Event) {
 	kind := tc.guard.shouldNudge()
 	if kind == "" {
@@ -37,7 +42,10 @@ func (a *App) injectStuckNudge(ctx context.Context, tc turnCtx, turnTask string,
 			"another confirmation command is not progress, and never delete or rebuild finished work just to " +
 			"produce visible activity. If it is NOT complete: stop and take a DIFFERENT " +
 			"concrete action toward the deliverable; if something is blocking you, state exactly what it is and " +
-			"why before continuing. " + backgroundWaitAdvice(tc.agent) +
+			"why before continuing. The same tool also answers a QUESTION without ending the turn: " +
+			"`council` with a `question` and no `complete` puts the record you are working from in " +
+			"front of the same three readers and hands back what each of them sees. " +
+			backgroundWaitAdvice(tc.agent) +
 			"Guess only when necessary: if a value is unknown but " +
 			"discoverable, run the tool or command that determines it (compute, parse, crack, query, or read " +
 			"the real state) rather than trying values blindly. Re-read the original task:\n" +
@@ -50,15 +58,10 @@ func (a *App) injectStuckNudge(ctx context.Context, tc turnCtx, turnTask string,
 	a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
 }
 
-// handleStuckGuard is the loop/stall/spin force-stop: it ends the run rather than burning
-// the full step budget on hard repeats or a stall the agent kept ignoring after every nudge
-// (varied-but-unproductive calls never trip the repeat count). It returns (stop, clean):
-// stop=false means keep looping (not stuck, or recovery re-armed the run); stop=true ends the
-// run now, with clean telling the caller whether to mark the turn finished (finalizeTodos
-// completes vs cancels). A run that already wrote real output (mutationEpoch>0) and is only
-// spinning on confirmation is effectively DONE — finish it cleanly (exit 0) rather than
-// flagging an agent-level error that misreports a completed task as failure. A run that
-// produced NOTHING is genuine thrash — abort with a visible error.
+// handleStuckGuard no longer guards anything: it returns (false, false) always. The doc that
+// stood here described a force-stop — and the exercise-churn landing beside it — that both came
+// out; the reasoning for their removal is inside the function, where the code is.
+//
 // turnTaskOr returns the tracked turnTask, falling back to re-deriving the task from the
 // event log when it is empty — the shared fallback of the re-ground, stuck-recovery, and
 // idle-resubmit paths, so they can't drift apart (this was copy-pasted four times).
