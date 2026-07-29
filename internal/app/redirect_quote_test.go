@@ -62,3 +62,45 @@ func hasTarget(xs []string, want string) bool {
 	}
 	return false
 }
+
+// A heredoc body is unquoted text the shell hands to a program verbatim, so quote-skipping alone
+// does not reach it. Observed live (custom-memory-heap-crash, 2026-07-29): C++ written through
+// `cat > /app/user.cpp << 'EOF'` put `heap_size)`, `(heap_memory)`, `allocate(size)` and
+// `deallocate(ptr)` into the record's changed: line — four files nobody wrote, in the block the
+// council reads as what exists now.
+func TestAHeredocBodyIsNotShellText(t *testing.T) {
+	const live = "cat > /app/user.cpp << 'EOF'\n" +
+		"void* CustomHeapManager::allocate(size_t size) {\n" +
+		"  if (size > heap_size) return nullptr;\n" +
+		"  char* p = static_cast<char*>(heap_memory) + offset;\n" +
+		"  return p;\n" +
+		"}\nEOF"
+	got := bashWritePaths(live)
+	if !hasTarget(got, "/app/user.cpp") {
+		t.Errorf("the heredoc's own destination is a real write: %q", got)
+	}
+	for _, junk := range []string{"heap_size)", "(heap_memory)", "allocate(size)", "deallocate(ptr)", "char*"} {
+		if hasTarget(got, junk) {
+			t.Errorf("%q is C++, not a path magi wrote: %q", junk, got)
+		}
+	}
+	if len(got) != 1 {
+		t.Errorf("one destination, the file the heredoc feeds: %q", got)
+	}
+
+	// A redirect AFTER the terminator is real again — the body ends where the tag says it does.
+	after := bashWritePaths("cat > a.txt << 'EOF'\nx > y\nEOF\nmake 2>&1 > build.log")
+	for _, want := range []string{"a.txt", "build.log"} {
+		if !hasTarget(after, want) {
+			t.Errorf("want %q among %q", want, after)
+		}
+	}
+	if hasTarget(after, "y") {
+		t.Errorf("`x > y` was inside the body: %q", after)
+	}
+
+	// An arithmetic left-shift is not a heredoc intro and must not swallow the rest.
+	if got := bashWritePaths("echo $((1<<2)) > shifted.txt"); !hasTarget(got, "shifted.txt") {
+		t.Errorf("`<<` here is a shift, not a heredoc: %q", got)
+	}
+}
