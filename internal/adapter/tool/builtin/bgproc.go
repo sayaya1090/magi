@@ -498,12 +498,16 @@ func (BashKill) Execute(ctx context.Context, raw json.RawMessage, env port.ToolE
 		p.killed = true
 	}
 	p.mu.Unlock()
+	// killed BEFORE done, and not the other way round: the reaper sets done on a killed job too,
+	// so a job stopped by an earlier bash_kill reads as done a moment later. Asking done first
+	// answers "had already exited <signal placeholder> on its own" about a process magi itself
+	// stopped — a more specific false claim than the "killed" it replaced.
+	if alreadyKilled {
+		return okText("", a.ID+" was already killed by an earlier bash_kill — nothing to kill"), nil
+	}
 	if alreadyDone {
 		return okText("", a.ID+" had already exited "+strconv.Itoa(code)+" on its own — nothing to kill; "+
 			"its output is still readable with bash_output"), nil
-	}
-	if alreadyKilled {
-		return okText("", a.ID+" was already killed by an earlier bash_kill — nothing to kill"), nil
 	}
 	// Kill the whole process group (workers the command forked), then cancel the
 	// context so exec releases the leader.
