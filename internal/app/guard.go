@@ -706,10 +706,14 @@ func capToolResult(b []byte) []byte {
 	if len(b) <= toolResultCap {
 		return b
 	}
-	marker := func(shown int) string {
+	// Both numbers in the SAME unit. It used to pair the decoded cut with len(b), the ENCODED
+	// length, so a payload full of escapes was told "showing 49152 of 86403" when 86403 counted
+	// bytes it never had in that form — the shown fraction came out smaller than what it actually
+	// received. The caller passes the total that matches what it cut.
+	marker := func(shown, total int) string {
 		return fmt.Sprintf(
 			"\n\n…[output truncated: showing %d of %d bytes — re-run with a narrower range or filter "+
-				"(read offset/limit, grep, head/tail) to see the rest]", shown, len(b))
+				"(read offset/limit, grep, head/tail) to see the rest]", shown, total)
 	}
 	var text string
 	if json.Unmarshal(b, &text) == nil {
@@ -731,7 +735,7 @@ func capToolResult(b []byte) []byte {
 			for cut > 0 && cut < len(text) && !utf8.RuneStart(text[cut]) {
 				cut--
 			}
-			out, err := json.Marshal(text[:cut] + marker(cut))
+			out, err := json.Marshal(text[:cut] + marker(cut, len(text)))
 			if err != nil {
 				break
 			}
@@ -754,7 +758,7 @@ func capToolResult(b []byte) []byte {
 	for cut > 0 && !utf8.RuneStart(b[cut]) { // don't split a multibyte rune
 		cut--
 	}
-	m := marker(cut)
+	m := marker(cut, len(b))
 	out := make([]byte, 0, cut+len(m))
 	out = append(out, b[:cut]...)
 	return append(out, m...)
