@@ -470,6 +470,28 @@ func (BashKill) Execute(ctx context.Context, raw json.RawMessage, env port.ToolE
 	if p == nil {
 		return errResult("", "no such background process: "+a.ID), nil
 	}
+	// The same three states the hard-stop path below reads, asked before either path acts: a
+	// process that is already gone can no more be signalled than killed, and signalGroup on a
+	// reaped process group answers ESRCH — "signal failed: no such process", which is true but
+	// says nothing about WHY, and reports a finished job as an error.
+	p.mu.Lock()
+	alreadyDone, alreadyKilled, code := p.done, p.killed, p.exit
+	p.mu.Unlock()
+	// killed BEFORE done, and not the other way round: the reaper sets done on a killed job too,
+	// so a job stopped by an earlier bash_kill reads as done a moment later. Asking done first
+	// answers "had already exited <signal placeholder> on its own" about a process magi itself
+	// stopped — a more specific false claim than the "killed" it would replace.
+	if alreadyKilled || alreadyDone {
+		verb := "kill"
+		if sig := strings.ToLower(strings.TrimSpace(a.Signal)); sig == "int" || sig == "term" {
+			verb = "signal"
+		}
+		if alreadyKilled {
+			return okText("", a.ID+" was already killed by an earlier bash_kill — nothing to "+verb), nil
+		}
+		return okText("", a.ID+" had already exited "+strconv.Itoa(code)+" on its own — nothing to "+verb+"; "+
+			"its output is still readable with bash_output"), nil
+	}
 	if sig := strings.ToLower(strings.TrimSpace(a.Signal)); sig == "int" || sig == "term" {
 		// Graceful interrupt (the Ctrl-C affordance): deliver the signal and DON'T
 		// tear anything down — the process may handle it, print its cleanup, and
@@ -480,35 +502,12 @@ func (BashKill) Execute(ctx context.Context, raw json.RawMessage, env port.ToolE
 		}
 		return okText("", "sent SIG"+strings.ToUpper(sig)+" to "+a.ID+" — check bash_output for its cleanup output; run bash_kill without signal if it doesn't exit"), nil
 	}
-	// A process that is already gone cannot be killed, and saying it was is magi claiming an act
-	// it did not perform. It has the fact: done/killed/exit are the same fields bash_output reads
-	// to print "[id exited N]". Two shapes matter to the agent and neither is "killed":
-	//
-	//   - It FINISHED on its own between the last poll and this call. That is not a no-op to know
-	//     about — the run the agent was about to abandon completed, and its output is still there.
-	//     Observed live: two bash_kill calls on the same id, two identical "killed bg_5" answers,
-	//     with nothing to say whether the first one had taken.
-	//   - A previous bash_kill already stopped it. Repeating the same answer invites exactly that
-	//     second call.
+	// Still running, so this call is the one that stops it. Mark killed synchronously so an
+	// immediately following bash_output reports "[id killed]" instead of a stale "[id running]"
+	// until the reaper sets done.
 	p.mu.Lock()
-	alreadyDone, alreadyKilled, code := p.done, p.killed, p.exit
-	if !alreadyDone && !alreadyKilled {
-		// Mark killed synchronously so an immediately following bash_output reports
-		// "[id killed]" instead of a stale "[id running]" until the reaper sets done.
-		p.killed = true
-	}
+	p.killed = true
 	p.mu.Unlock()
-	// killed BEFORE done, and not the other way round: the reaper sets done on a killed job too,
-	// so a job stopped by an earlier bash_kill reads as done a moment later. Asking done first
-	// answers "had already exited <signal placeholder> on its own" about a process magi itself
-	// stopped — a more specific false claim than the "killed" it replaced.
-	if alreadyKilled {
-		return okText("", a.ID+" was already killed by an earlier bash_kill — nothing to kill"), nil
-	}
-	if alreadyDone {
-		return okText("", a.ID+" had already exited "+strconv.Itoa(code)+" on its own — nothing to kill; "+
-			"its output is still readable with bash_output"), nil
-	}
 	// Kill the whole process group (workers the command forked), then cancel the
 	// context so exec releases the leader.
 	_ = killGroup(p.pid)
