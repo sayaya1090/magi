@@ -35,6 +35,15 @@ func TestDetachIsFoundWhereverItStands(t *testing.T) {
 		{"a quoted ampersand is data", `grep "foo & bar" notes.txt`, false},
 		{"a single-quoted ampersand is data", `python3 -c 'print("a & b")'`, false},
 		{"plain work is not a detach", "ls -la /app", false},
+		// A heredoc body is data the shell hands to a program verbatim, not shell text. Observed
+		// live within an hour of shipping the wider predicate: C++ written through `cat > f <<EOF`
+		// was called a detach four times, and the relaunch warning named the program `}`.
+		{"C++ in a heredoc is not shell", "cat > /tmp/c.cpp << 'EOF'\nint f(int& x) { return x & 1; }\nEOF", false},
+		{"an unquoted heredoc tag too", "cat > /tmp/c.cpp <<EOF\na && b & c\nEOF", false},
+		{"<<- strips tabs and is still a heredoc", "cat > /tmp/c.cpp <<-EOF\n\tx & y\nEOF", false},
+		{"a real detach AFTER a heredoc still counts", "cat > /tmp/c.cpp << 'EOF'\nint x & 1;\nEOF\nmake world &", true},
+		{"an arithmetic shift is not a heredoc intro", "echo $((1<<2)) && ls", false},
+		{"…and does not hide a later detach", "echo $((1<<2)); make world &", true},
 	} {
 		got := backgroundTailNote(0, c.cmd, "s2") != ""
 		if got != c.want {
