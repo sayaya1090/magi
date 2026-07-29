@@ -70,6 +70,19 @@ func TestBashKillSaysWhatItActuallyDid(t *testing.T) {
 		}
 	}
 
+	// The graceful-signal path asks the same three states before it acts. Without that it calls
+	// signalGroup on a reaped process group, gets ESRCH, and reports a finished job as
+	// "signal failed: no such process" — true, but an error for something that is not one.
+	r, _ := BashKill{}.Execute(context.Background(),
+		json.RawMessage(`{"id":`+strconv.Quote(q.id)+`,"signal":"term"}`), env)
+	sg := string(r.Content)
+	if r.IsError || strings.Contains(sg, "signal failed") {
+		t.Errorf("a job that already finished is not a failed signal: %s", sg)
+	}
+	if !strings.Contains(sg, "already exited") || !strings.Contains(sg, "nothing to signal") {
+		t.Errorf("say the same thing the hard-stop path says, in the signal's words: %s", sg)
+	}
+
 	// An id that was never a job is still an error, not a silent success.
 	res, _ := BashKill{}.Execute(context.Background(), json.RawMessage(`{"id":"bg_nope"}`), env)
 	if !res.IsError {
