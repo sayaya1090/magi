@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -479,11 +480,31 @@ func (BashKill) Execute(ctx context.Context, raw json.RawMessage, env port.ToolE
 		}
 		return okText("", "sent SIG"+strings.ToUpper(sig)+" to "+a.ID+" — check bash_output for its cleanup output; run bash_kill without signal if it doesn't exit"), nil
 	}
-	// Mark killed synchronously so an immediately following bash_output reports
-	// "[id killed]" instead of a stale "[id running]" until the reaper sets done.
+	// A process that is already gone cannot be killed, and saying it was is magi claiming an act
+	// it did not perform. It has the fact: done/killed/exit are the same fields bash_output reads
+	// to print "[id exited N]". Two shapes matter to the agent and neither is "killed":
+	//
+	//   - It FINISHED on its own between the last poll and this call. That is not a no-op to know
+	//     about — the run the agent was about to abandon completed, and its output is still there.
+	//     Observed live: two bash_kill calls on the same id, two identical "killed bg_5" answers,
+	//     with nothing to say whether the first one had taken.
+	//   - A previous bash_kill already stopped it. Repeating the same answer invites exactly that
+	//     second call.
 	p.mu.Lock()
-	p.killed = true
+	alreadyDone, alreadyKilled, code := p.done, p.killed, p.exit
+	if !alreadyDone && !alreadyKilled {
+		// Mark killed synchronously so an immediately following bash_output reports
+		// "[id killed]" instead of a stale "[id running]" until the reaper sets done.
+		p.killed = true
+	}
 	p.mu.Unlock()
+	if alreadyDone {
+		return okText("", a.ID+" had already exited "+strconv.Itoa(code)+" on its own — nothing to kill; "+
+			"its output is still readable with bash_output"), nil
+	}
+	if alreadyKilled {
+		return okText("", a.ID+" was already killed by an earlier bash_kill — nothing to kill"), nil
+	}
 	// Kill the whole process group (workers the command forked), then cancel the
 	// context so exec releases the leader.
 	_ = killGroup(p.pid)
