@@ -3,6 +3,8 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -58,6 +60,20 @@ func TestCapToolResultSurvivesAnEncodingThatOutgrowsItsText(t *testing.T) {
 	if !utf8.ValidString(got) {
 		t.Error("the cut must land on a rune boundary")
 	}
+	// Both numbers in the marker are DECODED bytes, the unit of what the caller actually received.
+	// Pairing the cut with the encoded length told a payload full of escapes it had got a smaller
+	// fraction than it did — observed live as "showing 49152 of 86403" on an 86 KB encoding.
+	m := regexp.MustCompile(`showing (\d+) of (\d+) bytes`).FindStringSubmatch(got)
+	if m == nil {
+		t.Fatalf("the marker must state both numbers:\n%s", got[max(0, len(got)-200):])
+	}
+	shown, total := atoi(t, m[1]), atoi(t, m[2])
+	if total != len(text) {
+		t.Errorf("the total is what the caller would have received decoded (%d), got %d", len(text), total)
+	}
+	if shown > total {
+		t.Errorf("shown %d cannot exceed total %d", shown, total)
+	}
 
 	// The ordinary case still works: decoded and encoded both far over the cap.
 	big, _ := json.Marshal(strings.Repeat("x", toolResultCap*2))
@@ -82,4 +98,13 @@ func TestCapToolResultSurvivesAnEncodingThatOutgrowsItsText(t *testing.T) {
 			t.Errorf("multibyte cut must stay valid: err=%v", err)
 		}
 	}
+}
+
+func atoi(t *testing.T, s string) int {
+	t.Helper()
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
 }
