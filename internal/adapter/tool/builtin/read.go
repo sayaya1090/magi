@@ -103,12 +103,29 @@ func (Read) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 
 	body := locatedNote
 	if bytesTruncated {
-		body += fmt.Sprintf("(note: file larger than %d MiB; showing first %d MiB — use offset/limit to page)\n", maxReadBytes>>20, maxReadBytes>>20)
+		// What magi READ off disk, not what it showed. The old wording said "showing first 10 MiB"
+		// whatever the window actually was: observed live on a 50-line read that delivered 2165
+		// bytes and was told it had been handed ten megabytes, with "use offset/limit to page"
+		// advice for a caller that had just used limit. The cap is a fact about the read; the
+		// window is already visible in the numbered lines below it.
+		body += fmt.Sprintf("(note: this file is larger than %d MiB, so magi read only its first %d MiB. "+
+			"The lines below come from that part; magi knows nothing about the file past it.)\n",
+			maxReadBytes>>20, maxReadBytes>>20)
 	}
 	// An offset past the end reads as empty; say so explicitly so the model can tell
 	// it over-paged rather than mistaking an out-of-range window for an empty file.
+	//
+	// total counts the lines of what was READ, so on a capped read it is not the file's length and
+	// must not be reported as one — and "past end of file" is not even true there: the offset is
+	// past the end of the ten megabytes magi looked at, and the file goes on.
 	if content == "" && start > 1 && start > total {
-		body += fmt.Sprintf("(note: offset %d is past end of file; file has %d lines)\n", start, total)
+		if bytesTruncated {
+			body += fmt.Sprintf("(note: offset %d is past the end of the first %d MiB, which is %d lines; "+
+				"magi did not read beyond that, so it cannot say whether the file has more.)\n",
+				start, maxReadBytes>>20, total)
+		} else {
+			body += fmt.Sprintf("(note: offset %d is past end of file; file has %d lines)\n", start, total)
+		}
 	}
 	// Prefix each line with "N\t" — its 1-based number and a tab (cat -n style) — so
 	// the model can reference a line accurately and anchor an edit to it (the edit
