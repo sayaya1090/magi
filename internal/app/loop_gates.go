@@ -31,8 +31,10 @@ func (a *App) injectStuckNudge(ctx context.Context, tc turnCtx, turnTask string,
 	task := a.turnTaskOr(turnTask, sid, evs)
 	msg := "You've made the same call several times with nothing changing in between — magi is not " +
 		"refusing it, it is telling you it is a repeat. Change approach: a different tool or a smaller " +
-		"step, or inspect WHY the last attempts failed (read the error, check paths/state) before " +
-		"retrying. Re-read the original task:\n" +
+		"step. If those calls were FAILING, read the error and check paths/state before retrying. If " +
+		"they were SUCCEEDING and handing back the same answer each time, that answer is not going to " +
+		"change by asking again — act on what it already told you, or find the fact you actually need " +
+		"somewhere else. Re-read the original task:\n" +
 		clipSpec(task, 1500)
 	if kind == "stalled" {
 		msg = "You've run many steps without changing anything or making concrete progress — you may be " +
