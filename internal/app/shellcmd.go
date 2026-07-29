@@ -301,6 +301,17 @@ func redirectsToFile(cmd string) bool {
 // not-on-disk-now check stats — a block whose whole job is to catch a claimed artifact that is not
 // there, holding two paths nobody claimed.
 func redirectTargets(cmd string) []string {
+	// Heredoc bodies are dropped first, for the same reason quoted runs are skipped below: they are
+	// data the shell hands to a program verbatim, and a `>` in them is not a redirect. Quoting alone
+	// does not cover it — a heredoc body is unquoted text. Observed live: C++ written through
+	// `cat > /app/user.cpp << 'EOF'` had `if (size > heap_size)` and friends read as redirects, so
+	// magi's record claimed the run had written files named `heap_size)`, `(heap_memory)`,
+	// `allocate(size)` and `deallocate(ptr)`. changed: is what the council reads as what exists now
+	// and what the not-on-disk check stats, so that block filled with C++ fragments.
+	//
+	// Done here rather than at the call sites so both of them (redirectsToFile, bashWritePaths) get
+	// it and neither can drift.
+	cmd = stripHeredocs(cmd)
 	var out []string
 	var quote byte
 	for i := 0; i < len(cmd); i++ {
