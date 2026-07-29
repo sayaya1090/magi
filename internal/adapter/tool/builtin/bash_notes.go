@@ -94,87 +94,25 @@ func detachIndex(command string) int {
 	off := 0
 	lines := strings.Split(command, "\n")
 	for li := 0; li < len(lines); li++ {
-		line := lines[li]
-		if at := detachInLine(line, &quote); at >= 0 {
+		at, intros := scanShellLine(lines[li], &quote)
+		if at >= 0 {
 			return off + at
 		}
-		off += len(line) + 1 // +1 for the newline Split removed
-		// A `<<TAG` opened outside quotes swallows every following line up to its terminator.
-		if quote == 0 {
-			if d := heredocDelim(line); d != "" {
-				for li+1 < len(lines) && strings.TrimSpace(lines[li+1]) != d {
-					li++
-					off += len(lines[li]) + 1
-				}
-				if li+1 < len(lines) {
-					li++
-					off += len(lines[li]) + 1
-				}
+		off += len(lines[li]) + 1 // +1 for the newline Split removed
+		// Each heredoc this line opened swallows lines up to its OWN terminator, in the order the
+		// shell reads them — one `<<` per line was what let a second body be read as shell text.
+		for _, h := range intros {
+			for li+1 < len(lines) && !h.terminates(lines[li+1]) {
+				li++
+				off += len(lines[li]) + 1
+			}
+			if li+1 < len(lines) {
+				li++
+				off += len(lines[li]) + 1
 			}
 		}
 	}
 	return -1
-}
-
-// detachInLine scans one line for a detaching `&`, carrying the quote state in and out so a run
-// opened on one line and closed on another is still one quoted region.
-func detachInLine(command string, quote *byte) int {
-	for i := 0; i < len(command); i++ {
-		c := command[i]
-		if *quote != 0 {
-			if *quote == '"' && c == '\\' && i+1 < len(command) {
-				i++
-				continue
-			}
-			if c == *quote {
-				*quote = 0
-			}
-			continue
-		}
-		switch {
-		case c == '\'' || c == '"':
-			*quote = c
-		case c == '&':
-			if i+1 < len(command) && command[i+1] == '&' {
-				i++ // list operator, not a detach
-				continue
-			}
-			// `2>&1` / `>&2` / `<&0`: the & names a file descriptor, not a job.
-			j := i - 1
-			for j >= 0 && (command[j] == ' ' || command[j] == '\t') {
-				j--
-			}
-			if j >= 0 && (command[j] == '>' || command[j] == '<') {
-				continue
-			}
-			return i
-		}
-	}
-	return -1
-}
-
-// heredocDelim returns the terminator word a line's `<<TAG` opens, or "" when the line opens no
-// heredoc. A `<<` whose next token is not a word is an arithmetic left-shift (`$((1<<2))`), not a
-// heredoc intro.
-func heredocDelim(line string) string {
-	idx := strings.Index(line, "<<")
-	if idx < 0 {
-		return ""
-	}
-	s := strings.TrimLeft(line[idx+2:], "-<") // <<- and any run of extra <
-	s = strings.TrimLeft(s, " \t")            // optional space before the word
-	f := strings.Fields(s)
-	if len(f) == 0 {
-		return ""
-	}
-	word := strings.Trim(f[0], "'\"")
-	if word == "" {
-		return ""
-	}
-	if c := word[0]; c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
-		return word
-	}
-	return ""
 }
 
 // bgLaunched tracks, per session, the program names already detached with a shell

@@ -1,6 +1,10 @@
 package app
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
+)
 
 // Shell-command classification helpers for the run guard: a heuristic (quoting-agnostic)
 // tokenizer that decides whether a bash command only INSPECTS state or actually EXECUTES /
@@ -489,68 +493,13 @@ func bashWritePaths(cmd string) []string {
 }
 
 // stripHeredocs removes heredoc bodies (and their terminator lines) so that content fed via
-// `cmd <<TAG … TAG` is not mistaken for commands when we split on newlines to classify a bash
-// call. It keeps the introducing line (which carries the real leading verb, e.g. `cat > f`).
-func stripHeredocs(cmd string) string {
-	if !strings.Contains(cmd, "<<") {
-		return cmd
-	}
-	lines := strings.Split(cmd, "\n")
-	out := lines[:0:0]
-	for i := 0; i < len(lines); i++ {
-		line := lines[i]
-		out = append(out, line)
-		idx := strings.Index(line, "<<")
-		if idx < 0 {
-			continue
-		}
-		delim := heredocDelim(line[idx+2:])
-		if delim == "" {
-			continue // a `<<` that is not a heredoc intro (e.g. arithmetic left-shift)
-		}
-		for i+1 < len(lines) && strings.TrimSpace(lines[i+1]) != delim {
-			i++ // drop body line
-		}
-		if i+1 < len(lines) {
-			i++ // drop the terminator line
-		}
-	}
-	return strings.Join(out, "\n")
-}
+// `cat > f <<'EOF'` is not read as shell text. The scan itself lives in builtin, shared with the
+// detach note that needs exactly the same answer — two copies of it drifted apart once already.
+func stripHeredocs(cmd string) string { return builtin.StripHeredocBodies(cmd) }
 
 // hasHeredoc reports whether cmd contains a real heredoc (`cmd <<TAG`), as opposed to an
-// arithmetic left-shift (`$((1<<2))`) — distinguished by whether the token after `<<` is a
-// valid delimiter word (see heredocDelim).
-func hasHeredoc(cmd string) bool {
-	for i := 0; i+1 < len(cmd); i++ {
-		if cmd[i] == '<' && cmd[i+1] == '<' && heredocDelim(cmd[i+2:]) != "" {
-			return true
-		}
-	}
-	return false
-}
-
-// heredocDelim returns the delimiter word a `<<` introduces (given the text right after the
-// `<<`), or "" if this is not a heredoc. Handles `<<-` and quoted `<<'EOF'`/`<<"EOF"`. A
-// heredoc delimiter is an identifier — it must begin with a letter or underscore — so an
-// arithmetic shift like `1<<2` (whose "delimiter" would start with a digit) returns "".
-func heredocDelim(afterLtLt string) string {
-	s := strings.TrimLeft(afterLtLt, "-<") // <<- and any run of extra <
-	s = strings.TrimLeft(s, " \t")         // optional space before the word
-	f := strings.Fields(s)
-	if len(f) == 0 {
-		return ""
-	}
-	word := strings.Trim(f[0], "'\"")
-	if word == "" {
-		return ""
-	}
-	c := word[0]
-	if c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
-		return word
-	}
-	return ""
-}
+// arithmetic left-shift (`$((1<<2))`), a here-string (`<<<word`), or a `<<` inside quotes.
+func hasHeredoc(cmd string) bool { return builtin.HasHeredoc(cmd) }
 
 // isRedirectStop reports whether b ends a redirect target token.
 func isRedirectStop(b byte) bool {
