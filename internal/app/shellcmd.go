@@ -292,9 +292,36 @@ func redirectsToFile(cmd string) bool {
 
 // redirectTargets returns the file paths a command's `>`/`>>` operators write to, in order,
 // applying redirectsToFile's exclusions (fd duplications, /dev sinks, a bare `>`).
+//
+// Quoted runs are skipped, because a `>` inside them is not a redirect — the shell never sees it as
+// one. This scan used to read the whole command as shell text, so the body of `python3 -c "…"` was
+// parsed as if the agent had typed it at a prompt. Observed live: a Python line reading
+// `data[8:12] if len(data) >= 12 else …` made magi's record claim the agent had written files named
+// `=` and `12`. That record is what the council reads as what exists now, and what the
+// not-on-disk-now check stats — a block whose whole job is to catch a claimed artifact that is not
+// there, holding two paths nobody claimed.
 func redirectTargets(cmd string) []string {
 	var out []string
+	var quote byte
 	for i := 0; i < len(cmd); i++ {
+		if quote != 0 {
+			// Inside double quotes a backslash escapes the next byte, so an escaped quote does
+			// not close the run; inside single quotes nothing is special. Same rule as
+			// splitShellSegments, which has respected quoting all along — this scan runs before
+			// it, on the raw command, and never did.
+			if quote == '"' && cmd[i] == '\\' && i+1 < len(cmd) {
+				i++
+				continue
+			}
+			if cmd[i] == quote {
+				quote = 0
+			}
+			continue
+		}
+		if cmd[i] == '\'' || cmd[i] == '"' {
+			quote = cmd[i]
+			continue
+		}
 		if cmd[i] != '>' {
 			continue
 		}
