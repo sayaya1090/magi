@@ -116,3 +116,28 @@ func TestClippingIsMeasuredNotAssumed(t *testing.T) {
 		t.Error("a file that could not be read is not a whole capture")
 	}
 }
+
+// timedOutNote names where the limit came from, and a negative one came from the caller.
+func TestTimedOutNoteNamesTheLimitsOrigin(t *testing.T) {
+	for _, c := range []struct {
+		effective, requested int
+		want                 string
+	}{
+		{120, 0, "the default limit (no `timeout` given)"},
+		{600, 9999, "your `timeout` of 9999s capped at the 600s maximum"},
+		{600, 600, "your own `timeout` argument"},
+		// Given, and unusable — not the same as never given.
+		{120, -5, "your `timeout` of -5s is not a usable duration"},
+	} {
+		got := timedOutNote(c.effective, c.requested)
+		if !strings.Contains(got, c.want) {
+			t.Errorf("requested=%d: want %q in:\n%s", c.requested, c.want, got)
+		}
+		if c.requested < 0 && strings.Contains(got, "no `timeout` given") {
+			t.Errorf("a timeout WAS given (%d):\n%s", c.requested, got)
+		}
+		if !strings.Contains(got, "KILLED at that mark") {
+			t.Errorf("every shape still says the kill is not a verdict:\n%s", got)
+		}
+	}
+}
