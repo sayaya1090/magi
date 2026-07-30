@@ -309,6 +309,13 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			})
 		}
 
+		// The provider ended that reply at the output-token cap. Say so, now that the prefix it did
+		// send is on the record, so the next step is not written on the assumption the model said
+		// everything it meant to.
+		if res.finishReason == "length" {
+			_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, cutByOutputCapNote)
+		}
+
 		// No tool calls → the turn wants to finish. Stop hooks enforce checks
 		// (e.g. tests must pass); a failure pushes the agent to keep working.
 		// The agent declared the task finished and the council accepted, so this turn is over — but

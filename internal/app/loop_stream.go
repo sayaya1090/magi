@@ -24,7 +24,25 @@ type streamStep struct {
 	textConsumed  bool // the text was a prompt-fallback tool call, not a real answer
 	reasoningSpun bool // the response was cancelled as a reasoning-only spin (see reasoningSpinCap)
 	stalled       bool // the stream went silent before the FIRST token (hung backend) — safe to retry
+	// finishReason is the provider's finish_reason for this response, unread. "length" means the
+	// output-token cap ended it, not the model — see cutByOutputCapNote.
+	finishReason string
 }
+
+// cutByOutputCapNote is injected after a response the provider ended at the output-token cap
+// (finish_reason "length"). Nothing else marks it: the stream closes normally, the text and any
+// tool calls persist, and a reply that stops mid-sentence — or mid-argument, which is how a tool
+// call is lost to repairArgs — is indistinguishable from one the model chose to end. The cap is
+// also the ONLY bound left once [limits] max_output_tokens is set, because consumeStream drops the
+// reasoning spin guard in deference to it, so its firing has to be visible.
+//
+// It states the measured fact and what follows from it mechanically. Whether anything important
+// was cut is the model's read, not magi's.
+const cutByOutputCapNote = "Your last reply did not end because you finished it: the provider " +
+	"stopped it at the output-token cap (finish_reason \"length\"). What was recorded is a PREFIX. " +
+	"Anything after the cut — the rest of a sentence, the rest of a tool call's arguments, a tool " +
+	"call you had not started — never arrived, and a tool call whose arguments were cut mid-way " +
+	"will have failed to parse. Continue from where it stopped, in smaller pieces."
 
 // streamStallTimeout bounds how long a response stream may stay SILENT — no event of any kind — before
 // consumeStream aborts it. A hung or wedged backend accepts the request, returns 200, then streams
@@ -206,6 +224,7 @@ loop:
 		case port.ProviderFinish:
 			finished = true
 			finishAt = time.Now()
+			res.finishReason = ev.FinishReason
 		case port.ProviderError:
 			a.emitError(ctx, sid, agentActor, ev.Err.Error())
 			streamErr = true
