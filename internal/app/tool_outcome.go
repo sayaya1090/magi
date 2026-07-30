@@ -16,6 +16,9 @@ import (
 type bashChange struct {
 	path, before string
 	readable     bool
+	// existedBefore is the stat taken with the before-content. An absent path and an empty file
+	// both read as "", so content alone cannot tell a creation or a deletion from a no-op.
+	existedBefore bool
 }
 
 // toolOutcome is one finished tool call, as the loop guard needs to see it: what was called, what
@@ -114,6 +117,23 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 						// deleted a thing. The check exists to catch re-authoring identical content;
 						// a path with no content on either side has no history to re-author.
 						if bc.before == "" && after == "" {
+							// Four shapes hide in "empty on both sides": absent→absent and
+							// empty→empty changed nothing, while absent→empty (a creation) and
+							// empty→absent (a deletion) did. The stat taken with the snapshot
+							// separates them.
+							//
+							// The note still stays silent either way — there is nothing useful to
+							// say about a path that holds nothing. But a destination that
+							// demonstrably did not move must COUNT as unchanged, or the retraction
+							// that exists for a command doing nothing cannot fire: it needs
+							// compared > 0. Observed live (cancel-async-tasks, 2026-07-30): seven
+							// `rm -f <files already gone>` calls in two command-text variants, each
+							// variant buying a fresh no-progress window, and the retraction unable
+							// to take it back because every destination had been skipped here.
+							if bc.existedBefore == pathExists(workdir, bc.path) {
+								compared++
+								unchanged++
+							}
 							continue
 						}
 						compared++

@@ -279,7 +279,11 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 				}
 				seen[p] = true
 				before, ok := readForChange(workdir, p)
-				bashChanges = append(bashChanges, bashChange{path: p, before: before, readable: ok})
+				// Existence, not just content: an absent path and an empty one both read as "",
+				// and the difference between them is the difference between a command that
+				// created or deleted something and one that did nothing at all.
+				bashChanges = append(bashChanges, bashChange{
+					path: p, before: before, readable: ok, existedBefore: pathExists(workdir, p)})
 			}
 		}
 	}
