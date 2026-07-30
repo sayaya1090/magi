@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -75,13 +76,23 @@ func (WaitFor) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEn
 	attempts := 0
 	lastExit := 0
 	lastOut := ""
+	var lastStages []int
 	for {
 		attempts++
-		exit, out := waitForProbe(ctx, env, a.Condition, deadline)
-		lastExit, lastOut = exit, out
+		exit, out, stages := waitForProbe(ctx, env, a.Condition, deadline)
+		lastExit, lastOut, lastStages = exit, out, stages
 		if exit == 0 {
 			body := fmt.Sprintf("condition met after %s (%d checks): %s",
 				time.Since(start).Round(time.Second), attempts, a.Condition)
+			// "Met" is decided by the condition's exit, and for a pipeline that exit is the LAST
+			// stage's. bash states the per-stage statuses on every call for exactly that reason;
+			// the tool whose whole job is deciding whether something succeeded was the one place
+			// that did not measure them. Observed live: `git fetch … 2>&1 | tail -3` was answered
+			// "condition met" one second in, with `fatal: couldn't find remote ref master`
+			// printed underneath it — tail exited 0, so the wait was over.
+			if note := pipeStageNote(exit, stages); note != "" {
+				body += "\n" + note
+			}
 			if s := strings.TrimSpace(out); s != "" {
 				body += "\n" + truncateOut(out)
 			}
@@ -114,6 +125,9 @@ func (WaitFor) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEn
 	elapsed := time.Since(start).Round(time.Second)
 	reason := fmt.Sprintf("condition not met after %s (%d checks): %s\n[last exit %d]",
 		elapsed, attempts, a.Condition, lastExit)
+	if note := pipeStageNote(lastExit, lastStages); note != "" {
+		reason += "\n" + note
+	}
 	if ctx.Err() != nil {
 		reason = fmt.Sprintf("wait cancelled after %s (%d checks): %s", elapsed, attempts, a.Condition)
 	}
@@ -128,13 +142,13 @@ func (WaitFor) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEn
 // output. A command that never launches (bad condition) reports a non-zero exit so
 // the wait keeps polling rather than mistaking a launch failure for success. Mirrors
 // bash's confinement + tty-detachment (and its unconfined start-failure fallback).
-func waitForProbe(ctx context.Context, env port.ToolEnv, condition string, deadline time.Time) (int, string) {
+func waitForProbe(ctx context.Context, env port.ToolEnv, condition string, deadline time.Time) (int, string, []int) {
 	probeTimeout := waitForProbeCap * time.Second
 	if rem := time.Until(deadline); rem > 0 && rem < probeTimeout {
 		probeTimeout = rem
 	}
 	if probeTimeout <= 0 {
-		return 1, ""
+		return 1, "", nil
 	}
 	cctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
@@ -142,6 +156,12 @@ func waitForProbe(ctx context.Context, env port.ToolEnv, condition string, deadl
 	name, args := shell(condition)
 	if argv, wrapped := sandboxArgv(env.Sandbox, condition); wrapped {
 		name, args = argv[0], argv[1:]
+	}
+	// Ask bash for PIPESTATUS out of band, the same way the bash tool does, so a condition that
+	// is a pipeline can say which stage produced the exit that ended the wait.
+	name, args, psPath := withPipeStatus(name, args, env.ScratchTmp)
+	if psPath != "" {
+		defer os.Remove(psPath)
 	}
 	cmd := exec.CommandContext(cctx, name, args...)
 	cmd.Dir = env.Workdir
@@ -165,5 +185,5 @@ func waitForProbe(ctx context.Context, env port.ToolEnv, condition string, deadl
 	} else if err != nil {
 		exit = 1
 	}
-	return exit, string(out)
+	return exit, string(out), readPipeStatus(psPath)
 }
