@@ -31,7 +31,7 @@ func TestTurnNotesComeBackVerbatimAtTheFinish(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, note) || !strings.Contains(out, "WHAT YOU ASKED TO BE REMINDED OF") {
+	if !strings.Contains(out, note) || !strings.Contains(out, "WHAT YOU ASKED TO CHECK BEFORE DECLARING THIS FINISHED") {
 		t.Errorf("a rejected declaration must hand the notes back:\n%s", out)
 	}
 	// …and so does an accepted one, before the agent writes its final answer.
