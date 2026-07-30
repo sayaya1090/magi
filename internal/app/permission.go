@@ -114,16 +114,10 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 			// (`tool(**)` in .magi/config.toml), so the choice survives restarts —
 			// the answer to permission-prompt fatigue for tools a project always
 			// trusts (webfetch on a docs-heavy repo, bash in a scratch sandbox).
-			// The session grant above already covers this run; a persist failure
-			// is reported as a note, never a blocked tool.
-			if rule := persistRule(tc.Name, tc.Args); dec == "persist" && rule != "" && a.cfg.PermissionPersister != nil {
-				if err := a.cfg.PermissionPersister.PersistAllow(rule); err != nil {
-					nd, _ := json.Marshal(event.PromptSubmittedData{
-						MessageID: "m_" + newID(),
-						Parts:     []session.Part{{Kind: session.PartText, Text: "note: could not persist the allow rule: " + err.Error()}},
-					})
-					a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, nd)
-				}
+			// The session grant above already covers this run; nothing here ever
+			// blocks the tool, it only reports.
+			if dec == "persist" {
+				a.notePersistOutcome(ctx, sid, tc)
 			}
 			return true
 		}
@@ -131,6 +125,46 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 	case <-ctx.Done():
 		return false
 	}
+}
+
+// notePersistOutcome carries out the "project" choice and — whenever it did NOT happen — says so.
+//
+// The button is labelled `project`: the user is told the approval is being written where the
+// project keeps it, so it survives a restart. Three things can stop that, and only one of them
+// used to speak. A PersistAllow error was reported; a bash command with no stable program name to
+// pin a rule to was declined by design, and a run with no project config to write to had nowhere
+// to put it — both silently. In each of those the SESSION grant still stands, so nothing looks
+// wrong until the next run asks again, and by then the choice that was supposed to prevent the
+// prompt is long out of sight.
+//
+// Declining to write `bash(**)` for a command whose first token is a shell construct is the right
+// call — a blanket bash grant is exactly what the narrowing exists to avoid. Saying nothing about
+// it is not.
+func (a *App) notePersistOutcome(ctx context.Context, sid session.SessionID, tc *session.ToolCall) {
+	note := ""
+	switch rule := persistRule(tc.Name, tc.Args); {
+	case a.cfg.PermissionPersister == nil:
+		note = "note: this run has no project config to write to, so `" + tc.Name +
+			"` is approved for the rest of THIS SESSION only — a later run will ask again."
+	case rule == "":
+		note = "note: this command opens with a shell construct rather than a program name, so " +
+			"there is no stable prefix to pin a project rule to and nothing was written " +
+			"(a blanket `bash(**)` would pre-approve every future command, which is what the " +
+			"narrowing avoids). It is approved for the rest of THIS SESSION; a later run will ask again."
+	default:
+		if err := a.cfg.PermissionPersister.PersistAllow(rule); err != nil {
+			note = "note: could not persist the allow rule " + rule + ": " + err.Error() +
+				" — it is approved for the rest of THIS SESSION only."
+		}
+	}
+	if note == "" {
+		return // written; the modal already told the user that is what `project` does
+	}
+	nd, _ := json.Marshal(event.PromptSubmittedData{
+		MessageID: "m_" + newID(),
+		Parts:     []session.Part{{Kind: session.PartText, Text: note}},
+	})
+	a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, nd)
 }
 
 // persistRule builds the project allow rule recorded for a "persist" decision.
