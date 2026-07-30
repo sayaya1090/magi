@@ -229,7 +229,22 @@ func maskingTailNote(exit int, command string, stagesKnown bool) string {
 // that CRASHED still reports exit 0 — and the truncation can drop the very verdict line
 // (final "Error"/"Segfault"/"bootstrap complete") the model needs. grep/cat/awk are
 // deliberately excluded: their exit code and filtered output are frequently the point.
-var swallowingPipe = regexp.MustCompile(`(^|[^|])\|\s*(?:tail|head)\b[^|]*$`)
+//
+// The truncator must be the command's LAST stage, so its tail may not run past a separator into
+// another command — `sequencedTail`'s body has that exclusion and this one, its sibling, did not.
+// Observed live (sqlite-with-gcov, 2026-07-30):
+//
+//	cat /etc/environment | head -1 && echo "PATH=…" > /tmp/p && cat /tmp/p
+//
+// matched from `| head -1` to the end of the string, and the note told the agent its exit 0 belonged
+// to ` head -1 && echo "PATH=…" > /tmp/p && cat /tmp/p` — a "stage" spanning two `&&` operators,
+// which is not a thing. The exit belonged to the final `cat`, a real command whose status the result
+// DOES report, so the right answer was to say nothing at all. ExitCodeMasked reads this same
+// predicate, so the phantom also told magi's churn accounting to discard a real command's zero.
+//
+// `[<>]&` is admitted so a redirect on the truncator itself (`| tail -50 2>&1`) still matches; a
+// bare `&` (a detach) and `&&` do not.
+var swallowingPipe = regexp.MustCompile(`(^|[^|])\|\s*(?:tail|head)\b(?:[^|&;\n]|[<>]&)*$`)
 
 // swallowingPipeNote NAMES whose exit code the result carries, which is the whole of what the
 // reader is missing. It used to be a paragraph — the trap explained, plus advice to stop piping
