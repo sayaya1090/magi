@@ -662,19 +662,22 @@ func run() int {
 	// the real window). Best-effort, short timeout, non-fatal; falls back to the
 	// registry default. The lazy per-model probe (App.contextWindow) is the runtime
 	// twin for models first seen after a /route switch.
-	if modelID != "" && !modelReg.Has(modelID) {
-		pctx, cancel := context.WithTimeout(ctx, 4*time.Second)
-		w, ok := llm.ProbeContextWindow(pctx, modelID)
-		cancel()
-		if cfg.Limits.ContextTokens > 0 { // [limits] context_tokens overrides/forces the window
-			w, ok = cfg.Limits.ContextTokens, true
+	if modelID != "" {
+		seeded := modelReg.Has(modelID)
+		probe := func() (int, bool) {
+			pctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+			defer cancel()
+			return llm.ProbeContextWindow(pctx, modelID)
 		}
-		if ok {
-			mo := w / 4
-			if cfg.Limits.MaxOutputTokens > 0 { // [limits] max_output_tokens caps the output budget
-				mo = cfg.Limits.MaxOutputTokens
+		// [limits] context_tokens / max_output_tokens. The probe runs only for a model magi has no
+		// metadata for; an explicit override applies either way (see resolveWindowOverride).
+		if w, mo, ok := resolveWindowOverride(seeded, probe, cfg.Limits); ok {
+			info := coremodel.Info{ID: modelID, Tools: true}
+			if seeded {
+				info = modelReg.Get(modelID) // an override changes the window, not the model
 			}
-			modelReg.Register(coremodel.Info{ID: modelID, ContextWindow: w, MaxOutput: mo, Tools: true})
+			info.ContextWindow, info.MaxOutput = w, mo
+			modelReg.Register(info)
 		}
 	}
 
