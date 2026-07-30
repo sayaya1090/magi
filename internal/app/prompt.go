@@ -107,7 +107,14 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 	}
 	// Both retrieval hooks below key on the last user prompt, which is constant across a
 	// turn; the per-turn caches absorb the (identical) lookups the remaining steps repeat.
-	retrievalQ := lastUserText(raw)
+	// The task, not whatever magi last said — a nudge landing here made every retrieval for the
+	// rest of the turn a lookup about "you've run many steps without changing anything". raw is
+	// reconstruct(evs), so the two agree in practice; the fallback keeps a caller that hands over
+	// messages without their events from losing retrieval altogether.
+	retrievalQ := taskSeedText(evs)
+	if retrievalQ == "" {
+		retrievalQ = lastUserText(raw)
+	}
 	// Shared experience (D13): advertise only how many team memories/skills match the
 	// current request — a one-line pointer, not the entries themselves. The agent pulls
 	// the detail on demand with recall_memory, so relevant knowledge stays reachable

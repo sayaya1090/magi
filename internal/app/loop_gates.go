@@ -71,7 +71,7 @@ func (a *App) turnTaskOr(turnTask string, sid session.SessionID, evs []event.Eve
 	if task := strings.TrimSpace(turnTask); task != "" {
 		return task
 	}
-	return strings.TrimSpace(lastUserText(reconstruct(a.taskEvents(sid, evs))))
+	return taskSeedText(a.taskEvents(sid, evs))
 }
 
 func (a *App) handleStuckGuard(ctx context.Context, tc turnCtx, turnTask string, evs []event.Event, u event.Usage, ts *turnState) (bool, bool) {
