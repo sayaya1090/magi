@@ -136,6 +136,16 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 							// `cp a.bak a && cp b.bak b && cp c.bak c && ./program` came back with
 							// the same path-less sentence three times over, which reads as one
 							// finding rendered thrice rather than three files each left alone.
+							// A path that is GONE did not have its content restored — it was
+							// deleted, and magi files absent and empty under the same hash. The
+							// revert wording then reads as "you undid your own edit" about
+							// ordinary cleanup. Observed live: `sed … > /tmp/sweep_function.txt`
+							// four minutes earlier, then `rm -f /tmp/sweep_function.txt` — the
+							// scratch file's removal came back as a restored content state.
+							if bc.before != "" && !pathExists(workdir, bc.path) {
+								warn = "this command deleted the file — the path is back to the " +
+									"state it was in before this turn."
+							}
 							res.Content = appendToContent(res.Content, "\n\n[self-edit check] "+rel+": "+warn)
 						}
 						regressed = regressed || reverted
