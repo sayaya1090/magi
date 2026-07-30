@@ -350,6 +350,11 @@ func ExitCodeMasked(command string) bool {
 func timedOutNote(effective, requested int) string {
 	origin := "the default limit (no `timeout` given)"
 	switch {
+	// A negative was GIVEN, and saying none was is a claim about the caller's own call that magi
+	// can see is false. (Zero cannot be told apart from absent through a plain int field, and is
+	// not a usable duration either, so it keeps the default wording.)
+	case requested < 0:
+		origin = fmt.Sprintf("your `timeout` of %ds is not a usable duration, so the default applied", requested)
 	case requested > maxBashTimeout:
 		origin = fmt.Sprintf("your `timeout` of %ds capped at the %ds maximum", requested, maxBashTimeout)
 	case requested > 0:
