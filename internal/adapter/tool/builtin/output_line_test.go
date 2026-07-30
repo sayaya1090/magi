@@ -27,7 +27,7 @@ func TestTheOutputLineSaysHowMuchOfTheOutputIsAbove(t *testing.T) {
 
 	// The live case: a command that matched nothing. No elision to announce.
 	empty := write("empty.log", "")
-	got := outputLine(empty, false)
+	got := outputLine(empty, false, false)
 	if !strings.Contains(got, "the command wrote nothing") {
 		t.Errorf("an empty capture says so plainly:\n%s", got)
 	}
@@ -35,9 +35,23 @@ func TestTheOutputLineSaysHowMuchOfTheOutputIsAbove(t *testing.T) {
 		t.Errorf("nothing was clipped out of nothing:\n%s", got)
 	}
 
+	// The same empty file, from a command that was KILLED, proves nothing about what it wrote.
+	// Observed live: `make world.opt -j4 2>&1 | tail -50` timed out at 120s and tail, which holds
+	// its output until the input ends, had flushed nothing — so a build that had been talking for
+	// two minutes was described as having written nothing.
+	got = outputLine(empty, false, true)
+	if strings.Contains(got, "wrote nothing —") {
+		t.Errorf("a killed command's empty capture is not proof it was silent:\n%s", got)
+	}
+	for _, want := range []string{"the capture is empty", "killed at the timeout", "does not say it wrote nothing"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("want %q in:\n%s", want, got)
+		}
+	}
+
 	// Shown whole: the file and the message hold the same bytes.
 	full := write("full.log", "make: nothing to be done\n")
-	got = outputLine(full, false)
+	got = outputLine(full, false, false)
 	if !strings.Contains(got, "all of it is above") {
 		t.Errorf("an unclipped result says the message has everything:\n%s", got)
 	}
@@ -50,7 +64,7 @@ func TestTheOutputLineSaysHowMuchOfTheOutputIsAbove(t *testing.T) {
 
 	// Clipped: the message is a view, and the file is where the rest is.
 	big := write("big.log", strings.Repeat("x", 4096))
-	got = outputLine(big, true)
+	got = outputLine(big, true, false)
 	if !strings.Contains(got, "head and tail are above") || !strings.Contains(got, "the file has all of it") {
 		t.Errorf("a clipped result names both halves of the fact:\n%s", got)
 	}
@@ -59,11 +73,11 @@ func TestTheOutputLineSaysHowMuchOfTheOutputIsAbove(t *testing.T) {
 	}
 
 	// No capture file, or one that cannot be stat'ed: name it and claim nothing about it.
-	if outputLine("", false) != "" {
+	if outputLine("", false, false) != "" {
 		t.Error("no capture file, no line")
 	}
 	gone := filepath.Join(dir, "not-there.log")
-	if got := outputLine(gone, true); got != "output: "+gone+"\n" {
+	if got := outputLine(gone, true, false); got != "output: "+gone+"\n" {
 		t.Errorf("an unmeasurable file gets no size claim: %q", got)
 	}
 }
