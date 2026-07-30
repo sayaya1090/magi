@@ -73,8 +73,8 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 				Background builtin.FlexBool `json:"background"`
 			}
 			if json.Unmarshal(tc.Args, &ba) == nil {
-				_, bashReset := guard.noteBashWrite(ba.Command) // authored a file → epoch bump
-				guard.noteBashExec(ba.Command, guardNovel)      // ran a program → execution evidence (independent of any redirect)
+				bashAuthored, bashReset := guard.noteBashWrite(ba.Command) // authored a file → epoch bump
+				guard.noteBashExec(ba.Command, guardNovel)                 // ran a program → execution evidence (independent of any redirect)
 				// Same productivity signal as a file mutation: a command that AUTHORS something, or
 				// an exercising command run for the first time this epoch, is work a later step can
 				// build on. A repeat of a command already run this epoch is not.
@@ -98,7 +98,19 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 				// command whose first act was to delete that file. It did delete it, a moment
 				// later. A false "nothing changed" is worse than silence: the agent can act on it.
 				// Background was already parsed here and read by nobody; this is what it is for.
-				if bashReset && !bool(ba.Background) {
+				//
+				// Gated on AUTHORED, not on reset. reset is mutated()'s answer, and on this path
+				// mutated() compares COMMAND TEXT — so re-running a byte-identical write command
+				// returns false even when the file changed underneath it in between. That skipped
+				// the whole comparison: the new state never reached contentHist, and the count magi
+				// then states as fact ("returned to a state it already held N times, among M
+				// distinct versions") drifts below the truth. Observed live
+				// (large-scale-text-editing, 2026-07-30): `cat > apply_macros.vim <<'ENDOFFILE' …`
+				// at #73 was noted, a write tool changed the file at #74, the SAME heredoc command
+				// at #75 was passed over in silence, and magi's counter ran two behind from there.
+				// Whether a command wrote anything and whether its text repeated are two questions;
+				// only the first one decides if there is content to compare.
+				if bashAuthored && !bool(ba.Background) {
 					regressed := false
 					// compared counts the destinations magi could actually read on both sides;
 					// unchanged, how many of those held the same bytes afterwards. See the
@@ -187,7 +199,13 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 					// cancelling it because a sibling path was rewritten identically would be the
 					// false stall this guard exists to avoid. compared>0 keeps a command magi
 					// could not read either side of out of it entirely — unknown is not unchanged.
-					if regressed || (compared > 0 && unchanged == compared) {
+					//
+					// bashReset is required HERE and only here: retractProgress takes back the
+					// bump mutated() made on THIS call, so a call that made none has nothing to
+					// take back and retracting would steal a window from an earlier, real one.
+					// The comparison above needs no such condition — reading what a command did
+					// to a file is worth doing whether or not the counter moved.
+					if bashReset && (regressed || (compared > 0 && unchanged == compared)) {
 						guard.retractProgress()
 					}
 				}
