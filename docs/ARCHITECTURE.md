@@ -3,8 +3,10 @@
 This is the **as-built** reference for developing on magi. `DESIGN.md`, `SPEC.md`,
 and `PLAN.md` are the original design intent / roadmap (kept for rationale, decisions
 D1–D13); where they disagree with this file, **this file wins**.
-Visual companion: [DIAGRAMS.md](DIAGRAMS.md) — top-level container, turn lifecycle,
-component map, and the harness-intervention (nudge/gate) flowcharts, in mermaid.
+Visual companion: [DIAGRAMS.md](DIAGRAMS.md) — one axis from the top-level container down to
+**class diagrams**: L0 process boundary, L1 turn lifecycle, L2 component map, L3–L4 the
+nudge/gate and model-I/O guard flows, L5 core domain types, L6 ports → adapters, L7 the
+`internal/app` structs, L8 the tool layer, L9 one tool call as a sequence. All mermaid.
 
 magi is an extensible terminal AI coding agent: a Go core, a Bubble Tea TUI, Lua plugins,
 OpenAI-compatible LLM access (Ollama/LiteLLM/etc.), an event-sourced store, guardrails, an
@@ -129,16 +131,35 @@ A conversation is a `Session` of `Message`s; each message is a list of `Part`s
 Everything is an **`Event`** (CQRS-lite: commands in, events out):
 
 ```go
-type Event struct { Seq int64; SessionID; Type; Actor; TS; Data json.RawMessage }
+type Event struct {
+	Seq       int64             // per-session, assigned by the Store on append; 0 = transient
+	SessionID session.SessionID
+	Type      Type
+	Actor     Actor
+	TS        time.Time
+	Stage     string          // plan|execute|council|finalize (D15); empty on older logs
+	Data      json.RawMessage // payload struct per Type, in event.go
+}
 type Actor struct { Kind ActorKind; ID string } // user | agent | system
 ```
 
-- **Facts** (persisted, JSONL, replayable): `session.created`, `prompt.submitted`,
-  `part.appended`, `permission.decided`, `artifact.emitted`, `compaction`,
-  `turn.finished`, `error`.
+The `Actor.Kind` is load-bearing, not decoration: several scans use `ActorUser` as the
+**turn boundary**, and the system actors (`loop`, `orchestrator`, `hook`, `plugin`,
+permission) are deliberately not it — a nudge magi injected must not read as the user
+starting a new turn.
+
+- **Facts** (persisted, JSONL, replayable) — `event.go`'s first const block:
+  `session.created`, `prompt.submitted`, `part.appended`, `permission.decided`,
+  `artifact.emitted`, `compaction`, `turn.finished`, `todos.changed`, `error`,
+  `diagnostic`, `council.convened`, `council.verdict`, `council.decided`,
+  `interjection.deferred`, `prompt.abandoned`.
+  Two of them are persisted but **never reconstructed into a message**, so they are
+  auditable without entering the model's context: `diagnostic` (a raw input a side call
+  recovered from) and `prompt.abandoned` (a cancelled turn's seed, read by `seedPromptIdx`).
 - **Transient** (bus only, never persisted): `part.delta`, `tool.started`,
-  `tool.progress`, `permission.requested`, `agent.spawned`, `agent.status`,
-  `context.usage`, `workflow.phase`.
+  `tool.progress`, `permission.requested`, `question.requested`, `context.usage`,
+  `workflow.phase`, `council.deliberating`, `model.changed`, `user.label.changed`.
+  The set is enumerated once (`transientTypes`) rather than re-listed per call site.
 
 Store path: `<dataDir>/projects/<cwd>/<sessionId>.jsonl`. `Store.Read(fromSeq)`
 returns events with `Seq > fromSeq`. `Subscribe` = live bus first, then store
@@ -150,25 +171,56 @@ replay, deduped by seq (race-safe late-joiner).
 
 - **`LLMProvider`**: `StreamChat(ctx, ChatRequest) (<-chan ProviderEvent, error)`.
   `ProviderEventType` ∈ text-delta | reasoning-delta | tool-call | finish | usage | error.
-- **`Store`**: `Append/Read/ListSessions/Compact` (+ `ChildSessions` via the jsonl adapter).
+- **`Store`**: `Append/Read/ListSessions/ChildSessions/Compact/Truncate`. `Compact`
+  rewrites the log up to a seq behind one snapshot event; `Truncate` drops it.
 - **`Tool`**: `Name/Description/Schema/Execute(ctx, args, ToolEnv)`. `ToolEnv` is the
-  capability surface handed to a tool — note it is much larger than a plain fs env:
+  capability surface handed to a tool — note it is much larger than a plain fs env.
+  A tool reaches the application **only** through these closures, which is why a nil
+  field means "this capability is not available in this run" and every tool nil-checks
+  before calling:
 
   ```go
   type ToolEnv struct {
-    SessionID; Workdir; Platform
-    AskPermission func(callID, name, args) (bool, error)
-    EmitArtifact  func(Artifact)
-    Council  func(ctx, question string, complete bool) (string, error) // council tool; complete=declare
-    SetTodos func([]Todo)                             // todowrite
-    RouteInterjection / AskUser                       // interactive runs only
-    Propose  func(Contribution) error                // shared experience (D13)
-    LoadSkill func(name) (string, bool)              // skill tool
-    Sandbox  SandboxSpec                             // OS confinement for bash (read-only|workspace-write|full)
+    SessionID  session.SessionID
+    Workdir    string          // the session's working directory
+    ScratchDir string          // the turn's scratch dir (created at depth 0)
+    ScratchTmp string          // TMPDIR handed to child processes
+    Platform   Platform
+
+    AskPermission func(callID, name string, args json.RawMessage) (bool, error)
+    EmitArtifact  func(artifact.Artifact)              // reviewable output (D11)
+    EmitProgress  func(text string)                    // live note while a tool blocks (wait_for)
+
+    Council func(ctx, question string, complete bool) (string, error) // complete=declare finished
+    AskUser func(question string, options []string) (string, error)   // interactive only; nil ⇒ tool says so
+    RouteInterjection func(action, reason, requestID string) error     // top level only
+
+    SetTodos     func([]session.Todo)                  // todowrite
+    NoteForTurn  func(text string) error               // remember{scope:"turn"}; err = NOT kept
+    Propose      func(Contribution) error              // shared experience (D13)
+    LoadSkill    func(name string) (string, bool)      // skill
+    Recall       func(query string) (string, error)    // recall_context — THIS session's compacted detail
+    RecallMemory func(query string) (string, error)    // recall_memory — the cross-session D13 store
+
+    Sandbox SandboxSpec // OS confinement for bash (read-only|workspace-write|full)
   }
   ```
-- **`ExperienceStore`** (Retrieve/Propose), **`PluginHost`** (Load/Unload/Reload),
-  **`Platform`** (Exec/ConfigDir/DataDir/TerminalCaps), **`ContextProvider`**, **`Scheduler`**.
+
+  Two conventions in that list are worth stating, because both were once broken:
+  `NoteForTurn` returns an **error** rather than nothing, so the tool cannot answer
+  "noted" on a note the bounded queue discarded; and `Recall` / `RecallMemory` are
+  different stores — one recovers what a compaction shed from *this* session, the other
+  reaches durable team memory.
+- **`ExperienceStore`** (Retrieve/Propose), **`PluginHost`** (Load/Unload/Reload/Capabilities),
+  **`Platform`** (Exec/ConfigDir/DataDir/TerminalCaps/ProcessCPUTime), **`ContextProvider`**,
+  **`Council`** (Deliberate), **`ToolRegistry`**, **`DoctorProbe`**, **`PluginCommand`**,
+  **`Scheduler`**.
+
+`ToolEnv` used to carry two more fields — `Ask` (a subagent escalating to its
+orchestrator) and `Report` (a subagent's structured final result, `port.ReportInput`).
+Nothing set them and no tool read them once the one-agent change landed; a port that
+advertises a contract the application never fulfils is how a reader — or a model reading
+the tool surface — learns something untrue about the system. They are gone.
 
 ---
 

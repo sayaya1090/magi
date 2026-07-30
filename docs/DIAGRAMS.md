@@ -1,8 +1,23 @@
 # magi 시스템 구조도
 
-[ARCHITECTURE.md](ARCHITECTURE.md)의 시각 요약 — 탑레벨(L0)에서 컴포넌트(L2), 하네스 개입 절차(L3)까지.
+[ARCHITECTURE.md](ARCHITECTURE.md)의 시각 요약. **탑레벨(L0)에서 클래스 다이어그램(L5–L9)까지**
+한 축으로 내려간다:
+
+| 층 | 보는 것 | 단위 |
+|---|---|---|
+| [L0](#l0--탑레벨-프로세스와-경계) | 프로세스와 경계 | 패키지 그룹 |
+| [L1](#l1--턴-라이프사이클-요청에서-착지까지) | 턴 하나의 생애 | 단계 |
+| [L2](#l2--app-코어-컴포넌트-맵-internalapp) | `internal/app` 컴포넌트 맵 | 파일 |
+| [L3](#l3--가드는-보고한다-결정하지-않는다) · [L4](#l4--hangspin반복-차단-모델-io-가드-계층) | 개입 절차와 I/O 가드 | 신호 |
+| [L5](#l5--코어-도메인-클래스-internalcore) | 코어 도메인 | **타입** |
+| [L6](#l6--포트와-어댑터-인터페이스--구현) | 포트↔어댑터 | **인터페이스** |
+| [L7](#l7--app-코어-클래스-internalapp) | `internal/app` 내부 | **구조체·메서드** |
+| [L8](#l8--툴-계층-클래스) | 툴 계층 | **인터페이스·구현** |
+| [L9](#l9--툴-콜-한-번의-시퀀스) | 툴 콜 한 번 | **호출 순서** |
+
 GitHub이 mermaid를 직접 렌더한다. 임계값·기본값은 전부 코드가 진실이며(`guard.go` 상수,
-`plan_flags.go`), 이 문서는 그걸 옮겨 적은 것이다.
+`plan_flags.go`), 이 문서는 그걸 옮겨 적은 것이다. 클래스 다이어그램은 필드를 **전부** 싣지 않는다 —
+그 타입이 왜 존재하는지를 정하는 것만 싣고, 나머지는 파일을 가리킨다.
 
 ---
 
@@ -26,7 +41,7 @@ flowchart LR
     subgraph adp["internal/adapter"]
       tui["tui<br/>터미널 UI"]
       llm["llm/openai<br/>OpenAI-호환 SSE"]
-      tools["tool/builtin<br/>내장 툴 ~28"]
+      tools["tool/builtin<br/>내장 툴 21 (+대화형 2)"]
       lua["plugin/lua<br/>Lua 플러그인 호스트"]
       council["council/llm<br/>카운슬 멤버 호출"]
       exp["experience<br/>layered · git"]
@@ -90,35 +105,43 @@ flowchart TD
 | **IO** | 권한·정책·훅·명령 라우팅·워크플로우 | `permission` · `policy` · `hooks` · `routing` · `shellcmd` · `shellparse` · `skills` · `prompt` · `diagnose` · `execute` · `workflow` · `fork` · `scratch` |
 | **EXT** | Lua 플러그인에 노출되는 앱 API | `app_plugin_api` · `app_emit` · `app_state` |
 
-## L3 — 하네스 개입 절차: 넛지와 게이트의 순서
+## L3 — 가드는 보고한다, 결정하지 않는다
 
-개입은 **조언(넛지) → 차단 → 구조적 회복 → 강제종료** 순으로 에스컬레이션한다.
-임계값은 전부 `guard.go` 상수다.
+**이 층은 한 번 뒤집혔다.** 예전 구조는 조언(넛지) → 차단 → 구조적 회복 → 강제종료로
+에스컬레이션했다. 측정이 그걸 부정했다: 기록된 전체 트라이얼에서 magi가 스스로 멈춘 28런은 패스를
+하나도 내지 못했고 그중 8런은 채점조차 되지 않았다(0 아닌 exit는 호출자에게 "에이전트가 멈추기로
+했다"가 아니라 "에이전트가 돌지 못했다"로 읽힌다). 반대로 외부 데드라인까지 간 396런은 전부 채점됐고
+76런이 패스했다.
+
+그래서 **세던 신호는 전부 그대로 세고, 전부 그대로 말하되, magi가 그 판독으로 런을 끝내는 일만
+없앴다.** 코드에서 확인할 수 있는 형태로:
+
+- `runGuard.check()`는 `block` 자리에 **항상 `false`**를 돌려준다(`execute.go`가 그 값을 버린다).
+- `handleStuckGuard()`는 **`return false, false`** — 본문이 통째로 그 결정의 기록이다.
+- 남은 유일한 출력은 `shouldNudge()`가 돌려주는 문자열 하나: `"blocked"` · `"stalled"` · `""`.
 
 ```mermaid
 %%{init: {'theme':'neutral','flowchart':{'curve':'basis'}}}%%
 flowchart TD
-  C["툴 콜 도착"] --> FP{"동일 지문 반복?<br/>(같은 툴 + 같은 인자, 변이 없음)"}
-  FP -- "no" --> RUN["실행"]
-  FP -- "3회 째" --> N1["넛지: 다른 스텝을 밟아라<br/>nudgeThreshold = 3"]
-  N1 --> BLK["해당 콜 차단 + 캐시된 결과 에코"]
-  FP -- "누적 6회" --> ST1["stuck = repeat<br/>blockedBudget = 6"]
+  C["툴 콜 도착"] --> CH["runGuard.check(name, args)<br/>지문 = 툴 + epoch + 정규화 인자"]
+  CH --> REC["기록만: seen[fp]++ · calls++ · sinceProgress++<br/>(반환 block은 항상 false)"]
+  REC --> RUN["게이트 통과 후 실행<br/>allowlist → policy/permission → PreToolUse 훅"]
+  RUN --> MU{"진짜 파일 변이?<br/>(내용이 직전과 다를 때만)"}
+  MU -- "yes" --> RST["mutated(): epoch++ · sinceProgress=0"]
+  MU -- "no · 동일내용 재기록" --> NOP["진행 아님 — 카운터 유지"]
+  RST --> SR{"자기되돌림?<br/>contentHist에 이미 있던 상태"}
+  SR -- "yes" --> RETR["retractProgress()<br/>되돌린 창을 복원 (churn을 진행으로 안 셈)"]
 
-  RUN --> NP{"12스텝 무변이?<br/>noProgressNudge = 12"}
-  NP -- "yes" --> N2["정체 넛지 (재장전식, 최대 3회<br/>maxStallNudges = 3)"]
-  N2 --> NP2{"넛지 소진 후에도 무변이?"}
-  NP2 -- "yes" --> ST2["stuck = stall"]
-
-  RUN --> BS{"완료 배너 반복?<br/>bannerSpin"}
-  BS -- "5회" --> N3["배너스핀 넛지"] --> BS2{"계속?"} -- "yes" --> ST3["강제 정지"]
-
-  ST1 --> HG{"handleStuckGuard"}
-  ST2 --> HG
-  HG -- "stall" --> RD["redecomposeStuck<br/>자기 스펙 spawnResolved · CloneContext"]
-  HG -- "repeat (MAGI_STUCK_DECOMPOSE=1일 때만)" --> RD
-  RD -- "성공" --> RS["resetStall / resetRepeat<br/>→ 루프 계속"]
-  RD -- "실패 · 부적격" --> FS["강제종료 → UNVERIFIED"]
+  REC --> SN["다음 스텝: shouldNudge()"]
+  SN -- "blocked ≥ 3 · 최초 1회" --> NB["넛지: 같은 콜을 돌고 있다<br/>nudgeThreshold = 3"]
+  SN -- "무변이 12스텝" --> NS["정체 넛지 (재장전식)<br/>noProgressNudge = 12 · maxStallNudges = 3"]
+  NS --> CV{"MAGI_STALL_CONVERGE<br/>직전 넛지 후 전진 0?"}
+  CV -- "yes" --> COL["남은 넛지 예산 붕괴 → 이후 침묵"]
+  SN -- "그 외" --> Q["아무 말 없음"]
 ```
+
+넛지는 **에이전트가 읽고 무시할 수 있는 프롬프트**다. 무시해도 magi는 아무것도 하지 않는다 — 턴은
+에이전트가 끝내거나, 외부가 끝낸다.
 
 종료 선언 시엔 L1의 카운슬이 이어진다: 기록 조립(디스크에 없는 경로 → 살아있는 잡 → 워크스페이스
 스냅샷 → 관측 기록 → 툴 증거, 항목당 클립) → 3멤버 심의. 미수락이면 무엇이 안 됐는지가 툴 결과로
@@ -166,11 +189,536 @@ flowchart TD
 | `guardedProvider` (repeat) | **degenerate 반복**(같은 문장/단어 무한) | 꼬리 단위 back-to-back ≥128B·≥3회 | `MAGI_REPEAT_CAP`(기본 on), 꼬리 4KB·256B마다 검사 | 취소(≈수백 B 만에, 800KB 안 기다림) |
 | `consumeStream` (stall) | 메인 generate 첫토큰 전 침묵 | 유휴 | `streamStall` 120s, `MAGI_STREAM_STALL` | 같은 요청 재발행(×2), 소진 시 에러 |
 | `consumeStream` (reasoningSpin) | 메인 generate reasoning만 무한 | 툴콜 0 + 바이트 | `spinCap` 400KB (`[limits] max_output_tokens` 설정 시 이 넛지는 토큰캡에 위임=off, guardedProvider 800KB 백스톱은 유지) | 넛지("행동하라") |
-| `runGuard` (L3) | 툴콜 반복·정체·배너스핀 | 지문·무변이 스텝 | `guard.go` 상수 | 넛지→차단→회복→강제종료 |
+| `runGuard` (L3) | 툴콜 반복·정체·자기되돌림 | 지문·무변이 스텝 | `guard.go` 상수 | **넛지만** — 차단·회복·강제종료 없음 |
 | 체크 타임아웃(`runVerifyCmd`) | 블로킹 워크플로 verify 명령 | per-check 경과 | 기본 120s, `MAGI_CHECK_TIMEOUT`(0=off) | kill → -1 = 검증불가(거짓실패 아님) |
 
 핵심: **모델 hang/spin/반복은 guardedProvider 단일 지점**에서, **셸 명령 hang은 bash 툴(120/600s)과
 runVerifyCmd 타임아웃**에서 각각 바운드된다 — 어느 것도 턴 벽시계까지 매달리지 않는다.
+
+## L5 — 코어 도메인 클래스 (`internal/core`)
+
+`core`는 **std 외에는 아무것도 import하지 않는다**. 여기 있는 타입에는 LLM도, 파일시스템도,
+터미널도 없다 — 대화가 무엇으로 이루어져 있는지에 대한 서술뿐이다.
+
+```mermaid
+%%{init: {'theme':'neutral'}}%%
+classDiagram
+  direction LR
+
+  class Session {
+    +SessionID ID
+    +string Workdir
+    +string Agent
+    +ModelRef Model
+    +time.Time Created
+    +map[string]string Meta
+  }
+  class SessionMeta {
+    +SessionID ID
+    +string Title
+    +string Agent
+    +string Parent
+    +time.Time LastActivity
+  }
+  note for SessionMeta "전체 로그를 읽지 않고 목록만 낼 때"
+  class Message {
+    +string ID
+    +Role Role
+    +Part[] Parts
+  }
+  class Part {
+    +PartKind Kind
+    +string Text
+    +ToolCall ToolCall
+    +ToolResult ToolResult
+    +ImageRef Image
+    +string Err
+  }
+  note for Part "Kind가 고르는 태그드 유니온 — 정확히 하나만 채워진다"
+  class ToolCall {
+    +string CallID
+    +string Name
+    +json.RawMessage Args
+  }
+  class ToolResult {
+    +string CallID
+    +json.RawMessage Content
+    +bool IsError
+  }
+  class Todo {
+    +string Content
+    +string Status
+  }
+  note for Todo "Status = pending · in_progress · completed"
+
+  Session "1" *-- "*" Message
+  Message "1" *-- "*" Part
+  Part ..> ToolCall
+  Part ..> ToolResult
+  Session ..> SessionMeta : 요약
+  Session ..> Todo : 에이전트의 계획
+
+  class Event {
+    +int64 Seq
+    +SessionID SessionID
+    +Type Type
+    +Actor Actor
+    +time.Time TS
+    +string Stage
+    +json.RawMessage Data
+  }
+  class Actor {
+    +ActorKind Kind
+    +string ID
+  }
+  note for Actor "Kind = user · agent · system — 턴 경계는 user 뿐"
+  class Bus {
+    +Publish(Event)
+    +Subscribe(ctx, SessionID) chan
+    +SubscriberCount(SessionID) int
+  }
+
+  Event *-- Actor
+  Bus ..> Event : fan-out
+  Event ..> Part : Data(part.appended)
+```
+
+`PartKind` ∈ `text` · `reasoning` · `tool-call` · `tool-result` · `image` · `error`.
+`Part`가 태그드 유니온인 것이 저장 형식을 정한다: 스트리밍 단위와 영속 단위가 같은 타입이라
+재생(replay)이 곧 렌더다.
+
+카운슬 도메인은 별개의 작은 값 모델이다 — LLM 호출은 어댑터(`adapter/council/llm`)에 있고,
+`core/council`은 **투표를 세는 규칙**만 안다:
+
+```mermaid
+%%{init: {'theme':'neutral'}}%%
+classDiagram
+  direction LR
+  class Member {
+    +string Name
+    +string Lens
+    +string Model
+    +string Provider
+    +float64 Weight
+  }
+  class Verdict {
+    +string Member
+    +string Lens
+    +Decision Decision
+    +float64 Confidence
+    +string Rationale
+    +string Feedback
+    +string Keep
+    +string Severity
+  }
+  class Breakdown {
+    +int Done
+    +int Continue
+    +int Abstain
+    +int Voters
+    +Rule Rule
+  }
+  class Deliberation {
+    +int Round
+    +Verdict[] Verdicts
+    +Decision Decision
+    +Breakdown Breakdown
+    +string Feedback
+    +string Keep
+    +DebateOutcome Debate
+  }
+  class Rule {
+    <<string>>
+  }
+  note for Rule "majority · unanimous · quorum:N · weighted:X"
+  class DebateOutcome {
+    +Decision Before
+    +Decision After
+    +int Changed
+  }
+  Deliberation "1" *-- "*" Verdict
+  Deliberation *-- Breakdown
+  Breakdown --> Rule
+  Verdict ..> Member : 누가 냈나
+  Deliberation ..> DebateOutcome : 불일치 시에만
+```
+
+`Decision` ∈ `done` · `continue` · `abstain`. `Tally(verdicts, rule)`가 순수 함수라
+심의 기록만 있으면 결정을 재현할 수 있다. `Keep`/`Debate`는 **결정에 영향을 주지 않는다** —
+기권이 분모에서 빠지는 것과 함께, 이 분리가 "카운슬이 왜 그렇게 정했나"를 사후에 답할 수 있게 한다.
+
+---
+
+## L6 — 포트와 어댑터 (인터페이스 → 구현)
+
+의존 방향은 **`adapter → app → core`** 한 방향이고, 컴파일 타임에 강제된다. `app`은 아래
+인터페이스만 알고, `cmd/magi`가 기동 시에 구현을 꽂는다.
+
+```mermaid
+%%{init: {'theme':'neutral'}}%%
+classDiagram
+  direction LR
+
+  class LLMProvider {
+    <<interface>>
+    +StreamChat(ctx, ChatRequest) chan ProviderEvent
+  }
+  class Store {
+    <<interface>>
+    +Append(ctx, sid, evs) seq
+    +Read(ctx, sid, fromSeq) Event[]
+    +ListSessions(ctx, workdir) SessionMeta[]
+    +ChildSessions(ctx, workdir, parentID) SessionMeta[]
+    +Compact(ctx, sid, upToSeq, snapshot) error
+    +Truncate(ctx, sid, upToSeq) error
+  }
+  class Tool {
+    <<interface>>
+    +Name() string
+    +Description() string
+    +Schema() json.RawMessage
+    +Execute(ctx, args, ToolEnv) ToolResult
+  }
+  class ToolRegistry {
+    <<interface>>
+    +Register(Tool)
+    +Get(name) Tool
+    +List() Tool[]
+  }
+  class Council {
+    <<interface>>
+    +Deliberate(ctx, DeliberationRequest) Deliberation
+  }
+  class Platform {
+    <<interface>>
+    +Exec(ctx, Cmd) ExecResult
+    +ConfigDir() string
+    +DataDir() string
+    +TerminalCaps() TermCaps
+    +ProcessCPUTime(pid) Duration
+  }
+  class ExperienceStore {
+    <<interface>>
+    +Retrieve(ctx, query) MemoriesAndSkills
+    +Propose(ctx, Contribution) error
+  }
+  class PluginHost {
+    <<interface>>
+    +Load(ctx, dir) PluginInfo
+    +Unload(name) error
+    +Reload(name) error
+    +Capabilities() CapabilitySet
+  }
+  class ContextProvider {
+    <<interface>>
+    +Provide(ctx, ContextQuery) ContextChunk[]
+  }
+
+  class OpenAIClient["adapter/llm/openai.Client"] {
+    +StreamChat()
+    +ListModels()
+    +ProbeContextWindow()
+    +SetBaseURL(url) uint64
+    +ClearBaseURL(token)
+  }
+  note for OpenAIClient "SSE 파서 · toolAccumulator · 재시도 · finish 없는 EOF는 절단으로 보고"
+  class JSONLStore["adapter/store/jsonl"]
+  note for JSONLStore "dataDir/projects/&lt;cwd&gt;/&lt;sid&gt;.jsonl"
+  class BuiltinRegistry["adapter/tool/builtin.Default()"]
+  note for BuiltinRegistry "항상 21개 + 대화형 전용 2개"
+  class LuaHost["adapter/plugin/lua.Host"]
+  note for LuaHost "Lua 툴 · 컨텍스트 제공자 · 슬래시 명령 · doctor 프로브"
+  class MCPClient["adapter/mcp"]
+  note for MCPClient "mcp__server__tool 이름으로 등록"
+  class LLMCouncil["adapter/council/llm"]
+  note for LLMCouncil "멤버별 프롬프트 · 병렬 폴 · 불일치 시 반박 라운드"
+  class LayeredExp["adapter/experience/layered + git"]
+  note for LayeredExp "global 위에 project 를 겹침"
+  class OSPlatform["adapter/platform"]
+  note for OSPlatform "exec · OS 샌드박스 · 터미널 능력"
+
+  LLMProvider <|.. OpenAIClient
+  Store <|.. JSONLStore
+  ToolRegistry <|.. BuiltinRegistry
+  Tool <|.. BuiltinRegistry
+  PluginHost <|.. LuaHost
+  Tool <|.. LuaHost
+  Tool <|.. MCPClient
+  Council <|.. LLMCouncil
+  ExperienceStore <|.. LayeredExp
+  Platform <|.. OSPlatform
+  ContextProvider <|.. LuaHost
+```
+
+포트는 12개다: 위 9개 + `DoctorProbe`(`-doctor` 진단 항목) + `PluginCommand`(슬래시 명령) +
+`Scheduler`. **툴 인터페이스에 구현이 셋**(builtin · lua · mcp)인 것이 확장 지점의 핵심이다 —
+루프는 셋을 구별하지 않는다.
+
+---
+
+## L7 — app 코어 클래스 (`internal/app`)
+
+`App`이 애플리케이션 서비스다: 커맨드가 들어오고 이벤트가 나간다. 상태는 **세션별로**
+`sessionState`에 모여 있고 전부 `App.mu`가 지킨다.
+
+```mermaid
+%%{init: {'theme':'neutral'}}%%
+classDiagram
+  direction TB
+
+  class App {
+    -port.Store store
+    -port.LLMProvider llm
+    -map[string]LLMProvider providers
+    -port.ToolRegistry tools
+    -bus.Bus bus
+    -port.Platform plat
+    -Config cfg
+    -ContextProvider[] contextProviders
+    -sync.Mutex mu
+    -map[SessionID]sessionState states
+    -usageLedger usage
+    -Policy policy
+    -sync.Map liveness
+    +CreateSession(ctx, cmd) SessionID
+    +Submit(ctx, cmd) error
+    +Interrupt(sid)
+    +Subscribe(ctx, sid) chan Event
+    -runLoop(ctx, tc) string
+    -executeTool(ctx, ...)
+    -providerFor(spec) LLMProvider
+  }
+
+  class sessionState {
+    +context.CancelFunc cancel
+    +session.Session meta
+    +Todo[] todos
+    +string[] turnNotes
+    +string stage
+    +int lastPromptTokens
+    +time.Time turnStart
+    +pendingInterjection[] pendingInterject
+    +turnControl turnControl
+    +map perms
+    +map questions
+    +map grants
+    +string activeSeedMsgID
+    +turnScratch scratch
+    +string[] curatedTools
+    +string expPtr
+    +string ragText
+  }
+  note for sessionState "수명 3층: 세션 전체 · 턴 스코프(resetForNewTopLevel이 지움) · 인플라이트"
+
+  class turnCtx {
+    +session.Session s
+    +AgentSpec agent
+    +int depth
+    +int maxSteps
+    +event.Actor actor
+    +time.Time runStart
+    +runGuard guard
+  }
+  note for turnCtx "턴 내내 고정 — guard만 포인터라 변이가 전파된다"
+  class turnState {
+    +bool stopChecked
+    +bool nudgedEmpty
+    +int declareAsks
+    +bool declared
+    +string unverifiedReason
+  }
+  note for turnState "턴당 1회 게이트들의 래치"
+  class AgentSpec {
+    +string Name
+    +string System
+    +string[] Tools
+    +ModelRef Model
+    +string Provider
+    +allows(tool) bool
+  }
+
+  class runGuard {
+    -map[string]int seen
+    -int epoch
+    -int blocked
+    -int calls
+    -int sinceProgress
+    -int stallNudges
+    -map[string]fileChange changed
+    -map[string][]lineSpan readSpans
+    -map[string][]uint64 contentHist
+    +check(name, args) fingerprint
+    +mutated(path, sig) bool
+    +retractProgress()
+    +noteEdit(path, before, after) warning
+    +noteReadCoverage(path, off, n) bool
+    +noteBashExec(cmd, novel)
+    +allowRecall(topic) bool
+    +changeSet() fileChange[]
+    +shouldNudge() string
+  }
+  note for runGuard "보고 전용 — check의 block은 항상 false"
+  class Policy {
+    -policyRule[] allow
+    -policyRule[] deny
+    -string[] allowDomains
+    +Decide(tool, args) verdict
+    +AllowedByRule(tool, args) bool
+  }
+
+  App "1" *-- "*" sessionState
+  App --> Policy
+  App ..> turnCtx : 턴마다 생성
+  turnCtx *-- runGuard
+  turnCtx --> AgentSpec
+  App ..> turnState : finishTurn이 변이
+  runGuard *-- fileChange
+```
+
+읽을 때 알아둘 두 가지.
+
+1. **`runGuard`는 턴이 아니라 런 스코프**다(`turnCtx`가 들고 있고 포인터라 변이가 전파된다).
+   `epoch`는 진짜 파일 변이마다 오르고 반복 지문의 일부가 된다 — 그래서 파일이 바뀐 뒤의
+   같은 명령은 "같은 콜"이 아니다.
+2. **`sessionState`의 필드는 수명이 셋으로 갈린다**: 세션 전체(`meta`·`grants`·
+   `deferredAbandoned`), 턴 스코프(`resetForNewTopLevel`이 지우는 것 — `turnNotes`·`scratch`·
+   RAG 캐시), 그리고 인플라이트(`cancel`·`perms`). 새 필드를 넣을 때 어디에 속하는지 정하지
+   않으면 지난 턴의 상태가 다음 요청으로 새는 형태로 드러난다.
+
+---
+
+## L8 — 툴 계층 클래스
+
+툴은 `port.Tool` 하나로 통일된다. 실행 시 받는 `ToolEnv`가 **애플리케이션으로 향하는 유일한
+통로**이며, nil 필드는 "이 런에는 그 능력이 없다"는 뜻이다.
+
+```mermaid
+%%{init: {'theme':'neutral'}}%%
+classDiagram
+  direction LR
+
+  class Tool {
+    <<interface>>
+    +Name() string
+    +Description() string
+    +Schema() json.RawMessage
+    +Execute(ctx, args, ToolEnv) ToolResult
+  }
+  class ToolEnv {
+    +SessionID SessionID
+    +string Workdir
+    +string ScratchDir
+    +string ScratchTmp
+    +Platform Platform
+    +SandboxSpec Sandbox
+    +AskPermission(callID, name, args) bool
+    +EmitArtifact(Artifact)
+    +EmitProgress(text)
+    +Council(ctx, q, complete) string
+    +AskUser(q, options) string
+    +RouteInterjection(action, reason, id) error
+    +SetTodos(todos)
+    +NoteForTurn(text) error
+    +Propose(Contribution) error
+    +LoadSkill(name) string
+    +Recall(query) string
+    +RecallMemory(query) string
+  }
+  note for ToolEnv "nil 필드 = 이 런에 그 능력이 없다 — 툴은 호출 전에 반드시 nil 검사"
+  class SandboxSpec {
+    +string Mode
+    +string Workdir
+    +bool AllowNet
+    +Confined() bool
+  }
+  ToolEnv *-- SandboxSpec
+  Tool ..> ToolEnv : Execute가 받음
+
+  class FileTools["파일: read · write · edit · multiedit"]
+  note for FileTools "pathlocks · atomicwrite · hashline 거터"
+  class SearchTools["탐색: grep · glob · list"]
+  note for SearchTools "절대 패턴은 빈 결과가 아니라 에러로 답한다"
+  class ShellTools["셸: bash · wait_for · bash_output · bash_kill · bash_input · port_owner"]
+  note for ShellTools "heredoc 스캔 · PIPESTATUS · 캡처 head/tail"
+  class NetTools["네트워크: webfetch · websearch"]
+  class MemTools["기억: remember · recall_context · recall_memory · skill"]
+  class MetaTools["메타: council · todowrite · ask_user · route_interjection"]
+  note for MetaTools "뒤 둘은 대화형 세션에서만 등록된다"
+
+  Tool <|.. FileTools
+  Tool <|.. SearchTools
+  Tool <|.. ShellTools
+  Tool <|.. NetTools
+  Tool <|.. MemTools
+  Tool <|.. MetaTools
+```
+
+툴은 **21개가 항상**, `ask_user`와 `route_interjection` **2개가 대화형 세션에서만** 등록된다
+(`Default()` + `RegisterOrchestration(r, headless)`). 헤드리스에서 뒤 둘을 빼는 이유는 답할 사람이
+없어서만이 아니라, 절대 발화하지 않을 툴이 매 요청의 툴 목록에 무게로 실리기 때문이다.
+이름 목록은 `KnownNames()` 하나로 열거된다 — 정책 코드가 툴 이름을 리터럴로 쓰는 곳들이
+"아무 툴도 답하지 않는 이름"을 들고 있지 않은지 테스트가 대조할 수 있게 하기 위해서다.
+
+**LSP는 툴이 아니다.** `lsp_diagnose`라는 이름으로 등록된 것은 없고, 편집이 끝난 뒤 앱이
+`AutoDiagnose`(`app/diagnose.go` → `builtin/lsppool.go`)를 돌려 그 결과를 **툴 결과에 덧붙인다**.
+모델이 부르는 능력이 아니라 magi가 얹어 주는 관측이라서, 부르지 않아도 도착한다.
+
+`bash` 계열이 파일 수로도 로직으로도 가장 무겁다. 그 무게의 대부분은 실행이 아니라 **셸 텍스트를
+사실대로 읽는 일**에 있다 — `heredoc.go`의 `scanShellLine`이 한 번 훑어서 detach `&`와 heredoc
+본문을 동시에 판정하고, `maskNonShell`이 따옴표 안·주석·heredoc 본문을 **길이를 보존한 채** 가려서
+정규식이 찾은 위치를 원문에서 그대로 인용할 수 있게 한다. 이게 없으면
+`python3 -c "print('done | tail -3')"` 같은 명령에 "네 종료코드는 페이저 것"이라는 거짓 주석이 붙는다.
+
+---
+
+## L9 — 툴 콜 한 번의 시퀀스
+
+L1이 턴을, L9는 그 안의 툴 콜 **하나**를 확대한다. 게이트 순서와 "누가 무엇을 기록하는가"가 요점이다.
+
+```mermaid
+%%{init: {'theme':'neutral'}}%%
+sequenceDiagram
+  autonumber
+  participant M as 모델
+  participant L as runLoop
+  participant G as runGuard
+  participant P as Policy/permission
+  participant T as Tool
+  participant S as Store/Bus
+
+  M->>L: tool_call(name, args)
+  L->>G: check(name, args)
+  G-->>L: n(반복 횟수), fp — block은 항상 false
+  L->>S: tool.started (transient)
+  L->>P: allowlist → policy.Decide → permission 프롬프트 → PreToolUse 훅
+  alt 거부됨
+    P-->>L: 거부 사유
+    L->>S: part.appended(tool-result, IsError) — 이유를 그대로
+  else 통과
+    L->>T: Execute(ctx, args, ToolEnv)
+    T-->>L: ToolResult (+ EmitProgress·EmitArtifact는 실행 중에)
+    L->>L: capToolResult (64KB, 잘리면 결과 안에 표시)
+    L->>G: noteEdit / mutated / noteBashExec / noteReadCoverage
+    G-->>L: 자기되돌림·무변경 경고
+    L->>S: part.appended(tool-result) — 영속
+  end
+  L->>G: shouldNudge()
+  opt "blocked" 또는 "stalled"
+    L->>S: prompt.submitted (actor=system:loop) — 넛지
+  end
+  L->>M: 다음 스텝 요청 (history + volatileContext)
+```
+
+시퀀스에서 읽어야 할 계약 셋:
+
+- **거부도 결과다.** 게이트가 막으면 조용히 사라지지 않고 사유를 담은 tool-result가 기록된다 —
+  모델이 무엇에 막혔는지 모르면 같은 것을 다시 시도한다.
+- **자르면 자른 자리에 표시한다.** `capToolResult`, 캡처 head/tail, 증거 블록의 누락 꼬리,
+  압축 요약의 미완 표시가 전부 같은 규칙이다. 읽는 쪽은 **없는 줄 모르는 것을 되물을 수 없다.**
+- **넛지는 `prompt.submitted`다** — actor가 `{system, loop}`이지 `part.appended`가 아니다.
+  로그를 파싱해 넛지를 세려면 이 액터로 걸러야 한다.
+
+---
 
 ## 부록 — A/B 플래그 기본값 (`plan_flags.go`)
 
@@ -178,15 +726,17 @@ runVerifyCmd 타임아웃**에서 각각 바운드된다 — 어느 것도 턴 �
 |---|---|---|
 | `MAGI_DECLARE_FINISH` | ON | 종료를 **선언 행위**로 요구(`council{complete:true}`); off면 모델이 툴 호출을 멈추는 수동적 종료로 복귀 |
 | `MAGI_COUNCIL_DEBATE` | ON | 불일치 시 1회 반박 라운드; off면 독립 투표 집계만 |
-| `MAGI_EXERCISE_CHURN_CAP` | 4 | 같은 build/test가 N번의 서로 다른 편집을 거쳐도 계속 같은 실패 → 작업물 세워둔 채 UNVERIFIED 착지(`0`=off) |
 | `MAGI_STALL_NOVELTY` | ON | 정체 넛지 재장전을 "이미 본 지문 반복"일 때만 붕괴(새 시도로 피벗 중이면 살려둠) |
 | `MAGI_STALL_CONVERGE` | ON | 재장전식 정체 넛지의 수렴 판정 |
-| `MAGI_RECOVERY_RUNCAP` | OFF | 런 트리당 회복실행 1회 제한 |
-| `MAGI_STUCK_DECOMPOSE` | ON | repeat-차단 시 TODO 분해 회복 |
-| `MAGI_GUARD_EXEC_EXEMPT` | ON | exec 계열(파일을 변이시키는 bash) 반복의 하드차단 면제 |
 | `MAGI_CTX_COMPACT_RETRY` | ON | 컨텍스트 초과 시 압축 후 재시도 |
 | `MAGI_EXITCODE_BODYSCAN` | ON | bash exit-0 크래시/마스킹 주석 (`tool/builtin`) |
 | `MAGI_REPEAT_CAP` | ON | degenerate 반복(같은 문장/단어 무한) 안전망 (`provider_guard`) |
 | `MAGI_STREAM_STALL` · `MAGI_CHECK_TIMEOUT` | 120s | generate 첫토큰 stall 워치독 · 워크플로 verify 타임아웃(0=off) |
 | `MAGI_SPIN_CAP` | 400KB | reasoning-only spin 상한(guardedProvider는 2×) |
 | `MAGI_SELFKILL_GUARD` | ON | 프롬프트 단어로 자기 프로세스를 죽이는 `pkill -f` 차단 |
+
+이 표는 **실제로 읽히는 것만** 싣는다. 코드가 더 이상 읽지 않는데 표에 남아 있던 넷 —
+`MAGI_STUCK_DECOMPOSE` · `MAGI_RECOVERY_RUNCAP` · `MAGI_GUARD_EXEC_EXEMPT` ·
+`MAGI_EXERCISE_CHURN_CAP` — 은 L3의 강제종료 경로와 함께 사라졌다. 목록을 갱신하려면
+`Getenv("MAGI_`/`envOff(`/`envOn(` 를 grep해서 대조하면 된다; 광고와 구현이 갈라지는 것은 이
+저장소가 반복해서 겪은 결함 유형이라, 없는 손잡이를 문서가 광고하는 쪽이 없는 것보다 나쁘다.
