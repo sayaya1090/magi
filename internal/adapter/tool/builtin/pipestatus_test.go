@@ -61,8 +61,8 @@ func TestACleanPipelineGetsNoNote(t *testing.T) {
 	}
 }
 
-// The failing pipeline's own exit still governs: a pipeline that ends non-zero reads as an error
-// exactly as before, and gets no note (there is nothing hidden).
+// The failing pipeline's own exit still governs: a pipeline whose LAST stage is the one that failed
+// reads as an error exactly as before, and gets no note — its status says everything the stages do.
 func TestPipelineExitIsPassedThroughUnchanged(t *testing.T) {
 	if !strings.HasSuffix(unixShell(), "bash") {
 		t.Skip("this machine has no bash")
@@ -75,7 +75,37 @@ func TestPipelineExitIsPassedThroughUnchanged(t *testing.T) {
 		t.Errorf("the pipeline's own status must pass through:\n%s", body)
 	}
 	if strings.Contains(body, "the LAST stage's") {
-		t.Errorf("nothing is hidden when the pipeline itself failed:\n%s", body)
+		t.Errorf("nothing is hidden when the last stage is the one that failed:\n%s", body)
+	}
+}
+
+// …but a failure in an EARLIER stage has no status of its own to appear in, whether the last stage
+// exited 0 or not. Observed live (kv-store-grpc, 2026-07-30): `ps aux | grep server.py | grep -v
+// grep` came back `exit 1` with no note, byte-identical in status to a grep that simply matched
+// nothing — while magi held 127 → 1 → 1 and dropped it.
+func TestAnEarlierStageFailureIsNamedEvenWhenThePipelineFails(t *testing.T) {
+	if !strings.HasSuffix(unixShell(), "bash") {
+		t.Skip("this machine has no bash")
+	}
+	env := port.ToolEnv{Workdir: t.TempDir(), ScratchTmp: t.TempDir()}
+	// stderr is discarded exactly as the live command's `2>/dev/null` sibling did, so the note is
+	// the ONLY place the 127 can still be found.
+	raw, _ := json.Marshal(map[string]any{"command": `nosuchprog aux 2>/dev/null | grep server | grep -v grep`})
+	res, _ := (Bash{}).Execute(context.Background(), raw, env)
+	body := resultText(t, res)
+	if !strings.Contains(body, "exit 1") {
+		t.Fatalf("the pipeline's own status still passes through:\n%s", body)
+	}
+	if !strings.Contains(body, "127 → 1 → 1") {
+		t.Errorf("the stage that failed must be named:\n%s", body)
+	}
+
+	// The benign twin — the same exit 1, and nothing hidden behind it — stays silent, or the note
+	// would fire on every `cmd | grep` that found nothing.
+	raw, _ = json.Marshal(map[string]any{"command": `echo hi | grep nomatch`})
+	res, _ = (Bash{}).Execute(context.Background(), raw, env)
+	if body := resultText(t, res); strings.Contains(body, "the LAST stage's") {
+		t.Errorf("a grep that matched nothing hides nothing:\n%s", body)
 	}
 }
 
@@ -87,8 +117,13 @@ func TestPipeStageNoteRule(t *testing.T) {
 	if n := pipeStageNote(0, []int{0, 0}); n != "" {
 		t.Errorf("all-clean needs no note, got %q", n)
 	}
-	if n := pipeStageNote(1, []int{2, 1}); n != "" {
-		t.Errorf("a pipeline that already reports failure hides nothing, got %q", n)
+	// The gate is the fact, not the exit: an earlier stage's failure is hidden behind ANY reported
+	// status, because the one reported belongs to the last stage.
+	if n := pipeStageNote(1, []int{2, 1}); !strings.Contains(n, "2 → 1") {
+		t.Errorf("an earlier stage's failure is hidden behind a nonzero exit too, got %q", n)
+	}
+	if n := pipeStageNote(1, []int{0, 1}); n != "" {
+		t.Errorf("the last stage failing on its own is the whole story, got %q", n)
 	}
 	if n := pipeStageNote(0, []int{0}); n != "" {
 		t.Errorf("a single command is not a pipeline, got %q", n)

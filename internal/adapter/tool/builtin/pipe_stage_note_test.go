@@ -26,7 +26,7 @@ func TestTheStageNoteStatesTheNumbersAndNothingElse(t *testing.T) {
 		{"a build that died", []int{2, 0}},
 		{"not a git repository", []int{128, 0}},
 	} {
-		note := pipeStageNote(0, c.stages)
+		note := pipeStageNote(c.stages[len(c.stages)-1], c.stages)
 		if note == "" {
 			t.Errorf("%s: the discarded statuses are exactly what the exit cannot show", c.what)
 			continue
@@ -55,7 +55,8 @@ func TestTheStageNoteIsSilentWhenNothingWasHidden(t *testing.T) {
 		stages []int
 	}{
 		{"every stage agrees with the exit", 0, []int{0, 0}},
-		{"the pipeline already reports the failure", 1, []int{2, 1}},
+		{"the last stage failed on its own and says so", 1, []int{0, 1}},
+		{"…however it failed", 2, []int{0, 0, 2}},
 		{"a single command is not a pipeline", 0, []int{0}},
 		{"no statuses were captured", 0, nil},
 	} {
