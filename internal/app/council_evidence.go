@@ -63,8 +63,16 @@ func turnToolEvidence(evs []event.Event, k int) string {
 	if len(lines) == 0 {
 		return ""
 	}
+	// Say how many were left out. The block reads as "this turn's evidence" and is a TAIL: a turn
+	// with forty results hands the council the last eight, and the failing one from early on is
+	// simply not there. Nothing said so, so a reader had no way to know it was looking at part of
+	// the record — the harm priorCouncilObjections below documents from a run that failed, where
+	// each deliberation could see only the round before it. clipEach in this same file has always
+	// marked its drop; these did not.
 	if len(lines) > k {
-		lines = lines[len(lines)-k:]
+		dropped := len(lines) - k
+		lines = append([]string{fmt.Sprintf("…%d earlier tool results this turn are not shown", dropped)},
+			lines[len(lines)-k:]...)
 	}
 	return "- " + strings.Join(lines, "\n- ")
 }
@@ -139,7 +147,8 @@ func stuckEvidence(evs []event.Event, k int) string {
 		return ""
 	}
 	if len(obst) > k {
-		obst = obst[len(obst)-k:]
+		obst = append([]string{fmt.Sprintf("…%d earlier obstacles are not shown", len(obst)-k)},
+			obst[len(obst)-k:]...)
 	}
 	return " Concrete walls the previous attempt hit (address THESE directly — do not just re-analyze or repeat the same commands): " + strings.Join(obst, "; ")
 }
@@ -397,8 +406,16 @@ func deltaToolEvidence(evs []event.Event, k int) string {
 	if len(lines) == 0 {
 		return ""
 	}
+	// Say how many were left out. The block reads as "this turn's evidence" and is a TAIL: a turn
+	// with forty results hands the council the last eight, and the failing one from early on is
+	// simply not there. Nothing said so, so a reader had no way to know it was looking at part of
+	// the record — the harm priorCouncilObjections below documents from a run that failed, where
+	// each deliberation could see only the round before it. clipEach in this same file has always
+	// marked its drop; these did not.
 	if len(lines) > k {
-		lines = lines[len(lines)-k:]
+		dropped := len(lines) - k
+		lines = append([]string{fmt.Sprintf("…%d earlier tool results this turn are not shown", dropped)},
+			lines[len(lines)-k:]...)
 	}
 	return "- " + strings.Join(lines, "\n- ")
 }
