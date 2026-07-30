@@ -172,7 +172,7 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		// The partial log is the most useful thing a killed build leaves, so name it here too.
 		body += "\n" + timedOutNote(timeout, int(a.Timeout))
 		shown := truncateOut(body)
-		return errResult("", outputLine(logPath, captureClipped || len(shown) != len(body))+shown), nil
+		return errResult("", outputLine(logPath, captureClipped || len(shown) != len(body), true)+shown), nil
 	}
 	if err != nil && exit == 0 {
 		// Launch failure (command not found, etc.) rather than non-zero exit.
@@ -214,7 +214,7 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		}
 	}
 	appendRunIndex(env.ScratchLogs, exit, a.Command, logPath)
-	res := okText("", fmt.Sprintf("exit %d\n%s%s", exit, outputLine(logPath, dispClipped), disp))
+	res := okText("", fmt.Sprintf("exit %d\n%s%s", exit, outputLine(logPath, dispClipped, false), disp))
 	res.IsError = exit != 0
 	return res, nil
 }
@@ -512,7 +512,7 @@ func scratchEnv(tmp string) []string {
 // agent told the middle was withheld has reason to go looking for what is not there; the second of
 // those two calls was the same command again. Clipping is measured by the caller and marked in the
 // body where it occurs, so this states what that measurement found.
-func outputLine(path string, omitted bool) string {
+func outputLine(path string, omitted, killed bool) string {
 	if path == "" {
 		return ""
 	}
@@ -523,6 +523,16 @@ func outputLine(path string, omitted bool) string {
 	switch {
 	case size < 0:
 		return "output: " + path + "\n"
+	case size == 0 && killed:
+		// An empty capture from a command that was KILLED says nothing about what the command
+		// produced — only that nothing had reached the file by the time it died. The difference is
+		// the whole story when the output went through a pager: observed live,
+		// `make world.opt -j4 2>&1 | tail -50` hit the 120s limit, and `tail` holds everything
+		// until its input ends, so the log was empty for a build that had been talking for two
+		// minutes. The timeout note already refuses to read the missing exit as failure; the
+		// missing output gets the same treatment.
+		return fmt.Sprintf("output: %s (the capture is empty — the command was killed at the "+
+			"timeout, so this does not say it wrote nothing)\n", path)
 	case size == 0:
 		return fmt.Sprintf("output: %s (the command wrote nothing — the file is empty)\n", path)
 	case omitted:
