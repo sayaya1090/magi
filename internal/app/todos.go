@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -214,23 +215,29 @@ func todosEqual(a, b []session.Todo) bool {
 // another proved a pointer bug with a standalone program and cycled for sixty-five minutes without
 // landing the fix. Nothing was missing from the record — the conclusion was, and only the agent
 // knew it was a conclusion.
-func (a *App) noteForTurn(sid session.SessionID, text string) {
+func (a *App) noteForTurn(sid session.SessionID, text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
-		return
+		return fmt.Errorf("the note was empty, so there is nothing to hand back")
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	st := a.stateLocked(sid)
 	for _, n := range st.turnNotes {
 		if n == text {
-			return // the same note twice is one note
+			return nil // the same note twice is one note, and the first one is already queued
 		}
 	}
+	// Bounded — and the bound is REPORTED. Dropping the note here and answering "noted" tells the
+	// agent it has a reminder waiting that will never arrive, which is worse than no note at all:
+	// it stops writing the fact down anywhere else.
 	if len(st.turnNotes) >= turnNotesCap {
-		return
+		return fmt.Errorf("this turn already has %d notes queued, which is the limit — this one was "+
+			"NOT kept and will not be handed back; put it in your own reply, or save it with "+
+			"scope \"project\" so it outlives the turn", turnNotesCap)
 	}
 	st.turnNotes = append(st.turnNotes, text)
+	return nil
 }
 
 // turnNotesCap bounds what one turn can queue for itself. High enough that a working agent never

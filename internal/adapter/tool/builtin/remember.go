@@ -56,7 +56,9 @@ func (Remember) Execute(ctx context.Context, raw json.RawMessage, env port.ToolE
 		if env.NoteForTurn == nil {
 			return errResult("", "turn notes are not available in this run"), nil
 		}
-		env.NoteForTurn(a.Text)
+		if err := env.NoteForTurn(a.Text); err != nil {
+			return errResult("", err.Error()), nil
+		}
 		return okText("", "noted for this turn — magi will hand this back before the turn ends"), nil
 	}
 	if env.Propose == nil {
