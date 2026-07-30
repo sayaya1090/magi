@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -314,9 +315,18 @@ func (a *App) fileEditsSince(ctx context.Context, sid session.SessionID, fromSeq
 	return false
 }
 
+// truncateOutput bounds build output and LSP diagnostics before they are handed to the model,
+// rune-safe like every sibling clip. It cut on the byte boundary alone, so any non-ASCII in the
+// text — a compiler quoting an identifier, a UTF-8 path, a typographic quote in an error message —
+// could land mid-rune and put a broken byte at the seam of something the model is asked to read
+// and fix. Measured: `truncateOutput(strings.Repeat("한글", 300), 10)` returned "한글한\xea".
 func truncateOutput(s string, max int) string {
 	if len(s) <= max {
 		return s
 	}
-	return s[:max] + "\n…(truncated)"
+	cut := max
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "\n…(truncated)"
 }
