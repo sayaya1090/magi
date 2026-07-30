@@ -33,7 +33,9 @@ func TestTurnToolEvidence(t *testing.T) {
 	result := func(id string, content string, isErr bool) event.Event {
 		return part(session.RoleTool, session.Part{Kind: session.PartToolResult, ToolResult: &session.ToolResult{CallID: id, Content: json.RawMessage(content), IsError: isErr}})
 	}
-	prompt := event.Event{Type: event.TypePromptSubmitted}
+	// A turn boundary is a USER prompt — what cli/tui/eval all emit. magi's own injected prompts
+	// carry a system actor and must not reset the evidence the council judges on.
+	prompt := event.Event{Type: event.TypePromptSubmitted, Actor: event.Actor{Kind: event.ActorUser, ID: "cli"}}
 
 	// A defeatist turn: only model narration, no tool calls → NO evidence (so the
 	// council can't be talked into "done").

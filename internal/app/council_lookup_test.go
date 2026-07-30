@@ -11,7 +11,11 @@ import (
 
 // evPrompt / evToolCall / evToolResult build the minimal event.Event values that the
 // council-gate evidence helpers (turnToolEvidence, unverifiedLookup) consume.
-func evPrompt() event.Event { return event.Event{Type: event.TypePromptSubmitted} }
+// A turn boundary is a USER prompt — that is what every production entry point emits (cli, tui,
+// eval all set ActorUser). magi's own injected prompts carry a system actor and are not boundaries.
+func evPrompt() event.Event {
+	return event.Event{Type: event.TypePromptSubmitted, Actor: event.Actor{Kind: event.ActorUser, ID: "cli"}}
+}
 
 func evToolCall(callID, name string) event.Event {
 	d, _ := json.Marshal(event.PartAppendedData{Part: session.Part{

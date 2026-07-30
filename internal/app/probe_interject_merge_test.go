@@ -93,9 +93,18 @@ func TestProbeInterjectionVisibleInLiveTurn(t *testing.T) {
 	}
 }
 
-// (B) A mid-turn interjection corrupts the council's per-turn evidence window: the
-// failed-lookup evidence that came BEFORE the interjection is discarded, so the council
-// warning that should fire for this turn goes silent.
+// (B) The council's per-turn evidence window and what may reset it.
+//
+// It used to reset on ANY prompt.submitted, and magi emits several of its own — the stall nudge,
+// a plugin note, a permission message, a hook, an orchestrator re-prompt. Those laundered the
+// turn's failures away: measured live (cancel-async-tasks, 2026-07-30) an orchestrator re-prompt
+// landed 12 seconds before a council was convened, so the council judged on an EMPTY block. Fixed:
+// only an ActorUser prompt is a boundary.
+//
+// A genuine mid-turn USER interjection still resets it, and that half is still open — steering the
+// agent ("just read the md files") should not erase the failed lookup this same turn produced. It
+// needs a way to tell an interjection from a new request, which is a design question, so this
+// documents it rather than masking it.
 func TestProbeInterjectionCorruptsCouncilWindow(t *testing.T) {
 	fail := func(id string) []event.Event {
 		return []event.Event{
@@ -103,21 +112,35 @@ func TestProbeInterjectionCorruptsCouncilWindow(t *testing.T) {
 			evToolResult(id, "search failed: x509: certificate signed by unknown authority", true),
 		}
 	}
+	withActor := func(e event.Event, a event.Actor) event.Event { e.Actor = a; return e }
 
 	// Baseline: a clean turn with a failed knowledge lookup → the detector fires.
-	clean := append([]event.Event{evPrompt()}, fail("w1")...)
-	if unverifiedLookup(clean) == "" {
+	if unverifiedLookup(append([]event.Event{evPrompt()}, fail("w1")...)) == "" {
 		t.Fatal("baseline: a failed lookup with no recovery must fire the detector")
 	}
 
-	// Same turn, but the user steers an interjection in AFTER the failed lookup. The
-	// scanner resets at that PromptSubmitted boundary and forgets the failure that this
-	// same turn actually produced.
+	// CLOSED: magi's own injected prompts are not turn boundaries, so they cannot launder the
+	// turn's failure away. Every actor magi emits prompt.submitted under.
+	for _, injected := range []event.Actor{
+		{Kind: event.ActorSystem, ID: "loop"},
+		{Kind: event.ActorSystem, ID: "orchestrator"},
+		{Kind: event.ActorSystem, ID: "hook"},
+		{Kind: event.ActorSystem, ID: "plugin"},
+	} {
+		evs := append(append([]event.Event{evPrompt()}, fail("w1")...),
+			withActor(evPromptText("m_sys", "magi says something"), injected))
+		if unverifiedLookup(evs) == "" {
+			t.Errorf("%s: a system prompt is not a turn boundary and must not hide this turn's failure", injected.ID)
+		}
+	}
+
+	// STILL OPEN, documented not masked: a genuine mid-turn USER interjection resets the window,
+	// so steering the agent erases the failure this same turn produced. Telling an interjection
+	// apart from a new request is a design question, not a predicate fix.
 	corrupted := append(append([]event.Event{evPrompt()}, fail("w1")...),
-		evPromptText("m_interject", "md 파일만 읽어도 돼"))
+		withActor(evPromptText("m_interject", "md 파일만 읽어도 돼"), event.Actor{Kind: event.ActorUser, ID: "tui"}))
 	if got := unverifiedLookup(corrupted); got != "" {
-		t.Fatalf("a mid-turn interjection should NOT be able to launder the failed lookup "+
-			"away — but the boundary reset silenced the detector (got %q). This documents "+
-			"the council-window corruption; if it fails, masking was added — update the probe", got)
+		t.Fatalf("this arm documents a KNOWN open gap — a user interjection still resets the "+
+			"window. It now reports %q, which means the gap was closed: update this probe.", got)
 	}
 }

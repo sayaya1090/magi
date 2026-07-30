@@ -47,10 +47,12 @@ func TestTheCouncilIsHandedItsOwnEarlierObjections(t *testing.T) {
 // Objections belong to the work they judged. A new user prompt is new work, and carrying the last
 // task's complaints into it would have the council answering a question nobody asked.
 func TestObjectionsDoNotCrossTurns(t *testing.T) {
+	// A turn boundary is a USER prompt; magi's own injected prompts carry a system actor.
+	userPrompt := event.Event{Type: event.TypePromptSubmitted, Actor: event.Actor{Kind: event.ActorUser, ID: "cli"}}
 	evs := []event.Event{
-		event.Event{Type: event.TypePromptSubmitted},
+		userPrompt,
 		verdictEv("Melchior", "correctness", "continue", "the previous task's parser is wrong"),
-		event.Event{Type: event.TypePromptSubmitted},
+		userPrompt,
 		verdictEv("Casper", "completeness", "continue", "this task has no test at all"),
 	}
 	got := priorCouncilObjections(evs, 6, 4000)
@@ -61,7 +63,7 @@ func TestObjectionsDoNotCrossTurns(t *testing.T) {
 		t.Errorf("this turn's objection must be there:\n%s", got)
 	}
 	// Nothing to hand back is silence, not an empty heading.
-	if got := priorCouncilObjections([]event.Event{event.Event{Type: event.TypePromptSubmitted}}, 6, 4000); got != "" {
+	if got := priorCouncilObjections([]event.Event{userPrompt}, 6, 4000); got != "" {
 		t.Errorf("a first round has no history and must say nothing, got %q", got)
 	}
 }
