@@ -248,6 +248,18 @@ func (a *App) summarizeViaLLM(ctx context.Context, agent AgentSpec, s session.Se
 		// than losing the region entirely.
 		a.emitToolProgress(s.ID, event.Actor{Kind: event.ActorSystem, ID: "compact"}, "", "compact",
 			fmt.Sprintf("compact: the summary was CUT OFF after %d chars — %v (the compacted region is summarized incompletely)", len(text), cut))
+		// …and say it INSIDE the summary. The line above goes to the operator; the reader who
+		// depends on this text is the agent, and for it this paragraph is now the whole of what
+		// happened before. Every other truncation in magi marks itself in the artifact it cut —
+		// the result cap, the capture head/tail, the evidence block's dropped tail — because a
+		// reader cannot ask for what it does not know is missing. This one only told the console.
+		text = strings.TrimSpace(text)
+		if text != "" {
+			text += "\n\n[this summary is INCOMPLETE — the model was cut off while writing it, so " +
+				"parts of what it replaces are described nowhere. Treat gaps as unknown rather than " +
+				"as nothing having happened; recall_context can re-open the detail by topic.]"
+		}
+		return text
 	}
 	return strings.TrimSpace(text)
 }
