@@ -565,18 +565,36 @@ func readPipeStatus(path string) []int {
 // for a living; it knows what `grep` returns when nothing matches, and it can see the output. What
 // it CANNOT see is the status the shell threw away. So magi hands it that, as a fact, and does not
 // say what it means.
+//
+// The note used to be gated on `exit == 0`, on the reasoning that a nonzero exit already says
+// something failed, so nothing could be hidden behind it. That reasoning is itself an
+// interpretation, and a wrong one: the reported status belongs to the LAST stage, so an earlier
+// stage's failure has no status to appear in whether the last one succeeded or not. Observed live
+// (kv-store-grpc, 2026-07-30):
+//
+//	ps aux | grep server.py | grep -v grep      →  exit 1   (stages 127 → 1 → 1)
+//	echo hi | grep nomatch                      →  exit 1   (stages   0 → 1)
+//
+// Two commands, one status line, opposite facts — "the program does not exist" against "the program
+// ran and matched nothing" — and magi held the number that tells them apart and dropped it. Worse
+// with `2>/dev/null` on the failing stage, where the message is gone too.
+//
+// So the gate is the fact, not the exit: speak when a stage OTHER than the last one is nonzero,
+// because that is exactly the failure the reported status cannot express. On exit 0 this is the
+// same set as before (the last stage IS the 0), so nothing that used to fire stops firing, and the
+// benign `cmd | grep` that simply found nothing (0 → 1) stays silent.
 func pipeStageNote(exit int, stages []int) string {
-	if exit != 0 || len(stages) < 2 {
-		return "" // the reported status is the whole story, or magi captured no stages
+	if len(stages) < 2 {
+		return "" // magi captured no pipeline, so it has nothing the status does not already say
 	}
-	same := true
-	for _, st := range stages {
+	hidden := false
+	for _, st := range stages[:len(stages)-1] {
 		if st != 0 {
-			same = false
+			hidden = true
 		}
 	}
-	if same {
-		return "" // every stage agrees with the exit — nothing was hidden, and a note on every pipe is noise
+	if !hidden {
+		return "" // every stage before the last succeeded — the reported status is the whole story
 	}
 	parts := make([]string, len(stages))
 	for i, st := range stages {
