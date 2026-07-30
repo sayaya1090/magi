@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -77,12 +78,18 @@ func TestSeveredMidStreamSurfacesError(t *testing.T) {
 	}
 }
 
-// Characterization (known gap): when a stream is cut at a CLEAN line boundary
-// before finish_reason, the scanner reaches EOF with no error, so consume cannot
-// distinguish it from a legitimate end. The partial answer is therefore accepted
-// SILENTLY — no ProviderError, no finish, no usage. This test pins that current
-// behavior so a future change that detects a finish-less EOF is a conscious one.
-func TestSilentTruncationAtLineBoundary(t *testing.T) {
+// A stream cut at a CLEAN line boundary reaches EOF with no read error, so it used to be
+// indistinguishable from a legitimate end: the partial answer was accepted SILENTLY — no
+// ProviderError, no finish, no usage, just a shorter reply the caller had no way to question.
+//
+// It IS distinguishable, by what the stream never said. Measured against the backend this runs on
+// before relying on it: `stop`, `length` and `tool_calls` responses all carry finish_reason, and
+// all are followed by `[DONE]`. An end with neither is not a shape it produces — it is a cut.
+//
+// Scoped to a stream that delivered at least one frame: a body with no frames at all hands over no
+// fragment that could be mistaken for a whole answer, and stays the clean no-op
+// TestEmptyStreamGraceful pins.
+func TestTruncationAtLineBoundaryIsReported(t *testing.T) {
 	// A complete SSE frame with content but NO finish_reason, then a clean close.
 	body := "data: {\"choices\":[{\"delta\":{\"content\":\"half answer\"}}]}\n\n"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -97,7 +104,7 @@ func TestSilentTruncationAtLineBoundary(t *testing.T) {
 	if !ok {
 		t.Fatal("StreamChat hung on a clean truncation")
 	}
-	var text string
+	var text, errText string
 	var errs, finishes, usage int
 	for _, e := range evs {
 		switch e.Type {
@@ -105,22 +112,27 @@ func TestSilentTruncationAtLineBoundary(t *testing.T) {
 			text += e.Text
 		case port.ProviderError:
 			errs++
+			if e.Err != nil {
+				errText = e.Err.Error()
+			}
 		case port.ProviderFinish:
 			finishes++
 		case port.ProviderUsage:
 			usage++
 		}
 	}
+	// What arrived is still handed over — the fragment is evidence, not garbage.
 	if text != "half answer" {
-		t.Errorf("partial text = %q, want %q", text, "half answer")
+		t.Errorf("the partial text must still reach the caller, got %q", text)
 	}
-	// Current behavior: a clean-boundary truncation is indistinguishable from a
-	// normal end, so nothing is flagged. If any of these ever becomes non-zero,
-	// the finish-less-EOF handling changed — update this test deliberately.
-	if errs != 0 {
-		t.Errorf("clean-boundary truncation currently surfaces no error; got %d (behavior changed?)", errs)
+	// But it is no longer passed off as a finished turn.
+	if errs != 1 {
+		t.Errorf("a cut stream must say so exactly once, got %d errors", errs)
+	}
+	if !strings.Contains(errText, "cut off") || !strings.Contains(errText, "finish_reason") {
+		t.Errorf("the error names what was missing and what it means: %q", errText)
 	}
 	if finishes != 0 || usage != 0 {
-		t.Errorf("clean-boundary truncation emits no finish/usage; finishes=%d usage=%d", finishes, usage)
+		t.Errorf("nothing may be synthesized for a turn that never finished; finishes=%d usage=%d", finishes, usage)
 	}
 }
