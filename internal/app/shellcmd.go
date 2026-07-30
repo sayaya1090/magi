@@ -337,6 +337,17 @@ func redirectTargets(cmd string) []string {
 			quote = cmd[i]
 			continue
 		}
+		// A `#` comment is the third form of not-shell-text this scan has had to learn, after
+		// quoted runs and heredoc bodies, and it arrives the same way: `make world  # writes >
+		// out.txt` had `out.txt` recorded as a file the command wrote. The consequence is not
+		// cosmetic — the caller books a phantom write as a real mutation, which bumps the epoch
+		// and zeroes the stall window, so a command that touched nothing buys a fresh window.
+		if cmd[i] == '#' && (i == 0 || isCommentStart(cmd[i-1])) {
+			for i < len(cmd) && cmd[i] != '\n' {
+				i++
+			}
+			continue
+		}
 		if cmd[i] != '>' {
 			continue
 		}
@@ -496,6 +507,10 @@ func bashWritePaths(cmd string) []string {
 // `cat > f <<'EOF'` is not read as shell text. The scan itself lives in builtin, shared with the
 // detach note that needs exactly the same answer — two copies of it drifted apart once already.
 func stripHeredocs(cmd string) string { return builtin.StripHeredocBodies(cmd) }
+
+// isCommentStart reports whether a `#` preceded by b opens a comment. Shared with builtin for the
+// same reason stripHeredocs is: two copies of "what counts as shell text" drift.
+func isCommentStart(b byte) bool { return builtin.IsCommentStart(b) }
 
 // hasHeredoc reports whether cmd contains a real heredoc (`cmd <<TAG`), as opposed to an
 // arithmetic left-shift (`$((1<<2))`), a here-string (`<<<word`), or a `<<` inside quotes.
