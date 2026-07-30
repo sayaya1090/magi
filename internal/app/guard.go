@@ -173,6 +173,14 @@ func (g *runGuard) noteEdit(path, before, after string) (warn string, regressed 
 	if !ok {
 		hist = []uint64{hashContent(before)} // index 0 = pre-turn baseline
 	}
+	// Nothing on either side is not a rewrite of anything, and magi cannot tell the two shapes
+	// apart from content alone: `write{content:""}` on a path that did not exist CREATES a file,
+	// and the same call on an already-empty one changes nothing. Saying "nothing changed" picks
+	// one of those without having measured which — so say nothing. The bash path guarded this at
+	// its own call site; the write/edit path did not, and reached here.
+	if before == "" && after == "" {
+		return "", false
+	}
 	h := hashContent(after)
 	if h == hist[len(hist)-1] {
 		// Byte-identical to what the file already held. Not a regression — nothing moved either
