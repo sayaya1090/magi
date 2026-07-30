@@ -160,21 +160,6 @@ type Tool interface {
 	Execute(ctx context.Context, args json.RawMessage, env ToolEnv) (session.ToolResult, error)
 }
 
-// ReportInput is a subagent's structured final report — the output side of the delegation
-// contract, mirroring the curated brief it was given. Only Status is required; the rest close
-// the loop on the delegated deliverable so the orchestrator/council can judge on evidence:
-// Summary/Details carry the result narrative, Evidence is the verification that proves "done",
-// Deviations surfaces assumptions/workarounds/unmet boundaries (management-by-exception), and
-// Handoff hands the next step the facts it needs.
-type ReportInput struct {
-	Summary    string
-	Status     string
-	Details    string
-	Evidence   string
-	Deviations string
-	Handoff    string
-}
-
 // ToolEnv carries per-execution context and capabilities granted to a tool.
 type ToolEnv struct {
 	SessionID session.SessionID
@@ -200,18 +185,10 @@ type ToolEnv struct {
 	// gap. Transient and droppable; always set by the application, but a tool
 	// should still nil-check it (a bare ToolEnv has no observer).
 	EmitProgress func(text string)
-	// Ask lets a running subagent request something from its orchestrator
-	// mid-task (escalation); it blocks until the orchestrator replies. Set only
-	// for subagents; nil for the top-level agent.
-	Ask func(question string) (string, error)
 	// AskUser presents a multiple-choice question to the HUMAN user and blocks
 	// for the pick (top-level interactive sessions only; nil otherwise — the
 	// tool then tells the model to proceed on its own judgment).
 	AskUser func(question string, options []string) (string, error)
-	// Report is how a subagent delivers its FINAL result and ends its turn:
-	// status is "done" | "blocked" | "failed". Set only for subagents. Returns an
-	// error if called by a non-subagent or after a report was already filed.
-	Report func(ReportInput) error
 	// Council asks the configured council for a reading of the work so far and returns their
 	// answers as text. complete marks the call as a DECLARATION that the task is finished: the
 	// council reads the record as a finish, and if it accepts, the application ends the turn.
@@ -228,8 +205,10 @@ type ToolEnv struct {
 	// SetTodos replaces the session's plan (TodoWrite); nil when unavailable.
 	SetTodos func(todos []session.Todo)
 	// NoteForTurn stores one thing the agent asked to be reminded of before this turn ends
-	// (remember{scope:"turn"}). Verbatim in, verbatim out; nil when unavailable.
-	NoteForTurn func(text string)
+	// (remember{scope:"turn"}). Verbatim in, verbatim out; nil when unavailable. Returns the
+	// reason the note was NOT kept (the queue is bounded), or nil when it was — a caller that
+	// answers "noted" on a discarded note tells the agent it has a reminder it will never get.
+	NoteForTurn func(text string) error
 	// Propose contributes a memory/skill to the shared experience store (D13);
 	// nil when unavailable.
 	Propose func(c Contribution) error
