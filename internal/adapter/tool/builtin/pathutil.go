@@ -42,19 +42,38 @@ func resolvePath(workdir, p string) (string, error) {
 	// abs must equal base or be within base/.
 	rel, err := filepath.Rel(base, abs)
 	if err != nil {
-		return "", fmt.Errorf("outside workdir: %s", p)
+		return "", outsideWorkdir(base, p)
 	}
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("outside workdir: %s", p)
+		return "", outsideWorkdir(base, p)
 	}
 	// Symlink jail: the lexical check above can't see a symlink that lives INSIDE the
 	// workdir but points OUTSIDE it (e.g. `ln -s /etc workdir/link`, then read
 	// link/passwd). Resolve symlinks on the deepest existing ancestor and verify the
 	// REAL path is still within the REAL workdir.
 	if err := withinSymlinkJail(base, abs); err != nil {
-		return "", fmt.Errorf("outside workdir: %s", p)
+		return "", outsideWorkdir(base, p)
 	}
 	return abs, nil
+}
+
+// outsideWorkdir is the jail's refusal, and it names the two things the caller cannot see: WHERE
+// the boundary is, and that a way past it exists.
+//
+// It used to be `outside workdir: /etc/environment` and nothing else. Observed live
+// (sqlite-with-gcov, 2026-07-30): a task whose goal was to put a binary on the PATH tried
+// `write{/etc/profile.d/sqlite.sh}`, then `read{/etc/environment}`, then
+// `edit{/etc/environment}` — three calls, three identical refusals, no mention of the workdir it
+// was measured against and no hint that the very same run had already written that directory
+// through bash minutes earlier. The agent found bash by trying. A refusal is a result, and a
+// result that withholds what magi measured is the harness making the caller re-derive it.
+//
+// The bash caveat is honest rather than absolute: bash runs under the OS sandbox axis, which in a
+// confined mode may refuse the same path. The wording promises a route to attempt, not success.
+func outsideWorkdir(base, p string) error {
+	return fmt.Errorf("outside workdir: %s — the file tools are jailed to %s and this path is not "+
+		"under it. To reach a path outside, use bash (its confinement is the run's sandbox setting, "+
+		"not this jail): read with `cat`, write with a redirect or heredoc", p, base)
 }
 
 // withinSymlinkJail resolves symlinks on abs's deepest existing ancestor and checks the
