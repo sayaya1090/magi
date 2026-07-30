@@ -25,3 +25,6 @@ cover.out
 
 # bench run outputs (dated dirs; tracked reports under runs/ stay tracked)
 /runs/
+
+# 세션 작업 노트 — 저장소 이력에 남기지 않는다
+scratchpad/overnight_log.md
