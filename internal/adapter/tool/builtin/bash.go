@@ -123,6 +123,25 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	if timeout > maxBashTimeout {
 		timeout = maxBashTimeout
 	}
+	// A `timeout` magi could not use as given is a part of the call it did not honor, and until now
+	// it said so only when the deadline happened to fire — timedOutNote is reached from the
+	// DeadlineExceeded branch alone. A command that finished in time left its caller believing the
+	// limit it asked for was in force. Measured: `timeout:-5` on a command that ran 0.1s came back
+	// with no mention of the -5 at all.
+	//
+	// Only the two unambiguous cases. An ABSENT timeout decodes to 0 through a plain int field and
+	// cannot be told apart from an explicit 0, so neither is reported; a negative and an
+	// over-the-cap value are things the caller demonstrably typed.
+	timeoutNote := ""
+	switch req := int(a.Timeout); {
+	case req < 0:
+		timeoutNote = fmt.Sprintf("[note: your `timeout` of %ds is not a usable duration, so the default "+
+			"%ds applied instead. This command was bounded by %ds, not by what you asked for.]",
+			req, defaultBashTimeout, timeout)
+	case req > maxBashTimeout:
+		timeoutNote = fmt.Sprintf("[note: your `timeout` of %ds was capped at the %ds maximum. This "+
+			"command was bounded by %ds, not by what you asked for.]", req, maxBashTimeout, timeout)
+	}
 
 	cctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
@@ -192,6 +211,11 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		body += "\n[note: `pty` only applies with background=true, so this command ran on a plain pipe. " +
 			"If it needs a real terminal (an ssh password prompt, a serial login, a curses UI), re-launch " +
 			"it with background:true AND pty:true and drive it with bash_input/bash_output.]"
+	}
+	// Only when the deadline did NOT fire: timedOutNote below already names the limit's origin, and
+	// two sentences about one number is one too many.
+	if timeoutNote != "" && cctx.Err() != context.DeadlineExceeded {
+		body += "\n" + timeoutNote
 	}
 	if cctx.Err() == context.DeadlineExceeded {
 		// The partial log is the most useful thing a killed build leaves, so name it here too.
