@@ -280,15 +280,27 @@ func swallowingPipeNote(exit int, command string, stagesKnown bool) string {
 	return "[note: this exit 0 is `" + strings.TrimPrefix(stage, "|") + "`'s, not the command before the pipe — that command's own status is not reported here.]"
 }
 
-// sequencedTail matches a command whose FINAL `;`-sequenced segment cannot fail: a reporter
-// (`echo`/`printf`/`true`/`:`) or a truncator (`tail`/`head`/`cat`). A `;` list reports only its
+// sequencedTail matches a command whose FINAL sequenced segment cannot fail: a reporter
+// (`echo`/`printf`/`true`/`:`) or a truncator (`tail`/`head`/`cat`). A sequence reports only its
 // LAST command's status, so such a tail masks the primary command exactly as `| tail` does — the
 // pipe form's sibling, and the one a model reaches for when it wants BOTH a captured log and the
 // exit code: `make world > log 2>&1; echo "exit=$?" >> log; tail -30 log`. `&&` is deliberately
 // NOT matched: there the tail runs only if the primary SUCCEEDED, so a failure still surfaces its
-// own non-zero exit. The segment must hold no further `;`/`|`/`&` so a real command after the
+// own non-zero exit. The segment must hold no further separator so a real command after the
 // reporter keeps it unmatched (under-firing on redirections like `2>&1` is fine — advisory only).
-var sequencedTail = regexp.MustCompile(`;\s*(?:(?:tail|head|cat|echo|printf|true)\b[^;|&]*|:\s*)$`)
+//
+// A NEWLINE separates commands exactly as `;` does, and the status of the list is still the last
+// one's — but only `;` used to count, so the same masking written across two lines was invisible.
+// Observed live (cancel-async-tasks, 2026-07-30):
+//
+//	timeout 5 python3 << 'EOF' … EOF
+//	echo "Exit code: $?"
+//
+// came back `exit 0` while the output carried `Exit code: 130`, and the `;` spelling of the very
+// same command was flagged. Excluding `\n` from the segment body matters for the same reason `;`
+// is excluded: without it `make x; echo hi` + a newline + `make world` matched, naming the echo as
+// the last command when a real one followed it.
+var sequencedTail = regexp.MustCompile(`[;\n]\s*(?:(?:tail|head|cat|echo|printf|true)\b[^;|&\n]*|:\s*)$`)
 
 // sequencedTailNote is the same label for the `;` form, and ungated for the same reason.
 //
@@ -310,11 +322,17 @@ func sequencedTailNote(exit int, command string) string {
 	if loc == nil {
 		return ""
 	}
-	seg := strings.TrimSpace(command[loc[0]:loc[1]])
+	// Name the separator the command actually used. Saying "the last `;` segment" about a command
+	// written across two lines points the reader at a character that is not in it.
+	sep, kind := ";", "the last `;` segment"
+	if masked[loc[0]] == '\n' {
+		sep, kind = "\n", "the last line"
+	}
+	seg := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(command[loc[0]:loc[1]]), sep))
 	if seg == "" {
 		return ""
 	}
-	return "[note: this exit 0 is `" + strings.TrimSpace(strings.TrimPrefix(seg, ";")) + "`'s, the last `;` segment — not the command before it.]"
+	return "[note: this exit 0 is `" + seg + "`'s, " + kind + " — not the command before it.]"
 }
 
 // ExitCodeMasked reports whether a bash result's exit code is provably NOT the primary command's,
@@ -334,8 +352,15 @@ func sequencedTailNote(exit int, command string) string {
 // `make … > log 2>&1; echo "exit=$?" >> log` with verify=false had its echo's exit 0 booked as the
 // build converging, so one field of the model's own choosing switched off the counter that exists
 // to catch that build failing over and over.
+// It reads SHELL TEXT, not raw text, for the reason maskNonShell exists — and for a while it was
+// the one reader that did not. Every note above was moved onto the masked form after
+// `python3 -c "print('done | tail -3')"` was read as a pipeline; this predicate kept matching the
+// raw string, so that same command still told magi's churn accounting that its exit 0 belonged to
+// a pager. The two directions of the error are not symmetric but both are wrong: a missed mask
+// lets an echo's zero clear the counter, and a phantom one refuses a real command's zero as
+// evidence it converged.
 func ExitCodeMasked(command string) bool {
-	c := strings.TrimSpace(command)
+	c := strings.TrimSpace(maskNonShell(command))
 	return maskingTail.MatchString(c) || swallowingPipe.MatchString(c) || sequencedTail.MatchString(c)
 }
 
