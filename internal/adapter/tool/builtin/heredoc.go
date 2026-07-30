@@ -119,11 +119,20 @@ func scanShellLine(line string, quote *byte) (detachAt int, intros []heredocIntr
 	return detachAt, intros
 }
 
+// IsCommentStart reports whether a `#` preceded by b begins a comment. A `#` in the middle of a
+// word (`file#1`, `${x#y}`) does not. Exported for the app layer's redirect scan, which has to
+// skip comments for the same reason this package's notes do — one rule, not a second copy.
+func IsCommentStart(b byte) bool { return isCommentStart(b) }
+
 // isCommentStart reports whether a `#` preceded by b begins a comment. A `#` in the middle of a
 // word (`file#1`, `${x#y}`) does not.
 func isCommentStart(b byte) bool {
 	switch b {
-	case ' ', '\t', ';', '|', '&', '(':
+	// A newline precedes a command position exactly as `;` does, so a `#` on its own line opens a
+	// comment. The scanners in this file walk one line at a time and reach that case through their
+	// own `i == 0`, so it never came up; a caller that walks a whole multi-line command at once
+	// needs the rule to say it.
+	case ' ', '\t', '\n', ';', '|', '&', '(':
 		return true
 	}
 	return false
