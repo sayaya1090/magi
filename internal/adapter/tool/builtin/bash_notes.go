@@ -377,7 +377,9 @@ var ptyGated = regexp.MustCompile(`(?:^|[;&|(]\s*)(?:ssh|telnet|minicom)\s|qemu-
 // there is no pty the obligation is the same (do not sit on a prompt nothing can answer) but the
 // route is to make the command non-interactive instead.
 func ptyNeededNote(command string, usePTY bool) string {
-	if usePTY || !ptyGated.MatchString(strings.TrimSpace(command)) {
+	// Shell text only, for the reason maskNonShell exists: an `ssh` named inside a quoted string,
+	// a comment, or a heredoc body being written to a file is not a command about to run.
+	if usePTY || !ptyGated.MatchString(strings.TrimSpace(maskNonShell(command))) {
 		return ""
 	}
 	const why = "[note: this command needs a controlling terminal — ssh reads its password from /dev/tty (not stdin), and a serial/getty login expects a tty; a plain pipe cannot drive them. "
@@ -409,7 +411,13 @@ var ephemeralNoted = struct {
 // through the same prefix, and landed a deliverable a fresh process could not
 // find — the whole task lost to a missing symlink. Advisory, once per session.
 func ephemeralEnvNote(exit int, command string, sid session.SessionID) string {
-	if exit != 0 || !ephemeralShellState.MatchString(command) {
+	// Shell text only — and here a false fire costs more than noise. The note is delivered ONCE per
+	// session, so an `export` inside a heredoc body, a quoted string or a comment spends the single
+	// delivery on a command that set no shell state, and the real `export PATH=… && …` it exists to
+	// warn about gets nothing. Measured: `cat > s.sh <<TAG … cd /x ; export PATH=/y … TAG`,
+	// `foo | source bar` in a body, `python3 -c "print('a ; export B=1')"` and a trailing
+	// `# note: ; export PATH=/x` all fired it.
+	if exit != 0 || !ephemeralShellState.MatchString(maskNonShell(command)) {
 		return ""
 	}
 	ephemeralNoted.mu.Lock()
