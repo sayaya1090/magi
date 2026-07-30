@@ -24,12 +24,17 @@ func (Remember) Name() string { return "remember" }
 func (Remember) Description() string {
 	return "Save something worth keeping. Provide concise 'text' and optional 'tags'. " +
 		"'scope' selects WHERE and for HOW LONG:\n" +
-		"  \"turn\"    — a note to yourself for THIS task, handed back word for word before the turn " +
-		"can end. A long task is compacted as it runs: what you worked out in its first minutes may " +
-		"not be in front of you at its last, and working it out again costs what it cost the first " +
-		"time. This costs one call, and you never have to ask for it back. Use it the moment you " +
-		"establish something you must not derive twice — a value you measured, a cause you proved, " +
-		"a dead end you ruled out, a constraint of the task your current step does not touch.\n" +
+		"  \"turn\"    — SOMETHING TO CHECK BEFORE YOU DECLARE THIS TASK FINISHED. magi hands it back " +
+		"word for word at the finish, in front of the decision about whether the work is done — so " +
+		"write it the moment you notice something you would want to re-read at that point:\n" +
+		"             - a part of the request your current step does not touch (\"must also work when " +
+		"the list is empty\")\n" +
+		"             - something you knowingly deferred or stubbed (\"timeout still hardcoded\")\n" +
+		"             - a fact that cost you real work and must not be derived twice: a value you " +
+		"measured, a cause you proved, a dead end you ruled out. A long task is compacted as it runs, " +
+		"so what you worked out in its first minutes may not be in front of you at its last.\n" +
+		"             One call, and you never have to ask for it back. It is not a log of what you " +
+		"did — that is what your reply is for.\n" +
 		"  \"project\" (default) — a durable workspace learning, recallable in later sessions via recall_memory.\n" +
 		"  \"global\"  — knowledge useful across all projects.\n" +
 		"Do not include secrets."
@@ -59,7 +64,7 @@ func (Remember) Execute(ctx context.Context, raw json.RawMessage, env port.ToolE
 		if err := env.NoteForTurn(a.Text); err != nil {
 			return errResult("", err.Error()), nil
 		}
-		return okText("", "noted for this turn — magi will hand this back before the turn ends"), nil
+		return okText("", "noted — magi will hand this back at the finish, before you can declare this task done"), nil
 	}
 	if env.Propose == nil {
 		return errResult("", "shared experience is not configured"), nil

@@ -253,6 +253,6 @@ func (a *App) turnNotesBlock(sid session.SessionID) string {
 	if len(notes) == 0 {
 		return ""
 	}
-	return "── WHAT YOU ASKED TO BE REMINDED OF BEFORE THIS TURN ENDS ──\n- " +
+	return "── WHAT YOU ASKED TO CHECK BEFORE DECLARING THIS FINISHED ──\n- " +
 		strings.Join(notes, "\n- ")
 }
