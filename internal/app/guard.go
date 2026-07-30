@@ -772,6 +772,19 @@ func capToolResult(b []byte) []byte {
 	return append(out, m...)
 }
 
+// pathExists reports whether a tool-supplied path resolves to something on disk right now. magi
+// records an absent file and an empty one as the same content (""), so a command that DELETED a
+// file looks, to the content history, exactly like one that returned it to an earlier state. The
+// two are told apart by the same stat readForChange already makes — just kept.
+func pathExists(workdir, path string) bool {
+	abs := path
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(workdir, path)
+	}
+	_, err := os.Stat(abs)
+	return err == nil
+}
+
 // changeReadCap bounds how much of a file we read to reconstruct a before/after change.
 // (The LCS memory is bounded separately by change.maxDiffInputLines, so this only limits
 // I/O; it's large enough to capture edits that aren't right at the top of a big file.)
