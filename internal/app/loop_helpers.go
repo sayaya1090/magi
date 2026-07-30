@@ -191,6 +191,40 @@ func currentTaskText(evs []event.Event) string {
 	return strings.TrimSpace(prompt + " " + last)
 }
 
+// taskSeedText returns the most recent prompt that IS a task — the user's request at the top
+// level, or the seed a parent agent authored for a subagent — and never one of magi's own.
+//
+// "The task" was read off reconstruct()'s messages, and reconstruct labels EVERY prompt.submitted
+// RoleUser regardless of who wrote it. magi writes several: the stall nudge, an orchestrator
+// re-prompt, a hook message, a permission note, a plugin note. So the newest of those became the
+// answer. Measured:
+//
+//	user "fix the GC bug in shared_heap.c" + a stall nudge  → "You've run many steps without…"
+//	subagent seed "SUBTASK: port the parser" + a stall nudge → "You've run many steps without…"
+//
+// The caller that hurts most is the nudge itself: it ends with "Re-read the original task:" and
+// then quotes this, so a second nudge handed the agent the FIRST nudge as its task — and for a
+// subagent, where turnTask is empty and this fallback is the only path, the real seed was gone.
+//
+// lastUserPromptText above is strictly ActorUser, which is right for "did the user speak" but
+// drops a subagent's seed. The line that matters is authorship: anything magi injected is not the
+// task, and everything else is.
+func taskSeedText(evs []event.Event) string {
+	for i := len(evs) - 1; i >= 0; i-- {
+		e := evs[i]
+		if e.Type != event.TypePromptSubmitted || e.Actor.Kind == event.ActorSystem {
+			continue
+		}
+		var d event.PromptSubmittedData
+		if json.Unmarshal(e.Data, &d) == nil {
+			if t := strings.TrimSpace(partsText(d.Parts)); t != "" {
+				return t
+			}
+		}
+	}
+	return ""
+}
+
 // lastUserText returns the text of the most recent user message.
 func lastUserText(msgs []session.Message) string {
 	for i := len(msgs) - 1; i >= 0; i-- {
