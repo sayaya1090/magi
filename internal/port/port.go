@@ -61,6 +61,12 @@ type ProviderEvent struct {
 	ToolCall *session.ToolCall
 	Usage    *event.Usage
 	Err      error
+	// FinishReason is the provider's own finish_reason, carried verbatim on a
+	// ProviderFinish ("stop", "length", "tool_calls", …). The value used to be
+	// checked for presence and thrown away, which made a reply CUT OFF at the
+	// output-token cap arrive in the exact shape of a complete one — the same
+	// defect the council's drain() reports for a cut stream, one layer down.
+	FinishReason string
 	// FromText is set on a tool-call that was recovered from the assistant's
 	// text output (prompt-based fallback) rather than native tool_calls. The
 	// loop uses this to avoid also persisting the text as a separate part.
