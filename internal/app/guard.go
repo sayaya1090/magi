@@ -762,7 +762,15 @@ func capToolResult(b []byte) []byte {
 			return out
 		}
 	}
-	cut := toolResultCap
+	// Reserve the marker's own length before cutting: appending it to a full-cap prefix put the
+	// result 150 bytes OVER the cap this function exists to enforce. Measured on the three inputs
+	// that reach here — non-JSON bytes, multibyte non-JSON, and a malformed JSON string (the one
+	// of the three a broken producer can actually deliver) — all came back at 65686 for a 65536
+	// cap. Shrinking cut can only shorten the marker (fewer digits), so one reservation is enough.
+	cut := toolResultCap - len(marker(toolResultCap, len(b)))
+	if cut < 0 {
+		cut = 0
+	}
 	for cut > 0 && !utf8.RuneStart(b[cut]) { // don't split a multibyte rune
 		cut--
 	}
