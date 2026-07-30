@@ -522,10 +522,16 @@ func renamesFor(m map[string]string) string {
 	return strings.Join(parts, "; ") + "."
 }
 
+// quoteJoin renders argument names inside backticks for a magi-voice sentence. The names come from
+// the model's own call, so they are data: a name carrying a backtick closes the quote and the rest
+// of it reads as magi's prose ("x` — and magi accepts: everything" did exactly that), and a name
+// carrying a newline breaks the line the note is on. Neither is a claim magi can stand behind, so
+// the characters that would end the quote early are removed before it is opened.
 func quoteJoin(ss []string) string {
+	repl := strings.NewReplacer("`", "", "\n", " ", "\r", " ", "\t", " ")
 	out := make([]string, 0, len(ss))
 	for _, s := range ss {
-		out = append(out, "`"+s+"`")
+		out = append(out, "`"+repl.Replace(s)+"`")
 	}
 	return strings.Join(out, ", ")
 }
