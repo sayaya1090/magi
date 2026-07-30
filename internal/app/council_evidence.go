@@ -22,7 +22,13 @@ func turnToolEvidence(evs []event.Event, k int) string {
 	names := map[string]string{} // callID -> tool name
 	var lines []string
 	for _, e := range evs {
-		if e.Type == event.TypePromptSubmitted { // new turn boundary → keep only the latest turn's evidence
+		// A turn begins when the USER speaks. magi injects prompt.submitted events of its own —
+		// the stall nudge, a plugin note, a permission message, a hook, an orchestrator re-prompt
+		// — and treating those as boundaries emptied the very block the council judges on.
+		// Measured: a turn whose three results included two failing `cleanup ran!` lines came back
+		// as ONE line after a nudge, and as NOTHING when the council was convened right after one.
+		// lastUserPromptTS below has always asked for ActorUser; these scans had drifted.
+		if e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser {
 			names = map[string]string{}
 			lines = nil
 			continue
@@ -82,7 +88,7 @@ func stuckEvidence(evs []event.Event, k int) string {
 	var obst []string
 	seen := map[string]bool{}
 	for _, e := range evs {
-		if e.Type == event.TypePromptSubmitted { // new turn → keep only the latest turn's obstacles
+		if e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser { // new turn → keep only the latest turn's obstacles
 			names, obst, seen = map[string]string{}, nil, map[string]bool{}
 			continue
 		}
@@ -173,7 +179,7 @@ func unverifiedLookup(evs []event.Event) string {
 	var failed []string          // "tool: err snippet" for each un-recovered failed lookup
 	anySuccess := false          // a lookup returned without error → plausible recovery
 	for _, e := range evs {
-		if e.Type == event.TypePromptSubmitted { // new turn boundary → judge only the latest turn
+		if e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser { // new turn boundary → judge only the latest turn
 			names = map[string]string{}
 			failed = nil
 			anySuccess = false
@@ -222,7 +228,7 @@ func lookupRecovered(evs []event.Event) bool {
 	names := map[string]string{}
 	recovered := false
 	for _, e := range evs {
-		if e.Type == event.TypePromptSubmitted { // judge only the latest turn
+		if e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser { // judge only the latest turn
 			names = map[string]string{}
 			recovered = false
 			continue
@@ -438,7 +444,7 @@ func priorCouncilObjections(evs []event.Event, maxItems, perItemCap int) string 
 	var lines []string
 	seen := map[string]bool{}
 	for _, e := range evs {
-		if e.Type == event.TypePromptSubmitted { // a new turn — earlier rounds judged other work
+		if e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser { // a new turn — earlier rounds judged other work
 			lines, seen = nil, map[string]bool{}
 			continue
 		}
