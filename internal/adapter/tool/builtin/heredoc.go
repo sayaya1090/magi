@@ -169,3 +169,77 @@ func HasHeredoc(cmd string) bool {
 	}
 	return false
 }
+
+// maskNonShell returns cmd with everything that is not shell syntax replaced by 'x', PRESERVING
+// LENGTH and newlines so a match's indices still point into the original string.
+//
+// The notes that read a command to say what its last stage is — `| tail`, `; echo`, `|| true` —
+// matched the raw text, and a `|` or `;` the model never typed as an operator fired them. Measured
+// on inputs a bench run produces:
+//
+//	python3 -c "print('done | tail -3')"   said the exit 0 belonged to `tail -3')"` — a command
+//	                                       with no pipeline at all was told its status was a
+//	                                       pager's and could not be trusted
+//	grep -r "x" "my | tail dir"            named a directory as the stage
+//	awk '{print; echo}' f.txt              read an awk program's `;` as a sequenced tail
+//	cat > s.sh <<TAG … make x | tail -5 …  read the body being WRITTEN as the command being run
+//	make world  +  a trailing `# … | tail` comment
+//
+// Quoted runs keep their delimiters (so the shape stays legible to a regexp) and lose their
+// insides; comments, heredoc bodies and their terminators are blanked whole.
+func maskNonShell(cmd string) string {
+	out := []byte(cmd)
+	blank := func(lo, hi int) {
+		for i := lo; i < hi && i < len(out); i++ {
+			if out[i] != '\n' {
+				out[i] = 'x'
+			}
+		}
+	}
+	lines := strings.Split(cmd, "\n")
+	var quote byte
+	off := 0
+	for li := 0; li < len(lines); li++ {
+		line := lines[li]
+		// Blank the insides of quoted runs and any comment, on this line.
+		q := quote
+		for i := 0; i < len(line); i++ {
+			c := line[i]
+			if q != 0 {
+				if q == '"' && c == '\\' && i+1 < len(line) {
+					blank(off+i, off+i+2)
+					i++
+					continue
+				}
+				if c == q {
+					q = 0
+					continue
+				}
+				blank(off+i, off+i+1)
+				continue
+			}
+			switch {
+			case c == '\'' || c == '"':
+				q = c
+			case c == '#' && (i == 0 || isCommentStart(line[i-1])):
+				blank(off+i, off+len(line))
+				i = len(line)
+			}
+		}
+		_, intros := scanShellLine(line, &quote)
+		off += len(line) + 1
+		for _, h := range intros {
+			for li+1 < len(lines) && !h.terminates(lines[li+1]) {
+				li++
+				blank(off, off+len(lines[li]))
+				off += len(lines[li]) + 1
+			}
+			if li+1 < len(lines) {
+				li++
+				blank(off, off+len(lines[li])) // the terminator itself
+				off += len(lines[li]) + 1
+			}
+		}
+	}
+	return string(out)
+}
