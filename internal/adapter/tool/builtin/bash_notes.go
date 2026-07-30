@@ -212,7 +212,9 @@ var maskingTail = regexp.MustCompile(`\|\|\s*(?:true|:|exit\s+0|echo\b[^|&;` + "
 // and pipeStageNote already put them in front of the model, so the ambiguity is resolved by a fact
 // rather than by this sentence.
 func maskingTailNote(exit int, command string, stagesKnown bool) string {
-	if exit != 0 || stagesKnown || !maskingTail.MatchString(strings.TrimSpace(command)) {
+	// Matched against shell text, not raw text: a `||` inside quotes, a comment or a heredoc body
+	// is not an operator (see maskNonShell).
+	if exit != 0 || stagesKnown || !maskingTail.MatchString(strings.TrimSpace(maskNonShell(command))) {
 		return ""
 	}
 	return "[note: a `|| …` tail runs only when the command before it FAILS, so this exit 0 is " +
@@ -264,7 +266,14 @@ func swallowingPipeNote(exit int, command string, stagesKnown bool) string {
 	if stagesKnown {
 		return ""
 	}
-	stage := strings.TrimSpace(swallowingPipe.FindString(strings.TrimSpace(command)))
+	// Located in shell text so a `|` the model never typed as an operator cannot match, then
+	// QUOTED from the original at the same indices — the masking preserves length for this.
+	masked := maskNonShell(command)
+	loc := swallowingPipe.FindStringIndex(strings.TrimRight(masked, " \t\n"))
+	if loc == nil {
+		return ""
+	}
+	stage := strings.TrimSpace(command[loc[0]:loc[1]])
 	if stage == "" {
 		return ""
 	}
@@ -296,7 +305,12 @@ func sequencedTailNote(exit int, command string) string {
 	if exit != 0 {
 		return ""
 	}
-	seg := strings.TrimSpace(sequencedTail.FindString(strings.TrimSpace(command)))
+	masked := maskNonShell(command)
+	loc := sequencedTail.FindStringIndex(strings.TrimRight(masked, " \t\n"))
+	if loc == nil {
+		return ""
+	}
+	seg := strings.TrimSpace(command[loc[0]:loc[1]])
 	if seg == "" {
 		return ""
 	}
