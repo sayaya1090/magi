@@ -848,9 +848,23 @@ func readForChange(workdir, path string) (string, bool) {
 		return "", false
 	}
 	defer f.Close()
-	b := make([]byte, changeReadCap)
+	// One byte past the cap, so a file that fills it can be told from one that merely reaches it.
+	b := make([]byte, changeReadCap+1)
 	n, err := io.ReadFull(f, b)
 	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		return "", false
+	}
+	if n > changeReadCap {
+		// A prefix is not the file. Everything downstream of this read states a fact about the
+		// WHOLE path — "this write left the file byte-for-byte as it already was — nothing
+		// changed", or a content state it "already held" — and a comparison that stopped at
+		// 256 KiB cannot support any of them: a command could rewrite byte 300000 and both sides
+		// would still match. So this joins the directory case above — a path magi cannot read the
+		// content of is one it cannot say anything true about, so it says nothing.
+		//
+		// Observed live (large-scale-text-editing, 2026-07-30): `cp /app/input.csv
+		// /tmp/test_input.csv && vim … -S apply_macros.vim` on a 1,000,000-row CSV came back
+		// saying the file was byte-for-byte unchanged, twice, off a 256 KiB look.
 		return "", false
 	}
 	return string(b[:n]), true
