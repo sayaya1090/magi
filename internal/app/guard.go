@@ -181,8 +181,26 @@ func (g *runGuard) noteEdit(path, before, after string) (warn string, regressed 
 	if before == "" && after == "" {
 		return "", false
 	}
+	// The history is what magi RECORDED; the file is what it IS, and the two part company every
+	// time something rewrites the path through a route magi cannot name a destination for.
+	// `before` is the only one of the pair that was just read from disk, so fold it in and ask
+	// every later question against what the file actually held.
+	//
+	// Observed live (cobol-modernization, 2026-07-30): `cp /tmp/*_orig.DAT /app/data/*.DAT`
+	// restored three fixtures that `python3 program.py` had rewritten in between — a command with
+	// no extractable destination, so the record still read ORIG while the files held the
+	// post-transaction bytes. The restore moved all three, and every one came back saying "this
+	// write left the file byte-for-byte as it already was — nothing changed". The next command,
+	// running the COBOL binary over those same files, printed the post-restore result and proved
+	// the copy had taken.
+	if hb := hashContent(before); hb != hist[len(hist)-1] {
+		hist = append(hist, hb)
+	}
 	h := hashContent(after)
-	if h == hist[len(hist)-1] {
+	// Measured, not inferred: "nothing changed" is a claim about THIS command's effect, and the
+	// two reads around it are what settles that. Matching some recorded state is a different
+	// question, and answering it with this sentence is how the sentence came to be false.
+	if before == after {
 		// Byte-identical to what the file already held. Not a regression — nothing moved either
 		// way — but the agent has no way to see that: the tool answers "wrote 215 bytes", which
 		// reads as a change. Measured: one turn wrote the same 215 bytes to the same path nine
@@ -193,7 +211,9 @@ func (g *runGuard) noteEdit(path, before, after string) (warn string, regressed 
 		return "this write left the file byte-for-byte as it already was — nothing changed.", false
 	}
 	// Scan states strictly before the latest: a match means the file returned to a state it
-	// already held this turn (original→fix→original, or fix1→fix2→fix1 oscillation).
+	// already held this turn (original→fix→original, or fix1→fix2→fix1 oscillation). The fold
+	// above put `before` at the end, and the command moved off it, so the excluded entry is
+	// exactly the state this command left.
 	for i := 0; i < len(hist)-1; i++ {
 		if hist[i] == h {
 			regressed = true
