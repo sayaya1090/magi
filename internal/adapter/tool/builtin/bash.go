@@ -217,6 +217,16 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	if note := pipeStageNote(exit, stages); note != "" {
 		disp = note + "\n" + disp
 	}
+	// Binary output is not text, and saying so is a fact magi already knows how to measure — the
+	// read tool refuses a binary file outright on the same predicate. bash cannot refuse (a command
+	// may legitimately emit bytes, and the capture file must keep them either way), but it can stop
+	// handing the model a wall of them unlabelled. Observed live (sqlite-with-gcov, 2026-07-30):
+	// `cat /app/sqlite/bin/sqlite3 | head -5` put 9225 bytes of ELF header into the context with
+	// nothing to say what it was. Named, the model can reach for `file`, `xxd`, or `strings`
+	// instead of trying to read it.
+	if isBinary(out) {
+		disp = binaryOutputNote(len(out), logPath) + "\n" + disp
+	}
 	// The annotators, in precedence order, FIRST match wins: each says one thing about how this
 	// command's status should be read, and stacking several on one result would bury the sharpest
 	// under the vaguest. It is a list rather than an if/else ladder because the order IS the policy

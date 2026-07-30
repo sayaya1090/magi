@@ -379,6 +379,23 @@ func ExitCodeMasked(command string) bool {
 	return maskingTail.MatchString(c) || swallowingPipe.MatchString(c) || sequencedTail.MatchString(c)
 }
 
+// binaryOutputNote labels a capture that is not text. It states only what was measured — the byte
+// count and where the whole of it is — and names the tools that read bytes, because the useful next
+// move after "this is binary" is a different command, not a closer look at the same output.
+//
+// It does not suppress the bytes. A command may emit binary on purpose, and dropping output magi
+// captured would trade one silence for another; the capture file holds it regardless.
+func binaryOutputNote(n int, logPath string) string {
+	where := "the capture file"
+	if logPath != "" {
+		where = logPath
+	}
+	return fmt.Sprintf("[note: this output is BINARY (%d bytes, it contains NUL) — what follows is not "+
+		"readable text and reading it as text will mislead you. The bytes are in %s. To inspect it, "+
+		"use a tool that reads bytes: `file`, `xxd | head`, `strings | head`, or `od -c | head`.]",
+		n, where)
+}
+
 // timedOutNote is the body line appended when a foreground command hits its deadline. The bare
 // "[timed out after Ns]" it replaces stated a number without saying whose it was, and a model that
 // had set the limit ITSELF read the kill as a verdict on the work: cancel-async-tasks ran its own
