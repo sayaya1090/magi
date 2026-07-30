@@ -537,6 +537,7 @@ func run() int {
 		Deny:                cfg.Deny,
 		AllowDomains:        cfg.AllowDomains,
 		MaxOutputTokens:     cfg.Limits.MaxOutputTokens, // [limits]; the spin guard defers when set
+		ContextTokens:       cfg.Limits.ContextTokens,   // [limits]; forces the window for every model
 		Experience:          experienceStore,
 		Hooks:               toAppHooks(cfg.Hooks),
 		Harness:             !*noHarness,
@@ -662,22 +663,15 @@ func run() int {
 	// the real window). Best-effort, short timeout, non-fatal; falls back to the
 	// registry default. The lazy per-model probe (App.contextWindow) is the runtime
 	// twin for models first seen after a /route switch.
-	if modelID != "" {
-		seeded := modelReg.Has(modelID)
-		probe := func() (int, bool) {
-			pctx, cancel := context.WithTimeout(ctx, 4*time.Second)
-			defer cancel()
-			return llm.ProbeContextWindow(pctx, modelID)
-		}
-		// [limits] context_tokens / max_output_tokens. The probe runs only for a model magi has no
-		// metadata for; an explicit override applies either way (see resolveWindowOverride).
-		if w, mo, ok := resolveWindowOverride(seeded, probe, cfg.Limits); ok {
-			info := coremodel.Info{ID: modelID, Tools: true}
-			if seeded {
-				info = modelReg.Get(modelID) // an override changes the window, not the model
-			}
-			info.ContextWindow, info.MaxOutput = w, mo
-			modelReg.Register(info)
+	// [limits] context_tokens is NOT applied here. It is a global override and is resolved at
+	// App.contextWindow, the one seam every consumer of the window passes through — applying it to
+	// a single registry entry at startup left a model reached later by /route on its seeded number.
+	if modelID != "" && !modelReg.Has(modelID) {
+		pctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+		w, ok := llm.ProbeContextWindow(pctx, modelID)
+		cancel()
+		if ok {
+			modelReg.Register(coremodel.Info{ID: modelID, ContextWindow: w, MaxOutput: w / 4, Tools: true})
 		}
 	}
 

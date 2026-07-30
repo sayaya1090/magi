@@ -166,6 +166,12 @@ type Config struct {
 	// at the token level, which supersedes the reasoning-spin guard (a coarser byte-cap cancel), so
 	// the guard defers to it. 0 = provider default → the spin guard stays the backstop.
 	MaxOutputTokens int
+	// ContextTokens mirrors [limits] context_tokens: >0 forces the context-window budget for
+	// EVERY model, whatever the registry says. It is the operator's answer about this run, so it
+	// is resolved at contextWindow() — the one seam the compaction trigger, the live meter and
+	// /context all pass through — rather than baked into one registry entry at startup, which
+	// left a model reached later by /route still on its seeded number.
+	ContextTokens int
 
 	// Agents carry per-agent model routing. Nothing spawns them — the roster is what /route edits.
 	Agents map[string]AgentSpec

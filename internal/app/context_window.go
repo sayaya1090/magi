@@ -83,6 +83,9 @@ func (a *App) contextWindow(id string) int {
 	if id == "" {
 		return 0
 	}
+	if a.cfg.ContextTokens > 0 {
+		return a.cfg.ContextTokens // [limits] context_tokens: the operator's number, for every model
+	}
 	if a.cfg.Models.Has(id) {
 		return a.cfg.Models.Get(id).ContextWindow
 	}
