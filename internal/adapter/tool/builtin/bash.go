@@ -87,6 +87,18 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		if stripped {
 			msg += " (note: dropped a redundant `&`/`nohup` — background=true already keeps it running as this job; poll bash_output to see it stay up)"
 		}
+		// `timeout` is a FOREGROUND deadline, and this branch returns before it is ever read — a
+		// background job's whole point is to outlive the call. Ignoring it is right; doing so in
+		// silence is not. Observed live (large-scale-text-editing): `timeout:5` with
+		// background:true, and the job was still running when the agent killed it at 2m18s. The
+		// same message already discloses the `&` it dropped, so the branch's own rule is that a
+		// part of the call magi did not honor gets said out loud.
+		if int(a.Timeout) > 0 {
+			msg += fmt.Sprintf(" (note: your `timeout` of %ds was NOT applied — it bounds a foreground"+
+				" call, and this one returned as soon as the job started. Nothing will stop this job on"+
+				" a clock: kill it with bash_kill, or build the limit into the command itself with"+
+				" `timeout %d …`)", int(a.Timeout), int(a.Timeout))
+		}
 		if bool(a.Pty) {
 			msg += " (on a pseudo-terminal — send keystrokes/answers with bash_input)"
 		} else if note := ptyNeededNote(cmd, false); note != "" {
@@ -96,6 +108,14 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		}
 		return okText("", msg), nil
 	}
+	// `pty` is a background-only capability — this path never reads it, so a caller that asked for
+	// a terminal without background got a plain pipe and no word about it. Same rule as the
+	// background branch's `&` and `timeout` notes: what magi did not honor, magi says. It matters
+	// more here than most: a program that wanted a tty (ssh, a serial login) will sit on a prompt
+	// nothing can answer until the deadline, and the caller had asked for exactly the thing that
+	// would have avoided that.
+	ptyIgnored := bool(a.Pty)
+
 	timeout := int(a.Timeout)
 	if timeout <= 0 {
 		timeout = defaultBashTimeout
@@ -168,6 +188,11 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	// own answer rather than being re-derived from a second stat, because a detached child can grow
 	// the log after it was read and a bigger file is not evidence anything was elided.
 	captureClipped := logPath != "" && !whole
+	if ptyIgnored {
+		body += "\n[note: `pty` only applies with background=true, so this command ran on a plain pipe. " +
+			"If it needs a real terminal (an ssh password prompt, a serial login, a curses UI), re-launch " +
+			"it with background:true AND pty:true and drive it with bash_input/bash_output.]"
+	}
 	if cctx.Err() == context.DeadlineExceeded {
 		// The partial log is the most useful thing a killed build leaves, so name it here too.
 		body += "\n" + timedOutNote(timeout, int(a.Timeout))
