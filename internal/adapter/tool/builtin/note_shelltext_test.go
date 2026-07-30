@@ -65,6 +65,31 @@ func TestCommandNotesReadShellTextOnly(t *testing.T) {
 	if !strings.Contains(note, "tail -50") || strings.Contains(note, "xx") {
 		t.Errorf("the named stage comes from the real command:\n%s", note)
 	}
+	// The session-keyed advisories read shell text too. ephemeralEnvNote matters most: it is
+	// delivered ONCE per session, so a false fire spends the only delivery and the real export it
+	// exists to warn about is never mentioned. All four of these fired before it was masked.
+	for _, c := range []struct{ name, cmd string }{
+		{"; export in a heredoc body", "cat > s.sh <<'EOF'\ncd /x ; export PATH=/y\nEOF"},
+		{"| source in a heredoc body", "cat > s.sh <<'EOF'\nfoo | source bar\nEOF"},
+		{"; export inside quotes", `python3 -c "print('a ; export B=1')"`},
+		{"; export in a comment", "make world\n# note: ; export PATH=/x"},
+	} {
+		ephemeralNoted.mu.Lock()
+		ephemeralNoted.m = map[string]bool{}
+		ephemeralNoted.mu.Unlock()
+		if ephemeralEnvNote(0, c.cmd, sid) != "" {
+			t.Errorf("%s: no shell state was set, and this spends the session's one note", c.name)
+		}
+	}
+	for _, c := range []string{
+		"cat > s.sh <<'EOF'\n; ssh user@host\nEOF",
+		`python3 -c "print('; ssh user@host')"`,
+	} {
+		if ptyNeededNote(c, false) != "" {
+			t.Errorf("no ssh is about to run here: %s", c)
+		}
+	}
+
 	// The session-keyed advisory notes are unaffected by any of this.
 	ephemeralNoted.mu.Lock()
 	ephemeralNoted.m = map[string]bool{}
