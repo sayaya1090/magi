@@ -493,7 +493,7 @@ func (c *Client) consume(ctx context.Context, cancel context.CancelFunc, body io
 						emit(ctx, ch, port.ProviderEvent{Type: port.ProviderToolCall, ToolCall: tc, FromText: true})
 					}
 				}
-				emit(ctx, ch, port.ProviderEvent{Type: port.ProviderFinish})
+				emit(ctx, ch, port.ProviderEvent{Type: port.ProviderFinish, FinishReason: *choice.FinishReason})
 				sawFinish = true
 				finishAt = time.Now()
 			}
