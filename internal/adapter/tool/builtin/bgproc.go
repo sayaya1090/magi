@@ -382,7 +382,24 @@ func SweepStaleTempLogs() {
 func (p *bgProc) status() string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	// killed BEFORE done, for the reason BashKill asks them in that order: the reaper sets done on
+	// a killed job too, so a moment after magi stops something this reads as an ordinary exit. It
+	// reported `[id exited -1]` — a job magi killed, described as having exited on its own, with a
+	// number that is not an exit code. The killed branch below was reachable only in the
+	// milliseconds before the reaper ran.
+	if p.killed {
+		return fmt.Sprintf("[%s killed]", p.id)
+	}
 	if p.done {
+		// exit is Go ExitCode(), which is -1 for a process that did not exit through main —
+		// terminated by a signal. Printing it as a status says the program chose to return -1.
+		if p.exit < 0 {
+			h := fmt.Sprintf("[%s terminated by a signal — no exit code]", p.id)
+			if note := pipeStageNote(0, p.stages); note != "" {
+				h += " " + note
+			}
+			return h
+		}
 		h := fmt.Sprintf("[%s exited %d]", p.id, p.exit)
 		// A pipeline reports its LAST stage's exit, so `make … | tail` says 0 for a build that
 		// died. Say which stage really failed, in the header the model reads first.
@@ -390,10 +407,6 @@ func (p *bgProc) status() string {
 			h += " " + note
 		}
 		return h
-	}
-	if p.killed {
-		// Reflect the kill immediately; the reaper goroutine flips done shortly after.
-		return fmt.Sprintf("[%s killed]", p.id)
 	}
 	return fmt.Sprintf("[%s running %s]", p.id, time.Since(p.started).Round(time.Second))
 }
