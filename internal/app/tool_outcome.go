@@ -120,7 +120,25 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 						rel := relForChange(workdir, bc.path)
 						after, ok := readForChange(workdir, bc.path)
 						if !bc.readable || !ok {
-							continue // no content to compare — say nothing rather than something false
+							// No content to compare — say nothing rather than something false. But
+							// EXISTENCE was measured, on both sides, by stat: a path that was there and
+							// is gone is a fact that needs no bytes, and staying silent about it loses a
+							// signal magi actually has. Observed live (custom-memory-heap-crash,
+							// 2026-07-30): `rm -f /app/release /app/debug …` where both were multi-MB
+							// binaries past the compare cap.
+							//
+							// The wording stops at what a stat supports. The comparing branch below can
+							// say the path is "back to the state it was in before this turn" because it
+							// holds that state's hash; here there is no history to stand on, so this
+							// reports the removal and names why it cannot say more.
+							if bc.existedBefore && !pathExists(workdir, bc.path) {
+								guard.dropReadCoverage(rel)
+								res.Content = appendToContent(res.Content, "\n\n[self-edit check] "+rel+
+									": this command deleted the file. magi could not read its contents "+
+									"(a directory, or larger than it compares), so this says the path is "+
+									"gone and nothing about what it held.")
+							}
+							continue
 						}
 						// Nothing on either side is not a rewrite of anything. Observed live:
 						// `rm -rf _build && make world … || true` — _build never existed, both reads
