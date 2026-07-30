@@ -11,6 +11,78 @@ import (
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
+// toolCallBrief is what a finished call needs to be legible as evidence: the tool's name and the
+// request that produced the result.
+type toolCallBrief struct{ name, args string }
+
+// evidenceLine renders one finished call for a council block: what was ASKED, then what came back.
+//
+// It used to render only the answer — `tool bash [ok]: <output>` — and a result without its request
+// is half a fact. Observed live (sqlite-with-gcov, 2026-07-30): the agent ran
+// `ln -sf /app/sqlite/sqlite3 /usr/local/bin/sqlite3 && which sqlite3 && sqlite3 --version`, whose
+// output is `/usr/local/bin/sqlite3` and a version string — byte-for-byte the same answer a bare
+// `which sqlite3 && sqlite3 --version` gives. With the command hidden, a member concluded and told
+// the agent that "the sqlite3 command works only because /usr/local/bin/sqlite3 exists from before
+// this task", which was false: the agent had created that symlink two and a half minutes earlier,
+// and the call that did it was in the block. The evidence was there; only the half that identified
+// it was missing.
+//
+// The request is clipped hard. It is there to say WHICH call this was, not to reproduce it.
+func evidenceLine(b toolCallBrief, status, result string) string {
+	head := "tool " + b.name + " [" + status + "]"
+	if req := strings.TrimSpace(clipLine(b.args, evidenceArgsCap)); req != "" {
+		head += " " + req
+	}
+	return head + ": " + clipLine(result, councilActionCap)
+}
+
+// evidenceArgsCap bounds the request shown per line. Long enough that a build command, a path, or a
+// redirect target survives whole; short enough that eight of them cost nothing beside the results.
+const evidenceArgsCap = 300
+
+// evidenceArgs picks the part of a call's arguments that identifies it, which depends on the tool.
+// bash carries no path, so its command IS its identity; a file tool is named by what it pointed at;
+// a SEARCH is named by what it looked for — two greps of different patterns under one directory are
+// different calls, and the directory alone would render them the same. Empty when the arguments
+// carry nothing identifying (a bare `council{complete:true}`), which leaves the line as it was.
+func evidenceArgs(name string, raw json.RawMessage) string {
+	var m map[string]any
+	if json.Unmarshal(raw, &m) != nil {
+		return ""
+	}
+	str := func(k string) string {
+		if v, ok := m[k]; ok {
+			if s, ok := v.(string); ok {
+				return strings.TrimSpace(s)
+			}
+		}
+		return ""
+	}
+	switch name {
+	case "grep", "glob", "astgrep":
+		// Both halves, because either alone is ambiguous across a turn's searches.
+		what := str("pattern")
+		if what == "" {
+			what = str("query")
+		}
+		where := str("path")
+		switch {
+		case what != "" && where != "":
+			return what + " in " + where
+		case what != "":
+			return what
+		default:
+			return where
+		}
+	}
+	for _, k := range []string{"command", "path", "file", "pattern", "query", "url", "id"} {
+		if s := str(k); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
 // turnToolEvidence summarizes THIS turn's tool RESULTS as real, git-independent
 // evidence of what actually happened — a write that reported bytes, a `cat` that shows
 // the content. It deliberately EXCLUDES the model's own text: that is the agent's claim
@@ -19,7 +91,7 @@ import (
 // lesson). Only events since the last user prompt are considered, so a prior turn's
 // successful tool result can't masquerade as this turn's. Most recent k results.
 func turnToolEvidence(evs []event.Event, k int) string {
-	names := map[string]string{} // callID -> tool name
+	names := map[string]toolCallBrief{} // callID -> what was asked
 	var lines []string
 	for _, e := range evs {
 		// A turn begins when the USER speaks. magi injects prompt.submitted events of its own —
@@ -29,7 +101,7 @@ func turnToolEvidence(evs []event.Event, k int) string {
 		// as ONE line after a nudge, and as NOTHING when the council was convened right after one.
 		// lastUserPromptTS below has always asked for ActorUser; these scans had drifted.
 		if e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser {
-			names = map[string]string{}
+			names = map[string]toolCallBrief{}
 			lines = nil
 			continue
 		}
@@ -43,21 +115,24 @@ func turnToolEvidence(evs []event.Event, k int) string {
 		switch d.Part.Kind {
 		case session.PartToolCall:
 			if d.Part.ToolCall != nil {
-				names[d.Part.ToolCall.CallID] = d.Part.ToolCall.Name
+				names[d.Part.ToolCall.CallID] = toolCallBrief{
+					name: d.Part.ToolCall.Name,
+					args: evidenceArgs(d.Part.ToolCall.Name, d.Part.ToolCall.Args),
+				}
 			}
 		case session.PartToolResult:
 			if d.Part.ToolResult == nil {
 				continue
 			}
-			name := names[d.Part.ToolResult.CallID]
-			if name == "" {
-				name = "tool"
+			b := names[d.Part.ToolResult.CallID]
+			if b.name == "" {
+				b.name = "tool"
 			}
 			status := "ok"
 			if d.Part.ToolResult.IsError {
 				status = "error"
 			}
-			lines = append(lines, "tool "+name+" ["+status+"]: "+clipLine(toolResultText(d.Part.ToolResult.Content), councilActionCap))
+			lines = append(lines, evidenceLine(b, status, toolResultText(d.Part.ToolResult.Content)))
 		}
 	}
 	if len(lines) == 0 {
@@ -373,7 +448,7 @@ func countToolCalls(evs []event.Event) int {
 // the window IS the delta since the last rejection, which starts right after the
 // feedback injection). Format mirrors turnToolEvidence.
 func deltaToolEvidence(evs []event.Event, k int) string {
-	names := map[string]string{}
+	names := map[string]toolCallBrief{}
 	var lines []string
 	for _, e := range evs {
 		if e.Type != event.TypePartAppended {
@@ -386,21 +461,24 @@ func deltaToolEvidence(evs []event.Event, k int) string {
 		switch d.Part.Kind {
 		case session.PartToolCall:
 			if d.Part.ToolCall != nil {
-				names[d.Part.ToolCall.CallID] = d.Part.ToolCall.Name
+				names[d.Part.ToolCall.CallID] = toolCallBrief{
+					name: d.Part.ToolCall.Name,
+					args: evidenceArgs(d.Part.ToolCall.Name, d.Part.ToolCall.Args),
+				}
 			}
 		case session.PartToolResult:
 			if d.Part.ToolResult == nil {
 				continue
 			}
-			name := names[d.Part.ToolResult.CallID]
-			if name == "" {
-				name = "tool"
+			b := names[d.Part.ToolResult.CallID]
+			if b.name == "" {
+				b.name = "tool"
 			}
 			status := "ok"
 			if d.Part.ToolResult.IsError {
 				status = "error"
 			}
-			lines = append(lines, "tool "+name+" ["+status+"]: "+clipLine(toolResultText(d.Part.ToolResult.Content), councilActionCap))
+			lines = append(lines, evidenceLine(b, status, toolResultText(d.Part.ToolResult.Content)))
 		}
 	}
 	if len(lines) == 0 {
