@@ -449,7 +449,9 @@ func (c *Client) consume(ctx context.Context, cancel context.CancelFunc, body io
 		finishAt  time.Time
 	)
 
-	err := sseEvents(body, func(data []byte) error {
+	sawFrame := false
+	sawDone, err := sseEvents(body, func(data []byte) error {
+		sawFrame = true
 		var chunk streamChunk
 		if err := json.Unmarshal(data, &chunk); err != nil {
 			// Skip malformed lines; stream continues (F-LLM-SSE sse-4).
@@ -515,8 +517,23 @@ func (c *Client) consume(ctx context.Context, cancel context.CancelFunc, body io
 		epilogue.Stop()
 	}
 	switch {
+	case err == nil && sawFrame && !sawDone && !sawFinish:
+		// The stream simply stopped. Nothing declared an end — no finish_reason, no `[DONE]` —
+		// so what arrived is a fragment of an answer, and it used to be handed on as if it were
+		// the whole thing: no error, no finish, no usage, just a shorter reply. A cut at a clean
+		// line boundary reaches EOF with no read error, which is why it looked like a normal end.
+		// Measured against this backend before relying on the signal: `stop`, `length` and
+		// `tool_calls` responses all carry finish_reason and all are followed by `[DONE]`, so an
+		// end with neither is not a shape it produces.
+		//
+		// sawFrame keeps this to the case the silence actually harms. A body with no frames at
+		// all delivers no fragment that could be mistaken for a whole answer, and an empty turn
+		// is deliberately a clean no-op (TestEmptyStreamGraceful) — that contract stands.
+		emit(ctx, ch, port.ProviderEvent{Type: port.ProviderError,
+			Err: errors.New("the model stream ended without finishing: no finish_reason and no [DONE] arrived, " +
+				"so the reply above is cut off rather than complete")})
 	case err == nil || errors.Is(err, errStreamComplete):
-		// Clean end: `[DONE]`, EOF, or our finish-driven stop.
+		// Clean end: `[DONE]`, EOF after finish, or our finish-driven stop.
 	case sawFinish:
 		// The read unwound only after the turn was already complete (epilogue cancel
 		// or a post-finish transport error). The response is whole; the only thing
