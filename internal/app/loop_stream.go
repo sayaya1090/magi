@@ -32,9 +32,7 @@ type streamStep struct {
 // cutByOutputCapNote is injected after a response the provider ended at the output-token cap
 // (finish_reason "length"). Nothing else marks it: the stream closes normally, the text and any
 // tool calls persist, and a reply that stops mid-sentence — or mid-argument, which is how a tool
-// call is lost to repairArgs — is indistinguishable from one the model chose to end. The cap is
-// also the ONLY bound left once [limits] max_output_tokens is set, because consumeStream drops the
-// reasoning spin guard in deference to it, so its firing has to be visible.
+// call is lost to repairArgs — is indistinguishable from one the model chose to end.
 //
 // It states the measured fact and what follows from it mechanically. Whether anything important
 // was cut is the model's read, not magi's.
@@ -43,6 +41,17 @@ const cutByOutputCapNote = "Your last reply did not end because you finished it:
 	"Anything after the cut — the rest of a sentence, the rest of a tool call's arguments, a tool " +
 	"call you had not started — never arrived, and a tool call whose arguments were cut mid-way " +
 	"will have failed to parse. Continue from where it stopped, in smaller pieces."
+
+// cutBeforeActingNote replaces it when the cut reply carried NO tool call. The fact is the same;
+// what follows from it is not. "Continue in smaller pieces" is advice to keep writing, and a
+// response that spent its whole budget without acting does not need more writing — it needs an
+// action. Measured in an external run of the same model (extract-elf and large-scale-text-editing,
+// 2026-07-31): both turns reasoned into the cap step after step, never called a tool, never
+// reached the council, and landed unverified with the deliverable never written.
+const cutBeforeActingNote = "Your last reply hit the output-token cap (finish_reason \"length\") " +
+	"before it made a single tool call — the whole budget went into text and nothing was done. " +
+	"Writing more will hit the same wall. Take the concrete next step with a TOOL now: write the " +
+	"file, run the command, or report. Do not re-derive what you were working out; act on it."
 
 // streamStallTimeout bounds how long a response stream may stay SILENT — no event of any kind — before
 // consumeStream aborts it. A hung or wedged backend accepts the request, returns 200, then streams
@@ -145,10 +154,15 @@ func (a *App) consumeStream(ctx context.Context, sid session.SessionID, agentAct
 	var text, reasoning strings.Builder
 	var res streamStep
 	streamErr := false
+	// The output cap and the spin guard were treated as the same thing, and they are not. A cap
+	// bounds how BIG one response gets; the guard notices there is still no ACTION and tells the
+	// model to take one. Deferring to the cap kept the bound and threw away the recovery: the
+	// response ends mid-thought at finish_reason "length", carries no tool call, and the next step
+	// begins the same way — with nothing having told the model to stop reasoning. Observed twice in
+	// one external run (extract-elf and large-scale-text-editing, 2026-07-31): both spent the turn
+	// reasoning into the cap, never called a tool, never reached the council, and landed
+	// unverified with the deliverable never written.
 	spinCap := reasoningSpinCap()
-	if a.cfg.MaxOutputTokens > 0 {
-		spinCap = 0 // [limits] max_output_tokens caps each response at the token level — defer to it
-	}
 	// Stall watchdog: `last` is the time of the most recent event, so `now - last` is how long the
 	// stream has been silent. The ticker lets the select wake even while the backend sends nothing, so
 	// a hung stream is aborted at streamStallTimeout instead of stranding the read until the turn's
