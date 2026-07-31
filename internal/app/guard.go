@@ -256,26 +256,6 @@ func distinctStates(hist []uint64) int {
 	return len(seen)
 }
 
-// deliverableSigLocked returns a 64-bit signature over the CURRENT net contents of every
-// file the agent has edited this turn (path + hashContent(after), in stable path order). It
-// identifies "the deliverable in exactly this state" independent of the path order edits
-// arrived in. 0 when the agent has authored nothing yet (no state to tabu). Caller holds g.mu.
-func (g *runGuard) deliverableSigLocked() uint64 {
-	if len(g.changeOrder) == 0 {
-		return 0
-	}
-	paths := append([]string(nil), g.changeOrder...)
-	sort.Strings(paths)
-	h := fnv.New64a()
-	for _, p := range paths {
-		_, _ = h.Write([]byte(p))
-		_, _ = h.Write([]byte{0})
-		_, _ = h.Write([]byte(strconv.FormatUint(hashContent(g.changed[p].after), 16)))
-		_, _ = h.Write([]byte{0})
-	}
-	return h.Sum64()
-}
-
 // recallBudget caps re-hydrations per turn (distinct topics bypass the identical-call
 // loop guard, so they need their own ceiling).
 const recallBudget = 8
