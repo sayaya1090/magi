@@ -313,7 +313,11 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// send is on the record, so the next step is not written on the assumption the model said
 		// everything it meant to.
 		if res.finishReason == "length" {
-			_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, cutByOutputCapNote)
+			note := cutByOutputCapNote
+			if len(toolCalls) == 0 {
+				note = cutBeforeActingNote // spent the budget without acting: the fix is a tool, not more text
+			}
+			_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, note)
 		}
 
 		// No tool calls → the turn wants to finish. Stop hooks enforce checks
