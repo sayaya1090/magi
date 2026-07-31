@@ -172,3 +172,70 @@ func TestAcceptedDeclarationRecordsTheTally(t *testing.T) {
 		t.Fatal("no council.decided fact was recorded")
 	}
 }
+
+// The budget is per STRETCH of no progress, not per turn.
+//
+// It counted for the whole turn and never reset, so three quiet moments an hour apart — with real
+// work between them — spent the same budget as an agent stuck in place, and the turn ended on the
+// third as though nothing had happened since the first. A long productive turn does go quiet more
+// than once; that is not the failure the cap is for.
+func TestWorkDoneSinceTheLastAskRestartsTheBudget(t *testing.T) {
+	fc := &fakeCouncil{}
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow", Council: fc})
+	a.cfg.Workflow = false
+	ctx := context.Background()
+	g := newRunGuard()
+	tc := turnCtx{s: a.sessionInfo(ctx, sid), agent: AgentSpec{Name: "coder"}, guard: g}
+	ts := &turnState{}
+
+	// Quiet three times with nothing produced: the cap lands, as it must.
+	for i := 0; i < declareAskCap; i++ {
+		if _, done := a.requireFinishDeclaration(ctx, tc, true, ts); !done {
+			t.Fatalf("ask %d was not made", i+1)
+		}
+	}
+	if _, done := a.requireFinishDeclaration(ctx, tc, true, ts); done {
+		t.Fatal("an agent that produced nothing must still be bounded")
+	}
+
+	// Now it writes something real. The next quiet moment is a fresh stretch, and the reminder is
+	// worth making again.
+	ts.unverifiedReason = ""
+	if !g.mutated("/app/x.c", "one") {
+		t.Fatal("the fixture did not record a mutation")
+	}
+	if _, done := a.requireFinishDeclaration(ctx, tc, true, ts); !done {
+		t.Error("work landed since the last ask and the agent was not reminded again")
+	}
+	if ts.declareAsks != 1 {
+		t.Errorf("the budget restarted at %d, not 1", ts.declareAsks)
+	}
+}
+
+// …but a tool CALL is not work. An agent that cannot produce the declaration answers every
+// reminder with one, so crediting calls would make the budget infinite for exactly the case it
+// exists to bound. Only a real file mutation moves the epoch, and an idempotent rewrite does not.
+func TestBusyworkSinceTheLastAskDoesNotRestartTheBudget(t *testing.T) {
+	fc := &fakeCouncil{}
+	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow", Council: fc})
+	a.cfg.Workflow = false
+	ctx := context.Background()
+	g := newRunGuard()
+	tc := turnCtx{s: a.sessionInfo(ctx, sid), agent: AgentSpec{Name: "coder"}, guard: g}
+	ts := &turnState{}
+
+	g.mutated("/app/x.c", "same") // one real write, before any ask
+	for i := 0; i < declareAskCap; i++ {
+		g.check("bash", json.RawMessage(`{"command":"ls"}`)) // busy between reminders
+		g.mutated("/app/x.c", "same")                        // …and rewriting identical content
+		if _, done := a.requireFinishDeclaration(ctx, tc, true, ts); !done {
+			t.Fatalf("ask %d was not made", i+1)
+		}
+	}
+	if _, done := a.requireFinishDeclaration(ctx, tc, true, ts); done {
+		t.Error("tool calls and idempotent rewrites bought an unbounded turn")
+	}
+	if !strings.Contains(ts.unverifiedReason, "never declared") {
+		t.Errorf("ending undeclared must still be recorded, got %q", ts.unverifiedReason)
+	}
+}
