@@ -509,6 +509,9 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 	// window budget, summarize older turns and re-read. Measure against sys+vol so the
 	// trigger still accounts for the volatile block (it's only used for sizing here).
 	if a.maybeCompact(ctx, s, agent, agentActor, evs, raw, sys+"\n\n"+vol) {
+		// What a recall re-hydrated may have just been shed again, so "already recalled this topic
+		// this turn — use what was returned earlier" would point at content that is no longer here.
+		tc.guard.forgetRecalledTopics()
 		evs, _ = a.store.Read(ctx, sid, 0)
 		raw = reconstruct(evs) // refresh after compaction
 		vol = withNote(a.volatileContext(ctx, s, agent, evs, raw, step, tc.maxSteps, time.Since(tc.runStart)))
