@@ -640,17 +640,12 @@ func (m *Model) permView() string {
 // the current scroll position, so typing narrows in place instead of yanking
 // the view back to the top.
 func (m *Model) updateSearch() {
-	m.searchHits = m.searchHits[:0]
-	q := strings.ToLower(m.searchQuery)
-	if q == "" {
+	if m.searchQuery == "" {
+		m.searchHits = m.searchHits[:0]
 		m.refresh()
 		return
 	}
-	for i, l := range m.contentPlain {
-		if strings.Contains(strings.ToLower(l), q) {
-			m.searchHits = append(m.searchHits, i)
-		}
-	}
+	m.recomputeSearchHits()
 	m.searchCur = 0
 	for i, h := range m.searchHits {
 		if h >= m.vp.YOffset() {
@@ -659,6 +654,35 @@ func (m *Model) updateSearch() {
 		}
 	}
 	m.searchJump()
+}
+
+// recomputeSearchHits rebuilds the hit list against the transcript AS IT IS NOW.
+//
+// A hit is a line index, and the line numbering is not stable: every resize rewraps the
+// transcript, and every new block lengthens it. The list was built once when the query was
+// typed and never rebuilt, so after a resize the indexes pointed into a transcript that no
+// longer had those lines — "next match" scrolled to nothing and the "3/7" counter counted
+// matches that were no longer there. Found by the random walk on fourteen seeds, tripped by
+// an ordinary resize.
+//
+// It does not jump: this runs from the render path, which cannot move the viewport without
+// re-entering itself. searchCur is clamped rather than reset, so a reflow leaves the user on
+// the match they were on instead of throwing them back to the first.
+func (m *Model) recomputeSearchHits() {
+	m.searchHits = m.searchHits[:0]
+	if m.searchQuery == "" {
+		m.searchCur = 0
+		return
+	}
+	q := strings.ToLower(m.searchQuery)
+	for i, l := range m.contentPlain {
+		if strings.Contains(strings.ToLower(l), q) {
+			m.searchHits = append(m.searchHits, i)
+		}
+	}
+	if m.searchCur >= len(m.searchHits) {
+		m.searchCur = max(0, len(m.searchHits)-1)
+	}
 }
 
 // searchStep moves to the next/previous hit, wrapping at either end.
@@ -738,13 +762,36 @@ func (m *Model) highlightSearch(content string) string {
 }
 
 // searchView renders the search bar shown in place of the palette while open.
+//
+// It gives up its hints one at a time rather than drawing past the right edge. The bar is a
+// single row of fixed text — three key hints are already ~40 cells before the query — so on a
+// narrow terminal it overflowed, and an over-wide row in a vertically joined frame pads every
+// other row to match: the whole screen goes wider than the terminal and the shell wraps it.
+// What survives to the last is the part that is not decoration: the query being typed and how
+// many matches it has.
 func (m *Model) searchView() string {
 	pos := "0/0"
 	if n := len(m.searchHits); n > 0 {
 		pos = fmt.Sprintf("%d/%d", m.searchCur+1, n)
 	}
-	return styleFooter.Render("  find: ") + m.searchQuery + styleFooter.Render("▏ "+pos+"  ") +
-		footerKeys("enter/↓", "next") + footerKeys("↑", "prev") + footerKeys("esc", "close")
+	head := styleFooter.Render("  find: ") + m.searchQuery + styleFooter.Render("▏ "+pos+"  ")
+	hints := []string{
+		footerKeys("enter/↓", "next"),
+		footerKeys("↑", "prev"),
+		footerKeys("esc", "close"),
+	}
+	if m.width <= 0 {
+		return head + strings.Join(hints, "")
+	}
+	// Drop hints from the LEFT: "esc close" is the one a user who cannot find the way out
+	// needs, so it is the last to go.
+	for i := 0; i <= len(hints); i++ {
+		row := head + strings.Join(hints[i:], "")
+		if ansi.StringWidth(row) <= m.width {
+			return row
+		}
+	}
+	return ansi.Truncate(head, m.width, "")
 }
 
 // scrollMeter renders the transcript scroll-position chip — the drawn
