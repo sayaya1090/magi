@@ -60,10 +60,6 @@ func (a *App) injectStuckNudge(ctx context.Context, tc turnCtx, turnTask string,
 	a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
 }
 
-// handleStuckGuard no longer guards anything: it returns (false, false) always. The doc that
-// stood here described a force-stop — and the exercise-churn landing beside it — that both came
-// out; the reasoning for their removal is inside the function, where the code is.
-//
 // turnTaskOr returns the tracked turnTask, falling back to re-deriving the task from the
 // event log when it is empty — the shared fallback of the re-ground, stuck-recovery, and
 // idle-resubmit paths, so they can't drift apart (this was copy-pasted four times).
@@ -72,28 +68,6 @@ func (a *App) turnTaskOr(turnTask string, sid session.SessionID, evs []event.Eve
 		return task
 	}
 	return taskSeedText(a.taskEvents(sid, evs))
-}
-
-func (a *App) handleStuckGuard(ctx context.Context, tc turnCtx, turnTask string, evs []event.Event, u event.Usage, ts *turnState) (bool, bool) {
-	// Observed check-churn (finish-independent, solo-path counterpart to the delegate path's
-	// verifyStepChecks gate): the agent's OWN build/test command has now FAILED across
-	// exerciseChurnCap distinct edits without ever passing (noteExerciseResult, wired from the
-	// bash exec path in execute.go). That is a non-convergence signal even when NO stall/idle/repeat
-	// kind trips — a solo agent that keeps rewriting the deliverable with never-seen-before content
-	// (monotonic-novel churn, not oscillation, so retractProgress never arms) and re-running the same
-	// failing build would otherwise burn to the external wall clock with reward 0. Land gracefully
-	// UNVERIFIED with the work standing so the external verifier judges the live deliverable — using
-	// ONLY the agent's own executed results, no external clock. Checked before stuck() so it fires on
-	// What used to stand here was the force-stop: a repeat/stall/idle/spin kind from the guard
-	// ended the run, with a visible error when nothing had been produced. Measured across every
-	// recorded trial, that stop bought nothing — 396 runs that instead reached the external
-	// deadline were still verified and 76 of them PASSED, while 28 runs magi stopped itself
-	// produced no pass at all and 8 were never scored, because a nonzero exit reads to the caller
-	// as "the agent failed to run" rather than "the agent decided to stop".
-	//
-	// The signals it read are still collected and still SAID — the stuck nudge above fires from the
-	// same counters. What is gone is magi ending the run on its own reading of them.
-	return false, false
 }
 
 // finishTurn runs the no-tool-call finish path for a single step: stop-hook enforcement,

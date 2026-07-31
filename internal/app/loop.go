@@ -372,17 +372,6 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// Corrective re-grounding: before any force-stop, give a thrashing agent ONE nudge to
 		// re-read the task and change approach — far cheaper than burning the rest of the budget.
 		a.injectStuckNudge(ctx, tc, turnTask, evs)
-
-		// Loop/stall/spin force-stop (with the last-resort stuck-recovery lifeline). Returns
-		// stop=true when the run must end now: clean=true finishes cleanly (delivered-but-spinning),
-		// clean=false aborted with a visible error (genuine thrash). Recovery re-arms the loop
-		// internally and returns stop=false so the parent integrates the child's result.
-		if stop, clean := a.handleStuckGuard(ctx, tc, turnTask, evs, u, &ts); stop {
-			if clean {
-				finished = true
-			}
-			return lastText, nil
-		}
 	}
 	// Only a workflow phase reaches here: it spent the budget its own pipeline gave it. The work
 	// stands; the phase simply stops, and the engine moves on to the next one.
