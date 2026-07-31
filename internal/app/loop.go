@@ -305,6 +305,10 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 				note = cutBeforeActingNote // spent the budget without acting: the fix is a tool, not more text
 			}
 			_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, note)
+		} else if res.cut {
+			// Same shape, different cause: the connection ended mid-reply. Say which one it was,
+			// on the record with the prefix, and keep going — the run used to end here.
+			_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, cutByLostStreamNote)
 		}
 
 		// No tool calls → the turn wants to finish. Stop hooks enforce checks

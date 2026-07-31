@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -24,6 +25,9 @@ type streamStep struct {
 	textConsumed  bool // the text was a prompt-fallback tool call, not a real answer
 	reasoningSpun bool // the response was cancelled as a reasoning-only spin (see reasoningSpinCap)
 	stalled       bool // the stream went silent before the FIRST token (hung backend) — safe to retry
+	// cut is set when the stream carried a reply and then ended with neither finish_reason nor
+	// [DONE]. The text is a prefix; the loop says so and keeps going (see cutByLostStreamNote).
+	cut bool
 	// finishReason is the provider's finish_reason for this response, unread. "length" means the
 	// output-token cap ended it, not the model — see cutByOutputCapNote.
 	finishReason string
@@ -52,6 +56,19 @@ const cutBeforeActingNote = "Your last reply hit the output-token cap (finish_re
 	"before it made a single tool call — the whole budget went into text and nothing was done. " +
 	"Writing more will hit the same wall. Take the concrete next step with a TOOL now: write the " +
 	"file, run the command, or report. Do not re-derive what you were working out; act on it."
+
+// cutByLostStreamNote is injected after a reply the CONNECTION ended rather than the model. The
+// recorded text is a prefix, exactly as at the output-token cap, so the note states the same
+// mechanical consequence — and names the different cause, because the two call for different
+// reads: a budget cut means the reply was too long, a lost stream means nothing about its length.
+//
+// It does not tell the model to start over. The prefix is on the record and the model can see how
+// far it got; re-deriving from the top is the expensive reading of "your reply was cut", and the
+// one a weak model reaches for by default.
+const cutByLostStreamNote = "Your last reply did not end because you finished it: the connection " +
+	"to the model ended mid-reply, with no finish_reason. What was recorded is a PREFIX — any " +
+	"sentence, and any tool call, that was still being written is missing. Nothing about the task " +
+	"changed and nothing you did was lost. Continue from where it stopped rather than starting over."
 
 // streamStallTimeout bounds how long a response stream may stay SILENT — no event of any kind — before
 // consumeStream aborts it. A hung or wedged backend accepts the request, returns 200, then streams
@@ -241,6 +258,17 @@ loop:
 			res.finishReason = ev.FinishReason
 		case port.ProviderError:
 			a.emitError(ctx, sid, agentActor, ev.Err.Error())
+			// A CUT stream is not a failed request. The reply arrived and then the connection
+			// ended without declaring an end, which makes what was recorded a prefix — the same
+			// fact finish_reason "length" states, reached by a dropped connection instead of a
+			// token budget. Ending the run over it threw away everything the turn had built:
+			// observed live (fix-ocaml-gc, 2026-08-01) fifteen minutes in, mid-diagnosis, magi
+			// exited 1 and the trial recorded NonZeroAgentExitCode. It is recorded as an error
+			// either way; only the run-ending part is dropped.
+			if errors.Is(ev.Err, port.ErrStreamCut) {
+				res.cut = true
+				break
+			}
 			streamErr = true
 		}
 		// Reasoning-only spin guard: a single response streaming huge output with NO tool call yet
