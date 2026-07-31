@@ -78,6 +78,23 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 				{"resize", func() {
 					s.send(tea.WindowSizeMsg{Width: 30 + rng.Intn(90), Height: 12 + rng.Intn(30)})
 				}},
+				{"tiny terminal", func() {
+					// A split pane, a phone-sized ssh window, a terminal being dragged smaller: the
+					// header alone is two rows and the input box is three, so a very short screen
+					// leaves the transcript a negative number of rows unless something clamps it.
+					// Eight rows is the floor this layout honours with a modal open: header(2) +
+					// input box(3) + a modal shrunk to its irreducible prompt. Below that the
+					// frame would have to hide something the user needs, and the fuzz does not
+					// pretend otherwise rather than asserting a bar nothing can clear.
+					s.send(tea.WindowSizeMsg{Width: 20 + rng.Intn(25), Height: 8 + rng.Intn(8)})
+				}},
+				{"question modal", func() {
+					s.emit(event.TypeQuestionRequested, event.QuestionRequestedData{
+						CallID: "q1", Question: "which one?", Options: []string{"a", "b"}})
+				}},
+				{"diagnostic", func() {
+					s.emit(event.TypeDiagnostic, event.DiagnosticData{Source: "council", Detail: "unparsed reply"})
+				}},
 				{"scroll", func() {
 					if rng.Intn(2) == 0 {
 						s.send(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
@@ -135,7 +152,24 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 				if len(s.m.blocks) > 0 && strings.TrimSpace(ansiSeq.ReplaceAllString(raw, "")) == "" {
 					t.Fatalf("%s: %d blocks and a blank frame", where, len(s.m.blocks))
 				}
+				// The frame must fit the terminal vertically too. One row too many scrolls the
+				// screen, which on an alt-screen UI means the top of the frame is simply gone.
+				if rows := len(lines); s.m.height > 0 && rows > s.m.height {
+					t.Fatalf("%s: the frame is %d rows in a %d-row terminal (chrome=%d modalRoom=%d perm=%d quest=%d vp=%d palette=%d resuming=%v):\n%s",
+						where, rows, s.m.height, s.m.chromeHeight(), s.m.modalRoom(),
+						lipglossHeightOrZero(s.m.perm != nil, s.m.permView), lipglossHeightOrZero(s.m.quest != nil, s.m.questView),
+						s.m.vp.Height(), len(s.m.paletteMatches()), s.m.resuming,
+						ansiSeq.ReplaceAllString(raw, ""))
+				}
 			}
 		})
 	}
+}
+
+// lipglossHeightOrZero measures a modal only when it is up.
+func lipglossHeightOrZero(up bool, render func() string) int {
+	if !up {
+		return 0
+	}
+	return lipgloss.Height(render())
 }
