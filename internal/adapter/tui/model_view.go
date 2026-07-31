@@ -149,6 +149,12 @@ func (m Model) View() tea.View {
 	if debugFade {
 		status += styleFooter.Render(m.fadeDebug())
 	}
+	// On a screen too short for the chrome, the status row is what gives: the header says where
+	// you are and the input is how you get out, and neither can be dropped. Below this the frame
+	// is header(2) + input box(3) and cannot shrink further without hiding one of those.
+	if m.height > 0 && m.height < m.baseChromeHeight() {
+		status = ""
+	}
 
 	// The input stays live even while a turn runs — you can keep typing, and
 	// pressing enter queues the prompt for when the turn finishes.
@@ -199,15 +205,28 @@ func (m Model) View() tea.View {
 	}
 	// Force every row to exactly vpw cells with our terminal-aware measure
 	// (blank rows become spaces so panes/input still sit at the bottom).
+	// A zero-height viewport contributes NO rows. composeBox already returns "" for it, but an
+	// empty string is still a row to JoinVertical, so the frame gained a blank line exactly when
+	// it had none to spare — on a terminal too short for the chrome, that one row is the
+	// difference between fitting and pushing the header off an alt screen.
 	vpv := composeBox(vpContent, vpw, m.vp.Height())
-	leftRows := []string{vpv}
+	var leftRows []string
+	if vpv != "" {
+		leftRows = append(leftRows, vpv)
+	}
 	aboveInput := 2 + m.vp.Height() // header(2: title+divider) + viewport rows above input
 	if pv := m.renderPanes(tw, aboveInput); pv != "" {
 		leftRows = append(leftRows, pv)
 		aboveInput += lipgloss.Height(pv)
 	}
 	left := lipgloss.JoinVertical(lipgloss.Left, leftRows...)
-	parts := []string{header, left}
+	// Same reason as leftRows above: an empty section is not a row. With the transcript squeezed
+	// to nothing by a modal on a short screen, joining "" here put the blank back and the frame
+	// was one row taller than the terminal — enough, on an alt screen, to take the header with it.
+	parts := []string{header}
+	if left != "" {
+		parts = append(parts, left)
+	}
 	if m.resuming {
 		pv := m.resumeView()
 		parts = append(parts, pv)
@@ -455,7 +474,43 @@ func (m *Model) questView() string {
 			b.WriteString("  " + styleToolResult.Render(line) + "\n")
 		}
 	}
-	return stylePermBox.Width(m.width - 4).Render(strings.TrimRight(b.String(), "\n"))
+	// Same rule as the permission modal: it must fit the screen it draws over. The question and
+	// the options are the prompt — the keyboard hint is not — so the hint is what goes first, and
+	// past that the options are trimmed from the end rather than the frame overflowing.
+	room := m.modalRoom()
+	full := strings.TrimRight(b.String(), "\n")
+	if out := stylePermBox.Width(m.width - 4).Render(full); m.height <= 0 || lipgloss.Height(out) <= room {
+		return out
+	}
+	for keep := len(q.options); keep >= 0; keep-- {
+		var t strings.Builder
+		t.WriteString(stylePermTitle.Render("question") + "\n" + q.question + "\n")
+		for i := 0; i < keep; i++ {
+			line := fmt.Sprintf("%d. %s", i+1, q.options[i])
+			if i == q.sel {
+				t.WriteString(stylePalSelRow.Render("› "+line) + "\n")
+			} else {
+				t.WriteString("  " + styleToolResult.Render(line) + "\n")
+			}
+		}
+		out := stylePermBox.Width(m.width - 4).Render(strings.TrimRight(t.String(), "\n"))
+		if lipgloss.Height(out) <= room {
+			return out
+		}
+	}
+	return ansi.Truncate(stylePermTitle.Render("question")+" "+q.question, max(1, m.width), "")
+}
+
+// modalRoom is how many rows a modal may occupy: the screen minus the chrome that is always
+// there — header(2), the bordered input (its rows plus a border above and below) and the status
+// row. baseChromeHeight already ADDS the modal's own height to that, so a modal sized against
+// anything larger makes the whole frame taller than the terminal.
+func (m *Model) modalRoom() int {
+	inputRows := m.ta.Height()
+	if inputRows < 1 {
+		inputRows = 1
+	}
+	return m.height - (2 + inputRows + 2 + 1)
 }
 
 // permButton is one choice in the permission modal. key is the direct hotkey,
@@ -549,9 +604,35 @@ func (m *Model) permView() string {
 		}
 		btns = append(btns, st.Render(b.key+" "+b.word))
 	}
-	body += strings.Join(btns, " ") + "\n" +
-		styleFooter.Render("tab/click move · enter pick · p saves to .magi/config.toml")
-	return stylePermBox.Width(m.width - 4).Render(body)
+	buttons := strings.Join(btns, " ")
+	hint := styleFooter.Render("tab/click move · enter pick · p saves to .magi/config.toml")
+
+	// The modal must FIT. It is the one thing the user has to read and answer, and it draws over
+	// a screen whose height it never consulted — found by a random session: 20 rows in an 11-row
+	// terminal, which on an alt screen puts the question itself off the display while the buttons
+	// remain. Shed from the least load-bearing end: the keyboard hint, then the policy reason,
+	// then the arguments. The tool's NAME and the buttons are never dropped — without them the
+	// prompt is unanswerable.
+	room := m.modalRoom()
+	full := body + buttons + "\n" + hint
+	for _, candidate := range []string{
+		full,
+		body + buttons,
+		stylePermTitle.Render("permission required") + "\n" +
+			fmt.Sprintf("run tool %s %s\n", styleToolName.Render(m.perm.name), styleToolArgs.Render(compactArgs(m.perm.args))) +
+			buttons,
+		stylePermTitle.Render("permission required") + "\n" +
+			"run tool " + styleToolName.Render(m.perm.name) + "\n" + buttons,
+	} {
+		out := stylePermBox.Width(m.width - 4).Render(candidate)
+		if m.height <= 0 || lipgloss.Height(out) <= room {
+			return out
+		}
+	}
+	// Nothing fits vertically: the name and the buttons, unboxed — but still cut to the screen,
+	// or a prompt that was too tall becomes one that is too wide.
+	bare := styleToolName.Render(m.perm.name) + " " + buttons
+	return ansi.Truncate(bare, max(1, m.width), "")
 }
 
 // updateSearch recomputes the hit list for the current query (case-insensitive

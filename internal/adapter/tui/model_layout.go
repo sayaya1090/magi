@@ -341,9 +341,18 @@ func (m *Model) refresh() {
 	// change — a layout change (subagent pane added/removed, terminal resize) or
 	// new content must not flip whether we were pinned to the bottom.
 	follow := m.vp.AtBottom()
+	// The transcript gets whatever the chrome leaves. minViewport is a floor only while there is
+	// room for it: raising the viewport ABOVE the space available makes the whole frame taller
+	// than the terminal, and on an alt screen that does not scroll — it pushes the header and the
+	// top of the transcript off the display and shifts every row the mouse hit-testing counts.
+	// Found by a random session at heights a split pane really reaches: a 5-row terminal was
+	// handed a 9-row frame. When the chrome alone fills the screen the transcript is what gives.
 	vpHeight := m.height - m.chromeHeight()
 	if vpHeight < minViewport {
 		vpHeight = minViewport
+	}
+	if room := m.height - m.chromeHeight(); vpHeight > room {
+		vpHeight = max(0, room)
 	}
 	// Reserve the right status panel's width; the transcript wraps to the rest.
 	tw := m.width - m.panelCols()
