@@ -82,7 +82,13 @@ func (m Model) View() tea.View {
 	// Cap the header to the screen width so a long chip/badge can't SOFT-WRAP to a
 	// second physical row — that would desync physical rows from the logical layout
 	// (headerRows=2) and throw off the post-it/toast overlay click hit-testing.
-	header := styleHeader.MaxWidth(m.width).Render(headLine) +
+	//
+	// Truncated with an ANSI-aware cut rather than MaxWidth. The header is assembled from chips
+	// that are ALREADY styled, and MaxWidth does not clip such content to the cells it occupies —
+	// found by a random session at 53 columns, where a header carrying the scroll meter rendered
+	// 59 cells wide and the vertical join padded every other row out to match it. styleHeader pads
+	// one cell each side, so the content budget is width-2.
+	header := styleHeader.Render(ansi.Truncate(headLine, max(0, m.width-2), "")) +
 		"\n" + styleDivider.Render(strings.Repeat("─", max(1, m.width)))
 
 	var status string
@@ -99,14 +105,44 @@ func (m Model) View() tea.View {
 		// The spinner and the meter say the turn is alive and must always fit; the interrupt hint
 		// is the droppable part. Unbounded, this row was the widest in the frame on a narrow
 		// terminal and JoinVertical padded every other row out to match it.
-		live := "  " + m.sp.View() + styleFooter.Render(" "+work+turnMeter(time.Since(m.turnStart), m.turnIn, m.turnOut)+gaugeSep(m.ctxGauge())+"  ")
-		status = live
-		if hint := footerKeys("esc", "interrupt"); m.width <= 0 || lipgloss.Width(live)+lipgloss.Width(hint) <= m.width {
+		// Built longest-first and shortened until it fits: the spinner says the turn is alive and
+		// must always be there, the meter is useful, the token/context detail is the first thing a
+		// narrow screen can do without. Unbounded, this row overflowed at 46 columns — measured on
+		// `working… 0s · ↑33.9k · ctx 0% · 33.9k/65.5k`, 49 cells — and the vertical join then
+		// padded every other row out to match it.
+		meter := turnMeter(time.Since(m.turnStart), m.turnIn, m.turnOut)
+		for _, body := range []string{
+			work + meter + gaugeSep(m.ctxGauge()) + "  ",
+			work + meter + "  ",
+			work + fmtDur(time.Since(m.turnStart)) + "  ",
+			work,
+		} {
+			status = "  " + m.sp.View() + styleFooter.Render(" "+body)
+			if m.width <= 0 || lipgloss.Width(status) <= m.width {
+				break
+			}
+		}
+		if hint := footerKeys("esc", "interrupt"); m.width <= 0 || lipgloss.Width(status)+lipgloss.Width(hint) <= m.width {
 			status += hint
 		}
 	case m.turnDur > 0:
-		meter := styleFooter.Render("  " + turnMeter(m.turnDur, m.turnIn, m.turnOut) + gaugeSep(m.ctxGauge()))
-		status = meter + "   " + footerWidth(m.width-lipgloss.Width(meter)-3)
+		// Same degradation as the live row: the elapsed time is the point, the token and context
+		// detail is what a narrow screen does without.
+		var meter string
+		for _, body := range []string{
+			"  " + turnMeter(m.turnDur, m.turnIn, m.turnOut) + gaugeSep(m.ctxGauge()),
+			"  " + turnMeter(m.turnDur, m.turnIn, m.turnOut),
+			"  " + fmtDur(m.turnDur),
+		} {
+			meter = styleFooter.Render(body)
+			if m.width <= 0 || lipgloss.Width(meter) <= m.width {
+				break
+			}
+		}
+		status = meter
+		if hints := footerWidth(m.width - lipgloss.Width(meter) - 3); hints != "" {
+			status += "   " + hints
+		}
 	default:
 		status = footerWidth(m.width)
 	}
@@ -214,8 +250,16 @@ func (m Model) View() tea.View {
 
 	// Toast: overlay a transient notice in the top-left (on the header divider)
 	// without reserving a layout row, so it floats and doesn't shift the UI.
+	//
+	// Clipped to what is left of the row. It floats over the frame rather than joining it, so
+	// nothing else measures it and an over-long notice simply ran off the screen — found by a
+	// random session at 59 and 62 columns, ordinary widths for a split pane, on the steer notice
+	// ("queued · runs after the current task finishes (agent may fold it in sooner)", 76 cells).
+	// The style pads one cell each side, and it starts at column 2.
 	if m.snackbar != "" {
-		v.Content = overlayLine(v.Content, 1, 2, styleToast.Render(m.snackbar))
+		if room := m.width - 2 - 2; room > 0 {
+			v.Content = overlayLine(v.Content, 1, 2, styleToast.Render(clipLine(m.snackbar, room)))
+		}
 	}
 
 	// Report the real cursor at the input position so IME composition (Korean,
@@ -795,15 +839,21 @@ func humanTokens(n int) string {
 // Dropped from the right: quit is discoverable elsewhere (/quit), interrupt matters while a turn
 // runs, and send is the one a new user needs. Below even that, nothing — an unreadable smear of
 // half a hint is worse than a clean empty row.
-// footerWidth is the hint row bounded to w cells (0 = unbounded).
+// footerWidth is the hint row bounded to w cells. Non-positive means there is NO room, and no room
+// means no hints — it used to mean "unbounded", which is the same value a caller computes when the
+// meter beside the hints has already eaten the whole row, so the row that had least space printed
+// the most (88 cells in a 31-column terminal).
 func footerWidth(w int) string {
+	if w <= 0 {
+		return ""
+	}
 	hints := [][2]string{{"enter", "send"}, {"esc", "interrupt"}, {"ctrl+q", "quit"}}
 	for n := len(hints); n > 0; n-- {
 		out := styleFooter.Render("")
 		for _, h := range hints[:n] {
 			out += footerKeys(h[0], h[1])
 		}
-		if w <= 0 || lipgloss.Width(out) <= w {
+		if lipgloss.Width(out) <= w {
 			return out
 		}
 	}
