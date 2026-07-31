@@ -262,15 +262,36 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	// Permission modal takes priority.
 	if m.perm != nil {
 		switch msg.String() {
-		case "y", "Y":
-			return m.respond("allow"), true
-		case "a", "A":
-			return m.respond("always"), true
-		case "p", "P":
-			// Persist: allow for this project across sessions (writes an allow rule).
-			return m.respond("persist"), true
-		case "n", "N", "esc":
+		// esc denies: it is not a printable character, so it cannot arrive as part of a sentence,
+		// and denying is the safe direction anyway.
+		case "esc":
 			return m.respond("deny"), true
+		// The letters FOCUS their button; enter presses it. In this app the user types while a
+		// turn runs — that is what steering is — so a permission prompt routinely opens between
+		// one keystroke and the next, and with printable shortcuts the following letter of the
+		// sentence answers it. Measured by driving the modal with ordinary prose: "this should not
+		// become a request" was answered by its own `n`, the modal closed, and the rest of the
+		// sentence became a prompt. An `a` earlier in the sentence would have granted the tool for
+		// the whole session, and a `p` writes an allow rule to disk.
+		//
+		// The cost is one extra keypress on a deliberate answer; what it buys is that no sentence
+		// can decide a permission the user never read.
+		case "y", "Y":
+			m.perm.sel = permIndex("allow")
+			m.refresh()
+			return nil, true
+		case "a", "A":
+			m.perm.sel = permIndex("always")
+			m.refresh()
+			return nil, true
+		case "p", "P":
+			m.perm.sel = permIndex("persist")
+			m.refresh()
+			return nil, true
+		case "n", "N":
+			m.perm.sel = permIndex("deny")
+			m.refresh()
+			return nil, true
 		case "tab", "right":
 			m.perm.sel = (m.perm.sel + 1) % len(permButtons())
 			m.refresh()
