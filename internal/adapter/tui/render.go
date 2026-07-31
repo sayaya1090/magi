@@ -16,6 +16,18 @@ import (
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
+// clipRow bounds one already-styled row to the terminal it is drawn in, marking the cut. It is a
+// backstop, not the plan: a row should be composed to fit, and the callers below measure their
+// parts and budget for them. What this catches is the part someone appends afterwards — every
+// over-wide surface found in this package was a bounded piece with an unbounded one added after
+// it, and in a vertically joined frame one such row pads every other row to match.
+func clipRow(s string, width int) string {
+	if width <= 0 || ansi.StringWidth(s) <= width {
+		return s
+	}
+	return ansi.Truncate(s, width, "…")
+}
+
 // blockKind classifies a transcript block for rendering.
 type blockKind int
 

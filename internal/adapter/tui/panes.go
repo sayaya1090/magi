@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -447,9 +448,9 @@ func (m *Model) renderPanes(width, originY int) string {
 	// screen is too short to show any box at all, it just reports the count.
 	moreLine := func() string {
 		if nShown == 0 {
-			return "  " + styleKeyLabel.Render(fmt.Sprintf("%d agent(s) — screen too short · ctrl+o to open", more))
+			return clipRow("  "+styleKeyLabel.Render(fmt.Sprintf("%d agent(s) — screen too short · ctrl+o to open", more)), width)
 		}
-		return "  " + styleKeyLabel.Render(fmt.Sprintf("↑%d  ↓%d  (scroll · ctrl+o to open)", off, more-off))
+		return clipRow("  "+styleKeyLabel.Render(fmt.Sprintf("↑%d  ↓%d  (scroll · ctrl+o to open)", off, more-off)), width)
 	}
 	// Turn finished → compact one-line-per-pane strip (still focusable/zoomable) so
 	// finished subagents don't keep eating the screen; each fades out (per pane) a few
@@ -460,21 +461,40 @@ func (m *Model) renderPanes(width, originY int) string {
 		for i := 0; i < nShown; i++ {
 			p := m.panes[off+i]
 			c := m.paneColorOf(p)
+			// The row is indent(2) + "● " + desc + " " + status, and on the focused pane a
+			// hint after that. Only desc used to be bounded, and against width-8 — while the
+			// status ("✗ exit 1", "⣾ running 1m30s") and the hint together run past forty
+			// cells, so the row overran an 80-column terminal by two and a 40-column one by
+			// half its width. Everything after desc is measured first and desc gets what is
+			// actually left; the hint is dropped before the status, which carries the fact.
+			status := m.paneStatus(p)
+			if p.fade > 0 {
+				status = m.paneStatusPlain(p)
+			}
+			hint := ""
+			if p.fade == 0 && off+i == m.focusPane {
+				hint = " " + styleKeyLabel.Render("[focus: ctrl+o to open]")
+			}
+			budget := width - 4 - ansi.StringWidth(status) - 1 - ansi.StringWidth(hint)
+			if budget < 8 {
+				// Nothing left for a hint: the status says what the job did, the hint only
+				// says how to open it.
+				hint = ""
+				budget = width - 4 - ansi.StringWidth(status) - 1
+			}
+			desc := p.desc(budget)
 			var line string
 			if p.fade > 0 {
 				// Fading out: re-render the whole row in one color blended toward the
 				// surface, so this finished pane dims away before it's removed.
 				dc := blendColor(c, colSurface, p.fade)
-				line = lipgloss.NewStyle().Foreground(dc).Render("● " + p.desc(width-8) + " " + m.paneStatusPlain(p))
+				line = lipgloss.NewStyle().Foreground(dc).Render("● " + desc + " " + status)
 			} else {
 				line = lipgloss.NewStyle().Foreground(c).Render("● ") +
-					lipgloss.NewStyle().Foreground(c).Bold(true).Render(p.desc(width-8)) + " " + m.paneStatus(p)
-				if off+i == m.focusPane {
-					line += " " + styleKeyLabel.Render("[focus: ctrl+o to open]")
-				}
+					lipgloss.NewStyle().Foreground(c).Bold(true).Render(desc) + " " + status + hint
 			}
 			p.x, p.y, p.w, p.h = 0, y, width, 1
-			rows = append(rows, "  "+line)
+			rows = append(rows, clipRow("  "+line, width))
 			y++
 		}
 		if more > 0 {
