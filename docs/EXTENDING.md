@@ -1,362 +1,394 @@
-# magi 확장 가이드 — MCP 서버 & 공유 경험(RAG)
+# magi extension guide — MCP servers & shared experience (RAG)
 
-magi에 **외부 툴(MCP)** 과 **팀 공유 메모리/스킬(experience store, D13)** 을 붙이는 단계별
-방법. 개념 개요는 [`ARCHITECTURE.md`](ARCHITECTURE.md) §11(Extension points)·§7, 전체 사용법은
-[`MANUAL.md`](MANUAL.md) §7·§10을 보라. 이 문서는 "처음 붙이는 사람"을 위한 실전 절차다.
+> Korean edition: [`EXTENDING.ko.md`](EXTENDING.ko.md).
 
-> 관련 확장 수단: **Lua 플러그인**(자체 툴/훅, 핫리로드) → MANUAL §9, **훅**(셸 라이프사이클) →
-> MANUAL §하네스. 인증/TLS 같은 *트랜스포트* 관심사는 플러그인/MCP가 아니라 Go
-> `http.RoundTripper` 심(`openai.WithHTTPClient`)에 둔다 — ARCHITECTURE §11.
+How to attach **external tools (MCP)** and **team-shared memory/skills (the experience store, D13)**
+to magi, step by step. For the concepts read [`ARCHITECTURE.md`](ARCHITECTURE.md) §11 (Extension
+points) and §7; for the full usage read [`MANUAL.md`](MANUAL.md) §7 and §10. This document is the
+practical procedure for someone attaching one for the first time.
+
+> Related extension surfaces: **Lua plugins** (your own tools and hooks, hot-reloadable) → MANUAL §9,
+> and **hooks** (shell lifecycle) → MANUAL §harness. *Transport* concerns such as auth and TLS belong
+> at the Go `http.RoundTripper` seam (`openai.WithHTTPClient`), not in a plugin or an MCP server —
+> ARCHITECTURE §11.
 
 ---
 
-## 0. 설정 파일과 우선순위 (공통)
+## 0. Config files and precedence (both features)
 
-두 기능 모두 `config.toml`로 켠다. 로딩 순서(`cmd/magi/main.go`):
+Both are turned on in `config.toml`. Load order (`cmd/magi/main.go`):
 
-1. **전역**: `<config>/config.toml`
+1. **Global**: `<config>/config.toml`
    - macOS: `~/Library/Application Support/magi/config.toml`
    - Linux: `~/.config/magi/config.toml`
-2. **프로젝트**: `<workdir>/.magi/config.toml` (팀이 repo에 커밋 → 워크플로가 repo를 따라다님)
+2. **Project**: `<workdir>/.magi/config.toml` (commit it and the workflow follows the repo)
 
-병합 규칙:
+Merge rules:
 
-| 키 | 병합 방식 |
+| Key | How it merges |
 |---|---|
-| `hooks`, `allow`, `deny`, `allow_domains` | **append**(전역 + 프로젝트) |
-| `experience_dir`, `profile`, `sandbox` 등 스칼라 | 프로젝트가 **override** |
-| `[routing]`, `[mcp.*]` 맵 | **키 단위 병합** — 같은 키는 프로젝트가 override |
+| `hooks`, `allow`, `deny`, `allow_domains` | **append** (global + project) |
+| scalars such as `experience_dir`, `profile`, `sandbox` | project **overrides** |
+| the `[routing]` and `[mcp.*]` maps | **merged per key** — the project wins on a shared key |
 
-> 파일이 없어도 에러가 아니다. 둘 다 없으면 기본값으로 동작.
+> A missing file is not an error. With neither present, magi runs on defaults.
 
 ---
 
-## 1. MCP 서버 추가
+## 1. Adding an MCP server
 
-MCP 서버는 **stdio 또는 HTTP 전송(Streamable HTTP)**으로 연결되고, 핸드셰이크 후 서버가
-보고한 툴이 빌트인 툴과 **같은 레지스트리에 자동 등록**된다. 등록 이름은 **네임스페이스**된다 —
-`mcp__<서버라벨>__<원격툴명>`(예: `[mcp.filesystem]`의 `read` → `mcp__filesystem__read`). 레지스트리는
-이름으로 덮어쓰므로, 네임스페이싱이 없으면 서버의 `read`/`write`/`list` 툴이 **빌트인을 shadow**하거나
-두 서버가 서로를 덮어쓴다 — 네임스페이스가 그걸 막는다. 실제 호출은 원격 원본 이름으로 전달된다. stdio
-서버 프로세스가 죽거나 HTTP 서버 연결이 끊기면 해당 툴은 자동 제거된다 (`internal/adapter/mcp/`).
+An MCP server connects over **stdio or HTTP (Streamable HTTP)**, and after the handshake the tools it
+reports are **registered automatically into the same registry as the built-ins**. The registered name
+is **namespaced** — `mcp__<server label>__<remote tool name>` (so `read` from `[mcp.filesystem]`
+becomes `mcp__filesystem__read`). The registry is keyed by name, so without namespacing a server's
+`read`/`write`/`list` would **shadow the built-ins**, or two servers would overwrite each other; the
+namespace is what prevents that. The call itself is forwarded under the remote's original name. If a
+stdio server process dies or an HTTP connection drops, its tools are removed automatically
+(`internal/adapter/mcp/`).
 
-### 1.1 선언
+### 1.1 Declaring one
 
-`config.toml`에 `[mcp.<name>]` 블록을 추가한다. `<name>`은 관리용 라벨이자 **툴 이름의 네임스페이스**
-(`mcp__<name>__<원격툴명>`)로 쓰이므로, 짧고 툴 이름 문자셋([A-Za-z0-9_-])에 맞는 이름이 좋다(그 외 문자는 `_`로 치환).
+Add an `[mcp.<name>]` block to `config.toml`. `<name>` is both the management label and the
+**namespace in the tool name** (`mcp__<name>__<remote tool>`), so keep it short and inside the tool
+name character set (`[A-Za-z0-9_-]`; anything else is replaced with `_`).
 
-**stdio 전송** (로컬 프로세스 spawn):
+**stdio transport** (spawns a local process):
+
 ```toml
-# 예: 파일시스템 MCP 서버
+# e.g. the filesystem MCP server
 [mcp.filesystem]
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-filesystem", "."]
 
-# 예: 환경변수가 필요한 서버 (예: GitHub)
+# e.g. a server that needs environment variables (GitHub)
 [mcp.github]
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-github"]
-env = ["GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxx"]   # "KEY=VALUE" 문자열 배열
+env = ["GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxx"]   # an array of "KEY=VALUE" strings
 ```
 
-**HTTP 전송** (원격 또는 로컬 HTTP 서버):
+**HTTP transport** (a remote or local HTTP server):
+
 ```toml
-# 예: HTTP로 실행 중인 MCP 서버
+# e.g. an MCP server already running over HTTP
 [mcp.remote]
 url = "http://localhost:3000/mcp"
 
-# 예: 커스텀 헤더와 환경변수 사용
+# e.g. with custom headers and environment variables
 [mcp.authenticated]
-url = "${MCP_SERVER_URL}"  # 환경변수에서 읽기
+url = "${MCP_SERVER_URL}"  # read from the environment
 [mcp.authenticated.headers]
 Authorization = "Bearer ${MCP_API_TOKEN}"
 X-Client-ID = "magi-client"
 X-Environment = "${DEPLOY_ENV}"
 ```
 
-필드 (`config.MCPServer`):
+Fields (`config.MCPServer`):
 
-| 필드 | 타입 | 설명 |
+| Field | Type | Meaning |
 |---|---|---|
-| `url` | string | HTTP 엔드포인트 (Streamable HTTP 전송). `url`이 있으면 `command` 무시. `${VAR}` 환경변수 확장 지원 |
-| `headers` | map[string]string | HTTP 커스텀 헤더 (HTTP 전송용). `${VAR}` 환경변수 확장 지원 |
-| `command` | string | 실행할 바이너리 (PATH에서 찾음, stdio 전송용) |
-| `args` | []string | 인자 (stdio 전송용) |
-| `env` | []string | `"KEY=VALUE"` 형식. **프로세스 환경에 append**됨(기존 env 유지, stdio 전송용) |
+| `url` | string | the HTTP endpoint (Streamable HTTP transport). When present, `command` is ignored. Supports `${VAR}` expansion |
+| `headers` | map[string]string | custom HTTP headers (HTTP transport). Supports `${VAR}` expansion |
+| `command` | string | the binary to run (found on PATH; stdio transport) |
+| `args` | []string | its arguments (stdio transport) |
+| `env` | []string | `"KEY=VALUE"` form. **Appended to** the process environment, so the existing one is kept (stdio transport) |
 
-> **전송 선택**: `url` 필드가 있으면 HTTP 전송, 없으면 stdio 전송을 사용한다.
+> **Choosing the transport**: a `url` field selects HTTP; without one, stdio is used.
 
-> **환경변수 확장**: HTTP `url`과 `headers` 값에서 `${ENV_VAR}` 패턴은 런타임에 환경변수로
-> 대체된다. 변수가 없거나 빈 값이면 원본 그대로 유지된다. 시크릿을 config에 하드코딩하지
-> 않고 환경변수로 주입할 수 있다.
+> **Environment expansion**: in the HTTP `url` and in `headers` values, a `${ENV_VAR}` pattern is
+> substituted at runtime. A missing or empty variable leaves the text as it was. This is how a secret
+> is injected from the environment rather than hard-coded into the config.
 
-> **HTTP vs HTTPS**: 둘 다 지원된다. 테스트·개발 환경에서 `http://`를 사용할 수 있고,
-> 프로덕션에서는 `https://`를 권장한다.
+> **HTTP vs HTTPS**: both work. `http://` is fine for test and development; prefer `https://` in
+> production.
 
-> ⚠️ **시크릿 주의**: `env`에 토큰을 직접 적으면 `config.toml`에 평문 저장된다. 프로젝트
-> `.magi/config.toml`을 repo에 커밋한다면 토큰을 넣지 말 것 — 전역 `config.toml`에 두거나,
-> 래퍼 스크립트가 OS 키체인/`MAGI_*` env에서 읽어 자식에 넘기게 하라.
+> ⚠️ **Secrets**: a token written directly into `env` is stored in plain text in `config.toml`. If the
+> project's `.magi/config.toml` is committed, do not put a token in it — keep it in the global
+> `config.toml`, or have a wrapper script read it from the OS keychain or a `MAGI_*` env var and pass
+> it to the child.
 
-### 1.2 검증
+### 1.2 Verifying it
 
-1. 서버 바이너리를 **수동으로 먼저 실행**해 설치/PATH를 확인한다(예: `npx -y <pkg>` 가
-   stdin 대기 상태로 멈추면 정상 — Ctrl+C로 종료).
-2. magi 기동. 등록 실패는 stderr로 나온다:
+1. **Run the server binary by hand first** to confirm it is installed and on PATH (e.g. `npx -y <pkg>`
+   sitting and waiting on stdin means it works — Ctrl+C to stop).
+2. Start magi. A registration failure goes to stderr:
    ```
-   magi: mcp "github": <사유>
+   magi: mcp "github": <reason>
    ```
-   (spawn 실패·핸드셰이크 실패·tools/list 실패 등) — 이 줄이 없으면 등록 성공.
-3. TUI에서 **`/tools`** 로 등록된 툴 목록 확인. MCP 툴은 §1.1이 말한 대로
-   **`mcp__<서버라벨>__<원격툴명>`** 으로 뜬다 — 예전엔 접두사 없이 등록돼 서버끼리, 또는
-   서버가 빌트인을 조용히 덮어썼다. 헤드리스라면 `magi -p "사용 가능한 툴을 나열해줘"`.
+   (spawn failure, handshake failure, tools/list failure, …) — no such line means it registered.
+3. In the TUI, **`/tools`** lists what registered. MCP tools appear as §1.1 says, under
+   **`mcp__<server label>__<remote tool>`** — they used to register unprefixed, which let servers
+   overwrite each other and quietly shadow the built-ins. Headless: `magi -p "list the available tools"`.
 
-### 1.3 동작 & 주의
+### 1.3 Behaviour and caveats
 
-- 권한: MCP 툴 호출도 일반 툴과 동일한 권한 모드(`ask`/`auto`/`allow`/`deny`)·정책 엔진을
-  거친다. 위험한 외부 툴은 `deny`/정책 규칙으로 막을 수 있다.
-- **이름 충돌**: 서버 라벨이 이름에 들어가므로 서로 다른 서버의 같은 툴 이름은 충돌하지 않고,
-  서버의 `read`/`write`/`list`가 빌트인을 가리지도 않는다. 남는 충돌은 **같은 라벨을 두 번 쓴
-  경우**뿐이며, 그건 `[mcp.<name>]`이 맵이라 설정 병합 단계에서 이미 하나로 합쳐진다.
-- 서버가 도중에 죽으면 그 툴들만 레지스트리에서 빠지고 세션은 계속된다.
+- Permissions: an MCP tool call goes through the same permission mode (`ask`/`auto`/`allow`/`deny`)
+  and policy engine as any other tool. A dangerous external tool can be blocked with `deny` or a
+  policy rule.
+- **Name collisions**: because the server label is part of the name, the same tool name on two
+  servers does not collide, and a server's `read`/`write`/`list` cannot hide the built-ins. The only
+  collision left is **using the same label twice**, and `[mcp.<name>]` is a map, so config merging has
+  already folded those into one.
+- If a server dies mid-session, only its tools leave the registry; the session continues.
 
-### 1.4 트러블슈팅
+### 1.4 Troubleshooting
 
-| 증상 | 원인/조치 |
+| Symptom | Cause / what to do |
 |---|---|
-| `mcp "x": exec: "cmd": not found` | `command`가 PATH에 없음 → 절대경로 지정 또는 설치 |
-| 등록은 됐는데 `/tools`에 없음 | 서버가 `tools/list`에서 빈 목록 반환 → 서버 설정/인자 확인 |
-| 호출 시 인증 에러 | `env` 토큰 누락/오타 → 1.1의 env 형식(`"KEY=VALUE"`) 확인 |
-| 조용히 아무 일도 없음 | `[mcp.*]`가 잘못된 파일에 있음 → §0 경로/우선순위 재확인 |
+| `mcp "x": exec: "cmd": not found` | `command` is not on PATH → give an absolute path, or install it |
+| It registered but nothing is in `/tools` | the server returned an empty `tools/list` → check its config and arguments |
+| An auth error on call | a missing or mistyped token in `env` → check the `"KEY=VALUE"` form from §1.1 |
+| Nothing happens at all | the `[mcp.*]` block is in the wrong file → re-read the paths and precedence in §0 |
 
 ---
 
-## 2. 공유 경험(experience store / RAG) 부트스트랩
+## 2. Bootstrapping the shared experience store (RAG)
 
-세션 시작 시 디렉터리의 **메모리·스킬을 키워드로 회수해 시스템 프롬프트에 주입**한다(D13).
-`remember` 툴이 새 학습을 리뷰 큐에 기여하고, 디렉터리를 git repo로 두면 팀이 공유한다
+At session start, **memories and skills from a directory are retrieved by keyword and injected into
+the system prompt** (D13). The `remember` tool contributes new learnings to a review queue, and making
+the directory a git repo is how a team shares it
 (`internal/adapter/experience/git/store.go`).
 
-> ⚠️ **정직한 한계**: 여기서의 "RAG"는 **임베딩 벡터/시맨틱 검색이 아니라 단어 겹침
-> (term-overlap) 스코어링**이다. 승급도 자동이 아니라 **수동 리뷰**다. 시맨틱 검색이 필요하면
-> 별도 ContextProvider/MCP 서버로 붙여야 한다.
+> ⚠️ **An honest limit**: the "RAG" here is **term-overlap scoring, not embedding vectors or semantic
+> search**. Promotion is **a manual review**, not automatic. If you need semantic search, attach it as
+> a separate ContextProvider or MCP server.
 
-### 2.1 디렉터리 만들기
+### 2.1 Creating the directory
 
-기본 위치는 `<config>/experience`. 팀 공유하려면 별도 git repo를 만들고 `experience_dir`로
-가리킨다.
+The default location is `<config>/experience`. To share it with a team, make a separate git repo and
+point `experience_dir` at it.
 
 ```bash
 mkdir -p /path/to/team-experience/{memories,skills,pending}
-cd /path/to/team-experience && git init   # (선택) git이면 기여가 자동 commit됨
+cd /path/to/team-experience && git init   # optional: in a git repo, contributions are committed
 ```
 
 ```toml
 # config.toml
-experience_dir = "/path/to/team-experience"   # 생략 시 <config>/experience
+experience_dir = "/path/to/team-experience"   # omitted → <config>/experience
 ```
 
-레이아웃:
+Layout:
 
 ```
 <dir>/
-  memories/*.md   # 승인된 메모리 — 파일 전체가 회수 대상 텍스트
-  skills/*.md     # 승인된 스킬 — 첫 줄 = 설명, 이후 = 본문
-  pending/*.md    # remember가 넣는 리뷰 대기 큐 (회수 안 됨)
+  memories/*.md   # approved memories — the whole file is the retrievable text
+  skills/*.md     # approved skills — first line = description, the rest = body
+  pending/*.md    # the review queue `remember` writes into (never retrieved)
 ```
 
-### 2.2 메모리·스킬 파일 형식
+### 2.2 Memory and skill file formats
 
-- **메모리** (`memories/<무엇이든>.md`): **파일 전체 텍스트**가 회수 단위. 프론트매터 불필요.
-  태그를 넣고 싶으면 본문에 `tags: a, b` 한 줄을 두면 그 단어들도 매칭에 들어간다.
+- **A memory** (`memories/<anything>.md`): **the whole file text** is the unit of retrieval. No
+  frontmatter needed. For tags, put a `tags: a, b` line in the body and those words join the match.
+
   ```markdown
-  이 repo의 통합 테스트는 MAGI_E2E_* env가 있어야 동작한다.
-  없으면 t.Skip 되므로 CI 녹색이 곧 통과를 뜻하지 않는다.
+  The integration tests in this repo need the MAGI_E2E_* env vars.
+  Without them they t.Skip, so a green CI does not mean they passed.
 
   tags: testing, e2e, ci
   ```
-- **스킬** (`skills/<이름>.md`): **첫 줄 = 설명**, 나머지 = 본문. 파일명(확장자 제외)이 스킬
-  이름이 된다.
+
+- **A skill** (`skills/<name>.md`): **the first line is the description**, the rest is the body. The
+  filename (without the extension) is the skill's name.
+
   ```markdown
-  릴리스 컷 절차
-  1. CHANGELOG 갱신 2. vX.Y.Z 태그 3. goreleaser가 CI에서 빌드…
+  Cutting a release
+  1. update the CHANGELOG 2. tag vX.Y.Z 3. goreleaser builds it in CI…
   ```
 
-### 2.3 회수 동작
+### 2.3 How retrieval behaves
 
-- 매 세션 시작 시 사용자 프롬프트를 질의로 써서 **메모리 top 5 + 스킬 top 3**을 term-overlap
-  점수로 골라 주입한다(`Retrieve`). 점수 0(겹치는 단어 없음)은 제외.
-- 파일을 늘려도 주입되는 건 상위 몇 개뿐 — 메모리는 **짧고 단일 사실** 단위로 쪼개는 게
-  회수 정확도에 유리하다.
+- At each session start the user's prompt is the query, and the **top 5 memories and top 3 skills** by
+  term-overlap score are injected (`Retrieve`). A score of zero (no shared words) is excluded.
+- Adding more files does not inject more — only the top few. So memories are best kept **short and to
+  a single fact**, which is what makes retrieval accurate.
 
-### 2.4 기여 & 리뷰 (`remember`)
+### 2.4 Contributing and reviewing (`remember`)
 
-- 에이전트(또는 사용자가 시켜서)가 `remember` 툴을 부르면 `pending/`에
-  `mem-<타임스탬프>-<n>.md`로 저장되고, git repo면 best-effort로 commit된다.
-  **바로 회수되지 않는다** — 리뷰 큐일 뿐.
-- **승급(리뷰)**: 사람이 `pending/`의 파일을 확인하고 좋은 것만 `memories/`(또는 `skills/`)로
-  옮긴다. 그래야 회수 대상이 된다.
+- When the agent calls `remember` (on its own or because you asked it to), the note is written to
+  `pending/` as `mem-<timestamp>-<n>.md` and, in a git repo, committed best-effort.
+  **It is not retrieved yet** — it is only in the queue.
+- **Promotion (review)**: a person reads what is in `pending/` and moves the good ones into
+  `memories/` (or `skills/`). That is what makes them retrievable.
+
   ```bash
   cd "$EXPDIR"
-  mv pending/mem-20260622-120000-0.md memories/   # 검토 후 승급
-  git add -A && git commit -m "experience: approve memory"   # 팀 공유 시
+  mv pending/mem-20260622-120000-0.md memories/   # after reading it
+  git add -A && git commit -m "experience: approve memory"   # when sharing with a team
   ```
-- 🔒 **`remember`는 시크릿을 저장하면 안 된다** — 툴 설명에 명시돼 있고, 기여는 평문 .md로
-  남아 git에 박힌다. 토큰/키/비밀번호는 절대 넣지 말 것.
 
-### 2.5 팀 공유
+- 🔒 **`remember` must not store secrets** — the tool's description says so, and a contribution lands
+  as plain-text .md that gets committed. Never put a token, key, or password in one.
 
-`experience_dir`를 git repo로 두고 팀이 **pull로 받고, 리뷰 후 push**한다. magi는 기여 시
-best-effort `git commit`만 한다(자동 push/pull은 안 함) — pull/push는 팀 워크플로에 맡긴다.
+### 2.5 Sharing with a team
 
-### 2.6 트러블슈팅
+Make `experience_dir` a git repo and have the team **pull it, review, and push**. magi only does a
+best-effort `git commit` when contributing — it never pushes or pulls on its own, which is left to the
+team's workflow.
 
-| 증상 | 원인/조치 |
+### 2.6 Troubleshooting
+
+| Symptom | Cause / what to do |
 |---|---|
-| 메모리가 주입 안 됨 | 파일이 `pending/`에 있음(승급 필요) / 질의와 겹치는 단어 없음 / 빈 파일 |
-| `remember`가 "unavailable" | `experience_dir` 미설정이고 기본 경로도 없음 → §2.1로 디렉터리 생성 |
-| commit이 안 됨 | 디렉터리가 git repo가 아님 → `git init`(없어도 파일 저장 자체는 됨) |
+| A memory is never injected | it is still in `pending/` (needs promoting) / no words shared with the query / the file is empty |
+| `remember` says "unavailable" | `experience_dir` is unset and the default path does not exist → create it per §2.1 |
+| Nothing is committed | the directory is not a git repo → `git init` (the file is still written without one) |
 
 ---
 
-## 3. 플러그인에서 MCP·Context Provider 등록 (Lua)
+## 3. Registering MCP servers and context providers from a plugin (Lua)
 
-`config.toml` 선언 외에, **Lua 플러그인**이 런타임에 직접 MCP 서버나 Context Provider(RAG)를
-등록할 수 있다. 플러그인 호스트가 MCP 매니저·컨텍스트 레지스트리·런타임 정보를 주입받았을 때만
-활성화된다(`cmd/magi/main.go`).
+Besides declaring them in `config.toml`, a **Lua plugin** can register an MCP server or a context
+provider (RAG) at runtime. This is only active when the plugin host was given the MCP manager, the
+context registry and the runtime info (`cmd/magi/main.go`).
 
-### 3.1 `magi.register_mcp` — HTTP MCP 서버 등록
+### 3.1 `magi.register_mcp` — register an HTTP MCP server
 
 ```lua
--- 정적 헤더
+-- static headers
 magi.register_mcp{
   name = "svc",
   url = "http://localhost:3000/mcp",
   headers = { Authorization = "Bearer abc" },
 }
 
--- 동적 헤더: 함수는 매 요청마다 재평가된다(요청 시점 값 반영, 등록 시점 freeze 아님)
+-- dynamic headers: the function is re-evaluated on every request (the value at request time,
+-- not frozen at registration)
 magi.register_mcp{
   name = "svc",
   url = "http://localhost:3000/mcp",
   headers = function()
     return {
-      ["X-Model"]     = magi.model(),     -- 현재 모델
+      ["X-Model"]     = magi.model(),     -- the current model
       ["X-Platform"]  = magi.platform(),  -- darwin/linux/windows
-      ["X-Timestamp"] = magi.time(),      -- 요청 시각 (RFC3339)
+      ["X-Timestamp"] = magi.time(),      -- the time of the request (RFC3339)
     }
   end,
 }
 ```
 
-> **정적 vs 동적**: 테이블이면 헤더가 고정(`AddHTTP`), 함수면 **요청마다 호출**(`AddHTTPDynamic`)된다.
-> 함수는 플러그인 Lua 락 아래에서 직렬 실행되어 동시성에 안전하다. 시각/모델/토큰처럼 매 요청
-> 바뀌는 값에 함수를 쓰라.
+> **Static vs dynamic**: a table fixes the headers (`AddHTTP`); a function is **called per request**
+> (`AddHTTPDynamic`). The function runs serially under the plugin's Lua lock, so it is concurrency-safe.
+> Use a function for anything that changes per request — a clock, a model, a token.
 
-런타임 정보 API: `magi.model()`, `magi.platform()`, `magi.time()`, `magi.workdir()`.
+Runtime info API: `magi.model()`, `magi.platform()`, `magi.time()`, `magi.workdir()`.
 
-> 🔐 **`magi.nonce(nbytes?)`** — `nbytes`(기본 16) 바이트의 암호학적 난수를 hex 문자열로 반환
-> (`crypto/rand`). 샌드박스의 `math.random`은 **결정론적으로 시드**되므로(os 제거로 시계 시드 불가)
-> OAuth/PKCE `state`·CSRF 토큰·요청 ID 같은 **보안 값엔 절대 `math.random`을 쓰지 말고 `magi.nonce`를 써라.**
+> 🔐 **`magi.nonce(nbytes?)`** returns `nbytes` (default 16) of cryptographic randomness as a hex
+> string (`crypto/rand`). The sandbox's `math.random` is **deterministically seeded** (with `os`
+> removed there is no clock to seed from), so for **security values** — an OAuth/PKCE `state`, a CSRF
+> token, a request id — **never use `math.random`; use `magi.nonce`.**
 
-### 3.2 `magi.register_context_provider` — RAG 컨텍스트 주입
+### 3.2 `magi.register_context_provider` — inject RAG context
 
-등록한 provider는 **최상위 에이전트의 매 스텝에서 호출**되어, 반환한 chunk가 시스템 프롬프트의
-`# Retrieved context` 섹션으로 주입된다(provider당 5초 타임아웃, 합산 8KB 예산으로 cap, 실패한
-provider는 턴을 막지 않고 무시). 서브에이전트는 집중 프롬프트라 호출하지 않는다.
+A registered provider is **called on every step of the top-level agent**, and the chunks it returns
+are injected into the system prompt's `# Retrieved context` section (5s timeout per provider, capped
+at a combined 8KB budget; a provider that fails is ignored rather than blocking the turn).
 
 ```lua
 magi.register_context_provider{
   name = "project-rag",
   provide = function(q)
-    -- q.session_id, q.workdir, q.prompt 제공
-    local hits = my_search(q.prompt)            -- 임의의 검색 로직
+    -- q.session_id, q.workdir, q.prompt are provided
+    local hits = my_search(q.prompt)            -- any search logic
     local chunks = {}
     for _, h in ipairs(hits) do
       table.insert(chunks, { source = h.path, text = h.snippet })
     end
-    return chunks                                -- {source=, text=} 배열
+    return chunks                                -- an array of {source=, text=}
   end,
 }
 ```
 
-### 3.3 `magi.register_command` — TUI 슬래시 커맨드 등록
+### 3.3 `magi.register_command` — register a TUI slash command
 
-플러그인이 `/login`, `/logout` 같은 슬래시 커맨드를 직접 등록한다(capability `"command"`).
-TUI가 내장 커맨드에 없는 슬래시를 받으면 플러그인 커맨드로 위임하고, 팔레트·자동완성에도
-동적으로 노출된다. `name`은 슬래시 없이 지정하고(`"login"` → `/login`), `execute`는 커맨드
-이후 토큰 배열을 받는다. **비어 있지 않은 문자열을 반환하면 에러 메시지**로 처리되고, `nil`이면
-성공이다(스낵바에 `✓`).
+A plugin can register its own slash commands such as `/login` and `/logout` (capability `"command"`).
+When the TUI receives a slash it does not know, it delegates to the plugin commands, and they appear
+in the palette and in completion. `name` is given without the slash (`"login"` → `/login`), and
+`execute` receives the tokens after the command. **Returning a non-empty string is treated as an error
+message**; `nil` means success (a `✓` in the snackbar).
 
 ```lua
 magi.register_command{
   name        = "login",
-  description = "Re-authenticate with DS AD SSO",  -- /help·팔레트에 표시
+  description = "Re-authenticate with the corporate SSO",  -- shown in /help and the palette
   execute     = function(args)
-    -- args = "/login" 이후 공백 분리 토큰
+    -- args = the whitespace-separated tokens after "/login"
     local ok = do_sso_login(args[1])
-    if not ok then return "SSO 로그인 실패" end     -- 에러: 스낵바에 표시
-    -- 성공: nil 반환
+    if not ok then return "SSO login failed" end     -- an error: shown in the snackbar
+    -- success: return nil
   end,
 }
 ```
 
-### 3.4 `magi.set_llm_headers` — LLM 백엔드 커스텀 헤더
+### 3.4 `magi.set_llm_headers` — custom headers for the LLM backend
 
-사내 게이트웨이(LiteLLM 등)가 `X-CLIENT-API-KEY` 같은 헤더를 요구하거나, 브라우저 SSO로 발급한
-토큰을 인증키로 써야 할 때 사용한다. 테이블이면 정적, 함수면 **요청마다 재평가**된다.
+For an internal gateway (LiteLLM and the like) that requires a header such as `X-CLIENT-API-KEY`, or
+when a token issued by a browser SSO has to serve as the credential. A table is static; a function is
+**re-evaluated per request**.
 
 ```lua
--- 정적
+-- static
 magi.set_llm_headers({ ["X-CLIENT-API-KEY"] = "abc" })
 
--- 동적: 회전 토큰을 매 요청마다 반영 (예: 파일에 갱신되는 SSO 토큰을 읽어 주입)
+-- dynamic: pick up a rotating token on every request (e.g. an SSO token refreshed into a file)
 magi.set_llm_headers(function()
   local tok = magi.read_file(".magi/adsso.token") or ""
   return { Authorization = "Bearer " .. tok }
 end)
 ```
 
-> 정적 키만 필요하면 **플러그인 없이** `config.toml`로도 된다:
+> If all you need is a static key, `config.toml` does it **without a plugin**:
 > ```toml
 > [llm.headers]
-> X-CLIENT-API-KEY = "${LITELLM_CLIENT_KEY}"   # ${ENV} 확장 지원
+> X-CLIENT-API-KEY = "${LITELLM_CLIENT_KEY}"   # ${ENV} expansion supported
 > ```
-> 두 경로(config 정적 + 플러그인 동적)는 함께 적용되며, 동적 헤더가 나중에 덮어쓴다.
+> Both paths (static in config, dynamic from a plugin) apply together, with the dynamic headers
+> written last.
 
-### 3.5 게이트된 기능: `exec` · `open_url` · `http`
+### 3.5 Gated capabilities: `exec` · `open_url` · `http`
 
-플러그인이 **외부 프로세스 실행 / 브라우저 열기 / HTTP 호출**을 하려면 `plugin.toml`의
-`permissions`에 명시해야 한다. 선언하지 않으면 브리지에서 거부된다(`permission denied: …`).
-RAG를 HTTP로 가져오거나, SSO 로그인 흐름을 플러그인이 직접 구동할 때 쓴다.
+For a plugin to **run an external process, open a browser, or make an HTTP call**, it must say so in
+`permissions` in `plugin.toml`. Undeclared, the bridge refuses (`permission denied: …`). This is what
+fetching RAG over HTTP, or driving an SSO login flow from a plugin, needs.
 
-| API | 권한 | 비고 |
+| API | Permission | Notes |
 |---|---|---|
-| `magi.exec(cmd, {args})` | `exec:<cmd>` | 셸 없이 직접 실행(인젝션 없음), workdir 기준, 60s 타임아웃. `{stdout,stderr,code}` 반환 |
-| `magi.open_url(url)` | `exec:open-url` | OS 기본 브라우저로 엶. **http/https만** 허용 |
-| `magi.http{url,method,headers,body}` | `net:<host>` | http/https만, 30s 타임아웃, 5MB 응답 cap. `{status,body}` 반환 |
-| `magi.serve{port,handler}` | `net:listen` | `127.0.0.1`에 **상주 HTTP 서버**를 인프로세스로 띄움(외부 런타임 불필요 → 단일 바이너리·전 OS 동일). `port=0`은 자유 포트 자동 배정. `{port, stop()}` 반환 |
-| `magi.set_base_url(url)` | `net:<host>` | 에이전트의 **LLM 백엔드 base URL을 런타임 변경**(loopback 프록시 또는 로그인 시 알아낸 게이트웨이로). 빈 문자열이면 원복. 언로드 시 자동 원복. http/https만. ⚠️ 에이전트가 **진짜 API 키와 모든 프롬프트를 대상에 보내므로**, `net:<host>` 부여 = 그 호스트로 LLM 트래픽 리다이렉트 허용 — **호스트를 명시적·최소로** 부여하라 |
-| `magi.set_model(model)` | `config:write:model` | **현재 세션의 활성 모델을 런타임 변경**(그리고 config에 영속 — `/route` 편집기와 동일). 다음 루프 반복부터 적용. 빈 문자열 거부, 성공 시 `true` / 실패 시 `(nil, err)`. 로그인 후 사용 가능한 백엔드를 알아내 모델을 정하는 SSO 플러그인 등에 유용. `magi.model()`(읽기)도 함께 갱신되어 즉시 새 값을 반환 |
-| `magi.set_context_window(tokens[, model])` | `config:write:model` | **모델의 컨텍스트 윈도우(토큰)를 런타임 오버라이드** — 내장 백엔드 프로버(vLLM `/v1/models`·LiteLLM·Ollama)가 못 때리는 사내 모델 API에서 실제 윈도우를 알아내 밀어넣을 때. 푸터 게이지와 비율 기반 자동압축이 참값을 쓰게 된다. `tokens<=0`이면 unlimited/unknown. `model` 생략/빈 문자열이면 **현재 세션 모델** 대상(일반적 경우). 이후 지연 프로브가 값을 덮어쓰지 못하게 잠근다. 런타임 값이라 영속되지 않으니 `on("session_start")`에서 재적용하라. 성공 시 `true` / 실패 시 `(nil, err)` |
-| `magi.reload_config()` | `config:write:model` | **디스크의 config.toml을 다시 읽어 런타임 적용** — 현재는 세션 모델. 파싱 실패면 `(nil, err)`를 반환하고 실행 중 세션은 기존 설정을 유지(잘못된 편집이 모델을 조용히 비우지 못하게). 라우팅·base URL·플러그인 리로드 등 나머지 설정은 재시작 필요. `set_config_key`로 모델을 바꾼 뒤 반영할 때 유용 |
-| `magi.clear_transcript()` | (없음 — UI 전용) | **화면의 대사록을 splash로 초기화**(디스크의 세션은 보존). 플러그인 `/logout` 커맨드가 로그아웃 후 깨끗한 시작 화면으로 되돌릴 때 사용. `true` 반환 |
-| `magi.get_config_key(key, default?)` | `config:read:<key>` | 사용자 **config.toml**에서 dotted 키(`routing.model`, `plugins.<name>.token`) 읽기. 자기 섹션(`plugins.<name>.*`)은 권한 없이 허용. **키 부재 → `default`; 파일 파싱 실패 → `(nil, err)`**(둘을 구분하니, 깨진 config를 덮어쓰는 악순환을 피하려면 err를 확인하라) |
-| `magi.set_config_key(key, value)` | `config:write:<key>` | config.toml에 dotted 키 쓰기(**주석 보존**, `config.SetKey`). 값은 문자열, 빈 문자열이면 키 삭제. 자기 섹션은 권한 없이 허용. top-level 키는 기존 활성 줄을 갱신하고 주석 처리된 템플릿 기본값은 건드리지 않음(중복 키 생성 방지) |
+| `magi.exec(cmd, {args})` | `exec:<cmd>` | direct exec, no shell (so no injection), relative to the workdir, 60s timeout. Returns `{stdout,stderr,code}` |
+| `magi.open_url(url)` | `exec:open-url` | opens the OS default browser. **http/https only** |
+| `magi.http{url,method,headers,body}` | `net:<host>` | http/https only, 30s timeout, 5MB response cap. Returns `{status,body}` |
+| `magi.serve{port,handler}` | `net:listen` | a **long-lived in-process HTTP server** on `127.0.0.1` (no external runtime → one binary, same on every OS). `port=0` takes a free port. Returns `{port, stop()}` |
+| `magi.set_base_url(url)` | `net:<host>` | **changes the agent's LLM backend base URL at runtime** (to a loopback proxy, or to a gateway discovered at login). An empty string restores it; unloading restores it automatically. http/https only. ⚠️ The agent sends **the real API key and every prompt** to the target, so granting `net:<host>` is granting permission to redirect LLM traffic there — **grant the host explicitly and narrowly** |
+| `magi.set_model(model)` | `config:write:model` | **changes the active model of the current session at runtime** (and persists it to config, like the `/route` editor). Applies from the next loop iteration. Empty string refused; `true` on success, `(nil, err)` on failure. Useful for an SSO plugin that learns which backends are available after login. `magi.model()` reads back the new value immediately |
+| `magi.set_context_window(tokens[, model])` | `config:write:model` | **overrides a model's context window (in tokens) at runtime** — for an internal model API that the built-in probes (vLLM `/v1/models`, LiteLLM, Ollama) cannot reach, so the footer gauge and the ratio-based auto-compaction use the true value. `tokens<=0` means unlimited/unknown. Omitting `model` (or passing an empty string) targets **the current session model**, which is the usual case. It also locks the value so a later lazy probe cannot overwrite it. It is a runtime value and is not persisted, so re-apply it from `on("session_start")`. `true` on success, `(nil, err)` on failure |
+| `magi.reload_config()` | `config:write:model` | **re-reads config.toml from disk and applies it at runtime** — currently the session model. On a parse failure it returns `(nil, err)` and the running session keeps its existing settings, so a bad edit cannot silently blank the model. Routing, the base URL and plugin reloads still need a restart. Useful after changing the model with `set_config_key` |
+| `magi.clear_transcript()` | (none — UI only) | **resets the on-screen transcript to the splash** (the session on disk is untouched). For a plugin's `/logout` to return to a clean start screen. Returns `true` |
+| `magi.get_config_key(key, default?)` | `config:read:<key>` | reads a dotted key (`routing.model`, `plugins.<name>.token`) from the user's **config.toml**. A plugin's own section (`plugins.<name>.*`) needs no permission. **A missing key → `default`; a parse failure → `(nil, err)`** — the two are distinguished, so check the error to avoid the loop of overwriting a broken config |
+| `magi.set_config_key(key, value)` | `config:write:<key>` | writes a dotted key into config.toml (**comments preserved**, `config.SetKey`). The value is a string; an empty string deletes the key. A plugin's own section needs no permission. A top-level key updates the existing active line and leaves commented-out template defaults alone (so no duplicate key is created) |
 
-> 🔑 **store_get/store_set vs get/set_config_key**: 앞쪽(`store_get`/`store_set`)은 플러그인 **자체 격리 JSON 저장소**(`config:` 권한 불필요). 뒤쪽(`get/set_config_key`)은 **사용자 config.toml** 직접 접근으로, **권한 게이트**된다. 권한은 `config:read:<key>` / `config:write:<key>`이며 **끝에 `*`로 prefix 와일드카드**(예: `config:write:routing.*`, `config:write:*`). 자기 섹션 `plugins.<name>.*`는 암묵 허용. 키는 `[A-Za-z0-9_-]` dotted segment만 허용(주입 방지). **고정 deny-list**(권한이 있어도 차단): `mcp`·`hooks`·`allow`·`deny`·`permission`·`sandbox`·`profile`·`allow_domains` (명령 실행/보안 포스처 변경 영역).
+> 🔑 **store_get/store_set vs get/set_config_key**: the first pair is the plugin's **own isolated JSON
+> store** (no `config:` permission needed). The second pair reaches into the **user's config.toml** and
+> is **permission-gated**: `config:read:<key>` / `config:write:<key>`, with a trailing `*` for a prefix
+> wildcard (`config:write:routing.*`, `config:write:*`). A plugin's own `plugins.<name>.*` section is
+> implicitly allowed. Keys accept only `[A-Za-z0-9_-]` dotted segments (to prevent injection). A
+> **fixed deny-list** is blocked even with permission: `mcp`, `hooks`, `allow`, `deny`, `permission`,
+> `sandbox`, `profile`, `allow_domains` — the keys that change command execution and the security
+> posture.
 
-**예: ADSSO 로그인 → 토큰을 LLM 인증헤더로 (플러그인이 흐름까지 구동)**
+**Example: SSO login → the token as the LLM auth header (the plugin drives the whole flow)**
+
 ```toml
 # plugin.toml
 name = "adsso"
 permissions = ["exec:open-url", "net:sso.corp.example", "fs:write:.magi/"]
 ```
+
 ```lua
--- init.lua: 시작 시 브라우저로 로그인 → 콜백 토큰을 교환해 캐시, 매 요청 주입
+-- init.lua: log in through the browser at startup, cache the exchanged token, inject it per request
 local token = ""
 local function login()
-  magi.open_url("https://sso.corp.example/authorize?...")   -- 브라우저 오픈
-  -- (콜백/폴링으로 code 수령 후) 토큰 교환:
+  magi.open_url("https://sso.corp.example/authorize?...")   -- open the browser
+  -- (after receiving the code via callback or polling) exchange it:
   local r = magi.http{ url = "https://sso.corp.example/token",
                          method = "POST", body = "grant_type=..." }
   if r and r.status == 200 then token = r.body end
@@ -365,113 +397,131 @@ login()
 magi.set_llm_headers(function() return { Authorization = "Bearer " .. token } end)
 ```
 
-> ⚠️ `exec`/`http`는 샌드박스를 넓히는 강력한 권한이다. 신뢰하는 플러그인에만, 최소 host/cmd로
-> 좁혀 부여하라. (정적 키만 필요하면 §3.4의 `config.toml [llm].headers`로 충분하다.)
+> ⚠️ `exec` and `http` widen the sandbox considerably. Grant them only to plugins you trust, narrowed
+> to the smallest host or command. (For a static key alone, §3.4's `config.toml [llm].headers` is
+> enough.)
 
-### 3.6 라이프사이클 훅 · 사용자 프롬프트 · 콜백 (SSO 등)
+### 3.6 Lifecycle hooks, user prompts and callbacks (SSO and the like)
 
-플러그인이 **시작 시점에 사용자와 상호작용**(인증 등)할 수 있는 범용 통로.
+The general-purpose way for a plugin to **interact with the user at startup** (to authenticate, say).
 
-- **`magi.on(event, fn)`** — 호스트가 정해진 시점에 호출하는 핸들러 등록.
-  이벤트: `startup`(플러그인 로드 후·첫 턴 전, UI 준비됨), `session_start`(세션 생성 후), `shutdown`(종료).
-  핸들러는 **동기 실행**되어 블로킹 가능(예: 시작 시 인증 완료까지 대기).
-- **`magi.ask{title, fields}`** — 인터랙티브 폼. 필드 `type`: `text`·`password`·`number`·`multiline`·
-  `select`·`multiselect`·`confirm`·`note`. 답을 테이블로 반환. **TTY 없으면(헤드리스) 에러** → 폴백 처리.
-  필드: `{ name=, type=, label=, options={}, default= }`. (Tab=제출, Esc=취소)
-- **`magi.serve`** — `127.0.0.1`에 루프백 HTTP 서버. 두 모드, 둘 다 `net:listen` 필요:
-  - **handler 있음 (상주)**: `magi.serve{port, handler=function(req) … end}` → 모든 요청을 `handler(req)`로 라우팅, 반환 테이블이 응답. `port=0`이면 자유 포트 자동 배정. `{port, stop()}` 반환. 언로드/리로드 시 자동 종료.
-  - **handler 없음 (일회성 블로킹, OAuth/PKCE 리다이렉트 수신)**: `magi.serve{port, path, timeout}` → 첫 매칭 요청까지 블록 후 `{query={...}, path=}` 반환하고 종료.
-  요청: `{ method, path, query={k=v}, headers={k=v}, body }`,
-  응답: `{ status=200, headers={k=v}, body }`(또는 문자열만 반환 → 200 본문).
-  **인프로세스**라 외부 런타임 없이 단일 정적 바이너리 안에서 동작 — 모든 OS에서 동일.
+- **`magi.on(event, fn)`** — register a handler the host calls at a defined moment.
+  Events: `startup` (after plugins load, before the first turn, with the UI ready), `session_start`
+  (after a session is created), `shutdown` (on exit).
+  Handlers run **synchronously** and may block (e.g. waiting for authentication to finish at startup).
+- **`magi.ask{title, fields}`** — an interactive form. Field `type`: `text`, `password`, `number`,
+  `multiline`, `select`, `multiselect`, `confirm`, `note`. Returns the answers as a table.
+  **Without a TTY (headless) it errors** — handle the fallback.
+  Fields: `{ name=, type=, label=, options={}, default= }`. (Tab submits, Esc cancels.)
+- **`magi.serve`** — a loopback HTTP server on `127.0.0.1`. Two modes, both needing `net:listen`:
+  - **with a handler (long-lived)**: `magi.serve{port, handler=function(req) … end}` routes every
+    request to `handler(req)`, and the returned table is the response. `port=0` takes a free port.
+    Returns `{port, stop()}`. Shut down automatically on unload or reload.
+  - **without a handler (one-shot, blocking — for an OAuth/PKCE redirect)**:
+    `magi.serve{port, path, timeout}` blocks until the first matching request, returns
+    `{query={...}, path=}`, and stops.
 
-**예: ADSSO — 시작 시 "브라우저 로그인 / 토큰 붙여넣기" 메뉴 (순수 플러그인, 코어 무수정)**
+  The request is `{ method, path, query={k=v}, headers={k=v}, body }`, and the response is
+  `{ status=200, headers={k=v}, body }` (or just a string, which becomes a 200 body).
+  Being **in-process**, it needs no external runtime and works inside the single static binary —
+  identically on every OS.
+
+**Example: SSO — a "log in with the browser / paste a token" menu at startup (pure plugin, no core change)**
+
 ```toml
 # plugin.toml
 name = "adsso"
 permissions = ["exec:open-url", "net:listen", "net:sso.corp.example", "fs:write:.magi/"]
 ```
+
 ```lua
 -- init.lua
 magi.on("startup", function()
-  if magi.store_get("adsso.token") then return end            -- 이미 있으면 패스
-  local a = magi.ask{ title = "ADSSO 인증", fields = {
-    { name = "how", type = "select", options = { "브라우저 로그인", "토큰 붙여넣기" } },
+  if magi.store_get("adsso.token") then return end            -- already have one
+  local a = magi.ask{ title = "SSO sign-in", fields = {
+    { name = "how", type = "select", options = { "Log in with the browser", "Paste a token" } },
   }}
-  if not a then return end                                        -- 헤드리스 등 → 폴백
+  if not a then return end                                        -- headless etc. → fall back
   local token
-  if a.how == "브라우저 로그인" then
+  if a.how == "Log in with the browser" then
     magi.open_url("https://sso.corp.example/authorize?redirect_uri=http://127.0.0.1:8765/cb&...")
     local cb = magi.serve{ port = 8765, path = "/cb", timeout = 120 } -- one-shot (no handler)
     local r = magi.http{ url = "https://sso.corp.example/token", method = "POST",
                            body = "grant_type=authorization_code&code=" .. cb.query.code }
     token = parse_token(r.body)
   else
-    token = magi.ask{ fields = {{ name = "t", type = "password", label = "토큰" }} }.t
+    token = magi.ask{ fields = {{ name = "t", type = "password", label = "Token" }} }.t
   end
   magi.store_set("adsso.token", token)
 end)
 
--- 매 LLM 요청에 토큰 주입 (저장된 값을 읽어 — 재시작에도 유지)
+-- inject the token into every LLM request (read from the store, so it survives a restart)
 magi.set_llm_headers(function()
   return { Authorization = "Bearer " .. (magi.store_get("adsso.token") or "") }
 end)
 ```
-→ 코어엔 ADSSO 흔적이 전혀 없다. "플러그인이 라이프사이클 시점에 사용자에게 묻고 환경과
-상호작용한다"는 범용 기능만 제공한다.
 
-- **`magi.set_user_label(name)`** — 트랜스크립트에서 사용자를 가리키는 표시 이름을 설정
-  (미설정 시 폴백은 `you`). SSO 인증 뒤 로그인 사용자명을 노출할 때 쓴다. 빈/공백 문자열은
-  무시되어 폴백이 유지된다. 권한 `ui` 필요.
+→ There is no trace of this SSO in the core. All the core provides is the general capability: a plugin
+asks the user something at a lifecycle moment and interacts with its environment.
 
-  **인코딩 계약 — 반드시 raw UTF-8 Lua 문자열을 넘길 것.** 코어는 라벨을 저장·브로드캐스트·
-  렌더 전 구간에서 무손실 UTF-8로 보존한다(내부 `json.Marshal`은 한글을 `\uXXXX`로 이스케이프
-  하지 않으며, 이 계약은 `internal/app`·`internal/adapter/tui`의 라운드트립 단위테스트로 고정돼
-  있다). 따라서 화면에 `변냁...` 같은 **리터럴 이스케이프 시퀀스**가 그대로 보인다면
-  그것은 코어가 아니라 **플러그인이 이미 이스케이프된 문자열을 넘긴 것**이다 — 예: SSO 응답
-  JSON을 직접 파싱하며 `\uXXXX`를 디코딩하지 않은 손수 짠 파서. `magi.http`/`magi.serve`가
-  주는 `body`·`query`는 이미 UTF-8이므로, JSON 본문에서 이름을 꺼낼 때는 **JSON을 제대로
-  디코딩한 뒤** 그 값을 넘겨야 한다(이스케이프된 원문을 그대로 넘기지 말 것).
+- **`magi.set_user_label(name)`** — set the display name for the user in the transcript (the fallback
+  when unset is `you`). Use it to show the logged-in username after SSO. An empty or whitespace-only
+  string is ignored, keeping the fallback. Requires the `ui` permission.
 
-### 3.7 `serve` + `set_base_url` — loopback LLM 프록시 (코어 무수정)
+  **Encoding contract — pass a raw UTF-8 Lua string.** The core preserves the label as lossless UTF-8
+  through storage, broadcast and rendering (its internal `json.Marshal` does not escape non-ASCII to
+  `\uXXXX`, and the contract is pinned by round-trip unit tests in `internal/app` and
+  `internal/adapter/tui`). So if a **literal escape sequence** appears on screen, it is not the core —
+  it is **the plugin passing an already-escaped string**, typically a hand-rolled parser reading an SSO
+  response's JSON without decoding `\uXXXX`. The `body` and `query` from `magi.http` and `magi.serve`
+  are already UTF-8, so when taking a name out of a JSON body, **decode the JSON properly** and pass
+  that value rather than the escaped text.
 
-`magi.serve`로 플러그인이 **인프로세스 HTTP 서버**를 띄우고, `magi.set_base_url`로 에이전트의
-LLM 트래픽을 그 서버로 돌릴 수 있다. 프롬프트/응답 로깅·요청 변형·모킹·요율 게이트 같은 것을
-**외부 프로세스 없이**(= 단일 바이너리·전 OS 동일) 플러그인만으로 구현한다. 서버는 언로드 시 자동 종료.
+### 3.7 `serve` + `set_base_url` — a loopback LLM proxy (no core change)
+
+A plugin can raise an **in-process HTTP server** with `magi.serve` and point the agent's LLM traffic at
+it with `magi.set_base_url`. Prompt/response logging, request rewriting, mocking, a rate gate — all
+from a plugin, **without an external process** (so: one binary, identical on every OS). The server is
+shut down automatically on unload.
 
 ```toml
 # plugin.toml
 name = "llm-proxy"
-# net:listen=서버 호스팅, net:127.0.0.1=에이전트를 loopback으로 향하게, net:localhost=upstream 포워딩
+# net:listen to host the server, net:127.0.0.1 to point the agent at loopback,
+# net:localhost to forward upstream
 permissions = ["net:listen", "net:127.0.0.1", "net:localhost"]
 ```
+
 ```lua
--- init.lua: 모든 LLM 요청을 가로채 로깅한 뒤 진짜 백엔드로 포워딩
-local upstream = "http://localhost:11434/v1"   -- 원래 백엔드 (이 host엔 net: 권한 필요)
+-- init.lua: intercept every LLM request, log it, and forward to the real backend
+local upstream = "http://localhost:11434/v1"   -- the original backend (needs net: for this host)
 local s = magi.serve{ port = 0, handler = function(req)
   magi.log("LLM " .. req.method .. " " .. req.path .. " (" .. #req.body .. " bytes)")
   local r = magi.http{ url = upstream .. req.path, method = req.method,
                        headers = req.headers, body = req.body }
   return { status = r.status, body = r.body }
 end }
-magi.set_base_url("http://127.0.0.1:" .. s.port .. "/v1")   -- 에이전트를 프록시로 (loopback)
+magi.set_base_url("http://127.0.0.1:" .. s.port .. "/v1")   -- point the agent at the proxy (loopback)
 ```
-> 🔐 **`set_base_url` 보안**: 에이전트는 `base()`에 **진짜 API 키를 붙여 모든 프롬프트/응답을 보낸다.**
-> 따라서 `net:<host>` 권한을 주는 것은 "그 호스트로 에이전트의 자격증명 트래픽을 돌려도 된다"는 명시적
-> 승인이다 — 대상 host를 **명시적·최소로** 부여하라(RAG용으로 넓게 준 `net:` 권한이 리다이렉트까지
-> 열어줄 수 있으니 주의). loopback 프록시면 `net:127.0.0.1`, 게이트웨이면 그 host를 선언한다. 플러그인
-> 언로드/리로드 시 오버라이드는 **자동으로 원복**된다(죽은 대상을 가리킨 채 LLM이 멎지 않게).
 
-> ⚠️ **한계**: ① `serve` 핸들러 응답은 `magi.http`로 받은 **완성된 본문**이라 토큰 단위 SSE
-> **스트리밍이 아니다**(상류 완료 후 한 번에). 30s·5MB 캡도 그대로 적용되니, 이 프록시는 **로깅/모킹/짧은
-> 완성**에 적합하고 장문 스트리밍 패스스루엔 부적합. ② 고정 포트(`port>0`)로 띄운 `serve` 플러그인은
-> 핫리로드 시 이전 인스턴스가 포트를 쥔 채 새 인스턴스가 바인드해 실패할 수 있으니 **`port=0`(자동 배정)을
-> 권장**한다.
+> 🔐 **`set_base_url` security**: the agent sends **every prompt and response to `base()` with the real
+> API key attached.** Granting `net:<host>` is therefore an explicit approval to redirect the agent's
+> credentialed traffic to that host — **grant the target host explicitly and narrowly** (a broad `net:`
+> granted for RAG can end up opening redirection too). For a loopback proxy that is `net:127.0.0.1`;
+> for a gateway, declare that host. On plugin unload or reload the override is **restored
+> automatically**, so the LLM is never left pointing at a dead target.
+
+> ⚠️ **Limits**: (1) the `serve` handler's response is the **complete body** returned by `magi.http`,
+> so it is **not token-by-token SSE streaming** (it arrives at once, after upstream finishes). The 30s
+> and 5MB caps apply too, which makes this proxy suitable for **logging, mocking and short
+> completions** and unsuitable for long streaming pass-through. (2) A `serve` plugin bound to a fixed
+> port (`port>0`) can fail to bind on hot reload while the previous instance still holds it, so
+> **`port=0` (automatic) is recommended**.
 
 ---
 
-## 더 보기
+## See also
 
-- 자체 **툴/훅**을 코드 없이 추가 → Lua 플러그인 (MANUAL §9, `plugins/examples/wordcount`)
-- 셸 **라이프사이클 훅**(테스트/포맷 게이트) → MANUAL §하네스, `[[hooks]]`
-- **포트/어댑터** 구조로 새 백엔드 구현 → ARCHITECTURE §3·§11
+- Add your own **tools and hooks** without writing Go → Lua plugins (MANUAL §9, `plugins/examples/wordcount`)
+- Shell **lifecycle hooks** (test/format gates) → MANUAL §harness, `[[hooks]]`
+- Implement a new backend through the **ports and adapters** structure → ARCHITECTURE §3, §11
