@@ -240,6 +240,38 @@ func (m *Model) applyEvent(e event.Event) {
 				"↯ context compacted: ~%d→%d tok (−%d, −%d%%)", d.TokensBefore, d.TokensAfter, freed, pct)})
 		}
 
+	case event.TypeInterjectionAnswered:
+		// The agent says its reply already covered this queued message. Two things were wrong
+		// without it, both visible to the user: the bubble kept the "waiting" glyph forever, and
+		// the queued-tail hoist pinned it below every later block so it never scrolled away. Pair
+		// it with the answer the way an inline reply is paired — the question sits just above the
+		// text that answers it, and from then on it moves with the transcript like anything else.
+		var d event.InterjectionAnsweredData
+		if json.Unmarshal(e.Data, &d) == nil && d.MessageID != "" {
+			// The step's assistant text is persisted BEFORE its tool calls run, so the answer is
+			// already the last assistant block by the time this claim arrives. moveUserBlockBefore
+			// takes the ANSWER's index — passing the slice length puts the question after it, which
+			// is the arrangement this whole signal exists to undo.
+			for i := len(m.blocks) - 1; i >= 0; i-- {
+				if m.blocks[i].kind != blockAssistant {
+					continue
+				}
+				var moved bool
+				if m.blocks, moved = moveUserBlockBefore(m.blocks, d.MessageID, i); moved {
+					m.cache = m.cache[:0] // reorder shifts block indices — the prefix cache is stale
+				}
+				break
+			}
+			// moveUserBlockBefore clears `queued` only when it actually moved the block. A bubble
+			// already sitting in the right place must lose the glyph too — being in position is not
+			// the same as still waiting.
+			for i := range m.blocks {
+				if m.blocks[i].kind == blockUser && m.blocks[i].reqID == d.MessageID {
+					m.blocks[i].queued = false
+				}
+			}
+		}
+
 	case event.TypeCouncilConvened:
 		// A council round opened: record it as a transcript milestone and arm the
 		// header chip. (D14 — the consensus termination gate.)
