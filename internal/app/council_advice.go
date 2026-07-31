@@ -62,7 +62,7 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	// contradict both the agent's claim and magi's own log: a file the record says was written and
 	// is not there, a file nothing in the record wrote, a server still running, a build that exited
 	// nonzero after the last tool call.
-	if snap := worldSnapshot(s.Workdir, lastUserPromptTS(evs)); snap != "" {
+	if snap := a.worldDiffFor(sid, s.Workdir, lastUserPromptTS(evs)); snap != "" {
 		actions = snap + "\n\n" + actions
 	}
 	if jobs := a.liveJobsNow(a.jobsStartedBy(ctx, sid)); jobs != "" {

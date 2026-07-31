@@ -118,8 +118,15 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	// turn cost is the delta across it (this session and everything dispatched beneath it).
 	usageAtStart := a.UsageFor(sid)
 	runStart := time.Now() // self-measured wall clock (budget line + council cost control)
+	// The turn's baseline read of the workspace, taken before any of its work: the finish snapshot
+	// is the difference against this, so a file the turn DELETES is visible at all. Taken outside
+	// the lock — it is a filesystem walk, and holding the app mutex across one would stall every
+	// other session.
+	worldBase := indexWorkspace(s.Workdir)
 	a.mu.Lock()
-	a.stateLocked(sid).turnStart = runStart // what a check means by "before the step ran"
+	st := a.stateLocked(sid)
+	st.turnStart = runStart // what a check means by "before the step ran"
+	st.worldBase = worldBase
 	a.mu.Unlock()
 	agentActor := event.Actor{Kind: event.ActorAgent, ID: orDefault(agent.Name, "default")}
 	lastText := ""

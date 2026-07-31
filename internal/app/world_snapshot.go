@@ -47,11 +47,83 @@ var snapshotSkipDirs = map[string]bool{
 	"target": true, "__pycache__": true, ".magi": true, ".cache": true, ".venv": true,
 }
 
+// ── the turn's baseline ─────────────────────────────────────────────────────────────────────────
+//
+// Reading mtimes answers "what looks new", and that is not the same question as "what did this
+// turn do". Two things it cannot answer at all:
+//
+//   - a DELETED file has no mtime to be new. An agent that removed the deliverable, or wiped a
+//     fixture the grader reads, leaves a snapshot that says nothing happened there.
+//   - a write that PRESERVES mtime — tar -p, cp -p, touch -d, a restore from a backup copy — is
+//     invisible for the same reason.
+//
+// So the turn takes an index of the workspace when it starts, and the snapshot is the difference
+// against it. mtime stays in the comparison rather than being replaced by it: a file edited in
+// place at the same size is the ordinary case, and size alone would miss exactly that.
+//
+// The index is path → size, nothing else. It is held for the length of one turn, bounded by the
+// same walk cap as the snapshot, and never rendered — only its difference is.
+
+type fileIndex map[string]int64
+
+// indexWorkspace walks the workspace once and records every file's size, under the same caps and
+// skip rules the snapshot renders with, so the two always agree about what was looked at.
+func indexWorkspace(workdir string) fileIndex {
+	if strings.TrimSpace(workdir) == "" {
+		return nil
+	}
+	idx := fileIndex{}
+	seen := 0
+	_ = filepath.WalkDir(workdir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if seen++; seen > snapshotWalkCap {
+			return filepath.SkipAll
+		}
+		if d.IsDir() {
+			if p != workdir && (snapshotSkipDirs[d.Name()] || strings.HasPrefix(d.Name(), ".")) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		fi, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		rel, rerr := filepath.Rel(workdir, p)
+		if rerr != nil {
+			rel = p
+		}
+		idx[rel] = fi.Size()
+		return nil
+	})
+	return idx
+}
+
+// goneSince returns the paths the baseline held that the workspace no longer does, newest-named
+// first is meaningless here so they are sorted by path — a deletion has no time of its own.
+func goneSince(base fileIndex, now map[string]bool) []string {
+	var out []string
+	for p := range base {
+		if !now[p] {
+			out = append(out, p)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // worldSnapshot reads the workspace as it stands RIGHT NOW and reports the files modified at or
 // after since — the ones this turn is responsible for — with their current size and age. Reading
 // only, and best-effort: an unreadable tree yields "" rather than an error, because a snapshot that
 // cannot be taken must not read as a workspace that is empty.
-func worldSnapshot(workdir string, since time.Time) string {
+func worldSnapshot(workdir string, since time.Time) string { return worldDiff(workdir, since, nil) }
+
+// worldDiff is worldSnapshot against a baseline taken when the turn started. A nil baseline is a
+// turn whose start was never indexed (a resumed session, a path that does not run the loop), and
+// it falls back to the mtime-only reading rather than claiming a difference it cannot compute.
+func worldDiff(workdir string, since time.Time, base fileIndex) string {
 	if strings.TrimSpace(workdir) == "" {
 		return ""
 	}
@@ -61,6 +133,7 @@ func worldSnapshot(workdir string, since time.Time) string {
 		mod  time.Time
 	}
 	var hits []entry
+	present := map[string]bool{}
 	var skipped []string // trees the walk did not enter, so the snapshot can say so
 	skippedN := 0        // …and how many there were, since the NAMES are capped and that cut counts too
 	cutShort := false    // the walk hit its own cap and stopped before the tree ended
@@ -84,17 +157,31 @@ func worldSnapshot(workdir string, since time.Time) string {
 			return nil
 		}
 		fi, err := d.Info()
-		if err != nil || fi.ModTime().Before(since) {
+		if err != nil {
 			return nil
 		}
-		rel, err := filepath.Rel(workdir, p)
-		if err != nil {
+		rel, rerr := filepath.Rel(workdir, p)
+		if rerr != nil {
 			rel = p
+		}
+		present[rel] = true
+		// Two independent signals, because each catches what the other cannot. A fresh mtime is
+		// the ordinary edit; a size that differs from the turn's baseline is the write that kept
+		// its mtime. Either one makes this file part of what the turn did.
+		newMtime := !fi.ModTime().Before(since)
+		var sizeChanged bool
+		if base != nil {
+			was, had := base[rel]
+			sizeChanged = !had || was != fi.Size()
+		}
+		if !newMtime && !sizeChanged {
+			return nil
 		}
 		hits = append(hits, entry{rel, fi.Size(), fi.ModTime()})
 		return nil
 	})
-	if len(hits) == 0 {
+	gone := goneSince(base, present)
+	if len(hits) == 0 && len(gone) == 0 {
 		// The absence claim is the one a reader acts on hardest, and it was the one that could be
 		// false: the walk does not enter vendor/, build/, dist/, target/ or any dotdir, so a
 		// deliverable built into one of them produced "no file has been modified" under a heading
@@ -126,8 +213,7 @@ func worldSnapshot(workdir string, since time.Time) string {
 		es := byDir[d]
 		if len(es) <= snapshotPerDirCap {
 			for _, h := range es {
-				lines = append(lines, fmt.Sprintf("%s — %d bytes, modified %s ago", h.path, h.size,
-					fmtElapsed(time.Since(h.mod))))
+				lines = append(lines, h.path+" — "+fmtBytes(h.size))
 			}
 			continue
 		}
@@ -136,8 +222,14 @@ func worldSnapshot(workdir string, since time.Time) string {
 		if d == "." {
 			where = "the workspace root"
 		}
-		lines = append(lines, fmt.Sprintf("%s — %d files modified (newest: %s, %d bytes, %s ago)",
-			where, len(es), filepath.Base(newest.path), newest.size, fmtElapsed(time.Since(newest.mod))))
+		lines = append(lines, fmt.Sprintf("%s — %d files (newest: %s, %s)",
+			where, len(es), filepath.Base(newest.path), fmtBytes(newest.size)))
+	}
+	// Deletions last, because the trim keeps the tail and a removed file is the one thing here
+	// nothing else in the record reports. A turn that deleted the deliverable used to produce a
+	// snapshot with no sign of it.
+	for _, p := range gone {
+		lines = append(lines, p+" — GONE (was "+fmtBytes(base[p])+")")
 	}
 	trimmed := false
 	if len(lines) > snapshotFileCap {
@@ -176,6 +268,19 @@ func walkCutNote(cutShort bool) string {
 	}
 	return fmt.Sprintf("\n(the read stopped after %d entries, so this is part of the workspace and "+
 		"not all of it)", snapshotWalkCap)
+}
+
+// fmtBytes renders a size the short way. The block is read by a model that pays for every token
+// of it, and "1.2 KB" carries what "1274 bytes" carries.
+func fmtBytes(n int64) string {
+	switch {
+	case n < 1024:
+		return fmt.Sprintf("%d B", n)
+	case n < 1024*1024:
+		return fmt.Sprintf("%.1f KB", float64(n)/1024)
+	default:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1024*1024))
+	}
 }
 
 // snapshotSkipNameCap bounds how many skipped trees are named. Past a handful the names stop
@@ -312,4 +417,15 @@ func (a *App) runState(evs []event.Event) string {
 		parts = append(parts, jobs)
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+// worldDiffFor renders the snapshot against THIS turn's baseline. A session with no baseline —
+// one whose turn did not go through runLoop — falls back to the mtime-only reading rather than
+// reporting every file in the workspace as deleted, which is what an empty baseline would mean if
+// it were taken literally.
+func (a *App) worldDiffFor(sid session.SessionID, workdir string, since time.Time) string {
+	a.mu.Lock()
+	base := a.stateLocked(sid).worldBase
+	a.mu.Unlock()
+	return worldDiff(workdir, since, base)
 }

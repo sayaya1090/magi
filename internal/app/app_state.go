@@ -28,9 +28,14 @@ type sessionState struct {
 	// seams — it never reads, summarises, or ranks them. Turn-scoped: a new top-level request
 	// is new work, and last turn's reminders would be answering a question nobody asked.
 	turnNotes        []string
-	stage            string                 // current loop stage for event tagging
-	lastPromptTokens int                    // real prompt_tokens from the last turn
-	turnStart        time.Time              // when the current turn began (check_untouched.go: "did this predate the run")
+	stage            string    // current loop stage for event tagging
+	lastPromptTokens int       // real prompt_tokens from the last turn
+	turnStart        time.Time // when the current turn began (check_untouched.go: "did this predate the run")
+	// worldBase is the workspace index taken when this turn started: path → size, for the files
+	// the snapshot's own walk would look at. The finish snapshot is the difference against it,
+	// which is the only way a DELETED file — or a write that preserved its mtime — shows up at
+	// all. Replaced each turn; nil until one starts.
+	worldBase        fileIndex
 	observedEvents   int                    // event high-water mark of the last turn_finished observation (stale-answer guard)
 	pendingInterject []pendingInterjection  // interjections queued to run as their own turn
 	turnControl      turnControl            // pending mid-turn routing / finish signal
