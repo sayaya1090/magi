@@ -297,7 +297,11 @@ func (c Config) withDefaults() Config {
 	if c.Models == nil {
 		c.Models = model.NewRegistry()
 	}
-	if c.CompactRatio == 0 {
+	// A ratio outside (0,1] cannot describe a share of the window, and taking one literally would
+	// either compact on every step (<=0 makes the budget 0) or never (>1 puts it past the window,
+	// where the provider's own overflow is the only remaining brake). Fall back to the default
+	// rather than honor a number that has no reading.
+	if c.CompactRatio <= 0 || c.CompactRatio > 1 {
 		c.CompactRatio = 0.8
 	}
 	if c.WorkflowMaxLoops == 0 {
