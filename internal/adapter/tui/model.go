@@ -115,7 +115,12 @@ type Model struct {
 
 	history []string // submitted prompts (↑/↓ recall)
 	histIdx int      // current position when browsing history
-	palSel  int      // selected index in the command palette
+	// histDraft is what the user had typed before stepping up into the history. Browsing
+	// REPLACES the input box, so without stashing it the half-written prompt is gone the
+	// moment ↑ is pressed and coming back down leaves an empty box — the input silently
+	// destroyed by a key that reads as navigation. readline-family prompts all restore it.
+	histDraft string
+	palSel    int // selected index in the command palette
 
 	vp viewport.Model
 	ta textarea.Model
@@ -565,8 +570,8 @@ func (m *Model) switchSession(sid session.SessionID) tea.Cmd {
 	}
 	m.sid = sid
 	m.blocks = rebuildBlocks(msgs)
-	m.history = userPrompts(msgs) // seed ↑/↓ recall + tab completion from prior turns
-	m.histIdx = len(m.history)
+	m.history = userPrompts(msgs)               // seed ↑/↓ recall + tab completion from prior turns
+	m.histIdx, m.histDraft = len(m.history), "" // a switched session carries no draft
 	m.cache = m.cache[:0]
 	m.liveText, m.liveThink, m.liveProgress, m.running, m.activeAgents = "", "", "", false, nil
 	// Subscribe from lastSeq so we stream only new events (transcript already shown).
@@ -631,13 +636,20 @@ func (m *Model) recallHistory(dir int) bool {
 	if m.running || len(m.history) == 0 || m.ta.LineCount() > 1 {
 		return false
 	}
+	// Stepping off the bottom for the first time: keep the draft so coming back restores it.
+	// A multi-line draft never gets here (the guard above), which is what makes the one-line
+	// case an omission rather than a choice — you do not protect one and discard the other.
+	if m.histIdx >= len(m.history) {
+		m.histDraft = m.ta.Value()
+	}
 	ni := m.histIdx + dir
 	if ni < 0 {
 		ni = 0
 	}
 	if ni >= len(m.history) {
 		m.histIdx = len(m.history)
-		m.ta.SetValue("")
+		m.ta.SetValue(m.histDraft)
+		m.syncTaViewport()
 		return true
 	}
 	m.histIdx = ni

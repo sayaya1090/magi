@@ -26,7 +26,7 @@ import (
 // chip so ↑ recall doesn't dump the blob back into the input.
 func (m *Model) submit(text string) tea.Cmd {
 	m.history = append(m.history, text)
-	m.histIdx = len(m.history)
+	m.histIdx, m.histDraft = len(m.history), "" // a submitted prompt retires the stashed draft
 	return m.submitAs(m.expandPastes(text), m.expandPastes(m.expandMentions(text)))
 }
 
@@ -42,7 +42,7 @@ func (m *Model) submitAs(display, send string) tea.Cmd {
 // immediately; the running spinner keeps going.
 func (m *Model) steer(text string) tea.Cmd {
 	m.history = append(m.history, text)
-	m.histIdx = len(m.history)
+	m.histIdx, m.histDraft = len(m.history), "" // a submitted prompt retires the stashed draft
 	send := m.expandPastes(m.expandMentions(text))
 	m.blocks = append(m.blocks, block{kind: blockUser, text: m.expandPastes(text), queued: true, ts: time.Now()})
 	m.ta.Reset()
@@ -84,7 +84,7 @@ const maxShellOut = 16 << 10
 func (m *Model) runShellBang(cmd string) tea.Cmd {
 	m.ta.Reset()
 	m.history = append(m.history, "!"+cmd)
-	m.histIdx = len(m.history)
+	m.histIdx, m.histDraft = len(m.history), "" // a submitted prompt retires the stashed draft
 	m.refresh()
 
 	// Run off the Bubble Tea Update goroutine so a slow command (`!npm ci`, `!sleep`)
