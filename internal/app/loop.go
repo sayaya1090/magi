@@ -82,17 +82,7 @@ type turnState struct {
 	declareAsks      int    // how many times this turn was told to declare completion (declareAskCap)
 	declareAskEpoch  int    // guard.mutationEpoch() at the last such ask; a later epoch resets the count
 	declared         bool   // the agent declared the task finished and the council accepted
-	prevFinishText   string // the answer the council rejected last round
-	prevFinishCalls  int    // guard.callCount() at that rejection (-1 = none yet)
 	unverifiedReason string // non-empty when the turn finishes WITHOUT council approval
-	stepNudged       bool   // deliverable-check failure nudge injected at most once (MAGI_STEP_VERIFY)
-	lastChecksVer    int    // checksVersion() at that pass — also fire when a re-plan derives new checks mid-run
-	substRounds      int    // substitution-review correction rounds spent this turn (solo path)
-	// substCritique carries the LAST substitution-review rejection into the next review round. The
-	// agent is handed the critique to act on, but the council was re-convened knowing nothing about
-	// it — so a member could not check whether its own objection had been met and was free to raise
-	// a different one each round. Same amnesia the contract and plan re-rounds had.
-	substCritique string
 }
 
 // turnCtx bundles the values that are fixed for the whole turn — the session, the
@@ -135,7 +125,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	lastText := ""
 	guard := newRunGuard()
 	guard.stallConverge = stallConvergeEnabled() // D18a: collapse the stalled-nudge re-arm when a redirect produced no forward motion
-	ts := turnState{prevFinishCalls: -1}         // per-turn mutable bookkeeping (finish guards, council accounting, stuck-recovery); zeroed field-wise on reground
+	ts := turnState{}                            // per-turn mutable bookkeeping (finish guards, council accounting); zeroed field-wise on reground
 	tc := turnCtx{s: s, agent: agent, depth: depth, maxSteps: maxSteps, actor: agentActor, runStart: runStart, guard: guard}
 	// The turn's scratch directory: captured command output, and the TMPDIR every command runs
 	// under. Created HERE because the turn is its lifetime — a child inherits the pointer at spawn
@@ -205,9 +195,6 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	// accumulated no-progress count.
 	reground := func() {
 		guard.resetStall()
-		ts.prevFinishText = ""
-		ts.prevFinishCalls = -1
-		ts.stepNudged = false // a re-grounded task gets a fresh deliverable-check nudge budget
 	}
 
 	// No ceiling. A turn ends when the model stops calling tools, when the agent declares completion

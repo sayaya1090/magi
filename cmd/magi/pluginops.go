@@ -76,11 +76,6 @@ func pluginDirs(plat *platform.OS, workdir, extra string) []string {
 	return dirs
 }
 
-// planDepthFromEnv reads MAGI_MAX_PLAN_DEPTH as the recursive-planner depth cap. It exists
-// so the benchmark harness (which runs `magi -p` with no config.toml) can toggle recursion
-// without a rebuild: depth 2 = full recursion, depth 1 = top-level plan + single-level
-// delegate but no child re-planning or failure-recursion. Unset/invalid → 0, which lets the
-// app apply its default of 2. Negative values are ignored.
 // loadEmbeddedPlugins loads plugins compiled into the binary, so a binary-only
 // install (brew / install.sh) can enable them with a config switch. Each is
 // OPT-IN ([plugins.<name>] enabled = true — they may spend LLM tokens or write
