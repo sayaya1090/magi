@@ -70,6 +70,31 @@ func TestTheGlyphClearsEvenWhenNothingNeedsMoving(t *testing.T) {
 	}
 }
 
+// …and the SCREEN has to lose it too. Clearing the flag was only half the job: a settled block is
+// served from the render cache, so the bubble went on drawing the waiting dot with `queued` already
+// false. The reorder path drops the whole cache and hid this; the in-place path did not — and
+// in-place is the arrangement the signal usually arrives in, because a message typed last is
+// already at the tail with nothing to move it past. Found by the random walk (five seeds, always on
+// "interject answered"), and it is the reported symptom exactly: the dot never goes away.
+func TestTheAnsweredBubbleStopsDrawingTheWaitingGlyph(t *testing.T) {
+	m := newTestModel(t)
+	m.blocks = []block{
+		{kind: blockUser, text: "headercheck", reqID: "r2", queued: true},
+		{kind: blockAssistant, text: "answered it"},
+	}
+	if before := m.transcript(); !strings.Contains(before, queuedGlyph) {
+		t.Fatalf("the bubble is not drawing the waiting glyph to begin with, so this proves nothing:\n%s", before)
+	}
+	if len(m.cache) == 0 {
+		t.Fatal("nothing was cached, so the stale-cache path is not under test")
+	}
+	d, _ := json.Marshal(event.InterjectionAnsweredData{MessageID: "r2"})
+	m.applyEvent(event.Event{Type: event.TypeInterjectionAnswered, Data: d})
+	if after := m.transcript(); strings.Contains(after, queuedGlyph) {
+		t.Errorf("the answered bubble still shows the waiting dot:\n%s", after)
+	}
+}
+
 // An id that matches nothing is a no-op: a claim can arrive for a message this view never rendered
 // (a resumed session, a switched pane), and it must not reorder somebody else's blocks.
 func TestAClaimForAnUnknownMessageChangesNothing(t *testing.T) {

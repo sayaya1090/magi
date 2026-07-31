@@ -22,11 +22,12 @@ import (
 //
 // Seeded, so a failure is reproducible: the seed and the step are printed with it.
 func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
-	for _, seed := range []int64{1, 2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 42, 43, 47, 53, 59, 61} {
+	for _, seed := range []int64{67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151, 157, 163} {
 		t.Run(fmt.Sprintf("seed%d", seed), func(t *testing.T) {
 			rng := rand.New(rand.NewSource(seed))
 			s := newScript(t)
 			ids, calls := 0, 0
+			cacheChecks := 0
 			var prevID string
 			var prevOK bool
 
@@ -248,6 +249,43 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 						t.Fatalf("%s: search hit %d is outside the %d-line transcript", where, h, len(s.m.contentPlain))
 					}
 				}
+				// Every cached render must still be what the block renders NOW. The cache is a
+				// prefix keyed by index, so a block that changes in place — a call gaining its
+				// result, a queued bubble losing its glyph, a bubble being reordered — is only
+				// correct if whoever mutated it also truncated the cache. Nothing checked that:
+				// the length invariant above passes just as happily over a stale entry, and a
+				// stale entry is a frame showing something that is no longer true.
+				//
+				// The tail is checked EVERY step and the whole history on a stride. Both are
+				// needed: re-rendering everything each step is too slow to run 500 of, and a
+				// stride alone proves very little, because a resize, a finish or a queued hoist
+				// drops the entire cache — so staleness introduced at one step is routinely
+				// wiped before the next stride sees it. Every in-place mutation there is
+				// (folding a result, clearing a queued glyph, reordering an answered bubble)
+				// lands within a few blocks of the end, which is what the tail window covers.
+				{
+					from := 0
+					if step%25 != 0 {
+						from = max(0, len(s.m.cache)-40)
+					}
+					for i := from; i < len(s.m.blocks); i++ {
+						if i >= len(s.m.cache) {
+							break
+						}
+						// The one entry allowed to differ: the in-flight bubble carries a spinner
+						// frame, and transcript() deliberately renders it fresh past the cache.
+						if s.m.running && s.m.turnReqID != "" &&
+							s.m.blocks[i].kind == blockUser && s.m.blocks[i].reqID == s.m.turnReqID {
+							continue
+						}
+						cacheChecks++
+						if fresh := s.m.renderBlock(s.m.blocks[i]); fresh != s.m.cache[i] {
+							t.Fatalf("%s: block %d (%v) is cached stale — the screen shows what it no longer says\ncached: %q\nfresh:  %q",
+								where, i, s.m.blocks[i].kind,
+								ansiSeq.ReplaceAllString(s.m.cache[i], ""), ansiSeq.ReplaceAllString(fresh, ""))
+						}
+					}
+				}
 				// The frame must fit the terminal vertically too. One row too many scrolls the
 				// screen, which on an alt-screen UI means the top of the frame is simply gone.
 				if rows := len(lines); s.m.height > 0 && rows > s.m.height {
@@ -257,6 +295,11 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 						s.m.vp.Height(), len(s.m.paletteMatches()), s.m.resuming,
 						ansiSeq.ReplaceAllString(raw, ""))
 				}
+			}
+			// A green cache check that never compared anything is a green that means nothing —
+			// every entry could have been exempt, or the cache empty at every stride.
+			if cacheChecks == 0 {
+				t.Error("the cache-coherence check never compared a single entry")
 			}
 		})
 	}
