@@ -318,8 +318,9 @@ plugins/examples    예제 Lua 플러그인
 docs                ARCHITECTURE · DESIGN · SPEC · MANUAL · PLAN · FEATURES
 ```
 
-더 읽기: [ARCHITECTURE](docs/ARCHITECTURE.md) · [DESIGN](docs/DESIGN.md) ·
+더 읽기(한국어판): [ARCHITECTURE](docs/ARCHITECTURE.ko.md) · [DESIGN](docs/DESIGN.ko.md) ·
 [SPEC](docs/SPEC.md) · [PLAN](docs/PLAN.md).
+영문판: [ARCHITECTURE](docs/ARCHITECTURE.md) · [DESIGN](docs/DESIGN.md).
 
 ---
 
