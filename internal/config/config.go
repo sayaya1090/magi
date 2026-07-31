@@ -48,9 +48,19 @@ type Config struct {
 // MaxOutputTokens sets the per-request output cap sent to the LLM (0 = provider default).
 // ContextTokens overrides each model's context-window budget used for compaction sizing
 // (0 = use the model's probed/registered window).
+// CompactRatio is the share of that window that may be used before auto-compaction runs
+// (0 = the built-in default of 0.8; anything outside (0,1] falls back to it).
+//
+// The ratio decides a real trade, which is why it is settable rather than fixed: compacting
+// EARLIER makes every later step cheaper to prefill (measured on fix-ocaml-gc, 2026-07-31: 91k
+// tokens of accumulated context, 82% of it file reads, a median 86s per model call and 77 calls
+// in three hours), while compacting LATER keeps more detail in front of the model and spends
+// fewer summarization calls. Which one wins depends on the task and the window, so the number
+// belongs to whoever is running it.
 type LimitsConfig struct {
-	MaxOutputTokens int `toml:"max_output_tokens"`
-	ContextTokens   int `toml:"context_tokens"`
+	MaxOutputTokens int     `toml:"max_output_tokens"`
+	ContextTokens   int     `toml:"context_tokens"`
+	CompactRatio    float64 `toml:"compact_ratio"`
 }
 
 // SamplingConfig sets the sampling parameters sent with every request ([sampling]):
