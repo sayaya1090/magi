@@ -55,6 +55,12 @@ const (
 	// never resolved (deferred-but-abandoned) so they stay masked from turn context and
 	// are not silently mixed into the next request, instead of leaking as pending prompts.
 	TypeInterjectionDeferred Type = "interjection.deferred"
+	// TypeInterjectionAnswered — the agent stated, via route_interjection action "answered", that
+	// its reply already covers a queued interjection. It is a CLAIM, not a resolution: the finish
+	// boundary still checks whether the turn said anything after it. The display layer needs it
+	// anyway, because until this signal exists a bubble the model has already answered keeps its
+	// pending marker and its pinned position with nothing able to tell it otherwise.
+	TypeInterjectionAnswered Type = "interjection.answered"
 
 	// TypePromptAbandoned records that a user prompt's turn was cancelled (Interrupt)
 	// before it produced any answer, so the prompt must not seed a LATER, unrelated

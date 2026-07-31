@@ -64,6 +64,12 @@ type InterjectionDeferredData struct {
 	Resolved  bool   `json:"resolved,omitempty"`
 }
 
+// InterjectionAnsweredData — TypeInterjectionAnswered. Names the queued interjection the agent
+// says its reply already covered, by the MessageID of the prompt that carried it.
+type InterjectionAnsweredData struct {
+	MessageID string `json:"messageId"`
+}
+
 // PartAppendedData — TypePartAppended (a single completed part).
 type PartAppendedData struct {
 	MessageID string       `json:"messageId"`
