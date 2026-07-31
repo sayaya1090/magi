@@ -279,9 +279,18 @@ func (m *Model) applyEvent(e event.Event) {
 			// moveUserBlockBefore clears `queued` only when it actually moved the block. A bubble
 			// already sitting in the right place must lose the glyph too — being in position is not
 			// the same as still waiting.
+			//
+			// Clearing the flag is only half of it: a finalized block is served from the render
+			// cache, so the bubble kept drawing the waiting dot with `queued` already false. The
+			// reorder path above drops the whole cache and hid this; the in-place path did not,
+			// and that is the arrangement the signal is MOST likely to arrive in — the message was
+			// typed last, so it is already at the tail with nothing to move it past.
 			for i := range m.blocks {
-				if m.blocks[i].kind == blockUser && m.blocks[i].reqID == d.MessageID {
+				if m.blocks[i].kind == blockUser && m.blocks[i].reqID == d.MessageID && m.blocks[i].queued {
 					m.blocks[i].queued = false
+					if i < len(m.cache) {
+						m.cache = m.cache[:i] // re-render it without the waiting glyph
+					}
 				}
 			}
 		}
