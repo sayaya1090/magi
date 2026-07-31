@@ -1225,7 +1225,45 @@ func (s sidecarAnalyzer) Analyze(ctx context.Context, system, text, model string
 	return b.String(), nil
 }
 
-const systemPrompt = "You are magi, an AI coding agent working in the user's project directory. " +
+// stepNarrationClause decides what "keep the user informed" means on a loop that asks the model
+// what to do next at EVERY step.
+//
+// The old wording was one sentence — "Keep the user informed as you go … and stay concise" — and a
+// model resolves those two in the cheapest compliant way: one short line before each tool call.
+// Measured over 119 recorded sessions: 4347 assistant text parts, of which 96% of the bytes are
+// these interstitial lines and only 4% the final answer; 24 of them per session at the median, and
+// 213 pairs are a >0.75 paraphrase of the line right before them ("Let me try to build the compiler
+// first to see what error we get:" → "Let me try building the OCaml compiler to see what error we
+// get:"). Every one is re-sent as context on every later step.
+//
+// What the sentence asks for is also already delivered: magi's transcript shows each call, its
+// arguments, and what it returned. The narration restates the plan next to a UI that already shows
+// the act. The terse wording keeps the obligation — say the things the tool output does not show —
+// and drops the pre-announcement.
+//
+// Off by default: this changes what the model writes on every step, so it belongs behind an A/B
+// rather than in a silent default. MAGI_TERSE_STEPS=1 turns it on.
+func stepNarrationClause() string {
+	if envOn("MAGI_TERSE_STEPS") {
+		return "The transcript already shows the user every command you run, its arguments, and what it " +
+			"returned, so do NOT announce your next step before taking it — just take it. Write to the user " +
+			"when you have something the tool output does not already show: a conclusion you drew from it, a " +
+			"change of approach and why, a question, or the final summary. Ask before destructive or " +
+			"irreversible actions, and stay concise."
+	}
+	return "Keep the user informed as you go, ask before destructive or irreversible actions, and stay concise."
+}
+
+// envOn reports whether the named env var holds an explicit on-value.
+func envOn(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "on", "true", "yes":
+		return true
+	}
+	return false
+}
+
+var systemPrompt = "You are magi, an AI coding agent working in the user's project directory. " +
 	"You have tools to inspect and modify the workspace: read, write, edit, multiedit, grep, glob, list, bash. " +
 	"When the user asks about the project, its code, or its documentation, PROACTIVELY use list/glob/grep/read to " +
 	"find and read the relevant files yourself — never claim you cannot read files, and never ask the user to paste " +
@@ -1277,7 +1315,7 @@ const systemPrompt = "You are magi, an AI coding agent working in the user's pro
 	"what is still undone, and you keep working. You can also call `council` WITHOUT that flag at any time, with an " +
 	"optional `question`, to get their reading on something you are unsure of; that is advice you may disagree with " +
 	"and it does not end anything.\n" +
-	"Keep the user informed as you go, ask before destructive or irreversible actions, and stay concise.\n\n" +
+	stepNarrationClause() + "\n\n" +
 	// Persistence / anti-defeatism (cross-platform). Local-model runs on Terminal-Bench
 	// repeatedly FAILED by giving up — declaring "no tools/empty env" without trying, or
 	// picking an absent runtime and quitting. Keep this platform-neutral: detect first,
