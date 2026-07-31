@@ -497,6 +497,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.advancePaneFade() { // drives the finished-pane fade-out off the heartbeat
 			m.dirty = true
 		}
+		// The viewport's height is fixed at the last refresh; the chrome around it is measured
+		// at every render. Anything that changes the chrome without marking the model dirty
+		// therefore leaves a frame taller than the terminal, and it STAYS that way until some
+		// unrelated event happens to mark it — the tick alone will not fix it.
+		//
+		// The pane block makes that gap wide. It is sized from what is left after the base
+		// chrome and a minimum viewport, so it is not monotonic in the base: the input box
+		// giving back one row lets the block grow from a one-row strip to a four-row box, and
+		// the frame gains two rows nobody asked for. Observed at 15 rows in a 13-row terminal.
+		//
+		// Rather than chase every producer, the drift is measured here and answered: if the
+		// frame would not fit, lay it out again. One pass converges, because refresh clamps the
+		// viewport to what the chrome leaves.
+		if m.ready && m.height > 0 && m.chromeHeight()+m.vp.Height() > m.height {
+			m.dirty = true
+		}
 		if m.dirty {
 			m.refresh()
 			m.dirty = false
