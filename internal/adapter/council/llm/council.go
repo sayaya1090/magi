@@ -257,12 +257,39 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 			return v
 		}
 	}
-	v.Decision = decisionOf(string(r.Decision))
-	v.Confidence = float64(r.Confidence)
-	v.Rationale = string(r.Rationale)
-	v.Feedback = string(r.Feedback)
-	v.Keep = string(r.Keep)
-	v.Severity = string(r.Severity) // plan-audit phase only; gates blocking vs advisory
+	fill := func(r memberReply) {
+		v.Decision = decisionOf(string(r.Decision))
+		v.Confidence = float64(r.Confidence)
+		v.Rationale = string(r.Rationale)
+		v.Feedback = string(r.Feedback)
+		v.Keep = string(r.Keep)
+		v.Cite = strings.TrimSpace(string(r.Cite))
+		v.Severity = string(r.Severity) // plan-audit phase only; gates blocking vs advisory
+	}
+	fill(r)
+	// Grounds that are not in the record are not weak grounds — they are an observation that did
+	// not happen, and magi can settle that with a substring test instead of a judgement about
+	// reasoning. See cite.go for the verdict that made this necessary. One focused re-ask naming
+	// each missing quotation; a member that stands by them abstains, which is what "my lens cannot
+	// judge from what I was given" means.
+	if citeEnabled() && v.Decision != council.Abstain {
+		if misses := checkCites(user, v.Cite, v.Rationale, v.Feedback); len(misses) > 0 {
+			r2, _, ok2, err2 := ask(user + citeRetryReminder(misses))
+			switch {
+			case err2 != nil || !ok2:
+				v.Decision = council.Abstain
+				v.Rationale = "council member unreachable while re-asked for grounds that are in the record"
+			default:
+				fill(r2)
+				if again := checkCites(user, v.Cite, v.Rationale, v.Feedback); len(again) > 0 && v.Decision != council.Abstain {
+					v.Decision = council.Abstain
+					v.Rationale = "the grounds this member gave are not in the record it was shown (" +
+						quoteFragment(again[0].quote) + " in `" + again[0].field + "`), asked twice"
+					v.Feedback, v.Keep, v.Cite = "", "", ""
+				}
+			}
+		}
+	}
 	return v
 }
 
@@ -359,6 +386,7 @@ type memberReply struct {
 	Rationale  jsonx.Text   `json:"rationale"`
 	Feedback   jsonx.Text   `json:"feedback"`
 	Keep       jsonx.Text   `json:"keep"`     // advisory: what's already correct (only when asked; MAGI_COUNCIL_KEEP)
+	Cite       jsonx.Text   `json:"cite"`     // verbatim fragment of the record the verdict rests on, or NO-EVIDENCE
 	Severity   jsonx.Text   `json:"severity"` // plan-audit phase: critical|warn|info for a revise vote
 }
 
@@ -377,14 +405,14 @@ func memberSystem(m council.Member, task string, keep bool) string {
 	// Optional advisory (MAGI_COUNCIL_KEEP): each member also names what the report already
 	// gets right through ITS lens, so the agent doesn't revert a correct part or re-verify a
 	// settled one. It never changes the vote — feedback still drives continue.
-	keepClause, schema := "", `{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific gap (only if continue)"}`
+	keepClause, schema := "", `{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific gap (only if continue)","cite":"verbatim fragment of what you were shown, or NO-EVIDENCE"}`
 	if keep {
 		keepClause = "Also, through YOUR lens ONLY, note in `keep` what the report ALREADY gets right that the agent " +
 			"must NOT redo or revert. NAME it in one short line — the file, function or behavior (e.g. \"the parser " +
 			"change in lexer.c, already tested\"); the agent is holding the work, so do not restate it. This is purely " +
 			"advisory: it NEVER changes your decision, and you still name any real defect in `feedback`. Leave `keep` " +
 			"empty if nothing is clearly settled through your lens; never affirm something you cannot verify.\n"
-		schema = `{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific gap (only if continue)","keep":"what's already correct through your lens — name it, don't restate it; advisory, optional"}`
+		schema = `{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the specific gap (only if continue)","cite":"verbatim fragment of what you were shown, or NO-EVIDENCE","keep":"what's already correct through your lens — name it, don't restate it; advisory, optional"}`
 	}
 	return withLangNote(fmt.Sprintf(
 		"You are %s, a member of the council that decides whether an AI coding agent's turn is truly finished. "+
@@ -508,9 +536,17 @@ func memberSystem(m council.Member, task string, keep bool) string {
 			"name the item number(s) and exactly what is missing in `feedback`; never wave a partly-met checklist to "+
 			"done as a whole. (When the criteria are not enumerated, judge them as usual.)\n\n"+
 			"%s"+
+			"GROUNDS: put in `cite` the fragment your verdict rests on, COPIED VERBATIM from what you were "+
+			"given above — a line of tool output, a line of the report, a line of the task. magi looks it up in "+
+			"that exact material, so a fragment you cannot find there is one you did not read. A command's TEXT "+
+			"is not its output: the script in a heredoc, and the strings it would print, are what was SENT — what "+
+			"came back is the output line beneath it. If your verdict rests on the report's substance rather than "+
+			"on anything you observed, put %s in `cite`; that is a normal answer and costs you nothing. The same "+
+			"rule binds anything you put in quotation marks in `rationale` or `feedback`: quote only what is "+
+			"actually there.\n"+
 			"Respond with ONLY a JSON object, no prose, no code fence:\n"+
 			"%s",
-		m.Name, m.Lens, lens, keepClause, schema), task)
+		m.Name, m.Lens, lens, keepClause, citeNoEvidence, schema), task)
 }
 
 // withLangNote appends, when the task is in a non-English language, an instruction to
