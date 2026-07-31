@@ -83,9 +83,18 @@ func TestSpinGuardSumsTextAndReasoning(t *testing.T) {
 	}
 }
 
-// When [limits] max_output_tokens is set, the provider caps each response at the token level, so
-// the coarser spin guard defers to it and never fires.
-func TestSpinGuardDefersToMaxOutput(t *testing.T) {
+// The guard used to stand down when [limits] max_output_tokens was set, on the reading that the
+// provider's token cap already bounded the response. It does — and that is not the same job. A cap
+// bounds how BIG one response gets; the guard notices there is still no ACTION and tells the model
+// to take one. Deferring kept the bound and threw away the recovery: the reply ends mid-thought at
+// finish_reason "length", carries no tool call, and the next step begins exactly the same way with
+// nothing having told the model to stop reasoning.
+//
+// Measured in an external run of the same model with a token cap configured (extract-elf and
+// large-scale-text-editing, 2026-07-31): both turns reasoned into the cap step after step, made
+// zero tool calls, never reached the council, and landed unverified with the deliverable never
+// written. Two tasks, one missing nudge.
+func TestSpinGuardStillFiresUnderAnOutputCap(t *testing.T) {
 	t.Setenv("MAGI_SPIN_CAP", "100")
 	a, _ := newApp(t, &fakeLLM{}, Config{Permission: "allow", MaxOutputTokens: 8000})
 	ch := make(chan port.ProviderEvent, 10)
@@ -93,12 +102,14 @@ func TestSpinGuardDefersToMaxOutput(t *testing.T) {
 		ch <- port.ProviderEvent{Type: port.ProviderReasoning, Text: "reasoning chunk of some length "}
 	}
 	close(ch)
+	cancelled := false
 	res, err := a.consumeStream(context.Background(), session.SessionID("s"),
-		event.Actor{Kind: event.ActorAgent, ID: "x"}, ch, "m", "pt", "pr", func() {})
+		event.Actor{Kind: event.ActorAgent, ID: "x"}, ch, "m", "pt", "pr", func() { cancelled = true })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.reasoningSpun {
-		t.Error("with max_output_tokens set, the spin guard must defer (not fire)")
+	if !res.reasoningSpun || !cancelled {
+		t.Errorf("a token cap bounds the size, not the silence — the guard must still fire (spun=%v cancelled=%v)",
+			res.reasoningSpun, cancelled)
 	}
 }

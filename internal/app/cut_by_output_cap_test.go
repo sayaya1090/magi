@@ -72,3 +72,65 @@ func TestTheCutNoteIsSilentOnAnOrdinaryEnding(t *testing.T) {
 		}
 	}
 }
+
+// The output cap and the spin guard were treated as one thing. They are not: a cap bounds how BIG
+// one response gets, the guard notices there is still no ACTION and says to take one. Deferring to
+// the cap kept the bound and dropped the recovery — the reply ends mid-thought, carries no tool
+// call, and the next step starts the same way. Observed twice in one external run (extract-elf and
+// large-scale-text-editing, 2026-07-31): both reasoned into the cap step after step, never called a
+// tool, never reached the council, landed unverified with the deliverable never written.
+func TestTheSpinGuardSurvivesAnOutputCap(t *testing.T) {
+	t.Setenv("MAGI_SPIN_CAP", "") // the default, not a test override
+	for _, cap := range []int{0, 4096} {
+		a, _ := newApp(t, &fakeLLM{}, Config{Permission: "allow", MaxOutputTokens: cap})
+		if a.cfg.MaxOutputTokens != cap {
+			t.Fatalf("cap not carried: %d", a.cfg.MaxOutputTokens)
+		}
+	}
+	// The guard's own threshold is what decides, and it must not be zeroed by anything but its
+	// own env override — zero disables it, and disabled is what removed the nudge.
+	if reasoningSpinCap() <= 0 {
+		t.Fatal("the default spin cap must be armed")
+	}
+	t.Setenv("MAGI_SPIN_CAP", "0")
+	if reasoningSpinCap() != 0 {
+		t.Error("only MAGI_SPIN_CAP may disable the guard")
+	}
+}
+
+// A cut reply that made no tool call needs different advice from one that did. "Continue in
+// smaller pieces" tells a model that spent its whole budget on text to write more text.
+func TestACutThatNeverActedIsToldToAct(t *testing.T) {
+	llm := &fakeLLM{steps: [][]port.ProviderEvent{
+		{ // reasoned into the cap, no tool call
+			{Type: port.ProviderText, Text: "Let me think about the ELF header layout in detail"},
+			{Type: port.ProviderFinish, FinishReason: "length"},
+		},
+		textStep("done"),
+	}}
+	a, wd := newApp(t, llm, Config{Permission: "allow"})
+	ctx := context.Background()
+	sid, _ := a.CreateSession(ctx, command.CreateSession{Workdir: wd})
+	a.Submit(ctx, command.SubmitPrompt{
+		SessionID: sid,
+		Parts:     []session.Part{{Kind: session.PartText, Text: "extract the values"}},
+		Actor:     event.Actor{Kind: event.ActorUser, ID: "tui"},
+	})
+	var told string
+	for _, e := range waitForTerminal(t, a, sid) {
+		if e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorSystem {
+			if strings.Contains(string(e.Data), "output-token cap") {
+				told = string(e.Data)
+			}
+		}
+	}
+	if told == "" {
+		t.Fatal("a cut reply must still be reported")
+	}
+	if !strings.Contains(told, "before it made a single tool call") {
+		t.Errorf("a cut that never acted must be told to act, not to keep writing:\n%s", told)
+	}
+	if strings.Contains(told, "in smaller pieces") {
+		t.Errorf("that is the advice for a cut that DID act:\n%s", told)
+	}
+}
