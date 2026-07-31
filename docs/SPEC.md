@@ -1,37 +1,43 @@
-# magi — 기능 명세 (테스트용 예시 포함)
+# magi — feature specification (with test cases)
 
-> ⚠️ **역사 문서다.** 여기 기술된 것 중 상당수 — 절차 플래너, 서브에이전트 위임과 큐레이티드 워커,
-> 저술된 억셉턴스 체크와 스텝 게이트, 종료를 투표로 결정하던 카운슬, 서브에이전트 리스 — 는
-> 걷어냈다. **현재 as-built 기준은 [`ARCHITECTURE.md`](ARCHITECTURE.md)**, 사용자 기준은
-> [`MANUAL.md`](MANUAL.md)이며, 충돌 시 그 문서들이 우선한다. 이 문서는 그 결정들이 어떤 근거로
-> 내려졌는지의 기록으로 보존한다.
+> Korean edition: [`SPEC.ko.md`](SPEC.ko.md).
 
-> 각 기능 = **규칙(R)** + **예시 케이스**. 예시는 `given → when ⇒ then` 형식(코드블록)으로,
-> Go 테이블 테스트의 한 행에 1:1 대응. 케이스 ID(`read-1` 등)는 테스트 이름으로 그대로 사용.
+> ⚠️ **This is a history document.** Much of what it describes — the procedural planner, delegation
+> to subagents and curated workers, authored acceptance checks and step gates, the council that
+> decided termination by vote, the subagent lease — has been torn out. **The current as-built
+> reference is [`ARCHITECTURE.md`](ARCHITECTURE.md)** and the user-facing one is
+> [`MANUAL.md`](MANUAL.md); where they disagree, those win. This is kept as the record of what was
+> decided and on what grounds.
+
+> Each feature = **rules (R)** + **example cases**. The examples are `given → when ⇒ then` (in code
+> blocks), one-to-one with a row of a Go table test. The case id (`read-1` and so on) is used
+> verbatim as the test name.
 >
-> 표 대신 코드블록을 쓰는 이유: 셀 안 백틱/중괄호/개행이 마크다운 테이블 렌더를 깨므로.
-> 표기: `\n`=개행, `ok`=IsError:false, `ERR("...")`=IsError:true + 메시지 포함.
+> Code blocks rather than tables, because a backtick, brace or newline inside a cell breaks markdown
+> table rendering. Notation: `\n` = newline, `ok` = IsError:false, `ERR("...")` = IsError:true with
+> the message contained.
 >
-> **Part A = M1(깊게)** / **Part B = 이후 마일스톤(윤곽)**.
+> **Part A = M1 (in depth)** / **Part B = later milestones (outline)**.
 
 ---
 
-# Part A — M1 기능
+# Part A — M1 features
 
-## F-TOOL — 빌트인 툴 (Go 구현, POSIX 비의존)
+## F-TOOL — the built-in tools (Go, no POSIX dependency)
 
-공통 규칙:
-- C1 경로는 세션 `workdir` 기준. 내부적으로 `filepath` 정규화.
-- C2 **workdir 트리 밖 접근은 기본 거부**(절대경로라도). → `ERR("outside workdir")`.
-- C3 에러는 결과로 반환(panic 금지): `ToolResult{IsError:true, Content:"<사유>"}`.
+Shared rules:
+- C1 Paths are relative to the session `workdir`, normalized internally with `filepath`.
+- C2 **Access outside the workdir tree is refused by default** (absolute paths included) →
+  `ERR("outside workdir")`.
+- C3 Errors come back as a result, never a panic: `ToolResult{IsError:true, Content:"<reason>"}`.
 
-### F-TOOL-READ — 파일 읽기
-규칙:
-- R1 존재하는 파일 → 내용 반환.
-- R2 `offset`/`limit`(1-based 줄 번호) → 해당 줄 범위만.
-- R3 없는 파일 → `ERR("file not found")`.
-- R4 디렉터리 → `ERR("is a directory")`.
-- R5 바이너리(널바이트 포함) → `ERR("binary file")` (내용 안 읽음).
+### F-TOOL-READ — reading a file
+Rules:
+- R1 An existing file → its contents.
+- R2 `offset`/`limit` (1-based line numbers) → only that line range.
+- R3 A missing file → `ERR("file not found")`.
+- R4 A directory → `ERR("is a directory")`.
+- R5 Binary (contains a NUL byte) → `ERR("binary file")`, contents not read.
 
 ```
 read-1: file a.txt="hello\nworld\n"      → read{path:"a.txt"}                 ⇒ "hello\nworld\n", ok
@@ -42,12 +48,12 @@ read-5: file img.png has NUL byte        → read{path:"img.png"}               
 read-6: file outside="/etc/passwd"       → read{path:"/etc/passwd"}           ⇒ ERR("outside workdir")
 ```
 
-### F-TOOL-WRITE — 파일 쓰기(생성/덮어쓰기)
-규칙:
-- R1 새 파일 생성. 부모 디렉터리 없으면 **자동 생성**.
-- R2 기존 파일 **전체 덮어쓰기**.
-- R3 workdir 밖 → ERR.
-- R4 성공 시 바이트수/경로 반환.
+### F-TOOL-WRITE — writing a file (create / overwrite)
+Rules:
+- R1 Creates a new file. A missing parent directory is **created automatically**.
+- R2 An existing file is **overwritten whole**.
+- R3 Outside the workdir → ERR.
+- R4 On success, reports the byte count and the path.
 
 ```
 write-1: (empty workdir)        → write{path:"new.txt",content:"hi"}      ⇒ ok, file new.txt=="hi"
@@ -56,13 +62,13 @@ write-3: file old.txt="old"     → write{path:"old.txt",content:"new"}     ⇒ 
 write-4: (any)                  → write{path:"../escape.txt",content:"x"} ⇒ ERR("outside workdir")
 ```
 
-### F-TOOL-EDIT — 정확 문자열 치환
-규칙:
-- R1 `old`가 **정확히 1회** 존재 → `new`로 치환.
-- R2 0회 → `ERR("not found")`.
-- R3 2회 이상 → `ERR("not unique")` (단 `replaceAll:true`면 전체 치환).
+### F-TOOL-EDIT — exact string replacement
+Rules:
+- R1 `old` present **exactly once** → replaced with `new`.
+- R2 Zero occurrences → `ERR("not found")`.
+- R3 Two or more → `ERR("not unique")` (unless `replaceAll:true`, which replaces all).
 - R4 `old==new` → `ERR("no change")`.
-- R5 **기존 EOL(CRLF/LF) 보존**.
+- R5 The file's **existing EOL (CRLF/LF) is preserved**.
 
 ```
 edit-1: "foo bar baz"     → edit{old:"bar",new:"BAR"}                ⇒ "foo BAR baz", ok
@@ -73,13 +79,13 @@ edit-5: "abc"             → edit{old:"abc",new:"abc"}                ⇒ ERR("
 edit-6: "a\r\nb" (CRLF)   → edit{old:"a",new:"A"}                    ⇒ "A\r\nb", ok (CRLF kept)
 ```
 
-### F-TOOL-GREP — 정규식 검색
-규칙:
-- R1 정규식으로 내용 검색. 결과 = `path:line:내용` 리스트.
-- R2 `glob`/`path`로 범위 한정.
-- R3 매치 없음 → 빈 결과(ok, ERR 아님).
-- R4 잘못된 정규식 → `ERR("invalid regex")`.
-- R5 바이너리 파일 스킵.
+### F-TOOL-GREP — regex search
+Rules:
+- R1 Searches contents by regex. The result is a list of `path:line:content`.
+- R2 `glob`/`path` narrow the scope.
+- R3 No match → an empty result (ok, not ERR).
+- R4 An invalid regex → `ERR("invalid regex")`.
+- R5 Binary files are skipped.
 
 ```
 grep-1: a.txt="foo\nbar\nfoobar"          → grep{pattern:"foo"}             ⇒ ["a.txt:1:foo","a.txt:3:foobar"], ok
@@ -88,12 +94,12 @@ grep-3: a.txt="foo"                       → grep{pattern:"zzz"}             �
 grep-4: (any)                             → grep{pattern:"[("}             ⇒ ERR("invalid regex")
 ```
 
-### F-TOOL-GLOB — 파일 패턴 매칭
-규칙:
-- R1 글롭 패턴 → 경로 목록. **정렬됨**(결정적).
-- R2 `**` 재귀 매칭.
-- R3 매치 없음 → 빈 목록.
-- R4 숨김 제외(기본), `.gitignore` 존중(옵션).
+### F-TOOL-GLOB — path pattern matching
+Rules:
+- R1 A glob pattern → a list of paths, **sorted** (deterministic).
+- R2 `**` matches recursively.
+- R3 No match → an empty list.
+- R4 Hidden files excluded by default; `.gitignore` honoured (optional).
 
 ```
 glob-1: a.go, b.go, c.txt                 → glob{pattern:"*.go"}        ⇒ ["a.go","b.go"]
@@ -101,11 +107,11 @@ glob-2: src/x.go, src/sub/y.go            → glob{pattern:"src/**/*.go"} ⇒ ["
 glob-3: a.txt                             → glob{pattern:"*.md"}        ⇒ []
 ```
 
-### F-TOOL-LIST — 디렉터리 목록
-규칙:
-- R1 항목 `{name,isDir}`. 정렬(디렉터리 우선 → 이름순).
-- R2 없는 경로 → ERR.
-- R3 파일을 list → `ERR("not a directory")`.
+### F-TOOL-LIST — directory listing
+Rules:
+- R1 Entries are `{name,isDir}`, sorted (directories first, then by name).
+- R2 A missing path → ERR.
+- R3 Listing a file → `ERR("not a directory")`.
 
 ```
 list-1: dir/{b.txt, a/(dir), c.txt}       → list{path:"dir"}   ⇒ [a/(dir), b.txt, c.txt]
@@ -114,14 +120,14 @@ list-2: (no path)                         → list{path:"nope"}  ⇒ ERR("not fo
 
 ---
 
-## F-STORE — 이벤트소싱 영속 (jsonl 어댑터)
+## F-STORE — event-sourced persistence (the jsonl adapter)
 
-### F-STORE-APPEND — append + seq 부여
-규칙:
-- R1 세션별 **단조증가 seq**(1부터) 부여해 반환.
-- R2 동시 Append도 seq 충돌/중복 없음(직렬화).
-- R3 JSONL 파일에 **한 줄 = 한 이벤트**.
-- R4 전이(transient) 이벤트는 Append 대상 아님.
+### F-STORE-APPEND — append and seq assignment
+Rules:
+- R1 Assigns and returns a **monotonic per-session seq** (from 1).
+- R2 Concurrent appends never collide or duplicate a seq (serialized).
+- R3 **One line = one event** in the JSONL file.
+- R4 Transient events are not appended.
 
 ```
 append-1: empty session s1   → Append(session.created)                ⇒ seq=[1], file has 1 line
@@ -129,12 +135,12 @@ append-2: s1 (seq=1)         → Append(prompt.submitted, part.appended)⇒ seq=
 append-3: s1                 → 100x Append concurrently (goroutines)  ⇒ all seq unique, no gap/dup
 ```
 
-### F-STORE-READ-REPLAY — 읽기 + 재생
-규칙:
-- R1 `Read(s,fromSeq)` → seq 오름차순.
-- R2 `fromSeq=0` → 전체 / `fromSeq=N` → seq>N (재접속/late-joiner).
-- R3 재생 → Session/Message/Part 복원(F-EVENT-RECON).
-- R4 프로세스 재시작 후에도 동일(영속).
+### F-STORE-READ-REPLAY — reading and replay
+Rules:
+- R1 `Read(s,fromSeq)` returns events in ascending seq.
+- R2 `fromSeq=0` → everything; `fromSeq=N` → seq>N (reconnect / late joiner).
+- R3 Replay reconstructs Session/Message/Part (F-EVENT-RECON).
+- R4 Identical after a process restart (persisted).
 
 ```
 read-replay-1: s1 has seq 1..4           → Read(s1, 0)  ⇒ 4 events, seq 1,2,3,4
@@ -142,18 +148,20 @@ read-replay-2: s1 has seq 1..4           → Read(s1, 2)  ⇒ 2 events, seq 3,4
 read-replay-3: write s1, reopen Store    → Read(s1, 0)  ⇒ same 4 events (persisted)
 ```
 
-### F-STORE-COMPACT — 로그 컴팩션
-규칙:
-- R1 `Compact(s, upToSeq, snapshot)` → upToSeq 이하를 snapshot 1개로 대체한 **새 파일**.
-- R2 원본 보관(`.archive`) 또는 폐기(옵션).
-- R3 컴팩션 후 Read → snapshot + 이후 이벤트.
+### F-STORE-COMPACT — log compaction
+Rules:
+- R1 `Compact(s, upToSeq, snapshot)` writes a **new file** with everything up to upToSeq replaced by
+  one snapshot.
+- R2 The original is archived (`.archive`) or discarded (optional).
+- R3 After compaction, Read returns the snapshot plus later events.
 
 ```
 compact-1: s1 has seq 1..10  → Compact(s1, 7, snap)  ⇒ Read(s1,0)==[snap, seq8, seq9, seq10]
 ```
 
-### F-STORE-LIST — 세션 목록
-규칙: `ListSessions(workdir)` → 해당 workdir 세션 메타(id, created, lastActivity, title) 최신순.
+### F-STORE-LIST — session listing
+Rule: `ListSessions(workdir)` returns that workdir's session metadata (id, created, lastActivity,
+title), newest first.
 
 ```
 list-sessions-1: /proj has s1,s2; /other has s3  → ListSessions("/proj")  ⇒ [s2, s1] (s3 excluded, newest first)
@@ -161,13 +169,16 @@ list-sessions-1: /proj has s1,s2; /other has s3  → ListSessions("/proj")  ⇒ 
 
 ---
 
-## F-EVENT — 이벤트 모델
+## F-EVENT — the event model
 
-### F-EVENT-FACT-TRANSIENT — 사실 vs 전이
-규칙:
-- R1 영속 타입(`session.created/prompt.submitted/part.appended/permission.decided/artifact.emitted/compaction/turn.finished/error`)은 Store 기록.
-- R2 전이 타입(`part.delta/tool.started/tool.progress/permission.requested/agent.*`)은 버스만, 기록 안 함.
-- R3 모든 이벤트 봉투(seq/sessionId/type/actor/ts/data) JSON 왕복 무손실.
+### F-EVENT-FACT-TRANSIENT — facts vs transients
+Rules:
+- R1 The persisted types (`session.created` / `prompt.submitted` / `part.appended` /
+  `permission.decided` / `artifact.emitted` / `compaction` / `turn.finished` / `error`) are written
+  to the Store.
+- R2 The transient types (`part.delta` / `tool.started` / `tool.progress` /
+  `permission.requested`) go to the bus only and are never recorded.
+- R3 Every envelope (seq/sessionId/type/actor/ts/data) round-trips through JSON losslessly.
 
 ```
 fact-1:      bus.Publish(part.delta)        ⇒ Store unchanged (not persisted)
@@ -175,8 +186,9 @@ fact-2:      app completes a part           ⇒ exactly 1 part.appended line in 
 roundtrip-1: Event → JSON → Event           ⇒ deep-equal to original
 ```
 
-### F-EVENT-RECON — 로그→대화 복원
-규칙: part.appended를 messageId로 그룹핑, seq 순서로 Message[]/Part[] 재구성. compaction 마커 이후만 컨텍스트.
+### F-EVENT-RECON — log → conversation
+Rule: group `part.appended` by messageId and rebuild Message[]/Part[] in seq order. Only what
+follows the compaction marker is context.
 
 ```
 recon-1: log = [session.created, prompt.submitted(user "add a test"),
@@ -187,35 +199,62 @@ recon-1: log = [session.created, prompt.submitted(user "add a test"),
 
 ---
 
-## F-LLM — OpenAI 호환 어댑터 (Ollama/vLLM/LiteLLM)
+## F-LLM — the OpenAI-compatible adapter (Ollama/vLLM/LiteLLM)
 
-### F-LLM-SSE — 스트림 파싱
-규칙:
-- R1 OpenAI SSE(`data: {...}\n\n`) → `ProviderEvent` 매핑.
+### F-LLM-SSE — stream parsing
+Rules:
+- R1 OpenAI SSE (`data: {...}\n\n`) maps to `ProviderEvent`.
 - R2 `choices[].delta.content` → `text-delta`.
 - R3 `data: [DONE]` → `finish`.
-- R4 `usage` 청크 → `usage`.
-- R5 깨진 JSON 라인 → 스킵(스트림 계속).
-- R6 **종결=finish_reason**(not `[DONE]`): 일부 백엔드(Ollama 클라우드 게이트웨이)가 `[DONE]`을 늦추거나 생략한 채 연결을 열어둬 리더가 벽시계까지 매달리는 걸 방지 — finish_reason(+trailing usage) 도착 시 종료, epilogue grace(`streamEpilogueGrace`)로 backstop.
-- R7 **stall 워치독**(`consumeStream`+`streamStallTimeout`, 기본 120s, `MAGI_STREAM_STALL`, 0=off): 백엔드가 요청 수락→200→**아무 이벤트도 안 보내는** hang을 유휴시간(마지막 이벤트 이후 경과)으로 감지해 중단 — 메인 generate의 read가 턴 벽시계(45분)까지 매달리던 것 봉합(실측: cobol-modernization 침묵 hang). **이벤트마다 리셋**이라 토큰/reasoning을 흘리는 느린-생성엔 오발 없음. **첫 토큰 전 침묵**(출력 0)=`streamStep.stalled`→메인 루프가 같은 요청 재발행(`maxStreamStallRetries`=2, 커밋된 출력 없어 안전), 소진 시 에러; **생성 도중 freeze**는 중단하되 부분출력 보존·재시도 안 함.
-- R7b **모델 I/O 단일 가드**(`guardedProvider`, `provider_guard.go`): **모델에 대한 모든 요청**(메인 generate·플래너·카운슬·모든 side call)은 생성 시점에 `GuardProvider`로 감싼 provider의 **단일 `StreamChat` chokepoint**를 통해 송수신된다(`providerFor`가 반환하는 것 전부 가드됨 — 각 소비자 워치독의 whack-a-mole 대체). R7의 `consumeStream`(행동 가드: stall-retry·reasoningSpin)이 **메인 generate에서 먼저** 발화하고, guardedProvider는 그 **위 안전망**(임계값 2×)으로 자기 처리가 없는 경로를 backstop한다. 세 실패 모드 취소: **침묵 백엔드**(idle ≥ 2×`streamStall`), **byte-spin**(완료 없이 ≥ 2×`spinCap`), **degenerate 반복**(꼬리에 짧은 단위가 back-to-back ≥128B·≥3회 — 같은 문장/단어 무한 loop; `MAGI_REPEAT_CAP` 기본 on, 꼬리 4KB·256B마다 검사, ~800KB byte-cap을 기다리지 않고 수백 B 만에 중단). 순수-공백 단위(빈 줄)는 반복으로 안 봄, 비반복 꼬리는 첫 비교에서 mismatch라 스캔 저렴.
-- R1 네이티브 미지원 모델: 시스템 프롬프트로 "툴은 약속된 JSON 형식으로 출력" 지시.
-- R2 어시스턴트 텍스트에서 약속 형식 파싱 → `tool-call`.
-- R3 형식 위반/부분 출력 → 1회 repair 재요청, 실패 시 text 처리.
-- R4 모드(native/fallback)는 모델별 config 강제 + 자동 감지.
+- R4 A `usage` chunk → `usage`.
+- R5 A broken JSON line is skipped; the stream continues.
+- R6 **The end is finish_reason**, not `[DONE]`: some backends (the Ollama cloud gateway) delay or
+  omit `[DONE]` while holding the connection open, which left the reader hanging until the wall
+  clock. Finish on finish_reason (plus trailing usage), with an epilogue grace
+  (`streamEpilogueGrace`) as the backstop.
+- R7 **The stall watchdog** (`consumeStream` + `streamStallTimeout`, default 120s,
+  `MAGI_STREAM_STALL`, 0=off): a backend that accepts the request, returns 200 and then **sends no
+  event at all** is detected by idle time (since the last event) and aborted — sealing a main
+  generate whose read hung until the turn's wall clock (observed: a silent hang on
+  cobol-modernization). It **resets on every event**, so a slow generation streaming tokens or
+  reasoning never trips it. **Silence before the first token** (zero output) sets
+  `streamStep.stalled` and the main loop re-issues the same request (`maxStreamStallRetries`=2, safe
+  because nothing was committed), erroring when exhausted; a **freeze mid-generation** aborts but
+  keeps the partial output and does not retry.
+- R7b **One guard for all model I/O** (`guardedProvider`, `provider_guard.go`): **every request to a
+  model** — the main generate and every side call — goes through the single `StreamChat` chokepoint
+  of a provider wrapped at construction by `GuardProvider` (everything `providerFor` returns is
+  guarded; this replaced the whack-a-mole of per-consumer watchdogs). R7's `consumeStream` (the
+  behavioural guard: stall-retry, reasoning spin) fires **first on the main generate**, and
+  guardedProvider is the **safety net above it** (thresholds doubled) backstopping paths with no
+  handling of their own. It cancels three failure modes: a **silent backend** (idle ≥ 2×
+  `streamStall`), **byte-spin** (no completion past 2× `spinCap`), and **degenerate repetition** (a
+  short unit repeated back-to-back in the tail, ≥128B and ≥3 times — the same sentence or word
+  looping; `MAGI_REPEAT_CAP` on by default, checking a 4KB tail every 256B, so it stops in hundreds
+  of bytes rather than waiting for the ~800KB byte cap). A pure-whitespace unit (a blank line) does
+  not count as repetition, and a non-repeating tail mismatches on the first comparison, so the scan
+  is cheap.
+
+### F-LLM-FALLBACK — tool calls without native support
+Rules:
+- R1 For a model with no native support, the system prompt instructs it to emit tool calls in an
+  agreed JSON shape.
+- R2 That shape is parsed out of the assistant text into a `tool-call`.
+- R3 A violated or partial shape gets one repair re-request; if it still fails, it is treated as text.
+- R4 The mode (native/fallback) is forced per model by config, and auto-detected otherwise.
 
 ```
 fallback-1: assistant outputs fenced block:
               tool_call { "name":"read", "args":{"path":"x"} }
             ⇒ {tool-call, read, {path:"x"}}
-fallback-2: assistant outputs "그냥 일반 답변입니다"   ⇒ text part, no tool-call
-fallback-3: assistant outputs broken JSON             ⇒ 1 repair retry; if still bad → text part
+fallback-2: assistant outputs an ordinary sentence      ⇒ text part, no tool-call
+fallback-3: assistant outputs broken JSON               ⇒ 1 repair retry; if still bad → text part
 ```
 
-> ⚠️ 이 영역은 **mock SSE 픽스처 단위테스트 + 실제 Ollama 모델 라이브 통합테스트** 둘 다 필수.
-> 픽스처만으론 실모델 tool-calling 버그를 놓친다.
+> ⚠️ This area needs **both** mock-SSE fixture unit tests **and** a live integration test against a
+> real Ollama model. Fixtures alone miss real-model tool-calling bugs.
 
-### F-LLM-ERROR — 에러 처리
+### F-LLM-ERROR — error handling
 ```
 llm-err-1: HTTP 500 from server        ⇒ {error} event, propagated to loop
 llm-err-2: connection drops mid-stream ⇒ {error} event, partial parts preserved
@@ -224,34 +263,39 @@ llm-err-3: invalid base URL            ⇒ StreamChat returns error immediately
 
 ---
 
-## F-LOOP — 에이전트 루프 (LLMProvider는 페이크 주입)
+## F-LOOP — the agent loop (with a fake LLMProvider injected)
 
-### F-LOOP-STOP — 종료 조건
-규칙:
-- R1 tool-call 없으면 종료 + `turn.finished`.
-- R2 tool-call 있으면 실행 후 다음 스텝.
-- R3 `maxSteps` 도달 시 graceful 종료.
-- R4 (D14, 출하 M9) 카운슬 활성(`[council] enabled`) + depth==0 + 비워크플로면 R1의 종료 *직전*에 **council 게이트**가 가로채 done/continue 판정 → continue면 피드백 주입 후 속행. 상세 Part B의 F-COUNCIL.
+### F-LOOP-STOP — ending conditions
+Rules:
+- R1 No tool call → the turn ends with `turn.finished`.
+- R2 A tool call → execute, then the next step.
+- R3 ⛔ **There is no step ceiling.** There used to be a graceful stop at `maxSteps`; measurement
+  took it out (ARCHITECTURE §4). Only a workflow phase declares its own budget.
+- R4 R1's quiet stop is not the end by itself — the **finish path** (`loop_gates.go`) runs Stop hooks
+  → the empty-result nudge → authored-but-never-run → **the declaration**, in that order. The
+  council is not that gate; it is a tool the agent calls (Part B, F-COUNCIL).
 
 ```
-loop-stop-1: fake replies ["안녕"]                       ⇒ 1 step, turn.finished, 1 text part
-loop-stop-2: fake replies [tool-call read]→["완료"]       ⇒ 2 steps, tool-result part + text part
-loop-stop-3: fake replies infinite tool-calls, maxSteps=3 ⇒ stops after 3 steps
+loop-stop-1: fake replies ["hello"]                       ⇒ 1 step, turn.finished, 1 text part
+loop-stop-2: fake replies [tool-call read]→["done"]       ⇒ 2 steps, tool-result part + text part
+loop-stop-3: fake replies [tool-call]×N, no declaration   ⇒ finish path asks for the declaration (bounded)
 ```
 
-### F-LOOP-INTERRUPT — 중단
-규칙: ctx 취소(Interrupt) 시 진행 스텝 중단, 부분 결과 보존, interrupted 이벤트.
+### F-LOOP-INTERRUPT — interruption
+Rule: on ctx cancellation (Interrupt) the running step stops, partial results are kept, and an
+interrupted event is emitted.
 
 ```
 loop-int-1: Interrupt during streaming  ⇒ stop immediately, received text persisted as part.appended
 ```
 
-### F-LOOP-PERMISSION — 권한 게이팅
-규칙:
-- R1 위험 툴(write/edit/bash…) 실행 전 `permission.requested` → `RespondPermission` 대기.
-- R2 정책 `allow`→자동허용 / `deny`→자동거부 / `ask`→사용자.
-- R3 `always` 응답 → 동일 (툴,세션) 이후 자동허용.
-- R4 거부 시 tool-result `ERR("denied")`로 모델 피드백.
+### F-LOOP-PERMISSION — permission gating
+Rules:
+- R1 A dangerous tool (write/edit/bash…) emits `permission.requested` before executing and waits for
+  `RespondPermission`.
+- R2 Policy `allow` → auto-approve; `deny` → auto-refuse; `ask` → the user.
+- R3 An `always` answer auto-approves that (tool, session) from then on.
+- R4 A refusal comes back to the model as a tool result `ERR("denied")`.
 
 ```
 perm-1: policy=ask,   tool=write          ⇒ permission.requested emitted, blocks until response
@@ -260,16 +304,38 @@ perm-3: policy=ask, user denies           ⇒ tool-result ERR("denied"), loop co
 perm-4: policy=ask, user answers "always" ⇒ 1st write asks, 2nd write auto-allowed
 ```
 
-### F-LOOP-STEER — 실행 중 사용자 개입 라우팅 + 자발적 replan
-규칙: `turnTask`(넛지·council 앵커)는 step 0에 1회 동결된다. 그래서 실행 *중* 도착한 2번째 사용자 요청은 앵커에 반영되지 않아 에이전트가 진동하며 이미 끝낸 1번을 재실행하는 병목이 있었다.
-- R1 **기본=큐잉**: step>0에서 새 `ActorUser` 프롬프트 감지 시(≠현재 turnTask) `pendingInterject` FIFO에 적재 + "요청은 현재 과업 종료 후 처리되도록 큐잉됐으니 현재 과업에 집중" 결정론적 지시 1회 주입. 턴 종료 시 `startRun`이 큐를 드레인해 자기 턴으로 재부상. depth 0·비워크플로만.
-- R2 **`route_interjection`**(orchestrator 전용): `redirect`=개입으로 `turnTask` 재앵커 + reground, `append`=현재 과업에 합류(A∪개입) + reground, `queue`=명시적 유지. 흡수(redirect/append)된 개입은 큐에서 제거(`consumeInterject`)돼 재부상 안 함.
-- R4 툴 Execute 콜백은 loop-local(`turnTask`/`guard`)을 못 만지므로 세션별 `turnControl` 신호만 기록하고 루프가 매 스텝 최상단에서 드레인.
-- R5 **큐 유실 방지**: 큐잉된 개입은 턴이 정상 종료면 자기 턴으로 재부상하고, 백엔드 에러/취소로 run 고루틴이 종료돼도 in-memory 맵에 고립되지 않는다 — 남은 개입을 미답변 user 프롬프트로 로그에 영속화(다음 run에서 픽업)하되 실패 중 백엔드로 즉시 재실행하진 않는다(no-retry-storm 유지). run 고루틴 post-loop 블록은 `a.mu`를 잡은 채 실행되므로 큐를 **인라인**으로 검사·삭제(자체 잠금 헬퍼 호출 금지 — 재잠금 시 고루틴 데드락).
-- R1 컨텍스트 토큰이 임계치(모델 window의 X%) 초과 시 자동 압축.
-- R2 오래된 메시지 요약 → `compaction` 이벤트 append(원본 보존).
-- R3 이후 컨텍스트 = 최신 compaction 요약 + 그 이후 이벤트.
-- R4 수동 `Compact` 커맨드도 동일.
+### F-LOOP-STEER — routing a mid-run user interjection
+Rule: `turnTask` (the anchor for nudges and the council) is frozen once at step 0. A second user
+request arriving *mid-run* therefore never reached the anchor, and the agent oscillated, re-running
+the first request it had already finished.
+- R1 **The default is queueing**: a new `ActorUser` prompt seen at step>0 (and different from the
+  current turnTask) goes into the `pendingInterject` FIFO, with one deterministic instruction
+  injected — "your request is queued for after the current task; stay on the current task". At the
+  end of the turn `startRun` drains the queue and it resurfaces as its own turn. Depth 0 and
+  non-workflow only.
+- R2 **`route_interjection`** (orchestrator only): `redirect` re-anchors `turnTask` to the
+  interjection and regrounds; `append` joins it to the current task (A ∪ interjection) and
+  regrounds; `queue` keeps it explicitly. An absorbed interjection (redirect/append) is removed from
+  the queue (`consumeInterject`) so it cannot resurface.
+- R4 A tool's Execute callback cannot touch loop-local state (`turnTask`, `guard`), so it records a
+  per-session `turnControl` signal that the loop drains at the top of every step.
+- R5 **The queue is never lost**: a queued interjection resurfaces as its own turn when the turn ends
+  normally, and it is not stranded in an in-memory map when a backend error or cancellation ends the
+  run goroutine — the remainder is persisted to the log as an unanswered user prompt (picked up on
+  the next run) without immediately re-issuing it to a failing backend (no retry storm). The run
+  goroutine's post-loop block holds `a.mu`, so it inspects and deletes the queue **inline** (never
+  through a self-locking helper — re-locking would deadlock the goroutine).
+
+---
+
+## F-COMPACT — context compaction
+Rules:
+- R1 Auto-compaction when the context tokens exceed a threshold (a share of the model's window). The
+  share is `[limits] compact_ratio` (default 0.8).
+- R2 Older messages are summarized and appended as a `compaction` event (the originals are kept).
+- R3 The context afterwards is the newest compaction summary plus everything after it. Detail the
+  compaction shed is recovered with `recall_context`.
+- R4 A manual `Compact` command does the same.
 
 ```
 compact-ctx-1: history over threshold → next turn       ⇒ 1 compaction event, request message count drops
@@ -279,126 +345,243 @@ compact-ctx-3: Compact command issued                   ⇒ immediate compaction
 
 ---
 
-## F-HEADLESS — `-p` 헤드리스 모드
-규칙:
-- R1 `magi -p "<프롬프트>"` → 세션 생성, 1턴 실행, 결과 stdout.
-- R2 `--output text|json`(기본 text). json = JSONL 이벤트 스트림.
-- R3 **non-TTY 감지** → TUI/컬러/스피너 비활성(CI 안전).
-- R4 종료코드: 성공 0, 에러 비0.
-- R5 stdin 파이프로 프롬프트 입력.
-- R6 **카운슬 이의는 표가 아니라 본문이 증거다**: 헤드리스 로그는 `council round N: continue — a/b`처럼 **tally만** 찍고, 그 continue를 만든 요구는 다음 턴에 주입되는 프롬프트를 통해서만 흘러 `PromptSubmitted` 노트의 **200자 truncate**에 걸렸다 — 게다가 keep-list 권고가 피드백 **위에** 붙어 그 200자를 먼저 소진하므로, 턴을 계속 열어둔 요구가 **로그 어디에도 남지 않았다**(실측: 3라운드 continue의 주제를 모델의 패러프레이즈로만 역추적 가능). 그래서 `CouncilDecided`가 **피드백 본문 자체를 자기 case로** 렌더한다 — 줄 단위(≤12줄 × ≤200자, 초과분은 "feedback continues"), 이미 `PlanRevised` diff가 같은 이유로 쓰는 방식. 로그는 사후 진단의 유일한 기록이므로 tally는 요약이지 증거가 아니다.
+## F-HEADLESS — `-p` headless mode
+Rules:
+- R1 `magi -p "<prompt>"` creates a session, runs one turn, prints the result to stdout.
+- R2 `--output text|json` (text by default). json is a JSONL event stream.
+- R3 **Non-TTY detection** disables the TUI, colour and spinners (CI-safe).
+- R4 Exit code: 0 on success, non-zero on error.
+- R5 A prompt can be piped in on stdin.
+- R6 **A council objection's evidence is its body, not its tally**: the headless log printed only the
+  tally (`council round N: continue — a/b`), and the demand that produced that continue flowed only
+  through the prompt injected on the next turn, where it hit the `PromptSubmitted` note's **200-char
+  truncation** — and the keep-list advice sits *above* the feedback and consumed those 200 chars
+  first, so the demand that kept the turn open **appeared nowhere in the log** (observed: the subject
+  of a three-round continue was recoverable only from the model's paraphrase). So `CouncilDecided`
+  renders **the feedback body itself** as its own case — line by line (≤12 lines × ≤200 chars,
+  with a "feedback continues" tail), the way the `PlanRevised` diff already does for the same reason.
+  The log is the only record a post-mortem has; a tally is a summary, not evidence.
 
 ```
-headless-1: magi -p "hi" --output json  ⇒ JSONL events to stdout, exit 0
-headless-2: echo "hi" | magi -p -        ⇒ reads prompt from stdin
+headless-1: magi -p "hi" --output json     ⇒ JSONL events to stdout, exit 0
+headless-2: echo "hi" | magi -p -          ⇒ reads prompt from stdin
 headless-3: run via pipe (non-TTY)         ⇒ no ANSI color codes in output
 headless-4: LLM error                      ⇒ message to stderr, exit != 0
-headless-5: council continue + 피드백 본문 ⇒ tally 아래 본문 줄단위 렌더(200자 노트 truncate 우회)
-headless-6: 장문 피드백                    ⇒ 12줄에서 절단 + "feedback continues" 꼬리(로그 폭주 방지)
+headless-5: council continue + feedback    ⇒ body rendered line by line under the tally
+headless-6: very long feedback             ⇒ cut at 12 lines + "feedback continues" (no log flood)
 ```
 
 ---
 
-# Part B — 이후 마일스톤 (윤곽, 해당 시점 Part A 수준으로 확장)
+# Part B — later milestones (outline, to be expanded to Part A's depth on entry)
 
-> 지금 과도 명세 금지(설계 변동 위험). 진입 시 규칙+예시 추가.
+> Do not over-specify now (the design still moves). Add rules and examples on entry.
 
-## F-COUNCIL — 에이전트가 부르는 카운슬(D14)
-시그니처 기능. 3인 카운슬이 같은 기록을 서로 다른 렌즈로 읽고 답한다. **기본 on** — `[council] enabled=false`로 끈다.
+## F-COUNCIL — the council the agent calls (D14)
+The signature feature. Three members read the same record through different lenses and answer. **On
+by default** — turn it off with `[council] enabled=false`.
 
-> ⛔ **한 번 뒤집혔다.** 예전엔 루프의 자연종료 지점을 카운슬이 **스스로 가로채는 게이트**였다. 그 배치가 카운슬이 옳게 정할 수 없는 두 가지를 정해버렸다 — **언제** 묻는가(에이전트가 이미 마음을 정한 그 순간)와, 그 답이 읽히기는 하는가(헤드리스에선 자문 주입과 `turn.finished`가 같은 틱이라 안 읽혔다). 지금은 **에이전트가 `council` 툴로 부른다**: `{question}`은 자문, `{complete:true}`는 **종료 선언**이며 위원이 받아들이면 루프에 신호가 간다. 아래 R5·R6·R8은 그에 맞춰 다시 썼다.
+> ⛔ **This was inverted once.** The council used to intercept the loop's natural stopping point as a
+> **gate that convened itself**. That placement decided two things it could not get right: **when**
+> it was asked (the one moment the agent had already made up its mind), and whether its answer would
+> be read at all (in a headless run the advice was injected and `turn.finished` written in the same
+> tick). Now **the agent calls the `council` tool**: `{question}` is advice, `{complete:true}` is the
+> **finish declaration**, and the loop is signalled when the members accept. R5, R6 and R8 below are
+> rewritten to match.
 
-규칙:
-- R1 `core/council.Tally(verdicts, rule)`는 **순수 함수** — 동일 입력 동일 출력, I/O 없음.
-- R2 합의규칙: `unanimous`(전원 done) · `majority`(done>50%) · `quorum:k`(done≥k) · `weighted:θ`(done 가중합/총가중≥θ) · `veto`(지정 위원 거부 시 done 무시).
-- R3 **동률·정족수 미달 → continue**(조기종료 방지). `abstain`은 분모에서 제외.
-- R4 위원 = `{Name(라벨), Lens(속성), Model, Weight}`. 기본 3인: Melchior(correctness)·Balthasar(verification)·Casper(completeness). (대체 렌즈 spec-fidelity는 설정으로 선택)
-- R5 `decision==continue` → 위원 피드백(`AggregateFeedback`)이 **툴 결과로** 에이전트에게 돌아간다(선언이 받아들여지지 않았다는 문장과 함께). 자문 호출(`{question}`)이면 판정 없이 읽을거리만 돌아가고, 표는 렌더하지 않는다 — 표를 세는 건 게이트가 하던 일이고 숫자는 다수를 명령으로 읽게 만든다.
-- R6 안전: 심의는 에이전트가 부를 때만 일어나므로 **라운드 폭주 자체가 구조적으로 없다**. 대신 종료 경로가 선언을 요구하고(`requireFinishDeclaration`), 그 요구는 **무진전 구간당 3회**로 경계된다 — 마지막 요구 이후 실제 파일 뮤테이션이 있으면 예산이 재시작한다.
-- R7 이벤트: `council.convened`·`council.verdict`(위원별)·`council.decided` 영속, `council.deliberating` 전이. 개별 deliverable-check 실행결과는 **`step.check`**(step·deliverable·source·assert·exit·pass 구조화 필드; 모델이 커맨드 모양으로 저술했던 흔적은 command/expect로 함께 실리되 **평가되지 않는 비활성 데이터**)로 영속 — council 투표가 아니므로 라운드/tally 없는 자기 이벤트로 기록·렌더(우측 패널 Completion checks는 이 결과로 ✓/스피너/• 글리프 표시; 스트림엔 `✓/✗ check [step] deliverable` 한 줄). 과거엔 `council.decided`(Forced, note="check […]")로 실려 "round 0: finished (no consensus) — 0 done/0 continue" 오표기됐던 것 봉합.
-- R8 **작업 턴만 선언을 요구받는다**: 툴을 하나도 쓰지 않은 대화 턴(인사·질문)은 선언 요구를 건너뛴다 — 작은 대화가 선언 루프에 갇히지 않는다.
-- R9 **위원 투표 정책**: 위원은 자기 렌즈로 **구체적·실재하는 결함**(실패 시그널·report가 드러내는 미충족 계약·명백한 오류)을 짚을 때만 `continue`(피드백에 다음 스텝 명시), 과제를 합당히 만족하면 `done`, 렌즈로 판단 불가면 `abstain`. **증거(diff/signal)의 부재 자체는 결코 `continue` 사유가 아니다** — 조사·읽기·분석·응답 턴은 원래 diff가 없으며, 없는 산출물을 요구하는 게 만성 churn의 주원인. 증거는 *있으면* 활용하고, 없으면 report/과제로 판단하거나 abstain. council 증거의 diff는 **untracked 신규 파일 내용까지 포함**(임시 `GIT_INDEX_FILE` 인덱스, 실제 인덱스 불변) → 갓 만든 파일도 증거로 보임.
-  - **R9a 목적만 전달, 방법은 위임**: 위원이 스스로 검증 절차를 발명할 때(카운슬이 만든 요구, 과제가 명시한 리터럴 계약이 *아닌* 경우)는 **무엇이 참임을 보여야 하는가(목적)만** 피드백에 담고 **어떻게 확인할지는 에이전트에 맡긴다** — 특정 조사 명령(`ps`/`netstat`/`lsof`/`curl`)을 못박지 않는다(그 도구가 환경에 없으면 목적이 이미 충족돼도 영원히 미충족이 됨: kv-store-grpc run17 실증, `ps: not found`). **이미 end-to-end 기능 성공이 보이면**(예: 클라이언트 호출이 올바른 응답을 받음) 그것이 "must respond/run"을 **충족**한다 — 그 위에 프로세스/포트 목록을 추가로 요구하는 건 ritual churn이고, 기능 성공은 프로세스 목록보다 강한 증거. (단 **과제가 리터럴 명령/입출력/수치를 명시**한 경우는 그 정확한 것 그대로 요구 — brief-paraphrase false-done 방어는 유지.)
-  - **R9b 메인의 반박(CONTEST) — 제거만**: continue 주입 시 메인에게 어포던스를 준다 — 카운슬 요구 중 특정 항목이 **이미 제시된 증거로 충족**됐거나 **명시된 방법이 이 환경에서 불가능**(예: 없는 도구)한데 그 목적은 이미 달성됐다면, 헛되이 순응(churn)하지 말고 리포트에 `CONTEST: <요구> — <이미 충족/불가능이라는 구체 증거>` 한 줄로 되받아친다. 카운슬은 다음 라운드에 **그 증거를 심의**: 유효하면 그 요구를 **재발행 금지**(done 투표하거나 *다른* 실재 결함 명시), 무효(구체 증거 없이 done 재주장)면 무시. **반박은 그 한 항목을 제거할 뿐, 그 자체가 task done의 증거는 아니다** — 나머지 요구는 각자 merit로 판정, done은 여전히 카운슬이 독립 결정. 카운슬 존재이유(거짓 done 차단)를 지키는 격리. [[review-gate-removed]] 계열과 상충 없음(게이트 제거가 아니라 증거-게이트 반박).
-- R10 **무변경 턴 신호(NoChanges)**: diff가 (성공적으로) 비고 signal도 0이면 그 턴은 **변경 없는 read-only/조사/응답 턴**으로 판정해 `DeliberationRequest.NoChanges`로 council에 알린다 → 위원은 "검증할 산출물이 없는 작업"임을 알고 합당한 report를 승인(R9). **합의규칙은 그대로 보존**(완화/quorum:1 미사용) — 게이트가 돌 땐 언제나 진짜 합의. 단 **GitDiff 실패**(비-git 등)는 "변경 없음"으로 보지 않음(실제 쓰기 턴 오판 방지). 전원 abstain이면 무진전 가드가 종료.
-- R11 **독립투표 이후 강화**(각 플래그 기본 on): ①**반박 라운드**(`MAGI_COUNCIL_DEBATE`) — would-be-done이 SPLIT일 때 위원을 1회 재폴링(각자 타 위원의 판정·근거를 보고 유지/변경) 후 재tally. ②**keep**(`MAGI_COUNCIL_KEEP`) — 위원이 고칠 것과 함께 **이미 맞는 부분**도 지목해 continue 피드백에 자문으로 싣는다(결정·집계엔 무영향). ⛔ 여기 있던 **데빌**(`MAGI_COUNCIL_DEVIL`)은 구현에 없다.
-> ⛔ **여기 있던 R12(타입드 deliverable-check ①–⑦)와 R13(계약-선행 3단계)은 삭제했다.** 체크 저술·검증 패스·스텝 게이트·커버리지 보장·churn 착지·substitution, 그리고 플랜 이전에 계약을 저술하던 카운슬 라운드 — 어느 것도 코드에 없다. `verifyStepChecks`라는 이름만 종료 경로에 남아 있는데 그건 다른 일을 한다. 걷어낸 이유는 [`PLAN.md`](PLAN.md) §4.3.
-- R14 **위원 응답 읽기 — 기권은 중립 결과가 아니다**(`parseReply`, `jsonx.SalvagePrefix`, `councilRetryReminder`): 위원 응답이 안 읽히면 그 위원은 **기권**으로 기록되고, tally는 그것을 "내 렌즈로는 할 말 없음"과 **구별하지 못한다** — 즉 던져진 표가 조용히 사라지고 남은 소수가 판정을 대신한다. 그래서 읽기 실패는 세 겹으로 막는다. ①**관용 파싱**(모든 균형 객체 × `jsonx` 복구 후보 × 필드별 관용 타입) — Go는 첫 타입 불일치에서 문서 전체를 포기하므로 한 필드의 모양 하나가 표를 삼킨다. ②**접두 salvage**(`jsonx.SalvagePrefix`): 모델의 구조 실수는 문서 전체에 균일하지 않고 **한 컨테이너에 국한**된다 — 실측(11/11 동일 모양): `criteria` 배열을 `]` 없이 다음 키로 닫아 567바이트 중 563에서 깨지는데, 12바이트에 완결된 `decision`(한 번은 `critical` continue)까지 함께 버려졌다. 구문 오류 지점 **앞까지**를 남기고(복구 후보를 먼저 적용해 다중행 문자열의 raw newline을 절단점으로 오인하지 않음, 마지막 **완성된** 원소까지 되감아 반쪽 객체는 버림) 열린 컨테이너를 닫는다. `decision`이 결함 뒤에 있으면 **살릴 표가 없으므로 기권**(없는 표를 지어내지 않음). 이 복구는 **lossy**라 `jsonx.Unmarshal`/`RepairCandidates`(공유 경로)에 배선하지 **않는다** — 세 번째 스텝에서 잘린 플랜이 "2스텝 플랜"으로 조용히 성공하기 때문(`CloseTruncated`가 span 추출기에만 배선된 것과 같은 선). 손실은 stderr에 **결함 진단과 함께** 명시(성공이지만 criteria/checks가 비었을 수 있음). ③**1회 재폴 리마인더는 모양별**(`councilRetryReminder`): 단일 리마인더가 모든 실패를 "산문으로 감쌌다"로 가정하던 것이 결함이었다 — 맨 객체를 보냈지만 배열이 어긋난 모델에게 *쓰지도 않은 산문을 걷어내라*고 요구했고, 실측에서 재시도는 동일 malformation을 내고 표를 잃었다. 이제 magi가 **이미 로그용으로 계산하던** `jsonx.Diagnose`(오프셋 + `⟪HERE⟫` 창)를 그 결함에 대해 뭘 할 수 있는 유일한 당사자인 모델에게 되먹인다: 구문 오류=위치와 "다음 키 전에 `[`를 닫아라", 스키마(파싱은 되는데 `decision` 없음)=필수 필드 명시, 그 외=기존 JSON-only.
+Rules:
+- R1 `core/council.Tally(verdicts, rule)` is a **pure function** — same input, same output, no I/O.
+- R2 Consensus rules: `unanimous` (all done) · `majority` (done>50%) · `quorum:k` (done≥k) ·
+  `weighted:θ` (done weight / total weight ≥ θ) · `veto` (a named member's refusal overrides done).
+- R3 **A tie or a missed quorum → continue** (never an early finish). `abstain` is excluded from the
+  denominator.
+- R4 A member is `{Name (label), Lens (attribute), Model, Weight}`. The default three: Melchior
+  (correctness), Balthasar (verification), Casper (completeness).
+- R5 `decision==continue` → the members' feedback (`AggregateFeedback`) comes back **as the tool
+  result**, with a sentence saying the declaration was not accepted. An advisory call (`{question}`)
+  returns the reading with no decision, and the tally is not rendered — counting votes is what the
+  gate did, and a count invites reading a majority as an order.
+- R6 Safety: a deliberation happens only when the agent asks for one, so **a round runaway is
+  structurally impossible**. What is bounded instead is the finish path's demand for a declaration
+  (`requireFinishDeclaration`): **three asks per stretch of no progress**, and a real file mutation
+  since the last ask restarts the budget.
+- R7 Events: `council.convened`, `council.verdict` (per member) and `council.decided` are persisted;
+  `council.deliberating` is transient.
+- R8 **Only a working turn is asked to declare**: a conversational turn that used no tools (a
+  greeting, a question) skips the demand, so small talk cannot be trapped in a declaration loop.
+- R9 **How members vote**: a member votes `continue` only when its lens finds a **concrete, real
+  defect** (a failing signal, a contract the report shows unmet, a plain error), naming the next step
+  in its feedback; `done` when the task is reasonably satisfied; `abstain` when its lens cannot
+  judge. **The absence of evidence is never itself grounds for `continue`** — an investigation, a
+  read, an analysis or an answer turn has no diff by nature, and demanding an artifact that was never
+  going to exist is the main source of chronic churn. Use evidence when it is there; otherwise judge
+  from the report and the task, or abstain. The diff in the council's evidence **includes the
+  contents of new untracked files** (a temporary `GIT_INDEX_FILE` index, leaving the real index
+  untouched), so a freshly created file is visible as evidence.
+  - **R9a State the objective, delegate the method**: when a member invents a verification procedure
+    of its own (a council-made demand, *not* a literal contract the task stated), the feedback
+    carries **only what must be shown to be true** and leaves **how to check it to the agent** — no
+    pinning a particular inspection command (`ps`/`netstat`/`lsof`/`curl`). If that tool is absent
+    from the environment, the objective stays unmet forever even once it is satisfied (observed on
+    kv-store-grpc run17: `ps: not found`). **An end-to-end functional success already satisfies "it
+    must respond/run"** — demanding a process or port listing on top of that is ritual churn, and the
+    functional success is the stronger evidence. (When the **task states a literal command, input or
+    number**, demand exactly that — the brief-paraphrase false-done defence stays.)
+  - **R9b The agent may CONTEST — removal only**: when a continue is injected the agent gets an
+    affordance. If one of the council's demands is **already satisfied by evidence already shown**,
+    or its **stated method is impossible in this environment** while its objective is already met,
+    the agent does not comply pointlessly — it answers with one line,
+    `CONTEST: <demand> — <concrete evidence that it is met or impossible>`. The council **weighs that
+    evidence** in the next round: if it holds, that demand is **not reissued** (vote done, or name a
+    *different* real defect); if it does not (a bare re-assertion with no concrete evidence), it is
+    ignored. **A contest removes that one item; it is not itself evidence the task is done** — every
+    other demand is judged on its own merits and done remains the council's independent decision.
+    That isolation is what preserves the council's reason to exist (blocking a false done).
+- R10 **The no-change turn signal (NoChanges)**: when the diff is (successfully) empty and there are
+  no signals, the turn is a **read-only / investigation / answer turn with nothing changed**, and the
+  council is told so through `DeliberationRequest.NoChanges` — the members then know there is no
+  artifact to verify and approve a reasonable report (R9). **The consensus rule is unchanged** (no
+  relaxation, no quorum:1): when the deliberation runs, it is always a real consensus. A **failed
+  GitDiff** (a non-git workdir) is *not* read as "no changes", so a real write turn is not
+  misjudged. If every member abstains, the no-progress guard ends the turn.
+- R11 **After the independent vote** (each flag on by default): ① **the rebuttal round**
+  (`MAGI_COUNCIL_DEBATE`) — when a would-be-done is SPLIT, members are polled once more (each seeing
+  the others' verdicts and reasons, free to hold or change) and re-tallied. ② **keep**
+  (`MAGI_COUNCIL_KEEP`) — members also name **what is already right**, carried as advice in the
+  continue feedback (never affecting the decision or the tally). ⛔ The **devil** flag
+  (`MAGI_COUNCIL_DEVIL`) that stood here does not exist in the code.
+
+> ⛔ **R12 (typed deliverable checks, ①–⑦) and R13 (contract-first, three stages) were deleted.**
+> Check authoring, the validation pass, the step gate, coverage filling, the churn landing,
+> substitution, and the council round that authored a contract before the plan — none of it is in
+> the code. Only the name `verifyStepChecks` survives on the finish path, and it does something else.
+> Why it came out: [`ARCHITECTURE.md`](ARCHITECTURE.md) §4 — every one of those stages decided
+> something before the work existed.
+
+- R14 **Reading a member's reply — an abstention is not a neutral outcome** (`parseReply`,
+  `jsonx.SalvagePrefix`, `councilRetryReminder`): a reply that cannot be read records that member as
+  **abstaining**, and the tally **cannot tell that apart** from "my lens has nothing to say" — a cast
+  vote quietly disappears and the remaining minority decides. So a read failure is defended three
+  ways. ① **Tolerant parsing** (every balanced object × the `jsonx` repair candidates × per-field
+  tolerant types) — Go abandons the whole document on the first type mismatch, so one field's shape
+  swallows a vote. ② **Prefix salvage** (`jsonx.SalvagePrefix`): a model's structural mistake is not
+  uniform across the document but **confined to one container** — measured, 11 of 11 the same shape:
+  a `criteria` array closed with the next key instead of `]`, breaking at byte 563 of 567 and taking
+  a `decision` completed at byte 12 down with it (once a `critical` continue). Keep everything
+  **before** the syntax error (applying the repair candidates first, so a raw newline inside a
+  multi-line string is not mistaken for the cut point, and rewinding to the last **complete**
+  element so a half object is dropped) and close the open containers. If `decision` sits *after* the
+  defect there is **no vote to save, so the member abstains** — a vote is never invented. This
+  recovery is **lossy**, so it is deliberately **not** wired into `jsonx.Unmarshal`/`RepairCandidates`
+  (the shared path): a plan truncated at its third step would otherwise succeed quietly as a
+  "two-step plan" (the same line `CloseTruncated` draws by living only in the span extractor). The
+  loss is stated on stderr **together with the defect diagnosis**. ③ **The single retry reminder is
+  shaped to the failure** (`councilRetryReminder`): one reminder assuming every failure was "wrapped
+  in prose" was itself the defect — it told a model that had sent a bare object with a mismatched
+  array to strip prose it had never written, and in measurement the retry produced the same
+  malformation and lost the vote. Now the `jsonx.Diagnose` magi **already computes for the log** (the
+  offset plus a `⟪HERE⟫` window) is fed back to the only party that can do anything about it: a
+  syntax error gets the position and "close the `[` before the next key"; a schema failure (it parses
+  but has no `decision`) gets the required field named; anything else gets the plain JSON-only note.
 
 ```
 council-tally-unanimous-1: rule=unanimous, [done,done,continue]      ⇒ continue
 council-tally-majority-1:  rule=majority,  [done,done,continue]      ⇒ done
-council-tally-tie-1:       rule=majority,  [done,continue]           ⇒ continue (동률→continue)
+council-tally-tie-1:       rule=majority,  [done,continue]           ⇒ continue (tie → continue)
 council-tally-veto-1:      rule=veto(Balthasar), [done,done, Balthasar=continue] ⇒ continue
-council-tally-abstain-1:   rule=majority,  [done, abstain, continue] ⇒ continue (abstain 분모 제외 → 1/2)
-council-gate-continue-1:   decision=continue ⇒ prompt.submitted(actor=council) 1건 + 루프 속행
-council-gate-skip-1:       툴 미사용 대화 턴 ⇒ 게이트 스킵(council.convened 0)         (R8)
-council-abstain-noevid-1:  verification 렌즈 + 시그널·diff 없음 ⇒ abstain(반사적 continue 금지)(R9)
-council-evidence-newfile-1: 신규 untracked 파일 생성 ⇒ diff에 파일 내용 포함 ⇒ done 수렴(R9)
-council-noevid-noContinue-1: 증거 부재만으로는 continue 금지 ⇒ report/과제로 판단 or abstain (R9)
-council-objective-not-method-1: terminate 프롬프트 ⇒ 목적(무엇을 증명)만 요구·특정 조사명령 미지정·end-to-end 성공 수용 (R9a)
-council-contest-affordance-1: continue 주입 ⇒ CONTEST 어포던스 안내 + terminate 프롬프트 ⇒ 반박 심의절(유효 증거면 재발행 금지, done은 독립 판정) (R9b)
-council-nochanges-1:       diff 성공·공백 + signal 0 ⇒ NoChanges=true, 합의규칙 보존(완화 X)   (R10)
-council-nochanges-noterror-1: GitDiff 실패(비-git) ⇒ NoChanges=false(쓰기 턴 오판 방지)         (R10)
-council-debate-split-1:    would-be-done + SPLIT ⇒ 반박 1라운드 재폴링 후 재tally               (R11)
-council-salvage-prefix-1:  구문오류 뒤만 손상 + decision 온전 ⇒ 접두 salvage로 표 보존(로그에 손실 명시) (R14)
-council-salvage-nodecision-1: decision이 결함 뒤 ⇒ salvage 거부, 기권(없는 표 지어내지 않음)         (R14)
-council-salvage-notshared-1: SalvagePrefix ∉ jsonx.Unmarshal/RepairCandidates (lossy, 플랜 조용한 절단 방지) (R14)
-council-retry-shape-1:     재폴 리마인더 = 구문/스키마/산문 3분기(Diagnose 되먹임), 단일 산문가정 금지  (R14)
+council-tally-abstain-1:   rule=majority,  [done, abstain, continue] ⇒ continue (abstain out of the denominator → 1/2)
+council-gate-continue-1:   decision=continue ⇒ feedback returns as the tool result, the turn goes on
+council-gate-skip-1:       a turn that used no tools ⇒ no declaration demanded          (R8)
+council-abstain-noevid-1:  verification lens + no signals or diff ⇒ abstain (no reflexive continue) (R9)
+council-evidence-newfile-1: a new untracked file ⇒ its contents are in the diff ⇒ converges to done (R9)
+council-noevid-noContinue-1: absence of evidence alone ⇒ judge from report/task, or abstain (R9)
+council-objective-not-method-1: the prompt demands the objective only, accepts end-to-end success (R9a)
+council-contest-affordance-1: a continue carries the CONTEST affordance; valid evidence retires that demand (R9b)
+council-nochanges-1:       diff succeeds and is empty + 0 signals ⇒ NoChanges=true, rule unchanged  (R10)
+council-nochanges-noterror-1: GitDiff fails (non-git) ⇒ NoChanges=false (a write turn is not misjudged) (R10)
+council-debate-split-1:    would-be-done + SPLIT ⇒ one rebuttal round, then a re-tally            (R11)
+council-salvage-prefix-1:  damage only after the syntax error, decision intact ⇒ prefix salvage keeps the vote (R14)
+council-salvage-nodecision-1: decision sits after the defect ⇒ salvage refused, abstain (no invented vote) (R14)
+council-salvage-notshared-1: SalvagePrefix ∉ jsonx.Unmarshal/RepairCandidates (lossy; no silent plan truncation) (R14)
+council-retry-shape-1:     the reminder branches three ways — syntax / schema / prose (Diagnose fed back) (R14)
 ```
 
-## F-LOOP-STAGES (루프 트랙) — macro 단계 + stage 태그(D15)
-- 단계: `Plan(계약)→Execute→Verify(증거)→Report(주장)→Council(감사)→Finalize`.
-- Plan/Report는 **soft 유도**(planner/todos/artifact·report 툴 재사용), Council만 **하드 게이트**.
-- 이벤트 봉투 `stage` 태그로 Loop map·rewind·diff가 단계 단위 그룹/타깃. 사소한 턴은 비례적 스킵.
+## F-LOOP-STAGES — macro stages and the stage tag (D15)
+- The stages: `Plan (contract) → Execute → Verify (evidence) → Report (claim) → Council (audit) → Finalize`.
+- Plan and Report are **soft** (reusing todos and the report surface); only Council is a hard point.
+- The envelope's `stage` tag lets the loop map, rewind and diff group and target by stage. A trivial
+  turn skips proportionally.
 
-## F-SIGNAL (루프 트랙) — 피드백 시그널 1급화(D16, 부분 출하)
-- `port.Signal{source, kind, status(pass|fail), detail}` (현재 형태). 설계 목표는 `{source, kind, verdict, payload, atSeq}`로 확장.
-- **출하**: opt-in **다중** 결정적 시그널(`[council] verify` 단축 + `[[council.signal]]` name/command, 예: test·lint·typecheck)을 게이트마다 실행 → 각 `Signal`로 council 증거에 주입, convened 이벤트에 요약 노출(`TestCouncilVerifySignal`/`TestCouncilMultipleSignals`).
-- 남음: 훅·진단·report 등 *다른 생애주기*의 결정적 출력도 같은 Signal 모델로 통일.
+## F-SIGNAL — feedback signals as first-class (D16, partly shipped)
+- `port.Signal{source, kind, status(pass|fail), detail}` (the current shape). The design target is
+  `{source, kind, verdict, payload, atSeq}`.
+- **Shipped**: opt-in **multiple** deterministic signals (`[council] verify` as shorthand, plus
+  `[[council.signal]]` name/command — test, lint, typecheck) run at each deliberation and injected as
+  `Signal`s in the council's evidence, summarized on the convened event.
+- Remaining: unify the deterministic output of *other* lifecycle producers (hooks, diagnostics,
+  reports) behind the same Signal model.
 
-## F-PLAN / F-PLAN-REC (루프 트랙) — 절차 planner · 계획 감사 · 재귀 분해 — **철거됨**
+## F-PLAN / F-PLAN-REC — procedural planner · plan audit · recursive decomposition — **removed**
 
-> ⛔ **여기 있던 두 절(D17·D18, 합쳐 70여 줄의 R 항목과 테스트 시나리오)은 삭제했다.** 서술하던
-> 것 중 코드에 남은 게 없다 — 절차 planner와 step별 전략, 실행 전 계획 감사 카운슬(`Phase="plan"`,
-> `runPlanAuditGate`), 완료기준 도출, `delegate`/`refine` 재귀와 공유 자식 세션,
-> `guardExpansion`·`planEnvelope`·`MaxPlanDepth`, `redecomposeStuck`. 서브에이전트 자체가 없다.
+> ⛔ **The two sections that stood here (D17 and D18, together some seventy lines of R items and test
+> scenarios) were deleted.** Nothing they described is left in the code — the procedural planner and
+> its per-step strategies, the pre-execution plan-audit council (`Phase="plan"`, `runPlanAuditGate`),
+> the derived completion criteria, `delegate`/`refine` recursion over shared child sessions,
+> `guardExpansion`/`planEnvelope`/`MaxPlanDepth`, `redecomposeStuck`. There are no subagents at all.
 >
-> **왜 걷어냈는지**는 [`PLAN.md`](PLAN.md) §4.3에 결정 기록으로 남겼다(요지: 그 단계들은 전부
-> 작업이 존재하기도 전에 무언가를 결정했고, 그 시기 결함은 예외 없이 magi가 실제 기록보다
-> 자기 사전 판단을 믿은 것이었다). 명세를 남겨두면 없는 손잡이를 광고하게 되므로 지운다.
-> 지금 계획은 에이전트 자신의 `todowrite`이고, 카운슬은 미리 감사하지 않는다.
+> **Why they came out**: every one of those stages decided something before the work existed, and
+> every recorded defect of that period was of one kind — magi trusting its own advance judgement
+> over the record of what actually happened ([`ARCHITECTURE.md`](ARCHITECTURE.md) §4). Leaving the spec
+> would advertise handles that are not there. The plan is now the agent's own `todowrite`, and the
+> council does not audit anything in advance.
 
-## F-PLUGIN (M3) — Lua 플러그인
-- 매니페스트(TOML) 파싱: name/version/capabilities/permissions.
-- capability 등록(tool/command/skill/hook/mcp-server/agent/context-provider/ui-panel).
-- 샌드박스: `os.execute` 등 차단, `magi.*` 브리지만 노출.
-- 권한 집행: 미선언 권한 호출 → 거부.
-- **핫리로드**: 파일 변경 → 해당 플러그인만 언로드/재로드, 세션 상태 무손실.
-- 예시(추후): 플러그인 로드 시 tool 레지스트리 등장 / 미선언 fs 접근 거부 / 파일 수정 후 N초 내 재로드.
-- **멀티 인스턴스 격리**: 한 머신에서 여러 magi를 동시에 띄우면 기본적으로 **하나의** config 트리(`ConfigDir()/config.toml`)와 data 트리(`DataDir()/plugin-data/<name>.json`, 예: SSO 토큰 캐시)를 공유한다. 플러그인이 런타임 선택을 영속하면(`set_model`→`config.SetKey`, `store_set`) 한 인스턴스의 쓰기가 다른 인스턴스 파일에 착지하는 충돌점이다. 두 방어: ①`config.SetKey`/`AppendListItem`은 in-process 뮤텍스에 더해 **크로스-프로세스 O_EXCL 락**(`withFileLock`, Windows 이식성 위해 flock 대신)으로 read-modify-write를 프로세스 간에도 원자화 — 두 인스턴스의 동시 쓰기가 torn-write/lost-update로 config.toml을 깨뜨리지 않음(깨진 config는 TOML 파싱 실패→기동 거부, 즉 조용한 기본값 폴백 없음). ②`MAGI_CONFIG_DIR`/`MAGI_DATA_DIR` 환경변수가 config/data 디렉토리를 인스턴스별로 **완전 분리** → 각자 자기 config.toml·플러그인 토큰 슬롯을 가짐(공유 자체를 없앰).
+## F-PLUGIN (M3) — Lua plugins
+- Manifest (TOML) parsing: name/version/capabilities/permissions.
+- Capability registration (tool / command / skill / hook / mcp-server / agent / context-provider /
+  ui-panel).
+- Sandbox: `os.execute` and friends are blocked; only the `magi.*` bridge is exposed.
+- Permission enforcement: calling an undeclared permission is refused.
+- **Hot reload**: a changed file unloads and reloads just that plugin, with no loss of session state.
+- Examples (later): a loaded plugin appears in the tool registry / an undeclared fs access is
+  refused / a modified file reloads within N seconds.
+- **Multi-instance isolation**: several magi processes on one machine share, by default, **one**
+  config tree (`ConfigDir()/config.toml`) and one data tree
+  (`DataDir()/plugin-data/<name>.json` — an SSO token cache, say). A plugin that persists a runtime
+  choice (`set_model` → `config.SetKey`, or `store_set`) is the collision point, where one instance's
+  write lands in another's file. Two defences: ① `config.SetKey`/`AppendListItem` add a
+  **cross-process O_EXCL lock** (`withFileLock` — not flock, for Windows portability) on top of the
+  in-process mutex, making read-modify-write atomic across processes too, so two simultaneous writes
+  cannot corrupt config.toml with a torn write or a lost update (a corrupt config fails TOML parsing
+  and refuses to start, i.e. never silently falls back to defaults). ② `MAGI_CONFIG_DIR` and
+  `MAGI_DATA_DIR` separate the config and data directories **completely** per instance, so each has
+  its own config.toml and its own plugin token slot — removing the sharing rather than guarding it.
 
 ## F-MCP (M4)
-- 서버 spawn(stdio) → tools/list 발견 → 레지스트리 등록 → 호출 브리지. 서버 죽으면 툴 제거.
+- Spawn the server (stdio) → discover via tools/list → register → bridge the calls. When the server
+  dies its tools are removed.
 
-## F-AGENT-MULTI (M5) — 멀티에이전트
-- agent capability로 명명 에이전트, task 툴 spawn, 병렬 + event bus 집계.
-- 번들 오케스트레이션 플러그인(planner/executor/reviewer), artifact 보고.
+## F-AGENT-MULTI (M5) — multi-agent — **removed**
+> ⛔ Built, then torn out. The `task` tool, spawn, parallel children and the bundled orchestration
+> plugin are all absent from the code, and `ToolEnv`'s `Spawn`/`Dispatch`/`Ask`/`Report` went with
+> them. **There is one agent.** Reasons: [`ARCHITECTURE.md`](ARCHITECTURE.md), "One agent".
 
 ## F-ARTIFACT (M5)
-- artifact emit → `artifact.emitted` → ui-panel 렌더 → ReviewArtifact(approve/reject).
+- artifact emit → `artifact.emitted` → ui-panel render → ReviewArtifact (approve/reject).
 
-## F-EXPERIENCE (M5+) — 공유 두뇌(D13)
-- Retrieve: 세션 시작 RAG / Propose: 학습·스킬 → 리뷰 큐 → 승인 시 git 커밋/푸시 / 시크릿 레드action.
+## F-EXPERIENCE (M5+) — the shared brain (D13)
+- Retrieve: session-start RAG. Propose: a learning or skill into the review queue, committed to git
+  on approval, with secret redaction.
 
 ## F-TUI (M2)
-- 대화 렌더(glamour), 입력, 슬래시 커맨드, 권한 다이얼로그, 모델 피커, 세션 목록.
+- Conversation rendering (glamour), input, slash commands, the permission dialog, the model picker,
+  the session list.
 
 ## F-IMAGE (M2+) — D8
-- 터미널 능력 탐지 → kitty→iterm2→sixel→반블록 폴백. image part 렌더, ui-panel image.
+- Terminal capability detection → kitty → iterm2 → sixel → half-block fallback. Image parts and the
+  ui-panel image.
 
 ## F-SCHEDULER (M5+) — D12
-- Tier1 인프로세스 ticker(인세션), Tier2 OS 스케줄러 어댑터.
+- Tier 1 an in-process ticker (within a session), tier 2 an OS scheduler adapter.
 
 ## F-UPDATE / F-DIST (M7)
-- goreleaser 멀티타깃, CGO_ENABLED=0. 자동 업데이트(서명 체크섬, Windows rename-교체).
+- goreleaser multi-target, CGO_ENABLED=0. Self-update (signed checksums, rename-swap on Windows).
