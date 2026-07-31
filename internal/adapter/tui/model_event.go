@@ -140,7 +140,15 @@ func (m *Model) applyEvent(e event.Event) {
 			m.turnReqID = d.ResurfacedFrom
 			return
 		}
-		stampUserReqID(m.blocks, text, d.MessageID)
+		// The bubble is normally already there: the submit path adds it locally the moment the
+		// user presses enter, and this event only binds the request id to it. On a RESUMED
+		// session there was no such moment — the log is the only source — and the return value
+		// saying "nothing to stamp" was discarded, so a reopened session rendered magi's answers
+		// with none of the questions. If no bubble carries this text, the record says the user
+		// said it, so put it on screen.
+		if !stampUserReqID(m.blocks, text, d.MessageID) && strings.TrimSpace(text) != "" {
+			m.blocks = append(m.blocks, block{kind: blockUser, reqID: d.MessageID, text: text, ts: e.TS})
+		}
 		if m.awaitingTurnReqID {
 			// This is the fresh submit that started the running turn — it owns the spinner.
 			// A queued interjection landing mid-turn arrives with the flag already cleared,
