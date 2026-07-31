@@ -32,7 +32,7 @@ func (RouteInterjection) Description() string {
 		"When unsure, do not call this. Give a one-line reason."
 }
 func (RouteInterjection) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"action":{"type":"string","enum":["queue","redirect","append"],"description":"queue (defer to its own turn), redirect (switch to it now), or append (fold into current task)"},"reason":{"type":"string","description":"one line: why this routing"},"request_id":{"type":"string","description":"which pending request to route: the [req: …] handle shown with the message; omit to route the oldest pending request"}},"required":["action","reason"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"action":{"type":"string","enum":["queue","redirect","append","answered"],"description":"queue (defer to its own turn), redirect (switch to it now), append (fold into current task), or answered (you already answered it in your reply — stop showing it as pending)"},"reason":{"type":"string","description":"one line: why this routing"},"request_id":{"type":"string","description":"which pending request to route: the [req: …] handle shown with the message; omit to route the oldest pending request"}},"required":["action","reason"]}`)
 }
 
 func (RouteInterjection) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
@@ -45,11 +45,11 @@ func (RouteInterjection) Execute(ctx context.Context, raw json.RawMessage, env p
 	}
 	action := strings.ToLower(strings.TrimSpace(a.Action))
 	switch action {
-	case "queue", "redirect", "append":
+	case "queue", "redirect", "append", "answered":
 	case "":
 		action = "queue"
 	default:
-		return errResult("", `action must be one of "queue", "redirect", or "append"`), nil
+		return errResult("", `action must be one of "queue", "redirect", "append", or "answered"`), nil
 	}
 	if err := env.RouteInterjection(action, strings.TrimSpace(a.Reason), strings.TrimSpace(a.RequestID)); err != nil {
 		return errResult("", err.Error()), nil
@@ -58,6 +58,7 @@ func (RouteInterjection) Execute(ctx context.Context, raw json.RawMessage, env p
 		"queue":    "Interjection kept queued — it will run as its own turn after the current task. Continue the current task now.",
 		"redirect": "Redirecting: the queued request becomes your task now and the previous task is set aside. The no-progress count the old task ran up is cleared next step, so start on the new request without carrying it.",
 		"append":   "Appended: the queued request is folded into your current task — satisfy both before you declare it finished. The no-progress count is cleared next step.",
+		"answered": "Marked answered — it will stop being shown as pending. magi checks at the end of this turn that you actually said something after this call; if you said nothing, it goes back in the queue and runs as its own turn.",
 	}[action]
 	return okText("", msg), nil
 }
