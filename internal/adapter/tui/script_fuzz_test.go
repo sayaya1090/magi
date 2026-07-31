@@ -22,7 +22,7 @@ import (
 //
 // Seeded, so a failure is reproducible: the seed and the step are printed with it.
 func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
-	for _, seed := range []int64{67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151, 157, 163} {
+	for _, seed := range []int64{167, 173, 179, 181, 191, 193, 197, 199, 211, 223, 227, 229, 233, 239, 241, 251, 257, 263, 269, 271} {
 		t.Run(fmt.Sprintf("seed%d", seed), func(t *testing.T) {
 			rng := rand.New(rand.NewSource(seed))
 			s := newScript(t)
@@ -125,6 +125,22 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 				{"interject answered", func() {
 					s.emitAs(event.TypeInterjectionAnswered, event.Actor{Kind: event.ActorSystem, ID: "interject"},
 						event.InterjectionAnsweredData{MessageID: fmt.Sprintf("r%d", 1+rng.Intn(max(ids, 1)))})
+				}},
+				{"open search", func() {
+					// ctrl+f opens a search bar that captures keys like a modal. The walk had no
+					// step that ever populated searchHits, which left the "a hit outside the
+					// transcript panics the jump" invariant below asserting over an always-empty
+					// list — present, and proving nothing.
+					s.send(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+					for _, r := range []rune("re") { // matches "request N" and the tool lines
+						s.send(tea.KeyPressMsg{Code: r, Text: string(r)})
+					}
+				}},
+				{"search step", func() {
+					s.send(tea.KeyPressMsg{Code: tea.KeyEnter})
+				}},
+				{"close search", func() {
+					s.send(tea.KeyPressMsg{Code: tea.KeyEscape})
 				}},
 				{"compaction", func() {
 					s.emit(event.TypeCompaction, event.CompactionData{Summary: "s", TokensBefore: 100, TokensAfter: 10})
