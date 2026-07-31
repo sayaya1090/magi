@@ -290,6 +290,25 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 				guard.retractProgress()
 			}
 		}
+		// A write that left the file holding exactly the bytes it already held moved nothing, so
+		// the stall window must keep climbing across it. The bash path has this rule; this one
+		// did not, and the two see the same evidence — noteEdit measured the two sides and said
+		// so in the result the agent just read. It reports that case as regressed=false, because
+		// nothing moved either way, so the branch above never fires for it.
+		//
+		// mutated() catches the plainest shape by itself: the same args to the same path is one
+		// signature and the repeat is not counted. What reaches here is an identical write
+		// carrying a NEW signature, which the shared mutation record hands out freely — the same
+		// interleaving that made an identical write look fresh after a scratch redirect. Every
+		// such write restarted the window, so a loop of them never came due for a stall nudge.
+		//
+		// Empty on both sides is left alone for the reason noteEdit leaves it alone: `write{""}`
+		// on a missing path CREATES a file and on an empty one changes nothing, and magi cannot
+		// tell those apart from content. Unknown is not unchanged — a read that failed leaves
+		// the two sides unequal and nothing is retracted.
+		if mutatedReset && changeBefore == after && !(changeBefore == "" && after == "") {
+			guard.retractProgress()
+		}
 	}
 }
 
