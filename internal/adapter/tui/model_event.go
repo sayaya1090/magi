@@ -249,9 +249,8 @@ func (m *Model) applyEvent(e event.Event) {
 		// it happened.
 		var d event.CompactionData
 		if json.Unmarshal(e.Data, &d) == nil {
-			freed, pct := d.Reduction()
 			m.blocks = append(m.blocks, block{kind: blockInfo, text: fmt.Sprintf(
-				"↯ context compacted: ~%d→%d tok (−%d, −%d%%)", d.TokensBefore, d.TokensAfter, freed, pct)})
+				"↯ context compacted: ~%d→%d tok (%s)", d.TokensBefore, d.TokensAfter, d.SizeNote())})
 		}
 
 	case event.TypeInterjectionAnswered:
