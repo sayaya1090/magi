@@ -22,11 +22,13 @@ import (
 //
 // Seeded, so a failure is reproducible: the seed and the step are printed with it.
 func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
-	for _, seed := range []int64{1, 2, 3, 7, 11, 42} {
+	for _, seed := range []int64{1, 2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 42, 43, 47, 53, 59, 61} {
 		t.Run(fmt.Sprintf("seed%d", seed), func(t *testing.T) {
 			rng := rand.New(rand.NewSource(seed))
 			s := newScript(t)
 			ids, calls := 0, 0
+			var prevID string
+			var prevOK bool
 
 			steps := []struct {
 				what string
@@ -35,9 +37,26 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 				{"user prompt", func() {
 					ids++
 					id := fmt.Sprintf("r%d", ids)
+					before := len(s.m.blocks)
 					s.typeText(fmt.Sprintf("request %d", ids)).enter()
+					// Emit the prompt the VIEW actually submitted, not the one the walk intended.
+					// A modal, the search bar or the palette can swallow the leading keystrokes,
+					// and then the box holds a fragment — in production the app receives exactly
+					// what was sent, so an event carrying different text is a state that cannot
+					// happen, and asserting on it would be testing the harness.
+					var sent string
+					var ok bool
+					for i := len(s.m.blocks) - 1; i >= before; i-- {
+						if s.m.blocks[i].kind == blockUser && s.m.blocks[i].reqID == "" {
+							sent, ok = s.m.blocks[i].text, true
+							break
+						}
+					}
+					if !ok {
+						return // the keys never became a prompt; nothing was submitted
+					}
 					s.emitAs(event.TypePromptSubmitted, event.Actor{Kind: event.ActorUser, ID: "tui"},
-						event.PromptSubmittedData{MessageID: id, Parts: []session.Part{{Kind: session.PartText, Text: fmt.Sprintf("request %d", ids)}}})
+						event.PromptSubmittedData{MessageID: id, Parts: []session.Part{{Kind: session.PartText, Text: sent}}})
 				}},
 				{"system note", func() {
 					s.emitAs(event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "loop"},
@@ -113,7 +132,7 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 				{"finish", func() { s.emit(event.TypeTurnFinished, event.TurnFinishedData{}) }},
 			}
 
-			for step := 0; step < 200; step++ {
+			for step := 0; step < 500; step++ {
 				pick := steps[rng.Intn(len(steps))]
 				pick.do()
 				raw := s.rawView()
@@ -151,6 +170,67 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 				// A session with content never renders an empty screen.
 				if len(s.m.blocks) > 0 && strings.TrimSpace(ansiSeq.ReplaceAllString(raw, "")) == "" {
 					t.Fatalf("%s: %d blocks and a blank frame", where, len(s.m.blocks))
+				}
+				// The spinner is attached to a request id; a dangling one animates beside nothing.
+				if s.m.turnReqID != "" && prevOK && s.m.turnReqID == prevID {
+					gone := true
+					for _, b := range s.m.blocks {
+						if b.reqID == s.m.turnReqID {
+							gone = false
+						}
+					}
+					if gone {
+						t.Fatalf("%s: the block carrying turnReqID %q vanished during this action", where, s.m.turnReqID)
+					}
+				}
+				prevID, prevOK = s.m.turnReqID, false
+				for _, b := range s.m.blocks {
+					if b.reqID == prevID {
+						prevOK = true
+					}
+				}
+				if s.m.turnReqID != "" {
+					found := false
+					for _, b := range s.m.blocks {
+						if b.reqID == s.m.turnReqID {
+							found = true
+						}
+					}
+					if !found {
+						var sample []string
+						for _, b := range s.m.blocks {
+							if b.kind == blockUser {
+								sample = append(sample, fmt.Sprintf("%q/%q", b.reqID, b.text))
+							}
+						}
+						if len(sample) > 8 {
+							sample = sample[len(sample)-8:]
+						}
+						t.Fatalf("%s: turnReqID %q matches no block; last user bubbles: %v", where, s.m.turnReqID, sample)
+					}
+				}
+				// A request id identifies ONE bubble. Two would mean a prompt was echoed twice,
+				// and the pairing helpers (which find "the" block by id) would pick either.
+				seenIDs := map[string]int{}
+				for _, b := range s.m.blocks {
+					if b.kind == blockUser && b.reqID != "" {
+						seenIDs[b.reqID]++
+						if seenIDs[b.reqID] > 1 {
+							t.Fatalf("%s: request %q has %d bubbles", where, b.reqID, seenIDs[b.reqID])
+						}
+					}
+				}
+				// A verdict row with no verdicts renders an empty council line.
+				for i, b := range s.m.blocks {
+					if b.kind == blockCouncilVerdict && len(b.councilVerdicts) == 0 {
+						t.Fatalf("%s: block %d is a verdict row with no verdicts", where, i)
+					}
+				}
+				// Search hits index the plain transcript; a stale hit past its end panics the jump.
+				for _, h := range s.m.searchHits {
+					if h < 0 || h >= len(s.m.contentPlain) {
+						t.Fatalf("%s: search hit %d is outside the %d-line transcript", where, h, len(s.m.contentPlain))
+					}
 				}
 				// The frame must fit the terminal vertically too. One row too many scrolls the
 				// screen, which on an alt-screen UI means the top of the frame is simply gone.
