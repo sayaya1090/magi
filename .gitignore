@@ -11,6 +11,9 @@ docs/FEATURE_CHECKLIST.md
 docs/PLAN.md
 internal/eval/a-reference-agent_compare_test.go
 
+# build artifacts of the tools/ helpers
+/covignore
+
 # coverage output
 coverage.out
 coverage.prod.out
