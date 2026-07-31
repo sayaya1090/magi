@@ -235,3 +235,44 @@ func TestWithTheCheckOffNothingIsReAsked(t *testing.T) {
 		t.Errorf("decision = %q, want done", d.Decision)
 	}
 }
+
+// The live over-rejection this rule cost two votes to learn. Measured (kv-store-grpc,
+// 2026-08-01): two members copied a whole evidence entry verbatim — the command, its exit, its
+// output path — which is the most cooperative thing a member can do, and the first version of the
+// check rejected both because the span STARTS in a command body. They abstained, and a
+// three-member council decided done on one vote.
+//
+// Over-rejection here costs more than the fabrication it guards against, so a citation passes
+// when its TAIL is in what came back.
+func TestAWholeRecordLineIsAGoodCitation(t *testing.T) {
+	const record = "── WHAT MAGI OBSERVED ──\n" +
+		"- tool bash [ok] python -c \"import grpc; print('grpc imported successfully')\": exit 0 ⏎ " +
+		"output: /tmp/magi-turn-1531456660/logs/magi-bash-3394869860.log (27 bytes — all of it is above) ⏎ " +
+		"grpc imported successfully ⏎\n"
+	// Exactly what the members sent, command included.
+	cite := "python -c \"import grpc; print('grpc imported successfully')\": exit 0 ⏎ " +
+		"output: /tmp/magi-turn-1531456660/logs/magi-bash-3394869860.log (27 bytes — all of it is above)"
+	if misses := checkCites(record, cite, "", ""); len(misses) != 0 {
+		t.Errorf("a verbatim copy of a record entry was rejected: %+v", misses)
+	}
+	// …while a quote that never leaves the command is still what it was.
+	if misses := checkCites(record, "print('grpc imported successfully')", "", ""); len(misses) != 1 {
+		t.Errorf("a command-only quote should still be flagged, got %+v", misses)
+	} else if !misses[0].sentNotReturned {
+		t.Error("a command-only quote must be reported as sent rather than invented")
+	}
+}
+
+// The tail rule is not a way in for anything with a long enough prefix: a citation whose end is
+// nowhere in the record is still invented.
+func TestTheTailRuleDoesNotAdmitAnInventedEnding(t *testing.T) {
+	const record = "- tool bash [ok] make test: exit 1 ⏎ output: /tmp/x.log (9 bytes) ⏎ 3 failed ⏎\n"
+	cite := "make test: exit 1 ⏎ output: /tmp/x.log (9 bytes) ⏎ 0 failed, everything passed cleanly"
+	misses := checkCites(record, cite, "", "")
+	if len(misses) != 1 {
+		t.Fatalf("a citation ending in text that is not there was accepted: %+v", misses)
+	}
+	if misses[0].sentNotReturned {
+		t.Error("this ending is nowhere in the record; it was invented, not misattributed")
+	}
+}
