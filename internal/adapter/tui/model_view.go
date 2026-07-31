@@ -96,11 +96,19 @@ func (m Model) View() tea.View {
 		if m.councilRound > 0 {
 			work = councilWaitLabel(m.councilPhase) + " "
 		}
-		status = "  " + m.sp.View() + styleFooter.Render(" "+work+turnMeter(time.Since(m.turnStart), m.turnIn, m.turnOut)+gaugeSep(m.ctxGauge())+"  ") + footerKeys("esc", "interrupt")
+		// The spinner and the meter say the turn is alive and must always fit; the interrupt hint
+		// is the droppable part. Unbounded, this row was the widest in the frame on a narrow
+		// terminal and JoinVertical padded every other row out to match it.
+		live := "  " + m.sp.View() + styleFooter.Render(" "+work+turnMeter(time.Since(m.turnStart), m.turnIn, m.turnOut)+gaugeSep(m.ctxGauge())+"  ")
+		status = live
+		if hint := footerKeys("esc", "interrupt"); m.width <= 0 || lipgloss.Width(live)+lipgloss.Width(hint) <= m.width {
+			status += hint
+		}
 	case m.turnDur > 0:
-		status = styleFooter.Render("  "+turnMeter(m.turnDur, m.turnIn, m.turnOut)+gaugeSep(m.ctxGauge())) + "   " + footer()
+		meter := styleFooter.Render("  " + turnMeter(m.turnDur, m.turnIn, m.turnOut) + gaugeSep(m.ctxGauge()))
+		status = meter + "   " + footerWidth(m.width-lipgloss.Width(meter)-3)
 	default:
-		status = footer()
+		status = footerWidth(m.width)
 	}
 	if debugFade {
 		status += styleFooter.Render(m.fadeDebug())
@@ -420,6 +428,18 @@ func permButtons() []permButton {
 		{"p", "project", "persist"},
 		{"n", "deny", "deny"},
 	}
+}
+
+// permIndex is the button row position of a decision, so a key can FOCUS a button without
+// pressing it. -1 is impossible for the decisions passed here, but a wrong name must not index
+// out of range: fall back to the first button (allow), which is also the default selection.
+func permIndex(decision string) int {
+	for i, b := range permButtons() {
+		if b.decision == decision {
+			return i
+		}
+	}
+	return 0
 }
 
 // permButtonWidth is a button's rendered cell width: label ("key word") plus the
@@ -763,9 +783,34 @@ func humanTokens(n int) string {
 	}
 }
 
-func footer() string {
-	return styleFooter.Render("") +
-		footerKeys("enter", "send") + footerKeys("esc", "interrupt") + footerKeys("ctrl+q", "quit")
+// footer renders the key hints, dropping the least important ones until they fit the terminal.
+//
+// It used to render all three unconditionally, and it is the one row in the frame that never
+// measured itself against the screen: at 20 columns everything else clipped correctly and the
+// hints alone were 48 cells, so JoinVertical padded EVERY row to 48 and the whole frame overflowed
+// a 20-column terminal. That is the wrap the header goes out of its way to prevent — the comment
+// there says a soft-wrapped row desyncs physical rows from the logical layout and throws off the
+// overlay click hit-testing — arriving from the bottom of the screen instead.
+//
+// Dropped from the right: quit is discoverable elsewhere (/quit), interrupt matters while a turn
+// runs, and send is the one a new user needs. Below even that, nothing — an unreadable smear of
+// half a hint is worse than a clean empty row.
+func footer() string { return footerWidth(0) }
+
+// footerWidth is footer bounded to w cells (0 = unbounded, the old behaviour, kept for the
+// callers that compose the hints into a line they measure themselves).
+func footerWidth(w int) string {
+	hints := [][2]string{{"enter", "send"}, {"esc", "interrupt"}, {"ctrl+q", "quit"}}
+	for n := len(hints); n > 0; n-- {
+		out := styleFooter.Render("")
+		for _, h := range hints[:n] {
+			out += footerKeys(h[0], h[1])
+		}
+		if w <= 0 || lipgloss.Width(out) <= w {
+			return out
+		}
+	}
+	return ""
 }
 
 func footerKeys(key, desc string) string {
