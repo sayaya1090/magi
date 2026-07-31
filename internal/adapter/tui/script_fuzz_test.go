@@ -226,6 +226,22 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 						t.Fatalf("%s: block %d is a verdict row with no verdicts", where, i)
 					}
 				}
+				// Not asserted: that a settled block never changes what it says. It is a property
+				// worth having, and it is not expressible here — a block is identified by its
+				// POSITION, and positions legitimately move (the queued-tail hoist, the two
+				// question/answer pairings) while a tool call gains its result in place. Keying on
+				// the index therefore reports every deliberate reorder as a rewrite. Giving blocks
+				// a stable id would fix that, but changing the data model to suit a test is the
+				// wrong direction, so this is left unclaimed rather than half-claimed.
+				// The render cache is a prefix of the block list; an entry past the end would be
+				// served for a block that no longer exists.
+				if len(s.m.cache) > len(s.m.blocks) {
+					t.Fatalf("%s: %d cached renders for %d blocks", where, len(s.m.cache), len(s.m.blocks))
+				}
+				// The viewport never scrolls past its own content.
+				if off, h := s.m.vp.YOffset(), s.m.vp.TotalLineCount(); off < 0 || (h > 0 && off > h) {
+					t.Fatalf("%s: viewport offset %d in %d lines of content", where, off, h)
+				}
 				// Search hits index the plain transcript; a stale hit past its end panics the jump.
 				for _, h := range s.m.searchHits {
 					if h < 0 || h >= len(s.m.contentPlain) {
