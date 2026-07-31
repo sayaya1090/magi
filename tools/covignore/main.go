@@ -49,6 +49,17 @@ type span struct {
 	reason string
 }
 
+// result is what one filtering pass produced: the profile to write, the per-function note for
+// whoever is reading the build log, and the problems that make the pass a failure. It is a
+// value rather than direct printing so the guards can be tested — they are the whole reason
+// this tool is allowed to change a number other people read.
+type result struct {
+	kept     []string
+	notes    []string
+	problems []string
+}
+
+//coverage:ignore flags, files and os.Exit around filterProfile, which is what is tested
 func main() {
 	in := flag.String("i", "coverage.out", "coverage profile to filter")
 	out := flag.String("o", "", "where to write the filtered profile (default: stdout)")
@@ -67,6 +78,40 @@ func main() {
 		fail(fmt.Errorf("%s is empty", *in))
 	}
 
+	res, err := filterProfile(lines, *root, mod)
+	if err != nil {
+		fail(err)
+	}
+	// Report before failing: a stale marker is easier to fix when you can see the whole list.
+	for _, n := range res.notes {
+		fmt.Fprintln(os.Stderr, "covignore: "+n)
+	}
+	for _, p := range res.problems {
+		fmt.Fprintln(os.Stderr, "covignore: ERROR "+p)
+	}
+	if len(res.problems) > 0 {
+		os.Exit(1)
+	}
+
+	w := os.Stdout
+	if *out != "" {
+		f, err := os.Create(*out)
+		if err != nil {
+			fail(err)
+		}
+		defer f.Close()
+		w = f
+	}
+	for _, l := range res.kept {
+		fmt.Fprintln(w, l)
+	}
+}
+
+// filterProfile drops the blocks belonging to marked functions and reports on what it did.
+// lines is a whole profile, first line included.
+func filterProfile(lines []string, root, mod string) (result, error) {
+	var res result
+
 	// Every file the profile mentions, parsed once. A file with no marker contributes nothing
 	// and costs one parse; the profile names only files that compiled, so none of this can be
 	// looking at generated or vendored trees.
@@ -82,28 +127,28 @@ func main() {
 		if !ok {
 			continue // a dependency's file: not ours to mark
 		}
-		spans, err := markedFuncs(filepath.Join(*root, rel))
+		spans, err := markedFuncs(filepath.Join(root, rel))
 		if err != nil {
-			fail(err)
+			return res, err
 		}
 		if len(spans) > 0 {
 			ignored[file] = spans
 		}
 	}
 
-	kept := []string{lines[0]}
+	res.kept = []string{lines[0]}
 	blocks := map[string]int{}  // "file:func" → profile blocks matched (0 means the marker drifted)
 	dropped := map[string]int{} // …statements in them
 	covered := map[string]int{} // …of which were actually EXERCISED (a broken marker)
 	for _, l := range lines[1:] {
 		file, lo, hi, ok := parseBlock(l)
 		if !ok {
-			kept = append(kept, l)
+			res.kept = append(res.kept, l)
 			continue
 		}
 		s := find(ignored[file], lo, hi)
 		if s == nil {
-			kept = append(kept, l)
+			res.kept = append(res.kept, l)
 			continue
 		}
 		key := file + ":" + s.name
@@ -116,48 +161,34 @@ func main() {
 		covered[key] += hits
 	}
 
-	// Report before failing: a stale marker is easier to fix when you can see the whole list.
 	var keys []string
 	for k := range blocks {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		fmt.Fprintf(os.Stderr, "covignore: %s (%d statements)\n", k, dropped[k])
+		res.notes = append(res.notes, fmt.Sprintf("%s (%d statements)", k, dropped[k]))
 	}
-	bad := false
 	for _, k := range keys {
 		if covered[k] > 0 {
-			fmt.Fprintf(os.Stderr, "covignore: ERROR %s is marked unreachable but %d of its statements RAN — "+
-				"something tests it, so drop the marker\n", k, covered[k])
-			bad = true
+			res.problems = append(res.problems, fmt.Sprintf(
+				"%s is marked unreachable but %d of its statements RAN — something tests it, so drop the marker",
+				k, covered[k]))
 		}
 	}
+	var stale []string
 	for file, spans := range ignored {
 		for _, s := range spans {
 			if blocks[file+":"+s.name] == 0 {
-				fmt.Fprintf(os.Stderr, "covignore: ERROR %s:%s is marked but has no blocks in the profile — "+
-					"the marker is on something the profile does not name\n", file, s.name)
-				bad = true
+				stale = append(stale, fmt.Sprintf(
+					"%s:%s is marked but has no blocks in the profile — the marker is on something the profile does not name",
+					file, s.name))
 			}
 		}
 	}
-	if bad {
-		os.Exit(1)
-	}
-
-	w := os.Stdout
-	if *out != "" {
-		f, err := os.Create(*out)
-		if err != nil {
-			fail(err)
-		}
-		defer f.Close()
-		w = f
-	}
-	for _, l := range kept {
-		fmt.Fprintln(w, l)
-	}
+	sort.Strings(stale) // map order is not an order; the build log should read the same twice
+	res.problems = append(res.problems, stale...)
+	return res, nil
 }
 
 // markedFuncs returns the line span of every top-level func and method in path whose doc
@@ -296,6 +327,7 @@ func readLines(path string) ([]string, error) {
 	return out, sc.Err()
 }
 
+//coverage:ignore prints and exits
 func fail(err error) {
 	fmt.Fprintln(os.Stderr, "covignore:", err)
 	os.Exit(1)
