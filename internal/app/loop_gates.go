@@ -197,6 +197,19 @@ func (a *App) requireFinishDeclaration(ctx context.Context, tc turnCtx, usedTool
 	if _, ok := a.tools.Get("council"); !ok || !tc.agent.allows("council") {
 		return 0, false
 	}
+	// The budget is per STRETCH of no progress, not per turn. It counted for the whole turn and
+	// never reset, so three quiet moments an hour apart — with real work between them — spent the
+	// same budget as an agent stuck in place, and the turn ended on the third as though nothing had
+	// happened since the first. A mutation since the last ask is the evidence that the reminder was
+	// answered by working, so the count starts over.
+	//
+	// The epoch is the right signal and a tool call is not: an agent that cannot produce the
+	// declaration answers every reminder WITH a tool call, so counting calls would make the budget
+	// infinite for exactly the case it exists to bound. The epoch rises only on a real file
+	// mutation, which that agent never manages.
+	if epoch := tc.guard.mutationEpoch(); ts.declareAsks > 0 && epoch != ts.declareAskEpoch {
+		ts.declareAsks = 0
+	}
 	// Bounded, because the alternative is a turn that never ends. Asking is worth doing when the
 	// agent simply forgot the form; it is worth nothing against an agent that cannot produce it, and
 	// that one would hold the session open until the wall clock while looking busy — each reminder
@@ -209,6 +222,7 @@ func (a *App) requireFinishDeclaration(ctx context.Context, tc turnCtx, usedTool
 		return 0, false
 	}
 	ts.declareAsks++
+	ts.declareAskEpoch = tc.guard.mutationEpoch()
 	pd, _ := json.Marshal(event.PromptSubmittedData{
 		MessageID: "m_" + newID(),
 		Parts: []session.Part{{Kind: session.PartText, Text: "You stopped without saying you are finished. " +

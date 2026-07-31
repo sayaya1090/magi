@@ -80,6 +80,7 @@ type turnState struct {
 	stopChecked      bool // stop hooks enforced at most once per turn
 	nudgedEmpty      bool
 	declareAsks      int    // how many times this turn was told to declare completion (declareAskCap)
+	declareAskEpoch  int    // guard.mutationEpoch() at the last such ask; a later epoch resets the count
 	declared         bool   // the agent declared the task finished and the council accepted
 	prevFinishText   string // the answer the council rejected last round
 	prevFinishCalls  int    // guard.callCount() at that rejection (-1 = none yet)
