@@ -27,7 +27,7 @@ func TestTheOutputLineSaysHowMuchOfTheOutputIsAbove(t *testing.T) {
 
 	// The live case: a command that matched nothing. No elision to announce.
 	empty := write("empty.log", "")
-	got := outputLine(empty, false, false)
+	got := outputLine(empty, false, "")
 	if !strings.Contains(got, "the command wrote nothing") {
 		t.Errorf("an empty capture says so plainly:\n%s", got)
 	}
@@ -39,7 +39,7 @@ func TestTheOutputLineSaysHowMuchOfTheOutputIsAbove(t *testing.T) {
 	// Observed live: `make world.opt -j4 2>&1 | tail -50` timed out at 120s and tail, which holds
 	// its output until the input ends, had flushed nothing — so a build that had been talking for
 	// two minutes was described as having written nothing.
-	got = outputLine(empty, false, true)
+	got = outputLine(empty, false, "killed at the timeout")
 	if strings.Contains(got, "wrote nothing —") {
 		t.Errorf("a killed command's empty capture is not proof it was silent:\n%s", got)
 	}
@@ -51,7 +51,7 @@ func TestTheOutputLineSaysHowMuchOfTheOutputIsAbove(t *testing.T) {
 
 	// Shown whole: the file and the message hold the same bytes.
 	full := write("full.log", "make: nothing to be done\n")
-	got = outputLine(full, false, false)
+	got = outputLine(full, false, "")
 	if !strings.Contains(got, "all of it is above") {
 		t.Errorf("an unclipped result says the message has everything:\n%s", got)
 	}
@@ -64,7 +64,7 @@ func TestTheOutputLineSaysHowMuchOfTheOutputIsAbove(t *testing.T) {
 
 	// Clipped: the message is a view, and the file is where the rest is.
 	big := write("big.log", strings.Repeat("x", 4096))
-	got = outputLine(big, true, false)
+	got = outputLine(big, true, "")
 	if !strings.Contains(got, "head and tail are above") || !strings.Contains(got, "the file has all of it") {
 		t.Errorf("a clipped result names both halves of the fact:\n%s", got)
 	}
@@ -73,11 +73,11 @@ func TestTheOutputLineSaysHowMuchOfTheOutputIsAbove(t *testing.T) {
 	}
 
 	// No capture file, or one that cannot be stat'ed: name it and claim nothing about it.
-	if outputLine("", false, false) != "" {
+	if outputLine("", false, "") != "" {
 		t.Error("no capture file, no line")
 	}
 	gone := filepath.Join(dir, "not-there.log")
-	if got := outputLine(gone, true, false); got != "output: "+gone+"\n" {
+	if got := outputLine(gone, true, ""); got != "output: "+gone+"\n" {
 		t.Errorf("an unmeasurable file gets no size claim: %q", got)
 	}
 }
@@ -139,5 +139,56 @@ func TestTimedOutNoteNamesTheLimitsOrigin(t *testing.T) {
 		if !strings.Contains(got, "KILLED at that mark") {
 			t.Errorf("every shape still says the kill is not a verdict:\n%s", got)
 		}
+	}
+}
+
+// magi kills a command at its own timeout and knows that it did. A kill the SHELL performed
+// arrives only as a number, and the sentence that reads an empty capture was gated on magi's own
+// kill alone — so the same emptiness got two different answers. Observed live (headless-terminal,
+// 2026-07-31): `timeout 15 python3 << EOF` whose first statement is a print came back "exit 124"
+// with "the command wrote nothing — the file is empty". It wrote; the output died in its stdio
+// buffer when timeout killed it, which is the very thing the killed branch exists to say.
+func TestAKillTheShellPerformedCountsAsAKill(t *testing.T) {
+	for _, c := range []struct {
+		what string
+		exit int
+		want string
+	}{
+		{"GNU timeout fired", 124, "killed by `timeout` (exit 124)"},
+		{"SIGKILL", 137, "killed by signal 9 (exit 137)"},
+		{"SIGTERM", 143, "killed by signal 15 (exit 143)"},
+		{"SIGINT", 130, "killed by signal 2 (exit 130)"},
+		{"SIGPIPE", 141, "killed by signal 13 (exit 141)"},
+	} {
+		if got := killedByStatus(c.exit); got != c.want {
+			t.Errorf("%s: got %q, want %q", c.what, got, c.want)
+		}
+	}
+	// An ordinary ending is not a kill: claiming one would hedge every empty capture into
+	// uselessness, and "the command wrote nothing" is exactly right for a command that finished.
+	for _, exit := range []int{0, 1, 2, 127, 128, 160} {
+		if got := killedByStatus(exit); got != "" {
+			t.Errorf("exit %d is not a kill, got %q", exit, got)
+		}
+	}
+}
+
+// End to end through the line itself: the killed wording names what the status said.
+func TestTheEmptyCaptureOfAKilledCommandNamesTheKill(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "empty.log")
+	if err := os.WriteFile(p, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := outputLine(p, false, killedByStatus(124))
+	if strings.Contains(got, "wrote nothing —") {
+		t.Errorf("a killed command's empty capture is not proof it was silent:\n%s", got)
+	}
+	for _, want := range []string{"the capture is empty", "killed by `timeout` (exit 124)", "does not say it wrote nothing"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("want %q in:\n%s", want, got)
+		}
+	}
+	if got := outputLine(p, false, killedByStatus(1)); !strings.Contains(got, "the command wrote nothing") {
+		t.Errorf("a command that ran to completion and wrote nothing still says so plainly:\n%s", got)
 	}
 }
