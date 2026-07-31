@@ -538,6 +538,7 @@ func run() int {
 		AllowDomains:        cfg.AllowDomains,
 		MaxOutputTokens:     cfg.Limits.MaxOutputTokens, // [limits]; the spin guard defers when set
 		ContextTokens:       cfg.Limits.ContextTokens,   // [limits]; forces the window for every model
+		CompactRatio:        cfg.Limits.CompactRatio,    // [limits]; share of the window used before compaction (0 = default)
 		Experience:          experienceStore,
 		Hooks:               toAppHooks(cfg.Hooks),
 		Harness:             !*noHarness,
