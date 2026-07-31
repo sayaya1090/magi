@@ -274,10 +274,6 @@ ignore:
   retracted, and **every swing is reported**, the later ones carrying how many there have been and
   how many versions the file is cycling among. A write that changes nothing at all says so: the
   tool answers "wrote N bytes", which reads as a change.
-- **Tabu** (`failedStates`/`checkTabu`): when a command that EXERCISES the deliverable fails, the
-  authored file set's content signature is recorded with a snippet of the failure. An edit that
-  reproduces a known-bad signature gets a one-shot advisory citing it. Advisory, once, never a
-  block.
 - **Exercise ledger**: an exercising command that NAMES an authored file marks it exercised — by
   filename, or by module stem for the languages that load a source file that way (`from run import
   …` is a real invocation of `run.py`). What it cannot match, it says it cannot match: the finish
@@ -363,7 +359,10 @@ implement↔verify up to `WorkflowMaxLoops`. Emits `workflow.phase` events.
 Built-ins (`builtin.Default()`): `read`, `write`, `edit`, `multiedit`, `grep`, `glob`, `list`,
 `bash`, `bash_output`, `bash_kill`, `bash_input`, `wait_for`, `port_owner`, `todowrite`,
 `council`, `webfetch`, `websearch`, `remember`, `skill`, `recall_context`, `recall_memory`.
-Registered by `main.go`, interactive runs only: `ask_user`, `route_interjection`.
+Added by `builtin.RegisterOrchestration(r, headless)` for interactive runs only: `ask_user`,
+`route_interjection`. It sits beside `Default` rather than at each call site because a hand-kept
+second copy cannot fail a build when it falls behind — and one had, by two tools, before the
+function existed.
 
 A tool earns its place only when it gives magi something bash cannot, or gives the model something
 bash cannot. Counted across every recorded bench run, the tools that failed both came out:
@@ -405,15 +404,13 @@ rust-analyzer, clangd), degrading gracefully when a server is absent. `websearch
 uses DuckDuckGo by default, or Brave/Tavily when `BRAVE_API_KEY`/`TAVILY_API_KEY` is set.
 
 Notes: file tools are jailed to the workdir (`pathutil.go:resolvePath`); `read`
-recovers imprecise paths by basename and renders each line as `N#hh|content` — the
-1-based line number, a 2-char content hash of that line, then the text — so a later
-edit can address a line by hash. `edit` takes **either** a text match (`old`/`new`:
-exact → line-ending-normalized → trailing-whitespace-tolerant, leading indentation
-never guessed, plus a salvage tier that strips pasted `N#hh|` read prefixes before
-retrying) **or** an **anchor** (`at:"N#hh"`, optional `to:` for a line range): the
-anchor recomputes the hash from the *current* file content and rejects a stale or
-mismatched reference — a deterministic guard against editing a line that has since
-moved or changed underneath a stale read. `write`/`edit`/`multiedit` additionally
+recovers imprecise paths by basename and prefixes each line with `N⇥` — the 1-based
+number and a tab, cat -n style — so the gutter reads as metadata rather than as file
+content and a later edit can address a line by number. `edit` takes **either** a text
+match (`old`/`new`: exact → line-ending-normalized → trailing-whitespace-tolerant,
+leading indentation never guessed, plus a salvage tier that strips a pasted read
+gutter before retrying) **or** an **anchor** (`at:"N"`, optional `to:` for a line
+range). `write`/`edit`/`multiedit` additionally
 append a **non-blocking advisory** when freshly added comments read like
 change-narration ("// I've updated the loop …") or placeholders/elisions
 ("// rest of the code unchanged", "// …") — comments should capture non-obvious
@@ -496,7 +493,8 @@ fake-LLM tests for regression coverage; use real-model E2E for gated confirmatio
 
 ## 11. Extension points
 
-> 실전 단계별 가이드(MCP 서버 추가, 공유 경험 부트스트랩): [`EXTENDING.md`](EXTENDING.md).
+> Step-by-step guides (adding an MCP server, bootstrapping shared experience):
+> [`EXTENDING.md`](EXTENDING.md). Korean: [`ARCHITECTURE.ko.md`](ARCHITECTURE.ko.md).
 
 - **Lua plugins** (`adapter/plugin/lua`, `-plugins <dir>`): capability bundles
   (tools/hooks), hot-reloadable. NOT for transport-level concerns (auth/TLS).
