@@ -77,6 +77,7 @@ type realTurn struct {
 	app    *app.App
 	events <-chan event.Event
 	cancel func()
+	seen   []event.Event // every event the app published while this harness was pumping
 }
 
 func newRealTurn(t *testing.T, llm port.LLMProvider) *realTurn {
@@ -127,14 +128,29 @@ func (r *realTurn) run(prompt string) {
 			if !ok {
 				return
 			}
+			r.seen = append(r.seen, ev)
 			r.send(eventMsg{ev: ev, sid: r.m.sid, sub: r.m.mainSub})
 			if ev.Type == event.TypeTurnFinished || ev.Type == event.TypeError {
-				// Drain whatever else is already queued, then stop.
+				// Keep pumping through the quiet after the finish. The interjection queue is
+				// drained by the run goroutine AFTER the turn ends, so stopping at turn.finished
+				// would miss exactly the bookkeeping these tests are about.
+				quiet := time.NewTimer(600 * time.Millisecond)
 				for {
 					select {
-					case e2 := <-r.events:
+					case e2, ok := <-r.events:
+						if !ok {
+							return
+						}
+						r.seen = append(r.seen, e2)
 						r.send(eventMsg{ev: e2, sid: r.m.sid, sub: r.m.mainSub})
-					default:
+						if !quiet.Stop() {
+							select {
+							case <-quiet.C:
+							default:
+							}
+						}
+						quiet.Reset(600 * time.Millisecond)
+					case <-quiet.C:
 						return
 					}
 				}
@@ -227,4 +243,11 @@ func TestARealCouncilRound(t *testing.T) {
 	if !strings.Contains(plain, "council") && !strings.Contains(plain, "accepted") {
 		t.Errorf("the declaration left no trace on screen:\n%s", plain)
 	}
+}
+
+// storeEvents is every event the app published while the harness was pumping — the record the
+// user's request either is or is not in.
+func (r *realTurn) storeEvents(t *testing.T) []event.Event {
+	t.Helper()
+	return r.seen
 }
