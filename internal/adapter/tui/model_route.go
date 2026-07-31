@@ -382,7 +382,15 @@ func (m *Model) routeView() string {
 			hint = "type value · ←/→ pick profile · enter apply · empty clears · esc"
 		}
 	}
-	b.WriteString(stylePermTitle.Render("models & routing") + "  " + styleFooter.Render(hint) + "\n")
+	// The title plus its hint runs about 75 cells; a split pane or a phone-sized ssh window is
+	// narrower than that, and one over-wide row in a vertically joined frame pads every other row
+	// to match — the whole screen goes wider than the terminal and the shell wraps it. The hint is
+	// the part that is decoration, so it goes first; the title is what says which editor this is.
+	head := stylePermTitle.Render("models & routing") + "  " + styleFooter.Render(hint)
+	if m.width > 0 && lipgloss.Width(head) > m.width {
+		head = ansi.Truncate(stylePermTitle.Render("models & routing"), m.width, "")
+	}
+	b.WriteString(head + "\n")
 	sepDrawn := false
 	for i, r := range m.routeList {
 		// Set the profiles section (profile rows + add button) apart from the
@@ -430,15 +438,34 @@ func (m *Model) modelSuggestBox() string {
 		}
 		return ""
 	}
+	// A gateway catalog's ids are long and path-like ("internal-gateway/anthropic/claude-…-v1:0"),
+	// so they are elided in the MIDDLE: the tail is what distinguishes one revision of a model from
+	// the next, and head-truncation would leave a column of rows that all read the same.
 	var b strings.Builder
 	for i, s := range sugs {
 		if i == m.modelSugSel {
-			b.WriteString("    " + stylePalSelRow.Render("› "+s) + "\n")
+			b.WriteString("    " + stylePalSelRow.Render("› "+elideMiddle(s, m.width-6)) + "\n")
 		} else {
-			b.WriteString("      " + styleToolResult.Render(s) + "\n")
+			b.WriteString("      " + styleToolResult.Render(elideMiddle(s, m.width-6)) + "\n")
 		}
 	}
 	return b.String()
+}
+
+// elideMiddle shortens s to w cells by cutting its MIDDLE, keeping both ends. For an identifier
+// whose head is a shared prefix and whose tail is the discriminator — a model id, a path — cutting
+// either end alone makes different values render identically. w <= 0 leaves s untouched (an
+// unmeasured terminal is not a narrow one).
+func elideMiddle(s string, w int) string {
+	if w <= 0 || lipgloss.Width(s) <= w {
+		return s
+	}
+	if w <= 3 {
+		return ansi.Truncate(s, w, "")
+	}
+	keep := w - 1 // the ellipsis
+	head := keep / 2
+	return ansi.Truncate(s, head, "") + "…" + ansi.TruncateLeft(s, lipgloss.Width(s)-(keep-head), "")
 }
 
 // profileFormView renders the multi-field profile sub-editor.
