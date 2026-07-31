@@ -17,10 +17,13 @@ test-race:
 
 # Test coverage: writes coverage.out, prints the total, and points at the HTML view.
 # internal/eval is a manual env-gated benchmark harness (not unit-tested production
-# code), so it is excluded from the printed total to match CI.
+# code), so it is excluded from the printed total to match CI. covignore then drops
+# the functions marked //coverage:ignore — the process entry point and the one-line
+# adapters no test can say anything about — and fails if a marker has gone stale.
 cover:
 	go test ./... -skip E2E -covermode=atomic -coverprofile=coverage.out
 	@grep -v '/internal/eval/' coverage.out > coverage.prod.out
+	@go run ./tools/covignore -i coverage.prod.out -o coverage.filtered.out && mv coverage.filtered.out coverage.prod.out
 	@go tool cover -func=coverage.prod.out | tail -1
 	@echo "HTML report: go tool cover -html=coverage.out"
 
