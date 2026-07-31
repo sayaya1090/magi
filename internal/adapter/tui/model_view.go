@@ -378,7 +378,26 @@ func (m *Model) renderCouncilDetail(width int) string {
 	if k := strings.TrimSpace(v.Keep); k != "" {
 		b.WriteString("\n" + styleFooter.Render("keep — the revision must not lose this") + "\n" + wrap.Render(k) + "\n")
 	}
+	// The grounds. magi looked this fragment up in the material the member was shown, so it is the
+	// one part of a verdict a reader can check rather than weigh — and the empty case is the one
+	// worth seeing most: a "done" standing on nothing observed is a fact about that vote, and
+	// leaving it blank on screen hides exactly the verdict a reader should look at twice.
+	b.WriteString("\n" + styleFooter.Render("grounds") + "\n" + wrap.Render(citeLabel(v.Cite)) + "\n")
 	return b.String()
+}
+
+// citeLabel renders a verdict's grounds, including the two ways there are none. "NO-EVIDENCE" is
+// the member saying plainly it judged the report's substance; an empty field is a member that did
+// not answer, and those are different enough to be worth distinct words.
+func citeLabel(cite string) string {
+	switch c := strings.TrimSpace(cite); {
+	case c == "":
+		return "none given"
+	case strings.EqualFold(c, "NO-EVIDENCE"):
+		return "none observed — judged on the report's substance"
+	default:
+		return "\"" + c + "\""
+	}
 }
 
 // formatCouncilEvidence renders the round's evidence (what every member saw) for
