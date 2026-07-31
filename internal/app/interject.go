@@ -55,6 +55,11 @@ func (a *App) applyInterjectRoute(ctx context.Context, sid session.SessionID, ro
 	// thing the user reads as "still queued") and hands the finish boundary a fact to check.
 	if route == "answered" {
 		a.markInterjectAnswered(sid, msgID, a.lastSeq(ctx, sid))
+		// Say it out loud. The queue is in-memory app state; the transcript is the only thing the
+		// display layer reads, so without this a bubble the model has just answered keeps its
+		// "waiting" glyph and its pinned position for the rest of the turn.
+		ad, _ := json.Marshal(event.InterjectionAnsweredData{MessageID: msgID})
+		a.appendFact(ctx, sid, event.TypeInterjectionAnswered, event.Actor{Kind: event.ActorSystem, ID: "interject"}, ad)
 		return turnTask, false
 	}
 	nt, changed := applyRoute(route, turnTask, interject)
