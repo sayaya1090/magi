@@ -7,6 +7,9 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/sayaya1090/magi/internal/app"
 )
 
@@ -439,9 +442,16 @@ func (m *Model) modelSuggestBox() string {
 }
 
 // profileFormView renders the multi-field profile sub-editor.
+//
+// It fits the screen in both directions, because the values it shows are routinely longer than a
+// narrow terminal — a gateway base_url, a model id — and it is drawn where the palette would be,
+// in a frame that is joined vertically: one over-wide row pads every other row to match, so the
+// whole screen goes wider than the terminal and the shell wraps it. Sideways it drops the keyboard
+// hint first and then truncates the value, keeping the label so the row still says which field it
+// is. Vertically it pages the fields around the selection, the way the resume picker does, rather
+// than pushing the input box off the bottom of a short window.
 func (m *Model) profileFormView() string {
 	f := m.profileForm
-	var b strings.Builder
 	title := "edit profile: " + f.name
 	if f.isNew {
 		title = "new profile"
@@ -450,8 +460,15 @@ func (m *Model) profileFormView() string {
 	if f.editing {
 		hint = "type · enter ok · esc cancel"
 	}
-	b.WriteString(stylePermTitle.Render(title) + "  " + styleFooter.Render(hint) + "\n")
-	for i, fl := range f.fields {
+	head := stylePermTitle.Render(title) + "  " + styleFooter.Render(hint)
+	if m.width > 0 && lipgloss.Width(head) > m.width {
+		head = ansi.Truncate(stylePermTitle.Render(title), m.width, "")
+	}
+
+	// A field row, clipped to the terminal. The label column is fixed so the values line up; when
+	// something has to go it is the value's tail, never the label.
+	row := func(i int) string {
+		fl := f.fields[i]
 		val := fl.value
 		if fl.secret && val != "" && !(f.editing && i == f.sel) {
 			val = "••••"
@@ -460,19 +477,49 @@ func (m *Model) profileFormView() string {
 			val = f.buf + "▌"
 		}
 		line := fmt.Sprintf("%-13s %s", fl.label, val)
+		if m.width > 2 {
+			line = ansi.Truncate(line, m.width-2, "…")
+		}
 		if i == f.sel {
-			b.WriteString(stylePalSelRow.Render("› "+line) + "\n")
-		} else {
-			b.WriteString("  " + styleToolResult.Render(line) + "\n")
+			return stylePalSelRow.Render("› " + line)
+		}
+		return "  " + styleToolResult.Render(line)
+	}
+	save := func() string {
+		if f.sel == len(f.fields) {
+			return "  " + styleBtnSel.Render(" Save ")
+		}
+		return "  " + styleBtn.Render(" Save ") + styleFooter.Render("  (Tab)")
+	}
+	// draw renders a window of `keep` fields centred on the selection. keep == len(fields) is the
+	// whole form; smaller windows carry an "n/N" line so a hidden field is never silently absent.
+	draw := func(keep int) string {
+		var b strings.Builder
+		b.WriteString(head + "\n")
+		start := 0
+		if keep < len(f.fields) {
+			start = min(max(0, f.sel-keep/2), len(f.fields)-keep)
+		}
+		for i := start; i < start+keep; i++ {
+			b.WriteString(row(i) + "\n")
+		}
+		if keep < len(f.fields) {
+			b.WriteString(styleFooter.Render(fmt.Sprintf("  %d/%d fields", f.sel+1, len(f.fields))) + "\n")
+		}
+		b.WriteString("\n") // spacer: set the action apart from the fields
+		b.WriteString(save())
+		return b.String()
+	}
+
+	room := m.modalRoom()
+	for keep := len(f.fields); keep > 0; keep-- {
+		out := draw(keep)
+		if m.height <= 0 || lipgloss.Height(out) <= room {
+			return out
 		}
 	}
-	b.WriteString("\n") // spacer: set the action apart from the fields
-	if f.sel == len(f.fields) {
-		b.WriteString("  " + styleBtnSel.Render(" Save "))
-	} else {
-		b.WriteString("  " + styleBtn.Render(" Save ") + styleFooter.Render("  (Tab)"))
-	}
-	return b.String()
+	// Nothing fits: the selected field alone, which is the one being worked on.
+	return strings.TrimRight(head+"\n"+row(min(f.sel, len(f.fields)-1)), "\n")
 }
 
 // resumeRows caps how many sessions the picker shows at once.
