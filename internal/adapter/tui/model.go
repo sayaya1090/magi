@@ -590,6 +590,15 @@ func (m *Model) switchSession(sid session.SessionID) tea.Cmd {
 	m.histIdx, m.histDraft = len(m.history), "" // a switched session carries no draft
 	m.cache = m.cache[:0]
 	m.liveText, m.liveThink, m.liveProgress, m.running, m.activeAgents = "", "", "", false, nil
+	// Two more things belong to the session being LEFT. The council detail is a full-screen panel
+	// carrying another session's verdict and its evidence, and it stayed up over the resumed
+	// transcript with nothing marking it as foreign — the header said the new session, the panel
+	// showed the old one's member and rationale. Reachable through the ordinary key path: the
+	// input keeps taking keys while the panel is up, so `/resume` typed there switches underneath
+	// it. The highlighted selection is the same thing one layer down — coordinates from a
+	// transcript that is no longer on screen, painted onto the one that is.
+	m.councilDetail, m.councilDetailEvidence = nil, ""
+	m.selecting, m.selActive = false, false
 	// Subscribe from lastSeq so we stream only new events (transcript already shown).
 	cmd := m.startSub(sid, lastSeq)
 	m.refresh()
