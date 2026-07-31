@@ -61,6 +61,8 @@ func worldSnapshot(workdir string, since time.Time) string {
 		mod  time.Time
 	}
 	var hits []entry
+	var skipped []string // trees the walk did not enter, so the snapshot can say so
+	skippedN := 0        // …and how many there were, since the NAMES are capped and that cut counts too
 	seen := 0
 	_ = filepath.WalkDir(workdir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -71,6 +73,10 @@ func worldSnapshot(workdir string, since time.Time) string {
 		}
 		if d.IsDir() {
 			if p != workdir && (snapshotSkipDirs[d.Name()] || strings.HasPrefix(d.Name(), ".")) {
+				skippedN++
+				if rel, rerr := filepath.Rel(workdir, p); rerr == nil && len(skipped) < snapshotSkipNameCap {
+					skipped = append(skipped, rel+"/")
+				}
 				return filepath.SkipDir
 			}
 			return nil
@@ -87,8 +93,14 @@ func worldSnapshot(workdir string, since time.Time) string {
 		return nil
 	})
 	if len(hits) == 0 {
+		// The absence claim is the one a reader acts on hardest, and it was the one that could be
+		// false: the walk does not enter vendor/, build/, dist/, target/ or any dotdir, so a
+		// deliverable built into one of them produced "no file has been modified" under a heading
+		// that says THE WORKSPACE RIGHT NOW. Measured against a workspace holding nothing but
+		// vendor/sqlite/sqlite3.c — which is the shape of a task whose source IS pre-vendored.
+		// Say what was not looked at, and the sentence is true again.
 		return "── THE WORKSPACE RIGHT NOW (read just now, not from the record) ──\n" +
-			"no file in the workspace has been modified since this task started."
+			"no file in the workspace has been modified since this task started" + skipNote(skipped, skippedN) + "."
 	}
 	// Newest last: the tail is what just happened, which is what a reader looks for first.
 	sort.Slice(hits, func(i, j int) bool { return hits[i].mod.Before(hits[j].mod) })
@@ -138,7 +150,31 @@ func worldSnapshot(workdir string, since time.Time) string {
 	for _, l := range lines {
 		b.WriteString("\n" + l)
 	}
+	if n := skipNote(skipped, skippedN); n != "" {
+		b.WriteString("\n(this listing is complete" + n + ")")
+	}
 	return b.String()
+}
+
+// snapshotSkipNameCap bounds how many skipped trees are named. Past a handful the names stop
+// telling a reader anything and start being the noise the skip rule exists to remove.
+const snapshotSkipNameCap = 6
+
+// skipNote renders what the walk did not enter. Every other cut magi makes is marked — a tool
+// result, the evidence block, the session list, a compaction — and this one was not, which is what
+// let a heading reading "THE WORKSPACE RIGHT NOW" sit above a claim about part of it.
+func skipNote(skipped []string, total int) string {
+	if total == 0 {
+		return ""
+	}
+	sort.Strings(skipped)
+	more := ""
+	if n := total - len(skipped); n > 0 {
+		// The names are capped, and a capped list that does not say so is the very thing this
+		// note exists to stop — one unmarked omission traded for another.
+		more = fmt.Sprintf(" and %d more", n)
+	}
+	return " outside " + strings.Join(skipped, ", ") + more + ", which this read does not enter"
 }
 
 // liveJobsNow reports the background commands as they stand right now: still running, or how they
