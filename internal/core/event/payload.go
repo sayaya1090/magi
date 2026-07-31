@@ -210,9 +210,17 @@ type CouncilConvenedData struct {
 	Rule    string   `json:"rule"`
 	Signals []string `json:"signals,omitempty"` // human summaries of evidence fed in, e.g. "verify/test: fail"
 	// Evidence shown to the members this round (optional, for UI detail views).
-	Task      string `json:"task,omitempty"`
-	Plan      string `json:"plan,omitempty"`      // acceptance criteria / contract, or the proposed procedure (plan phase)
-	Report    string `json:"report,omitempty"`    // the agent's claim (termination phase)
+	Task   string `json:"task,omitempty"`
+	Plan   string `json:"plan,omitempty"`   // acceptance criteria / contract, or the proposed procedure (plan phase)
+	Report string `json:"report,omitempty"` // the agent's claim (termination phase)
+	// Actions is what the turn's TOOLS produced — the block the members' own prompt calls "real
+	// evidence, independent of git", and the one the record used to drop. Everything else here is
+	// either the request (task/plan), the agent's own account of it (report), or a reconstruction
+	// (changes); this is the only part that is neither asked for nor narrated. Leaving it out made
+	// the question "what did the members actually see" unanswerable from the log, and the TUI's
+	// evidence view — which mirrors the members' sections — showed every section but this one.
+	// Capped to the same budget as the diff so a round of it stays a bounded fact.
+	Actions   string `json:"actions,omitempty"`
 	Changes   string `json:"changes,omitempty"`   // this turn's edits, reconstructed from the agent's tools (capped)
 	NoChanges bool   `json:"noChanges,omitempty"` // pure read-only turn (no edits/signals)
 	// Keep records that this round ASKED members for their advisory "keep" (MAGI_COUNCIL_KEEP).
