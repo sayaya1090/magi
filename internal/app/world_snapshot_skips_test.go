@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -89,5 +90,55 @@ func TestTheSkipNoteIsBounded(t *testing.T) {
 	}
 	if !strings.Contains(got, "more") {
 		t.Errorf("the capped name list does not say it was capped:\n%s", got)
+	}
+}
+
+// The walk has a cap of its own — it stops after snapshotWalkCap entries so one finish cannot pay
+// for a directory crawl — and stopping said nothing. On a workspace of 30000 modified files, 300
+// directories changed, 40 were named, and the block read as a complete account of the workspace.
+//
+// The listing cap's own marker made it worse: "(the 40 most recent)" is a claim over everything
+// that was read, and the walk cap ends the read before the tree ends, so the forty were the most
+// recent of a fraction — a true-sounding sentence about the wrong population.
+//
+// This test writes past the cap on purpose, which is slow; it is worth the seconds because the
+// number it is about is the one nothing else exercises.
+func TestASnapshotThatStoppedEarlySaysSo(t *testing.T) {
+	if testing.Short() {
+		t.Skip("writes 30k files")
+	}
+	root := t.TempDir()
+	const dirs, per = 300, 100
+	for d := 0; d < dirs; d++ {
+		dir := filepath.Join(root, fmt.Sprintf("d%03d", d))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for f := 0; f < per; f++ {
+			if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("f%03d.c", f)), []byte("x"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if dirs*per <= snapshotWalkCap {
+		t.Fatalf("the tree is %d entries and the cap is %d — this does not reach it", dirs*per, snapshotWalkCap)
+	}
+	got := worldSnapshot(root, time.Now().Add(-time.Hour))
+	if !strings.Contains(got, "part of the workspace and not all of it") {
+		t.Errorf("a walk that stopped at its cap reads as a complete account:\n%s", got)
+	}
+	if !strings.Contains(got, "most recent of what was read") {
+		t.Errorf("the listing still claims to hold the most recent of the WORKSPACE:\n%s", got)
+	}
+}
+
+// A workspace under the cap gains neither note. Both are the price of a claim being true, and
+// charging them where nothing was cut is noise in a block whose point is to be read.
+func TestASnapshotThatReadEverythingSaysNothingExtra(t *testing.T) {
+	got := worldSnapshot(wsWorkspace(t, "run.py", "src/main.go"), time.Now().Add(-time.Hour))
+	for _, noise := range []string{"stopped after", "of what was read", "does not enter"} {
+		if strings.Contains(got, noise) {
+			t.Errorf("a complete read carries %q:\n%s", noise, got)
+		}
 	}
 }

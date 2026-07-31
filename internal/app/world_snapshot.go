@@ -63,12 +63,14 @@ func worldSnapshot(workdir string, since time.Time) string {
 	var hits []entry
 	var skipped []string // trees the walk did not enter, so the snapshot can say so
 	skippedN := 0        // …and how many there were, since the NAMES are capped and that cut counts too
+	cutShort := false    // the walk hit its own cap and stopped before the tree ended
 	seen := 0
 	_ = filepath.WalkDir(workdir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil // an unreadable branch is skipped, never fatal
 		}
 		if seen++; seen > snapshotWalkCap {
+			cutShort = true
 			return filepath.SkipAll
 		}
 		if d.IsDir() {
@@ -145,7 +147,13 @@ func worldSnapshot(workdir string, since time.Time) string {
 	var b strings.Builder
 	b.WriteString("── THE WORKSPACE RIGHT NOW (read just now, not from the record) ──")
 	if trimmed {
-		b.WriteString(fmt.Sprintf("\n(the %d most recent)", snapshotFileCap))
+		// "the most recent" is a claim over everything that was read, and the walk cap can end
+		// the read before the tree does — so when it did, say which of the two this is.
+		of := ""
+		if cutShort {
+			of = " of what was read"
+		}
+		b.WriteString(fmt.Sprintf("\n(the %d most recent%s)", snapshotFileCap, of))
 	}
 	for _, l := range lines {
 		b.WriteString("\n" + l)
@@ -153,7 +161,21 @@ func worldSnapshot(workdir string, since time.Time) string {
 	if n := skipNote(skipped, skippedN); n != "" {
 		b.WriteString("\n(this listing is complete" + n + ")")
 	}
+	b.WriteString(walkCutNote(cutShort))
 	return b.String()
+}
+
+// walkCutNote marks the OTHER cut in this snapshot. The listing cap is marked and the skipped
+// trees are named, but the walk has a cap of its own — it stops after snapshotWalkCap entries so
+// one finish cannot pay for a directory crawl — and stopping said nothing. Measured on a workspace
+// of 30000 modified files: 300 directories changed, 40 were named, and the block read as a
+// complete account of the workspace with no sign that two thirds of the tree was never opened.
+func walkCutNote(cutShort bool) string {
+	if !cutShort {
+		return ""
+	}
+	return fmt.Sprintf("\n(the read stopped after %d entries, so this is part of the workspace and "+
+		"not all of it)", snapshotWalkCap)
 }
 
 // snapshotSkipNameCap bounds how many skipped trees are named. Past a handful the names stop
