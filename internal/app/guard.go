@@ -296,6 +296,25 @@ func (g *runGuard) allowRecall(topic string) (bool, string) {
 	return true, ""
 }
 
+// forgetRecalledTopics clears the per-topic ledger after a compaction, leaving the count alone.
+//
+// "use what was returned earlier" is only true while what was returned is still there. A
+// compaction summarizes the older messages away — including a recall's own output, which is
+// ordinary conversation once it lands — and then re-indexes that region into recallable topics and
+// tells the agent so ("recall_context can re-open the detail by topic"). So magi invited the call
+// and refused it in the same turn, pointing at content it had just removed. Observed in the field
+// (qemu-alpine-ssh, 2026-07-31): `recall_context{topic:"setup_alpine.py"}` returned 4 messages,
+// and the same topic 48 events later came back "already recalled this topic this turn".
+//
+// recallCount is deliberately NOT reset: the budget exists to bound how much a single turn can
+// re-inflate, and a compaction does not buy the turn a fresh allowance — it only makes a SECOND
+// recall of an already-shed topic a legitimate request rather than a duplicate one.
+func (g *runGuard) forgetRecalledTopics() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.recalled = map[string]bool{}
+}
+
 // check records a tool call and reports whether it should be blocked as a repeat,
 // how many times this exact call has been seen at the current epoch, and the
 // fingerprint (so the caller can record/echo its result).
