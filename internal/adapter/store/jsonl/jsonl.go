@@ -332,14 +332,34 @@ func (s *Store) Compact(ctx context.Context, sid session.SessionID, upToSeq int6
 	if err := writeAll(tmp, kept); err != nil {
 		return err
 	}
-	if err := os.Rename(path, path+".archive"); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
+	if err := archiveThenReplace(path, tmp, path+".archive"); err != nil {
 		return err
 	}
 	delete(s.cache, sid) // log rewritten — drop the stale cache; next Read reloads it
 	return nil
+}
+
+// archiveThenReplace swaps a rewritten log into place without ever leaving the session's path
+// missing.
+//
+// It used to be two renames: the original moved aside to the archive name, then the replacement
+// moved in. Between them the session has no file at all, and that state is not loud — measured,
+// a fresh Read of it returns 0 events with a nil error and ListSessions returns 0 sessions with a
+// nil error. The session reads as one that never existed, with its whole history sitting one
+// filename away. A process killed at that instant is not exotic here: compaction runs mid-turn,
+// and mid-turn is when a wall clock or an operator ends a run.
+//
+// A hard link gives the archive its own name while the path still points at the same bytes, so
+// the only move left is the atomic one that replaces it. Filesystems that cannot link fall back
+// to the old sequence — the window returns, which is still better than refusing to compact.
+func archiveThenReplace(path, tmp, archive string) error {
+	_ = os.Remove(archive) // Link refuses an existing target; the archive is overwritten by design
+	if err := os.Link(path, archive); err != nil {
+		if rerr := os.Rename(path, archive); rerr != nil {
+			return rerr
+		}
+	}
+	return os.Rename(tmp, path)
 }
 
 func writeAll(path string, evs []event.Event) error {
@@ -396,10 +416,7 @@ func (s *Store) Truncate(ctx context.Context, sid session.SessionID, upToSeq int
 	if err := writeAll(tmp, kept); err != nil {
 		return err
 	}
-	if err := os.Rename(path, path+".rewind"); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
+	if err := archiveThenReplace(path, tmp, path+".rewind"); err != nil {
 		return err
 	}
 	s.seqs[sid] = last
