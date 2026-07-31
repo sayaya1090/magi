@@ -17,6 +17,7 @@ import (
 // host expects.
 type promptFunc func(prompt.Spec) (map[string]any, error)
 
+//coverage:ignore func-to-interface adapter: it calls the function it wraps and nothing else
 func (f promptFunc) Ask(s prompt.Spec) (map[string]any, error) { return f(s) }
 
 // routePersister writes /route editor edits back to the global config.toml,
@@ -43,8 +44,10 @@ type modelSetter struct {
 	setWindow func(model string, tokens int) error
 }
 
+//coverage:ignore delegation to the closure the struct was built with
 func (m modelSetter) SetModel(modelID string) error { m.setModel(modelID); return nil }
 
+//coverage:ignore delegation to the closure the struct was built with
 func (m modelSetter) SetContextWindow(modelID string, tokens int) error {
 	return m.setWindow(modelID, tokens)
 }
@@ -53,6 +56,7 @@ func (m modelSetter) SetContextWindow(modelID string, tokens int) error {
 // session and broadcasts) to the plugin host's UserLabelRegistry.
 type userLabelSetter struct{ set func(string) }
 
+//coverage:ignore delegation to the closure the struct was built with
 func (u userLabelSetter) SetUserLabel(label string) { u.set(label) }
 
 type routePersister struct{ path string }

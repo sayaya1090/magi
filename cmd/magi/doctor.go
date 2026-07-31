@@ -161,6 +161,8 @@ func printDoctor(w io.Writer, checks []doctorCheck) int {
 }
 
 // osGOOS is indirection-free in production; tests build doctorDeps directly.
+//
+//coverage:ignore returns the constant this binary was compiled for
 func defaultDoctorGOOS() string { return runtime.GOOS }
 
 // loadDoctorProbes builds a throwaway plugin host that loads every plugin far
@@ -185,12 +187,16 @@ func defaultDoctorGOOS() string { return runtime.GOOS }
 // drop out of -doctor together with its probes — the report lied by omission.
 type doctorSink struct{}
 
+//coverage:ignore a sink: it accepts and discards so the plugin loads, and asserts nothing
 func (doctorSink) RegisterContextProvider(port.ContextProvider) {}
 
+//coverage:ignore the same sink: accepts and discards
 func (doctorSink) SetModel(string) error { return nil }
 
+//coverage:ignore the same sink: accepts and discards
 func (doctorSink) SetContextWindow(string, int) error { return nil }
 
+//coverage:ignore the same sink: accepts and discards
 func (doctorSink) SetUserLabel(string) {}
 
 // It also returns one check per scanned plugin source (and per load failure), so

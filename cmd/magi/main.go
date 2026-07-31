@@ -125,6 +125,9 @@ func runCoreUpdate() int {
 	return 0
 }
 
+// main is the process entry point: it calls run and exits with its status.
+//
+//coverage:ignore the entry point — a test could only duplicate this one line
 func main() {
 	os.Exit(run())
 }
@@ -206,6 +209,11 @@ func validateGuardrailValues(profile, permission, sandbox string) string {
 	return ""
 }
 
+// run is the whole program: it parses flags, takes over the terminal, wires every adapter
+// and blocks on the event loop. What is worth testing has been pulled out into the helpers
+// around it — validateFlags, mergeConfig, profileDefs and the rest — and those are tested.
+//
+//coverage:ignore calling run is running magi, not testing it
 func run() int {
 	var (
 		prompt          = flag.String("p", "", "headless prompt (use '-' to read from stdin)")
@@ -1179,6 +1187,8 @@ func profileModels(profiles map[string]config.LLMProfile) map[string]string {
 }
 
 // osUsername resolves the login user for plugin runtime info ("" if unknown).
+//
+//coverage:ignore reads the host's identity; a test can only assert the host is itself
 func osUsername() string {
 	if u, err := user.Current(); err == nil && u.Username != "" {
 		return filepath.Base(u.Username) // strip a DOMAIN\ prefix on Windows
