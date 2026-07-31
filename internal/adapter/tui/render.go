@@ -163,6 +163,15 @@ func (m *Model) transcript() string {
 		m.cache = m.cache[:0]
 		m.cacheW = tw
 	}
+	// Keep the queued bubbles at the tail: the running turn keeps appending its own output
+	// (tool calls, notes, the answer itself) AFTER the message that interrupted it, which reads
+	// as the interrupting question being answered by work it never asked for. Idempotent, so it
+	// settles after one reorder, and it only ever fires mid-turn — onTurnFinished clears the
+	// queued flag off every waiting bubble.
+	if blocks, moved := hoistQueuedToTail(m.blocks); moved {
+		m.blocks = blocks
+		m.cache = m.cache[:0] // reorder shifts block indices — the prefix cache is now stale
+	}
 	for i := len(m.cache); i < len(m.blocks); i++ {
 		m.cache = append(m.cache, m.renderBlock(m.blocks[i]))
 	}
@@ -170,8 +179,12 @@ func (m *Model) transcript() string {
 	var b strings.Builder
 	m.blockLineStart = m.blockLineStart[:0]
 	nl := 0 // newlines written so far == content line index of the next char
-	for i, r := range m.cache {
-		if i > 0 {
+	// A message typed while an answer is still streaming is a QUEUED bubble: it belongs BELOW
+	// that answer, not above it. queuedTail is where the run of them starts (== len when there
+	// is none), so the loop below stops short of it and the live section goes in between.
+	queuedTail := m.queuedTail()
+	emit := func(i int, r string) {
+		if nl > 0 {
 			b.WriteString("\n")
 			nl++
 		}
@@ -186,6 +199,9 @@ func (m *Model) transcript() string {
 		nl += strings.Count(r, "\n")
 		b.WriteString("\n")
 		nl++
+	}
+	for i, r := range m.cache[:queuedTail] {
+		emit(i, r)
 	}
 	m.liveThinkStart = -1
 	if m.running && strings.TrimSpace(m.liveThink) != "" && strings.TrimSpace(m.liveText) == "" {
@@ -211,10 +227,76 @@ func (m *Model) transcript() string {
 	}
 	if m.running && strings.TrimSpace(m.liveText) != "" {
 		b.WriteString("\n")
-		b.WriteString(m.renderLive(m.liveText))
+		nl++
+		live := m.renderLive(m.liveText)
+		b.WriteString(live)
+		nl += strings.Count(live, "\n")
 		b.WriteString("\n")
+		nl++
+	}
+	// The messages typed while the above was streaming, last — below the answer they interrupted.
+	// They render after the live section, so their recorded start lines still ASCEND with their
+	// block index and the click mapping (which scans blockLineStart backwards) stays correct.
+	for i, r := range m.cache[queuedTail:] {
+		emit(queuedTail+i, r)
 	}
 	return b.String()
+}
+
+// hoistQueuedToTail moves every still-queued user bubble to the end of the block list, keeping
+// the relative order of both groups. moved reports whether anything actually moved, so the
+// caller only pays the cache invalidation when the list really changed.
+func hoistQueuedToTail(blocks []block) ([]block, bool) {
+	q := 0
+	for _, b := range blocks {
+		if b.kind == blockUser && b.queued {
+			q++
+		}
+	}
+	if q == 0 || (q > 0 && allQueuedAtTail(blocks, q)) {
+		return blocks, false
+	}
+	out := make([]block, 0, len(blocks))
+	var queued []block
+	for _, b := range blocks {
+		if b.kind == blockUser && b.queued {
+			queued = append(queued, b)
+			continue
+		}
+		out = append(out, b)
+	}
+	return append(out, queued...), true
+}
+
+// allQueuedAtTail reports whether the last q blocks are exactly the queued user bubbles.
+func allQueuedAtTail(blocks []block, q int) bool {
+	for _, b := range blocks[len(blocks)-q:] {
+		if b.kind != blockUser || !b.queued {
+			return false
+		}
+	}
+	return true
+}
+
+// queuedTail is the index where the run of still-queued user bubbles at the end of the block
+// list begins, or len(blocks) when the last block is not one.
+//
+// A steer adds its bubble to the transcript the moment it is typed, while the answer it
+// interrupted is still streaming — and the live text renders after every block, so that answer
+// appeared BELOW the message that had not been asked yet. It stayed below once the text part
+// landed, because the finished block is appended after the queued bubble too. Only the queued
+// prompt's own re-surfacing put it right (moveUserBlockToEnd), which is the same Q&A pairing
+// this keeps during the window before it.
+func (m *Model) queuedTail() int {
+	n := len(m.cache)
+	if n > len(m.blocks) {
+		n = len(m.blocks)
+	}
+	i := n
+	for i > 0 && m.blocks[i-1].kind == blockUser && m.blocks[i-1].queued {
+		i--
+	}
+	return i
 }
 
 // renderLive renders the streaming assistant text WITH markdown styling so the
