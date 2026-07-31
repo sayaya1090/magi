@@ -319,9 +319,9 @@ docs                ARCHITECTURE · DESIGN · SPEC · MANUAL · PLAN · FEATURES
 ```
 
 더 읽기(한국어판): [ARCHITECTURE](docs/ARCHITECTURE.ko.md) · [DESIGN](docs/DESIGN.ko.md) ·
-[EXTENDING](docs/EXTENDING.ko.md) · [SPEC](docs/SPEC.ko.md).
+[EXTENDING](docs/EXTENDING.ko.md) · [SPEC](docs/SPEC.ko.md) · [DIAGRAMS](docs/DIAGRAMS.ko.md).
 영문판: [ARCHITECTURE](docs/ARCHITECTURE.md) · [DESIGN](docs/DESIGN.md) ·
-[EXTENDING](docs/EXTENDING.md) · [SPEC](docs/SPEC.md).
+[EXTENDING](docs/EXTENDING.md) · [SPEC](docs/SPEC.md) · [DIAGRAMS](docs/DIAGRAMS.md).
 
 ---
 

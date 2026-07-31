@@ -4,7 +4,7 @@
 `SPEC.md`는 최초 설계 의도이며(근거와 결정 D1–D13을 남겨두기 위해 보존),
 **이 문서와 어긋나면 이 문서가 이긴다.**
 영문 원본: [`ARCHITECTURE.md`](ARCHITECTURE.md).
-그림으로 보는 짝: [DIAGRAMS.md](DIAGRAMS.md) — 최상위 컨테이너에서 **클래스 다이어그램**까지
+그림으로 보는 짝: [DIAGRAMS.ko.md](DIAGRAMS.ko.md) — 최상위 컨테이너에서 **클래스 다이어그램**까지
 한 축으로 내려간다. L0 프로세스 경계, L1 턴 생명주기, L2 컴포넌트 맵, L3–L4 넛지/게이트와
 모델 I/O 가드 흐름, L5 코어 도메인 타입, L6 포트 → 어댑터, L7 `internal/app` 구조체,
 L8 툴 계층, L9 툴 호출 하나의 시퀀스. 전부 mermaid다.

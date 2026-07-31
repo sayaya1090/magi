@@ -1,58 +1,61 @@
-# magi 시스템 구조도
+# magi system diagrams
 
-[ARCHITECTURE.md](ARCHITECTURE.md)의 시각 요약. **탑레벨(L0)에서 클래스 다이어그램(L5–L9)까지**
-한 축으로 내려간다:
+> Korean edition: [`DIAGRAMS.ko.md`](DIAGRAMS.ko.md).
 
-| 층 | 보는 것 | 단위 |
+The visual summary of [ARCHITECTURE.md](ARCHITECTURE.md). **One axis, from the top level (L0) down
+to the class diagrams (L5–L9):**
+
+| Layer | What it shows | Unit |
 |---|---|---|
-| [L0](#l0--탑레벨-프로세스와-경계) | 프로세스와 경계 | 패키지 그룹 |
-| [L1](#l1--턴-라이프사이클-요청에서-착지까지) | 턴 하나의 생애 | 단계 |
-| [L2](#l2--app-코어-컴포넌트-맵-internalapp) | `internal/app` 컴포넌트 맵 | 파일 |
-| [L3](#l3--가드는-보고한다-결정하지-않는다) · [L4](#l4--hangspin반복-차단-모델-io-가드-계층) | 개입 절차와 I/O 가드 | 신호 |
-| [L5](#l5--코어-도메인-클래스-internalcore) | 코어 도메인 | **타입** |
-| [L6](#l6--포트와-어댑터-인터페이스--구현) | 포트↔어댑터 | **인터페이스** |
-| [L7](#l7--app-코어-클래스-internalapp) | `internal/app` 내부 | **구조체·메서드** |
-| [L8](#l8--툴-계층-클래스) | 툴 계층 | **인터페이스·구현** |
-| [L9](#l9--툴-콜-한-번의-시퀀스) | 툴 콜 한 번 | **호출 순서** |
+| [L0](#l0--top-level-the-process-and-its-boundaries) | the process and its boundaries | package groups |
+| [L1](#l1--the-life-of-a-turn-request-to-landing) | one turn's life | phases |
+| [L2](#l2--the-app-core-component-map-internalapp) | the `internal/app` component map | files |
+| [L3](#l3--the-guard-reports-it-does-not-decide) · [L4](#l4--stopping-hangs-spins-and-repetition-the-model-io-guard) | the intervention procedure and the I/O guard | signals |
+| [L5](#l5--core-domain-classes-internalcore) | the core domain | **types** |
+| [L6](#l6--ports-and-adapters-interface--implementation) | ports ↔ adapters | **interfaces** |
+| [L7](#l7--app-core-classes-internalapp) | inside `internal/app` | **structs and methods** |
+| [L8](#l8--the-tool-layer) | the tool layer | **interfaces and implementations** |
+| [L9](#l9--one-tool-call-as-a-sequence) | one tool call | **call order** |
 
-GitHub이 mermaid를 직접 렌더한다. 임계값·기본값은 전부 코드가 진실이며(`guard.go` 상수,
-`plan_flags.go`), 이 문서는 그걸 옮겨 적은 것이다. 클래스 다이어그램은 필드를 **전부** 싣지 않는다 —
-그 타입이 왜 존재하는지를 정하는 것만 싣고, 나머지는 파일을 가리킨다.
+GitHub renders mermaid directly. Every threshold and default is the code's to state (the constants
+in `guard.go`, `plan_flags.go`); this document copies them. The class diagrams do **not** carry every
+field — only the ones that decide why the type exists, with the file named for the rest.
 
 ---
 
-## L0 — 탑레벨: 프로세스와 경계
+## L0 — Top level: the process and its boundaries
 
-모든 외부 접촉은 `internal/port`의 인터페이스(12개)를 거친다. `internal/app`(오케스트레이터 코어)은
-어댑터 구현을 모른 채 포트만 호출하고, `cmd/magi`가 기동 시 배선한다(헥사고날).
+Every outward contact goes through one of the twelve interfaces in `internal/port`.
+`internal/app` (the orchestrator core) calls only ports, knowing nothing of the adapter
+implementations, and `cmd/magi` wires them at startup (hexagonal).
 
 ```mermaid
 %%{init: {'theme':'neutral','flowchart':{'curve':'basis'}}}%%
 flowchart LR
-  user(["사용자"])
-  subgraph proc["magi 프로세스"]
+  user(["user"])
+  subgraph proc["the magi process"]
     direction LR
     cmd["cmd/magi<br/>main · -doctor · autoupdate"]
-    subgraph hex["헥사곤"]
-      app["internal/app<br/>오케스트레이터 코어"]
-      port["internal/port<br/>인터페이스 12"]
+    subgraph hex["the hexagon"]
+      app["internal/app<br/>orchestrator core"]
+      port["internal/port<br/>12 interfaces"]
       core["internal/core<br/>session · event · bus · council<br/>model · artifact · change · command"]
     end
     subgraph adp["internal/adapter"]
-      tui["tui<br/>터미널 UI"]
-      llm["llm/openai<br/>OpenAI-호환 SSE"]
-      tools["tool/builtin<br/>내장 툴 21 (+대화형 2)"]
-      lua["plugin/lua<br/>Lua 플러그인 호스트"]
-      council["council/llm<br/>카운슬 멤버 호출"]
+      tui["tui<br/>terminal UI"]
+      llm["llm/openai<br/>OpenAI-compatible SSE"]
+      tools["tool/builtin<br/>21 built-ins (+2 interactive)"]
+      lua["plugin/lua<br/>Lua plugin host"]
+      council["council/llm<br/>polling the members"]
       exp["experience<br/>layered · git"]
-      store["store/jsonl<br/>세션 영속"]
-      mcp["mcp<br/>MCP 클라이언트"]
+      store["store/jsonl<br/>session persistence"]
+      mcp["mcp<br/>MCP client"]
     end
   end
-  ollama[("Ollama /<br/>OpenAI-호환 API")]
-  ws[("워크스페이스<br/>파일시스템")]
-  plug[("플러그인<br/>engram(내장) · 로컬 디렉토리")]
-  mcpsrv[("MCP 서버")]
+  ollama[("Ollama /<br/>OpenAI-compatible API")]
+  ws[("workspace<br/>filesystem")]
+  plug[("plugins<br/>engram (embedded) · local dir")]
+  mcpsrv[("MCP servers")]
 
   user --> tui --> app
   cmd --> app
@@ -67,138 +70,144 @@ flowchart LR
   store --> ws
 ```
 
-## L1 — 턴 라이프사이클: 요청에서 착지까지
+## L1 — The life of a turn: request to landing
 
-한 턴은 스텝 루프다(`loop.go runLoop`): LLM 호출 → 툴 실행 → 가드 점검을 반복한다. **스텝 천장은
-없다.** 턴은 에이전트가 `council{complete: true}`로 종료를 선언하고 카운슬이 수락할 때, 모델이 툴
-호출을 그냥 멈출 때, 컨텍스트가 취소될 때 끝난다. 선언 없이 끝나면 `UNVERIFIED`로 정직하게 착지한다.
+A turn is a step loop (`loop.go runLoop`): call the LLM, run the tools, check the guard, repeat.
+**There is no step ceiling.** A turn ends when the agent declares completion with
+`council{complete: true}` and the council accepts, when the model simply stops calling tools, or
+when the context is cancelled. Ending without a declaration lands honestly as `UNVERIFIED`.
 
 ```mermaid
 %%{init: {'theme':'neutral','flowchart':{'curve':'basis'}}}%%
 flowchart TD
-  P["프롬프트 제출"] --> S["스텝: LLM 호출<br/>(volatileContext: 경과·runState 기록·RAG 주입)"]
-  S --> T{"툴 콜?"}
-  T -- 있음 --> POL["policy 스캔 → permission 게이트<br/>→ sandbox 래핑"]
-  POL --> EX["툴 실행<br/>builtin · lua · mcp"]
-  EX --> OB["observe: 무엇이 돌았고<br/>진짜 어떻게 끝났나 (PIPESTATUS 포함)"]
-  OB --> G["runGuard.check<br/>지문·정체 점검"]
-  G --> EV["이벤트 append<br/>(core/bus → TUI 렌더 · jsonl 영속)"]
+  P["prompt submitted"] --> S["step: call the LLM<br/>(volatileContext: elapsed · runState record · RAG)"]
+  S --> T{"tool calls?"}
+  T -- "yes" --> POL["policy scan → permission gate<br/>→ sandbox wrap"]
+  POL --> EX["execute the tool<br/>builtin · lua · mcp"]
+  EX --> OB["observe: what ran and<br/>how it really ended (PIPESTATUS included)"]
+  OB --> G["runGuard.check<br/>fingerprint · stall"]
+  G --> EV["append the event<br/>(core/bus → TUI render · jsonl persistence)"]
   EV --> S
-  EX -. "council{complete:true}" .-> CG{"카운슬이 기록을 읽음<br/>Melchior · Balthasar · Casper"}
-  CG -- "수락" --> FIN["turnControl.finish → VERIFIED 착지"]
-  CG -- "미수락" --> FB["무엇이 안 됐는지 반환<br/>→ 에이전트 계속 작업"]
+  EX -. "council{complete:true}" .-> CG{"the council reads the record<br/>Melchior · Balthasar · Casper"}
+  CG -- "accepted" --> FIN["turnControl.finish → VERIFIED landing"]
+  CG -- "not accepted" --> FB["what is undone comes back<br/>→ the agent keeps working"]
   FB --> S
-  T -- "없음 · 선언 없이 침묵" --> RQ{"requireFinishDeclaration<br/>최대 3회 상기"}
-  RQ -- "선언함" --> CG
-  RQ -- "끝내 없음(캡 초과)" --> U["UNVERIFIED 착지<br/>(선언 없이 끝남으로 기록)"]
+  T -- "no · quiet, undeclared" --> RQ{"requireFinishDeclaration<br/>3 asks per stretch of no progress"}
+  RQ -- "declares" --> CG
+  RQ -- "never does (past the cap)" --> U["UNVERIFIED landing<br/>(recorded as ending undeclared)"]
 ```
 
-## L2 — app 코어: 컴포넌트 맵 (`internal/app`)
+## L2 — The app core: component map (`internal/app`)
 
-| 그룹 | 역할 | 파일 |
+| Group | Role | Files |
 |---|---|---|
-| **LOOP** | 턴 구동, 스트리밍, 인터젝션 감지, 종료 게이트(선언 요구) | `loop` · `loop_gates` · `loop_stream`(stall·reasoningSpin) · `loop_helpers` · `generate_step` · `loopmap` · `interject` · `interject_queue` · `inject` · `reask` · `todos` · `config` · `plan_flags`(A/B 플래그 — 이름은 플래너 시절 잔재) · `usage_meter` |
-| **RECORD** | magi가 관측한 것 — 무엇이 돌았고 진짜 어떻게 끝났나, 워크스페이스의 현재 | `observed`(관측 판정·PIPESTATUS 노트 반영) · `observed_view`(패널 표시형) · `world_snapshot`(선언 시 새로 읽기·live jobs·기록엔 있고 디스크엔 없는 경로) · `background`(백그라운드 잡 레지스트리·tail) · `tool_outcome` |
-| **COUNCIL** | 에이전트가 `council` 툴로 부르는 3인. 질의 / 종료 선언 심의 | `council_advice`(증거 조립·심의·`complete` 시 finish 신호) · `council_events`(`councilParams`) · `council_evidence` · `council_gate`(상수·`fmtElapsed`) |
-| **GUARD** | 모델 I/O의 hang·spin 차단(단일 chokepoint) + 툴콜 반복·정체·자기되돌림·실행 처닝 관측. **관측한 것은 넛지로 말하고, 런을 멈추지는 않는다**(L3) | `provider_guard`(idle·byte-spin·**반복** 안전망, 모든 모델 요청) · `guard`(repeat 지문 · sinceProgress · noteEdit 자기되돌림 · 실행 원장) · `liveness` |
-| **CTX** | 컨텍스트 창 관리, 압축, 경험 저장/회수 | `context_window` · `context_view` · `compact` · `memory` · `recall` · `query` · `reconstruct` |
-| **IO** | 권한·정책·훅·명령 라우팅·워크플로우 | `permission` · `policy` · `hooks` · `routing` · `shellcmd` · `shellparse` · `skills` · `prompt` · `diagnose` · `execute` · `workflow` · `fork` · `scratch` |
-| **EXT** | Lua 플러그인에 노출되는 앱 API | `app_plugin_api` · `app_emit` · `app_state` |
+| **LOOP** | driving the turn, streaming, spotting interjections, the finish path (demanding the declaration) | `loop` · `loop_gates` · `loop_stream` (stall, reasoningSpin) · `loop_helpers` · `generate_step` · `loopmap` · `interject` · `interject_queue` · `inject` · `reask` · `todos` · `config` · `plan_flags` (the A/B flags — the name is a leftover of the planner era) · `usage_meter` |
+| **RECORD** | what magi observed — what ran, how it really ended, and what the workspace holds now | `observed` (the observed verdict, with the PIPESTATUS note folded in) · `observed_view` (the panel's form) · `world_snapshot` (the fresh read at a declaration, live jobs, paths recorded as written but absent from disk) · `background` (the background-job registry and its tail) · `tool_outcome` |
+| **COUNCIL** | the three the agent calls with the `council` tool: a question, or a finish declaration | `council_advice` (assembling the evidence, deliberating, signalling finish on `complete`) · `council_events` (`councilParams`) · `council_evidence` · `council_gate` (constants, `fmtElapsed`) |
+| **GUARD** | stopping hangs and spins in the model I/O (one chokepoint) plus observing tool-call repeats, stalls, self-reverts and exercise churn. **What it observes it says as a nudge; it does not stop the run** (L3) | `provider_guard` (idle, byte-spin and **repetition** safety net over every model request) · `guard` (the repeat fingerprint, sinceProgress, noteEdit self-reverts, the exercise ledger) · `liveness` |
+| **CTX** | context window management, compaction, storing and retrieving experience | `context_window` · `context_view` · `compact` · `memory` · `recall` · `query` · `reconstruct` |
+| **IO** | permission, policy, hooks, command routing, workflow | `permission` · `policy` · `hooks` · `routing` · `shellcmd` · `shellparse` · `skills` · `prompt` · `diagnose` · `execute` · `workflow` · `fork` · `scratch` |
+| **EXT** | the app API exposed to Lua plugins | `app_plugin_api` · `app_emit` · `app_state` |
 
-## L3 — 가드는 보고한다, 결정하지 않는다
+## L3 — The guard reports, it does not decide
 
-**이 층은 한 번 뒤집혔다.** 예전 구조는 조언(넛지) → 차단 → 구조적 회복 → 강제종료로
-에스컬레이션했다. 측정이 그걸 부정했다: 기록된 전체 트라이얼에서 magi가 스스로 멈춘 28런은 패스를
-하나도 내지 못했고 그중 8런은 채점조차 되지 않았다(0 아닌 exit는 호출자에게 "에이전트가 멈추기로
-했다"가 아니라 "에이전트가 돌지 못했다"로 읽힌다). 반대로 외부 데드라인까지 간 396런은 전부 채점됐고
-76런이 패스했다.
+**This layer was inverted once.** The old structure escalated: advise (nudge) → block → structural
+recovery → force-stop. Measurement denied it. Across every recorded trial, the 28 runs magi stopped
+itself produced no pass at all, and 8 of those were never even scored (a nonzero exit reads to the
+caller as "the agent failed to run", not "the agent decided to stop"). The 396 runs that instead
+reached the external deadline were all scored, and 76 of them passed.
 
-그래서 **세던 신호는 전부 그대로 세고, 전부 그대로 말하되, magi가 그 판독으로 런을 끝내는 일만
-없앴다.** 코드에서 확인할 수 있는 형태로:
+So **every signal it counted is still counted and still said; only magi ending the run on its own
+reading of them is gone.** In a form you can check against the code:
 
-- `runGuard.check()`는 `block` 자리에 **항상 `false`**를 돌려준다(`execute.go`가 그 값을 버린다).
-- 강제종료를 하던 `handleStuckGuard()`는 **삭제됐다**. 한동안 `return false, false`만 남아
-  매 스텝 불렸는데, 본문 주석은 사라진 exercise-churn 착지를 현재형으로 서술하고 있었다.
-- 남은 유일한 출력은 `shouldNudge()`가 돌려주는 문자열 하나: `"blocked"` · `"stalled"` · `""`.
+- `runGuard.check()` returns **always `false`** in the `block` position (`execute.go` discards it).
+- `handleStuckGuard()`, which used to force-stop, has been **deleted**. For a while it survived as
+  `return false, false`, called on every step, while its body comment described a vanished
+  exercise-churn landing in the present tense.
+- The one remaining output is the single string from `shouldNudge()`: `"blocked"` · `"stalled"` · `""`.
 
 ```mermaid
 %%{init: {'theme':'neutral','flowchart':{'curve':'basis'}}}%%
 flowchart TD
-  C["툴 콜 도착"] --> CH["runGuard.check(name, args)<br/>지문 = 툴 + epoch + 정규화 인자"]
-  CH --> REC["기록만: seen[fp]++ · calls++ · sinceProgress++<br/>(반환 block은 항상 false)"]
-  REC --> RUN["게이트 통과 후 실행<br/>allowlist → policy/permission → PreToolUse 훅"]
-  RUN --> MU{"진짜 파일 변이?<br/>(내용이 직전과 다를 때만)"}
+  C["a tool call arrives"] --> CH["runGuard.check(name, args)<br/>fingerprint = tool + epoch + normalized args"]
+  CH --> REC["record only: seen[fp]++ · calls++ · sinceProgress++<br/>(the returned block is always false)"]
+  REC --> RUN["execute past the gates<br/>allowlist → policy/permission → PreToolUse hook"]
+  RUN --> MU{"a real file mutation?<br/>(only when the content differs from the last)"}
   MU -- "yes" --> RST["mutated(): epoch++ · sinceProgress=0"]
-  MU -- "no · 동일내용 재기록" --> NOP["진행 아님 — 카운터 유지"]
-  RST --> SR{"자기되돌림?<br/>contentHist에 이미 있던 상태"}
-  SR -- "yes" --> RETR["retractProgress()<br/>되돌린 창을 복원 (churn을 진행으로 안 셈)"]
+  MU -- "no · the same bytes again" --> NOP["not progress — the counters stand"]
+  RST --> SR{"self-revert?<br/>a state contentHist already held"}
+  SR -- "yes" --> RETR["retractProgress()<br/>restore the window it undid (churn is not progress)"]
 
-  REC --> SN["다음 스텝: shouldNudge()"]
-  SN -- "blocked ≥ 3 · 최초 1회" --> NB["넛지: 같은 콜을 돌고 있다<br/>nudgeThreshold = 3"]
-  SN -- "무변이 12스텝" --> NS["정체 넛지 (재장전식)<br/>noProgressNudge = 12 · maxStallNudges = 3"]
-  NS --> RE["창마다 다시 발화 · cap에서 멈춤<br/>실제 뮤테이션은 창을 재시작(넛지 소모 아님)"]
-  SN -- "그 외" --> Q["아무 말 없음"]
+  REC --> SN["next step: shouldNudge()"]
+  SN -- "blocked ≥ 3 · once" --> NB["nudge: you are going in circles<br/>nudgeThreshold = 3"]
+  SN -- "12 steps with no mutation" --> NS["the stall nudge (it re-arms)<br/>noProgressNudge = 12 · maxStallNudges = 3"]
+  NS --> RE["fires each window · stops at the cap<br/>a real mutation restarts the window (it does not spend a nudge)"]
+  SN -- "otherwise" --> Q["nothing said"]
 ```
 
-넛지는 **에이전트가 읽고 무시할 수 있는 프롬프트**다. 무시해도 magi는 아무것도 하지 않는다 — 턴은
-에이전트가 끝내거나, 외부가 끝낸다.
+A nudge is **a prompt the agent can read and ignore**. If it does, magi does nothing — the turn ends
+because the agent ends it, or because something outside does.
 
-종료 선언 시엔 L1의 카운슬이 이어진다: 기록 조립(디스크에 없는 경로 → 살아있는 잡 → 워크스페이스
-스냅샷 → 관측 기록 → 툴 증거, 항목당 클립) → 3멤버 심의. 미수락이면 무엇이 안 됐는지가 툴 결과로
-돌아가 에이전트가 계속 일하고, 끝내 선언이 없으면 3회 상기 후 UNVERIFIED로 착지한다. bash 툴 자체도
-exit 0에 크래시 시그니처나 종료코드-무마 꼬리(`|| true` 등)가 보이면 결과 머리에 경고 주석을 단다
-(`MAGI_EXITCODE_BODYSCAN`, MANUAL §가드 참고).
+On a declaration, L1's council takes over: assemble the record (paths not on disk → live jobs →
+workspace snapshot → the observation record → the tool evidence, each clipped per item) and
+deliberate with three members. Not accepted, and what is undone comes back as the tool result so the
+agent keeps working; never declared at all, and after three asks it lands UNVERIFIED. The bash tool
+itself annotates the head of a result when an exit 0 carries a crash signature or a status-masking
+tail (`|| true` and friends) — `MAGI_EXITCODE_BODYSCAN`, MANUAL §guards.
 
-## L4 — hang·spin·반복 차단: 모델 I/O 가드 계층
+## L4 — Stopping hangs, spins and repetition: the model I/O guard
 
-행/스핀은 **모델에 대한 모든 요청이 통과하는 단일 지점**에서 처리된다. `providerFor(agent)`가 반환하는
-provider는 생성 시점에 전부 `GuardProvider`(`provider_guard.go`)로 감싸지므로 — 메인 generate,
-카운슬, 모든 tool-free side call — **하나의 가드된
-`StreamChat`을 통해 송수신**된다. 각 소비자가 자기 워치독을 들고 다니던 whack-a-mole를 대체한다.
+Hangs and spins are handled at **the single point every request to a model passes through**. The
+provider `providerFor(agent)` returns is wrapped at construction in `GuardProvider`
+(`provider_guard.go`), so the main generate, the council and every tool-free side call all send and
+receive through **one guarded `StreamChat`**. This replaced the whack-a-mole of each consumer
+carrying its own watchdog.
 
-가드는 **2계층**이다. (1) 메인 루프의 *행동* 가드(`consumeStream`)가 메인 generate에서 **먼저** 발화해
-재시도/넛지 같은 고유 처리를 하고, (2) 그 **위의 안전망**(`guardedProvider`)이 side call 등 자기 처리가
-없는 경로를 backstop한다 — 안전망 임계값은 행동 가드보다 **2×** 높게 잡아 순서를 보장한다.
+The guard is **two layers**. (1) The main loop's *behavioural* guard (`consumeStream`) fires **first**
+on the main generate and does what only it can — retries, nudges. (2) The **safety net above it**
+(`guardedProvider`) backstops the paths with no handling of their own; its thresholds are **2×** the
+behavioural guard's, which is what guarantees the order.
 
 ```mermaid
 %%{init: {'theme':'neutral','flowchart':{'curve':'basis'}}}%%
 flowchart TD
-  REQ["모델 요청<br/>(generate · council · side call)"] --> GP["guardedProvider.StreamChat<br/>(단일 chokepoint · 모든 경로)"]
-  GP --> W{"스트림 감시"}
-  W -- "idle: 이벤트 없음<br/>2×streamStall (기본 240s)" --> AB["취소 → 스트림 닫음<br/>수초 내 언와인드"]
-  W -- "byte-spin: 완료 없이<br/>2×spinCap (기본 800KB)" --> AB
-  W -- "반복 loop: 꼬리에 짧은 단위<br/>back-to-back ≥128B·≥3회" --> AB
-  W -- "정상 이벤트" --> CS["consumeStream (메인 generate만)"]
-  CS -- "첫 토큰 전 침묵<br/>streamStall 120s" --> RT["재발행 (maxStreamStallRetries=2)"]
-  CS -- "reasoning만 무한<br/>spinCap 400KB, 툴콜 0" --> SN["reasoningSpinNudge<br/>'그만 생각하고 행동하라'"]
-  CS -- "finish_reason 도착" --> STEP["스텝 루프 (L1)"]
+  REQ["a model request<br/>(generate · council · side call)"] --> GP["guardedProvider.StreamChat<br/>(one chokepoint · every path)"]
+  GP --> W{"watching the stream"}
+  W -- "idle: no events for<br/>2×streamStall (240s default)" --> AB["cancel → close the stream<br/>unwinds within seconds"]
+  W -- "byte-spin: no completion past<br/>2×spinCap (800KB default)" --> AB
+  W -- "repetition loop: a short unit in the tail<br/>back-to-back ≥128B · ≥3 times" --> AB
+  W -- "ordinary events" --> CS["consumeStream (main generate only)"]
+  CS -- "silence before the first token<br/>streamStall 120s" --> RT["re-issue (maxStreamStallRetries=2)"]
+  CS -- "reasoning only, unbounded<br/>spinCap 400KB, zero tool calls" --> SN["reasoningSpinNudge<br/>'stop thinking and act'"]
+  CS -- "finish_reason arrives" --> STEP["the step loop (L1)"]
   RT --> CS
   SN --> STEP
-  STEP --> TG["runGuard (L3): repeat·stall·self-revert"]
-  STEP --> CK["워크플로 verify 명령<br/>runVerifyCmd (워크플로 모드에서만)"]
-  CK --> CTO{"per-check 타임아웃<br/>기본 120s (MAGI_CHECK_TIMEOUT)"}
-  CTO -- "초과" --> KILL["kill → -1 = 검증불가(거짓실패 아님)"]
+  STEP --> TG["runGuard (L3): repeat · stall · self-revert"]
+  STEP --> CK["the workflow verify command<br/>runVerifyCmd (workflow mode only)"]
+  CK --> CTO{"per-check timeout<br/>120s default (MAGI_CHECK_TIMEOUT)"}
+  CTO -- "exceeded" --> KILL["kill → -1 = could not verify (not a false failure)"]
 ```
 
-계층별 요약:
+Layer by layer:
 
-| 계층 | 잡는 것 | 트리거 | 바운드 / 플래그 | 처리 |
+| Layer | What it catches | Trigger | Bound / flag | What it does |
 |---|---|---|---|---|
-| `guardedProvider` (idle) | 침묵한 백엔드(무응답) | 마지막 이벤트 후 유휴 | 2×`streamStall`(기본 240s) | 취소·스트림 닫음 |
-| `guardedProvider` (byte-spin) | 완료 없는 폭주 생성 | 누적 바이트 | 2×`spinCap`(기본 800KB), `MAGI_SPIN_CAP` | 취소 |
-| `guardedProvider` (repeat) | **degenerate 반복**(같은 문장/단어 무한) | 꼬리 단위 back-to-back ≥128B·≥3회 | `MAGI_REPEAT_CAP`(기본 on), 꼬리 4KB·256B마다 검사 | 취소(≈수백 B 만에, 800KB 안 기다림) |
-| `consumeStream` (stall) | 메인 generate 첫토큰 전 침묵 | 유휴 | `streamStall` 120s, `MAGI_STREAM_STALL` | 같은 요청 재발행(×2), 소진 시 에러 |
-| `consumeStream` (reasoningSpin) | 메인 generate reasoning만 무한 | 툴콜 0 + 바이트 | `spinCap` 400KB (`[limits] max_output_tokens` 설정 시 이 넛지는 토큰캡에 위임=off, guardedProvider 800KB 백스톱은 유지) | 넛지("행동하라") |
-| `runGuard` (L3) | 툴콜 반복·정체·자기되돌림 | 지문·무변이 스텝 | `guard.go` 상수 | **넛지만** — 차단·회복·강제종료 없음 |
-| 체크 타임아웃(`runVerifyCmd`) | 블로킹 워크플로 verify 명령 | per-check 경과 | 기본 120s, `MAGI_CHECK_TIMEOUT`(0=off) | kill → -1 = 검증불가(거짓실패 아님) |
+| `guardedProvider` (idle) | a silent backend | idle since the last event | 2×`streamStall` (240s default) | cancel, close the stream |
+| `guardedProvider` (byte-spin) | runaway generation with no completion | accumulated bytes | 2×`spinCap` (800KB default), `MAGI_SPIN_CAP` | cancel |
+| `guardedProvider` (repeat) | **degenerate repetition** (the same sentence or word looping) | a tail unit back-to-back ≥128B and ≥3 times | `MAGI_REPEAT_CAP` (on by default), a 4KB tail checked every 256B | cancel (in hundreds of bytes, not after 800KB) |
+| `consumeStream` (stall) | silence before the main generate's first token | idle | `streamStall` 120s, `MAGI_STREAM_STALL` | re-issue the same request (×2), error when exhausted |
+| `consumeStream` (reasoningSpin) | the main generate reasoning without end | zero tool calls + bytes | `spinCap` 400KB (with `[limits] max_output_tokens` set, this nudge defers to the token cap and is off; the 800KB guardedProvider backstop stays) | a nudge ("act") |
+| `runGuard` (L3) | tool-call repeats, stalls, self-reverts | fingerprints, steps with no mutation | the constants in `guard.go` | **nudges only** — no blocking, no recovery, no force-stop |
+| the check timeout (`runVerifyCmd`) | a blocking workflow verify command | per-check elapsed | 120s default, `MAGI_CHECK_TIMEOUT` (0=off) | kill → -1 = could not verify (not a false failure) |
 
-핵심: **모델 hang/spin/반복은 guardedProvider 단일 지점**에서, **셸 명령 hang은 bash 툴(120/600s)과
-runVerifyCmd 타임아웃**에서 각각 바운드된다 — 어느 것도 턴 벽시계까지 매달리지 않는다.
+The point: **a model hang, spin or repetition is bounded at the single guardedProvider point**, and
+**a shell command hang at the bash tool (120/600s) and the runVerifyCmd timeout**. Neither can hang
+on to the turn's wall clock.
 
-## L5 — 코어 도메인 클래스 (`internal/core`)
+## L5 — Core domain classes (`internal/core`)
 
-`core`는 **std 외에는 아무것도 import하지 않는다**. 여기 있는 타입에는 LLM도, 파일시스템도,
-터미널도 없다 — 대화가 무엇으로 이루어져 있는지에 대한 서술뿐이다.
+`core` **imports nothing but the standard library**. There is no LLM here, no filesystem, no
+terminal — only a description of what a conversation is made of.
 
 ```mermaid
 %%{init: {'theme':'neutral'}}%%
@@ -220,7 +229,7 @@ classDiagram
     +string Parent
     +time.Time LastActivity
   }
-  note for SessionMeta "전체 로그를 읽지 않고 목록만 낼 때"
+  note for SessionMeta "for listing sessions without reading the whole log"
   class Message {
     +string ID
     +Role Role
@@ -234,7 +243,7 @@ classDiagram
     +ImageRef Image
     +string Err
   }
-  note for Part "Kind가 고르는 태그드 유니온 — 정확히 하나만 채워진다"
+  note for Part "a tagged union chosen by Kind — exactly one field is filled"
   class ToolCall {
     +string CallID
     +string Name
@@ -255,8 +264,8 @@ classDiagram
   Message "1" *-- "*" Part
   Part ..> ToolCall
   Part ..> ToolResult
-  Session ..> SessionMeta : 요약
-  Session ..> Todo : 에이전트의 계획
+  Session ..> SessionMeta : summary
+  Session ..> Todo : the agent's plan
 
   class Event {
     +int64 Seq
@@ -271,7 +280,7 @@ classDiagram
     +ActorKind Kind
     +string ID
   }
-  note for Actor "Kind = user · agent · system — 턴 경계는 user 뿐"
+  note for Actor "Kind = user · agent · system — only user is a turn boundary"
   class Bus {
     +Publish(Event)
     +Subscribe(ctx, SessionID) chan
@@ -284,11 +293,11 @@ classDiagram
 ```
 
 `PartKind` ∈ `text` · `reasoning` · `tool-call` · `tool-result` · `image` · `error`.
-`Part`가 태그드 유니온인 것이 저장 형식을 정한다: 스트리밍 단위와 영속 단위가 같은 타입이라
-재생(replay)이 곧 렌더다.
+That `Part` is a tagged union is what decides the storage format: the streaming unit and the
+persisted unit are the same type, so a replay is a render.
 
-카운슬 도메인은 별개의 작은 값 모델이다 — LLM 호출은 어댑터(`adapter/council/llm`)에 있고,
-`core/council`은 **투표를 세는 규칙**만 안다:
+The council domain is a separate small value model — the LLM calls live in the adapter
+(`adapter/council/llm`), and `core/council` knows only **the rule for counting votes**:
 
 ```mermaid
 %%{init: {'theme':'neutral'}}%%
@@ -339,20 +348,21 @@ classDiagram
   Deliberation "1" *-- "*" Verdict
   Deliberation *-- Breakdown
   Breakdown --> Rule
-  Verdict ..> Member : 누가 냈나
-  Deliberation ..> DebateOutcome : 불일치 시에만
+  Verdict ..> Member : who cast it
+  Deliberation ..> DebateOutcome : only on disagreement
 ```
 
-`Decision` ∈ `done` · `continue` · `abstain`. `Tally(verdicts, rule)`가 순수 함수라
-심의 기록만 있으면 결정을 재현할 수 있다. `Keep`/`Debate`는 **결정에 영향을 주지 않는다** —
-기권이 분모에서 빠지는 것과 함께, 이 분리가 "카운슬이 왜 그렇게 정했나"를 사후에 답할 수 있게 한다.
+`Decision` ∈ `done` · `continue` · `abstain`. `Tally(verdicts, rule)` is a pure function, so the
+deliberation record alone is enough to reproduce the decision. `Keep` and `Debate` **do not affect
+it** — that separation, together with abstentions leaving the denominator, is what makes "why did the
+council decide that" answerable after the fact.
 
 ---
 
-## L6 — 포트와 어댑터 (인터페이스 → 구현)
+## L6 — Ports and adapters (interface → implementation)
 
-의존 방향은 **`adapter → app → core`** 한 방향이고, 컴파일 타임에 강제된다. `app`은 아래
-인터페이스만 알고, `cmd/magi`가 기동 시에 구현을 꽂는다.
+The dependency direction is one-way, **`adapter → app → core`**, enforced at compile time. `app`
+knows only the interfaces below; `cmd/magi` plugs the implementations in at startup.
 
 ```mermaid
 %%{init: {'theme':'neutral'}}%%
@@ -421,21 +431,21 @@ classDiagram
     +SetBaseURL(url) uint64
     +ClearBaseURL(token)
   }
-  note for OpenAIClient "SSE 파서 · toolAccumulator · 재시도 · finish 없는 EOF는 절단으로 보고"
+  note for OpenAIClient "SSE parser · toolAccumulator · retries · an EOF with no finish is reported as truncation"
   class JSONLStore["adapter/store/jsonl"]
   note for JSONLStore "dataDir/projects/&lt;cwd&gt;/&lt;sid&gt;.jsonl"
   class BuiltinRegistry["adapter/tool/builtin.Default()"]
-  note for BuiltinRegistry "항상 21개 + 대화형 전용 2개"
+  note for BuiltinRegistry "21 always + 2 interactive-only"
   class LuaHost["adapter/plugin/lua.Host"]
-  note for LuaHost "Lua 툴 · 컨텍스트 제공자 · 슬래시 명령 · doctor 프로브"
+  note for LuaHost "Lua tools · context providers · slash commands · doctor probes"
   class MCPClient["adapter/mcp"]
-  note for MCPClient "mcp__server__tool 이름으로 등록"
+  note for MCPClient "registered as mcp__server__tool"
   class LLMCouncil["adapter/council/llm"]
-  note for LLMCouncil "멤버별 프롬프트 · 병렬 폴 · 불일치 시 반박 라운드"
+  note for LLMCouncil "per-member prompts · parallel poll · a rebuttal round on disagreement"
   class LayeredExp["adapter/experience/layered + git"]
-  note for LayeredExp "global 위에 project 를 겹침"
+  note for LayeredExp "project layered over global"
   class OSPlatform["adapter/platform"]
-  note for OSPlatform "exec · OS 샌드박스 · 터미널 능력"
+  note for OSPlatform "exec · OS sandbox · terminal capabilities"
 
   LLMProvider <|.. OpenAIClient
   Store <|.. JSONLStore
@@ -450,16 +460,17 @@ classDiagram
   ContextProvider <|.. LuaHost
 ```
 
-포트는 12개다: 위 9개 + `DoctorProbe`(`-doctor` 진단 항목) + `PluginCommand`(슬래시 명령) +
-`Scheduler`. **툴 인터페이스에 구현이 셋**(builtin · lua · mcp)인 것이 확장 지점의 핵심이다 —
-루프는 셋을 구별하지 않는다.
+There are twelve ports: the nine above plus `DoctorProbe` (a `-doctor` diagnostic item),
+`PluginCommand` (a slash command) and `Scheduler`. That **the Tool interface has three
+implementations** (builtin, lua, mcp) is the heart of the extension story — the loop cannot tell them
+apart.
 
 ---
 
-## L7 — app 코어 클래스 (`internal/app`)
+## L7 — App core classes (`internal/app`)
 
-`App`이 애플리케이션 서비스다: 커맨드가 들어오고 이벤트가 나간다. 상태는 **세션별로**
-`sessionState`에 모여 있고 전부 `App.mu`가 지킨다.
+`App` is the application service: commands go in, events come out. State is gathered **per session**
+in `sessionState`, all of it guarded by `App.mu`.
 
 ```mermaid
 %%{init: {'theme':'neutral'}}%%
@@ -508,7 +519,7 @@ classDiagram
     +string expPtr
     +string ragText
   }
-  note for sessionState "수명 3층: 세션 전체 · 턴 스코프(resetForNewTopLevel이 지움) · 인플라이트"
+  note for sessionState "three lifetimes: the whole session · turn-scoped (cleared by resetForNewTopLevel) · in-flight"
 
   class turnCtx {
     +session.Session s
@@ -519,7 +530,7 @@ classDiagram
     +time.Time runStart
     +runGuard guard
   }
-  note for turnCtx "턴 내내 고정 — guard만 포인터라 변이가 전파된다"
+  note for turnCtx "fixed for the whole turn — only guard is a pointer, so its mutations propagate"
   class turnState {
     +bool stopChecked
     +bool nudgedEmpty
@@ -527,7 +538,7 @@ classDiagram
     +bool declared
     +string unverifiedReason
   }
-  note for turnState "턴당 1회 게이트들의 래치"
+  note for turnState "the latches for the once-per-turn gates"
   class AgentSpec {
     +string Name
     +string System
@@ -557,7 +568,7 @@ classDiagram
     +changeSet() fileChange[]
     +shouldNudge() string
   }
-  note for runGuard "보고 전용 — check의 block은 항상 false"
+  note for runGuard "reporting only — check's block is always false"
   class Policy {
     -policyRule[] allow
     -policyRule[] deny
@@ -568,29 +579,29 @@ classDiagram
 
   App "1" *-- "*" sessionState
   App --> Policy
-  App ..> turnCtx : 턴마다 생성
+  App ..> turnCtx : created per turn
   turnCtx *-- runGuard
   turnCtx --> AgentSpec
-  App ..> turnState : finishTurn이 변이
+  App ..> turnState : mutated by finishTurn
   runGuard *-- fileChange
 ```
 
-읽을 때 알아둘 두 가지.
+Two things to know when reading it.
 
-1. **`runGuard`는 턴이 아니라 런 스코프**다(`turnCtx`가 들고 있고 포인터라 변이가 전파된다).
-   `epoch`는 진짜 파일 변이마다 오르고 반복 지문의 일부가 된다 — 그래서 파일이 바뀐 뒤의
-   같은 명령은 "같은 콜"이 아니다.
-2. **`sessionState`의 필드는 수명이 셋으로 갈린다**: 세션 전체(`meta`·`grants`·
-   `deferredAbandoned`), 턴 스코프(`resetForNewTopLevel`이 지우는 것 — `turnNotes`·`scratch`·
-   RAG 캐시), 그리고 인플라이트(`cancel`·`perms`). 새 필드를 넣을 때 어디에 속하는지 정하지
-   않으면 지난 턴의 상태가 다음 요청으로 새는 형태로 드러난다.
+1. **`runGuard` is run-scoped, not turn-scoped** (`turnCtx` holds it, and it is a pointer, so
+   mutations propagate). `epoch` rises on every real file mutation and is part of the repeat
+   fingerprint — which is why the same command after a file changed is not "the same call".
+2. **`sessionState`'s fields split into three lifetimes**: the whole session (`meta`, `grants`,
+   `deferredAbandoned`), turn-scoped (what `resetForNewTopLevel` clears — `turnNotes`, `scratch`, the
+   RAG cache), and in-flight (`cancel`, `perms`). Adding a field without deciding which it is shows
+   up later as last turn's state leaking into the next request.
 
 ---
 
-## L8 — 툴 계층 클래스
+## L8 — The tool layer
 
-툴은 `port.Tool` 하나로 통일된다. 실행 시 받는 `ToolEnv`가 **애플리케이션으로 향하는 유일한
-통로**이며, nil 필드는 "이 런에는 그 능력이 없다"는 뜻이다.
+Every tool is one `port.Tool`. The `ToolEnv` it receives at execution is **the only route to the
+application**, and a nil field means "this run does not have that capability".
 
 ```mermaid
 %%{init: {'theme':'neutral'}}%%
@@ -624,7 +635,7 @@ classDiagram
     +Recall(query) string
     +RecallMemory(query) string
   }
-  note for ToolEnv "nil 필드 = 이 런에 그 능력이 없다 — 툴은 호출 전에 반드시 nil 검사"
+  note for ToolEnv "a nil field = this run lacks that capability — every tool nil-checks before calling"
   class SandboxSpec {
     +string Mode
     +string Workdir
@@ -632,18 +643,18 @@ classDiagram
     +Confined() bool
   }
   ToolEnv *-- SandboxSpec
-  Tool ..> ToolEnv : Execute가 받음
+  Tool ..> ToolEnv : handed to Execute
 
-  class FileTools["파일: read · write · edit · multiedit"]
-  note for FileTools "pathlocks · atomicwrite · hashline 거터"
-  class SearchTools["탐색: grep · glob · list"]
-  note for SearchTools "절대 패턴은 빈 결과가 아니라 에러로 답한다"
-  class ShellTools["셸: bash · wait_for · bash_output · bash_kill · bash_input · port_owner"]
-  note for ShellTools "heredoc 스캔 · PIPESTATUS · 캡처 head/tail"
-  class NetTools["네트워크: webfetch · websearch"]
-  class MemTools["기억: remember · recall_context · recall_memory · skill"]
-  class MetaTools["메타: council · todowrite · ask_user · route_interjection"]
-  note for MetaTools "뒤 둘은 대화형 세션에서만 등록된다"
+  class FileTools["files: read · write · edit · multiedit"]
+  note for FileTools "pathlocks · atomicwrite · the line gutter"
+  class SearchTools["search: grep · glob · list"]
+  note for SearchTools "an absolute pattern answers with an error, not an empty result"
+  class ShellTools["shell: bash · wait_for · bash_output · bash_kill · bash_input · port_owner"]
+  note for ShellTools "heredoc scanning · PIPESTATUS · head/tail of the capture"
+  class NetTools["network: webfetch · websearch"]
+  class MemTools["memory: remember · recall_context · recall_memory · skill"]
+  class MetaTools["meta: council · todowrite · ask_user · route_interjection"]
+  note for MetaTools "the last two are registered only in an interactive session"
 
   Tool <|.. FileTools
   Tool <|.. SearchTools
@@ -653,33 +664,37 @@ classDiagram
   Tool <|.. MetaTools
 ```
 
-툴은 **21개가 항상**, `ask_user`와 `route_interjection` **2개가 대화형 세션에서만** 등록된다
-(`Default()` + `RegisterOrchestration(r, headless)`). 헤드리스에서 뒤 둘을 빼는 이유는 답할 사람이
-없어서만이 아니라, 절대 발화하지 않을 툴이 매 요청의 툴 목록에 무게로 실리기 때문이다.
-이름 목록은 `KnownNames()` 하나로 열거된다 — 정책 코드가 툴 이름을 리터럴로 쓰는 곳들이
-"아무 툴도 답하지 않는 이름"을 들고 있지 않은지 테스트가 대조할 수 있게 하기 위해서다.
+**21 tools are always** registered, and `ask_user` and `route_interjection` **only in an interactive
+session** (`Default()` + `RegisterOrchestration(r, headless)`). The reason for leaving the last two
+out of a headless run is not only that nobody is there to answer, but that a tool which can never
+fire still weighs on the tool list of every request. The names are enumerated in one place,
+`KnownNames()`, so a test can check that the policy code writing tool names as literals is not
+holding a name no tool answers to.
 
-**LSP는 툴이 아니다.** `lsp_diagnose`라는 이름으로 등록된 것은 없고, 편집이 끝난 뒤 앱이
-`AutoDiagnose`(`app/diagnose.go` → `builtin/lsppool.go`)를 돌려 그 결과를 **툴 결과에 덧붙인다**.
-모델이 부르는 능력이 아니라 magi가 얹어 주는 관측이라서, 부르지 않아도 도착한다.
+**LSP is not a tool.** Nothing is registered under a name like `lsp_diagnose`; after an edit the app
+runs `AutoDiagnose` (`app/diagnose.go` → `builtin/lsppool.go`) and **appends the result to the tool
+result**. It is not a capability the model calls but an observation magi adds, so it arrives without
+being asked for.
 
-`bash` 계열이 파일 수로도 로직으로도 가장 무겁다. 그 무게의 대부분은 실행이 아니라 **셸 텍스트를
-사실대로 읽는 일**에 있다 — `heredoc.go`의 `scanShellLine`이 한 번 훑어서 detach `&`와 heredoc
-본문을 동시에 판정하고, `maskNonShell`이 따옴표 안·주석·heredoc 본문을 **길이를 보존한 채** 가려서
-정규식이 찾은 위치를 원문에서 그대로 인용할 수 있게 한다. 이게 없으면
-`python3 -c "print('done | tail -3')"` 같은 명령에 "네 종료코드는 페이저 것"이라는 거짓 주석이 붙는다.
+The `bash` family is the heaviest, by file count and by logic. Most of that weight is not execution
+but **reading shell text truthfully** — `heredoc.go`'s `scanShellLine` makes one pass that decides a
+detaching `&` and a heredoc body together, and `maskNonShell` hides quoted text, comments and heredoc
+bodies **while preserving length**, so a position a regex found can be quoted from the original.
+Without it, a command like `python3 -c "print('done | tail -3')"` gets the false annotation "your exit
+code is the pager's".
 
 ---
 
-## L9 — 툴 콜 한 번의 시퀀스
+## L9 — One tool call as a sequence
 
-L1이 턴을, L9는 그 안의 툴 콜 **하나**를 확대한다. 게이트 순서와 "누가 무엇을 기록하는가"가 요점이다.
+L1 is the turn; L9 zooms in on **one** tool call inside it. The point is the order of the gates and
+who records what.
 
 ```mermaid
 %%{init: {'theme':'neutral'}}%%
 sequenceDiagram
   autonumber
-  participant M as 모델
+  participant M as model
   participant L as runLoop
   participant G as runGuard
   participant P as Policy/permission
@@ -688,64 +703,69 @@ sequenceDiagram
 
   M->>L: tool_call(name, args)
   L->>G: check(name, args)
-  G-->>L: n(반복 횟수), fp — block은 항상 false
+  G-->>L: n (repeat count), fp — block is always false
   L->>S: tool.started (transient)
-  L->>P: allowlist → policy.Decide → permission 프롬프트 → PreToolUse 훅
-  alt 거부됨
-    P-->>L: 거부 사유
-    L->>S: part.appended(tool-result, IsError) — 이유를 그대로
-  else 통과
+  L->>P: allowlist → policy.Decide → permission prompt → PreToolUse hook
+  alt refused
+    P-->>L: the reason
+    L->>S: part.appended(tool-result, IsError) — the reason, verbatim
+  else allowed
     L->>T: Execute(ctx, args, ToolEnv)
-    T-->>L: ToolResult (+ EmitProgress·EmitArtifact는 실행 중에)
-    L->>L: capToolResult (64KB, 잘리면 결과 안에 표시)
+    T-->>L: ToolResult (EmitProgress and EmitArtifact fire during execution)
+    L->>L: capToolResult (64KB, marked inside the result when cut)
     L->>G: noteEdit / mutated / noteBashExec / noteReadCoverage
-    G-->>L: 자기되돌림·무변경 경고
-    L->>S: part.appended(tool-result) — 영속
+    G-->>L: self-revert and no-change warnings
+    L->>S: part.appended(tool-result) — persisted
   end
   L->>G: shouldNudge()
-  opt "blocked" 또는 "stalled"
-    L->>S: prompt.submitted (actor=system:loop) — 넛지
+  opt "blocked" or "stalled"
+    L->>S: prompt.submitted (actor=system:loop) — the nudge
   end
-  L->>M: 다음 스텝 요청 (history + volatileContext)
+  L->>M: the next step (history + volatileContext)
 ```
 
-시퀀스에서 읽어야 할 계약 셋:
+Three contracts to read out of that sequence:
 
-- **거부도 결과다.** 게이트가 막으면 조용히 사라지지 않고 사유를 담은 tool-result가 기록된다 —
-  모델이 무엇에 막혔는지 모르면 같은 것을 다시 시도한다.
-- **자르면 자른 자리에 표시한다.** `capToolResult`, 캡처 head/tail, 증거 블록의 누락 꼬리,
-  압축 요약의 미완 표시가 전부 같은 규칙이다. 읽는 쪽은 **없는 줄 모르는 것을 되물을 수 없다.**
-- **넛지는 `prompt.submitted`다** — actor가 `{system, loop}`이지 `part.appended`가 아니다.
-  로그를 파싱해 넛지를 세려면 이 액터로 걸러야 한다.
+- **A refusal is a result too.** A gate that blocks does not make the call disappear; a tool-result
+  carrying the reason is recorded — a model that does not know what stopped it tries the same thing
+  again.
+- **A cut is marked where it was cut.** `capToolResult`, the head/tail of a capture, the omitted
+  middle of an evidence block, the incompleteness marker on a compaction summary — all the same rule.
+  The reader **cannot ask about what it does not know is missing.**
+- **A nudge is a `prompt.submitted`** with actor `{system, loop}`, not a `part.appended`. To count
+  nudges by parsing the log, filter on that actor.
 
 ---
 
-## 부록 — A/B 플래그 기본값 (`plan_flags.go`)
+## Appendix — A/B flag defaults (`plan_flags.go`)
 
-| 플래그 | 기본 | 제어 대상 |
+| Flag | Default | What it controls |
 |---|---|---|
-| `MAGI_DECLARE_FINISH` | ON | 종료를 **선언 행위**로 요구(`council{complete:true}`); off면 모델이 툴 호출을 멈추는 수동적 종료로 복귀 |
-| `MAGI_COUNCIL_DEBATE` | ON | 불일치 시 1회 반박 라운드; off면 독립 투표 집계만 |
-| `MAGI_STALL_NOVELTY` | ON | 정체 넛지 재장전을 "이미 본 지문 반복"일 때만 붕괴(새 시도로 피벗 중이면 살려둠) |
-| `MAGI_CTX_COMPACT_RETRY` | ON | 컨텍스트 초과 시 압축 후 재시도 |
-| `MAGI_EXITCODE_BODYSCAN` | ON | bash exit-0 크래시/마스킹 주석 (`tool/builtin`) |
-| `MAGI_REPEAT_CAP` | ON | degenerate 반복(같은 문장/단어 무한) 안전망 (`provider_guard`) |
-| `MAGI_STREAM_STALL` · `MAGI_CHECK_TIMEOUT` | 120s | generate 첫토큰 stall 워치독 · 워크플로 verify 타임아웃(0=off) |
-| `MAGI_SPIN_CAP` | 400KB | reasoning-only spin 상한(guardedProvider는 2×) |
-| `MAGI_SELFKILL_GUARD` | ON | 프롬프트 단어로 자기 프로세스를 죽이는 `pkill -f` 차단 |
-| `MAGI_COUNCIL_KEEP` | ON | 위원이 **유지할 부분**도 함께 지목(자문, 결정·집계엔 무영향); off면 고칠 것만 |
-| `MAGI_TERSE_STEPS` | OFF | 스텝마다 한 줄 서사를 요구하던 문구를 뺀 프롬프트 |
+| `MAGI_DECLARE_FINISH` | ON | requires ending to be a **declared act** (`council{complete:true}`); off restores the passive finish where the model just stops calling tools |
+| `MAGI_COUNCIL_DEBATE` | ON | one rebuttal round on disagreement; off tallies the independent vote only |
+| `MAGI_STALL_NOVELTY` | ON | credits a **novel** inspection (a first-seen read/grep) as forward motion, buying one more stall window; off counts only mutations |
+| `MAGI_CTX_COMPACT_RETRY` | ON | compact and retry when the context overflows |
+| `MAGI_EXITCODE_BODYSCAN` | ON | the bash exit-0 crash and masking annotations (`tool/builtin`) |
+| `MAGI_REPEAT_CAP` | ON | the degenerate-repetition safety net (the same sentence or word looping) in `provider_guard` |
+| `MAGI_STREAM_STALL` · `MAGI_CHECK_TIMEOUT` | 120s | the first-token stall watchdog on generate · the workflow verify timeout (0=off) |
+| `MAGI_SPIN_CAP` | 400KB | the reasoning-only spin ceiling (guardedProvider uses 2×) |
+| `MAGI_SELFKILL_GUARD` | ON | blocks a `pkill -f` that would kill magi's own process by a word from the prompt |
+| `MAGI_COUNCIL_KEEP` | ON | members also name **what to keep** (advisory; no effect on the decision or the tally); off is fix-only feedback |
+| `MAGI_TERSE_STEPS` | OFF | the prompt with the clause demanding a line of narration per step removed |
 
-이 표는 **행동을 바꾸는 A/B 스위치**만 싣는다(플래그 이름이 CLI 옵션과 1:1인 환경변수 —
-`MAGI_MODEL`·`MAGI_BASE_URL`·`MAGI_PERMISSION` 등 — 은 ARCHITECTURE §9, 터미널 폭 프로브와
-디버그 스위치는 제외). 그리고 **실제로 읽히는 것만** 싣는다. 코드가 더 이상 읽지 않는데 표에 남아 있던 넷 —
+This table carries **only the A/B switches that change behaviour** (the env vars that are 1:1 with a
+CLI option — `MAGI_MODEL`, `MAGI_BASE_URL`, `MAGI_PERMISSION` and the rest — are in ARCHITECTURE §9;
+the terminal-width probes and debug switches are excluded). And it carries **only what is really
+read**. Five that the code no longer reads but the table still listed —
 `MAGI_STUCK_DECOMPOSE` · `MAGI_RECOVERY_RUNCAP` · `MAGI_GUARD_EXEC_EXEMPT` ·
-`MAGI_EXERCISE_CHURN_CAP`·`MAGI_STALL_CONVERGE` — 은 L3의 강제종료 경로와 함께 사라졌다.
-(마지막 것은 그 경로보다 오래 살아남아 있었다: 붕괴가 넘겨주려던 `stuck()`이 없어진 뒤로는 남은
-정체 넛지를 침묵시키는 일만 했다 — 실측 126콜·60분에 넛지 2회.) 목록을 갱신하려면
-`Getenv("MAGI_`/`envOff(`/`envOn(` 를 grep해서 대조하면 된다; 광고와 구현이 갈라지는 것은 이
-저장소가 반복해서 겪은 결함 유형이라, 없는 손잡이를 문서가 광고하는 쪽이 없는 것보다 나쁘다.
-**그 반대 방향도 같은 결함이다**: `MAGI_COUNCIL_KEEP`은 소스 주석이 광고하는데 **읽는 코드가
-없어** 기능 전체가 도달 불가였고(어댑터·파서·TUI 렌더는 다 살아 있었다), 이 대조로 찾아 배선을
-되살렸다. 같은 대조에서 `MAGI_STEP_VERIFY`·`MAGI_MAX_PLAN_DEPTH`도 읽는 곳 없이 주석에만
-남아 있어 그 주석과 딸린 죽은 필드를 걷어냈다.
+`MAGI_EXERCISE_CHURN_CAP` · `MAGI_STALL_CONVERGE` — went out with L3's force-stop path.
+(The last one outlived that path: once `stuck()`, which the collapse existed to hand off to, was
+gone, all it did was silence the remaining stall nudges — measured at two nudges across 126 calls
+and an hour.) To refresh the list, grep for `Getenv("MAGI_` / `envOff(` / `envOn(` and compare;
+advertising drifting from implementation is a defect class this repository has hit repeatedly, and a
+document advertising a handle that is not there is worse than no document.
+**The reverse direction is the same defect**: `MAGI_COUNCIL_KEEP` was advertised in source comments
+with **nothing reading it**, so the whole feature was unreachable (the adapter, the parser and the
+TUI rendering were all alive), and this comparison is what found it and restored the wiring. The same
+comparison found `MAGI_STEP_VERIFY` and `MAGI_MAX_PLAN_DEPTH` living only in comments with no reader,
+so those comments and the dead fields hanging off them were removed.
