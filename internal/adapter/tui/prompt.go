@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sayaya1090/magi/internal/prompt"
 )
@@ -30,6 +31,7 @@ type promptModel struct {
 	sel      int // selected field; len(fields) == the Submit action
 	canceled bool
 	width    int
+	height   int
 }
 
 func newPromptModel(s prompt.Spec) promptModel {
@@ -80,7 +82,7 @@ func (m promptModel) firstFocusable(start, dir int) int {
 func (m promptModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch e := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = e.Width
+		m.width, m.height = e.Width, e.Height
 	case tea.KeyPressMsg:
 		return m.key(e)
 	}
@@ -235,94 +237,167 @@ func (m promptModel) answers() map[string]any {
 	return out
 }
 
-func (m promptModel) View() tea.View {
-	var b strings.Builder
-	// Identity banner: the same wordmark as the startup splash, so a plugin login
-	// screen reads as "the startup page with a login form attached", not a bare form.
-	b.WriteString(lipgloss.PlaceHorizontal(max(1, m.width), lipgloss.Center, logoBlock()) + "\n\n")
-	if m.spec.Title != "" {
-		b.WriteString(stylePermTitle.Render(m.spec.Title) + "\n\n")
-	}
-	for i, f := range m.spec.Fields {
-		st := m.state[i]
-		sel := i == m.sel
-		// Option lists render vertically — one option per line — so long labels stay
-		// readable and the Submit button falls naturally below them.
-		if f.Type == prompt.TypeSelect || f.Type == prompt.TypeMultiselect {
-			if f.Label != "" {
-				b.WriteString("  " + styleFooter.Render(f.Label) + "\n")
-			}
-			for j, o := range f.Options {
-				var marker string
-				var cur bool
-				if f.Type == prompt.TypeSelect {
-					marker = "○"
-					if j == st.optIdx { // for select the highlighted row is the selection
-						marker = "●"
-					}
-					cur = sel && j == st.optIdx
-				} else {
-					marker = "[ ]"
-					if st.checks[j] {
-						marker = "[x]"
-					}
-					cur = sel && j == st.subIdx
-				}
-				row := marker + " " + o
-				if cur {
-					b.WriteString(stylePalName.Render("  › ") + stylePalSelRow.Render(" "+row+" ") + "\n")
-				} else {
-					b.WriteString("    " + styleToolResult.Render(row) + "\n")
-				}
-			}
-			continue
-		}
+// promptWidth is the layout width used before the terminal has reported one.
+const promptWidth = 60
 
-		var val string
-		switch f.Type {
-		case prompt.TypeNote:
-			b.WriteString(styleFooter.Render("  "+f.Label) + "\n")
-			continue
-		case prompt.TypePassword:
-			val = strings.Repeat("•", len([]rune(st.buf)))
-			if sel {
-				val += "▌"
-			}
-		case prompt.TypeConfirm:
-			yes, no := "yes", "no"
-			if st.boolV {
-				yes = stylePalSelRow.Render(" yes ")
+// fieldRows renders one field as the lines it occupies, each clipped to w. The label column is
+// fixed so the values line up; when something has to go it is the value's tail, never the label —
+// a form whose labels are cut is one the user cannot answer. Option lists render vertically, one
+// option per line, so long option labels stay readable and Submit falls below them.
+func (m promptModel) fieldRows(i, w int) []string {
+	f, st, sel := m.spec.Fields[i], m.state[i], i == m.sel
+	clip := func(s string) string {
+		if w > 0 && ansi.StringWidth(s) > w {
+			return ansi.Truncate(s, w, "…")
+		}
+		return s
+	}
+
+	if f.Type == prompt.TypeSelect || f.Type == prompt.TypeMultiselect {
+		var out []string
+		if f.Label != "" {
+			out = append(out, clip("  "+styleFooter.Render(f.Label)))
+		}
+		for j, o := range f.Options {
+			var marker string
+			var cur bool
+			if f.Type == prompt.TypeSelect {
+				marker = "○"
+				if j == st.optIdx { // for select the highlighted row is the selection
+					marker = "●"
+				}
+				cur = sel && j == st.optIdx
 			} else {
-				no = stylePalSelRow.Render(" no ")
+				marker = "[ ]"
+				if st.checks[j] {
+					marker = "[x]"
+				}
+				cur = sel && j == st.subIdx
 			}
-			val = yes + "  " + no
-		default:
-			val = st.buf
-			if sel {
-				val += "▌"
+			row := marker + " " + o
+			if cur {
+				out = append(out, clip(stylePalName.Render("  › ")+stylePalSelRow.Render(" "+row+" ")))
+			} else {
+				out = append(out, clip("    "+styleToolResult.Render(row)))
 			}
 		}
-		label := f.Label
-		if label == "" {
-			label = f.Name
-		}
-		line := fmt.Sprintf("%-14s %s", label, val)
+		return out
+	}
+
+	var val string
+	switch f.Type {
+	case prompt.TypeNote:
+		return []string{clip(styleFooter.Render("  " + f.Label))}
+	case prompt.TypePassword:
+		val = strings.Repeat("•", len([]rune(st.buf)))
 		if sel {
-			b.WriteString(stylePalName.Render("› ") + line + "\n")
+			val += "▌"
+		}
+	case prompt.TypeConfirm:
+		yes, no := "yes", "no"
+		if st.boolV {
+			yes = stylePalSelRow.Render(" yes ")
 		} else {
-			b.WriteString("  " + line + "\n")
+			no = stylePalSelRow.Render(" no ")
+		}
+		val = yes + "  " + no
+	default:
+		val = st.buf
+		if sel {
+			val += "▌"
 		}
 	}
-	b.WriteString("\n")
-	if m.sel == len(m.spec.Fields) {
-		b.WriteString("  " + styleBtnSel.Render(" Submit "))
-	} else {
-		b.WriteString("  " + styleBtn.Render(" Submit ") + styleFooter.Render("  ↑/↓ move · Tab submit · Esc cancel"))
+	label := f.Label
+	if label == "" {
+		label = f.Name
 	}
+	line := fmt.Sprintf("%-14s %s", label, val)
+	if sel {
+		return []string{clip(stylePalName.Render("› ") + line)}
+	}
+	return []string{clip("  " + line)}
+}
+
+// View lays the form out inside the terminal it was given. This is a full-screen surface, so a row
+// wider than the terminal is not one clipped line — the shell wraps it and every row below shifts,
+// which on a login form can carry Submit off the bottom. Both axes are therefore bounded: rows are
+// clipped to the width, and when the form is taller than the screen the banner goes first and then
+// the fields are paged around the selection, with an "n/N" line so a hidden field is never
+// silently absent.
+func (m promptModel) View() tea.View {
 	var v tea.View
 	v.AltScreen = true
-	v.Content = b.String()
+	v.Content = m.body()
 	return v
+}
+
+func (m promptModel) body() string {
+	w := m.width
+	if w <= 0 {
+		w = promptWidth
+	}
+	blocks := make([][]string, len(m.spec.Fields))
+	for i := range m.spec.Fields {
+		blocks[i] = m.fieldRows(i, w)
+	}
+
+	// The hint rides along only while it fits: on a narrow terminal the button is what the user
+	// needs to see, and a wrapped hint pushes the button off its own line.
+	submit := "  " + styleBtnSel.Render(" Submit ")
+	if m.sel != len(m.spec.Fields) {
+		submit = "  " + styleBtn.Render(" Submit ") + styleFooter.Render("  ↑/↓ move · Tab submit · Esc cancel")
+		if ansi.StringWidth(submit) > w {
+			submit = "  " + styleBtn.Render(" Submit ")
+		}
+	}
+
+	// Identity banner: the same wordmark as the startup splash, so a plugin login screen reads as
+	// "the startup page with a login form attached", not a bare form. It is the first thing dropped
+	// when the screen is tight — it names the program, the form is what is being asked.
+	logo := logoBlock()
+	fits := lipgloss.Width(logo) <= w
+
+	draw := func(banner bool, keep int) string {
+		var b strings.Builder
+		if banner {
+			b.WriteString(lipgloss.PlaceHorizontal(max(1, w), lipgloss.Center, logo) + "\n\n")
+		}
+		if m.spec.Title != "" {
+			b.WriteString(ansi.Truncate(stylePermTitle.Render(m.spec.Title), w, "…") + "\n\n")
+		}
+		start := 0
+		if keep < len(blocks) {
+			start = min(max(0, min(m.sel, len(blocks)-1)-keep/2), len(blocks)-keep)
+		}
+		for i := start; i < start+keep; i++ {
+			for _, row := range blocks[i] {
+				b.WriteString(row + "\n")
+			}
+		}
+		if keep < len(blocks) {
+			b.WriteString(styleFooter.Render(fmt.Sprintf("  %d/%d fields", min(m.sel, len(blocks)-1)+1, len(blocks))) + "\n")
+		}
+		b.WriteString("\n")
+		b.WriteString(submit)
+		return b.String()
+	}
+
+	for _, banner := range []bool{fits, false} {
+		for keep := len(blocks); keep >= 0; keep-- {
+			out := draw(banner, keep)
+			if m.height <= 0 || lipgloss.Height(out) <= m.height {
+				return out
+			}
+			if keep == 0 {
+				break
+			}
+		}
+	}
+	// Nothing fits: the selected field alone, which is the one being answered.
+	if len(blocks) == 0 {
+		return submit
+	}
+	return strings.Join(blocks[min(m.sel, len(blocks)-1)], "\n") + "\n" + submit
 }
 
 // RunPrompt renders the spec as a standalone form and returns the answers. It
