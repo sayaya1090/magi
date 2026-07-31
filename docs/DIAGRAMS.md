@@ -117,7 +117,8 @@ flowchart TD
 없앴다.** 코드에서 확인할 수 있는 형태로:
 
 - `runGuard.check()`는 `block` 자리에 **항상 `false`**를 돌려준다(`execute.go`가 그 값을 버린다).
-- `handleStuckGuard()`는 **`return false, false`** — 본문이 통째로 그 결정의 기록이다.
+- 강제종료를 하던 `handleStuckGuard()`는 **삭제됐다**. 한동안 `return false, false`만 남아
+  매 스텝 불렸는데, 본문 주석은 사라진 exercise-churn 착지를 현재형으로 서술하고 있었다.
 - 남은 유일한 출력은 `shouldNudge()`가 돌려주는 문자열 하나: `"blocked"` · `"stalled"` · `""`.
 
 ```mermaid
@@ -135,8 +136,7 @@ flowchart TD
   REC --> SN["다음 스텝: shouldNudge()"]
   SN -- "blocked ≥ 3 · 최초 1회" --> NB["넛지: 같은 콜을 돌고 있다<br/>nudgeThreshold = 3"]
   SN -- "무변이 12스텝" --> NS["정체 넛지 (재장전식)<br/>noProgressNudge = 12 · maxStallNudges = 3"]
-  NS --> CV{"MAGI_STALL_CONVERGE<br/>직전 넛지 후 전진 0?"}
-  CV -- "yes" --> COL["남은 넛지 예산 붕괴 → 이후 침묵"]
+  NS --> RE["창마다 다시 발화 · cap에서 멈춤<br/>실제 뮤테이션은 창을 재시작(넛지 소모 아님)"]
   SN -- "그 외" --> Q["아무 말 없음"]
 ```
 
@@ -727,7 +727,6 @@ sequenceDiagram
 | `MAGI_DECLARE_FINISH` | ON | 종료를 **선언 행위**로 요구(`council{complete:true}`); off면 모델이 툴 호출을 멈추는 수동적 종료로 복귀 |
 | `MAGI_COUNCIL_DEBATE` | ON | 불일치 시 1회 반박 라운드; off면 독립 투표 집계만 |
 | `MAGI_STALL_NOVELTY` | ON | 정체 넛지 재장전을 "이미 본 지문 반복"일 때만 붕괴(새 시도로 피벗 중이면 살려둠) |
-| `MAGI_STALL_CONVERGE` | ON | 재장전식 정체 넛지의 수렴 판정 |
 | `MAGI_CTX_COMPACT_RETRY` | ON | 컨텍스트 초과 시 압축 후 재시도 |
 | `MAGI_EXITCODE_BODYSCAN` | ON | bash exit-0 크래시/마스킹 주석 (`tool/builtin`) |
 | `MAGI_REPEAT_CAP` | ON | degenerate 반복(같은 문장/단어 무한) 안전망 (`provider_guard`) |
@@ -741,7 +740,9 @@ sequenceDiagram
 `MAGI_MODEL`·`MAGI_BASE_URL`·`MAGI_PERMISSION` 등 — 은 ARCHITECTURE §9, 터미널 폭 프로브와
 디버그 스위치는 제외). 그리고 **실제로 읽히는 것만** 싣는다. 코드가 더 이상 읽지 않는데 표에 남아 있던 넷 —
 `MAGI_STUCK_DECOMPOSE` · `MAGI_RECOVERY_RUNCAP` · `MAGI_GUARD_EXEC_EXEMPT` ·
-`MAGI_EXERCISE_CHURN_CAP` — 은 L3의 강제종료 경로와 함께 사라졌다. 목록을 갱신하려면
+`MAGI_EXERCISE_CHURN_CAP`·`MAGI_STALL_CONVERGE` — 은 L3의 강제종료 경로와 함께 사라졌다.
+(마지막 것은 그 경로보다 오래 살아남아 있었다: 붕괴가 넘겨주려던 `stuck()`이 없어진 뒤로는 남은
+정체 넛지를 침묵시키는 일만 했다 — 실측 126콜·60분에 넛지 2회.) 목록을 갱신하려면
 `Getenv("MAGI_`/`envOff(`/`envOn(` 를 grep해서 대조하면 된다; 광고와 구현이 갈라지는 것은 이
 저장소가 반복해서 겪은 결함 유형이라, 없는 손잡이를 문서가 광고하는 쪽이 없는 것보다 나쁘다.
 **그 반대 방향도 같은 결함이다**: `MAGI_COUNCIL_KEEP`은 소스 주석이 광고하는데 **읽는 코드가
