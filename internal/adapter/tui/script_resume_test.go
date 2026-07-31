@@ -166,3 +166,70 @@ func TestReplayingTwiceGivesTheSameTranscript(t *testing.T) {
 
 // elapsedInSummary matches the "· 12s" tail a live turn summary carries and a resumed one cannot.
 var elapsedInSummary = regexp.MustCompile(` · [0-9]+(\.[0-9]+)?(ms|s|m|h)[0-9a-z]*$`)
+
+// A session whose log ends MID-TURN. magi was killed, the machine rebooted, the container went
+// away — the record simply stops, with no turn.finished and no error. Reopening it must not leave
+// the user watching a spinner for work that ended hours ago, and must not claim the last thing the
+// agent said was its answer.
+func TestResumingASessionThatWasKilledMidTurn(t *testing.T) {
+	llm := &scriptedLLM{steps: [][]port.ProviderEvent{
+		{say("Starting the build."), call("c1", "bash", `{"command":"echo building"}`), finish},
+		{say("Still going."), finish},
+	}}
+	r := newRealTurn(t, llm)
+	r.run("build it")
+
+	// Replay what a real resume would see, minus the turn's ending — the shape a killed process
+	// leaves behind. Transient events (seq 0: the streaming deltas, live progress) are published
+	// to the bus but never stored, so a resumed session never sees them; keeping them here would
+	// hand the fresh view a stream that a real reopen cannot produce.
+	var truncated []event.Event
+	for _, e := range r.seen {
+		if e.Seq == 0 || e.Type == event.TypeTurnFinished || e.Type == event.TypeError {
+			continue
+		}
+		truncated = append(truncated, e)
+	}
+	m := New(context.Background(), r.app, nil, r.m.sid, "m", r.m.workdir, true, "")
+	fresh := &script{t: t, m: m}
+	fresh.send(tea.WindowSizeMsg{Width: 100, Height: 40})
+	for _, e := range truncated {
+		fresh.send(eventMsg{ev: e, sid: fresh.m.sid, sub: fresh.m.mainSub})
+	}
+	_ = fresh.view()
+
+	// The work that DID happen is still there — a truncated log is not an empty one.
+	plain := fresh.view()
+	if !strings.Contains(plain, "build it") || !strings.Contains(plain, "Starting the build.") {
+		t.Errorf("the work before the kill is missing from the resumed transcript:\n%s", plain)
+	}
+	// Nothing is running. The turn ended when the process died; a reopened session that animates a
+	// spinner is telling the user to wait for work that stopped hours ago.
+	if fresh.m.running {
+		t.Error("a resumed session is still claiming the turn is running")
+	}
+	if strings.Contains(plain, "working…") {
+		t.Errorf("the resumed frame shows a live turn:\n%s", plain)
+	}
+	// And the frame is coherent: the block map must still resolve.
+	if len(fresh.m.blockLineStart) != len(fresh.m.blocks) {
+		t.Errorf("%d start lines for %d blocks after a truncated replay",
+			len(fresh.m.blockLineStart), len(fresh.m.blocks))
+	}
+}
+
+// The log ends between a tool call and its result — the most common place a kill lands, because a
+// command is where the time goes. The call must not render as though it completed.
+func TestACallWithNoResultDoesNotLookCompleted(t *testing.T) {
+	s := newScript(t)
+	s.steer("r1", "run the build")
+	s.toolCall("bash", "c1")
+	_ = s.view()
+
+	for _, b := range s.m.blocks {
+		if b.kind == blockToolCall && b.done {
+			t.Errorf("a call with no result is marked done: %+v", b)
+		}
+	}
+	s.renders("a call still in flight", "bash")
+}
