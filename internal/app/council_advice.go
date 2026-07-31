@@ -110,6 +110,7 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 		Rule:         rule,
 		DefaultModel: s.Model.Model,
 		Debate:       councilDebateEnabled(),
+		Keep:         councilKeepEnabled(),
 	})
 	if err != nil {
 		return "", fmt.Errorf("the council could not be reached: %w", err)

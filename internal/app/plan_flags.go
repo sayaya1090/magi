@@ -56,6 +56,18 @@ func envOn(name string) bool {
 // MAGI_COUNCIL_DEBATE=0 restores the independent-vote-only tally (A/B knob).
 func councilDebateEnabled() bool { return !envOff("MAGI_COUNCIL_DEBATE") }
 
+// councilKeepEnabled asks each member to ALSO name what the work already gets right through its
+// lens, alongside whatever it wants changed. It is advisory and never touches the decision or the
+// tally; it exists because a member that only lists faults invites the agent to redo or revert
+// parts that were already correct.
+//
+// The whole path was built and then unreachable: the adapter asks for it, parses it, the TUI
+// renders it and renderCouncilAdvice surfaces it — and nothing set the request field, so members
+// were never asked and the advice was always empty. It had been wired through four deliberation
+// phases once; the phases came out and the one call site that survived did not carry it. Default
+// ON; MAGI_COUNCIL_KEEP=0 restores fix-only feedback (A/B knob).
+func councilKeepEnabled() bool { return !envOff("MAGI_COUNCIL_KEEP") }
+
 // ctxCompactRetryEnabled controls the reactive-compaction safety net. On (the default), when the
 // provider rejects a generate request as too long (isContextOverflow), the loop force-compacts and
 // re-issues instead of dying with a terminal error — recovering runs whose context outgrew the
