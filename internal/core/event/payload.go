@@ -113,6 +113,21 @@ type CompactionData struct {
 // size (0 when TokensBefore is 0). It backs the human-facing "↯ compacted
 // ~X→Y (−Z, −P%)" line in both the headless printer and the TUI, so the size
 // difference is stated explicitly rather than left for the reader to subtract.
+// SizeNote renders the size change as what it measured, in the one form both surfaces print.
+//
+// Reduction() clamps a negative saving to zero, which is right for a number called "freed" and
+// wrong for the sentence built out of it: a compaction whose summary came out LARGER than what it
+// replaced rendered as "(−0, −0%)", which reads as "nothing was freed" when the truth is that the
+// context grew. Reachable through the manual /compact — a user who folds a short conversation can
+// get a model-written brief longer than the exchange it replaces.
+func (d CompactionData) SizeNote() string {
+	if d.TokensAfter > d.TokensBefore {
+		return fmt.Sprintf("+%d, the summary is LARGER than what it replaced", d.TokensAfter-d.TokensBefore)
+	}
+	freed, pct := d.Reduction()
+	return fmt.Sprintf("−%d, −%d%%", freed, pct)
+}
+
 func (d CompactionData) Reduction() (freed, pct int) {
 	freed = d.TokensBefore - d.TokensAfter
 	if freed < 0 {
