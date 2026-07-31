@@ -417,6 +417,20 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 						a.mu.Unlock()
 						break
 					}
+					a.mu.Unlock()
+					// Settle the "answered" claims before the batch is coalesced. The claim says the
+					// turn's reply already covers the request; the fact magi can check is whether the
+					// turn said ANYTHING after the claim was made. Something said is not proof it
+					// answers the question — that is the model's call and magi does not second-guess
+					// it — but nothing said is proof it does not, and that is the case that matters,
+					// because the alternative is a user request dropped on an assertion. A verified
+					// claim leaves the queue here; an empty one loses its claim and is triaged like
+					// any other queued item.
+					q = a.settleAnsweredClaims(context.WithoutCancel(runCtx), sid)
+					if len(q) == 0 {
+						break
+					}
+					a.mu.Lock()
 					// COALESCE the whole batch into ONE interjection instead of answering each.
 					// Rapid follow-ups queued while a turn ran ("how's it going", then "?", "다시",
 					// "aa") are impatience, not N separate tasks — replying to each spams N near-
