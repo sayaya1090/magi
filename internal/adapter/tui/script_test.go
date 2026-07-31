@@ -287,3 +287,42 @@ func TestAResizeDoesNotServeStaleWrapping(t *testing.T) {
 		}
 	}
 }
+
+// The three states a request bubble can be in are distinct on purpose: a spinner means THIS is
+// what is running, · means waiting its turn, ▌ means at rest. A steer starts as ·, and when the
+// queue drains it as its own turn it must pick up the spinner — otherwise "waiting" and "being
+// worked on" look identical and the user cannot tell whether magi has reached their message yet.
+func TestAQueuedRequestWaitsThenSpinsWhenItsTurnComes(t *testing.T) {
+	s := newScript(t)
+	s.typeText("count the rows").enter()
+	s.emitAs(event.TypePromptSubmitted, event.Actor{Kind: event.ActorUser, ID: "tui"},
+		event.PromptSubmittedData{MessageID: "r1", Parts: []session.Part{{Kind: session.PartText, Text: "count the rows"}}})
+	s.typeText("headercheck").enter()
+	s.emitAs(event.TypePromptSubmitted, event.Actor{Kind: event.ActorUser, ID: "tui"},
+		event.PromptSubmittedData{MessageID: "r2", Parts: []session.Part{{Kind: session.PartText, Text: "headercheck"}}})
+
+	// Waiting: the quiet dot, and it is not the request the spinner belongs to.
+	if !strings.Contains(s.rawView(), queuedGlyph) {
+		t.Errorf("a steer waiting its turn must be marked as waiting:\n%s", s.view())
+	}
+	s.emit(event.TypeTurnFinished, event.TurnFinishedData{})
+
+	// The queue drains it as its own turn: the engine re-emits the prompt, linked back to the
+	// original, and that link is what hands the bubble the spinner.
+	s.emitAs(event.TypePromptSubmitted, event.Actor{Kind: event.ActorUser, ID: "tui"},
+		event.PromptSubmittedData{MessageID: "r3", ResurfacedFrom: "r2",
+			Parts: []session.Part{{Kind: session.PartText, Text: "headercheck"}}})
+
+	if s.m.turnReqID != "r2" {
+		t.Fatalf("the resurfaced request must own the turn, got turnReqID=%q", s.m.turnReqID)
+	}
+	for _, b := range s.m.blocks {
+		if b.reqID == "r2" && b.queued {
+			t.Error("it is running now, not waiting — the queued glyph must be gone")
+		}
+	}
+	// And it renders last, just above the answer that is about to arrive.
+	if last := s.m.blocks[len(s.m.blocks)-1]; last.reqID != "r2" {
+		t.Errorf("the request being answered belongs at the end, got %q", last.text)
+	}
+}
