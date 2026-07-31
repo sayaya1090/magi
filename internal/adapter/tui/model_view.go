@@ -783,7 +783,7 @@ func humanTokens(n int) string {
 	}
 }
 
-// footer renders the key hints, dropping the least important ones until they fit the terminal.
+// footerWidth renders the key hints, dropping the least important ones until they fit the terminal.
 //
 // It used to render all three unconditionally, and it is the one row in the frame that never
 // measured itself against the screen: at 20 columns everything else clipped correctly and the
@@ -795,10 +795,7 @@ func humanTokens(n int) string {
 // Dropped from the right: quit is discoverable elsewhere (/quit), interrupt matters while a turn
 // runs, and send is the one a new user needs. Below even that, nothing — an unreadable smear of
 // half a hint is worse than a clean empty row.
-func footer() string { return footerWidth(0) }
-
-// footerWidth is footer bounded to w cells (0 = unbounded, the old behaviour, kept for the
-// callers that compose the hints into a line they measure themselves).
+// footerWidth is the hint row bounded to w cells (0 = unbounded).
 func footerWidth(w int) string {
 	hints := [][2]string{{"enter", "send"}, {"esc", "interrupt"}, {"ctrl+q", "quit"}}
 	for n := len(hints); n > 0; n-- {
