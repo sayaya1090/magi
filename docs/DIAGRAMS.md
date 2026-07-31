@@ -100,7 +100,7 @@ flowchart TD
 | **LOOP** | 턴 구동, 스트리밍, 인터젝션 감지, 종료 게이트(선언 요구) | `loop` · `loop_gates` · `loop_stream`(stall·reasoningSpin) · `loop_helpers` · `generate_step` · `loopmap` · `interject` · `interject_queue` · `inject` · `reask` · `todos` · `config` · `plan_flags`(A/B 플래그 — 이름은 플래너 시절 잔재) · `usage_meter` |
 | **RECORD** | magi가 관측한 것 — 무엇이 돌았고 진짜 어떻게 끝났나, 워크스페이스의 현재 | `observed`(관측 판정·PIPESTATUS 노트 반영) · `observed_view`(패널 표시형) · `world_snapshot`(선언 시 새로 읽기·live jobs·기록엔 있고 디스크엔 없는 경로) · `background`(백그라운드 잡 레지스트리·tail) · `tool_outcome` |
 | **COUNCIL** | 에이전트가 `council` 툴로 부르는 3인. 질의 / 종료 선언 심의 | `council_advice`(증거 조립·심의·`complete` 시 finish 신호) · `council_events`(`councilParams`) · `council_evidence` · `council_gate`(상수·`fmtElapsed`) |
-| **GUARD** | 모델 hang·spin·반복 차단(단일 chokepoint) + 툴콜 반복·정체·배너스핀 탐지, 넛지→차단→강제종료 | `provider_guard`(idle·byte-spin·**반복** 안전망, 모든 모델 요청) · `guard`(repeat 지문 · noProgress · bannerSpin · exerciseFail) · `liveness` |
+| **GUARD** | 모델 I/O의 hang·spin 차단(단일 chokepoint) + 툴콜 반복·정체·자기되돌림·실행 처닝 관측. **관측한 것은 넛지로 말하고, 런을 멈추지는 않는다**(L3) | `provider_guard`(idle·byte-spin·**반복** 안전망, 모든 모델 요청) · `guard`(repeat 지문 · sinceProgress · noteEdit 자기되돌림 · 실행 원장) · `liveness` |
 | **CTX** | 컨텍스트 창 관리, 압축, 경험 저장/회수 | `context_window` · `context_view` · `compact` · `memory` · `recall` · `query` · `reconstruct` |
 | **IO** | 권한·정책·훅·명령 라우팅·워크플로우 | `permission` · `policy` · `hooks` · `routing` · `shellcmd` · `shellparse` · `skills` · `prompt` · `diagnose` · `execute` · `workflow` · `fork` · `scratch` |
 | **EXT** | Lua 플러그인에 노출되는 앱 API | `app_plugin_api` · `app_emit` · `app_state` |
@@ -174,7 +174,7 @@ flowchart TD
   CS -- "finish_reason 도착" --> STEP["스텝 루프 (L1)"]
   RT --> CS
   SN --> STEP
-  STEP --> TG["runGuard (L3): repeat·stall·bannerSpin"]
+  STEP --> TG["runGuard (L3): repeat·stall·self-revert"]
   STEP --> CK["워크플로 verify 명령<br/>runVerifyCmd (워크플로 모드에서만)"]
   CK --> CTO{"per-check 타임아웃<br/>기본 120s (MAGI_CHECK_TIMEOUT)"}
   CTO -- "초과" --> KILL["kill → -1 = 검증불가(거짓실패 아님)"]
@@ -734,9 +734,17 @@ sequenceDiagram
 | `MAGI_STREAM_STALL` · `MAGI_CHECK_TIMEOUT` | 120s | generate 첫토큰 stall 워치독 · 워크플로 verify 타임아웃(0=off) |
 | `MAGI_SPIN_CAP` | 400KB | reasoning-only spin 상한(guardedProvider는 2×) |
 | `MAGI_SELFKILL_GUARD` | ON | 프롬프트 단어로 자기 프로세스를 죽이는 `pkill -f` 차단 |
+| `MAGI_COUNCIL_KEEP` | ON | 위원이 **유지할 부분**도 함께 지목(자문, 결정·집계엔 무영향); off면 고칠 것만 |
+| `MAGI_TERSE_STEPS` | OFF | 스텝마다 한 줄 서사를 요구하던 문구를 뺀 프롬프트 |
 
-이 표는 **실제로 읽히는 것만** 싣는다. 코드가 더 이상 읽지 않는데 표에 남아 있던 넷 —
+이 표는 **행동을 바꾸는 A/B 스위치**만 싣는다(플래그 이름이 CLI 옵션과 1:1인 환경변수 —
+`MAGI_MODEL`·`MAGI_BASE_URL`·`MAGI_PERMISSION` 등 — 은 ARCHITECTURE §9, 터미널 폭 프로브와
+디버그 스위치는 제외). 그리고 **실제로 읽히는 것만** 싣는다. 코드가 더 이상 읽지 않는데 표에 남아 있던 넷 —
 `MAGI_STUCK_DECOMPOSE` · `MAGI_RECOVERY_RUNCAP` · `MAGI_GUARD_EXEC_EXEMPT` ·
 `MAGI_EXERCISE_CHURN_CAP` — 은 L3의 강제종료 경로와 함께 사라졌다. 목록을 갱신하려면
 `Getenv("MAGI_`/`envOff(`/`envOn(` 를 grep해서 대조하면 된다; 광고와 구현이 갈라지는 것은 이
 저장소가 반복해서 겪은 결함 유형이라, 없는 손잡이를 문서가 광고하는 쪽이 없는 것보다 나쁘다.
+**그 반대 방향도 같은 결함이다**: `MAGI_COUNCIL_KEEP`은 소스 주석이 광고하는데 **읽는 코드가
+없어** 기능 전체가 도달 불가였고(어댑터·파서·TUI 렌더는 다 살아 있었다), 이 대조로 찾아 배선을
+되살렸다. 같은 대조에서 `MAGI_STEP_VERIFY`·`MAGI_MAX_PLAN_DEPTH`도 읽는 곳 없이 주석에만
+남아 있어 그 주석과 딸린 죽은 필드를 걷어냈다.
