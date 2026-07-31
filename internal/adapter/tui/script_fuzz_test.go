@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -22,7 +23,7 @@ import (
 //
 // Seeded, so a failure is reproducible: the seed and the step are printed with it.
 func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
-	for _, seed := range []int64{4051, 4057, 4073, 4079, 4091, 4093, 4099, 4111, 4127, 4129, 4133, 4139, 4153, 4157, 4159, 4177, 4201, 4211, 4217, 4219} {
+	for _, seed := range []int64{4229, 4231, 4241, 4243, 4253, 4259, 4261, 4271, 4273, 4283, 4289, 4297, 4327, 4337, 4339, 4349, 4357, 4363, 4373, 4391} {
 		t.Run(fmt.Sprintf("seed%d", seed), func(t *testing.T) {
 			rng := rand.New(rand.NewSource(seed))
 			s := newScript(t)
@@ -144,6 +145,43 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 				}},
 				{"compaction", func() {
 					s.emit(event.TypeCompaction, event.CompactionData{Summary: "s", TokensBefore: 100, TokensAfter: 10})
+				}},
+				{"background job pane", func() {
+					// The pane strip was outside this walk entirely, and it joins the same frame
+					// the width invariant below measures. Built with the fields syncJobPanes
+					// fills in, so this is the state a real `bash background=true` produces —
+					// nothing here is reachable only from a test.
+					if len(s.m.panes) >= 4 {
+						return
+					}
+					s.m.subID++
+					s.m.panes = append(s.m.panes, &agentPane{
+						job:     fmt.Sprintf("bg_%d", s.m.subID),
+						role:    fmt.Sprintf("bg_%d", s.m.subID),
+						sub:     s.m.subID,
+						started: time.Now().Add(-time.Duration(rng.Intn(600)) * time.Second),
+						task:    "bash -c 'cd /app && make -j8 CFLAGS=-O2 all && ./run_integration_suite --verbose'",
+						live:    "compiling module 42 of 97\n",
+					})
+					s.m.dirty = true
+				}},
+				{"job exits", func() {
+					if len(s.m.panes) == 0 {
+						return
+					}
+					p := s.m.panes[rng.Intn(len(s.m.panes))]
+					if p.done {
+						return
+					}
+					p.done, p.exited, p.doneAt = true, true, time.Now()
+					p.exit = rng.Intn(2) // a clean exit and a failing one render differently
+					s.m.dirty = true
+				}},
+				{"focus a pane", func() {
+					if len(s.m.panes) == 0 {
+						return
+					}
+					s.m.focusPane = rng.Intn(len(s.m.panes))
 				}},
 				{"error", func() { s.emit(event.TypeError, event.ErrorData{Message: "the provider refused"}) }},
 				{"finish", func() { s.emit(event.TypeTurnFinished, event.TurnFinishedData{}) }},
