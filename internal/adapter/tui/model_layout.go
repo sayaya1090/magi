@@ -191,6 +191,14 @@ func (m *Model) baseChromeHeight() int {
 			}
 		}
 	}
+	if m.searching {
+		// The find bar is a row of the frame, drawn where the palette would be — and it was
+		// the one such surface that reserved nothing, so opening search made the frame one row
+		// taller than the terminal. On an alt-screen UI that does not scroll: the top row is
+		// simply gone. Measured like the modals above, so a bar that wraps reserves what it
+		// actually draws.
+		h += lipgloss.Height(m.searchView())
+	}
 	if n := len(m.paletteMatches()); !m.running && n > 0 {
 		h += n + 2 // palette rows + box border
 	}
@@ -387,6 +395,9 @@ func (m *Model) refresh() {
 		content = m.highlightSelection()
 	}
 	if m.searching {
+		// Against the transcript that was just built, not the one the query was typed over:
+		// this is the only place that knows the line numbering changed.
+		m.recomputeSearchHits()
 		content = m.highlightSearch(content)
 	}
 	m.vp.SetContent(content)
