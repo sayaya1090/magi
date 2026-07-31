@@ -247,6 +247,12 @@ type CouncilVerdictData struct {
 	Rationale  string  `json:"rationale,omitempty"`
 	Feedback   string  `json:"feedback,omitempty"`
 	Severity   string  `json:"severity,omitempty"` // plan audit: critical|warn|info on a revise — what gated the decision
+	// Cite is the fragment of the record this member said its verdict rests on, or NO-EVIDENCE
+	// when it rests on the report's substance rather than on anything observed. It is recorded
+	// because it is checkable: magi looks it up in the material the member was shown, so a reader
+	// going back through a run can see WHAT each vote was standing on — and an empty one on a
+	// "done" is itself worth seeing.
+	Cite string `json:"cite,omitempty"`
 	// Keep is this member's advisory "what a revision must preserve", recorded per member rather
 	// than only in aggregate so a run shows WHICH lens blessed WHICH part. Emitted regardless of
 	// Decision: an approving member's keep is precisely what a rewrite forced by another member's

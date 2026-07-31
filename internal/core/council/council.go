@@ -50,7 +50,13 @@ type Verdict struct {
 	Rationale  string   `json:"rationale,omitempty"`  // why
 	Feedback   string   `json:"feedback,omitempty"`   // actionable, used when Continue
 	Keep       string   `json:"keep,omitempty"`       // what the report already gets right (advisory, MAGI_COUNCIL_KEEP)
-	Weight     float64  `json:"weight,omitempty"`     // 0 = 1
+	// Cite is the fragment of the record this verdict rests on, copied verbatim by the member, or
+	// the token NO-EVIDENCE when it rests on the report's substance rather than on anything
+	// observed. magi looks it up in the material the member was shown: a quotation that is not
+	// there is an observation that did not happen, which is a substring test rather than a
+	// judgement about reasoning. See the adapter's cite.go for what that caught.
+	Cite   string  `json:"cite,omitempty"`
+	Weight float64 `json:"weight,omitempty"` // 0 = 1
 	// Severity tiers a plan-audit revise (continue) vote: only "critical" blocks the
 	// plan gate; "warn"/"info" are advisory (heeded but non-blocking). An ABSENT severity
 	// is treated as "warn" (permissive — don't block on an omitted field), but a
