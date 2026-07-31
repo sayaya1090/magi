@@ -103,7 +103,11 @@ func (a *App) noteInterjection(sid session.SessionID, turnTask, msgID, interject
 			clipSpec(turnTask, 800) + "\n\n" +
 			"Keep working on the current task; do not switch away from it. If — and only if — you are confident the new " +
 			"request should change your direction NOW, or be folded into the current task, call route_interjection " +
-			"(action \"redirect\" or \"append\") with a one-line reason. When unsure, do nothing and it stays queued."
+			"(action \"redirect\" or \"append\") with a one-line reason. When unsure, do nothing and it stays queued.\n\n" +
+			"If you simply ANSWER it in your reply — a question you can settle in a sentence, without changing what " +
+			"you are doing — say so with route_interjection action \"answered\". Otherwise it stays queued and gets " +
+			"handled a second time after this task, and the user keeps seeing it marked as waiting while you have " +
+			"already replied."
 	}
 	text += reqLine
 	a.mu.Lock()
