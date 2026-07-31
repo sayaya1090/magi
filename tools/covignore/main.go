@@ -64,6 +64,7 @@ func main() {
 	in := flag.String("i", "coverage.out", "coverage profile to filter")
 	out := flag.String("o", "", "where to write the filtered profile (default: stdout)")
 	root := flag.String("root", ".", "module root, for resolving profile paths to source files")
+	bypkg := flag.String("bypkg", "", "also write per-package totals here (package<TAB>statements<TAB>covered<TAB>percent)")
 	flag.Parse()
 
 	mod, err := modulePath(filepath.Join(*root, "go.mod"))
@@ -105,6 +106,65 @@ func main() {
 	for _, l := range res.kept {
 		fmt.Fprintln(w, l)
 	}
+	if *bypkg != "" {
+		f, err := os.Create(*bypkg)
+		if err != nil {
+			fail(err)
+		}
+		defer f.Close()
+		for _, r := range packageTotals(res.kept) {
+			fmt.Fprintf(f, "%s\t%d\t%d\t%.1f\n", r.pkg, r.stmts, r.covered, r.percent())
+		}
+	}
+}
+
+// pkgTotal is one package's share of the FILTERED profile.
+type pkgTotal struct {
+	pkg            string
+	stmts, covered int
+}
+
+func (p pkgTotal) percent() float64 {
+	if p.stmts == 0 {
+		return 0
+	}
+	return 100 * float64(p.covered) / float64(p.stmts)
+}
+
+// packageTotals aggregates the kept blocks per package, so a per-package report agrees with the
+// total printed beside it.
+//
+// The table used to come from `go test`'s own per-package line, which is computed before any of
+// this runs — so the marked functions came off the total and stayed on the rows, and cmd/magi
+// read 50% underneath a total that had already excluded its entry point. Two numbers describing
+// the same thing, disagreeing, is worse than either one alone.
+//
+// Only packages the profile names appear, which is exactly the set that has tests: a package
+// with no test binary contributes no blocks.
+func packageTotals(kept []string) []pkgTotal {
+	idx := map[string]int{}
+	var out []pkgTotal
+	for _, l := range kept {
+		file, _, _, ok := parseBlock(l)
+		if !ok {
+			continue // the "mode:" header
+		}
+		pkg := file
+		if i := strings.LastIndex(file, "/"); i >= 0 {
+			pkg = file[:i]
+		}
+		stmts, hits := statementsAndHits(l)
+		i, seen := idx[pkg]
+		if !seen {
+			i = len(out)
+			idx[pkg] = i
+			out = append(out, pkgTotal{pkg: pkg})
+		}
+		out[i].stmts += stmts
+		out[i].covered += hits
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].pkg < out[j].pkg })
+	return out
 }
 
 // filterProfile drops the blocks belonging to marked functions and reports on what it did.

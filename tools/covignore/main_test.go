@@ -299,3 +299,40 @@ func TestReadingAProfileSkipsBlanksAndSurvivesALongLine(t *testing.T) {
 		t.Error("a missing profile was accepted")
 	}
 }
+
+// The per-package table is aggregated from the FILTERED profile, so it agrees with the total
+// printed beside it. It used to come from `go test`'s own per-package line, which is computed
+// before any filtering — cmd/magi read 50% underneath a total that had already excluded its
+// entry point, and two numbers describing the same thing disagreeing is worse than either.
+func TestPerPackageTotalsAggregateTheKeptBlocks(t *testing.T) {
+	got := packageTotals([]string{
+		"mode: atomic",
+		"example.com/m/a/x.go:1.1,2.2 3 1",
+		"example.com/m/a/y.go:1.1,2.2 1 0",
+		"example.com/m/b/z.go:1.1,2.2 2 5",
+		"example.com/m/b/z.go:4.1,5.2 2 0",
+	})
+	if len(got) != 2 {
+		t.Fatalf("packages: %+v", got)
+	}
+	if got[0].pkg != "example.com/m/a" || got[0].stmts != 4 || got[0].covered != 3 {
+		t.Errorf("a: %+v", got[0])
+	}
+	if p := got[0].percent(); p < 74.9 || p > 75.1 {
+		t.Errorf("a is %.1f%%; want 75", p)
+	}
+	if got[1].pkg != "example.com/m/b" || got[1].stmts != 4 || got[1].covered != 2 {
+		t.Errorf("b: %+v", got[1])
+	}
+	// Sorted, because it is read as a table and a map is not an order.
+	if got[0].pkg > got[1].pkg {
+		t.Error("the rows are not sorted")
+	}
+	// A package with nothing measurable reports 0 rather than dividing by it.
+	if p := (pkgTotal{pkg: "empty"}).percent(); p != 0 {
+		t.Errorf("an empty package reports %.1f%%", p)
+	}
+	if n := len(packageTotals([]string{"mode: atomic"})); n != 0 {
+		t.Errorf("a header-only profile produced %d rows", n)
+	}
+}
