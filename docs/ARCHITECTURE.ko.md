@@ -1,7 +1,7 @@
 # magi — 아키텍처 (현행)
 
-이 문서는 magi를 개발하기 위한 **as-built(실제로 지어진 대로)** 레퍼런스다. `DESIGN.md`,
-`SPEC.md`, `PLAN.md`는 최초 설계 의도와 로드맵이며(근거와 결정 D1–D13을 남겨두기 위해 보존),
+이 문서는 magi를 개발하기 위한 **as-built(실제로 지어진 대로)** 레퍼런스다. `DESIGN.md`와
+`SPEC.md`는 최초 설계 의도이며(근거와 결정 D1–D13을 남겨두기 위해 보존),
 **이 문서와 어긋나면 이 문서가 이긴다.**
 영문 원본: [`ARCHITECTURE.md`](ARCHITECTURE.md).
 그림으로 보는 짝: [DIAGRAMS.md](DIAGRAMS.md) — 최상위 컨테이너에서 **클래스 다이어그램**까지

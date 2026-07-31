@@ -1,8 +1,8 @@
 # magi — Architecture (current)
 
-This is the **as-built** reference for developing on magi. `DESIGN.md`, `SPEC.md`,
-and `PLAN.md` are the original design intent / roadmap (kept for rationale, decisions
-D1–D13); where they disagree with this file, **this file wins**.
+This is the **as-built** reference for developing on magi. `DESIGN.md` and `SPEC.md` are the
+original design intent (kept for rationale, decisions D1–D13); where they disagree with this file,
+**this file wins**.
 Visual companion: [DIAGRAMS.md](DIAGRAMS.md) — one axis from the top-level container down to
 **class diagrams**: L0 process boundary, L1 turn lifecycle, L2 component map, L3–L4 the
 nudge/gate and model-I/O guard flows, L5 core domain types, L6 ports → adapters, L7 the
