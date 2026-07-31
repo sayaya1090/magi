@@ -530,8 +530,8 @@ func (c *Client) consume(ctx context.Context, cancel context.CancelFunc, body io
 		// all delivers no fragment that could be mistaken for a whole answer, and an empty turn
 		// is deliberately a clean no-op (TestEmptyStreamGraceful) — that contract stands.
 		emit(ctx, ch, port.ProviderEvent{Type: port.ProviderError,
-			Err: errors.New("the model stream ended without finishing: no finish_reason and no [DONE] arrived, " +
-				"so the reply above is cut off rather than complete")})
+			Err: fmt.Errorf("%w: no finish_reason and no [DONE] arrived, "+
+				"so the reply above is cut off rather than complete", port.ErrStreamCut)})
 	case err == nil || errors.Is(err, errStreamComplete):
 		// Clean end: `[DONE]`, EOF after finish, or our finish-driven stop.
 	case sawFinish:

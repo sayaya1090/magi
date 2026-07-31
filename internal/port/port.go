@@ -6,6 +6,7 @@ package port
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/core/artifact"
@@ -53,6 +54,13 @@ const (
 	ProviderUsage     ProviderEventType = "usage"
 	ProviderError     ProviderEventType = "error"
 )
+
+// ErrStreamCut marks the one provider failure that is not a failed request: the stream carried a
+// reply and then ended with neither finish_reason nor [DONE]. What arrived is a PREFIX of an
+// answer — the same fact a finish_reason of "length" states, arrived at by a dropped connection
+// instead of a token budget — so the loop treats it that way rather than ending the run. Callers
+// test it with errors.Is; the message stays on the wrapped error so the log still reads plainly.
+var ErrStreamCut = errors.New("the model stream ended without finishing")
 
 // ProviderEvent is one normalized item from an LLM stream.
 type ProviderEvent struct {
