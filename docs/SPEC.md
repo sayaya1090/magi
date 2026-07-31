@@ -197,27 +197,8 @@ recon-1: log = [session.created, prompt.submitted(user "add a test"),
 - R4 `usage` 청크 → `usage`.
 - R5 깨진 JSON 라인 → 스킵(스트림 계속).
 - R6 **종결=finish_reason**(not `[DONE]`): 일부 백엔드(Ollama 클라우드 게이트웨이)가 `[DONE]`을 늦추거나 생략한 채 연결을 열어둬 리더가 벽시계까지 매달리는 걸 방지 — finish_reason(+trailing usage) 도착 시 종료, epilogue grace(`streamEpilogueGrace`)로 backstop.
-- R7 **stall 워치독**(`consumeStream`+`streamStallTimeout`, 기본 120s, `MAGI_STREAM_STALL`, 0=off): 백엔드가 요청 수락→200→**아무 이벤트도 안 보내는** hang을 유휴시간(마지막 이벤트 이후 경과)으로 감지해 중단 — 메인 generate의 read가 턴 벽시계(45분)까지 매달리던 것 봉합(실측: cobol-modernization 침묵 hang). **이벤트마다 리셋**이라 토큰/reasoning을 흘리는 느린-생성엔 오발 없음. **첫 토큰 전 침묵**(출력 0)=`streamStep.stalled`→메인 루프가 같은 요청 재발행(`maxStreamStallRetries`=2, 커밋된 출력 없어 안전), 소진 시 에러; **생성 도중 freeze**는 중단하되 부분출력 보존·재시도 안 함. 노트생성 side call(`specMineCall`: spec-mine·curator·check-audit)은 reasoning을 **thinking 하트비트**로 노출(약모델 hang↔사고중 구별).
+- R7 **stall 워치독**(`consumeStream`+`streamStallTimeout`, 기본 120s, `MAGI_STREAM_STALL`, 0=off): 백엔드가 요청 수락→200→**아무 이벤트도 안 보내는** hang을 유휴시간(마지막 이벤트 이후 경과)으로 감지해 중단 — 메인 generate의 read가 턴 벽시계(45분)까지 매달리던 것 봉합(실측: cobol-modernization 침묵 hang). **이벤트마다 리셋**이라 토큰/reasoning을 흘리는 느린-생성엔 오발 없음. **첫 토큰 전 침묵**(출력 0)=`streamStep.stalled`→메인 루프가 같은 요청 재발행(`maxStreamStallRetries`=2, 커밋된 출력 없어 안전), 소진 시 에러; **생성 도중 freeze**는 중단하되 부분출력 보존·재시도 안 함.
 - R7b **모델 I/O 단일 가드**(`guardedProvider`, `provider_guard.go`): **모델에 대한 모든 요청**(메인 generate·플래너·카운슬·모든 side call)은 생성 시점에 `GuardProvider`로 감싼 provider의 **단일 `StreamChat` chokepoint**를 통해 송수신된다(`providerFor`가 반환하는 것 전부 가드됨 — 각 소비자 워치독의 whack-a-mole 대체). R7의 `consumeStream`(행동 가드: stall-retry·reasoningSpin)이 **메인 generate에서 먼저** 발화하고, guardedProvider는 그 **위 안전망**(임계값 2×)으로 자기 처리가 없는 경로를 backstop한다. 세 실패 모드 취소: **침묵 백엔드**(idle ≥ 2×`streamStall`), **byte-spin**(완료 없이 ≥ 2×`spinCap`), **degenerate 반복**(꼬리에 짧은 단위가 back-to-back ≥128B·≥3회 — 같은 문장/단어 무한 loop; `MAGI_REPEAT_CAP` 기본 on, 꼬리 4KB·256B마다 검사, ~800KB byte-cap을 기다리지 않고 수백 B 만에 중단). 순수-공백 단위(빈 줄)는 반복으로 안 봄, 비반복 꼬리는 첫 비교에서 mismatch라 스캔 저렴.
-- R7c **체크 per-check 타임아웃**(`runTypedCheck`+`runVerifyCmd`, `MAGI_CHECK_TIMEOUT` 기본 120s, 0=off): deliverable-check 실행은 턴 컨텍스트만 상속하던 것을 bash 툴(120/600s)처럼 per-check로 바운드 — 블로킹 체크(끝나지 않는 `source`: fifo·디바이스 파일, 또는 오퍼레이터 워크플로 verify 커맨드가 장시간인 경우)가 턴 벽시계까지 매다는 것 방지. 타임아웃 kill=**검증불가**(거짓실패 아님 — 산출물을 실패로 안 봄, 판정만 유보): 워크플로 경로는 exit -1, 타입드 경로는 126이며, 후자는 시그널 종료가 exit code만으론 '읽을 수 없는 파일'과 구별 안 되므로 `ctx.Err()`로 판별한다.
-
-```
-sse-1: 'data: {"choices":[{"delta":{"content":"Hel"}}]}'  ⇒ {text-delta, "Hel"}
-sse-2: 'data: {"choices":[{"delta":{"content":"lo"}}]}'   ⇒ {text-delta, "lo"}
-sse-3: 'data: [DONE]'                                     ⇒ {finish}
-sse-4: 'data: {bad json'                                  ⇒ skipped, stream continues
-```
-
-### F-LLM-TOOLS-NATIVE — 네이티브 tool_calls
-규칙: `delta.tool_calls[]`(name+arguments 조각)를 누적, 완성 시 `tool-call`.
-
-```
-native-1: tool_calls: name="read", args chunks build {"path":"x"}  ⇒ {tool-call, read, {path:"x"}}
-native-2: arguments split across 3 chunks                          ⇒ 1 tool-call after accumulation
-```
-
-### F-LLM-TOOLS-FALLBACK — 프롬프트 기반 폴백 ★(gocode 교훈)
-규칙:
 - R1 네이티브 미지원 모델: 시스템 프롬프트로 "툴은 약속된 JSON 형식으로 출력" 지시.
 - R2 어시스턴트 텍스트에서 약속 형식 파싱 → `tool-call`.
 - R3 형식 위반/부분 출력 → 1회 repair 재요청, 실패 시 text 처리.
@@ -283,38 +264,8 @@ perm-4: policy=ask, user answers "always" ⇒ 1st write asks, 2nd write auto-all
 규칙: `turnTask`(넛지·council 앵커)는 step 0에 1회 동결된다. 그래서 실행 *중* 도착한 2번째 사용자 요청은 앵커에 반영되지 않아 에이전트가 진동하며 이미 끝낸 1번을 재실행하는 병목이 있었다.
 - R1 **기본=큐잉**: step>0에서 새 `ActorUser` 프롬프트 감지 시(≠현재 turnTask) `pendingInterject` FIFO에 적재 + "요청은 현재 과업 종료 후 처리되도록 큐잉됐으니 현재 과업에 집중" 결정론적 지시 1회 주입. 턴 종료 시 `startRun`이 큐를 드레인해 자기 턴으로 재부상. depth 0·비워크플로만.
 - R2 **`route_interjection`**(orchestrator 전용): `redirect`=개입으로 `turnTask` 재앵커 + reground, `append`=현재 과업에 합류(A∪개입) + reground, `queue`=명시적 유지. 흡수(redirect/append)된 개입은 큐에서 제거(`consumeInterject`)돼 재부상 안 함.
-- R3 **`replan`**(plan-eligible 전용): 작업 결과가 플랜을 불가능하게 만들 때 새 분해 + 무진전 창 리셋 요청. `honorReplan` 예산 = 턴당 최대 `maxReplansPerTurn`(2) + 직전 replan 이후 실제 툴 작업 없으면 거부(`guard.callCount()` 불변) → 스톨 가드 무한 리셋 불가. 거부 시 가드 유지 + 지시 주입. **툴 광고 게이팅**: `replan`은 `toolSpecs`에서 `planEligible(agent, depth)`(planner on·write-capable·depth<cap)인 에이전트에만 노출 — read-only/최대깊이 서브에이전트에겐 `env.Replan` nil-게이팅과 대칭으로 죽은 툴을 감춤.
-- R4 툴 Execute 콜백은 loop-local(`turnTask`/`guard`/`councilRounds`)을 못 만지므로 세션별 `turnControl` 신호만 기록하고 루프가 매 스텝 최상단에서 드레인.
+- R4 툴 Execute 콜백은 loop-local(`turnTask`/`guard`)을 못 만지므로 세션별 `turnControl` 신호만 기록하고 루프가 매 스텝 최상단에서 드레인.
 - R5 **큐 유실 방지**: 큐잉된 개입은 턴이 정상 종료면 자기 턴으로 재부상하고, 백엔드 에러/취소로 run 고루틴이 종료돼도 in-memory 맵에 고립되지 않는다 — 남은 개입을 미답변 user 프롬프트로 로그에 영속화(다음 run에서 픽업)하되 실패 중 백엔드로 즉시 재실행하진 않는다(no-retry-storm 유지). run 고루틴 post-loop 블록은 `a.mu`를 잡은 채 실행되므로 큐를 **인라인**으로 검사·삭제(자체 잠금 헬퍼 호출 금지 — 재잠금 시 고루틴 데드락).
-- R6 **idle-park aside 핸들러**(`handleAside`): R1의 소프트 지시는 orchestrator가 자기 스텝을 돈다는 전제에 얹힌다. 하지만 이번 턴의 유일한 작업이 백그라운드 explorer뿐이면 루프는 모델 실행 없이 *idle-park*(`awaitingExplorers`, F-ORCH 참조)하므로 소프트 지시가 굶는다(개입이 구두 인정만 받고 배선된 steer 툴이 발화 안 됨). 이 경로에선 **격리 컨텍스트(개입+task 클립만, 전체 트랜스크립트 미포함)의 상한 미니루프**를 돌린다. 노출 툴은 **신호·상호작용 3종뿐** — `route_interjection`·`cancel_dispatch`·`ask_user` — 이고 실행 툴(read/bash/write/`task`)은 **미노출**(격리 턴에서 델리게이트 작업을 벌이면 스타베이션/중복 재발). 즉 미니루프는 *신호만* 한다(잡담 즉답, 또는 route±cancel±clarify); 실제 재-플랜/재-디스패치는 전체 툴이 복원된 다음 정상 스텝이 수행. **enqueue-first**: route는 pending 개입을 요구하므로 미니루프 진입 전 개입을 큐잉한다. 처리 결과별 큐 처분 — routed(redirect/append)는 `turnControl` 드레인이 적용하도록 **큐에 잔류**, 해소된 잡담 응답/단독 cancel은 **여기서 consume**(자기 턴 중복 재실행 방지). "지금 전환" redirect는 `cancel_dispatch` 동반이 기대된다(프롬프트 지시) — 단독 redirect는 무손실이나 explorer 보고 후 synthesis 대상만 재앵커. park **진입 전** 쌓인 개입(예 계획단계)은 같은 핸들러로 park-entry flush(`pendingInterjectTexts` 스냅샷)돼 턴 종료까지 굶지 않는다. depth 0·비워크플로만.
-
-```
-steer-queue-1:    A 실행 중 B 도착, route 미호출        ⇒ A 앵커 유지 + B 큐잉, 턴 종료 후 B가 자기 턴
-steer-redirect-1: route_interjection redirect            ⇒ turnTask=B로 재앵커, 넛지가 B 재접지 + reground
-replan-budget-1:  replan×2 (작업 사이) 후 3번째           ⇒ 캡 도달로 거부, 스톨 가드 유지
-replan-nowork-1:  직전 replan 이후 무작업 상태로 재호출    ⇒ 거부(back-to-back churn)
-replan-gate-1:    read-only/최대깊이 에이전트 toolSpecs   ⇒ replan 미노출(plan-eligible만 광고)
-steer-drain-err-1: 개입 큐잉 상태에서 턴이 에러로 종료      ⇒ 개입은 로그에 영속(유실 X)·즉시 재실행 X
-aside-park-chat-1: idle-park 중 잡담 도착                 ⇒ 격리 미니루프 즉답 + consume, 재-park (route X)
-aside-park-steer-1: idle-park 중 "docs만" 도착           ⇒ cancel_dispatch+route_interjection redirect, park 깨고 다음 스텝 재-디스패치
-aside-park-flush-1: 계획단계 큐잉분이 park 진입 전 존재    ⇒ park-entry flush로 즉시 처리(턴 종료 대기 X)
-```
-
-### F-LOOP-RECURSION — bounded recursion (D7)
-규칙: depth>3 거부 / 동시>8 큐잉 / 누적>50 차단 / 토큰예산 초과 graceful stop / 사이클 감지.
-
-```
-rec-1: agent at depth=3      → task spawn       ⇒ rejected ERR("max depth")
-rec-2: 8 agents running      → 9th spawn        ⇒ queued (not rejected)
-rec-3: cumulative=50 reached → 51st spawn       ⇒ rejected ERR("agent budget")
-```
-
-- **감독자 리스(supervisor lease)**: 각 서브에이전트 시도는 엘라스틱 시간 리스를 갖고, 만료 시 (a) **툴 in-flight**(`toolInFlight`, 포그라운드 빌드/테스트/자작 스크립트 — 이름 무관)면 결정적 extend, (a′) 자식이 **자체 카운슬/플랜 side-call 중**(`deliberating` — 스트림·툴 없이 조용하지만 활성 작업)이면 결정적 extend(라운드 캡·backstop이 멈춘 게이트를 여전히 바운드), (b) `MAGI_SUBAGENT_PROC_LEASE`(기본 on): 자식이 소유한 **매기-관리 백그라운드 프로세스**(`bash{background:true}`로 띄운 job, PID 추적)가 **CPU를 실제로 쓰고 있으면**(리스-만료 시점에 ~400ms 창으로 CPU-time 델타 샘플, 임계 이상) extend — 재시작이 그 작업을 더 빠르게 만들지 못하므로 churn 아님, (c) 둘 다 아니면 판사(`judgeLease`)가 중재(waiting-majority 결정적 체크 → LLM 판정). 모든 extend는 **backstop**(`subagentBackstop` = `subagentCapMaxFactor`×`SubagentTimeout`)이 총량 캡. **경계**: CPU 델타≈0인 idle/wedged 프로세스는 extend 안 됨(멈춘 서버 무한연장 방지); 포그라운드 raw `scp … &`로 분리된 손자 프로세스는 미추적(프로세스-그룹 집계 필요, 스코프 밖); darwin은 CPU 델타 폴백이 0이라 게이트가 liveness로만 degrade(워커 = Windows/Linux 기준). 실증: 플렉서스 #224 원격 다운로드가 오프-툴 백그라운드 전송 중 churn 오판·KILL→무한 재계획.
-
----
-
-## F-COMPACT — 컨텍스트 압축
-규칙:
 - R1 컨텍스트 토큰이 임계치(모델 window의 X%) 초과 시 자동 압축.
 - R2 오래된 메시지 요약 → `compaction` 이벤트 append(원본 보존).
 - R3 이후 컨텍스트 = 최신 compaction 요약 + 그 이후 이벤트.
@@ -335,7 +286,7 @@ compact-ctx-3: Compact command issued                   ⇒ immediate compaction
 - R3 **non-TTY 감지** → TUI/컬러/스피너 비활성(CI 안전).
 - R4 종료코드: 성공 0, 에러 비0.
 - R5 stdin 파이프로 프롬프트 입력.
-- R6 **카운슬 이의는 표가 아니라 본문이 증거다**(`councilFeedbackLines`): 헤드리스 로그는 `council round N: continue — a/b`처럼 **tally만** 찍고, 그 continue를 만든 요구는 다음 턴에 주입되는 프롬프트를 통해서만 흘러 `PromptSubmitted` 노트의 **200자 truncate**에 걸렸다 — 게다가 keep-list 권고가 피드백 **위에** 붙어 그 200자를 먼저 소진하므로, 턴을 계속 열어둔 요구가 **로그 어디에도 남지 않았다**(실측: 3라운드 continue의 주제를 모델의 패러프레이즈로만 역추적 가능). 그래서 `CouncilDecided`가 **피드백 본문 자체를 자기 case로** 렌더한다 — 줄 단위(≤12줄 × ≤200자, 초과분은 "feedback continues"), 이미 `PlanRevised` diff가 같은 이유로 쓰는 방식. 로그는 사후 진단의 유일한 기록이므로 tally는 요약이지 증거가 아니다.
+- R6 **카운슬 이의는 표가 아니라 본문이 증거다**: 헤드리스 로그는 `council round N: continue — a/b`처럼 **tally만** 찍고, 그 continue를 만든 요구는 다음 턴에 주입되는 프롬프트를 통해서만 흘러 `PromptSubmitted` 노트의 **200자 truncate**에 걸렸다 — 게다가 keep-list 권고가 피드백 **위에** 붙어 그 200자를 먼저 소진하므로, 턴을 계속 열어둔 요구가 **로그 어디에도 남지 않았다**(실측: 3라운드 continue의 주제를 모델의 패러프레이즈로만 역추적 가능). 그래서 `CouncilDecided`가 **피드백 본문 자체를 자기 case로** 렌더한다 — 줄 단위(≤12줄 × ≤200자, 초과분은 "feedback continues"), 이미 `PlanRevised` diff가 같은 이유로 쓰는 방식. 로그는 사후 진단의 유일한 기록이므로 tally는 요약이지 증거가 아니다.
 
 ```
 headless-1: magi -p "hi" --output json  ⇒ JSONL events to stdout, exit 0
@@ -352,42 +303,26 @@ headless-6: 장문 피드백                    ⇒ 12줄에서 절단 + "feedba
 
 > 지금 과도 명세 금지(설계 변동 위험). 진입 시 규칙+예시 추가.
 
-## F-COUNCIL (루프 트랙) — 합의 종료 게이트(D14, 출하 M9)
-시그니처 기능. 루프 종료 판정을 단일 모델에서 **3인 council**로 옮긴다(상세 PLAN §4.2). **기본 on** — `[council] enabled=false`로 끈다.
+## F-COUNCIL — 에이전트가 부르는 카운슬(D14)
+시그니처 기능. 3인 카운슬이 같은 기록을 서로 다른 렌즈로 읽고 답한다. **기본 on** — `[council] enabled=false`로 끈다.
+
+> ⛔ **한 번 뒤집혔다.** 예전엔 루프의 자연종료 지점을 카운슬이 **스스로 가로채는 게이트**였다. 그 배치가 카운슬이 옳게 정할 수 없는 두 가지를 정해버렸다 — **언제** 묻는가(에이전트가 이미 마음을 정한 그 순간)와, 그 답이 읽히기는 하는가(헤드리스에선 자문 주입과 `turn.finished`가 같은 틱이라 안 읽혔다). 지금은 **에이전트가 `council` 툴로 부른다**: `{question}`은 자문, `{complete:true}`는 **종료 선언**이며 위원이 받아들이면 루프에 신호가 간다. 아래 R5·R6·R8은 그에 맞춰 다시 썼다.
 
 규칙:
 - R1 `core/council.Tally(verdicts, rule)`는 **순수 함수** — 동일 입력 동일 출력, I/O 없음.
 - R2 합의규칙: `unanimous`(전원 done) · `majority`(done>50%) · `quorum:k`(done≥k) · `weighted:θ`(done 가중합/총가중≥θ) · `veto`(지정 위원 거부 시 done 무시).
 - R3 **동률·정족수 미달 → continue**(조기종료 방지). `abstain`은 분모에서 제외.
 - R4 위원 = `{Name(라벨), Lens(속성), Model, Weight}`. 기본 3인: Melchior(correctness)·Balthasar(verification)·Casper(completeness). (대체 렌즈 spec-fidelity는 설정으로 선택)
-- R5 `decision==continue` → `AggregateFeedback(verdicts)`를 `prompt.submitted`(actor=council)로 주입 후 루프 속행(Stop훅과 동일 경로).
-- R6 안전: `max_rounds` 초과 시 노트 + 강제 `turn.finished` / 연속 라운드 무진전 감지 시 정지 / depth>0은 기본 비활성.
+- R5 `decision==continue` → 위원 피드백(`AggregateFeedback`)이 **툴 결과로** 에이전트에게 돌아간다(선언이 받아들여지지 않았다는 문장과 함께). 자문 호출(`{question}`)이면 판정 없이 읽을거리만 돌아가고, 표는 렌더하지 않는다 — 표를 세는 건 게이트가 하던 일이고 숫자는 다수를 명령으로 읽게 만든다.
+- R6 안전: 심의는 에이전트가 부를 때만 일어나므로 **라운드 폭주 자체가 구조적으로 없다**. 대신 종료 경로가 선언을 요구하고(`requireFinishDeclaration`), 그 요구는 **무진전 구간당 3회**로 경계된다 — 마지막 요구 이후 실제 파일 뮤테이션이 있으면 예산이 재시작한다.
 - R7 이벤트: `council.convened`·`council.verdict`(위원별)·`council.decided` 영속, `council.deliberating` 전이. 개별 deliverable-check 실행결과는 **`step.check`**(step·deliverable·source·assert·exit·pass 구조화 필드; 모델이 커맨드 모양으로 저술했던 흔적은 command/expect로 함께 실리되 **평가되지 않는 비활성 데이터**)로 영속 — council 투표가 아니므로 라운드/tally 없는 자기 이벤트로 기록·렌더(우측 패널 Completion checks는 이 결과로 ✓/스피너/• 글리프 표시; 스트림엔 `✓/✗ check [step] deliverable` 한 줄). 과거엔 `council.decided`(Forced, note="check […]")로 실려 "round 0: finished (no consensus) — 0 done/0 continue" 오표기됐던 것 봉합.
-- R8 **게이트 범위 = 작업 턴만**: 툴을 하나도 쓰지 않은 대화 턴(인사·질문)은 게이트 스킵 — 작은 대화가 심의 루프에 갇히지 않는다. 언어 잠금은 council/훅이 주입한 user-role 프롬프트가 아니라 **실제 사용자의 마지막 프롬프트** 기준(언어 표류 방지).
+- R8 **작업 턴만 선언을 요구받는다**: 툴을 하나도 쓰지 않은 대화 턴(인사·질문)은 선언 요구를 건너뛴다 — 작은 대화가 선언 루프에 갇히지 않는다.
 - R9 **위원 투표 정책**: 위원은 자기 렌즈로 **구체적·실재하는 결함**(실패 시그널·report가 드러내는 미충족 계약·명백한 오류)을 짚을 때만 `continue`(피드백에 다음 스텝 명시), 과제를 합당히 만족하면 `done`, 렌즈로 판단 불가면 `abstain`. **증거(diff/signal)의 부재 자체는 결코 `continue` 사유가 아니다** — 조사·읽기·분석·응답 턴은 원래 diff가 없으며, 없는 산출물을 요구하는 게 만성 churn의 주원인. 증거는 *있으면* 활용하고, 없으면 report/과제로 판단하거나 abstain. council 증거의 diff는 **untracked 신규 파일 내용까지 포함**(임시 `GIT_INDEX_FILE` 인덱스, 실제 인덱스 불변) → 갓 만든 파일도 증거로 보임.
   - **R9a 목적만 전달, 방법은 위임**: 위원이 스스로 검증 절차를 발명할 때(카운슬이 만든 요구, 과제가 명시한 리터럴 계약이 *아닌* 경우)는 **무엇이 참임을 보여야 하는가(목적)만** 피드백에 담고 **어떻게 확인할지는 에이전트에 맡긴다** — 특정 조사 명령(`ps`/`netstat`/`lsof`/`curl`)을 못박지 않는다(그 도구가 환경에 없으면 목적이 이미 충족돼도 영원히 미충족이 됨: kv-store-grpc run17 실증, `ps: not found`). **이미 end-to-end 기능 성공이 보이면**(예: 클라이언트 호출이 올바른 응답을 받음) 그것이 "must respond/run"을 **충족**한다 — 그 위에 프로세스/포트 목록을 추가로 요구하는 건 ritual churn이고, 기능 성공은 프로세스 목록보다 강한 증거. (단 **과제가 리터럴 명령/입출력/수치를 명시**한 경우는 그 정확한 것 그대로 요구 — brief-paraphrase false-done 방어는 유지.)
   - **R9b 메인의 반박(CONTEST) — 제거만**: continue 주입 시 메인에게 어포던스를 준다 — 카운슬 요구 중 특정 항목이 **이미 제시된 증거로 충족**됐거나 **명시된 방법이 이 환경에서 불가능**(예: 없는 도구)한데 그 목적은 이미 달성됐다면, 헛되이 순응(churn)하지 말고 리포트에 `CONTEST: <요구> — <이미 충족/불가능이라는 구체 증거>` 한 줄로 되받아친다. 카운슬은 다음 라운드에 **그 증거를 심의**: 유효하면 그 요구를 **재발행 금지**(done 투표하거나 *다른* 실재 결함 명시), 무효(구체 증거 없이 done 재주장)면 무시. **반박은 그 한 항목을 제거할 뿐, 그 자체가 task done의 증거는 아니다** — 나머지 요구는 각자 merit로 판정, done은 여전히 카운슬이 독립 결정. 카운슬 존재이유(거짓 done 차단)를 지키는 격리. [[review-gate-removed]] 계열과 상충 없음(게이트 제거가 아니라 증거-게이트 반박).
 - R10 **무변경 턴 신호(NoChanges)**: diff가 (성공적으로) 비고 signal도 0이면 그 턴은 **변경 없는 read-only/조사/응답 턴**으로 판정해 `DeliberationRequest.NoChanges`로 council에 알린다 → 위원은 "검증할 산출물이 없는 작업"임을 알고 합당한 report를 승인(R9). **합의규칙은 그대로 보존**(완화/quorum:1 미사용) — 게이트가 돌 땐 언제나 진짜 합의. 단 **GitDiff 실패**(비-git 등)는 "변경 없음"으로 보지 않음(실제 쓰기 턴 오판 방지). 전원 abstain이면 무진전 가드가 종료.
-- R11 **독립투표 이후 강화**(각 플래그 기본 on): ①**반박 라운드**(`MAGI_COUNCIL_DEBATE`) — would-be-done이 SPLIT(일부 done/일부 continue)일 때 위원을 1회 재폴링(각자 타 위원 근거 보고 유지/변경) → 한 위원이 잡은 실결함이 코인플립 다수결에 묻히지 않음. ②**데빌**(`MAGI_COUNCIL_DEVIL`) — 무-split done(아무도 반대 안 함)에 지정 적수가 최강의 "미완" 논변을 제기하되, 그 우려를 위원이 **비판적으로 재판정**(데빌은 일부러 결함을 찾으니 과잉·과제-무관일 수 있음) → 실결함이면 continue, 헛것이면 기각. **데빌은 구속력 투표가 아니라 검토 입력**(veto 아님). ③**keep**(`MAGI_COUNCIL_KEEP`, 자문) — 각 위원이 이미 맞는 부분을 명시 → continue 피드백 위에 실려 재작업이 정착된 부분을 되돌리지 않게 함(plan-audit 리비전에도 동일하게 실림).
-- R12 **타입드 deliverable-check**(`MAGI_STEP_VERIFY`): plan-audit council이 스텝별 체크를 **커맨드가 아니라 데이터**로 제안(`{step, deliverable, source, assert}` — `source`=스텝이 진짜 출력을 기록한 경로, `assert`=magi가 소유한 **닫힌 어휘**의 동사 하나: `nonempty`·`matches <regexp>`·`absent <regexp>`·`equals <path>`·`port_open <port>`·`process_alive`) → `app/check_assert.go`가 **argv 배열로 invocation을 구성해 실행**(경로 어디에도 셸 없음). 실패 체크는 종결 투표가 못 덮는 하드 `deliverable-check` 시그널. 위임 워커의 **acceptance 체크리스트**로도 쓰이고 TUI 메인 플랜 패널 + council/subagent 상세뷰에 표시(F-PLAN-REC).
-  - **왜 데이터인가(금지가 아니라 표현불가)**: 모델이 저술한 셸 체크는 리뷰가 못 잡는 방식으로 틀린다 — ⓐ자기증거(`grep … > /tmp/a.txt && test -s /tmp/a.txt`: 단언할 증거를 **체크가 만든다**), ⓑ영구 거짓실패(`… || true; test $? -ne 0`: `$?`가 항상 0이라 **모든 세계 상태에서 exit 1**), ⓒ작업 재수행(`cd src && make world`: 게이트 사이클마다 스텝 일을 다시 함). 명령 텍스트를 읽어 막는 방어는 성립 안 함 — 이름 denylist는 `/bin/rm`으로, 리다이렉트 스캔은 `sh wrapper.sh`로 우회되고 새 패턴마다 한 겹 간접이면 무력화된다. 감쌀 수 없는 성질은 **구조적**인 것뿐이다: **셸을 놓을 자리를 없앤다**. 세 결함 모두 새 스키마에선 *표현 불가능*하고, 모델이 준 경로·패턴의 메타문자는 argv 원소의 평범한 바이트라 탈출할 커맨드라인 자체가 없다.
-  - **게이트가 말하는 exit 언어**: `0`=통과, `1`=**산출물** 실패(스텝이 끝내 기록 안 한 `source` 포함 — `cat missing`과 `test -s missing`이 구별 안 되던 것을 이제 산출물 실패로 정직하게 보고), `126`=**체크 자체**를 평가 못 함(모르는 동사·`assert` 없음·주체 없음·per-check 데드라인 kill → 판정 없음, 스텝은 실패가 아니라 **ungated 착지**), `-1`=플랫폼 없음. 체크 실행은 `runTypedCheck`가 `checkCmdTimeout`(R7c)으로 **per-check 바운드** — 블로킹 source(fifo·디바이스 파일)가 턴 벽시계까지 매다는 것 방지, 데드라인 kill은 시그널 종료라 exit code만으론 "읽을 수 없는 파일"과 구별 안 되므로 **컨텍스트로 물어** 126(판정 없음)으로 착지시킨다(거짓실패 금지).
-  - **포기한 것과 그 대가**: 체크가 더 이상 산출물을 **실행할 수 없다** — 그건 이제 **스텝**의 몫이고(실제로 돌리고 진짜 출력을 파일로 기록), 체크는 기록된 것을 **읽는다**. sufficiency 계약(행동을 구동하고 진짜 결과를 단언)은 그대로이고 **행위자만 옮겼다**. 그 대신 열리는 구멍 — 스텝이 **날조된 결과를 기록**하는 경우 — 은 **provenance 감사**가 막는다: magi 자신의 툴호출 기록을 읽어 그 `source`를 만들어낸 실행이 실제로 있었는지 확인(`app/check_shell.go`가 워커가 이미 돌린 커맨드를 **읽기만** 하며 세그먼트; 실행 없음). 현재는 pass에만 붙는 **보고**(하드 페일 아님 — 위양성률이 측정되기 전엔 판정으로 승격하지 않음).
-
-  세 단계로 강화:
-  - **①체크 검증 패스**(`MAGI_CHECK_VALIDATE`, `validateChecks`): 체크가 게이트가 되기 **전에** tool-free 리뷰가 각 체크를 수리/폐기. 타입드 스키마 이후 이 패스의 **첫 임무는 변환**이다 — 모델이 커맨드 모양으로 저술했으면 그 의도를 `source`/`assert`로 옮겨 적고(저장 전에 하므로 커맨드는 끝내 실행되지 않는다), 변환 후에도 `assert`가 비면 `ensureRunnableChecks`가 1회 재요청. 나머지 수리 목록은 결함 *클래스*로 유효하다(이제 타입드 필드에서 같은 판단을 한다) — 단언이 자기 `source`로는 절대 만족될 수 없는 경우(`sort -u`가 동일 두 버전을 하나로 합치는데 expect는 둘을 요구 → 영원히 거짓실패), 미설치 도구(`ss`/`netstat`→python socket), 파일존재-only(→행동실행), **작업≠체크 위반**(아래), **하드코딩 절대 툴경로**(`/usr/bin/pip3`→PATH가 찾는 bare `pip3`/`python3 -m pip`; 다른 이미지선 `/usr/local/bin`·venv shim이라 절대경로는 거짓실패), **툴-파생 파일명**(제너레이터가 실제 내는 이름 존중: `grpc_tools`는 `kv-store.proto`→언더스코어 `kv_store_pb2.py`만 내므로 하이픈 파일명을 grep하는 체크는 절대 통과 못 하고 rename↔import-깨짐 unwinnable 루프 유발 — 실제 출력명으로 재작성). best-effort(끝내 못 쓰면 원본 유지). **쓸 수 없는 응답은 1회 재요청**(`retryCheckAudit`, 정확히 2콜·루프 아님): 두 실패 모양은 서로 다른 결함이라 리마인더도 다르다 — ⓐ파싱 불가(산문·감싼 객체·잘린 배열)=배열만 달라(플래너 JSON-only와 동형), ⓑ`[]`(파싱은 성공, "전부 드롭")=**따를 수 없는 답**이다. `storePlanChecks`가 빈 집합에 early-return하므로 그대로 두면 플랜에 실행 게이트가 **0개**로 착지 — 나쁜 게이트를 없애는 게 아니라 게이트를 없애는 것. ⓐ와 ⓑ를 뭉뚱그리면 로그도 거짓말한다(`[]`를 "unusable (2 chars)"로 보고). 재시도 없이 조용히 원본을 쓰면 **검토가 실제로는 안 일어났는데 로그는 "수리할 게 없었다"와 구별되지 않고**, side call은 세션 기록이 없어 사후 확인도 불가 — 그래서 두 시도 모두 사유+응답 발췌를 노트로 남긴다(실증: 감사가 `[]`를 반환해 OCaml 월드를 재빌드하는 체크 4개가 미검토로 게이트에 도달). 작성 council이 자기 체크를 검토하는 "리뷰>자기검토" 원리. **necessity(over-demand 금지)**: 체크는 **태스크가 스스로 명시한 것만** 단언 — 태스크가 못 박지 않은 특정 값(버전·빌드ID·정확한 경로·타임스탬프·부수 속성)을 요구하거나 명시된 결과보다 더 요구하면 안 됨. 과잉 명세는 **정답 산출물을 영원히 거짓실패**시키고 다른 환경(그 부수값이 다른 이미지)에서 절대 수렴 못 함(실증: check-audit이 grpcio를 정확 버전으로 핀 — 그레이더는 import만 요구; base 이미지 버전이 우연히 일치해 통과했을 뿐). 최소 조건으로 좁힘: 설치 의존성은 **importable/usable**로만, 태스크가 버전을 핀할 때만 버전 검증. **sufficiency(precondition≠proof, necessity의 반대 바닥)**: 산출물에 **도달**하는 것(파일 존재·포트가 연결 수락·모듈 import·빌드 성공·프로세스 생존)은 전제조건일 뿐 계약의 증명이 아님 — 아무것도 안 하는 스텁도 전부 통과하므로 too-weak. 태스크가 산출물이 무언가를 **하라**고 명시하면(요청 응답·값 반환·입력→출력 변환·출력 생성), 체크는 그 행동을 **소비자와 같은 인터페이스로 구동해 결과를 단언**해야 하고, 스텁이 실패하도록 **실제 코드경로를 강제하는 최소 입력**을 고름(실증: 서버가 handshake는 되나 RPC 미구현인데 socket-connect 체크만 있어 거짓통과 — grpc_status 12 UNIMPLEMENTED). 약하다고 드롭이 아니라 **계약-행사 체크로 승격**. **성공한 명령도 같은 부류의 프록시다**: configure/build/install이 플래그를 달고 exit 0 했다는 것은 그 플래그가 **수용됐다**는 증거일 뿐 **효력이 있었다**는 증거가 아니다 — 계약이 어떤 설정이 *일으켜야 할 효과*라면 체크는 그 설정을 소비하는 것을 **실제로 돌려** 결과 산출물이 **태스크가 지목한 위치에** 요구된 내용으로 나타나는지 단언해야 한다. 조용히 아무 일도 안 한 설정이나, 출력이 태스크가 보지 않는 곳에 떨어진 경우 모두 명령-체크는 통과하고 진짜 체크는 실패한다(실증: 커버리지 플래그를 단 빌드가 exit 0 → 통과, 그러나 빌드는 별도 디렉토리에서 돌아 그레이더가 훑는 트리에 계수 파일이 하나도 없었음). necessity(천장, 태스크보다 더 요구 금지)와 함께 체크를 태스크의 실제 계약에 정확히 브래킷. **de-overfit 불변식**: 위 프롬프트 규칙의 **예시는 태스크-무관**이어야 함 — eval-set 특정 태스크의 정확한 명령·파일명·값을 모델이 보는 프롬프트에 verbatim으로 박으면 그 자체가 벤치 오버피팅(테스트 대비 프롬프트 튜닝)이므로, 원칙 문장은 유지하되 예시는 중립 플레이스홀더로(`check_validate_test`·`council_test`의 no-eval-set-specifics 가드로 회귀 방지).
-  - **작업과 체크 분리**(멱등·무변경 불변, 이제 **스키마가 강제**): 체크 절차는 **멱등해야 하고 어떤 상태 변경도 없어야** 함 — 몇 번을 돌려도 결과가 같고 부작용이 없는 read-only 검증. 스텝의 **작업을 수행/재수행/대체하면 안 됨**. 예전엔 이게 프롬프트 조언이라 check-audit `[]` 한 방에 증발했고(체크 4개가 OCaml 월드를 재빌드), 그 다음 세대는 리드온리 셸(변이 명령 섀도잉→exit 126)로 실행 지점에서 강제했다. 지금은 **셸 자체가 없어** 위반이 표현 불가능하다 — 아래 예시들은 여전히 *왜* 그런지에 대한 설명으로 유효하되, 방어는 프롬프트도 런타임 섀도잉도 아닌 **스키마**다. 산출물을 *만드는/바꾸는* 명령(압축/다운로드/빌드/생성/이동/삭제: `tar -czf`, `scp`/`rsync`, `rm`, `mv`, 산출물을 쓰는 `>` 리다이렉트, `git commit`)은 **작업이지 체크가 아님** — 체크로 돌리면 매 검증마다 작업을 다시 하고(비멱등), 사소한 일시 오류에도 게이트가 거짓실패해 **재실행 루프**에 빠짐(실증: 원격 벤치 다운로드 스텝의 체크가 `ssh … 'tar -czf …'`로 원격 재압축→exit 1→다운로드 무한 재실행). 대신 **이미 만들어진 산출물을 최종 위치에서** 멱등하게 프로브(`test -s out`, `tar -tzf f.tgz`, 빌드된 바이너리 실행). 중간물이 아니라 스텝이 명시한 **자기 산출물**을 검증.
-  - **스텝 스코핑 + 단계 간 무모순**(체크리스트 주도): 각 체크는 **정수 스텝 번호**로 라벨돼 자기 스텝에만 귀속되고, 게이트(`verifyStepChecks`)도 워커의 acceptance 체크리스트(`workerChecklist`)도 **그 스텝 체크만** 봄 — 전체를 한 워커/한 게이트에 평평하게 몰지 않음. 이유: 플랜 실행 순서를 따라 체크 집합이 **동시 충족 가능(joint satisfiability)** 해야 하는데, 시점이 다른 스텝들을 한데 모으면 모순이 생김. 어떤 산출물의 **존재**를 요구하는 체크(예: 압축 스텝 `test -s a.tgz`)와 **부재**를 요구하는 체크(예: 정리 스텝 `test ! -f a.tgz`)가 **같은 시점에** 요구되면 어떤 상태로도 통과 불가. 정리/teardown 스텝의 부재-체크는 **그 스텝에서만** 검증되고, 앞선 존재-체크는 이미 앞 스텝에서 통과했으므로 공존 요구가 아님 — 뒤 스텝의 종료상태를 앞 스텝 체크리스트에 넣지 말 것. 작성 규칙: 각 스텝을 자기 **머신체크 가능한 done-조건(체크)** 과 함께 정의(산출물을 만드는 스텝은 done을 정의하는 체크를 최소 1개; read/analyze 스텝은 예외). 라벨이 하나라도 있으면 **strict 스텝 매칭**(매칭 0이면 빈 목록), **전부 무라벨일 때만** over-inform으로 전량 표시(실증: `ssh … 'tar -czf …'` 봉합 후 재실행에서 압축·해제·분석·정리 체크가 제목-라벨→매칭실패→fallback으로 한 워커에 통째 덤프돼 자기모순 체크리스트가 됨, 플렉서스 #224).
-  - **②스텝-게이트**(`verifyStepChecks`): 위임 워커가 done 보고 후 **그 스텝의 체크**(strict step-label 매칭, 크로스-스텝 오검사 금지)를 실행 → 실패면 done 안 주고 **실패사유 실어 리플랜**(재시작 루프 없음; 워커가 진짜 불가면 blocked/failed+사유 보고). ⇒ **council 도달 = 다 검증됨** 불변식.
-  - **③작성 프롬프트**: 체크는 파일존재 아닌 **행동 실행**을 증명해야 하되, 실행 주체는 스텝이다 — **RECORD AND READ가 유일한 모양**(스텝이 서버를 띄우고/프로그램을 돌려 **진짜 출력을 고정 경로로 리다이렉트**, 체크는 그 파일을 읽어 단언). task 예제(입력→출력)는 **verbatim 재현**. 커맨드-모양 응답이 와도 저장되기 전에 check-audit(①)이 타입드 형태로 변환하고, 변환 후에도 `assert` 없는 체크가 남으면 `ensureRunnableChecks`가 **1회 재요청**(정확히 1콜 추가·루프 아님). 라이브니스처럼 기록으로 증명 불가한 계약(포트가 지금 열려 있나, 프로세스가 살아 있나)만 magi 소유 프로브(`port_open`/`process_alive`, python3 — `ss`/`netstat`/`lsof` 부재 환경 대응)가 직접 단언.
-  - **④수렴 안 하는 자기 체크 → 작업물 세워둔 채 착지**(`MAGI_CHECK_CHURN_CAP`, `noteCheckFail`/`resetCheckChurn`, 기본 cap 4, `0`=off): mutation epoch가 전진(에이전트가 산출물을 편집)했는데도 **같은 deliverable 체크가 연속 N회 FAIL**이면 그 체크는 *수렴하지 않는 자기 체크*로 판정하고, 런은 **작업물(파일+백그라운드 프로세스)을 세워둔 채 UNVERIFIED로 정상 착지**한다 — 외부 verifier가 라이브 산출물을 판정하게. 체크가 PASS로 바뀌면 카운터 리셋(정상 수렴은 무영향; 편집 없는 순수 반복은 증가시키지 않아 기존 stall 경로 몫으로 남김). **외부 벽시계를 쓰지 않는 순수 내부 신호**(치팅 회피). 봉합: plan-audit가 만든 **반전 체크**(`exit(connect_ex(('localhost',P))==0)` — 서버가 *죽어야* 통과)가 done을 영원히 막고, 매 편집이 stall 창을 재충전(`mutated`)해 force-stop도 안 걸려, 살아있는 서버를 붙든 채 외부 하드킬→reward 0으로 무너지던 것(kv-store-grpc 실증). 반전 체크 자체 수정은 별건이고 이는 모델-무관 최종 안전망. **카운터는 런-스코프**: 스텝 게이트가 통과했다는 이유만으로 리셋하지 않는다 — 스텝 체크는 PASS인데(파일 존재) **council이 만족 못 할 계약을 반복 continue**하는 경우(kv-store-grpc: grpc_tools가 언더스코어로 강제 생성하는 스텝 파일을 하이픈 이름으로 grep — 한쪽을 맞추면 다른 쪽이 깨지는 unwinnable 편집 루프)도 같은 비수렴이므로, 스텝 게이트 통과가 카운터를 매 턴 0으로 지워 비수렴을 가리면 안 됨. council이 epoch 전진(편집 후) continue를 cap회 반복하면 스텝-게이트 분기와 **동일하게 UNVERIFIED 착지**(이중 카운트 방지: 이번 턴 스텝 ledger가 비어 있을 때만 council 분기가 카운트). 리셋은 **오직 진짜 council 승인**(검증 실제 수렴) 시에만.
-  - **⑤스텝 커버리지 보장**(`MAGI_CHECK_COVERAGE`, `ensureStepCoverage`, 기본 ON, `off`=작성-only baseline): 체크 개수는 plan 구조와 **묶여있지 않다** — 약한 모델은 11-스텝 플랜에 체크를 1개만 저술하고, 그러면 종료 게이트(`runStepGate`는 체크에 **나타난 스텝만** 검증)에서 나머지 10스텝이 **무검증 통과**한다. 저술된 체크가 **커버하는 distinct 스텝 수 < plan 스텝 수**면 커버리지 갭으로 보고, plan 스텝 목록 + 지금까지의 체크를 넘겨 **갭 채우기 1패스**(side call)로 미커버 *산출-생성* 스텝마다 체크를 저술한다(read/조사 스텝은 예외로 건너뜀). 채운 세트는 `storePlanChecks`에서 `validateChecks`(멱등·portable 수리)를 그대로 거친다. 채택 판정은 **개수가 아니라 distinct 스텝 커버리지**이고, 채택된 응답은 교체가 아니라 `unionChecks` **병합**이라 `authored ⊆ result`가 구조적 불변식(필이 빠뜨린 저술 체크는 커맨드 텍스트를 키로 복원, 복원 수를 노트에 표기). **쓸 수 없는 응답은 1회 재요청**(정확히 2콜·루프 아님, ①과 같은 결함 클래스를 ①에 **먹이는** 패스에서 봉합): ⓐ파싱 불가=배열만 달라, ⓑ파싱은 됐는데 커버리지 0 증가=**미커버 스텝을 번호로 나열**해 다시 요청("cover every producing step"이라는 추상 지시가 안 먹힌 자리에 답할 목록을 준다). 체크는 `step` 필드로만 스텝에 붙으므로 범위 밖·비숫자·이미 커버된 스텝 라벨은 아무것도 게이트하지 않는다는 점을 명시하되, **read-only 스텝 면제는 유지**(아무것도 안 쓰는 스텝에 체크를 지어내는 건 미커버보다 나쁨). best-effort: 플래그 off·갭 없음·전송 실패·재요청 후에도 커버리지가 늘지 않으면 **입력 그대로**(작성 세트 유지) — 다만 그 경우 노트는 "번호를 대고 다시 물었는데도 안 늘었다"를 명시해 *체크할 게 없는 스텝*인지 *필이 실패한 것*인지 모호함을 정직하게 남긴다. 리플랜이 체크를 **전량 덮어쓰는**(criteria.go `deliverableChecks=checks`) 경로도 이 패스가 덮기 **전에** 커버리지를 채우므로, "리플랜으로 11스텝인데 1체크로 덮임" 증상이 함께 봉합된다. **0-스텝 solo**(`maybePlanPreflight`가 단일영역 판정→plan-audit 미도달, 체크 0개)도 목적을 단일 합성 스텝으로 보고 같은 패스로 최소 1체크를 저술 — 위임 안 한 solo 작업이 종료 게이트에 아무 원장도 안 남기던 갈래를 봉합(실사용 실증). 봉합: `verifyStepChecks`·종료 게이트가 검증할 원장이 **plan 전체를 반영**하게 만드는 커버리지 불변식(개별 체크 정확성은 ①②③ 소관).
-  - **⑥per-step 체크 기록**(완료 훅 단일화 + 턴 경계 증분 + 종료 trust-green): 완료 체크가 종료 게이트에서 **일괄 배치** 실행되던(패널이 0/N을 유지하다 끝에 몰림) 것을 스텝 단위로 봉합. `completeThrough`(delegate/scout/refine 공통 완료 지점)가 새로 완료된 스텝마다 `recordStepChecks`로 **그 스텝 체크를 실행·기록**(멱등: 이미 ✓면 스킵 → delegate `verifyStepChecks` 게이트와 이중실행 없음). 혼합·순수 **solo** 스텝은 `executeSteps`가 안 돌리고(`default: continue`) 메인 에이전트가 자기 턴에서 처리하므로, 메인 턴 경계(depth 0)에서 **뮤테이션 에폭·실행활동(`execActivity`, 모노토닉 non-inspect exec 수)·체크셋 버전(`checksVer`) 중 하나라도 전진했을 때** `recordPendingStepChecks`로 증분 기록 + `checkOffPassedSteps`. 세 트리거가 각각 ①파일 변경 ②**런타임 액션**(서버 기동→listening, 패키지 설치→importable — 뮤테이션 없이 체크를 통과시킴) ③**재플랜의 새 체크 파생**(criteria/constraint→실행체크, 뮤테이션도 exec도 아님)을 포착 — 하나만 보면 나머지가 종료 게이트에 배치됨(패널 안 채워짐). 순수 조회(비-exec·무변경·무재플랜) 턴은 비용 0. **solo 스텝은 내내 pending**이라 frontier로 스킵하지 않고(스킵하면 솔로 작업을 놓침) 매 트리거마다 미통과 체크만 재실행(`checkAlreadyGreen` green-skip으로 통과분은 재실행 없음). 종료 `runStepGate`는 이미 ✓인 체크를 **믿고 재실행 안 함**(`checkAlreadyGreen`) — 종료는 미검증분만 도는 리컨실리에이션(배치 재검 제거). 세 경로는 공용 `runCheckRecord`(run→−1/127 스킵→`Passes`→`emitStepCheck`) primitive로 통일. 실측: kv-store step.check 3개가 종료 0.4초 창에 배치되던 것 → 스텝 완료마다 점진 기록으로 전환.
-  - **⑦체크 substitution — 실행불가 체크의 등가 대체·영구화·검토**(`substitute_check` 툴, `reviewSubstitutions`, `applyCheckSubs`, `MAGI_SUBST_REVIEW` 기본 ON, `off`=pass-through 베이스라인): 체크가 이 환경에서 평가 불가일 때(스텝이 진짜 출력을 다른 경로에 기록했거나, 단언이 이 셋업에 없는 것을 지목 — 산출물이 틀린 게 아님), 에이전트가 **같은 목표를 증명하는 등가 체크**를 `substitute_check`(step/original/**source**/**assert**/reason)로 등록 → 세션 pendingSubs. 대체본도 **타입드 데이터**라 substitution이 스키마가 없앤 셸을 뒷문으로 들이지 못한다. 이전엔 substitution이 리포트 prose 증거뿐이라 저장 체크가 깨진 원본 그대로 매 게이트 스킵돼 **휘발**했으나, 이제 승인 시 `applyCheckSubs`가 저장 체크의 Source/Assert를 **작동하는 쌍으로 재작성**(Original 매칭, 무매칭이면 그 스텝에 append) → 이후 종료 게이트까지 작동 체크를 실행(승인분은 워커가 검증했으므로 green 기록·재실행 없음, ⑥ trust-green이 존중). **검토**: 각 종료 경계에서 `reviewSubstitutions`가 새 `Phase="substitution"` **엄격** 카운슬을 소집 — 워커는 `handleReport`, 솔로는 `runTerminationGate`로 **한 경로**(툴은 `curateBaseTools`에 포함돼 커레이션된 델리깃 워커도 사용). 렌즈는 플랜때처럼 널널하지 **않음**(deliverable가 이미 빌드됨 → 존재·도달만 보는 weak proxy 거부, 단 원 체크 이상은 요구 금지). critical 정정 요구면 피드백을 프롬프트로 주입하고 `loopContinue` → 에이전트가 더 나은 등가를 재선언(step+original upsert)·재검토, **카운슬 동의까지 반복**(CouncilMaxRounds 바운드; 초과 시 미승인 substitution 드롭 후 정직 진행). 승인분은 **솔로=자기 세션 즉시 apply**, **워커=`SpawnResult.CheckSubs`로 부모에 전달** 후 부모가 재작성(체크는 부모 세션 소유). 사용자 계약: 승인 결과는 "재실행 없이 신뢰", "스텝에서 합의된 substitution을 종료 게이트가 재작성된 통과 커맨드로 존중(안 엎음)".
-- R13 **계약-선행(contract-first)**(`app/contract_gate.go`, `runContractGate`, 3단계, 각 플래그 기본 ON): criteria/check가 **플랜의 부산물**(plan-audit이 플랜을 심의하며 사후 파생)이라 플랜 모양을 반영하던 구조를 뒤집어, **요청→계약→플랜** 순으로 계약을 1급 아티팩트화. 근원: headless-terminal #331(약한 프록시 체크로 done 착지 후 verifier 5/7 실패, criteria 홀리스틱 판정), kv-store 좀비.
-  - **Stage 1**(`MAGI_CONTRACT_FIRST`): 플래너가 요청을 분해하기 **전에** 전용 카운슬 라운드(`Phase=="contract"`)가 태스크 자체의 **계약**(criteria+check)을 저술·심의. 계약 멤버 프롬프트가 양방향 브래킷 — **하한**(sufficiency: 소비자 인터페이스로 행동 구동, 태스크 예제 verbatim 재현, 외부 이벤트 실전달, 스텁 존재만으론 불충분) + **상한**(necessity: 태스크가 명시한 것만). 승인 criteria는 저장·**프로즌**(plan-audit 덮어쓰기 가드), 계약 전체를 플래너에 주입 → 플랜이 **심의된 계약을 충족하도록** 세워짐. trivial·workflow·이미 프로즌이면 스킵. 카운슬 라운드 이벤트 방출은 plan-audit과 공유(`emitCouncilConvened`/`emitCouncilVerdicts`/`emitCouncilDecided`).
-  - **Stage 2**(`MAGI_STEP_CONTRACT`): stuck-recovery 재플랜(`driveStuckTodos`)도 per-step 계약을 받음 — solo-REPLACE 경로(외부플랜 미진행 + 플랫폼 존재)에서 `storeCoveredChecks`로 스텝 체크 저술 + 각 유닛에 checklist 주입 + `verifyStepChecks`로 완료 전 검증(체크 실패 유닛은 pending 유지, 다음 유닛 재클론). 워커 완료/미완 핸드오프(미완분만 이어받기)는 기존 `verifyStepChecks`+`retryContinuation`(ALREADY SATISFIED/STILL UNMET 분할)이 커버. "리플랜시에도 항상 스텝 계약 정의" 봉합.
-  - **Stage 3**(`MAGI_CRITERIA_PERITEM`): 종료 게이트가 criteria를 **통째 블록** 대신 **열거 체크리스트**(`renderCriteriaChecklist`)로 렌더 + 종료-멤버 프롬프트의 항목별 판정 절(NUMBERED 체크리스트면 각 항목 SATISFIED/UNSATISFIED 개별 판정, **전 항목 satisfied라야 done**, 미충족 항목 번호를 feedback에) → 홀리스틱 물타기 제거. 프롬프트 절은 비-열거 시 inert이라 무조건 실려도 안전.
+- R11 **독립투표 이후 강화**(각 플래그 기본 on): ①**반박 라운드**(`MAGI_COUNCIL_DEBATE`) — would-be-done이 SPLIT일 때 위원을 1회 재폴링(각자 타 위원의 판정·근거를 보고 유지/변경) 후 재tally. ②**keep**(`MAGI_COUNCIL_KEEP`) — 위원이 고칠 것과 함께 **이미 맞는 부분**도 지목해 continue 피드백에 자문으로 싣는다(결정·집계엔 무영향). ⛔ 여기 있던 **데빌**(`MAGI_COUNCIL_DEVIL`)은 구현에 없다.
+> ⛔ **여기 있던 R12(타입드 deliverable-check ①–⑦)와 R13(계약-선행 3단계)은 삭제했다.** 체크 저술·검증 패스·스텝 게이트·커버리지 보장·churn 착지·substitution, 그리고 플랜 이전에 계약을 저술하던 카운슬 라운드 — 어느 것도 코드에 없다. `verifyStepChecks`라는 이름만 종료 경로에 남아 있는데 그건 다른 일을 한다. 걷어낸 이유는 [`PLAN.md`](PLAN.md) §4.3.
 - R14 **위원 응답 읽기 — 기권은 중립 결과가 아니다**(`parseReply`, `jsonx.SalvagePrefix`, `councilRetryReminder`): 위원 응답이 안 읽히면 그 위원은 **기권**으로 기록되고, tally는 그것을 "내 렌즈로는 할 말 없음"과 **구별하지 못한다** — 즉 던져진 표가 조용히 사라지고 남은 소수가 판정을 대신한다. 그래서 읽기 실패는 세 겹으로 막는다. ①**관용 파싱**(모든 균형 객체 × `jsonx` 복구 후보 × 필드별 관용 타입) — Go는 첫 타입 불일치에서 문서 전체를 포기하므로 한 필드의 모양 하나가 표를 삼킨다. ②**접두 salvage**(`jsonx.SalvagePrefix`): 모델의 구조 실수는 문서 전체에 균일하지 않고 **한 컨테이너에 국한**된다 — 실측(11/11 동일 모양): `criteria` 배열을 `]` 없이 다음 키로 닫아 567바이트 중 563에서 깨지는데, 12바이트에 완결된 `decision`(한 번은 `critical` continue)까지 함께 버려졌다. 구문 오류 지점 **앞까지**를 남기고(복구 후보를 먼저 적용해 다중행 문자열의 raw newline을 절단점으로 오인하지 않음, 마지막 **완성된** 원소까지 되감아 반쪽 객체는 버림) 열린 컨테이너를 닫는다. `decision`이 결함 뒤에 있으면 **살릴 표가 없으므로 기권**(없는 표를 지어내지 않음). 이 복구는 **lossy**라 `jsonx.Unmarshal`/`RepairCandidates`(공유 경로)에 배선하지 **않는다** — 세 번째 스텝에서 잘린 플랜이 "2스텝 플랜"으로 조용히 성공하기 때문(`CloseTruncated`가 span 추출기에만 배선된 것과 같은 선). 손실은 stderr에 **결함 진단과 함께** 명시(성공이지만 criteria/checks가 비었을 수 있음). ③**1회 재폴 리마인더는 모양별**(`councilRetryReminder`): 단일 리마인더가 모든 실패를 "산문으로 감쌌다"로 가정하던 것이 결함이었다 — 맨 객체를 보냈지만 배열이 어긋난 모델에게 *쓰지도 않은 산문을 걷어내라*고 요구했고, 실측에서 재시도는 동일 malformation을 내고 표를 잃었다. 이제 magi가 **이미 로그용으로 계산하던** `jsonx.Diagnose`(오프셋 + `⟪HERE⟫` 창)를 그 결함에 대해 뭘 할 수 있는 유일한 당사자인 모델에게 되먹인다: 구문 오류=위치와 "다음 키 전에 `[`를 닫아라", 스키마(파싱은 되는데 `decision` 없음)=필수 필드 명시, 그 외=기존 JSON-only.
 
 ```
@@ -397,8 +332,6 @@ council-tally-tie-1:       rule=majority,  [done,continue]           ⇒ continu
 council-tally-veto-1:      rule=veto(Balthasar), [done,done, Balthasar=continue] ⇒ continue
 council-tally-abstain-1:   rule=majority,  [done, abstain, continue] ⇒ continue (abstain 분모 제외 → 1/2)
 council-gate-continue-1:   decision=continue ⇒ prompt.submitted(actor=council) 1건 + 루프 속행
-council-gate-maxrounds-1:  rounds>max_rounds ⇒ 강제 turn.finished + 노트
-council-gate-depth-1:      depth>0           ⇒ 게이트 스킵(바로 종료)
 council-gate-skip-1:       툴 미사용 대화 턴 ⇒ 게이트 스킵(council.convened 0)         (R8)
 council-abstain-noevid-1:  verification 렌즈 + 시그널·diff 없음 ⇒ abstain(반사적 continue 금지)(R9)
 council-evidence-newfile-1: 신규 untracked 파일 생성 ⇒ diff에 파일 내용 포함 ⇒ done 수렴(R9)
@@ -408,24 +341,10 @@ council-contest-affordance-1: continue 주입 ⇒ CONTEST 어포던스 안내 + 
 council-nochanges-1:       diff 성공·공백 + signal 0 ⇒ NoChanges=true, 합의규칙 보존(완화 X)   (R10)
 council-nochanges-noterror-1: GitDiff 실패(비-git) ⇒ NoChanges=false(쓰기 턴 오판 방지)         (R10)
 council-debate-split-1:    would-be-done + SPLIT ⇒ 반박 1라운드 재폴링 후 재tally               (R11)
-council-devil-review-1:    무-split done + 데빌 우려 ⇒ 위원 비판검토 ⇒ 헛 우려면 done 유지        (R11)
-council-check-fail-1:      deliverable-check 실행 실패 ⇒ 하드 signal ⇒ continue                 (R12)
-council-check-necessity-1: 태스크 미명시 특정값(버전/빌드ID/부수속성) 요구 금지 ⇒ 최소조건으로 좁힘   (R12①)
-council-check-sufficiency-1: 도달(존재/포트/import/빌드/생존)=전제조건≠증명 ⇒ 계약행동 구동·결과단언   (R12①)
-council-check-effect-1: 플래그 단 명령 exit 0 = 수용됐을 뿐 ⇒ 소비자 실행 + 태스크가 지목한 위치의 산출물 단언 (R12①)
-council-prompt-no-evalset-1: check-audit·작성 프롬프트 예시에 eval-set 태스크 토큰 부재(de-overfit)  (R12①)
-council-check-churn-land-1: epoch 전진+같은 체크 N회 FAIL ⇒ 작업물 세워둔 채 UNVERIFIED 착지   (R12④)
-council-churn-council-land-1: 스텝체크 PASS인데 council이 epoch 전진 N회 continue ⇒ 동일 착지 (R12④)
-council-check-converge-1:  체크 PASS+council 승인 ⇒ churn 카운터 리셋(정상 수렴 무영향)          (R12④)
-council-check-coverage-1:  covered<steps(11스텝·1체크) ⇒ 갭채우기 1패스 → 미커버 스텝 체크 저술 (R12⑤)
-council-check-coverage-solo-1: 0-스텝 solo ⇒ 목적=단일 합성스텝 ⇒ 최소 1체크 저술(원장 공백 봉합)   (R12⑤)
-council-check-audit-retry-1: 감사 응답 파싱불가/`[]` ⇒ 모양별 리마인더로 1회 재요청(2콜, 루프 아님) (R12①)
-council-check-coverage-retry-1: 필 파싱불가/커버리지 0증가 ⇒ 미커버 스텝 번호 대고 1회 재요청       (R12⑤)
 council-salvage-prefix-1:  구문오류 뒤만 손상 + decision 온전 ⇒ 접두 salvage로 표 보존(로그에 손실 명시) (R14)
 council-salvage-nodecision-1: decision이 결함 뒤 ⇒ salvage 거부, 기권(없는 표 지어내지 않음)         (R14)
 council-salvage-notshared-1: SalvagePrefix ∉ jsonx.Unmarshal/RepairCandidates (lossy, 플랜 조용한 절단 방지) (R14)
 council-retry-shape-1:     재폴 리마인더 = 구문/스키마/산문 3분기(Diagnose 되먹임), 단일 산문가정 금지  (R14)
-council-check-union-1:     채택된 필 = unionChecks 병합 ⇒ authored ⊆ result (판정은 스텝 커버리지) (R12⑤)
 ```
 
 ## F-LOOP-STAGES (루프 트랙) — macro 단계 + stage 태그(D15)
@@ -438,76 +357,17 @@ council-check-union-1:     채택된 필 = unionChecks 병합 ⇒ authored ⊆ r
 - **출하**: opt-in **다중** 결정적 시그널(`[council] verify` 단축 + `[[council.signal]]` name/command, 예: test·lint·typecheck)을 게이트마다 실행 → 각 `Signal`로 council 증거에 주입, convened 이벤트에 요약 노출(`TestCouncilVerifySignal`/`TestCouncilMultipleSignals`).
 - 남음: 훅·진단·report 등 *다른 생애주기*의 결정적 출력도 같은 Signal 모델로 통일.
 
-## F-PLAN (루프 트랙) — 절차 planner + 계획 감사(D17)
-시그니처 확장. pre-flight planner를 "solo/parallel 단일판단"에서 **절차 설계기**로. **기본 `[planner] enabled`** 시 동작, 실패는 언제나 solo로 degrade(턴 차단 금지). (write 자식이 자기 레벨에서 재계획하는 재귀·계층 분해는 아래 **F-PLAN-REC / D18**.)
+## F-PLAN / F-PLAN-REC (루프 트랙) — 절차 planner · 계획 감사 · 재귀 분해 — **철거됨**
 
-규칙:
-- P1 planner는 top-level 턴마다 **1회** tool-free 호출 → 요청을 **순서 있는 절차(steps)**로 분해, 각 step에 전략 `{solo|parallel|scout|delegate|refine}`(delegate/refine은 write-capable 재귀 전략, F-PLAN-REC). 파싱 실패/0 step → solo.
-  - **파싱 복구 사다리**(약모델 대응, 각 단계가 실패해야 다음으로): ①**균형 스캔**(`balancedObjects`, 문자열·이스케이프 존중) — 프로즈·추론에 섞인 stray brace가 진짜 객체를 삼키지 못하게, 닫히지 않은 여는 괄호는 **건너뛰고** 뒤의 균형 객체를 계속 찾는다. ②**관용 언마샬**(`unmarshalPlanLenient` ← `jsonRepairCandidates`): `}`/`]` 앞 **trailing comma**와 문자열 값 안의 **raw control char**(다중행 `reason`/`task`가 흔한 출처)를 복구해 재시도. ③**스텝 salvage**(`salvageSteps`): 출력 예산에 잘려 outer `{}`가 안 닫힌 응답에서, 잘림 전에 완성된 **스텝 객체만 직접 회수**(title + 인식된 strategy를 요구해 group/stray를 스텝으로 오인하지 않음) — **②와 같은 복구를 적용**한다(`unmarshalStepLenient`). 클린 경로만 관용적이고 salvage는 엄격했던 비대칭은 봉합됨: 잘림을 유발하는 장황함이 바로 control char를 만드는 원인이라 두 결함은 **동반 발생**하고, 엄격 파싱은 회수 가능한 스텝을 전부 버렸다. ④**JSON-only 재발행**: 그래도 0 step이면 프로즈 금지 리마인더를 붙여 1회 재요청. 각 실패는 원문과 함께 `recordParseFailure`로 영속(사후 진단 가능) — 이 재질의 교환은 플래너 전용이 아니라 **공유**(`reask[T]`, `internal/app/reask.go`): 큐레이터·스펙마인 distill·커버리지 필·체크 감사도 같은 교환을 쓴다. 이전엔 플래너만 원문을 영속했는데 그 근거(progress 로그는 버스 전용·공백 접힘이라 실패 원인인 제어문자를 정확히 지운다)가 플랜에 특정된 게 아니어서, 나머지 넷은 두 번 실패하고 접힌 발췌만 남겼다. ⑤**부분 salvage는 구조 조회가 아니라 조용한 편집이다**(`readPlan`/`planReadKind`): ③이 도는 경우는 두 가지인데 **결과가 전혀 다르다** — 복구 후보로 **플랜 객체 자체가 파싱된 경우**(`planRepaired`)는 스텝 배열이 온전하므로 재요청은 생성 낭비지만, **플랜 객체가 끝내 안 파싱돼 손상 구간 *바깥*의 균형 스텝만 긁어낸 경우**(`planPartial`)는 **손상 구간에 들어간 스텝이 통째로 사라지고**, 살아남은 것들이 감사·체크·워커 전부에게 **완전한 플랜과 구별 불가**하다(실측: 첫 스텝 뒤 stray `},}`가 outer 객체를 조기에 닫아 913바이트 중 534에서 깨졌고, 3스텝 플랜이 2스텝으로 실행됐다 — 플랜 감사가 내용 판단으로 우연히 잡았을 뿐 파서는 아무 신호도 안 냈다). 그래서 partial일 때만 **전체 플랜을 1회 재요청**하고(진단 되먹임, 아래 ⑥), 재요청 결과가 **엄격히 더 나을 때만**(partial이 아니거나 스텝이 더 많을 때) 교체 — 아니면 salvage본을 유지해 회귀를 만들지 않는다. ⑥**재요청 리마인더도 모양별**(`plannerRetryReminder`, R14 ③과 같은 선): 산문을 쓰지도 않은 모델에게 "산문을 걷어내라"고 요구하는 대신 `jsonx.Diagnose`(오프셋 + `⟪HERE⟫` 창)를 되먹인다 — partial=드롭된 스텝이 있음을 명시하고 전량 재전송 요구, 구문 오류=위치 제시("산문이 문제가 아니라 JSON 자체"), 그 외=기존 JSON-only.
-- P2 steps를 **기존 todos로 등록**(계약 통합) → TUI 단일 계획·council 계약 연결. 메인 에이전트는 이를 **이어서 갱신**(통째 replace 금지, findings 주입 메시지로 지시).
-- P3 `parallel` = 미리 아는 read-only 조사 그룹 병렬. `scout` = **솔로** explorer로 work-list 확보 → 각 항목을 **병렬**(적응형: fan-out 대상이 런타임 발견). dispatch는 read-only explorer(`explore|locator`)만 — bash 없는 익스플로러라 실행(ssh·명령·원격) 필요 조사는 solo.
-- P4 **계획 감사 게이트(심각도 게이팅)**: 절차가 **멀티스텝(2+)**이면 실행 전 council이 *절차*를 감사 — `Phase=plan`. 각 위원은 revise(continue) 시 결함의 **심각도**를 표기: `critical`(이대로면 실패/오답/위험) · `warn`(개선 권고) · `info`(사소). **블로킹은 critical만**(veto — **한 명이라도 critical이면 차단**; 합의규칙 Tally가 아니라 critical 유무로 판정). 누락/불명 심각도 → `warn`(비블로킹)으로 정규화.
-  - **critical 있음** → 그 critical 피드백(`CriticalFeedback`)을 **planner 재계획**으로 라우팅(메인 세션 주입 아님), **종료 게이트와 공유하는 `CouncilMaxRounds`**(기본 3) 초과 → 강제 진행(note).
-  - **재작성된 플랜은 반드시 다시 심의된다**(`MAGI_PLAN_CONVERGE` 기본 ON = 수렴 판사 `JudgeRevision` 작동; `MAGI_PLAN_CONVERGE_STOP` 기본 OFF): 판사가 리비전이 concern을 다뤘는지(`addressed`) 판정하고 그 결과를 `PlanRevised` fact로 남기되, **어느 쪽이든 교체본은 다음 라운드에서 전체 카운슬이 재심의**한다. 판정이 `addressed=no`여도 그 리비전을 **채택하고 끝내지 않는다** — 재작성은 교체 대상보다 **나쁠 수 있고**(실측: 구체적 산출 스텝을 잃은 재작성), 그것은 스텝 수 같은 구조적 프록시로 판별 불가(**개수가 같아도 퇴화**한다). 비용은 라운드 캡이 이미 바운드하며(캡 도달 exit이 criteria·check를 저장하고 진행), 벽시계를 더 쓰더라도 **심의 안 거친 플랜이 실행되지 않게** 하는 쪽을 택한 것. 재심의 라운드에는 **변경 맥락**(`DeliberationRequest.Revision` — 요구된 concern·이전 플랜·플래너가 밝힌 변경사유·판사 판정)이 함께 전달돼 위원이 델타를 보고 퇴화를 짚을 수 있다. `MAGI_PLAN_CONVERGE_STOP=1`이면 구 동작(미해결 리비전에서 조기 종료·무심의 채택)으로 롤백.
-  - **critical 없음** → **승인·진행**(재플랜 루프 없음). warn/info 피드백(`AdvisoryFeedback`)이 있으면 **실행 에이전트가 보도록 시스템 메시지로 1회 주입**(`injectCouncilAdvice`) — 듣고 반영 기대, 비블로킹. (옵션 `[council] plan_absorb`=on이면 planner가 조언을 1회 흡수해 plan 자체를 갱신; 기본 off.)
-  - **단일 step·workflow 모드는 감사 스킵**. diff/report/signal 없음(plan 전용 멤버 프롬프트; steps의 구체적 결함만 revise — 검증/수용 기준·테스트·verify 스텝 미명시는 결함 아님, 그건 `criteria` 소관). 비-critical 조언은 **criteria(아래 P6)로 종료 게이트가 검증**.
-- P6 **완료기준 도출(계약)**: 계획 감사에서 각 위원이 approve/revise와 함께 자기 렌즈의 **완료기준**(기대 산출물·검증/테스트 지침)을 제안 → 순수 `council.MergeCriteria`(trim·dedup·cap)로 합성 → **승인/강제승인된 plan**의 기준을 그 턴의 `a.criteria`에 저장(재계획 시 최종 plan 것으로 덮어씀, 빈 결과는 미저장). 종료 게이트는 이 캐시를 **계약으로 항상 사용**(plan턴); plan 없는/단일 step 턴은 기존 `[council] criteria` opt-in elicit. D15 acceptance-criteria 아티팩트로 관찰. 결과는 `council.decided`(plan)에 `criteria`로 노출.
-- P5 안전: per-fanout cap(`maxPlanGroups`) + **per-turn 총 explorer cap**(`maxPlanExplorers`) + step cap(`maxPlanSteps`) + **per-step degrade**(한 step 실패 → 그 step만 메인 위임).
-- P7 **프롬프트 분석/시그니처 채굴(specmine, `MAGI_SPEC_MINE` 기본 ON)**: **사전-플래닝 맨 앞(계약게이트·플래너 前)** 2-패스 사이드 도출 — 분류가 계약게이트·플래너·플랜감사(체크저술)에 모두 반영되게. ①목표-지향 자유 분석("프로즈만으로 짠 구현이 어디서 틀리나"를 이름·타입 시그니처에서) + **각 요구를 지키는 방식으로 분류**(hard=리터럴 그대로 / example=샘플 I/O verbatim 재현 / semantic=effect로 검증·소스표기 강요금지 / **unconstrained**=태스크가 안 정한 것=자유·아무도 단언금지) ②엄격 JSON 증류(`surface→요구→표준구조물`+`kind` ≤5줄 + 무조건 `USE:` 1줄; 캡·단일-승자는 코드 재집행, 파스 1회 재시도, best-effort) → 각 줄 ⟨hard⟩/⟨example⟩/⟨semantic⟩/⟨unconstrained⟩ 태그 단 완성 노트로 메인 세션 주입 + **종료 게이트에 소프트 계약으로 제시**(이탈은 금지가 아니라 심문; `cachedSpecMine`, 턴 리셋 시 소거). 분석엔 플래너와 동일한 **repoBlock**(레포 맵)을 주입(요청텍스트만 아님, 세션 대화창은 미주입=약모델 희석 회피). **계획-기반 탐색 반쪽(`MAGI_SPECMINE_EXPLORE` 기본 ON, `exploreSpecMine`)**: 플랜 확정 후·플랜감사 前, read-only 서브에이전트(read/grep/glob/list, 변이불가)가 **실제 레포**를 플랜 대비 탐색해 실존 시그니처·경로·인터페이스를 실측→노트로 폴드(체크저술이 추측 대신 실물에 그라운드). 입력=task+플랜+repo(대화창 아님, 플랜이 이미 증류된 의도). `specmine` 에이전트 정의 시 도출을 별도 가중치로 라우팅(노트의 진실성은 도출 모델 믿음에 바운드). 근거: 약한 모델은 메타지시(자기절제·상충해소)를 못 따르고 완성된 결론은 소비함 — 단일-패스는 지면 자기논쟁으로 자충수, 노트-절은 첫-샘플 프레임 불변(2026-07-19 cancel-async 캠페인, 역대 0/10→2-패스 2/2).
-
-```
-planner-solo-1:      단순 요청 ⇒ 단일 solo step ⇒ explorer 0 (감사 스킵)
-planner-scout-1:     "docs 요약" ⇒ scout(목록)→각 문서 parallel (적응형 fan-out)
-plan-audit-approve-1: 멀티스텝 + critical 없음 ⇒ approve → 실행                    (P4)
-plan-audit-criteria-1: 승인 plan의 위원 제안 기준 합성 ⇒ a.criteria 저장 → 종료 계약(P6)
-plan-audit-warn-1:    revise가 warn/info뿐 ⇒ 재플랜 없이 진행 + 조언 시스템 주입   (P4)
-plan-audit-critical-1: critical revise ⇒ critical 피드백 ⇒ planner 재계획          (P4)
-plan-audit-cap-1:     연속 critical ⇒ CouncilMaxRounds 도달 ⇒ 강제 진행(note)
-plan-audit-rereview-1: 재계획 ⇒ addressed=no여도 교체본을 다음 라운드 재심의(무심의 채택 금지) (P4)
-plan-audit-revctx-1:  재심의 라운드 ⇒ Revision(이전 플랜·concern·변경사유·판사판정) 전달 ⇒ 퇴화 판별 (P4)
-plan-partial-reask-1: 플랜 객체 미파싱 + 스텝만 긁힘(partial) ⇒ 전체 플랜 1회 재요청(스텝 유실 명시)
-plan-repaired-noreask-1: 복구 후보로 플랜 객체가 파싱됨(repaired) ⇒ 스텝 온전 ⇒ 재요청 없음(생성 낭비 금지)
-plan-reask-nonregress-1: 재요청본이 엄격히 더 낫지 않으면 ⇒ salvage본 유지(회귀 금지, 사유 로그)
-plan-retry-shape-1:   플래너 재요청 리마인더 = partial/구문/산문 3분기(Diagnose 되먹임)
-```
-
-## F-PLAN-REC (루프 트랙) — 재귀·계층 분해 delegate/refine + 재귀 정책(D18)
-절차 planner를 `runLoop` 안에 두어 dispatch된 write 자식이 **자기 레벨에서 다시 planner를 돌린다**(재귀). F-PLAN의 read-only scout/parallel 위에 write-capable 재귀 전략 둘을 얹어 "어려운 문제를 나눠 푼다"를 실제 수행. 경계는 항상 solo로 안전 하강.
-
-**정책 요지**: 기본은 **계획적(up-front) 계층 분해** + 지연(just-in-time) 서브계획이며, 순수 ADaPT의 정의적 메커니즘인 **반응형(as-needed) 실패 재분해는 플래그(`MAGI_ADAPT`)로 게이트**한다(default on=반응형 유지). 반응형을 끄면 HTN식 계획적 계층 분해에 가깝다 — 실패 노드는 재분해 대신 백트랙하고, stall 안전망(`redecomposeStuck`, R4)만 반응형으로 남는다.
-
-규칙:
-- R1 **`delegate`(독립 chunk 분할)**: 서로 **독립적** write sub-task를 **컨텍스트-free** producing 자식에 순차 위임(fan-out 안 함 → writes가 council change 캡처와 비경합). 자식은 depth+1 재계획. **반응형 실패 재분해**(ADaPT, `MAGI_ADAPT`로 게이트): 자식 에러/빈결과면 depth·budget 내 **1회** "더 잘게 분해" 재시도, 그래도(또는 게이트 off면 즉시) 실패 시 todo pending + `(delegate FAILED — do this yourself)`(redo-prevention 미억제).
-- R2 **`refine`(비독립 sub-goal in-context 재귀)**: 의존적 조각의 대형 sub-goal은 depth+1 재계획하되, 한 계획의 순차 refine phase들이 **하나의 공유 자식 세션**을 순차 재사용(`sharedRefineEnabled` 기본): 첫 phase만 부모 대화를 **복제**(`SpawnRequest.CloneContext`→`cloneConversation`)해 세션을 만들고, 이후 phase(및 로컬 재시도)는 그 세션을 **재사용**(`SpawnRequest.ReuseSession`←`SpawnResult.SessionID`)해 직전 phase의 **실제 대화**(도구 호출·출력·코드) 위에서 이어 작업(spawn-시점 스냅샷이 아님). `MAGI_REFINE_SHARED=0`이면 phase마다 자기 spawn-시점 복제를 받는 legacy로 복귀. 세션 공유와 무관하게 회계는 phase별 불변(depth+1·budget·supervisor)이고 council 캡처는 runLoop 인보케이션 단위(`newRunGuard`)라 phase별 정상. 로컬 재계획→상위 escalate 루프: **success**=todo 완료+`delegated`; **failure**=사유를 부모에 기록(`recordRefineFailure`) 후 **informed 로컬 재시도**(`refineLocalRetries`, 프롬프트에 사유 prefix + 공유 세션이면 실패 대화 위에서 재시도 — 반응형이므로 `MAGI_ADAPT` off면 1회로 축소); **exhaustion**(또는 자식 `STATUS: FAILED` 조기 백트래킹)=todo pending+FAILED 반환→부모가 누적 실패로 재접근.
-- R3 **형제 가시성**: 순차 refine phase는 의존적 → 공유 세션에서 뒤 phase가 앞 phase의 실제 작업을 **구조적으로** 이어받음(R2). 각 success는 추가로 결과를 부모(메인 세션) 맥락에 compact seed(`recordRefineSuccess`, `clipLine`)해 부모가 읽는 요약을 남기며, 이는 `MAGI_REFINE_SHARED=0`(phase별 복제) 시 형제 가시성 fallback이기도 하다. 실행자(`agent`)는 optional → 첫 phase에서 `resolveWriteExecutor`로 고정(공유 세션 일관), 없으면 solo.
-- R4 **stuck 복구(분해형)**: solo가 stall(무진전 가드 소진)/repeat(루프가드 반복차단 소진, `MAGI_STUCK_DECOMPOSE` 게이트, default off — 원격 벤치 bisect에서 빌드 대기 중 재계획이 벽시계를 소모하는 회귀 확인, =1로 재활성)/council deadlock로 막히면, 복구가 남은 일을 **명시적 TODO 리스트로 재분해해 단위별로 하나씩** 진행한다(`redecomposeStuck`→`driveStuckTodos`): 각 단위는 **부모 대화 전체를 물려받은**(`CloneContext`) 자식이 그 단위만 스코프로 수행(스텝 예산 = 전체/4, floor 8 — 재고착 단위 fail-fast), 착지한 단위의 세션은 다음 단위가 **재사용**(refine 공유세션 패턴), 실패 단위는 todo pending 복귀+체인 리셋 후 계속 — 이미 착지한 단위는 살아남는다. 복구 todo는 기존 플랜에 **append**. 분해 불가(<2단위)면 구식 통째-재스폰 폴백(이젠 이것도 `CloneContext`), 분해가 실행됐는데 전 단위 실패면 폴백 스킵. 성공 시 부모 회계 리셋: stall이면 `resetStall`, repeat이면 `resetRepeat`(blocked 카운터까지 — 아니면 즉시 재정지).
-- R5 **경계**: `MaxPlanDepth`(기본 2, `MaxDepth`보다 타이트) 이중 상한 · producing 에이전트(write/edit)만·bash-only 검증자는 재계획 안 함 · 인터랙티브/workflow 억제. fabrication 게이트(council)는 **depth 0만**(리프마다 재실행 X).
-- R6 **계획 감사 렌즈**: `[refine]` 스텝은 **의도적 추상**(실행 시 현재 맥락으로 구체화) → 추상성만으론 critical-revise **금지**(최대 warn 권고). 단 refine 포함 계획이 genuinely **unsound**(접근 오류·필수 액션 스텝 부재·달성 불가)면 추상 여부 무관 **여전히 critical**. "부조리는 거부, 단지 추상적인 것은 승인."
-- R7 **전개 가드**(`guardExpansion`, 결정적 백스톱, 항상-on — refine→solo 강등만): ①**깊이 캡** `depth+1 ≥ MaxPlanDepth`면 refine 전부 강등 — 캡의 refine는 자식이 재계획 안 하므로(`planEligible`=`depth < MaxPlanDepth`) 영영 전개 불가한 dead-end. ②**순수 재분해 금지** `depth ≥ 1`(이 계획 자체가 refine 전개)인데 구체 **work**(solo/delegate) 없이 refine만이면 강등 — 진전 없는 재이연 방지. depth 0 top-plan은 all-refine 허용(면제). planner 프롬프트가 이 규칙을 먼저 안내(R8)하고, 이 가드가 무시 시 강제.
-- R8 **예산·깊이 힌트**(`planEnvelope`): planner 시스템 프롬프트에 **step 예산(`maxSteps`)**·**깊이 `depth`/`MaxPlanDepth`**·**캡 여부**를 주입 → 계획을 예산·깊이에 맞춰 사이징(캡이면 refine 금지 안내). preflight는 각 노드 step 0에서 돌고 자식마다 예산이 리셋되므로 힌트의 요체는 `maxSteps`+깊이.
-- R9 **스펙 충실도**(`specFidelityEnabled`, 기본 on; `MAGI_SPEC_FIDELITY=0`=패러프레이즈-only 베이스라인): 깊은-계획 경로가 지시문을 요약하며 **채점기가 verbatim으로 검사하는 리터럴 식별자**(필드/메시지/함수명·출력 포맷·임계값·리터럴)를 잃는 실패 모드(kv-store-grpc: 요청 필드 `value`가 `val`로 정규화 → fail; 얕음/solo는 원문 직독으로 통과)를 3중 방어로 차단. ①**planner 리터럴-보존 규칙**(`literalRule`): planner 시스템 프롬프트에 "정확한 식별자는 step title/task에 verbatim 복제, 리터럴 계약 패러프레이즈 금지" 주입. ②**plan-time note**(`specFidelityNote`): 계획이 실행을 지배하는 순간(`registerPlanTodos` 직후·`executeSteps` 이전) 메인 세션에 "todos는 요약본 — 정확한 식별자는 원문 표현 verbatim" 지시문 주입 → solo·refine clone·parallel/scout findings-합성 경로가 부모 맥락으로 커버(all-solo 포함). ③**delegate SPEC 앵커**(Part C): 컨텍스트-free delegate 자식은 원문을 못 보므로 `delegateBrief`가 goal을 **authoritative SPEC**로 verbatim(넉넉히 clip) 실어 자식이 리터럴을 원문에서 복사. refine엔 미주입(clone+②로 커버).
-- R10 **큐레이티드 워커**(컨텍스트 관리 — 최근 핵심 방향, 각 플래그 기본 on): 약모델의 작업 컨텍스트를 얇게 유지하려고 write 작업을 컨텍스트-free 위임 서브에이전트로 실행. ①`MAGI_WORKERS` — write-capable **worker** 로스터 추가. ②`MAGI_FORCE_DELEGATE` — 플래너가 solo로 남긴 write 스텝을 결정적으로 worker에 재라우팅. ③`MAGI_CURATE` — **컨텍스트 큐레이터**(`app/curate.go`, tool-free 엘리시테이션)가 스폰 전에 **구조화 브리프**(goal·progress·task(=키스트로크 아닌 *결과*)·verbatim `literals`·constraints·deliverable)와 **과제-스코프 툴 allowlist**(워커는 항상 base 파일/셸/report 툴 보유, 큐레이터는 전문툴만 추가 → 굶기 불가) 생성. 워커는 **구조화 accountability 리포트**(`STATUS:` + evidence·deviations·**handoff**) 반환, `STATUS: BLOCKED/FAILED` 선행줄(`delegateNotDone`)이 조기 리플랜 구동. 스텝의 **acceptance 체크리스트**(그 스텝의 plan-audit deliverable-check, F-COUNCIL R12)를 워커가 done 보고 전에 실행. 워커 프롬프트는 **`YOUR PART`(자기 슬라이스, 한 번만 진술)** 와 **`CONTEXT`(참고용 — 전체를 하지 말 것)** 를 명시 분리(스코프 혼동 방지).
-  - **④공유 산출물 원장**(`ledgerEntry`/`renderLedger`, 세션-스코프): 완료된 각 스텝의 `HANDOFF`(산출물 경로/인터페이스)를 누적해 이후 모든 워커에 **큐레이션 뒤 verbatim 주입**(큐레이터 패러프레이즈가 경로를 못 지움). 자식은 부모 플랜 원장을 봄(`sharedLedger`). 다단계에서 "앞 스텝이 받은 파일 어디있지" 헤맴 방지. TUI 메인 플랜 패널 + 각 워커 상세뷰에 "Shared ledger"로 표시(모두 공유).
-  - **⑤스폰 예산 인지**(`MAGI_SPAWN_BUDGET` 기본 ON, soft budget=`MaxAgents/4` 최소 4): 위임은 **단일 에이전트의 컨텍스트 천장**을 넘기 위해 필요하지만(solo는 한계가 명확), **과-위임**은 컨텍스트를 여러 워커로 쪼개 stuck 태스크를 거의 못 구한다(실측: 12 spawn 후 산출물 파일 자체 미생성). 두 경로 모두 예산을 인지시켜 self-limit: **(a) agent-초기 dispatch**(`task` 툴, `dispatchBudgetNote`) — 성공 dispatch마다 "이번 턴 #K/최대 N 스폰" 반환, soft budget 초과 시 "추가 워커는 컨텍스트를 SPLIT한다, 직접 해라" 강경 넛지. **(b) 플랜-구동 delegate**(`forceDelegateSteps`) — 이번 턴이 이미 soft budget 초과했으면 solo→delegate **재작성을 중단**해 메인 에이전트가 직접 처리(재플랜이 매번 다시 위임해 파편화하는 것 방지). 초기엔 정상 위임, 과-스폰 후엔 solo 폴백. `off`=현행(무제한 재작성).
-
-```
-delegate-partition-1: 독립 3파일 생성 ⇒ 순차 delegate 자식 3 ⇒ depth+1 각자 재계획   (R1)
-delegate-adapt-1:     자식 실패 ⇒ "더 잘게" 1회 재시도 ⇒ 실패면 FAILED finding        (R1, MAGI_ADAPT on)
-refine-shared-1:      의존 phase 2 ⇒ 한 공유 자식 세션 순차 재사용 ⇒ phase2가 phase1 실제작업 위에서  (R2/R3)
-refine-shared-off-1:  MAGI_REFINE_SHARED=0 ⇒ phase마다 자기 spawn-시점 복제(legacy per-phase)        (R2)
-refine-sibling-1:     각 success ⇒ 부모 맥락 compact seed(요약 + flag-off fallback)               (R3)
-refine-escalate-1:    로컬 재시도 소진 ⇒ FAILED 반환 ⇒ 부모가 재접근(백트래킹)           (R2)
-adapt-off-1:          MAGI_ADAPT=0 ⇒ refine 실패 1회 후 백트랙(informed 재시도 없음)      (R1/R2)
-stuck-redecompose-1:  solo stall ⇒ TODO 분해 단위별 full-context 자식 진행 + resetStall   (R4)
-stuck-redecompose-2:  repeat 차단 소진 ⇒ 동일 분해 복구 + resetRepeat(blocked까지 리셋)   (R4)
-stuck-redecompose-3:  분해 실행 후 전 단위 실패 ⇒ 통째-재스폰 폴백 스킵                   (R4)
-plan-refine-abstract-1: 추상 refine 계획 ⇒ council critical 금지(warn까지만)             (R6)
-guard-depthcap-1:     캡(depth+1≥MaxPlanDepth)의 refine ⇒ solo 강등                       (R7)
-spec-fidelity-1:      계획 지배 턴 ⇒ 메인 세션에 스펙-충실도 note + planner에 리터럴 규칙 + delegate SPEC 앵커  (R9)
-spec-fidelity-off-1:  MAGI_SPEC_FIDELITY=0 ⇒ note·규칙·앵커 없음(패러프레이즈-only 베이스라인)              (R9)
-guard-redefer-1:      depth≥1 all-refine(work 없음) ⇒ solo 강등                          (R7)
-plan-envelope-1:      planner 프롬프트에 예산+깊이+캡 힌트 주입                            (R8)
-```
+> ⛔ **여기 있던 두 절(D17·D18, 합쳐 70여 줄의 R 항목과 테스트 시나리오)은 삭제했다.** 서술하던
+> 것 중 코드에 남은 게 없다 — 절차 planner와 step별 전략, 실행 전 계획 감사 카운슬(`Phase="plan"`,
+> `runPlanAuditGate`), 완료기준 도출, `delegate`/`refine` 재귀와 공유 자식 세션,
+> `guardExpansion`·`planEnvelope`·`MaxPlanDepth`, `redecomposeStuck`. 서브에이전트 자체가 없다.
+>
+> **왜 걷어냈는지**는 [`PLAN.md`](PLAN.md) §4.3에 결정 기록으로 남겼다(요지: 그 단계들은 전부
+> 작업이 존재하기도 전에 무언가를 결정했고, 그 시기 결함은 예외 없이 magi가 실제 기록보다
+> 자기 사전 판단을 믿은 것이었다). 명세를 남겨두면 없는 손잡이를 광고하게 되므로 지운다.
+> 지금 계획은 에이전트 자신의 `todowrite`이고, 카운슬은 미리 감사하지 않는다.
 
 ## F-PLUGIN (M3) — Lua 플러그인
 - 매니페스트(TOML) 파싱: name/version/capabilities/permissions.
