@@ -178,7 +178,10 @@ func (m *Model) baseChromeHeight() int {
 	}
 	if m.routing {
 		if m.profileForm != nil {
-			h += len(m.profileForm.fields) + 3 // fields + spacer + Save + header
+			// Measure the render, like the modals above: the form pages its fields when the window
+			// is short and adds an "n/N" line when it does, so a field count is no longer what it
+			// draws. profileFormView reads modalRoom, which does not come back through here.
+			h += lipgloss.Height(m.profileFormView())
 		} else {
 			h += len(m.routeList) + 3 // rows + header + profiles separator (blank + label)
 			// The session-row suggest box adds its own lines below that row.
