@@ -194,8 +194,34 @@ func (m *Model) statusPanel(panelTop int) string {
 		lines = append(lines, panelHead("Context"), ctxBar(m.ctxPct, inner))
 	}
 
+	lines = clipPanelRows(lines, m.height)
 	body := strings.Join(lines, "\n")
 	return roundedBox(body, content)
+}
+
+// clipPanelRows bounds the panel to the room the float has, and says what it cut.
+//
+// The overview panel had no bound at all: it built every plan step, every observation and every
+// background row, and floatPanel then refused to draw a box taller than the screen — so the panel
+// VANISHED. Measured: five plan steps render, twenty-five at the same size render nothing, and
+// eight are enough to lose it on a 20-row terminal. The panel a user watches a long task through
+// is the one a long task removes, with nothing saying it was suppressed.
+//
+// The worker panel next door already clips to exactly this room; only the overview lacked it. The
+// marker is the part neither had — every other cut magi makes says so, and a plan silently missing
+// its tail reads as a plan that ends there.
+func clipPanelRows(lines []string, height int) []string {
+	if height <= 0 {
+		return lines // an unmeasured terminal is not a short one
+	}
+	// The room floatPanel will allow: its top margin, the header rows it sits below, the bottom
+	// rows it must not paint over, and the box's own two border rows.
+	room := height - floatMarginTop - headerRows - 6
+	if room < 4 || len(lines) <= room {
+		return lines
+	}
+	kept := lines[:room-1]
+	return append(kept, styleFooter.Render(fmt.Sprintf("  … %d more rows", len(lines)-len(kept))))
 }
 
 // workerPanel renders a subagent's dedicated dossier for its detail (zoom) view: the FULL request
