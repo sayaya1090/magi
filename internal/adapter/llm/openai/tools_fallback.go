@@ -140,6 +140,22 @@ func normalizeArgs(args json.RawMessage) json.RawMessage {
 			}
 		}
 	}
+	// An object the model wrote DIRECTLY gets the repair too. It did not before, and the same
+	// defect therefore had two fates on the same path: `"{\"command\":\"echo \"hi\"\"}"` came out
+	// as usable JSON because unwrapping ran it through repairArgs, while the identical
+	// `{"command":"echo "hi""}` came out untouched and unparseable — and here, where the reply IS
+	// the action, unparseable erases the call rather than degrading it.
+	//
+	// The native path repairs every call's arguments at finish(). This is the path taken when the
+	// model was too weak to emit a native tool call at all, which is not the population to give
+	// the weaker treatment.
+	//
+	// Only an object is repaired. An array, a bare word or a quoted non-object cannot be turned
+	// into arguments without inventing them, so they are handed on as they are and rejected by
+	// whoever asked for a shape.
+	if strings.HasPrefix(trimmed, "{") {
+		return repairArgs(args)
+	}
 	return args
 }
 
