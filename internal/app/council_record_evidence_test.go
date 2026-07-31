@@ -55,3 +55,40 @@ func TestTheRecordedEvidenceIsCapped(t *testing.T) {
 		t.Error("nothing was truncated")
 	}
 }
+
+// The recorded copy must keep BOTH ends. It used to drop the tail, and the tail of the evidence
+// block is its most recent results — the ones a decision turns on. Observed in the field
+// (cancel-async-tasks, 2026-07-31): the record ended `bash [error] pyth` and stopped, so the last
+// thing the members were handed appeared, to anyone reading the record back, as a seventeen-
+// character stub — and an earlier result looked like the final one.
+func TestTheRecordedEvidenceKeepsBothEnds(t *testing.T) {
+	const first, last = "── THE WORKSPACE RIGHT NOW ──", "tool bash [error] the last thing that happened: exit 1"
+	s := first + strings.Repeat("\nfiller line that pads this out", 400) + "\n" + last
+
+	got := clipEvidenceForRecord(s, councilDiffCap)
+	if len(got) >= len(s) {
+		t.Fatalf("nothing was clipped from %d bytes", len(s))
+	}
+	if !strings.HasPrefix(got, first) {
+		t.Errorf("the head is gone:\n%.120s", got)
+	}
+	if !strings.HasSuffix(got, last) {
+		t.Errorf("the most recent result is gone — the one a decision turns on:\n…%s", got[len(got)-120:])
+	}
+	if !strings.Contains(got, "bytes omitted from the middle") {
+		t.Errorf("an unmarked cut reads as the whole record:\n%s", got)
+	}
+	// And it must not claim to be a diff: this block is not one, and the marker used to say so.
+	if strings.Contains(got, "diff truncated") {
+		t.Errorf("the actions block is not a diff:\n%s", got)
+	}
+}
+
+// Short enough to fit is returned untouched — a marker on a complete record would say something was
+// left out when nothing was.
+func TestAnEvidenceRecordThatFitsIsUntouched(t *testing.T) {
+	s := "── THE WORKSPACE RIGHT NOW ──\nrun.py — 1419 bytes"
+	if got := clipEvidenceForRecord(s, councilDiffCap); got != s {
+		t.Errorf("a record that fits was altered:\n%s", got)
+	}
+}
