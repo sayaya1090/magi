@@ -398,7 +398,7 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 		// Wrap to the transcript width (like tool results and thinking) so a long
 		// prompt soft-wraps instead of overflowing off-screen and being clipped.
 		// Width is bodyWidth-2 to leave room for the 2-col indent().
-		body := lipgloss.NewStyle().Width(m.bodyWidth() - 2).Render(strings.TrimRight(blk.text, "\n"))
+		body := lipgloss.NewStyle().Width(m.bodyWidth() - 2).Render(stripControlBody(strings.TrimRight(blk.text, "\n")))
 		// The bar reflects the request's state: a spinner while its turn is being processed
 		// (reverts to ▌ on finish; transcript() renders this block uncached each frame so it
 		// animates), a distinct queued glyph while it waits mid-turn to be picked up, or ▌ at
@@ -430,7 +430,7 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 		// geometry (label width + space + 3-cell chip) is unchanged.
 		return lbl + tsChip(blk.ts) + copyChip() + note + "\n" + indent(body)
 	case blockAssistant:
-		return label(asstStyle, asstName) + tsChip(blk.ts) + copyChip() + "\n" + m.markdown(blk.text)
+		return label(asstStyle, asstName) + tsChip(blk.ts) + copyChip() + "\n" + m.markdown(stripControlBody(blk.text))
 	case blockToolCall:
 		// Leading glyph reflects state: ⚙ while running, ✓/✗ once the result is in
 		// (the result is folded onto this same line — no separate result line).
@@ -479,11 +479,11 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 		}
 		return indent(mark + " " + styleToolResult.Render(summarizeResult(blk.text)))
 	case blockError:
-		return indent(styleError.Render("✗ " + blk.text))
+		return indent(styleError.Render("✗ " + stripControlBody(blk.text)))
 	case blockInfo:
 		// Wrap to the transcript width (minus the 2-col indent) so a long line
 		// (e.g. the planner's reason) reflows instead of overflowing.
-		return indent(styleToolResult.Width(m.bodyWidth() - 2).Render(strings.TrimRight(blk.text, "\n")))
+		return indent(styleToolResult.Width(m.bodyWidth() - 2).Render(stripControlBody(strings.TrimRight(blk.text, "\n"))))
 	case blockCouncilVerdict:
 		// A round's members on ONE line, each in 기승전결 order: WHO (member) → LENS →
 		// VERDICT → CONFIDENCE. Rationale/feedback stay hidden — clicking a member opens
@@ -616,6 +616,29 @@ func stripControl(s string) string {
 		}
 		return r
 	}, s)
+}
+
+// stripControlBody is stripControl for text rendered as a BLOCK rather than a single line: it
+// keeps the newlines that make it a block and strips everything else, per line.
+//
+// The two existing choke points cover the paths that go through them — clipLine for the tool-body
+// transcript, oneLine for previews and headers — and four render paths reach the frame through
+// neither. Measured: an OSC title-spoof and a screen-clear survived into the rendered frame from
+// an assistant reply, an error message, an info line and a user bubble. The first two are content
+// magi did not author (the model's own text; a provider error carrying a server's response body),
+// and the audit finding these guards exist for names exactly that.
+//
+// magi applies its own styling AFTER this, so no legitimate escape is lost — the same reasoning
+// clipLine records.
+func stripControlBody(s string) string {
+	if !strings.ContainsFunc(s, func(r rune) bool { return r != '\t' && r != '\n' && (r < 0x20 || (r >= 0x7f && r <= 0x9f)) }) {
+		return s // the common case: nothing to strip, no allocation
+	}
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		lines[i] = stripControl(l)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // markdown renders assistant text as wrapped, syntax-highlighted markdown,
