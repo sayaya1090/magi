@@ -94,7 +94,8 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	}
 	cd, _ := json.Marshal(event.CouncilConvenedData{
 		Round: 1, Members: labels, Rule: string(rule), Task: task, Plan: plan,
-		Report: lastText, Changes: changes, NoChanges: strings.TrimSpace(changes) == "",
+		Report: lastText, Actions: truncateForCouncil(actions, councilDiffCap),
+		Changes: changes, NoChanges: strings.TrimSpace(changes) == "",
 	})
 	a.appendFact(ctx, sid, event.TypeCouncilConvened, councilActor, cd)
 	for _, m := range members {
