@@ -575,6 +575,13 @@ func evidence(req port.DeliberationRequest) string {
 	section("Task (the goal)", req.Task)
 	section("The agent’s own plan (its todo list, not a contract anyone else authored)", req.Plan)
 	section("Agent's report (the claim)", req.Report)
+	// The identifiers the task NAMES, and whether each is in what the turn wrote. A comparison of
+	// two things the members already have, made for them because it is the one a reader makes only
+	// if they think to make it — see literals.go for the false done that showed they do not.
+	if literalsEnabled() {
+		section("Identifiers the task names that the work does not contain",
+			literalsSection(req.Task, req.Changes+"\n"+req.Actions))
+	}
 	if len(req.Signals) > 0 {
 		b.WriteString("# Signals (the evidence)\n")
 		for _, s := range req.Signals {
