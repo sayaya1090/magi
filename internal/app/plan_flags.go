@@ -76,18 +76,6 @@ func councilKeepEnabled() bool { return !envOff("MAGI_COUNCIL_KEEP") }
 // backend actually returns a context-length error.
 func ctxCompactRetryEnabled() bool { return !envOff("MAGI_CTX_COMPACT_RETRY") }
 
-// stallConvergeEnabled gates the stalled-nudge convergence (D18a): the no-progress "stalled"
-// nudge re-arms up to maxStallNudges times keyed purely on the sinceProgress count, without
-// checking whether the redirect actually changed anything. When a re-arm's window produced no
-// structural forward motion — neither a real mutation NOR a NOVEL exercising command
-// (progressSinceNudge stays false) — the nudge was ignored, so collapse the remaining nudge
-// budget and let the stall force-stop land the honest outcome now instead of burning more
-// no-progress windows. It only ACCELERATES the same terminal landing (stuck()=="stall"); it
-// never forces a pass and never fires while the agent is making progress (a mutation sets
-// progressSinceNudge=true and restarts the window, so a post-nudge edit re-arms normally). Default
-// ON; MAGI_STALL_CONVERGE=0 restores the fixed maxStallNudges re-arm.
-func stallConvergeEnabled() bool { return !envOff("MAGI_STALL_CONVERGE") }
-
 // stallNoveltyEnabled gates counting a NOVEL inspect-only command (a first-seen
 // fingerprint — a new grep pattern, a new file listed) as "the agent responded to the
 // stalled nudge", so the D18a convergence only collapses the nudge budget when the
