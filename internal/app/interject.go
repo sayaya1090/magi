@@ -49,6 +49,14 @@ func applyRoute(action, turnTask, interject string) (newTask string, changed boo
 // msgID identifies the specific queued interjection being absorbed; it is consumed by id so
 // re-draining the same signal is a no-op (idempotency) even when two interjections share text.
 func (a *App) applyInterjectRoute(ctx context.Context, sid session.SessionID, route, turnTask, msgID, interject string, reground func()) (newTask string, changed bool) {
+	// "answered" claims the reply already covers it. It does not re-anchor anything, and it does
+	// NOT leave the queue here: a claim is not an answer, and dropping a user's request on an
+	// assertion is the one outcome worth ruling out. Recording it stops the pending note (the
+	// thing the user reads as "still queued") and hands the finish boundary a fact to check.
+	if route == "answered" {
+		a.markInterjectAnswered(sid, msgID, a.lastSeq(ctx, sid))
+		return turnTask, false
+	}
 	nt, changed := applyRoute(route, turnTask, interject)
 	if !changed {
 		return turnTask, false
@@ -114,13 +122,22 @@ func (a *App) takeInterjectNotes(sid session.SessionID) string {
 	if !ok {
 		return ""
 	}
+	// An entry the agent marked "answered" is still queued (the claim is checked at the finish
+	// boundary), but re-showing its note every step is the thing that reads as "I answered it and
+	// it is still pending". Silence the note on the claim; the entry's fate is decided later.
+	claimed := map[string]bool{}
+	for _, p := range st.pendingInterject {
+		if p.AnsweredAtSeq != 0 {
+			claimed[p.MsgID] = true
+		}
+	}
 	var parts []string
 	if len(st.interjectNotes) > 0 {
 		// Prune resolved notes; emit the live ones in a stable (msgID) order.
 		ids := make([]string, 0, len(st.interjectNotes))
 		for id := range st.interjectNotes {
-			if deferred == nil || !deferred[id] {
-				delete(st.interjectNotes, id) // resolved (routed/drained/resurfaced) → gone
+			if deferred == nil || !deferred[id] || claimed[id] {
+				delete(st.interjectNotes, id) // resolved (routed/drained/resurfaced/answered) → gone
 				continue
 			}
 			ids = append(ids, id)

@@ -125,6 +125,16 @@ func (a *App) metaLocked(sid session.SessionID) (session.Session, bool) {
 type pendingInterjection struct {
 	MsgID string
 	Text  string
+	// AnsweredAtSeq is the event seq at which the agent claimed, via route_interjection
+	// action "answered", that its reply already covers this request. 0 means no claim.
+	//
+	// The claim stops the pending-interjection note at once — that note is the thing the user
+	// sees as "still queued" — but it does not resolve the entry, because a claim is not an
+	// answer. At the finish boundary magi checks the one fact it can measure: whether any
+	// assistant TEXT was persisted after this seq. Something said is not proof it answers the
+	// question; nothing said is proof it does not, and that is the case worth catching, because
+	// the alternative is a user request dropped on an assertion.
+	AnsweredAtSeq int64
 }
 
 // turnControl is a mid-turn control signal a tool records for the running loop to

@@ -80,6 +80,27 @@ func (a *App) enqueueInterject(ctx context.Context, sid session.SessionID, msgID
 	a.recordDeferral(ctx, sid, msgID, false)
 }
 
+// markInterjectAnswered records the agent's claim that its reply already covers this queued
+// interjection, stamping the seq the claim was made at. The entry STAYS queued — the claim only
+// silences the pending note and gives the finish boundary something measurable to test (was any
+// assistant text persisted after this seq). No-op when the id is not queued, so a repeated or
+// stale claim cannot resurrect an entry that already left.
+// seq is read by the caller, not here: resolving it is store I/O and must not run under a.mu.
+func (a *App) markInterjectAnswered(sid session.SessionID, msgID string, seq int64) {
+	if msgID == "" {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st := a.stateLocked(sid)
+	for i := range st.pendingInterject {
+		if st.pendingInterject[i].MsgID == msgID {
+			st.pendingInterject[i].AnsweredAtSeq = seq
+			return
+		}
+	}
+}
+
 // recordDeferral appends one entry to the interjection deferral ledger (F5): Resolved:false
 // when a prompt is queued as an interjection, Resolved:true when it later leaves the queue
 // absorbed inline or by a route. Best-effort — a failed write only means a reload may re-run
@@ -324,4 +345,73 @@ func (a *App) interjectSeenIDs(sid session.SessionID) map[string]bool {
 		out[k] = true
 	}
 	return out
+}
+
+// settleAnsweredClaims resolves every queued interjection the agent marked "answered", and
+// returns the queue that remains. It runs at the finish boundary, before the drain coalesces
+// the batch.
+//
+// The claim asserts the turn's reply already covers the request. magi does not judge whether it
+// does — reading an answer for fit is the model's job, and a harness that overrules it would just
+// be a worse model. What magi can measure is whether the turn SAID anything after the claim was
+// made: assistant text persisted at a later seq. Something said clears the claim; nothing said
+// revokes it, because a request silently dropped on an assertion is the one outcome the queue
+// exists to prevent. A revoked claim is not an error and is not punished — the entry simply goes
+// back to being an ordinary queued interjection and is triaged like the rest.
+func (a *App) settleAnsweredClaims(ctx context.Context, sid session.SessionID) []pendingInterjection {
+	a.mu.Lock()
+	q := append([]pendingInterjection(nil), a.stateLocked(sid).pendingInterject...)
+	a.mu.Unlock()
+	claimed := false
+	for _, p := range q {
+		if p.AnsweredAtSeq != 0 {
+			claimed = true
+			break
+		}
+	}
+	if !claimed {
+		return q
+	}
+	evs, _ := a.store.Read(ctx, sid, 0)
+	var kept []pendingInterjection
+	var settled []string
+	for _, p := range q {
+		if p.AnsweredAtSeq == 0 || !saidSomethingAfter(evs, p.AnsweredAtSeq) {
+			p.AnsweredAtSeq = 0 // an unbacked claim is just a queued interjection again
+			kept = append(kept, p)
+			continue
+		}
+		settled = append(settled, p.MsgID)
+	}
+	a.mu.Lock()
+	a.stateLocked(sid).pendingInterject = kept
+	a.mu.Unlock()
+	// Ledger each settled claim so a reload does not treat it as an abandoned (still-queued)
+	// one and re-mask an exchange that was answered (F5) — the same bookkeeping every other
+	// way out of the queue does.
+	for _, id := range settled {
+		a.recordDeferral(ctx, sid, id, true)
+	}
+	return kept
+}
+
+// saidSomethingAfter reports whether any non-empty assistant TEXT part was persisted after seq.
+// Reasoning is excluded on purpose: thinking is not addressed to anyone, and a turn that only
+// thought after claiming to have answered has told the user nothing. Tool calls are excluded for
+// the same reason — running a command is not a reply.
+func saidSomethingAfter(evs []event.Event, seq int64) bool {
+	for _, e := range evs {
+		if e.Seq <= seq || e.Type != event.TypePartAppended {
+			continue
+		}
+		var d event.PartAppendedData
+		if json.Unmarshal(e.Data, &d) != nil {
+			continue
+		}
+		if d.Role == session.RoleAssistant && d.Part.Kind == session.PartText &&
+			strings.TrimSpace(d.Part.Text) != "" {
+			return true
+		}
+	}
+	return false
 }
