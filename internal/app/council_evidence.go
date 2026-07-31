@@ -573,3 +573,35 @@ func priorCouncilObjections(evs []event.Event, maxItems, perItemCap int) string 
 	return "── WHAT THIS COUNCIL SAID EARLIER THIS TURN, WHEN IT DID NOT ACCEPT ──\n- " +
 		strings.Join(lines, "\n- ")
 }
+
+// clipEvidenceForRecord bounds the evidence copy kept in the convened FACT, holding on to both
+// ends when it has to cut.
+//
+// truncateForCouncil, which this replaced here, drops the tail — and the tail of the evidence block
+// is its most recent results, which is what a decision turns on. Observed in the field
+// (cancel-async-tasks, 2026-07-31): the recorded block ended `bash [error] pyth` and then stopped,
+// so the last thing the members were handed was, in the record, a seventeen-character stub. Anyone
+// reading it back — including the reader trying to work out why a round voted the way it did —
+// sees an earlier result as the final one. Its marker also said "diff truncated" in a block that
+// is not a diff.
+//
+// Head and tail, with the omission stated in bytes, is the shape magi already uses for captured
+// command output; the same reasons apply.
+func clipEvidenceForRecord(s string, n int) string {
+	if len(s) <= n || n <= 0 {
+		return s
+	}
+	const marker = "\n…(%d bytes omitted from the middle of this record; the members were given all of it)…\n"
+	head, tail := n/2, n-n/2
+	for head > 0 && !utf8.RuneStart(s[head]) {
+		head--
+	}
+	from := len(s) - tail
+	for from < len(s) && !utf8.RuneStart(s[from]) {
+		from++
+	}
+	if from <= head {
+		return s
+	}
+	return s[:head] + fmt.Sprintf(marker, from-head) + s[from:]
+}
