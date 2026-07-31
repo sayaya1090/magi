@@ -123,21 +123,28 @@ func TestScrollingALongTranscript(t *testing.T) {
 		s.assistantText(strings.Repeat("x", 20) + " line")
 	}
 	s.emit(event.TypeTurnFinished, event.TurnFinishedData{})
-	bottom := s.view()
-
+	_ = s.view()
+	// Judged on the viewport offset, not on the frame differing: a spinner or a clock makes two
+	// frames differ without anything having scrolled, which is a test that passes for the wrong
+	// reason and then keeps passing after the scrolling breaks.
+	bottom := s.m.vp.YOffset()
+	if bottom == 0 {
+		t.Fatal("the transcript is not longer than the viewport, so scrolling it proves nothing")
+	}
 	for i := 0; i < 10; i++ {
 		s.send(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
 	}
-	scrolled := s.view()
-	if scrolled == bottom {
-		t.Error("ten wheel-ups changed nothing — the transcript did not scroll")
+	if up := s.m.vp.YOffset(); up >= bottom {
+		t.Errorf("ten wheel-ups did not move the viewport: %d → %d", bottom, up)
 	}
 	s.renders("after scrolling up")
 
 	for i := 0; i < 40; i++ {
 		s.send(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
 	}
-	s.renders("back at the bottom")
+	if back := s.m.vp.YOffset(); back != bottom {
+		t.Errorf("scrolling back down did not return to the bottom: %d, want %d", back, bottom)
+	}
 }
 
 // The side panel carries the plan and the context meter, both at 0%. A plan arrives as an event and
