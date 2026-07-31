@@ -169,10 +169,21 @@ func checkCites(record, cite, rationale, feedback string) []citeMiss {
 			out = append(out, citeMiss{quote: q, field: field})
 		}
 	}
-	// The cite is the GROUNDS, and grounds are what came back. Text found only inside a command
+	// The cite is the GROUNDS, and grounds are what came back. Text found ONLY inside a command
 	// body is what was sent — the case this whole file exists for.
+	//
+	// "Only" is the word that matters, and getting it wrong is expensive. Measured live
+	// (kv-store-grpc, 2026-08-01): two members copied a whole evidence entry verbatim — the
+	// command, its exit, its output path — which is the most cooperative thing a member can do,
+	// and the first version of this check rejected both because the span STARTS in a command
+	// body. They abstained, and a three-member council decided done on one vote. Over-rejection
+	// here costs more than the fabrication it guards against.
+	//
+	// So a cite passes when its TAIL is in what came back, not only when the whole span is. A
+	// member that quoted a record line reaches the output at the end of it; a member that quoted
+	// only a command reaches more command.
 	if c := strings.TrimSpace(cite); c != "" && !strings.EqualFold(c, citeNoEvidence) {
-		if n := normalizeForCite(c); len([]rune(n)) >= citeMinLen && !strings.Contains(came, n) {
+		if n := normalizeForCite(c); len([]rune(n)) >= citeMinLen && !citedWhatCameBack(came, n) {
 			m := citeMiss{quote: c, field: "cite"}
 			if strings.Contains(rec, n) {
 				m.sentNotReturned = true
@@ -189,6 +200,24 @@ func checkCites(record, cite, rationale, feedback string) []citeMiss {
 		}
 	}
 	return out
+}
+
+// citeTailLen is how much of a citation's end has to be in what came back. It is long enough that
+// a stray word cannot carry a command-body quote through, and short enough that a member quoting
+// one output line is not asked to quote more of it.
+const citeTailLen = 30
+
+// citedWhatCameBack reports whether a normalized citation reaches material that came back — the
+// whole span, or its tail. Both are already normalized.
+func citedWhatCameBack(came, n string) bool {
+	if strings.Contains(came, n) {
+		return true
+	}
+	r := []rune(n)
+	if len(r) <= citeTailLen {
+		return false // short spans get no second chance; the whole of it already missed
+	}
+	return strings.Contains(came, string(r[len(r)-citeTailLen:]))
 }
 
 // citeRetryReminder is the one focused re-ask. It names each missing quotation and says the only
