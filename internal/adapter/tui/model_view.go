@@ -330,6 +330,8 @@ func formatCouncilEvidence(d event.CouncilConvenedData) string {
 	if len(d.Signals) > 0 {
 		add("Signals", strings.Join(d.Signals, "\n"))
 	}
+	// Between Signals and Changes, where the members' own prompt puts it.
+	add("What the turn's tools produced", d.Actions)
 	add("Changes", colorizeChanges(d.Changes))
 	if d.NoChanges {
 		b.WriteString("(no files changed — a read-only / answer turn)\n")
