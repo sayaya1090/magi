@@ -60,6 +60,12 @@ func (m *Model) reviveForEngineActivity() {
 		return
 	}
 	m.running = true
+	// Start the clock too. The meter reads time.Since(turnStart), and a turn revived from engine
+	// activity had never been through the submit path that sets it — so a zero start rendered
+	// "working… 2562047h47m", which is what time.Since(zero) is. Found by a random session.
+	if m.turnStart.IsZero() {
+		m.turnStart = time.Now()
+	}
 	if m.turnReqID == "" {
 		for i := len(m.blocks) - 1; i >= 0; i-- {
 			if m.blocks[i].kind == blockUser && m.blocks[i].reqID != "" {
