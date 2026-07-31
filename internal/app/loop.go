@@ -609,6 +609,14 @@ func (a *App) allParallelSafe(calls []*session.ToolCall) bool {
 		if fileModifiers[tc.Name] || a.cfg.DangerTools[tc.Name] || tc.Name == "task" {
 			return false
 		}
+		// A tool that blocks on the PERSON is not parallel-safe however read-only it is: there is
+		// one human and one modal slot, so a second question raised while the first is up replaces
+		// it on screen — the first prompt vanishes and its call waits on an answer nobody can give,
+		// with nothing saying it is there. Serializing is the whole fix: the second never starts
+		// until the first has been answered.
+		if tc.Name == "ask_user" {
+			return false
+		}
 	}
 	return true
 }
