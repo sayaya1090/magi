@@ -81,10 +81,25 @@ func TestPermButtonKeyNav(t *testing.T) {
 		t.Fatalf("enter should close the modal, perm=%+v", m.perm)
 	}
 
-	// A direct hotkey still works regardless of focus.
+	// A letter MOVES focus; it no longer answers on its own. The shortcut used to press its
+	// button, and in an app where the user types while a turn runs that meant a prompt opening
+	// between two keystrokes was decided by the next letter of their sentence — measured with
+	// ordinary prose: "this should not become a request" answered itself with its `n`, the modal
+	// closed, and the rest became a prompt. An `a` grants the tool for the session and a `p`
+	// writes an allow rule to disk, neither of which the user would have seen happen.
 	m.perm = &permReq{name: "bash", args: `{}`, sel: 2}
-	if cmd, _ := m.handleKey(tea.KeyPressMsg{Code: 'n', Text: "n"}); cmd == nil || m.perm != nil {
-		t.Fatal("hotkey n should deny and close the modal")
+	if cmd, _ := m.handleKey(tea.KeyPressMsg{Code: 'n', Text: "n"}); cmd != nil {
+		t.Fatal("a letter must not answer the prompt")
+	}
+	if m.perm == nil {
+		t.Fatal("a letter must not close the modal")
+	}
+	if m.perm.sel != permIndex("deny") {
+		t.Fatalf("`n` should focus deny, sel=%d", m.perm.sel)
+	}
+	// esc is not printable, so it cannot arrive inside a sentence — it still answers outright.
+	if cmd, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyEscape}); cmd == nil || m.perm != nil {
+		t.Fatal("esc should deny and close the modal")
 	}
 }
 
