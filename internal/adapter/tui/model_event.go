@@ -389,6 +389,12 @@ func (m *Model) applyEvent(e event.Event) {
 		if !m.turnStart.IsZero() { // freeze the meter too (mirror panes) (§8.1)
 			m.turnDur = time.Since(m.turnStart)
 		}
+		// An error ends the turn as surely as a finish does, and a bubble still flagged queued is
+		// waiting for a turn that is over — nothing is coming to pick it up. onTurnFinished has
+		// always cleared these; this path never did, so an errored turn left a request marked
+		// "waiting" for the rest of the session, and (since the queued run renders last) pinned it
+		// to the bottom of the transcript where it could not scroll away.
+		m.clearQueuedGlyphs()
 		m.blocks = append(m.blocks, block{kind: blockError, text: d.Message})
 	}
 }
@@ -624,14 +630,7 @@ func (m *Model) onTurnFinished(e event.Event) {
 	// The turn ended and the interjection queue drained: any bubble still flagged queued
 	// (waiting mid-turn) is no longer waiting — clear the glyph. Inline-answered/resurfaced
 	// bubbles already cleared theirs; this catches any that weren't reached.
-	for i := range m.blocks {
-		if m.blocks[i].queued {
-			m.blocks[i].queued = false
-			if i < len(m.cache) {
-				m.cache = m.cache[:i]
-			}
-		}
-	}
+	m.clearQueuedGlyphs()
 	m.liveText = ""
 	m.liveThink = ""
 	m.liveProgress = ""
@@ -669,5 +668,20 @@ func (m *Model) onTurnFinished(e event.Event) {
 	// back through the transcript (steps matter more now that the ceiling is 240).
 	if sum := m.turnSummary(); sum != "" {
 		m.blocks = append(m.blocks, block{kind: blockInfo, text: sum})
+	}
+}
+
+// clearQueuedGlyphs drops the waiting marker from every bubble that still carries one, and
+// invalidates the cache from the first of them. Shared by the two ways a turn can end: whichever
+// one happens, nothing is left to pick a queued request up, so continuing to show it as waiting
+// tells the user to expect something that is not coming.
+func (m *Model) clearQueuedGlyphs() {
+	for i := range m.blocks {
+		if m.blocks[i].queued {
+			m.blocks[i].queued = false
+			if i < len(m.cache) {
+				m.cache = m.cache[:i]
+			}
+		}
 	}
 }
