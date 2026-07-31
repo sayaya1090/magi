@@ -53,25 +53,27 @@ jobs:
               # point and the one-line adapters no test can assert anything about. The
               # marker carries its reason at the function, and covignore fails the step
               # if one has gone stale (something now covers it, or the name drifted).
-              go run ./tools/covignore -i coverage.prod.out -o coverage.filtered.out
+              go run ./tools/covignore -i coverage.prod.out -o coverage.filtered.out \
+                -bypkg coverage.bypkg.tsv
               mv coverage.filtered.out coverage.prod.out
               total=$(go tool cover -func=coverage.prod.out | tail -1 | awk '{print $NF}')
               echo "### Total: \`${total}\`"
               echo ""
               echo "| Package | Coverage | |"
               echo "|---|---:|:--|"
-              # One row per package that HAS tests (lines starting with "ok"), lowest
-              # coverage first, with a 🟥/🟨/🟩 status (<50 / <80 / ≥80). Packages with no
-              # test files of their own (cmd/magi, interface-only pkgs) report a bare
-              # "coverage: 0.0%" without the "ok" prefix and are omitted — there's nothing
-              # to test there. A tested package that is genuinely 0% (a real gap) is kept.
-              grep -E '^ok\b.*coverage:' test-output.txt \
-                | grep -v 'internal/eval' \
-                | sed -E 's#github.com/sayaya1090/magi/##' \
-                | awk '{
-                    for (i=1;i<=NF;i++) if ($i=="coverage:") { p=$(i+1); sub(/%/,"",p) }
+              # The rows are aggregated from the SAME filtered profile as the total above.
+              # They used to come from `go test`'s own per-package line, which is printed
+              # before any filtering runs — so the marked functions came off the total and
+              # stayed on the rows, and cmd/magi read 50% underneath a total that had
+              # already excluded its entry point. Only packages the profile names appear,
+              # which is exactly the set that has tests: no test binary, no blocks. A
+              # tested package that is genuinely 0% (a real gap) is kept.
+              # Lowest coverage first, with a 🟥/🟨/🟩 status (<50 / <80 / ≥80).
+              sed -E 's#github.com/sayaya1090/magi/##' coverage.bypkg.tsv \
+                | awk -F'\t' '{
+                    p=$4
                     e="🟥"; if (p+0>=80) e="🟩"; else if (p+0>=50) e="🟨"
-                    printf "%06.2f\t| `%s` | %s%% | %s |\n", p+0, $2, p, e
+                    printf "%06.2f\t| `%s` | %s%% | %s |\n", p+0, $1, p, e
                   }' \
                 | sort -n | cut -f2-
             else

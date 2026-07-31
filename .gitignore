@@ -13,6 +13,9 @@ internal/eval/a-reference-agent_compare_test.go
 
 # coverage output
 coverage.out
+coverage.prod.out
+coverage.filtered.out
+coverage.bypkg.tsv
 test-output.txt
 
 # Python bytecode (bench adapter)

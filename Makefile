@@ -23,8 +23,10 @@ test-race:
 cover:
 	go test ./... -skip E2E -covermode=atomic -coverprofile=coverage.out
 	@grep -v '/internal/eval/' coverage.out > coverage.prod.out
-	@go run ./tools/covignore -i coverage.prod.out -o coverage.filtered.out && mv coverage.filtered.out coverage.prod.out
+	@go run ./tools/covignore -i coverage.prod.out -o coverage.filtered.out -bypkg coverage.bypkg.tsv && mv coverage.filtered.out coverage.prod.out
 	@go tool cover -func=coverage.prod.out | tail -1
+	@echo "Per-package (same filtered profile, lowest first):"
+	@sort -t'	' -k4 -g coverage.bypkg.tsv | sed -E 's#github.com/sayaya1090/magi/##' | awk -F'\t' '{printf "  %6.1f%%  %s\n", $$4, $$1}'
 	@echo "HTML report: go tool cover -html=coverage.out"
 
 vet:
