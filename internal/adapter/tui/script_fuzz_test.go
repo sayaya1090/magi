@@ -23,7 +23,7 @@ import (
 //
 // Seeded, so a failure is reproducible: the seed and the step are printed with it.
 func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
-	for _, seed := range []int64{4229, 4231, 4241, 4243, 4253, 4259, 4261, 4271, 4273, 4283, 4289, 4297, 4327, 4337, 4339, 4349, 4357, 4363, 4373, 4391} {
+	for _, seed := range []int64{4397, 4409, 4421, 4423, 4441, 4447, 4451, 4457, 4463, 4481, 4483, 4493, 4507, 4513, 4517, 4519, 4523, 4547, 4549, 4561} {
 		t.Run(fmt.Sprintf("seed%d", seed), func(t *testing.T) {
 			rng := rand.New(rand.NewSource(seed))
 			s := newScript(t)
