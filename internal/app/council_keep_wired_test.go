@@ -56,7 +56,7 @@ func TestWhatTheCouncilSaysToKeepReachesTheAgent(t *testing.T) {
 		Verdicts: []council.Verdict{{Member: "Melchior", Lens: "correctness", Feedback: "the parser is wrong"}},
 		Keep:     "the retry loop is correct — do not revert it",
 	}
-	out := renderCouncilAdvice(d)
+	out := renderCouncilAdvice(d, "What the members said:")
 	if !strings.Contains(out, "do not revert it") {
 		t.Errorf("the keep advice is not in what the agent reads:\n%s", out)
 	}

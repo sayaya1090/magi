@@ -117,7 +117,8 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	}
 	a.emitCouncilVerdicts(ctx, sid, councilActor, 1, "", delib.Verdicts)
 	if !complete {
-		return renderCouncilAdvice(delib), nil
+		return renderCouncilAdvice(delib,
+			"The council read your work. This is their reading, not a decision — weigh it and judge for yourself."), nil
 	}
 
 	accepted := delib.Decision == council.Done
@@ -140,21 +141,28 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 		a.signalTurnControl(sid, func(tc *turnControl) { tc.finish = true })
 		return "The council accepts that the task is finished. Your turn ends here — write your final " +
 			"answer for whoever asked, and stop." + notesTail(a.turnNotesBlock(sid)) + "\n\n" +
-			renderCouncilAdvice(delib), nil
+			renderCouncilAdvice(delib, "What the members said:"), nil
 	}
 	return "The council does NOT accept this as finished yet. Address what follows and declare " +
 		"completion again when you believe it is done." + notesTail(a.turnNotesBlock(sid)) + "\n\n" +
-		renderCouncilAdvice(delib), nil
+		renderCouncilAdvice(delib, "What the members said:"), nil
 }
 
 // renderCouncilAdvice turns the members' verdicts into what the agent reads: one block per member,
-// named by its lens, in its own words. The tally is not rendered — counting votes is what the gate
-// did, and a count invites the agent to read a majority as an instruction. Where a member had
-// nothing to say beyond agreement, it says so rather than disappearing, so a quiet member is not
-// mistaken for one that never answered.
-func renderCouncilAdvice(d council.Deliberation) string {
+// named by its lens, in its own words, under `lead`. The tally is not rendered — counting votes is
+// what the gate did, and a count invites the agent to read a majority as an instruction. Where a
+// member had nothing to say beyond agreement, it says so rather than disappearing, so a quiet
+// member is not mistaken for one that never answered.
+//
+// The lead belongs to the CALLER because the three paths mean different things. It used to be one
+// fixed line — "this is their reading, not a decision" — which is true when the agent merely asked,
+// and flatly contradicts the sentence above it on the other two: the accept path had just said
+// "your turn ends here", and the reject path had just said "address what follows". Observed live
+// (headless-terminal, 2026-08-01): one reply telling the agent both that its turn was over and
+// that this was not a decision to defer to.
+func renderCouncilAdvice(d council.Deliberation, lead string) string {
 	var b strings.Builder
-	b.WriteString("The council read your work. This is their reading, not a decision — weigh it and judge for yourself.\n")
+	b.WriteString(lead + "\n")
 	for _, v := range d.Verdicts {
 		who := strings.TrimSpace(v.Member)
 		if lens := strings.TrimSpace(v.Lens); lens != "" {
