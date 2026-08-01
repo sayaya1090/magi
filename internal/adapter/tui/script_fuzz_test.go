@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,14 +29,12 @@ import (
 //
 // Seeded, so a failure is reproducible: the seed and the step are printed with it.
 //
-// WHAT A GREEN RUN PROVES. "Twenty seeds, green" is not a result until it says what it bounds. The
-// unit is a CHECKED STEP — one action followed by the whole invariant block — because that is what
-// either trips or does not, so the baseline run is 20 seeds x 500 steps = 10,000 checked steps. By
-// the rule of three, zero failures in N trials puts the per-step failure rate under 3/N with 95%
-// confidence: p < 3.0e-4 for the baseline, and p < 5.0e-4 for the 12-seed rotation a tick uses
-// (6,000 steps).
+// WHAT A GREEN RUN PROVES. "Twenty seeds, green" is not a result until it says what it bounds, so
+// the run prints its own bound (see the Cleanup below). The unit is a CHECKED STEP — one action
+// followed by the whole invariant block — because that is what either trips or does not, and by
+// the rule of three, zero failures in N puts the per-step rate under 3/N at 95% confidence.
 //
-// Read that as the bound it is. The steps are not independent — a walk revisits states — and the
+// Read it as the bound it is. The steps are not independent — a walk revisits states — and the
 // rate is per checked step of THIS step vocabulary, so a defect no step reaches has probability
 // zero here and one in production. That is why the vocabulary keeps growing (the route editor and
 // the hostile escapes were both added after a tick found the walk had never opened them), and why
@@ -49,7 +48,22 @@ import (
 // baseline stays fixed so CI and a bisect always walk the same ground.
 func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 	dark := fuzzDark(t)
-	for _, seed := range fuzzSeeds(t) {
+	seeds := fuzzSeeds(t)
+	// Counted, not assumed. The bound belongs to the run that produced it, and a comment stating
+	// one for a fixed seed count goes stale the moment MAGI_FUZZ_SEEDS or MAGI_FUZZ_STEPS changes
+	// — which is every tick. Steps are counted as they are checked, so a subtest that fails early
+	// does not get credited with the ones it never reached.
+	var checked atomic.Int64
+	t.Cleanup(func() {
+		n := checked.Load()
+		if n <= 0 || t.Failed() {
+			return // a failed run bounds nothing
+		}
+		t.Logf("%d seeds x up to %d steps = %d checked steps; zero failures bounds the per-step "+
+			"rate at p < %.1e (95%%, rule of three). Per step of THIS vocabulary: a defect no step "+
+			"reaches is not in the bound.", len(seeds), fuzzSteps(t), n, 3/float64(n))
+	})
+	for _, seed := range seeds {
 		t.Run(fmt.Sprintf("seed%d", seed), func(t *testing.T) {
 			rng := rand.New(rand.NewSource(seed))
 			walkLen := fuzzSteps(t)
@@ -483,6 +497,7 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 			for step := 0; step < walkLen; step++ {
 				pick := steps[rng.Intn(len(steps))]
 				pick.do()
+				checked.Add(1)
 				raw := s.rawView()
 				where := fmt.Sprintf("seed %d, step %d (%s)", seed, step, pick.what)
 
