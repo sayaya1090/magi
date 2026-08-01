@@ -37,15 +37,6 @@ func envOff(name string) bool {
 	return false
 }
 
-// envOn reports whether the named env var holds an explicit on-value.
-func envOn(name string) bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
-	case "1", "on", "true", "yes":
-		return true
-	}
-	return false
-}
-
 // councilDebateEnabled gates the disagreement-triggered rebuttal round: after the
 // members vote independently, a SPLIT (both done and continue) triggers one round
 // where each sees the others' rationales and may hold or revise, then a re-tally.

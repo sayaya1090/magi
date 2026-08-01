@@ -12,11 +12,10 @@ import (
 // What a run actually spends was not knowable from anything magi recorded.
 //
 // The turn's usage came from ONE place — the main agent's own stream — and everything else billed
-// against the same account was invisible: the council's members (three of them, per round, per gate,
-// and there are several gates in a turn), the curator, both spec-mine passes, the check audit, the
-// coverage fill and its re-ask, the convergence judge, the lease judge. A delegate-heavy turn was
-// worse still: the work happens in a child session, so the parent's own numbers approach zero while
-// the run costs the most.
+// against the same account was invisible: the council's members — three of them, per round, per
+// gate, and there are several gates in a turn. (This list used to also name a curator, two
+// spec-mine passes, a check audit, a coverage fill and its re-ask, a convergence judge and a lease
+// judge. None of those exist any more; the meter counting them is what is left.)
 //
 // And the one number that WAS recorded means something other than its name. `Usage.In` is the LAST
 // step's prompt size — deliberately, because the context meter wants the current window — while
