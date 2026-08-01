@@ -314,9 +314,15 @@ func (m *Model) paletteView(matches []cmdInfo) string {
 	// marked: a list silently ending at the tenth command reads as a magi with ten commands.
 	room := m.modalRoom()
 	full := m.paletteBody(matches, sel)
-	if m.height <= 0 || room < 3 || lipgloss.Height(full) <= room {
+	if m.height <= 0 || lipgloss.Height(full) <= room {
 		return full
 	}
+	// There used to be a `room < 3` arm here returning the unbounded popup, on the reasoning that
+	// two rows are not enough to window into. What it actually did was switch the bound OFF on the
+	// shortest terminals — the ones that need it. The walk found it at eight rows, where
+	// modalRoom is 2 and the popup drew 55: the frame ran 47 rows past an eight-row screen and on
+	// an alt screen everything above the last eight is gone. A short terminal falls through to the
+	// marker instead, which is one row and still says the list is there.
 	// Shrink by MEASURING, not by counting: a long "/name   description" wraps on a narrow
 	// terminal, so a row is not a line. The window is centred on the selection — that is the one
 	// being chosen — and the cut is marked, because a list silently ending at the tenth command
@@ -324,13 +330,26 @@ func (m *Model) paletteView(matches []cmdInfo) string {
 	for keep := len(matches) - 1; keep >= 1; keep-- {
 		start := min(max(0, sel-keep/2), len(matches)-keep)
 		body := m.paletteBody(matches[start:start+keep], sel-start)
-		out := body + "\n" + styleFooter.Render(fmt.Sprintf("  … %d more (type to narrow)", len(matches)-keep))
+		out := body + "\n" + m.paletteCutMark(fmt.Sprintf("  … %d more (type to narrow)", len(matches)-keep))
 		if lipgloss.Height(out) <= room {
 			return out
 		}
 	}
 	// Not even one row and a marker fit: the marker alone still says the list is there.
-	return styleFooter.Render(fmt.Sprintf("  … %d commands (type to narrow)", len(matches)))
+	return m.paletteCutMark(fmt.Sprintf("  … %d commands (type to narrow)", len(matches)))
+}
+
+// paletteCutMark renders the "N more" line under the popup, cut to the terminal. The rows above
+// it are inside a box that was given a width; this line is not, and "  … 20 commands (type to
+// narrow)" is 33 cells wide however narrow the terminal is — found by the walk at 21 columns.
+// A marker that says the list was cut and then overflows the screen itself is the same defect it
+// was added to report.
+// styleFooter pads a cell on each side, so the budget for the text is two less than the terminal.
+func (m *Model) paletteCutMark(text string) string {
+	if m.width > 0 {
+		text = ansi.Truncate(text, max(1, m.width-2), "")
+	}
+	return styleFooter.Render(text)
 }
 
 // paletteBody renders the rows themselves; paletteView decides how many there are room for.
