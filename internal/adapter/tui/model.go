@@ -599,6 +599,15 @@ func (m *Model) switchSession(sid session.SessionID) tea.Cmd {
 	// transcript that is no longer on screen, painted onto the one that is.
 	m.councilDetail, m.councilDetailEvidence = nil, ""
 	m.selecting, m.selActive = false, false
+	// …and so does the identity of the turn that was running. running is cleared just above, but
+	// turnReqID kept pointing at a request in the transcript that was just replaced. The revive
+	// path (running comes back from engine activity) only adopts a block's reqID when turnReqID is
+	// EMPTY, so a stale one survives it: running is true, the spinner is looking for a block that
+	// is not in this session, and the turn animates beside nothing. turnStart is the same story one
+	// field over — revive only sets it when zero, so the resumed meter would count from the other
+	// session's start. Found by a random session switching mid-turn, which is what /resume does.
+	m.turnReqID, m.awaitingTurnReqID = "", false
+	m.turnStart = time.Time{}
 	// Subscribe from lastSeq so we stream only new events (transcript already shown).
 	cmd := m.startSub(sid, lastSeq)
 	m.refresh()
