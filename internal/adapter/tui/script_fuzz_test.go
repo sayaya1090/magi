@@ -316,6 +316,25 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 						s.send(tea.KeyPressMsg{Code: tea.KeyDown})
 					}
 				}},
+				{"route editor", func() {
+					// The model/route editor windows its own rows against modalRoom, exactly like
+					// the picker and the palette, and it was the one such surface the walk never
+					// opened. Its rows carry endpoints and model names — the long strings that made
+					// the other lists overflow — so it belongs under the same width and height
+					// checks as everything else here, and under them while a job pane is up or a
+					// resize lands mid-list.
+					s.m.openRouteEditor()
+					for k := rng.Intn(8); k > 0; k-- {
+						if rng.Intn(2) == 0 {
+							s.send(tea.KeyPressMsg{Code: tea.KeyDown})
+						} else {
+							s.send(tea.KeyPressMsg{Code: tea.KeyUp})
+						}
+					}
+				}},
+				{"close the route editor", func() {
+					s.send(tea.KeyPressMsg{Code: tea.KeyEscape})
+				}},
 				{"scroll", func() {
 					if rng.Intn(2) == 0 {
 						s.send(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
