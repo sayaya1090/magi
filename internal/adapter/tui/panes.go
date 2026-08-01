@@ -26,7 +26,6 @@ type agentPane struct {
 	killed    bool   // it was stopped, so its exit says nothing about the work
 	role      string // display name
 	task      string // the command this pane runs
-	blocks    []block
 	live      string // streaming text for the current step
 	liveThink string
 	done      bool
@@ -60,8 +59,6 @@ type agentPane struct {
 
 	// tail render cache: a finished pane's blocks never change, so render their
 	// overview lines once (per width) instead of every frame.
-	tailLines  []string
-	tailCacheW int
 }
 
 // roleColorIndex returns a stable palette index for a role within this session.
@@ -305,77 +302,26 @@ func (m *Model) handlePaneClick(y int) bool {
 
 // paneTail renders the last rows of a pane's transcript (cheap, no markdown),
 // for the tiled overview where space is tight.
+//
+// A pane's content is its live regions. It used to also fold a child session's transcript into
+// per-pane blocks, and there was a cache here for the finished ones — but the events that fed
+// those blocks lost their producer, and the commit that removed the feeding paths left the field,
+// its readers and this cache behind. Nothing has written a pane block since.
 func (m *Model) paneTail(p *agentPane, width, rows int) string {
-	// A finished pane's blocks are final — render them once per width and reuse,
-	// so they don't recompute (or flicker) every frame.
-	var blockLines []string
-	if p.done && p.tailCacheW == width && p.tailLines != nil {
-		blockLines = p.tailLines
-	} else {
-		for _, blk := range p.blocks {
-			blockLines = append(blockLines, paneBlockLines(blk, width)...)
-		}
-		if p.done {
-			p.tailLines = blockLines
-			p.tailCacheW = width
-		}
-	}
-	lines := blockLines
-	// Live regions exist only while running; append a COPY so the cached slice
-	// is never mutated.
+	// Live regions exist only while running.
+	var lines []string
 	if !p.done {
-		var extra []string
 		if s := strings.TrimSpace(p.liveThink); s != "" && p.live == "" {
-			extra = append(extra, styleThink.Render("…thinking"))
+			lines = append(lines, styleThink.Render("…thinking"))
 		}
 		if s := strings.TrimSpace(p.live); s != "" {
-			extra = append(extra, wrapLines(s, width)...)
-		}
-		if len(extra) > 0 {
-			lines = append(append([]string{}, blockLines...), extra...)
+			lines = append(lines, wrapLines(s, width)...)
 		}
 	}
 	if len(lines) > rows {
 		lines = lines[len(lines)-rows:]
 	}
 	return strings.Join(lines, "\n")
-}
-
-// paneBlockLines renders a single block to plain wrapped lines for a pane.
-func paneBlockLines(blk block, width int) []string {
-	switch blk.kind {
-	case blockToolCall:
-		glyph := styleToolName.Render("⚙")
-		if blk.done {
-			if blk.ok {
-				glyph = styleToolOK.Render("✓")
-			} else {
-				glyph = styleToolErr.Render("✗")
-			}
-		}
-		head := glyph + " " + styleToolName.Render(blk.name)
-		if a := compactArgs(blk.args); a != "" {
-			head += " " + styleToolArgs.Render(oneLine(a, max(4, width-len(blk.name)-4)))
-		}
-		if blk.done {
-			if s := summarizeResult(blk.result); s != "" {
-				head += styleToolResult.Render(" ⟶ " + oneLine(s, max(4, width-len(blk.name)-6)))
-			}
-		}
-		return []string{head}
-	case blockToolResult:
-		mark := styleToolOK.Render("✓")
-		if !blk.ok {
-			mark = styleToolErr.Render("✗")
-		}
-		return []string{mark + " " + styleToolResult.Render(oneLine(summarizeResult(blk.text), max(4, width-2)))}
-	case blockReasoning:
-		return []string{styleThink.Render(oneLine(blk.text, width))}
-	case blockError:
-		return []string{styleError.Render(oneLine(blk.text, width))}
-	default:
-		return wrapLines(blk.text, width)
-	}
 }
 
 func wrapLines(s string, width int) []string {
@@ -549,21 +495,8 @@ func (m *Model) renderZoom(width int) string {
 	cstyle := lipgloss.NewStyle().Foreground(c)
 	// The breadcrumb is rendered as the fixed header (see View); here just the body.
 	var b strings.Builder
-	// Record the content line where each block begins so a click in the zoom view
-	// can be mapped back to a pane block (e.g. to expand a thinking block).
-	m.paneLineStart = m.paneLineStart[:0]
-	nl := 0
-	for i, blk := range p.blocks {
-		if i > 0 {
-			b.WriteString("\n")
-			nl++
-		}
-		m.paneLineStart = append(m.paneLineStart, nl)
-		// In a subagent's detail view, assistant lines are THAT agent, not magi.
-		s := m.renderBlockAs(blk, p.label(), c)
-		b.WriteString(s)
-		nl += strings.Count(s, "\n")
-	}
+	// A pane has no blocks — what fed them lost its producer, and the loop that drew them (with
+	// the click-to-line map that let a thought be expanded here) went with the field.
 	if s := strings.TrimSpace(p.liveThink); s != "" && p.live == "" {
 		b.WriteString("\n" + label(styleBar, "thinking") + "\n" + indent(styleThink.Render(s)))
 	}

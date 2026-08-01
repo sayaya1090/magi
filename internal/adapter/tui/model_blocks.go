@@ -222,28 +222,3 @@ func (m *Model) exitZoom() {
 	m.zoom = false
 	m.zoomPane = nil
 }
-
-// toggleThoughtAtZoom flips the expand state of the reasoning block at content
-// line `line` in the focused subagent's zoom view. Returns true if a reasoning
-// block was toggled. The zoom view rebuilds from p.blocks each frame (no cache),
-// so toggling expanded and refreshing is enough to re-render at the new height.
-func (m *Model) toggleThoughtAtZoom(line int) bool {
-	p := m.viewedPane()
-	if p == nil {
-		return false
-	}
-	i := -1
-	for j := len(m.paneLineStart) - 1; j >= 0; j-- {
-		if line >= m.paneLineStart[j] {
-			i = j
-			break
-		}
-	}
-	if i < 0 || i >= len(p.blocks) || p.blocks[i].kind != blockReasoning {
-		return false
-	}
-	if !m.thoughtClickSkip(line) {
-		p.blocks[i].expanded = !p.blocks[i].expanded
-	}
-	return true
-}

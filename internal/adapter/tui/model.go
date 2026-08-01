@@ -150,7 +150,6 @@ type Model struct {
 	showThink       bool      // expand ALL reasoning blocks (default collapsed); toggle ctrl+t
 	liveThinkStart  int       // content line where the streaming "thinking" block begins (-1 = not shown); for click-to-toggle
 	blockLineStart  []int     // content line where each cached block begins (for click mapping)
-	paneLineStart   []int     // content line where each focused-pane block begins, in zoom view (click mapping)
 	lastThoughtAt   time.Time // last thought-toggle click time (to swallow a double-click's 2nd toggle)
 	lastThoughtLine int       // content line of that last thought click
 	perm            *permReq
