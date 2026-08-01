@@ -59,3 +59,36 @@ func TestBackgroundWithAnInteriorDetachSaysTheExitIsNotTheJobs(t *testing.T) {
 		})
 	}
 }
+
+// The start-of-job note scrolls away; `[job exited 0]` is what the model acts on, and it wears the
+// job's own id. On the run that prompted this there was one warning at start and then FIVE such
+// reads while make was still running, so the fact belongs on the exit line too.
+func TestAnExitedJobSaysWhoseExitItIsWhenSomethingDetached(t *testing.T) {
+	for _, tc := range []struct {
+		what, cmd string
+		want      bool
+	}{
+		{"interior detach", "sleep 0 & true", true},
+		{"nothing detached", "true", false},
+	} {
+		t.Run(tc.what, func(t *testing.T) {
+			p := &bgProc{id: "bg_t", command: tc.cmd, done: true, exit: 0}
+			got := p.status()
+			if !strings.Contains(got, "exited 0") {
+				t.Fatalf("expected a finished job, got %q", got)
+			}
+			if said := strings.Contains(got, "detached work with `&`"); said != tc.want {
+				t.Errorf("note = %v, want %v: %q", said, tc.want, got)
+			}
+		})
+	}
+	// A killed or signalled job takes a different branch and must not grow the note twice.
+	for _, p := range []*bgProc{
+		{id: "bg_k", command: "sleep 0 & true", killed: true},
+		{id: "bg_s", command: "sleep 0 & true", done: true, exit: -1},
+	} {
+		if n := strings.Count(p.status(), "detached work"); n > 1 {
+			t.Errorf("%q repeats the note %d times", p.status(), n)
+		}
+	}
+}

@@ -406,6 +406,17 @@ func (p *bgProc) status() string {
 		if note := pipeStageNote(p.exit, p.stages); note != "" {
 			h += " " + note
 		}
+		// Same class one level up: a command that detached with an interior `&` left something
+		// ELSE as the job's foreground, so this exit is that command's. The start of the job says
+		// so, but the start scrolls away and this line is what the model acts on — and it wears the
+		// job's own id, which reads as a verdict on the whole thing.
+		//
+		// Measured on the run that prompted it (fix-ocaml-gc, 2026-08-02): one warning at start,
+		// then FIVE `[bg_1 exited 0]` reads while make was still running.
+		if detachIndex(p.command) >= 0 {
+			h += " (this job's command detached work with `&`; the exit is the FOREGROUND part's" +
+				" — magi has none for the detached part, so this does not say it finished)"
+		}
 		return h
 	}
 	return fmt.Sprintf("[%s running %s]", p.id, time.Since(p.started).Round(time.Second))
