@@ -120,38 +120,3 @@ func (a *App) setScratch(sid session.SessionID, s *turnScratch) {
 	a.stateLocked(sid).scratch = s
 	a.mu.Unlock()
 }
-
-// scratchSourceRefusal reports why a check may not read this path, or "" when it may.
-//
-// A check MAY read this turn's scratch, and pushing it out was a mistake worth recording. The
-// reasoning was that a scratch file cannot be re-run in a later turn — but a check cannot either:
-// deliverableChecks is cleared at every new top-level turn, so a check and the scratch have exactly
-// the same lifetime. And the check contract obliges the worker to "redirect the genuine output to
-// exactly the path the item names", so a scratch it may not name leaves one place for that file:
-// the workspace, which is the deliverable, which is the pollution the scratch exists to prevent.
-// The rule would have used magi's own contract to push evidence back into the tree being graded.
-//
-// What is still refused is a path from a turn that is OVER. That directory was removed with its
-// turn, so the check can never read anything there, and reporting the absence as a failing
-// deliverable would send the run chasing a defect that is not in the code.
-func (a *App) scratchSourceRefusal(sid session.SessionID, source string) string {
-	src := strings.TrimSpace(source)
-	if src == "" || !strings.Contains(src, "magi-turn-") {
-		return "" // not a turn scratch at all — where an agent records its own output is its business
-	}
-	if sc := a.scratchFor(sid); sc != nil && underDir(src, sc.root) {
-		return "" // THIS turn's scratch: same lifetime as the check, and the right place for it
-	}
-	return "reads " + src + ", a scratch directory from a turn that is over — that directory was " +
-		"removed with its turn, so there is nothing there to read. Point the check at output this turn produced"
-}
-
-// underDir reports whether path is dir itself or lives inside it, comparing cleaned paths so
-// `/tmp/magi-turn-x/../elsewhere` cannot slip through on spelling.
-func underDir(path, dir string) bool {
-	if dir == "" {
-		return false
-	}
-	p, d := filepath.Clean(path), filepath.Clean(dir)
-	return p == d || strings.HasPrefix(p, d+string(filepath.Separator))
-}

@@ -731,14 +731,6 @@ func (m *Model) sessionsList() string {
 	return b.String()
 }
 
-// orDefaultStr returns s, or def when s is empty.
-func orDefaultStr(s, def string) string {
-	if s == "" {
-		return def
-	}
-	return s
-}
-
 // removeFirst removes the first occurrence of v from xs (used to retire a
 // finished subagent from the active list).
 func removeFirst(xs []string, v string) []string {

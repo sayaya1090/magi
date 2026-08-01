@@ -6,11 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 // A minimal LSP JSON-RPC (stdio) client for languages other than Go (Go keeps the
@@ -238,55 +236,6 @@ func (c *lspClient) call(method string, params any) (json.RawMessage, error) {
 		}
 		// notification (method, no id) → ignore
 	}
-}
-
-// lspQuery runs one navigation request against the server for path. method is an LSP
-// method like "textDocument/definition". For documentSymbol, line/char are ignored.
-func lspQuery(ctx context.Context, workdir, absPath, method string, line, char int) (json.RawMessage, error) {
-	srv, ok := serverFor(absPath)
-	if !ok {
-		return nil, fmt.Errorf("no LSP server configured for %s", filepath.Ext(absPath))
-	}
-	// Bound the whole exchange: a language server that hangs on initialize or never
-	// answers must not stall the turn (the loop passes the raw turn ctx). The blocking
-	// reads in call/readMsg unwind when this context's deadline kills the process.
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	c, err := startLSP(ctx, srv, workdir)
-	if err != nil {
-		return nil, err
-	}
-	defer c.close()
-
-	rootURI := "file://" + workdir
-	if _, err := c.call("initialize", map[string]any{
-		"processId":    nil,
-		"rootUri":      rootURI,
-		"capabilities": map[string]any{},
-	}); err != nil {
-		return nil, err
-	}
-	_ = c.notify("initialized", map[string]any{})
-
-	uri := "file://" + absPath
-	data, _ := os.ReadFile(absPath)
-	_ = c.notify("textDocument/didOpen", map[string]any{
-		"textDocument": map[string]any{"uri": uri, "languageId": srv.langID, "version": 1, "text": string(data)},
-	})
-
-	var params map[string]any
-	if method == "textDocument/documentSymbol" {
-		params = map[string]any{"textDocument": map[string]any{"uri": uri}}
-	} else {
-		params = map[string]any{
-			"textDocument": map[string]any{"uri": uri},
-			"position":     map[string]any{"line": line, "character": char},
-		}
-		if method == "textDocument/references" {
-			params["context"] = map[string]any{"includeDeclaration": true}
-		}
-	}
-	return c.call(method, params)
 }
 
 // lspRng / lspPos are the position shapes the diagnostics decoder reads out of a

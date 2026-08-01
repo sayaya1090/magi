@@ -38,9 +38,6 @@ func BalancedArrays(s string) []string { return balancedSpans(s, '[', ']') }
 // anything. Repaired candidates come last, so a clean reply is still read from its own first span.
 func Objects(s string) []string { return spansWithRecovery(s, '{', '}') }
 
-// Arrays is Objects for [...] replies (a check list, a criteria list), damaged the same ways.
-func Arrays(s string) []string { return spansWithRecovery(s, '[', ']') }
-
 func spansWithRecovery(s string, open, close byte) []string {
 	var out []string
 	seen := map[string]bool{}
