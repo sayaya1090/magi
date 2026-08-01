@@ -329,3 +329,50 @@ func TestAnElisionDoesNotLaunderACommandBody(t *testing.T) {
 		t.Error("an invented elided citation passed")
 	}
 }
+
+// The record from build-pmars round two, trimmed to the two entries the downgraded member quoted
+// across. It joined them with an arrow, which is what a member writes when it points at a command
+// and then at what came back from it.
+const pmarsR2Record = "" +
+	"── WHAT MAGI OBSERVED ──\n" +
+	"- tool bash [ok] ldd /usr/local/bin/pmars | grep -i x11 || echo \"No X11 found\": " +
+	"exit 0 ⏎ output: /tmp/magi-turn-1129834095/logs/magi-bash-99.log (26 bytes — all of it is above) ⏎ No X11 dependencies found ⏎\n" +
+	"- tool bash [ok] cd /app/pmars-0.9.4/warriors && pmars -b -r 50 -f flashpaper.red rave.red | tail -n 1: " +
+	"exit 0 ⏎ output: /tmp/magi-turn-1129834095/logs/magi-bash-98.log (17 bytes — all of it is above) ⏎ Results: 12 32 6 ⏎\n"
+
+// Both downgrades this check produced in its first thirty verdicts were a member stitching real
+// material together rather than copying one contiguous span, and both were wrong. The first cut
+// the middle and marked it with an ellipsis; this one quoted a command, an arrow, and the two
+// lines that came back. Every piece is in the record.
+func TestAJoinedCitationIsStillGrounded(t *testing.T) {
+	joined := "ldd /usr/local/bin/pmars | grep -i x11 || echo \"No X11 found\" → No X11 dependencies found\nResults: 12 32 6"
+	if got := checkCites(pmarsR2Record, joined, "", ""); len(got) != 0 {
+		t.Errorf("a citation joined from two real entries was rejected: %+v", got)
+	}
+	// The pieces stand on their own too — except the command, which is what was SENT.
+	if got := checkCites(pmarsR2Record, "No X11 dependencies found", "", ""); len(got) != 0 {
+		t.Errorf("an output line was rejected: %+v", got)
+	}
+	if got := checkCites(pmarsR2Record, "ldd /usr/local/bin/pmars | grep -i x11 || echo \"No X11 found\"", "", ""); len(got) == 0 {
+		t.Error("a bare command body passed as grounds")
+	}
+}
+
+// Joining must not launder a command body either: the LAST piece still has to be something that
+// came back, so a member quoting only what it sent fails however it punctuates.
+func TestJoiningDoesNotLaunderACommandBody(t *testing.T) {
+	for _, c := range []string{
+		"python3 << 'EOF' → print(\"Cleanup code ran!\")",
+		"python3 << 'EOF'\nprint(\"Cleanup code ran!\")",
+		"async def task_with_cleanup(): => print(\"Cleanup code ran!\")",
+	} {
+		got := checkCites(citeRecord, c, "", "")
+		if len(got) == 0 {
+			t.Errorf("a joined quotation of a script body passed as grounds: %q", c)
+			continue
+		}
+		if !got[0].sentNotReturned {
+			t.Errorf("%q: the miss is not diagnosed as sent-not-returned: %+v", c, got[0])
+		}
+	}
+}
