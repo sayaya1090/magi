@@ -276,3 +276,56 @@ func TestTheTailRuleDoesNotAdmitAnInventedEnding(t *testing.T) {
 		t.Error("this ending is nowhere in the record; it was invented, not misattributed")
 	}
 }
+
+// The record from build-pmars, trimmed to the entry two members cited.
+const pmarsRecord = "" +
+	"── WHAT MAGI OBSERVED ──\n" +
+	"commands: apt-cache search pmars 2>/dev/null · apt-get source pmars 2>&1\n" +
+	"\n" +
+	"- tool bash [ok] cp /app/pmars-0.9.4/src/pmars /usr/local/bin/pmars && chmod 755 /usr/local/bin/pmars: " +
+	"exit 0 ⏎ output: /tmp/magi-turn-1129834095/logs/magi-bash-2111785886.log (the command wrote nothing — the file is empty) ⏎\n" +
+	"- tool bash [ok] pmars -b -r 50 -f /app/pmars-0.9.4/warriors/flashpaper.red /app/pmars-0.9.4/warriors/rave.red | tail -n 1: " +
+	"exit 0 ⏎ output: /tmp/magi-turn-1129834095/logs/magi-bash-1323832290.log (17 bytes — all of it is above) ⏎ Results: 12 32 6 ⏎\n"
+
+// Two members cited the SAME entry and only one of them passed. Measured live (build-pmars,
+// 2026-08-01): the one that copied it whole was accepted; the one that cut the log path out and
+// wrote "..." where it cut was downgraded to abstain, and the council then split 1-1 with one
+// abstention on a call that mattered.
+//
+// Eliding the middle of a quotation is the most ordinary thing anyone does when quoting. Its
+// grounds were real — only the shape was not a contiguous substring.
+func TestAnElidedCitationIsStillGrounded(t *testing.T) {
+	whole := "$ pmars -b -r 50 -f /app/pmars-0.9.4/warriors/flashpaper.red /app/pmars-0.9.4/warriors/rave.red " +
+		"| tail -n 1: exit 0 ⏎ output: /tmp/magi-turn-1129834095/logs/magi-bash-1323832290.log " +
+		"(17 bytes — all of it is above) ⏎ Results: 12 32 6"
+	if got := checkCites(pmarsRecord, whole, "", ""); len(got) != 0 {
+		t.Fatalf("a verbatim copy of the entry was rejected: %+v", got)
+	}
+	elided := "pmars -b -r 50 -f /app/pmars-0.9.4/warriors/flashpaper.red /app/pmars-0.9.4/warriors/rave.red " +
+		"| tail -n 1: exit 0 ⏎ output: ... Results: 12 32 6"
+	if got := checkCites(pmarsRecord, elided, "", ""); len(got) != 0 {
+		t.Errorf("the same entry with its middle elided was rejected: %+v", got)
+	}
+	// …and with the single-character ellipsis, which normalizeForCite folds away for the record's
+	// own cut marks and would otherwise silently destroy here.
+	if got := checkCites(pmarsRecord, strings.Replace(elided, "...", "…", 1), "", ""); len(got) != 0 {
+		t.Errorf("an ellipsis-character elision was rejected: %+v", got)
+	}
+}
+
+// The elision must not become a way to smuggle a command body through. A member that quotes only
+// what was SENT still fails, because its last fragment is command text too.
+func TestAnElisionDoesNotLaunderACommandBody(t *testing.T) {
+	sent := "python3 << 'EOF' ... print(\"Cleanup code ran!\")"
+	got := checkCites(citeRecord, sent, "", "")
+	if len(got) == 0 {
+		t.Fatal("an elided quotation of a script body passed as grounds")
+	}
+	if !got[0].sentNotReturned {
+		t.Errorf("the miss is not diagnosed as sent-not-returned: %+v", got[0])
+	}
+	// And a fragment that is nowhere at all still fails, elided or not.
+	if got := checkCites(pmarsRecord, "Results: 99 99 99 ... exit 0 ⏎ output: nothing like this", "", ""); len(got) == 0 {
+		t.Error("an invented elided citation passed")
+	}
+}
