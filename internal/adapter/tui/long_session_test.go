@@ -98,14 +98,21 @@ func TestClickingAnywhereInALongTranscriptIsInBounds(t *testing.T) {
 	applyTheme(true)
 	rng := rand.New(rand.NewSource(20260802))
 	s := longSession(t, 80, 24, 3000)
-	for i := 0; i < 300; i++ {
-		if i%25 == 0 {
-			s.m.vp.SetYOffset(rng.Intn(max(1, s.m.vp.TotalLineCount())))
-			s.m.refresh()
+	for round := 0; round < 12; round++ {
+		// Lay the frame out once per offset, then click into it. Re-rendering a three-thousand
+		// block transcript after every single click cost 124s under -race — the whole package's
+		// budget — and bought nothing: what is under test is the coordinate mapping against a
+		// laid-out frame, and the frame does not change because a click missed.
+		s.m.vp.SetYOffset(rng.Intn(max(1, s.m.vp.TotalLineCount())))
+		s.m.refresh()
+		_ = s.rawView()
+		for i := 0; i < 25; i++ {
+			x, y := rng.Intn(80), rng.Intn(24)
+			s.m.handleMouse(tea.MouseClickMsg{Button: tea.MouseLeft, X: x, Y: y})
+			s.m.handleMouse(tea.MouseReleaseMsg{Button: tea.MouseLeft, X: x, Y: y})
 		}
-		x, y := rng.Intn(80), rng.Intn(24)
-		s.m.handleMouse(tea.MouseClickMsg{Button: tea.MouseLeft, X: x, Y: y})
-		s.m.handleMouse(tea.MouseReleaseMsg{Button: tea.MouseLeft, X: x, Y: y})
+		// One render after the round, so a click that DID change something (a thought toggled,
+		// the cache truncated behind it) still has to draw.
 		s.m.refresh()
 		_ = s.rawView()
 	}

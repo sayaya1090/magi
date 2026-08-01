@@ -42,6 +42,10 @@ func TestProbeEngramPluginEndToEnd(t *testing.T) {
 	if _, err := h.Load(context.Background(), src); err != nil {
 		t.Fatalf("load engram: %v", err)
 	}
+	// The event pipeline is asynchronous, and t.TempDir's cleanup is not: a handler still writing
+	// when the test returns races the RemoveAll, which fails the test with "directory not empty"
+	// from the cleanup rather than from anything the test asserted. Reproduced under -race.
+	t.Cleanup(func() { h.DrainEvents(5 * time.Second) })
 
 	// Turn 1: plain finish (outcome=done) → no analysis.
 	h.FireEventWith("user_message", map[string]string{"session": "s1", "text": "서버가 안 떠"})
@@ -80,9 +84,22 @@ func TestProbeEngramPluginEndToEnd(t *testing.T) {
 
 	// Save notification fired, and a short denial on the NEXT user message undoes
 	// the auto-saved skill (file gone, undo note sent, one-shot window).
-	notesMu.Lock()
-	sawSave := len(notes) > 0 && strings.Contains(notes[0], "자동 저장")
-	notesMu.Unlock()
+	//
+	// Waited for, not read once. The notification travels the same asynchronous pipeline as the
+	// files above, and the skill landing on disk does not mean the note has been delivered — CI
+	// failed here with "save notification missing; notes=[]" on a run where both files were
+	// written. Everything else in this test polls; this was the one assertion that did not.
+	h.DrainEvents(5 * time.Second)
+	var sawSave bool
+	for deadline = time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+		notesMu.Lock()
+		sawSave = len(notes) > 0 && strings.Contains(notes[0], "자동 저장")
+		notesMu.Unlock()
+		if sawSave {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	if !sawSave {
 		t.Fatalf("save notification missing; notes=%v", notes)
 	}

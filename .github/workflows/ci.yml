@@ -34,9 +34,21 @@ jobs:
 
       - name: test (race + coverage)
         # Live Ollama Cloud E2E tests are skipped (-skip E2E), so CI stays hermetic.
+        #
+        # MAGI_FUZZ_SEEDS narrows the TUI random walk here. The walk's twenty baseline seeds cost
+        # ~33s each under -race — 11 minutes for that one test — and it blew the default 10m
+        # per-package timeout with a panic that named no test. What -race needs from the walk is
+        # the race detector over the view's code, which one seed already gives; what twenty seeds
+        # give is SEQUENCE coverage, and that does not need the detector. The full baseline still
+        # runs everywhere the variable is unset.
+        #
+        # -timeout is explicit so a slow package fails saying so, instead of panicking at a
+        # default nobody chose.
+        env:
+          MAGI_FUZZ_SEEDS: "7717,7723,7727,7741"
         run: |
           set -o pipefail
-          go test -race -covermode=atomic -coverprofile=coverage.out -skip E2E ./... | tee test-output.txt
+          go test -race -timeout 15m -covermode=atomic -coverprofile=coverage.out -skip E2E ./... | tee test-output.txt
 
       - name: coverage summary
         if: always()
