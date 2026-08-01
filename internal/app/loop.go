@@ -172,8 +172,9 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	// this, such a turn inherits the PREVIOUS task's todos/criteria, and the
 	// council, planner, and nudges keep citing the old request as the live contract
 	// ("the user asked to commit" haunting every later turn). It must run BEFORE
-	// the planner preflight — the reset clears awaitExplorers, which the planner's
-	// async fan-out is about to set for THIS turn. seedWork marks a caller that
+	// the planner preflight, because what it clears — the todos, the interjection
+	// mask, the turn notes and the retrieval caches — is what the preflight and the
+	// planner then read as THIS turn's context. seedWork marks a caller that
 	// already staged this turn's work (dispatched explorers, set the park) before
 	// entering the loop — resetting would wipe that staging, so skip it.
 	if depth == 0 && !a.cfg.Workflow && !seedWork {

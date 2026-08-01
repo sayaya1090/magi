@@ -281,7 +281,7 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 		// Self-regression check: warn (don't block) when this edit undoes the agent's own
 		// earlier change by returning the file to a state it already held this turn. A revert is
 		// not progress, so retract the counter reset mutated() just applied — otherwise an
-		// implement↔revert oscillation dodges the stall force-stop by zeroing sinceProgress on
+		// implement↔revert oscillation dodges the stalled NUDGE by zeroing sinceProgress on
 		// every swing. Retract only when THIS call's mutated() actually reset (block above gates
 		// on res.IsError, this one on toolOK — they can diverge).
 		if warn, regressed := guard.noteEdit(rel, changeBefore, after); warn != "" || regressed {

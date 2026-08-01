@@ -113,7 +113,11 @@ func (s AgentSpec) allows(tool string) bool {
 //
 //	verified   — the council itself voted done (evidence-backed completion)
 //	unverified — the turn landed but the council never approved (deadlock/cost/round cap)
-//	guard      — a loop/stall guard force-stopped the turn
+//	guard      — reserved: an error event coded loop_guard or stall_guard. NOTHING EMITS
+//	             those codes today, so this outcome cannot currently occur — the guards
+//	             speak and the turn continues. Kept in the contract rather than removed,
+//	             so an observer that already handles it keeps working if a producer
+//	             returns, but do not write code that waits for it.
 //	error      — the turn ended on an error event
 //	done       — plain finish with no council verdict either way (e.g. conversational turn)
 //
