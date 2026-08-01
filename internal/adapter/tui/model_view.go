@@ -301,6 +301,8 @@ func (m Model) View() tea.View {
 			v.Cursor = c
 		}
 	}
+	// Last: the frame is finished, so this reads exactly what will be drawn (MAGI_DEBUG_FRAMES).
+	m.dumpFrame(v.Content)
 	return v
 }
 
