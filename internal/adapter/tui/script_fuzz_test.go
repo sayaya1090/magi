@@ -290,11 +290,16 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 					// A split pane, a phone-sized ssh window, a terminal being dragged smaller: the
 					// header alone is two rows and the input box is three, so a very short screen
 					// leaves the transcript a negative number of rows unless something clamps it.
-					// Eight rows is the floor this layout honours with a modal open: header(2) +
-					// input box(3) + a modal shrunk to its irreducible prompt. Below that the
-					// frame would have to hide something the user needs, and the fuzz does not
-					// pretend otherwise rather than asserting a bar nothing can clear.
-					s.send(tea.WindowSizeMsg{Width: 20 + rng.Intn(25), Height: 8 + rng.Intn(8)})
+					// SEVEN rows is the floor, measured rather than reasoned: chrome is header(2)
+					// + bordered input(3) + footer(1) = 6 irreducible, and any one of the find
+					// bar, the palette, the permission modal or the question modal adds one. At
+					// h=7,8,9 none of them overflows; at h=6 all three modals do, by exactly one
+					// row, which would take dropping the footer or the input's border to fix.
+					//
+					// The comment here used to say eight, on the reasoning above rather than on a
+					// measurement, and eight is where the walk started — so heights 7 and 8, which
+					// is where a split pane actually lives, were never walked at all.
+					s.send(tea.WindowSizeMsg{Width: 20 + rng.Intn(25), Height: 7 + rng.Intn(9)})
 				}},
 				{"question modal", func() {
 					// Two one-letter options can never overflow anything, so seven sweeps of this
