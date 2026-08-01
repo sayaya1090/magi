@@ -38,9 +38,7 @@ func TestZoomClickInsideKeepsDetail(t *testing.T) {
 		sid:  session.SessionID("child"),
 		role: "coder",
 		task: "do something",
-		blocks: []block{
-			{kind: blockAssistant, text: "working on it"},
-		},
+		live: "working on it",
 	})
 	m.focusPane = 0
 	m.zoom = true
@@ -68,9 +66,9 @@ func TestZoomBreadcrumbClickGoesBack(t *testing.T) {
 	m.ready = true
 	m.width, m.height = 100, 30
 	m.panes = append(m.panes, &agentPane{
-		sid:    session.SessionID("child"),
-		role:   "coder",
-		blocks: []block{{kind: blockAssistant, text: "done"}},
+		sid:  session.SessionID("child"),
+		role: "coder",
+		live: "done",
 	})
 	m.focusPane = 0
 	m.zoom = true

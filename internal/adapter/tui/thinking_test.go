@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -21,37 +20,6 @@ func TestThoughtDoubleClickExpands(t *testing.T) {
 	m.toggleThoughtAt(line) // 2nd click of a double-click → swallowed
 	if !m.blocks[0].expanded {
 		t.Error("double-click should leave the thought expanded, not reverted")
-	}
-}
-
-// End-to-end: a real click (press+release) on a collapsed thought in the zoomed
-// subagent view must expand it, going through screenToContent → selAL → toggle.
-func TestZoomThoughtClickEndToEnd(t *testing.T) {
-	m := newTestModel(t)
-	m2, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
-	m = m2.(Model)
-
-	detail := "ZOOM-E2E-SECRET"
-	p := &agentPane{role: "explore", blocks: []block{
-		{kind: blockUser, text: "do it"},
-		{kind: blockReasoning, text: strings.Repeat("pad ", 20) + "\n" + detail},
-	}}
-	m.panes = []*agentPane{p}
-	m.focusPane = 0
-	m.zoom = true
-	m.refresh() // populates paneLineStart + viewport content from renderZoom
-
-	// Screen row of the thought = its content line + the 2-row header, minus scroll.
-	if len(m.paneLineStart) < 2 {
-		t.Fatalf("paneLineStart not populated: %v", m.paneLineStart)
-	}
-	y := m.paneLineStart[1] - m.vp.YOffset() + 2
-	m.handleMouse(tea.MouseClickMsg{Button: tea.MouseLeft, X: 4, Y: y})
-	m.handleMouse(tea.MouseReleaseMsg{Button: tea.MouseLeft, X: 4, Y: y})
-
-	if !p.blocks[1].expanded {
-		t.Fatalf("a real click on the thought (row %d) did not expand it; selAL=%d paneLineStart=%v",
-			y, m.selAL, m.paneLineStart)
 	}
 }
 
@@ -138,41 +106,5 @@ func TestThinkingClickToExpand(t *testing.T) {
 	// Clicking the user block does nothing.
 	if m.toggleThoughtAt(m.blockLineStart[0]) {
 		t.Error("clicking a non-reasoning block should not toggle")
-	}
-}
-
-// In the subagent detail (zoom) view, clicking a thought expands THAT pane's
-// reasoning block — not the main transcript's. Regression: the click handler
-// only targeted m.blocks, so subagent thinking could never be expanded by click.
-func TestThinkingClickToExpandInZoom(t *testing.T) {
-	applyTheme(true)
-	detail := "SUBAGENT-SECRET-DETAIL"
-	p := &agentPane{role: "explore", blocks: []block{
-		{kind: blockUser, text: "investigate X"},
-		{kind: blockReasoning, text: strings.Repeat("padding ", 12) + "\n" + detail},
-	}}
-	m := &Model{roleColor: map[string]int{}, width: 100, panes: []*agentPane{p}, focusPane: 0, zoom: true}
-
-	_ = m.renderZoom(m.width) // populates paneLineStart
-
-	line := m.paneLineStart[1]
-	if !m.toggleThoughtAtZoom(line) {
-		t.Fatal("clicking a subagent reasoning block should toggle it")
-	}
-	if !p.blocks[1].expanded {
-		t.Error("subagent reasoning block should be expanded after click")
-	}
-	if got := m.renderZoom(m.width); !strings.Contains(got, detail) {
-		t.Errorf("expanded subagent thought should show detail in zoom view: %q", got)
-	}
-	// A deliberate (well-separated) second click collapses.
-	m.lastThoughtAt = time.Time{}
-	m.toggleThoughtAtZoom(m.paneLineStart[1])
-	if p.blocks[1].expanded {
-		t.Error("second click should collapse the subagent block")
-	}
-	// Clicking the pane's user block does nothing.
-	if m.toggleThoughtAtZoom(m.paneLineStart[0]) {
-		t.Error("clicking a non-reasoning pane block should not toggle")
 	}
 }
