@@ -3,6 +3,8 @@ package tui
 import (
 	"fmt"
 	"math/rand"
+	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -22,8 +24,14 @@ import (
 // errors, finishes — and after every single step checks the invariants the whole view rests on.
 //
 // Seeded, so a failure is reproducible: the seed and the step are printed with it.
+//
+// The seeds come from MAGI_FUZZ_SEEDS when it is set, and from the baseline below when it is not.
+// Walking a FRESH set is how this keeps finding things — the same twenty orders, however long the
+// sequence, are twenty orders — but rotating them by editing this line put the rotation in the
+// commit history and made the list read as a record of what was last run, which it is not. The
+// baseline stays fixed so CI and a bisect always walk the same ground.
 func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
-	for _, seed := range []int64{7717, 7723, 7727, 7741, 7753, 7757, 7759, 7789, 7793, 7817, 7823, 7829, 7841, 7853, 7867, 7873, 7877, 7879, 7883, 7901} {
+	for _, seed := range fuzzSeeds(t) {
 		t.Run(fmt.Sprintf("seed%d", seed), func(t *testing.T) {
 			rng := rand.New(rand.NewSource(seed))
 			s := newScript(t)
@@ -357,6 +365,36 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 			}
 		})
 	}
+}
+
+// fuzzBaseline is the fixed set. It is not special — any twenty seeds are — and it is written
+// down so an unconfigured run, a CI run and a bisect all walk the same sequences.
+var fuzzBaseline = []int64{7717, 7723, 7727, 7741, 7753, 7757, 7759, 7789, 7793, 7817,
+	7823, 7829, 7841, 7853, 7867, 7873, 7877, 7879, 7883, 7901}
+
+// fuzzSeeds reads MAGI_FUZZ_SEEDS — comma or space separated — falling back to the baseline.
+//
+// A malformed entry FAILS rather than being skipped. A sweep that quietly walked nineteen seeds
+// because one had a typo would report the same green as a sweep that walked twenty, and the whole
+// value of rotating them is knowing which ground was covered.
+func fuzzSeeds(t *testing.T) []int64 {
+	raw := strings.TrimSpace(os.Getenv("MAGI_FUZZ_SEEDS"))
+	if raw == "" {
+		return fuzzBaseline
+	}
+	fields := strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' || r == '\n' })
+	var out []int64
+	for _, f := range fields {
+		n, err := strconv.ParseInt(f, 10, 64)
+		if err != nil {
+			t.Fatalf("MAGI_FUZZ_SEEDS has a seed that is not a number: %q (%v)", f, err)
+		}
+		out = append(out, n)
+	}
+	if len(out) == 0 {
+		t.Fatal("MAGI_FUZZ_SEEDS is set but holds no seeds")
+	}
+	return out
 }
 
 // lipglossHeightOrZero measures a modal only when it is up.
