@@ -476,6 +476,13 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 							where, i, start, got, head)
 					}
 				}
+				// The streaming thought is not in m.blocks, so it keeps its own line — the one a
+				// click folds on. Same demand as above: the line has to be the thought's.
+				if lt := s.m.liveThinkStart; lt >= 0 && s.m.councilDetail == nil && !s.m.zoom &&
+					lt < len(s.m.contentPlain) && !strings.Contains(s.m.contentPlain[lt], "thinking") {
+					t.Fatalf("%s: the live thought is recorded at line %d, which holds %q",
+						where, lt, s.m.contentPlain[lt])
+				}
 				// Nothing may be wider than the terminal it is drawn in. Report the WIDEST row, not
 				// the first over-wide one: the frame is joined vertically, so one long row pads
 				// every other to match and the first offender is almost never the culprit.
