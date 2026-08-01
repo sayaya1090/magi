@@ -142,3 +142,58 @@ func TestASnapshotThatReadEverythingSaysNothingExtra(t *testing.T) {
 		}
 	}
 }
+
+// The listing says what it is. It holds only files this turn CHANGED, but the heading says "THE
+// WORKSPACE RIGHT NOW" and the note under it used to say "this listing is complete" — together a
+// directory listing, which it has never been.
+//
+// Measured live (headless-terminal, 2026-08-01): the task provides /app/base_terminal.py and asks
+// for a class inheriting from it. The agent read that file and imported it correctly. The snapshot
+// listed only the file it wrote, and all three council members voted continue on the grounds that
+// base_terminal.py does not exist — one of them citing the listing as having verified it. The
+// agent then spent twelve calls chasing a file that had been there the whole time.
+func TestTheSnapshotDoesNotPassItselfOffAsADirectoryListing(t *testing.T) {
+	root := t.TempDir()
+	// One file that was already here and is never touched, one the turn writes.
+	old := filepath.Join(root, "base_terminal.py")
+	if err := os.WriteFile(old, []byte("class BaseTerminal: pass\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	long := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(old, long, long); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "headless_terminal.py"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := worldSnapshot(root, time.Now().Add(-time.Minute))
+	if !strings.Contains(got, "headless_terminal.py") {
+		t.Fatalf("the file the turn wrote is not listed, so nothing here is under test:\n%s", got)
+	}
+	if strings.Contains(got, "base_terminal.py") {
+		t.Fatalf("an untouched file is in a changed-file listing:\n%s", got)
+	}
+	// …and because it is absent, the block has to say that absence means untouched, not gone.
+	if !strings.Contains(got, "not the same as not being there") {
+		t.Errorf("the listing does not say a missing name may still be a present file:\n%s", got)
+	}
+	if strings.Contains(got, "this listing is complete") {
+		t.Errorf("the listing still claims to be complete as a workspace listing:\n%s", got)
+	}
+}
+
+// The skip note keeps naming what went unread — scoped to the changes, not promising a listing.
+func TestTheSkipNoteStaysScopedToWhatChanged(t *testing.T) {
+	root := wsWorkspace(t, "main.go", filepath.Join("vendor", "dep.go"))
+	got := worldSnapshot(root, time.Now().Add(-time.Minute))
+	if !strings.Contains(got, "vendor/") {
+		t.Errorf("the skipped tree is no longer named:\n%s", got)
+	}
+	if strings.Contains(got, "this listing is complete") {
+		t.Errorf("the unqualified completeness claim is back:\n%s", got)
+	}
+	if !strings.Contains(got, "no other changed file was left out") {
+		t.Errorf("the note does not say what it is complete ABOUT:\n%s", got)
+	}
+}
