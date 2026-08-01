@@ -103,9 +103,9 @@ func (m *Model) floatPanel() (box string, top, left int, ok bool) {
 // panelW. panelTop is the SCREEN row of its first content line, so each subagent
 // row's panelY maps clicks correctly. Returns "" when hidden.
 func (m *Model) statusPanel(panelTop int) string {
-	// Worker detail: zoomed into a subagent → the panel is THAT worker's dossier (its request brief
-	// + acceptance checklist + own sub-plan), keyed to the focused pane. So each parallel worker
-	// gets its own panel when you drill into it — no mixing in the shared plan panel.
+	// Worker detail: zoomed into a subagent → the panel is THAT worker's own (its sub-plan), keyed
+	// to the focused pane. So each parallel worker gets its own panel when you drill into it — no
+	// mixing in the shared plan panel.
 	if p := m.viewedPane(); m.zoom && p != nil && m.app != nil {
 		return m.workerPanel(p)
 	}
@@ -220,11 +220,13 @@ func clipPanelRows(lines []string, height int) []string {
 	return append(kept, styleFooter.Render(fmt.Sprintf("  … %d more rows", len(lines)-len(kept))))
 }
 
-// workerPanel renders a subagent's dedicated dossier for its detail (zoom) view: the FULL request
-// brief it was dispatched with (goal, task, verbatim literals, constraints, deliverable), its
-// acceptance checklist, and its own sub-plan if any. The request is shown in full — not truncated
-// with an ellipsis — since the whole point of the detail view is to read exactly what the worker
-// was asked. If the box would run past the screen it is clipped (no marker), never hidden.
+// workerPanel renders a subagent's panel for its detail (zoom) view: its role and its own
+// sub-plan, if it has one. Nothing else — a pane with no plan gets no box.
+//
+// It used to be a dossier: the full request brief the worker was dispatched with, and its
+// acceptance checklist beside it. Both producers are gone — the brief with the delegation
+// machinery (2bd1fb6), the checklist with 8aea9fe — and this comment went on describing them
+// for long enough to be the only remaining trace. What is left is the sub-plan.
 func (m *Model) workerPanel(p *agentPane) string {
 	content := m.panelW - 4
 	inner := content - 4
@@ -262,8 +264,9 @@ func (m *Model) workerPanel(p *agentPane) string {
 	return roundedBox(strings.Join(lines, "\n"), content)
 }
 
-// wrapPanel word-wraps s to width cells and returns its lines, so a long request/checklist entry
-// shows in full across rows instead of being truncated to one line by roundedBox's padOrTruncate.
+// wrapPanel word-wraps s to width cells and returns its lines, so a long entry shows in full
+// across rows instead of being truncated to one line by roundedBox's padOrTruncate. Its one
+// caller is the Observed section, whose rows are paths and command names.
 func wrapPanel(s string, width int) []string {
 	if width < 4 {
 		width = 4
