@@ -107,11 +107,43 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 					s.emit(event.TypeCouncilDecided, event.CouncilDecidedData{Round: 1, Decision: "done"})
 				}},
 				{"todos", func() {
-					s.emit(event.TypeTodosChanged, event.TodosChangedData{Todos: []session.Todo{
-						{Content: "a step", Status: "in_progress"}}})
+					// Through the APP, not the event. The overview panel reads m.app.Todos(); an
+					// emitted TodosChanged leaves it empty, so ten sweeps of this walk drew the
+					// plan panel's rows zero times (appendPlanSteps, todoLine and ctxBar all sat
+					// at 0%) while the step read as covering them. The panel's own probe was
+					// written the same wrong way once and its first "all widths pass" verified
+					// nothing, which is how this shape is known.
+					//
+					// The count varies because the defect found in that panel was a LONG plan:
+					// it had no vertical bound, and floatPanel then refused to draw a box taller
+					// than the screen, so the panel a long task is watched through was the one a
+					// long task removed.
+					n := 1 + rng.Intn(30)
+					td := make([]session.Todo, n)
+					for i := range td {
+						st := "pending"
+						switch {
+						case i == 0:
+							st = "in_progress"
+						case i < n/3:
+							st = "completed"
+						}
+						td[i] = session.Todo{
+							Content: strings.Repeat(fmt.Sprintf("step %02d ", i), 1+rng.Intn(3)),
+							Status:  st,
+						}
+					}
+					s.m.app.SetTodos(s.m.sid, td)
+					s.emit(event.TypeTodosChanged, event.TodosChangedData{Todos: td})
 				}},
 				{"context usage", func() {
-					s.emit(event.TypeContextUsage, event.ContextUsageData{Tokens: rng.Intn(60000), Window: 65536})
+					// With Percent left at zero the panel's Context section never draws — the
+					// producer (loop.go) always fills it, so a walk that omits it is asserting
+					// about an event the app does not emit. ctxBar sat at 0% behind that.
+					tok := rng.Intn(70000)
+					s.emit(event.TypeContextUsage, event.ContextUsageData{
+						Tokens: tok, Window: 65536, Percent: float64(tok) / 65536 * 100,
+						OutTokens: rng.Intn(4000)})
 				}},
 				{"permission", func() {
 					s.emit(event.TypePermissionRequested, event.PermissionRequestedData{
