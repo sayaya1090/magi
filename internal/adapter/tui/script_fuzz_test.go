@@ -12,6 +12,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -446,6 +447,33 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 					if s.m.blockLineStart[i] < s.m.blockLineStart[i-1] {
 						t.Fatalf("%s: block %d starts at %d, before block %d at %d",
 							where, i, s.m.blockLineStart[i], i-1, s.m.blockLineStart[i-1])
+					}
+				}
+				// Ascending is not the same as CORRECT. A live section that writes rows into the
+				// frame without adding them to the line counter shifts every block below it up by
+				// the same amount — the order survives, and the click lands on the wrong bubble.
+				// So check the meaning: the recorded line must hold that block's first row. The
+				// in-flight bubble is re-rendered fresh into the frame (spinner) and so does not
+				// match its cached copy; it is the one block excluded.
+				//
+				// Only while the viewport is showing the TRANSCRIPT: the council detail and the
+				// zoomed pane replace the content the line numbers were built for, so comparing
+				// against contentPlain there is comparing two different screens.
+				for i, start := range s.m.blockLineStart {
+					if s.m.councilDetail != nil || s.m.zoom {
+						break
+					}
+					if i >= len(s.m.cache) || start < 0 || start >= len(s.m.contentPlain) {
+						continue
+					}
+					b := s.m.blocks[i]
+					if s.m.running && s.m.turnReqID != "" && b.kind == blockUser && b.reqID == s.m.turnReqID {
+						continue
+					}
+					head := ansi.Strip(strings.SplitN(s.m.cache[i], "\n", 2)[0])
+					if got := s.m.contentPlain[start]; got != head {
+						t.Fatalf("%s: block %d is recorded at line %d, which holds\n  %q\nbut the block starts with\n  %q",
+							where, i, start, got, head)
 					}
 				}
 				// Nothing may be wider than the terminal it is drawn in. Report the WIDEST row, not
