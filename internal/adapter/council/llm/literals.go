@@ -3,6 +3,7 @@ package llm
 import (
 	"fmt"
 	"os"
+	"path"
 	"regexp"
 	"sort"
 	"strings"
@@ -145,7 +146,7 @@ func missingLiterals(task, work string) []string {
 	}
 	var out []string
 	for _, lit := range literalsInTask(task) {
-		if !containsWord(work, lit) {
+		if !presentInWork(work, lit) {
 			out = append(out, lit)
 		}
 	}
@@ -153,6 +154,29 @@ func missingLiterals(task, work string) []string {
 		out = out[:literalsMax]
 	}
 	return out
+}
+
+// presentInWork reports whether the work carries this identifier, allowing for the ONE way the two
+// sides legitimately spell the same thing differently: a task names a file by its absolute path
+// (`/app/run.py`) and the evidence names it relative to the workdir (`### run.py (current content,
+// full)`). Compared literally, such a candidate can never match — which is the failure this file's
+// own rule forbids, "a candidate that can never match is worse than no candidate: it reports a
+// correct run as missing something".
+//
+// Measured across 138 recorded council rounds: 46 fired, and 32 of those items were this — a file
+// the agent had written, reported to the members as absent. `/app/run.py` alone accounted for 19,
+// on a task whose very first tool call wrote it.
+//
+// Only the last segment is relaxed, and only for a candidate that has a directory part. A bare
+// name stays exact, so `value` still cannot be satisfied by `values`.
+func presentInWork(work, lit string) bool {
+	if containsWord(work, lit) {
+		return true
+	}
+	if base := path.Base(lit); base != lit && base != "." && base != "/" {
+		return containsWord(work, base)
+	}
+	return false
 }
 
 // containsWord reports whether s contains lit bounded by non-identifier characters on both sides.
