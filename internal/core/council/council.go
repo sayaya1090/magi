@@ -52,16 +52,17 @@ type Verdict struct {
 	Keep       string   `json:"keep,omitempty"`       // what the report already gets right (advisory, MAGI_COUNCIL_KEEP)
 	// Cite is the fragment of the record this verdict rests on, copied verbatim by the member, or
 	// the token NO-EVIDENCE when it rests on the report's substance rather than on anything
-	// observed. magi looks it up in the material the member was shown: a quotation that is not
-	// there is an observation that did not happen, which is a substring test rather than a
-	// judgement about reasoning. See the adapter's cite.go for what that caught.
+	// observed. Recorded and shown, not checked: magi used to look each fragment up and downgrade
+	// a member whose grounds it could not find, and that check produced two false abstentions in
+	// thirty verdicts and caught nothing — see the adapter's cite.go for why it is gone. What is
+	// here is what the member said it was reading.
 	Cite   string  `json:"cite,omitempty"`
 	Weight float64 `json:"weight,omitempty"` // 0 = 1
-	// Severity tiers a plan-audit revise (continue) vote: only "critical" blocks the
-	// plan gate; "warn"/"info" are advisory (heeded but non-blocking). An ABSENT severity
-	// is treated as "warn" (permissive — don't block on an omitted field), but a
-	// present-but-UNRECOGNIZED value is treated as "critical" (fail-safe — block rather
-	// than wave through an unknown tier). Unused in the termination phase.
+	// Severity is how serious the member says its revise (continue) vote is, on a plan-audit
+	// round. Nothing gates on it — the plan gate that read it, and its absent-means-warn /
+	// unrecognized-means-critical rules, went with the audit — so this is carried to the
+	// transcript for a reader to weigh and for the panel to label. Unused in the termination
+	// phase.
 	Severity string `json:"severity,omitempty"`
 }
 

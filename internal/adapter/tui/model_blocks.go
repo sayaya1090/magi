@@ -35,10 +35,12 @@ func (m *Model) roundVerdicts(round int) []event.CouncilVerdictData {
 	return nil
 }
 
-// planTierTally counts a plan-audit round by what each verdict means for proceeding,
-// not by the raw done/continue split: done→approve, abstain→abstain, and a continue
-// is bucketed by its severity tier (critical→revise, warn→advise, info→note) so the
-// summary mirrors the per-member labels and shows what was blocking vs advisory.
+// planTierTally counts a plan-audit round by what each verdict SAYS, not by the raw done/continue
+// split: done→approve, abstain→abstain, and a continue is bucketed by the severity its member gave
+// it (critical→revise, warn→advise, info→note) so the summary reads the same way the per-member
+// labels do. It reports the members' own words — nothing gates on severity, and a line that said
+// "blocking vs advisory" was describing a plan gate that is gone. An unset or unrecognized
+// severity lands in "revise", which is what the label means when a member did not soften it.
 // "N approve" is always shown; the other tiers appear only when non-zero.
 func planTierTally(vs []event.CouncilVerdictData) string {
 	if len(vs) == 0 {
