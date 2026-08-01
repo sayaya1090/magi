@@ -161,3 +161,45 @@ func TestExamplesAndPlaceholdersAreNotIdentifiers(t *testing.T) {
 		t.Errorf("the real identifier did not survive: %v", got)
 	}
 }
+
+// A task names a file by its absolute path; the evidence names it relative to the workdir. Compared
+// literally that candidate can never match, so a file the agent had written was reported to the
+// members as absent — the one thing this measurement must not do.
+//
+// Measured over 138 recorded council rounds: 46 fired and 32 of the reported items were this.
+// After: 15 fired, none of them a path the work carried.
+func TestAPathTheWorkCarriesUnderItsRelativeNameIsNotMissing(t *testing.T) {
+	// The shape the evidence really has: buildCouncilChanges heads each file with its
+	// workdir-relative path.
+	work := "### run.py (current content, full)\nimport asyncio\n\nasync def run_tasks(): ...\n"
+	for _, tc := range []struct {
+		what, task string
+		want       []string
+	}{
+		// An absolute path becomes a candidate through the backticks a task writes it in —
+		// dottedFile alone cannot span a `/`, so it yields the bare name.
+		{"backticked absolute path, relative in work", "Implement `/app/run.py` with run_tasks", nil},
+		{"backticked path genuinely absent", "Implement `/app/server.py`", []string{"/app/server.py", "server.py"}},
+		{"bare absolute path yields the file name", "Implement /app/run.py", nil},
+		{"a bare name stays exact", "the field is a value (int)", []string{"value"}},
+	} {
+		t.Run(tc.what, func(t *testing.T) {
+			got := missingLiterals(tc.task, work)
+			if len(got) != len(tc.want) {
+				t.Fatalf("missing = %v, want %v", got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Errorf("missing = %v, want %v", got, tc.want)
+				}
+			}
+		})
+	}
+	// The relaxation is only the last segment of a path — it must not turn into substring matching.
+	if !presentInWork("### run.py (x)", "/app/run.py") {
+		t.Error("a path whose base the work carries should count as present")
+	}
+	if presentInWork("### values.py (x)", "value") {
+		t.Error("a bare identifier must not be satisfied by a longer word")
+	}
+}
