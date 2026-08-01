@@ -128,3 +128,80 @@ func TestTheRouteEditorRowsFitANarrowTerminal(t *testing.T) {
 		}
 	}
 }
+
+// Every surface that reserves rows, at every height from the floor up, checked deterministically.
+//
+// The walk reaches these by chance: it has to draw the size AND open the surface AND still be there
+// when the frame is measured, and until 4733e24 its floor was eight rows so 7 was never drawn at
+// all. That gap is what hid the profile form's two-line last resort. A grid does not depend on
+// luck, and it names which surface at which height rather than a seed and a step number.
+//
+// Seven is the floor, measured: chrome is 6 irreducible and each of these adds one. Six is left out
+// deliberately — every modal overflows it by exactly one row, and closing that would mean dropping
+// the footer or the input's border.
+func TestEverySurfaceFitsFromTheFloorUp(t *testing.T) {
+	applyTheme(true)
+	surfaces := []struct {
+		what string
+		open func(s *script)
+	}{
+		{"nothing", func(s *script) {}},
+		{"find bar", func(s *script) { s.send(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl}) }},
+		{"palette", func(s *script) { s.typeText("/") }},
+		{"permission", func(s *script) {
+			s.emit(event.TypePermissionRequested, event.PermissionRequestedData{
+				CallID: "cx", Name: "bash", Args: []byte(`{"command":"a rather long command line"}`), Reason: "policy"})
+		}},
+		{"question", func(s *script) {
+			s.m.quest = &questReq{question: "which of these approaches should it take?",
+				options: []string{"the first one", "the second one", "a third"}}
+		}},
+		{"route editor", func(s *script) { s.m.openRouteEditor() }},
+		// Opened the way the app opens it — through the route editor — because the form's rows are
+		// reserved inside the routing branch, and calling openProfileForm alone leaves m.routing
+		// false: the surface is on screen and reserves nothing, which is a grid cell that checks
+		// a state the app cannot be in. (Found while writing this: the cell passed under a
+		// mutation that reintroduced the two-line last resort.)
+		{"profile form", func(s *script) {
+			s.m.openRouteEditor()
+			s.m.routeSel = len(s.m.routeList) - 1 // "+ add profile"
+			s.send(tea.KeyPressMsg{Code: tea.KeyEnter})
+		}},
+		{"profile form, editing", func(s *script) {
+			s.m.openRouteEditor()
+			s.m.routeSel = len(s.m.routeList) - 1
+			s.send(tea.KeyPressMsg{Code: tea.KeyEnter})
+			if s.m.profileForm != nil {
+				s.m.profileForm.editing = true
+				s.m.profileForm.buf = "https://a-fairly-long-endpoint.example.com/v1"
+			}
+		}},
+		{"resume picker", func(s *script) { s.m.resuming = true }},
+	}
+	for _, h := range []int{7, 8, 9, 10, 14} {
+		for _, w := range []int{24, 40, 80} {
+			for _, sf := range surfaces {
+				s := newScript(t)
+				s.steer("r1", "a question")
+				s.assistantText("an answer with enough text to fill a line or two")
+				s.send(tea.WindowSizeMsg{Width: w, Height: h})
+				sf.open(s)
+				rows := strings.Split(s.rawView(), "\n")
+				if len(rows) > h {
+					t.Errorf("%dx%d %s: the frame is %d rows (chrome=%d modalRoom=%d vp=%d)\n%s",
+						w, h, sf.what, len(rows), s.m.chromeHeight(), s.m.modalRoom(), s.m.vp.Height(),
+						strings.Join(rows, "\n"))
+				}
+				worst, worstW := "", 0
+				for _, r := range rows {
+					if x := lipgloss.Width(strings.TrimRight(stripANSI(r), " ")); x > worstW {
+						worst, worstW = r, x
+					}
+				}
+				if worstW > w {
+					t.Errorf("%dx%d %s: widest row is %d cells: %q", w, h, sf.what, worstW, stripANSI(worst))
+				}
+			}
+		}
+	}
+}
