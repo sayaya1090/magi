@@ -33,10 +33,18 @@ import (
 // commit history and made the list read as a record of what was last run, which it is not. The
 // baseline stays fixed so CI and a bisect always walk the same ground.
 func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
+	dark := fuzzDark(t)
 	for _, seed := range fuzzSeeds(t) {
 		t.Run(fmt.Sprintf("seed%d", seed), func(t *testing.T) {
 			rng := rand.New(rand.NewSource(seed))
 			s := newScript(t)
+			// AFTER newScript, not before: it builds a Model through New, which calls
+			// applyTheme with its own isDark and puts the palette back to dark. Setting the
+			// theme first walked the dark theme under a light label, which is a green that
+			// means nothing — found by dumping the escapes and seeing the two themes emit
+			// byte-identical rows.
+			applyTheme(dark)
+			defer applyTheme(true)
 			// Real sessions for the picker step, made once: their IDs have to resolve, because
 			// the picker swallows a later enter and switches to the selected row.
 			var pickerRows []session.SessionMeta
@@ -602,6 +610,24 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 // down so an unconfigured run, a CI run and a bisect all walk the same sequences.
 var fuzzBaseline = []int64{7717, 7723, 7727, 7741, 7753, 7757, 7759, 7789, 7793, 7817,
 	7823, 7829, 7841, 7853, 7867, 7873, 7877, 7879, 7883, 7901}
+
+// fuzzDark reads MAGI_FUZZ_THEME. Eighty-six tests in this package call applyTheme(true) and not
+// one calls applyTheme(false): the light theme has never been rendered here, and it is a live
+// configuration — the runtime switches to it on a terminal background-colour report. The two
+// themes differ only in colour, so the geometry should be identical; walking it is how that stops
+// being an assumption. An unrecognized value fails rather than defaulting, for the same reason a
+// malformed seed does.
+func fuzzDark(t *testing.T) bool {
+	switch v := strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_FUZZ_THEME"))); v {
+	case "", "dark":
+		return true
+	case "light":
+		return false
+	default:
+		t.Fatalf("MAGI_FUZZ_THEME is %q, want \"dark\" or \"light\"", v)
+		return true
+	}
+}
 
 // fuzzSeeds reads MAGI_FUZZ_SEEDS — comma or space separated — falling back to the baseline.
 //
