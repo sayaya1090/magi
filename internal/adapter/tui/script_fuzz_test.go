@@ -190,6 +190,20 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 					}
 					s.toolResult(id, b.String())
 				}},
+				{"hostile tool output", func() {
+					// The escape payloads are checked one call at a time in script_hostile_test.go,
+					// on a fresh model that has rendered nothing else. Nothing had ever put one into
+					// a session that has been running for hundreds of steps — where the render cache
+					// holds prior frames, a search may be highlighting, a selection may be active and
+					// the block-line map is being read for clicks. Those are exactly the readers an
+					// unbalanced sequence throws off, and the width invariant below is what catches
+					// it.
+					if calls == 0 {
+						return
+					}
+					id := fmt.Sprintf("c%d", rng.Intn(calls)+1)
+					s.toolResult(id, hostileEscapes[rng.Intn(len(hostileEscapes))].payload)
+				}},
 				{"orphan result", func() { s.toolResult("", "output with no call") }},
 				{"council round", func() {
 					s.emit(event.TypeCouncilConvened, event.CouncilConvenedData{
