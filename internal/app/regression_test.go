@@ -355,9 +355,9 @@ func TestResetStall(t *testing.T) {
 		g.sinceProgress = noProgressNudge * i
 		g.shouldNudge()
 	}
-	if g.stallNudges != windows || g.lastStallAt == 0 || g.sinceProgress == 0 {
-		t.Fatalf("precondition: expected a stalled state, got nudges=%d lastAt=%d since=%d",
-			g.stallNudges, g.lastStallAt, g.sinceProgress)
+	if g.lastStallAt == 0 || g.sinceProgress == 0 {
+		t.Fatalf("precondition: expected a stalled state after %d windows, got lastAt=%d since=%d",
+			windows, g.lastStallAt, g.sinceProgress)
 	}
 	// Independent state that must be preserved across the reset.
 	g.epoch = 5
@@ -365,9 +365,9 @@ func TestResetStall(t *testing.T) {
 
 	g.resetStall()
 
-	if g.sinceProgress != 0 || g.lastStallAt != 0 || g.stallNudges != 0 {
-		t.Errorf("resetStall must zero the stall accounting, got since=%d lastAt=%d nudges=%d",
-			g.sinceProgress, g.lastStallAt, g.stallNudges)
+	if g.sinceProgress != 0 || g.lastStallAt != 0 {
+		t.Errorf("resetStall must zero the stall accounting, got since=%d lastAt=%d",
+			g.sinceProgress, g.lastStallAt)
 	}
 	if g.epoch != 5 {
 		t.Errorf("resetStall must not touch the mutation epoch, got %d", g.epoch)

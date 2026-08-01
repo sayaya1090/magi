@@ -89,7 +89,6 @@ type runGuard struct {
 	// nothing follows it: the force-stop that used to (stuck()) was removed on measurement. See
 	// shouldNudge for what that leaves.
 	nudgedBlocked bool
-	stallNudges   int // count of "stalled"-kind re-groundings fired this run (capped at maxStallNudges)
 	lastStallAt   int // sinceProgress value at the last stalled nudge, for spacing the re-arm
 	// progressSinceNudge is the structural "the agent made forward motion since the last stalled
 	// nudge" signal: set true by EITHER a real mutation (mutated) OR a NOVEL (first-seen this
@@ -409,7 +408,6 @@ func (g *runGuard) resetStall() {
 	defer g.mu.Unlock()
 	g.sinceProgress = 0
 	g.lastStallAt = 0
-	g.stallNudges = 0
 	g.progressSinceNudge = false
 }
 
@@ -641,8 +639,8 @@ func (g *runGuard) mutationEpoch() int {
 // noProgressNudge). The two kinds are independent.
 //
 // The stalled nudge RE-ARMS: it fires again after each further noProgressNudge window with still
-// no mutation, capped at maxStallNudges, so a single ignored nudge does not let the agent burn to
-// MaxSteps.
+// no mutation, for as long as nothing changes. It used to stop after three; that cap went out with
+// the force-stop it was written to defer to.
 //
 // The blocked nudge fires ONCE and nothing follows it. This comment used to say that stuck()
 // force-stopped a run that kept blocking, and used that as the reason the blocked kind needed no
@@ -669,8 +667,8 @@ func (g *runGuard) shouldNudge() string {
 		return "blocked"
 	}
 	if g.sinceProgress-g.lastStallAt >= noProgressNudge {
-		// There used to be a collapse here: a re-arm whose window produced no forward motion set
-		// stallNudges to the cap and returned "", on the reasoning that stuck() would then land
+		// There used to be a collapse here: a re-arm whose window produced no forward motion
+		// silenced the rest of the budget and returned "", on the reasoning that stuck() would land
 		// the honest stall this iteration rather than burning more no-progress windows — "same
 		// terminal outcome, sooner".
 		//
@@ -681,7 +679,6 @@ func (g *runGuard) shouldNudge() string {
 		// — and not another word from the loop. Saying it again is the only lever left, and it is
 		// no longer rationed: the cap that used to bound it went out with the force-stop it was
 		// written for.
-		g.stallNudges++
 		g.lastStallAt = g.sinceProgress
 		g.progressSinceNudge = false // fresh window for judging the next re-arm
 		return "stalled"
