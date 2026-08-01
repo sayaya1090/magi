@@ -232,8 +232,7 @@ func TestShouldNudge(t *testing.T) {
 // TestShouldNudgeStalled: the no-progress nudge fires when varied calls make no real
 // progress (sinceProgress past noProgressNudge) even though nothing is a blocked repeat.
 // Unlike the blocked nudge it RE-ARMS — it fires again after each further noProgressNudge
-// window with no mutation — but only every window (not every step) and only up to
-// maxStallNudges, then goes quiet.
+// window with no mutation — but only every window, not every step.
 func TestShouldNudgeStalled(t *testing.T) {
 	g := newRunGuard()
 	g.sinceProgress = noProgressNudge - 1
@@ -249,44 +248,34 @@ func TestShouldNudgeStalled(t *testing.T) {
 	if g.shouldNudge() != "" {
 		t.Fatal("should not re-nudge until a full noProgressNudge window later")
 	}
-	// A full further window with still no mutation → re-arm and fire again.
-	fires := 1
-	for i := 2; i <= maxStallNudges; i++ {
+	// A full further window with still no mutation → re-arm and fire again, every window.
+	for i := 2; i <= 10; i++ {
 		g.sinceProgress = noProgressNudge * i
 		if g.shouldNudge() != "stalled" {
 			t.Fatalf("should re-nudge (stalled) at window %d", i)
 		}
-		fires++
-	}
-	if fires != maxStallNudges {
-		t.Fatalf("expected %d stalled nudges, got %d", maxStallNudges, fires)
-	}
-	// Past the cap: no more, however long the stall runs.
-	g.sinceProgress = noProgressNudge * (maxStallNudges + 5)
-	if g.shouldNudge() != "" {
-		t.Fatal("stalled nudge must stop after maxStallNudges")
 	}
 }
 
-// The stalled nudge re-arms up to maxStallNudges, full stop.
+// The stalled nudge re-arms for as long as nothing changes, with no budget.
 //
-// There used to be a "convergence" collapse: a re-arm whose window produced no forward motion
-// exhausted the budget and stayed quiet, on the reasoning that stuck() would land the honest stall
-// sooner. stuck() is gone, so the collapse had nothing to hand off to and just silenced the rest —
-// observed live as one nudge followed by 32 byte-identical writes and no further word. These pin
-// what is left: it fires each window, it stops at the cap, and forward motion restarts the window
-// rather than consuming a nudge.
-func TestTheStalledNudgeReArmsUpToItsCap(t *testing.T) {
+// Two things used to stop it and both are gone. A "convergence" collapse exhausted the budget when
+// a re-armed window produced no forward motion, on the reasoning that stuck() would land the
+// honest stall sooner; stuck() is gone, so it handed off to nothing. Then the budget itself: three
+// nudges, written when a force-stop was still expected to end the run. Measured live
+// (large-scale-text-editing, 2026-08-01) after the collapse was removed but the cap remained — the
+// third nudge landed on call 64 and the agent wrote byte-identical content 57 more times in
+// silence.
+//
+// Speech is the only lever this project uses; rationing it bought nothing. Twenty windows here is
+// not a new cap — it is more than any real run reaches, and it fails if a cap comes back.
+func TestTheStalledNudgeKeepsSayingItWhileNothingChanges(t *testing.T) {
 	g := newRunGuard()
-	for i := 1; i <= maxStallNudges; i++ {
+	for i := 1; i <= 20; i++ {
 		g.sinceProgress = noProgressNudge * i
 		if got := g.shouldNudge(); got != "stalled" {
-			t.Fatalf("window %d: got %q, want a nudge — silence is what the collapse used to cause", i, got)
+			t.Fatalf("window %d: got %q, want a nudge — going quiet hands off to nothing", i, got)
 		}
-	}
-	g.sinceProgress = noProgressNudge * (maxStallNudges + 1)
-	if got := g.shouldNudge(); got != "" {
-		t.Errorf("past the cap the nudge must stop, got %q", got)
 	}
 }
 
@@ -358,13 +347,14 @@ func TestNoteBashExecNovelty(t *testing.T) {
 // must survive the reset.
 func TestResetStall(t *testing.T) {
 	g := newRunGuard()
-	// Drive the stall accounting to its exhausted state: every nudge spent, window climbed.
-	for i := 1; i <= maxStallNudges; i++ {
+	// Drive the stall accounting well into a stall: several nudges spent, window climbed.
+	const windows = 3
+	for i := 1; i <= windows; i++ {
 		g.sinceProgress = noProgressNudge * i
 		g.shouldNudge()
 	}
-	if g.stallNudges != maxStallNudges || g.lastStallAt == 0 || g.sinceProgress == 0 {
-		t.Fatalf("precondition: expected an exhausted stall state, got nudges=%d lastAt=%d since=%d",
+	if g.stallNudges != windows || g.lastStallAt == 0 || g.sinceProgress == 0 {
+		t.Fatalf("precondition: expected a stalled state, got nudges=%d lastAt=%d since=%d",
 			g.stallNudges, g.lastStallAt, g.sinceProgress)
 	}
 	// Independent state that must be preserved across the reset.
