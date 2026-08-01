@@ -202,8 +202,14 @@ func (m *Model) baseChromeHeight() int {
 		// actually draws.
 		h += lipgloss.Height(m.searchView())
 	}
-	if n := len(m.paletteMatches()); !m.running && n > 0 {
-		h += n + 2 // palette rows + box border
+	if matches := m.paletteMatches(); !m.running && len(matches) > 0 {
+		// Measured, not counted. The reserve was one row per match plus a border, and the palette
+		// draws its rows through a styled box that WRAPS a long "/name   description" on a narrow
+		// terminal — so twenty commands reserved 22 rows and drew 55 at 34 columns, and 24 even at
+		// 100. The frame ran past the terminal by exactly that difference. This is the same defect
+		// the profile form had, and the fix is the one the find bar directly above already uses:
+		// ask the view what it draws.
+		h += lipgloss.Height(m.paletteView(matches))
 	}
 	// The snackbar is a floating toast overlay (overlayLine), so it reserves no row.
 	return h
