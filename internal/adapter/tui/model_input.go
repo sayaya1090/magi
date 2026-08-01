@@ -519,8 +519,13 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		}
 	case "esc":
 		// Leave the council verdict detail first if it's open (like exiting zoom).
+		// Refresh like the zoom path and like both mouse dismissals do: the viewport
+		// still holds the detail's lines, and so do the contentLines that selection,
+		// copy and search read. Without it the header goes back to the transcript
+		// while the body stays on the verdict.
 		if m.councilDetail != nil {
 			m.councilDetail = nil
+			m.refresh()
 			return nil, true
 		}
 		// In the agent detail (zoom) screen, esc always goes back — even for a
