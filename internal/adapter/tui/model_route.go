@@ -466,11 +466,23 @@ func (m *Model) routeView() string {
 			return out
 		}
 	}
-	// Nothing fits: the selected row alone, which is the one being worked on.
 	if len(rows) == 0 {
 		return head
 	}
-	return strings.TrimRight(head+"\n"+rows[min(m.routeSel, len(rows)-1)], "\n")
+	// Nothing fits. The fallback used to be "the selected row alone", which assumed a row is one
+	// line — and the session row is not: while it is being edited the model-suggest box rides on
+	// it, so `head + that row` is three lines going into two rows of room. Found by the walk at
+	// eight rows. Shed the same way everything else here does, longest first, and the last
+	// candidate is one line by construction.
+	sel := rows[min(m.routeSel, len(rows)-1)]
+	bare := strings.SplitN(strings.TrimLeft(sel, "\n"), "\n", 2)[0] // the row without its suggest box
+	for _, candidate := range []string{head + "\n" + sel, head + "\n" + bare, sel, bare} {
+		out := strings.TrimRight(candidate, "\n")
+		if m.height <= 0 || lipgloss.Height(out) <= room {
+			return out
+		}
+	}
+	return bare
 }
 
 // modelSuggestBox renders the session-row model suggest list: the merged,
