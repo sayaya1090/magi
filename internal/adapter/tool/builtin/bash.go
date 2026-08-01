@@ -86,6 +86,22 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		msg := fmt.Sprintf("started background command %s — poll with bash_output{id:%q}, stop with bash_kill{id:%q}", p.id, p.id, p.id)
 		if stripped {
 			msg += " (note: dropped a redundant `&`/`nohup` — background=true already keeps it running as this job; poll bash_output to see it stay up)"
+		} else if detachIndex(cmd) >= 0 {
+			// A `&` in the MIDDLE is a different thing from the trailing one stripped above, and the
+			// strip does not see it: whatever follows the `&` becomes the job's foreground, so the
+			// job's exit is THAT command's and says nothing about the detached work. The foreground
+			// path has said this since the detach note was written; this branch never did, and it is
+			// the shape where the claim does the most damage, because the exit arrives labelled with
+			// the job's own id.
+			//
+			// Observed live (fix-ocaml-gc, 2026-08-02): `make world 2>&1 &` newline `sleep 300`,
+			// background:true. bash_output answered `[bg_1 exited 0]` — the sleep's — while make was
+			// still running (a later `ps` found it), and thirty calls on, the same job's output
+			// carried `make: *** [Makefile:696: coldstart] Terminated`.
+			msg += " (note: this command detaches work with `&` and runs something else in the" +
+				" foreground, so the job's exit will be THAT command's — a later `[job exited 0]`" +
+				" will not mean the detached part finished, and magi has no exit for it. Give the job" +
+				" the long-running command by itself instead.)"
 		}
 		// `timeout` is a FOREGROUND deadline, and this branch returns before it is ever read — a
 		// background job's whole point is to outlive the call. Ignoring it is right; doing so in
