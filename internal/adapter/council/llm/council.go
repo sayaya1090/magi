@@ -267,29 +267,10 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 		v.Severity = string(r.Severity) // plan-audit phase only; gates blocking vs advisory
 	}
 	fill(r)
-	// Grounds that are not in the record are not weak grounds — they are an observation that did
-	// not happen, and magi can settle that with a substring test instead of a judgement about
-	// reasoning. See cite.go for the verdict that made this necessary. One focused re-ask naming
-	// each missing quotation; a member that stands by them abstains, which is what "my lens cannot
-	// judge from what I was given" means.
-	if citeEnabled() && v.Decision != council.Abstain {
-		if misses := checkCites(user, v.Cite, v.Rationale, v.Feedback); len(misses) > 0 {
-			r2, _, ok2, err2 := ask(user + citeRetryReminder(misses))
-			switch {
-			case err2 != nil || !ok2:
-				v.Decision = council.Abstain
-				v.Rationale = "council member unreachable while re-asked for grounds that are in the record"
-			default:
-				fill(r2)
-				if again := checkCites(user, v.Cite, v.Rationale, v.Feedback); len(again) > 0 && v.Decision != council.Abstain {
-					v.Decision = council.Abstain
-					v.Rationale = "the grounds this member gave are not in the record it was shown (" +
-						quoteFragment(again[0].quote) + " in `" + again[0].field + "`), asked twice"
-					v.Feedback, v.Keep, v.Cite = "", "", ""
-				}
-			}
-		}
-	}
+	// `cite` is recorded and shown, not checked. magi used to look each fragment up in the record
+	// and downgrade a member to abstain when it could not find it — see the note above
+	// citeNoEvidence for what that cost. A member's grounds are still worth having in front of a
+	// reader, so the field stays; nothing is decided from it.
 	return v
 }
 
@@ -537,13 +518,10 @@ func memberSystem(m council.Member, task string, keep bool) string {
 			"done as a whole. (When the criteria are not enumerated, judge them as usual.)\n\n"+
 			"%s"+
 			"GROUNDS: put in `cite` the fragment your verdict rests on, COPIED VERBATIM from what you were "+
-			"given above — a line of tool output, a line of the report, a line of the task. magi looks it up in "+
-			"that exact material, so a fragment you cannot find there is one you did not read. A command's TEXT "+
+			"given above — a line of tool output, a line of the report, a line of the task. A command's TEXT "+
 			"is not its output: the script in a heredoc, and the strings it would print, are what was SENT — what "+
 			"came back is the output line beneath it. If your verdict rests on the report's substance rather than "+
-			"on anything you observed, put %s in `cite`; that is a normal answer and costs you nothing. The same "+
-			"rule binds anything you put in quotation marks in `rationale` or `feedback`: quote only what is "+
-			"actually there.\n"+
+			"on anything you observed, put %s in `cite`; that is a normal answer and costs you nothing.\n"+
 			"Respond with ONLY a JSON object, no prose, no code fence:\n"+
 			"%s",
 		m.Name, m.Lens, lens, keepClause, citeNoEvidence, schema), task)
