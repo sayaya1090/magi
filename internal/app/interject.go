@@ -323,7 +323,7 @@ func (a *App) interjectTurn(ctx context.Context, agent AgentSpec, s session.Sess
 	var specs []port.ToolSpec
 	for _, name := range []string{"route_interjection", "cancel_dispatch", "ask_user"} {
 		if t, ok := a.tools.Get(name); ok {
-			specs = append(specs, port.ToolSpec{Name: name, Description: t.Description(), Schema: t.Schema()})
+			specs = append(specs, port.ToolSpec{Name: name, Description: t.Description(), Schema: schemaWithIntent(t.Schema())})
 		}
 	}
 	actor := event.Actor{Kind: event.ActorAgent, ID: orDefault(agent.Name, "default")}

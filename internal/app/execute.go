@@ -217,7 +217,9 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// capability the tool does not have; refusing those would break calls that work today (the
 	// single largest group is a harmless `description` on bash), so let the call run and say
 	// plainly what was ignored.
-	misspelled, ignored, declared := unknownToolArgs(tool.Schema(), tc.Args)
+	// The SAME schema the model was shown (prompt.go advertises schemaWithIntent), or the intent
+	// magi asked for would come back and be reported as an argument the tool does not have.
+	misspelled, ignored, declared := unknownToolArgs(schemaWithIntent(tool.Schema()), tc.Args)
 	if len(misspelled) > 0 {
 		a.appendToolResult(ctx, sid, actor, toolMsgID, tc.CallID,
 			"not run — "+tc.Name+" has no argument "+quoteJoin(argKeys(misspelled))+". "+
@@ -428,6 +430,11 @@ func unknownToolArgs(schema, args json.RawMessage) (misspelled map[string]string
 	// rather than as an extra: the tool cannot run without it, so the call is already lost.
 	var missing []string
 	for _, r := range sch.Required {
+		if r == toolIntentKey {
+			// magi's own field, not the tool's contract: a call is not dead for lacking a label,
+			// so it must not make `user_intent` read as a rename of a key the call needs.
+			continue
+		}
 		if _, sentIt := sent[r]; !sentIt {
 			missing = append(missing, r)
 		}
