@@ -542,10 +542,22 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 					t.Fatalf("%s: viewport offset %d in %d lines of content", where, off, h)
 				}
 				// Search hits index the plain transcript; a stale hit past its end panics the jump.
+				// In range is not enough: a hit is a line CONTAINING the query, and the "3/7"
+				// counter and the next-match jump both read it as such. A reflow that renumbers
+				// the lines leaves every index in range while pointing at the wrong line, which
+				// the bounds check above waves through. Assert what the field means.
 				for _, h := range s.m.searchHits {
 					if h < 0 || h >= len(s.m.contentPlain) {
 						t.Fatalf("%s: search hit %d is outside the %d-line transcript", where, h, len(s.m.contentPlain))
 					}
+					if q := strings.ToLower(s.m.searchQuery); q != "" &&
+						!strings.Contains(strings.ToLower(s.m.contentPlain[h]), q) {
+						t.Fatalf("%s: search hit %d does not contain %q — the counter counts it and the jump lands on it:\n%q",
+							where, h, s.m.searchQuery, s.m.contentPlain[h])
+					}
+				}
+				if len(s.m.searchHits) > 0 && (s.m.searchCur < 0 || s.m.searchCur >= len(s.m.searchHits)) {
+					t.Fatalf("%s: searchCur %d selects nothing among %d hits", where, s.m.searchCur, len(s.m.searchHits))
 				}
 				// Every cached render must still be what the block renders NOW. The cache is a
 				// prefix keyed by index, so a block that changes in place — a call gaining its
