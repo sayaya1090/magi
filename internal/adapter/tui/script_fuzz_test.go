@@ -282,6 +282,16 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 					s.m.resuming = true
 					s.m.resumeSel = rng.Intn(len(s.m.resumeList))
 					s.m.refresh()
+					// Usually dismissed, the way a user who opened it to look does. Left open, it
+					// swallows the next step's enter and switches session — which wipes the
+					// transcript, and a walk that switches every few steps spends most of its
+					// length in an empty session. Measured: with it always left open, not one
+					// tool block survived to the end of a 500-step walk, so every renderer that
+					// needs a settled transcript was starved. A quarter of the time is enough to
+					// keep the switch itself walked.
+					if rng.Intn(4) != 0 {
+						s.send(tea.KeyPressMsg{Code: tea.KeyEscape})
+					}
 				}},
 				{"close the picker", func() {
 					s.m.resuming = false
