@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"os"
@@ -12,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -35,6 +37,18 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 		t.Run(fmt.Sprintf("seed%d", seed), func(t *testing.T) {
 			rng := rand.New(rand.NewSource(seed))
 			s := newScript(t)
+			// Real sessions for the picker step, made once: their IDs have to resolve, because
+			// the picker swallows a later enter and switches to the selected row.
+			var pickerRows []session.SessionMeta
+			for i := 0; i < 20; i++ {
+				if _, err := s.m.app.CreateSession(context.Background(),
+					command.CreateSession{Workdir: s.m.workdir}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if metas, err := s.m.app.ListSessions(context.Background(), s.m.workdir); err == nil {
+				pickerRows = metas
+			}
 			ids, calls := 0, 0
 			cacheChecks := 0
 			var prevID string
@@ -135,6 +149,30 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 					for k := rng.Intn(n); k > 0; k-- {
 						s.send(tea.KeyPressMsg{Code: tea.KeyDown})
 					}
+				}},
+				{"session picker", func() {
+					// resumeView was drawn zero times in eight sweeps — the walk's own dump printed
+					// `resuming=false` on every failure. It is a full-screen list in the same slot
+					// as the modals, and it was the last surface there that reserved a constant
+					// instead of measuring.
+					//
+					// The rows are REAL sessions. A fabricated meta has an empty ID, and the enter
+					// that a later "user prompt" step sends is swallowed by the picker and switches
+					// to whatever row is selected — so a made-up list makes the app switch to a
+					// session that does not exist, which is a state no /resume can produce. The
+					// list is built once per walk (see pickerRows) because creating two dozen
+					// sessions per step would dominate the run.
+					if len(pickerRows) == 0 {
+						t.Skip("no sessions to pick from")
+					}
+					s.m.resumeList = pickerRows[:1+rng.Intn(len(pickerRows))]
+					s.m.resuming = true
+					s.m.resumeSel = rng.Intn(len(s.m.resumeList))
+					s.m.refresh()
+				}},
+				{"close the picker", func() {
+					s.m.resuming = false
+					s.m.refresh()
 				}},
 				{"open the palette", func() {
 					// The walk never typed a slash, so the completion popup — the other list that
