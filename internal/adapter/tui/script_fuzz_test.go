@@ -306,6 +306,31 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 					s.m.handleMouse(tea.MouseReleaseMsg{Button: tea.MouseLeft, X: x, Y: y})
 					s.m.refresh()
 				}},
+				{"drag the panel splitter", func() {
+					// The splitter is the one control that changes transcriptWidth WITHOUT changing
+					// the terminal width, and transcriptWidth is the render cache's key. That is
+					// not a guess about what could go wrong — the key was m.width once, and
+					// dragging the splitter left every cached block wrapped to the width it no
+					// longer had. Eleven sweeps never grabbed it, so the per-block cache-vs-fresh
+					// check below has never seen this path.
+					if s.m.height <= 4 || s.m.width <= 8 {
+						return
+					}
+					y := 1 + rng.Intn(s.m.height-2)
+					for x := 0; x < s.m.width; x++ {
+						if !s.m.onPanelSplitter(x, y) {
+							continue
+						}
+						s.m.handleMouse(tea.MouseClickMsg{Button: tea.MouseLeft, X: x, Y: y})
+						for k := 1 + rng.Intn(3); k > 0; k-- {
+							s.m.handleMouse(tea.MouseMotionMsg{
+								Button: tea.MouseLeft, X: rng.Intn(s.m.width), Y: y})
+						}
+						s.m.handleMouse(tea.MouseReleaseMsg{Button: tea.MouseLeft, X: rng.Intn(s.m.width), Y: y})
+						s.m.refresh()
+						return
+					}
+				}},
 				{"error", func() { s.emit(event.TypeError, event.ErrorData{Message: "the provider refused"}) }},
 				{"finish", func() { s.emit(event.TypeTurnFinished, event.TurnFinishedData{}) }},
 			}
