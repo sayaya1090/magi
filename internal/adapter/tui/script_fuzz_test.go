@@ -38,6 +38,7 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 	for _, seed := range fuzzSeeds(t) {
 		t.Run(fmt.Sprintf("seed%d", seed), func(t *testing.T) {
 			rng := rand.New(rand.NewSource(seed))
+			walkLen := fuzzSteps(t)
 			s := newScript(t)
 			// AFTER newScript, not before: it builds a Model through New, which calls
 			// applyTheme with its own isDark and puts the palette back to dark. Setting the
@@ -451,7 +452,7 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 				{"finish", func() { s.emit(event.TypeTurnFinished, event.TurnFinishedData{}) }},
 			}
 
-			for step := 0; step < 500; step++ {
+			for step := 0; step < walkLen; step++ {
 				pick := steps[rng.Intn(len(steps))]
 				pick.do()
 				raw := s.rawView()
@@ -690,6 +691,25 @@ func fuzzDark(t *testing.T) bool {
 		t.Fatalf("MAGI_FUZZ_THEME is %q, want \"dark\" or \"light\"", v)
 		return true
 	}
+}
+
+// fuzzSteps reads MAGI_FUZZ_STEPS — how many actions each seed walks — defaulting to the 500 that
+// every sweep so far has used. It buys ORDERINGS, not depth: the walk's compaction step clears the
+// transcript, so length does not accumulate blocks. Measured on seed 67013 — 500 steps ends at 11
+// blocks, 6000 steps at 34. Reaching a thousand-block transcript needs a walk that does not
+// compact, which this is not; do not read a long run as a load test.
+//
+// Malformed FAILS, for the same reason MAGI_FUZZ_SEEDS does.
+func fuzzSteps(t *testing.T) int {
+	raw := strings.TrimSpace(os.Getenv("MAGI_FUZZ_STEPS"))
+	if raw == "" {
+		return 500
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		t.Fatalf("MAGI_FUZZ_STEPS is %q, want a positive number of steps", raw)
+	}
+	return n
 }
 
 // fuzzSeeds reads MAGI_FUZZ_SEEDS — comma or space separated — falling back to the baseline.
