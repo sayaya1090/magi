@@ -62,7 +62,6 @@ type sessionState struct {
 	// Turn-scoped (zeroed by resetForNewTopLevel).
 	scratch         *turnScratch    // the turn's scratch directory (created at depth 0, inherited by every child of that turn)
 	seedPrompt      string          // subagent: the spawn/unit prompt THIS child was seeded with (see seedTurnTask)
-	curatedTools    []string        // subagent: per-spawn tool allowlist override (SpawnRequest.Tools); nil = the agent's own allowlist
 	interjectSeen   map[string]bool // interjection MessageIDs detected this turn (masked from turnTask/council)
 	autoOrchestrate bool            // whether auto-orchestration has been triggered this session
 	// Per-turn retrieval memoization. Both lookups key on the last user prompt, which is
@@ -200,13 +199,6 @@ func (a *App) resetForNewTopLevel(sid session.SessionID) {
 	st.turnNotes = nil
 	st.ragQ, st.ragText = "", "" // retrieval caches are turn-scoped even when the prompt text repeats
 	a.mu.Unlock()
-	// The subagent budget is a RUNAWAY backstop (one turn spawning without bound), not a
-	// lifetime meter: without this reset a long interactive session accumulates ordinary
-	// planner/recovery spawns across turns until every later spawn fails with "agent budget
-	// exhausted" for the rest of the process. A runaway plays out within one turn, so a
-	// per-turn window loses none of the protection. Process-wide (spawnCount is App-level):
-	// concurrent top-level sessions share the window, which still bounds any single runaway.
-	a.spawnCount.Store(0)
 }
 
 // setActiveSeed records the MessageID of the prompt seeding the current top-level turn,

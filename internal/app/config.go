@@ -176,7 +176,12 @@ type Config struct {
 	// Agents carry per-agent model routing. Nothing spawns them — the roster is what /route edits.
 	Agents map[string]AgentSpec
 	// Bounded recursion limits (D7).
-	Concurrency int // max concurrently running subagents
+	// Concurrency was the bound on concurrently running subagents. NOTHING ENFORCES IT: the
+	// semaphore it sized was allocated and never acquired, and the runaway counter beside it was
+	// only ever reset. The field is kept so an existing config that sets it still loads, and
+	// documented as inert rather than removed, because whether subagent concurrency should be
+	// bounded is a decision to make deliberately — not one to take by deleting a knob.
+	Concurrency int
 
 	// TimeBudget, when > 0, is a USER-declared wall-clock target for a turn,
 	// surfaced in the budget line as guidance (never a hard stop). Off by

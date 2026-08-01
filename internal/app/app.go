@@ -12,7 +12,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/core/bus"
@@ -39,9 +38,6 @@ type App struct {
 	mu     sync.Mutex
 	wg     sync.WaitGroup // tracks run + dispatch goroutines for graceful Close
 	closed bool           // set by Close: no new run/dispatch goroutines (no Add after Wait)
-
-	sem        chan struct{} // concurrency limiter for subagents (D7)
-	spawnCount atomic.Int64  // cumulative subagents spawned (runaway backstop)
 
 	liveness     sync.Map // session.SessionID -> *sessionLiveness (what the lease and the stall watchdog ask about a running session)
 	stepAttempts sync.Map // step key -> stepAttempt (a spent retry ladder, so the next dispatch of that step continues it)
@@ -80,7 +76,6 @@ func New(store port.Store, llm port.LLMProvider, tools port.ToolRegistry, b *bus
 		bus:            b,
 		plat:           plat,
 		cfg:            c,
-		sem:            make(chan struct{}, c.Concurrency),
 		permPolicy:     c.Permission,
 		policy:         newPolicy(c.Allow, c.Deny, c.AllowDomains),
 		probingWindows: map[string]struct{}{},

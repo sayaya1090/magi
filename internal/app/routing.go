@@ -32,17 +32,12 @@ func (a *App) SetPermission(p string) {
 // agentFor returns the AgentSpec for a session, falling back to a default built
 // from the global system prompt with access to all tools.
 func (a *App) agentFor(s session.Session) AgentSpec {
-	spec := AgentSpec{Name: orDefault(s.Agent, "default"), System: a.cfg.System}
-	// Per-spawn tool allowlist override (SpawnRequest.Tools → curatedTools): a curated worker
-	// sees exactly the tools chosen for its task (still narrowed by toolSpecs' role/env gates),
-	// not its agent's full configured set. nil = the agent's own allowlist.
-	a.mu.Lock()
-	ct := a.stateLocked(s.ID).curatedTools
-	a.mu.Unlock()
-	if len(ct) > 0 {
-		spec.Tools = append([]string(nil), ct...)
-	}
-	return spec
+	// There was a per-spawn tool allowlist override here, read from a session field that
+	// SpawnRequest.Tools was supposed to fill. There is no SpawnRequest type any more, nothing
+	// ever wrote the field, and the branch could not fire — so a worker's tools are its agent's,
+	// narrowed by toolSpecs' role and environment gates, which is what actually happened all
+	// along.
+	return AgentSpec{Name: orDefault(s.Agent, "default"), System: a.cfg.System}
 }
 
 // SetModel changes a session's active (default) model at runtime. Session-scoped:
