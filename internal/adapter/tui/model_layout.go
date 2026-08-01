@@ -170,11 +170,11 @@ func (m *Model) baseChromeHeight() int {
 		h += lipgloss.Height(m.questView())
 	}
 	if m.resuming {
-		rows := len(m.resumeList)
-		if rows > resumeRows {
-			rows = resumeRows + 1 // +1 for the "n/N" position line
-		}
-		h += rows + 1 // header line of the picker
+		// Measure the render, like the modals above. This counted rows from resumeRows while the
+		// view drew from the same constant, so the two agreed exactly as long as neither of them
+		// consulted the screen — and once the view started windowing against modalRoom, a count
+		// would have been the drift.
+		h += lipgloss.Height(m.resumeView())
 	}
 	if m.routing {
 		if m.profileForm != nil {
@@ -353,6 +353,18 @@ func (m *Model) refresh() {
 	}
 	if wantW != m.ta.Width() {
 		m.ta.SetWidth(wantW)
+	}
+	// The box grows to maxInputRows and never asked the terminal, so a six-line draft on an
+	// eight-row screen drew a box eight rows tall before the header was counted. Every surface in
+	// this package that reserved a constant instead of measuring has turned out to be a defect,
+	// and this is the one the user types into: pasting a few lines into a split pane is the whole
+	// reproduction. Six rows of header, border and footer have to survive, plus one row of
+	// transcript — below that the box would be the only thing on screen.
+	if want := clampInt(m.height-6, 1, maxInputRows); m.height > 0 && m.ta.MaxHeight != want {
+		m.ta.MaxHeight = want
+		if m.ta.Height() > want {
+			m.ta.SetHeight(want)
+		}
 	}
 	// Capture follow intent from the CURRENT state, before any height/content
 	// change — a layout change (subagent pane added/removed, terminal resize) or
