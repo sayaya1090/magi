@@ -28,6 +28,20 @@ import (
 //
 // Seeded, so a failure is reproducible: the seed and the step are printed with it.
 //
+// WHAT A GREEN RUN PROVES. "Twenty seeds, green" is not a result until it says what it bounds. The
+// unit is a CHECKED STEP — one action followed by the whole invariant block — because that is what
+// either trips or does not, so the baseline run is 20 seeds x 500 steps = 10,000 checked steps. By
+// the rule of three, zero failures in N trials puts the per-step failure rate under 3/N with 95%
+// confidence: p < 3.0e-4 for the baseline, and p < 5.0e-4 for the 12-seed rotation a tick uses
+// (6,000 steps).
+//
+// Read that as the bound it is. The steps are not independent — a walk revisits states — and the
+// rate is per checked step of THIS step vocabulary, so a defect no step reaches has probability
+// zero here and one in production. That is why the vocabulary keeps growing (the route editor and
+// the hostile escapes were both added after a tick found the walk had never opened them), and why
+// rotating seeds matters more than raising the count: N bounds the ground walked, not the ground
+// that exists.
+//
 // The seeds come from MAGI_FUZZ_SEEDS when it is set, and from the baseline below when it is not.
 // Walking a FRESH set is how this keeps finding things — the same twenty orders, however long the
 // sequence, are twenty orders — but rotating them by editing this line put the rotation in the
