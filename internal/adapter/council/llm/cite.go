@@ -206,12 +206,18 @@ func checkCites(record, cite, rationale, feedback string) []citeMiss {
 	return out
 }
 
-// citeElision matches an author's own "I cut something here" mark. The record uses the single
-// character for its own cuts; a model writing prose usually types three dots.
-var citeElision = regexp.MustCompile(`…|\.\.\.+|\. \. \.`)
+// citeElision matches an author's own JOIN: the places a member stitched a quotation together
+// out of pieces rather than copying one contiguous span. An ellipsis is one ("I cut here" — the
+// record uses the single character for its own cuts, a model usually types three dots); a newline
+// or an arrow is the other, and it is what a member writes when it quotes a command and then the
+// output that came back from it.
+//
+// Both downgrades this check produced in its first thirty verdicts were this shape, and both were
+// wrong. Splitting on the joiner is what makes them one rule instead of two.
+var citeElision = regexp.MustCompile(`…|\.\.\.+|\. \. \.|\n|→|=>`)
 
-// citeHolds reports whether a citation is grounded, allowing for the member having ELIDED the
-// middle of what it quoted.
+// citeHolds reports whether a citation is grounded, allowing for the member having ELIDED or
+// JOINED the pieces of what it quoted.
 //
 // Measured live (build-pmars, 2026-08-01): two members cited the same evidence entry. One copied
 // it whole and passed. The other wrote
@@ -222,6 +228,12 @@ var citeElision = regexp.MustCompile(`…|\.\.\.+|\. \. \.`)
 // ordinary thing anyone does when quoting — and was downgraded to abstain. The council then split
 // 1-1 with one abstention. Its grounds were real; only the shape of the quotation was not a
 // contiguous substring.
+//
+// The second round of the same task produced the same failure in the other shape: a member quoted
+// a command, an arrow, and the two lines that came back from it. Every piece was in the record.
+// Measured across both waves, those two are the ONLY downgrades this check has produced in thirty
+// verdicts, and neither was a fabrication — which is why the rule is about the joiner rather than
+// about any one punctuation mark.
 //
 // So an elided citation is read as what it is: several fragments, each of which must be in the
 // record, with the LAST one having to be in what came BACK. That keeps the sent-versus-returned
