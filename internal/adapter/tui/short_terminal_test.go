@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -203,5 +205,64 @@ func TestEverySurfaceFitsFromTheFloorUp(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// A surface that windows its rows must SAY it did. A list silently ending at its fourth entry
+// reads as a magi with four of them — the defect fixed one surface at a time all through
+// 2026-08-01 (the palette, the worker panel, the route editor, the question modal), each found by
+// hand after the last. Nothing held the whole set at once, so the next one added would be found
+// the same way.
+//
+// Each case gives its surface more items than can fit and asserts two things: that it really shed
+// (or the case proves nothing), and that what it drew carries a mark.
+func TestAWindowedSurfaceSaysItCutSomething(t *testing.T) {
+	applyTheme(true)
+	// A marker is any of the shapes these surfaces use: "n/N", "… N more", "… N more rows".
+	marked := func(s string) bool {
+		plain := stripANSI(s)
+		return strings.Contains(plain, "more") || regexp.MustCompile(`\d+/\d+`).MatchString(plain)
+	}
+	for _, tc := range []struct {
+		what  string
+		items int
+		open  func(s *script)
+		view  func(m *Model) string
+	}{
+		{"question options", 12, func(s *script) {
+			opts := make([]string, 12)
+			for i := range opts {
+				opts[i] = fmt.Sprintf("option number %d", i)
+			}
+			s.m.quest = &questReq{question: "which one?", options: opts}
+		}, func(m *Model) string { return m.questView() }},
+		{"resume picker", 20, func(s *script) {
+			s.m.resuming = true
+			for i := 0; i < 20; i++ {
+				s.m.resumeList = append(s.m.resumeList, session.SessionMeta{ID: session.SessionID(fmt.Sprintf("s%02d", i)), Title: fmt.Sprintf("session number %d", i)})
+			}
+		}, func(m *Model) string { return m.resumeView() }},
+		{"route editor", 14, func(s *script) {
+			s.m.openRouteEditor()
+			for i := 0; i < 14; i++ {
+				s.m.routeList = append(s.m.routeList, routeRow{kind: rowProfile,
+					name: fmt.Sprintf("profile:p%02d", i), value: "endpoint · model"})
+			}
+		}, func(m *Model) string { return m.routeView() }},
+	} {
+		t.Run(tc.what, func(t *testing.T) {
+			s := newScript(t)
+			s.send(tea.WindowSizeMsg{Width: 60, Height: 12})
+			tc.open(s)
+			out := tc.view(&s.m)
+			if lipgloss.Height(out) >= tc.items {
+				t.Fatalf("nothing was cut, so this asserts nothing (%d lines for %d items)",
+					lipgloss.Height(out), tc.items)
+			}
+			if !marked(out) {
+				t.Errorf("%d items shown in %d lines with no mark:\n%s",
+					tc.items, lipgloss.Height(out), stripANSI(out))
+			}
+		})
 	}
 }
