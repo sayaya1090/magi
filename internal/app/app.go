@@ -315,22 +315,22 @@ func (a *App) observeTurnFinished(ctx context.Context, sid session.SessionID) {
 	if finalText == "" {
 		return // no new assistant text this turn — nothing for an observer to analyze
 	}
-	outcome, reason := "done", ""
+	outcome, reason := OutcomeDone, ""
 	switch {
 	case sawUnverified:
-		outcome, reason = "unverified", reasonUnverified
+		outcome, reason = OutcomeUnverified, reasonUnverified
 	case sawVerified:
-		outcome = "verified"
+		outcome = OutcomeVerified
 	case sawGuard:
-		outcome, reason = "guard", reasonGuard
+		outcome, reason = OutcomeGuard, reasonGuard
 	case sawError:
-		outcome, reason = "error", reasonError
+		outcome, reason = OutcomeError, reasonError
 	case sawToolCall && !sawCouncil:
 		// A turn that did real work (the council's own usedTools trigger) yet no
 		// consensus gate ran — council disabled, workflow mode, or a sub-depth
 		// finish. Surface it instead of silently labelling it "done" so observers
 		// don't record an unconfirmed completion as a success.
-		outcome, reason = "ungated", "no verification gate ran on a tool-using turn"
+		outcome, reason = OutcomeUngated, "no verification gate ran on a tool-using turn"
 	}
 	a.cfg.Observer.TurnFinished(string(sid), TurnObservation{
 		FinalText: finalText, Outcome: outcome, Reason: reason,

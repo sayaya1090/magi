@@ -85,6 +85,7 @@ func (s AgentSpec) allows(tool string) bool {
 //
 //	verified   — the council itself voted done (evidence-backed completion)
 //	unverified — the turn landed but the council never approved (deadlock/cost/round cap)
+//	ungated    — the turn used tools and no consensus gate ran on it at all
 //	guard      — reserved: an error event coded loop_guard or stall_guard. NOTHING EMITS
 //	             those codes today, so this outcome cannot currently occur — the guards
 //	             speak and the turn continues. Kept in the contract rather than removed,
@@ -96,8 +97,46 @@ func (s AgentSpec) allows(tool string) bool {
 // Reason carries the unverified reason / guard code / error message ("" otherwise).
 // SkillsLoaded lists skills the agent loaded (the skill tool) during the turn, so
 // an observer can meter which skills actually get used and with what outcome.
+// TurnOutcome is the closed set of structural endings a turn can have. Named and enumerated
+// rather than written as loose strings at the one switch that produces them, because the loose
+// version drifted: `ungated` shipped and reached FORTY PERCENT of observed turns (measured over
+// eighty bench sessions, 2026-08-02) while the contract below listed five outcomes and not that
+// one — and listed `guard`, which nothing can produce. A contract that is wrong in both
+// directions is worse than a short one.
+//
+// TestTurnOutcomesAreDocumented holds this list against the contract comment, so a new ending
+// cannot ship undocumented. That is the Go stand-in for a closed variant the compiler enforces.
+type TurnOutcome = string
+
+const (
+	// OutcomeVerified — the council itself voted done (evidence-backed completion).
+	OutcomeVerified TurnOutcome = "verified"
+	// OutcomeUnverified — the turn landed but the council never approved (deadlock/cost/round cap).
+	OutcomeUnverified TurnOutcome = "unverified"
+	// OutcomeUngated — the turn used tools and NO consensus gate ran on it. Not a failure by
+	// itself: on a bench wave it is overwhelmingly a turn the harness cut short before the agent
+	// declared. It is surfaced rather than folded into "done" so an observer never records an
+	// unconfirmed completion as a success.
+	OutcomeUngated TurnOutcome = "ungated"
+	// OutcomeGuard — reserved: an error event coded loop_guard or stall_guard. NOTHING EMITS
+	// those codes today, so this cannot currently occur; the guards speak and the turn continues.
+	OutcomeGuard TurnOutcome = "guard"
+	// OutcomeError — the turn ended on an error event.
+	OutcomeError TurnOutcome = "error"
+	// OutcomeDone — plain finish with no council verdict either way (e.g. a conversational turn
+	// that called no tools).
+	OutcomeDone TurnOutcome = "done"
+)
+
+// turnOutcomes is every outcome, for the test that holds them against the contract.
+var turnOutcomes = []TurnOutcome{
+	OutcomeVerified, OutcomeUnverified, OutcomeUngated,
+	OutcomeGuard, OutcomeError, OutcomeDone,
+}
+
 type TurnObservation struct {
-	FinalText    string
+	FinalText string
+	// Outcome is one of the TurnOutcome constants.
 	Outcome      string
 	Reason       string
 	SkillsLoaded []string
