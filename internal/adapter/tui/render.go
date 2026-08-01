@@ -220,14 +220,20 @@ func (m *Model) transcript() string {
 		b.WriteString("\n")
 		nl++
 		m.liveThinkStart = nl // the streaming thinking block is the last thing rendered; click it to fold
+		think := indent(styleThink.Render("✻ thinking… ") + styleFoldChip.Render(" click / ctrl+t "))
 		if m.showThink {
 			// Expanded: carry the same fold chip as a collapsed thought so "click to collapse"
 			// is discoverable, not a hidden ctrl+t-only affordance.
-			b.WriteString(label(styleBar, "thinking") + " " + styleFoldChip.Render(" click to collapse ") + "\n" + indent(m.wrapThink(strings.TrimRight(m.liveThink, "\n"))))
-		} else {
-			b.WriteString(indent(styleThink.Render("✻ thinking… ") + styleFoldChip.Render(" click / ctrl+t ")))
+			think = label(styleBar, "thinking") + " " + styleFoldChip.Render(" click to collapse ") + "\n" + indent(m.wrapThink(strings.TrimRight(m.liveThink, "\n")))
 		}
+		b.WriteString(think)
+		// Count what was written. Everything below this section — the queued bubbles typed while
+		// the answer streams — records its start line off this counter, and a thought left out of
+		// it puts every one of them a few lines too high: still ascending, so the ordering
+		// invariant holds, and the click lands on the bubble above the one under the cursor.
+		nl += strings.Count(think, "\n")
 		b.WriteString("\n")
+		nl++
 	}
 	if m.running && strings.TrimSpace(m.liveProgress) != "" {
 		// A long-running tool's live status (wait_for polling). One ephemeral line by
