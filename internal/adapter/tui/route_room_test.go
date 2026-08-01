@@ -1,11 +1,14 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/sayaya1090/magi/internal/app"
 )
 
 // openRoute opens the models & routing editor on a sized terminal.
@@ -87,6 +90,47 @@ func TestTheCutMarkerFitsANarrowTerminal(t *testing.T) {
 			if got := lipgloss.Width(trimmed); got > w {
 				t.Errorf("w=%d: row %d draws %d cells: %q", w, i, got, trimmed)
 			}
+		}
+	}
+}
+
+// The row being edited has to be on screen. The editor windows its rows when the terminal is
+// short, and the window is centred on the selection — but nothing held it to that: a mutation
+// pinning the window to `start = 0` passed the whole suite. The question modal and the session
+// picker each got this assertion when they were fixed; the editor, fixed in the same hour, did
+// not, and the gap surfaced only under a mutation run.
+//
+// A cursor the window cannot follow is worse on this surface than on the others: the row it loses
+// is the one the user is typing a model name into.
+func TestTheSelectedRouteRowStaysOnScreen(t *testing.T) {
+	applyTheme(true)
+	for _, c := range []struct{ w, h int }{{60, 12}, {80, 14}, {100, 16}} {
+		s := newScript(t)
+		s.send(tea.WindowSizeMsg{Width: c.w, Height: c.h})
+		s.assistantText("some work happened")
+		// Enough profiles that the list CANNOT fit — with the two rows a bare app has, the
+		// editor never windows and the cursor has nowhere to fall off. The first version of this
+		// test missed the mutation for exactly that reason: it was green over an unwindowed list.
+		for i := 0; i < 12; i++ {
+			s.m.app.SetProfile(app.ProfileDef{Name: fmt.Sprintf("prof%02d", i), Model: "m"})
+		}
+		s.m.openRouteEditor()
+		s.m.refresh()
+		if !s.m.routing || len(s.m.routeList) < 10 {
+			t.Fatalf("the editor has %d rows; too few to window", len(s.m.routeList))
+		}
+		// Walk to the last row the way a user does, then look for it.
+		for i := 0; i < len(s.m.routeList)-1; i++ {
+			s.m.handleRouteKey(tea.KeyPressMsg{Code: tea.KeyDown})
+		}
+		last := s.m.routeList[len(s.m.routeList)-1]
+		out := ansiSeq.ReplaceAllString(s.m.routeView(), "")
+		want := strings.TrimPrefix(last.name, "profile:")
+		if len(want) > 14 {
+			want = want[:14] // the row is clipped on a narrow terminal; match what fits
+		}
+		if !strings.Contains(out, want) {
+			t.Errorf("w=%d h=%d: the selected row %q is not drawn:\n%s", c.w, c.h, want, out)
 		}
 	}
 }
