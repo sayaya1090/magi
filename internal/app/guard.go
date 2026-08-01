@@ -608,35 +608,6 @@ var importedByStem = map[string]bool{
 	".py": true, ".rb": true, ".js": true, ".mjs": true, ".ts": true,
 }
 
-// cmdMentionsFile reports whether cmd names the file with basename `base` as a whole path
-// component, not merely as a substring of a LONGER filename — `python ax.py` must NOT mark the
-// authored file `x.py` as exercised, or a written-but-never-run artifact silently drops off the
-// exec-evidence ledger. The base must sit bounded by a path separator, whitespace, quote, or shell
-// metacharacter on each side (or the string edge), the way a real filename token appears in a
-// command; a filename-body byte (letter/digit/._-) adjacent to it means it is part of another name.
-func cmdMentionsFile(cmd, base string) bool {
-	for from := 0; ; {
-		i := strings.Index(cmd[from:], base)
-		if i < 0 {
-			return false
-		}
-		i += from
-		end := i + len(base)
-		beforeOK := i == 0 || !isFilenameByte(cmd[i-1])
-		afterOK := end == len(cmd) || !isFilenameByte(cmd[end])
-		if beforeOK && afterOK {
-			return true
-		}
-		from = i + 1
-	}
-}
-
-// isFilenameByte reports whether b can appear inside a filename token (so an adjacent one means the
-// candidate base is really part of a longer name).
-func isFilenameByte(b byte) bool {
-	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b == '_' || b == '-' || b == '.'
-}
-
 // runnableExt lists extensions whose files plausibly EXECUTE (a program the turn
 // should have run at least once before claiming done). Docs/config/data files are
 // excluded on purpose: "authored but never executed" is only meaningful for code.
@@ -651,14 +622,6 @@ func (g *runGuard) callCount() int {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.calls
-}
-
-// normalizeExerciseCmd collapses whitespace runs to single spaces and trims, so a command counts as
-// "the same" across edits when it is byte-identical modulo spacing. Deliberately conservative — it
-// does NOT strip volatile flags (a display filter like `| tail -5` splits the key from `| tail -3`),
-// which errs toward NOT landing (a split key climbs slower), the safe direction for a force-stop.
-func normalizeExerciseCmd(cmd string) string {
-	return strings.Join(strings.Fields(cmd), " ")
 }
 
 // mutationEpoch returns the current mutation epoch — the number of real file mutations

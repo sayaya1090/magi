@@ -246,23 +246,6 @@ func (a *App) hasPendingInterject(sid session.SessionID) bool {
 	return len(a.stateLocked(sid).pendingInterject) > 0
 }
 
-// pendingInterjectItems snapshots the queued interjections (FIFO order) without removing
-// them. The idle-park flush handles each already-queued item through handleAside, which
-// consumes a resolved reply / bare cancel itself and leaves a routed item for the turnControl
-// drain — so the caller must iterate a copy, not mutate the queue mid-loop. Each item keeps
-// its MsgID so the flush can surface the request handle and route by id.
-func (a *App) pendingInterjectItems(sid session.SessionID) []pendingInterjection {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	q := a.stateLocked(sid).pendingInterject
-	if len(q) == 0 {
-		return nil
-	}
-	out := make([]pendingInterjection, len(q))
-	copy(out, q)
-	return out
-}
-
 // deferredInterjectIDs is the set of PromptSubmitted MessageIDs currently queued as
 // interjections — the events to mask from the live-judgment views. Membership IS the
 // mask lifetime: an interjection leaves the queue (drained or absorbed) exactly when it

@@ -302,43 +302,6 @@ func unverifiedLookup(evs []event.Event) string {
 		strings.Join(failed, "\n- ")
 }
 
-// lookupRecovered reports whether a knowledge lookup SUCCEEDED in the latest turn — the
-// only POSITIVE evidence that an unverified-premise concern is actually resolved. It is
-// deliberately distinct from "unverifiedLookup returned empty": empty also covers a turn
-// with no lookup at all, and mere absence must NEVER auto-resolve a still-open concern
-// (that would let a quiet turn launder away a premise that was never verified). Only a
-// real, successful lookup clears it.
-func lookupRecovered(evs []event.Event) bool {
-	names := map[string]string{}
-	recovered := false
-	for _, e := range evs {
-		if e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser { // judge only the latest turn
-			names = map[string]string{}
-			recovered = false
-			continue
-		}
-		if e.Type != event.TypePartAppended {
-			continue
-		}
-		var d event.PartAppendedData
-		if json.Unmarshal(e.Data, &d) != nil {
-			continue
-		}
-		switch d.Part.Kind {
-		case session.PartToolCall:
-			if d.Part.ToolCall != nil {
-				names[d.Part.ToolCall.CallID] = d.Part.ToolCall.Name
-			}
-		case session.PartToolResult:
-			r := d.Part.ToolResult
-			if r != nil && knowledgeLookupTools[names[r.CallID]] && !r.IsError {
-				recovered = true
-			}
-		}
-	}
-	return recovered
-}
-
 // normEq reports whether two answers are the same modulo whitespace — the
 // cheap, deterministic notion of "the agent resubmitted its rejected answer".
 func normEq(a, b string) bool {
@@ -425,23 +388,6 @@ func tailForCouncil(s string, n int) string {
 		cut++
 	}
 	return "…[earlier output truncated]\n" + s[cut:]
-}
-
-// countToolCalls counts the tool-call parts in the event log — a cheap monotonic
-// fingerprint of "did the agent DO anything": equal counts across a rejection →
-// re-finish mean zero new actions, so no evidence-based verdict can have changed.
-func countToolCalls(evs []event.Event) int {
-	n := 0
-	for _, e := range evs {
-		if e.Type != event.TypePartAppended {
-			continue
-		}
-		var d event.PartAppendedData
-		if json.Unmarshal(e.Data, &d) == nil && d.Part.Kind == session.PartToolCall {
-			n++
-		}
-	}
-	return n
 }
 
 // deltaToolEvidence renders the tool results in evs (no prompt-boundary resets —

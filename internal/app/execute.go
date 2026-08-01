@@ -8,35 +8,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 	"github.com/sayaya1090/magi/internal/core/artifact"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
 )
-
-// rawTruthy reads a boolean tool argument straight off the wire, tolerating the shapes weak
-// models actually send for one (`true`, `"true"`, `1`) instead of failing the whole decode on
-// a quoted bool — the same tolerance FlexBool gives the tool itself (see [[tool-arg-tolerance]]).
-// Absent or unrecognized is false.
-func rawTruthy(raw json.RawMessage) bool {
-	s := strings.Trim(strings.TrimSpace(string(raw)), `"`)
-	switch strings.ToLower(s) {
-	case "true", "1", "yes", "on":
-		return true
-	}
-	return false
-}
-
-// exerciseConverged reports whether a bash call that came back exit 0 is real evidence that the
-// build/test it ran converged — i.e. whether that exit code is the command's OWN. It is false when
-// the command text proves the exit belongs to something else (a `|| true` mask, a `| tail` pipe, a
-// `;`-sequenced `echo`/`tail` tail). Only a true here clears the command's check-churn count; a
-// masked exit leaves the count alone rather than climbing it, because the command text proves the
-// exit says nothing — not that it failed.
-func exerciseConverged(command string) bool {
-	return !builtin.ExitCodeMasked(command)
-}
 
 // gateAllowlist blocks a tool the agent isn't permitted to call. Returns true to stop.
 //

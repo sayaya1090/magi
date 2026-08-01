@@ -16,8 +16,10 @@ import (
 // matches, the policy silently does not apply, and no build or test says a word. This test is the
 // missing check: it holds each set against the registry and names the literals nothing answers to.
 //
-// It found two on the day it was written. `specCanAct` had listed `notebook_edit` and `apply_patch`
-// since before either was a tool anywhere in this binary.
+// It found two on the day it was written: a since-removed read-only-role set had listed
+// `notebook_edit` and `apply_patch` from before either was a tool anywhere in this binary. That
+// set and its one caller are both gone now, so what is left here is the policy set that is still
+// consulted — which is the point, a set nothing reads is not a policy to check.
 func TestPolicyToolNamesAreRealTools(t *testing.T) {
 	known := builtin.KnownNames()
 	if len(known) < 20 {
@@ -25,7 +27,6 @@ func TestPolicyToolNamesAreRealTools(t *testing.T) {
 	}
 
 	sets := map[string][]string{
-		"actingTools": toolNamesIn(actingTools),
 		"DangerTools (config default)": toolNamesIn(
 			Config{}.withDefaults().DangerTools),
 	}
