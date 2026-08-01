@@ -523,16 +523,22 @@ func (m *Model) questView() string {
 	}
 	// Same rule as the permission modal: it must fit the screen it draws over. The question and
 	// the options are the prompt — the keyboard hint is not — so the hint is what goes first, and
-	// past that the options are trimmed from the end rather than the frame overflowing.
+	// past that the option list is windowed rather than the frame overflowing.
 	room := m.modalRoom()
 	full := strings.TrimRight(b.String(), "\n")
 	if out := stylePermBox.Width(m.width - 4).Render(full); m.height <= 0 || lipgloss.Height(out) <= room {
 		return out
 	}
-	for keep := len(q.options); keep >= 0; keep-- {
+	// The window is centred on the selection and the cut is marked — the same two rules the
+	// palette drawn in this slot follows. It used to keep the FIRST keep options instead, which on
+	// a short terminal drew a numbered list ending at "4." with the answer being chosen off
+	// screen and no highlight anywhere in the box: the user is picking blind from a list that
+	// looks complete. This modal is the one thing they have to read and answer.
+	for keep := len(q.options) - 1; keep >= 1; keep-- {
+		start := min(max(0, q.sel-keep/2), len(q.options)-keep)
 		var t strings.Builder
 		t.WriteString(stylePermTitle.Render("question") + "\n" + q.question + "\n")
-		for i := 0; i < keep; i++ {
+		for i := start; i < start+keep; i++ {
 			line := fmt.Sprintf("%d. %s", i+1, q.options[i])
 			if i == q.sel {
 				t.WriteString(stylePalSelRow.Render("› "+line) + "\n")
@@ -540,6 +546,8 @@ func (m *Model) questView() string {
 				t.WriteString("  " + styleToolResult.Render(line) + "\n")
 			}
 		}
+		t.WriteString(styleFooter.Render(fmt.Sprintf("  … %d more (↑/↓ to reach them)",
+			len(q.options)-keep)))
 		out := stylePermBox.Width(m.width - 4).Render(strings.TrimRight(t.String(), "\n"))
 		if lipgloss.Height(out) <= room {
 			return out
