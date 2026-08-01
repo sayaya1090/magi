@@ -330,22 +330,24 @@ func (m *Model) paletteView(matches []cmdInfo) string {
 	for keep := len(matches) - 1; keep >= 1; keep-- {
 		start := min(max(0, sel-keep/2), len(matches)-keep)
 		body := m.paletteBody(matches[start:start+keep], sel-start)
-		out := body + "\n" + m.paletteCutMark(fmt.Sprintf("  … %d more (type to narrow)", len(matches)-keep))
+		out := body + "\n" + m.cutMark(fmt.Sprintf("  … %d more (type to narrow)", len(matches)-keep))
 		if lipgloss.Height(out) <= room {
 			return out
 		}
 	}
 	// Not even one row and a marker fit: the marker alone still says the list is there.
-	return m.paletteCutMark(fmt.Sprintf("  … %d commands (type to narrow)", len(matches)))
+	return m.cutMark(fmt.Sprintf("  … %d commands (type to narrow)", len(matches)))
 }
 
-// paletteCutMark renders the "N more" line under the popup, cut to the terminal. The rows above
-// it are inside a box that was given a width; this line is not, and "  … 20 commands (type to
-// narrow)" is 33 cells wide however narrow the terminal is — found by the walk at 21 columns.
-// A marker that says the list was cut and then overflows the screen itself is the same defect it
-// was added to report.
+// cutMark renders the "N more" line under a windowed list, cut to the terminal. Its rows sit
+// inside a box that was given a width; this line does not, and "  … 20 commands (type to narrow)"
+// is 33 cells however narrow the terminal is — found by the walk at 21 columns, and found again
+// at 23 the moment a second list grew a marker of its own. A marker that reports a cut by
+// overflowing the screen is the defect it was added to report, so every list that windows itself
+// builds its marker here rather than writing the same truncation a third time.
+//
 // styleFooter pads a cell on each side, so the budget for the text is two less than the terminal.
-func (m *Model) paletteCutMark(text string) string {
+func (m *Model) cutMark(text string) string {
 	if m.width > 0 {
 		text = ansi.Truncate(text, max(1, m.width-2), "")
 	}

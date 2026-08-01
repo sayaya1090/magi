@@ -420,7 +420,14 @@ func (m *Model) routeView() string {
 		if i == m.routeSel && m.routeEditing {
 			val = m.routeBuf + "▌"
 		}
+		// The name column alone is 16 cells, so a narrow terminal overflows on the padding
+		// before the value is even considered — "› (session)        request 12" is 29 cells in
+		// 20 columns. The header above has been clipped for a while; the rows under it never
+		// were, and one over-wide row pads the whole frame out to match it.
 		line := fmt.Sprintf("%-16s %s", r.name, val)
+		if m.width > 2 {
+			line = ansi.Truncate(line, m.width-2, "")
+		}
 		if i == m.routeSel {
 			rb.WriteString(stylePalSelRow.Render("› " + line))
 		} else {
@@ -446,7 +453,7 @@ func (m *Model) routeView() string {
 		if keep < len(rows) {
 			// The row being edited is in the window; the count says what is outside it, so a
 			// list that stops at the fourth agent does not read as a magi with four agents.
-			t.WriteString(styleFooter.Render(fmt.Sprintf("  %d/%d rows (↑/↓ to reach them)",
+			t.WriteString(m.cutMark(fmt.Sprintf("  %d/%d rows (↑/↓ to reach them)",
 				m.routeSel+1, len(rows))) + "\n")
 		}
 		return strings.TrimRight(t.String(), "\n")
@@ -589,23 +596,21 @@ func (m *Model) profileFormView() string {
 	return strings.TrimRight(head+"\n"+row(min(f.sel, len(f.fields)-1)), "\n")
 }
 
-// resumeRows caps how many sessions the picker shows at once.
+// resumeRows caps how many sessions the picker shows at once — the ceiling on a tall screen,
+// where a list of forty would bury the input. It is not the bound: how many rows there is ROOM
+// for is what modalRoom answers, and resumeView takes the smaller of the two.
 const resumeRows = 12
 
 // resumeView renders the interactive session picker (↑/↓ select, enter resume).
+//
+// It showed twelve rows because twelve was the constant, never because twelve fit: on a
+// fourteen-row terminal it drew its header, twelve sessions and a position line into eight rows
+// of room, and on an alt screen the header and the top of the list were gone. Six sessions on a
+// twelve-row terminal overflowed too, so the constant was not even the problem — the picker
+// simply never asked the screen. Every other surface drawn in this slot windows itself against
+// modalRoom; this was the last one that did not.
 func (m *Model) resumeView() string {
-	var b strings.Builder
-	b.WriteString(stylePermTitle.Render("resume a session") + "  " +
-		styleFooter.Render("↑/↓ select · enter resume · esc cancel") + "\n")
-	start := 0
-	if m.resumeSel >= resumeRows {
-		start = m.resumeSel - resumeRows + 1
-	}
-	end := start + resumeRows
-	if end > len(m.resumeList) {
-		end = len(m.resumeList)
-	}
-	for i := start; i < end; i++ {
+	row := func(i int) string {
 		s := m.resumeList[i]
 		title := s.Title
 		if title == "" {
@@ -617,17 +622,63 @@ func (m *Model) resumeView() string {
 		if when == "" {
 			when = s.Created.Format("01-02 15:04")
 		}
+		// The title's budget is what is left after the age column and the row's own marker —
+		// with a floor, because a title cut to nothing names no session. The floor is why the
+		// row is truncated again below: on a terminal narrower than the floor plus the age
+		// column, the floor is the thing that overflows.
 		line := fmt.Sprintf("%-11s %s", when, oneLine(title, max(20, m.width-24)))
+		if m.width > 2 {
+			line = ansi.Truncate(line, m.width-2, "")
+		}
 		if i == m.resumeSel {
-			b.WriteString(stylePalSelRow.Render("› "+line) + "\n")
-		} else {
-			b.WriteString("  " + styleToolResult.Render(line) + "\n")
+			return stylePalSelRow.Render("› " + line)
+		}
+		return "  " + styleToolResult.Render(line)
+	}
+	// The window follows the cursor: the session being chosen is the one that has to be on
+	// screen, whatever it costs at the other end of the list.
+	draw := func(keep int) string {
+		var b strings.Builder
+		// The title plus its hint is 57 cells whatever the terminal is, and in a vertically
+		// joined frame one over-wide row pads every other row to match — so this is not a
+		// clipped line, it is the whole screen going wider than the terminal and the shell
+		// wrapping it. The hint is decoration and goes first; the title says which picker this
+		// is. (The routing editor next door was fixed for exactly this; the picker was not.)
+		head := stylePermTitle.Render("resume a session") + "  " +
+			styleFooter.Render("↑/↓ select · enter resume · esc cancel")
+		if m.width > 0 && lipgloss.Width(head) > m.width {
+			head = ansi.Truncate(stylePermTitle.Render("resume a session"), m.width, "")
+		}
+		b.WriteString(head + "\n")
+		start := 0
+		if keep < len(m.resumeList) {
+			start = min(max(0, m.resumeSel-keep/2), len(m.resumeList)-keep)
+		}
+		for i := start; i < start+keep; i++ {
+			b.WriteString(row(i) + "\n")
+		}
+		if keep < len(m.resumeList) {
+			b.WriteString(m.cutMark(fmt.Sprintf("  %d/%d", m.resumeSel+1, len(m.resumeList))))
+		}
+		return strings.TrimRight(b.String(), "\n")
+	}
+
+	room := m.modalRoom()
+	for keep := min(resumeRows, len(m.resumeList)); keep > 0; keep-- {
+		out := draw(keep)
+		if m.height <= 0 || lipgloss.Height(out) <= room {
+			return out
 		}
 	}
-	if len(m.resumeList) > resumeRows {
-		b.WriteString(styleFooter.Render(fmt.Sprintf("  %d/%d", m.resumeSel+1, len(m.resumeList))))
+	// Nothing fits: the selected session alone, which is the one being chosen.
+	if len(m.resumeList) == 0 {
+		t := stylePermTitle.Render("resume a session")
+		if m.width > 0 {
+			t = ansi.Truncate(t, m.width, "")
+		}
+		return t
 	}
-	return strings.TrimRight(b.String(), "\n")
+	return row(min(m.resumeSel, len(m.resumeList)-1))
 }
 
 // relAge renders a compact relative age ("42s ago", "5m ago", "3h ago",
