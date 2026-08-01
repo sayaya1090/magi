@@ -371,7 +371,6 @@ func (m *Model) routeView() string {
 	if m.profileForm != nil {
 		return m.profileFormView()
 	}
-	var b strings.Builder
 	hint := "↑/↓ select · enter edit/open · esc close"
 	if m.routeEditing {
 		if m.routeList[m.routeSel].kind == rowSession {
@@ -390,22 +389,31 @@ func (m *Model) routeView() string {
 	if m.width > 0 && lipgloss.Width(head) > m.width {
 		head = ansi.Truncate(stylePermTitle.Render("models & routing"), m.width, "")
 	}
-	b.WriteString(head + "\n")
+	// Render each row on its own, then decide how many of them there is room for. The header
+	// above was bounded in width for a split pane or a phone-sized ssh window; its HEIGHT was
+	// never bounded at all, and this editor lists every agent and every profile. The walk found
+	// it at ten rows: eleven rows of chrome on a ten-row screen, so on an alt screen the title
+	// and the selected row were both above the display. Every other surface drawn in this slot —
+	// the palette, both modals, the profile form next door — windows itself against modalRoom.
+	rows := make([]string, len(m.routeList))
 	sepDrawn := false
 	for i, r := range m.routeList {
+		var rb strings.Builder
 		// Set the profiles section (profile rows + add button) apart from the
-		// session/agent rows with a blank line and a dim header.
+		// session/agent rows with a blank line and a dim header. It rides on the row that
+		// starts the section, so a window that opens mid-list carries it only when it should.
 		if !sepDrawn && (r.kind == rowProfile || r.kind == rowAddProfile) {
-			b.WriteString("\n" + styleFooter.Render("backends (profiles)") + "\n")
+			rb.WriteString("\n" + styleFooter.Render("backends (profiles)") + "\n")
 			sepDrawn = true
 		}
 		if r.kind == rowAddProfile {
 			btn := " + add profile "
 			if i == m.routeSel {
-				b.WriteString("  " + styleBtnSel.Render(btn) + "\n")
+				rb.WriteString("  " + styleBtnSel.Render(btn))
 			} else {
-				b.WriteString("  " + styleBtn.Render(btn) + "\n")
+				rb.WriteString("  " + styleBtn.Render(btn))
 			}
+			rows[i] = rb.String()
 			continue
 		}
 		val := r.value
@@ -414,16 +422,48 @@ func (m *Model) routeView() string {
 		}
 		line := fmt.Sprintf("%-16s %s", r.name, val)
 		if i == m.routeSel {
-			b.WriteString(stylePalSelRow.Render("› "+line) + "\n")
+			rb.WriteString(stylePalSelRow.Render("› " + line))
 		} else {
-			b.WriteString("  " + styleToolResult.Render(line) + "\n")
+			rb.WriteString("  " + styleToolResult.Render(line))
 		}
 		// Under the session row while editing it, show the model suggest box.
 		if i == m.routeSel && m.routeEditing && r.kind == rowSession {
-			b.WriteString(m.modelSuggestBox())
+			rb.WriteString("\n" + strings.TrimRight(m.modelSuggestBox(), "\n"))
+		}
+		rows[i] = rb.String()
+	}
+
+	draw := func(keep int) string {
+		var t strings.Builder
+		t.WriteString(head + "\n")
+		start := 0
+		if keep < len(rows) {
+			start = min(max(0, m.routeSel-keep/2), len(rows)-keep)
+		}
+		for i := start; i < start+keep; i++ {
+			t.WriteString(rows[i] + "\n")
+		}
+		if keep < len(rows) {
+			// The row being edited is in the window; the count says what is outside it, so a
+			// list that stops at the fourth agent does not read as a magi with four agents.
+			t.WriteString(styleFooter.Render(fmt.Sprintf("  %d/%d rows (↑/↓ to reach them)",
+				m.routeSel+1, len(rows))) + "\n")
+		}
+		return strings.TrimRight(t.String(), "\n")
+	}
+
+	room := m.modalRoom()
+	for keep := len(rows); keep > 0; keep-- {
+		out := draw(keep)
+		if m.height <= 0 || lipgloss.Height(out) <= room {
+			return out
 		}
 	}
-	return strings.TrimRight(b.String(), "\n")
+	// Nothing fits: the selected row alone, which is the one being worked on.
+	if len(rows) == 0 {
+		return head
+	}
+	return strings.TrimRight(head+"\n"+rows[min(m.routeSel, len(rows)-1)], "\n")
 }
 
 // modelSuggestBox renders the session-row model suggest list: the merged,
