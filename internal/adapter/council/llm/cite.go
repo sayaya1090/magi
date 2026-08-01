@@ -183,9 +183,13 @@ func checkCites(record, cite, rationale, feedback string) []citeMiss {
 	// member that quoted a record line reaches the output at the end of it; a member that quoted
 	// only a command reaches more command.
 	if c := strings.TrimSpace(cite); c != "" && !strings.EqualFold(c, citeNoEvidence) {
-		if n := normalizeForCite(c); len([]rune(n)) >= citeMinLen && !citedWhatCameBack(came, n) {
+		if n := normalizeForCite(c); len([]rune(n)) >= citeMinLen && !citeHolds(rec, came, c) {
 			m := citeMiss{quote: c, field: "cite"}
-			if strings.Contains(rec, n) {
+			// Diagnosed by the same fragments the check uses. Asking whether the WHOLE span is in
+			// the record answers no for every elided citation, so an elided quotation of a command
+			// body was reported as invented when it is real and merely was not returned — the one
+			// distinction the re-ask exists to draw.
+			if citeFragmentsPresent(rec, c) {
 				m.sentNotReturned = true
 			}
 			out = append(out, m)
@@ -200,6 +204,69 @@ func checkCites(record, cite, rationale, feedback string) []citeMiss {
 		}
 	}
 	return out
+}
+
+// citeElision matches an author's own "I cut something here" mark. The record uses the single
+// character for its own cuts; a model writing prose usually types three dots.
+var citeElision = regexp.MustCompile(`…|\.\.\.+|\. \. \.`)
+
+// citeHolds reports whether a citation is grounded, allowing for the member having ELIDED the
+// middle of what it quoted.
+//
+// Measured live (build-pmars, 2026-08-01): two members cited the same evidence entry. One copied
+// it whole and passed. The other wrote
+//
+//	"pmars -b -r 50 -f …/flashpaper.red …/rave.red | tail -n 1: exit 0 ⏎ output: ... Results: 12 32 6"
+//
+// — the same entry with the log path cut out and an ellipsis marking the cut, which is the most
+// ordinary thing anyone does when quoting — and was downgraded to abstain. The council then split
+// 1-1 with one abstention. Its grounds were real; only the shape of the quotation was not a
+// contiguous substring.
+//
+// So an elided citation is read as what it is: several fragments, each of which must be in the
+// record, with the LAST one having to be in what came BACK. That keeps the sent-versus-returned
+// distinction this whole file exists for — a member quoting only command bodies still fails,
+// because its last fragment is command too — while accepting an honest cut. Fragments too short
+// to mean anything are skipped rather than failed, and a citation whose fragments are all short
+// falls back to being checked whole.
+func citeHolds(rec, came, cite string) bool {
+	segs := citeFragments(cite)
+	if len(segs) < 2 {
+		return citedWhatCameBack(came, normalizeForCite(cite))
+	}
+	for _, s := range segs[:len(segs)-1] {
+		if !strings.Contains(rec, s) {
+			return false
+		}
+	}
+	return citedWhatCameBack(came, segs[len(segs)-1])
+}
+
+// citeFragments splits a citation at its author's elisions and returns the normalized pieces long
+// enough to mean anything.
+func citeFragments(cite string) []string {
+	var segs []string
+	for _, part := range citeElision.Split(cite, -1) {
+		if n := normalizeForCite(part); len([]rune(n)) >= citeMinLen {
+			segs = append(segs, n)
+		}
+	}
+	return segs
+}
+
+// citeFragmentsPresent reports whether every fragment of a citation is somewhere in the record —
+// the question behind "this IS here, but only as something that was sent".
+func citeFragmentsPresent(rec, cite string) bool {
+	segs := citeFragments(cite)
+	if len(segs) == 0 {
+		return strings.Contains(rec, normalizeForCite(cite))
+	}
+	for _, s := range segs {
+		if !strings.Contains(rec, s) {
+			return false
+		}
+	}
+	return true
 }
 
 // citeTailLen is how much of a citation's end has to be in what came back. It is long enough that
