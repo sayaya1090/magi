@@ -364,8 +364,21 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// the result answers a narrower question than the model asked. Say which part of the call was
 	// not honored, on the same result, so the correction arrives with the evidence it explains.
 	if len(ignored) > 0 {
+		// Two different things happened and they need two different sentences. When the call
+		// SUCCEEDED, the result is real and merely narrower than what was asked for. When it
+		// FAILED, there is no narrower result to disclaim — and the old wording said there was.
+		//
+		// Measured live (extract-elf, 2026-08-01): `write{file_name, content}` came back as
+		// "path is required" followed by "the call ran WITHOUT it, so this result does not
+		// reflect it". The two halves contradict each other, and the second one reads as a write
+		// that happened. Dropping the argument is often WHY the call failed — here file_name was
+		// the misspelling that left path missing — so the honest sentence connects them.
+		outcome := "the call ran WITHOUT it, so this result does not reflect it"
+		if res.IsError {
+			outcome = "it was dropped before the call, and what is above is that call FAILING without it"
+		}
 		res.Content = appendToContent(res.Content, "\n\n[ignored arguments] "+tc.Name+" does not take "+
-			quoteJoin(ignored)+" — the call ran WITHOUT it, so this result does not reflect it. "+
+			quoteJoin(ignored)+" — "+outcome+". "+
 			tc.Name+" accepts: "+strings.Join(declared, ", "))
 	}
 
