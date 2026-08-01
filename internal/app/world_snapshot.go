@@ -238,6 +238,22 @@ func worldDiff(workdir string, since time.Time, base fileIndex) string {
 	}
 	var b strings.Builder
 	b.WriteString("── THE WORKSPACE RIGHT NOW (read just now, not from the record) ──")
+	// Say what the list IS. Every entry below is a file this turn CHANGED, and nothing else is
+	// here — but the heading says "the workspace" and the note at the bottom says "complete", and
+	// together those read as a directory listing. A reader then takes an absent name as an absent
+	// file.
+	//
+	// Measured live (headless-terminal, 2026-08-01): the task provides /app/base_terminal.py and
+	// asks for a class that inherits from it. The agent read that file, imported it correctly, and
+	// the snapshot listed only headless_terminal.py because base_terminal.py was never touched.
+	// All three council members then voted continue on the grounds that it does not exist —
+	// "verified by prior reads showing only headless_terminal.py" — and the agent spent the next
+	// twelve calls chasing a file that had been there the whole time.
+	//
+	// The empty case has said this correctly since it was fixed ("no file has been MODIFIED since
+	// this task started"). This is the same sentence the non-empty case never got.
+	b.WriteString("\n(what this turn changed — a file that was already here and was not touched " +
+		"is not listed, which is not the same as not being there)")
 	if trimmed {
 		// "the most recent" is a claim over everything that was read, and the walk cap can end
 		// the read before the tree does — so when it did, say which of the two this is.
@@ -251,7 +267,9 @@ func worldDiff(workdir string, since time.Time, base fileIndex) string {
 		b.WriteString("\n" + l)
 	}
 	if n := skipNote(skipped, skippedN); n != "" {
-		b.WriteString("\n(this listing is complete" + n + ")")
+		// "complete" is scoped to the changes, for the same reason: unqualified, it promised a
+		// directory listing this has never been.
+		b.WriteString("\n(no other changed file was left out" + n + ")")
 	}
 	b.WriteString(walkCutNote(cutShort))
 	return b.String()
