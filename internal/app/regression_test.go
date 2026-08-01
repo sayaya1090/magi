@@ -208,8 +208,10 @@ func TestNoteEditEscalatesAcrossOscillation(t *testing.T) {
 	}
 }
 
-// TestShouldNudge: the corrective nudge fires once, only at/after the threshold and below
-// the force-stop budget, and never again.
+// TestShouldNudge: the corrective nudge for a BLOCKED repeat fires once, at/after the
+// threshold, and never again. (Once was the right number when a force-stop was expected to
+// land the run behind it; that force-stop is gone, and this kind has not been re-armed —
+// see TestTheStalledNudgeKeepsSayingItWhileNothingChanges for the kind that was.)
 func TestShouldNudge(t *testing.T) {
 	g := newRunGuard()
 	if g.shouldNudge() != "" {
@@ -406,7 +408,7 @@ func TestRegressiveEditWithholdsProgress(t *testing.T) {
 		t.Fatalf("a self-revert must not reset progress: sinceProgress %d ≤ %d", g.sinceProgress, before)
 	}
 	// And it keeps climbing monotonically across a long oscillation, well past a stall window, so
-	// the force-stop (see TestStallForceStop) can finally accumulate instead of being reset forever.
+	// the stalled nudge can finally reach its threshold instead of being reset on every swing.
 	for i := 0; i < noProgressNudge*2; i++ {
 		b, a, s := "stub", "orig", "sig-orig"
 		if i%2 == 0 {
@@ -423,9 +425,9 @@ func TestRegressiveEditWithholdsProgress(t *testing.T) {
 	}
 }
 
-// TestNoteEditRegressedFlagAndIdempotent complements TestNoteEditWarnsOncePerFile (which
-// asserts only the warning string) by locking the `regressed` bool and the two edges it
-// leaves untested: a self-revert is regressed on EVERY swing (so the caller keeps withholding
+// TestNoteEditRegressedFlagAndIdempotent locks the `regressed` bool that the warning-string
+// tests above (TestNoteEditRevertToBaseline and friends) leave alone, and the two edges they
+// leave untested: a self-revert is regressed on EVERY swing (so the caller keeps withholding
 // progress); an idempotent rewrite is neither; and the count is per-PATH, so a different file
 // starts its own.
 func TestNoteEditRegressedFlagAndIdempotent(t *testing.T) {
