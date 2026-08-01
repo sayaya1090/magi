@@ -1,10 +1,17 @@
 package tui
 
 import (
+	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/sayaya1090/magi/internal/core/event"
+	"github.com/sayaya1090/magi/internal/core/session"
 )
 
 // The states this detector reports are states that must not happen — that is the point of it. So
@@ -121,4 +128,51 @@ func TestTheFrameDumpIsOffByDefaultAndChangesNothing(t *testing.T) {
 	if after := m.View().Content; after != before {
 		t.Error("looking at a frame changed it")
 	}
+}
+
+// The reporter and the walk check the same list, and the reporter is the copy nobody runs — it
+// only ever fires in a live session, where no assertion is watching. So run it BESIDE the walk on
+// the same frames: the walk fails on a violation, the reporter records one, and the two must reach
+// the same verdict. A reporter that stayed silent through a walk failure would be a detector that
+// does not detect; one that spoke through a clean walk would cry wolf in every real session.
+func TestTheFrameReporterAgreesWithTheWalk(t *testing.T) {
+	read := withFrameDump(t)
+	dark := fuzzDark(t)
+	for _, seed := range fuzzSeeds(t)[:min(3, len(fuzzSeeds(t)))] {
+		s := newScript(t)
+		applyTheme(dark)
+		rng := rand.New(rand.NewSource(seed))
+		for step := 0; step < 120; step++ {
+			switch rng.Intn(8) {
+			case 0:
+				s.typeText("request").enter()
+			case 1:
+				s.assistantText("an answer")
+			case 2:
+				s.toolCall("bash", fmt.Sprintf("c%d", step))
+			case 3:
+				s.toolResult(fmt.Sprintf("c%d", step-1), "line\nline\nline")
+			case 4:
+				// Same floor the walk uses: at six rows any open modal is one row past the
+				// irreducible chrome, which is a documented limit and not a defect to report at.
+				s.send(tea.WindowSizeMsg{Width: 20 + rng.Intn(120), Height: 7 + rng.Intn(39)})
+			case 5:
+				s.send(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+			case 6:
+				s.send(tea.KeyPressMsg{Code: tea.KeyEscape})
+			default:
+				s.emit(event.TypePartDelta, event.PartDeltaData{
+					MessageID: "m", PartID: "p", Kind: session.PartText, Text: "tok "})
+			}
+			_ = s.rawView() // drives View, which runs the reporter
+		}
+	}
+	applyTheme(true)
+	if got := read(); strings.Contains(got, " ! ") {
+		t.Errorf("the reporter saw a violation the walk's own invariants did not:\n%s", got)
+	}
+	if frameSeq == 0 {
+		t.Fatal("no frame reached the reporter, so this compared nothing")
+	}
+	t.Logf("%d frames through the reporter, no anomaly", frameSeq)
 }
