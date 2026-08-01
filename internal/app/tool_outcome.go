@@ -55,7 +55,7 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 	mutatedReset := false // did mutated() reset the progress counters THIS call?
 	if guard != nil && guardFP != "" {
 		if !res.IsError && fileModifiers[tc.Name] {
-			mutatedReset = guard.mutated(pathArg(tc.Args), canonicalArgs(tc.Args))
+			mutatedReset = guard.mutated(pathArg(tc.Args), canonicalArgs(stripToolIntent(tc.Args)))
 			if mutatedReset {
 				// The file's contents are new, so what magi has already shown of it no longer
 				// describes it: reading it again is gathering information, not circling.

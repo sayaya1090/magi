@@ -931,6 +931,10 @@ func canonicalArgs(raw json.RawMessage) string {
 // one fingerprint so the block engages. Genuine paging advances `offset` (a
 // different head), which is kept, so real forward reads are unaffected.
 func guardArgs(name string, raw json.RawMessage) string {
+	// The intent goes first, before any per-tool handling. It is prose the model rewrites each
+	// time, so a fingerprint carrying it would make every repeat look novel — the guard would see
+	// LESS than it did before the field existed.
+	raw = stripToolIntent(raw)
 	var key string
 	switch name {
 	case "read":
