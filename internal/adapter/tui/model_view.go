@@ -307,6 +307,34 @@ func (m Model) View() tea.View {
 // paletteView renders the slash-command completion popup.
 func (m *Model) paletteView(matches []cmdInfo) string {
 	sel := m.clampSel(len(matches))
+	// Bound it to the room this slot has, the way the modals drawn in the same slot do. The popup
+	// was unbounded: twenty commands drew 55 rows at 34 columns, where a long "/name description"
+	// wraps, and the frame ran that far past the terminal — on an alt-screen UI the top is simply
+	// gone. The selected row is kept on screen, because it is the one being chosen, and the cut is
+	// marked: a list silently ending at the tenth command reads as a magi with ten commands.
+	room := m.modalRoom()
+	full := m.paletteBody(matches, sel)
+	if m.height <= 0 || room < 3 || lipgloss.Height(full) <= room {
+		return full
+	}
+	// Shrink by MEASURING, not by counting: a long "/name   description" wraps on a narrow
+	// terminal, so a row is not a line. The window is centred on the selection — that is the one
+	// being chosen — and the cut is marked, because a list silently ending at the tenth command
+	// reads as a magi with ten commands.
+	for keep := len(matches) - 1; keep >= 1; keep-- {
+		start := min(max(0, sel-keep/2), len(matches)-keep)
+		body := m.paletteBody(matches[start:start+keep], sel-start)
+		out := body + "\n" + styleFooter.Render(fmt.Sprintf("  … %d more (type to narrow)", len(matches)-keep))
+		if lipgloss.Height(out) <= room {
+			return out
+		}
+	}
+	// Not even one row and a marker fit: the marker alone still says the list is there.
+	return styleFooter.Render(fmt.Sprintf("  … %d commands (type to narrow)", len(matches)))
+}
+
+// paletteBody renders the rows themselves; paletteView decides how many there are room for.
+func (m *Model) paletteBody(matches []cmdInfo, sel int) string {
 	// Pad command names to a common width so descriptions align in a column.
 	nameW := 0
 	for _, c := range matches {
