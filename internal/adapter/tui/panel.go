@@ -254,9 +254,14 @@ func (m *Model) workerPanel(p *agentPane) string {
 	if len(lines) <= 1 {
 		return "" // just the label — nothing worth a box
 	}
-	// Clip (never ellipsize) to the vertical space so the float can't run off the bottom.
+	// Clip (never ellipsize) to the vertical space so the float can't run off the bottom, and SAY
+	// that it happened. It used to end mid-list in silence, which on a plan panel reads as a
+	// worker with four steps — the same unmarked cut the overview panel next door was fixed for,
+	// on the panel whose clipping that fix cites as already correct. Only the marking was.
 	if maxRows := m.height - floatMarginTop - headerRows - 6; maxRows > 4 && len(lines) > maxRows {
-		lines = lines[:maxRows]
+		dropped := len(lines) - maxRows + 1 // the marker takes a row of its own
+		lines = append(lines[:maxRows-1],
+			styleFooter.Render(fmt.Sprintf("  … %d more rows", dropped)))
 	}
 	return roundedBox(strings.Join(lines, "\n"), content)
 }
