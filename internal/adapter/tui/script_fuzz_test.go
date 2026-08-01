@@ -254,6 +254,26 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 					}
 					s.m.focusPane = rng.Intn(len(s.m.panes))
 				}},
+				{"click the transcript", func() {
+					// A plain click is how a reasoning block or a long tool body is expanded, and
+					// toggleThoughtAt is the ONLY partial cache truncation in the package — it
+					// keeps the prefix up to the toggled block and drops the rest. Nine sweeps
+					// never clicked, so the one invalidation that is not a full reset was walked
+					// zero times while the per-block cache-vs-fresh check right below sat there
+					// ready to catch it. Most clicks land on nothing, which is also what a user's
+					// clicks do.
+					if s.m.height <= 2 || s.m.width <= 2 {
+						return
+					}
+					// Press AND release at the same cell. The press only starts a selection; the
+					// toggle, the copy chip and the council detail all hang off the RELEASE, so a
+					// click alone enters none of them — the first pass at this step sent one and
+					// left toggleThoughtAt at 0% while the run went green.
+					x, y := rng.Intn(s.m.width), rng.Intn(s.m.height)
+					s.m.handleMouse(tea.MouseClickMsg{Button: tea.MouseLeft, X: x, Y: y})
+					s.m.handleMouse(tea.MouseReleaseMsg{Button: tea.MouseLeft, X: x, Y: y})
+					s.m.refresh()
+				}},
 				{"error", func() { s.emit(event.TypeError, event.ErrorData{Message: "the provider refused"}) }},
 				{"finish", func() { s.emit(event.TypeTurnFinished, event.TurnFinishedData{}) }},
 			}
