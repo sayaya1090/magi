@@ -50,6 +50,10 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 				pickerRows = metas
 			}
 			ids, calls := 0, 0
+			// Which tool each call id was, so a result can be the shape THAT tool's body parses.
+			// renderToolBody dispatches on the call's name: a grep-shaped result delivered to a
+			// list call renders nothing at all.
+			callTool := map[string]string{}
 			cacheChecks := 0
 			var prevID string
 			var prevOK bool
@@ -93,11 +97,88 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 					s.emit(event.TypePartDelta, event.PartDeltaData{MessageID: "m", PartID: "pr", Kind: session.PartReasoning, Text: "think "})
 				}},
 				{"assistant text", func() { s.assistantText("a settled answer") }},
-				{"tool call", func() { calls++; s.toolCall("bash", fmt.Sprintf("c%d", calls)) }},
-				{"tool result", func() {
-					if calls > 0 {
-						s.toolResult(fmt.Sprintf("c%d", rng.Intn(calls)+1), "some output")
+				{"tool call", func() {
+					// Twelve sweeps only ever called bash, so every other tool's line and body
+					// renderer was walked zero times — including the edit diff, which is its own
+					// parser (argPath, diffBaseLine, parseTrailingAt, rawPath, renderCodeDiff) and
+					// the thing a user reads most of. An agent's transcript is not one tool.
+					calls++
+					id := fmt.Sprintf("c%d", calls)
+					switch rng.Intn(7) {
+					case 0:
+						callTool[id] = "read"
+						s.toolCallArgs("read", id, `{"path":"/app/main.go","offset":40,"limit":30}`)
+					case 1:
+						callTool[id] = "write"
+						s.toolCallArgs("write", id, `{"path":"/app/main.go","content":"package main\n\nfunc main() {}\n"}`)
+					case 2:
+						callTool[id] = "edit"
+						s.toolCallArgs("edit", id,
+							`{"path":"/app/main.go","old":"func main() {}","new":"func main() {\n\tprintln(\"hi\")\n}"}`)
+					case 3:
+						callTool[id] = "grep"
+						s.toolCallArgs("grep", id, `{"pattern":"func [a-z]+","path":"/app"}`)
+					case 4:
+						callTool[id] = "glob"
+						s.toolCallArgs("glob", id, `{"pattern":"**/*.go"}`)
+					case 5:
+						callTool[id] = "list"
+						s.toolCallArgs("list", id, `{"path":"/app"}`)
+					default:
+						callTool[id] = "bash"
+						s.toolCall("bash", id)
 					}
+				}},
+				{"tool result", func() {
+					if calls == 0 {
+						return
+					}
+					// The result has to be the shape its tool's body renderer PARSES. A plain
+					// string leaves grepBody, globBody and listBody returning nil at their first
+					// line — they were entered and did nothing, which reads as coverage and is
+					// not. This is the third time in this walk that feeding a view something it
+					// does not read looked like a covered step.
+					//
+					// Sometimes long enough to fold, because the collapsed cap and the "+N more"
+					// footer are only reached by a body that overflows them.
+					n := 1 + rng.Intn(3)
+					if rng.Intn(3) == 0 {
+						n = 10 + rng.Intn(40)
+					}
+					id := fmt.Sprintf("c%d", rng.Intn(calls)+1)
+					var b strings.Builder
+					switch callTool[id] {
+					case "read": // numbered lines, the shape readBody splits on
+						for i := 0; i < n; i++ {
+							b.WriteString(fmt.Sprintf("%d\tfunc line%02d() {}\n", i+1, i))
+						}
+					case "grep": // "rel:line:text"
+						var xs []string
+						for i := 0; i < n; i++ {
+							xs = append(xs, fmt.Sprintf("app/main.go:%d:  func line%02d() {}", i+1, i))
+						}
+						b.WriteString(mustJSONString(xs))
+					case "glob": // a list of paths
+						var xs []string
+						for i := 0; i < n; i++ {
+							xs = append(xs, fmt.Sprintf("app/pkg%02d/file.go", i))
+						}
+						b.WriteString(mustJSONString(xs))
+					case "list": // name/isDir entries
+						b.WriteString("[")
+						for i := 0; i < n; i++ {
+							if i > 0 {
+								b.WriteString(",")
+							}
+							b.WriteString(fmt.Sprintf(`{"name":"entry%02d","isDir":%v}`, i, i%3 == 0))
+						}
+						b.WriteString("]")
+					default:
+						for i := 0; i < n; i++ {
+							b.WriteString(fmt.Sprintf("line %02d of a tool body\n", i))
+						}
+					}
+					s.toolResult(id, b.String())
 				}},
 				{"orphan result", func() { s.toolResult("", "output with no call") }},
 				{"council round", func() {

@@ -326,3 +326,22 @@ func TestAQueuedRequestWaitsThenSpinsWhenItsTurnComes(t *testing.T) {
 		t.Errorf("the request being answered belongs at the end, got %q", last.text)
 	}
 }
+
+// toolCallArgs is toolCall with the arguments a given tool really receives — the fuzz walks more
+// than bash, and every tool's line and body renderer reads its own argument shape.
+func (s *script) toolCallArgs(name, id, args string) *script {
+	return s.emit(event.TypePartAppended, event.PartAppendedData{
+		MessageID: "m_a", Role: session.RoleAssistant,
+		Part: session.Part{Kind: session.PartToolCall, ToolCall: &session.ToolCall{
+			CallID: id, Name: name, Args: json.RawMessage(args)}},
+	})
+}
+
+// mustJSONString renders a value as the JSON text a tool result carries, for the walk's bodies.
+func mustJSONString(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return string(b)
+}
