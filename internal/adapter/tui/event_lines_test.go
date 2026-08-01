@@ -66,17 +66,11 @@ func TestCouncilKeepReachesTheScreen(t *testing.T) {
 }
 
 // Facts that were produced, persisted, and consumed by prompts while having no on-screen path:
-// a discarded side-pass looked identical to one that never ran, a contract fixed mid-run left no
-// mark, and a structural concern was reachable only by clicking a council member — so a concern
-// raised on a turn that never convened a council was invisible outright.
+// a contract fixed mid-run left no mark, and a structural concern was reachable only by clicking
+// a council member — so a concern raised on a turn that never convened a council was invisible
+// outright. (A discarded side-pass was the third; its event type had no producer left and came
+// out with this line on 2026-08-02.)
 func TestPreviouslyUnrenderedFactsGetALine(t *testing.T) {
-	if got := diagnosticLine(event.DiagnosticData{Source: "planner:checks", Kind: "control-char-in-string"}); !strings.Contains(got, "planner:checks") || !strings.Contains(got, "control-char-in-string") {
-		t.Errorf("a diagnostic must name its producer and how it failed: %q", got)
-	}
-	if got := diagnosticLine(event.DiagnosticData{}); got != "" {
-		t.Errorf("a diagnostic with no source renders nothing, got %q", got)
-	}
-
 	if got := artifactLine(event.ArtifactEmittedData{Artifact: artifactOf("Acceptance criteria (plan audit)", "acceptance-criteria")}); !strings.Contains(got, "Acceptance criteria") {
 		t.Errorf("an artifact must record WHEN it was fixed: %q", got)
 	}

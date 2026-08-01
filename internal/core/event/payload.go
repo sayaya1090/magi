@@ -207,15 +207,18 @@ type ErrorData struct {
 	Code    string `json:"code,omitempty"`
 }
 
-// DiagnosticData — TypeDiagnostic. A recovered-from diagnostic whose raw input would otherwise be
-// lost. Source names the producer (e.g. "planner"), Kind is a short machine-readable classification
-// (e.g. "control-char-in-string"), and Detail carries the raw text (bounded) at full fidelity — NOT
-// whitespace-collapsed — so the actual failure mode is inspectable.
-type DiagnosticData struct {
-	Source string `json:"source"`
-	Kind   string `json:"kind,omitempty"`
-	Detail string `json:"detail,omitempty"`
-}
+// A "diagnostic" event once recorded a reply the run could not parse and recovered from —
+// raw text plus a failure-kind token — so an intermittent parse failure was diagnosable
+// after the fact. Its only producer was the shared re-ask helper, removed on 2026-08-02
+// when the last of its five callers went; the type, its payload and the TUI line that drew
+// it outlived it by an hour. All of it is gone now.
+//
+// WHAT IS GIVEN UP: a council member whose reply cannot be read twice abstains with the
+// rationale "unparseable council reply", and the raw text is discarded. That happened zero
+// times in eighty recorded bench sessions, so nothing is bleeding — but if it starts, the
+// text is not kept anywhere. Restoring it is not a re-add of this type: the failure happens
+// inside the council adapter, which has no event sink, so it needs one threaded in. That is
+// a design change, and this note is here so it is made deliberately rather than rediscovered.
 
 // --- Council termination gate (D14) ---
 

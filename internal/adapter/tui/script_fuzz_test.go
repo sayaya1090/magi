@@ -315,9 +315,6 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 						s.send(tea.KeyPressMsg{Code: tea.KeyDown})
 					}
 				}},
-				{"diagnostic", func() {
-					s.emit(event.TypeDiagnostic, event.DiagnosticData{Source: "council", Detail: "unparsed reply"})
-				}},
 				{"scroll", func() {
 					if rng.Intn(2) == 0 {
 						s.send(tea.MouseWheelMsg{Button: tea.MouseWheelUp})

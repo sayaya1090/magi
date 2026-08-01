@@ -361,18 +361,6 @@ func (m *Model) applyEvent(e event.Event) {
 			}
 		}
 
-	case event.TypeDiagnostic:
-		// A reply the run could not use and recovered from (a planner/council pass whose JSON
-		// was malformed). It is persisted at full fidelity precisely because it is otherwise
-		// lost — but nothing rendered it, so on screen a discarded pass was indistinguishable
-		// from one that never ran. One line: who produced it and how it failed.
-		var d event.DiagnosticData
-		if json.Unmarshal(e.Data, &d) == nil {
-			if line := diagnosticLine(d); line != "" {
-				m.blocks = append(m.blocks, block{kind: blockInfo, text: line})
-			}
-		}
-
 	case event.TypePromptAbandoned:
 		// This request will never be answered: its turn was cancelled, or it was coalesced into a
 		// later one that carries its text. Nothing said so, so the bubble kept its queued glyph —
