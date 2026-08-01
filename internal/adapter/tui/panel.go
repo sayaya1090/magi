@@ -15,16 +15,12 @@ import (
 // user can drag its left edge to resize (m.panelW).
 const defaultPanelWidth = 44
 
-// panelSID is the session whose status the panel reflects: the focused subagent
-// when zoomed, otherwise the main session.
-func (m *Model) panelSID() session.SessionID {
-	if m.zoom {
-		if sid, ok := m.focusedPaneSID(); ok {
-			return sid
-		}
-	}
-	return m.sid
-}
+// panelSID is the session whose status the panel reflects. Always the main one: a zoom into a
+// subagent gets that worker's own dossier instead (statusPanel returns workerPanel before it
+// reaches here, and floatPanel does not evaluate hasPanel while zoomed), so the branch that used
+// to swap in the focused pane's session could not be entered from anywhere — it was left behind
+// by 071e7a8, which replaced the shared panel's worker mode with the dedicated one.
+func (m *Model) panelSID() session.SessionID { return m.sid }
 
 // hasPanel reports whether the status panel has anything worth showing (a plan, live panes, or a
 // record of what this run has done). Hidden otherwise, per "없을 때 숨김".

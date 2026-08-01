@@ -269,14 +269,6 @@ func (m *Model) cyclePaneFocus(dir int) {
 	m.focusPane = idx - 1
 }
 
-// focusedPaneSID returns the focused pane's session id, or "" for the main view.
-func (m *Model) focusedPaneSID() (session.SessionID, bool) {
-	if m.focusPane < 0 || m.focusPane >= len(m.panes) {
-		return "", false
-	}
-	return m.panes[m.focusPane].sid, true
-}
-
 // handlePaneClick focuses the subagent pane whose recorded screen rectangle
 // contains the click row y. A click on the already-focused pane toggles zoom.
 // Returns true when the click was consumed.
