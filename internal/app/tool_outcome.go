@@ -86,9 +86,11 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 				// deliverable version. mutated() cannot see it — every bash mutation shares one slot
 				// and is compared by COMMAND TEXT, so `sed -i …` and the `cp f.bak f` that undoes it
 				// always look like two different changes. Observed cost of the gap: each swing zeroed
-				// stepsSinceMut and sinceProgress and re-armed the act-now nudge, so after the nudge
-				// fired once neither it nor the "idle" force-stop could reach its threshold again and
-				// the run oscillated until the wall clock. Retract once per call — one bump was made.
+				// the no-progress counters and re-armed the act-now nudge, so after the nudge fired
+				// once it could not reach its threshold again and the run oscillated until the wall
+				// clock. (The step-based counter and the "idle" force-stop named in the original
+				// note are both gone; sinceProgress is what is left, and a wall-clock end is the
+				// only hard stop there has ever been since.) Retract once per call — one bump was made.
 				// NOT for a backgrounded command. The comparison reads the destination back the
 				// moment executeTool returns, and for a background job that is the moment it was
 				// LAUNCHED — the command has not run yet, so the read returns what was there

@@ -82,10 +82,11 @@ func ctxCompactRetryEnabled() bool { return !envOff("MAGI_CTX_COMPACT_RETRY") }
 // post-nudge window repeats already-seen fingerprints — true head-banging. Observed
 // without it: an agent told to "take a different action" pivoted through eleven
 // distinct novel searches and was force-stopped mid-pivot as if it had ignored the
-// redirect, with three quarters of its budget unspent. The hard bound is unchanged:
-// after maxStallNudges spent, a further windowful of anything-but-mutation still
-// lands the honest stall. Default ON; MAGI_STALL_NOVELTY=0 restores the
-// exercising-only baseline.
+// redirect, with three quarters of its budget unspent. (That force-stop is gone, and
+// so is the budget: the stalled nudge now re-arms for as long as nothing changes. What
+// this flag still decides is whether a novel search COUNTS as responding to the nudge,
+// which is what stops the re-arm from firing at an agent that is actually pivoting.)
+// Default ON; MAGI_STALL_NOVELTY=0 restores the exercising-only baseline.
 func stallNoveltyEnabled() bool { return !envOff("MAGI_STALL_NOVELTY") }
 
 // declareFinishEnabled requires a working turn to END BY DECLARATION — the agent calls the council

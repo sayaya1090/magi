@@ -34,15 +34,19 @@ const (
 	// nothing — the "productive-looking non-progress" loop (echo/cat/ls restating the same
 	// conclusion) that otherwise burns to MaxSteps. It counts tool calls since the last real
 	// file mutation; set high so genuine multi-step investigation isn't nudged. It never
-	// force-stops (a read-only turn may legitimately never mutate a file), so unlike the
-	// blocked path it has no backstop — a single ignored nudge would let the agent thrash to
-	// MaxSteps. So the stalled nudge RE-ARMS: it fires again after each further noProgressNudge
-	// window with still no mutation, up to maxStallNudges, then goes quiet.
+	// force-stops — a read-only turn may legitimately never mutate a file, and ending a turn is
+	// an intervention this project does not make. So speech is the whole lever, and the stalled
+	// nudge RE-ARMS: it fires again after each further noProgressNudge window with still no
+	// mutation, for as long as that stays true.
+	//
+	// It used to stop after three. That cap was written when a force-stop was still expected to
+	// land the run, so going quiet handed off to something; the force-stop is gone and the cap
+	// handed off to nothing. Measured live (large-scale-text-editing, 2026-08-01): the budget was
+	// spent by the 64th call, and the agent then wrote byte-identical content 57 more times in
+	// silence. A turn that is genuinely gathering information does not reach this at all — a
+	// first-seen inspection counts as forward motion and restarts the window — so what keeps
+	// hearing it is a turn that keeps circling, which is who it is for.
 	noProgressNudge = 12
-	// maxStallNudges caps the re-armed no-progress nudges per run: enough to redirect an agent
-	// that ignored the first one or two, few enough that a genuinely read-heavy turn is not
-	// spammed. A real file mutation re-arms the window (see mutated).
-	maxStallNudges = 3
 )
 
 // runGuard detects no-progress loops within a single run by fingerprinting each
@@ -75,13 +79,18 @@ type runGuard struct {
 	// tool calls, mostly analysis + oscillating rewrites) dodges BOTH stall paths and burns to the
 	// external wall clock (custom-memory-heap-crash: 125+ steps rewriting the same stub to timeout).
 	// spend the one-shot budget only on a REAL deliverable version. Without it a revert loop past
-	// the nudge threshold re-fires "act now" on every swing (the restored stepsSinceMut is already
-	// in the nudge window, and the re-arm cleared the latch) — and a repeated nudge is exactly what
-	// pushes a weak model to keep thrashing (see noteEdit on the once-per-file warning).
-	calls         int  // total tool calls this run (idle-resubmission detection)
-	nudgedBlocked bool // "blocked"-kind re-grounding fired (once; stuck() force-stops if it persists)
-	stallNudges   int  // count of "stalled"-kind re-groundings fired this run (capped at maxStallNudges)
-	lastStallAt   int  // sinceProgress value at the last stalled nudge, for spacing the re-arm
+	// the nudge threshold re-fires "act now" on every swing (the restored counter is already in the
+	// nudge window, and the re-arm cleared the latch) — and a repeated nudge is exactly what pushes
+	// a weak model to keep thrashing (see noteEdit on the once-per-file warning). The counter named
+	// here used to be stepsSinceMut, a step-based idle window; it is gone, and sinceProgress is the
+	// one that remains.
+	calls int // total tool calls this run (idle-resubmission detection)
+	// nudgedBlocked records that the "blocked"-kind re-grounding fired. It fires ONCE per run and
+	// nothing follows it: the force-stop that used to (stuck()) was removed on measurement. See
+	// shouldNudge for what that leaves.
+	nudgedBlocked bool
+	stallNudges   int // count of "stalled"-kind re-groundings fired this run (capped at maxStallNudges)
+	lastStallAt   int // sinceProgress value at the last stalled nudge, for spacing the re-arm
 	// progressSinceNudge is the structural "the agent made forward motion since the last stalled
 	// nudge" signal: set true by EITHER a real mutation (mutated) OR a NOVEL (first-seen this
 	// epoch) non-inspect exercising command (noteBashExec) — both are genuine progress. It is set
@@ -364,17 +373,21 @@ func (g *runGuard) mutated(path, sig string) (reset bool) {
 // call, for when a later content check reveals that edit returned the file to a state it already
 // held this turn — a self-revert is churn, not progress. The epoch bump and lastMut record stay
 // (the loop guard still sees fresh context); only the stall accounting resumes climbing, so an
-// implement↔revert oscillation can no longer dodge the stall force-stop by zeroing the counter on
-// every swing. Only call this when the mutated() for the same edit returned reset==true.
+// implement↔revert oscillation can no longer dodge the stall NUDGE by zeroing the counter on every
+// swing. It said "force-stop" until this was measured: nothing force-stops a stalled run, and
+// nothing will — ending a turn is an intervention this project does not make. What the climbing
+// counter buys is another sentence, not a shutdown.
+// Only call this when the mutated() for the same edit returned reset==true.
 func (g *runGuard) retractProgress() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.sinceProgress = g.prevSince
 	g.lastStallAt = g.prevStallAt
-	// Restore the step-based idle window too: a self-revert is not a fresh deliverable version, so
-	// the "reasoning rabbit hole" counter (stepsSinceMut, drives stuck()=="idle") must keep climbing
-	// across an oscillating rewrite loop instead of being zeroed on every swing — otherwise a
-	// reasoning-heavy churn never trips the idle recovery and runs to the wall-clock kill.
+	// A self-revert is not a fresh deliverable version, so the no-progress counter must keep
+	// climbing across an oscillating rewrite loop instead of being zeroed on every swing. There
+	// used to be a second, step-based window here (stepsSinceMut) feeding an "idle" recovery;
+	// both are gone, so sinceProgress carries this alone and a reasoning-heavy churn now reaches
+	// the stalled nudge rather than an idle force-stop.
 	// The mutation being retracted was a self-revert (churn), not forward motion, so it must
 	// NOT keep the D18a re-arm from collapsing. mutated() set progressSinceNudge=true; clear it
 	// here so an implement↔revert oscillation — whose every swing re-sets that flag — no longer
@@ -662,10 +675,28 @@ func (g *runGuard) mutationEpoch() int {
 // shouldNudge reports whether the run has stalled enough to warrant a corrective
 // re-grounding, and which KIND of stall it is: "blocked" (the same action repeated past
 // nudgeThreshold) or "stalled" (many varied calls with no real progress, sinceProgress past
-// noProgressNudge). The two kinds are independent. The blocked nudge fires once — stuck()
-// force-stops the run if it keeps blocking. The stalled nudge has no force-stop backstop, so
-// it RE-ARMS: it fires again after each further noProgressNudge window with still no mutation,
-// capped at maxStallNudges, so a single ignored nudge does not let the agent burn to MaxSteps.
+// noProgressNudge). The two kinds are independent.
+//
+// The stalled nudge RE-ARMS: it fires again after each further noProgressNudge window with still
+// no mutation, capped at maxStallNudges, so a single ignored nudge does not let the agent burn to
+// MaxSteps.
+//
+// The blocked nudge fires ONCE and nothing follows it. This comment used to say that stuck()
+// force-stopped a run that kept blocking, and used that as the reason the blocked kind needed no
+// re-arm — but stuck() was removed on measurement, so the reason went with it.
+//
+// No force-stop is coming back. Ending a turn is itself an intervention in the agent's flow, and
+// this project would rather say something true and let the agent decide than take the turn away
+// from it; the wall clock is the only hard stop. What magi has here is speech, and the budget on
+// it is what keeps speech from becoming noise.
+//
+// So the honest description of the blocked kind is: one sentence, then silence, with the
+// per-call facts (the self-edit check's "nothing changed", the exit codes, the pipeline notes)
+// carrying on underneath. Measured live (large-scale-text-editing, 2026-08-01): the blocked nudge
+// fired at the fourth repeat, and the agent then wrote byte-identical content 57 more times —
+// every one of them answered "nothing changed" — and kept going anyway. magi said what was true
+// each time. That is the whole of what it does here, by choice.
+//
 // Returns "" when no nudge is due.
 func (g *runGuard) shouldNudge() string {
 	g.mu.Lock()
@@ -674,7 +705,7 @@ func (g *runGuard) shouldNudge() string {
 		g.nudgedBlocked = true
 		return "blocked"
 	}
-	if g.stallNudges < maxStallNudges && g.sinceProgress-g.lastStallAt >= noProgressNudge {
+	if g.sinceProgress-g.lastStallAt >= noProgressNudge {
 		// There used to be a collapse here: a re-arm whose window produced no forward motion set
 		// stallNudges to the cap and returned "", on the reasoning that stuck() would then land
 		// the honest stall this iteration rather than burning more no-progress windows — "same
@@ -684,8 +715,9 @@ func (g *runGuard) shouldNudge() string {
 		// no terminal outcome left to accelerate and simply silenced the remaining budget.
 		// Observed live (large-scale-text-editing): one stall nudge, then 32 consecutive writes
 		// of byte-identical content — each one answered "nothing changed" by the self-edit check
-		// — and not another word from the loop. Saying it again is the only lever left, and
-		// maxStallNudges is what bounds it.
+		// — and not another word from the loop. Saying it again is the only lever left, and it is
+		// no longer rationed: the cap that used to bound it went out with the force-stop it was
+		// written for.
 		g.stallNudges++
 		g.lastStallAt = g.sinceProgress
 		g.progressSinceNudge = false // fresh window for judging the next re-arm
