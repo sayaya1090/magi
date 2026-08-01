@@ -118,8 +118,33 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 					s.send(tea.WindowSizeMsg{Width: 20 + rng.Intn(25), Height: 8 + rng.Intn(8)})
 				}},
 				{"question modal", func() {
+					// Two one-letter options can never overflow anything, so seven sweeps of this
+					// walk asked the same unoverflowable question and the modal's trim was never
+					// entered — the defect found there on 2026-08-01 (the trim kept the FIRST
+					// options, so the one being answered went off screen) was found by hand
+					// instead. A real ask_user names as many choices as it has, at whatever length
+					// the choices are, so the walk does too.
+					n := 2 + rng.Intn(10)
+					opts := make([]string, n)
+					for i := range opts {
+						opts[i] = strings.Repeat(fmt.Sprintf("choice %d ", i+1), 1+rng.Intn(4))
+					}
 					s.emit(event.TypeQuestionRequested, event.QuestionRequestedData{
-						CallID: "q1", Question: "which one?", Options: []string{"a", "b"}})
+						CallID: "q1", Question: "which one?", Options: opts})
+					// …and the pick moves, because the trim is centred on it.
+					for k := rng.Intn(n); k > 0; k-- {
+						s.send(tea.KeyPressMsg{Code: tea.KeyDown})
+					}
+				}},
+				{"open the palette", func() {
+					// The walk never typed a slash, so the completion popup — the other list that
+					// windows itself against modalRoom — was drawn zero times in seven sweeps.
+					// It is covered directly elsewhere, but not while a job pane is up, a resize
+					// lands, or a permission modal opens over it, which is what this walk is for.
+					s.typeText("/")
+					for k := rng.Intn(6); k > 0; k-- {
+						s.send(tea.KeyPressMsg{Code: tea.KeyDown})
+					}
 				}},
 				{"diagnostic", func() {
 					s.emit(event.TypeDiagnostic, event.DiagnosticData{Source: "council", Detail: "unparsed reply"})
