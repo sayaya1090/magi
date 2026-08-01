@@ -134,3 +134,22 @@ func TestTheSelectedRouteRowStaysOnScreen(t *testing.T) {
 		}
 	}
 }
+
+// The profile form's last resort was still two lines — the head above the selected field — and
+// modalRoom reaches one at seven rows (six of irreducible chrome: header 2, input box 3, footer 1).
+// Its sibling one function away was given a shedding ladder for exactly this in 45e92f9; this copy
+// kept the two-line floor because the walk's tiny-terminal step began at eight rows, where it fits.
+func TestTheProfileFormFitsOneRowOfRoom(t *testing.T) {
+	for _, h := range []int{7, 8, 9, 12} {
+		mm := newTestModel(t)
+		m := &mm
+		m.width, m.height = 60, h
+		m.ready = true
+		m.openProfileForm("")
+		got := lipgloss.Height(m.profileFormView())
+		if room := m.modalRoom(); got > room && room > 0 {
+			t.Errorf("h=%d: the form draws %d lines into %d rows of room:\n%s",
+				h, got, room, m.profileFormView())
+		}
+	}
+}

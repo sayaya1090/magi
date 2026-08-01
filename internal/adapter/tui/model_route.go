@@ -604,8 +604,19 @@ func (m *Model) profileFormView() string {
 			return out
 		}
 	}
-	// Nothing fits: the selected field alone, which is the one being worked on.
-	return strings.TrimRight(head+"\n"+row(min(f.sel, len(f.fields)-1)), "\n")
+	// Nothing fits. "The selected field alone" was still TWO lines — the head above it — and
+	// modalRoom reaches one: seven rows of terminal, six of irreducible chrome (header 2, bordered
+	// input 3, footer 1). The route editor one function up was given the same ladder for the same
+	// reason (45e92f9); this copy was missed because the walk's tiny-terminal step started at eight
+	// rows, and eight is where this fits. Shed longest first, ending on one line by construction.
+	sel := row(min(f.sel, len(f.fields)-1))
+	for _, candidate := range []string{head + "\n" + sel, sel, head} {
+		out := strings.TrimRight(candidate, "\n")
+		if m.height <= 0 || lipgloss.Height(out) <= room {
+			return out
+		}
+	}
+	return strings.TrimRight(sel, "\n")
 }
 
 // resumeRows caps how many sessions the picker shows at once — the ceiling on a tall screen,
