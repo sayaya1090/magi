@@ -26,16 +26,17 @@ type WaitFor struct{}
 
 type waitForArgs struct {
 	Condition string  `json:"condition"`
+	Job       string  `json:"job"`      // background job id; wait until IT finishes, no condition needed
 	Timeout   FlexInt `json:"timeout"`  // seconds (default 300; max 1800); tolerant parse (FlexInt)
 	Interval  FlexInt `json:"interval"` // seconds between checks (default 5; max 60); tolerant parse (FlexInt)
 }
 
 func (WaitFor) Name() string { return "wait_for" }
 func (WaitFor) Description() string {
-	return "Block until a shell condition succeeds (exit 0) or a timeout elapses, re-checking on a fixed interval. Use to wait on an external readiness signal — a service/port coming up, a reboot finishing, a background job completing (e.g. condition \"nc -z localhost 5432\"). Prefer over a bash sleep/poll loop: one step (no stall), allows a longer wait, and reports live progress. The first exit-0 ends the wait."
+	return "Block until something finishes, then report it. Give `job` to wait for a background job (started with bash background=true) to exit — that is exact, and it ends the moment the job does. Give `condition` to wait on an external readiness signal magi did not start: a port opening, a reboot completing, a file appearing (a shell command re-run each interval; the first exit 0 ends the wait). Prefer either over a bash sleep/poll loop: one step (no stall), a longer wait allowed, and live progress. Waiting on a condition for something a background job is producing works but is indirect — if the job dies, the condition just keeps failing; `job` reports the death."
 }
 func (WaitFor) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"condition":{"type":"string","description":"shell command re-run each interval; exit 0 ends the wait"},"timeout":{"type":"integer","description":"max seconds to wait (default 300, max 1800)"},"interval":{"type":"integer","description":"seconds between checks (default 5, max 60)"}},"required":["condition"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"condition":{"type":"string","description":"shell command re-run each interval; exit 0 ends the wait. Omit when using job."},"job":{"type":"string","description":"background job id (e.g. bg_1) to wait for; the wait ends when it exits, with its status. Omit when using condition."},"timeout":{"type":"integer","description":"max seconds to wait (default 300, max 1800)"},"interval":{"type":"integer","description":"seconds between checks (default 5, max 60)"}}}`)
 }
 
 const (
@@ -48,13 +49,19 @@ const (
 	waitForProbeCap = 60
 )
 
+// jobsGoneGrace is how much longer a condition wait runs after everything that was working when it
+// began has stopped. Not zero: magi cannot see a process it did not start, and something else may
+// be about to satisfy the condition. A var so the test that exercises the shortening does not have
+// to spend the real grace waiting for it.
+var jobsGoneGrace = 60 * time.Second
+
 func (WaitFor) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
 	var a waitForArgs
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return errResult("", "invalid arguments: "+err.Error()), nil
 	}
-	if strings.TrimSpace(a.Condition) == "" {
-		return errResult("", "condition is required"), nil
+	if strings.TrimSpace(a.Condition) == "" && strings.TrimSpace(a.Job) == "" {
+		return errResult("", "one of `condition` or `job` is required"), nil
 	}
 	timeout := int(a.Timeout)
 	if timeout <= 0 {
@@ -72,11 +79,28 @@ func (WaitFor) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEn
 	}
 
 	deadline := time.Now().Add(time.Duration(timeout) * time.Second)
+	if j := strings.TrimSpace(a.Job); j != "" {
+		return waitForJob(ctx, env, j, deadline, time.Duration(interval)*time.Second), nil
+	}
+
 	start := time.Now()
 	attempts := 0
 	lastExit := 0
 	lastOut := ""
 	var lastStages []int
+	// Everything that was still working when the wait began. A condition waiting on THEIR output
+	// cannot come true after they all stop, and a wait that runs its full deadline anyway is the
+	// single largest way this tool loses time: observed 2026-08-01 (another harness,
+	// compile-compcert) at 1800s x 2, 117 and 121 checks, sixty of the run's seventy recorded
+	// minutes, on `test -f …/ccomp` while the build producing it had already failed.
+	//
+	// It shortens the deadline rather than returning, because magi cannot see a process it did not
+	// start — something else may still be about to satisfy the condition, and a grace period keeps
+	// that case working while capping the loss at a minute instead of half an hour. The registry
+	// is process-global, which makes this conservative rather than wrong: an unrelated session's
+	// job in the armed set can only delay the shortening.
+	armed := liveJobIDs(string(env.SessionID))
+	shortened := false
 	for {
 		attempts++
 		exit, out, stages := waitForProbe(ctx, env, a.Condition, deadline)
@@ -100,6 +124,16 @@ func (WaitFor) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEn
 		}
 		if time.Now().After(deadline) || ctx.Err() != nil {
 			break
+		}
+		if !shortened && len(armed) > 0 && noneStillRunning(armed) {
+			shortened = true
+			if d := time.Now().Add(jobsGoneGrace); d.Before(deadline) {
+				deadline = d
+			}
+			if env.EmitProgress != nil {
+				env.EmitProgress(fmt.Sprintf("%s — every background job that was running when this wait "+
+					"began (%s) has now stopped; shortening the wait", a.Condition, strings.Join(armed, ", ")))
+			}
 		}
 		if env.EmitProgress != nil {
 			env.EmitProgress(fmt.Sprintf("%s — check %d, %s elapsed, not met yet (exit %d)",
@@ -127,6 +161,12 @@ func (WaitFor) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEn
 		elapsed, attempts, a.Condition, lastExit)
 	if note := pipeStageNote(lastExit, lastStages); note != "" {
 		reason += "\n" + note
+	}
+	if shortened {
+		reason += fmt.Sprintf("\n[the wait was cut short: every background job running when it began "+
+			"(%s) had stopped, and a condition waiting on their output cannot come true after that. "+
+			"magi has no exit for anything it did not start, so if something else is still producing "+
+			"this, wait again. Otherwise read the job with bash_output.]", strings.Join(armed, ", "))
 	}
 	if ctx.Err() != nil {
 		reason = fmt.Sprintf("wait cancelled after %s (%d checks): %s", elapsed, attempts, a.Condition)
@@ -186,4 +226,80 @@ func waitForProbe(ctx context.Context, env port.ToolEnv, condition string, deadl
 		exit = 1
 	}
 	return exit, string(out), readPipeStatus(psPath)
+}
+
+// noneStillRunning reports whether every one of these job ids has stopped (or is gone from the
+// registry, which is the same thing for this purpose — a pruned job is a finished job).
+func noneStillRunning(ids []string) bool {
+	for _, id := range ids {
+		if j, ok := findJob(id); ok && j.Running {
+			return false
+		}
+	}
+	return true
+}
+
+// waitForJob blocks until a background job exits, then reports how it ended.
+//
+// The indirect form is what a model reaches for otherwise, because that is what this tool's
+// description used to suggest: wait on a CONDITION that the job's output would satisfy. It works
+// while the job works, and says nothing at all when the job dies — the condition simply keeps
+// failing, and the wait runs to its deadline. Observed (compile-compcert, 2026-08-01, another
+// harness): two waits on `test -f …/ccomp`, 1800s each, 117 and 121 checks, sixty of the run's
+// seventy recorded minutes, while the build that was to produce that file had been failing
+// silently. Waiting on the job would have returned at the failure with the failure in hand.
+//
+// The timeout stays, as a backstop rather than as the mechanism: a job that runs longer than the
+// caller allowed still has to give the turn back.
+func waitForJob(ctx context.Context, env port.ToolEnv, id string, deadline time.Time, interval time.Duration) session.ToolResult {
+	start := time.Now()
+	checks := 0
+	for {
+		checks++
+		job, ok := findJob(id)
+		if !ok {
+			known := liveJobIDs(string(env.SessionID))
+			msg := "no background job " + id
+			if len(known) > 0 {
+				msg += " — running now: " + strings.Join(known, ", ")
+			} else {
+				msg += " — no background job is running; bash{background:true} starts one"
+			}
+			return errResult("", msg)
+		}
+		if !job.Running {
+			body := fmt.Sprintf("%s after %s (%d checks): %s",
+				BackgroundStatusLine(job), time.Since(start).Round(time.Second), checks, job.Command)
+			if tail := strings.TrimSpace(TailBackgroundJob(id, 4000)); tail != "" {
+				body += "\n" + tail
+			}
+			// A job that ended on its own is REPORTED, not judged: a non-zero exit is an answer to
+			// what was asked, not an error in the asking. The caller reads the status line.
+			return okText("", body)
+		}
+		if time.Now().After(deadline) || ctx.Err() != nil {
+			elapsed := time.Since(start).Round(time.Second)
+			if ctx.Err() != nil {
+				return errResult("", fmt.Sprintf("wait cancelled after %s (%d checks): %s is still running", elapsed, checks, id))
+			}
+			return errResult("", fmt.Sprintf("%s is still running after %s (%d checks) — the wait timed out, "+
+				"the job did not. Poll it with bash_output{id:%q}, wait again, or stop it with bash_kill{id:%q}.",
+				id, elapsed, checks, id, id))
+		}
+		if env.EmitProgress != nil {
+			env.EmitProgress(fmt.Sprintf("%s — check %d, %s elapsed, still running",
+				id, checks, time.Since(start).Round(time.Second)))
+		}
+		wait := interval
+		if rem := time.Until(deadline); rem < wait {
+			wait = rem
+		}
+		if wait <= 0 {
+			continue
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(wait):
+		}
+	}
 }
