@@ -87,6 +87,7 @@ func readLogSince(path string, since int) (out string, next int) {
 // bgProc is one running (or finished) background command.
 type bgProc struct {
 	id      string
+	sid     string // session that started it: wait_for arms only on its own session's jobs
 	command string
 	logPath string // file receiving the process's combined stdout/stderr
 	cancel  context.CancelFunc
@@ -119,7 +120,7 @@ type bgManager struct {
 
 var bg = &bgManager{procs: map[string]*bgProc{}}
 
-func (m *bgManager) start(workdir, tmpDir string, sb port.SandboxSpec, command string, usePTY bool) (*bgProc, error) {
+func (m *bgManager) start(sid, workdir, tmpDir string, sb port.SandboxSpec, command string, usePTY bool) (*bgProc, error) {
 	name, args := shell(command)
 	if argv, wrapped := sandboxArgv(sb, command); wrapped {
 		name, args = argv[0], argv[1:]
@@ -209,7 +210,7 @@ func (m *bgManager) start(workdir, tmpDir string, sb port.SandboxSpec, command s
 
 	m.mu.Lock()
 	m.seq++
-	p := &bgProc{id: fmt.Sprintf("bg_%d", m.seq), command: command, logPath: logPath, stdin: stdin, cancel: cancel, started: time.Now(), pid: cmd.Process.Pid, pty: usePTY, psPath: psPath}
+	p := &bgProc{id: fmt.Sprintf("bg_%d", m.seq), sid: sid, command: command, logPath: logPath, stdin: stdin, cancel: cancel, started: time.Now(), pid: cmd.Process.Pid, pty: usePTY, psPath: psPath}
 	m.procs[p.id] = p
 	m.pruneLocked()
 	m.mu.Unlock()
@@ -686,4 +687,52 @@ func KillBackgroundJob(id string) bool {
 	_ = killGroup(p.pid)
 	p.cancel()
 	return true
+}
+
+// liveJobIDs lists the background jobs still running, oldest first. Used by wait_for: to name the
+// ids when one is asked for that does not exist, and to notice when everything that was working
+// when a wait began has since stopped.
+//
+// Scoped to one session. The registry is process-global because processes are, but a TUI runs
+// several sessions in one process and each subagent is its own — arming a wait on a sibling's job
+// would tie two unrelated waits together. (Found the other way round, in the test suite: the
+// package's other tests leave jobs running, and a wait armed on those ran five minutes instead of
+// one.) An empty sid matches everything, which is what a bare ToolEnv has.
+func liveJobIDs(sid string) []string {
+	var out []string
+	bg.mu.Lock()
+	defer bg.mu.Unlock()
+	for _, p := range bg.procs {
+		p.mu.Lock()
+		if !p.done && (sid == "" || p.sid == sid) {
+			out = append(out, p.id)
+		}
+		p.mu.Unlock()
+	}
+	sort.Slice(out, func(i, j int) bool {
+		var a, b int
+		fmt.Sscanf(out[i], "bg_%d", &a)
+		fmt.Sscanf(out[j], "bg_%d", &b)
+		return a < b
+	})
+	return out
+}
+
+// findJob returns one job's observable state.
+func findJob(id string) (BackgroundJob, bool) {
+	for _, j := range ListBackgroundJobs() {
+		if j.ID == id {
+			return j, true
+		}
+	}
+	return BackgroundJob{}, false
+}
+
+// BackgroundStatusLine renders a job's status the way bash_output's header does, so a wait that
+// ends on a job reports it in the wording the agent already knows.
+func BackgroundStatusLine(j BackgroundJob) string {
+	if p := bg.get(j.ID); p != nil {
+		return p.status()
+	}
+	return fmt.Sprintf("[%s exited %d]", j.ID, j.Exit)
 }

@@ -56,7 +56,7 @@ func TestKilledJobDoesNotReportAnExitItNeverMade(t *testing.T) {
 	}
 
 	// magi kills it: the answer must stay "killed" after the reaper runs, not become an exit.
-	p, err := bg.start(env.Workdir, t.TempDir(), port.SandboxSpec{}, "sleep 30", false)
+	p, err := bg.start("s-test", env.Workdir, t.TempDir(), port.SandboxSpec{}, "sleep 30", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestKilledJobDoesNotReportAnExitItNeverMade(t *testing.T) {
 	}
 
 	// A job that ended on its own keeps its real code.
-	q, err := bg.start(env.Workdir, t.TempDir(), port.SandboxSpec{}, "exit 3", false)
+	q, err := bg.start("s-test", env.Workdir, t.TempDir(), port.SandboxSpec{}, "exit 3", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestKilledJobDoesNotReportAnExitItNeverMade(t *testing.T) {
 
 	// Terminated by something OTHER than magi: killed is false, and the exit magi holds is the
 	// same -1 placeholder. It must not be printed as a status the program chose.
-	r, err := bg.start(env.Workdir, t.TempDir(), port.SandboxSpec{}, "sleep 30", false)
+	r, err := bg.start("s-test", env.Workdir, t.TempDir(), port.SandboxSpec{}, "sleep 30", false)
 	if err != nil {
 		t.Fatal(err)
 	}

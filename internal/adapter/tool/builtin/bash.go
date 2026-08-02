@@ -79,7 +79,7 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		// says not to do this, but weak models do it anyway, so strip it and run the bare command as
 		// the job's foreground — then the job stays alive exactly as long as the process does.
 		cmd, stripped := stripBackgroundArtifacts(a.Command)
-		p, err := bg.start(env.Workdir, env.ScratchTmp, env.Sandbox, cmd, bool(a.Pty))
+		p, err := bg.start(string(env.SessionID), env.Workdir, env.ScratchTmp, env.Sandbox, cmd, bool(a.Pty))
 		if err != nil {
 			return errResult("", "failed to start background command: "+err.Error()), nil
 		}

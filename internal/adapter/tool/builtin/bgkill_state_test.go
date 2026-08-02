@@ -30,7 +30,7 @@ func TestBashKillSaysWhatItActuallyDid(t *testing.T) {
 	}
 
 	// A job that is still running: killed, and said so.
-	p, err := bg.start(env.Workdir, t.TempDir(), port.SandboxSpec{}, "sleep 30", false)
+	p, err := bg.start("s-test", env.Workdir, t.TempDir(), port.SandboxSpec{}, "sleep 30", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestBashKillSaysWhatItActuallyDid(t *testing.T) {
 	}
 
 	// A job that ended on its own before the agent got to it: the exit is the news, not the kill.
-	q, err := bg.start(env.Workdir, t.TempDir(), port.SandboxSpec{}, "exit 3", false)
+	q, err := bg.start("s-test", env.Workdir, t.TempDir(), port.SandboxSpec{}, "exit 3", false)
 	if err != nil {
 		t.Fatal(err)
 	}
