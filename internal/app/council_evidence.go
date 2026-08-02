@@ -13,7 +13,7 @@ import (
 
 // toolCallBrief is what a finished call needs to be legible as evidence: the tool's name and the
 // request that produced the result.
-type toolCallBrief struct{ name, args string }
+type toolCallBrief struct{ name, args, intent string }
 
 // evidenceLine renders one finished call for a council block: what was ASKED, then what came back.
 //
@@ -33,8 +33,22 @@ func evidenceLine(b toolCallBrief, status, result string) string {
 	if req := strings.TrimSpace(clipLine(b.args, evidenceArgsCap)); req != "" {
 		head += " " + req
 	}
+	// The stated purpose, when the call carried one. For bash the command usually says it; for a
+	// WRITE it does not — evidenceArgs shows the path and nothing else, so "wrote 3893 bytes to
+	// /app/extract.js" is a fact with no subject. The intent is the only place the turn says what
+	// the file was for.
+	//
+	// The agent's own words, so it is labelled as such: a member weighing whether the work matches
+	// the task must not read a claim of purpose as a finding about the artifact.
+	if it := strings.TrimSpace(clipLine(b.intent, evidenceIntentCap)); it != "" {
+		head += " (agent's stated purpose: " + it + ")"
+	}
 	return head + ": " + clipLine(result, councilActionCap)
 }
+
+// evidenceIntentCap bounds the stated purpose. Short: it is a label, and a member who needs more
+// has the command and the result on the same line.
+const evidenceIntentCap = 120
 
 // evidenceArgsCap bounds the request shown per line. Long enough that a build command, a path, or a
 // redirect target survives whole; short enough that eight of them cost nothing beside the results.
@@ -83,6 +97,19 @@ func evidenceArgs(name string, raw json.RawMessage) string {
 	return ""
 }
 
+// intentArg pulls the `intent` a call carried, or "" when it carried none. Measured on the first
+// wave that shipped the field: it arrives on 60% of calls (bash 75%, read 23%, todowrite 0%), so
+// every reader of it has to work without it.
+func intentArg(raw json.RawMessage) string {
+	var m struct {
+		Intent string `json:"intent"`
+	}
+	if json.Unmarshal(raw, &m) != nil {
+		return ""
+	}
+	return strings.TrimSpace(m.Intent)
+}
+
 // turnToolEvidence summarizes THIS turn's tool RESULTS as real, git-independent
 // evidence of what actually happened — a write that reported bytes, a `cat` that shows
 // the content. It deliberately EXCLUDES the model's own text: that is the agent's claim
@@ -116,8 +143,9 @@ func turnToolEvidence(evs []event.Event, k int) string {
 		case session.PartToolCall:
 			if d.Part.ToolCall != nil {
 				names[d.Part.ToolCall.CallID] = toolCallBrief{
-					name: d.Part.ToolCall.Name,
-					args: evidenceArgs(d.Part.ToolCall.Name, d.Part.ToolCall.Args),
+					name:   d.Part.ToolCall.Name,
+					args:   evidenceArgs(d.Part.ToolCall.Name, d.Part.ToolCall.Args),
+					intent: intentArg(d.Part.ToolCall.Args),
 				}
 			}
 		case session.PartToolResult:
@@ -408,8 +436,9 @@ func deltaToolEvidence(evs []event.Event, k int) string {
 		case session.PartToolCall:
 			if d.Part.ToolCall != nil {
 				names[d.Part.ToolCall.CallID] = toolCallBrief{
-					name: d.Part.ToolCall.Name,
-					args: evidenceArgs(d.Part.ToolCall.Name, d.Part.ToolCall.Args),
+					name:   d.Part.ToolCall.Name,
+					args:   evidenceArgs(d.Part.ToolCall.Name, d.Part.ToolCall.Args),
+					intent: intentArg(d.Part.ToolCall.Args),
 				}
 			}
 		case session.PartToolResult:
