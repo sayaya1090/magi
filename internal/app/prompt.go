@@ -33,7 +33,7 @@ func (a *App) toolSpecs(agent AgentSpec) []port.ToolSpec {
 				continue
 			}
 		}
-		specs = append(specs, port.ToolSpec{Name: name, Description: t.Description(), Schema: schemaWithIntent(t.Schema())})
+		specs = append(specs, port.ToolSpec{Name: name, Description: t.Description(), Schema: t.Schema()})
 	}
 	return specs
 }
