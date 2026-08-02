@@ -93,12 +93,26 @@ type Council interface {
 
 // DeliberationRequest is the evidence the council judges: the agent's CLAIM
 // (Report) against the CONTRACT (Plan/Task) using EVIDENCE (Signals/Diff).
+// The questions a council can be asked. The phase belongs to this contract rather than to the
+// adapter that renders the prompts: the application picks the question, and it must not have to
+// import an adapter to name it — which it briefly did, until the layer ratchet said so.
+const (
+	// PhaseTerminate — is this turn finished? The default, and the only one the members vote on
+	// in a way that ends anything.
+	PhaseTerminate = ""
+	// PhasePlan — the pre-flight plan audit: members judge the PROPOSED PROCEDURE against the
+	// task, before there is a Report, Changes, or Signals.
+	PhasePlan = "plan"
+	// PhaseIntervention — asked MID-turn, when magi's own counters have already decided to speak:
+	// is this going somewhere, and what should change now? It decides nothing; the answer becomes
+	// the text of a nudge that was going to be emitted anyway.
+	PhaseIntervention = "intervention"
+)
+
 type DeliberationRequest struct {
 	Round int // 1-based council round within the turn
-	// Phase selects what the council judges and which member prompt is used:
-	// "" / "terminate" is the turn-termination gate (default); "plan" is the
-	// pre-flight plan audit, where members judge the PROPOSED PROCEDURE against the
-	// task — there is no Report, Changes, or Signals yet.
+	// Phase selects what the council judges and which member prompt is used. See the
+	// Phase* constants below; "" is the turn-termination gate.
 	Phase string
 	// NoChanges marks a pure read-only / investigation / answer turn: the agent made no
 	// file edits (via its tools) and no signals ran. Such a turn has no artifact to verify
