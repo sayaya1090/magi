@@ -208,7 +208,7 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 	// ask streams one member turn for userMsg and parses its reply. Errors (backend down)
 	// and parse outcome are surfaced separately so the caller can distinguish "unavailable"
 	// (abstain) from "unparseable" (retry once with a JSON-only reminder).
-	sys := memberSystem(m, req.Task, req.Keep, req.Phase)
+	sys := memberSystem(m, req.Task, req.Keep)
 	// The raw reply travels back with the parse outcome: the retry has to be able to name WHICH way
 	// the previous one failed, and that is only knowable from the text it failed on.
 	ask := func(userMsg string) (memberReply, string, bool, error) {
@@ -301,7 +301,7 @@ func (c *Council) pollRebut(ctx context.Context, req port.DeliberationRequest, m
 		"already on the table. Reply in the SAME JSON shape."
 	stream, err := provider.StreamChat(ctx, port.ChatRequest{
 		Model:    model,
-		System:   memberSystem(m, req.Task, req.Keep, req.Phase),
+		System:   memberSystem(m, req.Task, req.Keep),
 		Messages: []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: user}}}},
 		Params:   map[string]any{"temperature": 0.0},
 	})
@@ -378,10 +378,7 @@ type memberReply struct {
 // review, and this. The other three judged something magi authored BEFORE the work existed, and
 // went with it. What a member judges now is a finished turn against the task, which is the only
 // phase that was ever asked about the work itself.
-func memberSystem(m council.Member, task string, keep bool, phase string) string {
-	if phase == port.PhaseIntervention {
-		return interventionSystem(m, task)
-	}
+func memberSystem(m council.Member, task string, keep bool) string {
 	lens := council.Lenses[m.Lens]
 	if lens == "" {
 		lens = "Judge whether the task is genuinely complete."
@@ -684,41 +681,4 @@ func parseReply(text string) (memberReply, bool) {
 func noteSalvaged(orig, kept string) {
 	fmt.Fprintf(os.Stderr, "magi: a council reply was malformed and only its prefix could be read "+
 		"(%d of %d bytes kept; fields after the defect are missing): %s\n", len(kept), len(orig), jsonx.Diagnose(orig))
-}
-
-// interventionSystem is the member prompt for PhaseIntervention. It reuses the termination phase's
-// output shape so every downstream part — parsing, salvage, the retry, the tally, the rendering —
-// is the same code; only the question differs.
-func interventionSystem(m council.Member, task string) string {
-	lens := council.Lenses[m.Lens]
-	if lens == "" {
-		lens = "Judge whether the work is going anywhere."
-	}
-	return withLangNote(fmt.Sprintf(
-		"You are %s, a member of the council that watches an AI coding agent while it works. "+
-			"Your lens is %q: %s\n\n"+
-			"This is NOT the finish question. magi's own counters noticed something — the same call repeated with "+
-			"nothing changing, or many steps with no concrete progress — and before it says anything, it is asking "+
-			"you what is actually happening. Nothing you say stops the turn; the agent keeps working either way.\n"+
-			"Read the RECORD: what ran, what came back, what is on disk now, and what this council already said "+
-			"earlier this turn if anything. Then choose exactly one vote:\n"+
-			"- \"done\": the agent is on a path that can reach the task. Repetition alone is not a defect — a build "+
-			"loop, a poll, a search that narrows are all normal — and a turn that is simply slow needs no advice. "+
-			"Say nothing further.\n"+
-			"- \"continue\": it is NOT going to get there on this path, and `feedback` names the ONE thing to change "+
-			"now. Be concrete and small: the command to run, the file to look at, the assumption to test. Not "+
-			"\"try a different approach\" — that is what magi already says without you, and it is why you are being "+
-			"asked.\n"+
-			"- \"abstain\": your lens cannot tell from this record.\n\n"+
-			"Two things to weigh, because they are what the record actually shows. FIRST, whether the repeated work "+
-			"is SUCCEEDING or FAILING: a command that keeps failing needs its error read; one that keeps succeeding "+
-			"with the same answer will not answer differently, and the agent should act on what it already has. "+
-			"SECOND, whether anything the agent produced has moved: a file written and rewritten to the same bytes, "+
-			"or created and deleted, is motion without progress, and saying so plainly is more use than any advice "+
-			"about method.\n\n"+
-			"Do not restate the task back. Do not congratulate. Do not ask the agent to declare completion — that is "+
-			"a different question, asked elsewhere.\n\n"+
-			"Reply with ONLY this JSON object and nothing else:\n%s",
-		m.Name, m.Lens, lens,
-		`{"decision":"done|continue|abstain","confidence":0.0-1.0,"rationale":"one sentence","feedback":"the one thing to change (only if continue)","cite":"verbatim fragment of what you were shown, or NO-EVIDENCE"}`), task)
 }

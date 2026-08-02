@@ -53,14 +53,6 @@ func (a *App) injectStuckNudge(ctx context.Context, tc turnCtx, turnTask string,
 			"the real state) rather than trying values blindly. Re-read the original task:\n" +
 			clipSpec(task, 1500)
 	}
-	// Both texts above are fixed paragraphs, and the repeat one hedges because magi cannot tell a
-	// failing loop from a succeeding one. When the intervention council is on, the three members
-	// read the actual record and say what to change instead; an empty answer (on track, or the
-	// backend is down) leaves the paragraph exactly as it was. The task re-read stays either way —
-	// it is the one part of the nudge that is always true.
-	if advice := a.interventionAdvice(ctx, tc.s, task, evs, tc.guard); advice != "" {
-		msg = advice + "\n\nRe-read the original task:\n" + clipSpec(task, 1500)
-	}
 	pd, _ := json.Marshal(event.PromptSubmittedData{
 		MessageID: "m_" + newID(),
 		Parts:     []session.Part{{Kind: session.PartText, Text: msg}},

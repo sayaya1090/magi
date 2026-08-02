@@ -103,10 +103,6 @@ const (
 	// PhasePlan — the pre-flight plan audit: members judge the PROPOSED PROCEDURE against the
 	// task, before there is a Report, Changes, or Signals.
 	PhasePlan = "plan"
-	// PhaseIntervention — asked MID-turn, when magi's own counters have already decided to speak:
-	// is this going somewhere, and what should change now? It decides nothing; the answer becomes
-	// the text of a nudge that was going to be emitted anyway.
-	PhaseIntervention = "intervention"
 )
 
 type DeliberationRequest struct {

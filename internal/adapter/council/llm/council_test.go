@@ -78,11 +78,11 @@ func TestEvidenceActions(t *testing.T) {
 // so the baseline prompt is byte-for-byte unchanged when it is off.
 func TestMemberPromptKeepGated(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "correctness"}
-	off := memberSystem(m, "fix the bug", false, "")
+	off := memberSystem(m, "fix the bug", false)
 	if strings.Contains(off, "\"keep\"") || strings.Contains(off, "must NOT redo or revert") {
 		t.Error("keep clause/schema must be absent when keep is off")
 	}
-	on := memberSystem(m, "fix the bug", true, "")
+	on := memberSystem(m, "fix the bug", true)
 	if !strings.Contains(on, "must NOT redo or revert") {
 		t.Error("keep clause missing when keep is on")
 	}
@@ -99,7 +99,7 @@ func TestMemberPromptKeepGated(t *testing.T) {
 // enumerated checklist, judge each item and land done only if EVERY item is satisfied.
 func TestTerminateMemberPromptPerItem(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "completeness"}
-	p := memberSystem(m, "stand up a service", false, "")
+	p := memberSystem(m, "stand up a service", false)
 	for _, want := range []string{"PER-ITEM ACCEPTANCE", "NUMBERED checklist", "EVERY item", "UNSATISFIED"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("terminate prompt missing per-item clause fragment %q", want)
@@ -116,7 +116,7 @@ func TestTerminateMemberPromptPerItem(t *testing.T) {
 // wall clock (kv-store: a council int64 demand the grader never checked, cost an AgentTimeout).
 func TestMemberPromptGroundsDemandsInTask(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "correctness"}
-	p := memberSystem(m, "stand up a service", false, "")
+	p := memberSystem(m, "stand up a service", false)
 	for _, want := range []string{"GROUND every continue demand in the TASK", "where the TASK", "phantom requirement"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("terminate member prompt must require continue demands be grounded in the task (missing %q)", want)
@@ -137,7 +137,7 @@ func TestMemberPromptGroundsDemandsInTask(t *testing.T) {
 // or never actually run. Task-agnostic (no SIGINT/cancel tokens).
 func TestMemberPromptForbidsEvidenceMethodOverDemand(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "correctness"}
-	p := memberSystem(m, "make the handler resilient", false, "")
+	p := memberSystem(m, "make the handler resilient", false)
 	for _, want := range []string{"mere simulation", "real-world reproduction", "ACCEPTANCE METHOD", "already shown working"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("terminate prompt must forbid evidence-method over-demand (missing %q)", want)
@@ -169,7 +169,7 @@ func TestPlanMemberPromptNoEvalSetSpecifics(t *testing.T) {
 	for _, lens := range []string{"correctness", "verification", "completeness"} {
 		m := council.Member{Name: "x", Lens: lens}
 		for _, keep := range []bool{false, true} {
-			p := memberSystem(m, "build the thing", keep, "")
+			p := memberSystem(m, "build the thing", keep)
 			for _, b := range banned {
 				if strings.Contains(p, b) {
 					t.Errorf("lens=%q keep=%v leaks eval-set-specific token %q — use a task-agnostic example",
@@ -185,7 +185,7 @@ func TestPlanMemberPromptNoEvalSetSpecifics(t *testing.T) {
 // that closes the reval3 play-zork / run-pdp11 / fasttext class of false approvals.
 func TestMemberPromptRationalizedDone(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "verification"}
-	s := memberSystem(m, "beat the game", false, "")
+	s := memberSystem(m, "beat the game", false)
 	if !strings.Contains(s, "RATIONALIZES incompletion") {
 		t.Error("terminate prompt missing the rationalized-done clause")
 	}
@@ -211,7 +211,7 @@ func TestMemberPromptRationalizedDone(t *testing.T) {
 // process listing instead of crediting the successful client round-trip).
 func TestMemberPromptObjectiveNotMethod(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "correctness"}
-	s := memberSystem(m, "run a server on port 5328", false, "")
+	s := memberSystem(m, "run a server on port 5328", false)
 
 	// The old wording prescribed the method; it must be gone.
 	if strings.Contains(s, "name the exact check to run") {
@@ -240,7 +240,7 @@ func TestMemberPromptObjectiveNotMethod(t *testing.T) {
 
 func TestMemberPromptArtifactGrounding(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "completeness"}
-	s := memberSystem(m, "build a CLI tool", false, "")
+	s := memberSystem(m, "build a CLI tool", false)
 	if !strings.Contains(s, "is NOT itself the artifact") {
 		t.Error("terminate prompt missing artifact-grounding clause")
 	}
@@ -281,7 +281,7 @@ func TestMemberPromptProportionality(t *testing.T) {
 
 	// terminate phase: representative coverage of a large set is done; demanding
 	// exhaustive enumeration / atom-level precision is churn, not a defect.
-	s := memberSystem(m, "find refactoring candidates", false, "")
+	s := memberSystem(m, "find refactoring candidates", false)
 	if !strings.Contains(s, "EXHAUSTIVE enumeration") {
 		t.Error("terminate prompt missing the proportional-completeness clause")
 	}
@@ -701,53 +701,14 @@ func TestRetryReminderNamesTheDefectThatOccurred(t *testing.T) {
 func TestCouncilPromptsCarryNoHarnessFraming(t *testing.T) {
 	m := council.Member{Name: "x", Lens: "correctness"}
 	prompts := map[string]string{
-		"member":      memberSystem(m, "build a service and run its tests", false, ""),
-		"member-keep": memberSystem(m, "build a service and run its tests", true, ""),
+		"member":      memberSystem(m, "build a service and run its tests", false),
+		"member-keep": memberSystem(m, "build a service and run its tests", true),
 	}
 	for name, p := range prompts {
 		for _, banned := range []string{"grader", "benchmark", "leaderboard", "reward", "eval set"} {
 			if strings.Contains(strings.ToLower(p), banned) {
 				t.Errorf("%s prompt asserts a harness artifact %q — keep acceptance task-relative", name, banned)
 			}
-		}
-	}
-}
-
-// The intervention phase asks a different question of the same members, and the two prompts must
-// not bleed into each other: a member asked mid-turn must not be deciding whether the turn is
-// finished, and a member at the finish boundary must not be handing out redirection advice.
-func TestTheInterventionPhaseAsksADifferentQuestion(t *testing.T) {
-	m := council.Member{Name: "Melchior", Lens: "correctness"}
-	iv := memberSystem(m, "fix the sweeper", false, port.PhaseIntervention)
-	fin := memberSystem(m, "fix the sweeper", false, "")
-
-	if iv == fin {
-		t.Fatal("the intervention phase produced the termination prompt")
-	}
-	for _, want := range []string{"NOT the finish question", "Nothing you say stops the turn", "the ONE thing to change"} {
-		if !strings.Contains(iv, want) {
-			t.Errorf("the intervention prompt is missing %q", want)
-		}
-	}
-	// It must not ask for a completion judgement, which is the other phase's job.
-	for _, unwanted := range []string{"truly finished", "decides whether an AI coding agent's turn"} {
-		if strings.Contains(iv, unwanted) {
-			t.Errorf("the intervention prompt asks the finish question: %q", unwanted)
-		}
-	}
-	// …and the finish prompt is untouched by any of this.
-	if strings.Contains(fin, "NOT the finish question") {
-		t.Error("the termination prompt picked up the intervention wording")
-	}
-	// Neither embeds the task: it reaches the member in the user message (evidence), and the
-	// system prompt takes it only to detect the language to answer in. The intervention prompt had
-	// it twice until this test said so.
-	for name, p := range map[string]string{"intervention": iv, "termination": fin} {
-		if strings.Contains(p, "THE TASK:") {
-			t.Errorf("%s prompt embeds the task, which the user message already carries", name)
-		}
-		if !strings.Contains(p, `"decision":"done|continue|abstain"`) {
-			t.Errorf("%s prompt changed the output contract", name)
 		}
 	}
 }
