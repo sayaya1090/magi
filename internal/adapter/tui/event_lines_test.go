@@ -23,11 +23,11 @@ func TestCouncilKeepReachesTheScreen(t *testing.T) {
 	m.width = 100
 
 	m.applyEvent(ev(t, event.TypeCouncilConvened, event.CouncilConvenedData{
-		Round: 1, Phase: "plan", Members: []string{"Casper"}, Rule: "majority",
+		Round: 1, Members: []string{"Casper"}, Rule: "majority",
 		Task: "add a health endpoint", Plan: "[write] serve /healthz", Keep: true,
 	}))
 	m.applyEvent(ev(t, event.TypeCouncilVerdict, event.CouncilVerdictData{
-		Round: 1, Phase: "plan", Member: "Casper", Lens: "correctness", Decision: "done",
+		Round: 1, Member: "Casper", Lens: "correctness", Decision: "done",
 		Rationale: "the procedure is sound", Keep: "step 2's fixture setup — the later steps read it",
 	}))
 
@@ -58,7 +58,7 @@ func TestCouncilKeepReachesTheScreen(t *testing.T) {
 		t.Errorf("a round that never asked must not advertise a keep: %q", got)
 	}
 	m.applyEvent(ev(t, event.TypeCouncilVerdict, event.CouncilVerdictData{
-		Round: 2, Phase: "plan", Member: "Casper", Decision: "done", Rationale: "fine",
+		Round: 2, Member: "Casper", Decision: "done", Rationale: "fine",
 	}))
 	if row := ansi.Strip(m.renderBlock(m.blocks[len(m.blocks)-1])); strings.Contains(row, "keep") {
 		t.Errorf("a verdict with no keep must add no keep line:\n%s", row)

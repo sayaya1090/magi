@@ -92,27 +92,19 @@ func TestColorizeChanges(t *testing.T) {
 	}
 }
 
-// councilVerdictLabel tiers a plan-audit continue by severity, while termination stays
-// done/reject and abstain is unchanged.
-func TestCouncilVerdictLabelSeverity(t *testing.T) {
-	cases := []struct {
-		phase, decision, severity, wantIcon, wantWord string
-	}{
-		{"plan", "done", "", "✓", "approve"},
-		{"plan", "continue", "critical", "↻", "revise"},
-		{"plan", "continue", "warn", "✎", "advise"},
-		{"plan", "continue", "info", "·", "note"},
-		{"plan", "continue", "", "✎", "advise"},      // absent severity → warn (non-blocking)
-		{"plan", "continue", "bogus", "↻", "revise"}, // unrecognized → fail safe to blocking
-		{"", "done", "", "✓", "done"},
-		{"", "continue", "", "✗", "reject"},
-		{"", "abstain", "", "∅", "abstain"},
+// councilVerdictLabel names a vote. This council gates ending the turn, so a continue is a
+// rejection — the result cannot proceed on it.
+func TestCouncilVerdictLabel(t *testing.T) {
+	cases := []struct{ decision, wantIcon, wantWord string }{
+		{"done", "✓", "done"},
+		{"continue", "✗", "reject"},
+		{"abstain", "∅", "abstain"},
+		{"weird", "·", "weird"}, // an unknown decision is shown as itself, not swallowed
 	}
 	for _, c := range cases {
-		icon, word := councilVerdictLabel(c.phase, c.decision, c.severity)
+		icon, word := councilVerdictLabel(c.decision)
 		if icon != c.wantIcon || word != c.wantWord {
-			t.Errorf("label(%q,%q,%q) = (%q,%q), want (%q,%q)",
-				c.phase, c.decision, c.severity, icon, word, c.wantIcon, c.wantWord)
+			t.Errorf("label(%q) = (%q,%q), want (%q,%q)", c.decision, icon, word, c.wantIcon, c.wantWord)
 		}
 	}
 }

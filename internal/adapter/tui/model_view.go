@@ -100,7 +100,7 @@ func (m Model) View() tea.View {
 		// clearly attached to the council, resolving on council.decided.
 		work := "working… "
 		if m.councilRound > 0 {
-			work = councilWaitLabel(m.councilPhase) + " "
+			work = councilWaitLabel() + " "
 		}
 		// The spinner and the meter say the turn is alive and must always fit; the interrupt hint
 		// is the droppable part. Unbounded, this row was the widest in the frame on a narrow
@@ -402,8 +402,8 @@ func (m *Model) renderCouncilDetail(width int) string {
 	wrap := lipgloss.NewStyle().Width(max(8, width-2))
 	var b strings.Builder
 	// (The "‹ back" breadcrumb is the fixed header — see View.)
-	icon, word := councilVerdictLabel(v.Phase, v.Decision, v.Severity)
-	b.WriteString(lipgloss.NewStyle().Foreground(hue).Bold(true).Render("⚖ "+v.Member) + "  " + councilVerdictStyle(v.Phase, v.Decision, v.Severity).Render(icon+" "+word))
+	icon, word := councilVerdictLabel(v.Decision)
+	b.WriteString(lipgloss.NewStyle().Foreground(hue).Bold(true).Render("⚖ "+v.Member) + "  " + councilVerdictStyle(v.Decision).Render(icon+" "+word))
 	if v.Lens != "" {
 		b.WriteString(styleFooter.Render("  [" + v.Lens + "]"))
 	}
@@ -462,12 +462,8 @@ func formatCouncilEvidence(d event.CouncilConvenedData) string {
 		b.WriteString("# " + title + "\n" + strings.TrimSpace(body) + "\n\n")
 	}
 	add("Task", d.Task)
-	if d.Phase == "plan" {
-		add("Proposed plan", d.Plan)
-	} else {
-		add("The agent's own plan", d.Plan)
-		add("Agent report (the claim)", d.Report)
-	}
+	add("The agent's own plan", d.Plan)
+	add("Agent report (the claim)", d.Report)
 	if len(d.Signals) > 0 {
 		add("Signals", strings.Join(d.Signals, "\n"))
 	}
@@ -917,16 +913,9 @@ func gaugeSep(gauge string) string {
 	return " · " + gauge
 }
 
-// councilWaitLabel is the fixed footer phrase shown (with the spinner) while a
-// council round is open, naming which judgment is awaited so the wait doesn't read
-// as a stall. Phase "plan" is the pre-execution plan audit; anything else is the
-// finalize/consensus review of the answer.
-func councilWaitLabel(phase string) string {
-	if phase == "plan" {
-		return "⚖ 플랜 감사 판정 대기 중…"
-	}
-	return "⚖ 카운슬 심의 판정 대기 중…"
-}
+// councilWaitLabel is the footer phrase shown (with the spinner) while a council round is
+// open, naming what is awaited so the wait doesn't read as a stall.
+func councilWaitLabel() string { return "⚖ 카운슬 심의 판정 대기 중…" }
 
 // turnSummary renders the end-of-turn receipt line, e.g.
 // "▣ turn: 14 steps · 3 files · council r2 · 3m49s". Parts with nothing to say

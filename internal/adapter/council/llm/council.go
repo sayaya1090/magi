@@ -264,7 +264,6 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 		v.Feedback = string(r.Feedback)
 		v.Keep = string(r.Keep)
 		v.Cite = strings.TrimSpace(string(r.Cite))
-		v.Severity = string(r.Severity) // plan-audit phase only; gates blocking vs advisory
 	}
 	fill(r)
 	// `cite` is recorded and shown, not checked. magi used to look each fragment up in the record
@@ -325,7 +324,6 @@ func (c *Council) pollRebut(ctx context.Context, req port.DeliberationRequest, m
 	v.Rationale = string(r.Rationale)
 	v.Feedback = string(r.Feedback)
 	v.Keep = string(r.Keep)
-	v.Severity = string(r.Severity)
 	return v
 }
 
@@ -358,17 +356,16 @@ func councilRetryReminder(text string) string {
 // EVERY field is read through a tolerant type, because Go aborts the whole document on the first
 // type mismatch — and here that costs the member's VOTE, recorded as an abstain the tally cannot
 // tell from "no opinion". A quoted "0.9", a single criterion given as a bare string, or a decision
-// wrapped in a one-element list is not worth losing a verdict over. Decision and Severity are
-// validated by VALUE further down (decisionOf / the severity tiers), so widening their accepted
-// SHAPE cannot let a bad value through — it only stops a well-formed vote from vanishing.
+// wrapped in a one-element list is not worth losing a verdict over. Decision is validated by
+// VALUE further down (decisionOf), so widening the accepted SHAPE cannot let a bad value
+// through — it only stops a well-formed vote from vanishing.
 type memberReply struct {
 	Decision   jsonx.Text   `json:"decision"`
 	Confidence jsonx.Number `json:"confidence"`
 	Rationale  jsonx.Text   `json:"rationale"`
 	Feedback   jsonx.Text   `json:"feedback"`
-	Keep       jsonx.Text   `json:"keep"`     // advisory: what's already correct (only when asked; MAGI_COUNCIL_KEEP)
-	Cite       jsonx.Text   `json:"cite"`     // verbatim fragment of the record the verdict rests on, or NO-EVIDENCE
-	Severity   jsonx.Text   `json:"severity"` // plan-audit phase: critical|warn|info for a revise vote
+	Keep       jsonx.Text   `json:"keep"` // advisory: what's already correct (only when asked; MAGI_COUNCIL_KEEP)
+	Cite       jsonx.Text   `json:"cite"` // verbatim fragment of the record the verdict rests on, or NO-EVIDENCE
 }
 
 // memberSystem builds the system prompt for one member: its identity (the theme label) and its

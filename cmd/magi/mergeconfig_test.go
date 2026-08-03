@@ -118,25 +118,23 @@ func TestMergeProjectConfig_MapsMergeIntoNilBase(t *testing.T) {
 func TestMergeProjectConfig_Council(t *testing.T) {
 	enabled := true
 	base := config.Config{Council: config.CouncilConfig{
-		Rule:      "majority",
-		MaxRounds: 3,
-		Signals:   []config.CouncilSignalConfig{{Name: "g"}},
+		Rule:    "majority",
+		Signals: []config.CouncilSignalConfig{{Name: "g"}},
 	}}
 	proj := config.Config{Council: config.CouncilConfig{
-		Enabled:   &enabled,
-		Rule:      "unanimous",
-		MaxRounds: 5,
-		Preset:    "light",
-		Verify:    "go test ./...",
-		Members:   []config.CouncilMember{{}, {}},
-		Signals:   []config.CouncilSignalConfig{{Name: "p"}},
+		Enabled: &enabled,
+		Rule:    "unanimous",
+		Preset:  "light",
+		Verify:  "go test ./...",
+		Members: []config.CouncilMember{{}, {}},
+		Signals: []config.CouncilSignalConfig{{Name: "p"}},
 	}}
 	got := mergeProjectConfig(base, proj)
 	c := got.Council
 	if c.Enabled == nil || *c.Enabled != true {
 		t.Errorf("Enabled not applied: %v", c.Enabled)
 	}
-	if c.Rule != "unanimous" || c.MaxRounds != 5 || c.Preset != "light" || c.Verify != "go test ./..." {
+	if c.Rule != "unanimous" || c.Preset != "light" || c.Verify != "go test ./..." {
 		t.Errorf("scalar council fields wrong: %+v", c)
 	}
 	if len(c.Members) != 2 {
@@ -148,7 +146,7 @@ func TestMergeProjectConfig_Council(t *testing.T) {
 
 	// An empty project council must not clobber global council settings.
 	got2 := mergeProjectConfig(base, config.Config{})
-	if got2.Council.Rule != "majority" || got2.Council.MaxRounds != 3 || got2.Council.Enabled != nil {
+	if got2.Council.Rule != "majority" || got2.Council.Enabled != nil {
 		t.Errorf("empty project council clobbered global: %+v", got2.Council)
 	}
 }

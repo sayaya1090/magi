@@ -562,7 +562,6 @@ func run() int {
 		PermissionPersister: permPersister{path: filepath.Join(wd, ".magi", "config.toml")},
 		Council:             councilPort,
 		CouncilRule:         corecouncil.Rule(cfg.Council.Rule),
-		CouncilMaxRounds:    councilMaxRounds(cfg.Council),
 		CouncilMembers:      councilMembers(cfg.Council, cfg.LLM.Profiles),
 		CouncilSignals:      councilSignals(cfg.Council),
 		TimeBudget:          *timeBudget,
@@ -782,9 +781,6 @@ func mergeProjectConfig(cfg, proj config.Config) config.Config {
 	if proj.Council.Rule != "" {
 		cfg.Council.Rule = proj.Council.Rule
 	}
-	if proj.Council.MaxRounds != 0 {
-		cfg.Council.MaxRounds = proj.Council.MaxRounds
-	}
 	if len(proj.Council.Members) > 0 {
 		cfg.Council.Members = proj.Council.Members
 	}
@@ -942,29 +938,11 @@ func renderText(out, errw io.Writer, e event.Event) {
 				line += " · " + strings.Join(d.Signals, ", ")
 			}
 			fmt.Fprintln(out, line)
-			// Plan-audit round 1 carries the proposed procedure — print it, so the plan
-			// under judgment is in the transcript (post-hoc analysis otherwise cannot see
-			// WHAT was approved/rejected; later rounds show diffs via PlanRevised).
-			if d.Phase == "plan" && d.Round == 1 && strings.TrimSpace(d.Plan) != "" {
-				fmt.Fprintln(out, "⟳ proposed plan:")
-				for _, ln := range strings.Split(strings.TrimSpace(d.Plan), "\n") {
-					fmt.Fprintln(out, "    "+truncate(ln, 200))
-				}
-			}
 		}
 	case event.TypeCouncilDecided:
 		var d event.CouncilDecidedData
 		if json.Unmarshal(e.Data, &d) == nil {
-			// A gate-FORCED finish (round-cap deadlock, cost-cap, unavailable, no-progress,
-			// unchanged resubmit) lands with Decision="done" to END the turn — but the members
-			// did NOT approve it. Printing the raw "done" reads as an approval and is the exact
-			// confusion reported ("1 done / 2 continue, yet it says done"). Label a forced
-			// finish "UNVERIFIED (no consensus)" so it can't be mistaken for a clean done.
-			outcome := d.Decision
-			if d.Forced {
-				outcome = "UNVERIFIED (no consensus)"
-			}
-			line := fmt.Sprintf("⚖ council round %d: %s — %d done / %d continue", d.Round, outcome, d.Tally.Done, d.Tally.Continue)
+			line := fmt.Sprintf("⚖ council round %d: %s — %d done / %d continue", d.Round, d.Decision, d.Tally.Done, d.Tally.Continue)
 			// The counts above are the ones the members held AFTER a rebuttal, which only runs
 			// when they first disagreed — so a unanimous line can be the product of an argument
 			// rather than of agreement. Say which.
@@ -1067,16 +1045,6 @@ func councilMembers(c config.CouncilConfig, profiles map[string]config.LLMProfil
 		return []corecouncil.Member{{Name: "Balthasar", Lens: "verification"}}
 	}
 	return toCouncilMembers(c.Members, profiles)
-}
-
-// councilMaxRounds resolves the round cap: an explicit max_rounds wins; the
-// "light" preset defaults to 1 (a second round of a 1-member gate rarely pays
-// its latency); otherwise 0 lets the app default (3) apply.
-func councilMaxRounds(c config.CouncilConfig) int {
-	if c.MaxRounds == 0 && c.Preset == "light" {
-		return 1
-	}
-	return c.MaxRounds
 }
 
 // toCouncilMembers converts config council members to core council members. nil

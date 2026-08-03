@@ -126,13 +126,13 @@ func TestCouncilVerdictsOnOneLine(t *testing.T) {
 	m := &mm
 	m.width = 120
 	m.applyEvent(ev(t, event.TypeCouncilConvened, event.CouncilConvenedData{
-		Round: 1, Phase: "plan", Members: []string{"Melchior", "Balthasar", "Casper"}, Rule: "majority",
+		Round: 1, Members: []string{"Melchior", "Balthasar", "Casper"}, Rule: "majority",
 		Task: "review the docs", Plan: "1. [solo] x",
 	}))
 	for _, v := range []event.CouncilVerdictData{
-		{Round: 1, Phase: "plan", Member: "Melchior", Lens: "correctness", Decision: "done", Confidence: 0.97, Rationale: "sound approach"},
-		{Round: 1, Phase: "plan", Member: "Balthasar", Lens: "verification", Decision: "abstain", Confidence: 0.99, Rationale: "nothing to verify yet"},
-		{Round: 1, Phase: "plan", Member: "Casper", Lens: "completeness", Decision: "done", Confidence: 0.99, Rationale: "covers the task"},
+		{Round: 1, Member: "Melchior", Lens: "correctness", Decision: "done", Confidence: 0.97, Rationale: "sound approach"},
+		{Round: 1, Member: "Balthasar", Lens: "verification", Decision: "abstain", Confidence: 0.99, Rationale: "nothing to verify yet"},
+		{Round: 1, Member: "Casper", Lens: "completeness", Decision: "done", Confidence: 0.99, Rationale: "covers the task"},
 	} {
 		m.applyEvent(ev(t, event.TypeCouncilVerdict, v))
 	}
@@ -190,136 +190,28 @@ func TestCouncilVerdictsOnOneLine(t *testing.T) {
 	}
 }
 
-// A plan-audit round shows the procedure it's judging, so a plan that gets revised
-// and replanned stays visible across rounds (not just the final one that ran).
-func TestCouncilPlanAuditShowsAuditedPlan(t *testing.T) {
-	mm := newTestModel(t)
-	m := &mm
-	m.applyEvent(ev(t, event.TypeCouncilConvened, event.CouncilConvenedData{
-		Round: 1, Phase: "plan", Members: []string{"Melchior", "Balthasar", "Casper"}, Rule: "majority",
-		Task: "review the docs", Plan: "1. [scout] find docs\n2. [parallel] read each",
-	}))
-	last := m.blocks[len(m.blocks)-1]
-	if !strings.Contains(last.text, "plan audit round 1") {
-		t.Fatalf("expected the plan-audit header, got %q", last.text)
-	}
-	if !strings.Contains(last.text, "[scout] find docs") || !strings.Contains(last.text, "[parallel] read each") {
-		t.Fatalf("plan-audit round should show the audited procedure, got %q", last.text)
-	}
-}
-
-// A plan audit forced to finish at the round cap (all-revise, no consensus) must
-// NOT read "approve" — it reads "proceed (no consensus)".
-func TestCouncilPlanForcedProceedLabel(t *testing.T) {
-	mm := newTestModel(t)
-	m := &mm
-	m.applyEvent(ev(t, event.TypeCouncilDecided, event.CouncilDecidedData{
-		Round: 2, Phase: "plan", Decision: "done",
-		Tally: council.Breakdown{Continue: 3},
-		Note:  "plan unresolved after 2 round(s) — proceeding",
-	}))
-	last := m.blocks[len(m.blocks)-1]
-	if !strings.Contains(last.text, "proceed (no consensus)") {
-		t.Fatalf("forced plan finish should read 'proceed (no consensus)', got %q", last.text)
-	}
-	if strings.Contains(last.text, ": approve ") {
-		t.Fatalf("forced finish must not read 'approve': %q", last.text)
-	}
-	// Plan tally uses approve/revise wording, not done/continue.
-	if !strings.Contains(last.text, "3 revise") || strings.Contains(last.text, "continue") {
-		t.Fatalf("plan tally should read 'N revise', not 'continue': %q", last.text)
-	}
-
-	// Termination no-progress forced finish (note ends in "finishing", 0 done) must
-	// read "finished (no consensus)", not "done".
-	m2 := newTestModel(t)
-	m2.applyEvent(ev(t, event.TypeCouncilDecided, event.CouncilDecidedData{
-		Round: 2, Decision: "done", Tally: council.Breakdown{Continue: 3},
-		Note: "members voted continue but gave no new feedback — finishing",
-	}))
-	l2 := m2.blocks[len(m2.blocks)-1]
-	if !strings.Contains(l2.text, "finished (no consensus)") || strings.Contains(l2.text, ": done ") {
-		t.Fatalf("no-progress forced finish should read 'finished (no consensus)', got %q", l2.text)
-	}
-}
-
-// The Forced flag — not the Note wording — is what labels a finish "no consensus".
-// Regression: a forced finish whose note lacks the "finishing"/"proceeding" words
-// (e.g. "council unavailable: …") was silently rendered as a clean done. With the
-// explicit flag, any forced landing reads "no consensus" regardless of wording,
-// while a genuine consensus done with an incidental note stays a real done.
-func TestCouncilForcedFlagDrivesLabel(t *testing.T) {
-	// council-unavailable forced finish: note has no magic substring, but Forced=true.
-	m := newTestModel(t)
-	m.applyEvent(ev(t, event.TypeCouncilDecided, event.CouncilDecidedData{
-		Round: 1, Decision: "done", Tally: council.Breakdown{},
-		Note: "council unavailable: backend timeout", Forced: true,
-	}))
-	last := m.blocks[len(m.blocks)-1]
-	if !strings.Contains(last.text, "finished (no consensus)") {
-		t.Fatalf("a Forced finish must read 'no consensus' regardless of note wording, got %q", last.text)
-	}
-
-	// Genuine consensus done that happens to carry a note (advisory) must NOT be
-	// mislabeled: Forced=false → a real done, even with a note present.
-	m2 := newTestModel(t)
-	m2.applyEvent(ev(t, event.TypeCouncilDecided, event.CouncilDecidedData{
-		Round: 1, Phase: "plan", Decision: "done", Tally: council.Breakdown{Done: 3},
-		Note: "plan approved with advisory notes (non-blocking)", Forced: false,
-	}))
-	l2 := m2.blocks[len(m2.blocks)-1]
-	if strings.Contains(l2.text, "no consensus") {
-		t.Fatalf("a genuine (Forced=false) approval must not read 'no consensus', got %q", l2.text)
-	}
-}
-
-// While a council round is open the footer must name which judgment is awaited
-// (fixed phrase + spinner), so the wait doesn't read as a stall. councilPhase is
-// armed on convened and cleared on decided, and picks the phase-specific label.
 func TestCouncilWaitingIndicator(t *testing.T) {
 	mm := newTestModel(t)
 	m := &mm
 
-	// A finalize/consensus review round: phase is armed and the label names the review.
 	m.applyEvent(ev(t, event.TypeCouncilConvened, event.CouncilConvenedData{
 		Round: 1, Members: []string{"Melchior", "Balthasar", "Casper"}, Rule: "majority",
 	}))
-	if m.councilRound != 1 || m.councilPhase != "" {
-		t.Fatalf("review round: round=%d phase=%q, want round=1 phase=\"\"", m.councilRound, m.councilPhase)
+	if m.councilRound != 1 {
+		t.Fatalf("convened must arm the round, got %d", m.councilRound)
 	}
-	if got := councilWaitLabel(m.councilPhase); !strings.Contains(got, "카운슬") || !strings.Contains(got, "대기") {
-		t.Fatalf("review wait label should name the council wait, got %q", got)
-	}
-	// The label must differ per phase so the user can tell a plan audit from a review.
-	if councilWaitLabel("plan") == councilWaitLabel("") {
-		t.Fatalf("plan-audit and review wait labels must differ")
-	}
-	if got := councilWaitLabel("plan"); !strings.Contains(got, "플랜") {
-		t.Fatalf("plan wait label should name the plan audit, got %q", got)
+	if got := councilWaitLabel(); !strings.Contains(got, "카운슬") || !strings.Contains(got, "대기") {
+		t.Fatalf("wait label should name the council wait, got %q", got)
 	}
 
-	// A decision ends the open round → phase clears (footer reverts to "working…").
+	// A decision ends the open round → the footer reverts to "working…".
 	m.applyEvent(ev(t, event.TypeCouncilDecided, event.CouncilDecidedData{
 		Round: 1, Decision: "done", Tally: council.Breakdown{Done: 3},
 	}))
-	if m.councilPhase != "" {
-		t.Fatalf("councilPhase should clear after a decision, got %q", m.councilPhase)
-	}
-
-	// A plan-audit round arms the plan phase for the plan-specific label.
-	m.applyEvent(ev(t, event.TypeCouncilConvened, event.CouncilConvenedData{
-		Round: 1, Phase: "plan", Members: []string{"Melchior"}, Rule: "majority",
-	}))
-	if m.councilPhase != "plan" {
-		t.Fatalf("plan round should arm councilPhase=plan, got %q", m.councilPhase)
+	if m.councilRound != 0 {
+		t.Fatalf("councilRound should clear after a decision, got %d", m.councilRound)
 	}
 }
-
-// For a "검수해줘"-style request the flow is report → council review → revised report.
-// A review round that votes "continue" re-prompts for a revision; the pre-review report
-// must fold to a stub — but ONLY once the revision actually lands, so an interrupted
-// revision leaves the original report intact rather than a dangling stub. A "done"
-// review or a plan-phase continue must never touch the report.
 func TestCollapsePreReviewReport(t *testing.T) {
 	seedReport := func(t *testing.T) (*Model, int) {
 		t.Helper()
@@ -412,22 +304,6 @@ func TestCollapsePreReviewReport(t *testing.T) {
 			t.Fatalf("a done review must keep the report, got kind=%d", m.blocks[reportIdx].kind)
 		}
 	})
-
-	// A plan-audit "continue" (revise) is about the plan, not an answer report — it must
-	// not arm the fold even if an assistant block precedes it.
-	t.Run("plan continue does not arm the fold", func(t *testing.T) {
-		m, reportIdx := seedReport(t)
-		m.applyEvent(ev(t, event.TypeCouncilDecided, event.CouncilDecidedData{
-			Round: 1, Phase: "plan", Decision: "continue", Tally: council.Breakdown{Continue: 2},
-			Feedback: "플랜 수정",
-		}))
-		if m.reviewFoldNext {
-			t.Fatalf("a plan-audit continue must not arm the fold")
-		}
-		if m.blocks[reportIdx].kind != blockAssistant {
-			t.Fatalf("a plan-audit continue must not fold an answer report, got kind=%d", m.blocks[reportIdx].kind)
-		}
-	})
 }
 
 // The convened milestone line (contract gate / plan audit / termination round) shows each council
@@ -446,17 +322,20 @@ func TestCouncilRoundMembersColored(t *testing.T) {
 		t.Error("coloredMembers must embed ANSI color, unlike a flat strings.Join")
 	}
 
-	// The plan-phase convened event emits a milestone line, and it carries the colored members.
+	// A convened round earns a milestone line when it carries round-specific signals, and that
+	// line carries the colored members.
 	before := len(m.blocks)
-	m.onCouncilConvened(event.CouncilConvenedData{Round: 1, Phase: "plan", Members: members, Rule: "majority"})
+	m.onCouncilConvened(event.CouncilConvenedData{
+		Round: 1, Members: members, Rule: "majority", Signals: []string{"verify: pass"},
+	})
 	if len(m.blocks) == before {
-		t.Fatal("a plan-phase convened round must add a milestone line")
+		t.Fatal("a convened round with signals must add a milestone line")
 	}
 	line := m.blocks[len(m.blocks)-1].text
 	if !strings.Contains(line, "\x1b[") {
 		t.Error("the council round milestone line must render members in color")
 	}
-	if s := ansi.Strip(line); !strings.Contains(s, "Melchior") || !strings.Contains(s, "plan audit round 1") {
+	if s := ansi.Strip(line); !strings.Contains(s, "Melchior") || !strings.Contains(s, "council round 1") {
 		t.Errorf("milestone line lost its content: %q", s)
 	}
 }

@@ -35,53 +35,6 @@ func (m *Model) roundVerdicts(round int) []event.CouncilVerdictData {
 	return nil
 }
 
-// planTierTally counts a plan-audit round by what each verdict SAYS, not by the raw done/continue
-// split: done→approve, abstain→abstain, and a continue is bucketed by the severity its member gave
-// it (critical→revise, warn→advise, info→note) so the summary reads the same way the per-member
-// labels do. It reports the members' own words — nothing gates on severity, and a line that said
-// "blocking vs advisory" was describing a plan gate that is gone. An unset or unrecognized
-// severity lands in "revise", which is what the label means when a member did not soften it.
-// "N approve" is always shown; the other tiers appear only when non-zero.
-func planTierTally(vs []event.CouncilVerdictData) string {
-	if len(vs) == 0 {
-		return ""
-	}
-	var approve, revise, advise, note, abstain int
-	for _, v := range vs {
-		switch v.Decision {
-		case "done":
-			approve++
-		case "abstain":
-			abstain++
-		default: // continue, bucketed by severity
-			switch v.Severity {
-			case "warn":
-				advise++
-			case "info":
-				note++
-			default: // critical or unset → blocking
-				revise++
-			}
-		}
-	}
-	parts := []string{fmt.Sprintf("%d approve", approve)}
-	if revise > 0 {
-		parts = append(parts, fmt.Sprintf("%d revise", revise))
-	}
-	if advise > 0 {
-		parts = append(parts, fmt.Sprintf("%d advise", advise))
-	}
-	if note > 0 {
-		parts = append(parts, fmt.Sprintf("%d note", note))
-	}
-	if abstain > 0 {
-		parts = append(parts, fmt.Sprintf("%d abstain", abstain))
-	}
-	return strings.Join(parts, " / ")
-}
-
-// openCouncilDetailAt opens the council detail modal if the clicked content line
-// falls in a council-verdict block. Same block-lookup as toggleThoughtAt.
 func (m *Model) openCouncilDetailAt(line int) bool {
 	i := -1
 	for j := len(m.blockLineStart) - 1; j >= 0; j-- {

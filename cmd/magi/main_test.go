@@ -406,32 +406,23 @@ func TestRunHeadlessErrorCodeOnStderr(t *testing.T) {
 	}
 }
 
-// The council "light" preset trades gate strength for interactive latency: a
-// single verification member and a 1-round cap — unless explicit settings win.
+// The council "light" preset trades gate strength for interactive latency: a single
+// verification member — unless explicit members win.
 func TestCouncilLightPreset(t *testing.T) {
 	light := config.CouncilConfig{Preset: "light"}
 	ms := councilMembers(light, nil)
 	if len(ms) != 1 || ms[0].Lens != "verification" {
 		t.Fatalf("light preset members = %+v, want one verification member", ms)
 	}
-	if got := councilMaxRounds(light); got != 1 {
-		t.Fatalf("light preset rounds = %d, want 1", got)
-	}
-	// Explicit members/rounds override the preset.
-	explicit := config.CouncilConfig{Preset: "light", MaxRounds: 2,
+	// Explicit members override the preset.
+	explicit := config.CouncilConfig{Preset: "light",
 		Members: []config.CouncilMember{{Name: "A", Lens: "correctness"}, {Name: "B", Lens: "verification"}}}
 	if got := len(councilMembers(explicit, nil)); got != 2 {
 		t.Fatalf("explicit members should win, got %d", got)
 	}
-	if got := councilMaxRounds(explicit); got != 2 {
-		t.Fatalf("explicit rounds should win, got %d", got)
-	}
-	// Default/full: nil members (the app supplies the MAGI) and app-default rounds.
+	// Default/full: nil members — the app supplies the MAGI.
 	if ms := councilMembers(config.CouncilConfig{}, nil); ms != nil {
 		t.Fatalf("full preset should defer to the default MAGI, got %+v", ms)
-	}
-	if got := councilMaxRounds(config.CouncilConfig{}); got != 0 {
-		t.Fatalf("unset rounds should defer to the app default, got %d", got)
 	}
 }
 

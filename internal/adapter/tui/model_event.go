@@ -487,27 +487,12 @@ func (m *Model) onPartAppended(d event.PartAppendedData, ts time.Time) {
 	}
 }
 
-// councilPhaseLabel maps a council phase to its transcript label and the verb shown on the
-// convened line. Shared by the main transcript and the subagent-pane renderer so a worker's own
-// council/plan-audit rounds read the same way as the top-level ones.
-func councilPhaseLabel(phase string) (label, verb string) {
-	switch phase {
-	case "plan":
-		return "plan audit", "review the plan"
-	case "contract":
-		return "contract gate", "define the completion conditions"
-	case "substitution":
-		return "substitution review", "verify the check substitution"
-	}
-	return "council", "deliberate"
-}
-
 // onCouncilConvened records a newly-opened council round as a transcript
 // milestone (when it carries round-specific signals or a plan procedure) and
 // arms the header chip. (D14 — the consensus termination gate.)
 // coloredMembers renders each council member's name in its OWN hue (councilColor),
 // bold, joined with muted ", " separators — so the convened/round milestone lines
-// (contract gate, plan audit, termination) carry the same per-member color language
+// carry the same per-member color language
 // as the verdict block and the splash nameplates, instead of one flat string.
 func (m *Model) coloredMembers(members []string) string {
 	segs := make([]string, len(members))
@@ -519,27 +504,15 @@ func (m *Model) coloredMembers(members []string) string {
 
 func (m *Model) onCouncilConvened(d event.CouncilConvenedData) {
 	m.councilRound = d.Round
-	m.councilPhase = d.Phase                            // drives the footer "판정 대기 중" line while the round is open
 	m.pendingCouncilEvidence = formatCouncilEvidence(d) // shown in each verdict's detail view
-	label, verb := councilPhaseLabel(d.Phase)
-	// Noise control: the routine convened line (members + rule) repeats the
-	// same information every round and the header chip already shows the
-	// live deliberation — so it is only worth a transcript line when it
-	// carries something round-specific: deterministic SIGNALS (fabrication
-	// self-check, verify commands), a plan-audit's procedure, or a contract round.
-	showLine := len(d.Signals) > 0 || d.Phase == "plan" || d.Phase == "contract"
-	line := fmt.Sprintf("⚖ %s round %d — %s %s (%s)", label, d.Round, m.coloredMembers(d.Members), verb, d.Rule)
+	// Noise control: the routine convened line (members + rule) repeats the same information
+	// every round and the header chip already shows the live deliberation — so it is only
+	// worth a transcript line when it carries something round-specific: the deterministic
+	// SIGNALS (fabrication self-check, verify commands) fed into this round.
+	showLine := len(d.Signals) > 0
+	line := fmt.Sprintf("⚖ council round %d — %s deliberate (%s)", d.Round, m.coloredMembers(d.Members), d.Rule)
 	if len(d.Signals) > 0 {
 		line += " · " + strings.Join(d.Signals, ", ")
-	}
-	// Plan audit shows the procedure being judged THIS round; the contract gate shows the DRAFT it is
-	// refining (empty on round 1 — the contract is born during the round and enumerated at the decision).
-	if d.Phase == "plan" || d.Phase == "contract" {
-		if plan := strings.TrimSpace(d.Plan); plan != "" {
-			for _, pl := range strings.Split(plan, "\n") {
-				line += "\n    " + pl
-			}
-		}
 	}
 	if showLine {
 		m.blocks = append(m.blocks, block{kind: blockInfo, text: line})
@@ -549,38 +522,12 @@ func (m *Model) onCouncilConvened(d event.CouncilConvenedData) {
 // onCouncilDecided renders a round's outcome + tally line. The caller clears the
 // live council chip before invoking this (a decision ends the open round).
 func (m *Model) onCouncilDecided(d event.CouncilDecidedData) {
-	label, _ := councilPhaseLabel(d.Phase)
-	// A plan re-plan (continue) is always critical-driven (the severity veto), so the
-	// round word is "revise"; termination continue → "reject".
-	_, verdict := councilVerdictLabel(d.Phase, d.Decision, "critical")
-	// A gate-forced finish (round cap, cost cap, unavailable, no-progress, unchanged
-	// resubmit, or a plan proceeding past an unresolved concern) is not a real approval.
-	// The event's Forced flag says so explicitly; the Note substring is only a fallback
-	// for legacy logs persisted before that field existed.
-	if d.Forced || strings.Contains(d.Note, "finishing") || strings.Contains(d.Note, "proceeding") {
-		verdict = "finished (no consensus)"
-		if d.Phase == "plan" {
-			verdict = "proceed (no consensus)"
-		}
+	_, verdict := councilVerdictLabel(d.Decision)
+	counts := fmt.Sprintf("%d done / %d continue", d.Tally.Done, d.Tally.Continue)
+	if d.Tally.Abstain > 0 {
+		counts += fmt.Sprintf(" / %d abstain", d.Tally.Abstain)
 	}
-	// Tally: for a plan audit, split the continue votes by severity tier (revise /
-	// advise / note) so the count matches the per-member labels and shows what was
-	// blocking vs advisory — not a flat "N revise".
-	counts := ""
-	if d.Phase == "plan" {
-		counts = planTierTally(m.roundVerdicts(d.Round))
-	}
-	if counts == "" {
-		doneLabel, contLabel := "done", "continue"
-		if d.Phase == "plan" || d.Phase == "contract" {
-			doneLabel, contLabel = "approve", "revise"
-		}
-		counts = fmt.Sprintf("%d %s / %d %s", d.Tally.Done, doneLabel, d.Tally.Continue, contLabel)
-		if d.Tally.Abstain > 0 {
-			counts += fmt.Sprintf(" / %d abstain", d.Tally.Abstain)
-		}
-	}
-	line := fmt.Sprintf("⚖ %s round %d: %s — %s", label, d.Round, verdict, counts)
+	line := fmt.Sprintf("⚖ council round %d: %s — %s", d.Round, verdict, counts)
 	// A rebuttal only runs when the independent vote split, and the tally beside it is the
 	// one taken AFTER it — so without saying so, a 3-0 that started 2-1 reads as agreement
 	// that was never there. Name the move, and name a rebuttal that moved nobody too: that
@@ -623,7 +570,7 @@ func (m *Model) onCouncilDecided(d event.CouncilDecidedData) {
 	// would leave a "아래 최종본 참고" stub pointing at nothing. Arm a deferred fold
 	// instead — collapseReviewedReport runs from onPartAppended the moment the actual
 	// replacement lands. Forced finishes come through as "done", so they never arm this.
-	if d.Phase != "plan" && d.Decision == "continue" {
+	if d.Decision == "continue" {
 		m.reviewFoldNext = true
 	}
 }
