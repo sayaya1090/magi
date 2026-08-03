@@ -160,3 +160,81 @@ func TestProbeFollowsRuntimeBaseURL(t *testing.T) {
 		t.Errorf("probe hit the stale default base %d time(s); it must follow the runtime override", stale)
 	}
 }
+
+// The two Ollama sources answer different questions, and only one of them says what this server
+// will actually serve. A server started with a smaller num_ctx still reports the architecture's
+// trained length from /api/show, so a caller that trusts it sizes its compaction trigger against
+// a limit the backend never reaches — the shape that let a run climb to 123K on a host that
+// could not hold it, with the trigger sitting at 210K.
+func TestOllamaRuntimeWindowBeatsTheTrainedOne(t *testing.T) {
+	var showHits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/ps":
+			_, _ = w.Write([]byte(`{"models":[
+				{"name":"other:latest","context_length":8192},
+				{"name":"qwen3-coder-next:latest","model":"qwen3-coder-next:latest","context_length":98304}]}`))
+		case r.URL.Path == "/api/show":
+			showHits++
+			_, _ = w.Write([]byte(`{"model_info":{"qwen3next.context_length":262144}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	// Fully qualified, and the untagged form a config file would carry: both must find the
+	// running instance, or the common spelling silently gets the trained number.
+	for _, id := range []string{"qwen3-coder-next:latest", "qwen3-coder-next"} {
+		got, ok := New(srv.URL, "").ProbeContextWindow(context.Background(), id)
+		if !ok || got != 98304 {
+			t.Errorf("ProbeContextWindow(%q) = (%d,%v), want the runtime 98304", id, got, ok)
+		}
+	}
+	if showHits != 0 {
+		t.Errorf("/api/show was consulted %d times though the instance was running", showHits)
+	}
+
+	// A model that is not loaded is not in /api/ps at all — the runtime value does not exist
+	// yet, so the trained length is the only answer there is.
+	got, ok := New(srv.URL, "").ProbeContextWindow(context.Background(), "not-loaded")
+	if !ok || got != 262144 {
+		t.Errorf("an unloaded model must fall back to /api/show, got (%d,%v)", got, ok)
+	}
+}
+
+// An empty /api/ps (nothing loaded at all) must fall through rather than answer 0.
+func TestOllamaEmptyPSFallsThrough(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/ps":
+			_, _ = w.Write([]byte(`{"models":[]}`))
+		case "/api/show":
+			_, _ = w.Write([]byte(`{"model_info":{"qwen3next.context_length":262144}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	if got, ok := New(srv.URL, "").ProbeContextWindow(context.Background(), "m"); !ok || got != 262144 {
+		t.Errorf("empty /api/ps must fall through to /api/show, got (%d,%v)", got, ok)
+	}
+}
+
+// A /api/ps entry with no context_length is not an answer of zero.
+func TestOllamaPSWithoutContextLengthFallsThrough(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/ps":
+			_, _ = w.Write([]byte(`{"models":[{"name":"m","size":123}]}`))
+		case "/api/show":
+			_, _ = w.Write([]byte(`{"model_info":{"qwen3next.context_length":262144}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	if got, ok := New(srv.URL, "").ProbeContextWindow(context.Background(), "m"); !ok || got != 262144 {
+		t.Errorf("a ps entry with no context_length must fall through, got (%d,%v)", got, ok)
+	}
+}
