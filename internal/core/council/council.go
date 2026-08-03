@@ -58,22 +58,7 @@ type Verdict struct {
 	// here is what the member said it was reading.
 	Cite   string  `json:"cite,omitempty"`
 	Weight float64 `json:"weight,omitempty"` // 0 = 1
-	// Severity is how serious the member says its revise (continue) vote is, on a plan-audit
-	// round. Nothing gates on it — the plan gate that read it, and its absent-means-warn /
-	// unrecognized-means-critical rules, went with the audit — so this is carried to the
-	// transcript for a reader to weigh and for the panel to label. Unused in the termination
-	// phase.
-	Severity string `json:"severity,omitempty"`
 }
-
-// Severity tiers a member may put on its verdict. Nothing gates on them any more — the plan audit
-// that did is gone — so they are what the member said, carried through to the transcript for a
-// reader to weigh.
-const (
-	SeverityCritical = "critical"
-	SeverityWarn     = "warn"
-	SeverityInfo     = "info"
-)
 
 // Breakdown is the counted result of a tally — kept on the Deliberation so the
 // outcome is observable and replayable.

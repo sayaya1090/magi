@@ -227,9 +227,7 @@ type ErrorData struct {
 // the no-change flag), so a UI can show what each member judged, not just how they
 // voted. Diff is capped to the same budget the council sees.
 type CouncilConvenedData struct {
-	Round int `json:"round"`
-	// Phase is "" (turn-termination gate) or "plan" (pre-flight plan audit).
-	Phase   string   `json:"phase,omitempty"`
+	Round   int      `json:"round"`
 	Members []string `json:"members"` // member labels (e.g. Melchior/Balthasar/Casper)
 	Rule    string   `json:"rule"`
 	Signals []string `json:"signals,omitempty"` // human summaries of evidence fed in, e.g. "verify/test: fail"
@@ -257,14 +255,12 @@ type CouncilConvenedData struct {
 // CouncilVerdictData — TypeCouncilVerdict (one member's vote).
 type CouncilVerdictData struct {
 	Round      int     `json:"round"`
-	Phase      string  `json:"phase,omitempty"` // "" (termination) or "plan" (plan audit) — selects the UI wording
 	Member     string  `json:"member"`
 	Lens       string  `json:"lens,omitempty"`
 	Decision   string  `json:"decision"` // done | continue | abstain
 	Confidence float64 `json:"confidence,omitempty"`
 	Rationale  string  `json:"rationale,omitempty"`
 	Feedback   string  `json:"feedback,omitempty"`
-	Severity   string  `json:"severity,omitempty"` // plan audit: critical|warn|info on a revise — what gated the decision
 	// Cite is the fragment of the record this member said its verdict rests on, or NO-EVIDENCE
 	// when it rests on the report's substance rather than on anything observed. It is recorded
 	// because it is checkable: magi looks it up in the material the member was shown, so a reader
@@ -282,22 +278,11 @@ type CouncilVerdictData struct {
 // only when the decision is "continue" (it is injected back into the loop).
 type CouncilDecidedData struct {
 	Round    int               `json:"round"`
-	Phase    string            `json:"phase,omitempty"` // "" (termination) or "plan" (plan audit)
-	Decision string            `json:"decision"`        // done | continue
+	Decision string            `json:"decision"` // done | continue
 	Tally    council.Breakdown `json:"tally"`
 	Feedback string            `json:"feedback,omitempty"`
-	// Note explains a gate-forced finish (e.g. round cap reached or no progress),
-	// when the members did not themselves vote done. Empty for a normal decision.
+	// Note says what the outcome means in words, alongside the tally.
 	Note string `json:"note,omitempty"`
-	// Forced marks a finish the members did NOT themselves approve — a gate-forced
-	// landing (round-cap deadlock, cost-cap, council unavailable, no-progress, an
-	// unchanged resubmission, or a plan audit proceeding past an unresolved concern).
-	// The UI reads this to label the outcome "no consensus" instead of a clean done;
-	// it replaces a fragile scan of Note's wording. Absent (false) = genuine decision.
-	Forced bool `json:"forced,omitempty"`
-	// Criteria is the synthesized completion criteria from a plan-audit approval
-	// (plan phase only) — the contract the turn is later judged against.
-	Criteria []string `json:"criteria,omitempty"`
 	// Debate carries the disagreement-triggered rebuttal round when one ran: the
 	// council's decision before and after, and how many members moved. Nil when the
 	// independent vote was already unanimous (the common case) or debate is off.
