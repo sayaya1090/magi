@@ -89,6 +89,25 @@ func TestRenderText(t *testing.T) {
 		Round: 2, Decision: "done", Tally: corecouncil.Breakdown{Done: 3, Continue: 0}})); !strings.Contains(out, "round 2: done") || !strings.Contains(out, "3 done") {
 		t.Errorf("decided not rendered: %q", out)
 	}
+	// A rebuttal only runs when the independent vote split, and the counts printed are the ones
+	// held after it — so a unanimous line can be the outcome of an argument. The headless
+	// transcript is what the bench collects, so it has to say which.
+	if out, _ := render(mk(event.TypeCouncilDecided, event.CouncilDecidedData{
+		Round: 2, Decision: "done", Tally: corecouncil.Breakdown{Done: 3},
+		Debate: &corecouncil.DebateOutcome{Before: corecouncil.Continue, After: corecouncil.Done, Changed: 2},
+	})); !strings.Contains(out, "continue→done") || !strings.Contains(out, "2 moved") {
+		t.Errorf("a rebuttal that flipped the outcome must be named: %q", out)
+	}
+	if out, _ := render(mk(event.TypeCouncilDecided, event.CouncilDecidedData{
+		Round: 2, Decision: "done", Tally: corecouncil.Breakdown{Done: 3},
+		Debate: &corecouncil.DebateOutcome{Before: corecouncil.Done, After: corecouncil.Done, Changed: 0},
+	})); !strings.Contains(out, "done held") {
+		t.Errorf("a rebuttal that moved nobody is still a fact about the round: %q", out)
+	}
+	if out, _ := render(mk(event.TypeCouncilDecided, event.CouncilDecidedData{
+		Round: 2, Decision: "done", Tally: corecouncil.Breakdown{Done: 3}})); strings.Contains(out, "debated") {
+		t.Errorf("no rebuttal ran, so the line must not claim one did: %q", out)
+	}
 	// decided with a gate Note (forced finish) shows the note
 	if out, _ := render(mk(event.TypeCouncilDecided, event.CouncilDecidedData{
 		Round: 3, Decision: "done", Note: "round cap"})); !strings.Contains(out, "(round cap)") {

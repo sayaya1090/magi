@@ -965,6 +965,16 @@ func renderText(out, errw io.Writer, e event.Event) {
 				outcome = "UNVERIFIED (no consensus)"
 			}
 			line := fmt.Sprintf("⚖ council round %d: %s — %d done / %d continue", d.Round, outcome, d.Tally.Done, d.Tally.Continue)
+			// The counts above are the ones the members held AFTER a rebuttal, which only runs
+			// when they first disagreed — so a unanimous line can be the product of an argument
+			// rather than of agreement. Say which.
+			if db := d.Debate; db != nil {
+				if db.Before != db.After {
+					line += fmt.Sprintf(" [debated: %s→%s, %d moved]", db.Before, db.After, db.Changed)
+				} else {
+					line += fmt.Sprintf(" [debated: %s held, %d moved]", db.After, db.Changed)
+				}
+			}
 			if d.Note != "" {
 				line += " (" + d.Note + ")"
 			} else if d.Feedback != "" {

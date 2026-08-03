@@ -92,3 +92,28 @@ func TestBuildLoopMapMultiToolPerMessage(t *testing.T) {
 		t.Errorf("two tool calls in one message must read '1 step · 2 tool calls':\n%s", m)
 	}
 }
+
+// The loop map's counts are post-rebuttal like every other surface's, so a round argued from
+// 1-2 into 3-0 renders identically to one nobody disagreed about. The marker separates them:
+// ⇄N for members who moved, ! when the outcome itself turned over.
+func TestLoopMapMarksAnArguedRound(t *testing.T) {
+	render := func(d *council.DebateOutcome) string {
+		return buildLoopMap([]event.Event{
+			mkEvent(event.TypePromptSubmitted, event.ActorUser, stageExecute,
+				event.PromptSubmittedData{Parts: []session.Part{{Kind: session.PartText, Text: "go"}}}),
+			mkEvent(event.TypeCouncilDecided, event.ActorSystem, stageCouncil,
+				event.CouncilDecidedData{Round: 1, Decision: string(council.Done),
+					Tally: council.Breakdown{Done: 3, Voters: 3}, Debate: d}),
+		})
+	}
+	if got := render(nil); strings.Contains(got, "⇄") {
+		t.Errorf("no rebuttal ran, so there is nothing to mark: %q", got)
+	}
+	got := render(&council.DebateOutcome{Before: council.Done, After: council.Done, Changed: 1})
+	if !strings.Contains(got, "⇄1") || strings.Contains(got, "⇄1!") {
+		t.Errorf("members moved but the outcome held — want ⇄1 with no flip mark: %q", got)
+	}
+	if got := render(&council.DebateOutcome{Before: council.Continue, After: council.Done, Changed: 2}); !strings.Contains(got, "⇄2!") {
+		t.Errorf("the rebuttal turned the outcome over — want ⇄2!: %q", got)
+	}
+}

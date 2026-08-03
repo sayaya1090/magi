@@ -239,3 +239,62 @@ func TestBusyworkSinceTheLastAskDoesNotRestartTheBudget(t *testing.T) {
 		t.Errorf("ending undeclared must still be recorded, got %q", ts.unverifiedReason)
 	}
 }
+
+// The rebuttal round is the only thing that can make the recorded verdicts differ from what the
+// members first thought, and it leaves no other trace: the verdicts are emitted post-debate with
+// the round hardcoded to 1. Without the outcome on the fact, a 3-0 that started 1-2 is
+// indistinguishable from three members who agreed immediately — so whether debating changes
+// anything, which is the only argument for its extra calls, cannot be asked of a run.
+func TestAcceptedDeclarationRecordsTheRebuttal(t *testing.T) {
+	decidedFact := func(t *testing.T, d council.Deliberation) event.CouncilDecidedData {
+		t.Helper()
+		fc := &fakeCouncil{delibs: []council.Deliberation{d}}
+		a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow", Council: fc})
+		ctx := context.Background()
+		if _, err := a.councilAdvice(ctx, a.sessionInfo(ctx, sid), nil, "", true); err != nil {
+			t.Fatalf("declaring completion: %v", err)
+		}
+		evs, err := a.store.Read(ctx, sid, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range evs {
+			if e.Type != event.TypeCouncilDecided {
+				continue
+			}
+			var got event.CouncilDecidedData
+			if json.Unmarshal(e.Data, &got) == nil {
+				return got
+			}
+		}
+		t.Fatal("no council.decided fact was recorded")
+		return event.CouncilDecidedData{}
+	}
+
+	base := council.Deliberation{
+		Round: 1, Decision: council.Done,
+		Breakdown: council.Breakdown{Done: 3, Voters: 3, Rule: council.RuleMajority},
+		Verdicts: []council.Verdict{
+			{Member: "Melchior", Lens: "correctness", Decision: council.Done},
+			{Member: "Balthasar", Lens: "verification", Decision: council.Done},
+			{Member: "Casper", Lens: "completeness", Decision: council.Done},
+		},
+	}
+
+	// A rebuttal that turned the council around must survive onto the fact, arrows and all.
+	debated := base
+	debated.Debate = &council.DebateOutcome{Before: council.Continue, After: council.Done, Changed: 2}
+	got := decidedFact(t, debated)
+	if got.Debate == nil {
+		t.Fatal("the rebuttal outcome was computed and dropped on the way to the fact")
+	}
+	if got.Debate.Before != council.Continue || got.Debate.After != council.Done || got.Debate.Changed != 2 {
+		t.Errorf("rebuttal recorded wrong: %+v", *got.Debate)
+	}
+
+	// No rebuttal ran (the common case: the independent vote was already unanimous). The fact
+	// must not imply one did — an omitted field and a zero-valued one read differently.
+	if got := decidedFact(t, base); got.Debate != nil {
+		t.Errorf("no debate ran, so the fact must carry none, got %+v", *got.Debate)
+	}
+}

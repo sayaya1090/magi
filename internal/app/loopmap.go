@@ -90,6 +90,14 @@ func scanTurns(evs []event.Event) []*loopTurn {
 				continue
 			}
 			s := fmt.Sprintf("r%d %d✓/%d→ %s", d.Round, d.Tally.Done, d.Tally.Continue, d.Decision)
+			// A rebuttal ran only if the independent vote split, and these counts are from after
+			// it — so mark the ones that were argued into shape rather than agreed on.
+			if db := d.Debate; db != nil {
+				s += fmt.Sprintf(" ⇄%d", db.Changed)
+				if db.Before != db.After {
+					s += "!"
+				}
+			}
 			if d.Note != "" {
 				s += " (" + d.Note + ")"
 			}

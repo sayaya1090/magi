@@ -581,6 +581,24 @@ func (m *Model) onCouncilDecided(d event.CouncilDecidedData) {
 		}
 	}
 	line := fmt.Sprintf("⚖ %s round %d: %s — %s", label, d.Round, verdict, counts)
+	// A rebuttal only runs when the independent vote split, and the tally beside it is the
+	// one taken AFTER it — so without saying so, a 3-0 that started 2-1 reads as agreement
+	// that was never there. Name the move, and name a rebuttal that moved nobody too: that
+	// the members heard each other and did not budge is the more interesting outcome.
+	if db := d.Debate; db != nil {
+		moved := fmt.Sprintf("%d members", db.Changed)
+		if db.Changed == 1 {
+			moved = "1 member"
+		}
+		switch {
+		case db.Changed == 0:
+			line += " [debated, no one moved]"
+		case db.Before != db.After:
+			line += fmt.Sprintf(" [debated: %s→%s, %s moved]", db.Before, db.After, moved)
+		default:
+			line += fmt.Sprintf(" [debated: %s held, %s moved]", db.After, moved)
+		}
+	}
 	if d.Note != "" {
 		line += " (" + d.Note + ")"
 	} else if d.Feedback != "" {
