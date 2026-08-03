@@ -36,7 +36,7 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	}
 	sid := s.ID
 	councilActor := event.Actor{Kind: event.ActorSystem, ID: "council"}
-	members, rule, _ := a.councilParams()
+	members, rule := a.councilParams()
 
 	evs, _ := a.store.Read(ctx, sid, 0)
 	evs = a.taskEvents(sid, evs)
@@ -115,7 +115,7 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	if err != nil {
 		return "", fmt.Errorf("the council could not be reached: %w", err)
 	}
-	a.emitCouncilVerdicts(ctx, sid, councilActor, 1, "", delib.Verdicts)
+	a.emitCouncilVerdicts(ctx, sid, councilActor, 1, delib.Verdicts)
 	if !complete {
 		return renderCouncilAdvice(delib,
 			"The council read your work. This is their reading, not a decision — weigh it and judge for yourself."), nil

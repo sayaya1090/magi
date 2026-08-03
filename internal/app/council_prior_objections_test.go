@@ -82,18 +82,3 @@ func TestRepeatedObjectionsCollapse(t *testing.T) {
 		t.Errorf("one concern, stated once — got it %d times", n)
 	}
 }
-
-// A plan-audit verdict judged a PLAN. Replaying it against the finished deliverable would hand the
-// council a complaint about a document instead of about the work.
-func TestPlanAuditVerdictsAreNotDeliverableObjections(t *testing.T) {
-	b, _ := json.Marshal(event.CouncilVerdictData{
-		Round: 1, Phase: "plan", Member: "Melchior", Decision: "continue", Feedback: "step 3 is vague",
-	})
-	evs := []event.Event{
-		event.Event{Type: event.TypePromptSubmitted},
-		event.Event{Type: event.TypeCouncilVerdict, Data: b},
-	}
-	if got := priorCouncilObjections(evs, 6, 4000); got != "" {
-		t.Errorf("a plan verdict is not an objection to the deliverable, got %q", got)
-	}
-}

@@ -295,9 +295,9 @@ func (a *App) observeTurnFinished(ctx context.Context, sid session.SessionID) {
 				sawUnverified, reasonUnverified = true, d.Reason
 			}
 		case event.TypeCouncilDecided:
-			sawCouncil = true // the consensus gate actually ran this turn (approved or forced)
+			sawCouncil = true // the consensus gate actually ran this turn
 			var d event.CouncilDecidedData
-			if json.Unmarshal(e.Data, &d) == nil && d.Phase == "" && d.Decision == string(council.Done) && !d.Forced {
+			if json.Unmarshal(e.Data, &d) == nil && d.Decision == string(council.Done) {
 				sawVerified = true
 			}
 		case event.TypeError:

@@ -37,8 +37,7 @@ func applyRoute(action, turnTask, interject string) (newTask string, changed boo
 // applies the reground the loop owns. It returns the (possibly re-anchored) turnTask and
 // whether it changed. The reground COST differs by route, and that difference is the whole
 // point of the fix:
-//   - "redirect": the goal itself changed, so reground() — the stall accounting starts over and a
-//     new plan audit are warranted.
+//   - "redirect": the goal itself changed, so reground() — the stall accounting starts over.
 //   - "append": the approved plan is FROZEN for the turn. The steer is injected as a
 //     constraint on the in-progress work (injectSteerConstraint) and reground() resets
 //     only the stall/council accounting — NO re-plan, NO re-audit, NO explorer re-dispatch.

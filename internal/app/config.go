@@ -84,7 +84,7 @@ func (s AgentSpec) allows(tool string) bool {
 // guess success from phrasing (the host already knows):
 //
 //	verified   — the council itself voted done (evidence-backed completion)
-//	unverified — the turn landed but the council never approved (deadlock/cost/round cap)
+//	unverified — the turn landed but the council never read it (the agent never declared)
 //	ungated    — the turn used tools and no consensus gate ran on it at all
 //	guard      — reserved: an error event coded loop_guard or stall_guard. NOTHING EMITS
 //	             those codes today, so this outcome cannot currently occur — the guards
@@ -111,7 +111,7 @@ type TurnOutcome = string
 const (
 	// OutcomeVerified — the council itself voted done (evidence-backed completion).
 	OutcomeVerified TurnOutcome = "verified"
-	// OutcomeUnverified — the turn landed but the council never approved (deadlock/cost/round cap).
+	// OutcomeUnverified — the turn landed but the council never read it (the agent never declared).
 	OutcomeUnverified TurnOutcome = "unverified"
 	// OutcomeUngated — the turn used tools and NO consensus gate ran on it. Not a failure by
 	// itself: on a bench wave it is overwhelmingly a turn the harness cut short before the agent
@@ -269,12 +269,10 @@ type Config struct {
 	// "continue" injects the members' aggregated feedback back into the loop. nil
 	// disables the gate (the model's stop is final, the historical behavior).
 	Council port.Council
-	// CouncilRule is the consensus rule (default majority); CouncilMaxRounds caps
-	// council rounds per turn (default 3); CouncilMembers overrides the default
-	// MAGI trio.
-	CouncilRule      council.Rule
-	CouncilMaxRounds int
-	CouncilMembers   []council.Member
+	// CouncilRule is the consensus rule (default majority); CouncilMembers overrides
+	// the default MAGI trio.
+	CouncilRule    council.Rule
+	CouncilMembers []council.Member
 	// CouncilSignals are named deterministic checks run each council round and fed
 	// to the members as evidence (D16) — so the council judges on proof (tests,
 	// lint, typecheck) rather than the agent's claim. Opt-in (empty = no signals).

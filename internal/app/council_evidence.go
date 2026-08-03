@@ -493,8 +493,8 @@ func priorCouncilObjections(evs []event.Event, maxItems, perItemCap int) string 
 			continue
 		}
 		var v event.CouncilVerdictData
-		if json.Unmarshal(e.Data, &v) != nil || v.Phase != "" {
-			continue // a plan-audit verdict judged a plan, not this deliverable
+		if json.Unmarshal(e.Data, &v) != nil {
+			continue
 		}
 		fb := strings.TrimSpace(v.Feedback)
 		if !strings.EqualFold(v.Decision, "continue") || fb == "" || seen[fb] {

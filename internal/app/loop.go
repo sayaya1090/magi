@@ -69,13 +69,10 @@ const (
 	loopAbort                       // context cancelled → return ctx.Err()
 )
 
-// turnState is the per-turn mutable bookkeeping the step loop carries across steps
-// and hands to finishTurn: the once-per-turn guards (stop hooks, empty-subagent
-// nudge), the council's rejected-answer memory (to short-circuit an unchanged
-// resubmit), the UNVERIFIED reason a non-approving finish carries, the one-shot
-// stuck-recovery flag (shared with the stall path), and the consensus gate's own
-// round accounting. reground zeroes the turn-scoped fields; council.spent survives
-// (it is the turn's cumulative deliberation clock — see reground).
+// turnState is the per-turn mutable bookkeeping the step loop carries across steps and hands
+// to finishTurn: the once-per-turn guards (stop hooks, empty-subagent nudge), the accounting
+// behind declareAskCap, and the UNVERIFIED reason a finish carries when no council ever read
+// the work.
 type turnState struct {
 	stopChecked      bool // stop hooks enforced at most once per turn
 	nudgedEmpty      bool
