@@ -5,6 +5,67 @@ import (
 	"testing"
 )
 
+// The three tables here have to agree, and nothing made them. What went wrong was the quiet
+// direction: prereqBinary knew how to probe for "rust" and "dotnet", and no hint ever declared
+// either — a lookup with no producer, which is this codebase's most-repaired shape. In the other
+// direction gopls declared "go" while prereqBootstrap had no entry for it, so a missing Go
+// toolchain produced the bare `go install …` that comes back "command not found" — the dead end
+// this file exists to prevent.
+func TestTheInstallTablesAgree(t *testing.T) {
+	// Server coverage and per-OS commands belong to TestInstallHintCompleteness, which drives the
+	// real serverFor — stronger than re-deriving the server list here. This one only checks wiring.
+	declared := map[string]bool{}
+	for server, h := range lspInstallHints {
+		if h.prereq == "" {
+			continue
+		}
+		declared[h.prereq] = true
+		if prereqBinary(h.prereq) == "" {
+			t.Errorf("%s declares prereq %q, which prereqBinary cannot probe", server, h.prereq)
+		}
+		if _, ok := prereqBootstrap[h.prereq]; !ok {
+			t.Errorf("%s declares prereq %q, which prereqBootstrap cannot install", server, h.prereq)
+		}
+	}
+	// …and the other direction: nothing sits in those tables that no server asks for.
+	for p := range prereqBootstrap {
+		if !declared[p] {
+			t.Errorf("prereqBootstrap has %q and no server declares it", p)
+		}
+	}
+	if len(declared) == 0 {
+		t.Fatal("no server declares a prereq, so this checked nothing")
+	}
+	// A bootstrap must answer on every platform, or the advice silently drops the line that says
+	// how to get the runtime it just told you that you need.
+	for p, h := range prereqBootstrap {
+		for _, goos := range []string{"darwin", "linux", "windows"} {
+			if h.forOS(goos) == "" {
+				t.Errorf("prereq %s has no bootstrap for %s", p, goos)
+			}
+		}
+	}
+}
+
+// A linux command that assumes a package manager says which one. The reader can translate an
+// apt-get line to dnf if they know that is what they are reading, and cannot if it merely failed.
+func TestLinuxCommandsNameTheirDistro(t *testing.T) {
+	check := func(what, cmd string) {
+		if !strings.Contains(cmd, "apt") {
+			return
+		}
+		if !strings.Contains(cmd, "Debian") && !strings.Contains(cmd, "Ubuntu") {
+			t.Errorf("%s: linux command uses apt without naming the distro: %q", what, cmd)
+		}
+	}
+	for server, h := range lspInstallHints {
+		check(server, h.forOS("linux"))
+	}
+	for p, h := range prereqBootstrap {
+		check("prereq "+p, h.forOS("linux"))
+	}
+}
+
 func TestServerInstallOSOverride(t *testing.T) {
 	// clangd has per-OS overrides — each must select its own command.
 	if cmd, _ := serverInstall("clangd", "darwin"); !strings.Contains(cmd, "brew") {
@@ -27,13 +88,20 @@ func TestServerInstallOSOverride(t *testing.T) {
 }
 
 func TestComposeInstallAdvice(t *testing.T) {
-	// (a) No prerequisite → server command only, no bootstrap.
-	adv := composeInstallAdvice("rust-analyzer", "darwin", true)
-	if !strings.Contains(adv, "rustup component add rust-analyzer") {
-		t.Errorf("rust-analyzer advice missing command: %q", adv)
+	// (a) No prerequisite → server command only, no bootstrap. clangd installs from the OS package
+	// manager and needs nothing first. (This case used rust-analyzer until rust-analyzer got the
+	// prereq it always needed: `rustup component add` cannot run without rustup.)
+	adv := composeInstallAdvice("clangd", "darwin", true)
+	if !strings.Contains(adv, "brew install llvm") {
+		t.Errorf("clangd advice missing command: %q", adv)
 	}
 	if strings.Contains(adv, "first install") {
-		t.Errorf("rust-analyzer has no prereq, must not bootstrap: %q", adv)
+		t.Errorf("clangd has no prereq, must not bootstrap: %q", adv)
+	}
+	// …and the one that DOES now declare it bootstraps.
+	adv = composeInstallAdvice("rust-analyzer", "darwin", true)
+	if !strings.Contains(adv, "first install rust") || !strings.Contains(adv, "rustup component add rust-analyzer") {
+		t.Errorf("rust-analyzer should bootstrap rustup then install: %q", adv)
 	}
 
 	// (b) Prerequisite present (missing=false) → server command only.
@@ -64,7 +132,7 @@ func TestComposeInstallAdvice(t *testing.T) {
 
 func TestPrereqBinaryMapping(t *testing.T) {
 	cases := map[string]string{
-		"node": "npm", "python": "python3", "java": "java",
+		"node": "npm", "java": "java",
 		"go": "go", "rust": "rustup", "ruby": "gem", "dotnet": "dotnet",
 		"": "", "unknown": "",
 	}
@@ -72,6 +140,10 @@ func TestPrereqBinaryMapping(t *testing.T) {
 		if got := prereqBinary(prereq); got != want {
 			t.Errorf("prereqBinary(%q) = %q, want %q", prereq, got, want)
 		}
+	}
+	// python was a prereq label no server ever declared; it went out with the tables it orphaned.
+	if got := prereqBinary("python"); got != "" {
+		t.Errorf("prereqBinary(\"python\") = %q — nothing declares it, so it should be gone", got)
 	}
 	// Every bootstrap runtime must resolve to a probe binary.
 	for prereq := range prereqBootstrap {
