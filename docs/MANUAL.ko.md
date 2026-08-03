@@ -159,8 +159,7 @@ command = "go test ./... >/dev/null || echo 'tests failing' >&2"
 [council]                  # 에이전트가 council 툴로 부르는 카운슬(기본 on).
 enabled    = true          # false면 툴이 사라지고, 종료 선언도 함께 사라진다(§6)
 rule       = "majority"    # unanimous | majority | quorum:2 | weighted:0.6 | veto:Balthasar
-max_rounds = 3             # 호출당 라운드 상한(무진전 안전장치와 함께 무한루프 방지)
-preset     = "full"        # "light" = 검증 위원 1인·1라운드 (인터랙티브 지연 절감; member/max_rounds 명시가 우선)
+preset     = "full"        # "light" = 검증 위원 1인 (인터랙티브 지연 절감; member 명시가 우선)
 # [[council.member]]       # 생략 시 MAGI 기본 3인 사용
 # name = "Melchior"; lens = "correctness"  # lens: correctness|verification|completeness
 
@@ -171,7 +170,7 @@ accent  = "#5CD8E6"        #       surface·primaryContainer·outlineVariant·wa
 primary = "#B45309"
 ```
 > 위 `[routing]`/`[llm.profiles.*]`/`model`은 **`/route` 에디터로도 편집**되며 이 파일에 저장된다.
-> **카운슬(MAGI: Melchior·Balthasar·Casper · 기본 on)**: 에이전트가 `council` 툴로 부르는 3인이다. `question`은 확신이 안 서는 것에 대한 읽기를 받아오고 아무것도 끝내지 않으며, `complete: true`는 **작업 종료를 선언**하고 답을 받는다 — 수락(턴 종료)이거나, 무엇이 아직 안 됐는지와 함께 반려(§6). 그들이 읽는 것은 magi 자신의 기록이다: 허가한 모든 명령과 그것이 진짜로 어떻게 끝났는지(실패가 exit 0 뒤에 숨은 파이프라인은 failed로 기록), 툴이 쓴 경로, **이번 턴 에이전트 자신의 편집**을 파일별 before→after diff로(write/edit 호출에서 재구성 — git 독립이라 사람이나 외부가 만든 변경이 에이전트 공으로 잡히지 않는다), 그리고 선언 시엔 **워크스페이스 새로 읽기**: 작업 시작 이후 수정된 파일, 아직 살아있는 백그라운드 명령, 기록은 썼다는데 디스크에 없는 경로. 멤버는 자기 렌즈가 **구체적 결함**을 짚을 때만 반대하고, 만족하면 수락하며, 판단할 증거가 없으면 **기권**한다. `rule`이 합의 방식, `max_rounds`가 라운드 상한. 각 `[[council.member]]`에 `provider`(= `[llm.profiles.*]` 백엔드)와 `model`을 주면 **멤버마다 다른 모델로 심의**(싼 것+강한 것 혼합)할 수 있고, 미지정이면 세션 모델을 쓴다. TUI에선 심의가 **헤더 칩**(`⚖ council rN: <member>`)과 트랜스크립트 라인(소집 · 멤버별 한 줄: 멤버 색 `●` + 이름 + 판정 아이콘 · 집계)으로 라이브 표시된다. **멤버 라인을 클릭하면 상세 모달**(렌즈·근거·피드백·확신도)이 열린다. 멤버별 색은 테마로 변경 가능(`[theme.dark] melchior/balthasar/casper`). `verify = "<명령>"`(축약) 또는 `[[council.signal]]`(name/command — 복수 가능)을 주면 매 라운드 그 명령들을 돌려 **결과를 증거로** 먹인다. 워크플로우 모드에선 비활성(파이프라인이 자체 verify 게이트를 씀).
+> **카운슬(MAGI: Melchior·Balthasar·Casper · 기본 on)**: 에이전트가 `council` 툴로 부르는 3인이다. `question`은 확신이 안 서는 것에 대한 읽기를 받아오고 아무것도 끝내지 않으며, `complete: true`는 **작업 종료를 선언**하고 답을 받는다 — 수락(턴 종료)이거나, 무엇이 아직 안 됐는지와 함께 반려(§6). 그들이 읽는 것은 magi 자신의 기록이다: 허가한 모든 명령과 그것이 진짜로 어떻게 끝났는지(실패가 exit 0 뒤에 숨은 파이프라인은 failed로 기록), 툴이 쓴 경로, **이번 턴 에이전트 자신의 편집**을 파일별 before→after diff로(write/edit 호출에서 재구성 — git 독립이라 사람이나 외부가 만든 변경이 에이전트 공으로 잡히지 않는다), 그리고 선언 시엔 **워크스페이스 새로 읽기**: 작업 시작 이후 수정된 파일, 아직 살아있는 백그라운드 명령, 기록은 썼다는데 디스크에 없는 경로. 멤버는 자기 렌즈가 **구체적 결함**을 짚을 때만 반대하고, 만족하면 수락하며, 판단할 증거가 없으면 **기권**한다. `rule`이 합의 방식. 각 `[[council.member]]`에 `provider`(= `[llm.profiles.*]` 백엔드)와 `model`을 주면 **멤버마다 다른 모델로 심의**(싼 것+강한 것 혼합)할 수 있고, 미지정이면 세션 모델을 쓴다. TUI에선 심의가 **헤더 칩**(`⚖ council rN: <member>`)과 트랜스크립트 라인(소집 · 멤버별 한 줄: 멤버 색 `●` + 이름 + 판정 아이콘 · 집계)으로 라이브 표시된다. **멤버 라인을 클릭하면 상세 모달**(렌즈·근거·피드백·확신도)이 열린다. 멤버별 색은 테마로 변경 가능(`[theme.dark] melchior/balthasar/casper`). `verify = "<명령>"`(축약) 또는 `[[council.signal]]`(name/command — 복수 가능)을 주면 매 라운드 그 명령들을 돌려 **결과를 증거로** 먹인다. 워크플로우 모드에선 비활성(파이프라인이 자체 verify 게이트를 씀).
 > 컬러 테마는 `[theme.dark]`/`[theme.light]`에서 role별로 외부 정의 가능(기본=NERV/MAGI). `--theme`로 모드(auto/dark/light) 선택.
 > 첫 실행 시 주석 달린 기본 `config.toml`이 자동 생성된다(있으면 안 건드림).
 > **잘못된 config는 절대 조용히 무시되지 않는다**: 전역 `config.toml` 파싱이 실패하면(예: 최상위 키 중복) magi는 파스 에러를 출력하고 시작을 거부한다 — 모델·플러그인·기타 모든 설정을 떨굴 빈 config로 폴백하지 않는다. 잘못된 **프로젝트** `.magi/config.toml`은 warn 후 건너뜀(유효한 전역 config는 여전히 적용). 알 수 없는 *키*(오타)는 warn일 뿐 시작을 막지 않는다.

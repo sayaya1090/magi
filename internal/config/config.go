@@ -117,14 +117,13 @@ type CouncilConfig struct {
 	// Enabled toggles the council. nil = on by default; set false to disable, which
 	// also removes the `council` tool and with it the finish declaration. (Pointer so
 	// "unset" is distinguishable from an explicit false.)
-	Enabled   *bool           `toml:"enabled"`
-	Rule      string          `toml:"rule"`       // unanimous|majority|quorum:k|weighted:θ|veto:Name (default majority)
-	MaxRounds int             `toml:"max_rounds"` // cap rounds per turn (default 3)
-	Members   []CouncilMember `toml:"member"`     // [[council.member]] tables; empty = the MAGI
+	Enabled *bool           `toml:"enabled"`
+	Rule    string          `toml:"rule"`   // unanimous|majority|quorum:k|weighted:θ|veto:Name (default majority)
+	Members []CouncilMember `toml:"member"` // [[council.member]] tables; empty = the MAGI
 	// Preset trades reading depth for interactive latency: "full" (default) is the
-	// 3-member MAGI; "light" is a single verification member with a 1-round cap —
-	// one cheap LLM call per council call instead of 3×rounds, for everyday
-	// chat-speed use. Explicit member/max_rounds settings override the preset.
+	// 3-member MAGI; "light" is a single verification member — one cheap LLM call per
+	// council call instead of three, for everyday chat-speed use. Explicit members
+	// override the preset.
 	Preset string `toml:"preset"` // "" | "full" | "light"
 	// Verify is a shorthand for a single deterministic signal named "verify" the
 	// council runs each round as evidence (D16). Signals adds more named checks
@@ -252,7 +251,6 @@ const defaultConfigTemplate = `# magi configuration. Everything here is optional
 # [council]
 # enabled    = false        # the council is on by default; uncomment to disable
 # rule       = "majority"   # unanimous | majority | quorum:2 | weighted:0.6 | veto:Balthasar
-# max_rounds = 3
 # verify     = "go test ./..."   # opt-in: run each round, fed to the council as evidence
 # [[council.signal]]             # more named checks (test/lint/typecheck), all fed as evidence
 # name = "lint"
