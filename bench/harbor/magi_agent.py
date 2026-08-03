@@ -44,6 +44,8 @@ from harbor.agents.installed.base import BaseInstalledAgent
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
+from bench.harbor.eventsink import EventSink
+
 
 class MagiAgent(BaseInstalledAgent):
     """magi as a Harbor installed agent (prebuilt binary, network-free install)."""
@@ -219,32 +221,45 @@ class MagiAgent(BaseInstalledAgent):
         # an output callback makes the docker env take its STREAMED exec path (stderr is
         # merged into stdout there), flushing each line to the file as it arrives, so
         # whatever ran before the kill is preserved for post-hoc analysis.
+        # `--output json` puts the WHOLE event bus on stdout, transients included. The
+        # store magi writes to MAGI_DATA_DIR only keeps facts, so everything that answers
+        # "where did the wall clock go" — context.usage (prompt tokens and cumulative
+        # output per step), tool.started/tool.progress, part.delta — was being computed
+        # and dropped. A wave could be dissected for WHAT the agent did and never for how
+        # much each step cost. The events file is what closes that.
         command = (
             "magi -p "
             f"{shlex.quote(instruction)} "
             "--permission allow "
+            "--output json "
             f"--model {shlex.quote(model)}"
         )
         stdout_path = self.logs_dir / "magi-stdout.txt"
+        events_path = self.logs_dir / "magi-events.jsonl"
         result = None
-        with stdout_path.open("w") as f:
+        with stdout_path.open("w") as f, events_path.open("w") as ev:
+            sink = EventSink(events=ev, transcript=f)
 
             async def _on_output(text: str, _stream: object) -> None:
-                f.write(text)
-                f.flush()
+                sink.feed(text)
 
             try:
                 with environment.scoped_output_callback(_on_output):
                     result = await environment.exec(command=command, env=env or None)
             finally:
-                f.flush()
+                sink.close()
 
-        # Fallback for environments that don't stream (buffered exec leaves the file
-        # empty): persist the buffered stdout once on a clean return.
+        # Fallback for environments that don't stream (buffered exec leaves the files
+        # empty): replay the buffered stdout through the same sink on a clean return, so
+        # a non-streaming environment produces both files rather than one raw JSONL blob
+        # in the slot the readable transcript is supposed to occupy.
         if result is None:
             return
         if result.stdout and stdout_path.stat().st_size == 0:
-            stdout_path.write_text(result.stdout)
+            with stdout_path.open("w") as f, events_path.open("w") as ev:
+                replay = EventSink(events=ev, transcript=f)
+                replay.feed(result.stdout)
+                replay.close()
         if result.stderr:
             (self.logs_dir / "magi-stderr.txt").write_text(result.stderr)
         if result.return_code != 0:
