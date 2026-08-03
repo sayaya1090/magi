@@ -128,6 +128,10 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	// votes behind it — observed live on a run whose three members all voted done.
 	dd, _ := json.Marshal(event.CouncilDecidedData{
 		Round: 1, Decision: string(delib.Decision), Tally: delib.Breakdown, Feedback: delib.Feedback,
+		// The rebuttal round rides the fact for the same reason the tally does: the verdicts
+		// recorded here are the ones members held AFTER debating, so without this the round
+		// leaves no trace and "did arguing change the outcome" cannot be asked of a run.
+		Debate: delib.Debate,
 		Note: map[bool]string{
 			true:  "the agent declared the task finished and the council accepts — the turn ends",
 			false: "the agent declared the task finished; the council does not accept it yet",

@@ -298,6 +298,17 @@ type CouncilDecidedData struct {
 	// Criteria is the synthesized completion criteria from a plan-audit approval
 	// (plan phase only) — the contract the turn is later judged against.
 	Criteria []string `json:"criteria,omitempty"`
+	// Debate carries the disagreement-triggered rebuttal round when one ran: the
+	// council's decision before and after, and how many members moved. Nil when the
+	// independent vote was already unanimous (the common case) or debate is off.
+	//
+	// The adapter has always computed this "for observability" and nothing observed it:
+	// the verdicts that reach the log are the POST-rebuttal ones, emitted with the round
+	// hardcoded to 1, so a rebuttal that flipped the outcome was indistinguishable from
+	// three members who agreed on the first pass. Whether the round changes anything was
+	// therefore unanswerable from a run — which is the only way to know if it earns its
+	// three extra calls.
+	Debate *council.DebateOutcome `json:"debate,omitempty"`
 }
 
 // FeedbackLines renders a rejection's feedback for a human surface: the non-blank lines, each
