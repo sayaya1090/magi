@@ -28,9 +28,6 @@ type AgentRoute struct {
 	Provider string // named profile, or "" for the default backend
 }
 
-// routeOverride is a runtime per-agent routing edit applied over config.
-type routeOverride struct{ model, provider string }
-
 // ProfileDef is a named LLM backend definition (endpoint/key/model + one optional
 // custom header), editable in the /route menu and persisted to [llm.profiles.*].
 type ProfileDef struct {

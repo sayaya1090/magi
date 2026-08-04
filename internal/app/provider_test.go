@@ -67,8 +67,7 @@ func (r *recordPersister) PersistProfile(p ProfileDef) error {
 func TestRoutePersisted(t *testing.T) {
 	p := &recordPersister{}
 	a := &App{
-		routeOverrides: map[string]routeOverride{},
-		states:         map[session.SessionID]*sessionState{"s1": {meta: session.Session{ID: "s1"}}},
+		states: map[session.SessionID]*sessionState{"s1": {meta: session.Session{ID: "s1"}}},
 		cfg: Config{
 			Agents:         map[string]AgentSpec{"coder": {Name: "coder"}},
 			RoutePersister: p,
@@ -86,9 +85,8 @@ func TestSetProfileRuntime(t *testing.T) {
 	p := &recordPersister{}
 	built := ""
 	a := &App{
-		routeOverrides: map[string]routeOverride{},
-		providers:      map[string]port.LLMProvider{},
-		profileDefs:    map[string]ProfileDef{},
+		providers:   map[string]port.LLMProvider{},
+		profileDefs: map[string]ProfileDef{},
 		cfg: Config{
 			ProfileModels:  map[string]string{},
 			RoutePersister: p,

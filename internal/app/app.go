@@ -28,7 +28,6 @@ type App struct {
 	llm              port.LLMProvider
 	providers        map[string]port.LLMProvider // named LLM profiles (per-agent endpoint/key routing)
 	profileDefs      map[string]ProfileDef       // profile definitions (guarded by mu), for the /route editor
-	routeOverrides   map[string]routeOverride    // runtime per-agent routing edits (guarded by mu)
 	tools            port.ToolRegistry
 	bus              *bus.Bus
 	plat             port.Platform
@@ -71,7 +70,6 @@ func New(store port.Store, llm port.LLMProvider, tools port.ToolRegistry, b *bus
 		llm:            llm,
 		providers:      cloneProviders(c.Providers),
 		profileDefs:    cloneProfileDefs(c.ProfileDefs),
-		routeOverrides: map[string]routeOverride{},
 		tools:          tools,
 		bus:            b,
 		plat:           plat,
