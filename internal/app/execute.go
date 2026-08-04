@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sayaya1090/magi/internal/core/artifact"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
@@ -309,7 +308,6 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		ScratchLogs:  scratch.logsDir(),
 		ScratchTmp:   scratch.tmpDir(),
 		Platform:     a.plat,
-		EmitArtifact: func(art artifact.Artifact) { a.emitArtifact(ctx, sid, actor, art) },
 		EmitProgress: func(text string) { a.emitToolProgress(sid, actor, tc.CallID, tc.Name, text) },
 		Council: func(cctx context.Context, question string, complete bool) (string, error) {
 			return a.councilAdvice(cctx, s, guardChanges(guard), question, complete)

@@ -9,7 +9,6 @@ import (
 	"errors"
 	"time"
 
-	"github.com/sayaya1090/magi/internal/core/artifact"
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -182,8 +181,6 @@ type ToolEnv struct {
 	ScratchTmp string
 	// AskPermission gates dangerous operations; returns true if allowed.
 	AskPermission func(callID, name string, args json.RawMessage) (bool, error)
-	// EmitArtifact lets a tool publish a reviewable artifact (D11).
-	EmitArtifact func(artifact.Artifact)
 	// EmitProgress lets a long-running tool publish a live, best-effort progress
 	// note (e.g. wait_for's poll status) while it blocks, so the TUI spinner and
 	// the headless stream can show what is being waited on instead of a silent

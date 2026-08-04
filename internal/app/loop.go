@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sayaya1090/magi/internal/core/artifact"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
@@ -540,12 +539,6 @@ func (a *App) publishContextUsage(sid session.SessionID, actor event.Actor, mode
 	}
 	d, _ := json.Marshal(event.ContextUsageData{Tokens: tokens, Window: window, Percent: pct, OutTokens: outTokens})
 	a.publishTransient(sid, event.TypeContextUsage, actor, d)
-}
-
-// emitArtifact persists an artifact emitted by a tool/subagent (D11).
-func (a *App) emitArtifact(ctx context.Context, sid session.SessionID, actor event.Actor, art artifact.Artifact) {
-	d, _ := json.Marshal(event.ArtifactEmittedData{Artifact: art})
-	a.appendFact(ctx, sid, event.TypeArtifactEmitted, actor, d)
 }
 
 // appendPart records one part of a message. A part that cannot be marshalled is recorded as the
