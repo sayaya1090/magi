@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/port"
@@ -710,5 +712,83 @@ func TestCouncilPromptsCarryNoHarnessFraming(t *testing.T) {
 				t.Errorf("%s prompt asserts a harness artifact %q — keep acceptance task-relative", name, banned)
 			}
 		}
+	}
+}
+
+// Each member is announced the moment IT answers, not once when the slowest one does.
+//
+// The members are polled concurrently, so the batch the deliberation returns is gated on the
+// slowest of them — a median 87s across the recorded runs, all of it with nothing on screen.
+// OnVerdict is what lets a caller paint the first two while the third is still thinking.
+func TestOnVerdictFiresPerMemberBeforeTheBatch(t *testing.T) {
+	release := make(map[string]chan struct{}, 3)
+	for _, n := range []string{"Melchior", "Balthasar", "Casper"} {
+		release[n] = make(chan struct{})
+	}
+	llm := fakeLLM{reply: func(r port.ChatRequest) string {
+		for name, gate := range release {
+			if memberIn(r, name) {
+				<-gate // this member answers only when the test lets it
+				return `{"decision":"done","confidence":1,"rationale":"fine"}`
+			}
+		}
+		return `{"decision":"abstain","rationale":"?"}`
+	}}
+	c := New(func(string) port.LLMProvider { return llm }, "m")
+
+	var mu sync.Mutex
+	var announced []string
+	done := make(chan council.Deliberation, 1)
+	go func() {
+		d, err := c.Deliberate(context.Background(), port.DeliberationRequest{
+			Task: "t", Members: council.DefaultMembers(),
+			OnVerdict: func(v council.Verdict) {
+				mu.Lock()
+				announced = append(announced, v.Member)
+				mu.Unlock()
+			},
+		})
+		if err != nil {
+			t.Error(err)
+		}
+		done <- d
+	}()
+
+	// Let ONE member answer. Its verdict must be announced while the other two are still out.
+	release["Balthasar"] <- struct{}{}
+	deadline := time.After(2 * time.Second)
+	for {
+		mu.Lock()
+		n := len(announced)
+		mu.Unlock()
+		if n == 1 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("one member answered and %d verdicts were announced — this is still a batch", n)
+		case <-time.After(time.Millisecond):
+		}
+	}
+	select {
+	case <-done:
+		t.Fatal("the deliberation returned before the other members answered")
+	default:
+	}
+
+	release["Melchior"] <- struct{}{}
+	release["Casper"] <- struct{}{}
+	select {
+	case d := <-done:
+		if len(d.Verdicts) != 3 {
+			t.Errorf("the batch must still carry every verdict, got %d", len(d.Verdicts))
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("deliberation did not finish")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(announced) != 3 {
+		t.Errorf("every member must be announced once, got %v", announced)
 	}
 }

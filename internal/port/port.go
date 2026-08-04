@@ -123,6 +123,14 @@ type DeliberationRequest struct {
 	// result. Consensus → one outcome; still split → the ordinary rule decides.
 	// No extra call when the independent vote is unanimous (the common case).
 	Debate bool
+	// OnVerdict, when set, is called with each member's verdict the moment that member
+	// answers, from the goroutine that polled it — so a caller can show a council as it
+	// lands instead of after the slowest member. Members are polled concurrently and one
+	// can take minutes, so batching the three costs the whole wait before anything appears.
+	// It is a NOTIFICATION, not the result: the returned Deliberation is still the record,
+	// and a verdict revised by the rebuttal round is not re-announced through here.
+	// Implementations must be safe to call from several goroutines.
+	OnVerdict func(council.Verdict)
 	// Keep asks each member to ALSO report, alongside its fix feedback, what the report
 	// already gets right through its lens — advisory "keep this, don't redo/revert it" that
 	// is surfaced above the feedback when the turn continues. It never affects the decision

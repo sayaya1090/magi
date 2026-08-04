@@ -49,11 +49,18 @@ func (c *Council) Deliberate(ctx context.Context, req port.DeliberationRequest) 
 
 	verdicts := make([]council.Verdict, len(members))
 	var wg sync.WaitGroup
+	var notify sync.Mutex // OnVerdict does I/O; serialize it rather than require callers to
 	for i, m := range members {
 		wg.Add(1)
 		go func(i int, m council.Member) {
 			defer wg.Done()
-			verdicts[i] = c.poll(ctx, req, m)
+			v := c.poll(ctx, req, m)
+			verdicts[i] = v
+			if req.OnVerdict != nil {
+				notify.Lock()
+				req.OnVerdict(v)
+				notify.Unlock()
+			}
 		}(i, m)
 	}
 	wg.Wait()
