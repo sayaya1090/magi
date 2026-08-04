@@ -198,6 +198,7 @@ func (m *Model) sendPrompt(display, send string) tea.Cmd {
 	m.turnIn, m.turnOut, m.turnDur = 0, 0, 0
 	m.turnSteps, m.turnCouncil, m.turnFiles = 0, 0, map[string]bool{}
 	m.turnUnverified = false
+	m.turnReceipted = false // a new turn earns a new receipt
 	m.refresh()
 	sid := m.sid
 	return tea.Batch(m.sp.Tick, func() tea.Msg {

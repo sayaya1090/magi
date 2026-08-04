@@ -174,6 +174,7 @@ type Model struct {
 	councilRound   int             // current council round (0 = no council active); header chip
 	councilMember  string          // member currently being polled (live); cleared when the turn ends
 	councilPhase   string          // phase of the open round ("plan" audit vs "" review/consensus); drives the footer waiting line
+	turnReceipted  bool            // this turn already printed its one-line receipt (a turn can end twice)
 	reviewFoldNext bool            // a review round voted continue → fold the pre-review report once its revision actually lands
 
 	cache  []string // rendered finalized blocks (keyed by cacheW)

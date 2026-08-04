@@ -654,8 +654,19 @@ func (m *Model) onTurnFinished(e event.Event) {
 	}
 	// One-line turn receipt: what the turn actually cost, without scrolling
 	// back through the transcript (steps matter more now that the ceiling is 240).
+	//
+	// ONCE per turn. A turn can end more than once on this stream — a cancelled run writes a
+	// second turn.finished, and the run goroutine publishes a transient one when it retires so a
+	// spinner revived by work that arrived after the turn's own event still stops. Both carry the
+	// same counters, so an unguarded append printed the identical receipt twice. The flag is
+	// cleared by SUBMIT, not by the spinner reviving: the receipt belongs to the turn the user
+	// asked for, and a drained interjection answered afterwards is part of it, not a new one.
+	if m.turnReceipted {
+		return
+	}
 	if sum := m.turnSummary(); sum != "" {
 		m.blocks = append(m.blocks, block{kind: blockInfo, text: sum})
+		m.turnReceipted = true
 	}
 }
 

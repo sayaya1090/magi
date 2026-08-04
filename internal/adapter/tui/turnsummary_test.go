@@ -70,3 +70,50 @@ func TestDuplicateAssistantBlockCollapses(t *testing.T) {
 		t.Fatal("short duplicates are not worth collapsing")
 	}
 }
+
+// One receipt per turn, and one for EVERY turn.
+//
+// A turn can end more than once on this stream: a cancelled run writes a second turn.finished,
+// and the run goroutine publishes a transient one when it retires so a spinner revived by work
+// arriving after the turn's own event still stops. Both carry the same counters, so the receipt
+// has to be guarded — and the guard has to be released when the next turn starts, or every turn
+// after the first is silently unreceipted.
+func TestTheReceiptIsPrintedOncePerTurnAndForEveryTurn(t *testing.T) {
+	mm := newTestModel(t)
+	m := &mm
+	m.turnFiles = map[string]bool{}
+	receipts := func() int {
+		n := 0
+		for _, b := range m.blocks {
+			if b.kind == blockInfo && strings.Contains(b.text, "▣ turn:") {
+				n++
+			}
+		}
+		return n
+	}
+	work := func() {
+		m.applyEvent(ev(t, event.TypePartAppended, event.PartAppendedData{Role: session.RoleAssistant,
+			Part: session.Part{Kind: session.PartToolCall, ToolCall: &session.ToolCall{Name: "bash", Args: []byte(`{"command":"ls"}`)}}}))
+	}
+
+	work()
+	m.applyEvent(event.Event{Type: event.TypeTurnFinished})
+	if got := receipts(); got != 1 {
+		t.Fatalf("a finished turn prints one receipt, got %d", got)
+	}
+	// The turn ends a second time — a cancel's event, or the retirement signal that stops a
+	// spinner revived by a drained interjection's reply.
+	m.applyEvent(event.Event{Type: event.TypeTurnFinished})
+	if got := receipts(); got != 1 {
+		t.Errorf("the same turn printed %d receipts", got)
+	}
+
+	// The NEXT turn earns its own. Without releasing the guard here, every turn after the first
+	// is silently unreceipted — which no other test would notice.
+	m.submit("do the next thing")
+	work()
+	m.applyEvent(event.Event{Type: event.TypeTurnFinished})
+	if got := receipts(); got != 2 {
+		t.Errorf("the second turn got no receipt of its own (total %d)", got)
+	}
+}
