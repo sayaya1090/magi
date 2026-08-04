@@ -608,6 +608,11 @@ func killedByStatus(exit int) string {
 
 // killedBy names what killed the command ("" when it ran to completion), and gates the empty-
 // capture sentence: only a command that FINISHED can be said to have written nothing.
+//
+// An EMPTY capture is named without its path. The path exists so the agent can go read the part
+// that did not fit above; there is no such part, so the only thing the name could buy is a read
+// that returns nothing. It was costing a line of every such result and inviting that read.
+// A path whose size could not be read keeps its name — there, the name is the only handle.
 func outputLine(path string, omitted bool, killedBy string) string {
 	if path == "" {
 		return ""
@@ -627,10 +632,10 @@ func outputLine(path string, omitted bool, killedBy string) string {
 		// until its input ends, so the log was empty for a build that had been talking for two
 		// minutes. The timeout note already refuses to read the missing exit as failure; the
 		// missing output gets the same treatment.
-		return fmt.Sprintf("output: %s (the capture is empty — the command was %s, so this does "+
-			"not say it wrote nothing)\n", path, killedBy)
+		return fmt.Sprintf("the capture is empty — the command was %s, so this does "+
+			"not say it wrote nothing\n", killedBy)
 	case size == 0:
-		return fmt.Sprintf("output: %s (the command wrote nothing — the file is empty)\n", path)
+		return "the command wrote nothing\n"
 	case omitted:
 		return fmt.Sprintf("output: %s (%d bytes — the head and tail are above, the file has all of it)\n", path, size)
 	}

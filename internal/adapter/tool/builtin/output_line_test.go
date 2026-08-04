@@ -34,6 +34,11 @@ func TestTheOutputLineSaysHowMuchOfTheOutputIsAbove(t *testing.T) {
 	if strings.Contains(got, "head and tail") {
 		t.Errorf("nothing was clipped out of nothing:\n%s", got)
 	}
+	// And WITHOUT the path. The name exists so the agent can go read the part that did not fit
+	// above; there is no such part, so the only thing it could buy is a read that returns nothing.
+	if strings.Contains(got, empty) || strings.Contains(got, "output:") {
+		t.Errorf("an empty capture names a file no one will open:\n%s", got)
+	}
 
 	// The same empty file, from a command that was KILLED, proves nothing about what it wrote.
 	// Observed live: `make world.opt -j4 2>&1 | tail -50` timed out at 120s and tail, which holds
@@ -47,6 +52,15 @@ func TestTheOutputLineSaysHowMuchOfTheOutputIsAbove(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("want %q in:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, empty) || strings.Contains(got, "output:") {
+		t.Errorf("a killed command's empty capture names a file no one will open:\n%s", got)
+	}
+
+	// A file whose size could not be read KEEPS its name — there the name is the only handle,
+	// and nothing has been said about what is in it.
+	if got := outputLine(filepath.Join(dir, "vanished.log"), false, ""); !strings.Contains(got, "vanished.log") {
+		t.Errorf("an unreadable capture must still be nameable:\n%s", got)
 	}
 
 	// Shown whole: the file and the message hold the same bytes.
@@ -146,7 +160,7 @@ func TestTimedOutNoteNamesTheLimitsOrigin(t *testing.T) {
 // arrives only as a number, and the sentence that reads an empty capture was gated on magi's own
 // kill alone — so the same emptiness got two different answers. Observed live (headless-terminal,
 // 2026-07-31): `timeout 15 python3 << EOF` whose first statement is a print came back "exit 124"
-// with "the command wrote nothing — the file is empty". It wrote; the output died in its stdio
+// with "the command wrote nothing". It wrote; the output died in its stdio
 // buffer when timeout killed it, which is the very thing the killed branch exists to say.
 func TestAKillTheShellPerformedCountsAsAKill(t *testing.T) {
 	for _, c := range []struct {
