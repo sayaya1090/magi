@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -65,10 +66,45 @@ func (a *App) SessionState(ctx context.Context, sid session.SessionID) ([]sessio
 			last = e.Seq
 		}
 	}
+	a.restoreTodos(sid, evs)
 	// Pair each re-surfaced queued interjection with its answer for display: drop the
 	// stranded original so only the re-emitted copy (which sits next to its answer at
 	// the back of the stream) renders. Display-only — turn logic uses reconstruct directly.
 	return reconstruct(dropResurfacedOrigins(evs)), last, nil
+}
+
+// restoreTodos rebuilds a resumed session's plan from the log.
+//
+// The todos.changed facts were written for exactly this — their own comment calls them
+// "logged, replayable" — and nothing had ever read one back. Todos() answers from
+// sessionState, which a freshly started process has never filled for a session it did not
+// run, so a resumed session came up with no plan at all: the panel was empty and, worse,
+// prompt.go dropped the plan block from the agent's own context, with every step of it
+// sitting in the log this function is already holding.
+//
+// The last fact wins (it is the whole plan after that change, not a delta), and an
+// in-memory plan is never overwritten: the live session is the newer truth, and switching
+// away from a running session and back must not roll its progress backwards.
+func (a *App) restoreTodos(sid session.SessionID, evs []event.Event) {
+	var td []session.Todo
+	found := false
+	for _, e := range evs {
+		if e.Type != event.TypeTodosChanged {
+			continue
+		}
+		var d event.TodosChangedData
+		if json.Unmarshal(e.Data, &d) == nil {
+			td, found = d.Todos, true
+		}
+	}
+	if !found {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if st := a.stateLocked(sid); len(st.todos) == 0 {
+		st.todos = td
+	}
 }
 
 // CouncilMemberNames returns the configured council seats' names in order — the
