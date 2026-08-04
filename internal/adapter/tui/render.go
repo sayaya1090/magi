@@ -423,6 +423,34 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 			}
 		}
 		head := glyph + " " + styleToolName.Render(blk.name)
+		// A plan is a list of statuses, and the raw arguments are the worst way to read one: the
+		// same JSON the right panel turns into ticked lines arrives here as one flattened preview,
+		// clipped mid-item. Render it the way the panel does — same glyphs, same strikethrough —
+		// so the transcript and the panel agree about what the plan says, and put the done/total
+		// count where the argument preview would have been.
+		if todos, ok := todosFromArgs(blk.args); ok {
+			done := 0
+			for _, t := range todos {
+				if t.Status == "completed" {
+					done++
+				}
+			}
+			head += "  " + styleToolArgs.Render(fmt.Sprintf("%d/%d", done, len(todos)))
+			if blk.done {
+				if s := summarizeResult(blk.result); s != "" {
+					head += styleToolResult.Render("  ⟶ " + s)
+				}
+			}
+			if len(todos) == 0 {
+				return m.toolSection(head)
+			}
+			w := m.bodyWidth() - 4
+			lines := make([]string, len(todos))
+			for i, t := range todos {
+				lines[i] = todoLine(t, w, 0)
+			}
+			return m.toolSection(head + "\n" + strings.Join(lines, "\n"))
+		}
 		// For an edit/write, show the actual change as a colorized diff beneath the
 		// line (unless the call failed) — far clearer than a flattened arg preview.
 		diff := ""
@@ -444,13 +472,13 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 			}
 		}
 		if diff != "" {
-			return indent(head) + "\n" + indent(m.renderCodeDiff(diff, rawPath(blk.args), m.bodyWidth()-2, diffBaseLine(blk)))
+			return m.toolSection(head + "\n" + m.renderCodeDiff(diff, rawPath(blk.args), m.bodyWidth()-2, diffBaseLine(blk)))
 		}
 		// Other tools (e.g. bash) show their output as a folded body beneath the line.
 		if body := m.renderToolBody(blk); body != "" {
-			return indent(head) + "\n" + indent(body)
+			return m.toolSection(head + "\n" + body)
 		}
-		return indent(head)
+		return m.toolSection(head)
 	case blockToolResult:
 		// Fallback: a result with no matching call (foldToolResult appends this).
 		mark := styleToolOK.Render("✓")
@@ -1071,4 +1099,59 @@ func toolResultText(tr *session.ToolResult) string {
 		return s
 	}
 	return string(tr.Content)
+}
+
+// todosFromArgs pulls the plan out of a todowrite call's arguments, for rendering it the way the
+// right panel does. Two shapes reach here: the declared array, and a JSON array wrapped in a
+// STRING — models emit that often enough that magi's own tool parsing tolerates it, so a renderer
+// that only understood the declared shape would fall back to raw arguments on exactly the calls
+// that already looked wrong. ok is false when this is not a todowrite call, or the arguments do
+// not hold a readable plan, and the caller renders the ordinary preview.
+func todosFromArgs(args string) ([]session.Todo, bool) {
+	if strings.TrimSpace(args) == "" {
+		return nil, false
+	}
+	var outer struct {
+		Todos json.RawMessage `json:"todos"`
+	}
+	if json.Unmarshal([]byte(args), &outer) != nil || len(outer.Todos) == 0 {
+		return nil, false
+	}
+	var todos []session.Todo
+	if json.Unmarshal(outer.Todos, &todos) == nil {
+		return todos, true
+	}
+	var wrapped string
+	if json.Unmarshal(outer.Todos, &wrapped) != nil {
+		return nil, false
+	}
+	if json.Unmarshal([]byte(wrapped), &todos) != nil {
+		return nil, false
+	}
+	return todos, true
+}
+
+// toolSection is indent() for a tool call: the same two columns, with the first painted so every
+// line of the call — head, diff, folded output — reads as one block instead of loose lines mixed
+// into the conversation.
+//
+// A painted SPACE, not a box-drawing glyph. `│` and `▌` are East-Asian-ambiguous: a CJK terminal
+// may give them two cells, and a gutter that is sometimes two columns wide shifts every line under
+// it and breaks the click geometry that hit-tests against the plain text. A space is one cell
+// everywhere, and a background makes it a rule.
+//
+// Only the gutter is painted, not the line. Filling each row to the transcript width would need
+// every row padded to exactly that width, and a tool head is the one row that legitimately runs
+// long (a path, a command) — so the fill would either clip content or push the transcript into a
+// horizontal scroll it must never have.
+func (m *Model) toolSection(body string) string {
+	rule := lipgloss.NewStyle().Background(colOutline).Render(" ")
+	var b strings.Builder
+	for i, line := range strings.Split(body, "\n") {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(rule + " " + line)
+	}
+	return b.String()
 }
