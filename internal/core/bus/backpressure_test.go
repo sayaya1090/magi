@@ -20,14 +20,14 @@ func TestPublishPreservesMustDeliverUnderBackpressure(t *testing.T) {
 		b.Publish(event.Event{SessionID: "s1", Type: event.TypePartDelta})
 	}
 	// A critical transition arrives while the buffer is full.
-	b.Publish(event.Event{SessionID: "s1", Type: event.TypeToolStarted})
+	b.Publish(event.Event{SessionID: "s1", Type: event.TypePermissionRequested})
 
-	// Drain non-blockingly; the tool.started must be in there (displaced a delta).
+	// Drain non-blockingly; the permission request must be in there (displaced a delta).
 	found := false
 	for {
 		select {
 		case e := <-ch:
-			if e.Type == event.TypeToolStarted {
+			if e.Type == event.TypePermissionRequested {
 				found = true
 			}
 			continue
@@ -36,7 +36,7 @@ func TestPublishPreservesMustDeliverUnderBackpressure(t *testing.T) {
 		break
 	}
 	if !found {
-		t.Fatal("must-deliver tool.started was dropped under backpressure (stuck-UI bug)")
+		t.Fatal("must-deliver permission.requested was dropped under backpressure (stuck-UI bug)")
 	}
 }
 

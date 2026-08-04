@@ -65,7 +65,6 @@ const (
 // Transient events — bus only, not persisted.
 const (
 	TypePartDelta           Type = "part.delta"
-	TypeToolStarted         Type = "tool.started"
 	TypeToolProgress        Type = "tool.progress"
 	TypePermissionRequested Type = "permission.requested"
 	TypeQuestionRequested   Type = "question.requested" // agent asks the USER a multiple-choice question
@@ -79,7 +78,6 @@ const (
 // transientTypes is the set of bus-only event types.
 var transientTypes = map[Type]bool{
 	TypePartDelta:           true,
-	TypeToolStarted:         true,
 	TypeToolProgress:        true,
 	TypePermissionRequested: true,
 	TypeQuestionRequested:   true,
@@ -93,9 +91,9 @@ func (t Type) IsTransient() bool { return transientTypes[t] }
 
 // droppableTypes are HIGH-VOLUME, best-effort live events the bus may drop under
 // backpressure (streaming deltas, progress/usage ticks, live council polling).
-// Low-volume state transitions (tool.started, permission/question requests, …) and all
-// facts are NOT droppable — silently losing one desyncs the UI permanently (e.g. a tool
-// row stuck "running" because the result that closed it was dropped).
+// Low-volume state transitions (permission/question requests, …) and all facts are NOT
+// droppable — silently losing one desyncs the UI permanently (e.g. a tool row stuck
+// "running" because the result that closed it was dropped).
 var droppableTypes = map[Type]bool{
 	TypePartDelta:           true,
 	TypeToolProgress:        true,

@@ -212,9 +212,6 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 			return nil
 		}
 	}
-	st, _ := json.Marshal(event.ToolStartedData{CallID: tc.CallID, Name: tc.Name})
-	a.publishTransient(sid, event.TypeToolStarted, actor, st)
-
 	tool, ok := a.tools.Get(tc.Name)
 	if !ok {
 		// A bare "unknown tool" reply gets retried verbatim: models carry other harnesses' tool

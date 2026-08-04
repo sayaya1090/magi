@@ -351,12 +351,6 @@ type PartDeltaData struct {
 	Text      string           `json:"text"`
 }
 
-// ToolStartedData — TypeToolStarted.
-type ToolStartedData struct {
-	CallID string `json:"callId"`
-	Name   string `json:"name"`
-}
-
 // ToolProgressData — TypeToolProgress: a live, best-effort progress note emitted
 // by a long-running tool while it blocks (e.g. wait_for polling a readiness
 // condition). Transient and droppable — never persisted; the UI shows only the

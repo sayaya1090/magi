@@ -6,7 +6,6 @@ import (
 
 	"github.com/sayaya1090/magi/internal/core/artifact"
 	"github.com/sayaya1090/magi/internal/core/event"
-	"github.com/sayaya1090/magi/internal/core/session"
 )
 
 // Sweep twelve: the events nothing had ever fed the view.
@@ -101,22 +100,4 @@ func TestAPermissionDecisionSurvivesInTheRecord(t *testing.T) {
 	s.emit(event.TypePermissionDecided, event.PermissionDecidedData{CallID: "c1", Decision: "deny"})
 	s.toolResult("c1", "denied by the user")
 	s.renders("after a denied call", "denied by the user")
-}
-
-// tool.started is the moment a call leaves for the shell. The view may or may not draw it, but it
-// must not corrupt the transcript — a fold that mishandles an unknown-to-it event is how a session
-// ends up one block short of the truth.
-func TestToolStartedDoesNotDisturbTheTranscript(t *testing.T) {
-	s := newScript(t)
-	s.steer("r1", "run it")
-	s.toolCall("bash", "c1")
-	before := blockSummary(s.m.blocks)
-	s.emit(event.TypeToolStarted, event.ToolStartedData{CallID: "c1", Name: "bash"})
-	after := blockSummary(s.m.blocks)
-	if len(before) != len(after) {
-		t.Fatalf("tool.started changed the block count: %d → %d", len(before), len(after))
-	}
-	s.toolResult("c1", "ok")
-	s.renders("after the call completed", "ok")
-	_ = session.RoleAssistant
 }
