@@ -138,6 +138,40 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		}
 	}()
 
+	// Another harness's name for a tool this one HAS: run it, and say which name is real.
+	//
+	// Measured across the recorded runs: 134 of 10,580 calls named a tool that does not exist, in
+	// 21% of sessions, and the guesses are not confusion about what to do — 91 of them were
+	// `todo_write`/`todo`/`todo write` carrying the one argument `todos`, which is `todowrite`
+	// spelled the way every other harness spells it. Refusing those cost a round trip each and did
+	// not teach: one run made the same `todo_write` call four times over four hours, each answered
+	// with the exact name and each followed by the same guess.
+	//
+	// Resolved HERE, before the gates and the guard, because both key on the name: the allowlist
+	// would refuse a name it does not know, and the repeat fingerprint would file two spellings of
+	// one call as two different calls. Only nearestToolName's matches are taken — a spelling that
+	// normalises to a registered name, or a prefix unique among them — so an ambiguous guess
+	// (`recall`, `web`) and one that means nothing here (`run`, 33 calls with mixed arguments) are
+	// still refused with the roster. And only to a tool this agent is ALLOWED, so the alias can
+	// never route around the allowlist.
+	//
+	// The tool-call part is already in the log under the model's own spelling, so the record keeps
+	// what it actually said; the result says what actually ran.
+	aliasedFrom := ""
+	if _, known := a.tools.Get(tc.Name); !known {
+		var allowed []string
+		for _, n := range a.ToolNames() {
+			if agent.allows(n) {
+				allowed = append(allowed, n)
+			}
+		}
+		if near := nearestToolName(tc.Name, allowed); near != "" {
+			if _, ok := a.tools.Get(near); ok {
+				aliasedFrom, tc.Name = tc.Name, near
+			}
+		}
+	}
+
 	// The call is RECORDED, not judged. This used to refuse an identical call repeated past a
 	// limit, on the theory that a repeat whose outcome cannot change is a loop worth breaking. The
 	// theory did not survive being measured: across the recorded runs, the trials magi force-stopped
@@ -331,6 +365,13 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// a result that's still in the recent, un-compacted window). Truncate the raw output here,
 	// before diagnostics are appended, so the agent is told to narrow its read/command.
 	res.Content = capToolResult(res.Content)
+	// Ran under a name the model does not use. Silence here would be a side effect it cannot see:
+	// the call worked, so nothing in the result would say the name was wrong, and the next call
+	// spells it wrong again. Naming it is the whole reason this is an alias and not a rename.
+	if aliasedFrom != "" {
+		res.Content = appendToContent(res.Content, "\n\n[note: there is no `"+aliasedFrom+
+			"` tool here — this ran `"+tc.Name+"`, which is the exact registered name. Use that one.]")
+	}
 	// The tool's OWN success, before post-edit diagnostics/hooks below flip IsError: a write
 	// that landed but fails gofmt/a hook still changed the file, and the council must see
 	// that (broken) change — so change capture keys off this, not the post-diagnostics flag.
