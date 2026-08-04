@@ -564,26 +564,6 @@ func evidence(req port.DeliberationRequest) string {
 		section("Identifiers the task names that the work does not contain",
 			literalsSection(req.Task, req.Changes+"\n"+req.Actions))
 	}
-	if len(req.Signals) > 0 {
-		b.WriteString("# Signals (the evidence)\n")
-		for _, s := range req.Signals {
-			line := "- "
-			switch {
-			case s.Source != "" && s.Kind != "":
-				line += "[" + s.Source + "/" + s.Kind + "] "
-			case s.Source != "":
-				line += "[" + s.Source + "] "
-			case s.Kind != "":
-				line += "[" + s.Kind + "] "
-			}
-			line += s.Status
-			if d := strings.TrimSpace(s.Detail); d != "" {
-				line += ":\n" + d
-			}
-			b.WriteString(line + "\n")
-		}
-		b.WriteString("\n")
-	}
 	section("What the turn's tools produced (verified tool outputs — real evidence, independent of git: e.g. a write's byte count, a cat showing the file's contents)", req.Actions)
 	section("Changes the agent made this turn (per-file before→after, reconstructed from its own edit tools)", req.Changes)
 	if req.NoChanges {

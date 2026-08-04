@@ -92,8 +92,10 @@ The three default members — the **MAGI** — each judge through a different le
 - A member that errors or returns garbage **abstains** (dropped from the denominator) rather than
   blocking the gate.
 
-**Evidence, not vibes.** Members judge the agent's *report* against the *task* and *plan*, and can
-weigh **deterministic signals** — real `build` / `test` / `lint` outcomes you opt into. A read-only
+**Evidence, not vibes.** Members judge the agent's *report* against the *task* and *plan* on what
+magi itself recorded: every command it granted and how that command really ended, the agent's own
+edits this turn as a per-file before→after diff, and — on a completion claim — a fresh read of the
+workspace. A read-only
 or investigation turn that changed nothing is recognized as such (`NoChanges`), so the council judges
 the *answer* on its merits instead of demanding a diff that was never going to exist.
 
@@ -102,7 +104,6 @@ the *answer* on its merits instead of demanding a diff that was never going to e
 # enabled  = true         # on by default; set false for a plain single-model loop
 rule       = "majority"   # unanimous | majority | quorum:k | weighted:θ | veto:Name
 max_rounds = 3
-verify     = "go test ./..."   # a deterministic signal the council weighs each round
 # criteria = true              # elicit explicit acceptance criteria as the contract
 
 # Customize the bench — or keep the MAGI default

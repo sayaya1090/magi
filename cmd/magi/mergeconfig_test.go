@@ -118,30 +118,24 @@ func TestMergeProjectConfig_MapsMergeIntoNilBase(t *testing.T) {
 func TestMergeProjectConfig_Council(t *testing.T) {
 	enabled := true
 	base := config.Config{Council: config.CouncilConfig{
-		Rule:    "majority",
-		Signals: []config.CouncilSignalConfig{{Name: "g"}},
+		Rule: "majority",
 	}}
 	proj := config.Config{Council: config.CouncilConfig{
 		Enabled: &enabled,
 		Rule:    "unanimous",
 		Preset:  "light",
-		Verify:  "go test ./...",
 		Members: []config.CouncilMember{{}, {}},
-		Signals: []config.CouncilSignalConfig{{Name: "p"}},
 	}}
 	got := mergeProjectConfig(base, proj)
 	c := got.Council
 	if c.Enabled == nil || *c.Enabled != true {
 		t.Errorf("Enabled not applied: %v", c.Enabled)
 	}
-	if c.Rule != "unanimous" || c.Preset != "light" || c.Verify != "go test ./..." {
+	if c.Rule != "unanimous" || c.Preset != "light" {
 		t.Errorf("scalar council fields wrong: %+v", c)
 	}
 	if len(c.Members) != 2 {
 		t.Errorf("Members should be replaced by project's 2, got %d", len(c.Members))
-	}
-	if len(c.Signals) != 2 || c.Signals[0].Name != "g" || c.Signals[1].Name != "p" {
-		t.Errorf("Signals should append global+project: %+v", c.Signals)
 	}
 
 	// An empty project council must not clobber global council settings.

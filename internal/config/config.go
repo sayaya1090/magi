@@ -125,18 +125,6 @@ type CouncilConfig struct {
 	// council call instead of three, for everyday chat-speed use. Explicit members
 	// override the preset.
 	Preset string `toml:"preset"` // "" | "full" | "light"
-	// Verify is a shorthand for a single deterministic signal named "verify" the
-	// council runs each round as evidence (D16). Signals adds more named checks
-	// ([[council.signal]]). Both opt-in; the council judges on real test/build/lint
-	// evidence, not just the agent's claim.
-	Verify  string                `toml:"verify"`
-	Signals []CouncilSignalConfig `toml:"signal"`
-}
-
-// CouncilSignalConfig is a named deterministic check the council runs for evidence.
-type CouncilSignalConfig struct {
-	Name    string `toml:"name"`
-	Command string `toml:"command"`
 }
 
 // IsEnabled reports whether the council gate is on: by default yes, unless

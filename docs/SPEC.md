@@ -512,14 +512,15 @@ council-retry-shape-1:     the reminder branches three ways — syntax / schema 
 - The envelope's `stage` tag lets the loop map, rewind and diff group and target by stage. A trivial
   turn skips proportionally.
 
-## F-SIGNAL — feedback signals as first-class (D16, partly shipped)
-- `port.Signal{source, kind, status(pass|fail), detail}` (the current shape). The design target is
-  `{source, kind, verdict, payload, atSeq}`.
-- **Shipped**: opt-in **multiple** deterministic signals (`[council] verify` as shorthand, plus
-  `[[council.signal]]` name/command — test, lint, typecheck) run at each deliberation and injected as
-  `Signal`s in the council's evidence, summarized on the convened event.
-- Remaining: unify the deterministic output of *other* lifecycle producers (hooks, diagnostics,
-  reports) behind the same Signal model.
+## F-SIGNAL — feedback signals as first-class (D16, withdrawn)
+- Design target was `{source, kind, verdict, payload, atSeq}`, unifying the deterministic output of
+  hooks, diagnostics and reports behind one model the council consumes.
+- **Withdrawn**: the shipped half was config-declared commands (`[council] verify`, `[[council.signal]]`)
+  run at each deliberation. A command written in a config file cannot know what the task will be, and
+  what verifies a task is decided per task — which is what the acceptance criteria and deliverable
+  checks already do, derived from the request. The producer was removed with the finish gate
+  (`e4acdd2`) and the rest is now gone; anything reviving this must derive the check from the task,
+  not from a fixed string.
 
 ## F-PLAN / F-PLAN-REC — procedural planner · plan audit · recursive decomposition — **removed**
 

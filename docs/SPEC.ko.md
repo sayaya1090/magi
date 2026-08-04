@@ -359,10 +359,9 @@ council-retry-shape-1:     재폴 리마인더 = 구문/스키마/산문 3분기
 - Plan/Report는 **soft 유도**(planner/todos/artifact·report 툴 재사용), Council만 **하드 게이트**.
 - 이벤트 봉투 `stage` 태그로 Loop map·rewind·diff가 단계 단위 그룹/타깃. 사소한 턴은 비례적 스킵.
 
-## F-SIGNAL (루프 트랙) — 피드백 시그널 1급화(D16, 부분 출하)
-- `port.Signal{source, kind, status(pass|fail), detail}` (현재 형태). 설계 목표는 `{source, kind, verdict, payload, atSeq}`로 확장.
-- **출하**: opt-in **다중** 결정적 시그널(`[council] verify` 단축 + `[[council.signal]]` name/command, 예: test·lint·typecheck)을 게이트마다 실행 → 각 `Signal`로 council 증거에 주입, convened 이벤트에 요약 노출(`TestCouncilVerifySignal`/`TestCouncilMultipleSignals`).
-- 남음: 훅·진단·report 등 *다른 생애주기*의 결정적 출력도 같은 Signal 모델로 통일.
+## F-SIGNAL (루프 트랙) — 피드백 시그널 1급화(D16, 철회)
+- 설계 목표는 훅·진단·report 등 생애주기 산출물을 `{source, kind, verdict, payload, atSeq}` 한 모델로 통일해 council이 소비하는 것이었다.
+- **철회**: 출하됐던 절반은 설정에 미리 적는 명령(`[council] verify`, `[[council.signal]]`)을 심의마다 돌리는 것이었다. 설정 파일에 적는 명령은 앞으로 어떤 태스크가 올지 알 수 없고, 무엇이 그 태스크를 검증하는지는 태스크마다 정해진다 — 그건 요청에서 유도되는 억셉턴스 크라이테리아·산출물 체크가 이미 하는 일이다. 생산자는 종료 게이트와 함께 제거됐고(`e4acdd2`) 나머지도 삭제했다. 되살린다면 고정 문자열이 아니라 태스크에서 유도해야 한다.
 
 ## F-PLAN / F-PLAN-REC (루프 트랙) — 절차 planner · 계획 감사 · 재귀 분해 — **철거됨**
 

@@ -230,7 +230,6 @@ type CouncilConvenedData struct {
 	Round   int      `json:"round"`
 	Members []string `json:"members"` // member labels (e.g. Melchior/Balthasar/Casper)
 	Rule    string   `json:"rule"`
-	Signals []string `json:"signals,omitempty"` // human summaries of evidence fed in, e.g. "verify/test: fail"
 	// Evidence shown to the members this round (optional, for UI detail views).
 	Task   string `json:"task,omitempty"`
 	Plan   string `json:"plan,omitempty"`   // acceptance criteria / contract, or the proposed procedure (plan phase)

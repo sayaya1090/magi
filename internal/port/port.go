@@ -92,11 +92,11 @@ type Council interface {
 }
 
 // DeliberationRequest is the evidence the council judges: the agent's CLAIM
-// (Report) against the CONTRACT (Plan/Task) using EVIDENCE (Signals/Diff).
+// (Report) against the CONTRACT (Plan/Task) using EVIDENCE (Actions/Changes).
 type DeliberationRequest struct {
 	Round int // 1-based council round within the turn
 	// NoChanges marks a pure read-only / investigation / answer turn: the agent made no
-	// file edits (via its tools) and no signals ran. Such a turn has no artifact to verify
+	// file edits (via its tools). Such a turn has no artifact to verify
 	// and no false success to guard against, so members should approve (done) on a
 	// reasonable report rather than demand edits that were never going to exist.
 	NoChanges bool
@@ -109,7 +109,6 @@ type DeliberationRequest struct {
 	// diff. It excludes the model's own narration (that is the Report/claim); admitting
 	// narration as evidence is how a defeatist agent talks its way to a false "done".
 	Actions string
-	Signals []Signal         // deterministic evidence (build/test/lint outcomes), optional
 	Changes string           // this turn's file edits, reconstructed from the agent's write/edit tools (optional)
 	Members []council.Member // who votes (defaults to the MAGI when empty)
 	Rule    council.Rule     // how votes are tallied (defaults to majority)
@@ -136,17 +135,6 @@ type DeliberationRequest struct {
 	// is surfaced above the feedback when the turn continues. It never affects the decision
 	// or tally. Off → members are not asked and no keep is produced (MAGI_COUNCIL_KEEP).
 	Keep bool
-}
-
-// Signal is a piece of deterministic evidence the council weighs (D16): the
-// outcome of a verifiable check, so a member doesn't take the agent's claim on
-// faith. The verification lens in particular treats a failing signal as strong
-// grounds to continue.
-type Signal struct {
-	Source string // who produced it, e.g. "verify"
-	Kind   string // "test" | "build" | "lint" | ...
-	Status string // "pass" | "fail"
-	Detail string // short output excerpt (tail)
 }
 
 // ---- Store (D6: event-sourced persistence; jsonl is the first impl) ----

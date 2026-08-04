@@ -273,22 +273,11 @@ type Config struct {
 	// the default MAGI trio.
 	CouncilRule    council.Rule
 	CouncilMembers []council.Member
-	// CouncilSignals are named deterministic checks run each council round and fed
-	// to the members as evidence (D16) — so the council judges on proof (tests,
-	// lint, typecheck) rather than the agent's claim. Opt-in (empty = no signals).
-	CouncilSignals []CouncilSignalSpec
 	// ContextWindowProber, when set, asks the LLM backend for a model's real context
 	// window the first time an unseeded model is used (e.g. after a runtime /route
 	// switch). Injected by the wiring layer (openai.Client.ProbeContextWindow) so the
 	// app never imports an LLM adapter. nil = no probing; the registry default is used.
 	ContextWindowProber func(context.Context, string) (int, bool)
-}
-
-// CouncilSignalSpec is a named deterministic check the council runs for evidence
-// (e.g. {Name:"test", Command:"go test ./..."}).
-type CouncilSignalSpec struct {
-	Name    string
-	Command string
 }
 
 // withDefaults fills unset fields with sensible values.

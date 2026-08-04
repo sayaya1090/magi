@@ -252,32 +252,6 @@ func TestOrStr(t *testing.T) {
 	}
 }
 
-// councilSignals puts the `verify` shorthand first (named "verify"), then any
-// configured [[council.signal]] entries, skipping ones with an empty command.
-func TestCouncilSignals(t *testing.T) {
-	// No verify, no signals → empty.
-	if got := councilSignals(config.CouncilConfig{}); len(got) != 0 {
-		t.Errorf("empty config → %v, want none", got)
-	}
-	cc := config.CouncilConfig{
-		Verify: "go test ./...",
-		Signals: []config.CouncilSignalConfig{
-			{Name: "lint", Command: "golangci-lint run"},
-			{Name: "skipme", Command: ""}, // dropped: no command
-		},
-	}
-	got := councilSignals(cc)
-	if len(got) != 2 {
-		t.Fatalf("got %d signals, want 2: %+v", len(got), got)
-	}
-	if got[0] != (app.CouncilSignalSpec{Name: "verify", Command: "go test ./..."}) {
-		t.Errorf("verify shorthand not first: %+v", got[0])
-	}
-	if got[1] != (app.CouncilSignalSpec{Name: "lint", Command: "golangci-lint run"}) {
-		t.Errorf("signal[1] = %+v, want lint", got[1])
-	}
-}
-
 // toCouncilMembers returns nil for no members (app falls back to defaults), and
 // otherwise inherits a profile's model only when the member pins no model.
 func TestToCouncilMembers(t *testing.T) {

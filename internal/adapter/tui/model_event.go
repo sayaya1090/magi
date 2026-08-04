@@ -7,7 +7,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -496,33 +495,13 @@ func (m *Model) onPartAppended(d event.PartAppendedData, ts time.Time) {
 // onCouncilConvened records a newly-opened council round as a transcript
 // milestone (when it carries round-specific signals or a plan procedure) and
 // arms the header chip. (D14 — the consensus termination gate.)
-// coloredMembers renders each council member's name in its OWN hue (councilColor),
-// bold, joined with muted ", " separators — so the convened/round milestone lines
-// carry the same per-member color language
-// as the verdict block and the splash nameplates, instead of one flat string.
-func (m *Model) coloredMembers(members []string) string {
-	segs := make([]string, len(members))
-	for i, name := range members {
-		segs[i] = lipgloss.NewStyle().Foreground(m.councilColor(name)).Bold(true).Render(name)
-	}
-	return strings.Join(segs, ", ")
-}
-
 func (m *Model) onCouncilConvened(d event.CouncilConvenedData) {
 	m.councilRound = d.Round
 	m.pendingCouncilEvidence = formatCouncilEvidence(d) // shown in each verdict's detail view
-	// Noise control: the routine convened line (members + rule) repeats the same information
-	// every round and the header chip already shows the live deliberation — so it is only
-	// worth a transcript line when it carries something round-specific: the deterministic
-	// SIGNALS (fabrication self-check, verify commands) fed into this round.
-	showLine := len(d.Signals) > 0
-	line := fmt.Sprintf("⚖ council round %d — %s deliberate (%s)", d.Round, m.coloredMembers(d.Members), d.Rule)
-	if len(d.Signals) > 0 {
-		line += " · " + strings.Join(d.Signals, ", ")
-	}
-	if showLine {
-		m.blocks = append(m.blocks, block{kind: blockInfo, text: line})
-	}
+	// No transcript line. The convened line repeated members + rule every round, which the
+	// header chip already shows live and each verdict repeats as it lands, so it only earned
+	// one when it carried something round-specific — and the only thing that ever did was the
+	// signals list, which no longer exists.
 }
 
 // onCouncilDecided renders a round's outcome + tally line. The caller clears the

@@ -563,7 +563,6 @@ func run() int {
 		Council:             councilPort,
 		CouncilRule:         corecouncil.Rule(cfg.Council.Rule),
 		CouncilMembers:      councilMembers(cfg.Council, cfg.LLM.Profiles),
-		CouncilSignals:      councilSignals(cfg.Council),
 		TimeBudget:          *timeBudget,
 		Observer:            obs,
 	})
@@ -787,10 +786,6 @@ func mergeProjectConfig(cfg, proj config.Config) config.Config {
 	if proj.Council.Preset != "" {
 		cfg.Council.Preset = proj.Council.Preset
 	}
-	if proj.Council.Verify != "" {
-		cfg.Council.Verify = proj.Council.Verify
-	}
-	cfg.Council.Signals = append(cfg.Council.Signals, proj.Council.Signals...)
 	return cfg
 }
 
@@ -933,11 +928,7 @@ func renderText(out, errw io.Writer, e event.Event) {
 	case event.TypeCouncilConvened:
 		var d event.CouncilConvenedData
 		if json.Unmarshal(e.Data, &d) == nil {
-			line := fmt.Sprintf("⚖ council round %d — %v (%s)", d.Round, d.Members, d.Rule)
-			if len(d.Signals) > 0 {
-				line += " · " + strings.Join(d.Signals, ", ")
-			}
-			fmt.Fprintln(out, line)
+			fmt.Fprintf(out, "⚖ council round %d — %v (%s)\n", d.Round, d.Members, d.Rule)
 		}
 	case event.TypeCouncilDecided:
 		var d event.CouncilDecidedData
@@ -1017,22 +1008,6 @@ func truncate(s string, n int) string {
 		n--
 	}
 	return s[:n] + "…"
-}
-
-// councilSignals builds the council's deterministic signal list: the `verify`
-// shorthand (named "verify") first, then any [[council.signal]] entries.
-func councilSignals(cc config.CouncilConfig) []app.CouncilSignalSpec {
-	var out []app.CouncilSignalSpec
-	if cc.Verify != "" {
-		out = append(out, app.CouncilSignalSpec{Name: "verify", Command: cc.Verify})
-	}
-	for _, s := range cc.Signals {
-		if s.Command == "" {
-			continue
-		}
-		out = append(out, app.CouncilSignalSpec{Name: s.Name, Command: s.Command})
-	}
-	return out
 }
 
 // councilMembers resolves the effective member set: explicit [[council.member]]

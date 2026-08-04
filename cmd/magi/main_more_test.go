@@ -79,10 +79,10 @@ func TestRenderText(t *testing.T) {
 		Part: session.Part{Kind: session.PartToolResult, ToolResult: &session.ToolResult{Content: json.RawMessage(`"boom"`), IsError: true}}})); !strings.Contains(out, "✗") {
 		t.Errorf("error result should show ✗: %q", out)
 	}
-	// council convened, with signals appended
+	// council convened
 	if out, _ := render(mk(event.TypeCouncilConvened, event.CouncilConvenedData{
-		Round: 1, Members: []string{"Melchior", "Balthasar"}, Rule: "majority", Signals: []string{"verify: pass"}})); !strings.Contains(out, "council round 1") || !strings.Contains(out, "majority") || !strings.Contains(out, "verify: pass") {
-		t.Errorf("convened (with signals) not rendered: %q", out)
+		Round: 1, Members: []string{"Melchior", "Balthasar"}, Rule: "majority"})); !strings.Contains(out, "council round 1") || !strings.Contains(out, "majority") {
+		t.Errorf("convened not rendered: %q", out)
 	}
 	// council decided
 	if out, _ := render(mk(event.TypeCouncilDecided, event.CouncilDecidedData{

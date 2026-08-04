@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/x/ansi"
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -37,14 +36,6 @@ func TestCouncilIndicator(t *testing.T) {
 	}
 	if len(m.blocks) != before {
 		t.Fatalf("routine convened should not add a transcript line: %+v", m.blocks[len(m.blocks)-1])
-	}
-	// With deterministic signals the convened line IS the evidence display — shown.
-	m.applyEvent(ev(t, event.TypeCouncilConvened, event.CouncilConvenedData{
-		Round: 1, Members: []string{"Melchior"}, Rule: "majority", Signals: []string{"self-check: fabrication"},
-		Task: "fix the parser bug", Report: "fixed the EOF handling",
-	}))
-	if last := m.blocks[len(m.blocks)-1]; last.kind != blockInfo || !strings.Contains(last.text, "self-check: fabrication") {
-		t.Fatalf("convened with signals should be a transcript line: %+v", last)
 	}
 
 	// Live polling updates the chip member.
@@ -338,35 +329,3 @@ func TestCollapsePreReviewReport(t *testing.T) {
 }
 
 // The convened milestone line (contract gate / plan audit / termination round) shows each council
-// member's name in ITS OWN hue, not one flat string — coloredMembers embeds per-member ANSI while the
-// stripped text stays the plain "A, B, C" (so widths/hit-tests are unaffected).
-func TestCouncilRoundMembersColored(t *testing.T) {
-	mm := newTestModel(t)
-	m := &mm
-	members := []string{"Melchior", "Balthasar", "Casper"}
-
-	colored := m.coloredMembers(members)
-	if got := ansi.Strip(colored); got != "Melchior, Balthasar, Casper" {
-		t.Fatalf("stripped coloredMembers = %q, want the plain join", got)
-	}
-	if !strings.Contains(colored, "\x1b[") {
-		t.Error("coloredMembers must embed ANSI color, unlike a flat strings.Join")
-	}
-
-	// A convened round earns a milestone line when it carries round-specific signals, and that
-	// line carries the colored members.
-	before := len(m.blocks)
-	m.onCouncilConvened(event.CouncilConvenedData{
-		Round: 1, Members: members, Rule: "majority", Signals: []string{"verify: pass"},
-	})
-	if len(m.blocks) == before {
-		t.Fatal("a convened round with signals must add a milestone line")
-	}
-	line := m.blocks[len(m.blocks)-1].text
-	if !strings.Contains(line, "\x1b[") {
-		t.Error("the council round milestone line must render members in color")
-	}
-	if s := ansi.Strip(line); !strings.Contains(s, "Melchior") || !strings.Contains(s, "council round 1") {
-		t.Errorf("milestone line lost its content: %q", s)
-	}
-}
