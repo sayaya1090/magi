@@ -159,39 +159,6 @@ func peerDigest(vs []council.Verdict, self string) string {
 	return strings.TrimSpace(b.String())
 }
 
-// judgeReply is the JSON shape the revision judge is asked to return.
-type judgeReply struct {
-	Addressed judgeBool `json:"addressed"`
-	Reason    string    `json:"reason"`
-}
-
-// judgeBool reads the boolean shapes a model actually emits for the verdict field — bare
-// true/false, the same word quoted, yes/no. A strict bool rejects the whole object over that
-// one field, and since this call fails OPEN the reply then lands as the OPPOSITE of what the
-// judge said, with its reason discarded too. Observed: a syntactically valid, fully delivered
-// {"addressed": "false", "reason": "<names the step the revision omitted>"} recorded as
-// "unparseable" and reported as addressed=true.
-//
-// `known` separates "the judge said no" from "no verdict arrived": an unreadable value must keep
-// failing open (a flaky judge must never cut a productive re-plan loop), while a readable false
-// is a real verdict and has to survive as one.
-type judgeBool struct {
-	val   bool
-	known bool
-}
-
-func (v *judgeBool) UnmarshalJSON(b []byte) error {
-	switch strings.ToLower(strings.TrimSpace(strings.Trim(string(b), `"`))) {
-	case "true", "yes", "y", "1":
-		*v = judgeBool{val: true, known: true}
-	case "false", "no", "n", "0":
-		*v = judgeBool{val: false, known: true}
-	default:
-		*v = judgeBool{val: true, known: false} // unreadable → fail open, same as no reply at all
-	}
-	return nil
-}
-
 // poll asks one member and returns its verdict.
 func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m council.Member) council.Verdict {
 	v := council.Verdict{Member: m.Name, Lens: m.Lens, Weight: m.Weight}
