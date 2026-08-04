@@ -2,7 +2,7 @@ package llm
 
 import (
 	"fmt"
-	"os"
+	"github.com/sayaya1090/magi/internal/envflag"
 	"path"
 	"regexp"
 	"sort"
@@ -48,10 +48,7 @@ var (
 
 // literalsEnabled gates the section. Default on; MAGI_COUNCIL_LITERALS=0 restores the prior
 // evidence for an A/B.
-func literalsEnabled() bool {
-	v := strings.TrimSpace(os.Getenv("MAGI_COUNCIL_LITERALS"))
-	return v != "0" && !strings.EqualFold(v, "false") && !strings.EqualFold(v, "off")
-}
+func literalsEnabled() bool { return envflag.Enabled("MAGI_COUNCIL_LITERALS", true) }
 
 // literalsInTask pulls the identifiers a task names. Conservative on purpose: a false entry here
 // sends a member hunting for a phantom, which is the churn this council has been burned by, so

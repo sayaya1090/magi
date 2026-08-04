@@ -15,18 +15,13 @@ import (
 	"sync"
 
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/envflag"
 )
 
 // bodyscanEnabled gates the exit-0 body-scan annotation (MAGI_EXITCODE_BODYSCAN,
 // default ON). Off (=0/off/false/no) reproduces the exact pre-scan behavior for a
 // clean A/B baseline.
-func bodyscanEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_EXITCODE_BODYSCAN"))) {
-	case "0", "off", "false", "no":
-		return false
-	}
-	return true
-}
+func bodyscanEnabled() bool { return envflag.Enabled("MAGI_EXITCODE_BODYSCAN", true) }
 
 // crashSignatures are lines whose presence in a body is worth hoisting to the head of the result.
 // High-precision on purpose: the Go ones must be paired with a goroutine dump, so a command that

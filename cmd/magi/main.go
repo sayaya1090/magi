@@ -37,6 +37,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/event"
 	coremodel "github.com/sayaya1090/magi/internal/core/model"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/envflag"
 	"github.com/sayaya1090/magi/internal/port"
 	"github.com/sayaya1090/magi/internal/update"
 	"github.com/sayaya1090/magi/internal/version"
@@ -223,7 +224,7 @@ func run() int {
 		apiKey          = flag.String("api-key", env("MAGI_API_KEY", os.Getenv("OPENAI_API_KEY")), "API key for the backend (or set MAGI_API_KEY; note a CLI value is visible in the process list)")
 		permission      = flag.String("permission", env("MAGI_PERMISSION", ""), "tool permission policy: ask|auto|allow|deny (auto = accept edits, confirm commands)")
 		profile         = flag.String("profile", env("MAGI_PROFILE", ""), "guardrail posture: safe|standard|yolo")
-		workflow        = flag.Bool("workflow", env("MAGI_WORKFLOW", "") != "", "drive the task through the deterministic localize→implement→verify→review pipeline")
+		workflow        = flag.Bool("workflow", envflag.Enabled("MAGI_WORKFLOW", false), "drive the task through the deterministic localize→implement→verify→review pipeline")
 		verifyCmd       = flag.String("verify-cmd", env("MAGI_VERIFY_CMD", ""), "workflow verification command (auto-detected if empty)")
 		noCache         = flag.Bool("no-cache", env("MAGI_NO_CACHE", "") != "", "disable prompt cache_control (on by default; auto-falls back if the backend rejects it)")
 		httpTimeout     = flag.Duration("http-timeout", envDur("MAGI_HTTP_TIMEOUT", 0), "max wait for LLM response headers (e.g. 120s); 0 = unbounded")
@@ -1207,7 +1208,7 @@ func (s sidecarAnalyzer) Analyze(ctx context.Context, system, text, model string
 // Off by default: this changes what the model writes on every step, so it belongs behind an A/B
 // rather than in a silent default. MAGI_TERSE_STEPS=1 turns it on.
 func stepNarrationClause() string {
-	if envOn("MAGI_TERSE_STEPS") {
+	if envflag.Enabled("MAGI_TERSE_STEPS", false) {
 		return "The transcript already shows the user every command you run, its arguments, and what it " +
 			"returned, so do NOT announce your next step before taking it — just take it. Write to the user " +
 			"when you have something the tool output does not already show: a conclusion you drew from it, a " +
@@ -1215,15 +1216,6 @@ func stepNarrationClause() string {
 			"irreversible actions, and stay concise."
 	}
 	return "Keep the user informed as you go, ask before destructive or irreversible actions, and stay concise."
-}
-
-// envOn reports whether the named env var holds an explicit on-value.
-func envOn(name string) bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
-	case "1", "on", "true", "yes":
-		return true
-	}
-	return false
 }
 
 var systemPrompt = "You are magi, an AI coding agent working in the user's project directory. " +

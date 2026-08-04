@@ -19,6 +19,7 @@ package builtin
 // is a deliberate, precise target.
 
 import (
+	"github.com/sayaya1090/magi/internal/envflag"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -26,13 +27,7 @@ import (
 )
 
 // selfKillGuardEnabled gates the block (MAGI_SELFKILL_GUARD, default ON).
-func selfKillGuardEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("MAGI_SELFKILL_GUARD"))) {
-	case "0", "off", "false", "no":
-		return false
-	}
-	return true
-}
+func selfKillGuardEnabled() bool { return envflag.Enabled("MAGI_SELFKILL_GUARD", true) }
 
 var (
 	// pkill/killall [flags] <pattern> — flags may be separate (-9 -f) or combined (-9f).

@@ -18,6 +18,7 @@ import (
 	pluginlua "github.com/sayaya1090/magi/internal/adapter/plugin/lua"
 	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/config"
+	"github.com/sayaya1090/magi/internal/envflag"
 	pluginupd "github.com/sayaya1090/magi/internal/update/plugin"
 	"github.com/sayaya1090/magi/plugins"
 )
@@ -84,7 +85,7 @@ func pluginDirs(plat *platform.OS, workdir, extra string) []string {
 // version each start — but only files whose content actually changed are rewritten
 // (updates ride magi --update; an unchanged rebuild touches nothing).
 func loadEmbeddedPlugins(host *pluginlua.Host, plat *platform.OS, cfg config.Config) {
-	if strings.EqualFold(os.Getenv("MAGI_EMBEDDED_PLUGINS"), "off") {
+	if !envflag.Enabled("MAGI_EMBEDDED_PLUGINS", true) {
 		return // global kill switch for automation/bench (measurement must not shift)
 	}
 	for name, ep := range plugins.Embedded {

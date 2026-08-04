@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/sayaya1090/magi/internal/envflag"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
@@ -25,7 +26,7 @@ const (
 )
 
 // providerGuardRepeatEnabled gates the repetition backstop (MAGI_REPEAT_CAP, default on).
-func providerGuardRepeatEnabled() bool { return !envOff("MAGI_REPEAT_CAP") }
+func providerGuardRepeatEnabled() bool { return envflag.Enabled("MAGI_REPEAT_CAP", true) }
 
 // degenerateRepeat returns the shortest unit length the tail ENDS WITH that is repeated back-to-back
 // enough to be a runaway repetition loop (0 = none). Cheap for normal text: a non-repeating tail
