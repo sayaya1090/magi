@@ -311,33 +311,32 @@ func (m *Model) applyEvent(e event.Event) {
 		}
 
 	case event.TypeCouncilVerdict:
-		// A round's votes share ONE compact line (member-colored icon + name + decision); each
-		// member's full reasoning rides the block and opens in a detail modal when clicked.
+		// ONE line per member, printed when that member answers and never redrawn.
 		//
-		// They accumulate in the LIVE area and become that line when the round closes. The
-		// transcript is inline, not an alt-screen: bubbletea repaints only the lines it still
-		// owns, and anything scrolled above is permanent. A row that grew as each member landed
-		// therefore left every earlier version behind it — one member, then two, then three,
-		// each printed in full. Reported exactly that way.
+		// The transcript is inline — tea.NewProgram with no alt screen — so bubbletea repaints
+		// only the lines it still owns and anything scrolled above is permanent. A row that grew
+		// as each member landed therefore left every earlier version of itself on screen: one
+		// member, then two, then three. Reported exactly that way once the verdicts began
+		// streaming, which turned a redraw that used to finish inside one frame into three
+		// separated by a minute.
 		//
-		// The live area is redrawn every frame and committed to nothing, so a vote can update
-		// there as often as it likes. Replay agrees with it: a resumed session sees the same
-		// verdicts and the same decided event, fills the same slice and commits the same block.
+		// So nothing is ever redrawn. Each member gets its own line as it lands, and the reader
+		// watches the round fill in a line at a time.
 		var d event.CouncilVerdictData
 		if json.Unmarshal(e.Data, &d) == nil {
-			// A member arrives TWICE — the preview published when it answers, then the recorded
-			// fact when the round closes. Replace in place, keeping the second: a rebuttal round
-			// may have revised the vote between them.
-			replaced := false
-			for i, v := range m.liveVerdicts {
-				if v.Member == d.Member && v.Round == d.Round {
-					m.liveVerdicts[i], replaced = d, true
-					break
-				}
+			// A member arrives twice — the live preview when it answers, then the recorded fact
+			// when the round closes. Identical ones are the same news and print once. A fact that
+			// DIFFERS is a rebuttal round having changed that member's mind, which is news of its
+			// own and earns its own line rather than silently replacing what was read already.
+			if prev, seen := m.drawnVerdicts[d.Member]; seen && prev == d {
+				break
 			}
-			if !replaced {
-				m.liveVerdicts = append(m.liveVerdicts, d)
+			if m.drawnVerdicts == nil {
+				m.drawnVerdicts = map[string]event.CouncilVerdictData{}
 			}
+			m.drawnVerdicts[d.Member] = d
+			m.blocks = append(m.blocks, block{kind: blockCouncilVerdict,
+				councilVerdicts: []event.CouncilVerdictData{d}, evidence: m.pendingCouncilEvidence})
 		}
 
 	case event.TypeCouncilDecided:
@@ -529,13 +528,7 @@ func (m *Model) onCouncilConvened(d event.CouncilConvenedData) {
 // onCouncilDecided renders a round's outcome + tally line. The caller clears the
 // live council chip before invoking this (a decision ends the open round).
 func (m *Model) onCouncilDecided(d event.CouncilDecidedData) {
-	// The round is closed, so its votes stop being live and become the transcript's one compact
-	// row — printed once, with what each member finally held.
-	if len(m.liveVerdicts) > 0 {
-		m.blocks = append(m.blocks, block{kind: blockCouncilVerdict,
-			councilVerdicts: m.liveVerdicts, evidence: m.pendingCouncilEvidence})
-		m.liveVerdicts = nil
-	}
+	m.drawnVerdicts = nil // the round is closed; the next one starts with nothing printed
 	_, verdict := councilVerdictLabel(d.Decision)
 	counts := fmt.Sprintf("%d done / %d continue", d.Tally.Done, d.Tally.Continue)
 	if d.Tally.Abstain > 0 {
@@ -627,7 +620,7 @@ func (m *Model) onTurnFinished(e event.Event) {
 	m.councilRound = 0
 	m.councilMember = ""
 	m.councilPhase = ""
-	m.liveVerdicts = nil     // a round the turn ended without deciding leaves nothing half-drawn
+	m.drawnVerdicts = nil
 	m.reviewFoldNext = false // turn ended with no revision landing — keep the report visible
 	// The turn ended: any pane still marked unfinished (e.g. a completion event
 	// that never arrived) should now fade too, so nothing lingers after the turn.

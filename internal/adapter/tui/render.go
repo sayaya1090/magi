@@ -217,15 +217,6 @@ func (m *Model) transcript() string {
 		b.WriteString("\n")
 		nl += 2
 	}
-	if len(m.liveVerdicts) > 0 {
-		// The open round, redrawn each frame. It moves into the transcript as one row when the
-		// round closes; until then it must not be committed, or every member that lands adds a
-		// full copy of the row above it to the scrollback.
-		b.WriteString("\n")
-		b.WriteString(indent(m.councilRow(m.liveVerdicts)))
-		b.WriteString("\n")
-		nl += 2
-	}
 	if m.running && strings.TrimSpace(m.liveText) != "" {
 		b.WriteString("\n")
 		nl++

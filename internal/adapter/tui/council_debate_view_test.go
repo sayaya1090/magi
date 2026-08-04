@@ -71,53 +71,77 @@ func TestDebateSurvivesTheEventPayload(t *testing.T) {
 	}
 }
 
-// An open round is redrawn, not reprinted.
+// Each member is printed once, when it answers.
 //
 // Reported after the verdicts started streaming: the second and third arrivals came out stacked on
-// top of the first, each showing everything before it. The transcript is INLINE — bubbletea owns
-// only the lines it has not scrolled past — so a committed row that grows leaves every earlier
-// version of itself permanently on screen. One member, then two, then three.
+// the first, each showing everything before it. The transcript is INLINE — bubbletea repaints only
+// the lines it still owns, and anything scrolled above is permanent — so a row that grew as members
+// landed left every earlier version of itself on screen. Streaming turned a redraw that used to
+// finish inside one frame into three separated by a minute.
 //
-// So the open round lives in the redrawn area and becomes exactly one block when it closes.
-func TestAnOpenRoundIsNotCommittedUntilItCloses(t *testing.T) {
+// So nothing is redrawn: one line per member, as it lands.
+func TestEachMemberIsPrintedOnceAsItAnswers(t *testing.T) {
 	mm := newTestModel(t)
 	m := &mm
 	m.width = 120
 	m.applyEvent(ev(t, event.TypeCouncilConvened, event.CouncilConvenedData{
-		Round: 1, Members: []string{"Melchior", "Balthasar", "Casper"}, Rule: "majority",
-	}))
-	names := []string{"Melchior", "Balthasar", "Casper"}
-	for i, n := range names {
-		m.applyEvent(ev(t, event.TypeCouncilVerdict, event.CouncilVerdictData{
-			Round: 1, Member: n, Lens: "correctness", Decision: "done", Confidence: 0.9}))
-		if got := len(m.liveVerdicts); got != i+1 {
-			t.Fatalf("after %d votes the live round holds %d", i+1, got)
-		}
+		Round: 1, Members: []string{"Melchior", "Balthasar", "Casper"}, Rule: "majority"}))
+	rows := func() []string {
+		var out []string
 		for _, b := range m.blocks {
 			if b.kind == blockCouncilVerdict {
-				t.Fatalf("vote %d committed a row while the round was still open", i+1)
+				out = append(out, ansi.Strip(m.renderBlock(b)))
 			}
 		}
-		// Whatever has landed is visible — the point of streaming is that you can watch it.
-		if !strings.Contains(ansi.Strip(m.councilRow(m.liveVerdicts)), n) {
-			t.Errorf("%s landed but is not on the live row", n)
+		return out
+	}
+	vote := func(who, dec string) event.Event {
+		return ev(t, event.TypeCouncilVerdict, event.CouncilVerdictData{
+			Round: 1, Member: who, Lens: "correctness", Decision: dec, Confidence: 0.9})
+	}
+	names := []string{"Melchior", "Balthasar", "Casper"}
+	for i, n := range names {
+		m.applyEvent(vote(n, "done"))
+		r := rows()
+		if len(r) != i+1 {
+			t.Fatalf("after %d votes there are %d rows — a member is redrawn or missing", i+1, len(r))
+		}
+		// The newest row is that member ALONE: a row carrying the earlier members too is the
+		// stacked reprint this replaces.
+		last := r[len(r)-1]
+		if !strings.Contains(last, n) {
+			t.Errorf("the new row is not %s: %q", n, last)
+		}
+		for _, other := range names[:i] {
+			if strings.Contains(last, other) {
+				t.Errorf("%s's row also carries %s — that is the accumulating reprint: %q", n, other, last)
+			}
 		}
 	}
 
+	// The recorded facts arrive after the previews. Identical ones are the same news and must not
+	// print again.
+	for _, n := range names {
+		m.applyEvent(vote(n, "done"))
+	}
+	if got := len(rows()); got != 3 {
+		t.Errorf("the facts reprinted the round: %d rows", got)
+	}
+
+	// A fact that DIFFERS is a rebuttal changing that member's mind — news of its own.
+	m.applyEvent(vote("Balthasar", "continue"))
+	r := rows()
+	if len(r) != 4 {
+		t.Fatalf("a changed vote must be shown, got %d rows", len(r))
+	}
+	if !strings.Contains(r[3], "Balthasar") || !strings.Contains(r[3], "reject") {
+		t.Errorf("the revision is not the new row: %q", r[3])
+	}
+
+	// The round closes; the next one starts with nothing printed.
 	m.applyEvent(ev(t, event.TypeCouncilDecided, event.CouncilDecidedData{
-		Round: 1, Decision: string(council.Done), Tally: council.Breakdown{Done: 3, Voters: 3},
-	}))
-	if len(m.liveVerdicts) != 0 {
-		t.Errorf("the closed round is still live: %d", len(m.liveVerdicts))
-	}
-	rows, members := 0, 0
-	for _, b := range m.blocks {
-		if b.kind == blockCouncilVerdict {
-			rows++
-			members += len(b.councilVerdicts)
-		}
-	}
-	if rows != 1 || members != 3 {
-		t.Errorf("a closed round is ONE row of three, got %d rows / %d members", rows, members)
+		Round: 1, Decision: string(council.Continue), Tally: council.Breakdown{Done: 2, Continue: 1}}))
+	if m.drawnVerdicts != nil {
+		t.Errorf("a closed round still remembers what it printed: %v", m.drawnVerdicts)
 	}
 }

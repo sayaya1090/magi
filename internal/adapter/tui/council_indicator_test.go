@@ -61,17 +61,6 @@ func TestCouncilIndicator(t *testing.T) {
 		Round: 1, Member: "Melchior", Lens: "correctness", Decision: "continue",
 		Rationale: "the parser drops the trailing newline", Feedback: "handle EOF without a newline",
 	}))
-	if len(m.liveVerdicts) != 1 {
-		t.Fatalf("an open round's vote should be live, got %d", len(m.liveVerdicts))
-	}
-	for _, b := range m.blocks {
-		if b.kind == blockCouncilVerdict {
-			t.Fatal("an open round must not commit a row to the transcript")
-		}
-	}
-	m.applyEvent(ev(t, event.TypeCouncilDecided, event.CouncilDecidedData{
-		Round: 1, Decision: string(council.Continue), Tally: council.Breakdown{Continue: 1},
-	}))
 	var v block
 	for _, b := range m.blocks {
 		if b.kind == blockCouncilVerdict {
@@ -137,9 +126,9 @@ func TestCouncilIndicator(t *testing.T) {
 	}
 }
 
-// A round's three member verdicts collapse into ONE block rendered on a single line,
-// and clicking a member's column opens that member's detail.
-func TestCouncilVerdictsOnOneLine(t *testing.T) {
+// Each member's verdict is its OWN single-line row, printed when that member answered, and
+// clicking a row opens that member's detail.
+func TestEachVerdictIsItsOwnRow(t *testing.T) {
 	mm := newTestModel(t)
 	m := &mm
 	m.width = 120
@@ -155,32 +144,26 @@ func TestCouncilVerdictsOnOneLine(t *testing.T) {
 		m.applyEvent(ev(t, event.TypeCouncilVerdict, v))
 	}
 
-	// Nothing is committed while the round is open.
-	if len(m.liveVerdicts) != 3 {
-		t.Fatalf("the open round should hold three live votes, got %d", len(m.liveVerdicts))
-	}
-	m.applyEvent(ev(t, event.TypeCouncilDecided, event.CouncilDecidedData{
-		Round: 1, Decision: string(council.Done), Tally: council.Breakdown{Done: 2, Abstain: 1},
-	}))
-	// All three share one block (one rendered line, no embedded newline).
-	var blk block
+	// Each member is its OWN one-line row, printed when it answered.
+	var vrows []block
 	for _, b := range m.blocks {
 		if b.kind == blockCouncilVerdict {
-			blk = b
+			vrows = append(vrows, b)
 		}
 	}
-	if blk.kind != blockCouncilVerdict || len(blk.councilVerdicts) != 3 {
-		t.Fatalf("a round's votes should collapse into one 3-member block, got %d blocks-worth", len(blk.councilVerdicts))
+	if len(vrows) != 3 {
+		t.Fatalf("three members should make three rows, got %d", len(vrows))
 	}
-	line := m.renderBlock(blk)
-	if strings.Contains(line, "\n") {
-		t.Fatalf("the verdict row must be a single line:\n%q", line)
-	}
-	for _, name := range []string{"Melchior", "Balthasar", "Casper"} {
+	for i, name := range []string{"Melchior", "Balthasar", "Casper"} {
+		line := m.renderBlock(vrows[i])
+		if strings.Contains(line, "\n") {
+			t.Fatalf("a member row must be a single line:\n%q", line)
+		}
 		if !strings.Contains(line, name) {
-			t.Fatalf("one-line row should include %s: %q", name, line)
+			t.Fatalf("row %d should be %s: %q", i, name, line)
 		}
 	}
+	blk := vrows[2]
 
 	// A continue (reject/revise) vote prints its reason on a line below the row; the
 	// member row itself stays a single line.
@@ -229,13 +212,13 @@ func TestCouncilVerdictsOnOneLine(t *testing.T) {
 	for j := range m.blockLineStart {
 		m.blockLineStart[j] = j
 	}
-	x := 2
-	x += ansi.StringWidth(councilMemberPlain(blk.councilVerdicts[0])) + ansi.StringWidth(councilRowSep)
-	x += ansi.StringWidth(councilMemberPlain(blk.councilVerdicts[1])) + ansi.StringWidth(councilRowSep)
-	m.selAL, m.selAC = i, x+1 // a column inside Casper's segment
+	// One member per row, so the hit-test no longer has to add up column widths — a click
+	// anywhere on the row is that member.
+	m.selAL, m.selAC = i, 4
 	if !m.openCouncilDetailAt(i) || m.councilDetail == nil || m.councilDetail.Member != "Casper" {
-		t.Fatalf("click in the third column should open Casper's detail, got %+v", m.councilDetail)
+		t.Fatalf("clicking the last row should open Casper's detail, got %+v", m.councilDetail)
 	}
+	_ = blk
 }
 
 func TestCouncilWaitingIndicator(t *testing.T) {

@@ -7,7 +7,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -63,7 +62,7 @@ func TestAPermissionPromptOverALiveTurn(t *testing.T) {
 // Council verdicts stream in back-to-back and share one row. A frame painted between them must not
 // cache the row half-built — that is a real cache bug the code comments describe, and only a
 // rendered sequence can catch a regression of it.
-func TestCouncilVerdictsShareOneRowEvenWhenAFramePaintsBetween(t *testing.T) {
+func TestEachVerdictIsPrintedOnceEvenWhenAFramePaintsBetween(t *testing.T) {
 	s := newScript(t)
 	s.typeText("finish it").enter()
 	s.emitAs(event.TypePromptSubmitted, event.Actor{Kind: event.ActorUser, ID: "tui"},
@@ -77,29 +76,32 @@ func TestCouncilVerdictsShareOneRowEvenWhenAFramePaintsBetween(t *testing.T) {
 	s.emit(event.TypeCouncilVerdict, event.CouncilVerdictData{Round: 1, Member: "Balthasar", Lens: "verification", Decision: "done"})
 	s.emit(event.TypeCouncilVerdict, event.CouncilVerdictData{Round: 1, Member: "Casper", Lens: "completeness", Decision: "continue"})
 
-	// While the round is open the votes are LIVE: nothing is committed, so a frame landing
-	// mid-round cannot leave a half-filled row behind in the inline scrollback.
+	// One row per member, each printed when that member answered — and a frame landing mid-round
+	// changes nothing, because no row is ever redrawn. The transcript is inline, so a row that
+	// grew as members arrived left every earlier version of itself in the scrollback.
 	s.renders("all three verdicts", "Melchior", "Balthasar", "Casper")
-	for _, b := range s.m.blocks {
-		if b.kind == blockCouncilVerdict {
-			t.Error("an open round committed a row to the transcript")
-		}
-	}
-	s.emit(event.TypeCouncilDecided, event.CouncilDecidedData{
-		Round: 1, Decision: "continue", Tally: council.Breakdown{Done: 2, Continue: 1},
-	})
-	_ = s.view()
 	rows := 0
 	for _, b := range s.m.blocks {
 		if b.kind == blockCouncilVerdict {
 			rows++
-			if len(b.councilVerdicts) != 3 {
-				t.Errorf("one round is one row: %d verdicts on it", len(b.councilVerdicts))
+			if len(b.councilVerdicts) != 1 {
+				t.Errorf("a row carries one member, got %d", len(b.councilVerdicts))
 			}
 		}
 	}
-	if rows != 1 {
-		t.Errorf("three verdicts of one round made %d rows", rows)
+	if rows != 3 {
+		t.Errorf("three members should make three rows, got %d", rows)
+	}
+	// The recorded facts follow the previews; identical ones are the same news and add nothing.
+	s.emit(event.TypeCouncilVerdict, event.CouncilVerdictData{Round: 1, Member: "Melchior", Lens: "correctness", Decision: "done"})
+	again := 0
+	for _, b := range s.m.blocks {
+		if b.kind == blockCouncilVerdict {
+			again++
+		}
+	}
+	if again != rows {
+		t.Errorf("a repeated verdict printed again: %d → %d rows", rows, again)
 	}
 }
 

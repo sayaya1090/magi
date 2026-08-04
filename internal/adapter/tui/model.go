@@ -163,20 +163,20 @@ type Model struct {
 	ctxWindow       int       // model's context window in tokens (0 = unknown), for the footer gauge
 	plannerMode     string    // last planner decision (solo | parallel N) shown in the header
 
-	turnStart      time.Time                  // wall-clock start of the current turn (§8.1 elapsed)
-	turnSteps      int                        // tool calls this turn (the step budget actually spent)
-	turnFiles      map[string]bool            // unique files touched by write/edit/multiedit this turn
-	turnCouncil    int                        // highest council round decided this turn
-	turnDur        time.Duration              // frozen elapsed of the last finished turn
-	turnUnverified bool                       // the finished turn was labeled UNVERIFIED by the execution-evidence gate
-	turnIn         int                        // current input/context tokens (↑)
-	turnOut        int                        // cumulative output tokens this turn (↓)
-	councilRound   int                        // current council round (0 = no council active); header chip
-	councilMember  string                     // member currently being polled (live); cleared when the turn ends
-	councilPhase   string                     // phase of the open round ("plan" audit vs "" review/consensus); drives the footer waiting line
-	turnReceipted  bool                       // this turn already printed its one-line receipt (a turn can end twice)
-	liveVerdicts   []event.CouncilVerdictData // the open round's votes, redrawn each frame until it closes
-	reviewFoldNext bool                       // a review round voted continue → fold the pre-review report once its revision actually lands
+	turnStart      time.Time                           // wall-clock start of the current turn (§8.1 elapsed)
+	turnSteps      int                                 // tool calls this turn (the step budget actually spent)
+	turnFiles      map[string]bool                     // unique files touched by write/edit/multiedit this turn
+	turnCouncil    int                                 // highest council round decided this turn
+	turnDur        time.Duration                       // frozen elapsed of the last finished turn
+	turnUnverified bool                                // the finished turn was labeled UNVERIFIED by the execution-evidence gate
+	turnIn         int                                 // current input/context tokens (↑)
+	turnOut        int                                 // cumulative output tokens this turn (↓)
+	councilRound   int                                 // current council round (0 = no council active); header chip
+	councilMember  string                              // member currently being polled (live); cleared when the turn ends
+	councilPhase   string                              // phase of the open round ("plan" audit vs "" review/consensus); drives the footer waiting line
+	turnReceipted  bool                                // this turn already printed its one-line receipt (a turn can end twice)
+	drawnVerdicts  map[string]event.CouncilVerdictData // the open round's members already printed, by name
+	reviewFoldNext bool                                // a review round voted continue → fold the pre-review report once its revision actually lands
 
 	cache  []string // rendered finalized blocks (keyed by cacheW)
 	cacheW int      // width the cache was rendered at
