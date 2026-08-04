@@ -217,6 +217,15 @@ func (m *Model) transcript() string {
 		b.WriteString("\n")
 		nl += 2
 	}
+	if len(m.liveVerdicts) > 0 {
+		// The open round, redrawn each frame. It moves into the transcript as one row when the
+		// round closes; until then it must not be committed, or every member that lands adds a
+		// full copy of the row above it to the scrollback.
+		b.WriteString("\n")
+		b.WriteString(indent(m.councilRow(m.liveVerdicts)))
+		b.WriteString("\n")
+		nl += 2
+	}
 	if m.running && strings.TrimSpace(m.liveText) != "" {
 		b.WriteString("\n")
 		nl++
@@ -499,28 +508,7 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 		if len(blk.councilVerdicts) == 0 {
 			return indent(styleToolResult.Render(strings.TrimRight(blk.text, "\n")))
 		}
-		segs := make([]string, len(blk.councilVerdicts))
-		for i, v := range blk.councilVerdicts {
-			hue := m.councilColor(v.Member)
-			icon, word := councilVerdictLabel(v.Decision)
-			// Each member is CLICKABLE (column hit-test → detail modal), so it carries the
-			// same low-emphasis container fill as the fold chip to read as tappable. The fill
-			// must NOT change width — openCouncilDetailAt hit-tests against councilMemberPlain's
-			// rune width — so we paint a background (no padding) and fold the interior spaces
-			// into the painted runs, keeping the character layout identical to the plain form.
-			paint := func(st lipgloss.Style, s string) string { return st.Background(colPrimCont).Render(s) }
-			seg := paint(lipgloss.NewStyle().Foreground(hue), "● ") +
-				paint(lipgloss.NewStyle().Foreground(hue).Bold(true), v.Member)
-			if v.Lens != "" {
-				seg += paint(styleToolResult, "  ["+v.Lens+"]")
-			}
-			seg += paint(councilVerdictStyle(v.Decision), "  "+icon+" "+word)
-			if v.Confidence > 0 {
-				seg += paint(styleToolResult, fmt.Sprintf(" · %.0f%%", v.Confidence*100))
-			}
-			segs[i] = seg
-		}
-		row := indent(strings.Join(segs, councilRowSep))
+		row := indent(m.councilRow(blk.councilVerdicts))
 		// Below the one-line row, summarize WHY each member that voted to CONTINUE
 		// (reject/revise) did so — feedback, else rationale — the reason that was
 		// otherwise only visible by clicking the member. done/abstain add no line, so
@@ -1154,4 +1142,32 @@ func (m *Model) toolSection(body string) string {
 		b.WriteString(rule + " " + line)
 	}
 	return b.String()
+}
+
+// councilRow renders a round's members on ONE line, each in 기승전결 order: WHO (member) → LENS →
+// VERDICT → CONFIDENCE. Shared by the live area, where the round is redrawn as each member lands,
+// and by the committed block, so the row a reader watches fill in is the row that stays.
+func (m *Model) councilRow(vs []event.CouncilVerdictData) string {
+	segs := make([]string, len(vs))
+	for i, v := range vs {
+		hue := m.councilColor(v.Member)
+		icon, word := councilVerdictLabel(v.Decision)
+		// Each member is CLICKABLE (column hit-test → detail modal), so it carries the same
+		// low-emphasis container fill as the fold chip to read as tappable. The fill must NOT
+		// change width — openCouncilDetailAt hit-tests against councilMemberPlain's rune width —
+		// so we paint a background (no padding) and fold the interior spaces into the painted
+		// runs, keeping the character layout identical to the plain form.
+		paint := func(st lipgloss.Style, s string) string { return st.Background(colPrimCont).Render(s) }
+		seg := paint(lipgloss.NewStyle().Foreground(hue), "● ") +
+			paint(lipgloss.NewStyle().Foreground(hue).Bold(true), v.Member)
+		if v.Lens != "" {
+			seg += paint(styleToolResult, "  ["+v.Lens+"]")
+		}
+		seg += paint(councilVerdictStyle(v.Decision), "  "+icon+" "+word)
+		if v.Confidence > 0 {
+			seg += paint(styleToolResult, fmt.Sprintf(" · %.0f%%", v.Confidence*100))
+		}
+		segs[i] = seg
+	}
+	return strings.Join(segs, councilRowSep)
 }

@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -76,7 +77,18 @@ func TestCouncilVerdictsShareOneRowEvenWhenAFramePaintsBetween(t *testing.T) {
 	s.emit(event.TypeCouncilVerdict, event.CouncilVerdictData{Round: 1, Member: "Balthasar", Lens: "verification", Decision: "done"})
 	s.emit(event.TypeCouncilVerdict, event.CouncilVerdictData{Round: 1, Member: "Casper", Lens: "completeness", Decision: "continue"})
 
+	// While the round is open the votes are LIVE: nothing is committed, so a frame landing
+	// mid-round cannot leave a half-filled row behind in the inline scrollback.
 	s.renders("all three verdicts", "Melchior", "Balthasar", "Casper")
+	for _, b := range s.m.blocks {
+		if b.kind == blockCouncilVerdict {
+			t.Error("an open round committed a row to the transcript")
+		}
+	}
+	s.emit(event.TypeCouncilDecided, event.CouncilDecidedData{
+		Round: 1, Decision: "continue", Tally: council.Breakdown{Done: 2, Continue: 1},
+	})
+	_ = s.view()
 	rows := 0
 	for _, b := range s.m.blocks {
 		if b.kind == blockCouncilVerdict {

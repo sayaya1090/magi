@@ -53,13 +53,31 @@ func TestCouncilIndicator(t *testing.T) {
 		t.Fatalf("councilMember = %q, want Balthasar", m.councilMember)
 	}
 
-	// A verdict becomes a COMPACT block that carries the full vote data; the detail
+	// A verdict rides the LIVE area while the round is open (the transcript is inline, so a row
+	// that grew as members landed left a copy of every earlier version in the scrollback) and
+	// becomes a COMPACT block carrying the full vote data when the round closes. The detail
 	// (lens/rationale/feedback) shows only in the modal opened by clicking it.
 	m.applyEvent(ev(t, event.TypeCouncilVerdict, event.CouncilVerdictData{
 		Round: 1, Member: "Melchior", Lens: "correctness", Decision: "continue",
 		Rationale: "the parser drops the trailing newline", Feedback: "handle EOF without a newline",
 	}))
-	v := m.blocks[len(m.blocks)-1]
+	if len(m.liveVerdicts) != 1 {
+		t.Fatalf("an open round's vote should be live, got %d", len(m.liveVerdicts))
+	}
+	for _, b := range m.blocks {
+		if b.kind == blockCouncilVerdict {
+			t.Fatal("an open round must not commit a row to the transcript")
+		}
+	}
+	m.applyEvent(ev(t, event.TypeCouncilDecided, event.CouncilDecidedData{
+		Round: 1, Decision: string(council.Continue), Tally: council.Breakdown{Continue: 1},
+	}))
+	var v block
+	for _, b := range m.blocks {
+		if b.kind == blockCouncilVerdict {
+			v = b
+		}
+	}
 	if v.kind != blockCouncilVerdict || len(v.councilVerdicts) != 1 {
 		t.Fatalf("verdict should be a compact council row carrying its data, got kind=%d", v.kind)
 	}
@@ -137,8 +155,20 @@ func TestCouncilVerdictsOnOneLine(t *testing.T) {
 		m.applyEvent(ev(t, event.TypeCouncilVerdict, v))
 	}
 
+	// Nothing is committed while the round is open.
+	if len(m.liveVerdicts) != 3 {
+		t.Fatalf("the open round should hold three live votes, got %d", len(m.liveVerdicts))
+	}
+	m.applyEvent(ev(t, event.TypeCouncilDecided, event.CouncilDecidedData{
+		Round: 1, Decision: string(council.Done), Tally: council.Breakdown{Done: 2, Abstain: 1},
+	}))
 	// All three share one block (one rendered line, no embedded newline).
-	blk := m.blocks[len(m.blocks)-1]
+	var blk block
+	for _, b := range m.blocks {
+		if b.kind == blockCouncilVerdict {
+			blk = b
+		}
+	}
 	if blk.kind != blockCouncilVerdict || len(blk.councilVerdicts) != 3 {
 		t.Fatalf("a round's votes should collapse into one 3-member block, got %d blocks-worth", len(blk.councilVerdicts))
 	}
@@ -163,7 +193,16 @@ func TestCouncilVerdictsOnOneLine(t *testing.T) {
 	} {
 		m2.applyEvent(ev(t, event.TypeCouncilVerdict, v))
 	}
-	out := m2.renderBlock(m2.blocks[len(m2.blocks)-1])
+	m2.applyEvent(ev(t, event.TypeCouncilDecided, event.CouncilDecidedData{
+		Round: 1, Decision: string(council.Continue), Tally: council.Breakdown{Done: 1, Continue: 1},
+	}))
+	var blk2 block
+	for _, b := range m2.blocks {
+		if b.kind == blockCouncilVerdict {
+			blk2 = b
+		}
+	}
+	out := m2.renderBlock(blk2)
 	rows := strings.Split(out, "\n")
 	if len(rows) < 2 {
 		t.Fatalf("a reject reason should render below the row:\n%q", out)
@@ -175,8 +214,17 @@ func TestCouncilVerdictsOnOneLine(t *testing.T) {
 		t.Fatalf("reject reason missing from render:\n%q", out)
 	}
 
-	// Clicking in the third member's column range opens Casper's detail.
-	i := len(m.blocks) - 1
+	// Clicking in the third member's column range opens Casper's detail. The row is committed
+	// when the round closes, so it is no longer the last block — the outcome line follows it.
+	i := -1
+	for j, b := range m.blocks {
+		if b.kind == blockCouncilVerdict {
+			i = j
+		}
+	}
+	if i < 0 {
+		t.Fatal("no committed verdict row to click")
+	}
 	m.blockLineStart = make([]int, len(m.blocks))
 	for j := range m.blockLineStart {
 		m.blockLineStart[j] = j

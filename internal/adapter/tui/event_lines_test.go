@@ -31,7 +31,17 @@ func TestCouncilKeepReachesTheScreen(t *testing.T) {
 		Rationale: "the procedure is sound", Keep: "step 2's fixture setup — the later steps read it",
 	}))
 
-	blk := m.blocks[len(m.blocks)-1]
+	// The row commits when the round closes; until then the votes are live (the transcript is
+	// inline, so a row redrawn as members land would leave every earlier version in scrollback).
+	m.applyEvent(ev(t, event.TypeCouncilDecided, event.CouncilDecidedData{
+		Round: 1, Decision: string(council.Done), Tally: council.Breakdown{Done: 1},
+	}))
+	var blk block
+	for _, b := range m.blocks {
+		if b.kind == blockCouncilVerdict {
+			blk = b
+		}
+	}
 	row := ansi.Strip(m.renderBlock(blk))
 	if !strings.Contains(row, "step 2's fixture setup") {
 		t.Errorf("an approving member's keep must render under the verdict row:\n%s", row)
@@ -60,7 +70,16 @@ func TestCouncilKeepReachesTheScreen(t *testing.T) {
 	m.applyEvent(ev(t, event.TypeCouncilVerdict, event.CouncilVerdictData{
 		Round: 2, Member: "Casper", Decision: "done", Rationale: "fine",
 	}))
-	if row := ansi.Strip(m.renderBlock(m.blocks[len(m.blocks)-1])); strings.Contains(row, "keep") {
+	m.applyEvent(ev(t, event.TypeCouncilDecided, event.CouncilDecidedData{
+		Round: 2, Decision: string(council.Done), Tally: council.Breakdown{Done: 1},
+	}))
+	var blk2 block
+	for _, b := range m.blocks {
+		if b.kind == blockCouncilVerdict {
+			blk2 = b
+		}
+	}
+	if row := ansi.Strip(m.renderBlock(blk2)); strings.Contains(row, "keep") {
 		t.Errorf("a verdict with no keep must add no keep line:\n%s", row)
 	}
 }

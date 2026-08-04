@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -31,6 +32,9 @@ func TestClickingAVerdictOpensItWithItsEvidence(t *testing.T) {
 	} {
 		s.emit(event.TypeCouncilVerdict, v)
 	}
+	s.emit(event.TypeCouncilDecided, event.CouncilDecidedData{
+		Round: 1, Decision: "continue", Tally: council.Breakdown{Done: 1, Continue: 1},
+	})
 	_ = s.view()
 
 	// Find the verdict row on screen and click its first member.
