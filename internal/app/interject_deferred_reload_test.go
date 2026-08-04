@@ -262,3 +262,57 @@ func TestHydrateOnceThenRuntimeQueueIndependent(t *testing.T) {
 		t.Fatalf("the pre-existing abandoned interjection must stay masked")
 	}
 }
+
+// The mask has to mean the same thing to all three readers of it.
+//
+// Reported from a real session: a question typed mid-turn went unanswered; after quitting and
+// resuming, asking something NEW answered the OLD question first — council verdict and all — and
+// only then the new one. The deferral outlived its process, so hydration kept it masked and it
+// could not START a run. Then the new prompt started one, and seedPromptIdx — the only reader
+// that did not take the mask — handed the turn that deferred question as its task. The turn was
+// ABOUT text filtered out of the agent's own context, judged by a council that could not read it,
+// with the prompt the user had just typed queued behind it as an interjection.
+func TestAMaskedInterjectionIsNotTheNextTurnsTask(t *testing.T) {
+	ctx := context.Background()
+	a, wd := newApp(t, &fakeLLM{}, Config{})
+	sid, err := a.CreateSession(ctx, command.CreateSession{Workdir: wd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	up := func(id, txt string) event.Event {
+		e := promptEv(t, id, txt, "")
+		e.Actor = event.Actor{Kind: event.ActorUser, ID: "cli"}
+		return e
+	}
+	for _, e := range []event.Event{
+		up("m_task", "refactor calc.py"),
+		{Type: event.TypePartAppended, Actor: event.Actor{Kind: event.ActorAgent}}, // that turn replied
+		up("m_q", "wait — which python version?"),                                  // typed mid-turn …
+		deferMark(t, "m_q", false),                                                 // … queued, then the process died
+		up("m_new", "what does foo() do?"),                                         // asked after resuming
+	} {
+		if _, err := a.store.Append(ctx, sid, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a.ensureDeferredHydrated(ctx, sid)
+	mask := a.deferredInterjectIDs(sid)
+	if !mask["m_q"] {
+		t.Fatalf("the abandoned interjection should be masked; mask=%v", keys(mask))
+	}
+
+	// Go through seedTurnTask, the real caller. Asserting on seedPromptIdx directly would pass
+	// even with the mask never handed to it — which is exactly the wiring this is about.
+	evs, _ := a.store.Read(ctx, sid, 0)
+	task, _ := a.seedTurnTask(ctx, turnCtx{s: a.sessionInfo(ctx, sid), depth: 0}, evs)
+	if task != "what does foo() do?" {
+		t.Errorf("the turn's task is %q; the masked interjection must not be it", task)
+	}
+
+	// The invariant behind it: whatever seeds the turn must be something the agent can READ.
+	// A task filtered out of the model's own context is incoherent however it was chosen.
+	live := reconstruct(a.liveEvents(sid, evs))
+	if !bodyContains(live, task) {
+		t.Errorf("the turn's task %q is not in the agent's own context", task)
+	}
+}

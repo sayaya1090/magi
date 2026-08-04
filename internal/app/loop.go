@@ -398,7 +398,7 @@ func (a *App) seedTurnTask(ctx context.Context, tc turnCtx, evs []event.Event) (
 	entries := userPromptEntries(evs)
 	var turnTask string
 	if tc.depth == 0 && !a.cfg.Workflow {
-		if seed := seedPromptIdx(evs); seed >= 0 && seed < len(entries) {
+		if seed := seedPromptIdx(evs, a.deferredInterjectIDs(sid)); seed >= 0 && seed < len(entries) {
 			turnTask = entries[seed].Text
 			a.setActiveSeed(sid, entries[seed].MsgID) // so a cancel can abandon exactly this prompt
 			for _, it := range entries[seed+1:] {

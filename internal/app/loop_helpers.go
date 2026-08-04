@@ -40,13 +40,22 @@ type userPrompt struct {
 
 // seedPromptIdx returns the index (in userPromptEntries order) of the genuine user
 // prompt that SEEDS the current top-level turn: the first user prompt not already
-// answered by an assistant reply. It is meaningful only at step 0, where the current
+// answered by an assistant reply, skipping any that is DEFERRED — queued as an
+// interjection, or left queued by a process that died (the hydrated abandoned set). It is meaningful only at step 0, where the current
 // turn has produced no output yet — so any assistant (ActorAgent) part in the log
 // belongs to a PREVIOUS turn, and the first user prompt after the last such part is
 // this turn's seed. Later user prompts are mid-turn interjections that piled up before
 // execution began. Returns -1 when the log has no genuine user prompt (e.g. a subagent
 // session, whose seed is authored by ActorAgent).
-func seedPromptIdx(evs []event.Event) int {
+// deferred is the same mask hasUnansweredPrompt and liveEvents use, and it has to be the same
+// here or the three disagree about one prompt. They did: a deferral that outlived its process
+// stayed masked, so it could not START a run — and then the next unrelated prompt started one and
+// this function handed it the deferred question as the turn's task. The turn was ABOUT a question
+// filtered out of the model's own context, with the council judging completion against text the
+// agent could not read, and the prompt the user had just typed queued behind it as an
+// interjection. Reported from a real session: quit mid-question, resume, ask something new, and
+// the old question is answered first.
+func seedPromptIdx(evs []event.Event, deferred map[string]bool) int {
 	abandoned := abandonedPromptIDs(evs) // prompts whose turn was cancelled — resolved, never a seed
 	ui := -1                             // running index into userPromptEntries order
 	lastAnswered := -1                   // highest user-prompt index a prior assistant reply covered
@@ -57,7 +66,7 @@ func seedPromptIdx(evs []event.Event) int {
 			// A cancelled (abandoned) prompt counts as resolved: skip it so the next
 			// genuine prompt seeds the turn instead of the dead one.
 			var d event.PromptSubmittedData
-			if json.Unmarshal(e.Data, &d) == nil && abandoned[d.MessageID] {
+			if json.Unmarshal(e.Data, &d) == nil && (abandoned[d.MessageID] || deferred[d.MessageID]) {
 				lastAnswered = ui
 			}
 		case e.Type == event.TypePartAppended && e.Actor.Kind == event.ActorAgent:

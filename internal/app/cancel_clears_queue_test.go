@@ -52,7 +52,7 @@ func TestCancelClearsQueue(t *testing.T) {
 	_ = a.appendFact(ctx, sid, event.TypePromptSubmitted, event.Actor{Kind: event.ActorUser, ID: "cli"}, pd)
 	evs, _ = a.store.Read(ctx, sid, 0)
 	entries := userPromptEntries(evs)
-	if idx := seedPromptIdx(evs); idx < 0 || entries[idx].MsgID != "mD" {
+	if idx := seedPromptIdx(evs, nil); idx < 0 || entries[idx].MsgID != "mD" {
 		got := "?"
 		if idx >= 0 && idx < len(entries) {
 			got = entries[idx].MsgID

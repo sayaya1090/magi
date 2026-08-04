@@ -78,7 +78,7 @@ func TestSeedPromptIdxSkipsAbandoned(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := seedPromptIdx(c.evs); got != c.want {
+			if got := seedPromptIdx(c.evs, nil); got != c.want {
 				t.Errorf("seedPromptIdx = %d, want %d", got, c.want)
 			}
 		})
@@ -115,7 +115,7 @@ func TestAbandonSeedOnCancelWritesMarker(t *testing.T) {
 	}
 	evs, _ = store.Read(ctx, sid, 0)
 	entries := userPromptEntries(evs)
-	seed := seedPromptIdx(evs)
+	seed := seedPromptIdx(evs, nil)
 	if seed < 0 || seed >= len(entries) || entries[seed].MsgID != "B" {
 		t.Fatalf("seed = %d (entries=%d), want the B prompt", seed, len(entries))
 	}
