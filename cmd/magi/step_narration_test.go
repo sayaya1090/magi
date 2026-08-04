@@ -67,3 +67,46 @@ func TestTheClauseIsSplicedIntoThePrompt(t *testing.T) {
 		}
 	}
 }
+
+// The two steps that carry the most obligations are checklists, not paragraphs. They were one
+// dense block each, and the instruction most often missed on this benchmark — deliver a signal
+// the task names for REAL instead of simulating it in-process — sat in the middle of the longer
+// one. A task whose whole grade turns on that (cancel-async-tasks: 10 passes in 54 runs, every
+// failure the same in-process substitute) had to find it there.
+//
+// This pins the SHAPE. Prose can carry the same words and be skimmed past; a box that cannot be
+// ticked is a question the model has to answer. If someone reflows these back into sentences,
+// this fails and says why.
+func TestTheTwoHeaviestStepsAreChecklists(t *testing.T) {
+	for _, gate := range []string{
+		"### Pre-flight — confirm each of these before your FIRST edit",
+		"### Verify gate — every line applies, none may be skipped",
+	} {
+		if !strings.Contains(systemPrompt, gate) {
+			t.Errorf("systemPrompt lost the gate heading %q", gate)
+		}
+	}
+	// Every obligation of the verify gate is its own box. Counting them keeps a rewrite from
+	// quietly folding several back into one line.
+	verify := systemPrompt[strings.Index(systemPrompt, "### Verify gate"):]
+	verify = verify[:strings.Index(verify, "5. SUMMARIZE")]
+	if n := strings.Count(verify, "\n- [ ] "); n < 8 {
+		t.Errorf("verify gate has %d boxes, want the 8 obligations kept separate", n)
+	}
+	// The specific rule that gets missed, and the reason it is not optional.
+	for _, want := range []string{
+		"send the ACTUAL signal",
+		"Simulating it in-process",
+		"does not count",
+		"RUN the checkpoint yourself and SEEN it pass",
+		"Never weaken or replace it",
+	} {
+		if !strings.Contains(systemPrompt, want) {
+			t.Errorf("the external-event rule lost %q", want)
+		}
+	}
+	// Pre-flight is a gate on the FIRST edit, not a post-hoc review.
+	if !strings.Contains(systemPrompt, "investigation you owe now, not after the edit") {
+		t.Error("pre-flight must say when it is owed")
+	}
+}
