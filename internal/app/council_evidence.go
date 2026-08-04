@@ -90,7 +90,14 @@ func evidenceArgs(name string, raw json.RawMessage) string {
 // defeatist agent talks the council into "done" with no artifact (the download-youtube
 // lesson). Only events since the last user prompt are considered, so a prior turn's
 // successful tool result can't masquerade as this turn's. Most recent k results.
-func turnToolEvidence(evs []event.Event, k int) string {
+func turnToolEvidence(evs []event.Event, k int) string { return toolEvidence(evs, k, true) }
+
+// toolEvidence is what turnToolEvidence and deltaToolEvidence both are; they differ only in
+// whether a user prompt starts the window over. They were two copies of thirty-four identical
+// lines, comments included, and the copies had already drifted once: the boundary note below
+// records a fix that reached only one of them, and the drop-notice note records one that had to
+// be written twice. A reader could not tell which differences were meant.
+func toolEvidence(evs []event.Event, k int, resetOnUserPrompt bool) string {
 	names := map[string]toolCallBrief{} // callID -> what was asked
 	var lines []string
 	for _, e := range evs {
@@ -100,7 +107,7 @@ func turnToolEvidence(evs []event.Event, k int) string {
 		// Measured: a turn whose three results included two failing `cleanup ran!` lines came back
 		// as ONE line after a nudge, and as NOTHING when the council was convened right after one.
 		// lastUserPromptTS below has always asked for ActorUser; these scans had drifted.
-		if e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser {
+		if resetOnUserPrompt && e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser {
 			names = map[string]toolCallBrief{}
 			lines = nil
 			continue
@@ -393,56 +400,7 @@ func tailForCouncil(s string, n int) string {
 // deltaToolEvidence renders the tool results in evs (no prompt-boundary resets —
 // the window IS the delta since the last rejection, which starts right after the
 // feedback injection). Format mirrors turnToolEvidence.
-func deltaToolEvidence(evs []event.Event, k int) string {
-	names := map[string]toolCallBrief{}
-	var lines []string
-	for _, e := range evs {
-		if e.Type != event.TypePartAppended {
-			continue
-		}
-		var d event.PartAppendedData
-		if json.Unmarshal(e.Data, &d) != nil {
-			continue
-		}
-		switch d.Part.Kind {
-		case session.PartToolCall:
-			if d.Part.ToolCall != nil {
-				names[d.Part.ToolCall.CallID] = toolCallBrief{
-					name: d.Part.ToolCall.Name,
-					args: evidenceArgs(d.Part.ToolCall.Name, d.Part.ToolCall.Args),
-				}
-			}
-		case session.PartToolResult:
-			if d.Part.ToolResult == nil {
-				continue
-			}
-			b := names[d.Part.ToolResult.CallID]
-			if b.name == "" {
-				b.name = "tool"
-			}
-			status := "ok"
-			if d.Part.ToolResult.IsError {
-				status = "error"
-			}
-			lines = append(lines, evidenceLine(b, status, toolResultText(d.Part.ToolResult.Content)))
-		}
-	}
-	if len(lines) == 0 {
-		return ""
-	}
-	// Say how many were left out. The block reads as "this turn's evidence" and is a TAIL: a turn
-	// with forty results hands the council the last eight, and the failing one from early on is
-	// simply not there. Nothing said so, so a reader had no way to know it was looking at part of
-	// the record — the harm priorCouncilObjections below documents from a run that failed, where
-	// each deliberation could see only the round before it. clipEach in this same file has always
-	// marked its drop; these did not.
-	if len(lines) > k {
-		dropped := len(lines) - k
-		lines = append([]string{fmt.Sprintf("…%d earlier tool results this turn are not shown", dropped)},
-			lines[len(lines)-k:]...)
-	}
-	return "- " + strings.Join(lines, "\n- ")
-}
+func deltaToolEvidence(evs []event.Event, k int) string { return toolEvidence(evs, k, false) }
 
 // lastUserPromptTS returns the timestamp of the most recent GENUINE user prompt in evs
 // (the turn boundary). Injected subagent results and escalations are ActorAgent prompts,
