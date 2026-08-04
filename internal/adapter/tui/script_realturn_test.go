@@ -193,7 +193,19 @@ func TestARealTurnThatWritesAndRuns(t *testing.T) {
 	if !r.m.hasPanel() {
 		t.Fatal("there is a record to show and no panel showing it")
 	}
-	r.renders("the panel's record", "note.txt")
+	// Assert against the PANEL, not the frame. This line used to look for "note.txt" anywhere on
+	// screen, which the transcript satisfies on its own — so it went on passing after the panel
+	// stopped naming changed paths at all. A claim about the panel has to read the panel.
+	panel := r.m.statusPanel(2)
+	if !strings.Contains(panel, "Observed") {
+		t.Fatalf("the panel has no record section:\n%s", panel)
+	}
+	if !strings.Contains(panel, "±1") || !strings.Contains(panel, "✓1") {
+		t.Errorf("the record should count one write and one clean command:\n%s", panel)
+	}
+	if strings.Contains(panel, "cat note.txt") {
+		t.Errorf("the panel shows counts, not command text:\n%s", panel)
+	}
 }
 
 // A tool that FAILS. The exit code and the message are what the user reads to know the turn is in

@@ -8,6 +8,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -139,21 +140,22 @@ func (m *Model) statusPanel(panelTop int) string {
 	}
 
 	// What magi OBSERVED: its own record of this run — the paths its tools wrote and how the
-	// commands it granted actually ended. Not a verdict and not a contract; a check written before
-	// the work could be wrong about the work, and this cannot be wrong about what it recorded.
+	// commands it granted actually ended.
+	//
+	// One line of counts, then the failures by name. It used to list every entry of all four
+	// categories, one row each and no bound, so a long run spent most of a narrow panel on the
+	// least interesting of them: the commands that WORKED. And because clipPanelRows bounds the
+	// whole panel to the screen, that list pushed Plan, Background and Context off the bottom —
+	// the unbounded record of what went fine crowding out the three things being watched.
+	//
+	// A count answers "how much has happened" in a glyph each; a name is only worth a row when
+	// there is something to do about it, which is the failures. The full record is unchanged
+	// where it is actually read — runState puts all of it in front of the model every step, and
+	// the council reads it as evidence.
 	if obs := m.app.Observation(m.ctx, m.panelSID()); !obs.Empty() {
 		sep()
 		lines = append(lines, panelHead("Observed"))
-		row := func(glyph string, c color.Color, items []string) {
-			for _, it := range items {
-				lines = append(lines, wrapPanel(
-					lipgloss.NewStyle().Foreground(c).Render(glyph+" ")+clipLine(it, inner), inner)...)
-			}
-		}
-		row("±", colAccent, obs.Changed)
-		row("✓", colSuccess, obs.Clean)
-		row("✗", colError, obs.Failed)
-		row("?", colMuted, obs.Unknown)
+		lines = append(lines, observedRows(obs, inner)...)
 	}
 
 	if len(m.panes) > 0 || len(m.doneRoster) > 0 {
@@ -193,6 +195,41 @@ func (m *Model) statusPanel(panelTop int) string {
 	lines = clipPanelRows(lines, m.height)
 	body := strings.Join(lines, "\n")
 	return roundedBox(body, content)
+}
+
+// observedRows renders magi's record as a single line of counts.
+//
+// It used to be a row per entry across all four categories, unbounded, and the longest of them
+// was the least useful: the commands that WORKED. clipPanelRows bounds the whole panel to the
+// screen, so that list pushed Plan, Background and Context off the bottom — a narrow column
+// spending itself on what went fine.
+//
+// The failures were the last thing to keep a row, and they lost it for the same reason the rest
+// did: a command is usually longer than this column, so what a reader gets is a truncated head
+// with the part that says what broke cut off. A number is not a worse answer than half a word.
+//
+// Nothing is lost where the record is actually read: runState puts all of it in front of the
+// model on every step, the council reads the same thing as evidence, and the transcript shows
+// each command with its exit as it happens.
+func observedRows(obs app.Observation, _ int) []string {
+	count := func(glyph string, c color.Color, n int) string {
+		if n == 0 {
+			return ""
+		}
+		return lipgloss.NewStyle().Foreground(c).Render(fmt.Sprintf("%s%d", glyph, n))
+	}
+	var segs []string
+	for _, s := range []string{
+		count("±", colAccent, len(obs.Changed)),
+		count("✓", colSuccess, len(obs.Clean)),
+		count("✗", colError, len(obs.Failed)),
+		count("?", colMuted, len(obs.Unknown)),
+	} {
+		if s != "" {
+			segs = append(segs, s)
+		}
+	}
+	return []string{strings.Join(segs, "  ")}
 }
 
 // clipPanelRows bounds the panel to the room the float has, and says what it cut.
