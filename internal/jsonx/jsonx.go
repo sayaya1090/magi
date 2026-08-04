@@ -498,6 +498,69 @@ func EscapeControlCharsInStrings(s string) string {
 	return b.String()
 }
 
+// EscapeInvalidEscapes rewrites a backslash that does not begin a legal JSON escape into a literal
+// one (\\), inside string literals only.
+//
+// JSON allows exactly \" \\ \/ \b \f \n \r \t and \uXXXX. Anything else is a parse error at that
+// byte, and the two shapes that produce it are ordinary content a model has no reason to think
+// twice about: a Windows-style path and a regex. Observed live in a council reply —
+//
+//	"cite":"custom-memory-heap-crash__VwdqwmF\exception.txt — 80.6 KB"
+//
+// where `\e` killed the document at offset 1106 of 1332 and the salvage path kept only the prefix,
+// so the member's decision survived and its feedback and grounds did not. `\d+` in a feedback
+// string does the same thing.
+//
+// The backslash is DOUBLED rather than dropped: the model wrote a path separator or a regex, and
+// both mean a literal backslash. A bad \u (not four hex digits) is treated the same way — the
+// alternative is inventing a code point.
+func EscapeInvalidEscapes(s string) string {
+	if !strings.Contains(s, `\`) {
+		return s
+	}
+	isHex := func(c byte) bool {
+		return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+	}
+	var b strings.Builder
+	b.Grow(len(s) + 16)
+	inStr := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !inStr {
+			if c == '"' {
+				inStr = true
+			}
+			b.WriteByte(c)
+			continue
+		}
+		if c == '"' {
+			inStr = false
+			b.WriteByte(c)
+			continue
+		}
+		if c != '\\' {
+			b.WriteByte(c)
+			continue
+		}
+		if i+1 >= len(s) { // a string that ends on a backslash: it can only be a literal one
+			b.WriteString(`\\`)
+			continue
+		}
+		switch n := s[i+1]; {
+		case strings.IndexByte(`"\\/bfnrt`, n) >= 0:
+			b.WriteByte(c)
+			b.WriteByte(n)
+			i++
+		case n == 'u' && i+5 < len(s) && isHex(s[i+2]) && isHex(s[i+3]) && isHex(s[i+4]) && isHex(s[i+5]):
+			b.WriteString(s[i : i+6])
+			i += 5
+		default:
+			b.WriteString(`\\`) // not an escape the format has — the backslash was literal
+		}
+	}
+	return b.String()
+}
+
 // RepairCandidates returns js followed by the weak-model repair variants a failed unmarshal
 // should be retried with: a trailing comma before }/] , a RAW control character (literal
 // newline/tab) inside a string value, and both together. Each is an error json.Unmarshal rejects
@@ -519,9 +582,10 @@ func RepairCandidates(js string) []string {
 	}
 	// Light repairs first: a trailing comma and a raw control character are the common defects and
 	// the cheapest to undo.
-	light := EscapeControlCharsInStrings(StripTrailingCommas(js))
+	light := EscapeInvalidEscapes(EscapeControlCharsInStrings(StripTrailingCommas(js)))
 	add(StripTrailingCommas(js))
 	add(EscapeControlCharsInStrings(js))
+	add(EscapeInvalidEscapes(js))
 	add(light)
 	// Structural repairs on top: an unescaped inner quote, a single-quoted string and a bare
 	// identifier value are ALL already-invalid JSON, so these can only act on a document that was
