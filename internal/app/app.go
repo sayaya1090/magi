@@ -547,6 +547,21 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 			_ = a.appendFact(context.WithoutCancel(runCtx), sid, event.TypeTurnFinished,
 				event.Actor{Kind: event.ActorSystem, ID: "loop"}, d)
 		}
+		// The run goroutine is retiring, so nothing is running — say so, whatever ended it.
+		//
+		// The persisted event above covers a cancelled run, and runLoop writes its own on a clean
+		// finish. Neither covers the path this exists for: the turn ends and is recorded, and THEN
+		// the drain answers a queued interjection inline. Observed live — turn.finished at 21:07:29,
+		// the inline reply persisted at 21:07:41, and the spinner still turning eighteen minutes
+		// later. The transcript is right to revive it (real tokens arrived after the turn ended, and
+		// treating that as idle is the worse failure); what was missing is anything to turn it off.
+		//
+		// TRANSIENT, because a SECOND turn.finished in the log is a known defect in its own right:
+		// every session carried two, the last with {"in":0,"out":0}, so the fork boundary and the
+		// usage meter — which read the last one — read a turn that spent nothing. This reaches the
+		// bus, where the display lives, and no reader of the store.
+		td, _ := json.Marshal(event.TurnFinishedData{})
+		a.publishTransient(sid, event.TypeTurnFinished, event.Actor{Kind: event.ActorSystem, ID: "loop"}, td)
 	}()
 }
 
