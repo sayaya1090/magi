@@ -111,6 +111,25 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 		DefaultModel: s.Model.Model,
 		Debate:       councilDebateEnabled(),
 		Keep:         councilKeepEnabled(),
+		// Show each member the moment it answers. The members are polled concurrently and the
+		// slowest sets the wall clock — a median 87s across the recorded runs, all of it with
+		// nothing on screen. The transcript was already built for this: its verdict handler
+		// appends into the open round's block and drops that block's render cache precisely so
+		// members "streaming in back-to-back" all appear. It was a consumer built for a stream
+		// and fed a batch.
+		//
+		// TRANSIENT, so the record does not change shape: the facts are still written once,
+		// below, from the returned Deliberation — which is the post-rebuttal set, and the only
+		// one that should be replayable. A live preview that a later round revises is a display
+		// concern, and the surfaces that read the log keep counting three verdicts per council.
+		OnVerdict: func(v council.Verdict) {
+			vd, _ := json.Marshal(event.CouncilVerdictData{
+				Round: 1, Member: v.Member, Lens: v.Lens, Decision: string(v.Decision),
+				Confidence: v.Confidence, Rationale: v.Rationale, Feedback: v.Feedback,
+				Keep: v.Keep, Cite: v.Cite,
+			})
+			a.publishTransient(sid, event.TypeCouncilVerdict, councilActor, vd)
+		},
 	})
 	if err != nil {
 		return "", fmt.Errorf("the council could not be reached: %w", err)

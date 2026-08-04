@@ -318,7 +318,20 @@ func (m *Model) applyEvent(e event.Event) {
 		if json.Unmarshal(e.Data, &d) == nil {
 			if n := len(m.blocks); n > 0 && m.blocks[n-1].kind == blockCouncilVerdict &&
 				len(m.blocks[n-1].councilVerdicts) > 0 && m.blocks[n-1].councilVerdicts[0].Round == d.Round {
-				m.blocks[n-1].councilVerdicts = append(m.blocks[n-1].councilVerdicts, d)
+				// A member arrives TWICE: once as the live preview published the moment it
+				// answers, then again as the recorded fact when the round closes. Replace in
+				// place, or the row shows every member twice — and the second copy is the one
+				// to keep, since a rebuttal round may have revised the vote between them.
+				replaced := false
+				for i, v := range m.blocks[n-1].councilVerdicts {
+					if v.Member == d.Member && v.Round == d.Round {
+						m.blocks[n-1].councilVerdicts[i], replaced = d, true
+						break
+					}
+				}
+				if !replaced {
+					m.blocks[n-1].councilVerdicts = append(m.blocks[n-1].councilVerdicts, d)
+				}
 				// The render cache is append-only: a block already cached is never
 				// re-rendered. Members vote concurrently and their verdicts stream in
 				// back-to-back, so if a frame is painted after the first verdict but
