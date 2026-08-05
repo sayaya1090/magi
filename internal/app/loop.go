@@ -212,7 +212,6 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		if ctx.Err() != nil {
 			return lastText, ctx.Err()
 		}
-		a.setStage(sid, stageExecute) // tag this iteration's events as execute (D15)
 		evs, err := a.store.Read(ctx, sid, 0)
 		if err != nil {
 			a.emitError(ctx, sid, agentActor, err.Error())
@@ -608,7 +607,7 @@ func (a *App) allParallelSafe(calls []*session.ToolCall) bool {
 		// DangerTools set: the council change-capture and self-regression history read
 		// each file's before/after around the edit, which is only race-free when writes
 		// to the same file are serialized.
-		if fileModifiers[tc.Name] || a.cfg.DangerTools[tc.Name] || tc.Name == "task" {
+		if fileModifiers[tc.Name] || a.cfg.DangerTools[tc.Name] {
 			return false
 		}
 		// A tool that blocks on the PERSON is not parallel-safe however read-only it is: there is

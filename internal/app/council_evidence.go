@@ -59,7 +59,7 @@ func evidenceArgs(name string, raw json.RawMessage) string {
 		return ""
 	}
 	switch name {
-	case "grep", "glob", "astgrep":
+	case "grep", "glob":
 		// Both halves, because either alone is ambiguous across a turn's searches.
 		what := str("pattern")
 		if what == "" {
