@@ -125,13 +125,6 @@ func TestInterjectLedgerWrites(t *testing.T) {
 	if r := ledgerFor(t, a, sid, "m_q"); len(r) != 2 || r[1] != true {
 		t.Fatalf("after consume-by-id, ledger for m_q = %v, want [false true]", r)
 	}
-
-	// consume-by-text also resolves.
-	a.enqueueInterject(ctx, sid, "m_t", "chitchat")
-	a.consumeInterject(ctx, sid, "chitchat")
-	if r := ledgerFor(t, a, sid, "m_t"); len(r) != 2 || r[1] != true {
-		t.Fatalf("after consume-by-text, ledger for m_t = %v, want [false true]", r)
-	}
 }
 
 // ledgerFor returns the Resolved flags of every InterjectionDeferred entry for msgID, in order.

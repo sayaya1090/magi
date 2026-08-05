@@ -15,8 +15,8 @@ import (
 // to say so — route_interjection's vocabulary was queue|redirect|append, and "queue" explicitly
 // means "it will run as its own turn after the current task". So the request stayed pending after
 // being answered, its note re-appeared every step, and the boundary handled it a second time.
-// (The one path that did drop it on a reply, handleAside's `case replied`, lost its production
-// caller when the idle-park was removed and is now reachable only from tests.)
+// (The one path that did drop it on a reply was handleAside's `case replied`, which lost its
+// production caller when the idle-park was removed and has since been deleted with it.)
 func TestAnAnsweredClaimStopsTheNoteWithoutLeavingTheQueue(t *testing.T) {
 	a, wd := newApp(t, &fakeLLM{}, Config{Permission: "allow"})
 	ctx := context.Background()

@@ -145,35 +145,6 @@ func (a *App) ensureDeferredHydrated(ctx context.Context, sid session.SessionID)
 	}
 }
 
-// consumeInterject removes a specific queued interjection (absorbed this turn by a
-// redirect/append route, so it must not also re-surface as its own follow-up turn).
-// Matched by text — the route path only has the interjection's text, not its MsgID.
-func (a *App) consumeInterject(ctx context.Context, sid session.SessionID, text string) {
-	text = strings.TrimSpace(text)
-	a.mu.Lock()
-	q := a.stateLocked(sid).pendingInterject
-	out := q[:0]
-	var removed []string
-	for _, p := range q {
-		if p.Text != text {
-			out = append(out, p)
-		} else if p.MsgID != "" {
-			removed = append(removed, p.MsgID)
-		}
-	}
-	if len(out) == 0 {
-		a.stateLocked(sid).pendingInterject = nil
-	} else {
-		a.stateLocked(sid).pendingInterject = out
-	}
-	a.mu.Unlock()
-	// Ledger each absorbed interjection as resolved so a reload does not treat it as an
-	// abandoned (still-queued) one and mask an exchange that was actually answered (F5).
-	for _, id := range removed {
-		a.recordDeferral(ctx, sid, id, true)
-	}
-}
-
 // consumeInterjectByID removes the queued interjection with this MsgID (absorbed by a
 // route this turn). Preferred over consumeInterject(text) when the MsgID is known: it is
 // exact even when two interjections share text, and dropping it from the queue is what makes

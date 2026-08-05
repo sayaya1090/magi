@@ -95,12 +95,12 @@ func TestInterjectQueue(t *testing.T) {
 	if ids := a.deferredInterjectIDs(sid); !ids["m_first"] || !ids["m_second"] {
 		t.Fatalf("both queued interjection ids should be masked, got %v", ids)
 	}
-	// consume removes a specific entry (the redirect/append absorb path), and unmasks it.
-	a.consumeInterject(context.Background(), sid, " first ")
+	// consume removes a specific entry (the redirect absorb path), and unmasks it.
+	a.consumeInterjectByID(context.Background(), sid, "m_first")
 	if ids := a.deferredInterjectIDs(sid); ids["m_first"] {
 		t.Fatalf("a consumed interjection must no longer be masked, got %v", ids)
 	}
-	a.consumeInterject(context.Background(), sid, "second")
+	a.consumeInterjectByID(context.Background(), sid, "m_second")
 	if a.hasPendingInterject(sid) {
 		t.Fatal("consume should have removed the remaining interjection")
 	}

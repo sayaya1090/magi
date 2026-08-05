@@ -14,7 +14,7 @@ import (
 
 // Mid-turn interjection / steer machinery, split out of loop.go: routing a user
 // message that arrives while a turn runs (applyRoute / noteInterjection), the
-// idle-park and finish-boundary triage mini-turns (handleAside / triageQueued /
+// the finish-boundary triage mini-turn (triageQueued /
 // interjectTurn / execAsideTool) and late-steer
 // enqueue at the finish boundary. Behavior unchanged; runLoop/finishTurn stay in loop.go.
 
@@ -162,36 +162,7 @@ func (a *App) takeInterjectNotes(sid session.SessionID) string {
 	return strings.Join(parts, "\n\n")
 }
 
-// asideHandlerSystem drives the idle-park interjection handler: a focused, tool-capable turn
-// that either replies briefly (chitchat) or SIGNALS a change of course, without doing the
-// delegated work itself. It runs in fresh, minimal context (just the aside + a clip of the
-// task for reference) so a reply is guaranteed to flush — the original bug was the main
-// synthesis turn, handed the full task, deprioritizing conversational replies and dropping
-// them for the entire delegated task. Only signal/interaction tools (route_interjection,
-// cancel_dispatch, ask_user) are offered — never read/bash/write/task — so the model cannot
-// start (or duplicate) the subagents' work here; the real re-plan/re-dispatch resumes in the
-// next normal step, which regains the full toolset.
-const asideHandlerSystem = "You dispatched background subagents and are now idle, waiting for them to report. " +
-	"While you wait, the user sent you the message below. Handle ONLY this message — do NOT read files, run " +
-	"commands, or investigate the task here; the subagents own that work and duplicating it wastes turns.\n\n" +
-	"- If it is PURELY small talk or a standalone question unrelated to the task (a greeting, trivia), reply " +
-	"briefly (one or two sentences) and end your turn with no tool call.\n" +
-	"- If it touches the work in ANY way — narrows or widens scope, changes which files/directories/targets are in " +
-	"play, adds or drops a constraint, reorders, or switches the goal — you MUST call route_interjection. A text " +
-	"acknowledgment like \"got it, I'll focus on X\" does NOT change what the running subagents or the plan do; " +
-	"acknowledging without routing silently DROPS the steer and the off-scope work continues. So: call " +
-	"route_interjection to set the direction — \"redirect\" to switch to it now, \"append\" to fold it into the " +
-	"current task so both are satisfied (ordering words like \"before\"/\"after\" are honored when you re-plan), or " +
-	"\"queue\" to defer it to its own later turn — and keep results already produced. If running subagents are now " +
-	"doing work the steer made irrelevant (e.g. reading files outside a newly narrowed scope), also call " +
-	"cancel_dispatch to stop them so the re-plan re-dispatches under the new scope.\n" +
-	"  Example: while explorers read the whole repo, the user says \"only the docs directory\" — that narrows scope, " +
-	"so call route_interjection \"append\" (and cancel_dispatch the explorers reading outside docs), do NOT merely " +
-	"reply \"got it\".\n" +
-	"- If the request is ambiguous, call ask_user to clarify before routing.\n\n" +
-	"The actual re-planning and re-dispatch happen in your normal turn after this — here you only reply or signal."
-
-// maxAsideSteps caps the idle-park handler's mini-loop so it always terminates: enough to
+// maxAsideSteps caps the triage mini-loop so it always terminates: enough to
 // ask_user and then route in the same handling, but bounded against a tool-call loop.
 const maxAsideSteps = 4
 
@@ -200,58 +171,9 @@ const maxAsideSteps = 4
 // tool call/result parts stay in the mini-loop (to keep the delegated task's log clean), so
 // without this the effect (a route redirect/append, a cancel) would leave no trace at all.
 type asideEffect struct {
-	route     string // route_interjection action that fired (redirect/append/queue), "" if none
-	reason    string // route/cancel reason as given by the model
-	cancelled int    // subagents stopped via cancel_dispatch
-	didRoute  bool   // a redirect/append fired (breaks the park, re-plans next step)
-	didCancel bool   // a cancel_dispatch fired
-	escalate  bool   // modeQueued: the model routed → run the steer as its own top-level turn
-}
-
-// triageMode selects how the shared interjection mini-turn (interjectTurn) wires
-// route_interjection and what disposition its caller applies.
-type triageMode int
-
-const (
-	// modeAside: the orchestrator is idle-parked on its own subagents mid-turn. route_interjection
-	// signals turnControl so the parked turn re-anchors/re-plans; a reply is chitchat.
-	modeAside triageMode = iota
-	// modeQueued: the turn has ended and a queued steer is being drained. route_interjection means
-	// "this needs real work" → escalate to its own fresh top-level turn; a reply answers it inline.
-	modeQueued
-)
-
-// handleAside runs a focused, tool-capable turn for a user interjection that arrived while the
-// orchestrator is idle-parked on its own explorers. It replies to chitchat OR signals a steer
-// (route_interjection / cancel_dispatch), optionally clarifying first via ask_user. The aside
-// MUST already be enqueued (enqueue-first) so route_interjection — which requires a pending
-// interjection — can fire. It returns whether it ACTED (route redirect/append, or a cancel):
-// true means the caller should break the park so the next normal step drains the route and
-// re-dispatches with the full toolset; false means re-park (a chitchat reply, a bare "queue",
-// or nothing usable). Queue disposition is handled here: a redirect/append is left queued for
-// the loop's turnControl drain to consume; a resolved chitchat reply or a bare cancel is
-// consumed so it does not also re-run as its own turn; a defer/failure is left queued (no loss).
-func (a *App) handleAside(ctx context.Context, agent AgentSpec, s session.Session, depth int, turnTask, msgID, aside string) (acted bool) {
-	sys := asideHandlerSystem
-	if h := shortReqID(msgID); h != "" {
-		sys += "\n\nThis message's request id is [req: " + h + "] — pass it as route_interjection request_id to route THIS message."
-	}
-	if t := strings.TrimSpace(turnTask); t != "" {
-		sys += "\n\nThe background task (context only — do not act on it here):\n" + clipSpec(t, 500)
-	}
-	replied, eff := a.interjectTurn(ctx, agent, s, depth, sys, aside, modeAside, msgID)
-	switch {
-	case eff.didRoute:
-		return true // redirect/append: the loop's turnControl drain consumes + re-anchors next step
-	case eff.didCancel:
-		a.consumeInterject(ctx, s.ID, aside) // cancel with no re-anchor: resolved here
-		return true
-	case replied:
-		a.consumeInterject(ctx, s.ID, aside) // chitchat: answered here, don't also re-run as a turn
-		return false
-	default:
-		return false // bare "queue" or nothing usable: leave queued to run later (no loss)
-	}
+	route    string // route_interjection action that fired (redirect/append/queue), "" if none
+	reason   string // route reason as given by the model
+	escalate bool   // the model routed → run the steer as its own top-level turn
 }
 
 // queuedTriageSystem drives the finish-boundary triage of a dequeued steer (modeQueued). The
@@ -278,7 +200,7 @@ func (a *App) triageQueued(ctx context.Context, agent AgentSpec, s session.Sessi
 	if tail := a.recentTranscript(ctx, s.ID, 8, 2000); tail != "" {
 		sys += "\n\nRecent conversation (for context — do not re-answer it):\n" + tail
 	}
-	replied, eff := a.interjectTurn(ctx, agent, s, 0, sys, aside, modeQueued, msgID)
+	replied, eff := a.interjectTurn(ctx, agent, s, 0, sys, aside, msgID)
 	if eff.escalate {
 		return true // routed → run it as its own fully-tooled turn
 	}
@@ -316,11 +238,11 @@ func (a *App) recentTranscript(ctx context.Context, sid session.SessionID, maxMs
 // plus the accumulated effect. Queue disposition (consume vs escalate vs break-park) is the
 // caller's, since it differs by mode. mode selects how route_interjection is wired: modeAside
 // signals turnControl to re-anchor the parked turn; modeQueued marks escalate.
-func (a *App) interjectTurn(ctx context.Context, agent AgentSpec, s session.Session, depth int, sys, aside string, mode triageMode, replyTo string) (replied bool, eff asideEffect) {
+func (a *App) interjectTurn(ctx context.Context, agent AgentSpec, s session.Session, depth int, sys, aside string, replyTo string) (replied bool, eff asideEffect) {
 	// Signal/interaction tools only — the model can reply or change course but cannot start
 	// (or duplicate) delegated work here.
 	var specs []port.ToolSpec
-	for _, name := range []string{"route_interjection", "cancel_dispatch", "ask_user"} {
+	for _, name := range []string{"route_interjection", "ask_user"} {
 		if t, ok := a.tools.Get(name); ok {
 			specs = append(specs, port.ToolSpec{Name: name, Description: t.Description(), Schema: t.Schema()})
 		}
@@ -366,16 +288,14 @@ func (a *App) interjectTurn(ctx context.Context, agent AgentSpec, s session.Sess
 		if reply != "" {
 			// Tag the visible reply with the answered message's origin id (replyTo) so the TUI
 			// can pull that question bubble down into a [question → answer] group — but ONLY for a
-			// PURE inline answer with no side effect. If the interjection acted on the task —
-			// routed (modeAside re-anchor: didRoute; modeQueued: escalate), or cancelled a subagent
-			// (didCancel) — its visible text is an ack for a real action woven into the main flow,
-			// not a standalone answer; grouping it would detach the question bubble from the steer
-			// it actually applied (or, for modeQueued, double-move it against the resurface). The
-			// effect flags are sticky across the mini-loop's steps, so a confirmation emitted in a
-			// later tool-call-free step (calls==0) still reads its earlier route/cancel and stays
-			// untagged; len(calls)>0 covers the same-step ack, before execAsideTool sets the flags.
+			// PURE inline answer with no side effect. If the interjection ROUTED, its visible text
+			// is an ack for a real action woven into the main flow, not a standalone answer, and
+			// grouping it would double-move the bubble against the resurface. The flag is sticky
+			// across the mini-loop's steps, so a confirmation emitted in a later tool-call-free
+			// step (calls==0) still reads the earlier route and stays untagged; len(calls)>0
+			// covers the same-step ack, before execAsideTool sets it.
 			rt := replyTo
-			if len(calls) > 0 || eff.escalate || eff.didRoute || eff.didCancel {
+			if len(calls) > 0 || eff.escalate {
 				rt = ""
 			}
 			a.appendReplyPart(ctx, s.ID, actor, msgID, rt, session.RoleAssistant, session.Part{ID: textPartID, Kind: session.PartText, Text: reply})
@@ -395,71 +315,29 @@ func (a *App) interjectTurn(ctx context.Context, agent AgentSpec, s session.Sess
 		msgs = append(msgs, session.Message{Role: session.RoleAssistant, Parts: asgParts})
 		for i := range calls {
 			c := calls[i]
-			res := a.execAsideTool(ctx, s, depth, &c, &eff, mode)
+			res := a.execAsideTool(ctx, s, depth, &c, &eff)
 			msgs = append(msgs, session.Message{Role: session.RoleTool, Parts: []session.Part{{Kind: session.PartToolResult, ToolResult: &res}}})
 		}
 	}
-	// Persist a durable, auditable trace of the steer's EFFECT (system actor, so interjection
-	// detection — ActorUser only — ignores it). Uses WithoutCancel so the record survives even
-	// if this handling raced a cancellation. Pure modeQueued escalation leaves no trace here —
-	// the drain's resurfaced prompt is itself the record.
-	if eff.didRoute || eff.didCancel {
-		var b strings.Builder
-		b.WriteString("Steer applied (not user input): ")
-		if eff.didRoute {
-			fmt.Fprintf(&b, "route_interjection %q", eff.route)
-		}
-		if eff.didCancel {
-			if eff.didRoute {
-				b.WriteString("; ")
-			}
-			fmt.Fprintf(&b, "cancel_dispatch stopped %d subagent(s)", eff.cancelled)
-		}
-		if r := strings.TrimSpace(eff.reason); r != "" {
-			fmt.Fprintf(&b, " — %s", clipSpec(r, 300))
-		}
-		fmt.Fprintf(&b, "\nInterjection: %s", clipSpec(strings.TrimSpace(aside), 300))
-		_ = a.appendPromptText(context.WithoutCancel(ctx), s.ID, event.Actor{Kind: event.ActorSystem, ID: "steer"}, b.String())
-	}
+	// A route leaves no trace here: the drain's resurfaced prompt is itself the record.
 	return replied, eff
 }
 
-// execAsideTool executes one signal/interaction tool call from the idle-park handler against a
-// minimal ToolEnv (only route/cancel/ask_user wired; every execution tool is nil, so the model
-// cannot do delegated work here). It records which class of action fired so handleAside can set
-// its return and queue disposition. Mirrors the routeInterjectionFn/cancelDispatchFn closures
-// in execute.go so behavior (pending-interjection requirement, turnControl signal) is identical.
-func (a *App) execAsideTool(ctx context.Context, s session.Session, depth int, c *session.ToolCall, eff *asideEffect, mode triageMode) session.ToolResult {
+// execAsideTool executes one signal/interaction tool call from the triage mini-turn against a
+// minimal ToolEnv (only route/ask_user wired; every execution tool is nil, so the model cannot
+// do delegated work here). It records whether the steer routed, which is what triageQueued
+// reads to choose between answering inline and escalating to a full turn.
+func (a *App) execAsideTool(ctx context.Context, s session.Session, depth int, c *session.ToolCall, eff *asideEffect) session.ToolResult {
 	env := port.ToolEnv{
 		SessionID: s.ID,
 		RouteInterjection: func(action, reason, requestID string) error {
-			if mode == modeQueued {
-				// The turn has already ended; there is no running turn to re-anchor. Any route
-				// action here simply means "this needs real work" — mark it so the drain runs the
-				// steer as its own fresh, fully-tooled turn.
-				eff.escalate = true
-				eff.route = action
-				if reason != "" {
-					eff.reason = reason
-				}
-				return nil
-			}
-			if !a.hasPendingInterject(s.ID) {
-				return fmt.Errorf("there is no queued interjection to route right now")
-			}
-			a.signalTurnControl(s.ID, func(tc *turnControl) {
-				tc.route = action
-				tc.routeID = requestID
-				if reason != "" {
-					tc.reason = reason
-				}
-			})
+			// The turn has already ended, so there is no running turn to re-anchor. Any route
+			// action here simply means "this needs real work" — mark it so the drain runs the
+			// steer as its own fresh, fully-tooled turn.
+			eff.escalate = true
 			eff.route = action
 			if reason != "" {
 				eff.reason = reason
-			}
-			if action == "redirect" || action == "append" {
-				eff.didRoute = true // "queue" changes nothing, so it neither routes nor breaks the park
 			}
 			return nil
 		},
