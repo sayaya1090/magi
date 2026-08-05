@@ -7,6 +7,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/config"
@@ -65,7 +66,7 @@ func (u userLabelSetter) SetUserLabel(label string) { u.set(label) }
 type subagentPersister struct{ path string }
 
 func (s subagentPersister) PersistSubagent(name string, on bool) error {
-	return config.SetListMember(s.path, "", "disabled_subagents", name, !on)
+	return config.SetKey(s.path, "subagents", name, strconv.FormatBool(on))
 }
 
 type routePersister struct{ path string }

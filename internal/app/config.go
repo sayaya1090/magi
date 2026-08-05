@@ -43,7 +43,8 @@ type PermissionPersister interface {
 }
 
 // SubagentPersister writes a /subagents toggle back to the config file so it survives a restart.
-// on=false records the subagent as disabled; on=true clears the entry.
+// It records the CHOICE, either way: a subagent that ships switched off needs "the user turned this
+// on" to be a thing the config can say.
 type SubagentPersister interface {
 	PersistSubagent(name string, on bool) error
 }
@@ -273,9 +274,10 @@ type Config struct {
 	// switch). Injected by the wiring layer (openai.Client.ProbeContextWindow) so the
 	// app never imports an LLM adapter. nil = no probing; the registry default is used.
 	ContextWindowProber func(context.Context, string) (int, bool)
-	// DisabledSubagents seeds the /subagents list from config: names the user switched off in an
-	// earlier run. SubagentPersister writes changes back.
-	DisabledSubagents []string
+	// SubagentPrefs is the user's own on/off choice per subagent, from config. Absent means "no
+	// choice made", which falls back to what the tool declared — so a subagent that ships off
+	// stays off until someone says otherwise, and one that ships on stays on.
+	SubagentPrefs     map[string]bool
 	SubagentPersister SubagentPersister
 }
 

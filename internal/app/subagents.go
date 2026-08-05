@@ -25,10 +25,7 @@ func (a *App) Subagents() []SubagentInfo {
 		return nil
 	}
 	a.mu.Lock()
-	off := make(map[string]bool, len(a.disabledSubagents))
-	for k, v := range a.disabledSubagents {
-		off[k] = v
-	}
+	prefs := clonePrefs(a.subagentPrefs)
 	a.mu.Unlock()
 
 	var out []SubagentInfo
@@ -37,8 +34,14 @@ func (a *App) Subagents() []SubagentInfo {
 		if !m.Subagent {
 			continue
 		}
+		// The user's own choice wins; absent, the tool's declaration decides. That is what lets a
+		// subagent ship switched off and still be turned on for good.
+		enabled := !m.DefaultOff
+		if v, ok := prefs[t.Name()]; ok {
+			enabled = v
+		}
 		out = append(out, SubagentInfo{
-			Name: t.Name(), Description: t.Description(), Group: m.Group, Enabled: !off[t.Name()],
+			Name: t.Name(), Description: t.Description(), Group: m.Group, Enabled: enabled,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -62,14 +65,10 @@ func (a *App) Subagents() []SubagentInfo {
 // copy of the truth.
 func (a *App) SetSubagentEnabled(name string, on bool) error {
 	a.mu.Lock()
-	if a.disabledSubagents == nil {
-		a.disabledSubagents = map[string]bool{}
+	if a.subagentPrefs == nil {
+		a.subagentPrefs = map[string]bool{}
 	}
-	if on {
-		delete(a.disabledSubagents, name)
-	} else {
-		a.disabledSubagents[name] = true
-	}
+	a.subagentPrefs[name] = on
 	p := a.cfg.SubagentPersister
 	a.mu.Unlock()
 	if p == nil {
@@ -96,21 +95,25 @@ func (a *App) SetGroupEnabled(group string, on bool) error {
 	return firstErr
 }
 
-// subagentDisabled reports whether this tool is a subagent the user switched off.
-func (a *App) subagentDisabled(name string) bool {
+// subagentDisabled reports whether this subagent must not be advertised: the user switched it off,
+// or it ships off and they have not switched it on.
+func (a *App) subagentDisabled(name string, meta port.ToolMetadata) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.disabledSubagents[name]
+	if v, ok := a.subagentPrefs[name]; ok {
+		return !v
+	}
+	return meta.DefaultOff
 }
 
-// disabledSet turns the configured name list into the lookup the app keeps.
-func disabledSet(names []string) map[string]bool {
-	if len(names) == 0 {
+// clonePrefs copies the choice map so the app never shares one with its caller or its reader.
+func clonePrefs(in map[string]bool) map[string]bool {
+	if len(in) == 0 {
 		return nil
 	}
-	m := make(map[string]bool, len(names))
-	for _, n := range names {
-		m[n] = true
+	out := make(map[string]bool, len(in))
+	for k, v := range in {
+		out[k] = v
 	}
-	return m
+	return out
 }

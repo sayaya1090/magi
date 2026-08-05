@@ -36,7 +36,7 @@ func (a *App) toolSpecs(agent AgentSpec) []port.ToolSpec {
 		}
 		// A subagent the user switched off is not offered to the model at all. Advertising is the
 		// gate: there is no second place a disabled one could still be reached from.
-		if meta.Subagent && a.subagentDisabled(name) {
+		if meta.Subagent && a.subagentDisabled(name, meta) {
 			continue
 		}
 		switch name {

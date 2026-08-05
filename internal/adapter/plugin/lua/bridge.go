@@ -117,6 +117,11 @@ func (p *plugin) bridgeRegisterTool(L *lua.LState) int {
 		Subagent: lua.LVAsBool(spec.RawGetString("subagent")),
 		Internal: lua.LVAsBool(spec.RawGetString("internal")),
 	}
+	// enabled=false ships it switched off. Absent means on, which is what every tool has always
+	// been — only a tool that says otherwise starts unticked.
+	if v := spec.RawGetString("enabled"); v != lua.LNil && !lua.LVAsBool(v) {
+		meta.DefaultOff = true
+	}
 	if g := spec.RawGetString("group"); g != lua.LNil {
 		meta.Group = g.String()
 	}

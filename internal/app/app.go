@@ -29,13 +29,13 @@ type App struct {
 	providers   map[string]port.LLMProvider // named LLM profiles (per-agent endpoint/key routing)
 	profileDefs map[string]ProfileDef       // profile definitions (guarded by mu), for the /route editor
 	tools       port.ToolRegistry
-	// disabledSubagents are the plugin-declared subagents the user switched off (guarded by mu).
-	// Off means not advertised; see SetSubagentEnabled.
-	disabledSubagents map[string]bool
-	bus               *bus.Bus
-	plat              port.Platform
-	cfg               Config
-	contextProviders  []port.ContextProvider // RAG-like context injectors
+	// subagentPrefs is the user's own on/off choice per subagent (guarded by mu). Only what they
+	// touched; the rest falls back to what the tool declared. Off means not advertised.
+	subagentPrefs    map[string]bool
+	bus              *bus.Bus
+	plat             port.Platform
+	cfg              Config
+	contextProviders []port.ContextProvider // RAG-like context injectors
 
 	mu     sync.Mutex
 	wg     sync.WaitGroup // tracks run + dispatch goroutines for graceful Close
@@ -69,19 +69,19 @@ func New(store port.Store, llm port.LLMProvider, tools port.ToolRegistry, b *bus
 	c := cfg.withDefaults()
 	c.ProfileModels = cloneStringMap(c.ProfileModels) // runtime edits must not mutate the caller's map
 	return &App{
-		store:             store,
-		llm:               llm,
-		providers:         cloneProviders(c.Providers),
-		profileDefs:       cloneProfileDefs(c.ProfileDefs),
-		tools:             tools,
-		disabledSubagents: disabledSet(c.DisabledSubagents),
-		bus:               b,
-		plat:              plat,
-		cfg:               c,
-		permPolicy:        c.Permission,
-		policy:            newPolicy(c.Allow, c.Deny, c.AllowDomains),
-		probingWindows:    map[string]struct{}{},
-		states:            map[session.SessionID]*sessionState{},
+		store:          store,
+		llm:            llm,
+		providers:      cloneProviders(c.Providers),
+		profileDefs:    cloneProfileDefs(c.ProfileDefs),
+		tools:          tools,
+		subagentPrefs:  clonePrefs(c.SubagentPrefs),
+		bus:            b,
+		plat:           plat,
+		cfg:            c,
+		permPolicy:     c.Permission,
+		policy:         newPolicy(c.Allow, c.Deny, c.AllowDomains),
+		probingWindows: map[string]struct{}{},
+		states:         map[session.SessionID]*sessionState{},
 	}
 }
 

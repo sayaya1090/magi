@@ -445,6 +445,9 @@ type ToolMetadata struct {
 	// Group is a plugin-declared label for the /subagents list. Purely for display and bulk
 	// toggling — the enabled state lives per tool, never per group, so the two cannot disagree.
 	Group string
+	// DefaultOff ships a subagent switched off: it appears in the list a user manages, unticked,
+	// and nothing spawns until they tick it. Only the user's own choice overrides it.
+	DefaultOff bool
 	// Internal keeps a tool off the main agent's list. It is advertised only to an agent whose
 	// allowlist NAMES it, which in practice means a child a plugin spawned with it — so a plugin
 	// can ship a narrow tool (say, one that only runs git) for its own specialist without adding
