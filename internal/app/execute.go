@@ -196,7 +196,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// steers the agent they are talking to. The tool has already validated
 	// action ∈ {queue,redirect,append}; this records the signal for the loop to drain and apply
 	// at its next step.
-	spawnFn := a.spawnFnFor(depth, s, actor, tc.CallID, tc.Name)
+	spawnFn, childStepsFn := a.spawnFnFor(depth, s, actor, tc.CallID, tc.Name)
 	var routeInterjectionFn func(action, reason, requestID string) error
 	if depth == 0 {
 		routeInterjectionFn = func(action, reason, requestID string) error {
@@ -310,6 +310,9 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		// Only at depth 0. A child has no Spawn, so a child cannot spawn — recursion is impossible
 		// by construction rather than bounded by a depth counter somebody has to remember to check.
 		Spawn: spawnFn,
+		// Paired with Spawn and scoped to the same tool call: it answers only for children this
+		// call started, so a plugin cannot read a session it did not create.
+		ChildSteps: childStepsFn,
 		Council: func(cctx context.Context, question string, complete bool) (string, error) {
 			return a.councilAdvice(cctx, s, guardChanges(guard), question, complete)
 		},
