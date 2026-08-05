@@ -121,48 +121,60 @@ func councilVerdictStyle(decision string) lipgloss.Style {
 // councilMemberPlain assumes when openCouncilDetailAt hit-tests a click column.
 const councilRowSep = "   "
 
-// councilRowPack lays the members out across as many rows as the width needs, never splitting one,
-// and returns the index of the first member on each row.
+// councilRowLevel is the most detail a verdict row can carry and still fit `width`.
 //
-// They all went on ONE row before, which is 131 cells for the MAGI trio and stayed 131 cells in an
-// 80-column window. The row is CLICKABLE, and openCouncilDetailAt finds the member under the cursor
-// from the click column alone — so wrapping it without teaching the hit-test would open the wrong
-// member's detail. Both call this, which is the only way the two stay in step.
-func councilRowPack(vs []event.CouncilVerdictData, width int) []int {
-	if len(vs) == 0 {
-		return nil
-	}
-	starts := []int{0}
-	if width <= 0 {
-		return starts
+// A block holds ONE member: applyEvent appends a block per verdict as that member answers, and
+// never redraws — the transcript is inline, so a row that grew as the round filled in would leave
+// every earlier version of itself on screen. That is the only producer, so the width question is
+// about one member's segment, which at full detail runs past 40 cells on a name like Balthasar.
+func councilRowLevel(vs []event.CouncilVerdictData, width int) int {
+	if len(vs) == 0 || width <= 0 {
+		return councilDetailFull // nothing to measure, or a width nobody has reported
 	}
 	sep := ansi.StringWidth(councilRowSep)
-	used := 0
-	for i, v := range vs {
-		w := ansi.StringWidth(councilMemberPlain(v))
-		switch {
-		case i == 0:
-			used = w
-		case used+sep+w <= width:
-			used += sep + w
-		default:
-			starts = append(starts, i)
-			used = w
+	fits := func(level int) bool {
+		used := 0
+		for i, v := range vs {
+			if i > 0 {
+				used += sep
+			}
+			used += ansi.StringWidth(councilMemberPlainAt(v, level))
+		}
+		return used <= width
+	}
+	for l := councilDetailFull; l < councilDetailNameOnly; l++ {
+		if fits(l) {
+			return l
 		}
 	}
-	return starts
+	return councilDetailNameOnly
 }
 
-// councilMemberPlain is the visible (unstyled) text of one member's compact verdict —
-// the same glyphs renderBlock styles — so a click column maps to the right member.
+// Detail levels for one member's compact verdict, most to least. `● Balthasar  [verification]
+// ✗ reject · 72%` is 43 cells, so in a narrow window the row gives up detail in the order it can
+// least justify keeping: the confidence reading first, then the lens. Who voted
+// and how they voted is what the line is for and is never dropped.
+const (
+	councilDetailFull     = iota // ● Name  [lens]  ✓ done · 91%
+	councilDetailNoConf          // ● Name  [lens]  ✓ done
+	councilDetailNameOnly        // ● Name  ✓ done
+)
+
+// councilMemberPlain is the visible (unstyled) text of one member's compact verdict at full detail.
 func councilMemberPlain(v event.CouncilVerdictData) string {
+	return councilMemberPlainAt(v, councilDetailFull)
+}
+
+// councilMemberPlainAt is the visible (unstyled) text of one member's verdict at a detail level —
+// the same glyphs renderBlock styles, so a click column maps to the right member.
+func councilMemberPlainAt(v event.CouncilVerdictData, level int) string {
 	icon, word := councilVerdictLabel(v.Decision)
 	s := "● " + v.Member
-	if v.Lens != "" {
+	if v.Lens != "" && level < councilDetailNameOnly {
 		s += "  [" + v.Lens + "]"
 	}
 	s += "  " + icon + " " + word
-	if v.Confidence > 0 {
+	if v.Confidence > 0 && level < councilDetailNoConf {
 		s += fmt.Sprintf(" · %.0f%%", v.Confidence*100)
 	}
 	return s
@@ -552,15 +564,25 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 		note := func(member, prefix, body string) {
 			hue := m.councilColor(member)
 			pw := lipgloss.Width(prefix) // display width (CJK/wide member names count as 2)
-			pad := strings.Repeat(" ", pw)
-			wrapped := wrapLines(oneLine(body, 100000), max(20, m.bodyWidth()-2-pw))
 			label := lipgloss.NewStyle().Foreground(hue).Render(prefix)
-			for k, ln := range wrapped {
-				if k == 0 {
-					reasons = append(reasons, indent(label+styleToolResult.Render(ln)))
-				} else {
-					reasons = append(reasons, indent(pad+styleToolResult.Render(ln)))
+			// The hanging indent is worth having until it costs more than it gives. It used to floor
+			// the text at 20 cells, so a long member name plus that floor could exceed the window —
+			// measured at 41 cells in a 40-column one. Past the point where the prefix leaves too
+			// little, the prefix takes a line of its own and the body wraps at full width beneath
+			// it, which is the only arrangement that neither truncates the guidance nor overflows.
+			avail := m.bodyWidth() - 2 - pw
+			if avail < 20 {
+				reasons = append(reasons, indent(clipRow(label, m.bodyWidth()-2)))
+				pw, label = 0, ""
+				avail = m.bodyWidth() - 2
+			}
+			pad := strings.Repeat(" ", pw)
+			for k, ln := range wrapLines(oneLine(body, 100000), max(8, avail)) {
+				lead := pad
+				if k == 0 && label != "" {
+					lead = label
 				}
+				reasons = append(reasons, indent(clipRow(lead+styleToolResult.Render(ln), m.bodyWidth()-2)))
 			}
 		}
 		for _, v := range blk.councilVerdicts {
@@ -1241,6 +1263,7 @@ func (m *Model) toolSection(body string) string {
 // VERDICT → CONFIDENCE. Shared by the live area, where the round is redrawn as each member lands,
 // and by the committed block, so the row a reader watches fill in is the row that stays.
 func (m *Model) councilRow(vs []event.CouncilVerdictData) string {
+	level := councilRowLevel(vs, m.bodyWidth()-2)
 	segs := make([]string, len(vs))
 	for i, v := range vs {
 		hue := m.councilColor(v.Member)
@@ -1253,28 +1276,16 @@ func (m *Model) councilRow(vs []event.CouncilVerdictData) string {
 		paint := func(st lipgloss.Style, s string) string { return st.Background(colPrimCont).Render(s) }
 		seg := paint(lipgloss.NewStyle().Foreground(hue), "● ") +
 			paint(lipgloss.NewStyle().Foreground(hue).Bold(true), v.Member)
-		if v.Lens != "" {
+		if v.Lens != "" && level < councilDetailNameOnly {
 			seg += paint(styleToolResult, "  ["+v.Lens+"]")
 		}
 		seg += paint(councilVerdictStyle(v.Decision), "  "+icon+" "+word)
-		if v.Confidence > 0 {
+		if v.Confidence > 0 && level < councilDetailNoConf {
 			seg += paint(styleToolResult, fmt.Sprintf(" · %.0f%%", v.Confidence*100))
 		}
 		segs[i] = seg
 	}
-	// One row per pack line, so a trio that does not fit reads as three rows instead of running
-	// off the edge. indent() (applied by the caller) prefixes every line, so the rows stay aligned.
-	starts := councilRowPack(vs, m.bodyWidth()-2)
-	lines := make([]string, len(starts))
-	for k, from := range starts {
-		to := len(segs)
-		if k+1 < len(starts) {
-			to = starts[k+1]
-		}
-		// Backstop for the case packing cannot solve: ONE member wider than the window. It only
-		// fires on a row holding a single member, so the column hit-test still lands on that
-		// member whatever the click column — indent() adds 2, hence the -2.
-		lines[k] = clipRow(strings.Join(segs[from:to], councilRowSep), m.bodyWidth()-2)
-	}
-	return strings.Join(lines, "\n")
+	// Backstop for what the detail ladder cannot solve: a member whose name alone overruns the
+	// window. indent() (applied by the caller) adds 2, hence the -2.
+	return clipRow(strings.Join(segs, councilRowSep), m.bodyWidth()-2)
 }

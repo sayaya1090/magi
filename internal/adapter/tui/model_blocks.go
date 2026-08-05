@@ -46,30 +46,17 @@ func (m *Model) openCouncilDetailAt(line int) bool {
 	if i < 0 || i >= len(m.blocks) || m.blocks[i].kind != blockCouncilVerdict || len(m.blocks[i].councilVerdicts) == 0 {
 		return false
 	}
-	// Members are laid out across as many rows as the width needs, so the click ROW narrows the
-	// candidates before the column picks among them. Reading the column alone was right only while
-	// they all shared one line; once the row wraps, a click on the second row would be measured
-	// against the first row's members and open the wrong detail. councilRowPack is the same
-	// function the renderer lays them out with — that is what keeps the two from drifting.
+	// One member per block (applyEvent appends one as each answers), so in practice the column
+	// below always lands on it — which also means the detail level here cannot change the outcome
+	// and no test can catch it being wrong. It is measured at the level the row was DRAWN at
+	// anyway: the two must agree about the shape, and a second member appearing is the only way
+	// that would ever matter.
 	vs := m.blocks[i].councilVerdicts
-	starts := councilRowPack(vs, m.bodyWidth()-2)
-	row := line - m.blockLineStart[i]
-	if row < 0 {
-		row = 0
-	}
-	if row >= len(starts) {
-		row = len(starts) - 1 // a click on the reasons below belongs to the last row of members
-	}
-	from := starts[row]
-	to := len(vs)
-	if row+1 < len(starts) {
-		to = starts[row+1]
-	}
-	// Segment k spans [x, x+width(member k)); separators (councilRowSep) sit between.
-	pick := to - 1 // default to the last member on the row if the click is past the end
-	x := 2         // indent() prepends 2 spaces before the first member
-	for k := from; k < to; k++ {
-		w := ansi.StringWidth(councilMemberPlain(vs[k]))
+	level := councilRowLevel(vs, m.bodyWidth()-2)
+	pick := len(vs) - 1 // default to the last member if the click is past the end
+	x := 2              // indent() prepends 2 spaces before the first member
+	for k, v := range vs {
+		w := ansi.StringWidth(councilMemberPlainAt(v, level))
 		if m.selAC < x+w {
 			pick = k
 			break
