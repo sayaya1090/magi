@@ -128,3 +128,34 @@ func describedIn(lua string) string {
 	}
 	return lua[i : i+j]
 }
+
+// Seele hands its plan to the caller's todo list, and says so.
+//
+// Todos are per session and ToolEnv.SetTodos is bound to the session the call runs in, so a child
+// calling todowrite would write into its OWN session — a tool that reports success and changes
+// nothing anyone sees. The plan therefore has to cross back as text and be written by the caller,
+// and nothing connected the two: the system prompt tells the agent to plan with todowrite, Seele's
+// description said it returns a step list, and a model that had just been handed a plan is if
+// anything LESS likely to write one down. This tree has measured that a weak model rarely calls
+// todowrite unprompted.
+func TestSeelePassesItsPlanToTheCallersTodoList(t *testing.T) {
+	init, err := plugins.Embedded["seele"].FS.ReadFile("seele/init.lua")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lua := string(init)
+
+	// The caller is told what to do with what comes back.
+	if !strings.Contains(describedIn(lua), "todowrite") {
+		t.Error("the description does not tell the caller to put the steps into todowrite")
+	}
+	// And Seele is told to write steps that survive the move — one line each, imperative.
+	if !strings.Contains(lua, "한 단계는 한 줄") {
+		t.Error("Seele is not told to write one step per line, so its plan does not transfer cleanly")
+	}
+	// It must not be handed the todo tool itself. The allowlist is the structural half of the same
+	// point: telling it not to would leave the tool there to be called.
+	if strings.Contains(spawnTools(lua), "todowrite") {
+		t.Error("seele's child allowlist includes todowrite — it would write todos nobody can see")
+	}
+}
