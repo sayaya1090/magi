@@ -104,3 +104,55 @@ func TestAToolWithoutMetadataIsUnchanged(t *testing.T) {
 		t.Errorf("a built-in should declare nothing, got %+v", m)
 	}
 }
+
+// A subagent can ship switched OFF, and off means the model is never offered it. Only the user's
+// own choice overrides that — which is what lets magi bundle a planner while still providing no
+// agent by default.
+func TestASubagentCanShipOffAndOnlyTheUserTurnsItOn(t *testing.T) {
+	reg := builtin.Default()
+	reg.Register(metaTool{name: "seele_plan", meta: port.ToolMetadata{Subagent: true, DefaultOff: true}})
+	reg.Register(metaTool{name: "eager", meta: port.ToolMetadata{Subagent: true}})
+	a := &App{tools: reg}
+
+	advertised := func() []string {
+		var out []string
+		for _, s := range a.toolSpecs(AgentSpec{}) {
+			out = append(out, s.Name)
+		}
+		return out
+	}
+	if slices.Contains(advertised(), "seele_plan") {
+		t.Error("a subagent that ships off must not be offered to the model")
+	}
+	if !slices.Contains(advertised(), "eager") {
+		t.Error("a subagent that ships on must be offered")
+	}
+	// It is listed for the user, unticked — hidden is not opt-in.
+	var found bool
+	for _, s := range a.Subagents() {
+		if s.Name == "seele_plan" {
+			found = true
+			if s.Enabled {
+				t.Error("it should be listed unticked")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("a subagent that ships off must still appear in the list a user manages")
+	}
+
+	// The user turns it on, and it sticks — the choice is recorded, not just the absence of one.
+	if err := a.SetSubagentEnabled("seele_plan", true); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(advertised(), "seele_plan") {
+		t.Error("after being turned on it must be offered")
+	}
+	// And off again, for a subagent that ships ON — the same record has to carry both directions.
+	if err := a.SetSubagentEnabled("eager", false); err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(advertised(), "eager") {
+		t.Error("after being turned off it must not be offered")
+	}
+}
