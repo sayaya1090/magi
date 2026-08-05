@@ -614,6 +614,15 @@ func (a *App) allParallelSafe(calls []*session.ToolCall) bool {
 		if fileModifiers[tc.Name] || a.cfg.DangerTools[tc.Name] {
 			return false
 		}
+		// A subagent runs a whole child turn, which writes files under the PARENT's guard — and the
+		// guard's before/after capture assumes writes to a file are serialised. It also blocks for
+		// as long as the child takes, and the parallel path does not re-check the context between
+		// launches, so two of them would hold the step open together with no way to cut it short.
+		if a.tools != nil {
+			if t, ok := a.tools.Get(tc.Name); ok && port.ToolMetaOf(t).Subagent {
+				return false
+			}
+		}
 		// A tool that blocks on the PERSON is not parallel-safe however read-only it is: there is
 		// one human and one modal slot, so a second question raised while the first is up replaces
 		// it on screen — the first prompt vanishes and its call waits on an answer nobody can give,

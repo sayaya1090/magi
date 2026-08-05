@@ -33,6 +33,7 @@ func installBridge(p *plugin) {
 	L.SetField(t, "set_llm_headers", L.NewFunction(p.bridgeSetLLMHeaders))
 	L.SetField(t, "on", L.NewFunction(p.bridgeOn))
 	L.SetField(t, "analyze", L.NewFunction(p.bridgeAnalyze))
+	L.SetField(t, "spawn", L.NewFunction(p.bridgeSpawn))
 	L.SetField(t, "json_decode", L.NewFunction(p.bridgeJSONDecode))
 	L.SetField(t, "propose_experience", L.NewFunction(p.bridgeProposeExperience))
 	L.SetField(t, "notify", L.NewFunction(p.bridgeNotify))
@@ -109,10 +110,79 @@ func (p *plugin) bridgeRegisterTool(L *lua.LState) int {
 		schema = json.RawMessage(`{"type":"object"}`)
 	}
 
+	// Declared, never inferred: a tool is a subagent because the plugin says so, belongs to the
+	// group the plugin names, and is internal when the plugin wants it off the main agent's list.
+	// Guessing any of this from the name would be a second source of truth.
+	meta := port.ToolMetadata{
+		Subagent: lua.LVAsBool(spec.RawGetString("subagent")),
+		Internal: lua.LVAsBool(spec.RawGetString("internal")),
+	}
+	if g := spec.RawGetString("group"); g != lua.LNil {
+		meta.Group = g.String()
+	}
 	p.tools = append(p.tools, &luaTool{
-		plugin: p, name: name, description: desc, schema: schema, fn: fn,
+		plugin: p, name: name, description: desc, schema: schema, fn: fn, meta: meta,
 	})
 	return 0
+}
+
+// magi.spawn{system=, prompt=, model=, provider=, tools={…}, max_steps=, timeout=}
+//
+// Runs a child agent to completion and returns its text (plus session_id, steps, err). The host
+// bounds it; this only carries what the plugin asked for.
+//
+// It is reachable only from inside a TOOL call — the Spawn hook lives on ToolEnv, and p.env holds
+// the env of the call in flight (luatool.go swaps it in for the duration). Called from an event
+// handler or a context provider there is no env, and saying so is better than spawning against a
+// stale one.
+func (p *plugin) bridgeSpawn(L *lua.LState) int {
+	p.requireCap(L, "spawn") // it runs a whole agent — must be declared in the manifest
+	if p.env.Spawn == nil {
+		return fail(L, "spawn: only available inside a tool call")
+	}
+	spec := L.CheckTable(1)
+	str := func(key string) string {
+		if v := spec.RawGetString(key); v != lua.LNil {
+			return v.String()
+		}
+		return ""
+	}
+	num := func(key string) int {
+		if v, ok := spec.RawGetString(key).(lua.LNumber); ok {
+			return int(v)
+		}
+		return 0
+	}
+	sp := port.SpawnSpec{
+		System:   str("system"),
+		Prompt:   str("prompt"),
+		Model:    str("model"),
+		Provider: str("provider"),
+		MaxSteps: num("max_steps"),
+	}
+	if secs := num("timeout"); secs > 0 {
+		sp.Timeout = time.Duration(secs) * time.Second
+	}
+	if tt, ok := spec.RawGetString("tools").(*lua.LTable); ok {
+		tt.ForEach(func(_, v lua.LValue) {
+			if s := strings.TrimSpace(v.String()); s != "" {
+				sp.Tools = append(sp.Tools, s)
+			}
+		})
+	}
+	res, err := p.env.Spawn(context.Background(), sp)
+	if err != nil {
+		return fail(L, "spawn: "+err.Error())
+	}
+	out := L.NewTable()
+	L.SetField(out, "text", lua.LString(res.Text))
+	L.SetField(out, "session_id", lua.LString(res.SessionID))
+	L.SetField(out, "steps", lua.LNumber(res.Steps))
+	// The child's failure is reported, not swallowed: a plugin told nothing would read silence as
+	// success.
+	L.SetField(out, "err", lua.LString(res.Err))
+	L.Push(out)
+	return 1
 }
 
 // magi.register_mcp{name=, url=, headers={} | function}

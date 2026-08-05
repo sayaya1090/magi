@@ -433,3 +433,35 @@ type SpawnResult struct {
 	Steps     int
 	Err       string // why the child stopped short, empty when it finished cleanly
 }
+
+// ToolMetadata is what a tool says about itself beyond its schema. Optional: a tool that has
+// nothing to add does not implement MetaTool and gets the zero value, which is the behaviour every
+// built-in has always had.
+type ToolMetadata struct {
+	// Subagent marks a tool that runs a child agent. It puts the tool in the /subagents list and
+	// forces it to run alone: a child writes files, and the parent's guard captures each file's
+	// before/after around an edit, which is only race-free when writes are serialised.
+	Subagent bool
+	// Group is a plugin-declared label for the /subagents list. Purely for display and bulk
+	// toggling — the enabled state lives per tool, never per group, so the two cannot disagree.
+	Group string
+	// Internal keeps a tool off the main agent's list. It is advertised only to an agent whose
+	// allowlist NAMES it, which in practice means a child a plugin spawned with it — so a plugin
+	// can ship a narrow tool (say, one that only runs git) for its own specialist without adding
+	// weight to every request the main agent makes.
+	Internal bool
+}
+
+// MetaTool is implemented by a Tool that carries metadata. Type-asserted where it matters.
+type MetaTool interface {
+	Tool
+	Meta() ToolMetadata
+}
+
+// ToolMetaOf returns t's metadata, or the zero value when it declares none.
+func ToolMetaOf(t Tool) ToolMetadata {
+	if m, ok := t.(MetaTool); ok {
+		return m.Meta()
+	}
+	return ToolMetadata{}
+}

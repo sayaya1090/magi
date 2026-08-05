@@ -26,6 +26,13 @@ func (a *App) toolSpecs(agent AgentSpec) []port.ToolSpec {
 		if !agent.allows(name) {
 			continue
 		}
+		// An INTERNAL tool is advertised only to an agent whose allowlist names it. allows() reads
+		// an empty list as "everything", which is what the main agent has — so this is what keeps a
+		// plugin's narrow helper off every request the main agent makes while still reaching the
+		// child that was spawned with it.
+		if port.ToolMetaOf(t).Internal && len(agent.Tools) == 0 {
+			continue
+		}
 		switch name {
 		case "ask_user":
 			// Only an interactive session has a human to ask; headless has no one to block on.

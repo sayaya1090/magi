@@ -20,11 +20,16 @@ type luaTool struct {
 	description string
 	schema      json.RawMessage
 	fn          *lua.LFunction
+	meta        port.ToolMetadata
 }
 
 func (t *luaTool) Name() string            { return t.name }
 func (t *luaTool) Description() string     { return t.description }
 func (t *luaTool) Schema() json.RawMessage { return t.schema }
+
+// Meta reports what the plugin declared about this tool: whether it runs a child agent, which
+// group it belongs to in the /subagents list, and whether it is hidden from the main agent.
+func (t *luaTool) Meta() port.ToolMetadata { return t.meta }
 
 // Execute calls the Lua function with the decoded args and converts its return
 // value(s) into a ToolResult. The Lua function may return:
