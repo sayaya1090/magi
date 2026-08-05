@@ -19,6 +19,14 @@ import "embed"
 //go:embed all:engram
 var engram embed.FS
 
+// seele is the planning subagent (see plugins/seele/init.lua). The PLUGIN loads — otherwise its
+// subagent would not appear in /subagents for a user to find — but the subagent it registers
+// declares itself off, so nothing spawns until someone ticks the box. magi provides no agent of its
+// own by default, and this is how that holds while the thing stays discoverable.
+//
+//go:embed all:seele
+var seele embed.FS
+
 // EmbeddedPlugin is one bundled plugin: its files (under "<name>/") and
 // whether it loads when the config says nothing. An explicit
 // [plugins.<name>] enabled = true|false always wins; DefaultOn only decides
@@ -32,4 +40,5 @@ type EmbeddedPlugin struct {
 // Embedded maps each bundled plugin's name to its definition.
 var Embedded = map[string]EmbeddedPlugin{
 	"engram": {FS: engram, DefaultOn: true},
+	"seele":  {FS: seele, DefaultOn: true},
 }

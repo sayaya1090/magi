@@ -1,0 +1,73 @@
+-- Seele — 계획 수립 서브에이전트.
+--
+-- 하는 일: 요구사항을 받아 코드베이스를 읽고 분석한 뒤, 단계별 플랜을 돌려준다. 그게 전부다.
+-- 하지 않는 일: 파일을 쓰지 않고, 명령을 실행하지 않고, 스스로 작업하지 않는다.
+--
+-- 쓰기 권한이 없는 것은 설정이 아니라 구조다. 아래 tools 목록이 자식의 허용목록이고, 호스트가
+-- 그 목록에 없는 툴은 자식에게 광고조차 하지 않는다. 그래서 "쓰지 말라"고 부탁하는 대신 쓸
+-- 수단 자체를 주지 않는다 — 약한 모델에게 금지를 지시하는 것과 표현 불가로 만드는 것의 차이다.
+--
+-- 기본 꺼짐. magi는 에이전트를 기본으로 제공하지 않는다는 원칙을 이 플러그인도 지킨다. 켜려면
+-- /subagents 에서 체크하면 되고, 그 선택은 설정에 남는다.
+
+local PLANNER_SYSTEM = [[
+너는 Seele, 계획 수립 전담이다. 코드를 고치지 않고, 명령을 실행하지 않고, 작업을 수행하지 않는다.
+읽고 분석해서 계획만 낸다.
+
+절차:
+1. 요구사항이 무엇을 요구하는지 정확히 파악한다. 애매한 부분은 추측하지 말고 계획에 "확인 필요"로 남긴다.
+2. 관련 코드를 읽는다. 실제로 읽은 것만 근거로 삼는다 — 읽지 않은 파일의 내용을 지어내지 않는다.
+3. 단계별 계획을 낸다. 각 단계는 무엇을, 어느 파일에서, 왜 하는지 한 줄로 말한다.
+
+계획을 내지 않아도 되는 경우가 있다. 요구사항이 단순해서 — 한 곳을 고치면 끝나거나, 무엇을 할지가
+자명하거나, 읽어보니 이미 그렇게 되어 있거나 — 계획이 실행보다 비싸다면 그렇게 말하고 끝낸다.
+"계획 불필요: <한 줄 이유>" 로 시작하면 된다. 없는 복잡도를 만들어내지 않는 것도 계획의 일부다.
+
+낼 때의 형식:
+- 먼저 한 문단으로 무엇을 하려는 일인지, 무엇이 걸림돌인지.
+- 그다음 번호 매긴 단계. 각 단계에 관련 파일 경로.
+- 마지막에 확인이 필요한 것이 있으면 나열한다. 없으면 생략.
+
+지어내지 말 것. 읽지 않은 파일, 확인하지 않은 동작, 존재를 확인하지 않은 함수를 계획에 넣지 않는다.
+]]
+
+magi.register_tool{
+  name = "seele_plan",
+  subagent = true,
+  enabled = false,   -- 기본 꺼짐. /subagents 에서 켠다.
+  group = "planning",
+  description = "Seele — 요구사항을 읽고 분석해 단계별 플랜을 짠다. 쓰기·실행 없음. 간단한 요청이면 계획 불필요라고 답한다.",
+  schema = {
+    type = "object",
+    properties = {
+      requirement = { type = "string", description = "계획을 세울 요구사항. 사용자가 말한 그대로." },
+    },
+    required = { "requirement" },
+  },
+  execute = function(args)
+    local requirement = args and args.requirement
+    if not requirement or requirement == "" then
+      return "seele_plan: requirement가 비어 있다", true
+    end
+
+    local res = magi.spawn{
+      system = PLANNER_SYSTEM,
+      prompt = requirement,
+      -- 자식의 허용목록. 읽기와 검색만 — 쓰기 툴도 bash도 없으므로 계획 외의 일은 할 수단이 없다.
+      tools = { "read", "grep", "glob", "list" },
+      max_steps = 25,
+      timeout = 300,
+    }
+
+    -- 자식이 중간에 멈췄으면 그렇게 말한다. 잘린 계획을 완성된 계획처럼 돌려주면
+    -- 부르는 쪽이 그 차이를 알 방법이 없다.
+    if res.err and res.err ~= "" then
+      local partial = res.text or ""
+      if partial == "" then
+        return "Seele가 계획을 내지 못했다: " .. res.err, true
+      end
+      return "⚠ Seele가 끝까지 가지 못했다 (" .. res.err .. "). 여기까지 나온 계획:\n\n" .. partial
+    end
+    return res.text or ""
+  end,
+}
