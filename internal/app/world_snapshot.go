@@ -114,12 +114,6 @@ func goneSince(base fileIndex, now map[string]bool) []string {
 	return out
 }
 
-// worldSnapshot reads the workspace as it stands RIGHT NOW and reports the files modified at or
-// after since — the ones this turn is responsible for — with their current size and age. Reading
-// only, and best-effort: an unreadable tree yields "" rather than an error, because a snapshot that
-// cannot be taken must not read as a workspace that is empty.
-func worldSnapshot(workdir string, since time.Time) string { return worldDiff(workdir, since, nil) }
-
 // worldDiff is worldSnapshot against a baseline taken when the turn started. A nil baseline is a
 // turn whose start was never indexed (a resumed session, a path that does not run the loop), and
 // it falls back to the mtime-only reading rather than claiming a difference it cannot compute.

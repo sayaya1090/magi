@@ -615,13 +615,6 @@ var runnableExt = map[string]bool{
 	".java": true, ".mjs": true,
 }
 
-// callCount returns the total tool calls recorded this run.
-func (g *runGuard) callCount() int {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.calls
-}
-
 // mutationEpoch returns the current mutation epoch — the number of real file mutations
 // (edit/write AND bash file-writes via noteBashWrite) this run. It rises only on genuine
 // deliverable changes (a read-only bash or an idempotent rewrite does not bump it), so it

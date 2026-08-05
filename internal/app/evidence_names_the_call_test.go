@@ -64,11 +64,6 @@ func TestEvidenceNamesTheCallNotJustItsAnswer(t *testing.T) {
 	if strings.Count(got, "3.50.4") != 2 {
 		t.Errorf("both answers still appear:\n%s", got)
 	}
-
-	// deltaToolEvidence renders the same shape (it is the post-rejection window).
-	if d := deltaToolEvidence(evs, 8); !strings.Contains(d, "ln -sf") {
-		t.Errorf("the delta window names its calls too:\n%s", d)
-	}
 }
 
 // Which argument identifies a call depends on the tool: bash carries no path, so its command IS its

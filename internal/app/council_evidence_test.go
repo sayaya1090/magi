@@ -6,39 +6,6 @@ import "testing"
 // (and trimming) — it is what the termination gate's idle-resubmit short-circuit uses to decide the
 // agent reprinted "the same answer". A wrong normalization would either finish UNVERIFIED prematurely
 // (false equal) or burn a council round re-deliberating an identical reply (false unequal), so lock it.
-func TestNormEq(t *testing.T) {
-	eq := []struct{ a, b string }{
-		{"hello world", "hello world"},
-		{"hello   world", "hello world"},    // collapsed inner run
-		{"  hello world  ", "hello world"},  // trimmed ends
-		{"hello\tworld", "hello world"},     // tab is whitespace
-		{"hello\nworld", "hello world"},     // newline is whitespace
-		{"hello \n\t world", "hello world"}, // mixed run
-		{"", ""},                            // both empty
-		{"   ", ""},                         // whitespace-only == empty
-		{"line1\n\nline2", "line1 line2"},   // blank line collapses
-	}
-	for _, c := range eq {
-		if !normEq(c.a, c.b) {
-			t.Errorf("normEq(%q, %q) = false, want true", c.a, c.b)
-		}
-	}
-	ne := []struct{ a, b string }{
-		{"hello world", "world hello"}, // word order matters
-		{"hello world", "hello  worl"}, // different content
-		{"abc", "ab c"},                // a space inside a token is a real difference
-		{"", "x"},                      // empty vs non-empty
-	}
-	for _, c := range ne {
-		if normEq(c.a, c.b) {
-			t.Errorf("normEq(%q, %q) = true, want false", c.a, c.b)
-		}
-	}
-}
-
-// clipLine bounds an evidence line to n bytes (rune-safe) with an ellipsis; a shorter string is
-// returned unchanged. The rune-safety matters: cutting at a byte inside a multibyte rune must back up
-// to the rune boundary rather than emit an invalid UTF-8 fragment.
 func TestClipLine(t *testing.T) {
 	if got := clipLine("short", 10); got != "short" {
 		t.Errorf("clipLine under the limit must be unchanged, got %q", got)

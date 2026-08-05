@@ -117,26 +117,6 @@ func drainStream(stream <-chan port.ProviderEvent) (string, error) {
 	return b.String(), cut
 }
 
-// drainText consumes a TEXT-ONLY provider stream (the planner and other tool-free side calls that only
-// accumulate the reply, unlike consumeStream which also publishes deltas). It carries NO hang watchdog
-// of its own: the provider is wrapped by guardedProvider (GuardProvider), which aborts a silent or
-// spinning generation at the receive point, so a hung re-plan generate closes the stream and drainText
-// returns (usually empty) — which flows into the caller's own no-result path (the planner's JSON-only
-// retry). Returns the accumulated text and any StreamChat transport error.
-func (a *App) drainText(ctx context.Context, spec AgentSpec, req port.ChatRequest) (string, error) {
-	stream, err := a.providerFor(spec).StreamChat(ctx, req)
-	if err != nil {
-		return "", err
-	}
-	text, cut := drainStream(stream)
-	if cut != nil {
-		// The partial text is still returned — the planner's salvage path wants it — but a stream
-		// cut midway must not read as a model that wrote bad JSON.
-		fmt.Fprintf(os.Stderr, "magi: a planner stream was cut off after %d chars: %v\n", len(text), cut)
-	}
-	return text, nil
-}
-
 // reasoningSpinCap is the max output bytes a single model response may stream WITHOUT ever emitting
 // a tool call before it is cancelled as a reasoning-only spin: a weak model that "thinks" forever
 // and never acts (observed at 35–70 MB of reasoning deltas with zero tool calls on hard tasks —

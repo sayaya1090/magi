@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -100,39 +99,5 @@ func TestGuardProviderForwardsNormalReply(t *testing.T) {
 	}
 }
 
-// drainText (now guard-free) accumulates the reply's text via the guarded provider.
-func TestDrainTextAccumulates(t *testing.T) {
-	a := newOrchApp(t, &gateLLM{text: "the plan JSON"}, Config{Permission: "allow"})
-	text, err := a.drainText(context.Background(), AgentSpec{}, port.ChatRequest{})
-	if err != nil || text != "the plan JSON" {
-		t.Fatalf("drainText = %q, %v; want \"the plan JSON\", nil", text, err)
-	}
-}
-
 // errAfterTextLLM streams some text, then a ProviderError, then more text, then closes — a side-call
 // backend that errors mid-stream after partial output.
-type errAfterTextLLM struct{}
-
-func (errAfterTextLLM) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan port.ProviderEvent, error) {
-	ch := make(chan port.ProviderEvent, 3)
-	ch <- port.ProviderEvent{Type: port.ProviderText, Text: "partial "}
-	ch <- port.ProviderEvent{Type: port.ProviderError, Err: fmt.Errorf("backend exploded")}
-	ch <- port.ProviderEvent{Type: port.ProviderText, Text: "more"}
-	close(ch)
-	return ch, nil
-}
-
-// drainText is text-only: a mid-stream ProviderError event is NOT surfaced as an error — drainText
-// returns the accumulated text with nil, so the caller (planner/council/specmine side call) degrades to
-// its own parse-failure/abstain recovery rather than a hard error, and a ProviderError event never
-// panics the drain. Locks that graceful-degradation contract.
-func TestDrainTextSwallowsProviderError(t *testing.T) {
-	a := newOrchApp(t, errAfterTextLLM{}, Config{Permission: "allow"})
-	text, err := a.drainText(context.Background(), AgentSpec{}, port.ChatRequest{})
-	if err != nil {
-		t.Fatalf("drainText must swallow a mid-stream ProviderError (nil err), got %v", err)
-	}
-	if text != "partial more" {
-		t.Errorf("drainText must accumulate the text around the error, got %q", text)
-	}
-}

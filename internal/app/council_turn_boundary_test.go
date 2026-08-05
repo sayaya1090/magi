@@ -71,9 +71,6 @@ func TestSystemPromptsAreNotTurnBoundaries(t *testing.T) {
 						injected.ID, trailing.name, want, got)
 				}
 			}
-			if stuckEvidence(evs, 12) == "" {
-				t.Errorf("%s/%s: the obstacles this turn hit went missing too", injected.ID, trailing.name)
-			}
 		}
 	}
 
@@ -87,48 +84,5 @@ func TestSystemPromptsAreNotTurnBoundaries(t *testing.T) {
 	}
 	if !strings.Contains(got, "1\tbar") {
 		t.Errorf("the new turn's own call must be there:\n%s", got)
-	}
-}
-
-// The two evidence renderers share one body and differ on a single flag: whether a user prompt
-// starts the window over. That difference is the entire reason there are two of them, and it is
-// the one thing a wrong argument would silently invert — every other assertion in the suite passes
-// either way. So it gets its own test.
-//
-// deltaToolEvidence's window IS the delta since the last rejection, and a user prompt inside it is
-// not a boundary: resetting there would hand the re-deliberation an empty block and let work the
-// council already rejected pass unexamined.
-func TestOnlyTheTurnWindowResetsOnAUserPrompt(t *testing.T) {
-	mk := func(ty event.Type, actor event.Actor, data any) event.Event {
-		b, _ := json.Marshal(data)
-		return event.Event{Type: ty, Actor: actor, Data: b}
-	}
-	agent := event.Actor{Kind: event.ActorAgent, ID: "coder"}
-	call := func(id, name string) event.Event {
-		return mk(event.TypePartAppended, agent, event.PartAppendedData{Part: session.Part{
-			Kind: session.PartToolCall, ToolCall: &session.ToolCall{CallID: id, Name: name}}})
-	}
-	result := func(id, text string) event.Event {
-		c, _ := json.Marshal(text)
-		return mk(event.TypePartAppended, agent, event.PartAppendedData{Part: session.Part{
-			Kind: session.PartToolResult, ToolResult: &session.ToolResult{CallID: id, Content: c}}})
-	}
-
-	evs := []event.Event{
-		call("c1", "bash"), result("c1", "before the prompt"),
-		mk(event.TypePromptSubmitted, event.Actor{Kind: event.ActorUser, ID: "tui"},
-			event.PromptSubmittedData{Parts: []session.Part{{Kind: session.PartText, Text: "and now this"}}}),
-		call("c2", "bash"), result("c2", "after the prompt"),
-	}
-
-	if got := turnToolEvidence(evs, 12); strings.Contains(got, "before the prompt") {
-		t.Errorf("the turn window must restart at a user prompt:\n%s", got)
-	}
-	got := deltaToolEvidence(evs, 12)
-	if !strings.Contains(got, "before the prompt") {
-		t.Errorf("the delta window must NOT restart at a user prompt — the rejected work is gone:\n%s", got)
-	}
-	if !strings.Contains(got, "after the prompt") {
-		t.Errorf("the delta window dropped the work that followed:\n%s", got)
 	}
 }

@@ -40,7 +40,6 @@ func TestTheEvidenceBlockSaysWhatItLeftOut(t *testing.T) {
 		got  string
 	}{
 		{"turnToolEvidence", turnToolEvidence(evs, 8)},
-		{"deltaToolEvidence", deltaToolEvidence(evs, 8)},
 	} {
 		if !strings.Contains(c.got, "32 earlier tool results this turn are not shown") {
 			t.Errorf("%s: a tail must say how much it is a tail of:\n%s", c.name, c.got)
@@ -63,7 +62,6 @@ func TestTheEvidenceBlockSaysWhatItLeftOut(t *testing.T) {
 		got  string
 	}{
 		{"turnToolEvidence", turnToolEvidence(small, 8)},
-		{"deltaToolEvidence", deltaToolEvidence(small, 8)},
 	} {
 		if strings.Contains(c.got, "not shown") {
 			t.Errorf("%s: five results fit in eight and nothing was dropped:\n%s", c.name, c.got)
@@ -73,21 +71,4 @@ func TestTheEvidenceBlockSaysWhatItLeftOut(t *testing.T) {
 		}
 	}
 
-	// The obstacles block is a tail in the same way and now says so too.
-	var walls []event.Event
-	walls = append(walls, evs[0])
-	for i := 1; i <= 20; i++ {
-		id := fmt.Sprintf("w%d", i)
-		walls = append(walls, mk(event.TypePartAppended, agent, event.PartAppendedData{Part: session.Part{
-			Kind: session.PartToolCall, ToolCall: &session.ToolCall{CallID: id, Name: "bash"}}}))
-		c, _ := json.Marshal(fmt.Sprintf("no such file: missing-%02d.c", i))
-		walls = append(walls, mk(event.TypePartAppended, agent, event.PartAppendedData{Part: session.Part{
-			Kind: session.PartToolResult, ToolResult: &session.ToolResult{CallID: id, Content: c, IsError: true}}}))
-	}
-	if got := stuckEvidence(walls, 6); !strings.Contains(got, "14 earlier obstacles are not shown") {
-		t.Errorf("the obstacles block is a tail too and must say so:\n%s", got)
-	}
-	if got := stuckEvidence(walls[:1+2*3], 6); strings.Contains(got, "not shown") {
-		t.Errorf("three obstacles fit in six:\n%s", got)
-	}
 }

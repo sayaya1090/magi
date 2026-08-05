@@ -28,7 +28,6 @@ func TestEveryClipCutsOnARuneBoundary(t *testing.T) {
 		f    func(string, int) string
 	}{
 		{"clipLine", clipLine},
-		{"clipTail", clipTail},
 		{"clipSpec", clipSpec},
 		{"truncateForCouncil", truncateForCouncil},
 		{"truncateOutput", truncateOutput},

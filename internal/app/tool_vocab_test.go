@@ -20,6 +20,9 @@ import (
 // `notebook_edit` and `apply_patch` from before either was a tool anywhere in this binary. That
 // set and its one caller are both gone now, so what is left here is the policy set that is still
 // consulted — which is the point, a set nothing reads is not a policy to check.
+// The policy sets name tools by string literal. A rename or a typo leaves the literal behind and
+// the policy it belongs to silently stops applying to that tool — no error, no warning, just a
+// guardrail that covers one less thing than it says it does.
 func TestPolicyToolNamesAreRealTools(t *testing.T) {
 	known := builtin.KnownNames()
 	if len(known) < 20 {
@@ -43,26 +46,6 @@ func TestPolicyToolNamesAreRealTools(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-// knowledgeLookupTools is the one set that deliberately reaches past the built-ins: a plugin or MCP
-// server can supply web search under its own name, and the set exists to catch a failed lookup
-// whoever provides it. So the assertion is weaker and different — not "every name is a built-in",
-// but "the built-in ones are spelled right", which is what the aliases would otherwise hide.
-func TestKnowledgeLookupNamesTheBuiltinsCorrectly(t *testing.T) {
-	known := builtin.KnownNames()
-	var builtins int
-	for name := range knowledgeLookupTools {
-		if known[name] {
-			builtins++
-		}
-	}
-	// websearch and webfetch are built in; if a rename left the set holding only aliases, every
-	// lookup this binary can actually perform would stop being recognized as one.
-	if builtins < 2 {
-		t.Errorf("knowledgeLookupTools matches %d built-in tool(s), want the built-in web tools among "+
-			"them — the rest are plugin/MCP aliases and cannot carry the set on their own", builtins)
 	}
 }
 

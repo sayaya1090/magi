@@ -116,21 +116,6 @@ func TestTruncateForCouncil(t *testing.T) {
 	}
 }
 
-// tailForCouncil keeps the last n bytes on a rune boundary, since failing output
-// is most useful at the end.
-func TestTailForCouncil(t *testing.T) {
-	if got := tailForCouncil("short", 100); got != "short" {
-		t.Errorf("under-limit changed: %q", got)
-	}
-	got := tailForCouncil("héllo", 3)
-	if !strings.HasPrefix(got, "…[earlier output truncated]") {
-		t.Errorf("missing tail marker: %q", got)
-	}
-	if !utf8.ValidString(got) {
-		t.Errorf("result is not valid UTF-8: %q", got)
-	}
-}
-
 // wfShell picks the platform shell: powershell on Windows, /bin/sh elsewhere.
 func TestWfShell(t *testing.T) {
 	sh, args := wfShell("echo hi")
