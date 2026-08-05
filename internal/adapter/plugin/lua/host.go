@@ -3,6 +3,7 @@ package lua
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -192,15 +193,26 @@ func NewHostWithConfig(cfg HostConfig) *Host {
 
 // HasEventHandlers reports whether any loaded plugin registered a handler for
 // the event — lets the app skip building observation payloads nobody consumes.
+// snapshot returns the loaded plugins in NAME ORDER. h.plugins is a map, and Go randomises map
+// iteration on purpose, so anything built by ranging it — the slash-command list, the tool list,
+// the doctor report — came out in a different order on every draw. Sorting here fixes all of them
+// at once and makes "which plugin wins a duplicate name" answerable instead of a coin flip.
+// Callers that go on to touch p.mu MUST use this and release h.mu first (see the note below).
+func (h *Host) snapshot() []*plugin {
+	out := make([]*plugin, 0, len(h.plugins))
+	for _, p := range h.plugins {
+		out = append(out, p)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].name < out[j].name })
+	return out
+}
+
 // The plugin list is snapshotted and h.mu RELEASED before touching any p.mu:
 // bridge paths run Lua under p.mu and then take h.mu (runtimeModel/uiEffects),
 // so holding both here would invert the lock order into an ABBA deadlock.
 func (h *Host) HasEventHandlers(event string) bool {
 	h.mu.Lock()
-	plugins := make([]*plugin, 0, len(h.plugins))
-	for _, p := range h.plugins {
-		plugins = append(plugins, p)
-	}
+	plugins := h.snapshot()
 	h.mu.Unlock()
 	for _, p := range plugins {
 		if p.hasHook(event) {
@@ -269,10 +281,7 @@ func (h *Host) DrainEvents(timeout time.Duration) {
 // after loading plugins and before the first turn; "shutdown" on exit.
 func (h *Host) FireEvent(event string) {
 	h.mu.Lock()
-	plugins := make([]*plugin, 0, len(h.plugins))
-	for _, p := range h.plugins {
-		plugins = append(plugins, p)
-	}
+	plugins := h.snapshot()
 	h.mu.Unlock()
 	for _, p := range plugins {
 		p.fire(event)
@@ -334,7 +343,7 @@ func (h *Host) Capabilities() port.CapabilitySet {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	var cs port.CapabilitySet
-	for _, p := range h.plugins {
+	for _, p := range h.snapshot() {
 		for _, t := range p.tools {
 			cs.Tools = append(cs.Tools, t)
 		}
@@ -351,7 +360,7 @@ func (h *Host) PluginCommands() []port.PluginCommand {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	var cmds []port.PluginCommand
-	for _, p := range h.plugins {
+	for _, p := range h.snapshot() {
 		for _, c := range p.commands {
 			cmds = append(cmds, c)
 		}
@@ -365,7 +374,7 @@ func (h *Host) DoctorProbes() []port.DoctorProbe {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	var probes []port.DoctorProbe
-	for _, p := range h.plugins {
+	for _, p := range h.snapshot() {
 		for _, pr := range p.probes {
 			probes = append(probes, pr)
 		}
@@ -380,12 +389,15 @@ func (h *Host) DispatchCommand(name string, args []string) (bool, error) {
 	name = strings.TrimPrefix(name, "/")
 	h.mu.Lock()
 	var cmd *luaCommand
-	for _, p := range h.plugins {
+	for _, p := range h.snapshot() {
 		for _, c := range p.commands {
 			if c.name == name {
 				cmd = c
 				break
 			}
+		}
+		if cmd != nil {
+			break // first owner in name order wins; the inner break alone let a later plugin take it
 		}
 	}
 	h.mu.Unlock() // release before Execute: it locks the plugin, not the host
