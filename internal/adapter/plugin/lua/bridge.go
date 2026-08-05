@@ -140,6 +140,16 @@ func (p *plugin) bridgeRegisterTool(L *lua.LState) int {
 // the env of the call in flight (luatool.go swaps it in for the duration). Called from an event
 // handler or a context provider there is no env, and saying so is better than spawning against a
 // stale one.
+// spawnCtx is the in-flight tool call's context. Spawn is reachable only from inside a tool call,
+// so callCtx is set whenever this is reached; the fallback is here so a future caller that forgets
+// to set it gets a working context rather than a nil-ctx panic deep in the run loop.
+func (p *plugin) spawnCtx() context.Context {
+	if p.callCtx != nil {
+		return p.callCtx
+	}
+	return context.Background()
+}
+
 func (p *plugin) bridgeSpawn(L *lua.LState) int {
 	p.requireCap(L, "spawn") // it runs a whole agent — must be declared in the manifest
 	if p.env.Spawn == nil {
@@ -175,7 +185,9 @@ func (p *plugin) bridgeSpawn(L *lua.LState) int {
 			}
 		})
 	}
-	res, err := p.env.Spawn(context.Background(), sp)
+	// The CALL's ctx, not a fresh one: cancelling the parent turn has to reach the child. Passing
+	// context.Background() here is what made Ctrl-C look dead for as long as the child's own bound.
+	res, err := p.env.Spawn(p.spawnCtx(), sp)
 	if err != nil {
 		return fail(L, "spawn: "+err.Error())
 	}

@@ -1,6 +1,7 @@
 package lua
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -24,14 +25,18 @@ type plugin struct {
 	mu       sync.Mutex
 	L        *lua.LState
 	tools    []*luaTool
-	commands []*luaCommand               // slash commands registered via magi.register_command
-	probes   []*luaDoctorProbe           // -doctor checks registered via magi.register_doctor_probes
-	env      port.ToolEnv                // set per tool Execute so bridge calls see the workdir
-	hooks    map[string][]*lua.LFunction // lifecycle handlers registered via magi.on(event, fn)
-	servers  []io.Closer                 // loopback HTTP servers opened via magi.serve; closed on unload
-	baseSet  bool                        // this plugin overrode the LLM base URL (magi.set_base_url)
-	baseTok  uint64                      // ownership token of that override; released (only if still current) on unload
-	logf     func(string)
+	commands []*luaCommand     // slash commands registered via magi.register_command
+	probes   []*luaDoctorProbe // -doctor checks registered via magi.register_doctor_probes
+	env      port.ToolEnv      // set per tool Execute so bridge calls see the workdir
+	// callCtx is the ctx of the tool call in flight, swapped in beside env. Without it a bridge
+	// call had nothing to pass down and used context.Background(), which severed the child from
+	// the parent turn — Ctrl-C then did nothing until the child's own deadline expired.
+	callCtx context.Context
+	hooks   map[string][]*lua.LFunction // lifecycle handlers registered via magi.on(event, fn)
+	servers []io.Closer                 // loopback HTTP servers opened via magi.serve; closed on unload
+	baseSet bool                        // this plugin overrode the LLM base URL (magi.set_base_url)
+	baseTok uint64                      // ownership token of that override; released (only if still current) on unload
+	logf    func(string)
 }
 
 // loadPlugin reads the manifest, builds a sandboxed state, installs the bridge,

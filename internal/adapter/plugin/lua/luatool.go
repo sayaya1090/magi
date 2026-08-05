@@ -46,9 +46,9 @@ func (t *luaTool) Execute(ctx context.Context, raw json.RawMessage, env port.Too
 	// restore afterwards so observation handlers and context providers (which run
 	// outside any tool call) keep the load-time seeded env instead of whatever
 	// the last tool call happened to leave behind.
-	prevEnv := t.plugin.env
-	t.plugin.env = env
-	defer func() { t.plugin.env = prevEnv }()
+	prevEnv, prevCtx := t.plugin.env, t.plugin.callCtx
+	t.plugin.env, t.plugin.callCtx = env, ctx
+	defer func() { t.plugin.env, t.plugin.callCtx = prevEnv, prevCtx }()
 
 	var args any
 	if len(raw) > 0 {
