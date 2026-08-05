@@ -2,8 +2,6 @@ package tui
 
 import (
 	"testing"
-
-	"github.com/sayaya1090/magi/internal/core/session"
 )
 
 func newPaneModel() *Model {
@@ -81,21 +79,5 @@ func TestHandlePaneClick(t *testing.T) {
 	m.zoom = false
 	if m.handlePaneClick(99) {
 		t.Fatal("click outside any pane should not be consumed")
-	}
-}
-
-// paneBySID / paneBySub locate panes.
-func TestPaneLookup(t *testing.T) {
-	m := newPaneModel()
-	p := &agentPane{sid: session.SessionID("s_child"), sub: 7}
-	m.panes = []*agentPane{p}
-	if m.paneBySID("s_child") != p {
-		t.Fatal("paneBySID failed")
-	}
-	if m.paneBySub(7) != p {
-		t.Fatal("paneBySub failed")
-	}
-	if m.paneBySID("nope") != nil || m.paneBySub(99) != nil {
-		t.Fatal("lookups should miss")
 	}
 }

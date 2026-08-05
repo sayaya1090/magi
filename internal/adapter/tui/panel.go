@@ -301,16 +301,6 @@ func (m *Model) workerPanel(p *agentPane) string {
 	return roundedBox(strings.Join(lines, "\n"), content)
 }
 
-// wrapPanel word-wraps s to width cells and returns its lines, so a long entry shows in full
-// across rows instead of being truncated to one line by roundedBox's padOrTruncate. Its one
-// caller is the Observed section, whose rows are paths and command names.
-func wrapPanel(s string, width int) []string {
-	if width < 4 {
-		width = 4
-	}
-	return strings.Split(lipgloss.NewStyle().Width(width).Render(s), "\n")
-}
-
 // roundedBox draws body inside a rounded outline whose OUTER width is exactly
 // `content` TERMINAL cells (per cellWidth), replacing lipgloss's Border().Width()
 // render. lipgloss measures each row with lipgloss.Width — which counts emoji as

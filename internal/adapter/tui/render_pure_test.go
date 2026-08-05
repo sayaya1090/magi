@@ -96,27 +96,6 @@ func TestJoinTextParts(t *testing.T) {
 }
 
 // agentSummary collapses duplicate roles as "role×N" while preserving first-seen order.
-func TestAgentSummary(t *testing.T) {
-	got := agentSummary([]string{"explore", "coder", "explore", "explore"})
-	if got != "explore×3, coder" {
-		t.Errorf("agentSummary = %q, want \"explore×3, coder\"", got)
-	}
-	if got := agentSummary(nil); got != "" {
-		t.Errorf("empty input should yield empty, got %q", got)
-	}
-}
-
-// removeFirst drops only the first occurrence; a missing value leaves the slice as-is.
-func TestRemoveFirst(t *testing.T) {
-	if got := removeFirst([]string{"a", "b", "a"}, "a"); len(got) != 2 || got[0] != "b" || got[1] != "a" {
-		t.Errorf("removeFirst should drop only the first match, got %v", got)
-	}
-	if got := removeFirst([]string{"a", "b"}, "z"); len(got) != 2 {
-		t.Errorf("missing value should leave the slice unchanged, got %v", got)
-	}
-}
-
-// permHint gives a distinct one-liner per permission mode (and a default).
 func TestPermHint(t *testing.T) {
 	for _, mode := range []string{"ask", "auto", "allow", "deny"} {
 		if permHint(mode) == "" {
@@ -166,5 +145,15 @@ func TestOneLine(t *testing.T) {
 	}
 	if got := oneLine("anything", 0); got != "" {
 		t.Errorf("max<=0 should yield empty, got %q", got)
+	}
+}
+
+func TestAgentSummary(t *testing.T) {
+	got := agentSummary([]string{"explore", "coder", "explore", "explore"})
+	if got != "explore×3, coder" {
+		t.Errorf("agentSummary = %q, want \"explore×3, coder\"", got)
+	}
+	if got := agentSummary(nil); got != "" {
+		t.Errorf("empty input should yield empty, got %q", got)
 	}
 }

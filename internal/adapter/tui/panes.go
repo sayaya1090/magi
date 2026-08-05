@@ -206,26 +206,6 @@ func (m *Model) anyPaneRunning() bool {
 	return false
 }
 
-// paneBySID finds a pane by child session id.
-func (m *Model) paneBySID(sid session.SessionID) *agentPane {
-	for _, p := range m.panes {
-		if p.sid == sid {
-			return p
-		}
-	}
-	return nil
-}
-
-// paneBySub finds a pane by subscription generation.
-func (m *Model) paneBySub(sub int) *agentPane {
-	for _, p := range m.panes {
-		if p.sub == sub {
-			return p
-		}
-	}
-	return nil
-}
-
 // closePanes cancels all pane subscriptions and clears the multi-agent view.
 func (m *Model) closePanes() {
 	for _, p := range m.panes {

@@ -733,17 +733,6 @@ func (m *Model) sessionsList() string {
 	return b.String()
 }
 
-// removeFirst removes the first occurrence of v from xs (used to retire a
-// finished subagent from the active list).
-func removeFirst(xs []string, v string) []string {
-	for i, x := range xs {
-		if x == v {
-			return append(xs[:i], xs[i+1:]...)
-		}
-	}
-	return xs
-}
-
 // agentSummary renders active subagent names compactly for the header badge,
 // collapsing duplicates as "explore×2".
 func agentSummary(names []string) string {

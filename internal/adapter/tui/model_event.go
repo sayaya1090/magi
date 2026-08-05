@@ -75,22 +75,6 @@ func (m *Model) reviveForEngineActivity() {
 	}
 }
 
-// surfaceChildPrompt lifts a subagent's permission request into the shared modal, tagged with the
-// CHILD sid so respond() routes the decision back to the child's blocked tool call. Child events
-// otherwise reach only the pane transcript, which can't collect a decision — so a worker's
-// bash/network approval never appeared and the child hung until its lease expired. Permission only:
-// a subagent's human-question tool (ask_user) is nil, so children never raise QuestionRequested.
-func (m *Model) surfaceChildPrompt(sid session.SessionID, e event.Event) {
-	if e.Type != event.TypePermissionRequested {
-		return
-	}
-	var d event.PermissionRequestedData
-	if json.Unmarshal(e.Data, &d) == nil {
-		m.perm = &permReq{sid: sid, callID: d.CallID, name: d.Name, args: string(d.Args), reason: d.Reason}
-		m.dirty = true
-	}
-}
-
 // applyEvent folds a domain event into the transcript state.
 func (m *Model) applyEvent(e event.Event) {
 	// Engine-side generation/tool activity means a turn is running even if the TUI armed
