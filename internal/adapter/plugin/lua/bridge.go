@@ -35,6 +35,7 @@ func installBridge(p *plugin) {
 	L.SetField(t, "analyze", L.NewFunction(p.bridgeAnalyze))
 	L.SetField(t, "spawn", L.NewFunction(p.bridgeSpawn))
 	L.SetField(t, "child_steps", L.NewFunction(p.bridgeChildSteps))
+	L.SetField(t, "restore_child", L.NewFunction(p.bridgeRestoreChild))
 	L.SetField(t, "json_decode", L.NewFunction(p.bridgeJSONDecode))
 	L.SetField(t, "propose_experience", L.NewFunction(p.bridgeProposeExperience))
 	L.SetField(t, "notify", L.NewFunction(p.bridgeNotify))
@@ -244,6 +245,42 @@ func (p *plugin) bridgeChildSteps(L *lua.LState) int {
 		L.SetField(row, "failed", lua.LBool(st.Failed))
 		L.SetField(row, "output", lua.LString(st.Output))
 		L.SetField(row, "output_bytes", lua.LNumber(st.OutputBytes))
+		out.Append(row)
+	}
+	L.Push(out)
+	return 1
+}
+
+// magi.restore_child(session_id) -> { {path=, restored=, how=, reason=}, … }
+//
+// Puts back the files a child changed, so the next round of a loop starts from where the child
+// found things. Best-effort, and every path is reported either way — a loop told only "done" would
+// build its next round on a tree it believes is clean.
+//
+// It is NOT automatic. A failed attempt's leavings are sometimes the evidence the next round needs,
+// and whether to keep them is the loop author's call, not the host's.
+//
+// Same gate as spawn and child_steps: a tool call only, and only for children this call spawned.
+func (p *plugin) bridgeRestoreChild(L *lua.LState) int {
+	p.requireCap(L, "spawn")
+	if p.env.RestoreChild == nil {
+		return fail(L, "restore_child: only available inside a tool call")
+	}
+	sid := strings.TrimSpace(L.CheckString(1))
+	if sid == "" {
+		return fail(L, "restore_child: session id is required")
+	}
+	paths, err := p.env.RestoreChild(p.spawnCtx(), sid)
+	if err != nil {
+		return fail(L, "restore_child: "+err.Error())
+	}
+	out := L.NewTable()
+	for _, r := range paths {
+		row := L.NewTable()
+		L.SetField(row, "path", lua.LString(r.Path))
+		L.SetField(row, "restored", lua.LBool(r.Restored))
+		L.SetField(row, "how", lua.LString(r.How))
+		L.SetField(row, "reason", lua.LString(r.Reason))
 		out.Append(row)
 	}
 	L.Push(out)
