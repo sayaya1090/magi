@@ -42,6 +42,12 @@ type PermissionPersister interface {
 	PersistAllow(rule string) error
 }
 
+// SubagentPersister writes a /subagents toggle back to the config file so it survives a restart.
+// on=false records the subagent as disabled; on=true clears the entry.
+type SubagentPersister interface {
+	PersistSubagent(name string, on bool) error
+}
+
 // RoutePersister writes /route editor edits back to the config file so they
 // persist across restarts. agent="" with a model persists the session default
 // model; otherwise it persists [routing] agent = value (empty value clears).
@@ -267,6 +273,10 @@ type Config struct {
 	// switch). Injected by the wiring layer (openai.Client.ProbeContextWindow) so the
 	// app never imports an LLM adapter. nil = no probing; the registry default is used.
 	ContextWindowProber func(context.Context, string) (int, bool)
+	// DisabledSubagents seeds the /subagents list from config: names the user switched off in an
+	// earlier run. SubagentPersister writes changes back.
+	DisabledSubagents []string
+	SubagentPersister SubagentPersister
 }
 
 // withDefaults fills unset fields with sensible values.

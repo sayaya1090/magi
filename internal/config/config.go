@@ -20,6 +20,10 @@ type Config struct {
 	Routing       map[string]string    `toml:"routing"`        // agent name -> model (M6 routing)
 	ExperienceDir string               `toml:"experience_dir"` // shared experience store path (D13)
 	Hooks         []Hook               `toml:"hooks"`          // lifecycle hooks (committable in .magi/config.toml)
+	// DisabledSubagents names the plugin-declared subagents the user switched off in /subagents.
+	// A subagent ships disabled by declaring itself here; nothing in magi writes the list except
+	// that command.
+	DisabledSubagents []string `toml:"disabled_subagents"`
 
 	// Guardrail policy (two-axis posture). Profile is a posture preset
 	// (safe|standard|yolo); Sandbox is the OS-confinement axis

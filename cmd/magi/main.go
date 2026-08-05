@@ -561,6 +561,8 @@ func run() int {
 		NewProvider:         newProvider,
 		RoutePersister:      routePersister{path: filepath.Join(plat.ConfigDir(), "config.toml")},
 		PermissionPersister: permPersister{path: filepath.Join(wd, ".magi", "config.toml")},
+		DisabledSubagents:   cfg.DisabledSubagents,
+		SubagentPersister:   subagentPersister{path: filepath.Join(plat.ConfigDir(), "config.toml")},
 		Council:             councilPort,
 		CouncilRule:         corecouncil.Rule(cfg.Council.Rule),
 		CouncilMembers:      councilMembers(cfg.Council, cfg.LLM.Profiles),

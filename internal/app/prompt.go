@@ -30,7 +30,13 @@ func (a *App) toolSpecs(agent AgentSpec) []port.ToolSpec {
 		// an empty list as "everything", which is what the main agent has — so this is what keeps a
 		// plugin's narrow helper off every request the main agent makes while still reaching the
 		// child that was spawned with it.
-		if port.ToolMetaOf(t).Internal && len(agent.Tools) == 0 {
+		meta := port.ToolMetaOf(t)
+		if meta.Internal && len(agent.Tools) == 0 {
+			continue
+		}
+		// A subagent the user switched off is not offered to the model at all. Advertising is the
+		// gate: there is no second place a disabled one could still be reached from.
+		if meta.Subagent && a.subagentDisabled(name) {
 			continue
 		}
 		switch name {

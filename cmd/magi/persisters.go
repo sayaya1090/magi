@@ -59,6 +59,15 @@ type userLabelSetter struct{ set func(string) }
 //coverage:ignore delegation to the closure the struct was built with
 func (u userLabelSetter) SetUserLabel(label string) { u.set(label) }
 
+// subagentPersister records a /subagents toggle so it survives a restart. The list is names that
+// are OFF: a subagent is on unless something says otherwise, which is what makes an unknown name
+// (a plugin that was uninstalled) harmless.
+type subagentPersister struct{ path string }
+
+func (s subagentPersister) PersistSubagent(name string, on bool) error {
+	return config.SetListMember(s.path, "", "disabled_subagents", name, !on)
+}
+
 type routePersister struct{ path string }
 
 func (r routePersister) PersistRoute(agent, value string) error {
