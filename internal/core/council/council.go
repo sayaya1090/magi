@@ -186,12 +186,12 @@ func Tally(vs []Verdict, rule Rule) (Decision, Breakdown) {
 	name, param := rule.parse()
 
 	switch name {
-	case "unanimous":
+	case string(RuleUnanimous):
 		// Every voter must say done, and there must be at least one voter.
 		if b.Voters > 0 && b.Done == b.Voters {
 			return Done, b
 		}
-	case "quorum":
+	case string(RuleQuorum):
 		// At least k members voted done. A non-positive/garbage k would let an
 		// all-continue vote finish (Done >= 0 is always true), breaking the
 		// never-finish-unless-affirmed invariant, so clamp k to >= 1.
@@ -202,7 +202,7 @@ func Tally(vs []Verdict, rule Rule) (Decision, Breakdown) {
 		if b.Done >= k {
 			return Done, b
 		}
-	case "weighted":
+	case string(RuleWeighted):
 		// Weighted share of "done" meets the threshold θ. A non-positive θ would
 		// always pass (DoneWeight >= 0), so treat it as the default.
 		theta := atof(param, 0.5)
@@ -213,7 +213,7 @@ func Tally(vs []Verdict, rule Rule) (Decision, Breakdown) {
 		if total > 0 && b.DoneWeight >= theta*total {
 			return Done, b
 		}
-	case "veto":
+	case string(RuleVeto):
 		// Any designated member voting non-done vetoes a finish; otherwise the
 		// rest is a plain majority. An empty veto list degrades to majority.
 		for _, v := range vs {
@@ -227,7 +227,7 @@ func Tally(vs []Verdict, rule Rule) (Decision, Breakdown) {
 		if isMajority(b) {
 			return Done, b
 		}
-	case "", "majority":
+	case "", string(RuleMajority):
 		// Strict majority of non-abstaining voters. A tie ([done,continue]) is
 		// NOT a majority → Continue.
 		if isMajority(b) {

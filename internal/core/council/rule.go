@@ -27,7 +27,11 @@ const (
 const DefaultRule = RuleMajority
 
 // parse splits a rule into its name and (optional) parameter. The name is
-// lower-cased so "Majority" and "majority" are equivalent.
+// lower-cased so "Majority" and "majority" are equivalent, which is what lets
+// Tally switch on the Rule constants above — every one of them is lower-case.
+// Tally used to switch on bare literals while these constants went unreferenced
+// in production and were used only by the tests, so a rename could agree with
+// the tests and disagree with the code that decides the vote.
 func (r Rule) parse() (name, param string) {
 	s := strings.TrimSpace(string(r))
 	if s == "" {
