@@ -69,8 +69,11 @@ func (s subagentPersister) PersistSubagent(name string, pref app.SubagentPref) e
 	// One table per subagent, so the enabled flag and the model override sit together under a name
 	// a reader recognises: [subagents.<name>].
 	table := "subagents." + name
+	// A BOOL, not the string "true". SetKey quotes everything it writes, which is right for a
+	// model name and silently wrong here: `enabled = "true"` writes fine and then fails the whole
+	// config on the next load, because the field it lands in is typed.
 	if pref.Enabled != nil {
-		if err := config.SetKey(s.path, table, "enabled", strconv.FormatBool(*pref.Enabled)); err != nil {
+		if err := config.SetRawKey(s.path, table, "enabled", strconv.FormatBool(*pref.Enabled)); err != nil {
 			return err
 		}
 	}
@@ -88,7 +91,12 @@ func toSubagentPrefs(in map[string]config.SubagentConfig) map[string]app.Subagen
 	}
 	out := make(map[string]app.SubagentPref, len(in))
 	for name, c := range in {
-		out[name] = app.SubagentPref{Enabled: c.Enabled, Model: c.Model, Provider: c.Provider}
+		pref := app.SubagentPref{Model: c.Model, Provider: c.Provider}
+		if c.Enabled != nil {
+			on := bool(*c.Enabled)
+			pref.Enabled = &on
+		}
+		out[name] = pref
 	}
 	return out
 }

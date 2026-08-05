@@ -55,13 +55,32 @@ func withFileLock(target string, fn func() error) error {
 // It is intentionally limited to flat string keys (the /route editor only writes
 // `model` and the `[routing]` table), so it stays a safe line-level edit rather
 // than a full TOML round-trip that would discard comments.
+//
+// The value is ALWAYS quoted. Handing it a bool or a number writes a string, and
+// the file stops parsing the moment something reads that key into a typed field —
+// use SetRawKey for those.
 func SetKey(path, section, key, value string) error {
-	setKeyMu.Lock()
-	defer setKeyMu.Unlock()
-	return withFileLock(path, func() error { return setKeyLocked(path, section, key, value) })
+	return setKey(path, section, key, value, true)
 }
 
-func setKeyLocked(path, section, key, value string) error {
+// SetRawKey is SetKey for a value that is not a string: `enabled = true`, not
+// `enabled = "true"`. The caller owns the TOML syntax of raw and is responsible
+// for it being valid; an empty raw removes the key, exactly as in SetKey.
+//
+// It exists because SetKey quoting everything is right for the paths that write
+// model names and URLs, and silently wrong for a bool — a config written that way
+// loads fine until the field it lands in is typed, and then the whole file fails.
+func SetRawKey(path, section, key, raw string) error {
+	return setKey(path, section, key, raw, false)
+}
+
+func setKey(path, section, key, value string, quote bool) error {
+	setKeyMu.Lock()
+	defer setKeyMu.Unlock()
+	return withFileLock(path, func() error { return setKeyLocked(path, section, key, value, quote) })
+}
+
+func setKeyLocked(path, section, key, value string, quote bool) error {
 	b, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return err
@@ -71,7 +90,10 @@ func setKeyLocked(path, section, key, value string) error {
 		lines = strings.Split(strings.TrimRight(string(b), "\n"), "\n")
 	}
 
-	target := fmt.Sprintf("%s = %q", key, value)
+	target := key + " = " + value
+	if quote {
+		target = fmt.Sprintf("%s = %q", key, value)
+	}
 	keyRe := regexp.MustCompile(`^\s*#?\s*` + regexp.QuoteMeta(key) + `\s*=`)
 	headerRe := func(name string) *regexp.Regexp {
 		return regexp.MustCompile(`^\s*\[` + regexp.QuoteMeta(name) + `\]\s*$`)

@@ -3,9 +3,12 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -136,9 +139,33 @@ type CouncilConfig struct {
 // SubagentConfig is one subagent's user settings. Enabled is a POINTER: nil means "no choice
 // made", which is a different thing from false and is what lets the tool's own default stand.
 type SubagentConfig struct {
-	Enabled  *bool  `toml:"enabled"`
-	Model    string `toml:"model"`
-	Provider string `toml:"provider"`
+	Enabled  *TolerantBool `toml:"enabled"`
+	Model    string        `toml:"model"`
+	Provider string        `toml:"provider"`
+}
+
+// TolerantBool is a bool that also accepts the QUOTED forms of itself.
+//
+// /subagents wrote `enabled = "true"` for a while — SetKey quotes every value it writes, and a bool
+// went through it. The result parses as TOML and then fails the whole file against a typed field,
+// so a user who switched a subagent on could not start magi at all until they hand-edited the
+// config. Reading the quoted form keeps those files opening; the writer no longer produces them.
+type TolerantBool bool
+
+func (b *TolerantBool) UnmarshalTOML(v any) error {
+	switch t := v.(type) {
+	case bool:
+		*b = TolerantBool(t)
+		return nil
+	case string:
+		p, err := strconv.ParseBool(strings.TrimSpace(t))
+		if err != nil {
+			return fmt.Errorf("expected a boolean, got %q", t)
+		}
+		*b = TolerantBool(p)
+		return nil
+	}
+	return fmt.Errorf("expected a boolean, got %T", v)
 }
 
 // IsEnabled reports whether the council gate is on: by default yes, unless
