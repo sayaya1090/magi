@@ -110,6 +110,14 @@ type triageAwareLLM struct {
 }
 
 func (f *triageAwareLLM) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan port.ProviderEvent, error) {
+	// The turn-start review of a leftover. Answering nothing leaves it queued, which is what a
+	// work item should do there — and, more to the point, keeps this fake from spending a step of
+	// its positional script on a mini-turn that is not one of the turns it scripts.
+	if strings.Contains(r.System, "has been waiting since before the task you are about to start") {
+		ch := make(chan port.ProviderEvent)
+		close(ch)
+		return ch, nil
+	}
 	if strings.Contains(r.System, "was queued while you were finishing the previous task") {
 		if f.triageStarted != nil {
 			f.gateOnce.Do(func() {

@@ -71,33 +71,74 @@ func TestEachQueuedMessageGetsItsOwnDisposition(t *testing.T) {
 	}
 }
 
-// Work items merge with each other, in arrival order, and run as ONE turn. Two pieces of work typed
-// back to back are one job; making a separate turn of each would re-plan and re-judge twice over
-// what the user said in one breath.
-func TestWorkItemsMergeWithEachOtherInOrder(t *testing.T) {
+// One piece of work at a time, in order. The first item that needs work ends the pass and runs as
+// its own turn; everything behind it waits for the next boundary.
+//
+// This is the ordering fix. Triaging the whole batch and escalating afterwards read the messages in
+// order but ANSWERED them out of it: a question typed second came back before the work typed first,
+// because an inline reply lands during the pass while the escalated turn only starts after it.
+// Reported from a live session exactly that way.
+func TestOneWorkItemAtATimeInOrder(t *testing.T) {
 	a, sid := runWithSteers(t, func(string) bool { return true },
-		"WWW1 write the parser", "QQQ2 and wire it up", "WWW3 then add the tests")
+		"WWW1 write the parser", "WWW2 and wire it up")
 
 	res := resurfacedPrompts(t, a, sid)
-	if len(res) != 1 {
-		t.Fatalf("three work items must run as one turn, got %d: %q", len(res), res)
+	if len(res) == 0 {
+		t.Fatal("no work ran at all")
 	}
-	i1, i2, i3 := strings.Index(res[0], "WWW1"), strings.Index(res[0], "QQQ2"), strings.Index(res[0], "WWW3")
-	if i1 < 0 || i2 < 0 || i3 < 0 {
-		t.Fatalf("a work item was dropped from the merged prompt: %q", res[0])
+	// The FIRST one typed is the first to run.
+	if !strings.Contains(res[0], "WWW1") {
+		t.Errorf("the first turn should carry the first message typed, got %q", res[0])
 	}
-	if !(i1 < i2 && i2 < i3) {
-		t.Errorf("the merged prompt reordered what the user typed: %q", res[0])
+	if strings.Contains(res[0], "WWW2") {
+		t.Errorf("the second message must not be folded into the first's turn: %q", res[0])
 	}
-	// The two merged away are recorded resolved AND abandoned: resolved so a reload does not read
-	// them as still waiting, abandoned so seedPromptIdx never starts a turn from one.
-	for _, q := range []string{"WWW1", "QQQ2"} {
-		if !ledgeredResolved(t, a, sid, q) {
-			t.Errorf("%s was merged away but never recorded resolved", q)
+	// And the second is not dropped — it runs after.
+	joined := strings.Join(res, "\n")
+	if !strings.Contains(joined, "WWW2") {
+		t.Errorf("the second work item never ran: %q", res)
+	}
+	if i1, i2 := strings.Index(joined, "WWW1"), strings.Index(joined, "WWW2"); i1 > i2 {
+		t.Errorf("the two ran out of order: %q", res)
+	}
+	a.mu.Lock()
+	left := len(a.stateLocked(sid).pendingInterject)
+	a.mu.Unlock()
+	if left != 0 {
+		t.Errorf("%d message(s) still queued", left)
+	}
+}
+
+// A question typed AFTER a piece of work must not be answered before it. The inline reply is cheap
+// and the work is not, so nothing but ordering stops the fast one from overtaking the slow one.
+func TestALaterQuestionIsNotAnsweredBeforeEarlierWork(t *testing.T) {
+	a, sid := runWithSteers(t, func(aside string) bool { return strings.Contains(aside, "WWW") },
+		"WWW do the refactor", "QQQ any bugs?")
+
+	// The work re-surfaced (its own turn) and the question was answered inline. Order is what is
+	// asserted: the work's turn must be seeded before the question's answer is persisted.
+	workSeq, answerSeq := int64(-1), int64(-1)
+	ids := msgIDsCarrying(t, a, sid, "QQQ")
+	for _, e := range readEvents(t, a, sid) {
+		switch e.Type {
+		case event.TypePromptSubmitted:
+			var d event.PromptSubmittedData
+			if json.Unmarshal(e.Data, &d) == nil && d.ResurfacedFrom != "" && strings.Contains(partsText(d.Parts), "WWW") && workSeq < 0 {
+				workSeq = e.Seq
+			}
+		case event.TypePartAppended:
+			var d event.PartAppendedData
+			if json.Unmarshal(e.Data, &d) == nil && d.InReplyTo != "" && ids[d.InReplyTo] && answerSeq < 0 {
+				answerSeq = e.Seq
+			}
 		}
-		if !markedAbandoned(t, a, sid, q) {
-			t.Errorf("%s was merged away but not marked abandoned — it can seed a turn of its own", q)
-		}
+	}
+	if workSeq < 0 {
+		t.Fatal("the work never ran as its own turn")
+	}
+	if answerSeq >= 0 && answerSeq < workSeq {
+		t.Errorf("the later question was answered at seq %d, before the earlier work started at %d",
+			answerSeq, workSeq)
 	}
 }
 
