@@ -421,3 +421,104 @@ func saidSomethingAfter(evs []event.Event, seq int64) bool {
 	}
 	return false
 }
+
+// reviewWaitingAtTurnStart re-decides every message still queued when a turn begins, and returns
+// the turn's task with anything folded in.
+//
+// The queue was only ever read as a MASK here: resetForNewTopLevel rebuilds the seen-set from it,
+// seedPromptIdx skips its members, and liveEvents drops their prompts from the model's context. So
+// a message left waiting was invisible for the whole of the next turn — no note is staged for it
+// either, because noteInterjection is reached only from detectInterjections, which runs from step 1
+// — and only that turn's finish boundary would look at it again.
+//
+// Two things change between one turn and the next, and both can change the answer: the previous
+// turn's result is now in the transcript, which can make an unanswerable question answerable, and a
+// task is starting that the waiting message may belong with.
+//
+// Whatever stays queued gets a note, so the model can at least see it and route it mid-turn. That
+// is the part that was missing outright.
+func (a *App) reviewWaitingAtTurnStart(ctx context.Context, tc turnCtx, turnTask string) string {
+	if tc.depth != 0 || a.cfg.Workflow || !interjectSplitEnabled() {
+		return turnTask
+	}
+	a.mu.Lock()
+	waiting := append([]pendingInterjection{}, a.stateLocked(tc.s.ID).pendingInterject...)
+	a.mu.Unlock()
+	if len(waiting) == 0 {
+		return turnTask
+	}
+
+	// First, unconditionally: make every waiting message VISIBLE. This is the part that was
+	// missing outright and it costs nothing — noteInterjection stages an ephemeral note, and
+	// without one a queued message is masked out of the model's context (liveEvents drops
+	// deferred prompts) with nothing else naming it, so for the whole turn it does not exist.
+	// The note is what lets the model route it mid-turn instead of waiting for the boundary.
+	for _, p := range waiting {
+		a.noteInterjection(tc.s.ID, turnTask, p.MsgID, p.Text)
+	}
+
+	// Then, and only for LEFTOVERS, look again. This one spends a model call per message, so it
+	// is reserved for entries a finish boundary has already been past: two things change between
+	// one turn and the next and both can change the answer — the previous turn's result is in the
+	// transcript now, which can make an unanswerable question answerable, and a task is starting
+	// that the message may belong with. An entry the CURRENT turn's boundary has not reached yet
+	// is not a leftover and stays with that boundary.
+	for _, p := range waiting {
+		if !p.BoundarySeen || ctx.Err() != nil {
+			continue
+		}
+		switch a.triageAtTurnStart(ctx, tc.agent, tc.s, turnTask, p.MsgID, p.Text) {
+		case startAnswered:
+			// Answered where it waited; its reply already carries InReplyTo naming it. Its note
+			// goes with it — takeInterjectNotes prunes any whose id has left the deferred set.
+			a.consumeInterjectByID(ctx, tc.s.ID, p.MsgID)
+		case startFold:
+			// Folded into the task starting now. consumeInterjectByID inside applyInterjectRoute
+			// takes it off the queue, and noteFolded records it so the finish path can say on
+			// screen which message this turn also answered.
+			if nt, changed := a.applyInterjectRoute(ctx, tc.s.ID, "append", turnTask, p.MsgID, p.Text, func() {}); changed {
+				turnTask = nt
+				a.noteFolded(tc.s.ID, p.MsgID)
+			}
+		default:
+			// Separate work: it keeps waiting, with the note above carrying it through this turn,
+			// and this turn's finish boundary gives it a turn of its own.
+		}
+	}
+	return turnTask
+}
+
+// markBoundarySeen flags every still-queued entry as having survived a finish boundary. That is
+// what makes it a LEFTOVER, and leftovers are the only thing the next turn's start re-decides — an
+// entry the current turn's boundary has not reached yet still belongs to that boundary.
+func (a *App) markBoundarySeen(sid session.SessionID) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st := a.stateLocked(sid)
+	for i := range st.pendingInterject {
+		st.pendingInterject[i].BoundarySeen = true
+	}
+}
+
+// noteFolded records that a waiting message was folded into the turn now starting, so the finish
+// path can emit InterjectionAnswered for it — the signal the TUI reads to move that bubble up
+// beside the answer instead of leaving it looking unanswered.
+func (a *App) noteFolded(sid session.SessionID, msgID string) {
+	if msgID == "" {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st := a.stateLocked(sid)
+	st.foldedInterject = append(st.foldedInterject, msgID)
+}
+
+// takeFolded returns and clears the ids folded into this turn.
+func (a *App) takeFolded(sid session.SessionID) []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st := a.stateLocked(sid)
+	out := st.foldedInterject
+	st.foldedInterject = nil
+	return out
+}

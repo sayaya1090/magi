@@ -491,6 +491,9 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 					// Nothing needed a turn of its own. Loop to pick up whatever arrived while the
 					// batch was being triaged.
 				}
+				// Whatever is still queued has now had a boundary pass over it: mark it, so the
+				// next turn's start re-decides exactly these and nothing else.
+				a.markBoundarySeen(sid)
 				if rerun {
 					continue
 				}

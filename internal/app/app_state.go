@@ -36,6 +36,7 @@ type sessionState struct {
 	// all. Replaced each turn; nil until one starts.
 	worldBase        fileIndex
 	observedEvents   int                    // event high-water mark of the last turn_finished observation (stale-answer guard)
+	foldedInterject  []string               // waiting messages folded into the turn now running (paired at finish)
 	pendingInterject []pendingInterjection  // interjections queued to run as their own turn
 	turnControl      turnControl            // pending mid-turn routing / finish signal
 	perms            map[string]chan string // pending permission decisions by call id
@@ -127,6 +128,11 @@ func (a *App) metaLocked(sid session.SessionID) (session.Session, bool) {
 type pendingInterjection struct {
 	MsgID string
 	Text  string
+	// BoundarySeen marks an entry a finish boundary has already been past while it stayed queued.
+	// Only those are re-decided when the next turn starts: an entry the CURRENT turn's boundary has
+	// not reached yet is not a leftover, and taking it early would move work out from under the
+	// drain that owns it.
+	BoundarySeen bool
 	// AnsweredAtSeq is the event seq at which the agent claimed, via route_interjection
 	// action "answered", that its reply already covers this request. 0 means no claim.
 	//

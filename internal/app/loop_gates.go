@@ -99,6 +99,13 @@ func (a *App) finishTurn(ctx context.Context, tc turnCtx, step int, turnTask, la
 	// turn. Top level only — subagents are not user-steerable.
 	if tc.depth == 0 && !a.cfg.Workflow {
 		a.enqueueLateInterjections(ctx, tc.s.ID, handledUserPrompts, turnTask)
+		// A message folded into this turn at its start was answered BY this turn. Say so, or its
+		// bubble keeps the waiting glyph and sits where it was typed, looking like a request no
+		// one ever got to — the display layer has no other way to learn it was handled.
+		for _, id := range a.takeFolded(tc.s.ID) {
+			ad, _ := json.Marshal(event.InterjectionAnsweredData{MessageID: id})
+			a.appendFact(ctx, tc.s.ID, event.TypeInterjectionAnswered, event.Actor{Kind: event.ActorSystem, ID: "interject"}, ad)
+		}
 	}
 	// A finish no council ever read (the agent never declared, past declareAskCap) lands as
 	// UNVERIFIED so the UI stops painting an abandoned task as a confident done.

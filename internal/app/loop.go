@@ -220,6 +220,10 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		if step == 0 && !seeded {
 			seeded = true // guard: a park-and-retry (step--) re-enters at step 0 but must not re-seed
 			turnTask, handledUserPrompts = a.seedTurnTask(ctx, tc, evs)
+			// Look again at whatever is still waiting, now that a turn is starting. AFTER the seed,
+			// never before: re-emitting a waiting prompt ahead of it would make seedPromptIdx take
+			// that one as the task and queue the real one behind it, forever.
+			turnTask = a.reviewWaitingAtTurnStart(ctx, tc, turnTask)
 		} else {
 			// Drain any control signal a tool left last step — a routed interjection, or the
 			// council tool's finish declaration — applying the reground the loop owns but the

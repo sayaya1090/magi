@@ -189,6 +189,68 @@ const queuedTriageSystem = "A user message was queued while you were finishing t
 	"the work here; routing hands it to a fresh, fully-tooled turn.\n" +
 	"When unsure, route it — a needless fresh turn is cheap, a dropped task is not."
 
+// startTriageSystem drives the re-evaluation a new turn does over whatever is still queued.
+//
+// It differs from the finish-boundary triage in the one way that matters: a turn is STARTING, so
+// "fold it into this one" is available and is usually the right answer for anything related. The
+// previous turn's result is also in the transcript now, which is the other reason to look again —
+// a message that could not be answered while the work was in flight often can be the moment it
+// lands.
+//
+// Ambiguity resolves to keeping it queued: that costs one more look at this turn's finish boundary,
+// where it becomes its own turn. Folding unrelated work into a task the user did not ask it of is
+// the expensive mistake, so it is the one the wording steers away from.
+const startTriageSystem = "A user message has been waiting since before the task you are about to start. That task's " +
+	"prompt is below it. Handle ONLY the waiting message and decide:\n" +
+	"- If it is a question, a greeting, or otherwise fully answerable from the conversation so far — including " +
+	"anything the work you just finished now makes answerable — ANSWER it now in one or two sentences and end your " +
+	"turn with NO tool call.\n" +
+	"- If it belongs WITH the task about to start (it narrows it, adds a constraint, or asks for something that is " +
+	"part of the same job), call route_interjection with action \"append\" and a one-line reason. It will be folded " +
+	"into that task and carried out with it.\n" +
+	"- If it is SEPARATE work, call route_interjection with action \"queue\". It stays waiting and runs as its own " +
+	"turn after this one.\n" +
+	"Do NOT do the work here. When unsure between append and queue, choose queue: a task the user did not ask for " +
+	"is worse than one that waits a little longer."
+
+// startTriageDisposition is what the re-evaluation decided for one waiting message.
+type startTriageDisposition int
+
+const (
+	startAnswered   startTriageDisposition = iota // answered inline; it leaves the queue
+	startFold                                     // fold it into the task about to start
+	startKeepQueued                               // separate work; leave it waiting
+)
+
+// triageAtTurnStart re-decides ONE waiting message now that a turn is starting.
+//
+// Nothing looked at the queue here before. A message left waiting was masked out of the model's
+// context (liveEvents drops deferred prompts) and got no note either — noteInterjection is only
+// reached from detectInterjections, which runs from step 1 — so for the whole of the next turn it
+// did not exist, and only that turn's finish boundary would look at it again.
+func (a *App) triageAtTurnStart(ctx context.Context, agent AgentSpec, s session.Session, turnTask, msgID, waiting string) startTriageDisposition {
+	sys := startTriageSystem
+	if t := strings.TrimSpace(turnTask); t != "" {
+		sys += "\n\nThe task about to start:\n" + clipSpec(t, 500)
+	}
+	if tail := a.recentTranscript(ctx, s.ID, 8, 2000); tail != "" {
+		sys += "\n\nRecent conversation (for context — do not re-answer it):\n" + tail
+	}
+	replied, eff := a.interjectTurn(ctx, agent, s, 0, sys, waiting, msgID)
+	switch {
+	case eff.route == "append":
+		return startFold
+	case eff.escalate:
+		// Any other route — "queue", or a redirect the wording did not offer. It keeps waiting and
+		// this turn's finish boundary gives it a turn of its own.
+		return startKeepQueued
+	case replied:
+		return startAnswered
+	default:
+		return startKeepQueued // nothing usable: waiting is the outcome that loses nothing
+	}
+}
+
 // triageQueued runs the shared interjection mini-turn on a steer dequeued at the finish
 // boundary and reports whether it must ESCALATE to its own top-level turn. A question or
 // chitchat is answered inline here (in the session's own recent context, no fresh-slate
