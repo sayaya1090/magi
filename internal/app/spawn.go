@@ -139,6 +139,18 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 		return nil
 	}
 	return func(sctx context.Context, spec port.SpawnSpec) (port.SpawnResult, error) {
+		// The user's choice in /subagents outranks what the plugin asked for. Planning on a strong
+		// model while the work runs on a cheap one is the case this exists for, and the setting
+		// belongs where the user can see and change it — not in a plugin's own config section,
+		// which the /subagents screen has no way to edit.
+		if m, pv := a.subagentOverride(toolName); m != "" || pv != "" {
+			if m != "" {
+				spec.Model = m
+			}
+			if pv != "" {
+				spec.Provider = pv
+			}
+		}
 		return a.spawnChild(sctx, s, actor, spec, func(line string) {
 			a.emitToolProgress(s.ID, actor, callID, toolName, line)
 		})

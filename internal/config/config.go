@@ -20,10 +20,12 @@ type Config struct {
 	Routing       map[string]string    `toml:"routing"`        // agent name -> model (M6 routing)
 	ExperienceDir string               `toml:"experience_dir"` // shared experience store path (D13)
 	Hooks         []Hook               `toml:"hooks"`          // lifecycle hooks (committable in .magi/config.toml)
-	// Subagents records the user's own choice per plugin-declared subagent, written by /subagents.
-	// Only entries a user actually touched are here — anything absent falls back to what the tool
-	// declared, which is how a subagent can ship switched off and still be turned on for good.
-	Subagents map[string]bool `toml:"subagents"`
+	// Subagents records the user's own settings per plugin-declared subagent, written by
+	// /subagents. Only entries a user actually touched are here — anything absent falls back to
+	// what the tool declared, which is how a subagent can ship switched off and still be turned on
+	// for good. A model set here overrides whatever the plugin asked to spawn with, so the choice
+	// of a stronger (or cheaper) model for one specialist lives where the user can see it.
+	Subagents map[string]SubagentConfig `toml:"subagents"`
 
 	// Guardrail policy (two-axis posture). Profile is a posture preset
 	// (safe|standard|yolo); Sandbox is the OS-confinement axis
@@ -129,6 +131,14 @@ type CouncilConfig struct {
 	// council call instead of three, for everyday chat-speed use. Explicit members
 	// override the preset.
 	Preset string `toml:"preset"` // "" | "full" | "light"
+}
+
+// SubagentConfig is one subagent's user settings. Enabled is a POINTER: nil means "no choice
+// made", which is a different thing from false and is what lets the tool's own default stand.
+type SubagentConfig struct {
+	Enabled  *bool  `toml:"enabled"`
+	Model    string `toml:"model"`
+	Provider string `toml:"provider"`
 }
 
 // IsEnabled reports whether the council gate is on: by default yes, unless

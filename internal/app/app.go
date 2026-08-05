@@ -29,9 +29,9 @@ type App struct {
 	providers   map[string]port.LLMProvider // named LLM profiles (per-agent endpoint/key routing)
 	profileDefs map[string]ProfileDef       // profile definitions (guarded by mu), for the /route editor
 	tools       port.ToolRegistry
-	// subagentPrefs is the user's own on/off choice per subagent (guarded by mu). Only what they
+	// subagentPrefs is the user's own settings per subagent (guarded by mu). Only what they
 	// touched; the rest falls back to what the tool declared. Off means not advertised.
-	subagentPrefs    map[string]bool
+	subagentPrefs    map[string]SubagentPref
 	bus              *bus.Bus
 	plat             port.Platform
 	cfg              Config

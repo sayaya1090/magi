@@ -42,11 +42,20 @@ type PermissionPersister interface {
 	PersistAllow(rule string) error
 }
 
-// SubagentPersister writes a /subagents toggle back to the config file so it survives a restart.
-// It records the CHOICE, either way: a subagent that ships switched off needs "the user turned this
+// SubagentPref is one subagent's user settings. Enabled is a POINTER because nil ("no choice
+// made") has to be distinguishable from false: a tool that ships switched ON must stay on until
+// somebody says otherwise, and a tool that ships off must stay off.
+type SubagentPref struct {
+	Enabled  *bool
+	Model    string
+	Provider string
+}
+
+// SubagentPersister writes a /subagents edit back to the config file so it survives a restart. It
+// records the CHOICE, either way: a subagent that ships switched off needs "the user turned this
 // on" to be a thing the config can say.
 type SubagentPersister interface {
-	PersistSubagent(name string, on bool) error
+	PersistSubagent(name string, pref SubagentPref) error
 }
 
 // RoutePersister writes /route editor edits back to the config file so they
@@ -274,10 +283,10 @@ type Config struct {
 	// switch). Injected by the wiring layer (openai.Client.ProbeContextWindow) so the
 	// app never imports an LLM adapter. nil = no probing; the registry default is used.
 	ContextWindowProber func(context.Context, string) (int, bool)
-	// SubagentPrefs is the user's own on/off choice per subagent, from config. Absent means "no
-	// choice made", which falls back to what the tool declared — so a subagent that ships off
-	// stays off until someone says otherwise, and one that ships on stays on.
-	SubagentPrefs     map[string]bool
+	// SubagentPrefs is the user's own settings per subagent, from config. An absent entry (or a
+	// nil Enabled) means "no choice made", which falls back to what the tool declared — so a
+	// subagent that ships off stays off until someone says otherwise.
+	SubagentPrefs     map[string]SubagentPref
 	SubagentPersister SubagentPersister
 }
 

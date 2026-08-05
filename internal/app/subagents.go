@@ -2,6 +2,7 @@ package app
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/sayaya1090/magi/internal/port"
 )
@@ -12,6 +13,10 @@ type SubagentInfo struct {
 	Description string
 	Group       string // as the plugin declared it; empty means ungrouped
 	Enabled     bool
+	// Model and Provider are the user's override, empty when they set none — in which case the
+	// child runs on whatever the plugin asked for, or the session's model.
+	Model    string
+	Provider string
 }
 
 // Subagents lists every tool a plugin declared as a subagent, ordered by group then name so the
@@ -36,12 +41,14 @@ func (a *App) Subagents() []SubagentInfo {
 		}
 		// The user's own choice wins; absent, the tool's declaration decides. That is what lets a
 		// subagent ship switched off and still be turned on for good.
+		pref := prefs[t.Name()]
 		enabled := !m.DefaultOff
-		if v, ok := prefs[t.Name()]; ok {
-			enabled = v
+		if pref.Enabled != nil {
+			enabled = *pref.Enabled
 		}
 		out = append(out, SubagentInfo{
-			Name: t.Name(), Description: t.Description(), Group: m.Group, Enabled: enabled,
+			Name: t.Name(), Description: t.Description(), Group: m.Group,
+			Enabled: enabled, Model: pref.Model, Provider: pref.Provider,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -64,17 +71,43 @@ func (a *App) Subagents() []SubagentInfo {
 // keeping it in step with plugin reloads, and a disabled set is the same answer without the second
 // copy of the truth.
 func (a *App) SetSubagentEnabled(name string, on bool) error {
+	return a.editSubagent(name, func(pref *SubagentPref) { pref.Enabled = &on })
+}
+
+// SetSubagentModel points one subagent at a model (and optionally a named backend), or clears the
+// override when both are empty. The user's choice overrides whatever the plugin asked to spawn
+// with — planning on a strong model while the work runs on a cheap one is the case this exists for,
+// and it belongs where the user can see it rather than in a plugin's own config section.
+func (a *App) SetSubagentModel(name, model, provider string) error {
+	return a.editSubagent(name, func(pref *SubagentPref) {
+		pref.Model, pref.Provider = strings.TrimSpace(model), strings.TrimSpace(provider)
+	})
+}
+
+// editSubagent applies one change to a subagent's settings and persists the result. One seam, so
+// every edit is written the same way and none can forget to persist.
+func (a *App) editSubagent(name string, edit func(*SubagentPref)) error {
 	a.mu.Lock()
 	if a.subagentPrefs == nil {
-		a.subagentPrefs = map[string]bool{}
+		a.subagentPrefs = map[string]SubagentPref{}
 	}
-	a.subagentPrefs[name] = on
+	pref := a.subagentPrefs[name]
+	edit(&pref)
+	a.subagentPrefs[name] = pref
 	p := a.cfg.SubagentPersister
 	a.mu.Unlock()
 	if p == nil {
 		return nil
 	}
-	return p.PersistSubagent(name, on)
+	return p.PersistSubagent(name, pref)
+}
+
+// subagentOverride is the model a user pointed this subagent at, empty when they set none.
+func (a *App) subagentOverride(name string) (model, provider string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	pref := a.subagentPrefs[name]
+	return pref.Model, pref.Provider
 }
 
 // SetGroupEnabled turns every subagent in a group on or off.
@@ -100,18 +133,18 @@ func (a *App) SetGroupEnabled(group string, on bool) error {
 func (a *App) subagentDisabled(name string, meta port.ToolMetadata) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if v, ok := a.subagentPrefs[name]; ok {
-		return !v
+	if pref, ok := a.subagentPrefs[name]; ok && pref.Enabled != nil {
+		return !*pref.Enabled
 	}
 	return meta.DefaultOff
 }
 
-// clonePrefs copies the choice map so the app never shares one with its caller or its reader.
-func clonePrefs(in map[string]bool) map[string]bool {
+// clonePrefs copies the settings map so the app never shares one with its caller or its reader.
+func clonePrefs(in map[string]SubagentPref) map[string]SubagentPref {
 	if len(in) == 0 {
 		return nil
 	}
-	out := make(map[string]bool, len(in))
+	out := make(map[string]SubagentPref, len(in))
 	for k, v := range in {
 		out[k] = v
 	}

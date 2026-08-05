@@ -65,8 +65,32 @@ func (u userLabelSetter) SetUserLabel(label string) { u.set(label) }
 // (a plugin that was uninstalled) harmless.
 type subagentPersister struct{ path string }
 
-func (s subagentPersister) PersistSubagent(name string, on bool) error {
-	return config.SetKey(s.path, "subagents", name, strconv.FormatBool(on))
+func (s subagentPersister) PersistSubagent(name string, pref app.SubagentPref) error {
+	// One table per subagent, so the enabled flag and the model override sit together under a name
+	// a reader recognises: [subagents.<name>].
+	table := "subagents." + name
+	if pref.Enabled != nil {
+		if err := config.SetKey(s.path, table, "enabled", strconv.FormatBool(*pref.Enabled)); err != nil {
+			return err
+		}
+	}
+	if err := config.SetKey(s.path, table, "model", pref.Model); err != nil {
+		return err
+	}
+	return config.SetKey(s.path, table, "provider", pref.Provider)
+}
+
+// toSubagentPrefs converts the config shape into the app's, preserving the nil Enabled that means
+// "the user made no choice" — collapsing it to false would switch off every subagent that ships on.
+func toSubagentPrefs(in map[string]config.SubagentConfig) map[string]app.SubagentPref {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]app.SubagentPref, len(in))
+	for name, c := range in {
+		out[name] = app.SubagentPref{Enabled: c.Enabled, Model: c.Model, Provider: c.Provider}
+	}
+	return out
 }
 
 type routePersister struct{ path string }

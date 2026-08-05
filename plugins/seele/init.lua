@@ -50,6 +50,9 @@ magi.register_tool{
       return "seele_plan: requirement가 비어 있다", true
     end
 
+    -- 모델을 여기서 정하지 않는다. 사용자가 /subagents 화면에서 지정한 것이 호스트에서
+    -- 덮어쓰고, 지정하지 않으면 세션 모델을 쓴다. 플러그인 설정에 두면 그 화면에서 고칠 수
+    -- 없고, 내장 플러그인 파일은 시작할 때마다 덮어써지므로 여기에 적어도 남지 않는다.
     local res = magi.spawn{
       system = PLANNER_SYSTEM,
       prompt = requirement,
