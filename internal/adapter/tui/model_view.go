@@ -658,7 +658,7 @@ func (m *Model) permButtonAt(x, y int) (int, bool) {
 
 func (m *Model) permView() string {
 	body := stylePermTitle.Render("permission required") + "\n" +
-		fmt.Sprintf("run tool %s %s\n", styleToolName.Render(m.perm.name), styleToolArgs.Render(compactArgs(m.perm.args)))
+		fmt.Sprintf("run tool %s %s\n", styleToolName.Render(m.perm.name), styleToolArgs.Render(compactArgs(m.perm.args, 80)))
 	// Say WHY when the policy forced this prompt (bash scan verdicts) — the user
 	// should decide on the policy's grounds, not just the raw command text.
 	if m.perm.reason != "" {
@@ -690,7 +690,7 @@ func (m *Model) permView() string {
 		full,
 		body + buttons,
 		stylePermTitle.Render("permission required") + "\n" +
-			fmt.Sprintf("run tool %s %s\n", styleToolName.Render(m.perm.name), styleToolArgs.Render(compactArgs(m.perm.args))) +
+			fmt.Sprintf("run tool %s %s\n", styleToolName.Render(m.perm.name), styleToolArgs.Render(compactArgs(m.perm.args, 80))) +
 			buttons,
 		stylePermTitle.Render("permission required") + "\n" +
 			"run tool " + styleToolName.Render(m.perm.name) + "\n" + buttons,

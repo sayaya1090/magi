@@ -37,13 +37,13 @@ func TestBalanceFences(t *testing.T) {
 
 // argPath previews a tool call's path arg, or "" when absent/invalid.
 func TestArgPath(t *testing.T) {
-	if got := argPath(`{"path":"src/main.go","content":"x"}`); got != "path=src/main.go" {
+	if got := argPath(`{"path":"src/main.go","content":"x"}`, 80); got != "path=src/main.go" {
 		t.Errorf("argPath = %q, want path=src/main.go", got)
 	}
-	if got := argPath(`{"command":"ls"}`); got != "" {
+	if got := argPath(`{"command":"ls"}`, 80); got != "" {
 		t.Errorf("no path arg should yield empty, got %q", got)
 	}
-	if got := argPath("not json"); got != "" {
+	if got := argPath("not json", 80); got != "" {
 		t.Errorf("invalid JSON should yield empty, got %q", got)
 	}
 }

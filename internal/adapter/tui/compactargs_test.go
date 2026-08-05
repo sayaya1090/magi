@@ -7,9 +7,9 @@ import "testing"
 // "status=done" appearing and disappearing).
 func TestCompactArgsStableOrder(t *testing.T) {
 	args := `{"status":"done","summary":"read README","details":"ok"}`
-	first := compactArgs(args)
+	first := compactArgs(args, 100)
 	for i := 0; i < 50; i++ {
-		if got := compactArgs(args); got != first {
+		if got := compactArgs(args, 100); got != first {
 			t.Fatalf("compactArgs not stable: %q vs %q", first, got)
 		}
 	}

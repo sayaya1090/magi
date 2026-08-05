@@ -34,16 +34,16 @@ func TestImageProtocols(t *testing.T) {
 }
 
 func TestSummarizeResult(t *testing.T) {
-	if got := summarizeResult(`[{"name":"a.go","isDir":false},{"name":"b.go"},{"name":"c"}]`); got != "3 items: a.go, b.go, c" {
+	if got := summarizeResult(`[{"name":"a.go","isDir":false},{"name":"b.go"},{"name":"c"}]`, 120); got != "3 items: a.go, b.go, c" {
 		t.Errorf("array summary=%q", got)
 	}
-	if got := summarizeResult(`["x.go","y.go","z.go","p","q","r"]`); got != "6 items: x.go, y.go, z.go, p, q, …" {
+	if got := summarizeResult(`["x.go","y.go","z.go","p","q","r"]`, 120); got != "6 items: x.go, y.go, z.go, p, q, …" {
 		t.Errorf("string-array summary=%q", got)
 	}
-	if got := summarizeResult("wrote 12 bytes to f.txt\nmore"); got != "wrote 12 bytes to f.txt" {
+	if got := summarizeResult("wrote 12 bytes to f.txt\nmore", 120); got != "wrote 12 bytes to f.txt" {
 		t.Errorf("text summary=%q", got)
 	}
-	if got := summarizeResult("[]"); got != "(none)" {
+	if got := summarizeResult("[]", 120); got != "(none)" {
 		t.Errorf("empty=%q", got)
 	}
 }

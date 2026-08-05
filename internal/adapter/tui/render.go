@@ -437,7 +437,7 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 			}
 			head += "  " + styleToolArgs.Render(fmt.Sprintf("%d/%d", done, len(todos)))
 			if blk.done {
-				if s := summarizeResult(blk.result); s != "" {
+				if s := summarizeResult(blk.result, m.toolHeadRoom(head)-4); s != "" {
 					head += styleToolResult.Render("  ⟶ " + s)
 				}
 			}
@@ -459,15 +459,23 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 		}
 		// Args preview: when the diff is shown the old/new/content is in it, so keep
 		// only the path on the head line; otherwise the full compact preview.
+		// Both halves are measured against the room actually left on the line and share it, so a
+		// long command cannot push the outcome off the edge and neither can run past it.
+		room := m.toolHeadRoom(head)
+		sumWant := 0
+		if blk.done {
+			sumWant = lipgloss.Width(summarizeResult(blk.result, room)) + 4 // + "  ⟶ "
+		}
+		argsW, sumW := splitHeadRoom(room, room, sumWant)
 		if diff != "" {
-			if p := argPath(blk.args); p != "" {
+			if p := argPath(blk.args, argsW-2); p != "" {
 				head += "  " + styleToolArgs.Render(p)
 			}
-		} else if a := compactArgs(blk.args); a != "" {
+		} else if a := compactArgs(blk.args, argsW-2); a != "" {
 			head += "  " + styleToolArgs.Render(a)
 		}
 		if blk.done {
-			if s := summarizeResult(blk.result); s != "" {
+			if s := summarizeResult(blk.result, sumW-4); s != "" {
 				head += styleToolResult.Render("  ⟶ " + s)
 			}
 		}
@@ -485,7 +493,7 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 		if !blk.ok {
 			mark = styleToolErr.Render("✗")
 		}
-		return indent(mark + " " + styleToolResult.Render(summarizeResult(blk.text)))
+		return indent(mark + " " + styleToolResult.Render(summarizeResult(blk.text, m.bodyWidth()-4)))
 	case blockError:
 		return indent(styleError.Render("✗ " + stripControlBody(blk.text)))
 	case blockInfo:
@@ -707,14 +715,14 @@ func indent(s string) string {
 }
 
 // compactArgs renders tool args compactly (single line, key:value-ish).
-func compactArgs(args string) string {
+func compactArgs(args string, max int) string {
 	args = strings.TrimSpace(args)
 	if args == "" || args == "{}" {
 		return ""
 	}
 	var m map[string]any
 	if err := json.Unmarshal([]byte(args), &m); err != nil {
-		return oneLine(args, 80)
+		return oneLine(args, max)
 	}
 	// Sort keys so the rendered order is stable — Go map iteration is randomized,
 	// which otherwise reshuffles the args every frame and makes the line flicker.
@@ -725,16 +733,16 @@ func compactArgs(args string) string {
 	sort.Strings(keys)
 	var parts []string
 	for _, k := range keys {
-		sv := oneLine(toStr(m[k]), 60)
+		sv := oneLine(toStr(m[k]), min(60, max))
 		parts = append(parts, k+"="+sv)
 	}
-	return oneLine(strings.Join(parts, " "), 100)
+	return oneLine(strings.Join(parts, " "), max)
 }
 
 // argPath returns the "path=…" preview for a tool call, or "" if it has none.
-func argPath(args string) string {
+func argPath(args string, max int) string {
 	if p := rawPath(args); p != "" {
-		return "path=" + oneLine(p, 80)
+		return "path=" + oneLine(p, max-len("path="))
 	}
 	return ""
 }
@@ -993,7 +1001,7 @@ func joinTextParts(parts []session.Part) string {
 // summarizeResult renders a tool result compactly for the human (the model
 // still receives the full result). JSON arrays become "N items: a, b, …";
 // objects/text are shown as a trimmed first line.
-func summarizeResult(text string) string {
+func summarizeResult(text string, max int) string {
 	t := strings.TrimSpace(text)
 	if strings.HasPrefix(t, "[") {
 		var arr []json.RawMessage
@@ -1012,13 +1020,13 @@ func summarizeResult(text string) string {
 			if len(arr) > 5 {
 				more = ", …"
 			}
-			return fmt.Sprintf("%d items: %s%s", len(arr), strings.Join(names, ", "), more)
+			return oneLine(fmt.Sprintf("%d items: %s%s", len(arr), strings.Join(names, ", "), more), max)
 		}
 	}
 	// First non-empty line, trimmed.
 	for _, line := range strings.Split(t, "\n") {
 		if s := strings.TrimSpace(line); s != "" {
-			return oneLine(s, 120)
+			return oneLine(s, max)
 		}
 	}
 	return ""
@@ -1123,6 +1131,58 @@ func todosFromArgs(args string) ([]session.Todo, bool) {
 // every row padded to exactly that width, and a tool head is the one row that legitimately runs
 // long (a path, a command) — so the fill would either clip content or push the transcript into a
 // horizontal scroll it must never have.
+// toolHeadRoom is what a tool line has left for its argument preview and result summary, after the
+// gutter toolSection paints and whatever the caller already put on the line (the glyph and the tool
+// name). Never negative.
+//
+// A model that has not been sized yet reports width 0, and that is "unknown", not "no room" — it
+// happens before the first WindowSizeMsg and in any caller that renders a block off a bare Model.
+// Budgeting to zero there would clip every line to nothing, so the fallback is wide enough that the
+// readability caps inside compactArgs and summarizeResult are what govern, as they did before any
+// of this measured the terminal.
+func (m *Model) toolHeadRoom(head string) int {
+	// m.width, not bodyWidth: transcriptWidth clamps to a 24-column floor, so an unsized model
+	// reports a plausible-looking width that is not one the user has.
+	if m.width <= 0 {
+		return toolHeadUnsizedRoom
+	}
+	room := m.bodyWidth() - 2 - lipgloss.Width(head)
+	if room < 0 {
+		return 0
+	}
+	return room
+}
+
+// toolHeadUnsizedRoom is the room assumed for an unsized model: past the sum of the argument and
+// result caps, so neither is shortened by a width nobody has reported yet.
+const toolHeadUnsizedRoom = 1 << 12
+
+// splitHeadRoom divides the room left on a tool line between the argument preview (wanting aWant
+// cells) and the result summary (sWant).
+//
+// The two used FIXED caps — 80 for the args, 120 for the summary — with no idea how wide the
+// terminal was, so the line came out the same 200-odd cells in an 80-column window as in a 200-
+// column one and simply ran off the edge. The caps are still worth having as readability limits;
+// what they were missing is that they must also fit. When both cannot, each gets half and whatever
+// one of them does not want goes to the other, so a short command still leaves the outcome room.
+func splitHeadRoom(room, aWant, sWant int) (argsW, sumW int) {
+	if room <= 0 {
+		return 0, 0
+	}
+	if aWant+sWant <= room {
+		return aWant, sWant
+	}
+	argsW, sumW = min(aWant, room/2), min(sWant, room-room/2)
+	if spare := room - argsW - sumW; spare > 0 {
+		if argsW < aWant {
+			argsW = min(aWant, argsW+spare)
+		} else {
+			sumW = min(sWant, sumW+spare)
+		}
+	}
+	return argsW, sumW
+}
+
 func (m *Model) toolSection(body string) string {
 	rule := lipgloss.NewStyle().Background(colOutline).Render(" ")
 	var b strings.Builder
