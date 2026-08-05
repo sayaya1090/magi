@@ -65,77 +65,6 @@ func TestTodosEqual(t *testing.T) {
 	}
 }
 
-// advanceTo completes earlier steps and starts step i the moment work MOVES ON to it,
-// so a step before a fan-out is done when the fan-out STARTS — not a beat later when it
-// finishes (the "한 타임 늦게" lag). This is the key intermediate-ordering guarantee.
-func TestAdvanceTo(t *testing.T) {
-	a, sid := newTodoApp(t, Config{})
-	actor := event.Actor{Kind: event.ActorAgent, ID: "p"}
-	a.putTodos(context.Background(), sid, actor,
-		[]session.Todo{{Content: "locate", Status: "pending"}, {Content: "list", Status: "pending"}, {Content: "summarize", Status: "pending"}})
-
-	// Moving on to step 1: step 0 is completed NOW (not when step 1 finishes), step 1 ◐.
-	a.advanceTo(context.Background(), sid, actor, 1)
-	got := a.Todos(sid)
-	if got[0].Status != "completed" || got[1].Status != "in_progress" || got[2].Status != "pending" {
-		t.Fatalf("advanceTo(1) want [completed, in_progress, pending], got %q/%q/%q", got[0].Status, got[1].Status, got[2].Status)
-	}
-	// It won't reactivate a finished step or move backward.
-	a.completeThrough(context.Background(), sid, actor, 1)
-	a.advanceTo(context.Background(), sid, actor, 1) // already completed → in_progress not re-applied
-	if g := a.Todos(sid); g[1].Status != "completed" {
-		t.Errorf("advanceTo must not downgrade a completed step, got %q", g[1].Status)
-	}
-}
-
-// completeThrough checks off a step AND every earlier step (the procedure is
-// sequential, so finishing step i implies the ones before it). It records exactly one
-// fact; a repeat call with nothing new to complete is a no-op.
-func TestCompleteThrough(t *testing.T) {
-	a, sid := newTodoApp(t, Config{})
-	actor := event.Actor{Kind: event.ActorAgent, ID: "p"}
-	a.putTodos(context.Background(), sid, actor,
-		[]session.Todo{{Content: "a", Status: "pending"}, {Content: "b", Status: "pending"}, {Content: "c", Status: "pending"}})
-	base := todosChangedCount(t, a, sid) // 1 (the seed)
-
-	// Completing the middle step (index 1) back-fills index 0 — no lone middle ✓.
-	a.completeThrough(context.Background(), sid, actor, 1)
-	got := a.Todos(sid)
-	if got[0].Status != "completed" || got[1].Status != "completed" {
-		t.Errorf("steps through index 1 should be completed, got %q / %q", got[0].Status, got[1].Status)
-	}
-	if got[2].Status != "pending" {
-		t.Errorf("later step should stay pending, got %q", got[2].Status)
-	}
-	if n := todosChangedCount(t, a, sid); n != base+1 {
-		t.Errorf("completeThrough should emit one fact, got %d (base %d)", n, base)
-	}
-	a.completeThrough(context.Background(), sid, actor, 1) // nothing new → no-op
-	if n := todosChangedCount(t, a, sid); n != base+1 {
-		t.Errorf("re-completing should emit nothing, got %d", n)
-	}
-}
-
-// completeThrough back-fills pending/in_progress steps but must NEVER resurrect a CANCELLED step to
-// completed — a cancelled step was explicitly retired and flipping it would misreport it as done.
-func TestCompleteThroughSkipsCancelled(t *testing.T) {
-	a, sid := newTodoApp(t, Config{})
-	actor := event.Actor{Kind: event.ActorAgent, ID: "p"}
-	a.putTodos(context.Background(), sid, actor, []session.Todo{
-		{Content: "a", Status: "cancelled"}, // explicitly retired
-		{Content: "b", Status: "pending"},
-		{Content: "c", Status: "pending"},
-	})
-	a.completeThrough(context.Background(), sid, actor, 2) // complete through the last step
-	got := a.Todos(sid)
-	if got[0].Status != "cancelled" {
-		t.Errorf("a cancelled step must stay cancelled, got %q", got[0].Status)
-	}
-	if got[1].Status != "completed" || got[2].Status != "completed" {
-		t.Errorf("pending steps should still back-fill to completed, got %q / %q", got[1].Status, got[2].Status)
-	}
-}
-
 // markTodoActive shows a running step as in_progress (◐), but only starts a pending
 // step — it never moves a completed/cancelled one back. markFirstPendingActive picks
 // the first still-pending step (so it skips ones pre-flight already checked off).
@@ -214,7 +143,7 @@ func TestFinalizeTodosCancelled(t *testing.T) {
 }
 
 // A step cancelled mid-turn must NOT be relabelled "completed" on a genuine finish — cancelled is
-// never resurrected (mirrors advanceTo); pending/in_progress still complete.
+// never resurrected; pending/in_progress still complete.
 func TestFinalizeTodosPreservesCancelledOnFinish(t *testing.T) {
 	a, sid := newTodoApp(t, Config{})
 	a.putTodos(context.Background(), sid, event.Actor{Kind: event.ActorAgent, ID: "p"},

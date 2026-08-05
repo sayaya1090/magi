@@ -33,41 +33,6 @@ func (a *App) putTodos(ctx context.Context, sid session.SessionID, actor event.A
 	_ = a.appendFact(ctx, sid, event.TypeTodosChanged, actor, d)
 }
 
-// completeThrough marks every plan step up to and including index i completed. A
-// procedure runs top-to-bottom, so finishing step i means the steps before it are done
-// too — this both checks off a step the planner ran in pre-flight AND back-fills any
-// earlier step the fan-out subsumed, so the panel reads as sequential progress instead
-// of a lone middle ✓ (which is what made an aborted run look like ✗✓✗). Copy-on-write
-// under one lock — Todos() hands the slice to the TUI lock-free — then one fact is
-// emitted outside the lock, only if something changed.
-func (a *App) completeThrough(ctx context.Context, sid session.SessionID, actor event.Actor, i int) {
-	a.mu.Lock()
-	td := a.stateLocked(sid).todos
-	if i < 0 || i >= len(td) {
-		a.mu.Unlock()
-		return
-	}
-	cp := append([]session.Todo(nil), td...)
-	changed := false
-	for j := 0; j <= i; j++ {
-		// Back-fill pending/in_progress steps to completed, but NEVER resurrect a cancelled step: a
-		// cancelled step was explicitly retired (finalizeTodos), and flipping it to completed would
-		// misreport it as done. (Cancelled is a turn-end state today, so this is defensive.)
-		if cp[j].Status != "completed" && cp[j].Status != "cancelled" {
-			cp[j].Status = "completed"
-			changed = true
-		}
-	}
-	if !changed {
-		a.mu.Unlock()
-		return
-	}
-	a.stateLocked(sid).todos = cp
-	a.mu.Unlock()
-	d, _ := json.Marshal(event.TodosChangedData{Todos: cp})
-	_ = a.appendFact(ctx, sid, event.TypeTodosChanged, actor, d)
-}
-
 // setTodoStatusIf moves the i-th todo from one status to another, but only when it is
 // currently `from` — so a caller can't downgrade a completed/cancelled step. Used to
 // start a step (pending→in_progress) and to revert it (in_progress→pending) if its
@@ -92,40 +57,6 @@ func (a *App) setTodoStatusIf(ctx context.Context, sid session.SessionID, actor 
 // step is running; only a pending step is started, never a completed/cancelled one.
 func (a *App) markTodoActive(ctx context.Context, sid session.SessionID, actor event.Actor, i int) {
 	a.setTodoStatusIf(ctx, sid, actor, i, "pending", "in_progress")
-}
-
-// advanceTo records that the procedure has MOVED ON to step i: every earlier step is
-// completed and step i goes in_progress (◐). Doing this when a step STARTS — rather
-// than back-filling earlier steps only when the next fan-out FINISHES — is what removes
-// the one-beat lag where step 1 stayed pending until step 2 completed (a solo step
-// before a fan-out has no signal of its own). One fact, only if something changed.
-func (a *App) advanceTo(ctx context.Context, sid session.SessionID, actor event.Actor, i int) {
-	a.mu.Lock()
-	td := a.stateLocked(sid).todos
-	if i < 0 || i >= len(td) {
-		a.mu.Unlock()
-		return
-	}
-	cp := append([]session.Todo(nil), td...)
-	changed := false
-	for j := 0; j < i; j++ {
-		if cp[j].Status != "completed" && cp[j].Status != "cancelled" { // never resurrect a cancelled step
-			cp[j].Status = "completed"
-			changed = true
-		}
-	}
-	if cp[i].Status == "pending" {
-		cp[i].Status = "in_progress"
-		changed = true
-	}
-	if !changed {
-		a.mu.Unlock()
-		return
-	}
-	a.stateLocked(sid).todos = cp
-	a.mu.Unlock()
-	d, _ := json.Marshal(event.TodosChangedData{Todos: cp})
-	_ = a.appendFact(ctx, sid, event.TypeTodosChanged, actor, d)
 }
 
 // markFirstPendingActive marks the first still-pending todo in_progress, so once
