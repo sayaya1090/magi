@@ -422,48 +422,74 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 						break
 					}
 					a.mu.Lock()
-					// COALESCE the whole batch into ONE interjection instead of answering each.
-					// Rapid follow-ups queued while a turn ran ("how's it going", then "?", "다시",
-					// "aa") are impatience, not N separate tasks — replying to each spams N near-
-					// identical answers, badly so when the turn is blocked on background subagents
-					// (every one gets the same "still waiting" reply). The most RECENT item survives
-					// (that is the prompt the user is actually waiting on) and carries the merged,
-					// de-duplicated text; the earlier ones are marked resolved+abandoned so neither
-					// seedPromptIdx nor a reload re-runs them.
+					// Take the whole batch off the queue, then decide each message on its OWN.
+					//
+					// It used to be merged into one interjection and triaged once, which is right for
+					// the impatient case it was built for (the same thing typed three ways) and wrong
+					// for every other: a batch holding one piece of work escalated as a unit, so the
+					// questions in it were never answered — they rode along inside a work prompt.
+					// The exact-duplicate half of that merge is kept below; the rest is per message.
 					a.stateLocked(sid).pendingInterject = nil
 					a.mu.Unlock()
-					item := q[len(q)-1]
-					text := coalesceInterjectionText(q)
-					for _, p := range q {
-						if p.MsgID == "" || p.MsgID == item.MsgID {
+					bctx := context.WithoutCancel(runCtx)
+					q = a.dedupeInterjects(bctx, sid, q)
+					// Off: fold the batch into its most recent member first, so the loop below runs
+					// over one item and decides once — the previous behaviour, without a second copy
+					// of the drain to keep in step with this one.
+					if !interjectSplitEnabled() && len(q) > 1 {
+						carrier := q[len(q)-1]
+						merged := coalesceInterjectionText(q)
+						for _, p := range q[:len(q)-1] {
+							a.dropQueued(bctx, sid, p.MsgID)
+						}
+						q = []pendingInterjection{{MsgID: carrier.MsgID, Text: merged}}
+					}
+
+					var work []pendingInterjection
+					s := a.sessionInfo(runCtx, sid)
+					for i, p := range q {
+						// The ctx died mid-batch: put back everything not yet looked at, ahead of
+						// anything that arrived meanwhile, rather than deciding it on a dead ctx.
+						if runCtx.Err() != nil {
+							a.requeueInterjects(sid, q[i:])
+							break
+						}
+						if a.triageQueued(runCtx, a.agentFor(s), s, p.MsgID, p.Text) {
+							work = append(work, p) // needs real work; no answer was produced for it
 							continue
 						}
-						ad, _ := json.Marshal(event.PromptAbandonedData{MsgID: p.MsgID})
-						_ = a.appendFact(context.WithoutCancel(runCtx), sid, event.TypePromptAbandoned, event.Actor{Kind: event.ActorSystem, ID: "loop"}, ad)
-						a.recordDeferral(context.WithoutCancel(runCtx), sid, p.MsgID, true) // resolved: coalesced away
+						// Answered inline, its reply already persisted and tagged InReplyTo. Ledger it
+						// resolved (F5) so a reload does not read the deferred entry as still waiting.
+						a.recordDeferral(bctx, sid, p.MsgID, true)
 					}
-					if text == "" {
-						a.recordDeferral(context.WithoutCancel(runCtx), sid, item.MsgID, true)
-						continue
-					}
-					s := a.sessionInfo(runCtx, sid)
-					if a.triageQueued(runCtx, a.agentFor(s), s, item.MsgID, text) {
-						// Escalate: run it as its OWN top-level turn with the same fresh slate Submit
-						// gives, so the council judges it on its own merits instead of the finished
-						// task's plan/criteria. Link back to the original prompt so the display layer
-						// pairs the query with its answer. If the ctx was cancelled during triage,
-						// persist it but do NOT re-run on a dead ctx (no-retry-storm).
+
+					if len(work) > 0 {
+						// The work items ARE merged, and only with each other: they arrived together
+						// and are one body of work, so they run as one turn rather than N. The most
+						// recent carries the merged text (that is the prompt the user is waiting on);
+						// the earlier ones are resolved+abandoned so neither seedPromptIdx nor a
+						// reload re-runs them.
+						//
+						// Escalate: its OWN top-level turn with the fresh slate Submit gives, so the
+						// council judges it on its own merits and not the finished task's criteria.
+						// Link back to the original prompt so the display layer pairs query and
+						// answer. On a dead ctx, persist but do NOT re-run (no-retry-storm).
+						carrier := work[len(work)-1]
+						for _, p := range work {
+							if p.MsgID == carrier.MsgID {
+								continue
+							}
+							a.dropQueued(bctx, sid, p.MsgID) // merged into the carrier
+						}
 						a.resetForNewTopLevel(sid)
-						_ = a.appendResurfacedPrompt(context.WithoutCancel(runCtx), sid, item.MsgID, text)
+						_ = a.appendResurfacedPrompt(bctx, sid, carrier.MsgID, coalesceInterjectionText(work))
 						if runCtx.Err() == nil {
 							rerun = true
 						}
 						break
 					}
-					// Answered inline — already popped and the reply persisted; drain the next batch
-					// (any interjection that arrived during triage). Ledger it resolved (F5) so a later
-					// reload does not see the deferred entry with no resolution and wrongly re-mask it.
-					a.recordDeferral(context.WithoutCancel(runCtx), sid, item.MsgID, true)
+					// Nothing needed a turn of its own. Loop to pick up whatever arrived while the
+					// batch was being triaged.
 				}
 				if rerun {
 					continue

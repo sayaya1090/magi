@@ -80,6 +80,58 @@ func (a *App) enqueueInterject(ctx context.Context, sid session.SessionID, msgID
 	a.recordDeferral(ctx, sid, msgID, false)
 }
 
+// dropQueued retires a queued message that will not run on its own: it is marked abandoned so
+// seedPromptIdx never seeds a turn from it and the UI stops showing it as waiting, and ledgered
+// resolved so a reload does not read it as still queued. Used for an exact repeat and for a work
+// item merged into the one that carries the batch.
+//
+// Both writes are best-effort on purpose: they are bookkeeping for display and reload, and a store
+// error must not abort a drain that has already decided what happens to the message.
+func (a *App) dropQueued(ctx context.Context, sid session.SessionID, msgID string) {
+	if msgID != "" {
+		ad, _ := json.Marshal(event.PromptAbandonedData{MsgID: msgID})
+		_ = a.appendFact(ctx, sid, event.TypePromptAbandoned, event.Actor{Kind: event.ActorSystem, ID: "loop"}, ad)
+	}
+	a.recordDeferral(ctx, sid, msgID, true)
+}
+
+// requeueInterjects puts items back at the FRONT of the queue, keeping their order and keeping
+// them ahead of anything enqueued while they were out. Used when the drain is triaging one message
+// at a time and the run context dies partway: what has not been looked at yet must be waiting where
+// it was, not lost and not reordered behind newer arrivals.
+func (a *App) requeueInterjects(sid session.SessionID, items []pendingInterjection) {
+	if len(items) == 0 {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st := a.stateLocked(sid)
+	st.pendingInterject = append(append([]pendingInterjection{}, items...), st.pendingInterject...)
+}
+
+// dedupeInterjects drops entries whose text repeats one already in the batch and reports what
+// survives, in arrival order. The dropped ones are recorded resolved and abandoned, the same way a
+// coalesced-away entry is, so neither a reload nor seedPromptIdx brings them back.
+//
+// This is the one part of the old whole-batch coalescing worth keeping once each message is triaged
+// on its own: the same sentence typed twice is one request, and answering it twice is noise. It is
+// deliberately EXACT — near-duplicates ("how's it going", "?") are different sentences and each gets
+// its own answer now.
+func (a *App) dedupeInterjects(ctx context.Context, sid session.SessionID, q []pendingInterjection) []pendingInterjection {
+	seen := map[string]bool{}
+	out := make([]pendingInterjection, 0, len(q))
+	for _, p := range q {
+		t := strings.TrimSpace(p.Text)
+		if t != "" && !seen[t] {
+			seen[t] = true
+			out = append(out, p)
+			continue
+		}
+		a.dropQueued(ctx, sid, p.MsgID)
+	}
+	return out
+}
+
 // markInterjectAnswered records the agent's claim that its reply already covers this queued
 // interjection, stamping the seq the claim was made at. The entry STAYS queued — the claim only
 // silences the pending note and gives the finish boundary something measurable to test (was any

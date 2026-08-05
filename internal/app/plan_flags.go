@@ -81,3 +81,15 @@ func declareFinishEnabled() bool { return envflag.Enabled("MAGI_DECLARE_FINISH",
 // ask exists for an agent that forgot the form, and repeating it at one that cannot produce it only
 // spends the session's remaining time looking busy.
 const declareAskCap = 3
+
+// interjectSplitEnabled gives every queued message its own disposition instead of one for the batch.
+//
+// The finish boundary used to merge the whole queue into a single prompt and triage that once, so a
+// batch holding any work escalated as a unit and the questions in it rode along unanswered. Split,
+// each message is triaged on its own: a question is answered where it is dequeued, and the work
+// items are the only ones that coalesce — they arrived together and are one body of work.
+//
+// It also turns on the re-evaluation a new turn does over whatever is still queued, which is the
+// half that needs a turn to exist: a message can be unanswerable while the work is in flight and
+// answerable the moment it lands. Off restores the single batch disposition (A/B knob).
+func interjectSplitEnabled() bool { return envflag.Enabled("MAGI_INTERJECT_SPLIT", true) }
