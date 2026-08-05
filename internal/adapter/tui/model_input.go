@@ -365,7 +365,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 
 	// The /subagents list takes the keys while it is open.
 	if m.subagenting {
-		if cmd, handled := m.handleSubagentKey(msg.String()); handled {
+		if cmd, handled := m.handleSubagentKey(msg); handled {
 			return cmd, true
 		}
 		return nil, true // swallow the rest so a stray key does not type into the input behind it

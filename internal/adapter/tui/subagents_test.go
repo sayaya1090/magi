@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
@@ -51,6 +52,27 @@ func subagentModel(t *testing.T) Model {
 		t.Fatal(err)
 	}
 	return New(context.Background(), a, nil, sid, "m", t.TempDir(), true, "")
+}
+
+// key builds the message a real key press produces. Typed characters carry Text — which is what
+// the editor reads — and named keys carry only a Code, which is what the switch matches.
+func key(name string) tea.KeyPressMsg {
+	switch name {
+	case "enter":
+		return tea.KeyPressMsg{Code: tea.KeyEnter}
+	case "esc":
+		return tea.KeyPressMsg{Code: tea.KeyEscape}
+	case "backspace":
+		return tea.KeyPressMsg{Code: tea.KeyBackspace}
+	case "up":
+		return tea.KeyPressMsg{Code: tea.KeyUp}
+	case "down":
+		return tea.KeyPressMsg{Code: tea.KeyDown}
+	case " ", "space":
+		return tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}
+	}
+	r := []rune(name)[0]
+	return tea.KeyPressMsg{Code: r, Text: string(r)}
 }
 
 // The list shows what a plugin registered: name AND what it does. A name alone does not tell a
@@ -183,18 +205,18 @@ func TestTheModelIsEditedOnTheSameRow(t *testing.T) {
 	}
 	name := m.subagentList[m.subSel].info.Name
 
-	m.handleSubagentKey("enter")
+	m.handleSubagentKey(key("enter"))
 	if !m.subEditing {
 		t.Fatal("enter on a subagent row should start editing its model")
 	}
 	for _, k := range strings.Split("big-model", "") {
-		m.handleSubagentKey(k)
+		m.handleSubagentKey(key(k))
 	}
 	// What is being typed shows on the row, so the edit is visible where it lands.
 	if plain := ansi.Strip(m.subagentsView()); !strings.Contains(plain, "big-model") {
 		t.Errorf("the model being typed is not on the row:\n%s", plain)
 	}
-	m.handleSubagentKey("enter")
+	m.handleSubagentKey(key("enter"))
 	if m.subEditing {
 		t.Error("enter should apply and leave the field")
 	}
@@ -206,11 +228,11 @@ func TestTheModelIsEditedOnTheSameRow(t *testing.T) {
 
 	// Empty CLEARS it — the way back to "whatever the plugin asked for" without having to remember
 	// what that was.
-	m.handleSubagentKey("enter")
+	m.handleSubagentKey(key("enter"))
 	for range "big-model" {
-		m.handleSubagentKey("backspace")
+		m.handleSubagentKey(key("backspace"))
 	}
-	m.handleSubagentKey("enter")
+	m.handleSubagentKey(key("enter"))
 	for _, s := range m.app.Subagents() {
 		if s.Name == name && s.Model != "" {
 			t.Errorf("an empty field should clear the override, got %q", s.Model)
@@ -218,9 +240,9 @@ func TestTheModelIsEditedOnTheSameRow(t *testing.T) {
 	}
 
 	// esc abandons rather than applies.
-	m.handleSubagentKey("enter")
-	m.handleSubagentKey("x")
-	m.handleSubagentKey("esc")
+	m.handleSubagentKey(key("enter"))
+	m.handleSubagentKey(key("x"))
+	m.handleSubagentKey(key("esc"))
 	for _, s := range m.app.Subagents() {
 		if s.Name == name && s.Model != "" {
 			t.Errorf("esc should abandon the edit, got %q", s.Model)
@@ -240,8 +262,101 @@ func TestEnterOnAGroupHeaderStartsNoEdit(t *testing.T) {
 			break
 		}
 	}
-	m.handleSubagentKey("enter")
+	m.handleSubagentKey(key("enter"))
 	if m.subEditing {
 		t.Error("a group header has nothing to point at a model")
+	}
+}
+
+// Space ticks the box. Reported not working: this library reports the space bar as "space" as well
+// as " ", and matching one spelling meant the key did nothing at all.
+func TestSpaceTogglesWhicheverWayTheKeyArrives(t *testing.T) {
+	for _, spelling := range []tea.KeyPressMsg{
+		{Code: tea.KeySpace, Text: " "},
+		{Code: ' ', Text: " "},
+	} {
+		mm := subagentModel(t)
+		m := &mm
+		m.width, m.height = 120, 40
+		m.openSubagents()
+		for i, r := range m.subagentList {
+			if r.kind == subRowAgent {
+				m.subSel = i
+				break
+			}
+		}
+		before := m.subagentList[m.subSel].info.Enabled
+		if _, handled := m.handleSubagentKey(spelling); !handled {
+			t.Fatalf("%q was not handled", spelling.String())
+		}
+		if got := m.subagentList[m.subSel].info.Enabled; got == before {
+			t.Errorf("%q did not toggle the box", spelling.String())
+		}
+	}
+}
+
+// Typing reaches the field. Reported not working: the editor tested the key NAME for length 1,
+// which drops every multi-byte character and spells the space bar "space".
+func TestTypingReachesTheModelField(t *testing.T) {
+	mm := subagentModel(t)
+	m := &mm
+	m.width, m.height = 120, 40
+	m.openSubagents()
+	for i, r := range m.subagentList {
+		if r.kind == subRowAgent {
+			m.subSel = i
+			break
+		}
+	}
+	m.handleSubagentKey(key("enter"))
+	for _, r := range "gpt-4o 미니" { // ASCII, a dash, a space and multi-byte, all through one path
+		m.handleSubagentKey(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	if m.subBuf != "gpt-4o 미니" {
+		t.Errorf("the field took %q", m.subBuf)
+	}
+}
+
+// A description WRAPS to the window instead of being cut. A plugin writes it to say what the
+// subagent is for, and half a sentence does not. Checked at widths narrow enough that the text
+// CANNOT fit on one line — a width where it happens to fit proves nothing about wrapping.
+func TestALongDescriptionWrapsRatherThanClips(t *testing.T) {
+	const full = "보안 렌즈로 diff를 훑고 취약점만 보고"
+	sawWrap := false
+	for _, w := range []int{40, 50, 60, 72} {
+		mm := subagentModel(t)
+		m := &mm
+		m.width, m.height = w, 40
+		m.openSubagents()
+		plain := ansi.Strip(m.subagentsView())
+
+		if strings.Contains(plain, "…") {
+			t.Errorf("width %d: cut instead of wrapped:\n%s", w, plain)
+		}
+		// No line may exceed the window, or a wrapped row pushes the frame out sideways.
+		for _, ln := range strings.Split(plain, "\n") {
+			if lipgloss.Width(ln) > w {
+				t.Errorf("width %d: line is %d cells wide: %q", w, lipgloss.Width(ln), ln)
+			}
+		}
+		// The whole sentence survives, across however many lines it took.
+		flat := strings.Join(strings.Fields(strings.ReplaceAll(plain, "\n", " ")), " ")
+		if !strings.Contains(flat, full) {
+			t.Errorf("width %d: the description did not survive:\n%s", w, plain)
+		}
+		// And count the lines it actually occupies: at a narrow width it must be more than one,
+		// which is the difference between wrapping and truncating.
+		n := 0
+		for _, ln := range strings.Split(plain, "\n") {
+			if t := strings.TrimSpace(ln); t != "" && strings.Contains(full, t) {
+				n++
+			}
+		}
+		if n > 1 {
+			sawWrap = true
+		}
+	}
+	if !sawWrap {
+		t.Error("the description never spanned more than one line at any width — nothing wrapped")
 	}
 }

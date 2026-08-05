@@ -78,11 +78,11 @@ func (m *Model) groupState(group string) (on, total int) {
 // Both settings live on the same row and are reached from the same screen: space switches a
 // subagent on or off, enter edits which model it runs on. Putting the model in the plugin's own
 // config section would have meant two places to go for one subagent.
-func (m *Model) handleSubagentKey(key string) (tea.Cmd, bool) {
+func (m *Model) handleSubagentKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	if m.subEditing {
-		return m.handleSubagentEditKey(key)
+		return m.handleSubagentEditKey(msg)
 	}
-	switch key {
+	switch msg.String() {
 	case "esc", "q":
 		m.subagenting = false
 		return nil, true
@@ -102,15 +102,17 @@ func (m *Model) handleSubagentKey(key string) (tea.Cmd, bool) {
 			m.subSel++
 		}
 		return nil, true
-	case " ", "x":
+	// Both spellings: this terminal library reports the space bar either way, and matching only
+	// one is why the box would not tick.
+	case " ", "space", "x":
 		return m.toggleSubagentRow(), true
 	}
 	return nil, false
 }
 
 // handleSubagentEditKey drives the model field while it is being typed.
-func (m *Model) handleSubagentEditKey(key string) (tea.Cmd, bool) {
-	switch key {
+func (m *Model) handleSubagentEditKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
+	switch msg.String() {
 	case "esc":
 		m.subEditing, m.subBuf = false, ""
 		return nil, true
@@ -136,8 +138,11 @@ func (m *Model) handleSubagentEditKey(key string) (tea.Cmd, bool) {
 		}
 		return nil, true
 	}
-	if len(key) == 1 || key == " " {
-		m.subBuf += key
+	// Key().Text is the character the key produced, which is how every other editor in this
+	// package reads typed input. Testing the key NAME for length 1 drops anything multi-byte and
+	// spells space as "space", so the field took nothing at all.
+	if t := msg.Key().Text; t != "" {
+		m.subBuf += t
 	}
 	return nil, true
 }
@@ -210,9 +215,9 @@ func (m *Model) subagentsView() string {
 			if r.info.Enabled {
 				box = "[✓]"
 			}
-			// On/off, name, model, description — one row, one screen, in the order a reader
-			// needs them. The model comes before the description because it is the other thing
-			// they came here to change; the description is what gives when the window is narrow.
+			// On/off, name and model on the first line — the two things a reader came here to
+			// change. The description WRAPS underneath rather than being clipped: a plugin writes
+			// it to say what the subagent is for, and half a sentence does not.
 			label := "    " + box + " " + r.info.Name
 			switch {
 			case sel && m.subEditing:
@@ -220,19 +225,31 @@ func (m *Model) subagentsView() string {
 			case r.info.Model != "":
 				label += "  " + styleToolArgs.Render(r.info.Model)
 			}
+			row = label
 			if d := strings.TrimSpace(r.info.Description); d != "" {
-				if room := inner - lipgloss.Width(label) - 2; room > 8 {
-					label += "  " + styleToolResult.Render(oneLine(d, room))
+				const pad = "        " // under the checkbox, so the text lines up with the name
+				// -2 for the marker column every line gets below, and TrimRight because lipgloss
+				// pads a wrapped line out to the width it was given — that padding is what pushed
+				// the line past the edge and got it cut with an ellipsis.
+				for _, ln := range wrapLines(oneLine(d, 100000), max(8, inner-len(pad)-2)) {
+					row += "\n" + pad + styleToolResult.Render(strings.TrimRight(ln, " "))
 				}
 			}
-			row = label
 		}
-		if sel {
-			row = stylePalSelRow.Render(clipRow("› "+row, inner))
-		} else {
-			row = clipRow("  "+row, inner)
+		// A row can be several lines now (a wrapped description), so the marker goes on the first
+		// and each line is bounded on its own — one over-wide line pads the whole frame.
+		var out []string
+		for k, ln := range strings.Split(row, "\n") {
+			switch {
+			case k > 0:
+				out = append(out, clipRow("  "+ln, inner))
+			case sel:
+				out = append(out, stylePalSelRow.Render(clipRow("› "+ln, inner)))
+			default:
+				out = append(out, clipRow("  "+ln, inner))
+			}
 		}
-		lines = append(lines, row)
+		lines = append(lines, strings.Join(out, "\n"))
 	}
 
 	// Window the rows to the room the modal has, the way every other list here does. Unbounded,
