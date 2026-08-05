@@ -153,6 +153,22 @@ type Store interface {
 	Truncate(ctx context.Context, s session.SessionID, upToSeq int64) error
 }
 
+// ChildStep is one tool call a child made: what it ran, with what arguments, and whether it worked.
+//
+// Output carries the tool's result VERBATIM for a FAILED call and is empty for one that succeeded.
+// That split is the whole design. The raw stderr of a failed build is the thing a caller cannot
+// reconstruct and cannot afford to have summarised — it is why the loop is running another round.
+// Successful output is the bulk of a session's bytes and the caller already knows the shape of it
+// from Name and Args, so carrying it would turn "the footprint" back into "the whole log", which is
+// what this exists instead of. OutputBytes says how much was left behind either way.
+type ChildStep struct {
+	Name        string          // the tool the child called
+	Args        json.RawMessage // its arguments, exactly as the child sent them
+	Failed      bool
+	Output      string // verbatim, and only when Failed
+	OutputBytes int    // size of the result, set whether or not Output is carried
+}
+
 // ---- Tools ----
 
 // Tool is an executable capability exposed to the agent. Built-in tools, Lua
@@ -185,6 +201,18 @@ type ToolEnv struct {
 	// not offer it — and it is nil inside a child, which is what makes recursion impossible rather
 	// than merely discouraged.
 	Spawn func(ctx context.Context, spec SpawnSpec) (SpawnResult, error)
+	// ChildSteps returns what a child SPAWNED BY THIS TOOL CALL actually did: one entry per tool
+	// it ran, in order. nil when the host does not offer it.
+	//
+	// A child's final message is the child's own account of its work, and this tree has measured
+	// what that costs — a brief paraphrased until the identifiers were gone (2bd1fb6). The
+	// footprint is not an account; it is the calls themselves. A caller can tell a child that ran
+	// the build and watched it fail from one that never ran it, which the closing sentence of
+	// either child looks identical for.
+	//
+	// It answers only for this call's own children. A plugin that could name any session id could
+	// read another agent's log, and nothing about spawning gives it a reason to.
+	ChildSteps func(ctx context.Context, sessionID string) ([]ChildStep, error)
 	// EmitProgress lets a long-running tool publish a live, best-effort progress
 	// note (e.g. wait_for's poll status) while it blocks, so the TUI spinner and
 	// the headless stream can show what is being waited on instead of a silent
