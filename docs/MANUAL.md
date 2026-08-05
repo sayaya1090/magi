@@ -229,6 +229,8 @@ Hook commands run in a shell and receive the `MAGI_TOOL`/`MAGI_PATH` environment
 | `/help` | help |
 | `/route` (=`/model`=`/agents`) | **model & routing editor** (one screen): **(session)** default model, per-agent model/backend, **add/edit backends (profiles)**. ↑/↓ select · Enter edit/open · empty value = reset to default · Esc close. Editing the **session model** opens a **suggest box** — configured profile models plus the gateway's live catalog (prefetched on open), de-duplicated and filtered as you type: **↑/↓ cycle · Tab fills · Enter applies** the highlight or the typed value. An unreachable gateway falls back to free text. While editing an agent, **pick a profile with ←/→** (or type a model name). Use `+ add profile` to define a profile (endpoint/key/model/headers); in the form, Enter edits a field · **Tab saves**. **All edits are persisted to `config.toml`** (comments preserved) |
 | `/tools` | available tools |
+| `/subagents` | **subagents a plugin registered** — a checkbox each, grouped as the plugin declared. Space toggles one (a group header toggles all its members), Enter sets the model that subagent runs on (empty clears the override), Esc closes. magi ships none of its own, so the list is empty until a plugin registers one. The choice is written to `config.toml` under `[subagents.<name>]` and survives a restart |
+| `/cost` | token usage and cost for the session |
 | `/sessions` | session list for this directory |
 | `/resume [n]` | resume a session (no arg = list, `/resume 2` to switch) |
 | `/rewind [n]` | roll back the last n user turns (default 1) |
@@ -305,7 +307,9 @@ Slash commands during work: read-only/UI-only ones (`/help` · `/route` (=`/mode
 
 ### Background job panes (split-pane)
 
-A background command (`bash background=true`) used to be a single line saying a process started, and then nothing — while the agent polled it with `bash_output` and acted on what it read. So the pane strip that once showed subagents shows **those** instead: while a job is alive, **a live panel per job** is tiled below the main transcript, each with a **unique color** (M3 tonal palette) on its border and header badge.
+The strip has two producers. A **background command** (`bash background=true`) would otherwise be a single line saying a process started and then nothing, while the agent polls it with `bash_output` and acts on what it reads. A **spawned child** (a subagent from a plugin, §`/subagents`) runs for minutes inside one tool call, on a session the main view does not follow. Either way, while it is alive **a live panel is tiled below the main transcript**, each with a **unique color** (M3 tonal palette) on its border and header badge.
+
+A child's panel shows **its own transcript** — the prompt it was handed, its reasoning, each tool call with its arguments and result, and what it finally said — rendered exactly as the main transcript renders them. A background job's panel shows its log tail.
 
 - Move focus with `Tab` (or by clicking a panel) → the focused panel gets a **focus ring** in its color.
 - `Ctrl+O` (or clicking the focused panel again) **zooms in** → the job's full output. On entering zoom it jumps to the bottom (latest). **Clicking** the top breadcrumb (or `Esc`) returns.
@@ -409,7 +413,9 @@ Neither is registered in a headless/bench run: with nobody to answer, they can n
 
 ### What is deliberately absent
 
-There is no `task` tool, and no subagents to delegate to.
+There is no `task` tool, and **magi ships no agent of its own** — no built-in planner, reviewer or worker, and nothing that delegates unless you install a plugin that does.
+
+What exists is the seam. A plugin can declare a subagent, and a user switches it on in `/subagents`; with no such plugin there is no way to reach it. That is a different claim from the one this section used to make ("there are no subagents at all"), and the difference is deliberate: the machinery that was torn out decided how to split work and what to pass on **for you**, and it is that judgement, not the capability, which the record condemned. See §Subagents.
 
 There are also no aggregation tools (`countlines`, `countmatches`, `groupby`, `tabulate`), no `findcontext`, no `astgrep`, no LSP navigation tools, and no `replan`. Counted across every recorded bench run, the first six were called **zero** times and `astgrep` twice, while 59% of bash calls contained a pipe: the model reaches for `wc -l` and `grep`, not for a tool that reimplements them. A tool that is never called is not free — it is weight on every request, for every step, forever.
 
@@ -433,11 +439,23 @@ Set `[council] enabled = false` to remove the tool entirely; with nobody to decl
 
 ### There is one agent
 
-magi used to spawn subagents, plan the work into steps, author executable checks for each step, and hold the turn open until a council voted the checks satisfied. All of it is gone.
+magi used to spawn subagents, plan the work into steps, author executable checks for each step, and hold the turn open until a council voted the checks satisfied. All of it is gone, and by default there is still exactly one agent: **magi ships none.**
 
 The reason is in the logs. Every one of those stages decided something *before* the work existed, and the costliest defects were of exactly one kind: magi believing a judgement it had made in advance over the record of what actually happened — a port probe that passed only while the server was down, a grep demanding a hyphen where the generator writes an underscore, a brief paraphrased until the graded identifier was gone. A check written in advance can be wrong about the work; a record of what magi granted cannot be wrong about what it granted, and where the record is incomplete it says so.
 
 What is left is the loop, the tools, the record, and a council the agent calls when it wants one. Long-running work goes to `bash background=true` and is watched with `bash_output`/`wait_for` — visible in its own pane (§4), with its real exit read when it lands.
+
+### Subagents, when you want one
+
+A plugin can register one (EXTENDING §3.9). magi provides the seam and no policy:
+
+- **Off unless asked.** A subagent is listed in `/subagents` and switched on there; a plugin can also ship one switched off. A subagent that is off is not advertised to the model at all, so it costs nothing per request.
+- **Nothing is summarised.** The child gets the plugin's prompt and the tool's own arguments **verbatim**, plus AGENTS.md, the environment and the working tree — never a curated slice of the parent's conversation. The tool arguments are the filter, chosen by the side that has the full context, because a paraphrased brief is how this tree lost graded identifiers six times out of six.
+- **Bounded, and it cannot recurse.** A child gets a step count and a clock, the whole tool call gets a cumulative budget, and a child is handed no way to spawn.
+- **You can see it.** It runs in its own pane with its own transcript (§4).
+- **You can read what it did, and put it back.** `magi.child_steps` returns the calls it made with the raw output of the failed ones; `magi.restore_child` puts its file changes back and names what it could not. Neither is automatic.
+
+magi bundles one example, **Seele** — a planner that reads and analyses and returns a step list, with no write tools in its allowlist at all. It ships **switched off**.
 
 ## 7. Memory & Context
 

@@ -144,7 +144,8 @@ unsure of, and it ends nothing.
 ## One agent
 
 magi used to spawn subagents, plan the work into steps, author executable checks for each step,
-and hold the turn open until a council voted the checks satisfied. All of it is gone.
+and hold the turn open until a council voted the checks satisfied. All of it is gone, and out of
+the box there is still one agent: **magi ships none of its own.**
 
 The reason is in the logs. Every one of those stages decided something *before* the work existed,
 and the defects that cost the most were of exactly one kind: magi believing a judgement it had made
@@ -152,6 +153,14 @@ in advance over the record of what actually happened — a probe that passed onl
 down, a grep demanding a hyphen where the generator writes an underscore, a brief paraphrased until
 the graded identifier was gone. What is left is the loop, the tools, the record, and a council the
 agent calls when it wants one.
+
+**A subagent, if you want one, comes from a plugin.** magi provides the seam and no policy: a plugin
+declares one, `/subagents` is where a user switches it on and picks its model, and with no such
+plugin installed there is no way to reach it. Nothing is summarised on the way in — the child gets
+the plugin's prompt and the tool's own arguments verbatim — because a paraphrased brief is exactly
+what the record above condemns. A plugin can read what its child actually did and put its file
+changes back, and both are its own call, never magi's. One example ships, switched off: **Seele**, a
+planner with no write tools at all.
 
 ## Loop Engineering Toolkit
 

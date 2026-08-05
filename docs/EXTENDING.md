@@ -518,6 +518,128 @@ magi.set_base_url("http://127.0.0.1:" .. s.port .. "/v1")   -- point the agent a
 > port (`port>0`) can fail to bind on hot reload while the previous instance still holds it, so
 > **`port=0` (automatic) is recommended**.
 
+### 3.8 `magi.register_tool` — a tool of your own
+
+The most fundamental of these, and the one the rest of this section builds on. A plugin registers a
+tool and the agent sees it beside every built-in: same schema shape, same dispatch, same permission
+gate (capability `"tool"`).
+
+```lua
+magi.register_tool{
+  name        = "changelog_entry",
+  description = "Append a line to CHANGELOG.md under the Unreleased heading.",
+  schema      = { type = "object",
+                  properties = { text = { type = "string", description = "the line to add" } },
+                  required = { "text" } },
+  execute     = function(args)
+    -- return  text            → success
+    -- return  text, true      → an error the agent should read and react to
+    if not args.text or args.text == "" then return "text is required", true end
+    return append_to_changelog(args.text)
+  end,
+}
+```
+
+`description` and `schema` are what the model reads on **every request**, so a long description is
+paid for on every step forever — say what the tool is for and when to reach for it, and stop.
+
+Four optional fields decide where the tool is offered:
+
+| field | effect |
+|---|---|
+| `internal = true` | offered only to an agent whose allowlist names it — a helper for your own subagent, kept off the main agent's request |
+| `subagent = true` | listed in `/subagents`, where a user switches it on and off and picks its model |
+| `group = "…"` | groups it under a heading there, so several can be managed together |
+| `enabled = false` | ships switched **off**; only a user turns it on |
+
+### 3.9 `magi.spawn` / `child_steps` / `restore_child` — subagents and loops
+
+magi ships **no agent of its own**. What it ships is the seam: a plugin declares a subagent, and a
+user switches it on. With no such plugin installed there is no way to reach any of this (capability
+`"spawn"`, declared in `plugin.toml`, and reachable only from inside a tool call).
+
+```lua
+magi.register_tool{
+  name = "reviewer", subagent = true, enabled = false, group = "review",
+  description = "Review the working tree through a security lens and report only what is exploitable.",
+  schema = { type = "object", properties = { focus = { type = "string" } }, required = {"focus"} },
+  execute = function(args)
+    local r = magi.spawn{
+      system    = SECURITY_LENS,          -- your prompt, passed through untouched
+      prompt    = args.focus,             -- the task, seeded VERBATIM
+      tools     = {"read", "grep", "glob"},   -- the child's whole allowlist
+      max_steps = 25,
+      timeout   = 300,
+    }
+    return r.text
+  end,
+}
+```
+
+**What the child gets.** Your `system`, your `prompt` **verbatim**, AGENTS.md, the runtime
+environment, the parent's working directory and scratch, and exactly the tools in `tools`. It does
+**not** get the parent's conversation — there is no summary step, because a paraphrased brief is how
+this tree lost graded identifiers six times out of six. The tool's own arguments are the filter: the
+caller has the full context and chooses what to put in them, and nothing rewrites it afterwards. If
+that is not enough, the child reads the same tree for itself.
+
+**What comes back.** `text`, `err`, `steps`, and `session_id`.
+
+**Bounds.** A child is clamped to 60 steps and 15 minutes. The whole tool call is clamped too —
+cumulative child steps and a wall clock — because a plugin can spawn in a loop and one tool call is
+one step to the parent however long it runs. A refusal names the bound and where it stands.
+
+**A child cannot spawn.** It is handed no `Spawn` hook at all, so recursion is impossible by
+construction rather than bounded by a counter.
+
+#### Looping
+
+`child_steps` is what a round is judged on: what the child actually did, rather than what it says it
+did. One entry per tool call — `name`, `args` (decoded), `failed`, `output`, `output_bytes` — with
+the output carried **verbatim for a failed call** and omitted for a successful one. A child that ran
+the build and watched it fail and one that never ran it close with the same sentence; only the
+footprint tells them apart.
+
+`restore_child` puts the child's file changes back so the next round starts from where it found
+things. Best-effort, and every path is reported either way — `path`, `restored`, `how`
+(`journal`/`git`/`saga`), `reason`. **Read the reasons.** A half restore taken for a clean one is
+worse than none. It is never automatic: a failed attempt's leavings are sometimes the evidence the
+next round needs, and that call is yours.
+
+```lua
+local task = args.requirement
+for round = 1, 5 do
+  local r = magi.spawn{ system = SYS, prompt = task, tools = {"read","edit","bash"} }
+
+  local failures = {}
+  for _, s in ipairs(magi.child_steps(r.session_id)) do
+    if s.failed then failures[#failures+1] = s.name .. ": " .. s.output end   -- raw, not summarised
+  end
+  if #failures == 0 and r.err == "" then return r.text end
+
+  for _, p in ipairs(magi.restore_child(r.session_id)) do
+    if not p.restored then                      -- say so; do not pretend the tree is clean
+      failures[#failures+1] = "could not restore " .. p.path .. ": " .. p.reason
+    end
+  end
+  task = task .. "\n\n앞선 시도가 실패했다:\n" .. table.concat(failures, "\n")
+end
+```
+
+What `restore_child` does not undo is anything that is not a file: an installed package, a running
+server, a migrated database. No isolation scheme in magi undoes those, and it does not pretend to.
+
+### 3.10 The rest of the bridge
+
+| function | capability | what it does |
+|---|---|---|
+| `magi.analyze{prompt=, system=}` | — | one model round trip with no tools, for a plugin that wants a judgement rather than an agent |
+| `magi.write_file` / `magi.read_file` / `magi.remove_file` | `fs:write` / `fs:read` | workdir-confined file access |
+| `magi.notify(text)` | — | a desktop notification |
+| `magi.json_decode(text)` | — | JSON → a Lua table |
+| `magi.register_doctor_probes{…}` | — | environment checks folded into `magi -doctor` |
+| `magi.propose_experience{…}` | — | offer a memory or skill to the shared experience store (§2.4) |
+
 ---
 
 ## See also

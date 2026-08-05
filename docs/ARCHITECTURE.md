@@ -13,11 +13,18 @@ OpenAI-compatible LLM access (Ollama/LiteLLM/etc.), an event-sourced store, guar
 advisory council the agent calls as a tool, and an opt-in deterministic workflow engine. Single
 static binary (`CGO_ENABLED=0`), cross-platform.
 
-**One agent.** magi used to spawn subagents and hand them slices of the work through a curated
-brief. Nothing in the recorded runs shows that making a result better, and the defect log is
+**One agent by default.** magi used to spawn subagents and hand them slices of the work through a
+curated brief. Nothing in the recorded runs shows that making a result better, and the defect log is
 largely made of it — a brief paraphrased until the graded identifier was gone, a worker that never
 received the checklist assembled for it, a killed explorer whose session id was dropped so its work
 could not be salvaged. It is gone, along with the planner that decided when to use it.
+
+What is NOT gone, and was added back deliberately, is the seam: a plugin can declare a subagent and
+a user can switch it on (`/subagents`, EXTENDING §3.9). The distinction is the whole point. Every
+defect in that list came from magi deciding **on the model's behalf** what to split off and what to
+pass along; the seam decides neither. A plugin author writes the prompt, the tool's own arguments
+are the brief, and magi passes them through without rewriting a byte. magi still ships no agent —
+`plugins/seele` is one example, and it ships switched off.
 
 ---
 
@@ -222,6 +229,12 @@ Nothing set them and no tool read them once the one-agent change landed; a port 
 advertises a contract the application never fulfils is how a reader — or a model reading
 the tool surface — learns something untrue about the system. They are gone.
 
+It carries four fields for the spawn seam instead, and each is `nil` unless the host offers it:
+`Spawn` runs a child to completion, `ChildSteps` returns what that child actually did, and
+`RestoreChild` puts its file changes back. All three are scoped to the tool call in flight — a call
+can only read or restore a child it started — and `Spawn` is `nil` **inside** a child, which is what
+makes recursion impossible by construction rather than bounded by a counter someone has to check.
+
 ---
 
 ## 4. The agent loop (`app/loop.go`)
@@ -234,6 +247,10 @@ spec-mine, a contract council, a planner, a plan audit, check authoring, coverag
 delegation to subagents, a termination vote. Every one of those decided something *before* the
 work existed, and every recorded defect of that period was of one kind: magi believing a
 judgement it had made in advance over the record of what actually happened. They are gone.
+
+`runLoop` still takes a `depth`, and every `depth > 0` branch in it — interjection detection,
+`route_interjection`, `ask_user`, the top-level contract reset, the council finish gate — is written
+for a child. Those branches are reached only when a plugin spawns one; nothing in the tree does.
 
 What runs now, per step:
 

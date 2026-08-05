@@ -188,8 +188,11 @@ type Actor struct {
 | `workflow.phase` | `{phase, status, detail}` (workflow engine progress) |
 | `council.deliberating` | `{round, member, state}` (the live deliberation panel, D14) |
 
-> ★Correction: the original listed `agent.spawned` / `agent.status` here. There are no subagents,
-> so there is nothing to report their state — both are gone.
+> ★Correction: the original listed `agent.spawned` / `agent.status` here. Both are gone and stay
+> gone. A plugin can spawn a child again, but its state is not reported through the bus: the child
+> is a SESSION, so its own log already carries what it did, and the only thing a log cannot answer —
+> which children are running right now and which just ended — is a live register the screen polls
+> (`App.SubagentJobs`). A second, event-shaped copy of either would be one more pair to keep in step.
 
 > Principle: **facts are persisted, progress (delta/progress) is transient.** A replay does not need
 > deltas — the completed parts are enough. That keeps the log clean and preserves D6's

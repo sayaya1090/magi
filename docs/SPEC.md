@@ -528,7 +528,14 @@ council-retry-shape-1:     the reminder branches three ways — syntax / schema 
 > scenarios) were deleted.** Nothing they described is left in the code — the procedural planner and
 > its per-step strategies, the pre-execution plan-audit council (`Phase="plan"`, `runPlanAuditGate`),
 > the derived completion criteria, `delegate`/`refine` recursion over shared child sessions,
-> `guardExpansion`/`planEnvelope`/`MaxPlanDepth`, `redecomposeStuck`. There are no subagents at all.
+> `guardExpansion`/`planEnvelope`/`MaxPlanDepth`, `redecomposeStuck`.
+>
+> ⚠️ **Updated.** "There are no subagents at all" was true when this note was written and is not now.
+> magi still ships no agent, and nothing in the tree spawns — but a **plugin** can declare a
+> subagent, and a user switches it on in `/subagents` (EXTENDING §3.9, ARCHITECTURE §3). What did
+> not come back is the part this section is actually about: magi deciding, on the model's behalf,
+> how to split work and what to pass on. The seam passes the plugin's prompt and the tool's own
+> arguments through unrewritten and decides nothing.
 >
 > **Why they came out**: every one of those stages decided something before the work existed, and
 > every recorded defect of that period was of one kind — magi trusting its own advance judgement
