@@ -9,27 +9,14 @@ import (
 	"time"
 )
 
-// Kind classifies an artifact. Open-ended (plugins may introduce kinds), but
-// these are the well-known ones.
+// Kind classifies an artifact, and Status tracks it through review. Both are open strings:
+// the well-known values were spelled out as constants until the emit path went, which left an
+// enumeration nothing could produce. The types stay because the record does — a session logged
+// before that removal still decodes through them.
 type Kind string
-
-const (
-	KindPlan        Kind = "plan"
-	KindWalkthrough Kind = "walkthrough"
-	KindScreenshot  Kind = "screenshot"
-	KindTestReport  Kind = "test-report"
-	KindDiff        Kind = "diff"
-)
 
 // Status tracks an artifact through review.
 type Status string
-
-const (
-	StatusDraft    Status = "draft"
-	StatusProposed Status = "proposed"
-	StatusApproved Status = "approved"
-	StatusRejected Status = "rejected"
-)
 
 // Artifact is a structured, persisted, reviewable result emitted by an agent.
 type Artifact struct {

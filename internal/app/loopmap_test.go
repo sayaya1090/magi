@@ -31,9 +31,9 @@ func TestBuildLoopMap(t *testing.T) {
 		mkEvent(event.TypePartAppended, event.ActorAgent, stageExecute,
 			event.PartAppendedData{MessageID: "m2", Role: session.RoleAssistant, Part: session.Part{Kind: session.PartText, Text: "done"}}),
 		// council: continue then done
-		mkEvent(event.TypeCouncilDecided, event.ActorSystem, stageCouncil,
+		mkEvent(event.TypeCouncilDecided, event.ActorSystem, stageExecute,
 			event.CouncilDecidedData{Round: 1, Decision: string(council.Continue), Tally: council.Breakdown{Done: 1, Continue: 2}}),
-		mkEvent(event.TypeCouncilDecided, event.ActorSystem, stageCouncil,
+		mkEvent(event.TypeCouncilDecided, event.ActorSystem, stageExecute,
 			event.CouncilDecidedData{Round: 2, Decision: string(council.Done), Tally: council.Breakdown{Done: 3}}),
 		mkEvent(event.TypeTurnFinished, event.ActorAgent, stageFinalize,
 			event.TurnFinishedData{Usage: event.Usage{In: 1000, Out: 200}}),
@@ -68,7 +68,7 @@ func TestBuildLoopMapSystemPromptStaysInTurn(t *testing.T) {
 	evs := []event.Event{
 		mkEvent(event.TypePromptSubmitted, event.ActorUser, stageExecute,
 			event.PromptSubmittedData{Parts: []session.Part{{Kind: session.PartText, Text: "task"}}}),
-		mkEvent(event.TypePromptSubmitted, event.ActorSystem, stageCouncil,
+		mkEvent(event.TypePromptSubmitted, event.ActorSystem, stageExecute,
 			event.PromptSubmittedData{Parts: []session.Part{{Kind: session.PartText, Text: "council feedback"}}}),
 	}
 	if m := buildLoopMap(evs); !strings.Contains(m, "1 turn(s)") {
@@ -101,7 +101,7 @@ func TestLoopMapMarksAnArguedRound(t *testing.T) {
 		return buildLoopMap([]event.Event{
 			mkEvent(event.TypePromptSubmitted, event.ActorUser, stageExecute,
 				event.PromptSubmittedData{Parts: []session.Part{{Kind: session.PartText, Text: "go"}}}),
-			mkEvent(event.TypeCouncilDecided, event.ActorSystem, stageCouncil,
+			mkEvent(event.TypeCouncilDecided, event.ActorSystem, stageExecute,
 				event.CouncilDecidedData{Round: 1, Decision: string(council.Done),
 					Tally: council.Breakdown{Done: 3, Voters: 3}, Debate: d}),
 		})

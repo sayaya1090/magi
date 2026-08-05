@@ -52,7 +52,6 @@ var (
 	styleToolArgs   lipgloss.Style
 	styleToolOK     lipgloss.Style
 	styleToolErr    lipgloss.Style
-	styleWarn       lipgloss.Style // caution accent (e.g. a council "revise" verdict)
 	styleToolResult lipgloss.Style
 	styleError      lipgloss.Style
 	styleInput      lipgloss.Style
@@ -175,7 +174,6 @@ func applyTheme(isDark bool) {
 	styleToolArgs = n().Foreground(colMuted)
 	styleToolOK = n().Foreground(colSuccess)
 	styleToolErr = n().Foreground(colError)
-	styleWarn = n().Foreground(colWarn)
 	styleToolResult = n().Foreground(colMuted)
 	styleError = n().Foreground(colError).Bold(true)
 	styleInput = n().Border(lipgloss.RoundedBorder()).BorderForeground(colOutline).Padding(0, 1)

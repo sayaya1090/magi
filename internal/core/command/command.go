@@ -52,11 +52,3 @@ type Compact struct {
 	SessionID session.SessionID `json:"sessionId"`
 	Actor     event.Actor       `json:"actor"`
 }
-
-// ReviewArtifact approves or rejects an emitted artifact (feeds D13).
-type ReviewArtifact struct {
-	SessionID  session.SessionID `json:"sessionId"`
-	ArtifactID string            `json:"artifactId"`
-	Decision   string            `json:"decision"` // approve|reject
-	Actor      event.Actor       `json:"actor"`
-}

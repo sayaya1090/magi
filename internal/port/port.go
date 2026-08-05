@@ -322,14 +322,6 @@ type Contribution struct {
 
 // ---- Plugin host (D10: hot-reloadable capability bundles) ----
 
-// PluginHost loads, reloads, and unloads plugins and exposes their capabilities.
-type PluginHost interface {
-	Load(ctx context.Context, dir string) (PluginInfo, error)
-	Unload(name string) error
-	Reload(name string) error
-	Capabilities() CapabilitySet
-}
-
 // PluginInfo summarizes a loaded plugin.
 type PluginInfo struct {
 	Name         string
@@ -352,14 +344,6 @@ type CapabilitySet struct {
 	ContextProviders []ContextProvider
 	Commands         []PluginCommand
 	// Skills, Hooks, MCPServers, Agents, UIPanels added in M3+.
-}
-
-// ---- Scheduler (D12: Tier1 in-process ticker; Tier2 OS adapter later) ----
-
-// Scheduler triggers agents/commands on a schedule.
-type Scheduler interface {
-	Schedule(spec ScheduleSpec, target Trigger) (id string, err error)
-	Cancel(id string) error
 }
 
 // ScheduleSpec describes when to fire.

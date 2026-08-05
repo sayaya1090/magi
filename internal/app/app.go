@@ -741,7 +741,6 @@ func (a *App) Subscribe(ctx context.Context, sid session.SessionID, fromSeq int6
 const (
 	stagePlan     = "plan"
 	stageExecute  = "execute"
-	stageCouncil  = "council"
 	stageFinalize = "finalize"
 )
 

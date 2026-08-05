@@ -20,14 +20,6 @@ type AgentSpec struct {
 	Provider string // named LLM profile (different endpoint/key); empty = default backend
 }
 
-// AgentRoute is an agent's current effective backend routing, for display and
-// interactive editing (the /route menu).
-type AgentRoute struct {
-	Name     string
-	Model    string
-	Provider string // named profile, or "" for the default backend
-}
-
 // ProfileDef is a named LLM backend definition (endpoint/key/model + one optional
 // custom header), editable in the /route menu and persisted to [llm.profiles.*].
 type ProfileDef struct {

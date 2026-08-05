@@ -599,22 +599,6 @@ func (g *runGuard) noteBashExec(cmd string, novel bool) {
 	g.mu.Unlock()
 }
 
-// importedByStem lists the extensions whose language names a source file by its stem when loading
-// it — `import run`, `require("./run")`. A compiled language that builds by path or package
-// directory is absent: there the file's own name is what a command carries.
-var importedByStem = map[string]bool{
-	".py": true, ".rb": true, ".js": true, ".mjs": true, ".ts": true,
-}
-
-// runnableExt lists extensions whose files plausibly EXECUTE (a program the turn
-// should have run at least once before claiming done). Docs/config/data files are
-// excluded on purpose: "authored but never executed" is only meaningful for code.
-var runnableExt = map[string]bool{
-	".py": true, ".sh": true, ".js": true, ".ts": true, ".go": true, ".c": true,
-	".cc": true, ".cpp": true, ".rs": true, ".rb": true, ".pl": true, ".php": true,
-	".java": true, ".mjs": true,
-}
-
 // mutationEpoch returns the current mutation epoch — the number of real file mutations
 // (edit/write AND bash file-writes via noteBashWrite) this run. It rises only on genuine
 // deliverable changes (a read-only bash or an idempotent rewrite does not bump it), so it

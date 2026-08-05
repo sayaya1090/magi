@@ -9,7 +9,6 @@ import (
 // each member's prompt so they don't multiply token cost by the member count.
 const (
 	councilDiffCap    = 6000
-	councilSignalCap  = 2000
 	councilActionsCap = 8 // most recent turn outputs (model text + tool results) shown to the council
 	// priorObjectionsCap bounds how many of the council's own earlier objections are handed back
 	// (priorCouncilObjections). It is a small number on purpose: the point is that a concern does
@@ -19,8 +18,6 @@ const (
 	// (e.g. a `cat script.py` whose bug was past byte 400), so the council could see a wrong
 	// RESULT but not the CAUSE, and its feedback stayed symptom-level round after round. Kept in
 	// the same ballpark as councilDiffCap so a whole small file/output is visible, not a fragment.
-	maxSubagentsShown  = 6 // most recent this-turn subagents whose evidence is surfaced to the council
-	subagentActionsCap = 6 // most recent tool results per subagent shown to the council
 )
 
 // fmtElapsed renders a duration coarsely (seconds under a minute, else Xm or XhYm)
