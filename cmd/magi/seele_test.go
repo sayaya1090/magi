@@ -87,3 +87,44 @@ func spawnTools(lua string) string {
 	}
 	return lua[i : i+j]
 }
+
+// Seele runs early because its DESCRIPTION says to call it first — that is the whole mechanism,
+// chosen over a turn-start hook in the host. A hook would put a model round trip in front of every
+// turn, and in this tree's own measurements time-to-first-token is most of the wall clock; the
+// prompt is the cheaper thing to try first and this test is what says we tried it.
+//
+// The description is what the model reads: prompt.go builds a ToolSpec from it every step, and the
+// request carries it. It is also NOT carried while the subagent is switched off, since a disabled
+// subagent is not advertised — so an unused Seele costs nothing per request.
+func TestSeeleTellsTheModelToCallItFirst(t *testing.T) {
+	init, err := plugins.Embedded["seele"].FS.ReadFile("seele/init.lua")
+	if err != nil {
+		t.Fatal(err)
+	}
+	desc := describedIn(string(init))
+	if desc == "" {
+		t.Fatal("seele registers no description")
+	}
+	if !strings.Contains(desc, "먼저") {
+		t.Errorf("the description must say to call it FIRST, got: %s", desc)
+	}
+	// And it must not push the model to call it for everything: Seele declining is cheap, but a
+	// round trip to be told "no plan needed" is not free either.
+	if !strings.Contains(desc, "계획 불필요") {
+		t.Errorf("the description should say Seele declines simple requests, got: %s", desc)
+	}
+}
+
+// describedIn returns the text of the register_tool description, which spans concatenated Lua
+// string literals.
+func describedIn(lua string) string {
+	i := strings.Index(lua, "description = \"Seele")
+	if i < 0 {
+		return ""
+	}
+	j := strings.Index(lua[i:], "\n  schema")
+	if j < 0 {
+		return lua[i:]
+	}
+	return lua[i : i+j]
+}
