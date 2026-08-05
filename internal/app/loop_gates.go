@@ -174,6 +174,15 @@ func (a *App) requireFinishDeclaration(ctx context.Context, tc turnCtx, usedTool
 	if !declareFinishEnabled() || !usedTools || a.cfg.Council == nil || a.cfg.Workflow {
 		return 0, false
 	}
+	// A CHILD never convenes one. The council is the gate on ending the USER's turn — it reads the
+	// user's task, the plan, and a fresh look at the workspace, and judges whether the work is
+	// done. A child answers to the tool that spawned it and to the parent turn that call belongs
+	// to, and that parent has its own declaration to make. The machinery that came out of this
+	// tree carried the same guard ("a leaf subagent runs at depth>0 and never convenes a council");
+	// it went with the last thing that ran at depth>0, and nothing has since.
+	if tc.depth != 0 {
+		return 0, false
+	}
 	if _, ok := a.tools.Get("council"); !ok || !tc.agent.allows("council") {
 		return 0, false
 	}

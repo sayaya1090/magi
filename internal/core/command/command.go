@@ -11,10 +11,13 @@ import (
 
 // CreateSession starts a new conversation session.
 type CreateSession struct {
-	Workdir string           `json:"workdir"`
-	Agent   string           `json:"agent"`
-	Model   session.ModelRef `json:"model"`
-	Actor   event.Actor      `json:"actor"`
+	Workdir string `json:"workdir"`
+	// Parent is the spawning session's id for a CHILD session, empty for a user session. It is
+	// what keeps a child out of the resume list (the store hides sessions that have one).
+	Parent string           `json:"parent,omitempty"`
+	Agent  string           `json:"agent"`
+	Model  session.ModelRef `json:"model"`
+	Actor  event.Actor      `json:"actor"`
 }
 
 // SubmitPrompt appends a user prompt and runs the agent loop (async).

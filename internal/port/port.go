@@ -181,6 +181,10 @@ type ToolEnv struct {
 	ScratchTmp string
 	// AskPermission gates dangerous operations; returns true if allowed.
 	AskPermission func(callID, name string, args json.RawMessage) (bool, error)
+	// Spawn runs a child agent to completion and returns what it produced. nil when the host does
+	// not offer it — and it is nil inside a child, which is what makes recursion impossible rather
+	// than merely discouraged.
+	Spawn func(ctx context.Context, spec SpawnSpec) (SpawnResult, error)
 	// EmitProgress lets a long-running tool publish a live, best-effort progress
 	// note (e.g. wait_for's poll status) while it blocks, so the TUI spinner and
 	// the headless stream can show what is being waited on instead of a silent
@@ -398,4 +402,34 @@ type ExecResult struct {
 type TermCaps struct {
 	TrueColor bool
 	Image     string // "kitty" | "iterm2" | "sixel" | "" (fallback to half-block)
+}
+
+// SpawnSpec describes a child agent a TOOL asks the host to run. It is written by whoever
+// registered that tool — a plugin — not improvised by the model.
+//
+// That distinction is the whole reason this exists. The delegation machinery that came out of this
+// tree let the model hand part of its own context to a stranger, and the record showed no run it
+// made better. What a plugin declares is a different thing: a specialist with a system prompt and a
+// model somebody chose on purpose. magi ships none; the seam is unreachable until a plugin
+// registers a tool that uses it.
+type SpawnSpec struct {
+	System string // the child's system prompt
+	// Prompt is the child's task and is seeded VERBATIM. The first defect the removed machinery
+	// was charged with was a brief paraphrased until the graded identifier was gone, so nothing
+	// here rewrites, summarises or clips it.
+	Prompt   string
+	Model    string   // empty = the parent session's model
+	Provider string   // named LLM profile; empty = default backend
+	Tools    []string // the child's allowlist; empty = whatever the agent spec defaults to
+	MaxSteps int      // clamped by the host
+	Timeout  time.Duration
+}
+
+// SpawnResult is what the child left behind. Failure is reported, never swallowed: a caller told
+// nothing would read silence as success.
+type SpawnResult struct {
+	SessionID string // the child's session id, so its log can be read afterwards
+	Text      string // the child's final message
+	Steps     int
+	Err       string // why the child stopped short, empty when it finished cleanly
 }
