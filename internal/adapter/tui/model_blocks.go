@@ -46,13 +46,30 @@ func (m *Model) openCouncilDetailAt(line int) bool {
 	if i < 0 || i >= len(m.blocks) || m.blocks[i].kind != blockCouncilVerdict || len(m.blocks[i].councilVerdicts) == 0 {
 		return false
 	}
-	// The row holds several members on one line; pick the one under the click column.
-	// Segment k spans [x, x+width(member k)); separators (councilRowSep) sit between.
+	// Members are laid out across as many rows as the width needs, so the click ROW narrows the
+	// candidates before the column picks among them. Reading the column alone was right only while
+	// they all shared one line; once the row wraps, a click on the second row would be measured
+	// against the first row's members and open the wrong detail. councilRowPack is the same
+	// function the renderer lays them out with — that is what keeps the two from drifting.
 	vs := m.blocks[i].councilVerdicts
-	pick := len(vs) - 1 // default to the last member if the click is past the end
-	x := 2              // indent() prepends 2 spaces before the first member
-	for k, v := range vs {
-		w := ansi.StringWidth(councilMemberPlain(v))
+	starts := councilRowPack(vs, m.bodyWidth()-2)
+	row := line - m.blockLineStart[i]
+	if row < 0 {
+		row = 0
+	}
+	if row >= len(starts) {
+		row = len(starts) - 1 // a click on the reasons below belongs to the last row of members
+	}
+	from := starts[row]
+	to := len(vs)
+	if row+1 < len(starts) {
+		to = starts[row+1]
+	}
+	// Segment k spans [x, x+width(member k)); separators (councilRowSep) sit between.
+	pick := to - 1 // default to the last member on the row if the click is past the end
+	x := 2         // indent() prepends 2 spaces before the first member
+	for k := from; k < to; k++ {
+		w := ansi.StringWidth(councilMemberPlain(vs[k]))
 		if m.selAC < x+w {
 			pick = k
 			break

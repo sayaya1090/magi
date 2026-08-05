@@ -117,9 +117,41 @@ func councilVerdictStyle(decision string) lipgloss.Style {
 	return styleToolResult
 }
 
-// councilRowSep separates members in the one-line verdict row; its width must match
-// what councilMemberPlain assumes when openCouncilDetailAt hit-tests a click column.
+// councilRowSep separates members on a verdict row; its width must match what
+// councilMemberPlain assumes when openCouncilDetailAt hit-tests a click column.
 const councilRowSep = "   "
+
+// councilRowPack lays the members out across as many rows as the width needs, never splitting one,
+// and returns the index of the first member on each row.
+//
+// They all went on ONE row before, which is 131 cells for the MAGI trio and stayed 131 cells in an
+// 80-column window. The row is CLICKABLE, and openCouncilDetailAt finds the member under the cursor
+// from the click column alone — so wrapping it without teaching the hit-test would open the wrong
+// member's detail. Both call this, which is the only way the two stay in step.
+func councilRowPack(vs []event.CouncilVerdictData, width int) []int {
+	if len(vs) == 0 {
+		return nil
+	}
+	starts := []int{0}
+	if width <= 0 {
+		return starts
+	}
+	sep := ansi.StringWidth(councilRowSep)
+	used := 0
+	for i, v := range vs {
+		w := ansi.StringWidth(councilMemberPlain(v))
+		switch {
+		case i == 0:
+			used = w
+		case used+sep+w <= width:
+			used += sep + w
+		default:
+			starts = append(starts, i)
+			used = w
+		}
+	}
+	return starts
+}
 
 // councilMemberPlain is the visible (unstyled) text of one member's compact verdict —
 // the same glyphs renderBlock styles — so a click column maps to the right member.
@@ -495,7 +527,9 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 		}
 		return indent(mark + " " + styleToolResult.Render(summarizeResult(blk.text, m.bodyWidth()-4)))
 	case blockError:
-		return indent(styleError.Render("✗ " + stripControlBody(blk.text)))
+		// Wrapped like blockInfo: an error is the one line a reader must be able to read whole, and
+		// unbounded it was the widest row in the frame — which pads every other row out to match.
+		return indent(styleError.Width(m.bodyWidth() - 2).Render("✗ " + stripControlBody(blk.text)))
 	case blockInfo:
 		// Wrap to the transcript width (minus the 2-col indent) so a long line
 		// (e.g. the planner's reason) reflows instead of overflowing.
@@ -564,8 +598,16 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 			// Collapsed by default: a dim one-liner preview. Click it to expand just
 			// this one, or ctrl+t to expand all. Size the preview to the transcript
 			// width so it never overflows a narrow (panel-shrunk) transcript.
-			prev := clampInt(m.transcriptWidth()-34, 16, 64)
-			return indent(styleThink.Render("✻ thought · "+oneLine(txt, prev)+" ") + styleFoldChip.Render(" click / ctrl+t "))
+			// Budget against what the parts actually take, not a guessed 34: the prefix, the
+			// trailing space and the chip are fixed, and the preview gets what is left. Below
+			// that the pieces alone exceed the window, so clipRow cuts the composed line — the
+			// chip is the part a 40-column terminal does without.
+			const thinkPrefix = "✻ thought · "
+			chip := styleFoldChip.Render(" click / ctrl+t ")
+			room := m.transcriptWidth() - 2 - lipgloss.Width(thinkPrefix) - 1 - lipgloss.Width(chip)
+			prev := clampInt(room, 0, 64)
+			line := styleThink.Render(thinkPrefix+oneLine(txt, prev)+" ") + chip
+			return indent(clipRow(line, m.transcriptWidth()-2))
 		}
 		return label(styleBar, "thinking") + "\n" + indent(m.wrapThink(txt))
 	case blockImage:
@@ -1220,5 +1262,19 @@ func (m *Model) councilRow(vs []event.CouncilVerdictData) string {
 		}
 		segs[i] = seg
 	}
-	return strings.Join(segs, councilRowSep)
+	// One row per pack line, so a trio that does not fit reads as three rows instead of running
+	// off the edge. indent() (applied by the caller) prefixes every line, so the rows stay aligned.
+	starts := councilRowPack(vs, m.bodyWidth()-2)
+	lines := make([]string, len(starts))
+	for k, from := range starts {
+		to := len(segs)
+		if k+1 < len(starts) {
+			to = starts[k+1]
+		}
+		// Backstop for the case packing cannot solve: ONE member wider than the window. It only
+		// fires on a row holding a single member, so the column hit-test still lands on that
+		// member whatever the click column — indent() adds 2, hence the -2.
+		lines[k] = clipRow(strings.Join(segs[from:to], councilRowSep), m.bodyWidth()-2)
+	}
+	return strings.Join(lines, "\n")
 }
