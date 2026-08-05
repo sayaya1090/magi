@@ -1,13 +1,9 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/x/ansi"
-
-	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -124,45 +120,3 @@ func TestHandlePanelClick(t *testing.T) {
 // and lost it too: a command is wider than this column, so the row showed a truncated head with
 // the part naming the failure cut off. The full record still reaches the model every step
 // through runState, and the transcript shows each command with its exit as it runs.
-func TestObservedIsOneLineOfCounts(t *testing.T) {
-	clean := make([]string, 0, 20)
-	for i := 0; i < 20; i++ {
-		clean = append(clean, fmt.Sprintf("grep -n thing%02d src.go", i))
-	}
-	obs := app.Observation{
-		Changed: []string{"a.go", "b.go", "c.go"},
-		Clean:   clean,
-		Failed:  []string{"go build ./... (exit 2)"},
-		Unknown: []string{"cat x | head"},
-	}
-	rows := observedRows(obs, 60)
-	if len(rows) != 1 {
-		t.Fatalf("the record is one line, got %d:\n%s", len(rows), ansi.Strip(strings.Join(rows, "\n")))
-	}
-	line := ansi.Strip(rows[0])
-	for _, want := range []string{"±3", "✓20", "✗1", "?1"} {
-		if !strings.Contains(line, want) {
-			t.Errorf("counts line missing %q: %q", want, line)
-		}
-	}
-	// No command text at all — not the clean ones, and not the failed one either.
-	for _, cmd := range append(append([]string{}, clean...), "go build", "cat x") {
-		if strings.Contains(line, cmd) {
-			t.Errorf("a command reached the panel (%q): %q", cmd, line)
-		}
-	}
-}
-
-// An empty category contributes no glyph, so a turn that only read files does not display "✗0".
-func TestObservedOmitsEmptyCategories(t *testing.T) {
-	rows := observedRows(app.Observation{Clean: []string{"ls"}}, 60)
-	line := ansi.Strip(rows[0])
-	if !strings.Contains(line, "✓1") {
-		t.Errorf("the one category present must show: %q", line)
-	}
-	for _, no := range []string{"±", "✗", "?"} {
-		if strings.Contains(line, no) {
-			t.Errorf("empty category %q rendered anyway: %q", no, line)
-		}
-	}
-}
