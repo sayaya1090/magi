@@ -110,3 +110,74 @@ func TestTheTwoHeaviestStepsAreChecklists(t *testing.T) {
 		t.Error("pre-flight must say when it is owed")
 	}
 }
+
+// The restraint clause is OFF by default and adds NOTHING when off.
+//
+// An A/B measures the clause only if the control arm's prompt is what it always was. Returning a
+// header with no items, or a stray blank line, would make both arms different from the shipped
+// prompt and the comparison would be against neither.
+func TestRestraintIsOffAndCostsNothingUntilAskedFor(t *testing.T) {
+	t.Setenv("MAGI_RESTRAINT", "")
+	if got := restraintClause(); got != "" {
+		t.Errorf("the clause is on by default, or leaves residue when off: %q", got)
+	}
+
+	t.Setenv("MAGI_RESTRAINT", "1")
+	on := restraintClause()
+	if on == "" {
+		t.Fatal("MAGI_RESTRAINT=1 added nothing")
+	}
+	// The two things magi's prompt does NOT already ask for.
+	for what, want := range map[string]string{
+		"stating assumptions":     "assumptions you are working from",
+		"asking when ambiguous":   "LIST the readings",
+		"stopping when confused":  "name the confusing part",
+		"no single-use abstract":  "abstraction for something used once",
+		"no idle configurability": "configurability nobody asked for",
+		"no impossible branch":    "case that cannot occur",
+	} {
+		if !strings.Contains(on, want) {
+			t.Errorf("the clause does not cover %s (%q)", what, want)
+		}
+	}
+	// Checkbox shape, like the two gates beside it — this tree moved the heaviest obligations to
+	// checklists because prose in the middle of a paragraph is what gets skipped.
+	if n := strings.Count(on, "- [ ]"); n < 6 {
+		t.Errorf("the clause has %d checkboxes; it is prose again", n)
+	}
+}
+
+// It must not repeat what the prompt already demands. The same obligation in two wordings is how a
+// prompt grows until the instruction that matters is the one nobody reads.
+func TestRestraintDoesNotRestateWhatThePromptAlreadyAsks(t *testing.T) {
+	t.Setenv("MAGI_RESTRAINT", "1")
+	on := restraintClause()
+	for _, already := range []string{
+		"SMALLEST change", // step 3 already says it
+		"Match the surrounding style",
+		"REPRODUCE it first",
+		"stray files",
+	} {
+		if strings.Contains(on, already) {
+			t.Errorf("the clause repeats %q, which the prompt already demands", already)
+		}
+	}
+}
+
+// The SHIPPED prompt carries none of it.
+//
+// systemPrompt is built once at package init, so this reads the actual string a default run sends.
+// The control arm of an A/B has to be the prompt as it was, or the comparison is against neither
+// arm — and a clause that leaked in unflagged would make every measurement since meaningless.
+func TestTheShippedPromptDoesNotCarryTheRestraintClause(t *testing.T) {
+	for _, leak := range []string{
+		"say the quiet part",
+		"assumptions you are working from",
+		"LIST the readings",
+		"configurability nobody asked for",
+	} {
+		if strings.Contains(systemPrompt, leak) {
+			t.Errorf("the default prompt carries %q — the clause is not off by default", leak)
+		}
+	}
+}
