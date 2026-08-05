@@ -5,13 +5,20 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/sayaya1090/magi/internal/app"
+	"github.com/sayaya1090/magi/internal/core/session"
 )
 
-// The pane strip used to show subagents: a live sub-view per spawned child, focusable, zoomable,
-// interruptible, fading out a few seconds after it finished. Nothing spawns any more, and the one
-// thing magi still runs that nobody could watch is a background command — the agent starts it, polls
-// it with bash_output, and acts on what it reads, while the terminal shows a single line saying a
-// process started and then nothing at all.
+// The pane strip: a live sub-view per long-running thing, focusable, zoomable, interruptible,
+// fading out a few seconds after it finished.
+//
+// It has two producers. A BACKGROUND COMMAND, which the agent starts and polls with bash_output
+// while the terminal would otherwise show one line saying a process started and then nothing at
+// all. And a SPAWNED CHILD, which runs for minutes inside a single tool call on a session id the
+// TUI does not subscribe to — the parent's spinner and one clipped progress line were the only
+// sign of it. Both are polled from a registry rather than pushed, and both fill the same pane,
+// because the difference is what a pane SAYS and not how it is shown.
 //
 // So the panes carry those instead. The machinery is unchanged (focus, zoom, fade, click
 // hit-testing); only what feeds them is different: a subscription becomes a poll, because a detached
@@ -69,6 +76,55 @@ func (m *Model) syncJobPanes() bool {
 			p.dur = time.Since(j.Started)
 			p.exit, p.exited = j.Exit, true
 			p.killed = j.Killed
+			changed = true
+		}
+	}
+	return changed || m.syncSubagentPanes(m.app.SubagentJobs())
+}
+
+// syncSubagentPanes gives the strip its second producer: a spawned child.
+//
+// A child runs for minutes inside one tool call, on its own session id that the TUI does not
+// subscribe to — so before this the only sign of it was the parent's spinner and a single clipped
+// line. It reuses the strip wholesale (the detail view, the side panel, the fade), because the
+// difference between a background command and a child agent is what the pane SAYS, not how it is
+// shown.
+// Takes the list rather than reading it, so the mapping from a child to a pane can be exercised
+// without standing up a run loop and an LLM to produce one.
+func (m *Model) syncSubagentPanes(jobs []app.SubagentJob) bool {
+	changed := false
+	for _, j := range jobs {
+		p := m.paneByJob(j.ID)
+		if p == nil {
+			m.subID++
+			p = &agentPane{
+				sid:     session.SessionID(j.ID),
+				job:     j.ID,
+				role:    j.Tool,
+				task:    oneLine(j.Task, 200),
+				started: j.Started,
+				sub:     m.subID,
+			}
+			m.panes = append(m.panes, p)
+			changed = true
+		}
+		if j.Tail != p.live {
+			p.live = j.Tail
+			changed = true
+		}
+		// Finished exactly once: doneAt starts the fade, and re-marking it every poll would
+		// restart that fade forever — the same trap the job loop above documents.
+		if !j.Running && !p.done {
+			p.done = true
+			p.doneAt = time.Now()
+			p.dur = j.Ended.Sub(j.Started)
+			// A child that stopped badly must not wear the same mark as one that finished: exit 0
+			// is the pane's "it worked", and a truncated plan reported as success is exactly what
+			// the caller cannot see for itself.
+			p.exited = true
+			if j.Err != "" {
+				p.exit = 1
+			}
 			changed = true
 		}
 	}
