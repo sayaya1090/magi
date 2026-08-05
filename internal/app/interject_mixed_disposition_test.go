@@ -19,48 +19,81 @@ import (
 // Several messages land during one blocked step and they do not all want the same thing: two are
 // questions answerable from what the agent already knows, one asks for real work.
 //
-// They are NOT triaged one by one. At the finish boundary the whole pending queue is coalesced into
-// a single prompt, in arrival order, and ONE disposition is decided for the combined text — so a
-// batch holding any work escalates as a unit, questions included. That is the surprising half and
-// the reason for this test: a reader of triageQueued alone would expect a decision per message, and
-// every other multi-message test hands triageAwareLLM a constant routeAside, so all of them escalate
-// together and a mixed batch is never exercised.
+// Each is decided on its OWN. A question is answered where it is dequeued and never runs again; the
+// work items are the only ones that merge, with each other, because they arrived together and are
+// one body of work. The batch used to get a single disposition — so one piece of work in it dragged
+// every question along into a work prompt, unanswered — and every other multi-message test hands
+// triageAwareLLM a constant routeAside, which is why nothing caught it.
 //
-// What the coalescing has to guarantee is that nothing is lost or reordered: every message's text
-// reaches the re-emitted prompt in the order it was typed, the ones merged away are recorded
-// resolved and abandoned so a reload does not resurrect them, and the queue ends empty.
-func TestAMixedBatchCoalescesInOrderAndLosesNothing(t *testing.T) {
+// The pairing the UI needs comes out of the same split: an inline answer carries InReplyTo naming
+// the question it answers, so the two render adjacent, and the work re-surfaces with
+// ResurfacedFrom so its bubble lands above the turn that does it.
+func TestEachQueuedMessageGetsItsOwnDisposition(t *testing.T) {
 	a, sid := runWithSteers(t,
 		func(aside string) bool { return strings.Contains(aside, "WWW") },
 		"QQQ what does this repo do", "WWW write the parser", "ZZZ how many files did you touch")
 
-	// One re-emitted prompt carries the batch, and it carries ALL of it, in arrival order.
+	// Only the work re-surfaces, and only it.
 	res := resurfacedPrompts(t, a, sid)
 	if len(res) != 1 {
-		t.Fatalf("the batch must re-surface as one prompt, got %d: %q", len(res), res)
+		t.Fatalf("exactly the work should run as its own turn, got %d re-surfaced: %q", len(res), res)
 	}
-	qi, wi, zi := strings.Index(res[0], "QQQ"), strings.Index(res[0], "WWW"), strings.Index(res[0], "ZZZ")
-	if qi < 0 || wi < 0 || zi < 0 {
-		t.Fatalf("a message was dropped from the coalesced prompt: %q", res[0])
+	if !strings.Contains(res[0], "WWW") {
+		t.Errorf("the re-surfaced prompt is not the work item: %q", res[0])
 	}
-	if !(qi < wi && wi < zi) {
-		t.Errorf("the coalesced prompt reordered what the user typed: %q", res[0])
+	for _, q := range []string{"QQQ", "ZZZ"} {
+		if strings.Contains(res[0], q) {
+			t.Errorf("%s was answered inline, so it must not be dragged into the work prompt: %q", q, res[0])
+		}
 	}
 
-	// Nothing is left holding an unanswered message.
+	// Every question got an answer of its own, tagged with the question it answers — that tag is
+	// what puts the two next to each other on screen.
+	for _, q := range []string{"QQQ", "ZZZ"} {
+		if !answeredInReplyTo(t, a, sid, q) {
+			t.Errorf("%s was not answered inline with an InReplyTo tag naming it", q)
+		}
+	}
+
+	// Nothing is left holding an unanswered message, and every message is accounted for.
 	a.mu.Lock()
 	left := len(a.stateLocked(sid).pendingInterject)
 	a.mu.Unlock()
 	if left != 0 {
 		t.Errorf("%d message(s) still queued after the run went idle", left)
 	}
-
-	// The two merged away are recorded resolved AND abandoned: resolved so a reload does not read
-	// them as still waiting, abandoned so seedPromptIdx never starts a turn from one. The carrier
-	// needs neither — its re-emission is its own record.
-	for _, q := range []string{"QQQ", "WWW"} {
+	// The answered ones are ledgered resolved. The work item needs no entry: its re-emission IS
+	// its resolution, which is what abandonedDeferrals reads a ResurfacedFrom link as.
+	for _, q := range []string{"QQQ", "ZZZ"} {
 		if !ledgeredResolved(t, a, sid, q) {
-			t.Errorf("%s was merged away but never recorded resolved — a reload will re-mask it", q)
+			t.Errorf("%s never reached the deferral ledger as resolved — a reload will re-mask it", q)
+		}
+	}
+}
+
+// Work items merge with each other, in arrival order, and run as ONE turn. Two pieces of work typed
+// back to back are one job; making a separate turn of each would re-plan and re-judge twice over
+// what the user said in one breath.
+func TestWorkItemsMergeWithEachOtherInOrder(t *testing.T) {
+	a, sid := runWithSteers(t, func(string) bool { return true },
+		"WWW1 write the parser", "QQQ2 and wire it up", "WWW3 then add the tests")
+
+	res := resurfacedPrompts(t, a, sid)
+	if len(res) != 1 {
+		t.Fatalf("three work items must run as one turn, got %d: %q", len(res), res)
+	}
+	i1, i2, i3 := strings.Index(res[0], "WWW1"), strings.Index(res[0], "QQQ2"), strings.Index(res[0], "WWW3")
+	if i1 < 0 || i2 < 0 || i3 < 0 {
+		t.Fatalf("a work item was dropped from the merged prompt: %q", res[0])
+	}
+	if !(i1 < i2 && i2 < i3) {
+		t.Errorf("the merged prompt reordered what the user typed: %q", res[0])
+	}
+	// The two merged away are recorded resolved AND abandoned: resolved so a reload does not read
+	// them as still waiting, abandoned so seedPromptIdx never starts a turn from one.
+	for _, q := range []string{"WWW1", "QQQ2"} {
+		if !ledgeredResolved(t, a, sid, q) {
+			t.Errorf("%s was merged away but never recorded resolved", q)
 		}
 		if !markedAbandoned(t, a, sid, q) {
 			t.Errorf("%s was merged away but not marked abandoned — it can seed a turn of its own", q)
@@ -68,26 +101,24 @@ func TestAMixedBatchCoalescesInOrderAndLosesNothing(t *testing.T) {
 	}
 }
 
-// The disposition is computed, not fixed: a batch with no work in it is answered where it is
-// dequeued and re-surfaces nothing. Without this, the test above would pass just as well against a
-// loop that escalated everything.
-func TestABatchOfOnlyQuestionsIsAnsweredWithoutANewTurn(t *testing.T) {
+// The same sentence typed twice is one request. This is the one part of the old whole-batch merge
+// that survives the split: exact repeats collapse, near-duplicates do not.
+func TestAnExactRepeatIsAnsweredOnce(t *testing.T) {
 	a, sid := runWithSteers(t, func(string) bool { return false },
-		"QQQ what does this repo do", "ZZZ how many files did you touch")
+		"QQQ what does this repo do", "QQQ what does this repo do")
 
-	if res := resurfacedPrompts(t, a, sid); len(res) != 0 {
-		t.Errorf("questions answered at the boundary must not re-run as their own turn: %q", res)
+	if n := countUserPromptText(t, a, sid, "QQQ"); n != 2 {
+		t.Fatalf("both prompts should still be recorded, got %d", n)
 	}
-	for _, q := range []string{"QQQ", "ZZZ"} {
-		if !ledgeredResolved(t, a, sid, q) {
-			t.Errorf("%s was answered inline but never recorded resolved", q)
+	// One of the two is dropped as a repeat: abandoned, and never separately answered.
+	dropped := 0
+	for _, e := range readEvents(t, a, sid) {
+		if e.Type == event.TypePromptAbandoned {
+			dropped++
 		}
 	}
-	a.mu.Lock()
-	left := len(a.stateLocked(sid).pendingInterject)
-	a.mu.Unlock()
-	if left != 0 {
-		t.Errorf("%d message(s) still queued after the run went idle", left)
+	if dropped != 1 {
+		t.Errorf("exactly one of the two identical messages should be dropped as a repeat, got %d", dropped)
 	}
 }
 
@@ -184,6 +215,26 @@ func msgIDsCarrying(t *testing.T, a *App, sid session.SessionID, marker string) 
 		}
 	}
 	return ids
+}
+
+// answeredInReplyTo reports whether some assistant text part was persisted carrying InReplyTo that
+// names the message containing marker — the tag the TUI reads to sit the answer next to its question.
+func answeredInReplyTo(t *testing.T, a *App, sid session.SessionID, marker string) bool {
+	t.Helper()
+	ids := msgIDsCarrying(t, a, sid, marker)
+	for _, e := range readEvents(t, a, sid) {
+		if e.Type != event.TypePartAppended {
+			continue
+		}
+		var d event.PartAppendedData
+		if json.Unmarshal(e.Data, &d) != nil || d.InReplyTo == "" {
+			continue
+		}
+		if ids[d.InReplyTo] && d.Part.Kind == session.PartText && strings.TrimSpace(d.Part.Text) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func ledgeredResolved(t *testing.T, a *App, sid session.SessionID, marker string) bool {
