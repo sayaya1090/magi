@@ -1,4 +1,8 @@
-VERSION ?= dev
+# The tag, not a placeholder. `make build` used to stamp "dev" whatever the tree was,
+# so a stale binary and a fresh one printed the same thing and only a timestamp told
+# them apart. --dirty marks a build with uncommitted changes, which is exactly when
+# "is this the code I just wrote" is being asked.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 DATE    := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 PKG     := github.com/sayaya1090/magi/internal/version
