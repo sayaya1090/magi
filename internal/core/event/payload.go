@@ -5,7 +5,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/sayaya1090/magi/internal/core/artifact"
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -88,11 +87,6 @@ type PartAppendedData struct {
 type PermissionDecidedData struct {
 	CallID   string `json:"callId"`
 	Decision string `json:"decision"` // allow|deny|always
-}
-
-// ArtifactEmittedData — TypeArtifactEmitted.
-type ArtifactEmittedData struct {
-	Artifact artifact.Artifact `json:"artifact"`
 }
 
 // CompactionData — TypeCompaction (summary snapshot replacing prior events).

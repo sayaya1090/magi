@@ -6,7 +6,6 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/sayaya1090/magi/internal/core/artifact"
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 )
@@ -84,24 +83,6 @@ func TestCouncilKeepReachesTheScreen(t *testing.T) {
 	}
 }
 
-// Facts that were produced, persisted, and consumed by prompts while having no on-screen path:
-// a contract fixed mid-run left no mark, and a structural concern was reachable only by clicking
-// a council member — so a concern raised on a turn that never convened a council was invisible
-// outright. (A discarded side-pass was the third; its event type had no producer left and came
-// out with this line on 2026-08-02.)
-func TestPreviouslyUnrenderedFactsGetALine(t *testing.T) {
-	if got := artifactLine(event.ArtifactEmittedData{Artifact: artifactOf("Acceptance criteria (plan audit)", "acceptance-criteria")}); !strings.Contains(got, "Acceptance criteria") {
-		t.Errorf("an artifact must record WHEN it was fixed: %q", got)
-	}
-	// Falls back to the kind so an untitled artifact is still a visible milestone.
-	if got := artifactLine(event.ArtifactEmittedData{Artifact: artifactOf("", "check-audit")}); !strings.Contains(got, "check-audit") {
-		t.Errorf("an untitled artifact must fall back to its kind: %q", got)
-	}
-	if got := artifactLine(event.ArtifactEmittedData{}); got != "" {
-		t.Errorf("an empty artifact renders nothing, got %q", got)
-	}
-}
-
 // The aggregate feedback is a merge of the members' own feedback, and each rejecting member's
 // reason already renders under its verdict row — so printing it under the decision too would say
 // the same thing twice. The one round that emits NO verdicts (a standing rejection reused because
@@ -133,11 +114,6 @@ func TestDecidedShowsTheDemandOnlyWhenNoVerdictsWereRendered(t *testing.T) {
 	if !strings.Contains(reused, "the output is never compared") {
 		t.Errorf("a round with no verdicts must state what it is still refusing over:\n%s", reused)
 	}
-}
-
-// artifactOf builds the minimal artifact the line builder reads.
-func artifactOf(title, kind string) artifact.Artifact {
-	return artifact.Artifact{Title: title, Kind: artifact.Kind(kind)}
 }
 
 // A cancelled prompt, and each interjection coalesced into a later one, is recorded as

@@ -338,18 +338,6 @@ func (m *Model) applyEvent(e event.Event) {
 			m.onCouncilDecided(d)
 		}
 
-	case event.TypeArtifactEmitted:
-		// A reviewable output the run fixed at this point (acceptance criteria, deliverable
-		// checks, a check audit). Its CONTENT has other surfaces (the panel, the council
-		// detail ledger); what had none is WHEN it was fixed — so this is a one-line
-		// milestone, not a dump.
-		var d event.ArtifactEmittedData
-		if json.Unmarshal(e.Data, &d) == nil {
-			if line := artifactLine(d); line != "" {
-				m.blocks = append(m.blocks, block{kind: blockInfo, text: line})
-			}
-		}
-
 	case event.TypePromptAbandoned:
 		// This request will never be answered: its turn was cancelled, or it was coalesced into a
 		// later one that carries its text. Nothing said so, so the bubble kept its queued glyph —

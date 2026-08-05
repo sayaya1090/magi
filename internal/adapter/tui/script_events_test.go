@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sayaya1090/magi/internal/core/artifact"
 	"github.com/sayaya1090/magi/internal/core/event"
 )
 
@@ -46,18 +45,6 @@ func TestTheHeaderFollowsAModelSwitch(t *testing.T) {
 
 // An artifact is a file magi produced and wants the user to find. Emitting one and showing nothing
 // is the same as not producing it.
-func TestAnArtifactIsVisible(t *testing.T) {
-	s := newScript(t)
-	s.steer("r1", "make the report")
-	s.emit(event.TypeArtifactEmitted, event.ArtifactEmittedData{
-		Artifact: artifact.Artifact{ID: "a1", Kind: "file", Title: "report.md", SourceAgent: "default"},
-	})
-	plain := s.view()
-	if !strings.Contains(plain, "report.md") {
-		t.Errorf("an artifact magi produced is nowhere on screen:\n%s", plain)
-	}
-}
-
 // A cancelled prompt. The user will never get an answer to it, and a bubble that goes on looking
 // like it is waiting is the display promising something nothing will deliver.
 func TestAnAbandonedPromptStopsLookingLikeItIsWaiting(t *testing.T) {

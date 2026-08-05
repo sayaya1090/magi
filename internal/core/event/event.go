@@ -24,7 +24,6 @@ const (
 	TypePromptSubmitted   Type = "prompt.submitted"
 	TypePartAppended      Type = "part.appended"
 	TypePermissionDecided Type = "permission.decided"
-	TypeArtifactEmitted   Type = "artifact.emitted"
 	TypeCompaction        Type = "compaction"
 	TypeTurnFinished      Type = "turn.finished"
 	TypeTodosChanged      Type = "todos.changed"
