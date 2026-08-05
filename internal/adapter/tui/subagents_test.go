@@ -72,6 +72,8 @@ func key(name string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyEscape}
 	case "backspace":
 		return tea.KeyPressMsg{Code: tea.KeyBackspace}
+	case "tab":
+		return tea.KeyPressMsg{Code: tea.KeyTab}
 	case "up":
 		return tea.KeyPressMsg{Code: tea.KeyUp}
 	case "down":
@@ -366,5 +368,75 @@ func TestALongDescriptionWrapsRatherThanClips(t *testing.T) {
 	}
 	if !sawWrap {
 		t.Error("the description never spanned more than one line at any width — nothing wrapped")
+	}
+}
+
+// The model field OFFERS models rather than asking you to remember one.
+//
+// Earlier versions let a subagent's model be picked from a list; this screen made it free text, so
+// a typo became a run that fails at the gateway. It is the same list /route offers — configured
+// profile models plus the gateway's catalog — because two screens disagreeing about what exists is
+// worse than either being wrong alone.
+func TestTheModelFieldOffersTheSameModelsRouteDoes(t *testing.T) {
+	mm := subagentModel(t)
+	m := &mm
+	m.width, m.height = 120, 40
+	m.modelCatalog, m.catalogLoaded = []string{"big-thinker:70b", "cheap-coder:7b", "other:1b"}, true
+	m.openSubagents()
+	for i, r := range m.subagentList {
+		if r.kind == subRowAgent {
+			m.subSel = i
+			break
+		}
+	}
+	m.handleSubagentKey(key("enter"))
+
+	// The box is on screen with the catalog in it, before anything is typed.
+	view := ansi.Strip(m.subagentsView())
+	if !strings.Contains(view, "big-thinker:70b") {
+		t.Errorf("the suggest box does not offer the catalog:\n%s", view)
+	}
+	// Typing filters it.
+	for _, r := range "cheap" {
+		m.handleSubagentKey(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	view = ansi.Strip(m.subagentsView())
+	if strings.Contains(view, "big-thinker:70b") || !strings.Contains(view, "cheap-coder:7b") {
+		t.Errorf("typing did not filter the list:\n%s", view)
+	}
+	// Tab fills the highlight in, the way shell completion does.
+	m.handleSubagentKey(key("tab"))
+	if m.subBuf != "cheap-coder:7b" {
+		t.Errorf("tab left the field as %q", m.subBuf)
+	}
+}
+
+// ↑/↓ walk the box and enter applies what is highlighted — not what was typed to filter it.
+func TestPickingFromTheBoxAppliesTheHighlightedModel(t *testing.T) {
+	mm := subagentModel(t)
+	m := &mm
+	m.width, m.height = 120, 40
+	m.modelCatalog, m.catalogLoaded = []string{"alpha:1b", "beta:2b"}, true
+	m.openSubagents()
+	var name string
+	for i, r := range m.subagentList {
+		if r.kind == subRowAgent {
+			m.subSel, name = i, r.info.Name
+			break
+		}
+	}
+	m.handleSubagentKey(key("enter"))
+	m.handleSubagentKey(key("down")) // onto the first suggestion
+	m.handleSubagentKey(key("down")) // onto the second
+	m.handleSubagentKey(key("enter"))
+
+	var got string
+	for _, s := range m.app.Subagents() {
+		if s.Name == name {
+			got = s.Model
+		}
+	}
+	if got != "beta:2b" {
+		t.Errorf("%s runs on %q, want the highlighted beta:2b", name, got)
 	}
 }

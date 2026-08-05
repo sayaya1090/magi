@@ -34,11 +34,24 @@ type subagentRow struct {
 	info  app.SubagentInfo
 }
 
-// openSubagents builds the list and shows it.
+// openSubagents builds the list and shows it, prefetching the model catalog the same way /route
+// does — the model field here offers the same list, and typing an id from memory is how a typo
+// becomes a run that fails at the gateway.
 func (m *Model) openSubagents() tea.Cmd {
 	m.refreshSubagentList()
-	m.subSel, m.subagenting = 0, true
-	return nil
+	m.subSel, m.subagenting, m.subSugSel = 0, true, -1
+	if m.catalogLoaded {
+		return nil
+	}
+	return m.fetchModelsCmd()
+}
+
+// subSuggestions is the model list filtered by what has been typed so far.
+func (m *Model) subSuggestions() []string {
+	if !m.subEditing {
+		return nil
+	}
+	return m.modelSuggestionsFor(m.subBuf)
 }
 
 // refreshSubagentList rebuilds the rows from the registry, inserting a header before each group.
@@ -114,9 +127,47 @@ func (m *Model) handleSubagentKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 func (m *Model) handleSubagentEditKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	switch msg.String() {
 	case "esc":
-		m.subEditing, m.subBuf = false, ""
+		m.subEditing, m.subBuf, m.subSugSel = false, "", -1
+		return nil, true
+	case "up", "down":
+		// Circular move through the suggest box; entering from free text (-1) lands on an end.
+		sugs := m.subSuggestions()
+		n := len(sugs)
+		if n == 0 {
+			return nil, true
+		}
+		if m.subSugSel < -1 || m.subSugSel >= n {
+			m.subSugSel = -1 // the list shrank as the user typed
+		}
+		switch {
+		case m.subSugSel < 0:
+			if msg.String() == "up" {
+				m.subSugSel = n - 1
+			} else {
+				m.subSugSel = 0
+			}
+		case msg.String() == "up":
+			m.subSugSel = (m.subSugSel - 1 + n) % n
+		default:
+			m.subSugSel = (m.subSugSel + 1) % n
+		}
+		return nil, true
+	case "tab":
+		// Accept the highlighted (or first) suggestion into the buffer, like shell completion.
+		if sugs := m.subSuggestions(); len(sugs) > 0 {
+			idx := m.subSugSel
+			if idx < 0 || idx >= len(sugs) {
+				idx = 0
+			}
+			m.subBuf, m.subSugSel = sugs[idx], -1
+		}
 		return nil, true
 	case "enter":
+		// A highlighted suggestion is what enter applies; otherwise the typed text stands.
+		if sugs := m.subSuggestions(); m.subSugSel >= 0 && m.subSugSel < len(sugs) {
+			m.subBuf = sugs[m.subSugSel]
+		}
+		m.subSugSel = -1
 		r, ok := m.selectedSubagent()
 		m.subEditing = false
 		if !ok {
@@ -136,6 +187,7 @@ func (m *Model) handleSubagentEditKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		if n := len(m.subBuf); n > 0 {
 			m.subBuf = m.subBuf[:n-1]
 		}
+		m.subSugSel = -1 // re-filter from what is now typed
 		return nil, true
 	}
 	// Key().Text is the character the key produced, which is how every other editor in this
@@ -143,6 +195,7 @@ func (m *Model) handleSubagentEditKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	// spells space as "space", so the field took nothing at all.
 	if t := msg.Key().Text; t != "" {
 		m.subBuf += t
+		m.subSugSel = -1
 	}
 	return nil, true
 }
@@ -183,7 +236,7 @@ func (m *Model) toggleSubagentRow() tea.Cmd {
 func (m *Model) subagentsView() string {
 	hint := "↑/↓ select · space on/off · enter set model · esc close"
 	if m.subEditing {
-		hint = "type a model · empty clears the override · enter apply · esc"
+		hint = "↑/↓ pick · tab fill · type to filter · empty clears · enter apply · esc"
 	}
 	head := stylePermTitle.Render("subagents") + "  " + styleFooter.Render(hint)
 	if m.width > 0 && lipgloss.Width(head) > m.width {
@@ -226,6 +279,15 @@ func (m *Model) subagentsView() string {
 				label += "  " + styleToolArgs.Render(r.info.Model)
 			}
 			row = label
+			// The suggest box hangs under the row being edited: the same merged list /route offers
+			// (configured profiles, then the gateway's live catalog), filtered by what has been
+			// typed. A model id typed from memory is how a typo becomes a run that fails at the
+			// gateway, and the two screens have no reason to disagree about what exists.
+			if sel && m.subEditing {
+				if box := strings.TrimRight(m.modelSuggestBoxFor(m.subSuggestions()), "\n"); box != "" {
+					row += "\n" + box
+				}
+			}
 			if d := strings.TrimSpace(r.info.Description); d != "" {
 				const pad = "        " // under the checkbox, so the text lines up with the name
 				// -2 for the marker column every line gets below, and TrimRight because lipgloss

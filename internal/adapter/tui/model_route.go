@@ -45,7 +45,12 @@ func (m *Model) fetchModelsCmd() tea.Cmd {
 // the current routeBuf (case-insensitive substring), capped at modelSugMax. An
 // empty routeBuf shows the merged list head. Profiles alone populate it when the
 // gateway is unreachable, so the box stays useful without a live catalog.
-func (m *Model) modelSuggestions() []string {
+func (m *Model) modelSuggestions() []string { return m.modelSuggestionsFor(m.routeBuf) }
+
+// modelSuggestionsFor is the same list against any query, so the /subagents editor offers exactly
+// the models /route does. Typing a model id from memory is how a typo becomes a run that fails on
+// the gateway, and there is no reason the two screens should disagree about what exists.
+func (m *Model) modelSuggestionsFor(query string) []string {
 	seen := map[string]bool{}
 	merged := make([]string, 0, len(m.modelCatalog)+4)
 	add := func(s string) {
@@ -62,7 +67,7 @@ func (m *Model) modelSuggestions() []string {
 	for _, id := range m.modelCatalog {
 		add(id)
 	}
-	q := strings.ToLower(strings.TrimSpace(m.routeBuf))
+	q := strings.ToLower(strings.TrimSpace(query))
 	out := make([]string, 0, modelSugMax)
 	for _, s := range merged {
 		if q != "" && !strings.Contains(strings.ToLower(s), q) {
@@ -489,8 +494,10 @@ func (m *Model) routeView() string {
 // filtered candidates with the highlighted one marked. While the catalog is
 // still loading and no profile models are available it shows a dim hint; once
 // loaded with nothing matching it renders nothing (free-text entry, unchanged).
-func (m *Model) modelSuggestBox() string {
-	sugs := m.modelSuggestions()
+func (m *Model) modelSuggestBox() string { return m.modelSuggestBoxFor(m.modelSuggestions()) }
+
+// modelSuggestBoxFor draws a prepared list, so /subagents renders the same box from its own buffer.
+func (m *Model) modelSuggestBoxFor(sugs []string) string {
 	if len(sugs) == 0 {
 		if !m.catalogLoaded {
 			return "    " + styleFooter.Render("loading models…") + "\n"

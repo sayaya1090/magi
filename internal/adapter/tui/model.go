@@ -198,11 +198,14 @@ type Model struct {
 	resumeSel  int                   // selected row in the interactive resume picker
 	resuming   bool                  // the resume picker modal is open
 
-	routeList    []routeRow // rows shown by the models & routing editor
-	subagenting  bool       // the /subagents list is open
-	subSel       int        // selected row in it
-	subEditing   bool       // typing a model override for the selected subagent
-	subBuf       string     // that model, while it is being typed
+	routeList   []routeRow // rows shown by the models & routing editor
+	subagenting bool       // the /subagents list is open
+	subSel      int        // selected row in it
+	subEditing  bool       // typing a model override for the selected subagent
+	subBuf      string     // that model, while it is being typed
+	// subSugSel is the highlighted row of the model suggest box, -1 meaning "whatever is typed".
+	// The list is the one /route offers, so the two screens cannot disagree about what exists.
+	subSugSel    int
 	subagentList []subagentRow
 	routeSel     int          // selected row
 	routing      bool         // the editor modal is open
