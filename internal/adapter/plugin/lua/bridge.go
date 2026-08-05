@@ -34,6 +34,7 @@ func installBridge(p *plugin) {
 	L.SetField(t, "on", L.NewFunction(p.bridgeOn))
 	L.SetField(t, "analyze", L.NewFunction(p.bridgeAnalyze))
 	L.SetField(t, "spawn", L.NewFunction(p.bridgeSpawn))
+	L.SetField(t, "child_steps", L.NewFunction(p.bridgeChildSteps))
 	L.SetField(t, "json_decode", L.NewFunction(p.bridgeJSONDecode))
 	L.SetField(t, "propose_experience", L.NewFunction(p.bridgeProposeExperience))
 	L.SetField(t, "notify", L.NewFunction(p.bridgeNotify))
@@ -198,6 +199,53 @@ func (p *plugin) bridgeSpawn(L *lua.LState) int {
 	// The child's failure is reported, not swallowed: a plugin told nothing would read silence as
 	// success.
 	L.SetField(out, "err", lua.LString(res.Err))
+	L.Push(out)
+	return 1
+}
+
+// magi.child_steps(session_id) -> { {name=, args=, failed=, output=, output_bytes=}, … }
+//
+// What a child ACTUALLY DID, one entry per tool it ran, in order. The child's final message is its
+// own account of its work; this is the work. A loop that decides whether to run another round needs
+// to tell "ran the build, it failed" from "never ran the build", and both children end with a
+// sentence that reads the same.
+//
+// output carries the raw result for a FAILED call and is empty for one that succeeded — the failing
+// stderr is what the next round cannot reconstruct, and the succeeding output is the bulk of the
+// bytes. output_bytes is set either way.
+//
+// Same gate as spawn: a tool call only, and only for children this call spawned.
+func (p *plugin) bridgeChildSteps(L *lua.LState) int {
+	p.requireCap(L, "spawn")
+	if p.env.ChildSteps == nil {
+		return fail(L, "child_steps: only available inside a tool call")
+	}
+	sid := strings.TrimSpace(L.CheckString(1))
+	if sid == "" {
+		return fail(L, "child_steps: session id is required")
+	}
+	steps, err := p.env.ChildSteps(p.spawnCtx(), sid)
+	if err != nil {
+		return fail(L, "child_steps: "+err.Error())
+	}
+	out := L.NewTable()
+	for _, st := range steps {
+		row := L.NewTable()
+		L.SetField(row, "name", lua.LString(st.Name))
+		// The arguments as the child sent them, decoded into a Lua table so a plugin can read a
+		// field instead of parsing JSON in Lua. Undecodable args are handed over as the raw string
+		// rather than dropped — a plugin seeing nothing would read it as "called with no args".
+		var args any
+		if json.Unmarshal(st.Args, &args) == nil {
+			L.SetField(row, "args", goToLua(L, args))
+		} else if len(st.Args) > 0 {
+			L.SetField(row, "args", lua.LString(string(st.Args)))
+		}
+		L.SetField(row, "failed", lua.LBool(st.Failed))
+		L.SetField(row, "output", lua.LString(st.Output))
+		L.SetField(row, "output_bytes", lua.LNumber(st.OutputBytes))
+		out.Append(row)
+	}
 	L.Push(out)
 	return 1
 }
