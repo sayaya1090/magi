@@ -26,6 +26,9 @@ import (
 type App struct {
 	// subJobs is the register the pane strip polls for running children — see subagent_jobs.go.
 	subJobs subagentJobs
+	// journals records, per CHILD session, the first state magi saw of every path that child
+	// touched, so a loop can put a failed round back — see restore.go.
+	journals map[session.SessionID]*restoreJournal
 
 	store       port.Store
 	llm         port.LLMProvider

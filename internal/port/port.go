@@ -169,6 +169,17 @@ type ChildStep struct {
 	OutputBytes int    // size of the result, set whether or not Output is carried
 }
 
+// RestoredPath is one file a restore tried to put back. How is "journal" (magi wrote the original
+// bytes back), "git" (recovered from the index), "saga" (the change was undone rather than
+// rewritten — a file the child created was removed), or empty when nothing worked, in which case
+// Reason says why.
+type RestoredPath struct {
+	Path     string
+	Restored bool
+	How      string
+	Reason   string
+}
+
 // ---- Tools ----
 
 // Tool is an executable capability exposed to the agent. Built-in tools, Lua
@@ -213,6 +224,13 @@ type ToolEnv struct {
 	// It answers only for this call's own children. A plugin that could name any session id could
 	// read another agent's log, and nothing about spawning gives it a reason to.
 	ChildSteps func(ctx context.Context, sessionID string) ([]ChildStep, error)
+	// RestoreChild puts back the files a child of THIS tool call changed, and reports every path
+	// either way. nil when the host does not offer it.
+	//
+	// Best-effort, and the report is the point: what could not be put back is named, with the
+	// reason. Half a restore reported as a clean one is worse than none — the next round of a loop
+	// would build on a tree it believes is clean.
+	RestoreChild func(ctx context.Context, sessionID string) ([]RestoredPath, error)
 	// EmitProgress lets a long-running tool publish a live, best-effort progress
 	// note (e.g. wait_for's poll status) while it blocks, so the TUI spinner and
 	// the headless stream can show what is being waited on instead of a silent

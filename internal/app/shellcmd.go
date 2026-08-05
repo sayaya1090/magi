@@ -503,6 +503,69 @@ func bashWritePaths(cmd string) []string {
 	return out
 }
 
+// bashMoveSources returns the paths a command moves or deletes AWAY — the source of an `mv`, the
+// operands of an `rm`. bashWritePaths deliberately names DESTINATIONS, because its caller asks
+// "what did this write"; putting a failed round back asks the other question, "what is now
+// missing", and a moved file's old name appears in neither the destination list nor anywhere else.
+//
+// It shares bashWritePaths' parsing rules on purpose: same segment split, same heredoc stripping,
+// same refusal to guess at a glob or a recursive copy into a directory.
+func bashMoveSources(cmd string) []string {
+	var out []string
+	add := func(p string) {
+		p = strings.Trim(p, `"'`)
+		if p == "" || len(out) >= bashWriteCap {
+			return
+		}
+		if strings.HasPrefix(p, "/dev/") || strings.HasSuffix(p, "/") ||
+			strings.ContainsAny(p, "*?[]{}$`~<>") {
+			return
+		}
+		for _, seen := range out {
+			if seen == p {
+				return
+			}
+		}
+		out = append(out, p)
+	}
+	for _, seg := range splitShellSegments(stripHeredocs(cmd)) {
+		fields := dropRedirects(strings.Fields(seg))
+		if len(fields) < 2 {
+			continue
+		}
+		verb := leadingVerb(seg)
+		if verb != "mv" && verb != "rm" {
+			continue
+		}
+		var operands []string
+		recursive := false
+		for _, f := range fields[1:] {
+			if strings.HasPrefix(f, "-") {
+				if strings.ContainsAny(strings.TrimPrefix(f, "-"), "rRa") {
+					recursive = true
+				}
+				continue
+			}
+			operands = append(operands, f)
+		}
+		switch verb {
+		case "mv":
+			// The source of a one-to-one move. A recursive or many-to-one move targets a directory
+			// whose per-file destinations cannot be named, and guessing is worse than reporting.
+			if !recursive && len(operands) == 2 {
+				add(operands[0])
+			}
+		case "rm":
+			// rm already appears in bashWritePaths (a delete is a content state), but this is the
+			// list the restore walks, and a delete belongs in it whichever way it was spelled.
+			for _, f := range operands {
+				add(f)
+			}
+		}
+	}
+	return out
+}
+
 // stripHeredocs removes heredoc bodies (and their terminator lines) so that content fed via
 // `cat > f <<'EOF'` is not read as shell text. The scan itself lives in builtin, shared with the
 // detach note that needs exactly the same answer — two copies of it drifted apart once already.

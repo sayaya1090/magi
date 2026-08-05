@@ -21,7 +21,7 @@ func TestTheFootprintCarriesTheCallsAndTheFailureVerbatim(t *testing.T) {
 	a, parent, _ := spawnApp(t, llm)
 	actor := event.Actor{Kind: event.ActorAgent, ID: "coder"}
 
-	spawn, steps := a.spawnFnFor(0, parent, actor, "c1", "looper")
+	spawn, steps, _ := a.spawnFnFor(0, parent, actor, "c1", "looper")
 	res, err := spawn(context.Background(), port.SpawnSpec{Prompt: "build it"})
 	if err != nil {
 		t.Fatalf("spawn: %v", err)
@@ -81,14 +81,14 @@ func TestTheFootprintRefusesASessionThisCallDidNotSpawn(t *testing.T) {
 	a, parent, _ := spawnApp(t, &footprintLLM{})
 	actor := event.Actor{Kind: event.ActorAgent, ID: "coder"}
 
-	spawnA, stepsA := a.spawnFnFor(0, parent, actor, "c1", "looper")
+	spawnA, stepsA, _ := a.spawnFnFor(0, parent, actor, "c1", "looper")
 	resA, err := spawnA(context.Background(), port.SpawnSpec{Prompt: "one"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	// A DIFFERENT tool call. Its reader must not answer for the first call's child, and the parent
 	// session is not its child either.
-	_, stepsB := a.spawnFnFor(0, parent, actor, "c2", "looper")
+	_, stepsB, _ := a.spawnFnFor(0, parent, actor, "c2", "looper")
 	for _, sid := range []string{resA.SessionID, string(parent.ID)} {
 		if _, err := stepsB(context.Background(), sid); err == nil {
 			t.Errorf("a second tool call read %s, which it did not spawn", sid)
@@ -108,7 +108,7 @@ func TestOneToolCallCannotSpawnForever(t *testing.T) {
 	t.Cleanup(func() { spawnCallStepBudget = old })
 
 	a, parent, _ := spawnApp(t, &usageLLM{text: "done"})
-	spawn, _ := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "looper")
+	spawn, _, _ := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "looper")
 
 	var lastErr error
 	spawned := 0
@@ -134,7 +134,7 @@ func TestOneToolCallCannotSpawnForever(t *testing.T) {
 	}
 	// A separate tool call starts fresh — the budget is per call, not per app.
 	_ = spawned
-	spawn2, _ := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c2", "looper")
+	spawn2, _, _ := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c2", "looper")
 	if _, err := spawn2(context.Background(), port.SpawnSpec{Prompt: "new call"}); err != nil {
 		t.Errorf("a new tool call inherited the previous call's exhausted budget: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestTheBudgetChargesStepsNotSpawns(t *testing.T) {
 	t.Cleanup(func() { spawnCallStepBudget = old })
 
 	a, parent, _ := spawnApp(t, &footprintLLM{}) // read, list, then answer: three round trips
-	spawn, _ := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "looper")
+	spawn, _, _ := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "looper")
 
 	res, err := spawn(context.Background(), port.SpawnSpec{Prompt: "build"})
 	if err != nil {

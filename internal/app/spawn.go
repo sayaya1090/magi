@@ -160,9 +160,10 @@ func (a *App) spawnChild(ctx context.Context, parent session.Session, actor even
 func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID, toolName string) (
 	func(context.Context, port.SpawnSpec) (port.SpawnResult, error),
 	func(context.Context, string) ([]port.ChildStep, error),
+	func(context.Context, string) ([]port.RestoredPath, error),
 ) {
 	if depth != 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	// One budget per tool call, closed over by every spawn the call makes. spawnFnFor runs once
 	// per call (execute.go), so these are per-call state and not per-App.
@@ -233,6 +234,22 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 		return res, err
 	}
 
+	restore := func(sctx context.Context, sid string) ([]port.RestoredPath, error) {
+		mu.Lock()
+		ok := mine[sid]
+		mu.Unlock()
+		if !ok {
+			return nil, fmt.Errorf("restore: %q was not spawned by this tool call", sid)
+		}
+		out := a.RestoreChild(sctx, session.SessionID(sid))
+		paths := make([]port.RestoredPath, 0, len(out))
+		for _, r := range out {
+			paths = append(paths, port.RestoredPath{
+				Path: r.Path, Restored: r.Restored, How: r.How, Reason: r.Reason})
+		}
+		return paths, nil
+	}
+
 	steps := func(sctx context.Context, sid string) ([]port.ChildStep, error) {
 		mu.Lock()
 		ok := mine[sid]
@@ -243,7 +260,7 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 		}
 		return a.childSteps(sctx, session.SessionID(sid))
 	}
-	return spawn, steps
+	return spawn, steps, restore
 }
 
 // countTurns counts the child's model round trips: one per distinct assistant message in its log.

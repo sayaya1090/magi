@@ -196,7 +196,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// steers the agent they are talking to. The tool has already validated
 	// action ∈ {queue,redirect,append}; this records the signal for the loop to drain and apply
 	// at its next step.
-	spawnFn, childStepsFn := a.spawnFnFor(depth, s, actor, tc.CallID, tc.Name)
+	spawnFn, childStepsFn, restoreChildFn := a.spawnFnFor(depth, s, actor, tc.CallID, tc.Name)
 	var routeInterjectionFn func(action, reason, requestID string) error
 	if depth == 0 {
 		routeInterjectionFn = func(action, reason, requestID string) error {
@@ -259,10 +259,17 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// For a file edit, snapshot the file's content BEFORE the tool runs so the council can
 	// be shown the agent's actual before→after change (reconstructed from its own tools).
 	var changeBefore, changePath string
+	var changeReadable bool
 	if guard != nil && fileModifiers[tc.Name] {
 		changePath = pathArg(tc.Args)
 		if changePath != "" {
-			changeBefore, _ = readForChange(workdir, changePath)
+			changeBefore, changeReadable = readForChange(workdir, changePath)
+		}
+		// Journal it for a child, before the call runs. This is the only moment the pre-touch state
+		// exists, and a loop that wants to put a failed round back has nothing else to go on.
+		if depth > 0 && changePath != "" {
+			a.journalFor(sid, workdir).note(relForChange(workdir, changePath),
+				changeBefore, changeReadable, pathExists(workdir, changePath))
 		}
 	}
 	// The same snapshot for a bash mutation, whose destination has to be read out of the command
@@ -289,8 +296,28 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 				// Existence, not just content: an absent path and an empty one both read as "",
 				// and the difference between them is the difference between a command that
 				// created or deleted something and one that did nothing at all.
+				existed := pathExists(workdir, p)
 				bashChanges = append(bashChanges, bashChange{
-					path: p, before: before, readable: ok, existedBefore: pathExists(workdir, p)})
+					path: p, before: before, readable: ok, existedBefore: existed})
+				// Same journal, for the destinations a bash command names. This is what covers the
+				// mutations write/edit never sees — a redirect, an `mv`, an `rm`.
+				if depth > 0 {
+					a.journalFor(sid, workdir).note(relForChange(workdir, p), before, ok, existed)
+				}
+			}
+		}
+	}
+	// A move or a delete takes a path AWAY, and bashWritePaths names destinations — so the file
+	// that is now missing appears nowhere. Journal those too, or a restore puts back everything the
+	// child wrote and none of what it removed.
+	if depth > 0 && guard != nil && tc.Name == "bash" {
+		var ba struct {
+			Command string `json:"command"`
+		}
+		if json.Unmarshal(tc.Args, &ba) == nil {
+			for _, p := range bashMoveSources(ba.Command) {
+				before, ok := readForChange(workdir, p)
+				a.journalFor(sid, workdir).note(relForChange(workdir, p), before, ok, pathExists(workdir, p))
 			}
 		}
 	}
@@ -313,6 +340,8 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		// Paired with Spawn and scoped to the same tool call: it answers only for children this
 		// call started, so a plugin cannot read a session it did not create.
 		ChildSteps: childStepsFn,
+		// Same scope again: a call can only put back a child it started.
+		RestoreChild: restoreChildFn,
 		Council: func(cctx context.Context, question string, complete bool) (string, error) {
 			return a.councilAdvice(cctx, s, guardChanges(guard), question, complete)
 		},
