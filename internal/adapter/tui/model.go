@@ -201,6 +201,8 @@ type Model struct {
 	routeList    []routeRow // rows shown by the models & routing editor
 	subagenting  bool       // the /subagents list is open
 	subSel       int        // selected row in it
+	subEditing   bool       // typing a model override for the selected subagent
+	subBuf       string     // that model, while it is being typed
 	subagentList []subagentRow
 	routeSel     int          // selected row
 	routing      bool         // the editor modal is open

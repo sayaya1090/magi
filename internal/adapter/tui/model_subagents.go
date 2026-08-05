@@ -74,10 +74,23 @@ func (m *Model) groupState(group string) (on, total int) {
 }
 
 // handleSubagentKey drives the list. Returns false when the key is not ours.
+//
+// Both settings live on the same row and are reached from the same screen: space switches a
+// subagent on or off, enter edits which model it runs on. Putting the model in the plugin's own
+// config section would have meant two places to go for one subagent.
 func (m *Model) handleSubagentKey(key string) (tea.Cmd, bool) {
+	if m.subEditing {
+		return m.handleSubagentEditKey(key)
+	}
 	switch key {
 	case "esc", "q":
 		m.subagenting = false
+		return nil, true
+	case "enter":
+		// Only a subagent has a model; a group header has nothing to point anywhere.
+		if r, ok := m.selectedSubagent(); ok {
+			m.subEditing, m.subBuf = true, r.info.Model
+		}
 		return nil, true
 	case "up", "k":
 		if m.subSel > 0 {
@@ -89,10 +102,53 @@ func (m *Model) handleSubagentKey(key string) (tea.Cmd, bool) {
 			m.subSel++
 		}
 		return nil, true
-	case " ", "enter", "x":
+	case " ", "x":
 		return m.toggleSubagentRow(), true
 	}
 	return nil, false
+}
+
+// handleSubagentEditKey drives the model field while it is being typed.
+func (m *Model) handleSubagentEditKey(key string) (tea.Cmd, bool) {
+	switch key {
+	case "esc":
+		m.subEditing, m.subBuf = false, ""
+		return nil, true
+	case "enter":
+		r, ok := m.selectedSubagent()
+		m.subEditing = false
+		if !ok {
+			m.subBuf = ""
+			return nil, true
+		}
+		// An empty field CLEARS the override, which is how a user gets back to "whatever the
+		// plugin asked for" without having to remember what that was.
+		err := m.app.SetSubagentModel(r.info.Name, m.subBuf, r.info.Provider)
+		m.subBuf = ""
+		m.refreshSubagentList()
+		if err != nil {
+			return m.snack("subagents: " + err.Error()), true
+		}
+		return nil, true
+	case "backspace":
+		if n := len(m.subBuf); n > 0 {
+			m.subBuf = m.subBuf[:n-1]
+		}
+		return nil, true
+	}
+	if len(key) == 1 || key == " " {
+		m.subBuf += key
+	}
+	return nil, true
+}
+
+// selectedSubagent returns the selected row when it is a subagent (not a group header).
+func (m *Model) selectedSubagent() (subagentRow, bool) {
+	if m.subSel < 0 || m.subSel >= len(m.subagentList) {
+		return subagentRow{}, false
+	}
+	r := m.subagentList[m.subSel]
+	return r, r.kind == subRowAgent
 }
 
 // toggleSubagentRow flips the selected row. On a group header it is a BULK ACTION over the
@@ -120,8 +176,11 @@ func (m *Model) toggleSubagentRow() tea.Cmd {
 
 // subagentsView renders the list: a checkbox, the name, and what the plugin says it does.
 func (m *Model) subagentsView() string {
-	head := stylePermTitle.Render("subagents") + "  " +
-		styleFooter.Render("↑/↓ select · space toggle · esc close")
+	hint := "↑/↓ select · space on/off · enter set model · esc close"
+	if m.subEditing {
+		hint = "type a model · empty clears the override · enter apply · esc"
+	}
+	head := stylePermTitle.Render("subagents") + "  " + styleFooter.Render(hint)
 	if m.width > 0 && lipgloss.Width(head) > m.width {
 		head = ansi.Truncate(stylePermTitle.Render("subagents"), m.width, "")
 	}
@@ -151,9 +210,16 @@ func (m *Model) subagentsView() string {
 			if r.info.Enabled {
 				box = "[✓]"
 			}
-			// Name and description share the line, so the description is what gives when the
-			// window is narrow — the name is how you tell one row from another.
+			// On/off, name, model, description — one row, one screen, in the order a reader
+			// needs them. The model comes before the description because it is the other thing
+			// they came here to change; the description is what gives when the window is narrow.
 			label := "    " + box + " " + r.info.Name
+			switch {
+			case sel && m.subEditing:
+				label += "  " + styleToolArgs.Render(m.subBuf+"▌")
+			case r.info.Model != "":
+				label += "  " + styleToolArgs.Render(r.info.Model)
+			}
 			if d := strings.TrimSpace(r.info.Description); d != "" {
 				if room := inner - lipgloss.Width(label) - 2; room > 8 {
 					label += "  " + styleToolResult.Render(oneLine(d, room))
