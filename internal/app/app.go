@@ -449,44 +449,42 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 						q = []pendingInterjection{{MsgID: carrier.MsgID, Text: merged}}
 					}
 
-					var work []pendingInterjection
+					// STRICTLY IN ORDER: a message is disposed of completely before the next is
+					// looked at. Answering the whole batch first and escalating afterwards read
+					// them in order but ANSWERED them out of it — a question typed second came
+					// back before the work typed first, because the inline reply lands during the
+					// pass and the escalated turn only starts after it. Reported exactly that way.
+					//
+					// So the first item that needs work ends the pass. It runs as its own turn and
+					// everything behind it stays queued for the next boundary, which is what keeps
+					// the answers in the order they were typed. The cost is that two pieces of work
+					// are two turns; ordering is worth more than the turn.
+					var work *pendingInterjection
 					s := a.sessionInfo(runCtx, sid)
-					for i, p := range q {
+					for i := range q {
 						// The ctx died mid-batch: put back everything not yet looked at, ahead of
 						// anything that arrived meanwhile, rather than deciding it on a dead ctx.
 						if runCtx.Err() != nil {
 							a.requeueInterjects(sid, q[i:])
 							break
 						}
-						if a.triageQueued(runCtx, a.agentFor(s), s, p.MsgID, p.Text) {
-							work = append(work, p) // needs real work; no answer was produced for it
-							continue
+						if a.triageQueued(runCtx, a.agentFor(s), s, q[i].MsgID, q[i].Text) {
+							work = &q[i]
+							a.requeueInterjects(sid, q[i+1:]) // they wait their turn, in order
+							break
 						}
-						// Answered inline, its reply already persisted and tagged InReplyTo. Ledger it
-						// resolved (F5) so a reload does not read the deferred entry as still waiting.
-						a.recordDeferral(bctx, sid, p.MsgID, true)
+						// Answered inline, its reply already persisted and tagged InReplyTo. Ledger
+						// it resolved (F5) so a reload does not read the entry as still waiting.
+						a.recordDeferral(bctx, sid, q[i].MsgID, true)
 					}
 
-					if len(work) > 0 {
-						// The work items ARE merged, and only with each other: they arrived together
-						// and are one body of work, so they run as one turn rather than N. The most
-						// recent carries the merged text (that is the prompt the user is waiting on);
-						// the earlier ones are resolved+abandoned so neither seedPromptIdx nor a
-						// reload re-runs them.
-						//
+					if work != nil {
 						// Escalate: its OWN top-level turn with the fresh slate Submit gives, so the
 						// council judges it on its own merits and not the finished task's criteria.
 						// Link back to the original prompt so the display layer pairs query and
 						// answer. On a dead ctx, persist but do NOT re-run (no-retry-storm).
-						carrier := work[len(work)-1]
-						for _, p := range work {
-							if p.MsgID == carrier.MsgID {
-								continue
-							}
-							a.dropQueued(bctx, sid, p.MsgID) // merged into the carrier
-						}
 						a.resetForNewTopLevel(sid)
-						_ = a.appendResurfacedPrompt(bctx, sid, carrier.MsgID, coalesceInterjectionText(work))
+						_ = a.appendResurfacedPrompt(bctx, sid, work.MsgID, work.Text)
 						if runCtx.Err() == nil {
 							rerun = true
 						}
