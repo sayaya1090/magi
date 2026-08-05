@@ -28,7 +28,6 @@ type sessionState struct {
 	// seams — it never reads, summarises, or ranks them. Turn-scoped: a new top-level request
 	// is new work, and last turn's reminders would be answering a question nobody asked.
 	turnNotes        []string
-	stage            string    // current loop stage for event tagging
 	lastPromptTokens int       // real prompt_tokens from the last turn
 	turnStart        time.Time // when the current turn began (check_untouched.go: "did this predate the run")
 	// worldBase is the workspace index taken when this turn started: path → size, for the files

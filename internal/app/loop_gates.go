@@ -100,7 +100,6 @@ func (a *App) finishTurn(ctx context.Context, tc turnCtx, step int, turnTask, la
 	if tc.depth == 0 && !a.cfg.Workflow {
 		a.enqueueLateInterjections(ctx, tc.s.ID, handledUserPrompts, turnTask)
 	}
-	a.setStage(tc.s.ID, stageFinalize) // turn is ending (D15)
 	// A finish no council ever read (the agent never declared, past declareAskCap) lands as
 	// UNVERIFIED so the UI stops painting an abandoned task as a confident done.
 	d, _ := json.Marshal(event.TurnFinishedData{Usage: u, Unverified: ts.unverifiedReason != "", Reason: ts.unverifiedReason})

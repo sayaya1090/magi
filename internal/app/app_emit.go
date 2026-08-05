@@ -11,7 +11,7 @@ import (
 
 // appendFact persists a fact event (assigning seq) and publishes it on the bus.
 func (a *App) appendFact(ctx context.Context, sid session.SessionID, typ event.Type, actor event.Actor, data json.RawMessage) error {
-	ev := event.Event{SessionID: sid, Type: typ, Actor: actor, TS: time.Now(), Stage: a.currentStage(sid), Data: data}
+	ev := event.Event{SessionID: sid, Type: typ, Actor: actor, TS: time.Now(), Data: data}
 	seqs, err := a.store.Append(ctx, sid, ev)
 	if err != nil {
 		return err
@@ -43,7 +43,7 @@ func (a *App) publishTransient(sid session.SessionID, typ event.Type, actor even
 		return
 	}
 	a.touch(sid)
-	a.bus.Publish(event.Event{SessionID: sid, Type: typ, Actor: actor, TS: time.Now(), Stage: a.currentStage(sid), Data: data})
+	a.bus.Publish(event.Event{SessionID: sid, Type: typ, Actor: actor, TS: time.Now(), Data: data})
 }
 
 // emitToolProgress publishes a long-running tool's live progress note as a
@@ -52,22 +52,4 @@ func (a *App) publishTransient(sid session.SessionID, typ event.Type, actor even
 func (a *App) emitToolProgress(sid session.SessionID, actor event.Actor, callID, name, text string) {
 	d, _ := json.Marshal(event.ToolProgressData{CallID: callID, Name: name, Text: text})
 	a.publishTransient(sid, event.TypeToolProgress, actor, d)
-}
-
-// setStage records the current loop stage for a session; subsequent events are
-// tagged with it (Loop map / rewind grouping).
-func (a *App) setStage(sid session.SessionID, stage string) {
-	a.mu.Lock()
-	a.stateLocked(sid).stage = stage
-	a.mu.Unlock()
-}
-
-// currentStage returns the session's current stage, defaulting to execute.
-func (a *App) currentStage(sid session.SessionID) string {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if st, ok := a.stateIf(sid); ok && st.stage != "" {
-		return st.stage
-	}
-	return stageExecute
 }

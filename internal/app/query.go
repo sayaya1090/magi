@@ -47,7 +47,6 @@ func (a *App) Rewind(ctx context.Context, sid session.SessionID, n int) (int64, 
 	if st, ok := a.stateIf(sid); ok {
 		st.lastPromptTokens = 0
 		st.todos = nil
-		st.stage = ""
 	}
 	a.mu.Unlock()
 	return boundary, nil

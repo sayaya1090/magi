@@ -29,7 +29,6 @@ type loopTurn struct {
 	tools   int      // tool calls issued
 	errs    int      // tool results that were errors
 	council []string // per-round summaries
-	planned bool     // a plan-stage event occurred
 	usage   *event.Usage
 }
 
@@ -51,9 +50,6 @@ func scanTurns(evs []event.Event) []*loopTurn {
 			// A real user prompt starts a new turn; system injections (hooks,
 			// council feedback, auto-orchestrate) belong to the current turn.
 			if e.Actor.Kind != event.ActorUser {
-				if e.Stage == stagePlan {
-					cur().planned = true
-				}
 				continue
 			}
 			var d event.PromptSubmittedData
@@ -66,9 +62,6 @@ func scanTurns(evs []event.Event) []*loopTurn {
 				continue
 			}
 			t := cur()
-			if e.Stage == stagePlan {
-				t.planned = true
-			}
 			switch {
 			case d.Role == session.RoleAssistant && (d.Part.Kind == session.PartText || d.Part.Kind == session.PartToolCall):
 				if !seenMsg[d.MessageID] {
@@ -127,9 +120,6 @@ func buildLoopMap(evs []event.Event) string {
 	fmt.Fprintf(&b, "Loop map — %d turn(s)\n", len(turns))
 	for i, t := range turns {
 		fmt.Fprintf(&b, "\nTurn %d: %s\n", i+1, t.prompt)
-		if t.planned {
-			b.WriteString("  ◈ plan\n")
-		}
 		line := fmt.Sprintf("  %s · %s", plural(t.steps, "step"), plural(t.tools, "tool call"))
 		if t.errs > 0 {
 			line += fmt.Sprintf(" · %s", plural(t.errs, "error"))

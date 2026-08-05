@@ -98,7 +98,6 @@ func TestRewindClearsDerivedCaches(t *testing.T) {
 	a.mu.Lock()
 	st := a.stateLocked(sid)
 	st.todos = []session.Todo{{Content: "step one", Status: "completed"}}
-	st.stage = "execute"
 	a.mu.Unlock()
 
 	if _, err := a.Rewind(context.Background(), sid, 1); err != nil {
@@ -107,7 +106,7 @@ func TestRewindClearsDerivedCaches(t *testing.T) {
 
 	a.mu.Lock()
 	st = a.stateLocked(sid)
-	bad := st.todos != nil || st.stage != ""
+	bad := st.todos != nil
 	a.mu.Unlock()
 	if bad {
 		t.Error("Rewind must clear the turn-derived state the rewound prompt produced")

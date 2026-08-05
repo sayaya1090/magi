@@ -10,32 +10,32 @@ import (
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
-func mkEvent(ty event.Type, actor event.ActorKind, stage string, data any) event.Event {
+func mkEvent(ty event.Type, actor event.ActorKind, data any) event.Event {
 	b, _ := json.Marshal(data)
-	return event.Event{Type: ty, Actor: event.Actor{Kind: actor}, Stage: stage, Data: b}
+	return event.Event{Type: ty, Actor: event.Actor{Kind: actor}, Data: b}
 }
 
 func TestBuildLoopMap(t *testing.T) {
 	evs := []event.Event{
-		mkEvent(event.TypePromptSubmitted, event.ActorUser, stageExecute,
+		mkEvent(event.TypePromptSubmitted, event.ActorUser,
 			event.PromptSubmittedData{Parts: []session.Part{{Kind: session.PartText, Text: "build the parser"}}}),
 		// step 1 (m1): text + a tool call
-		mkEvent(event.TypePartAppended, event.ActorAgent, stageExecute,
+		mkEvent(event.TypePartAppended, event.ActorAgent,
 			event.PartAppendedData{MessageID: "m1", Role: session.RoleAssistant, Part: session.Part{Kind: session.PartText, Text: "ok"}}),
-		mkEvent(event.TypePartAppended, event.ActorAgent, stageExecute,
+		mkEvent(event.TypePartAppended, event.ActorAgent,
 			event.PartAppendedData{MessageID: "m1", Role: session.RoleAssistant, Part: session.Part{Kind: session.PartToolCall, ToolCall: &session.ToolCall{Name: "read"}}}),
 		// a failing tool result
-		mkEvent(event.TypePartAppended, event.ActorAgent, stageExecute,
+		mkEvent(event.TypePartAppended, event.ActorAgent,
 			event.PartAppendedData{MessageID: "mt", Role: session.RoleTool, Part: session.Part{Kind: session.PartToolResult, ToolResult: &session.ToolResult{IsError: true}}}),
 		// step 2 (m2): text only
-		mkEvent(event.TypePartAppended, event.ActorAgent, stageExecute,
+		mkEvent(event.TypePartAppended, event.ActorAgent,
 			event.PartAppendedData{MessageID: "m2", Role: session.RoleAssistant, Part: session.Part{Kind: session.PartText, Text: "done"}}),
 		// council: continue then done
-		mkEvent(event.TypeCouncilDecided, event.ActorSystem, stageExecute,
+		mkEvent(event.TypeCouncilDecided, event.ActorSystem,
 			event.CouncilDecidedData{Round: 1, Decision: string(council.Continue), Tally: council.Breakdown{Done: 1, Continue: 2}}),
-		mkEvent(event.TypeCouncilDecided, event.ActorSystem, stageExecute,
+		mkEvent(event.TypeCouncilDecided, event.ActorSystem,
 			event.CouncilDecidedData{Round: 2, Decision: string(council.Done), Tally: council.Breakdown{Done: 3}}),
-		mkEvent(event.TypeTurnFinished, event.ActorAgent, stageFinalize,
+		mkEvent(event.TypeTurnFinished, event.ActorAgent,
 			event.TurnFinishedData{Usage: event.Usage{In: 1000, Out: 200}}),
 	}
 
@@ -66,9 +66,9 @@ func TestBuildLoopMapEmpty(t *testing.T) {
 // A system-injected prompt (council feedback) does NOT start a new turn.
 func TestBuildLoopMapSystemPromptStaysInTurn(t *testing.T) {
 	evs := []event.Event{
-		mkEvent(event.TypePromptSubmitted, event.ActorUser, stageExecute,
+		mkEvent(event.TypePromptSubmitted, event.ActorUser,
 			event.PromptSubmittedData{Parts: []session.Part{{Kind: session.PartText, Text: "task"}}}),
-		mkEvent(event.TypePromptSubmitted, event.ActorSystem, stageExecute,
+		mkEvent(event.TypePromptSubmitted, event.ActorSystem,
 			event.PromptSubmittedData{Parts: []session.Part{{Kind: session.PartText, Text: "council feedback"}}}),
 	}
 	if m := buildLoopMap(evs); !strings.Contains(m, "1 turn(s)") {
@@ -80,11 +80,11 @@ func TestBuildLoopMapSystemPromptStaysInTurn(t *testing.T) {
 // its tool COUNT reflects every call — so a multi-tool step reads "1 step · 2 tool calls", not two steps.
 func TestBuildLoopMapMultiToolPerMessage(t *testing.T) {
 	evs := []event.Event{
-		mkEvent(event.TypePromptSubmitted, event.ActorUser, stageExecute,
+		mkEvent(event.TypePromptSubmitted, event.ActorUser,
 			event.PromptSubmittedData{Parts: []session.Part{{Kind: session.PartText, Text: "do it"}}}),
-		mkEvent(event.TypePartAppended, event.ActorAgent, stageExecute,
+		mkEvent(event.TypePartAppended, event.ActorAgent,
 			event.PartAppendedData{MessageID: "m1", Role: session.RoleAssistant, Part: session.Part{Kind: session.PartToolCall, ToolCall: &session.ToolCall{Name: "read"}}}),
-		mkEvent(event.TypePartAppended, event.ActorAgent, stageExecute,
+		mkEvent(event.TypePartAppended, event.ActorAgent,
 			event.PartAppendedData{MessageID: "m1", Role: session.RoleAssistant, Part: session.Part{Kind: session.PartToolCall, ToolCall: &session.ToolCall{Name: "grep"}}}),
 	}
 	m := buildLoopMap(evs)
@@ -99,9 +99,9 @@ func TestBuildLoopMapMultiToolPerMessage(t *testing.T) {
 func TestLoopMapMarksAnArguedRound(t *testing.T) {
 	render := func(d *council.DebateOutcome) string {
 		return buildLoopMap([]event.Event{
-			mkEvent(event.TypePromptSubmitted, event.ActorUser, stageExecute,
+			mkEvent(event.TypePromptSubmitted, event.ActorUser,
 				event.PromptSubmittedData{Parts: []session.Part{{Kind: session.PartText, Text: "go"}}}),
-			mkEvent(event.TypeCouncilDecided, event.ActorSystem, stageExecute,
+			mkEvent(event.TypeCouncilDecided, event.ActorSystem,
 				event.CouncilDecidedData{Round: 1, Decision: string(council.Done),
 					Tally: council.Breakdown{Done: 3, Voters: 3}, Debate: d}),
 		})

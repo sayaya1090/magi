@@ -133,9 +133,5 @@ type Event struct {
 	Type      Type              `json:"type"`
 	Actor     Actor             `json:"actor"`
 	TS        time.Time         `json:"ts"`
-	// Stage tags the macro loop phase the event belongs to (D15):
-	// plan|execute|council|finalize. It lets the Loop map and rewind/diff group and
-	// target events by stage. Empty on older logs.
-	Stage string          `json:"stage,omitempty"`
-	Data  json.RawMessage `json:"data"`
+	Data      json.RawMessage   `json:"data"`
 }

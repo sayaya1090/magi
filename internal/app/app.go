@@ -170,7 +170,6 @@ func (a *App) appendPrompt(ctx context.Context, c command.SubmitPrompt) error {
 	// isn't tagged with the prior turn's leftover stage (D15). System injections
 	// (council/hooks/auto) append via appendFact directly and keep their stage.
 	if c.Actor.Kind == event.ActorUser {
-		a.setStage(c.SessionID, stageExecute)
 	}
 	// A user request carries a time-sortable id (routing binds to it, and the display layer
 	// pairs it with its response); system-injected prompts keep the cheap random id.
@@ -204,7 +203,6 @@ func (a *App) appendPrompt(ctx context.Context, c command.SubmitPrompt) error {
 // answer (drop the stranded original on replay; pull the live bubble down). Turn
 // semantics are identical to appendPrompt — the link is display-only metadata.
 func (a *App) appendResurfacedPrompt(ctx context.Context, sid session.SessionID, originMsgID, text string) error {
-	a.setStage(sid, stageExecute)
 	data, _ := json.Marshal(event.PromptSubmittedData{
 		MessageID:      "m_" + newSortableID(),
 		Parts:          []session.Part{{Kind: session.PartText, Text: text}},
@@ -736,13 +734,6 @@ func (a *App) Subscribe(ctx context.Context, sid session.SessionID, fromSeq int6
 }
 
 // ---- internals ----
-
-// Loop stages tag events with the macro phase they belong to (D15).
-const (
-	stagePlan     = "plan"
-	stageExecute  = "execute"
-	stageFinalize = "finalize"
-)
 
 func (a *App) sessionInfo(ctx context.Context, sid session.SessionID) session.Session {
 	a.mu.Lock()
