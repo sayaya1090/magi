@@ -363,6 +363,14 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		return nil, true // swallow other keys while the picker is open (incl. ctrl+c → copy)
 	}
 
+	// The /subagents list takes the keys while it is open.
+	if m.subagenting {
+		if cmd, handled := m.handleSubagentKey(msg.String()); handled {
+			return cmd, true
+		}
+		return nil, true // swallow the rest so a stray key does not type into the input behind it
+	}
+
 	// Interactive /route editor takes priority while open.
 	if m.routing {
 		return m.handleRouteKey(msg)
@@ -702,6 +710,8 @@ func (m *Model) handleSlash(text string) (tea.Cmd, bool) {
 		out = m.openRouteEditor() // session model + per-agent routing, interactively
 	case "/tools":
 		m.info("tools:\n  " + joinOr(m.app.ToolNames(), "(none)"))
+	case "/subagents":
+		out = m.openSubagents()
 	case "/sessions":
 		m.info(m.sessionsList())
 	case "/permission":

@@ -231,6 +231,10 @@ func (m Model) View() tea.View {
 		pv := m.resumeView()
 		parts = append(parts, pv)
 		aboveInput += lipgloss.Height(pv)
+	} else if m.subagenting {
+		pv := m.subagentsView()
+		parts = append(parts, pv)
+		aboveInput += lipgloss.Height(pv)
 	} else if m.routing {
 		pv := m.routeView()
 		parts = append(parts, pv)

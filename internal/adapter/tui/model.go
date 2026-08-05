@@ -198,7 +198,10 @@ type Model struct {
 	resumeSel  int                   // selected row in the interactive resume picker
 	resuming   bool                  // the resume picker modal is open
 
-	routeList    []routeRow   // rows shown by the models & routing editor
+	routeList    []routeRow // rows shown by the models & routing editor
+	subagenting  bool       // the /subagents list is open
+	subSel       int        // selected row in it
+	subagentList []subagentRow
 	routeSel     int          // selected row
 	routing      bool         // the editor modal is open
 	routeEditing bool         // typing a new value for the selected (session/agent) row
@@ -319,6 +322,7 @@ var slashCommands = []cmdInfo{
 	{"/help", "show help"},
 	{"/route", "models & routing editor (alias: /model)"},
 	{"/tools", "list available tools"},
+	{"/subagents", "turn plugin subagents on and off"},
 	{"/sessions", "list sessions in this directory"},
 	{"/resume", "resume a session (/resume to list, /resume N to switch)"},
 	{"/rewind", "roll back the last user turn(s) (/rewind [n])"},

@@ -176,7 +176,7 @@ func capBytes(s string, n int) (string, bool) {
 // in-flight turn (read-only / UI-only — does not mutate the running session).
 func safeWhileRunning(cmd string) bool {
 	switch cmd {
-	case "/help", "/model", "/agents", "/route", "/tools", "/sessions", "/diff", "/loop", "/loopdiff", "/context", "/cost", "/permission":
+	case "/help", "/model", "/agents", "/route", "/tools", "/subagents", "/sessions", "/diff", "/loop", "/loopdiff", "/context", "/cost", "/permission":
 		return true
 	}
 	return false

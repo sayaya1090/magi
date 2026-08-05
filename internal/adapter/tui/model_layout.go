@@ -145,7 +145,7 @@ func (m *Model) advancePaneFade() bool {
 // bottom, so chrome sizing, input width, and cursor placement all key off this.
 func (m *Model) splashActive() bool {
 	return m.ready && len(m.blocks) == 0 && !m.running && !m.resuming &&
-		!m.routing && !m.searching && !m.zoom && m.councilDetail == nil &&
+		!m.routing && !m.subagenting && !m.searching && !m.zoom && m.councilDetail == nil &&
 		m.perm == nil && m.quest == nil && len(m.paletteMatches()) == 0
 }
 
@@ -175,6 +175,11 @@ func (m *Model) baseChromeHeight() int {
 		// consulted the screen — and once the view started windowing against modalRoom, a count
 		// would have been the drift.
 		h += lipgloss.Height(m.resumeView())
+	}
+	if m.subagenting {
+		// Measure the render rather than count rows: the view windows itself against modalRoom and
+		// adds a "n/N rows" line when it does, so a count would be what drifts.
+		h += lipgloss.Height(m.subagentsView())
 	}
 	if m.routing {
 		if m.profileForm != nil {
