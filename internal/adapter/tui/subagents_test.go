@@ -164,3 +164,84 @@ func TestTheSubagentListFitsTheTerminal(t *testing.T) {
 		}
 	}
 }
+
+// On/off and the model are edited on the same row, from the same screen. Space toggles, enter takes
+// the model. Splitting them — the flag here, the model in the plugin's own config section — would
+// have meant two places to go for one subagent.
+func TestTheModelIsEditedOnTheSameRow(t *testing.T) {
+	mm := subagentModel(t)
+	m := &mm
+	m.width, m.height = 120, 40
+	m.openSubagents()
+
+	// Land on a subagent row, not a header.
+	for i, r := range m.subagentList {
+		if r.kind == subRowAgent {
+			m.subSel = i
+			break
+		}
+	}
+	name := m.subagentList[m.subSel].info.Name
+
+	m.handleSubagentKey("enter")
+	if !m.subEditing {
+		t.Fatal("enter on a subagent row should start editing its model")
+	}
+	for _, k := range strings.Split("big-model", "") {
+		m.handleSubagentKey(k)
+	}
+	// What is being typed shows on the row, so the edit is visible where it lands.
+	if plain := ansi.Strip(m.subagentsView()); !strings.Contains(plain, "big-model") {
+		t.Errorf("the model being typed is not on the row:\n%s", plain)
+	}
+	m.handleSubagentKey("enter")
+	if m.subEditing {
+		t.Error("enter should apply and leave the field")
+	}
+	for _, s := range m.app.Subagents() {
+		if s.Name == name && s.Model != "big-model" {
+			t.Errorf("%s kept model %q", name, s.Model)
+		}
+	}
+
+	// Empty CLEARS it — the way back to "whatever the plugin asked for" without having to remember
+	// what that was.
+	m.handleSubagentKey("enter")
+	for range "big-model" {
+		m.handleSubagentKey("backspace")
+	}
+	m.handleSubagentKey("enter")
+	for _, s := range m.app.Subagents() {
+		if s.Name == name && s.Model != "" {
+			t.Errorf("an empty field should clear the override, got %q", s.Model)
+		}
+	}
+
+	// esc abandons rather than applies.
+	m.handleSubagentKey("enter")
+	m.handleSubagentKey("x")
+	m.handleSubagentKey("esc")
+	for _, s := range m.app.Subagents() {
+		if s.Name == name && s.Model != "" {
+			t.Errorf("esc should abandon the edit, got %q", s.Model)
+		}
+	}
+}
+
+// A group header has no model to set, so enter must not open a field on one.
+func TestEnterOnAGroupHeaderStartsNoEdit(t *testing.T) {
+	mm := subagentModel(t)
+	m := &mm
+	m.width, m.height = 120, 40
+	m.openSubagents()
+	for i, r := range m.subagentList {
+		if r.kind == subRowGroup {
+			m.subSel = i
+			break
+		}
+	}
+	m.handleSubagentKey("enter")
+	if m.subEditing {
+		t.Error("a group header has nothing to point at a model")
+	}
+}

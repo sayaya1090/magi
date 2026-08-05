@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -234,4 +235,58 @@ func (f *toolThenTextLLM) StreamChat(_ context.Context, _ port.ChatRequest) (<-c
 	ch <- port.ProviderEvent{Type: port.ProviderFinish}
 	close(ch)
 	return ch, nil
+}
+
+// The model a user set in /subagents is the model the child actually runs on. Recording the
+// override is not the same as applying it, and only one of the two is what a user asked for.
+func TestTheUsersModelReachesTheChild(t *testing.T) {
+	llm := &modelRecordingLLM{}
+	a, parent, _ := spawnApp(t, llm)
+	actor := event.Actor{Kind: event.ActorAgent, ID: "coder"}
+
+	// No override: the child runs on what the plugin asked for.
+	spawn := a.spawnFnFor(0, parent, actor, "c1", "seele_plan")
+	if _, err := spawn(context.Background(), port.SpawnSpec{Prompt: "plan it", Model: "plugin-model"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := llm.last(); got != "plugin-model" {
+		t.Errorf("with no override the child should run on the plugin's model, got %q", got)
+	}
+
+	// With one, the user's wins.
+	if err := a.SetSubagentModel("seele_plan", "user-model", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := spawn(context.Background(), port.SpawnSpec{Prompt: "plan it", Model: "plugin-model"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := llm.last(); got != "user-model" {
+		t.Errorf("the user's model must reach the child, got %q", got)
+	}
+}
+
+// modelRecordingLLM answers immediately and remembers which model it was asked for.
+type modelRecordingLLM struct {
+	mu     sync.Mutex
+	models []string
+}
+
+func (f *modelRecordingLLM) StreamChat(_ context.Context, r port.ChatRequest) (<-chan port.ProviderEvent, error) {
+	f.mu.Lock()
+	f.models = append(f.models, r.Model)
+	f.mu.Unlock()
+	ch := make(chan port.ProviderEvent, 2)
+	ch <- port.ProviderEvent{Type: port.ProviderText, Text: "done"}
+	ch <- port.ProviderEvent{Type: port.ProviderFinish}
+	close(ch)
+	return ch, nil
+}
+
+func (f *modelRecordingLLM) last() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.models) == 0 {
+		return ""
+	}
+	return f.models[len(f.models)-1]
 }

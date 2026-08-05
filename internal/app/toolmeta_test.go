@@ -156,3 +156,38 @@ func TestASubagentCanShipOffAndOnlyTheUserTurnsItOn(t *testing.T) {
 		t.Error("after being turned off it must not be offered")
 	}
 }
+
+// A model set in /subagents overrides what the plugin asked to spawn with, and clearing it hands
+// the choice back. This is the point of magi owning the setting rather than the plugin: the screen
+// that lists a subagent is the screen that changes it.
+func TestTheUsersModelOverridesWhatThePluginAskedFor(t *testing.T) {
+	reg := builtin.Default()
+	reg.Register(metaTool{name: "seele_plan", meta: port.ToolMetadata{Subagent: true}})
+	a := &App{tools: reg}
+
+	// No override: whatever the plugin asked for stands.
+	if m, p := a.subagentOverride("seele_plan"); m != "" || p != "" {
+		t.Errorf("nothing set, got %q/%q", m, p)
+	}
+	if err := a.SetSubagentModel("seele_plan", "big-model", "fast"); err != nil {
+		t.Fatal(err)
+	}
+	if m, p := a.subagentOverride("seele_plan"); m != "big-model" || p != "fast" {
+		t.Errorf("override = %q/%q, want big-model/fast", m, p)
+	}
+	// It survives an enabled toggle: the two settings live in one record and one must not wipe
+	// the other.
+	if err := a.SetSubagentEnabled("seele_plan", false); err != nil {
+		t.Fatal(err)
+	}
+	if m, _ := a.subagentOverride("seele_plan"); m != "big-model" {
+		t.Errorf("toggling on/off dropped the model: %q", m)
+	}
+	// And clearing gives it back.
+	if err := a.SetSubagentModel("seele_plan", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if m, p := a.subagentOverride("seele_plan"); m != "" || p != "" {
+		t.Errorf("cleared, got %q/%q", m, p)
+	}
+}
