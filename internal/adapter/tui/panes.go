@@ -28,7 +28,15 @@ type agentPane struct {
 	task      string // the command this pane runs
 	live      string // streaming text for the current step
 	liveThink string
-	done      bool
+	// blocks is a CHILD pane's own transcript, rebuilt from its session the way a resumed session
+	// is: the prompt it was given, what it reasoned, every tool it called with its arguments and
+	// result, and what it finally said. A background-command pane has none — its content is a log
+	// tail, not a conversation.
+	//
+	// This is the difference between a pane you can read and a pane that says "step 3 · read". The
+	// progress line the parent's spinner shows was never meant to be a panel's contents.
+	blocks []block
+	done   bool
 	// Per-pane fade-out: doneAt is when this subagent finished; fade is its current
 	// dim level (0=opaque..1=gone). Each pane fades and is removed INDEPENDENTLY a few
 	// seconds after IT finishes — it doesn't wait for sibling panes or the turn.
@@ -272,14 +280,22 @@ func (m *Model) handlePaneClick(y int) bool {
 	return false
 }
 
-// paneTail renders the last rows of a pane's transcript (cheap, no markdown),
-// for the tiled overview where space is tight.
+// paneTail renders the last rows of a pane's content, for the tiled overview where space is tight.
 //
-// A pane's content is its live regions. It used to also fold a child session's transcript into
-// per-pane blocks, and there was a cache here for the finished ones — but the events that fed
-// those blocks lost their producer, and the commit that removed the feeding paths left the field,
-// its readers and this cache behind. Nothing has written a pane block since.
+// A CHILD pane shows the tail of its own transcript — the same blocks, through the same renderer as
+// the main one, so a tool call reads the same in a pane as it does above it. A BACKGROUND-COMMAND
+// pane has no transcript and shows its live log tail instead.
 func (m *Model) paneTail(p *agentPane, width, rows int) string {
+	if len(p.blocks) > 0 {
+		var lines []string
+		for _, blk := range p.blocks {
+			lines = append(lines, strings.Split(m.renderBlockAs(blk, p.label(), m.paneColorOf(p)), "\n")...)
+		}
+		if len(lines) > rows {
+			lines = lines[len(lines)-rows:] // the newest is what a glance wants
+		}
+		return strings.Join(lines, "\n")
+	}
 	// Live regions exist only while running.
 	var lines []string
 	if !p.done {
@@ -467,8 +483,12 @@ func (m *Model) renderZoom(width int) string {
 	cstyle := lipgloss.NewStyle().Foreground(c)
 	// The breadcrumb is rendered as the fixed header (see View); here just the body.
 	var b strings.Builder
-	// A pane has no blocks — what fed them lost its producer, and the loop that drew them (with
-	// the click-to-line map that let a thought be expanded here) went with the field.
+	// The child's whole transcript, from the prompt it was handed down. This is the view that
+	// answers "what was it actually told, what did it think, what did it run" — the questions the
+	// one-line progress heartbeat could not.
+	for _, blk := range p.blocks {
+		b.WriteString("\n" + m.renderBlockAs(blk, p.label(), c))
+	}
 	if s := strings.TrimSpace(p.liveThink); s != "" && p.live == "" {
 		b.WriteString("\n" + label(styleBar, "thinking") + "\n" + indent(styleThink.Render(s)))
 	}

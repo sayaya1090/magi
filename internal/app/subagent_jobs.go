@@ -1,7 +1,6 @@
 package app
 
 import (
-	"strings"
 	"sync"
 	"time"
 
@@ -30,13 +29,15 @@ type SubagentJob struct {
 	Ended   time.Time
 	Steps   int
 	Err     string // why it stopped, when it stopped badly
-	Tail    string // the most recent progress lines, newest last
 }
 
-const (
-	subagentJobKeep     = 16   // finished children retained, oldest dropped first
-	subagentJobTailKeep = 2000 // bytes of progress kept per child, tail-most
-)
+// A child's PROGRESS is not kept here. The pane reads the child's own session for what it did, and
+// a copy of the same thing under a second lifetime would be one more pair to keep in step. What
+// this register answers is the question the session cannot: which children exist right now, and
+// which just ended — a session log does not know it is over.
+
+// subagentJobKeep bounds the finished children retained, oldest dropped first.
+const subagentJobKeep = 16
 
 type subagentJobs struct {
 	mu    sync.Mutex
@@ -54,25 +55,6 @@ func (r *subagentJobs) start(id session.SessionID, tool, task string) {
 	r.byID[sid] = &SubagentJob{ID: sid, Tool: tool, Task: task, Started: time.Now(), Running: true}
 	r.order = append(r.order, sid)
 	r.evictLocked()
-}
-
-// note appends one progress line, keeping the tail. A child that runs for minutes produces more
-// than a pane can show, and the newest lines are the ones worth keeping.
-func (r *subagentJobs) note(id session.SessionID, line string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	j, ok := r.byID[string(id)]
-	if !ok {
-		return
-	}
-	j.Tail += line + "\n"
-	if n := len(j.Tail) - subagentJobTailKeep; n > 0 {
-		// Cut at a line boundary so the pane never opens on half a line.
-		if i := strings.IndexByte(j.Tail[n:], '\n'); i >= 0 {
-			n += i + 1
-		}
-		j.Tail = j.Tail[n:]
-	}
 }
 
 func (r *subagentJobs) finish(id session.SessionID, steps int, errText string) {

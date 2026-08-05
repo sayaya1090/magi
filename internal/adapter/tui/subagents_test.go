@@ -38,6 +38,14 @@ func (t subTool) Execute(context.Context, json.RawMessage, port.ToolEnv) (sessio
 // subagentModel is a Model whose registry holds three declared subagents, two of them grouped.
 func subagentModel(t *testing.T) Model {
 	t.Helper()
+	m, _ := subagentModelWithStore(t)
+	return m
+}
+
+// subagentModelWithStore also hands back the store, so a test can put events into a child session
+// the way the app does rather than through a method added for tests.
+func subagentModelWithStore(t *testing.T) (Model, *jsonl.Store) {
+	t.Helper()
 	store, err := jsonl.New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -51,7 +59,7 @@ func subagentModel(t *testing.T) Model {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return New(context.Background(), a, nil, sid, "m", t.TempDir(), true, "")
+	return New(context.Background(), a, nil, sid, "m", t.TempDir(), true, ""), store
 }
 
 // key builds the message a real key press produces. Typed characters carry Text — which is what

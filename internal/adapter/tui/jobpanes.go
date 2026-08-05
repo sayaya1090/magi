@@ -108,8 +108,11 @@ func (m *Model) syncSubagentPanes(jobs []app.SubagentJob) bool {
 			m.panes = append(m.panes, p)
 			changed = true
 		}
-		if j.Tail != p.live {
-			p.live = j.Tail
+		// The pane's contents are the CHILD'S OWN TRANSCRIPT, read from its session — the seed
+		// prompt, its reasoning, each tool call with its arguments and result, its answer. Feeding
+		// it the parent's one-line progress heartbeat instead (which is all it had) meant a panel
+		// with a detail view and a zoom showed "spawn · step 3 · read" and nothing else.
+		if n := m.refreshChildBlocks(p); n {
 			changed = true
 		}
 		// Finished exactly once: doneAt starts the fade, and re-marking it every poll would
@@ -129,6 +132,27 @@ func (m *Model) syncSubagentPanes(jobs []app.SubagentJob) bool {
 		}
 	}
 	return changed
+}
+
+// refreshChildBlocks re-reads a child's session into its pane. Reports whether anything changed.
+//
+// Polled rather than subscribed, on the tick that already drives this strip. A subscription would
+// mean a second event path into the model with its own ordering and its own teardown, for a panel
+// that redraws a few times a second anyway.
+func (m *Model) refreshChildBlocks(p *agentPane) bool {
+	if p.sid == "" {
+		return false
+	}
+	msgs, _, err := m.app.SessionState(m.ctx, p.sid)
+	if err != nil {
+		return false
+	}
+	blocks := rebuildBlocks(msgs)
+	if len(blocks) == len(p.blocks) {
+		return false // nothing new; the common case on a quiet tick
+	}
+	p.blocks = blocks
+	return true
 }
 
 // paneByJob finds the pane showing background job id, or nil.

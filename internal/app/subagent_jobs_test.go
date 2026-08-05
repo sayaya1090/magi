@@ -1,7 +1,6 @@
 package app
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -21,7 +20,6 @@ func TestAChildIsVisibleWhileItRunsAndAfterItEnds(t *testing.T) {
 		t.Errorf("the pane would say %q / %q", got[0].Tool, got[0].Task)
 	}
 
-	r.note("child-1", "spawn · step 1 · read")
 	r.finish("child-1", 7, "")
 
 	got = r.list()
@@ -33,9 +31,6 @@ func TestAChildIsVisibleWhileItRunsAndAfterItEnds(t *testing.T) {
 	}
 	if got[0].Steps != 7 {
 		t.Errorf("Steps = %d, want 7", got[0].Steps)
-	}
-	if !strings.Contains(got[0].Tail, "step 1 · read") {
-		t.Errorf("the progress did not reach the pane: %q", got[0].Tail)
 	}
 }
 
@@ -64,26 +59,5 @@ func TestTheRegisterDropsOldFinishedChildrenAndNeverARunningOne(t *testing.T) {
 	}
 	if !sawRunner {
 		t.Error("a child that is still running was evicted — its pane would never end")
-	}
-}
-
-// The tail is bounded too, and cut at a line boundary: a pane opening on half a line reads as
-// corrupted output rather than as a window onto a longer log.
-func TestTheTailIsBoundedAndCutAtALineBoundary(t *testing.T) {
-	var r subagentJobs
-	r.start("c", "looper", "t")
-	for i := 0; i < 400; i++ {
-		r.note("c", strings.Repeat("x", 40)+" line")
-	}
-	tail := r.list()[0].Tail
-	if len(tail) > subagentJobTailKeep+64 {
-		t.Errorf("the tail grew to %d bytes on a cap of %d", len(tail), subagentJobTailKeep)
-	}
-	if strings.HasPrefix(tail, "x") && !strings.HasPrefix(tail, strings.Repeat("x", 40)) {
-		t.Errorf("the tail starts mid-line: %.60q", tail)
-	}
-	// The NEWEST lines are the ones kept.
-	if !strings.HasSuffix(strings.TrimRight(tail, "\n"), " line") {
-		t.Errorf("the tail does not end on the most recent line: %.60q", tail)
 	}
 }

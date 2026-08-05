@@ -130,12 +130,7 @@ func (a *App) spawnChild(ctx context.Context, parent session.Session, actor even
 	// Put the child on the strip before it starts, so a pane exists for the whole time it runs
 	// rather than appearing once it has something to say.
 	a.subJobs.start(child, spec.ToolName, prompt)
-	stop := a.forwardChildProgress(cctx, child, func(line string) {
-		a.subJobs.note(child, line)
-		if onProgress != nil {
-			onProgress(line)
-		}
-	})
+	stop := a.forwardChildProgress(cctx, child, onProgress)
 	defer stop()
 
 	agent := AgentSpec{Name: spawnAgentName, System: spec.System, Tools: spec.Tools, Model: model, Provider: spec.Provider}
