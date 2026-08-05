@@ -24,6 +24,9 @@ import (
 
 // App is the application service implementing the command/event boundary.
 type App struct {
+	// subJobs is the register the pane strip polls for running children — see subagent_jobs.go.
+	subJobs subagentJobs
+
 	store       port.Store
 	llm         port.LLMProvider
 	providers   map[string]port.LLMProvider // named LLM profiles (per-agent endpoint/key routing)

@@ -127,7 +127,15 @@ func (a *App) spawnChild(ctx context.Context, parent session.Session, actor even
 		a.wg.Done()
 	}()
 
-	stop := a.forwardChildProgress(cctx, child, onProgress)
+	// Put the child on the strip before it starts, so a pane exists for the whole time it runs
+	// rather than appearing once it has something to say.
+	a.subJobs.start(child, spec.ToolName, prompt)
+	stop := a.forwardChildProgress(cctx, child, func(line string) {
+		a.subJobs.note(child, line)
+		if onProgress != nil {
+			onProgress(line)
+		}
+	})
 	defer stop()
 
 	agent := AgentSpec{Name: spawnAgentName, System: spec.System, Tools: spec.Tools, Model: model, Provider: spec.Provider}
@@ -137,6 +145,7 @@ func (a *App) spawnChild(ctx context.Context, parent session.Session, actor even
 	// zero however much work the child did — and the per-call budget that charges it was really
 	// counting spawns. Counted from the log because runLoop reports text and an error, not a count.
 	res := port.SpawnResult{SessionID: string(child), Text: text, Steps: a.countTurns(ctx, child)}
+	defer func() { a.subJobs.finish(child, res.Steps, res.Err) }()
 	switch {
 	case rerr != nil:
 		res.Err = rerr.Error()
@@ -202,6 +211,7 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 		// model while the work runs on a cheap one is the case this exists for, and the setting
 		// belongs where the user can see and change it — not in a plugin's own config section,
 		// which the /subagents screen has no way to edit.
+		spec.ToolName = toolName // the host names it, not the plugin
 		if m, pv := a.subagentOverride(toolName); m != "" || pv != "" {
 			if m != "" {
 				spec.Model = m

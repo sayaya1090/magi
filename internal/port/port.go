@@ -441,6 +441,10 @@ type TermCaps struct {
 // model somebody chose on purpose. magi ships none; the seam is unreachable until a plugin
 // registers a tool that uses it.
 type SpawnSpec struct {
+	// ToolName is the tool the child is running on behalf of, for display. The host fills it in —
+	// a plugin naming its own tool could name any tool, and the strip would say the wrong thing.
+	ToolName string
+
 	System string // the child's system prompt
 	// Prompt is the child's task and is seeded VERBATIM. The first defect the removed machinery
 	// was charged with was a brief paraphrased until the graded identifier was gone, so nothing
