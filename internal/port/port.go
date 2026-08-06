@@ -231,6 +231,11 @@ type ToolEnv struct {
 	// reason. Half a restore reported as a clean one is worse than none — the next round of a loop
 	// would build on a tree it believes is clean.
 	RestoreChild func(ctx context.Context, sessionID string) ([]RestoredPath, error)
+	// MergeChild applies a child's work onto the parent's tree, for a child that had its own
+	// checkout. It is the commit range the child produced, applied with git's own three-way merge,
+	// so a conflict comes back as conflict markers and not as a silent overwrite. Nothing is
+	// committed in the parent — what lands is a working-tree change for a human to read.
+	MergeChild func(ctx context.Context, sessionID string) error
 	// EmitProgress lets a long-running tool publish a live, best-effort progress
 	// note (e.g. wait_for's poll status) while it blocks, so the TUI spinner and
 	// the headless stream can show what is being waited on instead of a silent
@@ -510,10 +515,18 @@ type SpawnResult struct {
 	// wants out of — magi does not merge it back, because whether a failed attempt's changes are
 	// wanted is not magi's judgement to make.
 	Workspace string
-	SessionID string // the child's session id, so its log can be read afterwards
-	Text      string // the child's final message
-	Steps     int
-	Err       string // why the child stopped short, empty when it finished cleanly
+	// Branch, BaseCommit and HeadCommit describe the child's work as a COMMIT RANGE inside that
+	// checkout. BaseCommit pins the parent's tree as the child found it — the parent's own
+	// uncommitted changes are below that line, so BaseCommit..HeadCommit is exactly what the child
+	// did and nothing the parent already had. That is what makes a merge back a git operation
+	// rather than a pile of file copies, and what lets it apply onto a parent that is still dirty.
+	Branch     string
+	BaseCommit string
+	HeadCommit string
+	SessionID  string // the child's session id, so its log can be read afterwards
+	Text       string // the child's final message
+	Steps      int
+	Err        string // why the child stopped short, empty when it finished cleanly
 }
 
 // ToolMetadata is what a tool says about itself beyond its schema. Optional: a tool that has
