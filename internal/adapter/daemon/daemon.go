@@ -169,12 +169,14 @@ func Serve(ctx context.Context, eng Engine, path string) error {
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("daemon: a stale socket is at %s and could not be removed: %w", path, err)
 	}
-	ln, err := net.Listen("unix", path)
+	// Owner only, from the instant it exists. The socket is a control channel: anything that can
+	// write to it can make this engine act, in this workspace, with this workspace's permissions.
+	ln, err := listenOwnerOnly(path)
 	if err != nil {
-		return fmt.Errorf("daemon: listen: %w", err)
+		return err
 	}
-	// Owner only. The socket is a control channel: anything that can write to it can make this
-	// engine act, in this workspace, with this workspace's permissions.
+	// Belt and braces, and the whole story on Windows, where there is no umask to set: a mode that
+	// is already right costs one syscall to confirm.
 	if err := os.Chmod(path, 0o600); err != nil {
 		ln.Close()
 		return fmt.Errorf("daemon: %w", err)
