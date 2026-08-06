@@ -26,12 +26,20 @@ local ISOLATED_WORKER = [[
 그대로 적는다 — 그게 다음 판단의 재료다.
 ]]
 
--- ran(steps, name) — 자식이 그 툴을 한 번이라도 성공적으로 불렀는가.
-local function ran(steps, name)
+-- ran_command(steps, needle) — 자식이 **그 명령을** 실제로 돌렸는가.
+--
+-- "bash를 불렀는가"로는 부족하다. `ls`도 bash고, 빌드를 돌리라고 시킨 워커가 `cat`만 하고
+-- "동작한다"고 끝내는 것이 이 저장소가 가장 자주 본 거짓 완료다. 그래서 인자 안의 명령문을 본다.
+-- 실패한 호출도 센다 — **돌려보고 실패한 것과 아예 안 돌린 것은 다른 사건**이고, 다음 라운드에
+-- 시킬 말이 서로 다르다.
+local function ran_command(steps, needle)
   for _, s in ipairs(steps) do
-    if s.name == name and not s.failed then return true end
+    local cmd = type(s.args) == "table" and (s.args.command or s.args.cmd)
+    if s.name == "bash" and type(cmd) == "string" and cmd:find(needle, 1, true) then
+      return true, s.failed
+    end
   end
-  return false
+  return false, false
 end
 
 -- failures(steps) — 실패한 호출들을 원문 그대로 모은다. 요약하지 않는 것이 요점이다:
@@ -88,11 +96,18 @@ magi.register_tool{
           last_reason = "아직 실패가 남아 있다:\n" .. table.concat(bad, "\n")
           return last_reason
         end
-        -- 검증 명령이 지정됐으면, 그걸 실제로 돌렸는지 본다. 돌리지 않고 "동작한다"고 하는 것이
-        -- 이 저장소가 가장 자주 본 거짓 완료다.
-        if verify and not ran(steps, "bash") and round < 3 then
-          last_reason = "검증을 돌린 흔적이 없다. `" .. verify .. "` 를 실제로 실행하고 그 출력을 근거로 답하라."
-          return last_reason
+        -- 검증 명령이 지정됐으면, **그 명령을** 실제로 돌렸는지 본다.
+        if verify and round < 3 then
+          local tried, failed = ran_command(steps, verify)
+          if not tried then
+            last_reason = "검증을 돌린 흔적이 없다. `" .. verify .. "` 를 실제로 실행하고 그 출력을 근거로 답하라."
+            return last_reason
+          end
+          if failed then
+            last_reason = "`" .. verify .. "` 가 실패한 채로 끝났다. 출력을 근거로 고치거나, " ..
+              "고칠 수 없으면 무엇이 막는지 그대로 적어라."
+            return last_reason
+          end
         end
         return nil                          -- 수락
       end,
@@ -111,6 +126,12 @@ magi.register_tool{
         msg = msg .. "\n\n⚠ 되돌리지 못한 것:\n" .. table.concat(undone, "\n")
       end
       return msg, true
+    end
+
+    -- 아무것도 안 바꾼 자식. 커밋 범위가 비었다는 것은 판단이 아니라 사실이고, 가장 싼
+    -- 거짓 완료 탐지다 — "고쳤다"는 문단과 빈 diff가 함께 오는 경우.
+    if r.base_commit ~= "" and r.base_commit == r.head_commit then
+      return "워커가 끝났다고 했지만 **바꾼 것이 없다**(커밋 범위가 비었다).\n\n" .. (r.text or ""), true
     end
 
     local ok, err = magi.merge_child(r.session_id)
