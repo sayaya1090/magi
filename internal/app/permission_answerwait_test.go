@@ -155,3 +155,70 @@ func TestWaitingReportsTheOldestPrompt(t *testing.T) {
 		t.Error("an unknown session reported a pending prompt")
 	}
 }
+
+// Two UIs on one daemon can be looking at the same prompt. Which one wins is a race magi cannot
+// arbitrate; which one is TOLD it won is not.
+//
+// The channel holds one answer and the tool takes it, so a second delivery finds it full. That used
+// to return nil — so the person whose choice was discarded watched the opposite happen with no
+// reason to doubt their own screen. It is a browser and a terminal on one workspace, which is what
+// this whole arrangement is for.
+func TestASecondAnswerIsToldItWasTooLate(t *testing.T) {
+	tc := &session.ToolCall{CallID: "c1", Name: "bash", Args: json.RawMessage(`{"command":"rm -rf build"}`)}
+	actor := event.Actor{Kind: event.ActorUser, ID: "u"}
+	a, wd := newApp(t, &fakeLLM{}, Config{Permission: "ask", Interactive: true})
+	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
+
+	got := make(chan bool, 1)
+	go func() { got <- a.requestPermission(context.Background(), sid, actor, tc, true, "") }()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if _, ok := a.Waiting(sid); ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the prompt never registered")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	first := a.RespondPermission(context.Background(), command.RespondPermission{
+		SessionID: sid, CallID: "c1", Decision: "allow"})
+	if first != nil {
+		t.Fatalf("the first answer was refused: %v", first)
+	}
+	second := a.RespondPermission(context.Background(), command.RespondPermission{
+		SessionID: sid, CallID: "c1", Decision: "deny"})
+	if second == nil {
+		t.Error("the second UI was told its 'deny' was applied, and the tool ran anyway")
+	} else if !strings.Contains(second.Error(), "already") {
+		t.Errorf("the refusal does not say what happened: %v", second)
+	}
+
+	select {
+	case allowed := <-got:
+		if !allowed {
+			t.Error("the first answer did not decide it")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the prompt never resolved")
+	}
+
+	// Same for a question: an answer nobody used must not report success.
+	qsid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
+	a.mu.Lock()
+	st := a.stateLocked(qsid)
+	if st.questions == nil {
+		st.questions = map[string]chan string{}
+	}
+	st.questions["q1"] = make(chan string, 1)
+	a.mu.Unlock()
+	if err := a.RespondQuestion(context.Background(), command.RespondQuestion{
+		SessionID: qsid, CallID: "q1", Answer: "main"}); err != nil {
+		t.Fatalf("the first answer was refused: %v", err)
+	}
+	if err := a.RespondQuestion(context.Background(), command.RespondQuestion{
+		SessionID: qsid, CallID: "q1", Answer: "release"}); err == nil {
+		t.Error("a second answer to one question reported success")
+	}
+}

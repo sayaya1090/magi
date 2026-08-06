@@ -660,37 +660,46 @@ func (a *App) Interrupt(ctx context.Context, c command.Interrupt) error {
 
 // RespondQuestion delivers the user's pick to a waiting ask_user execution.
 func (a *App) RespondQuestion(ctx context.Context, c command.RespondQuestion) error {
+	// Claiming and delivering happen under one lock: the entry is what says the question is still
+	// open, so taking it is what makes this answer THE answer. Two UIs on one daemon can both be
+	// looking at this prompt — a browser and a terminal is the arrangement the socket exists for —
+	// and the second one has to be told, not thanked.
 	a.mu.Lock()
 	var ch chan string
 	if st, ok := a.stateIf(c.SessionID); ok {
-		ch = st.questions[c.CallID]
+		if ch = st.questions[c.CallID]; ch != nil {
+			delete(st.questions, c.CallID)
+			delete(st.asking, c.CallID)
+		}
 	}
 	a.mu.Unlock()
 	if ch == nil {
-		return fmt.Errorf("no pending question for call %s", c.CallID)
+		return fmt.Errorf("question %s is not waiting for an answer — it was answered already, "+
+			"or the prompt has expired", c.CallID)
 	}
-	select {
-	case ch <- c.Answer:
-	default:
-	}
+	ch <- c.Answer // buffered, and this is the only send that can reach it
 	return nil
 }
 
 // RespondPermission delivers a decision to a waiting tool execution.
 func (a *App) RespondPermission(ctx context.Context, c command.RespondPermission) error {
+	// Taking the entry IS the decision. Which UI wins a race is not something magi can arbitrate;
+	// which one is told it won is, and reporting success to the loser means somebody watches the
+	// opposite of what they chose with no reason to doubt their own screen.
 	a.mu.Lock()
 	var ch chan string
 	if st, ok := a.stateIf(c.SessionID); ok {
-		ch = st.perms[c.CallID]
+		if ch = st.perms[c.CallID]; ch != nil {
+			delete(st.perms, c.CallID)
+			delete(st.asking, c.CallID)
+		}
 	}
 	a.mu.Unlock()
 	if ch == nil {
-		return fmt.Errorf("no pending permission for call %s", c.CallID)
+		return fmt.Errorf("permission %s is not waiting for a decision — it was decided already, "+
+			"or the prompt has expired", c.CallID)
 	}
-	select {
-	case ch <- c.Decision:
-	default:
-	}
+	ch <- c.Decision // buffered, and this is the only send that can reach it
 	return nil
 }
 
