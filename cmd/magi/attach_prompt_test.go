@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -97,7 +98,7 @@ func TestTheAttachedTerminalRebuildsThePrompt(t *testing.T) {
 	sid := session.SessionID("s_1")
 
 	// Nothing pending: nothing is drawn, and the state is "cleared" rather than "unknown".
-	if _, _, drawing, cleared := a.pendingPrompt(sid, ""); drawing || !cleared {
+	if _, _, drawing, cleared, _ := a.pendingPrompt(sid, ""); drawing || !cleared {
 		t.Errorf("with no prompt pending: drawing=%v cleared=%v, want false/true", drawing, cleared)
 	}
 
@@ -105,7 +106,7 @@ func TestTheAttachedTerminalRebuildsThePrompt(t *testing.T) {
 	eng.set(&app.Ask{ID: "call_7", Kind: "permission", What: "bash", Args: args,
 		Reason: "destructive command detected", Since: time.Now()})
 
-	ev, id, drawing, _ := a.pendingPrompt(sid, "")
+	ev, id, drawing, _, _ := a.pendingPrompt(sid, "")
 	if !drawing {
 		t.Fatal("a pending permission prompt was not drawn")
 	}
@@ -130,14 +131,14 @@ func TestTheAttachedTerminalRebuildsThePrompt(t *testing.T) {
 	}
 
 	// Drawn once. Polling four times a second must not stack four modals over one question.
-	if _, gotID, drawing, cleared := a.pendingPrompt(sid, "call_7"); drawing || cleared || gotID != "call_7" {
+	if _, gotID, drawing, cleared, _ := a.pendingPrompt(sid, "call_7"); drawing || cleared || gotID != "call_7" {
 		t.Errorf("the same prompt was drawn again (drawing=%v cleared=%v id=%q)", drawing, cleared, gotID)
 	}
 
 	// A question carries its picks, or the modal offers nothing to pick.
 	eng.set(&app.Ask{ID: "q1#1", Kind: "question", What: "which branch?",
 		Options: []string{"main", "release"}, Since: time.Now()})
-	ev, _, drawing, _ = a.pendingPrompt(sid, "call_7")
+	ev, _, drawing, _, _ = a.pendingPrompt(sid, "call_7")
 	if !drawing || ev.Type != event.TypeQuestionRequested {
 		t.Fatalf("a question came through as %v (drawing=%v)", ev.Type, drawing)
 	}
@@ -161,12 +162,12 @@ func TestAFailedStatusChangesNothingOnScreen(t *testing.T) {
 	a := attached{c: cl}
 	sid := session.SessionID("s_1")
 	eng.set(&app.Ask{ID: "call_7", Kind: "permission", What: "bash", Since: time.Now()})
-	if _, _, drawing, _ := a.pendingPrompt(sid, ""); !drawing {
+	if _, _, drawing, _, _ := a.pendingPrompt(sid, ""); !drawing {
 		t.Fatal("the prompt was not drawn to begin with")
 	}
 
 	cl.Close() // the daemon is gone, or the connection dropped
-	_, id, drawing, cleared := a.pendingPrompt(sid, "call_7")
+	_, id, drawing, cleared, reachable := a.pendingPrompt(sid, "call_7")
 	if drawing {
 		t.Error("a failed status redrew the prompt")
 	}
@@ -175,6 +176,10 @@ func TestAFailedStatusChangesNothingOnScreen(t *testing.T) {
 	}
 	if id != "call_7" {
 		t.Errorf("a failed status forgot which prompt was on screen (%q)", id)
+	}
+	// And it says the daemon is out of reach, which is what puts the notice on screen.
+	if reachable {
+		t.Error("a failed status reported the daemon as reachable — nothing would tell the user")
 	}
 }
 
@@ -185,19 +190,58 @@ func TestAnAnsweredPromptClearsTheMarker(t *testing.T) {
 	a := attached{c: serveEngine(t, eng)}
 	sid := session.SessionID("s_1")
 	eng.set(&app.Ask{ID: "call_7", Kind: "permission", What: "bash", Since: time.Now()})
-	if _, _, drawing, _ := a.pendingPrompt(sid, ""); !drawing {
+	if _, _, drawing, _, _ := a.pendingPrompt(sid, ""); !drawing {
 		t.Fatal("not drawn")
 	}
 	if err := a.RespondPermission(context.Background(), command.RespondPermission{
 		SessionID: sid, CallID: "call_7", Decision: "allow"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, cleared := a.pendingPrompt(sid, "call_7"); !cleared {
+	if _, _, _, cleared, _ := a.pendingPrompt(sid, "call_7"); !cleared {
 		t.Fatal("the marker did not clear after the prompt was answered")
 	}
 	// Same id again — a fresh prompt, and it must reach the screen.
 	eng.set(&app.Ask{ID: "call_7", Kind: "permission", What: "bash", Since: time.Now()})
-	if _, _, drawing, _ := a.pendingPrompt(sid, ""); !drawing {
+	if _, _, drawing, _, _ := a.pendingPrompt(sid, ""); !drawing {
 		t.Error("a new prompt reusing the id was swallowed")
+	}
+}
+
+// A daemon that dies must not leave the screen looking alive.
+//
+// The transcript comes from the log, which stays readable after the engine is gone — so the view
+// keeps rendering the last thing that happened and nothing says the process driving it has stopped.
+// The only way to find out was to type something and watch it fail. The poll that notices says so
+// instead, once, in the transcript where the record is.
+func TestTheScreenIsToldWhenTheDaemonGoesAway(t *testing.T) {
+	eng := &promptEngine{}
+	cl := serveEngine(t, eng)
+	a := attached{c: cl}
+	sid := session.SessionID("s_1")
+
+	if _, _, _, _, reachable := a.pendingPrompt(sid, ""); !reachable {
+		t.Fatal("a live daemon was reported unreachable")
+	}
+	cl.Close()
+	_, _, _, _, reachable := a.pendingPrompt(sid, "")
+	if reachable {
+		t.Fatal("a dead daemon was reported reachable — nothing would tell the user")
+	}
+
+	ev := daemonLostEvent(sid)
+	if ev.Type != event.TypeError {
+		t.Errorf("the notice is a %q; the transcript shows errors", ev.Type)
+	}
+	var d event.ErrorData
+	if err := json.Unmarshal(ev.Data, &d); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"stopped answering", "magi --daemon"} {
+		if !strings.Contains(d.Message, want) {
+			t.Errorf("the notice does not say %q: %q", want, d.Message)
+		}
+	}
+	if ev.Seq != 0 {
+		t.Error("the notice carries a sequence number, as though it came from the log")
 	}
 }

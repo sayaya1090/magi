@@ -135,6 +135,23 @@ func TestAnsweringAPromptOverTheSocket(t *testing.T) {
 		t.Errorf("the daemon received %v, want answer:q1#1:main second", got)
 	}
 
+	// A missing or unknown kind is refused, not defaulted. The two answers travel the same shape:
+	// defaulted to permission, a question's answer becomes a decision string the core does not
+	// recognise, which reads as "not allow" — so the tool is denied and the page says it worked.
+	for _, bad := range []url.Values{
+		{"call": {"call_7"}, "text": {"allow"}},                         // no kind
+		{"call": {"call_7"}, "kind": {"guess"}, "text": {"allow"}},      // not a kind
+		{"call": {"call_7"}, "kind": {"permission"}, "text": {"maybe"}}, // not a decision
+		{"call": {"call_7"}, "kind": {"permission"}, "text": {"main"}},  // a question's answer
+	} {
+		if w := post(t, f.srv, f.srv.answer, "/answer"+q, bad); w.Code != http.StatusBadRequest {
+			t.Errorf("%v replied %d, want 400", bad, w.Code)
+		}
+	}
+	if got := eng.seen(); len(got) != 2 {
+		t.Errorf("a malformed answer reached the engine: %v", got)
+	}
+
 	// No call id is refused rather than guessed at: an answer with nowhere to go would be reported
 	// as delivered and silently dropped.
 	if w := post(t, f.srv, f.srv.answer, "/answer"+q, url.Values{

@@ -106,7 +106,8 @@ func (a attached) Subscribe(ctx context.Context, sid session.SessionID, fromSeq 
 		}
 		tick := time.NewTicker(pollInterval)
 		defer tick.Stop()
-		asked := "" // the prompt already put on screen, so it is drawn once and not every tick
+		asked := ""   // the prompt already put on screen, so it is drawn once and not every tick
+		lost := false // whether the screen has already been told the daemon stopped answering
 		for {
 			select {
 			case <-pctx.Done():
@@ -117,7 +118,22 @@ func (a attached) Subscribe(ctx context.Context, sid session.SessionID, fromSeq 
 			// should happen, not a record of what did, and the event announcing it went to the
 			// daemon's bus. Without this the attached screen shows a run that simply stopped, with
 			// the answer it is waiting for one keystroke away and no way to know.
-			ev, id, drawing, cleared := a.pendingPrompt(sid, asked)
+			ev, id, drawing, cleared, reachable := a.pendingPrompt(sid, asked)
+			// A daemon that dies leaves this view looking alive: the log is still readable, so the
+			// transcript keeps rendering the last thing that happened and nothing says the engine
+			// is gone. The only way to find out was to type something and watch it fail. Say it
+			// once, on the poll that notices.
+			if !reachable && !lost {
+				lost = true
+				select {
+				case out <- daemonLostEvent(sid):
+				case <-pctx.Done():
+					return
+				}
+			}
+			if reachable {
+				lost = false
+			}
 			switch {
 			case drawing:
 				asked = id
@@ -198,16 +214,16 @@ func drainPast(ctx context.Context, src <-chan event.Event) <-chan event.Event {
 // A FAILED status is none of those. Treating it as "nothing pending" would clear the marker, and
 // the next poll would redraw a prompt that is already on screen — one dropped packet turning into
 // two stacked modals over the same question.
-func (a attached) pendingPrompt(sid session.SessionID, drawn string) (ev event.Event, id string, drawing, cleared bool) {
+func (a attached) pendingPrompt(sid session.SessionID, drawn string) (ev event.Event, id string, drawing, cleared, reachable bool) {
 	w, err := a.c.Status(string(sid))
 	if err != nil {
-		return event.Event{}, drawn, false, false // unknown: change nothing
+		return event.Event{}, drawn, false, false, false // unknown: change nothing
 	}
 	if w == nil {
-		return event.Event{}, "", false, true
+		return event.Event{}, "", false, true, true
 	}
 	if w.ID == drawn {
-		return event.Event{}, w.ID, false, false
+		return event.Event{}, w.ID, false, false, true
 	}
 	var (
 		typ  event.Type
@@ -224,10 +240,29 @@ func (a attached) pendingPrompt(sid session.SessionID, drawn string) (ev event.E
 			CallID: w.ID, Name: w.What, Args: w.Args, Reason: w.Reason})
 	}
 	if err != nil {
-		return event.Event{}, drawn, false, false
+		return event.Event{}, drawn, false, false, true
 	}
 	return event.Event{
 		SessionID: sid, Type: typ, Data: data,
 		Actor: event.Actor{Kind: event.ActorSystem, ID: "daemon"},
-	}, w.ID, true, false
+	}, w.ID, true, false, true
+}
+
+// daemonLostEvent is what the screen shows when the engine it is watching stops answering.
+//
+// An error event rather than a quiet indicator: the transcript is the record this view has, and
+// "the process running this session is gone" belongs in it next to whatever it last did. It is not
+// written to the store — this process must not put words in another's log — so it lives exactly as
+// long as the view does, which is the right lifetime for a fact about a connection.
+func daemonLostEvent(sid session.SessionID) event.Event {
+	d, _ := json.Marshal(event.ErrorData{
+		Code: "daemon",
+		Message: "the daemon driving this session stopped answering — it exited, was killed, or " +
+			"its socket went away. The transcript below is what it had done up to that point; " +
+			"start one again with `magi --daemon` in this directory.",
+	})
+	return event.Event{
+		SessionID: sid, Type: event.TypeError, Data: d,
+		Actor: event.Actor{Kind: event.ActorSystem, ID: "attach"},
+	}
 }

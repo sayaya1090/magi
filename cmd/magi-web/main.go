@@ -452,13 +452,26 @@ func (s *server) answer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	kind, text := r.FormValue("kind"), strings.TrimSpace(r.FormValue("text"))
+	// Named, not defaulted. The two answers travel the same shape and mean different things, and
+	// defaulting to permission turns a question's answer into a decision string the core does not
+	// recognise — which reads as "not allow", so the tool is DENIED and the page reports success.
+	// A wrong answer delivered silently is worse than one refused.
+	if kind != "permission" && kind != "question" {
+		http.Error(w, "kind must be permission or question", http.StatusBadRequest)
+		return
+	}
+	if kind == "permission" && text != "allow" && text != "deny" && text != "always" && text != "persist" {
+		// The decision vocabulary is the core's, carried through unchanged: a second spelling here
+		// would be a place for the two to disagree, and an unrecognised one denies by falling
+		// through rather than by saying so.
+		http.Error(w, "decision must be allow, deny, always or persist", http.StatusBadRequest)
+		return
+	}
 	err := s.withClient(r, func(cl *daemon.Client, sid session.SessionID) error {
 		if kind == "question" {
 			return cl.RespondQuestion(context.Background(), command.RespondQuestion{
 				SessionID: sid, CallID: callID, Answer: text})
 		}
-		// The decision vocabulary is the core's, carried through unchanged: a second spelling of
-		// allow/deny/always here would be a place for the two to disagree.
 		return cl.RespondPermission(context.Background(), command.RespondPermission{
 			SessionID: sid, CallID: callID, Decision: text})
 	})
