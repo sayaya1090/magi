@@ -39,7 +39,7 @@ func TestDiagnoseGoSyntaxError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := New(store, nil, builtin.Default(), bus.New(), platform.New(), Config{})
+	a := closeAfter(t, New(store, nil, builtin.Default(), bus.New(), platform.New(), Config{}))
 	wd := t.TempDir()
 	if err := os.WriteFile(filepath.Join(wd, "bad.go"), []byte("package x\n\nfunc {\n"), 0o644); err != nil {
 		t.Fatal(err)

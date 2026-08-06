@@ -21,7 +21,7 @@ func TestProjectMemoryInSystemPrompt(t *testing.T) {
 
 	llm := &usageLLM{text: "ok"}
 	store, _ := jsonl.New(t.TempDir())
-	a := New(store, llm, builtin.Default(), bus.New(), nil, Config{Permission: "allow"})
+	a := closeAfter(t, New(store, llm, builtin.Default(), bus.New(), nil, Config{Permission: "allow"}))
 	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
 
 	runToTerminal(t, a, sid)
@@ -39,7 +39,7 @@ func TestProjectMemoryInSystemPrompt(t *testing.T) {
 func TestContextUsagePublished(t *testing.T) {
 	llm := &usageLLM{text: "ok"}
 	store, _ := jsonl.New(t.TempDir())
-	a := New(store, llm, builtin.Default(), bus.New(), nil, Config{Permission: "allow"})
+	a := closeAfter(t, New(store, llm, builtin.Default(), bus.New(), nil, Config{Permission: "allow"}))
 	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: t.TempDir()})
 
 	got := runToTerminal(t, a, sid)

@@ -59,7 +59,7 @@ func newAsideApp(t *testing.T, llm port.LLMProvider) (*App, session.Session) {
 	reg := builtin.Default()
 	reg.Register(builtin.RouteInterjection{})
 	reg.Register(builtin.AskUser{})
-	a := New(store, llm, reg, bus.New(), nil, Config{Permission: "allow", Interactive: true})
+	a := closeAfter(t, New(store, llm, reg, bus.New(), nil, Config{Permission: "allow", Interactive: true}))
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

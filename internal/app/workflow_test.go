@@ -97,7 +97,7 @@ func newWorkflowApp(t *testing.T, llm port.LLMProvider, plat port.Platform, cfg 
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := New(store, llm, builtin.Default(), bus.New(), plat, cfg)
+	a := closeAfter(t, New(store, llm, builtin.Default(), bus.New(), plat, cfg))
 	wd := t.TempDir()
 	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
 	return a, sid, wd

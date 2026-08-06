@@ -32,7 +32,7 @@ func storeApp(t *testing.T) (*App, *jsonl.Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := New(store, completingLLM{}, builtin.Default(), bus.New(), nil, Config{Permission: "allow"})
+	a := closeAfter(t, New(store, completingLLM{}, builtin.Default(), bus.New(), nil, Config{Permission: "allow"}))
 	t.Cleanup(func() {
 		cc, cx := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cx()

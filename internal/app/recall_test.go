@@ -217,7 +217,7 @@ func TestRecallContextIntegration(t *testing.T) {
 	reg := model.NewRegistry()
 	reg.Register(model.Info{ID: "m", ContextWindow: 100000, Tools: true})
 	store, _ := jsonl.New(t.TempDir())
-	a := New(store, &usageLLM{}, builtin.Default(), bus.New(), nil, Config{Permission: "allow", Models: reg})
+	a := closeAfter(t, New(store, &usageLLM{}, builtin.Default(), bus.New(), nil, Config{Permission: "allow", Models: reg}))
 	ctx := context.Background()
 	sid, _ := a.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir(), Model: session.ModelRef{Provider: "openai", Model: "m"}})
 

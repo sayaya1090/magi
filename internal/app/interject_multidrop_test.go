@@ -66,7 +66,7 @@ func TestSteerMultipleMidTurnAllQueued(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := New(store, rec, reg, bus.New(), nil, Config{Permission: "allow"})
+	a := closeAfter(t, New(store, rec, reg, bus.New(), nil, Config{Permission: "allow"}))
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

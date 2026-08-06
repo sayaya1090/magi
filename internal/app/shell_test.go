@@ -18,7 +18,7 @@ func TestRunShell(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := New(store, nil, builtin.Default(), bus.New(), platform.New(), Config{})
+	a := closeAfter(t, New(store, nil, builtin.Default(), bus.New(), platform.New(), Config{}))
 	dir := t.TempDir()
 
 	out, exit, err := a.RunShell(context.Background(), dir, "echo hi")
@@ -48,7 +48,7 @@ func TestRunShellNoPlatform(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := New(store, nil, builtin.Default(), bus.New(), nil, Config{})
+	a := closeAfter(t, New(store, nil, builtin.Default(), bus.New(), nil, Config{}))
 	if _, _, err := a.RunShell(context.Background(), t.TempDir(), "echo hi"); err == nil {
 		t.Fatal("expected error with nil platform")
 	}

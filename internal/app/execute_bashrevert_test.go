@@ -27,7 +27,7 @@ func TestBashRestoreLoopKeepsTheProgressWindowClimbing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := New(store, nil, builtin.Default(), bus.New(), platform.New(), Config{Permission: "allow"})
+	a := closeAfter(t, New(store, nil, builtin.Default(), bus.New(), platform.New(), Config{Permission: "allow"}))
 	wd := t.TempDir()
 	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
 	if err := os.WriteFile(filepath.Join(wd, "heap.c"), []byte("original\n"), 0o644); err != nil {
@@ -98,7 +98,7 @@ func TestRemovingAPathThatNeverExistedSaysNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := New(store, nil, builtin.Default(), bus.New(), platform.New(), Config{Permission: "allow"})
+	a := closeAfter(t, New(store, nil, builtin.Default(), bus.New(), platform.New(), Config{Permission: "allow"}))
 	wd := t.TempDir()
 	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
 	ctx := context.Background()

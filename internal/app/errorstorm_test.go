@@ -32,7 +32,7 @@ func TestNoRetryStormOnPersistentError(t *testing.T) {
 		t.Fatal(err)
 	}
 	llm := &erroringLLM{}
-	a := New(store, llm, builtin.Default(), bus.New(), nil, Config{Permission: "allow"})
+	a := closeAfter(t, New(store, llm, builtin.Default(), bus.New(), nil, Config{Permission: "allow"}))
 	ctx := context.Background()
 	sid, _ := a.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir()})
 	a.Submit(ctx, command.SubmitPrompt{

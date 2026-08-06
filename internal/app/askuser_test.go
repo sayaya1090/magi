@@ -26,7 +26,7 @@ func TestAskUserRoundTrip(t *testing.T) {
 	store, _ := jsonl.New(t.TempDir())
 	reg := builtin.Default()
 	reg.Register(builtin.AskUser{})
-	a := New(store, llm, reg, bus.New(), nil, Config{Permission: "allow", Interactive: true})
+	a := closeAfter(t, New(store, llm, reg, bus.New(), nil, Config{Permission: "allow", Interactive: true}))
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -84,7 +84,7 @@ func TestAskUserHeadlessDegrades(t *testing.T) {
 	store, _ := jsonl.New(t.TempDir())
 	reg := builtin.Default()
 	reg.Register(builtin.AskUser{})
-	a := New(store, llm, reg, bus.New(), nil, Config{Permission: "allow", Interactive: false})
+	a := closeAfter(t, New(store, llm, reg, bus.New(), nil, Config{Permission: "allow", Interactive: false}))
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

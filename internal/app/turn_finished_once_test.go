@@ -26,7 +26,7 @@ func TestTurnFinishesExactlyOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := New(store, &usageLLM{text: "hi", in: 1234, out: 7}, builtin.Default(), bus.New(), nil, Config{Permission: "allow"})
+	a := closeAfter(t, New(store, &usageLLM{text: "hi", in: 1234, out: 7}, builtin.Default(), bus.New(), nil, Config{Permission: "allow"}))
 	ctx := context.Background()
 	sid, err := a.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir()})
 	if err != nil {

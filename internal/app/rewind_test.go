@@ -16,7 +16,7 @@ import (
 func TestRewind(t *testing.T) {
 	llm := &usageLLM{text: "reply"}
 	store, _ := jsonl.New(t.TempDir())
-	a := New(store, llm, builtin.Default(), bus.New(), nil, Config{Permission: "allow"})
+	a := closeAfter(t, New(store, llm, builtin.Default(), bus.New(), nil, Config{Permission: "allow"}))
 	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: t.TempDir()})
 
 	// Two turns.
@@ -40,7 +40,7 @@ func TestRewind(t *testing.T) {
 // Rewind on a fresh session (no prompts) errors gracefully.
 func TestRewindNothing(t *testing.T) {
 	store, _ := jsonl.New(t.TempDir())
-	a := New(store, &usageLLM{}, builtin.Default(), bus.New(), nil, Config{Permission: "allow"})
+	a := closeAfter(t, New(store, &usageLLM{}, builtin.Default(), bus.New(), nil, Config{Permission: "allow"}))
 	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: t.TempDir()})
 	if _, err := a.Rewind(context.Background(), sid, 1); err == nil {
 		t.Error("rewind with no prompts should error")
@@ -90,7 +90,7 @@ func submitSync(t *testing.T, a *App, sid session.SessionID, text string) {
 // a new state field is added to one reset path but missed on another.)
 func TestRewindClearsDerivedCaches(t *testing.T) {
 	store, _ := jsonl.New(t.TempDir())
-	a := New(store, &usageLLM{text: "reply"}, builtin.Default(), bus.New(), nil, Config{Permission: "allow"})
+	a := closeAfter(t, New(store, &usageLLM{text: "reply"}, builtin.Default(), bus.New(), nil, Config{Permission: "allow"}))
 	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: t.TempDir()})
 	submitSync(t, a, sid, "do the thing")
 

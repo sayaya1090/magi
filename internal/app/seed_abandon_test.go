@@ -92,7 +92,7 @@ func TestAbandonSeedOnCancelWritesMarker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := New(store, nil, builtin.Default(), bus.New(), nil, Config{})
+	a := closeAfter(t, New(store, nil, builtin.Default(), bus.New(), nil, Config{}))
 	ctx := context.Background()
 	sid := session.SessionID("s1")
 	if _, err := store.Append(ctx, sid, sessionCreatedEvt(t), userPromptEvt(t, "A", "do A")); err != nil {
@@ -128,7 +128,7 @@ func TestAbandonSeedOnCancelGuardsAnswered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := New(store, nil, builtin.Default(), bus.New(), nil, Config{})
+	a := closeAfter(t, New(store, nil, builtin.Default(), bus.New(), nil, Config{}))
 	ctx := context.Background()
 	sid := session.SessionID("s1")
 	if _, err := store.Append(ctx, sid, sessionCreatedEvt(t), userPromptEvt(t, "A", "do A"), agentPartEvt(t)); err != nil {

@@ -223,7 +223,7 @@ func TestSteerDuringFinalStreamRunsAsOwnTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := New(store, gl, builtin.Default(), bus.New(), nil, Config{Permission: "allow", Council: fc})
+	a := closeAfter(t, New(store, gl, builtin.Default(), bus.New(), nil, Config{Permission: "allow", Council: fc}))
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -297,7 +297,7 @@ func TestSteerAfterAssistantTextRunsExactlyOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := New(store, llm, builtin.Default(), bus.New(), nil, Config{Permission: "allow", Council: bc})
+	a := closeAfter(t, New(store, llm, builtin.Default(), bus.New(), nil, Config{Permission: "allow", Council: bc}))
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -355,7 +355,7 @@ func TestQueuedSteerAnsweredInlineNoNewTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	fc := &fakeCouncil{delibs: []council.Deliberation{{Round: 1, Decision: council.Done}}}
-	a := New(store, llm, builtin.Default(), bus.New(), nil, Config{Permission: "allow", Council: fc})
+	a := closeAfter(t, New(store, llm, builtin.Default(), bus.New(), nil, Config{Permission: "allow", Council: fc}))
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -403,7 +403,7 @@ func TestQueuedSteerRoutedRunsAsOwnTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	fc := &fakeCouncil{delibs: []council.Deliberation{{Round: 1, Decision: council.Done}}}
-	a := New(store, llm, builtin.Default(), bus.New(), nil, Config{Permission: "allow", Council: fc})
+	a := closeAfter(t, New(store, llm, builtin.Default(), bus.New(), nil, Config{Permission: "allow", Council: fc}))
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -457,7 +457,7 @@ func TestSteerArrivingDuringTriageNotDropped(t *testing.T) {
 		t.Fatal(err)
 	}
 	fc := &fakeCouncil{delibs: []council.Deliberation{{Round: 1, Decision: council.Done}}}
-	a := New(store, llm, builtin.Default(), bus.New(), nil, Config{Permission: "allow", Council: fc})
+	a := closeAfter(t, New(store, llm, builtin.Default(), bus.New(), nil, Config{Permission: "allow", Council: fc}))
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

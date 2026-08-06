@@ -105,7 +105,7 @@ func startWithWaitingCouncil(t *testing.T, decide func(string) string, waiting s
 	reg := builtin.Default()
 	builtin.RegisterOrchestration(reg, false)
 	fc := &fakeCouncil{delibs: []council.Deliberation{{Round: 1, Decision: council.Done}}}
-	a := New(store, llm, reg, bus.New(), nil, Config{Permission: "allow", Council: fc})
+	a := closeAfter(t, New(store, llm, reg, bus.New(), nil, Config{Permission: "allow", Council: fc}))
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

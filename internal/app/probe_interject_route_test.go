@@ -67,7 +67,7 @@ func newTestApp(t *testing.T) *App {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := New(store, completingLLM{}, builtin.Default(), bus.New(), nil, Config{Permission: "allow"})
+	a := closeAfter(t, New(store, completingLLM{}, builtin.Default(), bus.New(), nil, Config{Permission: "allow"}))
 	t.Cleanup(func() {
 		cc, cx := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cx()
@@ -124,7 +124,7 @@ func TestQueuedInterjectionResurfacedNoDeadlock(t *testing.T) {
 	// The pre-queued interjection needs work → finish-boundary triage escalates it (routeAside →
 	// true), so it re-surfaces as its own turn. The drain now pops under the lock then triages
 	// unlocked, so the old self-locking-under-a.mu deadlock this guards can no longer occur.
-	a := New(store, &triageAwareLLM{routeAside: func(string) bool { return true }}, builtin.Default(), bus.New(), nil, Config{Permission: "allow"})
+	a := closeAfter(t, New(store, &triageAwareLLM{routeAside: func(string) bool { return true }}, builtin.Default(), bus.New(), nil, Config{Permission: "allow"}))
 	t.Cleanup(func() {
 		cc, cx := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cx()

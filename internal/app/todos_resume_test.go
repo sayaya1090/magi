@@ -72,7 +72,7 @@ func newTodoLogApp(t *testing.T, plans ...[]session.Todo) (*App, session.Session
 	t.Helper()
 	ctx := context.Background()
 	store, _ := jsonl.New(t.TempDir())
-	a := New(store, &usageLLM{}, builtin.Default(), bus.New(), nil, Config{Permission: "allow"})
+	a := closeAfter(t, New(store, &usageLLM{}, builtin.Default(), bus.New(), nil, Config{Permission: "allow"}))
 	sid, err := a.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir(),
 		Model: session.ModelRef{Provider: "openai", Model: "m"}})
 	if err != nil {

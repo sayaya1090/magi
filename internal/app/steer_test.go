@@ -86,7 +86,7 @@ func TestSteerMidTurnDeferredToOwnTurn(t *testing.T) {
 			textStep("done"),
 		},
 	}
-	a := New(store, rec, reg, bus.New(), nil, Config{Permission: "allow"})
+	a := closeAfter(t, New(store, rec, reg, bus.New(), nil, Config{Permission: "allow"}))
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

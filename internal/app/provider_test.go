@@ -114,7 +114,7 @@ func TestSetProfileRuntime(t *testing.T) {
 // MINIMAL Config (no maps supplied) must not panic on a nil-map write.
 func TestSetProfileOnFreshAppNoNilMapPanic(t *testing.T) {
 	store, _ := jsonl.New(t.TempDir())
-	a := New(store, namedLLM{"d"}, builtin.Default(), bus.New(), nil, Config{Permission: "allow"})
+	a := closeAfter(t, New(store, namedLLM{"d"}, builtin.Default(), bus.New(), nil, Config{Permission: "allow"}))
 	a.SetProfile(ProfileDef{Name: "p", Model: "m"}) // writes a.cfg.ProfileModels[...] — nil map would panic
 	if got := a.Profiles(); len(got) != 1 || got[0].Name != "p" {
 		t.Fatalf("profile not recorded on a fresh app: %+v", got)

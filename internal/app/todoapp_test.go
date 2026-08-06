@@ -21,7 +21,7 @@ func newTodoApp(t *testing.T, cfg Config) (*App, session.SessionID) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := New(store, silentLLM{}, nil, bus.New(), nil, cfg)
+	a := closeAfter(t, New(store, silentLLM{}, nil, bus.New(), nil, cfg))
 	sid, err := a.CreateSession(context.Background(), command.CreateSession{Workdir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)

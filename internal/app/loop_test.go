@@ -124,7 +124,7 @@ func newApp(t *testing.T, llm port.LLMProvider, cfg Config) (*App, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := New(store, llm, builtin.Default(), bus.New(), nil, cfg)
+	a := New(store, llm, builtin.Default(), bus.New(), nil, cfg) // closed by the Cleanup below
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

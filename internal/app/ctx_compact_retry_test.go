@@ -53,7 +53,7 @@ func TestCompactNowFoldsRegardlessOfBudget(t *testing.T) {
 	ctx := context.Background()
 	store, _ := jsonl.New(t.TempDir())
 	llm := &usageLLM{text: "SUMMARY"} // serves as the summarizer
-	a := New(store, llm, builtin.Default(), bus.New(), nil, Config{Permission: "allow"})
+	a := closeAfter(t, New(store, llm, builtin.Default(), bus.New(), nil, Config{Permission: "allow"}))
 	sid, _ := a.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir(), Model: session.ModelRef{Provider: "openai", Model: "unregistered"}})
 
 	big := strings.Repeat("x", 50)
@@ -104,7 +104,7 @@ func TestContextOverflowCompactsAndRetries(t *testing.T) {
 	ctx := context.Background()
 	store, _ := jsonl.New(t.TempDir())
 	llm := &overflowLLM{}
-	a := New(store, llm, builtin.Default(), bus.New(), nil, Config{Permission: "allow"})
+	a := closeAfter(t, New(store, llm, builtin.Default(), bus.New(), nil, Config{Permission: "allow"}))
 	sid, _ := a.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir(), Model: session.ModelRef{Provider: "openai", Model: "unregistered"}})
 
 	big := strings.Repeat("x", 50)
@@ -135,7 +135,7 @@ func TestContextOverflowFlagOffFailsFast(t *testing.T) {
 	ctx := context.Background()
 	store, _ := jsonl.New(t.TempDir())
 	llm := &overflowLLM{}
-	a := New(store, llm, builtin.Default(), bus.New(), nil, Config{Permission: "allow"})
+	a := closeAfter(t, New(store, llm, builtin.Default(), bus.New(), nil, Config{Permission: "allow"}))
 	sid, _ := a.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir(), Model: session.ModelRef{Provider: "openai", Model: "unregistered"}})
 
 	big := strings.Repeat("x", 50)
@@ -162,7 +162,7 @@ func TestCompactNowNoOpWhenTooFewFacts(t *testing.T) {
 	ctx := context.Background()
 	store, _ := jsonl.New(t.TempDir())
 	llm := &usageLLM{text: "SUMMARY"}
-	a := New(store, llm, builtin.Default(), bus.New(), nil, Config{Permission: "allow"})
+	a := closeAfter(t, New(store, llm, builtin.Default(), bus.New(), nil, Config{Permission: "allow"}))
 	sid, _ := a.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir(), Model: session.ModelRef{Provider: "openai", Model: "unregistered"}})
 
 	for i := 0; i < keepRecentEvents; i++ { // ≤ keepRecentEvents+1 facts → below the fold threshold
