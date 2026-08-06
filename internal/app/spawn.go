@@ -86,10 +86,22 @@ func (a *App) spawnChild(ctx context.Context, parent session.Session, actor even
 		model.Provider = spec.Provider
 	}
 
+	// Its own checkout, when the caller asked for one. Done BEFORE the session exists so a clone
+	// that cannot be made fails the spawn outright instead of leaving a child session behind with
+	// nowhere to work.
+	workdir, workspace := parent.Workdir, ""
+	if strings.EqualFold(strings.TrimSpace(spec.Workspace), "clone") {
+		dir, err := a.cloneWorkspace(ctx, parent.Workdir)
+		if err != nil {
+			return port.SpawnResult{}, fmt.Errorf("spawn: %w", err)
+		}
+		workdir, workspace = dir, dir
+	}
+
 	// Parent is what keeps the child out of the resume list; the store already hides sessions that
 	// carry one.
 	child, err := a.CreateSession(ctx, command.CreateSession{
-		Workdir: parent.Workdir,
+		Workdir: workdir,
 		Parent:  string(parent.ID),
 		Agent:   spawnAgentName,
 		Model:   model,
@@ -181,7 +193,7 @@ func (a *App) spawnChild(ctx context.Context, parent session.Session, actor even
 	// Steps is the child's model round trips. Nothing set it before, so a caller reading it saw
 	// zero however much work the child did — and the per-call budget that charges it was really
 	// counting spawns. Counted from the log because runLoop reports text and an error, not a count.
-	res := port.SpawnResult{SessionID: string(child), Text: text, Steps: a.countTurns(ctx, child)}
+	res := port.SpawnResult{SessionID: string(child), Text: text, Steps: a.countTurns(ctx, child), Workspace: workspace}
 	defer func() { a.subJobs.finish(child, res.Steps, res.Err) }()
 	switch {
 	case rerr != nil:
