@@ -693,6 +693,28 @@ func run() int {
 	ctx := context.Background()
 	sockPath := daemon.SocketPath(plat.ConfigDir(), wd)
 
+	// A daemon claims its workspace HERE, before it creates a session or publishes anything.
+	//
+	// The order is the whole point. Publishing first meant a second magi that was about to lose the
+	// race had already written its own session id over the winner's — and then removed the file on
+	// its way out, leaving a daemon that was running and that no viewer could find. It also left a
+	// session in the store for a process that never ran a turn. Losing now costs one syscall and
+	// says who has the workspace.
+	var bound *daemon.Daemon
+	if *daemonMode {
+		var berr error
+		if bound, berr = daemon.Listen(sockPath); berr != nil {
+			fmt.Fprintln(os.Stderr, "magi:", berr)
+			return 1
+		}
+		// Closed here only if something below fails before Serve takes it over.
+		defer func() {
+			if bound != nil {
+				bound.Close()
+			}
+		}()
+	}
+
 	// Attaching: do not create a session — join the one the daemon is driving, and route the five
 	// calls that touch its run over the socket. Everything else this process answers itself, from
 	// the same store.
@@ -767,7 +789,9 @@ func run() int {
 		defer stop()
 		fmt.Fprintf(os.Stderr, "magi: daemon on %s (session %s) — attach with `magi --attach` in this directory\n",
 			sockPath, sid)
-		if err := daemon.Serve(dctx, a, sockPath); err != nil {
+		serving := bound
+		bound = nil // Serve owns the socket from here, including releasing the claim
+		if err := serving.Serve(dctx, a); err != nil {
 			fmt.Fprintln(os.Stderr, "magi:", err)
 			return 1
 		}

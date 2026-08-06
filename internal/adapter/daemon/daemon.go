@@ -150,15 +150,51 @@ func tooLong(path string) error {
 // IN removes a stale one — a daemon killed with SIGKILL leaves the file behind, and refusing to
 // start because of a path nobody is listening on would need a manual delete every crash.
 func Serve(ctx context.Context, eng Engine, path string) error {
-	if err := tooLong(path); err != nil {
+	d, err := Listen(path)
+	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return fmt.Errorf("daemon: %w", err)
+	return d.Serve(ctx, eng)
+}
+
+// Daemon is a bound control socket, before anything is served on it.
+//
+// Binding and serving are separate because the caller has work to do in between, and the ORDER of
+// that work matters. Publishing the record before the socket is claimed means a second magi that is
+// about to lose the race still writes its own session id over the winner's, and then removes the
+// file on its way out — leaving a running daemon that no viewer can find. Seen exactly that way
+// with four simultaneous starts: one daemon serving, no record at all.
+//
+// So: claim first, then create the session and publish, then serve.
+type Daemon struct {
+	ln      net.Listener
+	path    string
+	release func()
+}
+
+// Listen claims a workspace's socket path and binds it, or says who has it.
+func Listen(path string) (*Daemon, error) {
+	if err := tooLong(path); err != nil {
+		return nil, err
 	}
-	if c, err := net.Dial("unix", path); err == nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, fmt.Errorf("daemon: %w", err)
+	}
+	// Claim the path before looking at it. The three steps below — ask who is listening, remove
+	// what is left over, bind — have two gaps in them, and two daemons starting together fall
+	// through both: each finds nothing, each removes what the other just bound, and one engine
+	// ends up orphaned while both write the same store. Measured at 25 of 300 simultaneous starts.
+	// The claim makes the sequence one step as far as any other process is concerned.
+	release, err := claimPath(path)
+	if err != nil {
+		return nil, err
+	}
+	if c, derr := net.Dial("unix", path); derr == nil {
 		c.Close()
-		return fmt.Errorf("daemon: another magi is already listening on %s", path)
+		release()
+		// A live listener holding no claim: a daemon from a version before the claim existed, which
+		// is what an upgrade looks like from here.
+		return nil, fmt.Errorf("daemon: another magi is already listening on %s", path)
 	}
 	// Nobody answered, so the file is a leftover.
 	//
@@ -167,35 +203,56 @@ func Serve(ctx context.Context, eng Engine, path string) error {
 	// daemon's listener, and leaves two engines writing one store while every client reaches only
 	// the newer. The probe is what stands between here and that, so the two lines stay together.
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("daemon: a stale socket is at %s and could not be removed: %w", path, err)
+		release()
+		return nil, fmt.Errorf("daemon: a stale socket is at %s and could not be removed: %w", path, err)
 	}
 	// Owner only, from the instant it exists. The socket is a control channel: anything that can
 	// write to it can make this engine act, in this workspace, with this workspace's permissions.
 	ln, err := listenOwnerOnly(path)
 	if err != nil {
-		return err
+		release()
+		return nil, err
 	}
 	// Belt and braces, and the whole story on Windows, where there is no umask to set: a mode that
 	// is already right costs one syscall to confirm.
 	if err := os.Chmod(path, 0o600); err != nil {
 		ln.Close()
-		return fmt.Errorf("daemon: %w", err)
+		release()
+		return nil, fmt.Errorf("daemon: %w", err)
 	}
+	return &Daemon{ln: ln, path: path, release: release}, nil
+}
+
+// Path is where this daemon is listening.
+func (d *Daemon) Path() string { return d.path }
+
+// Close drops the socket without ever having served on it — for a caller that binds and then fails
+// at something else before it can start.
+func (d *Daemon) Close() error {
+	err := d.ln.Close()
+	os.Remove(d.path)
+	d.release()
+	return err
+}
+
+// Serve accepts connections until ctx is done, then removes the socket and gives up the claim.
+func (d *Daemon) Serve(ctx context.Context, eng Engine) error {
 	defer func() {
-		ln.Close()
-		os.Remove(path)
+		d.ln.Close()
+		os.Remove(d.path)
+		d.release()
 	}()
 
 	var wg sync.WaitGroup
 	go func() {
 		<-ctx.Done()
-		ln.Close() // unblocks Accept
+		d.ln.Close() // unblocks Accept
 	}()
 	for {
-		conn, err := ln.Accept()
+		conn, err := d.ln.Accept()
 		if err != nil {
 			if ctx.Err() != nil {
-				wg.Wait()
+				wg.Wait() // let in-flight requests finish before the socket goes
 				return nil
 			}
 			return fmt.Errorf("daemon: accept: %w", err)

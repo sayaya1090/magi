@@ -221,7 +221,11 @@ func TestASecondDaemonRefusesTheSameSocket(t *testing.T) {
 	if err == nil {
 		t.Fatal("a second daemon took over a live socket")
 	}
-	if !strings.Contains(err.Error(), "already listening") {
+	// "another magi": the claim on the path is what refuses now, and it refuses before anything
+	// looks at the socket — so the reason names the other PROCESS rather than the file it holds.
+	// The listening-based wording still exists for a daemon that predates the claim (see
+	// TestAListenerWithNoClaimIsStillRefused).
+	if !strings.Contains(err.Error(), "another magi") {
 		t.Errorf("the refusal does not say why: %v", err)
 	}
 }
