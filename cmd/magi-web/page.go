@@ -123,6 +123,7 @@ const indexHTML = `<!doctype html>
   .card:active { background:var(--primaryContainer); }
   .card.here { border-left-color:var(--primary); }
   .card.working { border-left-color:var(--success); }
+  .card.waiting { border-left-color:var(--warn); }
   .card.abandoned { border-left-color:var(--error); }
   .card.stopped { opacity:.62; }
 
@@ -135,6 +136,13 @@ const indexHTML = `<!doctype html>
   .card.working .badge { color:var(--success); }
   .card.abandoned .badge { color:var(--error); }
   .card.idle .badge { color:var(--accent); }
+  .card.waiting .badge { color:var(--warn); }
+  .card .asking { margin-top:.45rem; color:var(--warn); font-size:12.5px; overflow-wrap:anywhere; }
+  .answer { display:flex; gap:.4rem; margin-top:.5rem; flex-wrap:wrap; }
+  .answer button { min-height:2.4rem; padding:0 .7rem; font-size:12.5px; border-color:var(--warn); color:var(--warn); }
+  .answer button:hover { border-color:var(--primary); color:var(--primary); }
+  .answer input { flex:1; min-width:8rem; background:var(--surface); color:var(--fg); font:inherit;
+                  font-size:16px; border:1px solid var(--outline); border-radius:8px; padding:.4rem .6rem; }
   .card .path { color:var(--muted); font-size:11.5px; opacity:.8; overflow-wrap:anywhere; margin-top:.15rem; }
   .card .last {
     margin-top:.45rem; color:var(--fg); opacity:.85; font-size:12.5px;
@@ -241,7 +249,13 @@ function card(a) {
   const p = document.createElement('div'); p.className = 'path'; p.textContent = a.workdir;
   el.append(top, p);
 
-  if (a.last) { const l = document.createElement('div'); l.className = 'last'; l.textContent = a.last; el.append(l); }
+  // What it is blocked on comes before what it was doing, and in the warning colour: it is the
+  // only line on this page that is a request rather than a report.
+  if (a.asking) {
+    const k = document.createElement('div'); k.className = 'asking'; k.textContent = '⏸ ' + a.asking;
+    el.append(k, answerBox(a));
+  }
+  if (a.task) { const l = document.createElement('div'); l.className = 'last'; l.textContent = a.task; el.append(l); }
 
   const bits = [];
   if (a.steps) bits.push(a.steps + ' step' + (a.steps === 1 ? '' : 's'));
@@ -253,12 +267,41 @@ function card(a) {
   return el;
 }
 
+// answerBox is the reply to a blocked agent, on the card itself. Answering is why you looked.
+//
+// The buttons stop the click from opening the agent (the card is a link) — reading and answering
+// are different intentions and the same tap must not do both.
+function answerBox(a) {
+  const box = document.createElement('div'); box.className = 'answer';
+  const send = (text) => post('/answer?d=' + encodeURIComponent(a.socket),
+                              new URLSearchParams({call: a.askId, kind: a.askKind, text})).then(loadFleet);
+  if (a.askKind === 'question') {
+    const i = document.createElement('input'); i.placeholder = 'your answer…';
+    const b = document.createElement('button'); b.textContent = 'answer';
+    const go = e => { e.preventDefault(); e.stopPropagation(); if (i.value.trim()) send(i.value.trim()); };
+    b.onclick = go;
+    i.onclick = e => { e.preventDefault(); e.stopPropagation(); };
+    i.onkeydown = e => { if (e.key === 'Enter') go(e); };
+    box.append(i, b);
+  } else {
+    for (const [label, decision] of [['allow', 'allow'], ['always', 'always'], ['deny', 'deny']]) {
+      const b = document.createElement('button'); b.textContent = label;
+      b.onclick = e => { e.preventDefault(); e.stopPropagation(); send(decision); };
+      box.append(b);
+    }
+  }
+  return box;
+}
+
 async function loadFleet() {
   let list;
   try { list = await (await fetch('/fleet')).json(); }
   catch { state.className = 'lost'; state.textContent = 'cannot reach magi-web'; return; }
   state.className = '';
-  state.textContent = list.length + (list.length === 1 ? ' agent' : ' agents');
+  const waiting = list.filter(a => a.state === 'waiting').length;
+  state.textContent = list.length + (list.length === 1 ? ' agent' : ' agents') +
+                      (waiting ? ' · ' + waiting + ' waiting on you' : '');
+  state.className = waiting ? 'lost' : '';
   if (!list.length) {
     fleetEl.replaceChildren();
     const e = document.createElement('div'); e.className = 'empty';

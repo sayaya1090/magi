@@ -513,10 +513,21 @@ func run() int {
 		}
 	}
 
-	// Headless has no one to answer a permission prompt, so "auto"/"ask" deny bash and
-	// webfetch outright — a footgun for benchmarks/scripts where the agent then quietly
-	// refuses every command. Warn once and point at the fix.
-	if headless && (perm == "auto" || perm == "ask") {
+	// A daemon asked to ask HAS somebody to ask: whoever attaches. The socket already carries the
+	// two calls that answer (permission, answer) and they could never fire, because the engine
+	// behind them resolved everything by policy — a wire with no producer, which is most of what
+	// this branch has been removing. Choosing ask/auto on a daemon is choosing to be asked.
+	//
+	// Only when it is chosen EXPLICITLY. The default stays "allow" (headless, above): a resident
+	// agent that stops for a question nobody is there to hear is a stopped agent, and defaults
+	// must not depend on somebody remembering to attach.
+	answerable := *daemonMode && (perm == "ask" || perm == "auto")
+	if answerable {
+		fmt.Fprintf(os.Stderr, "magi: --permission %s: prompts go to whatever UI is attached, and "+
+			"resolve by policy after %s if none answers\n", perm, daemonAnswerWait)
+	} else if headless && (perm == "auto" || perm == "ask") {
+		// Nobody to ask and no way to attach one: "auto"/"ask" deny bash and webfetch outright —
+		// a footgun for benchmarks/scripts where the agent then quietly refuses every command.
 		fmt.Fprintf(os.Stderr, "magi: note: --permission %s denies bash/webfetch in headless mode; use --permission allow to enable them\n", perm)
 	}
 
@@ -566,7 +577,8 @@ func run() int {
 		Model:               session.ModelRef{Provider: "openai", Model: modelID},
 		System:              systemPrompt,
 		Permission:          perm,
-		Interactive:         !headless, // TUI can answer permission prompts; headless can't (resolve by policy)
+		Interactive:         !headless || answerable, // a UI can answer: the TUI, or one attached to a daemon
+		AnswerWait:          answerWait(answerable),  // 0 for the TUI: the person is sitting in front of it
 		Profile:             orStr(*profile, cfg.Profile),
 		Sandbox:             cfg.Sandbox,
 		Allow:               cfg.Allow,

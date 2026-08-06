@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
@@ -105,11 +106,26 @@ func (a attached) Subscribe(ctx context.Context, sid session.SessionID, fromSeq 
 		}
 		tick := time.NewTicker(pollInterval)
 		defer tick.Stop()
+		asked := "" // the prompt already put on screen, so it is drawn once and not every tick
 		for {
 			select {
 			case <-pctx.Done():
 				return
 			case <-tick.C:
+			}
+			// The prompt the daemon is blocked on is NOT in the log — it is a question about what
+			// should happen, not a record of what did, and the event announcing it went to the
+			// daemon's bus. Without this the attached screen shows a run that simply stopped, with
+			// the answer it is waiting for one keystroke away and no way to know.
+			if ev, id, ok := a.pendingPrompt(sid, asked); ok {
+				asked = id
+				select {
+				case out <- ev:
+				case <-pctx.Done():
+					return
+				}
+			} else if id == "" {
+				asked = "" // resolved (answered, or by policy) — the next one may reuse nothing
 			}
 			ch, stop, err := a.App.Subscribe(pctx, sid, seq)
 			if err != nil {
@@ -163,4 +179,46 @@ func drainPast(ctx context.Context, src <-chan event.Event) <-chan event.Event {
 		}
 	}()
 	return out
+}
+
+// pendingPrompt turns the daemon's answer to "what are you blocked on?" into the event the screen
+// already knows how to draw.
+//
+// Synthesised rather than forwarded: the daemon's transient events never leave its process, so
+// there is nothing to forward. What comes over the wire is the request's own fields, and this
+// rebuilds the same payload the TUI would have received had the engine been in this process — the
+// same call id, so the answer the user gives goes back to the tool that is waiting for it.
+//
+// Returns the current prompt's id even when it has already been drawn, so the caller can tell
+// "still waiting on the same one" from "nothing pending" — the second is what clears the marker so
+// a later prompt with a recycled id is not swallowed.
+func (a attached) pendingPrompt(sid session.SessionID, drawn string) (event.Event, string, bool) {
+	w, err := a.c.Status(string(sid))
+	if err != nil || w == nil {
+		return event.Event{}, "", false
+	}
+	if w.ID == drawn {
+		return event.Event{}, w.ID, false
+	}
+	var (
+		typ  event.Type
+		data []byte
+	)
+	switch w.Kind {
+	case "question":
+		typ = event.TypeQuestionRequested
+		data, err = json.Marshal(event.QuestionRequestedData{
+			CallID: w.ID, Question: w.What, Options: w.Options, Index: 1, Total: 1})
+	default:
+		typ = event.TypePermissionRequested
+		data, err = json.Marshal(event.PermissionRequestedData{
+			CallID: w.ID, Name: w.What, Args: w.Args, Reason: w.Reason})
+	}
+	if err != nil {
+		return event.Event{}, w.ID, false
+	}
+	return event.Event{
+		SessionID: sid, Type: typ, Data: data,
+		Actor: event.Actor{Kind: event.ActorSystem, ID: "daemon"},
+	}, w.ID, true
 }

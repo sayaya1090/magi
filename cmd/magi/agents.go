@@ -35,8 +35,14 @@ func printAgents(w io.Writer, list []fleet.Agent, configDir string) {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", a.State, name, since(a.Idle), steps, a.Workdir)
 		// The task goes on its own line, indented: it is a sentence, and a sentence in a column
 		// either wraps the table or gets cut to uselessness.
-		if t := strings.TrimSpace(strings.SplitN(a.Task, "\n", 2)[0]); t != "" {
-			fmt.Fprintf(tw, "\t%s\t\t\t\n", fleet.Clip(t, 72))
+		// What it is BLOCKED on displaces what it was doing: the second is context, the first is
+		// the reason nothing is happening.
+		line := strings.TrimSpace(strings.SplitN(a.Task, "\n", 2)[0])
+		if a.Asking != "" {
+			line = "⏸ " + strings.TrimSpace(strings.SplitN(a.Asking, "\n", 2)[0])
+		}
+		if line != "" {
+			fmt.Fprintf(tw, "\t%s\t\t\t\n", fleet.Clip(line, 72))
 		}
 	}
 	tw.Flush()
@@ -72,4 +78,21 @@ func since(sec int) string {
 		return fmt.Sprintf("%dh", sec/3600)
 	}
 	return fmt.Sprintf("%dd", sec/86400)
+}
+
+// daemonAnswerWait is how long a daemon holds a prompt open for an attached UI.
+//
+// Long enough to walk back to the desk or pick up a phone; short enough that a viewer closed
+// hours ago does not leave the agent stopped in front of one question. On expiry the prompt
+// resolves by policy and says so in the transcript, so the record shows a default rather than a
+// decision.
+const daemonAnswerWait = 3 * time.Minute
+
+// answerWait is the bound for this run: none for a terminal, where the human is present and the
+// prompt is on their screen.
+func answerWait(daemonAnswerable bool) time.Duration {
+	if daemonAnswerable {
+		return daemonAnswerWait
+	}
+	return 0
 }

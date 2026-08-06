@@ -258,6 +258,7 @@ func (s *server) routes() map[string]http.HandlerFunc {
 		"/events":               s.events,
 		"/submit":               s.submit,
 		"/interrupt":            s.interrupt,
+		"/answer":               s.answer,
 		"/manifest.webmanifest": s.manifest,
 		"/icon.svg":             s.icon,
 	}
@@ -423,6 +424,40 @@ func (s *server) submit(w http.ResponseWriter, r *http.Request) {
 	err := s.withClient(r, func(cl *daemon.Client, sid session.SessionID) error {
 		return cl.Steer(context.Background(), command.SubmitPrompt{
 			SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: text}}})
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// answer resolves a prompt the daemon is blocked on.
+//
+// The prompt itself never reaches this process as an event — it is transient, and it belongs to the
+// daemon's bus — so the page learns of it from /fleet and answers by call id. Which is why the id
+// travels with the status: a viewer that can see a pending permission and not grant it stops in a
+// worse place than one that never showed it.
+func (s *server) answer(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	callID := strings.TrimSpace(r.FormValue("call"))
+	if callID == "" {
+		http.Error(w, "no call id — this answer would have nowhere to go", http.StatusBadRequest)
+		return
+	}
+	kind, text := r.FormValue("kind"), strings.TrimSpace(r.FormValue("text"))
+	err := s.withClient(r, func(cl *daemon.Client, sid session.SessionID) error {
+		if kind == "question" {
+			return cl.RespondQuestion(context.Background(), command.RespondQuestion{
+				SessionID: sid, CallID: callID, Answer: text})
+		}
+		// The decision vocabulary is the core's, carried through unchanged: a second spelling of
+		// allow/deny/always here would be a place for the two to disagree.
+		return cl.RespondPermission(context.Background(), command.RespondPermission{
+			SessionID: sid, CallID: callID, Decision: text})
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
