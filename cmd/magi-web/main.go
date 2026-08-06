@@ -25,12 +25,12 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
+	"github.com/sayaya1090/magi/internal/adapter/fleet"
 	"github.com/sayaya1090/magi/internal/adapter/platform"
 	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
@@ -248,90 +248,19 @@ func (s *server) page(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// agentView is one card on the dashboard.
-type agentView struct {
-	Socket  string `json:"socket"`
-	Workdir string `json:"workdir"`
-	Name    string `json:"name"`
-	Session string `json:"session"`
-	PID     int    `json:"pid"`
-	Live    bool   `json:"live"`
-	State   string `json:"state"`
-	Last    string `json:"last"`
-	Steps   int    `json:"steps"`
-	Idle    int    `json:"idle"` // seconds since the last thing in the log
-	Here    bool   `json:"here"` // the daemon in the directory this viewer was started in
-}
-
 // fleet is the dashboard's data: every daemon this config directory knows about.
 //
-// # What the state can and cannot say
-//
-// Four states, all of them derived from two facts that outlive the daemon — whether the socket
-// answers, and whether the log has a prompt with no turn.finished after it:
-//
-//	working    the socket answers and a turn is open
-//	idle       the socket answers and nothing is open
-//	abandoned  nobody is listening and a turn was left open — a crash or a kill, work thrown away
-//	stopped    nobody is listening and the last turn finished
-//
-// There is a fifth state a person would want, and it is deliberately absent: "waiting for you". A
-// permission prompt is a bus-only event (event.transientTypes) — it never reaches the log, so it
-// exists only in the memory of the daemon that is blocked on it. This process cannot see it, and
-// guessing from "open turn that has not moved in a while" would put a red badge on every slow
-// build. Showing it needs a read on the daemon protocol, which today carries only the five writes.
+// The states and their derivation live in internal/adapter/fleet, shared with `magi --agents`. Two
+// surfaces answering "what is that agent doing?" from two copies of the same reasoning is a pair
+// that disagrees later, when only one of them is updated.
 func (s *server) fleet(w http.ResponseWriter, r *http.Request) {
-	list, err := daemon.List(s.cfgDir)
+	list, err := fleet.List(r.Context(), s.reader, s.cfgDir, s.here)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	// One ListSessions per distinct workspace, not per daemon: several daemons in one tree is a
-	// normal thing to do and re-reading the directory for each of them is the same answer again.
-	seen := map[string][]session.SessionMeta{}
-	out := make([]agentView, 0, len(list))
-	for _, in := range list {
-		v := agentView{
-			Socket: in.Socket, Workdir: in.Workdir, Name: filepath.Base(in.Workdir),
-			Session: in.Session, PID: in.PID, Live: in.Live, Here: in.Socket == s.here,
-			Idle: -1,
-		}
-		if v.Name == "" || v.Name == "." {
-			v.Name = in.Workdir
-		}
-		sid := session.SessionID(in.Session)
-		metas, ok := seen[in.Workdir]
-		if !ok {
-			metas, _ = s.reader.ListSessions(r.Context(), in.Workdir)
-			seen[in.Workdir] = metas
-		}
-		for _, m := range metas {
-			if m.ID == sid && !m.LastActivity.IsZero() {
-				v.Idle = int(time.Since(m.LastActivity).Seconds())
-			}
-		}
-		open, isOpen := s.reader.UnfinishedTurnOf(r.Context(), sid)
-		switch {
-		case in.Live && isOpen:
-			v.State, v.Steps, v.Last = "working", open.Steps, clip(open.Text, 160)
-		case in.Live:
-			v.State = "idle"
-		case isOpen:
-			v.State, v.Steps, v.Last = "abandoned", open.Steps, clip(open.Text, 160)
-		default:
-			v.State = "stopped"
-		}
-		if v.Last == "" {
-			if msgs, _, err := s.reader.SessionState(r.Context(), sid); err == nil {
-				if rows := renderMessages(msgs); len(rows) > 0 {
-					v.Last = clip(rows[len(rows)-1].Text, 160)
-				}
-			}
-		}
-		out = append(out, v)
-	}
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(out); err != nil {
+	if err := json.NewEncoder(w).Encode(list); err != nil {
 		log.Printf("magi-web: writing the fleet: %v", err)
 	}
 }
@@ -404,7 +333,7 @@ func renderMessages(msgs []session.Message) []line {
 				}
 			case session.PartToolCall:
 				if p.ToolCall != nil {
-					out = append(out, line{Who: "tool", Text: p.ToolCall.Name + " " + clip(string(p.ToolCall.Args), 300)})
+					out = append(out, line{Who: "tool", Text: p.ToolCall.Name + " " + fleet.Clip(string(p.ToolCall.Args), 300)})
 				}
 			case session.PartToolResult:
 				if p.ToolResult != nil {
@@ -412,19 +341,12 @@ func renderMessages(msgs []session.Message) []line {
 					if p.ToolResult.IsError {
 						who = "failed"
 					}
-					out = append(out, line{Who: who, Text: clip(string(p.ToolResult.Content), 600)})
+					out = append(out, line{Who: who, Text: fleet.Clip(string(p.ToolResult.Content), 600)})
 				}
 			}
 		}
 	}
 	return out
-}
-
-func clip(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
 }
 
 func (s *server) submit(w http.ResponseWriter, r *http.Request) {
