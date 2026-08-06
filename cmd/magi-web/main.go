@@ -21,6 +21,8 @@ import (
 	"flag"
 	"fmt"
 	"html"
+	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -146,7 +148,13 @@ func (s *server) page(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, indexHTML, html.EscapeString(string(s.sid)))
+	// A write that fails means the browser hung up mid-page. There is nobody left to tell and no
+	// second attempt worth making, but the reason is worth having in the log of a process whose
+	// whole job is to be watched.
+	if _, err := io.WriteString(w, strings.ReplaceAll(indexHTML, "{{SID}}",
+		html.EscapeString(string(s.sid)))); err != nil {
+		log.Printf("magi-web: writing the page: %v", err)
+	}
 }
 
 // events streams the transcript as server-sent events, re-reading the log as it grows.
