@@ -142,8 +142,42 @@ func materializeEmbedded(pfs fs.FS, name, dir string) error {
 		if cur, err := os.ReadFile(dst); err == nil && bytes.Equal(cur, b) {
 			return nil // already current — don't rewrite (no spurious watcher event)
 		}
-		return os.WriteFile(dst, b, 0o644)
+		return writeAtomic(dst, b)
 	})
+}
+
+// writeAtomic replaces a file in one step, so a reader never sees it half-written.
+//
+// os.WriteFile truncates and then writes, and the gap between those two is a window in which the
+// file exists and is empty. That window belongs to whoever else is reading — and with several magi
+// instances sharing a config directory, somebody is: two daemons started at the same moment into a
+// fresh config both materialize the same plugin, and one of them read a plugin.toml the other had
+// just truncated. It failed with "manifest missing name", which describes the bytes it saw and
+// nothing about why they were like that. Observed starting three daemons at once.
+//
+// A temp file in the same directory (same filesystem, so the rename is a rename and not a copy)
+// followed by os.Rename means a reader gets either the whole old file or the whole new one.
+func writeAtomic(dst string, b []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(dst), "."+filepath.Base(dst)+".tmp")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	// Any failure from here leaves a dot-file behind rather than a broken destination; removing it
+	// is the cleanup, and the destination is untouched either way.
+	defer os.Remove(tmp)
+	if _, err := f.Write(b); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Chmod(0o644); err != nil { // CreateTemp makes it 0600; these are read by everyone
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp, dst)
 }
 
 // pluginLogf returns the plugin host's log sink: silent by default (plugin

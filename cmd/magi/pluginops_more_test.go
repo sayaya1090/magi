@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -66,5 +67,85 @@ func TestMaterializeEmbeddedSkipsIdenticalFiles(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(filepath.Join(dir, "init.lua")); string(b) != "-- v2 changed\n" {
 		t.Errorf("changed content not persisted, got %q", b)
+	}
+}
+
+// A file being replaced must never be READABLE as half of itself.
+//
+// Several magi instances share one config directory — that is the ordinary shape now that magi runs
+// as a daemon — and each materializes the embedded plugins at startup. os.WriteFile truncates and
+// then writes, so between those two calls the file exists and is empty. A second instance that
+// loads the plugin in that window reads a manifest with no name in it and reports exactly that:
+// "manifest missing name", which describes the bytes and not the cause. Seen starting three daemons
+// at once into a fresh config directory.
+//
+// The check is a reader spinning on the file while writers replace it: every read must be either
+// the old content or the new one. Fails on truncate-then-write, and does so within a few thousand
+// reads on any machine.
+func TestMaterializeEmbeddedIsNeverReadableHalfWritten(t *testing.T) {
+	dir := t.TempDir()
+	v1 := fstest.MapFS{"p/plugin.toml": {Data: []byte("name = \"p\"\nversion = \"1\"\n")}}
+	v2 := fstest.MapFS{"p/plugin.toml": {Data: []byte("name = \"p\"\nversion = \"2\"\n")}}
+	if err := materializeEmbedded(v1, "p", dir); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(dir, "plugin.toml")
+	want := map[string]bool{
+		string(v1["p/plugin.toml"].Data): true,
+		string(v2["p/plugin.toml"].Data): true,
+	}
+
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() { // the writers: two instances materializing alternating versions
+		defer close(done)
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			src := v1
+			if i%2 == 1 {
+				src = v2
+			}
+			if err := materializeEmbedded(src, "p", dir); err != nil {
+				t.Errorf("materialize: %v", err)
+				return
+			}
+		}
+	}()
+
+	var bad string
+	for i := 0; i < 20000 && bad == ""; i++ {
+		b, err := os.ReadFile(target)
+		if err != nil {
+			bad = "the file disappeared mid-replace: " + err.Error()
+			break
+		}
+		if !want[string(b)] {
+			bad = "read a partial manifest: " + string(b)
+		}
+	}
+	close(stop)
+	<-done
+	if bad != "" {
+		t.Error(bad)
+	}
+	// And the survivor is still one of the two whole versions, not a leftover temp.
+	b, err := os.ReadFile(target)
+	if err != nil || !want[string(b)] {
+		t.Errorf("after the race the file is %q (%v)", string(b), err)
+	}
+	// No temp files left behind: a config directory that fills with .plugin.toml.tmp* is its own
+	// defect, and a plugin loader that walks the directory would try to read them.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".") && strings.Contains(e.Name(), ".tmp") {
+			t.Errorf("a temp file was left behind: %s", e.Name())
+		}
 	}
 }
