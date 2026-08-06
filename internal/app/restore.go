@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -56,6 +57,11 @@ type journalEntry struct {
 	before   string
 	readable bool // magi could read the content (not a directory, not past the compare cap)
 	existed  bool
+	// mode is the file's permissions as magi first saw them. Restoring the bytes and not the mode
+	// puts a script back that will not run: the content matches, `Restored: true` is reported, and
+	// the next build fails with "permission denied" on a file that looks correct. Zero when the
+	// path did not exist, which is the case where there is nothing to put back.
+	mode fs.FileMode
 }
 
 // restoreJournal is one child's first-seen states, keyed by path relative to the workdir.
@@ -80,7 +86,13 @@ func (j *restoreJournal) note(path, before string, readable, existed bool) {
 	if _, seen := j.first[path]; seen {
 		return
 	}
-	j.first[path] = journalEntry{before: before, readable: readable, existed: existed}
+	e := journalEntry{before: before, readable: readable, existed: existed}
+	if existed {
+		if fi, err := os.Stat(filepath.Join(j.workdir, path)); err == nil {
+			e.mode = fi.Mode().Perm()
+		}
+	}
+	j.first[path] = e
 	j.order = append(j.order, path)
 }
 
@@ -152,8 +164,17 @@ func restoreOne(ctx context.Context, workdir, rel string, e journalEntry, git bo
 		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 			return RestoreOutcome{Path: rel, Reason: "could not recreate the directory: " + err.Error()}
 		}
-		if err := os.WriteFile(abs, []byte(e.before), 0o644); err != nil {
+		mode := e.mode
+		if mode == 0 {
+			mode = 0o644 // the stat failed when it was noted; the ordinary default is the best guess
+		}
+		if err := os.WriteFile(abs, []byte(e.before), mode); err != nil {
 			return RestoreOutcome{Path: rel, Reason: "could not write the original contents back: " + err.Error()}
+		}
+		// WriteFile only applies the mode when it CREATES the file; an existing one keeps whatever
+		// the child left it as, which for a script the child rewrote is not what it was.
+		if err := os.Chmod(abs, mode); err != nil {
+			return RestoreOutcome{Path: rel, Reason: "the contents went back but the permissions did not: " + err.Error()}
 		}
 		return RestoreOutcome{Path: rel, Restored: true, How: "journal"}
 	}

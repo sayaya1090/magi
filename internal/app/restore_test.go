@@ -228,3 +228,45 @@ func (f *writingChildLLM) StreamChat(context.Context, port.ChatRequest) (<-chan 
 	close(ch)
 	return ch, nil
 }
+
+// Putting a file back means putting its permissions back too.
+//
+// A restore that writes the right bytes with the wrong mode reports Restored and leaves a script
+// that will not run: the content matches, so nothing looks wrong until the next build fails with
+// "permission denied" on a file somebody has already checked. In a recovery path that is the worst
+// kind of lie — the next round proceeds believing the tree is as it was.
+func TestARestoredFileKeepsItsPermissions(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "run.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho original\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := newApp(t, &fakeLLM{}, Config{})
+	sid := session.SessionID("s_child")
+	j := a.journalFor(sid, dir)
+	j.note("run.sh", "#!/bin/sh\necho original\n", true, true)
+
+	// The child rewrites it, and its editor drops the bit — which is what an ordinary write does.
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho broken\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(script, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out := a.RestoreChild(context.Background(), sid)
+	if len(out) != 1 || !out[0].Restored {
+		t.Fatalf("the restore did not report success: %+v", out)
+	}
+	fi, err := os.Stat(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o755 {
+		t.Errorf("the file came back as %v, not the 0755 it was — it reported Restored and the "+
+			"script will not run", fi.Mode().Perm())
+	}
+	if got := read(t, dir, "run.sh"); !strings.Contains(got, "original") {
+		t.Errorf("the contents did not come back: %q", got)
+	}
+}
