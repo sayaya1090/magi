@@ -384,6 +384,44 @@ func (p *plugin) bridgeMergeChild(L *lua.LState) int {
 // Two children writing one tree is not something to undo afterwards. This does not enforce that —
 // a plugin may have good reason to run several READERS over the shared tree — but a parallel
 // writer without its own checkout is the collision the isolation was built for.
+// writingTools are the ones that change the tree. Named here rather than asked of the registry
+// because this is a question about a spec, which is a list of names and nothing else — the child
+// that would hold those tools does not exist yet.
+var writingTools = map[string]bool{"write": true, "edit": true, "multiedit": true, "bash": true}
+
+// refuseSharedWrites rejects a batch where more than one child could write the same tree.
+//
+// spawn_all runs its children at the same time, and a child with no workspace of its own works in
+// the PARENT's directory. Two of those editing one file is a lost update nobody reports: each
+// child's own account says it made its change, both are telling the truth about what they wrote,
+// and one of the writes is gone. The parent's guard is no help either — it captures a file before
+// and after on the assumption that one thing at a time touches it.
+//
+// Read-only children sharing the tree are fine and useful, which is why this asks what the child
+// can DO rather than refusing the shared workspace outright. Refused rather than serialised: a
+// caller who asked for parallel children and silently got sequential ones would be measuring the
+// wrong thing, and the fix is one word (workspace="clone") in the spec they already wrote.
+func refuseSharedWrites(specs []port.SpawnSpec) error {
+	writers := 0
+	for _, sp := range specs {
+		if sp.Workspace == "clone" {
+			continue // its own checkout: nothing to collide with
+		}
+		for _, t := range sp.Tools {
+			if writingTools[t] {
+				writers++
+				break
+			}
+		}
+	}
+	if writers > 1 {
+		return fmt.Errorf("spawn_all: %d children would write the PARENT's directory at the same "+
+			"time, and one of their edits would be lost with both reporting success — give each "+
+			"of them workspace=\"clone\" (read-only children may share the tree)", writers)
+	}
+	return nil
+}
+
 func (p *plugin) bridgeSpawnAll(L *lua.LState) int {
 	p.requireCap(L, "spawn")
 	if p.env.Spawn == nil {
@@ -412,6 +450,9 @@ func (p *plugin) bridgeSpawnAll(L *lua.LState) int {
 	}
 	if len(specs) == 0 {
 		return fail(L, "spawn_all: no children given")
+	}
+	if err := refuseSharedWrites(specs); err != nil {
+		return fail(L, err.Error())
 	}
 
 	ctx := p.spawnCtx()
