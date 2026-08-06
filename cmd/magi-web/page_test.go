@@ -47,12 +47,29 @@ func TestTheBrowserUsesTheTerminalsPalette(t *testing.T) {
 	}
 }
 
-// The page carries no external reference. A strict answer to "why is there no build step": nothing
-// is fetched at load, so the binary is the whole thing and an offline machine sees the same page.
-func TestThePageFetchesNothing(t *testing.T) {
-	for _, bad := range []string{"http://", "https://", "//cdn", "<script src", "<link ", "@import"} {
+// The page fetches nothing this binary does not serve. A strict answer to "why is there no build
+// step": an offline machine sees the same page, and there is no CDN whose outage takes the viewer
+// with it.
+//
+// Not "no links at all" — the manifest and the icon that make it installable on a phone are links,
+// to routes this same process answers. So the check is the one that matters: every href and src is
+// root-relative, and every path is one this server actually serves.
+func TestThePageFetchesNothingItDoesNotServe(t *testing.T) {
+	for _, bad := range []string{"http://", "https://", "//cdn", "@import"} {
 		if strings.Contains(indexHTML, bad) {
 			t.Errorf("the page references something external (%q) — it must be self-contained", bad)
+		}
+	}
+	served := (&server{}).routes()
+	ref := regexp.MustCompile(`(?:href|src)="([^"]*)"`)
+	for _, m := range ref.FindAllStringSubmatch(indexHTML, -1) {
+		u := m[1]
+		if !strings.HasPrefix(u, "/") {
+			t.Errorf("the page references %q, which is not a root-relative path on this server", u)
+			continue
+		}
+		if _, ok := served[strings.SplitN(u, "?", 2)[0]]; !ok {
+			t.Errorf("the page references %q and this server has no such route", u)
 		}
 	}
 }

@@ -27,6 +27,12 @@ package main
 //
 // # Phones are not a smaller desktop
 //
+// The page is installable — a manifest and an icon, so adding it to a home screen opens it without
+// browser chrome. That is the whole of magi's answer to the native mobile app other orchestrators
+// ship: the thing you actually want on a phone is to see what your agents are doing and to say one
+// sentence to one of them, and a page that launches full screen does that without a second client
+// to keep in step with the daemon protocol.
+//
 // The layout starts at one column and grows, rather than starting wide and collapsing. Three things
 // on a phone are not preferences: inputs at 16px (anything smaller makes iOS Safari zoom the page
 // on focus, and it does not zoom back), the composer padded by env(safe-area-inset-bottom) (a home
@@ -42,6 +48,12 @@ const indexHTML = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
 <meta name="theme-color" content="#211B14">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg">
+<link rel="apple-touch-icon" href="/icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="magi">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>magi</title>
 <style>
   /* Roles, verbatim from internal/adapter/tui/styles.go — nervDark / nervLight. */

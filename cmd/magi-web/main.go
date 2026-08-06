@@ -91,11 +91,9 @@ func run() int {
 	srv := &server{reader: reader, cfgDir: cd, here: here, clients: map[string]*daemon.Client{}}
 	defer srv.closeAll()
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", srv.page)
-	mux.HandleFunc("/fleet", srv.fleet)
-	mux.HandleFunc("/events", srv.events)
-	mux.HandleFunc("/submit", srv.submit)
-	mux.HandleFunc("/interrupt", srv.interrupt)
+	for path, h := range srv.routes() {
+		mux.HandleFunc(path, h)
+	}
 
 	ln, err := net.Listen("tcp", *addr)
 	if err != nil {
@@ -245,6 +243,66 @@ func (s *server) page(w http.ResponseWriter, r *http.Request) {
 	// whole job is to be watched.
 	if _, err := io.WriteString(w, indexHTML); err != nil {
 		log.Printf("magi-web: writing the page: %v", err)
+	}
+}
+
+// routes is every path this server answers, in one place.
+//
+// A list rather than a run of mux.HandleFunc calls because the page links to some of these, and a
+// test checks that everything the page references is a path this binary serves — which is the real
+// meaning of "self-contained", and cannot be checked against a list that exists only as statements.
+func (s *server) routes() map[string]http.HandlerFunc {
+	return map[string]http.HandlerFunc{
+		"/":                     s.page,
+		"/fleet":                s.fleet,
+		"/events":               s.events,
+		"/submit":               s.submit,
+		"/interrupt":            s.interrupt,
+		"/manifest.webmanifest": s.manifest,
+		"/icon.svg":             s.icon,
+	}
+}
+
+// manifest makes the page installable: added to a phone's home screen it opens without the browser
+// chrome, which is the difference between "a website about my agents" and something you reach for.
+//
+// Served rather than inlined as a data: URI because iOS ignores a manifest it cannot fetch, and it
+// is small enough that a route costs less than the explanation of the workaround would.
+func (s *server) manifest(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/manifest+json")
+	// display:standalone and a dark theme that matches the page's surface, so the status bar does
+	// not flash white on launch. start_url is the fleet: the phone is where you check on things.
+	const m = `{
+  "name": "magi",
+  "short_name": "magi",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#14110d",
+  "theme_color": "#211B14",
+  "icons": [{"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"}]
+}`
+	if _, err := io.WriteString(w, m); err != nil {
+		log.Printf("magi-web: writing the manifest: %v", err)
+	}
+}
+
+// icon is the home-screen icon: the three councillors, in their own hues.
+//
+// SVG so there is one file for every size, and drawn here rather than shipped as a PNG because a
+// binary asset in a source tree is a thing nobody can review. The maskable safe zone is the middle
+// 80%, so nothing meaningful goes near the edge.
+func (s *server) icon(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "image/svg+xml")
+	const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <rect width="192" height="192" fill="#211B14"/>
+  <circle cx="96" cy="70" r="21" fill="#FFB454"/>
+  <circle cx="70" cy="115" r="21" fill="#5CD8E6"/>
+  <circle cx="122" cy="115" r="21" fill="#FF8A8A"/>
+  <circle cx="96" cy="97" r="43" fill="none" stroke="#FF7A1A" stroke-width="4" opacity=".55"/>
+</svg>`
+	if _, err := io.WriteString(w, svg); err != nil {
+		log.Printf("magi-web: writing the icon: %v", err)
 	}
 }
 
