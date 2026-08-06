@@ -89,7 +89,17 @@ func parseSkill(text string) (skillHeader, string) {
 			h.LastSeen = val
 		}
 	}
-	return h, strings.TrimSpace(strings.TrimPrefix(body, "\n---"))
+	// What is left starts with the REST of the closing fence's line — normally just its newline.
+	// Dropping that line is the whole job; the previous version trimmed a literal "\n---" instead,
+	// which matches nothing on a well-formed header and eats the first line of any body that opens
+	// with a horizontal rule. It could only ever do damage, and in a store whose purpose is to
+	// accumulate what was learned, it did it silently.
+	if i := strings.IndexByte(body, '\n'); i >= 0 {
+		body = body[i+1:]
+	} else {
+		body = ""
+	}
+	return h, strings.TrimSpace(body)
 }
 
 // parseList reads `[a, b]` or `a, b` or `a b` into a slice. Three spellings because a header is

@@ -286,3 +286,30 @@ func TestTheSameMemoryTwiceIsOneMemory(t *testing.T) {
 		t.Errorf("a new fact produced %d files total, want three", len(files))
 	}
 }
+
+// A body is returned whole, including a first line that looks like a fence.
+//
+// Markdown starts with a horizontal rule often enough, and this store's whole purpose is to
+// accumulate what was learned — a parser that quietly drops a line of it is worse than one that
+// fails. The old code trimmed a literal "\n---" off the body, which matches nothing on a
+// well-formed header and exactly one thing on a body that opens with a rule.
+func TestASkillBodySurvivesTheRoundTrip(t *testing.T) {
+	for _, c := range []struct{ name, body string }{
+		{"a rule in the middle", "step one\n\n---\n\nstep two"},
+		{"a rule on the first line", "---\nthis is a rule, not a header\nand this is the point"},
+		{"a header-looking line in the body", "do this\nobserved: never\nlast-seen: nobody"},
+		{"nothing at all", ""},
+	} {
+		h := skillHeader{Description: "d", AgentGroups: []string{"crew"}, Observed: 2,
+			FirstSeen: "2026-01-01", LastSeen: "2026-01-02"}
+		out := renderHeader(h, c.body)
+		got, gotBody := parseSkill(out)
+		if got.Description != "d" || got.Observed != 2 || len(got.AgentGroups) != 1 {
+			t.Errorf("%s: the header did not survive: %+v\n%s", c.name, got, out)
+		}
+		if gotBody != strings.TrimSpace(c.body) {
+			t.Errorf("%s: the body did not survive:\nwant %q\ngot  %q\n---\n%s",
+				c.name, strings.TrimSpace(c.body), gotBody, out)
+		}
+	}
+}
