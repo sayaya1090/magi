@@ -225,27 +225,11 @@ func (a attached) pendingPrompt(sid session.SessionID, drawn string) (ev event.E
 	if w.ID == drawn {
 		return event.Event{}, w.ID, false, false, true
 	}
-	var (
-		typ  event.Type
-		data []byte
-	)
-	switch w.Kind {
-	case "question":
-		typ = event.TypeQuestionRequested
-		data, err = json.Marshal(event.QuestionRequestedData{
-			CallID: w.ID, Question: w.What, Options: w.Options, Index: 1, Total: 1})
-	default:
-		typ = event.TypePermissionRequested
-		data, err = json.Marshal(event.PermissionRequestedData{
-			CallID: w.ID, Name: w.What, Args: w.Args, Reason: w.Reason})
-	}
+	ev, err = w.Event(sid)
 	if err != nil {
 		return event.Event{}, drawn, false, false, true
 	}
-	return event.Event{
-		SessionID: sid, Type: typ, Data: data,
-		Actor: event.Actor{Kind: event.ActorSystem, ID: "daemon"},
-	}, w.ID, true, false, true
+	return ev, w.ID, true, false, true
 }
 
 // daemonLostEvent is what the screen shows when the engine it is watching stops answering.

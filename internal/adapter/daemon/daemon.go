@@ -112,6 +112,45 @@ type Waiting struct {
 	Since   string          `json:"since"` // RFC3339
 }
 
+// Event turns a pending prompt back into the event a UI already knows how to draw.
+//
+// A viewer in another process cannot receive the original: it is transient, published to the bus of
+// the daemon that is blocked, and it never leaves that process. So the request's fields cross the
+// wire and this rebuilds the same payload on the other side — the same call id above all, because
+// that is what an answer is addressed to. A prompt rendered from a summary is one nobody can reply
+// to.
+//
+// It lives here, next to the wire type it converts, rather than in whichever client happens to need
+// it: a second client would otherwise write its own version, and a viewer that filled in three of
+// the four fields would show a prompt that looks right and answers nothing.
+func (w *Waiting) Event(sid session.SessionID) (event.Event, error) {
+	if w == nil {
+		return event.Event{}, errors.New("daemon: no pending prompt to draw")
+	}
+	var (
+		typ  event.Type
+		data []byte
+		err  error
+	)
+	switch w.Kind {
+	case "question":
+		typ = event.TypeQuestionRequested
+		data, err = json.Marshal(event.QuestionRequestedData{
+			CallID: w.ID, Question: w.What, Options: w.Options, Index: 1, Total: 1})
+	default:
+		typ = event.TypePermissionRequested
+		data, err = json.Marshal(event.PermissionRequestedData{
+			CallID: w.ID, Name: w.What, Args: w.Args, Reason: w.Reason})
+	}
+	if err != nil {
+		return event.Event{}, fmt.Errorf("daemon: rebuilding the prompt: %w", err)
+	}
+	return event.Event{
+		SessionID: sid, Type: typ, Data: data,
+		Actor: event.Actor{Kind: event.ActorSystem, ID: "daemon"},
+	}, nil
+}
+
 // SocketPath is where a workspace's daemon listens.
 //
 // Derived from the workspace so two projects do not fight over one path, and placed under the
