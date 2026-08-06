@@ -197,17 +197,22 @@ func TestAWaitingMessageThatBelongsWithTheTurnIsFoldedIn(t *testing.T) {
 // `leftover: false` on purpose — the note costs no model call, so it is not rationed the way the
 // re-triage is, and this is the ordinary case rather than the rare one.
 func TestAWaitingMessageIsShownToTheModelEvenWhenNotRetriaged(t *testing.T) {
-	a, sid, llm, _ := startWithWaitingCouncil(t, func(string) string { return "queue" }, "ZZZ later, rewrite the docs", false)
+	_, _, llm, _ := startWithWaitingCouncil(t, func(string) string { return "queue" }, "ZZZ later, rewrite the docs", false)
 
-	a.mu.Lock()
-	left := len(a.stateLocked(sid).pendingInterject)
-	a.mu.Unlock()
-	if left != 1 {
-		t.Fatalf("separate work must keep waiting, queue holds %d", left)
-	}
 	llm.mu.Lock()
 	seen := strings.Join(llm.seenMsgs, "\n")
 	llm.mu.Unlock()
+
+	// It reached the model as the QUEUED note, which is the whole claim: the message is masked out
+	// of the context, so without the note it does not exist for the turn and cannot be routed.
+	//
+	// Checked on the note's own wording rather than on the pending queue. Everything observable
+	// AFTER the turn is polluted by the post-turn drain — it starts on the very turn.finished this
+	// test waits for, and it both empties the queue and answers the entry, so "still queued" and
+	// "not answered" are both races this test loses under load. Observed as a flake in a full run.
+	if !strings.Contains(seen, "It has been QUEUED") {
+		t.Errorf("it did not reach the model as a queued note — folded or answered instead:\n%s", seen)
+	}
 	if !strings.Contains(seen, "ZZZ later, rewrite the docs") {
 		t.Errorf("the waiting message never reached the model — it is masked from context and had "+
 			"no note, so the turn cannot route it:\n%s", seen)
