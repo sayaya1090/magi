@@ -473,6 +473,19 @@ type SpawnSpec struct {
 	Tools    []string // the child's allowlist; empty = whatever the agent spec defaults to
 	MaxSteps int      // clamped by the host
 	Timeout  time.Duration
+	// Review, when set, is asked whether a child that stopped is actually finished — the same
+	// relationship the main agent has with the council, one level down.
+	//
+	// A child today ends by going quiet or by hitting a bound, which is the passive finish this
+	// tree took away from the main agent: a child that gave up and one that succeeded come back
+	// the same shape. Returning a non-empty string sends it back to work IN THE SAME SESSION with
+	// that string as the next instruction, so it keeps everything it has already read — a fresh
+	// child re-gathers what the last one knew, and re-reading a repository is most of what a
+	// second round would otherwise spend its steps on.
+	//
+	// Returning "" accepts the ending. The host bounds the rounds and the child's TOTAL steps
+	// whatever this says, so a review that never accepts cannot run forever.
+	Review func(round int, text string, steps int) (string, error)
 }
 
 // SpawnResult is what the child left behind. Failure is reported, never swallowed: a caller told
