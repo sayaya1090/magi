@@ -47,7 +47,7 @@ const indexHTML = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
-<meta name="theme-color" content="#211B14">
+<meta name="theme-color" content="#14110d">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon.svg">
 <link rel="apple-touch-icon" href="/icon.svg">
@@ -75,132 +75,228 @@ const indexHTML = `<!doctype html>
     }
   }
 
+  /* Newsreader, an editorial serif drawn for reading on screens, served from this binary — see
+     fonts/README.md. A font CDN would make the page's appearance depend on somebody else's machine
+     and tell it when you look at your agents; embedding costs 60KB and nothing leaves the host.
+     swap, so the page is readable in the fallback before the face arrives. */
+  @font-face {
+    font-family:"Newsreader"; font-style:normal; font-weight:400; font-display:swap;
+    src:url(/font/newsreader-400.woff2) format("woff2");
+  }
+  @font-face {
+    font-family:"Newsreader"; font-style:normal; font-weight:600; font-display:swap;
+    src:url(/font/newsreader-600.woff2) format("woff2");
+  }
+  @font-face {
+    font-family:"Newsreader"; font-style:italic; font-weight:400; font-display:swap;
+    src:url(/font/newsreader-italic.woff2) format("woff2");
+  }
+
+  /* Two families. The serif for what a person READS — names, the lead line, the empty state — and
+     monospace for everything that is a fact from the machine: paths, commands, transcript. The
+     system stack behind Newsreader is not decoration: it carries every script the subset does not,
+     so a Korean workspace name renders in the platform's serif rather than in tofu. */
+  :root {
+    --display: "Newsreader", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --measure: 74ch;   /* prose */
+    --wide: 108ch;     /* transcript, where lines are code and wrapping costs more than width */
+  }
+
   * { box-sizing:border-box; }
   html { scrollbar-gutter:stable; -webkit-text-size-adjust:100%; }
   body {
     margin:0; background:var(--bg); color:var(--fg);
-    font:14px/1.6 ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
-    -webkit-font-smoothing:antialiased;
+    font:14px/1.65 var(--mono);
+    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+    font-variant-numeric:tabular-nums;  /* ages and step counts line up down the column */
   }
   [hidden] { display:none !important; }
 
-  /* ── header ─────────────────────────────────────────────────────────────── */
-  header {
-    position:sticky; top:0; z-index:2; background:var(--surface);
-    border-bottom:1px solid var(--outlineVariant);
-    padding:.55rem .9rem; padding-top:calc(.55rem + env(safe-area-inset-top));
-    display:flex; gap:.7rem; align-items:baseline; flex-wrap:wrap;
+  /* A kicker: the small letterspaced label an editorial layout puts above a headline. Here it is
+     the state, which is the first thing you want and the last thing that deserves a box. */
+  .kicker {
+    font:600 10.5px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase;
+    color:var(--muted);
   }
-  .mark { color:var(--primary); font-weight:600; letter-spacing:.06em; }
-  /* The three councillors, in their own hues — the signature the terminal wears. */
-  .magi span { font-size:11px; letter-spacing:.14em; }
+
+  /* ── masthead ───────────────────────────────────────────────────────────── */
+  header {
+    position:sticky; top:0; z-index:2; background:var(--bg);
+    border-bottom:1px solid var(--fg);
+    box-shadow:0 3px 0 -2px var(--outlineVariant);   /* the hairline under the rule */
+    padding:.7rem 1.4rem .5rem;
+    padding-top:calc(.7rem + env(safe-area-inset-top));
+    display:flex; gap:1rem; align-items:baseline; flex-wrap:wrap;
+    max-width:var(--wide); margin:0 auto;
+  }
+  .mark {
+    font:600 22px/1 var(--display); letter-spacing:.01em; color:var(--primary);
+    font-feature-settings:"liga" 1;
+  }
+  /* The three councillors, in their own hues — the signature the terminal wears, set as a
+     nameplate's standing line. */
+  .magi { display:flex; gap:.6rem; }
+  .magi span { font-size:9.5px; letter-spacing:.22em; font-weight:600; }
   .magi .m { color:var(--melchior); } .magi .b { color:var(--balthasar); } .magi .c { color:var(--casper); }
-  .sid { color:var(--muted); font-size:11.5px; opacity:.75; overflow-wrap:anywhere; }
-  #state { margin-left:auto; font-size:11.5px; color:var(--muted); display:flex; align-items:center; gap:.4rem; }
-  #state::before { content:""; width:7px; height:7px; border-radius:50%; background:var(--outline); }
-  #state.live::before { background:var(--success); box-shadow:0 0 0 3px color-mix(in srgb, var(--success) 22%, transparent); }
+  .sid { color:var(--muted); font-size:11px; letter-spacing:.04em; opacity:.7; overflow-wrap:anywhere; }
+  #state {
+    margin-left:auto; font:600 10.5px/1.4 var(--mono); letter-spacing:.16em; text-transform:uppercase;
+    color:var(--muted); display:flex; align-items:center; gap:.45rem;
+  }
+  #state::before { content:""; width:6px; height:6px; border-radius:50%; background:var(--outline); }
+  #state.live::before { background:var(--success); box-shadow:0 0 0 3px color-mix(in srgb, var(--success) 20%, transparent); }
   #state.lost::before { background:var(--error); }
   #back {
-    color:var(--muted); text-decoration:none; border:1px solid var(--outlineVariant);
-    border-radius:6px; padding:.15rem .5rem; font-size:12px; line-height:1.7;
+    color:var(--muted); text-decoration:none; font-size:11px; letter-spacing:.12em;
+    text-transform:uppercase; border-bottom:1px solid var(--outlineVariant); padding-bottom:2px;
   }
-  #back:hover { color:var(--primary); border-color:var(--primary); }
+  #back:hover { color:var(--primary); border-bottom-color:var(--primary); }
 
-  main { padding:1rem .9rem 8rem; max-width:108ch; margin:0 auto; }
+  main { padding:1.6rem 1.4rem 9rem; max-width:var(--wide); margin:0 auto; }
 
-  /* ── dashboard ──────────────────────────────────────────────────────────── */
-  /* One column, widening only when there is room. auto-fill rather than auto-fit so a lone
-     daemon stays a card and does not stretch to the width of the window. */
-  #fleet { display:grid; gap:.7rem; grid-template-columns:1fr; }
-  @media (min-width:700px) { #fleet { grid-template-columns:repeat(auto-fill, minmax(310px, 1fr)); } }
+  /* ── the fleet, as a column of entries ──────────────────────────────────── */
+  /* Rules, not boxes. A card with a border around it is a widget; a rule between entries is a
+     page, and twenty agents read as a list of stories rather than a wall of chrome. */
+  #fleet { display:block; max-width:var(--measure); }
 
   .card {
-    display:block; text-decoration:none; color:inherit; background:var(--surface);
-    border:1px solid var(--outlineVariant); border-left:3px solid var(--outline);
-    border-radius:8px; padding:.7rem .85rem; min-height:44px;
+    display:block; text-decoration:none; color:inherit;
+    border-top:1px solid var(--outlineVariant);
+    padding:1.15rem 0 1.25rem 1rem;
+    margin-left:-1rem; border-left:2px solid transparent;
+    transition:border-left-color .12s ease, background .12s ease;
   }
-  .card:hover { border-color:var(--primary); }
-  .card:active { background:var(--primaryContainer); }
+  #fleet .card:first-of-type { border-top:0; }
+  /* M3 keeps its state layers; they are just quieter here than a filled card would be. */
+  .card:hover { background:color-mix(in srgb, var(--primary) 5%, transparent); border-left-color:var(--outline); }
+  .card:active { background:color-mix(in srgb, var(--primary) 10%, transparent); }
   .card.here { border-left-color:var(--primary); }
   .card.working { border-left-color:var(--success); }
   .card.waiting { border-left-color:var(--warn); }
   .card.abandoned { border-left-color:var(--error); }
-  .card.stopped { opacity:.62; }
+  .card.stopped { opacity:.55; }
 
-  .card .top { display:flex; align-items:baseline; gap:.5rem; }
-  .card .name { color:var(--primary); font-weight:600; overflow-wrap:anywhere; }
+  /* wrap, not wrap-reverse: the badge is order:-1 with a full-width basis, so it takes the first
+     line on its own and the name follows underneath. wrap-reverse would invert the cross axis and
+     put that first line at the BOTTOM — the kicker below the headline, which is the one arrangement
+     this layout is not. */
+  .card .top { display:flex; align-items:baseline; gap:.7rem; flex-wrap:wrap; }
+  .card .name {
+    font:600 20px/1.25 var(--display); letter-spacing:.005em; color:var(--fg);
+  }
+  .card:hover .name { color:var(--primary); }
+  /* The state is the kicker, and it sits ABOVE the name in the reading order a person uses:
+     what is happening, then which agent. */
   .card .badge {
-    margin-left:auto; font-size:10.5px; letter-spacing:.1em; text-transform:uppercase;
-    color:var(--muted); white-space:nowrap;
+    order:-1; flex-basis:100%;
+    font:600 10.5px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase;
+    color:var(--muted); margin-bottom:.15rem;
   }
   .card.working .badge { color:var(--success); }
   .card.abandoned .badge { color:var(--error); }
   .card.idle .badge { color:var(--accent); }
   .card.waiting .badge { color:var(--warn); }
-  .card .asking { margin-top:.45rem; color:var(--warn); font-size:12.5px; overflow-wrap:anywhere; }
-  .answer { display:flex; gap:.4rem; margin-top:.5rem; flex-wrap:wrap; }
-  .answer button { min-height:2.4rem; padding:0 .7rem; font-size:12.5px; border-color:var(--warn); color:var(--warn); }
-  .answer button:hover { border-color:var(--primary); color:var(--primary); }
-  .answer input { flex:1; min-width:8rem; background:var(--surface); color:var(--fg); font:inherit;
-                  font-size:16px; border:1px solid var(--outline); border-radius:8px; padding:.4rem .6rem; }
-  .card .path { color:var(--muted); font-size:11.5px; opacity:.8; overflow-wrap:anywhere; margin-top:.15rem; }
+  .card .path {
+    font-size:11.5px; color:var(--muted); opacity:.85; overflow-wrap:anywhere; margin-top:.3rem;
+  }
+  /* The lead: what it is doing, set as a sentence rather than a log line. */
   .card .last {
-    margin-top:.45rem; color:var(--fg); opacity:.85; font-size:12.5px;
+    font:italic 15.5px/1.55 var(--display); color:var(--fg); opacity:.92; margin-top:.55rem;
     display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
   }
-  .card .meta { margin-top:.45rem; color:var(--muted); font-size:11px; opacity:.75; }
-  .empty { color:var(--muted); padding:2rem 0; }
-  .empty code { color:var(--accent); }
+  .card .asking {
+    font:600 14px/1.5 var(--mono); color:var(--warn); margin-top:.55rem; overflow-wrap:anywhere;
+  }
+  .card .meta {
+    margin-top:.55rem; font-size:11px; letter-spacing:.06em; color:var(--muted); opacity:.7;
+  }
+
+  /* Answering, as text buttons — the editorial equivalent of a form: words with rules under them.
+     Still 44px of touch target, which is a phone's business and not a style's. */
+  .answer { display:flex; gap:1.1rem; margin-top:.75rem; flex-wrap:wrap; align-items:center; }
+  .answer button {
+    background:none; border:0; border-bottom:1px solid var(--warn); border-radius:0;
+    color:var(--warn); font:600 11.5px/1 var(--mono); letter-spacing:.16em; text-transform:uppercase;
+    padding:.35rem .1rem; min-height:44px; cursor:pointer;
+  }
+  .answer button:hover { color:var(--primary); border-bottom-color:var(--primary); }
+  .answer input {
+    flex:1; min-width:9rem; background:transparent; color:var(--fg); font:16px/1.5 var(--mono);
+    border:0; border-bottom:1px solid var(--outline); border-radius:0; padding:.45rem .1rem;
+  }
+  .answer input:focus { outline:none; border-bottom-color:var(--primary); }
+
+  .empty {
+    font:17px/1.7 var(--display); color:var(--muted); padding:2.5rem 0; max-width:52ch;
+  }
+  .empty code { font:14px/1 var(--mono); color:var(--accent); }
 
   /* ── transcript ─────────────────────────────────────────────────────────── */
-  .row { display:grid; grid-template-columns:5.5rem 1fr; gap:.85rem; align-items:start; padding:.2rem 0; }
-  .who { color:var(--muted); text-align:right; user-select:none; font-size:12px; padding-top:.1rem; opacity:.8; }
+  /* Monospace throughout: every line here is something the machine said or did, and a serif would
+     be dressing up evidence. The editorial part is the rhythm — a wide gutter of small-caps labels
+     against a single column of text. */
+  #log { max-width:var(--wide); }
+  .row { display:grid; grid-template-columns:6.5rem 1fr; gap:1.1rem; align-items:start; padding:.22rem 0; }
+  .who {
+    font:600 10px/1.9 var(--mono); letter-spacing:.16em; text-transform:uppercase;
+    color:var(--muted); text-align:right; user-select:none; opacity:.7;
+  }
   .txt { white-space:pre-wrap; overflow-wrap:anywhere; }
 
-  /* A user turn is the anchor you scan for, so it gets the primary bar. */
-  .row.user { margin:.9rem 0 .5rem; }
-  .row.user .txt { color:var(--primary); border-left:2px solid var(--primary); padding-left:.7rem; margin-left:-.7rem; }
+  /* A user turn is the anchor you scan for: set as a lead, with the rule an editorial layout uses
+     for a pull quote. */
+  .row.user { margin:1.6rem 0 .7rem; }
+  .row.user .txt {
+    font:17px/1.55 var(--display); color:var(--primary);
+    border-left:2px solid var(--primary); padding-left:.9rem; margin-left:-.9rem;
+  }
+  .row.user .who { color:var(--primary); opacity:.8; }
   .row.assistant .txt { color:var(--fg); }
-  /* Reasoning and tool calls are context, not the point: present, quieter. */
-  .row.thinking .txt { color:var(--muted); font-style:italic; opacity:.72; }
+  .row.thinking .txt { color:var(--muted); font-style:italic; opacity:.7; }
   .row.tool .txt { color:var(--accent); }
+  .row.tool .who { color:var(--accent); opacity:.6; }
   .row.result .txt, .row.failed .txt {
-    color:var(--muted); background:color-mix(in srgb, var(--surface) 70%, transparent);
-    border-left:2px solid var(--outlineVariant); padding:.25rem .6rem; border-radius:3px;
-    max-height:11rem; overflow:auto;
+    color:var(--muted); border-left:1px solid var(--outlineVariant);
+    padding:.15rem 0 .15rem .8rem; max-height:11rem; overflow:auto;
   }
   .row.failed .who, .row.failed .txt { color:var(--error); border-left-color:var(--error); }
-  .row.tool .who { color:var(--accent); opacity:.65; }
 
   /* ── composer ───────────────────────────────────────────────────────────── */
   form {
     position:fixed; left:0; right:0; bottom:0; z-index:2;
-    background:linear-gradient(to top, var(--bg) 72%, transparent);
-    padding:.9rem; padding-bottom:calc(.9rem + env(safe-area-inset-bottom));
-    display:flex; gap:.5rem; justify-content:center;
+    background:linear-gradient(to top, var(--bg) 74%, transparent);
+    padding:1rem 1.4rem; padding-bottom:calc(1rem + env(safe-area-inset-bottom));
+    display:flex; justify-content:center;
   }
-  .composer { display:flex; gap:.5rem; width:100%; max-width:108ch; align-items:flex-end; }
+  .composer {
+    display:flex; gap:.9rem; width:100%; max-width:var(--wide); align-items:flex-end;
+    border-top:1px solid var(--fg); padding-top:.8rem;
+  }
   textarea {
-    flex:1; background:var(--surface); color:var(--fg);
-    border:1px solid var(--outline); border-radius:8px; padding:.6rem .75rem;
-    font:inherit; font-size:16px; resize:none; min-height:2.9rem; max-height:12rem; overflow-y:auto;
+    flex:1; background:transparent; color:var(--fg);
+    border:0; border-bottom:1px solid var(--outline); border-radius:0;
+    padding:.5rem .1rem; font:16px/1.6 var(--mono); resize:none;
+    min-height:2.6rem; max-height:12rem; overflow-y:auto;
   }
-  textarea:focus { outline:none; border-color:var(--primary); }
-  textarea::placeholder { color:var(--muted); opacity:.55; }
+  textarea:focus { outline:none; border-bottom-color:var(--primary); }
+  textarea::placeholder { color:var(--muted); opacity:.5; }
   button {
-    background:transparent; color:var(--fg); border:1px solid var(--outline);
-    border-radius:8px; padding:0 .9rem; min-height:2.9rem; font:inherit; cursor:pointer; white-space:nowrap;
+    background:none; border:0; border-bottom:1px solid var(--outline); border-radius:0;
+    color:var(--muted); font:600 11.5px/1 var(--mono); letter-spacing:.16em; text-transform:uppercase;
+    padding:0 .1rem; min-height:44px; cursor:pointer; white-space:nowrap;
   }
-  button:hover { border-color:var(--primary); color:var(--primary); }
-  #stop:hover { border-color:var(--error); color:var(--error); }
-  button:active { background:var(--primaryContainer); }
+  button:hover { color:var(--primary); border-bottom-color:var(--primary); }
+  #stop:hover { color:var(--error); border-bottom-color:var(--error); }
 
   @media (max-width:640px) {
-    .row { grid-template-columns:1fr; gap:.15rem; }
+    header { padding-left:1rem; padding-right:1rem; }
+    main { padding:1.2rem 1rem 9.5rem; }
+    .card .name { font-size:18px; }
+    .row { grid-template-columns:1fr; gap:.2rem; }
     .who { text-align:left; }
-    main { padding-bottom:9rem; }
-    /* On a phone the two buttons take the width the placeholder cannot have anyway. */
-    #stop { padding:0 .7rem; }
+    .row.user .txt { font-size:16px; }
+    form { padding-left:1rem; padding-right:1rem; }
   }
 </style>
 

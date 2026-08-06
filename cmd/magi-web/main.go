@@ -17,6 +17,7 @@ package main
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -25,6 +26,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -268,6 +270,33 @@ func (s *server) routes() map[string]http.HandlerFunc {
 		"/answer":               s.answer,
 		"/manifest.webmanifest": s.manifest,
 		"/icon.svg":             s.icon,
+		"/font/":                s.font,
+	}
+}
+
+//go:embed fonts/*.woff2
+var fontFS embed.FS
+
+// font serves the display face the page sets its headlines in.
+//
+// Embedded and served from here rather than fetched from a font CDN. A viewer that reached out for
+// its typeface would make this page's appearance depend on a machine that is not yours, tell that
+// machine when you look at your agents, and fall back to something else entirely on a laptop with
+// no route out — and this binary exists to hold everything it serves. See fonts/README.md for how
+// the files were built, and fonts/OFL.txt for the licence that travels with them.
+func (s *server) font(w http.ResponseWriter, r *http.Request) {
+	name := path.Base(r.URL.Path)
+	b, err := fontFS.ReadFile("fonts/" + name)
+	if err != nil || !strings.HasSuffix(name, ".woff2") {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "font/woff2")
+	// The bytes are baked into the binary, so they cannot change without the binary changing —
+	// and a page that re-fetches its typeface every poll is a page that flashes.
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	if _, err := w.Write(b); err != nil {
+		log.Printf("magi-web: writing %s: %v", name, err)
 	}
 }
 
@@ -278,8 +307,8 @@ func (s *server) routes() map[string]http.HandlerFunc {
 // is small enough that a route costs less than the explanation of the workaround would.
 func (s *server) manifest(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/manifest+json")
-	// display:standalone and a dark theme that matches the page's surface, so the status bar does
-	// not flash white on launch. start_url is the fleet: the phone is where you check on things.
+	// display:standalone and a theme colour that matches the page's BACKGROUND — the masthead sits
+	// on it directly now, so a surface colour here would draw a band the page does not have. start_url is the fleet: the phone is where you check on things.
 	const m = `{
   "name": "magi",
   "short_name": "magi",
@@ -287,7 +316,7 @@ func (s *server) manifest(w http.ResponseWriter, r *http.Request) {
   "scope": "/",
   "display": "standalone",
   "background_color": "#14110d",
-  "theme_color": "#211B14",
+  "theme_color": "#14110d",
   "icons": [{"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"}]
 }`
 	if _, err := io.WriteString(w, m); err != nil {

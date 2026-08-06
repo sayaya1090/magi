@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"regexp"
 	"strings"
@@ -61,16 +62,29 @@ func TestThePageFetchesNothingItDoesNotServe(t *testing.T) {
 		}
 	}
 	served := (&server{}).routes()
-	ref := regexp.MustCompile(`(?:href|src)="([^"]*)"`)
+	// href="…", src="…" in the markup AND url(…) in the CSS: a @font-face pointing at a CDN is the
+	// same dependency as a <link>, one layer down, and it was the first thing that wanted to be one.
+	ref := regexp.MustCompile(`(?:href|src)="([^"]*)"|url\(([^)]*)\)`)
 	for _, m := range ref.FindAllStringSubmatch(indexHTML, -1) {
-		u := m[1]
+		u := m[1] + m[2]
+		if strings.HasPrefix(u, "data:") {
+			continue // carried in the page itself, which is the property this is protecting
+		}
 		if !strings.HasPrefix(u, "/") {
 			t.Errorf("the page references %q, which is not a root-relative path on this server", u)
 			continue
 		}
-		if _, ok := served[strings.SplitN(u, "?", 2)[0]]; !ok {
-			t.Errorf("the page references %q and this server has no such route", u)
+		p := strings.SplitN(u, "?", 2)[0]
+		if _, ok := served[p]; ok {
+			continue
 		}
+		// A subtree route ("/font/") serves everything under it.
+		if i := strings.LastIndexByte(p, '/'); i > 0 {
+			if _, ok := served[p[:i+1]]; ok {
+				continue
+			}
+		}
+		t.Errorf("the page references %q and this server has no such route", u)
 	}
 }
 
@@ -83,6 +97,23 @@ func TestBothThemesAreDeclared(t *testing.T) {
 	if !strings.Contains(indexHTML, "color-scheme: dark light") {
 		t.Error("the page does not tell the browser it supports both, so form controls will not follow")
 	}
+}
+
+// fontSizePx reads a rule's font size from either spelling: the longhand, or the size slot of the
+// `font:` shorthand (which is whatever precedes the / or the family list).
+func fontSizePx(rule string) (float64, bool) {
+	for _, re := range []*regexp.Regexp{
+		regexp.MustCompile(`font-size:([0-9.]+)px`),
+		regexp.MustCompile(`[;{]?font:(?:[a-z0-9]+ )*?([0-9.]+)px[/ ]`),
+	} {
+		if m := re.FindStringSubmatch(rule); m != nil {
+			var px float64
+			if _, err := fmt.Sscanf(m[1], "%g", &px); err == nil {
+				return px, true
+			}
+		}
+	}
+	return 0, false
 }
 
 // The page is both views: a fleet and one agent. It used to be only the second, and the check that
@@ -108,14 +139,31 @@ func TestThePageWorksOnAPhone(t *testing.T) {
 	if !strings.Contains(flat, "env(safe-area-inset-bottom)") {
 		t.Error("the composer does not clear the home indicator")
 	}
-	// The textarea must set a font-size of its own: it inherits 14px from body otherwise, and 14
-	// is under the threshold that triggers the zoom.
-	ta := strings.Index(flat, "textarea{")
-	if ta < 0 {
-		t.Fatal("no textarea rule in the page")
-	}
-	if end := strings.Index(flat[ta:], "}"); end < 0 || !strings.Contains(flat[ta:ta+end], "font-size:16px") {
-		t.Error("the textarea is under 16px, so iOS Safari will zoom the page on focus")
+	// Every text input must set a size of its own and it must be at least 16. They inherit the
+	// body's 14 otherwise, and 14 is under the threshold that triggers the zoom.
+	//
+	// Read as a SIZE rather than as one spelling: `font-size:16px` and the `font:` shorthand say
+	// the same thing, and a check that knows only one of them fails on a restyle that kept the
+	// property it exists to protect.
+	for _, sel := range []string{"textarea{", ".answerinput{"} {
+		at := strings.Index(flat, sel)
+		if at < 0 {
+			t.Errorf("no %s rule in the page", strings.TrimSuffix(sel, "{"))
+			continue
+		}
+		end := strings.Index(flat[at:], "}")
+		if end < 0 {
+			t.Errorf("the %s rule is unterminated", sel)
+			continue
+		}
+		px, ok := fontSizePx(flat[at : at+end])
+		if !ok {
+			t.Errorf("%s sets no font size, so it inherits the body's 14px and iOS zooms on focus", sel)
+			continue
+		}
+		if px < 16 {
+			t.Errorf("%s is %gpx; under 16 iOS Safari zooms the page on focus and does not zoom back", sel, px)
+		}
 	}
 	// Enter must not be hijacked where the return key is the only way to break a line.
 	if !strings.Contains(flat, "matchMedia('(hover:none)')") {
