@@ -50,7 +50,7 @@ func TestAChildsCloneCarriesTheParentsUncommittedWork(t *testing.T) {
 	write(t, dir, "ignored.log", "build noise\n")
 
 	a, _, _ := spawnApp(t, &usageLLM{text: "done"})
-	ws, err := a.cloneWorkspace(context.Background(), dir)
+	ws, _, err := a.cloneWorkspace(context.Background(), dir)
 	if err != nil {
 		t.Fatalf("cloneWorkspace: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestWritingInTheCloneDoesNotTouchTheParent(t *testing.T) {
 	gitDo(t, dir, "commit", "-qm", "base")
 
 	a, _, _ := spawnApp(t, &usageLLM{text: "done"})
-	ws, err := a.cloneWorkspace(context.Background(), dir)
+	ws, _, err := a.cloneWorkspace(context.Background(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestWritingInTheCloneDoesNotTouchTheParent(t *testing.T) {
 	}
 
 	// Two children get DIFFERENT areas — one shared path would be no isolation at all.
-	ws2, err := a.cloneWorkspace(context.Background(), dir)
+	ws2, _, err := a.cloneWorkspace(context.Background(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestWritingInTheCloneDoesNotTouchTheParent(t *testing.T) {
 func TestAskingForIsolationOutsideARepositoryFails(t *testing.T) {
 	a, _, _ := spawnApp(t, &usageLLM{text: "done"})
 	plain := t.TempDir() // no git repository here
-	ws, err := a.cloneWorkspace(context.Background(), plain)
+	ws, _, err := a.cloneWorkspace(context.Background(), plain)
 	if err == nil {
 		t.Fatalf("a non-repository was silently given a workspace at %s", ws)
 	}
@@ -130,7 +130,7 @@ func TestASpawnWithItsOwnCheckoutWorksThereAndSaysWhere(t *testing.T) {
 
 	a, parent, _ := spawnApp(t, &writingChildLLM{path: "target.go"})
 	parent.Workdir = dir
-	spawn, _, _ := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "looper")
+	spawn, _, _, _ := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "looper")
 
 	res, err := spawn(context.Background(), port.SpawnSpec{
 		Prompt: "change it", Tools: []string{"write", "read"}, Workspace: "clone"})
@@ -149,5 +149,99 @@ func TestASpawnWithItsOwnCheckoutWorksThereAndSaysWhere(t *testing.T) {
 	// …and the parent's tree is untouched.
 	if got := read(t, dir, "target.go"); got != "before\n" {
 		t.Errorf("the parent's tree changed to %q", got)
+	}
+}
+
+// The merge is a COMMIT RANGE, so it brings back the child's work and nothing else.
+//
+// The clone carries the parent's own uncommitted edits, which is why the baseline commit matters:
+// without that line drawn, "commit everything at the end" would carry those changes home wearing
+// the child's name, and the parent would see its own work arrive as somebody else's.
+func TestTheMergeBringsBackTheChildsWorkAndNotTheParentsOwn(t *testing.T) {
+	skipWithoutGit(t)
+	dir := gitRepo(t)
+	write(t, dir, "shared.go", "committed\n")
+	gitDo(t, dir, "add", "-A")
+	gitDo(t, dir, "commit", "-qm", "base")
+	// The parent's OWN uncommitted work, which the clone will carry but must not bring back.
+	write(t, dir, "mine.go", "the parent is in the middle of this\n")
+
+	a, _, _ := spawnApp(t, &usageLLM{text: "done"})
+	ctx := context.Background()
+	ws, base, err := a.cloneWorkspace(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(filepath.Dir(ws)) })
+
+	// The child works in TWO rounds, so base..HEAD is a range and not just the last commit — a
+	// merge that took only the tip would silently drop everything before it.
+	write(t, ws, "first.go", "the child's first round\n")
+	if _, err := commitAll(ctx, ws, "child round 1"); err != nil {
+		t.Fatal(err)
+	}
+	write(t, ws, "childs.go", "the child wrote this\n")
+	head, err := commitAll(ctx, ws, "child round 2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if head == base {
+		t.Fatal("the child's commits did not land")
+	}
+
+	if err := a.MergeChildWork(ctx, dir, ws, base, head); err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	if got := read(t, dir, "childs.go"); !strings.Contains(got, "the child wrote this") {
+		t.Errorf("the child's last round did not come back: %q", got)
+	}
+	if got := read(t, dir, "first.go"); !strings.Contains(got, "first round") {
+		t.Errorf("the child's EARLIER round did not come back — the merge took the tip, not the range: %q", got)
+	}
+	// The parent's own file is untouched — not duplicated, not reverted, not conflicted.
+	if got := read(t, dir, "mine.go"); got != "the parent is in the middle of this\n" {
+		t.Errorf("the parent's own uncommitted work came back changed: %q", got)
+	}
+	// And nothing was committed in the parent: what landed is a working-tree change to read.
+	out, _ := gitRun(ctx, dir, "log", "--oneline")
+	if strings.Count(strings.TrimSpace(out), "\n") != 0 {
+		t.Errorf("the merge committed in the parent's repository:\n%s", out)
+	}
+}
+
+// A child that changed nothing merges cleanly and does nothing. Treating that as an error would
+// make every caller special-case the ordinary outcome of a read-only round.
+func TestMergingAChildThatChangedNothingIsNotAnError(t *testing.T) {
+	skipWithoutGit(t)
+	dir := gitRepo(t)
+	write(t, dir, "f.go", "x\n")
+	gitDo(t, dir, "add", "-A")
+	gitDo(t, dir, "commit", "-qm", "base")
+
+	a, _, _ := spawnApp(t, &usageLLM{text: "done"})
+	ctx := context.Background()
+	ws, base, err := a.cloneWorkspace(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(filepath.Dir(ws)) })
+	head, err := commitAll(ctx, ws, "did nothing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.MergeChildWork(ctx, dir, ws, base, head); err != nil {
+		t.Errorf("merging an empty range failed: %v", err)
+	}
+}
+
+// Merging a child that had no checkout of its own says so, rather than doing something arbitrary.
+func TestMergingAChildThatSharedTheTreeIsRefused(t *testing.T) {
+	a, _, _ := spawnApp(t, &usageLLM{text: "done"})
+	err := a.MergeChildWork(context.Background(), t.TempDir(), "", "", "")
+	if err == nil {
+		t.Fatal("merging a child with no checkout was accepted")
+	}
+	if !strings.Contains(err.Error(), "no checkout") {
+		t.Errorf("the refusal does not say why: %v", err)
 	}
 }

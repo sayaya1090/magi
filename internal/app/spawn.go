@@ -89,13 +89,13 @@ func (a *App) spawnChild(ctx context.Context, parent session.Session, actor even
 	// Its own checkout, when the caller asked for one. Done BEFORE the session exists so a clone
 	// that cannot be made fails the spawn outright instead of leaving a child session behind with
 	// nowhere to work.
-	workdir, workspace := parent.Workdir, ""
+	workdir, workspace, base := parent.Workdir, "", ""
 	if strings.EqualFold(strings.TrimSpace(spec.Workspace), "clone") {
-		dir, err := a.cloneWorkspace(ctx, parent.Workdir)
+		dir, b, err := a.cloneWorkspace(ctx, parent.Workdir)
 		if err != nil {
 			return port.SpawnResult{}, fmt.Errorf("spawn: %w", err)
 		}
-		workdir, workspace = dir, dir
+		workdir, workspace, base = dir, dir, b
 	}
 
 	// Parent is what keeps the child out of the resume list; the store already hides sessions that
@@ -193,7 +193,19 @@ func (a *App) spawnChild(ctx context.Context, parent session.Session, actor even
 	// Steps is the child's model round trips. Nothing set it before, so a caller reading it saw
 	// zero however much work the child did — and the per-call budget that charges it was really
 	// counting spawns. Counted from the log because runLoop reports text and an error, not a count.
-	res := port.SpawnResult{SessionID: string(child), Text: text, Steps: a.countTurns(ctx, child), Workspace: workspace}
+	// Commit whatever the child left behind, so what it did is a COMMIT RANGE and not a pile of
+	// loose files. base..HEAD is then exactly the child's work — the parent's own uncommitted
+	// changes are below the baseline and do not travel home as though the child had written them.
+	head := base
+	if workspace != "" {
+		if h, cerr := commitAll(ctx, workspace, "magi: "+spec.ToolName+" — what the child changed"); cerr == nil {
+			head = h
+		} else if rerr == nil {
+			rerr = cerr
+		}
+	}
+	res := port.SpawnResult{SessionID: string(child), Text: text, Steps: a.countTurns(ctx, child),
+		Workspace: workspace, Branch: childBranch, BaseCommit: base, HeadCommit: head}
 	defer func() { a.subJobs.finish(child, res.Steps, res.Err) }()
 	switch {
 	case rerr != nil:
@@ -215,9 +227,10 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 	func(context.Context, port.SpawnSpec) (port.SpawnResult, error),
 	func(context.Context, string) ([]port.ChildStep, error),
 	func(context.Context, string) ([]port.RestoredPath, error),
+	func(context.Context, string) error,
 ) {
 	if depth != 0 {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	// One budget per tool call, closed over by every spawn the call makes. spawnFnFor runs once
 	// per call (execute.go), so these are per-call state and not per-App.
@@ -227,6 +240,9 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 		children  int
 		started   time.Time
 		mine      = map[string]bool{} // children THIS call spawned; childStepsFnFor answers for these only
+		// Where each child worked, so a later merge names a RANGE instead of a directory the
+		// caller had to remember. Per tool call, like the ownership set above it.
+		spaces = map[string][3]string{} // sid -> {workspace, base, head}
 	)
 	spawn := func(sctx context.Context, spec port.SpawnSpec) (port.SpawnResult, error) {
 		// Check and reserve under the lock. Spawns from one plugin serialise on its own mutex
@@ -283,6 +299,7 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 		children++
 		if res.SessionID != "" {
 			mine[res.SessionID] = true
+			spaces[res.SessionID] = [3]string{res.Workspace, res.BaseCommit, res.HeadCommit}
 		}
 		mu.Unlock()
 		return res, err
@@ -304,6 +321,16 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 		return paths, nil
 	}
 
+	merge := func(sctx context.Context, sid string) error {
+		mu.Lock()
+		ok, w := mine[sid], spaces[sid]
+		mu.Unlock()
+		if !ok {
+			return fmt.Errorf("merge: %q was not spawned by this tool call", sid)
+		}
+		return a.MergeChildWork(sctx, s.Workdir, w[0], w[1], w[2])
+	}
+
 	steps := func(sctx context.Context, sid string) ([]port.ChildStep, error) {
 		mu.Lock()
 		ok := mine[sid]
@@ -314,7 +341,7 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 		}
 		return a.childSteps(sctx, session.SessionID(sid))
 	}
-	return spawn, steps, restore
+	return spawn, steps, restore, merge
 }
 
 // countTurns counts the child's model round trips: one per distinct assistant message in its log.

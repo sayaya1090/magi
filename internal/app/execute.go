@@ -196,7 +196,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// steers the agent they are talking to. The tool has already validated
 	// action ∈ {queue,redirect,append}; this records the signal for the loop to drain and apply
 	// at its next step.
-	spawnFn, childStepsFn, restoreChildFn := a.spawnFnFor(depth, s, actor, tc.CallID, tc.Name)
+	spawnFn, childStepsFn, restoreChildFn, mergeChildFn := a.spawnFnFor(depth, s, actor, tc.CallID, tc.Name)
 	var routeInterjectionFn func(action, reason, requestID string) error
 	if depth == 0 {
 		routeInterjectionFn = func(action, reason, requestID string) error {
@@ -342,6 +342,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		ChildSteps: childStepsFn,
 		// Same scope again: a call can only put back a child it started.
 		RestoreChild: restoreChildFn,
+		MergeChild:   mergeChildFn,
 		Council: func(cctx context.Context, question string, complete bool) (string, error) {
 			return a.councilAdvice(cctx, s, guardChanges(guard), question, complete)
 		},

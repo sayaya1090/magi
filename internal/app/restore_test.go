@@ -186,7 +186,7 @@ func TestARealChildsWritesLandInTheJournal(t *testing.T) {
 	a, parent, _ := spawnApp(t, &writingChildLLM{path: filepath.Join(dir, "target.go")})
 	parent.Workdir = dir
 
-	spawn, _, restore := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "looper")
+	spawn, _, restore, _ := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "looper")
 	res, err := spawn(context.Background(), port.SpawnSpec{
 		Prompt: "change it", Tools: []string{"write", "read"}})
 	if err != nil {
