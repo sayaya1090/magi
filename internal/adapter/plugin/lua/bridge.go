@@ -134,7 +134,7 @@ func (p *plugin) bridgeRegisterTool(L *lua.LState) int {
 	return 0
 }
 
-// magi.spawn{system=, prompt=, model=, provider=, tools={…}, max_steps=, timeout=, review=, workspace=}
+// magi.spawn{system=, prompt=, model=, provider=, tools={…}, max_steps=, timeout=, review=, workspace=, groups=}
 //
 // Runs a child agent to completion and returns its text (plus session_id, steps, err). The host
 // bounds it; this only carries what the plugin asked for.
@@ -200,6 +200,13 @@ func (p *plugin) bridgeSpawn(L *lua.LState) int {
 			}
 			return ret.String(), nil
 		}
+	}
+	if gt, ok := spec.RawGetString("groups").(*lua.LTable); ok {
+		gt.ForEach(func(_, v lua.LValue) {
+			if g := strings.TrimSpace(v.String()); g != "" {
+				sp.Groups = append(sp.Groups, g)
+			}
+		})
 	}
 	if tt, ok := spec.RawGetString("tools").(*lua.LTable); ok {
 		tt.ForEach(func(_, v lua.LValue) {

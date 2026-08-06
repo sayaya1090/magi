@@ -136,7 +136,7 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 	// workflow phase, a delegate with a narrowed set) was being handed the pointer anyway and
 	// then refused when it followed it.
 	if a.cfg.Experience != nil && retrievalQ != "" && agent.allows("recall_memory") {
-		if p := a.experiencePointerCached(ctx, s.ID, retrievalQ); p != "" {
+		if p := a.experiencePointerCached(ctx, s.ID, retrievalQ, agent.Groups); p != "" {
 			b.WriteString("\n\n# Shared experience\n" + p)
 		}
 	}
@@ -155,23 +155,24 @@ func (a *App) volatileContext(ctx context.Context, s session.Session, agent Agen
 // repeats an identical scan. Cached on success only: a transient Retrieve error keeps the
 // per-step retry the uncached code had. Invalidated by a successful Propose (see the tool
 // env in executeTool) so a memory the agent just saved is advertised immediately.
-func (a *App) experiencePointerCached(ctx context.Context, sid session.SessionID, q string) string {
+func (a *App) experiencePointerCached(ctx context.Context, sid session.SessionID, q string, groups []string) string {
 	a.mu.Lock()
 	st := a.stateLocked(sid)
-	if st.expPtrQ == q {
+	key := q + "\x00" + strings.Join(groups, ",")
+	if st.expPtrQ == key {
 		p := st.expPtr
 		a.mu.Unlock()
 		return p
 	}
 	a.mu.Unlock()
-	mems, skills, err := a.cfg.Experience.Retrieve(ctx, q)
+	mems, skills, err := a.cfg.Experience.Retrieve(ctx, q, groups)
 	if err != nil {
 		return ""
 	}
 	p := experiencePointer(len(mems), len(skills))
 	a.mu.Lock()
 	st = a.stateLocked(sid)
-	st.expPtrQ, st.expPtr = q, p
+	st.expPtrQ, st.expPtr = key, p
 	a.mu.Unlock()
 	return p
 }

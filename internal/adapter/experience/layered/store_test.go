@@ -27,7 +27,7 @@ func TestRetrieveMergesAndTags(t *testing.T) {
 	seedMem(t, globDir, "g.md", "deploy scripts always run gofmt")
 
 	s := New(projDir, globDir)
-	mems, _, err := s.Retrieve(context.Background(), "how does deploy work?")
+	mems, _, err := s.Retrieve(context.Background(), "how does deploy work?", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestRetrieveCombinedCap(t *testing.T) {
 		seedMem(t, globDir, string(rune('a'+i))+".md", "cache invalidation strategy note")
 	}
 	s := New(projDir, globDir)
-	mems, _, err := s.Retrieve(context.Background(), "cache invalidation strategy")
+	mems, _, err := s.Retrieve(context.Background(), "cache invalidation strategy", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

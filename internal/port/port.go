@@ -347,7 +347,14 @@ type DoctorProbe interface {
 
 // ExperienceStore is the shared, curated memory+skill store for a team.
 type ExperienceStore interface {
-	Retrieve(ctx context.Context, query string) ([]Memory, []Skill, error)
+	// Retrieve returns what best matches the query, narrowed to what this caller may see.
+	//
+	// agentGroups is the ASKING AGENT's groups. A skill that declares `agent-groups` is offered
+	// only when the two sets intersect; a skill that declares none is offered to everyone, which
+	// is what keeps every skill written before the field existed working. An agent with no groups
+	// therefore sees exactly the unlabelled ones — the other way round, labelling a skill would
+	// not shrink anybody's context, and shrinking it is the reason to label one.
+	Retrieve(ctx context.Context, query string, agentGroups []string) ([]Memory, []Skill, error)
 	Propose(ctx context.Context, c Contribution) error // goes to a review queue
 }
 
@@ -505,6 +512,10 @@ type SpawnSpec struct {
 	// FAILS rather than sharing quietly — a caller that asked for isolation and silently did not
 	// get it produces the very collision it was avoiding.
 	Workspace string
+	// Groups are the agent groups the child belongs to, deciding which shared skills reach it.
+	// This is the field that lets one plugin serve several specialists off one skill store: a
+	// reviewer and a doc writer see different shelves because they ask under different groups.
+	Groups []string
 }
 
 // SpawnResult is what the child left behind. Failure is reported, never swallowed: a caller told

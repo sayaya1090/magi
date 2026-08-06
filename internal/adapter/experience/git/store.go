@@ -30,7 +30,7 @@ func New(dir string) *Store { return &Store{dir: dir} }
 
 // Retrieve returns memories and skills whose text best matches the query
 // (keyword overlap), capped to a few results. Secrets never live here by policy.
-func (s *Store) Retrieve(ctx context.Context, query string) ([]port.Memory, []port.Skill, error) {
+func (s *Store) Retrieve(ctx context.Context, query string, agentGroups []string) ([]port.Memory, []port.Skill, error) {
 	terms := tokenize(query)
 
 	var mems []scored[port.Memory]
@@ -50,10 +50,16 @@ func (s *Store) Retrieve(ctx context.Context, query string) ([]port.Memory, []po
 		if text == "" {
 			continue
 		}
-		desc, body := splitFirstLine(text)
+		h, body := parseSkill(text)
+		// Narrowed before scoring, not after: a skill this agent may not see must not take one of
+		// the few slots the budget allows, or labelling a skill would cost the agents that cannot
+		// use it the very context it was meant to save them.
+		if !visibleTo(h.AgentGroups, agentGroups) {
+			continue
+		}
 		skills = append(skills, scored[port.Skill]{
 			score: overlap(terms, text),
-			v:     port.Skill{Name: strings.TrimSuffix(filepath.Base(f), ".md"), Description: desc, Body: body},
+			v:     port.Skill{Name: strings.TrimSuffix(filepath.Base(f), ".md"), Description: h.Description, Body: body},
 		})
 	}
 

@@ -373,7 +373,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 			if a.cfg.Experience == nil {
 				return "", fmt.Errorf("shared experience not configured")
 			}
-			mems, skills, err := a.cfg.Experience.Retrieve(ctx, query)
+			mems, skills, err := a.cfg.Experience.Retrieve(ctx, query, agent.Groups)
 			if err != nil {
 				return "", err
 			}

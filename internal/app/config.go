@@ -18,6 +18,13 @@ type AgentSpec struct {
 	Tools    []string
 	Model    session.ModelRef
 	Provider string // named LLM profile (different endpoint/key); empty = default backend
+	// Groups are the AGENT GROUPS this agent belongs to, and they decide which shared skills it is
+	// offered: a skill declaring `agent-groups` reaches it only when the two sets intersect.
+	//
+	// Empty means it sees only UNLABELLED skills. That direction is deliberate — if an agent with
+	// no groups saw everything, labelling a skill would not shrink anyone's context, and shrinking
+	// it is the reason to label one. "*" asks for the whole shelf.
+	Groups []string
 }
 
 // ProfileDef is a named LLM backend definition (endpoint/key/model + one optional

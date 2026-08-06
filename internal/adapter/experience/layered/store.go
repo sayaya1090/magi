@@ -36,7 +36,7 @@ func New(projectDir, globalDir string) *Store {
 // Retrieve merges results from both tiers under one combined budget (project
 // results first, since they are the most context-specific), tagging each entry
 // with its tier so a reader can tell workspace-local from global knowledge.
-func (s *Store) Retrieve(ctx context.Context, query string) ([]port.Memory, []port.Skill, error) {
+func (s *Store) Retrieve(ctx context.Context, query string, agentGroups []string) ([]port.Memory, []port.Skill, error) {
 	const memCap, skillCap = 5, 3
 	var mems []port.Memory
 	var skills []port.Skill
@@ -45,7 +45,7 @@ func (s *Store) Retrieve(ctx context.Context, query string) ([]port.Memory, []po
 		if st == nil {
 			return
 		}
-		m, sk, err := st.Retrieve(ctx, query)
+		m, sk, err := st.Retrieve(ctx, query, agentGroups)
 		if err != nil {
 			return // best-effort: a broken tier must not sink the other
 		}

@@ -19,7 +19,7 @@ func TestRetrieveAndPropose(t *testing.T) {
 	ctx := context.Background()
 
 	// Retrieve by keyword overlap.
-	mems, _, err := s.Retrieve(ctx, "what indentation should I use, tabs or spaces?")
+	mems, _, err := s.Retrieve(ctx, "what indentation should I use, tabs or spaces?", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +39,7 @@ func TestRetrieveAndPropose(t *testing.T) {
 	if len(entries) != 3 { // tabs, ports, + the new one
 		t.Fatalf("expected 3 memory files after propose, got %d", len(entries))
 	}
-	got, _, err := s.Retrieve(ctx, "what should I run before committing?")
+	got, _, err := s.Retrieve(ctx, "what should I run before committing?", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

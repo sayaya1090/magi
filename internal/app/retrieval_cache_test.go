@@ -15,7 +15,7 @@ type countingExperience struct {
 	fail  bool
 }
 
-func (c *countingExperience) Retrieve(ctx context.Context, q string) ([]port.Memory, []port.Skill, error) {
+func (c *countingExperience) Retrieve(ctx context.Context, q string, _ []string) ([]port.Memory, []port.Skill, error) {
 	c.calls++
 	if c.fail {
 		return nil, nil, fmt.Errorf("boom")
@@ -31,25 +31,25 @@ func TestExperiencePointerCached(t *testing.T) {
 	a := &App{cfg: Config{Experience: exp}}
 	sid := session.SessionID("s1")
 
-	p1 := a.experiencePointerCached(context.Background(), sid, "query one")
-	p2 := a.experiencePointerCached(context.Background(), sid, "query one")
+	p1 := a.experiencePointerCached(context.Background(), sid, "query one", nil)
+	p2 := a.experiencePointerCached(context.Background(), sid, "query one", nil)
 	if exp.calls != 1 {
 		t.Fatalf("same query must scan once, got %d calls", exp.calls)
 	}
 	if p1 == "" || p1 != p2 {
 		t.Errorf("cache must return the identical pointer, got %q / %q", p1, p2)
 	}
-	a.experiencePointerCached(context.Background(), sid, "query two")
+	a.experiencePointerCached(context.Background(), sid, "query two", nil)
 	if exp.calls != 2 {
 		t.Errorf("a new query must re-scan, got %d calls", exp.calls)
 	}
 
 	// Errors are not cached: the per-step retry of the uncached code is preserved.
 	exp.fail = true
-	if got := a.experiencePointerCached(context.Background(), sid, "query three"); got != "" {
+	if got := a.experiencePointerCached(context.Background(), sid, "query three", nil); got != "" {
 		t.Errorf("error must yield empty pointer, got %q", got)
 	}
-	a.experiencePointerCached(context.Background(), sid, "query three")
+	a.experiencePointerCached(context.Background(), sid, "query three", nil)
 	if exp.calls != 4 {
 		t.Errorf("a failed retrieve must be retried (not cached), got %d calls", exp.calls)
 	}
@@ -118,9 +118,9 @@ func TestResetForNewTopLevelClearsRetrievalCaches(t *testing.T) {
 	a := &App{cfg: Config{Experience: exp}}
 	sid := session.SessionID("s1")
 
-	a.experiencePointerCached(context.Background(), sid, "same prompt")
+	a.experiencePointerCached(context.Background(), sid, "same prompt", nil)
 	a.resetForNewTopLevel(sid)
-	a.experiencePointerCached(context.Background(), sid, "same prompt")
+	a.experiencePointerCached(context.Background(), sid, "same prompt", nil)
 	if exp.calls != 2 {
 		t.Errorf("reset must clear the cache (fresh scan on the identical prompt), got %d calls", exp.calls)
 	}

@@ -95,7 +95,7 @@ func TestRetrieveSkills(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "skills", "deploy.md"),
 		[]byte("how to deploy the service\nstep 1\nstep 2"), 0o644)
 
-	_, skills, err := New(dir).Retrieve(context.Background(), "how do I deploy")
+	_, skills, err := New(dir).Retrieve(context.Background(), "how do I deploy", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
