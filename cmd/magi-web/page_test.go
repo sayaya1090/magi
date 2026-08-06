@@ -67,3 +67,41 @@ func TestBothThemesAreDeclared(t *testing.T) {
 		t.Error("the page does not tell the browser it supports both, so form controls will not follow")
 	}
 }
+
+// The page is both views: a fleet and one agent. It used to be only the second, and the check that
+// it stays one document is worth having — the cheap way to add a dashboard is a second page, and
+// two pages is how the two views end up looking like different products.
+func TestThePageHasBothViews(t *testing.T) {
+	for _, want := range []string{`id="fleet"`, `id="log"`, "/fleet", "/events", "pushState", "popstate"} {
+		if !strings.Contains(indexHTML, want) {
+			t.Errorf("the page is missing %q", want)
+		}
+	}
+}
+
+// Three things a phone needs that a desktop does not notice, each of them a bug you only see on the
+// device: an input under 16px makes iOS Safari zoom on focus and never zoom back; a fixed composer
+// without the safe-area inset sits under the home indicator; and a viewport without viewport-fit
+// leaves the inset at zero, so asking for it changes nothing.
+func TestThePageWorksOnAPhone(t *testing.T) {
+	flat := strings.ReplaceAll(indexHTML, " ", "")
+	if !strings.Contains(flat, "viewport-fit=cover") {
+		t.Error("no viewport-fit=cover, so env(safe-area-inset-*) is always zero")
+	}
+	if !strings.Contains(flat, "env(safe-area-inset-bottom)") {
+		t.Error("the composer does not clear the home indicator")
+	}
+	// The textarea must set a font-size of its own: it inherits 14px from body otherwise, and 14
+	// is under the threshold that triggers the zoom.
+	ta := strings.Index(flat, "textarea{")
+	if ta < 0 {
+		t.Fatal("no textarea rule in the page")
+	}
+	if end := strings.Index(flat[ta:], "}"); end < 0 || !strings.Contains(flat[ta:ta+end], "font-size:16px") {
+		t.Error("the textarea is under 16px, so iOS Safari will zoom the page on focus")
+	}
+	// Enter must not be hijacked where the return key is the only way to break a line.
+	if !strings.Contains(flat, "matchMedia('(hover:none)')") {
+		t.Error("Enter is bound the same way on a touch keyboard, leaving no way to type a newline")
+	}
+}

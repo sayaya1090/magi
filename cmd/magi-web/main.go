@@ -20,13 +20,14 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"html"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
@@ -73,18 +74,10 @@ func run() int {
 		cd = plat.ConfigDir()
 	}
 
-	sock := daemon.SocketPath(cd, wd)
-	cl, err := daemon.Dial(sock)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "magi-web:", err)
-		return 1
-	}
-	defer cl.Close()
-	sid, err := daemon.PublishedSession(sock)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "magi-web:", err)
-		return 1
-	}
+	// The daemon in THIS directory, if there is one, is what the viewer opens on. There need not
+	// be: a dashboard over other people's daemons is a legitimate thing to want from a directory
+	// that has none of its own.
+	here := daemon.SocketPath(cd, wd)
 
 	// The reading half: this process's own store over the same directory. No LLM and no tools —
 	// it never runs a turn, and handing it a real provider would be an invitation to.
@@ -95,9 +88,11 @@ func run() int {
 	}
 	reader := app.New(store, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{})
 
-	srv := &server{reader: reader, cl: cl, sid: session.SessionID(sid)}
+	srv := &server{reader: reader, cfgDir: cd, here: here, clients: map[string]*daemon.Client{}}
+	defer srv.closeAll()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", srv.page)
+	mux.HandleFunc("/fleet", srv.fleet)
 	mux.HandleFunc("/events", srv.events)
 	mux.HandleFunc("/submit", srv.submit)
 	mux.HandleFunc("/interrupt", srv.interrupt)
@@ -115,7 +110,7 @@ func run() int {
 			"use ssh -L to reach it from elsewhere\n", *addr)
 		return 1
 	}
-	fmt.Fprintf(os.Stderr, "magi-web: http://%s — watching session %s\n", ln.Addr(), sid)
+	fmt.Fprintf(os.Stderr, "magi-web: http://%s — %d daemon(s) under %s\n", ln.Addr(), countDaemons(cd), cd)
 	if err := (&http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}).Serve(ln); err != nil {
 		fmt.Fprintln(os.Stderr, "magi-web:", err)
 		return 1
@@ -133,15 +128,112 @@ func isLoopback(a net.Addr) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+// countDaemons is for the startup line only — a viewer that says "0 daemons" is telling you the
+// config directory is wrong before you go looking in the browser.
+func countDaemons(cfgDir string) int {
+	l, _ := daemon.List(cfgDir)
+	return len(l)
+}
+
 type server struct {
 	reader *app.App
-	cl     *daemon.Client
-	sid    session.SessionID
+	cfgDir string
+	here   string // the socket for the directory magi-web was started in, if any
+
+	// One client per daemon, opened on first use. A dashboard that dialled on every request would
+	// reconnect several times a second; one that dialled all of them at startup would fail on the
+	// first dead socket and refuse to show the rest.
+	mu      sync.Mutex
+	clients map[string]*daemon.Client
+}
+
+func (s *server) closeAll() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, c := range s.clients {
+		c.Close()
+	}
+}
+
+// clientFor returns the connection to one daemon, dialling once.
+func (s *server) clientFor(sock string) (*daemon.Client, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if c, ok := s.clients[sock]; ok {
+		return c, nil
+	}
+	c, err := daemon.Dial(sock)
+	if err != nil {
+		return nil, err
+	}
+	s.clients[sock] = c
+	return c, nil
+}
+
+// target resolves the ?d= socket a request is about, defaulting to the directory this viewer was
+// started in. Only sockets List already found are accepted: the parameter comes from a page and a
+// path from a page must not become a path this process will dial.
+func (s *server) target(r *http.Request) (daemon.Info, error) {
+	want := r.URL.Query().Get("d")
+	list, err := daemon.List(s.cfgDir)
+	if err != nil {
+		return daemon.Info{}, err
+	}
+	for _, in := range list {
+		if in.Socket == want || (want == "" && in.Socket == s.here) {
+			return in, nil
+		}
+	}
+	if want == "" {
+		return daemon.Info{}, fmt.Errorf("no daemon in this directory — pick one from the dashboard")
+	}
+	return daemon.Info{}, fmt.Errorf("no daemon at %s", want)
+}
+
+// forget drops a cached connection so the next use dials again.
+func (s *server) forget(sock string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if c, ok := s.clients[sock]; ok {
+		c.Close()
+		delete(s.clients, sock)
+	}
+}
+
+// withClient runs one write against the request's target, retrying once on a fresh connection.
+//
+// The retry is not defensive padding: a daemon restarted between two page actions leaves this
+// process holding a socket nobody reads, and the first write after that fails on a connection
+// problem rather than on anything the user did. Redialling tells that apart from a real refusal —
+// and if the second attempt fails too, its error is the one worth showing.
+func (s *server) withClient(r *http.Request, do func(*daemon.Client, session.SessionID) error) error {
+	in, err := s.target(r)
+	if err != nil {
+		return err
+	}
+	sid := session.SessionID(in.Session)
+	cl, err := s.clientFor(in.Socket)
+	if err != nil {
+		return err
+	}
+	if err = do(cl, sid); err == nil {
+		return nil
+	}
+	s.forget(in.Socket)
+	cl, derr := s.clientFor(in.Socket)
+	if derr != nil {
+		return err // the original failure, not "could not reconnect" — that hides the reason
+	}
+	return do(cl, sid)
 }
 
 // page is the whole front end. Server-rendered with an inline script and no build step: magi ships
 // one static binary with no toolchain behind it, and a bundler for a transcript and a text box
 // would be a second thing to keep working.
+//
+// One page for both views. `/` is the dashboard, `/?d=<socket>` is one agent — the same document,
+// which is why entering an agent and coming back costs no reload and why the two cannot drift into
+// two different ideas of what magi looks like.
 func (s *server) page(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
@@ -151,9 +243,96 @@ func (s *server) page(w http.ResponseWriter, r *http.Request) {
 	// A write that fails means the browser hung up mid-page. There is nobody left to tell and no
 	// second attempt worth making, but the reason is worth having in the log of a process whose
 	// whole job is to be watched.
-	if _, err := io.WriteString(w, strings.ReplaceAll(indexHTML, "{{SID}}",
-		html.EscapeString(string(s.sid)))); err != nil {
+	if _, err := io.WriteString(w, indexHTML); err != nil {
 		log.Printf("magi-web: writing the page: %v", err)
+	}
+}
+
+// agentView is one card on the dashboard.
+type agentView struct {
+	Socket  string `json:"socket"`
+	Workdir string `json:"workdir"`
+	Name    string `json:"name"`
+	Session string `json:"session"`
+	PID     int    `json:"pid"`
+	Live    bool   `json:"live"`
+	State   string `json:"state"`
+	Last    string `json:"last"`
+	Steps   int    `json:"steps"`
+	Idle    int    `json:"idle"` // seconds since the last thing in the log
+	Here    bool   `json:"here"` // the daemon in the directory this viewer was started in
+}
+
+// fleet is the dashboard's data: every daemon this config directory knows about.
+//
+// # What the state can and cannot say
+//
+// Four states, all of them derived from two facts that outlive the daemon — whether the socket
+// answers, and whether the log has a prompt with no turn.finished after it:
+//
+//	working    the socket answers and a turn is open
+//	idle       the socket answers and nothing is open
+//	abandoned  nobody is listening and a turn was left open — a crash or a kill, work thrown away
+//	stopped    nobody is listening and the last turn finished
+//
+// There is a fifth state a person would want, and it is deliberately absent: "waiting for you". A
+// permission prompt is a bus-only event (event.transientTypes) — it never reaches the log, so it
+// exists only in the memory of the daemon that is blocked on it. This process cannot see it, and
+// guessing from "open turn that has not moved in a while" would put a red badge on every slow
+// build. Showing it needs a read on the daemon protocol, which today carries only the five writes.
+func (s *server) fleet(w http.ResponseWriter, r *http.Request) {
+	list, err := daemon.List(s.cfgDir)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// One ListSessions per distinct workspace, not per daemon: several daemons in one tree is a
+	// normal thing to do and re-reading the directory for each of them is the same answer again.
+	seen := map[string][]session.SessionMeta{}
+	out := make([]agentView, 0, len(list))
+	for _, in := range list {
+		v := agentView{
+			Socket: in.Socket, Workdir: in.Workdir, Name: filepath.Base(in.Workdir),
+			Session: in.Session, PID: in.PID, Live: in.Live, Here: in.Socket == s.here,
+			Idle: -1,
+		}
+		if v.Name == "" || v.Name == "." {
+			v.Name = in.Workdir
+		}
+		sid := session.SessionID(in.Session)
+		metas, ok := seen[in.Workdir]
+		if !ok {
+			metas, _ = s.reader.ListSessions(r.Context(), in.Workdir)
+			seen[in.Workdir] = metas
+		}
+		for _, m := range metas {
+			if m.ID == sid && !m.LastActivity.IsZero() {
+				v.Idle = int(time.Since(m.LastActivity).Seconds())
+			}
+		}
+		open, isOpen := s.reader.UnfinishedTurnOf(r.Context(), sid)
+		switch {
+		case in.Live && isOpen:
+			v.State, v.Steps, v.Last = "working", open.Steps, clip(open.Text, 160)
+		case in.Live:
+			v.State = "idle"
+		case isOpen:
+			v.State, v.Steps, v.Last = "abandoned", open.Steps, clip(open.Text, 160)
+		default:
+			v.State = "stopped"
+		}
+		if v.Last == "" {
+			if msgs, _, err := s.reader.SessionState(r.Context(), sid); err == nil {
+				if rows := renderMessages(msgs); len(rows) > 0 {
+					v.Last = clip(rows[len(rows)-1].Text, 160)
+				}
+			}
+		}
+		out = append(out, v)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(out); err != nil {
+		log.Printf("magi-web: writing the fleet: %v", err)
 	}
 }
 
@@ -172,12 +351,19 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
+	in, err := s.target(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	sid := session.SessionID(in.Session)
+
 	var lastCount int
 	var lastSeq int64 = -1
 	tick := time.NewTicker(400 * time.Millisecond)
 	defer tick.Stop()
 	for {
-		msgs, seq, err := s.reader.SessionState(r.Context(), s.sid)
+		msgs, seq, err := s.reader.SessionState(r.Context(), sid)
 		if err == nil && (seq != lastSeq || len(msgs) != lastCount) {
 			lastSeq, lastCount = seq, len(msgs)
 			b, _ := json.Marshal(renderMessages(msgs))
@@ -254,8 +440,10 @@ func (s *server) submit(w http.ResponseWriter, r *http.Request) {
 	// Steer, not Submit: the daemon may already be working, and a second Submit would queue a
 	// whole new turn behind it rather than reaching the one in flight. The engine decides which
 	// it is — that decision is already made there, and making it twice is how the two disagree.
-	err := s.cl.Steer(context.Background(), command.SubmitPrompt{
-		SessionID: s.sid, Parts: []session.Part{{Kind: session.PartText, Text: text}}})
+	err := s.withClient(r, func(cl *daemon.Client, sid session.SessionID) error {
+		return cl.Steer(context.Background(), command.SubmitPrompt{
+			SessionID: sid, Parts: []session.Part{{Kind: session.PartText, Text: text}}})
+	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
@@ -268,7 +456,10 @@ func (s *server) interrupt(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
 	}
-	if err := s.cl.Interrupt(context.Background(), command.Interrupt{SessionID: s.sid}); err != nil {
+	err := s.withClient(r, func(cl *daemon.Client, sid session.SessionID) error {
+		return cl.Interrupt(context.Background(), command.Interrupt{SessionID: sid})
+	})
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
