@@ -104,6 +104,16 @@ const indexHTML = `<!doctype html>
   }
 
   * { box-sizing:border-box; }
+
+  /* Keyboard focus, said once and loudly.
+     A dashboard is a page of links and buttons, and the fleet is navigated with tab as readily as
+     with a mouse — the underline this layout uses for a pressed state is not a focus ring, and a
+     border colour that shifts by one step is not one either. :focus-visible so a mouse click does
+     not leave a ring behind it, and an offset so the ring is not mistaken for the element's own
+     rule. The outline:none below applies to :focus, which this then overrides for the keyboard. */
+  :focus-visible {
+    outline:2px solid var(--primary); outline-offset:3px; border-radius:2px;
+  }
   html { scrollbar-gutter:stable; -webkit-text-size-adjust:100%; }
   body {
     margin:0; background:var(--bg); color:var(--fg);
@@ -115,6 +125,11 @@ const indexHTML = `<!doctype html>
 
   /* A kicker: the small letterspaced label an editorial layout puts above a headline. Here it is
      the state, which is the first thing you want and the last thing that deserves a box. */
+  /* On opacity: every value below is set so the RESULT clears WCAG AA (4.5:1) against the page in
+     BOTH themes, which is checked in page_test.go. Editorial layouts get their hierarchy from
+     dimming secondary text, and the arithmetic is easy to get wrong twice over — the muted role is
+     already lowered, and light mode has less headroom than dark. Measured before this note: eight
+     of thirteen dimmed pairs were under, the worst at 2.47:1. */
   .kicker {
     font:600 10.5px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase;
     color:var(--muted);
@@ -139,7 +154,7 @@ const indexHTML = `<!doctype html>
   .magi { display:flex; gap:.6rem; }
   .magi span { font-size:9.5px; letter-spacing:.22em; font-weight:600; }
   .magi .m { color:var(--melchior); } .magi .b { color:var(--balthasar); } .magi .c { color:var(--casper); }
-  .sid { color:var(--muted); font-size:11px; letter-spacing:.04em; opacity:.7; overflow-wrap:anywhere; }
+  .sid { color:var(--muted); font-size:11px; letter-spacing:.04em; opacity:.8; overflow-wrap:anywhere; }
   #state {
     margin-left:auto; font:600 10.5px/1.4 var(--mono); letter-spacing:.16em; text-transform:uppercase;
     color:var(--muted); display:flex; align-items:center; gap:.45rem;
@@ -175,7 +190,7 @@ const indexHTML = `<!doctype html>
   .card.working { border-left-color:var(--success); }
   .card.waiting { border-left-color:var(--warn); }
   .card.abandoned { border-left-color:var(--error); }
-  .card.stopped { opacity:.55; }
+  .card.stopped { opacity:.8; }
 
   /* wrap, not wrap-reverse: the badge is order:-1 with a full-width basis, so it takes the first
      line on its own and the name follows underneath. wrap-reverse would invert the cross axis and
@@ -198,18 +213,18 @@ const indexHTML = `<!doctype html>
   .card.idle .badge { color:var(--accent); }
   .card.waiting .badge { color:var(--warn); }
   .card .path {
-    font-size:11.5px; color:var(--muted); opacity:.85; overflow-wrap:anywhere; margin-top:.3rem;
+    font-size:11.5px; color:var(--muted); opacity:.9; overflow-wrap:anywhere; margin-top:.3rem;
   }
   /* The lead: what it is doing, set as a sentence rather than a log line. */
   .card .last {
-    font:italic 15.5px/1.55 var(--display); color:var(--fg); opacity:.92; margin-top:.55rem;
+    font:italic 15.5px/1.55 var(--display); color:var(--fg); margin-top:.55rem;
     display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
   }
   .card .asking {
     font:600 14px/1.5 var(--mono); color:var(--warn); margin-top:.55rem; overflow-wrap:anywhere;
   }
   .card .meta {
-    margin-top:.55rem; font-size:11px; letter-spacing:.06em; color:var(--muted); opacity:.7;
+    margin-top:.55rem; font-size:11px; letter-spacing:.06em; color:var(--muted); opacity:.8;
   }
 
   /* Answering, as text buttons — the editorial equivalent of a form: words with rules under them.
@@ -226,6 +241,7 @@ const indexHTML = `<!doctype html>
     border:0; border-bottom:1px solid var(--outline); border-radius:0; padding:.45rem .1rem;
   }
   .answer input:focus { outline:none; border-bottom-color:var(--primary); }
+  .answer input:focus-visible { outline:2px solid var(--primary); outline-offset:3px; }
 
   .empty {
     font:17px/1.7 var(--display); color:var(--muted); padding:2.5rem 0; max-width:52ch;
@@ -240,7 +256,7 @@ const indexHTML = `<!doctype html>
   .row { display:grid; grid-template-columns:6.5rem 1fr; gap:1.1rem; align-items:start; padding:.22rem 0; }
   .who {
     font:600 10px/1.9 var(--mono); letter-spacing:.16em; text-transform:uppercase;
-    color:var(--muted); text-align:right; user-select:none; opacity:.7;
+    color:var(--muted); text-align:right; user-select:none; opacity:.8;
   }
   .txt { white-space:pre-wrap; overflow-wrap:anywhere; }
 
@@ -251,11 +267,11 @@ const indexHTML = `<!doctype html>
     font:17px/1.55 var(--display); color:var(--primary);
     border-left:2px solid var(--primary); padding-left:.9rem; margin-left:-.9rem;
   }
-  .row.user .who { color:var(--primary); opacity:.8; }
+  .row.user .who { color:var(--primary); }
   .row.assistant .txt { color:var(--fg); }
-  .row.thinking .txt { color:var(--muted); font-style:italic; opacity:.7; }
+  .row.thinking .txt { color:var(--muted); font-style:italic; opacity:.8; }
   .row.tool .txt { color:var(--accent); }
-  .row.tool .who { color:var(--accent); opacity:.6; }
+  .row.tool .who { color:var(--accent); }
   .row.result .txt, .row.failed .txt {
     color:var(--muted); border-left:1px solid var(--outlineVariant);
     padding:.15rem 0 .15rem .8rem; max-height:11rem; overflow:auto;
@@ -280,7 +296,8 @@ const indexHTML = `<!doctype html>
     min-height:2.6rem; max-height:12rem; overflow-y:auto;
   }
   textarea:focus { outline:none; border-bottom-color:var(--primary); }
-  textarea::placeholder { color:var(--muted); opacity:.5; }
+  textarea:focus-visible { outline:2px solid var(--primary); outline-offset:3px; }
+  textarea::placeholder { color:var(--muted); opacity:.8; }
   button {
     background:none; border:0; border-bottom:1px solid var(--outline); border-radius:0;
     color:var(--muted); font:600 11.5px/1 var(--mono); letter-spacing:.16em; text-transform:uppercase;

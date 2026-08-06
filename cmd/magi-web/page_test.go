@@ -170,3 +170,28 @@ func TestThePageWorksOnAPhone(t *testing.T) {
 		t.Error("Enter is bound the same way on a touch keyboard, leaving no way to type a newline")
 	}
 }
+
+// Keyboard focus has to be visible.
+//
+// The fleet is a page of links and the answers are buttons, all reachable with tab — and this
+// layout's own vocabulary works against that: it underlines things to press them, so an underline
+// cannot also mean "focused", and it shifts border colours by one step, which is not a focus ring
+// either. Two of the inputs additionally set outline:none for the mouse, which without a
+// :focus-visible rule beside it leaves a keyboard user with nothing at all.
+func TestFocusIsVisibleToAKeyboard(t *testing.T) {
+	flat := strings.ReplaceAll(indexHTML, " ", "")
+	// A blanket rule, so anything focusable added later inherits a ring instead of needing one.
+	if !regexp.MustCompile(`(?m)^\s*:focus-visible\s*\{[^}]*outline:`).MatchString(indexHTML) {
+		t.Error("there is no blanket :focus-visible outline — every focusable element then needs " +
+			"its own, and the next one added will not have it")
+	}
+	// Every rule that removes the outline must have a :focus-visible rule for the same element.
+	rule := regexp.MustCompile(`([.#]?[a-zA-Z][\w.#-]*)(::?[a-z-]+)?\s*\{[^}]*outline:none`)
+	for _, m := range rule.FindAllStringSubmatch(indexHTML, -1) {
+		sel := m[1]
+		if !strings.Contains(flat, strings.ReplaceAll(sel, " ", "")+":focus-visible{outline:") {
+			t.Errorf("%s removes its outline and declares no :focus-visible ring, so a keyboard "+
+				"user cannot see where they are", sel)
+		}
+	}
+}
