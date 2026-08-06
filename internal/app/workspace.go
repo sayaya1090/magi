@@ -110,16 +110,21 @@ func commitAll(ctx context.Context, dir, msg string) (string, error) {
 // the code nobody is looking at, and every conclusion the child draws from it is about the wrong
 // file — the failure mode is silent, because the child has no way to know.
 func carryUncommitted(ctx context.Context, parentDir, dir string) error {
-	patch, err := gitRun(ctx, parentDir, "diff", "HEAD", "--binary")
-	if err != nil {
-		return fmt.Errorf("workspace: reading the parent's uncommitted changes: %w", err)
-	}
-	if strings.TrimSpace(patch) != "" {
-		cmd := exec.CommandContext(ctx, "git", "apply", "--whitespace=nowarn", "-")
-		cmd.Dir = dir
-		cmd.Stdin = strings.NewReader(patch)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("workspace: applying the parent's uncommitted changes: %w: %s", err, out)
+	// A repository with no commits has no HEAD to diff against, and `git diff HEAD` there fails
+	// with "ambiguous argument 'HEAD'". That state — `git init`, some files, nothing committed yet —
+	// is where a project spends its first hour, and it is exactly when somebody reaches for a worker
+	// to write the boilerplate. It used to come back as "an isolated workspace needs git and a
+	// repository here", which is wrong twice: git is installed and this IS a repository.
+	//
+	// Nothing is tracked in that state, so there is no patch to take. Everything the parent has is
+	// untracked, and the copy below carries all of it.
+	if hasHEAD(ctx, parentDir) {
+		patch, err := gitRun(ctx, parentDir, "diff", "HEAD", "--binary")
+		if err != nil {
+			return fmt.Errorf("workspace: reading the parent's uncommitted changes: %w", err)
+		}
+		if err := applyPatch(ctx, dir, patch); err != nil {
+			return err
 		}
 	}
 	// Untracked files the parent has made but not added. Ignored ones are left out on purpose:
@@ -148,6 +153,27 @@ func carryUncommitted(ctx context.Context, parentDir, dir string) error {
 		if err := os.WriteFile(dst, b, mode); err != nil {
 			return fmt.Errorf("workspace: copying %s: %w", rel, err)
 		}
+	}
+	return nil
+}
+
+// hasHEAD reports whether a repository has any commit at all.
+func hasHEAD(ctx context.Context, dir string) bool {
+	_, err := gitRun(ctx, dir, "rev-parse", "--verify", "--quiet", "HEAD")
+	return err == nil
+}
+
+// applyPatch feeds a patch to git apply in dir. A patch that is only whitespace is not applied at
+// all: git apply treats an empty input as an error, and "there was nothing to carry" is not one.
+func applyPatch(ctx context.Context, dir, patch string) error {
+	if strings.TrimSpace(patch) == "" {
+		return nil
+	}
+	cmd := exec.CommandContext(ctx, "git", "apply", "--whitespace=nowarn", "-")
+	cmd.Dir = dir
+	cmd.Stdin = strings.NewReader(patch)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("workspace: applying the parent's uncommitted changes: %w: %s", err, out)
 	}
 	return nil
 }
@@ -188,7 +214,15 @@ func (a *App) MergeChildWork(ctx context.Context, parentDir, workspace, base, he
 	if strings.TrimSpace(patch) == "" {
 		return nil // the child changed nothing; not a failure, just nothing to do
 	}
-	cmd := exec.CommandContext(ctx, "git", "apply", "--3way", "--whitespace=nowarn", "-")
+	args := []string{"apply", "--3way", "--whitespace=nowarn", "-"}
+	if !hasHEAD(ctx, parentDir) {
+		// --3way reconstructs its sides from blobs in the index, and a repository with no commits
+		// has nothing in it: every file comes back as "does not exist in index", including files
+		// that are sitting right there in the working tree. Plain apply matches on content, which
+		// is all there is to match on before a first commit.
+		args = []string{"apply", "--whitespace=nowarn", "-"}
+	}
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = parentDir
 	cmd.Stdin = strings.NewReader(patch)
 	if out, err := cmd.CombinedOutput(); err != nil {

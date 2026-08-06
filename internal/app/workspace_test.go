@@ -245,3 +245,62 @@ func TestMergingAChildThatSharedTheTreeIsRefused(t *testing.T) {
 		t.Errorf("the refusal does not say why: %v", err)
 	}
 }
+
+// A repository with no commits yet is an ordinary place to be working.
+//
+// `git init` and a few files, before anything is committed, is where a project spends its first
+// hour — and it is exactly when somebody reaches for a worker to write the boilerplate. Cloning
+// that used to fail: reading the parent's uncommitted work asks `git diff HEAD`, and with no
+// commits there is no HEAD, so git refuses with "ambiguous argument 'HEAD'" and the whole spawn
+// came back as "an isolated workspace needs git and a repository here", which is wrong twice — git
+// is installed and this IS a repository.
+//
+// Nothing is tracked in that state, so everything the parent has is untracked, and the copy path
+// carries all of it.
+func TestAChildCanCloneARepositoryWithNoCommits(t *testing.T) {
+	skipWithoutGit(t)
+	dir := gitRepo(t) // initialised, and deliberately never committed to
+	write(t, dir, "main.go", "package main // just started\n")
+	if err := os.MkdirAll(filepath.Join(dir, "notes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, dir, "notes/plan.md", "1. make it work\n")
+
+	a, _ := newApp(t, &fakeLLM{}, Config{})
+	child, base, err := a.cloneWorkspace(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("cloning a repository with no commits: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(filepath.Dir(child)) })
+	if base == "" {
+		t.Error("no baseline commit was pinned, so a merge back would have no range to name")
+	}
+	for _, f := range []string{"main.go", "notes/plan.md"} {
+		b, err := os.ReadFile(filepath.Join(child, f))
+		if err != nil {
+			t.Errorf("the child did not get %s: %v", f, err)
+			continue
+		}
+		if len(b) == 0 {
+			t.Errorf("%s arrived empty", f)
+		}
+	}
+
+	// And the round trip still works: the child's own change comes back and the parent's files are
+	// not duplicated or reverted by the merge.
+	write(t, child, "main.go", "package main // the child edited this\n")
+	head, err := commitAll(context.Background(), child, "child work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.MergeChildWork(context.Background(), dir, child, base, head); err != nil {
+		t.Fatalf("merging back into a repository with no commits: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), "the child edited this") {
+		t.Errorf("the child's change did not land in the parent: %q", got)
+	}
+}
