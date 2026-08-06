@@ -78,6 +78,7 @@ type turnState struct {
 	declareAsks      int    // how many times this turn was told to declare completion (declareAskCap)
 	declareAskEpoch  int    // guard.mutationEpoch() at the last such ask; a later epoch resets the count
 	declared         bool   // the agent declared the task finished and the council accepted
+	distilAsked      bool   // the finish seam already asked what was worth keeping (once per turn)
 	unverifiedReason string // non-empty when the turn finishes WITHOUT council approval
 }
 

@@ -88,6 +88,12 @@ func (a *App) finishTurn(ctx context.Context, tc turnCtx, step int, turnTask, la
 	if act, done := a.requireFinishDeclaration(ctx, tc, usedTools, ts); done {
 		return act
 	}
+	// Accepted. Before the turn closes, ask what was worth keeping — the one moment where the
+	// answer is both knowable and cheap, because the whole turn is still in context. Off by
+	// default; see distil.go.
+	if ts.declared && usedTools && a.askToDistil(ctx, tc, ts) {
+		return loopContinue
+	}
 	// A user steer can land AFTER this step's top-of-loop interjection scan but
 	// before the turn commits here: during the final (no-tool) step's model stream,
 	// or during a council deliberation that then voted done. It was never enqueued
