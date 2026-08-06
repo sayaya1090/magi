@@ -9,6 +9,7 @@ package jsonl
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -31,6 +32,13 @@ type Store struct {
 	seqs  map[session.SessionID]int64         // last assigned seq per session
 	paths map[session.SessionID]string        // sessionID -> file path
 	cache map[session.SessionID][]event.Event // read-through cache: parsed log per session
+	// read is how many BYTES of each log the cache reflects. The cache used to assume this
+	// process was the only writer, which stopped being true the day magi could run as a daemon
+	// with a separate viewer: the viewer parsed the log once and then served that snapshot
+	// forever, so a browser watching a live run showed a transcript frozen at the moment it
+	// connected. Observed exactly that way. Comparing this against the file size on each Read
+	// turns "the only writer" into "the only writer I know of".
+	read map[session.SessionID]int64
 }
 
 // New opens (or initializes) a Store rooted at root, indexing any existing logs
@@ -41,6 +49,7 @@ func New(root string) (*Store, error) {
 		seqs:  make(map[session.SessionID]int64),
 		paths: make(map[session.SessionID]string),
 		cache: make(map[session.SessionID][]event.Event),
+		read:  make(map[session.SessionID]int64),
 	}
 	if err := s.index(); err != nil {
 		return nil, err
@@ -156,6 +165,7 @@ func (s *Store) Append(ctx context.Context, sid session.SessionID, evs ...event.
 		// warm cache so the next Read re-derives truth from the file instead of serving a
 		// stale view that silently omits the just-flushed events.
 		delete(s.cache, sid)
+		delete(s.read, sid)
 		return nil, err
 	}
 	s.seqs[sid] = seq
@@ -165,6 +175,14 @@ func (s *Store) Append(ctx context.Context, sid session.SessionID, evs ...event.
 	// (the file, just written, is the source of truth either way).
 	if c, ok := s.cache[sid]; ok {
 		s.cache[sid] = append(c, evs...)
+		// The cache now reflects the bytes just written, so the next Read must not treat them as
+		// somebody else's tail and parse them a second time.
+		if size, err := fileSize(path); err == nil {
+			s.read[sid] = size
+		} else {
+			delete(s.cache, sid) // cannot say what the cache reflects — make the next Read reload
+			delete(s.read, sid)
+		}
 	}
 	return out, nil
 }
@@ -197,20 +215,112 @@ func (s *Store) sessionPath(workdir string, sid session.SessionID) string {
 func (s *Store) Read(ctx context.Context, sid session.SessionID, fromSeq int64) ([]event.Event, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	evs, ok := s.cache[sid]
-	if !ok {
-		path, known := s.paths[sid]
-		if !known {
+	path, known := s.paths[sid]
+	if !known {
+		// A session this process has never heard of is not necessarily a session that does not
+		// exist: the index is built at New, and another process may have created the log since.
+		// A viewer started before the daemon it is watching hits exactly this.
+		var found bool
+		if path, found = s.locate(sid); !found {
 			return nil, nil
 		}
+		s.paths[sid] = path
+	}
+	evs, warm := s.cache[sid]
+
+	// Stat BEFORE reading, never after: a file that grows between the read and the stat would
+	// record an offset past events that were never parsed, and those events would be skipped for
+	// good. Recording a size that is too SMALL only costs re-reading a few lines, which the seq
+	// filter below then discards.
+	size, statErr := fileSize(path)
+	switch {
+	case !warm || statErr != nil || size < s.read[sid]:
+		// Cold, unreadable, or shorter than what the cache holds — the last of those is a compact
+		// or a rewind by another process, where the tail is not a tail of what we have.
 		loaded, err := readFile(path, 0)
 		if err != nil {
 			return nil, err
 		}
-		s.cache[sid] = loaded
+		s.cache[sid], s.read[sid] = loaded, size
 		evs = loaded
+	case size > s.read[sid]:
+		tail, off, err := readFrom(path, s.read[sid])
+		if err != nil {
+			return nil, err
+		}
+		var last int64
+		if len(evs) > 0 {
+			last = evs[len(evs)-1].Seq
+		}
+		for _, e := range tail {
+			// Only what is genuinely new. The offset is conservative by design (above), so a
+			// re-read of already-cached lines is expected rather than exceptional.
+			if e.Seq > last {
+				evs = append(evs, e)
+			}
+		}
+		s.cache[sid], s.read[sid] = evs, off
 	}
 	return filterFrom(evs, fromSeq), nil
+}
+
+// locate finds a session's log on disk when the in-memory index has never seen it.
+func (s *Store) locate(sid session.SessionID) (string, bool) {
+	matches, err := filepath.Glob(filepath.Join(s.projectsDir(), "*", string(sid)+".jsonl"))
+	if err != nil || len(matches) == 0 {
+		return "", false
+	}
+	return matches[0], true
+}
+
+// fileSize is the log's length in bytes, or 0 if it cannot be stat'd.
+func fileSize(path string) (int64, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return 0, err
+	}
+	return fi.Size(), nil
+}
+
+// readFrom parses the complete lines starting at byte offset off, and returns the offset just past
+// the last one.
+//
+// Complete lines only. A log is appended to by another process, and a read that lands mid-write
+// sees a line with no newline yet — parsing that would either drop the event (the bytes are past
+// the offset next time and never re-read) or, worse, accept a truncated JSON object. Stopping at
+// the last newline leaves the partial line for the next call, when the rest of it has arrived.
+func readFrom(path string, off int64) ([]event.Event, int64, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, off, nil
+		}
+		return nil, 0, err
+	}
+	defer f.Close()
+	if _, err := f.Seek(off, io.SeekStart); err != nil {
+		return nil, 0, err
+	}
+	b, err := io.ReadAll(f)
+	if err != nil {
+		return nil, 0, err
+	}
+	end := bytes.LastIndexByte(b, '\n')
+	if end < 0 {
+		return nil, off, nil // nothing complete yet
+	}
+	var evs []event.Event
+	for _, line := range bytes.Split(b[:end], []byte{'\n'}) {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		var e event.Event
+		// Same tolerance readFile has: a corrupt line is skipped, not fatal.
+		if json.Unmarshal(line, &e) == nil {
+			evs = append(evs, e)
+		}
+	}
+	return evs, off + int64(end) + 1, nil
 }
 
 // filterFrom returns a fresh slice of the events with Seq > fromSeq (a copy, so a caller
@@ -336,6 +446,7 @@ func (s *Store) Compact(ctx context.Context, sid session.SessionID, upToSeq int6
 		return err
 	}
 	delete(s.cache, sid) // log rewritten — drop the stale cache; next Read reloads it
+	delete(s.read, sid)
 	return nil
 }
 
@@ -421,6 +532,7 @@ func (s *Store) Truncate(ctx context.Context, sid session.SessionID, upToSeq int
 	}
 	s.seqs[sid] = last
 	delete(s.cache, sid) // log rewritten — drop the stale cache; next Read reloads it
+	delete(s.read, sid)
 	return nil
 }
 
