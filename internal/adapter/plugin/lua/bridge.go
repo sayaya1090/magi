@@ -133,7 +133,7 @@ func (p *plugin) bridgeRegisterTool(L *lua.LState) int {
 	return 0
 }
 
-// magi.spawn{system=, prompt=, model=, provider=, tools={…}, max_steps=, timeout=, review=}
+// magi.spawn{system=, prompt=, model=, provider=, tools={…}, max_steps=, timeout=, review=, workspace=}
 //
 // Runs a child agent to completion and returns its text (plus session_id, steps, err). The host
 // bounds it; this only carries what the plugin asked for.
@@ -171,11 +171,12 @@ func (p *plugin) bridgeSpawn(L *lua.LState) int {
 		return 0
 	}
 	sp := port.SpawnSpec{
-		System:   str("system"),
-		Prompt:   str("prompt"),
-		Model:    str("model"),
-		Provider: str("provider"),
-		MaxSteps: num("max_steps"),
+		System:    str("system"),
+		Prompt:    str("prompt"),
+		Model:     str("model"),
+		Provider:  str("provider"),
+		MaxSteps:  num("max_steps"),
+		Workspace: str("workspace"), // "clone" = its own checkout; empty shares the parent's
 	}
 	if secs := num("timeout"); secs > 0 {
 		sp.Timeout = time.Duration(secs) * time.Second
@@ -215,6 +216,9 @@ func (p *plugin) bridgeSpawn(L *lua.LState) int {
 	out := L.NewTable()
 	L.SetField(out, "text", lua.LString(res.Text))
 	L.SetField(out, "session_id", lua.LString(res.SessionID))
+	// Where the child worked. Empty when it shared the parent's directory; otherwise its own
+	// checkout, which the caller takes what it wants from — magi does not merge it back.
+	L.SetField(out, "workspace", lua.LString(res.Workspace))
 	L.SetField(out, "steps", lua.LNumber(res.Steps))
 	// The child's failure is reported, not swallowed: a plugin told nothing would read silence as
 	// success.
