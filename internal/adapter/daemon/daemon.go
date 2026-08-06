@@ -283,14 +283,36 @@ type Client struct {
 	conn net.Conn
 	enc  *json.Encoder
 	sc   *bufio.Scanner
+	// deadline bounds one exchange. Zero for a UI's connection: the person on the other end
+	// decides how long a thing takes. Non-zero for a probe, where the caller is asking about a
+	// process that may be wedged and must not be dragged down with it.
+	deadline time.Duration
 }
 
 // Dial connects to a daemon, or says plainly that none is there.
-func Dial(path string) (*Client, error) {
+func Dial(path string) (*Client, error) { return dial(path, 0, 0) }
+
+// dialProbe connects for a single bounded question. Both bounds matter and they are different
+// failures: connectTimeout is a socket file whose owner is gone in a way that leaves connect
+// hanging, and deadline is a daemon that accepted and then never answered. A listing that can be
+// stopped by either is a listing you cannot run while anything is wrong, which is when you run it.
+func dialProbe(path string, connectTimeout, deadline time.Duration) (*Client, error) {
+	return dial(path, connectTimeout, deadline)
+}
+
+func dial(path string, connectTimeout, deadline time.Duration) (*Client, error) {
 	if err := tooLong(path); err != nil {
 		return nil, err
 	}
-	conn, err := net.Dial("unix", path)
+	var (
+		conn net.Conn
+		err  error
+	)
+	if connectTimeout > 0 {
+		conn, err = net.DialTimeout("unix", path, connectTimeout)
+	} else {
+		conn, err = net.Dial("unix", path)
+	}
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) || strings.Contains(err.Error(), "no such file") ||
 			strings.Contains(err.Error(), "connect: no such") {
@@ -304,7 +326,7 @@ func Dial(path string) (*Client, error) {
 	}
 	sc := bufio.NewScanner(conn)
 	sc.Buffer(make([]byte, 0, 64<<10), 4<<20)
-	return &Client{conn: conn, enc: json.NewEncoder(conn), sc: sc}, nil
+	return &Client{conn: conn, enc: json.NewEncoder(conn), sc: sc, deadline: deadline}, nil
 }
 
 func (c *Client) Close() error { return c.conn.Close() }
@@ -328,6 +350,14 @@ func (c *Client) call(r Request) error {
 func (c *Client) exchange(r Request) (Response, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.deadline > 0 {
+		// Covers the write AND the read: a peer that stops reading blocks the write once the
+		// socket buffer fills, which is the same hang one step earlier.
+		if err := c.conn.SetDeadline(time.Now().Add(c.deadline)); err != nil {
+			return Response{}, fmt.Errorf("daemon: %w", err)
+		}
+		defer c.conn.SetDeadline(time.Time{})
+	}
 	if err := c.enc.Encode(r); err != nil {
 		return Response{}, fmt.Errorf("daemon: send: %w", err)
 	}
@@ -472,6 +502,12 @@ func PublishedSession(socketPath string) (string, error) {
 	return in.Session, err
 }
 
+// probeTimeout bounds each half of a liveness probe: how long to wait for a connect, and how long
+// to wait for the answer. Generous for a local unix socket answering from memory (a healthy daemon
+// replies in well under a millisecond) and short enough that a listing stays usable when one
+// process is wedged — which is exactly when somebody runs it.
+const probeTimeout = 700 * time.Millisecond
+
 // List returns every daemon that has published under configDir, newest first.
 //
 // Each is DIALLED, because the file cannot say whether anybody is home: a daemon killed with
@@ -483,30 +519,43 @@ func List(configDir string) ([]Info, error) {
 	if err != nil {
 		return nil, fmt.Errorf("daemon: listing: %w", err)
 	}
-	var out []Info
-	for _, s := range socks {
+	out := make([]Info, len(socks))
+	// Probed in parallel. Serially, a listing costs the SUM of every daemon's latency and one
+	// wedged process delays every entry after it — and the reason to run a listing is usually that
+	// something is wrong. In parallel it costs the slowest one, which probeTimeout bounds.
+	var wg sync.WaitGroup
+	for i, s := range socks {
 		in, err := Published(s)
 		if err != nil {
 			// A socket with no readable record: still worth showing, because something is there.
 			in = Info{Socket: s, Workdir: "(unknown — no record)"}
 		}
 		in.Socket = s
-		// The dial that proves it alive also asks what it is waiting for: two questions, one
-		// connection, and the second is free at the point the first is being answered.
-		if cl, derr := Dial(s); derr == nil {
-			in.Live = true
-			if in.Session != "" {
-				if ask, serr := cl.Status(in.Session); serr == nil {
-					in.Asking = ask
-				}
-				// A daemon too old to know the method answers with an error naming what it does
-				// accept. That is a version skew, not a fault: it is alive, and everything else
-				// about it is still true.
+		out[i] = in
+		wg.Add(1)
+		go func(i int, s string, sid string) {
+			defer wg.Done()
+			// The dial that proves it alive also asks what it is waiting for: two questions, one
+			// connection, and the second is free at the point the first is being answered.
+			cl, derr := dialProbe(s, probeTimeout, probeTimeout)
+			if derr != nil {
+				return
 			}
-			cl.Close()
-		}
-		out = append(out, in)
+			defer cl.Close()
+			out[i].Live = true
+			if sid == "" {
+				return
+			}
+			if ask, serr := cl.Status(sid); serr == nil {
+				out[i].Asking = ask
+			}
+			// A daemon too old to know the method answers with an error naming what it does
+			// accept. That is a version skew, not a fault: it is alive, and everything else about
+			// it is still true. A TIMEOUT lands here too, and means the same thing for the entry:
+			// alive, and not saying.
+		}(i, s, in.Session)
 	}
+	wg.Wait()
 	sort.Slice(out, func(i, j int) bool { return out[i].Started > out[j].Started })
 	return out, nil
 }
