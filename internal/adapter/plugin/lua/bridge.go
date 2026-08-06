@@ -36,6 +36,7 @@ func installBridge(p *plugin) {
 	L.SetField(t, "spawn", L.NewFunction(p.bridgeSpawn))
 	L.SetField(t, "child_steps", L.NewFunction(p.bridgeChildSteps))
 	L.SetField(t, "restore_child", L.NewFunction(p.bridgeRestoreChild))
+	L.SetField(t, "merge_child", L.NewFunction(p.bridgeMergeChild))
 	L.SetField(t, "json_decode", L.NewFunction(p.bridgeJSONDecode))
 	L.SetField(t, "propose_experience", L.NewFunction(p.bridgeProposeExperience))
 	L.SetField(t, "notify", L.NewFunction(p.bridgeNotify))
@@ -219,6 +220,9 @@ func (p *plugin) bridgeSpawn(L *lua.LState) int {
 	// Where the child worked. Empty when it shared the parent's directory; otherwise its own
 	// checkout, which the caller takes what it wants from — magi does not merge it back.
 	L.SetField(out, "workspace", lua.LString(res.Workspace))
+	L.SetField(out, "branch", lua.LString(res.Branch))
+	L.SetField(out, "base_commit", lua.LString(res.BaseCommit))
+	L.SetField(out, "head_commit", lua.LString(res.HeadCommit))
 	L.SetField(out, "steps", lua.LNumber(res.Steps))
 	// The child's failure is reported, not swallowed: a plugin told nothing would read silence as
 	// success.
@@ -307,6 +311,31 @@ func (p *plugin) bridgeRestoreChild(L *lua.LState) int {
 		out.Append(row)
 	}
 	L.Push(out)
+	return 1
+}
+
+// magi.merge_child(session_id) -> true | nil, reason
+//
+// Applies a child's work onto the parent's tree, for a child spawned with workspace="clone". It is
+// the commit range the child produced — the parent's own uncommitted changes sit below the baseline
+// and do not come home wearing the child's name — applied with git's own three-way merge, so a real
+// conflict arrives as conflict markers rather than as a silent overwrite. Nothing is committed in
+// the parent: what lands is a working-tree change for a human to read.
+//
+// Never automatic, and same gate as the rest: this tool call's own children only.
+func (p *plugin) bridgeMergeChild(L *lua.LState) int {
+	p.requireCap(L, "spawn")
+	if p.env.MergeChild == nil {
+		return fail(L, "merge_child: only available inside a tool call")
+	}
+	sid := strings.TrimSpace(L.CheckString(1))
+	if sid == "" {
+		return fail(L, "merge_child: session id is required")
+	}
+	if err := p.env.MergeChild(p.spawnCtx(), sid); err != nil {
+		return fail(L, "merge_child: "+err.Error())
+	}
+	L.Push(lua.LTrue)
 	return 1
 }
 
