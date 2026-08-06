@@ -6,10 +6,12 @@ package git
 
 import (
 	"context"
+	"hash/fnv"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -81,8 +83,15 @@ func (s *Store) Propose(ctx context.Context, c port.Contribution) error {
 			return err
 		}
 	}
-	for i, m := range c.Memories {
-		name := filepath.Join(memDir, "mem-"+stamp+"-"+itoa(i)+".md")
+	// One file per proposal was fine when a run was the unit and the store was read by people.
+	// A resident process solves problems for weeks, and the same fact arrives again and again —
+	// so an unbounded pile of near-identical memories is not a growing brain, it is retrieval
+	// getting worse at its own expense. A fact already held is not written twice.
+	existing := map[string]bool{}
+	for _, f := range readDir(memDir) {
+		existing[memoryKey(readFile(f))] = true
+	}
+	for _, m := range c.Memories {
 		body := m.Text
 		if len(m.Tags) > 0 {
 			body = "tags: " + strings.Join(m.Tags, ", ") + "\n\n" + body
@@ -90,6 +99,16 @@ func (s *Store) Propose(ctx context.Context, c port.Contribution) error {
 		if c.Source != "" {
 			body += "\n\n(source: " + c.Source + ")"
 		}
+		if existing[memoryKey(body)] {
+			continue
+		}
+		existing[memoryKey(body)] = true
+		// Named from the CONTENT, not the clock. `mem-<second>-<index>` collided: two proposals
+		// in the same second with the same index wrote the same path, and the second silently
+		// replaced the first. A run-per-task never noticed; a process that proposes all day would
+		// lose facts it had just learned. A content name cannot collide with a different fact and
+		// always collides with the same one, which is the behaviour wanted in both directions.
+		name := filepath.Join(memDir, "mem-"+memoryID(body)+".md")
 		if err := os.WriteFile(name, []byte(body), 0o644); err != nil {
 			return err
 		}
@@ -99,9 +118,24 @@ func (s *Store) Propose(ctx context.Context, c port.Contribution) error {
 			return err
 		}
 	}
+	day := time.Now().UTC().Format("2006-01-02")
 	for _, sk := range c.Skills {
 		name := filepath.Join(skillDir, "skill-"+sanitize(sk.Name)+".md")
-		if err := os.WriteFile(name, []byte(sk.Description+"\n\n"+sk.Body), 0o644); err != nil {
+		// Learning the same lesson twice is different evidence from learning it once, and this
+		// used to overwrite: the second observation erased the first and left nothing to tell
+		// them apart. Carry the count and the dates forward instead.
+		h := skillHeader{Description: sk.Description, FirstSeen: day, LastSeen: day, Observed: 1}
+		if prev := readFile(name); prev != "" {
+			old, _ := parseSkill(prev)
+			h.Observed = old.Observed + 1
+			if old.FirstSeen != "" {
+				h.FirstSeen = old.FirstSeen
+			}
+			// Groups are a HUMAN's decision about who a skill is for. A re-learn carries none, and
+			// dropping them would silently re-expose a skill somebody had narrowed.
+			h.AgentGroups = old.AgentGroups
+		}
+		if err := os.WriteFile(name, []byte(renderHeader(h, sk.Body)), 0o644); err != nil {
 			return err
 		}
 	}
@@ -208,6 +242,24 @@ func splitFirstLine(s string) (string, string) {
 		return strings.TrimSpace(s[:i]), strings.TrimSpace(s[i+1:])
 	}
 	return s, ""
+}
+
+// memoryID is a short stable name for a fact, derived from the same key that decides sameness.
+func memoryID(text string) string {
+	// fnv.Write is documented never to return an error, so there is nothing here to propagate.
+	h := fnv.New64a()
+	h.Write([]byte(memoryKey(text))) //nolint:errcheck // hash.Hash never errors
+	return strconv.FormatUint(h.Sum64(), 36)
+}
+
+// memoryKey is what makes two memories the same one. The source line is stripped because WHERE a
+// fact was learned does not change WHAT it says, and whitespace and case are folded because a
+// re-learn is rarely byte-identical to the first telling.
+func memoryKey(text string) string {
+	if i := strings.LastIndex(text, "\n\n(source: "); i >= 0 {
+		text = text[:i]
+	}
+	return strings.ToLower(strings.Join(strings.Fields(text), " "))
 }
 
 func sanitize(s string) string {

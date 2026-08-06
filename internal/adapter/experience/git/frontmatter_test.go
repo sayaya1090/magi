@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 // A skill written before headers existed parses exactly as it did.
@@ -167,5 +169,120 @@ func TestRetrieveOffersEachAgentOnlyItsOwnShelf(t *testing.T) {
 	}
 	if got, want := names([]string{"*"}), []string{"docs", "old", "sec"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("a generalist was offered %v, want %v", got, want)
+	}
+}
+
+// Learning the same skill twice is different evidence from learning it once.
+//
+// The store used to overwrite a skill of the same name, so the second observation erased the first
+// and nothing could tell a lesson seen once from one seen five times. A resident process solves
+// problems for weeks; that difference is the only material a "this is a standard now" threshold
+// could ever be built from.
+func TestRelearningASkillCountsRatherThanErases(t *testing.T) {
+	dir := t.TempDir()
+	s := New(dir)
+	ctx := context.Background()
+
+	for i := 0; i < 3; i++ {
+		if err := s.Propose(ctx, port.Contribution{Skills: []port.Skill{
+			{Name: "deploy check", Description: "verify the deploy", Body: "run the smoke test"},
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files, _ := filepath.Glob(filepath.Join(dir, "skills", "*.md"))
+	if len(files) != 1 {
+		t.Fatalf("three proposals produced %d files, want one", len(files))
+	}
+	b, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, body := parseSkill(string(b))
+	if h.Observed != 3 {
+		t.Errorf("observed = %d, want 3", h.Observed)
+	}
+	if h.FirstSeen == "" || h.LastSeen == "" {
+		t.Errorf("dates missing: first=%q last=%q", h.FirstSeen, h.LastSeen)
+	}
+	if !strings.Contains(body, "run the smoke test") {
+		t.Errorf("the body was lost: %q", body)
+	}
+}
+
+// A re-learn must not silently re-expose a skill somebody had narrowed. Groups are a human's
+// decision about who a skill is for; a proposal carries none and must not erase them.
+func TestRelearningKeepsTheGroupsAHumanSet(t *testing.T) {
+	dir := t.TempDir()
+	skills := filepath.Join(dir, "skills")
+	if err := os.MkdirAll(skills, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(skills, "skill-deploy-check.md")
+	if err := os.WriteFile(path,
+		[]byte("---\ndescription: verify the deploy\nagent-groups: [ops]\nobserved: 1\n---\nold body\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := New(dir).Propose(context.Background(), port.Contribution{Skills: []port.Skill{
+		{Name: "deploy check", Description: "verify the deploy", Body: "new body"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(path)
+	h, body := parseSkill(string(b))
+	if !reflect.DeepEqual(h.AgentGroups, []string{"ops"}) {
+		t.Errorf("a re-learn dropped the groups: %v — the skill is exposed again to everyone", h.AgentGroups)
+	}
+	if !strings.Contains(body, "new body") {
+		t.Errorf("the new body did not land: %q", body)
+	}
+}
+
+// The same fact arriving again does not become a second file.
+//
+// One file per proposal was fine when a run was the unit. A process that runs for weeks meets the
+// same fact repeatedly, and an unbounded pile of near-identical memories is not a growing brain —
+// it is retrieval getting worse at its own expense.
+func TestTheSameMemoryTwiceIsOneMemory(t *testing.T) {
+	dir := t.TempDir()
+	s := New(dir)
+	ctx := context.Background()
+	for i, src := range []string{"session-a", "session-b", "session-c"} {
+		if err := s.Propose(ctx, port.Contribution{
+			Source:   src, // provenance differs; the fact does not
+			Memories: []port.Memory{{Text: "The build needs CGO_ENABLED=0 for the static binary."}},
+		}); err != nil {
+			t.Fatalf("proposal %d: %v", i, err)
+		}
+	}
+	files, _ := filepath.Glob(filepath.Join(dir, "memories", "*.md"))
+	if len(files) != 1 {
+		t.Errorf("the same fact three times produced %d files, want one", len(files))
+	}
+
+	// A fact already stored under the OLD name is not written again under the new one. Content
+	// naming alone cannot see that — only the scan of what is already there can, and this is the
+	// case it exists for.
+	old := filepath.Join(dir, "memories", "mem-20260101-000000-0.md")
+	if err := os.WriteFile(old, []byte("Tabs, not spaces, in this repo."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Propose(ctx, port.Contribution{
+		Memories: []port.Memory{{Text: "tabs,  not spaces,  in this repo."}}}); err != nil {
+		t.Fatal(err)
+	}
+	files, _ = filepath.Glob(filepath.Join(dir, "memories", "*.md"))
+	if len(files) != 2 {
+		t.Errorf("a fact already held under the old filename was stored again: %d files, want 2", len(files))
+	}
+
+	// A DIFFERENT fact still lands.
+	if err := s.Propose(ctx, port.Contribution{
+		Memories: []port.Memory{{Text: "The linter runs before the tests."}}}); err != nil {
+		t.Fatal(err)
+	}
+	files, _ = filepath.Glob(filepath.Join(dir, "memories", "*.md"))
+	if len(files) != 3 {
+		t.Errorf("a new fact produced %d files total, want three", len(files))
 	}
 }

@@ -37,6 +37,18 @@ import "strings"
 type skillHeader struct {
 	Description string
 	AgentGroups []string
+	// Observed counts how many separate times this skill has been learned. A resident process
+	// solves many problems over a long time, and the same lesson arriving twice is different
+	// evidence from one arriving once — but the store used to OVERWRITE a skill of the same name,
+	// so the second observation silently erased the first and nothing could tell them apart.
+	//
+	// Nothing acts on this number yet. It is the material a threshold would need ("a standard is
+	// what has been seen N times"), and that policy should be set from data rather than guessed
+	// at — so the count is recorded now and the decision is left for when there is something to
+	// decide it with.
+	Observed  int
+	FirstSeen string
+	LastSeen  string
 }
 
 // parseSkill splits a skill file into its header, description and body.
@@ -69,6 +81,12 @@ func parseSkill(text string) (skillHeader, string) {
 			h.Description = val
 		case "agent-groups":
 			h.AgentGroups = parseList(val)
+		case "observed":
+			h.Observed = atoiSafe(val)
+		case "first-seen":
+			h.FirstSeen = val
+		case "last-seen":
+			h.LastSeen = val
 		}
 	}
 	return h, strings.TrimSpace(strings.TrimPrefix(body, "\n---"))
@@ -90,6 +108,48 @@ func parseList(v string) []string {
 		}
 	}
 	return out
+}
+
+// atoiSafe reads a small non-negative integer, answering 0 for anything else. A header is written
+// by hand and a count that will not parse is not worth failing a skill over.
+func atoiSafe(v string) int {
+	n := 0
+	for _, r := range v {
+		if r < '0' || r > '9' {
+			return 0
+		}
+		n = n*10 + int(r-'0')
+		if n > 1<<20 {
+			return 1 << 20
+		}
+	}
+	return n
+}
+
+// renderHeader writes a skill file: the header when there is anything to say, then the body.
+//
+// A skill that carries nothing but a description is written the OLD way — one line, then the body
+// — so a store that never uses groups or counts still reads as it always did, by every version.
+func renderHeader(h skillHeader, body string) string {
+	if len(h.AgentGroups) == 0 && h.Observed <= 1 && h.FirstSeen == "" {
+		return h.Description + "\n\n" + body
+	}
+	var b strings.Builder
+	b.WriteString("---\ndescription: " + h.Description + "\n")
+	if len(h.AgentGroups) > 0 {
+		b.WriteString("agent-groups: [" + strings.Join(h.AgentGroups, ", ") + "]\n")
+	}
+	if h.Observed > 0 {
+		b.WriteString("observed: " + itoa(h.Observed) + "\n")
+	}
+	if h.FirstSeen != "" {
+		b.WriteString("first-seen: " + h.FirstSeen + "\n")
+	}
+	if h.LastSeen != "" {
+		b.WriteString("last-seen: " + h.LastSeen + "\n")
+	}
+	b.WriteString("---\n" + body)
+	return b.String()
 }
 
 // visibleTo reports whether a skill with these groups is offered to an agent in those groups.
