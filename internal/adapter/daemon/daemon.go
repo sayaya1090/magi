@@ -508,6 +508,36 @@ func PublishedSession(socketPath string) (string, error) {
 // process is wedged — which is exactly when somebody runs it.
 const probeTimeout = 700 * time.Millisecond
 
+// Find resolves one published socket under configDir, without probing anything.
+//
+// Separate from List because the two questions are different. A dashboard asks "what is out there,
+// and which of them are alive?", which costs a dial to each. Delivering ONE steer asks "is this
+// path one somebody published?", and answering that by probing every daemon on the machine makes a
+// keystroke wait on an unrelated wedged process — the cost lands on the one action where a person
+// is watching the cursor.
+//
+// Matched against the published set rather than parsed from the parameter: the path arrives from a
+// page, and a path from a page must not become a path this process dials.
+func Find(configDir, socket string) (Info, error) {
+	socks, err := filepath.Glob(filepath.Join(configDir, "daemon-*.sock"))
+	if err != nil {
+		return Info{}, fmt.Errorf("daemon: listing: %w", err)
+	}
+	for _, s := range socks {
+		if s != socket {
+			continue
+		}
+		in, perr := Published(s)
+		if perr != nil {
+			return Info{}, perr
+		}
+		in.Socket = s
+		return in, nil
+	}
+	return Info{}, fmt.Errorf("no daemon at %s — it is not one of the %d published under %s",
+		socket, len(socks), configDir)
+}
+
 // List returns every daemon that has published under configDir, newest first.
 //
 // Each is DIALLED, because the file cannot say whether anybody is home: a daemon killed with

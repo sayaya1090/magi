@@ -173,19 +173,22 @@ func (s *server) clientFor(sock string) (*daemon.Client, error) {
 // path from a page must not become a path this process will dial.
 func (s *server) target(r *http.Request) (daemon.Info, error) {
 	want := r.URL.Query().Get("d")
-	list, err := daemon.List(s.cfgDir)
+	if want == "" {
+		if s.here == "" {
+			return daemon.Info{}, fmt.Errorf("no daemon in this directory — pick one from the dashboard")
+		}
+		want = s.here
+	}
+	// Find, not List: resolving one target must not dial every daemon on the machine. It used to,
+	// so a steer typed into one agent waited on an unrelated wedged neighbour before it was sent.
+	in, err := daemon.Find(s.cfgDir, want)
 	if err != nil {
+		if want == s.here {
+			return daemon.Info{}, fmt.Errorf("no daemon in this directory — pick one from the dashboard")
+		}
 		return daemon.Info{}, err
 	}
-	for _, in := range list {
-		if in.Socket == want || (want == "" && in.Socket == s.here) {
-			return in, nil
-		}
-	}
-	if want == "" {
-		return daemon.Info{}, fmt.Errorf("no daemon in this directory — pick one from the dashboard")
-	}
-	return daemon.Info{}, fmt.Errorf("no daemon at %s", want)
+	return in, nil
 }
 
 // forget drops a cached connection so the next use dials again.

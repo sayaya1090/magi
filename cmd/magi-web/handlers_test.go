@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -314,5 +316,61 @@ func TestTranscriptRowsKeepWhatWasAsked(t *testing.T) {
 	}
 	if !strings.Contains(rows[2].Text, "FAIL") {
 		t.Errorf("the failed result lost its output: %q", rows[2].Text)
+	}
+}
+
+// Sending to one agent must not wait on the others.
+//
+// Resolving the target used to list the whole fleet, and listing dials every daemon to see who is
+// alive. So a steer typed into a healthy agent paid for a wedged neighbour before it was sent — the
+// cost landing on the one action where somebody is watching the cursor. Resolving is a lookup in
+// the published records; liveness is a question only the dashboard asks.
+func TestSendingToOneAgentDoesNotWaitOnTheOthers(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := shortTempDir(t)
+	eng := &recordingEngine{}
+	sock := f.liveDaemon(t, wd, "healthy", eng)
+	f.session("healthy", wd, "hello", 1, false)
+
+	// Three neighbours that accept and never answer — the shape that costs a probe its full bound.
+	for i := 0; i < 3; i++ {
+		name := "wedged" + string(rune('a'+i))
+		p := filepath.Join(f.cfgDir, "daemon-"+name+".sock")
+		ln, err := net.Listen("unix", p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { ln.Close() })
+		go func() {
+			var held []net.Conn
+			for {
+				c, aerr := ln.Accept()
+				if aerr != nil {
+					for _, h := range held {
+						h.Close()
+					}
+					return
+				}
+				held = append(held, c)
+			}
+		}()
+		unpublish, err := daemon.Publish(p, wd, "s_"+name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(unpublish)
+	}
+
+	start := time.Now()
+	w := post(t, f.srv, f.srv.submit, "/submit?d="+url.QueryEscape(sock), url.Values{"text": {"go on"}})
+	took := time.Since(start)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("/submit replied %d: %s", w.Code, w.Body.String())
+	}
+	if took > 500*time.Millisecond {
+		t.Errorf("one steer took %s with three wedged neighbours — it is probing them", took)
+	}
+	if got := eng.seen(); len(got) != 1 {
+		t.Errorf("the healthy daemon received %v", got)
 	}
 }
