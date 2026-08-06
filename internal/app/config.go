@@ -173,6 +173,18 @@ type Config struct {
 	// policy instead of blocking forever on a decision no one will give (which, with a
 	// non-cancellable context, deadlocks the process). Immutable after construction.
 	Interactive bool
+	// AnswerWait bounds how long a prompt waits for a human before resolving by policy.
+	//
+	// Zero means wait forever, which is right when the human is sitting in front of the terminal
+	// that is blocked. It is wrong for a daemon: the UI that would answer is a separate process
+	// that may not be attached, may have been closed, or may be on a phone in another room. A
+	// daemon that waits forever on an answer nobody is coming to give is a stopped agent that
+	// looks like a working one.
+	//
+	// On expiry the prompt resolves the way a non-interactive run would — by policy — and says in
+	// the log that nobody answered, so the transcript records a decision made by default rather
+	// than one somebody made.
+	AnswerWait time.Duration
 	// DangerTools require permission before execution (when Permission == "ask").
 	DangerTools map[string]bool
 

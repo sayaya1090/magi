@@ -1,5 +1,5 @@
 {
-  "total": 119,
+  "total": 120,
   "files": {
     "cmd/magi/autoupdate.go": 1,
     "cmd/magi/main.go": 2,
@@ -39,7 +39,7 @@
     "internal/app/interject_queue.go": 2,
     "internal/app/loop.go": 4,
     "internal/app/loopmap.go": 1,
-    "internal/app/permission.go": 1,
+    "internal/app/permission.go": 2,
     "internal/app/policy.go": 1,
     "internal/app/reconstruct.go": 1,
     "internal/app/routing.go": 2,

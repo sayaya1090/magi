@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -30,17 +31,29 @@ func (a *App) askUserFn(ctx context.Context, s session.Session, depth int, tc *s
 			a.stateLocked(sid).questions = map[string]chan string{}
 		}
 		a.stateLocked(sid).questions[qid] = ch
+		a.noteAskingLocked(sid, qid, Ask{ID: qid, Kind: "question", What: question, Options: options, Since: time.Now()})
 		a.mu.Unlock()
 		defer func() {
 			a.mu.Lock()
 			delete(a.stateLocked(sid).questions, qid)
+			delete(a.stateLocked(sid).asking, qid)
 			a.mu.Unlock()
 		}()
 		qd, _ := json.Marshal(event.QuestionRequestedData{CallID: qid, Question: question, Options: options, Index: seq})
 		a.publishTransient(sid, event.TypeQuestionRequested, event.Actor{Kind: event.ActorSystem, ID: "loop"}, qd)
+		var expired <-chan time.Time
+		if a.cfg.AnswerWait > 0 {
+			t := time.NewTimer(a.cfg.AnswerWait)
+			defer t.Stop()
+			expired = t.C
+		}
 		select {
 		case ans := <-ch:
 			return ans, nil
+		case <-expired:
+			// The tool degrades to "decide for yourself", which is what it does anywhere there is
+			// no human — but the agent is TOLD, so it does not treat silence as an answer.
+			return "", fmt.Errorf("nobody answered within %s; no UI is attached — decide for yourself and say which way you went", a.cfg.AnswerWait)
 		case <-ctx.Done():
 			return "", ctx.Err()
 		}
@@ -90,17 +103,28 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 		a.stateLocked(sid).perms = map[string]chan string{}
 	}
 	a.stateLocked(sid).perms[tc.CallID] = ch
+	a.noteAskingLocked(sid, tc.CallID, Ask{ID: tc.CallID, Kind: "permission", What: tc.Name, Args: tc.Args, Reason: reason, Since: time.Now()})
 	a.mu.Unlock()
 
 	defer func() {
 		a.mu.Lock()
 		delete(a.stateLocked(sid).perms, tc.CallID)
+		delete(a.stateLocked(sid).asking, tc.CallID)
 		a.mu.Unlock()
 	}()
 
 	rd, _ := json.Marshal(event.PermissionRequestedData{CallID: tc.CallID, Name: tc.Name, Args: tc.Args, Reason: reason})
 	a.publishTransient(sid, event.TypePermissionRequested, actor, rd)
 
+	// A bounded wait when the answerer is in another process (see Config.AnswerWait). The timer is
+	// only armed when one is configured, so the terminal's prompt still waits as long as the person
+	// in front of it needs.
+	var expired <-chan time.Time
+	if a.cfg.AnswerWait > 0 {
+		t := time.NewTimer(a.cfg.AnswerWait)
+		defer t.Stop()
+		expired = t.C
+	}
 	select {
 	case dec := <-ch:
 		if dec == "always" || dec == "persist" {
@@ -122,9 +146,30 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 			return true
 		}
 		return dec == "allow"
+	case <-expired:
+		// Nobody answered. Resolve the way a run with no human resolves — by policy — and record
+		// that this is what happened: a decision taken by default reads identically to one somebody
+		// made unless the log says otherwise.
+		byPolicy := a.Permission() == "allow"
+		a.noteUnanswered(ctx, sid, tc, byPolicy)
+		return byPolicy
 	case <-ctx.Done():
 		return false
 	}
+}
+
+// noteUnanswered records a prompt that timed out with no answer.
+func (a *App) noteUnanswered(ctx context.Context, sid session.SessionID, tc *session.ToolCall, allowed bool) {
+	verdict := "denied"
+	if allowed {
+		verdict = "allowed"
+	}
+	// WithoutCancel: the turn's context may be the very thing being torn down, and a record of why
+	// a tool was allowed or denied is worth more than the turn it belonged to.
+	_ = a.appendPromptText(context.WithoutCancel(ctx), sid,
+		event.Actor{Kind: event.ActorSystem, ID: "permission"}, fmt.Sprintf(
+			"no UI answered the permission prompt for %s within %s — %s by the %q policy",
+			tc.Name, a.cfg.AnswerWait, verdict, a.Permission()))
 }
 
 // notePersistOutcome carries out the "project" choice and — whenever it did NOT happen — says so.
@@ -209,4 +254,60 @@ func safeCommandPrefix(cmd string) string {
 		return ""
 	}
 	return first
+}
+
+// Ask is a prompt the engine is blocked on, for a process that cannot see the transient event that
+// announced it.
+//
+// A permission prompt and an ask_user question live in this process's memory and nowhere else — not
+// in the log, because they are not facts about what happened but a question about what should. So a
+// dashboard reading the log sees an agent with an open turn that has stopped moving, which looks
+// exactly like a slow build. This is the one thing a second process genuinely cannot work out for
+// itself, which is the same test the five write calls had to pass.
+type Ask struct {
+	// ID is the call id an answer must carry. Without it the prompt is legible and unanswerable:
+	// a viewer could say a permission is pending and have no way to grant it, which is a worse
+	// place to stop than not showing it at all.
+	ID   string
+	Kind string // "permission" | "question"
+	What string // the tool being asked about, or the question itself
+	// Args, Reason and Options are the rest of the request. A prompt that arrived as "permission:
+	// bash" is not one anybody can answer: what is being decided is the COMMAND, and the policy's
+	// reason for stopping on it is what the decision is supposed to be made on. Carrying them means
+	// a viewer in another process can draw the same prompt the terminal draws, rather than a
+	// summary of it.
+	Args    json.RawMessage
+	Reason  string
+	Options []string
+	Since   time.Time // when it was asked, so a viewer can say how long it has been waiting
+}
+
+// noteAskingLocked records an open prompt. Caller holds a.mu.
+func (a *App) noteAskingLocked(sid session.SessionID, id string, ask Ask) {
+	st := a.stateLocked(sid)
+	if st.asking == nil {
+		st.asking = map[string]Ask{}
+	}
+	st.asking[id] = ask
+}
+
+// Waiting reports the prompt a session has been blocked on longest, if any.
+//
+// The oldest rather than any: with more than one open (a question asked while a permission prompt
+// stands) the one that has been waiting longest is the one holding everything else up.
+func (a *App) Waiting(sid session.SessionID) (Ask, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st, ok := a.stateIf(sid)
+	if !ok {
+		return Ask{}, false
+	}
+	var oldest Ask
+	found := false
+	for _, ask := range st.asking {
+		if !found || ask.Since.Before(oldest.Since) {
+			oldest, found = ask, true
+		}
+	}
+	return oldest, found
 }

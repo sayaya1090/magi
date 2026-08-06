@@ -41,8 +41,14 @@ type sessionState struct {
 	turnControl      turnControl            // pending mid-turn routing / finish signal
 	perms            map[string]chan string // pending permission decisions by call id
 	questions        map[string]chan string // pending ask_user picks by call id
-	grants           map[string]bool        // "always" grants per tool
-	userLabel        string                 // display name for the user in the transcript (plugin set_user_label); "" = "you"
+	// asking is what those two are waiting FOR, so another process can be told. The channels
+	// above are enough to deliver an answer and say nothing about the question; a viewer in a
+	// different process cannot see the transient event that announced it, because a transient
+	// event is delivered to this process's bus and nowhere else. Keyed the same way (call id /
+	// question id) so a resolved prompt leaves with its channel.
+	asking    map[string]Ask
+	grants    map[string]bool // "always" grants per tool
+	userLabel string          // display name for the user in the transcript (plugin set_user_label); "" = "you"
 	// deferredAbandoned is the set of interjection origin MessageIDs that were queued in a
 	// PRIOR process (F5 ledger) and never resolved — reconstructed once from the log on the
 	// first run after load (deferredHydrated). Unlike pendingInterject (in-memory, lost on a
