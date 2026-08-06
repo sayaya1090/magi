@@ -14,7 +14,6 @@ import (
 	"charm.land/glamour/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
@@ -103,8 +102,10 @@ type CommandSource interface {
 }
 
 type Model struct {
-	ctx     context.Context
-	app     *app.App
+	ctx context.Context
+	// app is the ENGINE, reached only through the interface next door. See engine.go for why the
+	// boundary is written down rather than left to whatever the screen happens to reach for.
+	app     Engine
 	cmds    CommandSource // plugin slash commands (may be nil)
 	sid     session.SessionID
 	model   string
@@ -258,7 +259,7 @@ type Model struct {
 
 // New builds the TUI model for a session. isDark selects the color theme;
 // imageProto is the detected inline-image protocol ("kitty"/"iterm2"/"").
-func New(ctx context.Context, a *app.App, cmds CommandSource, sid session.SessionID, model, workdir string, isDark bool, imageProto string) Model {
+func New(ctx context.Context, a Engine, cmds CommandSource, sid session.SessionID, model, workdir string, isDark bool, imageProto string) Model {
 	applyTheme(isDark)
 
 	ta := textarea.New()

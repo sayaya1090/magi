@@ -2,8 +2,8 @@ package tui
 
 import "github.com/sayaya1090/magi/internal/core/session"
 
-// planSteps is the read-only view activePlanPath needs. *app.App already satisfies it, so a fake
-// can exercise activePlanPath without a live App.
+// planSteps is the read-only view activePlanPath needs — narrower than Engine on purpose, so a
+// fake can exercise activePlanPath without standing up the whole boundary.
 type planSteps interface {
 	Todos(session.SessionID) []session.Todo
 }

@@ -8,14 +8,13 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
 // Run starts the interactive TUI for a session and blocks until the user quits.
 // isDark selects the color theme. The model subscribes to the session itself
 // (see Init/startSub) so it can switch sessions on /resume.
-func Run(ctx context.Context, a *app.App, cmds CommandSource, sid session.SessionID, model, workdir string, isDark bool, imageProto string) error {
+func Run(ctx context.Context, a Engine, cmds CommandSource, sid session.SessionID, model, workdir string, isDark bool, imageProto string) error {
 	// Put the console into UTF-8 so multi-byte glyphs survive a drag-copy out of
 	// it (Windows only; a no-op elsewhere). Restore the prior code page on exit.
 	defer configureConsole()()
