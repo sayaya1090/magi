@@ -37,7 +37,7 @@ func (r *realTurn) replay(t *testing.T) Model {
 	// The past is pushed by a goroutine, so the channel is empty for an instant after Subscribe
 	// returns — a non-blocking read here would rebuild an empty transcript and every comparison
 	// against it would pass for the wrong reason. Read until the log has been quiet for a beat.
-	deadline := time.After(5 * time.Second)
+	deadline := time.After(5 * time.Second * deadlineScale)
 	quiet := time.NewTimer(300 * time.Millisecond)
 	for {
 		select {

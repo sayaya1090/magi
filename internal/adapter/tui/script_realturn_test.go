@@ -121,7 +121,7 @@ func (r *realTurn) run(prompt string) {
 	}); err != nil {
 		r.t.Fatal(err)
 	}
-	deadline := time.After(20 * time.Second)
+	deadline := time.After(20 * time.Second * deadlineScale)
 	for {
 		select {
 		case ev, ok := <-r.events:
