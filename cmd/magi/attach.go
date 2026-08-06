@@ -117,15 +117,17 @@ func (a attached) Subscribe(ctx context.Context, sid session.SessionID, fromSeq 
 			// should happen, not a record of what did, and the event announcing it went to the
 			// daemon's bus. Without this the attached screen shows a run that simply stopped, with
 			// the answer it is waiting for one keystroke away and no way to know.
-			if ev, id, ok := a.pendingPrompt(sid, asked); ok {
+			ev, id, drawing, cleared := a.pendingPrompt(sid, asked)
+			switch {
+			case drawing:
 				asked = id
 				select {
 				case out <- ev:
 				case <-pctx.Done():
 					return
 				}
-			} else if id == "" {
-				asked = "" // resolved (answered, or by policy) — the next one may reuse nothing
+			case cleared:
+				asked = "" // answered, or resolved by policy — the next prompt gets through
 			}
 			ch, stop, err := a.App.Subscribe(pctx, sid, seq)
 			if err != nil {
@@ -189,16 +191,23 @@ func drainPast(ctx context.Context, src <-chan event.Event) <-chan event.Event {
 // rebuilds the same payload the TUI would have received had the engine been in this process — the
 // same call id, so the answer the user gives goes back to the tool that is waiting for it.
 //
-// Returns the current prompt's id even when it has already been drawn, so the caller can tell
-// "still waiting on the same one" from "nothing pending" — the second is what clears the marker so
-// a later prompt with a recycled id is not swallowed.
-func (a attached) pendingPrompt(sid session.SessionID, drawn string) (event.Event, string, bool) {
+// The three outcomes are distinct on purpose. drawing says a prompt is new and here it is; the id
+// alone says "still the same one, already on screen"; and cleared says the daemon has nothing
+// pending, which is what lets the next prompt through even if it reuses an id.
+//
+// A FAILED status is none of those. Treating it as "nothing pending" would clear the marker, and
+// the next poll would redraw a prompt that is already on screen — one dropped packet turning into
+// two stacked modals over the same question.
+func (a attached) pendingPrompt(sid session.SessionID, drawn string) (ev event.Event, id string, drawing, cleared bool) {
 	w, err := a.c.Status(string(sid))
-	if err != nil || w == nil {
-		return event.Event{}, "", false
+	if err != nil {
+		return event.Event{}, drawn, false, false // unknown: change nothing
+	}
+	if w == nil {
+		return event.Event{}, "", false, true
 	}
 	if w.ID == drawn {
-		return event.Event{}, w.ID, false
+		return event.Event{}, w.ID, false, false
 	}
 	var (
 		typ  event.Type
@@ -215,10 +224,10 @@ func (a attached) pendingPrompt(sid session.SessionID, drawn string) (event.Even
 			CallID: w.ID, Name: w.What, Args: w.Args, Reason: w.Reason})
 	}
 	if err != nil {
-		return event.Event{}, w.ID, false
+		return event.Event{}, drawn, false, false
 	}
 	return event.Event{
 		SessionID: sid, Type: typ, Data: data,
 		Actor: event.Actor{Kind: event.ActorSystem, ID: "daemon"},
-	}, w.ID, true
+	}, w.ID, true, false
 }
