@@ -8,10 +8,15 @@ DATE    := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 PKG     := github.com/sayaya1090/magi/internal/version
 LDFLAGS := -s -w -X $(PKG).Version=$(VERSION) -X $(PKG).Commit=$(COMMIT) -X $(PKG).Date=$(DATE)
 
-.PHONY: build test test-race cover vet fmt e2e snapshot licenses clean
+.PHONY: build web test test-race cover vet fmt e2e snapshot licenses clean
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o magi ./cmd/magi
+
+# The browser viewer, built separately because it is separate: a daemon that nobody watches should
+# not carry a web server, and a machine that never opens one should not ship it.
+web:
+	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o magi-web ./cmd/magi-web
 
 test:
 	go test ./... -skip E2E
