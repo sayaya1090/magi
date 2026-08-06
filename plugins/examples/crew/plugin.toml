@@ -1,0 +1,9 @@
+name = "crew"
+version = "1.0.0"
+description = "예제 — 격리된 체크아웃에서 일하는 워커. 대장이 판정하고, 받아들이면 병합하고 아니면 되돌린다."
+entry = "init.lua"
+capabilities = ["tool", "spawn"]
+permissions = []
+
+# 번들되지 않는 예제다. plugins/embedded.go에 등록돼 있지 않으므로, 쓰려면
+# <config>/plugins/crew/ 로 복사해야 한다. magi는 에이전트를 기본으로 제공하지 않는다.
