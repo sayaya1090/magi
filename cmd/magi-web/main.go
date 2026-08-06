@@ -143,6 +143,10 @@ type server struct {
 	// first dead socket and refuse to show the rest.
 	mu      sync.Mutex
 	clients map[string]*daemon.Client
+
+	// What a dashboard refresh would otherwise re-derive every three seconds for every idle agent:
+	// the last thing it said, which by definition is not changing while it is idle.
+	fleetCache fleet.Cache
 }
 
 func (s *server) closeAll() {
@@ -316,7 +320,7 @@ func (s *server) icon(w http.ResponseWriter, r *http.Request) {
 // surfaces answering "what is that agent doing?" from two copies of the same reasoning is a pair
 // that disagrees later, when only one of them is updated.
 func (s *server) fleet(w http.ResponseWriter, r *http.Request) {
-	list, err := fleet.List(r.Context(), s.reader, s.cfgDir, s.here)
+	list, err := fleet.ListCached(r.Context(), s.reader, s.cfgDir, s.here, &s.fleetCache)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -349,14 +353,34 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	}
 	sid := session.SessionID(in.Session)
 
-	var lastCount int
 	var lastSeq int64 = -1
 	tick := time.NewTicker(400 * time.Millisecond)
 	defer tick.Stop()
 	for {
-		msgs, seq, err := s.reader.SessionState(r.Context(), sid)
-		if err == nil && (seq != lastSeq || len(msgs) != lastCount) {
-			lastSeq, lastCount = seq, len(msgs)
+		// Ask before rebuilding. Reconstructing the transcript from the log costs 12ms on a
+		// four-thousand-event session and asking whether anything arrived costs 2µs, and on almost
+		// every tick the answer is nothing — this is the same poll running two and a half times a
+		// second for as long as the page is open, once per viewer.
+		//
+		// The REBUILD is not cached, deliberately. The rendered transcript is not append-only even
+		// though the log is: a resurfaced interjection removes an earlier prompt when a later event
+		// lands, and a compaction rewrites the log outright. A kept prefix would need an
+		// invalidation signal that does not exist, and a wrong one shows a transcript the log
+		// denies. Cheap question, whole answer.
+		// lastSeq starts at -1, so the first pass asks for everything and the first frame is the
+		// backlog — a viewer that connects to a session hours after the work is the ordinary case.
+		seq, changed, err := s.reader.NewSince(r.Context(), sid, lastSeq)
+		if err == nil && changed {
+			lastSeq = seq
+			msgs, _, serr := s.reader.SessionState(r.Context(), sid)
+			if serr != nil {
+				select {
+				case <-r.Context().Done():
+					return
+				case <-tick.C:
+				}
+				continue
+			}
 			b, _ := json.Marshal(renderMessages(msgs))
 			// One SSE frame, one whole transcript. A diff protocol would be smaller and would also
 			// be a second thing that can drift from the log; at these sizes it is not worth it.

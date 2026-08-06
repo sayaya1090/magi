@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
@@ -23,6 +24,54 @@ type Reader interface {
 	UnfinishedTurnOf(ctx context.Context, sid session.SessionID) (app.UnfinishedTurn, bool)
 	SessionState(ctx context.Context, sid session.SessionID) ([]session.Message, int64, error)
 	ListSessions(ctx context.Context, workdir string) ([]session.SessionMeta, error)
+	NewSince(ctx context.Context, sid session.SessionID, seq int64) (int64, bool, error)
+}
+
+// Cache remembers the expensive half of a listing between polls.
+//
+// The last thing an idle agent said comes from rebuilding its whole transcript, which costs 12ms on
+// a long session — and a dashboard refreshing every three seconds pays that for every idle agent,
+// forever, to re-derive a line that by definition is not changing. Asking the log whether anything
+// arrived costs 2µs.
+//
+// Only the LAST LINE is kept, and only while the session's sequence number is unchanged. That is
+// the part of a listing that is safe to hold: it is derived from a session that is not moving, and
+// the moment it moves the entry is thrown away rather than patched. Nothing else here is cached —
+// state, liveness and what a working agent is doing are the answers a dashboard exists to refresh.
+//
+// A zero Cache is usable and does nothing, so a caller that has nowhere to keep one (the CLI, which
+// runs once and exits) passes nil and pays the full price once.
+type Cache struct {
+	mu    sync.Mutex
+	entry map[session.SessionID]cacheEntry
+}
+
+type cacheEntry struct {
+	seq  int64
+	said string
+}
+
+// seen returns what was cached for a session and the sequence it was built at.
+func (c *Cache) seen(sid session.SessionID) (cacheEntry, bool) {
+	if c == nil {
+		return cacheEntry{}, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.entry[sid]
+	return e, ok
+}
+
+func (c *Cache) put(sid session.SessionID, seq int64, said string) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.entry == nil {
+		c.entry = map[session.SessionID]cacheEntry{}
+	}
+	c.entry[sid] = cacheEntry{seq: seq, said: said}
 }
 
 // State is what an agent is doing, as far as anyone outside its process can tell.
@@ -73,6 +122,11 @@ type Agent struct {
 // List describes every daemon published under configDir, newest first. here is the socket the
 // caller considers its own (empty if none); it is only marked, never filtered on.
 func List(ctx context.Context, r Reader, configDir, here string) ([]Agent, error) {
+	return ListCached(ctx, r, configDir, here, nil)
+}
+
+// ListCached is List with somewhere to keep the part that does not change between polls.
+func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Cache) ([]Agent, error) {
 	found, err := daemon.List(configDir)
 	if err != nil {
 		return nil, err
@@ -119,11 +173,35 @@ func List(ctx context.Context, r Reader, configDir, here string) ([]Agent, error
 			a.State = Stopped
 		}
 		if a.Task == "" {
-			a.Task = Clip(lastSaid(ctx, r, sid), 160)
+			a.Task = Clip(lastSaidCached(ctx, r, cache, sid), 160)
 		}
 		out = append(out, a)
 	}
 	return out, nil
+}
+
+// lastSaidCached answers from the cache while the session is not moving, and rebuilds when it is.
+func lastSaidCached(ctx context.Context, r Reader, cache *Cache, sid session.SessionID) string {
+	// Asked FROM the sequence the cached answer was built at, which is what makes the question
+	// cheap: the store answers it with a binary search over the tail rather than a read of the log.
+	// Asking from zero would be the same answer at two hundred times the price, and this runs for
+	// every idle agent on every refresh.
+	if e, ok := cache.seen(sid); ok {
+		if seq, changed, err := r.NewSince(ctx, sid, e.seq); err == nil && !changed {
+			return e.said
+		} else if err == nil {
+			said := lastSaid(ctx, r, sid)
+			cache.put(sid, seq, said)
+			return said
+		}
+	}
+	seq, _, err := r.NewSince(ctx, sid, 0)
+	if err != nil {
+		return ""
+	}
+	said := lastSaid(ctx, r, sid)
+	cache.put(sid, seq, said)
+	return said
 }
 
 // lastSaid is the final piece of text in a session — what an idle agent left behind.

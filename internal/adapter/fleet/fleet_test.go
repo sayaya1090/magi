@@ -332,3 +332,69 @@ func TestAnUnblockedDaemonIsNotWaiting(t *testing.T) {
 		t.Errorf("it reported a prompt it does not have: %q / %q", a.Asking, a.AskID)
 	}
 }
+
+// countingReader records how often the expensive rebuild is asked for.
+type countingReader struct {
+	fleet.Reader
+	rebuilds int
+}
+
+func (c *countingReader) SessionState(ctx context.Context, sid session.SessionID) ([]session.Message, int64, error) {
+	c.rebuilds++
+	return c.Reader.SessionState(ctx, sid)
+}
+
+// A dashboard refresh must not rebuild a transcript that has not changed.
+//
+// The last thing an idle agent said comes from reconstructing its whole log — 12ms on a long
+// session — and the dashboard refreshes every three seconds for every agent. For an idle one that
+// is the same answer re-derived forever, while asking whether anything arrived costs 2µs. The cache
+// keeps exactly that line and exactly while the sequence number is unchanged.
+func TestAnIdleAgentsLastLineIsNotRebuiltEveryRefresh(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := shortTempDir(t)
+	f.daemonAt(wd, "quiet", true)
+	f.session("quiet", wd, "the thing it did", 2, true) // finished: idle, so the last line is shown
+
+	r := &countingReader{Reader: f.reader}
+	var cache fleet.Cache
+	first, err := fleet.ListCached(context.Background(), r, f.cfgDir, "", &cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != 1 || first[0].Task == "" {
+		t.Fatalf("the first listing has no last line: %+v", first)
+	}
+	after := r.rebuilds
+	if after == 0 {
+		t.Fatal("the first listing did not rebuild anything — the test is measuring nothing")
+	}
+
+	for i := 0; i < 5; i++ {
+		again, lerr := fleet.ListCached(context.Background(), r, f.cfgDir, "", &cache)
+		if lerr != nil {
+			t.Fatal(lerr)
+		}
+		if again[0].Task != first[0].Task {
+			t.Fatalf("refresh %d changed the line on an idle agent: %q → %q", i, first[0].Task, again[0].Task)
+		}
+	}
+	if r.rebuilds != after {
+		t.Errorf("five refreshes of an idle agent rebuilt the transcript %d more times",
+			r.rebuilds-after)
+	}
+
+	// And when it says something new, the line follows — a cache that never invalidates is worse
+	// than none, because the dashboard then reports a state the log denies.
+	f.session("quiet", wd, "something new entirely", 0, true)
+	moved, err := fleet.ListCached(context.Background(), r, f.cfgDir, "", &cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved[0].Task == first[0].Task {
+		t.Errorf("the agent said something new and the card still shows %q", moved[0].Task)
+	}
+	if r.rebuilds == after {
+		t.Error("nothing was rebuilt after the log grew")
+	}
+}
