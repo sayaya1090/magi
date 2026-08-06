@@ -16,6 +16,7 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/bus"
+	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -236,5 +237,98 @@ func TestFleetMarksTheLocalDaemon(t *testing.T) {
 	}
 	if find(t, list, "theirs").Here {
 		t.Error("another daemon is marked as local")
+	}
+}
+
+// askingEngine is a daemon blocked on whatever it is told to be blocked on.
+type askingEngine struct{ ask *app.Ask }
+
+func (e *askingEngine) Waiting(session.SessionID) (app.Ask, bool) {
+	if e.ask == nil {
+		return app.Ask{}, false
+	}
+	return *e.ask, true
+}
+func (e *askingEngine) Submit(context.Context, command.SubmitPrompt) error { return nil }
+func (e *askingEngine) Steer(context.Context, command.SubmitPrompt) error  { return nil }
+func (e *askingEngine) Interrupt(context.Context, command.Interrupt) error { return nil }
+func (e *askingEngine) RespondPermission(context.Context, command.RespondPermission) error {
+	return nil
+}
+func (e *askingEngine) RespondQuestion(context.Context, command.RespondQuestion) error { return nil }
+
+// serveAsking runs a real daemon behind a published socket, because the fifth state is the one that
+// cannot be faked from files: it is asked for over the wire.
+func (f *fleetFixture) serveAsking(workdir, sid string, ask *app.Ask) string {
+	f.t.Helper()
+	sock := filepath.Join(f.cfgDir, "daemon-"+sid+".sock")
+	ctx, cancel := context.WithCancel(context.Background())
+	f.t.Cleanup(cancel)
+	go func() { _ = daemon.Serve(ctx, &askingEngine{ask: ask}, sock) }()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if c, err := net.Dial("unix", sock); err == nil {
+			c.Close()
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	unpublish, err := daemon.Publish(sock, workdir, sid)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	f.t.Cleanup(unpublish)
+	return sock
+}
+
+// The fifth state, and the one the log cannot produce.
+//
+// A blocked agent has an OPEN TURN in the log, exactly like one running a slow build — so from the
+// files alone it reads as "working", which is true and is not the thing that needs doing about it.
+// Being blocked has to beat that, and the card has to say what is being decided: "permission: bash"
+// asks somebody to approve a category, when the decision is about what it is going to run.
+func TestABlockedDaemonIsWaitingAndSaysOnWhat(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := shortTempDir(t)
+	f.serveAsking(wd, "blocked", &app.Ask{
+		ID: "call_7", Kind: "permission", What: "bash",
+		Args:   json.RawMessage(`{"command":"rm -rf build"}`),
+		Reason: "destructive command detected", Since: time.Now(),
+	})
+	f.session("blocked", wd, "clean the tree", 4, false) // an open turn: the log says "working"
+
+	a := find(t, f.get(), "blocked")
+	if a.State != fleet.Waiting {
+		t.Fatalf("a blocked daemon came back as %q — the log's open turn won", a.State)
+	}
+	if a.AskID != "call_7" || a.AskKind != "permission" {
+		t.Errorf("the answer has nowhere to go: id=%q kind=%q", a.AskID, a.AskKind)
+	}
+	if !strings.Contains(a.Asking, "rm -rf build") {
+		t.Errorf("the card does not say what is being decided: %q", a.Asking)
+	}
+	if !strings.Contains(a.Asking, "destructive command detected") {
+		t.Errorf("the policy's reason is missing, so the decision is made on less: %q", a.Asking)
+	}
+	// What it was doing is still there, as context rather than as the headline.
+	if !strings.Contains(a.Task, "clean the tree") {
+		t.Errorf("the open turn was lost: %q", a.Task)
+	}
+}
+
+// A daemon that is NOT blocked must not be reported as waiting — the state exists to mean "somebody
+// is needed", and a badge that is always on is a badge nobody reads.
+func TestAnUnblockedDaemonIsNotWaiting(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := shortTempDir(t)
+	f.serveAsking(wd, "free", nil)
+	f.session("free", wd, "carry on", 2, false)
+
+	a := find(t, f.get(), "free")
+	if a.State != fleet.Working {
+		t.Errorf("an unblocked daemon with an open turn came back as %q, want working", a.State)
+	}
+	if a.Asking != "" || a.AskID != "" {
+		t.Errorf("it reported a prompt it does not have: %q / %q", a.Asking, a.AskID)
 	}
 }
