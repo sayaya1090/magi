@@ -621,6 +621,15 @@ func (m *Model) switchSession(sid session.SessionID) tea.Cmd {
 	// Subscribe from lastSeq so we stream only new events (transcript already shown).
 	cmd := m.startSub(sid, lastSeq)
 	m.refresh()
+	// A turn that was cut off is in the log and nothing used to say so: the conversation came back
+	// and the work was silently abandoned. Say it, and say what is at stake — but do NOT restart it.
+	// Re-running forty steps of edits without being asked is a side effect the user did not choose,
+	// and the abandoned turn may be exactly what they killed magi to stop.
+	if u, ok := m.app.UnfinishedTurnOf(m.ctx, sid); ok {
+		return tea.Batch(cmd, m.snack(fmt.Sprintf(
+			"resumed %s — the last turn stopped after %d tool calls without finishing: %s",
+			sid, u.Steps, oneLine(u.Text, 60))))
+	}
 	return tea.Batch(cmd, m.snack("resumed "+string(sid)))
 }
 

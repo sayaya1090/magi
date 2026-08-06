@@ -178,3 +178,45 @@ func childTranscript() []session.Message {
 			{Kind: session.PartText, Text: "here is the plan"}}},
 	}
 }
+
+// Resuming a session says when the last turn was cut off, and does NOT restart it.
+//
+// The log held the fact — a prompt, tools that ran, no turn.finished — and nothing looked, so a
+// session resumed after a crash came back with the conversation intact and the work abandoned in
+// silence. Saying so is the fix; re-running it is not. Forty steps of edits replayed without being
+// asked is a side effect the user did not choose, and the abandoned turn may be the very thing they
+// killed magi to stop.
+func TestResumingSaysTheLastTurnWasCutOffAndDoesNotRestartIt(t *testing.T) {
+	mm, store := subagentModelWithStore(t)
+	m := &mm
+	m.width, m.height = 120, 40
+	ctx := context.Background()
+	sid, err := m.app.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pd, _ := json.Marshal(event.PromptSubmittedData{
+		MessageID: "m1", Parts: []session.Part{{Kind: session.PartText, Text: "refactor the parser"}}})
+	cd, _ := json.Marshal(event.PartAppendedData{
+		Role: session.RoleAssistant,
+		Part: session.Part{Kind: session.PartToolCall, ToolCall: &session.ToolCall{Name: "edit"}}})
+	if _, err := store.Append(ctx, sid,
+		event.Event{SessionID: sid, Type: event.TypePromptSubmitted, TS: time.Now(), Data: pd},
+		event.Event{SessionID: sid, Type: event.TypePartAppended, TS: time.Now(), Data: cd},
+	); err != nil { // no turn.finished: the turn was cut off
+		t.Fatal(err)
+	}
+
+	m.switchSession(sid)
+	note := ansi.Strip(m.snackbar)
+	if !strings.Contains(note, "without finishing") {
+		t.Errorf("resuming said nothing about the abandoned turn: %q", note)
+	}
+	if !strings.Contains(note, "refactor the parser") {
+		t.Errorf("the note does not say WHAT was abandoned: %q", note)
+	}
+	// It must not have started working again.
+	if m.running {
+		t.Error("resuming restarted the abandoned turn — that is a side effect nobody asked for")
+	}
+}
