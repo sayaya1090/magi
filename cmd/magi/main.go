@@ -10,10 +10,12 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -21,6 +23,7 @@ import (
 	"github.com/charmbracelet/x/term"
 
 	councilllm "github.com/sayaya1090/magi/internal/adapter/council/llm"
+	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	explayered "github.com/sayaya1090/magi/internal/adapter/experience/layered"
 	"github.com/sayaya1090/magi/internal/adapter/llm/openai"
 	"github.com/sayaya1090/magi/internal/adapter/mcp"
@@ -231,6 +234,8 @@ func run() int {
 		pluginsDir      = flag.String("plugins", env("MAGI_PLUGINS", ""), "extra plugins directory to load")
 		listModels      = flag.Bool("list-models", false, "list the backend's available models and exit")
 		doctor          = flag.Bool("doctor", false, "check the environment (LLM endpoint, optional tools, sandbox, config) and exit")
+		daemonMode      = flag.Bool("daemon", false, "run the engine with no UI and listen for attachments; it keeps working while nothing is watching")
+		attachMode      = flag.Bool("attach", false, "attach a terminal UI to the daemon already running in this workspace")
 		showVersion     = flag.Bool("version", false, "print version and exit")
 		doUpdate        = flag.Bool("update", false, "update magi core and managed plugins to the latest release, then exit")
 		doUpdateCore    = flag.Bool("update-core", false, "update only the magi binary, then exit")
@@ -291,7 +296,10 @@ func run() int {
 			pSet = true
 		}
 	})
-	headless := pSet
+	// A daemon has no UI either, so it takes the headless side of every mode decision below —
+	// permission defaults, the startup update check, the TTY-only boot hooks. Without this it fell
+	// through to the interactive branch and died on /dev/tty, which is how it was found.
+	headless := pSet || *daemonMode
 
 	// Permission defaults differ by mode: headless acts autonomously, the
 	// interactive TUI asks before dangerous tools.
@@ -300,7 +308,10 @@ func run() int {
 		fmt.Fprintln(os.Stderr, "magi: read stdin:", err)
 		return 1
 	}
-	if headless && strings.TrimSpace(promptText) == "" {
+	// A daemon starts with no prompt by design — it waits for one to arrive over the socket. It
+	// shares the headless flag for every MODE decision (no TTY, autonomous permissions) but not
+	// this one, which is about `-p` having been given and left empty.
+	if pSet && strings.TrimSpace(promptText) == "" {
 		fmt.Fprintln(os.Stderr, "magi: empty prompt (-p was given with no text)")
 		return 2
 	}
@@ -652,6 +663,34 @@ func run() int {
 	}
 
 	ctx := context.Background()
+	sockPath := daemon.SocketPath(plat.ConfigDir(), wd)
+
+	// Attaching: do not create a session — join the one the daemon is driving, and route the five
+	// calls that touch its run over the socket. Everything else this process answers itself, from
+	// the same store.
+	if *attachMode {
+		cl, derr := daemon.Dial(sockPath)
+		if derr != nil {
+			fmt.Fprintln(os.Stderr, "magi:", derr)
+			return 1
+		}
+		defer cl.Close()
+		joined, derr := daemon.PublishedSession(sockPath)
+		if derr != nil {
+			fmt.Fprintln(os.Stderr, "magi:", derr)
+			return 1
+		}
+		tui.SetThemePalettes(cfg.Theme.Dark, cfg.Theme.Light)
+		// No KillBackgroundProcesses here, and no CloseLSPPool: those belong to the process that
+		// STARTED them. Detaching a viewer must not reap the daemon's work.
+		if err := tui.Run(ctx, attached{App: a, c: cl}, host,
+			session.SessionID(joined), modelID, wd, isDark, plat.TerminalCaps().Image); err != nil {
+			fmt.Fprintln(os.Stderr, "magi: attach:", err)
+			return 1
+		}
+		return 0
+	}
+
 	sid, err = a.CreateSession(ctx, command.CreateSession{
 		Workdir: wd,
 		Model:   session.ModelRef{Provider: "openai", Model: modelID},
@@ -686,6 +725,31 @@ func run() int {
 	}
 
 	// Interactive TUI when no headless prompt was given.
+	// A daemon: no UI, and it stays up. The work continues while nothing is watching, which is the
+	// whole point — a UI attaches later, or several do, or none ever does.
+	if *daemonMode {
+		unpublish, perr := daemon.PublishSession(sockPath, string(sid))
+		if perr != nil {
+			fmt.Fprintln(os.Stderr, "magi:", perr)
+			return 1
+		}
+		defer unpublish()
+		// Ctrl-C stops it the way a service stops: cancel, let the run unwind, drop the socket.
+		dctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		fmt.Fprintf(os.Stderr, "magi: daemon on %s (session %s) — attach with `magi --attach` in this directory\n",
+			sockPath, sid)
+		if err := daemon.Serve(dctx, a, sockPath); err != nil {
+			fmt.Fprintln(os.Stderr, "magi:", err)
+			return 1
+		}
+		// Its own background commands and language servers are this process's to reap, unlike an
+		// attached viewer's.
+		builtin.KillBackgroundProcesses()
+		builtin.CloseLSPPool()
+		return 0
+	}
+
 	if !headless {
 		// Startup update check — interactive TTY only (bench/headless/pipe never
 		// reach here or fail the isTTY gate), so a benchmark run makes no network

@@ -259,3 +259,25 @@ func TestEachWorkspaceGetsItsOwnSocket(t *testing.T) {
 		}
 	}
 }
+
+// One directory has one socket, however you got to it.
+//
+// Go's os.Getwd prefers $PWD when it points at the same place, so a shell that did `cd /tmp/x`
+// reports the logical path while a process that chdir'd itself reports /private/tmp/x. Same
+// directory, two hashes, and the attach says "no daemon here" while one is running. Found by
+// running it.
+func TestOneDirectoryHasOneSocketHoweverYouReachedIt(t *testing.T) {
+	real, err := os.MkdirTemp("/tmp", "magiws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(real)
+	// /tmp is a symlink to /private/tmp on macOS; on Linux the two are the same path and this
+	// degenerates to comparing a path with itself, which still has to hold.
+	logical := "/tmp/" + filepath.Base(real)
+
+	cfg := shortDir(t)
+	if a, b := SocketPath(cfg, logical), SocketPath(cfg, real); a != b {
+		t.Errorf("the same directory reached two ways gives two sockets:\n  %s\n  %s", a, b)
+	}
+}

@@ -97,6 +97,13 @@ func SocketPath(configDir, workdir string) string {
 	if err != nil {
 		abs = workdir
 	}
+	// Resolve symlinks, or one directory gets two names and the daemon and the attach look at
+	// different sockets. Go's os.Getwd prefers $PWD when it points at the same place, so a shell
+	// that did `cd /tmp/x` reports the logical path while a process that chdir'd itself reports
+	// /private/tmp/x — same directory, different hash, "no daemon here". Observed exactly that way.
+	if real, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = real
+	}
 	return filepath.Join(configDir, "daemon-"+sanitize(filepath.Base(abs))+"-"+shortHash(abs)+".sock")
 }
 
@@ -337,4 +344,36 @@ func shortHash(s string) string {
 		h /= 36
 	}
 	return string(out[:])
+}
+
+// The daemon publishes which session it is driving, next to its socket.
+//
+// An attaching UI has to open the SAME session, and guessing — "the newest in this workspace" —
+// is wrong exactly when it matters: a daemon that has been up for days sits behind whatever
+// session someone opened since. So the daemon says, in a file that lives and dies with the socket.
+
+// SessionFile is where a daemon records the session it is driving.
+func SessionFile(socketPath string) string { return socketPath + ".session" }
+
+// PublishSession records the driven session and returns a function that removes the record.
+func PublishSession(socketPath, sid string) (func(), error) {
+	f := SessionFile(socketPath)
+	if err := os.WriteFile(f, []byte(sid), 0o600); err != nil {
+		return func() {}, fmt.Errorf("daemon: publishing the session: %w", err)
+	}
+	return func() { os.Remove(f) }, nil
+}
+
+// PublishedSession reads the session a daemon is driving, or says none was published.
+func PublishedSession(socketPath string) (string, error) {
+	b, err := os.ReadFile(SessionFile(socketPath))
+	if err != nil {
+		return "", fmt.Errorf("daemon: no session published at %s — is the daemon running? %w",
+			SessionFile(socketPath), err)
+	}
+	sid := strings.TrimSpace(string(b))
+	if sid == "" {
+		return "", fmt.Errorf("daemon: the session file at %s is empty", SessionFile(socketPath))
+	}
+	return sid, nil
 }
