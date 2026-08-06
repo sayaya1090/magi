@@ -497,7 +497,12 @@ type SpawnSpec struct {
 	//
 	// Returning "" accepts the ending. The host bounds the rounds and the child's TOTAL steps
 	// whatever this says, so a review that never accepts cannot run forever.
-	Review func(round int, text string, steps int) (string, error)
+	//
+	// sessionID is the child being judged. It is passed because the review runs BEFORE Spawn
+	// returns, so a caller holding the result has nothing yet — and without it the only thing a
+	// review can read is the child's own closing sentence, which is exactly the account that a
+	// footprint exists to check.
+	Review func(round int, text string, steps int, sessionID string) (string, error)
 	// Workspace: "" shares the parent's directory (the default), "clone" gives the child its own
 	// checkout of it.
 	//

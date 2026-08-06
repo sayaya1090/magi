@@ -105,7 +105,7 @@ func TestTheReviewCallbackReachesLuaAndItsAnswerComesBack(t *testing.T) {
 		// Stand in for the run loop: ask, and keep asking while it refuses.
 		for {
 			round++
-			more, err := sp.Review(round, "I think I am done", round*4)
+			more, err := sp.Review(round, "I think I am done", round*4, "child-1")
 			if err != nil {
 				return port.SpawnResult{}, err
 			}

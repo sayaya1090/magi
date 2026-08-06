@@ -234,9 +234,17 @@ func TestAReviewSendsTheChildBackWithoutLosingWhatItRead(t *testing.T) {
 	spawn, steps, _, _ := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "looper")
 
 	var rounds []string
+	var reviewedSID string
 	res, err := spawn(context.Background(), port.SpawnSpec{
 		Prompt: "build it",
-		Review: func(round int, text string, spent int) (string, error) {
+		Review: func(round int, text string, spent int, sid string) (string, error) {
+			// The review is called BEFORE spawn returns, so a caller holding the result has
+			// nothing yet — without this argument the only thing it can read is the child's own
+			// closing sentence, which is the account a footprint exists to check.
+			if sid == "" {
+				t.Error("the review was not told which child it is judging")
+			}
+			reviewedSID = sid
 			rounds = append(rounds, text)
 			if round == 1 {
 				return "not done: the build still fails", nil
@@ -249,6 +257,10 @@ func TestAReviewSendsTheChildBackWithoutLosingWhatItRead(t *testing.T) {
 	}
 	if len(rounds) != 2 {
 		t.Fatalf("the review was asked %d times, want 2 (one refusal, one acceptance)", len(rounds))
+	}
+
+	if reviewedSID != res.SessionID {
+		t.Errorf("the review judged %q but the spawn returned %q", reviewedSID, res.SessionID)
 	}
 
 	// ONE session across both rounds — that is what keeps the child's context.
@@ -277,7 +289,7 @@ func TestAReviewThatNeverAcceptsStillEnds(t *testing.T) {
 		defer close(done)
 		_, _ = spawn(context.Background(), port.SpawnSpec{
 			Prompt: "build it",
-			Review: func(int, string, int) (string, error) { asked++; return "still not done", nil },
+			Review: func(int, string, int, string) (string, error) { asked++; return "still not done", nil },
 		})
 	}()
 	select {
@@ -301,7 +313,7 @@ func TestAFailingReviewIsReportedNotTakenAsYes(t *testing.T) {
 
 	res, err := spawn(context.Background(), port.SpawnSpec{
 		Prompt: "build it",
-		Review: func(int, string, int) (string, error) { return "", errTestReview },
+		Review: func(int, string, int, string) (string, error) { return "", errTestReview },
 	})
 	if err != nil {
 		t.Fatalf("spawn itself failed: %v", err)

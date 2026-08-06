@@ -173,7 +173,7 @@ func (a *App) spawnChild(ctx context.Context, parent session.Session, actor even
 		if rounds >= spawnMaxRounds {
 			break
 		}
-		more, err := spec.Review(rounds, text, spent)
+		more, err := spec.Review(rounds, text, spent, string(child))
 		if err != nil {
 			// The caller's own judgement failed. Report it rather than treating a broken review as
 			// acceptance — "it did not answer" and "it said yes" are different facts.

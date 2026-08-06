@@ -182,15 +182,15 @@ func (p *plugin) bridgeSpawn(L *lua.LState) int {
 	if secs := num("timeout"); secs > 0 {
 		sp.Timeout = time.Duration(secs) * time.Second
 	}
-	// review(round, text, steps) -> nil | "why it is not done yet"
+	// review(round, text, steps, session_id) -> nil | "why it is not done yet"
 	//
 	// The child asks the plugin the way the main agent asks the council. It runs on THIS goroutine,
 	// inside the tool call that is already holding the plugin's lock, so it must not take that lock
 	// again — it is called straight, not through another bridge entry.
 	if fn, ok := spec.RawGetString("review").(*lua.LFunction); ok {
-		sp.Review = func(round int, text string, steps int) (string, error) {
+		sp.Review = func(round int, text string, steps int, sessionID string) (string, error) {
 			if err := L.CallByParam(lua.P{Fn: fn, NRet: 1, Protect: true},
-				lua.LNumber(round), lua.LString(text), lua.LNumber(steps)); err != nil {
+				lua.LNumber(round), lua.LString(text), lua.LNumber(steps), lua.LString(sessionID)); err != nil {
 				return "", err
 			}
 			ret := L.Get(-1)
