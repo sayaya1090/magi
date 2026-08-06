@@ -278,6 +278,19 @@ const indexHTML = `<!doctype html>
   }
   .row.failed .who, .row.failed .txt { color:var(--error); border-left-color:var(--error); }
 
+  /* ── the prompt an agent is blocked on, on that agent's own page ─────────── */
+  /* Without this, opening an agent is the one place you CANNOT see that it is waiting for you: the
+     prompt is not in the log — it is a question about what should happen, not a record of what did
+     — so the transcript shows a run that has simply stopped. It sat above the composer because
+     that is where the answer goes. */
+  #prompt {
+    position:fixed; left:0; right:0; bottom:0; z-index:3;
+    background:var(--bg); border-top:2px solid var(--warn);
+    padding:.9rem 1.4rem; padding-bottom:calc(.9rem + env(safe-area-inset-bottom));
+  }
+  #prompt .inner { max-width:var(--wide); margin:0 auto; }
+  #prompt .asking { font:600 14px/1.5 var(--mono); color:var(--warn); overflow-wrap:anywhere; }
+
   /* ── composer ───────────────────────────────────────────────────────────── */
   form {
     position:fixed; left:0; right:0; bottom:0; z-index:2;
@@ -329,6 +342,8 @@ const indexHTML = `<!doctype html>
   <div id="fleet"></div>
   <div id="log"></div>
 </main>
+
+<div id="prompt" hidden></div>
 
 <form id="f" hidden><div class="composer">
   <textarea id="t" rows="1" placeholder="Ask magi to do something…"></textarea>
@@ -406,12 +421,40 @@ function answerBox(a) {
   return box;
 }
 
+// The tab's own title carries the count. A dashboard is a page you leave open in a background tab
+// or behind an app switcher, and an agent that starts waiting there is invisible until you look —
+// the title is the one channel that reaches a page nobody is watching, without asking for
+// notification permission or shipping a service worker to deliver them.
+function retitle(waiting) {
+  document.title = waiting ? '(' + waiting + ') magi' : 'magi';
+}
+
+// drawPrompt puts what an agent is blocked on above its own composer.
+//
+// An agent's page was the one place this could not be seen: the prompt is not in the log — it is a
+// question about what should happen, not a record of what did — so the transcript showed a run
+// that had simply stopped, and the only way to find out was to go back to the fleet. Which is the
+// opposite of where you would be, having opened this agent to watch it.
+function drawPrompt(a) {
+  const box = document.getElementById('prompt');
+  if (!a || a.state !== 'waiting') { box.hidden = true; box.replaceChildren(); return; }
+  const inner = document.createElement('div'); inner.className = 'inner';
+  const k = document.createElement('div'); k.className = 'asking'; k.textContent = '⏸ ' + a.asking;
+  inner.append(k, answerBox(a));
+  box.replaceChildren(inner);
+  box.hidden = false;
+}
+
 async function loadFleet() {
   let list;
   try { list = await (await fetch('/fleet')).json(); }
   catch { state.className = 'lost'; state.textContent = 'cannot reach magi-web'; return; }
   state.className = '';
   const waiting = list.filter(a => a.state === 'waiting').length;
+  retitle(waiting);
+  // On an agent's page the fleet is polled for this one entry, and nothing else on screen changes.
+  const here = sock();
+  if (here) { drawPrompt(list.find(a => a.socket === here)); return; }
   state.textContent = list.length + (list.length === 1 ? ' agent' : ' agents') +
                       (waiting ? ' · ' + waiting + ' waiting on you' : '');
   state.className = waiting ? 'lost' : '';
@@ -463,8 +506,13 @@ function render() {
   const s = sock();
   fleetEl.hidden = !!s; log.hidden = !s; f.hidden = !s; back.hidden = !s;
   sidEl.textContent = s ? s.replace(/^.*\//, '') : '';
+  document.getElementById('prompt').hidden = true;
   if (s) { draw([]); connect(); }
-  else { state.className = ''; state.textContent = ''; loadFleet(); fleetTimer = setInterval(loadFleet, 3000); }
+  else { state.className = ''; state.textContent = ''; }
+  // Both views poll the fleet: the dashboard for its cards, an agent's page for the one thing about
+  // itself that is not in its log.
+  loadFleet();
+  fleetTimer = setInterval(loadFleet, 3000);
 }
 function go(s) { history.pushState({}, '', s ? '/?d=' + encodeURIComponent(s) : '/'); render(); }
 back.onclick = e => { e.preventDefault(); go(null); };

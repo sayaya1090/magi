@@ -243,3 +243,95 @@ console.log(JSON.stringify({posts, subscribed: RENDERED.filter(r => r.subscribed
 		t.Errorf("the page subscribed to %v", subs)
 	}
 }
+
+// An agent's own page has to show what it is blocked on.
+//
+// This was the one place you could not see it. The prompt is not in the log — it is a question
+// about what should happen, not a record of what did — so the transcript on an agent's page shows
+// a run that has simply stopped, and the only way to find out was to go back to the fleet. Which
+// is the opposite of where you would be: you opened this agent because you were watching it.
+func TestAnAgentsOwnPageShowsThePromptItIsBlockedOn(t *testing.T) {
+	got := runPage(t, `[
+      {"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"waiting","live":true,
+       "asking":"bash: rm -rf build","askId":"call_7","askKind":"permission","idle":5},
+      {"socket":"/s/b.sock","name":"other","workdir":"/w/b","state":"working","live":true,"idle":1}
+    ]`, "?d=%2Fs%2Fa.sock", `
+await loadFleet();
+const box = document.getElementById('prompt');
+console.log(JSON.stringify({
+  hidden: box.hidden, text: box.text,
+  buttons: box.find('button').map(b => b.textContent),
+  title: document.title,
+}));
+`)
+	if got["hidden"].(bool) {
+		t.Fatal("the agent's page hides the prompt it is waiting on — the transcript just stops")
+	}
+	if !strings.Contains(got["text"].(string), "rm -rf build") {
+		t.Errorf("the prompt does not say what is being decided: %q", got["text"])
+	}
+	var labels []string
+	for _, b := range got["buttons"].([]any) {
+		labels = append(labels, b.(string))
+	}
+	if strings.Join(labels, "/") != "allow/always/deny" {
+		t.Errorf("the answer buttons on the agent's page are %v", labels)
+	}
+	// One agent is waiting, so the tab says so — this page is often behind an app switcher.
+	if got["title"].(string) != "(1) magi" {
+		t.Errorf("the tab title is %q, and one agent is waiting", got["title"])
+	}
+}
+
+// An agent that is not waiting shows no prompt, and the title goes back to plain. A bar that stays
+// up after the thing is answered is worse than one that never appeared.
+func TestThePromptGoesAwayWhenItIsAnswered(t *testing.T) {
+	got := runPage(t, `[
+      {"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"working","live":true,
+       "task":"carrying on","steps":4,"idle":2}
+    ]`, "?d=%2Fs%2Fa.sock", `
+await loadFleet();
+console.log(JSON.stringify({hidden: document.getElementById('prompt').hidden, title: document.title}));
+`)
+	if !got["hidden"].(bool) {
+		t.Error("a working agent's page shows a prompt bar")
+	}
+	if got["title"].(string) != "magi" {
+		t.Errorf("the tab title is %q with nothing waiting", got["title"])
+	}
+}
+
+// The dashboard's title counts every agent that needs somebody, not just the one on screen.
+func TestTheTabTitleCountsEveryWaitingAgent(t *testing.T) {
+	got := runPage(t, `[
+      {"socket":"/s/a.sock","name":"a","workdir":"/w/a","state":"waiting","live":true,
+       "asking":"permission: bash","askId":"c1","askKind":"permission","idle":3},
+      {"socket":"/s/b.sock","name":"b","workdir":"/w/b","state":"waiting","live":true,
+       "asking":"permission: write","askId":"c2","askKind":"permission","idle":4},
+      {"socket":"/s/c.sock","name":"c","workdir":"/w/c","state":"idle","live":true,"idle":9}
+    ]`, "", `
+await loadFleet();
+console.log(JSON.stringify({title: document.title}));
+`)
+	if got["title"].(string) != "(2) magi" {
+		t.Errorf("the tab title is %q, and two agents are waiting", got["title"])
+	}
+}
+
+// An agent's page keeps polling the fleet, and that is not an accident of the dashboard's timer.
+//
+// The prompt an agent is blocked on reaches the browser through /fleet and nowhere else — it is
+// not in the log and there is no event for it. Stop polling when a viewer opens an agent and the
+// bar appears once, if the timing is lucky, and never again.
+func TestAnAgentsPageKeepsPolling(t *testing.T) {
+	got := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+console.log(JSON.stringify({intervals: RENDERED.filter(r => r.interval).map(r => r.interval)}));
+`)
+	iv := got["intervals"].([]any)
+	if len(iv) == 0 {
+		t.Fatal("an agent's page arms no poll, so a prompt it blocks on would never appear")
+	}
+	if ms := iv[0].(float64); ms > 5000 {
+		t.Errorf("the poll is every %gms; a person waiting to be asked notices that", ms)
+	}
+}

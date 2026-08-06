@@ -49,9 +49,10 @@ function element(tag) {
 }
 
 const byId = {};
-for (const id of ['fleet', 'log', 'state', 'sid', 'back', 'f', 't', 'stop']) byId[id] = element('div');
+for (const id of ['fleet', 'log', 'state', 'sid', 'back', 'f', 't', 'stop', 'prompt']) byId[id] = element('div');
 
 globalThis.document = {
+  title: "",
   body: { offsetHeight: 400, scrollHeight: 400 },
   createElement: element,
   getElementById(id) {
@@ -64,7 +65,11 @@ globalThis.location = { search: process.env.QUERY ?? '' };
 globalThis.history = { pushState() {} };
 globalThis.addEventListener = () => {};
 globalThis.matchMedia = () => ({ matches: process.env.TOUCH === '1' });
-globalThis.setInterval = () => 0;
+// Timers are recorded rather than run: a test needs to know that the page ARMED a poll — the one
+// on an agent's page is how the prompt it is blocked on ever reaches the browser — without the
+// suite then waiting three seconds for it.
+let timerID = 0;
+globalThis.setInterval = (fn, ms) => { RENDERED.push({ interval: ms }); return ++timerID; };
 globalThis.clearInterval = () => {};
 globalThis.setTimeout = () => 0;
 globalThis.EventSource = class {
