@@ -25,6 +25,7 @@ import (
 	councilllm "github.com/sayaya1090/magi/internal/adapter/council/llm"
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	explayered "github.com/sayaya1090/magi/internal/adapter/experience/layered"
+	"github.com/sayaya1090/magi/internal/adapter/fleet"
 	"github.com/sayaya1090/magi/internal/adapter/llm/openai"
 	"github.com/sayaya1090/magi/internal/adapter/mcp"
 	"github.com/sayaya1090/magi/internal/adapter/platform"
@@ -236,6 +237,7 @@ func run() int {
 		doctor          = flag.Bool("doctor", false, "check the environment (LLM endpoint, optional tools, sandbox, config) and exit")
 		daemonMode      = flag.Bool("daemon", false, "run the engine with no UI and listen for attachments; it keeps working while nothing is watching")
 		attachMode      = flag.Bool("attach", false, "attach a terminal UI to the daemon already running in this workspace")
+		listAgents      = flag.Bool("agents", false, "list every magi daemon running on this machine, and what each is doing, then exit")
 		showVersion     = flag.Bool("version", false, "print version and exit")
 		doUpdate        = flag.Bool("update", false, "update magi core and managed plugins to the latest release, then exit")
 		doUpdateCore    = flag.Bool("update-core", false, "update only the magi binary, then exit")
@@ -416,6 +418,20 @@ func run() int {
 			GOOS:       defaultDoctorGOOS(),
 		}, extra...)
 		return printDoctor(os.Stdout, checks)
+	}
+
+	// --agents answers the question a directory of sockets cannot: which tree each daemon drives,
+	// whether anyone is home, and what it is doing. A reading-only App over the same store — no LLM
+	// and no tools, because listing must never be able to start a turn.
+	if *listAgents {
+		reader := app.New(store, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{})
+		list, lerr := fleet.List(context.Background(), reader, plat.ConfigDir(), daemon.SocketPath(plat.ConfigDir(), wd))
+		if lerr != nil {
+			fmt.Fprintln(os.Stderr, "magi:", lerr)
+			return 1
+		}
+		printAgents(os.Stdout, list, plat.ConfigDir())
+		return 0
 	}
 
 	if *listModels {
