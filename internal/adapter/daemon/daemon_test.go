@@ -10,14 +10,25 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
 type fakeEngine struct {
-	mu   sync.Mutex
-	got  []string
-	fail error
+	mu      sync.Mutex
+	got     []string
+	fail    error
+	waiting *app.Ask // what this engine claims to be blocked on, if anything
+}
+
+func (f *fakeEngine) Waiting(session.SessionID) (app.Ask, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.waiting == nil {
+		return app.Ask{}, false
+	}
+	return *f.waiting, true
 }
 
 func (f *fakeEngine) note(s string) error {
@@ -279,5 +290,56 @@ func TestOneDirectoryHasOneSocketHoweverYouReachedIt(t *testing.T) {
 	cfg := shortDir(t)
 	if a, b := SocketPath(cfg, logical), SocketPath(cfg, real); a != b {
 		t.Errorf("the same directory reached two ways gives two sockets:\n  %s\n  %s", a, b)
+	}
+}
+
+// The one read that crosses, and why it has to.
+//
+// Everything else a screen wants is in the log, which both processes share. A prompt the engine is
+// blocked on is not: it is a question about what should happen next, so it is never written down,
+// and the transient event announcing it is delivered to the bus of the process that is stuck. From
+// outside, that agent looks exactly like one running a slow build — and it is the one case where
+// looking away costs you the run.
+func TestStatusCarriesWhatTheDaemonIsBlockedOn(t *testing.T) {
+	eng := &fakeEngine{}
+	c := start(t, eng)
+
+	// Nothing pending: the answer is "nothing", not an error and not a guess.
+	w, err := c.Status("s_1")
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if w != nil {
+		t.Fatalf("an unblocked daemon reported %+v", w)
+	}
+
+	since := time.Now().Add(-90 * time.Second).UTC().Truncate(time.Second)
+	eng.mu.Lock()
+	eng.waiting = &app.Ask{Kind: "permission", What: "bash", Since: since}
+	eng.mu.Unlock()
+
+	w, err = c.Status("s_1")
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if w == nil {
+		t.Fatal("a blocked daemon reported nothing")
+	}
+	if w.Kind != "permission" || w.What != "bash" {
+		t.Errorf("status carried %+v, want permission on bash", w)
+	}
+	// The time it has been waiting is the difference between "it just asked" and "it has been
+	// stuck since you went to lunch", so it has to survive the wire.
+	got, perr := time.Parse(time.RFC3339, w.Since)
+	if perr != nil {
+		t.Fatalf("since %q does not parse: %v", w.Since, perr)
+	}
+	if !got.Equal(since) {
+		t.Errorf("since came back as %s, want %s", got, since)
+	}
+
+	// A status request must not be mistaken for a command: nothing reaches the engine's writes.
+	if seen := eng.seen(); len(seen) != 0 {
+		t.Errorf("asking for status ran %v on the engine", seen)
 	}
 }

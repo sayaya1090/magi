@@ -53,6 +53,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -66,6 +67,13 @@ type Engine interface {
 	Interrupt(ctx context.Context, c command.Interrupt) error
 	RespondPermission(ctx context.Context, c command.RespondPermission) error
 	RespondQuestion(ctx context.Context, c command.RespondQuestion) error
+	// Waiting is the one READ that crosses, and it earns the crossing the same way the writes do:
+	// a prompt the engine is blocked on exists only in that process's memory. It is not in the log
+	// (it is a question about what should happen, not a record of what did) and the event that
+	// announced it went to that process's bus. From outside, an agent waiting for a human is
+	// indistinguishable from one running a slow build — the single most important difference for
+	// somebody watching a fleet.
+	Waiting(sid session.SessionID) (app.Ask, bool)
 }
 
 // Request is one line on the wire. One object per line, so a reader needs no framing beyond what
@@ -87,6 +95,21 @@ type Request struct {
 type Response struct {
 	OK  bool   `json:"ok"`
 	Err string `json:"error,omitempty"`
+	// Waiting answers the status method: absent when the engine is not blocked on anybody.
+	Waiting *Waiting `json:"waiting,omitempty"`
+}
+
+// Waiting is a prompt the daemon is blocked on, as it travels.
+type Waiting struct {
+	ID   string `json:"id"`   // the call id an answer must carry
+	Kind string `json:"kind"` // "permission" | "question"
+	What string `json:"what"`
+	// The rest of the request, so a viewer draws the prompt rather than a description of it: the
+	// command being decided on, why the policy stopped, and the picks a question offers.
+	Args    json.RawMessage `json:"args,omitempty"`
+	Reason  string          `json:"reason,omitempty"`
+	Options []string        `json:"options,omitempty"`
+	Since   string          `json:"since"` // RFC3339
 }
 
 // SocketPath is where a workspace's daemon listens.
@@ -201,8 +224,26 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn) {
 			}
 			continue
 		}
+		// status is answered here rather than in dispatch: it is the only method with a payload,
+		// and giving dispatch a return value for the sake of one caller would make every write
+		// site pretend to produce something.
+		var resp Response
+		if req.Method == "status" {
+			resp = Response{OK: true}
+			if ask, ok := eng.Waiting(session.SessionID(req.Session)); ok {
+				resp.Waiting = &Waiting{
+					ID: ask.ID, Kind: ask.Kind, What: ask.What, Args: ask.Args,
+					Reason: ask.Reason, Options: ask.Options,
+					Since: ask.Since.UTC().Format(time.RFC3339),
+				}
+			}
+			if enc.Encode(resp) != nil {
+				return
+			}
+			continue
+		}
 		err := dispatch(ctx, eng, req)
-		resp := Response{OK: err == nil}
+		resp = Response{OK: err == nil}
 		if err != nil {
 			resp.Err = err.Error()
 		}
@@ -232,7 +273,7 @@ func dispatch(ctx context.Context, eng Engine, r Request) error {
 	}
 	// Name what IS accepted. A client told only "unknown" cannot tell a typo from a version skew,
 	// and the two want different reactions.
-	return fmt.Errorf("unknown method %q — this daemon accepts: submit, steer, interrupt, permission, answer", r.Method)
+	return fmt.Errorf("unknown method %q — this daemon accepts: submit, steer, interrupt, permission, answer, status", r.Method)
 }
 
 // Client talks to a daemon. One connection, one request at a time: these are user actions, and the
@@ -268,26 +309,42 @@ func Dial(path string) (*Client, error) {
 
 func (c *Client) Close() error { return c.conn.Close() }
 
+// Status asks what the daemon is blocked on, if anything. nil means nothing.
+func (c *Client) Status(sid string) (*Waiting, error) {
+	resp, err := c.exchange(Request{Method: "status", Session: sid})
+	if err != nil {
+		return nil, err
+	}
+	return resp.Waiting, nil
+}
+
 func (c *Client) call(r Request) error {
+	_, err := c.exchange(r)
+	return err
+}
+
+// exchange sends one request and returns the whole reply — which call throws away and Status does
+// not.
+func (c *Client) exchange(r Request) (Response, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err := c.enc.Encode(r); err != nil {
-		return fmt.Errorf("daemon: send: %w", err)
+		return Response{}, fmt.Errorf("daemon: send: %w", err)
 	}
 	if !c.sc.Scan() {
 		if err := c.sc.Err(); err != nil {
-			return fmt.Errorf("daemon: %w", err)
+			return Response{}, fmt.Errorf("daemon: %w", err)
 		}
-		return io.ErrUnexpectedEOF
+		return Response{}, io.ErrUnexpectedEOF
 	}
 	var resp Response
 	if err := json.Unmarshal(c.sc.Bytes(), &resp); err != nil {
-		return fmt.Errorf("daemon: malformed reply: %w", err)
+		return Response{}, fmt.Errorf("daemon: malformed reply: %w", err)
 	}
 	if !resp.OK {
-		return errors.New(resp.Err)
+		return resp, errors.New(resp.Err)
 	}
-	return nil
+	return resp, nil
 }
 
 func (c *Client) Submit(_ context.Context, cmd command.SubmitPrompt) error {
@@ -367,6 +424,10 @@ type Info struct {
 	// Live is filled in by List, not by the daemon: a file cannot say whether the process that
 	// wrote it is still there. Only a dial can.
 	Live bool `json:"-"`
+	// Asking is what the daemon is blocked on, when it is. Also from List, and for the same
+	// reason: it is in the daemon's memory, so the dial that proves it alive asks while it is
+	// there. nil when nothing is pending or the daemon is not answering.
+	Asking *Waiting `json:"-"`
 }
 
 // SessionFile is where a daemon records what it is driving.
@@ -430,9 +491,19 @@ func List(configDir string) ([]Info, error) {
 			in = Info{Socket: s, Workdir: "(unknown — no record)"}
 		}
 		in.Socket = s
-		if c, derr := net.DialTimeout("unix", s, 300*time.Millisecond); derr == nil {
-			c.Close()
+		// The dial that proves it alive also asks what it is waiting for: two questions, one
+		// connection, and the second is free at the point the first is being answered.
+		if cl, derr := Dial(s); derr == nil {
 			in.Live = true
+			if in.Session != "" {
+				if ask, serr := cl.Status(in.Session); serr == nil {
+					in.Asking = ask
+				}
+				// A daemon too old to know the method answers with an error naming what it does
+				// accept. That is a version skew, not a fault: it is alive, and everything else
+				// about it is still true.
+			}
+			cl.Close()
 		}
 		out = append(out, in)
 	}

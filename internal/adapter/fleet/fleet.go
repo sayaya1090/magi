@@ -8,6 +8,7 @@ package fleet
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"time"
 
@@ -32,6 +33,10 @@ const (
 	Working State = "working"
 	// Idle: the socket answers and the last turn finished.
 	Idle State = "idle"
+	// Waiting: the daemon is blocked on a human — a permission prompt or a question. This is the
+	// one state that cannot be read from the log (see the note below), and the one that means
+	// nothing moves until somebody comes.
+	Waiting State = "waiting"
 	// Abandoned: nobody is listening and a turn was left open — a crash, a kill, a closed laptop.
 	// Every other view renders this identically to a finished session, which is why it is here.
 	Abandoned State = "abandoned"
@@ -39,11 +44,13 @@ const (
 	Stopped State = "stopped"
 )
 
-// There is a fifth state a person would want and it is deliberately absent: "waiting for you". A
-// permission prompt is a bus-only event — it never reaches the log, so it lives only in the memory
-// of the daemon blocked on it. Nothing outside that process can see it, and guessing it from "an
-// open turn that has not moved in a while" would flag every slow build. Showing it honestly needs a
-// READ on the daemon protocol, which today carries only the five writes.
+// Four of the five come from the log and the socket, which outlive the process that made them, so a
+// dead daemon is still described. Waiting cannot: a permission prompt is a question about what
+// should happen rather than a record of what did, so it is never written down, and the event that
+// announced it went to the bus of the process that is blocked. Guessing it from "an open turn that
+// has not moved in a while" would flag every slow build. So it is ASKED — the dial that proves a
+// daemon alive asks while the connection is open — and it is the only state that needs the daemon
+// to be there to be reported, which is right: a daemon that is gone is not waiting for you.
 
 // Agent is one running (or lately running) magi.
 type Agent struct {
@@ -54,10 +61,13 @@ type Agent struct {
 	PID     int    `json:"pid"`
 	Live    bool   `json:"live"`
 	State   State  `json:"state"`
-	Task    string `json:"task"`  // what the open turn asked for, or the last thing said
-	Steps   int    `json:"steps"` // tool calls the open turn has made — what a crash would cost
-	Idle    int    `json:"idle"`  // seconds since the last event in the log; -1 if unknown
-	Here    bool   `json:"here"`  // the daemon in the directory the caller is standing in
+	Asking  string `json:"asking"`  // what it is blocked on, when State is waiting
+	AskID   string `json:"askId"`   // the call id an answer must carry
+	AskKind string `json:"askKind"` // "permission" | "question"
+	Task    string `json:"task"`    // what the open turn asked for, or the last thing said
+	Steps   int    `json:"steps"`   // tool calls the open turn has made — what a crash would cost
+	Idle    int    `json:"idle"`    // seconds since the last event in the log; -1 if unknown
+	Here    bool   `json:"here"`    // the daemon in the directory the caller is standing in
 }
 
 // List describes every daemon published under configDir, newest first. here is the socket the
@@ -93,6 +103,12 @@ func List(ctx context.Context, r Reader, configDir, here string) ([]Agent, error
 		}
 		open, isOpen := r.UnfinishedTurnOf(ctx, sid)
 		switch {
+		case in.Live && in.Asking != nil:
+			// Blocked on a person beats anything the log says: the log shows an open turn, which
+			// is true and is not the thing that needs doing about it.
+			a.State, a.Steps, a.Asking = Waiting, open.Steps, describeAsk(in.Asking)
+			a.AskID, a.AskKind = in.Asking.ID, in.Asking.Kind
+			a.Task = Clip(open.Text, 160)
 		case in.Live && isOpen:
 			a.State, a.Steps, a.Task = Working, open.Steps, Clip(open.Text, 160)
 		case in.Live:
@@ -140,4 +156,44 @@ func Clip(s string, n int) string {
 // utf8ValidCut reports whether s may be cut at byte i without splitting a rune.
 func utf8ValidCut(s string, i int) bool {
 	return i <= 0 || i >= len(s) || s[i]&0xC0 != 0x80
+}
+
+// commandOf digs the human-meaningful field out of a tool call's arguments. Best effort by design:
+// an unrecognised shape falls back to the tool name rather than dumping JSON onto a card.
+func commandOf(args []byte) string {
+	if len(args) == 0 {
+		return ""
+	}
+	var m map[string]any
+	if json.Unmarshal(args, &m) != nil {
+		return ""
+	}
+	for _, k := range []string{"command", "cmd", "url", "path", "file_path"} {
+		if v, ok := m[k].(string); ok && v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// describeAsk turns a pending prompt into the line a person reads on a card.
+func describeAsk(w *daemon.Waiting) string {
+	if w == nil {
+		return ""
+	}
+	switch w.Kind {
+	case "permission":
+		// The command, not just the tool. "permission: bash" asks somebody to approve a category;
+		// the decision is about what it is going to run.
+		if cmd := commandOf(w.Args); cmd != "" {
+			if w.Reason != "" {
+				return w.What + ": " + Clip(cmd, 100) + "  (" + w.Reason + ")"
+			}
+			return w.What + ": " + Clip(cmd, 120)
+		}
+		return "permission: " + w.What
+	case "question":
+		return Clip(w.What, 120)
+	}
+	return Clip(w.What, 120)
 }
