@@ -3,8 +3,10 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -220,3 +222,96 @@ func (f *footprintLLM) StreamChat(_ context.Context, _ port.ChatRequest) (<-chan
 	close(ch)
 	return ch, nil
 }
+
+// A child that stopped can be sent back, IN THE SAME SESSION.
+//
+// This is the relationship the main agent has with the council, one level down: the child ends by
+// declaring, and the caller either accepts or says what is still undone. What makes it worth having
+// as a loop here rather than a second spawn is the session — the child keeps everything it has
+// already read, and re-gathering that is most of what a fresh child's steps would go to.
+func TestAReviewSendsTheChildBackWithoutLosingWhatItRead(t *testing.T) {
+	a, parent, _ := spawnApp(t, &footprintLLM{})
+	spawn, steps, _ := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "looper")
+
+	var rounds []string
+	res, err := spawn(context.Background(), port.SpawnSpec{
+		Prompt: "build it",
+		Review: func(round int, text string, spent int) (string, error) {
+			rounds = append(rounds, text)
+			if round == 1 {
+				return "not done: the build still fails", nil
+			}
+			return "", nil // accept the second ending
+		},
+	})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	if len(rounds) != 2 {
+		t.Fatalf("the review was asked %d times, want 2 (one refusal, one acceptance)", len(rounds))
+	}
+
+	// ONE session across both rounds — that is what keeps the child's context.
+	all, err := steps(context.Background(), res.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) < 2 {
+		t.Errorf("the second round started a fresh child: only %d tool calls in the session", len(all))
+	}
+	// And the refusal reached it verbatim, as a new instruction in that same session.
+	if !promptContains(t, a, session.SessionID(res.SessionID), "the build still fails") {
+		t.Error("what the review sent back is not in the child's log")
+	}
+}
+
+// A review that never accepts does not run forever. The step budget is the child's TOTAL and is
+// spent down across rounds, and the round count is capped besides.
+func TestAReviewThatNeverAcceptsStillEnds(t *testing.T) {
+	a, parent, _ := spawnApp(t, &footprintLLM{})
+	spawn, _, _ := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "looper")
+
+	asked := 0
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = spawn(context.Background(), port.SpawnSpec{
+			Prompt: "build it",
+			Review: func(int, string, int) (string, error) { asked++; return "still not done", nil },
+		})
+	}()
+	select {
+	case <-done:
+	case <-time.After(60 * time.Second):
+		t.Fatal("a review that never accepts did not terminate")
+	}
+	if asked > spawnMaxRounds {
+		t.Errorf("the review was asked %d times on a cap of %d", asked, spawnMaxRounds)
+	}
+	if asked == 0 {
+		t.Error("the review was never asked at all")
+	}
+}
+
+// A review that ERRORS is reported, not read as acceptance. "It did not answer" and "it said yes"
+// are different facts, and a caller told the second when the first happened cannot tell.
+func TestAFailingReviewIsReportedNotTakenAsYes(t *testing.T) {
+	a, parent, _ := spawnApp(t, &footprintLLM{})
+	spawn, _, _ := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "looper")
+
+	res, err := spawn(context.Background(), port.SpawnSpec{
+		Prompt: "build it",
+		Review: func(int, string, int) (string, error) { return "", errTestReview },
+	})
+	if err != nil {
+		t.Fatalf("spawn itself failed: %v", err)
+	}
+	if res.Err == "" {
+		t.Fatal("a review that errored was reported as a clean finish")
+	}
+	if !strings.Contains(res.Err, "review") {
+		t.Errorf("the failure does not say the review was what broke: %q", res.Err)
+	}
+}
+
+var errTestReview = errors.New("the reviewer blew up")

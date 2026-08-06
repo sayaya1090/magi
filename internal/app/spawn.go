@@ -27,6 +27,10 @@ const (
 	spawnMaxTimeout     = 15 * time.Minute // hard ceiling on a child's wall clock
 	spawnDefaultTimeout = 5 * time.Minute
 	spawnAgentName      = "spawn" // what a child is called in its events and the parent's progress line
+	// spawnMaxRounds caps how many times a caller's review may send a child back. The step budget
+	// already bounds the work; this bounds the number of model round trips spent on the QUESTION,
+	// which the step budget does not see.
+	spawnMaxRounds = 5
 )
 
 // Bounds on the WHOLE tool call, not one child. Each child is clamped above, but nothing counted
@@ -134,7 +138,45 @@ func (a *App) spawnChild(ctx context.Context, parent session.Session, actor even
 	defer stop()
 
 	agent := AgentSpec{Name: spawnAgentName, System: spec.System, Tools: spec.Tools, Model: model, Provider: spec.Provider}
-	text, rerr := a.runLoop(cctx, a.sessionInfo(cctx, child), agent, 1, steps, true)
+
+	// Round-trip with the caller's review, if it set one. Each round runs the SAME session, so the
+	// child keeps what it has already read — that is the whole reason this is a loop here rather
+	// than the caller spawning a second child, which would start by re-gathering what the first one
+	// knew. The step budget is the child's TOTAL, spent down across rounds, so a review that never
+	// accepts runs out of steps rather than running forever.
+	var text string
+	var rerr error
+	left, rounds := steps, 0
+	for {
+		rounds++
+		text, rerr = a.runLoop(cctx, a.sessionInfo(cctx, child), agent, 1, left, true)
+		if rerr != nil || cctx.Err() != nil || spec.Review == nil {
+			break
+		}
+		spent := a.countTurns(ctx, child)
+		if left = steps - spent; left <= 0 {
+			break // the child has spent its whole budget; there is nothing to send it back with
+		}
+		if rounds >= spawnMaxRounds {
+			break
+		}
+		more, err := spec.Review(rounds, text, spent)
+		if err != nil {
+			// The caller's own judgement failed. Report it rather than treating a broken review as
+			// acceptance — "it did not answer" and "it said yes" are different facts.
+			rerr = fmt.Errorf("review round %d: %w", rounds, err)
+			break
+		}
+		if strings.TrimSpace(more) == "" {
+			break // accepted
+		}
+		// VERBATIM again, for the same reason the first prompt is: what the caller sends back is
+		// the instruction, and a paraphrase of it is how the identifiers go missing.
+		if err := a.appendPromptText(ctx, child, event.Actor{Kind: event.ActorUser, ID: spawnAgentName}, more); err != nil {
+			rerr = fmt.Errorf("review round %d: seed: %w", rounds, err)
+			break
+		}
+	}
 
 	// Steps is the child's model round trips. Nothing set it before, so a caller reading it saw
 	// zero however much work the child did — and the per-call budget that charges it was really
