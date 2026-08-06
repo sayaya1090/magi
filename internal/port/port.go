@@ -486,11 +486,30 @@ type SpawnSpec struct {
 	// Returning "" accepts the ending. The host bounds the rounds and the child's TOTAL steps
 	// whatever this says, so a review that never accepts cannot run forever.
 	Review func(round int, text string, steps int) (string, error)
+	// Workspace: "" shares the parent's directory (the default), "clone" gives the child its own
+	// checkout of it.
+	//
+	// Two children writing the same tree is not something to undo afterwards — a collision is two
+	// correct writes, not a mistake — so isolation is the only answer, and its own checkout is
+	// what a second machine would have had for free. The clone carries the parent's UNCOMMITTED
+	// work, because a child handed HEAD while the parent has unstaged edits reads a version of the
+	// code nobody is looking at, and it has no way to notice.
+	//
+	// Opt-in: a read-only child wants the parent's live tree and a clone would cost it a copy to
+	// see a staler version of what it already had. Asking for "clone" where it cannot be given
+	// FAILS rather than sharing quietly — a caller that asked for isolation and silently did not
+	// get it produces the very collision it was avoiding.
+	Workspace string
 }
 
 // SpawnResult is what the child left behind. Failure is reported, never swallowed: a caller told
 // nothing would read silence as success.
 type SpawnResult struct {
+	// Workspace is where the child actually worked. Empty when it shared the parent's directory;
+	// otherwise the path of its own checkout, which the CALLER is responsible for taking what it
+	// wants out of — magi does not merge it back, because whether a failed attempt's changes are
+	// wanted is not magi's judgement to make.
+	Workspace string
 	SessionID string // the child's session id, so its log can be read afterwards
 	Text      string // the child's final message
 	Steps     int
