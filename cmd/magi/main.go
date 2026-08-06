@@ -728,7 +728,7 @@ func run() int {
 	// A daemon: no UI, and it stays up. The work continues while nothing is watching, which is the
 	// whole point — a UI attaches later, or several do, or none ever does.
 	if *daemonMode {
-		unpublish, perr := daemon.PublishSession(sockPath, string(sid))
+		unpublish, perr := daemon.Publish(sockPath, wd, string(sid))
 		if perr != nil {
 			fmt.Fprintln(os.Stderr, "magi:", perr)
 			return 1

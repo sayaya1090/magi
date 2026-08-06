@@ -48,8 +48,10 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -346,34 +348,94 @@ func shortHash(s string) string {
 	return string(out[:])
 }
 
-// The daemon publishes which session it is driving, next to its socket.
+// The daemon publishes what it is, next to its socket.
 //
-// An attaching UI has to open the SAME session, and guessing — "the newest in this workspace" —
-// is wrong exactly when it matters: a daemon that has been up for days sits behind whatever
-// session someone opened since. So the daemon says, in a file that lives and dies with the socket.
+// An attaching UI has to open the SAME session, and guessing — "the newest in this workspace" — is
+// wrong exactly when it matters: a daemon up for days sits behind whatever session someone opened
+// since. And once there is more than one daemon, a person looking at a directory of sockets can
+// read a base name and a hash and nothing else: not which tree it is, not whether anyone is home.
+//
+// So the daemon says, in a file that lives and dies with the socket.
 
-// SessionFile is where a daemon records the session it is driving.
+// Info is what a daemon publishes about itself.
+type Info struct {
+	Socket  string `json:"socket"`
+	Workdir string `json:"workdir"` // the FULL path; the socket name carries only a base name and a hash
+	Session string `json:"session"`
+	PID     int    `json:"pid"`
+	Started string `json:"started"` // RFC3339
+	// Live is filled in by List, not by the daemon: a file cannot say whether the process that
+	// wrote it is still there. Only a dial can.
+	Live bool `json:"-"`
+}
+
+// SessionFile is where a daemon records what it is driving.
 func SessionFile(socketPath string) string { return socketPath + ".session" }
 
-// PublishSession records the driven session and returns a function that removes the record.
-func PublishSession(socketPath, sid string) (func(), error) {
+// Publish records the daemon and returns a function that removes the record.
+func Publish(socketPath, workdir, sid string) (func(), error) {
+	b, err := json.Marshal(Info{
+		Socket: socketPath, Workdir: workdir, Session: sid,
+		PID: os.Getpid(), Started: time.Now().UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		return func() {}, fmt.Errorf("daemon: publishing: %w", err)
+	}
 	f := SessionFile(socketPath)
-	if err := os.WriteFile(f, []byte(sid), 0o600); err != nil {
-		return func() {}, fmt.Errorf("daemon: publishing the session: %w", err)
+	if err := os.WriteFile(f, b, 0o600); err != nil {
+		return func() {}, fmt.Errorf("daemon: publishing: %w", err)
 	}
 	return func() { os.Remove(f) }, nil
 }
 
-// PublishedSession reads the session a daemon is driving, or says none was published.
-func PublishedSession(socketPath string) (string, error) {
+// Published reads what a daemon published.
+func Published(socketPath string) (Info, error) {
 	b, err := os.ReadFile(SessionFile(socketPath))
 	if err != nil {
-		return "", fmt.Errorf("daemon: no session published at %s — is the daemon running? %w",
+		return Info{}, fmt.Errorf("daemon: nothing published at %s — is a daemon running there? %w",
 			SessionFile(socketPath), err)
 	}
-	sid := strings.TrimSpace(string(b))
-	if sid == "" {
-		return "", fmt.Errorf("daemon: the session file at %s is empty", SessionFile(socketPath))
+	var in Info
+	if err := json.Unmarshal(b, &in); err != nil {
+		return Info{}, fmt.Errorf("daemon: the record at %s is unreadable: %w", SessionFile(socketPath), err)
 	}
-	return sid, nil
+	if strings.TrimSpace(in.Session) == "" {
+		return Info{}, fmt.Errorf("daemon: the record at %s names no session", SessionFile(socketPath))
+	}
+	return in, nil
+}
+
+// PublishedSession is Published narrowed to the session id, for callers that want only that.
+func PublishedSession(socketPath string) (string, error) {
+	in, err := Published(socketPath)
+	return in.Session, err
+}
+
+// List returns every daemon that has published under configDir, newest first.
+//
+// Each is DIALLED, because the file cannot say whether anybody is home: a daemon killed with
+// SIGKILL leaves both the socket and the record behind, and a list that showed those as running
+// would send a viewer to a dead endpoint. A dead one is still listed — knowing a workspace has a
+// corpse is more useful than the entry silently missing — but it is marked.
+func List(configDir string) ([]Info, error) {
+	socks, err := filepath.Glob(filepath.Join(configDir, "daemon-*.sock"))
+	if err != nil {
+		return nil, fmt.Errorf("daemon: listing: %w", err)
+	}
+	var out []Info
+	for _, s := range socks {
+		in, err := Published(s)
+		if err != nil {
+			// A socket with no readable record: still worth showing, because something is there.
+			in = Info{Socket: s, Workdir: "(unknown — no record)"}
+		}
+		in.Socket = s
+		if c, derr := net.DialTimeout("unix", s, 300*time.Millisecond); derr == nil {
+			c.Close()
+			in.Live = true
+		}
+		out = append(out, in)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Started > out[j].Started })
+	return out, nil
 }
