@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
@@ -34,6 +35,7 @@ func installBridge(p *plugin) {
 	L.SetField(t, "on", L.NewFunction(p.bridgeOn))
 	L.SetField(t, "analyze", L.NewFunction(p.bridgeAnalyze))
 	L.SetField(t, "spawn", L.NewFunction(p.bridgeSpawn))
+	L.SetField(t, "spawn_all", L.NewFunction(p.bridgeSpawnAll))
 	L.SetField(t, "child_steps", L.NewFunction(p.bridgeChildSteps))
 	L.SetField(t, "restore_child", L.NewFunction(p.bridgeRestoreChild))
 	L.SetField(t, "merge_child", L.NewFunction(p.bridgeMergeChild))
@@ -143,22 +145,10 @@ func (p *plugin) bridgeRegisterTool(L *lua.LState) int {
 // the env of the call in flight (luatool.go swaps it in for the duration). Called from an event
 // handler or a context provider there is no env, and saying so is better than spawning against a
 // stale one.
-// spawnCtx is the in-flight tool call's context. Spawn is reachable only from inside a tool call,
-// so callCtx is set whenever this is reached; the fallback is here so a future caller that forgets
-// to set it gets a working context rather than a nil-ctx panic deep in the run loop.
-func (p *plugin) spawnCtx() context.Context {
-	if p.callCtx != nil {
-		return p.callCtx
-	}
-	return context.Background()
-}
-
-func (p *plugin) bridgeSpawn(L *lua.LState) int {
-	p.requireCap(L, "spawn") // it runs a whole agent — must be declared in the manifest
-	if p.env.Spawn == nil {
-		return fail(L, "spawn: only available inside a tool call")
-	}
-	spec := L.CheckTable(1)
+// spawnSpecFrom reads the fields magi.spawn and magi.spawn_all share. One reader, because two
+// would drift and the drift would be silent — a field honoured on one path and dropped on the
+// other reads as the host ignoring what the plugin asked for.
+func (p *plugin) spawnSpecFrom(L *lua.LState, spec *lua.LTable) port.SpawnSpec {
 	str := func(key string) string {
 		if v := spec.RawGetString(key); v != lua.LNil {
 			return v.String()
@@ -217,6 +207,25 @@ func (p *plugin) bridgeSpawn(L *lua.LState) int {
 	}
 	// The CALL's ctx, not a fresh one: cancelling the parent turn has to reach the child. Passing
 	// context.Background() here is what made Ctrl-C look dead for as long as the child's own bound.
+	return sp
+}
+
+// spawnCtx is the in-flight tool call's context. Spawn is reachable only from inside a tool call,
+// so callCtx is set whenever this is reached; the fallback is here so a future caller that forgets
+// to set it gets a working context rather than a nil-ctx panic deep in the run loop.
+func (p *plugin) spawnCtx() context.Context {
+	if p.callCtx != nil {
+		return p.callCtx
+	}
+	return context.Background()
+}
+
+func (p *plugin) bridgeSpawn(L *lua.LState) int {
+	p.requireCap(L, "spawn") // it runs a whole agent — must be declared in the manifest
+	if p.env.Spawn == nil {
+		return fail(L, "spawn: only available inside a tool call")
+	}
+	sp := p.spawnSpecFrom(L, L.CheckTable(1))
 	res, err := p.env.Spawn(p.spawnCtx(), sp)
 	if err != nil {
 		return fail(L, "spawn: "+err.Error())
@@ -343,6 +352,101 @@ func (p *plugin) bridgeMergeChild(L *lua.LState) int {
 		return fail(L, "merge_child: "+err.Error())
 	}
 	L.Push(lua.LTrue)
+	return 1
+}
+
+// magi.spawn_all{ {…}, {…}, … } -> { {text=,session_id=,…}, … }
+//
+// Several children at once, in the order given back. Each entry takes the same fields magi.spawn
+// does, EXCEPT review — see below.
+//
+// # Why a second function instead of making spawn concurrent
+//
+// A tool call holds the plugin's lock for its whole duration, because the Lua state is not
+// concurrency-safe (luatool.go). Releasing it around a spawn would let a second tool call swap the
+// per-call env out from under the first, and the two restores would then unwind in the wrong
+// order — a hazard for the one thing the lock exists to prevent.
+//
+// So Lua is entered ONCE and left once, and the concurrency happens entirely in Go where nothing
+// is shared: each child is its own session, its own run guard, its own scratch. The per-call step
+// budget and the ownership set the sequential path already keeps are behind a mutex, so they hold
+// across children without change.
+//
+// # No review here, and that is deliberate
+//
+// review re-enters Lua. Several children finishing at once would call it from several goroutines
+// into one interpreter, which is exactly what the lock forbids. Serialising the callbacks would
+// work and would also mean a child sits idle waiting for its turn to be judged — so the honest
+// shape is: run them in parallel, read the footprints afterwards, and decide then.
+//
+// # Use it with workspace="clone"
+//
+// Two children writing one tree is not something to undo afterwards. This does not enforce that —
+// a plugin may have good reason to run several READERS over the shared tree — but a parallel
+// writer without its own checkout is the collision the isolation was built for.
+func (p *plugin) bridgeSpawnAll(L *lua.LState) int {
+	p.requireCap(L, "spawn")
+	if p.env.Spawn == nil {
+		return fail(L, "spawn_all: only available inside a tool call")
+	}
+	list := L.CheckTable(1)
+	var specs []port.SpawnSpec
+	var perr string
+	list.ForEach(func(_, v lua.LValue) {
+		tbl, ok := v.(*lua.LTable)
+		if !ok {
+			perr = "spawn_all: every entry must be a table of the same fields magi.spawn takes"
+			return
+		}
+		if tbl.RawGetString("review") != lua.LNil {
+			// Say why rather than ignoring it: a caller whose judge silently never ran would read
+			// every child's own account as though something had checked it.
+			perr = "spawn_all: `review` cannot run here — it re-enters Lua and several children " +
+				"finish at once. Read magi.child_steps afterwards and decide then."
+			return
+		}
+		specs = append(specs, p.spawnSpecFrom(L, tbl))
+	})
+	if perr != "" {
+		return fail(L, perr)
+	}
+	if len(specs) == 0 {
+		return fail(L, "spawn_all: no children given")
+	}
+
+	ctx := p.spawnCtx()
+	results := make([]port.SpawnResult, len(specs))
+	errs := make([]error, len(specs))
+	var wg sync.WaitGroup
+	for i := range specs {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			results[i], errs[i] = p.env.Spawn(ctx, specs[i])
+		}(i)
+	}
+	wg.Wait()
+
+	out := L.NewTable()
+	for i, r := range results {
+		row := L.NewTable()
+		L.SetField(row, "text", lua.LString(r.Text))
+		L.SetField(row, "session_id", lua.LString(r.SessionID))
+		L.SetField(row, "steps", lua.LNumber(r.Steps))
+		L.SetField(row, "workspace", lua.LString(r.Workspace))
+		L.SetField(row, "branch", lua.LString(r.Branch))
+		L.SetField(row, "base_commit", lua.LString(r.BaseCommit))
+		L.SetField(row, "head_commit", lua.LString(r.HeadCommit))
+		// One child failing does not fail the batch: the others did real work and the caller has
+		// to be able to keep it. Each row says for itself how it ended.
+		e := r.Err
+		if errs[i] != nil {
+			e = errs[i].Error()
+		}
+		L.SetField(row, "err", lua.LString(e))
+		out.Append(row)
+	}
+	L.Push(out)
 	return 1
 }
 
