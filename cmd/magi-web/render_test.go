@@ -749,8 +749,8 @@ func TestTheSkillsPageSaysWhatEachRuleReaches(t *testing.T) {
 globalThis.fetch = async (p, init) => {
   if (init && init.method === 'POST') { RENDERED.push({fetched: p, method: 'POST', body: init.body.toString()}); return {ok: true, status: 204, text: async () => ''}; }
   return {ok: true, json: async () => p.startsWith('/skills') ? [
-    {"name":"skill-commit-style","description":"commit messages carry the issue number","tier":"global","observed":3,"lastSeen":"2026-08-07"},
-    {"name":"skill-auth","description":"the auth service uses X","tier":"project","companion":"api","socket":"/s/a.sock","observed":1,"lastSeen":"2026-08-06","groups":["crew"]}
+    {"name":"skill-commit-style","description":"commit messages carry the issue number","tier":"global","observed":3,"firstSeen":"2026-07-14","lastSeen":"2026-08-07"},
+    {"name":"skill-auth","description":"the auth service uses X","tier":"project","companion":"api","socket":"/s/a.sock","observed":1,"firstSeen":"2026-08-06","lastSeen":"2026-08-06","groups":["crew"]}
   ] : []};
 };
 await loadSkills();
@@ -777,8 +777,15 @@ console.log(JSON.stringify({
 	}
 	// The two facts a decision is made on, and neither is visible anywhere else after the day it
 	// was written.
-	if !strings.Contains(first["text"].(string), "3×") || !strings.Contains(first["text"].(string), "2026-08-07") {
+	// Both ends when they differ: a rule learned three weeks ago and still turning up is settled,
+	// and one learned and last seen the same day never recurred. The second row is the second case
+	// and says so with one date, not a range from itself to itself.
+	if !strings.Contains(first["text"].(string), "3×") ||
+		!strings.Contains(first["text"].(string), "2026-07-14 → 2026-08-07") {
 		t.Errorf("the row carries no history: %q", first["text"])
+	}
+	if !strings.Contains(second, "last 2026-08-06") || strings.Contains(second, "→") {
+		t.Errorf("a rule seen once drew a range from itself to itself: %q", second)
 	}
 	if !strings.Contains(got["state"].(string), "1 crossing") {
 		t.Errorf("the header does not count what crosses: %q", got["state"])
@@ -803,11 +810,11 @@ func TestTheDetailSaysHowFullTheContextIsAndWhatWasFolded(t *testing.T) {
 	got := runPage(t, `[]`, "", `
 globalThis.fetch = async (p) => ({ok: true, json: async () => p.startsWith('/context') ? {
   model: 'qwen3', window: 100000, used: 82000, estimated: false, messages: 41,
-  compactions: 2, shed: 31000, lastBefore: 40000, lastAfter: 9000,
+  compactions: 2, shed: 31000, lastBefore: 40000, lastAfter: 9000, lastAt: '2026-08-07T04:31:07Z',
   topics: ['internal/parse.go', 'discussion'],
 } : []});
 await drawDetail({socket: '/s/a.sock', name: 'api', state: 'working', workdir: '/w/api',
-                  steps: 3, idle: 4, session: 's1'});
+                  steps: 3, idle: 4, session: 's1', host: 'mini', addr: '10.0.0.4', pid: 4127});
 const box = byId.detail;
 const bars = box.find('div').filter(d => (d.className || '').startsWith('bar'));
 console.log(JSON.stringify({text: box.text, fields: box.children.length,
@@ -815,7 +822,16 @@ console.log(JSON.stringify({text: box.text, fields: box.children.length,
 `)
 	text := got["text"].(string)
 	for _, want := range []string{"82,000 / 100,000 tokens", "measured", "41 messages", "2 folds",
-		"31,000 tokens shed", "40,000→9,000", "internal/parse.go"} {
+		"31,000 tokens shed", "40,000→9,000", "internal/parse.go",
+		// Which model, because the window above is that model's and /route can change it
+		// mid-session with nothing else on the page saying so.
+		"qwen3",
+		// Host, address and pid together: what you need to go and look at the process by hand,
+		// which is the reason a supervisor opens this panel at all when something is wedged.
+		"mini · 10.0.0.4 · pid 4127",
+		// And when the last fold happened: "twice" says nothing about whether it was this
+		// minute or yesterday.
+		"04:31Z"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the detail does not say %q:\n%s", want, text)
 		}
@@ -879,5 +895,37 @@ console.log(JSON.stringify({
 	}
 	if got["state"] != "cannot reach magi-web" || got["cls"] != "lost" {
 		t.Errorf("the page does not say it lost the console: %+v", got)
+	}
+}
+
+// How far into a turn somebody stepped in.
+//
+// The engine has derived this since interventions existed and nothing ever showed it, which threw
+// away the distinction it was derived for: a steer eight seconds in corrects the INSTRUCTION and a
+// rule can prevent the next one, while one twenty minutes in corrects the WORK and no rule would
+// have helped. They promote to different things, so the page has to say which happened.
+func TestACorrectionSaysHowFarIntoTheTurnItCame(t *testing.T) {
+	got := runPage(t, `[]`, "?v=interventions", `
+globalThis.fetch = async (p) => ({ok: true, json: async () => p.startsWith('/interventions') ? [
+  {kind:'steer', text:'not that file', companion:'api', socket:'/s/a.sock', at:'2026-08-07T01:00:00Z', afterSec: 8},
+  {kind:'steer', text:'not that file', companion:'web', socket:'/s/b.sock', at:'2026-08-07T02:00:00Z', afterSec: 1200},
+  {kind:'steer', text:'use the gateway', companion:'api', socket:'/s/a.sock', at:'2026-08-07T03:00:00Z', afterSec: 45},
+] : []});
+await loadInterventions();
+console.log(JSON.stringify({text: byId.ivs.text}));
+`)
+	text := got["text"].(string)
+	// A group whose members were interrupted at different moments carries both ends: the same words
+	// said early to one companion and late to another are not the same correction twice.
+	if !strings.Contains(text, "stepped in 8s–20m into the turn") {
+		t.Errorf("the spread is not shown:\n%s", text)
+	}
+	// And one moment says just the one.
+	if !strings.Contains(text, "stepped in 45s into the turn") {
+		t.Errorf("a single correction does not say when:\n%s", text)
+	}
+	// The suffix that belongs to "how long ago" must not follow "how long into".
+	if strings.Contains(text, "ago into the turn") {
+		t.Errorf("the duration was rendered as an age:\n%s", text)
 	}
 }

@@ -513,8 +513,12 @@ const peerOf = () => new URLSearchParams(location.search).get('p') || '';
 const q = () => sock() ? '?d=' + encodeURIComponent(sock()) + (peerOf() ? '&p=' + encodeURIComponent(peerOf()) : '') : '';
 
 // ── the fleet ────────────────────────────────────────────────────────────────
-const ago = s => s < 0 ? '' : s < 60 ? s + 's ago' : s < 3600 ? Math.round(s/60) + 'm ago'
-                : s < 86400 ? Math.round(s/3600) + 'h ago' : Math.round(s/86400) + 'd ago';
+// A span of seconds in the largest unit that still says something. Two readings of it: how long
+// ago something happened, and how long into a turn somebody waited before stepping in — the second
+// is not an "ago" and reads as nonsense with the suffix on it.
+const dur = s => s < 60 ? s + 's' : s < 3600 ? Math.round(s/60) + 'm'
+               : s < 86400 ? Math.round(s/3600) + 'h' : Math.round(s/86400) + 'd';
+const ago = s => s < 0 ? '' : dur(s) + ' ago';
 
 // The order the eye should travel: what needs somebody, what is moving, what is asleep, what is
 // gone. Kubernetes consoles sort trouble to the top for the same reason — a list you have to read
@@ -740,7 +744,8 @@ function drawDetail(a) {
   box.replaceChildren(
     field('status', a.state, 'state ' + a.state),
     field('workspace', a.workdir),
-    field('host', (a.host || 'this machine') + (a.addr ? ' · ' + a.addr : '')),
+    field('host', (a.host || 'this machine') + (a.addr ? ' · ' + a.addr : '') +
+                  (a.pid ? ' · pid ' + a.pid : '')),
     field('steps', a.steps ? a.steps + '' : '—'),
     field('last activity', ago(a.idle)),
     field('session', a.session),
@@ -760,6 +765,10 @@ async function drawContext(a, box, field) {
   try { c = await (await fetch('/context' + qFor(a))).json(); }
   catch { return; } // the page is still correct without it; a failed extra must not blank the rest
   if (!c || box.hidden) return;
+
+  // Which model, because the window below is that model's and a companion can be on one you did
+  // not put it on — /route changes it mid-session and nothing else on this page would say so.
+  if (c.model) box.append(field('model', c.model));
 
   const size = cell('v', '');
   size.append(document.createTextNode(
@@ -789,7 +798,8 @@ async function drawContext(a, box, field) {
     const v = cell('v', c.compactions + (c.compactions === 1 ? ' fold' : ' folds'));
     const s2 = document.createElement('small');
     s2.textContent = ' · ' + (c.shed || 0).toLocaleString() + ' tokens shed' +
-                     (c.lastBefore ? ' · last ' + c.lastBefore.toLocaleString() + '→' + c.lastAfter.toLocaleString() : '');
+                     (c.lastBefore ? ' · last ' + c.lastBefore.toLocaleString() + '→' + c.lastAfter.toLocaleString() : '') +
+                     (c.lastAt ? ' at ' + c.lastAt.slice(11, 16) + 'Z' : '');
     v.append(s2);
     const cf = cell('f');
     cf.append(cell('k', 'summarised away'), v);
@@ -822,8 +832,18 @@ async function loadInterventions() {
     // Grouped on the words themselves, normalised only for case and spacing. Anything cleverer
     // would merge two different corrections and put a rule in somebody's mouth.
     const key = m.kind + '\u0000' + m.text.toLowerCase().replace(/\s+/g, ' ').trim();
-    const g = groups.get(key) || {kind: m.kind, text: m.text, where: new Set(), targets: [], n: 0, at: m.at};
+    const g = groups.get(key) || {kind: m.kind, text: m.text, where: new Set(), targets: [], n: 0,
+                                  at: m.at, early: Infinity, late: 0};
     g.n++;
+    // How far into the turn the person stepped in. The engine has always derived it and nothing
+    // has ever shown it, which wasted the distinction it was derived for: a steer eight seconds in
+    // is a correction to the INSTRUCTION — say it better next time, or write it into the project's
+    // rules — and one twenty minutes in is a correction to the WORK, which no standing rule would
+    // have prevented. They promote to different things, so the page has to say which this was.
+    if (typeof m.afterSec === 'number') {
+      g.early = Math.min(g.early, m.afterSec);
+      g.late = Math.max(g.late, m.afterSec);
+    }
     const label = (m.peer ? m.peer + '/' : '') + m.companion;
     if (!g.where.has(label)) {
       g.where.add(label);
@@ -850,7 +870,11 @@ async function loadInterventions() {
     el.append(cell('times', g.n + '×'));
     const body = cell('body');
     body.append(cell('said', g.kind === 'denied' ? 'refused ' + g.text : g.text));
-    body.append(cell('where', [...g.where].join(' · ') + ' · last ' + g.at.replace('T', ' ').replace('Z', '')));
+    const when = g.early === Infinity ? '' :
+      ' · stepped in ' + (g.early === g.late ? dur(g.early) : dur(g.early) + '–' + dur(g.late)) +
+      ' into the turn';
+    body.append(cell('where', [...g.where].join(' · ') + when +
+                              ' · last ' + g.at.replace('T', ' ').replace('Z', '')));
     body.append(promoteBox(g));
     el.append(body);
     return el;
@@ -936,7 +960,13 @@ async function loadSkills() {
     // How settled it is and when it was last seen: the two facts a decision about a rule is made
     // on, and neither is visible anywhere else once the day it was written has passed.
     if (sk.kind !== 'memory' && sk.observed > 1) bits.push('seen ' + sk.observed + '×');
-    if (sk.lastSeen) bits.push('last ' + sk.lastSeen);
+    // Both ends when they differ: "learned three weeks ago and still turning up" is a settled
+    // rule, and "learned and last seen the same day" is a one-off that never recurred.
+    if (sk.lastSeen && sk.firstSeen && sk.firstSeen !== sk.lastSeen) {
+      bits.push(sk.firstSeen + ' → ' + sk.lastSeen);
+    } else if (sk.lastSeen) {
+      bits.push('last ' + sk.lastSeen);
+    }
     if (sk.groups && sk.groups.length) bits.push('only agents in ' + sk.groups.join(', '));
     if (sk.tags && sk.tags.length) bits.push('tagged ' + sk.tags.join(', '));
     el.append(cell('meta', bits.join(' · ')));
