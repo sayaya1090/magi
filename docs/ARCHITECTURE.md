@@ -557,6 +557,17 @@ magi -daemon          the App, no UI, listening on <config>/daemon-<dir>-<hash>.
   forwarded with only the method, path, target socket and form body copied. Peer URLs come from the
   operator, never from a page or another peer's response — the same rule the `?d=` allowlist follows
   one layer down.
+- **A team is addressing, not topology** (`internal/adapter/tool/companion`, MANUAL §13). Companions
+  publish a name, a role and optionally a team into the same records the fleet already reads, so
+  membership needs no registry: the directory is it. Two tools sit on that — one that lists the
+  others (with what each has learned, which is what makes a specialist) and one that hands work to
+  one of them. Neither ranks candidates; the model chooses and the tool refuses anything ambiguous.
+  Registered by `cmd/magi`, not in builtin: `app` imports builtin and `daemon` imports `app`, so a
+  built-in that reads daemon records would close a cycle.
+- **Depth is bounded by shape, not by a counter.** Work handed to a companion cannot be handed on
+  again unless the holder is a hub passing it inside its own team. A member is not a hub, a hub
+  cannot leave its team, and a companion has one team — so two hops is the most that can happen.
+  The rule is read off a label in the transcript, which survives restarts, attaches and resumes.
 - **No authentication of magi's own**, by decision: loopback, and reached through whatever the
   organisation already runs. See `proposals/companions-and-supervision-2026-08-07.md` for the
   supervision model this exists to serve.

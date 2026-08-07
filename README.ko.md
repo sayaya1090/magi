@@ -238,6 +238,20 @@ CGO_ENABLED=0 go build -o magi ./cmd/magi
 운영이 아니라 감독을 한다. [MANUAL §12](docs/MANUAL.ko.md)와 설계 기록
 [proposals/companions-and-supervision-2026-08-07.md](docs/proposals/companions-and-supervision-2026-08-07.md).
 
+### 컴패니언들의 팀
+
+```toml
+# .magi/config.toml — repo와 함께 다닌다
+[companion]
+name = "design"
+role = "디자인 시스템: 컴포넌트 스펙과 시각 리뷰"
+```
+
+이렇게 선언하면 **무엇을 하는 곳인지로** 주소가 잡힌다. 다른 컴패니언은 `companions` 툴로 이를
+보고 — 그 워크스페이스가 무엇을 배웠는지까지, 그게 전문가를 드러낸다 — `ask_companion`으로 일을
+넘긴다. 레지스트리도 게이트웨이도 없다: 한 머신의 컴패니언들이 이미 한 디렉터리에 발행하고 있고
+그게 곧 멤버십이다. [MANUAL §13](docs/MANUAL.ko.md).
+
 ### 헤드리스 (스크립트 & CI)
 
 ```sh

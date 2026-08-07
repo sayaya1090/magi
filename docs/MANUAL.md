@@ -583,7 +583,98 @@ it shows from the event logs already on disk and sends actions over the same soc
 them is not each companion's operator but its supervisor — the reasoning, and what that means for
 the interface, is in [`proposals/companions-and-supervision-2026-08-07.md`](proposals/companions-and-supervision-2026-08-07.md).
 
-## 13. Status & scope
+## 13. Teams (companion · team · hub)
+
+Several companions handing work to each other. **No registry, no gateway, no broker** — the
+companions on a machine already publish their records into one directory, and that directory is the
+membership.
+
+### 13.1 Saying who you are
+
+`.magi/config.toml` — the project file, so it travels with the repo:
+
+```toml
+[companion]
+name = "design"                                          # what others address it as
+role = "the design system: component specs and review"   # one line: what it is for
+team = "frontend"                                        # optional: companions doing related work
+hub  = false                                             # optional: the one that answers for the team
+```
+
+It rides in the daemon's record, so `magi --agents`, the console and the tools all read one source.
+A companion that declares nothing is exactly what companions were before: a workspace.
+
+### 13.2 Seeing each other — the `companions` tool
+
+Read-only, called by the agent. Each one's name, role, team, what it is doing, whether it is blocked
+on a person, and **what that workspace has learned** — up to three lessons from its own experience
+tier, most-observed first.
+
+> That last part is what makes a specialist. The one that keeps getting the design work accumulates
+> design lessons, whoever is choosing sees the record, and picks it again. **magi does not rank
+> them** — it shows the evidence and the caller chooses. A ranker that is wrong sends the work
+> silently; a list that is unhelpful is visibly unhelpful.
+
+Pass `matching` with a few words from the work and only the plausible candidates come back. This is
+a context budget, not a speed problem: a row is ~75 tokens, so fifty companions put ~3,800 tokens
+into the model on every dispatch and two hundred put ~15,000. A narrowed answer **always says how
+many it left out** — otherwise it reads as the whole team, and the reader concludes nobody else
+could have done the work. The caller is always in its own answer.
+
+### 13.3 Handing work over — the `ask_companion` tool
+
+An address (a name, words from a role, or a team) and a request. The request travels **byte for
+byte**; the line saying who sent it goes above it, so the receiving supervisor can see the turn was
+not started by them.
+
+Refusing is half of what it does:
+
+| Situation | Why it refuses |
+|---|---|
+| Nobody matched | it answers with the roster — the next thing anybody does is name one of them |
+| Several matched | both are named. Guessing means **a turn running in somebody else's workspace**, which nobody can undo by noticing later |
+| They are mid-turn | Submit is not a queue: a running turn **re-reads** the prompt, so it lands inside the work rather than after it |
+| Itself | a loop with one node in it |
+| Asked by somebody else, and not a hub | work is not passed along. Do what you can; say what you could not and who should |
+| A hub, outside its own team | this is where a chain of hubs would start |
+
+`ask_companion` is a danger tool, so `permission = "ask"` asks first. It is further outside the
+blast radius than anything else on that list: it does not touch this workspace at all, it starts a
+turn in somebody else's.
+
+### 13.4 Teams and hubs
+
+Addressing a team reaches its **hub**. A hub that was asked something may split it across **its own
+team** — a team lead doing that is the reason to have one. Nobody else may pass anything on.
+
+That bounds the depth at two hops without a counter: a member is not a hub, a hub cannot reach
+outside its team, and `team` is one field, so no chain of hubs can form. The rule reads off the
+label left in the transcript, so it survives a restart, an attach from elsewhere and a resumed
+session — three things a counter in one process gets wrong. An unreadable log refuses rather than
+assumes.
+
+A team nobody speaks for is not addressable as a group: it resolves to every member and the caller
+picks.
+
+### 13.5 Dispatching from the console
+
+The fleet view's composer gains an **address field** (`to: a name, or what they do`). A person
+addressing a role goes through the same resolver under the same rules and down the same path, so a
+dispatch and somebody typing into that companion's page reach the daemon by exactly one route.
+
+### 13.6 What this deliberately is not
+
+- **Cross-machine teams.** Companions elsewhere are visible because a console reads other consoles
+  (`-peer`), and that list belongs to the operator. A daemon holds no peer list — a node that
+  accepts "here are my friends" from the network becomes a relay for whoever answers first.
+- **Gossip or propagation.** On one machine the directory is already complete membership.
+- **Provisioning** — handing a new companion the team's credo, MCP servers and skills. Not yet.
+- **Collecting results.** The receiver answers in its own transcript and the caller reads it with
+  `companions` (an idle companion's last line is its answer). There is no blocking wait.
+
+---
+
+## 14. Status & scope
 
 The **loop-engineering track is shipped**, not planned — it is the signature of the tool and is described throughout this manual: the **council** the agent declares completion to (Melchior · Balthasar · Casper, §3 · §6), the **Loop map** (`/loop`), the live deliberation panel, **rewind/fork/session-diff** (`/rewind` · `/fork` · `/loopdiff`, §4), and **re-hydratable compaction** (§4). Likewise already implemented: the **OS sandbox** (`--profile`/`sandbox`, §3), **post-edit LSP diagnostics** (§5), **web search** (`websearch`), and **prompt caching** (`cache_control`, on by default with automatic fallback). The feature/milestone spec with test examples lives in [`SPEC.md`](SPEC.md); the internals in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 

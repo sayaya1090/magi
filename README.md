@@ -252,6 +252,20 @@ One magi bound to one workspace is a **companion**; a person watching several of
 supervising rather than operating. See [MANUAL §12](docs/MANUAL.md) and the design record in
 [proposals/companions-and-supervision-2026-08-07.md](docs/proposals/companions-and-supervision-2026-08-07.md).
 
+### A team of companions
+
+```toml
+# .magi/config.toml — travels with the repo
+[companion]
+name = "design"
+role = "the design system: component specs and visual review"
+```
+
+Declared this way, a companion can be addressed by what it is for. Others see it with the
+`companions` tool — including what that workspace has learned, which is how a specialist becomes
+visible — and hand it work with `ask_companion`. No registry and no gateway: the companions on a
+machine already publish into one directory, and that is the membership. [MANUAL §13](docs/MANUAL.md).
+
 ### Headless (scripts & CI)
 
 ```sh
