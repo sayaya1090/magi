@@ -36,7 +36,10 @@ const demoScript = `
 // A mock magi, in the page. Every answer below is shaped like the handler it stands in for; the
 // page's own code is untouched and does not know the difference.
 (() => {
-  const now = new Date().toISOString();
+  // RFC3339 without the fractional seconds, because that is what the handlers emit
+  // (time.RFC3339) — a fixture that carries milliseconds shows a timestamp shape the real console
+  // never produces, and the demo is supposed to be evidence about the real one.
+  const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
   const fleet = [
     {socket: '/demo/design.sock', name: 'design', role: 'the design system: component specs and visual review',
      team: 'frontend', hub: true, workdir: '/Users/you/work/design-system', session: 'd1',
