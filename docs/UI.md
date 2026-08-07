@@ -140,16 +140,39 @@ containers, no state layers. Counted now, mechanically, by the audit in `.claude
 
 | | |
 |---|---|
-| shape | 18 radii, **0 off the scale** (4·8·12·16·24·full, plus a stated 0) |
+| shape | 8 radii, **0 off the scale** (4·8·12·16·24·full, plus a stated 0) |
 | type | literals are 11·12·14·16px, the rest through tokens; **0 off the scale** |
-| colour | 10 `on-` roles, 12 surface-container roles, both themes |
-| interaction | one state-layer recipe — 8% hover, 12% focus and press — on everything that responds |
+| colour | 10 `on-` roles, 5 surface-container roles, both themes |
+| interaction | 11 component kinds bring their own; one state-layer recipe for the 7 surfaces that are not components |
 | motion | `cubic-bezier(0.2, 0, 0, 1)` / 100ms, from material-components-android's Motion.md |
-| targets | 48px minimum, Material's, with 7 `:focus-visible` rules |
+| targets | 48px minimum, Material's, with 4 `:focus-visible` rules of ours and the rest the components' |
 
-Deliberate deviations, each for a reason written at the rule: text buttons keep a 0 radius (a pill
-in a reading column reads as a control floating over prose), and disabled is drawn by the cursor
-and a missing hover rather than by fading — the contrast guard caught 3.49:1 on the first attempt.
+### 3.1b The components, and what is left to us
+
+Every control on the page is Material Web's: `md-filled-button`,
+`md-filled-tonal-button`, `md-text-button`, `md-outlined-text-field`, `md-outlined-select` /
+`md-select-option`, `md-filter-chip` in an `md-chip-set`, `md-outlined-card`, and `md-tabs` /
+`md-primary-tab`. They are vendored and served from the binary — see `cmd/magi-web/vendor/README.md`
+for the build, which runs once and is committed.
+
+The rule that came out of doing it: **a rule on a component's host cannot reach its label**, which
+lives in a shadow root. Fonts, colours and sizes are said in the component's own tokens
+(`--md-text-button-label-text-*`); only inherited properties — `letter-spacing`, `text-transform` —
+cross the boundary. A page that keeps its old CSS beside a component gets two descriptions of one
+control, and the one it can no longer see wins nothing: this page carried inert `font:` declarations
+on four controls and a `border-bottom` drawing a second underline around a button's own box.
+
+What is still ours: the layout, the roles and typescale set once at `:root` (a component reads
+`--md-sys-color-*` and `--md-sys-typescale-*-font`, and draws the library's purple and its fallback
+face for any role we leave unsaid), and the surfaces that are not controls — rows, panels, the
+transcript.
+
+Deliberate deviations, each for a reason written at the rule: the interactive rows in the fleet are
+links rather than cards (`md-outlined-card` has no role and no focus ring, so a card there would
+trade the keyboard for a box), and where a control of ours is disabled it is drawn by the cursor and
+a missing hover rather than by fading — the contrast guard caught 3.49:1 on the first attempt. The
+components fade their own disabled labels, which the guard cannot see into and does not need to:
+WCAG exempts inactive controls.
 
 ### 3.1a Roles and editorial layout
 
