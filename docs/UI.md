@@ -215,10 +215,53 @@ Contrast is **computed, not eyeballed**: the quiet parts still have to be readab
 clears WCAG AA against its background. Everything interactive has a `:focus-visible` outline, and
 touch targets are at least 44px.
 
-### 3.5 Dark and light
+### 3.5 Dark and light, and the reader's say in it
 
-Both palettes are defined under `prefers-color-scheme`. There is no toggle — the OS already knows,
-and asking again is asking twice.
+Both palettes are defined, and the reader can override the machine **in both directions** — which
+is the part a `prefers-color-scheme` query alone cannot do. It took stating the light palette
+twice: once under the query, for the machine's answer, and once on `:root[color-theme="light"]`,
+for the reader's. CSS has no way to give one ruleset both selectors across a media boundary, so
+`TestBothLightThemesSayTheSameThing` fails if the two copies drift.
+
+`system` is a choice too, and it is stored as that word rather than as the value it resolves to —
+somebody who picks it on a light morning is still following the machine that evening. It is the
+absence of the attribute, so the query underneath answers.
+
+The choice is applied by four lines in the head, **before the stylesheet**. After first paint it is
+a flash of the other theme, and on a dark-preferring machine set to light that is a white flash in
+a dark room.
+
+(This section used to say "there is no toggle — the OS already knows, and asking again is asking
+twice." The OS knows what the machine prefers, which is not always what the reader wants on it.)
+
+### 3.5a Two widths, one navigation
+
+The breakpoint is **768/769px**, the handbook's, so the two products break in the same place.
+
+| | wide (≥769px) | narrow (≤768px) |
+|---|---|---|
+| navigating | the rail, beside the page | the tabs, as before |
+| the hamburger | widens the rail into a drawer | slides the drawer in over the page |
+| scrim | none — the page behind stays usable | yes, and picking a destination closes the drawer |
+| tabs | hidden — two navigations for four sections is one too many | the navigation |
+
+It is **one element in two modes**, not two that have to agree. The rail's items are
+`md-list-item` with an `href`, which the component renders as a real anchor: a navigation made of
+addresses should survive a middle click.
+
+Which section is current is written once, in `render()`, beside the tabs' own index. Two places
+saying where you are is how they come to disagree.
+
+### 3.5b The drawer's other half
+
+Preferences and identity, which had nowhere else to live: **theme** (system/light/dark),
+**language** (browser/English/한국어), and **which machine this console is** — the host and the
+config directory, from `/console`.
+
+That last one is not an account. magi has no users to log in; the console is reachable by whoever
+can reach the port. What a supervisor with three of these open actually asks is which machine they
+are looking at, and before this the answer was to recognise the companions in the list — which
+fails exactly when two machines are running the same work.
 
 ### 3.6 On a phone
 
