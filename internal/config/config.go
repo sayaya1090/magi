@@ -14,6 +14,16 @@ import (
 )
 
 // Config is the on-disk configuration (config.toml).
+// CompanionConfig declares this workspace's place in a team.
+//
+// Name is how another companion addresses it and Role is one line saying what it is for. Both are
+// published in the daemon's record, so `magi --agents`, the console and the companions tool read
+// the same declaration rather than three guesses at a directory name.
+type CompanionConfig struct {
+	Name string `toml:"name"`
+	Role string `toml:"role"`
+}
+
 type Config struct {
 	Model         string               `toml:"model"`
 	BaseURL       string               `toml:"base_url"`
@@ -29,6 +39,12 @@ type Config struct {
 	// for good. A model set here overrides whatever the plugin asked to spawn with, so the choice
 	// of a stronger (or cheaper) model for one specialist lives where the user can see it.
 	Subagents map[string]SubagentConfig `toml:"subagents"`
+
+	// Companion is what this workspace's magi calls itself within a team, and what it is for.
+	// Belongs in the PROJECT file (.magi/config.toml) and is committable: whoever set the
+	// workspace up is who knows what it is for, and the answer travels with the repo rather than
+	// living in one laptop's global config where a second machine would have to be told again.
+	Companion CompanionConfig `toml:"companion"`
 
 	// Guardrail policy (two-axis posture). Profile is a posture preset
 	// (safe|standard|yolo); Sandbox is the OS-confinement axis

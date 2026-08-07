@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -122,6 +123,10 @@ type Agent struct {
 	Name    string `json:"name"` // the workspace's base directory — what a person calls it
 	Session string `json:"session"`
 	PID     int    `json:"pid"`
+	// Role is what this companion is FOR, in the words of whoever set the workspace up. Empty for
+	// a companion that never declared one, which is most of them and is fine — a role only means
+	// something once there is a team to have one within.
+	Role    string `json:"role,omitempty"`
 	Host    string `json:"host"` // the machine it runs on — the only thing telling two ssh tabs apart
 	Addr    string `json:"addr"`
 	Live    bool   `json:"live"`
@@ -153,13 +158,11 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 	out := make([]Agent, 0, len(found))
 	for _, in := range found {
 		a := Agent{
-			Socket: in.Socket, Workdir: in.Workdir, Name: filepath.Base(in.Workdir),
-			Session: in.Session, PID: in.PID, Host: in.Host, Addr: in.Addr,
+			Socket: in.Socket, Workdir: in.Workdir, Name: nameOf(in),
+			Session: in.Session, PID: in.PID, Role: in.Role,
+			Host: in.Host, Addr: in.Addr,
 			Live: in.Live, Here: here != "" && in.Socket == here,
 			Idle: -1,
-		}
-		if a.Name == "" || a.Name == "." || a.Name == string(filepath.Separator) {
-			a.Name = in.Workdir
 		}
 		sid := session.SessionID(in.Session)
 		metas, ok := seen[in.Workdir]
@@ -195,6 +198,22 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 		out = append(out, a)
 	}
 	return out, nil
+}
+
+// nameOf is what a person calls this companion: what it declared, or failing that its directory.
+//
+// A declared name wins because it is the one somebody else can address, and a directory name is
+// only ever a guess at it. The fallbacks are for a workspace at "/" or a relative path, where the
+// base name is a character nobody could pick out of a list.
+func nameOf(in daemon.Info) string {
+	if n := strings.TrimSpace(in.Name); n != "" {
+		return n
+	}
+	base := filepath.Base(in.Workdir)
+	if base == "" || base == "." || base == string(filepath.Separator) {
+		return in.Workdir
+	}
+	return base
 }
 
 // fromLog is everything about a row the log alone decides, answered from the cache while the

@@ -90,7 +90,7 @@ func (f *fleetFixture) daemonAt(workdir, sid string, live bool) string {
 	} else if err := os.WriteFile(sock, nil, 0o600); err != nil {
 		f.t.Fatal(err) // a socket file with nobody listening: what SIGKILL leaves behind
 	}
-	unpublish, err := daemon.Publish(sock, workdir, sid)
+	unpublish, err := daemon.Publish(sock, workdir, sid, daemon.Identity{})
 	if err != nil {
 		f.t.Fatal(err)
 	}
@@ -274,7 +274,7 @@ func (f *fleetFixture) serveAsking(workdir, sid string, ask *app.Ask) string {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	unpublish, err := daemon.Publish(sock, workdir, sid)
+	unpublish, err := daemon.Publish(sock, workdir, sid, daemon.Identity{})
 	if err != nil {
 		f.t.Fatal(err)
 	}

@@ -192,7 +192,7 @@ func TestALoserLeavesTheWinnersRecordAlone(t *testing.T) {
 	}
 	go func() { _ = winner.Serve(ctx, &fakeEngine{}) }()
 	waitForSocket(t, sock)
-	unpublish, err := Publish(sock, "/w/winner", "s_winner")
+	unpublish, err := Publish(sock, "/w/winner", "s_winner", Identity{})
 	if err != nil {
 		t.Fatal(err)
 	}

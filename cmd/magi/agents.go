@@ -28,6 +28,11 @@ func printAgents(w io.Writer, list []fleet.Agent, configDir string) {
 		if a.Here {
 			name += " *" // the workspace this shell is standing in
 		}
+		// What it is FOR, when it says. A name answers "which one is this"; a role answers "which
+		// one do I want", which is the question somebody with several companions actually has.
+		if a.Role != "" {
+			name += "  — " + fleet.Clip(a.Role, 40)
+		}
 		steps := "-"
 		if a.Steps > 0 {
 			steps = fmt.Sprint(a.Steps)

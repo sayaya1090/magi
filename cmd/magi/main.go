@@ -31,6 +31,7 @@ import (
 	pluginlua "github.com/sayaya1090/magi/internal/adapter/plugin/lua"
 	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
+	"github.com/sayaya1090/magi/internal/adapter/tool/companion"
 	"github.com/sayaya1090/magi/internal/adapter/tui"
 	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/config"
@@ -574,6 +575,20 @@ func run() int {
 	obs := &pluginObserver{}
 	experienceStore := explayered.New(expProjectDir, expDir)
 
+	// Seeing the other magi on this machine. Registered here rather than in builtin because the
+	// daemon package imports app and app imports builtin, so a built-in that reads daemon records
+	// would close a cycle — and because whether an agent may see its neighbours is a wiring
+	// decision, visible in one place, rather than something buried in a default registry.
+	//
+	// Late-bound reader: the App is what reads the logs and it does not exist yet. It cannot be
+	// called before it does — a tool runs inside a turn, and the first turn starts after this.
+	reg.Register(companion.List{
+		Reader:    func() fleet.Reader { return a },
+		ConfigDir: plat.ConfigDir(),
+		Self:      daemon.SocketPath(plat.ConfigDir(), wd),
+		Cache:     &fleet.Cache{},
+	})
+
 	a = app.New(store, app.GuardProvider(llm), reg, bus.New(), plat, app.Config{
 		Model:               session.ModelRef{Provider: "openai", Model: modelID},
 		System:              systemPrompt,
@@ -779,7 +794,8 @@ func run() int {
 	// A daemon: no UI, and it stays up. The work continues while nothing is watching, which is the
 	// whole point — a UI attaches later, or several do, or none ever does.
 	if *daemonMode {
-		unpublish, perr := daemon.Publish(sockPath, wd, string(sid))
+		unpublish, perr := daemon.Publish(sockPath, wd, string(sid),
+			daemon.Identity{Name: cfg.Companion.Name, Role: cfg.Companion.Role})
 		if perr != nil {
 			fmt.Fprintln(os.Stderr, "magi:", perr)
 			return 1

@@ -99,7 +99,7 @@ func TestAServingDaemonKeepsBothFilesPrivate(t *testing.T) {
 	go func() { _ = Serve(ctx, &fakeEngine{}, sock) }()
 	waitForSocket(t, sock)
 
-	unpublish, err := Publish(sock, "/w", "s_1")
+	unpublish, err := Publish(sock, "/w", "s_1", Identity{})
 	if err != nil {
 		t.Fatal(err)
 	}

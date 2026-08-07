@@ -616,6 +616,17 @@ type Info struct {
 	Socket  string `json:"socket"`
 	Workdir string `json:"workdir"` // the FULL path; the socket name carries only a base name and a hash
 	Session string `json:"session"`
+	// Name and Role are what a TEAM is addressed by, declared in the workspace's own
+	// .magi/config.toml and published here so everything that lists companions reads one source.
+	//
+	// Without them a companion is identified by the base name of a directory, which answers "which
+	// one is this" and not "which one do I want" — and "which one do I want" is the question
+	// somebody coordinating work actually has. A directory called `ds` is not a design specialist
+	// until it says so.
+	//
+	// Both optional. A companion with neither is exactly what companions were before: a workspace.
+	Name    string `json:"name,omitempty"`
+	Role    string `json:"role,omitempty"`
 	PID     int    `json:"pid"`
 	Started string `json:"started"` // RFC3339
 	// Host and Addr say WHERE this is running. Everything in one config directory is on one
@@ -637,10 +648,11 @@ type Info struct {
 func SessionFile(socketPath string) string { return socketPath + ".session" }
 
 // Publish records the daemon and returns a function that removes the record.
-func Publish(socketPath, workdir, sid string) (func(), error) {
+func Publish(socketPath, workdir, sid string, id Identity) (func(), error) {
 	host, _ := os.Hostname()
 	b, err := json.Marshal(Info{
 		Socket: socketPath, Workdir: workdir, Session: sid,
+		Name: id.Name, Role: id.Role,
 		PID: os.Getpid(), Started: time.Now().UTC().Format(time.RFC3339),
 		Host: host, Addr: primaryAddr(),
 	})
@@ -652,6 +664,16 @@ func Publish(socketPath, workdir, sid string) (func(), error) {
 		return func() {}, fmt.Errorf("daemon: publishing: %w", err)
 	}
 	return func() { os.Remove(f) }, nil
+}
+
+// Identity is what this companion calls itself and what it is for.
+//
+// Passed in rather than read here: this package publishes records and does not know where a
+// workspace keeps its config, and a second config reader is a second place for the two to disagree
+// about which file wins.
+type Identity struct {
+	Name string // "design", "api" — how somebody addresses it
+	Role string // one line: what it is for, in the words of whoever set it up
 }
 
 // primaryAddr is the address another machine would reach this one at, best effort.
