@@ -105,6 +105,9 @@ func fontSizePx(rule string) (float64, bool) {
 	for _, re := range []*regexp.Regexp{
 		regexp.MustCompile(`font-size:([0-9.]+)px`),
 		regexp.MustCompile(`[;{]?font:(?:[a-z0-9]+ )*?([0-9.]+)px[/ ]`),
+		// A component sets its text size through a token rather than a property, and the reason
+		// this check exists — iOS zooming on focus — does not care which of the two says 16px.
+		regexp.MustCompile(`input-text-size:\s*([0-9.]+)px`),
 	} {
 		if m := re.FindStringSubmatch(rule); m != nil {
 			var px float64
@@ -145,7 +148,7 @@ func TestThePageWorksOnAPhone(t *testing.T) {
 	// Read as a SIZE rather than as one spelling: `font-size:16px` and the `font:` shorthand say
 	// the same thing, and a check that knows only one of them fails on a restyle that kept the
 	// property it exists to protect.
-	for _, sel := range []string{"textarea{", ".answerinput{"} {
+	for _, sel := range []string{"md-outlined-text-field{", ".answerinput{"} {
 		at := strings.Index(flat, sel)
 		if at < 0 {
 			t.Errorf("no %s rule in the page", strings.TrimSuffix(sel, "{"))

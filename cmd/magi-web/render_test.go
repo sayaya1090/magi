@@ -1216,7 +1216,7 @@ fleetSeen = [{socket:'/s/a.sock', name:'api'}];
 await loadMCP();
 const text = byId.mcp.text;
 const form = byId.mcp.children[byId.mcp.children.length - 1];
-for (const i of form.find('input')) {
+for (const i of form.find('md-outlined-text-field')) {
   if (i.name === 'name') i.value = 'tickets';
   if (i.name === 'command') i.value = 'uvx';
 }

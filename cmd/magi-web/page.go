@@ -326,7 +326,7 @@ const indexHTML = `<!doctype html>
   }
   .srv .drop:hover { color:var(--error); border-bottom-color:var(--error); }
   #mcpAdd { display:grid; gap:.6rem; margin:1.4rem 0; max-width:var(--measure); }
-  #mcpAdd input, #mcpAdd select {
+  #mcpAdd md-outlined-text-field, #mcpAdd select {
     background:var(--surfaceContainer); color:var(--fg); border:1px solid var(--outlineVariant);
     border-radius:var(--shape-xs); padding:.55rem .7rem; font:12px/1.4 var(--mono); min-height:48px;
   }
@@ -589,15 +589,24 @@ const indexHTML = `<!doctype html>
     display:flex; gap:.9rem; width:100%; max-width:var(--wide); align-items:flex-end;
     border-top:1px solid var(--fg); padding-top:.8rem;
   }
-  textarea {
-    flex:1; background:transparent; color:var(--fg);
-    border:0; border-bottom:1px solid var(--outline); border-radius:0;
-    padding:.5rem .1rem; font:16px/1.6 var(--mono); resize:none;
-    min-height:2.6rem; max-height:12rem; overflow-y:auto;
+  /* The composer's field is an M3 outlined text field. Its outline, focus behaviour, floating
+     label slot and 56dp height are the component's; what is said here is that it takes the row and
+     which colours magi uses. Its own scrolling replaces the auto-grow this page used to do by
+     measuring scrollHeight — a measurement that stopped being possible when the textarea moved
+     into a shadow root, and one the component already does. */
+  md-outlined-text-field#t { flex:1; }
+  md-outlined-text-field {
+    --md-sys-color-primary: var(--primary);
+    --md-sys-color-on-surface: var(--md-on-surface);
+    --md-sys-color-on-surface-variant: var(--md-on-surface-variant);
+    --md-sys-color-outline: var(--outline);
+    --md-sys-color-surface: transparent;
+    --md-outlined-text-field-input-text-font: var(--mono);
+    /* 16px, and not because the scale says so: under 16 iOS Safari zooms the page when a field
+       takes focus and does not zoom back. The component's own default is smaller. */
+    --md-outlined-text-field-input-text-size: 16px;
+    --md-outlined-text-field-label-text-font: var(--mono);
   }
-  textarea:focus { outline:none; border-bottom-color:var(--primary); }
-  textarea:focus-visible { outline:2px solid var(--primary); outline-offset:3px; }
-  textarea::placeholder { color:var(--muted); opacity:.8; }
   /* The composer's two are Material Web buttons. Their shape, state layers, ripple and touch
      target come from the component — this page only tells them which colours magi uses, through
      the --md-sys-* properties the library reads. Writing any of the rest here again is how two
@@ -620,12 +629,7 @@ const indexHTML = `<!doctype html>
        about a third of the row and the placeholder was cut mid-sentence. They take their own line,
        which also puts them under the thumb rather than beside it. */
     .composer { flex-wrap:wrap; }
-    .composer input#to {
-    flex:0 0 13rem; min-width:8rem; background:var(--surfaceContainer); color:var(--fg);
-    border:1px solid var(--outlineVariant); border-radius:var(--shape-xs); padding:.55rem .7rem;
-    font:600 12px/1.4 var(--mono); letter-spacing:.04em;
-  }
-  .composer input#to:focus-visible { outline:2px solid var(--primary); outline-offset:1px; }
+    .composer md-outlined-text-field#to { flex:0 0 14rem; min-width:9rem; }
   .composer textarea { flex:1 0 100%; }
     .composer button { flex:1; }
     header { padding-left:1rem; padding-right:1rem; }
@@ -672,9 +676,11 @@ const indexHTML = `<!doctype html>
     <!-- On the fleet view the composer is addressed: the work goes to whoever does that, and which
          machine they are on is not the asker's problem. On one companion's page it is hidden,
          because the address is the page you are standing on. -->
-    <input id="to" hidden placeholder="to: a name, or what they do" autocomplete="off" list="roles">
+    <md-outlined-text-field id="to" hidden placeholder="to: a name, or what they do"
+      list="roles"></md-outlined-text-field>
     <datalist id="roles"></datalist>
-    <textarea id="t" rows="1" placeholder="Ask magi to do something…"></textarea>
+    <md-outlined-text-field id="t" type="textarea" rows="1"
+      placeholder="Ask magi to do something…"></md-outlined-text-field>
     <md-filled-button type="submit" id="send">send</md-filled-button>
     <md-filled-tonal-button type="button" id="stop">interrupt</md-filled-tonal-button>
   </div></form>
@@ -1406,9 +1412,8 @@ async function loadMCP() {
   const form = document.createElement('form');
   form.id = 'mcpAdd';
   const field = (name, placeholder, val) => {
-    const i = document.createElement('input');
+    const i = document.createElement('md-outlined-text-field');
     i.name = name; i.placeholder = placeholder; if (val) i.value = val;
-    i.autocomplete = 'off';
     return i;
   };
   const who = document.createElement('select');
@@ -1435,7 +1440,9 @@ async function loadMCP() {
   form.onsubmit = async e => {
     e.preventDefault();
     const body = new URLSearchParams();
-    for (const el of [...form.find('input')]) if (el.value.trim()) body.set(el.name, el.value.trim());
+    for (const el of [...form.find('md-outlined-text-field')]) {
+      if (el.value.trim()) body.set(el.name, el.value.trim());
+    }
     if (!who.value) body.set('tier', 'global');
     await post('/mcp', body, who.value || null);
     loadMCP();
@@ -1613,7 +1620,10 @@ async function post(path, body, socket, peer) {
 
 const t = document.getElementById('t'), toEl = document.getElementById('to');
 const rolesEl = document.getElementById('roles');
-const grow = () => { t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 192) + 'px'; measureDock(); };
+// The field grows itself: it is a component with its own textarea in a shadow root, so measuring
+// scrollHeight from out here reads the host and not the text. All that is left to do is re-measure
+// the dock, because the transcript reserves whatever the dock is actually occupying.
+const grow = () => measureDock();
 
 // The transcript reserves whatever the dock is actually occupying. Its height changes with the
 // composer as you type and with the prompt bar appearing, and a guessed constant either wastes a
