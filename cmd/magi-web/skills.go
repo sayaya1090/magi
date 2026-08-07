@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	"log"
 	"net/http"
 	"path/filepath"
 	"sort"
@@ -74,10 +72,7 @@ func (s *server) skills(w http.ResponseWriter, r *http.Request) {
 		}
 		return out[i].Name < out[j].Name
 	})
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(out); err != nil {
-		log.Printf("magi-web: writing the skills: %v", err)
-	}
+	writeJSON(w, "skills", out)
 }
 
 // forgetSkill removes one stored skill. (Named apart from forget, which drops a cached socket

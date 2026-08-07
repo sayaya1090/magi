@@ -1,8 +1,6 @@
 package main
 
 import (
-	"encoding/json"
-	"log"
 	"net/http"
 
 	"github.com/sayaya1090/magi/internal/adapter/fleet"
@@ -39,10 +37,7 @@ func (s *server) handoffs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(list); err != nil {
-		log.Printf("magi-web: writing the handoffs: %v", err)
-	}
+	writeJSON(w, "handoffs", list)
 }
 
 // published is this console's own companions, as the fleet sees them.

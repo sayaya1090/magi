@@ -79,10 +79,7 @@ func (s *server) mcp(w http.ResponseWriter, r *http.Request) {
 		}
 		return out[i].Name < out[j].Name
 	})
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(out); err != nil {
-		log.Printf("magi-web: writing the mcp servers: %v", err)
-	}
+	writeJSON(w, "mcp servers", out)
 }
 
 func serversOf(c config.Config, tier, companion, socket, file string) []mcpServer {

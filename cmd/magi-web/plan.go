@@ -1,8 +1,6 @@
 package main
 
 import (
-	"encoding/json"
-	"log"
 	"net/http"
 
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -18,12 +16,11 @@ func (s *server) plan(w http.ResponseWriter, r *http.Request) {
 	if s.forwarded(w, r, s.proxy) {
 		return
 	}
-	in, err := s.target(r)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+	sid, ok := s.session(w, r)
+	if !ok {
 		return
 	}
-	todos, err := s.reader.PlanOf(r.Context(), session.SessionID(in.Session))
+	todos, err := s.reader.PlanOf(r.Context(), sid)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -33,8 +30,5 @@ func (s *server) plan(w http.ResponseWriter, r *http.Request) {
 		// made a plan is the ordinary case rather than an error.
 		todos = []session.Todo{}
 	}
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(todos); err != nil {
-		log.Printf("magi-web: writing the plan: %v", err)
-	}
+	writeJSON(w, "plan", todos)
 }

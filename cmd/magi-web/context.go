@@ -1,11 +1,7 @@
 package main
 
 import (
-	"encoding/json"
-	"log"
 	"net/http"
-
-	"github.com/sayaya1090/magi/internal/core/session"
 )
 
 // What is in one companion's head, and what was folded away to make room.
@@ -20,18 +16,14 @@ func (s *server) context(w http.ResponseWriter, r *http.Request) {
 	if s.forwarded(w, r, s.proxy) {
 		return
 	}
-	in, err := s.target(r)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+	sid, ok := s.session(w, r)
+	if !ok {
 		return
 	}
-	st, err := s.reader.ContextStateOf(r.Context(), session.SessionID(in.Session))
+	st, err := s.reader.ContextStateOf(r.Context(), sid)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(st); err != nil {
-		log.Printf("magi-web: writing the context state: %v", err)
-	}
+	writeJSON(w, "context state", st)
 }

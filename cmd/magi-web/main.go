@@ -60,6 +60,10 @@ func run() int {
 	// Each is another magi-web, usually a loopback port an ssh tunnel ends at. They come from the
 	// operator and nowhere else — see peer.go for why that is the rule this file must not bend.
 	flag.Var(&peerSpecs, "peer", "another magi-web to federate, as name=url; repeatable")
+	// Writing the page out as a static site, answered by a mock in the browser. Here rather than in
+	// its own command because it must emit the string THIS binary serves — a generator with its own
+	// copy of the page is a demo that drifts, which is worse than none.
+	emit := flag.String("emit-demo", "", "write the console as a static demo into this directory, then exit")
 	flag.Parse()
 
 	peers, perr := parsePeers(peerSpecs)
@@ -92,6 +96,15 @@ func run() int {
 
 	// The daemon in THIS directory, if there is one, is what the viewer opens on. There need not
 	// be: a dashboard over other people's daemons is a legitimate thing to want from a directory
+	if *emit != "" {
+		if err := emitDemo(*emit); err != nil {
+			fmt.Fprintln(os.Stderr, "magi-web:", err)
+			return 1
+		}
+		fmt.Println("wrote the demo to", *emit)
+		return 0
+	}
+
 	// that has none of its own.
 	here := daemon.SocketPath(cd, wd)
 
@@ -295,6 +308,34 @@ func (s *server) forwarded(w http.ResponseWriter, r *http.Request,
 	return true
 }
 
+// writeJSON answers with a value, or logs why it could not.
+//
+// Seven handlers had the same three lines. The log line is the part worth keeping identical: an
+// encode that fails halfway has already written a partial body and the status is long gone, so the
+// only thing left to do is say which answer broke — and a handler that quietly dropped that would
+// leave a truncated response and no trace of it anywhere.
+func writeJSON(w http.ResponseWriter, what string, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		log.Printf("magi-web: writing the %s: %v", what, err)
+	}
+}
+
+// session is the companion a request names, or a 404 saying why not.
+//
+// The pair is always the same: resolve the target, answer 404 with the resolver's own words when
+// there is none, and carry on with its session id. Returning the id rather than the record is what
+// the callers actually wanted — five of them reached straight for .Session — and it keeps the
+// published record from leaking into places that have no business holding a workspace path.
+func (s *server) session(w http.ResponseWriter, r *http.Request) (session.SessionID, bool) {
+	in, err := s.target(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return "", false
+	}
+	return session.SessionID(in.Session), true
+}
+
 // postOnly rejects a read method on a handler that changes something.
 func postOnly(w http.ResponseWriter, r *http.Request) bool {
 	if r.Method == http.MethodPost {
@@ -384,10 +425,7 @@ func (s *server) interventions(w http.ResponseWriter, r *http.Request) {
 	}
 	list = append(list, s.peerInterventions(r.Context(), r.URL.RawQuery)...)
 	sort.Slice(list, func(i, j int) bool { return list[i].At > list[j].At })
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(list); err != nil {
-		log.Printf("magi-web: writing the interventions: %v", err)
-	}
+	writeJSON(w, "interventions", list)
 }
 
 // routes is every path this server answers, in one place.
@@ -502,10 +540,7 @@ func (s *server) fleet(w http.ResponseWriter, r *http.Request) {
 	// The local companions are answered first and the peers are added to them, so a console with an
 	// unreachable peer still shows this machine rather than an error page.
 	list = s.federated(r.Context(), list)
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(list); err != nil {
-		log.Printf("magi-web: writing the fleet: %v", err)
-	}
+	writeJSON(w, "fleet", list)
 }
 
 // events streams the transcript as server-sent events, re-reading the log as it grows.
