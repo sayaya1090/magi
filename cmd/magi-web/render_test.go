@@ -517,3 +517,51 @@ console.log(JSON.stringify({hidden: d.hidden, text: d.text}));
 		}
 	}
 }
+
+// A row from another console links and acts THERE.
+//
+// The pair (peer, socket) is what identifies a companion once more than one machine is in the list:
+// a socket path is only meaningful on the machine that owns it, so every link and every action a
+// remote row produces has to carry the console's name beside it. Without that they resolve locally,
+// where nothing by that path exists — and the failure would read as "no such companion" rather than
+// "you dropped the machine".
+func TestARemoteRowCarriesItsConsoleEverywhere(t *testing.T) {
+	got := runPage(t, `[
+      {"peer":"laptop","socket":"/there/a.sock","name":"fuzzer","workdir":"/w/fuzzer",
+       "state":"working","live":true,"task":"finding the parser bug","steps":4,"idle":6,
+       "host":"laptop","addr":"10.0.0.31"},
+      {"socket":"/here/b.sock","name":"local","workdir":"/w/local","state":"working","live":true,
+       "task":"on this machine","steps":1,"idle":1,"host":"mini","addr":"10.0.0.12"}
+    ]`, "", rowsHelper+`
+await loadFleet();
+const remote = rows().find(r => r.text.includes('fuzzer'));
+const local = rows().find(r => r.text.includes('local'));
+remote.find('button').filter(b => b.className === 'stop')[0].onclick({preventDefault(){}, stopPropagation(){}});
+local.find('button').filter(b => b.className === 'stop')[0].onclick({preventDefault(){}, stopPropagation(){}});
+console.log(JSON.stringify({
+  remoteHref: remote.attrs.href, localHref: local.attrs.href,
+  remoteText: remote.text,
+  posts: RENDERED.filter(r => r.method === 'POST').map(r => r.fetched),
+}));
+`)
+	if !strings.Contains(got["remoteHref"].(string), "p=laptop") {
+		t.Errorf("a remote row links to %q, losing which console it is on", got["remoteHref"])
+	}
+	if strings.Contains(got["localHref"].(string), "p=") {
+		t.Errorf("a local row carries a console name it does not have: %q", got["localHref"])
+	}
+	// The console it came from is what the eye needs before the hostname when three are federated.
+	if !strings.Contains(got["remoteText"].(string), "laptop") {
+		t.Errorf("the row does not say which console reported it: %q", got["remoteText"])
+	}
+	posts := got["posts"].([]any)
+	if len(posts) != 2 {
+		t.Fatalf("two stops sent %d requests", len(posts))
+	}
+	if !strings.Contains(posts[0].(string), "p=laptop") {
+		t.Errorf("stopping a remote companion went to %q", posts[0])
+	}
+	if strings.Contains(posts[1].(string), "p=") {
+		t.Errorf("stopping a local companion named a console: %q", posts[1])
+	}
+}

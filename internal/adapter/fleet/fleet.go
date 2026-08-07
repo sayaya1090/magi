@@ -103,6 +103,10 @@ const (
 
 // Agent is one running (or lately running) magi.
 type Agent struct {
+	// Peer names the console this companion was reported by — empty when it is on this machine.
+	// A federated view is several consoles read at once, and the pair (peer, socket) is what
+	// identifies a companion once more than one machine is in the list.
+	Peer    string `json:"peer,omitempty"`
 	Socket  string `json:"socket"`
 	Workdir string `json:"workdir"`
 	Name    string `json:"name"` // the workspace's base directory — what a person calls it

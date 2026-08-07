@@ -425,7 +425,10 @@ const summaryEl = document.getElementById('summary');
 const crumbSep = document.getElementById('crumbSep'), crumbHere = document.getElementById('crumbHere');
 
 const sock = () => new URLSearchParams(location.search).get('d');
-const q = () => sock() ? '?d=' + encodeURIComponent(sock()) : '';
+const peerOf = () => new URLSearchParams(location.search).get('p') || '';
+// The pair (peer, socket) identifies a companion once more than one console is in the list: a
+// socket path is only meaningful on the machine that owns it.
+const q = () => sock() ? '?d=' + encodeURIComponent(sock()) + (peerOf() ? '&p=' + encodeURIComponent(peerOf()) : '') : '';
 
 // ── the fleet ────────────────────────────────────────────────────────────────
 const ago = s => s < 0 ? '' : s < 60 ? s + 's ago' : s < 3600 ? Math.round(s/60) + 'm ago'
@@ -437,6 +440,11 @@ const ago = s => s < 0 ? '' : s < 60 ? s + 's ago' : s < 3600 ? Math.round(s/60)
 const ORDER = {waiting: 0, working: 1, idle: 2, abandoned: 3, stopped: 4};
 const GROUP = {waiting: 'waiting', working: 'working', idle: 'idle', abandoned: 'gone', stopped: 'gone'};
 let filter = null;   // one of the summary keys, or null for everything
+
+// href is where a companion lives in this console's URL space.
+function href(a) {
+  return '/?d=' + encodeURIComponent(a.socket) + (a.peer ? '&p=' + encodeURIComponent(a.peer) : '');
+}
 
 function cell(cls, text) {
   const d = document.createElement('div');
@@ -450,8 +458,8 @@ function cell(cls, text) {
 function card(a) {
   const el = document.createElement('a');
   el.className = 'card ' + a.state + (a.here ? ' here' : '');
-  el.href = '/?d=' + encodeURIComponent(a.socket);
-  el.onclick = e => { e.preventDefault(); go(a.socket); };
+  el.href = href(a);
+  el.onclick = e => { e.preventDefault(); go(a.socket, a.peer); };
 
   el.append(cell('badge', a.state));
 
@@ -474,7 +482,10 @@ function card(a) {
   el.append(cell('num r', ago(a.idle)));
 
   const host = cell('host');
-  const name = document.createElement('b'); name.textContent = a.host || 'this machine';
+  const name = document.createElement('b');
+  // The console it came from first when there is one: with three machines federated, that is the
+  // thing the eye needs before the hostname.
+  name.textContent = a.peer ? a.peer : (a.host || 'this machine');
   host.append(name);
   if (a.addr) host.append(document.createElement('br'), document.createTextNode(a.addr));
   if (a.here) host.append(document.createElement('br'), document.createTextNode('this directory'));
@@ -491,8 +502,8 @@ function rowActions(a) {
   const box = cell('actions');
   const open = document.createElement('a');
   open.className = 'open'; open.textContent = 'open ›';
-  open.href = '/?d=' + encodeURIComponent(a.socket);
-  open.onclick = e => { e.preventDefault(); e.stopPropagation(); go(a.socket); };
+  open.href = href(a);
+  open.onclick = e => { e.preventDefault(); e.stopPropagation(); go(a.socket, a.peer); };
   box.append(open);
   if (a.live && (a.state === 'working' || a.state === 'waiting')) {
     const stop = document.createElement('button');
@@ -500,7 +511,7 @@ function rowActions(a) {
     stop.title = 'interrupt the turn this agent is running';
     stop.onclick = e => {
       e.preventDefault(); e.stopPropagation();
-      post('/interrupt', null, a.socket).then(loadFleet);
+      post('/interrupt', null, a.socket, a.peer).then(loadFleet);
     };
     box.append(stop);
   }
@@ -543,7 +554,7 @@ function answerBox(a) {
   // in both places produced /answer?d=X?d=X — invisible on the fleet, where post()'s own target is
   // empty, and broken on an agent's page, where it is not.
   const send = (text) => post('/answer', new URLSearchParams({call: a.askId, kind: a.askKind, text}),
-                              a.socket).then(loadFleet);
+                              a.socket, a.peer).then(loadFleet);
   if (a.askKind === 'question') {
     const i = document.createElement('input'); i.placeholder = 'your answer…';
     const b = document.createElement('button'); b.textContent = 'answer';
@@ -598,7 +609,7 @@ async function loadFleet() {
   // facts in its header reach the browser no other way.
   const here = sock();
   if (here) {
-    const mine = list.find(a => a.socket === here);
+    const mine = list.find(a => a.socket === here && (a.peer || '') === peerOf());
     drawPrompt(mine);
     drawDetail(mine);
     return;
@@ -706,12 +717,14 @@ function nameOf(socket) {
   return base.replace(/-[a-z0-9]{8}$/, '');
 }
 
-function go(s) { history.pushState({}, '', s ? '/?d=' + encodeURIComponent(s) : '/'); render(); }
+function go(s, peer) { history.pushState({}, '', s ? '/?d=' + encodeURIComponent(s) + (peer ? '&p=' + encodeURIComponent(peer) : '') : '/'); render(); }
 back.onclick = e => { e.preventDefault(); go(null); };
 addEventListener('popstate', render);
 
-async function post(path, body, socket) {
-  const target = socket ? '?d=' + encodeURIComponent(socket) : q();
+async function post(path, body, socket, peer) {
+  const target = socket
+    ? '?d=' + encodeURIComponent(socket) + (peer ? '&p=' + encodeURIComponent(peer) : '')
+    : q();
   const r = await fetch(path + target, {method:'POST', body});
   if (!r.ok) { state.className = 'lost'; state.textContent = (await r.text()).trim().slice(0, 80); }
 }

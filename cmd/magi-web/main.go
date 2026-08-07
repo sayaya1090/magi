@@ -47,12 +47,24 @@ func main() { os.Exit(run()) }
 
 func run() int {
 	var (
-		addr    = flag.String("addr", "127.0.0.1:7777", "address to serve on; loopback by default and it should stay that way")
-		cfgDir  = flag.String("config-dir", "", "magi config directory (default: the platform one, honouring MAGI_CONFIG_DIR)")
-		workdir = flag.String("workdir", "", "the daemon's workspace (default: the current directory)")
-		showVer = flag.Bool("version", false, "print version and exit")
+		addr      = flag.String("addr", "127.0.0.1:7777", "address to serve on; loopback by default and it should stay that way")
+		cfgDir    = flag.String("config-dir", "", "magi config directory (default: the platform one, honouring MAGI_CONFIG_DIR)")
+		workdir   = flag.String("workdir", "", "the daemon's workspace (default: the current directory)")
+		showVer   = flag.Bool("version", false, "print version and exit")
+		peerSpecs multiFlag
 	)
+	// Repeatable: -peer mini=http://127.0.0.1:7778 -peer laptop=http://127.0.0.1:7779
+	//
+	// Each is another magi-web, usually a loopback port an ssh tunnel ends at. They come from the
+	// operator and nowhere else — see peer.go for why that is the rule this file must not bend.
+	flag.Var(&peerSpecs, "peer", "another magi-web to federate, as name=url; repeatable")
 	flag.Parse()
+
+	peers, perr := parsePeers(peerSpecs)
+	if perr != nil {
+		fmt.Fprintln(os.Stderr, "magi-web:", perr)
+		return 1
+	}
 	if *showVer {
 		fmt.Println("magi-web " + version.String())
 		return 0
@@ -90,7 +102,15 @@ func run() int {
 	}
 	reader := app.New(store, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{})
 
-	srv := &server{reader: reader, cfgDir: cd, here: here, clients: map[string]*daemon.Client{}}
+	srv := &server{
+		reader: reader, cfgDir: cd, here: here, clients: map[string]*daemon.Client{},
+		peers: peers,
+		// Two clients on purpose. The short one bounds every call that has an answer; the streaming
+		// one must not, because an event stream is supposed to stay open and a timeout there would
+		// cut the transcript every few seconds.
+		http:   &http.Client{Timeout: peerTimeout},
+		stream: &http.Client{},
+	}
 	defer srv.closeAll()
 	mux := http.NewServeMux()
 	for path, h := range srv.routes() {
@@ -110,7 +130,15 @@ func run() int {
 			"use ssh -L to reach it from elsewhere\n", *addr)
 		return 1
 	}
-	fmt.Fprintf(os.Stderr, "magi-web: http://%s — %d daemon(s) under %s\n", ln.Addr(), countDaemons(cd), cd)
+	fmt.Fprintf(os.Stderr, "magi-web: http://%s — %d companion(s) under %s", ln.Addr(), countDaemons(cd), cd)
+	if len(peers) > 0 {
+		names := make([]string, len(peers))
+		for i, p := range peers {
+			names[i] = p.Name
+		}
+		fmt.Fprintf(os.Stderr, ", federating %s", strings.Join(names, ", "))
+	}
+	fmt.Fprintln(os.Stderr)
 	if err := (&http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}).Serve(ln); err != nil {
 		fmt.Fprintln(os.Stderr, "magi-web:", err)
 		return 1
@@ -128,6 +156,12 @@ func isLoopback(a net.Addr) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+// multiFlag collects a repeatable string flag.
+type multiFlag []string
+
+func (m *multiFlag) String() string     { return strings.Join(*m, ",") }
+func (m *multiFlag) Set(v string) error { *m = append(*m, v); return nil }
+
 // countDaemons is for the startup line only — a viewer that says "0 daemons" is telling you the
 // config directory is wrong before you go looking in the browser.
 func countDaemons(cfgDir string) int {
@@ -140,9 +174,15 @@ type server struct {
 	cfgDir string
 	here   string // the socket for the directory magi-web was started in, if any
 
-	// One client per daemon, opened on first use. A dashboard that dialled on every request would
-	// reconnect several times a second; one that dialled all of them at startup would fail on the
-	// first dead socket and refuse to show the rest.
+	// Other consoles this one reads, from the operator's flags. Empty is the ordinary case: one
+	// machine, no federation, nothing on the network.
+	peers  []peer
+	http   *http.Client // bounded: list and act
+	stream *http.Client // unbounded: an event stream is meant to stay open
+
+	// One client per LOCAL daemon, opened on first use. A dashboard that dialled on every request
+	// would reconnect several times a second; one that dialled all of them at startup would fail on
+	// the first dead socket and refuse to show the rest.
 	mu      sync.Mutex
 	clients map[string]*daemon.Client
 
@@ -213,6 +253,41 @@ func (s *server) forget(sock string) {
 // process holding a socket nobody reads, and the first write after that fails on a connection
 // problem rather than on anything the user did. Redialling tells that apart from a real refusal —
 // and if the second attempt fails too, its error is the one worth showing.
+// routeToPeer reports whether a request names a companion on another console, and which.
+//
+// The peer comes from the query, but it is only ever LOOKED UP in the operator's list — a name that
+// is not configured routes nowhere. The socket travels verbatim because it is that machine's path
+// and means nothing here; the peer is what this process resolves.
+func (s *server) routeToPeer(r *http.Request) (p peer, socket string, remote bool, err error) {
+	name := r.URL.Query().Get("p")
+	if name == "" {
+		return peer{}, "", false, nil
+	}
+	p, ok := s.peerNamed(name)
+	if !ok {
+		// Named and unknown is an error of its own, not a fall-through to the local lookup — that
+		// path then fails for a different reason ("no daemon at …"), which sends whoever is reading
+		// to look for a companion when the actual answer is that this console federates nobody by
+		// that name.
+		return peer{}, "", false, fmt.Errorf("no console named %q is federated here; this one knows: %s",
+			name, s.peerNames())
+	}
+	return p, r.URL.Query().Get("d"), true, nil
+}
+
+// peerNames is for the message above: a list told "unknown" and not told what IS known cannot tell
+// a typo from a console that was never configured.
+func (s *server) peerNames() string {
+	if len(s.peers) == 0 {
+		return "(none — this console federates no others)"
+	}
+	names := make([]string, len(s.peers))
+	for i, p := range s.peers {
+		names[i] = p.Name
+	}
+	return strings.Join(names, ", ")
+}
+
 func (s *server) withClient(r *http.Request, do func(*daemon.Client, session.SessionID) error) error {
 	in, err := s.target(r)
 	if err != nil {
@@ -354,6 +429,9 @@ func (s *server) fleet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// The local companions are answered first and the peers are added to them, so a console with an
+	// unreachable peer still shows this machine rather than an error page.
+	list = s.federated(r.Context(), list)
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(list); err != nil {
 		log.Printf("magi-web: writing the fleet: %v", err)
@@ -366,6 +444,15 @@ func (s *server) fleet(w http.ResponseWriter, r *http.Request) {
 // terminal attach reached, for the same reason: the log is already the record, and a second stream
 // of the same facts is the first thing to disagree after a reconnect.
 func (s *server) events(w http.ResponseWriter, r *http.Request) {
+	// A remote companion's transcript is streamed through, so opening one is not a different page
+	// from opening a local one.
+	if p, sock, remote, err := s.routeToPeer(r); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	} else if remote {
+		s.proxyStream(w, r, p, sock)
+		return
+	}
 	fl, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
@@ -465,6 +552,15 @@ func renderMessages(msgs []session.Message) []line {
 }
 
 func (s *server) submit(w http.ResponseWriter, r *http.Request) {
+	// A companion on another console is acted on THERE. Nothing about this one can reach it — the
+	// socket path is that machine's, and its daemon is not ours to dial.
+	if p, sock, remote, err := s.routeToPeer(r); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	} else if remote {
+		s.proxy(w, r, p, sock)
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
@@ -495,6 +591,15 @@ func (s *server) submit(w http.ResponseWriter, r *http.Request) {
 // travels with the status: a viewer that can see a pending permission and not grant it stops in a
 // worse place than one that never showed it.
 func (s *server) answer(w http.ResponseWriter, r *http.Request) {
+	// A companion on another console is acted on THERE. Nothing about this one can reach it — the
+	// socket path is that machine's, and its daemon is not ours to dial.
+	if p, sock, remote, err := s.routeToPeer(r); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	} else if remote {
+		s.proxy(w, r, p, sock)
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
@@ -536,6 +641,15 @@ func (s *server) answer(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) interrupt(w http.ResponseWriter, r *http.Request) {
+	// A companion on another console is acted on THERE. Nothing about this one can reach it — the
+	// socket path is that machine's, and its daemon is not ours to dial.
+	if p, sock, remote, err := s.routeToPeer(r); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	} else if remote {
+		s.proxy(w, r, p, sock)
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
