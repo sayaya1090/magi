@@ -116,7 +116,7 @@ globalThis.clicky = (n) => n.tag === 'button' || n.tag.endsWith('-button');
 const byId = {};
 for (const id of ['fleet', 'log', 'state', 'sid', 'back', 'f', 't', 'stop', 'prompt', 'dock', 'summary', 'detail', 'crumbSep', 'crumbHere', 'ivs', 'tabs', 'tabFleet', 'tabIv', 'skills', 'tabSkills', 'to', 'roles', 'mcp', 'tabMcp', 'handoffs', 'plan', 'send',
                  'menu', 'rail', 'railNav', 'railFoot', 'scrim', 'theme', 'lang', 'prefsK',
-                 'consoleK', 'console', 'railFleet', 'railIv', 'railSkills', 'railMcp',
+                 'consoleK', 'console', 'prefsBtn', 'railFleet', 'railIv', 'railSkills', 'railMcp',
                 ]) byId[id] = element('div');
 // The four tabs are children of #tabs in the markup, and md-tabs works through that relationship:
 // it activates by index into its own children. A flat bag of ids would let the page set an index

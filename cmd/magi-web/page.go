@@ -407,6 +407,10 @@ const indexHTML = `<!doctype html>
     --md-list-item-container-color:color-mix(in srgb, var(--primary) 14%, transparent);
   }
   #railFoot { display:flex; flex-direction:column; gap:.7rem; margin-top:auto; }
+  /* Sits where the preferences will appear, so opening them does not move the eye. */
+  #prefsBtn { margin-top:auto; align-self:center;
+              --md-icon-button-icon-color:var(--muted); color:var(--muted); }
+  body[nav="open"] #prefsBtn { display:none; }
   #railFoot .k {
     font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
   }
@@ -854,7 +858,7 @@ const indexHTML = `<!doctype html>
     body[nav="open"] #rail { transform:translateX(0); }
     #rail #railNav { display:none; }
     #rail #railFoot { display:flex; }
-    #burger { display:none; }
+    #burger, #prefsBtn { display:none; }
   }
 
   @media (max-width:640px) {
@@ -933,6 +937,16 @@ const indexHTML = `<!doctype html>
       <span class="lbl"></span>
     </md-list-item>
   </md-list>
+  <!-- Visible while the rail is collapsed, which on a wide screen is most of the time: the
+       preferences themselves need the width, but a way IN to them must not. Without this the only
+       route to the theme was a hamburger at the far corner, and it did not look like it led here. -->
+  <md-icon-button id="prefsBtn">
+    <svg viewBox="0 0 24 24" width="21" height="21" aria-hidden="true">
+      <circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.8" fill="none"/>
+      <path d="M12 2.6v2.6M12 18.8v2.6M21.4 12h-2.6M5.2 12H2.6M18.6 5.4l-1.8 1.8M7.2 16.8l-1.8 1.8M18.6 18.6l-1.8-1.8M7.2 7.2 5.4 5.4"
+            stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+    </svg>
+  </md-icon-button>
   <div id="railFoot">
     <div class="k" id="prefsK">preferences</div>
     <md-outlined-select id="theme"></md-outlined-select>
@@ -967,11 +981,10 @@ const indexHTML = `<!doctype html>
     <!-- On the fleet view the composer is addressed: the work goes to whoever does that, and which
          machine they are on is not the asker's problem. On one companion's page it is hidden,
          because the address is the page you are standing on. -->
-    <md-outlined-text-field id="to" hidden placeholder="to: a name, or what they do"
-      list="roles"></md-outlined-text-field>
+    <md-outlined-text-field id="to" hidden list="roles"></md-outlined-text-field>
     <datalist id="roles"></datalist>
     <md-outlined-text-field id="t" type="textarea" rows="1"
-      placeholder="Ask magi to do something…"></md-outlined-text-field>
+      ></md-outlined-text-field>
     <md-filled-button type="submit" id="send">send</md-filled-button>
     <md-filled-tonal-button type="button" id="stop">interrupt</md-filled-tonal-button>
   </div></form>
@@ -1124,6 +1137,7 @@ const menuEl = document.getElementById('menu'), railEl = document.getElementById
 const scrimEl = document.getElementById('scrim'), railFoot = document.getElementById('railFoot');
 const themeEl = document.getElementById('theme'), langEl = document.getElementById('lang');
 const prefsK = document.getElementById('prefsK'), consoleK = document.getElementById('consoleK');
+const prefsBtn = document.getElementById('prefsBtn');
 const consoleEl = document.getElementById('console');
 const railFleet = document.getElementById('railFleet'), railIv = document.getElementById('railIv');
 const railSkills = document.getElementById('railSkills'), railMcp = document.getElementById('railMcp');
@@ -1290,7 +1304,7 @@ function answerBox(a) {
                               a.socket, a.peer).then(loadFleet);
   if (a.askKind === 'question') {
     const i = document.createElement('md-outlined-text-field');
-    i.label = tr('placeholder.answer');
+    i.label = tr('label.answer');
     const b = document.createElement('md-filled-button'); b.textContent = tr('action.answer');
     const go = e => { e.preventDefault(); e.stopPropagation(); if (i.value.trim()) send(i.value.trim()); };
     b.onclick = go;
@@ -1781,13 +1795,31 @@ async function loadMCP() {
 
   const form = document.createElement('form');
   form.id = 'mcpAdd';
-  const field = (name, placeholder, val) => {
+  // A short label that can live in the outline's notch, and the explanation underneath it. Both
+  // through tr(): these five were hardcoded English while the pack carried translations for them
+  // that nothing read.
+  //
+  // The keys are written out rather than assembled from the field's name. The check that every
+  // label exists in both packs reads them out of this file, and a key built at runtime is one it
+  // cannot see — which is how a label ends up rendering as its own dotted name on somebody's
+  // screen. Same reason the preferences list their keys.
+  const MCP_FIELDS = [
+    ['name', 'label.mcp_name', 'hint.mcp_name'],
+    ['command', 'label.mcp_command', 'hint.mcp_command'],
+    ['args', 'label.mcp_args', 'hint.mcp_args'],
+    ['url', 'label.mcp_url', 'hint.mcp_url'],
+    ['env', 'label.mcp_env', 'hint.mcp_env'],
+  ];
+  const mcpField = ([name, labelKey, hintKey]) => {
     const i = document.createElement('md-outlined-text-field');
-    i.name = name; i.placeholder = placeholder; if (val) i.value = val;
+    i.name = name;
+    i.setAttribute('label', tr(labelKey));
+    i.setAttribute('supporting-text', tr(hintKey));
     return i;
   };
   const who = document.createElement('md-outlined-select');
   who.name = 'who';
+  who.setAttribute('label', tr('label.reach'));
   const opts = [['', tr('reach.every_companion')]].concat(
     (fleetSeen || []).filter(a => !a.peer).map(a => [a.socket, tr('reach.only', {name: a.name})]));
   for (const [v, label] of opts) {
@@ -1795,11 +1827,7 @@ async function loadMCP() {
     o.value = v; o.append(cell('', label));
     who.append(o);
   }
-  form.append(who, field('name', 'name — becomes [mcp.<name>] in the config'),
-    field('command', 'command, e.g. npx   (leave empty for an HTTP server)'),
-    field('args', 'arguments, one per line or space-separated'),
-    field('url', 'or a url for an HTTP server, scheme and all'),
-    field('env', 'environment, NAME=value — values are written to the config file'));
+  form.append(who, ...MCP_FIELDS.map(mcpField));
   const go = document.createElement('md-filled-button');
   go.type = 'submit'; go.textContent = tr('action.add_or_replace');
   form.append(go);
@@ -1867,11 +1895,18 @@ function paint() {
   tabIv.textContent = tr('nav.corrections');
   tabSkills.textContent = tr('nav.lessons');
   tabMcp.textContent = tr('nav.connections');
-  t.setAttribute('placeholder', tr('placeholder.ask'));
-  toEl.setAttribute('placeholder', tr('placeholder.address'));
+  // label, not placeholder. Material Web floats the LABEL into the outline's notch when the field
+  // takes focus or holds a value; a placeholder is the grey hint inside an empty one and never
+  // moves. Written as placeholders here, the fields had no notch and nothing to float — which is
+  // what "the placeholder looks wrong" was. The longer sentence becomes supporting text, which is
+  // where an explanation belongs and where it does not have to fit in a notch.
+  t.setAttribute('label', tr('label.ask'));
+  toEl.setAttribute('label', tr('label.address'));
+  toEl.setAttribute('supporting-text', tr('hint.address'));
   document.getElementById('send').textContent = tr('action.send');
   document.getElementById('stop').textContent = tr('action.interrupt');
   menuEl.setAttribute('aria-label', tr('nav.menu'));
+  prefsBtn.setAttribute('aria-label', tr('nav.preferences'));
   prefsK.textContent = tr('nav.preferences');
   consoleK.textContent = tr('nav.this_console');
   for (const [el, key] of [[railFleet, 'nav.companions'], [railIv, 'nav.corrections'],
@@ -2033,6 +2068,8 @@ menuEl.onclick = () => {
   menuEl.setAttribute('aria-expanded', 'true');
   scrimEl.hidden = !narrow();   // the page behind stays reachable on a wide screen
 };
+// The same door as the hamburger, standing where the preferences are rather than in the corner.
+prefsBtn.onclick = () => menuEl.onclick();
 scrimEl.onclick = closeNav;
 // Escape closes it, because a drawer over the page is a thing you can be stuck behind.
 addEventListener('keydown', e => { if (e.key === 'Escape' && !scrimEl.hidden) closeNav(); });

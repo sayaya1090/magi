@@ -1496,13 +1496,13 @@ func TestTheLabelsComeFromTheLanguagePack(t *testing.T) {
 	got := runPage(t, `[]`, "", `
 // The first paint uses the seed the server inlines — no dotted keys, no flash.
 const first = {tabs: [tabFleet.text, tabIv.text, tabSkills.text, tabMcp.text],
-               ask: byId.t.attrs.placeholder};
+               ask: byId.t.attrs.label};
 // A pack arriving afterwards repaints what is already on screen.
 labels$.next({'nav.companions': '컴패니언', 'nav.corrections': '교정',
               'nav.lessons': '배운 것', 'nav.connections': '연결',
-              'placeholder.ask': 'magi에게 시킬 일을 적으세요…'});
+              'label.ask': 'magi에게 요청'});
 const after = [tabFleet.text, tabIv.text, tabSkills.text, tabMcp.text];
-const askAfter = byId.t.attrs.placeholder;
+const askAfter = byId.t.attrs.label;
 // Something drawn by hand before a pack lands must survive it.
 byId.detail.replaceChildren(cell('f', 'a thing somebody was reading'));
 labels$.next({'nav.companions': 'x'});
@@ -1513,15 +1513,15 @@ console.log(JSON.stringify({first, after, askAfter, kept: byId.detail.text}));
 	if tabs[0] != "companions" || tabs[2] != "lessons" {
 		t.Errorf("the first paint did not use the seeded pack: %v", tabs)
 	}
-	if first["ask"] != "Ask magi to do something…" {
-		t.Errorf("the placeholder came from nowhere: %q", first["ask"])
+	if first["ask"] != "ask magi" {
+		t.Errorf("the composer's label came from nowhere: %q", first["ask"])
 	}
 	after := got["after"].([]any)
 	if after[0] != "컴패니언" || after[3] != "연결" {
 		t.Errorf("a pack arriving later did not reach the tabs: %v", after)
 	}
-	if got["askAfter"] != "magi에게 시킬 일을 적으세요…" {
-		t.Errorf("a pack arriving later did not reach the placeholder: %q", got["askAfter"])
+	if got["askAfter"] != "magi에게 요청" {
+		t.Errorf("a pack arriving later did not reach the label: %q", got["askAfter"])
 	}
 	// Found the hard way: the pack used to trigger a full render, so a panel drawn while the fetch
 	// was in flight lost its contents the moment the language answered.
