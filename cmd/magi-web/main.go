@@ -375,6 +375,8 @@ func (s *server) routes() map[string]http.HandlerFunc {
 		"/font/":                s.font,
 		"/interventions":        s.interventions,
 		"/promote":              s.promote,
+		"/skills":               s.skills,
+		"/forget":               s.forgetSkill,
 	}
 }
 
