@@ -40,6 +40,18 @@ func (r *recordingEngine) seen() []string {
 	return append([]string(nil), r.got...)
 }
 
+// Controller is optional on a daemon, and this fake implements it so the console's control calls
+// are exercised over the wire rather than against a stub that always says yes.
+func (r *recordingEngine) Compact(_ context.Context, c command.Compact) error {
+	return r.note("compact:" + string(c.SessionID))
+}
+
+func (r *recordingEngine) Rewind(_ context.Context, sid session.SessionID, n int) (int64, error) {
+	return 0, r.note("rewind:" + string(sid))
+}
+func (r *recordingEngine) SetModel(sid session.SessionID, m string) { _ = r.note("model:" + m) }
+func (r *recordingEngine) SetPermission(p string)                   { _ = r.note("perm:" + p) }
+
 func (r *recordingEngine) Submit(_ context.Context, c command.SubmitPrompt) error {
 	return r.note("submit:" + textOf(c.Parts))
 }
@@ -402,5 +414,30 @@ func TestSendingToOneAgentDoesNotWaitOnTheOthers(t *testing.T) {
 	}
 	if got := eng.seen(); len(got) != 1 {
 		t.Errorf("the healthy daemon received %v", got)
+	}
+}
+
+// The context panel says a companion is nearly full; this is the lever beside the reading.
+//
+// The daemon has accepted `compact` since it was written and the TUI calls it — the gap was that
+// nothing on the console did, so a supervisor could see the problem and had to open a terminal.
+func TestTheConsoleCanFoldACompanionsHistory(t *testing.T) {
+	f := newFleetFixture(t)
+	eng := &recordingEngine{}
+	wd := shortTempDir(t)
+	sock := f.liveDaemon(t, wd, "api", eng)
+
+	if w := post(t, f.srv, f.srv.compact, "/compact?d="+url.QueryEscape(sock), nil); w.Code != http.StatusNoContent {
+		t.Fatalf("compacting answered %d: %s", w.Code, w.Body.String())
+	}
+	if got := eng.seen(); len(got) != 1 || !strings.HasPrefix(got[0], "compact") {
+		t.Errorf("the daemon was told %v", got)
+	}
+	// A GET does not fold anything: it changes the session.
+	if w := get(t, f.srv.compact, "/compact?d="+url.QueryEscape(sock)); w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("GET /compact answered %d", w.Code)
+	}
+	if got := eng.seen(); len(got) != 1 {
+		t.Errorf("a GET reached the daemon: %v", got)
 	}
 }

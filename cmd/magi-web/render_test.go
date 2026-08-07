@@ -1195,3 +1195,46 @@ console.log(JSON.stringify({text: byId.detail.text}));
 		t.Errorf("the panel does not say why there is no figure:\n%s", text)
 	}
 }
+
+// The lever sits beside the reading it answers, and it says what it costs. "Compact" is a word that
+// sounds free; the live window loses the original wording, and only the shards keep it.
+func TestTheContextPanelOffersTheFold(t *testing.T) {
+	got := runPage(t, `[]`, "", `
+let asks = 0;
+globalThis.fetch = async (p, init) => {
+  if (init && init.method === 'POST') { RENDERED.push({to: p}); return {ok: true, status: 204, text: async () => ''}; }
+  if (!p.startsWith('/context')) return {ok: true, json: async () => []};
+  return {ok: true, json: async () => ({model: 'qwen3', window: 100000, used: 82000, messages: ++asks})};
+};
+const at = {socket: '/s/a.sock', name: 'api', state: 'idle', workdir: '/w', session: 's1'};
+await drawDetail(at);
+const fold = byId.detail.find('button').filter(b => b.className === 'fold')[0];
+const title = fold.attrs.title;
+await fold.onclick();
+// The same companion, unchanged: without invalidation the panel would hold pre-fold numbers, and
+// nothing about an idle companion would ever change the key that would refresh them.
+await drawDetail(at);
+console.log(JSON.stringify({title, disabled: fold.disabled, asks,
+  posts: RENDERED.filter(r => r.to)}));
+`)
+	if !strings.Contains(got["title"].(string), "recalled") {
+		t.Errorf("the button does not say what a fold costs: %q", got["title"])
+	}
+	posts := got["posts"].([]any)
+	if len(posts) != 1 || !strings.HasPrefix(posts[0].(map[string]any)["to"].(string), "/compact") {
+		t.Fatalf("pressing it sent %v", posts)
+	}
+	if !strings.Contains(posts[0].(map[string]any)["to"].(string), "d=%2Fs%2Fa.sock") {
+		t.Errorf("the fold was not aimed at the companion: %v", posts[0])
+	}
+	// Pressed once. A second press before the first lands would fold twice.
+	if got["disabled"] != true {
+		t.Error("the button stayed pressable while its request was in flight")
+	}
+	// And the reading is asked again. The fold changed exactly the thing the panel is showing, and
+	// nothing about an idle companion would otherwise change the key that refreshes it — the panel
+	// would sit on pre-fold numbers indefinitely.
+	if got["asks"].(float64) != 2 {
+		t.Errorf("the context was asked %v times across a fold, want 2", got["asks"])
+	}
+}

@@ -411,6 +411,16 @@ const indexHTML = `<!doctype html>
   #detail .f .bar i { display:block; height:100%; background:var(--primary); }
   #detail .f .bar.tight i { background:var(--warn); }
   #detail .f .v small { color:var(--muted); font-size:11px; }
+  #detail .f .fold {
+    justify-self:start; margin-top:.4rem; background:none; border:0;
+    border-bottom:1px solid var(--outlineVariant); border-radius:0; color:var(--muted);
+    font:600 9.5px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
+    padding:.3rem .1rem; min-height:44px; cursor:pointer;
+  }
+  #detail .f .fold:hover:not(:disabled) { color:var(--primary); border-bottom-color:var(--primary); }
+  /* Disabled by the cursor and the missing hover, not by fading the text: a control dimmed below
+     the contrast floor is one somebody has to lean in to read to find out it is unavailable. */
+  #detail .f .fold:disabled { cursor:default; border-bottom-color:transparent; }
 
   /* ── the agent's own plan ───────────────────────────────────────────────── */
   #plan { max-width:var(--measure); margin-bottom:1.2rem; }
@@ -979,6 +989,24 @@ async function drawContext(a, box, field) {
   size.append(note);
   const f = cell('f');
   f.append(cell('k', 'context'), size);
+  // The lever beside the reading. magi folds by itself when the window fills past its ratio; this
+  // is for the case that rule does not cover — somebody who can see the run is about to need room
+  // and would rather it happened now, between turns, than in the middle of the next one.
+  const fold = document.createElement('button');
+  fold.className = 'fold'; fold.type = 'button'; fold.textContent = 'compact now';
+  fold.title = 'summarise the older turns — the detail stays on disk and can be recalled, but the ' +
+               'live window loses the original wording';
+  // Returns its promise, for the same reason drawDetail does: a caller that wants to know when the
+  // fold has landed — a test, or a later screen — has no other way, and the held reading must be
+  // dropped before anything redraws or the panel keeps showing pre-fold numbers.
+  fold.onclick = () => {
+    fold.disabled = true;
+    return post('/compact', null, a.socket, a.peer).then(() => {
+      ctxHeld = {key: '', data: null};
+      return loadFleet();
+    });
+  };
+  f.append(fold);
   if (c.window) {
     const pct = Math.min(100, Math.round((c.used || 0) * 100 / c.window));
     const bar = cell('bar' + (pct >= 80 ? ' tight' : ''));
