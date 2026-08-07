@@ -131,7 +131,27 @@ again in their own file.
 
 ## 3. The design language
 
-### 3.1 Material 3 roles, editorial layout
+### 3.1 Material 3, actually — audited
+
+The colours used M3's role NAMES over a palette of our own and nothing else of the system, until
+somebody looked at the screen and said so. Counted then: every radius 2px (not on the shape scale),
+type at 9.5·10.5·11.5·12.5·13.5·15.5·17px (not on the type scale), no `on-` roles, no surface
+containers, no state layers. Counted now, mechanically, by the audit in `.claude/skills/material-3`:
+
+| | |
+|---|---|
+| shape | 18 radii, **0 off the scale** (4·8·12·16·24·full, plus a stated 0) |
+| type | literals are 11·12·14·16px, the rest through tokens; **0 off the scale** |
+| colour | 10 `on-` roles, 12 surface-container roles, both themes |
+| interaction | one state-layer recipe — 8% hover, 12% focus and press — on everything that responds |
+| motion | `cubic-bezier(0.2, 0, 0, 1)` / 100ms, from material-components-android's Motion.md |
+| targets | 48px minimum, Material's, with 7 `:focus-visible` rules |
+
+Deliberate deviations, each for a reason written at the rule: text buttons keep a 0 radius (a pill
+in a reading column reads as a control floating over prose), and disabled is drawn by the cursor
+and a missing hover rather than by fading — the contrast guard caught 3.49:1 on the first attempt.
+
+### 3.1a Roles and editorial layout
 
 The colours use **M3 role names** with values taken **verbatim** from the TUI's palette
 (nervDark / nervLight in `internal/adapter/tui/styles.go`). Two surfaces drawing the same agent in
@@ -141,7 +161,21 @@ The editorial part is the layout: a `74ch` measure for prose, `108ch` for the tr
 are code, where wrapping costs more than width), generous rules, a gutter of small-caps labels, and
 a user's turn set like a pull quote — display face, rule down the left.
 
-### 3.2 Type
+### 3.2 Language
+
+Labels come from a pack per locale — `cmd/magi-web/i18n/language.{en,ko}.json`, flat dot-keyed —
+chosen by `localStorage['lang']`, then the browser, falling back to English. The convention is
+borrowed wholesale from the handbook project rather than invented.
+
+The handler inlines the English pack ahead of the page, so the FIRST paint already has words; a
+pack that lands later repaints the labels written in the markup and **does not re-render the
+view** — a pack can arrive mid-interaction, and re-rendering there wipes what somebody is reading
+(found exactly that way: a detail panel lost its context block while the language was in flight).
+
+A test requires every key the page asks for to exist in BOTH packs, so a label can never render as
+its own dotted key because a string was added to one file.
+
+### 3.3 Type
 
 - **Newsreader** (OFL), an editorial serif drawn for screens, **embedded in the binary** and served
   from it (`/font/`). A page that fetched its typeface would make its own appearance depend on
@@ -152,18 +186,18 @@ a user's turn set like a pull quote — display face, rule down the left.
 - Monospace for labels, states, paths and the transcript. Every line there is something the machine
   said or did, and a serif would be dressing up evidence.
 
-### 3.3 Contrast and focus
+### 3.4 Contrast and focus
 
 Contrast is **computed, not eyeballed**: the quiet parts still have to be readable, so `--muted`
 clears WCAG AA against its background. Everything interactive has a `:focus-visible` outline, and
 touch targets are at least 44px.
 
-### 3.4 Dark and light
+### 3.5 Dark and light
 
 Both palettes are defined under `prefers-color-scheme`. There is no toggle — the OS already knows,
 and asking again is asking twice.
 
-### 3.5 On a phone
+### 3.6 On a phone
 
 - Under 640px the composer wraps so the text box keeps a full row. Measured: without it the box was
   squeezed to a third of the row and the placeholder was cut mid-sentence.
@@ -176,7 +210,7 @@ and asking again is asking twice.
 - Enter sends on a keyboard and inserts a newline on touch: a soft keyboard's return is the only way
   to break a line there.
 
-### 3.6 PWA
+### 3.7 PWA
 
 `manifest.webmanifest` and `icon.svg`, so it opens from a home screen without an address bar. The
 icon is served by the binary too, for the reason in §3.2.

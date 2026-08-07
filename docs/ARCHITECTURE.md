@@ -575,6 +575,13 @@ magi -daemon          the App, no UI, listening on <config>/daemon-<dir>-<hash>.
   companion's external tool servers), and the five that change a run — `/submit` `/interrupt`
   `/answer` `/dispatch` `/compact` — each forwarded to the daemon that owns it. A test checks that
   every path the page references is one this binary serves.
+- **The binary carries what the page loads.** The typeface, the vendored RxJS bundle
+  (`cmd/magi-web/vendor`, built once from a pinned version with its hash written down) and the
+  language packs (`cmd/magi-web/i18n`) are embedded and served from this process. Nothing is
+  fetched from a CDN: a page that reached out would depend on somebody else's machine being up and
+  would tell it when you look at your agents. A test walks every path the page references and
+  requires the static demo to carry each one — added after a deploy went out blank because the
+  page had become an ES module and the demo still copied only the fonts.
 - **No authentication of magi's own**, by decision: loopback, and reached through whatever the
   organisation already runs. See `proposals/companions-and-supervision-2026-08-07.md` for the
   supervision model this exists to serve.
