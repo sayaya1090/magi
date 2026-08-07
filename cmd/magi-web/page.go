@@ -168,7 +168,11 @@ const indexHTML = `<!doctype html>
   }
   #back:hover { color:var(--primary); border-bottom-color:var(--primary); }
 
-  main { padding:1.6rem 1.4rem 9rem; max-width:var(--wide); margin:0 auto; }
+  /* The dock is fixed and its height changes — a prompt bar appears above the composer, and the
+     composer itself grows with what you type. A constant padding here either wastes a screen of
+     space or hides the last thing the agent said behind the controls, and on a phone it is the
+     second one. The page measures the dock and reserves exactly that. */
+  main { padding:1.6rem 1.4rem calc(var(--dock, 8rem) + 2rem); max-width:var(--wide); margin:0 auto; }
 
   /* ── the fleet, as a column of entries ──────────────────────────────────── */
   /* Rules, not boxes. A card with a border around it is a widget; a rule between entries is a
@@ -328,8 +332,14 @@ const indexHTML = `<!doctype html>
   #stop:hover { color:var(--error); border-bottom-color:var(--error); }
 
   @media (max-width:640px) {
+    /* The two buttons and a text box do not fit across 390px: measured, the box was left with
+       about a third of the row and the placeholder was cut mid-sentence. They take their own line,
+       which also puts them under the thumb rather than beside it. */
+    .composer { flex-wrap:wrap; }
+    .composer textarea { flex:1 0 100%; }
+    .composer button { flex:1; }
     header { padding-left:1rem; padding-right:1rem; }
-    main { padding:1.2rem 1rem 9.5rem; }
+    main { padding:1.2rem 1rem calc(var(--dock, 8rem) + 1.5rem); }
     .card .name { font-size:18px; }
     .row { grid-template-columns:1fr; gap:.2rem; }
     .who { text-align:left; }
@@ -450,12 +460,13 @@ function retitle(waiting) {
 // opposite of where you would be, having opened this agent to watch it.
 function drawPrompt(a) {
   const box = document.getElementById('prompt');
-  if (!a || a.state !== 'waiting') { box.hidden = true; box.replaceChildren(); return; }
+  if (!a || a.state !== 'waiting') { box.hidden = true; box.replaceChildren(); measureDock(); return; }
   const inner = document.createElement('div'); inner.className = 'inner';
   const k = document.createElement('div'); k.className = 'asking'; k.textContent = '⏸ ' + a.asking;
   inner.append(k, answerBox(a));
   box.replaceChildren(inner);
   box.hidden = false;
+  measureDock();
 }
 
 async function loadFleet() {
@@ -520,6 +531,7 @@ function render() {
   fleetEl.hidden = !!s; log.hidden = !s; f.hidden = !s; back.hidden = !s;
   sidEl.textContent = s ? s.replace(/^.*\//, '') : '';
   document.getElementById('prompt').hidden = true;
+  measureDock();
   if (s) { draw([]); connect(); }
   else { state.className = ''; state.textContent = ''; }
   // Both views poll the fleet: the dashboard for its cards, an agent's page for the one thing about
@@ -538,7 +550,16 @@ async function post(path, body, socket) {
 }
 
 const t = document.getElementById('t');
-const grow = () => { t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 192) + 'px'; };
+const grow = () => { t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 192) + 'px'; measureDock(); };
+
+// The transcript reserves whatever the dock is actually occupying. Its height changes with the
+// composer as you type and with the prompt bar appearing, and a guessed constant either wastes a
+// screen or hides the last thing the agent said — on a phone, the second.
+const dock = document.getElementById('dock');
+function measureDock() {
+  document.documentElement.style.setProperty('--dock', (dock.offsetHeight || 0) + 'px');
+}
+if (typeof ResizeObserver === 'function') new ResizeObserver(measureDock).observe(dock);
 t.addEventListener('input', grow);
 f.onsubmit = e => {
   e.preventDefault();

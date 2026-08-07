@@ -49,10 +49,13 @@ function element(tag) {
 }
 
 const byId = {};
-for (const id of ['fleet', 'log', 'state', 'sid', 'back', 'f', 't', 'stop', 'prompt']) byId[id] = element('div');
+for (const id of ['fleet', 'log', 'state', 'sid', 'back', 'f', 't', 'stop', 'prompt', 'dock']) byId[id] = element('div');
 
 globalThis.document = {
   title: "",
+  // The page measures its dock and writes the height into a custom property; a fake that cannot be
+  // written to would throw where the real one shrugs.
+  documentElement: { style: { setProperty(k, v) { this[k] = v; } } },
   body: { offsetHeight: 400, scrollHeight: 400 },
   createElement: element,
   getElementById(id) {
