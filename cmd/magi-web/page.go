@@ -377,10 +377,16 @@ const indexHTML = `<!doctype html>
     transition:width 250ms var(--ease-emphasized), transform 250ms var(--ease-emphasized);
   }
   body[nav="open"] { --rail-w:16rem; }
-  /* Collapsed, only the first word of each item shows and the settings would be unreadable, so
-     they are not drawn at all rather than clipped. */
-  #rail #railFoot, body:not([nav="open"]) #rail md-list-item::part(supporting-text) { display:none; }
-  body[nav="open"] #rail #railFoot { display:block; }
+  /* Collapsed, the rail is 4.5rem and a word like "connections" is not — so collapsed shows the
+     icon and nothing else. Clipping the label instead would put half a word on screen, which reads
+     as a bug rather than as a choice. The label still exists for a screen reader: it is the
+     item's aria-label, set beside the text in paint(). */
+  #rail .lbl { white-space:nowrap; }
+  body:not([nav="open"]) #rail .lbl { display:none; }
+  body:not([nav="open"]) #rail md-list-item { --md-list-item-leading-space:14px; }
+  #rail #railFoot { display:none; }
+  body[nav="open"] #rail #railFoot { display:flex; }
+  #rail .ic { flex:none; display:block; }
   #rail md-list {
     --md-list-container-color:transparent;
     --md-list-item-label-text-font:var(--mono);
@@ -411,22 +417,6 @@ const indexHTML = `<!doctype html>
     border:0; padding:0;
   }
   #menu { --md-icon-button-icon-color:var(--muted); color:var(--muted); }
-
-  /* Wide: the rail is always there, so the page starts to the right of it and the tabs go away —
-     two navigations for one set of four sections is one too many. */
-  @media (min-width:769px) {
-    header, main, #dock .inner, #dock form { padding-left:calc(var(--rail-w, 4.5rem) + 1.4rem); }
-    #tabs { display:none; }
-    #scrim { display:none; }
-  }
-  /* Narrow: the tabs navigate and the rail is a drawer that is not there until asked for. Its own
-     navigation list would be a second copy of the tabs, so it does not draw one. */
-  @media (max-width:768px) {
-    #rail { --rail-w:17rem; transform:translateX(-100%); box-shadow:none; }
-    body[nav="open"] #rail { transform:translateX(0); }
-    #rail #railNav { display:none; }
-    #rail #railFoot { display:flex; }
-  }
 
   /* The dock is fixed and its height changes — a prompt bar appears above the composer, and the
      composer itself grows with what you type. A constant padding here either wastes a screen of
@@ -545,8 +535,10 @@ const indexHTML = `<!doctype html>
      chip already knows what selected looks like, how to be reached with arrow keys, and how to
      draw a state layer. Written as buttons here before, they knew none of it. The chip renders a
      slot when it has no label attribute, so the count and the word stay ours. */
-  #summary { display:flex; flex-wrap:wrap; gap:.5rem; padding-bottom:.9rem; margin-bottom:.2rem;
-             border-bottom:1px solid var(--outlineVariant); }
+  /* Clear of whatever is above it. The chips sat straight under the tab row with nothing between,
+     so the row of filters read as part of the tabs — two different kinds of control touching. */
+  #summary { display:flex; flex-wrap:wrap; gap:.5rem; padding-bottom:.9rem;
+             margin:1.4rem 0 .2rem; border-bottom:1px solid var(--outlineVariant); }
   .tile { --md-filter-chip-container-height:40px; --md-filter-chip-label-text-font:var(--mono); }
   .tile .n { font:600 var(--title-m) var(--display); color:var(--fg); margin-right:.45rem; }
   .tile .k {
@@ -838,6 +830,33 @@ const indexHTML = `<!doctype html>
      recolouring the text does not. */
   .composer button:focus-visible { outline:3px solid var(--primary); outline-offset:2px; }
 
+  /* ── the two widths ─────────────────────────────────────────────────────
+     LAST in the stylesheet, and that is load-bearing. A media query adds no specificity, so these
+     rules only win by coming after the ones they override — and they did not. Written above the
+     sections they contradict, the wide rule lost to a later "#tabs { display:flex }" and the page
+     offset lost to a later "padding:" shorthand, which resets the padding-left this sets. The
+     result was both navigations at once on a desktop and, on a narrow screen, a fixed rail sitting
+     on top of the page it was supposed to stand beside. */
+
+  /* Wide: the rail IS the navigation, so the tabs go — two of them for one set of four sections is
+     one too many. The page starts to the right of the rail, by exactly its width. */
+  @media (min-width:769px) {
+    header, main { padding-left:calc(var(--rail-w) + 1.9rem); }
+    #dock { padding-left:var(--rail-w); }
+    #tabs, #gear { display:none; }
+    #scrim { display:none; }
+  }
+  /* Narrow: the tabs navigate, so there is no hamburger — a menu button next to a row of tabs is
+     an invitation to look in the wrong place. What is left behind the button is the preferences,
+     so on this width it says so and wears a gear. */
+  @media (max-width:768px) {
+    #rail { --rail-w:17rem; transform:translateX(-100%); }
+    body[nav="open"] #rail { transform:translateX(0); }
+    #rail #railNav { display:none; }
+    #rail #railFoot { display:flex; }
+    #burger { display:none; }
+  }
+
   @media (max-width:640px) {
     /* The two buttons and a text box do not fit across 390px: measured, the box was left with
        about a third of the row and the placeholder was cut mid-sentence. They take their own line,
@@ -863,8 +882,13 @@ const indexHTML = `<!doctype html>
        page. Either way it is the way to the settings, which is why a phone has it too even though
        a phone navigates with the tabs. -->
   <md-icon-button id="menu" aria-expanded="false">
-    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+    <svg id="burger" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
       <path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
+    </svg>
+    <svg id="gear" viewBox="0 0 24 24" width="21" height="21" aria-hidden="true">
+      <circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.8" fill="none"/>
+      <path d="M12 2.6v2.6M12 18.8v2.6M21.4 12h-2.6M5.2 12H2.6M18.6 5.4l-1.8 1.8M7.2 16.8l-1.8 1.8M18.6 18.6l-1.8-1.8M7.2 7.2 5.4 5.4"
+            stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/>
     </svg>
   </md-icon-button>
   <span class="mark">magi</span>
@@ -880,11 +904,34 @@ const indexHTML = `<!doctype html>
      they are real links with the component's ripple and focus ring: a rail you cannot middle-click
      is a navigation that forgot it was made of addresses. -->
 <nav id="rail">
+  <!-- The icons are drawn here rather than pulled from Material Symbols: that is a whole font to
+       embed for four glyphs, and this page already refuses a font CDN for the typeface it reads
+       with. Stroked in currentColor, so the selected state colours the shape with its label. -->
   <md-list id="railNav">
-    <md-list-item id="railFleet" type="link"></md-list-item>
-    <md-list-item id="railIv" type="link"></md-list-item>
-    <md-list-item id="railSkills" type="link"></md-list-item>
-    <md-list-item id="railMcp" type="link"></md-list-item>
+    <md-list-item id="railFleet" type="link">
+      <svg slot="start" class="ic" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path
+        d="M4 19v-1.6a3.4 3.4 0 0 1 3.4-3.4h2.2a3.4 3.4 0 0 1 3.4 3.4V19M8.5 6.2a2.6 2.6 0 1 1 0 5.2 2.6 2.6 0 0 1 0-5.2M15.5 19v-1.6a3.4 3.4 0 0 0-1.2-2.6M15 6.4a2.6 2.6 0 0 1 0 5"
+        fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span class="lbl"></span>
+    </md-list-item>
+    <md-list-item id="railIv" type="link">
+      <svg slot="start" class="ic" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path
+        d="M4 5.5h16v9.5H9.5L5.5 18.5V15H4zM8 8.8h8M8 11.8h5"
+        fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span class="lbl"></span>
+    </md-list-item>
+    <md-list-item id="railSkills" type="link">
+      <svg slot="start" class="ic" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path
+        d="M5 4.5h9.5A2.5 2.5 0 0 1 17 7v12.5H7.5A2.5 2.5 0 0 1 5 17zM19 6.5v13M8.5 8.5h5M8.5 11.5h5"
+        fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span class="lbl"></span>
+    </md-list-item>
+    <md-list-item id="railMcp" type="link">
+      <svg slot="start" class="ic" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path
+        d="M9.5 14.5 5.8 18.2M14.5 9.5l3.7-3.7M7.4 11.1 5.6 12.9a3.2 3.2 0 0 0 4.5 4.5l1.8-1.8M12.1 6.6l1.8-1.8a3.2 3.2 0 0 1 4.5 4.5l-1.8 1.8M9.8 14.2l4.4-4.4"
+        fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span class="lbl"></span>
+    </md-list-item>
   </md-list>
   <div id="railFoot">
     <div class="k" id="prefsK">preferences</div>
@@ -1829,8 +1876,12 @@ function paint() {
   consoleK.textContent = tr('nav.this_console');
   for (const [el, key] of [[railFleet, 'nav.companions'], [railIv, 'nav.corrections'],
                            [railSkills, 'nav.lessons'], [railMcp, 'nav.connections']]) {
+    // The word is on the item whether or not it is drawn: collapsed, the icon is all there is to
+    // see, and a rail nobody can read aloud is not a navigation. The icon itself is markup and is
+    // not touched here — a shape does not need translating, and rebuilding it on every language
+    // change would throw away four elements to replace them with the same four.
     el.setAttribute('aria-label', tr(key));
-    el.replaceChildren(cell('', tr(key)));
+    el.querySelector('.lbl').textContent = tr(key);
   }
   paintChoice(themeEl, 'theme');
   paintChoice(langEl, 'lang');

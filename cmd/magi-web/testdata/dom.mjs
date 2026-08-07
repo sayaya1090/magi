@@ -78,6 +78,22 @@ function element(tag) {
     // A predicate is allowed as well as a tag, because a control's tag is now the library's choice:
     // the same button is `md-text-button` here and `md-filled-button` there, and a test that asks
     // for `button` would report an empty card rather than a restyled one.
+    // querySelector, for the one shape the page needs: a class among this node's descendants. The
+    // markup holds elements the module does not create — the rail's icons and labels — and the
+    // page reaches into them by class rather than giving each of eight an id of its own.
+    querySelector(sel) {
+      const want = String(sel).replace(/^\./, '');
+      const hit = (n) => String(n.className || '').split(' ').includes(want);
+      const walk = (n) => {
+        for (const k of n.children) {
+          if (hit(k)) return k;
+          const deeper = walk(k);
+          if (deeper) return deeper;
+        }
+        return null;
+      };
+      return walk(this);
+    },
     find(t) {
       const hit = typeof t === 'function' ? t(this) : this.tag === t;
       const out = hit ? [this] : [];
@@ -106,7 +122,13 @@ for (const id of ['fleet', 'log', 'state', 'sid', 'back', 'f', 't', 'stop', 'pro
 // it activates by index into its own children. A flat bag of ids would let the page set an index
 // nothing answers to, and every tab would read as unselected.
 for (const id of ['tabFleet', 'tabIv', 'tabSkills', 'tabMcp']) byId.tabs.append(byId[id]);
-for (const id of ['railFleet', 'railIv', 'railSkills', 'railMcp']) byId.railNav.append(byId[id]);
+for (const id of ['railFleet', 'railIv', 'railSkills', 'railMcp']) {
+  byId.railNav.append(byId[id]);
+  // The label is markup, not something the module creates: paint() writes into it by class.
+  const lbl = element('span');
+  lbl.className = 'lbl';
+  byId[id].append(lbl);
+}
 
 globalThis.document = {
   title: "",
