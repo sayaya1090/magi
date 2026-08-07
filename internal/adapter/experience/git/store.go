@@ -296,13 +296,19 @@ func itoa(n int) string {
 // been re-learned says whether it is settled, when it was last seen says whether it still applies,
 // and the groups say who it reaches.
 type SkillInfo struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Body        string   `json:"body"`
-	Groups      []string `json:"groups,omitempty"`
-	Observed    int      `json:"observed"`
-	FirstSeen   string   `json:"firstSeen,omitempty"`
-	LastSeen    string   `json:"lastSeen,omitempty"`
+	Name        string `json:"name"`
+	Kind        string `json:"kind"` // "skill" — a procedure; "memory" — a fact
+	Description string `json:"description"`
+	Body        string `json:"body"`
+	// Groups gate a SKILL's visibility: an agent outside them never sees it. Tags decorate a
+	// MEMORY and gate nothing. Two fields rather than one because that difference is the whole
+	// reason a person reads this screen — a skill that reaches nobody and a memory labelled
+	// "auth" are not the same situation, and one field would print them identically.
+	Groups    []string `json:"groups,omitempty"`
+	Tags      []string `json:"tags,omitempty"`
+	Observed  int      `json:"observed"`
+	FirstSeen string   `json:"firstSeen,omitempty"`
+	LastSeen  string   `json:"lastSeen,omitempty"`
 }
 
 // Inventory lists everything in this tier, unscored and unfiltered.
@@ -319,13 +325,52 @@ func (s *Store) Inventory(ctx context.Context) ([]SkillInfo, error) {
 		}
 		h, body := parseSkill(text)
 		out = append(out, SkillInfo{
-			Name:        strings.TrimSuffix(filepath.Base(f), ".md"),
+			Name: strings.TrimSuffix(filepath.Base(f), ".md"), Kind: "skill",
 			Description: h.Description, Body: body, Groups: h.AgentGroups,
 			Observed: h.Observed, FirstSeen: h.FirstSeen, LastSeen: h.LastSeen,
 		})
 	}
+	// And the other half of the store. Memories are retrieved into prompts exactly as skills are,
+	// and until now nothing outside the retrieval could see one — an inventory that showed half a
+	// store would have a person governing the half that happens to be legible.
+	for _, f := range readDir(filepath.Join(s.dir, "memories")) {
+		text := readFile(f)
+		if text == "" {
+			continue
+		}
+		tags, body := parseMemory(text)
+		out = append(out, SkillInfo{
+			Name: strings.TrimSuffix(filepath.Base(f), ".md"), Kind: "memory",
+			Description: firstLine(body), Body: body, Tags: tags,
+			Observed: 1, // a fact is written once; there is no second observation to count
+		})
+	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
+}
+
+// parseMemory splits the "tags: a, b" line Propose writes off the front of a fact.
+func parseMemory(text string) ([]string, string) {
+	line, rest, ok := strings.Cut(text, "\n")
+	after, isTags := strings.CutPrefix(line, "tags:")
+	if !ok || !isTags {
+		return nil, strings.TrimSpace(text)
+	}
+	var tags []string
+	for _, t := range strings.Split(after, ",") {
+		if t = strings.TrimSpace(t); t != "" {
+			tags = append(tags, t)
+		}
+	}
+	return tags, strings.TrimSpace(rest)
+}
+
+// firstLine is the line a person scans, which for a fact is the fact.
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	return strings.TrimSpace(s)
 }
 
 // Forget removes one skill by name.
@@ -335,15 +380,20 @@ func (s *Store) Inventory(ctx context.Context) ([]SkillInfo, error) {
 // — never joined as a path from a caller — so nothing outside this tier's skills directory can be
 // reached by asking for it.
 func (s *Store) Forget(ctx context.Context, name string) error {
-	for _, f := range readDir(filepath.Join(s.dir, "skills")) {
-		if strings.TrimSuffix(filepath.Base(f), ".md") != name {
-			continue
+	// Both directories, one function: whichever kind the name turns out to be, the deletion has
+	// the same rule and the same danger, and a second copy of it would be the one that forgot to
+	// match against the listing instead of joining the caller's string to a path.
+	for _, kind := range []string{"skills", "memories"} {
+		for _, f := range readDir(filepath.Join(s.dir, kind)) {
+			if strings.TrimSuffix(filepath.Base(f), ".md") != name {
+				continue
+			}
+			if err := os.Remove(f); err != nil {
+				return fmt.Errorf("experience: forgetting %s: %w", name, err)
+			}
+			s.gitCommit(ctx, "magi: forget "+strings.TrimSuffix(kind, "s")+" "+name)
+			return nil
 		}
-		if err := os.Remove(f); err != nil {
-			return fmt.Errorf("experience: forgetting %s: %w", name, err)
-		}
-		s.gitCommit(ctx, "magi: forget skill "+name)
-		return nil
 	}
-	return fmt.Errorf("experience: no skill named %q in %s", name, s.dir)
+	return fmt.Errorf("experience: nothing named %q in %s", name, s.dir)
 }
