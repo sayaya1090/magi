@@ -27,7 +27,7 @@ them down rather than saying "built with esbuild".
 
 Licence: Apache-2.0 (RxJS), same as this repository.
 
-## material.js — Material Web 2.5.0, 135KB
+## material.js — Material Web 2.5.0, 225KB
 
 The M3 components themselves, so the design comes from the system rather than from CSS written here
 a second time. Only the ones the page uses are imported: `all.js` would register every component
@@ -42,10 +42,20 @@ the library ships.
     import '@material/web/button/filled-tonal-button.js';
     import '@material/web/button/text-button.js';
     import '@material/web/textfield/outlined-text-field.js';
+    import '@material/web/select/outlined-select.js';
+    import '@material/web/select/select-option.js';
+    import '@material/web/labs/card/outlined-card.js';
+    import '@material/web/chips/chip-set.js';
+    import '@material/web/chips/filter-chip.js';
     import '@material/web/tabs/tabs.js';
     import '@material/web/tabs/primary-tab.js';
     ENTRY
     npx esbuild@0.25 entry.mjs --bundle --format=esm --minify --outfile=material.js
-    #   sha256 57881410bbfd46fb73ff84c7e6ddda108b352761fc154175fc3117e451e5ee96
+    #   sha256 47a518eb2a078a9f21aa88e17ecc40ab6bd17dfc72a1ea2a5a673607ade533b6
+
+`labs/card` is the one import from the library's unstable half, taken deliberately: a card there is
+a container and nothing more — elevation, a background, a slot and an outline, with no ripple, no
+focus ring and no role — so an unstable API here can only change how a box is drawn. The interactive
+rows are NOT cards for the same reason: they are links, and this component would take the link away.
 
 Licence: Apache-2.0, same as this repository.
