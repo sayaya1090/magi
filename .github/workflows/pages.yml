@@ -55,17 +55,18 @@ jobs:
         with:
           path: ./_site
 
-  # Publishing is main's, because the github-pages environment restricts which branches may deploy
-  # to it and that restriction is a repository setting rather than something a workflow can grant
-  # itself. A dispatch on a branch still builds, still runs the tests, and still leaves the site as
-  # a downloadable artifact — it just does not publish, and it says so by not attempting it. The
-  # first branch run failed here with "not allowed to deploy to github-pages due to environment
-  # protection rules", which is a setting doing its job and reads as a broken build.
+  # Automatic publishing is main's. A DISPATCH publishes from wherever it was asked for, because
+  # somebody typing "run this on that branch" is asking for exactly that preview — and whether the
+  # branch may publish is already decided one layer up, by the github-pages environment's deployment
+  # branch list (Settings → Environments → github-pages). Two places deciding the same thing is how
+  # a permission that was granted stays refused.
   #
-  # To get branch previews instead: Settings → Environments → github-pages → Deployment branches.
+  # The first branch run failed here with "not allowed to deploy to github-pages due to environment
+  # protection rules" — a setting doing its job, reported as a broken build. That is the shape to
+  # keep: the environment refuses, loudly, and this file does not pre-refuse on its behalf.
   deploy:
     needs: build
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

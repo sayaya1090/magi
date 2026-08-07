@@ -7,8 +7,9 @@
 > **직접 보기:** <https://sayaya1090.github.io/magi/> — 진짜 페이지에 브라우저 안의 목업을 물린 것.
 > 액션은 "무엇을 보냈을지"만 말하고 실제로 한 척하지 않으며, 읽히는 값은 전부 픽스처다 — 화면을
 > 보여줄 뿐 서버가 도는 게 아니다. `cmd/magi-web/` 아래가 바뀔 때 `.github/workflows/pages.yml`이,
-> 그 패키지 테스트가 통과한 뒤에만 배포한다. 브랜치에서 돌리면 빌드·테스트만 하고 게시는 하지
-> 않는다 — github-pages 환경이 배포 가능 브랜치를 제한하며, 그건 저장소 설정이다.
+> 그 패키지 테스트가 통과한 뒤에만 배포한다. 푸시는 main에서만 게시하고, 손으로 돌리면 그 브랜치에서
+> 게시한다 — github-pages 환경이 그 브랜치를 허용한 경우에 한해서(Settings → Environments →
+> github-pages → Deployment branches).
 
 > 이 문서는 **as-built**이다. 콘솔 코드는 `cmd/magi-web/page.go` 한 파일(HTML+CSS+JS를 담은 Go
 > 문자열)이고, 여기 적힌 규칙은 테스트로 고정돼 있다(`render_test.go`가 node로 진짜 JS를 돌린다).
