@@ -341,6 +341,9 @@ const indexHTML = `<!doctype html>
   /* name + workspace, the way a console stacks a resource over its namespace */
   .card .name { font:600 16px/1.3 var(--display); color:var(--fg); overflow-wrap:anywhere; }
   .card:hover .name { color:var(--primary); }
+  .card .plan {
+    font:600 10px/1.4 var(--mono); letter-spacing:.1em; color:var(--muted); align-self:center;
+  }
   .card .role {
     font:600 11px/1.4 var(--mono); letter-spacing:.04em; color:var(--accent);
     overflow-wrap:anywhere; margin-top:.15rem;
@@ -408,6 +411,19 @@ const indexHTML = `<!doctype html>
   #detail .f .bar i { display:block; height:100%; background:var(--primary); }
   #detail .f .bar.tight i { background:var(--warn); }
   #detail .f .v small { color:var(--muted); font-size:11px; }
+
+  /* ── the agent's own plan ───────────────────────────────────────────────── */
+  #plan { max-width:var(--measure); margin-bottom:1.2rem; }
+  #plan .k {
+    font:600 9.5px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase;
+    color:var(--muted); margin-bottom:.4rem;
+  }
+  .td { display:grid; grid-template-columns:1.2rem 1fr; gap:.6rem; padding:.15rem 0; }
+  .td .mark { font:12px/1.6 var(--mono); color:var(--muted); text-align:center; }
+  .td .what { font-size:14px; color:var(--fg); overflow-wrap:anywhere; }
+  .td.completed .what, .td.done .what { color:var(--muted); text-decoration:line-through; }
+  .td.in_progress .mark { color:var(--primary); }
+  .td.in_progress .what { color:var(--primary); }
 
   /* ── work handed to other companions ────────────────────────────────────── */
   #handoffs {
@@ -547,6 +563,7 @@ const indexHTML = `<!doctype html>
   <div id="mcp" hidden></div>
   <div id="fleet"></div>
   <div id="detail" hidden></div>
+  <div id="plan" hidden></div>
   <div id="handoffs" hidden></div>
   <div id="log"></div>
 </main>
@@ -622,6 +639,9 @@ function card(a) {
   el.onclick = e => { e.preventDefault(); go(a.socket, a.peer); };
 
   el.append(cell('badge', a.state));
+  // How far through its own plan. Not a progress bar: a todo list is not a schedule, and a bar
+  // would promise a completion time nobody can honour.
+  if (a.planTotal) el.append(cell('plan', a.planDone + '/' + a.planTotal));
 
   const who = cell('who-col');
   who.append(cell('name', a.name));
@@ -848,11 +868,30 @@ function drawDetail(a) {
     field('session', a.session),
   );
   box.hidden = false;
+  drawPlan(a);
   drawHandoffs(a);
   // Returned rather than dropped: the caller does not wait for it, but a caller that WANTS to —
   // a test, or a later screen that needs the whole panel settled — has no other way to know when
   // the slow half landed, and a promise nobody can await is a promise nobody can check.
   return drawContext(a, box, field);
+}
+
+// ── the plan it is working through ───────────────────────────────────────────
+// The agent's own todo list, as it last recorded it. Shown as it is: an item it dropped is gone,
+// because the record is the whole plan each time and merging would resurrect what it decided
+// against.
+async function drawPlan(a) {
+  const box = document.getElementById('plan');
+  const todos = await fetchList('/plan' + qFor(a));
+  if (!todos || !todos.length) { box.hidden = true; box.replaceChildren(); return; }
+  const mark = t => t.status === 'completed' || t.status === 'done' ? '✓'
+                  : t.status === 'in_progress' ? '▸' : '·';
+  box.replaceChildren(cell('k', 'plan'), ...todos.map(t => {
+    const el = cell('td ' + (t.status || ''));
+    el.append(cell('mark', mark(t)), cell('what', t.content));
+    return el;
+  }));
+  box.hidden = false;
 }
 
 // ── what it handed to the others ─────────────────────────────────────────────
@@ -1277,6 +1316,7 @@ function render() {
   document.getElementById('stop').hidden = !s; // nothing to interrupt from the fleet view
   document.getElementById('detail').hidden = !s;
   document.getElementById('handoffs').hidden = true;
+  document.getElementById('plan').hidden = true;
   document.getElementById('prompt').hidden = true;
   sidEl.textContent = '';
   measureDock();

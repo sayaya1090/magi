@@ -814,7 +814,11 @@ globalThis.fetch = async (p) => ({ok: true, json: async () => p.startsWith('/con
   cached: 61500, cacheReported: true,
   compactions: 2, shed: 31000, lastBefore: 40000, lastAfter: 9000, lastAt: '2026-08-07T04:31:07Z',
   topics: ['internal/parse.go', 'discussion'],
-} : p.startsWith('/handoffs') ? [
+} : p.startsWith('/plan') ? [
+  {content: 'read the current empty states', status: 'completed'},
+  {content: 'write the spec', status: 'in_progress'},
+  {content: 'get it reviewed', status: 'pending'},
+] : p.startsWith('/handoffs') ? [
   {from: 'api', to: 'design', socket: '/s/d.sock', request: 'spec the empty state', state: 'idle',
    answer: 'here are the tokens'},
   {from: 'api', to: 'ops', socket: '/s/o.sock', request: 'check the alert', state: 'working'},
@@ -825,7 +829,7 @@ const box = byId.detail;
 const bars = box.find('div').filter(d => (d.className || '').startsWith('bar'));
 console.log(JSON.stringify({text: box.text, fields: box.children.length,
   fill: bars.length ? bars[0].children[0].style.width : '',
-  handed: byId.handoffs.text}));
+  handed: byId.handoffs.text, plan: byId.plan.text}));
 `)
 	text := got["text"].(string)
 	for _, want := range []string{"82,000 / 100,000 tokens", "measured", "41 messages", "2 folds",
@@ -849,6 +853,17 @@ console.log(JSON.stringify({text: box.text, fields: box.children.length,
 	// as "nearly empty", which is the opposite of what it would mean.
 	if got["fill"] != "82%" {
 		t.Errorf("the fill is at %v, not the measured share", got["fill"])
+	}
+
+	// The plan it is working through, as it last recorded it.
+	plan := got["plan"].(string)
+	for _, want := range []string{"read the current empty states", "write the spec", "get it reviewed"} {
+		if !strings.Contains(plan, want) {
+			t.Errorf("the plan is missing %q:\n%s", want, plan)
+		}
+	}
+	if !strings.Contains(plan, "✓") || !strings.Contains(plan, "▸") {
+		t.Errorf("the plan does not distinguish done from in-flight:\n%s", plan)
 	}
 
 	// What it handed to the others, and what came back. A companion answers in its own transcript,

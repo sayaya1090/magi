@@ -132,3 +132,19 @@ func TestALongTaskIsOneClippedLine(t *testing.T) {
 		}
 	}
 }
+
+// The list says what a companion is for, which team it speaks for, and how far through its own plan
+// it is. A step count says it is alive; the plan counts say whether it is getting anywhere.
+func TestTheAgentListCarriesRoleTeamAndPlan(t *testing.T) {
+	var b strings.Builder
+	printAgents(&b, []fleet.Agent{{
+		Name: "design", Role: "the design system", Team: "frontend", Hub: true,
+		Workdir: "/w/design", State: fleet.Working, Steps: 4, PlanDone: 2, PlanTotal: 5, Idle: 3,
+	}}, "/cfg")
+	out := b.String()
+	for _, want := range []string{"design", "the design system", "[frontend*]", "4 (2/5)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the line does not carry %q:\n%s", want, out)
+		}
+	}
+}

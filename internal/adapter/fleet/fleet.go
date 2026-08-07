@@ -27,6 +27,7 @@ import (
 type Reader interface {
 	Interventions(ctx context.Context, sid session.SessionID) ([]app.Intervention, error)
 	UnfinishedTurnOf(ctx context.Context, sid session.SessionID) (app.UnfinishedTurn, bool)
+	PlanOf(ctx context.Context, sid session.SessionID) ([]session.Todo, error)
 	SessionState(ctx context.Context, sid session.SessionID) ([]session.Message, int64, error)
 	ListSessions(ctx context.Context, workdir string) ([]session.SessionMeta, error)
 	NewSince(ctx context.Context, sid session.SessionID, seq int64) (int64, bool, error)
@@ -60,6 +61,7 @@ type cacheEntry struct {
 	said   string
 	open   app.UnfinishedTurn
 	isOpen bool
+	plan   []session.Todo
 }
 
 // seen returns what was cached for a session and the sequence it was built at.
@@ -140,8 +142,13 @@ type Agent struct {
 	AskKind string `json:"askKind"` // "permission" | "question"
 	Task    string `json:"task"`    // what the open turn asked for, or the last thing said
 	Steps   int    `json:"steps"`   // tool calls the open turn has made — what a crash would cost
-	Idle    int    `json:"idle"`    // seconds since the last event in the log; -1 if unknown
-	Here    bool   `json:"here"`    // the daemon in the directory the caller is standing in
+	// PlanDone and PlanTotal are the agent's own todo list, counted. "working" says it is alive;
+	// "working · 3/7" says whether it is getting anywhere, which is the question somebody has when
+	// they look twice in ten minutes.
+	PlanDone  int  `json:"planDone,omitempty"`
+	PlanTotal int  `json:"planTotal,omitempty"`
+	Idle      int  `json:"idle"` // seconds since the last event in the log; -1 if unknown
+	Here      bool `json:"here"` // the daemon in the directory the caller is standing in
 }
 
 // List describes every daemon published under configDir, newest first. here is the socket the
@@ -179,7 +186,8 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 				a.Idle = int(time.Since(m.LastActivity).Seconds())
 			}
 		}
-		open, isOpen, said := fromLog(ctx, r, cache, sid)
+		open, isOpen, said, plan := fromLog(ctx, r, cache, sid)
+		a.PlanDone, a.PlanTotal = app.PlanProgress(plan)
 		switch {
 		case in.Live && in.Asking != nil:
 			// Blocked on a person beats anything the log says: the log shows an open turn, which
@@ -312,12 +320,12 @@ func nameOf(in daemon.Info) string {
 // is what makes it cheap: the store answers with a binary search over the tail rather than a read
 // of the log. Asking from zero would be the same answer at two hundred times the price, and this
 // runs for every agent on every refresh.
-func fromLog(ctx context.Context, r Reader, cache *Cache, sid session.SessionID) (app.UnfinishedTurn, bool, string) {
+func fromLog(ctx context.Context, r Reader, cache *Cache, sid session.SessionID) (app.UnfinishedTurn, bool, string, []session.Todo) {
 	from := int64(0)
 	if e, ok := cache.seen(sid); ok {
 		seq, changed, err := r.NewSince(ctx, sid, e.seq)
 		if err == nil && !changed {
-			return e.open, e.isOpen, e.said
+			return e.open, e.isOpen, e.said, e.plan
 		}
 		if err == nil {
 			return rebuild(ctx, r, cache, sid, seq)
@@ -328,17 +336,21 @@ func fromLog(ctx context.Context, r Reader, cache *Cache, sid session.SessionID)
 	}
 	seq, _, err := r.NewSince(ctx, sid, from)
 	if err != nil {
+		// Uncached: without a sequence there is no key, so this pays full price every time rather
+		// than caching an answer it cannot invalidate.
 		open, isOpen := r.UnfinishedTurnOf(ctx, sid)
-		return open, isOpen, lastSaid(ctx, r, sid) // uncached: without a sequence there is no key
+		plan, _ := r.PlanOf(ctx, sid)
+		return open, isOpen, lastSaid(ctx, r, sid), plan
 	}
 	return rebuild(ctx, r, cache, sid, seq)
 }
 
-func rebuild(ctx context.Context, r Reader, cache *Cache, sid session.SessionID, seq int64) (app.UnfinishedTurn, bool, string) {
+func rebuild(ctx context.Context, r Reader, cache *Cache, sid session.SessionID, seq int64) (app.UnfinishedTurn, bool, string, []session.Todo) {
 	open, isOpen := r.UnfinishedTurnOf(ctx, sid)
 	said := lastSaid(ctx, r, sid)
-	cache.put(sid, cacheEntry{seq: seq, said: said, open: open, isOpen: isOpen})
-	return open, isOpen, said
+	plan, _ := r.PlanOf(ctx, sid) // a plan that cannot be read is no plan, not a reason to drop the row
+	cache.put(sid, cacheEntry{seq: seq, said: said, open: open, isOpen: isOpen, plan: plan})
+	return open, isOpen, said, plan
 }
 
 // lastSaid is the final piece of text in a session — what an idle agent left behind.

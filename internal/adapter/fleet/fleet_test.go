@@ -334,11 +334,30 @@ func TestAnUnblockedDaemonIsNotWaiting(t *testing.T) {
 	}
 }
 
+// todos records a plan the way the agent's own todowrite does: the whole list, every time.
+func (f *fleetFixture) todos(sid string, td []session.Todo) {
+	f.t.Helper()
+	b, err := json.Marshal(event.TodosChangedData{Todos: td})
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	if _, err := f.store.Append(context.Background(), session.SessionID(sid),
+		event.Event{Type: event.TypeTodosChanged, Data: b, TS: time.Now()}); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
 // countingReader records how often the two whole-log derivations are asked for.
 type countingReader struct {
 	fleet.Reader
 	rebuilds int // transcript reconstructions (the last line)
 	reads    int // whole-log scans (is a turn still open)
+	plans    int // whole-log scans (the agent's own todo list)
+}
+
+func (c *countingReader) PlanOf(ctx context.Context, sid session.SessionID) ([]session.Todo, error) {
+	c.plans++
+	return c.Reader.PlanOf(ctx, sid)
 }
 
 func (c *countingReader) SessionState(ctx context.Context, sid session.SessionID) ([]session.Message, int64, error) {
@@ -544,5 +563,38 @@ func TestOnlyALabelledRequestCountsAsAHandoff(t *testing.T) {
 	}
 	if len(list) != 0 {
 		t.Errorf("a mention became a handoff: %+v", list)
+	}
+}
+
+// The plan is cached with everything else the log decides — one probe, one answer. It was not, at
+// first: the row kept its counts because it re-read the log every poll, which is the cost the whole
+// cache exists to avoid and which no test noticed.
+func TestAnIdlePlanIsNotReReadEveryRefresh(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := shortTempDir(t)
+	f.daemonAt(wd, "quiet", true)
+	f.session("quiet", wd, "the thing", 1, true)
+	f.todos("quiet", []session.Todo{{Content: "one", Status: "completed"}, {Content: "two"}})
+
+	r := &countingReader{Reader: f.reader}
+	var cache fleet.Cache
+	if _, err := fleet.ListCached(context.Background(), r, f.cfgDir, "", &cache); err != nil {
+		t.Fatal(err)
+	}
+	after := r.plans
+	if after == 0 {
+		t.Fatal("the first listing read no plan — the test is measuring nothing")
+	}
+	for i := 0; i < 3; i++ {
+		list, err := fleet.ListCached(context.Background(), r, f.cfgDir, "", &cache)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if list[0].PlanTotal != 2 || list[0].PlanDone != 1 {
+			t.Fatalf("refresh %d lost the counts: %d/%d", i, list[0].PlanDone, list[0].PlanTotal)
+		}
+	}
+	if r.plans != after {
+		t.Errorf("three refreshes of an idle agent re-read its plan %d more times", r.plans-after)
 	}
 }

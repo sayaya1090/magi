@@ -98,6 +98,19 @@ func (f *fleetFixture) daemonAt(workdir, sid string, live bool) string {
 	return sock
 }
 
+// todos records a plan the way the agent's own todowrite does: the whole list, every time.
+func (f *fleetFixture) todos(sid string, td []session.Todo) {
+	f.t.Helper()
+	b, err := json.Marshal(event.TodosChangedData{Todos: td})
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	if _, err := f.store.Append(context.Background(), session.SessionID(sid),
+		event.Event{Type: event.TypeTodosChanged, Data: b, TS: time.Now()}); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
 // session writes a log: a prompt, some tool calls, and a turn.finished only if finished is true.
 func (f *fleetFixture) session(sid, workdir, prompt string, steps int, finished bool) {
 	f.t.Helper()
@@ -205,5 +218,35 @@ func TestTargetAcceptsAnyListedDaemonAndNothingElse(t *testing.T) {
 	// it has nowhere to send.
 	if _, err := f.srv.target(httptest.NewRequest(http.MethodGet, "/events", nil)); err == nil {
 		t.Error("target with no ?d= and no local daemon should fail")
+	}
+}
+
+// The row says how far through its own plan a companion is. "working" says it is alive; "3/7" says
+// whether it is getting anywhere, which is what somebody looking twice in ten minutes wants.
+func TestARowCountsTheAgentsOwnPlan(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := shortTempDir(t)
+	f.daemonAt(wd, "api", true)
+	f.session("api", wd, "do the thing", 2, false)
+	f.todos("api", []session.Todo{
+		{Content: "one", Status: "completed"},
+		{Content: "two", Status: "in_progress"},
+		{Content: "three", Status: "pending"},
+	})
+
+	list := f.get()
+	if len(list) != 1 {
+		t.Fatalf("expected one companion, got %+v", list)
+	}
+	a := list[0]
+	if a.PlanDone != 1 || a.PlanTotal != 3 {
+		t.Errorf("the plan counted as %d/%d", a.PlanDone, a.PlanTotal)
+	}
+
+	// The whole plan is recorded each time, so the last record wins outright — a merge would
+	// resurrect an item the agent deliberately dropped.
+	f.todos("api", []session.Todo{{Content: "one", Status: "completed"}})
+	if a := f.get()[0]; a.PlanDone != 1 || a.PlanTotal != 1 {
+		t.Errorf("after the agent dropped two items the row says %d/%d", a.PlanDone, a.PlanTotal)
 	}
 }

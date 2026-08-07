@@ -33,9 +33,17 @@ func printAgents(w io.Writer, list []fleet.Agent, configDir string) {
 		if a.Role != "" {
 			name += "  — " + fleet.Clip(a.Role, 40)
 		}
+		if a.Team != "" {
+			name += "  [" + a.Team + map[bool]string{true: "*"}[a.Hub] + "]"
+		}
 		steps := "-"
 		if a.Steps > 0 {
 			steps = fmt.Sprint(a.Steps)
+		}
+		// How far through its own plan, in the steps column: the two numbers answer the same
+		// question a step count only half answers — is it getting anywhere.
+		if a.PlanTotal > 0 {
+			steps += fmt.Sprintf(" (%d/%d)", a.PlanDone, a.PlanTotal)
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", a.State, name, since(a.Idle), steps, a.Workdir)
 		// The task goes on its own line, indented: it is a sentence, and a sentence in a column

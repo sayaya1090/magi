@@ -414,6 +414,7 @@ func (s *server) routes() map[string]http.HandlerFunc {
 		"/dispatch":             s.dispatch,
 		"/mcp":                  s.mcp,
 		"/handoffs":             s.handoffs,
+		"/plan":                 s.plan,
 	}
 }
 
