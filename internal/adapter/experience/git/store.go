@@ -1,7 +1,7 @@
 // Package git implements a git-backed shared experience store (D13): a team's
 // accumulated memories and skills live in a directory (typically a git repo the
 // team commits/pulls). Retrieval is keyword-scored; contributions land in a
-// review queue (pending/) and are committed best-effort.
+// retrievable store and are committed best-effort.
 package git
 
 import (
@@ -22,9 +22,12 @@ import (
 
 // Store is a filesystem/git-backed ExperienceStore rooted at Dir with layout:
 //
-//	<dir>/memories/*.md   approved memories (retrievable)
-//	<dir>/skills/*.md     approved skills (first line = description)
-//	<dir>/pending/*.md    proposed contributions awaiting review
+//	<dir>/memories/*.md   memories (the whole file is the retrievable text)
+//	<dir>/skills/*.md     skills (first line = description)
+//
+// There is no pending/ — this comment advertised one for a year after the review gate went, and
+// EXTENDING.md taught a promotion step nobody could ever perform. See Propose for why the gate is
+// gone.
 type Store struct {
 	dir string
 }

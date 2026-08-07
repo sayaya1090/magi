@@ -135,12 +135,31 @@ X-Environment = "${DEPLOY_ENV}"
 ## 2. 공유 경험(experience store / RAG) 부트스트랩
 
 세션 시작 시 디렉터리의 **메모리·스킬을 키워드로 회수해 시스템 프롬프트에 주입**한다(D13).
-`remember` 툴이 새 학습을 리뷰 큐에 기여하고, 디렉터리를 git repo로 두면 팀이 공유한다
+`remember` 툴은 새 학습을 그 디렉터리에 **바로** 쓰고, 디렉터리를 git repo로 두면 팀이 공유한다
 (`internal/adapter/experience/git/store.go`).
 
 > ⚠️ **정직한 한계**: 여기서의 "RAG"는 **임베딩 벡터/시맨틱 검색이 아니라 단어 겹침
-> (term-overlap) 스코어링**이다. 승급도 자동이 아니라 **수동 리뷰**다. 시맨틱 검색이 필요하면
-> 별도 ContextProvider/MCP 서버로 붙여야 한다.
+> (term-overlap) 스코어링**이다. 시맨틱 검색이 필요하면 별도 ContextProvider/MCP 서버로 붙여야 한다.
+
+> ⚠️ **2026-08-07 정정.** 이 절은 `remember`가 `pending/` 리뷰 큐에 넣고 사람이 승급시킨다고
+> 적고 있었다. **그런 큐는 없다** — `Propose`는 `memories/`·`skills/`에 직접 쓰며, 리뷰 게이트를
+> 걷어낸 이후로 계속 그랬다. 의도된 것이다: 학습을 쓰기만 하고 되읽지 못하는 실행은 write-only다.
+> 리뷰는 **사후**에 한다 — 콘솔의 *what they have learned* 화면이 두 층의 모든 항목을 도달 범위와
+> 함께 보여주고 잘못된 것을 잊게 할 수 있으며(MANUAL §12), 스토어의 `git log`가 감사 기록이다.
+
+### 2.0 두 개의 층, 그리고 교훈이 어디로 가는가
+
+스토어는 layered store 이후로 **두 층**이다(`internal/adapter/experience/layered`). 교훈이 워크스페이스
+경계를 넘느냐를 결정하는 건 오직 이 층 선택이다:
+
+| 층 | 경로 | 도달 범위 |
+|---|---|---|
+| project | `<workspace>/.magi/experience` | 그 워크스페이스만 — repo에 들어가므로 팀도 함께 |
+| global | `<config>/experience`(또는 `experience_dir`) | 이 사람이 돌리는 모든 magi, 모든 프로젝트 |
+
+회수는 두 층을 **하나의** 예산 안에서 합친다 — 층을 늘려도 주입 컨텍스트가 넓어지지 않는다.
+기여는 `Scope`로 라우팅되고 기본은 **project**다(좁은 쪽). global로 올린 사실은 한 프로젝트의
+진실을 다른 프로젝트의 프롬프트에 흘리고, 몇 주 뒤엔 아무도 원인을 못 찾기 때문이다.
 
 ### 2.1 디렉터리 만들기
 
@@ -148,7 +167,7 @@ X-Environment = "${DEPLOY_ENV}"
 가리킨다.
 
 ```bash
-mkdir -p /path/to/team-experience/{memories,skills,pending}
+mkdir -p /path/to/team-experience/{memories,skills}
 cd /path/to/team-experience && git init   # (선택) git이면 기여가 자동 commit됨
 ```
 
@@ -161,9 +180,8 @@ experience_dir = "/path/to/team-experience"   # 생략 시 <config>/experience
 
 ```
 <dir>/
-  memories/*.md   # 승인된 메모리 — 파일 전체가 회수 대상 텍스트
-  skills/*.md     # 승인된 스킬 — 첫 줄 = 설명, 이후 = 본문
-  pending/*.md    # remember가 넣는 리뷰 대기 큐 (회수 안 됨)
+  memories/*.md   # 메모리 — 파일 전체가 회수 대상 텍스트
+  skills/*.md     # 스킬 — 첫 줄 = 설명, 이후 = 본문
 ```
 
 ### 2.2 메모리·스킬 파일 형식
@@ -192,16 +210,16 @@ experience_dir = "/path/to/team-experience"   # 생략 시 <config>/experience
 
 ### 2.4 기여 & 리뷰 (`remember`)
 
-- 에이전트(또는 사용자가 시켜서)가 `remember` 툴을 부르면 `pending/`에
-  `mem-<타임스탬프>-<n>.md`로 저장되고, git repo면 best-effort로 commit된다.
-  **바로 회수되지 않는다** — 리뷰 큐일 뿐.
-- **승급(리뷰)**: 사람이 `pending/`의 파일을 확인하고 좋은 것만 `memories/`(또는 `skills/`)로
-  옮긴다. 그래야 회수 대상이 된다.
+- 에이전트(또는 사용자가 시켜서)가 `remember` 툴을 부르면 `memories/`에
+  `mem-<내용해시>.md`로 저장되고 — **다음 턴부터 바로 회수된다** — git repo면 best-effort로
+  commit된다. 이름이 내용에서 나오므로 같은 사실을 두 번 배워도 사본이 아니라 같은 파일이 된다.
+- 스킬을 두 번 배우면 덮어쓰지 않고 **센다**: 파일에 `observed`·`first_seen`·`last_seen`이 남고,
+  그것이 자리 잡은 교훈과 일회성을 가르는 근거다.
+- **리뷰는 사전이 아니라 사후다.** 회수에서 빼놓는 게 없으므로, 이미 쓰이고 있는 것을 대상으로 본다.
   ```bash
-  cd "$EXPDIR"
-  mv pending/mem-20260622-120000-0.md memories/   # 검토 후 승급
-  git add -A && git commit -m "experience: approve memory"   # 팀 공유 시
+  cd "$EXPDIR" && git log --stat        # 무엇을 언제 배웠나
   ```
+  또는 콘솔(MANUAL §12)에서 — 모든 컴패니언의 두 층을 도달 범위와 함께 나열하고, 잊게 할 수 있다.
 - 🔒 **`remember`는 시크릿을 저장하면 안 된다** — 툴 설명에 명시돼 있고, 기여는 평문 .md로
   남아 git에 박힌다. 토큰/키/비밀번호는 절대 넣지 말 것.
 
@@ -214,7 +232,7 @@ best-effort `git commit`만 한다(자동 push/pull은 안 함) — pull/push는
 
 | 증상 | 원인/조치 |
 |---|---|
-| 메모리가 주입 안 됨 | 파일이 `pending/`에 있음(승급 필요) / 질의와 겹치는 단어 없음 / 빈 파일 |
+| 메모리가 주입 안 됨 | 질의와 겹치는 단어 없음 / 빈 파일 / 다른 층의 디렉터리에 있음(§2.0) |
 | `remember`가 "unavailable" | `experience_dir` 미설정이고 기본 경로도 없음 → §2.1로 디렉터리 생성 |
 | commit이 안 됨 | 디렉터리가 git repo가 아님 → `git init`(없어도 파일 저장 자체는 됨) |
 

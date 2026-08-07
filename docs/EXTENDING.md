@@ -145,13 +145,34 @@ Fields (`config.MCPServer`):
 ## 2. Bootstrapping the shared experience store (RAG)
 
 At session start, **memories and skills from a directory are retrieved by keyword and injected into
-the system prompt** (D13). The `remember` tool contributes new learnings to a review queue, and making
-the directory a git repo is how a team shares it
-(`internal/adapter/experience/git/store.go`).
+the system prompt** (D13). The `remember` tool writes new learnings straight into that directory, and
+making it a git repo is how a team shares it (`internal/adapter/experience/git/store.go`).
 
 > ⚠️ **An honest limit**: the "RAG" here is **term-overlap scoring, not embedding vectors or semantic
-> search**. Promotion is **a manual review**, not automatic. If you need semantic search, attach it as
-> a separate ContextProvider or MCP server.
+> search**. If you need semantic search, attach it as a separate ContextProvider or MCP server.
+
+> ⚠️ **Corrected 2026-08-07.** This section used to describe a `pending/` review queue that
+> `remember` wrote into and a person promoted from. **There is no such queue** — `Propose` writes to
+> `memories/` and `skills/` directly, and has since the review gate was removed, deliberately: a run
+> that can write learnings but never read them back is write-only. Review happens **after** the fact
+> instead: the console's *what they have learned* screen lists every entry in both tiers and can
+> forget a wrong one (MANUAL §12), and `git log` in the store is the audit trail.
+
+### 2.0 Two tiers, and which one a lesson lands in
+
+The store has been **two tiers** since the layered store landed
+(`internal/adapter/experience/layered`), and the tier a lesson goes to is the only thing that decides
+whether it crosses between workspaces:
+
+| Tier | Path | Reach |
+|---|---|---|
+| project | `<workspace>/.magi/experience` | that workspace only — and its repo, so the team gets it |
+| global | `<config>/experience` (or `experience_dir`) | every magi this person runs, on every project |
+
+Retrieval merges both under **one** budget, so adding a tier never widens the injected context.
+A contribution routes by `Scope`, defaulting to **project** — the narrower one, because a fact
+promoted to global leaks one project's truth into another's prompts and nobody finds the cause weeks
+later.
 
 ### 2.1 Creating the directory
 
@@ -159,7 +180,7 @@ The default location is `<config>/experience`. To share it with a team, make a s
 point `experience_dir` at it.
 
 ```bash
-mkdir -p /path/to/team-experience/{memories,skills,pending}
+mkdir -p /path/to/team-experience/{memories,skills}
 cd /path/to/team-experience && git init   # optional: in a git repo, contributions are committed
 ```
 
@@ -172,9 +193,8 @@ Layout:
 
 ```
 <dir>/
-  memories/*.md   # approved memories — the whole file is the retrievable text
-  skills/*.md     # approved skills — first line = description, the rest = body
-  pending/*.md    # the review queue `remember` writes into (never retrieved)
+  memories/*.md   # memories — the whole file is the retrievable text
+  skills/*.md     # skills — first line = description, the rest = body
 ```
 
 ### 2.2 Memory and skill file formats
@@ -207,16 +227,20 @@ Layout:
 ### 2.4 Contributing and reviewing (`remember`)
 
 - When the agent calls `remember` (on its own or because you asked it to), the note is written to
-  `pending/` as `mem-<timestamp>-<n>.md` and, in a git repo, committed best-effort.
-  **It is not retrieved yet** — it is only in the queue.
-- **Promotion (review)**: a person reads what is in `pending/` and moves the good ones into
-  `memories/` (or `skills/`). That is what makes them retrievable.
+  `memories/` as `mem-<content-hash>.md` — **retrievable from the next turn** — and, in a git repo,
+  committed best-effort. The name comes from the content, so learning the same fact twice writes the
+  same file rather than a second copy.
+- A skill learned twice is **counted**, not overwritten: the file keeps `observed`, `first_seen` and
+  `last_seen`, which is how a settled lesson is told from a one-off.
+- **Review is after the fact, not before it.** Nothing is held back from retrieval, so the reviewing
+  is done on what is already in use:
 
   ```bash
-  cd "$EXPDIR"
-  mv pending/mem-20260622-120000-0.md memories/   # after reading it
-  git add -A && git commit -m "experience: approve memory"   # when sharing with a team
+  cd "$EXPDIR" && git log --stat        # what has been learned, and when
   ```
+
+  or from the console (MANUAL §12), which lists both tiers of every companion with the reach of each
+  entry spelled out, and can forget one.
 
 - 🔒 **`remember` must not store secrets** — the tool's description says so, and a contribution lands
   as plain-text .md that gets committed. Never put a token, key, or password in one.
@@ -231,7 +255,7 @@ team's workflow.
 
 | Symptom | Cause / what to do |
 |---|---|
-| A memory is never injected | it is still in `pending/` (needs promoting) / no words shared with the query / the file is empty |
+| A memory is never injected | no words shared with the query / the file is empty / it is in the other tier's directory (§2.0) |
 | `remember` says "unavailable" | `experience_dir` is unset and the default path does not exist → create it per §2.1 |
 | Nothing is committed | the directory is not a git repo → `git init` (the file is still written without one) |
 
