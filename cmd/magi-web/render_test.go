@@ -335,3 +335,40 @@ console.log(JSON.stringify({intervals: RENDERED.filter(r => r.interval).map(r =>
 		t.Errorf("the poll is every %gms; a person waiting to be asked notices that", ms)
 	}
 }
+
+// Answering hits one URL with one target in it.
+//
+// The card builds its own ?d= because it can be answered from the dashboard, where the page has no
+// target of its own; post() adds the page's target for everything else. Both at once produced
+// /answer?d=X?d=X, which the server read as a path with a question mark in it and refused — and it
+// was invisible on the dashboard, where post()'s half is empty, and broken on an agent's page,
+// where it is not. Found by pressing the button in a browser, which is the only place the two
+// halves meet.
+func TestAnsweringSendsOneTargetNotTwo(t *testing.T) {
+	for _, view := range []struct{ name, query string }{
+		{"from the dashboard", ""},
+		{"from the agent's own page", "?d=%2Fs%2Fa.sock"},
+	} {
+		got := runPage(t, `[
+          {"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"waiting","live":true,
+           "asking":"bash: rm -rf build","askId":"call_7","askKind":"permission","idle":3}
+        ]`, view.query, `
+await loadFleet();
+const box = document.getElementById('prompt').hidden ? byId.fleet.children[0] : document.getElementById('prompt');
+// fetch records the call synchronously, before its first await, so nothing needs waiting on.
+box.find('button')[0].onclick({preventDefault(){}, stopPropagation(){}});
+console.log(JSON.stringify({posts: RENDERED.filter(r => r.method === 'POST').map(r => r.fetched)}));
+`)
+		posts := got["posts"].([]any)
+		if len(posts) != 1 {
+			t.Fatalf("%s: pressing allow sent %d requests", view.name, len(posts))
+		}
+		u := posts[0].(string)
+		if n := strings.Count(u, "?"); n != 1 {
+			t.Errorf("%s: the answer went to %q — %d question marks, want one", view.name, u, n)
+		}
+		if !strings.HasPrefix(u, "/answer?d=") || strings.Count(u, "d=") != 1 {
+			t.Errorf("%s: the answer went to %q", view.name, u)
+		}
+	}
+}

@@ -140,13 +140,13 @@ const indexHTML = `<!doctype html>
     position:sticky; top:0; z-index:2; background:var(--bg);
     border-bottom:1px solid var(--fg);
     box-shadow:0 3px 0 -2px var(--outlineVariant);   /* the hairline under the rule */
-    padding:.7rem 1.4rem .5rem;
+    padding:.85rem 1.4rem .6rem;
     padding-top:calc(.7rem + env(safe-area-inset-top));
     display:flex; gap:1rem; align-items:baseline; flex-wrap:wrap;
     max-width:var(--wide); margin:0 auto;
   }
   .mark {
-    font:600 22px/1 var(--display); letter-spacing:.01em; color:var(--primary);
+    font:600 27px/1 var(--display); letter-spacing:.01em; color:var(--primary);
     font-feature-settings:"liga" 1;
   }
   /* The three councillors, in their own hues — the signature the terminal wears, set as a
@@ -173,7 +173,10 @@ const indexHTML = `<!doctype html>
   /* ── the fleet, as a column of entries ──────────────────────────────────── */
   /* Rules, not boxes. A card with a border around it is a widget; a rule between entries is a
      page, and twenty agents read as a list of stories rather than a wall of chrome. */
-  #fleet { display:block; max-width:var(--measure); }
+  /* The entries span the page's column, not the prose measure: a rule under a name and a rule
+     under the masthead that stop at different places read as a mistake rather than as a hierarchy.
+     What is held to a measure is the LEAD LINE, which is the only prose here. */
+  #fleet { display:block; }
 
   .card {
     display:block; text-decoration:none; color:inherit;
@@ -217,7 +220,7 @@ const indexHTML = `<!doctype html>
   }
   /* The lead: what it is doing, set as a sentence rather than a log line. */
   .card .last {
-    font:italic 15.5px/1.55 var(--display); color:var(--fg); margin-top:.55rem;
+    font:italic 15.5px/1.55 var(--display); color:var(--fg); margin-top:.55rem; max-width:var(--measure);
     display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
   }
   .card .asking {
@@ -283,20 +286,25 @@ const indexHTML = `<!doctype html>
      prompt is not in the log — it is a question about what should happen, not a record of what did
      — so the transcript shows a run that has simply stopped. It sat above the composer because
      that is where the answer goes. */
+  /* One dock, two rows: the prompt above the composer rather than on top of it. Fixed separately
+     they both sat at the bottom, and the prompt — being the later one — hid the composer entirely,
+     so a blocked agent could be answered and not steered. Which is the wrong way round: "do
+     something else instead" is a legitimate reply to being asked. */
+  #dock {
+    position:fixed; left:0; right:0; bottom:0; z-index:2;
+    background:linear-gradient(to top, var(--bg) 88%, transparent);
+    padding-bottom:env(safe-area-inset-bottom);
+  }
   #prompt {
-    position:fixed; left:0; right:0; bottom:0; z-index:3;
     background:var(--bg); border-top:2px solid var(--warn);
-    padding:.9rem 1.4rem; padding-bottom:calc(.9rem + env(safe-area-inset-bottom));
+    padding:.9rem 1.4rem .8rem;
   }
   #prompt .inner { max-width:var(--wide); margin:0 auto; }
   #prompt .asking { font:600 14px/1.5 var(--mono); color:var(--warn); overflow-wrap:anywhere; }
 
   /* ── composer ───────────────────────────────────────────────────────────── */
   form {
-    position:fixed; left:0; right:0; bottom:0; z-index:2;
-    background:linear-gradient(to top, var(--bg) 74%, transparent);
-    padding:1rem 1.4rem; padding-bottom:calc(1rem + env(safe-area-inset-bottom));
-    display:flex; justify-content:center;
+    padding:1rem 1.4rem; display:flex; justify-content:center;
   }
   .composer {
     display:flex; gap:.9rem; width:100%; max-width:var(--wide); align-items:flex-end;
@@ -343,13 +351,14 @@ const indexHTML = `<!doctype html>
   <div id="log"></div>
 </main>
 
-<div id="prompt" hidden></div>
-
-<form id="f" hidden><div class="composer">
-  <textarea id="t" rows="1" placeholder="Ask magi to do something…"></textarea>
-  <button type="submit">send</button>
-  <button type="button" id="stop">interrupt</button>
-</div></form>
+<footer id="dock">
+  <div id="prompt" hidden></div>
+  <form id="f" hidden><div class="composer">
+    <textarea id="t" rows="1" placeholder="Ask magi to do something…"></textarea>
+    <button type="submit">send</button>
+    <button type="button" id="stop">interrupt</button>
+  </div></form>
+</footer>
 
 <script>
 const fleetEl = document.getElementById('fleet'), log = document.getElementById('log');
@@ -401,8 +410,12 @@ function card(a) {
 // are different intentions and the same tap must not do both.
 function answerBox(a) {
   const box = document.createElement('div'); box.className = 'answer';
-  const send = (text) => post('/answer?d=' + encodeURIComponent(a.socket),
-                              new URLSearchParams({call: a.askId, kind: a.askKind, text})).then(loadFleet);
+  // The socket is passed, not spliced into the path: post() adds the target itself, and doing it
+  // in both places produced /answer?d=X?d=X — which the server read as one path with a question
+  // mark in it and refused. Invisible on the dashboard, where post()'s own target is empty, and
+  // broken on an agent's page, where it is not.
+  const send = (text) => post('/answer', new URLSearchParams({call: a.askId, kind: a.askKind, text}),
+                              a.socket).then(loadFleet);
   if (a.askKind === 'question') {
     const i = document.createElement('input'); i.placeholder = 'your answer…';
     const b = document.createElement('button'); b.textContent = 'answer';
@@ -518,8 +531,9 @@ function go(s) { history.pushState({}, '', s ? '/?d=' + encodeURIComponent(s) : 
 back.onclick = e => { e.preventDefault(); go(null); };
 addEventListener('popstate', render);
 
-async function post(path, body) {
-  const r = await fetch(path + q(), {method:'POST', body});
+async function post(path, body, socket) {
+  const target = socket ? '?d=' + encodeURIComponent(socket) : q();
+  const r = await fetch(path + target, {method:'POST', body});
   if (!r.ok) { state.className = 'lost'; state.textContent = (await r.text()).trim().slice(0, 80); }
 }
 
