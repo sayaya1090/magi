@@ -409,6 +409,21 @@ const indexHTML = `<!doctype html>
   #detail .f .bar.tight i { background:var(--warn); }
   #detail .f .v small { color:var(--muted); font-size:11px; }
 
+  /* ── work handed to other companions ────────────────────────────────────── */
+  #handoffs {
+    max-width:var(--measure); border-bottom:1px solid var(--outlineVariant);
+    padding-bottom:1rem; margin-bottom:1.4rem;
+  }
+  #handoffs .k {
+    font:600 9.5px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase;
+    color:var(--muted); margin-bottom:.5rem;
+  }
+  .ho { display:grid; grid-template-columns:7rem 1fr; gap:.2rem 1rem; padding:.45rem 0; }
+  .ho .to { font:600 11px/1.6 var(--mono); letter-spacing:.08em; color:var(--accent); text-align:right; }
+  .ho .req { font:15px/1.45 var(--display); color:var(--fg); overflow-wrap:anywhere; }
+  .ho .ans { grid-column:2; font-size:12px; color:var(--muted); overflow-wrap:anywhere; }
+  .ho.working .to { color:var(--primary); }
+
   /* ── transcript ─────────────────────────────────────────────────────────── */
   /* Monospace throughout: every line here is something the machine said or did, and a serif would
      be dressing up evidence. The editorial part is the rhythm — a wide gutter of small-caps labels
@@ -532,6 +547,7 @@ const indexHTML = `<!doctype html>
   <div id="mcp" hidden></div>
   <div id="fleet"></div>
   <div id="detail" hidden></div>
+  <div id="handoffs" hidden></div>
   <div id="log"></div>
 </main>
 
@@ -832,10 +848,31 @@ function drawDetail(a) {
     field('session', a.session),
   );
   box.hidden = false;
+  drawHandoffs(a);
   // Returned rather than dropped: the caller does not wait for it, but a caller that WANTS to —
   // a test, or a later screen that needs the whole panel settled — has no other way to know when
   // the slow half landed, and a promise nobody can await is a promise nobody can check.
   return drawContext(a, box, field);
+}
+
+// ── what it handed to the others ─────────────────────────────────────────────
+// A companion answers in its own transcript and the asker reads it — cheap and honest, and it
+// leaves somebody clicking through five pages to find out whether the work is done. This is that
+// walk, done once, under the transcript of whoever handed it out.
+async function drawHandoffs(a) {
+  const box = document.getElementById('handoffs');
+  const list = await fetchList('/handoffs' + qFor(a));
+  if (!list || !list.length) { box.hidden = true; box.replaceChildren(); return; }
+  const rows = list.map(h => {
+    const el = cell('ho ' + h.state);
+    el.append(cell('to', h.to), cell('req', h.request));
+    // The answer only when the work is over. Anything else would be reporting a sentence
+    // mid-thought as a conclusion.
+    el.append(cell('ans', h.answer ? h.answer : 'still ' + h.state));
+    return el;
+  });
+  box.replaceChildren(cell('k', 'handed out'), ...rows);
+  box.hidden = false;
 }
 
 // ── what is in its head ──────────────────────────────────────────────────────
@@ -1228,6 +1265,7 @@ function render() {
   toEl.hidden = !!s;
   document.getElementById('stop').hidden = !s; // nothing to interrupt from the fleet view
   document.getElementById('detail').hidden = !s;
+  document.getElementById('handoffs').hidden = true;
   document.getElementById('prompt').hidden = true;
   sidEl.textContent = '';
   measureDock();

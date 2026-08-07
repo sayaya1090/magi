@@ -471,3 +471,78 @@ func TestAnAgentWhoseProbeFailsIsStillListed(t *testing.T) {
 		t.Errorf("the second listing came back as %+v (err %v)", again, err)
 	}
 }
+
+// What a companion handed out, and what came back. Derived from the receivers' transcripts — the
+// label is in their logs — so the answer is findable whether or not the asker is still running.
+func TestHandoffsReadTheAnswersOffTheReceiversLogs(t *testing.T) {
+	f := newFleetFixture(t)
+	done, busy := shortTempDir(t), shortTempDir(t)
+	f.daemonAt(done, "design", true)
+	f.daemonAt(busy, "api", true)
+
+	f.session("design", done, fleet.DispatchedBy("master")+"\n\nspec the empty state", 1, true)
+	f.session("api", busy, fleet.DispatchedBy("master")+"\n\nadd the idempotency key", 2, false)
+
+	var cache fleet.Cache
+	list, err := fleet.Handoffs(context.Background(), f.reader, f.cfgDir, "master", &cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("two handoffs came back as %d: %+v", len(list), list)
+	}
+	var finished, running fleet.Handoff
+	for _, h := range list {
+		if h.State == fleet.Working {
+			running = h
+		} else {
+			finished = h
+		}
+	}
+	// The request survives the round trip as it was written — the label is stripped, not the words.
+	if finished.Request != "spec the empty state" {
+		t.Errorf("the request came back as %q", finished.Request)
+	}
+	if finished.From != "master" {
+		t.Errorf("who asked came back as %q", finished.From)
+	}
+	// An idle receiver's last line IS the answer: there is no reply channel.
+	if finished.Answer == "" {
+		t.Errorf("a finished handoff carries no answer: %+v", finished)
+	}
+	// A line taken mid-turn is whatever it happened to be saying, which reads as a conclusion and
+	// is not one.
+	if running.Answer != "" {
+		t.Errorf("a running handoff reported an answer: %+v", running)
+	}
+
+	// Asking for somebody else's handoffs finds none, rather than everybody's.
+	if other, oerr := fleet.Handoffs(context.Background(), f.reader, f.cfgDir, "nobody", &cache); oerr != nil || len(other) != 0 {
+		t.Errorf("a stranger's handoffs came back as %+v (%v)", other, oerr)
+	}
+	// And with nobody named, everything handed around here.
+	if all, aerr := fleet.Handoffs(context.Background(), f.reader, f.cfgDir, "", &cache); aerr != nil || len(all) != 2 {
+		t.Errorf("the unfiltered view came back as %+v (%v)", all, aerr)
+	}
+}
+
+// An ordinary prompt is not a handoff, and a prompt that merely mentions the phrase is not either:
+// the label opens the message or it is not a label.
+func TestOnlyALabelledRequestCountsAsAHandoff(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := shortTempDir(t)
+	f.daemonAt(wd, "api", true)
+	// Shaped exactly like a label — comma, blank line and all — but not at the front, which is the
+	// only thing that makes one. Anything looser and quoting a handoff in conversation creates one.
+	f.session("api", wd, "somebody said \""+fleet.DispatchedBy("master")+
+		"\" in passing\n\nwhich is not a request", 1, true)
+
+	var cache fleet.Cache
+	list, err := fleet.Handoffs(context.Background(), f.reader, f.cfgDir, "", &cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 0 {
+		t.Errorf("a mention became a handoff: %+v", list)
+	}
+}

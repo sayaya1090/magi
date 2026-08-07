@@ -395,7 +395,7 @@ func Interventions(ctx context.Context, r Reader, configDir string, since time.D
 		if ierr != nil {
 			continue // a companion whose log cannot be read is not a reason to answer nothing
 		}
-		name := filepath.Base(in.Workdir)
+		name := nameOf(in)
 		for _, iv := range ivs {
 			if since > 0 && iv.At.Before(cutoff) {
 				continue
@@ -408,6 +408,106 @@ func Interventions(ctx context.Context, r Reader, configDir string, since time.D
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].At > out[j].At })
 	return out, nil
+}
+
+// DispatchMark opens the sentence that says a turn was started by another companion.
+//
+// It is three things at once, deliberately: the label a person reads, the fact the no-chaining rule
+// is read off, and the thing this package greps for to reconstruct who handed what to whom. A
+// marker with no meaning to a human is one that gets "cleaned up" by somebody who does not know
+// what it is for; a marker with three readers must have exactly one spelling.
+const DispatchMark = "— asked by "
+
+// DispatchedBy renders the label.
+func DispatchedBy(who string) string {
+	return DispatchMark + who + ", another companion on this machine. Answer it here; they will " +
+		"read what you say from your transcript."
+}
+
+// Handoff is one piece of work a companion handed to another, and what became of it.
+//
+// Derived from the transcripts, like everything else here: the label is in the receiver's log, so
+// the record exists without anybody having written a handoff down. Which matters more than it
+// sounds — it means the asker does not have to be running, or to have kept anything in memory, for
+// the answer to be findable.
+type Handoff struct {
+	From    string `json:"from"`    // who asked, as the label names them
+	To      string `json:"to"`      // the companion it was handed to
+	Socket  string `json:"socket"`  // …and how to open it
+	Request string `json:"request"` // what was asked, as it was written
+	// No timestamp. A rebuilt transcript carries no per-message time — that lives on the events,
+	// which this package's Reader deliberately does not expose — and inventing one from the
+	// session's last activity would date every handoff to the same moment. What a person actually
+	// wants from this view is "is it done and what did it say", and both of those are here; the
+	// receiver's idle time on its own row says how fresh the answer is.
+	// State and Answer are where it got to: the receiver's state now, and — when it is idle — the
+	// last thing it said, which IS the answer. There is no reply channel; this is the reply.
+	State  State  `json:"state"`
+	Answer string `json:"answer,omitempty"`
+}
+
+// Handoffs reads what was handed to the companions here, newest first.
+//
+// from is optional: naming it answers "what did I hand out and what came back", which is the
+// question an orchestrator has. Leaving it empty answers "what is being handed around here", which
+// is the question a supervisor has.
+func Handoffs(ctx context.Context, r Reader, configDir, from string, cache *Cache) ([]Handoff, error) {
+	agents, err := ListCached(ctx, r, configDir, "", cache)
+	if err != nil {
+		return nil, err
+	}
+	out := []Handoff{}
+	for _, a := range agents {
+		if a.Session == "" {
+			continue
+		}
+		msgs, _, merr := r.SessionState(ctx, session.SessionID(a.Session))
+		if merr != nil {
+			continue // one unreadable log is not a reason to answer nothing
+		}
+		for _, m := range msgs {
+			if m.Role != session.RoleUser {
+				continue
+			}
+			for _, p := range m.Parts {
+				who, req, ok := parseHandoff(p.Text)
+				if !ok || (from != "" && !strings.EqualFold(who, from)) {
+					continue
+				}
+				h := Handoff{From: who, To: a.Name, Socket: a.Socket, Request: Clip(req, 400),
+					State: a.State}
+				// The answer only when the work is over. A line taken mid-turn is whatever it
+				// happened to be saying, which reads as a conclusion and is not one.
+				if a.State == Idle || a.State == Stopped {
+					h.Answer = Clip(a.Task, 400)
+				}
+				out = append(out, h)
+			}
+		}
+	}
+	// Grouped by who has it, and in transcript order within each — the order they were asked in,
+	// which is the only ordering the seam actually knows.
+	sort.SliceStable(out, func(i, j int) bool { return out[i].To < out[j].To })
+	return out, nil
+}
+
+// parseHandoff splits a labelled request back into who asked and what they asked.
+func parseHandoff(text string) (who, request string, ok bool) {
+	if !strings.HasPrefix(text, DispatchMark) {
+		return "", "", false
+	}
+	rest := strings.TrimPrefix(text, DispatchMark)
+	who, after, cut := strings.Cut(rest, ",")
+	if !cut {
+		return "", "", false
+	}
+	// The request is what follows the label's own paragraph. Everything before the blank line is
+	// the sentence this package wrote; everything after is the caller's words, untouched.
+	_, req, split := strings.Cut(after, "\n\n")
+	if !split {
+		return "", "", false
+	}
+	return strings.TrimSpace(who), req, true
 }
 
 // Clip shortens s to at most n bytes on a rune boundary, marking that it was cut.

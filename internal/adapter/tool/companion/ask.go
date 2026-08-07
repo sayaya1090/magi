@@ -64,17 +64,10 @@ type Ask struct {
 	Cache     *fleet.Cache
 }
 
-// dispatchMark opens the sentence that says a turn was started by another companion. It is both the
-// label a person reads and the fact the no-chaining rule is read off, deliberately: a marker with
-// no meaning to a human is one that gets "cleaned up" by somebody who does not know what it is for.
-const dispatchMark = "— asked by "
-
-// DispatchedBy renders the label. Exported so anything else that hands over work — a console
-// dispatching on a person's behalf — writes the same sentence rather than a second dialect of it.
-func DispatchedBy(who string) string {
-	return dispatchMark + who + ", another companion on this machine. Answer it here; they will " +
-		"read what you say from your transcript."
-}
+// DispatchedBy renders the label that opens a handed-over request. It lives in fleet because the
+// view that reads handoffs back off the logs needs the same sentence, and two spellings of one
+// marker is one of them silently not matching.
+func DispatchedBy(who string) string { return fleet.DispatchedBy(who) }
 
 func (Ask) Name() string { return "ask_companion" }
 
@@ -199,7 +192,7 @@ func wasDispatched(ctx context.Context, r fleet.Reader, sid session.SessionID) b
 			continue
 		}
 		for _, p := range msgs[i].Parts {
-			if strings.Contains(p.Text, dispatchMark) {
+			if strings.Contains(p.Text, fleet.DispatchMark) {
 				return true
 			}
 		}

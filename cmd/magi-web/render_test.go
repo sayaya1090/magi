@@ -813,13 +813,18 @@ globalThis.fetch = async (p) => ({ok: true, json: async () => p.startsWith('/con
   model: 'qwen3', window: 100000, used: 82000, estimated: false, messages: 41,
   compactions: 2, shed: 31000, lastBefore: 40000, lastAfter: 9000, lastAt: '2026-08-07T04:31:07Z',
   topics: ['internal/parse.go', 'discussion'],
-} : []});
+} : p.startsWith('/handoffs') ? [
+  {from: 'api', to: 'design', socket: '/s/d.sock', request: 'spec the empty state', state: 'idle',
+   answer: 'here are the tokens'},
+  {from: 'api', to: 'ops', socket: '/s/o.sock', request: 'check the alert', state: 'working'},
+] : []});
 await drawDetail({socket: '/s/a.sock', name: 'api', state: 'working', workdir: '/w/api',
                   steps: 3, idle: 4, session: 's1', host: 'mini', addr: '10.0.0.4', pid: 4127});
 const box = byId.detail;
 const bars = box.find('div').filter(d => (d.className || '').startsWith('bar'));
 console.log(JSON.stringify({text: box.text, fields: box.children.length,
-  fill: bars.length ? bars[0].children[0].style.width : ''}));
+  fill: bars.length ? bars[0].children[0].style.width : '',
+  handed: byId.handoffs.text}));
 `)
 	text := got["text"].(string)
 	for _, want := range []string{"82,000 / 100,000 tokens", "measured", "41 messages", "2 folds",
@@ -841,6 +846,20 @@ console.log(JSON.stringify({text: box.text, fields: box.children.length,
 	// as "nearly empty", which is the opposite of what it would mean.
 	if got["fill"] != "82%" {
 		t.Errorf("the fill is at %v, not the measured share", got["fill"])
+	}
+
+	// What it handed to the others, and what came back. A companion answers in its own transcript,
+	// so without this a person walks five pages to learn whether the work is done.
+	handed := got["handed"].(string)
+	if !strings.Contains(handed, "design") || !strings.Contains(handed, "spec the empty state") {
+		t.Errorf("the handed-out work is missing:\n%s", handed)
+	}
+	if !strings.Contains(handed, "here are the tokens") {
+		t.Errorf("the answer to a finished handoff is missing:\n%s", handed)
+	}
+	// One still running reports that it is running rather than a line taken mid-thought.
+	if !strings.Contains(handed, "still working") {
+		t.Errorf("a running handoff does not say so:\n%s", handed)
 	}
 
 	got = runPage(t, `[]`, "", `
@@ -939,8 +958,8 @@ func TestTheContextIsNotReplayedOnEveryPoll(t *testing.T) {
 	got := runPage(t, `[]`, "", `
 let asks = 0;
 globalThis.fetch = async (p) => {
-  const mine = p.startsWith('/context') ? ++asks : 0;
-  return {ok: true, json: async () => ({model: 'qwen3', window: 100, used: 40, messages: mine})};
+  if (!p.startsWith('/context')) return {ok: true, json: async () => []};
+  return {ok: true, json: async () => ({model: 'qwen3', window: 100, used: 40, messages: ++asks})};
 };
 const at = (steps, state) => ({socket: '/s/a.sock', name: 'api', state: state || 'idle',
                                workdir: '/w', session: 's1', steps});
@@ -984,6 +1003,7 @@ let release;
 const held = new Promise(r => { release = r; });
 let n = 0;
 globalThis.fetch = async (p) => {
+  if (!p.startsWith('/context')) return {ok: true, json: async () => []};
   const mine = ++n;
   if (mine === 1) await held;                       // the first ask is the slow one
   return {ok: true, json: async () => ({model: 'qwen3', used: 10 * mine, messages: mine})};
