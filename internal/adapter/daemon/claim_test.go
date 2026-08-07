@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -23,44 +24,52 @@ import (
 func TestOnlyOneDaemonEverOwnsASocket(t *testing.T) {
 	dir := shortDir(t)
 	const rounds = 60
-	both := 0
 	for round := 0; round < rounds; round++ {
 		sock := filepath.Join(dir, fmt.Sprintf("r%d.sock", round))
-		ctx, cancel := context.WithCancel(context.Background())
+		// Listen rather than Serve, and no sleep anywhere. The invariant is "exactly one of them
+		// binds", which Listen answers by returning — waiting a fixed 15ms for the loser to be
+		// scheduled instead measured how busy the machine was, and reported a pass as a failure
+		// once in roughly twenty runs of the suite (observed 2026-08-07 under a full gate).
 		var wg sync.WaitGroup
-		// Sampled while both are still running, so the errors are read under a lock rather than
-		// after Wait: "did two of them survive at the same instant" is the question, and waiting
-		// for them to finish answers a different one.
 		var mu sync.Mutex
-		refused := 0
-		start := make(chan struct{})
+		var held []*Daemon
+		var refusals []string
 		for i := 0; i < 2; i++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				<-start
-				err := Serve(ctx, &fakeEngine{}, sock)
+				d, err := Listen(sock)
 				mu.Lock()
+				defer mu.Unlock()
 				if err != nil {
-					refused++
+					refusals = append(refusals, err.Error())
+					return
 				}
-				mu.Unlock()
+				// HELD, not closed here. Closing inside the goroutine releases the claim, and two
+				// starts that happen to run one after the other would then both bind legitimately
+				// — which is correct behaviour reported as the bug. The question is whether two can
+				// hold it AT ONCE, so both keep what they got until both have tried.
+				held = append(held, d)
 			}()
 		}
-		close(start)
-		time.Sleep(15 * time.Millisecond)
-		mu.Lock()
-		alive := 2 - refused
-		mu.Unlock()
-		if alive == 2 {
-			both++
-		}
-		cancel()
 		wg.Wait()
-	}
-	if both > 0 {
-		t.Errorf("two daemons owned one socket in %d of %d simultaneous starts — one of them is "+
-			"orphaned and both write the same log", both, rounds)
+		won := len(held)
+		defer func() {
+			for _, d := range held {
+				d.Close()
+			}
+		}()
+
+		if won != 1 {
+			t.Fatalf("round %d: %d of 2 simultaneous starts bound %s — anything but one means two "+
+				"engines writing one log, or none running at all. Refusals: %v",
+				round, won, sock, refusals)
+		}
+		// The loser is told which situation it is in. "another magi is starting or running" is a
+		// different thing to read at 3am from a bind error about a file.
+		if len(refusals) != 1 || !strings.Contains(refusals[0], "another magi") {
+			t.Fatalf("round %d: the refused start said %v", round, refusals)
+		}
 	}
 }
 
