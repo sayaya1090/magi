@@ -635,7 +635,7 @@ const indexHTML = `<!doctype html>
     .who { text-align:left; }
     .row.user .txt { font-size:16px; }
     form { padding-left:1rem; padding-right:1rem; }
-    #tabs { gap:.4rem 1.1rem; }
+
   }
 </style>
 
@@ -649,12 +649,12 @@ const indexHTML = `<!doctype html>
 </header>
 
 <main>
-  <nav id="tabs" hidden>
-    <a href="/" id="tabFleet" class="state">companions</a>
-    <a href="/?v=interventions" id="tabIv" class="state">corrections</a>
-    <a href="/?v=skills" id="tabSkills" class="state">lessons</a>
-    <a href="/?v=mcp" id="tabMcp" class="state">connections</a>
-  </nav>
+  <md-tabs id="tabs" hidden>
+    <md-primary-tab id="tabFleet">companions</md-primary-tab>
+    <md-primary-tab id="tabIv">corrections</md-primary-tab>
+    <md-primary-tab id="tabSkills">lessons</md-primary-tab>
+    <md-primary-tab id="tabMcp">connections</md-primary-tab>
+  </md-tabs>
   <div id="summary"></div>
   <div id="ivs" hidden></div>
   <div id="skills" hidden></div>
@@ -687,7 +687,7 @@ const indexHTML = `<!doctype html>
 // a slow answer landing on a panel that had been redrawn, a poll that kept firing after you left.
 // The Material Web components. Imported for the side effect — each module registers its custom
 // element — so the M3 design comes from the system instead of being written here a second time.
-import '/vendor/material.js';
+import '/vendor/material.js';   // buttons, text fields, tabs
 import { BehaviorSubject, timer, from, of, EMPTY,
          switchMap, catchError, map, distinctUntilChanged, shareReplay,
          filter as onlyWhen } from '/vendor/rxjs.js';
@@ -1158,8 +1158,8 @@ async function drawContext(a, box, field) {
   // The lever beside the reading. magi folds by itself when the window fills past its ratio; this
   // is for the case that rule does not cover — somebody who can see the run is about to need room
   // and would rather it happened now, between turns, than in the middle of the next one.
-  const fold = document.createElement('button');
-  fold.className = 'fold state'; fold.type = 'button'; fold.textContent = 'compact now';
+  const fold = document.createElement('md-text-button');
+  fold.className = 'fold'; fold.textContent = tr('action.compact_now');
   fold.title = 'summarise the older turns — the detail stays on disk and can be recalled, but the ' +
                'live window loses the original wording';
   // Returns its promise, for the same reason drawDetail does: a caller that wants to know when the
@@ -1332,8 +1332,8 @@ async function loadSkills() {
       (sk.tier === 'global' ? 'every companion' : 'only ' + sk.companion) +
       (sk.peer ? ' on ' + sk.peer : '')));
     top.append(cell('what', sk.description || sk.name));
-    const drop = document.createElement('button');
-    drop.className = 'drop state'; drop.type = 'button'; drop.textContent = 'forget';
+    const drop = document.createElement('md-text-button');
+    drop.className = 'drop'; drop.textContent = tr('action.forget');
     drop.title = 'remove this rule from the store';
     drop.onclick = () => {
       // A rule on another console is forgotten THERE. The socket is that machine's path and the
@@ -1381,8 +1381,8 @@ async function loadMCP() {
     const top = cell('top');
     top.append(cell('tier', sv.tier === 'global' ? 'every companion here' : 'only ' + sv.companion));
     top.append(cell('what', sv.name));
-    const drop = document.createElement('button');
-    drop.className = 'drop state'; drop.type = 'button'; drop.textContent = 'remove';
+    const drop = document.createElement('md-text-button');
+    drop.className = 'drop'; drop.textContent = tr('action.remove');
     drop.title = 'delete this definition from ' + sv.file;
     drop.onclick = () => {
       const body = new URLSearchParams({name: sv.name, delete: '1'});
@@ -1521,10 +1521,13 @@ function render() {
   crumbHere.textContent = s ? nameOf(s) : '';
   back.className = s ? '' : 'here';
   tabsEl.hidden = !!s;
-  tabFleet.className = v === 'fleet' ? 'on' : '';
-  tabIv.className = v === 'interventions' ? 'on' : '';
-  tabSkills.className = v === 'skills' ? 'on' : '';
-  tabMcp.className = v === 'mcp' ? 'on' : '';
+  // Which tab is current is the component's own state: md-primary-tab draws its indicator from the
+  // active property. Setting a class of ours instead would leave the library drawing one selection
+  // and this page another. (No backticks in this file — it is one Go raw string, and one ends it.)
+  tabFleet.active = v === 'fleet';
+  tabIv.active = v === 'interventions';
+  tabSkills.active = v === 'skills';
+  tabMcp.active = v === 'mcp';
   fleetEl.hidden = !!s || v !== 'fleet';
   summaryEl.hidden = !!s || v !== 'fleet';
   ivsEl.hidden = !!s || v !== 'interventions';

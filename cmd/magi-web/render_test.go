@@ -573,8 +573,8 @@ func TestTheTabsAreNamedAsPlaces(t *testing.T) {
 	}
 	// The strip itself, not the whole page: the same phrases are section headings in the CSS and
 	// the javascript, where they are prose about the code rather than labels somebody reads.
-	strip := indexHTML[strings.Index(indexHTML, `<nav id="tabs"`):]
-	strip = strip[:strings.Index(strip, "</nav>")]
+	strip := indexHTML[strings.Index(indexHTML, "<md-tabs id="):]
+	strip = strip[:strings.Index(strip, "</md-tabs>")]
 	for _, gone := range []string{"what I had to say", "what they have learned", "what they can reach"} {
 		if strings.Contains(strip, gone) {
 			t.Errorf("a sentence-shaped tab label survived: %q", gone)
@@ -717,10 +717,11 @@ console.log(JSON.stringify({text: byId.ivs.text}));
 // is neither of them, being one level in.
 func TestTheTabsSayWhichResourceIsShowing(t *testing.T) {
 	fleet := runPage(t, `[]`, "", `
-console.log(JSON.stringify({tabs: byId.tabs.hidden, fleetOn: byId.tabFleet.className,
-  ivOn: byId.tabIv.className, fleetHidden: byId.fleet.hidden, ivsHidden: byId.ivs.hidden}));
+// Which tab is current is the component's own active property, not a class of ours.
+console.log(JSON.stringify({tabs: byId.tabs.hidden, fleetOn: !!byId.tabFleet.active,
+  ivOn: !!byId.tabIv.active, fleetHidden: byId.fleet.hidden, ivsHidden: byId.ivs.hidden}));
 `)
-	if fleet["tabs"].(bool) || fleet["fleetOn"].(string) != "on" || fleet["ivOn"].(string) != "" {
+	if fleet["tabs"].(bool) || fleet["fleetOn"] != true || fleet["ivOn"] != false {
 		t.Errorf("on the fleet the tabs read %+v", fleet)
 	}
 	if fleet["ivsHidden"] != true || fleet["fleetHidden"] != false {
@@ -728,10 +729,10 @@ console.log(JSON.stringify({tabs: byId.tabs.hidden, fleetOn: byId.tabFleet.class
 	}
 	ivs := runPage(t, `[]`, "?v=interventions", `
 globalThis.fetch = async () => ({ok: true, json: async () => []});
-console.log(JSON.stringify({fleetOn: byId.tabFleet.className, ivOn: byId.tabIv.className,
+console.log(JSON.stringify({fleetOn: !!byId.tabFleet.active, ivOn: !!byId.tabIv.active,
   fleetHidden: byId.fleet.hidden, ivsHidden: byId.ivs.hidden, summaryHidden: byId.summary.hidden}));
 `)
-	if ivs["ivOn"].(string) != "on" || ivs["fleetOn"].(string) != "" {
+	if ivs["ivOn"] != true || ivs["fleetOn"] != false {
 		t.Errorf("on the interventions page the tabs read %+v", ivs)
 	}
 	if ivs["ivsHidden"] != false || ivs["fleetHidden"] != true || ivs["summaryHidden"] != true {
@@ -837,7 +838,7 @@ globalThis.fetch = async (p, init) => {
 };
 await loadSkills();
 const rows = byId.skills.children;
-rows[1].find('button')[0].onclick();
+rows[1].find('md-text-button')[0].onclick();
 console.log(JSON.stringify({
   rows: rows.map(r => ({cls: r.className, text: r.text})),
   state: byId.state.textContent,
@@ -1221,7 +1222,7 @@ for (const i of form.find('input')) {
 }
 form.find('select')[0].value = '/s/a.sock';
 await form.onsubmit({preventDefault(){}});
-const drops = byId.mcp.find('button').filter(b => (b.className || '').split(' ').includes('drop'));
+const drops = byId.mcp.find('md-text-button').filter(b => (b.className || '').split(' ').includes('drop'));
 drops[1].onclick();
 console.log(JSON.stringify({text, state: byId.state.textContent, posts: RENDERED.filter(r => r.to)}));
 `)
@@ -1289,7 +1290,7 @@ globalThis.fetch = async (p, init) => {
 };
 const agent = {socket: '/s/a.sock', name: 'api', state: 'idle', workdir: '/w', session: 's1'};
 await drawDetail(agent);
-const fold = byId.detail.find('button').filter(b => (b.className || '').split(' ').includes('fold'))[0];
+const fold = byId.detail.find('md-text-button').filter(b => (b.className || '').split(' ').includes('fold'))[0];
 const title = fold.attrs.title;
 await fold.onclick();
 // The same companion, unchanged: without invalidation the panel would hold pre-fold numbers, and

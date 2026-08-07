@@ -39,6 +39,9 @@ function element(tag) {
     addEventListener() {},
     requestSubmit() {},
     focus() {},
+    // md-primary-tab keeps its selection in a property, not a class.
+    set active(v) { this.attrs.active = !!v; },
+    get active() { return !!this.attrs.active; },
     set name(v) { this.attrs.name = v; },
     get name() { return this.attrs.name ?? ''; },
     set autocomplete(v) { this.attrs.autocomplete = v; },
