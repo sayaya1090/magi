@@ -6,7 +6,7 @@ package git
 
 import (
 	"context"
-	"github.com/sayaya1090/magi/internal/atomicfile"
+	"fmt"
 	"hash/fnv"
 	"os"
 	"os/exec"
@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sayaya1090/magi/internal/atomicfile"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
@@ -285,4 +286,64 @@ func itoa(n int) string {
 		n /= 10
 	}
 	return string(b)
+}
+
+// SkillInfo is one stored skill with the header a person governing the store needs.
+//
+// Retrieve answers "what is relevant to this query" and returns three; this answers "what is in
+// here", which is a different question and the one a supervisor asks. It carries the header rather
+// than only the description because the governance decisions are made on it: how often a lesson has
+// been re-learned says whether it is settled, when it was last seen says whether it still applies,
+// and the groups say who it reaches.
+type SkillInfo struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Body        string   `json:"body"`
+	Groups      []string `json:"groups,omitempty"`
+	Observed    int      `json:"observed"`
+	FirstSeen   string   `json:"firstSeen,omitempty"`
+	LastSeen    string   `json:"lastSeen,omitempty"`
+}
+
+// Inventory lists everything in this tier, unscored and unfiltered.
+//
+// No agent-group narrowing: that exists to keep a retrieval budget honest, and a person looking at
+// what the store holds must see the entries they are deciding about — including the ones narrowed
+// away from every agent, which are exactly the ones nobody would otherwise notice had gone stale.
+func (s *Store) Inventory(ctx context.Context) ([]SkillInfo, error) {
+	out := []SkillInfo{}
+	for _, f := range readDir(filepath.Join(s.dir, "skills")) {
+		text := readFile(f)
+		if text == "" {
+			continue
+		}
+		h, body := parseSkill(text)
+		out = append(out, SkillInfo{
+			Name:        strings.TrimSuffix(filepath.Base(f), ".md"),
+			Description: h.Description, Body: body, Groups: h.AgentGroups,
+			Observed: h.Observed, FirstSeen: h.FirstSeen, LastSeen: h.LastSeen,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+// Forget removes one skill by name.
+//
+// A promoted rule that turned out to be wrong has to be removable, or the store only ever grows and
+// a supervisor stops promoting for fear of it. The name is matched against what Inventory returned
+// — never joined as a path from a caller — so nothing outside this tier's skills directory can be
+// reached by asking for it.
+func (s *Store) Forget(ctx context.Context, name string) error {
+	for _, f := range readDir(filepath.Join(s.dir, "skills")) {
+		if strings.TrimSuffix(filepath.Base(f), ".md") != name {
+			continue
+		}
+		if err := os.Remove(f); err != nil {
+			return fmt.Errorf("experience: forgetting %s: %w", name, err)
+		}
+		s.gitCommit(ctx, "magi: forget skill "+name)
+		return nil
+	}
+	return fmt.Errorf("experience: no skill named %q in %s", name, s.dir)
 }
