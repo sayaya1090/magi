@@ -775,6 +775,62 @@ console.log(JSON.stringify({asked: RENDERED.filter(r => String(r.fetched).includ
 	}
 }
 
+// One button, two meanings, and the width decides which.
+//
+// Wide: the rail is already on screen and the button widens it, so the page behind stays usable
+// and there is no scrim. Narrow: the same drawer comes in OVER the page, so there is one, and
+// picking a destination closes it — a drawer left open on a phone hides the thing you navigated to.
+func TestTheDrawerMeansOneThingOnEachWidth(t *testing.T) {
+	wide := runPage(t, `[]`, "", `
+byId.menu.onclick();
+console.log(JSON.stringify({nav: document.body.getAttribute('nav'), scrim: byId.scrim.hidden,
+  said: byId.menu.getAttribute('aria-expanded')}));
+`)
+	if wide["nav"] != "open" || wide["scrim"] != true {
+		t.Errorf("on a wide screen the drawer reads %+v; the page behind it stays reachable", wide)
+	}
+	if wide["said"] != "true" {
+		t.Errorf("the button says aria-expanded=%v after opening", wide["said"])
+	}
+
+	t.Setenv("NARROW", "1")
+	narrow := runPage(t, `[]`, "", `
+globalThis.fetch = async () => ({ok: true, json: async () => []});
+byId.menu.onclick();
+const opened = {nav: document.body.getAttribute('nav'), scrim: byId.scrim.hidden};
+byId.railSkills.onclick({preventDefault(){}});
+console.log(JSON.stringify({opened, after: document.body.getAttribute('nav'), where: location.search}));
+`)
+	op := narrow["opened"].(map[string]any)
+	if op["nav"] != "open" || op["scrim"] != false {
+		t.Errorf("on a phone the drawer reads %+v; it covers the page, so it needs a scrim", op)
+	}
+	if narrow["after"] != nil {
+		t.Errorf("the drawer is still %v after picking a destination, hiding what was navigated to", narrow["after"])
+	}
+	if narrow["where"] != "?v=skills" {
+		t.Errorf("the rail went to %q", narrow["where"])
+	}
+}
+
+// The rail and the tabs are two ways to say the same thing, so they must say the same thing.
+func TestTheRailAgreesWithTheTabs(t *testing.T) {
+	got := runPage(t, `[]`, "?v=mcp", `
+globalThis.fetch = async () => ({ok: true, json: async () => []});
+console.log(JSON.stringify({
+  on: byId.tabs.activeTabIndex,
+  lit: ['railFleet','railIv','railSkills','railMcp'].filter(id => byId[id].hasAttribute('selected')),
+}));
+`)
+	if got["on"].(float64) != 3 {
+		t.Errorf("the tabs have %v active and connections is the fourth", got["on"])
+	}
+	lit := got["lit"].([]any)
+	if len(lit) != 1 || lit[0] != "railMcp" {
+		t.Errorf("the rail lights %v while the tabs are on connections", lit)
+	}
+}
+
 // The tabs say which resource is on screen and switch without a reload — and a companion's own page
 // is neither of them, being one level in.
 func TestTheTabsSayWhichResourceIsShowing(t *testing.T) {

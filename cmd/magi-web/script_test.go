@@ -59,15 +59,17 @@ func TestEveryElementTheScriptReachesForExists(t *testing.T) {
 // gained an attribute.
 func scriptBody(t *testing.T, page string) string {
 	t.Helper()
-	openAt := strings.Index(page, "<script")
-	if openAt >= 0 {
-		if gt := strings.Index(page[openAt:], ">"); gt >= 0 {
-			openAt += gt + 1
-		}
+	// The MODULE, not the first script on the page. There is a four-line one in the head that
+	// applies a stored theme before the stylesheet paints, and taking from the first <script to the
+	// last </script> swept it and the markup between them into what node was asked to run.
+	openAt := strings.Index(page, `<script type="module">`)
+	if openAt < 0 {
+		t.Fatal("the page has no module script")
 	}
+	openAt += len(`<script type="module">`)
 	closeAt := strings.LastIndex(page, "</script>")
-	if openAt < 0 || closeAt < 0 || closeAt < openAt {
-		t.Fatal("the page has no script block")
+	if closeAt < openAt {
+		t.Fatal("the module script is unterminated")
 	}
 	return page[openAt:closeAt]
 }

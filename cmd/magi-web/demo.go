@@ -65,6 +65,10 @@ const demoScript = `
   ];
   const answers = {
     '/fleet': fleet,
+    // Which machine this console is. A demo that left it blank would be showing the drawer with a
+    // hole in it, and the hole is the part that answers "am I looking at the right one".
+    '/console': {host: 'studio', configDir: '/Users/you/.config/magi',
+                 peers: ['mini', 'laptop']},
     '/interventions': [
       {companion: 'design', socket: '/demo/design.sock', kind: 'steer', afterSec: 8,
        text: 'use the tokens from the scale, not hand-written spacing', at: now},

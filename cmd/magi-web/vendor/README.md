@@ -27,7 +27,7 @@ them down rather than saying "built with esbuild".
 
 Licence: Apache-2.0 (RxJS), same as this repository.
 
-## material.js — Material Web 2.5.0, 225KB
+## material.js — Material Web 2.5.0, 242KB
 
 The M3 components themselves, so the design comes from the system rather than from CSS written here
 a second time. Only the ones the page uses are imported: `all.js` would register every component
@@ -45,13 +45,16 @@ the library ships.
     import '@material/web/select/outlined-select.js';
     import '@material/web/select/select-option.js';
     import '@material/web/labs/card/outlined-card.js';
+    import '@material/web/iconbutton/icon-button.js';
+    import '@material/web/list/list.js';
+    import '@material/web/list/list-item.js';
     import '@material/web/chips/chip-set.js';
     import '@material/web/chips/filter-chip.js';
     import '@material/web/tabs/tabs.js';
     import '@material/web/tabs/primary-tab.js';
     ENTRY
     npx esbuild@0.25 entry.mjs --bundle --format=esm --minify --outfile=material.js
-    #   sha256 47a518eb2a078a9f21aa88e17ecc40ab6bd17dfc72a1ea2a5a673607ade533b6
+    #   sha256 19cf9f14745754689a593f78a306132365527e9182a27c81eb38da631d525e75
 
 `labs/card` is the one import from the library's unstable half, taken deliberately: a card there is
 a container and nothing more — elevation, a background, a slot and an outline, with no ripple, no

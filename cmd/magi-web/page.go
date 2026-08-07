@@ -55,6 +55,16 @@ const indexHTML = `<!doctype html>
 <meta name="apple-mobile-web-app-title" content="magi">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>magi</title>
+<!-- Before the stylesheet, and deliberately not in the module at the end of the page: a theme
+     applied after first paint is a flash of the other one, and on a dark-preferring machine that
+     picked light it is a white flash in a dark room. Four lines, so it stays here rather than
+     becoming a file the page has to wait for. The module reads the same key. -->
+<script>
+  try {
+    var want = localStorage.getItem('theme');
+    if (want === 'light' || want === 'dark') document.documentElement.setAttribute('color-theme', want);
+  } catch (e) { /* storage can be denied; the machine's own preference still answers */ }
+</script>
 <style>
   /* Roles, verbatim from internal/adapter/tui/styles.go — nervDark / nervLight. */
   :root {
@@ -165,8 +175,21 @@ const indexHTML = `<!doctype html>
     --md-sys-typescale-headline-small-size:24px;
     --md-sys-typescale-headline-small-line-height:32px;
   }
+  /* Light, said twice on purpose.
+
+     The media query is the machine's answer and the attribute is the reader's, and the reader has
+     to be able to override the machine in BOTH directions — a dark-at-night machine chosen light,
+     and a light machine chosen dark. A page with only the query can be moved one way and not back.
+     The :not([color-theme]) is what makes the query yield the moment somebody chooses.
+
+     The two blocks carry the SAME declarations and a test in page_test.go fails if they stop
+     doing so — CSS has no way to give one ruleset two selectors across a media query, so the copy
+     is unavoidable and the drift is not.
+
+     The attribute is written by the inline script in the markup, before this stylesheet paints, so
+     a chosen theme does not flash the other one first. */
   @media (prefers-color-scheme: light) {
-    :root {
+    :root:not([color-theme]) {
       --primary:#B45309; --accent:#0E7490; --muted:#4A453C; --outline:#8A7E6E;
       --error:#B3261E; --success:#15803D; --surface:#F5EEE3;
       --primaryContainer:#F8D9A8; --outlineVariant:#D8CFC0; --warn:#92600A;
@@ -189,6 +212,29 @@ const indexHTML = `<!doctype html>
       --md-surface-container-high:#ECE5D9;
       --md-surface-container-highest:#E6DED1;
     }
+  }
+  :root[color-theme="light"] {
+    --primary:#B45309; --accent:#0E7490; --muted:#4A453C; --outline:#8A7E6E;
+    --error:#B3261E; --success:#15803D; --surface:#F5EEE3;
+    --primaryContainer:#F8D9A8; --outlineVariant:#D8CFC0; --warn:#92600A;
+    --melchior:#B45309; --balthasar:#0E7490; --casper:#B3261E;
+    --bg:#FBF8F3; --fg:#221D16;
+
+    /* ── M3, light ─────────────────────────────────────────────────────── */
+    /* The layers invert: a light theme gets DARKER as it rises. Built as its own ramp rather
+       than by dimming the dark one — a light theme has less headroom, and this page has been
+       caught before with eight of thirteen dimmed pairs under AA, the worst at 2.47:1. */
+    --md-on-primary:#FFFFFF;
+    --md-on-primary-container:#3A1B00;
+    --md-on-error:#FFFFFF;
+    --md-on-surface:#221D16;
+    --md-on-surface-variant:#4A453C;
+    --md-surface-dim:#EFE9DF;
+    --md-surface-container-lowest:#FFFFFF;
+    --md-surface-container-low:#F7F3EC;
+    --md-surface-container:#F2ECE2;
+    --md-surface-container-high:#ECE5D9;
+    --md-surface-container-highest:#E6DED1;
   }
 
   /* Newsreader, an editorial serif drawn for reading on screens, served from this binary — see
@@ -233,6 +279,9 @@ const indexHTML = `<!doctype html>
        feel like one. */
     --ease-standard:cubic-bezier(0.2, 0, 0, 1);
     --ease-decelerate:cubic-bezier(0.05, 0.7, 0.1, 1);
+    /* Read out of the shipped bundle rather than a document: it is what md-tabs animates its own
+       indicator with, so a container that opens beside them moves on the same curve. */
+    --ease-emphasized:cubic-bezier(0.3, 0, 0, 1);
     --dur-short2:100ms; --dur-short4:200ms; --dur-medium2:300ms;
 
     /* ── the M3 type scale ────────────────────────────────────────────────── */
@@ -309,6 +358,75 @@ const indexHTML = `<!doctype html>
     text-transform:uppercase; border-bottom:1px solid var(--outlineVariant); padding-bottom:2px;
   }
   #back:hover { color:var(--primary); border-bottom-color:var(--primary); }
+
+  /* ── the rail: navigation on a wide screen, settings on a narrow one ────── */
+  /* One element in two modes rather than two that have to agree. Wide: it stands beside the page
+     as a rail and the hamburger widens it into a drawer. Narrow: it is off-screen and the same
+     button slides it in over the page, with the tabs still doing the navigating — which is the
+     handbook's arrangement and the one M3 describes for these two widths.
+
+     The breakpoint is 768/769px, the handbook's, so the two products break in the same place. */
+  #rail {
+    position:fixed; top:0; bottom:0; left:0; z-index:3;
+    width:var(--rail-w, 4.5rem); box-sizing:border-box;
+    padding:calc(4.4rem + env(safe-area-inset-top)) .5rem 1.2rem;
+    background:var(--md-surface-container-low); border-right:1px solid var(--outlineVariant);
+    display:flex; flex-direction:column; gap:1rem; overflow:hidden auto;
+    /* Same curve and duration as the components use for a container that changes size, so the rail
+       and the page's own margin arrive together rather than one chasing the other. */
+    transition:width 250ms var(--ease-emphasized), transform 250ms var(--ease-emphasized);
+  }
+  body[nav="open"] { --rail-w:16rem; }
+  /* Collapsed, only the first word of each item shows and the settings would be unreadable, so
+     they are not drawn at all rather than clipped. */
+  #rail #railFoot, body:not([nav="open"]) #rail md-list-item::part(supporting-text) { display:none; }
+  body[nav="open"] #rail #railFoot { display:block; }
+  #rail md-list {
+    --md-list-container-color:transparent;
+    --md-list-item-label-text-font:var(--mono);
+    --md-list-item-label-text-size:12px;
+    --md-list-item-label-text-weight:600;
+    --md-list-item-label-text-color:var(--muted);
+    --md-list-item-container-shape:var(--shape-full);
+    --md-sys-color-primary:var(--primary);
+    --md-sys-color-on-surface:var(--md-on-surface);
+    --md-sys-color-on-surface-variant:var(--md-on-surface-variant);
+    letter-spacing:.1em; text-transform:uppercase;
+  }
+  /* Where you are, in the colour the rest of the page uses for it. A list item has no selected
+     state of its own — it is a list, not a set of choices — so this is ours, and it is a filled
+     shape rather than a colour change alone. */
+  #rail md-list-item[selected] {
+    --md-list-item-label-text-color:var(--primary);
+    --md-list-item-container-color:color-mix(in srgb, var(--primary) 14%, transparent);
+  }
+  #railFoot { display:flex; flex-direction:column; gap:.7rem; margin-top:auto; }
+  #railFoot .k {
+    font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
+  }
+  #console { font:12px/1.6 var(--mono); color:var(--muted); overflow-wrap:anywhere; }
+  #console b { color:var(--fg); font-weight:600; }
+  #scrim {
+    position:fixed; inset:0; z-index:2; background:color-mix(in srgb, #000 42%, transparent);
+    border:0; padding:0;
+  }
+  #menu { --md-icon-button-icon-color:var(--muted); color:var(--muted); }
+
+  /* Wide: the rail is always there, so the page starts to the right of it and the tabs go away —
+     two navigations for one set of four sections is one too many. */
+  @media (min-width:769px) {
+    header, main, #dock .inner, #dock form { padding-left:calc(var(--rail-w, 4.5rem) + 1.4rem); }
+    #tabs { display:none; }
+    #scrim { display:none; }
+  }
+  /* Narrow: the tabs navigate and the rail is a drawer that is not there until asked for. Its own
+     navigation list would be a second copy of the tabs, so it does not draw one. */
+  @media (max-width:768px) {
+    #rail { --rail-w:17rem; transform:translateX(-100%); box-shadow:none; }
+    body[nav="open"] #rail { transform:translateX(0); }
+    #rail #railNav { display:none; }
+    #rail #railFoot { display:flex; }
+  }
 
   /* The dock is fixed and its height changes — a prompt bar appears above the composer, and the
      composer itself grows with what you type. A constant padding here either wastes a screen of
@@ -705,7 +823,7 @@ const indexHTML = `<!doctype html>
     --md-sys-color-on-surface: var(--md-on-surface);
     --md-sys-color-on-surface-variant: var(--md-on-surface-variant);
     --md-sys-color-outline: var(--outline);
-    --md-sys-color-surface-container: var(--surfaceContainer);
+    --md-sys-color-surface-container: var(--md-surface-container);
     --md-outlined-select-text-field-input-text-font: var(--mono);
     --md-outlined-select-text-field-input-text-size: 16px;
     --md-outlined-select-text-field-label-text-font: var(--mono);
@@ -740,6 +858,15 @@ const indexHTML = `<!doctype html>
 </style>
 
 <header>
+  <!-- The hamburger is on both sizes and means two different things, which is the point: on a wide
+       screen it widens the rail into a drawer, on a narrow one it slides that drawer in over the
+       page. Either way it is the way to the settings, which is why a phone has it too even though
+       a phone navigates with the tabs. -->
+  <md-icon-button id="menu" aria-expanded="false">
+    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+      <path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
+    </svg>
+  </md-icon-button>
   <span class="mark">magi</span>
   <!-- Where you are, always, in both views: magi / fleet, or magi / fleet / <agent>. The middle
        crumb is the way back, which is the same element that says where back goes. -->
@@ -747,6 +874,27 @@ const indexHTML = `<!doctype html>
   <span class="sid" id="sid"></span>
   <span id="state"></span>
 </header>
+
+<!-- The rail is the wide screen's navigation and the narrow screen's settings drawer — one element
+     in two modes rather than two that have to agree. Its items are md-list-item with an href, so
+     they are real links with the component's ripple and focus ring: a rail you cannot middle-click
+     is a navigation that forgot it was made of addresses. -->
+<nav id="rail">
+  <md-list id="railNav">
+    <md-list-item id="railFleet" type="link"></md-list-item>
+    <md-list-item id="railIv" type="link"></md-list-item>
+    <md-list-item id="railSkills" type="link"></md-list-item>
+    <md-list-item id="railMcp" type="link"></md-list-item>
+  </md-list>
+  <div id="railFoot">
+    <div class="k" id="prefsK">preferences</div>
+    <md-outlined-select id="theme"></md-outlined-select>
+    <md-outlined-select id="lang"></md-outlined-select>
+    <div class="k" id="consoleK">this console</div>
+    <div id="console"></div>
+  </div>
+</nav>
+<div id="scrim" hidden></div>
 
 <main>
   <md-tabs id="tabs" hidden>
@@ -828,8 +976,36 @@ const tr = (key, vars) => {
 // Matched against the packs that exist, so a browser asking for a language nothing is written in
 // falls through to the next one it asked for rather than to a 404.
 const PACKS = ['en', 'ko'];
+// The two preferences, written out. Every key is a literal because the check that a label exists in
+// both language packs reads them out of this file — a key assembled at runtime ('pref.' + kind) is
+// one the check cannot see, and an unseen key renders as its own dotted name on somebody's screen.
+const CHOICES = {
+  theme: {
+    label: 'pref.theme',
+    options: [['system', 'pref.theme.system'], ['light', 'pref.theme.light'], ['dark', 'pref.theme.dark']],
+  },
+  lang: {
+    // Kept in step with PACKS by a test, not by care.
+    label: 'pref.lang',
+    options: [['system', 'pref.lang.system'], ['en', 'pref.lang.en'], ['ko', 'pref.lang.ko']],
+  },
+};
+// A preference is what somebody chose, and 'system' is a choice too — the choice to keep asking the
+// machine. Stored as that word rather than as the resolved value, so a reader who picks 'system' on
+// a light morning is still following the machine that evening.
+const prefOf = kind => localStorage.getItem(kind) || 'system';
+// The theme is an attribute on the root, which is what the stylesheet's two override blocks read.
+// Nothing is written for 'system': the absence of the attribute IS the deferral, and the
+// prefers-color-scheme query underneath answers.
+function applyTheme() {
+  const want = prefOf('theme');
+  if (want === 'system') document.documentElement.removeAttribute('color-theme');
+  else document.documentElement.setAttribute('color-theme', want);
+}
+applyTheme();
 const locale = () => {
-  const asked = [localStorage.getItem('lang'), ...(navigator.languages || [navigator.language])];
+  const chosen = prefOf('lang');
+  const asked = [chosen === 'system' ? null : chosen, ...(navigator.languages || [navigator.language])];
   for (const tag of asked) {
     const code = (tag || '').slice(0, 2).toLowerCase();
     if (PACKS.includes(code)) return code;
@@ -847,20 +1023,44 @@ const pack$ = url => from(fetch(url)).pipe(
   onlyWhen(pack => !!pack && typeof pack === 'object' && !Array.isArray(pack)),
   catchError(() => EMPTY),
 );
-pack$(at('i18n/language.' + locale() + '.json'))
-  .pipe(catchError(() => EMPTY))
-  .subscribe({
-    next: pack => labels$.next(pack),
-    complete: () => {
-      if (Object.keys(L).length || locale() === 'en') return;
-      pack$(at('i18n/language.en.json')).subscribe(pack => labels$.next(pack));
-    },
-  });
+// Named, because it runs again when somebody picks a language rather than only at startup. A
+// reload would do it too and would throw away the transcript to change one word.
+function loadPack() {
+  const want = locale();
+  pack$(at('i18n/language.' + want + '.json'))
+    .pipe(catchError(() => EMPTY))
+    .subscribe({
+      next: pack => labels$.next(pack),
+      complete: () => {
+        if (Object.keys(L).length || want === 'en') return;
+        pack$(at('i18n/language.en.json')).subscribe(pack => labels$.next(pack));
+      },
+    });
+}
+loadPack();
 // Anything already on screen is repainted when a pack lands. Guarded on the first paint having
 // happened: this subscribes before the page's own elements are declared, and a BehaviorSubject
 // hands its current value to a new subscriber immediately — painting there would reach for
 // constants that do not exist yet.
 let painted = false;
+
+// Whose console this is. Not an account — magi has no users to log in — but the two facts that
+// answer "am I looking at the right machine": the host it runs on and the config directory it
+// reads. A supervisor with three of these open in three tabs has asked that question.
+function loadConsole() {
+  fetchList('/console').then(c => {
+    if (!c) return;
+    consoleEl.replaceChildren();
+    for (const [k, val] of [['field.host', c.host], ['field.config', c.configDir]]) {
+      if (!val) continue;
+      const line = cell('');
+      const b = document.createElement('b');
+      b.textContent = tr(k) + ' ';
+      line.append(b, document.createTextNode(val));
+      consoleEl.append(line);
+    }
+  });
+}
 labels$.pipe(distinctUntilChanged()).subscribe(() => { if (painted) paint(); });
 
 const fleetEl = document.getElementById('fleet'), log = document.getElementById('log');
@@ -873,6 +1073,13 @@ const mcpEl = document.getElementById('mcp'), tabMcp = document.getElementById('
 // The last fleet answer, so the "which companion" picker names them without a second fetch.
 let fleetSeen = [];
 const tabFleet = document.getElementById('tabFleet'), tabIv = document.getElementById('tabIv');
+const menuEl = document.getElementById('menu'), railEl = document.getElementById('rail');
+const scrimEl = document.getElementById('scrim'), railFoot = document.getElementById('railFoot');
+const themeEl = document.getElementById('theme'), langEl = document.getElementById('lang');
+const prefsK = document.getElementById('prefsK'), consoleK = document.getElementById('consoleK');
+const consoleEl = document.getElementById('console');
+const railFleet = document.getElementById('railFleet'), railIv = document.getElementById('railIv');
+const railSkills = document.getElementById('railSkills'), railMcp = document.getElementById('railMcp');
 // Which resource this console is showing. A companion's own page is neither — it is one level in.
 const view = () => new URLSearchParams(location.search).get('v') || 'fleet';
 const crumbSep = document.getElementById('crumbSep'), crumbHere = document.getElementById('crumbHere');
@@ -1617,6 +1824,32 @@ function paint() {
   toEl.setAttribute('placeholder', tr('placeholder.address'));
   document.getElementById('send').textContent = tr('action.send');
   document.getElementById('stop').textContent = tr('action.interrupt');
+  menuEl.setAttribute('aria-label', tr('nav.menu'));
+  prefsK.textContent = tr('nav.preferences');
+  consoleK.textContent = tr('nav.this_console');
+  for (const [el, key] of [[railFleet, 'nav.companions'], [railIv, 'nav.corrections'],
+                           [railSkills, 'nav.lessons'], [railMcp, 'nav.connections']]) {
+    el.setAttribute('aria-label', tr(key));
+    el.replaceChildren(cell('', tr(key)));
+  }
+  paintChoice(themeEl, 'theme');
+  paintChoice(langEl, 'lang');
+  if (consoleEl.children.length) loadConsole();   // its two labels are words too
+}
+
+// A select whose options are the same list every time and whose words are not. Rebuilt on a pack
+// change rather than translated in place: an md-select-option holds its label as slotted content,
+// so there is nothing to reach in and rewrite.
+function paintChoice(el, kind) {
+  const c = CHOICES[kind];
+  el.setAttribute('label', tr(c.label));
+  el.replaceChildren(...c.options.map(([v, key]) => {
+    const o = document.createElement('md-select-option');
+    o.value = v;
+    o.selected = v === prefOf(kind);
+    o.append(cell('', tr(key)));
+    return o;
+  }));
 }
 
 // paint does NOT redraw the view, and that is the whole point. A pack can land at any moment — mid
@@ -1651,6 +1884,10 @@ function render() {
   // each tab's active property, which this page did, arrived at the same picture with no motion
   // between the two. (No backticks in this file — it is one Go raw string, and one ends it.)
   tabsEl.activeTabIndex = Math.max(0, TABS.indexOf(v));
+  // The rail says the same thing the tabs do. A list item has no selected state of its own, so
+  // this is an attribute of ours and the stylesheet draws it — said once here rather than at each
+  // of the four click handlers, which is how the two used to fall out of step.
+  for (const [el, key] of RAILS) el.toggleAttribute('selected', !s && v === key);
   fleetEl.hidden = !!s || v !== 'fleet';
   summaryEl.hidden = !!s || v !== 'fleet';
   ivsEl.hidden = !!s || v !== 'interventions';
@@ -1713,6 +1950,53 @@ back.onclick = e => {
   history.pushState({}, '', url);
   render();
 };
+// The rail's four, addressed the same way the tabs are. They are md-list-item with an href, so the
+// component draws a real anchor: the click is intercepted like every other in-page link, and a
+// middle click or a copied address still lands.
+const RAILS = [[railFleet, 'fleet'], [railIv, 'interventions'], [railSkills, 'skills'],
+               [railMcp, 'mcp']];
+for (const [el, key] of RAILS) {
+  el.href = at(HREF[key]);
+  el.onclick = e => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;  // let the browser have it
+    e.preventDefault();
+    history.pushState({}, '', at(HREF[key]));
+    if (narrow()) closeNav();
+    render();
+  };
+}
+
+// One button, two meanings, and the width decides which: wide it widens the rail into a drawer,
+// narrow it slides that drawer in over the page. Both are the same attribute, so there is one
+// state and not two that can disagree.
+const narrow = () => matchMedia('(max-width:768px)').matches;
+const closeNav = () => {
+  document.body.removeAttribute('nav');
+  menuEl.setAttribute('aria-expanded', 'false');
+  scrimEl.hidden = true;
+};
+menuEl.onclick = () => {
+  const open = document.body.getAttribute('nav') !== 'open';
+  if (!open) { closeNav(); return; }
+  document.body.setAttribute('nav', 'open');
+  menuEl.setAttribute('aria-expanded', 'true');
+  scrimEl.hidden = !narrow();   // the page behind stays reachable on a wide screen
+};
+scrimEl.onclick = closeNav;
+// Escape closes it, because a drawer over the page is a thing you can be stuck behind.
+addEventListener('keydown', e => { if (e.key === 'Escape' && !scrimEl.hidden) closeNav(); });
+
+// A preference is written down and acted on immediately. Language re-fetches rather than reloads:
+// the pack is the only thing that changes, and a reload would throw away the transcript.
+themeEl.addEventListener('change', () => {
+  localStorage.setItem('theme', themeEl.value);
+  applyTheme();
+});
+langEl.addEventListener('change', () => {
+  localStorage.setItem('lang', langEl.value);
+  loadPack();
+});
+
 for (const [el, key] of [[tabFleet, 'fleet'], [tabIv, 'interventions'], [tabSkills, 'skills'],
                          [tabMcp, 'mcp']]) {
   // The href is set as well as the click: a middle-click or a copied link has to reach the same
@@ -1772,5 +2056,6 @@ document.getElementById('stop').onclick = () => post('/interrupt', null);
 
 paint();
 render();
+loadConsole();
 </script>
 `

@@ -3,6 +3,9 @@
   "nav.corrections": "교정",
   "nav.lessons": "배운 것",
   "nav.connections": "연결",
+  "nav.menu": "메뉴",
+  "nav.preferences": "환경설정",
+  "nav.this_console": "이 콘솔",
   "action.send": "보내기",
   "action.interrupt": "중단",
   "action.answer": "응답",
@@ -17,6 +20,7 @@
   "field.role": "역할",
   "field.team": "팀",
   "field.host": "호스트",
+  "field.config": "설정",
   "field.steps": "스텝",
   "field.last_activity": "마지막 활동",
   "field.session": "세션",
@@ -55,5 +59,13 @@
   "placeholder.mcp_command": "명령, 예: npx   (HTTP 서버면 비워두세요)",
   "placeholder.mcp_args": "인자, 한 줄에 하나 또는 공백 구분",
   "placeholder.mcp_url": "또는 HTTP 서버의 url, 스킴까지",
-  "placeholder.mcp_env": "환경변수, NAME=value — 값이 설정 파일에 쓰입니다"
+  "placeholder.mcp_env": "환경변수, NAME=value — 값이 설정 파일에 쓰입니다",
+  "pref.theme": "테마",
+  "pref.theme.system": "시스템 설정",
+  "pref.theme.light": "라이트",
+  "pref.theme.dark": "다크",
+  "pref.lang": "언어",
+  "pref.lang.system": "브라우저 설정",
+  "pref.lang.en": "English",
+  "pref.lang.ko": "한국어"
 }

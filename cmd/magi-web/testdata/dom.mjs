@@ -65,6 +65,9 @@ function element(tag) {
     // for a count of zero, a title on the stop button.
     setAttribute(k, v) { this.attrs[k] = String(v); },
     getAttribute(k) { return this.attrs[k]; },
+    removeAttribute(k) { delete this.attrs[k]; },
+    hasAttribute(k) { return k in this.attrs; },
+    toggleAttribute(k, on) { if (on) this.attrs[k] = ''; else delete this.attrs[k]; return !!on; },
     // text is everything this node and its descendants would show.
     get text() {
       return [this._text, ...this.children.map((k) => k.text)].join(' ').replace(/\s+/g, ' ').trim();
@@ -95,11 +98,15 @@ let byTabs = false;
 globalThis.clicky = (n) => n.tag === 'button' || n.tag.endsWith('-button');
 
 const byId = {};
-for (const id of ['fleet', 'log', 'state', 'sid', 'back', 'f', 't', 'stop', 'prompt', 'dock', 'summary', 'detail', 'crumbSep', 'crumbHere', 'ivs', 'tabs', 'tabFleet', 'tabIv', 'skills', 'tabSkills', 'to', 'roles', 'mcp', 'tabMcp', 'handoffs', 'plan', 'send']) byId[id] = element('div');
+for (const id of ['fleet', 'log', 'state', 'sid', 'back', 'f', 't', 'stop', 'prompt', 'dock', 'summary', 'detail', 'crumbSep', 'crumbHere', 'ivs', 'tabs', 'tabFleet', 'tabIv', 'skills', 'tabSkills', 'to', 'roles', 'mcp', 'tabMcp', 'handoffs', 'plan', 'send',
+                 'menu', 'rail', 'railNav', 'railFoot', 'scrim', 'theme', 'lang', 'prefsK',
+                 'consoleK', 'console', 'railFleet', 'railIv', 'railSkills', 'railMcp',
+                ]) byId[id] = element('div');
 // The four tabs are children of #tabs in the markup, and md-tabs works through that relationship:
 // it activates by index into its own children. A flat bag of ids would let the page set an index
 // nothing answers to, and every tab would read as unselected.
 for (const id of ['tabFleet', 'tabIv', 'tabSkills', 'tabMcp']) byId.tabs.append(byId[id]);
+for (const id of ['railFleet', 'railIv', 'railSkills', 'railMcp']) byId.railNav.append(byId[id]);
 
 globalThis.document = {
   title: "",
@@ -108,8 +115,16 @@ globalThis.document = {
   createTextNode(t) { const n = element('#text'); n.textContent = t; return n; },
   // The page measures its dock and writes the height into a custom property; a fake that cannot be
   // written to would throw where the real one shrugs.
-  documentElement: { style: { setProperty(k, v) { this[k] = v; } } },
-  body: { offsetHeight: 400, scrollHeight: 400 },
+  // The root carries the theme the reader chose, as an attribute the stylesheet's override blocks
+  // read. Written to and removed from, because 'follow the system' is the ABSENCE of it.
+  documentElement: {
+    style: { setProperty(k, v) { this[k] = v; } },
+    attrs: {},
+    setAttribute(k, v) { this.attrs[k] = String(v); },
+    getAttribute(k) { return this.attrs[k] ?? null; },
+    removeAttribute(k) { delete this.attrs[k]; },
+  },
+  body: Object.assign(element('body'), { offsetHeight: 400, scrollHeight: 400 }),
   createElement: element,
   getElementById(id) {
     if (!(id in byId)) throw new Error('the page looked up #' + id + ', which the markup does not have');
@@ -150,7 +165,13 @@ globalThis.history = {
   },
 };
 globalThis.addEventListener = () => {};
-globalThis.matchMedia = () => ({ matches: process.env.TOUCH === '1' });
+// Two queries are asked now and they mean different things: hover:none is a touch screen, and the
+// width one is the layout breakpoint. A stub answering both with the same flag made a phone-sized
+// test claim a desktop layout.
+globalThis.matchMedia = (q) => ({
+  matches: String(q).includes('hover') ? process.env.TOUCH === '1'
+                                       : process.env.NARROW === '1',
+});
 // Timers are recorded rather than run: a test needs to know that the page ARMED a poll — the one
 // on an agent's page is how the prompt it is blocked on ever reaches the browser — without the
 // suite then waiting three seconds for it.

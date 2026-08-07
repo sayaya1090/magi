@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -134,6 +136,81 @@ func TestThePageHasBothViews(t *testing.T) {
 // device: an input under 16px makes iOS Safari zoom on focus and never zoom back; a fixed composer
 // without the safe-area inset sits under the home indicator; and a viewport without viewport-fit
 // leaves the inset at zero, so asking for it changes nothing.
+// The reader's theme choice must be able to beat the machine in both directions, which takes two
+// rulesets carrying the same declarations: one under the media query for the machine's answer, one
+// on the attribute for the reader's. CSS cannot give a single ruleset both selectors across a
+// media-query boundary, so the copy is unavoidable — this is what stops it drifting.
+// The language a reader can PICK and the language the page can LOAD are two lists, and they are
+// only the same list because this says so. A code in one and not the other is either an option
+// that loads nothing or a pack nobody can reach.
+func TestTheLanguageChoicesAreThePacksThatExist(t *testing.T) {
+	codes := func(re string) []string {
+		m := regexp.MustCompile(re).FindStringSubmatch(indexHTML)
+		if m == nil {
+			t.Fatalf("no %s in the page", re)
+		}
+		var out []string
+		for _, c := range regexp.MustCompile(`'([a-z]{2})'`).FindAllStringSubmatch(m[1], -1) {
+			out = append(out, c[1])
+		}
+		sort.Strings(out)
+		return out
+	}
+	loadable := codes(`const PACKS = \[([^\]]*)\]`)
+	// The option list carries pairs; the value of each is the code.
+	pickable := codes(`(?s)label: 'pref\.lang',.*?options: \[(.*?)\],\n`)
+	if len(loadable) == 0 {
+		t.Fatal("the page can load no language at all")
+	}
+	if !slices.Equal(loadable, pickable) {
+		t.Errorf("the page loads %v but offers %v — one of those is a dead end", loadable, pickable)
+	}
+	// And each has a file behind it.
+	for _, c := range loadable {
+		if _, err := assetFS.ReadFile("i18n/language." + c + ".json"); err != nil {
+			t.Errorf("the page loads %q and there is no pack for it: %v", c, err)
+		}
+	}
+}
+
+func TestBothLightThemesSayTheSameThing(t *testing.T) {
+	decls := func(after string) string {
+		at := strings.Index(indexHTML, after)
+		if at < 0 {
+			t.Fatalf("no %q in the page; the theme override is gone or renamed", after)
+		}
+		body := indexHTML[at+len(after):]
+		end := strings.Index(body, "}")
+		if end < 0 {
+			t.Fatalf("the rule after %q is unterminated", after)
+		}
+		// Whitespace and indentation differ by nesting depth; the declarations are what must match.
+		return strings.Join(strings.Fields(body[:end]), " ")
+	}
+	machine := decls(":root:not([color-theme]) {")
+	reader := decls(`:root[color-theme="light"] {`)
+	if machine == "" {
+		t.Fatal("the light theme declares nothing")
+	}
+	if machine != reader {
+		t.Errorf("the two light themes have drifted.\n  under the media query: %s\n  on the attribute:     %s",
+			machine, reader)
+	}
+}
+
+// A theme chosen on a previous visit has to be on the root element before the stylesheet paints,
+// or the reader sees the other theme first — a white flash in a dark room.
+func TestTheChosenThemeIsAppliedBeforeTheStylesheet(t *testing.T) {
+	script := strings.Index(indexHTML, "localStorage.getItem('theme')")
+	style := strings.Index(indexHTML, "<style>")
+	if script < 0 {
+		t.Fatal("nothing reads the stored theme before the page paints")
+	}
+	if script > style {
+		t.Error("the stored theme is applied after the stylesheet, so the other theme paints first")
+	}
+}
+
 func TestThePageWorksOnAPhone(t *testing.T) {
 	flat := strings.ReplaceAll(indexHTML, " ", "")
 	if !strings.Contains(flat, "viewport-fit=cover") {
