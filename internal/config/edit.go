@@ -245,3 +245,67 @@ func appendListItemLocked(path, key, value string) error {
 	lines = append(lines[:end], append([]string{target}, lines[end:]...)...)
 	return writeLines(path, lines)
 }
+
+// RemoveSection deletes a whole TOML table and its lines, preserving everything else.
+//
+// SetKey with an empty value clears one key; deleting a server means clearing every key it might
+// have and then the header, and a caller doing that by hand has to know which keys those are —
+// which it cannot, since a table it did not write may hold keys this build does not know. So the
+// removal is by SHAPE: the header line, everything up to the next table header, and one blank line
+// left behind if there was one.
+//
+// A comment immediately above the header goes with it. A table written by a person usually has its
+// explanation on the line above, and leaving that orphaned above an unrelated table is worse than
+// losing it — the explanation would then describe something else.
+//
+// Missing file or missing section is not an error: the caller asked for the section to be gone.
+func RemoveSection(path, section string) error {
+	setKeyMu.Lock()
+	defer setKeyMu.Unlock()
+	return withFileLock(path, func() error { return removeSectionLocked(path, section) })
+}
+
+func removeSectionLocked(path, section string) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	lines := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+	hdr := regexp.MustCompile(`^\s*\[` + regexp.QuoteMeta(section) + `\]\s*$`)
+	h := -1
+	for i, ln := range lines {
+		if hdr.MatchString(ln) {
+			h = i
+			break
+		}
+	}
+	if h < 0 {
+		return nil
+	}
+	end := len(lines)
+	for i := h + 1; i < len(lines); i++ {
+		if strings.HasPrefix(strings.TrimSpace(lines[i]), "[") {
+			end = i
+			break
+		}
+	}
+	// Trailing blank lines belong to the gap between tables, not to this one — taking them all
+	// would close up the spacing of the file every time something is removed.
+	for end > h+1 && strings.TrimSpace(lines[end-1]) == "" {
+		end--
+	}
+	start := h
+	for start > 0 && strings.HasPrefix(strings.TrimSpace(lines[start-1]), "#") {
+		start--
+	}
+	out := append(append([]string{}, lines[:start]...), lines[end:]...)
+	// One blank line where the table was, and never two: the file is read by people.
+	for len(out) > start && start > 0 && strings.TrimSpace(out[start-1]) == "" &&
+		len(out) > start && strings.TrimSpace(out[start]) == "" {
+		out = append(out[:start], out[start+1:]...)
+	}
+	return writeLines(path, out)
+}
