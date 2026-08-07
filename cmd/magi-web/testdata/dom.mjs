@@ -40,8 +40,22 @@ function element(tag) {
     requestSubmit() {},
     focus() {},
     // md-primary-tab keeps its selection in a property, not a class.
-    set active(v) { this.attrs.active = !!v; },
+    // Written to either by md-tabs (below) or by the page. Both leave the same value behind, and
+    // only one of them animates, so which one did it is recorded rather than enforced: a fake that
+    // threw where the real one shrugs would be lying about the DOM to make a point.
+    set active(v) { this.attrs.active = !!v; if (!byTabs) this.setDirectly = true; },
     get active() { return !!this.attrs.active; },
+    // md-tabs owns which of its tabs is active, and the page asks it by index rather than writing
+    // to the tabs — that is what makes the indicator slide. Mirrored here (Tabs.activateTab sets
+    // active on every tab and clears the rest) so the page's routing is still testable with the
+    // components stubbed out. The animation itself needs a real browser and is not modelled.
+    set activeTabIndex(i) {
+      this.attrs.activeTabIndex = i;
+      byTabs = true;
+      this.children.forEach((k, n) => { k.active = n === i; });
+      byTabs = false;
+    },
+    get activeTabIndex() { return this.children.findIndex((k) => k.active); },
     set name(v) { this.attrs.name = v; },
     get name() { return this.attrs.name ?? ''; },
     set autocomplete(v) { this.attrs.autocomplete = v; },
@@ -57,8 +71,13 @@ function element(tag) {
     },
     // find collects descendants (and self) of a tag — an array, so .find(fn) on the result is
     // Array.prototype.find and a test can pick a node by class.
+    //
+    // A predicate is allowed as well as a tag, because a control's tag is now the library's choice:
+    // the same button is `md-text-button` here and `md-filled-button` there, and a test that asks
+    // for `button` would report an empty card rather than a restyled one.
     find(t) {
-      const out = this.tag === t ? [this] : [];
+      const hit = typeof t === 'function' ? t(this) : this.tag === t;
+      const out = hit ? [this] : [];
       for (const k of this.children) out.push(...k.find(t));
       return out;
     },
@@ -66,8 +85,21 @@ function element(tag) {
   return node;
 }
 
+// clicky matches a control by role rather than by tag. The same button is `md-text-button` in one
+// place and `md-filled-button` in another — both are Material Web's, both are the thing a person
+// presses — and a test that asked for `button` would report an empty card rather than a restyled
+// one. Global so every snippet gets it without threading a helper through.
+// True while md-tabs is the one changing the selection. See the active setter.
+let byTabs = false;
+
+globalThis.clicky = (n) => n.tag === 'button' || n.tag.endsWith('-button');
+
 const byId = {};
 for (const id of ['fleet', 'log', 'state', 'sid', 'back', 'f', 't', 'stop', 'prompt', 'dock', 'summary', 'detail', 'crumbSep', 'crumbHere', 'ivs', 'tabs', 'tabFleet', 'tabIv', 'skills', 'tabSkills', 'to', 'roles', 'mcp', 'tabMcp', 'handoffs', 'plan', 'send']) byId[id] = element('div');
+// The four tabs are children of #tabs in the markup, and md-tabs works through that relationship:
+// it activates by index into its own children. A flat bag of ids would let the page set an index
+// nothing answers to, and every tab would read as unselected.
+for (const id of ['tabFleet', 'tabIv', 'tabSkills', 'tabMcp']) byId.tabs.append(byId[id]);
 
 globalThis.document = {
   title: "",
