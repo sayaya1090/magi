@@ -3,6 +3,7 @@ package fleet_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -333,10 +334,11 @@ func TestAnUnblockedDaemonIsNotWaiting(t *testing.T) {
 	}
 }
 
-// countingReader records how often the expensive rebuild is asked for.
+// countingReader records how often the two whole-log derivations are asked for.
 type countingReader struct {
 	fleet.Reader
-	rebuilds int
+	rebuilds int // transcript reconstructions (the last line)
+	reads    int // whole-log scans (is a turn still open)
 }
 
 func (c *countingReader) SessionState(ctx context.Context, sid session.SessionID) ([]session.Message, int64, error) {
@@ -344,13 +346,19 @@ func (c *countingReader) SessionState(ctx context.Context, sid session.SessionID
 	return c.Reader.SessionState(ctx, sid)
 }
 
-// A dashboard refresh must not rebuild a transcript that has not changed.
+func (c *countingReader) UnfinishedTurnOf(ctx context.Context, sid session.SessionID) (app.UnfinishedTurn, bool) {
+	c.reads++
+	return c.Reader.UnfinishedTurnOf(ctx, sid)
+}
+
+// A dashboard refresh must not re-derive from a log that has not changed.
 //
-// The last thing an idle agent said comes from reconstructing its whole log — 12ms on a long
-// session — and the dashboard refreshes every three seconds for every agent. For an idle one that
-// is the same answer re-derived forever, while asking whether anything arrived costs 2µs. The cache
-// keeps exactly that line and exactly while the sequence number is unchanged.
-func TestAnIdleAgentsLastLineIsNotRebuiltEveryRefresh(t *testing.T) {
+// BOTH halves of a row come out of the whole log: the last thing an idle agent said needs the
+// transcript reconstructed (12ms on a long session), and whether a turn is still open needs every
+// event read and decoded. The dashboard refreshes every three seconds for every agent, so for an
+// idle one that is the same two answers re-derived forever, while asking whether anything arrived
+// costs 2µs. The cache keeps exactly what the log decides, exactly while its sequence is unchanged.
+func TestAnIdleAgentIsNotReDerivedEveryRefresh(t *testing.T) {
 	f := newFleetFixture(t)
 	wd := shortTempDir(t)
 	f.daemonAt(wd, "quiet", true)
@@ -365,9 +373,9 @@ func TestAnIdleAgentsLastLineIsNotRebuiltEveryRefresh(t *testing.T) {
 	if len(first) != 1 || first[0].Task == "" {
 		t.Fatalf("the first listing has no last line: %+v", first)
 	}
-	after := r.rebuilds
-	if after == 0 {
-		t.Fatal("the first listing did not rebuild anything — the test is measuring nothing")
+	after, afterReads := r.rebuilds, r.reads
+	if after == 0 || afterReads == 0 {
+		t.Fatal("the first listing did not derive anything — the test is measuring nothing")
 	}
 
 	for i := 0; i < 5; i++ {
@@ -383,6 +391,10 @@ func TestAnIdleAgentsLastLineIsNotRebuiltEveryRefresh(t *testing.T) {
 		t.Errorf("five refreshes of an idle agent rebuilt the transcript %d more times",
 			r.rebuilds-after)
 	}
+	if r.reads != afterReads {
+		t.Errorf("five refreshes of an idle agent re-read the whole log %d more times",
+			r.reads-afterReads)
+	}
 
 	// And when it says something new, the line follows — a cache that never invalidates is worse
 	// than none, because the dashboard then reports a state the log denies.
@@ -394,8 +406,8 @@ func TestAnIdleAgentsLastLineIsNotRebuiltEveryRefresh(t *testing.T) {
 	if moved[0].Task == first[0].Task {
 		t.Errorf("the agent said something new and the card still shows %q", moved[0].Task)
 	}
-	if r.rebuilds == after {
-		t.Error("nothing was rebuilt after the log grew")
+	if r.rebuilds == after || r.reads == afterReads {
+		t.Error("nothing was re-derived after the log grew")
 	}
 }
 
@@ -419,5 +431,43 @@ func TestAnEmptyInterventionListIsStillAList(t *testing.T) {
 	}
 	if string(b) != "[]" {
 		t.Errorf("an empty result serialises as %s", b)
+	}
+}
+
+// A store that cannot answer the cheap question still gets a full row.
+//
+// NewSince is an optimisation — "has anything arrived since sequence N" — and an optimisation that
+// fails must cost speed, not information. Dropping the row would hide exactly the agent whose store
+// is in trouble, which is the one a supervisor most needs to see.
+type brokenProbe struct{ fleet.Reader }
+
+func (brokenProbe) NewSince(context.Context, session.SessionID, int64) (int64, bool, error) {
+	return 0, false, errors.New("the index is unreadable")
+}
+
+func TestAnAgentWhoseProbeFailsIsStillListed(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := shortTempDir(t)
+	f.daemonAt(wd, "trouble", true)
+	f.session("trouble", wd, "mid-flight", 3, false) // an open turn: the log is what says so
+
+	var cache fleet.Cache
+	list, err := fleet.ListCached(context.Background(), brokenProbe{f.reader}, f.cfgDir, "", &cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("a failed probe produced %d rows", len(list))
+	}
+	if list[0].State != fleet.Working || list[0].Steps != 3 {
+		t.Errorf("the row lost what the log says: %+v", list[0])
+	}
+	if list[0].Task == "" {
+		t.Errorf("the row lost what it is doing: %+v", list[0])
+	}
+	// Twice, because the first call may have populated nothing to fall back on.
+	again, err := fleet.ListCached(context.Background(), brokenProbe{f.reader}, f.cfgDir, "", &cache)
+	if err != nil || len(again) != 1 || again[0].State != fleet.Working {
+		t.Errorf("the second listing came back as %+v (err %v)", again, err)
 	}
 }

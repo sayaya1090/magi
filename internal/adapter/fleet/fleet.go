@@ -31,17 +31,21 @@ type Reader interface {
 	NewSince(ctx context.Context, sid session.SessionID, seq int64) (int64, bool, error)
 }
 
-// Cache remembers the expensive half of a listing between polls.
+// Cache remembers what a listing derives from a log, between polls.
 //
-// The last thing an idle agent said comes from rebuilding its whole transcript, which costs 12ms on
-// a long session — and a dashboard refreshing every three seconds pays that for every idle agent,
-// forever, to re-derive a line that by definition is not changing. Asking the log whether anything
-// arrived costs 2µs.
+// Both halves of a row come out of the whole log: the last thing an idle agent said needs the
+// transcript rebuilt (12ms on a long session), and whether a turn is still open needs every event
+// read and decoded. A dashboard refreshing every three seconds paid both, for every agent, forever,
+// to re-derive answers that by definition are not changing. Asking the log whether anything arrived
+// costs 2µs.
 //
-// Only the LAST LINE is kept, and only while the session's sequence number is unchanged. That is
-// the part of a listing that is safe to hold: it is derived from a session that is not moving, and
-// the moment it moves the entry is thrown away rather than patched. Nothing else here is cached —
-// state, liveness and what a working agent is doing are the answers a dashboard exists to refresh.
+// Only what the LOG decides is kept, and only while the session's sequence number is unchanged. The
+// rest of a row — liveness, whether the daemon is blocked on a person, how long ago it last moved —
+// comes from the daemon probe and the session index, and is re-derived every time, because those
+// are the answers a dashboard exists to refresh.
+//
+// Held together rather than in two caches: they are invalidated by the same event and read in the
+// same loop, so two entries would be two chances for one of them to go stale on its own.
 //
 // A zero Cache is usable and does nothing, so a caller that has nowhere to keep one (the CLI, which
 // runs once and exits) passes nil and pays the full price once.
@@ -51,8 +55,10 @@ type Cache struct {
 }
 
 type cacheEntry struct {
-	seq  int64
-	said string
+	seq    int64
+	said   string
+	open   app.UnfinishedTurn
+	isOpen bool
 }
 
 // seen returns what was cached for a session and the sequence it was built at.
@@ -66,7 +72,7 @@ func (c *Cache) seen(sid session.SessionID) (cacheEntry, bool) {
 	return e, ok
 }
 
-func (c *Cache) put(sid session.SessionID, seq int64, said string) {
+func (c *Cache) put(sid session.SessionID, e cacheEntry) {
 	if c == nil {
 		return
 	}
@@ -75,7 +81,7 @@ func (c *Cache) put(sid session.SessionID, seq int64, said string) {
 	if c.entry == nil {
 		c.entry = map[session.SessionID]cacheEntry{}
 	}
-	c.entry[sid] = cacheEntry{seq: seq, said: said}
+	c.entry[sid] = e
 }
 
 // State is what an agent is doing, as far as anyone outside its process can tell.
@@ -166,7 +172,7 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 				a.Idle = int(time.Since(m.LastActivity).Seconds())
 			}
 		}
-		open, isOpen := r.UnfinishedTurnOf(ctx, sid)
+		open, isOpen, said := fromLog(ctx, r, cache, sid)
 		switch {
 		case in.Live && in.Asking != nil:
 			// Blocked on a person beats anything the log says: the log shows an open turn, which
@@ -184,35 +190,47 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 			a.State = Stopped
 		}
 		if a.Task == "" {
-			a.Task = Clip(lastSaidCached(ctx, r, cache, sid), 160)
+			a.Task = Clip(said, 160)
 		}
 		out = append(out, a)
 	}
 	return out, nil
 }
 
-// lastSaidCached answers from the cache while the session is not moving, and rebuilds when it is.
-func lastSaidCached(ctx context.Context, r Reader, cache *Cache, sid session.SessionID) string {
-	// Asked FROM the sequence the cached answer was built at, which is what makes the question
-	// cheap: the store answers it with a binary search over the tail rather than a read of the log.
-	// Asking from zero would be the same answer at two hundred times the price, and this runs for
-	// every idle agent on every refresh.
+// fromLog is everything about a row the log alone decides, answered from the cache while the
+// session is not moving and rebuilt when it is.
+//
+// One question per session per poll. Asked FROM the sequence the cached answer was built at, which
+// is what makes it cheap: the store answers with a binary search over the tail rather than a read
+// of the log. Asking from zero would be the same answer at two hundred times the price, and this
+// runs for every agent on every refresh.
+func fromLog(ctx context.Context, r Reader, cache *Cache, sid session.SessionID) (app.UnfinishedTurn, bool, string) {
+	from := int64(0)
 	if e, ok := cache.seen(sid); ok {
-		if seq, changed, err := r.NewSince(ctx, sid, e.seq); err == nil && !changed {
-			return e.said
-		} else if err == nil {
-			said := lastSaid(ctx, r, sid)
-			cache.put(sid, seq, said)
-			return said
+		seq, changed, err := r.NewSince(ctx, sid, e.seq)
+		if err == nil && !changed {
+			return e.open, e.isOpen, e.said
 		}
+		if err == nil {
+			return rebuild(ctx, r, cache, sid, seq)
+		}
+		// The probe failed. Derive it anyway — a listing that dropped a row because one cheap
+		// question errored would be a dashboard that hides the agent whose store is in trouble.
+		from = e.seq
 	}
-	seq, _, err := r.NewSince(ctx, sid, 0)
+	seq, _, err := r.NewSince(ctx, sid, from)
 	if err != nil {
-		return ""
+		open, isOpen := r.UnfinishedTurnOf(ctx, sid)
+		return open, isOpen, lastSaid(ctx, r, sid) // uncached: without a sequence there is no key
 	}
+	return rebuild(ctx, r, cache, sid, seq)
+}
+
+func rebuild(ctx context.Context, r Reader, cache *Cache, sid session.SessionID, seq int64) (app.UnfinishedTurn, bool, string) {
+	open, isOpen := r.UnfinishedTurnOf(ctx, sid)
 	said := lastSaid(ctx, r, sid)
-	cache.put(sid, seq, said)
-	return said
+	cache.put(sid, cacheEntry{seq: seq, said: said, open: open, isOpen: isOpen})
+	return open, isOpen, said
 }
 
 // lastSaid is the final piece of text in a session — what an idle agent left behind.
