@@ -143,3 +143,63 @@ func TestACompanionWithNoWorkspaceContributesNothing(t *testing.T) {
 		t.Fatalf("the console listed rules from a path it was never given: %+v", list)
 	}
 }
+
+// A supervisor watching three machines is governing three global tiers.
+//
+// The fleet page already merges every console; a skills page that showed only this one would say
+// "one rule" about a store that holds four, and the tier a rule crosses would be the one thing on
+// the page that quietly meant something narrower than it said.
+func TestTheSkillsViewMergesEveryConsole(t *testing.T) {
+	var seen []string
+	remote := fakeSkillsPeer(t, []storedSkill{
+		{SkillInfo: expgit.SkillInfo{Name: "skill-far", Description: "written over there"}, Tier: "global"},
+		{SkillInfo: expgit.SkillInfo{Name: "skill-theirs", Description: "their project"}, Tier: "project",
+			Companion: "fuzzer", Socket: "/there/a.sock"},
+	}, &seen)
+	f := federatedServer(t, peer{Name: "laptop", Base: remote.URL})
+	f.learn(t, filepath.Join(f.cfgDir, "experience"), "mine", "written here")
+
+	list := f.inventory(t)
+	if len(list) != 3 {
+		t.Fatalf("the merged inventory has %d entries: %+v", len(list), list)
+	}
+	// This console's own first: it is the tier this person can reason about without a tunnel.
+	if list[0].Peer != "" || !strings.Contains(list[0].Description, "written here") {
+		t.Errorf("the first entry is %+v", list[0])
+	}
+	for _, e := range list[1:] {
+		if e.Peer != "laptop" {
+			t.Errorf("a remote entry is not stamped with the console it came from: %+v", e)
+		}
+	}
+
+	// Forgetting one of theirs happens THERE. A global rule has no socket, so the peer name alone
+	// has to carry the routing — the case that does not exist anywhere else in this console.
+	if w := post(t, f.srv, f.srv.forgetSkill, "/forget?p=laptop", url.Values{
+		"name": {"skill-far"}, "tier": {"global"}}); w.Code != http.StatusNoContent {
+		t.Fatalf("forgetting a remote global rule replied %d: %s", w.Code, w.Body.String())
+	}
+	if len(seen) != 1 || !strings.Contains(seen[0], "name=skill-far") || !strings.Contains(seen[0], "tier=global") {
+		t.Fatalf("the other console was asked %q", seen)
+	}
+	// And nothing of this console's was touched on the way.
+	if list := f.inventory(t); len(list) != 3 {
+		t.Errorf("after a remote delete the local tier holds %+v", list)
+	}
+}
+
+func fakeSkillsPeer(t *testing.T, list []storedSkill, record *[]string) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/skills", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(list)
+	})
+	mux.HandleFunc("/forget", func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		*record = append(*record, r.Method+" "+r.URL.Path+" "+r.PostForm.Encode())
+		w.WriteHeader(http.StatusNoContent)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}

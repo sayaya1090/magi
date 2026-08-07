@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	expgit "github.com/sayaya1090/magi/internal/adapter/experience/git"
@@ -28,6 +31,7 @@ type storedSkill struct {
 	Tier      string `json:"tier"`                // "project" | "global"
 	Companion string `json:"companion,omitempty"` // whose project tier, when it is one
 	Socket    string `json:"socket,omitempty"`    // how a delete names it back
+	Peer      string `json:"peer,omitempty"`      // the console it lives on, when it is not this one
 }
 
 func (s *server) skills(w http.ResponseWriter, r *http.Request) {
@@ -58,9 +62,17 @@ func (s *server) skills(w http.ResponseWriter, r *http.Request) {
 			out = append(out, storedSkill{SkillInfo: sk, Tier: "project", Companion: c.name, Socket: c.socket})
 		}
 	}
+	// And every federated console's, the same way the fleet merges: a supervisor watching three
+	// machines is governing three global tiers, and a page that showed only this one would say
+	// "three rules" about a store that holds nine.
+	out = append(out, s.peerSkills(r.Context())...)
+
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Tier != out[j].Tier {
 			return out[i].Tier == "global" // the crossing tier first: it is the one with reach
+		}
+		if out[i].Peer != out[j].Peer {
+			return out[i].Peer < out[j].Peer // this console's own first: the empty name sorts before any
 		}
 		return out[i].Name < out[j].Name
 	})
@@ -105,6 +117,56 @@ func (s *server) forgetSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// peerSkills asks every federated console what it holds.
+//
+// Same failure rule as the fleet merge: a console that does not answer costs its own rows and
+// nothing else. No placeholder row here — the fleet view is already showing that machine as
+// unreachable, and a second "could not reach" on this page would say nothing the first did not.
+func (s *server) peerSkills(ctx context.Context) []storedSkill {
+	if len(s.peers) == 0 {
+		return nil
+	}
+	lists := make([][]storedSkill, len(s.peers))
+	var wg sync.WaitGroup
+	for i, p := range s.peers {
+		wg.Add(1)
+		go func(i int, p peer) {
+			defer wg.Done()
+			cctx, cancel := context.WithTimeout(ctx, peerTimeout)
+			defer cancel()
+			req, err := http.NewRequestWithContext(cctx, http.MethodGet, p.Base+"/skills", nil)
+			if err != nil {
+				return
+			}
+			resp, err := s.http.Do(req)
+			if err != nil {
+				return
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				return
+			}
+			var got []storedSkill
+			if json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&got) != nil {
+				return
+			}
+			for j := range got {
+				// Stamped with the console that answered, and never with what IT called a peer: a
+				// console two hops away is not one this operator configured, and an action routed
+				// to that name would find nothing here.
+				got[j].Peer = p.Name
+			}
+			lists[i] = got
+		}(i, p)
+	}
+	wg.Wait()
+	var out []storedSkill
+	for _, l := range lists {
+		out = append(out, l...)
+	}
+	return out
 }
 
 // companion is the little of a published record this file needs.
