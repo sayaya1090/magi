@@ -74,7 +74,19 @@ func TestProbeEngramPluginEndToEnd(t *testing.T) {
 		t.Errorf("ledger malformed:\n%s", ledger)
 	}
 
-	skill, err := os.ReadFile(filepath.Join(wd, ".claude/skills/port_conflict_lsof/SKILL.md"))
+	// Waited for, like the ledger above. The two files are written by the same asynchronous
+	// handler but not in the same instant, and this assertion used to read once — so under load
+	// (the whole test tree building and running at once) it read the directory before the skill
+	// landed and failed with "no such file". Observed exactly that way on 2026-08-07; the test
+	// passes alone every time, which is the shape of a wait that was inherited rather than taken.
+	var skill []byte
+	var err error
+	for deadline = time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+		if skill, err = os.ReadFile(filepath.Join(wd, ".claude/skills/port_conflict_lsof/SKILL.md")); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	if err != nil {
 		t.Fatalf("skill not saved: %v; log:\n%s", err, log.String())
 	}
