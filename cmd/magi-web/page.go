@@ -175,7 +175,10 @@ const indexHTML = `<!doctype html>
   main { padding:1.6rem 1.4rem calc(var(--dock, 8rem) + 2rem); max-width:var(--wide); margin:0 auto; }
 
   /* ── tabs: the resources this console shows ─────────────────────────────── */
-  #tabs { display:flex; gap:1.6rem; padding:.9rem 0 0; }
+  /* Wrapping, because these are sentences and there are three of them now: at 390px the three
+     labels are wider than the column, and a nav that overflows takes the whole page sideways with
+     it — the one scroll direction a phone should never get. */
+  #tabs { display:flex; flex-wrap:wrap; gap:.4rem 1.6rem; padding:.9rem 0 0; }
   #tabs a {
     font:600 10.5px/1.4 var(--mono); letter-spacing:.16em; text-transform:uppercase;
     color:var(--muted); text-decoration:none; padding-bottom:.5rem; border-bottom:2px solid transparent;
@@ -444,6 +447,7 @@ const indexHTML = `<!doctype html>
     .who { text-align:left; }
     .row.user .txt { font-size:16px; }
     form { padding-left:1rem; padding-right:1rem; }
+    #tabs { gap:.4rem 1.1rem; }
   }
 </style>
 
@@ -826,14 +830,19 @@ async function loadSkills() {
   skillsEl.replaceChildren(...list.map(sk => {
     const el = cell('sk ' + sk.tier);
     const top = cell('top');
-    top.append(cell('tier', sk.tier === 'global' ? 'every companion' : 'only ' + sk.companion));
+    top.append(cell('tier',
+      (sk.tier === 'global' ? 'every companion' : 'only ' + sk.companion) +
+      (sk.peer ? ' on ' + sk.peer : '')));
     top.append(cell('what', sk.description || sk.name));
     const drop = document.createElement('button');
     drop.className = 'drop'; drop.type = 'button'; drop.textContent = 'forget';
     drop.title = 'remove this rule from the store';
     drop.onclick = () => {
+      // A rule on another console is forgotten THERE. The socket is that machine's path and the
+      // peer name is how this one knows which machine to ask; a global rule has no socket and the
+      // peer name alone routes it.
       post('/forget', new URLSearchParams({name: sk.name, tier: sk.tier}),
-           sk.tier === 'project' ? sk.socket : null).then(loadSkills);
+           sk.tier === 'project' ? sk.socket : null, sk.peer).then(loadSkills);
     };
     top.append(drop);
     el.append(top);
@@ -937,9 +946,13 @@ for (const [el, url] of [[tabFleet, '/'], [tabIv, '/?v=interventions'], [tabSkil
 addEventListener('popstate', render);
 
 async function post(path, body, socket, peer) {
-  const target = socket
-    ? '?d=' + encodeURIComponent(socket) + (peer ? '&p=' + encodeURIComponent(peer) : '')
-    : q();
+  // Either half can stand alone: a companion is named by its socket, a console by its peer name,
+  // and a global rule on another console has only the second. With neither, the action is about
+  // whatever the page is already looking at.
+  const parts = [];
+  if (socket) parts.push('d=' + encodeURIComponent(socket));
+  if (peer) parts.push('p=' + encodeURIComponent(peer));
+  const target = parts.length ? '?' + parts.join('&') : q();
   const r = await fetch(path + target, {method:'POST', body});
   if (!r.ok) { state.className = 'lost'; state.textContent = (await r.text()).trim().slice(0, 80); }
 }
