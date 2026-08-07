@@ -108,9 +108,9 @@ await loadFleet();
 const cards = rows().map(c => ({
   cls: c.className,
   text: c.text,
-  buttons: (c.find('div').find(d => d.className === 'answer') || {find: () => []}).find('button').map(b => b.textContent),
-  actions: (c.find('div').find(d => d.className === 'actions') || {find: () => []}).find('button').map(b => b.textContent),
-  inputs: c.find('input').length,
+  buttons: (c.find('div').find(d => d.className === 'answer') || {find: () => []}).find(clicky).map(b => b.textContent),
+  actions: (c.find('div').find(d => d.className === 'actions') || {find: () => []}).find(clicky).map(b => b.textContent),
+  inputs: c.find('md-outlined-text-field').length,
 }));
 console.log(JSON.stringify({cards, state: byId.state.textContent, stateCls: byId.state.className}));
 `
@@ -307,7 +307,7 @@ await loadFleet();
 const box = document.getElementById('prompt');
 console.log(JSON.stringify({
   hidden: box.hidden, text: box.text,
-  buttons: box.find('button').map(b => b.textContent),
+  buttons: box.find(clicky).map(b => b.textContent),
   title: document.title,
 }));
 `)
@@ -404,7 +404,7 @@ func TestAnsweringSendsOneTargetNotTwo(t *testing.T) {
 await loadFleet();
 const box = document.getElementById('prompt').hidden ? rows()[0] : document.getElementById('prompt');
 // fetch records the call synchronously, before its first await, so nothing needs waiting on.
-box.find('button')[0].onclick({preventDefault(){}, stopPropagation(){}});
+box.find(clicky)[0].onclick({preventDefault(){}, stopPropagation(){}});
 console.log(JSON.stringify({posts: RENDERED.filter(r => r.method === 'POST').map(r => r.fetched)}));
 `)
 		posts := got["posts"].([]any)
@@ -443,7 +443,7 @@ const fiveStates = `[
 func TestTheSummaryCountsEachStateAndFilters(t *testing.T) {
 	got := runPage(t, fiveStates, "", rowsHelper+`
 await loadFleet();
-const tiles = byId.summary.children.map(t => ({k: t.text, pressed: t.getAttribute('aria-pressed'), off: t.disabled}));
+const tiles = byId.summary.children.map(t => ({k: t.text, pressed: !!t.selected, off: !!t.disabled}));
 console.log(JSON.stringify({tiles, rows: rows().length}));
 `)
 	var got4 []string
@@ -485,8 +485,8 @@ console.log(JSON.stringify({order: rows().map(r =>
 func TestStoppingWorksFromTheList(t *testing.T) {
 	got := runPage(t, fiveStates, "", rowsHelper+`
 await loadFleet();
-const stops = rows().map(r => r.find('button').filter(b => b.className === 'stop').length);
-rows()[0].find('button').filter(b => b.className === 'stop')[0].onclick({preventDefault(){}, stopPropagation(){}});
+const stops = rows().map(r => r.find(clicky).filter(b => b.className === 'stop').length);
+rows()[0].find(clicky).filter(b => b.className === 'stop')[0].onclick({preventDefault(){}, stopPropagation(){}});
 console.log(JSON.stringify({stops, posts: RENDERED.filter(r => r.method === 'POST').map(r => r.fetched)}));
 `)
 	var stops []float64
@@ -618,8 +618,8 @@ func TestARemoteRowCarriesItsConsoleEverywhere(t *testing.T) {
 await loadFleet();
 const remote = rows().find(r => r.text.includes('fuzzer'));
 const local = rows().find(r => r.text.includes('local'));
-remote.find('button').filter(b => b.className === 'stop')[0].onclick({preventDefault(){}, stopPropagation(){}});
-local.find('button').filter(b => b.className === 'stop')[0].onclick({preventDefault(){}, stopPropagation(){}});
+remote.find(clicky).filter(b => b.className === 'stop')[0].onclick({preventDefault(){}, stopPropagation(){}});
+local.find(clicky).filter(b => b.className === 'stop')[0].onclick({preventDefault(){}, stopPropagation(){}});
 console.log(JSON.stringify({
   remoteHref: remote.attrs.href, localHref: local.attrs.href,
   remoteText: remote.text,
@@ -794,8 +794,8 @@ await loadInterventions();
 const byText = t => byId.ivs.children.find(r => r.text.includes(t));
 const shared = byText('run the tests first'), single = byText('do not touch vendor');
 console.log(JSON.stringify({
-  sharedButtons: shared.find('button').map(b => b.textContent),
-  singleButtons: single.find('button').map(b => b.textContent),
+  sharedButtons: shared.find(clicky).map(b => b.textContent),
+  singleButtons: single.find(clicky).map(b => b.textContent),
   sharedNote: shared.text,
 }));
 `)
@@ -808,14 +808,14 @@ console.log(JSON.stringify({
 	}
 	// Said to two companions: no single project to put it in, so only the crossing button, and a
 	// line saying why the other one is missing.
-	if strings.Join(shared, "|") != "rule everywhere" {
+	if strings.Join(shared, "|") != "to every companion" {
 		t.Errorf("a correction given to two companions offers %v", shared)
 	}
 	if !strings.Contains(got["sharedNote"].(string), "no single project") {
 		t.Errorf("nothing says why the project button is absent: %q", got["sharedNote"])
 	}
 	// Said to one: both tiers are meaningful, and the project one names it.
-	if len(single) != 2 || !strings.Contains(single[0], "api") || single[1] != "rule everywhere" {
+	if len(single) != 2 || !strings.Contains(single[0], "api") || single[1] != "to every companion" {
 		t.Errorf("a correction given to one companion offers %v", single)
 	}
 }
@@ -832,8 +832,8 @@ globalThis.fetch = async (p, init) => {
 };
 await loadInterventions();
 const row = byId.ivs.children[0];
-row.find('button')[0].onclick();          // rule for api
-row.find('button')[1] && row.find('button')[1].onclick();
+row.find(clicky)[0].onclick();          // rule for api
+row.find(clicky)[1] && row.find(clicky)[1].onclick();
 await new Promise(r => queueMicrotask(r));
 console.log(JSON.stringify({posts: RENDERED.filter(r => r.method === 'POST')}));
 `)
@@ -1249,7 +1249,7 @@ for (const i of form.find('md-outlined-text-field')) {
   if (i.name === 'name') i.value = 'tickets';
   if (i.name === 'command') i.value = 'uvx';
 }
-form.find('select')[0].value = '/s/a.sock';
+form.find('md-outlined-select')[0].value = '/s/a.sock';
 await form.onsubmit({preventDefault(){}});
 const drops = byId.mcp.find('md-text-button').filter(b => (b.className || '').split(' ').includes('drop'));
 drops[1].onclick();

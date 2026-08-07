@@ -373,14 +373,7 @@ const indexHTML = `<!doctype html>
      something it was told to do, which is the difference a person is judging on this page. */
   .sk.fact .what { font:italic 400 16px/1.4 var(--display); }
   .sk .meta { margin-top:.3rem; font-size:11px; letter-spacing:.05em; color:var(--muted); }
-  .sk .drop {
-    background:none; border:0; border-bottom:1px solid var(--outlineVariant); border-radius:0;
-    /* Zero on purpose: this is a text button set as an underlined word in a reading column, and a
-       pill here would read as a control floating over prose. M3's shape scale includes none. */
-    color:var(--muted); font:600 11px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
-    padding:.3rem .1rem; min-height:48px; cursor:pointer; margin-left:auto;
-  }
-  .sk .drop:hover { color:var(--error); border-bottom-color:var(--error); }
+  .sk .drop { margin-left:auto; }
 
   /* ── what they can reach ────────────────────────────────────────────────── */
   /* An MCP server is where a companion's reach leaves this machine's file system. The list is
@@ -400,22 +393,13 @@ const indexHTML = `<!doctype html>
   .srv .what { font:600 var(--body-l) var(--mono); color:var(--fg); overflow-wrap:anywhere; }
   .srv .how { margin-top:.3rem; font:12px/1.5 var(--mono); color:var(--muted); overflow-wrap:anywhere; }
   .srv .where { margin-top:.2rem; font-size:11px; color:var(--muted); opacity:.85; overflow-wrap:anywhere; }
-  .srv .drop {
-    background:none; border:0; border-bottom:1px solid var(--outlineVariant); border-radius:0;
-    color:var(--muted); font:600 11px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
-    padding:.3rem .1rem; min-height:48px; cursor:pointer; margin-left:auto;
-  }
-  .srv .drop:hover { color:var(--error); border-bottom-color:var(--error); }
-  #mcpAdd { display:grid; gap:.6rem; margin:1.4rem 0; max-width:var(--measure); }
-  #mcpAdd md-outlined-text-field, #mcpAdd select {
-    background:var(--surfaceContainer); color:var(--fg); border:1px solid var(--outlineVariant);
-    border-radius:var(--shape-xs); padding:.55rem .7rem; font:12px/1.4 var(--mono); min-height:48px;
-  }
-  #mcpAdd button {
-    justify-self:start; background:none; border:0; border-bottom:1px solid var(--primary);
-    border-radius:0; color:var(--primary); font:600 11px/1 var(--mono); letter-spacing:.16em;
-    text-transform:uppercase; padding:.4rem .1rem; min-height:48px; cursor:pointer;
-  }
+  .srv .drop { margin-left:auto; }
+  /* Nothing here draws a box or a border: the field and the select bring their own outline, their
+     own shape and their own 48dp target, and a second set drawn over them was two descriptions of
+     one control that could only ever agree by accident. The form says how the controls are
+     arranged and stops. */
+  #mcpAdd { display:grid; gap:.9rem; margin:1.4rem 0; max-width:var(--measure); }
+  #mcpAdd md-filled-button { justify-self:start; }
   #mcpAdd .note { font-size:11px; color:var(--muted); }
 
   /* The recipe. The layer is a pseudo-element so the label's own contrast is never touched, and it
@@ -439,16 +423,17 @@ const indexHTML = `<!doctype html>
 
   /* The summary: how many of each, and a filter. A dashboard's first question is "does anything
      need me", and counting cards to answer it is the thing this row removes. */
-  #summary { display:flex; gap:1.6rem; flex-wrap:wrap; align-items:baseline;
-             border-bottom:1px solid var(--outlineVariant); padding-bottom:.9rem; margin-bottom:.2rem; }
-  .tile {
-    background:none; border:0; padding:.2rem 0; cursor:pointer; text-align:left;
-    display:flex; flex-direction:column; gap:.15rem; min-height:48px;
-  }
-  .tile .n { font:600 var(--headline-s) var(--display); color:var(--fg); }
+  /* Filter chips, because that is what these are: four selectable filters over one list, and a
+     chip already knows what selected looks like, how to be reached with arrow keys, and how to
+     draw a state layer. Written as buttons here before, they knew none of it. The chip renders a
+     slot when it has no label attribute, so the count and the word stay ours. */
+  #summary { display:flex; flex-wrap:wrap; gap:.5rem; padding-bottom:.9rem; margin-bottom:.2rem;
+             border-bottom:1px solid var(--outlineVariant); }
+  .tile { --md-filter-chip-container-height:40px; --md-filter-chip-label-text-font:var(--mono); }
+  .tile .n { font:600 var(--title-m) var(--display); color:var(--fg); margin-right:.45rem; }
   .tile .k {
     font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
-    display:flex; align-items:center; gap:.35rem;
+    display:inline-flex; align-items:center; gap:.35rem;
   }
   /* A status dot AND the word — the colour is never the only thing carrying the state. */
   .tile .k::before { content:""; width:7px; height:7px; border-radius:50%; background:currentColor; }
@@ -456,11 +441,9 @@ const indexHTML = `<!doctype html>
   .tile.working .k { color:var(--success); }
   .tile.idle    .k { color:var(--accent); }
   .tile.gone    .k { color:var(--error); }
-  .tile[aria-pressed="true"] { border-bottom:2px solid var(--primary); }
   /* A count of zero reads as zero; it does not need to be faint as well, and dimming it put the
      label under AA in both themes (2.25:1 in light — measured by the contrast check). */
-  .tile:disabled { cursor:default; }
-  .tile:disabled .n, .tile:disabled .k { color:var(--muted); }
+  .tile[disabled] .n, .tile[disabled] .k { color:var(--muted); }
 
   #fleet { display:block; }
   /* One grid for the header and every row, so the columns line up without a table element and
@@ -532,39 +515,41 @@ const indexHTML = `<!doctype html>
   /* Row actions. Open is the row itself as well, but a named control is what makes it discoverable
      — and stopping must never require entering first, which is the whole point of a console. */
   .actions { display:flex; gap:.8rem; justify-content:flex-end; align-items:center; }
-  .actions button, .actions .open {
-    background:none; border:0; border-bottom:1px solid var(--outlineVariant); border-radius:0;
+  /* open is a link and stays one — it has an address, and a companion's page has to be reachable
+     with a middle click and a copied url. It is dressed to match the button beside it. */
+  .actions .open {
     color:var(--muted); font:600 11px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
-    padding:.3rem .1rem; min-height:48px; cursor:pointer; text-decoration:none; white-space:nowrap;
+    padding:.3rem .1rem; min-height:48px; display:flex; align-items:center;
+    text-decoration:none; white-space:nowrap; border-radius:var(--shape-full);
   }
-  .actions .open:hover { color:var(--primary); border-bottom-color:var(--primary); }
-  .actions .stop:hover { color:var(--error); border-bottom-color:var(--error); }
+  .actions .open:hover { color:var(--primary); }
 
   /* answering, inline in the row that is asking */
-  .answer { display:flex; gap:1rem; margin-top:.5rem; flex-wrap:wrap; align-items:center; }
-  .answer button {
-    background:none; border:0; border-bottom:1px solid var(--warn); border-radius:0;
-    color:var(--warn); font:600 11px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
-    padding:.3rem .1rem; min-height:48px; cursor:pointer;
-  }
-  .answer button:hover { color:var(--primary); border-bottom-color:var(--primary); }
-  .answer input {
-    flex:1; min-width:9rem; background:transparent; color:var(--fg); font:16px/1.5 var(--mono);
-    border:0; border-bottom:1px solid var(--outline); border-radius:0; padding:.4rem .1rem;
-  }
-  .answer input:focus { outline:none; border-bottom-color:var(--primary); }
-  .answer input:focus-visible { outline:2px solid var(--primary); outline-offset:3px; }
+  /* Answering is the one place on the fleet where a person types, so it is the library's field and
+     the library's buttons: focus ring, state layers and a 48dp target all come with them. What is
+     said here is that the choice is the warning colour, because the agent is stopped until it. */
+  .answer { display:flex; gap:.6rem; margin-top:.5rem; flex-wrap:wrap; align-items:center; }
+  .answer md-text-button { --md-text-button-label-text-color:var(--warn); }
+  .answer md-outlined-text-field { flex:1; min-width:11rem; }
 
   .empty { font:16px/1.7 var(--display); color:var(--muted); padding:2.5rem 0; max-width:52ch; }
   .empty code { font:14px/1 var(--mono); color:var(--accent); }
 
   /* ── the agent's own header, so a detail page says what it is looking at ──── */
+  /* The three panels on a companion's page are md-outlined-card: each one groups what is true
+     about a single subject, which is what a card is for, and the outline replaces the hairline
+     rule that used to separate them. The rows in the fleet keep their rule and are NOT cards —
+     they are links, and this component has no ripple, no focus ring and no role, so making one a
+     card would trade the keyboard for a box.
+
+     A card lays its slotted children out itself (:host is flex, and a slot is display:contents),
+     so a display of ours on the host wins and the children stay grid items. */
+  md-outlined-card { padding:1.1rem 1.2rem; margin-bottom:1.4rem; }
   #detail {
     /* auto-fit at 9rem packed a 60-character workspace path into the same cell as a four-letter
        step count. 14rem is the width of the longest SHORT field (the context reading), so the long
        ones take a whole row of their own instead of squeezing the rest. */
     display:grid; grid-template-columns:repeat(auto-fit, minmax(14rem, auto)); gap:1.2rem 1.6rem;
-    border-bottom:1px solid var(--outlineVariant); padding-bottom:1rem; margin-bottom:1.4rem;
   }
   #detail .f { display:flex; flex-direction:column; gap:.2rem; }
   #detail .f .k {
@@ -579,19 +564,14 @@ const indexHTML = `<!doctype html>
   #detail .f .bar i { display:block; height:100%; background:var(--primary); }
   #detail .f .bar.tight i { background:var(--warn); }
   #detail .f .v small { color:var(--muted); font-size:11px; }
-  #detail .f .fold {
-    justify-self:start; margin-top:.4rem; background:none; border:0;
-    border-bottom:1px solid var(--outlineVariant); border-radius:0; color:var(--muted);
-    font:600 11px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
-    padding:.3rem .1rem; min-height:48px; cursor:pointer;
-  }
-  #detail .f .fold:hover:not(:disabled) { color:var(--primary); border-bottom-color:var(--primary); }
-  /* Disabled by the cursor and the missing hover, not by fading the text: a control dimmed below
-     the contrast floor is one somebody has to lean in to read to find out it is unavailable. */
-  #detail .f .fold:disabled { cursor:default; border-bottom-color:transparent; }
+  /* Disabled is the component's own fade now, not a rule here. The contrast check reads this
+     stylesheet and cannot see into a shadow root, so that opacity is not covered — which is the
+     right answer rather than a gap: WCAG exempts inactive controls, and the repo's own rule
+     against dimming was about text somebody still has to read. */
+  #detail .f .fold { justify-self:start; margin-top:.4rem; }
 
   /* ── the agent's own plan ───────────────────────────────────────────────── */
-  #plan { max-width:var(--measure); margin-bottom:1.2rem; }
+  #plan { max-width:var(--measure); }
   #plan .k {
     font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase;
     color:var(--muted); margin-bottom:.4rem;
@@ -604,10 +584,7 @@ const indexHTML = `<!doctype html>
   .td.in_progress .what { color:var(--primary); }
 
   /* ── work handed to other companions ────────────────────────────────────── */
-  #handoffs {
-    max-width:var(--measure); border-bottom:1px solid var(--outlineVariant);
-    padding-bottom:1rem; margin-bottom:1.4rem;
-  }
+  #handoffs { max-width:var(--measure); }
   #handoffs .k {
     font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase;
     color:var(--muted); margin-bottom:.5rem;
@@ -682,6 +659,33 @@ const indexHTML = `<!doctype html>
      which colours magi uses. Its own scrolling replaces the auto-grow this page used to do by
      measuring scrollHeight — a measurement that stopped being possible when the textarea moved
      into a shadow root, and one the component already does. */
+  /* The small acting words on a row — open a companion, stop a turn, drop a lesson, remove a
+     server, fold a transcript. Every one of them is md-text-button now, and it is told what to be
+     through the component's tokens: a rule on the host can only draw a second box AROUND the
+     button (the border-bottom that used to be here did exactly that), and the font it set never
+     reached the label, which lives in a shadow root. letter-spacing and text-transform are the
+     two that do cross the boundary, being inherited properties, so those stay as they are. */
+  md-text-button {
+    --md-text-button-label-text-font: var(--mono);
+    --md-text-button-label-text-size: 11px;
+    --md-text-button-label-text-weight: 600;
+    --md-text-button-label-text-color: var(--muted);
+    --md-text-button-hover-label-text-color: var(--primary);
+    --md-text-button-focus-label-text-color: var(--primary);
+    --md-text-button-pressed-label-text-color: var(--primary);
+    --md-text-button-hover-state-layer-color: var(--primary);
+    --md-text-button-pressed-state-layer-color: var(--primary);
+    letter-spacing:.14em; text-transform:uppercase;
+  }
+  /* Removing something reads in the error colour on the way to being pressed, and only there: a
+     control that is red at rest is a warning, and these are ordinary. */
+  md-text-button.drop, md-text-button.stop {
+    --md-text-button-hover-label-text-color: var(--error);
+    --md-text-button-focus-label-text-color: var(--error);
+    --md-text-button-pressed-label-text-color: var(--error);
+    --md-text-button-hover-state-layer-color: var(--error);
+    --md-text-button-pressed-state-layer-color: var(--error);
+  }
   md-outlined-text-field#t { flex:1; }
   md-outlined-text-field {
     --md-sys-color-primary: var(--primary);
@@ -694,6 +698,17 @@ const indexHTML = `<!doctype html>
        takes focus and does not zoom back. The component's own default is smaller. */
     --md-outlined-text-field-input-text-size: 16px;
     --md-outlined-text-field-label-text-font: var(--mono);
+  }
+  /* The select is a text field wearing a menu, and it reads its own copy of these. */
+  md-outlined-select {
+    --md-sys-color-primary: var(--primary);
+    --md-sys-color-on-surface: var(--md-on-surface);
+    --md-sys-color-on-surface-variant: var(--md-on-surface-variant);
+    --md-sys-color-outline: var(--outline);
+    --md-sys-color-surface-container: var(--surfaceContainer);
+    --md-outlined-select-text-field-input-text-font: var(--mono);
+    --md-outlined-select-text-field-input-text-size: 16px;
+    --md-outlined-select-text-field-label-text-font: var(--mono);
   }
   /* The composer's two are Material Web buttons. Their shape, state layers, ripple and touch
      target come from the component — this page only tells them which colours magi uses, through
@@ -740,14 +755,14 @@ const indexHTML = `<!doctype html>
     <md-primary-tab id="tabSkills">lessons</md-primary-tab>
     <md-primary-tab id="tabMcp">connections</md-primary-tab>
   </md-tabs>
-  <div id="summary"></div>
+  <md-chip-set id="summary"></md-chip-set>
   <div id="ivs" hidden></div>
   <div id="skills" hidden></div>
   <div id="mcp" hidden></div>
   <div id="fleet"></div>
-  <div id="detail" hidden></div>
-  <div id="plan" hidden></div>
-  <div id="handoffs" hidden></div>
+  <md-outlined-card id="detail" hidden></md-outlined-card>
+  <md-outlined-card id="plan" hidden></md-outlined-card>
+  <md-outlined-card id="handoffs" hidden></md-outlined-card>
   <div id="log"></div>
 </main>
 
@@ -953,8 +968,8 @@ function rowActions(a) {
   open.onclick = e => { e.preventDefault(); e.stopPropagation(); go(a.socket, a.peer); };
   box.append(open);
   if (a.live && (a.state === 'working' || a.state === 'waiting')) {
-    const stop = document.createElement('button');
-    stop.className = 'stop'; stop.type = 'button'; stop.textContent = 'stop';
+    const stop = document.createElement('md-text-button');
+    stop.className = 'stop'; stop.textContent = tr('action.interrupt');
     stop.title = 'interrupt the turn this agent is running';
     stop.onclick = e => {
       e.preventDefault(); e.stopPropagation();
@@ -981,10 +996,12 @@ function summarise(list) {
   const counts = {waiting: 0, working: 0, idle: 0, gone: 0};
   for (const a of list) counts[GROUP[a.state] || 'idle']++;
   box.replaceChildren(...Object.entries(counts).map(([k, n]) => {
-    const b = document.createElement('button');
-    b.className = 'tile ' + k; b.type = 'button';
+    const b = document.createElement('md-filter-chip');
+    b.className = 'tile ' + k;
     b.disabled = n === 0;
-    b.setAttribute('aria-pressed', String(filter === k));
+    // The chip's own selected state, not an aria attribute of ours. It toggles itself on click and
+    // this list is rebuilt from filter on the next render, so the two cannot drift.
+    b.selected = filter === k;
     b.append(cell('n', n + ''), cell('k', k));
     b.onclick = () => { filter = filter === k ? null : k; render(); };
     return b;
@@ -1003,8 +1020,9 @@ function answerBox(a) {
   const send = (text) => post('/answer', new URLSearchParams({call: a.askId, kind: a.askKind, text}),
                               a.socket, a.peer).then(loadFleet);
   if (a.askKind === 'question') {
-    const i = document.createElement('input'); i.placeholder = 'your answer…';
-    const b = document.createElement('button'); b.textContent = 'answer';
+    const i = document.createElement('md-outlined-text-field');
+    i.label = tr('placeholder.answer');
+    const b = document.createElement('md-filled-button'); b.textContent = tr('action.answer');
     const go = e => { e.preventDefault(); e.stopPropagation(); if (i.value.trim()) send(i.value.trim()); };
     b.onclick = go;
     i.onclick = e => { e.preventDefault(); e.stopPropagation(); };
@@ -1012,7 +1030,7 @@ function answerBox(a) {
     box.append(i, b);
   } else {
     for (const [label, decision] of [['allow', 'allow'], ['always', 'always'], ['deny', 'deny']]) {
-      const b = document.createElement('button'); b.textContent = label;
+      const b = document.createElement('md-text-button'); b.textContent = label;
       b.onclick = e => { e.preventDefault(); e.stopPropagation(); send(decision); };
       box.append(b);
     }
@@ -1381,13 +1399,13 @@ function promoteBox(g) {
   };
   const only = g.targets.length === 1 ? g.targets[0] : null;
   if (only) {
-    const b = document.createElement('button'); b.type = 'button';
-    b.textContent = 'rule for ' + only.name;
+    const b = document.createElement('md-text-button');
+    b.textContent = tr('action.promote_project') + ': ' + only.name;
     b.onclick = () => send('project', only);
     box.append(b);
   }
-  const g2 = document.createElement('button'); g2.type = 'button';
-  g2.textContent = 'rule everywhere';
+  const g2 = document.createElement('md-text-button');
+  g2.textContent = tr('action.promote_global');
   g2.onclick = () => send('global', null);
   box.append(g2);
   if (!only) {
@@ -1499,13 +1517,13 @@ async function loadMCP() {
     i.name = name; i.placeholder = placeholder; if (val) i.value = val;
     return i;
   };
-  const who = document.createElement('select');
+  const who = document.createElement('md-outlined-select');
   who.name = 'who';
-  const opts = [['', 'every companion here (global)']].concat(
-    (fleetSeen || []).filter(a => !a.peer).map(a => [a.socket, 'only ' + a.name]));
+  const opts = [['', tr('reach.every_companion')]].concat(
+    (fleetSeen || []).filter(a => !a.peer).map(a => [a.socket, tr('reach.only', {name: a.name})]));
   for (const [v, label] of opts) {
-    const o = document.createElement('option');
-    o.value = v; o.textContent = label;
+    const o = document.createElement('md-select-option');
+    o.value = v; o.append(cell('', label));
     who.append(o);
   }
   form.append(who, field('name', 'name — becomes [mcp.<name>] in the config'),
@@ -1513,8 +1531,8 @@ async function loadMCP() {
     field('args', 'arguments, one per line or space-separated'),
     field('url', 'or a url for an HTTP server, scheme and all'),
     field('env', 'environment, NAME=value — values are written to the config file'));
-  const go = document.createElement('button');
-  go.type = 'submit'; go.textContent = 'add or replace';
+  const go = document.createElement('md-filled-button');
+  go.type = 'submit'; go.textContent = tr('action.add_or_replace');
   form.append(go);
   const note = cell('note',
     'Written to that companion\'s config file. It attaches when that daemon next starts — ' +

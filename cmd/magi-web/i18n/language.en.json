@@ -3,7 +3,6 @@
   "nav.corrections": "corrections",
   "nav.lessons": "lessons",
   "nav.connections": "connections",
-
   "action.send": "send",
   "action.interrupt": "interrupt",
   "action.answer": "answer",
@@ -13,7 +12,6 @@
   "action.add_or_replace": "add or replace",
   "action.promote_project": "to this project",
   "action.promote_global": "to every companion",
-
   "field.status": "status",
   "field.workspace": "workspace",
   "field.role": "role",
@@ -28,13 +26,11 @@
   "field.plan": "plan",
   "field.handed_out": "handed out",
   "field.summarised_away": "summarised away",
-
   "state.waiting": "waiting",
   "state.working": "working",
   "state.idle": "idle",
   "state.abandoned": "abandoned",
   "state.stopped": "stopped",
-
   "context.measured": "measured",
   "context.estimated": "estimated",
   "context.messages": "{n} messages",
@@ -43,20 +39,17 @@
   "context.folds": "{n} folds",
   "context.fold": "1 fold",
   "context.shed": "{n} tokens shed",
-
   "reach.every_companion": "every companion",
   "reach.only": "only {name}",
   "reach.on_peer": " on {peer}",
-
   "empty.no_agents": "No magi is running under this config directory.",
   "empty.nothing_learned": "Nothing learned yet.",
   "empty.nothing_to_promote": "Nothing to promote yet.",
   "empty.no_servers": "No external tool servers.",
-
   "error.unreachable": "cannot reach magi-web",
   "error.say_who": "say who it is for",
-
   "placeholder.ask": "Ask magi to do something…",
+  "placeholder.answer": "your answer",
   "placeholder.address": "to: a name, or what they do",
   "placeholder.mcp_name": "name — becomes [mcp.<name>] in the config",
   "placeholder.mcp_command": "command, e.g. npx   (leave empty for an HTTP server)",

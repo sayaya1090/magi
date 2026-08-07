@@ -3,7 +3,6 @@
   "nav.corrections": "교정",
   "nav.lessons": "배운 것",
   "nav.connections": "연결",
-
   "action.send": "보내기",
   "action.interrupt": "중단",
   "action.answer": "응답",
@@ -13,7 +12,6 @@
   "action.add_or_replace": "추가·교체",
   "action.promote_project": "이 프로젝트에",
   "action.promote_global": "모든 컴패니언에",
-
   "field.status": "상태",
   "field.workspace": "워크스페이스",
   "field.role": "역할",
@@ -28,13 +26,11 @@
   "field.plan": "계획",
   "field.handed_out": "넘긴 일",
   "field.summarised_away": "요약되어 사라진 것",
-
   "state.waiting": "대기 중",
   "state.working": "작업 중",
   "state.idle": "유휴",
   "state.abandoned": "중단됨",
   "state.stopped": "정지",
-
   "context.measured": "실측",
   "context.estimated": "추정",
   "context.messages": "메시지 {n}개",
@@ -43,20 +39,17 @@
   "context.folds": "{n}번 접힘",
   "context.fold": "1번 접힘",
   "context.shed": "{n} 토큰 덜어냄",
-
   "reach.every_companion": "모든 컴패니언",
   "reach.only": "{name}만",
   "reach.on_peer": " ({peer})",
-
   "empty.no_agents": "이 config 디렉터리 아래에 도는 magi가 없습니다.",
   "empty.nothing_learned": "아직 배운 것이 없습니다.",
   "empty.nothing_to_promote": "아직 승격할 것이 없습니다.",
   "empty.no_servers": "외부 툴 서버가 없습니다.",
-
   "error.unreachable": "magi-web에 닿을 수 없음",
   "error.say_who": "누구에게 보낼지 적어주세요",
-
   "placeholder.ask": "magi에게 시킬 일을 적으세요…",
+  "placeholder.answer": "답변",
   "placeholder.address": "받는 곳: 이름, 또는 무엇을 하는지",
   "placeholder.mcp_name": "이름 — 설정에서 [mcp.<이름>]이 됩니다",
   "placeholder.mcp_command": "명령, 예: npx   (HTTP 서버면 비워두세요)",

@@ -148,24 +148,33 @@ func TestThePageWorksOnAPhone(t *testing.T) {
 	// Read as a SIZE rather than as one spelling: `font-size:16px` and the `font:` shorthand say
 	// the same thing, and a check that knows only one of them fails on a restyle that kept the
 	// property it exists to protect.
-	for _, sel := range []string{"md-outlined-text-field{", ".answerinput{"} {
-		at := strings.Index(flat, sel)
-		if at < 0 {
-			t.Errorf("no %s rule in the page", strings.TrimSuffix(sel, "{"))
+	//
+	// Asked of every size the page states rather than of a list of selectors. The list went stale
+	// the moment a field became a component: it still named `.answer input`, which no longer
+	// exists, while the rule it was really protecting had moved and was never looked at.
+	sizes := regexp.MustCompile(`(?:font-size|input-text-size):([0-9.]+)px`).FindAllStringSubmatch(flat, -1)
+	typed := 0
+	for _, m := range sizes {
+		var px float64
+		if _, err := fmt.Sscanf(m[1], "%g", &px); err != nil {
 			continue
 		}
-		end := strings.Index(flat[at:], "}")
-		if end < 0 {
-			t.Errorf("the %s rule is unterminated", sel)
-			continue
+		if !strings.Contains(m[0], "input-text-size") {
+			continue // a label or a heading; only what is typed into triggers the zoom
 		}
-		px, ok := fontSizePx(flat[at : at+end])
-		if !ok {
-			t.Errorf("%s sets no font size, so it inherits the body's 14px and iOS zooms on focus", sel)
-			continue
-		}
+		typed++
 		if px < 16 {
-			t.Errorf("%s is %gpx; under 16 iOS Safari zooms the page on focus and does not zoom back", sel, px)
+			t.Errorf("a field is %gpx; under 16 iOS Safari zooms the page on focus and does not zoom back", px)
+		}
+	}
+	if typed == 0 {
+		t.Error("no field states its own text size, so they inherit the body's 14px and iOS zooms on focus")
+	}
+	// And nothing typed into is a bare element any more — one that was would inherit that 14px
+	// without ever setting an input-text-size for the loop above to find.
+	for _, raw := range []string{"createElement('input')", "createElement('textarea')", "<input", "<textarea"} {
+		if strings.Contains(indexHTML, raw) {
+			t.Errorf("the page still builds a bare %s; it has no text size of its own and iOS zooms on it", raw)
 		}
 	}
 	// Enter must not be hijacked where the return key is the only way to break a line.
