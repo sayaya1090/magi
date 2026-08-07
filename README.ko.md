@@ -224,6 +224,20 @@ CGO_ENABLED=0 go build -o magi ./cmd/magi
 위험 툴(`write`/`edit`/`bash`)은 실행 전 확인(`y` 허용 · `a` 항상 · `n` 거부).
 마크다운·신택스 하이라이트는 다크/라이트 터미널에 자동 대응.
 
+### 켜둔 채로 두기, 그리고 여러 개를 지켜보기
+
+```sh
+./magi --daemon                # UI 없는 엔진 — 아무도 안 보고 있어도 계속 일한다
+./magi --attach                # 이 워크스페이스의 데몬에 터미널 UI를 붙인다
+./magi --agents                # 이 머신의 모든 magi와 각자 무엇을 하는지
+./magi-web                     # 같은 것을 브라우저에서(127.0.0.1:7777) — 중단·응답·
+                               # 교정을 규칙으로 승격. -peer로 다른 머신을 붙인다
+```
+
+워크스페이스 하나에 묶인 magi 하나가 **컴패니언(companion)**이고, 여러 개를 지켜보는 사람은
+운영이 아니라 감독을 한다. [MANUAL §12](docs/MANUAL.ko.md)와 설계 기록
+[proposals/companions-and-supervision-2026-08-07.md](docs/proposals/companions-and-supervision-2026-08-07.md).
+
 ### 헤드리스 (스크립트 & CI)
 
 ```sh
@@ -319,9 +333,11 @@ magi는 **포트 & 어댑터(헥사고날)** 구조다. 코어 도메인은 UI�
 
 ```
 cmd/magi            엔트리포인트(와이어링)
+cmd/magi-web        콘솔 — 같은 데몬들 위의 읽기 위주 웹 화면
 internal/core       도메인 — 어댑터에 의존 안 함 (순수 council 포함)
 internal/port       포트(인터페이스) — LLM, Store, Council, PluginHost …
-internal/adapter    어댑터 — llm/openai · tui/bubbletea · plugin/lua · mcp · council/llm
+internal/adapter    어댑터 — llm/openai · tui/bubbletea · plugin/lua · mcp · council/llm ·
+                    daemon(소켓 위의 엔진) · fleet(모든 magi가 무엇을 하는지)
 plugins/examples    예제 Lua 플러그인
 docs                ARCHITECTURE · DESIGN · SPEC · MANUAL · PLAN · FEATURES
 ```

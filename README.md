@@ -238,6 +238,20 @@ then asks you to restart. Non-interactive runs (`-p`, pipes, CI) never check. Op
 Dangerous tools (`write`/`edit`/`bash`) ask before they run (`y` allow · `a` always · `n` deny).
 Markdown and syntax highlighting adapt to dark/light terminals automatically.
 
+### Leaving it running, and watching several
+
+```sh
+./magi --daemon                # the engine with no UI — it keeps working while nothing watches
+./magi --attach                # attach a terminal UI to this workspace's daemon
+./magi --agents                # every magi on this machine, and what each is doing
+./magi-web                     # the same, in a browser (127.0.0.1:7777) — interrupt, answer,
+                               # promote a correction into a rule; -peer adds another machine
+```
+
+One magi bound to one workspace is a **companion**; a person watching several of them is
+supervising rather than operating. See [MANUAL §12](docs/MANUAL.md) and the design record in
+[proposals/companions-and-supervision-2026-08-07.md](docs/proposals/companions-and-supervision-2026-08-07.md).
+
 ### Headless (scripts & CI)
 
 ```sh
@@ -333,9 +347,11 @@ plugins — adapters plug into it. Dependency direction is always inward.
 
 ```
 cmd/magi            entrypoint (wiring)
+cmd/magi-web        the console — a read-mostly web view over the same daemons
 internal/core       domain — depends on no adapter (incl. the pure council)
 internal/port       ports (interfaces) — LLM, Store, Council, PluginHost …
-internal/adapter    adapters — llm/openai · tui/bubbletea · plugin/lua · mcp · council/llm
+internal/adapter    adapters — llm/openai · tui/bubbletea · plugin/lua · mcp · council/llm ·
+                    daemon (the engine over a socket) · fleet (what every magi is doing)
 plugins/examples    example Lua plugins
 docs                ARCHITECTURE · DESIGN · SPEC · MANUAL · PLAN · FEATURES
 ```
