@@ -359,6 +359,13 @@ const indexHTML = `<!doctype html>
   }
   #detail .f .v { font-size:13px; color:var(--fg); overflow-wrap:anywhere; }
   #detail .f .v.state { font-weight:600; letter-spacing:.1em; text-transform:uppercase; font-size:11px; }
+  /* The window, as a rule under the number rather than a gauge beside it: this is a fill level and
+     the page already spends its colour on state. Unknown windows draw no bar at all — an empty
+     track reads as "nearly empty", which is the opposite of "we do not know". */
+  #detail .f .bar { height:2px; background:var(--outlineVariant); margin-top:.35rem; }
+  #detail .f .bar i { display:block; height:100%; background:var(--primary); }
+  #detail .f .bar.tight i { background:var(--warn); }
+  #detail .f .v small { color:var(--muted); font-size:11px; }
 
   /* ── transcript ─────────────────────────────────────────────────────────── */
   /* Monospace throughout: every line here is something the machine said or did, and a serif would
@@ -729,6 +736,68 @@ function drawDetail(a) {
     field('session', a.session),
   );
   box.hidden = false;
+  // Returned rather than dropped: the caller does not wait for it, but a caller that WANTS to —
+  // a test, or a later screen that needs the whole panel settled — has no other way to know when
+  // the slow half landed, and a promise nobody can await is a promise nobody can check.
+  return drawContext(a, box, field);
+}
+
+// ── what is in its head ──────────────────────────────────────────────────────
+// Fetched after the rest of the detail is already on screen, and appended when it lands: it costs a
+// replay of the whole log, and the six facts above it are the ones somebody opened this page for.
+async function drawContext(a, box, field) {
+  let c;
+  try { c = await (await fetch('/context' + qFor(a))).json(); }
+  catch { return; } // the page is still correct without it; a failed extra must not blank the rest
+  if (!c || box.hidden) return;
+
+  const size = cell('v', '');
+  size.append(document.createTextNode(
+    (c.estimated ? '~' : '') + (c.used || 0).toLocaleString() +
+    (c.window ? ' / ' + c.window.toLocaleString() : '') + ' tokens'));
+  const note = document.createElement('small');
+  // Said plainly, because the difference decides what the number is worth: one is the provider's
+  // own count from the last turn, the other is arithmetic over the transcript.
+  note.textContent = ' ' + (c.estimated ? 'estimated' : 'measured') +
+                     (c.messages ? ' · ' + c.messages + ' messages' : '');
+  size.append(note);
+  const f = cell('f');
+  f.append(cell('k', 'context'), size);
+  if (c.window) {
+    const pct = Math.min(100, Math.round((c.used || 0) * 100 / c.window));
+    const bar = cell('bar' + (pct >= 80 ? ' tight' : ''));
+    const fill = document.createElement('i');
+    fill.style.width = pct + '%';
+    bar.append(fill);
+    f.append(bar);
+  }
+  box.append(f);
+
+  // A compaction is the one moment a companion silently stops knowing something. Four of them in
+  // one session is the reason its earlier reasoning cannot be assumed still there.
+  if (c.compactions) {
+    const v = cell('v', c.compactions + (c.compactions === 1 ? ' fold' : ' folds'));
+    const s2 = document.createElement('small');
+    s2.textContent = ' · ' + (c.shed || 0).toLocaleString() + ' tokens shed' +
+                     (c.lastBefore ? ' · last ' + c.lastBefore.toLocaleString() + '→' + c.lastAfter.toLocaleString() : '');
+    v.append(s2);
+    const cf = cell('f');
+    cf.append(cell('k', 'summarised away'), v);
+    if (c.topics && c.topics.length) {
+      // Naming them is the difference between "the detail is not lost" as a claim and as a fact:
+      // these are the subjects the companion can pull back in full.
+      cf.append(cell('v', c.topics.slice(0, 6).join(' · ') +
+                          (c.topics.length > 6 ? ' +' + (c.topics.length - 6) : '')));
+    }
+    box.append(cf);
+  }
+}
+
+// qFor is the query that names one companion: its socket, and the console it lives on.
+function qFor(a) {
+  const parts = ['d=' + encodeURIComponent(a.socket)];
+  if (a.peer) parts.push('p=' + encodeURIComponent(a.peer));
+  return '?' + parts.join('&');
 }
 
 // ── what I had to say ────────────────────────────────────────────────────────

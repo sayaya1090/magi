@@ -796,3 +796,56 @@ console.log(JSON.stringify({
 		t.Errorf("the request does not say which tier: %q", b)
 	}
 }
+
+// The two facts about a companion's head that exist nowhere else on the page: how full it is, and
+// how much of its history has already been summarised away.
+func TestTheDetailSaysHowFullTheContextIsAndWhatWasFolded(t *testing.T) {
+	got := runPage(t, `[]`, "", `
+globalThis.fetch = async (p) => ({ok: true, json: async () => p.startsWith('/context') ? {
+  model: 'qwen3', window: 100000, used: 82000, estimated: false, messages: 41,
+  compactions: 2, shed: 31000, lastBefore: 40000, lastAfter: 9000,
+  topics: ['internal/parse.go', 'discussion'],
+} : []});
+await drawDetail({socket: '/s/a.sock', name: 'api', state: 'working', workdir: '/w/api',
+                  steps: 3, idle: 4, session: 's1'});
+const box = byId.detail;
+const bars = box.find('div').filter(d => (d.className || '').startsWith('bar'));
+console.log(JSON.stringify({text: box.text, fields: box.children.length,
+  fill: bars.length ? bars[0].children[0].style.width : ''}));
+`)
+	text := got["text"].(string)
+	for _, want := range []string{"82,000 / 100,000 tokens", "measured", "41 messages", "2 folds",
+		"31,000 tokens shed", "40,000→9,000", "internal/parse.go"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the detail does not say %q:\n%s", want, text)
+		}
+	}
+	// The bar is drawn only because a window is known. An empty track for an unknown window reads
+	// as "nearly empty", which is the opposite of what it would mean.
+	if got["fill"] != "82%" {
+		t.Errorf("the fill is at %v, not the measured share", got["fill"])
+	}
+
+	got = runPage(t, `[]`, "", `
+globalThis.fetch = async (p) => ({ok: true, json: async () => p.startsWith('/context') ? {
+  used: 5000, estimated: true, messages: 3, compactions: 0,
+} : []});
+await drawDetail({socket: '/s/a.sock', name: 'api', state: 'idle', workdir: '/w/api', session: 's1'});
+console.log(JSON.stringify({text: byId.detail.text,
+  bars: byId.detail.find('div').filter(d => (d.className || '').startsWith('bar')).length}));
+`)
+	text = got["text"].(string)
+	if !strings.Contains(text, "~5,000 tokens") || !strings.Contains(text, "estimated") {
+		t.Errorf("an estimate is not marked as one:\n%s", text)
+	}
+	if strings.Contains(text, "/ ") {
+		t.Errorf("an unknown window was printed as a denominator:\n%s", text)
+	}
+	if got["bars"].(float64) != 0 {
+		t.Error("a fill bar was drawn against a window nobody knows")
+	}
+	// Nothing has been folded, so nothing claims it has.
+	if strings.Contains(text, "fold") {
+		t.Errorf("a session with no compactions reports one:\n%s", text)
+	}
+}
