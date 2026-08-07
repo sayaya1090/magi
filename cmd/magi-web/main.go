@@ -460,6 +460,37 @@ func (s *server) routes() map[string]http.HandlerFunc {
 //go:embed fonts/*.woff2
 var fontFS embed.FS
 
+//go:embed vendor/*.js i18n/*.json
+var assetFS embed.FS
+
+// asset serves the vendored javascript and the language packs.
+//
+// Both are in the binary for the same reason the typeface is: a page that fetched them from
+// somewhere else would depend on that machine being up, tell it when you look at your agents, and
+// behave differently on a laptop with no route out. See vendor/README.md for how the bundle is
+// built — once, by hand, from a pinned version, with its hash written down.
+func (s *server) asset(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimPrefix(r.URL.Path, "/")
+	b, err := assetFS.ReadFile(name)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	switch {
+	case strings.HasSuffix(name, ".js"):
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	case strings.HasSuffix(name, ".json"):
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	}
+	// Immutable for a day: the bundle is pinned and the language packs change with a release, so a
+	// browser re-fetching them on every poll is bytes for nothing. Not forever — a build that does
+	// change them should reach a tab somebody left open overnight.
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	if _, err := w.Write(b); err != nil {
+		log.Printf("magi-web: serving %s: %v", name, err)
+	}
+}
+
 // font serves the display face the page sets its headlines in.
 //
 // Embedded and served from here rather than fetched from a font CDN. A viewer that reached out for

@@ -678,7 +678,41 @@ const indexHTML = `<!doctype html>
   </div></form>
 </footer>
 
-<script>
+<script type="module">
+// RxJS, from this binary (vendor/README.md says how it was built). The console has three streams
+// that used to be hand-rolled: the language pack every label reads, the fleet poll, and the
+// transcript. Hand-rolling them is what produced the races this page has already been caught by —
+// a slow answer landing on a panel that had been redrawn, a poll that kept firing after you left.
+import { BehaviorSubject, timer, from, of, EMPTY,
+         switchMap, catchError, map, distinctUntilChanged, shareReplay } from '/vendor/rxjs.js';
+
+// ── labels ───────────────────────────────────────────────────────────────────
+// The same shape the handbook uses: a flat dot-keyed pack per locale, chosen by localStorage then
+// the browser, falling back to English when the pack cannot be read. Published as a stream so a
+// label change reaches everything that draws one, rather than being read once at startup by
+// whichever function happened to run first.
+const labels$ = new BehaviorSubject({});
+let L = {};
+labels$.subscribe(v => { L = v; });
+// t('nav.lessons') — the key IS the fallback, so a missing entry shows the key rather than a blank
+// space, which is the difference between "somebody forgot to translate this" and "this is empty".
+const tr = (key, vars) => {
+  let out = L[key] ?? key;
+  if (vars) for (const [k, v] of Object.entries(vars)) out = out.replace('{' + k + '}', v);
+  return out;
+};
+const locale = () => (localStorage.getItem('lang') || navigator.language || 'en').slice(0, 2);
+from(fetch('/i18n/language.' + locale() + '.json'))
+  .pipe(
+    switchMap(r => r.ok ? from(r.json()) : EMPTY),
+    catchError(() => EMPTY),
+    switchMap(pack => of(pack)),
+  )
+  .subscribe({
+    next: pack => labels$.next(pack),
+    error: () => {},
+  });
+
 const fleetEl = document.getElementById('fleet'), log = document.getElementById('log');
 const state = document.getElementById('state'), sidEl = document.getElementById('sid');
 const back = document.getElementById('back'), f = document.getElementById('f');

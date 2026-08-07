@@ -52,15 +52,24 @@ func TestEveryElementTheScriptReachesForExists(t *testing.T) {
 	}
 }
 
-// scriptBody returns the contents of the page's <script> block.
+// scriptBody returns the contents of the page's script block, module or not.
+//
+// It became `type="module"` the day the page started importing the vendored bundle, and a matcher
+// pinned to the bare tag reported "the page has no script" for a page whose script had simply
+// gained an attribute.
 func scriptBody(t *testing.T, page string) string {
 	t.Helper()
-	open := strings.Index(page, "<script>")
-	closeAt := strings.LastIndex(page, "</script>")
-	if open < 0 || closeAt < 0 || closeAt < open {
-		t.Fatal("the page has no <script> block")
+	openAt := strings.Index(page, "<script")
+	if openAt >= 0 {
+		if gt := strings.Index(page[openAt:], ">"); gt >= 0 {
+			openAt += gt + 1
+		}
 	}
-	return page[open+len("<script>") : closeAt]
+	closeAt := strings.LastIndex(page, "</script>")
+	if openAt < 0 || closeAt < 0 || closeAt < openAt {
+		t.Fatal("the page has no script block")
+	}
+	return page[openAt:closeAt]
 }
 
 // idsUsed finds every getElementById('x') in the script.

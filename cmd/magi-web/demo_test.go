@@ -58,7 +58,8 @@ func TestTheMockAnswersExactlyWhatThePageAsksFor(t *testing.T) {
 		t.Fatalf("only found %d fetched paths — the scan has lost its subject: %v", len(asked), asked)
 	}
 	for path := range asked {
-		if path == "/events" { // the transcript comes over EventSource, mocked separately
+		// /i18n is answered by prefix (any locale falls back to English), not by an exact key.
+		if path == "/events" || path == "/i18n" {
 			continue
 		}
 		if !strings.Contains(demoScript, "'"+path+"'") {
@@ -79,8 +80,8 @@ func TestTheMockAnswersExactlyWhatThePageAsksFor(t *testing.T) {
 func fetchPathsIn(page string) []string {
 	var out []string
 	for _, re := range []*regexp.Regexp{
-		regexp.MustCompile(`fetch\('(/[a-z]+)`),
-		regexp.MustCompile(`fetchList\('(/[a-z]+)`),
+		regexp.MustCompile(`fetch\('(/[a-z0-9]+)`),
+		regexp.MustCompile(`fetchList\('(/[a-z0-9]+)`),
 	} {
 		for _, m := range re.FindAllStringSubmatch(page, -1) {
 			out = append(out, m[1])

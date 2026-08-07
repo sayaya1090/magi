@@ -36,8 +36,18 @@ func runPage(t *testing.T, fleetJSON, query, epilogue string) map[string]any {
 	if err := os.WriteFile(filepath.Join(dir, "dom.mjs"), harness, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	script := "import { byId, RENDERED } from './dom.mjs';\n" +
-		scriptBody(t, indexHTML) + "\n" + epilogue
+	// The page imports the vendored bundle by the path this binary serves it at. Node resolves
+	// neither that path nor a fetch of it, so the file is copied in beside the page and the
+	// specifier rewritten — the same bytes, reached differently.
+	vendored, err := assetFS.ReadFile("vendor/rxjs.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "rxjs.js"), vendored, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body := strings.ReplaceAll(scriptBody(t, indexHTML), "'/vendor/rxjs.js'", "'./rxjs.js'")
+	script := "import { byId, RENDERED } from './dom.mjs';\n" + body + "\n" + epilogue
 	main := filepath.Join(dir, "page.mjs")
 	if err := os.WriteFile(main, []byte(script), 0o644); err != nil {
 		t.Fatal(err)

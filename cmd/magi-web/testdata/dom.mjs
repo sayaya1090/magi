@@ -85,6 +85,20 @@ globalThis.window = { innerHeight: 800, scrollY: 0, scrollTo() {} };
 // The address bar, enough of it. pushState WRITES the search string, because the page navigates
 // by pushing a url and re-reading it — a no-op stub made every tab click look like it did nothing,
 // which is a fake that answers "broken" for a page that works.
+// A browser has these and the page reads both to pick a language; without them it throws before
+// drawing anything, which is a fake missing a fact rather than a page doing something wrong.
+globalThis.localStorage = {
+  store: new Map(),
+  getItem(k) { return this.store.has(k) ? this.store.get(k) : null; },
+  setItem(k, v) { this.store.set(k, String(v)); },
+  removeItem(k) { this.store.delete(k); },
+};
+// navigator already exists in node and is read-only, so the language is defined onto it rather
+// than replacing it.
+Object.defineProperty(globalThis.navigator, 'language', {
+  value: process.env.LANG_TAG ?? 'en-US', configurable: true,
+});
+
 globalThis.location = { search: process.env.QUERY ?? '' };
 globalThis.history = {
   pushState(_state, _title, url) {
@@ -107,6 +121,12 @@ globalThis.EventSource = class {
 // Every fetch is answered from the environment, so a scenario is one JSON blob and no server.
 globalThis.fetch = async (path, init) => {
   RENDERED.push({ fetched: path, method: init?.method ?? 'GET', body: init?.body?.toString() ?? '' });
+  // The language pack is the one route with a shape of its own: an object, not the scenario's list.
+  // Answered empty, so every label falls back to its key and a test asserting on English is
+  // asserting on the page's own words rather than on a translation.
+  if (String(path).startsWith('/i18n/')) {
+    return { ok: true, status: 200, json: async () => ({}), text: async () => '{}' };
+  }
   return { ok: true, status: 200, json: async () => JSON.parse(process.env.FLEET_JSON ?? '[]'), text: async () => '' };
 };
 

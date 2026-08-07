@@ -36,6 +36,72 @@ const demoScript = `
 // A mock magi, in the page. Every answer below is shaped like the handler it stands in for; the
 // page's own code is untouched and does not know the difference.
 (() => {
+  const LANG_EN = {
+  "nav.companions": "companions",
+  "nav.corrections": "corrections",
+  "nav.lessons": "lessons",
+  "nav.connections": "connections",
+
+  "action.send": "send",
+  "action.interrupt": "interrupt",
+  "action.answer": "answer",
+  "action.forget": "forget",
+  "action.remove": "remove",
+  "action.compact_now": "compact now",
+  "action.add_or_replace": "add or replace",
+  "action.promote_project": "to this project",
+  "action.promote_global": "to every companion",
+
+  "field.status": "status",
+  "field.workspace": "workspace",
+  "field.role": "role",
+  "field.team": "team",
+  "field.host": "host",
+  "field.steps": "steps",
+  "field.last_activity": "last activity",
+  "field.session": "session",
+  "field.model": "model",
+  "field.context": "context",
+  "field.cache": "cache",
+  "field.plan": "plan",
+  "field.handed_out": "handed out",
+  "field.summarised_away": "summarised away",
+
+  "state.waiting": "waiting",
+  "state.working": "working",
+  "state.idle": "idle",
+  "state.abandoned": "abandoned",
+  "state.stopped": "stopped",
+
+  "context.measured": "measured",
+  "context.estimated": "estimated",
+  "context.messages": "{n} messages",
+  "context.cached_share": "{pct}% of it cached",
+  "context.no_cache_report": "this backend does not report it",
+  "context.folds": "{n} folds",
+  "context.fold": "1 fold",
+  "context.shed": "{n} tokens shed",
+
+  "reach.every_companion": "every companion",
+  "reach.only": "only {name}",
+  "reach.on_peer": " on {peer}",
+
+  "empty.no_agents": "No magi is running under this config directory.",
+  "empty.nothing_learned": "Nothing learned yet.",
+  "empty.nothing_to_promote": "Nothing to promote yet.",
+  "empty.no_servers": "No external tool servers.",
+
+  "error.unreachable": "cannot reach magi-web",
+  "error.say_who": "say who it is for",
+
+  "placeholder.ask": "Ask magi to do something…",
+  "placeholder.address": "to: a name, or what they do",
+  "placeholder.mcp_name": "name — becomes [mcp.<name>] in the config",
+  "placeholder.mcp_command": "command, e.g. npx   (leave empty for an HTTP server)",
+  "placeholder.mcp_args": "arguments, one per line or space-separated",
+  "placeholder.mcp_url": "or a url for an HTTP server, scheme and all",
+  "placeholder.mcp_env": "environment, NAME=value — values are written to the config file"
+};
   // RFC3339 without the fractional seconds, because that is what the handlers emit
   // (time.RFC3339) — a fixture that carries milliseconds shows a timestamp shape the real console
   // never produces, and the demo is supposed to be evidence about the real one.
@@ -59,6 +125,9 @@ const demoScript = `
      host: 'mini', addr: '10.0.0.9'},
   ];
   const answers = {
+    // The real English pack, inlined: a static host has no /i18n either, and a demo that fell back
+    // to raw keys would be showing a page nobody ships.
+    '/i18n/language.en.json': LANG_EN,
     '/fleet': fleet,
     '/interventions': [
       {companion: 'design', socket: '/demo/design.sock', kind: 'steer', afterSec: 8,
@@ -118,7 +187,9 @@ const demoScript = `
       banner.textContent = 'demo — would have sent: POST ' + url + body;
       return {ok: true, status: 204, text: async () => ''};
     }
-    const body = answers[url];
+    // The language pack is asked for by locale; anything but English falls back to it, which is
+    // what the page does against a real console too.
+    const body = answers[url] ?? (url.startsWith('/i18n/') ? LANG_EN : undefined);
     if (body === undefined) return {ok: false, status: 404, json: async () => [], text: async () => ''};
     return {ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body)};
   };
