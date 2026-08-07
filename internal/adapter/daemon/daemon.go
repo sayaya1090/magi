@@ -287,9 +287,6 @@ func Listen(path string) (*Daemon, error) {
 	return &Daemon{ln: ln, path: path, release: release}, nil
 }
 
-// Path is where this daemon is listening.
-func (d *Daemon) Path() string { return d.path }
-
 // Close drops the socket without ever having served on it — for a caller that binds and then fails
 // at something else before it can start.
 func (d *Daemon) Close() error {

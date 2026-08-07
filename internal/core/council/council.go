@@ -14,7 +14,6 @@
 package council
 
 import (
-	"encoding/json"
 	"strconv"
 	"strings"
 
@@ -97,40 +96,6 @@ type DebateOutcome struct {
 	Before  Decision `json:"before"`  // council decision on the independent vote
 	After   Decision `json:"after"`   // council decision after the rebuttal
 	Changed int      `json:"changed"` // members whose vote flipped in the rebuttal
-}
-
-// flexText is a check's free-text field, tolerant of the shapes a model actually emits where the
-// schema says string: a plain string, a NUMBER, or a LIST of either. Go's decoder aborts the whole
-// document on the first type mismatch, so one such field discarded every OTHER check in the array
-// — leaving a run with no executable contract at all while the model had authored a usable one.
-// (This package stays stdlib-only, so the shared repair ladder in internal/jsonx is not imported
-// here; the tolerance is the same, applied at the domain boundary.)
-type flexText string
-
-func (v *flexText) UnmarshalJSON(b []byte) error {
-	var s string
-	if json.Unmarshal(b, &s) == nil {
-		*v = flexText(s)
-		return nil
-	}
-	var n json.Number
-	if json.Unmarshal(b, &n) == nil {
-		*v = flexText(n.String())
-		return nil
-	}
-	var list []flexText
-	if json.Unmarshal(b, &list) == nil {
-		parts := make([]string, 0, len(list))
-		for _, e := range list {
-			if t := strings.TrimSpace(string(e)); t != "" {
-				parts = append(parts, t)
-			}
-		}
-		*v = flexText(strings.Join(parts, "; "))
-		return nil
-	}
-	*v = "" // anything else → unset, never a discarded check
-	return nil
 }
 
 // DefaultMembers returns the three default council members — the MAGI. The theme

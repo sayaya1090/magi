@@ -65,10 +65,8 @@ type sessionState struct {
 	// it is safe outside the turn-scoped reset block.
 	activeSeedMsgID string
 	// Turn-scoped (zeroed by resetForNewTopLevel).
-	scratch         *turnScratch    // the turn's scratch directory (created at depth 0, inherited by every child of that turn)
-	seedPrompt      string          // subagent: the spawn/unit prompt THIS child was seeded with (see seedTurnTask)
-	interjectSeen   map[string]bool // interjection MessageIDs detected this turn (masked from turnTask/council)
-	autoOrchestrate bool            // whether auto-orchestration has been triggered this session
+	scratch       *turnScratch    // the turn's scratch directory (created at depth 0, inherited by every child of that turn)
+	interjectSeen map[string]bool // interjection MessageIDs detected this turn (masked from turnTask/council)
 	// Per-turn retrieval memoization. Both lookups key on the last user prompt, which is
 	// constant across a turn — without this every loop step re-scans the whole experience
 	// store and re-queries every plugin context provider (each with a 5s timeout) for an

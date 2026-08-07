@@ -9,7 +9,6 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -53,14 +52,8 @@ type agentPane struct {
 	panelY int
 
 	// subscription
-	ch     <-chan event.Event
 	cancel func()
 	sub    int
-
-	// debug (MAGI_DEBUG_FADE): how many events this pane received and the last type,
-	// to diagnose panes whose completion signal never arrives.
-	evCount int
-	lastEv  string
 
 	// screen rectangle of the last render, for mouse hit-testing
 	x, y, w, h int

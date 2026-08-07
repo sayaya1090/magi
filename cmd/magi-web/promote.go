@@ -37,14 +37,9 @@ import (
 // a human has already made — and puts the wording through a paraphrase, which is how the identifier
 // in a rule gets lost. Direct writing is safe here because the store's writes are atomic now and
 // the global tier already has several writers: every companion of this person writes to it.
-type promotion struct {
-	Text      string // what the person said, verbatim
-	Scope     string // "project" | "global"
-	Companion string // the socket of the companion whose project tier to write to
-	Peer      string // set when that companion is on another console
-}
-
-// promoteRoute is the handler.
+// The request carries four things: the words verbatim, the tier, the companion whose project tier
+// to write to (its socket), and the console that companion is on. They arrive as form fields and
+// are read below — there was a struct here saying the same thing that nothing ever constructed.
 func (s *server) promote(w http.ResponseWriter, r *http.Request) {
 	if postOnly(w, r) {
 		return

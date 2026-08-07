@@ -118,7 +118,7 @@ func councilVerdictStyle(decision string) lipgloss.Style {
 }
 
 // councilRowSep separates members on a verdict row; its width must match what
-// councilMemberPlain assumes when openCouncilDetailAt hit-tests a click column.
+// councilMemberPlainAt assumes when openCouncilDetailAt hit-tests a click column.
 const councilRowSep = "   "
 
 // councilRowLevel is the most detail a verdict row can carry and still fit `width`.
@@ -159,11 +159,6 @@ const (
 	councilDetailNoConf          // ● Name  [lens]  ✓ done
 	councilDetailNameOnly        // ● Name  ✓ done
 )
-
-// councilMemberPlain is the visible (unstyled) text of one member's compact verdict at full detail.
-func councilMemberPlain(v event.CouncilVerdictData) string {
-	return councilMemberPlainAt(v, councilDetailFull)
-}
 
 // councilMemberPlainAt is the visible (unstyled) text of one member's verdict at a detail level —
 // the same glyphs renderBlock styles, so a click column maps to the right member.
@@ -1270,7 +1265,7 @@ func (m *Model) councilRow(vs []event.CouncilVerdictData) string {
 		icon, word := councilVerdictLabel(v.Decision)
 		// Each member is CLICKABLE (column hit-test → detail modal), so it carries the same
 		// low-emphasis container fill as the fold chip to read as tappable. The fill must NOT
-		// change width — openCouncilDetailAt hit-tests against councilMemberPlain's rune width —
+		// change width — openCouncilDetailAt hit-tests against councilMemberPlainAt's rune width —
 		// so we paint a background (no padding) and fold the interior spaces into the painted
 		// runs, keeping the character layout identical to the plain form.
 		paint := func(st lipgloss.Style, s string) string { return st.Background(colPrimCont).Render(s) }

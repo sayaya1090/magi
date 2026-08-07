@@ -47,8 +47,7 @@ type App struct {
 	wg     sync.WaitGroup // tracks run + dispatch goroutines for graceful Close
 	closed bool           // set by Close: no new run/dispatch goroutines (no Add after Wait)
 
-	liveness     sync.Map // session.SessionID -> *sessionLiveness (what the lease and the stall watchdog ask about a running session)
-	stepAttempts sync.Map // step key -> stepAttempt (a spent retry ladder, so the next dispatch of that step continues it)
+	liveness sync.Map // session.SessionID -> *sessionLiveness (what the lease and the stall watchdog ask about a running session)
 
 	memMu         sync.Mutex
 	memCache      map[string]string       // workdir -> durable AGENTS.md memory

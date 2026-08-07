@@ -32,7 +32,7 @@ func (a *App) generateStep(ctx context.Context, tc turnCtx, agent AgentSpec, age
 	sid := tc.s.ID
 	req, evs := a.buildStepRequest(ctx, tc, evs, step, cumOut)
 
-	stepStart := time.Now()
+	var stepStart time.Time // set per attempt below, so a stalled retry does not bias the meter
 	var res streamStep
 	var msgID, textPartID, reasonPartID string
 	ctxCompactRetries := 0
