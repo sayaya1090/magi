@@ -916,6 +916,10 @@ async function drawContext(a, box, field) {
   // Which model, because the window below is that model's and a companion can be on one you did
   // not put it on — /route changes it mid-session and nothing else on this page would say so.
   if (c.model) box.append(field('model', c.model));
+  // Said once, where somebody would otherwise wonder why there is no cache figure at all.
+  if (!c.cacheReported && !c.estimated) {
+    box.append(field('cache', 'this backend does not report it'));
+  }
 
   const size = cell('v', '');
   size.append(document.createTextNode(
@@ -926,6 +930,13 @@ async function drawContext(a, box, field) {
   // own count from the last turn, the other is arithmetic over the transcript.
   note.textContent = ' ' + (c.estimated ? 'estimated' : 'measured') +
                      (c.messages ? ' · ' + c.messages + ' messages' : '');
+  // What the backend served from its own prompt cache — and only when it said. A backend that
+  // reports nothing about a cache is not a backend whose cache never hits, and drawing 0% for both
+  // would report a working one as broken. Measured on the default local backend: it says nothing.
+  if (c.cacheReported) {
+    const share = c.used ? Math.round((c.cached || 0) * 100 / c.used) : 0;
+    note.textContent += ' · ' + share + '% of it cached';
+  }
   size.append(note);
   const f = cell('f');
   f.append(cell('k', 'context'), size);

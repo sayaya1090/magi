@@ -811,6 +811,7 @@ func TestTheDetailSaysHowFullTheContextIsAndWhatWasFolded(t *testing.T) {
 	got := runPage(t, `[]`, "", `
 globalThis.fetch = async (p) => ({ok: true, json: async () => p.startsWith('/context') ? {
   model: 'qwen3', window: 100000, used: 82000, estimated: false, messages: 41,
+  cached: 61500, cacheReported: true,
   compactions: 2, shed: 31000, lastBefore: 40000, lastAfter: 9000, lastAt: '2026-08-07T04:31:07Z',
   topics: ['internal/parse.go', 'discussion'],
 } : p.startsWith('/handoffs') ? [
@@ -835,6 +836,8 @@ console.log(JSON.stringify({text: box.text, fields: box.children.length,
 		// Host, address and pid together: what you need to go and look at the process by hand,
 		// which is the reason a supervisor opens this panel at all when something is wedged.
 		"mini · 10.0.0.4 · pid 4127",
+		// What the backend served from its own cache, when it says at all.
+		"75% of it cached",
 		// And when the last fold happened: "twice" says nothing about whether it was this
 		// minute or yesterday.
 		"04:31Z"} {
@@ -1153,5 +1156,27 @@ console.log(JSON.stringify({text, state: byId.state.textContent, posts: RENDERED
 	del := posts[1].(map[string]any)
 	if b := del["body"].(string); !strings.Contains(b, "name=figma") || !strings.Contains(b, "delete=1") {
 		t.Errorf("the removal came out as %q", b)
+	}
+}
+
+// A backend that says nothing about a cache is not a backend whose cache never hits.
+//
+// This is the ordinary case: measured on 2026-08-07, the default local backend sends
+// prompt/completion/total and no details block. Drawing 0% would report a working cache as broken,
+// so the panel says which situation it is in and shows no figure.
+func TestABackendThatReportsNoCacheIsNotACacheThatMissed(t *testing.T) {
+	got := runPage(t, `[]`, "", `
+globalThis.fetch = async (p) => ({ok: true, json: async () => p.startsWith('/context') ? {
+  model: 'qwen3', window: 100000, used: 82000, estimated: false, messages: 41,
+} : []});
+await drawDetail({socket: '/s/a.sock', name: 'api', state: 'idle', workdir: '/w', session: 's1'});
+console.log(JSON.stringify({text: byId.detail.text}));
+`)
+	text := got["text"].(string)
+	if strings.Contains(text, "% of it cached") {
+		t.Errorf("a figure was drawn for a backend that reported none:\n%s", text)
+	}
+	if !strings.Contains(text, "does not report it") {
+		t.Errorf("the panel does not say why there is no figure:\n%s", text)
 	}
 }
