@@ -57,6 +57,10 @@ The context line is the point of this screen:
   companion silently stops knowing something, and how many there have been decides whether its
   earlier reasoning can be assumed still there.
 - The folded **topics are named**. That is where "the detail is not lost" stops being a claim.
+- `82% of it cached`, **only when the backend says so**. A backend reporting `cached: 0` means the
+  cache missed; one reporting nothing means it does not tell us, and drawing both as 0% would call
+  a working cache broken. Measured on the default local backend (Ollama /v1, 2026-08-07): it sends
+  no cache field at all, so the panel says "this backend does not report it" and shows no figure.
 
 Then **what it handed out**: work this companion gave to others, and the answers. A receiver
 answers in its own transcript — there is no reply channel — so this is the five-page walk done
@@ -292,8 +296,6 @@ the point of the arrangement.
 
 ## 7. Not there yet
 
-- **Cache diagnostics** — whether the prompt cache actually hits. ★Not promised in the UI before it
-  is measured.
 - **A placement review screen** — [`proposals/companion-performance-2026-08-07.md`](proposals/companion-performance-2026-08-07.md).
 - **A reply channel.** Answers are read from the receiver's transcript — §2.2 collects them, but
   nothing notifies the asker.

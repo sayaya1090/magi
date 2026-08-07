@@ -580,7 +580,7 @@ it shows from the event logs already on disk and sends actions over the same soc
 | what I had to say | every time a person stepped into a running turn, grouped by the words. The same correction to three companions is a rule waiting to be written — promote it to the project or the global tier from here |
 | what they have learned | both tiers of the store, rules and remembered facts, each row saying what it reaches ("every companion" / "only api"). A wrong one can be forgotten |
 | what they can reach | every MCP server, which companion has it and what it actually runs. Add, change or remove one — it is written to that companion's config and attaches when its daemon next starts |
-| a companion's page | the transcript live, what it is blocked on, what it handed to other companions and what came back, and what fills its context: size against the window when the window is known, how many times the history has been summarised away, and which topics can be pulled back |
+| a companion's page | the transcript live, what it is blocked on, what it handed to other companions and what came back, and what fills its context — including what share of the prompt the backend served from its cache, when it reports one: size against the window when the window is known, how many times the history has been summarised away, and which topics can be pulled back |
 
 **Vocabulary.** One magi bound to one workspace is a **companion**. A person supervising several of
 them is not each companion's operator but its supervisor — the reasoning, and what that means for
