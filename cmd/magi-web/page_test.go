@@ -2,53 +2,12 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"regexp"
 	"slices"
 	"sort"
 	"strings"
 	"testing"
 )
-
-// The browser wears magi's colours, not a second scheme.
-//
-// A view that invented its own palette would be one more thing to keep in step, and the first time
-// somebody retuned the terminal the two would disagree about what magi looks like. This reads the
-// terminal's palette out of styles.go and requires every role to appear here with the same value —
-// a source check, because nothing in the type system connects a Go colour to a CSS variable.
-func TestTheBrowserUsesTheTerminalsPalette(t *testing.T) {
-	b, err := os.ReadFile("../../internal/adapter/tui/styles.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	src := string(b)
-
-	// nervDark and nervLight, each as `"role": "#RRGGBB"` pairs.
-	pair := regexp.MustCompile(`"([a-zA-Z]+)":\s*"(#[0-9A-Fa-f]{6})"`)
-	for _, name := range []string{"nervDark", "nervLight"} {
-		i := strings.Index(src, "var "+name+" = palette{")
-		if i < 0 {
-			t.Fatalf("%s is not in styles.go any more — this check has lost its subject", name)
-		}
-		j := strings.Index(src[i:], "\n}")
-		if j < 0 {
-			t.Fatalf("could not find the end of %s", name)
-		}
-		roles := pair.FindAllStringSubmatch(src[i:i+j], -1)
-		if len(roles) < 10 {
-			t.Fatalf("%s parsed to %d roles; the shape of the palette changed", name, len(roles))
-		}
-		for _, m := range roles {
-			role, hex := m[1], m[2]
-			// The page declares each role as a custom property of the same name.
-			want := "--" + role + ":" + hex
-			if !strings.Contains(strings.ReplaceAll(indexHTML, " ", ""), strings.ReplaceAll(want, " ", "")) {
-				t.Errorf("%s role %q is %s in the terminal and the page does not declare it (%s)",
-					name, role, hex, want)
-			}
-		}
-	}
-}
 
 // The page fetches nothing this binary does not serve. A strict answer to "why is there no build
 // step": an offline machine sees the same page, and there is no CDN whose outage takes the viewer

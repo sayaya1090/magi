@@ -80,18 +80,63 @@ type palette map[string]string
 // dark surface (or burnt orange on warm cream in light). Green=affirmative,
 // red=rejected — the MAGI vote colors. A config theme overrides any subset of
 // these roles per mode (see SetThemePalettes).
+//
+// # This is the origin, including for roles the terminal cannot draw
+//
+// Some roles below are never read by lipgloss: the tonal surface containers, the `on-` pairs, the
+// scrim. A terminal has no stacked surfaces to tone and no scrim to lay over them. They are here
+// because the web console draws the same product and must not invent its own values for it — one
+// thing in two colours is one thing a person has to learn twice.
+//
+// They are not decoration either. TestTheWebTakesItsColoursFromHere reads this file and the web's
+// stylesheet and fails when a shared role disagrees, so every entry here has a reader.
 var nervDark = palette{
 	"primary": "#FF7A1A", "accent": "#5CD8E6", "muted": "#C9C2B8", "outline": "#5A5048",
 	"error": "#F2B8B5", "success": "#86EFAC", "surface": "#211B14",
 	"primaryContainer": "#4A2E0B", "outlineVariant": "#463E34", "warn": "#FFD479",
 	// The MAGI — amber / cyan / coral, the NERV-console hues.
 	"melchior": "#FFB454", "balthasar": "#5CD8E6", "casper": "#FF8A8A",
+
+	// The page and the text on it. The terminal has its own default background and the TUI has
+	// always let it show through, so these two are here for the web to read rather than for
+	// lipgloss to paint — see the note above the type.
+	"bg": "#14110D", "fg": "#E8E2D8",
+
+	// The `on-` half of each container role. M3's colours are PAIRS: the pair is what guarantees
+	// contrast, and a scheme that names only the containers has role names and nothing else.
+	"onPrimary": "#2A1500", "onPrimaryContainer": "#FFD9B8", "onError": "#3A0A08",
+	"onSurface": "#E8E2D8", "onSurfaceVariant": "#C9C2B8",
+
+	// Tonal surfaces. M3 expresses height with TONE rather than shadow, and in a dark scheme the
+	// layers get brighter as they rise. A terminal cannot draw them and does not try; they are the
+	// origin for the web's cards, bars and sheets.
+	"surfaceDim":             "#14110D",
+	"surfaceContainerLowest": "#0F0D0A", "surfaceContainerLow": "#1B1712",
+	"surfaceContainer": "#211B14", "surfaceContainerHigh": "#2B251C",
+	"surfaceContainerHighest": "#352E24",
+
+	"scrim": "#000000", "shadow": "#000000",
 }
 var nervLight = palette{
 	"primary": "#B45309", "accent": "#0E7490", "muted": "#4A453C", "outline": "#8A7E6E",
 	"error": "#B3261E", "success": "#15803D", "surface": "#F5EEE3",
 	"primaryContainer": "#F8D9A8", "outlineVariant": "#D8CFC0", "warn": "#92600A",
 	"melchior": "#B45309", "balthasar": "#0E7490", "casper": "#B3261E",
+
+	"bg": "#FBF8F3", "fg": "#221D16",
+
+	"onPrimary": "#FFFFFF", "onPrimaryContainer": "#3A1B00", "onError": "#FFFFFF",
+	"onSurface": "#221D16", "onSurfaceVariant": "#4A453C",
+
+	// The layers INVERT here: a light scheme gets darker as it rises. Built as its own ramp rather
+	// than by dimming the dark one — a light scheme has less headroom, and this palette has been
+	// caught before with eight of thirteen dimmed pairs under AA, the worst at 2.47:1.
+	"surfaceDim":             "#EFE9DF",
+	"surfaceContainerLowest": "#FFFFFF", "surfaceContainerLow": "#F7F3EC",
+	"surfaceContainer": "#F2ECE2", "surfaceContainerHigh": "#ECE5D9",
+	"surfaceContainerHighest": "#E6DED1",
+
+	"scrim": "#000000", "shadow": "#000000",
 }
 
 // themeDarkOverride/themeLightOverride hold config-supplied color overrides

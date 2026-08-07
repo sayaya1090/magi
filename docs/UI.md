@@ -180,6 +180,19 @@ The colours use **M3 role names** with values taken **verbatim** from the TUI's 
 (nervDark / nervLight in `internal/adapter/tui/styles.go`). Two surfaces drawing the same agent in
 different colours is one thing to learn twice.
 
+**That is checked now, not asserted.** It was a sentence in this document, and it happened to be
+true — but nothing would have said so when it stopped being, which is the shape of half the defects
+this tree has found. `TestTheWebTakesItsColoursFromHere` reads both files and fails on any shared
+role whose values disagree, and on any colour the stylesheet declares that the palette does not
+name — the web inventing a value the TUI cannot follow.
+
+Making it checkable moved 28 roles into the palette: the `on-` half of every container pair, the
+five tonal surface containers per theme, the page's own background and foreground, and the scrim.
+**The terminal draws none of them** — it has no stacked surfaces to tone and lets its own
+background show through — so they sit in `styles.go` as the origin rather than as something
+lipgloss reads. The alternative was letting the web own a palette of its own, which is how the two
+surfaces drift.
+
 The editorial part is the layout: a `74ch` measure for prose, `108ch` for the transcript (its lines
 are code, where wrapping costs more than width), generous rules, a gutter of small-caps labels, and
 a user's turn set like a pull quote — display face, rule down the left.
