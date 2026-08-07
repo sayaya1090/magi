@@ -202,3 +202,80 @@ func TestPeerFlagsAreParsedStrictly(t *testing.T) {
 		t.Error("two consoles with one name were accepted")
 	}
 }
+
+// The rows a person reads come back in the order they configured their peers in, not in the order
+// the machines happened to reply.
+//
+// Machines answer at wildly different speeds — one across a tunnel, one on the same host — so a
+// list assembled as replies arrive reorders itself between two refreshes of a page nobody changed.
+func TestTheMergedFleetKeepsTheOperatorsOrder(t *testing.T) {
+	var seen []string
+	// The first peer configured is the slow one, so anything that appends as answers land would
+	// put it second.
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(120 * time.Millisecond)
+		_ = json.NewEncoder(w).Encode([]fleet.Agent{{Socket: "/s/slow.sock", Name: "slow"}})
+	}))
+	defer slow.Close()
+	quick := fakePeer(t, []fleet.Agent{{Socket: "/s/quick.sock", Name: "quick"}}, &seen)
+	f := federatedServer(t, peer{Name: "tunnel", Base: slow.URL}, peer{Name: "here", Base: quick.URL})
+
+	for i := 0; i < 3; i++ {
+		list := f.get()
+		if len(list) != 2 {
+			t.Fatalf("merged %d rows", len(list))
+		}
+		if list[0].Peer != "tunnel" || list[1].Peer != "here" {
+			t.Fatalf("pass %d came back as %q then %q", i, list[0].Peer, list[1].Peer)
+		}
+	}
+}
+
+// A console that answers with an error is not a console with nothing to say.
+//
+// Both look like an empty list to whoever skips the status line, and the difference is the whole
+// point of the row: "that machine is in trouble" versus "that machine is idle".
+func TestAPeerThatAnswersAnErrorIsNotAnEmptyPeer(t *testing.T) {
+	broken := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`[]`)) // a body that would decode perfectly well if anyone looked
+	}))
+	defer broken.Close()
+	f := federatedServer(t, peer{Name: "sick", Base: broken.URL})
+
+	list := f.get()
+	if len(list) != 1 {
+		t.Fatalf("a broken console produced %d rows: %+v", len(list), list)
+	}
+	if !strings.Contains(list[0].Task, "did not answer") || !strings.Contains(list[0].Task, "503") {
+		t.Errorf("the row does not say what went wrong: %q", list[0].Task)
+	}
+}
+
+// A peer is a console the operator pointed at, which is a reason to trust its intent and not its
+// size: a console with a runaway log must not be able to make this process allocate without limit.
+func TestAPeersAnswerIsBounded(t *testing.T) {
+	huge := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Valid JSON, all the way to the end, and larger than the cap. Truncating it mid-array
+		// would fail to parse for the wrong reason and pass whether or not a limit exists.
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[`))
+		row := `{"name":"x","task":"` + strings.Repeat("y", 4000) + `"},`
+		for written := 0; written < 5<<20; written += len(row) {
+			if _, err := w.Write([]byte(row)); err != nil {
+				return
+			}
+		}
+		_, _ = w.Write([]byte(`{"name":"last"}]`))
+	}))
+	defer huge.Close()
+	f := federatedServer(t, peer{Name: "flood", Base: huge.URL})
+
+	list := f.get()
+	if len(list) != 1 || list[0].Peer != "flood" {
+		t.Fatalf("an oversized answer produced %d rows", len(list))
+	}
+	if !strings.Contains(list[0].Task, "did not answer") {
+		t.Errorf("an answer past the cap was accepted: %q", list[0].Task)
+	}
+}

@@ -74,25 +74,72 @@ func parsePeers(specs []string) ([]peer, error) {
 // companions are already listed by then — a federated view degrades to the part that answered.
 const peerTimeout = 4 * time.Second
 
-// fleetOf asks one peer for its companions and stamps them with its name.
-func (s *server) fleetOf(ctx context.Context, p peer) ([]fleet.Agent, error) {
-	ctx, cancel := context.WithTimeout(ctx, peerTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.Base+"/fleet", nil)
+// fanOut asks every peer the same question at once.
+//
+// Three functions here had the same fifteen lines — a WaitGroup, a slice indexed by peer so the
+// order is the operator's rather than the network's, a per-call timeout, and a flat append at the
+// end. What actually differed was the question and what to do with a console that did not answer,
+// so those are the two things left to the caller: ask, and then read err on each result.
+//
+// Indexed rather than appended from the goroutines: the rows a person reads should come back in
+// the order they configured their peers in, not in the order the machines happened to reply.
+//
+// The per-call deadline overlaps with the timeout on the shared http client, deliberately: this one
+// belongs to fanOut and holds for any ask, including one that does not go through that client. No
+// test separates them, because from the outside they bound the same wait.
+func fanOut[T any](ctx context.Context, peers []peer,
+	ask func(context.Context, peer) ([]T, error)) []fanResult[T] {
+	out := make([]fanResult[T], len(peers))
+	var wg sync.WaitGroup
+	for i, p := range peers {
+		wg.Add(1)
+		go func(i int, p peer) {
+			defer wg.Done()
+			cctx, cancel := context.WithTimeout(ctx, peerTimeout)
+			defer cancel()
+			list, err := ask(cctx, p)
+			out[i] = fanResult[T]{Peer: p, List: list, Err: err}
+		}(i, p)
+	}
+	wg.Wait()
+	return out
+}
+
+// fanResult is one peer's answer, or its failure to give one.
+type fanResult[T any] struct {
+	Peer peer
+	List []T
+	Err  error
+}
+
+// getJSON reads one JSON list from a peer. The bound is on the body and not on trust: a peer is a
+// console the operator pointed at, but a console with a runaway log should still not be able to
+// make this process allocate without limit.
+func getJSON[T any](ctx context.Context, c *http.Client, url string) ([]T, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := s.http.Do(req)
+	resp, err := c.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s answered %s", p.Base, resp.Status)
+		return nil, fmt.Errorf("%s answered %s", url, resp.Status)
 	}
-	var list []fleet.Agent
+	var list []T
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&list); err != nil {
-		return nil, fmt.Errorf("%s: unreadable fleet: %w", p.Base, err)
+		return nil, fmt.Errorf("%s: unreadable answer: %w", url, err)
+	}
+	return list, nil
+}
+
+// fleetOf asks one peer for its companions and stamps them with its name.
+func (s *server) fleetOf(ctx context.Context, p peer) ([]fleet.Agent, error) {
+	list, err := getJSON[fleet.Agent](ctx, s.http, p.Base+"/fleet")
+	if err != nil {
+		return nil, err
 	}
 	for i := range list {
 		list[i].Peer = p.Name
@@ -108,33 +155,13 @@ func (s *server) fleetOf(ctx context.Context, p peer) ([]fleet.Agent, error) {
 // that hides it. The row carries the reason, so "the tunnel is down" and "the console is up and has
 // nothing" do not look the same.
 func (s *server) federated(ctx context.Context, local []fleet.Agent) []fleet.Agent {
-	if len(s.peers) == 0 {
-		return local
-	}
-	type result struct {
-		list []fleet.Agent
-		err  error
-		p    peer
-	}
-	results := make([]result, len(s.peers))
-	var wg sync.WaitGroup
-	for i, p := range s.peers {
-		wg.Add(1)
-		go func(i int, p peer) {
-			defer wg.Done()
-			list, err := s.fleetOf(ctx, p)
-			results[i] = result{list: list, err: err, p: p}
-		}(i, p)
-	}
-	wg.Wait()
-
 	out := local
-	for _, r := range results {
-		if r.err != nil {
-			out = append(out, unreachable(r.p, r.err))
+	for _, r := range fanOut(ctx, s.peers, s.fleetOf) {
+		if r.Err != nil {
+			out = append(out, unreachable(r.Peer, r.Err))
 			continue
 		}
-		out = append(out, r.list...)
+		out = append(out, r.List...)
 	}
 	return out
 }
@@ -239,47 +266,19 @@ func (s *server) proxyStream(w http.ResponseWriter, r *http.Request, p peer, soc
 // console cannot be mistaken for one that had nothing to say, because the fleet view directly above
 // is already showing it as unreachable.
 func (s *server) peerInterventions(ctx context.Context, rawQuery string) []fleet.Moment {
-	if len(s.peers) == 0 {
-		return nil
-	}
-	lists := make([][]fleet.Moment, len(s.peers))
-	var wg sync.WaitGroup
-	for i, p := range s.peers {
-		wg.Add(1)
-		go func(i int, p peer) {
-			defer wg.Done()
-			cctx, cancel := context.WithTimeout(ctx, peerTimeout)
-			defer cancel()
-			u := p.Base + "/interventions"
-			if rawQuery != "" {
-				u += "?" + rawQuery
-			}
-			req, err := http.NewRequestWithContext(cctx, http.MethodGet, u, nil)
-			if err != nil {
-				return
-			}
-			resp, err := s.http.Do(req)
-			if err != nil {
-				return
-			}
-			defer resp.Body.Close()
-			if resp.StatusCode != http.StatusOK {
-				return
-			}
-			var got []fleet.Moment
-			if json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&got) != nil {
-				return
-			}
-			for j := range got {
-				got[j].Peer = p.Name
-			}
-			lists[i] = got
-		}(i, p)
-	}
-	wg.Wait()
 	var out []fleet.Moment
-	for _, l := range lists {
-		out = append(out, l...)
+	for _, r := range fanOut(ctx, s.peers, func(ctx context.Context, p peer) ([]fleet.Moment, error) {
+		u := p.Base + "/interventions"
+		if rawQuery != "" {
+			u += "?" + rawQuery
+		}
+		got, err := getJSON[fleet.Moment](ctx, s.http, u)
+		for j := range got {
+			got[j].Peer = p.Name
+		}
+		return got, err
+	}) {
+		out = append(out, r.List...) // an error leaves an empty list, which is the whole handling
 	}
 	return out
 }
