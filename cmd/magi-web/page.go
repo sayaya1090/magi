@@ -334,7 +334,7 @@ const indexHTML = `<!doctype html>
   #ivs { display:block; max-width:var(--measure); }
   .iv {
     display:grid; grid-template-columns:3.5rem 1fr; gap:1rem; align-items:baseline;
-    border-bottom:1px solid var(--outlineVariant); padding:.9rem 0;
+    border-bottom:1px solid var(--outlineVariant); padding:1.1rem 0;
   }
   .iv .times { font:600 var(--title-l) var(--display); color:var(--primary); text-align:right; }
   .iv .said { font:italic 16px/1.5 var(--display); color:var(--fg); overflow-wrap:anywhere; }
@@ -357,8 +357,10 @@ const indexHTML = `<!doctype html>
      context hygiene, and it is only as good as somebody's ability to see it: a rule in the global
      tier reaches every prompt on every project, and after the day it was written nothing else in
      the system mentions it again. */
-  #skills { display:block; max-width:var(--measure); }
-  .sk { border-bottom:1px solid var(--outlineVariant); padding:.9rem 0; }
+  /* Wider than the prose measure: a rule's description reads like prose but the line under it
+     carries a name, a date range and sometimes a file path, and 74ch put those on three lines. */
+  #skills { display:block; max-width:var(--wide); }
+  .sk { border-bottom:1px solid var(--outlineVariant); padding:1.1rem 0; }
   .sk .top { display:flex; gap:.7rem; align-items:baseline; flex-wrap:wrap; }
   .sk .tier {
     font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
@@ -384,8 +386,10 @@ const indexHTML = `<!doctype html>
   /* An MCP server is where a companion's reach leaves this machine's file system. The list is
      read to answer one question — which of them can see that thing — so the transport line is
      monospace and complete rather than tidied. */
-  #mcp { display:block; max-width:var(--measure); }
-  .srv { border-bottom:1px solid var(--outlineVariant); padding:.9rem 0; }
+  /* Not prose at all: the transport line is a command with arguments and the line under it is an
+     absolute path. Clipping either to a reading measure hides the part being read for. */
+  #mcp { display:block; max-width:var(--wide); }
+  .srv { border-bottom:1px solid var(--outlineVariant); padding:1.1rem 0; }
   .srv .top { display:flex; gap:.7rem; align-items:baseline; flex-wrap:wrap; }
   .srv .tier {
     font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
@@ -463,7 +467,11 @@ const indexHTML = `<!doctype html>
      collapse to two lines on a phone. */
   .thead, .card {
     display:grid; align-items:baseline;
-    grid-template-columns: 8.5rem minmax(12rem, 1.4fr) minmax(0, 2fr) 4.5rem 4rem 9rem 7rem;
+    /* Sized to what actually arrives. The doing column is the widest because the server clips a
+       task at 160 characters and that is what has to fit — at ~0.5ch per character in this face,
+       160 wants about 40rem before it wraps to a third line. The fixed columns are sized to their
+       content and not to a guess: a state word, a step count, an age, a host and an address. */
+    grid-template-columns: 8.5rem minmax(11rem, 1fr) minmax(18rem, 2.6fr) 4.5rem 4.5rem 9rem 7rem;
     gap:.9rem;
   }
   .thead {
@@ -552,7 +560,10 @@ const indexHTML = `<!doctype html>
 
   /* ── the agent's own header, so a detail page says what it is looking at ──── */
   #detail {
-    display:grid; grid-template-columns:repeat(auto-fit, minmax(9rem, auto)); gap:1.4rem;
+    /* auto-fit at 9rem packed a 60-character workspace path into the same cell as a four-letter
+       step count. 14rem is the width of the longest SHORT field (the context reading), so the long
+       ones take a whole row of their own instead of squeezing the rest. */
+    display:grid; grid-template-columns:repeat(auto-fit, minmax(14rem, auto)); gap:1.2rem 1.6rem;
     border-bottom:1px solid var(--outlineVariant); padding-bottom:1rem; margin-bottom:1.4rem;
   }
   #detail .f { display:flex; flex-direction:column; gap:.2rem; }
@@ -601,7 +612,7 @@ const indexHTML = `<!doctype html>
     font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase;
     color:var(--muted); margin-bottom:.5rem;
   }
-  .ho { display:grid; grid-template-columns:7rem 1fr; gap:.2rem 1rem; padding:.45rem 0; }
+    .ho { display:grid; grid-template-columns:8rem 1fr; gap:.3rem 1.2rem; padding:.6rem 0; }
   .ho .to { font:600 11px/1.6 var(--mono); letter-spacing:.08em; color:var(--accent); text-align:right; }
   .ho .req { font:var(--body-l) var(--display); color:var(--fg); overflow-wrap:anywhere; }
   .ho .ans { grid-column:2; font-size:12px; color:var(--muted); overflow-wrap:anywhere; }
