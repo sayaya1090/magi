@@ -64,6 +64,25 @@ const indexHTML = `<!doctype html>
     --primaryContainer:#4A2E0B; --outlineVariant:#463E34; --warn:#FFD479;
     --melchior:#FFB454; --balthasar:#5CD8E6; --casper:#FF8A8A;
     --bg:#14110d; --fg:#E8E2D8;
+
+    /* ── M3, dark ─────────────────────────────────────────────────────────── */
+    /* The roles above are the terminal's, verbatim (a test pins them). These are the Material 3
+       roles the terminal has no use for: a TUI paints on a background it does not own, so it
+       cannot have tonal surfaces, and it never needed an on- pair because it draws text on one
+       background. A browser has both, and without them "Material 3" would be a set of borrowed
+       names — which is exactly what this page was until it was measured. */
+    --md-on-primary:#2A1500;              /* on #FF7A1A */
+    --md-on-primary-container:#FFD9B8;    /* on #4A2E0B */
+    --md-on-error:#3A0A08;
+    --md-on-surface:#E8E2D8;
+    --md-on-surface-variant:#C9C2B8;
+    /* Tonal layers, low → high. Dark themes get LIGHTER as they rise. */
+    --md-surface-dim:#14110d;
+    --md-surface-container-lowest:#0F0D0A;
+    --md-surface-container-low:#1B1712;
+    --md-surface-container:#211B14;
+    --md-surface-container-high:#2B251C;
+    --md-surface-container-highest:#352E24;
   }
   @media (prefers-color-scheme: light) {
     :root {
@@ -72,6 +91,22 @@ const indexHTML = `<!doctype html>
       --primaryContainer:#F8D9A8; --outlineVariant:#D8CFC0; --warn:#92600A;
       --melchior:#B45309; --balthasar:#0E7490; --casper:#B3261E;
       --bg:#FBF8F3; --fg:#221D16;
+
+      /* ── M3, light ─────────────────────────────────────────────────────── */
+      /* The layers invert: a light theme gets DARKER as it rises. Built as its own ramp rather
+         than by dimming the dark one — a light theme has less headroom, and this page has been
+         caught before with eight of thirteen dimmed pairs under AA, the worst at 2.47:1. */
+      --md-on-primary:#FFFFFF;
+      --md-on-primary-container:#3A1B00;
+      --md-on-error:#FFFFFF;
+      --md-on-surface:#221D16;
+      --md-on-surface-variant:#4A453C;
+      --md-surface-dim:#EFE9DF;
+      --md-surface-container-lowest:#FFFFFF;
+      --md-surface-container-low:#F7F3EC;
+      --md-surface-container:#F2ECE2;
+      --md-surface-container-high:#ECE5D9;
+      --md-surface-container-highest:#E6DED1;
     }
   }
 
@@ -99,6 +134,21 @@ const indexHTML = `<!doctype html>
   :root {
     --display: "Newsreader", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
     --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    /* ── the M3 shape scale, and nothing off it ───────────────────────────── */
+    /* 4 · 8 · 12 · 16 · 24 · full. Every radius on this page is one of these; the page used to be
+       2px everywhere, which is not a value the scale has. */
+    --shape-xs:4px; --shape-s:8px; --shape-m:12px; --shape-l:16px; --shape-xl:24px;
+    --shape-full:9999px;
+
+    /* ── the M3 type scale ────────────────────────────────────────────────── */
+    /* size/line-height pairs, taken as pairs: matching a size and inventing a line height is how
+       the rhythm goes. The page used to carry 9.5 · 10.5 · 11.5 · 12.5 · 13.5 · 15.5 · 17px, none
+       of which is on the scale. The typeface is ours — M3 allows that; the scale is not. */
+    --headline-s:24px/32px;
+    --title-l:22px/28px; --title-m:16px/24px; --title-s:14px/20px;
+    --body-l:16px/24px;  --body-m:14px/20px;  --body-s:12px/16px;
+    --label-l:14px/20px; --label-m:12px/16px; --label-s:11px/16px;
+
     --measure: 74ch;   /* prose */
     --wide: 108ch;     /* transcript, where lines are code and wrapping costs more than width */
   }
@@ -112,7 +162,7 @@ const indexHTML = `<!doctype html>
      not leave a ring behind it, and an offset so the ring is not mistaken for the element's own
      rule. The outline:none below applies to :focus, which this then overrides for the keyboard. */
   :focus-visible {
-    outline:2px solid var(--primary); outline-offset:3px; border-radius:2px;
+    outline:2px solid var(--primary); outline-offset:3px; border-radius:var(--shape-xs);
   }
   html { scrollbar-gutter:stable; -webkit-text-size-adjust:100%; }
   body {
@@ -131,7 +181,7 @@ const indexHTML = `<!doctype html>
      already lowered, and light mode has less headroom than dark. Measured before this note: eight
      of thirteen dimmed pairs were under, the worst at 2.47:1. */
   .kicker {
-    font:600 10.5px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase;
+    font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase;
     color:var(--muted);
   }
 
@@ -146,17 +196,17 @@ const indexHTML = `<!doctype html>
     max-width:var(--wide); margin:0 auto;
   }
   .mark {
-    font:600 27px/1 var(--display); letter-spacing:.01em; color:var(--primary);
+    font:600 var(--headline-s) var(--display); letter-spacing:.01em; color:var(--primary);
     font-feature-settings:"liga" 1;
   }
   /* The three councillors, in their own hues — the signature the terminal wears, set as a
      nameplate's standing line. */
   .magi { display:flex; gap:.6rem; }
-  .magi span { font-size:9.5px; letter-spacing:.22em; font-weight:600; }
+  .magi span { font-size:11px; letter-spacing:.22em; font-weight:600; }
   .magi .m { color:var(--melchior); } .magi .b { color:var(--balthasar); } .magi .c { color:var(--casper); }
   .sid { color:var(--muted); font-size:11px; letter-spacing:.04em; opacity:.8; overflow-wrap:anywhere; }
   #state {
-    margin-left:auto; font:600 10.5px/1.4 var(--mono); letter-spacing:.16em; text-transform:uppercase;
+    margin-left:auto; font:600 11px/1.4 var(--mono); letter-spacing:.16em; text-transform:uppercase;
     color:var(--muted); display:flex; align-items:center; gap:.45rem;
   }
   #state::before { content:""; width:6px; height:6px; border-radius:50%; background:var(--outline); }
@@ -180,7 +230,7 @@ const indexHTML = `<!doctype html>
      it — the one scroll direction a phone should never get. */
   #tabs { display:flex; flex-wrap:wrap; gap:.4rem 1.6rem; padding:.9rem 0 0; }
   #tabs a {
-    font:600 10.5px/1.4 var(--mono); letter-spacing:.16em; text-transform:uppercase;
+    font:600 11px/1.4 var(--mono); letter-spacing:.16em; text-transform:uppercase;
     color:var(--muted); text-decoration:none; padding-bottom:.5rem; border-bottom:2px solid transparent;
   }
   #tabs a:hover { color:var(--primary); }
@@ -194,8 +244,8 @@ const indexHTML = `<!doctype html>
     display:grid; grid-template-columns:3.5rem 1fr; gap:1rem; align-items:baseline;
     border-bottom:1px solid var(--outlineVariant); padding:.9rem 0;
   }
-  .iv .times { font:600 20px/1 var(--display); color:var(--primary); text-align:right; }
-  .iv .said { font:italic 15.5px/1.5 var(--display); color:var(--fg); overflow-wrap:anywhere; }
+  .iv .times { font:600 var(--title-l) var(--display); color:var(--primary); text-align:right; }
+  .iv .said { font:italic 16px/1.5 var(--display); color:var(--fg); overflow-wrap:anywhere; }
   .iv .where {
     margin-top:.35rem; font-size:11px; letter-spacing:.05em; color:var(--muted);
   }
@@ -203,11 +253,11 @@ const indexHTML = `<!doctype html>
   .iv .promote { display:flex; gap:1rem; margin-top:.5rem; flex-wrap:wrap; align-items:center; }
   .iv .promote button {
     background:none; border:0; border-bottom:1px solid var(--outlineVariant); border-radius:0;
-    color:var(--muted); font:600 10px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
+    color:var(--muted); font:600 11px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
     padding:.3rem .1rem; min-height:44px; cursor:pointer; white-space:nowrap;
   }
   .iv .promote button:hover { color:var(--primary); border-bottom-color:var(--primary); }
-  .iv .promote .done { color:var(--success); font:600 10px/1 var(--mono); letter-spacing:.14em;
+  .iv .promote .done { color:var(--success); font:600 11px/1 var(--mono); letter-spacing:.14em;
                        text-transform:uppercase; }
 
   /* ── what they have learned ─────────────────────────────────────────────── */
@@ -219,7 +269,7 @@ const indexHTML = `<!doctype html>
   .sk { border-bottom:1px solid var(--outlineVariant); padding:.9rem 0; }
   .sk .top { display:flex; gap:.7rem; align-items:baseline; flex-wrap:wrap; }
   .sk .tier {
-    font:600 9.5px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
+    font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
     flex-basis:100%; order:-1;
   }
   .sk.global .tier { color:var(--warn); }
@@ -231,7 +281,9 @@ const indexHTML = `<!doctype html>
   .sk .meta { margin-top:.3rem; font-size:11px; letter-spacing:.05em; color:var(--muted); }
   .sk .drop {
     background:none; border:0; border-bottom:1px solid var(--outlineVariant); border-radius:0;
-    color:var(--muted); font:600 10px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
+    /* Zero on purpose: this is a text button set as an underlined word in a reading column, and a
+       pill here would read as a control floating over prose. M3's shape scale includes none. */
+    color:var(--muted); font:600 11px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
     padding:.3rem .1rem; min-height:44px; cursor:pointer; margin-left:auto;
   }
   .sk .drop:hover { color:var(--error); border-bottom-color:var(--error); }
@@ -244,28 +296,28 @@ const indexHTML = `<!doctype html>
   .srv { border-bottom:1px solid var(--outlineVariant); padding:.9rem 0; }
   .srv .top { display:flex; gap:.7rem; align-items:baseline; flex-wrap:wrap; }
   .srv .tier {
-    font:600 9.5px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
+    font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
     flex-basis:100%; order:-1;
   }
   .srv.global .tier { color:var(--warn); }
   .srv.project .tier { color:var(--accent); }
-  .srv .what { font:600 15px/1.35 var(--mono); color:var(--fg); overflow-wrap:anywhere; }
+  .srv .what { font:600 var(--body-l) var(--mono); color:var(--fg); overflow-wrap:anywhere; }
   .srv .how { margin-top:.3rem; font:12px/1.5 var(--mono); color:var(--muted); overflow-wrap:anywhere; }
   .srv .where { margin-top:.2rem; font-size:11px; color:var(--muted); opacity:.85; overflow-wrap:anywhere; }
   .srv .drop {
     background:none; border:0; border-bottom:1px solid var(--outlineVariant); border-radius:0;
-    color:var(--muted); font:600 10px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
+    color:var(--muted); font:600 11px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
     padding:.3rem .1rem; min-height:44px; cursor:pointer; margin-left:auto;
   }
   .srv .drop:hover { color:var(--error); border-bottom-color:var(--error); }
   #mcpAdd { display:grid; gap:.6rem; margin:1.4rem 0; max-width:var(--measure); }
   #mcpAdd input, #mcpAdd select {
     background:var(--surfaceContainer); color:var(--fg); border:1px solid var(--outlineVariant);
-    border-radius:2px; padding:.55rem .7rem; font:12px/1.4 var(--mono); min-height:44px;
+    border-radius:var(--shape-xs); padding:.55rem .7rem; font:12px/1.4 var(--mono); min-height:44px;
   }
   #mcpAdd button {
     justify-self:start; background:none; border:0; border-bottom:1px solid var(--primary);
-    border-radius:0; color:var(--primary); font:600 10px/1 var(--mono); letter-spacing:.16em;
+    border-radius:0; color:var(--primary); font:600 11px/1 var(--mono); letter-spacing:.16em;
     text-transform:uppercase; padding:.4rem .1rem; min-height:44px; cursor:pointer;
   }
   #mcpAdd .note { font-size:11px; color:var(--muted); }
@@ -285,9 +337,9 @@ const indexHTML = `<!doctype html>
     background:none; border:0; padding:.2rem 0; cursor:pointer; text-align:left;
     display:flex; flex-direction:column; gap:.15rem; min-height:44px;
   }
-  .tile .n { font:600 26px/1 var(--display); color:var(--fg); }
+  .tile .n { font:600 var(--headline-s) var(--display); color:var(--fg); }
   .tile .k {
-    font:600 10px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
+    font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
     display:flex; align-items:center; gap:.35rem;
   }
   /* A status dot AND the word — the colour is never the only thing carrying the state. */
@@ -311,15 +363,23 @@ const indexHTML = `<!doctype html>
     gap:.9rem;
   }
   .thead {
-    font:600 9.5px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
+    font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
     padding:.9rem 0 .5rem; border-bottom:1px solid var(--fg);
   }
   .thead .r, .card .r { text-align:right; }
 
   .card {
-    text-decoration:none; color:inherit; border-bottom:1px solid var(--outlineVariant);
-    padding:.75rem 0 .8rem .8rem; margin-left:-.8rem; border-left:2px solid transparent;
+    text-decoration:none; color:var(--md-on-surface); border-bottom:1px solid var(--outlineVariant);
+    padding:.75rem .8rem .8rem; margin-left:-.8rem; border-left:2px solid transparent;
+    border-radius:var(--shape-s); position:relative;
   }
+  /* A row is interactive, so it gets a state layer like any other M3 target. */
+  .card::after {
+    content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
+    background:var(--md-on-surface); opacity:0; transition:opacity .12s ease;
+  }
+  .card:hover::after { opacity:.08; }
+  .card:focus-visible::after { opacity:.12; }
   .card:hover { background:color-mix(in srgb, var(--primary) 5%, transparent); }
   .card.here { border-left-color:var(--primary); }
   .card.working { border-left-color:var(--success); }
@@ -329,7 +389,7 @@ const indexHTML = `<!doctype html>
 
   /* status */
   .card .badge {
-    font:600 10px/1.6 var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--muted);
+    font:600 11px/1.6 var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--muted);
     display:flex; align-items:center; gap:.4rem;
   }
   .card .badge::before { content:""; width:7px; height:7px; border-radius:50%; background:currentColor; flex:none; }
@@ -342,24 +402,24 @@ const indexHTML = `<!doctype html>
   .card .name { font:600 16px/1.3 var(--display); color:var(--fg); overflow-wrap:anywhere; }
   .card:hover .name { color:var(--primary); }
   .card .plan {
-    font:600 10px/1.4 var(--mono); letter-spacing:.1em; color:var(--muted); align-self:center;
+    font:600 11px/1.4 var(--mono); letter-spacing:.1em; color:var(--muted); align-self:center;
   }
   .card .role {
     font:600 11px/1.4 var(--mono); letter-spacing:.04em; color:var(--accent);
     overflow-wrap:anywhere; margin-top:.15rem;
   }
   .card .team {
-    font:600 9.5px/1.4 var(--mono); letter-spacing:.16em; text-transform:uppercase;
+    font:600 11px/1.4 var(--mono); letter-spacing:.16em; text-transform:uppercase;
     color:var(--muted); margin-top:.2rem;
   }
-  .card .path { font-size:10.5px; color:var(--muted); opacity:.9; overflow-wrap:anywhere; }
+  .card .path { font-size:11px; color:var(--muted); opacity:.9; overflow-wrap:anywhere; }
 
   /* what it is doing: one line, clipped — the detail view is one click away for the rest */
   .card .last {
-    font:italic 13.5px/1.45 var(--display); color:var(--fg);
+    font:italic 14px/1.45 var(--display); color:var(--fg);
     display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
   }
-  .card .asking { font:600 12.5px/1.45 var(--mono); color:var(--warn); overflow-wrap:anywhere; }
+  .card .asking { font:600 12px/1.45 var(--mono); color:var(--warn); overflow-wrap:anywhere; }
   .card .num { font-size:12px; color:var(--muted); }
   .card .host { font-size:11px; color:var(--muted); overflow-wrap:anywhere; }
   .card .host b { font-weight:400; color:var(--fg); opacity:.85; }
@@ -369,7 +429,7 @@ const indexHTML = `<!doctype html>
   .actions { display:flex; gap:.8rem; justify-content:flex-end; align-items:center; }
   .actions button, .actions .open {
     background:none; border:0; border-bottom:1px solid var(--outlineVariant); border-radius:0;
-    color:var(--muted); font:600 10px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
+    color:var(--muted); font:600 11px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
     padding:.3rem .1rem; min-height:44px; cursor:pointer; text-decoration:none; white-space:nowrap;
   }
   .actions .open:hover { color:var(--primary); border-bottom-color:var(--primary); }
@@ -390,7 +450,7 @@ const indexHTML = `<!doctype html>
   .answer input:focus { outline:none; border-bottom-color:var(--primary); }
   .answer input:focus-visible { outline:2px solid var(--primary); outline-offset:3px; }
 
-  .empty { font:17px/1.7 var(--display); color:var(--muted); padding:2.5rem 0; max-width:52ch; }
+  .empty { font:16px/1.7 var(--display); color:var(--muted); padding:2.5rem 0; max-width:52ch; }
   .empty code { font:14px/1 var(--mono); color:var(--accent); }
 
   /* ── the agent's own header, so a detail page says what it is looking at ──── */
@@ -400,9 +460,9 @@ const indexHTML = `<!doctype html>
   }
   #detail .f { display:flex; flex-direction:column; gap:.2rem; }
   #detail .f .k {
-    font:600 9.5px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
+    font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
   }
-  #detail .f .v { font-size:13px; color:var(--fg); overflow-wrap:anywhere; }
+  #detail .f .v { font:var(--body-m) var(--mono); color:var(--fg); overflow-wrap:anywhere; }
   #detail .f .v.state { font-weight:600; letter-spacing:.1em; text-transform:uppercase; font-size:11px; }
   /* The window, as a rule under the number rather than a gauge beside it: this is a fill level and
      the page already spends its colour on state. Unknown windows draw no bar at all — an empty
@@ -414,7 +474,7 @@ const indexHTML = `<!doctype html>
   #detail .f .fold {
     justify-self:start; margin-top:.4rem; background:none; border:0;
     border-bottom:1px solid var(--outlineVariant); border-radius:0; color:var(--muted);
-    font:600 9.5px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
+    font:600 11px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
     padding:.3rem .1rem; min-height:44px; cursor:pointer;
   }
   #detail .f .fold:hover:not(:disabled) { color:var(--primary); border-bottom-color:var(--primary); }
@@ -425,7 +485,7 @@ const indexHTML = `<!doctype html>
   /* ── the agent's own plan ───────────────────────────────────────────────── */
   #plan { max-width:var(--measure); margin-bottom:1.2rem; }
   #plan .k {
-    font:600 9.5px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase;
+    font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase;
     color:var(--muted); margin-bottom:.4rem;
   }
   .td { display:grid; grid-template-columns:1.2rem 1fr; gap:.6rem; padding:.15rem 0; }
@@ -441,12 +501,12 @@ const indexHTML = `<!doctype html>
     padding-bottom:1rem; margin-bottom:1.4rem;
   }
   #handoffs .k {
-    font:600 9.5px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase;
+    font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase;
     color:var(--muted); margin-bottom:.5rem;
   }
   .ho { display:grid; grid-template-columns:7rem 1fr; gap:.2rem 1rem; padding:.45rem 0; }
   .ho .to { font:600 11px/1.6 var(--mono); letter-spacing:.08em; color:var(--accent); text-align:right; }
-  .ho .req { font:15px/1.45 var(--display); color:var(--fg); overflow-wrap:anywhere; }
+  .ho .req { font:var(--body-l) var(--display); color:var(--fg); overflow-wrap:anywhere; }
   .ho .ans { grid-column:2; font-size:12px; color:var(--muted); overflow-wrap:anywhere; }
   .ho.working .to { color:var(--primary); }
 
@@ -457,7 +517,7 @@ const indexHTML = `<!doctype html>
   #log { max-width:var(--wide); }
   .row { display:grid; grid-template-columns:6.5rem 1fr; gap:1.1rem; align-items:start; padding:.22rem 0; }
   .who {
-    font:600 10px/1.9 var(--mono); letter-spacing:.16em; text-transform:uppercase;
+    font:600 11px/1.9 var(--mono); letter-spacing:.16em; text-transform:uppercase;
     color:var(--muted); text-align:right; user-select:none; opacity:.8;
   }
   .txt { white-space:pre-wrap; overflow-wrap:anywhere; }
@@ -466,7 +526,7 @@ const indexHTML = `<!doctype html>
      for a pull quote. */
   .row.user { margin:1.6rem 0 .7rem; }
   .row.user .txt {
-    font:17px/1.55 var(--display); color:var(--primary);
+    font:16px/1.55 var(--display); color:var(--primary);
     border-left:2px solid var(--primary); padding-left:.9rem; margin-left:-.9rem;
   }
   .row.user .who { color:var(--primary); }
@@ -518,13 +578,27 @@ const indexHTML = `<!doctype html>
   textarea:focus { outline:none; border-bottom-color:var(--primary); }
   textarea:focus-visible { outline:2px solid var(--primary); outline-offset:3px; }
   textarea::placeholder { color:var(--muted); opacity:.8; }
-  button {
-    background:none; border:0; border-bottom:1px solid var(--outline); border-radius:0;
-    color:var(--muted); font:600 11.5px/1 var(--mono); letter-spacing:.16em; text-transform:uppercase;
-    padding:0 .1rem; min-height:44px; cursor:pointer; white-space:nowrap;
+  /* The composer's two are real buttons and are shaped like M3's: full-round, filled for the one
+     that does the thing and tonal for the one beside it. Everything else on this page that looks
+     like a link IS one — see .textbtn. */
+  .composer button {
+    border:0; border-radius:var(--shape-full);
+    font:600 var(--label-l) var(--mono); letter-spacing:.14em; text-transform:uppercase;
+    padding:0 1.2rem; min-height:44px; cursor:pointer; white-space:nowrap;
+    position:relative; overflow:hidden;
   }
-  button:hover { color:var(--primary); border-bottom-color:var(--primary); }
-  #stop:hover { color:var(--error); border-bottom-color:var(--error); }
+  .composer button[type=submit] { background:var(--primary); color:var(--md-on-primary); }
+  #stop { background:var(--md-surface-container-high); color:var(--md-on-surface); }
+  /* State layers, not colour swaps: M3 puts the on- colour over the surface at a fixed opacity.
+     Doing it with a pseudo-element keeps the label's own contrast untouched, which dimming or
+     recolouring the text does not. */
+  .composer button::after {
+    content:''; position:absolute; inset:0; background:currentColor; opacity:0;
+    transition:opacity .12s ease;
+  }
+  .composer button:hover::after { opacity:.08; }
+  .composer button:focus-visible::after, .composer button:active::after { opacity:.12; }
+  .composer button:focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
 
   @media (max-width:640px) {
     /* The two buttons and a text box do not fit across 390px: measured, the box was left with
@@ -533,7 +607,7 @@ const indexHTML = `<!doctype html>
     .composer { flex-wrap:wrap; }
     .composer input#to {
     flex:0 0 13rem; min-width:8rem; background:var(--surfaceContainer); color:var(--fg);
-    border:1px solid var(--outlineVariant); border-radius:2px; padding:.55rem .7rem;
+    border:1px solid var(--outlineVariant); border-radius:var(--shape-xs); padding:.55rem .7rem;
     font:600 12px/1.4 var(--mono); letter-spacing:.04em;
   }
   .composer input#to:focus-visible { outline:2px solid var(--primary); outline-offset:1px; }
@@ -541,7 +615,7 @@ const indexHTML = `<!doctype html>
     .composer button { flex:1; }
     header { padding-left:1rem; padding-right:1rem; }
     main { padding:1.2rem 1rem calc(var(--dock, 8rem) + 1.5rem); }
-    .card .name { font-size:18px; }
+    .card .name { font:600 var(--title-l) var(--display); }
     .row { grid-template-columns:1fr; gap:.2rem; }
     .who { text-align:left; }
     .row.user .txt { font-size:16px; }
@@ -555,7 +629,7 @@ const indexHTML = `<!doctype html>
   <span class="magi"><span class="m">MELCHIOR</span> <span class="b">BALTHASAR</span> <span class="c">CASPER</span></span>
   <!-- Where you are, always, in both views: magi / fleet, or magi / fleet / <agent>. The middle
        crumb is the way back, which is the same element that says where back goes. -->
-  <nav id="crumbs"><a href="/" id="back">fleet</a><span id="crumbSep" hidden>/</span><span id="crumbHere"></span></nav>
+  <nav id="crumbs"><a href="/" id="back">companions</a><span id="crumbSep" hidden>/</span><span id="crumbHere"></span></nav>
   <span class="sid" id="sid"></span>
   <span id="state"></span>
 </header>
@@ -563,9 +637,9 @@ const indexHTML = `<!doctype html>
 <main>
   <nav id="tabs" hidden>
     <a href="/" id="tabFleet">companions</a>
-    <a href="/?v=interventions" id="tabIv">what I had to say</a>
-    <a href="/?v=skills" id="tabSkills">what they have learned</a>
-    <a href="/?v=mcp" id="tabMcp">what they can reach</a>
+    <a href="/?v=interventions" id="tabIv">corrections</a>
+    <a href="/?v=skills" id="tabSkills">lessons</a>
+    <a href="/?v=mcp" id="tabMcp">connections</a>
   </nav>
   <div id="summary"></div>
   <div id="ivs" hidden></div>
@@ -606,6 +680,11 @@ const tabFleet = document.getElementById('tabFleet'), tabIv = document.getElemen
 // Which resource this console is showing. A companion's own page is neither — it is one level in.
 const view = () => new URLSearchParams(location.search).get('v') || 'fleet';
 const crumbSep = document.getElementById('crumbSep'), crumbHere = document.getElementById('crumbHere');
+// The four sections, named as nouns: a tab is a place you are, and "what I had to say" is a
+// sentence about it. The same words do three jobs — the tab, the crumb, and the browser title —
+// so they are written once.
+const SECTION = {fleet: 'companions', interventions: 'corrections', skills: 'lessons', mcp: 'connections'};
+const HREF = {fleet: '/', interventions: '/?v=interventions', skills: '/?v=skills', mcp: '/?v=mcp'};
 
 const sock = () => new URLSearchParams(location.search).get('d');
 const peerOf = () => new URLSearchParams(location.search).get('p') || '';
@@ -775,7 +854,12 @@ function answerBox(a) {
 // the title is the one channel that reaches a page nobody is watching, without asking for
 // notification permission or shipping a service worker to deliver them.
 function retitle(waiting) {
-  document.title = waiting ? '(' + waiting + ') magi' : 'magi';
+  // Where you are goes in the title as well: with four sections and a page you leave open, the tab
+  // strip in a browser is the outermost breadcrumb somebody actually reads.
+  const s = sock();
+  const where = s ? nameOf(s) : SECTION[view()] || 'companions';
+  const name = 'magi · ' + where;
+  document.title = waiting ? '(' + waiting + ') ' + name : name;
 }
 
 // drawPrompt puts what an agent is blocked on above its own composer.
@@ -1321,8 +1405,16 @@ function render() {
   if (fleetTimer) { clearInterval(fleetTimer); fleetTimer = null; }
   const s = sock();
   const v = s ? '' : view();
-  // Where you are, said in the masthead: magi / fleet, or magi / fleet / <agent>. The crumb that
-  // names the fleet IS the way back, so the answer to "where am I" and the way out are one thing.
+  // Where you are, in the masthead: magi / lessons, or magi / companions / design. The crumb that
+  // names the section IS the way back to it, so "where am I" and the way out are one thing.
+  //
+  // It names the SECTION, not always the fleet. A crumb that read "fleet" while you stood in the
+  // connections tab answered a question nobody asked and offered a way back to somewhere you had
+  // not been.
+  const section = s ? 'companions' : SECTION[v] || 'companions';
+  retitle(0);
+  back.textContent = section;
+  back.href = s ? '/' : HREF[v] || '/';
   crumbSep.hidden = !s;
   crumbHere.textContent = s ? nameOf(s) : '';
   back.className = s ? '' : 'here';

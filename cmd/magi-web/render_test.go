@@ -283,9 +283,10 @@ console.log(JSON.stringify({
 	if strings.Join(labels, "/") != "allow/always/deny" {
 		t.Errorf("the answer buttons on the agent's page are %v", labels)
 	}
-	// One agent is waiting, so the tab says so — this page is often behind an app switcher.
-	if got["title"].(string) != "(1) magi" {
-		t.Errorf("the tab title is %q, and one agent is waiting", got["title"])
+	// One agent is waiting, so the tab says so — this page is often behind an app switcher — and it
+	// names where you are, which with four sections is the outermost breadcrumb anybody reads.
+	if got["title"].(string) != "(1) magi · a" {
+		t.Errorf("the tab title is %q, and one agent is waiting on its own page", got["title"])
 	}
 }
 
@@ -302,7 +303,7 @@ console.log(JSON.stringify({hidden: document.getElementById('prompt').hidden, ti
 	if !got["hidden"].(bool) {
 		t.Error("a working agent's page shows a prompt bar")
 	}
-	if got["title"].(string) != "magi" {
+	if got["title"].(string) != "magi · a" {
 		t.Errorf("the tab title is %q with nothing waiting", got["title"])
 	}
 }
@@ -319,7 +320,7 @@ func TestTheTabTitleCountsEveryWaitingAgent(t *testing.T) {
 await loadFleet();
 console.log(JSON.stringify({title: document.title}));
 `)
-	if got["title"].(string) != "(2) magi" {
+	if got["title"].(string) != "(2) magi · companions" {
 		t.Errorf("the tab title is %q, and two agents are waiting", got["title"])
 	}
 }
@@ -494,10 +495,45 @@ console.log(JSON.stringify({back: back.text, sep: crumbSep.hidden, here: crumbHe
 	if agent["here"].(string) == "" {
 		t.Error("on an agent's page the crumb does not name it")
 	}
-	// The crumb's own word and its href are static markup, which the fake DOM never parses — they
-	// are checked against the page source instead, where they actually live.
-	if !strings.Contains(indexHTML, `<a href="/" id="back">fleet</a>`) {
-		t.Error("the masthead has no fleet crumb linking home")
+	// The crumb names the SECTION you are in, not always the fleet: standing in connections under a
+	// crumb reading "fleet" answers a question nobody asked and offers a way back to somewhere you
+	// have not been.
+	for _, tc := range []struct{ query, want, href string }{
+		{"", "companions", "/"},
+		{"?v=interventions", "corrections", "/?v=interventions"},
+		{"?v=skills", "lessons", "/?v=skills"},
+		{"?v=mcp", "connections", "/?v=mcp"},
+	} {
+		// An empty fleet: the crumb is drawn by render() from the query alone, and handing the
+		// other views a list of agents makes them throw on data shaped for a different screen.
+		at := runPage(t, `[]`, tc.query, `
+console.log(JSON.stringify({back: back.text, href: back.attrs.href, sep: crumbSep.hidden}));
+`)
+		if at["back"] != tc.want || at["href"] != tc.href {
+			t.Errorf("in %q the crumb is %q → %q, want %q → %q", tc.query, at["back"], at["href"], tc.want, tc.href)
+		}
+		if at["sep"] != true {
+			t.Errorf("in %q the crumb shows a second level with nothing in it", tc.query)
+		}
+	}
+}
+
+// The tabs are nouns. A tab is a place you are standing, and "what I had to say" is a sentence
+// about one — which also does not fit beside three others on a phone.
+func TestTheTabsAreNamedAsPlaces(t *testing.T) {
+	for _, want := range []string{">companions<", ">corrections<", ">lessons<", ">connections<"} {
+		if !strings.Contains(indexHTML, want) {
+			t.Errorf("the tab strip has no %s", want)
+		}
+	}
+	// The strip itself, not the whole page: the same phrases are section headings in the CSS and
+	// the javascript, where they are prose about the code rather than labels somebody reads.
+	strip := indexHTML[strings.Index(indexHTML, `<nav id="tabs"`):]
+	strip = strip[:strings.Index(strip, "</nav>")]
+	for _, gone := range []string{"what I had to say", "what they have learned", "what they can reach"} {
+		if strings.Contains(strip, gone) {
+			t.Errorf("a sentence-shaped tab label survived: %q", gone)
+		}
 	}
 }
 

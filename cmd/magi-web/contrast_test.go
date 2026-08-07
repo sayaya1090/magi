@@ -54,15 +54,24 @@ func TestDimmedTextStillClearsAA(t *testing.T) {
 func TestNoOpacityInTheStylesheetGoesBelowWhatItsRoleAllows(t *testing.T) {
 	dark, light := themeRoles(t)
 	// Every `opacity:N` in the stylesheet, with the colour declared alongside it in the same rule.
-	rule := regexp.MustCompile(`(?s)\{([^{}]*opacity:[^{}]*)\}`)
+	// The selector comes along, because whether an opacity dims TEXT depends on what it is on.
+	rule := regexp.MustCompile(`(?s)([^{}]*)\{([^{}]*opacity:[^{}]*)\}`)
 	colour := regexp.MustCompile(`color:var\(--([a-zA-Z]+)\)`)
 	op := regexp.MustCompile(`opacity:([0-9.]+)`)
 	css := indexHTML[strings.Index(indexHTML, "<style>"):strings.Index(indexHTML, "</style>")]
 	checked := 0
 	for _, m := range rule.FindAllStringSubmatch(css, -1) {
-		body := m[1]
+		selector, body := m[1], m[2]
 		om := op.FindStringSubmatch(body)
 		if om == nil {
+			continue
+		}
+		// A state layer is not dimmed text. M3 expresses hover and press by laying the on- colour
+		// over a surface at a fixed opacity, and it lives on a pseudo-element that has no text of
+		// its own (content:'') — measuring one as a label reports 1.00:1 for an overlay that is
+		// SUPPOSED to start invisible. Skipped by selector rather than by name, so a rule that
+		// dims real text can never be excused by what it happens to contain.
+		if strings.Contains(selector, "::after") || strings.Contains(selector, "::before") {
 			continue
 		}
 		role := "muted"
