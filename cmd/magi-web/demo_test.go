@@ -145,6 +145,9 @@ func referencedPaths(page string) []string {
 	var out []string
 	for _, re := range []*regexp.Regexp{
 		regexp.MustCompile(`from '(\.?/[^']+)'`),
+		// A side-effect import has no `from`, and the first version of this scan did not look for
+		// one — so the Material Web bundle was missing from the demo and the check said fine.
+		regexp.MustCompile(`import '(\.?/[^']+)'`),
 		regexp.MustCompile(`(?:src|href)="(\.?/[^"]+)"`),
 		regexp.MustCompile(`url\((\.?/[^)]+)\)`),
 	} {

@@ -26,3 +26,23 @@ Re-running those commands on the same versions reproduces the file — which is 
 them down rather than saying "built with esbuild".
 
 Licence: Apache-2.0 (RxJS), same as this repository.
+
+## material.js — Material Web 2.5.0, 57.1KB
+
+The M3 components themselves, so the design comes from the system rather than from CSS written here
+a second time. Only the ones the page uses are imported: `all.js` would register every component
+the library ships.
+
+    npm pack @material/web@2            # material-web-2.5.0.tgz
+    #   sha256 d2974cfab7e8249774c39d9cab22cd24cae9204a74c62b7cb40106c7bac798ed
+    npm pack lit@3 @lit/context@1 @lit/reactive-element@2 lit-html@3 lit-element@4 tslib@2
+    # unpack each into node_modules/<name> (scoped ones under node_modules/@lit/…)
+    cat > entry.mjs <<'ENTRY'
+    import '@material/web/button/filled-button.js';
+    import '@material/web/button/filled-tonal-button.js';
+    import '@material/web/button/text-button.js';
+    ENTRY
+    npx esbuild@0.25 entry.mjs --bundle --format=esm --minify --outfile=material.js
+    #   sha256 de4857ae0243ade05944bda496ef8156622a11cbbe33fbf5323e9632264873c7
+
+Licence: Apache-2.0, same as this repository.

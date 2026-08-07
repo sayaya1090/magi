@@ -266,7 +266,20 @@ func emitDemo(dir string) error {
 	// look; a missing module means the script never runs and the page is blank — which is exactly
 	// what shipped the first time this became a module, because emitDemo copied the fonts and
 	// nobody had written down that the list had grown.
-	for _, name := range []string{"vendor/rxjs.js"} {
+	// Everything in vendor/, not a list somebody keeps in step: the page imports what it imports,
+	// and a hand-written list is one more thing to forget when a second bundle arrives — which is
+	// exactly what happened with the Material Web one.
+	vendored, verr := assetFS.ReadDir("vendor")
+	if verr != nil {
+		return verr
+	}
+	var carry []string
+	for _, f := range vendored {
+		if strings.HasSuffix(f.Name(), ".js") {
+			carry = append(carry, "vendor/"+f.Name())
+		}
+	}
+	for _, name := range carry {
 		b, rerr := assetFS.ReadFile(name)
 		if rerr != nil {
 			return rerr

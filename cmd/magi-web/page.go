@@ -598,16 +598,18 @@ const indexHTML = `<!doctype html>
   textarea:focus { outline:none; border-bottom-color:var(--primary); }
   textarea:focus-visible { outline:2px solid var(--primary); outline-offset:3px; }
   textarea::placeholder { color:var(--muted); opacity:.8; }
-  /* The composer's two are real buttons and are shaped like M3's: full-round, filled for the one
-     that does the thing and tonal for the one beside it. Everything else on this page that looks
-     like a link IS one — see .textbtn. */
-  .composer button {
-    border:0; border-radius:var(--shape-full);
-    font:600 var(--label-l) var(--mono); letter-spacing:.14em; text-transform:uppercase;
-    padding:0 1.2rem; cursor:pointer; white-space:nowrap; overflow:hidden;
+  /* The composer's two are Material Web buttons. Their shape, state layers, ripple and touch
+     target come from the component — this page only tells them which colours magi uses, through
+     the --md-sys-* properties the library reads. Writing any of the rest here again is how two
+     descriptions of one button start to disagree. */
+  md-filled-button, md-filled-tonal-button {
+    --md-sys-color-primary: var(--primary);
+    --md-sys-color-on-primary: var(--md-on-primary);
+    --md-sys-color-secondary-container: var(--md-surface-container-high);
+    --md-sys-color-on-secondary-container: var(--md-on-surface);
+    --md-filled-button-label-text-font: var(--mono);
+    --md-filled-tonal-button-label-text-font: var(--mono);
   }
-  .composer button[type=submit] { background:var(--primary); color:var(--md-on-primary); }
-  #stop { background:var(--md-surface-container-high); color:var(--md-on-surface); }
   /* State layers, not colour swaps: M3 puts the on- colour over the surface at a fixed opacity.
      Doing it with a pseudo-element keeps the label's own contrast untouched, which dimming or
      recolouring the text does not. */
@@ -673,8 +675,8 @@ const indexHTML = `<!doctype html>
     <input id="to" hidden placeholder="to: a name, or what they do" autocomplete="off" list="roles">
     <datalist id="roles"></datalist>
     <textarea id="t" rows="1" placeholder="Ask magi to do something…"></textarea>
-    <button type="submit" id="send" class="state">send</button>
-    <button type="button" id="stop" class="state">interrupt</button>
+    <md-filled-button type="submit" id="send">send</md-filled-button>
+    <md-filled-tonal-button type="button" id="stop">interrupt</md-filled-tonal-button>
   </div></form>
 </footer>
 
@@ -683,6 +685,9 @@ const indexHTML = `<!doctype html>
 // that used to be hand-rolled: the language pack every label reads, the fleet poll, and the
 // transcript. Hand-rolling them is what produced the races this page has already been caught by —
 // a slow answer landing on a panel that had been redrawn, a poll that kept firing after you left.
+// The Material Web components. Imported for the side effect — each module registers its custom
+// element — so the M3 design comes from the system instead of being written here a second time.
+import '/vendor/material.js';
 import { BehaviorSubject, timer, from, of, EMPTY,
          switchMap, catchError, map, distinctUntilChanged, shareReplay,
          filter as onlyWhen } from '/vendor/rxjs.js';

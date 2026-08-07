@@ -47,14 +47,31 @@ func runPage(t *testing.T, fleetJSON, query, epilogue string) map[string]any {
 	// The page imports the vendored bundle by the path this binary serves it at. Node resolves
 	// neither that path nor a fetch of it, so the file is copied in beside the page and the
 	// specifier rewritten — the same bytes, reached differently.
-	vendored, err := assetFS.ReadFile("vendor/rxjs.js")
+	body := scriptBody(t, indexHTML)
+	// RxJS is the real bundle: it is plain javascript and runs anywhere.
+	rx, err := assetFS.ReadFile("vendor/rxjs.js")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "rxjs.js"), vendored, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "rxjs.js"), rx, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	body := strings.ReplaceAll(scriptBody(t, indexHTML), "'/vendor/rxjs.js'", "'./rxjs.js'")
+	body = strings.ReplaceAll(body, "'/vendor/rxjs.js'", "'./rxjs.js'")
+
+	// Material Web is STUBBED here, and that is a statement about what these tests check. The
+	// library builds on custom elements, shadow roots and constructable stylesheets — a browser —
+	// and giving the fake DOM enough of those to load it would mean writing a browser to test a
+	// page. So the import resolves to nothing: the components stay un-upgraded, which in a DOM is
+	// an ordinary element with its light-DOM children, and the page's own logic is what runs.
+	//
+	// What that leaves uncovered is the components' BEHAVIOUR — ripple, focus ring, disabled — and
+	// that is the library's to get right, seen in the demo and in a browser. What it still covers
+	// is everything this page decides: which element, what text, which handler, what it sends.
+	if err := os.WriteFile(filepath.Join(dir, "material.js"), []byte(
+		"// stub — see runPage in render_test.go\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body = strings.ReplaceAll(body, "'/vendor/material.js'", "'./material.js'")
 	script := "import { byId, RENDERED } from './dom.mjs';\n" + body + "\n" + epilogue
 	main := filepath.Join(dir, "page.mjs")
 	if err := os.WriteFile(main, []byte(script), 0o644); err != nil {
