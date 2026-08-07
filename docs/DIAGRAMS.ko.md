@@ -69,6 +69,50 @@ flowchart LR
   store --> ws
 ```
 
+## L0.5 — 프로세스가 하나가 아닐 때: 데몬, 콘솔, 피어
+
+L0은 프로세스 하나다. 터미널의 `magi`에 대해서는 여전히 정확하고 — 이제 전부는 아니다: 엔진은
+UI 없이 돌 수 있고, 다른 프로세스들이 같은 스토어를 읽으며 소켓으로 그것을 움직인다. 여기에 새
+엔진은 없다. `magi-web`은 **LLM도 툴도 없는** `app.App`을 만들므로, 턴을 돌릴 수 있는 것은
+데몬뿐이다.
+
+```mermaid
+%%{init: {'theme':'neutral','flowchart':{'curve':'basis'}}}%%
+flowchart LR
+  supervisor(["감독자"])
+  subgraph machine["머신 하나"]
+    direction TB
+    subgraph d1["magi -daemon (워크스페이스 A)"]
+      a1["app.App<br/>LLM · 툴"]
+    end
+    subgraph d2["magi -daemon (워크스페이스 B)"]
+      a2["app.App<br/>LLM · 툴"]
+    end
+    attach["magi -attach<br/>그중 하나에 붙은 TUI"]
+    web["magi-web<br/>app.App: 스토어만,<br/>LLM 없음, 툴 없음"]
+    logs[("이벤트 로그<br/>+ 발행 레코드")]
+  end
+  peer[("다른 magi-web<br/>-peer name=url")]
+
+  supervisor --> web
+  supervisor --> attach
+  attach -->|"소켓으로 가는 5개 호출"| d1
+  web -->|"submit · steer · interrupt<br/>answer · rewind"| d1
+  web -->|"…"| d2
+  a1 --> logs
+  a2 --> logs
+  web -->|"상태는 기록이 아니라<br/>유도된다"| logs
+  web <-->|"/fleet · /interventions · /skills"| peer
+```
+
+- 데몬이 대기하는 소켓 이름은 워크스페이스의 실제 경로에서 나온다. "여기의 데몬"이 모호하지 않고,
+  flock이 그것을 유일하게 만든다.
+- 콘솔이 컴패니언에 대해 보여주는 모든 것 — 무엇을 하는지, 막혀 있는지, 사람이 턴 중간에 무슨
+  말을 했는지, 컨텍스트가 얼마나 찼는지 — 은 그 로그에서 읽는다. 낡을 수 있는 상태 파일 자체가
+  없다.
+- 피어는 또 하나의 콘솔이고, 브라우저가 이 콘솔에 닿는 것과 똑같은 방식으로 닿는다. 페더레이션은
+  프로토콜을 추가하지 않는다.
+
 ## L1 — 턴 라이프사이클: 요청에서 착지까지
 
 한 턴은 스텝 루프다(`loop.go runLoop`): LLM 호출 → 툴 실행 → 가드 점검을 반복한다. **스텝 천장은

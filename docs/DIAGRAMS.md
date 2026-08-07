@@ -70,6 +70,50 @@ flowchart LR
   store --> ws
 ```
 
+## L0.5 — More than one process: daemon, console, peers
+
+L0 is one process. It is still exactly right for `magi` in a terminal — and it is no longer the
+whole picture: the engine can run with no UI, and other processes read the same store and drive it
+over a socket. Nothing here is a new engine. `magi-web` builds an `app.App` with **no LLM and no
+tools**, so the only thing that can run a turn is the daemon.
+
+```mermaid
+%%{init: {'theme':'neutral','flowchart':{'curve':'basis'}}}%%
+flowchart LR
+  supervisor(["supervisor"])
+  subgraph machine["one machine"]
+    direction TB
+    subgraph d1["magi -daemon (workspace A)"]
+      a1["app.App<br/>LLM · tools"]
+    end
+    subgraph d2["magi -daemon (workspace B)"]
+      a2["app.App<br/>LLM · tools"]
+    end
+    attach["magi -attach<br/>a TUI on one of them"]
+    web["magi-web<br/>app.App: store only,<br/>no LLM, no tools"]
+    logs[("event logs<br/>+ published records")]
+  end
+  peer[("another magi-web<br/>-peer name=url")]
+
+  supervisor --> web
+  supervisor --> attach
+  attach -->|"5 calls over the socket"| d1
+  web -->|"submit · steer · interrupt<br/>answer · rewind"| d1
+  web -->|"…"| d2
+  a1 --> logs
+  a2 --> logs
+  web -->|"state is DERIVED,<br/>never recorded"| logs
+  web <-->|"/fleet · /interventions · /skills"| peer
+```
+
+- The socket a daemon listens on is named from its workspace's real path, so "the daemon here" is
+  unambiguous and a flock makes it unique.
+- Everything the console shows about a companion — what it is doing, whether it is blocked, what a
+  person had to say mid-turn, how full its context is — is read out of those logs. No status file
+  exists to go stale.
+- A peer is another console, reached exactly as a browser reaches this one. Federation adds no
+  protocol.
+
 ## L1 — The life of a turn: request to landing
 
 A turn is a step loop (`loop.go runLoop`): call the LLM, run the tools, check the guard, repeat.
