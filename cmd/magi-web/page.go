@@ -752,7 +752,16 @@ const crumbSep = document.getElementById('crumbSep'), crumbHere = document.getEl
 const SECTION_KEY = {fleet: 'nav.companions', interventions: 'nav.corrections',
                      skills: 'nav.lessons', mcp: 'nav.connections'};
 const SECTION = new Proxy({}, {get: (_, v) => tr(SECTION_KEY[v] || 'nav.companions')});
-const HREF = {fleet: '/', interventions: '/?v=interventions', skills: '/?v=skills', mcp: '/?v=mcp'};
+
+// Where this page is mounted. The binary serves it at the root, so BASE is '/' and every url the
+// router builds has looked like '/?v=skills' for that reason. A static copy of the same page lives
+// under /<repo>/ on a project site, where those escape to the domain root: the clicks still work
+// because they are intercepted, but the address pushed is wrong and a reload lands nowhere.
+//
+// Read from the document rather than configured, so nothing has to be told where it was put.
+const BASE = location.pathname.replace(/[^/]*$/, '');
+const at = query => BASE + (query || '');
+const HREF = {fleet: '', interventions: '?v=interventions', skills: '?v=skills', mcp: '?v=mcp'};
 
 const sock = () => new URLSearchParams(location.search).get('d');
 const peerOf = () => new URLSearchParams(location.search).get('p') || '';
@@ -1502,7 +1511,7 @@ function render() {
   const section = s ? 'companions' : SECTION[v] || 'companions';
   retitle(0);
   back.textContent = section;
-  back.setAttribute('href', s ? '/' : HREF[v] || '/');
+  back.setAttribute('href', at(s ? '' : HREF[v] || ''));
   crumbSep.hidden = !s;
   crumbHere.textContent = s ? nameOf(s) : '';
   back.className = s ? '' : 'here';
@@ -1560,7 +1569,10 @@ function nameOf(socket) {
   return base.replace(/-[a-z0-9]{8}$/, '');
 }
 
-function go(s, peer) { history.pushState({}, '', s ? '/?d=' + encodeURIComponent(s) + (peer ? '&p=' + encodeURIComponent(peer) : '') : '/'); render(); }
+function go(s, peer) {
+  history.pushState({}, '', at(s ? '?d=' + encodeURIComponent(s) + (peer ? '&p=' + encodeURIComponent(peer) : '') : ''));
+  render();
+}
 // The crumb goes where it SAYS it goes. It names the section you are standing in, so sending it to
 // the fleet regardless made the label and the click disagree — you would read "lessons" and land on
 // companions. render() keeps its href current; this just follows it.
@@ -1570,9 +1582,12 @@ back.onclick = e => {
   history.pushState({}, '', url);
   render();
 };
-for (const [el, url] of [[tabFleet, '/'], [tabIv, '/?v=interventions'], [tabSkills, '/?v=skills'],
-                         [tabMcp, '/?v=mcp']]) {
-  el.onclick = e => { e.preventDefault(); history.pushState({}, '', url); render(); };
+for (const [el, key] of [[tabFleet, 'fleet'], [tabIv, 'interventions'], [tabSkills, 'skills'],
+                         [tabMcp, 'mcp']]) {
+  // The href is set as well as the click: a middle-click or a copied link has to reach the same
+  // place, and on a project site an absolute one does not.
+  el.setAttribute('href', at(HREF[key]));
+  el.onclick = e => { e.preventDefault(); history.pushState({}, '', at(HREF[key])); render(); };
 }
 addEventListener('popstate', render);
 

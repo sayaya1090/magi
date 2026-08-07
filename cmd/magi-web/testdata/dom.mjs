@@ -103,7 +103,7 @@ Object.defineProperty(globalThis.navigator, 'language', {
   value: process.env.LANG_TAG ?? 'en-US', configurable: true,
 });
 
-globalThis.location = { search: process.env.QUERY ?? '' };
+globalThis.location = { search: process.env.QUERY ?? '', pathname: process.env.BASE ?? '/' };
 globalThis.history = {
   pushState(_state, _title, url) {
     const q = String(url).indexOf('?');

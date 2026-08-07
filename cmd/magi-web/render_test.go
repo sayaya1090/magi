@@ -23,6 +23,13 @@ import (
 // JSON so the assertions read like Go.
 
 // runPage renders the page against the fake DOM with one fleet payload and returns what it drew.
+// runPageAt is runPage with the page mounted somewhere other than the root.
+func runPageAt(t *testing.T, base, epilogue string) map[string]any {
+	t.Helper()
+	t.Setenv("BASE", base)
+	return runPage(t, `[]`, "", epilogue)
+}
+
 func runPage(t *testing.T, fleetJSON, query, epilogue string) map[string]any {
 	t.Helper()
 	node, err := exec.LookPath("node")
@@ -1036,16 +1043,16 @@ globalThis.fetch = async (p) => {
   if (!p.startsWith('/context')) return {ok: true, json: async () => []};
   return {ok: true, json: async () => ({model: 'qwen3', window: 100, used: 40, messages: ++asks})};
 };
-const at = (steps, state) => ({socket: '/s/a.sock', name: 'api', state: state || 'idle',
+const agent = (steps, state) => ({socket: '/s/a.sock', name: 'api', state: state || 'idle',
                                workdir: '/w', session: 's1', steps});
-await drawDetail(at(7));
+await drawDetail(agent(7));
 const first = byId.detail.text;
-await drawDetail(at(7));   // the same poll answer, twice more
-await drawDetail(at(7));
+await drawDetail(agent(7));   // the same poll answer, twice more
+await drawDetail(agent(7));
 const idle = byId.detail.text;
-await drawDetail(at(8));   // the transcript moved
+await drawDetail(agent(8));   // the transcript moved
 const moved = byId.detail.text;
-await drawDetail(at(8, 'working'));  // the turn ended: same steps, different state
+await drawDetail(agent(8, 'working'));  // the turn ended: same steps, different state
 console.log(JSON.stringify({asks, first, idle, moved, restated: byId.detail.text}));
 `)
 	if got["asks"].(float64) != 3 {
@@ -1083,9 +1090,9 @@ globalThis.fetch = async (p) => {
   if (mine === 1) await held;                       // the first ask is the slow one
   return {ok: true, json: async () => ({model: 'qwen3', used: 10 * mine, messages: mine})};
 };
-const at = steps => ({socket: '/s/a.sock', name: 'api', state: 'working', workdir: '/w', session: 's1', steps});
-const slow = drawDetail(at(1));
-const quick = drawDetail(at(2));
+const agent = steps => ({socket: '/s/a.sock', name: 'api', state: 'working', workdir: '/w', session: 's1', steps});
+const slow = drawDetail(agent(1));
+const quick = drawDetail(agent(2));
 await quick;
 release();
 await slow;
@@ -1263,14 +1270,14 @@ globalThis.fetch = async (p, init) => {
   if (!p.startsWith('/context')) return {ok: true, json: async () => []};
   return {ok: true, json: async () => ({model: 'qwen3', window: 100000, used: 82000, messages: ++asks})};
 };
-const at = {socket: '/s/a.sock', name: 'api', state: 'idle', workdir: '/w', session: 's1'};
-await drawDetail(at);
+const agent = {socket: '/s/a.sock', name: 'api', state: 'idle', workdir: '/w', session: 's1'};
+await drawDetail(agent);
 const fold = byId.detail.find('button').filter(b => (b.className || '').split(' ').includes('fold'))[0];
 const title = fold.attrs.title;
 await fold.onclick();
 // The same companion, unchanged: without invalidation the panel would hold pre-fold numbers, and
 // nothing about an idle companion would ever change the key that would refresh them.
-await drawDetail(at);
+await drawDetail(agent);
 console.log(JSON.stringify({title, disabled: fold.disabled, asks,
   posts: RENDERED.filter(r => r.to)}));
 `)
@@ -1413,6 +1420,38 @@ func TestTheLanguagePacksMatchWhatThePageUses(t *testing.T) {
 				t.Errorf("the page asks for %q and language.%s.json does not have it — that label "+
 					"renders as its own key", key, locale)
 			}
+		}
+	}
+}
+
+// The router builds its urls from where the page is mounted.
+//
+// The binary serves at the root, so every url looked like /?v=skills. The same page published as a
+// project site lives under /<repo>/, where that escapes to the domain root — clicks still worked
+// because they are intercepted, but the address pushed was wrong and a reload landed nowhere.
+func TestTheRouterKnowsWhereThePageIsMounted(t *testing.T) {
+	for _, tc := range []struct{ base, wantTab, wantHome string }{
+		{"/", "/?v=skills", "/"},
+		{"/magi/", "/magi/?v=skills", "/magi/"},
+		{"/deep/er/", "/deep/er/?v=skills", "/deep/er/"},
+	} {
+		got := runPageAt(t, tc.base, `
+globalThis.fetch = async () => ({ok: true, json: async () => []});
+tabSkills.onclick({preventDefault(){}});
+const pushed = location.search;
+const tabHref = tabSkills.attrs.href;
+go(null);
+console.log(JSON.stringify({tabHref, home: back.attrs.href, pushed}));
+`)
+		if got["tabHref"] != tc.wantTab {
+			t.Errorf("mounted at %s the tab links to %q, want %q", tc.base, got["tabHref"], tc.wantTab)
+		}
+		if got["home"] != tc.wantHome {
+			t.Errorf("mounted at %s the crumb links to %q, want %q", tc.base, got["home"], tc.wantHome)
+		}
+		// The query survives the base: it is what the page reads to know which view it is on.
+		if got["pushed"] != "?v=skills" {
+			t.Errorf("mounted at %s the pushed query is %q", tc.base, got["pushed"])
 		}
 	}
 }
