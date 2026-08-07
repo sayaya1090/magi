@@ -22,14 +22,31 @@ func TestTheDemoIsThePageItself(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := string(b)
-	if !strings.HasPrefix(got, indexHTML) {
-		t.Fatal("the demo does not open with the page this binary serves, byte for byte")
+	// The page is in there byte for byte. It is no longer the FIRST thing in the file — the
+	// language seed goes ahead of it, exactly as the handler writes it for a real browser — so the
+	// check is containment plus "nothing before it but the seed".
+	at := strings.Index(got, indexHTML)
+	if at < 0 {
+		t.Fatal("the demo does not carry the page this binary serves, byte for byte")
+	}
+	if before := got[:at]; !strings.HasPrefix(before, "<script>window.__LANG=") || strings.Count(before, "<script>") != 1 {
+		t.Errorf("something other than the language seed was put ahead of the page:\n%s", before)
 	}
 	if !strings.Contains(got, "demo — the real page") {
 		t.Error("the demo does not say it is one")
 	}
-	// The font the page asks for, at the path it asks for it — otherwise the demo falls back to a
-	// system serif and stops being a fair look at the thing.
+	// EVERY path the page reaches for has to be in the directory. A missing font degrades the look;
+	// a missing module means the script never runs and the page is blank — which is what shipped
+	// the first time this page became a module and emitDemo still copied only the fonts.
+	for _, ref := range referencedPaths(got) {
+		if _, err := os.Stat(filepath.Join(dir, strings.TrimPrefix(ref, "/"))); err != nil {
+			t.Errorf("the page reaches for %s and the demo does not carry it: %v", ref, err)
+		}
+	}
+	// And the language seed, or the first paint is a screen of dotted keys.
+	if !strings.Contains(got, "window.__LANG=") {
+		t.Error("the demo has no language seed, so it opens showing its own key names")
+	}
 	for _, want := range []string{".nojekyll", "font"} {
 		if _, err := os.Stat(filepath.Join(dir, want)); err != nil {
 			t.Errorf("%s is missing: %v", want, err)
@@ -95,6 +112,31 @@ func mockRoutesIn(script string) []string {
 	var out []string
 	for _, m := range regexp.MustCompile(`\n    '(/[a-z]+)':`).FindAllStringSubmatch(script, -1) {
 		out = append(out, m[1])
+	}
+	return out
+}
+
+// referencedPaths is every root-relative path the page loads: module imports, scripts, styles,
+// links and CSS url()s. The demo must carry all of them, because it is opened from a directory
+// rather than served by the binary that embeds them.
+func referencedPaths(page string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, re := range []*regexp.Regexp{
+		regexp.MustCompile(`from '(/[^']+)'`),
+		regexp.MustCompile(`(?:src|href)="(/[^"]+)"`),
+		regexp.MustCompile(`url\((/[^)]+)\)`),
+	} {
+		for _, m := range re.FindAllStringSubmatch(page, -1) {
+			p := strings.Trim(m[1], "'\"")
+			// Routes the mock answers are not files; only what the BROWSER loads is.
+			// A link with a query is navigation within the page, not a file to carry.
+			if seen[p] || strings.HasPrefix(p, "/i18n/") || p == "/" || strings.Contains(p, "?") {
+				continue
+			}
+			seen[p] = true
+			out = append(out, p)
+		}
 	}
 	return out
 }

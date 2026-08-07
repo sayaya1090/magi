@@ -529,11 +529,10 @@ func (s *server) font(w http.ResponseWriter, r *http.Request) {
 //
 // Served rather than inlined as a data: URI because iOS ignores a manifest it cannot fetch, and it
 // is small enough that a route costs less than the explanation of the workaround would.
-func (s *server) manifest(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/manifest+json")
-	// display:standalone and a theme colour that matches the page's BACKGROUND — the masthead sits
-	// on it directly now, so a surface colour here would draw a band the page does not have. start_url is the fleet: the phone is where you check on things.
-	const m = `{
+// manifestJSON and iconSVG are package-level so the static demo can write the same bytes this
+// server answers with. They were consts inside their handlers, and the demo shipped without either
+// — found by a check that walks every path the page references.
+const manifestJSON = `{
   "name": "magi",
   "short_name": "magi",
   "start_url": "/",
@@ -543,7 +542,20 @@ func (s *server) manifest(w http.ResponseWriter, r *http.Request) {
   "theme_color": "#14110d",
   "icons": [{"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"}]
 }`
-	if _, err := io.WriteString(w, m); err != nil {
+
+const iconSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <rect width="192" height="192" fill="#211B14"/>
+  <circle cx="96" cy="70" r="21" fill="#FFB454"/>
+  <circle cx="70" cy="115" r="21" fill="#5CD8E6"/>
+  <circle cx="122" cy="115" r="21" fill="#FF8A8A"/>
+  <circle cx="96" cy="97" r="43" fill="none" stroke="#FF7A1A" stroke-width="4" opacity=".55"/>
+</svg>`
+
+func (s *server) manifest(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/manifest+json")
+	// display:standalone and a theme colour that matches the page's BACKGROUND — the masthead sits
+	// on it directly now, so a surface colour here would draw a band the page does not have. start_url is the fleet: the phone is where you check on things.
+	if _, err := io.WriteString(w, manifestJSON); err != nil {
 		log.Printf("magi-web: writing the manifest: %v", err)
 	}
 }
@@ -555,14 +567,7 @@ func (s *server) manifest(w http.ResponseWriter, r *http.Request) {
 // 80%, so nothing meaningful goes near the edge.
 func (s *server) icon(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/svg+xml")
-	const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
-  <rect width="192" height="192" fill="#211B14"/>
-  <circle cx="96" cy="70" r="21" fill="#FFB454"/>
-  <circle cx="70" cy="115" r="21" fill="#5CD8E6"/>
-  <circle cx="122" cy="115" r="21" fill="#FF8A8A"/>
-  <circle cx="96" cy="97" r="43" fill="none" stroke="#FF7A1A" stroke-width="4" opacity=".55"/>
-</svg>`
-	if _, err := io.WriteString(w, svg); err != nil {
+	if _, err := io.WriteString(w, iconSVG); err != nil {
 		log.Printf("magi-web: writing the icon: %v", err)
 	}
 }

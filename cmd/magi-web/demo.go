@@ -233,11 +233,41 @@ func emitDemo(dir string) error {
 	for name, body := range map[string]string{
 		"index.html": page,
 		".nojekyll":  "",
+		// The two the page links for a home-screen install. Same bytes the server answers with;
+		// without them the demo is a page with a broken manifest, which is what it looked like
+		// until a check started walking every path the page references.
+		"manifest.webmanifest": manifestJSON,
+		"icon.svg":             iconSVG,
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
 			return err
 		}
 	}
+	// Everything the page IMPORTS, at the path it imports it from. A missing font degrades the
+	// look; a missing module means the script never runs and the page is blank — which is exactly
+	// what shipped the first time this became a module, because emitDemo copied the fonts and
+	// nobody had written down that the list had grown.
+	for _, name := range []string{"vendor/rxjs.js"} {
+		b, rerr := assetFS.ReadFile(name)
+		if rerr != nil {
+			return rerr
+		}
+		if err := os.MkdirAll(filepath.Join(dir, filepath.Dir(name)), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), b, 0o644); err != nil {
+			return err
+		}
+	}
+	// The language seed the handler inlines for a real page. Written into the file here for the
+	// same reason: without it the first paint is a screen of dotted keys.
+	if pack, perr := assetFS.ReadFile("i18n/language.en.json"); perr == nil {
+		page = "<script>window.__LANG=" + string(pack) + "</script>\n" + page
+		if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte(page), 0o644); err != nil {
+			return err
+		}
+	}
+
 	// The font the page asks for, at the path it asks for it. Without this the demo falls back to
 	// the system serif and stops being a fair look at the thing.
 	fonts, err := fontFS.ReadDir("fonts")
