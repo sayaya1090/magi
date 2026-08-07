@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -1011,7 +1012,8 @@ func TestTheFleetComposerSendsWorkToAnAddress(t *testing.T) {
 globalThis.fetch = async (p, init) => {
   if (init && init.method === 'POST') { RENDERED.push({to: p, body: init.body.toString()}); return {ok: true, status: 204, text: async () => ''}; }
   return {ok: true, json: async () => [
-    {socket:'/s/d.sock', name:'design', role:'component specs and visual review', state:'idle', workdir:'/w/d', session:'d', idle:5},
+    {socket:'/s/d.sock', name:'design', role:'component specs and visual review', team:'frontend', hub:true, state:'idle', workdir:'/w/d', session:'d', idle:5},
+    {socket:'/s/b.sock', name:'buttons', role:'components', team:'frontend', state:'idle', workdir:'/w/b', session:'b', idle:9},
     {socket:'/s/a.sock', name:'api', role:'the billing API', state:'working', workdir:'/w/a', session:'a', idle:1},
   ]};
 };
@@ -1028,6 +1030,7 @@ console.log(JSON.stringify({
   refused: RENDERED.filter(r => r.to).length === before,
   state: byId.state.textContent,
   suggestions: byId.roles.children.map(o => o.value),
+  fleetText: byId.fleet.text,
 }));
 `)
 	posts := got["posts"].([]any)
@@ -1052,8 +1055,23 @@ console.log(JSON.stringify({
 	}
 	// Both kinds of address are offered, because a person should not have to remember which one a
 	// given companion declared.
-	sugg := got["suggestions"].([]any)
-	if len(sugg) != 4 {
-		t.Errorf("the address field suggests %v", sugg)
+	// Names, roles and teams are all valid addresses, and a team is offered once rather than once
+	// per member — the list is read by a person typing, not by a machine.
+	sugg := make([]string, 0, 8)
+	for _, v := range got["suggestions"].([]any) {
+		sugg = append(sugg, v.(string))
+	}
+	for _, want := range []string{"design", "the billing API", "frontend"} {
+		if !slices.Contains(sugg, want) {
+			t.Errorf("%q is not offered as an address: %v", want, sugg)
+		}
+	}
+	if n := strings.Count(strings.Join(sugg, "\x00"), "frontend"); n != 1 {
+		t.Errorf("the team is offered %d times: %v", n, sugg)
+	}
+	// And the row says which one answers for the team, because that is where work addressed to the
+	// team actually lands.
+	if !strings.Contains(got["fleetText"].(string), "frontend · speaks for it") {
+		t.Errorf("the hub is not marked:\n%s", got["fleetText"])
 	}
 }
