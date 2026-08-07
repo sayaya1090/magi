@@ -87,6 +87,83 @@ const indexHTML = `<!doctype html>
     --md-surface-container:#211B14;
     --md-surface-container-high:#2B251C;
     --md-surface-container-highest:#352E24;
+
+    /* ── the same roles under the names Material Web reads ────────────────── */
+    /* The components are themed by these and nothing else. Setting a few of them per component —
+       which is what this page did first — leaves every role it did not mention drawn in the
+       library's baseline purple, which is what "the colours are the default ones" looks like.
+       Declared once, at the root, so a component added later is magi-coloured by existing. */
+    --md-sys-color-primary:var(--primary);
+    --md-sys-color-on-primary:var(--md-on-primary);
+    --md-sys-color-primary-container:var(--primaryContainer);
+    --md-sys-color-on-primary-container:var(--md-on-primary-container);
+    --md-sys-color-secondary:var(--accent);
+    --md-sys-color-on-secondary:var(--md-on-primary);
+    --md-sys-color-secondary-container:var(--md-surface-container-high);
+    --md-sys-color-on-secondary-container:var(--md-on-surface);
+    --md-sys-color-tertiary:var(--accent);
+    --md-sys-color-on-tertiary:var(--md-on-primary);
+    --md-sys-color-error:var(--error);
+    --md-sys-color-on-error:var(--md-on-error);
+    --md-sys-color-error-container:var(--md-surface-container-high);
+    --md-sys-color-on-error-container:var(--error);
+    --md-sys-color-background:var(--bg);
+    --md-sys-color-on-background:var(--fg);
+    --md-sys-color-surface:var(--bg);
+    --md-sys-color-on-surface:var(--md-on-surface);
+    --md-sys-color-surface-variant:var(--surface);
+    --md-sys-color-on-surface-variant:var(--md-on-surface-variant);
+    --md-sys-color-surface-container-lowest:var(--md-surface-container-lowest);
+    --md-sys-color-surface-container-low:var(--md-surface-container-low);
+    --md-sys-color-surface-container:var(--md-surface-container);
+    --md-sys-color-surface-container-high:var(--md-surface-container-high);
+    --md-sys-color-surface-container-highest:var(--md-surface-container-highest);
+    --md-sys-color-outline:var(--outline);
+    --md-sys-color-outline-variant:var(--outlineVariant);
+    --md-sys-color-inverse-surface:var(--fg);
+    --md-sys-color-inverse-on-surface:var(--bg);
+    --md-sys-color-shadow:#000000;
+    --md-sys-color-scrim:#000000;
+
+    /* ── and the type, under the names Material Web reads ─────────────────── */
+    /* A component takes its font from --md-sys-typescale-<role>-font, not from the ref typeface
+       alone, so setting only the latter leaves every label in the library's fallback. Declared
+       across the roles at the root, the way the handbook project does it: one place, and a
+       component added later is already in magi's face.
+       Sizes are the M3 scale (see the type tokens above); the faces are ours, which M3 allows —
+       the scale is what it asks you to keep. */
+    --md-ref-typeface-plain:var(--mono);
+    --md-ref-typeface-brand:var(--display);
+    --md-sys-typescale-label-small-font:var(--mono);
+    --md-sys-typescale-label-small-size:11px;
+    --md-sys-typescale-label-small-line-height:16px;
+    --md-sys-typescale-label-medium-font:var(--mono);
+    --md-sys-typescale-label-medium-size:12px;
+    --md-sys-typescale-label-medium-line-height:16px;
+    --md-sys-typescale-label-large-font:var(--mono);
+    --md-sys-typescale-label-large-size:14px;
+    --md-sys-typescale-label-large-line-height:20px;
+    --md-sys-typescale-body-small-font:var(--mono);
+    --md-sys-typescale-body-small-size:12px;
+    --md-sys-typescale-body-small-line-height:16px;
+    --md-sys-typescale-body-medium-font:var(--mono);
+    --md-sys-typescale-body-medium-size:14px;
+    --md-sys-typescale-body-medium-line-height:20px;
+    --md-sys-typescale-body-large-font:var(--mono);
+    --md-sys-typescale-body-large-size:16px;
+    --md-sys-typescale-body-large-line-height:24px;
+    --md-sys-typescale-title-small-font:var(--display);
+    --md-sys-typescale-title-small-size:14px;
+    --md-sys-typescale-title-small-line-height:20px;
+    --md-sys-typescale-title-medium-font:var(--display);
+    --md-sys-typescale-title-medium-size:16px;
+    --md-sys-typescale-title-medium-line-height:24px;
+    --md-sys-typescale-title-large-font:var(--display);
+    --md-sys-typescale-title-large-size:22px;
+    --md-sys-typescale-title-large-line-height:28px;
+    --md-sys-typescale-headline-small-font:var(--display);
+    --md-sys-typescale-headline-small-size:24px;
+    --md-sys-typescale-headline-small-line-height:32px;
   }
   @media (prefers-color-scheme: light) {
     :root {
@@ -611,14 +688,7 @@ const indexHTML = `<!doctype html>
      target come from the component — this page only tells them which colours magi uses, through
      the --md-sys-* properties the library reads. Writing any of the rest here again is how two
      descriptions of one button start to disagree. */
-  md-filled-button, md-filled-tonal-button {
-    --md-sys-color-primary: var(--primary);
-    --md-sys-color-on-primary: var(--md-on-primary);
-    --md-sys-color-secondary-container: var(--md-surface-container-high);
-    --md-sys-color-on-secondary-container: var(--md-on-surface);
-    --md-filled-button-label-text-font: var(--mono);
-    --md-filled-tonal-button-label-text-font: var(--mono);
-  }
+
   /* State layers, not colour swaps: M3 puts the on- colour over the surface at a fixed opacity.
      Doing it with a pseudo-element keeps the label's own contrast untouched, which dimming or
      recolouring the text does not. */

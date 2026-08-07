@@ -198,3 +198,63 @@ func TestFocusIsVisibleToAKeyboard(t *testing.T) {
 		}
 	}
 }
+
+// The components take their type from --md-sys-typescale-*-font, not from the ref typeface alone.
+//
+// Setting only --md-ref-typeface-plain leaves every component label in the library's fallback face
+// while the rest of the page is in magi's — the same failure as the colours, one layer over.
+func TestEveryMaterialTypeRoleIsMagis(t *testing.T) {
+	css := indexHTML[strings.Index(indexHTML, "<style>"):strings.Index(indexHTML, "</style>")]
+	for _, role := range []string{"label-small", "label-medium", "label-large",
+		"body-small", "body-medium", "body-large", "title-medium", "title-large"} {
+		if !strings.Contains(css, "--md-sys-typescale-"+role+"-font:") {
+			t.Errorf("--md-sys-typescale-%s-font is never set, so a component using that role "+
+				"renders in the library's fallback face", role)
+		}
+		if !strings.Contains(css, "--md-sys-typescale-"+role+"-size:") {
+			t.Errorf("--md-sys-typescale-%s-size is never set", role)
+		}
+	}
+	// The faces are ours; the sizes are the scale's. A literal font name here would be a third
+	// place that has to be changed when the typeface does.
+	bad := regexp.MustCompile(`--md-sys-typescale-[a-z-]+-font:\s*["']`)
+	if m := bad.FindString(css); m != "" {
+		t.Errorf("a typescale role names a face directly (%s) instead of pointing at magi's", m)
+	}
+}
+
+// The components are themed by --md-sys-color-*, and by nothing else.
+//
+// Setting a few of them per component — which this page did first — leaves every role it did not
+// mention drawn in the library's baseline purple. That is what "the colours are the default ones"
+// looks like, and it is invisible in a test that only reads magi's own variables.
+func TestEveryMaterialRoleIsMagisAndFollowsTheTheme(t *testing.T) {
+	css := indexHTML[strings.Index(indexHTML, "<style>"):strings.Index(indexHTML, "</style>")]
+	decl := regexp.MustCompile(`--md-sys-color-([a-z-]+):\s*([^;]+);`)
+	found := map[string]string{}
+	for _, m := range decl.FindAllStringSubmatch(css, -1) {
+		found[m[1]] = strings.TrimSpace(m[2])
+	}
+	// The roles a component reaches for without being asked. A missing one is not a subtle
+	// difference: it is Material's default palette on somebody's dashboard.
+	for _, role := range []string{
+		"primary", "on-primary", "primary-container", "on-primary-container",
+		"secondary-container", "on-secondary-container", "error", "on-error",
+		"surface", "on-surface", "surface-variant", "on-surface-variant",
+		"surface-container", "surface-container-high", "outline", "outline-variant",
+		"background", "on-background",
+	} {
+		if _, ok := found[role]; !ok {
+			t.Errorf("--md-sys-color-%s is never set, so components draw it from Material's own "+
+				"palette rather than magi's", role)
+		}
+	}
+	// Each points at a magi role rather than carrying a colour of its own. That is what makes the
+	// light theme work: it redefines the magi roles, and this layer follows without being told.
+	for role, value := range found {
+		if strings.HasPrefix(value, "#") && role != "shadow" && role != "scrim" {
+			t.Errorf("--md-sys-color-%s is the literal %s — the light theme redefines magi's roles, "+
+				"and a hex here stays dark in both", role, value)
+		}
+	}
+}
