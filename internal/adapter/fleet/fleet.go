@@ -126,7 +126,11 @@ type Agent struct {
 	// Role is what this companion is FOR, in the words of whoever set the workspace up. Empty for
 	// a companion that never declared one, which is most of them and is fine — a role only means
 	// something once there is a team to have one within.
-	Role    string `json:"role,omitempty"`
+	Role string `json:"role,omitempty"`
+	// Team and Hub are how a group is addressed: a team name reaches its hub, and the hub is the
+	// companion that answers for the rest of them.
+	Team    string `json:"team,omitempty"`
+	Hub     bool   `json:"hub,omitempty"`
 	Host    string `json:"host"` // the machine it runs on — the only thing telling two ssh tabs apart
 	Addr    string `json:"addr"`
 	Live    bool   `json:"live"`
@@ -159,7 +163,7 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 	for _, in := range found {
 		a := Agent{
 			Socket: in.Socket, Workdir: in.Workdir, Name: nameOf(in),
-			Session: in.Session, PID: in.PID, Role: in.Role,
+			Session: in.Session, PID: in.PID, Role: in.Role, Team: in.Team, Hub: in.Hub,
 			Host: in.Host, Addr: in.Addr,
 			Live: in.Live, Here: here != "" && in.Socket == here,
 			Idle: -1,
@@ -219,17 +223,35 @@ func Resolve(list []Agent, to string) []Agent {
 	if want == "" {
 		return nil
 	}
-	var byName, byRole []Agent
+	var byName, byTeam, byRole []Agent
 	for _, a := range list {
 		switch {
 		case strings.EqualFold(a.Name, want):
 			byName = append(byName, a)
+		case a.Team != "" && strings.EqualFold(a.Team, want):
+			byTeam = append(byTeam, a)
 		case a.Role != "" && strings.Contains(strings.ToLower(a.Role), want):
 			byRole = append(byRole, a)
 		}
 	}
 	if len(byName) > 0 {
 		return byName
+	}
+	// A team name reaches its hub, if it has one. The hub is the companion that answers for the
+	// rest, so addressing the team is addressing it — and a team with no hub resolves to all its
+	// members, which the caller then has to choose between. That refusal is the honest answer: a
+	// group nobody speaks for is not addressable as a group.
+	if len(byTeam) > 0 {
+		var hubs []Agent
+		for _, a := range byTeam {
+			if a.Hub {
+				hubs = append(hubs, a)
+			}
+		}
+		if len(hubs) == 1 {
+			return hubs
+		}
+		return byTeam
 	}
 	return byRole
 }

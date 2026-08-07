@@ -625,8 +625,12 @@ type Info struct {
 	// until it says so.
 	//
 	// Both optional. A companion with neither is exactly what companions were before: a workspace.
-	Name    string `json:"name,omitempty"`
-	Role    string `json:"role,omitempty"`
+	Name string `json:"name,omitempty"`
+	Role string `json:"role,omitempty"`
+	// Team is the group of companions doing related work, and Hub marks the one that answers for
+	// it. Addressing, not topology: nothing routes through a hub and nothing is hidden behind one.
+	Team    string `json:"team,omitempty"`
+	Hub     bool   `json:"hub,omitempty"`
 	PID     int    `json:"pid"`
 	Started string `json:"started"` // RFC3339
 	// Host and Addr say WHERE this is running. Everything in one config directory is on one
@@ -652,7 +656,7 @@ func Publish(socketPath, workdir, sid string, id Identity) (func(), error) {
 	host, _ := os.Hostname()
 	b, err := json.Marshal(Info{
 		Socket: socketPath, Workdir: workdir, Session: sid,
-		Name: id.Name, Role: id.Role,
+		Name: id.Name, Role: id.Role, Team: id.Team, Hub: id.Hub,
 		PID: os.Getpid(), Started: time.Now().UTC().Format(time.RFC3339),
 		Host: host, Addr: primaryAddr(),
 	})
@@ -674,6 +678,8 @@ func Publish(socketPath, workdir, sid string, id Identity) (func(), error) {
 type Identity struct {
 	Name string // "design", "api" — how somebody addresses it
 	Role string // one line: what it is for, in the words of whoever set it up
+	Team string // the group of companions doing related work, if any
+	Hub  bool   // whether this one answers for its team
 }
 
 // primaryAddr is the address another machine would reach this one at, best effort.

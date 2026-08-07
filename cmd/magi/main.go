@@ -604,6 +604,8 @@ func run() int {
 		ConfigDir: plat.ConfigDir(),
 		Self:      daemon.SocketPath(plat.ConfigDir(), wd),
 		Called:    cfg.Companion.Name,
+		Team:      cfg.Companion.Team,
+		Hub:       cfg.Companion.Hub,
 		Cache:     companionCache,
 	})
 
@@ -814,7 +816,8 @@ func run() int {
 	// whole point — a UI attaches later, or several do, or none ever does.
 	if *daemonMode {
 		unpublish, perr := daemon.Publish(sockPath, wd, string(sid),
-			daemon.Identity{Name: cfg.Companion.Name, Role: cfg.Companion.Role})
+			daemon.Identity{Name: cfg.Companion.Name, Role: cfg.Companion.Role,
+				Team: cfg.Companion.Team, Hub: cfg.Companion.Hub})
 		if perr != nil {
 			fmt.Fprintln(os.Stderr, "magi:", perr)
 			return 1

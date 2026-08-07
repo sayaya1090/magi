@@ -83,6 +83,11 @@ func newTeam(t *testing.T) *team {
 // member starts a daemon that declares who it is, and gives it a session with one finished turn so
 // the fleet reads it as idle.
 func (tm *team) member(sid, name, role string, eng daemon.Engine) string {
+	return tm.memberOf(sid, name, role, daemon.Identity{Name: name, Role: role}, eng)
+}
+
+// memberOf is member for a companion that also declares a team, and whether it speaks for it.
+func (tm *team) memberOf(sid, name, role string, id daemon.Identity, eng daemon.Engine) string {
 	tm.t.Helper()
 	wd := shortDir(tm.t)
 	sock := tm.cfgDir + "/daemon-" + sid + ".sock"
@@ -97,7 +102,7 @@ func (tm *team) member(sid, name, role string, eng daemon.Engine) string {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	unpublish, err := daemon.Publish(sock, wd, sid, daemon.Identity{Name: name, Role: role})
+	unpublish, err := daemon.Publish(sock, wd, sid, id)
 	if err != nil {
 		tm.t.Fatal(err)
 	}
@@ -141,11 +146,15 @@ func (tm *team) write(sid, wd string, evs []event.Event) {
 
 // ask runs the tool as the master would, from a session of its own.
 func (tm *team) ask(self, called, sid, to, request string) session.ToolResult {
+	return tm.askAs(companion.Ask{Self: self, Called: called}, sid, to, request)
+}
+
+// askAs runs the tool for a companion with a declared place in a team.
+func (tm *team) askAs(tool companion.Ask, sid, to, request string) session.ToolResult {
 	tm.t.Helper()
-	tool := companion.Ask{
-		Reader: func() fleet.Reader { return tm.reader }, ConfigDir: tm.cfgDir,
-		Self: self, Called: called, Cache: &fleet.Cache{},
-	}
+	tool.Reader = func() fleet.Reader { return tm.reader }
+	tool.ConfigDir = tm.cfgDir
+	tool.Cache = &fleet.Cache{}
 	args, err := json.Marshal(map[string]string{"to": to, "request": request})
 	if err != nil {
 		tm.t.Fatal(err)
@@ -394,5 +403,168 @@ func TestTheRosterSaysWhatEachHasLearned(t *testing.T) {
 	block := out[strings.Index(out, "api  "):strings.Index(out, "design  ")]
 	if strings.Contains(block, "has learned") {
 		t.Errorf("a companion with no record claims one:\n%s", block)
+	}
+}
+
+// A hub splitting a piece of work across its own team is the reason to have a hub, so that one
+// hand-on is allowed — and only that one.
+func TestAHubMaySplitWorkAcrossItsOwnTeamAndNoFurther(t *testing.T) {
+	tm := newTeam(t)
+	member, outsider := &heard{}, &heard{}
+	tm.memberOf("fe1", "buttons", "components", daemon.Identity{
+		Name: "buttons", Role: "components", Team: "frontend"}, member)
+	tm.memberOf("be1", "billing", "invoices", daemon.Identity{
+		Name: "billing", Role: "invoices", Team: "backend"}, outsider)
+	hub := tm.memberOf("fe0", "frontend-lead", "speaks for the frontend team",
+		daemon.Identity{Name: "frontend-lead", Role: "speaks for the frontend team",
+			Team: "frontend", Hub: true}, &heard{})
+
+	// The hub's turn was started by somebody else — the case a plain companion may not pass on.
+	tm.write("fe0", "", []event.Event{
+		tm.ev(event.TypePromptSubmitted, event.PromptSubmittedData{MessageID: "m1",
+			Parts: []session.Part{{Kind: session.PartText,
+				Text: companion.DispatchedBy("master") + "\n\nrebuild the settings screen"}}}),
+	})
+	as := companion.Ask{Self: hub, Called: "frontend-lead", Team: "frontend", Hub: true}
+
+	if res := tm.askAs(as, "fe0", "buttons", "the toggle component"); res.IsError {
+		t.Fatalf("a hub could not hand work to its own team: %s", text(t, res))
+	}
+	if got := member.got(); len(got) != 1 || !strings.Contains(got[0], "toggle component") {
+		t.Errorf("the team member got %v", got)
+	}
+
+	// Outside its own team is where a chain of hubs would start, so it stops here.
+	res := tm.askAs(as, "fe0", "billing", "and the invoice screen")
+	if !res.IsError {
+		t.Fatal("a relaying hub reached outside its team")
+	}
+	if !strings.Contains(text(t, res), "your own team") {
+		t.Errorf("the refusal does not say why: %q", text(t, res))
+	}
+	if got := outsider.got(); len(got) != 0 {
+		t.Errorf("it was sent anyway: %v", got)
+	}
+
+	// And a plain member of that team still cannot pass anything on: it is not a hub, which is
+	// what bounds the depth at two hops without anybody counting.
+	tm.write("fe1", "", []event.Event{
+		tm.ev(event.TypePromptSubmitted, event.PromptSubmittedData{MessageID: "m2",
+			Parts: []session.Part{{Kind: session.PartText,
+				Text: companion.DispatchedBy("frontend-lead") + "\n\nthe toggle component"}}}),
+	})
+	plain := companion.Ask{Self: "/nope", Called: "buttons", Team: "frontend"}
+	if res := tm.askAs(plain, "fe1", "billing", "you do it"); !res.IsError {
+		t.Error("a team member passed work on")
+	}
+}
+
+// Addressing a team reaches the companion that answers for it.
+func TestATeamNameReachesItsHub(t *testing.T) {
+	tm := newTeam(t)
+	hub, member := &heard{}, &heard{}
+	tm.memberOf("fe0", "frontend-lead", "speaks for the team",
+		daemon.Identity{Name: "frontend-lead", Role: "speaks for the team", Team: "frontend", Hub: true}, hub)
+	tm.memberOf("fe1", "buttons", "components",
+		daemon.Identity{Name: "buttons", Role: "components", Team: "frontend"}, member)
+	master := tm.member("m", "master", "coordinating", &heard{})
+
+	if res := tm.ask(master, "master", "m", "frontend", "rebuild the settings screen"); res.IsError {
+		t.Fatalf("addressing a team answered %q", text(t, res))
+	}
+	if len(hub.got()) != 1 {
+		t.Errorf("the hub was not the one addressed: hub=%v member=%v", hub.got(), member.got())
+	}
+	if len(member.got()) != 0 {
+		t.Errorf("a team member was addressed directly: %v", member.got())
+	}
+}
+
+// A team nobody speaks for is not addressable as a group, and saying so beats picking a member.
+func TestATeamWithNoHubIsNotAddressableAsAGroup(t *testing.T) {
+	tm := newTeam(t)
+	a, b := &heard{}, &heard{}
+	tm.memberOf("x", "one", "bits", daemon.Identity{Name: "one", Role: "bits", Team: "loose"}, a)
+	tm.memberOf("y", "two", "pieces", daemon.Identity{Name: "two", Role: "pieces", Team: "loose"}, b)
+	master := tm.member("m", "master", "coordinating", &heard{})
+
+	res := tm.ask(master, "master", "m", "loose", "something")
+	if !res.IsError {
+		t.Fatal("a team with no hub swallowed the work")
+	}
+	for _, want := range []string{"one", "two"} {
+		if !strings.Contains(text(t, res), want) {
+			t.Errorf("the refusal does not name %q: %q", want, text(t, res))
+		}
+	}
+	if len(a.got())+len(b.got()) != 0 {
+		t.Error("it was sent anyway")
+	}
+}
+
+// A large team is read by a model on every dispatch, which is where the real cost of "know
+// everyone" is — not the directory read. Narrowing turns a page into a paragraph, and says how
+// much it left out so a narrow answer is never mistaken for the whole team.
+func TestTheRosterCanBeNarrowedToTheWorkAtHand(t *testing.T) {
+	tm := newTeam(t)
+	tm.member("d", "design", "component specs and visual review", &heard{})
+	tm.member("a", "api", "billing and invoices", &heard{})
+	tm.member("o", "ops", "deploys and alerting", &heard{})
+	self := tm.member("m", "master", "coordinating", &heard{})
+
+	list := companion.List{
+		Reader: func() fleet.Reader { return tm.reader }, ConfigDir: tm.cfgDir,
+		Self: self, Cache: &fleet.Cache{},
+	}
+	run := func(args string) string {
+		t.Helper()
+		res, err := list.Execute(context.Background(), json.RawMessage(args), port.ToolEnv{SessionID: "m"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return text(t, res)
+	}
+
+	narrowed := run(`{"matching":"visual review of the settings screen"}`)
+	if !strings.Contains(narrowed, "design") {
+		t.Errorf("the one who could do it is missing:\n%s", narrowed)
+	}
+	for _, gone := range []string{"billing and invoices", "deploys and alerting"} {
+		if strings.Contains(narrowed, gone) {
+			t.Errorf("%q survived the filter:\n%s", gone, narrowed)
+		}
+	}
+	// Always said. A narrowed list that does not admit it is narrowed reads as the whole team, and
+	// the reader concludes nobody else could have done the work.
+	if !strings.Contains(narrowed, "did not match") {
+		t.Errorf("the filter is silent about what it hid:\n%s", narrowed)
+	}
+	// The caller is always in its own answer: one that asked "who does design" and cannot see
+	// itself may hand its own work away.
+	if !strings.Contains(narrowed, "this is you") {
+		t.Errorf("the caller filtered itself out:\n%s", narrowed)
+	}
+
+	// Short words match everything, which would make a filter into a no-op that looks like a
+	// filter — the worst of both, since the caller believes it narrowed.
+	if wide := run(`{"matching":"do the a of it"}`); !strings.Contains(wide, "Nobody else matched") {
+		t.Errorf("a query of only short words matched somebody:\n%s", wide)
+	}
+
+	// Nobody matching is not nobody being there.
+	none := run(`{"matching":"kubernetes"}`)
+	if !strings.Contains(none, "Nobody else matched") || !strings.Contains(none, "did not match") {
+		t.Errorf("an empty result reads as an empty machine:\n%s", none)
+	}
+
+	// And no filter is still the whole team.
+	if all := run(`{}`); !strings.Contains(all, "billing") || !strings.Contains(all, "deploys") {
+		t.Errorf("the unfiltered roster is short:\n%s", all)
+	}
+
+	// A `matching` of the wrong type is reported, not shrugged off into "no filter" — that would
+	// hand back the whole team as if it had been asked for.
+	if bad := run(`{"matching":3}`); !strings.Contains(bad, "is a string") {
+		t.Errorf("a mistyped filter silently widened the answer:\n%s", bad)
 	}
 }

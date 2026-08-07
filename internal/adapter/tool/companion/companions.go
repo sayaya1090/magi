@@ -33,6 +33,19 @@
 // writes to another workspace. A companion reading this list learns who is there and what they are
 // busy with, the same way a person reading the dashboard does.
 //
+// # Why it takes a query
+//
+// The expensive part of a roster is not reading it off the disk — fifty companions cost 57µs — it
+// is that the whole thing lands in a model's context every time somebody wants to hand out one
+// piece of work. Measured on a realistic row: ~75 tokens each, so fifty is ~3,800 tokens per
+// dispatch and two hundred is ~15,000.
+//
+// A query cuts that to the few that could plausibly do the work, which is the same win a tier of
+// hub companions would buy — and buys it without the second hop, the hub that can be down, or the
+// group membership that goes stale. Filtering is not choosing: everything that matched comes back,
+// unranked, and the count of what did not is stated so nobody mistakes a narrow answer for the
+// whole team.
+//
 // # Scope
 //
 // This machine, under this config directory — the same set `magi --agents` prints. Companions on
@@ -47,6 +60,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode"
 
 	expgit "github.com/sayaya1090/magi/internal/adapter/experience/git"
 	"github.com/sayaya1090/magi/internal/core/text"
@@ -73,21 +87,38 @@ type List struct {
 func (List) Name() string { return "companions" }
 
 func (List) Description() string {
-	return "List the other magi running on this machine — each one's workspace, what it is doing " +
-		"right now, and whether it is blocked waiting for a person. Use it when a task involves " +
-		"work in another workspace, to find out whether anybody is already on it and whether they " +
-		"are free. It only reads: it cannot send work to them or interrupt them."
+	return "List the other magi running on this machine — each one's workspace, what it is for, " +
+		"what it is doing right now, whether it is blocked waiting for a person, and what it has " +
+		"learned. Pass `matching` with a few words from the work you want done and only the " +
+		"companions who could plausibly do it come back, which on a large team is the difference " +
+		"between a page and a paragraph; leave it out to see everyone. It only reads: it cannot " +
+		"send work to them or interrupt them."
 }
 
 func (List) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)
+	return json.RawMessage(`{"type":"object","properties":{
+		"matching":{"type":"string","description":"a few words from the work, to narrow the list; omit for everyone"}
+	},"additionalProperties":false}`)
 }
 
 // Execute answers with the same derivation the dashboard draws, rendered as lines.
 //
 // Text rather than JSON: this is read by a model deciding whether to bother somebody, and the
 // decision is made on the state and the task, not on a schema.
-func (l List) Execute(ctx context.Context, _ json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
+func (l List) Execute(ctx context.Context, args json.RawMessage, env port.ToolEnv) (session.ToolResult, error) {
+	var in struct {
+		Matching string `json:"matching"`
+	}
+	if len(args) > 0 {
+		// Reported rather than shrugged off. A key the tool does not declare is already caught by
+		// the engine against this schema, so what is left here is a `matching` of the wrong TYPE —
+		// and quietly treating that as "no filter" hands back the whole team as if it had been
+		// asked for, which is the same silent-wrong-answer shape as a dropped argument.
+		if err := json.Unmarshal(args, &in); err != nil {
+			return errText("could not read the arguments: " + err.Error() +
+				" — `matching` is a string, or leave it out to see everyone"), nil
+		}
+	}
 	if l.Reader == nil || l.Reader() == nil {
 		return errText("this magi has no reader for the session store, so it cannot see the others"), nil
 	}
@@ -95,6 +126,12 @@ func (l List) Execute(ctx context.Context, _ json.RawMessage, env port.ToolEnv) 
 	if err != nil {
 		return errText("cannot read the published companions: " + err.Error()), nil
 	}
+	learned := make(map[string]string, len(list))
+	for _, a := range list {
+		learned[a.Socket] = learnedIn(ctx, a.Workdir)
+	}
+	list, hidden := narrow(list, in.Matching, learned)
+
 	var b strings.Builder
 	others := 0
 	for _, a := range list {
@@ -106,7 +143,17 @@ func (l List) Execute(ctx context.Context, _ json.RawMessage, env port.ToolEnv) 
 		if mine {
 			b.WriteString("  (this is you)")
 		}
-		fmt.Fprintf(&b, "\n  workspace: %s\n", a.Workdir)
+		if a.Team != "" {
+			fmt.Fprintf(&b, "  [%s%s]", a.Team, map[bool]string{true: ", speaks for it"}[a.Hub])
+		}
+		b.WriteString("\n")
+		// What it is for, first: it is the basis of the choice this list is read to make. It was
+		// missing entirely until a test asked for the roster and found only names — the filter
+		// matched on a role the reader could not see.
+		if a.Role != "" {
+			fmt.Fprintf(&b, "  %s\n", a.Role)
+		}
+		fmt.Fprintf(&b, "  workspace: %s\n", a.Workdir)
 		switch {
 		case a.Asking != "":
 			// The one state worth calling out: it is not working and will not start again until a
@@ -118,17 +165,75 @@ func (l List) Execute(ctx context.Context, _ json.RawMessage, env port.ToolEnv) 
 		if a.Idle >= 0 {
 			fmt.Fprintf(&b, "  last moved %ds ago\n", a.Idle)
 		}
-		if learned := learnedIn(ctx, a.Workdir); learned != "" {
-			fmt.Fprintf(&b, "  has learned: %s\n", learned)
+		if l := learned[a.Socket]; l != "" {
+			fmt.Fprintf(&b, "  has learned: %s\n", l)
 		}
 	}
-	if others == 0 {
+	if others == 0 && hidden == 0 {
 		b.WriteString("No other magi is running on this machine.\n")
+	}
+	// Said, always. A narrowed list that does not admit it is narrowed reads as the whole team, and
+	// the reader concludes nobody else could have done the work.
+	if hidden > 0 {
+		fmt.Fprintf(&b, "\n%d other companion(s) did not match those words. Call this again without "+
+			"`matching` to see everyone.\n", hidden)
+	}
+	// Counted on OTHERS, not on the list: the caller is always in its own answer, so a list of one
+	// is the empty result and reads as a full one unless it says so.
+	if others == 0 && hidden > 0 {
+		b.WriteString("Nobody else matched those words. That is not the same as nobody being there.\n")
 	}
 	b.WriteString("\nThis is the whole list: reading it is all this tool does. To have one of them " +
 		"do something, ask the person supervising them — nothing here can start or stop another " +
 		"companion's work.")
 	return session.ToolResult{Content: json.RawMessage(mustJSON(b.String()))}, nil
+}
+
+// narrow keeps the companions whose declaration or record shares a word with the query.
+//
+// Word overlap, deliberately: the same lexical, deterministic matching the experience store uses,
+// for the same reason — nothing here should depend on an embedding service being up, and a filter
+// whose behaviour a person cannot predict is one they stop trusting the first time it surprises
+// them. Unranked: everything that matched comes back in the listing's own order, because ordering
+// by score is a hair's breadth from choosing, and choosing is the caller's.
+func narrow(list []fleet.Agent, query string, learned map[string]string) ([]fleet.Agent, int) {
+	terms := words(query)
+	if len(terms) == 0 {
+		return list, 0
+	}
+	kept := make([]fleet.Agent, 0, len(list))
+	for _, a := range list {
+		// Its own row is always kept: a caller that asked "who does design" and cannot see itself
+		// in the answer may hand its own work away.
+		if a.Here || matches(terms, a.Name+" "+a.Role+" "+a.Task+" "+learned[a.Socket]) {
+			kept = append(kept, a)
+		}
+	}
+	return kept, len(list) - len(kept)
+}
+
+func matches(terms []string, hay string) bool {
+	low := strings.ToLower(hay)
+	for _, t := range terms {
+		if strings.Contains(low, t) {
+			return true
+		}
+	}
+	return false
+}
+
+// words splits a query into the terms worth matching on: short ones ("a", "of", "the") match
+// everything and would turn a filter into a no-op that looks like a filter.
+func words(q string) []string {
+	var out []string
+	for _, w := range strings.FieldsFunc(strings.ToLower(q), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}) {
+		if len([]rune(w)) >= 3 {
+			out = append(out, w)
+		}
+	}
+	return out
 }
 
 // learnedIn summarises a companion's own experience tier: what that workspace has accumulated,

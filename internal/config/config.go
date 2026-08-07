@@ -22,6 +22,17 @@ import (
 type CompanionConfig struct {
 	Name string `toml:"name"`
 	Role string `toml:"role"`
+	// Team groups companions that do related work, and Hub marks the one that speaks for the team.
+	//
+	// This is addressing, not topology. Nothing routes through a hub, nothing is hidden behind one,
+	// and every companion is still reachable by its own name: addressing a TEAM reaches its hub,
+	// which then decides who in the team does the work — which is the point, because that decision
+	// costs a reading of the team's roster and the hub is the one that should pay it repeatedly
+	// rather than everybody else paying it once each.
+	//
+	// A team with no hub is still a team, and addressing it says so rather than picking a member.
+	Team string `toml:"team"`
+	Hub  bool   `toml:"hub"`
 }
 
 type Config struct {

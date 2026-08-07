@@ -40,18 +40,27 @@ import (
 // in this tree began with somebody's words arriving altered, so this is asserted by equality on the
 // whole message — label, blank line, request — rather than by "contains".
 //
-// # It does not chain
+// # It chains exactly one level, and only through a hub
 //
-// A companion that was asked to do something cannot pass it on. Not a depth counter — the label is
-// already in its transcript, so the rule reads directly off what happened: if this turn began with
-// somebody else's request, this tool refuses. The person who dispatched decides what to do about
-// the part their specialist cannot do, and finds out from the answer rather than from a chain they
-// cannot see.
+// A companion that was asked to do something cannot pass it on — with one exception, because a
+// team lead splitting a piece of work across its own team is the reason to have a team lead. So:
+// a HUB, asked something, may hand parts of it to companions in ITS OWN team. Nobody else may
+// hand on anything.
+//
+// That bounds the depth at two hops without a counter. A member cannot re-dispatch because it is
+// not a hub; a hub cannot reach outside its team, and Team is one field, so no chain of hubs can
+// form. Read off the transcript rather than tracked in memory, so it survives a restart, an attach
+// from elsewhere and a resumed session — three things a counter in this process gets wrong.
+//
+// What a plain member does instead of passing work on: answer with the part it could do and say
+// what it could not, and who it thinks should. The person or hub that asked reads that.
 type Ask struct {
 	Reader    func() fleet.Reader
 	ConfigDir string
 	Self      string // this companion's socket, so it does not hand work to itself
 	Called    string // what this companion is called, for the label the receiver sees
+	Team      string // the group it belongs to; a hub may hand work to this team and no other
+	Hub       bool   // whether it answers for its team, which is what lets it hand work on at all
 	Cache     *fleet.Cache
 }
 
@@ -101,7 +110,8 @@ func (a Ask) Execute(ctx context.Context, args json.RawMessage, env port.ToolEnv
 	if a.Reader == nil || a.Reader() == nil {
 		return errText("this magi cannot see the others, so it cannot hand work to one"), nil
 	}
-	if wasDispatched(ctx, a.Reader(), env.SessionID) {
+	relaying := wasDispatched(ctx, a.Reader(), env.SessionID)
+	if relaying && !a.Hub {
 		return errText("this turn was itself asked for by another companion, and a request is not " +
 			"passed along. Do the part you can and say plainly in your answer what you could not " +
 			"do and who you think should — the person who asked will read it."), nil
@@ -123,6 +133,13 @@ func (a Ask) Execute(ctx context.Context, args json.RawMessage, env port.ToolEnv
 	}
 	target := found[0]
 	switch {
+	case relaying && (a.Team == "" || !strings.EqualFold(target.Team, a.Team)):
+		// A hub splitting work across its own team is the reason to have a hub. Reaching outside it
+		// while relaying is how two hubs would form a chain, and a chain is the thing nobody can
+		// see the shape of.
+		return errText(fmt.Sprintf("this was asked of you by somebody else, so you can only pass "+
+			"parts of it to your own team (%s). %s is not in it — answer with what you could do and "+
+			"say who should do the rest", orNone(a.Team), target.Name)), nil
 	case target.Here:
 		return errText("that is you. Do it yourself, or name somebody else"), nil
 	case !target.Live:
@@ -189,6 +206,13 @@ func wasDispatched(ctx context.Context, r fleet.Reader, sid session.SessionID) b
 		return false // the most recent request is this session's own
 	}
 	return false
+}
+
+func orNone(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "you are not in a team"
+	}
+	return s
 }
 
 func firstLine(s string) string {
