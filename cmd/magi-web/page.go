@@ -854,6 +854,8 @@ const SECTION = new Proxy({}, {get: (_, v) => tr(SECTION_KEY[v] || 'nav.companio
 const BASE = location.pathname.replace(/[^/]*$/, '');
 const at = query => BASE + (query || '');
 const HREF = {fleet: '', interventions: '?v=interventions', skills: '?v=skills', mcp: '?v=mcp'};
+// In the order they are written in the markup, because md-tabs addresses its tabs by index.
+const TABS = ['fleet', 'interventions', 'skills', 'mcp'];
 
 const sock = () => new URLSearchParams(location.search).get('d');
 const peerOf = () => new URLSearchParams(location.search).get('p') || '';
@@ -1609,13 +1611,13 @@ function render() {
   crumbHere.textContent = s ? nameOf(s) : '';
   back.className = s ? '' : 'here';
   tabsEl.hidden = !!s;
-  // Which tab is current is the component's own state: md-primary-tab draws its indicator from the
-  // active property. Setting a class of ours instead would leave the library drawing one selection
-  // and this page another. (No backticks in this file — it is one Go raw string, and one ends it.)
-  tabFleet.active = v === 'fleet';
-  tabIv.active = v === 'interventions';
-  tabSkills.active = v === 'skills';
-  tabMcp.active = v === 'mcp';
+  // Which tab is current is asked of md-tabs, not written onto the tabs. Both leave the right tab
+  // selected, but only one of them moves: the indicator is animated inside Tabs.activateTab and
+  // nowhere else — it measures the outgoing tab's indicator and slides the incoming one from there
+  // — and activateTab runs only when the component is the one changing the selection. Setting
+  // each tab's active property, which this page did, arrived at the same picture with no motion
+  // between the two. (No backticks in this file — it is one Go raw string, and one ends it.)
+  tabsEl.activeTabIndex = Math.max(0, TABS.indexOf(v));
   fleetEl.hidden = !!s || v !== 'fleet';
   summaryEl.hidden = !!s || v !== 'fleet';
   ivsEl.hidden = !!s || v !== 'interventions';
@@ -1683,7 +1685,10 @@ for (const [el, key] of [[tabFleet, 'fleet'], [tabIv, 'interventions'], [tabSkil
   // The href is set as well as the click: a middle-click or a copied link has to reach the same
   // place, and on a project site an absolute one does not.
   el.setAttribute('href', at(HREF[key]));
-  el.onclick = e => { e.preventDefault(); history.pushState({}, '', at(HREF[key])); render(); };
+  // Nothing is prevented here. A tab is a custom element and not a link, so there is no navigation
+  // to stop — and md-tabs skips its indicator animation on any click whose default was prevented,
+  // which is the second way this page had of standing still.
+  el.onclick = () => { history.pushState({}, '', at(HREF[key])); render(); };
 }
 addEventListener('popstate', render);
 

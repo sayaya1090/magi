@@ -713,6 +713,35 @@ console.log(JSON.stringify({text: byId.ivs.text}));
 	}
 }
 
+// Switching tabs goes through md-tabs, because that is the only place the indicator is animated.
+//
+// Tabs.activateTab measures the outgoing tab's indicator and slides the incoming one from there,
+// and it runs only when the component changes its own selection — a page that writes active onto
+// each tab, or that prevents the click's default, lands on the right tab with no motion between
+// them. Neither is visible in the end state, so this asks how the selection got there. The
+// animation itself needs a real browser; what is fixed here is the path into it.
+func TestSwitchingTabsGoesThroughTheComponent(t *testing.T) {
+	got := runPage(t, `[]`, "", `
+globalThis.fetch = async () => ({ok: true, json: async () => []});
+byId.tabSkills.onclick({preventDefault() { throw new Error('the click default was prevented'); }});
+console.log(JSON.stringify({
+  where: location.search,
+  on: byId.tabs.activeTabIndex,
+  byHand: ['tabFleet', 'tabIv', 'tabSkills', 'tabMcp'].filter(id => byId[id].setDirectly),
+}));
+`)
+	if got["where"] != "?v=skills" {
+		t.Errorf("clicking the lessons tab went to %q", got["where"])
+	}
+	if got["on"].(float64) != 2 {
+		t.Errorf("md-tabs has tab %v active, and lessons is the third", got["on"])
+	}
+	if hand := got["byHand"].([]any); len(hand) > 0 {
+		t.Errorf("the page set active on %v itself; md-tabs animates its indicator only when it is "+
+			"the one selecting, so those tabs change with no motion", hand)
+	}
+}
+
 // The tabs say which resource is on screen and switch without a reload — and a companion's own page
 // is neither of them, being one level in.
 func TestTheTabsSayWhichResourceIsShowing(t *testing.T) {
