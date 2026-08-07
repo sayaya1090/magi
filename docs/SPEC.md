@@ -9,6 +9,10 @@
 > [`MANUAL.md`](MANUAL.md); where they disagree, those win. This is kept as the record of what was
 > decided and on what grounds.
 
+> The daemon, the fleet view and the web console (`cmd/magi-web`) are not in here at all — they
+> were built after this document stopped being maintained. See [`ARCHITECTURE.md`](ARCHITECTURE.md)
+> §11 and [`MANUAL.md`](MANUAL.md) §12.
+
 > Each feature = **rules (R)** + **example cases**. The examples are `given → when ⇒ then` (in code
 > blocks), one-to-one with a row of a Go table test. The case id (`read-1` and so on) is used
 > verbatim as the test name.

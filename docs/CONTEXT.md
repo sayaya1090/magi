@@ -10,7 +10,8 @@
 
 ## 3. 주요 패키지·디렉터리 구조
 ```
-cmd/magi/                 # 진입점: 플래그 파싱, DI, 헤드리스 옵션
+cmd/magi/                 # 진입점: 플래그 파싱, DI, 헤드리스 옵션, -daemon/-attach/-agents
+cmd/magi-web/             # 콘솔: 이 머신(과 피어)의 모든 데몬을 보는 읽기 위주 웹 화면
 internal/
   core/                  # 도메인 모델 (session, event, command, artifact, tool, model, plugin, agent, bus)
   port/                  # 포트 인터페이스 (LLMProvider, Store, Tool, ToolEnv, Platform, PluginHost, ExperienceStore)
@@ -24,6 +25,8 @@ adapter/
   plugin/lua/            # gopher‑lua 플러그인 호스트
   mcp/                   # MCP 클라이언트 (stdio 기반)
   tui/                   # Bubble Tea UI
+  daemon/                # 유닉스 소켓 위의 엔진 (Listen/Serve · flock 클레임 · Publish · Client)
+  fleet/                 # 모든 magi가 무엇을 하는지 — 로그에서 유도, 콘솔과 --agents가 공유
 config/                  # TOML 설정 로더
 plugins/examples/        # Lua 플러그인 예시
 ```
@@ -52,12 +55,23 @@ plugins/examples/        # Lua 플러그인 예시
    - `council` 선언 (`council{complete:true}`)
 7. `store.Append(turn.finished)` 후 루프 종료
 
+## 6.5 터미널 하나를 넘어서
+- `magi -daemon`은 UI 없이 엔진만 돌리고 워크스페이스별 소켓에서 대기한다(이름은 실제 경로에서
+  나오고 flock으로 유일). `-attach`가 TUI를 붙이고, `-agents`가 머신 전체를 나열한다.
+- `cmd/magi-web`은 같은 스토어 위에 **LLM도 툴도 없는** App을 만들어 읽기만 하고, 실행을 바꾸는
+  것은 전부 소켓으로 데몬에 보낸다. 상태는 기록이 아니라 로그에서 **유도**한다.
+- `-peer name=url`로 다른 콘솔을 합친다. 새 프로토콜 없음 — 콘솔이 콘솔을 읽는다.
+- 자세히: `ARCHITECTURE.ko.md` §11, `MANUAL.ko.md` §12,
+  `proposals/companions-and-supervision-2026-08-07.md`.
+
 ## 7. 주요 확장 포인트
 - **Lua 플러그인** (`adapter/plugin/lua`): 능력 번들·핫 리로드
 - **MCP** (`adapter/mcp`): stdio 기반 외부 툴 서버
 - **훅** (`config.toml [[hooks]]`): PreToolUse/PostToolUse/Stop 셸 커맨드
 - **카운슬**: `port.Council` 로 구현, 합의 규칙(majority, unanimous 등) 커스터마이징 가능
-- **인증**(예정): OIDC/mTLS 등 커스텀 인증 플러그인
+- **인증**: magi가 만들지 않는다. 콘솔은 루프백에 바인딩하고, 조직이 이미 쓰는 수단(터널·SSO
+  프록시)을 통해 접근한다 — 회사마다 답이 다르고, 그들 문 옆의 두 번째 문은 언제나 더 약하다.
+  LLM 백엔드 쪽 커스텀 인증은 Go `http.RoundTripper` 이음매에 붙인다(Lua가 아니라)
 - **워크플로 엔진** (`app/workflow.go`): 결정적 파이프라인 phase 게이트
 
 이 요약은 `docs/ARCHITECTURE.ko.md` 와 `docs/DESIGN.ko.md` 에서 직접 추출한 내용에 기반했으며, 프로젝트 목표, 아키텍처, 패키지·디렉터리 구조, 핵심 모델·포트·툴 환경, 에이전트 루프 흐름, 확장 지점을 포괄적으로 정리하고 있습니다.

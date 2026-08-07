@@ -8,6 +8,9 @@
 > [`MANUAL.ko.md`](MANUAL.ko.md)이며, 충돌 시 그 문서들이 우선한다. 이 문서는 그 결정들이 어떤 근거로
 > 내려졌는지의 기록으로 보존한다.
 
+> 데몬, 플릿 뷰, 웹 콘솔(`cmd/magi-web`)은 여기에 아예 없다 — 이 문서의 유지가 멈춘 뒤에 만들어졌다.
+> [`ARCHITECTURE.ko.md`](ARCHITECTURE.ko.md) §11, [`MANUAL.ko.md`](MANUAL.ko.md) §12 참조.
+
 > 각 기능 = **규칙(R)** + **예시 케이스**. 예시는 `given → when ⇒ then` 형식(코드블록)으로,
 > Go 테이블 테스트의 한 행에 1:1 대응. 케이스 ID(`read-1` 등)는 테스트 이름으로 그대로 사용.
 >
