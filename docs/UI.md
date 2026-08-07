@@ -1,0 +1,271 @@
+# magi's screens — the web console and the TUI
+
+Both surfaces: what is on them, the design rules, and why. §1–5 are the **web console**
+(`cmd/magi-web`); §6 is the **terminal UI** (`internal/adapter/tui`). Korean: [`UI.ko.md`](UI.ko.md).
+How to run them: [`MANUAL.md`](MANUAL.md) (§4 the TUI, §12 the console). Internals:
+[`ARCHITECTURE.md`](ARCHITECTURE.md) §11.
+
+> **As-built.** The console's front end is one file — `cmd/magi-web/page.go`, a Go string holding
+> the HTML, CSS and JS — and the rules below are pinned by tests that run its real JavaScript under
+> node (`render_test.go`). The TUI lives in `internal/adapter/tui`, with its own tests for
+> rendering, mouse handling and width measurement.
+
+---
+
+## 1. The three questions this page answers
+
+A supervisor asks three things a day, several times:
+
+1. **Who is doing what** — and which of them is waiting on *me*
+2. **What did I have to say** — anything I said twice is a rule waiting to be written
+3. **What have they learned** — and how far does each lesson reach (project / global)
+
+The three tabs are exactly those. A fourth tab needs a fourth question first.
+
+## 2. The console's screens
+
+### 2.1 The fleet (`/`)
+
+A resource table. As in a Kubernetes console, **state comes first**, then the name, then what it is
+doing. The order is the order the eye should travel: **waiting on a person → working → idle → gone.**
+
+- The **summary tiles** are counts and filters at once. A tile at zero is not clickable — a control
+  that can be pressed and does nothing is worse than one that cannot.
+- A row: state badge · name · **role** · team (and whether it speaks for it) · workspace path · what
+  it is doing · host and IP · idle time · actions (interrupt, and the answer buttons when it asked).
+- **A blocked agent shows the question**, not the work — the question is why nothing is happening.
+  The buttons sit under the question rather than in the actions column, because they belong to the
+  prompt and not to the row.
+- The composer at the bottom has an **address field**: a name, words from a role, or a team
+  (MANUAL §13.5).
+
+### 2.2 One companion (`/?d=<socket>`)
+
+Header fields: status · workspace · role · team · host, address and pid · steps · last activity ·
+session id · **model** · **context** · **what was summarised away**.
+
+The context line is the point of this screen:
+
+- `82,000 / 100,000 tokens · measured · 41 messages` — **measured and estimated are never confused.**
+  One is the provider's own count, the other is arithmetic over the transcript, and a decision made
+  on them is worth different amounts.
+- No bar when the window is unknown. An empty track reads as "nearly empty", which is the opposite
+  of "we do not know".
+- `2 folds · 31,000 tokens shed · last 40,000→9,000 at 04:31Z`. A compaction is the one moment a
+  companion silently stops knowing something, and how many there have been decides whether its
+  earlier reasoning can be assumed still there.
+- The folded **topics are named**. That is where "the detail is not lost" stops being a claim.
+
+Below: the live transcript (SSE) and the composer.
+
+### 2.3 What I had to say (`/?v=interventions`)
+
+Every moment a person stepped into a running turn. Derived, not recorded — a user prompt arriving
+while a turn is open *is* a steer — so **a screen written today answers for last month's logs**.
+
+- **Grouped by the words.** The same correction to three companions is a rule waiting to be written.
+  Grouped on the text itself, normalised only for case and spacing: anything cleverer merges two
+  different corrections and puts words in somebody's mouth.
+- It says **how far into the turn** the person stepped in (`stepped in 8s–20m into the turn`). Eight
+  seconds in corrects the *instruction*, and a rule can prevent the next one; twenty minutes in
+  corrects the *work*, and no rule would have helped.
+- Each one can be **promoted into the project or the global tier**. Never automatically (§4).
+
+### 2.4 What they have learned (`/?v=skills`)
+
+Both tiers of the store — rules and remembered facts, local and from every federated console.
+
+- Each row leads with **the reach, in words**: `every companion` / `only api on laptop`. Words rather
+  than a colour, because the decision made here is exactly which of those two a rule should be.
+- A fact is set in italic, quoted. **A stale fact is merely wrong; a stale rule is an instruction
+  still being followed.**
+- `seen 3× · 2026-07-14 → 2026-08-07` tells a settled lesson from a one-off.
+- A wrong one can be forgotten. **Nobody promotes into a store they cannot correct.**
+
+## 3. The design language
+
+### 3.1 Material 3 roles, editorial layout
+
+The colours use **M3 role names** with values taken **verbatim** from the TUI's palette
+(nervDark / nervLight in `internal/adapter/tui/styles.go`). Two surfaces drawing the same agent in
+different colours is one thing to learn twice.
+
+The editorial part is the layout: a `74ch` measure for prose, `108ch` for the transcript (its lines
+are code, where wrapping costs more than width), generous rules, a gutter of small-caps labels, and
+a user's turn set like a pull quote — display face, rule down the left.
+
+### 3.2 Type
+
+- **Newsreader** (OFL), an editorial serif drawn for screens, **embedded in the binary** and served
+  from it (`/font/`). A page that fetched its typeface would make its own appearance depend on
+  somebody else's machine, tell that machine when you look at your agents, and fall back to
+  something else on a laptop with no route out.
+- Subset, ~60KB. What the subset cannot carry, the system stack behind it does — that stack is there
+  so a Korean or Japanese transcript does not render as tofu.
+- Monospace for labels, states, paths and the transcript. Every line there is something the machine
+  said or did, and a serif would be dressing up evidence.
+
+### 3.3 Contrast and focus
+
+Contrast is **computed, not eyeballed**: the quiet parts still have to be readable, so `--muted`
+clears WCAG AA against its background. Everything interactive has a `:focus-visible` outline, and
+touch targets are at least 44px.
+
+### 3.4 Dark and light
+
+Both palettes are defined under `prefers-color-scheme`. There is no toggle — the OS already knows,
+and asking again is asking twice.
+
+### 3.5 On a phone
+
+- Under 640px the composer wraps so the text box keeps a full row. Measured: without it the box was
+  squeezed to a third of the row and the placeholder was cut mid-sentence.
+- The tab row wraps too. Three sentence-shaped labels are wider than 390px, and a nav that overflows
+  takes the whole page sideways with it — the one scroll direction a phone should never have.
+- The transcript's label gutter folds above its text: five and a half characters of gutter is most
+  of a narrow screen.
+- The dock (prompt bar + composer) is **measured** and its height reserved as padding. A constant
+  either wastes a screen or hides the last thing the agent said — on a phone, the second.
+- Enter sends on a keyboard and inserts a newline on touch: a soft keyboard's return is the only way
+  to break a line there.
+
+### 3.6 PWA
+
+`manifest.webmanifest` and `icon.svg`, so it opens from a home screen without an address bar. The
+icon is served by the binary too, for the reason in §3.2.
+
+## 4. The rules this page keeps
+
+1. **Derive, never record.** State, interventions and context all come out of events already on
+   disk. No status file exists, so nothing can be stale, and a session from last week answers the
+   same way.
+2. **The console reads; the daemons act.** Its App has **no LLM and no tools** — it cannot run a
+   turn even by mistake.
+3. **Draw not-knowing as not-knowing.** No bar for an unknown window; `~` and "estimated" for an
+   estimate; and when the console itself cannot be reached, the last good table stays on screen
+   under `cannot reach magi-web` — **an empty table reads as "no agents".**
+4. **Refuse rather than pick.** An address matching several companions is refused with both names.
+   Sending work to the wrong workspace runs a turn there, and noticing later does not undo it.
+5. **No automatic promotion.** A person decides that a correction is a rule, and which tier it goes
+   in.
+6. **No authentication of its own.** Loopback, behind whatever the organisation already runs.
+
+## 5. How it is verified
+
+The page is a Go string, so no Go test can execute it. `cmd/magi-web/testdata/dom.mjs` is a **fake
+DOM** — createElement, textContent, className, append, replaceChildren, about that much — and the
+tests run the page's real JavaScript against it under node. Anything the fake cannot express is a
+sign the page is doing more than it should, which is why it is not jsdom.
+
+A test also checks that every path the page references is a path this binary serves. That is the
+real meaning of "self-contained", and it cannot be checked against a list that exists only as
+statements.
+
+---
+
+## 6. The terminal UI
+
+The other surface on the same engine. The console is for **supervising several companions**; the
+TUI is for **working with one**. They share a palette: the values live in
+`internal/adapter/tui/styles.go` and the web takes them verbatim (§3.1).
+
+### 6.1 The layout
+
+```
+┌ header ──────────────── model · permission · scroll chip ⇅42% ─┐
+│ transcript (full width)                          ┌ post-it ┐   │
+│   ▸ a user's turn = pull quote                   │ todos   │   │
+│   ▸ tool calls/results = folded blocks           │ jobs    │   │
+│   ▸ edit/write = coloured diffs                  │ context │   │
+│                                                  └─────────┘   │
+├ background job panes (only when alive, one colour each) ───────┤
+├ ▣ turn: 14 steps · 3 file(s) · council r2 · 3m49s ─────────────┤
+└ input (alive while a turn is running) ─────────────────────────┘
+```
+
+- The **post-it** appears only when there are todos, background jobs or context to report. The
+  transcript keeps the full width and the box is drawn over it, bottom-aligned so it usually floats
+  above empty space; drag its left edge to resize. Its border is assembled from the terminal's
+  **real cell widths**, so a todo line carrying 🚀 keeps its right `│` aligned whether that terminal
+  draws the emoji one cell wide or two.
+- **A turn receipt** closes every turn (`▣ turn: …`), so its cost is visible without scrolling back.
+- **Job panes** tile below while a background command or a plugin's child agent is alive, each in
+  its own colour. A child's pane shows **its own transcript**, rendered as the main one is.
+
+### 6.2 Typing and scrolling are separate
+
+Typing keys go only to the input. Scrolling happens only through its own keys (PgUp/PgDn, Ctrl+U/D,
+Shift+↑↓) — so writing body text, spaces included, never moves the view. While you are scrolled up
+reading, streaming **does not yank the view down**; auto-follow only when at the bottom. There is no
+drawn scrollbar: a header **chip** (`⇅ 42% (120/300)`, plus `↓ new` when output arrives below) took
+its place, which also removed a whole class of ambiguous-width misalignment on Windows.
+
+### 6.3 A mouse with no modes
+
+Wheel, drag-select and click-to-focus all work **without a mode switch**, because the app does
+selection and copying itself. Releasing a drag copies (OS clipboard and OSC52, both attempted).
+Selection edges **snap to grapheme boundaries**, so a wide character — Hangul, an emoji — is never
+half-selected. Every block carries a **⧉ chip** that copies its **source** text rather than the
+styled render.
+
+Ctrl+C is deliberately left alone: it belongs to the terminal's own copy.
+
+### 6.4 You can talk while it works
+
+The input stays alive during a turn, and Enter **injects the message into the running turn** — the
+agent sees it at its next step rather than after the turn ends. When a steer lands, a durable
+`Steer applied …` line goes into the transcript: it exists so an agent cannot verbally agree and
+carry on unchanged.
+
+A question that can only be answered later is queued but **stays where you typed it**; when the
+answer is ready the query is pulled down next to it so the two read as a pair.
+
+### 6.5 How things are drawn
+
+- `edit`/`write` render as **coloured diffs** (language by extension, line-number gutter).
+- `bash`, `read`, `grep`, `glob`, `list`, `webfetch`, `websearch` results are **folded blocks** with
+  a `… +N more` footer; clicking expands.
+- The council shows a one-line verdict with its reason wrapped beneath; clicking a member opens the
+  full text.
+- While a round is open the footer names **what it is waiting on**, so a pause does not read as a
+  stall.
+
+### 6.6 The permission modal
+
+`y` once · `a` this session · `p` persist to the project · `n` deny. `p` writes an allow rule into
+`.magi/config.toml` **as narrowly as the tool allows** — `bash` persists only the program you
+approved (`curl https://x` records `bash(curl:*)`, never `bash(**)`). A command that opens with a
+pipe or redirect has no stable program to pin to and stays session-only. The destructive and egress
+scanners still re-prompt even for an approved program.
+
+### 6.7 Theme and width
+
+Dark or light is detected from the terminal's background colour at startup and **followed within
+seconds if you change the OS theme while it runs**. Force it with `--theme` / `MAGI_THEME`.
+
+Ambiguous-width characters are **measured once** at startup (a Console-API cursor delta on Windows,
+a cursor-position query elsewhere). Force it with `MAGI_AMBIGUOUS_WIDTH=wide|narrow`, disable the
+probe with `MAGI_WIDTH_PROBE=0`.
+
+### 6.8 How the two relate
+
+| | TUI | Web console |
+|---|---|---|
+| Subject | **one** companion | **all** of them, on this machine and its peers |
+| Relationship | works with it | supervises them |
+| Execution | is the engine (`magi`), or attaches to one (`--attach`) | **never runs a turn** — no LLM, no tools |
+| Palette | the original (`styles.go`) | takes it verbatim |
+| State | its own session | derived from logs, plus a daemon probe |
+
+A TUI and a browser can watch the same daemon at once. Whichever one you steer from, the same event
+lands in the same log — **there is no way for the two screens to tell different stories**, which is
+the point of the arrangement.
+
+## 7. Not there yet
+
+- **MCP management** — which external tool servers are attached.
+- **Cache diagnostics** — whether the prompt cache actually hits. ★Not promised in the UI before it
+  is measured.
+- **A placement review screen** — [`proposals/companion-performance-2026-08-07.md`](proposals/companion-performance-2026-08-07.md).
+- **Collecting results.** The answer to dispatched work is read from the other companion's
+  transcript today.

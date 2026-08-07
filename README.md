@@ -370,7 +370,7 @@ plugins/examples    example Lua plugins
 docs                ARCHITECTURE · DESIGN · SPEC · MANUAL · PLAN · FEATURES
 ```
 
-Deeper reading: [ARCHITECTURE](docs/ARCHITECTURE.md) · [DESIGN](docs/DESIGN.md) ·
+Deeper reading: [ARCHITECTURE](docs/ARCHITECTURE.md) · [UI](docs/UI.md) · [DESIGN](docs/DESIGN.md) ·
 [EXTENDING](docs/EXTENDING.md) · [SPEC](docs/SPEC.md) · [DIAGRAMS](docs/DIAGRAMS.md).
 Korean editions: [ARCHITECTURE](docs/ARCHITECTURE.ko.md) · [DESIGN](docs/DESIGN.ko.md) ·
 [EXTENDING](docs/EXTENDING.ko.md) · [SPEC](docs/SPEC.ko.md) · [DIAGRAMS](docs/DIAGRAMS.ko.md).
