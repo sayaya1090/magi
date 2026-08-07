@@ -662,3 +662,79 @@ console.log(JSON.stringify({tabs: byId.tabs.hidden}));
 		t.Error("a companion's own page shows the resource tabs; it is one level in, not a resource list")
 	}
 }
+
+// Promotion is the reason the corrections page exists, and the tier is the person's choice.
+//
+// A project fact promoted to global leaks one project's truth into another's prompts, quietly, and
+// nobody finds the cause weeks later. So the button that crosses that boundary is a different
+// button, and the one that does not only appears when there is a single project to mean.
+func TestPromotingOffersTheTierThePersonCanActuallyPick(t *testing.T) {
+	got := runPage(t, `[]`, "?v=interventions", `
+globalThis.fetch = async (p, init) => {
+  if (init && init.method === 'POST') { RENDERED.push({fetched: p, body: init.body.toString()}); return {ok: true, status: 204, text: async () => ''}; }
+  return {ok: true, json: async () => p.startsWith('/interventions') ? [
+    {"companion":"api","socket":"/s/a.sock","kind":"steer","text":"do not touch vendor","at":"2026-08-07T11:00:00Z"},
+    {"companion":"api","socket":"/s/a.sock","kind":"steer","text":"run the tests first","at":"2026-08-07T09:00:00Z"},
+    {"companion":"docs","socket":"/s/b.sock","kind":"steer","text":"Run the tests first","at":"2026-08-07T10:00:00Z"}
+  ] : []};
+};
+await loadInterventions();
+const byText = t => byId.ivs.children.find(r => r.text.includes(t));
+const shared = byText('run the tests first'), single = byText('do not touch vendor');
+console.log(JSON.stringify({
+  sharedButtons: shared.find('button').map(b => b.textContent),
+  singleButtons: single.find('button').map(b => b.textContent),
+  sharedNote: shared.text,
+}));
+`)
+	var shared, single []string
+	for _, b := range got["sharedButtons"].([]any) {
+		shared = append(shared, b.(string))
+	}
+	for _, b := range got["singleButtons"].([]any) {
+		single = append(single, b.(string))
+	}
+	// Said to two companions: no single project to put it in, so only the crossing button, and a
+	// line saying why the other one is missing.
+	if strings.Join(shared, "|") != "rule everywhere" {
+		t.Errorf("a correction given to two companions offers %v", shared)
+	}
+	if !strings.Contains(got["sharedNote"].(string), "no single project") {
+		t.Errorf("nothing says why the project button is absent: %q", got["sharedNote"])
+	}
+	// Said to one: both tiers are meaningful, and the project one names it.
+	if len(single) != 2 || !strings.Contains(single[0], "api") || single[1] != "rule everywhere" {
+		t.Errorf("a correction given to one companion offers %v", single)
+	}
+}
+
+// What the buttons send: the words verbatim, the tier named, and for a project rule the companion
+// it belongs to — resolved by the server from what it published, never from a path the page chose.
+func TestPromotionSendsTheWordsAndTheTier(t *testing.T) {
+	got := runPage(t, `[]`, "?v=interventions", `
+globalThis.fetch = async (p, init) => {
+  if (init && init.method === 'POST') { RENDERED.push({fetched: p, method: 'POST', body: init.body.toString()}); return {ok: true, status: 204, text: async () => ''}; }
+  return {ok: true, json: async () => p.startsWith('/interventions') ? [
+    {"companion":"api","socket":"/s/a.sock","kind":"steer","text":"do not touch vendor","at":"2026-08-07T11:00:00Z"}
+  ] : []};
+};
+await loadInterventions();
+const row = byId.ivs.children[0];
+row.find('button')[0].onclick();          // rule for api
+row.find('button')[1] && row.find('button')[1].onclick();
+await new Promise(r => queueMicrotask(r));
+console.log(JSON.stringify({posts: RENDERED.filter(r => r.method === 'POST')}));
+`)
+	posts := got["posts"].([]any)
+	if len(posts) == 0 {
+		t.Fatal("pressing promote sent nothing")
+	}
+	first := posts[0].(map[string]any)
+	if !strings.Contains(first["fetched"].(string), "/promote?d=") {
+		t.Errorf("a project rule went to %q without naming the companion", first["fetched"])
+	}
+	body := first["body"].(string)
+	if !strings.Contains(body, "scope=project") || !strings.Contains(body, "do+not+touch+vendor") {
+		t.Errorf("the promotion body is %q", body)
+	}
+}

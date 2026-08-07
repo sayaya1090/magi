@@ -96,6 +96,14 @@ func (f *fleetFixture) liveDaemon(t *testing.T, workdir, sid string, eng daemon.
 	return sock
 }
 
+// get is post's twin for the checks that a state-changing route refuses to be a link.
+func get(t *testing.T, h http.HandlerFunc, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	w := httptest.NewRecorder()
+	h(w, httptest.NewRequest(http.MethodGet, path, nil))
+	return w
+}
+
 func post(t *testing.T, s *server, h http.HandlerFunc, path string, form url.Values) *httptest.ResponseRecorder {
 	t.Helper()
 	r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))

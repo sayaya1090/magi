@@ -232,11 +232,14 @@ func lastSaid(ctx context.Context, r Reader, sid session.SessionID) string {
 // Moment is one intervention with the companion it happened in.
 type Moment struct {
 	Companion string `json:"companion"`
-	Peer      string `json:"peer,omitempty"`
-	Kind      string `json:"kind"`
-	Text      string `json:"text"`
-	At        string `json:"at"`       // RFC3339
-	AfterSec  int    `json:"afterSec"` // how far into the turn the person stepped in
+	// Socket identifies the companion for a promotion to be aimed at: a name is what a person
+	// reads and a socket is what the console resolves.
+	Socket   string `json:"socket"`
+	Peer     string `json:"peer,omitempty"`
+	Kind     string `json:"kind"`
+	Text     string `json:"text"`
+	At       string `json:"at"`       // RFC3339
+	AfterSec int    `json:"afterSec"` // how far into the turn the person stepped in
 }
 
 // Interventions gathers what a person had to step in and say, across every companion, newest first.
@@ -270,7 +273,7 @@ func Interventions(ctx context.Context, r Reader, configDir string, since time.D
 				continue
 			}
 			out = append(out, Moment{
-				Companion: name, Kind: iv.Kind, Text: Clip(iv.Text, 400),
+				Companion: name, Socket: in.Socket, Kind: iv.Kind, Text: Clip(iv.Text, 400),
 				At: iv.At.UTC().Format(time.RFC3339), AfterSec: iv.AfterSec,
 			})
 		}

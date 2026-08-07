@@ -197,6 +197,15 @@ const indexHTML = `<!doctype html>
     margin-top:.35rem; font-size:11px; letter-spacing:.05em; color:var(--muted);
   }
   .iv.denied .times { color:var(--error); }
+  .iv .promote { display:flex; gap:1rem; margin-top:.5rem; flex-wrap:wrap; align-items:center; }
+  .iv .promote button {
+    background:none; border:0; border-bottom:1px solid var(--outlineVariant); border-radius:0;
+    color:var(--muted); font:600 10px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
+    padding:.3rem .1rem; min-height:44px; cursor:pointer; white-space:nowrap;
+  }
+  .iv .promote button:hover { color:var(--primary); border-bottom-color:var(--primary); }
+  .iv .promote .done { color:var(--success); font:600 10px/1 var(--mono); letter-spacing:.14em;
+                       text-transform:uppercase; }
 
   /* ── the fleet, as a resource table ─────────────────────────────────────── */
   /* The shape a Kubernetes console reaches for, and for the same reason: one row per thing, fixed
@@ -702,8 +711,15 @@ async function loadInterventions() {
     // Grouped on the words themselves, normalised only for case and spacing. Anything cleverer
     // would merge two different corrections and put a rule in somebody's mouth.
     const key = m.kind + '\u0000' + m.text.toLowerCase().replace(/\s+/g, ' ').trim();
-    const g = groups.get(key) || {kind: m.kind, text: m.text, where: new Set(), n: 0, at: m.at};
-    g.n++; g.where.add((m.peer ? m.peer + '/' : '') + m.companion);
+    const g = groups.get(key) || {kind: m.kind, text: m.text, where: new Set(), targets: [], n: 0, at: m.at};
+    g.n++;
+    const label = (m.peer ? m.peer + '/' : '') + m.companion;
+    if (!g.where.has(label)) {
+      g.where.add(label);
+      // Kept beside the label so a promotion can be aimed: the socket is what identifies the
+      // companion, and the console name is what says whose machine it is on.
+      g.targets.push({name: m.companion, socket: m.socket, peer: m.peer || ''});
+    }
     if (m.at > g.at) g.at = m.at;
     groups.set(key, g);
   }
@@ -724,9 +740,45 @@ async function loadInterventions() {
     const body = cell('body');
     body.append(cell('said', g.kind === 'denied' ? 'refused ' + g.text : g.text));
     body.append(cell('where', [...g.where].join(' · ') + ' · last ' + g.at.replace('T', ' ').replace('Z', '')));
+    body.append(promoteBox(g));
     el.append(body);
     return el;
   }));
+}
+
+// promoteBox turns a correction into a standing rule, in the tier the person picks.
+//
+// The tier is the companion boundary and magi does not choose it: a project fact promoted to global
+// leaks one project's truth into another's prompts, quietly, and nobody finds the cause weeks
+// later. The person knows which kind they just said.
+//
+// "this companion" only appears when there IS one — a correction given to three of them has no
+// single project to belong to, and offering the button anyway would make somebody guess.
+function promoteBox(g) {
+  const box = cell('promote');
+  const done = (word) => {
+    box.replaceChildren(cell('done', '✓ ' + word));
+  };
+  const send = (scope, target) => {
+    const body = new URLSearchParams({text: g.text, scope});
+    post('/promote', body, scope === 'project' ? target.socket : null, target && target.peer)
+      .then(() => done(scope === 'global' ? 'everywhere' : 'for ' + target.name));
+  };
+  const only = g.targets.length === 1 ? g.targets[0] : null;
+  if (only) {
+    const b = document.createElement('button'); b.type = 'button';
+    b.textContent = 'rule for ' + only.name;
+    b.onclick = () => send('project', only);
+    box.append(b);
+  }
+  const g2 = document.createElement('button'); g2.type = 'button';
+  g2.textContent = 'rule everywhere';
+  g2.onclick = () => send('global', null);
+  box.append(g2);
+  if (!only) {
+    box.append(cell('where', 'said to ' + g.targets.length + ' companions, so there is no single project to put it in'));
+  }
+  return box;
 }
 
 // ── one agent ────────────────────────────────────────────────────────────────
