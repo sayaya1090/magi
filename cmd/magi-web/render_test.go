@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -53,7 +54,13 @@ func runPage(t *testing.T, fleetJSON, query, epilogue string) map[string]any {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(node, main)
-	cmd.Env = append(os.Environ(), "FLEET_JSON="+fleetJSON, "QUERY="+query)
+	// The English pack the binary serves, handed to the fake fetch: the page's labels come from
+	// there in a browser, and a test that supplied its own copy would be checking a fixture.
+	pack, err := assetFS.ReadFile("i18n/language.en.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd.Env = append(os.Environ(), "FLEET_JSON="+fleetJSON, "QUERY="+query, "LANG_PACK="+string(pack))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("the page threw while rendering:\n%s", out)
@@ -1337,5 +1344,75 @@ console.log(JSON.stringify({seen, afterCrumb: location.search}));
 	// section you are IN, so following it must stay there rather than jumping to the fleet.
 	if got["afterCrumb"] != "?v=skills" {
 		t.Errorf("the crumb read \"lessons\" and led to %q", got["afterCrumb"])
+	}
+}
+
+// The labels come from the pack, and a locale arriving later repaints them without redrawing the
+// view — a pack can land mid-interaction, and re-rendering there wipes what somebody was reading.
+func TestTheLabelsComeFromTheLanguagePack(t *testing.T) {
+	got := runPage(t, `[]`, "", `
+// The first paint uses the seed the server inlines — no dotted keys, no flash.
+const first = {tabs: [tabFleet.text, tabIv.text, tabSkills.text, tabMcp.text],
+               ask: byId.t.attrs.placeholder};
+// A pack arriving afterwards repaints what is already on screen.
+labels$.next({'nav.companions': '컴패니언', 'nav.corrections': '교정',
+              'nav.lessons': '배운 것', 'nav.connections': '연결',
+              'placeholder.ask': 'magi에게 시킬 일을 적으세요…'});
+const after = [tabFleet.text, tabIv.text, tabSkills.text, tabMcp.text];
+const askAfter = byId.t.attrs.placeholder;
+// Something drawn by hand before a pack lands must survive it.
+byId.detail.replaceChildren(cell('f', 'a thing somebody was reading'));
+labels$.next({'nav.companions': 'x'});
+console.log(JSON.stringify({first, after, askAfter, kept: byId.detail.text}));
+`)
+	first := got["first"].(map[string]any)
+	tabs := first["tabs"].([]any)
+	if tabs[0] != "companions" || tabs[2] != "lessons" {
+		t.Errorf("the first paint did not use the seeded pack: %v", tabs)
+	}
+	if first["ask"] != "Ask magi to do something…" {
+		t.Errorf("the placeholder came from nowhere: %q", first["ask"])
+	}
+	after := got["after"].([]any)
+	if after[0] != "컴패니언" || after[3] != "연결" {
+		t.Errorf("a pack arriving later did not reach the tabs: %v", after)
+	}
+	if got["askAfter"] != "magi에게 시킬 일을 적으세요…" {
+		t.Errorf("a pack arriving later did not reach the placeholder: %q", got["askAfter"])
+	}
+	// Found the hard way: the pack used to trigger a full render, so a panel drawn while the fetch
+	// was in flight lost its contents the moment the language answered.
+	if got["kept"] != "a thing somebody was reading" {
+		t.Errorf("a late language pack wiped the screen: %q", got["kept"])
+	}
+}
+
+// Every key the page asks for exists in both packs, and neither pack carries a key nobody asks for.
+func TestTheLanguagePacksMatchWhatThePageUses(t *testing.T) {
+	used := map[string]bool{}
+	for _, m := range regexp.MustCompile(`tr\('([a-z_.]+)'`).FindAllStringSubmatch(indexHTML, -1) {
+		used[m[1]] = true
+	}
+	for _, m := range regexp.MustCompile(`'([a-z_]+\.[a-z_]+)': *'nav`).FindAllStringSubmatch(indexHTML, -1) {
+		used[m[1]] = true
+	}
+	if len(used) < 5 {
+		t.Fatalf("only %d keys found in the page — the scan has lost its subject", len(used))
+	}
+	for _, locale := range []string{"en", "ko"} {
+		b, err := assetFS.ReadFile("i18n/language." + locale + ".json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var pack map[string]string
+		if err := json.Unmarshal(b, &pack); err != nil {
+			t.Fatalf("%s: %v", locale, err)
+		}
+		for key := range used {
+			if _, ok := pack[key]; !ok {
+				t.Errorf("the page asks for %q and language.%s.json does not have it — that label "+
+					"renders as its own key", key, locale)
+			}
+		}
 	}
 }

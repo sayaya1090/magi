@@ -673,7 +673,7 @@ const indexHTML = `<!doctype html>
     <input id="to" hidden placeholder="to: a name, or what they do" autocomplete="off" list="roles">
     <datalist id="roles"></datalist>
     <textarea id="t" rows="1" placeholder="Ask magi to do something…"></textarea>
-    <button type="submit" class="state">send</button>
+    <button type="submit" id="send" class="state">send</button>
     <button type="button" id="stop" class="state">interrupt</button>
   </div></form>
 </footer>
@@ -684,14 +684,18 @@ const indexHTML = `<!doctype html>
 // transcript. Hand-rolling them is what produced the races this page has already been caught by —
 // a slow answer landing on a panel that had been redrawn, a poll that kept firing after you left.
 import { BehaviorSubject, timer, from, of, EMPTY,
-         switchMap, catchError, map, distinctUntilChanged, shareReplay } from '/vendor/rxjs.js';
+         switchMap, catchError, map, distinctUntilChanged, shareReplay,
+         filter as onlyWhen } from '/vendor/rxjs.js';
 
 // ── labels ───────────────────────────────────────────────────────────────────
 // The same shape the handbook uses: a flat dot-keyed pack per locale, chosen by localStorage then
 // the browser, falling back to English when the pack cannot be read. Published as a stream so a
 // label change reaches everything that draws one, rather than being read once at startup by
 // whichever function happened to run first.
-const labels$ = new BehaviorSubject({});
+// Seeded, not empty. The page is served with its English pack inlined ahead of this module, so the
+// FIRST paint already has words — without it every label would show its dotted key until a fetch
+// came back, which is a flash of debug output on somebody's dashboard.
+const labels$ = new BehaviorSubject(globalThis.__LANG || {});
 let L = {};
 labels$.subscribe(v => { L = v; });
 // t('nav.lessons') — the key IS the fallback, so a missing entry shows the key rather than a blank
@@ -702,16 +706,32 @@ const tr = (key, vars) => {
   return out;
 };
 const locale = () => (localStorage.getItem('lang') || navigator.language || 'en').slice(0, 2);
-from(fetch('/i18n/language.' + locale() + '.json'))
-  .pipe(
-    switchMap(r => r.ok ? from(r.json()) : EMPTY),
-    catchError(() => EMPTY),
-    switchMap(pack => of(pack)),
-  )
+// The locale's pack, then English, then the keys. The last step is not really reachable — the pack
+// is served by the same process as the page — but a screen full of dotted keys is a better failure
+// than a screen full of blanks, because it says what went wrong.
+const pack$ = url => from(fetch(url)).pipe(
+  switchMap(r => r.ok ? from(r.json()) : EMPTY),
+  // A pack is an object of strings. Anything else — a list, a null, an error page that happened to
+  // parse — is not one, and letting it through would blank every label on the page and repaint the
+  // screen to say so.
+  onlyWhen(pack => !!pack && typeof pack === 'object' && !Array.isArray(pack)),
+  catchError(() => EMPTY),
+);
+pack$('/i18n/language.' + locale() + '.json')
+  .pipe(catchError(() => EMPTY))
   .subscribe({
     next: pack => labels$.next(pack),
-    error: () => {},
+    complete: () => {
+      if (Object.keys(L).length || locale() === 'en') return;
+      pack$('/i18n/language.en.json').subscribe(pack => labels$.next(pack));
+    },
   });
+// Anything already on screen is repainted when a pack lands. Guarded on the first paint having
+// happened: this subscribes before the page's own elements are declared, and a BehaviorSubject
+// hands its current value to a new subscriber immediately — painting there would reach for
+// constants that do not exist yet.
+let painted = false;
+labels$.pipe(distinctUntilChanged()).subscribe(() => { if (painted) paint(); });
 
 const fleetEl = document.getElementById('fleet'), log = document.getElementById('log');
 const state = document.getElementById('state'), sidEl = document.getElementById('sid');
@@ -729,7 +749,9 @@ const crumbSep = document.getElementById('crumbSep'), crumbHere = document.getEl
 // The four sections, named as nouns: a tab is a place you are, and "what I had to say" is a
 // sentence about it. The same words do three jobs — the tab, the crumb, and the browser title —
 // so they are written once.
-const SECTION = {fleet: 'companions', interventions: 'corrections', skills: 'lessons', mcp: 'connections'};
+const SECTION_KEY = {fleet: 'nav.companions', interventions: 'nav.corrections',
+                     skills: 'nav.lessons', mcp: 'nav.connections'};
+const SECTION = new Proxy({}, {get: (_, v) => tr(SECTION_KEY[v] || 'nav.companions')});
 const HREF = {fleet: '/', interventions: '/?v=interventions', skills: '/?v=skills', mcp: '/?v=mcp'};
 
 const sock = () => new URLSearchParams(location.search).get('d');
@@ -1446,6 +1468,26 @@ function connect() {
 // Same document either way: entering an agent is a pushState, and the browser's back button lands
 // on the fleet without a reload. Every view switch tears the other one's polling down — two of
 // them running at once is how a page keeps costing after you leave it.
+// paint puts the labels on the parts of the page that are written in the markup rather than built
+// by a function. Called once at startup and again whenever the pack changes.
+function paint() {
+  painted = true;
+  tabFleet.textContent = tr('nav.companions');
+  tabIv.textContent = tr('nav.corrections');
+  tabSkills.textContent = tr('nav.lessons');
+  tabMcp.textContent = tr('nav.connections');
+  t.setAttribute('placeholder', tr('placeholder.ask'));
+  toEl.setAttribute('placeholder', tr('placeholder.address'));
+  document.getElementById('send').textContent = tr('action.send');
+  document.getElementById('stop').textContent = tr('action.interrupt');
+}
+
+// paint does NOT redraw the view, and that is the whole point. A pack can land at any moment — mid
+// fetch, mid interaction — and re-rendering there wipes whatever was on screen: caught here with a
+// detail panel that lost its context block because the language arrived during the await. The
+// labels written in the markup are repainted; everything drawn by a function reads tr() when it
+// next draws, which is soon enough for a word that just changed.
+
 function render() {
   if (es) { es.close(); es = null; }
   if (fleetTimer) { clearInterval(fleetTimer); fleetTimer = null; }
@@ -1576,6 +1618,7 @@ const touch = matchMedia('(hover: none)').matches;
 t.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !touch) { e.preventDefault(); f.requestSubmit(); } };
 document.getElementById('stop').onclick = () => post('/interrupt', null);
 
+paint();
 render();
 </script>
 `

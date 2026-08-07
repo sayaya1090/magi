@@ -64,7 +64,7 @@ function element(tag) {
 }
 
 const byId = {};
-for (const id of ['fleet', 'log', 'state', 'sid', 'back', 'f', 't', 'stop', 'prompt', 'dock', 'summary', 'detail', 'crumbSep', 'crumbHere', 'ivs', 'tabs', 'tabFleet', 'tabIv', 'skills', 'tabSkills', 'to', 'roles', 'mcp', 'tabMcp', 'handoffs', 'plan']) byId[id] = element('div');
+for (const id of ['fleet', 'log', 'state', 'sid', 'back', 'f', 't', 'stop', 'prompt', 'dock', 'summary', 'detail', 'crumbSep', 'crumbHere', 'ivs', 'tabs', 'tabFleet', 'tabIv', 'skills', 'tabSkills', 'to', 'roles', 'mcp', 'tabMcp', 'handoffs', 'plan', 'send']) byId[id] = element('div');
 
 globalThis.document = {
   title: "",
@@ -87,6 +87,10 @@ globalThis.window = { innerHeight: 800, scrollY: 0, scrollTo() {} };
 // which is a fake that answers "broken" for a page that works.
 // A browser has these and the page reads both to pick a language; without them it throws before
 // drawing anything, which is a fake missing a fact rather than a page doing something wrong.
+// The server inlines the English pack ahead of the page's script; the harness does the same, so a
+// test sees the words a browser sees on the first paint.
+globalThis.__LANG = JSON.parse(process.env.LANG_PACK ?? '{}');
+
 globalThis.localStorage = {
   store: new Map(),
   getItem(k) { return this.store.has(k) ? this.store.get(k) : null; },
@@ -122,10 +126,11 @@ globalThis.EventSource = class {
 globalThis.fetch = async (path, init) => {
   RENDERED.push({ fetched: path, method: init?.method ?? 'GET', body: init?.body?.toString() ?? '' });
   // The language pack is the one route with a shape of its own: an object, not the scenario's list.
-  // Answered empty, so every label falls back to its key and a test asserting on English is
-  // asserting on the page's own words rather than on a translation.
+  // Answered with the REAL English pack, so a test asserting on a label is asserting on the words
+  // this binary ships rather than on a fixture that can drift from them.
   if (String(path).startsWith('/i18n/')) {
-    return { ok: true, status: 200, json: async () => ({}), text: async () => '{}' };
+    const pack = JSON.parse(process.env.LANG_PACK ?? '{}');
+    return { ok: true, status: 200, json: async () => pack, text: async () => JSON.stringify(pack) };
   }
   return { ok: true, status: 200, json: async () => JSON.parse(process.env.FLEET_JSON ?? '[]'), text: async () => '' };
 };

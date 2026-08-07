@@ -398,6 +398,16 @@ func (s *server) page(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// The English pack, inlined ahead of the page's own script. The page fetches the reader's
+	// locale after it loads, but the FIRST paint happens before any fetch answers — without a seed
+	// every label would show its dotted key for a moment, which is debug output on somebody's
+	// dashboard. One source: the same file the /i18n route serves.
+	if pack, err := assetFS.ReadFile("i18n/language.en.json"); err == nil {
+		if _, werr := w.Write([]byte("<script>window.__LANG=" + string(pack) + "</script>\n")); werr != nil {
+			log.Printf("magi-web: writing the language seed: %v", werr)
+			return
+		}
+	}
 	// A write that fails means the browser hung up mid-page. There is nobody left to tell and no
 	// second attempt worth making, but the reason is worth having in the log of a process whose
 	// whole job is to be watched.
