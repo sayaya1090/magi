@@ -75,7 +75,7 @@ func formatDiagnostics(diags []lspDiagnostic, relPath string) string {
 	fmt.Fprintf(&b, "%d diagnostic(s):", total)
 	for _, d := range keep {
 		msg := strings.TrimSpace(strings.ReplaceAll(d.Message, "\n", " "))
-		fmt.Fprintf(&b, "\n  %s:%d:%d: %s: %s", relPath, d.Range.Start.Line+1, d.Range.Start.Char+1, severityLabel(d.Severity), clipRef(msg, 200))
+		fmt.Fprintf(&b, "\n  %s:%d:%d: %s: %s", relPath, d.Range.Start.Line+1, d.Range.Start.Char+1, severityLabel(d.Severity), clipRunes(msg, 200))
 	}
 	if total > maxShown {
 		fmt.Fprintf(&b, "\n  … and %d more", total-maxShown)

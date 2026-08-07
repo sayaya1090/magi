@@ -17,7 +17,8 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
-	"unicode/utf8"
+
+	"github.com/sayaya1090/magi/internal/core/text"
 )
 
 // Decision is a member's vote and, in the aggregate, the council's outcome.
@@ -287,11 +288,9 @@ func clipKeep(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	cut := n
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
-	}
-	return strings.TrimSpace(s[:cut]) + " […keep truncated]"
+	// Trimmed before the marker, unlike the others: this one ends a sentence the members read, and
+	// a space before the bracket reads as a typo rather than a cut.
+	return strings.TrimSpace(text.Cut(s, n)) + " […keep truncated]"
 }
 
 // mergeFeedback joins the feedback of the verdicts matching keep into a bulleted,

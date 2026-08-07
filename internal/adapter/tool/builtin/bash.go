@@ -323,6 +323,9 @@ func appendRunIndex(logsDir string, exit int, command, logPath string) {
 }
 
 // clipRunes bounds a field to n runes, cutting on a rune boundary so the row stays valid UTF-8.
+// Runes, not bytes: these two callers are bounding what a person READS on one line — a shell
+// command echoed back, a diagnostic — where the budget is characters. text.Clip is the byte-budget
+// twin, for the places that are bounding a payload.
 func clipRunes(s string, n int) string {
 	r := []rune(s)
 	if len(r) <= n {

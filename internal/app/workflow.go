@@ -8,11 +8,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
+
+	"github.com/sayaya1090/magi/internal/core/text"
 )
 
 // The workflow engine drives a task through a DETERMINISTIC phase pipeline. The
@@ -320,13 +321,4 @@ func (a *App) fileEditsSince(ctx context.Context, sid session.SessionID, fromSeq
 // text — a compiler quoting an identifier, a UTF-8 path, a typographic quote in an error message —
 // could land mid-rune and put a broken byte at the seam of something the model is asked to read
 // and fix. Measured: `truncateOutput(strings.Repeat("한글", 300), 10)` returned "한글한\xea".
-func truncateOutput(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	cut := max
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
-	}
-	return s[:cut] + "\n…(truncated)"
-}
+func truncateOutput(s string, max int) string { return text.ClipWith(s, max, "\n…(truncated)") }

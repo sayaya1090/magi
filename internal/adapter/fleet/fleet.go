@@ -17,6 +17,8 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/session"
+
+	"github.com/sayaya1090/magi/internal/core/text"
 )
 
 // Reader is the part of the engine a fleet view needs: the log, and nothing that runs a turn.
@@ -283,20 +285,7 @@ func Interventions(ctx context.Context, r Reader, configDir string, since time.D
 }
 
 // Clip shortens s to at most n bytes on a rune boundary, marking that it was cut.
-func Clip(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	for n > 0 && !utf8ValidCut(s, n) {
-		n--
-	}
-	return s[:n] + "…"
-}
-
-// utf8ValidCut reports whether s may be cut at byte i without splitting a rune.
-func utf8ValidCut(s string, i int) bool {
-	return i <= 0 || i >= len(s) || s[i]&0xC0 != 0x80
-}
+func Clip(s string, n int) string { return text.Clip(s, n) }
 
 // commandOf digs the human-meaningful field out of a tool call's arguments. Best effort by design:
 // an unrecognised shape falls back to the tool name rather than dumping JSON onto a card.

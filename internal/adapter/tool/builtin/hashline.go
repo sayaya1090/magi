@@ -41,15 +41,6 @@ func parseLineRef(ref string) (line int, hash string, ok bool) {
 	return n, strings.TrimSpace(rest), true
 }
 
-// clipRef trims s to n runes with an ellipsis, for one-line error context.
-func clipRef(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n]) + "…"
-}
-
 // fileLines splits content into lines, each retaining its terminator, so the
 // count equals the number of lines the read tool numbered. "a\nb\n" → 2 lines,
 // "a\nb" → 2 lines, "" → 1 (empty) line.

@@ -9,6 +9,8 @@ import (
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
+
+	"github.com/sayaya1090/magi/internal/core/text"
 )
 
 // toolCallBrief is what a finished call needs to be legible as evidence: the tool's name and the
@@ -167,16 +169,7 @@ func lastUserPromptTS(evs []event.Event) time.Time {
 
 // clipLine returns at most n bytes of s (rune-safe) with an ellipsis, keeping a single
 // evidence bullet on one line (no marker/newline reintroduced).
-func clipLine(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	cut := n
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
-	}
-	return s[:cut] + "…"
-}
+func clipLine(s string, n int) string { return text.Clip(s, n) }
 
 // clipSpec bounds an authoritative "follow VERBATIM" spec at n bytes (rune-safe).
 // Unlike clipLine it does NOT append a bare "…": a delegate told to reproduce exact
@@ -184,14 +177,7 @@ func clipLine(s string, n int) string {
 // output the grader checks), matching nothing. When it truncates it appends an explicit
 // marker on its own line so the model knows the cutoff is not part of the spec.
 func clipSpec(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	cut := n
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
-	}
-	return s[:cut] + "\n[…spec truncated here — this cutoff is NOT part of the spec; if you need an exact value beyond this point, ask for the remainder rather than reproducing this line]"
+	return text.ClipWith(s, n, "\n[…spec truncated here — this cutoff is NOT part of the spec; if you need an exact value beyond this point, ask for the remainder rather than reproducing this line]")
 }
 
 // toolResultText renders a tool result's JSON content as readable one-ish-line text
@@ -207,16 +193,7 @@ func toolResultText(raw json.RawMessage) string {
 
 // truncateForCouncil clips s to at most n bytes (on a rune boundary), appending a
 // marker when truncated.
-func truncateForCouncil(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	cut := n
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
-	}
-	return s[:cut] + "\n…[diff truncated]"
-}
+func truncateForCouncil(s string, n int) string { return text.ClipWith(s, n, "\n…[diff truncated]") }
 
 // clipEach returns at most n entries, with a marker when more were dropped.
 func clipEach(xs []string, n int) []string {

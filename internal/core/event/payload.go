@@ -3,10 +3,11 @@ package event
 import (
 	"fmt"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/session"
+
+	"github.com/sayaya1090/magi/internal/core/text"
 )
 
 // Payload structs are the typed shapes carried in Event.Data for each Type.
@@ -316,15 +317,7 @@ func (d CouncilDecidedData) FeedbackLines() []string {
 
 // truncRunes cuts s to at most n bytes on a rune boundary (never splitting a multibyte
 // character) and marks the cut.
-func truncRunes(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	for n > 0 && !utf8.RuneStart(s[n]) {
-		n--
-	}
-	return s[:n] + "…"
-}
+func truncRunes(s string, n int) string { return text.Clip(s, n) }
 
 // CouncilDeliberatingData — TypeCouncilDeliberating (transient, live panel).
 // Only "asking" is currently produced (one per member when a round opens); a

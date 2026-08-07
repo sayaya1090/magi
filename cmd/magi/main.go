@@ -17,7 +17,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-	"unicode/utf8"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/term"
@@ -45,6 +44,8 @@ import (
 	"github.com/sayaya1090/magi/internal/port"
 	"github.com/sayaya1090/magi/internal/update"
 	"github.com/sayaya1090/magi/internal/version"
+
+	"github.com/sayaya1090/magi/internal/core/text"
 )
 
 // ghOwner/ghRepo identify the release repository for self-update.
@@ -1117,17 +1118,7 @@ func renderText(out, errw io.Writer, e event.Event) {
 	}
 }
 
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	// Back up to a rune boundary so a multibyte char (CJK/emoji in tool output) is
-	// never split into invalid UTF-8.
-	for n > 0 && !utf8.RuneStart(s[n]) {
-		n--
-	}
-	return s[:n] + "…"
-}
+func truncate(s string, n int) string { return text.Clip(s, n) }
 
 // councilMembers resolves the effective member set: explicit [[council.member]]
 // tables always win; otherwise the "light" preset yields a single verification
