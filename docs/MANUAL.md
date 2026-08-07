@@ -579,7 +579,8 @@ it shows from the event logs already on disk and sends actions over the same soc
 | companions | every agent, its state, what it is doing, which host and IP, how long it has been idle. Tiles at the top filter the table; a row's actions interrupt it or answer what it is asking |
 | what I had to say | every time a person stepped into a running turn, grouped by the words. The same correction to three companions is a rule waiting to be written — promote it to the project or the global tier from here |
 | what they have learned | both tiers of the store, rules and remembered facts, each row saying what it reaches ("every companion" / "only api"). A wrong one can be forgotten |
-| a companion's page | the transcript live, what it is blocked on, and what fills its context: size against the window when the window is known, how many times the history has been summarised away, and which topics can be pulled back |
+| what they can reach | every MCP server, which companion has it and what it actually runs. Add, change or remove one — it is written to that companion's config and attaches when its daemon next starts |
+| a companion's page | the transcript live, what it is blocked on, what it handed to other companions and what came back, and what fills its context: size against the window when the window is known, how many times the history has been summarised away, and which topics can be pulled back |
 
 **Vocabulary.** One magi bound to one workspace is a **companion**. A person supervising several of
 them is not each companion's operator but its supervisor — the reasoning, and what that means for
@@ -696,8 +697,9 @@ Same machine only. Across machines there is no join: that is the operator's peer
 - **Gossip or propagation.** On one machine the directory is already complete membership.
 - **Applying what a join proposes.** §13.6 writes a file; moving any of it into your config is a
   person's decision, and an `[mcp]` command is why.
-- **Collecting results.** The receiver answers in its own transcript and the caller reads it with
-  `companions` (an idle companion's last line is its answer). There is no blocking wait.
+- **A blocking wait.** The receiver answers in its own transcript; the caller reads it with
+  `companions`, and the console collects it under the asker's page (UI §2.2). Nothing notifies the
+  asker, and `ask_companion` does not wait.
 
 ---
 

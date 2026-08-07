@@ -19,8 +19,10 @@ A supervisor asks three things a day, several times:
 1. **Who is doing what** — and which of them is waiting on *me*
 2. **What did I have to say** — anything I said twice is a rule waiting to be written
 3. **What have they learned** — and how far does each lesson reach (project / global)
+4. **What can they reach** — which MCP server is attached to which companion
 
-The three tabs are exactly those. A fourth tab needs a fourth question first.
+The four tabs are exactly those — the fourth being **what can they reach** (MCP servers). A
+fifth tab needs a fifth question first.
 
 ## 2. The console's screens
 
@@ -56,7 +58,12 @@ The context line is the point of this screen:
   earlier reasoning can be assumed still there.
 - The folded **topics are named**. That is where "the detail is not lost" stops being a claim.
 
-Below: the live transcript (SSE) and the composer.
+Then **what it handed out**: work this companion gave to others, and the answers. A receiver
+answers in its own transcript — there is no reply channel — so this is the five-page walk done
+once. **An answer appears only when the receiver is idle**: a line taken mid-turn is what it
+happened to be saying, not a conclusion.
+
+Below that: the live transcript (SSE) and the composer.
 
 ### 2.3 What I had to say (`/?v=interventions`)
 
@@ -81,6 +88,28 @@ Both tiers of the store — rules and remembered facts, local and from every fed
   still being followed.**
 - `seen 3× · 2026-07-14 → 2026-08-07` tells a settled lesson from a one-off.
 - A wrong one can be forgotten. **Nobody promotes into a store they cannot correct.**
+
+### 2.5 What they can reach (`/?v=mcp`)
+
+An MCP server is where a companion's reach leaves this machine's file system: a tracker, a design
+tool, an internal API. Which ones each has meant opening config files one at a time, and a
+supervisor holding five companions could not answer "which of these can see production".
+
+- Each row carries the **transport line complete and unprettified** (`npx -y figma-mcp`, or the
+  URL), because that line is the answer to "what actually runs".
+- Environment variables are **named, never valued**. A token on a page is a token in a browser
+  history, a screenshot and a support ticket.
+- Adding, changing and removing write to that companion's own `.magi/config.toml`. A person editing
+  their own companion's config from the console is the same act as opening the file; a COMPANION
+  accepting a server definition from another companion is still refused, because that is a command
+  arriving from the network.
+- **It says when the change takes effect.** Servers attach when a daemon starts, so this changed a
+  file and not a running process.
+
+Refused: a definition that is neither a url nor a command; one that is both (the url branch wins at
+startup, so the command would sit there never running); and a name that cannot be a TOML table
+header — refused rather than sanitised, since a name quietly rewritten is a server nobody can find
+again in their own file.
 
 ## 3. The design language
 
@@ -263,9 +292,8 @@ the point of the arrangement.
 
 ## 7. Not there yet
 
-- **MCP management** — which external tool servers are attached.
 - **Cache diagnostics** — whether the prompt cache actually hits. ★Not promised in the UI before it
   is measured.
 - **A placement review screen** — [`proposals/companion-performance-2026-08-07.md`](proposals/companion-performance-2026-08-07.md).
-- **Collecting results.** The answer to dispatched work is read from the other companion's
-  transcript today.
+- **A reply channel.** Answers are read from the receiver's transcript — §2.2 collects them, but
+  nothing notifies the asker.
