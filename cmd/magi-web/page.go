@@ -799,6 +799,15 @@ import { BehaviorSubject, timer, from, of, EMPTY,
 // the browser, falling back to English when the pack cannot be read. Published as a stream so a
 // label change reaches everything that draws one, rather than being read once at startup by
 // whichever function happened to run first.
+// Where this page is mounted. The binary serves it at the root, so BASE is '/' and every url the
+// router builds has looked like '/?v=skills' for that reason. A static copy of the same page lives
+// under /<repo>/ on a project site, where those escape to the domain root: the clicks still work
+// because they are intercepted, but the address pushed is wrong and a reload lands nowhere.
+//
+// Read from the document rather than configured, so nothing has to be told where it was put.
+const BASE = location.pathname.replace(/[^/]*$/, '');
+const at = query => BASE + (query || '');
+
 // Seeded, not empty. The page is served with its English pack inlined ahead of this module, so the
 // FIRST paint already has words — without it every label would show its dotted key until a fetch
 // came back, which is a flash of debug output on somebody's dashboard.
@@ -812,7 +821,21 @@ const tr = (key, vars) => {
   if (vars) for (const [k, v] of Object.entries(vars)) out = out.replace('{' + k + '}', v);
   return out;
 };
-const locale = () => (localStorage.getItem('lang') || navigator.language || 'en').slice(0, 2);
+// What the reader most likely reads, in the order that respects a stated choice over a guess: this
+// console's own setting, then every language the browser lists (navigator.languages is ordered by
+// preference, and reading only navigator.language ignores the rest of it), then English.
+//
+// Matched against the packs that exist, so a browser asking for a language nothing is written in
+// falls through to the next one it asked for rather than to a 404.
+const PACKS = ['en', 'ko'];
+const locale = () => {
+  const asked = [localStorage.getItem('lang'), ...(navigator.languages || [navigator.language])];
+  for (const tag of asked) {
+    const code = (tag || '').slice(0, 2).toLowerCase();
+    if (PACKS.includes(code)) return code;
+  }
+  return 'en';
+};
 // The locale's pack, then English, then the keys. The last step is not really reachable — the pack
 // is served by the same process as the page — but a screen full of dotted keys is a better failure
 // than a screen full of blanks, because it says what went wrong.
@@ -824,13 +847,13 @@ const pack$ = url => from(fetch(url)).pipe(
   onlyWhen(pack => !!pack && typeof pack === 'object' && !Array.isArray(pack)),
   catchError(() => EMPTY),
 );
-pack$('/i18n/language.' + locale() + '.json')
+pack$(at('i18n/language.' + locale() + '.json'))
   .pipe(catchError(() => EMPTY))
   .subscribe({
     next: pack => labels$.next(pack),
     complete: () => {
       if (Object.keys(L).length || locale() === 'en') return;
-      pack$('/i18n/language.en.json').subscribe(pack => labels$.next(pack));
+      pack$(at('i18n/language.en.json')).subscribe(pack => labels$.next(pack));
     },
   });
 // Anything already on screen is repainted when a pack lands. Guarded on the first paint having
@@ -860,14 +883,6 @@ const SECTION_KEY = {fleet: 'nav.companions', interventions: 'nav.corrections',
                      skills: 'nav.lessons', mcp: 'nav.connections'};
 const SECTION = new Proxy({}, {get: (_, v) => tr(SECTION_KEY[v] || 'nav.companions')});
 
-// Where this page is mounted. The binary serves it at the root, so BASE is '/' and every url the
-// router builds has looked like '/?v=skills' for that reason. A static copy of the same page lives
-// under /<repo>/ on a project site, where those escape to the domain root: the clicks still work
-// because they are intercepted, but the address pushed is wrong and a reload lands nowhere.
-//
-// Read from the document rather than configured, so nothing has to be told where it was put.
-const BASE = location.pathname.replace(/[^/]*$/, '');
-const at = query => BASE + (query || '');
 const HREF = {fleet: '', interventions: '?v=interventions', skills: '?v=skills', mcp: '?v=mcp'};
 // In the order they are written in the markup, because md-tabs addresses its tabs by index.
 const TABS = ['fleet', 'interventions', 'skills', 'mcp'];

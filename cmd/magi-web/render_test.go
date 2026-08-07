@@ -742,6 +742,39 @@ console.log(JSON.stringify({
 	}
 }
 
+// The page asks for the language its reader actually reads, from where the page is mounted.
+//
+// Two things went wrong here at once and neither made a sound. The url was built with a leading
+// slash, so on a project site under /magi/ it reached for /i18n/… at the domain root and 404d; and
+// the locale came from navigator.language alone, which is one tag out of an ordered list the
+// browser publishes. A reader whose browser asks for Korean first got English either way.
+func TestThePageAsksForTheLanguageTheReaderReads(t *testing.T) {
+	t.Setenv("BASE", "/magi/")
+	t.Setenv("LANG_TAGS", "ko-KR,en-US")
+	got := runPage(t, `[]`, "", `
+console.log(JSON.stringify({asked: RENDERED.filter(r => String(r.fetched).includes('i18n')).map(r => r.fetched)}));
+`)
+	asked := got["asked"].([]any)
+	if len(asked) == 0 {
+		t.Fatal("the page asked for no language pack at all")
+	}
+	if asked[0] != "/magi/i18n/language.ko.json" {
+		t.Errorf("the page asked for %q; the browser asks for Korean first and the page is under /magi/", asked[0])
+	}
+}
+
+// A language nothing is written in falls through to the next one the browser asked for.
+func TestAnUnwrittenLanguageFallsToTheNextOneAsked(t *testing.T) {
+	t.Setenv("LANG_TAGS", "fr-FR,ko-KR,en-US")
+	got := runPage(t, `[]`, "", `
+console.log(JSON.stringify({asked: RENDERED.filter(r => String(r.fetched).includes('i18n')).map(r => r.fetched)}));
+`)
+	asked := got["asked"].([]any)
+	if len(asked) == 0 || asked[0] != "/i18n/language.ko.json" {
+		t.Errorf("asked for %v; nothing is written in French and Korean is the next one requested", asked)
+	}
+}
+
 // The tabs say which resource is on screen and switch without a reload — and a companion's own page
 // is neither of them, being one level in.
 func TestTheTabsSayWhichResourceIsShowing(t *testing.T) {

@@ -36,72 +36,11 @@ const demoScript = `
 // A mock magi, in the page. Every answer below is shaped like the handler it stands in for; the
 // page's own code is untouched and does not know the difference.
 (() => {
-  const LANG_EN = {
-  "nav.companions": "companions",
-  "nav.corrections": "corrections",
-  "nav.lessons": "lessons",
-  "nav.connections": "connections",
-
-  "action.send": "send",
-  "action.interrupt": "interrupt",
-  "action.answer": "answer",
-  "action.forget": "forget",
-  "action.remove": "remove",
-  "action.compact_now": "compact now",
-  "action.add_or_replace": "add or replace",
-  "action.promote_project": "to this project",
-  "action.promote_global": "to every companion",
-
-  "field.status": "status",
-  "field.workspace": "workspace",
-  "field.role": "role",
-  "field.team": "team",
-  "field.host": "host",
-  "field.steps": "steps",
-  "field.last_activity": "last activity",
-  "field.session": "session",
-  "field.model": "model",
-  "field.context": "context",
-  "field.cache": "cache",
-  "field.plan": "plan",
-  "field.handed_out": "handed out",
-  "field.summarised_away": "summarised away",
-
-  "state.waiting": "waiting",
-  "state.working": "working",
-  "state.idle": "idle",
-  "state.abandoned": "abandoned",
-  "state.stopped": "stopped",
-
-  "context.measured": "measured",
-  "context.estimated": "estimated",
-  "context.messages": "{n} messages",
-  "context.cached_share": "{pct}% of it cached",
-  "context.no_cache_report": "this backend does not report it",
-  "context.folds": "{n} folds",
-  "context.fold": "1 fold",
-  "context.shed": "{n} tokens shed",
-
-  "reach.every_companion": "every companion",
-  "reach.only": "only {name}",
-  "reach.on_peer": " on {peer}",
-
-  "empty.no_agents": "No magi is running under this config directory.",
-  "empty.nothing_learned": "Nothing learned yet.",
-  "empty.nothing_to_promote": "Nothing to promote yet.",
-  "empty.no_servers": "No external tool servers.",
-
-  "error.unreachable": "cannot reach magi-web",
-  "error.say_who": "say who it is for",
-
-  "placeholder.ask": "Ask magi to do something…",
-  "placeholder.address": "to: a name, or what they do",
-  "placeholder.mcp_name": "name — becomes [mcp.<name>] in the config",
-  "placeholder.mcp_command": "command, e.g. npx   (leave empty for an HTTP server)",
-  "placeholder.mcp_args": "arguments, one per line or space-separated",
-  "placeholder.mcp_url": "or a url for an HTTP server, scheme and all",
-  "placeholder.mcp_env": "environment, NAME=value — values are written to the config file"
-};
+  // The language packs are NOT inlined here. They were, as a Go string literal holding a copy of
+  // language.en.json, and a copy is a thing that drifts — this demo would have kept showing the
+  // old wording of a label the day somebody changed the real pack. The emitted directory carries
+  // the real files and the fetch below hands their requests to the network untouched, so the demo
+  // switches language exactly the way the console does, Korean included.
   // RFC3339 without the fractional seconds, because that is what the handlers emit
   // (time.RFC3339) — a fixture that carries milliseconds shows a timestamp shape the real console
   // never produces, and the demo is supposed to be evidence about the real one.
@@ -125,9 +64,6 @@ const demoScript = `
      host: 'mini', addr: '10.0.0.9'},
   ];
   const answers = {
-    // The real English pack, inlined: a static host has no /i18n either, and a demo that fell back
-    // to raw keys would be showing a page nobody ships.
-    '/i18n/language.en.json': LANG_EN,
     '/fleet': fleet,
     '/interventions': [
       {companion: 'design', socket: '/demo/design.sock', kind: 'steer', afterSec: 8,
@@ -178,8 +114,12 @@ const demoScript = `
                        'and every action reports what it would have sent.';
   addEventListener('DOMContentLoaded', () => document.body.prepend(banner));
 
+  // Kept before the mock takes over: the language packs are real files sitting beside this page,
+  // and they are the one thing here that must NOT be answered by a fixture.
+  const realFetch = globalThis.fetch.bind(globalThis);
   globalThis.fetch = async (path, init) => {
     const url = String(path).split('?')[0];
+    if (/i18n\/language\.[a-z]{2}\.json$/.test(url)) return realFetch(path);
     if (init && init.method === 'POST') {
       // Actions say what they would have done rather than pretending they did it: a demo that
       // silently accepts a delete teaches the wrong thing about the real console.
@@ -187,9 +127,7 @@ const demoScript = `
       banner.textContent = 'demo — would have sent: POST ' + url + body;
       return {ok: true, status: 204, text: async () => ''};
     }
-    // The language pack is asked for by locale; anything but English falls back to it, which is
-    // what the page does against a real console too.
-    const body = answers[url] ?? (url.startsWith('/i18n/') ? LANG_EN : undefined);
+    const body = answers[url];
     if (body === undefined) return {ok: false, status: 404, json: async () => [], text: async () => ''};
     return {ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body)};
   };
@@ -237,7 +175,7 @@ func emitDemo(dir string) error {
 	// Only the prefixes the page loads are rewritten. Navigation hrefs keep their absolute form:
 	// they are pushState targets read by the page's own router, not fetches.
 	page := indexHTML
-	for _, prefix := range []string{"/vendor/", "/font/", "/i18n/"} {
+	for _, prefix := range []string{"/vendor/", "/font/"} {
 		page = strings.ReplaceAll(page, "'"+prefix, "'."+prefix)
 		page = strings.ReplaceAll(page, `"`+prefix, `".`+prefix)
 		page = strings.ReplaceAll(page, "url("+prefix, "url(."+prefix)
@@ -277,6 +215,19 @@ func emitDemo(dir string) error {
 	for _, f := range vendored {
 		if strings.HasSuffix(f.Name(), ".js") {
 			carry = append(carry, "vendor/"+f.Name())
+		}
+	}
+	// Every language pack, for the same reason and read the same way. The demo used to answer these
+	// from a copy inlined in its own script, which meant the deployed page was English whatever the
+	// reader's browser asked for — the one part of the console a visitor can check against their own
+	// machine, and it was the part that did not work.
+	packs, perr := assetFS.ReadDir("i18n")
+	if perr != nil {
+		return perr
+	}
+	for _, f := range packs {
+		if strings.HasSuffix(f.Name(), ".json") {
+			carry = append(carry, "i18n/"+f.Name())
 		}
 	}
 	for _, name := range carry {

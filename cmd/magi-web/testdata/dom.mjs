@@ -132,11 +132,15 @@ globalThis.localStorage = {
   setItem(k, v) { this.store.set(k, String(v)); },
   removeItem(k) { this.store.delete(k); },
 };
-// navigator already exists in node and is read-only, so the language is defined onto it rather
+// navigator already exists in node and is read-only, so the languages are defined onto it rather
 // than replacing it.
-Object.defineProperty(globalThis.navigator, 'language', {
-  value: process.env.LANG_TAG ?? 'en-US', configurable: true,
-});
+//
+// Both, because the page reads the LIST. A browser set to Korean with English after it reports
+// navigator.language = 'ko-KR' AND navigator.languages = ['ko-KR', 'en-US'], and a fake that
+// carried only the first could not tell a page that reads one from a page that reads the other.
+const tags = (process.env.LANG_TAGS ?? process.env.LANG_TAG ?? 'en-US').split(',');
+Object.defineProperty(globalThis.navigator, 'language', {value: tags[0], configurable: true});
+Object.defineProperty(globalThis.navigator, 'languages', {value: tags, configurable: true});
 
 globalThis.location = { search: process.env.QUERY ?? '', pathname: process.env.BASE ?? '/' };
 globalThis.history = {
@@ -163,7 +167,12 @@ globalThis.fetch = async (path, init) => {
   // The language pack is the one route with a shape of its own: an object, not the scenario's list.
   // Answered with the REAL English pack, so a test asserting on a label is asserting on the words
   // this binary ships rather than on a fixture that can drift from them.
-  if (String(path).startsWith('/i18n/')) {
+  //
+  // Matched on the tail, not on a leading '/i18n/'. The page builds this url from where it is
+  // mounted, so under a base path it asks for /magi/i18n/… — a prefix match would have handed that
+  // request the fleet's LIST, which the page rejects for not being an object, and every label would
+  // have quietly stayed at its seeded value with nothing failing.
+  if (/i18n\/language\.[a-z]{2}\.json$/.test(String(path))) {
     const pack = JSON.parse(process.env.LANG_PACK ?? '{}');
     return { ok: true, status: 200, json: async () => pack, text: async () => JSON.stringify(pack) };
   }
