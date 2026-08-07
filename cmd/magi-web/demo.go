@@ -226,7 +226,26 @@ func emitDemo(dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	page := indexHTML + demoScript
+	// Root-relative becomes relative, for the demo only.
+	//
+	// The binary serves the page AT the root, so `/vendor/rxjs.js` is right there. GitHub Pages
+	// serves a project site under /<repo>/, where a leading slash escapes to the domain root and
+	// 404s — the module import among them, which means the script never runs and the page is
+	// blank. Shipped exactly that way, and a local check that served the directory at the root
+	// said everything was fine, which is how it got past.
+	//
+	// Only the prefixes the page loads are rewritten. Navigation hrefs keep their absolute form:
+	// they are pushState targets read by the page's own router, not fetches.
+	page := indexHTML
+	for _, prefix := range []string{"/vendor/", "/font/", "/i18n/"} {
+		page = strings.ReplaceAll(page, "'"+prefix, "'."+prefix)
+		page = strings.ReplaceAll(page, `"`+prefix, `".`+prefix)
+		page = strings.ReplaceAll(page, "url("+prefix, "url(."+prefix)
+	}
+	for _, file := range []string{"/icon.svg", "/manifest.webmanifest"} {
+		page = strings.ReplaceAll(page, `"`+file+`"`, `".`+file+`"`)
+	}
+	page += demoScript
 	if strings.Contains(indexHTML, demoScript) {
 		return fmt.Errorf("the page already carries the demo script — it must only ever be appended here")
 	}
