@@ -17,11 +17,7 @@ import (
 func (s *server) context(w http.ResponseWriter, r *http.Request) {
 	// A companion on another console is asked THERE: the log is on that machine and this process
 	// has no copy of it.
-	if p, socket, remote, err := s.routeToPeer(r); err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
-	} else if remote {
-		s.proxy(w, r, p, socket)
+	if s.forwarded(w, r, s.proxy) {
 		return
 	}
 	in, err := s.target(r)

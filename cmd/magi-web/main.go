@@ -249,12 +249,6 @@ func (s *server) forget(sock string) {
 	}
 }
 
-// withClient runs one write against the request's target, retrying once on a fresh connection.
-//
-// The retry is not defensive padding: a daemon restarted between two page actions leaves this
-// process holding a socket nobody reads, and the first write after that fails on a connection
-// problem rather than on anything the user did. Redialling tells that apart from a real refusal —
-// and if the second attempt fails too, its error is the one worth showing.
 // routeToPeer reports whether a request names a companion on another console, and which.
 //
 // The peer comes from the query, but it is only ever LOOKED UP in the operator's list — a name that
@@ -277,6 +271,39 @@ func (s *server) routeToPeer(r *http.Request) (p peer, socket string, remote boo
 	return p, r.URL.Query().Get("d"), true, nil
 }
 
+// forwarded sends a request to the console that owns the companion it names, and reports whether
+// the caller is done.
+//
+// Six handlers began with the same twelve lines — resolve the peer, answer 404 if the name is not
+// one this operator configured, otherwise forward and return — and three of them carried the same
+// comment word for word. The shape is one decision ("is this mine to answer?"), so it reads better
+// as one call, and a seventh handler cannot now forget half of it.
+//
+// via is how it travels: s.proxy for a request with an answer, s.proxyStream for one that stays
+// open. That is the only thing that ever differed between the copies.
+func (s *server) forwarded(w http.ResponseWriter, r *http.Request,
+	via func(http.ResponseWriter, *http.Request, peer, string)) bool {
+	p, socket, remote, err := s.routeToPeer(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return true
+	}
+	if !remote {
+		return false
+	}
+	via(w, r, p, socket)
+	return true
+}
+
+// postOnly rejects a read method on a handler that changes something.
+func postOnly(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method == http.MethodPost {
+		return false
+	}
+	http.Error(w, "POST only", http.StatusMethodNotAllowed)
+	return true
+}
+
 // peerNames is for the message above: a list told "unknown" and not told what IS known cannot tell
 // a typo from a console that was never configured.
 func (s *server) peerNames() string {
@@ -290,6 +317,12 @@ func (s *server) peerNames() string {
 	return strings.Join(names, ", ")
 }
 
+// withClient runs one write against the request's target, retrying once on a fresh connection.
+//
+// The retry is not defensive padding: a daemon restarted between two page actions leaves this
+// process holding a socket nobody reads, and the first write after that fails on a connection
+// problem rather than on anything the user did. Redialling tells that apart from a real refusal —
+// and if the second attempt fails too, its error is the one worth showing.
 func (s *server) withClient(r *http.Request, do func(*daemon.Client, session.SessionID) error) error {
 	in, err := s.target(r)
 	if err != nil {
@@ -478,11 +511,7 @@ func (s *server) fleet(w http.ResponseWriter, r *http.Request) {
 func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	// A remote companion's transcript is streamed through, so opening one is not a different page
 	// from opening a local one.
-	if p, sock, remote, err := s.routeToPeer(r); err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
-	} else if remote {
-		s.proxyStream(w, r, p, sock)
+	if s.forwarded(w, r, s.proxyStream) {
 		return
 	}
 	fl, ok := w.(http.Flusher)
@@ -586,15 +615,7 @@ func renderMessages(msgs []session.Message) []line {
 func (s *server) submit(w http.ResponseWriter, r *http.Request) {
 	// A companion on another console is acted on THERE. Nothing about this one can reach it — the
 	// socket path is that machine's, and its daemon is not ours to dial.
-	if p, sock, remote, err := s.routeToPeer(r); err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
-	} else if remote {
-		s.proxy(w, r, p, sock)
-		return
-	}
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+	if s.forwarded(w, r, s.proxy) || postOnly(w, r) {
 		return
 	}
 	text := strings.TrimSpace(r.FormValue("text"))
@@ -625,15 +646,7 @@ func (s *server) submit(w http.ResponseWriter, r *http.Request) {
 func (s *server) answer(w http.ResponseWriter, r *http.Request) {
 	// A companion on another console is acted on THERE. Nothing about this one can reach it — the
 	// socket path is that machine's, and its daemon is not ours to dial.
-	if p, sock, remote, err := s.routeToPeer(r); err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
-	} else if remote {
-		s.proxy(w, r, p, sock)
-		return
-	}
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+	if s.forwarded(w, r, s.proxy) || postOnly(w, r) {
 		return
 	}
 	callID := strings.TrimSpace(r.FormValue("call"))
@@ -675,15 +688,7 @@ func (s *server) answer(w http.ResponseWriter, r *http.Request) {
 func (s *server) interrupt(w http.ResponseWriter, r *http.Request) {
 	// A companion on another console is acted on THERE. Nothing about this one can reach it — the
 	// socket path is that machine's, and its daemon is not ours to dial.
-	if p, sock, remote, err := s.routeToPeer(r); err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
-	} else if remote {
-		s.proxy(w, r, p, sock)
-		return
-	}
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+	if s.forwarded(w, r, s.proxy) || postOnly(w, r) {
 		return
 	}
 	err := s.withClient(r, func(cl *daemon.Client, sid session.SessionID) error {

@@ -3,13 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"log"
 	"net/http"
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	expgit "github.com/sayaya1090/magi/internal/adapter/experience/git"
@@ -90,8 +88,7 @@ func (s *server) skills(w http.ResponseWriter, r *http.Request) {
 // supervisor stops promoting into it — the cost of a mistake being permanent is what makes people
 // stop using a thing.
 func (s *server) forgetSkill(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+	if postOnly(w, r) {
 		return
 	}
 	name := strings.TrimSpace(r.FormValue("name"))
@@ -100,11 +97,7 @@ func (s *server) forgetSkill(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no skill named", http.StatusBadRequest)
 		return
 	}
-	if p, _, remote, err := s.routeToPeer(r); err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
-	} else if remote {
-		s.proxy(w, r, p, r.URL.Query().Get("d"))
+	if s.forwarded(w, r, s.proxy) {
 		return
 	}
 	dir, err := s.storeDirFor(r, tier)
@@ -125,46 +118,18 @@ func (s *server) forgetSkill(w http.ResponseWriter, r *http.Request) {
 // nothing else. No placeholder row here — the fleet view is already showing that machine as
 // unreachable, and a second "could not reach" on this page would say nothing the first did not.
 func (s *server) peerSkills(ctx context.Context) []storedSkill {
-	if len(s.peers) == 0 {
-		return nil
-	}
-	lists := make([][]storedSkill, len(s.peers))
-	var wg sync.WaitGroup
-	for i, p := range s.peers {
-		wg.Add(1)
-		go func(i int, p peer) {
-			defer wg.Done()
-			cctx, cancel := context.WithTimeout(ctx, peerTimeout)
-			defer cancel()
-			req, err := http.NewRequestWithContext(cctx, http.MethodGet, p.Base+"/skills", nil)
-			if err != nil {
-				return
-			}
-			resp, err := s.http.Do(req)
-			if err != nil {
-				return
-			}
-			defer resp.Body.Close()
-			if resp.StatusCode != http.StatusOK {
-				return
-			}
-			var got []storedSkill
-			if json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&got) != nil {
-				return
-			}
-			for j := range got {
-				// Stamped with the console that answered, and never with what IT called a peer: a
-				// console two hops away is not one this operator configured, and an action routed
-				// to that name would find nothing here.
-				got[j].Peer = p.Name
-			}
-			lists[i] = got
-		}(i, p)
-	}
-	wg.Wait()
 	var out []storedSkill
-	for _, l := range lists {
-		out = append(out, l...)
+	for _, r := range fanOut(ctx, s.peers, func(ctx context.Context, p peer) ([]storedSkill, error) {
+		got, err := getJSON[storedSkill](ctx, s.http, p.Base+"/skills")
+		for j := range got {
+			// Stamped with the console that answered, and never with what IT called a peer: a
+			// console two hops away is not one this operator configured, and an action routed to
+			// that name would find nothing here.
+			got[j].Peer = p.Name
+		}
+		return got, err
+	}) {
+		out = append(out, r.List...) // an error leaves an empty list, which is the whole handling
 	}
 	return out
 }

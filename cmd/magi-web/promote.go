@@ -46,8 +46,7 @@ type promotion struct {
 
 // promoteRoute is the handler.
 func (s *server) promote(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+	if postOnly(w, r) {
 		return
 	}
 	text := strings.TrimSpace(r.FormValue("text"))
@@ -65,11 +64,7 @@ func (s *server) promote(w http.ResponseWriter, r *http.Request) {
 
 	// A companion on another console is promoted THERE: its workspace is that machine's path and
 	// its store is that machine's directory.
-	if p, _, remote, err := s.routeToPeer(r); err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
-	} else if remote {
-		s.proxy(w, r, p, r.URL.Query().Get("d"))
+	if s.forwarded(w, r, s.proxy) {
 		return
 	}
 
