@@ -225,6 +225,9 @@ const indexHTML = `<!doctype html>
   .sk.global .tier { color:var(--warn); }
   .sk.project .tier { color:var(--accent); }
   .sk .what { font:600 16px/1.35 var(--display); color:var(--fg); overflow-wrap:anywhere; }
+  /* A fact is quoted, not instructed: it reads as something the companion believes rather than
+     something it was told to do, which is the difference a person is judging on this page. */
+  .sk.fact .what { font:italic 400 16px/1.4 var(--display); }
   .sk .meta { margin-top:.3rem; font-size:11px; letter-spacing:.05em; color:var(--muted); }
   .sk .drop {
     background:none; border:0; border-bottom:1px solid var(--outlineVariant); border-radius:0;
@@ -817,18 +820,21 @@ async function loadSkills() {
   try { list = await (await fetch('/skills')).json(); }
   catch { state.className = 'lost'; state.textContent = 'cannot reach magi-web'; return; }
   const crossing = list.filter(s => s.tier === 'global').length;
+  const rules = list.filter(s => s.kind !== 'memory').length;
   state.className = '';
-  state.textContent = list.length + (list.length === 1 ? ' rule' : ' rules') +
-                      ' · ' + crossing + ' crossing every companion';
+  state.textContent = rules + (rules === 1 ? ' rule' : ' rules') + ' · ' +
+                      (list.length - rules) + ' remembered · ' +
+                      crossing + ' crossing every companion';
   if (!list.length) {
     const e = document.createElement('div'); e.className = 'empty';
     e.innerHTML = 'Nothing learned yet.<br>' +
-      'Rules land here when you promote something you had to say, or when a companion records a lesson itself.';
+      'A rule lands here when you promote something you had to say; a fact lands here when a ' +
+      'companion decides one is worth keeping.';
     skillsEl.replaceChildren(e);
     return;
   }
   skillsEl.replaceChildren(...list.map(sk => {
-    const el = cell('sk ' + sk.tier);
+    const el = cell('sk ' + sk.tier + (sk.kind === 'memory' ? ' fact' : ''));
     const top = cell('top');
     top.append(cell('tier',
       (sk.tier === 'global' ? 'every companion' : 'only ' + sk.companion) +
@@ -846,12 +852,16 @@ async function loadSkills() {
     };
     top.append(drop);
     el.append(top);
-    const bits = [sk.name];
+    // A rule tells the companion what to do and a fact tells it what is true. Governed the same
+    // way and worth reading differently — a stale fact is wrong, a stale rule is an instruction
+    // still being followed.
+    const bits = [sk.kind === 'memory' ? 'remembered' : 'rule', sk.name];
     // How settled it is and when it was last seen: the two facts a decision about a rule is made
     // on, and neither is visible anywhere else once the day it was written has passed.
-    if (sk.observed > 1) bits.push('seen ' + sk.observed + '×');
+    if (sk.kind !== 'memory' && sk.observed > 1) bits.push('seen ' + sk.observed + '×');
     if (sk.lastSeen) bits.push('last ' + sk.lastSeen);
-    if (sk.groups && sk.groups.length) bits.push('groups: ' + sk.groups.join(', '));
+    if (sk.groups && sk.groups.length) bits.push('only agents in ' + sk.groups.join(', '));
+    if (sk.tags && sk.tags.length) bits.push('tagged ' + sk.tags.join(', '));
     el.append(cell('meta', bits.join(' · ')));
     return el;
   }));

@@ -203,3 +203,53 @@ func fakeSkillsPeer(t *testing.T, list []storedSkill, record *[]string) *httptes
 	t.Cleanup(srv.Close)
 	return srv
 }
+
+// A store view that showed half a store would have a person governing the half that happens to be
+// legible. Memories are retrieved into prompts exactly as rules are; before this, nothing outside
+// the retrieval could see one.
+func TestBothHalvesOfTheStoreAreGoverned(t *testing.T) {
+	f := newFleetFixture(t)
+	dir := filepath.Join(f.cfgDir, "experience")
+	f.learn(t, dir, "commit-style", "commit messages carry the issue number")
+	if err := expgit.New(dir).Propose(context.Background(), port.Contribution{
+		Memories: []port.Memory{{Text: "the staging database is restored from prod every Monday",
+			Tags: []string{"ops"}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	list := f.inventory(t)
+	var fact storedSkill
+	kinds := map[string]int{}
+	for _, e := range list {
+		kinds[e.Kind]++
+		if e.Kind == "memory" {
+			fact = e
+		}
+	}
+	if kinds["skill"] != 1 || kinds["memory"] != 1 {
+		t.Fatalf("the inventory is %+v", list)
+	}
+	// The fact reads as the fact, with the tag line Propose wrote lifted off it rather than
+	// printed as the first thing a person sees.
+	if !strings.HasPrefix(fact.Description, "the staging database") {
+		t.Errorf("the fact reads as %q", fact.Description)
+	}
+	if len(fact.Tags) != 1 || fact.Tags[0] != "ops" {
+		t.Errorf("the tags came back as %v", fact.Tags)
+	}
+	// Tags are not groups: a skill's groups decide who sees it, a memory's tags decide nothing,
+	// and printing them in the same place would say a fact was narrowed when it was not.
+	if len(fact.Groups) != 0 {
+		t.Errorf("a memory's tags were reported as visibility groups: %+v", fact)
+	}
+
+	// And it can be forgotten, by the same button, through the same handler.
+	if w := post(t, f.srv, f.srv.forgetSkill, "/forget", url.Values{
+		"name": {fact.Name}, "tier": {"global"}}); w.Code != http.StatusNoContent {
+		t.Fatalf("forgetting a fact replied %d: %s", w.Code, w.Body.String())
+	}
+	if list := f.inventory(t); len(list) != 1 || list[0].Kind != "skill" {
+		t.Errorf("after forgetting the fact the store holds %+v", list)
+	}
+}
