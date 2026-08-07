@@ -33,8 +33,10 @@ doing. The order is the order the eye should travel: **waiting on a person → w
 
 - The **summary tiles** are counts and filters at once. A tile at zero is not clickable — a control
   that can be pressed and does nothing is worse than one that cannot.
-- A row: state badge · name · **role** · team (and whether it speaks for it) · workspace path · what
-  it is doing · host and IP · idle time · actions (interrupt, and the answer buttons when it asked).
+- A row: state badge · **how far through its own plan** (`3/7`) · name · **role** · team (and
+  whether it speaks for it) · workspace path · what it is doing · host and IP · idle time · actions
+  (interrupt, and the answer buttons when it asked). Not a progress bar: a todo list is not a
+  schedule, and a bar would promise a completion time nobody can honour.
 - **A blocked agent shows the question**, not the work — the question is why nothing is happening.
   The buttons sit under the question rather than in the actions column, because they belong to the
   prompt and not to the row.
@@ -61,6 +63,10 @@ The context line is the point of this screen:
   cache missed; one reporting nothing means it does not tell us, and drawing both as 0% would call
   a working cache broken. Measured on the default local backend (Ollama /v1, 2026-08-07): it sends
   no cache field at all, so the panel says "this backend does not report it" and shows no figure.
+
+Then **the plan it is working through** — the agent's own todo list as it last recorded it, shown
+as it is: an item it dropped is gone, because the record is the whole plan each time and merging
+would resurrect what it decided against.
 
 Then **what it handed out**: work this companion gave to others, and the answers. A receiver
 answers in its own transcript — there is no reply channel — so this is the five-page walk done
