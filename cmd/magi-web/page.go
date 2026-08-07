@@ -236,6 +236,40 @@ const indexHTML = `<!doctype html>
   }
   .sk .drop:hover { color:var(--error); border-bottom-color:var(--error); }
 
+  /* ── what they can reach ────────────────────────────────────────────────── */
+  /* An MCP server is where a companion's reach leaves this machine's file system. The list is
+     read to answer one question — which of them can see that thing — so the transport line is
+     monospace and complete rather than tidied. */
+  #mcp { display:block; max-width:var(--measure); }
+  .srv { border-bottom:1px solid var(--outlineVariant); padding:.9rem 0; }
+  .srv .top { display:flex; gap:.7rem; align-items:baseline; flex-wrap:wrap; }
+  .srv .tier {
+    font:600 9.5px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
+    flex-basis:100%; order:-1;
+  }
+  .srv.global .tier { color:var(--warn); }
+  .srv.project .tier { color:var(--accent); }
+  .srv .what { font:600 15px/1.35 var(--mono); color:var(--fg); overflow-wrap:anywhere; }
+  .srv .how { margin-top:.3rem; font:12px/1.5 var(--mono); color:var(--muted); overflow-wrap:anywhere; }
+  .srv .where { margin-top:.2rem; font-size:11px; color:var(--muted); opacity:.85; overflow-wrap:anywhere; }
+  .srv .drop {
+    background:none; border:0; border-bottom:1px solid var(--outlineVariant); border-radius:0;
+    color:var(--muted); font:600 10px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
+    padding:.3rem .1rem; min-height:44px; cursor:pointer; margin-left:auto;
+  }
+  .srv .drop:hover { color:var(--error); border-bottom-color:var(--error); }
+  #mcpAdd { display:grid; gap:.6rem; margin:1.4rem 0; max-width:var(--measure); }
+  #mcpAdd input, #mcpAdd select {
+    background:var(--surfaceContainer); color:var(--fg); border:1px solid var(--outlineVariant);
+    border-radius:2px; padding:.55rem .7rem; font:12px/1.4 var(--mono); min-height:44px;
+  }
+  #mcpAdd button {
+    justify-self:start; background:none; border:0; border-bottom:1px solid var(--primary);
+    border-radius:0; color:var(--primary); font:600 10px/1 var(--mono); letter-spacing:.16em;
+    text-transform:uppercase; padding:.4rem .1rem; min-height:44px; cursor:pointer;
+  }
+  #mcpAdd .note { font-size:11px; color:var(--muted); }
+
   /* ── the fleet, as a resource table ─────────────────────────────────────── */
   /* The shape a Kubernetes console reaches for, and for the same reason: one row per thing, fixed
      columns, a status word you scan down rather than read across. "kubectl get pods" is the
@@ -490,10 +524,12 @@ const indexHTML = `<!doctype html>
     <a href="/" id="tabFleet">companions</a>
     <a href="/?v=interventions" id="tabIv">what I had to say</a>
     <a href="/?v=skills" id="tabSkills">what they have learned</a>
+    <a href="/?v=mcp" id="tabMcp">what they can reach</a>
   </nav>
   <div id="summary"></div>
   <div id="ivs" hidden></div>
   <div id="skills" hidden></div>
+  <div id="mcp" hidden></div>
   <div id="fleet"></div>
   <div id="detail" hidden></div>
   <div id="log"></div>
@@ -520,6 +556,9 @@ const back = document.getElementById('back'), f = document.getElementById('f');
 const summaryEl = document.getElementById('summary');
 const ivsEl = document.getElementById('ivs'), tabsEl = document.getElementById('tabs');
 const skillsEl = document.getElementById('skills'), tabSkills = document.getElementById('tabSkills');
+const mcpEl = document.getElementById('mcp'), tabMcp = document.getElementById('tabMcp');
+// The last fleet answer, so the "which companion" picker names them without a second fetch.
+let fleetSeen = [];
 const tabFleet = document.getElementById('tabFleet'), tabIv = document.getElementById('tabIv');
 // Which resource this console is showing. A companion's own page is neither — it is one level in.
 const view = () => new URLSearchParams(location.search).get('v') || 'fleet';
@@ -742,6 +781,7 @@ async function loadFleet() {
 
   // On an agent's page the fleet is polled for this one entry: the prompt it is blocked on and the
   // facts in its header reach the browser no other way.
+  fleetSeen = list;
   const here = sock();
   if (here) {
     const mine = list.find(a => a.socket === here && (a.peer || '') === peerOf());
@@ -1044,6 +1084,92 @@ async function loadSkills() {
   }));
 }
 
+// ── what they can reach ──────────────────────────────────────────────────────
+// The MCP servers each companion has, and the form to add one. Not polled: a config file does not
+// change while you are looking at it, and this page is read to decide something.
+async function loadMCP() {
+  const list = await fetchList('/mcp');
+  if (!list) return;
+  const reach = new Set(list.map(s => s.companion || 'every companion here'));
+  state.className = '';
+  state.textContent = list.length + (list.length === 1 ? ' server' : ' servers') +
+                      ' · ' + reach.size + ' reached from';
+
+  const rows = list.map(sv => {
+    const el = cell('srv ' + sv.tier);
+    const top = cell('top');
+    top.append(cell('tier', sv.tier === 'global' ? 'every companion here' : 'only ' + sv.companion));
+    top.append(cell('what', sv.name));
+    const drop = document.createElement('button');
+    drop.className = 'drop'; drop.type = 'button'; drop.textContent = 'remove';
+    drop.title = 'delete this definition from ' + sv.file;
+    drop.onclick = () => {
+      const body = new URLSearchParams({name: sv.name, delete: '1'});
+      if (!sv.socket) body.set('tier', 'global');
+      post('/mcp', body, sv.socket || null).then(loadMCP);
+    };
+    top.append(drop);
+    el.append(top);
+    // The transport, complete and unprettified: this line is the answer to "what actually runs".
+    const how = sv.url ? sv.url : [sv.command, ...(sv.args || [])].join(' ');
+    el.append(cell('how', how));
+    const bits = [];
+    // Names only. magi never sends the values, and saying which are needed is what a person needs
+    // to set them up on their own machine.
+    if (sv.envNames && sv.envNames.length) bits.push('needs ' + sv.envNames.join(', '));
+    bits.push(sv.file);
+    el.append(cell('where', bits.join(' · ')));
+    return el;
+  });
+
+  const form = document.createElement('form');
+  form.id = 'mcpAdd';
+  const field = (name, placeholder, val) => {
+    const i = document.createElement('input');
+    i.name = name; i.placeholder = placeholder; if (val) i.value = val;
+    i.autocomplete = 'off';
+    return i;
+  };
+  const who = document.createElement('select');
+  who.name = 'who';
+  const opts = [['', 'every companion here (global)']].concat(
+    (fleetSeen || []).filter(a => !a.peer).map(a => [a.socket, 'only ' + a.name]));
+  for (const [v, label] of opts) {
+    const o = document.createElement('option');
+    o.value = v; o.textContent = label;
+    who.append(o);
+  }
+  form.append(who, field('name', 'name — becomes [mcp.<name>] in the config'),
+    field('command', 'command, e.g. npx   (leave empty for an HTTP server)'),
+    field('args', 'arguments, one per line or space-separated'),
+    field('url', 'or a url for an HTTP server, scheme and all'),
+    field('env', 'environment, NAME=value — values are written to the config file'));
+  const go = document.createElement('button');
+  go.type = 'submit'; go.textContent = 'add or replace';
+  form.append(go);
+  const note = cell('note',
+    'Written to that companion\'s config file. It attaches when that daemon next starts — ' +
+    'this changes the file, not a running process.');
+  form.append(note);
+  form.onsubmit = async e => {
+    e.preventDefault();
+    const body = new URLSearchParams();
+    for (const el of [...form.find('input')]) if (el.value.trim()) body.set(el.name, el.value.trim());
+    if (!who.value) body.set('tier', 'global');
+    await post('/mcp', body, who.value || null);
+    loadMCP();
+  };
+
+  if (!list.length) {
+    const e = document.createElement('div'); e.className = 'empty';
+    e.innerHTML = 'No external tool servers.<br>' +
+      'A companion can read and run things here; an MCP server is how it reaches anything else.';
+    mcpEl.replaceChildren(e, form);
+    return;
+  }
+  mcpEl.replaceChildren(...rows, form);
+}
+
 // ── one agent ────────────────────────────────────────────────────────────────
 // Follow the tail only while the reader is already at the bottom. Yanking the view down while
 // somebody reads the middle of a long run is how a live page becomes unreadable.
@@ -1089,10 +1215,12 @@ function render() {
   tabFleet.className = v === 'fleet' ? 'on' : '';
   tabIv.className = v === 'interventions' ? 'on' : '';
   tabSkills.className = v === 'skills' ? 'on' : '';
+  tabMcp.className = v === 'mcp' ? 'on' : '';
   fleetEl.hidden = !!s || v !== 'fleet';
   summaryEl.hidden = !!s || v !== 'fleet';
   ivsEl.hidden = !!s || v !== 'interventions';
   skillsEl.hidden = !!s || v !== 'skills';
+  mcpEl.hidden = !!s || v !== 'mcp';
   log.hidden = !s;
   // The composer is on both views now. On a companion's page it steers that companion; on the
   // fleet it dispatches, and the address field is the difference.
@@ -1105,6 +1233,11 @@ function render() {
   measureDock();
   if (s) { draw([]); connect(); }
   else { state.className = ''; state.textContent = ''; }
+  if (v === 'mcp') {
+    // The picker names companions, so the fleet is read once first.
+    fetchList('/fleet').then(list => { if (list) fleetSeen = list; loadMCP(); });
+    return;
+  }
   if (v === 'skills') {
     // Not polled, for the same reason the corrections page is not: this is read and thought about.
     loadSkills();
@@ -1132,7 +1265,8 @@ function nameOf(socket) {
 
 function go(s, peer) { history.pushState({}, '', s ? '/?d=' + encodeURIComponent(s) + (peer ? '&p=' + encodeURIComponent(peer) : '') : '/'); render(); }
 back.onclick = e => { e.preventDefault(); go(null); };
-for (const [el, url] of [[tabFleet, '/'], [tabIv, '/?v=interventions'], [tabSkills, '/?v=skills']]) {
+for (const [el, url] of [[tabFleet, '/'], [tabIv, '/?v=interventions'], [tabSkills, '/?v=skills'],
+                         [tabMcp, '/?v=mcp']]) {
   el.onclick = e => { e.preventDefault(); history.pushState({}, '', url); render(); };
 }
 addEventListener('popstate', render);

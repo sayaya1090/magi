@@ -1075,3 +1075,63 @@ console.log(JSON.stringify({
 		t.Errorf("the hub is not marked:\n%s", got["fleetText"])
 	}
 }
+
+// What each companion can reach, and adding one. The list is read to answer one question — which
+// of them can see that thing — so the transport line is complete rather than tidied, and the env
+// is named without its values.
+func TestTheMCPTabListsServersAndAddsOne(t *testing.T) {
+	got := runPage(t, `[]`, "?v=mcp", `
+globalThis.fetch = async (p, init) => {
+  if (init && init.method === 'POST') { RENDERED.push({to: p, body: init.body.toString()}); return {ok: true, status: 200, text: async () => 'ok'}; }
+  if (p.startsWith('/fleet')) return {ok: true, json: async () => [
+    {socket:'/s/a.sock', name:'api', state:'idle', workdir:'/w/a', session:'a', idle:1},
+  ]};
+  return {ok: true, json: async () => [
+    {name:'shared', tier:'global', url:'http://localhost:3000/mcp', file:'/cfg/config.toml'},
+    {name:'figma', tier:'project', companion:'api', socket:'/s/a.sock', command:'npx',
+     args:['-y','figma-mcp'], envNames:['FIGMA_TOKEN'], file:'/w/a/.magi/config.toml'},
+  ]};
+};
+fleetSeen = [{socket:'/s/a.sock', name:'api'}];
+await loadMCP();
+const text = byId.mcp.text;
+const form = byId.mcp.children[byId.mcp.children.length - 1];
+for (const i of form.find('input')) {
+  if (i.name === 'name') i.value = 'tickets';
+  if (i.name === 'command') i.value = 'uvx';
+}
+form.find('select')[0].value = '/s/a.sock';
+await form.onsubmit({preventDefault(){}});
+const drops = byId.mcp.find('button').filter(b => b.className === 'drop');
+drops[1].onclick();
+console.log(JSON.stringify({text, state: byId.state.textContent, posts: RENDERED.filter(r => r.to)}));
+`)
+	text := got["text"].(string)
+	for _, want := range []string{"every companion here", "only api", "npx -y figma-mcp",
+		"needs FIGMA_TOKEN", "/w/a/.magi/config.toml"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the list does not say %q:\n%s", want, text)
+		}
+	}
+	// It says when a change takes effect, which is the thing somebody would otherwise discover by
+	// wondering why their new server never appeared.
+	if !strings.Contains(text, "next starts") {
+		t.Errorf("the form does not say when it takes effect:\n%s", text)
+	}
+	posts := got["posts"].([]any)
+	if len(posts) != 2 {
+		t.Fatalf("adding and removing sent %d requests: %v", len(posts), posts)
+	}
+	add := posts[0].(map[string]any)
+	if !strings.Contains(add["to"].(string), "d=%2Fs%2Fa.sock") {
+		t.Errorf("the new server went to %q", add["to"])
+	}
+	if b := add["body"].(string); !strings.Contains(b, "name=tickets") || !strings.Contains(b, "command=uvx") {
+		t.Errorf("the definition did not travel: %q", b)
+	}
+	// Removing a global server names the tier, since there is no socket to route by.
+	del := posts[1].(map[string]any)
+	if b := del["body"].(string); !strings.Contains(b, "name=figma") || !strings.Contains(b, "delete=1") {
+		t.Errorf("the removal came out as %q", b)
+	}
+}

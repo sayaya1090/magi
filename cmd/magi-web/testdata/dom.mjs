@@ -39,6 +39,11 @@ function element(tag) {
     addEventListener() {},
     requestSubmit() {},
     focus() {},
+    set name(v) { this.attrs.name = v; },
+    get name() { return this.attrs.name ?? ''; },
+    set autocomplete(v) { this.attrs.autocomplete = v; },
+    set onsubmit(f) { this._onsubmit = f; },
+    get onsubmit() { return this._onsubmit; },
     // Attributes the console's controls set: a pressed state on the filter tiles, a disabled tile
     // for a count of zero, a title on the stop button.
     setAttribute(k, v) { this.attrs[k] = String(v); },
@@ -59,7 +64,7 @@ function element(tag) {
 }
 
 const byId = {};
-for (const id of ['fleet', 'log', 'state', 'sid', 'back', 'f', 't', 'stop', 'prompt', 'dock', 'summary', 'detail', 'crumbSep', 'crumbHere', 'ivs', 'tabs', 'tabFleet', 'tabIv', 'skills', 'tabSkills', 'to', 'roles']) byId[id] = element('div');
+for (const id of ['fleet', 'log', 'state', 'sid', 'back', 'f', 't', 'stop', 'prompt', 'dock', 'summary', 'detail', 'crumbSep', 'crumbHere', 'ivs', 'tabs', 'tabFleet', 'tabIv', 'skills', 'tabSkills', 'to', 'roles', 'mcp', 'tabMcp']) byId[id] = element('div');
 
 globalThis.document = {
   title: "",
