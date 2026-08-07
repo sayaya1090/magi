@@ -307,6 +307,10 @@ const indexHTML = `<!doctype html>
   /* name + workspace, the way a console stacks a resource over its namespace */
   .card .name { font:600 16px/1.3 var(--display); color:var(--fg); overflow-wrap:anywhere; }
   .card:hover .name { color:var(--primary); }
+  .card .role {
+    font:600 11px/1.4 var(--mono); letter-spacing:.04em; color:var(--accent);
+    overflow-wrap:anywhere; margin-top:.15rem;
+  }
   .card .path { font-size:10.5px; color:var(--muted); opacity:.9; overflow-wrap:anywhere; }
 
   /* what it is doing: one line, clipped — the detail view is one click away for the rest */
@@ -448,7 +452,13 @@ const indexHTML = `<!doctype html>
        about a third of the row and the placeholder was cut mid-sentence. They take their own line,
        which also puts them under the thumb rather than beside it. */
     .composer { flex-wrap:wrap; }
-    .composer textarea { flex:1 0 100%; }
+    .composer input#to {
+    flex:0 0 13rem; min-width:8rem; background:var(--surfaceContainer); color:var(--fg);
+    border:1px solid var(--outlineVariant); border-radius:2px; padding:.55rem .7rem;
+    font:600 12px/1.4 var(--mono); letter-spacing:.04em;
+  }
+  .composer input#to:focus-visible { outline:2px solid var(--primary); outline-offset:1px; }
+  .composer textarea { flex:1 0 100%; }
     .composer button { flex:1; }
     header { padding-left:1rem; padding-right:1rem; }
     main { padding:1.2rem 1rem calc(var(--dock, 8rem) + 1.5rem); }
@@ -488,6 +498,11 @@ const indexHTML = `<!doctype html>
 <footer id="dock">
   <div id="prompt" hidden></div>
   <form id="f" hidden><div class="composer">
+    <!-- On the fleet view the composer is addressed: the work goes to whoever does that, and which
+         machine they are on is not the asker's problem. On one companion's page it is hidden,
+         because the address is the page you are standing on. -->
+    <input id="to" hidden placeholder="to: a name, or what they do" autocomplete="off" list="roles">
+    <datalist id="roles"></datalist>
     <textarea id="t" rows="1" placeholder="Ask magi to do something…"></textarea>
     <button type="submit">send</button>
     <button type="button" id="stop">interrupt</button>
@@ -550,7 +565,11 @@ function card(a) {
   el.append(cell('badge', a.state));
 
   const who = cell('who-col');
-  who.append(cell('name', a.name), cell('path', a.workdir));
+  who.append(cell('name', a.name));
+  // What it is for, when it says so. The path stays: a role is how you pick a companion and a
+  // path is how you go and look at it, and neither answers the other's question.
+  if (a.role) who.append(cell('role', a.role));
+  who.append(cell('path', a.workdir));
   el.append(who);
 
   // What it is doing. A blocked agent shows the question instead — that is the thing to know — and
@@ -701,6 +720,14 @@ async function loadFleet() {
   const waiting = list.filter(a => a.state === 'waiting').length;
   retitle(waiting);
 
+  // Who can be addressed, offered as you type. Names and roles both, because the address field
+  // takes either and a person should not have to remember which one this companion declared.
+  rolesEl.replaceChildren(...list.flatMap(a => {
+    const opts = [Object.assign(document.createElement('option'), {value: a.name})];
+    if (a.role) opts.push(Object.assign(document.createElement('option'), {value: a.role}));
+    return opts;
+  }));
+
   // On an agent's page the fleet is polled for this one entry: the prompt it is blocked on and the
   // facts in its header reach the browser no other way.
   const here = sock();
@@ -744,6 +771,7 @@ function drawDetail(a) {
   box.replaceChildren(
     field('status', a.state, 'state ' + a.state),
     field('workspace', a.workdir),
+    ...(a.role ? [field('role', a.role)] : []),
     field('host', (a.host || 'this machine') + (a.addr ? ' · ' + a.addr : '') +
                   (a.pid ? ' · pid ' + a.pid : '')),
     field('steps', a.steps ? a.steps + '' : '—'),
@@ -1052,7 +1080,12 @@ function render() {
   summaryEl.hidden = !!s || v !== 'fleet';
   ivsEl.hidden = !!s || v !== 'interventions';
   skillsEl.hidden = !!s || v !== 'skills';
-  log.hidden = !s; f.hidden = !s;
+  log.hidden = !s;
+  // The composer is on both views now. On a companion's page it steers that companion; on the
+  // fleet it dispatches, and the address field is the difference.
+  f.hidden = !s && v !== 'fleet';
+  toEl.hidden = !!s;
+  document.getElementById('stop').hidden = !s; // nothing to interrupt from the fleet view
   document.getElementById('detail').hidden = !s;
   document.getElementById('prompt').hidden = true;
   sidEl.textContent = '';
@@ -1103,7 +1136,8 @@ async function post(path, body, socket, peer) {
   if (!r.ok) { state.className = 'lost'; state.textContent = (await r.text()).trim().slice(0, 80); }
 }
 
-const t = document.getElementById('t');
+const t = document.getElementById('t'), toEl = document.getElementById('to');
+const rolesEl = document.getElementById('roles');
 const grow = () => { t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 192) + 'px'; measureDock(); };
 
 // The transcript reserves whatever the dock is actually occupying. Its height changes with the
@@ -1118,7 +1152,13 @@ t.addEventListener('input', grow);
 f.onsubmit = e => {
   e.preventDefault();
   const v = t.value.trim(); if (!v) return;
-  t.value = ''; grow(); post('/submit', new URLSearchParams({text: v}));
+  if (sock()) { t.value = ''; grow(); post('/submit', new URLSearchParams({text: v})); return; }
+  // From the fleet: addressed work. An empty address would have to guess who it is for, and
+  // guessing sends somebody's turn into the wrong workspace — so it asks instead.
+  const to = toEl.value.trim();
+  if (!to) { state.className = 'lost'; state.textContent = 'say who it is for'; toEl.focus(); return; }
+  t.value = ''; grow();
+  post('/dispatch', new URLSearchParams({to: to, text: v})).then(loadFleet);
 };
 // Enter sends on a keyboard and inserts a newline on a phone: a soft keyboard's return key is the
 // only way to break a line there, and hijacking it leaves no way to write a second paragraph.

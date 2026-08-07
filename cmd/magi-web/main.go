@@ -411,6 +411,7 @@ func (s *server) routes() map[string]http.HandlerFunc {
 		"/skills":               s.skills,
 		"/forget":               s.forgetSkill,
 		"/context":              s.context,
+		"/dispatch":             s.dispatch,
 	}
 }
 

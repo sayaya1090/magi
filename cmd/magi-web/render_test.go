@@ -1003,3 +1003,57 @@ console.log(JSON.stringify({text, contexts: (text.match(/messages/g) || []).leng
 		t.Errorf("the stale answer won:\n%s", got["text"])
 	}
 }
+
+// The console's composer is addressed on the fleet view: the work goes to whoever does that thing,
+// and which machine they are on is not the asker's problem.
+func TestTheFleetComposerSendsWorkToAnAddress(t *testing.T) {
+	got := runPage(t, `[]`, "", `
+globalThis.fetch = async (p, init) => {
+  if (init && init.method === 'POST') { RENDERED.push({to: p, body: init.body.toString()}); return {ok: true, status: 204, text: async () => ''}; }
+  return {ok: true, json: async () => [
+    {socket:'/s/d.sock', name:'design', role:'component specs and visual review', state:'idle', workdir:'/w/d', session:'d', idle:5},
+    {socket:'/s/a.sock', name:'api', role:'the billing API', state:'working', workdir:'/w/a', session:'a', idle:1},
+  ]};
+};
+await loadFleet();
+byId.t.value = 'spec the empty state';
+byId.to.value = 'component specs';
+await f.onsubmit({preventDefault(){}});
+const before = RENDERED.filter(r => r.to).length;
+byId.t.value = 'another thing';
+byId.to.value = '';
+await f.onsubmit({preventDefault(){}});
+console.log(JSON.stringify({
+  posts: RENDERED.filter(r => r.to),
+  refused: RENDERED.filter(r => r.to).length === before,
+  state: byId.state.textContent,
+  suggestions: byId.roles.children.map(o => o.value),
+}));
+`)
+	posts := got["posts"].([]any)
+	if len(posts) != 1 {
+		t.Fatalf("one addressed send produced %d requests: %v", len(posts), posts)
+	}
+	first := posts[0].(map[string]any)
+	if !strings.HasPrefix(first["to"].(string), "/dispatch") {
+		t.Errorf("the work did not go to the dispatcher: %v", first["to"])
+	}
+	body := first["body"].(string)
+	if !strings.Contains(body, "to=component+specs") || !strings.Contains(body, "text=spec+the+empty+state") {
+		t.Errorf("the request lost the address or the words: %q", body)
+	}
+	// An empty address is refused rather than guessed: guessing sends somebody's turn into the
+	// wrong workspace, and nobody finds out until the work comes back from the wrong place.
+	if got["refused"] != true {
+		t.Error("work with nobody named was sent anyway")
+	}
+	if !strings.Contains(got["state"].(string), "who it is for") {
+		t.Errorf("the page does not say what is missing: %q", got["state"])
+	}
+	// Both kinds of address are offered, because a person should not have to remember which one a
+	// given companion declared.
+	sugg := got["suggestions"].([]any)
+	if len(sugg) != 4 {
+		t.Errorf("the address field suggests %v", sugg)
+	}
+}

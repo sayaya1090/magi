@@ -75,6 +75,11 @@ func textOf(parts []session.Part) string {
 // liveDaemon starts a real daemon behind the fixture's socket and publishes its record, so the
 // handlers go over the wire the way they do in the browser.
 func (f *fleetFixture) liveDaemon(t *testing.T, workdir, sid string, eng daemon.Engine) string {
+	return f.liveDaemonAs(t, workdir, sid, eng, daemon.Identity{})
+}
+
+// liveDaemonAs is liveDaemon for a companion that declares what it is called and what it is for.
+func (f *fleetFixture) liveDaemonAs(t *testing.T, workdir, sid string, eng daemon.Engine, id daemon.Identity) string {
 	t.Helper()
 	sock := f.cfgDir + "/daemon-" + sid + ".sock"
 	ctx, cancel := context.WithCancel(context.Background())
@@ -88,7 +93,7 @@ func (f *fleetFixture) liveDaemon(t *testing.T, workdir, sid string, eng daemon.
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	unpublish, err := daemon.Publish(sock, workdir, sid)
+	unpublish, err := daemon.Publish(sock, workdir, sid, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -379,7 +384,7 @@ func TestSendingToOneAgentDoesNotWaitOnTheOthers(t *testing.T) {
 				held = append(held, c)
 			}
 		}()
-		unpublish, err := daemon.Publish(p, wd, "s_"+name)
+		unpublish, err := daemon.Publish(p, wd, "s_"+name, daemon.Identity{})
 		if err != nil {
 			t.Fatal(err)
 		}
