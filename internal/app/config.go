@@ -163,6 +163,20 @@ type TurnObserver interface {
 	TurnFinished(sessionID string, o TurnObservation)
 }
 
+// DefaultDangerTools is the set that needs asking before it runs, when Permission is "ask".
+//
+// A function rather than a literal buried in withDefaults because a tool registered OUTSIDE the
+// built-in registry — one cmd wires in, like ask_companion — has to be able to add itself, and
+// copying the whole list to add one entry is how the copy and the original drift. Every name here
+// must be a tool this binary actually has; a literal left behind by a rename is a guardrail that
+// silently covers one less thing (see TestPolicyToolNamesAreRealTools).
+func DefaultDangerTools() map[string]bool {
+	return map[string]bool{
+		"write": true, "edit": true, "multiedit": true, "bash": true,
+		"wait_for": true, "webfetch": true, "websearch": true, "port_owner": true,
+	}
+}
+
 type Config struct {
 	Model      session.ModelRef
 	System     string
@@ -325,7 +339,7 @@ func (c Config) withDefaults() Config {
 		c.Permission = "ask"
 	}
 	if c.DangerTools == nil {
-		c.DangerTools = map[string]bool{"write": true, "edit": true, "multiedit": true, "bash": true, "wait_for": true, "webfetch": true, "websearch": true, "port_owner": true}
+		c.DangerTools = DefaultDangerTools()
 	}
 	if c.Concurrency == 0 {
 		c.Concurrency = 8

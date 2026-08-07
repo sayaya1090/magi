@@ -200,6 +200,73 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 	return out, nil
 }
 
+// Resolve finds the companions an address names: an exact name, or a role that contains it.
+//
+// Here rather than in either caller because a console and a companion must not disagree about who
+// "design" is. Two resolvers would not differ on the day they were written; they would differ the
+// first time one of them learned to match something the other did not, and the symptom would be
+// work arriving somewhere nobody chose.
+//
+// A chosen name beats a role: it was picked to address this one companion, while a role is a
+// sentence that may well describe several. A companion named "design" and another whose role
+// mentions design in passing is not an ambiguity — the first one is the answer.
+//
+// Returning every match rather than the best one is deliberate. Ranking would make the caller's
+// refusal impossible, and refusing is the right behaviour: the cost of guessing is a turn running
+// in somebody else's workspace.
+func Resolve(list []Agent, to string) []Agent {
+	want := strings.ToLower(strings.TrimSpace(to))
+	if want == "" {
+		return nil
+	}
+	var byName, byRole []Agent
+	for _, a := range list {
+		switch {
+		case strings.EqualFold(a.Name, want):
+			byName = append(byName, a)
+		case a.Role != "" && strings.Contains(strings.ToLower(a.Role), want):
+			byRole = append(byRole, a)
+		}
+	}
+	if len(byName) > 0 {
+		return byName
+	}
+	return byRole
+}
+
+// Roster is who is here, for the message when an address matched nobody: the next thing anybody
+// does is address one of them, and they cannot if they do not know who there is.
+func Roster(list []Agent) string {
+	if len(list) == 0 {
+		return "(nobody — no companion is published here)"
+	}
+	out := make([]string, 0, len(list))
+	for _, a := range list {
+		if a.Role != "" {
+			out = append(out, a.Name+" ("+Clip(a.Role, 60)+")")
+			continue
+		}
+		out = append(out, a.Name)
+	}
+	sort.Strings(out)
+	return strings.Join(out, ", ")
+}
+
+// Names is who matched, for the message when several did. Peer-qualified, because two machines can
+// each have a "design" and the whole point of the refusal is that the difference matters.
+func Names(list []Agent) string {
+	out := make([]string, 0, len(list))
+	for _, a := range list {
+		if a.Peer != "" {
+			out = append(out, a.Peer+"/"+a.Name)
+			continue
+		}
+		out = append(out, a.Name)
+	}
+	sort.Strings(out)
+	return strings.Join(out, " and ")
+}
+
 // nameOf is what a person calls this companion: what it declared, or failing that its directory.
 //
 // A declared name wins because it is the one somebody else can address, and a directory name is

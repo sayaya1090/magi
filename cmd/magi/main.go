@@ -582,11 +582,29 @@ func run() int {
 	//
 	// Late-bound reader: the App is what reads the logs and it does not exist yet. It cannot be
 	// called before it does — a tool runs inside a turn, and the first turn starts after this.
+	companionCache := &fleet.Cache{}
 	reg.Register(companion.List{
 		Reader:    func() fleet.Reader { return a },
 		ConfigDir: plat.ConfigDir(),
 		Self:      daemon.SocketPath(plat.ConfigDir(), wd),
-		Cache:     &fleet.Cache{},
+		Cache:     companionCache,
+	})
+	// Handing work to one of them. Separate from seeing them on purpose: reading the roster is
+	// harmless and this starts a turn in somebody else's workspace, so it asks first (it is in
+	// DangerTools) and refuses everything it cannot be sure of.
+	// Declared dangerous where it is registered, not in the engine's default set: the engine
+	// cannot see a tool cmd wires in, and a policy naming a tool that does not exist is a
+	// guardrail that quietly covers nothing. This one is the furthest outside the blast radius of
+	// anything on that list — it does not touch this workspace at all, it starts a turn in
+	// somebody else's, whose supervisor did not ask for it.
+	dangerTools := app.DefaultDangerTools()
+	dangerTools[companion.Ask{}.Name()] = true
+	reg.Register(companion.Ask{
+		Reader:    func() fleet.Reader { return a },
+		ConfigDir: plat.ConfigDir(),
+		Self:      daemon.SocketPath(plat.ConfigDir(), wd),
+		Called:    cfg.Companion.Name,
+		Cache:     companionCache,
 	})
 
 	a = app.New(store, app.GuardProvider(llm), reg, bus.New(), plat, app.Config{
@@ -597,6 +615,7 @@ func run() int {
 		AnswerWait:          answerWait(answerable),  // 0 for the TUI: the person is sitting in front of it
 		Profile:             orStr(*profile, cfg.Profile),
 		Sandbox:             cfg.Sandbox,
+		DangerTools:         dangerTools,
 		Allow:               cfg.Allow,
 		Deny:                cfg.Deny,
 		AllowDomains:        cfg.AllowDomains,

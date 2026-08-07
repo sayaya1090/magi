@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"sort"
 	"strings"
 
 	"github.com/sayaya1090/magi/internal/adapter/fleet"
@@ -51,16 +50,16 @@ func (s *server) dispatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	all := s.federated(r.Context(), local)
-	found := resolve(all, to)
+	found := fleet.Resolve(all, to)
 	switch len(found) {
 	case 0:
 		http.Error(w, fmt.Sprintf("nobody here is called %q or does that. This team is: %s",
-			to, roster(all)), http.StatusNotFound)
+			to, fleet.Roster(all)), http.StatusNotFound)
 		return
 	case 1:
 	default:
 		http.Error(w, fmt.Sprintf("%q matches %s — name one of them, because sending work to the "+
-			"wrong workspace is not something to guess at", to, names(found)), http.StatusConflict)
+			"wrong workspace is not something to guess at", to, fleet.Names(found)), http.StatusConflict)
 		return
 	}
 	target := found[0]
@@ -84,57 +83,6 @@ func (s *server) dispatch(w http.ResponseWriter, r *http.Request) {
 	rr.Body = formBody(r.PostForm)
 	rr.ContentLength = -1
 	s.submit(w, rr)
-}
-
-// resolve finds the companions an address names: an exact name, or a role that contains it.
-func resolve(list []fleet.Agent, to string) []fleet.Agent {
-	want := strings.ToLower(to)
-	var byName, byRole []fleet.Agent
-	for _, a := range list {
-		switch {
-		case strings.EqualFold(a.Name, to):
-			byName = append(byName, a)
-		case a.Role != "" && strings.Contains(strings.ToLower(a.Role), want):
-			byRole = append(byRole, a)
-		}
-	}
-	// A name beats a role: it was chosen to address this one companion, while a role is a sentence
-	// that may well describe several. A companion named "design" and another whose role mentions
-	// design in passing is not an ambiguity — the first one is the answer.
-	if len(byName) > 0 {
-		return byName
-	}
-	return byRole
-}
-
-// roster is who this console can reach, for the message when nobody matched.
-func roster(list []fleet.Agent) string {
-	if len(list) == 0 {
-		return "(nobody — no companion is published here)"
-	}
-	out := make([]string, 0, len(list))
-	for _, a := range list {
-		if a.Role != "" {
-			out = append(out, a.Name+" ("+fleet.Clip(a.Role, 60)+")")
-			continue
-		}
-		out = append(out, a.Name)
-	}
-	sort.Strings(out)
-	return strings.Join(out, ", ")
-}
-
-func names(list []fleet.Agent) string {
-	out := make([]string, 0, len(list))
-	for _, a := range list {
-		if a.Peer != "" {
-			out = append(out, a.Peer+"/"+a.Name)
-			continue
-		}
-		out = append(out, a.Name)
-	}
-	sort.Strings(out)
-	return strings.Join(out, " and ")
 }
 
 // formBody re-encodes a parsed form so the forwarded request carries the same fields.
