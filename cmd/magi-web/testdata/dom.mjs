@@ -82,8 +82,16 @@ globalThis.document = {
   },
 };
 globalThis.window = { innerHeight: 800, scrollY: 0, scrollTo() {} };
+// The address bar, enough of it. pushState WRITES the search string, because the page navigates
+// by pushing a url and re-reading it — a no-op stub made every tab click look like it did nothing,
+// which is a fake that answers "broken" for a page that works.
 globalThis.location = { search: process.env.QUERY ?? '' };
-globalThis.history = { pushState() {} };
+globalThis.history = {
+  pushState(_state, _title, url) {
+    const q = String(url).indexOf('?');
+    globalThis.location.search = q < 0 ? '' : String(url).slice(q);
+  },
+};
 globalThis.addEventListener = () => {};
 globalThis.matchMedia = () => ({ matches: process.env.TOUCH === '1' });
 // Timers are recorded rather than run: a test needs to know that the page ARMED a poll — the one

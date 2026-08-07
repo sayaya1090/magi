@@ -62,6 +62,10 @@ const indexHTML = `<!doctype html>
     --primary:#FF7A1A; --accent:#5CD8E6; --muted:#C9C2B8; --outline:#5A5048;
     --error:#F2B8B5; --success:#86EFAC; --surface:#211B14;
     --primaryContainer:#4A2E0B; --outlineVariant:#463E34; --warn:#FFD479;
+    /* The three council members' colours. Declared and unused HERE: the palette is the terminal's
+       and a test requires this page to carry every role of it, so that retuning one surface can
+       never leave the two disagreeing. The console shows no council, so nothing paints with them —
+       which is a contract kept, not a leftover. */
     --melchior:#FFB454; --balthasar:#5CD8E6; --casper:#FF8A8A;
     --bg:#14110d; --fg:#E8E2D8;
 
@@ -134,11 +138,25 @@ const indexHTML = `<!doctype html>
   :root {
     --display: "Newsreader", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
     --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-    /* ── the M3 shape scale, and nothing off it ───────────────────────────── */
+    /* ── state layers ───────────────────────────────────────────────────────── */
+  /* M3 does not recolour text on hover; it lays the on- colour over the surface at a fixed
+     opacity — 8% hover, 12% focus and press. One recipe, applied by adding the state class to
+     anything that responds, so a new control gets the behaviour by being told what it is rather
+     than by somebody remembering four rules. */
+
+  /* ── the M3 shape scale, and nothing off it ───────────────────────────── */
     /* 4 · 8 · 12 · 16 · 24 · full. Every radius on this page is one of these; the page used to be
        2px everywhere, which is not a value the scale has. */
     --shape-xs:4px; --shape-s:8px; --shape-m:12px; --shape-l:16px; --shape-xl:24px;
     --shape-full:9999px;
+
+    /* ── M3 motion ────────────────────────────────────────────────────────── */
+    /* Verified against material-components-android's Motion.md. The .12s ease this page used was a
+       number somebody typed; these are the system's, and using them is what makes two surfaces
+       feel like one. */
+    --ease-standard:cubic-bezier(0.2, 0, 0, 1);
+    --ease-decelerate:cubic-bezier(0.05, 0.7, 0.1, 1);
+    --dur-short2:100ms; --dur-short4:200ms; --dur-medium2:300ms;
 
     /* ── the M3 type scale ────────────────────────────────────────────────── */
     /* size/line-height pairs, taken as pairs: matching a size and inventing a line height is how
@@ -201,9 +219,6 @@ const indexHTML = `<!doctype html>
   }
   /* The three councillors, in their own hues — the signature the terminal wears, set as a
      nameplate's standing line. */
-  .magi { display:flex; gap:.6rem; }
-  .magi span { font-size:11px; letter-spacing:.22em; font-weight:600; }
-  .magi .m { color:var(--melchior); } .magi .b { color:var(--balthasar); } .magi .c { color:var(--casper); }
   .sid { color:var(--muted); font-size:11px; letter-spacing:.04em; opacity:.8; overflow-wrap:anywhere; }
   #state {
     margin-left:auto; font:600 11px/1.4 var(--mono); letter-spacing:.16em; text-transform:uppercase;
@@ -233,7 +248,7 @@ const indexHTML = `<!doctype html>
     font:600 11px/1.4 var(--mono); letter-spacing:.16em; text-transform:uppercase;
     color:var(--muted); text-decoration:none; padding-bottom:.5rem; border-bottom:2px solid transparent;
   }
-  #tabs a:hover { color:var(--primary); }
+
   #tabs a.on { color:var(--fg); border-bottom-color:var(--primary); }
 
   /* ── what I had to say ───────────────────────────────────────────────────── */
@@ -254,7 +269,7 @@ const indexHTML = `<!doctype html>
   .iv .promote button {
     background:none; border:0; border-bottom:1px solid var(--outlineVariant); border-radius:0;
     color:var(--muted); font:600 11px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
-    padding:.3rem .1rem; min-height:44px; cursor:pointer; white-space:nowrap;
+    padding:.3rem .1rem; min-height:48px; cursor:pointer; white-space:nowrap;
   }
   .iv .promote button:hover { color:var(--primary); border-bottom-color:var(--primary); }
   .iv .promote .done { color:var(--success); font:600 11px/1 var(--mono); letter-spacing:.14em;
@@ -284,7 +299,7 @@ const indexHTML = `<!doctype html>
     /* Zero on purpose: this is a text button set as an underlined word in a reading column, and a
        pill here would read as a control floating over prose. M3's shape scale includes none. */
     color:var(--muted); font:600 11px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
-    padding:.3rem .1rem; min-height:44px; cursor:pointer; margin-left:auto;
+    padding:.3rem .1rem; min-height:48px; cursor:pointer; margin-left:auto;
   }
   .sk .drop:hover { color:var(--error); border-bottom-color:var(--error); }
 
@@ -307,20 +322,32 @@ const indexHTML = `<!doctype html>
   .srv .drop {
     background:none; border:0; border-bottom:1px solid var(--outlineVariant); border-radius:0;
     color:var(--muted); font:600 11px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
-    padding:.3rem .1rem; min-height:44px; cursor:pointer; margin-left:auto;
+    padding:.3rem .1rem; min-height:48px; cursor:pointer; margin-left:auto;
   }
   .srv .drop:hover { color:var(--error); border-bottom-color:var(--error); }
   #mcpAdd { display:grid; gap:.6rem; margin:1.4rem 0; max-width:var(--measure); }
   #mcpAdd input, #mcpAdd select {
     background:var(--surfaceContainer); color:var(--fg); border:1px solid var(--outlineVariant);
-    border-radius:var(--shape-xs); padding:.55rem .7rem; font:12px/1.4 var(--mono); min-height:44px;
+    border-radius:var(--shape-xs); padding:.55rem .7rem; font:12px/1.4 var(--mono); min-height:48px;
   }
   #mcpAdd button {
     justify-self:start; background:none; border:0; border-bottom:1px solid var(--primary);
     border-radius:0; color:var(--primary); font:600 11px/1 var(--mono); letter-spacing:.16em;
-    text-transform:uppercase; padding:.4rem .1rem; min-height:44px; cursor:pointer;
+    text-transform:uppercase; padding:.4rem .1rem; min-height:48px; cursor:pointer;
   }
   #mcpAdd .note { font-size:11px; color:var(--muted); }
+
+  /* The recipe. The layer is a pseudo-element so the label's own contrast is never touched, and it
+     is inert to the pointer so it can cover the whole control without eating its clicks. */
+  .state { position:relative; }
+  .state::after {
+    content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
+    background:currentColor; opacity:0; transition:opacity var(--dur-short2) var(--ease-standard);
+  }
+  .state:hover::after { opacity:.08; }
+  .state:focus-visible::after, .state:active::after { opacity:.12; }
+  /* Material's minimum touch target is 48dp, with 8dp between targets. */
+  .state { min-height:48px; }
 
   /* ── the fleet, as a resource table ─────────────────────────────────────── */
   /* The shape a Kubernetes console reaches for, and for the same reason: one row per thing, fixed
@@ -335,7 +362,7 @@ const indexHTML = `<!doctype html>
              border-bottom:1px solid var(--outlineVariant); padding-bottom:.9rem; margin-bottom:.2rem; }
   .tile {
     background:none; border:0; padding:.2rem 0; cursor:pointer; text-align:left;
-    display:flex; flex-direction:column; gap:.15rem; min-height:44px;
+    display:flex; flex-direction:column; gap:.15rem; min-height:48px;
   }
   .tile .n { font:600 var(--headline-s) var(--display); color:var(--fg); }
   .tile .k {
@@ -373,13 +400,6 @@ const indexHTML = `<!doctype html>
     padding:.75rem .8rem .8rem; margin-left:-.8rem; border-left:2px solid transparent;
     border-radius:var(--shape-s); position:relative;
   }
-  /* A row is interactive, so it gets a state layer like any other M3 target. */
-  .card::after {
-    content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
-    background:var(--md-on-surface); opacity:0; transition:opacity .12s ease;
-  }
-  .card:hover::after { opacity:.08; }
-  .card:focus-visible::after { opacity:.12; }
   .card:hover { background:color-mix(in srgb, var(--primary) 5%, transparent); }
   .card.here { border-left-color:var(--primary); }
   .card.working { border-left-color:var(--success); }
@@ -430,7 +450,7 @@ const indexHTML = `<!doctype html>
   .actions button, .actions .open {
     background:none; border:0; border-bottom:1px solid var(--outlineVariant); border-radius:0;
     color:var(--muted); font:600 11px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
-    padding:.3rem .1rem; min-height:44px; cursor:pointer; text-decoration:none; white-space:nowrap;
+    padding:.3rem .1rem; min-height:48px; cursor:pointer; text-decoration:none; white-space:nowrap;
   }
   .actions .open:hover { color:var(--primary); border-bottom-color:var(--primary); }
   .actions .stop:hover { color:var(--error); border-bottom-color:var(--error); }
@@ -440,7 +460,7 @@ const indexHTML = `<!doctype html>
   .answer button {
     background:none; border:0; border-bottom:1px solid var(--warn); border-radius:0;
     color:var(--warn); font:600 11px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
-    padding:.3rem .1rem; min-height:44px; cursor:pointer;
+    padding:.3rem .1rem; min-height:48px; cursor:pointer;
   }
   .answer button:hover { color:var(--primary); border-bottom-color:var(--primary); }
   .answer input {
@@ -475,7 +495,7 @@ const indexHTML = `<!doctype html>
     justify-self:start; margin-top:.4rem; background:none; border:0;
     border-bottom:1px solid var(--outlineVariant); border-radius:0; color:var(--muted);
     font:600 11px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
-    padding:.3rem .1rem; min-height:44px; cursor:pointer;
+    padding:.3rem .1rem; min-height:48px; cursor:pointer;
   }
   #detail .f .fold:hover:not(:disabled) { color:var(--primary); border-bottom-color:var(--primary); }
   /* Disabled by the cursor and the missing hover, not by fading the text: a control dimmed below
@@ -584,21 +604,14 @@ const indexHTML = `<!doctype html>
   .composer button {
     border:0; border-radius:var(--shape-full);
     font:600 var(--label-l) var(--mono); letter-spacing:.14em; text-transform:uppercase;
-    padding:0 1.2rem; min-height:44px; cursor:pointer; white-space:nowrap;
-    position:relative; overflow:hidden;
+    padding:0 1.2rem; cursor:pointer; white-space:nowrap; overflow:hidden;
   }
   .composer button[type=submit] { background:var(--primary); color:var(--md-on-primary); }
   #stop { background:var(--md-surface-container-high); color:var(--md-on-surface); }
   /* State layers, not colour swaps: M3 puts the on- colour over the surface at a fixed opacity.
      Doing it with a pseudo-element keeps the label's own contrast untouched, which dimming or
      recolouring the text does not. */
-  .composer button::after {
-    content:''; position:absolute; inset:0; background:currentColor; opacity:0;
-    transition:opacity .12s ease;
-  }
-  .composer button:hover::after { opacity:.08; }
-  .composer button:focus-visible::after, .composer button:active::after { opacity:.12; }
-  .composer button:focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
+  .composer button:focus-visible { outline:3px solid var(--primary); outline-offset:2px; }
 
   @media (max-width:640px) {
     /* The two buttons and a text box do not fit across 390px: measured, the box was left with
@@ -626,7 +639,6 @@ const indexHTML = `<!doctype html>
 
 <header>
   <span class="mark">magi</span>
-  <span class="magi"><span class="m">MELCHIOR</span> <span class="b">BALTHASAR</span> <span class="c">CASPER</span></span>
   <!-- Where you are, always, in both views: magi / fleet, or magi / fleet / <agent>. The middle
        crumb is the way back, which is the same element that says where back goes. -->
   <nav id="crumbs"><a href="/" id="back">companions</a><span id="crumbSep" hidden>/</span><span id="crumbHere"></span></nav>
@@ -636,10 +648,10 @@ const indexHTML = `<!doctype html>
 
 <main>
   <nav id="tabs" hidden>
-    <a href="/" id="tabFleet">companions</a>
-    <a href="/?v=interventions" id="tabIv">corrections</a>
-    <a href="/?v=skills" id="tabSkills">lessons</a>
-    <a href="/?v=mcp" id="tabMcp">connections</a>
+    <a href="/" id="tabFleet" class="state">companions</a>
+    <a href="/?v=interventions" id="tabIv" class="state">corrections</a>
+    <a href="/?v=skills" id="tabSkills" class="state">lessons</a>
+    <a href="/?v=mcp" id="tabMcp" class="state">connections</a>
   </nav>
   <div id="summary"></div>
   <div id="ivs" hidden></div>
@@ -661,8 +673,8 @@ const indexHTML = `<!doctype html>
     <input id="to" hidden placeholder="to: a name, or what they do" autocomplete="off" list="roles">
     <datalist id="roles"></datalist>
     <textarea id="t" rows="1" placeholder="Ask magi to do something…"></textarea>
-    <button type="submit">send</button>
-    <button type="button" id="stop">interrupt</button>
+    <button type="submit" class="state">send</button>
+    <button type="button" id="stop" class="state">interrupt</button>
   </div></form>
 </footer>
 
@@ -723,7 +735,7 @@ function cell(cls, text) {
 // come from one place, and the row is a link because opening it is the common case.
 function card(a) {
   const el = document.createElement('a');
-  el.className = 'card ' + a.state + (a.here ? ' here' : '');
+  el.className = 'card ' + a.state + ' state' + (a.here ? ' here' : '');
   el.href = href(a);
   el.onclick = e => { e.preventDefault(); go(a.socket, a.peer); };
 
@@ -1077,7 +1089,7 @@ async function drawContext(a, box, field) {
   // is for the case that rule does not cover — somebody who can see the run is about to need room
   // and would rather it happened now, between turns, than in the middle of the next one.
   const fold = document.createElement('button');
-  fold.className = 'fold'; fold.type = 'button'; fold.textContent = 'compact now';
+  fold.className = 'fold state'; fold.type = 'button'; fold.textContent = 'compact now';
   fold.title = 'summarise the older turns — the detail stays on disk and can be recalled, but the ' +
                'live window loses the original wording';
   // Returns its promise, for the same reason drawDetail does: a caller that wants to know when the
@@ -1251,7 +1263,7 @@ async function loadSkills() {
       (sk.peer ? ' on ' + sk.peer : '')));
     top.append(cell('what', sk.description || sk.name));
     const drop = document.createElement('button');
-    drop.className = 'drop'; drop.type = 'button'; drop.textContent = 'forget';
+    drop.className = 'drop state'; drop.type = 'button'; drop.textContent = 'forget';
     drop.title = 'remove this rule from the store';
     drop.onclick = () => {
       // A rule on another console is forgotten THERE. The socket is that machine's path and the
@@ -1300,7 +1312,7 @@ async function loadMCP() {
     top.append(cell('tier', sv.tier === 'global' ? 'every companion here' : 'only ' + sv.companion));
     top.append(cell('what', sv.name));
     const drop = document.createElement('button');
-    drop.className = 'drop'; drop.type = 'button'; drop.textContent = 'remove';
+    drop.className = 'drop state'; drop.type = 'button'; drop.textContent = 'remove';
     drop.title = 'delete this definition from ' + sv.file;
     drop.onclick = () => {
       const body = new URLSearchParams({name: sv.name, delete: '1'});
@@ -1414,7 +1426,7 @@ function render() {
   const section = s ? 'companions' : SECTION[v] || 'companions';
   retitle(0);
   back.textContent = section;
-  back.href = s ? '/' : HREF[v] || '/';
+  back.setAttribute('href', s ? '/' : HREF[v] || '/');
   crumbSep.hidden = !s;
   crumbHere.textContent = s ? nameOf(s) : '';
   back.className = s ? '' : 'here';
@@ -1473,7 +1485,15 @@ function nameOf(socket) {
 }
 
 function go(s, peer) { history.pushState({}, '', s ? '/?d=' + encodeURIComponent(s) + (peer ? '&p=' + encodeURIComponent(peer) : '') : '/'); render(); }
-back.onclick = e => { e.preventDefault(); go(null); };
+// The crumb goes where it SAYS it goes. It names the section you are standing in, so sending it to
+// the fleet regardless made the label and the click disagree — you would read "lessons" and land on
+// companions. render() keeps its href current; this just follows it.
+back.onclick = e => {
+  e.preventDefault();
+  const url = back.getAttribute('href') || '/';
+  history.pushState({}, '', url);
+  render();
+};
 for (const [el, url] of [[tabFleet, '/'], [tabIv, '/?v=interventions'], [tabSkills, '/?v=skills'],
                          [tabMcp, '/?v=mcp']]) {
   el.onclick = e => { e.preventDefault(); history.pushState({}, '', url); render(); };

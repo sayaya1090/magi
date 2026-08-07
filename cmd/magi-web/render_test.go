@@ -423,7 +423,11 @@ console.log(JSON.stringify({tiles, rows: rows().length}));
 func TestTroubleSortsToTheTop(t *testing.T) {
 	got := runPage(t, fiveStates, "", rowsHelper+`
 await loadFleet();
-console.log(JSON.stringify({order: rows().map(r => r.className.replace('card ', ''))}));
+// The state is a class among others (card · <state> · state), so it is picked out by name
+// rather than by trimming a prefix off the whole list.
+const states = ['waiting','working','idle','abandoned','stopped'];
+console.log(JSON.stringify({order: rows().map(r =>
+  (r.className || '').split(' ').find(c => states.includes(c)) || '?')}));
 `)
 	var order []string
 	for _, o := range got["order"].([]any) {
@@ -862,7 +866,7 @@ globalThis.fetch = async (p) => ({ok: true, json: async () => p.startsWith('/con
 await drawDetail({socket: '/s/a.sock', name: 'api', state: 'working', workdir: '/w/api',
                   steps: 3, idle: 4, session: 's1', host: 'mini', addr: '10.0.0.4', pid: 4127});
 const box = byId.detail;
-const bars = box.find('div').filter(d => (d.className || '').startsWith('bar'));
+const bars = box.find('div').filter(d => (d.className || '').split(' ').includes('bar') || (d.className || '') === 'bar tight');
 console.log(JSON.stringify({text: box.text, fields: box.children.length,
   fill: bars.length ? bars[0].children[0].style.width : '',
   handed: byId.handoffs.text, plan: byId.plan.text}));
@@ -922,7 +926,7 @@ globalThis.fetch = async (p) => ({ok: true, json: async () => p.startsWith('/con
 } : []});
 await drawDetail({socket: '/s/a.sock', name: 'api', state: 'idle', workdir: '/w/api', session: 's1'});
 console.log(JSON.stringify({text: byId.detail.text,
-  bars: byId.detail.find('div').filter(d => (d.className || '').startsWith('bar')).length}));
+  bars: byId.detail.find('div').filter(d => (d.className || '').split(' ').includes('bar') || (d.className || '') === 'bar tight').length}));
 `)
 	text = got["text"].(string)
 	if !strings.Contains(text, "~5,000 tokens") || !strings.Contains(text, "estimated") {
@@ -1176,7 +1180,7 @@ for (const i of form.find('input')) {
 }
 form.find('select')[0].value = '/s/a.sock';
 await form.onsubmit({preventDefault(){}});
-const drops = byId.mcp.find('button').filter(b => b.className === 'drop');
+const drops = byId.mcp.find('button').filter(b => (b.className || '').split(' ').includes('drop'));
 drops[1].onclick();
 console.log(JSON.stringify({text, state: byId.state.textContent, posts: RENDERED.filter(r => r.to)}));
 `)
@@ -1244,7 +1248,7 @@ globalThis.fetch = async (p, init) => {
 };
 const at = {socket: '/s/a.sock', name: 'api', state: 'idle', workdir: '/w', session: 's1'};
 await drawDetail(at);
-const fold = byId.detail.find('button').filter(b => b.className === 'fold')[0];
+const fold = byId.detail.find('button').filter(b => (b.className || '').split(' ').includes('fold'))[0];
 const title = fold.attrs.title;
 await fold.onclick();
 // The same companion, unchanged: without invalidation the panel would hold pre-fold numbers, and
@@ -1272,5 +1276,56 @@ console.log(JSON.stringify({title, disabled: fold.disabled, asks,
 	// would sit on pre-fold numbers indefinitely.
 	if got["asks"].(float64) != 2 {
 		t.Errorf("the context was asked %v times across a fold, want 2", got["asks"])
+	}
+}
+
+// Clicking a tab lands on that tab, and the crumb goes where it says it goes.
+//
+// Nothing covered this until the tabs were renamed and somebody asked whether they still worked —
+// at which point the harness answered "no" for four screens that were fine, because its pushState
+// was a no-op and the page navigates by pushing a url and re-reading it. A fake that cannot express
+// navigation cannot check navigation.
+func TestClickingATabLandsOnIt(t *testing.T) {
+	got := runPage(t, `[]`, "", `
+globalThis.fetch = async () => ({ok: true, json: async () => []});
+const seen = [];
+for (const [name, el] of [['corrections', tabIv], ['lessons', tabSkills],
+                          ['connections', tabMcp], ['companions', tabFleet]]) {
+  el.onclick({preventDefault(){}});
+  seen.push({name, search: location.search, crumb: back.text, href: back.attrs.href,
+             ivs: byId.ivs.hidden, skills: byId.skills.hidden, mcp: byId.mcp.hidden,
+             fleet: byId.fleet.hidden});
+}
+// And the crumb itself, which names a section and must lead to the one it names.
+tabSkills.onclick({preventDefault(){}});
+back.onclick({preventDefault(){}});
+console.log(JSON.stringify({seen, afterCrumb: location.search}));
+`)
+	seen := got["seen"].([]any)
+	want := []struct{ search, crumb, href string }{
+		{"?v=interventions", "corrections", "/?v=interventions"},
+		{"?v=skills", "lessons", "/?v=skills"},
+		{"?v=mcp", "connections", "/?v=mcp"},
+		{"", "companions", "/"},
+	}
+	for i, w := range want {
+		row := seen[i].(map[string]any)
+		if row["search"] != w.search {
+			t.Errorf("%v left the url at %q, want %q", row["name"], row["search"], w.search)
+		}
+		if row["crumb"] != w.crumb || row["href"] != w.href {
+			t.Errorf("%v: the crumb reads %q → %q, want %q → %q",
+				row["name"], row["crumb"], row["href"], w.crumb, w.href)
+		}
+	}
+	// Each panel is shown only on its own tab.
+	if seen[0].(map[string]any)["ivs"] != false || seen[1].(map[string]any)["skills"] != false ||
+		seen[2].(map[string]any)["mcp"] != false || seen[3].(map[string]any)["fleet"] != false {
+		t.Errorf("a tab did not reveal its own panel: %v", seen)
+	}
+	// The crumb led where it said: from lessons, back to lessons' own url is wrong — it names the
+	// section you are IN, so following it must stay there rather than jumping to the fleet.
+	if got["afterCrumb"] != "?v=skills" {
+		t.Errorf("the crumb read \"lessons\" and led to %q", got["afterCrumb"])
 	}
 }
