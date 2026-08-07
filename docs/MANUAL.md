@@ -47,6 +47,28 @@ Headless output contract (stable — scripts, CI, and the bench adapters key off
 
 **Headless permission denials are honest, not a fake user decision.** Under `--permission auto`/`ask` in headless mode there is no one to answer a prompt, so `bash`/`webfetch` are unavailable. The tool result the agent receives says so **categorically** — "not available this run (this mode can't approve without a prompt), don't retry; proceed without it or report why you couldn't" — rather than the misleading `denied by user` an interactive deny would send. The distinction matters: `denied by user` reads as "the human said no to *this* call", so the agent retries variations and thrashes; the categorical message tells it the capability is simply off for the whole run, so it adapts once. Use `--permission allow` (or run interactively) if the task needs those tools. A one-line stderr note also flags the mismatch at startup.
 
+### Leaving it running, and coming back to it
+
+A turn can take twenty minutes. Closing the terminal used to end it.
+
+```sh
+./magi --daemon        # run the engine with no UI; it keeps working while nothing is watching
+./magi --attach        # attach a terminal UI to the daemon running in THIS directory
+./magi --agents        # every magi daemon on this machine, and what each is doing
+```
+
+- **One daemon per workspace.** The socket is named from the workspace's real path
+  (`<config>/daemon-<dir>-<hash>.sock`, symlinks resolved), so `--attach` in a directory finds the
+  daemon of that directory and nothing else. Two daemons cannot claim one workspace: the second one
+  loses a lock and says who has it.
+- **Detaching is not stopping.** Closing an attached UI leaves the run going, its background
+  commands alive and its language servers up — those belong to the process that started them. Ctrl-C
+  in the daemon itself is what stops it: it cancels, lets the run unwind, and drops the socket.
+- **Several viewers, one run.** More than one `--attach` can watch the same daemon.
+- `--agents` prints one line per daemon: state, what it is doing, how long it has been idle, and
+  whether it is waiting for an answer. It dials each socket in parallel with a short deadline, so a
+  wedged daemon costs a line, not the listing.
+
 ### Environment check
 ```sh
 ./magi --doctor
@@ -528,11 +550,49 @@ auto-registered. When the server shuts down, those tools are removed.
 - **Transient failures** — connection errors and 429/5xx are retried with bounded backoff (honoring `Retry-After`); an exhausted retry surfaces the **status + body** so the failure is diagnosable, never a bare "request failed".
 - **Harmony tool-call misparse** — Ollama's gpt-oss harmony parser sometimes **500s when the model emits its final answer as prose** but the server tries to read it as a tool call (`error parsing tool call: raw=…`). Because the request is unchanged across retries the 500 is deterministic, so magi retries **once with the tools array stripped**: with no tools advertised the server skips tool-call parsing and returns the same prose as normal content — the answer the model actually produced is recovered instead of the turn hard-aborting. Scoped to that exact signature, so a genuine outage still surfaces as an error.
 
-## 12. Status & scope
+## 12. The console (`magi-web`)
+
+A read-mostly web view of every magi on the machine — and, if you point it at others, on other
+machines. It is a **second surface on the same daemons**, not a service of its own: it derives what
+it shows from the event logs already on disk and sends actions over the same sockets `--attach` uses.
+
+```sh
+./magi-web                                   # http://127.0.0.1:7777
+./magi-web -addr 127.0.0.1:7788
+./magi-web -peer laptop=http://127.0.0.1:7778 -peer ci=http://127.0.0.1:7779
+```
+
+- **Loopback by default, and no login of its own.** It is reached however your organisation allows —
+  an `ssh -L` tunnel, or your own proxy with your own SSO in front of it. Building accounts into it
+  would be a second door beside the company's, and the second door is always the weaker one.
+- **`-peer name=url` federates another console.** A peer's companions merge into the list stamped
+  with its name; actions on them are forwarded to the console that owns them. A peer that does not
+  answer becomes a **row saying so**, because a machine that went quiet is the thing most worth
+  seeing. Peer URLs come from the operator only — never from a page or another peer's answer.
+
+**What it shows**
+
+| Screen | What it is for |
+|---|---|
+| companions | every agent, its state, what it is doing, which host and IP, how long it has been idle. Tiles at the top filter the table; a row's actions interrupt it or answer what it is asking |
+| what I had to say | every time a person stepped into a running turn, grouped by the words. The same correction to three companions is a rule waiting to be written — promote it to the project or the global tier from here |
+| what they have learned | both tiers of the store, rules and remembered facts, each row saying what it reaches ("every companion" / "only api"). A wrong one can be forgotten |
+| a companion's page | the transcript live, what it is blocked on, and what fills its context: size against the window when the window is known, how many times the history has been summarised away, and which topics can be pulled back |
+
+**Vocabulary.** One magi bound to one workspace is a **companion**. A person supervising several of
+them is not each companion's operator but its supervisor — the reasoning, and what that means for
+the interface, is in [`proposals/companions-and-supervision-2026-08-07.md`](proposals/companions-and-supervision-2026-08-07.md).
+
+## 13. Status & scope
 
 The **loop-engineering track is shipped**, not planned — it is the signature of the tool and is described throughout this manual: the **council** the agent declares completion to (Melchior · Balthasar · Casper, §3 · §6), the **Loop map** (`/loop`), the live deliberation panel, **rewind/fork/session-diff** (`/rewind` · `/fork` · `/loopdiff`, §4), and **re-hydratable compaction** (§4). Likewise already implemented: the **OS sandbox** (`--profile`/`sandbox`, §3), **post-edit LSP diagnostics** (§5), **web search** (`websearch`), and **prompt caching** (`cache_control`, on by default with automatic fallback). The feature/milestone spec with test examples lives in [`SPEC.md`](SPEC.md); the internals in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
-**Genuinely out of scope (today).** No web UI or hosted remote sharing — magi is a terminal client (sharing is via a git-backed experience store, §7, not a server). Automatic context *ranking* is deliberately lexical/deterministic (BM25-lite, §4), not embedding-based, so there is no vector-DB dependency. These are scope choices, not gaps to be silently filled.
+**Genuinely out of scope (today).** No accounts, sessions or permissions of magi's own: the console binds loopback and is reached through whatever the organisation already uses, because every company answers that question differently and a second door beside theirs would be the weaker one (§12). Automatic context *ranking* is deliberately lexical/deterministic (BM25-lite, §4), not embedding-based, so there is no vector-DB dependency. These are scope choices, not gaps to be silently filled.
+
+> ⚠️ **Corrected 2026-08-07.** This paragraph used to say "no web UI or hosted remote sharing — magi
+> is a terminal client". `magi-web` (§12) has existed since the daemon landed, and it federates
+> across machines. What remains true is the part that was doing the real work in that sentence:
+> magi ships no authentication and no multi-tenant server.
 
 [Ollama]: https://ollama.com
 </content>
