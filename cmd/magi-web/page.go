@@ -760,10 +760,39 @@ function drawDetail(a) {
 // ── what is in its head ──────────────────────────────────────────────────────
 // Fetched after the rest of the detail is already on screen, and appended when it lands: it costs a
 // replay of the whole log, and the six facts above it are the ones somebody opened this page for.
+//
+// # Asked again only when the answer can have changed
+//
+// The detail panel is redrawn by every fleet poll — every three seconds, for as long as the tab is
+// open. Asking for the context each time would replay the entire log each time, which is precisely
+// the cost fleet.Cache exists to avoid paying per row per poll, reintroduced one layer up. The
+// answer can only have moved if the transcript did, and the fleet row already carries that: steps.
+// So the fetch is keyed on (companion, steps) and an idle companion is asked exactly once.
+// Held rather than re-fetched: the panel is rebuilt from scratch on every redraw, so a cached
+// answer has to be re-RENDERED even when it is not re-asked for. Skipping the render as well was
+// the first version of this and it left the panel a field short every three seconds.
+let ctxHeld = {key: '', data: null};
+let ctxDraw = 0; // which redraw a pending answer belongs to
+// Steps AND state. Steps alone misses the end of a turn: the finish writes the provider's real
+// prompt count into the log without adding a tool call, so a panel keyed on steps alone would go
+// on showing its estimate — labelled "estimated" — for as long as the companion then sat idle.
+function contextKey(a) {
+  return (a.peer || '') + '\u0000' + a.socket + '\u0000' + (a.steps || 0) + '\u0000' + a.state;
+}
+
 async function drawContext(a, box, field) {
-  let c;
-  try { c = await (await fetch('/context' + qFor(a))).json(); }
-  catch { return; } // the page is still correct without it; a failed extra must not blank the rest
+  const key = contextKey(a);
+  let c = ctxHeld.key === key ? ctxHeld.data : null;
+  if (!c) {
+    const mine = ++ctxDraw;
+    try { c = await (await fetch('/context' + qFor(a))).json(); }
+    catch { return; } // the page is still correct without it; a failed extra must not blank the rest
+    // A slower answer must not land on a panel that has since been redrawn: two polls overlap the
+    // moment one of them is slow, and the late one would append a second copy of every field below
+    // — or worse, older numbers under newer ones.
+    if (mine !== ctxDraw) return;
+    ctxHeld = {key: key, data: c};
+  }
   if (!c || box.hidden) return;
 
   // Which model, because the window below is that model's and a companion can be on one you did

@@ -929,3 +929,77 @@ console.log(JSON.stringify({text: byId.ivs.text}));
 		t.Errorf("the duration was rendered as an age:\n%s", text)
 	}
 }
+
+// The detail panel is redrawn by every fleet poll, three seconds apart, for as long as the tab is
+// open. What it shows about the context costs a replay of the whole log — the exact cost the fleet
+// cache exists to avoid paying per row per poll — so it is asked for again only when the transcript
+// has actually moved, and re-rendered from what was held when it has not.
+func TestTheContextIsNotReplayedOnEveryPoll(t *testing.T) {
+	got := runPage(t, `[]`, "", `
+let asks = 0;
+globalThis.fetch = async (p) => {
+  const mine = p.startsWith('/context') ? ++asks : 0;
+  return {ok: true, json: async () => ({model: 'qwen3', window: 100, used: 40, messages: mine})};
+};
+const at = (steps, state) => ({socket: '/s/a.sock', name: 'api', state: state || 'idle',
+                               workdir: '/w', session: 's1', steps});
+await drawDetail(at(7));
+const first = byId.detail.text;
+await drawDetail(at(7));   // the same poll answer, twice more
+await drawDetail(at(7));
+const idle = byId.detail.text;
+await drawDetail(at(8));   // the transcript moved
+const moved = byId.detail.text;
+await drawDetail(at(8, 'working'));  // the turn ended: same steps, different state
+console.log(JSON.stringify({asks, first, idle, moved, restated: byId.detail.text}));
+`)
+	if got["asks"].(float64) != 3 {
+		t.Errorf("three idle polls, one new step and one state change asked %v times, want 3", got["asks"])
+	}
+	// A turn ending writes the provider's real prompt count without adding a tool call, so a panel
+	// keyed on steps alone would keep showing its estimate for as long as the companion sat idle.
+	if !strings.Contains(got["restated"].(string), "3 messages") {
+		t.Errorf("the end of a turn did not refresh the reading:\n%s", got["restated"])
+	}
+	// Held, not skipped: the panel is rebuilt from scratch each time, so a cached answer still has
+	// to be drawn. The first version of this returned early and left the panel a field short.
+	if got["idle"] != got["first"] {
+		t.Errorf("a redraw with nothing new lost the context:\n%s", got["idle"])
+	}
+	if !strings.Contains(got["first"].(string), "1 messages") {
+		t.Fatalf("the first draw did not render the answer:\n%s", got["first"])
+	}
+	if !strings.Contains(got["moved"].(string), "2 messages") {
+		t.Errorf("a companion that took a step was not asked again:\n%s", got["moved"])
+	}
+}
+
+// Two polls overlap the moment one of them is slow. The late answer must not land on a panel that
+// has been rebuilt since — it would append a second copy of every field, or put older numbers
+// under newer ones.
+func TestASlowContextAnswerDoesNotLandOnALaterPanel(t *testing.T) {
+	got := runPage(t, `[]`, "", `
+let release;
+const held = new Promise(r => { release = r; });
+let n = 0;
+globalThis.fetch = async (p) => {
+  const mine = ++n;
+  if (mine === 1) await held;                       // the first ask is the slow one
+  return {ok: true, json: async () => ({model: 'qwen3', used: 10 * mine, messages: mine})};
+};
+const at = steps => ({socket: '/s/a.sock', name: 'api', state: 'working', workdir: '/w', session: 's1', steps});
+const slow = drawDetail(at(1));
+const quick = drawDetail(at(2));
+await quick;
+release();
+await slow;
+const text = byId.detail.text;
+console.log(JSON.stringify({text, contexts: (text.match(/messages/g) || []).length}));
+`)
+	if got["contexts"].(float64) != 1 {
+		t.Errorf("the panel carries %v context blocks:\n%s", got["contexts"], got["text"])
+	}
+	if !strings.Contains(got["text"].(string), "2 messages") {
+		t.Errorf("the stale answer won:\n%s", got["text"])
+	}
+}
