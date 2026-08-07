@@ -44,6 +44,14 @@ type ContextState struct {
 	Estimated bool `json:"estimated"`
 	Messages  int  `json:"messages"`
 
+	// Cached is how much of the last measured prompt the backend served from its own cache, and
+	// CacheReported whether it said anything about a cache at all. The distinction is the whole
+	// point: 0 means the cache missed, silence means this backend does not report it, and a screen
+	// that drew both as 0% would report a working cache as broken. Measured on the default local
+	// backend: it reports nothing, so this is usually silence.
+	Cached        int  `json:"cached,omitempty"`
+	CacheReported bool `json:"cacheReported,omitempty"`
+
 	Compactions int       `json:"compactions"`
 	Shed        int       `json:"shed"` // tokens the compactions freed, summed
 	LastAt      time.Time `json:"lastAt,omitzero"`
@@ -80,7 +88,7 @@ func (a *App) ContextStateOf(ctx context.Context, sid session.SessionID) (Contex
 			// A real prompt count measured before the fold describes a context that no longer
 			// exists, and it is the LARGER number — carrying it across would report a companion
 			// as nearly full at the exact moment it was emptied.
-			out.Used = 0
+			out.Used, out.Cached, out.CacheReported = 0, 0, false
 			out.Topics = out.Topics[:0]
 			for _, sh := range d.Shards {
 				out.Topics = append(out.Topics, sh.Topic)
@@ -95,6 +103,7 @@ func (a *App) ContextStateOf(ctx context.Context, sid session.SessionID) (Contex
 			// earlier real number or the estimate.
 			if d.Usage.In > 0 {
 				out.Used = d.Usage.In
+				out.Cached, out.CacheReported = d.Usage.Cached, d.Usage.CacheReported
 			}
 		}
 	}

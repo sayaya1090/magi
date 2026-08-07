@@ -646,9 +646,14 @@ func (a *App) allParallelSafe(calls []*session.ToolCall) bool {
 func turnUsage(a *App, sid session.SessionID, start event.Usage, lastIn, cumOut int, cumCost float64) event.Usage {
 	now := a.UsageFor(sid)
 	u := event.Usage{
-		In:   now.In - start.In,
-		Out:  now.Out - start.Out,
-		Cost: now.Cost - start.Cost,
+		In:     now.In - start.In,
+		Out:    now.Out - start.Out,
+		Cost:   now.Cost - start.Cost,
+		Cached: now.Cached - start.Cached,
+		// Reported if it was reported at any point in this turn. A backend that answers some
+		// requests with a details block and some without is not a backend that stopped having a
+		// cache; treating one silent response as "unknown" would blink the reading in and out.
+		CacheReported: now.CacheReported,
 	}
 	if u.In <= 0 && u.Out <= 0 {
 		return event.Usage{In: lastIn, Out: cumOut, Cost: cumCost}

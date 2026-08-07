@@ -459,9 +459,11 @@ func (c *Client) consume(ctx context.Context, cancel context.CancelFunc, body io
 		}
 		if chunk.Usage != nil {
 			sawUsage = true
+			cached, reported := chunk.Usage.Cached()
 			emit(ctx, ch, port.ProviderEvent{
-				Type:  port.ProviderUsage,
-				Usage: &event.Usage{In: chunk.Usage.In(), Out: chunk.Usage.Out()},
+				Type: port.ProviderUsage,
+				Usage: &event.Usage{In: chunk.Usage.In(), Out: chunk.Usage.Out(),
+					Cached: cached, CacheReported: reported},
 			})
 		}
 		for _, choice := range chunk.Choices {

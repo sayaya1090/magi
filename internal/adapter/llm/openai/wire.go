@@ -146,10 +146,20 @@ func (d streamDelta) reasoningText() string {
 // as ZERO here — no error, no warning, just a run whose token totals were silently empty and a cost
 // of $0.00 next to real spend.
 //
-// prompt_tokens_details.cached_tokens and completion_tokens_details.reasoning_tokens are
-// deliberately NOT read. Pricing a cache hit differently needs a per-model cached rate the registry
-// does not carry, so capturing them changed no number and nothing displayed them — three layers of
-// plumbing for a field nobody read. When there is a rate to apply, they come back in one commit.
+// prompt_tokens_details.cached_tokens IS read, since 2026-08-07: something displays it now. The
+// console shows what share of a prompt the backend served from its cache, which is the only honest
+// answer to "is the prefix cache working" — and the alternative, a number derived from timings,
+// measures the machine's load as much as the cache.
+//
+// Reported is separate from the count, because zero and silence are different facts. A backend that
+// sends `cached_tokens: 0` is saying the cache missed; one that sends no details block at all is
+// saying nothing, and drawing that as 0% would report a working cache as broken. Measured on the
+// default local backend (Ollama /v1, 2026-08-07): it sends prompt/completion/total and no details
+// block, so on that backend this stays silent — which is why the distinction had to exist before
+// the display did.
+//
+// completion_tokens_details.reasoning_tokens is still not read: nothing shows it, and pricing it
+// differently needs a per-model rate the registry does not carry.
 type wireUsage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
@@ -159,6 +169,17 @@ type wireUsage struct {
 	// emits it. Cheap to accept and indistinguishable in meaning from the other two.
 	BareIn  int `json:"in"`
 	BareOut int `json:"out"`
+	Details *struct {
+		CachedTokens int `json:"cached_tokens"`
+	} `json:"prompt_tokens_details,omitempty"`
+}
+
+// Cached is how much of the prompt the backend served from its cache, and whether it said at all.
+func (u wireUsage) Cached() (int, bool) {
+	if u.Details == nil {
+		return 0, false
+	}
+	return u.Details.CachedTokens, true
 }
 
 // In and Out prefer whichever spelling actually carried a number, so a payload that sends both (or

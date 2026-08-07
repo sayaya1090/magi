@@ -194,6 +194,12 @@ type Usage struct {
 	In   int     `json:"in"`
 	Out  int     `json:"out"`
 	Cost float64 `json:"cost,omitempty"`
+	// Cached is the part of In the backend served from its own prompt cache, and CacheReported says
+	// whether it mentioned a cache at all. Two fields for one number because zero and silence are
+	// different facts: a backend that reports 0 is saying the cache missed, and one that reports
+	// nothing is saying nothing — shown as 0% they would both read as a cache that never works.
+	Cached        int  `json:"cached,omitempty"`
+	CacheReported bool `json:"cacheReported,omitempty"`
 }
 
 // ErrorData — TypeError.

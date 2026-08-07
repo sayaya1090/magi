@@ -32,7 +32,8 @@ func TestContextStateReadsTheFoldsOutOfTheLog(t *testing.T) {
 	for _, e := range []event.Event{
 		ctxEvent(t, event.TypePromptSubmitted, event.PromptSubmittedData{
 			MessageID: "m1", Parts: []session.Part{{Kind: session.PartText, Text: "do the thing"}}}),
-		ctxEvent(t, event.TypeTurnFinished, event.TurnFinishedData{Usage: event.Usage{In: 40000}}),
+		ctxEvent(t, event.TypeTurnFinished, event.TurnFinishedData{
+			Usage: event.Usage{In: 40000, Cached: 32000, CacheReported: true}}),
 		ctxEvent(t, event.TypeCompaction, event.CompactionData{
 			Summary: "we looked at the parser", TokensBefore: 40000, TokensAfter: 9000,
 			Shards: []event.ContextShard{{Topic: "internal/parse.go"}, {Topic: "discussion"}}}),
@@ -51,6 +52,11 @@ func TestContextStateReadsTheFoldsOutOfTheLog(t *testing.T) {
 	}
 	if len(got.Topics) != 2 || got.Topics[0] != "internal/parse.go" {
 		t.Errorf("the recallable topics came back as %v", got.Topics)
+	}
+	// The cache reading goes with it. It described the prompt that was sent before the fold, and a
+	// share of a context that no longer exists is not a share of anything.
+	if got.CacheReported || got.Cached != 0 {
+		t.Errorf("a pre-compaction cache reading survived the fold: %+v", got)
 	}
 	// The 40,000 was measured before the fold and describes a context that no longer exists — and
 	// it is the LARGER number, so carrying it across would report a companion as nearly full at
@@ -117,5 +123,49 @@ func TestAnUnreportedUsageDoesNotBecomeZeroTokens(t *testing.T) {
 		t.Fatal(err)
 	} else if got.Estimated || got.Used != 7000 {
 		t.Errorf("a silent turn threw away the last measurement: %+v", got)
+	}
+}
+
+// Whether the prompt cache is working, when the backend says — and silence when it does not.
+//
+// Zero and silence are different facts. A backend reporting `cached: 0` is saying the cache missed;
+// one that reports no cache field is saying nothing, and a screen drawing both as 0% would report a
+// working cache as broken. The default local backend is the second case (measured: Ollama's /v1
+// sends prompt/completion/total and no details block), so silence is the common answer.
+func TestTheCacheReadingSeparatesZeroFromSilence(t *testing.T) {
+	a := newTestApp(t)
+	ctx := context.Background()
+
+	for _, tc := range []struct {
+		name         string
+		usage        event.Usage
+		wantCached   int
+		wantReported bool
+	}{
+		{"a backend that reports a hit", event.Usage{In: 5000, Cached: 4000, CacheReported: true}, 4000, true},
+		{"a backend that reports a miss", event.Usage{In: 5000, Cached: 0, CacheReported: true}, 0, true},
+		{"a backend that says nothing", event.Usage{In: 5000}, 0, false},
+	} {
+		sid, err := a.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range []event.Event{
+			ctxEvent(t, event.TypePromptSubmitted, event.PromptSubmittedData{MessageID: "m1",
+				Parts: []session.Part{{Kind: session.PartText, Text: "do the thing"}}}),
+			ctxEvent(t, event.TypeTurnFinished, event.TurnFinishedData{Usage: tc.usage}),
+		} {
+			if _, aerr := a.store.Append(ctx, sid, e); aerr != nil {
+				t.Fatal(aerr)
+			}
+		}
+		got, err := a.ContextStateOf(ctx, sid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Cached != tc.wantCached || got.CacheReported != tc.wantReported {
+			t.Errorf("%s: cached=%d reported=%v, want %d/%v",
+				tc.name, got.Cached, got.CacheReported, tc.wantCached, tc.wantReported)
+		}
 	}
 }

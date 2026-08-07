@@ -135,6 +135,10 @@ func addUsage(dst *event.Usage, r event.Usage) {
 	dst.In += r.In
 	dst.Out += r.Out
 	dst.Cost += r.Cost
+	dst.Cached += r.Cached
+	// Sticky, unlike the counts. "Did this backend ever tell us about its cache" is a fact about
+	// the backend, and one response that omitted the details block does not unsay it.
+	dst.CacheReported = dst.CacheReported || r.CacheReported
 }
 
 // record adds one request to the grand total and, when the context named one, to that session's
