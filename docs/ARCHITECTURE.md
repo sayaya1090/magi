@@ -489,7 +489,8 @@ Flags (`cmd/magi/main.go`), each with a `MAGI_*` env equivalent:
 `-daemon`, `-attach`, `-agents`, `-join` (§11). API key via `MAGI_API_KEY` (or `OPENAI_API_KEY`).
 
 `cmd/magi-web` has its own small set — `-addr`, `-config-dir`, `-workdir`, `-peer name=url`
-(repeatable), `-version` — and no config file: a console's peers are an operator's decision, and
+(repeatable), `-version`, and `-emit-demo <dir>` (write the page as a static site answered by a
+mock, for the Pages workflow) — and no config file: a console's peers are an operator's decision, and
 reading them from a file magi itself writes would make them reachable by anything that can write
 one.
 
@@ -568,6 +569,12 @@ magi -daemon          the App, no UI, listening on <config>/daemon-<dir>-<hash>.
   again unless the holder is a hub passing it inside its own team. A member is not a hub, a hub
   cannot leave its team, and a companion has one team — so two hops is the most that can happen.
   The rule is read off a label in the transcript, which survives restarts, attaches and resumes.
+- **What the console serves**, all of it derived or forwarded: `/fleet` (the list), `/events` (a
+  transcript, streamed), `/context` `/plan` `/handoffs` (one companion, read off its log),
+  `/interventions` `/skills` `/promote` `/forget` (the supervision loop), `/mcp` (read and edit a
+  companion's external tool servers), and the five that change a run — `/submit` `/interrupt`
+  `/answer` `/dispatch` `/compact` — each forwarded to the daemon that owns it. A test checks that
+  every path the page references is one this binary serves.
 - **No authentication of magi's own**, by decision: loopback, and reached through whatever the
   organisation already runs. See `proposals/companions-and-supervision-2026-08-07.md` for the
   supervision model this exists to serve.

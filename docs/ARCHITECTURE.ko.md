@@ -457,7 +457,8 @@ OpenAI 호환 클라이언트 하나가 base URL만으로 Ollama / LiteLLM / vLL
 API 키는 `MAGI_API_KEY`(또는 `OPENAI_API_KEY`)로 준다.
 
 `cmd/magi-web`은 자기 것으로 작은 집합만 갖는다 — `-addr`, `-config-dir`, `-workdir`,
-`-peer name=url`(반복 가능), `-version` — 설정 파일은 없다. 콘솔의 피어는 운영자의 결정이고,
+`-peer name=url`(반복 가능), `-version`, 그리고 `-emit-demo <dir>`(페이지를 목업이 답하는 정적
+사이트로 써냄 — Pages 워크플로용) — 설정 파일은 없다. 콘솔의 피어는 운영자의 결정이고,
 magi 자신이 쓰는 파일에서 읽어오면 그 파일을 쓸 수 있는 무엇이든 피어를 정할 수 있게 된다.
 
 설정: 전역 `<configDir>/config.toml` + 프로젝트 `.magi/config.toml`(커밋 가능. 프로젝트 스칼라가
@@ -535,6 +536,11 @@ magi -daemon          UI 없는 App이 <config>/daemon-<dir>-<hash>.sock에서 �
 - **깊이는 카운터가 아니라 모양으로 묶인다.** 넘겨받은 일은 다시 넘길 수 없다 — 받은 쪽이 허브이고
   자기 팀 안으로 넘기는 경우만 예외. 멤버는 허브가 아니고, 허브는 팀을 벗어나지 못하며, 컴패니언의
   팀은 하나다 → 최대 2홉. 판단은 트랜스크립트의 라벨에서 읽으므로 재시작·attach·세션 재개를 견딘다.
+- **콘솔이 서빙하는 것** 전부는 유도되거나 전달된다: `/fleet`(목록), `/events`(트랜스크립트 스트림),
+  `/context` `/plan` `/handoffs`(컴패니언 하나를 그 로그에서 읽음), `/interventions` `/skills`
+  `/promote` `/forget`(감독 루프), `/mcp`(외부 툴 서버 조회·편집), 그리고 실행을 바꾸는 다섯 —
+  `/submit` `/interrupt` `/answer` `/dispatch` `/compact` — 각각 소유한 데몬으로 전달된다.
+  페이지가 참조하는 모든 경로가 이 바이너리가 서빙하는 경로인지 테스트가 검사한다.
 - **magi 자신의 인증은 없다**(결정 사항): 루프백이고, 조직이 이미 돌리는 수단을 통해 접근한다.
   이것이 무엇을 위해 존재하는지(감독 모델)는
   `proposals/companions-and-supervision-2026-08-07.md`.

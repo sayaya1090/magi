@@ -248,6 +248,9 @@ Markdown and syntax highlighting adapt to dark/light terminals automatically.
                                # promote a correction into a rule; -peer adds another machine
 ```
 
+The console has a clickable demo — the real page, mocked data, no server:
+<https://sayaya1090.github.io/magi/>
+
 One magi bound to one workspace is a **companion**; a person watching several of them is
 supervising rather than operating. See [MANUAL §12](docs/MANUAL.md) and the design record in
 [proposals/companions-and-supervision-2026-08-07.md](docs/proposals/companions-and-supervision-2026-08-07.md).

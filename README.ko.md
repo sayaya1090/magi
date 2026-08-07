@@ -234,6 +234,9 @@ CGO_ENABLED=0 go build -o magi ./cmd/magi
                                # 교정을 규칙으로 승격. -peer로 다른 머신을 붙인다
 ```
 
+콘솔은 눌러볼 수 있는 데모가 있다 — 진짜 페이지, 목업 데이터, 서버 없음:
+<https://sayaya1090.github.io/magi/>
+
 워크스페이스 하나에 묶인 magi 하나가 **컴패니언(companion)**이고, 여러 개를 지켜보는 사람은
 운영이 아니라 감독을 한다. [MANUAL §12](docs/MANUAL.ko.md)와 설계 기록
 [proposals/companions-and-supervision-2026-08-07.md](docs/proposals/companions-and-supervision-2026-08-07.md).
