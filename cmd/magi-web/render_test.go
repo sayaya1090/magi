@@ -565,3 +565,100 @@ console.log(JSON.stringify({
 		t.Errorf("stopping a local companion named a console: %q", posts[1])
 	}
 }
+
+// The supervisor's evening pass: what did I have to step in and say, and what of it is a rule?
+//
+// One correction is a remark. The SAME one to three companions is a rule waiting to be written, and
+// counting that by hand across five transcripts is exactly the work nobody does — so the grouping
+// and the ordering are the whole feature, not decoration on a list.
+func TestInterventionsGroupByWhatWasSaidAndCount(t *testing.T) {
+	got := runPage(t, `[]`, "?v=interventions", `
+globalThis.fetch = async (p) => ({ok: true, json: async () => p.startsWith('/interventions') ? [
+  {"companion":"api","kind":"steer","text":"run the tests before you say it is done","at":"2026-08-07T09:00:00Z","afterSec":40},
+  {"companion":"docs","kind":"steer","text":"Run the tests  before you say it is done","at":"2026-08-07T10:00:00Z","afterSec":12},
+  {"companion":"api","kind":"steer","text":"do not touch that file","at":"2026-08-07T11:00:00Z","afterSec":5},
+  {"companion":"api","kind":"denied","text":"bash","at":"2026-08-07T08:00:00Z","afterSec":9}
+] : []});
+await loadInterventions();
+console.log(JSON.stringify({
+  rows: byId.ivs.children.map(r => ({cls: r.className, text: r.text})),
+  state: byId.state.textContent,
+}));
+`)
+	rows := got["rows"].([]any)
+	if len(rows) != 3 {
+		t.Fatalf("four interventions grouped into %d rows; the two spellings of one sentence are one thing", len(rows))
+	}
+	first := rows[0].(map[string]any)["text"].(string)
+	// Most repeated first: that is the promotion candidate, and it is the reason to open this page.
+	if !strings.HasPrefix(strings.TrimSpace(first), "2×") {
+		t.Errorf("the most repeated correction is not first: %q", first)
+	}
+	// And it says which companions said it to, because "everywhere" and "one of them" promote to
+	// different tiers.
+	for _, want := range []string{"api", "docs"} {
+		if !strings.Contains(first, want) {
+			t.Errorf("the row does not say where it happened (%q): %q", want, first)
+		}
+	}
+	// A refusal is the shortest correction there is, and it reads as one.
+	var denied string
+	for _, r := range rows {
+		if strings.Contains(r.(map[string]any)["cls"].(string), "denied") {
+			denied = r.(map[string]any)["text"].(string)
+		}
+	}
+	if !strings.Contains(denied, "refused") || !strings.Contains(denied, "bash") {
+		t.Errorf("the denial row reads %q", denied)
+	}
+	if !strings.Contains(got["state"].(string), "4 interventions") {
+		t.Errorf("the header says %q", got["state"])
+	}
+}
+
+// Nothing yet is a sentence, not a blank page — and it says what fills it, because a supervisor who
+// has never steered mid-turn has no way to guess what this page is for.
+func TestAnEmptyInterventionsPageSaysWhatFillsIt(t *testing.T) {
+	got := runPage(t, `[]`, "?v=interventions", `
+globalThis.fetch = async () => ({ok: true, json: async () => []});
+await loadInterventions();
+console.log(JSON.stringify({text: byId.ivs.text}));
+`)
+	for _, want := range []string{"Nothing to promote", "steer", "refuse"} {
+		if !strings.Contains(got["text"].(string), want) {
+			t.Errorf("the empty page does not mention %q: %q", want, got["text"])
+		}
+	}
+}
+
+// The tabs say which resource is on screen and switch without a reload — and a companion's own page
+// is neither of them, being one level in.
+func TestTheTabsSayWhichResourceIsShowing(t *testing.T) {
+	fleet := runPage(t, `[]`, "", `
+console.log(JSON.stringify({tabs: byId.tabs.hidden, fleetOn: byId.tabFleet.className,
+  ivOn: byId.tabIv.className, fleetHidden: byId.fleet.hidden, ivsHidden: byId.ivs.hidden}));
+`)
+	if fleet["tabs"].(bool) || fleet["fleetOn"].(string) != "on" || fleet["ivOn"].(string) != "" {
+		t.Errorf("on the fleet the tabs read %+v", fleet)
+	}
+	if fleet["ivsHidden"] != true || fleet["fleetHidden"] != false {
+		t.Errorf("the fleet view shows the wrong list: %+v", fleet)
+	}
+	ivs := runPage(t, `[]`, "?v=interventions", `
+globalThis.fetch = async () => ({ok: true, json: async () => []});
+console.log(JSON.stringify({fleetOn: byId.tabFleet.className, ivOn: byId.tabIv.className,
+  fleetHidden: byId.fleet.hidden, ivsHidden: byId.ivs.hidden, summaryHidden: byId.summary.hidden}));
+`)
+	if ivs["ivOn"].(string) != "on" || ivs["fleetOn"].(string) != "" {
+		t.Errorf("on the interventions page the tabs read %+v", ivs)
+	}
+	if ivs["ivsHidden"] != false || ivs["fleetHidden"] != true || ivs["summaryHidden"] != true {
+		t.Errorf("the interventions view shows the wrong list: %+v", ivs)
+	}
+	agent := runPage(t, `[]`, "?d=%2Fs%2Fa.sock", `
+console.log(JSON.stringify({tabs: byId.tabs.hidden}));
+`)
+	if agent["tabs"] != true {
+		t.Error("a companion's own page shows the resource tabs; it is one level in, not a resource list")
+	}
+}

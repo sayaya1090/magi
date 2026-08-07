@@ -398,3 +398,26 @@ func TestAnIdleAgentsLastLineIsNotRebuiltEveryRefresh(t *testing.T) {
 		t.Error("nothing was rebuilt after the log grew")
 	}
 }
+
+// A list endpoint answers with a list, even when there is nothing in it.
+//
+// Go marshals a nil slice as null, and a client that iterates what it gets throws on the first
+// supervisor who has nothing to promote yet — which is every supervisor on their first day. Seen
+// live before it was covered.
+func TestAnEmptyInterventionListIsStillAList(t *testing.T) {
+	f := newFleetFixture(t)
+	got, err := fleet.Interventions(context.Background(), f.reader, f.cfgDir, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil {
+		t.Fatal("nothing to report came back as nil, which marshals to null")
+	}
+	b, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != "[]" {
+		t.Errorf("an empty result serialises as %s", b)
+	}
+}

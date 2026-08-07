@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -174,9 +175,18 @@ func (s *server) proxy(w http.ResponseWriter, r *http.Request, p peer, socket st
 	}
 	defer resp.Body.Close()
 	// The peer's own words come back verbatim: it knows why it refused and this process does not.
-	msg, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
+	msg, rerr := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
+	if rerr != nil {
+		// The status is the part that matters and it already arrived; a body that broke on the way
+		// is worth saying rather than passing on as an empty reason.
+		http.Error(w, "the console on "+p.Name+" answered "+resp.Status+
+			" and its reason did not arrive: "+rerr.Error(), http.StatusBadGateway)
+		return
+	}
 	w.WriteHeader(resp.StatusCode)
-	_, _ = w.Write(msg)
+	if _, werr := w.Write(msg); werr != nil {
+		log.Printf("magi-web: relaying %s's answer: %v", p.Name, werr)
+	}
 }
 
 // proxyStream forwards a peer's event stream, so opening a remote companion is not a different
@@ -220,6 +230,58 @@ func (s *server) proxyStream(w http.ResponseWriter, r *http.Request, p peer, soc
 			return
 		}
 	}
+}
+
+// peerInterventions asks every peer the same question and stamps the answers with its name.
+//
+// Same shape as the fleet merge and the same failure rule: a console that does not answer costs its
+// own rows and nothing else. Unlike the fleet there is no placeholder row for it — an absent
+// console cannot be mistaken for one that had nothing to say, because the fleet view directly above
+// is already showing it as unreachable.
+func (s *server) peerInterventions(ctx context.Context, rawQuery string) []fleet.Moment {
+	if len(s.peers) == 0 {
+		return nil
+	}
+	lists := make([][]fleet.Moment, len(s.peers))
+	var wg sync.WaitGroup
+	for i, p := range s.peers {
+		wg.Add(1)
+		go func(i int, p peer) {
+			defer wg.Done()
+			cctx, cancel := context.WithTimeout(ctx, peerTimeout)
+			defer cancel()
+			u := p.Base + "/interventions"
+			if rawQuery != "" {
+				u += "?" + rawQuery
+			}
+			req, err := http.NewRequestWithContext(cctx, http.MethodGet, u, nil)
+			if err != nil {
+				return
+			}
+			resp, err := s.http.Do(req)
+			if err != nil {
+				return
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				return
+			}
+			var got []fleet.Moment
+			if json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&got) != nil {
+				return
+			}
+			for j := range got {
+				got[j].Peer = p.Name
+			}
+			lists[i] = got
+		}(i, p)
+	}
+	wg.Wait()
+	var out []fleet.Moment
+	for _, l := range lists {
+		out = append(out, l...)
+	}
+	return out
 }
 
 // peerNamed finds a configured peer. Only the operator's list is consulted — a name that is not in

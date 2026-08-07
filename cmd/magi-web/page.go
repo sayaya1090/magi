@@ -174,6 +174,30 @@ const indexHTML = `<!doctype html>
      second one. The page measures the dock and reserves exactly that. */
   main { padding:1.6rem 1.4rem calc(var(--dock, 8rem) + 2rem); max-width:var(--wide); margin:0 auto; }
 
+  /* ── tabs: the resources this console shows ─────────────────────────────── */
+  #tabs { display:flex; gap:1.6rem; padding:.9rem 0 0; }
+  #tabs a {
+    font:600 10.5px/1.4 var(--mono); letter-spacing:.16em; text-transform:uppercase;
+    color:var(--muted); text-decoration:none; padding-bottom:.5rem; border-bottom:2px solid transparent;
+  }
+  #tabs a:hover { color:var(--primary); }
+  #tabs a.on { color:var(--fg); border-bottom-color:var(--primary); }
+
+  /* ── what I had to say ───────────────────────────────────────────────────── */
+  /* Grouped by what was said, because the repetition IS the finding: one correction is a remark,
+     the same one to three companions is a rule waiting to be written. */
+  #ivs { display:block; max-width:var(--measure); }
+  .iv {
+    display:grid; grid-template-columns:3.5rem 1fr; gap:1rem; align-items:baseline;
+    border-bottom:1px solid var(--outlineVariant); padding:.9rem 0;
+  }
+  .iv .times { font:600 20px/1 var(--display); color:var(--primary); text-align:right; }
+  .iv .said { font:italic 15.5px/1.5 var(--display); color:var(--fg); overflow-wrap:anywhere; }
+  .iv .where {
+    margin-top:.35rem; font-size:11px; letter-spacing:.05em; color:var(--muted);
+  }
+  .iv.denied .times { color:var(--error); }
+
   /* ── the fleet, as a resource table ─────────────────────────────────────── */
   /* The shape a Kubernetes console reaches for, and for the same reason: one row per thing, fixed
      columns, a status word you scan down rather than read across. "kubectl get pods" is the
@@ -402,7 +426,12 @@ const indexHTML = `<!doctype html>
 </header>
 
 <main>
+  <nav id="tabs" hidden>
+    <a href="/" id="tabFleet">companions</a>
+    <a href="/?v=interventions" id="tabIv">what I had to say</a>
+  </nav>
   <div id="summary"></div>
+  <div id="ivs" hidden></div>
   <div id="fleet"></div>
   <div id="detail" hidden></div>
   <div id="log"></div>
@@ -422,6 +451,10 @@ const fleetEl = document.getElementById('fleet'), log = document.getElementById(
 const state = document.getElementById('state'), sidEl = document.getElementById('sid');
 const back = document.getElementById('back'), f = document.getElementById('f');
 const summaryEl = document.getElementById('summary');
+const ivsEl = document.getElementById('ivs'), tabsEl = document.getElementById('tabs');
+const tabFleet = document.getElementById('tabFleet'), tabIv = document.getElementById('tabIv');
+// Which resource this console is showing. A companion's own page is neither — it is one level in.
+const view = () => new URLSearchParams(location.search).get('v') || 'fleet';
 const crumbSep = document.getElementById('crumbSep'), crumbHere = document.getElementById('crumbHere');
 
 const sock = () => new URLSearchParams(location.search).get('d');
@@ -656,6 +689,46 @@ function drawDetail(a) {
   box.hidden = false;
 }
 
+// ── what I had to say ────────────────────────────────────────────────────────
+// The supervisor's evening pass. Grouped by the words, because one correction is a remark and the
+// same one to three companions is a rule waiting to be written — and counting them by hand across
+// five transcripts is exactly the work nobody does.
+async function loadInterventions() {
+  let list;
+  try { list = await (await fetch('/interventions')).json(); }
+  catch { state.className = 'lost'; state.textContent = 'cannot reach magi-web'; return; }
+  const groups = new Map();
+  for (const m of list) {
+    // Grouped on the words themselves, normalised only for case and spacing. Anything cleverer
+    // would merge two different corrections and put a rule in somebody's mouth.
+    const key = m.kind + '\u0000' + m.text.toLowerCase().replace(/\s+/g, ' ').trim();
+    const g = groups.get(key) || {kind: m.kind, text: m.text, where: new Set(), n: 0, at: m.at};
+    g.n++; g.where.add((m.peer ? m.peer + '/' : '') + m.companion);
+    if (m.at > g.at) g.at = m.at;
+    groups.set(key, g);
+  }
+  const rows = [...groups.values()].sort((a, b) => (b.n - a.n) || (a.at < b.at ? 1 : -1));
+  state.className = '';
+  state.textContent = list.length + (list.length === 1 ? ' intervention' : ' interventions') +
+                      ' · ' + rows.length + ' distinct';
+  if (!rows.length) {
+    const e = document.createElement('div'); e.className = 'empty';
+    e.innerHTML = 'Nothing to promote yet.<br>' +
+      'This fills as you steer a companion mid-turn or refuse a tool — the moments worth turning into a rule.';
+    ivsEl.replaceChildren(e);
+    return;
+  }
+  ivsEl.replaceChildren(...rows.map(g => {
+    const el = cell('iv ' + g.kind);
+    el.append(cell('times', g.n + '×'));
+    const body = cell('body');
+    body.append(cell('said', g.kind === 'denied' ? 'refused ' + g.text : g.text));
+    body.append(cell('where', [...g.where].join(' · ') + ' · last ' + g.at.replace('T', ' ').replace('Z', '')));
+    el.append(body);
+    return el;
+  }));
+}
+
 // ── one agent ────────────────────────────────────────────────────────────────
 // Follow the tail only while the reader is already at the bottom. Yanking the view down while
 // somebody reads the middle of a long run is how a live page becomes unreadable.
@@ -691,12 +764,18 @@ function render() {
   if (es) { es.close(); es = null; }
   if (fleetTimer) { clearInterval(fleetTimer); fleetTimer = null; }
   const s = sock();
+  const v = s ? '' : view();
   // Where you are, said in the masthead: magi / fleet, or magi / fleet / <agent>. The crumb that
   // names the fleet IS the way back, so the answer to "where am I" and the way out are one thing.
   crumbSep.hidden = !s;
   crumbHere.textContent = s ? nameOf(s) : '';
   back.className = s ? '' : 'here';
-  fleetEl.hidden = !!s; summaryEl.hidden = !!s;
+  tabsEl.hidden = !!s;
+  tabFleet.className = v === 'fleet' ? 'on' : '';
+  tabIv.className = v === 'interventions' ? 'on' : '';
+  fleetEl.hidden = !!s || v !== 'fleet';
+  summaryEl.hidden = !!s || v !== 'fleet';
+  ivsEl.hidden = !!s || v !== 'interventions';
   log.hidden = !s; f.hidden = !s;
   document.getElementById('detail').hidden = !s;
   document.getElementById('prompt').hidden = true;
@@ -704,8 +783,15 @@ function render() {
   measureDock();
   if (s) { draw([]); connect(); }
   else { state.className = ''; state.textContent = ''; }
-  // Both views poll the fleet: the dashboard for its rows, an agent's page for the facts about
-  // itself that its log cannot carry.
+  if (v === 'interventions') {
+    // Not polled: this is a page somebody reads and thinks about, and a list that reorders itself
+    // under the cursor while they are deciding what to promote is worse than one that is a minute
+    // old. It reloads when they come back to it.
+    loadInterventions();
+    return;
+  }
+  // The other two poll: the fleet for its rows, a companion's page for the facts about itself that
+  // its log cannot carry.
   loadFleet();
   fleetTimer = setInterval(loadFleet, 3000);
 }
@@ -719,6 +805,9 @@ function nameOf(socket) {
 
 function go(s, peer) { history.pushState({}, '', s ? '/?d=' + encodeURIComponent(s) + (peer ? '&p=' + encodeURIComponent(peer) : '') : '/'); render(); }
 back.onclick = e => { e.preventDefault(); go(null); };
+for (const [el, url] of [[tabFleet, '/'], [tabIv, '/?v=interventions']]) {
+  el.onclick = e => { e.preventDefault(); history.pushState({}, '', url); render(); };
+}
 addEventListener('popstate', render);
 
 async function post(path, body, socket, peer) {

@@ -27,6 +27,8 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -330,6 +332,31 @@ func (s *server) page(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// interventions is the supervisor's evening question: what did I have to step in and say?
+//
+// Gathered across every companion, including the federated ones, because the whole value is seeing
+// that the same correction went to three of them — that is what makes it a rule rather than a
+// remark, and one companion at a time cannot show it.
+func (s *server) interventions(w http.ResponseWriter, r *http.Request) {
+	since := 7 * 24 * time.Hour
+	if v := r.URL.Query().Get("days"); v != "" {
+		if d, err := strconv.Atoi(v); err == nil && d > 0 && d <= 90 {
+			since = time.Duration(d) * 24 * time.Hour
+		}
+	}
+	list, err := fleet.Interventions(r.Context(), s.reader, s.cfgDir, since)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	list = append(list, s.peerInterventions(r.Context(), r.URL.RawQuery)...)
+	sort.Slice(list, func(i, j int) bool { return list[i].At > list[j].At })
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(list); err != nil {
+		log.Printf("magi-web: writing the interventions: %v", err)
+	}
+}
+
 // routes is every path this server answers, in one place.
 //
 // A list rather than a run of mux.HandleFunc calls because the page links to some of these, and a
@@ -346,6 +373,7 @@ func (s *server) routes() map[string]http.HandlerFunc {
 		"/manifest.webmanifest": s.manifest,
 		"/icon.svg":             s.icon,
 		"/font/":                s.font,
+		"/interventions":        s.interventions,
 	}
 }
 
