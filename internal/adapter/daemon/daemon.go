@@ -621,6 +621,12 @@ type Info struct {
 	Session string `json:"session"`
 	PID     int    `json:"pid"`
 	Started string `json:"started"` // RFC3339
+	// Host and Addr say WHERE this is running. Everything in one config directory is on one
+	// machine, so on a laptop they are the same for every entry and read as noise — until you are
+	// looking at three browser tabs forwarded from three hosts over ssh, which is the arrangement
+	// this whole split exists for. Then the only thing telling them apart is this.
+	Host string `json:"host,omitempty"`
+	Addr string `json:"addr,omitempty"`
 	// Live is filled in by List, not by the daemon: a file cannot say whether the process that
 	// wrote it is still there. Only a dial can.
 	Live bool `json:"-"`
@@ -635,9 +641,11 @@ func SessionFile(socketPath string) string { return socketPath + ".session" }
 
 // Publish records the daemon and returns a function that removes the record.
 func Publish(socketPath, workdir, sid string) (func(), error) {
+	host, _ := os.Hostname()
 	b, err := json.Marshal(Info{
 		Socket: socketPath, Workdir: workdir, Session: sid,
 		PID: os.Getpid(), Started: time.Now().UTC().Format(time.RFC3339),
+		Host: host, Addr: primaryAddr(),
 	})
 	if err != nil {
 		return func() {}, fmt.Errorf("daemon: publishing: %w", err)
@@ -647,6 +655,38 @@ func Publish(socketPath, workdir, sid string) (func(), error) {
 		return func() {}, fmt.Errorf("daemon: publishing: %w", err)
 	}
 	return func() { os.Remove(f) }, nil
+}
+
+// primaryAddr is the address another machine would reach this one at, best effort.
+//
+// The first routable IPv4 on an interface that is up. Not a guarantee — a host with several NICs
+// has several answers and this picks one — which is why it travels beside the hostname rather than
+// instead of it. Empty when there is nothing routable, which is the honest answer for a laptop on
+// no network.
+func primaryAddr() string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	for _, in := range ifaces {
+		if in.Flags&net.FlagUp == 0 || in.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, aerr := in.Addrs()
+		if aerr != nil {
+			continue
+		}
+		for _, a := range addrs {
+			ipn, ok := a.(*net.IPNet)
+			if !ok || ipn.IP.IsLoopback() || ipn.IP.IsLinkLocalUnicast() {
+				continue
+			}
+			if v4 := ipn.IP.To4(); v4 != nil {
+				return v4.String()
+			}
+		}
+	}
+	return ""
 }
 
 // Published reads what a daemon published.

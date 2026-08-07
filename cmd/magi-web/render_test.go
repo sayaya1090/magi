@@ -56,12 +56,18 @@ func runPage(t *testing.T, fleetJSON, query, epilogue string) map[string]any {
 	return got
 }
 
-const dumpFleet = `
+// rows() is the table's data rows: the head is a child of #fleet too, and it is not an agent.
+const rowsHelper = `
+const rows = () => byId.fleet.children.filter(c => c.className.startsWith('card'));
+`
+
+const dumpFleet = rowsHelper + `
 await loadFleet();
-const cards = byId.fleet.children.map(c => ({
+const cards = rows().map(c => ({
   cls: c.className,
   text: c.text,
-  buttons: c.find('button').map(b => b.textContent),
+  buttons: (c.find('div').find(d => d.className === 'answer') || {find: () => []}).find('button').map(b => b.textContent),
+  actions: (c.find('div').find(d => d.className === 'actions') || {find: () => []}).find('button').map(b => b.textContent),
   inputs: c.find('input').length,
 }));
 console.log(JSON.stringify({cards, state: byId.state.textContent, stateCls: byId.state.className}));
@@ -88,7 +94,7 @@ func TestTheDashboardDrawsACardPerAgent(t *testing.T) {
 			t.Errorf("the working local agent's card is %q, missing %q", cls, want)
 		}
 	}
-	for _, want := range []string{"api", "/w/api", "make the tests pass", "7 steps", "this directory"} {
+	for _, want := range []string{"api", "/w/api", "make the tests pass", "7", "this directory"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the card does not show %q: %q", want, text)
 		}
@@ -155,12 +161,11 @@ func TestAQuestionGetsSomewhereToTypeTheAnswer(t *testing.T) {
 
 // Nothing running is a state with an answer, not a blank page.
 func TestAnEmptyFleetSaysHowToStartOne(t *testing.T) {
-	got := runPage(t, `[]`, "", dumpFleet)
-	cards := got["cards"].([]any)
-	if len(cards) != 1 {
-		t.Fatalf("an empty fleet drew %d cards", len(cards))
-	}
-	text := cards[0].(map[string]any)["text"].(string)
+	got := runPage(t, `[]`, "", `
+await loadFleet();
+console.log(JSON.stringify({empty: byId.fleet.text}));
+`)
+	text := got["empty"].(string)
 	for _, want := range []string{"No magi daemons", "magi --daemon"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the empty state does not say %q: %q", want, text)
@@ -352,9 +357,9 @@ func TestAnsweringSendsOneTargetNotTwo(t *testing.T) {
 		got := runPage(t, `[
           {"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"waiting","live":true,
            "asking":"bash: rm -rf build","askId":"call_7","askKind":"permission","idle":3}
-        ]`, view.query, `
+        ]`, view.query, rowsHelper+`
 await loadFleet();
-const box = document.getElementById('prompt').hidden ? byId.fleet.children[0] : document.getElementById('prompt');
+const box = document.getElementById('prompt').hidden ? rows()[0] : document.getElementById('prompt');
 // fetch records the call synchronously, before its first await, so nothing needs waiting on.
 box.find('button')[0].onclick({preventDefault(){}, stopPropagation(){}});
 console.log(JSON.stringify({posts: RENDERED.filter(r => r.method === 'POST').map(r => r.fetched)}));
@@ -369,6 +374,146 @@ console.log(JSON.stringify({posts: RENDERED.filter(r => r.method === 'POST').map
 		}
 		if !strings.HasPrefix(u, "/answer?d=") || strings.Count(u, "d=") != 1 {
 			t.Errorf("%s: the answer went to %q", view.name, u)
+		}
+	}
+}
+
+const fiveStates = `[
+  {"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"waiting","live":true,
+   "asking":"bash: rm -rf build","askId":"c1","askKind":"permission","task":"clean up","steps":7,"idle":9,
+   "host":"mini","addr":"10.0.0.12"},
+  {"socket":"/s/b.sock","name":"docs","workdir":"/w/docs","state":"working","live":true,
+   "task":"rewrite the page","steps":12,"idle":2,"host":"mini","addr":"10.0.0.12"},
+  {"socket":"/s/c.sock","name":"scratch","workdir":"/w/scratch","state":"idle","live":true,
+   "task":"done","idle":400,"host":"mini","addr":"10.0.0.12"},
+  {"socket":"/s/d.sock","name":"old","workdir":"/w/old","state":"abandoned","live":false,
+   "task":"gave up","steps":23,"idle":9000,"host":"mini","addr":"10.0.0.12"},
+  {"socket":"/s/e.sock","name":"rel","workdir":"/w/rel","state":"stopped","live":false,
+   "task":"tagged","idle":9000,"host":"mini","addr":"10.0.0.12"}
+]`
+
+// The console answers "does anything need me" before you read a single row.
+//
+// Counting rows to find that out is the work the summary removes, and it is the first thing a
+// Kubernetes console shows for the same reason. The states fold into four buckets because a
+// supervisor's next action is the same for the two dead ones.
+func TestTheSummaryCountsEachStateAndFilters(t *testing.T) {
+	got := runPage(t, fiveStates, "", rowsHelper+`
+await loadFleet();
+const tiles = byId.summary.children.map(t => ({k: t.text, pressed: t.getAttribute('aria-pressed'), off: t.disabled}));
+console.log(JSON.stringify({tiles, rows: rows().length}));
+`)
+	var got4 []string
+	for _, tl := range got["tiles"].([]any) {
+		got4 = append(got4, tl.(map[string]any)["k"].(string))
+	}
+	want := "1 waiting|1 working|1 idle|2 gone"
+	if strings.Join(got4, "|") != want {
+		t.Errorf("the summary reads %v, want %s", got4, want)
+	}
+	if n := got["rows"].(float64); n != 5 {
+		t.Errorf("%v rows for five companions", n)
+	}
+}
+
+// Trouble first. A list you have to read to find the problem is a list that hides it, so the order
+// is waiting, working, idle, gone — and most recently active within each.
+func TestTroubleSortsToTheTop(t *testing.T) {
+	got := runPage(t, fiveStates, "", rowsHelper+`
+await loadFleet();
+console.log(JSON.stringify({order: rows().map(r => r.className.replace('card ', ''))}));
+`)
+	var order []string
+	for _, o := range got["order"].([]any) {
+		order = append(order, o.(string))
+	}
+	if strings.Join(order, ",") != "waiting,working,idle,abandoned,stopped" {
+		t.Errorf("the rows came out %v", order)
+	}
+}
+
+// Stopping must not require entering first. The row you want to halt is the one you are looking
+// at, and making somebody open it to reach the button is how a runaway turn gets another thirty
+// seconds. Only live ones that are doing something get the control.
+func TestStoppingWorksFromTheList(t *testing.T) {
+	got := runPage(t, fiveStates, "", rowsHelper+`
+await loadFleet();
+const stops = rows().map(r => r.find('button').filter(b => b.className === 'stop').length);
+rows()[0].find('button').filter(b => b.className === 'stop')[0].onclick({preventDefault(){}, stopPropagation(){}});
+console.log(JSON.stringify({stops, posts: RENDERED.filter(r => r.method === 'POST').map(r => r.fetched)}));
+`)
+	var stops []float64
+	for _, s := range got["stops"].([]any) {
+		stops = append(stops, s.(float64))
+	}
+	// waiting, working: stoppable. idle: nothing to stop. the two dead ones: nobody to tell.
+	if len(stops) != 5 || stops[0] != 1 || stops[1] != 1 || stops[2] != 0 || stops[3] != 0 || stops[4] != 0 {
+		t.Errorf("stop controls per row: %v — want one on the two that are running", stops)
+	}
+	posts := got["posts"].([]any)
+	if len(posts) != 1 || !strings.HasPrefix(posts[0].(string), "/interrupt?d=") {
+		t.Fatalf("pressing stop sent %v", posts)
+	}
+	if strings.Count(posts[0].(string), "?") != 1 {
+		t.Errorf("the interrupt went to %q", posts[0])
+	}
+}
+
+// Where the machine is. Everything under one config directory is one machine, so on a laptop this
+// reads as noise — until three tabs are forwarded from three hosts over ssh, which is the
+// arrangement the whole split exists for, and then it is the only thing telling them apart.
+func TestEachRowSaysWhereItRuns(t *testing.T) {
+	got := runPage(t, fiveStates, "", rowsHelper+`
+await loadFleet();
+console.log(JSON.stringify({first: rows()[0].text}));
+`)
+	first := got["first"].(string)
+	for _, want := range []string{"mini", "10.0.0.12"} {
+		if !strings.Contains(first, want) {
+			t.Errorf("the row does not say where it runs (%q): %q", want, first)
+		}
+	}
+}
+
+// The breadcrumb is both the answer to "where am I" and the way back — one element doing both, so
+// they cannot disagree.
+func TestTheBreadcrumbSaysWhereYouAreAndLeadsBack(t *testing.T) {
+	fleet := runPage(t, fiveStates, "", `
+console.log(JSON.stringify({back: back.text, sep: crumbSep.hidden, here: crumbHere.text, href: back.attrs.href}));
+`)
+	if fleet["sep"] != true || fleet["here"].(string) != "" {
+		t.Errorf("on the fleet the crumb shows a second level: %+v", fleet)
+	}
+	agent := runPage(t, fiveStates, "?d=%2Fs%2Fa.sock", `
+console.log(JSON.stringify({back: back.text, sep: crumbSep.hidden, here: crumbHere.text, href: back.attrs.href}));
+`)
+	if agent["sep"] != false {
+		t.Error("on an agent's page the crumb has no separator")
+	}
+	if agent["here"].(string) == "" {
+		t.Error("on an agent's page the crumb does not name it")
+	}
+	// The crumb's own word and its href are static markup, which the fake DOM never parses — they
+	// are checked against the page source instead, where they actually live.
+	if !strings.Contains(indexHTML, `<a href="/" id="back">fleet</a>`) {
+		t.Error("the masthead has no fleet crumb linking home")
+	}
+}
+
+// A detail page says what it is showing. The transcript alone does not: it is the same rows of
+// text whichever companion you opened.
+func TestTheDetailHeaderNamesWhatYouAreLookingAt(t *testing.T) {
+	got := runPage(t, fiveStates, "?d=%2Fs%2Fa.sock", `
+await loadFleet();
+const d = document.getElementById('detail');
+console.log(JSON.stringify({hidden: d.hidden, text: d.text}));
+`)
+	if got["hidden"].(bool) {
+		t.Fatal("the detail header is hidden on a companion's own page")
+	}
+	for _, want := range []string{"waiting", "/w/api", "mini", "10.0.0.12", "7"} {
+		if !strings.Contains(got["text"].(string), want) {
+			t.Errorf("the header does not say %q: %q", want, got["text"])
 		}
 	}
 }

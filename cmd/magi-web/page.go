@@ -174,86 +174,129 @@ const indexHTML = `<!doctype html>
      second one. The page measures the dock and reserves exactly that. */
   main { padding:1.6rem 1.4rem calc(var(--dock, 8rem) + 2rem); max-width:var(--wide); margin:0 auto; }
 
-  /* ── the fleet, as a column of entries ──────────────────────────────────── */
-  /* Rules, not boxes. A card with a border around it is a widget; a rule between entries is a
-     page, and twenty agents read as a list of stories rather than a wall of chrome. */
-  /* The entries span the page's column, not the prose measure: a rule under a name and a rule
-     under the masthead that stop at different places read as a mistake rather than as a hierarchy.
-     What is held to a measure is the LEAD LINE, which is the only prose here. */
+  /* ── the fleet, as a resource table ─────────────────────────────────────── */
+  /* The shape a Kubernetes console reaches for, and for the same reason: one row per thing, fixed
+     columns, a status word you scan down rather than read across. "kubectl get pods" is the
+     archetype of seeing twenty of something at once, and twenty agents is what this is for.
+     The editorial part survives in the type — hairlines instead of borders, a serif name, tabular
+     figures — because a stock listing is a table too. */
+
+  /* The summary: how many of each, and a filter. A dashboard's first question is "does anything
+     need me", and counting cards to answer it is the thing this row removes. */
+  #summary { display:flex; gap:1.6rem; flex-wrap:wrap; align-items:baseline;
+             border-bottom:1px solid var(--outlineVariant); padding-bottom:.9rem; margin-bottom:.2rem; }
+  .tile {
+    background:none; border:0; padding:.2rem 0; cursor:pointer; text-align:left;
+    display:flex; flex-direction:column; gap:.15rem; min-height:44px;
+  }
+  .tile .n { font:600 26px/1 var(--display); color:var(--fg); }
+  .tile .k {
+    font:600 10px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
+    display:flex; align-items:center; gap:.35rem;
+  }
+  /* A status dot AND the word — the colour is never the only thing carrying the state. */
+  .tile .k::before { content:""; width:7px; height:7px; border-radius:50%; background:currentColor; }
+  .tile.waiting .k { color:var(--warn); }
+  .tile.working .k { color:var(--success); }
+  .tile.idle    .k { color:var(--accent); }
+  .tile.gone    .k { color:var(--error); }
+  .tile[aria-pressed="true"] { border-bottom:2px solid var(--primary); }
+  /* A count of zero reads as zero; it does not need to be faint as well, and dimming it put the
+     label under AA in both themes (2.25:1 in light — measured by the contrast check). */
+  .tile:disabled { cursor:default; }
+  .tile:disabled .n, .tile:disabled .k { color:var(--muted); }
+
   #fleet { display:block; }
+  /* One grid for the header and every row, so the columns line up without a table element and
+     collapse to two lines on a phone. */
+  .thead, .card {
+    display:grid; align-items:baseline;
+    grid-template-columns: 8.5rem minmax(12rem, 1.4fr) minmax(0, 2fr) 4.5rem 4rem 9rem 7rem;
+    gap:.9rem;
+  }
+  .thead {
+    font:600 9.5px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
+    padding:.9rem 0 .5rem; border-bottom:1px solid var(--fg);
+  }
+  .thead .r, .card .r { text-align:right; }
 
   .card {
-    display:block; text-decoration:none; color:inherit;
-    border-top:1px solid var(--outlineVariant);
-    padding:1.15rem 0 1.25rem 1rem;
-    margin-left:-1rem; border-left:2px solid transparent;
-    transition:border-left-color .12s ease, background .12s ease;
+    text-decoration:none; color:inherit; border-bottom:1px solid var(--outlineVariant);
+    padding:.75rem 0 .8rem .8rem; margin-left:-.8rem; border-left:2px solid transparent;
   }
-  #fleet .card:first-of-type { border-top:0; }
-  /* M3 keeps its state layers; they are just quieter here than a filled card would be. */
-  .card:hover { background:color-mix(in srgb, var(--primary) 5%, transparent); border-left-color:var(--outline); }
-  .card:active { background:color-mix(in srgb, var(--primary) 10%, transparent); }
+  .card:hover { background:color-mix(in srgb, var(--primary) 5%, transparent); }
   .card.here { border-left-color:var(--primary); }
   .card.working { border-left-color:var(--success); }
   .card.waiting { border-left-color:var(--warn); }
   .card.abandoned { border-left-color:var(--error); }
   .card.stopped { opacity:.8; }
 
-  /* wrap, not wrap-reverse: the badge is order:-1 with a full-width basis, so it takes the first
-     line on its own and the name follows underneath. wrap-reverse would invert the cross axis and
-     put that first line at the BOTTOM — the kicker below the headline, which is the one arrangement
-     this layout is not. */
-  .card .top { display:flex; align-items:baseline; gap:.7rem; flex-wrap:wrap; }
-  .card .name {
-    font:600 20px/1.25 var(--display); letter-spacing:.005em; color:var(--fg);
-  }
-  .card:hover .name { color:var(--primary); }
-  /* The state is the kicker, and it sits ABOVE the name in the reading order a person uses:
-     what is happening, then which agent. */
+  /* status */
   .card .badge {
-    order:-1; flex-basis:100%;
-    font:600 10.5px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase;
-    color:var(--muted); margin-bottom:.15rem;
+    font:600 10px/1.6 var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--muted);
+    display:flex; align-items:center; gap:.4rem;
   }
+  .card .badge::before { content:""; width:7px; height:7px; border-radius:50%; background:currentColor; flex:none; }
   .card.working .badge { color:var(--success); }
-  .card.abandoned .badge { color:var(--error); }
-  .card.idle .badge { color:var(--accent); }
   .card.waiting .badge { color:var(--warn); }
-  .card .path {
-    font-size:11.5px; color:var(--muted); opacity:.9; overflow-wrap:anywhere; margin-top:.3rem;
-  }
-  /* The lead: what it is doing, set as a sentence rather than a log line. */
+  .card.idle .badge { color:var(--accent); }
+  .card.abandoned .badge, .card.stopped .badge { color:var(--error); }
+
+  /* name + workspace, the way a console stacks a resource over its namespace */
+  .card .name { font:600 16px/1.3 var(--display); color:var(--fg); overflow-wrap:anywhere; }
+  .card:hover .name { color:var(--primary); }
+  .card .path { font-size:10.5px; color:var(--muted); opacity:.9; overflow-wrap:anywhere; }
+
+  /* what it is doing: one line, clipped — the detail view is one click away for the rest */
   .card .last {
-    font:italic 15.5px/1.55 var(--display); color:var(--fg); margin-top:.55rem; max-width:var(--measure);
+    font:italic 13.5px/1.45 var(--display); color:var(--fg);
     display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
   }
-  .card .asking {
-    font:600 14px/1.5 var(--mono); color:var(--warn); margin-top:.55rem; overflow-wrap:anywhere;
-  }
-  .card .meta {
-    margin-top:.55rem; font-size:11px; letter-spacing:.06em; color:var(--muted); opacity:.8;
-  }
+  .card .asking { font:600 12.5px/1.45 var(--mono); color:var(--warn); overflow-wrap:anywhere; }
+  .card .num { font-size:12px; color:var(--muted); }
+  .card .host { font-size:11px; color:var(--muted); overflow-wrap:anywhere; }
+  .card .host b { font-weight:400; color:var(--fg); opacity:.85; }
 
-  /* Answering, as text buttons — the editorial equivalent of a form: words with rules under them.
-     Still 44px of touch target, which is a phone's business and not a style's. */
-  .answer { display:flex; gap:1.1rem; margin-top:.75rem; flex-wrap:wrap; align-items:center; }
+  /* Row actions. Open is the row itself as well, but a named control is what makes it discoverable
+     — and stopping must never require entering first, which is the whole point of a console. */
+  .actions { display:flex; gap:.8rem; justify-content:flex-end; align-items:center; }
+  .actions button, .actions .open {
+    background:none; border:0; border-bottom:1px solid var(--outlineVariant); border-radius:0;
+    color:var(--muted); font:600 10px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
+    padding:.3rem .1rem; min-height:44px; cursor:pointer; text-decoration:none; white-space:nowrap;
+  }
+  .actions .open:hover { color:var(--primary); border-bottom-color:var(--primary); }
+  .actions .stop:hover { color:var(--error); border-bottom-color:var(--error); }
+
+  /* answering, inline in the row that is asking */
+  .answer { display:flex; gap:1rem; margin-top:.5rem; flex-wrap:wrap; align-items:center; }
   .answer button {
     background:none; border:0; border-bottom:1px solid var(--warn); border-radius:0;
-    color:var(--warn); font:600 11.5px/1 var(--mono); letter-spacing:.16em; text-transform:uppercase;
-    padding:.35rem .1rem; min-height:44px; cursor:pointer;
+    color:var(--warn); font:600 11px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
+    padding:.3rem .1rem; min-height:44px; cursor:pointer;
   }
   .answer button:hover { color:var(--primary); border-bottom-color:var(--primary); }
   .answer input {
     flex:1; min-width:9rem; background:transparent; color:var(--fg); font:16px/1.5 var(--mono);
-    border:0; border-bottom:1px solid var(--outline); border-radius:0; padding:.45rem .1rem;
+    border:0; border-bottom:1px solid var(--outline); border-radius:0; padding:.4rem .1rem;
   }
   .answer input:focus { outline:none; border-bottom-color:var(--primary); }
   .answer input:focus-visible { outline:2px solid var(--primary); outline-offset:3px; }
 
-  .empty {
-    font:17px/1.7 var(--display); color:var(--muted); padding:2.5rem 0; max-width:52ch;
-  }
+  .empty { font:17px/1.7 var(--display); color:var(--muted); padding:2.5rem 0; max-width:52ch; }
   .empty code { font:14px/1 var(--mono); color:var(--accent); }
+
+  /* ── the agent's own header, so a detail page says what it is looking at ──── */
+  #detail {
+    display:grid; grid-template-columns:repeat(auto-fit, minmax(9rem, auto)); gap:1.4rem;
+    border-bottom:1px solid var(--outlineVariant); padding-bottom:1rem; margin-bottom:1.4rem;
+  }
+  #detail .f { display:flex; flex-direction:column; gap:.2rem; }
+  #detail .f .k {
+    font:600 9.5px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
+  }
+  #detail .f .v { font-size:13px; color:var(--fg); overflow-wrap:anywhere; }
+  #detail .f .v.state { font-weight:600; letter-spacing:.1em; text-transform:uppercase; font-size:11px; }
 
   /* ── transcript ─────────────────────────────────────────────────────────── */
   /* Monospace throughout: every line here is something the machine said or did, and a serif would
@@ -351,13 +394,17 @@ const indexHTML = `<!doctype html>
 <header>
   <span class="mark">magi</span>
   <span class="magi"><span class="m">MELCHIOR</span> <span class="b">BALTHASAR</span> <span class="c">CASPER</span></span>
-  <a id="back" href="/" hidden>← fleet</a>
+  <!-- Where you are, always, in both views: magi / fleet, or magi / fleet / <agent>. The middle
+       crumb is the way back, which is the same element that says where back goes. -->
+  <nav id="crumbs"><a href="/" id="back">fleet</a><span id="crumbSep" hidden>/</span><span id="crumbHere"></span></nav>
   <span class="sid" id="sid"></span>
   <span id="state"></span>
 </header>
 
 <main>
+  <div id="summary"></div>
   <div id="fleet"></div>
+  <div id="detail" hidden></div>
   <div id="log"></div>
 </main>
 
@@ -374,6 +421,8 @@ const indexHTML = `<!doctype html>
 const fleetEl = document.getElementById('fleet'), log = document.getElementById('log');
 const state = document.getElementById('state'), sidEl = document.getElementById('sid');
 const back = document.getElementById('back'), f = document.getElementById('f');
+const summaryEl = document.getElementById('summary');
+const crumbSep = document.getElementById('crumbSep'), crumbHere = document.getElementById('crumbHere');
 
 const sock = () => new URLSearchParams(location.search).get('d');
 const q = () => sock() ? '?d=' + encodeURIComponent(sock()) : '';
@@ -382,48 +431,117 @@ const q = () => sock() ? '?d=' + encodeURIComponent(sock()) : '';
 const ago = s => s < 0 ? '' : s < 60 ? s + 's ago' : s < 3600 ? Math.round(s/60) + 'm ago'
                 : s < 86400 ? Math.round(s/3600) + 'h ago' : Math.round(s/86400) + 'd ago';
 
+// The order the eye should travel: what needs somebody, what is moving, what is asleep, what is
+// gone. Kubernetes consoles sort trouble to the top for the same reason — a list you have to read
+// to find the problem is a list that hides it.
+const ORDER = {waiting: 0, working: 1, idle: 2, abandoned: 3, stopped: 4};
+const GROUP = {waiting: 'waiting', working: 'working', idle: 'idle', abandoned: 'gone', stopped: 'gone'};
+let filter = null;   // one of the summary keys, or null for everything
+
+function cell(cls, text) {
+  const d = document.createElement('div');
+  d.className = cls;
+  if (text !== undefined) d.textContent = text;
+  return d;
+}
+
+// card is one row of the table. The class list is the state, so the left rule and the status colour
+// come from one place, and the row is a link because opening it is the common case.
 function card(a) {
   const el = document.createElement('a');
   el.className = 'card ' + a.state + (a.here ? ' here' : '');
   el.href = '/?d=' + encodeURIComponent(a.socket);
   el.onclick = e => { e.preventDefault(); go(a.socket); };
 
-  const top = document.createElement('div'); top.className = 'top';
-  const n = document.createElement('span'); n.className = 'name'; n.textContent = a.name;
-  const b = document.createElement('span'); b.className = 'badge'; b.textContent = a.state;
-  top.append(n, b);
+  el.append(cell('badge', a.state));
 
-  const p = document.createElement('div'); p.className = 'path'; p.textContent = a.workdir;
-  el.append(top, p);
+  const who = cell('who-col');
+  who.append(cell('name', a.name), cell('path', a.workdir));
+  el.append(who);
 
-  // What it is blocked on comes before what it was doing, and in the warning colour: it is the
-  // only line on this page that is a request rather than a report.
+  // What it is doing. A blocked agent shows the question instead — that is the thing to know — and
+  // the buttons that answer it sit under the question rather than in the actions column, because
+  // they belong to the prompt and not to the row.
+  const doing = cell('doing');
   if (a.asking) {
-    const k = document.createElement('div'); k.className = 'asking'; k.textContent = '⏸ ' + a.asking;
-    el.append(k, answerBox(a));
+    doing.append(cell('asking', '⏸ ' + a.asking), answerBox(a));
+  } else if (a.task) {
+    doing.append(cell('last', a.task));
   }
-  if (a.task) { const l = document.createElement('div'); l.className = 'last'; l.textContent = a.task; el.append(l); }
+  el.append(doing);
 
-  const bits = [];
-  if (a.steps) bits.push(a.steps + ' step' + (a.steps === 1 ? '' : 's'));
-  if (a.idle >= 0) bits.push(ago(a.idle));
-  if (a.live) bits.push('pid ' + a.pid);
-  if (a.here) bits.push('this directory');
-  const m = document.createElement('div'); m.className = 'meta'; m.textContent = bits.join(' · ');
-  el.append(m);
+  el.append(cell('num r', a.steps ? a.steps + '' : '—'));
+  el.append(cell('num r', ago(a.idle)));
+
+  const host = cell('host');
+  const name = document.createElement('b'); name.textContent = a.host || 'this machine';
+  host.append(name);
+  if (a.addr) host.append(document.createElement('br'), document.createTextNode(a.addr));
+  if (a.here) host.append(document.createElement('br'), document.createTextNode('this directory'));
+  el.append(host);
+
+  el.append(rowActions(a));
   return el;
 }
 
-// answerBox is the reply to a blocked agent, on the card itself. Answering is why you looked.
+// rowActions: enter, and stop. Stopping must not require entering first — on a console the row you
+// want to halt is the one you are already looking at, and making somebody open it to reach the
+// button is how a runaway turn gets another thirty seconds.
+function rowActions(a) {
+  const box = cell('actions');
+  const open = document.createElement('a');
+  open.className = 'open'; open.textContent = 'open ›';
+  open.href = '/?d=' + encodeURIComponent(a.socket);
+  open.onclick = e => { e.preventDefault(); e.stopPropagation(); go(a.socket); };
+  box.append(open);
+  if (a.live && (a.state === 'working' || a.state === 'waiting')) {
+    const stop = document.createElement('button');
+    stop.className = 'stop'; stop.type = 'button'; stop.textContent = 'stop';
+    stop.title = 'interrupt the turn this agent is running';
+    stop.onclick = e => {
+      e.preventDefault(); e.stopPropagation();
+      post('/interrupt', null, a.socket).then(loadFleet);
+    };
+    box.append(stop);
+  }
+  return box;
+}
+
+function tableHead() {
+  const h = cell('thead');
+  for (const [c, t] of [['', 'status'], ['', 'agent'], ['', 'doing'], ['r', 'steps'], ['r', 'age'],
+                        ['', 'host'], ['r', '']]) {
+    h.append(cell(c, t));
+  }
+  return h;
+}
+
+// The summary is four numbers and a filter. Counting rows to find out whether anything needs you is
+// the work this removes, and it is the first thing a console shows.
+function summarise(list) {
+  const box = document.getElementById('summary');
+  const counts = {waiting: 0, working: 0, idle: 0, gone: 0};
+  for (const a of list) counts[GROUP[a.state] || 'idle']++;
+  box.replaceChildren(...Object.entries(counts).map(([k, n]) => {
+    const b = document.createElement('button');
+    b.className = 'tile ' + k; b.type = 'button';
+    b.disabled = n === 0;
+    b.setAttribute('aria-pressed', String(filter === k));
+    b.append(cell('n', n + ''), cell('k', k));
+    b.onclick = () => { filter = filter === k ? null : k; render(); };
+    return b;
+  }));
+}
+
+// answerBox is the reply to a blocked agent, next to the question it answers.
 //
-// The buttons stop the click from opening the agent (the card is a link) — reading and answering
-// are different intentions and the same tap must not do both.
+// The buttons stop the click from opening the agent (the row is a link) — reading and answering are
+// different intentions and the same tap must not do both.
 function answerBox(a) {
   const box = document.createElement('div'); box.className = 'answer';
   // The socket is passed, not spliced into the path: post() adds the target itself, and doing it
-  // in both places produced /answer?d=X?d=X — which the server read as one path with a question
-  // mark in it and refused. Invisible on the dashboard, where post()'s own target is empty, and
-  // broken on an agent's page, where it is not.
+  // in both places produced /answer?d=X?d=X — invisible on the fleet, where post()'s own target is
+  // empty, and broken on an agent's page, where it is not.
   const send = (text) => post('/answer', new URLSearchParams({call: a.askId, kind: a.askKind, text}),
                               a.socket).then(loadFleet);
   if (a.askKind === 'question') {
@@ -455,9 +573,8 @@ function retitle(waiting) {
 // drawPrompt puts what an agent is blocked on above its own composer.
 //
 // An agent's page was the one place this could not be seen: the prompt is not in the log — it is a
-// question about what should happen, not a record of what did — so the transcript showed a run
-// that had simply stopped, and the only way to find out was to go back to the fleet. Which is the
-// opposite of where you would be, having opened this agent to watch it.
+// question about what should happen, not a record of what did — so the transcript showed a run that
+// had simply stopped, and the only way to find out was to go back to the fleet.
 function drawPrompt(a) {
   const box = document.getElementById('prompt');
   if (!a || a.state !== 'waiting') { box.hidden = true; box.replaceChildren(); measureDock(); return; }
@@ -476,12 +593,22 @@ async function loadFleet() {
   state.className = '';
   const waiting = list.filter(a => a.state === 'waiting').length;
   retitle(waiting);
-  // On an agent's page the fleet is polled for this one entry, and nothing else on screen changes.
+
+  // On an agent's page the fleet is polled for this one entry: the prompt it is blocked on and the
+  // facts in its header reach the browser no other way.
   const here = sock();
-  if (here) { drawPrompt(list.find(a => a.socket === here)); return; }
+  if (here) {
+    const mine = list.find(a => a.socket === here);
+    drawPrompt(mine);
+    drawDetail(mine);
+    return;
+  }
+
   state.textContent = list.length + (list.length === 1 ? ' agent' : ' agents') +
                       (waiting ? ' · ' + waiting + ' waiting on you' : '');
   state.className = waiting ? 'lost' : '';
+  summarise(list);
+
   if (!list.length) {
     fleetEl.replaceChildren();
     const e = document.createElement('div'); e.className = 'empty';
@@ -490,7 +617,32 @@ async function loadFleet() {
     fleetEl.append(e);
     return;
   }
-  fleetEl.replaceChildren(...list.map(card));
+  // Trouble first, then movement, then quiet, then gone; most recently active within each. A list
+  // you have to read to find the problem is a list that hides it.
+  const rows = list
+    .filter(a => !filter || GROUP[a.state] === filter)
+    .sort((x, y) => (ORDER[x.state] - ORDER[y.state]) || (x.idle - y.idle));
+  fleetEl.replaceChildren(tableHead(), ...rows.map(card));
+}
+
+// drawDetail is the agent page's own header: what this is, where it runs, how far it has got.
+// A detail view that does not say which resource it is showing is the one place a console cannot
+// afford to be quiet, and a transcript does not say it.
+function drawDetail(a) {
+  const box = document.getElementById('detail');
+  if (!a) { box.hidden = true; box.replaceChildren(); return; }
+  const field = (k, v, cls) => {
+    const f = cell('f'); f.append(cell('k', k), cell('v ' + (cls || ''), v)); return f;
+  };
+  box.replaceChildren(
+    field('status', a.state, 'state ' + a.state),
+    field('workspace', a.workdir),
+    field('host', (a.host || 'this machine') + (a.addr ? ' · ' + a.addr : '')),
+    field('steps', a.steps ? a.steps + '' : '—'),
+    field('last activity', ago(a.idle)),
+    field('session', a.session),
+  );
+  box.hidden = false;
 }
 
 // ── one agent ────────────────────────────────────────────────────────────────
@@ -528,17 +680,32 @@ function render() {
   if (es) { es.close(); es = null; }
   if (fleetTimer) { clearInterval(fleetTimer); fleetTimer = null; }
   const s = sock();
-  fleetEl.hidden = !!s; log.hidden = !s; f.hidden = !s; back.hidden = !s;
-  sidEl.textContent = s ? s.replace(/^.*\//, '') : '';
+  // Where you are, said in the masthead: magi / fleet, or magi / fleet / <agent>. The crumb that
+  // names the fleet IS the way back, so the answer to "where am I" and the way out are one thing.
+  crumbSep.hidden = !s;
+  crumbHere.textContent = s ? nameOf(s) : '';
+  back.className = s ? '' : 'here';
+  fleetEl.hidden = !!s; summaryEl.hidden = !!s;
+  log.hidden = !s; f.hidden = !s;
+  document.getElementById('detail').hidden = !s;
   document.getElementById('prompt').hidden = true;
+  sidEl.textContent = '';
   measureDock();
   if (s) { draw([]); connect(); }
   else { state.className = ''; state.textContent = ''; }
-  // Both views poll the fleet: the dashboard for its cards, an agent's page for the one thing about
-  // itself that is not in its log.
+  // Both views poll the fleet: the dashboard for its rows, an agent's page for the facts about
+  // itself that its log cannot carry.
   loadFleet();
   fleetTimer = setInterval(loadFleet, 3000);
 }
+
+// nameOf is the crumb for a socket before the fleet has been fetched — the file name carries the
+// workspace's base name, which is what a person calls the agent.
+function nameOf(socket) {
+  const base = socket.replace(/^.*\//, '').replace(/^daemon-/, '').replace(/\.sock$/, '');
+  return base.replace(/-[a-z0-9]{8}$/, '');
+}
+
 function go(s) { history.pushState({}, '', s ? '/?d=' + encodeURIComponent(s) : '/'); render(); }
 back.onclick = e => { e.preventDefault(); go(null); };
 addEventListener('popstate', render);

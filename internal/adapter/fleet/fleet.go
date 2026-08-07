@@ -108,6 +108,8 @@ type Agent struct {
 	Name    string `json:"name"` // the workspace's base directory — what a person calls it
 	Session string `json:"session"`
 	PID     int    `json:"pid"`
+	Host    string `json:"host"` // the machine it runs on — the only thing telling two ssh tabs apart
+	Addr    string `json:"addr"`
 	Live    bool   `json:"live"`
 	State   State  `json:"state"`
 	Asking  string `json:"asking"`  // what it is blocked on, when State is waiting
@@ -138,7 +140,8 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 	for _, in := range found {
 		a := Agent{
 			Socket: in.Socket, Workdir: in.Workdir, Name: filepath.Base(in.Workdir),
-			Session: in.Session, PID: in.PID, Live: in.Live, Here: here != "" && in.Socket == here,
+			Session: in.Session, PID: in.PID, Host: in.Host, Addr: in.Addr,
+			Live: in.Live, Here: here != "" && in.Socket == here,
 			Idle: -1,
 		}
 		if a.Name == "" || a.Name == "." || a.Name == string(filepath.Separator) {
