@@ -239,6 +239,7 @@ func run() int {
 		doctor          = flag.Bool("doctor", false, "check the environment (LLM endpoint, optional tools, sandbox, config) and exit")
 		daemonMode      = flag.Bool("daemon", false, "run the engine with no UI and listen for attachments; it keeps working while nothing is watching")
 		attachMode      = flag.Bool("attach", false, "attach a terminal UI to the daemon already running in this workspace")
+		joinTo          = flag.String("join", "", "read what another companion's workspace shares with its team and write it beside this workspace's config as a proposal; nothing is applied")
 		listAgents      = flag.Bool("agents", false, "list every magi daemon running on this machine, and what each is doing, then exit")
 		showVersion     = flag.Bool("version", false, "print version and exit")
 		doUpdate        = flag.Bool("update", false, "update magi core and managed plugins to the latest release, then exit")
@@ -425,6 +426,9 @@ func run() int {
 	// --agents answers the question a directory of sockets cannot: which tree each daemon drives,
 	// whether anyone is home, and what it is doing. A reading-only App over the same store — no LLM
 	// and no tools, because listing must never be able to start a turn.
+	if *joinTo != "" {
+		return joinTeam(os.Stdout, plat.ConfigDir(), wd, *joinTo)
+	}
 	if *listAgents {
 		reader := app.New(store, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{})
 		list, lerr := fleet.List(context.Background(), reader, plat.ConfigDir(), daemon.SocketPath(plat.ConfigDir(), wd))

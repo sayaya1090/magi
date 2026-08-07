@@ -486,7 +486,7 @@ Flags (`cmd/magi/main.go`), each with a `MAGI_*` env equivalent:
 (ask|auto|allow|deny), `-profile` (safe|standard|yolo), `-workflow`, `-verify-cmd`,
 `-no-cache`, `-http-timeout`, `-plugins`, `-list-models`, `-theme`, `-no-harness`,
 `-update`, `-version`, `-doctor`, `-time-budget`, and the three that outlive one terminal:
-`-daemon`, `-attach`, `-agents` (§11). API key via `MAGI_API_KEY` (or `OPENAI_API_KEY`).
+`-daemon`, `-attach`, `-agents`, `-join` (§11). API key via `MAGI_API_KEY` (or `OPENAI_API_KEY`).
 
 `cmd/magi-web` has its own small set — `-addr`, `-config-dir`, `-workdir`, `-peer name=url`
 (repeatable), `-version` — and no config file: a console's peers are an operator's decision, and

@@ -453,7 +453,7 @@ OpenAI 호환 클라이언트 하나가 base URL만으로 Ollama / LiteLLM / vLL
 `-p`(헤드리스), `-output text|json`, `-model`, `-base-url`, `-permission`(ask|auto|allow|deny),
 `-profile`(safe|standard|yolo), `-workflow`, `-verify-cmd`, `-no-cache`, `-http-timeout`,
 `-plugins`, `-list-models`, `-theme`, `-no-harness`, `-update`, `-version`, `-doctor`,
-`-time-budget`, 그리고 터미널 하나보다 오래 사는 셋: `-daemon`, `-attach`, `-agents`(§11).
+`-time-budget`, 그리고 터미널 하나보다 오래 사는 셋: `-daemon`, `-attach`, `-agents`, `-join`(§11).
 API 키는 `MAGI_API_KEY`(또는 `OPENAI_API_KEY`)로 준다.
 
 `cmd/magi-web`은 자기 것으로 작은 집합만 갖는다 — `-addr`, `-config-dir`, `-workdir`,

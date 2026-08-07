@@ -662,13 +662,38 @@ The fleet view's composer gains an **address field** (`to: a name, or what they 
 addressing a role goes through the same resolver under the same rules and down the same path, so a
 dispatch and somebody typing into that companion's page reach the daemon by exactly one route.
 
-### 13.6 What this deliberately is not
+### 13.6 Joining a team (`magi --join`)
+
+A companion set up this morning knows nothing its team has agreed on: which experience store they
+share, which MCP servers they all talk to, what their standing instructions say. Somebody copies
+those by hand today, or more likely does not.
+
+```sh
+cd ~/work/new-thing
+magi --join design          # or a team name, if only one of them is running
+```
+
+It reads that companion's project config and writes `.magi/joined-design.toml` beside your own —
+**a proposal, applied to nothing**. What it carries: their team, their `experience_dir` (the one
+line that makes a newcomer start knowing things), the MCP servers they use, and a pointer to their
+`AGENTS.md`. What it does not carry: their model, permission posture or sandbox — those are their
+workspace's choices, not the team's.
+
+Everything is commented out, deliberately. An `[mcp]` entry is a **command with arguments that this
+process would start**, and a hook is a shell line; "the companion I joined to told me to" is not a
+sentence anybody should find in an incident report. Environment variables are named and never
+valued — a token copied into a second workspace is a token in two places.
+
+Same machine only. Across machines there is no join: that is the operator's peer list.
+
+### 13.7 What this deliberately is not
 
 - **Cross-machine teams.** Companions elsewhere are visible because a console reads other consoles
   (`-peer`), and that list belongs to the operator. A daemon holds no peer list — a node that
   accepts "here are my friends" from the network becomes a relay for whoever answers first.
 - **Gossip or propagation.** On one machine the directory is already complete membership.
-- **Provisioning** — handing a new companion the team's credo, MCP servers and skills. Not yet.
+- **Applying what a join proposes.** §13.6 writes a file; moving any of it into your config is a
+  person's decision, and an `[mcp]` command is why.
 - **Collecting results.** The receiver answers in its own transcript and the caller reads it with
   `companions` (an idle companion's last line is its answer). There is no blocking wait.
 
