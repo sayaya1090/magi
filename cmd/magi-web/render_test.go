@@ -849,3 +849,35 @@ console.log(JSON.stringify({text: byId.detail.text,
 		t.Errorf("a session with no compactions reports one:\n%s", text)
 	}
 }
+
+// A console that cannot be reached is not a machine with no agents on it.
+//
+// The two look identical to anyone who does not read the status line — an empty page — and they
+// mean opposite things: one is "everything is idle", the other is "you are looking at a stale
+// screen and do not know it". So a failed load says so and leaves the last good rows alone.
+func TestLosingTheConsoleDoesNotDrawAnEmptyFleet(t *testing.T) {
+	got := runPage(t, `[]`, "", `
+let answer = [{socket: '/s/a.sock', name: 'api', state: 'working', task: 'building', workdir: '/w/api', session: 's1', steps: 2, idle: 1, live: true}];
+globalThis.fetch = async () => {
+  if (answer === null) throw new Error('connection refused');
+  return {ok: true, json: async () => answer};
+};
+await loadFleet();
+const drawn = byId.fleet.text;
+answer = null;
+await loadFleet();
+console.log(JSON.stringify({
+  before: drawn, after: byId.fleet.text,
+  state: byId.state.textContent, cls: byId.state.className,
+}));
+`)
+	if !strings.Contains(got["before"].(string), "api") {
+		t.Fatalf("the first load drew nothing: %q", got["before"])
+	}
+	if got["after"] != got["before"] {
+		t.Errorf("losing the console redrew the table as %q", got["after"])
+	}
+	if got["state"] != "cannot reach magi-web" || got["cls"] != "lost" {
+		t.Errorf("the page does not say it lost the console: %+v", got)
+	}
+}

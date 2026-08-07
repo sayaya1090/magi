@@ -679,10 +679,20 @@ function drawPrompt(a) {
   measureDock();
 }
 
+// A list from this console, or null when the console itself cannot be reached.
+//
+// The three loaders had this same try/catch, and the distinction it draws is the one thing they
+// must not get differently: "magi-web is not answering" is a fact about the page you are looking
+// at, and it is not the same as a companion being quiet. Null, so a caller cannot mistake the
+// failure for an empty list and draw "nothing here" over a screen that simply lost its server.
+async function fetchList(path) {
+  try { return await (await fetch(path)).json(); }
+  catch { state.className = 'lost'; state.textContent = 'cannot reach magi-web'; return null; }
+}
+
 async function loadFleet() {
-  let list;
-  try { list = await (await fetch('/fleet')).json(); }
-  catch { state.className = 'lost'; state.textContent = 'cannot reach magi-web'; return; }
+  const list = await fetchList('/fleet');
+  if (!list) return;
   state.className = '';
   const waiting = list.filter(a => a.state === 'waiting').length;
   retitle(waiting);
@@ -805,9 +815,8 @@ function qFor(a) {
 // same one to three companions is a rule waiting to be written — and counting them by hand across
 // five transcripts is exactly the work nobody does.
 async function loadInterventions() {
-  let list;
-  try { list = await (await fetch('/interventions')).json(); }
-  catch { state.className = 'lost'; state.textContent = 'cannot reach magi-web'; return; }
+  const list = await fetchList('/interventions');
+  if (!list) return;
   const groups = new Map();
   for (const m of list) {
     // Grouped on the words themselves, normalised only for case and spacing. Anything cleverer
@@ -885,9 +894,8 @@ function promoteBox(g) {
 
 // ── what they have learned ───────────────────────────────────────────────────
 async function loadSkills() {
-  let list;
-  try { list = await (await fetch('/skills')).json(); }
-  catch { state.className = 'lost'; state.textContent = 'cannot reach magi-web'; return; }
+  const list = await fetchList('/skills');
+  if (!list) return;
   const crossing = list.filter(s => s.tier === 'global').length;
   const rules = list.filter(s => s.kind !== 'memory').length;
   state.className = '';
