@@ -76,6 +76,26 @@ type Engine interface {
 	Waiting(sid session.SessionID) (app.Ask, bool)
 }
 
+// Controller is the part of an engine that CHANGES HOW IT RUNS, rather than what it is doing now.
+//
+// Optional, and asserted for at dispatch: an engine that does not implement it refuses these and
+// says why. Keeping them out of Engine matters — Engine is what every fake in every package must
+// satisfy, and a control surface that grows is not a reason to touch four test doubles.
+//
+// Why they cross at all. The rule for this socket is that only what CANNOT be done in a second
+// process goes over it, and these qualify twice over. An attached viewer holds its own throwaway
+// App, so /model there changed the viewer's copy while the daemon kept generating with the old one
+// — and the screen showed the new name, which is the worst kind of control: one that reports
+// success and does nothing. Rewind and Compact are worse than useless locally: they rewrite the log
+// the daemon owns, under a process whose sequence counter and in-memory turn state know nothing
+// about it.
+type Controller interface {
+	Rewind(ctx context.Context, sid session.SessionID, n int) (int64, error)
+	Compact(ctx context.Context, c command.Compact) error
+	SetModel(sid session.SessionID, modelID string)
+	SetPermission(p string)
+}
+
 // Request is one line on the wire. One object per line, so a reader needs no framing beyond what
 // bufio already does and a person can watch the socket with `nc` and read it.
 type Request struct {
@@ -88,6 +108,11 @@ type Request struct {
 	// decision is a place for the two to drift.
 	Decision string `json:"decision,omitempty"`
 	Answer   string `json:"answer,omitempty"`
+	// Name and N carry the control methods' one argument each: a model id, a permission policy, a
+	// number of turns to rewind. Named generically because the alternative is a field per method
+	// and a wire format that grows a column every time the engine gains a knob.
+	Name string `json:"name,omitempty"`
+	N    int    `json:"n,omitempty"`
 }
 
 // Response is the reply. Err is a STRING rather than a bool: a client told only that something
@@ -368,10 +393,36 @@ func dispatch(ctx context.Context, eng Engine, r Request) error {
 	case "answer":
 		return eng.RespondQuestion(ctx, command.RespondQuestion{
 			SessionID: sid, CallID: r.CallID, Answer: r.Answer})
+	// Named apart from "permission", which ANSWERS a prompt. One word for "decide this call" and
+	// "change the policy for every call" would be a wire that means two things.
+	case "rewind", "compact", "set-model", "set-permission":
+		return control(ctx, eng, r, sid)
 	}
 	// Name what IS accepted. A client told only "unknown" cannot tell a typo from a version skew,
 	// and the two want different reactions.
-	return fmt.Errorf("unknown method %q — this daemon accepts: submit, steer, interrupt, permission, answer, status", r.Method)
+	return fmt.Errorf("unknown method %q — this daemon accepts: submit, steer, interrupt, permission, answer, status, rewind, compact, set-model, set-permission", r.Method)
+}
+
+// control runs one of the calls that change how the engine behaves.
+func control(ctx context.Context, eng Engine, r Request, sid session.SessionID) error {
+	c, ok := eng.(Controller)
+	if !ok {
+		return fmt.Errorf("this daemon cannot be controlled remotely (%s)", r.Method)
+	}
+	switch r.Method {
+	case "rewind":
+		_, err := c.Rewind(ctx, sid, r.N)
+		return err
+	case "compact":
+		return c.Compact(ctx, command.Compact{SessionID: sid})
+	case "set-model":
+		c.SetModel(sid, r.Name)
+		return nil
+	case "set-permission":
+		c.SetPermission(r.Name)
+		return nil
+	}
+	return fmt.Errorf("unknown control %q", r.Method)
 }
 
 // Client talks to a daemon. One connection, one request at a time: these are user actions, and the
@@ -436,6 +487,27 @@ func (c *Client) Status(sid string) (*Waiting, error) {
 		return nil, err
 	}
 	return resp.Waiting, nil
+}
+
+// Rewind, Compact, SetModel and SetPermission change how the daemon runs, which is why they cross:
+// done locally by a viewer they would change a copy nobody is using, and the two log-rewriting ones
+// would do it underneath the process that owns the log.
+func (c *Client) Rewind(_ context.Context, sid session.SessionID, n int) (int64, error) {
+	// The new boundary is not carried back: the caller re-reads the log, which is where the answer
+	// lives, and a number returned by one process about another's file is stale on arrival.
+	return 0, c.call(Request{Method: "rewind", Session: string(sid), N: n})
+}
+
+func (c *Client) Compact(_ context.Context, cmd command.Compact) error {
+	return c.call(Request{Method: "compact", Session: string(cmd.SessionID)})
+}
+
+func (c *Client) SetModel(sid session.SessionID, modelID string) error {
+	return c.call(Request{Method: "set-model", Session: string(sid), Name: modelID})
+}
+
+func (c *Client) SetPermission(p string) error {
+	return c.call(Request{Method: "set-permission", Name: p})
 }
 
 func (c *Client) call(r Request) error {

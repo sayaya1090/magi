@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
@@ -53,6 +54,43 @@ func (a attached) RespondPermission(ctx context.Context, c command.RespondPermis
 
 func (a attached) RespondQuestion(ctx context.Context, c command.RespondQuestion) error {
 	return a.c.RespondQuestion(ctx, c)
+}
+
+// Rewind and Compact REWRITE the log the daemon owns.
+//
+// Run locally they were worse than useless: this process would truncate or rewrite the file under a
+// daemon whose sequence counter and in-memory turn state know nothing about it, so the next thing
+// the daemon appended would carry a number the file had already passed. And the turn the user meant
+// to undo would keep running, because the goroutine driving it is over there.
+func (a attached) Rewind(ctx context.Context, sid session.SessionID, n int) (int64, error) {
+	return a.c.Rewind(ctx, sid, n)
+}
+
+func (a attached) Compact(ctx context.Context, c command.Compact) error {
+	return a.c.Compact(ctx, c)
+}
+
+// SetModel and SetPermission change how the engine runs, and locally they changed a copy nobody was
+// using: the daemon kept generating with the old model while the header showed the new name. A
+// control that reports success and does nothing is the worst shape a control has.
+//
+// The signatures return nothing, which is the screen's contract and not this file's to change — so
+// a failure to reach the daemon is logged rather than swallowed. It is the same information the
+// next call over the socket will surface anyway, at the point the user does something that matters.
+func (a attached) SetModel(sid session.SessionID, modelID string) {
+	if err := a.c.SetModel(sid, modelID); err != nil {
+		log.Printf("magi: the daemon did not take the model change: %v", err)
+		return
+	}
+	a.App.SetModel(sid, modelID) // keep this process's own view in step, for what it renders
+}
+
+func (a attached) SetPermission(p string) {
+	if err := a.c.SetPermission(p); err != nil {
+		log.Printf("magi: the daemon did not take the permission change: %v", err)
+		return
+	}
+	a.App.SetPermission(p)
 }
 
 // pollInterval is how often an attached UI re-reads the store. The daemon's bus is in the daemon's

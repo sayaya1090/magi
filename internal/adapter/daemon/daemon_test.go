@@ -347,3 +347,85 @@ func TestStatusCarriesWhatTheDaemonIsBlockedOn(t *testing.T) {
 		t.Errorf("asking for status ran %v on the engine", seen)
 	}
 }
+
+// controllingEngine is an engine that also accepts the calls which change how it runs.
+type controllingEngine struct {
+	fakeEngine
+	rewound  int
+	compacts int
+	model    string
+	perm     string
+}
+
+func (c *controllingEngine) Rewind(_ context.Context, _ session.SessionID, n int) (int64, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.rewound = n
+	return int64(n), nil
+}
+func (c *controllingEngine) Compact(context.Context, command.Compact) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.compacts++
+	return nil
+}
+func (c *controllingEngine) SetModel(_ session.SessionID, m string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.model = m
+}
+func (c *controllingEngine) SetPermission(p string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.perm = p
+}
+
+// The calls that change how the daemon runs have to reach the daemon.
+//
+// A viewer holds its own throwaway App, so doing these locally changed a copy nobody was using —
+// the screen showed a new model while the daemon kept generating with the old one. Rewind and
+// Compact were worse: they rewrite the log the daemon owns, under a process whose sequence counter
+// knows nothing about it.
+func TestTheControlCallsReachTheEngine(t *testing.T) {
+	eng := &controllingEngine{}
+	c := start(t, eng)
+	ctx := context.Background()
+	sid := session.SessionID("s_1")
+
+	if _, err := c.Rewind(ctx, sid, 2); err != nil {
+		t.Fatalf("rewind: %v", err)
+	}
+	if err := c.Compact(ctx, command.Compact{SessionID: sid}); err != nil {
+		t.Fatalf("compact: %v", err)
+	}
+	if err := c.SetModel(sid, "gpt-oss:120b-cloud"); err != nil {
+		t.Fatalf("model: %v", err)
+	}
+	if err := c.SetPermission("allow"); err != nil {
+		t.Fatalf("permission: %v", err)
+	}
+
+	eng.mu.Lock()
+	rewound, compacts, model, perm := eng.rewound, eng.compacts, eng.model, eng.perm
+	eng.mu.Unlock() // seen() takes the same lock, and holding it across the call is a deadlock
+	if rewound != 2 || compacts != 1 || model != "gpt-oss:120b-cloud" || perm != "allow" {
+		t.Errorf("the engine saw rewind=%d compact=%d model=%q perm=%q", rewound, compacts, model, perm)
+	}
+	// Answering a prompt and setting the policy are different things and must stay different words
+	// on the wire: one decides a call, the other decides every call.
+	if got := eng.seen(); len(got) != 0 {
+		t.Errorf("a control call was delivered as a write: %v", got)
+	}
+}
+
+// An engine that cannot be controlled says so, rather than accepting and dropping it.
+func TestADaemonWithoutAControllerRefusesTheseCalls(t *testing.T) {
+	c := start(t, &fakeEngine{}) // the five writes only
+	err := c.SetModel("s_1", "something-else")
+	if err == nil {
+		t.Fatal("a daemon with no control surface accepted a model change")
+	}
+	if !strings.Contains(err.Error(), "cannot be controlled") {
+		t.Errorf("the refusal does not say why: %v", err)
+	}
+}
