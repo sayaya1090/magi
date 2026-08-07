@@ -6,6 +6,7 @@ package git
 
 import (
 	"context"
+	"github.com/sayaya1090/magi/internal/atomicfile"
 	"hash/fnv"
 	"os"
 	"os/exec"
@@ -109,7 +110,10 @@ func (s *Store) Propose(ctx context.Context, c port.Contribution) error {
 		// lose facts it had just learned. A content name cannot collide with a different fact and
 		// always collides with the same one, which is the behaviour wanted in both directions.
 		name := filepath.Join(memDir, "mem-"+memoryID(body)+".md")
-		if err := os.WriteFile(name, []byte(body), 0o644); err != nil {
+		// Atomic: the GLOBAL tier is shared by every companion of one person, so two of them
+		// learning at the same moment is ordinary — and a retrieval running alongside reads every
+		// file in the directory. A truncate-then-write between those two is a skill read as empty.
+		if err := atomicfile.Write(name, []byte(body), 0o644); err != nil {
 			return err
 		}
 	}
@@ -135,7 +139,7 @@ func (s *Store) Propose(ctx context.Context, c port.Contribution) error {
 			// dropping them would silently re-expose a skill somebody had narrowed.
 			h.AgentGroups = old.AgentGroups
 		}
-		if err := os.WriteFile(name, []byte(renderHeader(h, sk.Body)), 0o644); err != nil {
+		if err := atomicfile.Write(name, []byte(renderHeader(h, sk.Body)), 0o644); err != nil {
 			return err
 		}
 	}

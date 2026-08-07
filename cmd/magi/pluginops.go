@@ -17,6 +17,7 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/platform"
 	pluginlua "github.com/sayaya1090/magi/internal/adapter/plugin/lua"
 	"github.com/sayaya1090/magi/internal/app"
+	"github.com/sayaya1090/magi/internal/atomicfile"
 	"github.com/sayaya1090/magi/internal/config"
 	"github.com/sayaya1090/magi/internal/envflag"
 	pluginupd "github.com/sayaya1090/magi/internal/update/plugin"
@@ -157,28 +158,7 @@ func materializeEmbedded(pfs fs.FS, name, dir string) error {
 //
 // A temp file in the same directory (same filesystem, so the rename is a rename and not a copy)
 // followed by os.Rename means a reader gets either the whole old file or the whole new one.
-func writeAtomic(dst string, b []byte) error {
-	f, err := os.CreateTemp(filepath.Dir(dst), "."+filepath.Base(dst)+".tmp")
-	if err != nil {
-		return err
-	}
-	tmp := f.Name()
-	// Any failure from here leaves a dot-file behind rather than a broken destination; removing it
-	// is the cleanup, and the destination is untouched either way.
-	defer os.Remove(tmp)
-	if _, err := f.Write(b); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Chmod(0o644); err != nil { // CreateTemp makes it 0600; these are read by everyone
-		f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp, dst)
-}
+func writeAtomic(dst string, b []byte) error { return atomicfile.Write(dst, b, 0o644) }
 
 // pluginLogf returns the plugin host's log sink: silent by default (plugin
 // chatter must not pollute the TUI/headless stdout), stderr with MAGI_DEBUG=1

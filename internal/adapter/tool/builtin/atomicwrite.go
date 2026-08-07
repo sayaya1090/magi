@@ -2,7 +2,8 @@ package builtin
 
 import (
 	"os"
-	"path/filepath"
+
+	"github.com/sayaya1090/magi/internal/atomicfile"
 )
 
 // atomicWriteFile replaces path's contents via a same-directory temp file and
@@ -16,46 +17,5 @@ import (
 // into a regular file — otherwise editing a symlinked source would silently sever
 // the link.
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
-	// Resolve a symlink to its target so the temp+rename swaps the real file, not
-	// the link. EvalSymlinks needs the target to exist; a dangling or non-symlink
-	// path falls through to the literal path unchanged.
-	if fi, err := os.Lstat(path); err == nil && fi.Mode()&os.ModeSymlink != 0 {
-		if resolved, err := filepath.EvalSymlinks(path); err == nil {
-			path = resolved
-		}
-	}
-	if info, err := os.Stat(path); err == nil {
-		perm = info.Mode().Perm()
-	}
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	// Any failure past this point must not leave the temp file behind.
-	fail := func(e error) error {
-		tmp.Close()
-		os.Remove(tmpName)
-		return e
-	}
-	if _, err := tmp.Write(data); err != nil {
-		return fail(err)
-	}
-	if err := tmp.Sync(); err != nil {
-		return fail(err)
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
-		return err
-	}
-	if err := os.Chmod(tmpName, perm); err != nil {
-		os.Remove(tmpName)
-		return err
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		os.Remove(tmpName)
-		return err
-	}
-	return nil
+	return atomicfile.Write(path, data, perm)
 }
