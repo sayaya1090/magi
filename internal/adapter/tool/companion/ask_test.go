@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
+	expgit "github.com/sayaya1090/magi/internal/adapter/experience/git"
 	"github.com/sayaya1090/magi/internal/adapter/fleet"
 	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
@@ -108,6 +109,16 @@ func (tm *team) member(sid, name, role string, eng daemon.Engine) string {
 		tm.ev(event.TypeTurnFinished, event.TurnFinishedData{}),
 	})
 	return sock
+}
+
+// workdirOf is the workspace a member published, read back the way anything else would read it.
+func (tm *team) workdirOf(sock string) string {
+	tm.t.Helper()
+	in, err := daemon.Published(sock)
+	if err != nil {
+		tm.t.Fatal(err)
+	}
+	return in.Workdir
 }
 
 func (tm *team) ev(typ event.Type, d any) event.Event {
@@ -342,5 +353,46 @@ func TestAskRefusesWhenItCannotTellWhetherItWasDispatchedTo(t *testing.T) {
 	}
 	if got := design.got(); len(got) != 0 {
 		t.Errorf("it was sent anyway: %v", got)
+	}
+}
+
+// What each companion has learned is in the roster, and that is what makes one of them a
+// specialist: whoever is choosing sees the record and picks accordingly, and the picked one learns
+// more. No router decides it — the evidence is shown and the caller chooses.
+func TestTheRosterSaysWhatEachHasLearned(t *testing.T) {
+	tm := newTeam(t)
+	design := tm.member("d", "design", "component specs", &heard{})
+	tm.member("api", "api", "billing", &heard{})
+	self := tm.member("m", "master", "coordinating", &heard{})
+
+	// The design companion has a record; the api one does not.
+	dwd := tm.workdirOf(design)
+	if err := expgit.New(dwd+"/.magi/experience").Propose(context.Background(), port.Contribution{
+		Skills: []port.Skill{
+			{Name: "tokens", Description: "spacing tokens come from the scale, never hand-written"},
+			{Name: "empty-states", Description: "an empty state says what would be here and why"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := companion.List{
+		Reader: func() fleet.Reader { return tm.reader }, ConfigDir: tm.cfgDir,
+		Self: self, Cache: &fleet.Cache{},
+	}
+	res, err := tool.Execute(context.Background(), nil, port.ToolEnv{SessionID: "m"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := text(t, res)
+	if !strings.Contains(out, "spacing tokens come from the scale") {
+		t.Errorf("the roster does not say what design has learned:\n%s", out)
+	}
+	// And it does not invent a record for the one with none: an empty line would read as "this one
+	// has been asked and learned nothing", which is a different and untrue thing. Sliced to the one
+	// block, because the whole listing obviously contains the phrase — for the other companion.
+	block := out[strings.Index(out, "api  "):strings.Index(out, "design  ")]
+	if strings.Contains(block, "has learned") {
+		t.Errorf("a companion with no record claims one:\n%s", block)
 	}
 }
