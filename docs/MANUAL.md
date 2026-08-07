@@ -553,6 +553,7 @@ auto-registered. When the server shuts down, those tools are removed.
 ## 12. The console (`magi-web`)
 
 > The screens, the design rules and why each is the way it is: [`UI.md`](UI.md).
+> A clickable demo of the page (mocked data, no server): <https://sayaya1090.github.io/magi/>.
 
 A read-mostly web view of every magi on the machine — and, if you point it at others, on other
 machines. It is a **second surface on the same daemons**, not a service of its own: it derives what

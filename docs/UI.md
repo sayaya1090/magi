@@ -5,6 +5,12 @@ Both surfaces: what is on them, the design rules, and why. §1–5 are the **web
 How to run them: [`MANUAL.md`](MANUAL.md) (§4 the TUI, §12 the console). Internals:
 [`ARCHITECTURE.md`](ARCHITECTURE.md) §11.
 
+> **Look at it:** <https://sayaya1090.github.io/magi/> — the real page, answered by a mock in the
+> browser. Every action there reports what it would have sent rather than pretending it happened,
+> and every reading is a fixture: it shows the screens, not a working server. Published by
+> `.github/workflows/pages.yml` on any change under `cmd/magi-web/`, and only after that package's
+> tests pass.
+
 > **As-built.** The console's front end is one file — `cmd/magi-web/page.go`, a Go string holding
 > the HTML, CSS and JS — and the rules below are pinned by tests that run its real JavaScript under
 > node (`render_test.go`). The TUI lives in `internal/adapter/tui`, with its own tests for

@@ -4,6 +4,11 @@
 (`internal/adapter/tui`). 영문: [`UI.md`](UI.md). 사용법은 [`MANUAL.ko.md`](MANUAL.ko.md)
 (§4 TUI · §12 콘솔), 내부 구조는 [`ARCHITECTURE.ko.md`](ARCHITECTURE.ko.md) §11.
 
+> **직접 보기:** <https://sayaya1090.github.io/magi/> — 진짜 페이지에 브라우저 안의 목업을 물린 것.
+> 액션은 "무엇을 보냈을지"만 말하고 실제로 한 척하지 않으며, 읽히는 값은 전부 픽스처다 — 화면을
+> 보여줄 뿐 서버가 도는 게 아니다. `cmd/magi-web/` 아래가 바뀔 때 `.github/workflows/pages.yml`이,
+> 그 패키지 테스트가 통과한 뒤에만 배포한다.
+
 > 이 문서는 **as-built**이다. 콘솔 코드는 `cmd/magi-web/page.go` 한 파일(HTML+CSS+JS를 담은 Go
 > 문자열)이고, 여기 적힌 규칙은 테스트로 고정돼 있다(`render_test.go`가 node로 진짜 JS를 돌린다).
 > TUI는 `internal/adapter/tui`이고, 렌더링·마우스·폭 계산에 각각의 테스트가 있다.

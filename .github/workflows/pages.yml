@@ -1,0 +1,66 @@
+# The console, published as a static demo you can click.
+#
+# Nobody can look at that screen without running a daemon, a console and a companion — so a change
+# to the front end gets reviewed as a diff of a Go string. This publishes the page itself, answered
+# by a mock in the browser (GitHub Pages serves files, not processes), so the review is looking at
+# it instead.
+#
+# What a green deploy means, exactly: the Go tests passed — including the ones that run the page's
+# real javascript under node against a fake DOM — and the page rendered here is the string this
+# binary serves, byte for byte, with one script appended. It does NOT mean any handler works: every
+# answer in the demo is a fixture. That is why the tests run first and the deploy is gated on them.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cmd/magi-web/**'
+      - '.github/workflows/pages.yml'
+  # A hand-run, for a branch that is not main yet.
+  workflow_dispatch:
+
+# One deploy at a time, and a newer push wins: two builds racing to publish leaves whichever
+# finished last, which is not necessarily the newer one.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # The functional check. These run the page's own javascript under node against a fake DOM —
+      # the states, the filters, the tabs, the forms — so a demo that deploys is one whose behaviour
+      # was verified rather than eyeballed.
+      - name: test the console
+        run: go test ./cmd/magi-web/ -count=1
+
+      - name: build the demo
+        run: go run ./cmd/magi-web -emit-demo ./_site
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./_site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
