@@ -738,3 +738,61 @@ console.log(JSON.stringify({posts: RENDERED.filter(r => r.method === 'POST')}));
 		t.Errorf("the promotion body is %q", body)
 	}
 }
+
+// What the companions have learned, and which of it crosses between them.
+//
+// The tier is the whole of context hygiene and the page has to make it impossible to miss: "every
+// companion" and "only this one" are different sentences, not a colour difference, because the
+// decision a supervisor makes on this page is exactly which of the two a rule should be.
+func TestTheSkillsPageSaysWhatEachRuleReaches(t *testing.T) {
+	got := runPage(t, `[]`, "?v=skills", `
+globalThis.fetch = async (p, init) => {
+  if (init && init.method === 'POST') { RENDERED.push({fetched: p, method: 'POST', body: init.body.toString()}); return {ok: true, status: 204, text: async () => ''}; }
+  return {ok: true, json: async () => p.startsWith('/skills') ? [
+    {"name":"skill-commit-style","description":"commit messages carry the issue number","tier":"global","observed":3,"lastSeen":"2026-08-07"},
+    {"name":"skill-auth","description":"the auth service uses X","tier":"project","companion":"api","socket":"/s/a.sock","observed":1,"lastSeen":"2026-08-06","groups":["crew"]}
+  ] : []};
+};
+await loadSkills();
+const rows = byId.skills.children;
+rows[1].find('button')[0].onclick();
+console.log(JSON.stringify({
+  rows: rows.map(r => ({cls: r.className, text: r.text})),
+  state: byId.state.textContent,
+  posts: RENDERED.filter(r => r.method === 'POST'),
+}));
+`)
+	rows := got["rows"].([]any)
+	if len(rows) != 2 {
+		t.Fatalf("two rules drew %d rows", len(rows))
+	}
+	first := rows[0].(map[string]any)
+	if !strings.Contains(first["cls"].(string), "global") ||
+		!strings.Contains(first["text"].(string), "every companion") {
+		t.Errorf("the crossing rule does not say it crosses: %+v", first)
+	}
+	second := rows[1].(map[string]any)["text"].(string)
+	if !strings.Contains(second, "only api") {
+		t.Errorf("the project rule does not say whose it is: %q", second)
+	}
+	// The two facts a decision is made on, and neither is visible anywhere else after the day it
+	// was written.
+	if !strings.Contains(first["text"].(string), "3×") || !strings.Contains(first["text"].(string), "2026-08-07") {
+		t.Errorf("the row carries no history: %q", first["text"])
+	}
+	if !strings.Contains(got["state"].(string), "1 crossing") {
+		t.Errorf("the header does not count what crosses: %q", got["state"])
+	}
+	// Forgetting a project rule names the companion it belongs to; a global one has nobody to name.
+	posts := got["posts"].([]any)
+	if len(posts) != 1 {
+		t.Fatalf("pressing forget sent %d requests", len(posts))
+	}
+	u := posts[0].(map[string]any)["fetched"].(string)
+	if !strings.Contains(u, "/forget?d=") {
+		t.Errorf("forgetting a project rule went to %q", u)
+	}
+	if b := posts[0].(map[string]any)["body"].(string); !strings.Contains(b, "tier=project") {
+		t.Errorf("the request does not say which tier: %q", b)
+	}
+}

@@ -207,6 +207,29 @@ const indexHTML = `<!doctype html>
   .iv .promote .done { color:var(--success); font:600 10px/1 var(--mono); letter-spacing:.14em;
                        text-transform:uppercase; }
 
+  /* ── what they have learned ─────────────────────────────────────────────── */
+  /* Two tiers on one page, the crossing one first. The boundary between them is the whole of
+     context hygiene, and it is only as good as somebody's ability to see it: a rule in the global
+     tier reaches every prompt on every project, and after the day it was written nothing else in
+     the system mentions it again. */
+  #skills { display:block; max-width:var(--measure); }
+  .sk { border-bottom:1px solid var(--outlineVariant); padding:.9rem 0; }
+  .sk .top { display:flex; gap:.7rem; align-items:baseline; flex-wrap:wrap; }
+  .sk .tier {
+    font:600 9.5px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
+    flex-basis:100%; order:-1;
+  }
+  .sk.global .tier { color:var(--warn); }
+  .sk.project .tier { color:var(--accent); }
+  .sk .what { font:600 16px/1.35 var(--display); color:var(--fg); overflow-wrap:anywhere; }
+  .sk .meta { margin-top:.3rem; font-size:11px; letter-spacing:.05em; color:var(--muted); }
+  .sk .drop {
+    background:none; border:0; border-bottom:1px solid var(--outlineVariant); border-radius:0;
+    color:var(--muted); font:600 10px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
+    padding:.3rem .1rem; min-height:44px; cursor:pointer; margin-left:auto;
+  }
+  .sk .drop:hover { color:var(--error); border-bottom-color:var(--error); }
+
   /* ── the fleet, as a resource table ─────────────────────────────────────── */
   /* The shape a Kubernetes console reaches for, and for the same reason: one row per thing, fixed
      columns, a status word you scan down rather than read across. "kubectl get pods" is the
@@ -438,9 +461,11 @@ const indexHTML = `<!doctype html>
   <nav id="tabs" hidden>
     <a href="/" id="tabFleet">companions</a>
     <a href="/?v=interventions" id="tabIv">what I had to say</a>
+    <a href="/?v=skills" id="tabSkills">what they have learned</a>
   </nav>
   <div id="summary"></div>
   <div id="ivs" hidden></div>
+  <div id="skills" hidden></div>
   <div id="fleet"></div>
   <div id="detail" hidden></div>
   <div id="log"></div>
@@ -461,6 +486,7 @@ const state = document.getElementById('state'), sidEl = document.getElementById(
 const back = document.getElementById('back'), f = document.getElementById('f');
 const summaryEl = document.getElementById('summary');
 const ivsEl = document.getElementById('ivs'), tabsEl = document.getElementById('tabs');
+const skillsEl = document.getElementById('skills'), tabSkills = document.getElementById('tabSkills');
 const tabFleet = document.getElementById('tabFleet'), tabIv = document.getElementById('tabIv');
 // Which resource this console is showing. A companion's own page is neither — it is one level in.
 const view = () => new URLSearchParams(location.search).get('v') || 'fleet';
@@ -781,6 +807,47 @@ function promoteBox(g) {
   return box;
 }
 
+// ── what they have learned ───────────────────────────────────────────────────
+async function loadSkills() {
+  let list;
+  try { list = await (await fetch('/skills')).json(); }
+  catch { state.className = 'lost'; state.textContent = 'cannot reach magi-web'; return; }
+  const crossing = list.filter(s => s.tier === 'global').length;
+  state.className = '';
+  state.textContent = list.length + (list.length === 1 ? ' rule' : ' rules') +
+                      ' · ' + crossing + ' crossing every companion';
+  if (!list.length) {
+    const e = document.createElement('div'); e.className = 'empty';
+    e.innerHTML = 'Nothing learned yet.<br>' +
+      'Rules land here when you promote something you had to say, or when a companion records a lesson itself.';
+    skillsEl.replaceChildren(e);
+    return;
+  }
+  skillsEl.replaceChildren(...list.map(sk => {
+    const el = cell('sk ' + sk.tier);
+    const top = cell('top');
+    top.append(cell('tier', sk.tier === 'global' ? 'every companion' : 'only ' + sk.companion));
+    top.append(cell('what', sk.description || sk.name));
+    const drop = document.createElement('button');
+    drop.className = 'drop'; drop.type = 'button'; drop.textContent = 'forget';
+    drop.title = 'remove this rule from the store';
+    drop.onclick = () => {
+      post('/forget', new URLSearchParams({name: sk.name, tier: sk.tier}),
+           sk.tier === 'project' ? sk.socket : null).then(loadSkills);
+    };
+    top.append(drop);
+    el.append(top);
+    const bits = [sk.name];
+    // How settled it is and when it was last seen: the two facts a decision about a rule is made
+    // on, and neither is visible anywhere else once the day it was written has passed.
+    if (sk.observed > 1) bits.push('seen ' + sk.observed + '×');
+    if (sk.lastSeen) bits.push('last ' + sk.lastSeen);
+    if (sk.groups && sk.groups.length) bits.push('groups: ' + sk.groups.join(', '));
+    el.append(cell('meta', bits.join(' · ')));
+    return el;
+  }));
+}
+
 // ── one agent ────────────────────────────────────────────────────────────────
 // Follow the tail only while the reader is already at the bottom. Yanking the view down while
 // somebody reads the middle of a long run is how a live page becomes unreadable.
@@ -825,9 +892,11 @@ function render() {
   tabsEl.hidden = !!s;
   tabFleet.className = v === 'fleet' ? 'on' : '';
   tabIv.className = v === 'interventions' ? 'on' : '';
+  tabSkills.className = v === 'skills' ? 'on' : '';
   fleetEl.hidden = !!s || v !== 'fleet';
   summaryEl.hidden = !!s || v !== 'fleet';
   ivsEl.hidden = !!s || v !== 'interventions';
+  skillsEl.hidden = !!s || v !== 'skills';
   log.hidden = !s; f.hidden = !s;
   document.getElementById('detail').hidden = !s;
   document.getElementById('prompt').hidden = true;
@@ -835,6 +904,11 @@ function render() {
   measureDock();
   if (s) { draw([]); connect(); }
   else { state.className = ''; state.textContent = ''; }
+  if (v === 'skills') {
+    // Not polled, for the same reason the corrections page is not: this is read and thought about.
+    loadSkills();
+    return;
+  }
   if (v === 'interventions') {
     // Not polled: this is a page somebody reads and thinks about, and a list that reorders itself
     // under the cursor while they are deciding what to promote is worse than one that is a minute
@@ -857,7 +931,7 @@ function nameOf(socket) {
 
 function go(s, peer) { history.pushState({}, '', s ? '/?d=' + encodeURIComponent(s) + (peer ? '&p=' + encodeURIComponent(peer) : '') : '/'); render(); }
 back.onclick = e => { e.preventDefault(); go(null); };
-for (const [el, url] of [[tabFleet, '/'], [tabIv, '/?v=interventions']]) {
+for (const [el, url] of [[tabFleet, '/'], [tabIv, '/?v=interventions'], [tabSkills, '/?v=skills']]) {
   el.onclick = e => { e.preventDefault(); history.pushState({}, '', url); render(); };
 }
 addEventListener('popstate', render);
