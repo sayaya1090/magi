@@ -35,7 +35,10 @@ magi가 **모델을 대신해** 무엇을 떼어내고 무엇을 넘길지 정�
 `port`에 의존한다. `core`는 표준 라이브러리와 core 밖의 어떤 것도 import하지 않는다.
 
 ```
-cmd/magi/                 진입점: 플래그 파싱, DI 배선, -p 헤드리스, TUI 기동
+cmd/magi/                 진입점: 플래그 파싱, DI 배선, -p 헤드리스, TUI 기동,
+                          -daemon(UI 없는 엔진) / -attach(거기 붙는 UI) / -agents
+cmd/magi-web/             콘솔: 이 머신의 모든 데몬을 — 그리고 다른 콘솔의 것까지(peer.go) —
+                          읽기 위주로 보는 웹 화면. page.go가 프런트엔드 전체
 internal/
   core/                     도메인 — 바깥으로 나가는 의존 없음
     session/                Session, Message, Part, ToolCall, ToolResult, Todo, SessionMeta
@@ -90,12 +93,20 @@ internal/
     experience/git/         공유 기억/스킬 저장소 (git 리포, D13)
     plugin/lua/             gopher-lua 플러그인 호스트 (능력 번들)
     mcp/                    MCP 클라이언트: stdio + Streamable HTTP 전송
+    daemon/                 유닉스 소켓 위의 엔진: Listen/Serve, 워크스페이스의 데몬을 유일하게
+                            만드는 flock 클레임, Publish(콘솔이 읽는 레코드), Client, 선택적
+                            Controller 커맨드
+    fleet/                  이 머신의 모든 magi가 무엇을 하는지 — 로그와 소켓별 짧은 병렬
+                            프로브에서 유도. 콘솔과 `--agents`가 같은 것을 묻기 때문에 유도는
+                            **한 곳**뿐이다
     tui/                    Bubble Tea UI, 관심사별 분할: model.go(Model + Update),
                             model_input.go(마우스/키/슬래시), model_event.go(이벤트 접기),
                             model_route.go(라우트/프로파일 폼), model_layout.go(리사이즈/페인),
                             model_view.go(렌더). 트랜스크립트, 백그라운드 작업 페인,
                             /route 편집기(세션 모델 제안 상자 = 프로파일 ∪ `App.ListModels`
                             게이트웨이 카탈로그).
+  atomicfile/               임시파일 쓰고 rename 하는 단 하나의 구현 — 읽는 쪽이 동시에 읽고
+                            있을 수 있는 파일을 쓰는 모든 곳이 공유(experience 스토어, config)
   httpx/                    공유 정적+동적 HTTP 헤더 세트 (MCP + LLM 클라이언트)
   jsonx/                    모델이 만든 JSON을 읽는 **단 하나의** 리더: 균형 잡힌 구간 추출,
                             복구 사다리, 관용적 필드 타입, 파싱 실패 진단
@@ -441,8 +452,13 @@ OpenAI 호환 클라이언트 하나가 base URL만으로 Ollama / LiteLLM / vLL
 플래그(`cmd/magi/main.go`), 각각 `MAGI_*` 환경변수 등가물이 있다:
 `-p`(헤드리스), `-output text|json`, `-model`, `-base-url`, `-permission`(ask|auto|allow|deny),
 `-profile`(safe|standard|yolo), `-workflow`, `-verify-cmd`, `-no-cache`, `-http-timeout`,
-`-plugins`, `-list-models`, `-theme`, `-no-harness`, `-update`, `-version`.
+`-plugins`, `-list-models`, `-theme`, `-no-harness`, `-update`, `-version`, `-doctor`,
+`-time-budget`, 그리고 터미널 하나보다 오래 사는 셋: `-daemon`, `-attach`, `-agents`(§11).
 API 키는 `MAGI_API_KEY`(또는 `OPENAI_API_KEY`)로 준다.
+
+`cmd/magi-web`은 자기 것으로 작은 집합만 갖는다 — `-addr`, `-config-dir`, `-workdir`,
+`-peer name=url`(반복 가능), `-version` — 설정 파일은 없다. 콘솔의 피어는 운영자의 결정이고,
+magi 자신이 쓰는 파일에서 읽어오면 그 파일을 쓸 수 있는 무엇이든 피어를 정할 수 있게 된다.
 
 설정: 전역 `<configDir>/config.toml` + 프로젝트 `.magi/config.toml`(커밋 가능. 프로젝트 스칼라가
 덮어쓰고, 훅/규칙은 덧붙는다). 키: model, base_url, permission, profile, sandbox, allow/deny(규칙),
@@ -480,7 +496,43 @@ make snapshot        # goreleaser --snapshot (로컬 크로스 컴파일)
 
 ---
 
-## 11. 확장 지점
+## 11. 터미널 하나를 넘어서 — 데몬, 플릿, 콘솔
+
+세 조각 모두 이미 있던 것 위의 얇은 층이다. 어느 것도 서비스가 아니다: 스케줄러도, 레지스트리도,
+엔진의 두 번째 사본도, 자기만의 상태도 없다.
+
+```
+magi -daemon          UI 없는 App이 <config>/daemon-<dir>-<hash>.sock에서 대기
+  ├── magi -attach    데몬의 세션에 합류하는 TUI. 실행을 건드리는 다섯 호출만 소켓으로 가고
+  │                   나머지는 같은 스토어에서 자기가 답한다
+  ├── magi --agents   데몬당 한 줄(fleet.List)
+  └── magi-web        콘솔(fleet.ListCached + 같은 소켓 호출)
+        └── -peer     또 다른 magi-web을 같은 목록에 합침
+```
+
+- **소켓 이름은 워크스페이스에서** 심링크까지 해소해 만든다. "여기의 데몬"이 잘 정의되고
+  `--attach`가 옆 디렉터리의 것을 잡을 수 없다. `Listen`은 Publish보다 **먼저** flock으로 소켓을
+  claim한다 — 이 분리가 있는 이유는, 먼저 publish 하던 시절에 동시 기동 둘이 서로의 레코드를
+  덮어쓰고 나가면서 승자의 것을 지웠기 때문이다.
+- **플릿 상태는 기록이 아니라 유도다.** 무엇을 하는 중인지, 권한을 기다리는지, 마지막으로 움직인
+  게 언제인지, 끝나지 않은 턴이 있는지, 사람이 턴 중간에 무슨 말을 했는지 — 전부 이벤트 로그와
+  소켓당 700ms 병렬 프로브에서 나온다. 상태 파일을 쓰는 곳이 없으니 낡을 수도 없고, 지난주에 돈
+  세션에 대해서도 같은 답이 나온다. `fleet.Cache`는 비싼 한 조각(놀고 있는 에이전트가 마지막으로
+  한 말)만, 그것도 시퀀스 번호가 그대로인 동안만 들고 있는다.
+- **콘솔은 읽고, 데몬이 한다.** `magi-web`은 같은 스토어 위에 **LLM도 툴도 없는** 자기 `app.App`을
+  만든다 — 실수로도 턴을 돌릴 수 없다. 실행을 바꾸는 모든 것(submit·steer·interrupt·권한 응답·
+  승격·forget)은 그것을 소유한 데몬으로 간다.
+- **페더레이션은 합성이다.** 여러 머신을 보는 콘솔은 여러 콘솔을 읽는 콘솔이다: `/fleet`,
+  `/interventions`, `/skills`가 곧 와이어 포맷이고, 액션은 메서드·경로·대상 소켓·폼 바디만 복사해
+  전달된다. 피어 URL은 운영자에게서만 온다 — 페이지나 다른 피어의 응답에서 오지 않는다. 한 층
+  아래의 `?d=` 허용목록과 같은 규칙이다.
+- **magi 자신의 인증은 없다**(결정 사항): 루프백이고, 조직이 이미 돌리는 수단을 통해 접근한다.
+  이것이 무엇을 위해 존재하는지(감독 모델)는
+  `proposals/companions-and-supervision-2026-08-07.md`.
+
+---
+
+## 12. 확장 지점
 
 > 실전 단계별 가이드(MCP 서버 추가, 공유 경험 부트스트랩): [`EXTENDING.md`](EXTENDING.md).
 

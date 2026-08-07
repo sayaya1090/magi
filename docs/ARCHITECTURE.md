@@ -34,7 +34,10 @@ Dependency rule, enforced at compile time: **`adapter → app → core`**, and
 `app`/`adapter` depend on `port`. `core` imports nothing outside std + core.
 
 ```
-cmd/magi/                 entrypoint: flag parsing, DI wiring, -p headless, TUI launch
+cmd/magi/                 entrypoint: flag parsing, DI wiring, -p headless, TUI launch,
+                          -daemon (engine with no UI) / -attach (a UI onto one) / -agents
+cmd/magi-web/             the console: a read-mostly web view of every daemon on the machine,
+                          and of other consoles' (peer.go). page.go is the whole front end
 internal/
   core/                     domain — no outward deps
     session/                Session, Message, Part, ToolCall, ToolResult, Todo, SessionMeta
@@ -92,11 +95,19 @@ internal/
     experience/git/         shared memory/skills store (git repo, D13)
     plugin/lua/             gopher-lua plugin host (capability bundles)
     mcp/                    MCP client: stdio + Streamable HTTP transports
+    daemon/                 the engine over a unix socket: Listen/Serve, the flock claim that
+                            makes a workspace's daemon unique, Publish (the record a console
+                            reads), Client, and the optional Controller commands
+    fleet/                  what every magi on this machine is doing, derived from the logs and
+                            a short parallel probe of each socket — ONE derivation, because the
+                            console and `--agents` both ask it
     tui/                    Bubble Tea UI, split by concern: model.go (Model + Update),
                             model_input.go (mouse/key/slash), model_event.go (event folding),
                             model_route.go (route/profile forms), model_layout.go (resize/panes),
                             model_view.go (render). Transcript, background-job panes, /route editor
                             (session-model suggest box = profiles ∪ `App.ListModels` gateway catalog).
+  atomicfile/               one write-temp-then-rename, shared by everything that writes a file
+                            a concurrent reader may be reading (the experience store, config)
   httpx/                    shared static+dynamic HTTP header set (MCP + LLM client)
   jsonx/                    the one reader for model-produced JSON: balanced-span extraction,
                             the repair ladder, tolerant field types, and parse-failure diagnosis
@@ -474,7 +485,13 @@ Flags (`cmd/magi/main.go`), each with a `MAGI_*` env equivalent:
 `-p` (headless), `-output text|json`, `-model`, `-base-url`, `-permission`
 (ask|auto|allow|deny), `-profile` (safe|standard|yolo), `-workflow`, `-verify-cmd`,
 `-no-cache`, `-http-timeout`, `-plugins`, `-list-models`, `-theme`, `-no-harness`,
-`-update`, `-version`. API key via `MAGI_API_KEY` (or `OPENAI_API_KEY`).
+`-update`, `-version`, `-doctor`, `-time-budget`, and the three that outlive one terminal:
+`-daemon`, `-attach`, `-agents` (§11). API key via `MAGI_API_KEY` (or `OPENAI_API_KEY`).
+
+`cmd/magi-web` has its own small set — `-addr`, `-config-dir`, `-workdir`, `-peer name=url`
+(repeatable), `-version` — and no config file: a console's peers are an operator's decision, and
+reading them from a file magi itself writes would make them reachable by anything that can write
+one.
 
 Config: global `<configDir>/config.toml` + project `.magi/config.toml` (committable;
 project scalars override, hooks/rules append). Keys: model, base_url, permission,
@@ -508,7 +525,45 @@ fake-LLM tests for regression coverage; use real-model E2E for gated confirmatio
 
 ---
 
-## 11. Extension points
+## 11. Beyond one terminal — daemon, fleet, console
+
+Three pieces, each a thin layer over what already existed. None of them is a service: there is no
+scheduler, no registry, no second copy of the engine, and no state of their own.
+
+```
+magi -daemon          the App, no UI, listening on <config>/daemon-<dir>-<hash>.sock
+  ├── magi -attach    a TUI that joins the daemon's session; five calls go over the socket,
+  │                   everything else it answers itself from the same store
+  ├── magi --agents   one line per daemon (fleet.List)
+  └── magi-web        the console (fleet.ListCached + the same socket calls)
+        └── -peer     another magi-web, merged into the same list
+```
+
+- **The socket is named from the workspace**, symlinks resolved, so "the daemon here" is
+  well-defined and `--attach` cannot reach a neighbour's. `Listen` claims it with a flock BEFORE
+  publishing: the split exists because publishing first let two simultaneous starts overwrite each
+  other's record and then delete the winner's on the way out.
+- **Fleet state is derived, never recorded.** What an agent is doing, whether it is waiting on a
+  permission, when it last moved, whether a turn is unfinished, what a person had to say mid-turn —
+  all of it comes out of the event log plus one 700ms parallel probe per socket. Nothing writes a
+  status file, so nothing can be stale, and the answer is the same for a session that ran last week.
+  `fleet.Cache` keeps only the one expensive part (the last line an idle agent said) and only while
+  its sequence number is unchanged.
+- **The console reads; the daemons act.** `magi-web` builds its own `app.App` over the same store
+  with **no LLM and no tools** — it cannot run a turn even by mistake. Everything that changes a run
+  (submit, steer, interrupt, answer a permission, promote, forget) goes to the daemon that owns it.
+- **Federation is composition.** A console that watches several machines is a console that reads
+  several consoles: `/fleet`, `/interventions` and `/skills` are the wire format, and actions are
+  forwarded with only the method, path, target socket and form body copied. Peer URLs come from the
+  operator, never from a page or another peer's response — the same rule the `?d=` allowlist follows
+  one layer down.
+- **No authentication of magi's own**, by decision: loopback, and reached through whatever the
+  organisation already runs. See `proposals/companions-and-supervision-2026-08-07.md` for the
+  supervision model this exists to serve.
+
+---
+
+## 12. Extension points
 
 > Step-by-step guides (adding an MCP server, bootstrapping shared experience):
 > [`EXTENDING.md`](EXTENDING.md). Korean: [`ARCHITECTURE.ko.md`](ARCHITECTURE.ko.md).
