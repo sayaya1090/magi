@@ -207,12 +207,37 @@ func TestAnEmptyFleetSaysHowToStartOne(t *testing.T) {
 await loadFleet();
 console.log(JSON.stringify({empty: byId.fleet.text}));
 `)
+	// Asserted against the PACK, not against a copy of the wording. The page had one sentence and
+	// the pack another — "No magi daemons under this config directory." against "No magi is running
+	// under this config directory." — and each was true on its own, so nothing said they had
+	// drifted. Now the page must show what the pack says, whatever the pack says.
 	text := got["empty"].(string)
-	for _, want := range []string{"No magi daemons", "magi --daemon"} {
+	for _, key := range []string{"empty.no_agents", "empty.no_agents_how"} {
+		want := packEntry(t, key)
+		// The markup in the second line is the pack's; the fake DOM reports text, not tags.
+		want = strings.ReplaceAll(strings.ReplaceAll(want, "<code>", ""), "</code>", "")
 		if !strings.Contains(text, want) {
-			t.Errorf("the empty state does not say %q: %q", want, text)
+			t.Errorf("the empty state does not carry %s (%q): %q", key, want, text)
 		}
 	}
+}
+
+// packEntry reads one label out of the English pack this binary serves.
+func packEntry(t *testing.T, key string) string {
+	t.Helper()
+	raw, err := assetFS.ReadFile("i18n/language.en.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pack map[string]string
+	if err := json.Unmarshal(raw, &pack); err != nil {
+		t.Fatal(err)
+	}
+	v, ok := pack[key]
+	if !ok {
+		t.Fatalf("the pack has no %q", key)
+	}
+	return v
 }
 
 // Waiting agents are counted in the header, because the reason to glance at this page is to find

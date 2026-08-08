@@ -1541,6 +1541,19 @@ function arm(btn, label, act) {
   };
 }
 
+// emptyState is the two lines a screen shows when it has nothing: what is absent, and how it stops
+// being absent. Both from the pack — these were the last four sentences on the page written in
+// English, and they are the ones a first-time reader meets before anything else.
+//
+// The second line may carry markup (a command in <code>), which is why it is set as HTML. It comes
+// from a pack this binary serves and embeds; nothing a companion or the network says reaches here.
+function emptyState(whatKey, howKey) {
+  const e = document.createElement('div');
+  e.className = 'empty';
+  e.innerHTML = tr(whatKey) + '<br>' + tr(howKey);
+  return e;
+}
+
 // jumpToFirstRow brings the top row of the filtered list into view.
 //
 // Filtering alone was not enough. On a phone the list starts below a screen of masthead and
@@ -1697,10 +1710,7 @@ async function loadFleet() {
 
   if (!list.length) {
     fleetEl.replaceChildren();
-    const e = document.createElement('div'); e.className = 'empty';
-    e.innerHTML = 'No magi daemons under this config directory.<br>' +
-                  'Start one with <code>magi --daemon</code> in a workspace.';
-    fleetEl.append(e);
+    fleetEl.append(emptyState('empty.no_agents', 'empty.no_agents_how'));
     return;
   }
   // Trouble first, then movement, then quiet, then gone; most recently active within each. A list
@@ -2004,10 +2014,7 @@ async function loadInterventions() {
   state.textContent = list.length + (list.length === 1 ? ' intervention' : ' interventions') +
                       ' · ' + rows.length + ' distinct';
   if (!rows.length) {
-    const e = document.createElement('div'); e.className = 'empty';
-    e.innerHTML = 'Nothing to promote yet.<br>' +
-      'This fills as you steer a companion mid-turn or refuse a tool — the moments worth turning into a rule.';
-    ivsEl.replaceChildren(e);
+    ivsEl.replaceChildren(emptyState('empty.nothing_to_promote', 'empty.nothing_to_promote_how'));
     return;
   }
   ivsEl.replaceChildren(...rows.map(g => {
@@ -2072,11 +2079,7 @@ async function loadSkills() {
                       (list.length - rules) + ' remembered · ' +
                       crossing + ' crossing every companion';
   if (!list.length) {
-    const e = document.createElement('div'); e.className = 'empty';
-    e.innerHTML = 'Nothing learned yet.<br>' +
-      'A rule lands here when you promote something you had to say; a fact lands here when a ' +
-      'companion decides one is worth keeping.';
-    skillsEl.replaceChildren(e);
+    skillsEl.replaceChildren(emptyState('empty.nothing_learned', 'empty.nothing_learned_how'));
     return;
   }
   skillsEl.replaceChildren(...list.map(sk => {
@@ -2211,10 +2214,7 @@ async function loadMCP() {
   };
 
   if (!list.length) {
-    const e = document.createElement('div'); e.className = 'empty';
-    e.innerHTML = 'No external tool servers.<br>' +
-      'A companion can read and run things here; an MCP server is how it reaches anything else.';
-    mcpEl.replaceChildren(e, form);
+    mcpEl.replaceChildren(emptyState('empty.no_servers', 'empty.no_servers_how'), form);
     return;
   }
   mcpEl.replaceChildren(...rows, form);
