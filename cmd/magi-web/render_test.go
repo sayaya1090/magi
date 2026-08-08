@@ -681,71 +681,6 @@ console.log(JSON.stringify({
 	}
 }
 
-// The supervisor's evening pass: what did I have to step in and say, and what of it is a rule?
-//
-// One correction is a remark. The SAME one to three companions is a rule waiting to be written, and
-// counting that by hand across five transcripts is exactly the work nobody does — so the grouping
-// and the ordering are the whole feature, not decoration on a list.
-func TestInterventionsGroupByWhatWasSaidAndCount(t *testing.T) {
-	got := runPage(t, `[]`, "?v=interventions", `
-globalThis.fetch = async (p) => ({ok: true, json: async () => p.startsWith('/interventions') ? [
-  {"companion":"api","kind":"steer","text":"run the tests before you say it is done","at":"2026-08-07T09:00:00Z","afterSec":40},
-  {"companion":"docs","kind":"steer","text":"Run the tests  before you say it is done","at":"2026-08-07T10:00:00Z","afterSec":12},
-  {"companion":"api","kind":"steer","text":"do not touch that file","at":"2026-08-07T11:00:00Z","afterSec":5},
-  {"companion":"api","kind":"denied","text":"bash","at":"2026-08-07T08:00:00Z","afterSec":9}
-] : []});
-await loadInterventions();
-console.log(JSON.stringify({
-  rows: byId.ivs.children.filter(r => r.className !== 'sectionhead').map(r => ({cls: r.className, text: r.text})),
-  state: byId.state.text,
-}));
-`)
-	rows := got["rows"].([]any)
-	if len(rows) != 3 {
-		t.Fatalf("four interventions grouped into %d rows; the two spellings of one sentence are one thing", len(rows))
-	}
-	first := rows[0].(map[string]any)["text"].(string)
-	// Most repeated first: that is the promotion candidate, and it is the reason to open this page.
-	if !strings.HasPrefix(strings.TrimSpace(first), "2×") {
-		t.Errorf("the most repeated correction is not first: %q", first)
-	}
-	// And it says which companions said it to, because "everywhere" and "one of them" promote to
-	// different tiers.
-	for _, want := range []string{"api", "docs"} {
-		if !strings.Contains(first, want) {
-			t.Errorf("the row does not say where it happened (%q): %q", want, first)
-		}
-	}
-	// A refusal is the shortest correction there is, and it reads as one.
-	var denied string
-	for _, r := range rows {
-		if strings.Contains(r.(map[string]any)["cls"].(string), "denied") {
-			denied = r.(map[string]any)["text"].(string)
-		}
-	}
-	if !strings.Contains(denied, "refused") || !strings.Contains(denied, "bash") {
-		t.Errorf("the denial row reads %q", denied)
-	}
-	if !strings.Contains(got["state"].(string), "4 interventions") {
-		t.Errorf("the header says %q", got["state"])
-	}
-}
-
-// Nothing yet is a sentence, not a blank page — and it says what fills it, because a supervisor who
-// has never steered mid-turn has no way to guess what this page is for.
-func TestAnEmptyInterventionsPageSaysWhatFillsIt(t *testing.T) {
-	got := runPage(t, `[]`, "?v=interventions", `
-globalThis.fetch = async () => ({ok: true, json: async () => []});
-await loadInterventions();
-console.log(JSON.stringify({text: byId.ivs.text}));
-`)
-	for _, want := range []string{"Nothing to promote", "steer", "refuse"} {
-		if !strings.Contains(got["text"].(string), want) {
-			t.Errorf("the empty page does not mention %q: %q", want, got["text"])
-		}
-	}
-}
-
 // Switching tabs goes through md-tabs, because that is the only place the indicator is animated.
 //
 // Tabs.activateTab measures the outgoing tab's indicator and slides the incoming one from there,
@@ -1102,6 +1037,50 @@ console.log(JSON.stringify({before, after: byId.skills.text, kept: byId.detail.t
 	}
 }
 
+// What a person had to step in and say, on the companion it is about.
+//
+// This replaces a promotion pipeline: group the words, count the repeats, offer to make the
+// repeated ones permanent. The premise did not hold — what somebody says mid-turn is nearly always
+// about that task, the grouping only matched identical wording, and it needed somebody to visit a
+// screen and curate. What survives is the part that never needed the words to match: how often this
+// companion had to be corrected, and what was refused.
+func TestACompanionsPageSaysWhatYouHadToStepInAndSay(t *testing.T) {
+	got := runPage(t, `[
+      {"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"working","live":true,
+       "task":"x","steps":2,"idle":3}
+    ]`, "?d=%2Fs%2Fa.sock", `
+globalThis.fetch = async (p) => ({ok: true, json: async () => String(p).startsWith('/interventions') ? [
+  {"companion":"api","socket":"/s/a.sock","kind":"steer","text":"use the tokens","at":"2026-08-08T04:00:00Z","afterSec":8},
+  {"companion":"api","socket":"/s/a.sock","kind":"denied","text":"call_31","at":"2026-08-07T04:00:00Z","afterSec":95},
+  {"companion":"other","socket":"/s/z.sock","kind":"steer","text":"not this one","at":"2026-08-08T04:00:00Z","afterSec":5}
+] : String(p).startsWith('/fleet') ? [
+  {"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"working","live":true,"task":"x","steps":2,"idle":3}
+] : []});
+await loadFleet();
+await new Promise(r => { let n = 0; const tick = () => (++n > 20 ? r() : Promise.resolve().then(tick)); tick(); });
+console.log(JSON.stringify({hidden: byId.intervened.hidden, text: byId.intervened.text,
+  rows: byId.intervened.find('div').filter(d => String(d.className).startsWith('iv2')).length}));
+`)
+	if got["hidden"] == true {
+		t.Fatal("the panel is hidden while this companion has been corrected twice")
+	}
+	txt := got["text"].(string)
+	if !strings.Contains(txt, "use the tokens") {
+		t.Errorf("what was said is not on the page: %q", txt)
+	}
+	if strings.Contains(txt, "not this one") {
+		t.Errorf("another companion's correction is on this one's page: %q", txt)
+	}
+	if got["rows"].(float64) != 2 {
+		t.Errorf("%v rows for two interventions on this companion", got["rows"])
+	}
+	// A count that does not depend on the words matching, which is the whole reason this replaced
+	// the grouping.
+	if !strings.Contains(txt, "1") {
+		t.Errorf("the heading does not count them: %q", txt)
+	}
+}
+
 // The rail widens, and the theme has a control of its own.
 //
 // There is no drawer on a phone any more: the tabs navigate, the theme toggle sits in the masthead,
@@ -1214,7 +1193,7 @@ func TestTheTabsSayWhichResourceIsShowing(t *testing.T) {
 	fleet := runPage(t, `[]`, "", `
 // Which tab is current is the component's own active property, not a class of ours.
 console.log(JSON.stringify({tabs: byId.tabs.hidden, fleetOn: !!byId.tabFleet.active,
-  ivOn: !!byId.tabSkills.active, fleetHidden: byId.fleet.hidden, ivsHidden: byId.ivs.hidden}));
+  ivOn: !!byId.tabSkills.active, fleetHidden: byId.fleet.hidden, ivsHidden: byId.skills.hidden}));
 `)
 	if fleet["tabs"].(bool) || fleet["fleetOn"] != true || fleet["ivOn"] != false {
 		t.Errorf("on the fleet the tabs read %+v", fleet)
@@ -1225,7 +1204,7 @@ console.log(JSON.stringify({tabs: byId.tabs.hidden, fleetOn: !!byId.tabFleet.act
 	ivs := runPage(t, `[]`, "?v=skills", `
 globalThis.fetch = async () => ({ok: true, json: async () => []});
 console.log(JSON.stringify({fleetOn: !!byId.tabFleet.active, ivOn: !!byId.tabSkills.active,
-  fleetHidden: byId.fleet.hidden, ivsHidden: byId.ivs.hidden, summaryHidden: byId.summary.hidden}));
+  fleetHidden: byId.fleet.hidden, ivsHidden: byId.skills.hidden, summaryHidden: byId.summary.hidden}));
 `)
 	if ivs["ivOn"] != true || ivs["fleetOn"] != false {
 		t.Errorf("on the experience page the tabs read %+v", ivs)
@@ -1238,82 +1217,6 @@ console.log(JSON.stringify({tabs: byId.tabs.hidden}));
 `)
 	if agent["tabs"] != true {
 		t.Error("a companion's own page shows the resource tabs; it is one level in, not a resource list")
-	}
-}
-
-// Promotion is the reason the corrections page exists, and the tier is the person's choice.
-//
-// A project fact promoted to global leaks one project's truth into another's prompts, quietly, and
-// nobody finds the cause weeks later. So the button that crosses that boundary is a different
-// button, and the one that does not only appears when there is a single project to mean.
-func TestPromotingOffersTheTierThePersonCanActuallyPick(t *testing.T) {
-	got := runPage(t, `[]`, "?v=interventions", `
-globalThis.fetch = async (p, init) => {
-  if (init && init.method === 'POST') { RENDERED.push({fetched: p, body: init.body.toString()}); return {ok: true, status: 204, text: async () => ''}; }
-  return {ok: true, json: async () => p.startsWith('/interventions') ? [
-    {"companion":"api","socket":"/s/a.sock","kind":"steer","text":"do not touch vendor","at":"2026-08-07T11:00:00Z"},
-    {"companion":"api","socket":"/s/a.sock","kind":"steer","text":"run the tests first","at":"2026-08-07T09:00:00Z"},
-    {"companion":"docs","socket":"/s/b.sock","kind":"steer","text":"Run the tests first","at":"2026-08-07T10:00:00Z"}
-  ] : []};
-};
-await loadInterventions();
-const byText = t => byId.ivs.children.filter(r => r.className !== 'sectionhead').find(r => r.text.includes(t));
-const shared = byText('run the tests first'), single = byText('do not touch vendor');
-console.log(JSON.stringify({
-  sharedButtons: shared.find(clicky).map(b => b.textContent),
-  singleButtons: single.find(clicky).map(b => b.textContent),
-  sharedNote: shared.text,
-}));
-`)
-	var shared, single []string
-	for _, b := range got["sharedButtons"].([]any) {
-		shared = append(shared, b.(string))
-	}
-	for _, b := range got["singleButtons"].([]any) {
-		single = append(single, b.(string))
-	}
-	// Said to two companions: no single project to put it in, so only the crossing button, and a
-	// line saying why the other one is missing.
-	if strings.Join(shared, "|") != "to every companion" {
-		t.Errorf("a correction given to two companions offers %v", shared)
-	}
-	if !strings.Contains(got["sharedNote"].(string), "no single project") {
-		t.Errorf("nothing says why the project button is absent: %q", got["sharedNote"])
-	}
-	// Said to one: both tiers are meaningful, and the project one names it.
-	if len(single) != 2 || !strings.Contains(single[0], "api") || single[1] != "to every companion" {
-		t.Errorf("a correction given to one companion offers %v", single)
-	}
-}
-
-// What the buttons send: the words verbatim, the tier named, and for a project rule the companion
-// it belongs to — resolved by the server from what it published, never from a path the page chose.
-func TestPromotionSendsTheWordsAndTheTier(t *testing.T) {
-	got := runPage(t, `[]`, "?v=interventions", `
-globalThis.fetch = async (p, init) => {
-  if (init && init.method === 'POST') { RENDERED.push({fetched: p, method: 'POST', body: init.body.toString()}); return {ok: true, status: 204, text: async () => ''}; }
-  return {ok: true, json: async () => p.startsWith('/interventions') ? [
-    {"companion":"api","socket":"/s/a.sock","kind":"steer","text":"do not touch vendor","at":"2026-08-07T11:00:00Z"}
-  ] : []};
-};
-await loadInterventions();
-const row = byId.ivs.children.filter(r => r.className !== 'sectionhead')[0];
-row.find(clicky)[0].onclick();          // rule for api
-row.find(clicky)[1] && row.find(clicky)[1].onclick();
-await new Promise(r => queueMicrotask(r));
-console.log(JSON.stringify({posts: RENDERED.filter(r => r.method === 'POST')}));
-`)
-	posts := got["posts"].([]any)
-	if len(posts) == 0 {
-		t.Fatal("pressing promote sent nothing")
-	}
-	first := posts[0].(map[string]any)
-	if !strings.Contains(first["fetched"].(string), "/promote?d=") {
-		t.Errorf("a project rule went to %q without naming the companion", first["fetched"])
-	}
-	body := first["body"].(string)
-	if !strings.Contains(body, "scope=project") || !strings.Contains(body, "do+not+touch+vendor") {
-		t.Errorf("the promotion body is %q", body)
 	}
 }
 
@@ -1528,38 +1431,6 @@ console.log(JSON.stringify({
 	}
 	if got["state"] != "cannot reach magi-web" || got["cls"] != "lost" {
 		t.Errorf("the page does not say it lost the console: %+v", got)
-	}
-}
-
-// How far into a turn somebody stepped in.
-//
-// The engine has derived this since interventions existed and nothing ever showed it, which threw
-// away the distinction it was derived for: a steer eight seconds in corrects the INSTRUCTION and a
-// rule can prevent the next one, while one twenty minutes in corrects the WORK and no rule would
-// have helped. They promote to different things, so the page has to say which happened.
-func TestACorrectionSaysHowFarIntoTheTurnItCame(t *testing.T) {
-	got := runPage(t, `[]`, "?v=interventions", `
-globalThis.fetch = async (p) => ({ok: true, json: async () => p.startsWith('/interventions') ? [
-  {kind:'steer', text:'not that file', companion:'api', socket:'/s/a.sock', at:'2026-08-07T01:00:00Z', afterSec: 8},
-  {kind:'steer', text:'not that file', companion:'web', socket:'/s/b.sock', at:'2026-08-07T02:00:00Z', afterSec: 1200},
-  {kind:'steer', text:'use the gateway', companion:'api', socket:'/s/a.sock', at:'2026-08-07T03:00:00Z', afterSec: 45},
-] : []});
-await loadInterventions();
-console.log(JSON.stringify({text: byId.ivs.text}));
-`)
-	text := got["text"].(string)
-	// A group whose members were interrupted at different moments carries both ends: the same words
-	// said early to one companion and late to another are not the same correction twice.
-	if !strings.Contains(text, "stepped in 8s–20m into the turn") {
-		t.Errorf("the spread is not shown:\n%s", text)
-	}
-	// And one moment says just the one.
-	if !strings.Contains(text, "stepped in 45s into the turn") {
-		t.Errorf("a single correction does not say when:\n%s", text)
-	}
-	// The suffix that belongs to "how long ago" must not follow "how long into".
-	if strings.Contains(text, "ago into the turn") {
-		t.Errorf("the duration was rendered as an age:\n%s", text)
 	}
 }
 
@@ -1855,7 +1726,7 @@ for (const [name, el] of [['experience', tabSkills], ['board', tabBoard],
                           ['connections', tabMcp], ['companions', tabFleet]]) {
   el.onclick({preventDefault(){}});
   seen.push({name, search: location.search, crumb: back.text, href: back.attrs.href,
-             ivs: byId.ivs.hidden, skills: byId.skills.hidden, mcp: byId.mcp.hidden,
+             ivs: byId.skills.hidden, skills: byId.skills.hidden, mcp: byId.mcp.hidden,
              fleet: byId.fleet.hidden});
 }
 // And the crumb itself, which names a section and must lead to the one it names.

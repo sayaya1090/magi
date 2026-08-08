@@ -525,7 +525,7 @@ const indexHTML = `<!doctype html>
     border-bottom:1px solid var(--fg); padding-bottom:.35rem; margin:0 0 .8rem;
   }
   .sectionhead .n { margin-left:auto; }
-  #skills { margin-top:2.2rem; }
+
   #ivs .said { max-width:var(--measure); }
   .iv {
     display:grid; grid-template-columns:3.5rem 1fr; gap:1rem; align-items:baseline;
@@ -1302,7 +1302,6 @@ const indexHTML = `<!doctype html>
     <md-primary-tab id="tabMcp"></md-primary-tab>
   </md-tabs>
   <md-chip-set id="summary"></md-chip-set>
-  <div id="ivs" hidden></div>
   <div id="skills" hidden></div>
   <div id="board" hidden></div>
   <div id="mcp" hidden></div>
@@ -1310,6 +1309,7 @@ const indexHTML = `<!doctype html>
   <md-outlined-card id="detail" hidden></md-outlined-card>
   <md-outlined-card id="plan" hidden></md-outlined-card>
   <md-outlined-card id="handoffs" hidden></md-outlined-card>
+  <md-outlined-card id="intervened" hidden></md-outlined-card>
   <md-outlined-card id="history" hidden></md-outlined-card>
   <div id="log"></div>
 </main>
@@ -1494,8 +1494,8 @@ const fleetEl = document.getElementById('fleet'), log = document.getElementById(
 const state = document.getElementById('state'), sidEl = document.getElementById('sid');
 const back = document.getElementById('back'), f = document.getElementById('f');
 const summaryEl = document.getElementById('summary');
-const ivsEl = document.getElementById('ivs'), tabsEl = document.getElementById('tabs');
-// The corrections section lives on the experience page now: it is the same story's first half.
+const tabsEl = document.getElementById('tabs');
+const intervenedEl = document.getElementById('intervened');
 const skillsEl = document.getElementById('skills'), tabSkills = document.getElementById('tabSkills');
 const boardEl = document.getElementById('board'), tabBoard = document.getElementById('tabBoard');
 const railBoard = document.getElementById('railBoard');
@@ -2010,6 +2010,7 @@ async function loadFleet() {
     // and re-fetching it four times a minute would be four reads of the whole store for an answer
     // that is the same every time.
     if (!historyEl.children.length) loadHistory();
+    loadIntervened(mine);
     return;
   }
 
@@ -2300,102 +2301,44 @@ function qFor(a) {
   return '?' + parts.join('&');
 }
 
-// ── what I had to say ────────────────────────────────────────────────────────
-// The supervisor's evening pass. Grouped by the words, because one correction is a remark and the
-// same one to three companions is a rule waiting to be written — and counting them by hand across
-// five transcripts is exactly the work nobody does.
-async function loadInterventions() {
+// ── what I had to step in and say ─────────────────────────────────────────────
+// On the companion it is about, and no longer a factory for rules.
+//
+// This began as a promotion pipeline: group what a person said mid-turn by the words, count the
+// repeats, offer to promote the repeated ones into the experience store. The premise does not hold.
+// What somebody says mid-turn is nearly always about THAT task — "no, the other file" is not a
+// rule — the few that generalise are rare, and the grouping only ever matched identical wording,
+// which people do not produce. Above all it needed somebody to visit a screen and curate, and the
+// agent's own remember tool already reaches the store without that.
+//
+// What survives is the part that was always true and never needed the words to match: a count of
+// how often this companion had to be corrected, and what was refused. That is a fact about the
+// companion, so it belongs on the companion's page.
+async function loadIntervened(a) {
+  if (!a) { intervenedEl.hidden = true; intervenedEl.replaceChildren(); return; }
   const list = await fetchList('/interventions');
   if (!list) return;
-  const groups = new Map();
-  for (const m of list) {
-    // Grouped on the words themselves, normalised only for case and spacing. Anything cleverer
-    // would merge two different corrections and put a rule in somebody's mouth.
-    const key = m.kind + '\u0000' + m.text.toLowerCase().replace(/\s+/g, ' ').trim();
-    const g = groups.get(key) || {kind: m.kind, text: m.text, where: new Set(), targets: [], n: 0,
-                                  at: m.at, early: Infinity, late: 0};
-    g.n++;
-    // How far into the turn the person stepped in. The engine has always derived it and nothing
-    // has ever shown it, which wasted the distinction it was derived for: a steer eight seconds in
-    // is a correction to the INSTRUCTION — say it better next time, or write it into the project's
-    // rules — and one twenty minutes in is a correction to the WORK, which no standing rule would
-    // have prevented. They promote to different things, so the page has to say which this was.
-    if (typeof m.afterSec === 'number') {
-      g.early = Math.min(g.early, m.afterSec);
-      g.late = Math.max(g.late, m.afterSec);
-    }
-    const label = (m.peer ? m.peer + '/' : '') + m.companion;
-    if (!g.where.has(label)) {
-      g.where.add(label);
-      // Kept beside the label so a promotion can be aimed: the socket is what identifies the
-      // companion, and the console name is what says whose machine it is on.
-      g.targets.push({name: m.companion, socket: m.socket, peer: m.peer || ''});
-    }
-    if (m.at > g.at) g.at = m.at;
-    groups.set(key, g);
-  }
-  const rows = [...groups.values()].sort((a, b) => (b.n - a.n) || (a.at < b.at ? 1 : -1));
-  state.className = '';
-  state.textContent = list.length + (list.length === 1 ? ' intervention' : ' interventions') +
-                      ' · ' + rows.length + ' distinct';
-  if (!rows.length) {
-    ivsEl.replaceChildren(emptyState('empty.nothing_to_promote', 'empty.nothing_to_promote_how'));
-    return;
-  }
-  const head = cell('sectionhead');
-  head.append(cell('', tr('nav.to_promote')), cell('n', rows.length + ''));
-  ivsEl.replaceChildren(head, ...rows.map(g => {
-    const el = cell('iv ' + g.kind);
-    el.append(cell('times', g.n + '×'));
-    const body = cell('body');
-    body.append(cell('said', g.kind === 'denied' ? 'refused ' + g.text : g.text));
-    const when = g.early === Infinity ? '' :
-      ' · stepped in ' + (g.early === g.late ? dur(g.early) : dur(g.early) + '–' + dur(g.late)) +
-      ' into the turn';
-    // The DAY, not the second. "last 2026-08-08 04:08:43" is four extra characters of precision
-    // nobody reading a list of corrections is using, and on a phone they were the difference
-    // between three lines and four. The exact moment is in the log for anyone who needs it.
-    body.append(cell('where', [...g.where].join(' · ') + when +
-                              ' · ' + tr('field.last') + ' ' + g.at.slice(0, 10)));
-    body.append(promoteBox(g));
-    el.append(body);
-    return el;
-  }));
-}
+  const mine = list.filter(m => m.socket === a.socket && (m.peer || '') === (a.peer || ''));
+  if (!mine.length) { intervenedEl.hidden = true; intervenedEl.replaceChildren(); return; }
 
-// promoteBox turns a correction into a standing rule, in the tier the person picks.
-//
-// The tier is the companion boundary and magi does not choose it: a project fact promoted to global
-// leaks one project's truth into another's prompts, quietly, and nobody finds the cause weeks
-// later. The person knows which kind they just said.
-//
-// "this companion" only appears when there IS one — a correction given to three of them has no
-// single project to belong to, and offering the button anyway would make somebody guess.
-function promoteBox(g) {
-  const box = cell('promote');
-  const done = (word) => {
-    box.replaceChildren(cell('done', '✓ ' + word));
-  };
-  const send = (scope, target) => {
-    const body = new URLSearchParams({text: g.text, scope});
-    post('/promote', body, scope === 'project' ? target.socket : null, target && target.peer)
-      .then(() => done(scope === 'global' ? 'everywhere' : 'for ' + target.name));
-  };
-  const only = g.targets.length === 1 ? g.targets[0] : null;
-  if (only) {
-    const b = document.createElement('md-text-button');
-    b.textContent = tr('action.promote_project') + ': ' + only.name;
-    b.onclick = () => send('project', only);
-    box.append(b);
+  const box = cell('');
+  const steers = mine.filter(m => m.kind !== 'denied').length;
+  const refused = mine.length - steers;
+  const head = cell('k');
+  head.textContent = tr('field.intervened') + ' · ' +
+    (steers ? tr('iv.steers', {n: steers}) : '') +
+    (steers && refused ? ' · ' : '') +
+    (refused ? tr('iv.refused', {n: refused}) : '');
+  box.append(head);
+  for (const m of mine.slice(0, 12)) {
+    const row = cell('iv2' + (m.kind === 'denied' ? ' denied' : ''));
+    row.append(cell('when', (m.at || '').slice(0, 10)));
+    row.append(cell('said', m.kind === 'denied' ? tr('iv.refused_call', {what: m.text}) : m.text));
+    box.append(row);
   }
-  const g2 = document.createElement('md-text-button');
-  g2.textContent = tr('action.promote_global');
-  g2.onclick = () => send('global', null);
-  box.append(g2);
-  if (!only) {
-    box.append(cell('where', 'said to ' + g.targets.length + ' companions, so there is no single project to put it in'));
-  }
-  return box;
+  intervenedEl.replaceChildren(box);
+  intervenedEl.hidden = false;
+  measureDock();
 }
 
 // ── what they have learned ───────────────────────────────────────────────────
@@ -2412,9 +2355,7 @@ async function loadSkills() {
     skillsEl.replaceChildren(emptyState('empty.nothing_learned', 'empty.nothing_learned_how'));
     return;
   }
-  const shead = cell('sectionhead');
-  shead.append(cell('', tr('nav.in_force')), cell('n', list.length + ''));
-  skillsEl.replaceChildren(shead, ...list.map(sk => {
+  skillsEl.replaceChildren(...list.map(sk => {
     const el = cell('sk ' + sk.tier + (sk.kind === 'memory' ? ' fact' : ''));
     const top = cell('top');
     top.append(cell('tier',
@@ -2655,7 +2596,7 @@ function paint() {
   //
   // Guarded on a first paint having happened, or this would run before the loaders are declared.
   if (!repaintable) return;
-  if (view() === 'skills') { loadInterventions(); loadSkills(); }
+  if (view() === 'skills') loadSkills();
 
   else if (view() === 'mcp') loadMCP();
   else if (view() === 'board') loadBoard();
@@ -2742,7 +2683,6 @@ function render() {
   for (const [el, key] of RAILS) el.toggleAttribute('selected', !s && v === key);
   fleetEl.hidden = !!s || v !== 'fleet';
   summaryEl.hidden = !!s || v !== 'fleet';
-  ivsEl.hidden = !!s || v !== 'skills';
   skillsEl.hidden = !!s || v !== 'skills';
   boardEl.hidden = !!s || v !== 'board';
   mcpEl.hidden = !!s || v !== 'mcp';
@@ -2758,6 +2698,7 @@ function render() {
   document.getElementById('detail').hidden = !s;
   document.getElementById('handoffs').hidden = true;
   historyEl.hidden = true;
+  intervenedEl.hidden = true;
   document.getElementById('plan').hidden = true;
   document.getElementById('prompt').hidden = true;
   sidEl.textContent = '';
@@ -2778,7 +2719,6 @@ function render() {
     // become a rule, then the rules. Not polled — this is read and thought about, and a list that
     // reorders itself under the cursor while somebody decides what to promote is worse than one a
     // minute old.
-    loadInterventions();
     loadSkills();
     return;
   }

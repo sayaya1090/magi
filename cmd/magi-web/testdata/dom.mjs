@@ -128,7 +128,7 @@ let byTabs = false;
 globalThis.clicky = (n) => n.tag === 'button' || n.tag.endsWith('-button');
 
 const byId = {};
-for (const id of ['fleet', 'log', 'state', 'sid', 'back', 'f', 't', 'stop', 'prompt', 'dock', 'summary', 'detail', 'crumbSep', 'crumbHere', 'ivs', 'tabs', 'tabFleet', 'skills', 'tabSkills', 'to', 'roles', 'mcp', 'tabMcp', 'board', 'tabBoard', 'railBoard', 'handoffs', 'history', 'plan', 'send',
+for (const id of ['fleet', 'log', 'state', 'sid', 'back', 'f', 't', 'stop', 'prompt', 'dock', 'summary', 'detail', 'crumbSep', 'crumbHere', 'tabs', 'tabFleet', 'skills', 'tabSkills', 'to', 'roles', 'mcp', 'tabMcp', 'board', 'tabBoard', 'railBoard', 'handoffs', 'history', 'intervened', 'plan', 'send',
                  'rail', 'railNav',  'theme', 'lang', 'prefsK',
                  'consoleK', 'console', 'prefs', 'prefsDialog', 'prefsClose', 'prefsForm', 'railMenu', 'themeToggle', 'railBadge', 'tabBadge', 'railMenu', 'railFleet', 'railSkills', 'railMcp',
                 ]) byId[id] = element('div');

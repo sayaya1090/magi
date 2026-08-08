@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"path/filepath"
 	"sort"
@@ -151,4 +152,24 @@ func (s *server) companionDirs(r *http.Request) ([]companion, error) {
 		out = append(out, companion{name: filepath.Base(in.Workdir), workdir: in.Workdir, socket: in.Socket})
 	}
 	return out, nil
+}
+
+// storeDirFor is the experience directory a tier lives in: this console's own for a global rule,
+// the companion's workspace for a project one.
+//
+// It lived next to the promotion endpoint until that was removed — the pipeline it served needed
+// somebody to visit a screen and curate, which nobody does — and forgetting still needs to know
+// where a rule is kept.
+func (s *server) storeDirFor(r *http.Request, scope string) (string, error) {
+	if scope == "global" {
+		return filepath.Join(s.cfgDir, "experience"), nil
+	}
+	in, err := s.target(r)
+	if err != nil {
+		return "", fmt.Errorf("a project rule needs the companion it belongs to: %w", err)
+	}
+	if in.Workdir == "" {
+		return "", fmt.Errorf("that companion published no workspace, so there is nowhere to put a project rule")
+	}
+	return filepath.Join(in.Workdir, ".magi", "experience"), nil
 }
