@@ -73,6 +73,10 @@ function element(tag) {
     },
     requestSubmit() {},
     focus() {},
+    // Recorded rather than ignored: where the page decided to move the view is a decision worth
+    // asserting on, and a row is REBUILT by the poll that follows an answer — so a test cannot
+    // patch the element it clicked and expect to still be holding it.
+    scrollIntoView() { SCROLLED.push(this.attrs.href || this.className || ''); },
     // md-primary-tab keeps its selection in a property, not a class.
     // Written to either by md-tabs (below) or by the page. Both leave the same value behind, and
     // only one of them animates, so which one did it is recorded rather than enforced: a fake that
@@ -139,6 +143,25 @@ function element(tag) {
         return null;
       };
       return walk(this);
+    },
+    // The plural, for the same one shape — and for a compound class like ".card.waiting", which is
+    // how the page finds "a row that is a card AND is waiting". Returns an array, which is a NodeList
+    // in a browser; the page only ever iterates it, and a test guards against it doing more.
+    querySelectorAll(sel) {
+      const want = String(sel).split('.').filter(Boolean);
+      const hit = (n) => {
+        const have = String(n.className || '').split(/\s+/);
+        return want.every((w) => have.includes(w));
+      };
+      const out = [];
+      const walk = (n) => {
+        for (const k of n.children) {
+          if (hit(k)) out.push(k);
+          walk(k);
+        }
+      };
+      walk(this);
+      return out;
     },
     find(t) {
       const hit = typeof t === 'function' ? t(this) : this.tag === t;
@@ -266,6 +289,7 @@ globalThis.addEventListener = () => {};
 // activation — the call then resolves 'default' having shown nobody a prompt, which is what "the
 // button does nothing" looks like from outside.
 globalThis.ORDER = [];
+globalThis.SCROLLED = [];
 globalThis.isSecureContext = true;
 globalThis.Notification = {
   permission: process.env.PERM || 'default',
@@ -310,6 +334,10 @@ let timerID = 0;
 globalThis.setInterval = (fn, ms) => { RENDERED.push({ interval: ms }); return ++timerID; };
 globalThis.clearInterval = () => {};
 globalThis.setTimeout = () => 0;
+// Run straight away rather than at a frame boundary. The page uses it to let a redraw land before
+// it scrolls, and a fake that swallowed the callback would let a test pass over a scroll that
+// never happens — while one that never called it at all made the caller throw.
+globalThis.requestAnimationFrame = (fn) => { fn(); return 0; };
 globalThis.EventSource = class {
   constructor(url) { RENDERED.push({ subscribed: url }); this.close = () => {}; }
 };

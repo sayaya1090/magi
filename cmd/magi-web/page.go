@@ -2147,6 +2147,24 @@ function sourceOf(body) { const m = SOURCE_LINE.exec(body || ''); return m ? m[1
 //
 // Deferred a frame: the rows are replaced by the render() that precedes this, and measuring an
 // element the layout has not placed yet gives a position it is about to leave.
+// jumpToNextWaiting brings the next blocked companion into view, skipping the one just answered.
+//
+// Skipped by socket rather than by "the first waiting row", because the fleet is polled and the row
+// just answered can still be drawn as waiting for one more tick — landing back on it would look
+// like the answer did not take.
+function jumpToNextWaiting(justAnswered) {
+  requestAnimationFrame(() => {
+    for (const row of fleetEl.querySelectorAll('.card.waiting')) {
+      if (row.getAttribute('href') && justAnswered &&
+          row.getAttribute('href').includes(encodeURIComponent(justAnswered))) {
+        continue;
+      }
+      if (row.scrollIntoView) row.scrollIntoView({block: 'center', behavior: 'smooth'});
+      return;
+    }
+  });
+}
+
 function jumpToFirstRow() {
   requestAnimationFrame(() => {
     const first = fleetEl.querySelector('.card');
@@ -2163,8 +2181,20 @@ function answerBox(a) {
   // The socket is passed, not spliced into the path: post() adds the target itself, and doing it
   // in both places produced /answer?d=X?d=X — invisible on the fleet, where post()'s own target is
   // empty, and broken on an agent's page, where it is not.
+  // Answering moves on to the next one still waiting.
+  //
+  // Two blocked companions among twenty is a list you hunt through twice: the count at the top
+  // takes you to the first, and after that you are on your own — scrolling a table looking for the
+  // other pause marker. Answering is a QUEUE, not a browse, and the difference between the two is
+  // whether the page advances or leaves you where you were.
+  //
+  // It does not switch the filter or navigate anywhere. Somebody who was reading the whole fleet
+  // stays reading the whole fleet; the view just moves to the row that now needs them. When
+  // nothing else is waiting it does nothing at all, which is the right end of a queue.
   const send = (text) => post('/answer', new URLSearchParams({call: a.askId, kind: a.askKind, text}),
-                              a.socket, a.peer).then(loadFleet);
+                              a.socket, a.peer)
+    .then(loadFleet)
+    .then(() => jumpToNextWaiting(a.socket));
   if (a.askKind === 'question') {
     const i = document.createElement('md-outlined-text-field');
     i.label = tr('label.answer');

@@ -915,6 +915,42 @@ console.log(JSON.stringify({
 	}
 }
 
+// Answering one moves to the next one still waiting.
+//
+// Two blocked companions among twenty is a list you hunt through twice: the count at the top takes
+// you to the first, and after that you scroll a table looking for the other pause marker.
+// Answering is a queue, not a browse, and the difference is whether the page advances.
+func TestAnsweringAdvancesToTheNextOneWaiting(t *testing.T) {
+	got := runPage(t, `[
+      {"socket":"/s/a.sock","name":"api","workdir":"/w/a","state":"waiting","live":true,
+       "asking":"rm -rf build","askId":"c1","askKind":"permission","idle":3},
+      {"socket":"/s/b.sock","name":"ops","workdir":"/w/b","state":"waiting","live":true,
+       "asking":"restart the box","askId":"c2","askKind":"permission","idle":8}]`, "", rowsHelper+`
+await loadFleet();
+// Answer the FIRST one.
+globalThis.SCROLLED.length = 0;
+await rows()[0].find('md-filled-tonal-button')[0].onclick({preventDefault(){}, stopPropagation(){}});
+for (let i = 0; i < 30; i++) await Promise.resolve();
+console.log(JSON.stringify({scrolled: globalThis.SCROLLED}));
+`)
+	var to []string
+	for _, v := range got["scrolled"].([]any) {
+		to = append(to, v.(string))
+	}
+	if len(to) == 0 {
+		t.Fatal("answering left the reader where they were; the second blocked companion is " +
+			"somewhere down a table they now have to hunt through")
+	}
+	// The one just answered is skipped: the fleet is polled and its row can still be drawn as
+	// waiting for one more tick, so landing back on it would look like the answer did not take.
+	if strings.Contains(to[0], "a.sock") {
+		t.Errorf("it scrolled back to the row just answered: %v", to)
+	}
+	if !strings.Contains(to[0], "b.sock") {
+		t.Errorf("it did not reach the other one still waiting: %v", to)
+	}
+}
+
 // A question is answered in the composer, and the composer says so.
 //
 // Both boxes drawn, an agent's page had two text fields stacked: the upper one answering the
