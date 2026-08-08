@@ -52,6 +52,10 @@ type pushState struct {
 	// What each companion was doing when it was last looked at, so the watcher can notice a change
 	// rather than re-announce the same block every few seconds.
 	was map[string]fleet.State
+	// Which handoffs have already been reported as answered, by asker+receiver+request. A handoff's
+	// answer is the last thing the receiver said while idle, so it stays readable for as long as
+	// the receiver stays idle — announcing on "there is an answer" would repeat it every tick.
+	told map[string]bool
 }
 
 // storedSub is one subscription on disk. The endpoint is a credential — anyone holding it can send
@@ -100,6 +104,7 @@ func newPush(cfgDir string) (*pushState, error) {
 		file: filepath.Join(cfgDir, "push-subscriptions.json"),
 		subs: map[string]webpush.Subscription{},
 		was:  map[string]fleet.State{},
+		told: map[string]bool{},
 	}
 	p.load()
 	return p, nil
@@ -218,6 +223,11 @@ func (s *server) watch(ctx context.Context, every time.Duration) {
 		p := s.pushes
 		p.mu.Lock()
 		news := newlyWaiting(p.was, list)
+		// A companion that has just stopped working is the moment a handoff it was given can have an
+		// answer: there is no reply channel, and the answer IS the last thing it said once it goes
+		// quiet. Checked only on that edge, because reading it means replaying transcripts — the
+		// cost /handoffs exists as its own endpoint to keep off the fleet poll.
+		settled := justSettled(list, p.was)
 		subs := make([]webpush.Subscription, 0, len(p.subs))
 		for _, sub := range p.subs {
 			subs = append(subs, sub)
@@ -230,6 +240,73 @@ func (s *server) watch(ctx context.Context, every time.Duration) {
 		for _, a := range news {
 			s.notify(a, subs)
 		}
+		if len(settled) > 0 && len(subs) > 0 {
+			s.notifyAnswers(ctx, settled, subs)
+		}
+	}
+}
+
+// justSettled names the companions that were working or waiting a moment ago and are now idle.
+//
+// Read BEFORE newlyWaiting updates the map, so it sees the previous state. Called after, it would
+// compare every companion against itself and never fire.
+func justSettled(list []fleet.Agent, was map[string]fleet.State) []fleet.Agent {
+	var out []fleet.Agent
+	for _, a := range list {
+		prev := was[a.Socket]
+		if a.State == "idle" && (prev == "working" || prev == "waiting") {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// notifyAnswers tells the asker that work it handed out has come back.
+//
+// # Why this needed a channel at all
+//
+// A companion answers in its own transcript and the asker reads it. That is cheap and honest — no
+// queue to lose things, no callback arriving mid-turn to derail the asker — but it means the answer
+// sits there until somebody looks, and the person who would look is the one who walked away. The
+// console has collected these on one page for a while; this is the part that reaches somebody who
+// is not on that page.
+//
+// The notification names the ASKER, not the receiver. "buttons finished" is a fact about a
+// companion; "design's question came back" is the thing the reader is waiting on.
+func (s *server) notifyAnswers(ctx context.Context, settled []fleet.Agent, subs []webpush.Subscription) {
+	list, err := fleet.Handoffs(ctx, s.reader, s.cfgDir, "", &s.fleetCache)
+	if err != nil {
+		return
+	}
+	done := map[string]bool{}
+	for _, a := range settled {
+		done[a.Name] = true
+	}
+	p := s.pushes
+	for _, h := range list {
+		if !done[h.To] || h.Answer == "" {
+			continue
+		}
+		// Keyed on the request rather than on the pair: one companion can hand the same receiver two
+		// different questions, and the second one is news even though the first was announced.
+		key := h.From + "\x00" + h.To + "\x00" + h.Request
+		p.mu.Lock()
+		seen := p.told[key]
+		p.told[key] = true
+		p.mu.Unlock()
+		if seen {
+			continue
+		}
+		body, err := json.Marshal(map[string]string{
+			"title": h.To + " answered " + h.From,
+			"body":  text.Clip(h.Answer, 160),
+			"url":   "/?d=" + h.Socket,
+			"tag":   "handoff:" + key,
+		})
+		if err != nil {
+			continue
+		}
+		s.send(body, subs)
 	}
 }
 
@@ -276,6 +353,11 @@ func (s *server) notify(a fleet.Agent, subs []webpush.Subscription) {
 	if err != nil {
 		return
 	}
+	s.send(body, subs)
+}
+
+// send posts one payload to every subscription, forgetting the ones that are gone.
+func (s *server) send(body []byte, subs []webpush.Subscription) {
 	for _, sub := range subs {
 		// Five minutes. "Somebody is waiting for you" is worth nothing an hour later, and a
 		// notification that arrives after the question was answered teaches people to ignore them.

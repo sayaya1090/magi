@@ -203,3 +203,65 @@ func TestTheNotificationCarriesTheQuestionAndDeadSubscriptionsAreDropped(t *test
 		t.Error("a working subscription was dropped")
 	}
 }
+
+// Work coming back is announced once, at the moment it can be read.
+//
+// There is no reply channel: a receiver answers in its own transcript and the answer IS the last
+// thing it said once it goes quiet. So the moment worth telling somebody about is the edge into
+// idle — and because the answer stays readable for as long as the receiver stays idle, "there is
+// an answer" would repeat it every three seconds forever.
+func TestWorkComingBackIsAnnouncedOnceOnTheEdge(t *testing.T) {
+	was := map[string]fleet.State{}
+	at := func(states ...fleet.State) []string {
+		list := make([]fleet.Agent, len(states))
+		for i, st := range states {
+			list[i] = fleet.Agent{Socket: string(rune('a' + i)), Name: string(rune('a' + i)), State: st}
+		}
+		var names []string
+		for _, a := range justSettled(list, was) {
+			names = append(names, a.Name)
+		}
+		// The caller updates the map through newlyWaiting, after reading the edge.
+		newlyWaiting(was, list)
+		return names
+	}
+	if got := at("working", "idle"); got != nil {
+		t.Errorf("first look announced %v — nothing has changed yet, it has always been idle "+
+			"as far as this process knows", got)
+	}
+	if got := at("idle", "idle"); strings.Join(got, ",") != "a" {
+		t.Errorf("a companion that stopped working: %v", got)
+	}
+	if got := at("idle", "idle"); got != nil {
+		t.Errorf("still idle, announced again: %v — the answer stays readable, so this would "+
+			"repeat every tick forever", got)
+	}
+	if got := at("waiting", "idle"); got != nil {
+		t.Errorf("going INTO waiting is not work coming back: %v", got)
+	}
+	if got := at("idle", "idle"); strings.Join(got, ",") != "a" {
+		t.Errorf("answering a question and going quiet: %v", got)
+	}
+}
+
+// The same receiver answering twice is two pieces of news.
+//
+// Keyed on the pair alone, a companion that handed the same receiver a second question would never
+// hear about the second answer — the failure that is invisible, because nothing happens.
+func TestASecondQuestionToTheSameCompanionIsAnnouncedToo(t *testing.T) {
+	dir := t.TempDir()
+	p, err := newPush(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := func(from, to, req string) string { return from + "\x00" + to + "\x00" + req }
+	first := key("design", "api", "is the endpoint idempotent?")
+	second := key("design", "api", "does it retry on 429?")
+	if first == second {
+		t.Fatal("the two requests key the same; this check is measuring nothing")
+	}
+	p.told[first] = true
+	if p.told[second] {
+		t.Error("a different question was already considered told")
+	}
+}
