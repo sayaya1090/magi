@@ -47,8 +47,18 @@ function element(tag) {
     set type(v) { this.attrs.type = v; },
     set title(v) { this.attrs.title = v; },
     get hidden() { return !!this.attrs.hidden; },
-    append(...kids) { this.children.push(...kids); },
-    replaceChildren(...kids) { this.children = kids; },
+    // parentNode is set on append, because the page asks a CHILD which box it is in. A fake that
+    // answered undefined would let a guard pass that a browser fails — and this fake already did
+    // the mirror of that: children is an array here and an HTMLCollection there, so a page written
+    // against it used indexOf, which threw in a browser and silently dropped a whole panel.
+    append(...kids) {
+      for (const k of kids) { if (k && typeof k === 'object') k.parentNode = this; }
+      this.children.push(...kids);
+    },
+    replaceChildren(...kids) {
+      for (const k of kids) { if (k && typeof k === 'object') k.parentNode = this; }
+      this.children = kids;
+    },
     // Listeners are kept and dispatched, not swallowed. A no-op here made the fake disagree with
     // the DOM in the direction that hides bugs: md-tabs reports a switch by firing 'change' and
     // nothing else, so a page that listened for it looked correct while doing nothing at all.

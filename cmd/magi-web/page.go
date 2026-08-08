@@ -1248,8 +1248,7 @@ const indexHTML = `<!doctype html>
        the right one, and only where they SIT changes. */
     .composer { flex-wrap:wrap; align-items:end; }
     .composer md-outlined-text-field#t { order:1; }
-    .composer md-outlined-text-field#to { order:2; flex:1 1 8rem; min-width:7rem; }
-    .composer md-filled-button, .composer md-filled-tonal-button { order:3; flex:0 0 auto; }
+      .composer md-filled-button, .composer md-filled-tonal-button { order:3; flex:0 0 auto; }
     /* The component, not the element it replaced. These two rules named "textarea" and "button",
        which the composer has not held since it became Material Web — dead selectors, so on a phone
        the field never took its own row and was squeezed to a third of one. The same slip as the
@@ -2676,7 +2675,13 @@ async function drawContext(a, box, grid, field) {
   // box that was passed in rather than looked up: on the stacked layout the card is legitimately
   // hidden behind the other tab, and looking it up would drop the context every time somebody was
   // reading the conversation.
-  if (!c || box.children.indexOf(grid) < 0) return;
+  //
+  // ⚠ Asked of the GRID, not of the box's children list. box.children.indexOf(...) was written
+  // against the fake DOM, where children is an array — in a browser it is an HTMLCollection with no
+  // indexOf, so this threw, the async function rejected with nobody awaiting it, and the whole
+  // context block silently stopped rendering. The fake disagreed with the DOM in the direction that
+  // makes a test pass and a page fail, which is the fourth time it has done that.
+  if (!c || grid.parentNode !== box) return;
 
   // Which model, because the window below is that model's and a companion can be on one you did
   // not put it on — /route changes it mid-session and nothing else on this page would say so.
