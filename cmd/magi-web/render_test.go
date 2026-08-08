@@ -876,6 +876,45 @@ console.log(JSON.stringify({order: globalThis.ORDER, why: byId.notifyWhy.textCon
 	}
 }
 
+// A day on the board is the reader's day, not UTC's.
+//
+// dayOf was the first ten characters of an RFC3339 string — the UTC day — compared against
+// todayISO(), which is the local one. East of UTC in the evening the two disagree, so the board
+// showed the wrong day's work and filtered out sessions running at that moment. Measured at 00:30
+// in UTC+9, six cards became one, and the survivor was the only one whose UTC and local days
+// happened to straddle midnight.
+func TestABoardDayIsTheReadersDay(t *testing.T) {
+	// A session that ran this morning, local time. In UTC+9 its RFC3339 string carries yesterday's
+	// date, which is exactly the case that used to vanish.
+	got := runPage(t, `[{"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"idle","live":true,"session":"s1","idle":9}]`,
+		"?v=board", `
+const local = new Date();
+local.setHours(7, 0, 0, 0);
+const ended = new Date(local.getTime() + 3600000);
+globalThis.fetch = async (p) => {
+  const u = String(p).split('?')[0];
+  if (u === '/history') return {ok: true, json: async () => [
+    {id: 's1', title: 'the morning run', started: local.toISOString(), ended: ended.toISOString(), ago: 60},
+  ]};
+  if (u === '/fleet') return {ok: true, json: async () => [
+    {socket: '/s/a.sock', name: 'api', workdir: '/w/api', state: 'idle', live: true, session: 's1', idle: 9},
+  ]};
+  return {ok: true, json: async () => []};
+};
+await loadBoard();
+console.log(JSON.stringify({
+  cards: byId.board.find('div').filter(d => String(d.className).includes('wcard')).length,
+  utcDay: local.toISOString().slice(0, 10),
+  localDay: new Date(local.getTime() - local.getTimezoneOffset() * 60000).toISOString().slice(0, 10),
+}));
+`)
+	if got["cards"].(float64) != 1 {
+		t.Errorf("%v cards for one session that ran this morning — the board is comparing a local "+
+			"day against a UTC one (utc %v, local %v)",
+			got["cards"], got["utcDay"], got["localDay"])
+	}
+}
+
 // A question is answered in the composer, and the composer says so.
 //
 // Both boxes drawn, an agent's page had two text fields stacked: the upper one answering the

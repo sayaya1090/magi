@@ -2297,9 +2297,29 @@ async function loadHistory() {
 // The history endpoint answers for one companion because that is the question every other panel
 // asks it. Fanning out here rather than adding a fleet-wide endpoint keeps one way to ask, and the
 // fan-out is the size of the fleet — a handful, once per visit.
-const dayOf = ts => (ts || '').slice(0, 10);
+// Which day a timestamp fell on, in the READER's timezone.
+//
+// It used to be the first ten characters of the RFC3339 string, which is the UTC day — and it was
+// compared against todayISO(), which is the local one. East of UTC in the evening the two disagree,
+// so the board showed the wrong day's work and could filter out a session running at that moment:
+// measured at 00:30 KST, four cards became one, and the one that survived was the only one whose
+// UTC and local days happened to straddle the boundary.
+//
+// A person asking what happened on the 9th means their own 9th. Formatted through the same offset
+// arithmetic todayISO uses, so the two are the same function applied to two different instants.
+const dayOf = ts => {
+  const t = Date.parse(ts || '');
+  if (Number.isNaN(t)) return '';
+  return new Date(t - new Date(t).getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+};
 const todayISO = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
   .toISOString().slice(0, 10);
+// The time of day, local, as HH:MM. Empty for anything unparseable rather than "Invalid".
+const hhmm = ts => {
+  const t = Date.parse(ts || '');
+  if (Number.isNaN(t)) return '';
+  return new Date(t - new Date(t).getTimezoneOffset() * 60000).toISOString().slice(11, 16);
+};
 let boardDay = '';
 let boardQuery = '';
 
@@ -2386,7 +2406,9 @@ async function loadBoard() {
     lane.append(title);
     for (const h of work) {
       const card = cell('wcard' + (h.current ? ' now' : ''));
-      const when = cell('wwhen', h.current ? tr('board.now') : (h.started || '').slice(11, 16));
+      // The clock face is the reader's too. A card that said 22:00 for work somebody started at
+      // seven in the morning is not telling them about their own day.
+      const when = cell('wwhen', h.current ? tr('board.now') : hhmm(h.started));
       card.append(when);
       card.append(cell('wwhat', h.title || tr('history.untitled')));
       // How long it took, when it is over. A card that says only when it started tells you nothing
