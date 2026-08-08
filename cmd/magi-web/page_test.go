@@ -624,3 +624,29 @@ func TestTheShapeAndTypeScalesHaveNothingOffThem(t *testing.T) {
 			strings.Join(off, ", "))
 	}
 }
+
+// The page must not use array methods on a DOM collection.
+//
+// This is the one mistake the fake DOM cannot catch, because its collections ARE arrays. It has
+// already shipped once: `box.children.indexOf(grid)` passed every test and threw in a browser —
+// children is an HTMLCollection there, with no indexOf — so the guard it was in rejected, an async
+// function died with nobody awaiting it, and the whole context panel silently stopped rendering.
+//
+// HTMLCollection has no array methods at all. NodeList has forEach and nothing else. Both are
+// fine once spread, which is what the rest of this page already does.
+func TestNoArrayMethodOnADOMCollection(t *testing.T) {
+	js := indexHTML[strings.Index(indexHTML, "</style>"):]
+	js = regexp.MustCompile(`(?m)^\s*//.*$`).ReplaceAllString(js, "")
+	arrayOnly := `(indexOf|lastIndexOf|map|filter|reduce|reduceRight|find|findIndex|some|every|slice|sort|concat|join|includes|flatMap)`
+	for _, pat := range []struct{ what, re string }{
+		{"children", `\.children\.` + arrayOnly + `\(`},
+		{"querySelectorAll(...)", `querySelectorAll\([^)]*\)\.` + arrayOnly + `\(`},
+		{"childNodes", `\.childNodes\.` + arrayOnly + `\(`},
+	} {
+		for _, m := range regexp.MustCompile(pat.re).FindAllString(js, -1) {
+			t.Errorf("%q calls an array method on a %s — that is an HTMLCollection or a NodeList "+
+				"in a browser and an array only in the fake DOM, so this passes every test and "+
+				"throws where it matters. Spread it first.", strings.TrimSpace(m), pat.what)
+		}
+	}
+}
