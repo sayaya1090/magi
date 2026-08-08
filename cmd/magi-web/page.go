@@ -333,17 +333,11 @@ const indexHTML = `<!doctype html>
   }
   [hidden] { display:none !important; }
 
-  /* A kicker: the small letterspaced label an editorial layout puts above a headline. Here it is
-     the state, which is the first thing you want and the last thing that deserves a box. */
   /* On opacity: every value below is set so the RESULT clears WCAG AA (4.5:1) against the page in
      BOTH themes, which is checked in page_test.go. Editorial layouts get their hierarchy from
      dimming secondary text, and the arithmetic is easy to get wrong twice over — the muted role is
      already lowered, and light mode has less headroom than dark. Measured before this note: eight
      of thirteen dimmed pairs were under, the worst at 2.47:1. */
-  .kicker {
-    font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase;
-    color:var(--muted);
-  }
 
   /* ── masthead ───────────────────────────────────────────────────────────── */
   header {
@@ -476,7 +470,7 @@ const indexHTML = `<!doctype html>
   .tablbl { display:inline-flex; align-items:center; }
   .badgewrap { width:16px; height:16px; margin-left:.35rem; }
   .badgewrap md-badge { position:absolute; inset:0; width:16px; height:16px; }
-  .badgewrap[hidden], .badgewrap:has(md-badge[hidden]) { display:none; }
+  .badgewrap:has(md-badge[hidden]) { display:none; }
   /* In the rail it rides the icon, which is what a badge is for — and when the rail is collapsed
      the icon is the only thing there. */
   .icwrap { position:relative; display:inline-flex; width:20px; height:20px; }
@@ -542,12 +536,6 @@ const indexHTML = `<!doctype html>
      labels are wider than the column, and a nav that overflows takes the whole page sideways with
      it — the one scroll direction a phone should never get. */
   #tabs { display:flex; flex-wrap:wrap; gap:.4rem 1.6rem; padding:.9rem 0 0; }
-  #tabs a {
-    font:600 11px/1.4 var(--mono); letter-spacing:.16em; text-transform:uppercase;
-    color:var(--muted); text-decoration:none; padding-bottom:.5rem; border-bottom:2px solid transparent;
-  }
-
-  #tabs a.on { color:var(--fg); border-bottom-color:var(--primary); }
 
   /* ── what I had to say ───────────────────────────────────────────────────── */
   /* Grouped by what was said, because the repetition IS the finding: one correction is a remark,
@@ -558,39 +546,12 @@ const indexHTML = `<!doctype html>
      measure, which is where a reading width belongs. */
   /* Both halves of one story, on one page: what has been said often enough to become a rule, and
      the rules. They were two destinations, and a reader had to know that promoting on one made
-     something appear on the other. Each half says which it is. */
-  #ivs { display:block; max-width:var(--page); }
-  .sectionhead {
-    display:flex; align-items:baseline; gap:.7rem;
-    font:600 11px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
-    border-bottom:1px solid var(--fg); padding-bottom:.35rem; margin:0 0 .8rem;
-  }
-  .sectionhead .n { margin-left:auto; }
+     something appear on the other.
 
-  #ivs .said { max-width:var(--measure); }
-  .iv {
-    display:grid; grid-template-columns:3.5rem 1fr; gap:1rem; align-items:baseline;
-    border-bottom:1px solid var(--outlineVariant); padding:1.1rem 0;
-  }
-  .iv .times { font:600 var(--title-l) var(--display); color:var(--primary); text-align:right; }
-  .iv .said { font:italic 16px/1.5 var(--display); color:var(--fg); overflow-wrap:anywhere; }
-  .iv .where {
-    margin-top:.35rem; font-size:11px; letter-spacing:.05em; color:var(--muted);
-  }
-  .iv.denied .times { color:var(--error); }
-  /* What to do about this correction, set apart from the correction itself by a rule. It sat in the
-     middle of the text block with nothing separating them, so it read as floating rather than as
-     belonging to the words above it.
-     
-     No rules for a bare "button" here any more: these have been md-text-button since the
-     migration, and a rule naming the old element reaches nothing — the third such this week. */
-  .iv .promote {
-    display:flex; gap:.4rem; margin-top:.7rem; padding-top:.5rem; flex-wrap:wrap;
-    align-items:center; border-top:1px solid var(--outlineVariant);
-  }
-  .iv .promote .done {
-    color:var(--success); font:600 11px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
-  }
+     The corrections destination and its promotion pipeline are gone; what was learned is one list
+     now. Its rules went with it — #ivs, .sectionhead and the whole .iv family styled a section
+     that no longer exists, and a stylesheet that keeps them is one where the next reader cannot
+     tell which selectors mean anything. */
 
   /* ── what they have learned ─────────────────────────────────────────────── */
   /* Two tiers on one page, the crossing one first. The boundary between them is the whole of
@@ -742,7 +703,10 @@ const indexHTML = `<!doctype html>
     margin:1.6rem 0 .2rem; padding:0 0 .35rem;
     border-bottom:1px solid var(--fg);
   }
-  .teamhead:first-of-type { margin-top:.6rem; }
+  /* The first team sits closer to the table head above it. Written :first-of-type it matched
+     nothing — the table head is a div too, and it is the first one — so all three headers carried
+     the same 1.6rem and the list opened with a gap that looked like a missing row. */
+  .thead + .teamhead { margin-top:.6rem; }
   .teamhead .tname {
     font:600 12px/1.4 var(--mono); letter-spacing:.18em; text-transform:uppercase; color:var(--fg);
   }
@@ -915,7 +879,7 @@ const indexHTML = `<!doctype html>
   .td { display:grid; grid-template-columns:1.2rem 1fr; gap:.6rem; padding:.15rem 0; }
   .td .mark { font:12px/1.6 var(--mono); color:var(--muted); text-align:center; }
   .td .what { font-size:14px; color:var(--fg); overflow-wrap:anywhere; }
-  .td.completed .what, .td.done .what { color:var(--muted); text-decoration:line-through; }
+  .td.completed .what { color:var(--muted); text-decoration:line-through; }
   .td.in_progress .mark { color:var(--primary); }
   .td.in_progress .what { color:var(--primary); }
 
@@ -1095,12 +1059,22 @@ const indexHTML = `<!doctype html>
   }
   /* Removing something reads in the error colour on the way to being pressed, and only there: a
      control that is red at rest is a warning, and these are ordinary. */
-  md-text-button.drop, md-text-button.stop {
+  md-text-button.drop {
     --md-text-button-hover-label-text-color: var(--error);
     --md-text-button-focus-label-text-color: var(--error);
     --md-text-button-pressed-label-text-color: var(--error);
     --md-text-button-hover-state-layer-color: var(--error);
     --md-text-button-pressed-state-layer-color: var(--error);
+  }
+  /* Interrupting reads the same way, and it is an ICON button — named md-text-button.stop it was
+     styling nothing, so the one control on the fleet that halts a running turn was the only
+     destructive-feeling thing on the page that stayed grey under the cursor. */
+  md-icon-button.stop {
+    --md-icon-button-hover-icon-color: var(--error);
+    --md-icon-button-focus-icon-color: var(--error);
+    --md-icon-button-pressed-icon-color: var(--error);
+    --md-icon-button-hover-state-layer-color: var(--error);
+    --md-icon-button-pressed-state-layer-color: var(--error);
   }
   md-outlined-text-field#t { flex:1; }
   md-outlined-text-field {
@@ -1134,9 +1108,6 @@ const indexHTML = `<!doctype html>
   /* State layers, not colour swaps: M3 puts the on- colour over the surface at a fixed opacity.
      Doing it with a pseudo-element keeps the label's own contrast untouched, which dimming or
      recolouring the text does not. */
-  /* The components bring their own focus ring; this stays for anything in the composer that is
-     still a plain control. */
-  .composer button:focus-visible { outline:3px solid var(--primary); outline-offset:2px; }
 
   /* ── the table, when the table does not fit ──────────────────────────────
      A separate breakpoint from the navigation's, because it answers a different question. 768px is
@@ -2311,7 +2282,9 @@ async function drawPlan(a) {
   const box = document.getElementById('plan');
   const todos = await fetchList('/plan' + qFor(a));
   if (!todos || !todos.length) { box.hidden = true; box.replaceChildren(); return; }
-  const mark = t => t.status === 'completed' || t.status === 'done' ? '✓'
+  // completed | in_progress | pending, which is the todo tool's whole enum. A branch for 'done'
+  // sat here and a .td.done rule sat in the stylesheet, both waiting on a value the schema forbids.
+  const mark = t => t.status === 'completed' ? '✓'
                   : t.status === 'in_progress' ? '▸' : '·';
   box.replaceChildren(cell('k', 'plan'), ...todos.map(t => {
     const el = cell('td ' + (t.status || ''));

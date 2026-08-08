@@ -426,3 +426,48 @@ func TestTheDrawerDoesNotTakeWidthFromThePage(t *testing.T) {
 		}
 	}
 }
+
+// No rule may name an element this page stopped creating.
+//
+// The migration to Material Web replaced every button, textarea, select and input with a component,
+// and four separate times a rule naming the old element was left behind: .answer button, .iv
+// .promote button, .composer textarea, .composer button:focus-visible. Each one styles nothing and
+// each one reads, to the next person, as the rule that governs that control — so the real rule gets
+// written a second time somewhere else, or the control simply goes unstyled and nobody can say why.
+//
+// A selector matching NOTHING cannot be checked from the text alone. What can be checked is this
+// narrower thing: the page's markup contains no such element, so a selector whose subject is one is
+// dead by construction.
+func TestNoRuleNamesAnElementThePageNoLongerHas(t *testing.T) {
+	css := indexHTML[strings.Index(indexHTML, "<style>"):strings.Index(indexHTML, "</style>")]
+	// Comments first. Half this stylesheet is prose about which element a rule used to name, and a
+	// scanner that reads it finds every one of them.
+	css = regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAllString(css, "")
+	body := indexHTML[strings.Index(indexHTML, "</style>"):]
+	gone := []string{"button", "textarea", "select", "input"}
+	// First: the premise. If the markup grows one of these back, this test is measuring nothing and
+	// must say so rather than keep passing.
+	for _, tag := range gone {
+		if regexp.MustCompile(`<` + tag + `[\s>]`).MatchString(body) {
+			t.Fatalf("the page has a bare <%s> again; this check assumed it did not", tag)
+		}
+	}
+	// Then: every selector, split off its declaration block, with the component prefixes removed —
+	// md-filled-button ends in "button" and is exactly what these rules SHOULD name.
+	sel := regexp.MustCompile(`(?m)^\s*([^{}@/][^{}]*?)\s*\{`)
+	word := regexp.MustCompile(`(?:^|[\s>+~(])(` + strings.Join(gone, "|") + `)(?:[\s>+~:.\[)]|$)`)
+	for _, m := range sel.FindAllStringSubmatch(css, -1) {
+		for _, one := range strings.Split(m[1], ",") {
+			one = strings.TrimSpace(one)
+			if one == "" || strings.HasPrefix(one, "*") {
+				continue
+			}
+			// A component's own tag name is not the element it replaced.
+			clean := regexp.MustCompile(`\bmd-[a-z-]+`).ReplaceAllString(one, "COMPONENT")
+			if w := word.FindStringSubmatch(clean); w != nil {
+				t.Errorf("%q names <%s>, which this page has not had since the migration — "+
+					"the rule reaches nothing and reads as though it governs the control", one, w[1])
+			}
+		}
+	}
+}
