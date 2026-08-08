@@ -775,6 +775,69 @@ console.log(JSON.stringify({asked: RENDERED.filter(r => String(r.fetched).includ
 	}
 }
 
+// A decision arrives with the grounds to decide it, in the order the skill asked for them.
+//
+// The report crosses four hops to get here — tool, session, socket, fleet row — and the point of
+// all of them is this block. Checked on both surfaces that draw a prompt: the fleet, where a
+// supervisor sees it without opening anything, and the companion's own page.
+func TestABlockedAgentShowsWhatItWantsDecidedOn(t *testing.T) {
+	fleet := `[
+      {"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"waiting","live":true,
+       "asking":"which branch should this land on?","askId":"q1#1","askKind":"question",
+       "report":[{"key":"tried","text":"built and tested both"},
+                 {"key":"stakes","text":"main is hard to undo"},
+                 {"key":"lean","text":"the branch, it is unreviewed"}],
+       "task":"land the work","steps":3,"idle":5}]`
+
+	onFleet := runPage(t, fleet, "", rowsHelper+`
+await loadFleet();
+const g = rows()[0].find('div').find(d => String(d.className).includes('grounds'));
+console.log(JSON.stringify({
+  keys: g ? g.children.filter(c => c.className === 'gk').map(c => c.textContent) : [],
+  text: g ? g.text : '',
+}));
+`)
+	var keys []string
+	for _, k := range onFleet["keys"].([]any) {
+		keys = append(keys, k.(string))
+	}
+	if strings.Join(keys, "|") != "tried|stakes|lean" {
+		t.Errorf("the fleet row shows %v; the skill's order is part of the report", keys)
+	}
+	if !strings.Contains(onFleet["text"].(string), "main is hard to undo") {
+		t.Errorf("the grounds did not reach the row: %q", onFleet["text"])
+	}
+
+	// And on the companion's own page, where the prompt is a dock rather than a cell.
+	own := runPage(t, fleet, "?d=%2Fs%2Fa.sock", `
+await loadFleet();   // an agent's page polls the fleet for its own row; the prompt comes from it
+console.log(JSON.stringify({text: byId.prompt.text, has: !!byId.prompt.find('div').find(d => String(d.className).includes('grounds'))}));
+`)
+	if own["has"] != true || !strings.Contains(own["text"].(string), "unreviewed") {
+		t.Errorf("the agent's own page drew the question without its grounds: %+v", own)
+	}
+}
+
+// A prompt with no report is the prompt it always was, not an empty box.
+//
+// A companion on an older build, or one whose report was lost between its socket and this page,
+// must not render as though somebody left the reasoning blank.
+func TestAPromptWithNoReportDrawsNoEmptyBlock(t *testing.T) {
+	got := runPage(t, `[
+      {"socket":"/s/a.sock","name":"api","workdir":"/w/api","state":"waiting","live":true,
+       "asking":"rm -rf build","askId":"p1#1","askKind":"permission","steps":1,"idle":3}]`, "", rowsHelper+`
+await loadFleet();
+console.log(JSON.stringify({grounds: rows()[0].find('div').filter(d => String(d.className).includes('grounds')).length,
+  asking: rows()[0].text.includes('rm -rf build')}));
+`)
+	if got["grounds"].(float64) != 0 {
+		t.Error("a prompt with no report still drew a grounds block")
+	}
+	if got["asking"] != true {
+		t.Error("the prompt itself went missing")
+	}
+}
+
 // The rail widens, and the theme has a control of its own.
 //
 // There is no drawer on a phone any more: the tabs navigate, the theme toggle sits in the masthead,
@@ -863,7 +926,9 @@ func TestARowHasAsManyCellsAsTheHeaderHasColumns(t *testing.T) {
     ]`, "", rowsHelper+`
 await loadFleet();
 const head = byId.fleet.children.find(c => c.className === 'thead').children.length;
-console.log(JSON.stringify({head, rows: rows().map(r => r.children.length)}));
+// Only the cells that are columns. A block marked span takes the whole row on purpose.
+const cols = r => r.children.filter(c => !String(c.className).split(' ').includes('span')).length;
+console.log(JSON.stringify({head, rows: rows().map(cols)}));
 `)
 	head := int(got["head"].(float64))
 	if head == 0 {

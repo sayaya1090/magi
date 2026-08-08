@@ -55,6 +55,19 @@ const demoScript = `
      state: 'waiting', live: true, asking: 'run: psql -c "drop table staging_invoices"',
      askId: 'call_42', askKind: 'permission', task: 'add the idempotency key', steps: 3,
      planDone: 1, planTotal: 4, idle: 4, host: 'studio', addr: '10.0.0.4', pid: 4128},
+    // A question rather than a permission, so the demo shows the other prompt and the report a
+    // person is meant to decide on. Its sections are the default contract's — a console whose
+    // operator has written their own decision-report skill would show theirs.
+    {socket: '/demo/design.sock2', name: 'palette', role: 'colour and type', team: 'frontend',
+     workdir: '/Users/you/work/design-system', session: 'p1', state: 'waiting', live: true,
+     asking: 'which surface should the empty state sit on?',
+     askId: 'call_51', askKind: 'question',
+     report: [
+       {key: 'tried', text: 'drew it on surface and on surface-container-low, both themes; measured 4.7:1 and 6.1:1 against the muted label'},
+       {key: 'stakes', text: 'surface matches the table around it but the empty state stops reading as a panel; the container reads as a panel and is one more layer to keep in step with the cards'},
+       {key: 'lean', text: 'surface-container-low — the contrast is the one with headroom, and light is already the tighter theme'},
+     ],
+     task: 'spec the empty state', steps: 5, idle: 22, host: 'studio', addr: '10.0.0.4', pid: 4131},
     {socket: '/demo/buttons.sock', name: 'buttons', role: 'components', team: 'frontend',
      workdir: '/Users/you/work/ui-kit', session: 'b1', state: 'idle', live: true,
      task: 'the toggle now reads its state from the store rather than a prop', idle: 640,

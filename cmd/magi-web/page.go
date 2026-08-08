@@ -661,6 +661,26 @@ const indexHTML = `<!doctype html>
   }
   .actions .open:hover { color:var(--primary); }
 
+  /* The grounds a decision is put on: a key-and-value block, set like the rest of this page's
+     labelled readings. Two columns on anything but a phone, because the keys are short words and
+     giving each its own line would push the reasoning off the screen it exists to be read on. */
+  .grounds {
+    grid-column:1 / -1;
+    display:grid; grid-template-columns:6.5rem minmax(0, 1fr); gap:.25rem .9rem;
+    margin:.6rem 0 .1rem; padding:.7rem .9rem; max-width:var(--measure);
+    background:var(--md-surface-container-low); border-radius:var(--shape-s);
+    border-left:2px solid var(--outlineVariant);
+  }
+  .grounds .gk {
+    font:600 10px/1.6 var(--mono); letter-spacing:.16em; text-transform:uppercase;
+    color:var(--muted); text-align:right;
+  }
+  .grounds .gv { font:12px/1.55 var(--mono); color:var(--fg); overflow-wrap:anywhere; }
+  @media (max-width:640px) {
+    .grounds { grid-template-columns:1fr; gap:.1rem; }
+    .grounds .gk { text-align:left; margin-top:.4rem; }
+  }
+
   /* answering, inline in the row that is asking */
   /* Answering is the one place on the fleet where a person types, so it is the library's field and
      the library's buttons: focus ring, state layers and a 48dp target all come with them. What is
@@ -972,6 +992,25 @@ const indexHTML = `<!doctype html>
      in two modes rather than two that have to agree. Its items are md-list-item with an href, so
      they are real links with the component's ripple and focus ring: a rail you cannot middle-click
      is a navigation that forgot it was made of addresses. -->
+
+<main>
+  <md-tabs id="tabs" hidden>
+    <md-primary-tab id="tabFleet">companions</md-primary-tab>
+    <md-primary-tab id="tabIv">corrections</md-primary-tab>
+    <md-primary-tab id="tabSkills">lessons</md-primary-tab>
+    <md-primary-tab id="tabMcp">connections</md-primary-tab>
+  </md-tabs>
+  <md-chip-set id="summary"></md-chip-set>
+  <div id="ivs" hidden></div>
+  <div id="skills" hidden></div>
+  <div id="mcp" hidden></div>
+  <div id="fleet"></div>
+  <md-outlined-card id="detail" hidden></md-outlined-card>
+  <md-outlined-card id="plan" hidden></md-outlined-card>
+  <md-outlined-card id="handoffs" hidden></md-outlined-card>
+  <div id="log"></div>
+</main>
+
 <nav id="rail">
   <!-- The button that widens the rail lives IN the rail, beside what it moves. In the masthead's
        far corner it did not look like it belonged to the column across the page. -->
@@ -1027,24 +1066,6 @@ const indexHTML = `<!doctype html>
     <div id="console"></div>
   </div>
 </nav>
-
-<main>
-  <md-tabs id="tabs" hidden>
-    <md-primary-tab id="tabFleet">companions</md-primary-tab>
-    <md-primary-tab id="tabIv">corrections</md-primary-tab>
-    <md-primary-tab id="tabSkills">lessons</md-primary-tab>
-    <md-primary-tab id="tabMcp">connections</md-primary-tab>
-  </md-tabs>
-  <md-chip-set id="summary"></md-chip-set>
-  <div id="ivs" hidden></div>
-  <div id="skills" hidden></div>
-  <div id="mcp" hidden></div>
-  <div id="fleet"></div>
-  <md-outlined-card id="detail" hidden></md-outlined-card>
-  <md-outlined-card id="plan" hidden></md-outlined-card>
-  <md-outlined-card id="handoffs" hidden></md-outlined-card>
-  <div id="log"></div>
-</main>
 
 <footer id="dock">
   <div id="prompt" hidden></div>
@@ -1323,6 +1344,12 @@ function card(a) {
   el.append(host);
 
   el.append(rowActions(a));
+  // The grounds go last and take the whole row. They are paragraphs, and a paragraph in a table
+  // column 12rem wide comes out one word per line — measured, and it looked like a bug rather than
+  // like reasoning. Marked "span" so the check that a row has as many cells as the head has
+  // columns still counts columns: this is not one.
+  const why = grounds(a);
+  if (why) el.append(why);
   return el;
 }
 
@@ -1379,6 +1406,27 @@ function summarise(list) {
   }));
 }
 
+// grounds is the report the agent wrote for whoever has to decide.
+//
+// Drawn as a labelled block rather than folded into the question, because it is not the question:
+// the question is one line and this is the working behind it — what was tried, what each way
+// costs, which way the agent leans. Its sections are whatever the decision-report skill asked for,
+// so nothing here names them; they arrive in the order that skill put them in, and that order is
+// part of the report.
+//
+// Returns null when there are none. A companion running an older build, or one whose report was
+// dropped somewhere between its socket and this page, gets the prompt it always had rather than an
+// empty box implying somebody left the grounds blank.
+function grounds(a) {
+  if (!a.report || !a.report.length) return null;
+  const box = cell('grounds span');
+  for (const sec of a.report) {
+    if (!sec || !sec.text) continue;
+    box.append(cell('gk', sec.key), cell('gv', sec.text));
+  }
+  return box.children.length ? box : null;
+}
+
 // answerBox is the reply to a blocked agent, next to the question it answers.
 //
 // The buttons stop the click from opening the agent (the row is a link) — reading and answering are
@@ -1432,7 +1480,10 @@ function drawPrompt(a) {
   if (!a || a.state !== 'waiting') { box.hidden = true; box.replaceChildren(); measureDock(); return; }
   const inner = document.createElement('div'); inner.className = 'inner';
   const k = document.createElement('div'); k.className = 'asking'; k.textContent = '⏸ ' + a.asking;
-  inner.append(k, answerBox(a));
+  inner.append(k);
+  const why = grounds(a);
+  if (why) inner.append(why);
+  inner.append(answerBox(a));
   box.replaceChildren(inner);
   box.hidden = false;
   measureDock();
