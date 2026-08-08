@@ -573,9 +573,15 @@ const indexHTML = `<!doctype html>
     display:grid; align-items:baseline;
     /* Sized to what actually arrives. The doing column is the widest because the server clips a
        task at 160 characters and that is what has to fit — at ~0.5ch per character in this face,
-       160 wants about 40rem before it wraps to a third line. The fixed columns are sized to their
-       content and not to a guess: a state word, a step count, an age, a host and an address. */
-    grid-template-columns: 8.5rem minmax(11rem, 1fr) minmax(18rem, 2.6fr) 4.5rem 4.5rem 9rem 7rem;
+       160 wants about 40rem before it wraps to a third line, and it gets that whenever there is
+       room. The fixed columns are sized to their content and not to a guess: a state word, a step
+       count, an age, a host and an address.
+
+       These are MINIMA and their sum is what has to fit. The previous set added up to 1086px with
+       the gaps, which is wider than this page's own measure — so every width tested scrolled
+       sideways, including a 1100px desktop. Sizing each column to what it holds is only half the
+       job; the other half is checking the total against the space there is. */
+    grid-template-columns: 7rem minmax(8rem, 1fr) minmax(12rem, 2.6fr) 3.5rem 4rem 7rem 6rem;
     gap:.9rem;
   }
   .thead {
@@ -839,6 +845,8 @@ const indexHTML = `<!doctype html>
   /* State layers, not colour swaps: M3 puts the on- colour over the surface at a fixed opacity.
      Doing it with a pseudo-element keeps the label's own contrast untouched, which dimming or
      recolouring the text does not. */
+  /* The components bring their own focus ring; this stays for anything in the composer that is
+     still a plain control. */
   .composer button:focus-visible { outline:3px solid var(--primary); outline-offset:2px; }
 
   /* ── the two widths ─────────────────────────────────────────────────────
@@ -868,14 +876,44 @@ const indexHTML = `<!doctype html>
     #burger, #prefsBtn { display:none; }
   }
 
+  /* ── the table, when the table does not fit ──────────────────────────────
+     A separate breakpoint from the navigation's, because it answers a different question. 768px is
+     where a rail stops being worth its width; this is where seven columns stop fitting, which is a
+     fact about the columns. Tying the two together would mean moving one every time the other's
+     reason changed.
+
+     The row's own comment used to say it "collapses to two lines on a phone". Nothing collapsed it
+     — the comment described a mechanism that was never written, and the page scrolled sideways at
+     every width instead. */
+  @media (max-width:1000px) {
+    .thead { display:none; }   /* no columns left to label */
+    .card {
+      grid-template-columns:auto auto 1fr;
+      gap:.3rem .9rem; padding:1rem .8rem 1.1rem;
+    }
+    /* Everything takes the full width unless it is placed. The cells stay exactly as they are —
+       a row still has as many cells as the head has columns — and only where they sit changes. */
+    .card > * { grid-column:1 / -1; }
+    .card .badge { grid-column:1 / 3; grid-row:1; }
+    .card .actions { grid-column:3; grid-row:1; justify-content:flex-end; }
+    /* The three short readings share one line at the foot of the row rather than taking three. */
+    .card .num, .card .host { grid-column:auto; }
+    .card .num.r { text-align:left; }
+  }
+
   @media (max-width:640px) {
     /* The two buttons and a text box do not fit across 390px: measured, the box was left with
        about a third of the row and the placeholder was cut mid-sentence. They take their own line,
        which also puts them under the thumb rather than beside it. */
     .composer { flex-wrap:wrap; }
     .composer md-outlined-text-field#to { flex:0 0 14rem; min-width:9rem; }
-  .composer textarea { flex:1 0 100%; }
-    .composer button { flex:1; }
+    /* The component, not the element it replaced. These two rules named "textarea" and "button",
+       which the composer has not held since it became Material Web — dead selectors, so on a phone
+       the field never took its own row and was squeezed to a third of one. The same slip as the
+       host rules that could not reach a label: a migration that leaves the old CSS behind leaves
+       it pointing at nothing. */
+    .composer md-outlined-text-field#t { flex:1 0 100%; }
+    .composer md-filled-button, .composer md-filled-tonal-button { flex:1; }
     header { padding-left:1rem; padding-right:1rem; }
     main { padding:1.2rem 1rem calc(var(--dock, 8rem) + 1.5rem); }
     .card .name { font:600 var(--title-l) var(--display); }
@@ -1259,7 +1297,9 @@ function card(a) {
 function rowActions(a) {
   const box = cell('actions');
   const open = document.createElement('a');
-  open.className = 'open'; open.textContent = 'open ›';
+  // The chevron stays; the word does not. This one sat in English beside a translated stop button
+  // on every row of a Korean page — the last hardcoded label on the fleet.
+  open.className = 'open'; open.textContent = tr('action.open') + ' ›';
   open.href = href(a);
   open.onclick = e => { e.preventDefault(); e.stopPropagation(); go(a.socket, a.peer); };
   box.append(open);

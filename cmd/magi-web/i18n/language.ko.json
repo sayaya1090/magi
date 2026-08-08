@@ -7,6 +7,7 @@
   "nav.preferences": "환경설정",
   "nav.this_console": "이 콘솔",
   "action.send": "보내기",
+  "action.open": "열기",
   "action.interrupt": "중단",
   "action.answer": "응답",
   "action.forget": "잊기",

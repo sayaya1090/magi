@@ -7,6 +7,7 @@
   "nav.preferences": "preferences",
   "nav.this_console": "this console",
   "action.send": "send",
+  "action.open": "open",
   "action.interrupt": "interrupt",
   "action.answer": "answer",
   "action.forget": "forget",
