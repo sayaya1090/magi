@@ -775,41 +775,53 @@ console.log(JSON.stringify({asked: RENDERED.filter(r => String(r.fetched).includ
 	}
 }
 
-// One button, two meanings, and the width decides which.
+// The rail widens, and the theme has a control of its own.
 //
-// Wide: the rail is already on screen and the button widens it, so the page behind stays usable
-// and there is no scrim. Narrow: the same drawer comes in OVER the page, so there is one, and
-// picking a destination closes it — a drawer left open on a phone hides the thing you navigated to.
-func TestTheDrawerMeansOneThingOnEachWidth(t *testing.T) {
-	wide := runPage(t, `[]`, "", `
-byId.menu.onclick();
-console.log(JSON.stringify({nav: document.body.getAttribute('nav'), scrim: byId.scrim.hidden,
-  said: byId.menu.getAttribute('aria-expanded')}));
+// There is no drawer on a phone any more: the tabs navigate, the theme toggle sits in the masthead,
+// and the rest is a section at the foot of the page. So what is left to check is that the rail's
+// button opens and closes one state, and that the toggle and the select in that section are one
+// setting rather than two — they write and read the same stored preference, and a page where the
+// quick control and the full one disagree is worse than having only one of them.
+func TestTheRailOpensAndTheThemeToggleIsTheSameSetting(t *testing.T) {
+	got := runPage(t, `[]`, "", `
+globalThis.fetch = async () => ({ok: true, json: async () => []});
+byId.railMenu.onclick();
+const opened = {nav: document.body.getAttribute('nav'), said: byId.railMenu.getAttribute('aria-expanded')};
+byId.railMenu.onclick();
+const closed = {nav: document.body.getAttribute('nav'), said: byId.railMenu.getAttribute('aria-expanded')};
+
+// Nothing chosen yet: the machine answers, and the fake reports a light one.
+const before = {stored: localStorage.getItem('theme'), attr: document.documentElement.getAttribute('color-theme')};
+byId.themeToggle.onclick();
+const after = {stored: localStorage.getItem('theme'), attr: document.documentElement.getAttribute('color-theme'),
+               selected: byId.theme.children.filter(o => o.selected).map(o => o.value)};
+byId.themeToggle.onclick();
+const again = {stored: localStorage.getItem('theme'), attr: document.documentElement.getAttribute('color-theme')};
+console.log(JSON.stringify({opened, closed, before, after, again}));
 `)
-	if wide["nav"] != "open" || wide["scrim"] != true {
-		t.Errorf("on a wide screen the drawer reads %+v; the page behind it stays reachable", wide)
+	op, cl := got["opened"].(map[string]any), got["closed"].(map[string]any)
+	if op["nav"] != "open" || op["said"] != "true" {
+		t.Errorf("the rail did not open: %+v", op)
 	}
-	if wide["said"] != "true" {
-		t.Errorf("the button says aria-expanded=%v after opening", wide["said"])
+	if cl["nav"] != nil || cl["said"] != "false" {
+		t.Errorf("the rail did not close again: %+v", cl)
 	}
 
-	t.Setenv("NARROW", "1")
-	narrow := runPage(t, `[]`, "", `
-globalThis.fetch = async () => ({ok: true, json: async () => []});
-byId.menu.onclick();
-const opened = {nav: document.body.getAttribute('nav'), scrim: byId.scrim.hidden};
-byId.railSkills.onclick({preventDefault(){}});
-console.log(JSON.stringify({opened, after: document.body.getAttribute('nav'), where: location.search}));
-`)
-	op := narrow["opened"].(map[string]any)
-	if op["nav"] != "open" || op["scrim"] != false {
-		t.Errorf("on a phone the drawer reads %+v; it covers the page, so it needs a scrim", op)
+	before := got["before"].(map[string]any)
+	if before["stored"] != nil || before["attr"] != nil {
+		t.Errorf("something was stored before anybody chose: %+v", before)
 	}
-	if narrow["after"] != nil {
-		t.Errorf("the drawer is still %v after picking a destination, hiding what was navigated to", narrow["after"])
+	after := got["after"].(map[string]any)
+	if after["stored"] != "dark" || after["attr"] != "dark" {
+		t.Errorf("pressing the toggle on a light page gave %+v, want dark stored and applied", after)
 	}
-	if narrow["where"] != "?v=skills" {
-		t.Errorf("the rail went to %q", narrow["where"])
+	// The select is the same setting seen from the other side.
+	sel := after["selected"].([]any)
+	if len(sel) != 1 || sel[0] != "dark" {
+		t.Errorf("the preferences select reads %v while the toggle says dark — two settings, not one", sel)
+	}
+	if again := got["again"].(map[string]any); again["stored"] != "light" || again["attr"] != "light" {
+		t.Errorf("pressing it again gave %+v, want light", again)
 	}
 }
 

@@ -376,7 +376,7 @@ const indexHTML = `<!doctype html>
   #rail {
     position:fixed; top:0; bottom:0; left:0; z-index:3;
     width:var(--rail-w); box-sizing:border-box;
-    padding:calc(4.4rem + env(safe-area-inset-top)) .5rem 1.2rem;
+    padding:calc(.7rem + env(safe-area-inset-top)) .5rem 1.2rem;
     background:var(--md-surface-container-low); border-right:1px solid var(--outlineVariant);
     display:flex; flex-direction:column; gap:1rem; overflow:hidden auto;
     /* Same curve and duration as the components use for a container that changes size, so the rail
@@ -423,11 +423,21 @@ const indexHTML = `<!doctype html>
   }
   #console { font:12px/1.6 var(--mono); color:var(--muted); overflow-wrap:anywhere; }
   #console b { color:var(--fg); font-weight:600; }
-  #scrim {
-    position:fixed; inset:0; z-index:2; background:color-mix(in srgb, #000 42%, transparent);
-    border:0; padding:0;
+  #railMenu, #themeToggle, #prefsBtn {
+    --md-icon-button-icon-color:var(--muted); color:var(--muted);
   }
-  #menu { --md-icon-button-icon-color:var(--muted); color:var(--muted); }
+  #railMenu { align-self:center; margin-bottom:.2rem; }
+  #themeToggle { margin-left:.2rem; }
+  /* One of the two is always hidden, and which one follows the theme in force — including when that
+     theme is the machine's, so the query appears here as well as the attribute. Same pairing the
+     palette uses, for the same reason: a reader can override the machine in both directions. */
+  #themeToggle .sun { display:none; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([color-theme]) #themeToggle .sun { display:block; }
+    :root:not([color-theme]) #themeToggle .moon { display:none; }
+  }
+  :root[color-theme="dark"] #themeToggle .sun { display:block; }
+  :root[color-theme="dark"] #themeToggle .moon { display:none; }
 
   /* The dock is fixed and its height changes — a prompt bar appears above the composer, and the
      composer itself grows with what you type. A constant padding here either wastes a screen of
@@ -862,19 +872,24 @@ const indexHTML = `<!doctype html>
   @media (min-width:769px) {
     header, main { padding-left:calc(var(--rail-w) + 1.9rem); }
     #dock { padding-left:var(--rail-w); }
-    #tabs, #gear { display:none; }
-    #scrim { display:none; }
-  }
+    #tabs, #themeToggle { display:none; }
+    }
   /* Narrow: the tabs navigate, so there is no hamburger — a menu button next to a row of tabs is
      an invitation to look in the wrong place. What is left behind the button is the preferences,
      so on this width it says so and wears a gear. */
+  /* Narrow: no drawer at all. The tabs navigate, the theme has its own toggle in the masthead, and
+     what is left — language, and which machine this is — is a plain section at the foot of the
+     page. A drawer for two selects is a door in front of a cupboard, and on a phone it covered the
+     thing the reader had just navigated to. */
   @media (max-width:768px) {
-    #rail { --rail-w:17rem; transform:translateX(-100%); }
-    body[nav="open"] #rail { transform:translateX(0); }
-    #rail #railNav { display:none; }
-    #rail #railFoot { display:flex; }
-    #burger, #prefsBtn { display:none; }
-  }
+    #rail {
+      position:static; transform:none; width:auto; overflow:visible;
+      border-right:0; border-top:1px solid var(--outlineVariant);
+      background:none; padding:1.4rem 1.4rem 2rem; margin-top:1.5rem;
+    }
+    #rail #railNav, #railMenu, #prefsBtn { display:none; }
+    #rail #railFoot { display:flex; max-width:22rem; }
+    }
 
   /* ── the table, when the table does not fit ──────────────────────────────
      A separate breakpoint from the navigation's, because it answers a different question. 768px is
@@ -930,22 +945,27 @@ const indexHTML = `<!doctype html>
        screen it widens the rail into a drawer, on a narrow one it slides that drawer in over the
        page. Either way it is the way to the settings, which is why a phone has it too even though
        a phone navigates with the tabs. -->
-  <md-icon-button id="menu" aria-expanded="false">
-    <svg id="burger" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-      <path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
-    </svg>
-    <svg id="gear" viewBox="0 0 24 24" width="21" height="21" aria-hidden="true">
-      <circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.8" fill="none"/>
-      <path d="M12 2.6v2.6M12 18.8v2.6M21.4 12h-2.6M5.2 12H2.6M18.6 5.4l-1.8 1.8M7.2 16.8l-1.8 1.8M18.6 18.6l-1.8-1.8M7.2 7.2 5.4 5.4"
-            stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/>
-    </svg>
-  </md-icon-button>
   <span class="mark">magi</span>
   <!-- Where you are, always, in both views: magi / fleet, or magi / fleet / <agent>. The middle
        crumb is the way back, which is the same element that says where back goes. -->
   <nav id="crumbs"><a href="/" id="back">companions</a><span id="crumbSep" hidden>/</span><span id="crumbHere"></span></nav>
   <span class="sid" id="sid"></span>
   <span id="state"></span>
+  <!-- Narrow only, and top right where a thumb reaches. It shows what pressing it GIVES you — a sun
+       while the page is dark — because a control showing its current state leaves you working out
+       what it does. Two shapes with one hidden, rather than a morphing path: an icon that changes
+       shape is an icon that has to be got right twice. -->
+  <md-icon-button id="themeToggle">
+    <svg class="sun" viewBox="0 0 24 24" width="21" height="21" aria-hidden="true">
+      <circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.8" fill="none"/>
+      <path d="M12 2.4v2.8M12 18.8v2.8M21.6 12h-2.8M5.2 12H2.4M18.8 5.2l-2 2M7.2 16.8l-2 2M18.8 18.8l-2-2M7.2 7.2l-2-2"
+            stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+    </svg>
+    <svg class="moon" viewBox="0 0 24 24" width="21" height="21" aria-hidden="true">
+      <path d="M20 14.2A8.4 8.4 0 0 1 9.8 4a8.4 8.4 0 1 0 10.2 10.2z"
+            stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" fill="none"/>
+    </svg>
+  </md-icon-button>
 </header>
 
 <!-- The rail is the wide screen's navigation and the narrow screen's settings drawer — one element
@@ -953,6 +973,13 @@ const indexHTML = `<!doctype html>
      they are real links with the component's ripple and focus ring: a rail you cannot middle-click
      is a navigation that forgot it was made of addresses. -->
 <nav id="rail">
+  <!-- The button that widens the rail lives IN the rail, beside what it moves. In the masthead's
+       far corner it did not look like it belonged to the column across the page. -->
+  <md-icon-button id="railMenu" aria-expanded="false">
+    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+      <path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
+    </svg>
+  </md-icon-button>
   <!-- The icons are drawn here rather than pulled from Material Symbols: that is a whole font to
        embed for four glyphs, and this page already refuses a font CDN for the typeface it reads
        with. Stroked in currentColor, so the selected state colours the shape with its label. -->
@@ -1000,7 +1027,6 @@ const indexHTML = `<!doctype html>
     <div id="console"></div>
   </div>
 </nav>
-<div id="scrim" hidden></div>
 
 <main>
   <md-tabs id="tabs" hidden>
@@ -1108,6 +1134,13 @@ function applyTheme() {
   else document.documentElement.setAttribute('color-theme', want);
 }
 applyTheme();
+// What the page is actually showing, which is not the same as what was chosen: 'system' resolves
+// through the machine. The toggle needs the resolved answer to know which way to flip.
+const showing = () => {
+  const want = prefOf('theme');
+  if (want !== 'system') return want;
+  return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+};
 const locale = () => {
   const chosen = prefOf('lang');
   const asked = [chosen === 'system' ? null : chosen, ...(navigator.languages || [navigator.language])];
@@ -1178,11 +1211,13 @@ const mcpEl = document.getElementById('mcp'), tabMcp = document.getElementById('
 // The last fleet answer, so the "which companion" picker names them without a second fetch.
 let fleetSeen = [];
 const tabFleet = document.getElementById('tabFleet'), tabIv = document.getElementById('tabIv');
-const menuEl = document.getElementById('menu'), railEl = document.getElementById('rail');
-const scrimEl = document.getElementById('scrim'), railFoot = document.getElementById('railFoot');
+const railEl = document.getElementById('rail');
+const railFoot = document.getElementById('railFoot');
 const themeEl = document.getElementById('theme'), langEl = document.getElementById('lang');
 const prefsK = document.getElementById('prefsK'), consoleK = document.getElementById('consoleK');
 const prefsBtn = document.getElementById('prefsBtn');
+const railMenu = document.getElementById('railMenu');
+const themeToggle = document.getElementById('themeToggle');
 const consoleEl = document.getElementById('console');
 const railFleet = document.getElementById('railFleet'), railIv = document.getElementById('railIv');
 const railSkills = document.getElementById('railSkills'), railMcp = document.getElementById('railMcp');
@@ -1958,7 +1993,8 @@ function paint() {
   toEl.setAttribute('supporting-text', tr('hint.address'));
   document.getElementById('send').textContent = tr('action.send');
   document.getElementById('stop').textContent = tr('action.interrupt');
-  menuEl.setAttribute('aria-label', tr('nav.menu'));
+  railMenu.setAttribute('aria-label', tr('nav.menu'));
+  themeToggle.setAttribute('aria-label', tr('pref.theme'));
   prefsBtn.setAttribute('aria-label', tr('nav.preferences'));
   prefsK.textContent = tr('nav.preferences');
   consoleK.textContent = tr('nav.this_console');
@@ -2100,32 +2136,35 @@ for (const [el, key] of RAILS) {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;  // let the browser have it
     e.preventDefault();
     history.pushState({}, '', at(HREF[key]));
-    if (narrow()) closeNav();
     render();
   };
 }
 
-// One button, two meanings, and the width decides which: wide it widens the rail into a drawer,
-// narrow it slides that drawer in over the page. Both are the same attribute, so there is one
-// state and not two that can disagree.
-const narrow = () => matchMedia('(max-width:768px)').matches;
+// Widening the rail is a wide-screen idea only. On a phone the rail is not a drawer — it is a
+// section at the foot of the page — so there is nothing to open and nothing to close.
 const closeNav = () => {
   document.body.removeAttribute('nav');
-  menuEl.setAttribute('aria-expanded', 'false');
-  scrimEl.hidden = true;
+  railMenu.setAttribute('aria-expanded', 'false');
 };
-menuEl.onclick = () => {
-  const open = document.body.getAttribute('nav') !== 'open';
-  if (!open) { closeNav(); return; }
+railMenu.onclick = () => {
+  if (document.body.getAttribute('nav') === 'open') { closeNav(); return; }
   document.body.setAttribute('nav', 'open');
-  menuEl.setAttribute('aria-expanded', 'true');
-  scrimEl.hidden = !narrow();   // the page behind stays reachable on a wide screen
+  railMenu.setAttribute('aria-expanded', 'true');
 };
-// The same door as the hamburger, standing where the preferences are rather than in the corner.
-prefsBtn.onclick = () => menuEl.onclick();
-scrimEl.onclick = closeNav;
-// Escape closes it, because a drawer over the page is a thing you can be stuck behind.
-addEventListener('keydown', e => { if (e.key === 'Escape' && !scrimEl.hidden) closeNav(); });
+// Three ways to the same door on a wide screen — the rail's hamburger and the gear at its foot —
+// and one state behind them, so they cannot disagree about whether it is open.
+prefsBtn.onclick = () => railMenu.onclick();
+// The toggle writes the SAME preference the select does, so the two are one setting with two
+// controls rather than two settings. Pressing it leaves 'system' behind on purpose: asking for the
+// other theme is a choice, and pretending it was still deferring to the machine would mean the
+// next OS change silently undid it.
+themeToggle.onclick = () => {
+  localStorage.setItem('theme', showing() === 'dark' ? 'light' : 'dark');
+  applyTheme();
+  if (painted) paint();   // the select in the foot now reads something else
+};
+// Escape narrows it again, the way Escape leaves anything that has been opened.
+addEventListener('keydown', e => { if (e.key === 'Escape') closeNav(); });
 
 // A preference is written down and acted on immediately. Language re-fetches rather than reloads:
 // the pack is the only thing that changes, and a reload would throw away the transcript.
