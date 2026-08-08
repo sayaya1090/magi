@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"testing"
 )
@@ -796,7 +795,7 @@ func TestTheComposerBecomesTheAnswerFieldForAQuestion(t *testing.T) {
 	probe := `
 await loadFleet();
 console.log(JSON.stringify({
-  label: byId.t.attrs['label'], support: byId.t.attrs['supporting-text'] || '',
+  label: byId.t.attrs['label'], support: byId.cnote.textContent || '',
   send: byId.send.textContent,
   fieldsInPrompt: byId.prompt.find('md-outlined-text-field').length,
 }));
@@ -1551,83 +1550,6 @@ console.log(JSON.stringify({text, contexts: (text.match(/messages/g) || []).leng
 	}
 	if !strings.Contains(got["text"].(string), "2 messages") {
 		t.Errorf("the stale answer won:\n%s", got["text"])
-	}
-}
-
-// The console's composer is addressed on the fleet view: the work goes to whoever does that thing,
-// and which machine they are on is not the asker's problem.
-func TestTheFleetComposerSendsWorkToAnAddress(t *testing.T) {
-	got := runPage(t, `[]`, "", `
-globalThis.fetch = async (p, init) => {
-  if (init && init.method === 'POST') { RENDERED.push({to: p, body: init.body.toString()}); return {ok: true, status: 204, text: async () => ''}; }
-  return {ok: true, json: async () => [
-    {socket:'/s/d.sock', name:'design', role:'component specs and visual review', team:'frontend', hub:true, state:'idle', workdir:'/w/d', session:'d', idle:5},
-    {socket:'/s/b.sock', name:'buttons', role:'components', team:'frontend', state:'idle', workdir:'/w/b', session:'b', idle:9},
-    {socket:'/s/a.sock', name:'api', role:'the billing API', state:'working', workdir:'/w/a', session:'a', idle:1},
-  ]};
-};
-await loadFleet();
-byId.t.value = 'spec the empty state';
-byId.to.value = 'component specs';
-await f.onsubmit({preventDefault(){}});
-const before = RENDERED.filter(r => r.to).length;
-byId.t.value = 'another thing';
-byId.to.value = '';
-await f.onsubmit({preventDefault(){}});
-console.log(JSON.stringify({
-  posts: RENDERED.filter(r => r.to),
-  refused: RENDERED.filter(r => r.to).length === before,
-  state: byId.state.text,
-  suggestions: byId.roles.children.map(o => o.value),
-  fleetText: byId.fleet.text,
-}));
-`)
-	posts := got["posts"].([]any)
-	if len(posts) != 1 {
-		t.Fatalf("one addressed send produced %d requests: %v", len(posts), posts)
-	}
-	first := posts[0].(map[string]any)
-	if !strings.HasPrefix(first["to"].(string), "/dispatch") {
-		t.Errorf("the work did not go to the dispatcher: %v", first["to"])
-	}
-	body := first["body"].(string)
-	if !strings.Contains(body, "to=component+specs") || !strings.Contains(body, "text=spec+the+empty+state") {
-		t.Errorf("the request lost the address or the words: %q", body)
-	}
-	// An empty address is refused rather than guessed: guessing sends somebody's turn into the
-	// wrong workspace, and nobody finds out until the work comes back from the wrong place.
-	if got["refused"] != true {
-		t.Error("work with nobody named was sent anyway")
-	}
-	if !strings.Contains(got["state"].(string), "who it is for") {
-		t.Errorf("the page does not say what is missing: %q", got["state"])
-	}
-	// Both kinds of address are offered, because a person should not have to remember which one a
-	// given companion declared.
-	// Names, roles and teams are all valid addresses, and a team is offered once rather than once
-	// per member — the list is read by a person typing, not by a machine.
-	sugg := make([]string, 0, 8)
-	for _, v := range got["suggestions"].([]any) {
-		sugg = append(sugg, v.(string))
-	}
-	for _, want := range []string{"design", "the billing API", "frontend"} {
-		if !slices.Contains(sugg, want) {
-			t.Errorf("%q is not offered as an address: %v", want, sugg)
-		}
-	}
-	if n := strings.Count(strings.Join(sugg, "\x00"), "frontend"); n != 1 {
-		t.Errorf("the team is offered %d times: %v", n, sugg)
-	}
-	// And the list says which companion answers for the team, because that is where work addressed
-	// to the team actually lands. It is on the group's HEADING now rather than repeated in every
-	// row of it — a fact about the team, said once.
-	txt := got["fleetText"].(string)
-	if !strings.Contains(txt, "frontend") || !strings.Contains(txt, "design speaks for it") {
-		t.Errorf("the hub is not marked:\n%s", txt)
-	}
-	if strings.Count(txt, "speaks for it") != 1 {
-		t.Errorf("the hub is marked %d times; the heading says it once:\n%s",
-			strings.Count(txt, "speaks for it"), txt)
 	}
 }
 

@@ -387,13 +387,16 @@ const indexHTML = `<!doctype html>
      without covering it: everything under it stayed clickable, so a page that looked disabled took
      a click and navigated away under an open drawer. It also gives the drawer the dismissal every
      modal surface has — a click on the page you can see is the way out of it. */
-  /* Faded on its background rather than on opacity. Not a style preference: the contrast check
+  /* Coloured on its background rather than on opacity. Not a style preference: the contrast check
      reads every opacity in this sheet as text being dimmed, because a container's opacity takes
      everything inside it down too — and it cannot tell from CSS that this box never holds text.
-     Animating the colour is the same fade with nothing to misread. */
+
+     And it does not animate. What is behind the drawer is behind it the moment it opens; a scrim
+     that arrives over a quarter of a second is a quarter of a second in which the page is half
+     covered and still live-looking. (It used to be a box-shadow on the rail, whose spread grew with
+     the rail's width — so the dimming really did sweep across the page.) */
   #scrim {
     position:fixed; inset:0; z-index:3; background-color:transparent; pointer-events:none;
-    transition:background-color 250ms var(--ease-emphasized);
   }
   body[nav="open"] #scrim {
     background-color:color-mix(in srgb, var(--md-sys-color-scrim) 32%, transparent);
@@ -440,12 +443,22 @@ const indexHTML = `<!doctype html>
     letter-spacing:.1em; text-transform:uppercase;
   }
   /* Where you are, in the colour the rest of the page uses for it. A list item has no selected
-     state of its own — it is a list, not a set of choices — so this is ours, and it is a filled
-     shape rather than a colour change alone. */
+     state of its own — it is a list, not a set of choices — so this is ours.
+
+     Painted on the HOST, not through the component's tokens. --md-list-item-container-color does
+     nothing in the shipped build (measured: the container stays transparent with the token set to
+     an opaque colour), so the "filled shape" this comment used to claim was never drawn. And the
+     icon is in the leading slot, which the label token does not reach — so with the rail collapsed
+     to icons, which is how it stands most of the time, the page gave no sign at all of which
+     destination you were on. Slotted content is styled from out here, so the icon takes the colour
+     the same way the label does. */
   #rail md-list-item[selected] {
+    background:color-mix(in srgb, var(--primary) 14%, transparent);
+    border-radius:var(--shape-full);
     --md-list-item-label-text-color:var(--primary);
-    --md-list-item-container-color:color-mix(in srgb, var(--primary) 14%, transparent);
   }
+  #rail md-list-item[selected] .lbl,
+  #rail md-list-item[selected] [slot="start"] { color:var(--primary); }
   /* The badge, corrected. Its inner box is position:absolute at top / 50% across, which is right
      when the badge is laid over an icon and wrong everywhere else — dropped into a flow it anchors
      to whatever ancestor happens to be positioned and lands somewhere unrelated. Giving the host a
@@ -1017,6 +1030,14 @@ const indexHTML = `<!doctype html>
   form {
     padding-top:1rem; padding-bottom:1rem; display:block;
   }
+  /* Under the row, not inside the field. As the field's own supporting text it added 20px to the
+     field's height, and the buttons — bottom-aligned so they stay put as the box grows — sat 20px
+     below the box they belong to. It also reads better here: the note is about what pressing send
+     will do, which is the row's business and not the box's. */
+  #cnote {
+    font:var(--body-s) var(--mono); color:var(--muted); margin-top:.4rem;
+    padding-left:.2rem; overflow-wrap:anywhere;
+  }
   .composer {
     display:flex; gap:.9rem; align-items:flex-end;
     border-top:1px solid var(--fg); padding-top:.8rem;
@@ -1416,16 +1437,11 @@ const indexHTML = `<!doctype html>
 <footer id="dock">
   <div id="prompt" hidden></div>
   <form id="f" hidden><div class="composer">
-    <!-- On the fleet view the composer is addressed: the work goes to whoever does that, and which
-         machine they are on is not the asker's problem. On one companion's page it is hidden,
-         because the address is the page you are standing on. -->
-    <md-outlined-text-field id="to" hidden list="roles"></md-outlined-text-field>
-    <datalist id="roles"></datalist>
     <md-outlined-text-field id="t" type="textarea" rows="1"
       ></md-outlined-text-field>
     <md-filled-button type="submit" id="send">send</md-filled-button>
     <md-filled-tonal-button type="button" id="stop">interrupt</md-filled-tonal-button>
-  </div></form>
+  </div><div id="cnote" hidden></div></form>
 </footer>
 
 <script type="module">
@@ -1965,7 +1981,9 @@ let answering = null;
 function answerMode(a) {
   answering = a;
   t.setAttribute('label', tr(a ? 'label.answer' : 'label.ask'));
-  t.setAttribute('supporting-text', a ? tr('answer.instead') : '');
+  const note = document.getElementById('cnote');
+  note.textContent = a ? tr('answer.instead') : '';
+  note.hidden = !a;
   document.getElementById('send').textContent = tr(a ? 'action.answer' : 'action.send');
   // The old text was addressed at magi and the new question is not the same subject. Carrying it
   // over would put a half-written request in front of somebody as though it were their answer.
@@ -2116,19 +2134,6 @@ async function loadFleet() {
   state.className = '';
   const waiting = list.filter(a => a.state === 'waiting').length;
   retitle(waiting);
-
-  // Who can be addressed, offered as you type. Names and roles both, because the address field
-  // takes either and a person should not have to remember which one this companion declared.
-  const addresses = new Set();
-  for (const a of list) {
-    addresses.add(a.name);
-    if (a.role) addresses.add(a.role);
-    // A team is an address in its own right — it reaches the hub — so it belongs in the list you
-    // are offered, once rather than once per member.
-    if (a.team) addresses.add(a.team);
-  }
-  rolesEl.replaceChildren(...[...addresses].map(v =>
-    Object.assign(document.createElement('option'), {value: v})));
 
   // On an agent's page the fleet is polled for this one entry: the prompt it is blocked on and the
   // facts in its header reach the browser no other way.
@@ -2704,8 +2709,6 @@ function paint() {
   // Through answerMode, so a language change does not quietly turn the answer field back into the
   // request field while the agent is still waiting on the question above it.
   answerMode(answering);
-  toEl.setAttribute('label', tr('label.address'));
-  toEl.setAttribute('supporting-text', tr('hint.address'));
   document.getElementById('stop').textContent = tr('action.interrupt');
   railMenu.setAttribute('aria-label', tr('nav.menu'));
   themeToggle.setAttribute('aria-label', tr('pref.theme'));
@@ -2819,7 +2822,10 @@ function render() {
   // The rail says the same thing the tabs do. A list item has no selected state of its own, so
   // this is an attribute of ours and the stylesheet draws it — said once here rather than at each
   // of the four click handlers, which is how the two used to fall out of step.
-  for (const [el, key] of RAILS) el.toggleAttribute('selected', !s && v === key);
+  // A companion's page is INSIDE the companions destination, so that is the one that stays lit.
+  // Marked by view alone it went dark the moment you opened a row, and the rail then said you were
+  // nowhere — on the screen you reach it from most often.
+  for (const [el, key] of RAILS) el.toggleAttribute('selected', s ? key === 'fleet' : v === key);
   fleetEl.hidden = !!s || v !== 'fleet';
   summaryEl.hidden = !!s || v !== 'fleet';
   skillsEl.hidden = !!s || v !== 'skills';
@@ -2832,7 +2838,6 @@ function render() {
   // it is already on screen and one click away, is a second way to do the thing the list does — and
   // the harder one: it asks somebody to spell a name they can see.
   f.hidden = !s;
-  toEl.hidden = true;
   document.getElementById('stop').hidden = !s; // nothing to interrupt from the fleet view
   document.getElementById('detail').hidden = !s;
   document.getElementById('handoffs').hidden = true;
@@ -2964,8 +2969,7 @@ async function post(path, body, socket, peer) {
   if (!r.ok) { state.className = 'lost'; state.textContent = (await r.text()).trim().slice(0, 80); }
 }
 
-const t = document.getElementById('t'), toEl = document.getElementById('to');
-const rolesEl = document.getElementById('roles');
+const t = document.getElementById('t');
 // The field grows itself: it is a component with its own textarea in a shadow root, so measuring
 // scrollHeight from out here reads the host and not the text. All that is left to do is re-measure
 // the dock, because the transcript reserves whatever the dock is actually occupying.
@@ -2990,13 +2994,8 @@ f.onsubmit = e => {
       .then(loadFleet);
     return;
   }
-  if (sock()) { t.value = ''; grow(); post('/submit', new URLSearchParams({text: v})); return; }
-  // From the fleet: addressed work. An empty address would have to guess who it is for, and
-  // guessing sends somebody's turn into the wrong workspace — so it asks instead.
-  const to = toEl.value.trim();
-  if (!to) { state.className = 'lost'; state.textContent = tr('error.say_who'); toEl.focus(); return; }
-  t.value = ''; grow();
-  post('/dispatch', new URLSearchParams({to: to, text: v})).then(loadFleet);
+  // The composer is only on a companion's page, so there is one place the work can go.
+  t.value = ''; grow(); post('/submit', new URLSearchParams({text: v}));
 };
 // Enter sends on a keyboard and inserts a newline on a phone: a soft keyboard's return key is the
 // only way to break a line there, and hijacking it leaves no way to write a second paragraph.
