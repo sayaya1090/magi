@@ -571,8 +571,10 @@ console.log(JSON.stringify({back: back.text, sep: crumbSep.hidden, here: crumbHe
 	// have not been.
 	for _, tc := range []struct{ query, want, href string }{
 		{"", "companions", "/"},
-		{"?v=skills", "experience", "/?v=skills"},
-		{"?v=mcp", "MCP", "/?v=mcp"},
+		{"?v=skills", "shared", "/?v=skills"},
+		// The old address still lands: what a companion can reach joined what it has learned, and
+		// a link somebody kept must not stop working because two lists became one screen.
+		{"?v=mcp", "shared", "/?v=skills"},
 	} {
 		// An empty fleet: the crumb is drawn by render() from the query alone, and handing the
 		// other views a list of agents makes them throw on data shaped for a different screen.
@@ -1149,7 +1151,7 @@ globalThis.fetch = async (p) => ({ok: true, json: async () => String(p).startsWi
 await loadSkills();
 const before = byId.skills.text;
 byId.detail.replaceChildren(cell('', 'a thing somebody was reading'));
-labels$.next({'action.forget': '잊기', 'nav.lessons': '배운 것'});
+labels$.next({'action.forget': '잊기', 'nav.shared': '공유'});
 // Drain the microtasks the repaint's own fetch runs on. NOT a second loadSkills() by hand — that
 // would be the test doing the thing it is checking for, and it would pass with the fix removed.
 for (let i = 0; i < 20; i++) await Promise.resolve();
@@ -1164,7 +1166,7 @@ console.log(JSON.stringify({before, after: byId.skills.text, kept: byId.detail.t
 	if got["kept"] != "a thing somebody was reading" {
 		t.Errorf("repainting the lists wiped the detail panel: %q", got["kept"])
 	}
-	if !strings.Contains(got["title"].(string), "배운 것") {
+	if !strings.Contains(got["title"].(string), "공유") {
 		t.Errorf("the tab title stayed in the old language: %q — it is the one word a reader sees "+
 			"without looking at the page", got["title"])
 	}
@@ -1272,15 +1274,16 @@ func TestTheRailAgreesWithTheTabs(t *testing.T) {
 globalThis.fetch = async () => ({ok: true, json: async () => []});
 console.log(JSON.stringify({
   on: byId.tabs.activeTabIndex,
-  lit: ['railFleet','railSkills','railMcp'].filter(id => byId[id].hasAttribute('selected')),
+  lit: ['railFleet','railSkills'].filter(id => byId[id].hasAttribute('selected')),
 }));
 `)
-	if got["on"].(float64) != 2 {
-		t.Errorf("the tabs have %v active and MCP is the third", got["on"])
+	// ?v=mcp resolves to the shared destination, which is the second tab.
+	if got["on"].(float64) != 1 {
+		t.Errorf("the tabs have %v active and shared is the second", got["on"])
 	}
 	lit := got["lit"].([]any)
-	if len(lit) != 1 || lit[0] != "railMcp" {
-		t.Errorf("the rail lights %v while the tabs are on connections", lit)
+	if len(lit) != 1 || lit[0] != "railSkills" {
+		t.Errorf("the rail lights %v while the tabs are on the shared destination", lit)
 	}
 }
 
@@ -1779,8 +1782,7 @@ func TestClickingATabLandsOnIt(t *testing.T) {
 	got := runPage(t, `[]`, "", `
 globalThis.fetch = async () => ({ok: true, json: async () => []});
 const seen = [];
-for (const [name, el] of [['experience', tabSkills],
-                          ['connections', tabMcp], ['companions', tabFleet]]) {
+for (const [name, el] of [['shared', tabSkills], ['companions', tabFleet]]) {
   el.onclick({preventDefault(){}});
   seen.push({name, search: location.search, crumb: back.text, href: back.attrs.href,
              ivs: byId.skills.hidden, skills: byId.skills.hidden, mcp: byId.mcp.hidden,
@@ -1793,8 +1795,7 @@ console.log(JSON.stringify({seen, afterCrumb: location.search}));
 `)
 	seen := got["seen"].([]any)
 	want := []struct{ search, crumb, href string }{
-		{"?v=skills", "experience", "/?v=skills"},
-		{"?v=mcp", "MCP", "/?v=mcp"},
+		{"?v=skills", "shared", "/?v=skills"},
 		{"", "companions", "/"},
 	}
 	for i, w := range want {
@@ -1809,8 +1810,9 @@ console.log(JSON.stringify({seen, afterCrumb: location.search}));
 	}
 	// Each panel is shown only on its own tab — and the corrections panel now belongs to the
 	// experience page, which is the whole of that merge.
-	if seen[0].(map[string]any)["skills"] != false ||
-		seen[1].(map[string]any)["mcp"] != false || seen[2].(map[string]any)["fleet"] != false {
+	// The shared destination shows BOTH halves; the fleet shows neither.
+	if seen[0].(map[string]any)["skills"] != false || seen[0].(map[string]any)["mcp"] != false ||
+		seen[1].(map[string]any)["fleet"] != false {
 		t.Errorf("a tab did not reveal its own panel: %v", seen)
 	}
 	// The crumb led where it said: from lessons, back to lessons' own url is wrong — it names the
@@ -1825,13 +1827,13 @@ console.log(JSON.stringify({seen, afterCrumb: location.search}));
 func TestTheLabelsComeFromTheLanguagePack(t *testing.T) {
 	got := runPage(t, `[]`, "", `
 // The first paint uses the seed the server inlines — no dotted keys, no flash.
-const first = {tabs: [tabFleet.text, tabSkills.text, tabMcp.text],
+const first = {tabs: [tabFleet.text, tabSkills.text],
                ask: byId.t.attrs.label};
 // A pack arriving afterwards repaints what is already on screen.
-labels$.next({'nav.companions': '컴패니언', 'nav.lessons': '경험',
+labels$.next({'nav.companions': '컴패니언', 'nav.shared': '공유', 'nav.lessons': '경험',
               'nav.board': '보드', 'nav.connections': 'MCP',
               'label.ask': 'magi에게 요청'});
-const after = [tabFleet.text, tabSkills.text, tabMcp.text];
+const after = [tabFleet.text, tabSkills.text];
 const askAfter = byId.t.attrs.label;
 // Something drawn by hand before a pack lands must survive it.
 byId.detail.replaceChildren(cell('f', 'a thing somebody was reading'));
@@ -1840,14 +1842,14 @@ console.log(JSON.stringify({first, after, askAfter, kept: byId.detail.text}));
 `)
 	first := got["first"].(map[string]any)
 	tabs := first["tabs"].([]any)
-	if tabs[0] != "companions" || tabs[1] != "experience" {
+	if tabs[0] != "companions" || tabs[1] != "shared" {
 		t.Errorf("the first paint did not use the seeded pack: %v", tabs)
 	}
 	if first["ask"] != "ask magi" {
 		t.Errorf("the composer's label came from nowhere: %q", first["ask"])
 	}
 	after := got["after"].([]any)
-	if after[0] != "컴패니언" || after[1] != "경험" {
+	if after[0] != "컴패니언" || after[1] != "공유" {
 		t.Errorf("a pack arriving later did not reach the tabs: %v", after)
 	}
 	if got["askAfter"] != "magi에게 요청" {

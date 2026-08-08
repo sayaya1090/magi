@@ -1427,12 +1427,6 @@ const indexHTML = `<!doctype html>
         fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <span class="lbl"></span>
     </md-list-item>
-    <md-list-item id="railMcp" type="link">
-      <svg slot="start" class="ic" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path
-        d="M9.5 14.5 5.8 18.2M14.5 9.5l3.7-3.7M7.4 11.1 5.6 12.9a3.2 3.2 0 0 0 4.5 4.5l1.8-1.8M12.1 6.6l1.8-1.8a3.2 3.2 0 0 1 4.5 4.5l-1.8 1.8M9.8 14.2l4.4-4.4"
-        fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <span class="lbl"></span>
-    </md-list-item>
   </md-list>
 
 </nav>
@@ -1446,7 +1440,6 @@ const indexHTML = `<!doctype html>
          for an icon above a word — so two siblings put the count on a line below the label. -->
     <md-primary-tab id="tabFleet"><span class="tablbl"><span class="lbl"></span><span class="icwrap badgewrap"><md-badge id="tabBadge" hidden></md-badge></span></span></md-primary-tab>
     <md-primary-tab id="tabSkills">lessons</md-primary-tab>
-    <md-primary-tab id="tabMcp"></md-primary-tab>
   </md-tabs>
   <md-chip-set id="summary"></md-chip-set>
   <div id="skills" hidden></div>
@@ -1819,7 +1812,7 @@ wide.addEventListener('change', drawPanels);
 const intervenedEl = document.getElementById('intervened');
 const skillsEl = document.getElementById('skills'), tabSkills = document.getElementById('tabSkills');
 const boardEl = document.getElementById('board');
-const mcpEl = document.getElementById('mcp'), tabMcp = document.getElementById('tabMcp');
+const mcpEl = document.getElementById('mcp');
 // The last fleet answer, so the "which companion" picker names them without a second fetch.
 let fleetSeen = [];
 const tabFleet = document.getElementById('tabFleet');
@@ -1835,14 +1828,17 @@ const themeToggle = document.getElementById('themeToggle');
 const consoleEl = document.getElementById('console');
 const historyEl = document.getElementById('history');
 const railFleet = document.getElementById('railFleet');
-const railSkills = document.getElementById('railSkills'), railMcp = document.getElementById('railMcp');
+const railSkills = document.getElementById('railSkills');
 // Which resource this console is showing. A companion's own page is neither — it is one level in.
 // Corrections used to be a destination of its own and is now the first half of the experience
 // page. An address somebody kept still lands on the thing it was pointing at.
 // board went the same way in the other direction: it was a destination and is now reached from the
 // fleet, because it is a question ABOUT the fleet — what these companions have been doing — rather
 // than a fifth place to be. Both addresses still land where they pointed.
-const RENAMED = {interventions: 'skills'};
+// mcp joined them. What a companion has LEARNED and what it can REACH are the two halves of what
+// an organisation shares — one is knowledge and one is capability, and both are managed by the same
+// person on the same afternoon. Two destinations for them made the reader carry the connection.
+const RENAMED = {interventions: 'skills', mcp: 'skills'};
 const view = () => {
   const v = new URLSearchParams(location.search).get('v') || 'fleet';
   return RENAMED[v] || v;
@@ -1851,16 +1847,15 @@ const crumbSep = document.getElementById('crumbSep'), crumbHere = document.getEl
 // The four sections, named as nouns: a tab is a place you are, and "what I had to say" is a
 // sentence about it. The same words do three jobs — the tab, the crumb, and the browser title —
 // so they are written once.
-const SECTION_KEY = {fleet: 'nav.companions', skills: 'nav.lessons',
-                     board: 'nav.board', mcp: 'nav.connections'};
+const SECTION_KEY = {fleet: 'nav.companions', skills: 'nav.shared', board: 'nav.board'};
 const SECTION = new Proxy({}, {get: (_, v) => tr(SECTION_KEY[v] || 'nav.companions')});
 
-const HREF = {fleet: '', skills: '?v=skills', board: '?v=board', mcp: '?v=mcp'};
+const HREF = {fleet: '', skills: '?v=skills', board: '?v=board'};
 // In the order they are written in the markup, because md-tabs addresses its tabs by index.
 // The board is not among them. It keeps its address and its crumb; what it lost is a permanent
 // seat in a navigation that has to fit on a phone, for a screen somebody opens when they have a
 // question about the past rather than one they live on.
-const TABS = ['fleet', 'skills', 'mcp'];
+const TABS = ['fleet', 'skills'];
 
 const sock = () => new URLSearchParams(location.search).get('d');
 const peerOf = () => new URLSearchParams(location.search).get('p') || '';
@@ -2808,6 +2803,23 @@ async function loadIntervened(a) {
 // /skills returned. The heading says which model the machine is set up with, since that is the one
 // thing a person managing shared knowledge has to keep the same across a team — vectors from two
 // models are not comparable, and a search that quietly stopped matching is the symptom.
+// One readout for one destination. Two halves load independently and each used to write the whole
+// line, so whichever answered second erased the other's count — the shape of every readout built
+// by two writers.
+const shared = {rules: 0, facts: 0, crossing: 0, servers: null, reachedFrom: 0};
+function sayShared() {
+  state.className = '';
+  const bits = [tr(shared.rules === 1 ? 'count.rule' : 'count.rules', {n: shared.rules}),
+                tr('count.remembered', {n: shared.facts}),
+                tr('count.crossing', {n: shared.crossing})];
+  // Null until the servers have answered, which is not the same as none — a line that said "0
+  // servers" while the request was in flight would be wrong for as long as it took.
+  if (shared.servers !== null) {
+    bits.push(tr(shared.servers === 1 ? 'count.server' : 'count.servers', {n: shared.servers}));
+  }
+  state.textContent = bits.join(' · ');
+}
+
 let skillQuery = '';
 // Which model this machine embeds with, from /console. Empty is a real answer, not a missing one.
 let embedModel = '';
@@ -2837,6 +2849,14 @@ function rankByIDF(query, docs) {
   }
   hits.sort((a, b) => b.score - a.score || b.matched - a.matched || a.i - b.i);
   return hits.map(h => h.i);
+}
+
+// A heading over each half of the shared destination. Two lists under one tab need to say which is
+// which, and the destination's own name is now the pair rather than either.
+function sectionHead(key) {
+  const h = cell('sectionhead');
+  h.append(cell('', tr(key)));
+  return h;
 }
 
 // The screen's own controls: find something, and write something down.
@@ -2906,11 +2926,13 @@ async function loadSkills() {
   const crossing = list.filter(s => s.tier === 'global').length;
   const rules = list.filter(s => s.kind !== 'memory').length;
   state.className = '';
-  state.textContent = rules + (rules === 1 ? ' rule' : ' rules') + ' · ' +
-                      (list.length - rules) + ' remembered · ' +
-                      crossing + ' crossing every companion';
+  shared.rules = rules;
+  shared.facts = list.length - rules;
+  shared.crossing = crossing;
+  sayShared();
   if (!list.length) {
-    skillsEl.replaceChildren(skillTools(list), emptyState('empty.nothing_learned', 'empty.nothing_learned_how'));
+    skillsEl.replaceChildren(sectionHead('nav.lessons'), skillTools(list),
+      emptyState('empty.nothing_learned', 'empty.nothing_learned_how'));
     return;
   }
   // Ranked, not filtered on a substring: "cache" should find the rule about prompt caching before
@@ -2922,11 +2944,11 @@ async function loadSkills() {
     shown = order.map(i => list[i]);
   }
   if (!shown.length) {
-    skillsEl.replaceChildren(skillTools(list),
+    skillsEl.replaceChildren(sectionHead('nav.lessons'), skillTools(list),
       emptyState('empty.no_match', 'empty.no_match_how'));
     return;
   }
-  skillsEl.replaceChildren(skillTools(list), ...shown.map(sk => {
+  skillsEl.replaceChildren(sectionHead('nav.lessons'), skillTools(list), ...shown.map(sk => {
     const el = cell('sk ' + sk.tier + (sk.kind === 'memory' ? ' fact' : ''));
     const top = cell('top');
     top.append(cell('tier',
@@ -3004,8 +3026,9 @@ async function loadMCP() {
   if (!list) return;
   const reach = new Set(list.map(s => s.companion || 'every companion here'));
   state.className = '';
-  state.textContent = tr(list.length === 1 ? 'count.server' : 'count.servers', {n: list.length}) +
-                      ' · ' + reach.size + ' reached from';
+  shared.servers = list.length;
+  sayShared();
+  shared.reachedFrom = reach.size;
 
   const rows = list.map(sv => {
     const el = cell('srv ' + sv.tier);
@@ -3088,10 +3111,10 @@ async function loadMCP() {
   };
 
   if (!list.length) {
-    mcpEl.replaceChildren(emptyState('empty.no_servers', 'empty.no_servers_how'), form);
+    mcpEl.replaceChildren(sectionHead('nav.connections'), emptyState('empty.no_servers', 'empty.no_servers_how'), form);
     return;
   }
-  mcpEl.replaceChildren(...rows, form);
+  mcpEl.replaceChildren(sectionHead('nav.connections'), ...rows, form);
 }
 
 // ── one agent ────────────────────────────────────────────────────────────────
@@ -3130,10 +3153,9 @@ function connect() {
 function paint() {
   painted = true;
   tabFleet.querySelector('.lbl').textContent = tr('nav.companions');
-  tabSkills.textContent = tr('nav.lessons');
+  tabSkills.textContent = tr('nav.shared');
   document.getElementById('ptabTalk').textContent = tr('panel.talk');
   document.getElementById('ptabState').textContent = tr('panel.state');
-  tabMcp.textContent = tr('nav.connections');
   // label, not placeholder. Material Web floats the LABEL into the outline's notch when the field
   // takes focus or holds a value; a placeholder is the grey hint inside an empty one and never
   // moves. Written as placeholders here, the fields had no notch and nothing to float — which is
@@ -3149,8 +3171,7 @@ function paint() {
   prefsClose.textContent = tr('action.close');
   prefsK.textContent = tr('nav.preferences');
   consoleK.textContent = tr('nav.this_console');
-  for (const [el, key] of [[railFleet, 'nav.companions'], [railSkills, 'nav.lessons'],
-                           [railMcp, 'nav.connections']]) {
+  for (const [el, key] of [[railFleet, 'nav.companions'], [railSkills, 'nav.shared']]) {
     // The word is on the item whether or not it is drawn: collapsed, the icon is all there is to
     // see, and a rail nobody can read aloud is not a navigation. The icon itself is markup and is
     // not touched here — a shape does not need translating, and rebuilding it on every language
@@ -3172,9 +3193,8 @@ function paint() {
   //
   // Guarded on a first paint having happened, or this would run before the loaders are declared.
   if (!repaintable) return;
-  if (view() === 'skills') loadSkills();
+  if (view() === 'skills') { loadSkills(); loadMCP(); }
 
-  else if (view() === 'mcp') loadMCP();
   else if (view() === 'board') loadBoard();
   else if (!sock()) loadFleet();
   // The crumb and the tab title are written by render() and are words too. The title is the one a
@@ -3276,7 +3296,7 @@ function render() {
   summaryEl.hidden = !!s || v !== 'fleet';
   skillsEl.hidden = !!s || v !== 'skills';
   boardEl.hidden = !!s || v !== 'board';
-  mcpEl.hidden = !!s || v !== 'mcp';
+  mcpEl.hidden = !!s || v !== 'skills';
   // Only on a companion's own page. Addressing one by typing its name into a box, from a list where
   // it is already on screen and one click away, is a second way to do the thing the list does — and
   // the harder one: it asks somebody to spell a name they can see.
@@ -3344,7 +3364,7 @@ back.onclick = e => {
 // The rail's four, addressed the same way the tabs are. They are md-list-item with an href, so the
 // component draws a real anchor: the click is intercepted like every other in-page link, and a
 // middle click or a copied address still lands.
-const RAILS = [[railFleet, 'fleet'], [railSkills, 'skills'], [railMcp, 'mcp']];
+const RAILS = [[railFleet, 'fleet'], [railSkills, 'skills']];
 for (const [el, key] of RAILS) {
   el.href = at(HREF[key]);
   el.onclick = e => {
@@ -3393,7 +3413,7 @@ langEl.addEventListener('change', () => {
   loadPack();
 });
 
-for (const [el, key] of [[tabFleet, 'fleet'], [tabSkills, 'skills'], [tabMcp, 'mcp']]) {
+for (const [el, key] of [[tabFleet, 'fleet'], [tabSkills, 'skills']]) {
   // The href is set as well as the click: a middle-click or a copied link has to reach the same
   // place, and on a project site an absolute one does not.
   el.setAttribute('href', at(HREF[key]));

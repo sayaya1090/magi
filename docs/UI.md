@@ -25,11 +25,14 @@ How to run them: [`MANUAL.md`](MANUAL.md) (§4 the TUI, §12 the console). Inter
 A supervisor asks four things a day, several times:
 
 1. **Who is doing what** — and which of them is waiting on *me*
-2. **What have they learned** — and how far does each lesson reach (project / team / global)
-3. **What has been done, and when** — a board of work with a day you can move
-4. **What can they reach** — which MCP server is attached to which companion
+2. **What do we share** — what they have learned (project / team / global) and what they can reach
+   (which MCP server is attached to which companion)
 
-The four destinations are exactly those. A fifth needs a fifth question first.
+**Two** destinations. It was four. What a companion has LEARNED and what it can REACH are the two
+halves of one thing — knowledge and capability, managed by the same person on the same afternoon —
+so two tabs for them made the reader carry the connection. And the board is a question ABOUT the
+fleet rather than a place to be, so it is reached from the list it is about (§2.3). Every old
+address still lands where it pointed.
 
 ⚠ There used to be a fifth, **what I had to say** — every moment somebody stepped into a running
 turn, grouped by the words, each promotable into the project or global tier. It is gone. Grouping
