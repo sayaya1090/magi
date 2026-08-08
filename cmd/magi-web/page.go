@@ -339,6 +339,36 @@ const indexHTML = `<!doctype html>
      already lowered, and light mode has less headroom than dark. Measured before this note: eight
      of thirteen dimmed pairs were under, the worst at 2.47:1. */
 
+  /* ── motion ─────────────────────────────────────────────────────────────
+     M3's fade-through: what is leaving goes, then what arrives fades up from 96% rather than
+     cutting in. Used where the page swaps one body of content for ANOTHER — a destination, a
+     companion's two panels — which is exactly the transition the pattern is for. Not used on the
+     three-second poll: the fleet redraws itself constantly and a page that flickered every tick
+     would be unreadable, so this fires on navigation only.
+
+     The scale is 96%, not 92%: a table of monospaced text at 92% is visibly the wrong size for a
+     tenth of a second, and the point is to say "this is new", not to zoom. */
+  @keyframes fadeThrough {
+    from { opacity:0; transform:scale(.96); }
+    to   { opacity:1; transform:none; }
+  }
+  @keyframes riseIn {
+    from { opacity:0; transform:translateY(10px); }
+    to   { opacity:1; transform:none; }
+  }
+  .enter { animation:fadeThrough 210ms var(--ease-emphasized) both; }
+  .rise  { animation:riseIn 240ms var(--ease-emphasized) both; }
+
+  /* Somebody who asked their machine to stop moving things gets a page that does not move. Not a
+     shorter animation — none. The 0.01ms rather than 0 is the standard trick: it still FIRES, so an
+     animationend that something waits on still arrives. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration:0.01ms !important; animation-iteration-count:1 !important;
+      transition-duration:0.01ms !important; scroll-behavior:auto !important;
+    }
+  }
+
   /* ── masthead ───────────────────────────────────────────────────────────── */
   header {
     position:sticky; top:0; z-index:2; background:var(--bg);
@@ -1750,9 +1780,15 @@ function drawPanels() {
   detailEl.hidden = talk;
   sideEl.hidden = talk;
 }
+// Only when the reader switched, not on the poll that redraws the facts four times a minute.
+function revealPanel() {
+  reveal(panel === 'talk' ? log : detailEl);
+  if (panel !== 'talk') reveal(sideEl);
+}
 ptabs.addEventListener('change', () => {
   panel = ptabs.activeTabIndex === 1 ? 'state' : 'talk';
   drawPanels();
+  revealPanel();
   measureDock();
 });
 wide.addEventListener('change', drawPanels);
@@ -2116,9 +2152,15 @@ function retitle(waiting) {
 // An agent's page was the one place this could not be seen: the prompt is not in the log — it is a
 // question about what should happen, not a record of what did — so the transcript showed a run that
 // had simply stopped, and the only way to find out was to go back to the fleet.
+// Whether the prompt bar was already up. It is redrawn on every poll while an agent waits, so
+// animating on "it is visible" would restart the entrance three times a minute under somebody who
+// is trying to read the question.
+let promptWasUp = false;
 function drawPrompt(a) {
   const box = document.getElementById('prompt');
-  if (!a || a.state !== 'waiting') { box.hidden = true; box.replaceChildren(); measureDock(); return; }
+  if (!a || a.state !== 'waiting') {
+    box.hidden = true; box.replaceChildren(); promptWasUp = false; measureDock(); return;
+  }
   const inner = document.createElement('div'); inner.className = 'inner';
   const k = document.createElement('div'); k.className = 'asking'; k.textContent = '⏸ ' + a.asking;
   inner.append(k);
@@ -2133,6 +2175,8 @@ function drawPrompt(a) {
   if (a.askKind !== 'question') inner.append(answerBox(a));
   box.replaceChildren(inner);
   box.hidden = false;
+  if (!promptWasUp) reveal(box, 'rise');
+  promptWasUp = true;
   answerMode(a.askKind === 'question' ? a : null);
   measureDock();
 }
@@ -2989,6 +3033,18 @@ function paintChoice(el, kind) {
 // labels written in the markup are repainted; everything drawn by a function reads tr() when it
 // next draws, which is soon enough for a word that just changed.
 
+// reveal restarts an entrance animation on an element that has just become visible.
+//
+// The class has to come OFF and the layout be read before it goes back on: an animation already
+// running does not restart because the class is set again, so without the reflow the second visit
+// to a destination arrives with no motion at all. Reading offsetWidth is what forces it.
+function reveal(el, how) {
+  if (!el || el.hidden) return;
+  el.classList.remove('enter', 'rise');
+  void el.offsetWidth;
+  el.classList.add(how || 'enter');
+}
+
 function render() {
   if (es) { es.close(); es = null; }
   if (fleetTimer) { clearInterval(fleetTimer); fleetTimer = null; }
@@ -3046,6 +3102,9 @@ function render() {
   document.getElementById('plan').hidden = true;
   document.getElementById('prompt').hidden = true;
   sidEl.textContent = '';
+  // Whichever body of content this navigation arrived at. One of them, not all of them: reveal on a
+  // hidden element does nothing, so the list is the page's destinations and the right one answers.
+  for (const el of [fleetEl, skillsEl, boardEl, mcpEl, streamEl]) reveal(el);
   measureDock();
   if (s) { draw([]); connect(); }
   else { state.className = ''; state.textContent = ''; }

@@ -59,6 +59,11 @@ func TestNoOpacityInTheStylesheetGoesBelowWhatItsRoleAllows(t *testing.T) {
 	colour := regexp.MustCompile(`color:var\(--([a-zA-Z]+)\)`)
 	op := regexp.MustCompile(`opacity:([0-9.]+)`)
 	css := indexHTML[strings.Index(indexHTML, "<style>"):strings.Index(indexHTML, "</style>")]
+	// Keyframes first. This check is about text that RESTS at an unreadable opacity; a keyframe is a
+	// tenth of a second on the way somewhere, and "from { opacity:0 }" is what an entrance IS. A
+	// keyframe that ended dimmed would still be caught, because whatever it left the element at is
+	// also written in an ordinary rule.
+	css = regexp.MustCompile(`(?s)@keyframes[^{]*\{.*?\}\s*\}`).ReplaceAllString(css, "")
 	checked := 0
 	for _, m := range rule.FindAllStringSubmatch(css, -1) {
 		selector, body := m[1], m[2]

@@ -22,6 +22,16 @@ function element(tag) {
     _text: '',
     set className(v) { this._class = String(v); },
     get className() { return this._class; },
+    // classList over the same string the page reads back through className, so a test asserting on
+    // one sees what the other did. Only the three methods this page uses; a fuller fake would be
+    // inventing a DOM nobody is calling.
+    classList: {
+      add(...c) { const n = this._n; n._class = [...new Set(n._class.split(/\s+/).filter(Boolean).concat(c))].join(' '); },
+      remove(...c) { const n = this._n; n._class = n._class.split(/\s+/).filter(x => x && !c.includes(x)).join(' '); },
+      contains(c) { return this._n._class.split(/\s+/).includes(c); },
+    },
+    // Reading it is what forces a reflow in a browser; here it only has to exist.
+    offsetWidth: 0,
     // Setting textContent REPLACES the node's contents, children included. The fake kept only its
     // own string and left the children standing, so a readout rebuilt from "5 agents" plus a button
     // and then reset to "cannot reach magi-web" read as both at once here and correctly in a
@@ -127,6 +137,8 @@ function element(tag) {
       return out;
     },
   };
+  node.classList = Object.create(node.classList);
+  node.classList._n = node;
   return node;
 }
 

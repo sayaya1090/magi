@@ -471,3 +471,32 @@ func TestNoRuleNamesAnElementThePageNoLongerHas(t *testing.T) {
 		}
 	}
 }
+
+// Nothing moves for somebody who asked their machine to stop moving things.
+//
+// The setting is an accessibility one — vestibular disorders, migraine — and a page that honours it
+// halfway is a page that does not honour it. Checked as "there are keyframes AND there is an escape
+// that overrides them", because either half alone passes for the wrong reason: no animations at all
+// would satisfy a test that only looked for the media query.
+func TestMotionCanBeTurnedOffByThePersonReadingIt(t *testing.T) {
+	css := indexHTML
+	if !strings.Contains(css, "@keyframes") {
+		t.Skip("nothing animates yet; there is nothing to turn off")
+	}
+	i := strings.Index(css, "@media (prefers-reduced-motion: reduce)")
+	if i < 0 {
+		t.Fatal("the page animates and offers no way to stop it")
+	}
+	block := css[i:min(i+400, len(css))]
+	for _, want := range []string{"animation-duration", "transition-duration", "!important"} {
+		if !strings.Contains(block, want) {
+			t.Errorf("the reduced-motion block does not override %s:\n%s", want, block)
+		}
+	}
+	// A universal selector, because the override has to reach the components' own animations too —
+	// md-tabs animates its indicator inside a shadow root this stylesheet cannot name, and the
+	// inherited animation properties are the only thing that gets in there.
+	if !strings.Contains(block, "*") {
+		t.Errorf("the override names specific selectors, so a component's own motion escapes it:\n%s", block)
+	}
+}
