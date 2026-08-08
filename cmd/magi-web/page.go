@@ -2567,10 +2567,15 @@ function paintChoice(el, kind) {
   el.replaceChildren(...c.options.map(([v, key]) => {
     const o = document.createElement('md-select-option');
     o.value = v;
-    o.selected = v === prefOf(kind);
     o.append(cell('', tr(key)));
     return o;
   }));
+  // Told through the SELECT, after its options exist. Marking the option selected on the way in
+  // left the field showing the raw value — "dark" where the option said "다크" — because a select
+  // reads its display text from the option it chose, and it had not chosen one: it had been handed
+  // children that already claimed to be chosen. The same shape as the tabs, where writing the state
+  // onto the child instead of asking the parent cost the animation.
+  el.value = prefOf(kind);
 }
 
 // paint does NOT redraw the view, and that is the whole point. A pack can land at any moment — mid

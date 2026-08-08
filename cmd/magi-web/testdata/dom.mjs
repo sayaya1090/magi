@@ -36,8 +36,6 @@ function element(tag) {
     set type(v) { this.attrs.type = v; },
     set title(v) { this.attrs.title = v; },
     get hidden() { return !!this.attrs.hidden; },
-    set value(v) { this.attrs.value = v; },
-    get value() { return this.attrs.value ?? ''; },
     append(...kids) { this.children.push(...kids); },
     replaceChildren(...kids) { this.children = kids; },
     addEventListener() {},
@@ -53,6 +51,18 @@ function element(tag) {
     // to the tabs — that is what makes the indicator slide. Mirrored here (Tabs.activateTab sets
     // active on every tab and clears the rest) so the page's routing is still testable with the
     // components stubbed out. The animation itself needs a real browser and is not modelled.
+    // md-select owns which of its options is chosen, the same way md-tabs owns its tabs: the page
+    // sets a value and the component resolves it to an option, which is where the field's display
+    // text comes from. Mirrored so the page's routing of a preference is testable with the
+    // components stubbed — marking an option selected on the way in is exactly the bug this
+    // mirrors away from.
+    set value(v) {
+      this.attrs.value = v == null ? '' : String(v);
+      if (this.tag.endsWith('-select')) {
+        this.children.forEach((o) => { o.selected = o.value === this.attrs.value; });
+      }
+    },
+    get value() { return this.attrs.value ?? ''; },
     set activeTabIndex(i) {
       this.attrs.activeTabIndex = i;
       byTabs = true;
@@ -125,6 +135,10 @@ for (const id of ['fleet', 'log', 'state', 'sid', 'back', 'f', 't', 'stop', 'pro
 // The four tabs are children of #tabs in the markup, and md-tabs works through that relationship:
 // it activates by index into its own children. A flat bag of ids would let the page set an index
 // nothing answers to, and every tab would read as unselected.
+// The two preference selects are md-outlined-select, and the fake mirrors a select's value→option
+// resolution by tag. Created as divs, they were silently not selects, and the check that the
+// toggle and the select are one setting passed against a stub that could not disagree.
+for (const id of ['theme', 'lang']) byId[id] = element('md-outlined-select');
 for (const id of ['tabFleet', 'tabIv', 'tabSkills', 'tabBoard', 'tabMcp']) byId.tabs.append(byId[id]);
 // The companions tab holds a label element beside its badge, so the word can be rewritten without
 // taking the badge with it. Mirrored here for the same reason the rail's labels are.
